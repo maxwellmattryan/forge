@@ -70,6 +70,7 @@ tracker:
       projectStatus: null    # e.g. "🔖 Todo" (needs a project; see below)
     claim:
       assign: true           # assign the issue to you when a job claims it
+    comments: collaborators  # collaborators | all: whose issue comments reach agents (anyone can comment on public repos)
     statusSync: none         # none | labels | project | both
     labels:
       prefix: "factory:"     # labels mode: factory:in-progress, factory:review, …

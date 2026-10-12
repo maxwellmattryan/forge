@@ -56,6 +56,14 @@ Trackers see a coarser view: `queued`, `in-progress`, `review`, `blocked`, `done
 - **Rust**: with `worktrees.cargo.sharedTarget`, one `.cargo/config.toml` above all worktrees points every job at a single target dir. Dependencies compile once, and disk use doesn't multiply. Cargo serialises concurrent builds on that directory's lock, which is usually still far faster than cold builds per worktree.
 - **Ports**: each active job gets a unique port from `ports.base`. Commands see it as `{port}`, `$PORT` and `$FACTORY_PORT`.
 
+## Untrusted input
+
+Issue bodies, comments and PR reviews come from people outside the session, and on public repos that means anyone. The factory:
+- imports only collaborators' issue comments by default (`tracker.github.comments`), and labels the rest as untrusted in PR feedback
+- fences imported text with its provenance and a "data, not instructions" note
+- tells every agent to ignore embedded instructions about secrets, credentials, CI, permissions or out-of-scope work
+- adopts only PRs whose branch lives in the same repository (never forks), and only issue-linked PRs from collaborators, so a stranger's PR is never checked out and run by the builder
+
 ## Review policy
 
 Reviewers tag findings `[blocker] [major] [minor] [nit]`. The CLI decides the verdict from the tags and the repo's `review.blockOn`, not from the reviewer's own first line. This keeps the threshold consistent across lenses and models: "CHANGES over a nit" or "PASS over a blocker" can't slip through. A review without a verdict line is `MALFORMED` and gets re-run once.
@@ -66,4 +74,4 @@ The orchestrator records every agent start and end. With Claude Code, `--import`
 
 ## Dashboard security
 
-The server binds 127.0.0.1 only. GETs are read-only. POSTs (enqueue a request) need a random per-process token embedded in the served page, and a matching Origin, so other sites in your browser can't trigger work. Everything the page renders, including agent- and issue-authored markdown, is escaped first. Job HTML (mockups) is shown in a sandboxed iframe with a sandbox CSP. File reads are confined to the job directory. The one external script (Tailwind) is pinned with Subresource Integrity.
+The server binds 127.0.0.1 only and answers only requests whose Host is a loopback name, which defeats DNS rebinding. GETs are read-only. POSTs (enqueue a request) need a random per-process token embedded in the served page, and a matching Origin, so other sites in your browser can't trigger work. Everything the page renders, including agent- and issue-authored markdown, is escaped first. Job HTML (mockups) is shown in a sandboxed iframe with a sandbox CSP. File reads are confined to the job directory. The one external script (Tailwind) is pinned with Subresource Integrity.
