@@ -36,9 +36,10 @@ commands:                    # what `forge run <job> <name>` executes inside the
   format: null
   typecheck: null
   dev: null                  # e.g. "yarn dev --port {port}"
-  e2e: null
+  e2e: null                  # browser/e2e suite; `forge run <job> e2e`, and verify runs it per verifyE2e below
 verify: [build, lint, test]  # the deterministic gate before review, in order; unset commands are skipped
-verifyE2e:                   # after every verify step passes, also run commands.e2e (not when e2e is listed in verify)
+verifyE2e:                   # after every verify step passes, also run commands.e2e (nothing runs when it is unset,
+                             # and nothing extra when e2e is already listed in verify)
   when: ui                   # ui: only when the job's diff touches `paths` · always · never
   paths: ["*.html", "*.css", "*.scss", "*.sass", "*.less", "*.svelte", "*.vue", "*.jsx", "*.tsx", "*.astro"]
                              # `forge job scope` matching: exact path, `dir/` prefix, * ** ? globs; a slash-free
@@ -173,7 +174,7 @@ dashboard:
 | Economy | builder and approver `sonnet`; everything else `haiku`, except the security lens `sonnet` |
 | Max quality | everything `opus`; spec-writer and builder `fable` if available |
 
-Any profile can add `runtime.diversity: true`. `forge roster` always reports `diversity.overlap`: the approver and every panel lens whose model shares the builder's family (`opus`, `sonnet`, `haiku` or `fable` when the model names one, else the whole model string; `inherit` resolves through `runtime.models.orchestrator`). With `diversity: true`, `forge roster` and `forge init write` also return one warning per overlap. Diversity warns; it never blocks a job.
+Any profile can add `runtime.diversity: true`. Expect warnings by design where a profile shares families: the Balanced security lens is `opus` like the builder, and Economy and Max quality put the builder and approver on one family. `forge roster` always reports `diversity.overlap`: the approver and every panel lens whose model shares the builder's family (`opus`, `sonnet`, `haiku` or `fable` when the model names one, else the whole model string; `inherit` resolves through `runtime.models.orchestrator`). With `diversity: true`, `forge roster` and `forge init write` also return one warning per overlap. Diversity warns; it never blocks a job.
 
 ## Repo-layer files
 

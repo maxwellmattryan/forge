@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.mjs';
 import { defaults, validateConfig } from '../lib/config.mjs';
 import { initWrite } from '../lib/commands/init.mjs';
@@ -78,6 +81,13 @@ test('init write warns; validate rejects non-boolean diversity', () => {
     cfg.runtime.diversity = 'yes';
     assert.ok(validateConfig(cfg, repo.dir).includes('runtime.diversity must be true or false (got "yes")'));
     assert.throws(() => initWrite(repo.dir, { runtime: { diversity: 1 } }, true), /runtime\.diversity must be true or false/);
+
+    // The CLI path: `forge config validate` exits 1 and names the key.
+    fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), 'schemaVersion: 1\nruntime:\n  diversity: "yes"\n');
+    const bin = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
+    const r = spawnSync(process.execPath, [bin, 'config', 'validate'], { cwd: repo.dir, encoding: 'utf8', env: { ...process.env, FORGE_ROOT: repo.dir } });
+    assert.equal(r.status, 1);
+    assert.deepEqual(JSON.parse(r.stdout).problems, ['runtime.diversity must be true or false (got "yes")']);
   } finally {
     repo.cleanup();
   }

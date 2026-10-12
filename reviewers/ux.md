@@ -10,4 +10,4 @@ Check:
 - Keyboard flow works for the main path.
 - Behaviour is consistent with similar features elsewhere in the product.
 
-Save screenshots of what you checked to the job's `screenshots` dir (in your brief) as `<lens>-<what>.png` and list them under Verified; if you could not capture any, say so.
+Save screenshots of what you checked to the job's `screenshots` dir (in your brief; create it if missing) as `<lens>-<what>.png` and list them under Verified; if you could not capture any, say so.

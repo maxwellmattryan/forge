@@ -34,12 +34,15 @@ test('suggests an e2e command for Playwright and Cypress', () => {
   r = detectWith({ 'package.json': pkg({ scripts: { e2e: 'cypress run' }, devDependencies: { cypress: '1' } }) });
   assert.equal(r.e2e, 'npm run e2e');
 
+  // A config file alone marks the tool but suggests no command: npx/bunx would fetch an unpinned package.
   r = detectWith({ 'playwright.config.ts': 'export default {}\n' });
   assert.equal(r.tools.playwright, true);
-  assert.equal(r.e2e, 'npx playwright test', 'no package manager falls back to npx');
-
+  assert.equal(r.e2e, null);
   r = detectWith({ 'package.json': pkg({}), 'bun.lock': '', 'cypress.config.mjs': '' });
   assert.equal(r.tools.cypress, true);
+  assert.equal(r.e2e, null);
+
+  r = detectWith({ 'package.json': pkg({ devDependencies: { cypress: '1' } }), 'bun.lock': '', 'cypress.config.mjs': '' });
   assert.equal(r.e2e, 'bunx cypress run');
 
   r = detectWith({ 'package.json': pkg({ devDependencies: { vitest: '1' } }) });
