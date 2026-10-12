@@ -514,7 +514,7 @@ function viewAnalytics() {
     ${kpi('Jobs', num(s.counts.total), `${s.counts.active} active · ${s.counts.done} done · ${s.counts.cancelled} cancelled`)}
     ${kpi('First-pass review', pct(q.firstPassReviewRate), `avg ${q.avgRounds ?? '—'} rounds`)}
     ${kpi('Escalation rate', pct(q.escalationRate), `${q.humanReworks} human rework(s)`)}
-    ${kpi('Human feedback on PRs', pct(q.humanFeedbackOnPrRate), 'what reviewers missed')}
+    ${kpi('Human feedback on PRs', pct(q.humanFeedbackOnPrRate), 'PRs with unresolved threads')}
     ${kpi('Human delta after push', pct(q.humanDeltaRate ?? null), `median ${esc(q.medianHumanDeltaLines ?? '—')} lines · ${esc(deltaCov.measured)} of ${esc(deltaCov.merged)} merged measured`)}
     ${kpi('Median to PR', s.speed.medianMinutesToPr == null ? '—' : `${s.speed.medianMinutesToPr}m`, `to done ${s.speed.medianMinutesToDone ?? '—'}m`)}
     ${kpi('Verify first-pass', pct(q.verifyFirstPassRate), 'build/lint/test before review')}
