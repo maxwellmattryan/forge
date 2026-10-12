@@ -44,6 +44,7 @@ verifyE2e:                   # after every verify step passes, also run commands
   paths: ["*.html", "*.css", "*.scss", "*.sass", "*.less", "*.svelte", "*.vue", "*.jsx", "*.tsx", "*.astro"]
                              # `forge job scope` matching: exact path, `dir/` prefix, * ** ? globs; a slash-free
                              # glob also matches the basename. A list here replaces the default.
+verifyIntegrity: warn        # warn | block: block fails verify on deleted test files or added skip/focus markers
 ports: { base: 4100, span: 100 }
 
 runtime:
@@ -157,7 +158,7 @@ improve:
   maxLearnings: 30           # cap on .forge/notes/learnings.md entries
 
 evals:
-  testPattern: null          # regex for test files when mining PRs into eval tasks
+  testPattern: null          # regex for test files: mining PRs into eval tasks, and verify's integrity report (null: a built-in default)
 
 dashboard:
   port: 7400
@@ -175,6 +176,17 @@ dashboard:
 | Max quality | everything `opus`; spec-writer and builder `fable` if available |
 
 Any profile can add `runtime.diversity: true`. Expect warnings by design where a profile shares families: the Balanced security lens is `opus` like the builder, and Economy and Max quality put the builder and approver on one family. `forge roster` always reports `diversity.overlap`: the approver and every panel lens whose model shares the builder's family (`opus`, `sonnet`, `haiku` or `fable` when the model names one, else the whole model string; `inherit` resolves through `runtime.models.orchestrator`). With `diversity: true`, `forge roster` and `forge init write` also return one warning per overlap. Diversity warns; it never blocks a job.
+
+## Verify integrity
+
+Every `forge verify` on a clean worktree also reports what the committed diff since the merge-base with the base branch did to the tests, in an `## integrity` section of `verify/round-N.md` and a compact `integrity` key in its JSON:
+- **Deleted test files**: files matching `evals.testPattern` that were deleted, or renamed to a path outside it.
+- **Renamed test files**: still inside the pattern; informational.
+- **Skip/focus markers added**: `.skip`/`.only`/`.todo`, `xit`/`fit`, node:test `{ skip: true }`, `t.Skip`, `@Disabled`, `#[ignore]`, pytest and unittest skips. Moving an existing marker is not a finding.
+- **Test-count delta**: declared tests in the changed test files, before and after.
+- **Test, build or CI config edits**: `package.json` `scripts`/`jest`/`mocha`/`ava`, Make and just files, CI config, `Cargo.toml` dev-dependencies, test-runner config, `.forge/config.yml`, and script files the configured `commands` run.
+
+Under `warn` the report never changes the result; reviewers and the approver read it. Under `block`, a deleted test file or an added skip/focus marker fails verify (`failure.name: integrity`), and so does a report that cannot be computed. A deletion whose exact path the spec's `## Approach` names is listed as *named in spec* and never blocks. The mode is always read from the main checkout's config, so a job that edits `.forge/config.yml` cannot switch it off.
 
 ## Repo-layer files
 
