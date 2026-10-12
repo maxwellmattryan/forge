@@ -4,7 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.mjs';
-import { verifiedHead } from '../lib/worktree.mjs';
+import { createWorktree, removeWorktree, verifiedHead } from '../lib/worktree.mjs';
+import { loadConfig } from '../lib/config.mjs';
+import { setJob } from '../lib/jobs.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const commitAll = (cwd, msg) => {
@@ -108,6 +110,28 @@ test('end-to-end: init, intake, worktree, verify, eval isolation', () => {
     f('worktree', 'remove', evalJob, '--force');
     assert.equal(fs.existsSync(ewt), false);
     assert.ok(!f('job', 'get', evalJob, 'worktree'), 'job.worktree is cleared');
+
+    // job.worktree is writable state: a bad value must never turn removal into rm -rf of the main checkout.
+    f('job', 'set', evalJob, '--field', `worktree=${repo.dir}`);
+    assert.throws(() => removeWorktree(repo.dir, evalJob, { force: true }), /refusing to delete/);
+    assert.ok(fs.existsSync(path.join(repo.dir, '.git')) && fs.existsSync(path.join(repo.dir, 'README.md')), 'main checkout survives');
+    f('job', 'set', evalJob, '--field', 'worktree=null');
+
+    const { config } = loadConfig(repo.dir);
+    const { id: iso } = f('job', 'new', '--title', 'Isolated paths');
+    const isoDir = path.join(`${repo.dir}.wt`, iso);
+    assert.throws(() => createWorktree(repo.dir, config, iso, { isolate: true, from: 'no-such-ref' }), /no-such-ref/);
+    assert.equal(fs.existsSync(isoDir), false, 'an unresolvable base leaves no directory behind');
+    fs.mkdirSync(isoDir);
+    fs.writeFileSync(path.join(isoDir, 'keep.txt'), 'mine');
+    assert.throws(() => createWorktree(repo.dir, config, iso, { isolate: true }), /already exists/);
+    assert.equal(fs.readFileSync(path.join(isoDir, 'keep.txt'), 'utf8'), 'mine', 'a pre-existing directory is left untouched');
+    fs.rmSync(isoDir, { recursive: true });
+    assert.equal(createWorktree(repo.dir, config, iso, { isolate: true }).ok, true);
+    assert.throws(() => removeWorktree(repo.dir, iso), /refusing to delete/, 'only eval jobs get directory deletion');
+    setJob(repo.dir, iso, { fields: { eval: { run: 'r', task: 't' } } });
+    removeWorktree(repo.dir, iso);
+    assert.equal(fs.existsSync(isoDir), false, 'a clean eval clone is removed without --force');
     const runs = f('eval', 'runs');
     assert.equal(runs[0].status, 'done');
     assert.equal(runs[0].summary.checkPassRate, 1);
