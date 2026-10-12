@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/forge.svg" alt="Forge anvil logo" width="128" height="128">
+  <img src="assets/forge.png" alt="Forge anvil logo" width="128" height="128">
 </p>
 
 <h1 align="center">Forge</h1>
