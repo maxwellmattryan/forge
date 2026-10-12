@@ -203,3 +203,18 @@ test('help lists acs', () => {
     cleanup(repo);
   }
 });
+
+test('pathological lines parse in linear time', () => {
+  // A heading whose long run of spaces ends in a non-space once took minutes (cubic backtracking);
+  // a long whitespace-only line after a table header was quadratic in the separator check.
+  const spaces = ' '.repeat(20_000);
+  const spec = ['## Acceptance criteria', '- AC1 one', `# a${spaces}x`, `## a${spaces}#${spaces}x`, `- AC2${spaces}x`].join('\n');
+  const build = ['## Round 1', `### b${spaces}x`, '| AC | Proof | Result |', ' '.repeat(100_000), table('| AC1 | t | pass |'), `## Round 2${spaces}x`, table('| AC1 | t | pass |')].join('\n');
+  const started = performance.now();
+  assert.deepEqual(specAcs(spec), ['AC1']);
+  const r = acCoverage(['## Acceptance criteria', '- AC1'].join('\n'), build);
+  const ms = performance.now() - started;
+  assert.equal(r.round, 2);
+  assert.equal(r.covered, 1);
+  assert.ok(ms < 500, `parsing took ${Math.round(ms)} ms`);
+});

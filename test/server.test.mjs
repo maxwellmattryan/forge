@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.mjs';
 import { startServer } from '../lib/server.mjs';
 
@@ -94,6 +94,15 @@ test('serves job screenshots as images only, confined to screenshots/', async ()
   fs.writeFileSync(path.join(dir, 'logo.png'), PNG);
   fs.writeFileSync(outside, PNG);
   fs.symlinkSync(outside, path.join(shots, 'link.png'));
+  const outsideDir = path.join(repo.dir, '..', `outside-dir-${path.basename(repo.dir)}`);
+  fs.mkdirSync(outsideDir, { recursive: true });
+  fs.writeFileSync(path.join(outsideDir, 'e.png'), PNG);
+  fs.symlinkSync(outsideDir, path.join(shots, 'linkdir'));
+  fs.mkdirSync(path.join(shots, 'l1', 'l2', 'l3'), { recursive: true });
+  fs.writeFileSync(path.join(shots, 'l1', 'l2', 'two-deep.png'), PNG);
+  fs.writeFileSync(path.join(shots, 'l1', 'l2', 'l3', 'too-deep.png'), PNG);
+  const fifo = path.join(shots, 'pipe.png');
+  const hasFifo = spawnSync('mkfifo', [fifo]).status === 0;
   fs.writeFileSync(path.join(shots, 'huge.png'), Buffer.alloc(11 * 1024 * 1024));
   const { server, url } = await startServer(repo.dir, { port: 0 });
   const port = Number(new URL(url).port);
@@ -106,22 +115,30 @@ test('serves job screenshots as images only, confined to screenshots/', async ()
       assert.equal(r.headers['x-content-type-options'], 'nosniff', rel);
       assert.equal(r.headers['content-security-policy'], "default-src 'none'", rel);
       assert.equal(r.headers['cache-control'], 'no-store', rel);
+      assert.equal(r.headers['cross-origin-resource-policy'], 'same-origin', rel);
       assert.ok(r.body.equals(bytes), rel);
     }
-    for (const rel of ['screenshots/x.svg', 'logo.png', 'screenshots/../../../etc/x.png', 'screenshots/../logo.png', 'screenshots/link.png', 'screenshots/missing.png', 'screenshots/nested'])
+    for (const rel of ['screenshots/x.svg', 'logo.png', 'screenshots/../../../etc/x.png', 'screenshots/../logo.png', 'screenshots/link.png', 'screenshots/linkdir/e.png', 'screenshots/missing.png', 'screenshots/nested', ...(hasFifo ? ['screenshots/pipe.png'] : [])])
       assert.equal((await get(port, file(rel))).status, 404, rel);
     assert.equal((await get(port, `/api/jobs/${job.id}/raw?path=screenshots/a.png`)).status, 404);
-    assert.equal((await get(port, file('screenshots/huge.png'))).status, 413);
+    const huge = await get(port, file('screenshots/huge.png'));
+    assert.equal(huge.status, 413);
+    assert.equal(huge.headers['cross-origin-resource-policy'], 'same-origin');
+    assert.equal(huge.headers['cache-control'], 'no-store');
     assert.equal((await get(port, file('screenshots/a.png'), `evil.example:${port}`)).status, 421);
 
     const detail = JSON.parse((await get(port, `/api/jobs/${job.id}`)).body.toString('utf8'));
-    assert.deepEqual(detail.screenshots, ['screenshots/a.png', 'screenshots/b.jpg', 'screenshots/c.webp', 'screenshots/huge.png', 'screenshots/nested/d.png']);
+    assert.deepEqual(detail.screenshots, ['screenshots/a.png', 'screenshots/b.jpg', 'screenshots/c.webp', 'screenshots/huge.png', 'screenshots/l1/l2/two-deep.png', 'screenshots/nested/d.png']);
     assert.ok(Array.isArray(detail.files));
+    // The list is capped at 200.
+    for (let i = 0; i < 205; i++) fs.writeFileSync(path.join(shots, 'nested', `many-${i}.png`), PNG);
+    assert.equal(JSON.parse((await get(port, `/api/jobs/${job.id}`)).body.toString('utf8')).screenshots.length, 200);
     fs.rmSync(shots, { recursive: true });
     assert.deepEqual(JSON.parse((await get(port, `/api/jobs/${job.id}`)).body.toString('utf8')).screenshots, []);
   } finally {
     server.close();
     repo.cleanup();
     fs.rmSync(outside, { force: true });
+    fs.rmSync(outsideDir, { recursive: true, force: true });
   }
 });
