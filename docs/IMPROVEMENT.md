@@ -10,7 +10,8 @@
 | avg rounds | build→review rounds per job |
 | verify first-pass rate | build/lint/test green before any review |
 | escalation rate | approver escalations / decisions |
-| **human feedback on PRs** | PRs where humans still left unresolved threads or requested changes: the "escape rate", what the panel missed |
+| human feedback on PRs | PRs where humans still left unresolved threads or requested changes: what the panel was asked about, not what humans actually changed |
+| **human delta after push** | the escape rate: merged PRs where humans committed file changes after Forge's last push, out of the merged PRs that could be measured. The median lines changed shows how big the escapes are, and coverage (`measured/merged`) shows how many merges were measured: PRs opened before this metric existed, adopted PRs and rewritten branches are not. Measured once, on the first `forge pr sync` that sees the merge; merges of the base branch into the PR are not counted |
 | human reworks, spec first-try approval | how often humans had to redirect |
 | median minutes to PR / to done | throughput |
 | tokens, API-equivalent cost (by role, by model), usage coverage | spend, and how trustworthy the spend numbers are |
@@ -28,7 +29,7 @@ Eval worktrees are sparse checkouts without `.forge/evals/`, so builders can't s
 
 ## 3. Retros (`/forge retro`)
 
-The retro agent reads the metrics, a digest of human interventions (`forge retro prepare`), and the experiment ledger. It then:
+The retro agent reads the metrics, a digest of human interventions and the human delta after Forge's last push (`forge retro prepare`), and the experiment ledger. It then:
 1. evaluates earlier experiments against their baselines (kept, reverted, or inconclusive)
 2. finds patterns (not anecdotes) across jobs
 3. proposes at most five small edits to `.forge/notes/learnings.md`, role addenda, reviewer checklists or config, each with evidence, a target metric and a baseline
