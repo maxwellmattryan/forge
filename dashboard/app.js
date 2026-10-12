@@ -1,6 +1,6 @@
 // Forge dashboard. Vanilla ES module, no build step. Talks only to the local `forge dash` server.
 const TOKEN = document.querySelector('meta[name="forge-token"]')?.content ?? '';
-const API_VERSION = 2;
+const API_VERSION = 3;
 
 const STAGES = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', 'review', 'decide', 'integrate', 'pr', 'done'];
 const CORE_STAGES = new Set(['backlog', 'spec', 'build', 'review', 'pr', 'done']);
@@ -14,6 +14,7 @@ const WAIT_LABEL = {
   'rounds-exhausted': 'Review rounds exhausted',
   'pr-review': 'PR review',
   external: 'External dependency',
+  budget: 'Budget exceeded',
 };
 
 const ICONS = {

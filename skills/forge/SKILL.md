@@ -32,7 +32,7 @@ forge requests          # dashboard/inbox requests; claim and handle them (see "
 ```
 If `.forge/config.yml` is missing (exit code 2 / "no .forge/config.yml"), run **init** (`reference/init.md`) unless the user explicitly asked for something else. Read `forge config show` once per session. You need `git.base`, `pipeline.*`, `review.*`, `runtime.models`, `pr.*`, `merge.*`, `infra.*`, `resources`, `services`.
 
-Report `sync` results the human cares about in one line each: merged PRs, new PR feedback, new conflicts, finished umbrella jobs.
+Report `sync` results the human cares about in one line each: merged PRs, new PR feedback, new conflicts, finished umbrella jobs. For each result with `mergeDeferred: true`, run `forge pr merge <id>` again (it re-decides from fresh CI state).
 
 ## Commands (route on the first word of the arguments)
 
@@ -43,7 +43,7 @@ Report `sync` results the human cares about in one line each: merged PRs, new PR
 | `next [n]` | Up to `n` (default 1, max `runtime.maxParallelJobs`) times: `forge next --claim --session ${CLAUDE_SESSION_ID}`, then run the jobs concurrently (see **Parallel jobs**). |
 | `issue <ref>` | `forge job from-ref <ref> --session ${CLAUDE_SESSION_ID}`, then **Run a job**. |
 | `continue <job \| #pr \| ref> [note]` | Continue existing work. Load `reference/pr-lifecycle.md`. |
-| `approve <job> [note]` | Human approval. A job waiting on `spec-approval` goes to build. One waiting on `escalation` or `rounds-exhausted` goes to integrate → PR. Record it with `forge job human <job> approve-spec\|approve --note "…"`. |
+| `approve <job> [note]` | Human approval. A job waiting on `spec-approval` goes to build. One waiting on `escalation` or `rounds-exhausted` goes to integrate → PR. One waiting on `budget`: `forge job budget <job> --ack` (or `--set k=v` when the note names limits, e.g. `usd=20`); if `stillExceeded` is non-empty report it and stay waiting, else continue from its current stage by re-running what stopped it (`forge job round`, `forge verify`, or the next spawn). Record it with `forge job human <job> approve-spec\|approve --note "…"`. |
 | `revise <job> <note>` | Spec changes requested: `forge job human <job> revise-spec --note "…"`, write the note to `feedback.md`, re-run spec-writer, then the gate again. |
 | `answer <job> <text>` | Append the answer under the questions in `questions.md`, `forge job human <job> answer --note "…"`, then resume the agent that asked. |
 | `rework <job> <note>` | `forge job human <job> rework --note "…"`, write the note to `feedback.md`, then run a **Build** round with it as input. Allowed even after `maxRounds`. |
@@ -69,6 +69,8 @@ forge job agent <id> end --role <role> --agent-id <agentId> --import \
 ```
 (`--import` reads Claude Code's transcript for an exact token breakdown. The numbers from the completion notification are the fallback. Reviewers use role `reviewer:<lens>`.)
 
+**Budget stop.** If `forge job agent end`, `forge job round` or `forge verify` output has `budget.stopped`, the job is already waiting on `budget`: spawn nothing more for it, let in-flight agents finish and be recorded, report `<id> over budget: <reason>. /forge approve <id> to acknowledge, or raise it: forge job budget <id> --set usd=…`, and stop the job.
+
 **The brief** you give every agent: job id, role, round, worktree path, base branch, `forge job paths <id>` (paste the JSON), the specific inputs and outputs for this step, plus anything listed under that step. Keep it under ~25 lines. Never paste file contents.
 
 ### 0. Intake
@@ -89,12 +91,12 @@ Spawn **designer** (mockup mode if `pipeline.design: mockup`). If it reports spe
 If `pipeline.specApproval` is `always`, or `large` with size L: `forge job set <id> --stage spec --state waiting --waiting-on spec-approval --reason "spec ready"`. Tell the human: the spec path (and mockup if any), the spec-writer's summary line, and `/forge approve <id>` or `/forge revise <id> <note>` (or use the dashboard). Stop this job here.
 
 ### 5. Build
-`forge job round <id>`. If `exhausted: true` (and no human rework), set `--state waiting --waiting-on rounds-exhausted` and report.
+`forge job round <id>`. If it returns `budget.stopped`, the round did not advance; stop the job (see Budget stop). If `exhausted: true` (and no human rework), set `--state waiting --waiting-on rounds-exhausted` and report.
 Spawn **builder**. Round 1 inputs: spec, design/mockup, tasks. Rework inputs: the previous round's review files, a failing `verify/round-N.md`, `pr-feedback.md`, `feedback.md`. **Resume the same builder** (SendMessage to its agent id) for rework when it's still available in this session. Otherwise spawn a new one with the same brief plus the rework inputs. It recovers from files.
 On `NEEDS-INPUT`: `--state waiting --waiting-on input`, show the human `questions.md`'s questions (these few lines you may read), and stop the job.
 
 ### 6. Verify
-`forge verify <id>` (deterministic: the configured build/lint/test commands, logged). It refuses an uncommitted worktree, records the HEAD sha it checked, and keeps every attempt (`attempt` in its output). On failure, send the builder back with the verify file as input **without** a new review round, at most 2 times per round. Then mark the job failed with the reason.
+`forge verify <id>` (deterministic: the configured build/lint/test commands, logged). It refuses an uncommitted worktree, records the HEAD sha it checked, and keeps every attempt (`attempt` in its output). On failure, send the builder back with the verify file as input **without** a new review round, until verify returns `budget.stopped`: `pipeline.budget.verifyRetries` is used up and the job is already waiting on `budget`.
 
 ### 7. Review
 First run `forge job scope <id>` (read only its JSON). Then spawn one **reviewer** per selected lens, **all in parallel** (background), each with its lens, its checklist path (`checklists` in job paths), the scope `file`, and its output `review/round-<n>/<lens>.md`. Wait for **all** of them. Then:
@@ -107,12 +109,12 @@ Spawn **approver** with `approver.alwaysEscalate`, `merge.auto`, `merge.autoWhen
 If `runbook.md` exists and `infra.mode` is `human`, include the runbook path in the report. Pre-merge steps mean the job waits on `infra` until the human resumes it.
 
 ### 9. Integrate
-`forge integrate <id>`. If `ok: false` with conflicts, apply `pr.conflicts`: `ask` → `--state waiting --waiting-on conflicts` and report the files. `fix` → spawn **integrator**, then re-verify. `defer` → note it and open the PR anyway.
+`forge integrate <id>`. If `ok: false` with conflicts, apply `pr.conflicts`: `ask` → `--state waiting --waiting-on conflicts` and report the files. `fix` → spawn **integrator**, re-verify, then run the **integration review** (`reference/pr-lifecycle.md`); open the PR only on its PASS (or a human `approve` after it escalates). `defer` → note it and open the PR anyway.
 If the integration brought in new commits, run `forge verify <id>` again before opening the PR.
 
 ### 10. Pull request (skip when `pr.enabled: false`. Then finish at `--stage done --state done` with the branch name)
 `forge pr open <id>` (pushes, creates or reuses the PR, body from `pr.md`, links the issue). It refuses when HEAD is not the commit the last verify passed on: run `forge verify <id>` again, never `--force` without telling the human why.
-If the decision was auto-merge eligible and `merge.auto: true`: `forge pr merge <id>`.
+If the decision was auto-merge eligible and `merge.auto: true`: `forge pr merge <id>`. It merges directly only when checks pass or the repo has no CI, refuses when they fail, and while they are pending either queues GitHub auto-merge (`action: auto`, when branch protection holds the PR) or does nothing (`action: deferred`). Never pass `--now` (a logged CI bypass) unless the human asked; on `action: refused|failed`, report why and still wait on `pr-review`.
 `forge job set <id> --stage pr --state waiting --waiting-on pr-review`, then `forge job release <id>` and `forge stop <id>`.
 Report: the PR URL, one line of what changed, and anything the human must do (runbook).
 Later `forge sync` runs mark it done when merged and clean up the worktree. New review comments show up as `newFeedback`, handled with `/forge continue <id>`.
