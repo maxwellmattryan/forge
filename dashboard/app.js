@@ -163,7 +163,7 @@ const prChip = (pr) => {
 
 const progressBar = (p) =>
   p?.total
-    ? `<div class="flex items-center gap-2"><div class="h-1.5 flex-1 rounded-full bg-raised overflow-hidden"><div class="h-full bg-accent" style="width:${Math.round((p.done / p.total) * 100)}%"></div></div><span class="text-[11px] text-muted tabular-nums">${p.done}/${p.total}</span></div>`
+    ? `<div class="flex items-center gap-2"><div class="h-1.5 flex-1 rounded-full bg-raised overflow-hidden"><div class="h-full ember-bar" style="width:${Math.round((p.done / p.total) * 100)}%"></div></div><span class="text-[11px] text-muted tabular-nums">${p.done}/${p.total}</span></div>`
     : '';
 
 // ---------- markdown (escape-first, so agent- or issue-supplied HTML never executes) ----------
@@ -295,11 +295,12 @@ function renderNav() {
   document.getElementById('nav').innerHTML = items;
   document.getElementById('mobile-nav').innerHTML = VIEWS.map((v) => `<a href="#/${v.id}" class="nav-item shrink-0 ${S.view === v.id ? 'active' : ''}">${v.label}${badge(v.id) ? ` <span class="text-muted">${badge(v.id)}</span>` : ''}</a>`).join('');
   document.getElementById('repo-name').textContent = S.data?.repo?.name ?? '';
+  document.title = S.data?.repo?.name ? `Forge · ${S.data.repo.name}` : 'Forge';
   const sessions = new Set(jobs.filter((j) => j.owner && Date.now() - Date.parse(j.owner.heartbeat ?? j.owner.since) < 30 * 60000).map((j) => j.owner.session));
   document.getElementById('footer-sessions').innerHTML = `<span class="inline-block size-1.5 rounded-full ${sessions.size ? 'bg-ok' : 'bg-muted'} mr-1.5 align-middle"></span>${sessions.size} session${sessions.size === 1 ? '' : 's'} active`;
   const dark = document.documentElement.dataset.theme === 'dark';
   document.getElementById('theme-toggle').innerHTML = `<span class="flex items-center gap-2">${icon(dark ? 'sun' : 'moon')}${dark ? 'Light' : 'Dark'} theme</span>`;
-  document.getElementById('footer-version').textContent = S.data ? `forge v${S.data.forgeVersion} · api ${S.data.apiVersion}` : '';
+  document.getElementById('footer-version').textContent = S.data ? `Forge v${S.data.forgeVersion} · api ${S.data.apiVersion}` : '';
 }
 
 function render() {
@@ -316,7 +317,7 @@ function render() {
 const banner = (msg) => `<div class="card border-warn/40 bg-warn/10 text-warn px-4 py-3 text-sm mb-4">${esc(msg)}</div>`;
 const pageHeader = (title, sub, right = '') =>
   `<div class="flex flex-wrap items-end justify-between gap-3 mb-5"><div><h1 class="text-xl font-semibold">${esc(title)}</h1>${sub ? `<p class="text-sm text-muted mt-0.5">${sub}</p>` : ''}</div><div class="flex flex-wrap items-center gap-2">${right}</div></div>`;
-const empty = (msg) => `<div class="card px-4 py-10 text-center text-sm text-muted">${msg}</div>`;
+const empty = (msg) => `<div class="card px-4 py-10 text-center text-sm text-muted"><img src="/forge.png" alt="" class="size-10 mx-auto mb-3 rounded-lg opacity-80" />${msg}</div>`;
 
 // ---------- pipeline ----------
 function filteredJobs() {
@@ -522,7 +523,7 @@ function viewAnalytics() {
   const usageTable = (title, rows, max) =>
     `<div class="card overflow-x-auto"><div class="px-3 pt-3 text-sm font-semibold">${title}</div><table class="tbl"><thead><tr><th>Name</th><th>Runs</th><th class="w-1/3">Tokens</th><th class="text-right">Est. cost</th></tr></thead><tbody>${Object.entries(rows)
       .sort((a, b) => b[1].tokens - a[1].tokens)
-      .map(([k, v]) => `<tr><td class="font-medium">${esc(k)}</td><td class="tabular-nums">${v.runs}</td><td><div class="flex items-center gap-2"><div class="h-1.5 rounded-full bg-accent" style="width:${Math.max(2, (v.tokens / max) * 100)}%"></div><span class="text-[11px] text-muted tabular-nums">${tokensShort(v.tokens)}</span></div></td><td class="text-right tabular-nums">${usd(v.estCostUsd)}</td></tr>`)
+      .map(([k, v]) => `<tr><td class="font-medium">${esc(k)}</td><td class="tabular-nums">${v.runs}</td><td><div class="flex items-center gap-2"><div class="h-1.5 rounded-full ember-bar" style="width:${Math.max(2, (v.tokens / max) * 100)}%"></div><span class="text-[11px] text-muted tabular-nums">${tokensShort(v.tokens)}</span></div></td><td class="text-right tabular-nums">${usd(v.estCostUsd)}</td></tr>`)
       .join('') || '<tr><td colspan="4" class="text-muted">No usage recorded yet.</td></tr>'}</tbody></table></div>`;
   html += `<div class="grid gap-3 lg:grid-cols-2 mt-6">${usageTable('By role', s.cost.byRole, maxRole)}${usageTable('By model', s.cost.byModel, Math.max(1, ...Object.values(s.cost.byModel).map((v) => v.tokens)))}</div>`;
   const rv = Object.entries(s.reviewers);
