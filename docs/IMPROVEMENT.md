@@ -25,7 +25,7 @@ An eval task is a request, a base commit, and a hidden acceptance check:
 - **Hand-written** tasks with hidden test files or a patch.
 - **Rubric** tasks scored 0-5 by the judge agent, for repos without tests or for qualities tests miss.
 
-Eval worktrees are sparse checkouts without `.forge/evals/`, so builders can't see the checks. Each run records the Forge version and a hash of the repo layer (config, checklists, notes). `forge eval compare A B` shows what moved and whether the configuration changed between runs.
+Eval jobs get a standalone shallow clone that holds only the task's base commit, with no remotes and no objects shared with the main checkout, and `.forge/evals/` sparse-excluded, so neither the files nor git history reveal the check or the real fix. Limits: the builder's model may remember a public PR, and this is not a filesystem sandbox, so an agent that deliberately reads the main checkout can still find both. Each run records the Forge version and a hash of the repo layer (config, checklists, notes). `forge eval compare A B` shows what moved and whether the configuration changed between runs.
 
 ## 3. Retros (`/forge retro`)
 
