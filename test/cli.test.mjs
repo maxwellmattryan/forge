@@ -234,6 +234,9 @@ test('verify integrity: warn and block', () => {
 
     // AC3 + AC5: block fails on the deletion and the skip; the config edits are listed but never block.
     f('init', 'write', '--answers', answer({ verifyIntegrity: 'block' }));
+    // The worktree's own .forge/config.yml is reported, never obeyed.
+    write('.forge/config.yml', 'verifyIntegrity: warn\n');
+    commitAll(wtPath, 'try to switch the mode off');
     const failed = failing('verify', id);
     assert.equal(failed.status, 1);
     v = failed.out;
@@ -243,7 +246,8 @@ test('verify integrity: warn and block', () => {
     assert.match(v.failure.tail, /^deleted test\/a\.test\.mjs$/m);
     assert.match(v.failure.tail, /^skip marker test\/b\.test\.mjs:1$/m);
     assert.ok(v.integrity.blocking >= 2);
-    assert.deepEqual(v.integrity.configEdits.sort(), ['.github/workflows/ci.yml', 'package.json']);
+    assert.equal(v.integrity.mode, 'block', 'the mode comes from the main checkout');
+    assert.deepEqual(v.integrity.configEdits.sort(), ['.forge/config.yml', '.github/workflows/ci.yml', 'package.json']);
     md = roundMd();
     assert.match(md, /^VERIFY: FAIL\n/);
     assert.match(md, /^## integrity: FAILED \(2 blocking\)$/m);
@@ -262,11 +266,24 @@ test('verify integrity: warn and block', () => {
     assert.deepEqual(v.integrity.deletedTests, ['test/a.test.mjs (in spec)']);
     assert.equal(v.integrity.blocking, 0);
     assert.deepEqual(v.integrity.skipMarkers, []);
+    assert.deepEqual(v.integrity.configEdits.sort(), ['.forge/config.yml', '.github/workflows/ci.yml', 'package.json'], 'config edits never block');
     md = roundMd();
     assert.match(md, /^VERIFY: PASS\n/);
     assert.match(md, /^## integrity: WARN \(\d+ findings\)$/m);
     assert.match(md, /^- `test\/a\.test\.mjs` \(named in spec\)$/m);
     assert.equal(f('job', 'get', id, 'verify.1'), 'PASS');
+
+    // AC7 through verify: an unresolvable base fails block with the error as the tail, and passes warn.
+    f('job', 'set', id, '--field', 'base=no-such-branch');
+    const errored = failing('verify', id).out;
+    assert.equal(errored.failure.name, 'integrity');
+    assert.match(errored.failure.tail, /base no-such-branch not found/);
+    assert.deepEqual(Object.keys(errored.integrity).sort(), ['error', 'mode', 'ok']);
+    assert.match(roundMd(), /^## integrity: error$/m);
+    f('init', 'write', '--answers', answer({ verifyIntegrity: 'warn' }));
+    v = f('verify', id);
+    assert.equal(v.ok, true);
+    assert.match(v.integrity.error, /no-such-branch/);
   } finally {
     repo.cleanup();
     fs.rmSync(`${repo.dir}.wt`, { recursive: true, force: true });
