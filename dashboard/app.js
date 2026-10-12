@@ -1,4 +1,6 @@
 // Forge dashboard. Vanilla ES module, no build step. Talks only to the local `forge dash` server.
+import { esc, num, usd, ago, toneChip } from './util.js';
+import { budgetChip, budgetCell, budgetPanel } from './budget.js';
 const TOKEN = document.querySelector('meta[name="forge-token"]')?.content ?? '';
 const API_VERSION = 3;
 
@@ -76,19 +78,8 @@ const S = {
 };
 
 // ---------- helpers ----------
-const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-const num = (n) => (n == null ? '—' : Number(n).toLocaleString());
-const usd = (n) => (n == null ? '—' : `$${Number(n) < 1 ? Number(n).toFixed(3) : Number(n).toFixed(2)}`);
 const pct = (x) => (x == null ? '—' : `${Math.round(x * 100)}%`);
 const tokensShort = (n) => (n == null ? '—' : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
-const ago = (iso) => {
-  if (!iso) return '—';
-  const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
-  if (s < 60) return `${Math.round(s)}s ago`;
-  if (s < 3600) return `${Math.round(s / 60)}m ago`;
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
-  return `${Math.round(s / 86400)}d ago`;
-};
 const dur = (ms) => {
   if (ms == null) return '—';
   const m = Math.floor(ms / 60000);
@@ -137,17 +128,6 @@ function stateTone(job) {
   if (job.state === 'running') return 'accent';
   return 'muted';
 }
-const toneChip = (tone, text) => {
-  const cls = {
-    ok: 'bg-ok/15 text-ok',
-    bad: 'bg-bad/15 text-bad',
-    warn: 'bg-warn/15 text-warn',
-    info: 'bg-info/15 text-info',
-    accent: 'bg-accent/15 text-accent',
-    muted: 'bg-raised text-muted',
-  }[tone];
-  return `<span class="chip ${cls}">${esc(text)}</span>`;
-};
 const stateChip = (job) => toneChip(stateTone(job), job.state === 'waiting' ? WAIT_LABEL[job.waitingOn] ?? job.waitingOn : job.state);
 
 const verdictChip = (name, v) => {
@@ -372,7 +352,7 @@ function card(j) {
     ${progressBar(j.progress)}
     ${verdictRow}
     <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-      ${j.round ? `<span>round ${j.round}/${j.maxRounds}</span>` : ''}${prChip(j.pr)}
+      ${j.round ? `<span>round ${j.round}/${j.maxRounds}</span>` : ''}${prChip(j.pr)}${budgetChip(j, S.data.config?.pipeline?.budget)}
       ${running.length ? `<span class="text-accent">● ${esc(running.join(', '))}</span>` : ''}
       <span class="ml-auto">${tokensShort(j.usage?.totalTokens)} tok · ${ago(j.updatedAt)}</span>
     </div>
@@ -380,7 +360,7 @@ function card(j) {
 }
 
 function jobsTable(jobs) {
-  return `<div class="card overflow-x-auto"><table class="tbl"><thead><tr><th>Job</th><th>Stage</th><th>State</th><th>Round</th><th>Tasks</th><th>Verdicts</th><th>PR</th><th class="text-right">Tokens</th><th class="text-right">Est. cost</th><th>Updated</th></tr></thead><tbody>${jobs
+  return `<div class="card overflow-x-auto"><table class="tbl"><thead><tr><th>Job</th><th>Stage</th><th>State</th><th>Round</th><th>Tasks</th><th>Verdicts</th><th>PR</th><th class="text-right">Tokens</th><th class="text-right">Est. cost</th><th>Budget</th><th>Updated</th></tr></thead><tbody>${jobs
     .map((j) => {
       const v = j.verdicts?.[j.round];
       return `<tr class="hover:bg-raised cursor-pointer" data-action="open" data-id="${esc(j.id)}">
@@ -390,7 +370,7 @@ function jobsTable(jobs) {
         <td class="tabular-nums">${j.progress?.total ? `${j.progress.done}/${j.progress.total}` : '—'}</td>
         <td><div class="flex flex-wrap gap-1">${(j.reviewers ?? []).map((r) => verdictChip(r, v?.[r])).join('')}</div></td>
         <td>${prChip(j.pr) || '—'}</td>
-        <td class="text-right tabular-nums">${num(j.usage?.totalTokens)}</td><td class="text-right tabular-nums">${usd(j.usage?.estCostUsd)}</td>
+        <td class="text-right tabular-nums">${num(j.usage?.totalTokens)}</td><td class="text-right tabular-nums">${usd(j.usage?.estCostUsd)}</td><td class="whitespace-nowrap">${budgetCell(j, S.data.config?.pipeline?.budget)}</td>
         <td class="text-muted whitespace-nowrap">${ago(j.updatedAt)}</td></tr>`;
     })
     .join('')}</tbody></table></div>`;
@@ -423,12 +403,13 @@ function viewInbox() {
 function inboxCard(j) {
   const w = j.state === 'failed' ? 'failed' : j.waitingOn;
   const id = esc(j.id);
-  const note = `<textarea id="note-${id}" rows="2" class="w-full" placeholder="${w === 'input' ? 'Your answer…' : 'Optional note for the agents…'}"></textarea>`;
+  const note = `<textarea id="note-${id}" rows="2" class="w-full" placeholder="${w === 'input' ? 'Your answer…' : w === 'budget' ? 'Optional: new limits, e.g. usd=20 tokens=2000000' : 'Optional note for the agents…'}"></textarea>`;
   const actions = {
     'spec-approval': `<button class="btn btn-primary" data-action="req" data-type="approve" data-id="${id}">Approve spec</button><button class="btn" data-action="req" data-type="revise-spec" data-id="${id}" data-note="1">Request changes</button>`,
     input: `<button class="btn btn-primary" data-action="req" data-type="answer" data-id="${id}" data-note="1">Send answer</button>`,
     escalation: `<button class="btn btn-primary" data-action="req" data-type="approve" data-id="${id}">Approve</button><button class="btn" data-action="req" data-type="rework" data-id="${id}" data-note="1">Rework</button><button class="btn" data-action="req" data-type="cancel" data-id="${id}">Cancel job</button>`,
     'rounds-exhausted': `<button class="btn" data-action="req" data-type="rework" data-id="${id}" data-note="1">Another round</button><button class="btn" data-action="req" data-type="approve" data-id="${id}">Accept as is</button><button class="btn" data-action="req" data-type="cancel" data-id="${id}">Cancel job</button>`,
+    budget: `<button class="btn btn-primary" data-action="req" data-type="approve" data-id="${id}" data-note="1">Approve &amp; continue</button><button class="btn" data-action="req" data-type="cancel" data-id="${id}">Cancel job</button>`,
     infra: `<button class="btn btn-primary" data-action="req" data-type="resume" data-id="${id}">Steps done, resume</button>`,
     conflicts: `<button class="btn btn-primary" data-action="req" data-type="rework" data-id="${id}" data-text="Resolve merge conflicts with the base branch">Fix conflicts now</button><button class="btn" data-action="req" data-type="resume" data-id="${id}">Leave for later</button>`,
     external: `<button class="btn" data-action="req" data-type="resume" data-id="${id}">Unblocked, resume</button>`,
@@ -438,8 +419,9 @@ function inboxCard(j) {
   return `<div class="card p-4 flex flex-col gap-3 border-warn/40">
     <div class="flex flex-wrap items-start justify-between gap-2"><div><button data-action="open" data-id="${id}" class="font-medium hover:text-accent text-left">${esc(j.title)}</button><div class="text-[11px] text-muted font-mono">${id}</div></div>${stateChip(j)}</div>
     ${j.reason ? `<div class="text-sm text-muted">${esc(j.reason)}</div>` : ''}
+    ${w === 'budget' ? budgetPanel(j, S.data.config?.pipeline?.budget, { compact: true }) : ''}
     ${doc ? `<button class="text-sm text-accent self-start" data-action="open" data-id="${id}" data-file="${esc(doc)}">Read ${esc(doc)} →</button>` : ''}
-    ${w === 'spec-approval' || w === 'input' || w === 'escalation' || w === 'rounds-exhausted' ? note : ''}
+    ${w === 'spec-approval' || w === 'input' || w === 'escalation' || w === 'rounds-exhausted' || w === 'budget' ? note : ''}
     <div class="flex flex-wrap gap-2">${actions}</div>
   </div>`;
 }
@@ -685,6 +667,7 @@ function renderDrawer() {
     ${progressBar(j.progress)}
     <div class="grid grid-cols-2 md:grid-cols-3 gap-3">${fact('Branch', esc(j.branch ?? '—'))}${fact('Base', esc(j.base ?? '—'))}${fact('Port', esc(j.port ?? '—'))}${fact('Worktree', esc(j.worktree ?? '—'))}${fact('PR', prUrl ? `<a class="text-accent" href="${esc(prUrl)}" target="_blank" rel="noopener">#${esc(j.pr.number)}</a>` : '—')}${fact('Source', srcUrl ? `<a class="text-accent" href="${esc(srcUrl)}" target="_blank" rel="noopener">${esc(j.source.ref ?? 'link')}</a>` : esc(j.source?.ref ?? '—'))}${fact('Session', esc(j.owner?.session ?? '—'))}${fact('Created', ago(j.createdAt))}${fact('Updated', ago(j.updatedAt))}</div>
     ${matrix}
+    ${budgetPanel(j, S.data?.config?.pipeline?.budget)}
     ${usage}
     <div class="flex gap-1 border-b border-line">${['files', 'timeline'].map((t) => `<button data-action="tab" data-value="${t}" class="px-3 py-2 text-sm -mb-px border-b-2 ${S.drawer.tab === t ? 'border-accent text-fg' : 'border-transparent text-muted'}">${t[0].toUpperCase() + t.slice(1)}${t === 'timeline' ? ` <span class="text-muted">${d.events.length}</span>` : ''}</button>`).join('')}</div>
     ${S.drawer.tab === 'files' ? `<div class="grid md:grid-cols-[180px_1fr] gap-4"><div class="flex md:flex-col gap-0.5 overflow-x-auto md:overflow-visible">${files}</div><div class="min-w-0">${content}</div></div>` : `<ul>${timeline}</ul>`}

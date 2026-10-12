@@ -33,3 +33,35 @@ test('dashboard server rejects DNS-rebound hosts and cross-origin posts', async 
     repo.cleanup();
   }
 });
+
+/** @param {number} port @param {string} path @param {string} [host] @returns {Promise<{status:number|undefined, type:string|undefined}>} */
+function get(port, path, host = `127.0.0.1:${port}`) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, path, headers: { host } }, (res) => {
+      res.resume();
+      res.on('end', () => resolve({ status: res.statusCode, type: res.headers['content-type'] }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+test('dashboard server serves only the allowlisted modules', async () => {
+  const repo = tempRepo();
+  const { server, url } = await startServer(repo.dir, { port: 0 });
+  const port = Number(new URL(url).port);
+  try {
+    for (const p of ['/app.js', '/util.js', '/budget.js']) {
+      const r = await get(port, p);
+      assert.equal(r.status, 200, p);
+      assert.match(r.type ?? '', /^text\/javascript/, p);
+    }
+    for (const p of ['/lib.js', '/server.mjs', '/..%2Flib%2Fserver.mjs', '/index.js', '/../lib/server.mjs', '/dashboard/app.js']) {
+      assert.equal((await get(port, p)).status, 404, p);
+    }
+    assert.equal((await get(port, '/budget.js', `evil.example:${port}`)).status, 421);
+  } finally {
+    server.close();
+    repo.cleanup();
+  }
+});
