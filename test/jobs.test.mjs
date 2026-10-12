@@ -61,6 +61,19 @@ test('job lifecycle: ids, transitions, claims, usage, verdict policy', () => {
     assert.equal(coerced.verdict, 'CHANGES');
     assert.equal(coerced.coerced, true, 'a second malformed review is counted as CHANGES, not left pending');
 
+    const idir = path.join(jobDir(root, a.id), 'review', 'integration');
+    assert.equal(roundVerdicts(root, a.id, 'integration', ['code'], ['blocker', 'major']).outcome, 'PENDING');
+    fs.mkdirSync(idir, { recursive: true });
+    fs.writeFileSync(path.join(idir, 'code.md'), 'VERDICT: PASS\n\n- [nit] comment\n');
+    const integ = roundVerdicts(root, a.id, 'integration', ['code'], ['blocker', 'major']);
+    assert.equal(integ.outcome, 'PASS', 'the integration review reads review/integration/, not a round dir');
+    assert.equal(integ.round, 'integration');
+    assert.equal(integ.reviewers.code.file, path.join('review', 'integration', 'code.md'));
+    fs.writeFileSync(path.join(idir, 'code.md'), 'VERDICT: PASS\n\n- [major] dropped a base-side guard\n');
+    assert.equal(roundVerdicts(root, a.id, 'integration', ['code'], ['blocker', 'major']).outcome, 'CHANGES');
+    fs.writeFileSync(path.join(idir, 'code.md'), 'resolution looks fine\n');
+    assert.equal(roundVerdicts(root, a.id, 'integration', ['code'], ['blocker', 'major']).outcome, 'MALFORMED');
+
     fs.writeFileSync(path.join(jobDir(root, a.id), 'decision.md'), 'ESCALATE: touches the deploy pipeline\n\nRisk: high\n');
     assert.deepEqual(parseDecision(root, a.id), { decision: 'ESCALATE', reason: 'touches the deploy pipeline' });
 

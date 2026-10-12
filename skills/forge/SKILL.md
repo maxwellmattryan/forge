@@ -99,17 +99,17 @@ On `NEEDS-INPUT`: `--state waiting --waiting-on input`, show the human `question
 `forge verify <id>` (deterministic: the configured build/lint/test commands, logged). It refuses an uncommitted worktree, records the HEAD sha it checked, and keeps every attempt (`attempt` in its output). On failure, send the builder back with the verify file as input **without** a new review round, until verify returns `budget.stopped`: `pipeline.budget.verifyRetries` is used up and the job is already waiting on `budget`.
 
 ### 7. Review
-Spawn one **reviewer** per selected lens, **all in parallel** (background), each with its lens, its checklist path (`checklists` in job paths), and its output `review/round-<n>/<lens>.md`. Wait for **all** of them. Then:
+First run `forge job scope <id>` (read only its JSON). Then spawn one **reviewer** per selected lens, **all in parallel** (background), each with its lens, its checklist path (`checklists` in job paths), the scope `file`, and its output `review/round-<n>/<lens>.md`. Wait for **all** of them. Then:
 `forge job verdicts <id> --compact` → `PASS` → Decide · `CHANGES` → Build (next round) · `MALFORMED` → re-spawn just that reviewer once. If it is still `MALFORMED`, run `forge job verdicts <id> --compact --malformed changes`: the lens counts as `CHANGES`, the builder gets its file as input, and the job records a note.
 Verdicts come from the tagged severities under the repo's `review.blockOn`, not from the reviewer's own first line.
 
 ### 8. Decide
-Spawn **approver** with `approver.alwaysEscalate`, `merge.auto`, `merge.autoWhen` and `infra.mode` in the brief. Then `forge job decision <id>`.
+Spawn **approver** with `approver.alwaysEscalate`, `merge.auto`, `merge.autoWhen`, `infra.mode` and the scope path in the brief. Then `forge job decision <id>`.
 `ESCALATE` → `--state waiting --waiting-on escalation --reason "<reason>"`, report, stop. A human `approve` continues to step 9.
 If `runbook.md` exists and `infra.mode` is `human`, include the runbook path in the report. Pre-merge steps mean the job waits on `infra` until the human resumes it.
 
 ### 9. Integrate
-`forge integrate <id>`. If `ok: false` with conflicts, apply `pr.conflicts`: `ask` → `--state waiting --waiting-on conflicts` and report the files. `fix` → spawn **integrator**, then re-verify. `defer` → note it and open the PR anyway.
+`forge integrate <id>`. If `ok: false` with conflicts, apply `pr.conflicts`: `ask` → `--state waiting --waiting-on conflicts` and report the files. `fix` → spawn **integrator**, re-verify, then run the **integration review** (`reference/pr-lifecycle.md`); open the PR only on its PASS (or a human `approve` after it escalates). `defer` → note it and open the PR anyway.
 If the integration brought in new commits, run `forge verify <id>` again before opening the PR.
 
 ### 10. Pull request (skip when `pr.enabled: false`. Then finish at `--stage done --state done` with the branch name)
