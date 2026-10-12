@@ -1,0 +1,38 @@
+{
+  "name": "@maxwellmattryan/factory",
+  "version": "0.1.0",
+  "description": "A generic, self-improving software factory for AI coding agents: orchestrator, agent roster, worktrees, PR sync, trackers, evals and a live dashboard.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "factory": "bin/factory"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "dashboard",
+    "agents",
+    "reviewers",
+    "skills",
+    "templates",
+    "docs"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maxwellmattryan/factory.git"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "claude-code",
+    "software-factory",
+    "orchestration",
+    "worktrees"
+  ]
+}

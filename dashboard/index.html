@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="factory-token" content="__FACTORY_TOKEN__" />
+    <title>Factory</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236E56CF'/%3E%3Cpath d='M8 23V12l5 4v-4l5 4v-4l6 5v6z' fill='white'/%3E%3C/svg%3E" />
+    <script>
+      try {
+        const saved = localStorage.getItem('factory.theme');
+        const prefers = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.dataset.theme = saved || prefers;
+      } catch {}
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.18" integrity="sha384-WrpyCFNrMmN/IC7KmMNiXxIouXEFpoDIuJ2P+ys++uYEzegAW2MSl+X6Unsahaij" crossorigin="anonymous"></script>
+    <style type="text/tailwindcss">
+      @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+      @theme {
+        --color-bg: var(--bg);
+        --color-panel: var(--panel);
+        --color-raised: var(--raised);
+        --color-line: var(--line);
+        --color-fg: var(--fg);
+        --color-muted: var(--muted);
+        --color-accent: var(--accent);
+        --color-ok: var(--ok);
+        --color-warn: var(--warn);
+        --color-bad: var(--bad);
+        --color-info: var(--info);
+        --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+        --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      :root {
+        --bg: #f7f7f8; --panel: #ffffff; --raised: #f0f0f2; --line: #e3e3e8; --fg: #16161a; --muted: #6b6b76;
+        --accent: #6e56cf; --ok: #1f9d55; --warn: #b7791f; --bad: #d64545; --info: #2f6fde;
+      }
+      :root[data-theme='dark'] {
+        --bg: #0d0d10; --panel: #15151a; --raised: #1c1c22; --line: #26262e; --fg: #ececf1; --muted: #8b8b98;
+        --accent: #8b7cf6; --ok: #3ccf8e; --warn: #f2b84b; --bad: #f2555a; --info: #5b9dff;
+      }
+      body { @apply bg-bg text-fg font-sans antialiased; }
+      @utility card { @apply bg-panel border border-line rounded-xl; }
+      @utility chip { @apply inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium leading-4 whitespace-nowrap; }
+      @utility btn { @apply inline-flex items-center gap-1.5 rounded-lg border border-line bg-raised px-3 py-1.5 text-sm hover:border-accent/60 disabled:opacity-50 cursor-pointer; }
+      .btn-primary { @apply bg-accent text-white border-transparent; } .btn-primary:hover { opacity: .9; }
+      @utility nav-item { @apply flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm text-muted hover:bg-raised hover:text-fg; }
+      .nav-item.active { @apply bg-raised text-fg; }
+      @utility kpi { @apply bg-panel border border-line rounded-xl p-4 flex flex-col gap-1; }
+      @utility kpi-label { @apply text-[11px] uppercase tracking-wide text-muted; }
+      @utility kpi-value { @apply text-2xl font-semibold tabular-nums; }
+      .tbl { @apply w-full text-sm; }
+      .tbl th { @apply text-left text-[11px] uppercase tracking-wide text-muted font-medium px-3 py-2 border-b border-line; }
+      .tbl td { @apply px-3 py-2 border-b border-line align-top; }
+      .prose-md { @apply text-sm leading-6; }
+      .prose-md h1 { @apply text-lg font-semibold mt-4 mb-2; }
+      .prose-md h2 { @apply text-base font-semibold mt-4 mb-2; }
+      .prose-md h3 { @apply text-sm font-semibold mt-3 mb-1; }
+      .prose-md p { @apply my-2; }
+      .prose-md ul { @apply list-disc pl-5 my-2; }
+      .prose-md ol { @apply list-decimal pl-5 my-2; }
+      .prose-md code { @apply font-mono text-[12px] bg-raised rounded px-1; }
+      .prose-md pre { @apply bg-raised rounded-lg p-3 overflow-x-auto my-2 text-[12px]; }
+      .prose-md pre code { @apply bg-transparent p-0; }
+      .prose-md a { @apply text-accent underline; }
+      .prose-md table { @apply my-2 text-xs; }
+      .prose-md td, .prose-md th { @apply border border-line px-2 py-1; }
+      .prose-md blockquote { @apply border-l-2 border-line pl-3 text-muted; }
+      input, textarea, select { @apply bg-raised border border-line rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-accent; }
+    </style>
+  </head>
+  <body class="min-h-screen">
+    <div class="flex min-h-screen">
+      <aside id="sidebar" class="hidden md:flex w-56 shrink-0 flex-col border-r border-line bg-panel px-3 py-4 gap-1 sticky top-0 h-screen">
+        <div class="flex items-center gap-2 px-2 pb-4">
+          <div class="size-7 rounded-lg bg-accent grid place-items-center text-white text-xs font-bold">F</div>
+          <div class="min-w-0">
+            <div class="text-sm font-semibold leading-4">Factory</div>
+            <div id="repo-name" class="text-[11px] text-muted truncate"></div>
+          </div>
+        </div>
+        <nav id="nav" class="flex flex-col gap-0.5"></nav>
+        <div class="mt-auto flex flex-col gap-1 border-t border-line pt-3 text-xs text-muted">
+          <div id="footer-sessions" class="px-3"></div>
+          <button id="theme-toggle" class="nav-item"></button>
+          <div id="footer-version" class="px-3 text-[10px]"></div>
+        </div>
+      </aside>
+      <main class="flex-1 min-w-0">
+        <header class="md:hidden flex items-center gap-2 border-b border-line bg-panel px-4 py-3 overflow-x-auto" id="mobile-nav"></header>
+        <div id="view" class="mx-auto max-w-[1400px] px-4 md:px-8 py-6"></div>
+      </main>
+    </div>
+    <div id="drawer-backdrop" class="fixed inset-0 bg-black/40 hidden z-30"></div>
+    <aside id="drawer" class="fixed right-0 top-0 h-full w-full max-w-3xl bg-bg border-l border-line z-40 translate-x-full transition-transform overflow-y-auto"></aside>
+    <div id="toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 hidden card px-4 py-2 text-sm shadow-lg"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

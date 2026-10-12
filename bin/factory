@@ -1,0 +1,8 @@
+#!/usr/bin/env node
+import { main } from '../lib/cli.mjs';
+
+main(process.argv.slice(2)).catch((err) => {
+  process.stderr.write(`factory: ${err?.message ?? err}\n`);
+  if (process.env.FACTORY_DEBUG && err?.stack) process.stderr.write(err.stack + '\n');
+  process.exit(err?.exitCode ?? 1);
+});

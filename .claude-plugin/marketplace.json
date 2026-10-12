@@ -1,0 +1,13 @@
+{
+  "name": "factory",
+  "owner": { "name": "Matthew Maxwell", "url": "https://github.com/maxwellmattryan" },
+  "description": "The software factory plugin.",
+  "plugins": [
+    {
+      "name": "factory",
+      "source": "./",
+      "description": "A generic, self-improving software factory for Claude Code.",
+      "category": "development"
+    }
+  ]
+}
