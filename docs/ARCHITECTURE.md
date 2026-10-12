@@ -16,7 +16,7 @@ Repos never copy the engine or the roster, so there is nothing to drift. Everyth
 LLMs are good at judgement and unreliable at bookkeeping. Everything with a single right answer is code: valid state transitions, unique job ids, atomic writes, locks, port allocation, worktree setup, command logging, verdict policy, PR and tracker calls, usage maths. Agents and the orchestrator call `forge …` and get compact JSON back. Three things follow:
 
 1. **Data shapes can't drift.** No model hand-writes `job.json`, so a skill update can't produce state that a dashboard update can't read.
-2. **Context stays small.** `forge verify` returns pass/fail plus a log tail, not 3,000 lines of compiler output. `forge job verdicts --compact` returns one word per lens.
+2. **Context stays small.** `forge verify` returns pass/fail plus a log tail, not 3,000 lines of compiler output. `forge job verdicts --compact` returns one word per lens. `forge job scope` returns at most 20 out-of-spec files; the full list goes to `scope.md`.
 3. **The protocol is portable.** Any agent runtime that can run shell commands can drive Forge (see PROTOCOL.md).
 
 The CLI is plain ES-module JavaScript with JSDoc types and zero dependencies. That means no build step, no install step inside the plugin, and Node is already present wherever Claude Code is. A native (e.g. Rust) port would only pay off for a long-running worker daemon. The CLI's commands and JSON outputs are the contract, so a port could replace it without touching the skill or agents.

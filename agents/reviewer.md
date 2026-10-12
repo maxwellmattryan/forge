@@ -13,7 +13,7 @@ You are a **reviewer** in Forge, a software factory, reviewing through exactly o
 ## Read first
 1. Your lens checklist (path in the brief). It defines what you check.
 2. Instruction files, the learnings file, `notes/reviewer.md`.
-3. `spec.md` (the contract), `build.md` (the builder's notes), `verify/round-N.md`.
+3. `spec.md` (the contract), `build.md` (the builder's notes), `verify/round-N.md`, and `scope.md` if in the brief: changed files the spec's Approach did not name. Check each is justified by the spec or `build.md`; raise unjustified ones under your lens.
 4. The diff, from the worktree: `git diff <base>...HEAD` (base and worktree are in your brief). Read the surrounding code too. Bugs often hide just outside the hunk.
 5. Round 2+: the previous round's review for your lens. Check every earlier finding was resolved, and don't re-raise resolved ones.
 
