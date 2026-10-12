@@ -9,18 +9,30 @@ import { defaults } from '../lib/config.mjs';
 import { createJob, setJob, readEvents } from '../lib/jobs.mjs';
 
 test('mergeAction: direct merge only when CI passed or the repo has none', () => {
+  const B = { mergeState: 'BLOCKED' };
   const rows = [
     ['passing', {}, 'merge'],
     ['passing', { hasWorkflows: true }, 'merge'],
-    ['pending', {}, 'auto'],
-    ['pending', { hasWorkflows: true }, 'auto'],
+    ['passing', { mergeState: 'UNSTABLE' }, 'merge'],
     ['failing', {}, 'refuse'],
-    ['failing', { hasWorkflows: true }, 'refuse'],
+    ['failing', { hasWorkflows: true, ...B }, 'refuse'],
     ['none', { hasWorkflows: false }, 'merge'],
-    ['none', { hasWorkflows: true }, 'auto'],
-    [undefined, {}, 'auto'],
-    ['weird', {}, 'auto'],
-    ['weird', { hasWorkflows: false }, 'auto'],
+    // Waiting on CI: --auto only where GitHub enforces requirements, else defer.
+    ['pending', B, 'auto'],
+    ['pending', { mergeState: 'BEHIND' }, 'auto'],
+    ['pending', { mergeState: 'blocked' }, 'auto'],
+    ['pending', { hasWorkflows: true, ...B }, 'auto'],
+    ['none', { hasWorkflows: true, ...B }, 'auto'],
+    [undefined, B, 'auto'],
+    ['weird', B, 'auto'],
+    ['pending', {}, 'defer'],
+    ['pending', { mergeState: 'UNSTABLE' }, 'defer'],
+    ['pending', { mergeState: 'CLEAN' }, 'defer'],
+    ['pending', { mergeState: 'HAS_HOOKS' }, 'defer'],
+    ['pending', { mergeState: 'UNKNOWN' }, 'defer'],
+    ['none', { hasWorkflows: true, mergeState: 'CLEAN' }, 'defer'],
+    [undefined, {}, 'defer'],
+    ['weird', { hasWorkflows: false }, 'defer'],
     ['failing', { now: true }, 'merge'],
     ['pending', { now: true }, 'merge'],
     ['none', { now: true, hasWorkflows: true }, 'merge'],
@@ -61,7 +73,7 @@ test('hasCiWorkflows: reads the ref, falls back to the working tree', () => {
 const FAKE_GH = `#!/bin/sh
 echo "$*" >> "$FAKE_GH_LOG"
 case "$1 $2" in
-  "pr view") printf '{"number":7,"url":"https://github.com/o/r/pull/7","state":"%s","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"","statusCheckRollup":%s,"mergedAt":null,"closedAt":null,"headRefName":"forge/x","baseRefName":"main"}' "$FAKE_PR_STATE" "$FAKE_ROLLUP" ;;
+  "pr view") printf '{"number":7,"url":"https://github.com/o/r/pull/7","state":"%s","isDraft":false,"headRefOid":"abc123","mergeable":"MERGEABLE","mergeStateStatus":"%s","reviewDecision":"","statusCheckRollup":%s,"mergedAt":null,"closedAt":null,"headRefName":"forge/x","baseRefName":"main"}' "$FAKE_PR_STATE" "$FAKE_MERGE_STATE" "$FAKE_ROLLUP" ;;
   "repo view") echo o/r ;;
   "api graphql") echo '{"data":{"repository":{"pullRequest":{}}}}' ;;
   "pr merge") if [ -n "$FAKE_MERGE_FAIL" ]; then echo "auto-merge is not allowed" >&2; exit 1; fi ;;
@@ -85,8 +97,8 @@ function ghHarness() {
   const config = defaults();
   config.tracker.github.repo = 'o/r';
   let n = 0;
-  /** @param {{state?:string, checks?:keyof typeof ROLLUP, fail?:boolean}} s */
-  const scenario = ({ state = 'OPEN', checks = 'passing', fail = false } = {}) => {
+  /** @param {{state?:string, checks?:keyof typeof ROLLUP, mergeState?:string, fail?:boolean}} s */
+  const scenario = ({ state = 'OPEN', checks = 'passing', mergeState = 'CLEAN', fail = false } = {}) => {
     const job = createJob(repo.dir, config, { title: `job ${++n}`, ref: `job-${n}` });
     setJob(repo.dir, job.id, { fields: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } } });
     fs.writeFileSync(log, '');
@@ -94,6 +106,7 @@ function ghHarness() {
       PATH: `${bin}${path.delimiter}${saved.PATH}`,
       FAKE_GH_LOG: log,
       FAKE_PR_STATE: state,
+      FAKE_MERGE_STATE: mergeState,
       FAKE_ROLLUP: JSON.stringify(ROLLUP[checks]),
       FAKE_MERGE_FAIL: fail ? '1' : '',
     });
@@ -117,23 +130,33 @@ test('mergePr: one merge call chosen by CI state, never a fallback', { skip: pro
 
     let id = h.scenario({ checks: 'passing' });
     assert.deepEqual(mergePr(root, h.config, id), { merged: true, autoMerge: false, action: 'merged', checks: 'passing' });
-    assert.deepEqual(h.merges(), ['pr merge 7 -R o/r --squash']);
+    assert.deepEqual(h.merges(), ['pr merge 7 -R o/r --squash --match-head-commit abc123']);
     assert.ok(h.events(id).includes('pr-synced'), 'syncs before deciding');
 
-    id = h.scenario({ checks: 'pending' });
+    id = h.scenario({ checks: 'pending', mergeState: 'BLOCKED' });
     assert.equal(mergePr(root, h.config, id).action, 'auto');
-    assert.deepEqual(h.merges(), ['pr merge 7 -R o/r --squash --auto']);
+    assert.deepEqual(h.merges(), ['pr merge 7 -R o/r --squash --auto --match-head-commit abc123']);
     assert.ok(h.events(id).includes('pr-auto-merge'));
 
-    id = h.scenario({ checks: 'pending', fail: true });
+    // Unprotected repo, CI still running: `gh pr merge --auto` would merge at once here.
+    id = h.scenario({ checks: 'pending', mergeState: 'UNSTABLE' });
+    assert.deepEqual(mergePr(root, h.config, id), { merged: false, autoMerge: false, action: 'deferred', checks: 'pending', mergeState: 'UNSTABLE' });
+    assert.deepEqual(h.merges(), [], 'deferred makes no merge call');
+    assert.ok(h.events(id).includes('pr-merge-deferred'));
+
+    id = h.scenario({ checks: 'pending', mergeState: 'BLOCKED', fail: true });
     const failed = mergePr(root, h.config, id);
     assert.equal(failed.action, 'failed');
     assert.match(failed.error, /auto-merge is not allowed/);
     assert.equal(h.merges().length, 1, 'a failed --auto never falls back to a direct merge');
+    const failedEv = readEvents(root, id).find((e) => e.type === 'pr-merge-failed');
+    assert.equal(failedEv.number, 7);
+    assert.match(failedEv.error, /auto-merge is not allowed/);
 
     id = h.scenario({ checks: 'passing', fail: true });
     assert.equal(mergePr(root, h.config, id).action, 'failed');
-    assert.deepEqual(h.merges(), ['pr merge 7 -R o/r --squash'], 'a failed direct merge never falls back to --auto');
+    assert.ok(h.events(id).includes('pr-merge-failed'));
+    assert.deepEqual(h.merges(), ['pr merge 7 -R o/r --squash --match-head-commit abc123'], 'a failed direct merge never falls back to --auto');
 
     id = h.scenario({ checks: 'failing' });
     const refused = mergePr(root, h.config, id);
@@ -141,19 +164,23 @@ test('mergePr: one merge call chosen by CI state, never a fallback', { skip: pro
     assert.equal(refused.checks, 'failing');
     assert.deepEqual(h.merges(), []);
     assert.ok(h.events(id).includes('pr-merge-refused'));
+    assert.ok(!h.events(id).includes('pr-merged'));
 
     id = h.scenario({ checks: 'none' });
     assert.equal(mergePr(root, h.config, id).action, 'merged', 'no checks and no workflows: nothing to wait for');
     const wf = path.join(root, '.github', 'workflows');
     fs.mkdirSync(wf, { recursive: true });
     fs.writeFileSync(path.join(wf, 'ci.yml'), 'on: push\n');
-    id = h.scenario({ checks: 'none' });
+    id = h.scenario({ checks: 'none', mergeState: 'BLOCKED' });
     assert.equal(mergePr(root, h.config, id).action, 'auto', 'workflows exist but have not reported yet');
+    id = h.scenario({ checks: 'none', mergeState: 'CLEAN' });
+    assert.equal(mergePr(root, h.config, id).action, 'deferred', 'unregistered workflows on an unprotected repo');
+    assert.deepEqual(h.merges(), []);
     fs.rmSync(path.join(root, '.github'), { recursive: true });
 
     id = h.scenario({ checks: 'failing' });
     assert.equal(mergePr(root, h.config, id, { now: true }).action, 'merged');
-    assert.deepEqual(h.merges(), ['pr merge 7 -R o/r --squash']);
+    assert.deepEqual(h.merges(), ['pr merge 7 -R o/r --squash --match-head-commit abc123']);
     const ev = readEvents(root, id);
     const bypassEv = ev.find((e) => e.type === 'pr-merge-bypass');
     assert.equal(bypassEv.number, 7);
@@ -169,6 +196,7 @@ test('mergePr: one merge call chosen by CI state, never a fallback', { skip: pro
     id = h.scenario({ state: 'MERGED', checks: 'passing' });
     assert.deepEqual(mergePr(root, h.config, id), { merged: true, action: 'already-merged', checks: 'passing' });
     assert.deepEqual(h.merges(), []);
+    assert.ok(!h.events(id).includes('pr-merged'));
 
     id = h.scenario({ state: 'CLOSED' });
     assert.throws(() => mergePr(root, h.config, id), /PR #7 is closed; reopen it before merging/);
@@ -197,6 +225,16 @@ test('forge pr merge: refused exits 1, --now must not swallow the id', { skip: p
     const swallowed = forge('pr', 'merge', '--now', id);
     assert.notEqual(swallowed.status, 0);
     assert.deepEqual(h.merges(), [], '`--now <id>` errors instead of bypassing');
+
+    const later = h.scenario({ checks: 'pending', mergeState: 'UNSTABLE' });
+    forge('job', 'set', later, '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review');
+    const deferred = forge('pr', 'merge', later);
+    assert.equal(deferred.status, 0, deferred.stderr);
+    assert.equal(JSON.parse(deferred.stdout).action, 'deferred');
+    const synced = JSON.parse(forge('sync').stdout);
+    const row = (jobId) => synced.results.find((r) => r.id === jobId);
+    assert.equal(row(later)?.mergeDeferred, true, 'sync surfaces a deferred merge for retry');
+    assert.equal(row(id)?.mergeDeferred, false, 'a refused merge is not retried by sync');
 
     const bypass = forge('pr', 'merge', id, '--now');
     assert.equal(bypass.status, 0, bypass.stderr);
