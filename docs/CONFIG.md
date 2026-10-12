@@ -115,7 +115,7 @@ pr:
   updateStrategy: merge      # merge | rebase (for branches with an open PR; before a PR: rebase)
 
 merge:
-  auto: false                # let Forge merge approved PRs (waits for CI; see README)
+  auto: false                # let Forge merge approved PRs (waits for CI, even without branch protection; see README)
   method: squash             # squash | merge | rebase
   autoWhen: []               # plain-language conditions, e.g. ["docs-only changes", "test-only changes"]
 
