@@ -107,7 +107,7 @@ Spawn **approver** with `approver.alwaysEscalate`, `merge.auto`, `merge.autoWhen
 If `runbook.md` exists and `infra.mode` is `human`, include the runbook path in the report. Pre-merge steps mean the job waits on `infra` until the human resumes it.
 
 ### 9. Integrate
-`forge integrate <id>`. If `ok: false` with conflicts, apply `pr.conflicts`: `ask` → `--state waiting --waiting-on conflicts` and report the files. `fix` → spawn **integrator**, then re-verify. `defer` → note it and open the PR anyway.
+`forge integrate <id>`. If `ok: false` with conflicts, apply `pr.conflicts`: `ask` → `--state waiting --waiting-on conflicts` and report the files. `fix` → spawn **integrator**, re-verify, then run the **integration review** (`reference/pr-lifecycle.md`); open the PR only on its PASS (or a human `approve` after it escalates). `defer` → note it and open the PR anyway.
 If the integration brought in new commits, run `forge verify <id>` again before opening the PR.
 
 ### 10. Pull request (skip when `pr.enabled: false`. Then finish at `--stage done --state done` with the branch name)
