@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { tempRepo } from './helpers.mjs';
+import { scratchGitConfig, tempRepo } from './helpers.mjs';
 import { createWorktree, removeWorktree, verifiedHead } from '../lib/worktree.mjs';
 import { loadConfig } from '../lib/config.mjs';
 import { setJob } from '../lib/jobs.mjs';
@@ -99,6 +99,8 @@ test('end-to-end: init, intake, worktree, verify, eval isolation', () => {
     assert.equal(fs.existsSync(path.join(ewt, '.forge', 'evals')), false, 'hidden checks are not visible in eval worktrees');
     assert.equal(fs.existsSync(path.join(ewt, '.forge', 'config.yml')), true);
     fs.writeFileSync(path.join(ewt, 'hello.txt'), 'hi');
+    // The eval checkout is a standalone clone, so it does not share the scratch repo's config.
+    scratchGitConfig((...args) => sh(ewt, ...args));
     commitAll(ewt, 'hello');
     assert.deepEqual(sh(ewt, 'log', '--all', '--format=%H').split('\n'), [sh(ewt, 'rev-parse', 'HEAD'), base]);
     assert.equal(sh(ewt, 'diff', '--name-only', 'main...HEAD'), 'hello.txt');
