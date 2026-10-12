@@ -1,0 +1,11 @@
+# Global git config for the test suite (see test/helpers.mjs): scratch repos must not
+# depend on the host, e.g. a commit.gpgsign that needs a gpg agent.
+[user]
+	name = Test
+	email = test@example.com
+[commit]
+	gpgsign = false
+[tag]
+	gpgsign = false
+[init]
+	defaultBranch = main
