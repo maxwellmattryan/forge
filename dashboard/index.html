@@ -3,12 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="factory-token" content="__FACTORY_TOKEN__" />
-    <title>Factory</title>
+    <meta name="forge-token" content="__FORGE_TOKEN__" />
+    <title>Forge</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236E56CF'/%3E%3Cpath d='M8 23V12l5 4v-4l5 4v-4l6 5v6z' fill='white'/%3E%3C/svg%3E" />
     <script>
       try {
-        const saved = localStorage.getItem('factory.theme');
+        const saved = localStorage.getItem('forge.theme');
         const prefers = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
         document.documentElement.dataset.theme = saved || prefers;
       } catch {}
@@ -75,7 +75,7 @@
         <div class="flex items-center gap-2 px-2 pb-4">
           <div class="size-7 rounded-lg bg-accent grid place-items-center text-white text-xs font-bold">F</div>
           <div class="min-w-0">
-            <div class="text-sm font-semibold leading-4">Factory</div>
+            <div class="text-sm font-semibold leading-4">Forge</div>
             <div id="repo-name" class="text-[11px] text-muted truncate"></div>
           </div>
         </div>

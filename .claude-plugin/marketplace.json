@@ -1,12 +1,12 @@
 {
-  "name": "factory",
+  "name": "forge",
   "owner": { "name": "Matthew Maxwell", "url": "https://github.com/maxwellmattryan" },
-  "description": "The software factory plugin.",
+  "description": "Forge: a lightweight, self-improving software factory for AI coding agents.",
   "plugins": [
     {
-      "name": "factory",
+      "name": "forge",
       "source": "./",
-      "description": "A generic, self-improving software factory for Claude Code.",
+      "description": "Forge: a lightweight, self-improving software factory for AI coding agents.",
       "category": "development"
     }
   ]

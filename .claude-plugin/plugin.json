@@ -1,11 +1,11 @@
 {
-  "name": "factory",
-  "displayName": "Software Factory",
-  "version": "0.1.0",
-  "description": "A generic, self-improving software factory: an orchestrator skill plus planner, spec-writer, designer, builder, reviewer, approver, integrator, retro and judge agents. Parallel jobs in git worktrees, PR and tracker sync, evals and a live dashboard.",
+  "name": "forge",
+  "displayName": "Forge",
+  "version": "0.2.0",
+  "description": "Forge: a lightweight, self-improving software factory. An orchestrator skill plus planner, spec-writer, designer, builder, reviewer, approver, integrator, retro and judge agents. Parallel jobs in git worktrees, PR and tracker sync, evals and a live dashboard.",
   "author": { "name": "Matthew Maxwell", "url": "https://github.com/maxwellmattryan" },
-  "homepage": "https://github.com/maxwellmattryan/factory",
-  "repository": "https://github.com/maxwellmattryan/factory",
+  "homepage": "https://github.com/maxwellmattryan/forge",
+  "repository": "https://github.com/maxwellmattryan/forge",
   "license": "MIT",
-  "keywords": ["software-factory", "agents", "orchestration", "worktrees", "code-review", "evals"]
+  "keywords": ["forge", "software-factory", "agents", "orchestration", "worktrees", "code-review", "evals"]
 }

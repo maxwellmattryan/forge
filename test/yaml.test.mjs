@@ -47,7 +47,7 @@ empty:
 test('round-trips stringify output', () => {
   const value = {
     schemaVersion: 1,
-    git: { base: 'develop', branchPrefix: 'factory/' },
+    git: { base: 'develop', branchPrefix: 'forge/' },
     review: { panel: [{ name: 'code', always: true }, { name: 'security', model: 'opus', when: 'auth: tokens, sessions' }], blockOn: ['blocker', 'major'] },
     commands: { test: 'cargo test --workspace', dev: null },
     statusMap: { queued: '🔖 Todo', 'in-progress': '🏗 In Progress' },

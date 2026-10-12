@@ -1,10 +1,10 @@
-# Initialise the factory in a repo
+# Initialise Forge in a repo
 
-Goal: write `.factory/config.yml` (plus `.gitignore`, `README.md`, `notes/learnings.md`, and a backlog for the local tracker) from what the repo already tells us, asking the human only what detection can't answer. Use the AskUserQuestion tool, with up to 4 questions per call and the recommended option first.
+Goal: write `.forge/config.yml` (plus `.gitignore`, `README.md`, `notes/learnings.md`, and a backlog for the local tracker) from what the repo already tells us, asking the human only what detection can't answer. Use the AskUserQuestion tool, with up to 4 questions per call and the recommended option first.
 
 ## 1. Detect
 ```bash
-factory init detect
+forge init detect
 ```
 Read the JSON. Also skim the repo's instruction files (`instructions.tracked` / `instructions.ignored`) for build/test/dev commands and conventions that detection missed. If the instruction files don't say how to set up, build, test and run the project, note it. The agents rely on that.
 
@@ -29,17 +29,17 @@ Show the human a 5-8 line summary: stack/kinds, base branch, tracker candidates 
 - Untracked files to copy into worktrees (`suggestions["worktrees.copy"]`, e.g. gitignored CLAUDE.md files and `.env`). Confirm. Never copy secrets the human doesn't want duplicated.
 - Rust repos: share one Cargo target dir across worktrees? "Yes, separate shared dir (Recommended)" · "Yes, reuse the main checkout's target/" · "No".
 - Monorepo / multiple services: confirm `services` (name, path, per-service commands).
-- Repo-specific reviewers: for each `repoAgents` entry that is a review/audit agent (e.g. a realtime-safety checker), offer a lens. Create `.factory/reviewers/<name>.md` whose checklist says to follow that agent's instructions file, and add it to the panel.
+- Repo-specific reviewers: for each `repoAgents` entry that is a review/audit agent (e.g. a realtime-safety checker), offer a lens. Create `.forge/reviewers/<name>.md` whose checklist says to follow that agent's instructions file, and add it to the panel.
 - Dashboard launcher (advanced, default off): a shell template that starts a headless orchestrator for dashboard requests, e.g. `claude -p "{prompt}"`. Explain it spends tokens without a human at the keyboard.
 
 ## 5. Write
 Assemble an answers JSON containing only keys that differ from defaults (`${CLAUDE_PLUGIN_ROOT}/docs/CONFIG.md` documents every key). Write it to a scratch file, then:
 ```bash
-factory init write --answers <file>      # merges into an existing config; --force to start fresh
-factory config validate
-factory doctor
+forge init write --answers <file>      # merges into an existing config; --force to start fresh
+forge config validate
+forge doctor
 ```
 Fix anything `validate`/`doctor` reports (e.g. `gh auth refresh -s project` for Projects sync. Tell the human, don't run auth commands yourself).
 
 ## 6. Hand over
-Tell the human: the files written; to commit `.factory/` (it's designed to be committed, while runtime state is gitignored inside it); `factory dash --background` for the dashboard; and how to start (`/factory <feature>`, `/factory next`). If instruction files lacked commands, suggest adding them.
+Tell the human: the files written; to commit `.forge/` (it's designed to be committed, while runtime state is gitignored inside it); `forge dash --background` for the dashboard; and how to start (`/forge <feature>`, `/forge next`). If instruction files lacked commands, suggest adding them.

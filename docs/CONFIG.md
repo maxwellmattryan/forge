@@ -1,8 +1,8 @@
-# `.factory/config.yml`
+# `.forge/config.yml`
 
-`/factory init` writes this file. Every key is optional; anything omitted takes the default shown. The file uses a strict YAML subset (block maps and lists, quoted or plain scalars, `[a, b]` / `{a: 1}` flow collections, `|` blocks, comments; no anchors or tags). `factory config validate` checks it, and `factory config show` prints the effective config.
+`/forge init` writes this file. Every key is optional; anything omitted takes the default shown. The file uses a strict YAML subset (block maps and lists, quoted or plain scalars, `[a, b]` / `{a: 1}` flow collections, `|` blocks, comments; no anchors or tags). `forge config validate` checks it, and `forge config show` prints the effective config.
 
-Command templates may use `{port}`, `{job}`, `{worktree}`, `{root}`, `{branch}` and `{base}`. Commands also get `PORT`, `FACTORY_PORT`, `FACTORY_JOB` and `FACTORY_WORKTREE` in their environment.
+Command templates may use `{port}`, `{job}`, `{worktree}`, `{root}`, `{branch}` and `{base}`. Commands also get `PORT`, `FORGE_PORT`, `FORGE_JOB` and `FORGE_WORKTREE` in their environment.
 
 ```yaml
 schemaVersion: 1
@@ -17,7 +17,7 @@ project:
 git:
   base: main                 # PR target / integration branch
   remote: origin
-  branchPrefix: factory/     # job branches are <prefix><job-id>
+  branchPrefix: forge/     # job branches are <prefix><job-id>
 
 worktrees:
   root: ../{repo}.worktrees  # outside the repo on purpose (bundlers, watchers, cargo workspaces)
@@ -28,7 +28,7 @@ worktrees:
     sharedTarget: false      # one Cargo target dir for every job worktree
     targetDir: null          # null → <worktrees.root>/.cargo-target · "main" → <repo>/target · or a path
 
-commands:                    # what `factory run <job> <name>` executes inside the worktree
+commands:                    # what `forge run <job> <name>` executes inside the worktree
   setup: null
   build: null
   test: null
@@ -57,12 +57,12 @@ runtime:
     judge: opus
 
 tracker:
-  kind: local                # local | github | none | <name of .factory/trackers/<name>.mjs>
+  kind: local                # local | github | none | <name of .forge/trackers/<name>.mjs>
   local:
-    path: .factory/backlog.md
+    path: .forge/backlog.md
   github:
     repo: null               # owner/name; default: the gh-resolved repo of the checkout
-    ready:                   # what counts as "ready" for /factory next
+    ready:                   # what counts as "ready" for /forge next
       labels: []             # all must match
       excludeLabels: []
       assignee: null         # e.g. "@me"
@@ -73,13 +73,13 @@ tracker:
     comments: collaborators  # collaborators | all: whose issue comments reach agents (anyone can comment on public repos)
     statusSync: none         # none | labels | project | both
     labels:
-      prefix: "factory:"     # labels mode: factory:in-progress, factory:review, …
+      prefix: "forge:"     # labels mode: forge:in-progress, forge:review, …
     project:
       config: .github/project-config.yml   # read owner/number/status field from here when present
       owner: null            # or set explicitly
       number: null
       statusField: Status
-      statusMap: {}          # factory status → option name; unset keys are matched by meaning
+      statusMap: {}          # Forge status → option name; unset keys are matched by meaning
                              # keys: queued, in-progress, review, blocked, done, cancelled
 
 pipeline:
@@ -90,11 +90,11 @@ pipeline:
 
 review:
   blockOn: [blocker, major]  # severities that force another round
-  panel:                     # lenses: built-in names or .factory/reviewers/<name>.md
+  panel:                     # lenses: built-in names or .forge/reviewers/<name>.md
     - { name: code, always: true }
     - { name: tests, always: true }
     - { name: security, model: opus, when: "input handling, auth, secrets, network, dependencies, file or process access" }
-  #   - { name: realtime, checklist: .factory/reviewers/realtime.md, when: "audio thread code" }
+  #   - { name: realtime, checklist: .forge/reviewers/realtime.md, when: "audio thread code" }
   onPrFeedback: changed      # changed | full | none (which lenses re-run after PR feedback)
 
 approver:
@@ -115,7 +115,7 @@ pr:
   updateStrategy: merge      # merge | rebase (for branches with an open PR; before a PR: rebase)
 
 merge:
-  auto: false                # let the factory merge approved PRs
+  auto: false                # let Forge merge approved PRs
   method: squash             # squash | merge | rebase
   autoWhen: []               # plain-language conditions, e.g. ["docs-only changes", "test-only changes"]
 
@@ -137,7 +137,7 @@ usage:
 
 improve:
   retroEvery: 10             # suggest a retro after this many finished jobs
-  maxLearnings: 30           # cap on .factory/notes/learnings.md entries
+  maxLearnings: 30           # cap on .forge/notes/learnings.md entries
 
 evals:
   testPattern: null          # regex for test files when mining PRs into eval tasks
@@ -151,9 +151,9 @@ dashboard:
 
 | Path | Purpose |
 |---|---|
-| `.factory/notes/learnings.md` | lessons every agent reads; keep short |
-| `.factory/notes/<role>.md` | addendum for one role (`builder.md`, `spec-writer.md`, …) |
-| `.factory/notes/experiments.md` | the retro's ledger of changes and their metrics |
-| `.factory/reviewers/<lens>.md` | a repo checklist; overrides the built-in lens of the same name |
-| `.factory/trackers/<name>.mjs` | a custom tracker adapter (see TRACKERS.md) |
-| `.factory/evals/<task>/` | eval tasks (see IMPROVEMENT.md); `evals/runs/` holds results |
+| `.forge/notes/learnings.md` | lessons every agent reads; keep short |
+| `.forge/notes/<role>.md` | addendum for one role (`builder.md`, `spec-writer.md`, …) |
+| `.forge/notes/experiments.md` | the retro's ledger of changes and their metrics |
+| `.forge/reviewers/<lens>.md` | a repo checklist; overrides the built-in lens of the same name |
+| `.forge/trackers/<name>.mjs` | a custom tracker adapter (see TRACKERS.md) |
+| `.forge/evals/<task>/` | eval tasks (see IMPROVEMENT.md); `evals/runs/` holds results |

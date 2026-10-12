@@ -1,8 +1,8 @@
-# Measuring and improving the factory
+# Measuring and improving Forge
 
-"Better" means different things for a firmware repo and a web app. What every repo shares is the **factory's own behaviour**: how often work passes review first time, how often a human has to step in, how much humans still catch on PRs, and what it all costs. The factory measures those, tests changes against eval suites, and improves its repo-local layer through reviewed experiments.
+"Better" means different things for a firmware repo and a web app. What every repo shares is **Forge's own behaviour**: how often work passes review first time, how often a human has to step in, how much humans still catch on PRs, and what it all costs. Forge measures those, tests changes against eval suites, and improves its repo-local layer through reviewed experiments.
 
-## 1. Live metrics (`factory stats`, Analytics view)
+## 1. Live metrics (`forge stats`, Analytics view)
 
 | Metric | Reading |
 |---|---|
@@ -16,23 +16,23 @@
 | tokens, API-equivalent cost (by role, by model), usage coverage | spend, and how trustworthy the spend numbers are |
 | per-lens change rate | lenses that never find anything are candidates to narrow or drop |
 
-## 2. Evals (`factory eval …`, Evals view)
+## 2. Evals (`forge eval …`, Evals view)
 
 An eval task is a request, a base commit, and a hidden acceptance check:
 
-- **Replays** (`factory eval mine --pr <n>`): a merged PR becomes a task. It starts from the PR's base, the request is the PR description plus its linked issues, and the hidden check is the PR's own test changes. Your repo's history becomes a benchmark.
+- **Replays** (`forge eval mine --pr <n>`): a merged PR becomes a task. It starts from the PR's base, the request is the PR description plus its linked issues, and the hidden check is the PR's own test changes. Your repo's history becomes a benchmark.
 - **Hand-written** tasks with hidden test files or a patch.
 - **Rubric** tasks scored 0-5 by the judge agent, for repos without tests or for qualities tests miss.
 
-Eval worktrees are sparse checkouts without `.factory/evals/`, so builders can't see the checks. Each run records the factory version and a hash of the repo layer (config, checklists, notes). `factory eval compare A B` shows what moved and whether the configuration changed between runs.
+Eval worktrees are sparse checkouts without `.forge/evals/`, so builders can't see the checks. Each run records the Forge version and a hash of the repo layer (config, checklists, notes). `forge eval compare A B` shows what moved and whether the configuration changed between runs.
 
-## 3. Retros (`/factory retro`)
+## 3. Retros (`/forge retro`)
 
-The retro agent reads the metrics, a digest of human interventions (`factory retro prepare`), and the experiment ledger. It then:
+The retro agent reads the metrics, a digest of human interventions (`forge retro prepare`), and the experiment ledger. It then:
 1. evaluates earlier experiments against their baselines (kept, reverted, or inconclusive)
 2. finds patterns (not anecdotes) across jobs
-3. proposes at most five small edits to `.factory/notes/learnings.md`, role addenda, reviewer checklists or config, each with evidence, a target metric and a baseline
+3. proposes at most five small edits to `.forge/notes/learnings.md`, role addenda, reviewer checklists or config, each with evidence, a target metric and a baseline
 
-Its proposals become a normal factory job that always waits for spec approval and ships as a PR. Merged changes are logged in `.factory/notes/experiments.md`. Generic lessons are flagged as candidates for upstreaming into the plugin.
+Its proposals become a normal Forge job that always waits for spec approval and ships as a PR. Merged changes are logged in `.forge/notes/experiments.md`. Generic lessons are flagged as candidates for upstreaming into the plugin.
 
 The loop: **metrics → retro → PR (experiment + baseline) → evals and live metrics → next retro keeps or reverts.**

@@ -1,6 +1,6 @@
 {
   "asOf": "2026-10-06",
-  "source": "Anthropic first-party API list prices, USD per million tokens. Verify against https://www.anthropic.com/pricing and override in .factory/config.yml under usage.pricing.",
+  "source": "Anthropic first-party API list prices, USD per million tokens. Verify against https://www.anthropic.com/pricing and override in .forge/config.yml under usage.pricing.",
   "notes": "cacheWrite uses the 5-minute cache-write rate (1.25x input) when the split between 5m and 1h writes is unknown. Subscription plans (Pro/Max/Team) are not billed per token; these figures show the API-equivalent cost.",
   "aliases": {
     "opus": "claude-opus-5-5",

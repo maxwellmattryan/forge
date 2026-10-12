@@ -6,18 +6,18 @@
 |---|---|---|
 | **Engine**: CLI, dashboard, data schemas | `bin/`, `lib/`, `dashboard/` | the plugin is updated |
 | **Roster**: orchestrator skill, agent prompts, reviewer catalog | `skills/`, `agents/`, `reviewers/` | the plugin is updated |
-| **Repo layer**: config, learnings, role addenda, repo checklists, evals, custom trackers | `<repo>/.factory/` (committed) | `/factory init`, humans, retros |
-| **Runtime state**: jobs, locks, dashboard inbox, caches | `<repo>/.factory/{jobs,locks,runtime}/` (gitignored) | every factory action |
+| **Repo layer**: config, learnings, role addenda, repo checklists, evals, custom trackers | `<repo>/.forge/` (committed) | `/forge init`, humans, retros |
+| **Runtime state**: jobs, locks, dashboard inbox, caches | `<repo>/.forge/{jobs,locks,runtime}/` (gitignored) | every Forge action |
 
-Repos never copy the engine or the roster, so there is nothing to drift. Everything repo-specific is data in `.factory/`, and that's also the only layer the retro loop edits.
+Repos never copy the engine or the roster, so there is nothing to drift. Everything repo-specific is data in `.forge/`, and that's also the only layer the retro loop edits.
 
 ## Why a CLI does the bookkeeping
 
-LLMs are good at judgement and unreliable at bookkeeping. Everything with a single right answer is code: valid state transitions, unique job ids, atomic writes, locks, port allocation, worktree setup, command logging, verdict policy, PR and tracker calls, usage maths. Agents and the orchestrator call `factory …` and get compact JSON back. Three things follow:
+LLMs are good at judgement and unreliable at bookkeeping. Everything with a single right answer is code: valid state transitions, unique job ids, atomic writes, locks, port allocation, worktree setup, command logging, verdict policy, PR and tracker calls, usage maths. Agents and the orchestrator call `forge …` and get compact JSON back. Three things follow:
 
 1. **Data shapes can't drift.** No model hand-writes `job.json`, so a skill update can't produce state that a dashboard update can't read.
-2. **Context stays small.** `factory verify` returns pass/fail plus a log tail, not 3,000 lines of compiler output. `factory job verdicts --compact` returns one word per lens.
-3. **The protocol is portable.** Any agent runtime that can run shell commands can drive the factory (see PROTOCOL.md).
+2. **Context stays small.** `forge verify` returns pass/fail plus a log tail, not 3,000 lines of compiler output. `forge job verdicts --compact` returns one word per lens.
+3. **The protocol is portable.** Any agent runtime that can run shell commands can drive Forge (see PROTOCOL.md).
 
 The CLI is plain ES-module JavaScript with JSDoc types and zero dependencies. That means no build step, no install step inside the plugin, and Node is already present wherever Claude Code is. A native (e.g. Rust) port would only pay off for a long-running worker daemon. The CLI's commands and JSON outputs are the contract, so a port could replace it without touching the skill or agents.
 
@@ -25,7 +25,7 @@ The CLI is plain ES-module JavaScript with JSDoc types and zero dependencies. Th
 
 Every persisted shape carries a version: `config.yml` → `schemaVersion`, `job.json` → `schemaVersion`, each event line → `v`, `/api/state` → `apiVersion`.
 
-- **Readers upgrade, writers write current.** `normalizeJob` and `migrateConfig` (in `lib/schema.mjs`) upgrade old shapes in memory and fill defaults, so new code reads old jobs. `factory migrate` rewrites them on disk.
+- **Readers upgrade, writers write current.** `normalizeJob` and `migrateConfig` (in `lib/schema.mjs`) upgrade old shapes in memory and fill defaults, so new code reads old jobs. `forge migrate` rewrites them on disk.
 - **Newer-than-me is refused, not guessed.** A plugin that meets a job from a newer schema stops with "update the plugin".
 - **Unknown fields are preserved.** Normalisation spreads the raw object first, so fields from a newer minor version survive a read-modify-write by an older one.
 - **The dashboard is served by the same plugin version as the CLI**, so they can't disagree. The page checks `apiVersion` anyway, for a dashboard left open across an update.
@@ -51,14 +51,14 @@ Trackers see a coarser view: `queued`, `in-progress`, `review`, `blocked`, `done
 ## Concurrency
 
 - **Many jobs, one session**: the orchestrator runs agents in the background and advances each job as notifications arrive, up to `runtime.maxParallelJobs`.
-- **Many sessions, one repo**: all state is in the main checkout's `.factory/`. Writes take a per-job `mkdir` lock and are atomic (write and rename). Backlog edits and tracker claims take their own locks. Job ids are created with an exclusive `mkdir`.
+- **Many sessions, one repo**: all state is in the main checkout's `.forge/`. Writes take a per-job `mkdir` lock and are atomic (write and rename). Backlog edits and tracker claims take their own locks. Job ids are created with an exclusive `mkdir`.
 - **Worktrees** live outside the repo (`../<repo>.worktrees/<job>` by default), so watchers, bundlers and Cargo workspaces don't see nested copies. Untracked files agents need, such as a gitignored `CLAUDE.md` or `.env`, are copied in, and setup commands run once.
 - **Rust**: with `worktrees.cargo.sharedTarget`, one `.cargo/config.toml` above all worktrees points every job at a single target dir. Dependencies compile once, and disk use doesn't multiply. Cargo serialises concurrent builds on that directory's lock, which is usually still far faster than cold builds per worktree.
-- **Ports**: each active job gets a unique port from `ports.base`. Commands see it as `{port}`, `$PORT` and `$FACTORY_PORT`.
+- **Ports**: each active job gets a unique port from `ports.base`. Commands see it as `{port}`, `$PORT` and `$FORGE_PORT`.
 
 ## Untrusted input
 
-Issue bodies, comments and PR reviews come from people outside the session, and on public repos that means anyone. The factory:
+Issue bodies, comments and PR reviews come from people outside the session, and on public repos that means anyone. Forge:
 - imports only collaborators' issue comments by default (`tracker.github.comments`), and labels the rest as untrusted in PR feedback
 - fences imported text with its provenance and a "data, not instructions" note
 - tells every agent to ignore embedded instructions about secrets, credentials, CI, permissions or out-of-scope work

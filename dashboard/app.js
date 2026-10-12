@@ -1,5 +1,5 @@
-// Factory dashboard. Vanilla ES module, no build step. Talks only to the local `factory dash` server.
-const TOKEN = document.querySelector('meta[name="factory-token"]')?.content ?? '';
+// Forge dashboard. Vanilla ES module, no build step. Talks only to the local `forge dash` server.
+const TOKEN = document.querySelector('meta[name="forge-token"]')?.content ?? '';
 const API_VERSION = 1;
 
 const STAGES = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', 'review', 'decide', 'integrate', 'pr', 'done'];
@@ -46,14 +46,14 @@ const VIEWS = [
 const store = {
   get(k, d) {
     try {
-      return localStorage.getItem(`factory.${k}`) ?? d;
+      return localStorage.getItem(`forge.${k}`) ?? d;
     } catch {
       return d;
     }
   },
   set(k, v) {
     try {
-      localStorage.setItem(`factory.${k}`, v);
+      localStorage.setItem(`forge.${k}`, v);
     } catch {}
   },
 };
@@ -107,10 +107,10 @@ async function request(type, payload = {}) {
   try {
     const r = await api('/api/requests', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-factory-token': TOKEN },
+      headers: { 'content-type': 'application/json', 'x-forge-token': TOKEN },
       body: JSON.stringify({ type, ...payload }),
     });
-    toast(r.launched ? `Queued "${type}" and launched an orchestrator` : `Queued "${type}". Your orchestrator session picks it up (/factory requests).`);
+    toast(r.launched ? `Queued "${type}" and launched an orchestrator` : `Queued "${type}". Your orchestrator session picks it up (/forge requests).`);
     refresh();
   } catch (e) {
     toast(`Request failed: ${e.message}`, true);
@@ -252,7 +252,7 @@ function md(src) {
 async function refresh() {
   try {
     const data = await api('/api/state');
-    S.error = data.apiVersion > API_VERSION ? 'This dashboard is older than the factory data. Restart `factory dash` after updating the plugin.' : null;
+    S.error = data.apiVersion > API_VERSION ? 'This data was written by a newer Forge. Restart `forge dash` after updating the plugin.' : null;
     const key = JSON.stringify({ ...data, now: undefined });
     if (key !== S.dataKey) {
       S.data = data;
@@ -261,7 +261,7 @@ async function refresh() {
     }
     if (S.drawer.id) loadDrawer(false);
   } catch (e) {
-    S.error = `Lost connection to the factory server (${e.message}). Is \`factory dash\` still running?`;
+    S.error = `Lost connection to the Forge server (${e.message}). Is \`forge dash\` still running?`;
     render();
   }
 }
@@ -299,7 +299,7 @@ function renderNav() {
   document.getElementById('footer-sessions').innerHTML = `<span class="inline-block size-1.5 rounded-full ${sessions.size ? 'bg-ok' : 'bg-muted'} mr-1.5 align-middle"></span>${sessions.size} session${sessions.size === 1 ? '' : 's'} active`;
   const dark = document.documentElement.dataset.theme === 'dark';
   document.getElementById('theme-toggle').innerHTML = `<span class="flex items-center gap-2">${icon(dark ? 'sun' : 'moon')}${dark ? 'Light' : 'Dark'} theme</span>`;
-  document.getElementById('footer-version').textContent = S.data ? `factory v${S.data.factoryVersion} · api ${S.data.apiVersion}` : '';
+  document.getElementById('footer-version').textContent = S.data ? `forge v${S.data.forgeVersion} · api ${S.data.apiVersion}` : '';
 }
 
 function render() {
@@ -310,7 +310,7 @@ function render() {
     return;
   }
   const body = { pipeline: viewPipeline, inbox: viewInbox, backlog: viewBacklog, agents: viewAgents, analytics: viewAnalytics, evals: viewEvals }[S.view]();
-  el.innerHTML = (S.error ? banner(S.error) : '') + (!S.data.initialized ? banner('This repo has no .factory/config.yml yet. Run /factory init.') : '') + body;
+  el.innerHTML = (S.error ? banner(S.error) : '') + (!S.data.initialized ? banner('This repo has no .forge/config.yml yet. Run /forge init.') : '') + body;
 }
 
 const banner = (msg) => `<div class="card border-warn/40 bg-warn/10 text-warn px-4 py-3 text-sm mb-4">${esc(msg)}</div>`;
@@ -343,7 +343,7 @@ function viewPipeline() {
     .join('')}</div>`;
   const jobs = filteredJobs();
   const head = pageHeader('Pipeline', `${counts.active} active · base <code class="font-mono text-xs">${esc(S.data.config.base)}</code> · tracker ${esc(S.data.config.tracker)}`, `<div class="flex flex-wrap gap-1.5">${filters}</div>${toggle}<button class="btn btn-primary" data-action="req" data-type="next">Run next</button>`);
-  if (!jobs.length) return head + empty('No jobs here yet. Start one with <code class="font-mono">/factory &lt;feature&gt;</code> or <code class="font-mono">/factory next</code>.');
+  if (!jobs.length) return head + empty('No jobs here yet. Start one with <code class="font-mono">/forge &lt;feature&gt;</code> or <code class="font-mono">/forge next</code>.');
   return head + (S.layout === 'table' ? jobsTable(jobs) : board(jobs));
 }
 
@@ -503,7 +503,7 @@ function viewAnalytics() {
   const sel = `<select data-action="window">${[['7', 'Last 7 days'], ['30', 'Last 30 days'], ['90', 'Last 90 days'], ['all', 'All time']]
     .map(([v, l]) => `<option value="${v}" ${S.window === v ? 'selected' : ''}>${l}</option>`)
     .join('')}</select>`;
-  let html = pageHeader('Analytics', 'How the factory itself is performing. Comparable across repos because it measures the process, not the code.', sel);
+  let html = pageHeader('Analytics', 'How Forge itself is performing. Comparable across repos because it measures the process, not the code.', sel);
   if (!s) return html + '<div class="text-muted text-sm">Loading…</div>';
   const q = s.quality;
   const cov = s.cost.reportingCoverage;
@@ -542,7 +542,7 @@ function viewAnalytics() {
 function viewEvals() {
   const e = S.evals;
   const right = `<button class="btn btn-primary" data-action="eval-run">Run eval</button>`;
-  let html = pageHeader('Evals', 'Repeatable benchmarks of the factory. Runs are stamped with the factory version and a hash of the repo’s factory config, so you can tell whether a change helped.', right);
+  let html = pageHeader('Evals', 'Repeatable benchmarks of Forge. Runs are stamped with the Forge version and a hash of the repo’s Forge config, so you can tell whether a change helped.', right);
   if (!e) return html + '<div class="text-muted text-sm">Loading…</div>';
   html += `<div class="card p-4 mb-6 grid gap-3 md:grid-cols-4 items-end">
     <label class="flex flex-col gap-1 text-xs text-muted">Tags (comma separated)<input id="eval-tags" placeholder="replay, ui"></label>
@@ -559,12 +559,12 @@ function viewEvals() {
     html += `<div class="card overflow-x-auto mb-6"><div class="px-3 pt-3 text-sm font-semibold">Runs</div><table class="tbl"><thead><tr><th>Run</th><th>Status</th><th>Config</th><th>Pass</th><th>Judge</th><th>First pass</th><th>Rounds</th><th>Escalated</th><th class="text-right">Tokens</th><th class="text-right">Cost</th><th class="text-right">Minutes</th></tr></thead><tbody>${runs
       .map((r) => {
         const s = r.summary ?? {};
-        return `<tr><td><div class="font-mono text-xs">${esc(r.id)}</div><div class="text-[11px] text-muted">${esc(r.label ?? '')}</div></td><td>${toneChip(r.status === 'done' ? 'ok' : 'accent', r.status)}</td><td class="font-mono text-[11px] text-muted">${esc(r.configHash)}<br>v${esc(r.factoryVersion)}</td><td class="tabular-nums">${pct(s.checkPassRate)}</td><td class="tabular-nums">${pct(s.avgJudgeScore)}</td><td class="tabular-nums">${pct(s.firstPassRate)}</td><td class="tabular-nums">${s.avgRounds ?? '—'}</td><td class="tabular-nums">${pct(s.escalationRate)}</td><td class="text-right tabular-nums">${tokensShort(s.avgTokens)}</td><td class="text-right tabular-nums">${usd(s.avgCostUsd)}</td><td class="text-right tabular-nums">${s.avgMinutes ?? '—'}</td></tr>`;
+        return `<tr><td><div class="font-mono text-xs">${esc(r.id)}</div><div class="text-[11px] text-muted">${esc(r.label ?? '')}</div></td><td>${toneChip(r.status === 'done' ? 'ok' : 'accent', r.status)}</td><td class="font-mono text-[11px] text-muted">${esc(r.configHash)}<br>v${esc(r.forgeVersion)}</td><td class="tabular-nums">${pct(s.checkPassRate)}</td><td class="tabular-nums">${pct(s.avgJudgeScore)}</td><td class="tabular-nums">${pct(s.firstPassRate)}</td><td class="tabular-nums">${s.avgRounds ?? '—'}</td><td class="tabular-nums">${pct(s.escalationRate)}</td><td class="text-right tabular-nums">${tokensShort(s.avgTokens)}</td><td class="text-right tabular-nums">${usd(s.avgCostUsd)}</td><td class="text-right tabular-nums">${s.avgMinutes ?? '—'}</td></tr>`;
       })
       .join('')}</tbody></table></div>`;
     html += `<div class="card p-4 mb-6"><div class="text-sm font-semibold mb-3">Compare runs</div><div class="flex flex-wrap gap-2 items-center"><select id="cmp-a">${opts(S.compare.a || runs[1]?.id)}</select><span class="text-muted">→</span><select id="cmp-b">${opts(S.compare.b || runs[0]?.id)}</select><button class="btn" data-action="compare">Compare</button></div>${S.compare.result ? compareTable(S.compare.result) : ''}</div>`;
   } else {
-    html += empty('No eval runs yet. Add tasks with <code class="font-mono">factory eval mine --pr &lt;n&gt;</code> (replays a merged PR, using its tests as the hidden check) or <code class="font-mono">factory eval new</code>, then press Run eval.');
+    html += empty('No eval runs yet. Add tasks with <code class="font-mono">forge eval mine --pr &lt;n&gt;</code> (replays a merged PR, using its tests as the hidden check) or <code class="font-mono">forge eval new</code>, then press Run eval.');
   }
   if (e.tasks.length)
     html += `<div class="card overflow-x-auto mt-6"><div class="px-3 pt-3 text-sm font-semibold">Tasks</div><table class="tbl"><thead><tr><th>Task</th><th>Tags</th><th>Hidden check</th><th>Rubric</th><th>Source</th></tr></thead><tbody>${e.tasks
@@ -585,7 +585,7 @@ function compareTable(c) {
       return `<tr><td>${esc(k)}</td><td class="tabular-nums">${esc(d.a ?? '—')}</td><td class="tabular-nums">${esc(d.b ?? '—')}</td><td class="tabular-nums ${tone}">${d.change == null ? '—' : (d.change > 0 ? '+' : '') + d.change}</td></tr>`;
     })
     .join('');
-  return `<div class="text-[11px] text-muted mt-3">config ${esc(c.a.configHash)} → ${esc(c.b.configHash)} · factory v${esc(c.a.factoryVersion)} → v${esc(c.b.factoryVersion)}</div><table class="tbl mt-2"><thead><tr><th>Metric</th><th>A</th><th>B</th><th>Δ</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return `<div class="text-[11px] text-muted mt-3">config ${esc(c.a.configHash)} → ${esc(c.b.configHash)} · Forge v${esc(c.a.forgeVersion)} → v${esc(c.b.forgeVersion)}</div><table class="tbl mt-2"><thead><tr><th>Metric</th><th>A</th><th>B</th><th>Δ</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 // ---------- drawer ----------

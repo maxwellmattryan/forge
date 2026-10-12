@@ -1,7 +1,7 @@
-# Factory learnings
+# Forge learnings
 
 <!--
-Lessons every factory agent reads before starting. Written by the retro agent (via a reviewed
+Lessons every Forge agent reads before starting. Written by the retro agent (via a reviewed
 PR) and by humans. Keep each entry short, actionable and backed by evidence (job ids). Prune
 entries that stop paying for themselves; this file is read on every agent run, so its length
 costs tokens on every job.

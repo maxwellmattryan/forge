@@ -1,11 +1,11 @@
 {
-  "name": "@maxwellmattryan/factory",
-  "version": "0.1.0",
-  "description": "A generic, self-improving software factory for AI coding agents: orchestrator, agent roster, worktrees, PR sync, trackers, evals and a live dashboard.",
+  "name": "@maxwellmattryan/forge",
+  "version": "0.2.0",
+  "description": "Forge: a lightweight, self-improving software factory for AI coding agents: orchestrator, agent roster, worktrees, PR sync, trackers, evals and a live dashboard.",
   "type": "module",
   "license": "MIT",
   "bin": {
-    "factory": "bin/factory"
+    "forge": "bin/forge"
   },
   "files": [
     "bin",
@@ -25,12 +25,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/maxwellmattryan/factory.git"
+    "url": "git+https://github.com/maxwellmattryan/forge.git"
   },
   "keywords": [
     "ai",
     "agents",
     "claude-code",
+    "forge",
     "software-factory",
     "orchestration",
     "worktrees"

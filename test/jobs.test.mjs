@@ -14,7 +14,7 @@ test('job lifecycle: ids, transitions, claims, usage, verdict policy', () => {
     const config = defaults();
     const a = createJob(root, config, { title: 'Add dark mode toggle', ref: '42' });
     assert.equal(a.id, '42-add-dark-mode-toggle');
-    assert.equal(a.branch, 'factory/42-add-dark-mode-toggle');
+    assert.equal(a.branch, 'forge/42-add-dark-mode-toggle');
     const b = createJob(root, config, { title: 'Add dark mode toggle', ref: '42' });
     assert.equal(b.id, '42-add-dark-mode-toggle-2');
     const c = createJob(root, config, { title: 'Reading time', ref: 'reading-time' });

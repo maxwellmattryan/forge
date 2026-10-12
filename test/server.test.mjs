@@ -24,7 +24,7 @@ test('dashboard server rejects DNS-rebound hosts and cross-origin posts', async 
     assert.equal(await call(port, { host: `127.0.0.1:${port}` }), 200);
     assert.equal(await call(port, { host: `localhost:${port}` }), 200);
     assert.equal(await call(port, { host: `evil.example:${port}` }), 421);
-    const post = { 'content-type': 'application/json', 'x-factory-token': 'wrong', host: `127.0.0.1:${port}`, origin: `http://127.0.0.1:${port}` };
+    const post = { 'content-type': 'application/json', 'x-forge-token': 'wrong', host: `127.0.0.1:${port}`, origin: `http://127.0.0.1:${port}` };
     assert.equal(await call(port, post, 'POST', '{"type":"sync"}'), 403);
     const { origin: _o, ...noOrigin } = post;
     assert.equal(await call(port, noOrigin, "POST", "{\"type\":\"sync\"}"), 403);
