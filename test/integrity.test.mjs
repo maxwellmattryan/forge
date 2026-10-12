@@ -5,7 +5,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.mjs';
 import { defaults } from '../lib/config.mjs';
-import { blockingLines, commandSources, compactIntegrity, countTestDecls, deletionSanctions, devDepsSection, isConfigPath, markerHits, packageJsonDetail, renameDropsTest, renderIntegrity, testIntegrity } from '../lib/integrity.mjs';
+import { blockingLines, commandSources, compactIntegrity, countTestDecls, deletionSanctions, devDepsSection, hiddenChanges, isConfigPath, markerHits, packageJsonDetail, renameDropsTest, renameSanctions, renderIntegrity, testIntegrity } from '../lib/integrity.mjs';
 
 const commitAll = (cwd, msg) => {
   execFileSync('git', ['add', '-A'], { cwd });
@@ -198,13 +198,30 @@ test('deletionSanctions: only an explicit deletion statement in Approach sanctio
     '## Tasks',
     '- [ ] delete `test/tasks.test.mjs`',
   ].join('\n');
-  assert.deepEqual(deletionSanctions(spec).sort(), ['test/legacy.test.mjs', 'test/new.test.mjs', 'test/old.test.mjs']);
+  assert.deepEqual(deletionSanctions(spec).sort(), ['test/legacy.test.mjs', 'test/old.test.mjs'], 'only the object of the verb, not a path named later on the line');
+  const sanctions = (line) => deletionSanctions(`## Approach\n${line}\n`);
+  // Wordings that mention the path and a delete verb, but never ask for the file to go.
+  for (const line of [
+    'In `test/cli.test.mjs`, remove the flaky assertion and add a new case',
+    'Don’t delete `test/a.test.mjs`',
+    'Avoid removing `test/a.test.mjs`',
+    'Without deleting `test/a.test.mjs`, drop its slow case',
+    'Leave `test/a.test.mjs` alone; removing it would lose coverage',
+    'Remove the duplication in `test/foo.test.mjs`',
+    'We must not delete `test/a.test.mjs`',
+  ]) {
+    assert.deepEqual(sanctions(line), [], line);
+  }
+  assert.deepEqual(sanctions('- Remove the test files `test/a.test.mjs`, `test/b.test.mjs` and `test/c.test.mjs`.'), ['test/a.test.mjs', 'test/b.test.mjs', 'test/c.test.mjs']);
+  assert.deepEqual(sanctions('- Drop `test/a.test.mjs`: superseded.'), ['test/a.test.mjs']);
   assert.deepEqual(deletionSanctions('# Spec\n## Goal\nDelete `test/a.test.mjs`.\n'), [], 'no Approach section sanctions nothing');
 });
 
 test('renameDropsTest: a rename that changes the test suffix leaves the runner', () => {
   assert.equal(renameDropsTest('test/a.test.mjs', 'test/b.test.mjs'), false);
-  assert.equal(renameDropsTest('test/a.test.mjs', 'test/sub/a.test.mjs'), false);
+  assert.equal(renameDropsTest('test/a.test.mjs', 'test/sub/a.test.mjs'), true, 'test/*.test.mjs no longer matches a subdirectory');
+  assert.equal(renameDropsTest('test/a.test.mjs', 'spec/a.test.mjs'), true);
+  assert.equal(renameDropsTest('test/a.test.js', 'test/a.test.ts'), true, 'a runner glob may name the extension');
   assert.equal(renameDropsTest('tests/test_a.py', 'tests/test_b.py'), false);
   assert.equal(renameDropsTest('test/a.test.mjs', 'test/a.test.mjs.off'), true);
   assert.equal(renameDropsTest('test/a.test.mjs', 'test/a.mjs'), true);
@@ -262,12 +279,12 @@ test('security: git attributes and NUL bytes cannot hide added skip markers', ()
   } finally {
     repo.cleanup();
   }
-  // A real binary outside the test pattern is still skipped for markers.
-  ({ repo, check } = jobRepo({ 'README.md': '# x\n' }));
+  // (d) a NUL byte in a Rust source file outside the test pattern: rustc still honours #[ignore].
+  ({ repo, check } = jobRepo({ 'src/lib.rs': '#[test]\nfn a() {}\n' }));
   try {
-    write(repo.dir, 'assets/blob.bin', '\0\0#[ignore]\n');
-    commitAll(repo.dir, 'binary');
-    assert.deepEqual(check().markers, []);
+    write(repo.dir, 'src/lib.rs', '// a\0b\n#[test]\n#[ignore]\nfn a() {}\n');
+    commitAll(repo.dir, 'nul');
+    assert.deepEqual(check().markers.map((m) => `${m.path}:${m.line}`), ['src/lib.rs:3']);
   } finally {
     repo.cleanup();
   }
@@ -413,6 +430,140 @@ test('markers: an unrelated removed line mentioning a marker does not cancel a n
     write(repo.dir, 'test/a.test.mjs', "test('one', () => {});\nit.skip('two', () => {});\n");
     commitAll(repo.dir, 'swap');
     assert.deepEqual(check().markers.map((m) => `${m.path}:${m.line}`), ['test/a.test.mjs:2']);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('security: merged hunks and blank-context rendering cannot hide markers', () => {
+  const lines = Array.from({ length: 12 }, (_, i) => `test('t${i}', () => {});`);
+  for (const [key, value] of [['diff.interHunkContext', '10'], ['diff.suppressBlankEmpty', 'true']]) {
+    const { repo, check } = jobRepo({ 'test/a.test.mjs': `${lines.slice(0, 4).join('\n')}\n\n${lines.slice(4).join('\n')}\n` });
+    try {
+      const edited = [...lines];
+      edited[1] = "test('t1 renamed', () => {});";
+      edited[6] = "test.skip('t6', () => {});";
+      write(repo.dir, 'test/a.test.mjs', `${edited.slice(0, 4).join('\n')}\n\n${edited.slice(4).join('\n')}\n`);
+      commitAll(repo.dir, 'edit and skip');
+      repo.git('config', key, value);
+      repo.git('config', 'diff.interHunkContext', '10');
+      const r = check();
+      assert.deepEqual(r.markers.map((m) => `${m.path}:${m.line}`), ['test/a.test.mjs:8'], `${key}=${value}`);
+      assert.equal(r.ok, false);
+    } finally {
+      repo.cleanup();
+    }
+  }
+});
+
+test('security: grafts cannot empty the diff', () => {
+  const { repo, check, job } = jobRepo({ 'test/a.test.mjs': "test('one', () => {});\n" });
+  try {
+    fs.rmSync(path.join(repo.dir, 'test/a.test.mjs'));
+    commitAll(repo.dir, 'delete');
+    const sh = (...a) => execFileSync('git', a, { cwd: repo.dir, encoding: 'utf8' }).trim();
+    // main's parent becomes HEAD, and HEAD's parent skips over main, so the history has no cycle.
+    fs.writeFileSync(path.join(repo.dir, '.git/info/grafts'), `${sh('rev-parse', 'main')} ${sh('rev-parse', 'HEAD')}\n${sh('rev-parse', 'HEAD')} ${sh('rev-parse', 'main^')}\n`);
+    assert.equal(sh('merge-base', 'main', 'HEAD'), sh('rev-parse', 'HEAD'), 'the graft fools a plain merge-base');
+    const r = check(undefined, { ...job, branch: undefined });
+    assert.deepEqual(r.deleted.map((d) => d.path), ['test/a.test.mjs']);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('security: moving a test where the runner may not look counts as deleted unless the spec says to move it', () => {
+  const { repo, check } = jobRepo({ 'test/a.test.mjs': "test('one', () => {});\n", 'test/b.test.mjs': "test('two', () => {});\n" });
+  try {
+    fs.mkdirSync(path.join(repo.dir, 'test/old'));
+    fs.mkdirSync(path.join(repo.dir, 'spec'));
+    repo.git('mv', 'test/a.test.mjs', 'test/old/a.test.mjs');
+    repo.git('mv', 'test/b.test.mjs', 'spec/b.test.mjs');
+    commitAll(repo.dir, 'move');
+    let r = check();
+    assert.deepEqual(r.deleted.map((d) => `${d.path} -> ${d.to}`).sort(), ['test/a.test.mjs -> test/old/a.test.mjs', 'test/b.test.mjs -> spec/b.test.mjs']);
+    assert.equal(r.blocking, 2);
+    assert.deepEqual(r.renamed, []);
+    write(repo.dir, '.forge/jobs/job/spec.md', '# Spec\n## Approach\n- Move `test/a.test.mjs` to `test/old/`.\n- Delete `test/b.test.mjs`.\n');
+    r = check();
+    const a = r.deleted.find((d) => d.path === 'test/a.test.mjs');
+    assert.equal(a.inSpec, true, 'an explicit move sanctions it');
+    assert.equal(r.deleted.find((d) => d.path === 'test/b.test.mjs').inSpec, false, 'a delete statement does not sanction a move');
+    assert.equal(r.blocking, 1);
+    assert.deepEqual(renameSanctions('## Approach\nRename `test/a.test.js` to `test/a.test.ts`.\nDon\'t move `test/c.test.mjs` to `x/`.\n'), [['test/a.test.js', 'test/a.test.ts']]);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('hiddenChanges: index flags and filters that make the disk differ from HEAD', () => {
+  const { repo } = jobRepo({ 'test/a.test.mjs': "test('one', () => {});\n", 'lib/x.mjs': 'export {};\n', 'assets/big.bin': 'pointer\n' });
+  const config = defaults();
+  try {
+    assert.deepEqual(hiddenChanges(repo.dir, config), []);
+    repo.git('update-index', '--skip-worktree', 'test/a.test.mjs');
+    repo.git('update-index', '--assume-unchanged', 'lib/x.mjs');
+    fs.rmSync(path.join(repo.dir, 'test/a.test.mjs'));
+    assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: repo.dir, encoding: 'utf8' }), '', 'git status sees nothing');
+    assert.deepEqual(hiddenChanges(repo.dir, config), ['assume-unchanged: lib/x.mjs', 'skip-worktree: test/a.test.mjs']);
+    repo.git('update-index', '--no-skip-worktree', 'test/a.test.mjs');
+    repo.git('update-index', '--no-assume-unchanged', 'lib/x.mjs');
+    repo.git('checkout', '--', 'test/a.test.mjs');
+
+    // A smudge filter that adds .skip on checkout and a clean filter that removes it again.
+    repo.git('config', 'filter.x.smudge', "sed 's/^test(/test.skip(/'");
+    repo.git('config', 'filter.x.clean', "sed 's/^test.skip(/test(/'");
+    write(repo.dir, '.git/info/attributes', 'test/*.mjs filter=x\n*.bin filter=lfs\n');
+    fs.rmSync(path.join(repo.dir, 'test/a.test.mjs'));
+    repo.git('checkout', '--', 'test/a.test.mjs');
+    assert.match(fs.readFileSync(path.join(repo.dir, 'test/a.test.mjs'), 'utf8'), /test\.skip\(/);
+    assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: repo.dir, encoding: 'utf8' }), '');
+    assert.deepEqual(hiddenChanges(repo.dir, config), ['filter x changes the checked-out file: test/a.test.mjs'], 'files outside tests and config are not checked');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('markers: chained and shorthand forms; replace objects cannot hide a marker; NUL at base still counts', () => {
+  assert.equal(markerHits('test/a.test.mjs', "  .skip('later', () => {", true), true, 'a chained call on its own line');
+  assert.equal(markerHits('test/a.test.mjs', "test('x', { skip }, () => {", true), true, 'node:test option shorthand');
+  assert.equal(markerHits('test/a.test.mjs', "const { skipped } = opts;", true), false);
+  {
+    const { repo, check } = jobRepo({ 'test/a.test.mjs': "test('one', () => {});\n" });
+    try {
+      write(repo.dir, 'test/a.test.mjs', "test('one', () => {});\ntest.skip('two', () => {});\n");
+      commitAll(repo.dir, 'skip');
+      const sh = (...a) => execFileSync('git', a, { cwd: repo.dir, encoding: 'utf8' }).trim();
+      const fake = sh('commit-tree', 'HEAD^{tree}', '-p', 'main', '-m', 'fake');
+      repo.git('replace', sh('rev-parse', 'main'), fake);
+      assert.deepEqual(check().markers.map((m) => `${m.path}:${m.line}`), ['test/a.test.mjs:2']);
+    } finally {
+      repo.cleanup();
+    }
+  }
+  {
+    const { repo, check } = jobRepo({ 'test/a.test.mjs': "// \0\ntest('one', () => {});\ntest('two', () => {});\n" });
+    try {
+      write(repo.dir, 'test/a.test.mjs', "// \0\ntest('one', () => {});\n");
+      commitAll(repo.dir, 'drop one');
+      assert.deepEqual([check().count.before, check().count.after], [2, 1], 'the base side of a NUL test file is counted');
+    } finally {
+      repo.cleanup();
+    }
+  }
+});
+
+test('render: control characters in a config rename detail and backticks in paths stay inline', () => {
+  const evil = 'Makefile\n## injected';
+  const { repo, check } = jobRepo({ [evil]: 'x:\n', 'test/a``b.test.mjs': "test('one', () => {});\n" });
+  try {
+    repo.git('mv', evil, 'Makefile');
+    fs.rmSync(path.join(repo.dir, 'test/a``b.test.mjs'));
+    commitAll(repo.dir, 'rename');
+    const md = renderIntegrity(check(defaults()));
+    assert.doesNotMatch(md, /^## injected/m);
+    assert.match(md, /renamed from Makefile\\x0a## injected/);
+    assert.match(md, /^- ``` test\/a``b\.test\.mjs ```$/m, 'the delimiter outruns the longest backtick run');
   } finally {
     repo.cleanup();
   }

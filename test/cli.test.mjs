@@ -273,6 +273,16 @@ test('verify integrity: warn and block', () => {
     assert.match(md, /^- `test\/a\.test\.mjs` \(named in spec\)$/m);
     assert.equal(f('job', 'get', id, 'verify.1'), 'PASS');
 
+    // Files the runner sees must be the files the report saw: index flags that hide a change fail the gate.
+    execFileSync('git', ['update-index', '--assume-unchanged', 'test/b.test.mjs'], { cwd: wtPath });
+    write('test/b.test.mjs', "test.skip('three', () => {});\n");
+    const hidden = failing('verify', id).out;
+    assert.equal(hidden.failure.name, 'worktree-clean');
+    assert.match(hidden.failure.tail, /^assume-unchanged: test\/b\.test\.mjs$/m);
+    assert.equal(hidden.integrity, null);
+    execFileSync('git', ['update-index', '--no-assume-unchanged', 'test/b.test.mjs'], { cwd: wtPath });
+    execFileSync('git', ['checkout', '--', 'test/b.test.mjs'], { cwd: wtPath });
+
     // AC7 through verify: an unresolvable base fails block with the error as the tail, and passes warn.
     f('job', 'set', id, '--field', 'base=no-such-branch');
     const errored = failing('verify', id).out;
