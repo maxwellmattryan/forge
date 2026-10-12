@@ -13,4 +13,4 @@ Check:
 - Test names describe the behaviour; fixtures are minimal.
 
 Run the configured test command yourself if the verify log is missing or stale.
-Severity guide: an acceptance criterion with no test → major; AC table missing a row, or naming a proof that doesn't exist → major; a disabled/weakened test → blocker; an unjustified integrity finding → blocker.
+Severity guide: an acceptance criterion with no test → major; AC table missing a row, or naming a proof that doesn't exist → major; a disabled/weakened test → blocker; an unjustified deleted test or skip/focus marker → blocker; any other unjustified integrity finding → major.

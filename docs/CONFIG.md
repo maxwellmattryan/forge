@@ -179,14 +179,16 @@ Any profile can add `runtime.diversity: true`. Expect warnings by design where a
 
 ## Verify integrity
 
-Every `forge verify` on a clean worktree also reports what the committed diff since the merge-base with the base branch did to the tests, in an `## integrity` section of `verify/round-N.md` and a compact `integrity` key in its JSON:
-- **Deleted test files**: files matching `evals.testPattern` that were deleted, or renamed to a path outside it.
+Every `forge verify` on a clean worktree also reports what the committed diff since the merge-base with the base branch did to the tests, in an `## integrity` section of `verify/round-N.md` and a compact `integrity` key in its JSON. Test files are paths matching `evals.testPattern`; when that is null, the built-in default (`DEFAULT_TEST_PATTERN` in `lib/integrity.mjs`) matches files under `test/`, `tests/`, `__tests__/`, `spec/` or `specs/`, `*.test.*`/`*.spec.*` (also `-test`, `_spec`, …), `*_test.go|py|rs` and `test_*.py`. The base is `refs/remotes/<git.remote>/<base>`, else `refs/heads/<base>`; tags and `git replace` objects are ignored.
+- **Deleted test files**: test files that were deleted, renamed out of the pattern, renamed to a different test suffix (`a.test.mjs` → `a.test.mjs.off`), or replaced by a symlink or submodule.
 - **Renamed test files**: still inside the pattern; informational.
 - **Skip/focus markers added**: `.skip`/`.only`/`.todo`, `xit`/`fit`, node:test `{ skip: true }`, `t.Skip`, `@Disabled`, `#[ignore]`, pytest and unittest skips. Moving an existing marker is not a finding.
 - **Test-count delta**: declared tests in the changed test files, before and after.
-- **Test, build or CI config edits**: `package.json` `scripts`/`jest`/`mocha`/`ava`, Make and just files, CI config, `Cargo.toml` dev-dependencies, test-runner config, `.forge/config.yml`, and script files the configured `commands` run.
+- **Test, build or CI config edits**: `package.json` `scripts`/`jest`/`mocha`/`ava`, Make and just files, CI config, `Cargo.toml` dev-dependencies, test-runner config, `.gitattributes`, `.forge/config.yml`, and script files the configured `commands` run.
 
-Under `warn` the report never changes the result; reviewers and the approver read it. Under `block`, a deleted test file or an added skip/focus marker fails verify (`failure.name: integrity`), and so does a report that cannot be computed. A deletion whose exact path the spec's `## Approach` names is listed as *named in spec* and never blocks. The mode is always read from the main checkout's config, so a job that edits `.forge/config.yml` cannot switch it off.
+Under `warn` the report never changes the result; reviewers and the approver read it. Under `block`, a deleted test file or an added skip/focus marker fails verify (`failure.name: integrity`), and so does a report that cannot be computed (base not found, invalid pattern, or a base that already contains commits made on the job branch). A plain deletion is sanctioned, listed as *named in spec* and never blocks, when a line of the spec's `## Approach` names its exact path and says delete, remove or drop (for example ``- Delete `test/old.test.mjs`: superseded``); a mere mention, a negated line, a rename or a type change is never sanctioned. For any other legitimate skip or deletion, the human escape is `verifyIntegrity: warn`. The mode is always read from the main checkout's config, so a job that edits `.forge/config.yml` cannot switch it off.
+
+In the verify JSON, `integrity` is `null` when the worktree is dirty (no report is computed) and `{ "mode", "ok", "error" }` when the report cannot be computed.
 
 ## Repo-layer files
 
