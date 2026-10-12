@@ -509,11 +509,13 @@ function viewAnalytics() {
   const q = s.quality;
   const cov = s.cost.reportingCoverage;
   const kpi = (label, value, sub = '') => `<div class="kpi"><div class="kpi-label">${label}</div><div class="kpi-value">${value}</div>${sub ? `<div class="text-[11px] text-muted">${sub}</div>` : ''}</div>`;
-  html += `<div class="grid gap-3 grid-cols-2 lg:grid-cols-4">
+  const deltaCov = q.humanDeltaCoverage ?? { merged: 0, measured: 0 };
+  html += `<div class="grid gap-3 grid-cols-2 lg:grid-cols-3">
     ${kpi('Jobs', num(s.counts.total), `${s.counts.active} active · ${s.counts.done} done · ${s.counts.cancelled} cancelled`)}
     ${kpi('First-pass review', pct(q.firstPassReviewRate), `avg ${q.avgRounds ?? '—'} rounds`)}
     ${kpi('Escalation rate', pct(q.escalationRate), `${q.humanReworks} human rework(s)`)}
     ${kpi('Human feedback on PRs', pct(q.humanFeedbackOnPrRate), 'what reviewers missed')}
+    ${kpi('Human delta after push', pct(q.humanDeltaRate ?? null), `median ${esc(q.medianHumanDeltaLines ?? '—')} lines · ${esc(deltaCov.measured)} of ${esc(deltaCov.merged)} merged measured`)}
     ${kpi('Median to PR', s.speed.medianMinutesToPr == null ? '—' : `${s.speed.medianMinutesToPr}m`, `to done ${s.speed.medianMinutesToDone ?? '—'}m`)}
     ${kpi('Verify first-pass', pct(q.verifyFirstPassRate), 'build/lint/test before review')}
     ${kpi('Tokens', tokensShort(s.cost.totalTokens), `${tokensShort(s.cost.avgTokensPerJob)} per job`)}
