@@ -32,7 +32,7 @@ forge requests          # dashboard/inbox requests; claim and handle them (see "
 ```
 If `.forge/config.yml` is missing (exit code 2 / "no .forge/config.yml"), run **init** (`reference/init.md`) unless the user explicitly asked for something else. Read `forge config show` once per session. You need `git.base`, `pipeline.*`, `review.*`, `runtime.models`, `pr.*`, `merge.*`, `infra.*`, `resources`, `services`.
 
-Report `sync` results the human cares about in one line each: merged PRs, new PR feedback, new conflicts, finished umbrella jobs. For each result with `mergeDeferred: true`, run `forge pr merge <id>` again (it re-decides from fresh CI state).
+Report `sync` results the human cares about in one line each: merged PRs, new PR feedback, new conflicts, finished umbrella jobs, `unblocked: true` (its dependencies are done: `/forge continue <id>`), and `retargeted` (a stacked job moved back to `to` after its dependency merged). For each result with `mergeDeferred: true`, run `forge pr merge <id>` again (it re-decides from fresh CI state).
 
 ## Commands (route on the first word of the arguments)
 
@@ -58,7 +58,7 @@ Report `sync` results the human cares about in one line each: merged PRs, new PR
 
 ## Run a job
 
-Claim it (`forge job claim <id> --session ${CLAUDE_SESSION_ID}`; on exit code 3 another live session owns it, so tell the human and stop). Then walk the stages.
+Claim it (`forge job claim <id> --session ${CLAUDE_SESSION_ID}`; on exit code 3 another live session owns it, so tell the human and stop. On exit code 4 the job waits on dependencies that are not done: report that line and move on. Pass `--force` only when the human asks to stack it on an unmerged dependency: its worktree then branches from that dependency's branch, its PR targets that branch, and `forge sync` retargets it once the dependency merges). Then walk the stages.
 Job kinds change the walk: `eval` jobs follow eval mode (`reference/evals.md`), and `retro` jobs always stop at the spec gate (`reference/retro.md`). For multi-service work, infrastructure, runbooks or work in other repos, follow `reference/infra.md`. At each stage first `forge job set <id> --stage <stage> --state running`. Spawn agents with the Agent tool, `subagent_type: "forge:<role>"`, `model` from `runtime.models.<role>` (reviewers: the panel entry's `model`, else `runtime.models.reviewer`). Wrap every spawn:
 
 ```bash
@@ -78,7 +78,7 @@ forge job agent <id> end --role <role> --agent-id <agentId> --import \
 - If PRs are enabled: `forge pr find <id>`. If a PR exists, this is a continuation, so load `reference/pr-lifecycle.md`.
 
 ### 1. Plan (`pipeline.plan`: `always`, or `auto` when the request is multi-part, vague or plausibly more than ~600 changed lines; skip on `never`)
-Spawn **planner**. On `PLAN: SPLIT`, create each child with `forge tracker create --title … --body … --parent <ref>` (when a tracker is in use) and `forge job new --title … --body … --parent <id> [--ref <new ref>]`. Then set the parent to `--stage plan --state waiting --waiting-on external --reason "split into N jobs"`. Run the children (respecting `Depends on`), not the parent. External items go into the parent's `runbook.md` and the report to the human.
+Spawn **planner**. On `PLAN: SPLIT`, create each child with `forge tracker create --title … --body … --parent <ref>` (when a tracker is in use) and `forge job new --title … --body … --parent <id> [--ref <new ref>]`. Map each item's `Depends on: #n` to the child job id and record it: `forge job set <child> --field 'dependsOn=["<id>"]'`. Children with unfinished dependencies park themselves (`waiting` on `external`). Then set the parent to `--stage plan --state waiting --waiting-on external --reason "split into N jobs"`. Run only the unblocked children, not the parent. External items go into the parent's `runbook.md` and the report to the human.
 
 ### 2. Spec
 Spawn **spec-writer** (inputs: request, plan, design if present, `feedback.md`. Resources: `config.resources`). Its reply carries size, design, infra and suggested reviewers.
@@ -100,7 +100,7 @@ On `NEEDS-INPUT`: `--state waiting --waiting-on input`, show the human `question
 When `commands.e2e` is set, verify also runs it after the other steps if the diff touches `verifyE2e.paths` (or always/never per `verifyE2e.when`); a failing e2e is a verify failure like any other.
 
 ### 7. Review
-First run `forge job scope <id>` (read only its JSON). Then spawn one **reviewer** per selected lens, **all in parallel** (background), each with its lens, its checklist path (`checklists` in job paths), the scope `file`, and its output `review/round-<n>/<lens>.md`. Wait for **all** of them. Then:
+First run `forge job scope <id>` (read only its JSON). If the panel has `ui`, `ux` or `accessibility` and `commands.dev` is set, run `forge run <id> dev --background` once now and put its `port` in those reviewers' briefs. Then spawn one **reviewer** per selected lens, **all in parallel** (background), each with its lens, its checklist path (`checklists` in job paths), the scope `file`, and its output `review/round-<n>/<lens>.md`. Wait for **all** of them, then `forge stop <id>` if you started the server. Then:
 `forge job verdicts <id> --compact` → `PASS` → Decide · `CHANGES` → Build (next round) · `MALFORMED` → re-spawn just that reviewer once. If it is still `MALFORMED`, run `forge job verdicts <id> --compact --malformed changes`: the lens counts as `CHANGES`, the builder gets its file as input, and the job records a note.
 Verdicts come from the tagged severities under the repo's `review.blockOn`, not from the reviewer's own first line.
 
