@@ -42,13 +42,15 @@ When a shape must change: bump the version constant, add a migration keyed by th
 `queued | running | waiting | blocked | failed | cancelled | done`
 
 `waitingOn` says why a job is waiting:
-`spec-approval | input | escalation | infra | conflicts | rounds-exhausted | pr-review | external`
+`spec-approval | input | escalation | infra | conflicts | rounds-exhausted | pr-review | external | budget`
 
 Trackers see a coarser view: `queued`, `in-progress`, `review`, `blocked`, `done`, `cancelled`. Adapters map those to labels, GitHub Project options, or anything else.
 
 **Ownership**: a session claims a job (`owner.session` plus a heartbeat refreshed on every write, including every `forge run`). Another session can take over only with `--force`, or after 30 idle minutes with no agent still marked running (a running agent keeps the claim alive for up to two hours after it started, so a long builder is not mistaken for a dead session). Jobs record each session that drove them in `runs[]`.
 
 **Evidence**: every `forge verify` run records the worktree HEAD it checked, its attempt number within the round, and its result; earlier attempts are archived, never overwritten, so "verify first-pass" means the first attempt. `forge pr open` refuses to push a HEAD that the latest verify did not pass on. `forge job verdicts` records the sha the reviewers saw. Evidence for an older commit is not evidence.
+
+**Budgets**: `pipeline.budget` limits tokens, estimated cost, agent minutes (summed agent run time), committed changed lines vs the base, and failed verify runs per round. Limits are read from config at every check, and a job's own `budget.limits` override them. Three checkpoints enforce them: `forge job agent end`, `forge job round` (before incrementing) and `forge verify`. An exceeded key parks the job at `waiting` on `budget` with its stage kept, logs a `budget` event, and adds a `budget` block to the command's JSON. `forge job budget <id> --set k=v` raises a limit; `--ack` grants one more full budget past the current use (a `verifyRetries` ack lasts only for its round). Neither changes state; the orchestrator resumes the job. Every checkpoint writes `budget.lastCheck` with what was used, so the dashboard can show it without running git.
 
 **Inbox**: dashboard requests are claimed by a session before they are handled, under a lock, so two orchestrators draining the same inbox cannot both act on one request. A claim with no ack for 30 minutes can be taken over.
 

@@ -35,7 +35,7 @@ It ships as a **Claude Code plugin** (an orchestrator skill + 9 agents + a zero-
 - 🔁 **PR-aware across sessions.** `forge sync` reconciles every job with GitHub: merged, closed, behind base, conflicting, CI failing, new review threads. `/forge continue #123` picks up any PR, including ones a human started.
 - 🗂️ **Your tracker, your way.** A local `backlog.md`, GitHub Issues (with optional label and/or GitHub Projects status sync that reads `.github/project-config.yml`), or your own adapter in `.forge/trackers/<name>.mjs`.
 - 🔍 **A review panel you choose.** Eleven built-in lenses (code, tests, security, ui, ux, accessibility, performance, realtime, infra, api, docs), repo-specific checklists, and a severity policy (`blockOn`) that decides what forces another round.
-- 🙋 **Humans at the right moments.** Spec approval, questions, escalations, infra runbooks and merge conflicts stop the job and land in the dashboard's *Needs you* inbox.
+- 🙋 **Humans at the right moments.** Spec approval, questions, escalations, infra runbooks, merge conflicts and budget overruns stop the job and land in the dashboard's *Needs you* inbox.
 - ✍️ **You're the author.** Nothing Forge produces credits an AI: no co-author trailers, no "Generated with" footers, no session links in commits, PRs, issues or comments. See [Authorship](#authorship).
 - 📈 **Measured and self-improving.** Per-agent and per-job token usage with API-equivalent cost, Forge metrics comparable across repos, eval suites (including replays of your own merged PRs), and retros that propose improvements as reviewed PRs, each logged as an experiment with a baseline.
 
