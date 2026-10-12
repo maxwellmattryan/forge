@@ -44,6 +44,7 @@ runtime:
   provider: anthropic        # informational; the roster is provider-neutral markdown
   host: claude-code
   maxParallelJobs: 3
+  diversity: false           # warn when the approver or a lens shares the builder's model family (never blocks)
   models:                    # per role; aliases (opus, sonnet, haiku, fable) or full model ids
     orchestrator: inherit
     planner: opus
@@ -156,6 +157,18 @@ dashboard:
   port: 7400
   launcher: null             # opt-in shell template to start a headless orchestrator for dashboard requests, e.g. 'claude -p "{prompt}"'
 ```
+
+## Model profiles
+
+`/forge init` offers three presets for `runtime.models`. The defaults above are not a preset; they predate them.
+
+| Profile | Models |
+|---|---|
+| Balanced (recommended) | planner, spec-writer, builder, retro, judge `opus`; approver `sonnet`; designer, reviewer, integrator `sonnet`; security lens `opus` |
+| Economy | builder and approver `sonnet`; everything else `haiku`, except the security lens `sonnet` |
+| Max quality | everything `opus`; spec-writer and builder `fable` if available |
+
+Any profile can add `runtime.diversity: true`. `forge roster` always reports `diversity.overlap`: the approver and every panel lens whose model shares the builder's family (`opus`, `sonnet`, `haiku` or `fable` when the model names one, else the whole model string; `inherit` resolves through `runtime.models.orchestrator`). With `diversity: true`, `forge roster` and `forge init write` also return one warning per overlap. Diversity warns; it never blocks a job.
 
 ## Repo-layer files
 
