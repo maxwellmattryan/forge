@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.0
+
+- README badges for dependencies, Node and license use the ember palette instead of grey.
+
 ## 0.5.0
 
 Loop hardening before Forge drives its own development.

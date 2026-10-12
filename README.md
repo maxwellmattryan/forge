@@ -14,9 +14,9 @@
 <p align="center">
   <a href="https://github.com/maxwellmattryan/forge/blob/main/CHANGELOG.md"><img alt="version" src="https://img.shields.io/github/package-json/v/maxwellmattryan/forge?color=F97316&label=version"></a>
   <a href="#install"><img alt="Claude Code plugin" src="https://img.shields.io/badge/Claude%20Code-plugin-EA580C"></a>
-  <img alt="zero dependencies" src="https://img.shields.io/badge/dependencies-zero-52525B">
-  <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A520-52525B">
-  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-52525B"></a>
+  <img alt="zero dependencies" src="https://img.shields.io/badge/dependencies-zero-C2410C">
+  <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A520-9A3412">
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-7C2D12"></a>
 </p>
 
 ⚒️ **Forge** is a lightweight, self-improving **software factory** for AI coding agents. You hand it a feature, a bug or a backlog item. A team of agents plans it, specs it, builds it in its own git worktree, reviews it through the lenses your repo cares about, and opens a pull request, or stops and asks you when only a human can decide.
