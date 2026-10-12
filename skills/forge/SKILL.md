@@ -97,6 +97,7 @@ On `NEEDS-INPUT`: `--state waiting --waiting-on input`, show the human `question
 
 ### 6. Verify
 `forge verify <id>` (deterministic: the configured build/lint/test commands, logged). It refuses an uncommitted worktree, records the HEAD sha it checked, and keeps every attempt (`attempt` in its output). On failure, send the builder back with the verify file as input **without** a new review round, until verify returns `budget.stopped`: `pipeline.budget.verifyRetries` is used up and the job is already waiting on `budget`.
+When `commands.e2e` is set, verify also runs it after the other steps if the diff touches `verifyE2e.paths` (or always/never per `verifyE2e.when`); a failing e2e is a verify failure like any other.
 
 ### 7. Review
 First run `forge job scope <id>` (read only its JSON). Then spawn one **reviewer** per selected lens, **all in parallel** (background), each with its lens, its checklist path (`checklists` in job paths), the scope `file`, and its output `review/round-<n>/<lens>.md`. Wait for **all** of them. Then:

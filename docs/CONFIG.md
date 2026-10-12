@@ -38,6 +38,11 @@ commands:                    # what `forge run <job> <name>` executes inside the
   dev: null                  # e.g. "yarn dev --port {port}"
   e2e: null
 verify: [build, lint, test]  # the deterministic gate before review, in order; unset commands are skipped
+verifyE2e:                   # after every verify step passes, also run commands.e2e (not when e2e is listed in verify)
+  when: ui                   # ui: only when the job's diff touches `paths` · always · never
+  paths: ["*.html", "*.css", "*.scss", "*.sass", "*.less", "*.svelte", "*.vue", "*.jsx", "*.tsx", "*.astro"]
+                             # `forge job scope` matching: exact path, `dir/` prefix, * ** ? globs; a slash-free
+                             # glob also matches the basename. A list here replaces the default.
 ports: { base: 4100, span: 100 }
 
 runtime:

@@ -9,3 +9,5 @@ Check:
 - Feedback for every action (pending, success, failure); no dead ends.
 - Keyboard flow works for the main path.
 - Behaviour is consistent with similar features elsewhere in the product.
+
+Save screenshots of what you checked to the job's `screenshots` dir (in your brief) as `<lens>-<what>.png` and list them under Verified; if you could not capture any, say so.

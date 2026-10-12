@@ -8,7 +8,7 @@ forge init detect
 ```
 Read the JSON. Also skim the repo's instruction files (`instructions.tracked` / `instructions.ignored`) for build/test/dev commands and conventions that detection missed. If the instruction files don't say how to set up, build, test and run the project, note it. The agents rely on that.
 
-Show the human a 5-8 line summary: stack/kinds, base branch, tracker candidates (GitHub repo, `.github/project-config.yml` project and status options), detected commands, UI/design signals, infra signals, untracked instruction/env files.
+Show the human a 5-8 line summary: stack/kinds, base branch, tracker candidates (GitHub repo, `.github/project-config.yml` project and status options), detected commands (including the e2e command, if any), UI/design signals, infra signals, untracked instruction/env files.
 
 ## 2. Ask (batch 1: workflow)
 1. **Base branch & PRs**: base = detected (e.g. `develop` when it exists). Options: "Open PRs against <base> (Recommended)", "Draft PRs", "No PRs (branches only)".
@@ -32,6 +32,7 @@ Show the human a 5-8 line summary: stack/kinds, base branch, tracker candidates 
 - Rust repos: share one Cargo target dir across worktrees? "Yes, separate shared dir (Recommended)" · "Yes, reuse the main checkout's target/" · "No".
 - Monorepo / multiple services: confirm `services` (name, path, per-service commands).
 - Repo-specific reviewers: for each `repoAgents` entry that is a review/audit agent (e.g. a realtime-safety checker), offer a lens. Create `.forge/reviewers/<name>.md` whose checklist says to follow that agent's instructions file, and add it to the panel.
+- E2E (only when `commands.e2e` was detected): confirm the command, then "Run in verify when UI paths change (Recommended)" · "Always" · "Never" → `verifyE2e.when`. Offer the repo's UI dirs as `verifyE2e.paths` additions when they aren't covered by the default extensions.
 - Dashboard launcher (advanced, default off): a shell template that starts a headless orchestrator for dashboard requests, e.g. `claude -p "{prompt}"`. Explain it spends tokens without a human at the keyboard.
 
 ## 5. Write

@@ -47,7 +47,7 @@ The pull request body. Concise, for a human reviewer:
 ## Testing
 - <how it was verified; commands>
 ## Notes
-- <risks, follow-ups, rollout/runbook pointer, screenshots or mockup reference if UI>
+- <risks, follow-ups, rollout/runbook pointer; screenshot files (`screenshots/<name>.png`, local job evidence) or mockup reference if UI>
 ```
 
 ## Finish

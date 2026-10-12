@@ -9,4 +9,6 @@ Check (start the app with `forge run <job> dev --background` and look at the rea
 - Responsive at phone, tablet and desktop widths; no horizontal scroll or clipped text.
 - No layout shift on load; images sized; long strings and i18n don't break layouts.
 
+Save screenshots of what you checked to the job's `screenshots` dir (in your brief) as `<lens>-<what>.png` and list them under Verified; if you could not capture any, say so.
+
 Not your job: flows and copy (ux lens), screen-reader semantics (accessibility lens).
