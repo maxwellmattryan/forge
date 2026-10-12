@@ -91,7 +91,7 @@ Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CONFIG.md](docs
 
 `forge dash` serves a single-page dashboard bound to localhost:
 
-- **Pipeline**: kanban by stage, or a table, filtered by active, waiting or done. Cards show progress, review verdicts per lens, PR and CI state, running agents, and budget use against `pipeline.budget`.
+- **Pipeline**: kanban by stage, or a table, filtered by active, waiting or done. Cards show progress, review verdicts per lens, PR and CI state, running agents, budget use against `pipeline.budget`, and an `after <job>` chip per dependency that opens it; the job drawer lists what a job depends on and what it blocks.
 - **Needs you**: every human gate, with its document and one-click actions.
 - **Backlog**: your tracker's ready items; start one with a click.
 - **Agents**: running agents, orchestrator sessions, and the roster with models and prompt hashes.

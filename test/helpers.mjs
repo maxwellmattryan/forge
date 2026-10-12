@@ -10,6 +10,8 @@ export function tempRepo() {
   git('init', '-q', '-b', 'main');
   git('config', 'user.email', 'test@example.com');
   git('config', 'user.name', 'Test');
+  // A global signing setup (gpg, ssh) must not make scratch commits depend on a key or agent.
+  git('config', 'commit.gpgsign', 'false');
   fs.writeFileSync(path.join(dir, 'README.md'), '# test\n');
   git('add', '-A');
   git('commit', '-qm', 'init');
