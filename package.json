@@ -16,7 +16,8 @@
     "skills",
     "hooks",
     "templates",
-    "docs"
+    "docs",
+    "assets"
   ],
   "engines": {
     "node": ">=20"

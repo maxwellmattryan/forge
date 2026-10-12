@@ -1,6 +1,25 @@
-# Forge
+<p align="center">
+  <img src="assets/forge.svg" alt="Forge anvil logo" width="128" height="128">
+</p>
 
-Forge is a lightweight, self-improving **software factory** for AI coding agents. You hand it a feature, a bug or a backlog item. A team of agents plans it, specs it, builds it in its own git worktree, reviews it through the lenses your repo cares about, and opens a pull request, or stops and asks you when only a human can decide.
+<h1 align="center">Forge</h1>
+
+> Thus at the flaming forge of life<br>
+> Our fortunes must be wrought;<br>
+> Thus on its sounding anvil shaped<br>
+> Each burning deed and thought!
+>
+> — Henry Wadsworth Longfellow, *The Village Blacksmith* (1840)
+
+<p align="center">
+  <a href="https://github.com/maxwellmattryan/forge/blob/main/CHANGELOG.md"><img alt="version" src="https://img.shields.io/github/package-json/v/maxwellmattryan/forge?color=F97316&label=version"></a>
+  <a href="#install"><img alt="Claude Code plugin" src="https://img.shields.io/badge/Claude%20Code-plugin-EA580C"></a>
+  <img alt="zero dependencies" src="https://img.shields.io/badge/dependencies-zero-52525B">
+  <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A520-52525B">
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-52525B"></a>
+</p>
+
+⚒️ **Forge** is a lightweight, self-improving **software factory** for AI coding agents. You hand it a feature, a bug or a backlog item. A team of agents plans it, specs it, builds it in its own git worktree, reviews it through the lenses your repo cares about, and opens a pull request, or stops and asks you when only a human can decide.
 
 ```
 request ─► plan ─► spec ─► [design] ─► spec gate ─► build ─► verify ─► review panel ─► decide ─► integrate ─► PR
@@ -12,13 +31,13 @@ request ─► plan ─► spec ─► [design] ─► spec gate ─► build �
 
 It ships as a **Claude Code plugin** (an orchestrator skill + 9 agents + a zero-dependency Node CLI + a live dashboard) and works in any repository: each repo only carries a small `.forge/` folder.
 
-- **Parallel by default.** Every job gets its own worktree and branch, a dev-server port, and (for Rust) a shared Cargo build dir. Run several jobs from one session or many. Job claims with heartbeats stop sessions from colliding.
-- **PR-aware across sessions.** `forge sync` reconciles every job with GitHub: merged, closed, behind base, conflicting, CI failing, new review threads. `/forge continue #123` picks up any PR, including ones a human started.
-- **Your tracker, your way.** A local `backlog.md`, GitHub Issues (with optional label and/or GitHub Projects status sync that reads `.github/project-config.yml`), or your own adapter in `.forge/trackers/<name>.mjs`.
-- **A review panel you choose.** Eleven built-in lenses (code, tests, security, ui, ux, accessibility, performance, realtime, infra, api, docs), repo-specific checklists, and a severity policy (`blockOn`) that decides what forces another round.
-- **Humans at the right moments.** Spec approval, questions, escalations, infra runbooks and merge conflicts stop the job and land in the dashboard's *Needs you* inbox.
-- **You're the author.** Nothing Forge produces credits an AI: no co-author trailers, no "Generated with" footers, no session links in commits, PRs, issues or comments. See [Authorship](#authorship).
-- **Measured and self-improving.** Per-agent and per-job token usage with API-equivalent cost, Forge metrics comparable across repos, eval suites (including replays of your own merged PRs), and retros that propose improvements as reviewed PRs, each logged as an experiment with a baseline.
+- 🔀 **Parallel by default.** Every job gets its own worktree and branch, a dev-server port, and (for Rust) a shared Cargo build dir. Run several jobs from one session or many. Job claims with heartbeats stop sessions from colliding.
+- 🔁 **PR-aware across sessions.** `forge sync` reconciles every job with GitHub: merged, closed, behind base, conflicting, CI failing, new review threads. `/forge continue #123` picks up any PR, including ones a human started.
+- 🗂️ **Your tracker, your way.** A local `backlog.md`, GitHub Issues (with optional label and/or GitHub Projects status sync that reads `.github/project-config.yml`), or your own adapter in `.forge/trackers/<name>.mjs`.
+- 🔍 **A review panel you choose.** Eleven built-in lenses (code, tests, security, ui, ux, accessibility, performance, realtime, infra, api, docs), repo-specific checklists, and a severity policy (`blockOn`) that decides what forces another round.
+- 🙋 **Humans at the right moments.** Spec approval, questions, escalations, infra runbooks and merge conflicts stop the job and land in the dashboard's *Needs you* inbox.
+- ✍️ **You're the author.** Nothing Forge produces credits an AI: no co-author trailers, no "Generated with" footers, no session links in commits, PRs, issues or comments. See [Authorship](#authorship).
+- 📈 **Measured and self-improving.** Per-agent and per-job token usage with API-equivalent cost, Forge metrics comparable across repos, eval suites (including replays of your own merged PRs), and retros that propose improvements as reviewed PRs, each logged as an experiment with a baseline.
 
 ## Install
 
@@ -96,4 +115,4 @@ Opting out: `aiAttribution: allow` in a repo's `.forge/config.yml`, or `FORGE_AI
 
 ## License
 
-MIT
+MIT · Strike while the iron is hot. 🔥
