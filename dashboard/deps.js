@@ -45,6 +45,6 @@ export function depSection(job, jobs) {
   const link = (/** @type {ReturnType<typeof depLinks>[number]} */ l) =>
     `<button data-action="open" data-id="${esc(l.id)}" title="${esc(hint(l))}" class="btn font-mono text-xs">${esc(l.id)} ${toneChip(l.tone, l.state)}</button>`;
   const row = (/** @type {string} */ label, /** @type {ReturnType<typeof depLinks>} */ links) =>
-    links.length ? `<div class="flex flex-wrap items-center gap-2"><div class="text-[11px] text-muted w-20 shrink-0">${label}</div>${links.map(link).join('')}</div>` : '';
+    links.length ? `<div class="flex items-start gap-2"><div class="text-[11px] text-muted w-20 shrink-0 pt-2">${label}</div><div class="flex flex-wrap gap-2 min-w-0">${links.map(link).join('')}</div></div>` : '';
   return `<div class="card p-4 flex flex-col gap-2"><h3 class="text-sm font-semibold">Dependencies</h3>${row('Depends on', deps)}${row('Blocks', blocks)}</div>`;
 }
