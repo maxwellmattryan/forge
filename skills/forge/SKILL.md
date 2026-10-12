@@ -32,7 +32,7 @@ forge requests          # dashboard/inbox requests; claim and handle them (see "
 ```
 If `.forge/config.yml` is missing (exit code 2 / "no .forge/config.yml"), run **init** (`reference/init.md`) unless the user explicitly asked for something else. Read `forge config show` once per session. You need `git.base`, `pipeline.*`, `review.*`, `runtime.models`, `pr.*`, `merge.*`, `infra.*`, `resources`, `services`.
 
-Report `sync` results the human cares about in one line each: merged PRs, new PR feedback, new conflicts, finished umbrella jobs.
+Report `sync` results the human cares about in one line each: merged PRs, new PR feedback, new conflicts, finished umbrella jobs. For each result with `mergeDeferred: true`, run `forge pr merge <id>` again (it re-decides from fresh CI state).
 
 ## Commands (route on the first word of the arguments)
 
@@ -112,7 +112,7 @@ If the integration brought in new commits, run `forge verify <id>` again before 
 
 ### 10. Pull request (skip when `pr.enabled: false`. Then finish at `--stage done --state done` with the branch name)
 `forge pr open <id>` (pushes, creates or reuses the PR, body from `pr.md`, links the issue). It refuses when HEAD is not the commit the last verify passed on: run `forge verify <id>` again, never `--force` without telling the human why.
-If the decision was auto-merge eligible and `merge.auto: true`: `forge pr merge <id>`.
+If the decision was auto-merge eligible and `merge.auto: true`: `forge pr merge <id>`. It merges directly only when checks pass or the repo has no CI, refuses when they fail, and while they are pending either queues GitHub auto-merge (`action: auto`, when branch protection holds the PR) or does nothing (`action: deferred`). Never pass `--now` (a logged CI bypass) unless the human asked; on `action: refused|failed`, report why and still wait on `pr-review`.
 `forge job set <id> --stage pr --state waiting --waiting-on pr-review`, then `forge job release <id>` and `forge stop <id>`.
 Report: the PR URL, one line of what changed, and anything the human must do (runbook).
 Later `forge sync` runs mark it done when merged and clean up the worktree. New review comments show up as `newFeedback`, handled with `/forge continue <id>`.
