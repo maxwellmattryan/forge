@@ -223,7 +223,7 @@ test('AC6/AC7/AC13: changed lines and verify retries through the CLI', () => {
 
     fs.writeFileSync(path.join(wt.path, 'thirty.txt'), Array.from({ length: 30 }, (_, i) => `line ${i}`).join('\n') + '\n');
     execFileSync('git', ['add', '-A'], { cwd: wt.path });
-    execFileSync('git', ['-c', 'user.email=t@e.st', '-c', 'user.name=T', 'commit', '-qm', 'thirty'], { cwd: wt.path });
+    execFileSync('git', ['-c', 'user.email=t@e.st', '-c', 'user.name=T', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'thirty'], { cwd: wt.path });
 
     // AC6
     f('job', 'budget', id, '--set', 'changedLines=10');
