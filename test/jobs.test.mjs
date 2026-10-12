@@ -4,8 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.mjs';
 import { defaults } from '../lib/config.mjs';
-import { claimJob, createJob, loadJob, roundVerdicts, setJob, recordAgent, progress, parseDecision, jobDir } from '../lib/jobs.mjs';
+import { claimJob, createJob, loadJob, roundVerdicts, setJob, recordAgent, progress, parseDecision, touchJob, jobDir } from '../lib/jobs.mjs';
 import { computeStats } from '../lib/stats.mjs';
+import { JOB_SCHEMA_VERSION } from '../lib/schema.mjs';
+import { sleepSync } from '../lib/util.mjs';
 
 test('job lifecycle: ids, transitions, claims, usage, verdict policy', () => {
   const repo = tempRepo();
@@ -53,6 +55,11 @@ test('job lifecycle: ids, transitions, claims, usage, verdict policy', () => {
     assert.equal(v.outcome, 'MALFORMED');
     const lenient = roundVerdicts(root, a.id, 1, ['code', 'ui'], ['blocker']);
     assert.equal(lenient.outcome, 'PASS', 'blockOn policy decides what forces a round');
+    fs.writeFileSync(path.join(dir, 'security.md'), 'Forgot the verdict line\n\n- [blocker] secret in log\n');
+    assert.equal(roundVerdicts(root, a.id, 1, ['security'], ['blocker']).reviewers.security.verdict, 'CHANGES', 'tagged blockers decide even without a verdict line');
+    const coerced = roundVerdicts(root, a.id, 1, ['tests'], ['blocker'], { malformedAs: 'changes' }).reviewers.tests;
+    assert.equal(coerced.verdict, 'CHANGES');
+    assert.equal(coerced.coerced, true, 'a second malformed review is counted as CHANGES, not left pending');
 
     fs.writeFileSync(path.join(jobDir(root, a.id), 'decision.md'), 'ESCALATE: touches the deploy pipeline\n\nRisk: high\n');
     assert.deepEqual(parseDecision(root, a.id), { decision: 'ESCALATE', reason: 'touches the deploy pipeline' });
@@ -64,6 +71,57 @@ test('job lifecycle: ids, transitions, claims, usage, verdict policy', () => {
     assert.equal(s.quality.avgRounds, 2);
     assert.equal(s.reviewers.ui.changeRate, 0.5);
     assert.equal(loadJob(root, a.id).verdicts['2'].ui, 'PASS');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('claims stay alive while an agent runs, and heartbeats refresh on touch', () => {
+  const repo = tempRepo();
+  try {
+    const root = repo.dir;
+    const config = defaults();
+    const job = createJob(root, config, { title: 'Long build' });
+    claimJob(root, job.id, 'session-1');
+    // Every write refreshes the heartbeat, so a stale one has to be planted behind the CLI's back.
+    const plantStaleHeartbeat = () => {
+      const file = path.join(jobDir(root, job.id), 'job.json');
+      const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+      raw.owner.heartbeat = new Date(Date.now() - 45 * 60 * 1000).toISOString();
+      fs.writeFileSync(file, JSON.stringify(raw));
+    };
+    recordAgent(root, job.id, { role: 'builder', phase: 'start', model: 'opus' }, config);
+    plantStaleHeartbeat();
+    assert.throws(() => claimJob(root, job.id, 'session-2'), /an agent is still running/, 'a running agent keeps the claim alive past the heartbeat window');
+    const before = loadJob(root, job.id).owner.heartbeat;
+    sleepSync(5);
+    touchJob(root, job.id);
+    assert.ok(loadJob(root, job.id).owner.heartbeat > before, 'touch refreshes the heartbeat');
+    recordAgent(root, job.id, { role: 'builder', phase: 'end' }, config);
+    plantStaleHeartbeat();
+    assert.equal(claimJob(root, job.id, 'session-2').owner.session, 'session-2', 'a stale claim with no running agent can be taken over');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('reads a schema v1 job and migrates its verify results', () => {
+  const repo = tempRepo();
+  try {
+    const root = repo.dir;
+    const job = createJob(root, defaults(), { title: 'Old job' });
+    const file = path.join(jobDir(root, job.id), 'job.json');
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    delete raw.verifyRuns;
+    fs.writeFileSync(file, JSON.stringify({ ...raw, schemaVersion: 1, verify: { 1: 'FAIL', 2: 'PASS' } }));
+    const loaded = loadJob(root, job.id);
+    assert.equal(loaded.schemaVersion, JOB_SCHEMA_VERSION);
+    assert.deepEqual(
+      loaded.verifyRuns.map((r) => [r.round, r.attempt, r.ok, r.sha]),
+      [[1, 1, false, null], [2, 1, true, null]],
+      'old per-round results become attempt 1 with no sha',
+    );
+    assert.equal(loaded.verify[1], 'FAIL', 'the compatible field survives');
   } finally {
     repo.cleanup();
   }

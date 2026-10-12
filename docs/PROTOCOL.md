@@ -33,5 +33,6 @@ Whatever drives Forge must:
 2. give each role its inputs as **paths**, and accept only the outputs that role owns
 3. stop at human gates (`waiting`), and record why
 4. keep builders and integrators inside the job's worktree
+5. publish only verified commits: `forge verify` after the last commit, before `forge pr open` (which refuses anything else)
 
 Everything else (dashboard, PR sync, trackers, evals, retros) works the same regardless of runtime.
