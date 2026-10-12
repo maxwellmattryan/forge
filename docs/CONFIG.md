@@ -87,6 +87,14 @@ pipeline:
   specApproval: always       # always | large | never
   design: none               # none | reference | mockup
   maxRounds: 3               # build→review rounds before asking a human
+  budget:                    # per-job limits; null = unlimited. Over budget → waiting on "budget"
+    tokens: null             # job.usage.totalTokens
+    usd: null                # estimated cost (job.usage.estCostUsd)
+    minutes: null            # agent minutes: summed agent run time, never human waits
+    changedLines: null       # committed lines added + deleted vs the base branch
+    verifyRetries: 2         # failed `forge verify` runs allowed per round beyond the first
+                             # `forge job budget <id> --ack` grants one more full budget past the
+                             # current use; `--set key=value` overrides a limit for one job
 
 review:
   blockOn: [blocker, major]  # severities that force another round
