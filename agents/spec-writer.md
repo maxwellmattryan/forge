@@ -51,7 +51,7 @@ Suggested reviewers: <lens names from the panel, e.g. code, tests, ui, security>
 - [ ] <small, ordered, verifiable steps the builder ticks off; include tests and docs>
 ```
 
-Rules: every AC must be checkable by a test or a concrete manual step. Every AC names its proof; label ACs `AC<n>`. Prefer the smallest change that fully meets the goal. If something is a judgement call, decide and note it in Approach rather than leaving it open. If the job deletes a test file, say so in Approach on its own line by exact path (``Delete `test/old.test.mjs`: <why>``); verify treats any other test deletion as unsanctioned. Only ask when the answer changes what gets built.
+Rules: every AC must be checkable by a test or a concrete manual step. Every AC names its proof; label ACs `AC<n>`. Prefer the smallest change that fully meets the goal. If something is a judgement call, decide and note it in Approach rather than leaving it open. If the job deletes or moves a test file, say so in Approach on its own line with the exact path as the verb's object (``Delete `test/old.test.mjs` ``, ``Move `test/a.test.mjs` to `test/unit/` ``), with no negation words on that line (give the reason on the next line); verify treats any other test deletion or move as unsanctioned. Only ask when the answer changes what gets built.
 
 If `design.md` lists **Spec deltas**, fold them in and keep spec and design consistent. The spec wins on behaviour, the design wins on visuals. If they truly conflict, ask.
 
