@@ -4,7 +4,7 @@ This repo is **Forge**: a Claude Code plugin that is also its own marketplace. T
 
 ## Layout
 - `bin/forge`: CLI entry (also on PATH while the plugin is enabled)
-- `lib/`: the engine. `cli.mjs` (commands), `jobs.mjs` (state + events), `schema.mjs` (versions, normalisers, migrations), `config.mjs`, `worktree.mjs`, `pr.mjs`, `trackers/`, `stats.mjs`, `evals.mjs`, `retro.mjs`, `usage.mjs` + `pricing.json`, `server.mjs`, `detect.mjs`, `yaml.mjs`
+- `lib/`: the engine. `cli.mjs` (routing only) + `commands/` (one module per command group), `jobs.mjs` (state + events), `schema.mjs` (versions, normalisers, migrations), `config.mjs`, `worktree.mjs`, `pr.mjs`, `trackers/`, `stats.mjs`, `evals.mjs`, `retro.mjs`, `usage.mjs` + `pricing.json`, `server.mjs`, `detect.mjs`, `yaml.mjs`
 - `dashboard/`: `index.html` + `app.js`, served by `forge dash`; no build step
 - `hooks/`: plugin hooks (`hooks.json` + the no-AI-attribution PreToolUse hook)
 - `skills/forge/`: the orchestrator (`SKILL.md`) and on-demand procedures (`reference/`)
@@ -15,7 +15,7 @@ This repo is **Forge**: a Claude Code plugin that is also its own marketplace. T
 
 | You're changing… | Touch | Also update |
 |---|---|---|
-| a CLI command or its JSON output | `lib/cli.mjs` (+ the domain module) | `skills/forge/SKILL.md` / `reference/*.md` if the orchestrator calls it; README command table; tests |
+| a CLI command or its JSON output | `lib/commands/<group>.mjs` (+ the domain module); `lib/cli.mjs` only for a new top-level command | `skills/forge/SKILL.md` / `reference/*.md` if the orchestrator calls it; README command table; tests |
 | `job.json`, an event or a config shape | `lib/schema.mjs` (bump version, add a migration), `lib/config.mjs` `defaults()` | `docs/CONFIG.md`; `API_VERSION` if `/api/state` changes; a test that reads the old shape |
 | orchestrator behaviour | `skills/forge/SKILL.md` (keep it lean) or a `reference/*.md` loaded on demand | README "How it works" if user-visible |
 | a role's behaviour | `agents/<role>.md` | its prompt hash changes (shown in the roster); CHANGELOG; measure with evals where possible |
@@ -24,7 +24,7 @@ This repo is **Forge**: a Claude Code plugin that is also its own marketplace. T
 | the dashboard | `dashboard/app.js`, `dashboard/index.html`, endpoints in `lib/server.mjs` | `API_VERSION` on shape changes |
 | prices or model ids | `lib/pricing.json` (bump `asOf`) | take prices from Anthropic's current pricing, never from memory |
 
-`lib/cli.mjs` and `dashboard/app.js` are the largest files (~700+ lines). When adding to them, split by command group or view into new modules rather than growing them.
+`dashboard/app.js` is the largest file (~700+ lines). When adding to it, split by view into new modules rather than growing it. Only one in-flight change may bump a version constant in `lib/schema.mjs`: two branches that both migrate from the same version merge into a broken migration table.
 
 ## Rules
 - **Zero runtime dependencies.** Node ≥ 20 built-ins only, plain ESM with JSDoc types (`// @ts-check`). The dashboard may load only pinned, SRI-protected CDN assets. No Python tooling: Node, or Rust if a native binary is ever justified.
@@ -40,7 +40,7 @@ This repo is **Forge**: a Claude Code plugin that is also its own marketplace. T
 ## Verify before claiming it works
 ```bash
 node --test "test/*.test.mjs"           # not `node --test test/`: Node 22 treats a directory arg as a module
-for f in lib/*.mjs lib/trackers/*.mjs dashboard/app.js bin/forge; do node --check "$f"; done
+for f in lib/*.mjs lib/commands/*.mjs lib/trackers/*.mjs dashboard/app.js bin/forge; do node --check "$f"; done
 claude plugin validate . --strict
 ```
 - **Never point the CLI at a real repo's `.forge/` while developing.** Use a scratch git repo in a temp dir, or set `FORGE_ROOT=<scratch>` (as `test/helpers.mjs` does). Delete scratch repos *and* their `<repo>.worktrees` siblings afterwards.
@@ -59,4 +59,4 @@ claude plugin validate . --strict
 - **Worktrees live outside the repo** on purpose: a nested worktree inside a Cargo workspace breaks Cargo, and bundlers and watchers pick up the copies. Don't "simplify" this to an in-repo `.worktrees/`.
 
 ## Publishing
-This repo is public. Use the GitHub no-reply commit email, and never commit hostnames, home paths, tokens or real job state (`.forge/` is gitignored here). Bump `version` in `package.json` and `.claude-plugin/plugin.json` together (they must match), and add a `CHANGELOG.md` entry.
+This repo is public. Use the GitHub no-reply commit email, and never commit hostnames, home paths, tokens or real job state (`.forge/` is tracked here, like in any repo that uses Forge, and its own `.gitignore` excludes `jobs/`, `locks/` and `runtime/`). Bump `version` in `package.json` and `.claude-plugin/plugin.json` together (they must match), and add a `CHANGELOG.md` entry. Forge jobs on this repo leave `CHANGELOG.md` and the version alone; the release commit at the end of a wave adds them.

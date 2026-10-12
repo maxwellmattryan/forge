@@ -1,6 +1,6 @@
 // Forge dashboard. Vanilla ES module, no build step. Talks only to the local `forge dash` server.
 const TOKEN = document.querySelector('meta[name="forge-token"]')?.content ?? '';
-const API_VERSION = 1;
+const API_VERSION = 2;
 
 const STAGES = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', 'review', 'decide', 'integrate', 'pr', 'done'];
 const CORE_STAGES = new Set(['backlog', 'spec', 'build', 'review', 'pr', 'done']);
@@ -413,7 +413,7 @@ function viewInbox() {
   }
   if (reqs.length) {
     html += `<h2 class="text-sm font-semibold mt-8 mb-3">Queued requests</h2><div class="card overflow-x-auto"><table class="tbl"><tbody>${reqs
-      .map((r) => `<tr><td class="font-mono text-xs">${esc(r.type)}</td><td>${esc(r.job ?? '')}</td><td class="text-muted">${esc(r.text ?? '')}</td><td class="text-muted whitespace-nowrap">${ago(r.createdAt)}</td></tr>`)
+      .map((r) => `<tr><td class="font-mono text-xs">${esc(r.type)}</td><td>${esc(r.job ?? '')}</td><td class="text-muted">${esc(r.text ?? '')}</td><td class="text-muted whitespace-nowrap">${r.status === 'in-progress' ? `handling (${esc(String(r.session ?? '').slice(0, 8))})` : 'queued'}</td><td class="text-muted whitespace-nowrap">${ago(r.createdAt)}</td></tr>`)
       .join('')}</tbody></table></div>`;
   }
   return html;

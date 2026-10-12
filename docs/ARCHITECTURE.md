@@ -46,7 +46,11 @@ When a shape must change: bump the version constant, add a migration keyed by th
 
 Trackers see a coarser view: `queued`, `in-progress`, `review`, `blocked`, `done`, `cancelled`. Adapters map those to labels, GitHub Project options, or anything else.
 
-**Ownership**: a session claims a job (`owner.session` plus a heartbeat refreshed on every write). Another session can take over only with `--force` or after 30 idle minutes. Jobs record each session that drove them in `runs[]`.
+**Ownership**: a session claims a job (`owner.session` plus a heartbeat refreshed on every write, including every `forge run`). Another session can take over only with `--force`, or after 30 idle minutes with no agent still marked running (a running agent keeps the claim alive for up to two hours after it started, so a long builder is not mistaken for a dead session). Jobs record each session that drove them in `runs[]`.
+
+**Evidence**: every `forge verify` run records the worktree HEAD it checked, its attempt number within the round, and its result; earlier attempts are archived, never overwritten, so "verify first-pass" means the first attempt. `forge pr open` refuses to push a HEAD that the latest verify did not pass on. `forge job verdicts` records the sha the reviewers saw. Evidence for an older commit is not evidence.
+
+**Inbox**: dashboard requests are claimed by a session before they are handled, under a lock, so two orchestrators draining the same inbox cannot both act on one request. A claim with no ack for 30 minutes can be taken over.
 
 ## Concurrency
 
@@ -70,7 +74,7 @@ Issue bodies, comments and PR reviews come from people outside the session, and 
 
 ## Review policy
 
-Reviewers tag findings `[blocker] [major] [minor] [nit]`. The CLI decides the verdict from the tags and the repo's `review.blockOn`, not from the reviewer's own first line. This keeps the threshold consistent across lenses and models: "CHANGES over a nit" or "PASS over a blocker" can't slip through. A review without a verdict line is `MALFORMED` and gets re-run once.
+Reviewers tag findings `[blocker] [major] [minor] [nit]`. The CLI decides the verdict from the tags and the repo's `review.blockOn`, not from the reviewer's own first line. This keeps the threshold consistent across lenses and models: "CHANGES over a nit" or "PASS over a blocker" can't slip through. A review without a verdict line is `CHANGES` when its tags already force a round, otherwise `MALFORMED` and re-run once; a second malformed review is counted as `CHANGES` (`--malformed changes`) so a reviewer that cannot follow the format cannot stall the job.
 
 ## Usage accounting
 
