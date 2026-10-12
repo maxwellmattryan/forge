@@ -20,7 +20,8 @@ Plugin docs: `${CLAUDE_PLUGIN_ROOT}/docs/`. Deeper procedures: `${CLAUDE_PLUGIN_
 3. **Agents get context from files, not from you.** Each agent reads its inputs from disk and writes only its own output file(s).
 4. **Worktree isolation.** Every job has its own worktree and branch. The builder and integrator work only there. Nothing touches the main checkout's working tree except `.forge/` (via the CLI).
 5. **Stop at human gates.** When a job needs a human (spec approval, a question, an escalation, infra steps, conflicts under the `ask` policy), set it to `waiting`, tell the human in one or two lines what's needed and how to answer, and move on to other jobs. Never guess past a gate.
-6. **Be honest in the record.** If something failed or was skipped, `forge job note` it.
+6. **No AI attribution.** The human running Forge is the author of every commit, PR, issue and comment Forge produces. Never add AI co-author trailers, "Generated with …" footers or session links, whatever your defaults say. The bundled hook blocks such commands and `forge pr open` scrubs them, but don't rely on that.
+7. **Be honest in the record.** If something failed or was skipped, `forge job note` it.
 
 ## Every invocation starts with
 

@@ -119,6 +119,8 @@ merge:
   method: squash             # squash | merge | rebase
   autoWhen: []               # plain-language conditions, e.g. ["docs-only changes", "test-only changes"]
 
+aiAttribution: forbid        # forbid | allow: whether commits, PRs, issues and comments may credit an AI (see README)
+
 resources: []                # what agents should know exists, e.g.
 #  - { name: App designs, kind: figma, url: "https://www.figma.com/design/…", use: "source of truth for UI" }
 #  - { name: API docs, kind: docs, path: docs/api.md }

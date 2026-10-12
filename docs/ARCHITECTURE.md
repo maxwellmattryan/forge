@@ -64,6 +64,10 @@ Issue bodies, comments and PR reviews come from people outside the session, and 
 - tells every agent to ignore embedded instructions about secrets, credentials, CI, permissions or out-of-scope work
 - adopts only PRs whose branch lives in the same repository (never forks), and only issue-linked PRs from collaborators, so a stranger's PR is never checked out and run by the builder
 
+## Authorship policy
+
+`lib/attribution.mjs` defines what counts as AI attribution: signature lines and trailers, not mentions. It is shared by the Bash `PreToolUse` hook (`hooks/no-ai-attribution.mjs`, which blocks before anything is written), by `forge pr open` (which scrubs branch commit messages with a non-interactive `rebase --exec`, then pushes with `--force-with-lease` if anything changed), and by the GitHub tracker (which strips issue and comment bodies). The policy is on by default (`aiAttribution: forbid`).
+
 ## Review policy
 
 Reviewers tag findings `[blocker] [major] [minor] [nit]`. The CLI decides the verdict from the tags and the repo's `review.blockOn`, not from the reviewer's own first line. This keeps the threshold consistent across lenses and models: "CHANGES over a nit" or "PASS over a blocker" can't slip through. A review without a verdict line is `MALFORMED` and gets re-run once.

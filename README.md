@@ -17,6 +17,7 @@ It ships as a **Claude Code plugin** (an orchestrator skill + 9 agents + a zero-
 - **Your tracker, your way.** A local `backlog.md`, GitHub Issues (with optional label and/or GitHub Projects status sync that reads `.github/project-config.yml`), or your own adapter in `.forge/trackers/<name>.mjs`.
 - **A review panel you choose.** Eleven built-in lenses (code, tests, security, ui, ux, accessibility, performance, realtime, infra, api, docs), repo-specific checklists, and a severity policy (`blockOn`) that decides what forces another round.
 - **Humans at the right moments.** Spec approval, questions, escalations, infra runbooks and merge conflicts stop the job and land in the dashboard's *Needs you* inbox.
+- **You're the author.** Nothing Forge produces credits an AI: no co-author trailers, no "Generated with" footers, no session links in commits, PRs, issues or comments. See [Authorship](#authorship).
 - **Measured and self-improving.** Per-agent and per-job token usage with API-equivalent cost, Forge metrics comparable across repos, eval suites (including replays of your own merged PRs), and retros that propose improvements as reviewed PRs, each logged as an experiment with a baseline.
 
 ## Install
@@ -78,6 +79,20 @@ Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CONFIG.md](docs
 - **Evals**: runs, side-by-side comparisons, and a Run eval button.
 
 Buttons don't run agents directly. They queue requests that your orchestrator session picks up (`/forge requests`), so permissions and spend stay with you. If you want one-click runs anyway, configure a headless launcher (`dashboard.launcher`).
+
+## Authorship
+
+Forge treats the human who runs it as the author of everything it produces. This is enforced in three layers:
+
+1. **Prompts**: the orchestrator and every agent that writes commits or GitHub text are told never to add AI attribution.
+2. **A hook**: while the plugin is enabled, a `PreToolUse` hook inspects every `git commit/tag/merge`, `gh pr/issue/release/api` and `glab` command (including `-F`/`--body-file` files) and blocks it if it carries an AI co-author trailer, a "Generated with …" footer, a robot-emoji signature or a session link. It runs for subagents too. Mentions such as "parse Claude Code transcripts" pass; only signatures are blocked.
+3. **The CLI**: before `forge pr open` pushes, it rewrites any branch commit message that still carries attribution (content and authorship untouched), and it strips attribution from PR bodies, issues and tracker comments.
+
+Claude Code adds its own trailer and PR footer unless told not to, and a plugin isn't allowed to change that setting for you. To turn them off everywhere (not just in Forge), add this to `~/.claude/settings.json` (Claude Code ≥ 2.1.281):
+```json
+{ "attribution": false }
+```
+Opting out: `aiAttribution: allow` in a repo's `.forge/config.yml`, or `FORGE_AI_ATTRIBUTION=allow` in the environment.
 
 ## License
 

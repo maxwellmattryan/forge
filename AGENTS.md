@@ -6,6 +6,7 @@ This repo is **Forge**: a Claude Code plugin that is also its own marketplace. T
 - `bin/forge`: CLI entry (also on PATH while the plugin is enabled)
 - `lib/`: the engine. `cli.mjs` (commands), `jobs.mjs` (state + events), `schema.mjs` (versions, normalisers, migrations), `config.mjs`, `worktree.mjs`, `pr.mjs`, `trackers/`, `stats.mjs`, `evals.mjs`, `retro.mjs`, `usage.mjs` + `pricing.json`, `server.mjs`, `detect.mjs`, `yaml.mjs`
 - `dashboard/`: `index.html` + `app.js`, served by `forge dash`; no build step
+- `hooks/`: plugin hooks (`hooks.json` + the no-AI-attribution PreToolUse hook)
 - `skills/forge/`: the orchestrator (`SKILL.md`) and on-demand procedures (`reference/`)
 - `agents/`: one prompt per role · `reviewers/`: lens checklists · `templates/`: files `init` seeds into `.forge/`
 - `docs/`: user docs · `test/`: `node:test` suites
@@ -31,6 +32,7 @@ This repo is **Forge**: a Claude Code plugin that is also its own marketplace. T
 - **Version every shape change.** Bump the constant in `lib/schema.mjs`, add a migration keyed by the old version, keep normalisers tolerant, and bump `API_VERSION` if `/api/state` changes. Never break reading older jobs.
 - **Keep the orchestrator's context small.** New commands return compact JSON. Large outputs go to files in the job dir, and the CLI returns their paths.
 - **Prompts are product.** Agent prompts and checklists are short, imperative, and end with a one-line reply contract. Prefer measuring a prompt or policy change (evals, `forge stats`) over arguing about it.
+- **Never add AI attribution** to commits, PRs, issues or comments in this repo either. The hook in `hooks/` enforces it while the plugin is enabled.
 - **Preserve the security posture** (ARCHITECTURE.md "Untrusted input" and "Dashboard security"): never adopt fork PRs; the server answers loopback Hosts only; POSTs need the token, a matching Origin and JSON; tracker and PR text is fenced as data, and agents are told so. Anything new that ingests outside text follows the same pattern.
 - Comments explain why, not what.
 - Keep `README.md`, `docs/*.md` and `skills/forge/**` in sync with CLI behaviour.
