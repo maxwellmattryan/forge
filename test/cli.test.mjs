@@ -142,3 +142,134 @@ test('end-to-end: init, intake, worktree, verify, eval isolation', () => {
     fs.rmSync(`${repo.dir}.wt`, { recursive: true, force: true });
   }
 });
+
+test('verify integrity: warn and block', () => {
+  const repo = tempRepo();
+  const env = { ...process.env, FORGE_ROOT: repo.dir };
+  const f = (...args) => {
+    const out = execFileSync(process.execPath, [BIN, ...args], { cwd: repo.dir, encoding: 'utf8', env, stdio: 'pipe' });
+    try {
+      return JSON.parse(out);
+    } catch {
+      return out.trim();
+    }
+  };
+  const failing = (...args) => {
+    try {
+      f(...args);
+    } catch (e) {
+      return { status: e.status, out: e.stdout ? JSON.parse(e.stdout) : null, stderr: String(e.stderr) };
+    }
+    assert.fail(`forge ${args.join(' ')} should have failed`);
+  };
+  const answers = path.join(repo.dir, '..', `answers-int-${path.basename(repo.dir)}.json`);
+  const answer = (obj) => {
+    fs.writeFileSync(answers, JSON.stringify(obj));
+    return answers;
+  };
+  const write = (rel, text) => {
+    fs.mkdirSync(path.dirname(path.join(wtPath, rel)), { recursive: true });
+    fs.writeFileSync(path.join(wtPath, rel), text);
+  };
+  let wtPath = '';
+  try {
+    fs.mkdirSync(path.join(repo.dir, 'test'));
+    fs.writeFileSync(path.join(repo.dir, 'test', 'a.test.mjs'), "test('one', () => {});\ntest('two', () => {});\n");
+    fs.writeFileSync(path.join(repo.dir, 'test', 'b.test.mjs'), "test('three', () => {});\n");
+    fs.writeFileSync(path.join(repo.dir, 'package.json'), JSON.stringify({ name: 'x', scripts: { test: 'node --test' } }, null, 2));
+    commitAll(repo.dir, 'tests');
+    f('init', 'write', '--answers', answer({ commands: { test: 'true' }, verify: ['test'], worktrees: { root: `../${path.basename(repo.dir)}.wt` } }));
+
+    // AC8: the default, and only warn | block are accepted.
+    const cfgFile = path.join(repo.dir, '.forge', 'config.yml');
+    const cfgText = fs.readFileSync(cfgFile, 'utf8');
+    assert.match(cfgText, /^verifyIntegrity: warn$/m);
+    fs.writeFileSync(cfgFile, cfgText.replace(/^verifyIntegrity: warn\n/m, ''));
+    assert.equal(f('config', 'get', 'verifyIntegrity'), 'warn', 'a config that does not set it reads as warn');
+    assert.match(failing('init', 'write', '--answers', answer({ verifyIntegrity: 'strict' })).stderr, /verifyIntegrity must be one of warn \| block/);
+    fs.writeFileSync(cfgFile, cfgText.replace(/^verifyIntegrity: warn$/m, 'verifyIntegrity: strict'));
+    assert.equal(failing('config', 'validate').out.ok, false);
+    fs.writeFileSync(cfgFile, cfgText);
+
+    const { id } = f('job', 'new', '--title', 'Integrity');
+    wtPath = f('worktree', 'create', id).path;
+    f('job', 'round', id);
+    const roundMd = () => fs.readFileSync(path.join(repo.dir, '.forge', 'jobs', id, 'verify', 'round-1.md'), 'utf8');
+
+    // AC1: a new test file is no finding, in either mode.
+    write('test/c.test.mjs', "test('four', () => {});\n");
+    commitAll(wtPath, 'add c');
+    let v = f('verify', id);
+    assert.equal(v.ok, true);
+    assert.equal(v.integrity.findings, 0);
+    assert.equal(v.integrity.ok, true);
+    assert.equal(v.integrity.base, 'main');
+    assert.ok(v.integrity.testCount.delta > 0);
+    assert.ok(!v.steps.some((s) => s.name === 'integrity'));
+    assert.match(roundMd(), /^VERIFY: PASS\n/);
+    assert.match(roundMd(), /^## integrity: ok$/m);
+    assert.match(roundMd(), /test declarations 0 → 1 \(\+1\)/);
+    f('init', 'write', '--answers', answer({ verifyIntegrity: 'block' }));
+    assert.equal(f('verify', id).ok, true, 'AC1 under block');
+    f('init', 'write', '--answers', answer({ verifyIntegrity: 'warn' }));
+
+    // AC2: deleting a test and adding a skip only warns by default.
+    fs.rmSync(path.join(wtPath, 'test', 'a.test.mjs'));
+    write('test/b.test.mjs', "test.skip('three', () => {});\n");
+    write('package.json', JSON.stringify({ name: 'x', scripts: { test: 'true' } }, null, 2));
+    write('.github/workflows/ci.yml', 'on: push\n');
+    commitAll(wtPath, 'weaken');
+    v = f('verify', id);
+    assert.equal(v.ok, true);
+    assert.equal(v.integrity.mode, 'warn');
+    assert.deepEqual(v.integrity.deletedTests, ['test/a.test.mjs']);
+    assert.deepEqual(v.integrity.skipMarkers, ['test/b.test.mjs:1']);
+    assert.deepEqual(v.integrity.testCount, { before: 3, after: 2, delta: -1 });
+    assert.equal(v.integrity.blocking, 2);
+    let md = roundMd();
+    assert.match(md, /^VERIFY: PASS\n/);
+    assert.match(md, /^## integrity: WARN \(\d+ findings\)$/m);
+    assert.match(md, /^- `test\/a\.test\.mjs`$/m);
+    assert.match(md, /^test\/b\.test\.mjs:1: test\.skip\('three', \(\) => \{\}\);$/m);
+
+    // AC3 + AC5: block fails on the deletion and the skip; the config edits are listed but never block.
+    f('init', 'write', '--answers', answer({ verifyIntegrity: 'block' }));
+    const failed = failing('verify', id);
+    assert.equal(failed.status, 1);
+    v = failed.out;
+    assert.equal(v.ok, false);
+    assert.equal(v.failure.name, 'integrity');
+    assert.equal(v.failure.exit, null);
+    assert.match(v.failure.tail, /^deleted test\/a\.test\.mjs$/m);
+    assert.match(v.failure.tail, /^skip marker test\/b\.test\.mjs:1$/m);
+    assert.ok(v.integrity.blocking >= 2);
+    assert.deepEqual(v.integrity.configEdits.sort(), ['.github/workflows/ci.yml', 'package.json']);
+    md = roundMd();
+    assert.match(md, /^VERIFY: FAIL\n/);
+    assert.match(md, /^## integrity: FAILED \(2 blocking\)$/m);
+    assert.match(md, /^- `package\.json`: scripts changed: test$/m);
+    assert.match(md, /^- `\.github\/workflows\/ci\.yml`: added$/m);
+    assert.ok(!/^## integrity: FAILED[\s\S]*^## integrity/m.test(md), 'the integrity result is rendered once');
+    assert.equal(f('job', 'get', id, 'verify.1'), 'FAIL');
+    assert.equal(f('job', 'get', id, 'verifyRetries.1'), 1);
+
+    // AC4: a deletion the spec's Approach names passes under block.
+    write('test/b.test.mjs', "test('three', () => {});\n");
+    commitAll(wtPath, 'drop the skip');
+    fs.writeFileSync(path.join(repo.dir, '.forge', 'jobs', id, 'spec.md'), '# Spec\n\n## Approach\n- Delete `test/a.test.mjs`; it is superseded.\n\n## Tasks\n- [ ] `test/b.test.mjs`\n');
+    v = f('verify', id);
+    assert.equal(v.ok, true);
+    assert.deepEqual(v.integrity.deletedTests, ['test/a.test.mjs (in spec)']);
+    assert.equal(v.integrity.blocking, 0);
+    assert.deepEqual(v.integrity.skipMarkers, []);
+    md = roundMd();
+    assert.match(md, /^VERIFY: PASS\n/);
+    assert.match(md, /^## integrity: WARN \(\d+ findings\)$/m);
+    assert.match(md, /^- `test\/a\.test\.mjs` \(named in spec\)$/m);
+    assert.equal(f('job', 'get', id, 'verify.1'), 'PASS');
+  } finally {
+    repo.cleanup();
+    fs.rmSync(`${repo.dir}.wt`, { recursive: true, force: true });
+    fs.rmSync(answers, { force: true });
+  }
+});
