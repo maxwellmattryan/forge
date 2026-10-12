@@ -3,7 +3,7 @@
 Evals answer "is Forge getting better or worse?" with numbers, instead of impressions from the last few jobs. They cost real tokens, so always confirm scope (number of tasks × typical job cost from `forge stats`) with the human before a run.
 
 ## Tasks
-Each task lives in `.forge/evals/<name>/`: a `task.yml` with the request, a base commit, and a **hidden check** the builder can't see (eval jobs get a standalone shallow clone of just the base commit, no remotes, sparse-checked-out without `.forge/evals`, so neither the check nor the real fix is reachable through git; it is not a filesystem sandbox).
+Each task lives in `.forge/evals/<name>/`: a `task.yml` with the request, a base commit, and a **hidden check** the builder can't see (eval jobs get a standalone shallow clone of just the base commit, with no remotes and without `.forge/evals`, so neither the check nor the real fix is reachable through git). This is not a filesystem sandbox. `forge worktree remove <eval job>` deletes the clone's directory and needs `--force` if it has uncommitted changes.
 - **Replay a merged PR** (best: real work with real tests): pick candidates with `gh pr list --state merged --limit 30 --json number,title,files`. Prefer PRs that touched tests and were self-contained. Then:
   ```bash
   forge eval mine --pr <n>        # base = the PR's base commit; request = PR + linked issues; hidden check = the PR's test changes
