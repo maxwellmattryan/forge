@@ -104,7 +104,7 @@ First run `forge job scope <id>` (read only its JSON). Then spawn one **reviewer
 Verdicts come from the tagged severities under the repo's `review.blockOn`, not from the reviewer's own first line.
 
 ### 8. Decide
-Spawn **approver** with `approver.alwaysEscalate`, `merge.auto`, `merge.autoWhen`, `infra.mode` and the scope path in the brief. Then `forge job decision <id>`.
+Run `forge job acs <id>` and paste its JSON into the approver brief. Spawn **approver** with `approver.alwaysEscalate`, `merge.auto`, `merge.autoWhen`, `infra.mode` and the scope path in the brief. Then `forge job decision <id>`.
 `ESCALATE` → `--state waiting --waiting-on escalation --reason "<reason>"`, report, stop. A human `approve` continues to step 9.
 If `runbook.md` exists and `infra.mode` is `human`, include the runbook path in the report. Pre-merge steps mean the job waits on `infra` until the human resumes it.
 

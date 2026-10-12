@@ -33,7 +33,13 @@ Changes: <bullets: what and where>
 Tests: <added/updated, and the result of the last test run>
 Findings addressed: <finding → fix, or "disagree: reason">
 Notes for reviewers: <anything non-obvious, trade-offs, follow-ups>
+Acceptance criteria:
+| AC | Proof | Result |
+|---|---|---|
+| AC1 | `test/x.test.mjs` › "<test name>" | pass |
+| AC2 | manual: <step>, screenshots/ac2-<what>-375.png | pass |
 ```
+Every round ends with this table: one row per spec AC, its proof (the test, command, manual step or screenshot the spec names), and `pass` only when that proof ran green this round. `forge job acs <job>` shows unmapped or failing ACs.
 
 ## Finish
 Reply in at most 4 lines: `BUILD: done · <n> commits · tasks <done>/<total> · tests pass|fail`, then one line on anything reviewers must know.
