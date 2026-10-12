@@ -48,7 +48,7 @@ Trackers see a coarser view: `queued`, `in-progress`, `review`, `blocked`, `done
 
 **Ownership**: a session claims a job (`owner.session` plus a heartbeat refreshed on every write, including every `forge run`). Another session can take over only with `--force`, or after 30 idle minutes with no agent still marked running (a running agent keeps the claim alive for up to two hours after it started, so a long builder is not mistaken for a dead session). Jobs record each session that drove them in `runs[]`.
 
-**Evidence**: every `forge verify` run records the worktree HEAD it checked, its attempt number within the round, and its result; earlier attempts are archived, never overwritten, so "verify first-pass" means the first attempt. `forge pr open` refuses to push a HEAD that the latest verify did not pass on. `forge job verdicts` records the sha the reviewers saw. Evidence for an older commit is not evidence.
+**Evidence**: every `forge verify` run records the worktree HEAD it checked, its attempt number within the round, and its result; earlier attempts are archived, never overwritten, so "verify first-pass" means the first attempt. `forge pr open` refuses to push a HEAD that the latest verify did not pass on. `forge job verdicts` records the sha the reviewers saw. `forge pr open` records the sha it pushed (`pr.pushedSha`), and the first `forge pr sync` that sees the PR merged measures the human delta, the commits, lines and files humans added after that push (`pr.humanDelta`). Evidence for an older commit is not evidence.
 
 **Inbox**: dashboard requests are claimed by a session before they are handled, under a lock, so two orchestrators draining the same inbox cannot both act on one request. A claim with no ack for 30 minutes can be taken over.
 
