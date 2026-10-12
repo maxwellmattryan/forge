@@ -5,7 +5,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.mjs';
 import { defaults } from '../lib/config.mjs';
-import { blockingLines, commandSources, compactIntegrity, countTestDecls, deletionSanctions, devDepsSection, hiddenChanges, isConfigPath, markerHits, packageJsonDetail, renameDropsTest, renameSanctions, renderIntegrity, testIntegrity } from '../lib/integrity.mjs';
+import { blockingLines, commandSources, compactIntegrity, countTestDecls, deletionSanctions, devDepsSection, hiddenChanges, isConfigPath, markerHits, packageJsonDetail, parseDiffLines, renameDropsTest, renameSanctions, renderIntegrity, testIntegrity } from '../lib/integrity.mjs';
 
 const commitAll = (cwd, msg) => {
   execFileSync('git', ['add', '-A'], { cwd });
@@ -209,6 +209,10 @@ test('deletionSanctions: only an explicit deletion statement in Approach sanctio
     'Leave `test/a.test.mjs` alone; removing it would lose coverage',
     'Remove the duplication in `test/foo.test.mjs`',
     'We must not delete `test/a.test.mjs`',
+    'We won’t delete `test/a.test.mjs`',
+    'Avoid the urge to delete `test/a.test.mjs`',
+    'Leave it be: delete `test/a.test.mjs` only in a later job',
+    'Without a replacement suite, delete `test/a.test.mjs` would lose coverage',
   ]) {
     assert.deepEqual(sanctions(line), [], line);
   }
@@ -567,4 +571,30 @@ test('render: control characters in a config rename detail and backticks in path
   } finally {
     repo.cleanup();
   }
+});
+
+test('parseDiffLines: follows hunk counts through context lines, blank context and look-alike headers', () => {
+  const diff = [
+    'diff --git a/test/a.test.mjs b/test/a.test.mjs',
+    '--- a/test/a.test.mjs',
+    '+++ b/test/a.test.mjs',
+    '@@ -2,6 +2,6 @@',
+    "-test('t1', () => {});",
+    "+test('t1 renamed', () => {});",
+    " test('t2', () => {});",
+    '',
+    " test('t4', () => {});",
+    "-test('t5', () => {});",
+    "+test.skip('t5', () => {});",
+    '+++ b/not-a-header',
+    '-++ b/x',
+    '\\ No newline at end of file',
+  ].join('\n');
+  // 6 old and 6 new lines: 3 context lines (one blank, as diff.suppressBlankEmpty renders it) shared by
+  // both sides, then the look-alike header lines, which belong to the hunk.
+  const files = parseDiffLines(diff);
+  const a = files.get('test/a.test.mjs');
+  assert.deepEqual(a.added.map((x) => `${x.line}:${x.text}`), ["2:test('t1 renamed', () => {});", "6:test.skip('t5', () => {});", '7:++ b/not-a-header']);
+  assert.deepEqual(a.removed, ["test('t1', () => {});", "test('t5', () => {});", '++ b/x']);
+  assert.equal(files.size, 1, 'an added line reading "++ b/…" is not a file header');
 });
