@@ -15,15 +15,14 @@ export const ago = (iso) => {
   if (s < 86400) return `${Math.round(s / 3600)}h ago`;
   return `${Math.round(s / 86400)}d ago`;
 };
+/** Chip colours per tone, shared by toneChip and chips that need extra attributes. */
+export const TONE_CLASS = /** @type {Record<string, string>} */ ({
+  ok: 'bg-ok/15 text-ok',
+  bad: 'bg-bad/15 text-bad',
+  warn: 'bg-warn/15 text-warn',
+  info: 'bg-info/15 text-info',
+  accent: 'bg-accent/15 text-accent',
+  muted: 'bg-raised text-muted',
+});
 /** @param {string} tone @param {unknown} text */
-export const toneChip = (tone, text) => {
-  const cls = {
-    ok: 'bg-ok/15 text-ok',
-    bad: 'bg-bad/15 text-bad',
-    warn: 'bg-warn/15 text-warn',
-    info: 'bg-info/15 text-info',
-    accent: 'bg-accent/15 text-accent',
-    muted: 'bg-raised text-muted',
-  }[/** @type {'ok'} */ (tone)];
-  return `<span class="chip ${cls}">${esc(text)}</span>`;
-};
+export const toneChip = (tone, text) => `<span class="chip ${TONE_CLASS[tone]}">${esc(text)}</span>`;

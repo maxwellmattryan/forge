@@ -1,6 +1,7 @@
 // Forge dashboard. Vanilla ES module, no build step. Talks only to the local `forge dash` server.
 import { esc, num, usd, ago, toneChip } from './util.js';
 import { budgetChip, budgetCell, budgetPanel } from './budget.js';
+import { depChips, depSection } from './deps.js';
 const TOKEN = document.querySelector('meta[name="forge-token"]')?.content ?? '';
 const API_VERSION = 3;
 
@@ -349,6 +350,7 @@ function card(j) {
   return `<button data-action="open" data-id="${esc(j.id)}" class="text-left card bg-panel hover:border-accent/50 p-3 flex flex-col gap-2 ${j.state === 'waiting' && j.waitingOn !== 'pr-review' ? 'border-warn/50' : ''}">
     <div class="flex items-start justify-between gap-2"><span class="text-sm font-medium leading-5 line-clamp-2">${esc(j.title)}</span>${stateChip(j)}</div>
     <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-muted font-mono">${j.source?.ref && !j.id.startsWith(String(j.source.ref)) ? `<span>${esc(j.source.ref)}</span>·` : /^\d+$/.test(String(j.source?.ref ?? '')) ? `<span>#${esc(j.source.ref)}</span>·` : ''}<span class="truncate max-w-40">${esc(j.id)}</span></div>
+    ${depChips(j, S.data.jobs)}
     ${progressBar(j.progress)}
     ${verdictRow}
     <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
@@ -666,6 +668,7 @@ function renderDrawer() {
     ${j.reason ? `<div class="text-sm text-muted">${esc(j.reason)}</div>` : ''}
     ${progressBar(j.progress)}
     <div class="grid grid-cols-2 md:grid-cols-3 gap-3">${fact('Branch', esc(j.branch ?? '—'))}${fact('Base', esc(j.base ?? '—'))}${fact('Port', esc(j.port ?? '—'))}${fact('Worktree', esc(j.worktree ?? '—'))}${fact('PR', prUrl ? `<a class="text-accent" href="${esc(prUrl)}" target="_blank" rel="noopener">#${esc(j.pr.number)}</a>` : '—')}${fact('Source', srcUrl ? `<a class="text-accent" href="${esc(srcUrl)}" target="_blank" rel="noopener">${esc(j.source.ref ?? 'link')}</a>` : esc(j.source?.ref ?? '—'))}${fact('Session', esc(j.owner?.session ?? '—'))}${fact('Created', ago(j.createdAt))}${fact('Updated', ago(j.updatedAt))}</div>
+    ${depSection(j, S.data?.jobs ?? [])}
     ${matrix}
     ${budgetPanel(j, S.data?.config?.pipeline?.budget)}
     ${usage}
