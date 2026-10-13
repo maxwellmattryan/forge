@@ -160,7 +160,7 @@ export function lineHtml(seq, raw) {
   const v = lineView(raw);
   const tag = v.tone && TONE_CLASS[v.tone]
     ? toneChip(v.tone, v.tag).replace('class="chip ', 'class="chip shrink-0 ')
-    : `<span class="shrink-0 text-muted">${esc(v.tag)}</span>`;
+    : `<span class="chip shrink-0 text-muted">${esc(v.tag)}</span>`;
   return `<div data-seq="${esc(seq)}" class="flex items-start gap-2">${tag}<span class="min-w-0">${esc(v.text)}</span></div>`;
 }
 
