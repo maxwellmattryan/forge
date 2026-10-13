@@ -36,16 +36,18 @@ function listFiles(dir, rel = '') {
 
 test('package.json: exact-pinned devDependencies only, no install hooks', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-  assert.deepEqual(pkg.devDependencies, { '@tailwindcss/vite': '4.1.18', tailwindcss: '4.1.18', vite: '7.3.7' });
+  assert.deepEqual(pkg.devDependencies, { '@tailwindcss/vite': '4.1.18', tailwindcss: '4.1.18', typescript: '6.0.3', vite: '7.3.7' });
   for (const [name, v] of Object.entries(pkg.devDependencies)) assert.match(String(v), /^\d+\.\d+\.\d+$/, `${name} must be exact-pinned`);
   assert.equal(pkg.dependencies, undefined, 'the plugin has zero runtime dependencies');
   for (const hook of ['prepare', 'preinstall', 'install', 'postinstall']) assert.equal(pkg.scripts?.[hook], undefined, `no ${hook} script`);
   assert.equal(typeof pkg.scripts?.['build:dashboard'], 'string');
+  assert.equal(pkg.scripts?.['check:dashboard'], 'tsc -p dashboard/tsconfig.json');
   const lock = JSON.parse(fs.readFileSync(path.join(ROOT, 'package-lock.json'), 'utf8'));
   assert.equal(lock.lockfileVersion, 3);
   assert.equal(lock.packages['node_modules/vite']?.version, '7.3.7');
   assert.equal(lock.packages['node_modules/tailwindcss']?.version, '4.1.18');
   assert.equal(lock.packages['node_modules/@tailwindcss/vite']?.version, '4.1.18');
+  assert.equal(lock.packages['node_modules/typescript']?.version, '6.0.3');
 });
 
 test('dist holds only the manifest\'s files plus index, manifest and stamp', () => {
@@ -98,6 +100,22 @@ test('build-stamp hashes notice source, lockfile and dist edits', () => {
     fs.rmSync(path.join(dash, 'app.js'));
     assert.notEqual(sourceHash(dash, lock), base, 'removed source');
     fs.writeFileSync(path.join(dash, 'app.js'), 'export {};\n');
+    assert.equal(sourceHash(dash, lock), base);
+    // TypeScript sources nest under src/lib/, and tsconfig.json can change what Vite emits.
+    fs.mkdirSync(path.join(dash, 'src', 'lib'), { recursive: true });
+    fs.writeFileSync(path.join(dash, 'src', 'lib', 'x.ts'), 'export const x: number = 1;\n');
+    const nested = sourceHash(dash, lock);
+    assert.notEqual(nested, base, 'added nested ts source');
+    fs.appendFileSync(path.join(dash, 'src', 'lib', 'x.ts'), '// edit\n');
+    const edited = sourceHash(dash, lock);
+    assert.notEqual(edited, nested, 'edited nested ts source');
+    fs.writeFileSync(path.join(dash, 'tsconfig.json'), '{}\n');
+    const withTsconfig = sourceHash(dash, lock);
+    assert.notEqual(withTsconfig, edited, 'added tsconfig.json');
+    fs.writeFileSync(path.join(dash, 'tsconfig.json'), '{"compilerOptions":{}}\n');
+    assert.notEqual(sourceHash(dash, lock), withTsconfig, 'edited tsconfig.json');
+    fs.rmSync(path.join(dash, 'src'), { recursive: true });
+    fs.rmSync(path.join(dash, 'tsconfig.json'));
     writeLock('7.3.8');
     assert.notEqual(sourceHash(dash, lock), base, 'package version change');
     const dist = distHash(path.join(dash, 'dist'));

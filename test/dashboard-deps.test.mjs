@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { depLinks, dependents, depChips, depSection } from '../dashboard/deps.js';
+import { depLinks, dependents, depChips, depSection } from '../dashboard/src/lib/deps.ts';
 
 const jobs = [
   { id: 'done-dep', title: 'Done', stage: 'done', state: 'done', dependsOn: [] },

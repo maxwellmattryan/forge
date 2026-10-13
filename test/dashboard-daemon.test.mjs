@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pillModel, daemonBar, lineView, lineHtml, appendLine, postDaemon, MAX_TEXT } from '../dashboard/daemon.js';
+import { pillModel, daemonBar, lineView, lineHtml, appendLine, postDaemon, MAX_TEXT } from '../dashboard/src/lib/daemon.ts';
 
 const base = { enabled: true, wanted: false, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, held: null, lastError: null, clients: 0 };
 const d = (over = {}) => ({ ...base, ...over });

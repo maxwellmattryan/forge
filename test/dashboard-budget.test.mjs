@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { budgetRows, budgetWorst, budgetChip, budgetCell, budgetPanel, BUDGET_KEYS } from '../dashboard/budget.js';
+import { budgetRows, budgetWorst, budgetChip, budgetCell, budgetPanel, BUDGET_KEYS } from '../dashboard/src/lib/budget.ts';
 
 const row = (rows, key) => rows.find((r) => r.key === key);
 const job = (over = {}) => ({ state: 'running', round: 1, usage: { totalTokens: 0, estCostUsd: 0, byRole: {} }, verifyRetries: {}, budget: { limits: {}, ack: {}, lastCheck: null }, ...over });

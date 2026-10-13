@@ -1,21 +1,19 @@
-// @ts-check
 // Per-job budget use, derived client-side from fields /api/state already serves. Mirrors
 // effectiveLimits/measureBudget/exceededKeys in lib/budget.mjs (the dashboard cannot import lib/).
 // No DOM access, so node:test can import it.
-import { esc, num, usd, ago, toneChip } from './util.js';
+import { esc, num, usd, ago, toneChip } from './util.ts';
+import type { BudgetKey, BudgetLimits, Job } from './types.ts';
 
-export const BUDGET_KEYS = /** @type {const} */ (['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries']);
+export const BUDGET_KEYS = ['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries'] as const satisfies readonly BudgetKey[];
 export const BUDGET_LABELS = { tokens: 'Tokens', usd: 'Est. cost', minutes: 'Agent minutes', changedLines: 'Changed lines', verifyRetries: 'Verify retries' };
 const WARN_AT = 0.8;
 const BAR = { ok: 'bg-ok', warn: 'bg-warn', bad: 'bg-bad' };
 
-/** Hand-edited job.json can hold anything; only finite numbers are rendered. @param {unknown} v */
-const fin = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-/** @param {unknown} v @returns {Record<string, any>} */
-const obj = (v) => (v && typeof v === 'object' ? /** @type {Record<string, any>} */ (v) : {});
+/** Hand-edited job.json can hold anything; only finite numbers are rendered. */
+const fin = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const obj = (v: unknown): Record<string, any> => (v && typeof v === 'object' ? (v as Record<string, any>) : {});
 
-/** @param {string} key @param {number|null} v */
-export function fmt(key, v) {
+export function fmt(key: string, v: number | null): string {
   if (v === null) return '—';
   if (key === 'usd') return usd(v);
   if (key === 'minutes') return `${v.toFixed(1)} min`;
@@ -23,12 +21,21 @@ export function fmt(key, v) {
   return num(v);
 }
 
-/**
- * @typedef {{key:string, label:string, used:number|null, limit:number|null, ackBase:number,
- *   counted:number|null, fraction:number|null, tone:'ok'|'warn'|'bad'|null}} BudgetRow
- * @param {any} job @param {any} configBudget @returns {BudgetRow[]}
- */
-export function budgetRows(job, configBudget) {
+export interface BudgetRow {
+  key: string;
+  label: string;
+  used: number | null;
+  limit: number | null;
+  ackBase: number;
+  counted: number | null;
+  fraction: number | null;
+  tone: 'ok' | 'warn' | 'bad' | null;
+}
+
+/** job.json can be hand-edited, so despite the type every field is read through obj()/fin(). */
+type JobInput = Job | null | undefined;
+
+export function budgetRows(job: JobInput, configBudget: BudgetLimits | null | undefined): BudgetRow[] {
   const j = obj(job);
   const b = obj(j.budget);
   const usage = obj(j.usage);
@@ -36,9 +43,8 @@ export function budgetRows(job, configBudget) {
   const cfg = obj(configBudget);
   const ack = obj(b.ack);
   // byModel holds the same runs as byRole, so only byRole is summed.
-  const ms = Object.values(obj(usage.byRole)).reduce((n, r) => n + (fin(obj(r).durationMs) ?? 0), 0);
-  /** @type {Record<string, number|null>} */
-  const used = {
+  const ms = Object.values(obj(usage.byRole)).reduce((n: number, r) => n + (fin(obj(r).durationMs) ?? 0), 0);
+  const used: Record<string, number | null> = {
     tokens: fin(usage.totalTokens ?? 0),
     usd: fin(usage.estCostUsd ?? 0),
     minutes: ms / 60000,
@@ -59,38 +65,33 @@ export function budgetRows(job, configBudget) {
   });
 }
 
-/** @param {BudgetRow[]} rows @returns {BudgetRow|null} */
-export function budgetWorst(rows) {
-  let worst = null;
-  for (const r of rows) if (r.tone && r.fraction !== null && (!worst || r.fraction > /** @type {number} */ (worst.fraction))) worst = r;
+export function budgetWorst(rows: BudgetRow[]): BudgetRow | null {
+  let worst: BudgetRow | null = null;
+  for (const r of rows) if (r.tone && r.fraction !== null && (!worst || r.fraction > (worst.fraction as number))) worst = r;
   return worst;
 }
 
-/** @param {any} job */
-const quiet = (job) => ['done', 'cancelled'].includes(job?.state) || (job?.state === 'waiting' && job?.waitingOn === 'budget');
+const quiet = (job: JobInput) => ['done', 'cancelled'].includes(job?.state as string) || (job?.state === 'waiting' && job?.waitingOn === 'budget');
 
-/** @param {any} job @param {any} configBudget */
-export function budgetChip(job, configBudget) {
+export function budgetChip(job: JobInput, configBudget: BudgetLimits | null | undefined): string {
   if (quiet(job)) return '';
   const w = budgetWorst(budgetRows(job, configBudget));
   if (!w || (w.tone !== 'warn' && w.tone !== 'bad')) return '';
-  const text = w.tone === 'bad' ? 'over budget' : `budget ${Math.round(/** @type {number} */ (w.fraction) * 100)}%`;
+  const text = w.tone === 'bad' ? 'over budget' : `budget ${Math.round((w.fraction as number) * 100)}%`;
   return `<span title="${esc(`${w.label} ${fmt(w.key, w.counted)}/${fmt(w.key, w.limit)}`)}">${toneChip(w.tone, text)}</span>`;
 }
 
-/** @param {any} job @param {any} configBudget */
-export function budgetCell(job, configBudget) {
+export function budgetCell(job: JobInput, configBudget: BudgetLimits | null | undefined): string {
   const chip = budgetChip(job, configBudget);
   if (chip) return chip;
   const w = budgetWorst(budgetRows(job, configBudget));
   if (!w) return '—';
-  const f = /** @type {number} */ (w.fraction);
+  const f = w.fraction as number;
   return `<span class="text-muted tabular-nums">${esc(Number.isFinite(f) ? `${Math.round(f * 100)}%` : 'over')}</span>`;
 }
 
-/** @param {BudgetRow} r */
-function rowHtml(r) {
-  const muted = (t) => ` <span class="text-muted">${esc(t)}</span>`;
+function rowHtml(r: BudgetRow): string {
+  const muted = (t: string) => ` <span class="text-muted">${esc(t)}</span>`;
   let value;
   if (r.limit === null) value = `${esc(fmt(r.key, r.used))}${muted('· unlimited')}`;
   else if (r.counted === null) value = `— / ${esc(fmt(r.key, r.limit))}${muted('not measured yet')}`;
@@ -102,8 +103,7 @@ function rowHtml(r) {
   return `<div class="grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[10rem_minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-3 gap-y-1 py-1"><div class="text-xs text-muted">${esc(r.label)}</div><div class="text-sm tabular-nums text-right md:text-left break-words ${r.tone === 'bad' ? 'text-bad' : ''}">${value}</div>${bar}</div>`;
 }
 
-/** @param {any} job @param {any} configBudget @param {{compact?: boolean}} [opts] */
-export function budgetPanel(job, configBudget, { compact = false } = {}) {
+export function budgetPanel(job: JobInput, configBudget: BudgetLimits | null | undefined, { compact = false }: { compact?: boolean } = {}): string {
   const rows = `<div class="flex flex-col">${budgetRows(job, configBudget).map(rowHtml).join('')}</div>`;
   if (compact) return rows;
   const lc = obj(obj(obj(job).budget).lastCheck);

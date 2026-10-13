@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { screenshotsPanel } from '../dashboard/screenshots.js';
+import { screenshotsPanel } from '../dashboard/src/lib/screenshots.ts';
 
 test('escapes names and builds encoded URLs', () => {
   assert.equal(screenshotsPanel('job-1', []), '');

@@ -93,6 +93,7 @@ test('dashboard server serves the page no-store and only manifest-allowlisted di
       `/${real}.map`, `/${real}/`, `/${real}%00`, `/ASSETS/${real.slice('assets/'.length)}`,
       '/assets/..%2Fmanifest.json', '/..%2Flib%2Fserver.mjs', '/../lib/server.mjs', '/%2e%2e/lib/server.mjs',
       '/lib.js', '/server.mjs', '/index.js', '/package.json', '/node_modules/vite/package.json',
+      '/src/lib/util.ts', '/dashboard/src/lib/util.ts', '/src/lib/types.ts', '/tsconfig.json', '/dashboard/tsconfig.json',
     ];
     for (const p of notFound) assert.equal((await get(port, p)).status, 404, p);
     assert.equal((await get(port, '/' + real, `evil.example:${port}`)).status, 421);
