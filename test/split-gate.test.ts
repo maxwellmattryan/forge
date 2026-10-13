@@ -71,3 +71,47 @@ test('split-approval is a waiting reason jobs can park on and leave', () => {
     repo.cleanup();
   }
 });
+
+const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
+const between = (text: string, from: string, to: string) => {
+  const start = text.indexOf(from);
+  assert.ok(start >= 0, `missing ${from}`);
+  const end = text.indexOf(to, start);
+  assert.ok(end > start, `missing ${to} after ${from}`);
+  return text.slice(start, end);
+};
+const SKILL = read('skills/forge/SKILL.md');
+const planStep = between(SKILL, '### 1. Plan', '### 2. Spec');
+const row = (cmd: string) => {
+  const line = SKILL.split('\n').find((l) => l.startsWith(`| \`${cmd}`));
+  assert.ok(line, `no ${cmd} row`);
+  return line;
+};
+const askBranch = planStep.slice(planStep.indexOf('under `ask`'));
+
+test('SKILL.md gates a split on split-approval under ask', () => {
+  assert.ok(planStep.includes('pipeline.split'));
+  assert.ok(askBranch.length < planStep.length, 'step 1 has an ask branch');
+  const ask = askBranch.slice(0, askBranch.indexOf('Stop this job'));
+  assert.ok(ask.includes('--waiting-on split-approval'));
+  assert.ok(ask.includes('create no tracker issue and no job'));
+  assert.ok(!ask.includes('forge tracker create') && !ask.includes('forge job new'), 'the ask branch creates nothing');
+
+  const approve = row('approve');
+  assert.ok(approve.includes('split-approval') && approve.includes('approve-split') && approve.includes('child-creation path'));
+  const revise = row('revise');
+  assert.ok(revise.includes('split-approval') && revise.includes('revise-split') && revise.includes('Split mode: never'));
+});
+
+test('SKILL.md keeps today\'s split path under auto', () => {
+  const auto = between(planStep, 'under `auto`', 'under `ask`');
+  for (const s of ['forge tracker create --title … --body … --parent <ref>', 'forge job new --title … --body … --parent <id>', 'dependsOn', '--waiting-on external --reason "split into N jobs"'])
+    assert.ok(auto.includes(s), s);
+});
+
+test('issue <ref> plans with split mode never', () => {
+  assert.ok(row('issue <ref>').includes('Split mode: never'));
+  assert.ok(planStep.includes('Split mode: <mode>'));
+  assert.ok(/`never` when the job came from `issue <ref>` \(or a `run` request\)/.test(planStep));
+  assert.ok(planStep.includes('whatever the config says'));
+});
