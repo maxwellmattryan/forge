@@ -965,6 +965,11 @@ test('a change to .forge/config.yml or .forge/trackers/ stops the daemon until a
     await settle();
     assert.equal(kit.children.length, 2, 'a changed tracker module blocks the respawn');
     assert.equal(d.state().lastError, TRUST_CHANGED);
+
+    fs.symlinkSync(repo.dir, path.join(repo.dir, '.forge', 'trackers', 'lib'));
+    d.start();
+    assert.equal(kit.children.length, 2, 'a symlink under .forge/trackers/ blocks even a human start');
+    assert.match(d.state().lastError, /contains symlinks \(lib\)/);
   } finally {
     await d.close();
     repo.cleanup();

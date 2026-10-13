@@ -346,6 +346,12 @@ test('in a daemon session, forge refuses to run once .forge/config.yml or .forge
     fs.writeFileSync(path.join(repo.dir, '.forge', 'trackers', 'local.mjs'), 'export default {};\n');
     assert.match(cli(daemon, 'status').out, /changed since a human started the daemon/, 'tracker modules are pinned too');
     fs.rmSync(path.join(repo.dir, '.forge', 'trackers'), { recursive: true });
+    // A symlinked directory's target can change without changing the digest, so any symlink is refused.
+    fs.mkdirSync(path.join(repo.dir, '.forge', 'trackers'), { recursive: true });
+    fs.symlinkSync(other.dir, path.join(repo.dir, '.forge', 'trackers', 'lib'));
+    const linked = { ...daemon, [TRUST_ENV]: trustDigest(repo.dir) };
+    assert.match(cli(linked, 'status').out, /contains symlinks \(lib\)/);
+    fs.rmSync(path.join(repo.dir, '.forge', 'trackers'), { recursive: true });
 
     assert.match(cli({ FORGE_DAEMON: '1' }, 'status').out, /FORGE_DAEMON_TRUST is missing/, 'fails closed without a snapshot');
     assert.match(cli({ ...daemon, [TRUST_ENV]: 'x' }, 'status').out, /FORGE_DAEMON_TRUST is missing/);

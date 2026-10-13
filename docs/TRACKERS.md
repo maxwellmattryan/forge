@@ -35,6 +35,9 @@ export default {
   close(ctx, ref, { reason }) {},
 };
 ```
+
+With the daemon (docs/CONFIG.md "Daemon"), the daemon session pins every file under `.forge/trackers/` and refuses symlinks there. Imports from outside that directory are not pinned, so keep the module self-contained.
+
 `ctx` is `{ root, config }`; put adapter settings anywhere under `tracker.<name>` in the config. Map job state to your workflow with:
 ```js
 import { statusKey } from '<plugin>/lib/trackers/status.mjs'; // queued | in-progress | review | blocked | done | cancelled
