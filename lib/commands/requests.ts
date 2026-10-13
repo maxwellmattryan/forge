@@ -50,17 +50,19 @@ export function requestsCmd(
     const s = scoped();
     return enqueue(root, config, { type, job: flags.job, text: flags.text, args, from: s.daemon ? `daemon:${s.scope}` : 'cli' });
   }
-  if (sub === 'claim') {
+  if (sub === 'claim' || sub === 'ack') {
     const id = req(rest[0], 'request id');
     const s = scoped();
+    // A daemon session may act only on a request it can see: one that exists and is routed to its
+    // scope. Looked up in the listing, so no path is built from the id before the check.
     if (s.daemon) {
-      // Looked up in the listing, so no path is built from the id before the scope check.
       const rec = listRequests(root).find((r) => r.id === id);
-      const where = rec ? requestScope(root, rec) : null;
-      if (where !== null && where !== s.scope) throw new ForgeError(`request ${id} belongs to scope ${where}, not this session's scope ${s.scope}`, 1);
+      if (!rec) throw new ForgeError(`no request ${JSON.stringify(String(id).slice(0, 80))} in this daemon session's scope ${s.scope}`, 1);
+      const where = requestScope(root, rec);
+      if (where !== s.scope) throw new ForgeError(`request ${id} belongs to scope ${where}, not this session's scope ${s.scope}`, 1);
     }
-    return claimRequest(root, id, req(flags.session, '--session'), Boolean(flags.force));
+    if (sub === 'claim') return claimRequest(root, id, req(flags.session, '--session'), Boolean(flags.force));
+    return ackRequest(root, id, { status: flags.status ?? 'done', result: flags.result });
   }
-  if (sub === 'ack') return ackRequest(root, req(rest[0], 'request id'), { status: flags.status ?? 'done', result: flags.result });
   throw new ForgeError(USAGE);
 }

@@ -94,6 +94,29 @@ test('a daemon session sees and claims only its scope', () => {
     assert.equal(mine.json().status, 'in-progress');
     assert.equal(cli({ ...trust, FORGE_DAEMON_SCOPE: '_inbox' }, 'requests', 'claim', next.id, '--session', 's-i').ok, true);
 
+    // An id the session can't see (unknown, or a path) is refused before anything is built from it.
+    const outside = path.join(root, '..', `outside-${path.basename(root)}.json`);
+    fs.writeFileSync(outside, JSON.stringify({ id: 'x', type: 'next', status: 'pending', createdAt: new Date().toISOString() }));
+    try {
+      for (const id of ['999-nope', `../../outside-${path.basename(root)}`, '../x', 'a/b', '..']) {
+        for (const sub of ['claim', 'ack']) {
+          const r = cli({ ...trust, FORGE_DAEMON_SCOPE: '_inbox' }, 'requests', sub, id, '--session', 's-i');
+          assert.equal(r.code, 1, `${sub} ${id}`);
+          assert.match(r.out, /no request .* in this daemon session's scope _inbox/, `${sub} ${id}`);
+        }
+      }
+      assert.equal(JSON.parse(fs.readFileSync(outside, 'utf8')).status, 'pending', 'the file outside the inbox is untouched');
+      // A request routed elsewhere can't be acked either.
+      const ackOther = cli({ ...trust, FORGE_DAEMON_SCOPE: a }, 'requests', 'ack', rb.id, '--status', 'done');
+      assert.match(ackOther.out, /belongs to scope/);
+      // Outside a daemon session the id is still checked before a path is built.
+      for (const id of ['../x', `../../outside-${path.basename(root)}`]) assert.match(cli({ FORGE_DAEMON: undefined }, 'requests', 'claim', id, '--session', 'h').out, /invalid request id/);
+      assert.throws(() => claimRequest(root, '../x', 's'), /invalid request id/);
+      assert.throws(() => ackRequest(root, '1-a/../../x', { status: 'done' }), /invalid request id/);
+    } finally {
+      fs.rmSync(outside, { force: true });
+    }
+
     for (const scope of [undefined, '', '../x', '--all', 'a'.repeat(201), 'job a']) {
       for (const args of [['requests'], ['requests', 'list', '--all'], ['requests', 'claim', rb.id, '--session', 's'], ['requests', 'scope']]) {
         const r = cli({ ...trust, FORGE_DAEMON_SCOPE: scope }, ...args);

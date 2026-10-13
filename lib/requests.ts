@@ -92,6 +92,14 @@ export function listRequests(root: string, opts: { status?: string } = {}): Forg
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
+/** enqueue's `<Date.now()>-<shortId()>`. Checked before any path is built from an id. */
+export const REQUEST_ID = /^\d+-[A-Za-z0-9]+$/;
+
+function requestFile(root: string, id: string): string {
+  if (typeof id !== 'string' || !REQUEST_ID.test(id)) throw new ForgeError(`invalid request id ${JSON.stringify(String(id).slice(0, 80))}`);
+  return path.join(dir(root), `${id}.json`);
+}
+
 /** A claim older than this with no ack is presumed abandoned (its session died) and can be retaken. */
 const CLAIM_STALE_MS = 30 * 60 * 1000;
 
@@ -102,7 +110,7 @@ const lockDir = (root: string): string => path.join(paths(root).locks, 'requests
  * anything acts on it. The second claimant is refused (exit 3) while the first is live.
  */
 export function claimRequest(root: string, id: string, session: string, force = false): ForgeRequest {
-  const file = path.join(dir(root), `${id}.json`);
+  const file = requestFile(root, id);
   if (!exists(file)) throw new ForgeError(`no request ${id}`);
   return withLock(lockDir(root), () => {
     const rec = readJson(file);
@@ -118,7 +126,7 @@ export function claimRequest(root: string, id: string, session: string, force = 
 }
 
 export function ackRequest(root: string, id: string, update: { status: 'done' | 'rejected' | 'in-progress'; result?: string }): ForgeRequest {
-  const file = path.join(dir(root), `${id}.json`);
+  const file = requestFile(root, id);
   if (!exists(file)) throw new ForgeError(`no request ${id}`);
   return withLock(lockDir(root), () => {
     const rec = readJson(file);
