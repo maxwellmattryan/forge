@@ -117,13 +117,14 @@ test('when always/never, no command, listed in verify, custom paths', () => {
     s.configure({ verifyE2e: { when: 'never' } });
     r = s.verify(ui.id);
     assert.equal(r.out.steps.find((x) => x.name === 'e2e'), undefined);
-    assert.doesNotMatch(s.roundMd(ui.dir), /e2e/);
+    // Word-bounded: commit shas in the report are hex and can contain "e2e" (e.g. 9e2eed0).
+    assert.doesNotMatch(s.roundMd(ui.dir), /\be2e\b/);
 
     s.configure({ commands: { e2e: null } });
     assert.equal(s.f('config', 'get', 'commands.e2e'), null);
     r = s.verify(ui.id);
     assert.equal(r.out.steps.find((x) => x.name === 'e2e'), undefined);
-    assert.doesNotMatch(s.roundMd(ui.dir), /e2e/);
+    assert.doesNotMatch(s.roundMd(ui.dir), /\be2e\b/);
 
     // Listed in verify: it runs once, as a normal step, without a trigger.
     s.configure({ verify: ['test', 'e2e'] });
