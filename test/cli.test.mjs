@@ -5,7 +5,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { scratchGitConfig, tempRepo } from './helpers.mjs';
 import { createWorktree, removeWorktree, verifiedHead } from '../lib/worktree.mjs';
-import { loadConfig } from '../lib/config.mjs';
+import { TRUST_ENV, loadConfig, trustDigest } from '../lib/config.mjs';
 import { setJob } from '../lib/jobs.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
@@ -298,5 +298,71 @@ test('verify integrity: warn and block', () => {
     repo.cleanup();
     fs.rmSync(`${repo.dir}.wt`, { recursive: true, force: true });
     fs.rmSync(answers, { force: true });
+  }
+});
+
+test('in a daemon session, forge refuses to run once .forge/config.yml or .forge/trackers/ changed', () => {
+  const repo = tempRepo();
+  const other = tempRepo();
+  /** @param {NodeJS.ProcessEnv} env @param {string[]} args */
+  const cli = (env, ...args) => {
+    try {
+      const out = execFileSync(process.execPath, [BIN, ...args], { cwd: repo.dir, encoding: 'utf8', stdio: 'pipe', env: { ...process.env, FORGE_ROOT: repo.dir, ...env } });
+      return { ok: true, out: out.trim() };
+    } catch (e) {
+      return { ok: false, out: `${e.stdout}${e.stderr}` };
+    }
+  };
+  const human = (...args) => JSON.parse(cli({}, ...args).out);
+  try {
+    const answers = path.join(repo.dir, '..', `answers-${path.basename(repo.dir)}.json`);
+    fs.writeFileSync(answers, JSON.stringify({ commands: { test: 'touch ran.txt' }, worktrees: { root: `../${path.basename(repo.dir)}.wt` } }));
+    human('init', 'write', '--answers', answers);
+    fs.rmSync(answers);
+    human('tracker', 'create', '--title', 'Trust');
+    const job = human('next', '--claim', '--session', 's1');
+    const wt = human('worktree', 'create', job.id);
+    const cfgFile = path.join(repo.dir, '.forge', 'config.yml');
+    const original = fs.readFileSync(cfgFile, 'utf8');
+    const daemon = { FORGE_DAEMON: '1', [TRUST_ENV]: trustDigest(repo.dir) };
+
+    assert.equal(cli(daemon, 'run', job.id, 'test').ok, true, 'an unchanged config runs');
+    assert.ok(fs.existsSync(path.join(wt.path, 'ran.txt')));
+    fs.rmSync(path.join(wt.path, 'ran.txt'));
+
+    fs.writeFileSync(cfgFile, original.replace('touch ran.txt', 'touch evil.txt'));
+    for (const args of [['run', job.id, 'test'], ['verify', job.id], ['status']]) {
+      const r = cli(daemon, ...args);
+      assert.equal(r.ok, false, `forge ${args[0]} is refused`);
+      assert.match(r.out, /changed since a human started the daemon/);
+    }
+    assert.equal(fs.existsSync(path.join(wt.path, 'evil.txt')), false, 'the changed command never ran');
+    assert.equal(cli({}, 'run', job.id, 'test').ok, true, 'outside the daemon the human decides');
+    assert.ok(fs.existsSync(path.join(wt.path, 'evil.txt')));
+
+    fs.writeFileSync(cfgFile, original);
+    assert.equal(cli(daemon, 'status').ok, true, 'restoring the file restores trust');
+    fs.mkdirSync(path.join(repo.dir, '.forge', 'trackers'), { recursive: true });
+    fs.writeFileSync(path.join(repo.dir, '.forge', 'trackers', 'local.mjs'), 'export default {};\n');
+    assert.match(cli(daemon, 'status').out, /changed since a human started the daemon/, 'tracker modules are pinned too');
+    fs.rmSync(path.join(repo.dir, '.forge', 'trackers'), { recursive: true });
+
+    assert.match(cli({ FORGE_DAEMON: '1' }, 'status').out, /FORGE_DAEMON_TRUST is missing/, 'fails closed without a snapshot');
+    assert.match(cli({ ...daemon, [TRUST_ENV]: 'x' }, 'status').out, /FORGE_DAEMON_TRUST is missing/);
+    // Same config bytes in another checkout: the digest pins the checkout too.
+    fs.mkdirSync(path.join(other.dir, '.forge'), { recursive: true });
+    fs.writeFileSync(path.join(other.dir, '.forge', 'config.yml'), original);
+    assert.match(cli({ ...daemon, FORGE_ROOT: other.dir }, 'status').out, /changed since a human started the daemon/);
+
+    for (const args of [['init', 'write', '--answers', '/dev/null'], ['migrate']]) {
+      const r = cli(daemon, ...args);
+      assert.equal(r.ok, false);
+      assert.match(r.out, /a daemon session may not do/);
+    }
+    assert.equal(fs.readFileSync(cfgFile, 'utf8'), original);
+  } finally {
+    repo.cleanup();
+    other.cleanup();
+    fs.rmSync(`${repo.dir}.wt`, { recursive: true, force: true });
   }
 });
