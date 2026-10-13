@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.mjs';
 import { defaults } from '../lib/config.mjs';
-import { blockingLines, commandSources, compactIntegrity, countTestDecls, deletionSanctions, devDepsSection, hiddenChanges, isConfigPath, markerHits, packageJsonDetail, parseDiffLines, renameDropsTest, renameSanctions, renderIntegrity, testIntegrity } from '../lib/integrity.mjs';
+import { blockingLines, commandSources, compactIntegrity, countTestDecls, deletionSanctions, devDepsSection, hiddenChanges, integrityError, isConfigPath, markerHits, packageJsonDetail, parseDiffLines, renameDropsTest, renameSanctions, renderIntegrity, testIntegrity } from '../lib/integrity.mjs';
 
 const commitAll = (cwd, msg) => {
   execFileSync('git', ['add', '-A'], { cwd });
@@ -707,4 +708,46 @@ test('markers: common skip idioms, and the { skip } shorthand only as test optio
   } finally {
     repo.cleanup();
   }
+});
+
+test('hiddenChanges: sparse settings that are not a verifiable cone never excuse a missing test', () => {
+  const { repo } = jobRepo({ 'test/a.test.mjs': "test('a', () => {});\n", 'docs/x.md': 'x\n' });
+  const config = defaults();
+  const hide = (p) => {
+    repo.git('update-index', '--skip-worktree', p);
+    fs.rmSync(path.join(repo.dir, p));
+  };
+  try {
+    hide('test/a.test.mjs');
+    hide('docs/x.md');
+    // Cone mode claimed, but the patterns are not cone patterns (git itself falls back to non-cone).
+    repo.git('config', 'core.sparseCheckout', 'true');
+    repo.git('config', 'core.sparseCheckoutCone', 'true');
+    write(repo.dir, '.git/info/sparse-checkout', '/*\n!/test/a.test.mjs\n!/docs/\n');
+    assert.deepEqual(hiddenChanges(repo.dir, config), ['skip-worktree: test/a.test.mjs'], 'only the non-test file is excused');
+    // Real non-cone mode: the same answer.
+    repo.git('config', 'core.sparseCheckoutCone', 'false');
+    assert.deepEqual(hiddenChanges(repo.dir, config), ['skip-worktree: test/a.test.mjs']);
+    // An empty patterns file is not a sparse checkout at all.
+    write(repo.dir, '.git/info/sparse-checkout', '\n# nothing\n');
+    assert.deepEqual(hiddenChanges(repo.dir, config), ['skip-worktree: docs/x.md', 'skip-worktree: test/a.test.mjs']);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('integrityError: a check verify could not finish fails block and is printed under warn', () => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-not-a-repo-')));
+  try {
+    assert.throws(() => hiddenChanges(dir, defaults()), 'a failing git call throws instead of reporting nothing');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  const clean = { mode: 'block', ok: true, findings: 0, blocking: 0, deleted: [], renamed: [], markers: [], configEdits: [], count: { before: 0, after: 0, delta: 0, files: [] } };
+  const r = integrityError(clean, 'could not check the worktree for hidden changes: boom');
+  assert.equal(r.ok, false);
+  assert.deepEqual(compactIntegrity(r), { mode: 'block', ok: false, error: 'could not check the worktree for hidden changes: boom' });
+  assert.match(renderIntegrity(r), /^## integrity: error/);
+  assert.equal(integrityError({ ...clean, mode: 'warn' }, 'boom').ok, true);
+  assert.equal(integrityError({ ...clean, error: 'base x not found' }, 'boom').error, 'base x not found; boom');
 });
