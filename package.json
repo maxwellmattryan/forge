@@ -23,7 +23,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.mjs\""
+    "test": "node --test \"test/*.test.mjs\"",
+    "build:dashboard": "vite build --config dashboard/vite.config.mjs && node dashboard/build-stamp.mjs"
   },
   "repository": {
     "type": "git",
@@ -37,5 +38,10 @@
     "software-factory",
     "orchestration",
     "worktrees"
-  ]
+  ],
+  "devDependencies": {
+    "@tailwindcss/vite": "4.1.18",
+    "tailwindcss": "4.1.18",
+    "vite": "7.3.7"
+  }
 }
