@@ -200,7 +200,7 @@ test('verifyE2e config defaults and validation', () => {
     const cfg = defaults();
     assert.deepEqual(validateConfig(cfg, repo.dir), []);
     for (const bad of [['*.css', ''], ['*.css', 3], null]) {
-      cfg.verifyE2e.paths = bad;
+      cfg.verifyE2e.paths = bad as any;
       assert.ok(validateConfig(cfg, repo.dir).some((p) => p.startsWith('verifyE2e.paths must be a list of non-empty strings')), JSON.stringify(bad));
     }
   } finally {

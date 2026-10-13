@@ -168,7 +168,7 @@ export function packageJsonDetail(beforeText: string | null, afterText: string |
  * Script files the configured commands run, so editing `scripts/test.sh` shows up as a test-config
  * edit. Only the program each command segment runs is taken, never its arguments or lint targets.
  */
-export function commandSources(config: Config): string[] {
+export function commandSources(config: Pick<Config, 'commands' | 'services'>): string[] {
   const out = new Set<string>();
   // Commands come from YAML, so a value need not be a string.
   const scan = (cmds: Record<string, unknown> | undefined, prefix: string) => {
@@ -393,7 +393,7 @@ export function parseDiffLines(raw: string): Map<string, FileLines> {
  * since the commands would run on files the report never saw. Forge's own eval checkouts
  * sparse-exclude `.forge/evals/`, and the standard git-lfs filter is trusted.
  */
-export function hiddenChanges(cwd: string, config: Config): string[] {
+export function hiddenChanges(cwd: string, config: Pick<Config, 'commands' | 'services' | 'evals'>): string[] {
   const git = (args: string[], input?: string) => run('git', args, { cwd, input }).stdout;
   const out: string[] = [];
   const files: string[] = [];
@@ -513,7 +513,7 @@ function baseHasJobCommits(git: (args: string[]) => string, branch: string | nul
  * The integrity report for `merge-base(base, HEAD)..HEAD` in the job's worktree. Never throws:
  * a report that cannot be computed carries `error`, and fails only under `block`.
  */
-export function testIntegrity(root: string, config: Config, job: Job): IntegrityReport {
+export function testIntegrity(root: string, config: Config, job: Pick<Job, 'id' | 'worktree' | 'base'> & { branch?: string | null }): IntegrityReport {
   const mode = config.verifyIntegrity === 'block' ? 'block' : 'warn';
   const report: IntegrityReport = { mode, base: null, mergeBase: null, head: null, deleted: [], renamed: [], markers: [], count: { before: 0, after: 0, delta: 0, files: [] }, configEdits: [], blocking: 0, findings: 0, ok: true };
   try {

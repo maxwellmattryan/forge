@@ -11,6 +11,8 @@ const ROOT = path.resolve(import.meta.dirname, '..');
 const readJson = (rel: string): any => JSON.parse(fs.readFileSync(path.join(ROOT, rel), 'utf8'));
 
 const FOUNDATION = ['util', 'paths', 'yaml', 'schema', 'config', 'jobs', 'attribution', 'roster', 'requests'];
+const DOMAIN = ['worktree', 'scope', 'integrity', 'acs', 'delta', 'deps', 'budget', 'e2e', 'evals', 'retro', 'stats', 'usage', 'detect', 'pr'];
+const DOMAIN_TESTS = ['acs', 'budget', 'delta', 'deps', 'detect', 'integrity', 'pr', 'scope', 'verify-e2e', 'background'];
 
 test('engine tsconfig is strict, erasable-only, with interim allowJs', () => {
   assert.deepEqual(readJson('tsconfig.json'), {
@@ -53,6 +55,7 @@ test('package.json: Node >= 22.18, typecheck and dual-glob test scripts', () => 
   assert.equal(pkg.dependencies, undefined);
   const lock = readJson('package-lock.json');
   assert.equal(lock.packages['node_modules/@types/node']?.version, '22.18.13');
+  assert.deepEqual(lock.packages[''].engines, pkg.engines);
 });
 
 test('foundation modules are TypeScript and lib/types.ts is type-only', () => {
@@ -77,6 +80,17 @@ test('foundation modules are TypeScript and lib/types.ts is type-only', () => {
   assert.equal(out.replace(/export\s*\{\s*\};?/g, '').trim(), '');
 });
 
+test('domain modules and their tests are TypeScript', () => {
+  for (const m of DOMAIN) {
+    assert.ok(fs.existsSync(path.join(ROOT, 'lib', `${m}.ts`)), `lib/${m}.ts exists`);
+    assert.ok(!fs.existsSync(path.join(ROOT, 'lib', `${m}.mjs`)), `lib/${m}.mjs is gone`);
+  }
+  for (const t of DOMAIN_TESTS) {
+    assert.ok(fs.existsSync(path.join(ROOT, 'test', `${t}.test.ts`)), `test/${t}.test.ts exists`);
+    assert.ok(!fs.existsSync(path.join(ROOT, 'test', `${t}.test.mjs`)), `test/${t}.test.mjs is gone`);
+  }
+});
+
 function filesUnder(rel: string): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
@@ -90,15 +104,33 @@ function filesUnder(rel: string): string[] {
   return out;
 }
 
+// Parsed rather than matched: a regex cannot tell an import from the same text inside a string (the Svelte
+// fixtures in dashboard-svelte.test.mjs hold import lines that are data, not code).
+function relativeSpecifiers(ts: any, file: string, text: string): string[] {
+  const kind = file.endsWith('.ts') ? ts.ScriptKind.TS : ts.ScriptKind.JS;
+  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, kind);
+  const out: string[] = [];
+  const visit = (n: any) => {
+    if ((ts.isImportDeclaration(n) || ts.isExportDeclaration(n)) && n.moduleSpecifier && ts.isStringLiteral(n.moduleSpecifier)) {
+      out.push(n.moduleSpecifier.text);
+    } else if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword && n.arguments[0] && ts.isStringLiteralLike(n.arguments[0])) {
+      out.push(n.arguments[0].text);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return out.filter((s) => s.startsWith('./') || s.startsWith('../'));
+}
+
 test('every relative import resolves to an existing file', () => {
+  const ts = createRequire(path.join(ROOT, 'package.json'))('typescript');
   const files = [...filesUnder('lib'), ...filesUnder('hooks'), ...filesUnder('test'), path.join(ROOT, 'bin', 'forge')];
-  const SPEC = /(?:\bfrom\s*|\bimport\s*\(\s*|^\s*import\s+)(['"])(\.{1,2}\/[^'"]+)\1/gm;
   let checked = 0;
   for (const f of files) {
     const text = fs.readFileSync(f, 'utf8');
-    for (const m of text.matchAll(SPEC)) {
-      const target = path.resolve(path.dirname(f), m[2]);
-      assert.ok(fs.existsSync(target), `${path.relative(ROOT, f)} imports ${m[2]}, which does not exist`);
+    for (const spec of relativeSpecifiers(ts, f, text)) {
+      const target = path.resolve(path.dirname(f), spec);
+      assert.ok(fs.existsSync(target), `${path.relative(ROOT, f)} imports ${spec}, which does not exist`);
       checked++;
     }
   }

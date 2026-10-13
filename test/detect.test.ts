@@ -9,7 +9,7 @@ import { detect } from '../lib/detect.ts';
 function detectWith(files) {
   const repo = tempRepo();
   try {
-    for (const [rel, text] of Object.entries(files)) fs.writeFileSync(path.join(repo.dir, rel), text);
+    for (const [rel, text] of Object.entries(files)) fs.writeFileSync(path.join(repo.dir, rel), text as any);
     const d = detect(repo.dir);
     return { e2e: d.commands.e2e, tools: d.tools };
   } finally {

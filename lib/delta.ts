@@ -62,13 +62,13 @@ export function measureHumanDelta(cwd: string, base: string | null | undefined, 
 }
 
 /** Whether this result may still change on a later sync (the commits were not found yet). */
-export const isRetryable = (d: HumanDelta | null | undefined): boolean => d?.status === 'unavailable' && d.reason === 'missing commits' && (d.attempts ?? 1) < MAX_ATTEMPTS;
+export const isRetryable = (d: Pick<HumanDelta, 'status' | 'reason' | 'attempts'> | null | undefined): boolean => d?.status === 'unavailable' && d.reason === 'missing commits' && (d.attempts ?? 1) < MAX_ATTEMPTS;
 
 /**
  * Measure on the first sync that sees the merge, and again only while the commits could not be
  * found, up to MAX_ATTEMPTS, so one failed fetch does not settle the result for good.
  */
-export const shouldMeasureDelta = (prState: string | undefined, existing: HumanDelta | null | undefined): boolean => prState === 'MERGED' && (!existing || isRetryable(existing));
+export const shouldMeasureDelta = (prState: string | undefined, existing: Pick<HumanDelta, 'status' | 'reason' | 'attempts'> | null | undefined): boolean => prState === 'MERGED' && (!existing || isRetryable(existing));
 
 /** The compact form carried on the `pr-synced` event. */
-export const deltaSummary = (d: HumanDelta): Pick<HumanDelta, 'status' | 'commits' | 'lines' | 'fileCount'> => ({ status: d.status, commits: d.commits, lines: d.lines, fileCount: d.fileCount });
+export const deltaSummary = (d: Partial<HumanDelta> & Pick<HumanDelta, 'status' | 'commits' | 'lines' | 'fileCount'>): Pick<HumanDelta, 'status' | 'commits' | 'lines' | 'fileCount'> => ({ status: d.status, commits: d.commits, lines: d.lines, fileCount: d.fileCount });

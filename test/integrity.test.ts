@@ -131,7 +131,7 @@ test('testIntegrity: moving a skip is not a finding; an added #[ignore] is; an u
     assert.equal(r.blocking, 1);
     assert.equal(r.ok, false);
     assert.match(renderIntegrity(r), /^## integrity: FAILED \(1 blocking\)/);
-    assert.deepEqual(compactIntegrity(r).skipMarkers, ['src/iter.rs:2']);
+    assert.deepEqual((compactIntegrity(r) as any).skipMarkers, ['src/iter.rs:2']);
 
     const missing = { ...job, base: 'no-such-branch' };
     r = testIntegrity(repo.dir, config, missing);
@@ -176,7 +176,7 @@ test('testIntegrity: renames, config edits and capped JSON lists', () => {
     );
     assert.deepEqual(r.count, { before: 14, after: 3, delta: -11, files: r.count.files });
     assert.equal(r.findings, 12 + 1 + 1 + 2 + 1);
-    const c = compactIntegrity(r);
+    const c: any = compactIntegrity(r);
     assert.equal(c.deletedTests.length, 10);
     assert.equal(c.more, 2);
     const md = renderIntegrity(r);
@@ -241,7 +241,7 @@ function jobRepo(files) {
   commitAll(repo.dir, 'base');
   repo.git('checkout', '-qb', 'job');
   const job = { id: 'job', worktree: repo.dir, base: 'main', branch: 'job' };
-  const block = { ...defaults(), verifyIntegrity: 'block' };
+  const block: any = { ...defaults(), verifyIntegrity: 'block' };
   return { repo, job, block, check: (config = block, j = job) => testIntegrity(repo.dir, config, j) };
 }
 
@@ -667,7 +667,7 @@ test('deletionSanctions: the path must end the clause', () => {
 });
 
 test('markers: common skip idioms, and the { skip } shorthand only as test options', () => {
-  const hits = [
+  const hits: any = [
     ['tests/test_a.py', 'pytestmark = pytest.mark.skip(reason="later")', true],
     ['app/conftest_helpers.py', 'pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="x")', false],
     ['tests/test_a.py', '        self.skipTest("flaky")', true],
@@ -743,7 +743,7 @@ test('integrityError: a check verify could not finish fails block and is printed
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-  const clean = { mode: 'block', ok: true, findings: 0, blocking: 0, deleted: [], renamed: [], markers: [], configEdits: [], count: { before: 0, after: 0, delta: 0, files: [] } };
+  const clean: any = { mode: 'block', ok: true, findings: 0, blocking: 0, deleted: [], renamed: [], markers: [], configEdits: [], count: { before: 0, after: 0, delta: 0, files: [] } };
   const r = integrityError(clean, 'could not check the worktree for hidden changes: boom');
   assert.equal(r.ok, false);
   assert.deepEqual(compactIntegrity(r), { mode: 'block', ok: false, error: 'could not check the worktree for hidden changes: boom' });

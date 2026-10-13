@@ -10,7 +10,7 @@ import { createJob, setJob, readEvents } from '../lib/jobs.ts';
 
 test('mergeAction: direct merge only when CI passed or the repo has none', () => {
   const B = { mergeState: 'BLOCKED' };
-  const rows = [
+  const rows: any = [
     ['passing', {}, 'merge'],
     ['passing', { hasWorkflows: true }, 'merge'],
     ['passing', { mergeState: 'UNSTABLE' }, 'merge'],
@@ -151,7 +151,7 @@ test('mergePr: one merge call chosen by CI state, never a fallback', { skip: pro
     assert.equal(h.merges().length, 1, 'a failed --auto never falls back to a direct merge');
     const failedEv = readEvents(root, id).find((e) => e.type === 'pr-merge-failed');
     assert.equal(failedEv.number, 7);
-    assert.match(failedEv.error, /auto-merge is not allowed/);
+    assert.match(failedEv.error as any, /auto-merge is not allowed/);
 
     id = h.scenario({ checks: 'passing', fail: true });
     assert.equal(mergePr(root, h.config, id).action, 'failed');
