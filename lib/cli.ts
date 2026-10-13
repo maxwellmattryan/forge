@@ -5,6 +5,7 @@
 import path from 'node:path';
 import { NEED_INIT, daemonTrust, loadConfig } from './config.ts';
 import { detect } from './detect.ts';
+import { doctor } from './doctor.ts';
 import { forgeVersion } from './evals.ts';
 import { loadJob } from './jobs.ts';
 import { mainRoot, PLUGIN_ROOT } from './paths.ts';
@@ -19,7 +20,7 @@ import { configCmd } from './commands/config.ts';
 import { dash } from './commands/dash.ts';
 import { evalCmd } from './commands/eval.ts';
 import { gitRead } from './commands/git.ts';
-import { doctor, initWrite, migrate } from './commands/init.ts';
+import { initWrite, migrate } from './commands/init.ts';
 import { jobCmd } from './commands/job.ts';
 import { requestsCmd } from './commands/requests.ts';
 import { statsText, statusTable } from './commands/status.ts';

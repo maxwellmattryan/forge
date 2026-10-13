@@ -433,6 +433,19 @@ export interface PostConfigResponse {
   changed: boolean;
 }
 
+/** One `forge doctor` check: doctor in lib/doctor.ts. */
+export interface DoctorCheck {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+/** What `forge doctor` prints: doctor in lib/doctor.ts. */
+export interface DoctorReport {
+  ok: boolean;
+  checks: DoctorCheck[];
+}
+
 // ---------- requests ----------
 
 /** Request types the inbox accepts: REQUEST_TYPES in lib/requests.ts. */
@@ -672,6 +685,32 @@ export interface EvalCompare {
   perTask: { task: string; a: boolean | null; b: boolean | null }[];
 }
 
+/** GET /api/config: configResponse in lib/server.ts over FIELDS in lib/config-fields.ts. */
+export interface ConfigResponse {
+  initialized: boolean;
+  path: '.forge/config.yml';
+  fields: ConfigField[];
+  /** The effective value of every field key. */
+  values: Record<string, unknown>;
+  problems: string[];
+  writable: boolean;
+  lockedBy: 'uninitialized' | 'daemon' | null;
+}
+
+/** GET /api/doctor: doctor in lib/doctor.ts, plus when it ran. */
+export type DoctorResponse = DoctorReport & { at: string };
+
+/** GET /api/about: about in lib/server.ts. */
+export interface AboutResponse {
+  forgeVersion: string;
+  apiVersion: number;
+  pluginRoot: string;
+  schemaVersions: { config: number; job: number; event: number };
+  pricingAsOf: string | null;
+  node: string;
+  links: { repo: string | null; docs: string | null };
+}
+
 /** GET /api/requests: listRequests in lib/requests.ts. */
 export type RequestsResponse = ForgeRequest[];
 
@@ -716,6 +755,12 @@ export interface PostRequestBody {
 /** POST /api/requests reply: the handler in lib/server.ts. */
 export type PostRequestResponse = ForgeRequest & { daemon: boolean };
 
+/** POST /api/config body: the handler in lib/server.ts passes it to setConfigValue. */
+export interface PostConfigBody {
+  key: string;
+  value: ConfigValue;
+}
+
 /** POST /api/daemon body: the handler in lib/server.ts. */
 export interface PostDaemonBody {
   action: 'start' | 'stop';
@@ -725,7 +770,7 @@ export interface PostDaemonBody {
 export type PostDaemonResponse = DaemonState;
 
 /**
- * JSON error body: jsonStatus for /api/daemon's 400/409 and the catch-all 500 in lib/server.ts.
+ * JSON error body: jsonStatus for /api/daemon's and /api/config's 4xx and the catch-all 500 in lib/server.ts.
  * The POST guard failures (403/415/421) are text/plain, not this.
  */
 export interface ApiError {

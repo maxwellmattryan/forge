@@ -7,8 +7,11 @@ import type { Job, LoadedJob } from './types.ts';
 export const CONFIG_SCHEMA_VERSION = 2;
 export const JOB_SCHEMA_VERSION = 3;
 export const EVENT_SCHEMA_VERSION = 1;
-/** Bumped when /api/state changes shape; the dashboard is served by the same plugin version. */
-export const API_VERSION = 5;
+/**
+ * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
+ * served by the same plugin version.
+ */
+export const API_VERSION = 6;
 
 export const STAGES = [
   'backlog',

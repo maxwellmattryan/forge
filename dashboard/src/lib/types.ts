@@ -1,9 +1,9 @@
-// Shapes of the forge dash HTTP API for API_VERSION 5. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 6. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
 
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 5;
+export const API_VERSION = 6;
 
 /** lib/schema.ts STAGES, in pipeline order. */
 export const STAGES = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', 'review', 'decide', 'integrate', 'pr', 'done'] as const;
@@ -445,6 +445,71 @@ export interface EvalCompare {
   perTask: { task: string; a: boolean | null; b: boolean | null }[];
 }
 
+/** A value `forge config set` and POST /api/config can write. */
+export type ConfigValue = string | number | boolean | null | string[];
+
+/** How a settings field is parsed, validated and rendered. */
+export type ConfigFieldType = 'boolean' | 'integer' | 'number' | 'string' | 'enum' | 'list' | 'object';
+
+/** The settings tab a field belongs to. */
+export type ConfigSection = 'pipeline' | 'review' | 'agents' | 'tracker' | 'dashboard' | 'daemon';
+
+/** One entry of FIELDS in lib/config-fields.ts. Every property is always present. */
+export interface ConfigField {
+  key: string;
+  section: ConfigSection;
+  label: string;
+  help: string;
+  type: ConfigFieldType;
+  options: string[] | null;
+  suggestions: string[] | null;
+  min: number | null;
+  max: number | null;
+  nullable: boolean;
+  default: unknown;
+  editable: boolean;
+  lockedReason: string | null;
+}
+
+/** GET /api/config: configResponse in lib/server.ts over FIELDS in lib/config-fields.ts. */
+export interface ConfigResponse {
+  initialized: boolean;
+  path: '.forge/config.yml';
+  fields: ConfigField[];
+  /** The effective value of every field key. */
+  values: Record<string, unknown>;
+  problems: string[];
+  writable: boolean;
+  lockedBy: 'uninitialized' | 'daemon' | null;
+}
+
+/** One `forge doctor` check: doctor in lib/doctor.ts. */
+export interface DoctorCheck {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+/** What `forge doctor` prints: doctor in lib/doctor.ts. */
+export interface DoctorReport {
+  ok: boolean;
+  checks: DoctorCheck[];
+}
+
+/** GET /api/doctor: doctor in lib/doctor.ts, plus when it ran. */
+export type DoctorResponse = DoctorReport & { at: string };
+
+/** GET /api/about: about in lib/server.ts. */
+export interface AboutResponse {
+  forgeVersion: string;
+  apiVersion: number;
+  pluginRoot: string;
+  schemaVersions: { config: number; job: number; event: number };
+  pricingAsOf: string | null;
+  node: string;
+  links: { repo: string | null; docs: string | null };
+}
+
 /** GET /api/requests: listRequests in lib/requests.ts. */
 export type RequestsResponse = ForgeRequest[];
 
@@ -502,6 +567,21 @@ export interface PostRequestBody {
 /** POST /api/requests reply: the handler in lib/server.ts. */
 export type PostRequestResponse = ForgeRequest & { daemon: boolean };
 
+/** POST /api/config body: the handler in lib/server.ts passes it to setConfigValue. */
+export interface PostConfigBody {
+  key: string;
+  value: ConfigValue;
+}
+
+/** POST /api/config reply: setConfigValue in lib/config.ts. */
+export interface PostConfigResponse {
+  ok: true;
+  key: string;
+  value: ConfigValue;
+  previous: unknown;
+  changed: boolean;
+}
+
 /** POST /api/daemon body: the handler in lib/server.ts. */
 export interface PostDaemonBody {
   action: 'start' | 'stop';
@@ -511,7 +591,7 @@ export interface PostDaemonBody {
 export type PostDaemonResponse = DaemonState;
 
 /**
- * JSON error body: jsonStatus for /api/daemon's 400/409 and the catch-all 500 in lib/server.ts.
+ * JSON error body: jsonStatus for /api/daemon's and /api/config's 4xx and the catch-all 500 in lib/server.ts.
  * The POST guard failures (403/415/421) are text/plain, not this.
  */
 export interface ApiError {
