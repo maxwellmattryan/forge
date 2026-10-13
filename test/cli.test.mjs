@@ -300,3 +300,57 @@ test('verify integrity: warn and block', () => {
     fs.rmSync(answers, { force: true });
   }
 });
+
+test('integrate --keep-conflicts leaves the merge or rebase for the integrator to finish', () => {
+  const repo = tempRepo();
+  const env = { ...process.env, FORGE_ROOT: repo.dir, GIT_EDITOR: 'true' };
+  const f = (...args) => {
+    try {
+      return { status: 0, out: JSON.parse(execFileSync(process.execPath, [BIN, ...args], { cwd: repo.dir, encoding: 'utf8', env, stdio: 'pipe' })) };
+    } catch (e) {
+      return { status: e.status, out: e.stdout ? JSON.parse(e.stdout) : null };
+    }
+  };
+  const wtRoot = path.join(repo.dir, '..', `${path.basename(repo.dir)}.wt`);
+  const answers = path.join(repo.dir, '..', `answers-keep-${path.basename(repo.dir)}.json`);
+  try {
+    fs.writeFileSync(answers, JSON.stringify({ commands: { test: 'true' }, worktrees: { root: `../${path.basename(repo.dir)}.wt` } }));
+    assert.equal(f('init', 'write', '--answers', answers).out.ok, true);
+    commitAll(repo.dir, 'forge');
+    f('tracker', 'create', '--title', 'Conflict');
+    const id = f('next', '--claim', '--session', 's1').out.id;
+    const wt = f('worktree', 'create', id).out.path;
+    const git = (...args) => execFileSync('git', args, { cwd: wt, encoding: 'utf8', env, stdio: 'pipe' }).trim();
+    const inProgress = (ref) => fs.existsSync(path.resolve(wt, git('rev-parse', '--git-path', ref)));
+    fs.writeFileSync(path.join(wt, 'README.md'), '# ours\n');
+    commitAll(wt, 'ours');
+    fs.writeFileSync(path.join(repo.dir, 'README.md'), '# theirs\n');
+    commitAll(repo.dir, 'theirs');
+
+    let r = f('integrate', id, '--strategy', 'merge');
+    assert.equal(r.status, 1);
+    assert.deepEqual(r.out.conflicts, ['README.md']);
+    assert.equal(r.out.inProgress, false);
+    assert.equal(inProgress('MERGE_HEAD'), false, 'without the flag the merge is aborted');
+
+    r = f('integrate', id, '--strategy', 'merge', '--keep-conflicts');
+    assert.equal(r.status, 1);
+    assert.deepEqual(r.out.conflicts, ['README.md']);
+    assert.equal(r.out.inProgress, true);
+    assert.equal(inProgress('MERGE_HEAD'), true, 'the integrator resolves and runs `git merge --continue`');
+    git('merge', '--abort');
+
+    r = f('integrate', id, '--strategy', 'rebase', '--keep-conflicts');
+    assert.equal(r.out.inProgress, true);
+    assert.equal(inProgress('rebase-merge'), true, 'the integrator never has to start `git rebase` itself');
+    fs.writeFileSync(path.join(wt, 'README.md'), '# both\n');
+    git('add', 'README.md');
+    git('rebase', '--continue');
+    assert.equal(inProgress('rebase-merge'), false);
+    assert.equal(f('integrate', id).out.behind, 0);
+  } finally {
+    fs.rmSync(answers, { force: true });
+    fs.rmSync(wtRoot, { recursive: true, force: true });
+    repo.cleanup();
+  }
+});

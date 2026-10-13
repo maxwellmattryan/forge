@@ -13,7 +13,7 @@ import { budgetCmd } from '../lib/budget.mjs';
 import { createJob, setJob, updateJob } from '../lib/jobs.mjs';
 import { PLUGIN_ROOT } from '../lib/paths.mjs';
 import { claimRequest, enqueue } from '../lib/requests.mjs';
-import { TURN, TURN_LINE, buildArgv, createDaemon, heldByBudget, parseTemplate, reapOrphan } from '../lib/daemon.mjs';
+import { GIT_PINS, TURN, TURN_LINE, buildArgv, createDaemon, heldByBudget, parseTemplate, reapOrphan, sessionEnv } from '../lib/daemon.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const FAKE = path.resolve(import.meta.dirname, 'fixtures', 'fake-claude.mjs');
@@ -128,6 +128,7 @@ test('AC5: command template to argv', async () => {
     assert.deepEqual(c.opts.stdio, ['pipe', 'pipe', 'pipe']);
     assert.equal(c.opts.env.FORGE_DAEMON, '1');
     assert.equal(c.opts.env.PATH.split(path.delimiter)[0], path.join(PLUGIN_ROOT, 'bin'), "the session's forge is this plugin's");
+    assert.deepEqual(c.opts.env, sessionEnv(process.env), 'the session gets the pinned git config');
   } finally {
     await d.close();
     repo.cleanup();
@@ -911,6 +912,39 @@ test('AC12: a real child busy past idleStopMinutes is not idle-stopped, and stop
   } finally {
     await d.close();
     fx.killAll();
+    repo.cleanup();
+  }
+});
+
+test('sessionEnv pins git hooks and fsmonitor off, after any config the caller exports', () => {
+  const env = sessionEnv({ PATH: '/usr/bin', HOME: '/h' });
+  assert.equal(env.HOME, '/h');
+  assert.equal(env.FORGE_DAEMON, '1');
+  assert.equal(env.GIT_EDITOR, 'true', 'git merge|rebase --continue never waits on an editor');
+  assert.equal(env.GIT_CONFIG_COUNT, String(GIT_PINS.length));
+  assert.deepEqual(GIT_PINS.map((_, i) => [env[`GIT_CONFIG_KEY_${i}`], env[`GIT_CONFIG_VALUE_${i}`]]), [
+    ['core.hooksPath', '/dev/null'],
+    ['core.fsmonitor', 'false'],
+  ]);
+  const kept = sessionEnv({ GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'safe.directory', GIT_CONFIG_VALUE_0: '*' });
+  assert.equal(kept.GIT_CONFIG_KEY_0, 'safe.directory', "the caller's pins stay");
+  assert.equal(kept.GIT_CONFIG_KEY_1, 'core.hooksPath');
+  assert.equal(kept.GIT_CONFIG_COUNT, String(1 + GIT_PINS.length));
+  assert.equal(sessionEnv({ GIT_CONFIG_COUNT: 'junk' }).GIT_CONFIG_COUNT, String(GIT_PINS.length));
+
+  // A hook the session writes into a tracked core.hooksPath dir (not a Claude Code protected path) never runs.
+  const repo = tempRepo();
+  try {
+    fs.mkdirSync(path.join(repo.dir, '.githooks'));
+    const marker = path.join(repo.dir, 'hook-ran');
+    fs.writeFileSync(path.join(repo.dir, '.githooks', 'pre-commit'), `#!/bin/sh\ntouch "${marker}"\n`, { mode: 0o755 });
+    repo.git('config', 'core.hooksPath', '.githooks');
+    const commit = (e) => spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'x'], { cwd: repo.dir, env: e, encoding: 'utf8' });
+    assert.equal(commit(sessionEnv(process.env)).status, 0);
+    assert.equal(fs.existsSync(marker), false, 'pinned: the hook is skipped');
+    assert.equal(commit(process.env).status, 0);
+    assert.equal(fs.existsSync(marker), true, 'unpinned control: the same hook runs');
+  } finally {
     repo.cleanup();
   }
 });
