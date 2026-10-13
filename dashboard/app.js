@@ -1,26 +1,15 @@
 // Forge dashboard. Vanilla ES module, bundled by Vite into the committed dashboard/dist/. Talks only to the local `forge dash` server.
-import { esc, num, usd, ago, toneChip, api, toast } from './util.js';
+import { esc, num, usd, ago, pct, tokensShort, dur, toneChip, api, toast } from './src/lib/util.ts';
+import { md, safeUrl } from './src/lib/markdown.ts';
+import { STAGE_LABEL, WAIT_LABEL } from './src/lib/labels.ts';
+import { API_VERSION, STAGES } from './src/lib/types.ts';
 import { mountDaemon } from './daemon.js';
-import { budgetChip, budgetCell, budgetPanel } from './budget.js';
-import { screenshotsPanel } from './screenshots.js';
-import { depChips, depSection } from './deps.js';
+import { budgetChip, budgetCell, budgetPanel } from './src/lib/budget.ts';
+import { screenshotsPanel } from './src/lib/screenshots.ts';
+import { depChips, depSection } from './src/lib/deps.ts';
 const TOKEN = document.querySelector('meta[name="forge-token"]')?.content ?? '';
-const API_VERSION = 4;
 
-const STAGES = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', 'review', 'decide', 'integrate', 'pr', 'done'];
 const CORE_STAGES = new Set(['backlog', 'spec', 'build', 'review', 'pr', 'done']);
-const STAGE_LABEL = { backlog: 'Queued', plan: 'Plan', spec: 'Spec', design: 'Design', build: 'Build', verify: 'Verify', review: 'Review', decide: 'Decide', integrate: 'Integrate', pr: 'PR', done: 'Done' };
-const WAIT_LABEL = {
-  'spec-approval': 'Spec approval',
-  input: 'Question for you',
-  escalation: 'Escalated',
-  infra: 'Infra steps',
-  conflicts: 'Merge conflicts',
-  'rounds-exhausted': 'Review rounds exhausted',
-  'pr-review': 'PR review',
-  external: 'External dependency',
-  budget: 'Budget exceeded',
-};
 
 const ICONS = {
   pipeline: 'M3 5h4v14H3zM10 5h4v9h-4zM17 5h4v6h-4z',
@@ -80,17 +69,6 @@ const S = {
   drawer: { id: null, detail: null, file: null, content: null, tab: 'files' },
 };
 
-// ---------- helpers ----------
-const pct = (x) => (x == null ? '—' : `${Math.round(x * 100)}%`);
-const tokensShort = (n) => (n == null ? '—' : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
-const dur = (ms) => {
-  if (ms == null) return '—';
-  const m = Math.floor(ms / 60000);
-  const s = Math.round((ms % 60000) / 1000);
-  return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m ${s}s`;
-};
-const safeUrl = (u) => (/^(https?:\/\/|#|\/(?!\/))/i.test(String(u ?? '')) ? String(u) : null);
-
 async function request(type, payload = {}) {
   try {
     const r = await api('/api/requests', {
@@ -132,88 +110,6 @@ const progressBar = (p) =>
   p?.total
     ? `<div class="flex items-center gap-2"><div class="h-1.5 flex-1 rounded-full bg-raised overflow-hidden"><div class="h-full ember-bar" style="width:${Math.round((p.done / p.total) * 100)}%"></div></div><span class="text-[11px] text-muted tabular-nums">${p.done}/${p.total}</span></div>`
     : '';
-
-// ---------- markdown (escape-first, so agent- or issue-supplied HTML never executes) ----------
-function inline(s) {
-  return s
-    .split(/(`[^`]+`)/g)
-    .map((part) => {
-      if (/^`[^`]+`$/.test(part)) return `<code>${esc(part.slice(1, -1))}</code>`;
-      let t = esc(part);
-      t = t.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label, url) => {
-        const u = safeUrl(url.replace(/&amp;/g, '&'));
-        return u ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${label}</a>` : label;
-      });
-      t = t.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (m, pre, url) => `${pre}<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`);
-      t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/(^|\W)\*([^*\s][^*]*)\*/g, '$1<em>$2</em>').replace(/(^|\W)_([^_\s][^_]*)_(?=\W|$)/g, '$1<em>$2</em>');
-      t = t.replace(/\[(blocker|major|minor|nit)\]/gi, (m, sev) => {
-        const tone = { blocker: 'bg-bad/15 text-bad', major: 'bg-warn/15 text-warn', minor: 'bg-info/15 text-info', nit: 'bg-raised text-muted' }[sev.toLowerCase()];
-        return `<span class="chip ${tone}">${sev.toLowerCase()}</span>`;
-      });
-      return t;
-    })
-    .join('');
-}
-
-function md(src) {
-  const lines = String(src ?? '').replace(/\r/g, '').split('\n');
-  let html = '';
-  let i = 0;
-  const isBlock = (l) => /^(```|#{1,6}\s|\s*[-*+]\s|\s*\d+\.\s|>|\||<!--|(-{3,}|\*{3,})\s*$)/.test(l);
-  while (i < lines.length) {
-    const l = lines[i];
-    if (/^```/.test(l)) {
-      const body = [];
-      i++;
-      while (i < lines.length && !/^```/.test(lines[i])) body.push(lines[i++]);
-      i++;
-      html += `<pre><code>${esc(body.join('\n'))}</code></pre>`;
-    } else if (/^<!--/.test(l)) {
-      while (i < lines.length && !lines[i].includes('-->')) i++;
-      i++;
-    } else if (/^#{1,6}\s/.test(l)) {
-      const level = Math.min(l.match(/^#+/)[0].length, 3);
-      html += `<h${level}>${inline(l.replace(/^#+\s*/, ''))}</h${level}>`;
-      i++;
-    } else if (/^\s*([-*+]|\d+\.)\s/.test(l)) {
-      const ordered = /^\s*\d+\./.test(l);
-      const items = [];
-      while (i < lines.length && (/^\s*([-*+]|\d+\.)\s/.test(lines[i]) || (/^\s{2,}\S/.test(lines[i]) && items.length))) {
-        if (/^\s*([-*+]|\d+\.)\s/.test(lines[i])) items.push(lines[i].replace(/^\s*([-*+]|\d+\.)\s+/, ''));
-        else items[items.length - 1] += ' ' + lines[i].trim();
-        i++;
-      }
-      const li = items.map((t) => {
-        const box = t.match(/^\[([ xX~])\]\s*/);
-        if (!box) return `<li>${inline(t)}</li>`;
-        const mark = box[1] === ' ' ? '☐' : box[1] === '~' ? '◐' : '☑';
-        return `<li class="list-none -ml-5"><span class="text-muted mr-1">${mark}</span>${inline(t.slice(box[0].length))}</li>`;
-      });
-      html += ordered ? `<ol>${li.join('')}</ol>` : `<ul>${li.join('')}</ul>`;
-    } else if (/^\|/.test(l)) {
-      const rows = [];
-      while (i < lines.length && /^\|/.test(lines[i])) rows.push(lines[i++]);
-      const cells = (r) => r.replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
-      const body = rows.filter((r, idx) => !(idx === 1 && /^[\s|:-]+$/.test(r)));
-      html += `<div class="overflow-x-auto"><table>${body.map((r, idx) => `<tr>${cells(r).map((c) => (idx === 0 ? `<th>${inline(c)}</th>` : `<td>${inline(c)}</td>`)).join('')}</tr>`).join('')}</table></div>`;
-    } else if (/^>/.test(l)) {
-      const q = [];
-      while (i < lines.length && /^>/.test(lines[i])) q.push(lines[i++].replace(/^>\s?/, ''));
-      html += `<blockquote>${inline(q.join(' '))}</blockquote>`;
-    } else if (/^(-{3,}|\*{3,})\s*$/.test(l)) {
-      html += '<hr class="border-line my-3">';
-      i++;
-    } else if (!l.trim()) {
-      i++;
-    } else {
-      const p = [];
-      while (i < lines.length && lines[i].trim() && !isBlock(lines[i])) p.push(lines[i++]);
-      if (!p.length) p.push(lines[i++]);
-      html += `<p>${inline(p.join(' '))}</p>`;
-    }
-  }
-  return html;
-}
 
 // ---------- data ----------
 async function refresh() {

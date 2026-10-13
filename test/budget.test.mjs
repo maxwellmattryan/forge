@@ -10,6 +10,8 @@ import { budgetCmd, enforceBudget, exceededKeys, formatReason } from '../lib/bud
 import { jobCmd } from '../lib/commands/job.mjs';
 import { migrate } from '../lib/commands/init.mjs';
 import { API_VERSION, BUDGET_KEYS, JOB_SCHEMA_VERSION, WAITING_ON } from '../lib/schema.mjs';
+import { API_VERSION as DASH_API_VERSION } from '../dashboard/src/lib/types.ts';
+import { WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 
@@ -41,9 +43,9 @@ test('AC1/AC2/AC16: defaults, validation, waitingOn and versions', () => {
   assert.equal(JOB_SCHEMA_VERSION, 3);
   assert.equal(API_VERSION, 4);
   assert.deepEqual(BUDGET_KEYS, ['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries']);
-  const app = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'app.js'), 'utf8');
-  assert.match(app, /const API_VERSION = 4;/);
-  assert.match(app, /budget: 'Budget exceeded'/);
+  assert.equal(DASH_API_VERSION, 4);
+  assert.equal(DASH_API_VERSION, API_VERSION);
+  assert.equal(WAIT_LABEL.budget, 'Budget exceeded');
   const { repo, root, id } = setup();
   try {
     setJob(root, id, { state: 'waiting', waitingOn: 'budget', reason: 'x' });

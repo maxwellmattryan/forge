@@ -1,13 +1,12 @@
-// @ts-check
 // The drawer's Screenshots card: UI evidence that agents saved to the job's screenshots/ dir.
 // No DOM access, so node:test can import it.
-import { esc } from './util.js';
+import { esc } from './util.ts';
 
 /**
- * @param {string} jobId @param {string[]|undefined} files paths relative to the job dir (`screenshots/…`)
- * @returns {string} HTML, or '' when there is nothing to show
+ * @param files paths relative to the job dir (`screenshots/…`)
+ * @returns HTML, or '' when there is nothing to show
  */
-export function screenshotsPanel(jobId, files) {
+export function screenshotsPanel(jobId: string, files: string[] | undefined): string {
   if (!Array.isArray(files) || !files.length) return '';
   const tiles = files
     .map((rel) => {
