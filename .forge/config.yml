@@ -31,12 +31,13 @@ commands:
   test: npm run test
   lint: for f in lib/*.mjs lib/commands/*.mjs lib/trackers/*.mjs dashboard/*.js dashboard/*.mjs bin/forge; do node --check "$f" || exit 1; done && claude plugin validate . --strict
   format: null
-  typecheck: null
+  typecheck: npm run check:dashboard
   dev: null
   e2e: null
 verify:
   - build
   - lint
+  - typecheck
   - test
 ports:
   base: 4100
