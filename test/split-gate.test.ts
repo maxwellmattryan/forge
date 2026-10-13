@@ -114,4 +114,19 @@ test('issue <ref> plans with split mode never', () => {
   assert.ok(planStep.includes('Split mode: <mode>'));
   assert.ok(/`never` when the job came from `issue <ref>` \(or a `run` request\)/.test(planStep));
   assert.ok(planStep.includes('whatever the config says'));
+  // The planner half: under never the plan stays one job and a split opinion is only advice.
+  const planner = read('agents/planner.md');
+  assert.ok(planner.includes('Split mode'));
+  assert.ok(planner.includes('`never`: the human chose this boundary, so the plan is always `PLAN: SINGLE`'));
+  assert.ok(planner.includes('External line starting `Recommend splitting:`'));
+  assert.ok(planner.includes('`feedback.md`'));
+});
+
+test('prompts carry phases from plan to tasks to commits', () => {
+  const template = between(read('agents/planner.md'), '## Write `plan.md`', '## Finish');
+  assert.ok(template.includes('## Phases          (only for SINGLE)'));
+  const writer = read('agents/spec-writer.md');
+  assert.ok(writer.includes('When `plan.md` has `## Phases`, group `## Tasks` under `### Phase <n>: <title>` headings'));
+  const builder = read('agents/builder.md');
+  assert.ok(builder.includes('commit at the end of each phase with build and tests green'));
 });
