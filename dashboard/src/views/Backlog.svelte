@@ -6,23 +6,24 @@
   import PageHeader from '../components/PageHeader.svelte';
   import { safeUrl } from '../lib/markdown.ts';
   import { S, openDrawer, refreshBacklog, req } from '../lib/app.svelte.ts';
+  import { t } from '../lib/locale.ts';
 
   const b = $derived(S.backlog);
   const hash = (ref: string): string => (/^\d+$/.test(ref) ? '#' : '');
 </script>
 
-<PageHeader title="Backlog">
-  {#snippet sub()}{#if b}From the <b>{b.tracker}</b> tracker{:else}Loading…{/if}{/snippet}
-  {#snippet right()}<button class="btn" onclick={refreshBacklog}><Icon name="refresh" />Refresh</button><button class="btn btn-primary" onclick={() => req({ type: 'next' })}>Run next</button>{/snippet}
+<PageHeader title={$t('backlog.title')}>
+  {#snippet sub()}{#if b}{$t('backlog.from')} <b>{b.tracker}</b> {$t('backlog.tracker')}{:else}{$t('common.loading')}{/if}{/snippet}
+  {#snippet right()}<button class="btn" onclick={refreshBacklog}><Icon name="refresh" />{$t('backlog.refresh')}</button><button class="btn btn-primary" onclick={() => req({ type: 'next' })}>{$t('common.runNext')}</button>{/snippet}
 </PageHeader>
 {#if b}
   {#if b.error}<Banner msg={b.error} />{/if}
   {#if !b.items?.length}
-    <Empty>The backlog is empty.</Empty>
+    <Empty>{$t('backlog.empty')}</Empty>
   {:else}
     <div class="card overflow-x-auto">
       <table class="tbl">
-        <thead><tr><th>Ref</th><th>Title</th><th>Status</th><th>Priority</th><th>Claimed by</th><th></th></tr></thead>
+        <thead><tr><th>{$t('backlog.ref')}</th><th>{$t('backlog.itemTitle')}</th><th>{$t('backlog.status')}</th><th>{$t('backlog.priority')}</th><th>{$t('backlog.claimedBy')}</th><th></th></tr></thead>
         <tbody>
           {#each b.items as i, n (n)}
             {@const u = safeUrl(i.url)}
@@ -32,7 +33,7 @@
               <td>{i.status ?? '—'}</td>
               <td>{i.priority ?? '—'}</td>
               <td class="text-muted">{#if i.claimedBy}{@const by = i.claimedBy}<button class="hover:text-accent" onclick={() => openDrawer(by)}>{by}</button>{:else}—{/if}</td>
-              <td class="text-right">{#if !i.claimedBy && !['done', 'dropped'].includes(i.status ?? '')}<button class="btn" onclick={() => req({ type: 'run', ref: i.ref })}>Start</button>{/if}</td>
+              <td class="text-right">{#if !i.claimedBy && !['done', 'dropped'].includes(i.status ?? '')}<button class="btn" onclick={() => req({ type: 'run', ref: i.ref })}>{$t('backlog.start')}</button>{/if}</td>
             </tr>
           {/each}
         </tbody>

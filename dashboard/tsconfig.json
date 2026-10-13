@@ -8,6 +8,7 @@
     "isolatedModules": true,
     "module": "esnext",
     "moduleResolution": "bundler",
+    "resolveJsonModule": true,
     "target": "es2022",
     "lib": ["es2022", "dom", "dom.iterable"],
     "types": [],

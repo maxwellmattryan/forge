@@ -9,6 +9,7 @@
   import { createDaemonLog } from '../lib/daemon-log.ts';
   import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
   import { toast } from '../lib/toast.svelte.ts';
+  import { t } from '../lib/locale.ts';
 
   // Follows each new /api/state (assigned only when it changed); SSE frames and POST replies overwrite it in between.
   let daemon = $derived<Partial<DaemonState> | null>(S.data?.daemon ?? null);
@@ -58,7 +59,7 @@
       refresh();
     } catch (err) {
       pending = false;
-      toast(`Daemon ${action} failed: ${err instanceof Error ? err.message : String(err)}`, true);
+      toast($t('daemon.failed', { action, error: err instanceof Error ? err.message : String(err) }), true);
     }
   }
 </script>
@@ -68,13 +69,13 @@
 <!-- No whitespace inside #daemon or the pane: the wrapper relies on :empty, and the pane is whitespace-pre-wrap. -->
 <div id="daemon" class="mx-auto max-w-[1400px] px-4 md:px-8 pt-6 empty:hidden">{#if model}<div class="card px-4 py-2.5">
       <div class="flex flex-wrap items-center gap-2">
-        <span class="chip {TONE_CLASS[model.pill.tone]}" title={model.pill.title}>Daemon {model.pill.label}</span>
-        {#if model.held !== null}<span class="chip {TONE_CLASS.warn}" title={model.held}>held: budget</span>{/if}
+        <span class="chip {TONE_CLASS[model.pill.tone]}" title={model.pill.title}>{$t('daemon.pill', { label: model.pill.label })}</span>
+        {#if model.held !== null}<span class="chip {TONE_CLASS.warn}" title={model.held}>{$t('daemon.held')}</span>{/if}
         {#if model.error !== null}<span class="truncate min-w-0 flex-1 text-xs text-muted" title={model.error}>{model.error}</span>{:else}<span class="flex-1"></span>{/if}
         <span class="flex items-center gap-2">
-          <button class="btn text-xs" disabled={!model.canStart} title={model.startHint} onclick={() => act('start')}>Start</button>
-          <button class="btn text-xs" disabled={!model.canStop} onclick={() => act('stop')}>Stop</button>
-          <button class="btn text-xs" aria-expanded={open ? 'true' : 'false'} onclick={() => log.toggle()}>Log</button>
+          <button class="btn text-xs" disabled={!model.canStart} title={model.startHint} onclick={() => act('start')}>{$t('daemon.start')}</button>
+          <button class="btn text-xs" disabled={!model.canStop} onclick={() => act('stop')}>{$t('daemon.stop')}</button>
+          <button class="btn text-xs" aria-expanded={open ? 'true' : 'false'} onclick={() => log.toggle()}>{$t('daemon.log')}</button>
         </span>
       </div>
       {#if open}

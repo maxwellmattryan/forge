@@ -16,12 +16,13 @@
   import { S, closeDrawer, loadView, refresh, route } from './lib/app.svelte.ts';
   import { pref } from './lib/prefs.ts';
   import { activeSessions } from './lib/view.ts';
+  import { t } from './lib/locale.ts';
 
   let dark = $state(document.documentElement.dataset.theme === 'dark');
   const sessions = $derived(activeSessions(S.data?.jobs ?? [], Date.now()));
 
   $effect(() => {
-    document.title = S.data?.repo?.name ? `Forge · ${S.data.repo.name}` : 'Forge';
+    document.title = S.data?.repo?.name ? $t('app.titleRepo', { repo: S.data.repo.name }) : $t('app.title');
   });
 
   function toggleTheme(): void {
@@ -50,17 +51,17 @@
     <div class="flex items-center gap-2.5 px-2 pb-3">
       <img src="/forge.png" alt="" class="size-9 rounded-lg" />
       <div class="min-w-0">
-        <div class="text-[15px] font-semibold leading-4 tracking-tight">Forge</div>
-        <div class="text-[10px] uppercase tracking-[0.12em] text-muted">software factory</div>
+        <div class="text-[15px] font-semibold leading-4 tracking-tight">{$t('app.brand')}</div>
+        <div class="text-[10px] uppercase tracking-[0.12em] text-muted">{$t('app.tagline')}</div>
       </div>
     </div>
     <div class="brand-rule mx-2 mb-3"></div>
-    <div class="px-3 pb-3 text-[11px] text-muted truncate">repo <span id="repo-name" class="font-mono text-fg">{S.data?.repo?.name ?? ''}</span></div>
+    <div class="px-3 pb-3 text-[11px] text-muted truncate">{$t('app.repo')} <span id="repo-name" class="font-mono text-fg">{S.data?.repo?.name ?? ''}</span></div>
     <nav id="nav" class="flex flex-col gap-0.5"><Nav /></nav>
     <div class="mt-auto flex flex-col gap-1 border-t border-line pt-3 text-xs text-muted">
-      <div id="footer-sessions" class="px-3"><span class="inline-block size-1.5 rounded-full {sessions ? 'bg-ok' : 'bg-muted'} mr-1.5 align-middle"></span>{sessions} session{sessions === 1 ? '' : 's'} active</div>
-      <button id="theme-toggle" class="nav-item" onclick={toggleTheme}><span class="flex items-center gap-2"><Icon name={dark ? 'sun' : 'moon'} />{dark ? 'Light' : 'Dark'} theme</span></button>
-      <div id="footer-version" class="px-3 text-[10px]">{S.data ? `Forge v${S.data.forgeVersion} · api ${S.data.apiVersion}` : ''}</div>
+      <div id="footer-sessions" class="px-3"><span class="inline-block size-1.5 rounded-full {sessions ? 'bg-ok' : 'bg-muted'} mr-1.5 align-middle"></span>{$t('app.sessions', { count: sessions })}</div>
+      <button id="theme-toggle" class="nav-item" onclick={toggleTheme}><span class="flex items-center gap-2"><Icon name={dark ? 'sun' : 'moon'} />{dark ? $t('app.themeLight') : $t('app.themeDark')}</span></button>
+      <div id="footer-version" class="px-3 text-[10px]">{S.data ? $t('app.version', { version: S.data.forgeVersion, api: S.data.apiVersion }) : ''}</div>
     </div>
   </aside>
   <main class="flex-1 min-w-0">
@@ -68,10 +69,10 @@
     <DaemonBar />
     <div id="view" class="mx-auto max-w-[1400px] px-4 md:px-8 pt-4 pb-6">
       {#if !S.data}
-        {#if S.error}<Banner msg={S.error} />{:else}<div class="text-muted text-sm">Loading…</div>{/if}
+        {#if S.error}<Banner msg={S.error} />{:else}<div class="text-muted text-sm">{$t('common.loading')}</div>{/if}
       {:else}
         {#if S.error}<Banner msg={S.error} />{/if}
-        {#if !S.data.initialized}<Banner msg="This repo has no .forge/config.yml yet. Run /forge init." />{/if}
+        {#if !S.data.initialized}<Banner msg={$t('app.noConfig')} />{/if}
         {#if S.view === 'pipeline'}<Pipeline data={S.data} />
         {:else if S.view === 'inbox'}<Inbox data={S.data} />
         {:else if S.view === 'backlog'}<Backlog />

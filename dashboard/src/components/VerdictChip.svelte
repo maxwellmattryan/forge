@@ -2,8 +2,9 @@
 <script lang="ts">
   import { TONE_CLASS } from '../lib/util.ts';
   import { verdictTone } from '../lib/view.ts';
+  import { t } from '../lib/locale.ts';
 
   let { name, verdict }: { name: string; verdict: string | null | undefined } = $props();
 </script>
 
-<span class="chip {TONE_CLASS[verdictTone(verdict)]}" title="{name}: {verdict ?? 'pending'}">{name}</span>
+<span class="chip {TONE_CLASS[verdictTone(verdict)]}" title={$t('verdict.title', { name, verdict: verdict ?? $t('verdict.pending') })}>{name}</span>

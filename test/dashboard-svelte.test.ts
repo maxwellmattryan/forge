@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { CLOSE, endOf, soleCall, tags } from './svelte-markup.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DASHBOARD = path.join(ROOT, 'dashboard');
@@ -22,45 +23,6 @@ const sources = () =>
 const svelteFiles = () => sources().filter((f) => f.endsWith('.svelte'));
 /** The escape-first HTML builders; their output is the only raw HTML the app renders. */
 const BUILDERS = { md: 'markdown', budgetChip: 'budget', budgetCell: 'budget', budgetPanel: 'budget', screenshotsPanel: 'screenshots' };
-
-// A regex can't tell where `{md(x) + raw}` ends or that `onclick={() => …}` doesn't close a tag, so the guards below
-// scan brackets, strings and template literals. Anything they can't parse is reported, never skipped.
-const CLOSE = { '{': '}', '(': ')', '[': ']' };
-/** Index of the character closing the bracket group, string or template literal opened at `i`; -1 if it never closes. */
-function endOf(/** @type {string} */ text, /** @type {number} */ i) {
-  const open = text[i];
-  if (open === '"' || open === "'") {
-    for (let j = i + 1; j < text.length; j++) {
-      if (text[j] === '\\') j++;
-      else if (text[j] === open) return j;
-    }
-    return -1;
-  }
-  if (open === '`') {
-    for (let j = i + 1; j < text.length; j++) {
-      if (text[j] === '\\') j++;
-      else if (text[j] === '`') return j;
-      else if (text[j] === '$' && text[j + 1] === '{' && (j = endOf(text, j + 1)) < 0) return -1;
-    }
-    return -1;
-  }
-  const close = CLOSE[/** @type {keyof typeof CLOSE} */ (open)];
-  for (let j = i + 1; j < text.length; j++) {
-    const c = text[j];
-    if (c === close) return j;
-    if (c in CLOSE || c === '"' || c === "'" || c === '`') {
-      if ((j = endOf(text, j)) < 0) return -1;
-    } else if (c === ')' || c === ']' || c === '}') return -1;
-  }
-  return -1;
-}
-
-/** The callee when `expr` is exactly one call `name(…)` with nothing before or after it, otherwise null. */
-function soleCall(/** @type {string} */ expr) {
-  const e = expr.trim();
-  const m = /^([A-Za-z_$][\w$]*)\s*\(/.exec(e);
-  return m && endOf(e, m[0].length - 1) === e.length - 1 ? m[1] : null;
-}
 
 /** @param {string} file @param {string} text */
 function htmlProblems(file, text) {
@@ -79,66 +41,6 @@ function htmlProblems(file, text) {
     calls.push(name);
   }
   return { problems, calls };
-}
-
-/**
- * Opening tags of a component's markup with their attributes. `<script>` and comments are dropped, and top-level
- * `{…}` blocks are skipped whole, so `a < b` in an expression is never read as a tag.
- * @param {string} file @param {string} text
- */
-function tags(file, text) {
-  const s = text.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '').replace(/<!--[\s\S]*?-->/g, '');
-  const unclosed = (/** @type {number} */ at) => new Error(`${file}: cannot parse markup near ${JSON.stringify(s.slice(at, at + 60))}`);
-  /** @type {{ name: string, attrs: { name?: string, value?: string, spread?: string }[] }[]} */
-  const out = [];
-  let i = 0;
-  while (i < s.length) {
-    if (s[i] === '{') {
-      const end = endOf(s, i);
-      if (end < 0) throw unclosed(i);
-      i = end + 1;
-      continue;
-    }
-    const open = s[i] === '<' && /^<([A-Za-z][\w:.-]*)/.exec(s.slice(i));
-    if (!open) { i++; continue; }
-    /** @type {{ name: string, attrs: { name?: string, value?: string, spread?: string }[] }} */
-    const tag = { name: open[1], attrs: [] };
-    let j = i + open[0].length;
-    for (;;) {
-      while (/\s/.test(s[j] ?? '')) j++;
-      if (j >= s.length) throw unclosed(i);
-      if (s[j] === '>' || s.startsWith('/>', j)) break;
-      if (s[j] === '{') {
-        const end = endOf(s, j);
-        if (end < 0) throw unclosed(j);
-        const expr = s.slice(j + 1, end).trim();
-        // `{...props}` spreads; `{href}` is shorthand for href={href}.
-        tag.attrs.push(expr.startsWith('...') ? { spread: expr } : { name: expr, value: `{${expr}}` });
-        j = end + 1;
-        continue;
-      }
-      const name = /^[^\s=/>{"']+/.exec(s.slice(j))?.[0];
-      if (!name) { j++; continue; }
-      j += name.length;
-      while (/\s/.test(s[j] ?? '')) j++;
-      if (s[j] !== '=') { tag.attrs.push({ name }); continue; }
-      j++;
-      while (/\s/.test(s[j] ?? '')) j++;
-      const from = j;
-      if (s[j] === '"' || s[j] === "'") {
-        const q = s[j++];
-        while (j < s.length && s[j] !== q) j = s[j] === '{' ? endOf(s, j) + 1 || s.length : j + 1;
-        if (j >= s.length) throw unclosed(from);
-        j++;
-      } else {
-        while (j < s.length && !/[\s>]/.test(s[j])) j = s[j] === '{' ? endOf(s, j) + 1 || s.length : j + 1;
-      }
-      tag.attrs.push({ name, value: s.slice(from, j) });
-    }
-    out.push(tag);
-    i = j;
-  }
-  return out;
 }
 
 /** The right-hand side of the assignment starting at `i`: up to `;`, a newline, or the `}` closing an `{@const}`. */

@@ -10,6 +10,7 @@
   import { cardRef, needsHuman, runningRoles } from '../lib/view.ts';
   import { S, openDrawer } from '../lib/app.svelte.ts';
   import type { StateJob } from '../lib/types.ts';
+  import { t } from '../lib/locale.ts';
 
   let { job: j }: { job: StateJob } = $props();
   const verdicts = $derived(j.verdicts?.[j.round] ?? null);
@@ -26,8 +27,8 @@
     <div class="flex flex-wrap gap-1">{#each j.reviewers as r, i (i)}<VerdictChip name={r} verdict={verdicts?.[r]} />{/each}</div>
   {/if}
   <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-    {#if j.round}<span>round {j.round}/{j.maxRounds}</span>{/if}<PrChip pr={j.pr} />{@html budgetChip(j, S.data?.config?.pipeline?.budget)}
+    {#if j.round}<span>{$t('job.round', { round: j.round, max: j.maxRounds })}</span>{/if}<PrChip pr={j.pr} />{@html budgetChip(j, S.data?.config?.pipeline?.budget)}
     {#if running.length}<span class="text-accent">● {running.join(', ')}</span>{/if}
-    <span class="ml-auto">{tokensShort(j.usage?.totalTokens)} tok · {ago(j.updatedAt)}</span>
+    <span class="ml-auto">{$t('job.usage', { tokens: tokensShort(j.usage?.totalTokens), ago: ago(j.updatedAt) })}</span>
   </div>
 </button>

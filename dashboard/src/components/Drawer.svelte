@@ -14,6 +14,7 @@
   import { ago, dur, num, tokensShort, usd } from '../lib/util.ts';
   import { eventDetail, verdictMatrix } from '../lib/view.ts';
   import { S, closeDrawer, loadFile, setDrawerTab } from '../lib/app.svelte.ts';
+  import { t } from '../lib/locale.ts';
 
   const open = $derived(S.drawer.id !== null);
   const view = $derived(S.drawerView);
@@ -41,20 +42,20 @@
     {@const j = job}
     <div class="p-5 md:p-6 flex flex-col gap-5">
       <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="text-lg font-semibold">{j.title}</h2><div class="text-xs text-muted font-mono">{j.id}</div></div><button class="btn" onclick={closeDrawer}><Icon name="close" /></button></div>
-      <div class="flex flex-wrap gap-1.5"><Chip tone="muted" text={STAGE_LABEL[j.stage] ?? j.stage} /><StateChip job={j} />{#if j.round}<Chip tone="muted" text="round {j.round}/{j.maxRounds}" />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}</div>
+      <div class="flex flex-wrap gap-1.5"><Chip tone="muted" text={STAGE_LABEL[j.stage] ?? j.stage} /><StateChip job={j} />{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}</div>
       {#if j.reason}<div class="text-sm text-muted">{j.reason}</div>{/if}
       <ProgressBar progress={j.progress} />
       <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-        {@render fact('Branch', j.branch ?? '—')}{@render fact('Base', j.base ?? '—')}{@render fact('Port', j.port ?? '—')}{@render fact('Worktree', j.worktree ?? '—')}
-        <div><div class="text-[11px] text-muted">PR</div><div class="text-sm font-mono break-all">{#if prUrl}<a class="text-accent" href={prUrl} target="_blank" rel="noopener">#{j.pr?.number}</a>{:else}—{/if}</div></div>
-        <div><div class="text-[11px] text-muted">Source</div><div class="text-sm font-mono break-all">{#if srcUrl}<a class="text-accent" href={srcUrl} target="_blank" rel="noopener">{j.source?.ref ?? 'link'}</a>{:else}{j.source?.ref ?? '—'}{/if}</div></div>
-        {@render fact('Session', j.owner?.session ?? '—')}{@render fact('Created', ago(j.createdAt))}{@render fact('Updated', ago(j.updatedAt))}
+        {@render fact($t('drawer.branch'), j.branch ?? '—')}{@render fact($t('drawer.base'), j.base ?? '—')}{@render fact($t('drawer.port'), j.port ?? '—')}{@render fact($t('drawer.worktree'), j.worktree ?? '—')}
+        <div><div class="text-[11px] text-muted">{$t('drawer.pr')}</div><div class="text-sm font-mono break-all">{#if prUrl}<a class="text-accent" href={prUrl} target="_blank" rel="noopener">#{j.pr?.number}</a>{:else}—{/if}</div></div>
+        <div><div class="text-[11px] text-muted">{$t('drawer.source')}</div><div class="text-sm font-mono break-all">{#if srcUrl}<a class="text-accent" href={srcUrl} target="_blank" rel="noopener">{j.source?.ref ?? $t('drawer.link')}</a>{:else}{j.source?.ref ?? '—'}{/if}</div></div>
+        {@render fact($t('drawer.session'), j.owner?.session ?? '—')}{@render fact($t('drawer.created'), ago(j.createdAt))}{@render fact($t('drawer.updated'), ago(j.updatedAt))}
       </div>
       <DepSection job={j} />
       {#if matrix}
         <div class="card overflow-x-auto">
           <table class="tbl">
-            <thead><tr><th>Round</th><th>Verify</th>{#each matrix.reviewers as r (r)}<th>{r}</th>{/each}</tr></thead>
+            <thead><tr><th>{$t('table.round')}</th><th>{$t('drawer.verify')}</th>{#each matrix.reviewers as r (r)}<th>{r}</th>{/each}</tr></thead>
             <tbody>
               {#each matrix.rounds as r (r)}
                 {@const verify = j.verify?.[r]}
@@ -71,7 +72,7 @@
       {#if usageRows.length}
         <div class="card overflow-x-auto">
           <table class="tbl">
-            <thead><tr><th>Agent</th><th>Runs</th><th class="text-right">Tokens</th><th class="text-right">Output</th><th class="text-right">Tools</th><th class="text-right">Time</th><th class="text-right">Est. cost</th></tr></thead>
+            <thead><tr><th>{$t('drawer.agent')}</th><th>{$t('common.runs')}</th><th class="text-right">{$t('common.tokens')}</th><th class="text-right">{$t('drawer.output')}</th><th class="text-right">{$t('drawer.tools')}</th><th class="text-right">{$t('drawer.time')}</th><th class="text-right">{$t('common.estCost')}</th></tr></thead>
             <tbody>
               {#each usageRows as [k, v] (k)}
                 <tr>
@@ -85,7 +86,7 @@
                 </tr>
               {/each}
               <tr class="font-medium">
-                <td>Total</td>
+                <td>{$t('drawer.total')}</td>
                 <td></td>
                 <td class="text-right tabular-nums">{num(j.usage.totalTokens)}</td>
                 <td></td>
@@ -98,7 +99,7 @@
         </div>
       {/if}
       {@html screenshotsPanel(j.id, d.screenshots ?? [])}
-      <div class="flex gap-1 border-b border-line">{#each TABS as t (t)}<button class="px-3 py-2 text-sm -mb-px border-b-2 {shown.tab === t ? 'border-accent text-fg' : 'border-transparent text-muted'}" onclick={() => setDrawerTab(t)}>{t === 'timeline' ? 'Timeline ' : 'Files'}{#if t === 'timeline'}<span class="text-muted">{d.events.length}</span>{/if}</button>{/each}</div>
+      <div class="flex gap-1 border-b border-line">{#each TABS as tab (tab)}<button class="px-3 py-2 text-sm -mb-px border-b-2 {shown.tab === tab ? 'border-accent text-fg' : 'border-transparent text-muted'}" onclick={() => setDrawerTab(tab)}>{#if tab === 'timeline'}{$t('drawer.timeline')} <span class="text-muted">{d.events.length}</span>{:else}{$t('drawer.files')}{/if}</button>{/each}</div>
       {#if shown.tab === 'files'}
         {@const file = shown.file}
         {@const content = shown.content}
@@ -115,7 +116,7 @@
                 <pre class="text-[12px] font-mono whitespace-pre-wrap break-words bg-raised rounded-lg p-3">{content.text}</pre>
               {/if}
             {:else}
-              <div class="text-sm text-muted">No files yet.</div>
+              <div class="text-sm text-muted">{$t('drawer.noFiles')}</div>
             {/if}
           </div>
         </div>

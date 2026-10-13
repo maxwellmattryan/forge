@@ -5,6 +5,7 @@
   import type { ApiState, UsageRow } from '../lib/types.ts';
   import { STATS_WINDOWS, jobMs, topJobsByUsage, usageBars } from '../lib/view.ts';
   import { S, openDrawer, setWindow } from '../lib/app.svelte.ts';
+  import { t } from '../lib/locale.ts';
 
   let { data }: { data: ApiState } = $props();
   const s = $derived(S.stats);
@@ -20,7 +21,7 @@
   <div class="card overflow-x-auto">
     <div class="px-3 pt-3 text-sm font-semibold">{title}</div>
     <table class="tbl">
-      <thead><tr><th>Name</th><th>Runs</th><th class="w-1/3">Tokens</th><th class="text-right">Est. cost</th></tr></thead>
+      <thead><tr><th>{$t('analytics.name')}</th><th>{$t('common.runs')}</th><th class="w-1/3">{$t('common.tokens')}</th><th class="text-right">{$t('common.estCost')}</th></tr></thead>
       <tbody>
         {#each bars as { key, row, width } (key)}
           <tr>
@@ -30,53 +31,53 @@
             <td class="text-right tabular-nums">{usd(row.estCostUsd)}</td>
           </tr>
         {:else}
-          <tr><td colspan="4" class="text-muted">No usage recorded yet.</td></tr>
+          <tr><td colspan="4" class="text-muted">{$t('analytics.noUsage')}</td></tr>
         {/each}
       </tbody>
     </table>
   </div>
 {/snippet}
 
-<PageHeader title="Analytics">
-  {#snippet sub()}How Forge itself is performing. Comparable across repos because it measures the process, not the code.{/snippet}
+<PageHeader title={$t('analytics.title')}>
+  {#snippet sub()}{$t('analytics.sub')}{/snippet}
   {#snippet right()}<select value={S.window} onchange={(e) => setWindow(e.currentTarget.value)}>{#each STATS_WINDOWS as [v, l] (v)}<option value={v}>{l}</option>{/each}</select>{/snippet}
 </PageHeader>
 {#if !s}
-  <div class="text-muted text-sm">Loading…</div>
+  <div class="text-muted text-sm">{$t('common.loading')}</div>
 {:else}
   {@const q = s.quality}
   {@const cov = s.cost.reportingCoverage}
   {@const deltaCov = q.humanDeltaCoverage ?? { merged: 0, measured: 0 }}
   <div class="grid gap-3 grid-cols-2 lg:grid-cols-3">
-    {@render kpi('Jobs', num(s.counts.total), `${s.counts.active} active · ${s.counts.done} done · ${s.counts.cancelled} cancelled`)}
-    {@render kpi('First-pass review', pct(q.firstPassReviewRate), `avg ${q.avgRounds ?? '—'} rounds`)}
-    {@render kpi('Escalation rate', pct(q.escalationRate), `${q.humanReworks} human rework(s)`)}
-    {@render kpi('Human feedback on PRs', pct(q.humanFeedbackOnPrRate), 'PRs with unresolved threads')}
-    {@render kpi('Human delta after push', pct(q.humanDeltaRate ?? null), `median ${q.medianHumanDeltaLines ?? '—'} lines · ${deltaCov.measured} of ${deltaCov.merged} merged measured`)}
-    {@render kpi('Median to PR', s.speed.medianMinutesToPr == null ? '—' : `${s.speed.medianMinutesToPr}m`, `to done ${s.speed.medianMinutesToDone ?? '—'}m`)}
-    {@render kpi('Verify first-pass', pct(q.verifyFirstPassRate), 'build/lint/test before review')}
-    {@render kpi('Tokens', tokensShort(s.cost.totalTokens), `${tokensShort(s.cost.avgTokensPerJob)} per job`)}
-    {@render kpi('API-equivalent cost', usd(s.cost.estCostUsd), `${usd(s.cost.avgCostPerJobUsd)} per job · coverage ${cov.withUsage}/${cov.agentRuns} (${cov.exact} exact)`)}
+    {@render kpi($t('analytics.jobs'), num(s.counts.total), $t('analytics.jobsSub', { active: s.counts.active, done: s.counts.done, cancelled: s.counts.cancelled }))}
+    {@render kpi($t('analytics.firstPass'), pct(q.firstPassReviewRate), $t('analytics.firstPassSub', { rounds: q.avgRounds ?? '—' }))}
+    {@render kpi($t('analytics.escalation'), pct(q.escalationRate), $t('analytics.escalationSub', { count: q.humanReworks }))}
+    {@render kpi($t('analytics.prFeedback'), pct(q.humanFeedbackOnPrRate), $t('analytics.prFeedbackSub'))}
+    {@render kpi($t('analytics.delta'), pct(q.humanDeltaRate ?? null), $t('analytics.deltaSub', { lines: q.medianHumanDeltaLines ?? '—', measured: deltaCov.measured, merged: deltaCov.merged }))}
+    {@render kpi($t('analytics.toPr'), s.speed.medianMinutesToPr == null ? '—' : $t('analytics.minutes', { count: s.speed.medianMinutesToPr }), $t('analytics.toPrSub', { minutes: s.speed.medianMinutesToDone ?? '—' }))}
+    {@render kpi($t('analytics.verify'), pct(q.verifyFirstPassRate), $t('analytics.verifySub'))}
+    {@render kpi($t('common.tokens'), tokensShort(s.cost.totalTokens), $t('analytics.tokensSub', { tokens: tokensShort(s.cost.avgTokensPerJob) }))}
+    {@render kpi($t('analytics.cost'), usd(s.cost.estCostUsd), $t('analytics.costSub', { cost: usd(s.cost.avgCostPerJobUsd), withUsage: cov.withUsage, agentRuns: cov.agentRuns, exact: cov.exact }))}
   </div>
-  <div class="grid gap-3 lg:grid-cols-2 mt-6">{@render usageTable('By role', s.cost.byRole)}{@render usageTable('By model', s.cost.byModel)}</div>
+  <div class="grid gap-3 lg:grid-cols-2 mt-6">{@render usageTable($t('analytics.byRole'), s.cost.byRole)}{@render usageTable($t('analytics.byModel'), s.cost.byModel)}</div>
   <div class="card overflow-x-auto mt-6">
-    <div class="px-3 pt-3 text-sm font-semibold">Review lenses</div>
+    <div class="px-3 pt-3 text-sm font-semibold">{$t('analytics.lenses')}</div>
     <table class="tbl">
-      <thead><tr><th>Lens</th><th>Reviews</th><th>Asked for changes</th></tr></thead>
+      <thead><tr><th>{$t('common.lens')}</th><th>{$t('analytics.reviews')}</th><th>{$t('analytics.askedChanges')}</th></tr></thead>
       <tbody>
         {#each Object.entries(s.reviewers) as [k, v] (k)}
           <tr><td class="font-medium">{k}</td><td class="tabular-nums">{v.reviews}</td><td class="tabular-nums">{pct(v.changeRate)}</td></tr>
         {:else}
-          <tr><td colspan="3" class="text-muted">No reviews yet.</td></tr>
+          <tr><td colspan="3" class="text-muted">{$t('analytics.noReviews')}</td></tr>
         {/each}
       </tbody>
     </table>
   </div>
   {#if jobs.length}
     <div class="card overflow-x-auto mt-6">
-      <div class="px-3 pt-3 text-sm font-semibold">Jobs by usage</div>
+      <div class="px-3 pt-3 text-sm font-semibold">{$t('analytics.byUsage')}</div>
       <table class="tbl">
-        <thead><tr><th>Job</th><th>Rounds</th><th>Duration</th><th class="text-right">Tokens</th><th class="text-right">Est. cost</th><th>Usage source</th></tr></thead>
+        <thead><tr><th>{$t('common.job')}</th><th>{$t('common.rounds')}</th><th>{$t('analytics.duration')}</th><th class="text-right">{$t('common.tokens')}</th><th class="text-right">{$t('common.estCost')}</th><th>{$t('analytics.usageSource')}</th></tr></thead>
         <tbody>
           {#each jobs as j (j.id)}
             <tr class="hover:bg-raised cursor-pointer" onclick={() => openDrawer(j.id)}>
@@ -85,12 +86,12 @@
               <td class="tabular-nums">{dur(jobMs(j))}</td>
               <td class="text-right tabular-nums">{num(j.usage.totalTokens)}</td>
               <td class="text-right tabular-nums">{usd(j.usage.estCostUsd)}</td>
-              <td class="text-muted">{j.usage.exact ? 'transcript' : 'reported total'}</td>
+              <td class="text-muted">{j.usage.exact ? $t('analytics.transcript') : $t('analytics.reported')}</td>
             </tr>
           {/each}
         </tbody>
       </table>
     </div>
   {/if}
-  <p class="text-[11px] text-muted mt-3">Costs are API list-price equivalents. Subscription plans are not billed per token.</p>
+  <p class="text-[11px] text-muted mt-3">{$t('analytics.footnote')}</p>
 {/if}
