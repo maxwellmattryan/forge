@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0
+
+- Daemon: `forge dash` can supervise one headless `claude -p` session that handles dashboard requests without a human session open (`daemon.enabled`, off by default). Config schema 2 replaces `dashboard.launcher` with a `daemon:` block; the dashboard gets a daemon status pill, start/stop buttons and a live log pane over SSE; `API_VERSION` 4.
+- Daemon security: the default allowlist is scoped to the git and gh forms Forge uses, git hooks are off inside the session, and validation refuses permission-widening flags and entries. New `forge git diff|log|show|range-diff` wraps reads so `--output` and driver options cannot write into `.git/`; `forge integrate --keep-conflicts` and `--continue` replace `git merge|rebase --continue` on the allowlist. Every `forge` command in a daemon session checks a trust digest of `.forge/config.yml` and `.forge/trackers/`, and the supervisor stops the session when they change.
+- Dashboard: ported to Svelte 5 in strict TypeScript, built with Vite into the committed `dashboard/dist/` (Tailwind compiled in, no CDN). The server serves only files the build manifest lists. Same UI and escaping guarantees.
+- Engine: `lib/`, `hooks/` and the tests are strict TypeScript that Node runs by type stripping, with no build step and still no runtime dependencies. Node ≥ 22.18 is required; standalone install is `git clone` + `npm link`.
+
 ## 0.7.0
 
 - Job dependencies: `dependsOn` on a job, recorded from the planner's `Depends on`. `forge job claim` exits 4 while a dependency is unfinished; `--force` stacks the job on the dependency's branch and `forge sync` retargets its PR once the dependency merges. The dashboard shows `after <job>` chips and a depends-on/blocks list in the job drawer.
