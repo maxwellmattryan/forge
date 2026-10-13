@@ -13,11 +13,13 @@ import { budgetCmd } from '../lib/budget.mjs';
 import { createJob, setJob, updateJob } from '../lib/jobs.mjs';
 import { PLUGIN_ROOT } from '../lib/paths.mjs';
 import { enqueue } from '../lib/requests.mjs';
-import { TURN, TURN_LINE, buildArgv, createDaemon, heldByBudget, parseTemplate } from '../lib/daemon.mjs';
+import { TURN, TURN_LINE, buildArgv, createDaemon, heldByBudget, parseTemplate, reapOrphan } from '../lib/daemon.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const FAKE = path.resolve(import.meta.dirname, 'fixtures', 'fake-claude.mjs');
-const FAKE_COMMAND = `"${process.execPath}" "${FAKE}" --plugin-dir {pluginRoot} {session} --allowedTools {allowedTools}`;
+// Named claude, because daemon.command must run claude; it runs fake-claude.mjs.
+const FAKE_BIN = path.resolve(import.meta.dirname, 'fixtures', 'bin', 'claude');
+const FAKE_COMMAND = `"${FAKE_BIN}" --plugin-dir {pluginRoot} {session} --allowedTools {allowedTools}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const settle = () => new Promise((r) => setImmediate(r));
 
@@ -43,7 +45,7 @@ const alive = (pid) => {
 /** @param {Record<string, any>} [daemon] */
 function config(daemon = {}) {
   const c = defaults();
-  Object.assign(c.daemon, { enabled: true, command: 'fake-claude {session} --plugin-dir {pluginRoot} --allowedTools {allowedTools}', ...daemon });
+  Object.assign(c.daemon, { enabled: true, command: 'claude {session} --plugin-dir {pluginRoot} --allowedTools {allowedTools}', ...daemon });
   return c;
 }
 
@@ -117,7 +119,7 @@ test('AC5: command template to argv', async () => {
   try {
     d.start();
     const [c] = kit.children;
-    assert.equal(c.cmd, 'fake-claude');
+    assert.equal(c.cmd, 'claude');
     assert.equal(c.args[0], '--session-id');
     assert.deepEqual(c.args.slice(2), ['--plugin-dir', PLUGIN_ROOT, '--allowedTools', defaults().daemon.allowedTools.join(',')]);
     assert.equal(c.opts.shell, undefined, 'no shell');
@@ -125,6 +127,7 @@ test('AC5: command template to argv', async () => {
     assert.equal(c.opts.cwd, repo.dir);
     assert.deepEqual(c.opts.stdio, ['pipe', 'pipe', 'pipe']);
     assert.equal(c.opts.env.FORGE_DAEMON, '1');
+    assert.equal(c.opts.env.PATH.split(path.delimiter)[0], path.join(PLUGIN_ROOT, 'bin'), "the session's forge is this plugin's");
   } finally {
     await d.close();
     repo.cleanup();
@@ -155,7 +158,7 @@ test('AC6: idle/busy state machine and edge-triggered turns', async () => {
 
     enqueue(repo.dir, null, { type: 'sync', from: 'dashboard' });
     d.poke();
-    await settle();
+    await sleep(30);
     assert.equal(turnsIn(c), 1, 'nothing is written while busy');
 
     c.line({ type: 'system', subtype: 'init', session_id: d.state().sessionId });
@@ -238,20 +241,20 @@ test('AC8: turns are held per request while its job is over budget', async () =>
 
     enqueue(root, null, { type: 'resume', job: a, from: 'dashboard' });
     d.poke();
-    await settle();
+    await sleep(30);
     assert.equal(turnsIn(c), 0, 'a resume for a parked, still-exceeded job sends nothing');
     assert.deepEqual(d.state().held, { reason: 'budget', jobs: [a] });
 
     budgetCmd(root, cfg, a, { ack: true });
     d.poke();
-    await settle();
+    await waitFor(() => turnsIn(c) >= 1, 2000, 'acknowledging the budget releases the request');
     assert.equal(turnsIn(c), 1, 'acknowledging the budget releases the request');
     assert.equal(d.state().held, null);
     await done();
 
     const rework = enqueue(root, null, { type: 'rework', job: b, text: 'again', from: 'dashboard' });
     d.poke();
-    await settle();
+    await sleep(30);
     assert.equal(turnsIn(c), 1, 'a rework is held too');
     assert.deepEqual(d.state().held, { reason: 'budget', jobs: [b] });
     for (const type of ['revise-spec', 'answer']) assert.equal(heldByBudget(root, cfg, { type, job: b }), true, type);
@@ -262,30 +265,31 @@ test('AC8: turns are held per request while its job is over budget', async () =>
 
     enqueue(root, null, { type: 'approve', job: b, from: 'dashboard' });
     d.poke();
-    await settle();
+    await waitFor(() => turnsIn(c) >= 2, 2000, 'approving a parked job is the acknowledgement, so it is never held');
     assert.equal(turnsIn(c), 2, 'approving a parked job is the acknowledgement, so it is never held');
     await done();
     enqueue(root, null, { type: 'cancel', job: b, from: 'dashboard' });
     d.poke();
-    await settle();
+    await waitFor(() => turnsIn(c) >= 3, 2000, 'cancel is never held');
     assert.equal(turnsIn(c), 3, 'cancel is never held');
     await done();
     enqueue(root, null, { type: 'next', from: 'dashboard' });
     d.poke();
-    await settle();
+    await waitFor(() => turnsIn(c) >= 4, 2000, 'job-less requests are never held');
     assert.equal(turnsIn(c), 4, 'job-less requests are never held');
     await done();
     assert.deepEqual(d.state().held, { reason: 'budget', jobs: [b] }, 'the rework stays held');
 
     budgetCmd(root, cfg, b, { ack: true });
     d.poke();
-    await settle();
+    await waitFor(() => turnsIn(c) >= 5, 2000, 'the held rework triggers once released');
     assert.equal(turnsIn(c), 5, 'the held rework triggers once released');
     assert.equal(d.state().held, null);
+    assert.ok(rework.id);
+    await d.close();
     const log = fs.readFileSync(path.join(root, '.forge', 'runtime', 'daemon.log'), 'utf8');
     const heldLines = log.split('\n').filter((l) => l.includes('"event":"held"'));
     assert.equal(heldLines.length, 4, 'held is logged only when the set changes');
-    assert.ok(rework.id);
   } finally {
     await d.close();
     repo.cleanup();
@@ -439,7 +443,7 @@ test('AC11: crash loop cap and missing executable', async () => {
   };
   const d2 = createDaemon(repo.dir, {
     spawn: /** @type {any} */ (countingSpawn),
-    loadConfig: () => ({ config: config({ command: `"${path.join(repo.dir, 'no-such-claude')}" {session}` }) }),
+    loadConfig: () => ({ config: config({ command: `"${path.join(repo.dir, 'missing', 'claude')}" {session}` }) }),
     pollMs: 20,
   });
   try {
@@ -692,5 +696,51 @@ test('AC14: log, truncation, rotation and stdout backpressure', async () => {
   } finally {
     await d2.close();
     repo2.cleanup();
+  }
+});
+
+test('AC13: reapOrphan never signals a process it cannot prove is its claude child', async (t) => {
+  if (process.platform === 'win32') return t.skip('POSIX-only');
+  const repo = tempRepo();
+  const file = path.join(repo.dir, '.forge', 'runtime', 'daemon.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const sid = crypto.randomUUID();
+  // A detached process that is not the recorded claude child, and one that is.
+  const bystander = nodeSpawn(process.execPath, ['-e', 'setInterval(() => {}, 1 << 30)', '--', '--session-id', sid], { detached: true, stdio: 'ignore' });
+  const claude = nodeSpawn(FAKE_BIN, ['--session-id', sid], { detached: true, stdio: ['pipe', 'ignore', 'ignore'] });
+  const deadServer = 2 ** 22 + 12345;
+  const base = { sessionId: sid, resumable: true, serverPid: deadServer, argv0: FAKE_BIN, startedAt: new Date().toISOString() };
+  const write = (rec) => fs.writeFileSync(file, JSON.stringify({ ...base, ...rec }));
+  try {
+    await waitFor(() => alive(claude.pid) && alive(bystander.pid), 2000, 'both processes');
+    await sleep(100);
+    const refused = [
+      ['pid 1', { pid: 1 }],
+      ['our own pid', { pid: process.pid }],
+      ['a process without the claude executable', { pid: bystander.pid, argv0: 'claude' }],
+      ['a non-claude argv0', { pid: claude.pid, argv0: process.execPath }],
+      ['a session id that is not a uuid', { pid: claude.pid, sessionId: 'node', spawnSessionId: 'node' }],
+      ['another session uuid', { pid: claude.pid, sessionId: crypto.randomUUID(), spawnSessionId: null }],
+      ['a start time that does not match', { pid: claude.pid, startedAt: '2001-01-01T00:00:00.000Z' }],
+      ['no start time', { pid: claude.pid, startedAt: null }],
+      ['a live server', { pid: claude.pid, serverPid: bystander.pid }],
+    ];
+    for (const [name, rec] of refused) {
+      write(rec);
+      assert.deepEqual(reapOrphan(repo.dir, { graceMs: 200 }), { reaped: false, pid: null }, name);
+    }
+    assert.equal(alive(bystander.pid), true);
+    assert.equal(alive(claude.pid), true);
+    write({ pid: claude.pid });
+    assert.deepEqual(reapOrphan(repo.dir, { graceMs: 1000 }), { reaped: true, pid: claude.pid }, 'the real child is reaped');
+    await waitFor(() => !alive(claude.pid), 3000, 'the reaped child');
+    assert.equal(alive(bystander.pid), true, 'the bystander is untouched');
+  } finally {
+    for (const p of [bystander, claude]) {
+      try {
+        process.kill(-p.pid, 'SIGKILL');
+      } catch {}
+    }
+    repo.cleanup();
   }
 });

