@@ -39,10 +39,10 @@ test('AC1/AC2/AC16: defaults, validation, waitingOn and versions', () => {
   assert.deepEqual(budgetProblems({ tokens: null, usd: 2.5, verifyRetries: 0 }), []);
   assert.ok(WAITING_ON.includes('budget'));
   assert.equal(JOB_SCHEMA_VERSION, 3);
-  assert.equal(API_VERSION, 3);
+  assert.equal(API_VERSION, 4);
   assert.deepEqual(BUDGET_KEYS, ['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries']);
   const app = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'app.js'), 'utf8');
-  assert.match(app, /const API_VERSION = 3;/);
+  assert.match(app, /const API_VERSION = 4;/);
   assert.match(app, /budget: 'Budget exceeded'/);
   const { repo, root, id } = setup();
   try {
