@@ -19,7 +19,7 @@ LLMs are good at judgement and unreliable at bookkeeping. Everything with a sing
 2. **Context stays small.** `forge verify` returns pass/fail plus a log tail, not 3,000 lines of compiler output. `forge job verdicts --compact` returns one word per lens. `forge job scope` returns at most 20 out-of-spec files; the full list goes to `scope.md`.
 3. **The protocol is portable.** Any agent runtime that can run shell commands can drive Forge (see PROTOCOL.md).
 
-The CLI is TypeScript that Node ≥ 22.18 runs directly through its built-in type stripping, with zero dependencies. That means no build step, no install step inside the plugin, and Node is already present wherever Claude Code is. The conversion is landing in stages: files not yet converted are still ES modules with JSDoc types. Node does not strip types under `node_modules`, which is why Forge has no npm-package install. The dashboard is built with Vite at development time and its output (`dashboard/dist/`) is committed, so installing still needs no build or install step. The dashboard is a Svelte 5 app in strict TypeScript (`dashboard/src/`), type-checked with svelte-check and compiled by Vite at development time; nothing at runtime loads Svelte's compiler or TypeScript. A native (e.g. Rust) port would only pay off for a long-running worker daemon. The CLI's commands and JSON outputs are the contract, so a port could replace it without touching the skill or agents.
+The CLI is TypeScript that Node ≥ 22.18 runs directly through its built-in type stripping, with zero dependencies. That means no build step, no install step inside the plugin, and Node is already present wherever Claude Code is. The only JavaScript left in the engine is `bin/forge`, an extensionless entry that imports `lib/cli.ts`, and `lib/trackers/status.mjs`, a one-line re-export kept for custom tracker adapters. Node does not strip types under `node_modules`, which is why Forge has no npm-package install. The dashboard is built with Vite at development time and its output (`dashboard/dist/`) is committed, so installing still needs no build or install step. The dashboard is a Svelte 5 app in strict TypeScript (`dashboard/src/`), type-checked with svelte-check and compiled by Vite at development time; nothing at runtime loads Svelte's compiler or TypeScript. A native (e.g. Rust) port would only pay off for a long-running worker daemon. The CLI's commands and JSON outputs are the contract, so a port could replace it without touching the skill or agents.
 
 ## Data and versioning
 
@@ -68,7 +68,7 @@ Trackers see a coarser view: `queued`, `in-progress`, `review`, `blocked`, `done
 
 ## Daemon
 
-`lib/daemon.mjs` supervises one `claude -p --input-format stream-json --output-format stream-json` child from inside `forge dash`. It never runs agents or writes job state itself: it only decides when to send the session its one turn.
+`lib/daemon.ts` supervises one `claude -p --input-format stream-json --output-format stream-json` child from inside `forge dash`. It never runs agents or writes job state itself: it only decides when to send the session its one turn.
 
 **States** (`/api/state.daemon.status`, SSE `state` events): `off` (no child), `idle` (child alive, no turn in flight), `busy` (a turn was written and no `result` has been read), `stopping` (SIGTERM sent). A turn write is the only thing that sets `busy`; a stdout line that parses as JSON with `type: "result"` is the only thing that sets `idle`. A fresh child is `idle`, because a stream-json `claude -p` does nothing until it reads a line.
 

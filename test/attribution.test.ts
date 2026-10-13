@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
-import { tempRepo } from './helpers.mjs';
+import { tempRepo } from './helpers.ts';
 import { hasAttribution, stripAttribution, scrubBranch } from '../lib/attribution.ts';
 
 const HOOK = path.resolve(import.meta.dirname, '..', 'hooks', 'no-ai-attribution.ts');

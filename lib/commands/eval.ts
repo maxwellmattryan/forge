@@ -1,9 +1,10 @@
 import * as evals from '../evals.ts';
 import { ForgeError } from '../util.ts';
-import { bodyFrom, list, req } from './args.mjs';
+import { bodyFrom, list, req } from './args.ts';
+import type { Config } from '../types.ts';
 
-/** @param {string} root @param {any} config @param {string|undefined} sub @param {string[]} rest @param {Record<string, any>} flags */
-export async function evalCmd(root, config, sub, rest, flags) {
+/** The result is printed as JSON. */
+export async function evalCmd(root: string, config: Config, sub: string | undefined, rest: string[], flags: Record<string, any>): Promise<unknown> {
   switch (sub) {
     case 'list':
       return evals.listTasks(root).map(({ dir: _d, request: _r, ...t }) => t);

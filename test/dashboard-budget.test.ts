@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { budgetRows, budgetWorst, budgetChip, budgetCell, budgetPanel, BUDGET_KEYS } from '../dashboard/src/lib/budget.ts';
 
 const row = (rows, key) => rows.find((r) => r.key === key);
-const job = (over = {}) => ({ state: 'running', round: 1, usage: { totalTokens: 0, estCostUsd: 0, byRole: {} }, verifyRetries: {}, budget: { limits: {}, ack: {}, lastCheck: null }, ...over });
+const job = (over = {}): any => ({ state: 'running', round: 1, usage: { totalTokens: 0, estCostUsd: 0, byRole: {} }, verifyRetries: {}, budget: { limits: {}, ack: {}, lastCheck: null }, ...over });
 
 test('budgetRows: five rows in key order with the documented shape', () => {
   const rows = budgetRows(job(), {});
@@ -73,7 +73,7 @@ test('budgetRows: tone thresholds and a zero limit', () => {
 });
 
 test('budgetRows and the HTML helpers tolerate old and partial jobs', () => {
-  for (const j of [{}, { state: 'running' }, { budget: null, usage: null }, { usage: { byRole: {} } }, null, undefined]) {
+  for (const j of [{}, { state: 'running' }, { budget: null, usage: null }, { usage: { byRole: {} } }, null, undefined] as any) {
     for (const cfg of [undefined, null, {}, { tokens: 10 }]) {
       const rows = budgetRows(j, cfg);
       assert.equal(rows.length, 5);
@@ -83,8 +83,8 @@ test('budgetRows and the HTML helpers tolerate old and partial jobs', () => {
       assert.equal(typeof budgetCell(j, cfg), 'string');
     }
   }
-  assert.equal(budgetWorst(budgetRows({}, undefined)), null);
-  assert.equal(budgetCell({}, undefined), '—');
+  assert.equal(budgetWorst(budgetRows({} as any, undefined)), null);
+  assert.equal(budgetCell({} as any, undefined), '—');
 });
 
 test('budgetPanel: one row per key, header, and everything escaped', () => {
@@ -99,7 +99,7 @@ test('budgetPanel: one row per key, header, and everything escaped', () => {
       lastCheck: { at: '<img src=x onerror=alert(1)>', checkpoint: '<img src=x onerror=alert(1)>', used: { changedLines: '<script>' } },
     },
   });
-  const html = budgetPanel(evil, { usd: '<b>' });
+  const html = budgetPanel(evil, { usd: '<b>' } as any);
   assert.equal(html.includes('<img'), false);
   assert.equal(html.includes('<script'), false);
   assert.ok(html.includes('&lt;img'));

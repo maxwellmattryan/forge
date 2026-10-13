@@ -7,13 +7,13 @@ import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { execFile, spawn as nodeSpawn, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
-import { tempRepo } from './helpers.mjs';
+import { tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, trustDigest } from '../lib/config.ts';
 import { budgetCmd } from '../lib/budget.ts';
 import { createJob, setJob, updateJob } from '../lib/jobs.ts';
 import { PLUGIN_ROOT } from '../lib/paths.ts';
 import { claimRequest, enqueue } from '../lib/requests.ts';
-import { DENY_TOOLS, GIT_PINS, TRUST_CHANGED, TURN, TURN_LINE, buildArgv, createDaemon, heldByBudget, parseTemplate, reapOrphan, sessionEnv } from '../lib/daemon.mjs';
+import { DENY_TOOLS, GIT_PINS, TRUST_CHANGED, TURN, TURN_LINE, buildArgv, createDaemon, heldByBudget, parseTemplate, reapOrphan, sessionEnv } from '../lib/daemon.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const FAKE = path.resolve(import.meta.dirname, 'fixtures', 'fake-claude.mjs');
@@ -56,8 +56,8 @@ function fakeKit() {
   /** @type {string[]} */
   const kills = [];
   let n = 0;
-  const spawn = (cmd, args, opts) => {
-    const c = /** @type {any} */ (new EventEmitter());
+  const spawn: any = (cmd, args, opts) => {
+    const c: any = /** @type {any} */ (new EventEmitter());
     c.cmd = cmd;
     c.args = args;
     c.opts = opts;
@@ -469,7 +469,7 @@ test('AC11: crash loop cap and missing executable', async () => {
   let spawned = 0;
   const countingSpawn = (...args) => {
     spawned++;
-    return nodeSpawn(...args);
+    return (nodeSpawn as any)(...args);
   };
   const d2 = createDaemon(repo.dir, {
     spawn: /** @type {any} */ (countingSpawn),
@@ -579,7 +579,7 @@ test('AC13: stop, dash --stop and crash leave no orphaned child', { skip: proces
     // `forge dash --stop` against a foreground dashboard with an enabled daemon.
     const answers = path.join(repo.dir, '.answers.json');
     fs.writeFileSync(answers, JSON.stringify({ tracker: { kind: 'local' }, pr: { enabled: false }, daemon: { enabled: true, command: FAKE_COMMAND } }));
-    const env = { ...fx.env, FORGE_ROOT: repo.dir };
+    const env: any = { ...fx.env, FORGE_ROOT: repo.dir };
     delete env.FAKE_CLAUDE_IGNORE_TERM;
     const forge = (...args) => spawnSync(process.execPath, [BIN, ...args], { cwd: repo.dir, encoding: 'utf8', env });
     assert.equal(forge('init', 'write', '--answers', answers).status, 0);
@@ -698,7 +698,7 @@ test('AC14: log, truncation, rotation and stdout backpressure', async () => {
 
   // Backpressure: a sink whose write() returns false pauses the child's stdout until drain.
   const repo2 = tempRepo();
-  const sink = /** @type {any} */ (new EventEmitter());
+  const sink: any = /** @type {any} */ (new EventEmitter());
   sink.lines = [];
   sink.full = true;
   sink.write = (s) => {
@@ -742,7 +742,7 @@ test('AC13: reapOrphan never signals a process it cannot prove is its claude chi
   try {
     await waitFor(() => alive(claude.pid) && alive(bystander.pid), 2000, 'both processes');
     await sleep(100);
-    const refused = [
+    const refused: any = [
       ['pid 1', { pid: 1 }],
       ['our own pid', { pid: process.pid }],
       ['a process without the claude executable', { pid: bystander.pid, argv0: 'claude' }],
@@ -777,7 +777,7 @@ test('AC6: stop mid-turn, start while stopping, and repeated stop/start are dete
   const repo = tempRepo();
   const kit = fakeKit();
   /** Children whose stop the test releases by hand, so every interleaving is pinned. */
-  const held = new Set();
+  const held: any = new Set();
   const killTree = (c, signal) => {
     kit.kills.push(signal);
     held.add(c);

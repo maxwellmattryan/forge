@@ -65,7 +65,7 @@ runtime:
     judge: opus
 
 tracker:
-  kind: local                # local | github | none | <name of .forge/trackers/<name>.mjs>
+  kind: local                # local | github | none | <name of .forge/trackers/<name>.mjs or .ts>
   local:
     path: .forge/backlog.md
   github:
@@ -233,5 +233,5 @@ Files (gitignored, under `.forge/runtime/`): `daemon.json` (session id, pids), `
 | `.forge/notes/<role>.md` | addendum for one role (`builder.md`, `spec-writer.md`, …) |
 | `.forge/notes/experiments.md` | the retro's ledger of changes and their metrics |
 | `.forge/reviewers/<lens>.md` | a repo checklist; overrides the built-in lens of the same name |
-| `.forge/trackers/<name>.mjs` | a custom tracker adapter (see TRACKERS.md) |
+| `.forge/trackers/<name>.mjs` or `.ts` | a custom tracker adapter (see TRACKERS.md) |
 | `.forge/evals/<task>/` | eval tasks (see IMPROVEMENT.md); `evals/runs/` holds results |

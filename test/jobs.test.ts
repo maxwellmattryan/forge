@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tempRepo } from './helpers.mjs';
+import { tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
 import { claimJob, createJob, loadJob, roundVerdicts, setJob, recordAgent, progress, parseDecision, touchJob, jobDir } from '../lib/jobs.ts';
 import { computeStats } from '../lib/stats.ts';

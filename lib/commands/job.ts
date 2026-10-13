@@ -7,14 +7,15 @@ import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '.
 import { claimJob, createJob, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, roundVerdicts, setJob, updateJob, jobDir } from '../jobs.ts';
 import { paths, exists } from '../paths.ts';
 import { jobScope } from '../scope.ts';
-import { loadTracker } from '../trackers/index.mjs';
+import { loadTracker } from '../trackers/index.ts';
 import { importClaudeCodeTranscript } from '../usage.ts';
 import { ForgeError, coerce, getPath, run } from '../util.ts';
-import { bodyFrom, list, req } from './args.mjs';
-import { mirrorToTracker, startFromRef } from './tracker.mjs';
+import { bodyFrom, list, req } from './args.ts';
+import { mirrorToTracker, startFromRef } from './tracker.ts';
+import type { AgentUsage, Config, Job } from '../types.ts';
 
-/** @param {string} root @param {any} config @param {string|undefined} sub @param {string[]} rest @param {Record<string, any>} flags */
-export async function jobCmd(root, config, sub, rest, flags) {
+/** The result is printed as JSON. */
+export async function jobCmd(root: string, config: Config, sub: string | undefined, rest: string[], flags: Record<string, any>): Promise<unknown> {
   const id = rest[0];
   switch (sub) {
     case 'new': {
@@ -48,9 +49,8 @@ export async function jobCmd(root, config, sub, rest, flags) {
     case 'get':
       return getPath(loadJob(root, req(id, 'job id')), rest[1] ?? '') ?? null;
     case 'set': {
-      /** @type {Record<string, any>} */
-      const fields = {};
-      for (const kv of flags.field === undefined || flags.field === true ? [] : [].concat(flags.field).map(String)) {
+      const fields: Record<string, any> = {};
+      for (const kv of flags.field === undefined || flags.field === true ? [] : ([] as unknown[]).concat(flags.field).map(String)) {
         const eq = kv.indexOf('=');
         if (eq < 1) throw new ForgeError(`--field expects key=value, got "${kv}"`);
         fields[kv.slice(0, eq)] = coerce(kv.slice(eq + 1));
@@ -90,7 +90,7 @@ export async function jobCmd(root, config, sub, rest, flags) {
     case 'agent': {
       const phase = req(rest[1], 'start|end');
       if (!['start', 'end'].includes(phase)) throw new ForgeError('phase must be start or end');
-      let usage;
+      let usage: (AgentUsage & { transcript?: string }) | undefined;
       if (phase === 'end') {
         if (flags.import && flags['agent-id']) usage = importClaudeCodeTranscript(String(flags['agent-id'])) ?? undefined;
         if (!usage && (flags.tokens || flags['tool-uses'] || flags['duration-ms']))
@@ -102,12 +102,13 @@ export async function jobCmd(root, config, sub, rest, flags) {
         req(id, 'job id'),
         {
           role: req(flags.role, '--role'),
-          phase: /** @type {'start'|'end'} */ (phase),
+          phase: phase as 'start' | 'end',
           model: flags.model ?? usage?.model ?? undefined,
           agentId: flags['agent-id'],
           status: flags.status,
           summary: flags.summary,
-          usage: usage ? { ...usage, transcript: undefined } : undefined,
+          // The transcript's path is set to undefined, so job.json never records it.
+          usage: usage ? ({ ...usage, transcript: undefined } as AgentUsage) : undefined,
         },
         config,
       );
@@ -134,8 +135,7 @@ export async function jobCmd(root, config, sub, rest, flags) {
       // event only, because stats, retro and the dashboard read job.verdicts keys as numbers.
       const integration = flags.round === 'integration';
       if (flags.round !== undefined && !integration && !/^[1-9]\d*$/.test(String(flags.round))) throw new ForgeError('--round must be a positive integer or "integration"');
-      /** @type {number|'integration'} */
-      const round = integration ? 'integration' : Number(flags.round ?? job.round);
+      const round: number | 'integration' = integration ? 'integration' : Number(flags.round ?? job.round);
       const reviewers = list(flags.reviewers).length ? list(flags.reviewers) : integration ? ['code'] : job.reviewers;
       if (!reviewers.length) throw new ForgeError(`job ${id} has no reviewers selected; set them with: forge job set ${id} --field reviewers='["code","tests"]'`);
       if (flags.malformed !== undefined && flags.malformed !== 'changes') throw new ForgeError('--malformed accepts only "changes"');
@@ -180,9 +180,8 @@ export async function jobCmd(root, config, sub, rest, flags) {
 
 /**
  * Absolute paths an agent prompt needs, so the orchestrator can hand them over verbatim.
- * @param {string} root @param {any} config @param {any} job
  */
-export function jobPaths(root, config, job) {
+export function jobPaths(root: string, config: Config, job: Job): Record<string, unknown> {
   const dir = jobDir(root, job.id);
   const p = paths(root);
   const round = Math.max(job.round, 1);
@@ -211,13 +210,13 @@ export function jobPaths(root, config, job) {
     learnings: path.join(p.notes, 'learnings.md'),
     notesDir: p.notes,
     config: p.config,
-    instructions: (config.project.instructions ?? []).map((/** @type {string} */ f) => path.join(job.worktree ?? root, f)).filter(exists),
-    checklists: Object.fromEntries((job.reviewers ?? []).map((/** @type {string} */ r) => [r, reviewerChecklist(root, r, config.review.panel.find((/** @type {any} */ x) => x.name === r)?.checklist)])),
+    instructions: (config.project.instructions ?? []).map((f: string) => path.join(job.worktree ?? root, f)).filter(exists),
+    checklists: Object.fromEntries((job.reviewers ?? []).map((r: string) => [r, reviewerChecklist(root, r, config.review.panel.find((x) => x.name === r)?.checklist)])),
   };
 }
 
-/** @param {string} root @param {any} job */
-export function compactJob(root, job) {
+/** The job as `forge job show` prints it without --full. */
+export function compactJob(root: string, job: Job): Record<string, unknown> {
   const lastVerify = job.verifyRuns[job.verifyRuns.length - 1] ?? null;
   return {
     id: job.id,

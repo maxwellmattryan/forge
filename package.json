@@ -23,7 +23,7 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.mjs\" \"test/*.test.ts\"",
+    "test": "node --test \"test/*.test.ts\"",
     "build:dashboard": "vite build --config dashboard/vite.config.mjs && node dashboard/build-stamp.mjs",
     "check:dashboard": "svelte-check --tsconfig dashboard/tsconfig.json --fail-on-warnings",
     "typecheck": "tsc -p tsconfig.json && tsc -p test/tsconfig.json"

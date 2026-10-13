@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { tempRepo } from './helpers.mjs';
+import { tempRepo } from './helpers.ts';
 import { acCoverage, buildAcTable, specAcs } from '../lib/acs.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');

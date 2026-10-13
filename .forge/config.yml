@@ -11,7 +11,7 @@ project:
     - dashboard
   instructions:
     - AGENTS.md
-  notes: "Zero runtime dependencies (Node >= 22.18 built-ins; the engine is TypeScript run by Node's type stripping, no build step, and unconverted files are ESM with JSDoc until the conversion finishes). The CLI is the only writer of Forge state. Every job.json/event/config shape change bumps the version in lib/schema.ts with a migration, and API_VERSION when /api/state changes. Keep README.md, docs/*.md and skills/forge/** in sync with CLI behaviour. Never point the CLI at a real repo's .forge/ while developing: use a scratch repo or FORGE_ROOT. Never add AI attribution anywhere."
+  notes: "Zero runtime dependencies (Node >= 22.18 built-ins; the engine is TypeScript run by Node's type stripping, no build step). The CLI is the only writer of Forge state. Every job.json/event/config shape change bumps the version in lib/schema.ts with a migration, and API_VERSION when /api/state changes. Keep README.md, docs/*.md and skills/forge/** in sync with CLI behaviour. Never point the CLI at a real repo's .forge/ while developing: use a scratch repo or FORGE_ROOT. Never add AI attribution anywhere."
 git:
   base: main
   remote: origin
@@ -97,7 +97,7 @@ review:
       always: true
     - name: security
       model: opus
-      when: lib/server.mjs, lib/pr.ts, lib/trackers/*, hooks/*, anything that ingests tracker/PR/web text, runs shell commands, or touches the dashboard's Host/Origin/token checks
+      when: lib/server.ts, lib/pr.ts, lib/trackers/*, hooks/*, anything that ingests tracker/PR/web text, runs shell commands, or touches the dashboard's Host/Origin/token checks
     - name: docs
       when: CLI commands or their JSON output, config keys, orchestrator behaviour in skills/forge/**, or anything README.md and docs/*.md describe
   onPrFeedback: changed
@@ -109,7 +109,7 @@ approver:
     - public API or protocol breaking changes
     - anything touching credentials, auth or permissions
     - shape changes to job.json, events or config without a schema version bump and migration in lib/schema.ts
-    - changes to the dashboard security posture in lib/server.mjs (loopback Host check, token, Origin, JSON-only POSTs)
+    - changes to the dashboard security posture in lib/server.ts (loopback Host check, token, Origin, JSON-only POSTs)
     - version bumps in package.json or .claude-plugin/plugin.json
 pr:
   enabled: true
@@ -144,7 +144,7 @@ improve:
   retroEvery: 10
   maxLearnings: 30
 evals:
-  testPattern: ^test/.*\.test\.(mjs|ts)$
+  testPattern: ^test/.*\.test\.ts$
 dashboard:
   port: 7400
   launcher: null

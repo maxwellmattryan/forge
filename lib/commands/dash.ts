@@ -2,13 +2,14 @@
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { paths, PLUGIN_ROOT } from '../paths.ts';
-import { reapOrphan } from '../daemon.mjs';
+import { reapOrphan } from '../daemon.ts';
 import { ForgeError, readJson, sleepSync, writeJsonAtomic } from '../util.ts';
 import { pidAlive } from '../worktree.ts';
-import { out } from './args.mjs';
+import { out } from './args.ts';
+import type { RunningServer } from '../server.ts';
+import type { Config } from '../types.ts';
 
-/** @param {string} root @param {any} config @param {Record<string, any>} flags */
-export async function dash(root, config, flags) {
+export async function dash(root: string, config: Config, flags: Record<string, any>): Promise<void> {
   const rtFile = path.join(paths(root).runtime, 'dashboard.json');
   const current = readJson(rtFile, null);
   const alive = current?.pid && (() => {
@@ -47,14 +48,14 @@ export async function dash(root, config, flags) {
     }
     return out({ url: `http://127.0.0.1:${port}`, pid: child.pid, started: true, unconfirmed: true }, flags);
   }
-  const { startServer } = await import('../server.mjs');
-  let res;
+  const { startServer } = await import('../server.ts');
+  let res: RunningServer | undefined;
   for (let p = port; p < port + 20; p++) {
     try {
       res = await startServer(root, { port: p });
       break;
     } catch (e) {
-      if (/** @type {any} */ (e).code !== 'EADDRINUSE') throw e;
+      if ((e as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw e;
     }
   }
   if (!res) throw new ForgeError(`no free port near ${port}`);

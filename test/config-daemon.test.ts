@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tempRepo } from './helpers.mjs';
+import { tempRepo } from './helpers.ts';
 import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
 import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
-import { migrate } from '../lib/commands/init.mjs';
+import { migrate } from '../lib/commands/init.ts';
 import * as yaml from '../lib/yaml.ts';
 
 const DEFAULT_COMMAND =
