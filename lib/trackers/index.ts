@@ -8,7 +8,7 @@ import github from './github.ts';
 import type { Config, Tracker } from '../types.ts';
 
 // The tracker contract (Tracker, TrackerCtx and TrackerItem) lives in lib/types.ts. Every adapter, built-in
-// or a repo's own `.forge/trackers/<name>.mjs`, default-exports one. docs/TRACKERS.md has the details.
+// or a repo's own `.forge/trackers/<name>.mjs` or `.ts`, default-exports one. docs/TRACKERS.md has the details.
 
 const none: Tracker = {
   name: 'none',
@@ -28,8 +28,12 @@ export async function loadTracker(root: string, config: Config): Promise<Tracker
   if (kind === 'local') return local;
   if (kind === 'github') return github;
   if (kind === 'none') return none;
-  const file = path.join(paths(root).trackers, `${kind}.mjs`);
-  if (!exists(file)) throw new ForgeError(`unknown tracker "${kind}" (no built-in and no ${file})`);
+  const dir = paths(root).trackers;
+  const mjs = path.join(dir, `${kind}.mjs`);
+  const ts = path.join(dir, `${kind}.ts`);
+  // .mjs first: a repo that already has <kind>.mjs loads exactly what it loaded before .ts adapters existed.
+  const file = exists(mjs) ? mjs : exists(ts) ? ts : null;
+  if (!file) throw new ForgeError(`unknown tracker "${kind}" (no built-in and no ${mjs})`);
   // Seconds may pass between the CLI's trust check and this import: check the module again.
   const trust = daemonTrust(root);
   if (trust.problem) throw new ForgeError(trust.problem);

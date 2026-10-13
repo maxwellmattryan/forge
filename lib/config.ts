@@ -466,7 +466,9 @@ function insideRepo(root: string, file: string): boolean {
 function customTrackers(root: string): string[] {
   const dir = paths(root).trackers;
   if (!exists(dir)) return [];
-  return fs.readdirSync(dir).filter((f) => f.endsWith('.mjs')).map((f) => f.replace(/\.mjs$/, ''));
+  // A .d.ts is a declaration, not an adapter; a name with both .mjs and .ts is listed once.
+  const names = fs.readdirSync(dir).filter((f) => f.endsWith('.mjs') || (f.endsWith('.ts') && !f.endsWith('.d.ts'))).map((f) => f.replace(/\.(mjs|ts)$/, ''));
+  return [...new Set(names)];
 }
 
 /**
