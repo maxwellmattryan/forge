@@ -98,6 +98,8 @@ Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CONFIG.md](docs
 - **Analytics**: Forge metrics plus token and cost breakdowns by role and model.
 - **Evals**: runs, side-by-side comparisons, and a Run eval button.
 
+The dashboard is a Svelte 5 + TypeScript single-page app. Its built output (`dashboard/dist/`) is committed, so installing the plugin builds and installs nothing.
+
 Buttons don't run agents directly. They queue requests, and an orchestrator session drains them: your own (`/forge requests`), so permissions and spend stay with you, or, with `daemon.enabled: true`, a headless Claude Code session that `forge dash` supervises and nudges whenever new requests arrive. The daemon spends tokens unattended, limited to the tools in `daemon.allowedTools`; see [Daemon](docs/CONFIG.md#daemon). When the daemon is in use, a bar above every view shows its status (idle, busy, standby, stopped, held on budget), Start and Stop buttons, and a live log pane streamed from `/api/events`.
 
 ## Authorship

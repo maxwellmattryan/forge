@@ -5,7 +5,7 @@ This repo is **Forge**: a Claude Code plugin that is also its own marketplace. T
 ## Layout
 - `bin/forge`: CLI entry (also on PATH while the plugin is enabled)
 - `lib/`: the engine. `cli.mjs` (routing only) + `commands/` (one module per command group), `jobs.mjs` (state + events), `schema.mjs` (versions, normalisers, migrations), `config.mjs`, `worktree.mjs`, `pr.mjs`, `trackers/`, `stats.mjs`, `evals.mjs`, `retro.mjs`, `usage.mjs` + `pricing.json`, `server.mjs`, `daemon.mjs` (the headless session `forge dash` supervises), `detect.mjs`, `yaml.mjs`
-- `dashboard/`: `index.html`, `style.css`, the vanilla `app.js` and `daemon.js` (DOM wiring), and strict-TypeScript helpers and API types in `src/lib/*.ts` (`types.ts` mirrors `/api/*`). Vite builds them into the committed `dashboard/dist/` (`npm run build:dashboard`), and `forge dash` serves it.
+- `dashboard/`: a Svelte 5 app in strict TypeScript. It has `index.html`, `style.css`, `svelte.config.mjs`, and `src/` with `main.ts`, `App.svelte`, `views/` (one per page), `components/`, and `lib/`. `lib/` holds plain-TS helpers and API types that `npm test` imports (`types.ts` mirrors `/api/*`), plus `*.svelte.ts` rune state. Vite builds it into the committed `dashboard/dist/` (`npm run build:dashboard`), and `forge dash` serves that.
 - `hooks/`: plugin hooks (`hooks.json` + the no-AI-attribution PreToolUse hook)
 - `skills/forge/`: the orchestrator (`SKILL.md`) and on-demand procedures (`reference/`)
 - `agents/`: one prompt per role · `reviewers/`: lens checklists · `templates/`: files `init` seeds into `.forge/`
@@ -21,13 +21,13 @@ This repo is **Forge**: a Claude Code plugin that is also its own marketplace. T
 | a role's behaviour | `agents/<role>.md` | its prompt hash changes (shown in the roster); CHANGELOG; measure with evals where possible |
 | a review lens | `reviewers/<lens>.md` | `lib/detect.mjs` suggestions + `reference/init.md` presets if it should be offered |
 | tracker behaviour | `lib/trackers/{local,github}.mjs`, contract in `index.mjs`, status mapping in `status.mjs` | `docs/TRACKERS.md` |
-| the dashboard | `dashboard/*.js`, `dashboard/src/lib/*.ts`, `dashboard/index.html`, `dashboard/style.css`, endpoints in `lib/server.mjs` | rebuild and commit `dashboard/dist/` (`npm run build:dashboard`); `API_VERSION` on shape changes; `dashboard/src/lib/types.ts` on any `/api/*` or SSE shape change; `npm run check:dashboard`. The server's allowlist is `dist/manifest.json`, so new modules need no server change |
+| the dashboard | `dashboard/src/**` (`views/`, `components/`, `lib/`), `dashboard/index.html`, `dashboard/style.css`, and endpoints in `lib/server.mjs` | rebuild and commit `dashboard/dist/` (`npm run build:dashboard`); `API_VERSION` on shape changes; `dashboard/src/lib/types.ts` on any `/api/*` or SSE shape change; `npm run check:dashboard`. The server's allowlist is `dist/manifest.json`, so new modules need no server change |
 | prices or model ids | `lib/pricing.json` (bump `asOf`) | take prices from Anthropic's current pricing, never from memory |
 
-`dashboard/app.js` is the largest file (~700+ lines). When adding to it, split by view into new modules rather than growing it. Only one in-flight change may bump a version constant in `lib/schema.mjs`: two branches that both migrate from the same version merge into a broken migration table.
+Each dashboard page is one component in `dashboard/src/views/`. Put shared pieces in `components/` and logic you want tested in plain `src/lib/*.ts`, not in a growing view. Only one in-flight change may bump a version constant in `lib/schema.mjs`: two branches that both migrate from the same version merge into a broken migration table.
 
 ## Rules
-- **Zero runtime dependencies.** Node ≥ 20 built-ins only. `lib/` and `bin/` are plain ESM with JSDoc types (`// @ts-check`); the dashboard's `src/` is strict TypeScript limited to erasable syntax, type-checked by the exact-pinned `typescript` devDependency and never loaded at runtime. Build tools are exact-pinned devDependencies, the dashboard loads no external assets, and there is never a `prepare` or install script, so installing the plugin never builds or installs anything. No Python tooling: Node, or Rust if a native binary is ever justified.
+- **Zero runtime dependencies.** Node ≥ 20 built-ins only. `lib/` and `bin/` are plain ESM with JSDoc types (`// @ts-check`); the dashboard's `src/` is strict TypeScript and Svelte 5 components (runes only), limited to erasable syntax, type-checked by svelte-check with the exact-pinned `typescript` devDependency, and never loaded at runtime. Build tools are exact-pinned devDependencies, the dashboard loads no external assets, and there is never a `prepare` or install script, so installing the plugin never builds or installs anything. No Python tooling: Node, or Rust if a native binary is ever justified.
 - **Commit the built dashboard.** Never hand-edit `dashboard/dist/`. Rebuild it in the same commit as its sources; `test/dashboard-dist.test.mjs` fails otherwise.
 - **The CLI is the only writer of state.** New state means a new CLI command, never "the agent edits job.json".
 - **Version every shape change.** Bump the constant in `lib/schema.mjs`, add a migration keyed by the old version, keep normalisers tolerant, and bump `API_VERSION` if `/api/state` changes. Never break reading older jobs.
@@ -42,9 +42,9 @@ This repo is **Forge**: a Claude Code plugin that is also its own marketplace. T
 ```bash
 npm ci                                  # once: the dashboard's build toolchain (devDependencies only)
 npm run build:dashboard && git status --porcelain -- dashboard/dist   # must print nothing
-npm run check:dashboard                 # tsc --strict over dashboard/src/**/*.ts
+npm run check:dashboard                 # svelte-check: strict TS over dashboard/src (.ts and .svelte), warnings fail
 node --test "test/*.test.mjs"           # not `node --test test/`: Node 22 treats a directory arg as a module
-for f in lib/*.mjs lib/commands/*.mjs lib/trackers/*.mjs dashboard/*.js dashboard/*.mjs bin/forge; do node --check "$f"; done
+for f in lib/*.mjs lib/commands/*.mjs lib/trackers/*.mjs dashboard/*.mjs bin/forge; do node --check "$f"; done
 claude plugin validate . --strict
 ```
 - **`npm test` needs Node ≥ 22.18:** the dashboard suites import `src/lib/*.ts` through Node's built-in type stripping. The installed plugin still runs on Node ≥ 20.
@@ -54,9 +54,10 @@ claude plugin validate . --strict
 - **GitHub code paths** (`pr.mjs`, `trackers/github.mjs`): read-only checks against real repos are fine. Anything that writes (PRs, labels, Project fields, comments, issues) goes only to a throwaway repo the maintainer approves.
 
 ## Gotchas already paid for
-- **Tailwind v4**: `@apply` accepts only built-in utilities or classes declared with `@utility`; plain `.class {}` rules can't be `@apply`'d. Tailwind only sees the `@source` files in `dashboard/style.css`: build class names from whole literals, never `bg-${tone}`. Upgrading means bumping the exact devDependency versions and rebuilding.
+- **Tailwind v4**: `@apply` accepts only built-in utilities or classes declared with `@utility`; plain `.class {}` rules can't be `@apply`'d. Tailwind only sees the `@source` files in `dashboard/style.css`: build class names from whole literals, never `bg-${tone}`; no `class:` directives, and no `<style>` blocks in components. Upgrading means bumping the exact devDependency versions and rebuilding.
 - **Dashboard TS is imported by Node's type stripping, which ignores tsconfig:** write relative imports with `.ts`, bring types in with `import type`, and use no `enum`, `namespace` or parameter properties (`erasableSyntaxOnly` enforces it).
-- **Escape everything the dashboard renders.** All interpolation goes through `esc()`, and markdown goes through the escape-first `md()`. Don't add a markdown library or `innerHTML` raw data. Job HTML (mockups) renders only in the sandboxed iframe (`/raw`).
+- **Escape everything the dashboard renders.** Svelte's `{…}` escapes, so never call `esc()` in a component. `{@html}` is allowed only on `md()`, `budgetChip`/`budgetCell`/`budgetPanel` and `screenshotsPanel`, whose output is escape-first, and `test/dashboard-svelte.test.mjs` enforces it. Daemon log lines are untrusted and render as text. Don't add a markdown library or any `innerHTML`. Job HTML (mockups) renders only in the sandboxed iframe (`/raw`).
+- **Tests can't import `.svelte` or `.svelte.ts`** (runes need the compiler). Keep logic you want tested in plain `src/lib/*.ts`.
 - **Claude Code transcripts** (`~/.claude/projects/*/<session>/subagents/agent-<id>.jsonl`) log each content block as its own line sharing one `message.id`. Their `usage.output_tokens` is the stream's opening snapshot, not the final count, which is why `usage.mjs` dedupes by message id, counts tools by block id, and estimates output from content.
 - **Plugin runtime**: `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_SESSION_ID}` are substituted in skill/agent *markdown*, not exported to the shell. `bin/` is on PATH while the plugin is enabled. Plugin agents are invoked as `forge:<role>`.
 - **CLI output**: string results print raw (e.g. `forge worktree path`), everything else prints compact JSON.
