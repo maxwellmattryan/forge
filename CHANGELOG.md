@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0
+
+- Job dependencies: `dependsOn` on a job, recorded from the planner's `Depends on`. `forge job claim` exits 4 while a dependency is unfinished; `--force` stacks the job on the dependency's branch and `forge sync` retargets its PR once the dependency merges. The dashboard shows `after <job>` chips and a depends-on/blocks list in the job drawer.
+- `forge run <job> dev --background` is idempotent, so UI, UX and accessibility reviewers get a running dev server and its port.
+- Acceptance-criteria traceability: `forge job acs` compares the spec's ACs with the builder's proof table, and the approver gets it in its brief. Verify can run `commands.e2e` for UI changes (`verifyE2e`), and the job drawer shows screenshots.
+- Reviewer model diversity: `runtime.diversity` warns when the approver or a lens shares the builder's model family. `/forge init` offers Balanced, Economy and Max quality model profiles.
+- Verify reports test integrity: deleted or moved test files, added skip/focus markers, the test-count delta, and edits to test, build or CI config. `verifyIntegrity: block` fails verify on deletions and markers the spec does not name. Verify also refuses a worktree whose files can differ from HEAD through index flags or filters.
+
 ## 0.6.0
 
 - README badges for dependencies, Node and license use the ember palette instead of grey.

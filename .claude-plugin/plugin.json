@@ -1,7 +1,7 @@
 {
   "name": "forge",
   "displayName": "Forge",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Forge: a lightweight, self-improving software factory. An orchestrator skill plus planner, spec-writer, designer, builder, reviewer, approver, integrator, retro and judge agents. Parallel jobs in git worktrees, PR and tracker sync, evals and a live dashboard.",
   "author": { "name": "Matthew Maxwell", "url": "https://github.com/maxwellmattryan" },
   "homepage": "https://github.com/maxwellmattryan/forge",
