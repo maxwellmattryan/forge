@@ -88,6 +88,7 @@ export function defaults(): Config {
     },
     pipeline: {
       plan: 'auto',
+      split: 'ask',
       specApproval: 'always',
       design: 'none',
       maxRounds: 3,
@@ -218,6 +219,7 @@ export function validateConfig(c: any, root: string): string[] {
   oneOf('tracker.kind', c.tracker.kind, ['local', 'github', 'none', ...customTrackers(root)]);
   oneOf('tracker.github.statusSync', c.tracker.github.statusSync, ['none', 'labels', 'project', 'both']);
   oneOf('pipeline.plan', c.pipeline.plan, ['auto', 'always', 'never']);
+  oneOf('pipeline.split', c.pipeline.split, ['ask', 'auto', 'never']);
   oneOf('pipeline.specApproval', c.pipeline.specApproval, ['always', 'large', 'never']);
   oneOf('pipeline.design', c.pipeline.design, ['none', 'reference', 'mockup']);
   oneOf('pr.conflicts', c.pr.conflicts, ['ask', 'fix', 'defer']);

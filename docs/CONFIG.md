@@ -92,6 +92,7 @@ tracker:
 
 pipeline:
   plan: auto                 # auto | always | never
+  split: ask                 # ask | auto | never (what a SPLIT plan does; see "Split gate" below)
   specApproval: always       # always | large | never
   design: none               # none | reference | mockup
   maxRounds: 3               # build→review rounds before asking a human
@@ -174,6 +175,10 @@ daemon:                      # opt-in headless orchestrator supervised by `forge
   maxConcurrent: 1           # supervised sessions; only 1 is accepted for now
   idleStopMinutes: 30        # stop an idle session after this long (null: never); new work resumes it
 ```
+
+## Split gate
+
+`pipeline.split` decides what happens when the planner proposes several jobs for one request. `ask` (the default) parks the job on `split-approval` and creates nothing until you `/forge approve` it (create the jobs) or `/forge revise` it (keep it as one job). `auto` creates the tracker sub-issues and child jobs right away, and `never` makes the planner always plan one job, noting any split it would recommend under `## External`. A job started with `/forge issue <ref>` (or a dashboard Start) always plans as `never`: you chose that boundary.
 
 ## Model profiles
 

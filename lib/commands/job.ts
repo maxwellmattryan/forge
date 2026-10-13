@@ -83,7 +83,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       logEvent(root, req(id, 'job id'), 'note', { text: rest.slice(1).join(' ') || bodyFrom(flags) });
       return { ok: true };
     case 'human': {
-      const action = req(rest[1], 'action (approve-spec|revise-spec|approve|rework|answer|reject)');
+      const action = req(rest[1], 'action (approve-spec|revise-spec|approve-split|revise-split|approve|rework|answer|reject)');
       logEvent(root, req(id, 'job id'), 'human', { action, note: flags.note ?? (rest.slice(2).join(' ') || null) });
       return { ok: true };
     }

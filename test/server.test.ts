@@ -479,7 +479,7 @@ test('AC17: /api/state v4 exposes daemon state and boots an enabled daemon', asy
   let srv = await startServer(repo.dir, { port: 0, daemon: kitOff.opts });
   try {
     const s = JSON.parse((await hit(Number(new URL(srv.url).port), { path: '/api/state' })).text);
-    assert.equal(s.apiVersion, 4);
+    assert.equal(s.apiVersion, 5);
     assert.deepEqual(s.config.daemon, { enabled: false });
     assert.equal('launcher' in s.config, false);
     assert.deepEqual(Object.keys(s.daemon), keys);
@@ -526,6 +526,6 @@ test('AC17: /api/state v4 exposes daemon state and boots an enabled daemon', asy
     .map((f) => fs.readFileSync(path.join(src, f), 'utf8'))
     .join('\n');
   assert.ok(app.includes('/api/requests'), 'read the dashboard sources');
-  assert.equal(DASH_API_VERSION, 4, 'the dashboard reads API_VERSION from src/lib/types.ts');
+  assert.equal(DASH_API_VERSION, 5, 'the dashboard reads API_VERSION from src/lib/types.ts');
   assert.doesNotMatch(app, /launcher|launched/);
 });

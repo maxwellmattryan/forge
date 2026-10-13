@@ -8,7 +8,7 @@ export const CONFIG_SCHEMA_VERSION = 2;
 export const JOB_SCHEMA_VERSION = 3;
 export const EVENT_SCHEMA_VERSION = 1;
 /** Bumped when /api/state changes shape; the dashboard is served by the same plugin version. */
-export const API_VERSION = 4;
+export const API_VERSION = 5;
 
 export const STAGES = [
   'backlog',
@@ -28,6 +28,7 @@ export const STATES = ['queued', 'running', 'waiting', 'blocked', 'failed', 'can
 
 export const WAITING_ON = [
   'spec-approval',
+  'split-approval',
   'input',
   'escalation',
   'infra',
