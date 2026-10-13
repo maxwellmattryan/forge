@@ -24,7 +24,8 @@
   },
   "scripts": {
     "test": "node --test \"test/*.test.mjs\"",
-    "build:dashboard": "vite build --config dashboard/vite.config.mjs && node dashboard/build-stamp.mjs"
+    "build:dashboard": "vite build --config dashboard/vite.config.mjs && node dashboard/build-stamp.mjs",
+    "check:dashboard": "tsc -p dashboard/tsconfig.json"
   },
   "repository": {
     "type": "git",
@@ -42,6 +43,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "4.1.18",
     "tailwindcss": "4.1.18",
+    "typescript": "6.0.3",
     "vite": "7.3.7"
   }
 }
