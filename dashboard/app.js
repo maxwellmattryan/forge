@@ -1,5 +1,6 @@
 // Forge dashboard. Vanilla ES module, no build step. Talks only to the local `forge dash` server.
-import { esc, num, usd, ago, toneChip } from './util.js';
+import { esc, num, usd, ago, toneChip, api, toast } from './util.js';
+import { mountDaemon } from './daemon.js';
 import { budgetChip, budgetCell, budgetPanel } from './budget.js';
 import { screenshotsPanel } from './screenshots.js';
 import { depChips, depSection } from './deps.js';
@@ -90,13 +91,6 @@ const dur = (ms) => {
 };
 const safeUrl = (u) => (/^(https?:\/\/|#|\/(?!\/))/i.test(String(u ?? '')) ? String(u) : null);
 
-async function api(path, opts) {
-  const res = await fetch(path, opts);
-  if (!res.ok) throw new Error((await res.text()) || res.statusText);
-  const type = res.headers.get('content-type') ?? '';
-  return type.includes('json') ? res.json() : res.text();
-}
-
 async function request(type, payload = {}) {
   try {
     const r = await api('/api/requests', {
@@ -109,16 +103,6 @@ async function request(type, payload = {}) {
   } catch (e) {
     toast(`Request failed: ${e.message}`, true);
   }
-}
-
-let toastTimer;
-function toast(msg, bad = false) {
-  const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.classList.toggle('text-bad', bad);
-  el.classList.remove('hidden');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.add('hidden'), 4000);
 }
 
 function stateTone(job) {
@@ -240,6 +224,7 @@ async function refresh() {
     if (key !== S.dataKey) {
       S.data = data;
       S.dataKey = key;
+      daemonBar.update(data);
       render();
     }
     if (S.drawer.id) loadDrawer(false);
@@ -753,6 +738,7 @@ function route() {
 }
 window.addEventListener('hashchange', route);
 
+const daemonBar = mountDaemon(document.getElementById('daemon'), { token: TOKEN, toast, refresh });
 route();
 refresh();
 setInterval(() => document.visibilityState === 'visible' && refresh(), 2000);
