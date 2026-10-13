@@ -78,6 +78,7 @@ The skill can be invoked as `/forge` or, fully qualified, `/forge:forge`.
 | `/forge approve <job>` · `revise <job> <note>` · `answer <job> <text>` · `rework <job> <note>` · `cancel <job>` | human decisions |
 | `/forge status` · `sync` · `dash` · `doctor` · `requests` | operate |
 | `/forge retro` · `/forge eval …` | improve and measure |
+| `forge config get <key>` · `forge config set <key> <value>` | read the effective config, or change one editable key in `.forge/config.yml`, keeping its comments (see [Changing settings](docs/CONFIG.md#changing-settings)) |
 
 ## How it works
 
@@ -99,6 +100,7 @@ Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CONFIG.md](docs
 - **Agents**: running agents, orchestrator sessions, and the roster with models and prompt hashes.
 - **Analytics**: Forge metrics plus token and cost breakdowns by role and model.
 - **Evals**: runs, side-by-side comparisons, and a Run eval button.
+- **Settings** (the gear, or press `,`): language and theme, the editable `.forge/config.yml` keys as forms saved through `forge config set`'s write path, `forge doctor` diagnostics with a copyable report, and the versions Forge is running. Settings are locked while the daemon runs, because any change to `config.yml` stops it.
 
 The dashboard is a Svelte 5 + TypeScript single-page app. Its built output (`dashboard/dist/`) is committed, so installing the plugin builds and installs nothing.
 

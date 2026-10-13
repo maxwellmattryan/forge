@@ -1,0 +1,55 @@
+# Forge configuration for a commented fixture repo.
+# Hand-edited: every comment and blank line here must survive `forge config set`.
+schemaVersion: 2
+
+project:
+  name: Fixture   # display name
+  notes: |
+    Two lines of context
+    that every agent reads.
+
+# Ports for job dev servers.
+ports: { base: 4100, span: 100 }
+
+runtime:
+  maxParallelJobs: 3
+  diversity: false          # warn on shared model families
+  models:
+    builder: opus
+    reviewer: sonnet        # default for lenses
+
+tracker:
+  kind: local
+  github:
+    ready:
+      labels: []            # all must match
+      milestone: null
+    labels:
+      prefix: "forge:"      # labels mode
+
+pipeline:
+  plan: auto                # auto | always | never
+  specApproval: always
+  maxRounds: 3              # build→review rounds
+  budget:
+    tokens: null
+    verifyRetries: 2
+
+review:
+  # Severities that force another round.
+  blockOn:
+    - blocker
+    - major
+  panel:
+    - name: code
+      always: true
+    - name: tests
+      always: true
+  onPrFeedback: changed
+
+dashboard:
+  port: 7400
+
+daemon:
+  enabled: false
+  idleStopMinutes: 30

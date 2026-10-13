@@ -3,19 +3,35 @@ import fs from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
-import { daemonProblems, loadConfig } from './config.ts';
+import { daemonProblems, loadConfig, validateConfig } from './config.ts';
+import { ConfigSetError, FIELDS } from './config-fields.ts';
+import { setConfigValue } from './config-set.ts';
 import { createDaemon } from './daemon.ts';
+import { doctor } from './doctor.ts';
 import type { Daemon, DaemonOptions, SupervisorState } from './daemon.ts';
 import { listJobs, loadJob, progress, readEvents, jobDir } from './jobs.ts';
 import { paths, exists, PLUGIN_ROOT } from './paths.ts';
-import { API_VERSION } from './schema.ts';
+import { API_VERSION, CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from './schema.ts';
 import { computeStats } from './stats.ts';
 import { listRuns, listTasks, compareRuns, forgeVersion } from './evals.ts';
 import { enqueue, listRequests } from './requests.ts';
 import { loadTracker } from './trackers/index.ts';
 import { roster } from './roster.ts';
-import { readText } from './util.ts';
-import type { ApiError, ApiState, BacklogResponse, DaemonState, EvalsResponse, ForgeTruncatedLine, JobDetail, PostRequestResponse } from './types.ts';
+import { getPath, readJson, readText } from './util.ts';
+import type {
+  AboutResponse,
+  ApiError,
+  ApiState,
+  BacklogResponse,
+  ConfigResponse,
+  DaemonState,
+  DoctorResponse,
+  EvalsResponse,
+  ForgeTruncatedLine,
+  JobDetail,
+  PostConfigResponse,
+  PostRequestResponse,
+} from './types.ts';
 
 /** startServer's options. `distDir` is a test seam like `sseMaxAgeMs`. */
 export interface ServerOptions {
@@ -100,6 +116,14 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         }
         return json(res, backlogCache.data);
       }
+      if (req.method === 'GET' && p === '/api/config') return json(res, configResponse(root, Boolean(daemon?.state().wanted)));
+      if (req.method === 'GET' && p === '/api/about') return json(res, about());
+      if (req.method === 'GET' && p === '/api/doctor') {
+        // It spawns git and gh, so it takes the token like a POST.
+        if (guardToken(req, res, token)) return;
+        const { config, initialized } = loadConfig(root);
+        return json(res, { ...(await doctor(root, config, initialized)), at: new Date().toISOString() } satisfies DoctorResponse);
+      }
       const m = p.match(/^\/api\/jobs\/([A-Za-z0-9._-]+)(\/file|\/raw)?$/);
       if (req.method === 'GET' && m) {
         const id = m[1];
@@ -123,6 +147,27 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         const rec = enqueue(root, config, { type: body.type, job: body.job, text: body.text, args: body.args, from: 'dashboard' });
         daemon?.poke();
         return json(res, { ...rec, daemon: Boolean(daemon?.state().wanted) } satisfies PostRequestResponse);
+      }
+      if (req.method === 'POST' && p === '/api/config') {
+        if (guardPost(req, res, token)) return;
+        let body: any;
+        try {
+          body = JSON.parse((await readBody(req)) || '{}');
+        } catch {
+          return jsonStatus(res, 400, { error: 'body is not JSON' });
+        }
+        if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.key !== 'string' || !Object.prototype.hasOwnProperty.call(body, 'value'))
+          return jsonStatus(res, 400, { error: 'body must be {"key": string, "value": …}' });
+        // A change would trip the daemon's trust check mid-turn, and only a human may restart it.
+        if (daemon?.state().wanted) return jsonStatus(res, 409, { error: DAEMON_LOCK });
+        try {
+          const r = setConfigValue(root, body.key, body.value);
+          if (r.changed) backlogCache = null;
+          return json(res, r satisfies PostConfigResponse);
+        } catch (e) {
+          if (e instanceof ConfigSetError) return jsonStatus(res, CONFIG_STATUS[e.reason], { error: e.message });
+          throw e;
+        }
       }
       if (req.method === 'POST' && p === '/api/daemon') {
         if (guardPost(req, res, token)) return;
@@ -213,6 +258,33 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
   });
 }
 
+const DAEMON_LOCK = 'stop the daemon first: any change to .forge/config.yml stops it, and only a human may start it again';
+const CONFIG_STATUS: Record<ConfigSetError['reason'], number> = { unknown: 400, invalid: 400, locked: 403, uninitialized: 409, 'unsupported-yaml': 409 };
+
+function configResponse(root: string, daemonWanted: boolean): ConfigResponse {
+  const { config, initialized } = loadConfig(root);
+  const values = Object.fromEntries(FIELDS.map((f) => [f.key, getPath(config, f.key) ?? null]));
+  const lockedBy = !initialized ? 'uninitialized' : daemonWanted ? 'daemon' : null;
+  return { initialized, path: '.forge/config.yml', fields: FIELDS, values, problems: initialized ? validateConfig(config, root) : [], writable: lockedBy === null, lockedBy };
+}
+
+/** Read per request: both files are tiny, and a plugin update under a running dash shows up. */
+function about(): AboutResponse {
+  const plugin = readJson(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'), {});
+  const pricing = readJson(path.join(PLUGIN_ROOT, 'lib', 'pricing.json'), {});
+  const link = plugin.homepage ?? plugin.repository;
+  const repo = typeof link === 'string' ? link : typeof link?.url === 'string' ? link.url : null;
+  return {
+    forgeVersion: forgeVersion(),
+    apiVersion: API_VERSION,
+    pluginRoot: PLUGIN_ROOT,
+    schemaVersions: { config: CONFIG_SCHEMA_VERSION, job: JOB_SCHEMA_VERSION, event: EVENT_SCHEMA_VERSION },
+    pricingAsOf: typeof pricing.asOf === 'string' ? pricing.asOf : null,
+    node: process.versions.node,
+    links: { repo, docs: repo ? `${repo.replace(/\/$/, '')}/tree/main/docs` : null },
+  };
+}
+
 /** The daemon block before a daemon exists (never visible once the server is listening). */
 function idleDaemonState(): SupervisorState {
   return { enabled: false, wanted: false, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, held: null, lastError: null };
@@ -226,6 +298,13 @@ function guardPost(req: http.IncomingMessage, res: http.ServerResponse, token: s
   if (req.headers['x-forge-token'] !== token) return send(res, 403, 'text/plain', 'bad token'), true;
   if (!req.headers.origin || !sameOrigin(req.headers.origin, req.headers.host)) return send(res, 403, 'text/plain', 'bad origin'), true;
   if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return send(res, 415, 'text/plain', 'json only'), true;
+  return false;
+}
+
+/** The token, plus a same-origin Origin when one is sent: for GETs that do work. */
+function guardToken(req: http.IncomingMessage, res: http.ServerResponse, token: string): boolean {
+  if (req.headers['x-forge-token'] !== token) return send(res, 403, 'text/plain', 'bad token'), true;
+  if (req.headers.origin !== undefined && !sameOrigin(req.headers.origin, req.headers.host)) return send(res, 403, 'text/plain', 'bad origin'), true;
   return false;
 }
 

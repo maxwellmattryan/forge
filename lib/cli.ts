@@ -3,8 +3,10 @@
 // Output is compact JSON (or a terse table for `status`) to keep orchestrator context small.
 // Command groups live in lib/commands/; this file only routes.
 import path from 'node:path';
-import { daemonTrust, loadConfig, validateConfig } from './config.ts';
+import { daemonTrust, loadConfig } from './config.ts';
+import { NEED_INIT } from './config-set.ts';
 import { detect } from './detect.ts';
+import { doctor } from './doctor.ts';
 import { forgeVersion } from './evals.ts';
 import { loadJob } from './jobs.ts';
 import { mainRoot, PLUGIN_ROOT } from './paths.ts';
@@ -12,13 +14,14 @@ import * as pr from './pr.ts';
 import { prepareRetro, retroDue } from './retro.ts';
 import { roster } from './roster.ts';
 import { computeStats } from './stats.ts';
-import { ForgeError, getPath, readJson, run } from './util.ts';
+import { ForgeError, readJson, run } from './util.ts';
 import * as wt from './worktree.ts';
 import { out, parseArgs, req } from './commands/args.ts';
+import { configCmd } from './commands/config.ts';
 import { dash } from './commands/dash.ts';
 import { evalCmd } from './commands/eval.ts';
 import { gitRead } from './commands/git.ts';
-import { doctor, initWrite, migrate } from './commands/init.ts';
+import { initWrite, migrate } from './commands/init.ts';
 import { jobCmd } from './commands/job.ts';
 import { requestsCmd } from './commands/requests.ts';
 import { statsText, statusTable } from './commands/status.ts';
@@ -62,13 +65,13 @@ export async function main(argv: string[]): Promise<void> {
     // Before loadConfig, which then parses the checked bytes rather than reading the file again.
     const trust = daemonTrust(root);
     if (trust.problem) throw new ForgeError(trust.problem);
-    if ((cmd === 'init' && sub === 'write') || cmd === 'migrate')
-      throw new ForgeError(`forge ${cmd === 'init' ? 'init write' : 'migrate'} rewrites .forge/config.yml, which a daemon session may not do; a human runs it in their own session`);
+    const rewrite = cmd === 'init' && sub === 'write' ? 'init write' : cmd === 'migrate' ? 'migrate' : cmd === 'config' && sub === 'set' ? 'config set' : null;
+    if (rewrite) throw new ForgeError(`forge ${rewrite} rewrites .forge/config.yml, which a daemon session may not do; a human runs it in their own session`);
     loadOpts = { text: trust.configText };
   }
   const { config, initialized } = loadConfig(root, loadOpts);
   const needInit = () => {
-    if (!initialized) throw new ForgeError('this repo has no .forge/config.yml yet; run `/forge init` (or `forge init write --answers FILE`)', 2);
+    if (!initialized) throw new ForgeError(NEED_INIT, 2);
   };
 
   switch (cmd) {
@@ -80,17 +83,8 @@ export async function main(argv: string[]): Promise<void> {
       }
       throw new ForgeError('usage: forge init detect | forge init write --answers FILE [--force]');
     }
-    case 'config': {
-      if (!sub || sub === 'show') return out(config, { ...flags, pretty: true });
-      if (sub === 'get') return out(getPath(config, rest[0] ?? '') ?? null, flags);
-      if (sub === 'validate') {
-        const problems = validateConfig(config, root);
-        out({ ok: !problems.length, initialized, problems }, flags);
-        if (problems.length) process.exitCode = 1;
-        return;
-      }
-      throw new ForgeError('usage: forge config [show|get PATH|validate]');
-    }
+    case 'config':
+      return configCmd(root, config, initialized, sub, rest, flags);
     case 'doctor':
       return out(await doctor(root, config, initialized), { ...flags, pretty: true });
     case 'status':

@@ -9,29 +9,36 @@
   import type { ApiState, Stage } from '../lib/types.ts';
   import { boardStages, filterJobs, pipelineCounts } from '../lib/view.ts';
   import { S, req, setFilter, setLayout } from '../lib/app.svelte.ts';
+  import { t } from '../lib/locale.ts';
 
   let { data }: { data: ApiState } = $props();
   const counts = $derived(pipelineCounts(data.jobs));
   const jobs = $derived(filterJobs(data.jobs, S.filter));
   const FILTERS = ['active', 'waiting', 'done', 'all'] as const;
   const LAYOUTS = ['board', 'table'] as const;
-  const cap = (s: string): string => s[0].toUpperCase() + s.slice(1);
+  const filterLabel = $derived<Record<(typeof FILTERS)[number], string>>({
+    active: $t('pipeline.filter.active'),
+    waiting: $t('pipeline.filter.waiting'),
+    done: $t('pipeline.filter.done'),
+    all: $t('pipeline.filter.all'),
+  });
+  const layoutLabel = $derived<Record<(typeof LAYOUTS)[number], string>>({ board: $t('pipeline.layout.board'), table: $t('pipeline.layout.table') });
 </script>
 
-<PageHeader title="Pipeline">
-  {#snippet sub()}{counts.active} active · base <code class="font-mono text-xs">{data.config.base}</code> · tracker {data.config.tracker}{/snippet}
+<PageHeader title={$t('pipeline.title')}>
+  {#snippet sub()}{$t('pipeline.active', { count: counts.active })} · {$t('pipeline.base')} <code class="font-mono text-xs">{data.config.base}</code> · {$t('pipeline.tracker', { tracker: data.config.tracker })}{/snippet}
   {#snippet right()}
     <div class="flex flex-wrap gap-1.5">
-      {#each FILTERS as f (f)}<button class="btn {S.filter === f ? 'border-accent/60 text-fg' : 'text-muted'}" onclick={() => setFilter(f)}>{cap(f)} <span class="text-muted tabular-nums">{counts[f]}</span></button>{/each}
+      {#each FILTERS as f (f)}<button class="btn {S.filter === f ? 'border-accent/60 text-fg' : 'text-muted'}" onclick={() => setFilter(f)}>{filterLabel[f]} <span class="text-muted tabular-nums">{counts[f]}</span></button>{/each}
     </div>
     <div class="flex rounded-lg border border-line overflow-hidden">
-      {#each LAYOUTS as l (l)}<button class="px-2.5 py-1.5 text-sm flex items-center gap-1.5 {S.layout === l ? 'bg-raised text-fg' : 'text-muted'}" onclick={() => setLayout(l)}><Icon name={l} />{cap(l)}</button>{/each}
+      {#each LAYOUTS as l (l)}<button class="px-2.5 py-1.5 text-sm flex items-center gap-1.5 {S.layout === l ? 'bg-raised text-fg' : 'text-muted'}" onclick={() => setLayout(l)}><Icon name={l} />{layoutLabel[l]}</button>{/each}
     </div>
-    <button class="btn btn-primary" onclick={() => req({ type: 'next' })}>Run next</button>
+    <button class="btn btn-primary" onclick={() => req({ type: 'next' })}>{$t('common.runNext')}</button>
   {/snippet}
 </PageHeader>
 {#if !jobs.length}
-  <Empty>No jobs here yet. Start one with <code class="font-mono">/forge &lt;feature&gt;</code> or <code class="font-mono">/forge next</code>.</Empty>
+  <Empty>{$t('pipeline.empty')} <code class="font-mono">{$t('pipeline.cmdFeature')}</code> {$t('pipeline.or')} <code class="font-mono">{$t('pipeline.cmdNext')}</code>.</Empty>
 {:else if S.layout === 'table'}
   <JobsTable {jobs} />
 {:else}

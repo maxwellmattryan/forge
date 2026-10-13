@@ -479,7 +479,7 @@ test('AC17: /api/state v4 exposes daemon state and boots an enabled daemon', asy
   let srv = await startServer(repo.dir, { port: 0, daemon: kitOff.opts });
   try {
     const s = JSON.parse((await hit(Number(new URL(srv.url).port), { path: '/api/state' })).text);
-    assert.equal(s.apiVersion, 5);
+    assert.equal(s.apiVersion, 6);
     assert.deepEqual(s.config.daemon, { enabled: false });
     assert.equal('launcher' in s.config, false);
     assert.deepEqual(Object.keys(s.daemon), keys);
@@ -526,6 +526,178 @@ test('AC17: /api/state v4 exposes daemon state and boots an enabled daemon', asy
     .map((f) => fs.readFileSync(path.join(src, f), 'utf8'))
     .join('\n');
   assert.ok(app.includes('/api/requests'), 'read the dashboard sources');
-  assert.equal(DASH_API_VERSION, 5, 'the dashboard reads API_VERSION from src/lib/types.ts');
+  assert.equal(DASH_API_VERSION, 6, 'the dashboard reads API_VERSION from src/lib/types.ts');
   assert.doesNotMatch(app, /launcher|launched/);
+});
+
+// ---- Settings endpoints: /api/config, /api/doctor, /api/about.
+
+const tokenOf = async (port) => /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)[1];
+
+test('POST /api/config is token, origin and JSON guarded', async () => {
+  const repo = tempRepo();
+  writeConfig(repo.dir, { enabled: false });
+  const file = path.join(repo.dir, '.forge', 'config.yml');
+  const before = fs.readFileSync(file);
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const port = Number(new URL(url).port);
+  try {
+    const good = { 'x-forge-token': await tokenOf(port), origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (body, headers: any = good) => hit(port, { method: 'POST', path: '/api/config', headers, body });
+    const body = '{"key":"pipeline.maxRounds","value":4}';
+    assert.equal((await post(body, { ...good, 'x-forge-token': 'wrong' })).status, 403);
+    const { origin: _o, ...noOrigin } = good;
+    assert.equal((await post(body, noOrigin)).status, 403);
+    assert.equal((await post(body, { ...good, origin: 'http://evil.example' })).status, 403);
+    assert.equal((await post(body, { ...good, 'content-type': 'text/plain' })).status, 415);
+    const notJson = await post('{"key":', good);
+    assert.equal(notJson.status, 400);
+    assert.deepEqual(JSON.parse(notJson.text), { error: 'body is not JSON' });
+    assert.equal((await post('{"value":1}')).status, 400);
+    assert.equal((await post('{"key":"pipeline.maxRounds"}')).status, 400, 'value must be present');
+    assert.equal((await post('[]')).status, 400);
+    assert.ok(fs.readFileSync(file).equals(before), 'config.yml is byte-identical');
+  } finally {
+    await close();
+    repo.cleanup();
+  }
+});
+
+test('/api/config reads the schema and writes only editable keys', async () => {
+  const { FIELDS } = await import('../lib/config-fields.ts');
+  const bare = tempRepo();
+  let srv = await startServer(bare.dir, { port: 0, daemon: fakeChildren().opts });
+  try {
+    const c = JSON.parse((await hit(Number(new URL(srv.url).port), { path: '/api/config' })).text);
+    assert.equal(c.initialized, false);
+    assert.equal(c.writable, false);
+    assert.equal(c.lockedBy, 'uninitialized');
+  } finally {
+    await srv.close();
+    bare.cleanup();
+  }
+
+  const repo = tempRepo();
+  writeConfig(repo.dir, { enabled: false });
+  const file = path.join(repo.dir, '.forge', 'config.yml');
+  srv = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  let port = Number(new URL(srv.url).port);
+  const post = async (body) => {
+    const headers = { 'x-forge-token': await tokenOf(port), origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const r = await hit(port, { method: 'POST', path: '/api/config', headers, body: JSON.stringify(body) });
+    return { status: r.status, body: JSON.parse(r.text) };
+  };
+  try {
+    const r = await hit(port, { path: '/api/config' });
+    assert.equal(r.status, 200);
+    const c = JSON.parse(r.text);
+    assert.equal(c.initialized, true);
+    assert.equal(c.path, '.forge/config.yml');
+    assert.equal(c.writable, true);
+    assert.equal(c.lockedBy, null);
+    assert.deepEqual(c.fields.map((f) => f.key), FIELDS.map((f) => f.key));
+    assert.deepEqual(Object.keys(c.values), FIELDS.map((f) => f.key));
+    assert.equal(c.values['pipeline.maxRounds'], 3);
+    assert.deepEqual(c.problems, []);
+
+    const ok = await post({ key: 'pipeline.maxRounds', value: 4 });
+    assert.equal(ok.status, 200);
+    assert.deepEqual(ok.body, { ok: true, key: 'pipeline.maxRounds', value: 4, previous: 3, changed: true });
+    const settled = fs.readFileSync(file);
+    const again = await post({ key: 'pipeline.maxRounds', value: 4 });
+    assert.deepEqual(again.body, { ok: true, key: 'pipeline.maxRounds', value: 4, previous: 4, changed: false });
+    assert.ok(fs.readFileSync(file).equals(settled), 'a no-op POST writes nothing');
+    assert.equal(JSON.parse((await hit(port, { path: '/api/state' })).text).config.pipeline.maxRounds, 4);
+
+    const before = fs.readFileSync(file);
+    const locked = await post({ key: 'daemon.command', value: 'claude {session}' });
+    assert.equal(locked.status, 403);
+    assert.match(locked.body.error, /is not editable/);
+    assert.equal((await post({ key: 'nope.key', value: 1 })).status, 400);
+    const typed = await post({ key: 'pipeline.maxRounds', value: '4' });
+    assert.equal(typed.status, 400, 'values arrive typed; a string is not an integer');
+    assert.match(typed.body.error, /pipeline\.maxRounds/);
+    assert.ok(fs.readFileSync(file).equals(before), 'refusals leave the file unchanged');
+    fs.writeFileSync(file, 'schemaVersion: 2\npipeline: { maxRounds: 4 }\n');
+    const flow = await post({ key: 'pipeline.maxRounds', value: 5 });
+    assert.equal(flow.status, 409, 'unsupported-yaml');
+    assert.match(flow.body.error, /edit it by hand/);
+    assert.equal(fs.readFileSync(file, 'utf8'), 'schemaVersion: 2\npipeline: { maxRounds: 4 }\n');
+  } finally {
+    await srv.close();
+  }
+
+  writeConfig(repo.dir, { enabled: true, command: 'claude {session}' });
+  const kit = fakeChildren();
+  srv = await startServer(repo.dir, { port: 0, daemon: kit.opts });
+  port = Number(new URL(srv.url).port);
+  try {
+    assert.equal(srv.daemon.state().wanted, true);
+    const c = JSON.parse((await hit(port, { path: '/api/config' })).text);
+    assert.equal(c.lockedBy, 'daemon');
+    assert.equal(c.writable, false);
+    const before = fs.readFileSync(file);
+    const busy = await post({ key: 'pipeline.maxRounds', value: 5 });
+    assert.equal(busy.status, 409);
+    assert.match(busy.body.error, /stop the daemon first/);
+    assert.ok(fs.readFileSync(file).equals(before));
+    const headers = { 'x-forge-token': await tokenOf(port), origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    assert.equal((await hit(port, { method: 'POST', path: '/api/daemon', headers, body: '{"action":"stop"}' })).status, 200);
+    const after = await post({ key: 'pipeline.maxRounds', value: 5 });
+    assert.equal(after.status, 200);
+    assert.equal(after.body.changed, true);
+  } finally {
+    await srv.close();
+    repo.cleanup();
+  }
+});
+
+test('GET /api/doctor runs forge doctor behind the token', async () => {
+  const repo = tempRepo();
+  fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
+  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 2, pr: { enabled: false }, tracker: { kind: 'local' } }));
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const port = Number(new URL(url).port);
+  try {
+    assert.equal((await hit(port, { path: '/api/doctor' })).status, 403, 'no token');
+    const token = await tokenOf(port);
+    assert.equal((await hit(port, { path: '/api/doctor', headers: { 'x-forge-token': token, origin: 'http://evil.example' } })).status, 403, 'foreign origin');
+    const r = await hit(port, { path: '/api/doctor', headers: { 'x-forge-token': token } });
+    assert.equal(r.status, 200);
+    const d = JSON.parse(r.text);
+    assert.deepEqual(Object.keys(d), ['ok', 'checks', 'at']);
+    assert.equal(typeof d.ok, 'boolean');
+    assert.ok(!Number.isNaN(Date.parse(d.at)));
+    for (const c of d.checks) assert.deepEqual(Object.keys(c), ['name', 'ok', 'detail']);
+    const names = d.checks.map((c) => c.name);
+    assert.ok(names.includes('config present') && names.includes('node >= 22.18'), names.join(', '));
+    const cli = JSON.parse(execFileSync(process.execPath, [path.resolve(import.meta.dirname, '..', 'bin', 'forge'), 'doctor'], { encoding: 'utf8', env: { ...process.env, FORGE_ROOT: repo.dir } }));
+    assert.deepEqual(Object.keys(cli), ['ok', 'checks'], 'forge doctor still prints {ok, checks}');
+  } finally {
+    await close();
+    repo.cleanup();
+  }
+});
+
+test('GET /api/about reports versions', async () => {
+  const schema = await import('../lib/schema.ts');
+  const { PLUGIN_ROOT } = await import('../lib/paths.ts');
+  const root = path.resolve(import.meta.dirname, '..');
+  const repo = tempRepo();
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  try {
+    const r = await hit(Number(new URL(url).port), { path: '/api/about' });
+    assert.equal(r.status, 200);
+    const a = JSON.parse(r.text);
+    assert.equal(a.forgeVersion, JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version);
+    assert.equal(a.apiVersion, 6);
+    assert.equal(a.pluginRoot, PLUGIN_ROOT);
+    assert.deepEqual(a.schemaVersions, { config: schema.CONFIG_SCHEMA_VERSION, job: schema.JOB_SCHEMA_VERSION, event: schema.EVENT_SCHEMA_VERSION });
+    assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'pricing.json'), 'utf8')).asOf);
+    assert.equal(a.node, process.versions.node);
+    assert.deepEqual(a.links, { repo: 'https://github.com/maxwellmattryan/forge', docs: 'https://github.com/maxwellmattryan/forge/tree/main/docs' });
+  } finally {
+    await close();
+    repo.cleanup();
+  }
 });

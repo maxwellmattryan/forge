@@ -3,4 +3,4 @@
   let { msg }: { msg: string } = $props();
 </script>
 
-<div class="card border-warn/40 bg-warn/10 text-warn px-4 py-3 text-sm mb-4">{msg}</div>
+<div role="status" class="card border-warn/40 bg-warn/10 text-warn px-4 py-3 text-sm mb-4">{msg}</div>

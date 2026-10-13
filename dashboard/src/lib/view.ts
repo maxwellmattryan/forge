@@ -13,13 +13,14 @@ const s = (v: unknown): string => String(v ?? '');
 
 export const CORE_STAGES = new Set(['backlog', 'spec', 'build', 'review', 'pr', 'done']);
 
+// Labels come from messages/en.json (nav.<id>), through Nav.svelte.
 export const VIEWS = [
-  { id: 'pipeline', label: 'Pipeline', icon: 'pipeline' },
-  { id: 'inbox', label: 'Needs you', icon: 'inbox' },
-  { id: 'backlog', label: 'Backlog', icon: 'backlog' },
-  { id: 'agents', label: 'Agents', icon: 'agents' },
-  { id: 'analytics', label: 'Analytics', icon: 'analytics' },
-  { id: 'evals', label: 'Evals', icon: 'evals' },
+  { id: 'pipeline', icon: 'pipeline' },
+  { id: 'inbox', icon: 'inbox' },
+  { id: 'backlog', icon: 'backlog' },
+  { id: 'agents', icon: 'agents' },
+  { id: 'analytics', icon: 'analytics' },
+  { id: 'evals', icon: 'evals' },
 ] as const;
 export type ViewId = (typeof VIEWS)[number]['id'];
 

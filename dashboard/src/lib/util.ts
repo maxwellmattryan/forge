@@ -36,3 +36,11 @@ export async function api<T = unknown>(path: string, opts?: RequestInit): Promis
   const type = res.headers.get('content-type') ?? '';
   return type.includes('json') ? res.json() : (res.text() as Promise<T>);
 }
+/** The `error` of a JSON error body, else the raw text: for replies that may be ApiError or text/plain. */
+export function errorText(raw: string): string {
+  try {
+    const body = JSON.parse(raw);
+    if (body && typeof body.error === 'string') return body.error;
+  } catch {}
+  return raw;
+}

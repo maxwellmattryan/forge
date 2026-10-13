@@ -9,13 +9,14 @@
   import { prChipModel } from '../lib/view.ts';
   import { S, openDrawer } from '../lib/app.svelte.ts';
   import type { StateJob } from '../lib/types.ts';
+  import { t } from '../lib/locale.ts';
 
   let { jobs }: { jobs: StateJob[] } = $props();
 </script>
 
 <div class="card overflow-x-auto">
   <table class="tbl">
-    <thead><tr><th>Job</th><th>Stage</th><th>State</th><th>Round</th><th>Tasks</th><th>Verdicts</th><th>PR</th><th class="text-right">Tokens</th><th class="text-right">Est. cost</th><th>Budget</th><th>Updated</th></tr></thead>
+    <thead><tr><th>{$t('common.job')}</th><th>{$t('table.stage')}</th><th>{$t('table.state')}</th><th>{$t('table.round')}</th><th>{$t('table.tasks')}</th><th>{$t('table.verdicts')}</th><th>{$t('table.pr')}</th><th class="text-right">{$t('common.tokens')}</th><th class="text-right">{$t('common.estCost')}</th><th>{$t('table.budget')}</th><th>{$t('table.updated')}</th></tr></thead>
     <tbody>
       {#each jobs as j (j.id)}
         {@const v = j.verdicts?.[j.round]}

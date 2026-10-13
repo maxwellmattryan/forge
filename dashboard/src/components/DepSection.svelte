@@ -4,6 +4,7 @@
   import { blockLinks, depHint, depLinks, type DepLink } from '../lib/deps.ts';
   import { S, openDrawer } from '../lib/app.svelte.ts';
   import type { Job } from '../lib/types.ts';
+  import { t } from '../lib/locale.ts';
 
   let { job }: { job: Partial<Job> } = $props();
   const deps = $derived(depLinks(job, S.data?.jobs ?? []));
@@ -17,5 +18,5 @@
 {/snippet}
 
 {#if deps.length || blocks.length}
-  <div class="card p-4 flex flex-col gap-2"><h3 class="text-sm font-semibold">Dependencies</h3>{@render row('Depends on', deps)}{@render row('Blocks', blocks)}</div>
+  <div class="card p-4 flex flex-col gap-2"><h3 class="text-sm font-semibold">{$t('deps.title')}</h3>{@render row($t('deps.dependsOn'), deps)}{@render row($t('deps.blocks'), blocks)}</div>
 {/if}
