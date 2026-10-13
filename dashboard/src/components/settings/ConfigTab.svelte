@@ -14,7 +14,7 @@
 
   const c = $derived(session.config);
   const fields = $derived(c ? fieldsFor(c.fields, section) : []);
-  const locked = $derived(c?.lockedBy === 'daemon' || S.data?.daemon?.wanted === true);
+  const locked = $derived(c?.lockedBy === 'daemon' || S.data?.daemons?.wanted === true);
   const changed = $derived(session.changed);
   const invalid = $derived(session.invalid);
   const canSave = $derived(changed.length > 0 && invalid.length === 0 && !locked && !session.saving);

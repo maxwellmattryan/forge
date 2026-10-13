@@ -57,10 +57,12 @@
   },
   "daemon": {
     "pill": "Daemon {label}",
-    "held": "held: budget",
+    "inbox": "Inbox {label}",
+    "live": "{live}/{cap} job sessions",
+    "held": "held: budget ({count})",
+    "waiting": "waiting for slot ({count})",
     "start": "Start",
     "stop": "Stop",
-    "log": "Log",
     "failed": "Daemon {action} failed: {error}"
   },
   "compare": {
@@ -88,7 +90,8 @@
     "total": "Total",
     "files": "Files",
     "timeline": "Timeline",
-    "noFiles": "No files yet."
+    "noFiles": "No files yet.",
+    "sessionTab": "Session"
   },
   "inbox": {
     "title": "Needs you",
@@ -344,5 +347,37 @@
       "docs": "Documentation"
     },
     "sections": "Settings sections"
+  },
+  "session": {
+    "label": "Session log",
+    "turns": {
+      "one": "{count} turn",
+      "other": "{count} turns"
+    },
+    "cost": "≈ {cost}",
+    "costTitle": "Sum of total_cost_usd over the results in the loaded log",
+    "start": "Start",
+    "stop": "Stop",
+    "failed": "Session {action} failed: {error}",
+    "filter": "Filter the log",
+    "tools": "Tools",
+    "thinking": "Thinking",
+    "subagents": "Subagents",
+    "follow": "Follow",
+    "loadOlder": "Load older",
+    "loading": "Loading session log…",
+    "empty": "No session log for this job yet. With daemon.enabled, each job gets its own headless session, and its stream shows here.",
+    "emptyInbox": "No inbox session log yet. With daemon.enabled, the inbox session handles requests without a job, and its stream shows here.",
+    "noMatch": "No lines match the filters.",
+    "closed": "Log stream closed. Reopen the tab to retry.",
+    "result": "Result",
+    "fullResult": "Full result",
+    "input": "Input",
+    "error": "error",
+    "thinkingItem": "Thinking",
+    "hiddenLines": {
+      "one": "({count} line hidden)",
+      "other": "({count} lines hidden)"
+    }
   }
 }

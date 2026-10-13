@@ -1,61 +1,42 @@
-<!-- The daemon bar: pill, Start/Stop/Log and the live log pane. Log lines are untrusted session output and render as text. -->
+<!-- The daemon bar: a summary of the session pool (pill, inbox, live job sessions, holds, waits, per-job chips), pool
+     Start/Stop, and the inbox's log inline. Session errors are untrusted text and render as text. -->
 <script lang="ts">
-  import { onDestroy, tick, untrack } from 'svelte';
-  import Chip from './Chip.svelte';
+  import SessionLog from './SessionLog.svelte';
   import { TONE_CLASS } from '../lib/util.ts';
-  import { barModel, lineView, mergeDaemonState, postDaemon } from '../lib/daemon.ts';
-  import type { LogEntry } from '../lib/daemon.ts';
-  import type { DaemonState } from '../lib/types.ts';
-  import { createDaemonLog } from '../lib/daemon-log.ts';
-  import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
+  import { INBOX_SCOPE } from '../lib/types.ts';
+  import type { DaemonPoolState } from '../lib/types.ts';
+  import { mergePoolState, poolModel, postDaemon } from '../lib/daemon.ts';
+  import { LOG_KEY } from '../lib/daemon-log.ts';
+  import { S, forgeToken, openDrawer, refresh } from '../lib/app.svelte.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
 
-  // Follows each new /api/state (assigned only when it changed); SSE frames and POST replies overwrite it in between.
-  let daemon = $derived<Partial<DaemonState> | null>(S.data?.daemon ?? null);
+  // Follows each new /api/state (assigned only when it changed); POST replies overwrite it in between.
+  let pool = $derived<Partial<DaemonPoolState> | null>(S.data?.daemons ?? null);
   let pending = $state(false);
-  const model = $derived(barModel(daemon, { pending }));
+  const model = $derived(poolModel(pool, { pending }));
 
-  const log = createDaemonLog({
-    onState: (st) => (daemon = mergeDaemonState(daemon, st)),
-    onChange: () => {
-      open = log.open;
-      closed = log.closed;
-      lines = log.lines.slice();
-      note = log.note;
-    },
-  });
-  let open = $state(log.open);
-  let closed = $state(false);
-  let lines = $state.raw<LogEntry[]>([]);
-  let note = $state<string | null>(log.note);
-  let pane = $state<HTMLDivElement>();
-
-  $effect(() => {
-    const shown = model !== null;
-    void open;
-    void closed;
-    untrack(() => log.sync(shown));
-  });
-  onDestroy(() => log.dispose());
-
-  // Pinned scroll: a pane at the bottom follows new lines; one scrolled up keeps its place.
-  $effect.pre(() => {
-    void lines;
-    if (!pane) return;
-    const p = pane;
-    if (p.scrollHeight - p.scrollTop - p.clientHeight <= 24) tick().then(() => (p.scrollTop = p.scrollHeight));
-  });
-  $effect(() => {
-    if (pane) untrack(() => pane && (pane.scrollTop = pane.scrollHeight));
-  });
+  const readOpen = (): boolean => {
+    try {
+      return localStorage.getItem(LOG_KEY) === '1';
+    } catch {
+      return false;
+    }
+  };
+  let inboxOpen = $state(readOpen());
+  function toggleInbox(): void {
+    inboxOpen = !inboxOpen;
+    try {
+      localStorage.setItem(LOG_KEY, inboxOpen ? '1' : '0');
+    } catch {}
+  }
 
   async function act(action: 'start' | 'stop'): Promise<void> {
     pending = true;
     try {
       const st = await postDaemon(action, forgeToken());
       pending = false;
-      daemon = mergeDaemonState(daemon, st);
+      pool = mergePoolState(pool, st);
       refresh();
     } catch (err) {
       pending = false;
@@ -64,21 +45,20 @@
   }
 </script>
 
-<svelte:document onvisibilitychange={() => log.visibilityChanged()} />
-
-<!-- No whitespace inside #daemon or the pane: the wrapper relies on :empty, and the pane is whitespace-pre-wrap. -->
+<!-- No whitespace inside #daemon: the wrapper relies on :empty. -->
 <div id="daemon" class="mx-auto max-w-[1400px] px-4 md:px-8 pt-6 empty:hidden">{#if model}<div class="card px-4 py-2.5">
       <div class="flex flex-wrap items-center gap-2">
         <span class="chip {TONE_CLASS[model.pill.tone]}" title={model.pill.title}>{$t('daemon.pill', { label: model.pill.label })}</span>
-        {#if model.held !== null}<span class="chip {TONE_CLASS.warn}" title={model.held}>{$t('daemon.held')}</span>{/if}
+        <button class="chip cursor-pointer {TONE_CLASS[model.inbox.tone]}" title={model.inbox.title} aria-expanded={inboxOpen ? 'true' : 'false'} onclick={toggleInbox}>{$t('daemon.inbox', { label: model.inbox.label })}</button>
+        <span class="text-xs text-muted tabular-nums">{$t('daemon.live', { live: model.live, cap: model.cap })}</span>
+        {#if model.held.length}<span class="chip {TONE_CLASS.warn}" title={model.held.join('\n')}>{$t('daemon.held', { count: model.held.length })}</span>{/if}
+        {#if model.waiting.length}<span class="chip {TONE_CLASS.warn}" title={model.waiting.join('\n')}>{$t('daemon.waiting', { count: model.waiting.length })}</span>{/if}
+        {#each model.jobs as j (j.id)}<button class="chip cursor-pointer max-w-full {TONE_CLASS[j.pill.tone]}" title={`${j.id}\n${j.pill.title}`} onclick={() => openDrawer(j.id, null, 'session')}><span class="truncate font-mono">{j.label}</span> · {j.pill.label}</button>{/each}
         {#if model.error !== null}<span class="truncate min-w-0 flex-1 text-xs text-muted" title={model.error}>{model.error}</span>{:else}<span class="flex-1"></span>{/if}
         <span class="flex items-center gap-2">
           <button class="btn text-xs" disabled={!model.canStart} title={model.startHint} onclick={() => act('start')}>{$t('daemon.start')}</button>
           <button class="btn text-xs" disabled={!model.canStop} onclick={() => act('stop')}>{$t('daemon.stop')}</button>
-          <button class="btn text-xs" aria-expanded={open ? 'true' : 'false'} onclick={() => log.toggle()}>{$t('daemon.log')}</button>
         </span>
       </div>
-      {#if open}
-        <div bind:this={pane} class="mt-2 max-h-72 overflow-y-auto rounded-lg bg-raised p-2 font-mono text-[11px] leading-5 whitespace-pre-wrap break-words">{#each lines as e (e.seq)}{@const v = lineView(e.line)}<div class="flex items-start gap-2">{#if v.tone && TONE_CLASS[v.tone]}<Chip tone={v.tone} text={v.tag} extra="shrink-0" />{:else}<span class="chip shrink-0 text-muted">{v.tag}</span>{/if}<span class="min-w-0">{v.text}</span></div>{/each}{#if note !== null}<div class="text-muted">{note}</div>{/if}</div>
-      {/if}
+      {#if inboxOpen}<div class="mt-3 border-t border-line pt-3"><SessionLog scope={INBOX_SCOPE} compact /></div>{/if}
     </div>{/if}</div>

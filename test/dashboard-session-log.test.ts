@@ -1,0 +1,212 @@
+// dashboard/src/lib/session-log.ts: a session's raw stream-json lines into turns, items and subagent groups.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { DEFAULT_FILTERS, LONG_TEXT, MAX_ENTRIES, PREVIEW_CHARS, buildSessionView, mergeEntry, parseEntry, readFilters, toolSummary } from '../dashboard/src/lib/session-log.ts';
+
+const XSS = '<script>alert(1)</script><img src=x onerror=alert(2)>';
+
+/** Lines with offsets as the server would number them. */
+function entries(lines: unknown[]) {
+  let at = 1000;
+  return lines.map((l) => {
+    const line = typeof l === 'string' ? l : JSON.stringify(l);
+    const e = { offset: at, line };
+    at += Buffer.byteLength(line) + 1;
+    return e;
+  });
+}
+
+const sup = (event: string, extra = {}) => ({ type: 'forge-daemon', at: 't', event, ...extra });
+const assistant = (content: unknown[], parent: string | null = null) => ({ type: 'assistant', parent_tool_use_id: parent, message: { role: 'assistant', content } });
+const user = (content: unknown[], parent: string | null = null) => ({ type: 'user', parent_tool_use_id: parent, message: { role: 'user', content } });
+
+const FIXTURE = entries([
+  sup('spawn', { pid: 42, sessionId: 'abc', resume: false, reason: 'work' }),
+  { type: 'system', subtype: 'init', session_id: '0123456789abcdef', model: 'claude-opus-5-5' },
+  sup('turn', { requests: 2 }),
+  assistant([{ type: 'thinking', thinking: 'Let me look at the requests.' }, { type: 'text', text: 'Handling 2 requests.' }]),
+  assistant([{ type: 'tool_use', id: 't_bash', name: 'Bash', input: { command: 'forge requests\nsecond line' } }]),
+  user([{ type: 'tool_result', tool_use_id: 't_bash', content: 'x'.repeat(500) }]),
+  assistant([{ type: 'tool_use', id: 't_read', name: 'Read', input: { file_path: '/repo/spec.md' } }]),
+  user([{ type: 'tool_result', tool_use_id: 't_read', is_error: true, content: [{ type: 'text', text: 'ENOENT: no such file' }] }]),
+  assistant([{ type: 'tool_use', id: 't_agent', name: 'Agent', input: { subagent_type: 'forge:builder', description: 'Build round 1', prompt: 'Implement it.' } }]),
+  assistant([{ type: 'tool_use', id: 't_child', name: 'Grep', input: { pattern: 'TODO', path: 'lib' } }], 't_agent'),
+  user([{ type: 'tool_result', tool_use_id: 't_child', content: XSS }], 't_agent'),
+  assistant([{ type: 'text', text: 'Builder done.' }], 't_agent'),
+  assistant([{ type: 'text', text: 'From nowhere.' }], 't_ghost'),
+  user([{ type: 'tool_result', tool_use_id: 't_agent', content: 'BUILD: done · 2 commits' }]),
+  { type: 'result', subtype: 'success', is_error: false, num_turns: 7, duration_ms: 61000, total_cost_usd: 0.5 },
+  { type: 'forge-stderr', at: 't', text: 'warn: something' },
+  { type: 'forge-raw', at: 't', text: 'plain' },
+  { type: 'forge-truncated', originalType: 'assistant', bytes: 99999 },
+  sup('held', { held: 'budget' }),
+  sup('turn', { requests: 1 }),
+  { type: 'result', subtype: 'error_max_turns', is_error: true, num_turns: 9, total_cost_usd: 0.25 },
+  sup('exit', { code: 1, signal: null }),
+  sup('error', { message: 'daemon exited (code 1, signal null)' }),
+]);
+
+test('turns, items and subagent groups from a fixture stream', () => {
+  const v = buildSessionView(FIXTURE, { ...DEFAULT_FILTERS, thinking: true });
+  assert.deepEqual(v.turns.map((t) => t.label), ['Session start', 'Turn 1 · 2 requests', 'Turn 2 · 1 request']);
+  assert.deepEqual(v.totals, { turns: 2, costUsd: 0.75, results: 2 });
+  const [start, t1, t2] = v.turns;
+  assert.deepEqual(start.items.map((i) => i.kind), ['supervisor', 'init']);
+  assert.deepEqual(start.items[1], { kind: 'init', offset: FIXTURE[1].offset, tone: 'muted', model: 'claude-opus-5-5', session: '01234567' });
+  assert.equal(start.items[0].kind === 'supervisor' && start.items[0].text, 'spawn pid=42 sessionId=abc reason=work');
+  assert.deepEqual(t1.items.map((i) => i.kind), ['thinking', 'text', 'tool', 'tool', 'subagent', 'subagent', 'result', 'stderr', 'raw', 'truncated', 'supervisor']);
+
+  const bash = t1.items[2];
+  assert.ok(bash.kind === 'tool');
+  assert.equal(bash.name, 'Bash');
+  assert.equal(bash.summary, 'forge requests', 'the first line of the command');
+  assert.equal(bash.input, JSON.stringify({ command: 'forge requests\nsecond line' }, null, 2));
+  assert.equal(bash.result?.preview.length, PREVIEW_CHARS + 1);
+  assert.equal(bash.result?.full.length, 500);
+  assert.equal(bash.result?.more, true);
+  assert.equal(bash.result?.isError, false);
+  const read = t1.items[3];
+  assert.ok(read.kind === 'tool');
+  assert.equal(read.summary, '/repo/spec.md');
+  assert.deepEqual(read.result, { isError: true, preview: 'ENOENT: no such file', full: 'ENOENT: no such file', more: false });
+  assert.equal(read.tone, 'bad');
+
+  const agent = t1.items[4];
+  assert.ok(agent.kind === 'subagent');
+  assert.equal(agent.role, 'forge:builder');
+  assert.equal(agent.description, 'Build round 1');
+  assert.equal(agent.summary, 'forge:builder: Build round 1');
+  assert.equal(agent.known, true);
+  assert.deepEqual(agent.items.map((i) => i.kind), ['tool', 'text'], 'children nest by parent_tool_use_id');
+  const child = agent.items[0];
+  assert.ok(child.kind === 'tool');
+  assert.equal(child.summary, 'TODO in lib');
+  assert.equal(child.result?.full, XSS, 'strings come back unescaped: the renderer escapes');
+  assert.equal(agent.result?.preview, 'BUILD: done · 2 commits');
+  const ghost = t1.items[5];
+  assert.ok(ghost.kind === 'subagent');
+  assert.equal(ghost.role, 'Subagent (unknown call)');
+  assert.equal(ghost.known, false);
+  assert.deepEqual(ghost.items.map((i) => (i.kind === 'text' ? i.text : '')), ['From nowhere.']);
+
+  const res = t1.items[6];
+  assert.ok(res.kind === 'result');
+  assert.equal(res.tone, 'ok');
+  assert.equal(res.text, 'success · 7 turns · 61s · $0.5000');
+  assert.equal(res.costUsd, 0.5);
+  assert.equal(t1.items[10].tone, 'warn', 'held is a warning');
+  assert.deepEqual(t2.items.map((i) => [i.kind, i.tone]), [['result', 'bad'], ['supervisor', 'muted'], ['supervisor', 'bad']]);
+});
+
+test('one-line tool summaries', () => {
+  assert.equal(toolSummary('Bash', { command: `echo ${'a'.repeat(200)}\nnext` }).length, 121);
+  assert.equal(toolSummary('Bash', { command: 'ls -la\nrm x' }), 'ls -la');
+  for (const n of ['Read', 'Edit', 'Write', 'MultiEdit']) assert.equal(toolSummary(n, { file_path: '/a/b.ts', content: 'x' }), '/a/b.ts');
+  assert.equal(toolSummary('Glob', { pattern: '**/*.ts' }), '**/*.ts');
+  assert.equal(toolSummary('Grep', { pattern: 'foo', path: 'lib' }), 'foo in lib');
+  assert.equal(toolSummary('Agent', { subagent_type: 'forge:reviewer', description: 'Review code' }), 'forge:reviewer: Review code');
+  assert.equal(toolSummary('Task', { description: 'x' }), 'agent: x');
+  assert.equal(toolSummary('Skill', { skill: 'forge:forge', args: 'requests' }), 'forge:forge requests');
+  assert.equal(toolSummary('WebFetch', { url: 'https://example.com' }), 'https://example.com');
+  assert.equal(toolSummary('TodoWrite', { todos: [1, 2] }), '2 todos');
+  assert.equal(toolSummary('mcp__x__y', { a: 1 }), '{"a":1}');
+  assert.equal(toolSummary('Other', { blob: 'z'.repeat(300) }).length, 121);
+});
+
+test('filters: text, tools, thinking and subagents', () => {
+  const kinds = (f) => buildSessionView(FIXTURE, { ...DEFAULT_FILTERS, ...f }).turns.flatMap((t) => t.items.map((i) => i.kind));
+  assert.equal(DEFAULT_FILTERS.thinking, false);
+  assert.ok(!kinds({}).includes('thinking'), 'thinking is hidden by default');
+  assert.ok(kinds({ thinking: true }).includes('thinking'));
+  assert.ok(!kinds({ tools: false }).includes('tool'), 'tools off hides tool calls');
+  assert.ok(kinds({ tools: false }).includes('subagent'), 'but not subagent blocks');
+  const off = buildSessionView(FIXTURE, { ...DEFAULT_FILTERS, subagents: false }).turns[1].items.find((i) => i.kind === 'subagent' && i.known);
+  assert.ok(off?.kind === 'subagent');
+  assert.deepEqual(off.items, [], 'subagents off: only the summary and result');
+  assert.equal(off.hidden, 2);
+  assert.equal(off.result?.preview, 'BUILD: done · 2 commits');
+
+  const enoent = buildSessionView(FIXTURE, { ...DEFAULT_FILTERS, text: 'enoent' });
+  assert.deepEqual(enoent.turns.map((t) => t.items.map((i) => i.kind)), [['tool']], 'text matches tool results, case-insensitively');
+  const nested = buildSessionView(FIXTURE, { ...DEFAULT_FILTERS, text: 'builder done' }).turns.flatMap((t) => t.items);
+  assert.equal(nested.length, 1);
+  assert.ok(nested[0].kind === 'subagent');
+  assert.deepEqual(nested[0].items.map((i) => i.kind), ['text'], 'a match inside a subagent keeps the block with the matching children');
+  const block = buildSessionView(FIXTURE, { ...DEFAULT_FILTERS, text: 'Build round' }).turns.flatMap((t) => t.items);
+  assert.ok(block[0].kind === 'subagent' && block[0].items.length === 2, 'a match on the block keeps its children');
+  assert.deepEqual(buildSessionView(FIXTURE, { ...DEFAULT_FILTERS, text: 'nothing matches this' }).turns, []);
+  assert.equal(buildSessionView(FIXTURE, { ...DEFAULT_FILTERS, text: 'nothing matches this' }).totals.turns, 2, 'totals ignore filters');
+});
+
+test('long text, empty logs and odd lines', () => {
+  const long = 'L'.repeat(LONG_TEXT + 1);
+  const v = buildSessionView(entries([assistant([{ type: 'text', text: long }, { type: 'text', text: 'short' }])]));
+  assert.deepEqual(v.turns[0].items.map((i) => i.kind === 'text' && i.long), [true, false]);
+  assert.deepEqual(buildSessionView([]), { turns: [], totals: { turns: 0, costUsd: 0, results: 0 } });
+  const odd = buildSessionView(entries(['not json', '42', { type: 'mystery', x: 1 }, { type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } }, user([{ type: 'tool_result', tool_use_id: 'nope', content: 'r' }])]));
+  assert.deepEqual(odd.turns[0].items.map((i) => i.kind), ['raw', 'raw', 'other', 'rate-limit', 'other']);
+  // A child line that arrives before its Agent call (out-of-order lines) is adopted by the call.
+  const early = buildSessionView(entries([assistant([{ type: 'text', text: 'child' }], 'a1'), assistant([{ type: 'tool_use', id: 'a1', name: 'Agent', input: { subagent_type: 'forge:planner', description: 'Plan' } }])]));
+  assert.equal(early.turns[0].items.length, 1);
+  const a = early.turns[0].items[0];
+  assert.ok(a.kind === 'subagent' && a.known && a.role === 'forge:planner' && a.items.length === 1);
+  assert.equal(parseEntry(FIXTURE[3]), parseEntry(FIXTURE[3]), 'parsed lines are cached per entry');
+});
+
+test('strings are returned unescaped', () => {
+  const v = buildSessionView(
+    entries([
+      sup('error', { message: XSS }),
+      assistant([{ type: 'text', text: XSS }, { type: 'tool_use', id: 'x1', name: XSS, input: { command: XSS } }]),
+      user([{ type: 'tool_result', tool_use_id: 'x1', content: XSS }]),
+      { type: 'forge-stderr', text: XSS },
+      XSS,
+    ]),
+    { ...DEFAULT_FILTERS, text: '' },
+  );
+  const text = JSON.stringify(v);
+  assert.ok(text.includes('<script>alert(1)</script>'));
+  assert.ok(!text.includes('&lt;'));
+});
+
+test('mergeEntry inserts by offset without duplicates or older lines', () => {
+  const buf = [];
+  assert.equal(mergeEntry(buf, { offset: 10, line: 'a' }), true);
+  assert.equal(mergeEntry(buf, { offset: 30, line: 'c' }), true);
+  assert.equal(mergeEntry(buf, { offset: 20, line: 'b' }), true, 'in-order insert');
+  assert.equal(mergeEntry(buf, { offset: 20, line: 'dupe' }), false);
+  assert.equal(mergeEntry(buf, { offset: 5, line: 'older than the window' }), false);
+  assert.equal(mergeEntry(buf, { offset: NaN, line: 'x' }), false);
+  assert.deepEqual(buf.map((e) => e.line), ['a', 'b', 'c']);
+  assert.equal(MAX_ENTRIES, 5000);
+});
+
+test('readFilters falls back to the defaults', () => {
+  assert.deepEqual(readFilters(null), DEFAULT_FILTERS);
+  assert.deepEqual(readFilters('{oops'), DEFAULT_FILTERS);
+  assert.deepEqual(readFilters(JSON.stringify({ text: 'x', tools: false, thinking: 'yes' })), { ...DEFAULT_FILTERS, text: 'x', tools: false });
+});
+
+test('supervisor and forge lines are tagged and toned like the old daemon pane', () => {
+  const one = (o) => {
+    const items = buildSessionView(entries([o])).turns.flatMap((t) => t.items);
+    assert.equal(items.length, 1, JSON.stringify(o));
+    const it: any = items[0];
+    return [it.kind, it.tone, it.text ?? null];
+  };
+  assert.deepEqual(one(sup('error', { message: 'boom' })), ['supervisor', 'bad', 'error message=boom']);
+  assert.deepEqual(one(sup('resume-failed', { sessionId: 's1', code: 1 })), ['supervisor', 'bad', 'resume-failed sessionId=s1 code=1']);
+  assert.deepEqual(one(sup('line-truncated', { bytes: 9 })), ['supervisor', 'bad', 'line-truncated bytes=9']);
+  assert.deepEqual(one(sup('held', { held: 'budget' })), ['supervisor', 'warn', 'held held=budget']);
+  assert.deepEqual(one(sup('waiting', { maxConcurrent: 2 })), ['supervisor', 'warn', 'waiting maxConcurrent=2']);
+  assert.deepEqual(one(sup('spawn', { pid: 42, sessionId: 'abc', resume: false, reason: 'boot' })), ['supervisor', 'muted', 'spawn pid=42 sessionId=abc reason=boot']);
+  assert.deepEqual(one(sup('exit', { code: null, signal: 'SIGTERM' })), ['supervisor', 'muted', 'exit signal=SIGTERM']);
+  assert.deepEqual(one(sup('idle-stop', { pid: 3, reason: 'slot' })), ['supervisor', 'muted', 'idle-stop pid=3 reason=slot']);
+  assert.deepEqual(one(sup('finished', { state: 'done' })), ['supervisor', 'muted', 'finished state=done']);
+  assert.deepEqual(one(sup('stop', { pid: 3, reason: 'job-finished' })), ['supervisor', 'muted', 'stop pid=3 reason=job-finished']);
+  assert.deepEqual(one(sup('session-changed', { from: 'a', to: 'b' })), ['supervisor', 'muted', 'session-changed from=a to=b']);
+  assert.deepEqual(one(sup('reaped', { pid: 7 })), ['supervisor', 'muted', 'reaped pid=7']);
+  assert.deepEqual(one({ type: 'forge-truncated', originalType: null, bytes: 5 }), ['truncated', 'warn', 'line · 5 bytes']);
+  assert.deepEqual(one({ type: 'system', subtype: 'compact_boundary' }), ['other', 'muted', 'system compact_boundary']);
+  assert.deepEqual(one({ event: 'thing' }), ['other', 'muted', '{"event":"thing"}']);
+});

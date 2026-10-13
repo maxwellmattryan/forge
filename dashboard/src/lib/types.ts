@@ -4,6 +4,8 @@
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
 export const API_VERSION = 7;
+/** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
+export const INBOX_SCOPE = '_inbox';
 
 /** lib/schema.ts STAGES, in pipeline order. */
 export const STAGES = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', 'review', 'decide', 'integrate', 'pr', 'done'] as const;

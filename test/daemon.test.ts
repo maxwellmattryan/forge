@@ -1090,7 +1090,7 @@ test('malformed or unknown job ids route to the inbox', async () => {
       assert.equal(Object.values(c.opts.env).join('\n').includes(job), false, job);
     }
     assert.deepEqual(Object.keys(d.state().jobs), []);
-    assert.deepEqual(fs.readdirSync(daemonsDir(repo.dir)).sort(), [`${INBOX}.json`, `${INBOX}.log`]);
+    assert.deepEqual(fs.readdirSync(daemonsDir(repo.dir)).filter((f) => !f.startsWith(`${INBOX}.`)), [], 'no session files for a bad id');
   } finally {
     await d.close();
     repo.cleanup();
