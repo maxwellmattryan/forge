@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import { fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.mjs';
-import { broadcast, startServer } from '../lib/server.mjs';
+import { broadcast, distAllowlist, startServer } from '../lib/server.mjs';
 import { TURN_LINE } from '../lib/daemon.mjs';
 import * as yaml from '../lib/yaml.mjs';
 
@@ -55,23 +57,102 @@ function get(port, path, host = `127.0.0.1:${port}`) {
   });
 }
 
-test('dashboard server serves only the allowlisted modules', async () => {
+const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dashboard', 'dist');
+const NOT_BUILT = 'dashboard is not built: run npm run build:dashboard';
+
+test('dashboard server serves the page no-store and only manifest-allowlisted dist assets', async () => {
   const repo = tempRepo();
   const { server, url } = await startServer(repo.dir, { port: 0 });
   const port = Number(new URL(url).port);
   try {
-    for (const p of ['/app.js', '/util.js', '/budget.js', '/deps.js', '/screenshots.js', '/daemon.js']) {
+    for (const p of ['/', '/index.html']) {
       const r = await get(port, p);
       assert.equal(r.status, 200, p);
-      assert.match(r.type ?? '', /^text\/javascript/, p);
+      assert.equal(r.type, 'text/html; charset=utf-8', p);
+      assert.equal(r.headers['cache-control'], 'no-store', p);
+      const html = r.body.toString('utf8');
+      assert.ok(!html.includes('__FORGE_TOKEN__'), p);
+      assert.match(html, /<meta name="forge-token" content="[0-9a-f]{32}" \/>/, p);
     }
-    for (const p of ['/lib.js', '/server.mjs', '/..%2Flib%2Fserver.mjs', '/index.js', '/../lib/server.mjs', '/dashboard/app.js']) {
-      assert.equal((await get(port, p)).status, 404, p);
+    const manifest = JSON.parse(fs.readFileSync(path.join(DIST, 'manifest.json'), 'utf8'));
+    const files = Object.values(manifest).flatMap((/** @type {any} */ e) => [e.file, ...(e.css ?? []), ...(e.assets ?? [])]);
+    assert.ok(files.some((f) => f.endsWith('.js')) && files.some((f) => f.endsWith('.css')));
+    for (const f of files) {
+      const r = await get(port, '/' + f);
+      assert.equal(r.status, 200, f);
+      assert.equal(r.type, f.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8', f);
+      assert.equal(r.headers['cache-control'], 'public, max-age=31536000, immutable', f);
+      assert.equal(r.headers['x-content-type-options'], 'nosniff', f);
+      assert.ok(r.body.equals(fs.readFileSync(path.join(DIST, f))), `${f} bytes`);
     }
-    assert.equal((await get(port, '/budget.js', `evil.example:${port}`)).status, 421);
+    const real = files[0];
+    const notFound = [
+      '/app.js', '/util.js', '/budget.js', '/deps.js', '/screenshots.js', '/daemon.js',
+      '/style.css', '/vite.config.mjs', '/build-stamp.mjs', '/manifest.json', '/build-stamp.json',
+      '/dist/index.html', '/dashboard/dist/index.html', '/dashboard/app.js', '/assets', '/assets/',
+      `/${real}.map`, `/${real}/`, `/${real}%00`, `/ASSETS/${real.slice('assets/'.length)}`,
+      '/assets/..%2Fmanifest.json', '/..%2Flib%2Fserver.mjs', '/../lib/server.mjs', '/%2e%2e/lib/server.mjs',
+      '/lib.js', '/server.mjs', '/index.js', '/package.json', '/node_modules/vite/package.json',
+    ];
+    for (const p of notFound) assert.equal((await get(port, p)).status, 404, p);
+    assert.equal((await get(port, '/' + real, `evil.example:${port}`)).status, 421);
   } finally {
     server.close();
     repo.cleanup();
+  }
+});
+
+test('distAllowlist accepts only plain assets/*.js|css entries', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-dist-'));
+  try {
+    assert.equal(distAllowlist(tmp).size, 0, 'missing manifest');
+    fs.writeFileSync(path.join(tmp, 'manifest.json'), '{not json');
+    assert.equal(distAllowlist(tmp).size, 0, 'invalid JSON');
+    fs.writeFileSync(path.join(tmp, 'manifest.json'), 'null');
+    assert.equal(distAllowlist(tmp).size, 0, 'null manifest');
+    const manifest = {
+      'index.html': { file: 'assets/index-AbC_1.js', css: ['assets/index-x.y-2.css', '../lib/server.mjs', 7], assets: ['assets/extra-3.js', null] },
+      a: { file: '../lib/server.mjs' },
+      b: { file: '/etc/passwd' },
+      c: { file: 'assets/../../x.js' },
+      d: { file: 'assets/sub/x.js' },
+      e: { file: 'assets/x.svg', css: ['assets/x.html'] },
+      f: { file: 'index.html' },
+      g: { file: 42, css: 'assets/notarray.css' },
+      h: null,
+      i: 'assets/str.js',
+    };
+    fs.writeFileSync(path.join(tmp, 'manifest.json'), JSON.stringify(manifest));
+    const map = distAllowlist(tmp);
+    assert.deepEqual([...map.keys()].sort(), ['/assets/extra-3.js', '/assets/index-AbC_1.js', '/assets/index-x.y-2.css']);
+    assert.deepEqual(map.get('/assets/index-AbC_1.js'), { file: path.join(tmp, 'assets', 'index-AbC_1.js'), type: 'text/javascript; charset=utf-8' });
+    assert.deepEqual(map.get('/assets/index-x.y-2.css'), { file: path.join(tmp, 'assets', 'index-x.y-2.css'), type: 'text/css; charset=utf-8' });
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('missing dist answers 503 for the page and keeps the API up', async () => {
+  const repo = tempRepo();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-nodist-'));
+  const { server, url } = await startServer(repo.dir, { port: 0, distDir: tmp });
+  const port = Number(new URL(url).port);
+  try {
+    for (const p of ['/', '/index.html']) {
+      const r = await get(port, p);
+      assert.equal(r.status, 503, p);
+      assert.match(r.type ?? '', /^text\/plain/, p);
+      assert.equal(r.body.toString('utf8'), NOT_BUILT, p);
+    }
+    assert.equal((await get(port, '/assets/x.js')).status, 404);
+    // index.html without a manifest is still not built, and serves nothing under /assets/.
+    fs.writeFileSync(path.join(tmp, 'index.html'), '<!doctype html>');
+    assert.equal((await get(port, '/')).status, 503);
+    assert.equal((await get(port, '/api/state')).status, 200);
+  } finally {
+    server.close();
+    repo.cleanup();
+    fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
 

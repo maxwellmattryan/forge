@@ -19,16 +19,17 @@ git:
 worktrees:
   root: ../{repo}.worktrees
   copy: []
-  setup: []
+  setup:
+    - npm ci
   cleanup: on-merge
   cargo:
     sharedTarget: false
     targetDir: null
 commands:
-  setup: null
-  build: null
+  setup: npm ci
+  build: 'npm run build:dashboard && test -z "$(git status --porcelain -- dashboard/dist)"'
   test: npm run test
-  lint: for f in lib/*.mjs lib/commands/*.mjs lib/trackers/*.mjs dashboard/app.js bin/forge; do node --check "$f" || exit 1; done && claude plugin validate . --strict
+  lint: for f in lib/*.mjs lib/commands/*.mjs lib/trackers/*.mjs dashboard/*.js dashboard/*.mjs bin/forge; do node --check "$f" || exit 1; done && claude plugin validate . --strict
   format: null
   typecheck: null
   dev: null
