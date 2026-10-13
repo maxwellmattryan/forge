@@ -1,6 +1,7 @@
 // `forge config show|get|set|validate`: read the effective config, and write one editable key.
-import { NEED_INIT, setConfigValue, validateConfig } from '../config.ts';
+import { validateConfig } from '../config.ts';
 import { fieldFor, parseCliValue } from '../config-fields.ts';
+import { NEED_INIT, setConfigValue } from '../config-set.ts';
 import type { Config } from '../types.ts';
 import { ForgeError, getPath } from '../util.ts';
 import { out, req } from './args.ts';

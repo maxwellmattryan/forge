@@ -18,6 +18,7 @@
   import { activeSessions } from './lib/view.ts';
   import { t } from './lib/locale.ts';
   import { settingsKey } from './lib/settings.ts';
+  import { pref } from './lib/prefs.ts';
 
   let settingsOpen = $state(false);
   let settings = $state<ReturnType<typeof Settings>>();
@@ -43,7 +44,7 @@
 
   function onKey(e: KeyboardEvent): void {
     const target = e.target instanceof HTMLElement ? e.target : null;
-    const action = settingsKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, targetTag: target?.tagName ?? '', editable: target?.isContentEditable ?? false, open: settingsOpen });
+    const action = settingsKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, targetTag: target?.tagName ?? '', editable: target?.isContentEditable ?? false, open: settingsOpen, shortcut: pref.get('settingsShortcut', 'on') !== 'off', repeat: e.repeat, composing: e.isComposing });
     if (action === 'open') {
       e.preventDefault();
       openSettings();

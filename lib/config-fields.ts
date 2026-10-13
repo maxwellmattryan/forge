@@ -3,24 +3,38 @@
 // editable only when it can't name a command, file, module, tool or repository that Forge runs,
 // loads or writes to, and can't loosen a security or attribution policy. Everything else is
 // read-only here and edited by hand in .forge/config.yml.
-// config.ts imports this module too; only hoisted functions (defaults) are used at load time.
-import { ConfigSetError, defaults } from './config.ts';
+import { defaults } from './config.ts';
 import type { ConfigField, ConfigFieldType, ConfigSection, ConfigValue } from './types.ts';
 import { ForgeError, getPath } from './util.ts';
 import * as yaml from './yaml.ts';
 
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]*$/;
+const LABEL_PREFIX_RE = /^.+[:/-]$/;
 const MODEL_SUGGESTIONS = ['inherit', 'opus', 'sonnet', 'haiku', 'fable'];
 const SEVERITIES = ['blocker', 'major', 'minor', 'nit'];
 /** Values that reach `gh` as arguments, where a leading dash would read as a flag. */
 const NO_LEADING_DASH = /^tracker\.github\.(ready\.|labels\.prefix$)/;
 const MAX_STRING = 200;
 
+export type ConfigSetReason = 'unknown' | 'locked' | 'invalid' | 'uninitialized' | 'unsupported-yaml';
+
+/** Why setConfigValue refused; the server maps `reason` to a status code. */
+export class ConfigSetError extends ForgeError {
+  // `declare` keeps this a type only: a plain field would become a runtime class field and show up in Object.keys.
+  declare reason: ConfigSetReason;
+  constructor(reason: ConfigSetReason, message: string) {
+    super(message, reason === 'uninitialized' ? 2 : 1);
+    this.reason = reason;
+  }
+}
+
 interface Spec {
   type: ConfigFieldType;
   options?: string[];
+  required?: string[];
   suggestions?: string[];
   min?: number;
+  minExclusive?: boolean;
   max?: number;
   nullable?: boolean;
   /** read-only, and why */
@@ -37,8 +51,10 @@ function field(key: string, section: ConfigSection, label: string, help: string,
     help,
     type: s.type,
     options: s.options ?? null,
+    required: s.required ?? null,
     suggestions: s.suggestions ?? null,
     min: s.min ?? null,
+    minExclusive: s.minExclusive ?? false,
     max: s.max ?? null,
     nullable: s.nullable ?? false,
     default: structuredClone(getPath(base, key)),
@@ -75,7 +91,7 @@ export const FIELDS: ConfigField[] = [
   budget('changedLines', 'Changed lines budget', 'Per-job limit on committed lines added and deleted against the base branch.', 'integer'),
   budget('verifyRetries', 'Verify retries', 'Failed forge verify runs allowed per round beyond the first.', 'integer'),
 
-  field('review.blockOn', 'review', 'Block on', 'Severities that force another round. Must include blocker.', { type: 'list', options: SEVERITIES }),
+  field('review.blockOn', 'review', 'Block on', 'Severities that force another round. Blocker and major always do; add minor or nit to be stricter.', { type: 'list', options: SEVERITIES, required: ['blocker', 'major'] }),
   field('review.onPrFeedback', 'review', 'On PR feedback', 'Which lenses re-run after PR feedback.', { type: 'enum', options: ['changed', 'full', 'none'] }),
   field('review.panel', 'review', 'Panel', 'The review lenses: built-in names or .forge/reviewers/<name>.md.', { type: 'object', locked: 'lenses name checklist files and models' }),
 
@@ -98,7 +114,7 @@ export const FIELDS: ConfigField[] = [
   field('tracker.github.claim.assign', 'tracker', 'Assign on claim', 'Assign the issue to you when a job claims it.', { type: 'boolean' }),
   field('tracker.github.comments', 'tracker', 'Comments', 'Whose issue comments reach agents: collaborators or all.', { type: 'enum', options: ['collaborators', 'all'], locked: 'decides whose untrusted text reaches agents' }),
   field('tracker.github.statusSync', 'tracker', 'Status sync', 'How job status is mirrored on GitHub.', { type: 'enum', options: ['none', 'labels', 'project', 'both'] }),
-  field('tracker.github.labels.prefix', 'tracker', 'Label prefix', 'Prefix for status labels in labels mode, for example forge:in-progress.', { type: 'string' }),
+  field('tracker.github.labels.prefix', 'tracker', 'Label prefix', 'Prefix for status labels in labels mode, for example forge:in-progress. At least 2 characters, ending in : / or -.', { type: 'string' }),
   field('tracker.github.project.config', 'tracker', 'Project config', 'File to read the project owner, number and status field from.', { type: 'string', locked: 'points status writes at a project' }),
   field('tracker.github.project.owner', 'tracker', 'Project owner', 'The project owner when not read from the config file.', { type: 'string', nullable: true, locked: 'points status writes at a project' }),
   field('tracker.github.project.number', 'tracker', 'Project number', 'The project number when not read from the config file.', { type: 'integer', nullable: true, locked: 'points status writes at a project' }),
@@ -111,11 +127,8 @@ export const FIELDS: ConfigField[] = [
   field('daemon.command', 'daemon', 'Command', 'The claude command the daemon runs, split into words without a shell.', { type: 'string', locked: 'runs a program' }),
   field('daemon.allowedTools', 'daemon', 'Allowed tools', 'Tools the unattended session may use.', { type: 'list', locked: 'grants the unattended session permissions' }),
   field('daemon.maxConcurrent', 'daemon', 'Max concurrent', 'Supervised sessions.', { type: 'integer', locked: 'only 1 is accepted' }),
-  field('daemon.idleStopMinutes', 'daemon', 'Idle stop (minutes)', 'Stop an idle session after this long; new work resumes it. Empty means never.', { type: 'number', min: 0, nullable: true }),
+  field('daemon.idleStopMinutes', 'daemon', 'Idle stop (minutes)', 'Stop an idle session after this long; new work resumes it. Empty means never.', { type: 'number', min: 0, minExclusive: true, nullable: true }),
 ];
-
-/** Bounds that are exclusive rather than inclusive. */
-const MIN_EXCLUSIVE = new Set(['daemon.idleStopMinutes']);
 
 function hasPath(obj: any, key: string): boolean {
   let o = obj;
@@ -143,7 +156,7 @@ export function ruleFor(f: ConfigField): string {
   else if (f.type === 'list') rule = f.options ? `a list of ${f.options.join(' | ')}, like [a, b]` : 'a list like [a, b]';
   else if (f.type === 'integer' || f.type === 'number') {
     const what = f.type === 'integer' ? 'an integer' : 'a number';
-    const gt = MIN_EXCLUSIVE.has(f.key) ? 'greater than' : 'at least';
+    const gt = f.minExclusive ? 'greater than' : 'at least';
     if (f.min !== null && f.max !== null) rule = `${what} from ${f.min} to ${f.max}`;
     else if (f.min !== null) rule = `${what} ${gt} ${f.min}`;
     else if (f.max !== null) rule = `${what} at most ${f.max}`;
@@ -153,7 +166,9 @@ export function ruleFor(f: ConfigField): string {
 }
 
 function stringProblem(f: ConfigField, s: string, what: string): string | null {
-  if (/[\u0000-\u001f\u007f-\u009f]/.test(s)) return `${what} must not contain control characters`;
+  // C0, DEL, C1, and format characters (bidi overrides, zero-width) plus the line and paragraph
+  // separators, which can reorder or hide text in the diff a human reviews.
+  if (/[\u0000-\u001f\u007f-\u009f\p{Cf}\u2028\u2029]/u.test(s)) return `${what} must not contain control or invisible formatting characters`;
   if (s.length > MAX_STRING) return `${what} must be at most ${MAX_STRING} characters`;
   if (NO_LEADING_DASH.test(f.key) && s.startsWith('-')) return `${what} must not start with "-"`;
   return null;
@@ -169,7 +184,7 @@ export function validateFieldValue(f: ConfigField, value: unknown): string | nul
     case 'integer':
     case 'number': {
       if (typeof value !== 'number' || !Number.isFinite(value) || (f.type === 'integer' && !Number.isInteger(value))) return bad();
-      if (f.min !== null && (MIN_EXCLUSIVE.has(f.key) ? value <= f.min : value < f.min)) return bad();
+      if (f.min !== null && (f.minExclusive ? value <= f.min : value < f.min)) return bad();
       if (f.max !== null && value > f.max) return bad();
       return null;
     }
@@ -180,6 +195,9 @@ export function validateFieldValue(f: ConfigField, value: unknown): string | nul
       if (!value && !f.nullable) return `${f.key} must not be empty`;
       const p = stringProblem(f, value, f.key);
       if (p) return p;
+      // Forge removes every issue label that starts with the prefix, so a bare word would catch unrelated labels.
+      if (f.key === 'tracker.github.labels.prefix' && !LABEL_PREFIX_RE.test(value))
+        return `tracker.github.labels.prefix must be at least 2 characters and end with : / or - (got ${JSON.stringify(value)})`;
       if (f.key.startsWith('runtime.models.') && !MODEL_RE.test(value))
         return `${f.key} must be a model alias or id: letters, digits and . _ : - [ ] (got ${JSON.stringify(value)})`;
       return null;
@@ -192,7 +210,8 @@ export function validateFieldValue(f: ConfigField, value: unknown): string | nul
         if (p) return p;
         if (f.options && !f.options.includes(item)) return bad();
       }
-      if (f.key === 'review.blockOn' && !value.includes('blocker')) return 'review.blockOn must include blocker';
+      const missing = (f.required ?? []).filter((r) => !value.includes(r));
+      if (missing.length) return `${f.key} must include ${(f.required ?? []).join(' and ')} (missing ${missing.join(', ')})`;
       return null;
     }
     default:

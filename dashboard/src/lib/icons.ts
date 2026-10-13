@@ -6,8 +6,6 @@ export const ICONS = {
   agents: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',
   analytics: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
   evals: 'M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3',
-  sun: 'M12 4V2M12 22v-2M4 12H2M22 12h-2M5 5 3.5 3.5M20.5 20.5 19 19M5 19l-1.5 1.5M20.5 3.5 19 5M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z',
-  moon: 'M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z',
   board: 'M3 4h7v16H3zM14 4h7v10h-7z',
   table: 'M3 5h18v14H3zM3 10h18M3 15h18M9 5v14',
   close: 'M6 6l12 12M18 6 6 18',

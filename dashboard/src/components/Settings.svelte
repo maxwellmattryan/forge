@@ -20,6 +20,21 @@
   let panel = $state<HTMLDivElement>();
   let wide = $state(false);
   const section = $derived(sectionOf(tab));
+  // Which config tabs hold an unsaved change or a field to fix, so a problem on another tab can be found.
+  const marks = $derived.by(() => {
+    const out: Partial<Record<SettingsTabId, 'error' | 'changed'>> = {};
+    const fields = session.config?.fields ?? [];
+    const { changed, errors } = session.flagged;
+    for (const [keys, mark] of [[changed, 'changed'], [errors, 'error']] as const) {
+      for (const key of keys) {
+        const s = fields.find((f) => f.key === key)?.section;
+        const id = SETTINGS_TABS.find((x) => x.section === s)?.id;
+        if (id) out[id] = mark;
+      }
+    }
+    return out;
+  });
+  let pressedOnBackdrop = false;
 
   const labels = $derived<Record<SettingsTabId, string>>({
     general: $t('settings.tabs.general'),
@@ -66,8 +81,29 @@
     items[n].focus();
   }
 
+  /** Opens the field's tab and focuses its control: the Save bar's pointer to a problem. */
+  function goto(key: string): void {
+    const s = session.config?.fields.find((f) => f.key === key)?.section;
+    const id = SETTINGS_TABS.find((x) => x.section === s)?.id;
+    if (!id) return;
+    select(id);
+    tick().then(() => {
+      const el = document.getElementById(`cfg-${key.replace(/[^A-Za-z0-9]/g, '-')}`) ?? document.getElementById(`settings-panel-${id}`);
+      el?.scrollIntoView({ block: 'center' });
+      el?.focus();
+    });
+  }
+
+  // Both ends of the click must be on the backdrop: a text selection dragged out of the dialog
+  // ends its click on the backdrop too.
+  function backdropDown(e: MouseEvent): void {
+    pressedOnBackdrop = e.target === e.currentTarget;
+  }
+
   function backdrop(e: MouseEvent): void {
-    if (e.target === e.currentTarget && matchMedia('(min-width: 768px)').matches) requestClose();
+    const both = pressedOnBackdrop && e.target === e.currentTarget;
+    pressedOnBackdrop = false;
+    if (both && matchMedia('(min-width: 768px)').matches) requestClose();
   }
 
   onMount(() => {
@@ -87,14 +123,14 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop; Escape and the close button close the dialog from the keyboard) -->
-<div class="fixed inset-0 z-45 flex md:items-center md:justify-center md:p-6 bg-black/50" onclick={backdrop}>
+<div class="fixed inset-0 z-45 flex md:items-center md:justify-center md:p-6 bg-black/50" onmousedown={backdropDown} onclick={backdrop}>
   <div bind:this={dialog} role="dialog" aria-modal="true" aria-labelledby="settings-title" tabindex="-1" class="flex flex-col w-full h-full min-w-0 bg-bg md:h-[min(80vh,720px)] md:max-w-4xl md:rounded-xl md:border md:border-line md:shadow-2xl overflow-hidden" onkeydown={trap}>
     <div class="flex items-center justify-between gap-3 border-b border-line px-4 py-2 md:px-5">
       <h2 id="settings-title" class="text-base font-semibold">{$t('settings.title')}</h2>
       <button class="btn size-11 justify-center p-0" aria-label={$t('settings.close')} onclick={requestClose}><Icon name="close" /></button>
     </div>
     <div class="flex flex-col md:flex-row flex-1 min-h-0">
-      <div role="tablist" aria-label={$t('settings.title')} aria-orientation={wide ? 'vertical' : 'horizontal'} tabindex="-1" class="flex md:flex-col gap-1 shrink-0 overflow-x-auto md:overflow-y-auto md:w-48 border-b md:border-b-0 md:border-r border-line p-2" onkeydown={railKey}>
+      <div role="tablist" tabindex="-1" aria-label={$t('settings.sections')} aria-orientation={wide ? 'vertical' : 'horizontal'} class="flex md:flex-col gap-1 shrink-0 overflow-x-auto md:overflow-y-auto md:w-48 border-b md:border-b-0 md:border-r border-line p-2" onkeydown={railKey}>
         {#each SETTINGS_TABS as item (item.id)}
           <button
             role="tab"
@@ -103,14 +139,16 @@
             aria-controls="settings-panel-{item.id}"
             tabindex={tab === item.id ? 0 : -1}
             class="nav-item shrink-0 min-h-11 md:min-h-0 whitespace-nowrap {tab === item.id ? 'active' : ''}"
-            onclick={() => select(item.id)}>{labels[item.id]}</button>
+            onclick={() => select(item.id)}
+            ><span>{labels[item.id]}</span>{#if marks[item.id] === 'error'}<span class="size-1.5 rounded-full bg-bad shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('settings.tabs.hasError')}</span>{:else if marks[item.id] === 'changed'}<span class="size-1.5 rounded-full bg-accent shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('settings.tabs.hasChanges')}</span>{/if}</button
+          >
         {/each}
       </div>
       <div bind:this={panel} role="tabpanel" id="settings-panel-{tab}" aria-labelledby="settings-tab-{tab}" tabindex="0" class="flex-1 min-h-0 min-w-0 overflow-y-auto">
         {#if tab === 'general'}<GeneralTab />
         {:else if tab === 'diagnostics'}<DiagnosticsTab {session} />
         {:else if tab === 'about'}<AboutTab {session} />
-        {:else if section}<ConfigTab {session} {section} />{/if}
+        {:else if section}<ConfigTab {session} {section} {goto} />{/if}
       </div>
     </div>
   </div>

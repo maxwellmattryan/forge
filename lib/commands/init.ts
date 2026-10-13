@@ -3,15 +3,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { defaults, stringifyConfig, validateConfig } from '../config.ts';
+import { configLock } from '../config-set.ts';
 import { listJobs, jobDir } from '../jobs.ts';
 import { paths, exists, PLUGIN_ROOT } from '../paths.ts';
 import { modelOverlap } from '../roster.ts';
 import { migrateConfig, normalizeJob, serializeJob } from '../schema.ts';
-import { ForgeError, deepMerge, readJson, readText, writeJsonAtomic } from '../util.ts';
+import { ForgeError, deepMerge, readJson, readText, withLock, writeJsonAtomic } from '../util.ts';
 import * as yaml from '../yaml.ts';
 
 /** `answers` is the orchestrator's JSON file, merged over defaults and validated before anything is written. */
 export function initWrite(root: string, answers: any, force: boolean): { ok: true; written: string[]; warnings: string[] } {
+  // Same lock as `forge config set`, so a dashboard Save can't interleave with this rewrite.
+  return withLock(configLock(root), () => writeInit(root, answers, force));
+}
+
+function writeInit(root: string, answers: any, force: boolean): { ok: true; written: string[]; warnings: string[] } {
   const p = paths(root);
   if (exists(p.config) && !force) {
     const current = yaml.parse(readText(p.config)) ?? {};
@@ -44,12 +50,14 @@ export function migrate(root: string): { changed: string[] } {
   const p = paths(root);
   const changed: string[] = [];
   if (exists(p.config)) {
-    const raw = yaml.parse(readText(p.config)) ?? {};
-    const m = migrateConfig(raw);
-    if (m.from !== undefined) {
-      fs.writeFileSync(p.config, stringifyConfig(m.config));
-      changed.push(path.relative(root, p.config));
-    }
+    withLock(configLock(root), () => {
+      const raw = yaml.parse(readText(p.config)) ?? {};
+      const m = migrateConfig(raw);
+      if (m.from !== undefined) {
+        fs.writeFileSync(p.config, stringifyConfig(m.config));
+        changed.push(path.relative(root, p.config));
+      }
+    });
   }
   for (const j of listJobs(root)) {
     const file = path.join(jobDir(root, j.id), 'job.json');

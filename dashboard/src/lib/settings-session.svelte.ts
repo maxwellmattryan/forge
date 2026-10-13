@@ -15,6 +15,8 @@ export class SettingsSession {
   /** The server's refusal for a key, from the last Save. */
   saveErrors = $state<Record<string, string>>({});
   saving = $state(false);
+  /** The key the last Save stopped at, shown in the Save bar wherever the person is. */
+  failedKey = $state<string | null>(null);
 
   doctor = $state.raw<DoctorResponse | null>(null);
   doctorError = $state<string | null>(null);
@@ -54,11 +56,18 @@ export class SettingsSession {
   setDraft(key: string, d: Draft): void {
     this.drafts[key] = d;
     delete this.saveErrors[key];
+    if (this.failedKey === key) this.failedKey = null;
   }
 
   reset(): void {
     this.drafts = {};
     this.saveErrors = {};
+    this.failedKey = null;
+  }
+
+  /** Keys with something to look at: an unsaved change, an invalid draft or a refused save. */
+  get flagged(): { changed: string[]; errors: string[] } {
+    return { changed: this.changed, errors: [...new Set([...this.invalid, ...Object.keys(this.saveErrors)])] };
   }
 
   /**
@@ -70,6 +79,7 @@ export class SettingsSession {
     const keys = this.changed;
     if (!config || !keys.length || this.saving) return { saved: 0, total: 0, failed: null };
     this.saving = true;
+    this.failedKey = null;
     let saved = 0;
     let failed: string | null = null;
     try {
@@ -93,6 +103,7 @@ export class SettingsSession {
     } finally {
       this.saving = false;
     }
+    this.failedKey = failed;
     await this.loadConfig();
     return { saved, total: keys.length, failed };
   }

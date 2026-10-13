@@ -59,15 +59,40 @@ test('set validates values against the field schema', () => {
       ['runtime.diversity', 'yes'],
       ['review.blockOn', '[major]'],
       ['review.blockOn', '[blocker, huge]'],
+      ['review.blockOn', '[blocker]'],
+      ['review.blockOn', '[]'],
+      ['review.blockOn', '[major, minor]'],
       ['dashboard.port', '80'],
       ['tracker.github.ready.labels', '["--repo=x"]'],
       ['runtime.models.builder', 'opus; rm -rf /'],
+      ['runtime.models.builder', 'a'.repeat(201)],
+      ['daemon.idleStopMinutes', '0'],
+      ['pipeline.maxRounds', '2.5'],
+      ['tracker.github.labels.prefix', '-x:'],
+      ['tracker.github.labels.prefix', 'b'],
+      ['tracker.github.labels.prefix', 'priority'],
+      ['tracker.github.ready.milestone', 'a\u0001b'],
+      ['tracker.github.ready.milestone', 'v1\u202Egnp.exe'],
+      ['tracker.github.ready.assignee', '-R'],
     ];
     for (const [key, value] of cases) {
       const r = s.forge('config', 'set', key, value);
       assert.equal(r.code, 1, `${key} ${value} exits 1`);
       assert.ok(r.err.includes(key), `${key} ${value}: the message names the key (${r.err})`);
       assert.equal(s.read(), FIXTURE, `${key} ${value} leaves the file byte-identical`);
+    }
+    for (const [key, value, expected] of [
+      ['daemon.idleStopMinutes', 'null', null],
+      ['pipeline.budget.tokens', 'null', null],
+      ['pipeline.budget.usd', '2.5', 2.5],
+      ['runtime.diversity', 'true', true],
+      ['review.blockOn', '[blocker,major,minor]', ['blocker', 'major', 'minor']],
+      ['review.blockOn', '[blocker, major]', ['blocker', 'major']],
+      ['tracker.github.labels.prefix', 'ci/', 'ci/'],
+    ] as const) {
+      const r = s.forge('config', 'set', key, value);
+      assert.equal(r.code, 0, `${key} ${value}: ${r.err}`);
+      assert.deepEqual(JSON.parse(r.out).value, expected, key);
     }
   } finally {
     s.repo.cleanup();
@@ -142,19 +167,21 @@ test('set inserts missing keys, skips no-ops and rewrites lists', () => {
     assert.equal(lines.length, FIXTURE.split('\n').length + 1);
 
     const before = s.read();
+    // A fixed old mtime, so a rewrite can't hide inside the filesystem's timestamp granularity.
+    fs.utimesSync(s.file, 1000, 1000);
     const mtime = fs.statSync(s.file).mtimeMs;
     const r = s.forge('config', 'set', 'pipeline.maxRounds', '3');
     assert.equal(r.out, '{"ok":true,"key":"pipeline.maxRounds","value":3,"previous":3,"changed":false}');
     assert.equal(s.read(), before);
     assert.equal(fs.statSync(s.file).mtimeMs, mtime, 'a no-op never writes');
 
-    assert.equal(s.forge('config', 'set', 'review.blockOn', '[blocker]').code, 0);
-    assert.ok(s.read().includes('  # Severities that force another round.\n  blockOn:\n    - blocker\n  panel:\n'), 'items rewritten in place at the same indent');
+    assert.equal(s.forge('config', 'set', 'review.blockOn', '[blocker, major, nit]').code, 0);
+    assert.ok(s.read().includes('  # Severities that force another round.\n  blockOn:\n    - blocker\n    - major\n    - nit\n  panel:\n'), 'items rewritten in place at the same indent');
 
-    // review.blockOn must include blocker, so the empty-list rewrite is shown on the same block
-    // list in memory, and on a block list the CLI may empty.
+    // review.blockOn must keep blocker and major (feedback.md overrides AC5's `[]` example), so the
+    // empty-list rewrite is shown on the same block list in memory, and on a block list the CLI may empty.
     assert.ok(setIn(s.read(), ['review', 'blockOn'], []).includes('  blockOn: []\n  panel:\n'));
-    assert.equal(s.forge('config', 'set', 'review.blockOn', '[]').code, 1, 'blockOn without blocker is refused');
+    assert.equal(s.forge('config', 'set', 'review.blockOn', '[]').code, 1, 'blockOn without blocker and major is refused');
     fs.writeFileSync(s.file, s.read().replace('      labels: []            # all must match', '      labels:\n        - ready\n        - triaged'));
     assert.equal(s.forge('config', 'set', 'tracker.github.ready.labels', '[]').code, 0);
     assert.ok(s.read().includes('    ready:\n      labels: []\n      milestone: null\n'));
@@ -162,6 +189,20 @@ test('set inserts missing keys, skips no-ops and rewrites lists', () => {
     assert.equal(s.forge('config', 'set', 'tracker.github.ready.labels', '["a, b", c]').code, 0);
     assert.ok(s.read().includes('      labels: ["a, b", c]\n'));
     assert.equal(s.forge('config', 'get', 'tracker.github.ready.labels').out, '["a, b","c"]');
+  } finally {
+    s.repo.cleanup();
+  }
+});
+
+test('a layout setIn cannot edit safely is refused untouched', () => {
+  const flow = FIXTURE.replace(/pipeline:\n(  .*\n)+/, 'pipeline: { plan: auto, maxRounds: 3 }\n');
+  assert.notEqual(flow, FIXTURE);
+  const s = scratch(flow);
+  try {
+    const r = s.forge('config', 'set', 'pipeline.maxRounds', '4');
+    assert.equal(r.code, 1);
+    assert.match(r.err, /flow map; edit it by hand/);
+    assert.equal(s.read(), flow, 'byte-identical');
   } finally {
     s.repo.cleanup();
   }

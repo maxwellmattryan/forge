@@ -252,7 +252,7 @@
     "discard": "Discard unsaved changes?",
     "loading": "Loading settings…",
     "retry": "Retry",
-    "locked": "The daemon is running. Stop it in the daemon bar to change settings: any change to .forge/config.yml stops it, and only a human may start it again.",
+    "locked": "The daemon is running. Close settings and stop it in the daemon bar to change settings: any change to .forge/config.yml stops it, and only a human may start it again.",
     "tabs": {
       "general": "General",
       "pipeline": "Pipeline",
@@ -262,14 +262,18 @@
       "dashboard": "Dashboard",
       "daemon": "Daemon",
       "diagnostics": "Diagnostics",
-      "about": "About"
+      "about": "About",
+      "hasError": "(needs fixing)",
+      "hasChanges": "(unsaved changes)"
     },
     "general": {
       "language": "Language",
       "theme": "Theme",
       "light": "Light",
       "dark": "Dark",
-      "hint": "Press , to open settings."
+      "hint": "Press , to open settings.",
+      "shortcut": "Open settings with the , key",
+      "hintOff": "The , shortcut is off. Use the Settings button."
     },
     "field": {
       "default": "Default: {value}",
@@ -277,7 +281,8 @@
       "readOnly": "Read-only: {reason}. Edit .forge/config.yml by hand.",
       "on": "On",
       "off": "Off",
-      "onePerLine": "One per line"
+      "onePerLine": "One per line",
+      "required": "Always on: {items}. Findings of these severities always force another round."
     },
     "form": {
       "required": "Enter a value.",
@@ -288,7 +293,9 @@
       "option": "Pick one of the listed options.",
       "listOption": "\"{item}\" is not one of the options.",
       "tooLong": "Keep it to {max} characters or fewer.",
-      "readOnly": "This setting is read-only."
+      "readOnly": "This setting is read-only.",
+      "greater": "Enter a number greater than {min}.",
+      "listRequired": "Keep {items} selected."
     },
     "save": {
       "unsaved": {
@@ -301,7 +308,14 @@
         "one": "Saved {count} setting",
         "other": "Saved {count} settings"
       },
-      "partial": "Saved {saved} of {total} settings"
+      "partial": "Saved {saved} of {total} settings. Couldn’t save {label}.",
+      "invalid": {
+        "one": "{count} field needs fixing",
+        "other": "{count} fields need fixing"
+      },
+      "failed": "Couldn’t save {label}. See the Save bar for why.",
+      "failedHere": "Couldn’t save {label}: {error}",
+      "fixHere": "Fix {label} to save."
     },
     "diagnostics": {
       "running": "Running forge doctor…",
@@ -328,6 +342,7 @@
       "node": "Node version",
       "repo": "Repository",
       "docs": "Documentation"
-    }
+    },
+    "sections": "Settings sections"
   }
 }

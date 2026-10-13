@@ -98,8 +98,9 @@ test('setIn edits one value in place and refuses what it cannot keep', () => {
     if (f.type === 'boolean') return !d;
     if (f.type === 'enum') return f.options!.find((o) => o !== d);
     if (f.type === 'integer' || f.type === 'number') return d === null ? (f.min ?? 0) + 3 : f.max !== null && d + 1 > f.max ? d - 1 : d + 1;
-    if (f.type === 'list') return f.options ? ['blocker', 'nit'] : ['ready', 'needs triage'];
+    if (f.type === 'list') return f.options ? ['blocker', 'major', 'nit'] : ['ready', 'needs triage'];
     if (f.key.startsWith('runtime.models.')) return d === 'haiku' ? 'sonnet' : 'haiku';
+    if (f.key === 'tracker.github.labels.prefix') return 'new-prefix:';
     return 'new-value';
   };
   const sources = {

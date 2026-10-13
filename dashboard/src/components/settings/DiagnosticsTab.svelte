@@ -14,6 +14,14 @@
   const failed = $derived(d ? failedCount(d) : 0);
   let fallback = $state<string | null>(null);
   let box = $state<HTMLTextAreaElement>();
+  let summary = $state<HTMLDivElement>();
+
+  /** Run again is disabled while it runs, which drops focus; the summary takes it back. */
+  async function again(): Promise<void> {
+    await session.runDoctor();
+    await tick();
+    if (!document.activeElement || document.activeElement === document.body) summary?.focus();
+  }
 
   onMount(() => {
     if (!session.doctorAsked) session.runDoctor();
@@ -38,7 +46,7 @@
 </script>
 
 <div class="p-4 md:p-6 flex flex-col gap-4">
-  <div aria-live="polite" class="text-sm">
+  <div bind:this={summary} tabindex="-1" aria-live="polite" class="text-sm outline-none">
     {#if session.doctorRunning}<span class="text-muted">{$t('settings.diagnostics.running')}</span>
     {:else if d}<span class="font-medium {failed ? 'text-bad' : 'text-ok'}">{failed ? $t('settings.diagnostics.failed', { count: failed }) : $t('settings.diagnostics.passed')}</span>{/if}
   </div>
@@ -47,14 +55,14 @@
     <ul class="card divide-y divide-line">
       {#each d.checks as c, i (i)}
         <li class="flex items-start gap-3 px-3 py-2.5 text-sm min-w-0">
-          {#if c.ok}<Chip tone="ok" text={$t('settings.diagnostics.ok')} extra="shrink-0" />{:else}<Chip tone="bad" text={$t('settings.diagnostics.fail')} extra="shrink-0" />{/if}
+          {#if c.ok}<Chip tone="ok" text={$t('settings.diagnostics.ok')} extra="shrink-0 w-14 justify-center" />{:else}<Chip tone="bad" text={$t('settings.diagnostics.fail')} extra="shrink-0 w-14 justify-center" />{/if}
           <div class="min-w-0"><div class="font-medium">{c.name}</div>{#if c.detail}<div class="text-xs text-muted font-mono break-all">{c.detail}</div>{/if}</div>
         </li>
       {/each}
     </ul>
   {/if}
   <div class="flex flex-wrap gap-2">
-    <button class="btn min-h-11 md:min-h-0" disabled={session.doctorRunning} onclick={() => session.runDoctor()}>{$t('settings.diagnostics.again')}</button>
+    <button class="btn min-h-11 md:min-h-0" disabled={session.doctorRunning} onclick={again}>{$t('settings.diagnostics.again')}</button>
     <button class="btn min-h-11 md:min-h-0" disabled={!d || session.doctorRunning} onclick={copy}>{$t('settings.diagnostics.copy')}</button>
   </div>
   {#if fallback !== null}

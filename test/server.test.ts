@@ -603,6 +603,10 @@ test('/api/config reads the schema and writes only editable keys', async () => {
     const ok = await post({ key: 'pipeline.maxRounds', value: 4 });
     assert.equal(ok.status, 200);
     assert.deepEqual(ok.body, { ok: true, key: 'pipeline.maxRounds', value: 4, previous: 3, changed: true });
+    const settled = fs.readFileSync(file);
+    const again = await post({ key: 'pipeline.maxRounds', value: 4 });
+    assert.deepEqual(again.body, { ok: true, key: 'pipeline.maxRounds', value: 4, previous: 4, changed: false });
+    assert.ok(fs.readFileSync(file).equals(settled), 'a no-op POST writes nothing');
     assert.equal(JSON.parse((await hit(port, { path: '/api/state' })).text).config.pipeline.maxRounds, 4);
 
     const before = fs.readFileSync(file);
@@ -614,6 +618,11 @@ test('/api/config reads the schema and writes only editable keys', async () => {
     assert.equal(typed.status, 400, 'values arrive typed; a string is not an integer');
     assert.match(typed.body.error, /pipeline\.maxRounds/);
     assert.ok(fs.readFileSync(file).equals(before), 'refusals leave the file unchanged');
+    fs.writeFileSync(file, 'schemaVersion: 2\npipeline: { maxRounds: 4 }\n');
+    const flow = await post({ key: 'pipeline.maxRounds', value: 5 });
+    assert.equal(flow.status, 409, 'unsupported-yaml');
+    assert.match(flow.body.error, /edit it by hand/);
+    assert.equal(fs.readFileSync(file, 'utf8'), 'schemaVersion: 2\npipeline: { maxRounds: 4 }\n');
   } finally {
     await srv.close();
   }

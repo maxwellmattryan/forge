@@ -462,8 +462,12 @@ export interface ConfigField {
   help: string;
   type: ConfigFieldType;
   options: string[] | null;
+  /** List options every value must keep (review.blockOn: blocker and major). */
+  required: string[] | null;
   suggestions: string[] | null;
   min: number | null;
+  /** `min` itself is not allowed: values must be greater than it. */
+  minExclusive: boolean;
   max: number | null;
   nullable: boolean;
   default: unknown;

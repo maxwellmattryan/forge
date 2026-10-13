@@ -2,8 +2,10 @@
 <script lang="ts">
   import { CATALOGS, locale, setLocale, t } from '../../lib/locale.ts';
   import { currentTheme, setTheme, type Theme } from '../../lib/theme.ts';
+  import { pref } from '../../lib/prefs.ts';
 
   let theme = $state<Theme>(currentTheme());
+  let shortcut = $state(pref.get('settingsShortcut', 'on') !== 'off');
   const codes = Object.keys(CATALOGS);
 
   function languageName(code: string): string {
@@ -24,7 +26,7 @@
   <div class="flex flex-col gap-1.5">
     <label for="settings-locale" class="text-sm font-medium">{$t('settings.general.language')}</label>
     <select id="settings-locale" class="self-start" value={$locale} onchange={(e) => setLocale(e.currentTarget.value)}>
-      {#each codes as code (code)}<option value={code}>{languageName(code)}</option>{/each}
+      {#each codes as code (code)}<option value={code} lang={code}>{languageName(code)}</option>{/each}
     </select>
   </div>
   <div class="flex flex-col gap-1.5">
@@ -34,5 +36,8 @@
       <label class="btn min-h-11 {theme === 'dark' ? 'border-accent/60 text-fg' : 'text-muted'}"><input type="radio" name="settings-theme" value="dark" checked={theme === 'dark'} onchange={() => pick('dark')} />{$t('settings.general.dark')}</label>
     </div>
   </div>
-  <p class="text-xs text-muted">{$t('settings.general.hint')}</p>
+  <div class="flex flex-col gap-1">
+    <label class="flex items-center gap-2 text-sm font-medium min-h-8"><input type="checkbox" checked={shortcut} onchange={(e) => { shortcut = e.currentTarget.checked; pref.set('settingsShortcut', shortcut ? 'on' : 'off'); }} />{$t('settings.general.shortcut')}</label>
+    <p class="text-xs text-muted">{shortcut ? $t('settings.general.hint') : $t('settings.general.hintOff')}</p>
+  </div>
 </div>

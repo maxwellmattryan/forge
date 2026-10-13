@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { SOURCE_LOCALE, pickLocale, translate } from '../dashboard/src/lib/i18n.ts';
 import { SETTINGS_TABS, moveTab, settingsKey, wrapFocus } from '../dashboard/src/lib/settings.ts';
-import { changedKeys, draftOf, fieldsFor, invalidKeys, parseDraft } from '../dashboard/src/lib/config-form.ts';
+import { changedKeys, draftOf, fieldsFor, formatValue, invalidKeys, parseDraft } from '../dashboard/src/lib/config-form.ts';
 import { doctorReport, failedCount } from '../dashboard/src/lib/diagnostics.ts';
 import { FIELDS } from '../lib/config-fields.ts';
 
@@ -48,6 +48,11 @@ test('settings keyboard, tab and focus helpers', () => {
   assert.equal(k({ key: 'Escape', open: true }), 'close');
   assert.equal(k({ key: 'Escape' }), null, 'Escape while closed is the drawer\'s');
   assert.equal(k({ key: 'a' }), null);
+  assert.equal(k({ shortcut: false }), null, 'the shortcut can be turned off');
+  assert.equal(k({ shortcut: true }), 'open');
+  assert.equal(k({ repeat: true }), null, 'auto-repeat');
+  assert.equal(k({ composing: true }), null, 'IME composition');
+  assert.equal(k({ key: 'Escape', open: true, shortcut: false }), 'close', 'Escape still closes');
 
   assert.deepEqual(SETTINGS_TABS.map((x) => x.id), ['general', 'pipeline', 'review', 'agents', 'tracker', 'dashboard', 'daemon', 'diagnostics', 'about']);
   assert.equal(moveTab('general', 'ArrowDown'), 'pipeline');
@@ -98,11 +103,22 @@ test('config form drafts, parsing and changed keys', () => {
     parseDraft(by('pipeline.plan'), 'sometimes'),
     parseDraft(by('review.blockOn'), ['blocker', 'huge']),
     parseDraft(prefix, 'x'.repeat(201)),
+    parseDraft(by('daemon.idleStopMinutes'), '0'),
+    parseDraft(by('review.blockOn'), ['blocker']),
+    parseDraft(by('review.blockOn'), []),
   ];
   assert.deepEqual(errors.map((e: any) => (e.ok ? 'ok' : e.error)), [
     'settings.form.required', 'settings.form.required', 'settings.form.min', 'settings.form.max', 'settings.form.integer', 'settings.form.integer',
     'settings.form.number', 'settings.form.option', 'settings.form.listOption', 'settings.form.tooLong',
+    'settings.form.greater', 'settings.form.listRequired', 'settings.form.listRequired',
   ]);
+  assert.deepEqual((errors[11] as any).params, { items: 'major' });
+  assert.deepEqual(parseDraft(by('daemon.idleStopMinutes'), '0.5'), { ok: true, value: 0.5 }, 'just above an exclusive minimum');
+  assert.deepEqual(parseDraft(by('review.blockOn'), ['blocker', 'major', 'minor']), { ok: true, value: ['blocker', 'major', 'minor'] });
+  assert.deepEqual(by('review.blockOn').required, ['blocker', 'major']);
+  assert.equal(formatValue(by('review.panel').default), JSON.stringify(by('review.panel').default), 'a list of maps shows as JSON');
+  assert.equal(formatValue(['a', 'b']), 'a, b');
+  assert.equal(formatValue([]), null);
   for (const e of errors as any[]) if (!e.ok) assert.ok(inEn(e.error), `${e.error} exists in en.json`);
   assert.deepEqual((errors[2] as any).params, { min: 1 });
 
@@ -144,4 +160,15 @@ test('doctor report text', () => {
   assert.ok(text.endsWith(doctor.at));
   assert.equal(lines.length, 4);
   assert.equal(failedCount(doctor), 1);
+});
+
+test('an option list renders one control, never a textarea too', () => {
+  const src = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'settings', 'ConfigFieldRow.svelte'), 'utf8');
+  const options = src.indexOf("{:else if f.type === 'list' && f.options}");
+  const textarea = src.indexOf('<textarea');
+  assert.ok(options > 0 && textarea > options, 'the checkbox group branch comes first');
+  // Still the same if-chain: a closed chain would have one more {/if} than {#if} in between.
+  const between = src.slice(options, textarea);
+  assert.ok((between.match(/\{#if\b/g) ?? []).length >= (between.match(/\{\/if\}/g) ?? []).length, 'the textarea is an {:else} of the option-list branch');
+  assert.equal((src.match(/<textarea/g) ?? []).length, 1);
 });

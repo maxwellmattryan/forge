@@ -34,6 +34,7 @@ export function parseDraft(f: ConfigField, draft: Draft): Parsed {
       if (!/^-?\d+(\.\d+)?$/.test(s)) return { ok: false, error: f.type === 'integer' ? 'settings.form.integer' : 'settings.form.number' };
       const n = Number(s);
       if (f.type === 'integer' && !Number.isInteger(n)) return { ok: false, error: 'settings.form.integer' };
+      if (f.min !== null && f.minExclusive && n <= f.min) return { ok: false, error: 'settings.form.greater', params: { min: f.min } };
       if (f.min !== null && n < f.min) return { ok: false, error: 'settings.form.min', params: { min: f.min } };
       if (f.max !== null && n > f.max) return { ok: false, error: 'settings.form.max', params: { max: f.max } };
       return { ok: true, value: n };
@@ -46,6 +47,8 @@ export function parseDraft(f: ConfigField, draft: Draft): Parsed {
       const items = Array.isArray(draft) ? draft : String(draft).split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
       const bad = f.options ? items.find((x) => !f.options?.includes(x)) : undefined;
       if (bad !== undefined) return { ok: false, error: 'settings.form.listOption', params: { item: bad } };
+      const missing = (f.required ?? []).filter((r) => !items.includes(r));
+      if (missing.length) return { ok: false, error: 'settings.form.listRequired', params: { items: missing.join(', ') } };
       const long = items.find((x) => x.length > MAX_STRING);
       if (long !== undefined) return { ok: false, error: 'settings.form.tooLong', params: { max: MAX_STRING } };
       return { ok: true, value: items };
@@ -82,7 +85,11 @@ export function invalidKeys(fields: ConfigField[], drafts: Record<string, Draft>
 /** A config value as the form shows it; null for "no value". */
 export function formatValue(v: unknown): string | null {
   if (v === null || v === undefined) return null;
-  if (Array.isArray(v)) return v.length ? v.map(String).join(', ') : null;
+  if (Array.isArray(v)) {
+    if (!v.length) return null;
+    // A list of maps (review.panel) as JSON, not "[object Object]".
+    return v.some((x) => x && typeof x === 'object') ? JSON.stringify(v) : v.map(String).join(', ');
+  }
   if (typeof v === 'object') return JSON.stringify(v, null, 2);
   return String(v);
 }

@@ -31,6 +31,12 @@ export interface SettingsKeyInput {
   /** The focused element is contenteditable. */
   editable: boolean;
   open: boolean;
+  /** The `,` shortcut is on (pref `settingsShortcut`); a character-key shortcut must be possible to turn off. */
+  shortcut?: boolean;
+  /** A held key's auto-repeat. */
+  repeat?: boolean;
+  /** Part of an IME composition. */
+  composing?: boolean;
 }
 
 const FIELD_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
@@ -38,7 +44,7 @@ const FIELD_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 /** `open` for a bare `,` outside form fields while closed, `close` for Escape while open, else null. */
 export function settingsKey(e: SettingsKeyInput): 'open' | 'close' | null {
   if (e.open) return e.key === 'Escape' ? 'close' : null;
-  if (e.key !== ',' || e.ctrlKey || e.metaKey || e.altKey) return null;
+  if (e.key !== ',' || e.ctrlKey || e.metaKey || e.altKey || e.shortcut === false || e.repeat || e.composing) return null;
   if (FIELD_TAGS.has(e.targetTag.toUpperCase()) || e.editable) return null;
   return 'open';
 }

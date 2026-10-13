@@ -16,7 +16,6 @@ export const t = derived(locale, (l) => (key: string, params?: Params) => transl
 export function setLocale(l: string): void {
   locale.set(l);
   pref.set('locale', l);
-  document.documentElement.lang = l;
 }
 
 locale.subscribe((l) => {

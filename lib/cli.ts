@@ -3,7 +3,8 @@
 // Output is compact JSON (or a terse table for `status`) to keep orchestrator context small.
 // Command groups live in lib/commands/; this file only routes.
 import path from 'node:path';
-import { NEED_INIT, daemonTrust, loadConfig } from './config.ts';
+import { daemonTrust, loadConfig } from './config.ts';
+import { NEED_INIT } from './config-set.ts';
 import { detect } from './detect.ts';
 import { doctor } from './doctor.ts';
 import { forgeVersion } from './evals.ts';
