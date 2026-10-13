@@ -12,6 +12,7 @@ import { tempRepo } from './helpers.mjs';
 import { broadcast, distAllowlist, startServer } from '../lib/server.mjs';
 import { TURN_LINE } from '../lib/daemon.mjs';
 import * as yaml from '../lib/yaml.mjs';
+import { API_VERSION as DASH_API_VERSION } from '../dashboard/src/lib/types.ts';
 
 /** @param {number} port @param {Record<string,string>} headers @param {string} [method] @param {string} [body] */
 function call(port, headers, method = 'GET', body) {
@@ -517,6 +518,6 @@ test('AC17: /api/state v4 exposes daemon state and boots an enabled daemon', asy
     repo.cleanup();
   }
   const app = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'app.js'), 'utf8');
-  assert.match(app, /const API_VERSION = 4;/);
+  assert.equal(DASH_API_VERSION, 4, 'the dashboard reads API_VERSION from src/lib/types.ts');
   assert.doesNotMatch(app, /launcher|launched/);
 });
