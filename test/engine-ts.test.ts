@@ -13,8 +13,9 @@ const readJson = (rel: string): any => JSON.parse(fs.readFileSync(path.join(ROOT
 const FOUNDATION = ['util', 'paths', 'yaml', 'schema', 'config', 'jobs', 'attribution', 'roster', 'requests'];
 const DOMAIN = ['worktree', 'scope', 'integrity', 'acs', 'delta', 'deps', 'budget', 'e2e', 'evals', 'retro', 'stats', 'usage', 'detect', 'pr'];
 const DOMAIN_TESTS = ['acs', 'budget', 'delta', 'deps', 'detect', 'integrity', 'pr', 'scope', 'verify-e2e', 'background'];
+const SURFACE = ['cli', 'server', 'daemon', 'commands/args', 'commands/dash', 'commands/eval', 'commands/git', 'commands/init', 'commands/job', 'commands/requests', 'commands/status', 'commands/tracker', 'trackers/github', 'trackers/index', 'trackers/local', 'trackers/status'];
 
-test('engine tsconfig is strict, erasable-only, with interim allowJs', () => {
+test('engine tsconfig is strict and erasable-only', () => {
   assert.deepEqual(readJson('tsconfig.json'), {
     compilerOptions: {
       strict: true,
@@ -29,8 +30,6 @@ test('engine tsconfig is strict, erasable-only, with interim allowJs', () => {
       lib: ['es2023'],
       types: ['node'],
       skipLibCheck: true,
-      allowJs: true,
-      checkJs: false,
     },
     include: ['lib/**/*', 'hooks/**/*', 'test/types-parity.ts'],
   });
@@ -45,10 +44,10 @@ test('test tsconfig extends the engine config with strict off', () => {
   });
 });
 
-test('package.json: Node >= 22.18, typecheck and dual-glob test scripts', () => {
+test('package.json: Node >= 22.18, typecheck and test scripts', () => {
   const pkg = readJson('package.json');
   assert.deepEqual(pkg.engines, { node: '>=22.18' });
-  assert.equal(pkg.scripts.test, 'node --test "test/*.test.mjs" "test/*.test.ts"');
+  assert.equal(pkg.scripts.test, 'node --test "test/*.test.ts"');
   assert.equal(pkg.scripts.typecheck, 'tsc -p tsconfig.json && tsc -p test/tsconfig.json');
   assert.equal(pkg.devDependencies['@types/node'], '22.18.13');
   assert.equal(pkg.devDependencies.typescript, '6.0.3');
@@ -91,6 +90,43 @@ test('domain modules and their tests are TypeScript', () => {
   }
 });
 
+test('surface modules and every test are TypeScript', async () => {
+  for (const m of SURFACE) {
+    assert.ok(fs.existsSync(path.join(ROOT, 'lib', `${m}.ts`)), `lib/${m}.ts exists`);
+    if (m !== 'trackers/status') assert.ok(!fs.existsSync(path.join(ROOT, 'lib', `${m}.mjs`)), `lib/${m}.mjs is gone`);
+  }
+  // bin/forge is extensionless, so it is never matched here; status.mjs is the one re-export kept for adapters.
+  const js: string[] = [];
+  const walk = (dir: string) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (/\.(mjs|js)$/.test(e.name)) js.push(path.relative(ROOT, full));
+    }
+  };
+  walk(path.join(ROOT, 'lib'));
+  walk(path.join(ROOT, 'hooks'));
+  assert.deepEqual(js, [path.join('lib', 'trackers', 'status.mjs')]);
+
+  const top = fs.readdirSync(path.join(ROOT, 'test'));
+  assert.deepEqual(top.filter((f) => f.endsWith('.mjs')), [], 'no .mjs outside test/fixtures/');
+  const tests = top.filter((f) => /\.test\./.test(f));
+  assert.ok(tests.length > 0);
+  for (const f of tests) assert.ok(f.endsWith('.test.ts'), `${f} ends in .test.ts, so npm test runs it`);
+  assert.ok(fs.existsSync(path.join(ROOT, 'test', 'helpers.ts')));
+
+  const bin = fs.readFileSync(path.join(ROOT, 'bin', 'forge'), 'utf8');
+  assert.match(bin, /^#!\/usr\/bin\/env node\n/);
+  assert.ok(bin.includes("from '../lib/cli.ts'"), 'bin/forge imports lib/cli.ts');
+
+  const shim = await import('../lib/trackers/status.mjs');
+  const real = await import('../lib/trackers/status.ts');
+  assert.deepEqual(Object.keys(shim).sort(), ['STATUS_KEYS', 'statusKey']);
+  assert.deepEqual(Object.keys(real).sort(), ['STATUS_KEYS', 'statusKey']);
+  assert.equal(shim.statusKey, real.statusKey);
+  assert.equal(shim.STATUS_KEYS, real.STATUS_KEYS);
+});
+
 function filesUnder(rel: string): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
@@ -105,7 +141,7 @@ function filesUnder(rel: string): string[] {
 }
 
 // Parsed rather than matched: a regex cannot tell an import from the same text inside a string (the Svelte
-// fixtures in dashboard-svelte.test.mjs hold import lines that are data, not code).
+// fixtures in dashboard-svelte.test.ts hold import lines that are data, not code).
 function relativeSpecifiers(ts: any, file: string, text: string): string[] {
   const kind = file.endsWith('.ts') ? ts.ScriptKind.TS : ts.ScriptKind.JS;
   const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, kind);
