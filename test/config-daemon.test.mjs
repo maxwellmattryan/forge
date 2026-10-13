@@ -11,12 +11,41 @@ import * as yaml from '../lib/yaml.mjs';
 const DEFAULT_COMMAND =
   'claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode dontAsk --allowedTools {allowedTools}';
 
+const DEFAULT_TOOLS = [
+  'Agent',
+  'Skill',
+  'Read',
+  'Glob',
+  'Grep',
+  'Edit',
+  'Write',
+  'Bash(forge:*)',
+  'Bash(git status:*)',
+  'Bash(git diff:*)',
+  'Bash(git log:*)',
+  'Bash(git show:*)',
+  'Bash(git rev-parse:*)',
+  'Bash(git range-diff:*)',
+  'Bash(git add:*)',
+  'Bash(git rm:*)',
+  'Bash(git mv:*)',
+  'Bash(git commit:*)',
+  'Bash(git merge --continue:*)',
+  'Bash(git merge --abort:*)',
+  'Bash(git rebase --continue:*)',
+  'Bash(git rebase --abort:*)',
+  'Bash(gh pr view:*)',
+  'Bash(gh pr list:*)',
+  'Bash(gh pr checks:*)',
+  'Bash(gh run view:*)',
+];
+
 test('AC1: defaults carry the daemon block and no dashboard.launcher', () => {
   const d = defaults();
   assert.deepEqual(d.daemon, {
     enabled: false,
     command: DEFAULT_COMMAND,
-    allowedTools: ['Agent', 'Skill', 'Read', 'Glob', 'Grep', 'Edit', 'Write', 'Bash(forge:*)', 'Bash(git:*)', 'Bash(gh:*)'],
+    allowedTools: DEFAULT_TOOLS,
     maxConcurrent: 1,
     idleStopMinutes: 30,
   });
@@ -107,4 +136,56 @@ test('AC3: daemon config validation', () => {
   one('leftover launcher', (c) => (c.dashboard.launcher = null), /^dashboard\.launcher/);
   assert.deepEqual(problems((c) => (c.daemon.idleStopMinutes = null)), [], 'null means never');
   assert.deepEqual(problems((c) => (c.daemon.idleStopMinutes = 0.5)), []);
+});
+
+test('daemon.allowedTools refuses blanket git/gh and unscoped Bash', () => {
+  const problems = (tools) => {
+    const c = defaults();
+    c.daemon.allowedTools = [...c.daemon.allowedTools, ...tools];
+    return validateConfig(c, process.cwd()).filter((p) => p.startsWith('daemon.'));
+  };
+  assert.ok(!defaults().daemon.allowedTools.some((t) => /^Bash\((git|gh)(:\*| \*)\)$/.test(t)), 'the default names subcommands');
+  for (const t of ['Bash', 'Bash(*)', 'Bash(git:*)', 'Bash(gh:*)', 'Bash(git *)', 'Bash(git*)', 'Bash(git -c:*)', 'Bash(git config:*)', 'Bash(git grep:*)', 'Bash(git rebase:*)', 'Bash(git rebase --exec:*)', 'Bash(git submodule foreach:*)', 'Bash(gh api:*)', 'Bash(gh api -X POST:*)', 'Bash(gh extension:*)', 'Bash(gh auth:*)']) {
+    const got = problems([t]);
+    assert.equal(got.length, 1, `${t}: ${JSON.stringify(got)}`);
+    assert.match(got[0], /must name git\/gh subcommands/, t);
+    assert.ok(got[0].includes(JSON.stringify(t)), `${t} is named in the message`);
+  }
+  assert.equal(problems(['Bash(git:*)', 'Bash(gh:*)']).length, 1, 'one problem lists every broad entry');
+  for (const t of ['Bash(git rebase --skip:*)', 'Bash(git blame:*)', 'Bash(gh issue view:*)', 'Bash(npm test:*)', 'Bash(github-tool:*)', 'Bash(gitk:*)', 'mcp__x__y'])
+    assert.deepEqual(problems([t]), [], `${t} is allowed`);
+});
+
+test('daemon.command refuses permission-widening flags', () => {
+  const problems = (command) => {
+    const c = defaults();
+    c.daemon.command = command;
+    return validateConfig(c, process.cwd()).filter((p) => p.startsWith('daemon.'));
+  };
+  const base = DEFAULT_COMMAND;
+  const refused = (extra, re) => {
+    const got = problems(`${base} ${extra}`);
+    assert.equal(got.length, 1, `${extra}: ${JSON.stringify(got)}`);
+    assert.match(got[0], re, extra);
+  };
+  refused('--dangerously-skip-permissions', /must not pass --dangerously-skip-permissions/);
+  refused('--allow-dangerously-skip-permissions', /must not pass --allow-dangerously-skip-permissions/);
+  refused('--settings /tmp/s.json', /must not pass --settings/);
+  refused('--settings={"permissions":{"allow":["Bash"]}}', /must not pass --settings/);
+  refused('--mcp-config .mcp.json', /must not pass --mcp-config/);
+  refused('--add-dir /', /must not pass --add-dir/);
+  refused('--add-dir=/', /must not pass --add-dir/);
+  refused('--permission-prompt-tool mcp__x__ok', /must not pass --permission-prompt-tool/);
+  refused('--agents {}', /must not pass --agents/);
+  refused('--plugin-dir /tmp/evil', /must not pass --plugin-dir \/tmp\/evil/);
+  refused('--allowed-tools Bash', /must pass --allowed-tools \{allowedTools\}/);
+  // Every occurrence is checked, whichever one claude would honour.
+  refused('--permission-mode bypassPermissions', /must not pass --permission-mode bypassPermissions/);
+  refused('--permission-mode=acceptEdits', /must not pass --permission-mode acceptEdits/);
+  refused('--permission-mode auto', /permission-mode auto/);
+  assert.equal(problems('claude -p {session} --permission-mode').length, 1, 'a missing mode value is refused');
+  assert.equal(problems('claude -p {session} --allowedTools Bash,Read').length, 1, 'a literal list bypasses allowedTools validation');
+  for (const mode of ['dontAsk', 'default', 'plan']) assert.deepEqual(problems(`claude -p {session} --permission-mode ${mode}`), [], mode);
+  assert.deepEqual(problems(`${base} --model opus --max-turns 50 --disallowedTools WebFetch`), [], 'narrowing and neutral flags are fine');
+  assert.deepEqual(problems('claude -p {session} --plugin-dir={pluginRoot} --allowedTools={allowedTools}'), [], '--flag=value placeholders are accepted');
 });
