@@ -60,7 +60,7 @@ test('dashboard server serves only the allowlisted modules', async () => {
   const { server, url } = await startServer(repo.dir, { port: 0 });
   const port = Number(new URL(url).port);
   try {
-    for (const p of ['/app.js', '/util.js', '/budget.js', '/deps.js', '/screenshots.js']) {
+    for (const p of ['/app.js', '/util.js', '/budget.js', '/deps.js', '/screenshots.js', '/daemon.js']) {
       const r = await get(port, p);
       assert.equal(r.status, 200, p);
       assert.match(r.type ?? '', /^text\/javascript/, p);
