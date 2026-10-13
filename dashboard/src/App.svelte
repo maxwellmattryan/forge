@@ -1,11 +1,12 @@
 <!-- The dashboard shell: sidebar, phone nav, banners, the active view, the daemon bar, the drawer and the toast. -->
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import Banner from './components/Banner.svelte';
   import DaemonBar from './components/DaemonBar.svelte';
   import Drawer from './components/Drawer.svelte';
   import Icon from './components/Icon.svelte';
   import Nav from './components/Nav.svelte';
+  import Settings from './components/Settings.svelte';
   import Toast from './components/Toast.svelte';
   import Pipeline from './views/Pipeline.svelte';
   import Inbox from './views/Inbox.svelte';
@@ -14,22 +15,42 @@
   import Analytics from './views/Analytics.svelte';
   import Evals from './views/Evals.svelte';
   import { S, closeDrawer, loadView, refresh, route } from './lib/app.svelte.ts';
-  import { pref } from './lib/prefs.ts';
   import { activeSessions } from './lib/view.ts';
   import { t } from './lib/locale.ts';
+  import { settingsKey } from './lib/settings.ts';
 
-  let dark = $state(document.documentElement.dataset.theme === 'dark');
+  let settingsOpen = $state(false);
+  let settings = $state<ReturnType<typeof Settings>>();
+  // Focus goes back here when the modal closes.
+  let opener: HTMLElement | null = null;
   const sessions = $derived(activeSessions(S.data?.jobs ?? [], Date.now()));
 
   $effect(() => {
     document.title = S.data?.repo?.name ? $t('app.titleRepo', { repo: S.data.repo.name }) : $t('app.title');
   });
 
-  function toggleTheme(): void {
-    const next = dark ? 'light' : 'dark';
-    document.documentElement.dataset.theme = next;
-    pref.set('theme', next);
-    dark = next === 'dark';
+  function openSettings(): void {
+    opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    settingsOpen = true;
+  }
+
+  function closeSettings(): void {
+    settingsOpen = false;
+    const back = opener;
+    opener = null;
+    tick().then(() => back?.focus());
+  }
+
+  function onKey(e: KeyboardEvent): void {
+    const target = e.target instanceof HTMLElement ? e.target : null;
+    const action = settingsKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, targetTag: target?.tagName ?? '', editable: target?.isContentEditable ?? false, open: settingsOpen });
+    if (action === 'open') {
+      e.preventDefault();
+      openSettings();
+    } else if (action === 'close') {
+      e.preventDefault();
+      settings?.requestClose();
+    } else if (!settingsOpen && e.key === 'Escape') closeDrawer();
   }
 
   onMount(() => {
@@ -44,9 +65,9 @@
   });
 </script>
 
-<svelte:window onhashchange={route} onkeydown={(e) => e.key === 'Escape' && closeDrawer()} />
+<svelte:window onhashchange={route} onkeydown={onKey} />
 
-<div class="flex min-h-screen">
+<div class="flex min-h-screen" inert={settingsOpen}>
   <aside id="sidebar" class="hidden md:flex w-56 shrink-0 flex-col border-r border-line bg-panel px-3 py-4 gap-1 sticky top-0 h-screen">
     <div class="flex items-center gap-2.5 px-2 pb-3">
       <img src="/forge.png" alt="" class="size-9 rounded-lg" />
@@ -60,12 +81,16 @@
     <nav id="nav" class="flex flex-col gap-0.5"><Nav /></nav>
     <div class="mt-auto flex flex-col gap-1 border-t border-line pt-3 text-xs text-muted">
       <div id="footer-sessions" class="px-3"><span class="inline-block size-1.5 rounded-full {sessions ? 'bg-ok' : 'bg-muted'} mr-1.5 align-middle"></span>{$t('app.sessions', { count: sessions })}</div>
-      <button id="theme-toggle" class="nav-item" onclick={toggleTheme}><span class="flex items-center gap-2"><Icon name={dark ? 'sun' : 'moon'} />{dark ? $t('app.themeLight') : $t('app.themeDark')}</span></button>
+      <button id="settings-open" class="nav-item" aria-haspopup="dialog" aria-keyshortcuts="," onclick={openSettings}><span class="flex items-center gap-2"><Icon name="settings" />{$t('settings.open')}</span></button>
       <div id="footer-version" class="px-3 text-[10px]">{S.data ? $t('app.version', { version: S.data.forgeVersion, api: S.data.apiVersion }) : ''}</div>
     </div>
   </aside>
   <main class="flex-1 min-w-0">
-    <header class="md:hidden flex items-center gap-2 border-b border-line bg-panel px-4 py-3 overflow-x-auto" id="mobile-nav"><Nav mobile /></header>
+    <!-- The gear stays outside the scrolling nav, so it is always on screen. -->
+    <header class="md:hidden flex items-center border-b border-line bg-panel">
+      <div class="flex flex-1 min-w-0 items-center gap-2 px-4 py-3 overflow-x-auto" id="mobile-nav"><Nav mobile /></div>
+      <button id="settings-open-mobile" class="nav-item shrink-0 mr-2 min-h-11 min-w-11 justify-center" aria-label={$t('settings.open')} aria-haspopup="dialog" onclick={openSettings}><Icon name="settings" /></button>
+    </header>
     <DaemonBar />
     <div id="view" class="mx-auto max-w-[1400px] px-4 md:px-8 pt-4 pb-6">
       {#if !S.data}
@@ -83,5 +108,6 @@
     </div>
   </main>
 </div>
-<Drawer />
+<div inert={settingsOpen}><Drawer /></div>
+{#if settingsOpen}<Settings bind:this={settings} onclose={closeSettings} />{/if}
 <Toast />

@@ -5,9 +5,10 @@
     "brand": "Forge",
     "tagline": "software factory",
     "repo": "repo",
-    "sessions": { "one": "{count} session active", "other": "{count} sessions active" },
-    "themeLight": "Light theme",
-    "themeDark": "Dark theme",
+    "sessions": {
+      "one": "{count} session active",
+      "other": "{count} sessions active"
+    },
     "version": "Forge v{version} · api {api}",
     "noConfig": "This repo has no .forge/config.yml yet. Run /forge init."
   },
@@ -109,8 +110,16 @@
     "active": "{count} active",
     "base": "base",
     "tracker": "tracker {tracker}",
-    "filter": { "active": "Active", "waiting": "Waiting", "done": "Done", "all": "All" },
-    "layout": { "board": "Board", "table": "Table" },
+    "filter": {
+      "active": "Active",
+      "waiting": "Waiting",
+      "done": "Done",
+      "all": "All"
+    },
+    "layout": {
+      "board": "Board",
+      "table": "Table"
+    },
     "empty": "No jobs here yet. Start one with",
     "cmdFeature": "/forge <feature>",
     "or": "or",
@@ -235,5 +244,90 @@
     "none": "none",
     "judgeChip": "judge",
     "pr": "PR #{number}"
+  },
+  "settings": {
+    "open": "Settings",
+    "title": "Settings",
+    "close": "Close settings",
+    "discard": "Discard unsaved changes?",
+    "loading": "Loading settings…",
+    "retry": "Retry",
+    "locked": "The daemon is running. Stop it in the daemon bar to change settings: any change to .forge/config.yml stops it, and only a human may start it again.",
+    "tabs": {
+      "general": "General",
+      "pipeline": "Pipeline",
+      "review": "Review",
+      "agents": "Agents",
+      "tracker": "Tracker",
+      "dashboard": "Dashboard",
+      "daemon": "Daemon",
+      "diagnostics": "Diagnostics",
+      "about": "About"
+    },
+    "general": {
+      "language": "Language",
+      "theme": "Theme",
+      "light": "Light",
+      "dark": "Dark",
+      "hint": "Press , to open settings."
+    },
+    "field": {
+      "default": "Default: {value}",
+      "none": "none",
+      "readOnly": "Read-only: {reason}. Edit .forge/config.yml by hand.",
+      "on": "On",
+      "off": "Off",
+      "onePerLine": "One per line"
+    },
+    "form": {
+      "required": "Enter a value.",
+      "integer": "Enter a whole number.",
+      "number": "Enter a number.",
+      "min": "Enter {min} or more.",
+      "max": "Enter {max} or less.",
+      "option": "Pick one of the listed options.",
+      "listOption": "\"{item}\" is not one of the options.",
+      "tooLong": "Keep it to {max} characters or fewer.",
+      "readOnly": "This setting is read-only."
+    },
+    "save": {
+      "unsaved": {
+        "one": "{count} unsaved change",
+        "other": "{count} unsaved changes"
+      },
+      "reset": "Reset",
+      "save": "Save",
+      "done": {
+        "one": "Saved {count} setting",
+        "other": "Saved {count} settings"
+      },
+      "partial": "Saved {saved} of {total} settings"
+    },
+    "diagnostics": {
+      "running": "Running forge doctor…",
+      "passed": "All checks passed",
+      "failed": {
+        "one": "{count} check failed",
+        "other": "{count} checks failed"
+      },
+      "ok": "OK",
+      "fail": "Failed",
+      "again": "Run again",
+      "copy": "Copy report",
+      "copied": "Report copied",
+      "copyFailed": "Couldn't copy the report; select it and copy by hand",
+      "report": "Report"
+    },
+    "about": {
+      "version": "Forge version",
+      "pluginRoot": "Plugin root",
+      "api": "API version",
+      "schemas": "Schema versions",
+      "schemaValues": "config {config} · job {job} · event {event}",
+      "pricing": "Pricing as of",
+      "node": "Node version",
+      "repo": "Repository",
+      "docs": "Documentation"
+    }
   }
 }

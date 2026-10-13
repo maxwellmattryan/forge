@@ -1,8 +1,23 @@
 // The dashboard's state and actions, ported from the pre-Svelte app.js: same fetches, toasts and follow-up refreshes.
 // API payloads are $state.raw and replaced wholesale, so a poll re-renders only what reads them.
-import { api } from './util.ts';
+import { api, errorText } from './util.ts';
 import { API_VERSION } from './types.ts';
-import type { ApiState, BacklogResponse, EvalCompare, EvalsResponse, JobDetail, PostRequestResponse, Roster, Stats } from './types.ts';
+import type {
+  AboutResponse,
+  ApiState,
+  BacklogResponse,
+  ConfigResponse,
+  ConfigValue,
+  DoctorResponse,
+  EvalCompare,
+  EvalsResponse,
+  JobDetail,
+  PostConfigBody,
+  PostConfigResponse,
+  PostRequestResponse,
+  Roster,
+  Stats,
+} from './types.ts';
 import { pref } from './prefs.ts';
 import { toast } from './toast.svelte.ts';
 import { VIEWS, buildRequest, pickDrawerFile, queuedMessage, statsQuery } from './view.ts';
@@ -142,6 +157,30 @@ export function req(input: RequestInput): void {
   if ('error' in r) toast(r.error, true);
   else request(r.body);
 }
+
+// ---------- settings ----------
+
+/** fetch for the settings endpoints: errors carry the reply's `error` text, never a raw JSON body. */
+async function settingsFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(path, init);
+  const text = await res.text();
+  if (!res.ok) throw new Error(errorText(text) || res.statusText);
+  return JSON.parse(text) as T;
+}
+
+export const fetchConfig = (): Promise<ConfigResponse> => settingsFetch<ConfigResponse>('/api/config');
+
+export const postConfig = (key: string, value: ConfigValue): Promise<PostConfigResponse> =>
+  settingsFetch<PostConfigResponse>('/api/config', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-forge-token': forgeToken() },
+    body: JSON.stringify({ key, value } satisfies PostConfigBody),
+  });
+
+/** Takes the token: the server runs git and gh for it. */
+export const fetchDoctor = (): Promise<DoctorResponse> => settingsFetch<DoctorResponse>('/api/doctor', { headers: { 'x-forge-token': forgeToken() } });
+
+export const fetchAbout = (): Promise<AboutResponse> => settingsFetch<AboutResponse>('/api/about');
 
 // ---------- drawer ----------
 
