@@ -1305,6 +1305,37 @@ test('a symlink planted as a session log or record is never followed', { skip: p
   }
 });
 
+test('a FIFO planted as a session log never blocks the supervisor', { skip: process.platform === 'win32' && 'POSIX-only' }, () => {
+  const repo = tempRepo();
+  try {
+    fs.mkdirSync(daemonsDir(repo.dir), { recursive: true });
+    for (const name of [`${INBOX}.log`, 'job-r.log']) assert.equal(spawnSync('mkfifo', [path.join(daemonsDir(repo.dir), name)]).status, 0);
+    // In a child with a timeout, so a regression fails fast instead of hanging the suite.
+    const script = `
+      import { EventEmitter } from 'node:events';
+      import { PassThrough } from 'node:stream';
+      import { defaults } from ${JSON.stringify(path.resolve(import.meta.dirname, '..', 'lib', 'config.ts'))};
+      import { openAppend } from ${JSON.stringify(path.resolve(import.meta.dirname, '..', 'lib', 'daemon.ts'))};
+      import { createPool } from ${JSON.stringify(path.resolve(import.meta.dirname, '..', 'lib', 'daemon-pool.ts'))};
+      const root = process.argv[1];
+      let refused = false;
+      try { openAppend(root + '/.forge/runtime/daemons/job-r.log'); } catch { refused = true; }
+      const spawn = () => { const c = new EventEmitter(); Object.assign(c, { pid: 4242, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough() }); return c; };
+      const c = defaults(); Object.assign(c.daemon, { enabled: true, command: 'claude {session}' });
+      const d = createPool(root, { spawn, killTree: (ch) => setImmediate(() => ch.emit('close', null, 'SIGTERM')), loadConfig: () => ({ config: c }), pollMs: 3600000 });
+      const st = d.start();
+      await d.close();
+      console.log(JSON.stringify({ refused, running: st.inbox.running }));
+    `;
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e', script, repo.dir], { encoding: 'utf8', timeout: 15000 });
+    assert.equal(r.signal, null, `the child was killed (hung): ${r.stderr}`);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(JSON.parse(r.stdout.trim().split('\n').at(-1)), { refused: true, running: true }, 'the FIFO is refused and the session runs without a log file');
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test('a failed turn marks its session failing until a turn works', async () => {
   const repo = tempRepo();
   const kit = fakeKit();
@@ -1325,6 +1356,14 @@ test('a failed turn marks its session failing until a turn works', async () => {
     await waitFor(() => turnsIn(kit.last(a)) === 2, 2000, 'the next turn');
     kit.last(a).line({ type: 'result', subtype: 'success', is_error: false });
     await waitFor(() => d.sessionState(a).lastError === null, 2000, 'a working turn clears it');
+    // A stop on purpose clears it too, so a stopped session doesn't read as failing forever.
+    enqueue(repo.dir, null, { type: 'answer', job: a, text: 'again', from: 'dashboard' });
+    d.poke();
+    await waitFor(() => turnsIn(kit.last(a)) === 3, 2000, 'a third turn');
+    kit.last(a).line({ type: 'result', subtype: 'success', is_error: true, result: 'overloaded' });
+    await waitFor(() => d.sessionState(a).lastError === 'last turn failed: overloaded', 2000, 'failing again');
+    await d.stop();
+    assert.equal(d.sessionState(a).lastError, null);
   } finally {
     await d.close();
     repo.cleanup();

@@ -2,7 +2,7 @@
 // so they work with or without a running `forge dash` and never talk to its server.
 import fs from 'node:fs';
 import path from 'node:path';
-import { readInfo, readLogPage, sessionFiles, sessionRecords } from '../daemon.ts';
+import { openRead, readInfo, readLogPage, sessionFiles, sessionRecords } from '../daemon.ts';
 import { paths } from '../paths.ts';
 import { INBOX_SCOPE, validJobId } from '../requests.ts';
 import { ForgeError, readJson } from '../util.ts';
@@ -80,9 +80,18 @@ async function log(root: string, job: string | undefined, flags: Record<string, 
   return undefined;
 }
 
+/** A log opened without following a planted symlink or blocking on a FIFO; anything but a regular file is refused. */
+function openLog(file: string): number {
+  try {
+    return openRead(file);
+  } catch (e) {
+    throw new ForgeError(`cannot read ${path.basename(file)}: ${(e as NodeJS.ErrnoException).code === 'ELOOP' ? 'it is a symlink' : (e as Error).message}`);
+  }
+}
+
 /** The last `n` complete lines of a log file, raw, and the byte position just after them. */
 function tail(file: string, n: number): { lines: string[]; end: number } {
-  const fd = fs.openSync(file, 'r');
+  const fd = openLog(file);
   try {
     const size = fs.fstatSync(fd).size;
     const page = readLogPage(fd, size, 0, { maxLines: n, maxBytes: Infinity, lineCap: Infinity, scanBytes: 256 * 1024 * 1024 });
@@ -105,9 +114,12 @@ async function follow(file: string, n: number): Promise<never> {
   let first = true;
   for (;;) {
     let size = -1;
+    let st: fs.Stats | null = null;
     try {
-      size = fs.statSync(file).size;
+      st = fs.lstatSync(file);
     } catch {}
+    if (st && !st.isFile()) throw new ForgeError(`cannot read ${path.basename(file)}: not a regular file`);
+    if (st) size = st.size;
     if (size >= 0) {
       if (first) {
         const t = tail(file, n);
@@ -121,7 +133,7 @@ async function follow(file: string, n: number): Promise<never> {
       }
       if (size > pos) {
         const buf = Buffer.alloc(size - pos);
-        const fd = fs.openSync(file, 'r');
+        const fd = openLog(file);
         try {
           fs.readSync(fd, buf, 0, buf.length, pos);
         } finally {

@@ -329,9 +329,32 @@ export function readInfo(file: string): any {
   }
 }
 
-/** Opens a log for appending without following a planted symlink. */
+/**
+ * Opens a log for appending without following a planted symlink or blocking on a planted FIFO
+ * (a write-only open of a FIFO with no reader would wait forever on the server's event loop; with
+ * O_NONBLOCK it fails with ENXIO). Anything but a regular file is closed and refused.
+ */
 export function openAppend(file: string): number {
-  return fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT | NOFOLLOW, 0o644);
+  const fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT | NOFOLLOW | NONBLOCK, 0o644);
+  try {
+    if (!fs.fstatSync(fd).isFile()) throw new Error(`${file} is not a regular file`);
+  } catch (e) {
+    fs.closeSync(fd);
+    throw e;
+  }
+  return fd;
+}
+
+/** Opens a log for reading without following a planted symlink or blocking on a FIFO; refuses non-files. */
+export function openRead(file: string): number {
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK);
+  try {
+    if (!fs.fstatSync(fd).isFile()) throw new Error(`${file} is not a regular file`);
+  } catch (e) {
+    fs.closeSync(fd);
+    throw e;
+  }
+  return fd;
 }
 
 /** The record is a local file anyone with repo access can edit: logBase must be a sane byte count. */
@@ -712,7 +735,12 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     info = { ...info, pid: null };
     persist();
     logEvent('exit', { code, signal });
-    if (meta.asked) return changed();
+    if (meta.asked) {
+      // A failed turn's error describes the process just stopped on purpose; the log keeps it.
+      // Clearing it lets a finished or slot-stopped session be pruned instead of showing failing forever.
+      if (lastError?.startsWith('last turn failed')) lastError = null;
+      return changed();
+    }
     if (meta.resume && !meta.init && code !== 0 && code !== null) {
       // The transcript is gone (or unreadable): start over once rather than counting a failure.
       // Real claude still prints one `result` (subtype error_during_execution, is_error) before

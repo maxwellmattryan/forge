@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { escapeControls } from '../lib/commands/daemon.ts';
 
@@ -64,6 +64,18 @@ test('daemon status and log', async () => {
       assert.equal(r.ok, false, bad);
       assert.match(r.out, /invalid job id|usage/, bad);
     }
+    // A FIFO or symlink planted as a log is refused, never followed or waited on.
+    const fifo = path.join(dir, 'job-fifo.log');
+    assert.equal(spawnSync('mkfifo', [fifo]).status, 0);
+    const viaFifo = spawnSync(process.execPath, [BIN, 'daemon', 'log', 'job-fifo'], { cwd: repo.dir, encoding: 'utf8', timeout: 10000, env: { ...process.env, FORGE_ROOT: repo.dir } });
+    assert.equal(viaFifo.signal, null, 'did not hang');
+    assert.match(viaFifo.stderr, /cannot read job-fifo\.log/);
+    fs.writeFileSync(path.join(repo.dir, 'secret.txt'), 'hunter2\n');
+    fs.symlinkSync(path.join(repo.dir, 'secret.txt'), path.join(dir, 'job-link.log'));
+    const viaLink = cli('daemon', 'log', 'job-link');
+    assert.equal(viaLink.ok, false);
+    assert.match(viaLink.out, /symlink/);
+    assert.ok(!viaLink.out.includes('hunter2'));
     for (const n of ['0', '5001', 'x', '1.5']) assert.match(cli('daemon', 'log', 'job-a', '--lines', n).out, /--lines must be/, n);
     assert.match(cli('daemon', 'nope').out, /usage: forge daemon/);
 

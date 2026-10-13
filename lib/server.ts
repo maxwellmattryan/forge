@@ -277,7 +277,8 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     let fd: number | undefined;
     try {
       // O_NONBLOCK: a FIFO planted as the log must not hang the server; fstat rejects it.
-      fd = fs.openSync(real, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0));
+      // `real` is fully resolved, so O_NOFOLLOW only refuses a link swapped in since the check.
+      fd = fs.openSync(real, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOFOLLOW ?? 0));
       const stat = fs.fstatSync(fd);
       if (!stat.isFile()) return jsonStatus(res, 404, { error: 'no session log' });
       const page = readLogPage(fd, stat.size, logBaseOf(readInfo(f.info)), { before });
@@ -535,7 +536,8 @@ function sendImage(res: http.ServerResponse, base: string, file: string): void {
     const real = fs.realpathSync(file);
     if (real.startsWith(fs.realpathSync(base) + path.sep)) {
       // O_NONBLOCK: opening a FIFO planted under screenshots/ must not hang the server; fstat rejects it.
-      fd = fs.openSync(real, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0));
+      // `real` is fully resolved, so O_NOFOLLOW only refuses a link swapped in since the check.
+      fd = fs.openSync(real, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOFOLLOW ?? 0));
       const stat = fs.fstatSync(fd);
       if (stat.isFile() && stat.size > MAX_IMAGE) reply = [413, 'text/plain', 'image too large'];
       else if (stat.isFile()) reply = [200, IMAGE_TYPES[path.extname(file).toLowerCase()], fs.readFileSync(fd)];

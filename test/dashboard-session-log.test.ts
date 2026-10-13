@@ -97,7 +97,7 @@ test('turns, items and subagent groups from a fixture stream', () => {
   assert.equal(t1.items[10].tone, 'warn', 'held is a warning');
   assert.deepEqual(t2.items.map((i) => [i.kind, i.tone]), [['result', 'bad'], ['supervisor', 'muted'], ['supervisor', 'bad']]);
   const failed: any = buildSessionView(entries([{ type: 'result', subtype: 'success', is_error: true, num_turns: 1, result: 'Failed to authenticate' }])).turns[0].items[0];
-  assert.equal(failed.text, 'error (success) · Failed to authenticate · 1 turns', 'a failed turn never reads as success');
+  assert.equal(failed.text, 'turn failed · Failed to authenticate · 1 turns', 'a failed turn never reads as success');
 });
 
 test('one-line tool summaries', () => {
