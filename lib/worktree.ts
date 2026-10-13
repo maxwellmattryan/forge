@@ -15,7 +15,7 @@ import { ForgeError, fill, now, readJson, run, tail, withLock, writeJsonAtomic }
 
 /** What `forge worktree create` returns: createWorktree. */
 export type CreateWorktreeResult =
-  | { path: string; created: false }
+  | { path: string; created: false; ok?: undefined }
   | { path: string; created: true; port: number; stackedOn?: string; base?: string; setup: { cmd: string; ok: boolean; tail: string }[]; ok: boolean };
 
 /** What `forge run` returns: runCommand. */

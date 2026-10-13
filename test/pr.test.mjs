@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.mjs';
-import { mergeAction, hasCiWorkflows, mergePr } from '../lib/pr.mjs';
+import { mergeAction, hasCiWorkflows, mergePr } from '../lib/pr.ts';
 import { defaults } from '../lib/config.ts';
 import { createJob, setJob, readEvents } from '../lib/jobs.ts';
 

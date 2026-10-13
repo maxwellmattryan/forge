@@ -8,7 +8,7 @@ import { defaults } from '../lib/config.ts';
 import { createJob, setJob } from '../lib/jobs.ts';
 import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from '../lib/delta.ts';
 import { computeStats } from '../lib/stats.ts';
-import { prepareRetro } from '../lib/retro.mjs';
+import { prepareRetro } from '../lib/retro.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 
