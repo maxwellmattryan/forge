@@ -1,4 +1,4 @@
-// Forge dashboard. Vanilla ES module, no build step. Talks only to the local `forge dash` server.
+// Forge dashboard. Vanilla ES module, bundled by Vite into the committed dashboard/dist/. Talks only to the local `forge dash` server.
 import { esc, num, usd, ago, toneChip, api, toast } from './util.js';
 import { mountDaemon } from './daemon.js';
 import { budgetChip, budgetCell, budgetPanel } from './budget.js';

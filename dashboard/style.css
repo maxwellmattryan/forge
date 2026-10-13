@@ -1,0 +1,63 @@
+@import "tailwindcss" source(none);
+@source "./index.html";
+@source "./*.js";
+
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+@theme {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-raised: var(--raised);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --color-info: var(--info);
+  --color-on-accent: var(--on-accent);
+  --color-ember-hot: var(--ember-hot);
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+:root {
+  --bg: #f4f4f6; --panel: #ffffff; --raised: #ececef; --line: #dcdce2; --fg: #17171b; --muted: #63636e;
+  --accent: #c2410c; --on-accent: #ffffff; --ember-hot: #fb923c;
+  --ok: #15803d; --warn: #a16207; --bad: #dc2626; --info: #2563eb;
+}
+:root[data-theme='dark'] {
+  --bg: #0c0c0e; --panel: #151518; --raised: #1d1d21; --line: #2b2b31; --fg: #ececef; --muted: #8f8f99;
+  --accent: #fb923c; --on-accent: #1c0d02; --ember-hot: #fde68a;
+  --ok: #34d399; --warn: #facc15; --bad: #f87171; --info: #60a5fa;
+}
+body { @apply bg-bg text-fg font-sans antialiased; }
+@utility card { @apply bg-panel border border-line rounded-xl; }
+@utility chip { @apply inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium leading-4 whitespace-nowrap; }
+@utility btn { @apply inline-flex items-center gap-1.5 rounded-lg border border-line bg-raised px-3 py-1.5 text-sm hover:border-accent/60 disabled:opacity-50 cursor-pointer; }
+.btn-primary { @apply border-transparent text-on-accent font-medium; background: linear-gradient(180deg, color-mix(in oklab, var(--accent), var(--ember-hot) 22%), var(--accent)); box-shadow: 0 1px 0 rgb(255 255 255 / .18) inset, 0 4px 14px -6px var(--accent); }
+.btn-primary:hover { filter: brightness(1.06); }
+.ember-bar { background: linear-gradient(90deg, var(--ember-hot), var(--accent)); }
+.brand-rule { height: 1px; background: linear-gradient(90deg, transparent, var(--accent), var(--ember-hot), transparent); opacity: .6; }
+@utility nav-item { @apply flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm text-muted hover:bg-raised hover:text-fg; }
+.nav-item.active { @apply bg-raised text-fg; box-shadow: inset 2px 0 0 var(--accent); }
+@utility kpi { @apply bg-panel border border-line rounded-xl p-4 flex flex-col gap-1; }
+@utility kpi-label { @apply text-[11px] uppercase tracking-wide text-muted; }
+@utility kpi-value { @apply text-2xl font-semibold tabular-nums; }
+.tbl { @apply w-full text-sm; }
+.tbl th { @apply text-left text-[11px] uppercase tracking-wide text-muted font-medium px-3 py-2 border-b border-line; }
+.tbl td { @apply px-3 py-2 border-b border-line align-top; }
+.prose-md { @apply text-sm leading-6; }
+.prose-md h1 { @apply text-lg font-semibold mt-4 mb-2; }
+.prose-md h2 { @apply text-base font-semibold mt-4 mb-2; }
+.prose-md h3 { @apply text-sm font-semibold mt-3 mb-1; }
+.prose-md p { @apply my-2; }
+.prose-md ul { @apply list-disc pl-5 my-2; }
+.prose-md ol { @apply list-decimal pl-5 my-2; }
+.prose-md code { @apply font-mono text-[12px] bg-raised rounded px-1; }
+.prose-md pre { @apply bg-raised rounded-lg p-3 overflow-x-auto my-2 text-[12px]; }
+.prose-md pre code { @apply bg-transparent p-0; }
+.prose-md a { @apply text-accent underline; }
+.prose-md table { @apply my-2 text-xs; }
+.prose-md td, .prose-md th { @apply border border-line px-2 py-1; }
+.prose-md blockquote { @apply border-l-2 border-line pl-3 text-muted; }
+input, textarea, select { @apply bg-raised border border-line rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-accent; }
