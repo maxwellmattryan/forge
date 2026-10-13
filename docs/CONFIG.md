@@ -5,7 +5,7 @@
 Command templates may use `{port}`, `{job}`, `{worktree}`, `{root}`, `{branch}` and `{base}`. Commands also get `PORT`, `FORGE_PORT`, `FORGE_JOB` and `FORGE_WORKTREE` in their environment.
 
 ```yaml
-schemaVersion: 1
+schemaVersion: 2
 
 project:
   name: null                 # display name
@@ -162,7 +162,13 @@ evals:
 
 dashboard:
   port: 7400
-  launcher: null             # opt-in shell template to start a headless orchestrator for dashboard requests, e.g. 'claude -p "{prompt}"'
+
+daemon:                      # opt-in headless orchestrator supervised by `forge dash` (see "Daemon" below)
+  enabled: false             # true: `forge dash` starts it, and POST /api/daemon may start it again after a stop
+  command: claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode dontAsk --allowedTools {allowedTools}
+  allowedTools: [Agent, Skill, Read, Glob, Grep, Edit, Write, "Bash(forge:*)", "Bash(git:*)", "Bash(gh:*)"]
+  maxConcurrent: 1           # supervised sessions; only 1 is accepted for now
+  idleStopMinutes: 30        # stop an idle session after this long (null: never); new work resumes it
 ```
 
 ## Model profiles
@@ -193,6 +199,24 @@ Every `forge verify` on a clean worktree also reports what the committed diff si
 Under `warn` the report never changes the result; reviewers and the approver read it. Under `block`, a deleted test file or an added skip/focus marker fails verify (`failure.name: integrity`), and so does a report that cannot be computed (base not found, invalid pattern, or a base that already contains commits the job branch's reflog records as made on it). A deletion is sanctioned, listed as *named in spec* and never blocks, when a line of the spec's `## Approach` makes its exact path the object of delete, remove or drop (``- Delete `test/old.test.mjs` ``, ``- Remove the test files `a` and `b` ``); a move the runner may miss is sanctioned the same way by ``- Move `test/a.test.js` to `test/a.test.ts` `` (or rename … to/into …; a `to` ending in `/` keeps the file name). The path must end the clause: ``Remove `x` from the lint glob``, ``Drop `x` coverage of …`` or ``Remove the `x` case`` sanction nothing. A mere mention, any line with a negation (not, n't, never, keep, avoid, without, leave, cannot), a rename out of the pattern or a type change is never sanctioned. For any other legitimate skip or deletion, the human escape is `verifyIntegrity: warn`. The mode is always read from the main checkout's config, so a job that edits `.forge/config.yml` cannot switch it off.
 
 Verify's clean check also fails, in either mode, when the files on disk can differ from HEAD without `git status` showing it: assume-unchanged flags, a skip-worktree file that is still on disk, or one missing from disk that no sparse checkout leaves out (paths outside a cone-mode sparse checkout are fine; with non-cone or malformed patterns only files that are not tests or test config may be missing), or a clean/smudge filter that changes a test or test-config file on checkout (the standard git-lfs filter is trusted; Forge's eval checkouts sparse-exclude only `.forge/evals/`). If that check itself cannot run, the report becomes an integrity error (fails `block`, printed under `warn`). In the verify JSON, `integrity` is `null` when the worktree is unclean (no report is computed) and `{ "mode", "ok", "error" }` when the report cannot be computed.
+
+## Daemon
+
+With `daemon.enabled: true`, `forge dash` supervises one long-lived headless orchestrator session, so requests queued from the dashboard get handled without a Claude Code window open. Whenever new pending requests appear and the session is idle, it writes the session one fixed turn, `/forge requests`, on stdin; the session claims and handles them exactly as yours would. It spends tokens unattended, under the permissions `allowedTools` grants, so it is off by default.
+
+- **`command`** is split into argv like a shell would split words (whitespace; `'…'` literal; `"…"` with `\"` and `\\`), then run directly, with no shell: no pipes, globbing, `$VARS` or `~`. Its first word must be `claude` or a path ending in `/claude`. The session's PATH starts with this plugin's `bin/`, so its `forge` is the same version as `forge dash`'s. Placeholders expand after splitting, so each stays one argument even with spaces in it:
+  - `{pluginRoot}`: this plugin's directory. Pass it with `--plugin-dir` so the session has the `/forge` skill and the `forge:*` agents; `--resume` doesn't restore it, so it is passed on every spawn.
+  - `{session}` (required, as its own word): `--session-id <uuid>` for a new session, or `--resume <uuid>` to continue the stored one after a restart or an idle stop.
+  - `{allowedTools}`: the `allowedTools` list joined with commas, as one argument.
+  - Anything else in braces is left as is.
+- **`allowedTools`** must include `Agent` (every role runs as a subagent), and entries can't contain commas. With `--permission-mode dontAsk`, anything not listed is refused rather than asked about, because nobody is there to answer. Bash is limited to `forge`, `git` and `gh` by default; add `Bash(<cmd>:*)` for your build, test and lint commands deliberately (`/forge init` offers this).
+- **`enabled`** means the daemon may run and starts with `forge dash`. `POST /api/daemon {"action":"stop"}` stops it until the next `start` or the next `forge dash`; to keep it off across restarts, set `enabled: false`.
+- **`maxConcurrent`** is the number of supervised sessions, and only `1` is accepted. Jobs still run in parallel inside that session, up to `runtime.maxParallelJobs`.
+- **`idleStopMinutes`**: a session with no turn in flight for this long is stopped. The daemon stays wanted, and the next request resumes the same session. `null` never stops it.
+- **Budget hold.** `pipeline.budget` limits are per job, so a budget stop is pending per request: a `resume`, `rework`, `answer` or `revise-spec` request whose job is at `waiting: budget` and still over a limit sends no turn. Once you raise or acknowledge the budget (`forge job budget <id> --set … | --ack`), the next tick sends it. `approve` is never held (approving a budget-parked job is the acknowledgement), nor are `cancel` and requests without a job.
+- **Migration from `dashboard.launcher`** (config `schemaVersion` 1 → 2): a non-empty launcher moves to `daemon.command` (an existing `daemon.command` wins) and `dashboard.launcher` is removed; `enabled` is never set, so upgrading never turns the daemon on. A launcher was a shell template with `{prompt}`, run once per request; `forge config validate` and `forge doctor` reject a `{prompt}` command until you rewrite it in the form above (usually: take the default `command` and add your flags), because the daemon sends its turn on stdin and never through a shell.
+
+Files (gitignored, under `.forge/runtime/`): `daemon.json` (session id, pids), `daemon.log` (every stdout event plus `forge-daemon`/`forge-stderr` lines; rotated to `daemon.log.1` past 20 MiB). docs/ARCHITECTURE.md "Daemon" covers the lifecycle and "Daemon security" the threat model.
 
 ## Repo-layer files
 

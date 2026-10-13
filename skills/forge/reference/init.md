@@ -33,7 +33,7 @@ Show the human a 5-8 line summary: stack/kinds, base branch, tracker candidates 
 - Monorepo / multiple services: confirm `services` (name, path, per-service commands).
 - Repo-specific reviewers: for each `repoAgents` entry that is a review/audit agent (e.g. a realtime-safety checker), offer a lens. Create `.forge/reviewers/<name>.md` whose checklist says to follow that agent's instructions file, and add it to the panel.
 - E2E (only when `commands.e2e` was detected): confirm the command, then "Run in verify when UI paths change (Recommended)" · "Always" · "Never" → `verifyE2e.when`. Offer the repo's UI dirs as `verifyE2e.paths` additions when they aren't covered by the default extensions.
-- Dashboard launcher (advanced, default off): a shell template that starts a headless orchestrator for dashboard requests, e.g. `claude -p "{prompt}"`. Explain it spends tokens without a human at the keyboard.
+- Daemon (advanced, default off): `forge dash` supervises a headless orchestrator session that handles dashboard requests on its own. Explain that it spends tokens with no human at the keyboard, runs with `--permission-mode dontAsk` (anything not in `daemon.allowedTools` is refused, never asked), and that the default allows Bash only for `forge`, `git` and `gh`. Offer to add `Bash(<cmd>:*)` entries to `daemon.allowedTools` for the detected `commands.*` (first word of each). Write `daemon.enabled: true` only on an explicit yes.
 
 ## 5. Write
 Assemble an answers JSON containing only keys that differ from defaults (`${CLAUDE_PLUGIN_ROOT}/docs/CONFIG.md` documents every key). Write it to a scratch file, then:

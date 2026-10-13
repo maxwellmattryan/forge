@@ -98,7 +98,7 @@ Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CONFIG.md](docs
 - **Analytics**: Forge metrics plus token and cost breakdowns by role and model.
 - **Evals**: runs, side-by-side comparisons, and a Run eval button.
 
-Buttons don't run agents directly. They queue requests that your orchestrator session picks up (`/forge requests`), so permissions and spend stay with you. If you want one-click runs anyway, configure a headless launcher (`dashboard.launcher`).
+Buttons don't run agents directly. They queue requests, and an orchestrator session drains them: your own (`/forge requests`), so permissions and spend stay with you, or, with `daemon.enabled: true`, a headless Claude Code session that `forge dash` supervises and nudges whenever new requests arrive. The daemon spends tokens unattended, limited to the tools in `daemon.allowedTools`; see [Daemon](docs/CONFIG.md#daemon).
 
 ## Authorship
 

@@ -4,7 +4,7 @@ This repo is **Forge**: a Claude Code plugin that is also its own marketplace. T
 
 ## Layout
 - `bin/forge`: CLI entry (also on PATH while the plugin is enabled)
-- `lib/`: the engine. `cli.mjs` (routing only) + `commands/` (one module per command group), `jobs.mjs` (state + events), `schema.mjs` (versions, normalisers, migrations), `config.mjs`, `worktree.mjs`, `pr.mjs`, `trackers/`, `stats.mjs`, `evals.mjs`, `retro.mjs`, `usage.mjs` + `pricing.json`, `server.mjs`, `detect.mjs`, `yaml.mjs`
+- `lib/`: the engine. `cli.mjs` (routing only) + `commands/` (one module per command group), `jobs.mjs` (state + events), `schema.mjs` (versions, normalisers, migrations), `config.mjs`, `worktree.mjs`, `pr.mjs`, `trackers/`, `stats.mjs`, `evals.mjs`, `retro.mjs`, `usage.mjs` + `pricing.json`, `server.mjs`, `daemon.mjs` (the headless session `forge dash` supervises), `detect.mjs`, `yaml.mjs`
 - `dashboard/`: `index.html` + `app.js` + view modules (`util.js` shared helpers, `budget.js`), served by `forge dash`; no build step
 - `hooks/`: plugin hooks (`hooks.json` + the no-AI-attribution PreToolUse hook)
 - `skills/forge/`: the orchestrator (`SKILL.md`) and on-demand procedures (`reference/`)
