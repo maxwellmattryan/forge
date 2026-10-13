@@ -108,7 +108,7 @@
 
 {#snippet item(it: Item)}
   {#if it.kind === 'text'}
-    {#if it.long}<details><summary class="cursor-pointer whitespace-pre-wrap break-words {it.tone ? 'text-muted' : ''}">{it.text.slice(0, 200)}…</summary><div class="whitespace-pre-wrap break-words">{it.text}</div></details>{:else}<div class="whitespace-pre-wrap break-words {it.tone ? 'text-muted' : ''}">{it.text}</div>{/if}
+    {#if it.long}<details><summary class="cursor-pointer whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text.slice(0, 200)}…</summary><div class="whitespace-pre-wrap break-words">{it.text}</div></details>{:else}<div class="whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text}</div>{/if}
   {:else if it.kind === 'thinking'}
     <details class="text-muted"><summary class="cursor-pointer">{$t('session.thinkingItem')}</summary><div class="whitespace-pre-wrap break-words">{it.text}</div></details>
   {:else if it.kind === 'tool'}

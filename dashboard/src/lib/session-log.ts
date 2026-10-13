@@ -163,8 +163,10 @@ function parseLine(offset: number, line: string): Parsed[] {
     case 'assistant': {
       const blocks = Array.isArray(obj(ev.message).content) ? (obj(ev.message).content as unknown[]).map(obj) : [];
       const out: Parsed[] = [];
+      // An API failure (auth, overload) arrives as an assistant message flagged with `error`.
+      const tone = ev.error || ev.is_api_error_message ? 'bad' : null;
       for (const b of blocks) {
-        if (b.type === 'text' && str(b.text).trim()) out.push(item({ kind: 'text', offset, tone: null, text: str(b.text), long: str(b.text).length > LONG_TEXT }, parent));
+        if (b.type === 'text' && str(b.text).trim()) out.push(item({ kind: 'text', offset, tone, text: str(b.text), long: str(b.text).length > LONG_TEXT }, parent));
         else if (b.type === 'thinking' || b.type === 'redacted_thinking') out.push(item({ kind: 'thinking', offset, tone: 'muted', text: str(b.thinking ?? b.data ?? '') }, parent));
         else if (b.type === 'tool_use') out.push({ kind: 'tool-use', offset, parent, id: str(b.id), name: str(b.name), input: b.input });
       }

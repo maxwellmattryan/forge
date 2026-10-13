@@ -212,4 +212,6 @@ test('supervisor and forge lines are tagged and toned like the old daemon pane',
   assert.deepEqual(one({ type: 'forge-truncated', originalType: null, bytes: 5 }), ['truncated', 'warn', 'line · 5 bytes']);
   assert.deepEqual(one({ type: 'system', subtype: 'compact_boundary' }), ['other', 'muted', 'system compact_boundary']);
   assert.deepEqual(one({ event: 'thing' }), ['other', 'muted', '{"event":"thing"}']);
+  // What claude 2.1.296 printed when its login had expired.
+  assert.deepEqual(one({ type: 'assistant', error: 'authentication_failed', is_api_error_message: true, message: { content: [{ type: 'text', text: 'Failed to authenticate' }] } }), ['text', 'bad', 'Failed to authenticate']);
 });
