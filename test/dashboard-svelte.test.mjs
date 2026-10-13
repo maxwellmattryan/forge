@@ -22,7 +22,197 @@ const sources = () =>
 const svelteFiles = () => sources().filter((f) => f.endsWith('.svelte'));
 /** The escape-first HTML builders; their output is the only raw HTML the app renders. */
 const BUILDERS = { md: 'markdown', budgetChip: 'budget', budgetCell: 'budget', budgetPanel: 'budget', screenshotsPanel: 'screenshots' };
-const BUILDER_FILES = ['src/lib/markdown.ts', 'src/lib/budget.ts', 'src/lib/screenshots.ts'];
+
+// A regex can't tell where `{md(x) + raw}` ends or that `onclick={() => …}` doesn't close a tag, so the guards below
+// scan brackets, strings and template literals. Anything they can't parse is reported, never skipped.
+const CLOSE = { '{': '}', '(': ')', '[': ']' };
+/** Index of the character closing the bracket group, string or template literal opened at `i`; -1 if it never closes. */
+function endOf(/** @type {string} */ text, /** @type {number} */ i) {
+  const open = text[i];
+  if (open === '"' || open === "'") {
+    for (let j = i + 1; j < text.length; j++) {
+      if (text[j] === '\\') j++;
+      else if (text[j] === open) return j;
+    }
+    return -1;
+  }
+  if (open === '`') {
+    for (let j = i + 1; j < text.length; j++) {
+      if (text[j] === '\\') j++;
+      else if (text[j] === '`') return j;
+      else if (text[j] === '$' && text[j + 1] === '{' && (j = endOf(text, j + 1)) < 0) return -1;
+    }
+    return -1;
+  }
+  const close = CLOSE[/** @type {keyof typeof CLOSE} */ (open)];
+  for (let j = i + 1; j < text.length; j++) {
+    const c = text[j];
+    if (c === close) return j;
+    if (c in CLOSE || c === '"' || c === "'" || c === '`') {
+      if ((j = endOf(text, j)) < 0) return -1;
+    } else if (c === ')' || c === ']' || c === '}') return -1;
+  }
+  return -1;
+}
+
+/** The callee when `expr` is exactly one call `name(…)` with nothing before or after it, otherwise null. */
+function soleCall(/** @type {string} */ expr) {
+  const e = expr.trim();
+  const m = /^([A-Za-z_$][\w$]*)\s*\(/.exec(e);
+  return m && endOf(e, m[0].length - 1) === e.length - 1 ? m[1] : null;
+}
+
+/** @param {string} file @param {string} text */
+function htmlProblems(file, text) {
+  const problems = [];
+  const calls = [];
+  for (const m of text.matchAll(/\{@html\b/g)) {
+    const end = endOf(text, m.index);
+    const name = end < 0 ? null : soleCall(text.slice(m.index + '{@html'.length, end));
+    if (!name || !Object.hasOwn(BUILDERS, name)) {
+      problems.push(`${file}: {@html} must be exactly one escape-first builder call: ${text.slice(m.index, end < 0 ? m.index + 60 : end + 1)}`);
+      continue;
+    }
+    const lib = BUILDERS[/** @type {keyof typeof BUILDERS} */ (name)];
+    const imp = new RegExp(`import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*'(?:\\.\\.?\\/)+lib\\/${lib}\\.ts'`);
+    if (!imp.test(text)) problems.push(`${file}: ${name} must be imported from lib/${lib}.ts`);
+    calls.push(name);
+  }
+  return { problems, calls };
+}
+
+/**
+ * Opening tags of a component's markup with their attributes. `<script>` and comments are dropped, and top-level
+ * `{…}` blocks are skipped whole, so `a < b` in an expression is never read as a tag.
+ * @param {string} file @param {string} text
+ */
+function tags(file, text) {
+  const s = text.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '').replace(/<!--[\s\S]*?-->/g, '');
+  const unclosed = (/** @type {number} */ at) => new Error(`${file}: cannot parse markup near ${JSON.stringify(s.slice(at, at + 60))}`);
+  /** @type {{ name: string, attrs: { name?: string, value?: string, spread?: string }[] }[]} */
+  const out = [];
+  let i = 0;
+  while (i < s.length) {
+    if (s[i] === '{') {
+      const end = endOf(s, i);
+      if (end < 0) throw unclosed(i);
+      i = end + 1;
+      continue;
+    }
+    const open = s[i] === '<' && /^<([A-Za-z][\w:.-]*)/.exec(s.slice(i));
+    if (!open) { i++; continue; }
+    /** @type {{ name: string, attrs: { name?: string, value?: string, spread?: string }[] }} */
+    const tag = { name: open[1], attrs: [] };
+    let j = i + open[0].length;
+    for (;;) {
+      while (/\s/.test(s[j] ?? '')) j++;
+      if (j >= s.length) throw unclosed(i);
+      if (s[j] === '>' || s.startsWith('/>', j)) break;
+      if (s[j] === '{') {
+        const end = endOf(s, j);
+        if (end < 0) throw unclosed(j);
+        const expr = s.slice(j + 1, end).trim();
+        // `{...props}` spreads; `{href}` is shorthand for href={href}.
+        tag.attrs.push(expr.startsWith('...') ? { spread: expr } : { name: expr, value: `{${expr}}` });
+        j = end + 1;
+        continue;
+      }
+      const name = /^[^\s=/>{"']+/.exec(s.slice(j))?.[0];
+      if (!name) { j++; continue; }
+      j += name.length;
+      while (/\s/.test(s[j] ?? '')) j++;
+      if (s[j] !== '=') { tag.attrs.push({ name }); continue; }
+      j++;
+      while (/\s/.test(s[j] ?? '')) j++;
+      const from = j;
+      if (s[j] === '"' || s[j] === "'") {
+        const q = s[j++];
+        while (j < s.length && s[j] !== q) j = s[j] === '{' ? endOf(s, j) + 1 || s.length : j + 1;
+        if (j >= s.length) throw unclosed(from);
+        j++;
+      } else {
+        while (j < s.length && !/[\s>]/.test(s[j])) j = s[j] === '{' ? endOf(s, j) + 1 || s.length : j + 1;
+      }
+      tag.attrs.push({ name, value: s.slice(from, j) });
+    }
+    out.push(tag);
+    i = j;
+  }
+  return out;
+}
+
+/** The right-hand side of the assignment starting at `i`: up to `;`, a newline, or the `}` closing an `{@const}`. */
+function rhs(/** @type {string} */ text, /** @type {number} */ i) {
+  let j = i;
+  for (; j < text.length && !/[;\n}]/.test(text[j]); j++) {
+    if (text[j] in CLOSE || text[j] === '"' || text[j] === "'" || text[j] === '`') {
+      const end = endOf(text, j);
+      if (end < 0) return '';
+      j = end;
+    }
+  }
+  return text.slice(i, j).trim();
+}
+
+/** True when `name` is declared, and every `const name =` / `{@const name =}` is exactly safeUrl(…) or $derived(safeUrl(…)). */
+function fromSafeUrl(/** @type {string} */ text, /** @type {string} */ name) {
+  const decls = [...text.matchAll(new RegExp(`(?:\\{@const|\\bconst)\\s+${name.replace(/\$/g, '\\$')}\\s*=\\s*`, 'g'))];
+  return decls.length > 0 && decls.every((m) => {
+    const e = rhs(text, m.index + m[0].length);
+    if (soleCall(e) === 'safeUrl') return true;
+    return soleCall(e) === '$derived' && soleCall(e.slice(e.indexOf('(') + 1, -1)) === 'safeUrl';
+  });
+}
+
+const URL_ATTRS = new Set(['href', 'src', 'action', 'formaction', 'xlink:href']);
+/**
+ * Which allowance a dynamic URL attribute value meets, or why it meets none. Allowed: a quoted value whose literal
+ * prefix is a hash route or a same-origin path with a fixed first segment (an interpolation can't change its scheme
+ * or host), a `#/…` template, or exactly safeUrl(…) / a const assigned exactly from it.
+ * @param {string} text @param {string} value
+ * @returns {{ via: 'prefix' | 'safeUrl' } | { why: string }}
+ */
+function urlVerdict(text, value) {
+  const bare = { why: 'interpolates without a fixed #/ or same-origin /path prefix' };
+  let v = value;
+  if (/^["']/.test(v)) {
+    const inner = v.slice(1, -1);
+    if (inner.startsWith('{') && endOf(inner, 0) === inner.length - 1) v = inner;
+    else return /^(#\/|\/[\w-])/.test(inner.slice(0, inner.indexOf('{'))) ? { via: 'prefix' } : bare;
+  }
+  if (!v.startsWith('{') || endOf(v, 0) !== v.length - 1) return bare;
+  const expr = v.slice(1, -1).trim();
+  if (expr.startsWith('`#/') && endOf(expr, 0) === expr.length - 1) return { via: 'prefix' };
+  if (soleCall(expr) === 'safeUrl') return { via: 'safeUrl' };
+  if (/^[A-Za-z_$][\w$]*$/.test(expr)) return fromSafeUrl(text, expr) ? { via: 'safeUrl' } : { why: `{${expr}} is not a const assigned exactly from safeUrl(…)` };
+  return { why: 'is not exactly safeUrl(…), a const from it, or a #/ route' };
+}
+
+/** @param {string} file @param {string} text */
+function urlProblems(file, text) {
+  const problems = [];
+  let checked = 0;
+  let viaSafeUrl = false;
+  for (const tag of tags(file, text)) {
+    // Components (capitalised) may take spreads: whatever they forward lands on a native element checked here.
+    const native = /^[a-z]/.test(tag.name);
+    for (const a of tag.attrs) {
+      if (a.spread !== undefined) {
+        if (native) problems.push(`${file}: <${tag.name} {${a.spread}}> spreads attributes, which can carry an unchecked URL`);
+        continue;
+      }
+      if (!a.name || !URL_ATTRS.has(a.name.toLowerCase()) || a.value === undefined || !a.value.includes('{')) continue;
+      checked++;
+      const r = urlVerdict(text, a.value);
+      if ('why' in r) problems.push(`${file}: <${tag.name} ${a.name}=${a.value}> ${r.why}`);
+      else if (r.via === 'safeUrl') viaSafeUrl = true;
+    }
+  }
+  if (viaSafeUrl && !/import\s*\{[^}]*\bsafeUrl\b[^}]*\}\s*from\s*'(?:\.\.?\/)+lib\/markdown\.ts'/.test(text)) {
+    problems.push(`${file}: safeUrl must be imported from lib/markdown.ts`);
+  }
+  return { problems, checked };
+}
 
 const FILES = [
   'index.html', 'style.css', 'svelte.config.mjs', 'vite.config.mjs', 'tsconfig.json',
@@ -83,19 +273,20 @@ test('components are TypeScript, unstyled, and use whole class literals', () => 
 test('{@html} receives only escape-first builders', () => {
   let drawerMd = false;
   for (const f of sources()) {
-    const text = read(f);
-    for (const m of text.matchAll(/\{@html/g)) {
-      const call = /^\{@html\s+(md|budgetChip|budgetCell|budgetPanel|screenshotsPanel)\(/.exec(text.slice(m.index));
-      assert.ok(call, `${f}: {@html} must call an escape-first builder: ${text.slice(m.index, m.index + 60)}`);
-      const name = /** @type {keyof typeof BUILDERS} */ (call[1]);
-      const imp = new RegExp(`import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*'(\\.\\.?\\/)+lib\\/(markdown|budget|screenshots)\\.ts'`);
-      const found = imp.exec(text);
-      assert.ok(found, `${f} imports ${name} from lib/${BUILDERS[name]}.ts`);
-      assert.equal(found[2], BUILDERS[name], `${f}: ${name} comes from lib/${BUILDERS[name]}.ts`);
-      if (f === 'src/components/Drawer.svelte' && name === 'md') drawerMd = true;
-    }
+    const { problems, calls } = htmlProblems(f, read(f));
+    assert.deepEqual(problems, []);
+    if (f === 'src/components/Drawer.svelte' && calls.includes('md')) drawerMd = true;
   }
   assert.ok(drawerMd, 'Drawer.svelte renders markdown through {@html md(…)}');
+});
+
+test('the {@html} guard rejects anything but one whole builder call', () => {
+  const head = `<script lang="ts">\n  import { md } from '../lib/markdown.ts';\n</script>\n`;
+  assert.deepEqual(htmlProblems('ok.svelte', `${head}{@html md(x)}{@html md(a.b, { c: '}' })}`).problems, []);
+  for (const bad of ['{@html md(x) + raw}', '{@html md(x) || raw}', '{@html md(x)(raw)}', '{@html cond ? md(x) : raw}', '{@html raw}', '{@html md(x)']) {
+    assert.equal(htmlProblems('bad.svelte', head + bad).problems.length, 1, bad);
+  }
+  assert.equal(htmlProblems('bad.svelte', '{@html md(x)}').problems.length, 1, 'md must come from lib/markdown.ts');
 });
 
 test('no raw HTML sinks in dashboard sources', () => {
@@ -115,23 +306,49 @@ test('mockups render only in the sandboxed /raw iframe', () => {
   assert.match(tag, /\ssrc="\/api\/jobs\/\{[^}]+\}\/raw\?path=\{[^}]+\}"/);
 });
 
-test('dynamic links go through safeUrl', () => {
+test('dynamic URLs go through safeUrl', () => {
   let checked = 0;
-  for (const f of sources().filter((x) => !BUILDER_FILES.includes(x))) {
-    const text = read(f);
-    for (const m of text.matchAll(/\bhref=("[^"]*"|\{[^}]*\})/g)) {
-      const v = m[1];
-      if (!v.includes('{')) continue;
-      checked++;
-      if (/^"#\/\{[^}]+\}"$/.test(v) || /^\{`#\/\$\{[^`]+\}`\}$/.test(v)) continue;
-      if (/^\{safeUrl\(/.test(v)) continue;
-      const name = /^\{([A-Za-z_$][\w$]*)\}$/.exec(v)?.[1];
-      assert.ok(name, `${f}: dynamic href ${v} is neither #/…, safeUrl(…) nor a name`);
-      const assigned = new RegExp(`(\\{@const\\s+${name}\\s*=\\s*safeUrl\\(|\\bconst\\s+${name}\\s*=\\s*safeUrl\\(|\\bconst\\s+${name}\\s*=\\s*\\$derived\\(safeUrl\\()`);
-      assert.match(text, assigned, `${f}: href={${name}} must come from safeUrl(…)`);
-    }
+  for (const f of svelteFiles()) {
+    const r = urlProblems(f, read(f));
+    assert.deepEqual(r.problems, []);
+    checked += r.checked;
   }
-  assert.ok(checked >= 6, `checked ${checked} dynamic hrefs`);
+  assert.ok(checked >= 8, `checked ${checked} dynamic URL attributes`);
+});
+
+test('the URL guard rejects shorthand, spreads and unchecked src/action/formaction/xlink:href', () => {
+  const imp = `  import { safeUrl } from '../lib/markdown.ts';\n`;
+  const head = `<script lang="ts">\n${imp}  const href = $derived(safeUrl(job.url));\n</script>\n`;
+  const ok = [
+    '<a {href}>x</a>',
+    '<a href={safeUrl(u)} onclick={() => go({ to: "a>b" })}>x</a>',
+    '{#each xs as x}{@const u = safeUrl(x.url)}<a href={u}>x</a>{/each}',
+    '<a href="#/{v.id}">x</a>',
+    '<a href={`#/${v.id}`}>x</a>',
+    '<iframe sandbox="allow-scripts" src="/api/jobs/{id}/raw?path={p}"></iframe>',
+    '<img src="/forge.png" alt="" />',
+    '<Card {...props} />',
+  ];
+  for (const markup of ok) assert.deepEqual(urlProblems('ok.svelte', head + markup).problems, [], markup);
+  const bad = [
+    // Gap 2: shorthand whose name never passed through safeUrl, and spreads on URL-bearing elements.
+    `<script lang="ts">\n  let { href } = $props();\n</script>\n<a {href}>x</a>`,
+    ...['a', 'iframe', 'img', 'form', 'area', 'link'].map((t) => `${head}<${t} {...props}></${t}>`),
+    // Gap 3: the other URL attributes.
+    `${head}<img src={u} />`,
+    `${head}<iframe sandbox="allow-scripts" src={u}></iframe>`,
+    `${head}<button formaction={u}>x</button>`,
+    `${head}<form action={u}></form>`,
+    `${head}<svg><use xlink:href={u} /></svg>`,
+    `${head}<img src="{u}" />`,
+    `${head}<a href="//{host}/x">x</a>`,
+    `${head}<a href="{base}/x">x</a>`,
+    // safeUrl must be the whole value, and the real one.
+    `${head}<a href={safeUrl(u) || raw}>x</a>`,
+    `<script lang="ts">\n${imp}  const href = $derived(safeUrl(job.url) ?? raw);\n</script>\n<a {href}>x</a>`,
+    `<script lang="ts">\n  const href = $derived(safeUrl(job.url));\n</script>\n<a {href}>x</a>`,
+  ];
+  for (const markup of bad) assert.ok(urlProblems('bad.svelte', markup).problems.length > 0, markup);
 });
 
 test('svelte config forces runes and the entry mounts the app', async () => {
