@@ -1,11 +1,11 @@
-// @ts-check
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { paths, exists } from './paths.mjs';
-import { STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, normalizeJob, serializeJob } from './schema.mjs';
+import { paths, exists } from './paths.ts';
+import { STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, normalizeJob, serializeJob } from './schema.ts';
+import type { AgentUsage, Config, Job, JobAgent, JobEvent, JobState, LoadedJob, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
 import { estimateCost } from './usage.mjs';
-import { ForgeError, now, readJson, readText, setPath, slugify, shortId, withLock, writeJsonAtomic } from './util.mjs';
+import { ForgeError, now, readJson, readText, setPath, slugify, shortId, withLock, writeJsonAtomic } from './util.ts';
 
 /** A session that has not touched its job for this long is presumed dead and can be taken over. */
 const OWNER_STALE_MS = 30 * 60 * 1000;
@@ -16,14 +16,12 @@ const OWNER_STALE_MS = 30 * 60 * 1000;
  */
 const RUNNING_AGENT_MAX_MS = 2 * 60 * 60 * 1000;
 
-/** @param {string} root @param {string} id */
-export function jobDir(root, id) {
+export function jobDir(root: string, id: string): string {
   if (!/^[a-z0-9][a-z0-9._-]*$/i.test(id)) throw new ForgeError(`invalid job id "${id}"`);
   return paths(root).job(id);
 }
 
-/** @param {string} root @param {string} id */
-export function loadJob(root, id) {
+export function loadJob(root: string, id: string): LoadedJob {
   const file = path.join(jobDir(root, id), 'job.json');
   if (!exists(file)) throw new ForgeError(`no job "${id}" (looked in ${path.dirname(file)})`);
   const job = normalizeJob(readJson(file));
@@ -33,9 +31,8 @@ export function loadJob(root, id) {
 
 /**
  * All job.json writes go through here: locked, atomic, timestamped, heartbeat-refreshing.
- * @param {string} root @param {string} id @param {(job:any)=>void} mutate
  */
-export function updateJob(root, id, mutate) {
+export function updateJob(root: string, id: string, mutate: (job: LoadedJob) => void): LoadedJob {
   const dir = jobDir(root, id);
   return withLock(path.join(dir, '.lock'), () => {
     const job = loadJob(root, id);
@@ -47,21 +44,17 @@ export function updateJob(root, id, mutate) {
   });
 }
 
-/** Refreshes the owner heartbeat without changing anything else. @param {string} root @param {string} id */
-export function touchJob(root, id) {
+/** Refreshes the owner heartbeat without changing anything else. */
+export function touchJob(root: string, id: string): LoadedJob {
   return updateJob(root, id, () => {});
 }
 
-/**
- * @param {string} root @param {string} id @param {string} type @param {Record<string, any>} [data]
- */
-export function logEvent(root, id, type, data = {}) {
+export function logEvent(root: string, id: string, type: string, data: Record<string, any> = {}): void {
   const line = JSON.stringify({ v: EVENT_SCHEMA_VERSION, ts: now(), type, ...data });
   fs.appendFileSync(path.join(jobDir(root, id), 'events.jsonl'), line + '\n');
 }
 
-/** @param {string} root @param {string} id */
-export function readEvents(root, id) {
+export function readEvents(root: string, id: string): JobEvent[] {
   return readText(path.join(jobDir(root, id), 'events.jsonl'))
     .split('\n')
     .filter(Boolean)
@@ -75,11 +68,11 @@ export function readEvents(root, id) {
     .filter(Boolean);
 }
 
-/**
- * @param {string} root @param {any} config
- * @param {{title:string, ref?:string, url?:string, tracker?:string, body?:string, parent?:string, branch?:string, kind?:string, slug?:string, services?:string[]}} opts
- */
-export function createJob(root, config, opts) {
+export function createJob(
+  root: string,
+  config: Config,
+  opts: { title: string; ref?: string; url?: string; tracker?: string; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; services?: string[] },
+): LoadedJob {
   if (!opts.title) throw new ForgeError('a job needs a title');
   const p = paths(root);
   fs.mkdirSync(p.jobs, { recursive: true });
@@ -92,7 +85,7 @@ export function createJob(root, config, opts) {
       fs.mkdirSync(p.job(id));
       break;
     } catch (e) {
-      if (/** @type {any} */ (e).code !== 'EEXIST') throw e;
+      if ((e as any).code !== 'EEXIST') throw e;
       id = `${baseId}-${n}`;
     }
   }
@@ -120,53 +113,54 @@ export function createJob(root, config, opts) {
   return job;
 }
 
-/** @param {string} root */
-export function listJobs(root) {
+export function listJobs(root: string): LoadedJob[] {
   const dir = paths(root).jobs;
   if (!exists(dir)) return [];
-  return fs
-    .readdirSync(dir, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && exists(path.join(dir, d.name, 'job.json')))
-    .map((d) => {
-      try {
-        return normalizeJob(readJson(path.join(dir, d.name, 'job.json')));
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean)
+  return (
+    fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && exists(path.join(dir, d.name, 'job.json')))
+      .map((d) => {
+        try {
+          return normalizeJob(readJson(path.join(dir, d.name, 'job.json')));
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean) as LoadedJob[]
+  )
     .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
 }
 
-/** @param {any} job */
-export function isActive(job) {
+export function isActive(job: Job): boolean {
   return !['done', 'cancelled'].includes(job.state);
 }
 
-/**
- * @param {string} root @param {string} id
- * @param {{stage?:string, state?:string, waitingOn?:string|null, reason?:string|null, fields?:Record<string, any>, note?:string}} change
- */
-export function setJob(root, id, change) {
-  if (change.stage && !STAGES.includes(/** @type {any} */ (change.stage)))
+export function setJob(
+  root: string,
+  id: string,
+  change: { stage?: string; state?: string; waitingOn?: string | null; reason?: string | null; fields?: Record<string, any>; note?: string },
+): LoadedJob {
+  if (change.stage && !STAGES.includes(change.stage as any))
     throw new ForgeError(`unknown stage "${change.stage}" (${STAGES.join(', ')})`);
-  if (change.state && !STATES.includes(/** @type {any} */ (change.state)))
+  if (change.state && !STATES.includes(change.state as any))
     throw new ForgeError(`unknown state "${change.state}" (${STATES.join(', ')})`);
-  if (change.waitingOn && !WAITING_ON.includes(/** @type {any} */ (change.waitingOn)))
+  if (change.waitingOn && !WAITING_ON.includes(change.waitingOn as any))
     throw new ForgeError(`unknown waiting-on "${change.waitingOn}" (${WAITING_ON.join(', ')})`);
-  let before = null;
+  let before: TransitionSide | null = null;
   const job = updateJob(root, id, (j) => {
     before = { stage: j.stage, state: j.state, waitingOn: j.waitingOn };
-    if (change.stage) j.stage = change.stage;
-    if (change.state) j.state = change.state;
+    // stage, state and waitingOn were checked against their lists above.
+    if (change.stage) j.stage = change.stage as Stage;
+    if (change.state) j.state = change.state as JobState;
     if (change.state && change.state !== 'waiting' && change.waitingOn === undefined) j.waitingOn = null;
-    if (change.waitingOn !== undefined) j.waitingOn = change.waitingOn;
+    if (change.waitingOn !== undefined) j.waitingOn = change.waitingOn as WaitingOn | null;
     if (change.reason !== undefined) j.reason = change.reason;
     if (j.state === 'waiting' && !j.waitingOn) throw new ForgeError('state "waiting" needs --waiting-on');
     for (const [k, v] of Object.entries(change.fields ?? {})) setPath(j, k, v);
     if (['done', 'cancelled'].includes(j.state) && !j.finishedAt) j.finishedAt = now();
   });
-  const b = /** @type {any} */ (before);
+  const b = before as any;
   if (b.stage !== job.stage || b.state !== job.state || b.waitingOn !== job.waitingOn)
     logEvent(root, id, 'transition', { from: b, to: { stage: job.stage, state: job.state, waitingOn: job.waitingOn }, reason: change.reason ?? undefined });
   if (change.fields && Object.keys(change.fields).length) logEvent(root, id, 'fields', { fields: change.fields });
@@ -177,13 +171,12 @@ export function setJob(root, id, change) {
 /**
  * Prevents two sessions from driving the same job at once while letting a new session
  * take over a job whose previous session died.
- * @param {string} root @param {string} id @param {string} session @param {boolean} force
  */
-export function claimJob(root, id, session, force = false) {
+export function claimJob(root: string, id: string, session: string, force = false): LoadedJob {
   const job = updateJob(root, id, (j) => {
     const o = j.owner;
     const heartbeatFresh = o && Date.now() - Date.parse(o.heartbeat ?? o.since) < OWNER_STALE_MS;
-    const agentRunning = Object.values(j.agents).some((/** @type {any} */ a) => a.status === 'running' && a.startedAt && Date.now() - Date.parse(a.startedAt) < RUNNING_AGENT_MAX_MS);
+    const agentRunning = Object.values(j.agents).some((a: JobAgent) => a.status === 'running' && a.startedAt && Date.now() - Date.parse(a.startedAt) < RUNNING_AGENT_MAX_MS);
     if (o && o.session !== session && (heartbeatFresh || agentRunning) && !force)
       throw new ForgeError(`job ${id} is being driven by session ${o.session} (${agentRunning ? 'an agent is still running' : `last active ${o.heartbeat}`}); pass --force to take over`, 3);
     j.owner = { session, host: os.hostname(), since: o?.session === session ? o.since : now(), heartbeat: now() };
@@ -193,8 +186,7 @@ export function claimJob(root, id, session, force = false) {
   return job;
 }
 
-/** @param {string} root @param {string} id */
-export function releaseJob(root, id) {
+export function releaseJob(root: string, id: string): void {
   updateJob(root, id, (j) => {
     const run = j.runs[j.runs.length - 1];
     if (run && !run.endedAt) run.endedAt = now();
@@ -203,13 +195,12 @@ export function releaseJob(root, id) {
   logEvent(root, id, 'released');
 }
 
-/**
- * @param {string} root @param {string} id
- * @param {{role:string, phase:'start'|'end', model?:string, agentId?:string, status?:string, summary?:string,
- *   usage?:{totalTokens?:number, input?:number, output?:number, cacheRead?:number, cacheWrite?:number, toolUses?:number, durationMs?:number, exact?:boolean}}} rec
- * @param {any} config
- */
-export function recordAgent(root, id, rec, config) {
+export function recordAgent(
+  root: string,
+  id: string,
+  rec: { role: string; phase: 'start' | 'end'; model?: string; agentId?: string; status?: string; summary?: string; usage?: AgentUsage },
+  config: Config,
+): LoadedJob {
   const job = updateJob(root, id, (j) => {
     const a = (j.agents[rec.role] ??= { runs: 0 });
     if (rec.phase === 'start') {
@@ -240,11 +231,10 @@ export function recordAgent(root, id, rec, config) {
   return job;
 }
 
-/** @param {any} job @param {string} role @param {string|null} model @param {any} u @param {any} config */
-export function addUsage(job, role, model, u, config) {
+export function addUsage(job: Job, role: string, model: string | null | undefined, u: AgentUsage, config: Config): void {
   const total = u.totalTokens ?? (u.input ?? 0) + (u.output ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0);
   const cost = estimateCost({ ...u, totalTokens: total, model }, config?.usage?.pricing);
-  const bump = (/** @type {Record<string, any>} */ bucket, /** @type {string} */ key) => {
+  const bump = (bucket: Record<string, UsageBucket>, key: string) => {
     const b = (bucket[key] ??= { tokens: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, toolUses: 0, durationMs: 0, runs: 0, estCostUsd: 0 });
     b.tokens += total;
     b.input += u.input ?? 0;
@@ -264,23 +254,19 @@ export function addUsage(job, role, model, u, config) {
   job.usage.exact = Boolean(job.usage.exact || u.exact);
 }
 
-/** @param {number} n */
-const round4 = (n) => Math.round(n * 10000) / 10000;
+const round4 = (n: number): number => Math.round(n * 10000) / 10000;
 
-/** @param {string} root @param {string} id */
-export function progress(root, id) {
+export function progress(root: string, id: string): Progress {
   const text = readText(path.join(jobDir(root, id), 'tasks.md'));
   const done = (text.match(/^\s*[-*]\s*\[[xX]\]/gm) ?? []).length;
   const open = (text.match(/^\s*[-*]\s*\[ \]/gm) ?? []).length;
   return { done, total: done + open };
 }
 
-/** @param {string} text */
-export function parseReview(text) {
+export function parseReview(text: string): { declared: string | null; counts: Record<string, number> } {
   const first = text.split('\n').find((l) => l.trim()) ?? '';
   const m = first.match(/^\s*VERDICT:\s*(PASS|CHANGES)\b/i);
-  /** @type {Record<string, number>} */
-  const counts = Object.fromEntries(SEVERITIES.map((s) => [s, 0]));
+  const counts: Record<string, number> = Object.fromEntries(SEVERITIES.map((s) => [s, 0]));
   for (const f of text.matchAll(/^\s*[-*]\s*\[(blocker|major|minor|nit)\]/gim)) counts[f[1].toLowerCase()]++;
   return { declared: m ? m[1].toUpperCase() : null, counts };
 }
@@ -292,13 +278,17 @@ export function parseReview(text) {
  * round; `malformedAs: 'changes'` counts the rest as CHANGES so a reviewer that fails the
  * format twice cannot stall the job.
  * `round: 'integration'` reads the post-integration mini review in `review/integration/`.
- * @param {string} root @param {string} id @param {number|'integration'} round @param {string[]} reviewers @param {string[]} blockOn
- * @param {{malformedAs?:'changes'}} [opts]
  */
-export function roundVerdicts(root, id, round, reviewers, blockOn, opts = {}) {
+export function roundVerdicts(
+  root: string,
+  id: string,
+  round: number | 'integration',
+  reviewers: string[],
+  blockOn: string[],
+  opts: { malformedAs?: 'changes' } = {},
+): { round: number | 'integration'; complete: boolean; outcome: Verdict | 'PENDING'; reviewers: Record<string, any> } {
   const dir = path.join(jobDir(root, id), 'review', round === 'integration' ? 'integration' : `round-${round}`);
-  /** @type {Record<string, any>} */
-  const out = {};
+  const out: Record<string, any> = {};
   for (const r of reviewers) {
     const file = path.join(dir, `${r}.md`);
     if (!exists(file)) {
@@ -321,8 +311,7 @@ export function roundVerdicts(root, id, round, reviewers, blockOn, opts = {}) {
   return { round, complete, outcome, reviewers: out };
 }
 
-/** @param {string} root @param {string} id */
-export function parseDecision(root, id) {
+export function parseDecision(root: string, id: string): { decision: string | null; reason: string | null } {
   const text = readText(path.join(jobDir(root, id), 'decision.md'));
   const first = text.split('\n').find((l) => l.trim()) ?? '';
   const m = first.match(/^\s*(APPROVE|ESCALATE)\b\s*[:\-–]?\s*(.*)$/i);

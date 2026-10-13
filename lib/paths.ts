@@ -1,15 +1,13 @@
-// @ts-check
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ForgeError, run } from './util.mjs';
+import { ForgeError, run } from './util.ts';
 
 /**
  * Forge state always lives in the primary checkout, even when the CLI runs inside a job
  * worktree, so every session and the dashboard see the same jobs.
- * @param {string} [cwd]
  */
-export function mainRoot(cwd = process.cwd()) {
+export function mainRoot(cwd: string = process.cwd()): string {
   if (process.env.FORGE_ROOT) return path.resolve(process.env.FORGE_ROOT);
   const common = run('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, allowFail: true });
   if (!common.ok) throw new ForgeError('not inside a git repository (set FORGE_ROOT to override)');
@@ -20,13 +18,27 @@ export function mainRoot(cwd = process.cwd()) {
   throw new ForgeError(`cannot determine the main checkout from ${dir}`);
 }
 
-/** @param {string} [cwd] */
-export function forgeDir(cwd) {
+export function forgeDir(cwd?: string): string {
   return path.join(mainRoot(cwd), '.forge');
 }
 
-/** @param {string} root */
-export function paths(root) {
+/** Where everything under `.forge/` lives for the checkout at `root`. */
+export interface ForgePaths {
+  root: string;
+  repoName: string;
+  dir: string;
+  config: string;
+  jobs: string;
+  locks: string;
+  runtime: string;
+  backlog: string;
+  notes: string;
+  reviewers: string;
+  trackers: string;
+  job: (id: string) => string;
+}
+
+export function paths(root: string): ForgePaths {
   const dir = path.join(root, '.forge');
   return {
     root,
@@ -40,18 +52,15 @@ export function paths(root) {
     notes: path.join(dir, 'notes'),
     reviewers: path.join(dir, 'reviewers'),
     trackers: path.join(dir, 'trackers'),
-    /** @param {string} id */
-    job: (id) => path.join(dir, 'jobs', id),
+    job: (id: string) => path.join(dir, 'jobs', id),
   };
 }
 
-/** @param {string} root @param {string} p */
-export function resolveFrom(root, p) {
+export function resolveFrom(root: string, p: string): string {
   return path.isAbsolute(p) ? p : path.resolve(root, p);
 }
 
-/** @param {string} p */
-export function exists(p) {
+export function exists(p: string): boolean {
   try {
     fs.accessSync(p);
     return true;
@@ -60,4 +69,4 @@ export function exists(p) {
   }
 }
 
-export const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+export const PLUGIN_ROOT: string = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

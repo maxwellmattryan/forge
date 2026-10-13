@@ -11,7 +11,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.mjs';
 import { broadcast, distAllowlist, startServer } from '../lib/server.mjs';
 import { TURN_LINE } from '../lib/daemon.mjs';
-import * as yaml from '../lib/yaml.mjs';
+import * as yaml from '../lib/yaml.ts';
 import { API_VERSION as DASH_API_VERSION } from '../dashboard/src/lib/types.ts';
 
 /** @param {number} port @param {Record<string,string>} headers @param {string} [method] @param {string} [body] */

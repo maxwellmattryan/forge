@@ -1,24 +1,26 @@
-// @ts-check
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
 export class ForgeError extends Error {
-  /** @param {string} message @param {number} [code] */
-  constructor(message, code = 1) {
+  // `declare` keeps this a type only: a plain field would become a runtime class field and show up in Object.keys.
+  declare exitCode: number;
+  constructor(message: string, code: number = 1) {
     super(message);
     this.exitCode = code;
   }
 }
 
-export const now = () => new Date().toISOString();
+export const now = (): string => new Date().toISOString();
 
 /**
  * Runs a binary without a shell so arguments can never be reinterpreted.
- * @param {string} cmd @param {string[]} args @param {{cwd?:string, input?:string, allowFail?:boolean, env?:NodeJS.ProcessEnv}} [opts]
- * @returns {{ok:boolean, stdout:string, stderr:string, status:number|null}}
  */
-export function run(cmd, args, opts = {}) {
+export function run(
+  cmd: string,
+  args: string[],
+  opts: { cwd?: string; input?: string; allowFail?: boolean; env?: NodeJS.ProcessEnv } = {},
+): { ok: boolean; stdout: string; stderr: string; status: number | null } {
   const res = spawnSync(cmd, args, {
     cwd: opts.cwd,
     input: opts.input,
@@ -37,8 +39,7 @@ export function run(cmd, args, opts = {}) {
   return out;
 }
 
-/** @param {string} cmd */
-export function hasBinary(cmd) {
+export function hasBinary(cmd: string): boolean {
   try {
     execFileSync(process.platform === 'win32' ? 'where' : 'which', [cmd], { stdio: 'ignore' });
     return true;
@@ -47,37 +48,33 @@ export function hasBinary(cmd) {
   }
 }
 
-/** @param {string} file @param {any} [fallback] */
-export function readJson(file, fallback) {
+export function readJson(file: string, fallback?: any): any {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch (e) {
-    if (fallback !== undefined && /** @type {any} */ (e).code === 'ENOENT') return fallback;
-    throw new ForgeError(`cannot read ${file}: ${/** @type {Error} */ (e).message}`);
+    if (fallback !== undefined && (e as any).code === 'ENOENT') return fallback;
+    throw new ForgeError(`cannot read ${file}: ${(e as Error).message}`);
   }
 }
 
 /**
  * Write-then-rename so readers (the dashboard, other sessions) never see a half-written file.
- * @param {string} file @param {any} data
  */
-export function writeJsonAtomic(file, data) {
+export function writeJsonAtomic(file: string, data: any): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n');
   fs.renameSync(tmp, file);
 }
 
-/** @param {string} file @param {string} text */
-export function writeTextAtomic(file, text) {
+export function writeTextAtomic(file: string, text: string): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(tmp, text);
   fs.renameSync(tmp, file);
 }
 
-/** @param {string} file */
-export function readText(file, fallback = '') {
+export function readText(file: string, fallback = ''): string {
   try {
     return fs.readFileSync(file, 'utf8');
   } catch {
@@ -86,19 +83,15 @@ export function readText(file, fallback = '') {
 }
 
 const sleepBuf = new Int32Array(new SharedArrayBuffer(4));
-/** @param {number} ms */
-export function sleepSync(ms) {
+export function sleepSync(ms: number): void {
   Atomics.wait(sleepBuf, 0, 0, ms);
 }
 
 /**
  * mkdir is atomic on every filesystem we care about, which makes it a portable lock primitive
  * across concurrent Forge sessions on one machine.
- * @template T
- * @param {string} lockDir @param {() => T} fn @param {{timeoutMs?:number, staleMs?:number}} [opts]
- * @returns {T}
  */
-export function withLock(lockDir, fn, opts = {}) {
+export function withLock<T>(lockDir: string, fn: () => T, opts: { timeoutMs?: number; staleMs?: number } = {}): T {
   const timeoutMs = opts.timeoutMs ?? 10_000;
   const staleMs = opts.staleMs ?? 60_000;
   const start = Date.now();
@@ -108,7 +101,7 @@ export function withLock(lockDir, fn, opts = {}) {
       fs.mkdirSync(lockDir);
       break;
     } catch (e) {
-      if (/** @type {any} */ (e).code !== 'EEXIST') throw e;
+      if ((e as any).code !== 'EEXIST') throw e;
       try {
         const age = Date.now() - fs.statSync(lockDir).mtimeMs;
         if (age > staleMs) {
@@ -129,8 +122,7 @@ export function withLock(lockDir, fn, opts = {}) {
   }
 }
 
-/** @param {string} text @param {number} [maxWords] */
-export function slugify(text, maxWords = 6) {
+export function slugify(text: string, maxWords = 6): string {
   return (
     text
       .toLowerCase()
@@ -147,31 +139,28 @@ export function slugify(text, maxWords = 6) {
   );
 }
 
-export function shortId() {
+export function shortId(): string {
   return Math.random().toString(36).slice(2, 6);
 }
 
-/** @param {Record<string, any>} target @param {Record<string, any>} src */
-export function deepMerge(target, src) {
+export function deepMerge<T extends Record<string, any>>(target: T, src: Record<string, any>): T {
   if (!src || typeof src !== 'object') return target;
   for (const [k, v] of Object.entries(src)) {
     if (v && typeof v === 'object' && !Array.isArray(v) && target[k] && typeof target[k] === 'object' && !Array.isArray(target[k])) {
       deepMerge(target[k], v);
     } else {
-      target[k] = v;
+      (target as Record<string, any>)[k] = v;
     }
   }
   return target;
 }
 
-/** @param {any} obj @param {string} dotted */
-export function getPath(obj, dotted) {
+export function getPath(obj: any, dotted: string): any {
   if (!dotted) return obj;
   return dotted.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
 }
 
-/** @param {any} obj @param {string} dotted @param {any} value */
-export function setPath(obj, dotted, value) {
+export function setPath(obj: any, dotted: string, value: any): void {
   const keys = dotted.split('.');
   let o = obj;
   for (const k of keys.slice(0, -1)) {
@@ -181,8 +170,8 @@ export function setPath(obj, dotted, value) {
   o[keys[keys.length - 1]] = value;
 }
 
-/** Interprets CLI values so `--field round=2` stores a number, not "2". @param {string} v */
-export function coerce(v) {
+/** Interprets CLI values so `--field round=2` stores a number, not "2". */
+export function coerce(v: string): any {
   if (v === 'true') return true;
   if (v === 'false') return false;
   if (v === 'null') return null;
@@ -200,12 +189,10 @@ export function coerce(v) {
 /**
  * Splits a command template into argv the way a POSIX shell splits words, without any of the
  * shell's other powers: whitespace separates, '…' is literal, "…" honours \" and \\.
- * @param {string} template @param {string} [label] names the setting in errors
- * @returns {string[]}
+ * `label` names the setting in errors.
  */
-export function splitWords(template, label = 'command') {
-  /** @type {string[]} */
-  const out = [];
+export function splitWords(template: string, label = 'command'): string[] {
+  const out: string[] = [];
   let cur = '';
   let inWord = false;
   for (let i = 0; i < template.length; i++) {
@@ -243,20 +230,17 @@ export function splitWords(template, label = 'command') {
  * paths are refused because the child runs with the repo as cwd, where they would name repo files.
  * This catches mistakes such as a migrated shell template; it is not a security boundary (see
  * docs/ARCHITECTURE.md "Daemon security").
- * @param {string} word
  */
-export function isClaudeExecutable(word) {
+export function isClaudeExecutable(word: string): boolean {
   if (/^claude(?:\.exe)?$/.test(word)) return true;
   return path.isAbsolute(word) && /[\\/]claude(?:\.exe)?$/.test(word);
 }
 
-/** @param {string} template @param {Record<string, string|number>} vars */
-export function fill(template, vars) {
+export function fill(template: string, vars: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
 }
 
-/** @param {string} text @param {number} n */
-export function tail(text, n) {
+export function tail(text: string, n: number): string {
   const lines = text.trimEnd().split('\n');
   return lines.slice(-n).join('\n');
 }

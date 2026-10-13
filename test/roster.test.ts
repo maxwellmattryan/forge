@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.mjs';
-import { defaults, validateConfig } from '../lib/config.mjs';
+import { defaults, validateConfig } from '../lib/config.ts';
 import { initWrite } from '../lib/commands/init.mjs';
-import { modelFamily, modelOverlap, roster } from '../lib/roster.mjs';
+import { modelFamily, modelOverlap, roster } from '../lib/roster.ts';
 
 const warning = (role, model, builder) => `${role} runs on ${model}, the same model family as the builder (${builder}); runtime.diversity asks for a different one`;
 
@@ -78,7 +78,7 @@ test('init write warns; validate rejects non-boolean diversity', () => {
 
     const cfg = defaults();
     assert.deepEqual(validateConfig(cfg, repo.dir), []);
-    cfg.runtime.diversity = 'yes';
+    cfg.runtime.diversity = 'yes' as any;
     assert.ok(validateConfig(cfg, repo.dir).includes('runtime.diversity must be true or false (got "yes")'));
     assert.throws(() => initWrite(repo.dir, { runtime: { diversity: 1 } }, true), /runtime\.diversity must be true or false/);
 

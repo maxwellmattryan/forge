@@ -4,12 +4,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.mjs';
-import { defaults, validateConfig } from '../lib/config.mjs';
-import { createJob, jobDir, loadJob, readEvents, setJob } from '../lib/jobs.mjs';
+import { defaults, validateConfig } from '../lib/config.ts';
+import { createJob, jobDir, loadJob, readEvents, setJob } from '../lib/jobs.ts';
 import { budgetCmd, enforceBudget, exceededKeys, formatReason } from '../lib/budget.mjs';
 import { jobCmd } from '../lib/commands/job.mjs';
 import { migrate } from '../lib/commands/init.mjs';
-import { API_VERSION, BUDGET_KEYS, JOB_SCHEMA_VERSION, WAITING_ON } from '../lib/schema.mjs';
+import { API_VERSION, BUDGET_KEYS, JOB_SCHEMA_VERSION, WAITING_ON } from '../lib/schema.ts';
 import { API_VERSION as DASH_API_VERSION } from '../dashboard/src/lib/types.ts';
 import { WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
 

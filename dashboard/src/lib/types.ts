@@ -1,31 +1,31 @@
-// Shapes of the forge dash HTTP API for API_VERSION 4. Derived from lib/server.mjs and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.mjs together; test/dashboard-lib.test.mjs fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 4. Derived from lib/server.mjs and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.mjs fails if they differ.
 
-// ---------- constants mirrored from lib/schema.mjs ----------
+// ---------- constants mirrored from lib/schema.ts ----------
 
-/** lib/schema.mjs API_VERSION: the dashboard refuses data from a newer server. */
+/** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
 export const API_VERSION = 4;
 
-/** lib/schema.mjs STAGES, in pipeline order. */
+/** lib/schema.ts STAGES, in pipeline order. */
 export const STAGES = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', 'review', 'decide', 'integrate', 'pr', 'done'] as const;
 
-/** lib/schema.mjs STATES. */
+/** lib/schema.ts STATES. */
 export const STATES = ['queued', 'running', 'waiting', 'blocked', 'failed', 'cancelled', 'done'] as const;
 
-/** lib/schema.mjs WAITING_ON. */
+/** lib/schema.ts WAITING_ON. */
 export const WAITING_ON = ['spec-approval', 'input', 'escalation', 'infra', 'conflicts', 'rounds-exhausted', 'pr-review', 'external', 'budget'] as const;
 
-/** A pipeline stage: STAGES in lib/schema.mjs. */
+/** A pipeline stage: STAGES in lib/schema.ts. */
 export type Stage = (typeof STAGES)[number];
-/** A job state: STATES in lib/schema.mjs. */
+/** A job state: STATES in lib/schema.ts. */
 export type JobState = (typeof STATES)[number];
-/** Why a job waits: WAITING_ON in lib/schema.mjs. */
+/** Why a job waits: WAITING_ON in lib/schema.ts. */
 export type WaitingOn = (typeof WAITING_ON)[number];
-/** lib/schema.mjs BUDGET_KEYS. */
+/** lib/schema.ts BUDGET_KEYS. */
 export type BudgetKey = 'tokens' | 'usd' | 'minutes' | 'changedLines' | 'verifyRetries';
 
 // ---------- job data ----------
 
-/** Tracker origin of a job: createJob in lib/jobs.mjs. */
+/** Tracker origin of a job: createJob in lib/jobs.ts. */
 export interface JobSource {
   tracker: string;
   ref: string | null;
@@ -78,7 +78,7 @@ export interface JobPr {
   humanDelta?: HumanDelta;
 }
 
-/** The session driving a job: claimJob in lib/jobs.mjs. */
+/** The session driving a job: claimJob in lib/jobs.ts. */
 export interface JobOwner {
   session: string;
   host: string;
@@ -86,14 +86,14 @@ export interface JobOwner {
   heartbeat: string;
 }
 
-/** One orchestrator session's stint on a job: claimJob/releaseJob in lib/jobs.mjs. */
+/** One orchestrator session's stint on a job: claimJob/releaseJob in lib/jobs.ts. */
 export interface JobRun {
   session: string;
   startedAt: string;
   endedAt?: string;
 }
 
-/** Per-role agent record: recordAgent in lib/jobs.mjs. */
+/** Per-role agent record: recordAgent in lib/jobs.ts. */
 export interface JobAgent {
   runs: number;
   status?: string;
@@ -105,7 +105,7 @@ export interface JobAgent {
   summary?: string;
 }
 
-/** One role's or model's usage totals: addUsage in lib/jobs.mjs. */
+/** One role's or model's usage totals: addUsage in lib/jobs.ts. */
 export interface UsageBucket {
   tokens: number;
   input: number;
@@ -118,7 +118,7 @@ export interface UsageBucket {
   estCostUsd: number;
 }
 
-/** A job's token and cost totals: normalizeJob in lib/schema.mjs and addUsage in lib/jobs.mjs. */
+/** A job's token and cost totals: normalizeJob in lib/schema.ts and addUsage in lib/jobs.ts. */
 export interface JobUsage {
   totalTokens: number;
   byRole: Record<string, UsageBucket>;
@@ -127,7 +127,7 @@ export interface JobUsage {
   exact: boolean;
 }
 
-/** Budget limits per key; null means unlimited: defaults().pipeline.budget in lib/config.mjs. */
+/** Budget limits per key; null means unlimited: defaults().pipeline.budget in lib/config.ts. */
 export type BudgetLimits = Partial<Record<BudgetKey, number | null>>;
 
 /** What a job has spent per key: measureBudget in lib/budget.mjs. */
@@ -150,10 +150,10 @@ export interface VerifyRun {
   file: string;
 }
 
-/** A reviewer's settled verdict for a round: the verdicts case in lib/commands/job.mjs (via roundVerdicts in lib/jobs.mjs). */
+/** A reviewer's settled verdict for a round: the verdicts case in lib/commands/job.mjs (via roundVerdicts in lib/jobs.ts). */
 export type Verdict = 'PASS' | 'CHANGES' | 'MALFORMED';
 
-/** A job record: normalizeJob in lib/schema.mjs. */
+/** A job record: normalizeJob in lib/schema.ts. */
 export interface Job {
   schemaVersion: number;
   id: string;
@@ -195,13 +195,13 @@ export interface Job {
   eval: { run: string; task: string } | null;
 }
 
-/** tasks.md checkbox counts: progress in lib/jobs.mjs. */
+/** tasks.md checkbox counts: progress in lib/jobs.ts. */
 export interface Progress {
   done: number;
   total: number;
 }
 
-/** The stage/state pair a transition event records: setJob in lib/jobs.mjs. */
+/** The stage/state pair a transition event records: setJob in lib/jobs.ts. */
 export interface TransitionSide {
   stage: Stage;
   state: JobState;
@@ -222,7 +222,7 @@ export interface AgentUsage {
   exact?: boolean;
 }
 
-/** One events.jsonl line: logEvent in lib/jobs.mjs; open-ended because event types are. */
+/** One events.jsonl line: logEvent in lib/jobs.ts; open-ended because event types are. */
 export interface JobEvent {
   v: number;
   ts: string;
@@ -246,7 +246,7 @@ export interface JobEvent {
 
 // ---------- GET responses ----------
 
-/** config.pipeline as served: defaults().pipeline in lib/config.mjs. */
+/** config.pipeline as served: defaults().pipeline in lib/config.ts. */
 export interface PipelineConfig {
   plan: 'auto' | 'always' | 'never';
   specApproval: 'always' | 'large' | 'never';
@@ -277,10 +277,10 @@ export interface DaemonState {
 /** A job row in /api/state: state() in lib/server.mjs. */
 export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number };
 
-/** Request types the inbox accepts: REQUEST_TYPES in lib/requests.mjs. */
+/** Request types the inbox accepts: REQUEST_TYPES in lib/requests.ts. */
 export type RequestType = 'next' | 'run' | 'approve' | 'revise-spec' | 'rework' | 'answer' | 'cancel' | 'resume' | 'sync' | 'eval-run' | 'retro';
 
-/** A queued request: enqueue, claimRequest and ackRequest in lib/requests.mjs. */
+/** A queued request: enqueue, claimRequest and ackRequest in lib/requests.ts. */
 export interface ForgeRequest {
   id: string;
   type: RequestType;
@@ -444,10 +444,10 @@ export interface EvalCompare {
   perTask: { task: string; a: boolean | null; b: boolean | null }[];
 }
 
-/** GET /api/requests: listRequests in lib/requests.mjs. */
+/** GET /api/requests: listRequests in lib/requests.ts. */
 export type RequestsResponse = ForgeRequest[];
 
-/** GET /api/roster: roster in lib/roster.mjs. */
+/** GET /api/roster: roster in lib/roster.ts. */
 export interface Roster {
   agents: { role: string; description: string; model: string; promptHash: string; addendum: string | null }[];
   reviewers: { name: string; model: string; always: boolean; when: string | null; checklist: string | null; checklistHash: string | null }[];

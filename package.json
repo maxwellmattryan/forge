@@ -20,12 +20,13 @@
     "assets"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.18"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.mjs\"",
+    "test": "node --test \"test/*.test.mjs\" \"test/*.test.ts\"",
     "build:dashboard": "vite build --config dashboard/vite.config.mjs && node dashboard/build-stamp.mjs",
-    "check:dashboard": "svelte-check --tsconfig dashboard/tsconfig.json --fail-on-warnings"
+    "check:dashboard": "svelte-check --tsconfig dashboard/tsconfig.json --fail-on-warnings",
+    "typecheck": "tsc -p tsconfig.json && tsc -p test/tsconfig.json"
   },
   "repository": {
     "type": "git",
@@ -43,6 +44,7 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "6.2.4",
     "@tailwindcss/vite": "4.1.18",
+    "@types/node": "22.18.13",
     "svelte": "5.57.1",
     "svelte-check": "4.7.6",
     "tailwindcss": "4.1.18",

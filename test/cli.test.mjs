@@ -5,8 +5,8 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { scratchGitConfig, tempRepo } from './helpers.mjs';
 import { createWorktree, removeWorktree, verifiedHead } from '../lib/worktree.mjs';
-import { TRUST_ENV, loadConfig, trustDigest } from '../lib/config.mjs';
-import { setJob } from '../lib/jobs.mjs';
+import { TRUST_ENV, loadConfig, trustDigest } from '../lib/config.ts';
+import { setJob } from '../lib/jobs.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const commitAll = (cwd, msg) => {

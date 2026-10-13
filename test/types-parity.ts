@@ -1,0 +1,63 @@
+// Compile-time parity between the engine's shared shapes (lib/types.ts) and the dashboard's copy
+// of the API shapes. `npm run typecheck` checks this file under the strict root config; it holds
+// no tests, so `node --test` never runs it. Add a line here for every type the dashboard exports.
+import type * as engine from '../lib/types.ts';
+import type * as dash from '../dashboard/src/lib/types.ts';
+
+type Equal<X, Y> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? true : false;
+type Expect<T extends true> = T;
+
+export type Checks = [
+  Expect<Equal<engine.Stage, dash.Stage>>,
+  Expect<Equal<engine.JobState, dash.JobState>>,
+  Expect<Equal<engine.WaitingOn, dash.WaitingOn>>,
+  Expect<Equal<engine.BudgetKey, dash.BudgetKey>>,
+  Expect<Equal<engine.JobSource, dash.JobSource>>,
+  Expect<Equal<engine.PrChecks, dash.PrChecks>>,
+  Expect<Equal<engine.HumanDelta, dash.HumanDelta>>,
+  Expect<Equal<engine.JobPr, dash.JobPr>>,
+  Expect<Equal<engine.JobOwner, dash.JobOwner>>,
+  Expect<Equal<engine.JobRun, dash.JobRun>>,
+  Expect<Equal<engine.JobAgent, dash.JobAgent>>,
+  Expect<Equal<engine.UsageBucket, dash.UsageBucket>>,
+  Expect<Equal<engine.JobUsage, dash.JobUsage>>,
+  Expect<Equal<engine.BudgetLimits, dash.BudgetLimits>>,
+  Expect<Equal<engine.BudgetUsed, dash.BudgetUsed>>,
+  Expect<Equal<engine.JobBudget, dash.JobBudget>>,
+  Expect<Equal<engine.VerifyRun, dash.VerifyRun>>,
+  Expect<Equal<engine.Verdict, dash.Verdict>>,
+  Expect<Equal<engine.Job, dash.Job>>,
+  Expect<Equal<engine.Progress, dash.Progress>>,
+  Expect<Equal<engine.TransitionSide, dash.TransitionSide>>,
+  Expect<Equal<engine.AgentUsage, dash.AgentUsage>>,
+  Expect<Equal<engine.JobEvent, dash.JobEvent>>,
+  Expect<Equal<engine.PipelineConfig, dash.PipelineConfig>>,
+  Expect<Equal<engine.DaemonStatus, dash.DaemonStatus>>,
+  Expect<Equal<engine.DaemonState, dash.DaemonState>>,
+  Expect<Equal<engine.StateJob, dash.StateJob>>,
+  Expect<Equal<engine.RequestType, dash.RequestType>>,
+  Expect<Equal<engine.ForgeRequest, dash.ForgeRequest>>,
+  Expect<Equal<engine.ApiState, dash.ApiState>>,
+  Expect<Equal<engine.JobDetail, dash.JobDetail>>,
+  Expect<Equal<engine.JobFileText, dash.JobFileText>>,
+  Expect<Equal<engine.UsageRow, dash.UsageRow>>,
+  Expect<Equal<engine.ReviewerStats, dash.ReviewerStats>>,
+  Expect<Equal<engine.Stats, dash.Stats>>,
+  Expect<Equal<engine.EvalTask, dash.EvalTask>>,
+  Expect<Equal<engine.EvalResult, dash.EvalResult>>,
+  Expect<Equal<engine.EvalSummary, dash.EvalSummary>>,
+  Expect<Equal<engine.EvalRun, dash.EvalRun>>,
+  Expect<Equal<engine.EvalsResponse, dash.EvalsResponse>>,
+  Expect<Equal<engine.EvalCompare, dash.EvalCompare>>,
+  Expect<Equal<engine.RequestsResponse, dash.RequestsResponse>>,
+  Expect<Equal<engine.Roster, dash.Roster>>,
+  Expect<Equal<engine.TrackerItem, dash.TrackerItem>>,
+  Expect<Equal<engine.BacklogResponse, dash.BacklogResponse>>,
+  Expect<Equal<engine.SseFrame, dash.SseFrame>>,
+  Expect<Equal<engine.ForgeTruncatedLine, dash.ForgeTruncatedLine>>,
+  Expect<Equal<engine.PostRequestBody, dash.PostRequestBody>>,
+  Expect<Equal<engine.PostRequestResponse, dash.PostRequestResponse>>,
+  Expect<Equal<engine.PostDaemonBody, dash.PostDaemonBody>>,
+  Expect<Equal<engine.PostDaemonResponse, dash.PostDaemonResponse>>,
+  Expect<Equal<engine.ApiError, dash.ApiError>>,
+];

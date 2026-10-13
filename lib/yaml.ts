@@ -1,4 +1,3 @@
-// @ts-check
 // A deliberately small YAML subset so Forge stays zero-dependency.
 // Supported: block maps, block sequences (including "- key: value" maps), scalars,
 // single/double-quoted strings, flow [] and {} collections, "|" and ">" block scalars,
@@ -6,15 +5,15 @@
 // Anything outside the subset fails loudly with a line number rather than misparsing.
 
 export class YamlError extends Error {
-  /** @param {string} message @param {number} [line] */
-  constructor(message, line) {
+  // `declare` keeps this a type only: a plain field would become a runtime class field and show up in Object.keys.
+  declare line: number | undefined;
+  constructor(message: string, line?: number) {
     super(line ? `YAML line ${line}: ${message}` : `YAML: ${message}`);
     this.line = line;
   }
 }
 
-/** @param {string} line */
-function stripComment(line) {
+function stripComment(line: string): string {
   let quote = '';
   for (let i = 0; i < line.length; i++) {
     const c = line[i];
@@ -32,13 +31,26 @@ function stripComment(line) {
 
 const KEY_RE = /^("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^\s"'#{\[\]},&*!|>%@`-][^:]*?|-[^\s:][^:]*?)\s*:(?:\s+(.*))?$/;
 
-/**
- * @param {string} src
- * @returns {any}
- */
-export function parse(src) {
-  /** @type {{indent:number,text:string,line:number,raw:string}[]} */
-  const lines = [];
+interface Line {
+  indent: number;
+  text: string;
+  line: number;
+  raw: string;
+}
+
+interface BlockState {
+  lines: Line[];
+  i: number;
+}
+
+interface FlowState {
+  t: string;
+  i: number;
+  line: number;
+}
+
+export function parse(src: string): any {
+  const lines: Line[] = [];
   src.replace(/\r\n?/g, '\n').split('\n').forEach((raw, idx) => {
     if (/^\s*(---|\.\.\.)\s*$/.test(raw)) return;
     if (/\t/.test(raw.match(/^\s*/)?.[0] ?? '')) throw new YamlError('tabs are not allowed for indentation', idx + 1);
@@ -59,20 +71,17 @@ export function parse(src) {
   return value;
 }
 
-/** @param {{lines:any[],i:number}} s */
-function skipBlank(s) {
+function skipBlank(s: BlockState): void {
   while (s.i < s.lines.length && s.lines[s.i].indent === -1) s.i++;
 }
 
-/** @param {{lines:any[],i:number}} s @param {number} indent */
-function parseBlock(s, indent) {
+function parseBlock(s: BlockState, indent: number): any {
   const first = s.lines[s.i];
   return first.text === '-' || first.text.startsWith('- ') ? parseSeq(s, indent) : parseMap(s, indent);
 }
 
-/** @param {{lines:any[],i:number}} s @param {number} indent */
-function parseSeq(s, indent) {
-  const out = [];
+function parseSeq(s: BlockState, indent: number): any[] {
+  const out: any[] = [];
   while (true) {
     skipBlank(s);
     const ln = s.lines[s.i];
@@ -98,16 +107,13 @@ function parseSeq(s, indent) {
   return out;
 }
 
-/** @param {string} text */
-function isMapEntry(text) {
+function isMapEntry(text: string): boolean {
   if (text.startsWith('[') || text.startsWith('{')) return false;
   return KEY_RE.test(text);
 }
 
-/** @param {{lines:any[],i:number}} s @param {number} indent */
-function parseMap(s, indent) {
-  /** @type {Record<string, any>} */
-  const out = {};
+function parseMap(s: BlockState, indent: number): Record<string, any> {
+  const out: Record<string, any> = {};
   while (true) {
     skipBlank(s);
     const ln = s.lines[s.i];
@@ -134,17 +140,15 @@ function parseMap(s, indent) {
   return out;
 }
 
-/** @param {string} k */
-function unquoteKey(k) {
-  if (k.startsWith('"') || k.startsWith("'")) return /** @type {string} */ (parseScalar(k, 0));
+function unquoteKey(k: string): string {
+  if (k.startsWith('"') || k.startsWith("'")) return parseScalar(k, 0) as string;
   return k;
 }
 
-/** @param {{lines:any[],i:number}} s @param {string} rest @param {number} indent @param {number} line */
-function scalarOrBlockText(s, rest, indent, line) {
+function scalarOrBlockText(s: BlockState, rest: string, indent: number, line: number): any {
   const block = rest.match(/^([|>])([+-]?)$/);
   if (!block) return parseScalar(rest, line);
-  const collected = [];
+  const collected: string[] = [];
   let blockIndent = -1;
   while (s.i < s.lines.length) {
     const ln = s.lines[s.i];
@@ -161,11 +165,10 @@ function scalarOrBlockText(s, rest, indent, line) {
   return text;
 }
 
-/** @param {string} t @param {number} line @returns {any} */
-export function parseScalar(t, line) {
+export function parseScalar(t: string, line: number): any {
   t = t.trim();
   if (t.startsWith('[') || t.startsWith('{')) {
-    const p = { t, i: 0, line };
+    const p: FlowState = { t, i: 0, line };
     const v = parseFlow(p);
     if (p.t.slice(p.i).trim()) throw new YamlError('trailing characters after flow collection', line);
     return v;
@@ -187,13 +190,12 @@ export function parseScalar(t, line) {
   return t;
 }
 
-/** @param {{t:string,i:number,line:number}} p @returns {any} */
-function parseFlow(p) {
+function parseFlow(p: FlowState): any {
   ws(p);
   const c = p.t[p.i];
   if (c === '[') {
     p.i++;
-    const out = [];
+    const out: any[] = [];
     ws(p);
     if (p.t[p.i] === ']') { p.i++; return out; }
     while (true) {
@@ -206,8 +208,7 @@ function parseFlow(p) {
   }
   if (c === '{') {
     p.i++;
-    /** @type {Record<string, any>} */
-    const out = {};
+    const out: Record<string, any> = {};
     ws(p);
     if (p.t[p.i] === '}') { p.i++; return out; }
     while (true) {
@@ -225,8 +226,7 @@ function parseFlow(p) {
   return flowAtom(p, false);
 }
 
-/** @param {{t:string,i:number,line:number}} p @param {boolean} isKey */
-function flowAtom(p, isKey) {
+function flowAtom(p: FlowState, isKey: boolean): any {
   ws(p);
   const start = p.i;
   const q = p.t[p.i];
@@ -249,13 +249,11 @@ function flowAtom(p, isKey) {
   return parseScalar(p.t.slice(start, p.i), p.line);
 }
 
-/** @param {{t:string,i:number}} p */
-function ws(p) {
+function ws(p: FlowState): void {
   while (p.i < p.t.length && /\s/.test(p.t[p.i])) p.i++;
 }
 
-/** @param {any} v */
-function needsQuote(v) {
+function needsQuote(v: any): boolean {
   if (v === '') return true;
   if (/^[\s]|[\s]$/.test(v)) return true;
   if (/^[-?:,\[\]{}#&*!|>'"%@`~]/.test(v)) return true;
@@ -265,20 +263,14 @@ function needsQuote(v) {
   return false;
 }
 
-/** @param {any} v */
-function scalarOut(v) {
+function scalarOut(v: any): string {
   if (v === null || v === undefined) return 'null';
   if (typeof v === 'boolean' || typeof v === 'number') return String(v);
   const str = String(v);
   return needsQuote(str) ? JSON.stringify(str) : str;
 }
 
-/**
- * @param {any} value
- * @param {number} [indent]
- * @returns {string}
- */
-export function stringify(value, indent = 0) {
+export function stringify(value: any, indent = 0): string {
   const pad = ' '.repeat(indent);
   if (Array.isArray(value)) {
     if (!value.length) return '[]\n';
@@ -313,8 +305,7 @@ export function stringify(value, indent = 0) {
   return `${pad}${scalarOut(value)}\n`;
 }
 
-/** @param {any} v */
-function inline(v) {
+function inline(v: any): string {
   if (Array.isArray(v)) return v.length ? `[${v.map(inline).join(', ')}]` : '[]';
   if (v && typeof v === 'object') {
     const keys = Object.keys(v);
