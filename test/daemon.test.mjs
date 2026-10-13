@@ -13,7 +13,7 @@ import { budgetCmd } from '../lib/budget.mjs';
 import { createJob, setJob, updateJob } from '../lib/jobs.mjs';
 import { PLUGIN_ROOT } from '../lib/paths.mjs';
 import { claimRequest, enqueue } from '../lib/requests.mjs';
-import { DENY_TOOLS, TRUST_CHANGED, TURN, TURN_LINE, buildArgv, createDaemon, heldByBudget, parseTemplate, reapOrphan } from '../lib/daemon.mjs';
+import { DENY_TOOLS, GIT_PINS, TRUST_CHANGED, TURN, TURN_LINE, buildArgv, createDaemon, heldByBudget, parseTemplate, reapOrphan, sessionEnv } from '../lib/daemon.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const FAKE = path.resolve(import.meta.dirname, 'fixtures', 'fake-claude.mjs');
@@ -132,6 +132,7 @@ test('AC5: command template to argv', async () => {
     assert.equal(c.opts.env.FORGE_DAEMON, '1');
     assert.equal(c.opts.env[TRUST_ENV], trustDigest(repo.dir));
     assert.equal(c.opts.env.PATH.split(path.delimiter)[0], path.join(PLUGIN_ROOT, 'bin'), "the session's forge is this plugin's");
+    assert.deepEqual(c.opts.env, { ...sessionEnv(process.env), [TRUST_ENV]: trustDigest(repo.dir) }, 'the session gets the pinned git config and the trust snapshot');
   } finally {
     await d.close();
     repo.cleanup();
@@ -972,6 +973,63 @@ test('a change to .forge/config.yml or .forge/trackers/ stops the daemon until a
     assert.match(d.state().lastError, /contains symlinks \(lib\)/);
   } finally {
     await d.close();
+    repo.cleanup();
+  }
+});
+
+test('a spawn builds argv from the config bytes it hashed, not from a second read', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const cfgFile = path.join(repo.dir, '.forge', 'config.yml');
+  fs.mkdirSync(path.dirname(cfgFile), { recursive: true });
+  fs.writeFileSync(cfgFile, 'commands:\n  test: npm test\n');
+  /** @type {any[]} */
+  const reads = [];
+  const loadConfig = (_root, opts = {}) => {
+    reads.push(opts);
+    return { config: config() };
+  };
+  const d = createDaemon(repo.dir, { spawn: kit.spawn, killTree: kit.killTree, loadConfig, pollMs: 3_600_000 });
+  try {
+    d.start();
+    assert.equal(kit.children.length, 1);
+    const spawnRead = reads.findLast((o) => 'text' in o);
+    assert.equal(spawnRead?.text, fs.readFileSync(cfgFile, 'utf8'), 'the spawn parsed the text it hashed');
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('sessionEnv pins git hooks and fsmonitor off, after any config the caller exports', () => {
+  const env = sessionEnv({ PATH: '/usr/bin', HOME: '/h' });
+  assert.equal(env.HOME, '/h');
+  assert.equal(env.FORGE_DAEMON, '1');
+  assert.equal(env.GIT_EDITOR, 'true', 'git merge|rebase --continue never waits on an editor');
+  assert.equal(env.GIT_CONFIG_COUNT, String(GIT_PINS.length));
+  assert.deepEqual(GIT_PINS.map((_, i) => [env[`GIT_CONFIG_KEY_${i}`], env[`GIT_CONFIG_VALUE_${i}`]]), [
+    ['core.hooksPath', '/dev/null'],
+    ['core.fsmonitor', 'false'],
+  ]);
+  const kept = sessionEnv({ GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'safe.directory', GIT_CONFIG_VALUE_0: '*' });
+  assert.equal(kept.GIT_CONFIG_KEY_0, 'safe.directory', "the caller's pins stay");
+  assert.equal(kept.GIT_CONFIG_KEY_1, 'core.hooksPath');
+  assert.equal(kept.GIT_CONFIG_COUNT, String(1 + GIT_PINS.length));
+  assert.equal(sessionEnv({ GIT_CONFIG_COUNT: 'junk' }).GIT_CONFIG_COUNT, String(GIT_PINS.length));
+
+  // A hook the session writes into a tracked core.hooksPath dir (not a Claude Code protected path) never runs.
+  const repo = tempRepo();
+  try {
+    fs.mkdirSync(path.join(repo.dir, '.githooks'));
+    const marker = path.join(repo.dir, 'hook-ran');
+    fs.writeFileSync(path.join(repo.dir, '.githooks', 'pre-commit'), `#!/bin/sh\ntouch "${marker}"\n`, { mode: 0o755 });
+    repo.git('config', 'core.hooksPath', '.githooks');
+    const commit = (e) => spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'x'], { cwd: repo.dir, env: e, encoding: 'utf8' });
+    assert.equal(commit(sessionEnv(process.env)).status, 0);
+    assert.equal(fs.existsSync(marker), false, 'pinned: the hook is skipped');
+    assert.equal(commit(process.env).status, 0);
+    assert.equal(fs.existsSync(marker), true, 'unpinned control: the same hook runs');
+  } finally {
     repo.cleanup();
   }
 });
