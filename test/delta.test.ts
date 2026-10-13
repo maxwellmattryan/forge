@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { tempRepo } from './helpers.mjs';
+import { tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
 import { createJob, setJob } from '../lib/jobs.ts';
 import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from '../lib/delta.ts';

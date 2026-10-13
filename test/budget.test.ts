@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { tempRepo } from './helpers.mjs';
+import { tempRepo } from './helpers.ts';
 import { defaults, validateConfig } from '../lib/config.ts';
 import { createJob, jobDir, loadJob, readEvents, setJob } from '../lib/jobs.ts';
 import { budgetCmd, enforceBudget, exceededKeys, formatReason } from '../lib/budget.ts';

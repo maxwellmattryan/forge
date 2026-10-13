@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { tempRepo } from './helpers.mjs';
+import { tempRepo } from './helpers.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const readJson = (rel: string): any => JSON.parse(fs.readFileSync(path.join(ROOT, rel), 'utf8'));

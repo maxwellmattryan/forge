@@ -11,7 +11,7 @@ const INBOX = {"spec-approval":{"actions":[{"label":"Approve spec","type":"appro
 const REQUESTS = {"runNext":{"type":"next","job":null,"text":null,"args":{}},"start":{"type":"run","job":null,"text":null,"args":{"ref":"12"}},"addressFeedback":{"type":"rework","job":"j2","text":"Address the PR feedback","args":{}},"approveWithNote":{"type":"approve","job":"j1","text":"ship it","args":{}},"approveNoNote":{"type":"approve","job":"j3","text":null,"args":{}},"answerEmpty":{"toast":["Write something first.",true]},"reworkEmpty":{"type":"rework","job":"j3","text":null,"args":{}},"fixConflicts":{"type":"rework","job":"j1","text":"Resolve merge conflicts with the base branch","args":{}},"evalRun":{"type":"eval-run","args":{"tags":"replay, ui","tasks":null,"label":"base"}},"evalRunEmpty":{"type":"eval-run","args":{"tags":null,"tasks":null,"label":null}}};
 const FILTERS = {"active":["a","b","c","d","i"],"waiting":["b","c","d"],"done":["e","f"],"all":["a","b","c","d","e","f","g","h","i"]};
 
-const card = (kind) => (kind === 'failed' ? { id: 'j1', state: 'failed', waitingOn: null, round: 2 } : { id: 'j1', state: 'waiting', waitingOn: kind, round: 2 });
+const card = (kind): any => (kind === 'failed' ? { id: 'j1', state: 'failed', waitingOn: null, round: 2 } : { id: 'j1', state: 'waiting', waitingOn: kind, round: 2 });
 
 test('inbox: every waiting kind keeps its actions, note and doc', () => {
   for (const [kind, want] of Object.entries(INBOX)) {
@@ -47,14 +47,14 @@ test('requests: the exact POST bodies of main\'s buttons', () => {
 });
 
 test('chips: state, verdict and PR tones and text', () => {
-  const tones = [['done', null, 'ok'], ['failed', null, 'bad'], ['cancelled', null, 'muted'], ['waiting', 'pr-review', 'info'], ['waiting', 'input', 'warn'], ['blocked', null, 'bad'], ['running', null, 'accent'], ['queued', null, 'muted']];
+  const tones: any = [['done', null, 'ok'], ['failed', null, 'bad'], ['cancelled', null, 'muted'], ['waiting', 'pr-review', 'info'], ['waiting', 'input', 'warn'], ['blocked', null, 'bad'], ['running', null, 'accent'], ['queued', null, 'muted']];
   for (const [state, waitingOn, tone] of tones) assert.equal(V.stateTone({ state, waitingOn }), tone, `${state}/${waitingOn}`);
   assert.equal(V.stateText({ state: 'waiting', waitingOn: 'input' }), 'Question for you');
-  assert.equal(V.stateText({ state: 'waiting', waitingOn: 'later' }), 'later', 'unknown wait reasons show raw');
+  assert.equal(V.stateText({ state: 'waiting', waitingOn: 'later' } as any), 'later', 'unknown wait reasons show raw');
   assert.equal(V.stateText({ state: 'running' }), 'running');
   assert.deepEqual(['PASS', 'CHANGES', 'MALFORMED', undefined].map(V.verdictTone), ['ok', 'bad', 'warn', 'muted']);
   // main's prChip, as [input, toneChip(tone, text)] with toneChip stubbed to `[tone:text]`.
-  const prs = [
+  const prs: any = [
     [null, ''], [{}, ''], [{ number: 5, state: 'MERGED' }, '[ok:#5]'], [{ number: 5, state: 'CLOSED', conflicts: true }, '[muted:#5 · conflicts]'],
     [{ number: 5, state: 'OPEN', conflicts: true }, '[bad:#5 · conflicts]'], [{ number: 5, state: 'OPEN', checks: { state: 'failing' } }, '[bad:#5 · failing]'],
     [{ number: 5, state: 'OPEN', checks: { state: 'pending' } }, '[warn:#5 · pending]'], [{ number: 5, state: 'OPEN', checks: { state: 'passing' } }, '[info:#5 · passing]'],
@@ -67,14 +67,14 @@ test('chips: state, verdict and PR tones and text', () => {
   assert.equal(V.progressWidth({ done: 1, total: 3 }), 33);
   assert.equal(V.progressWidth({ done: 0, total: 0 }), null);
   assert.equal(V.progressWidth(undefined), null);
-  assert.equal(V.cardRef({ id: '12-x', source: { ref: '12' } }), '#12');
-  assert.equal(V.cardRef({ id: 'my-job', source: { ref: 'ENG-4' } }), 'ENG-4');
-  assert.equal(V.cardRef({ id: 'slug', source: { ref: 'slug' } }), null);
+  assert.equal(V.cardRef({ id: '12-x', source: { ref: '12' } } as any), '#12');
+  assert.equal(V.cardRef({ id: 'my-job', source: { ref: 'ENG-4' } } as any), 'ENG-4');
+  assert.equal(V.cardRef({ id: 'slug', source: { ref: 'slug' } } as any), null);
   assert.equal(V.cardRef({ id: 'x', source: null }), null);
-  assert.deepEqual(V.runningRoles({ agents: { builder: { status: 'running' }, reviewer: { status: 'done' } } }), ['builder']);
+  assert.deepEqual(V.runningRoles({ agents: { builder: { status: 'running' }, reviewer: { status: 'done' } } } as any), ['builder']);
 });
 
-const JOBS = [
+const JOBS: any = [
   { id: 'a', state: 'running', kind: 'feature', stage: 'build' }, { id: 'b', state: 'waiting', waitingOn: 'input', kind: 'feature', stage: 'spec' },
   { id: 'c', state: 'blocked', kind: 'bug', stage: 'verify' }, { id: 'd', state: 'failed', kind: 'feature', stage: 'build' },
   { id: 'e', state: 'done', kind: 'feature', stage: 'done' }, { id: 'f', state: 'cancelled', kind: 'feature', stage: 'plan' },
@@ -91,7 +91,7 @@ test('pipeline: filters, counts, board columns and nav badges', () => {
   assert.deepEqual(V.navCounts(JOBS), { active: 7, needs: 2 }, 'pr-review waits are not "needs you"');
   assert.deepEqual(V.VIEWS.map((v) => v.id), ['pipeline', 'inbox', 'backlog', 'agents', 'analytics', 'evals']);
   const now = Date.parse('2026-10-12T12:00:00Z');
-  const owned = [
+  const owned: any = [
     { owner: { session: 's1', heartbeat: '2026-10-12T11:45:00Z', since: '2026-10-12T10:00:00Z' } },
     { owner: { session: 's1', heartbeat: '2026-10-12T11:59:00Z' } },
     { owner: { session: 's2', heartbeat: null, since: '2026-10-12T11:50:00Z' } },
@@ -101,7 +101,7 @@ test('pipeline: filters, counts, board columns and nav badges', () => {
   assert.equal(V.activeSessions(owned, now), 2);
   const sessions = V.agentSessions(owned.filter((j) => j.owner), now);
   assert.deepEqual(sessions.map((x) => [x.session, x.jobs.length, x.live]), [['s1', 2, true], ['s2', 1, true], ['s3', 1, false]]);
-  assert.deepEqual(V.runningAgents([{ id: 'j', agents: { builder: { status: 'running', model: 'opus' }, x: { status: 'done' } } }]).map((a) => [a.job.id, a.role, a.model]), [['j', 'builder', 'opus']]);
+  assert.deepEqual(V.runningAgents([{ id: 'j', agents: { builder: { status: 'running', model: 'opus' }, x: { status: 'done' } } }] as any).map((a) => [a.job.id, a.role, a.model]), [['j', 'builder', 'opus']]);
 });
 
 test('inbox groups urgent jobs and PRs awaiting review', () => {
@@ -117,7 +117,7 @@ test('evals: compare rows keep the old table\'s values and tones', () => {
       tasks: { a: 2, b: 2, change: 0 }, checkPassRate: { a: 0.5, b: 0.75, change: 0.25 }, avgJudgeScore: { a: 0.9, b: 0.8, change: -0.1 }, firstPassRate: { a: null, b: 1, change: null },
       avgRounds: { a: 2, b: 1, change: -1 }, escalationRate: { a: 0, b: 0.5, change: 0.5 }, avgTokens: { a: 100, b: 100, change: 0 }, avgCostUsd: { a: 1, b: 2, change: 1 }, avgMinutes: { a: 10, b: 5, change: -5 },
     },
-  });
+  } as any);
   // main's compareTable rendered these rows (metric, A, B, Δ and the Δ cell's tone class).
   assert.deepEqual(rows.map((r) => [r.key, r.a, r.b, r.change, r.tone]), [
     ['checkPassRate', '0.5', '0.75', '+0.25', 'text-ok'],
@@ -162,7 +162,7 @@ test('analytics: stats query, usage bars and top jobs', () => {
   assert.equal(V.statsQuery('30', now), `?since=${encodeURIComponent('2026-09-12T00:00:00.000Z')}`);
   assert.deepEqual(V.usageBars({ a: { tokens: 10 }, b: { tokens: 30 }, c: { tokens: 0 } }).map((r) => [r.key, r.width]), [['b', 100], ['a', (10 / 30) * 100], ['c', 2]]);
   assert.deepEqual(V.usageBars({}), []);
-  const jobs = [{ id: 'x', kind: 'feature', usage: { totalTokens: 5 } }, { id: 'y', kind: 'eval', usage: { totalTokens: 50 } }, { id: 'z', kind: 'bug', usage: { totalTokens: 9 } }, { id: 'w', kind: 'bug', usage: { totalTokens: 0 } }];
+  const jobs: any = [{ id: 'x', kind: 'feature', usage: { totalTokens: 5 } }, { id: 'y', kind: 'eval', usage: { totalTokens: 50 } }, { id: 'z', kind: 'bug', usage: { totalTokens: 9 } }, { id: 'w', kind: 'bug', usage: { totalTokens: 0 } }];
   assert.deepEqual(V.topJobsByUsage(jobs).map((j) => j.id), ['z', 'x']);
   assert.equal(V.jobMs({ createdAt: '2026-10-12T00:00:00Z', finishedAt: '2026-10-12T00:01:00Z' }), 60000);
   assert.equal(V.jobMs({ createdAt: '2026-10-12T00:00:00Z', updatedAt: '2026-10-12T00:00:00Z' }), null, 'zero is null, as main had it');

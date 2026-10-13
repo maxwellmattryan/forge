@@ -8,14 +8,14 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { tempRepo } from './helpers.mjs';
+import { tempRepo } from './helpers.ts';
 import { broadcast, distAllowlist, startServer } from '../lib/server.ts';
 import { TURN_LINE } from '../lib/daemon.ts';
 import * as yaml from '../lib/yaml.ts';
 import { API_VERSION as DASH_API_VERSION } from '../dashboard/src/lib/types.ts';
 
 /** @param {number} port @param {Record<string,string>} headers @param {string} [method] @param {string} [body] */
-function call(port, headers, method = 'GET', body) {
+function call(port, headers, method = 'GET', body?: any) {
   return new Promise((resolve, reject) => {
     const req = http.request({ host: '127.0.0.1', port, path: method === 'GET' ? '/api/state' : '/api/requests', method, headers }, (res) => {
       res.resume();
@@ -45,7 +45,7 @@ test('dashboard server rejects DNS-rebound hosts and cross-origin posts', async 
 });
 
 /** @param {number} port @param {string} path @param {string} [host] @returns {Promise<{status:number|undefined, type:string|undefined, headers:http.IncomingHttpHeaders, body:Buffer}>} */
-function get(port, path, host = `127.0.0.1:${port}`) {
+function get(port, path, host = `127.0.0.1:${port}`): any {
   return new Promise((resolve, reject) => {
     const req = http.request({ host: '127.0.0.1', port, path, headers: { host } }, (res) => {
       /** @type {Buffer[]} */
@@ -76,7 +76,7 @@ test('dashboard server serves the page no-store and only manifest-allowlisted di
       assert.match(html, /<meta name="forge-token" content="[0-9a-f]{32}" \/>/, p);
     }
     const manifest = JSON.parse(fs.readFileSync(path.join(DIST, 'manifest.json'), 'utf8'));
-    const files = Object.values(manifest).flatMap((/** @type {any} */ e) => [e.file, ...(e.css ?? []), ...(e.assets ?? [])]);
+    const files = Object.values(manifest).flatMap((/** @type {any} */ e: any) => [e.file, ...(e.css ?? []), ...(e.assets ?? [])]);
     assert.ok(files.some((f) => f.endsWith('.js')) && files.some((f) => f.endsWith('.css')));
     for (const f of files) {
       const r = await get(port, '/' + f);
@@ -196,7 +196,7 @@ test('serves job screenshots as images only, confined to screenshots/', async ()
   const port = Number(new URL(url).port);
   const file = (rel) => `/api/jobs/${job.id}/file?path=${encodeURIComponent(rel)}`;
   try {
-    for (const [rel, type, bytes] of [['screenshots/a.png', 'image/png', PNG], ['screenshots/b.jpg', 'image/jpeg', JPG], ['screenshots/c.webp', 'image/webp', WEBP], ['screenshots/nested/d.png', 'image/png', PNG]]) {
+    for (const [rel, type, bytes] of [['screenshots/a.png', 'image/png', PNG], ['screenshots/b.jpg', 'image/jpeg', JPG], ['screenshots/c.webp', 'image/webp', WEBP], ['screenshots/nested/d.png', 'image/png', PNG]] as any) {
       const r = await get(port, file(rel));
       assert.equal(r.status, 200, rel);
       assert.equal(r.type, type, rel);
@@ -234,7 +234,7 @@ test('serves job screenshots as images only, confined to screenshots/', async ()
 // ---- Daemon endpoints (AC15–AC17). Every daemon here gets in-memory children: nothing real is spawned or signalled.
 
 /** @param {number} port @param {{method?:string, path:string, headers?:Record<string,string>, body?:string}} o */
-function hit(port, o) {
+function hit(port, o): any {
   return new Promise((resolve, reject) => {
     const req = http.request({ host: '127.0.0.1', port, path: o.path, method: o.method ?? 'GET', headers: { host: `127.0.0.1:${port}`, ...(o.headers ?? {}) } }, (res) => {
       const chunks = [];
@@ -248,8 +248,8 @@ function hit(port, o) {
 
 function fakeChildren() {
   const children = [];
-  const spawn = (cmd, args, opts) => {
-    const c = new EventEmitter();
+  const spawn: any = (cmd, args, opts) => {
+    const c: any = new EventEmitter();
     Object.assign(c, { cmd, args, opts, pid: 4_100_000 + children.length, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), written: '' });
     c.stdin.on('data', (d) => (c.written += d.toString()));
     c.exit = (code, signal) => {
@@ -278,7 +278,7 @@ function writeConfig(dir, daemon) {
 }
 
 /** An SSE reader that collects parsed frames. @param {number} port @param {Record<string,string>} [headers] */
-function sse(port, headers = {}) {
+function sse(port, headers = {}): any {
   return new Promise((resolve, reject) => {
     const req = http.request({ host: '127.0.0.1', port, path: '/api/events', headers: { host: `127.0.0.1:${port}`, ...headers } }, (res) => {
       const client = { status: res.statusCode, headers: res.headers, frames: [], raw: '', close: () => req.destroy() };
@@ -429,7 +429,7 @@ test('AC16: POST /api/daemon is token, origin and JSON guarded', async () => {
   try {
     const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)[1];
     const good = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
-    const post = (body, headers = good) => hit(port, { method: 'POST', path: '/api/daemon', headers, body });
+    const post = (body, headers: any = good) => hit(port, { method: 'POST', path: '/api/daemon', headers, body });
     assert.equal((await post('{"action":"start"}', { ...good, 'x-forge-token': 'wrong' })).status, 403);
     const { origin: _o, ...noOrigin } = good;
     assert.equal((await post('{"action":"start"}', noOrigin)).status, 403);

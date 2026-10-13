@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { pillModel, barModel, mergeDaemonState, lineView, appendLine, postDaemon, MAX_TEXT, START_HINT } from '../dashboard/src/lib/daemon.ts';
 
 const base = { enabled: true, wanted: false, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, held: null, lastError: null, clients: 0 };
-const d = (over = {}) => ({ ...base, ...over });
+const d = (over = {}): any => ({ ...base, ...over });
 const ui = (over = {}) => ({ pending: false, ...over });
 const XSS = '<script>alert(1)</script> and <img src=x onerror=alert(1)>';
 
@@ -181,7 +181,7 @@ test('appendLine caps, dedupes and resets on a server restart', () => {
 
 test('postDaemon sends the token and surfaces the server error', async () => {
   const calls = [];
-  const reply = (status, body, statusText = '') => async (url, init) => {
+  const reply = (status, body, statusText = ''): any => async (url, init) => {
     calls.push({ url, init });
     return { ok: status >= 200 && status < 300, status, statusText, text: async () => body };
   };

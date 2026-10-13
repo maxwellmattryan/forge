@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tempRepo } from './helpers.mjs';
+import { tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
 import { createJob, setJob } from '../lib/jobs.ts';
 import local from '../lib/trackers/local.ts';
@@ -23,7 +23,7 @@ test('local backlog: create, list, claim, update, close', () => {
 
     const job = createJob(repo.dir, config, { title: 'First thing', ref: 'first-thing' });
     assert.deepEqual(local.claim(ctx, 'first-thing', job), { ok: true });
-    assert.equal(local.claim(ctx, 'first-thing', { id: 'someone-else' }).ok, false);
+    assert.equal(local.claim(ctx, 'first-thing', { id: 'someone-else' } as any).ok, false);
     ready = local.list(ctx, { ready: true });
     assert.deepEqual(ready.map((i) => i.ref), ['second-thing']);
 

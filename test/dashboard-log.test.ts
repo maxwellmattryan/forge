@@ -6,6 +6,10 @@ import { createDaemonLog, LOG_KEY } from '../dashboard/src/lib/daemon-log.ts';
 import { CLOSED_NOTE, EMPTY_NOTE, MAX_LINES } from '../dashboard/src/lib/daemon.ts';
 
 class FakeSource {
+  declare url: any;
+  declare readyState: any;
+  declare closed: any;
+  declare listeners: any;
   constructor(url) {
     this.url = url;
     this.readyState = 1;
@@ -20,12 +24,12 @@ class FakeSource {
     this.closed = true;
     this.readyState = 2;
   }
-  emit(type, { data, lastEventId } = {}) {
+  emit(type, { data, lastEventId }: any = {}) {
     for (const fn of this.listeners[type] ?? []) fn({ data, lastEventId });
   }
 }
 
-function harness({ stored = '1', visible = true, storage } = {}) {
+function harness({ stored = '1', visible = true, storage }: any = {}) {
   const sources = [];
   const states = [];
   const env = { visible, changes: 0 };

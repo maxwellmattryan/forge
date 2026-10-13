@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tempRepo } from './helpers.mjs';
+import { tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
 import { ackRequest, claimRequest, enqueue, listRequests } from '../lib/requests.ts';
 

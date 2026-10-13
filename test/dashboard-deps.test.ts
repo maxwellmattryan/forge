@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { depLinks, dependents, blockLinks, depHint } from '../dashboard/src/lib/deps.ts';
 
-const jobs = [
+const jobs: any = [
   { id: 'done-dep', title: 'Done', stage: 'done', state: 'done', dependsOn: [] },
   { id: 'live-dep', title: 'Live', stage: 'build', state: 'running', dependsOn: [] },
   { id: 'dead-dep', title: 'Dead', stage: 'spec', state: 'cancelled', dependsOn: [] },
@@ -21,7 +21,7 @@ test('depLinks: done is ok, missing and cancelled are bad, anything else warns',
       ['gone', 'missing', 'bad'],
     ],
   );
-  assert.deepEqual(depLinks({ dependsOn: 'not-a-list' }, jobs), [], 'hand-edited garbage is ignored');
+  assert.deepEqual(depLinks({ dependsOn: 'not-a-list' } as any, jobs), [], 'hand-edited garbage is ignored');
   assert.deepEqual(dependents(jobs[1], jobs).map((j) => j.id), ['child']);
 });
 
@@ -46,7 +46,7 @@ test('blockLinks and depHint match the old drawer section', () => {
   const done = { id: 'shipped', title: 'S', stage: 'done', state: 'done', dependsOn: ['plain'] };
   assert.deepEqual(blockLinks(jobs[4], [...jobs, done]).map((l) => [l.id, l.tone]), [['shipped', 'ok']]);
   // Hostile ids and titles come back verbatim: Svelte escapes them at render time.
-  const evil = [
+  const evil: any = [
     { id: 'x"><img src=x onerror=alert(1)>', title: '<script>alert(1)</script>', stage: 'build', state: 'running', dependsOn: [] },
     { id: 'kid', title: 'Kid', stage: 'backlog', state: 'queued', dependsOn: ['x"><img src=x onerror=alert(1)>'] },
   ];

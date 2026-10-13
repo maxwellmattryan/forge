@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tempRepo } from './helpers.mjs';
+import { tempRepo } from './helpers.ts';
 import { detect } from '../lib/detect.ts';
 
 /** A fresh repo with the given files; returns detect()'s commands and tools. @param {Record<string,string>} files */

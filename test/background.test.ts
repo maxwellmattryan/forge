@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFile, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
-import { tempRepo } from './helpers.mjs';
+import { tempRepo } from './helpers.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

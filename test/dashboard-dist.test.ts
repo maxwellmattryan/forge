@@ -15,11 +15,11 @@ const STALE = 'dashboard/dist is stale: run `npm run build:dashboard` and commit
 const ASSET = /^assets\/[\w.-]+\.(js|css)$/;
 
 /** Every file name the manifest points at (file, css[] and assets[] of each entry). */
-function manifestFiles() {
+function manifestFiles(): any {
   const manifest = JSON.parse(fs.readFileSync(path.join(DIST, 'manifest.json'), 'utf8'));
   /** @type {Set<string>} */
   const out = new Set();
-  for (const entry of Object.values(manifest)) {
+  for (const entry of Object.values(manifest) as any) {
     if (entry.file) out.add(entry.file);
     for (const k of ['css', 'assets']) for (const f of entry[k] ?? []) out.add(f);
   }
@@ -47,7 +47,7 @@ test('package.json: exact-pinned devDependencies only, no install hooks', () => 
   assert.equal(lock.lockfileVersion, 3);
   for (const [name, v] of Object.entries(pinned)) assert.equal(lock.packages[`node_modules/${name}`]?.version, v, `lockfile resolves ${name}`);
   // esbuild and fsevents predate the Svelte toolchain; anything new that runs code on install fails here.
-  const scripted = Object.entries(lock.packages).filter(([, e]) => e?.hasInstallScript).map(([k]) => k).sort();
+  const scripted = Object.entries(lock.packages).filter(([, e]: any) => e?.hasInstallScript).map(([k]) => k).sort();
   assert.deepEqual(scripted, ['node_modules/esbuild', 'node_modules/fsevents']);
 });
 
