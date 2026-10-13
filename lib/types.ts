@@ -457,6 +457,7 @@ export interface Tracker {
 /** config.pipeline as served: defaults().pipeline in lib/config.ts. */
 export interface PipelineConfig {
   plan: 'auto' | 'always' | 'never';
+  split: 'ask' | 'auto' | 'never';
   specApproval: 'always' | 'large' | 'never';
   design: 'none' | 'reference' | 'mockup';
   maxRounds: number;

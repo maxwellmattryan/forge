@@ -4,6 +4,7 @@ import type { Stage, WaitingOn } from './types.ts';
 export const STAGE_LABEL: Record<Stage, string> = { backlog: 'Queued', plan: 'Plan', spec: 'Spec', design: 'Design', build: 'Build', verify: 'Verify', review: 'Review', decide: 'Decide', integrate: 'Integrate', pr: 'PR', done: 'Done' };
 export const WAIT_LABEL: Record<WaitingOn, string> = {
   'spec-approval': 'Spec approval',
+  'split-approval': 'Split approval',
   input: 'Question for you',
   escalation: 'Escalated',
   infra: 'Infra steps',

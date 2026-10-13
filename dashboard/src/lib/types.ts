@@ -1,9 +1,9 @@
-// Shapes of the forge dash HTTP API for API_VERSION 4. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 5. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
 
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 4;
+export const API_VERSION = 5;
 
 /** lib/schema.ts STAGES, in pipeline order. */
 export const STAGES = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', 'review', 'decide', 'integrate', 'pr', 'done'] as const;
@@ -12,7 +12,7 @@ export const STAGES = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', '
 export const STATES = ['queued', 'running', 'waiting', 'blocked', 'failed', 'cancelled', 'done'] as const;
 
 /** lib/schema.ts WAITING_ON. */
-export const WAITING_ON = ['spec-approval', 'input', 'escalation', 'infra', 'conflicts', 'rounds-exhausted', 'pr-review', 'external', 'budget'] as const;
+export const WAITING_ON = ['spec-approval', 'split-approval', 'input', 'escalation', 'infra', 'conflicts', 'rounds-exhausted', 'pr-review', 'external', 'budget'] as const;
 
 /** A pipeline stage: STAGES in lib/schema.ts. */
 export type Stage = (typeof STAGES)[number];
@@ -249,6 +249,7 @@ export interface JobEvent {
 /** config.pipeline as served: defaults().pipeline in lib/config.ts. */
 export interface PipelineConfig {
   plan: 'auto' | 'always' | 'never';
+  split: 'ask' | 'auto' | 'never';
   specApproval: 'always' | 'large' | 'never';
   design: 'none' | 'reference' | 'mockup';
   maxRounds: number;
