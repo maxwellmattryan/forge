@@ -44,6 +44,7 @@ verifyE2e:                   # after every verify step passes, also run commands
   paths: ["*.html", "*.css", "*.scss", "*.sass", "*.less", "*.svelte", "*.vue", "*.jsx", "*.tsx", "*.astro"]
                              # `forge job scope` matching: exact path, `dir/` prefix, * ** ? globs; a slash-free
                              # glob also matches the basename. A list here replaces the default.
+verifyIntegrity: warn        # warn | block: block fails verify on deleted test files or added skip/focus markers
 ports: { base: 4100, span: 100 }
 
 runtime:
@@ -157,7 +158,7 @@ improve:
   maxLearnings: 30           # cap on .forge/notes/learnings.md entries
 
 evals:
-  testPattern: null          # regex for test files when mining PRs into eval tasks
+  testPattern: null          # regex for test files: mining PRs into eval tasks, and verify's integrity report (null: a built-in default)
 
 dashboard:
   port: 7400
@@ -175,6 +176,23 @@ dashboard:
 | Max quality | everything `opus`; spec-writer and builder `fable` if available |
 
 Any profile can add `runtime.diversity: true`. Expect warnings by design where a profile shares families: the Balanced security lens is `opus` like the builder, and Economy and Max quality put the builder and approver on one family. `forge roster` always reports `diversity.overlap`: the approver and every panel lens whose model shares the builder's family (`opus`, `sonnet`, `haiku` or `fable` when the model names one, else the whole model string; `inherit` resolves through `runtime.models.orchestrator`). With `diversity: true`, `forge roster` and `forge init write` also return one warning per overlap. Diversity warns; it never blocks a job.
+
+## Verify integrity
+
+Every `forge verify` on a clean worktree also reports what the committed diff since the merge-base with the base branch did to the tests, in an `## integrity` section of `verify/round-N.md` and a compact `integrity` key in its JSON. Test files are paths matching `evals.testPattern`; when that is null, the built-in default (`DEFAULT_TEST_PATTERN` in `lib/integrity.mjs`) matches files under `test/`, `tests/`, `__tests__/`, `spec/` or `specs/`, `*.test.*`/`*.spec.*` (also `-test`, `_spec`, …), `*_test.go|py|rs` and `test_*.py`. The base is `refs/remotes/<git.remote>/<base>`, else `refs/heads/<base>`; a full commit sha or a `refs/…` name in the job's base is used as given, and other revisions (tags, `HEAD~3`) are not accepted. Replace objects and grafts are ignored, and every diff setting the parser depends on is pinned, so repo config written from the worktree cannot change what is read.
+- **Deleted test files**: test files that were deleted, renamed out of the pattern, moved where a runner glob may no longer find them (another directory, a different test suffix or extension, or a dropped `test_` prefix: `test/a.test.mjs` → `test/old/a.test.mjs`, `a.test.mjs.off`, `a.test.ts`), or replaced by a symlink or submodule.
+- **Renamed test files**: same directory and suffix, new name; informational.
+- **Skip/focus markers added**, matched line by line, so the list is what is covered and nothing more:
+  - in any file: Rust `#[ignore]`; `pytest.mark.skip`/`skipif`/`xfail` (decorator or `pytestmark = …`), `pytest.skip(`; `@unittest.skip`/`skipIf`/`skipUnless`/`expectedFailure`, `unittest.SkipTest`.
+  - in test files only: `describe`/`it`/`test`/`context`/`suite`/`t` with `.skip`/`.only`/`.todo` (also `['skip']`, and a chained `.skip(` starting a line), `.skipIf(`/`.runIf(`, `xit`/`xdescribe`/`xtest`/`xcontext`/`fit`/`fdescribe`, node:test options (`{ skip: true }`, `{ todo: 'why' }`, the `{ skip }` shorthand in a test call, alone on a line, or assigned as `= { skip }`/`= { only }`), mocha `this.skip()`, `self.skipTest(`, Go `t.Skip`/`SkipNow`/`Skipf` and `//go:build ignore` (or `// +build … ignore`) in `_test.go`, JUnit `@Disabled`/`@Ignore`.
+
+  Binary-looking files are scanned for markers too, but not counted. A removed marker line cancels an added one only when their text matches apart from whitespace, so moving or reindenting a skip is not a finding but retitling one is.
+- **Test-count delta**: declared tests in the changed test files, before and after.
+- **Test, build or CI config edits**: `package.json` `scripts`/`jest`/`mocha`/`ava`, Make and just files, CI config, `Cargo.toml` dev-dependencies, test-runner config, `.gitattributes`, `.forge/config.yml`, and script files the configured `commands` run.
+
+Under `warn` the report never changes the result; reviewers and the approver read it. Under `block`, a deleted test file or an added skip/focus marker fails verify (`failure.name: integrity`), and so does a report that cannot be computed (base not found, invalid pattern, or a base that already contains commits the job branch's reflog records as made on it). A deletion is sanctioned, listed as *named in spec* and never blocks, when a line of the spec's `## Approach` makes its exact path the object of delete, remove or drop (``- Delete `test/old.test.mjs` ``, ``- Remove the test files `a` and `b` ``); a move the runner may miss is sanctioned the same way by ``- Move `test/a.test.js` to `test/a.test.ts` `` (or rename … to/into …; a `to` ending in `/` keeps the file name). The path must end the clause: ``Remove `x` from the lint glob``, ``Drop `x` coverage of …`` or ``Remove the `x` case`` sanction nothing. A mere mention, any line with a negation (not, n't, never, keep, avoid, without, leave, cannot), a rename out of the pattern or a type change is never sanctioned. For any other legitimate skip or deletion, the human escape is `verifyIntegrity: warn`. The mode is always read from the main checkout's config, so a job that edits `.forge/config.yml` cannot switch it off.
+
+Verify's clean check also fails, in either mode, when the files on disk can differ from HEAD without `git status` showing it: assume-unchanged flags, a skip-worktree file that is still on disk, or one missing from disk that no sparse checkout leaves out (paths outside a cone-mode sparse checkout are fine; with non-cone or malformed patterns only files that are not tests or test config may be missing), or a clean/smudge filter that changes a test or test-config file on checkout (the standard git-lfs filter is trusted; Forge's eval checkouts sparse-exclude only `.forge/evals/`). If that check itself cannot run, the report becomes an integrity error (fails `block`, printed under `warn`). In the verify JSON, `integrity` is `null` when the worktree is unclean (no report is computed) and `{ "mode", "ok", "error" }` when the report cannot be computed.
 
 ## Repo-layer files
 

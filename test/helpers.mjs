@@ -13,6 +13,12 @@ export function scratchGitConfig(git) {
   git('config', 'tag.gpgsign', 'false');
 }
 
+// Every test file that touches git imports this module, so pinning git's config here covers the
+// suite's own git calls, the CLI it spawns and lib's run(): host settings such as commit.gpgsign
+// (which fails under parallel test files) or core.hooksPath must not decide whether a test passes.
+process.env.GIT_CONFIG_GLOBAL = path.resolve(import.meta.dirname, 'fixtures', 'gitconfig');
+process.env.GIT_CONFIG_NOSYSTEM = '1';
+
 /** A throwaway git repo with one commit; FORGE_ROOT pins the CLI's main checkout to it. */
 export function tempRepo() {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-test-')));

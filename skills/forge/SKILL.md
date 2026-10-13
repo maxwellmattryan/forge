@@ -96,8 +96,10 @@ Spawn **builder**. Round 1 inputs: spec, design/mockup, tasks. Rework inputs: th
 On `NEEDS-INPUT`: `--state waiting --waiting-on input`, show the human `questions.md`'s questions (these few lines you may read), and stop the job.
 
 ### 6. Verify
-`forge verify <id>` (deterministic: the configured build/lint/test commands, logged). It refuses an uncommitted worktree, records the HEAD sha it checked, and keeps every attempt (`attempt` in its output). On failure, send the builder back with the verify file as input **without** a new review round, until verify returns `budget.stopped`: `pipeline.budget.verifyRetries` is used up and the job is already waiting on `budget`.
+`forge verify <id>` (deterministic: the configured build/lint/test commands, logged). It refuses an uncommitted worktree (or one whose files differ from HEAD through index flags or filters), records the HEAD sha it checked, and keeps every attempt (`attempt` in its output). On failure, send the builder back with the verify file as input **without** a new review round, until verify returns `budget.stopped`: `pipeline.budget.verifyRetries` is used up and the job is already waiting on `budget`.
 When `commands.e2e` is set, verify also runs it after the other steps if the diff touches `verifyE2e.paths` (or always/never per `verifyE2e.when`); a failing e2e is a verify failure like any other.
+
+Under `verifyIntegrity: block`, deleted test files or added skip/focus markers also fail verify (`failure.name: integrity`). If `build.md` says the spec requires that change, don't loop the builder: `forge job set <id> --state waiting --waiting-on escalation --reason "integrity: <path>"`, and tell the human to add ``Delete `<path>` `` (or ``Move `<from>` to `<to>` ``) to the spec's Approach, or set `verifyIntegrity: warn`.
 
 ### 7. Review
 First run `forge job scope <id>` (read only its JSON). If the panel has `ui`, `ux` or `accessibility` and `commands.dev` is set, run `forge run <id> dev --background` once now and put its `port` in those reviewers' briefs. Then spawn one **reviewer** per selected lens, **all in parallel** (background), each with its lens, its checklist path (`checklists` in job paths), the scope `file`, and its output `review/round-<n>/<lens>.md`. Wait for **all** of them, then `forge stop <id>` if you started the server. Then:
