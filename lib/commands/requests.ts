@@ -3,9 +3,9 @@
 import { ackRequest, claimRequest, enqueue, listRequests } from '../requests.ts';
 import { ForgeError } from '../util.ts';
 import { req } from './args.ts';
+import type { Config, ForgeRequest } from '../types.ts';
 
-/** @param {string} root @param {any} config @param {string|undefined} sub @param {string[]} rest @param {Record<string, any>} flags */
-export function requestsCmd(root, config, sub, rest, flags) {
+export function requestsCmd(root: string, config: Config, sub: string | undefined, rest: string[], flags: Record<string, any>): ForgeRequest | ForgeRequest[] {
   if (!sub || sub === 'list') return listRequests(root, { status: flags.all ? undefined : 'pending' });
   if (sub === 'add') return enqueue(root, config, { type: req(rest[0], 'type'), job: flags.job, text: flags.text, from: 'cli' });
   if (sub === 'claim') return claimRequest(root, req(rest[0], 'request id'), req(flags.session, '--session'), Boolean(flags.force));

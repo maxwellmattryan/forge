@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { main } from '../lib/cli.mjs';
+import { main } from '../lib/cli.ts';
 
 main(process.argv.slice(2)).catch((err) => {
   process.stderr.write(`forge: ${err?.message ?? err}\n`);

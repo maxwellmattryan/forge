@@ -7,9 +7,10 @@ import { loadTracker } from '../trackers/index.ts';
 import { ForgeError } from '../util.ts';
 import * as wt from '../worktree.ts';
 import { bodyFrom, list, req } from './args.ts';
+import type { Config, Job, JobPr, Tracker } from '../types.ts';
 
-/** @param {string} root @param {any} config @param {string|undefined} sub @param {string[]} rest @param {Record<string, any>} flags */
-export async function trackerCmd(root, config, sub, rest, flags) {
+/** The result is printed as JSON. */
+export async function trackerCmd(root: string, config: Config, sub: string | undefined, rest: string[], flags: Record<string, any>): Promise<unknown> {
   const tracker = await loadTracker(root, config);
   const ctx = { root, config };
   switch (sub) {
@@ -35,19 +36,19 @@ export async function trackerCmd(root, config, sub, rest, flags) {
   }
 }
 
-/** `forge next --claim` and `forge job from-ref`. @param {string} root @param {any} config @param {Record<string, any>} flags */
-export async function nextCmd(root, config, flags) {
+/** `forge next --claim` and `forge job from-ref`. The result is printed as JSON. */
+export async function nextCmd(root: string, config: Config, flags: Record<string, any>): Promise<unknown> {
   const tracker = await loadTracker(root, config);
   const items = tracker.list({ root, config }, { ready: true, limit: Number(flags.limit ?? 20) });
-  /** @type {{ref:string, id:string, waitingOn:string[]}[]} */
-  const blocked = [];
+  const blocked: { ref: string; id: string; waitingOn: string[] }[] = [];
   // --force skips nothing. Otherwise an item is blocked when the active job it would resume
   // (the same match startFromRef uses) has unmet dependencies.
   const active = flags.force ? [] : listJobs(root).filter((j) => isActive(j) && j.source);
   const ready = items.filter((i) => {
-    const job = active.find((j) => String(j.source.ref) === String(i.ref));
+    // active holds only jobs with a source, and unmet is empty unless a job was found.
+    const job = active.find((j) => String(j.source!.ref) === String(i.ref));
     const unmet = job ? unmetDependencies(root, job) : [];
-    if (unmet.length) blocked.push({ ref: i.ref, id: job.id, waitingOn: unmet.map((u) => u.id) });
+    if (unmet.length) blocked.push({ ref: i.ref, id: job!.id, waitingOn: unmet.map((u) => u.id) });
     return !unmet.length;
   });
   const extra = blocked.length ? { blocked } : {};
@@ -57,10 +58,14 @@ export async function nextCmd(root, config, flags) {
   return { ...(await startFromRef(root, config, tracker, item.ref, flags)), ...extra };
 }
 
-/**
- * @param {string} root @param {any} config @param {import('../trackers/index.ts').Tracker} tracker @param {string} ref @param {Record<string, any>} flags
- */
-export async function startFromRef(root, config, tracker, ref, flags) {
+/** Starts (or finds) the job for a tracker item and claims the item for it. */
+export async function startFromRef(
+  root: string,
+  config: Config,
+  tracker: Tracker,
+  ref: string,
+  flags: Record<string, any>,
+): Promise<{ id: string; existing: true; stage: Job['stage']; state: Job['state'] } | { id: string; ref: string; title: string; branch: Job['branch'] }> {
   const ctx = { root, config };
   const item = tracker.get(ctx, ref);
   if (!item) throw new ForgeError(`no ${tracker.name} item "${ref}"`);
@@ -76,32 +81,32 @@ export async function startFromRef(root, config, tracker, ref, flags) {
   return { id: job.id, ref: item.ref, title: item.title, branch: job.branch };
 }
 
-/** Best-effort: tracker hiccups must never block the pipeline. @param {string} root @param {any} config @param {any} job */
-export async function mirrorToTracker(root, config, job) {
+/** Best-effort: tracker hiccups must never block the pipeline. */
+export async function mirrorToTracker(root: string, config: Config, job: Job): Promise<void> {
   if (!job.source?.ref || job.kind === 'eval' || job.source.tracker !== config.tracker.kind) return;
   try {
     const tracker = await loadTracker(root, config);
     tracker.update({ root, config }, String(job.source.ref), job);
   } catch (e) {
-    logEvent(root, job.id, 'tracker-error', { error: /** @type {Error} */ (e).message.slice(0, 300) });
+    logEvent(root, job.id, 'tracker-error', { error: (e as Error).message.slice(0, 300) });
   }
 }
 
 const MERGE_EVENTS = new Set(['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed']);
 
-/** A deferred merge has no GitHub-side queue, so sync surfaces it for the orchestrator to retry. @param {string} root @param {string} id */
-function lastMergeEvent(root, id) {
+/** A deferred merge has no GitHub-side queue, so sync surfaces it for the orchestrator to retry. */
+function lastMergeEvent(root: string, id: string): string | null {
   return readEvents(root, id).filter((e) => MERGE_EVENTS.has(e.type)).pop()?.type ?? null;
 }
 
-/** @param {string} root @param {any} config */
-export async function syncAll(root, config) {
-  const results = [];
+/** `forge sync`: PRs and trackers for every job, then stacked-branch retargets, dependency waits and umbrella jobs. */
+export async function syncAll(root: string, config: Config): Promise<{ synced: number; results: Record<string, unknown>[]; requests: number }> {
+  const results: Record<string, unknown>[] = [];
   for (const job of listJobs(root).filter((j) => j.kind !== 'eval')) {
     const watch = isActive(job) ? job.pr?.number || job.stage === 'pr' : job.pr?.state === 'OPEN';
     if (!watch || !config.pr.enabled) continue;
     try {
-      const before = job.pr ?? {};
+      const before: Partial<JobPr> = job.pr ?? {};
       const r = pr.syncPr(root, config, job.id);
       const after = loadJob(root, job.id);
       await mirrorToTracker(root, config, after);
@@ -125,7 +130,7 @@ export async function syncAll(root, config) {
         cleaned,
       });
     } catch (e) {
-      results.push({ id: job.id, error: /** @type {Error} */ (e).message.slice(0, 300) });
+      results.push({ id: job.id, error: (e as Error).message.slice(0, 300) });
     }
   }
   // Both passes are local git and job state, so they run even with PRs disabled.
@@ -134,7 +139,7 @@ export async function syncAll(root, config) {
       pr.retargetPr(root, config, p.id, p.to, p.dependency);
       results.push({ id: p.id, retargeted: { from: p.from, to: p.to, dependency: p.dependency } });
     } catch (e) {
-      results.push({ id: p.id, error: /** @type {Error} */ (e).message.slice(0, 300) });
+      results.push({ id: p.id, error: (e as Error).message.slice(0, 300) });
     }
   }
   for (const job of listJobs(root).filter((j) => isActive(j) && j.kind !== 'eval' && j.state === 'waiting' && String(j.reason ?? '').startsWith(DEP_REASON))) {
@@ -143,7 +148,7 @@ export async function syncAll(root, config) {
       results.push({ id: job.id, unblocked: true });
       await mirrorToTracker(root, config, loadJob(root, job.id));
     } catch (e) {
-      results.push({ id: job.id, error: /** @type {Error} */ (e).message.slice(0, 300) });
+      results.push({ id: job.id, error: (e as Error).message.slice(0, 300) });
     }
   }
   for (const job of listJobs(root).filter((j) => isActive(j) && j.children?.length)) {
@@ -154,7 +159,8 @@ export async function syncAll(root, config) {
         return null;
       }
     }).filter(Boolean);
-    if (kids.length && kids.every((k) => ['done', 'cancelled'].includes(k.state))) {
+    // filter(Boolean) above dropped the children that failed to load.
+    if (kids.length && kids.every((k) => ['done', 'cancelled'].includes(k!.state))) {
       setJob(root, job.id, { stage: 'done', state: 'done', reason: 'all child jobs finished' });
       results.push({ id: job.id, umbrellaDone: true });
     }

@@ -1,8 +1,8 @@
 // Human-readable summaries: `forge status` and the text form of `forge stats`.
 import { isActive, listJobs, progress } from '../jobs.ts';
+import type { Stats } from '../types.ts';
 
-/** @param {string} root @param {boolean} all */
-export function statusTable(root, all) {
+export function statusTable(root: string, all: boolean): string {
   const jobs = listJobs(root).filter((j) => all || isActive(j));
   if (!jobs.length) return 'no active jobs';
   const rows = jobs.map((j) => {
@@ -15,9 +15,8 @@ export function statusTable(root, all) {
   return [head, ...rows].map((r) => r.map((c, i) => String(c).padEnd(widths[i])).join('  ').trimEnd()).join('\n');
 }
 
-/** @param {any} s */
-export function statsText(s) {
-  const pct = (/** @type {number|null} */ x) => (x === null ? '—' : `${Math.round(x * 100)}%`);
+export function statsText(s: Stats): string {
+  const pct = (x: number | null) => (x === null ? '—' : `${Math.round(x * 100)}%`);
   const q = s.quality;
   const lines = [
     `jobs ${s.counts.total} (active ${s.counts.active}, done ${s.counts.done}, waiting ${s.counts.waiting}, cancelled ${s.counts.cancelled})`,
@@ -28,6 +27,6 @@ export function statsText(s) {
     `tokens ${s.cost.totalTokens.toLocaleString()} · est. API cost $${s.cost.estCostUsd} · per job $${s.cost.avgCostPerJobUsd ?? '—'} · usage coverage ${s.cost.reportingCoverage.withUsage}/${s.cost.reportingCoverage.agentRuns} (exact ${s.cost.reportingCoverage.exact})`,
   ];
   const rv = Object.entries(s.reviewers);
-  if (rv.length) lines.push('reviewers: ' + rv.map(([k, v]) => `${k} ${pct(/** @type {any} */ (v).changeRate)} changes`).join(' · '));
+  if (rv.length) lines.push('reviewers: ' + rv.map(([k, v]) => `${k} ${pct(v.changeRate)} changes`).join(' · '));
   return lines.join('\n');
 }

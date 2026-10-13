@@ -8,9 +8,10 @@ import { modelOverlap } from '../roster.ts';
 import { migrateConfig, normalizeJob, serializeJob } from '../schema.ts';
 import { ForgeError, deepMerge, hasBinary, readJson, readText, run, writeJsonAtomic } from '../util.ts';
 import * as yaml from '../yaml.ts';
+import type { Config } from '../types.ts';
 
-/** @param {string} root @param {any} answers @param {boolean} force */
-export function initWrite(root, answers, force) {
+/** `answers` is the orchestrator's JSON file, merged over defaults and validated before anything is written. */
+export function initWrite(root: string, answers: any, force: boolean): { ok: true; written: string[]; warnings: string[] } {
   const p = paths(root);
   if (exists(p.config) && !force) {
     const current = yaml.parse(readText(p.config)) ?? {};
@@ -24,8 +25,7 @@ export function initWrite(root, answers, force) {
   fs.writeFileSync(p.config, stringifyConfig(config));
   const written = [path.relative(root, p.config)];
   const tpl = path.join(PLUGIN_ROOT, 'templates');
-  /** @type {[string, string][]} */
-  const seeds = [
+  const seeds: [string, string][] = [
     [path.join(tpl, 'gitignore'), path.join(p.dir, '.gitignore')],
     [path.join(tpl, 'learnings.md'), path.join(p.notes, 'learnings.md')],
     [path.join(tpl, 'README.md'), path.join(p.dir, 'README.md')],
@@ -40,10 +40,9 @@ export function initWrite(root, answers, force) {
   return { ok: true, written, warnings: modelOverlap(config).warnings };
 }
 
-/** @param {string} root @param {any} config @param {boolean} initialized */
-export async function doctor(root, config, initialized) {
-  const checks = [];
-  const add = (/** @type {string} */ name, /** @type {boolean} */ ok, /** @type {string} */ detail = '') => checks.push({ name, ok, detail });
+export async function doctor(root: string, config: Config, initialized: boolean): Promise<{ ok: boolean; checks: { name: string; ok: boolean; detail: string }[] }> {
+  const checks: { name: string; ok: boolean; detail: string }[] = [];
+  const add = (name: string, ok: boolean, detail = '') => checks.push({ name, ok, detail });
   add('node >= 20', Number(process.versions.node.split('.')[0]) >= 20, process.versions.node);
   const gitV = run('git', ['--version'], { allowFail: true });
   add('git', gitV.ok, gitV.stdout.trim());
@@ -70,15 +69,14 @@ export async function doctor(root, config, initialized) {
   for (const j of listJobs(root).filter((x) => isActive(x) && x.port)) {
     if (j.worktree && !exists(j.worktree)) add(`job ${j.id} worktree`, false, `missing: ${j.worktree}`);
   }
-  const unsupported = listJobs(root).filter((j) => /** @type {any} */ (j)._unsupported);
+  const unsupported = listJobs(root).filter((j) => (j as any)._unsupported);
   if (unsupported.length) add('job schema', false, `${unsupported.length} job(s) from a newer Forge`);
   return { ok: checks.every((c) => c.ok), checks };
 }
 
-/** @param {string} root */
-export function migrate(root) {
+export function migrate(root: string): { changed: string[] } {
   const p = paths(root);
-  const changed = [];
+  const changed: string[] = [];
   if (exists(p.config)) {
     const raw = yaml.parse(readText(p.config)) ?? {};
     const m = migrateConfig(raw);

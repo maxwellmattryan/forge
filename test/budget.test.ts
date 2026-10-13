@@ -7,8 +7,8 @@ import { tempRepo } from './helpers.mjs';
 import { defaults, validateConfig } from '../lib/config.ts';
 import { createJob, jobDir, loadJob, readEvents, setJob } from '../lib/jobs.ts';
 import { budgetCmd, enforceBudget, exceededKeys, formatReason } from '../lib/budget.ts';
-import { jobCmd } from '../lib/commands/job.mjs';
-import { migrate } from '../lib/commands/init.mjs';
+import { jobCmd } from '../lib/commands/job.ts';
+import { migrate } from '../lib/commands/init.ts';
 import { API_VERSION, BUDGET_KEYS, JOB_SCHEMA_VERSION, WAITING_ON } from '../lib/schema.ts';
 import { API_VERSION as DASH_API_VERSION } from '../dashboard/src/lib/types.ts';
 import { WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
@@ -21,7 +21,7 @@ function setup() {
   const config = defaults();
   const job = createJob(repo.dir, config, { title: 'Budgeted job' });
   setJob(repo.dir, job.id, { stage: 'build', state: 'running' });
-  const agentEnd = (flags) => jobCmd(repo.dir, config, 'agent', [job.id, 'end'], { role: 'builder', ...flags });
+  const agentEnd = (flags): any => jobCmd(repo.dir, config, 'agent', [job.id, 'end'], { role: 'builder', ...flags });
   const count = (type) => readEvents(repo.dir, job.id).filter((e) => e.type === type).length;
   return { repo, root: repo.dir, config, id: job.id, agentEnd, count };
 }
@@ -134,7 +134,7 @@ test('AC4/AC5: usd and agent minutes stop the job', async () => {
   try {
     s.config.pipeline.budget.minutes = 2;
     await s.agentEnd({ 'duration-ms': 60000 });
-    const r = await jobCmd(s.root, s.config, 'agent', [s.id, 'end'], { role: 'reviewer:code', 'duration-ms': 61000 });
+    const r: any = await jobCmd(s.root, s.config, 'agent', [s.id, 'end'], { role: 'reviewer:code', 'duration-ms': 61000 });
     assert.deepEqual(r.budget.exceeded, [{ key: 'minutes', used: 2.0167, limit: 2 }], 'agent minutes sum across roles');
     assert.equal(r.budget.reason, 'budget exceeded: minutes 2.0/2.0');
   } finally {
@@ -145,7 +145,7 @@ test('AC4/AC5: usd and agent minutes stop the job', async () => {
 test('AC8/AC10/AC12: rounds increment under budget, terminal jobs never move, raising and overrides', async () => {
   const { repo, root, config, id, agentEnd } = setup();
   try {
-    const r1 = await jobCmd(root, config, 'round', [id], {});
+    const r1: any = await jobCmd(root, config, 'round', [id], {});
     assert.deepEqual(r1, { round: 1, maxRounds: 3, exhausted: false });
     config.pipeline.budget.tokens = 1000;
     await agentEnd({ tokens: 1500 });
@@ -154,14 +154,14 @@ test('AC8/AC10/AC12: rounds increment under budget, terminal jobs never move, ra
     assert.throws(() => budgetCmd(root, config, id, { set: ['bogus=1'] }), /allowed keys: tokens, usd, minutes, changedLines, verifyRetries/);
     assert.throws(() => budgetCmd(root, config, id, { set: ['usd=-2'] }), /allowed keys/);
     assert.throws(() => budgetCmd(root, config, id, { set: ['verifyRetries=1.5'] }), /non-negative integer/);
-    const raised = await jobCmd(root, config, 'budget', [id], { set: 'tokens=5000' });
+    const raised: any = await jobCmd(root, config, 'budget', [id], { set: 'tokens=5000' });
     assert.deepEqual(raised.stillExceeded, []);
     assert.deepEqual(raised.exceeded, []);
     assert.equal(raised.limits.tokens, 5000);
     assert.equal(loadJob(root, id).budget.limits.tokens, 5000);
     assert.equal(readEvents(root, id).filter((e) => e.type === 'budget-set').length, 1);
     setJob(root, id, { state: 'running' });
-    const r2 = await jobCmd(root, config, 'round', [id], {});
+    const r2: any = await jobCmd(root, config, 'round', [id], {});
     assert.equal(r2.round, 2);
     assert.ok(!('budget' in r2));
 
@@ -175,7 +175,7 @@ test('AC8/AC10/AC12: rounds increment under budget, terminal jobs never move, ra
     assert.deepEqual(reset.stillExceeded, ['tokens']);
 
     // The round does not move while over budget.
-    const stopped = await jobCmd(root, config, 'round', [id], {});
+    const stopped: any = await jobCmd(root, config, 'round', [id], {});
     assert.equal(stopped.round, 2);
     assert.equal(stopped.budget.stopped, true);
     assert.equal(loadJob(root, id).round, 2);

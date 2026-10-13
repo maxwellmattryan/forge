@@ -5,7 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.mjs';
 import { defaults, validateConfig } from '../lib/config.ts';
-import { initWrite } from '../lib/commands/init.mjs';
+import { initWrite } from '../lib/commands/init.ts';
 import { modelFamily, modelOverlap, roster } from '../lib/roster.ts';
 
 const warning = (role, model, builder) => `${role} runs on ${model}, the same model family as the builder (${builder}); runtime.diversity asks for a different one`;

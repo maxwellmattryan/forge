@@ -15,14 +15,14 @@ import { computeStats } from './stats.ts';
 import { ForgeError, getPath, readJson, run } from './util.ts';
 import * as wt from './worktree.ts';
 import { out, parseArgs, req } from './commands/args.ts';
-import { dash } from './commands/dash.mjs';
-import { evalCmd } from './commands/eval.mjs';
-import { gitRead } from './commands/git.mjs';
-import { doctor, initWrite, migrate } from './commands/init.mjs';
-import { jobCmd } from './commands/job.mjs';
-import { requestsCmd } from './commands/requests.mjs';
-import { statsText, statusTable } from './commands/status.mjs';
-import { nextCmd, syncAll, trackerCmd } from './commands/tracker.mjs';
+import { dash } from './commands/dash.ts';
+import { evalCmd } from './commands/eval.ts';
+import { gitRead } from './commands/git.ts';
+import { doctor, initWrite, migrate } from './commands/init.ts';
+import { jobCmd } from './commands/job.ts';
+import { requestsCmd } from './commands/requests.ts';
+import { statsText, statusTable } from './commands/status.ts';
+import { nextCmd, syncAll, trackerCmd } from './commands/tracker.ts';
 
 const HELP = () => `⚒️  Forge v${forgeVersion()}: a lightweight, self-improving software factory
 
@@ -45,8 +45,7 @@ Usage: forge <command> [options]   (state, worktrees, PRs, trackers, evals, dash
 
 Docs: ${path.join(PLUGIN_ROOT, 'docs')}`;
 
-/** @param {string[]} argv */
-export async function main(argv) {
+export async function main(argv: string[]): Promise<void> {
   // git's own options pass through untouched, so this runs before Forge's flag parsing.
   if (argv[0] === 'git') {
     process.exitCode = gitRead(argv.slice(1));
@@ -58,8 +57,7 @@ export async function main(argv) {
   if (cmd === 'version') return out({ version: forgeVersion() }, flags);
 
   const root = mainRoot();
-  /** @type {{text?: string|null}} */
-  let loadOpts = {};
+  let loadOpts: { text?: string | null } = {};
   if (process.env.FORGE_DAEMON === '1') {
     // Before loadConfig, which then parses the checked bytes rather than reading the file again.
     const trust = daemonTrust(root);
