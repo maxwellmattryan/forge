@@ -4,6 +4,8 @@
 // comments. Not supported: anchors/aliases, tags, multi-document streams, complex keys.
 // Anything outside the subset fails loudly with a line number rather than misparsing.
 
+import type { ConfigValue } from './types.ts';
+
 export class YamlError extends Error {
   // `declare` keeps this a type only: a plain field would become a runtime class field and show up in Object.keys.
   declare line: number | undefined;
@@ -312,4 +314,193 @@ function inline(v: any): string {
     return keys.length ? `{ ${keys.map((k) => `${k}: ${inline(v[k])}`).join(', ')} }` : '{}';
   }
   return scalarOut(v);
+}
+
+// ---------- setIn: one-value edits that keep the rest of the text ----------
+
+interface SrcLine {
+  raw: string;
+  /** raw without its trailing comment and trailing whitespace */
+  code: string;
+  /** -1 for blank and comment-only lines */
+  indent: number;
+}
+
+const isDash = (l: SrcLine) => l.indent >= 0 && /^-(\s|$)/.test(l.code.trim());
+const isBlockScalar = (t: string) => /^[|>][+-]?$/.test(t);
+
+/**
+ * Returns `src` with the value at `path` set to `value`, touching only the lines that hold it (or
+ * inserting the missing keys), so comments, blank lines and key order survive. Whatever it can't
+ * change without dropping a comment or restructuring the document throws YamlError, and so does
+ * an edit that doesn't parse back to exactly the intended change.
+ */
+export function setIn(src: string, path: string[], value: ConfigValue): string {
+  if (!path.length) throw new YamlError('setIn needs a key');
+  const where = path.join('.');
+  const crlf = /\r\n/.test(src);
+  const raws = src.replace(/\r\n?/g, '\n').split('\n');
+  const lines: SrcLine[] = raws.map((raw) => {
+    const code = stripComment(raw);
+    const blank = !code.trim() || /^(---|\.\.\.)$/.test(code.trim());
+    return { raw, code, indent: blank ? -1 : code.length - code.trimStart().length };
+  });
+  const nextContent = (from: number) => {
+    for (let j = from; j < lines.length; j++) if (lines[j].indent >= 0) return j;
+    return -1;
+  };
+  const restOf = (j: number) => (lines[j].code.trim().match(KEY_RE)?.[2] ?? '').trim();
+  /** The key line for `key` among the children at `ind` that start at `from`, or -1. */
+  const findKey = (from: number, ind: number, key: string) => {
+    for (let j = from; j < lines.length; j++) {
+      const l = lines[j];
+      if (l.indent < 0 || l.indent > ind) continue;
+      if (l.indent < ind) break;
+      if (isDash(l)) continue; // a same-indent sequence: the previous key's value
+      const m = l.code.trim().match(KEY_RE);
+      if (!m) throw new YamlError(`expected "key: value", got "${l.code.trim()}"`, j + 1);
+      if (unquoteKey(m[1].trim()) === key) return j;
+    }
+    return -1;
+  };
+
+  let out: string[] | null = null;
+  const top = nextContent(0);
+  if (top !== -1 && isDash(lines[top])) throw new YamlError('the document is a sequence, not a map', top + 1);
+  // The map being searched: its children start at `from` at indent `ind`; `header` is its key line.
+  let from = top === -1 ? lines.length : top;
+  let ind = top === -1 ? 0 : lines[top].indent;
+  let header = -1;
+  let depth = 0;
+  for (; depth < path.length; depth++) {
+    const k = findKey(from, ind, path[depth]);
+    if (k === -1) break;
+    if (depth === path.length - 1) {
+      out = replaceValue(k);
+      break;
+    }
+    const name = path.slice(0, depth + 1).join('.');
+    const rest = restOf(k);
+    if (rest.startsWith('{')) throw new YamlError(`${name} is a flow map; edit it by hand`, k + 1);
+    if (rest) throw new YamlError(`${name} is a scalar, not a map`, k + 1);
+    const n = nextContent(k + 1);
+    if (n !== -1 && isDash(lines[n]) && lines[n].indent >= lines[k].indent) throw new YamlError(`${name} is a sequence; edit it by hand`, k + 1);
+    header = k;
+    if (n === -1 || lines[n].indent <= lines[k].indent) {
+      // `key:` with a null value: the rest of the path goes under it.
+      from = k + 1;
+      ind = lines[k].indent + 2;
+      depth++;
+      break;
+    }
+    from = n;
+    ind = lines[n].indent;
+  }
+
+  if (!out) {
+    let at: number;
+    if (header === -1) {
+      at = raws.length && raws[raws.length - 1] === '' ? raws.length - 1 : raws.length;
+    } else {
+      at = header;
+      for (let j = from; j < lines.length; j++) {
+        if (lines[j].indent < 0) continue;
+        if (lines[j].indent < ind) break;
+        at = j;
+      }
+      at++;
+    }
+    const add: string[] = [];
+    for (let k = depth; k < path.length; k++) {
+      const pad = ' '.repeat(ind + (k - depth) * 2);
+      const key = needsQuote(path[k]) ? JSON.stringify(path[k]) : path[k];
+      add.push(k === path.length - 1 ? `${pad}${key}: ${flowOut(value)}` : `${pad}${key}:`);
+    }
+    out = [...raws.slice(0, at), ...add, ...raws.slice(at)];
+  }
+
+  function replaceValue(k: number): string[] {
+    const l = lines[k];
+    const rest = restOf(k);
+    const next = raws.slice();
+    const onKeyLine = () => l.code + ' ' + flowOut(value) + l.raw.slice(l.code.length);
+    if (rest) {
+      if (isBlockScalar(rest)) throw new YamlError(`${where} is a block scalar; edit it by hand`, k + 1);
+      if (rest.startsWith('{')) throw new YamlError(`${where} is a map; edit it by hand`, k + 1);
+      // `code` is a prefix of `raw`, so the value ends where `code` does and a trailing comment stays.
+      const end = l.code.length;
+      next[k] = l.raw.slice(0, end - rest.length) + flowOut(value) + l.raw.slice(end);
+      return next;
+    }
+    const n = nextContent(k + 1);
+    const child = n === -1 ? null : lines[n];
+    const seq = child !== null && isDash(child) && child.indent >= l.indent;
+    if (child && !seq && child.indent > l.indent) throw new YamlError(`${where} is a map; edit it by hand`, k + 1);
+    if (!seq) {
+      next[k] = onKeyLine();
+      return next;
+    }
+    const dash = lines[n].indent;
+    let last = n;
+    for (let j = n; j < lines.length; j++) {
+      const it = lines[j];
+      if (it.indent < 0) {
+        const after = nextContent(j + 1);
+        if (it.raw.trim() && after !== -1 && lines[after].indent === dash && isDash(lines[after]))
+          throw new YamlError(`${where} has a comment between its items; edit it by hand`, j + 1);
+        continue;
+      }
+      if (it.indent < dash || (it.indent === dash && !isDash(it))) break;
+      if (it.indent > dash) throw new YamlError(`${where} has items that span lines; edit it by hand`, j + 1);
+      const item = it.code.trim().replace(/^-\s*/, '');
+      if (!item || isMapEntry(item) || /^-(\s|$)/.test(item) || isBlockScalar(item))
+        throw new YamlError(`${where} has items that aren't one-line scalars; edit it by hand`, j + 1);
+      if (it.raw.trimEnd() !== it.code) throw new YamlError(`${where} has a comment on an item; edit it by hand`, j + 1);
+      last = j;
+    }
+    if (Array.isArray(value) && value.length) {
+      const pad = ' '.repeat(dash);
+      return [...next.slice(0, n), ...value.map((v) => `${pad}- ${scalarOut(v)}`), ...next.slice(last + 1)];
+    }
+    next[k] = onKeyLine();
+    return [...next.slice(0, n), ...next.slice(last + 1)];
+  }
+
+  const text = out.join('\n');
+  const result = crlf ? text.replace(/\n/g, '\r\n') : text;
+  selfCheck(src, result, path, value);
+  return result;
+}
+
+/** A scalar as `stringify` writes it, or a list as `[a, b]` with items that would break it double-quoted. */
+function flowOut(v: ConfigValue): string {
+  if (Array.isArray(v)) return `[${v.map((x) => (/[,\[\]{}]/.test(String(x)) ? JSON.stringify(String(x)) : scalarOut(x))).join(', ')}]`;
+  return scalarOut(v);
+}
+
+/** The edit must set exactly `path` and leave every other key as it parsed before. */
+function selfCheck(before: string, after: string, path: string[], value: ConfigValue): void {
+  const where = path.join('.');
+  let old: any;
+  let neu: any;
+  try {
+    old = parse(before) ?? {};
+    neu = parse(after) ?? {};
+  } catch (e) {
+    throw new YamlError(`editing ${where} would leave the file unparseable (${(e as Error).message})`);
+  }
+  const at = (o: any, p: string[]) => p.reduce((x, k) => (x && typeof x === 'object' && !Array.isArray(x) ? x[k] : undefined), o);
+  if (JSON.stringify(at(neu, path)) !== JSON.stringify(value)) throw new YamlError(`editing ${where} did not produce the intended value`);
+  delete at(old, path.slice(0, -1))?.[path[path.length - 1]];
+  delete at(neu, path.slice(0, -1))?.[path[path.length - 1]];
+  // Ancestors the insertion created (or turned from null into a map) go too, deepest first.
+  for (let n = path.length - 1; n >= 1; n--) {
+    const was = at(old, path.slice(0, n));
+    const now = at(neu, path.slice(0, n));
+    if (!now || typeof now !== 'object' || Array.isArray(now) || Object.keys(now).length) break;
+    const parent = at(neu, path.slice(0, n - 1));
+    if (was === undefined) delete parent[path[n - 1]];
+    else if (was === null) parent[path[n - 1]] = null;
+  }
+  if (JSON.stringify(old) !== JSON.stringify(neu)) throw new YamlError(`editing ${where} would change other keys`);
 }

@@ -3,9 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PLUGIN_ROOT, paths, exists, resolveFrom } from './paths.ts';
 import { CONFIG_SCHEMA_VERSION, migrateConfig } from './schema.ts';
-import type { Config, LoadedConfig } from './types.ts';
-import { ForgeError, deepMerge, isClaudeExecutable, readText, splitWords } from './util.ts';
+import type { Config, ConfigValue, LoadedConfig, PostConfigResponse } from './types.ts';
+import { ForgeError, deepMerge, getPath, isClaudeExecutable, readText, splitWords, withLock, writeTextAtomic } from './util.ts';
 import * as yaml from './yaml.ts';
+// Last: config-fields.ts imports this module back and calls defaults() while it loads.
+import { fieldFor, validateFieldValue } from './config-fields.ts';
 
 /** Every key Forge reads, with its default. docs/CONFIG.md documents each one. */
 export function defaults(): Config {
@@ -204,6 +206,63 @@ export function loadConfig(root: string, opts: { text?: string | null } = {}): L
   const config = deepMerge(base, migrated.config);
   if (Array.isArray(migrated.config?.review?.panel)) config.review.panel = migrated.config.review.panel;
   return { config, initialized: true, path: p.config, migratedFrom: migrated.from };
+}
+
+export type ConfigSetReason = 'unknown' | 'locked' | 'invalid' | 'uninitialized' | 'unsupported-yaml';
+
+/** Why setConfigValue refused; the server maps `reason` to a status code. */
+export class ConfigSetError extends ForgeError {
+  // `declare` keeps this a type only: a plain field would become a runtime class field and show up in Object.keys.
+  declare reason: ConfigSetReason;
+  constructor(reason: ConfigSetReason, message: string) {
+    super(message, reason === 'uninitialized' ? 2 : 1);
+    this.reason = reason;
+  }
+}
+
+export const NEED_INIT = 'this repo has no .forge/config.yml yet; run `/forge init` (or `forge init write --answers FILE`)';
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+/**
+ * Writes one editable key of .forge/config.yml, keeping every comment and the key order. The
+ * shared write path of `forge config set` and POST /api/config: `value` is already typed.
+ * Refuses (and leaves the file untouched) an unknown or read-only key, an invalid value, a
+ * layout setIn can't edit safely, and a result with problems validateConfig didn't report before.
+ */
+export function setConfigValue(root: string, key: string, value: ConfigValue): PostConfigResponse {
+  const p = paths(root);
+  const field = fieldFor(key);
+  const invalid = validateFieldValue(field, value);
+  if (invalid) throw new ConfigSetError('invalid', invalid);
+  // Checked before the lock too, so a repo without Forge gets no .forge/locks/.
+  if (!exists(p.config)) throw new ConfigSetError('uninitialized', NEED_INIT);
+  return withLock(path.join(p.locks, 'config'), () => {
+    let text: string;
+    try {
+      text = fs.readFileSync(p.config, 'utf8');
+    } catch (e) {
+      if ((e as any).code === 'ENOENT') throw new ConfigSetError('uninitialized', NEED_INIT);
+      throw e;
+    }
+    const before = loadConfig(root, { text }).config;
+    const previous = getPath(before, key);
+    if (same(previous, value)) return { ok: true, key, value, previous, changed: false };
+    let next: string;
+    try {
+      next = yaml.setIn(text, key.split('.'), value);
+    } catch (e) {
+      if (e instanceof yaml.YamlError) throw new ConfigSetError('unsupported-yaml', `can't set ${key}: ${e.message}; edit .forge/config.yml by hand`);
+      throw e;
+    }
+    const after = loadConfig(root, { text: next }).config;
+    if (!same(getPath(after, key), value)) throw new ConfigSetError('unsupported-yaml', `can't set ${key}: the file would not read back the new value; edit .forge/config.yml by hand`);
+    const had = new Set(validateConfig(before, root));
+    const added = validateConfig(after, root).filter((x) => !had.has(x));
+    if (added.length) throw new ConfigSetError('invalid', `${key}: the config would be invalid: ${added.join('; ')}`);
+    writeTextAtomic(p.config, next);
+    return { ok: true, key, value, previous, changed: true };
+  });
 }
 
 /**

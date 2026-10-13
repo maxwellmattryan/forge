@@ -396,6 +396,43 @@ export interface LoadedConfig {
   migratedFrom?: number;
 }
 
+// ---------- settings (lib/config-fields.ts) ----------
+
+/** A value `forge config set` and POST /api/config can write. */
+export type ConfigValue = string | number | boolean | null | string[];
+
+/** How a settings field is parsed, validated and rendered. */
+export type ConfigFieldType = 'boolean' | 'integer' | 'number' | 'string' | 'enum' | 'list' | 'object';
+
+/** The settings tab a field belongs to. */
+export type ConfigSection = 'pipeline' | 'review' | 'agents' | 'tracker' | 'dashboard' | 'daemon';
+
+/** One entry of FIELDS in lib/config-fields.ts. Every property is always present. */
+export interface ConfigField {
+  key: string;
+  section: ConfigSection;
+  label: string;
+  help: string;
+  type: ConfigFieldType;
+  options: string[] | null;
+  suggestions: string[] | null;
+  min: number | null;
+  max: number | null;
+  nullable: boolean;
+  default: unknown;
+  editable: boolean;
+  lockedReason: string | null;
+}
+
+/** What setConfigValue in lib/config.ts returns: `forge config set` and POST /api/config. */
+export interface PostConfigResponse {
+  ok: true;
+  key: string;
+  value: ConfigValue;
+  previous: unknown;
+  changed: boolean;
+}
+
 // ---------- requests ----------
 
 /** Request types the inbox accepts: REQUEST_TYPES in lib/requests.ts. */
