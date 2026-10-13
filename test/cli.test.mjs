@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { scratchGitConfig, tempRepo } from './helpers.mjs';
-import { createWorktree, removeWorktree, verifiedHead } from '../lib/worktree.mjs';
+import { createWorktree, removeWorktree, verifiedHead } from '../lib/worktree.ts';
 import { TRUST_ENV, loadConfig, trustDigest } from '../lib/config.ts';
 import { setJob } from '../lib/jobs.ts';
 
