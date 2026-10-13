@@ -385,7 +385,9 @@ test('AC10: a resume whose transcript is gone starts a fresh session', async () 
   try {
     enqueue(repo.dir, null, { type: 'next', from: 'dashboard' });
     d.start();
-    await waitFor(() => d.state().lastResultAt, 10000, 'a result from the fresh session');
+    // Like real claude, the failed resume prints an error result first; that must not count as handled.
+    await waitFor(() => fx.spawns().length === 2 && fx.stdinOf(fx.spawns()[1].pid).length === 1, 10000, 'the turn on the fresh session');
+    await waitFor(() => d.state().status === 'idle' && /"event":"resume-failed"/.test(fx.daemonLog()), 10000, 'its result');
     const spawns = fx.spawns();
     assert.equal(spawns.length, 2, 'exactly one fresh spawn follows the failed resume');
     assert.deepEqual(spawns[0].argv.slice(argIndex(spawns[0].argv, '--resume'), argIndex(spawns[0].argv, '--resume') + 2), ['--resume', old]);
@@ -393,7 +395,6 @@ test('AC10: a resume whose transcript is gone starts a fresh session', async () 
     assert.match(fresh, /^[0-9a-f-]{36}$/);
     assert.notEqual(fresh, old);
     assert.equal(d.state().sessionId, fresh);
-    assert.match(fx.daemonLog(), /"event":"resume-failed"/);
     assert.deepEqual(fx.stdinOf(spawns[1].pid), [TURN_LINE.trimEnd()], 'the pending turn reaches the fresh child');
     assert.equal(d.state().lastError, null, 'a failed resume is not a failure');
   } finally {

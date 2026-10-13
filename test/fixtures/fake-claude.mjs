@@ -2,7 +2,7 @@
 // daemon tests. Knobs (environment):
 //   FAKE_CLAUDE_LOG           append {pid, argv} at start and {pid, stdin} per input line
 //   FAKE_CLAUDE_DELAY_MS      delay before each `result` (default 0)
-//   FAKE_CLAUDE_MISSING       with --resume: print "No conversation found…" to stderr and exit 1
+//   FAKE_CLAUDE_MISSING       with --resume: an error `result` on stdout, "No conversation found…" on stderr, exit 1
 //   FAKE_CLAUDE_EXIT          exit at once with this code, writing nothing
 //   FAKE_CLAUDE_IGNORE_TERM   ignore SIGTERM (only SIGKILL stops it)
 //   FAKE_CLAUDE_IGNORE_EOF    keep running after stdin ends
@@ -27,6 +27,8 @@ if (env.FAKE_CLAUDE_IGNORE_TERM) process.on('SIGTERM', () => {});
 // explicit exit could drop the last line.
 if (env.FAKE_CLAUDE_EXIT) process.exitCode = Number(env.FAKE_CLAUDE_EXIT);
 else if (resume && env.FAKE_CLAUDE_MISSING) {
+  // What claude 2.1 does (recorded in docs/ARCHITECTURE.md "Daemon"): one error result, then exit 1.
+  process.stdout.write(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, num_turns: 0, session_id: resume }) + '\n');
   process.stderr.write(`No conversation found with session ID: ${resume}\n`);
   process.exitCode = 1;
 } else serve();
