@@ -139,6 +139,12 @@ test('refetches on reconnect and replaces the buffer when the log was reset', as
   src.emit('open');
   await tick();
   assert.deepEqual(h.offsets(), [5, 15], 'a page ending before our newest line means the log was reset');
+  // A live line the file hasn't flushed yet: the page ends before it but shares offsets, so it merges.
+  src.emit('line', { data: 'l35', lastEventId: '35' });
+  h.env.pages.push(pageOf([5, 15], false, 25));
+  src.emit('open');
+  await tick();
+  assert.deepEqual(h.offsets(), [5, 15, 35], 'a flush lag is not a reset');
 });
 
 test('a fetch error shows, and no stream opens', async () => {

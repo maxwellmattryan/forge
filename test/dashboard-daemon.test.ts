@@ -21,6 +21,8 @@ test('sessionPill labels and tones every session status', () => {
   assert.deepEqual(pill({ held: 'budget', status: 'idle', running: true }), ['held: budget', 'warn'], 'a hold says more than idle');
   assert.deepEqual(pill({ lastError: 'daemon stopped after 3 failed starts', wanted: false }), ['error', 'bad']);
   assert.deepEqual(pill({ wanted: false }), ['stopped', 'muted']);
+  assert.deepEqual(pill({ status: 'idle', running: true, lastError: 'last turn failed: Failed to authenticate' }), ['failing', 'bad'], 'alive but its turns fail');
+  assert.match(sessionPill(session({ sessionId: 'x' })).title, /starts on its next request/);
   assert.deepEqual(pill({ sessionId: '0123456789abcdef' }), ['standby', 'muted']);
   assert.deepEqual(pill({}), ['no session', 'muted']);
   const title = sessionPill(session({ sessionId: '0123456789abcdef', turns: 4, failures: 2, lastError: XSS })).title;
@@ -69,6 +71,11 @@ test('poolModel derives the pill, inbox, live/cap, holds, waits and job chips', 
   assert.equal(pill({}), 'standby');
   assert.equal(pill({ wanted: false, lastError: 'x' }), 'error');
   assert.equal(pill({ wanted: false }), 'stopped');
+  const failing = poolModel(pool({ inbox: session({ scope: '_inbox', running: true, status: 'idle', lastError: 'last turn failed: auth' }) }), { pending: false });
+  assert.deepEqual([failing.pill.label, failing.pill.tone], ['failing', 'bad'], 'a failing session shows on the pool pill');
+  assert.match(failing.pill.title, /_inbox: last turn failed: auth/);
+  assert.deepEqual([failing.inbox.label, failing.inbox.tone], ['failing', 'bad']);
+  assert.equal(pill({ wanted: false, jobs: { a: session({ lastError: 'x', wanted: false }) } }), 'stopped', 'a stopped pool is not failing');
   assert.equal(poolModel(pool({ wanted: false, lastError: XSS }), { pending: false }).error, null, 'the error pill already says it');
   assert.equal(poolModel(pool({ lastError: XSS }), { pending: false }).error, XSS);
 });
@@ -92,6 +99,8 @@ test('sessionControls: Start once the pool runs and the session is stopped or fa
   assert.deepEqual(sessionControls(session({ running: true, status: 'idle' }), true, false), { canStart: false, canStop: true });
   assert.deepEqual(sessionControls(session({ wanted: false }), false, false), { canStart: false, canStop: false }, 'a scoped start needs a running pool');
   assert.deepEqual(sessionControls(null, true, false), { canStart: false, canStop: true });
+  assert.deepEqual(sessionControls(null, false, false), { canStart: false, canStop: false }, 'nothing to stop while the pool is down');
+  assert.deepEqual(sessionControls(session({ running: true, status: 'idle' }), false, false), { canStart: false, canStop: true });
   assert.deepEqual(sessionControls(session({ wanted: false }), true, true), { canStart: false, canStop: false });
 });
 

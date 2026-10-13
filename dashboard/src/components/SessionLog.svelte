@@ -40,6 +40,8 @@
         entries = log.entries.slice();
         more = log.more;
         closed = log.closed;
+        // A closed stream sends no more state frames: fall back to the /api/state poll.
+        if (closed) live = null;
         loading = log.loading;
         error = log.error;
       },
@@ -56,7 +58,10 @@
 
   $effect(() => {
     const shown = active;
-    untrack(() => log.sync(shown));
+    untrack(() => {
+      if (!shown) live = null;
+      log.sync(shown);
+    });
   });
   onDestroy(() => log.dispose());
 
@@ -129,7 +134,7 @@
   {:else if it.kind === 'result'}
     {@render line(it.tone, 'result', it.text)}
   {:else if it.kind === 'supervisor'}
-    {@render line(it.tone, 'daemon', it.text)}
+    {@render line(it.tone, 'supervisor', it.text)}
   {:else}
     {@render line(it.tone, it.kind, it.text)}
   {/if}
@@ -137,20 +142,25 @@
 
 <div class="flex flex-col gap-2">
   <div class="flex flex-wrap items-center gap-2">
-    <span class="chip {TONE_CLASS[pill.tone]}" title={pill.title}>{pill.label}</span>
+    <span role="status" class="chip {TONE_CLASS[pill.tone]}" title={pill.title}>{pill.label}</span>
     <span class="text-xs text-muted">{$t('session.turns', { count: view.totals.turns })}</span>
     {#if view.totals.results}<span class="text-xs text-muted" title={$t('session.costTitle')}>{$t('session.cost', { cost: usd(view.totals.costUsd) })}</span>{/if}
     <span class="flex-1"></span>
-    <button class="btn text-xs" disabled={!controls.canStart} onclick={() => act('start')}>{$t('session.start')}</button>
-    <button class="btn text-xs" disabled={!controls.canStop} onclick={() => act('stop')}>{$t('session.stop')}</button>
+    {#if scope === INBOX_SCOPE}
+      <button class="btn text-xs" disabled={!controls.canStart} title={$t('session.startHint')} onclick={() => act('start')}>{$t('session.startInbox')}</button>
+      <button class="btn text-xs" disabled={!controls.canStop} onclick={() => act('stop')}>{$t('session.stopInbox')}</button>
+    {:else}
+      <button class="btn text-xs" disabled={!controls.canStart} title={$t('session.startHint')} aria-label={$t('session.startJob')} onclick={() => act('start')}>{$t('session.start')}</button>
+      <button class="btn text-xs" disabled={!controls.canStop} aria-label={$t('session.stopJob')} onclick={() => act('stop')}>{$t('session.stop')}</button>
+    {/if}
   </div>
-  {#if session?.lastError}<div class="text-xs text-muted break-words">{session.lastError}</div>{/if}
+  {#if session?.lastError}<div role="status" class="text-xs text-bad break-words">{session.lastError}</div>{/if}
   <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
     <input class="min-w-0 flex-1 basis-40 rounded-lg border border-line bg-raised px-2 py-1" type="search" placeholder={$t('session.filter')} aria-label={$t('session.filter')} bind:value={filters.text} />
     <label class="flex items-center gap-1"><input type="checkbox" bind:checked={filters.tools} />{$t('session.tools')}</label>
     <label class="flex items-center gap-1"><input type="checkbox" bind:checked={filters.thinking} />{$t('session.thinking')}</label>
     <label class="flex items-center gap-1"><input type="checkbox" bind:checked={filters.subagents} />{$t('session.subagents')}</label>
-    <button class="btn text-xs" aria-pressed={follow ? 'true' : 'false'} onclick={jump}>{$t('session.follow')}</button>
+    <button class="btn text-xs {follow ? 'border-accent text-fg' : 'text-muted'}" aria-pressed={follow ? 'true' : 'false'} onclick={jump}>{$t('session.follow')}</button>
     {#if more}<button class="btn text-xs" onclick={() => log.loadOlder()}>{$t('session.loadOlder')}</button>{/if}
   </div>
   {#if error !== null}
@@ -162,15 +172,15 @@
   {/if}
   {#if entries.length}
     <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrollable region must be reachable from the keyboard) -->
-    <div bind:this={pane} onscroll={onScroll} role="log" aria-live="off" aria-label={$t('session.label')} tabindex="0" class="{compact ? 'max-h-72' : 'max-h-[70vh]'} overflow-y-auto rounded-lg bg-raised p-2 font-mono text-[11px] leading-5">
+    <div bind:this={pane} onscroll={onScroll} role="log" aria-live="off" aria-label={$t('session.label')} tabindex="0" class="{compact ? 'max-h-72' : 'max-h-[70vh]'} overflow-y-auto rounded-lg bg-raised px-2 pb-2 font-mono text-[11px] leading-5">
       {#if !view.turns.length}<div class="text-muted">{$t('session.noMatch')}</div>{/if}
       {#each view.turns as g (g.offset)}
         <section class="mb-2">
-          <h3 class="sticky top-0 z-10 bg-raised py-0.5 text-[11px] font-semibold text-muted">{g.label}</h3>
+          <h3 class="sticky top-0 z-10 bg-raised pt-2 pb-0.5 text-[11px] font-semibold text-muted">{g.label}</h3>
           <div class="flex flex-col gap-1">{#each g.items as it, i (i)}{@render item(it)}{/each}</div>
         </section>
       {/each}
     </div>
   {/if}
-  {#if closed}<div class="text-xs text-muted">{$t('session.closed')}</div>{/if}
+  {#if closed}<div role="status" class="text-xs text-muted">{$t('session.closed')}</div>{/if}
 </div>

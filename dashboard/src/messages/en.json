@@ -63,7 +63,9 @@
     "waiting": "waiting for slot ({count})",
     "start": "Start",
     "stop": "Stop",
-    "failed": "Daemon {action} failed: {error}"
+    "failed": "Daemon {action} failed: {error}",
+    "startAll": "Start the daemon (all sessions)",
+    "stopAll": "Stop the daemon (all sessions)"
   },
   "compare": {
     "summary": "config {a} → {b} · Forge v{va} → v{vb}",
@@ -378,6 +380,11 @@
     "hiddenLines": {
       "one": "({count} line hidden)",
       "other": "({count} lines hidden)"
-    }
+    },
+    "startInbox": "Start inbox",
+    "stopInbox": "Stop inbox",
+    "startJob": "Start this job's session",
+    "stopJob": "Stop this job's session",
+    "startHint": "Re-enables this session; it starts on its next request"
   }
 }

@@ -107,7 +107,11 @@ export function createSessionLog({ scope, onState, onChange, connect, fetchPage,
   function absorb(p: DaemonLogPage, fresh: boolean): void {
     const lines = Array.isArray(p.lines) ? p.lines.map(toEntry) : [];
     const last = buf.length ? buf[buf.length - 1].offset : null;
-    if (fresh || last === null || Number(p.end) < last || Number(p.start) > last) {
+    // A page that shares an offset with the buffer is the same file, just not flushed as far as
+    // our newest live line; only a page that ends before that with no overlap means a reset.
+    const held = new Set(buf.map((e) => e.offset));
+    const reset = last !== null && Number(p.end) < last && !lines.some((l) => held.has(l.offset));
+    if (fresh || last === null || reset || Number(p.start) > last) {
       buf = [];
       more = Boolean(p.more);
       cursor = Number.isFinite(p.start) ? p.start : null;

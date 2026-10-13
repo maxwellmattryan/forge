@@ -185,7 +185,10 @@ function parseLine(offset: number, line: string): Parsed[] {
     }
     case 'result': {
       const cost = typeof ev.total_cost_usd === 'number' && Number.isFinite(ev.total_cost_usd) ? ev.total_cost_usd : null;
-      const bits = [str(ev.subtype), ev.num_turns != null ? `${str(ev.num_turns)} turns` : '', ev.duration_ms != null ? `${Math.round(Number(ev.duration_ms) / 1000)}s` : '', cost !== null ? `$${cost.toFixed(4)}` : ''];
+      // claude marks an API failure (an expired login) is_error while still saying "success".
+      const kind = ev.is_error === true && !str(ev.subtype).startsWith('error') ? `error (${str(ev.subtype) || 'result'})` : str(ev.subtype);
+      const why = ev.is_error === true && typeof ev.result === 'string' && ev.result.trim() ? clip(ev.result.trim(), 200) : '';
+      const bits = [kind, why, ev.num_turns != null ? `${str(ev.num_turns)} turns` : '', ev.duration_ms != null ? `${Math.round(Number(ev.duration_ms) / 1000)}s` : '', cost !== null ? `$${cost.toFixed(4)}` : ''];
       return [item({ kind: 'result', offset, tone: ev.is_error ? 'bad' : 'ok', text: bits.filter(Boolean).join(' · '), costUsd: cost }, parent)];
     }
     case 'rate_limit_event':

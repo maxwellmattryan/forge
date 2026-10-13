@@ -27,6 +27,19 @@
   const usageRows = $derived(Object.entries(job?.usage?.byRole ?? {}));
   const events = $derived(shown ? shown.detail.events.slice().reverse() : []);
   const TABS = ['files', 'timeline', 'session'];
+  let tabStrip = $state<HTMLDivElement>();
+  let scrolledFor: string | null = null;
+  // Opened from a session chip: bring the log into view instead of leaving it below the fold.
+  $effect(() => {
+    const id = job?.id ?? null;
+    if (!id || shown?.tab !== 'session' || !tabStrip || scrolledFor === id) return;
+    scrolledFor = id;
+    const strip = tabStrip;
+    strip.scrollIntoView({ block: 'start' });
+    // Again once the log's first page has rendered and made the drawer tall enough to scroll that far.
+    // No cleanup: a drawer refresh re-runs this effect, and must not cancel the second scroll.
+    setTimeout(() => S.drawer.id === id && S.drawer.tab === 'session' && strip.scrollIntoView({ block: 'start' }), 500);
+  });
 </script>
 
 {#snippet fact(k: string, v: unknown)}
@@ -100,7 +113,7 @@
         </div>
       {/if}
       {@html screenshotsPanel(j.id, d.screenshots ?? [])}
-      <div class="flex gap-1 border-b border-line">{#each TABS as tab (tab)}<button class="px-3 py-2 text-sm -mb-px border-b-2 {shown.tab === tab ? 'border-accent text-fg' : 'border-transparent text-muted'}" onclick={() => setDrawerTab(tab)}>{#if tab === 'timeline'}{$t('drawer.timeline')} <span class="text-muted">{d.events.length}</span>{:else if tab === 'session'}{$t('drawer.sessionTab')}{:else}{$t('drawer.files')}{/if}</button>{/each}</div>
+      <div bind:this={tabStrip} class="flex gap-1 border-b border-line">{#each TABS as tab (tab)}<button class="px-3 py-2 text-sm -mb-px border-b-2 {shown.tab === tab ? 'border-accent text-fg' : 'border-transparent text-muted'}" aria-pressed={shown.tab === tab ? 'true' : 'false'} onclick={() => setDrawerTab(tab)}>{#if tab === 'timeline'}{$t('drawer.timeline')} <span class="text-muted">{d.events.length}</span>{:else if tab === 'session'}{$t('drawer.sessionTab')}{:else}{$t('drawer.files')}{/if}</button>{/each}</div>
       {#if shown.tab === 'files'}
         {@const file = shown.file}
         {@const content = shown.content}

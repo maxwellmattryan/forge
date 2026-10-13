@@ -6,6 +6,7 @@
 //   FAKE_CLAUDE_MISSING       with --resume: an error `result` on stdout, "No conversation found…" on stderr, exit 1
 //   FAKE_CLAUDE_EXIT          exit at once with this code, writing nothing
 //   FAKE_CLAUDE_EXIT_SCOPE    exit at once (code FAKE_CLAUDE_EXIT, else 1) only in this FORGE_DAEMON_SCOPE
+//   FAKE_CLAUDE_RESULT_ERROR  end every turn with an is_error result carrying this text (an expired login, say)
 //   FAKE_CLAUDE_SUBAGENT      per turn: an Agent call to forge:builder, two child lines, its result and a costed result
 //   FAKE_CLAUDE_IGNORE_TERM   ignore SIGTERM (only SIGKILL stops it)
 //   FAKE_CLAUDE_IGNORE_EOF    keep running after stdin ends
@@ -60,7 +61,8 @@ function serve() {
     turn++;
     if (env.FAKE_CLAUDE_SUBAGENT) subagent(out, session, turn);
     const cost = env.FAKE_CLAUDE_SUBAGENT ? { total_cost_usd: 0.25, num_turns: 3, duration_ms: 1200 } : {};
-    setTimeout(() => out({ type: 'result', subtype: 'success', is_error: false, session_id: session, ...cost }), delay);
+    const failed = env.FAKE_CLAUDE_RESULT_ERROR ? { is_error: true, result: env.FAKE_CLAUDE_RESULT_ERROR } : { is_error: false };
+    setTimeout(() => out({ type: 'result', subtype: 'success', session_id: session, ...cost, ...failed }), delay);
   });
   // Without IGNORE_EOF the process ends on its own once stdin closes and pending results are out.
   if (env.FAKE_CLAUDE_IGNORE_EOF) setInterval(() => {}, 1 << 30);

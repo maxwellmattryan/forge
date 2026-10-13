@@ -43,9 +43,12 @@ export interface PoolModel {
 }
 
 /** Status labels in the order the bar lists job chips. */
-const ORDER = ['busy', 'idle', 'stopping', 'waiting for slot', 'held: budget', 'error', 'stopped', 'standby', 'no session'];
+const ORDER = ['busy', 'failing', 'idle', 'stopping', 'waiting for slot', 'held: budget', 'error', 'stopped', 'standby', 'no session'];
 
-/** One session's status chip: busy, idle, stopping, waiting for slot, held: budget, error, stopped, standby or no session. */
+/**
+ * One session's status chip: busy, failing (alive, but its last turn failed), idle, stopping,
+ * waiting for slot, held: budget, error, stopped, standby or no session.
+ */
 export function sessionPill(session: SessionInput): Pill {
   const s = obj(session);
   let label = 'no session';
@@ -55,8 +58,8 @@ export function sessionPill(session: SessionInput): Pill {
   else if (s.status === 'stopping') [label, tone] = ['stopping', 'warn'];
   else if (s.waiting) [label, tone] = ['waiting for slot', 'warn'];
   else if (s.held) [label, tone] = ['held: budget', 'warn'];
+  else if (s.lastError) [label, tone] = s.status === 'idle' ? ['failing', 'bad'] : ['error', 'bad'];
   else if (s.status === 'idle') [label, tone] = ['idle', 'ok'];
-  else if (s.lastError) [label, tone] = ['error', 'bad'];
   else if (s.wanted === false) [label, tone] = ['stopped', 'muted'];
   else if (s.sessionId || Number(s.turns) > 0) [label, tone] = ['standby', 'muted'];
   const title = !session
@@ -67,6 +70,7 @@ export function sessionPill(session: SessionInput): Pill {
         s.lastTurnAt ? `last turn ${ago(s.lastTurnAt)}` : 'no turns yet',
         ...(Number(s.failures) ? [`${Number(s.failures)} failed starts`] : []),
         ...(s.lastError ? [String(s.lastError)] : []),
+        ...(label === 'standby' || label === 'no session' ? ['starts on its next request'] : []),
       ].join('\n');
   return { label, tone, title };
 }
@@ -83,6 +87,7 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
   let label = 'stopped';
   let tone = 'muted';
   if (sessions.some((s) => s.status === 'busy')) [label, tone] = ['busy', 'accent'];
+  else if (p.wanted && sessions.some((s) => s.lastError)) [label, tone] = ['failing', 'bad'];
   else if (anyRunning) [label, tone] = ['idle', 'ok'];
   else if (sessions.some((s) => s.status === 'stopping')) [label, tone] = ['stopping', 'warn'];
   else if (p.wanted) [label, tone] = ['standby', 'muted'];
@@ -92,7 +97,11 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
     .sort((a, b) => ORDER.indexOf(a.pill.label) - ORDER.indexOf(b.pill.label) || (a.id < b.id ? -1 : 1));
   const canStart = p.enabled === true && !p.wanted && !anyRunning && !pending;
   return {
-    pill: { label, tone, title: p.lastError ? String(p.lastError) : `${jobs.filter(([, s]) => running(s)).length} job sessions running` },
+    pill: {
+      label,
+      tone,
+      title: p.lastError ? String(p.lastError) : [`${jobs.filter(([, s]) => running(s)).length} job sessions running`, ...sessions.filter((s) => s.lastError).map((s) => `${String(s.scope ?? '')}: ${String(s.lastError)}`)].join('\n'),
+    },
     inbox: sessionPill(p.inbox ?? null),
     live: Number(p.live) || 0,
     cap: Number(p.maxConcurrent) || 0,
@@ -106,13 +115,16 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
   };
 }
 
-/** The Session tab's Start/Stop: Start once the pool runs and this session is stopped or failed; Stop while it is wanted or running. */
+/**
+ * The Session tab's Start/Stop: Start once the pool runs and this session is stopped or failed;
+ * Stop while it runs, or while the pool runs and it would spawn on demand (stopping it then keeps it off).
+ */
 export function sessionControls(session: SessionInput, poolWanted: boolean, pending: boolean): { canStart: boolean; canStop: boolean } {
   const s = obj(session);
   const wanted = session ? s.wanted !== false : true;
   return {
     canStart: poolWanted && (!wanted || Boolean(s.lastError)) && !pending,
-    canStop: (wanted || running(session)) && !pending,
+    canStop: (running(session) || (wanted && poolWanted)) && !pending,
   };
 }
 
