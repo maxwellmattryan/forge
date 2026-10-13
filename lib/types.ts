@@ -518,12 +518,13 @@ export interface PipelineConfig {
   budget: BudgetLimits;
 }
 
-/** Supervisor status: state() in lib/daemon.ts. */
+/** Session supervisor status: state() in lib/daemon.ts. */
 export type DaemonStatus = 'off' | 'idle' | 'busy' | 'stopping';
 
-/** The daemon as the dashboard sees it: state() in lib/daemon.ts (or idleDaemonState) plus `clients` from lib/server.ts. */
-export interface DaemonState {
-  enabled: boolean;
+/** One supervised session (the inbox or a job's): state() in lib/daemon.ts, or offState in lib/daemon-pool.ts. */
+export interface DaemonSessionState {
+  /** `_inbox` or a job id. */
+  scope: string;
   wanted: boolean;
   running: boolean;
   status: DaemonStatus;
@@ -532,9 +533,37 @@ export interface DaemonState {
   lastTurnAt: string | null;
   lastResultAt: string | null;
   turns: number;
-  held: { reason: 'budget'; jobs: string[] } | null;
+  failures: number;
+  held: 'budget' | null;
+  /** Has fresh work but no free slot under daemon.maxConcurrent. */
+  waiting: boolean;
   lastError: string | null;
+}
+
+/** The session pool as the dashboard sees it: state() in lib/daemon-pool.ts plus `clients` from lib/server.ts. */
+export interface DaemonPoolState {
+  enabled: boolean;
+  wanted: boolean;
+  maxConcurrent: number;
+  /** Running job sessions (the inbox is not counted against maxConcurrent). */
+  live: number;
+  lastError: string | null;
+  inbox: DaemonSessionState;
+  /** Job sessions worth showing: running, stopping, waiting, held, failed or stopped by a human. */
+  jobs: Record<string, DaemonSessionState>;
+  /** Open /api/events streams across all sessions. */
   clients: number;
+}
+
+/** GET /api/daemons/log: readLogPage in lib/daemon.ts. Offsets are the SSE ids of the same lines. */
+export interface DaemonLogPage {
+  scope: string;
+  lines: { offset: number; line: string }[];
+  /** Where this page starts: pass it as `before` for the next older page. */
+  start: number;
+  end: number;
+  /** Older lines exist in the current `<scope>.log`. */
+  more: boolean;
 }
 
 /** A job row in /api/state: state() in lib/server.ts. */
@@ -554,7 +583,7 @@ export interface ApiState {
     models: Record<string, string>;
     daemon: { enabled: boolean };
   };
-  daemon: DaemonState;
+  daemons: DaemonPoolState;
   jobs: StateJob[];
   requests: ForgeRequest[];
   now: string;
@@ -736,8 +765,8 @@ export interface BacklogResponse {
 
 // ---------- SSE frames (/api/events) ----------
 
-/** One /api/events frame: stateFrame and lineFrame in lib/server.ts; `id` is the line's seq, `data` the raw log line. */
-export type SseFrame = { event: 'state'; data: DaemonState } | { event: 'line'; id: number; data: string };
+/** One /api/events?session= frame: stateFrame and lineFrame in lib/server.ts; `id` is the line's offset in the session log, `data` the raw log line. */
+export type SseFrame = { event: 'state'; data: DaemonSessionState } | { event: 'line'; id: number; data: string };
 
 /** The line a frame carries instead of an oversized one: lineFrame in lib/server.ts. */
 export interface ForgeTruncatedLine {
@@ -768,10 +797,12 @@ export interface PostConfigBody {
 /** POST /api/daemon body: the handler in lib/server.ts. */
 export interface PostDaemonBody {
   action: 'start' | 'stop';
+  /** `_inbox` or a job id: start or stop that one session instead of the pool. */
+  scope?: string;
 }
 
-/** POST /api/daemon reply on success: daemonState in lib/server.ts. */
-export type PostDaemonResponse = DaemonState;
+/** POST /api/daemon reply on success: poolState in lib/server.ts. */
+export type PostDaemonResponse = DaemonPoolState;
 
 /**
  * JSON error body: jsonStatus for /api/daemon's and /api/config's 4xx and the catch-all 500 in lib/server.ts.

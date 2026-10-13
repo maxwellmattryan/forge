@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { paths, PLUGIN_ROOT } from '../paths.ts';
-import { reapOrphan } from '../daemon.ts';
+import { reapOrphans } from '../daemon.ts';
 import { ForgeError, readJson, sleepSync, writeJsonAtomic } from '../util.ts';
 import { pidAlive } from '../worktree.ts';
 import { out } from './args.ts';
@@ -23,14 +23,14 @@ export async function dash(root: string, config: Config, flags: Record<string, a
   if (flags.stop) {
     if (alive) {
       process.kill(current.pid, 'SIGTERM');
-      // The server stops its daemon on SIGTERM before exiting: up to 5 s of grace, then SIGKILL
+      // The server stops its sessions on SIGTERM before exiting: up to 5 s of grace, then SIGKILL
       // and up to 5 s more. 12 s covers that with room to close the server.
       for (let i = 0; i < 240 && pidAlive(current.pid); i++) sleepSync(50);
     }
     writeJsonAtomic(rtFile, {});
     // Whatever the server could not stop (it was SIGKILLed, or hung) is reaped here.
-    const { reaped } = reapOrphan(root);
-    return out({ stopped: Boolean(alive), daemonReaped: reaped }, flags);
+    const { reaped } = reapOrphans(root);
+    return out({ stopped: Boolean(alive), daemonReaped: reaped.length > 0 }, flags);
   }
   if (alive && !flags.foreground) return out({ url: current.url, pid: current.pid, running: true }, flags);
   const port = Number(flags.port ?? config.dashboard.port ?? 7400);
@@ -73,7 +73,7 @@ export async function dash(root: string, config: Config, flags: Record<string, a
   };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
-  // Last resort (an uncaught exception, a plain exit): signal the daemon's group synchronously.
-  process.on('exit', () => server.daemon.killSync());
+  // Last resort (an uncaught exception, a plain exit): signal every session's group synchronously.
+  process.on('exit', () => server.pool.killSync());
   process.stdout.write(`⚒️  Forge dashboard → ${res.url}\n`);
 }

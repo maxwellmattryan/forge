@@ -179,7 +179,8 @@ export function defaults(): Config {
         'Bash(gh pr checks:*)',
         'Bash(gh run view:*)',
       ],
-      maxConcurrent: 1,
+      // Matches runtime.maxParallelJobs; each job session drives one job.
+      maxConcurrent: 3,
       idleStopMinutes: 30,
     },
   };
@@ -291,7 +292,8 @@ export function daemonProblems(c: any, root?: string): string[] {
       );
   }
   if (words) problems.push(...wideningFlags(words));
-  if (d.maxConcurrent !== 1) problems.push(`daemon.maxConcurrent must be 1: this version supervises one session (got ${JSON.stringify(d.maxConcurrent)})`);
+  const max = d.maxConcurrent;
+  if (!(Number.isInteger(max) && max >= 1 && max <= 16)) problems.push(`daemon.maxConcurrent must be an integer from 1 to 16 (got ${JSON.stringify(max)})`);
   const idle = d.idleStopMinutes;
   if (idle !== null && !(typeof idle === 'number' && Number.isFinite(idle) && idle > 0))
     problems.push(`daemon.idleStopMinutes must be null or a positive number (got ${JSON.stringify(idle)})`);

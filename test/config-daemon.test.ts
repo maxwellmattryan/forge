@@ -39,7 +39,7 @@ test('AC1: defaults carry the daemon block and no dashboard.launcher', () => {
     enabled: false,
     command: DEFAULT_COMMAND,
     allowedTools: DEFAULT_TOOLS,
-    maxConcurrent: 1,
+    maxConcurrent: 3,
     idleStopMinutes: 30,
   });
   assert.deepEqual(d.dashboard, { port: 7400 });
@@ -121,7 +121,8 @@ test('AC3: daemon config validation', () => {
   one('tools/claude', (c) => (c.daemon.command = 'tools/claude {session}'), /must run claude/);
   one('node_modules/.bin/claude', (c) => (c.daemon.command = 'node_modules/.bin/claude {session}'), /must run claude/);
   one('absolute inside the repo', (c) => (c.daemon.command = `"${path.join(process.cwd(), 'tools', 'claude')}" {session}`), /outside the repo/);
-  one('maxConcurrent 2', (c) => (c.daemon.maxConcurrent = 2), /maxConcurrent must be 1/);
+  for (const n of [0, 17, 1.5, '2', null]) one(`maxConcurrent ${JSON.stringify(n)}`, (c) => (c.daemon.maxConcurrent = n), /^daemon\.maxConcurrent must be an integer from 1 to 16 \(got /);
+  for (const n of [1, 2, 16]) assert.deepEqual(problems((c) => (c.daemon.maxConcurrent = n)), [], `maxConcurrent ${n}`);
   one('idleStop 0', (c) => (c.daemon.idleStopMinutes = 0), /idleStopMinutes/);
   one('idleStop string', (c) => (c.daemon.idleStopMinutes = '30'), /idleStopMinutes/);
   one('idleStop negative', (c) => (c.daemon.idleStopMinutes = -1), /idleStopMinutes/);

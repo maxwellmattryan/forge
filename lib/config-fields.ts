@@ -126,7 +126,7 @@ export const FIELDS: ConfigField[] = [
   field('daemon.enabled', 'daemon', 'Enabled', 'forge dash starts the headless orchestrator, which spends tokens unattended.', { type: 'boolean', locked: 'turns on an unattended session' }),
   field('daemon.command', 'daemon', 'Command', 'The claude command the daemon runs, split into words without a shell.', { type: 'string', locked: 'runs a program' }),
   field('daemon.allowedTools', 'daemon', 'Allowed tools', 'Tools the unattended session may use.', { type: 'list', locked: 'grants the unattended session permissions' }),
-  field('daemon.maxConcurrent', 'daemon', 'Max concurrent', 'Supervised sessions.', { type: 'integer', locked: 'only 1 is accepted' }),
+  field('daemon.maxConcurrent', 'daemon', 'Max concurrent', 'Job sessions the daemon runs at once, besides the inbox.', { type: 'integer', min: 1, max: 16, locked: 'caps unattended job sessions' }),
   field('daemon.idleStopMinutes', 'daemon', 'Idle stop (minutes)', 'Stop an idle session after this long; new work resumes it. Empty means never.', { type: 'number', min: 0, minExclusive: true, nullable: true }),
 ];
 

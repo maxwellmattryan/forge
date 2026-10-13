@@ -1,7 +1,9 @@
 // The daemon bar's pure, DOM-free half: pill and bar models, log-line summaries, the client log buffer and POST /api/daemon.
 // Log lines are session output, i.e. untrusted text: these return plain strings and DaemonBar.svelte renders them as text.
 import { ago } from './util.ts';
-import type { DaemonState } from './types.ts';
+import type { DaemonSessionState } from './types.ts';
+
+type DaemonState = DaemonSessionState & { enabled: boolean };
 
 export const MAX_LINES = 500;
 export const MAX_TEXT = 400;

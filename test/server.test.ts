@@ -13,6 +13,7 @@ import { broadcast, distAllowlist, startServer } from '../lib/server.ts';
 import { TURN_LINE } from '../lib/daemon.ts';
 import * as yaml from '../lib/yaml.ts';
 import { API_VERSION as DASH_API_VERSION } from '../dashboard/src/lib/types.ts';
+import { API_VERSION } from '../lib/schema.ts';
 
 /** @param {number} port @param {Record<string,string>} headers @param {string} [method] @param {string} [body] */
 function call(port, headers, method = 'GET', body?: any) {
@@ -231,7 +232,7 @@ test('serves job screenshots as images only, confined to screenshots/', async ()
   }
 });
 
-// ---- Daemon endpoints (AC15–AC17). Every daemon here gets in-memory children: nothing real is spawned or signalled.
+// ---- Daemon endpoints. Every pool here gets in-memory children: nothing real is spawned or signalled.
 
 /** @param {number} port @param {{method?:string, path:string, headers?:Record<string,string>, body?:string}} o */
 function hit(port, o): any {
@@ -250,7 +251,7 @@ function fakeChildren() {
   const children = [];
   const spawn: any = (cmd, args, opts) => {
     const c: any = new EventEmitter();
-    Object.assign(c, { cmd, args, opts, pid: 4_100_000 + children.length, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), written: '' });
+    Object.assign(c, { cmd, args, opts, scope: opts.env.FORGE_DAEMON_SCOPE, pid: 4_100_000 + children.length, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), written: '' });
     c.stdin.on('data', (d) => (c.written += d.toString()));
     c.exit = (code, signal) => {
       if (c.exited) return;
@@ -262,12 +263,12 @@ function fakeChildren() {
     };
     c.line = (obj) => c.stdout.write(JSON.stringify(obj) + '\n');
     children.push(c);
-    const live = children.filter((x) => !x.exited).length;
+    const live = children.filter((x) => !x.exited && x.scope === c.scope).length;
     if (live > kit.maxLive) kit.maxLive = live;
     return c;
   };
   const killTree = (c, signal) => setTimeout(() => c.exit(null, signal), 5);
-  const kit = { children, maxLive: 0, opts: { spawn, killTree, pollMs: 3_600_000, graceMs: 500 } };
+  const kit = { children, maxLive: 0, of: (scope) => children.filter((c) => c.scope === scope), opts: { spawn, killTree, pollMs: 3_600_000, graceMs: 500 } };
   return kit;
 }
 
@@ -277,10 +278,19 @@ function writeConfig(dir, daemon) {
   fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 2, daemon }));
 }
 
+/** A job dir the pool and the server accept as an existing job. */
+function seedJob(dir, id) {
+  const d = path.join(dir, '.forge', 'jobs', id);
+  fs.mkdirSync(d, { recursive: true });
+  const now = new Date().toISOString();
+  fs.writeFileSync(path.join(d, 'job.json'), JSON.stringify({ schemaVersion: 3, id, title: id, stage: 'build', state: 'running', createdAt: now, updatedAt: now }));
+  return id;
+}
+
 /** An SSE reader that collects parsed frames. @param {number} port @param {Record<string,string>} [headers] */
-function sse(port, headers = {}): any {
+function sse(port, headers = {}, session = '_inbox'): any {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port, path: '/api/events', headers: { host: `127.0.0.1:${port}`, ...headers } }, (res) => {
+    const req = http.request({ host: '127.0.0.1', port, path: `/api/events?session=${encodeURIComponent(session)}`, headers: { host: `127.0.0.1:${port}`, ...headers } }, (res) => {
       const client = { status: res.statusCode, headers: res.headers, frames: [], raw: '', close: () => req.destroy() };
       res.setEncoding('utf8');
       res.on('data', (d) => {
@@ -314,19 +324,27 @@ const until = async (cond, ms = 3000) => {
   assert.fail('timed out');
 };
 
-test('AC15: SSE event stream is loopback-only, capped and replayable', async () => {
+/** Queues a request the way the dashboard does, then pokes the pool. */
+async function postRequest(port, body) {
+  const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)[1];
+  return hit(port, { method: 'POST', path: '/api/requests', headers: { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+}
+
+test('per-session SSE is scoped, validated and slot-limited', async () => {
   const repo = tempRepo();
   writeConfig(repo.dir, { enabled: true, command: 'claude {session}' });
+  const jobA = seedJob(repo.dir, 'job-a');
   const kit = fakeChildren();
-  const { url, daemon, close } = await startServer(repo.dir, { port: 0, daemon: kit.opts, ssePingMs: 50 });
+  const { url, pool, close } = await startServer(repo.dir, { port: 0, daemon: kit.opts, ssePingMs: 50 });
   const port = Number(new URL(url).port);
   const open = [];
   try {
     const c = kit.children[0];
-    c.line({ type: 'system', subtype: 'init', session_id: daemon.state().sessionId });
+    assert.equal(c.scope, '_inbox');
+    c.line({ type: 'system', subtype: 'init', session_id: pool.state().inbox.sessionId });
     c.line({ type: 'assistant', n: 1 });
-    await until(() => daemon.recent().length >= 3);
-    const buffered = daemon.recent();
+    await until(() => pool.recent('_inbox').length >= 3);
+    const buffered = pool.recent('_inbox');
 
     const a = await sse(port);
     open.push(a);
@@ -339,15 +357,33 @@ test('AC15: SSE event stream is loopback-only, capped and replayable', async () 
     assert.equal(a.frames[0].retry, '3000');
     assert.equal(a.frames[1].event, 'state');
     const st = JSON.parse(a.frames[1].data);
+    assert.equal(st.scope, '_inbox');
     assert.equal(st.running, true);
-    assert.equal(st.clients, 1);
     const replay = a.frames.slice(2, 2 + buffered.length);
     assert.deepEqual(replay.map((f) => f.event), buffered.map(() => 'line'));
-    assert.deepEqual(replay.map((f) => Number(f.id)), buffered.map((b) => b.seq));
+    assert.deepEqual(replay.map((f) => Number(f.id)), buffered.map((b) => b.offset), 'ids are line offsets');
     assert.deepEqual(replay.map((f) => f.data), buffered.map((b) => b.line));
 
+    // A job session's stream gets only that session's state and lines.
+    const forA = await sse(port, {}, jobA);
+    open.push(forA);
+    await until(() => forA.frames.length >= 2);
+    assert.deepEqual(JSON.parse(forA.frames[1].data).scope, jobA);
+    assert.equal(JSON.parse(forA.frames[1].data).status, 'off', 'an unknown session streams an off state');
+    const r = await postRequest(port, { type: 'resume', job: jobA });
+    assert.equal(r.status, 200);
+    await until(() => kit.of(jobA).length === 1);
+    kit.of(jobA)[0].line({ type: 'assistant', only: 'A' });
+    await until(() => forA.frames.some((f) => f.event === 'line' && f.data === '{"type":"assistant","only":"A"}'));
+    assert.ok(forA.frames.some((f) => f.event === 'state' && JSON.parse(f.data).status === 'busy'), "A's state changes reach A's stream");
+    assert.ok(forA.frames.filter((f) => f.event === 'state').every((f) => JSON.parse(f.data).scope === jobA));
     c.line({ type: 'assistant', n: 2 });
     await until(() => a.frames.some((f) => f.event === 'line' && f.data === '{"type":"assistant","n":2}'));
+    assert.ok(!a.frames.some((f) => f.data === '{"type":"assistant","only":"A"}'), "the inbox stream never sees A's lines");
+    assert.ok(!forA.frames.some((f) => f.data === '{"type":"assistant","n":2}'), "A's stream never sees the inbox's lines");
+    const aIds = forA.frames.filter((f) => f.event === 'line').map((f) => Number(f.id));
+    assert.deepEqual(aIds, pool.recent(jobA).map((x) => x.offset).slice(-aIds.length));
+
     c.line({ type: 'result', subtype: 'success' });
     await until(() => a.frames.slice(2).some((f) => f.event === 'state' && JSON.parse(f.data).lastResultAt), 2000);
     await until(() => a.frames.some((f) => f.comment === 'ping'), 2000);
@@ -355,14 +391,14 @@ test('AC15: SSE event stream is loopback-only, capped and replayable', async () 
     assert.deepEqual(lines, [...lines].sort((x, y) => x - y), 'ids increase');
     assert.equal(new Set(lines).size, lines.length);
 
-    const n = buffered[1].seq;
+    const n = buffered[1].offset;
     const b = await sse(port, { 'last-event-id': String(n) });
     open.push(b);
-    await until(() => b.frames.filter((f) => f.event === 'line').length >= daemon.recent(n).length);
-    assert.deepEqual(b.frames.filter((f) => f.event === 'line').map((f) => Number(f.id)), daemon.recent(n).map((r) => r.seq), 'only lines after Last-Event-ID');
-    const ahead = await sse(port, { 'last-event-id': '999999' });
+    await until(() => b.frames.filter((f) => f.event === 'line').length >= pool.recent('_inbox', n).length);
+    assert.deepEqual(b.frames.filter((f) => f.event === 'line').map((f) => Number(f.id)), pool.recent('_inbox', n).map((x) => x.offset), 'only lines after Last-Event-ID');
+    const ahead = await sse(port, { 'last-event-id': '999999999' });
     open.push(ahead);
-    await until(() => ahead.frames.filter((f) => f.event === 'line').length === daemon.recent().length);
+    await until(() => ahead.frames.filter((f) => f.event === 'line').length === pool.recent('_inbox').length);
 
     c.line({ type: 'big', pad: 'x'.repeat(70 * 1024) });
     await until(() => a.frames.some((f) => f.data?.includes('forge-truncated')));
@@ -370,11 +406,17 @@ test('AC15: SSE event stream is loopback-only, capped and replayable', async () 
     assert.equal(big.originalType, 'big');
     assert.ok(big.bytes > 64 * 1024);
 
-    assert.equal((await hit(port, { path: '/api/events', headers: { host: `evil.example:${port}` } })).status, 421);
-    assert.equal((await hit(port, { path: '/api/events', headers: { origin: 'http://evil.example' } })).status, 403);
-    assert.equal((await hit(port, { path: '/api/events', headers: { origin: 'null' } })).status, 403);
+    for (const q of ['', '?session=', '?session=..%2Fx', '?session=--flag', `?session=${'a'.repeat(201)}`]) {
+      const bad = await hit(port, { path: `/api/events${q}` });
+      assert.equal(bad.status, 400, q);
+      assert.ok(JSON.parse(bad.text).error);
+    }
+    const ev = '/api/events?session=_inbox';
+    assert.equal((await hit(port, { path: ev, headers: { host: `evil.example:${port}` } })).status, 421);
+    assert.equal((await hit(port, { path: ev, headers: { origin: 'http://evil.example' } })).status, 403);
+    assert.equal((await hit(port, { path: ev, headers: { origin: 'null' } })).status, 403);
     // A no-cors cross-site request has no Origin; Fetch Metadata still names it.
-    for (const site of ['cross-site', 'same-site']) assert.equal((await hit(port, { path: '/api/events', headers: { 'sec-fetch-site': site } })).status, 403, site);
+    for (const site of ['cross-site', 'same-site']) assert.equal((await hit(port, { path: ev, headers: { 'sec-fetch-site': site } })).status, 403, site);
     const fm = await sse(port, { 'sec-fetch-site': 'same-origin' });
     open.push(fm);
     assert.equal(fm.status, 200);
@@ -382,13 +424,18 @@ test('AC15: SSE event stream is loopback-only, capped and replayable', async () 
     open.push(same);
     assert.equal(same.status, 200);
 
-    while (open.length < 8) open.push(await sse(port));
-    const ninth = await hit(port, { path: '/api/events' });
+    // The cap counts streams across every session.
+    while (open.length < 7) open.push(await sse(port));
+    open.push(await sse(port, {}, 'some-deleted-job'));
+    assert.equal(open.at(-1).status, 200, "a deleted job's log stays viewable");
+    const ninth = await hit(port, { path: `/api/events?session=${jobA}` });
     assert.equal(ninth.status, 503);
     assert.equal(ninth.text, 'too many event streams');
+    assert.equal(JSON.parse((await hit(port, { path: '/api/state' })).text).daemons.clients, 8);
     open.pop().close();
-    await until(() => JSON.parse(a.frames.filter((f) => f.event === 'state').at(-1).data).clients === 7);
-    const again = await sse(port);
+    await until(() => true);
+    await new Promise((res) => setTimeout(res, 50));
+    const again = await sse(port, {}, jobA);
     open.push(again);
     assert.equal(again.status, 200, 'a freed slot is reusable');
 
@@ -399,8 +446,8 @@ test('AC15: SSE event stream is loopback-only, capped and replayable', async () 
     try {
       const s = await sse(shortPort);
       assert.equal(s.status, 200);
-      await new Promise((r) => setTimeout(r, 400));
-      assert.equal(JSON.parse((await hit(shortPort, { path: '/api/state' })).text).daemon.clients, 0, 'an old stream is ended, freeing its slot');
+      await new Promise((res) => setTimeout(res, 400));
+      assert.equal(JSON.parse((await hit(shortPort, { path: '/api/state' })).text).daemons.clients, 0, 'an old stream is ended, freeing its slot');
     } finally {
       await short.close();
       other.cleanup();
@@ -414,6 +461,11 @@ test('AC15: SSE event stream is loopback-only, capped and replayable', async () 
     broadcast(set, 'event: line\ndata: {}\n\n');
     assert.deepEqual(ended, [2 * 1024 * 1024], 'the slow client is ended');
     assert.deepEqual([...set], [fast]);
+    const writes = [];
+    const tagged = (name) => ({ writableLength: 0, write: (f) => writes.push([name, f]), end() {} });
+    const map = new Map([[tagged('x'), 'job-x'], [tagged('y'), 'job-y']]);
+    broadcast(map, 'frame', undefined, 'job-y');
+    assert.deepEqual(writes, [['y', 'frame']], 'a scoped broadcast reaches only that session');
   } finally {
     for (const o of open) o.close();
     await close();
@@ -421,7 +473,77 @@ test('AC15: SSE event stream is loopback-only, capped and replayable', async () 
   }
 });
 
-test('AC16: POST /api/daemon is token, origin and JSON guarded', async () => {
+test('session log history is paged and confined', async () => {
+  const repo = tempRepo();
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-outside-')));
+  const kit = fakeChildren();
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: kit.opts });
+  const port = Number(new URL(url).port);
+  const dir = path.join(repo.dir, '.forge', 'runtime', 'daemons');
+  const page = async (q, headers = {}) => {
+    const r = await hit(port, { path: `/api/daemons/log?${q}`, headers });
+    return { status: r.status, body: r.status === 200 || r.headers['content-type']?.startsWith('application/json') ? JSON.parse(r.text) : r.text, text: r.text };
+  };
+  try {
+    assert.deepEqual((await page('session=job-a')).body, { scope: 'job-a', lines: [], start: 0, end: 0, more: false }, 'a missing log is an empty page');
+    fs.mkdirSync(dir, { recursive: true });
+    const lines = [];
+    for (let i = 0; i < 1500; i++) lines.push(JSON.stringify({ type: 'assistant', i }));
+    lines.splice(700, 0, JSON.stringify({ type: 'huge', pad: 'z'.repeat(100 * 1024) }));
+    const logBase = 5000;
+    fs.writeFileSync(path.join(dir, 'job-a.log'), lines.join('\n') + '\n' + '{"type":"partial"');
+    fs.writeFileSync(path.join(dir, 'job-a.json'), JSON.stringify({ logBase }));
+    const offsets = [];
+    let at = logBase;
+    for (const l of lines) {
+      offsets.push(at);
+      at += Buffer.byteLength(l) + 1;
+    }
+    const first = (await page('session=job-a')).body;
+    assert.equal(first.scope, 'job-a');
+    assert.equal(first.end, at, 'ends at the last complete line');
+    assert.ok(!first.lines.some((l) => l.line.includes('partial')), 'an unfinished last line is left out');
+    assert.ok(first.lines.length <= 1000);
+    assert.equal(first.more, true);
+    for (const l of first.lines) if (!l.line.includes('forge-truncated')) assert.equal(l.offset, offsets[lines.indexOf(l.line)], `offset of ${l.line.slice(0, 30)}`);
+    assert.equal(first.lines.at(-1).line, lines.at(-1), 'newest last');
+    // Walk back to the start with `before`.
+    const all = [...first.lines];
+    let cur = first;
+    let guard = 0;
+    while (cur.more && guard++ < 20) {
+      cur = (await page(`session=job-a&before=${cur.start}`)).body;
+      assert.ok(cur.end <= all[0].offset);
+      all.unshift(...cur.lines);
+    }
+    assert.equal(cur.more, false);
+    assert.equal(all.length, lines.length);
+    assert.deepEqual(all.map((l) => l.offset), offsets, 'every line once, in order, at its real offset');
+    const huge = all[700];
+    assert.deepEqual(JSON.parse(huge.line), { type: 'forge-truncated', originalType: 'huge', bytes: Buffer.byteLength(lines[700]) });
+    assert.equal(huge.offset, offsets[700]);
+    assert.deepEqual((await page(`session=job-a&before=${logBase}`)).body.lines, [], 'nothing before the current log');
+
+    for (const q of ['session=', 'session=..%2Fx', 'session=--x', 'session=job-a&before=-1', 'session=job-a&before=abc']) assert.equal((await page(q)).status, 400, q);
+    assert.equal((await page('session=job-a', { origin: 'http://evil.example' })).status, 403);
+    assert.equal((await page('session=job-a', { 'sec-fetch-site': 'cross-site' })).status, 403);
+    assert.equal((await hit(port, { path: '/api/daemons/log?session=job-a', headers: { host: `evil.example:${port}` } })).status, 421);
+    // A <scope>.log symlink pointing outside the daemons dir serves nothing.
+    fs.writeFileSync(path.join(outside, 'secret.log'), '{"type":"secret","token":"hunter2"}\n');
+    fs.symlinkSync(path.join(outside, 'secret.log'), path.join(dir, 'job-b.log'));
+    const escaped = await page('session=job-b');
+    assert.equal(escaped.status, 404);
+    assert.ok(!escaped.text.includes('hunter2'));
+    fs.mkdirSync(path.join(dir, 'job-c.log'));
+    assert.equal((await page('session=job-c')).status, 404, 'a non-file is refused');
+  } finally {
+    await close();
+    repo.cleanup();
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test('POST /api/daemon is token, origin and JSON guarded', async () => {
   const repo = tempRepo();
   const kit = fakeChildren();
   const { url, close } = await startServer(repo.dir, { port: 0, daemon: kit.opts });
@@ -453,18 +575,18 @@ test('AC16: POST /api/daemon is token, origin and JSON guarded', async () => {
     writeConfig(repo.dir, { enabled: true, command: 'claude {session}' });
     const started = await post('{"action":"start"}');
     assert.equal(started.status, 200);
-    assert.equal(JSON.parse(started.text).running, true);
+    assert.equal(JSON.parse(started.text).inbox.running, true);
     assert.equal(kit.children.length, 1);
-    // Interleaved starts and stops never leave more than one child alive (maxConcurrent: 1).
+    // Interleaved starts and stops never leave more than one inbox child alive.
     const storm = await Promise.all(Array.from({ length: 24 }, (_, i) => post(i % 3 ? '{"action":"start"}' : '{"action":"stop"}')));
     assert.ok(storm.every((r) => r.status === 200));
-    assert.equal(kit.maxLive, 1, 'at most one supervised child at any time');
+    assert.equal(kit.maxLive, 1, 'at most one inbox child at any time');
     const stopped = await post('{"action":"stop"}');
     assert.equal(stopped.status, 200);
     assert.equal(JSON.parse(stopped.text).wanted, false);
-    const after = JSON.parse((await hit(port, { path: '/api/state' })).text).daemon;
-    assert.equal(after.running, false);
-    assert.equal(after.status, 'off');
+    const after = JSON.parse((await hit(port, { path: '/api/state' })).text).daemons;
+    assert.equal(after.inbox.running, false);
+    assert.equal(after.inbox.status, 'off');
     assert.equal(kit.children.filter((c) => !c.exited).length, 0, 'no child left after the final stop');
   } finally {
     await close();
@@ -472,48 +594,112 @@ test('AC16: POST /api/daemon is token, origin and JSON guarded', async () => {
   }
 });
 
-test('AC17: /api/state v4 exposes daemon state and boots an enabled daemon', async () => {
+test('POST /api/daemon starts and stops one session', async () => {
   const repo = tempRepo();
-  const keys = ['enabled', 'wanted', 'running', 'status', 'sessionId', 'pid', 'lastTurnAt', 'lastResultAt', 'turns', 'held', 'lastError', 'clients'];
+  writeConfig(repo.dir, { enabled: true, command: 'claude {session}' });
+  const jobA = seedJob(repo.dir, 'job-a');
+  const jobB = seedJob(repo.dir, 'job-b');
+  const kit = fakeChildren();
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: kit.opts });
+  const port = Number(new URL(url).port);
+  try {
+    const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)[1];
+    const good = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (body, headers: any = good) => hit(port, { method: 'POST', path: '/api/daemon', headers, body: JSON.stringify(body) });
+    const keys = ['enabled', 'wanted', 'maxConcurrent', 'live', 'lastError', 'inbox', 'jobs', 'clients'];
+    assert.equal((await post({ action: 'stop', scope: jobA }, { ...good, 'x-forge-token': 'wrong' })).status, 403);
+    assert.equal((await post({ action: 'stop', scope: jobA }, { ...good, origin: 'http://evil.example' })).status, 403);
+    assert.equal((await post({ action: 'stop', scope: jobA }, { ...good, 'content-type': 'text/plain' })).status, 415);
+    for (const scope of ['../x', '--flag', '', 7, 'a'.repeat(201)]) assert.equal((await post({ action: 'start', scope })).status, 400, String(scope));
+    const unknown = await post({ action: 'start', scope: 'no-such-job' });
+    assert.equal(unknown.status, 404);
+    assert.deepEqual(JSON.parse(unknown.text), { error: 'no job no-such-job' });
+
+    await postRequest(port, { type: 'resume', job: jobA });
+    await postRequest(port, { type: 'resume', job: jobB });
+    await until(() => kit.of(jobA).length === 1 && kit.of(jobB).length === 1);
+    const stopA = await post({ action: 'stop', scope: jobA });
+    assert.equal(stopA.status, 200);
+    const pool = JSON.parse(stopA.text);
+    assert.deepEqual(Object.keys(pool), keys, 'the reply is DaemonPoolState');
+    assert.equal(pool.wanted, true, 'stopping one session leaves the pool wanted');
+    assert.equal(pool.jobs[jobA].wanted, false);
+    assert.equal(pool.jobs[jobA].running, false);
+    assert.equal(kit.of(jobA)[0].exited, true);
+    assert.equal(pool.jobs[jobB].running, true, 'B keeps running');
+    assert.equal(pool.inbox.running, true, 'the inbox keeps running');
+    // A stopped session spawns nothing for new work until it is started again.
+    await postRequest(port, { type: 'answer', job: jobA, text: 'more' });
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(kit.of(jobA).length, 1);
+    const startA = await post({ action: 'start', scope: jobA });
+    assert.equal(startA.status, 200);
+    await until(() => kit.of(jobA).length === 2);
+    assert.equal(JSON.parse((await hit(port, { path: '/api/state' })).text).daemons.jobs[jobA].wanted, true);
+
+    // Unscoped behaviour is unchanged; a scoped start needs a wanted pool.
+    assert.equal((await post({ action: 'stop' })).status, 200);
+    const refused = await post({ action: 'start', scope: jobA });
+    assert.equal(refused.status, 409);
+    assert.deepEqual(JSON.parse(refused.text), { error: 'start the daemon first' });
+    assert.equal((await post({ action: 'stop', scope: '_inbox' })).status, 200, 'the inbox is a valid scope');
+  } finally {
+    await close();
+    repo.cleanup();
+  }
+});
+
+test('/api/state exposes the session pool', async () => {
+  const repo = tempRepo();
+  const keys = ['enabled', 'wanted', 'maxConcurrent', 'live', 'lastError', 'inbox', 'jobs', 'clients'];
+  const sessionKeys = ['scope', 'wanted', 'running', 'status', 'sessionId', 'pid', 'lastTurnAt', 'lastResultAt', 'turns', 'failures', 'held', 'waiting', 'lastError'];
   const kitOff = fakeChildren();
   let srv = await startServer(repo.dir, { port: 0, daemon: kitOff.opts });
   try {
     const s = JSON.parse((await hit(Number(new URL(srv.url).port), { path: '/api/state' })).text);
-    assert.equal(s.apiVersion, 6);
+    assert.equal(s.apiVersion, API_VERSION);
+    assert.equal(s.apiVersion, DASH_API_VERSION);
     assert.deepEqual(s.config.daemon, { enabled: false });
     assert.equal('launcher' in s.config, false);
-    assert.deepEqual(Object.keys(s.daemon), keys);
-    assert.equal(s.daemon.running, false);
+    assert.equal('daemon' in s, false, 'no top-level daemon key any more');
+    assert.deepEqual(Object.keys(s.daemons), keys);
+    assert.deepEqual(Object.keys(s.daemons.inbox), sessionKeys);
+    assert.equal(s.daemons.inbox.scope, '_inbox');
+    assert.equal(s.daemons.inbox.running, false);
+    assert.deepEqual(s.daemons.jobs, {});
     assert.equal(kitOff.children.length, 0, 'disabled: nothing is spawned');
   } finally {
     await srv.close();
   }
 
-  writeConfig(repo.dir, { enabled: true, command: 'claude {session}' });
+  writeConfig(repo.dir, { enabled: true, command: 'claude {session}', maxConcurrent: 2 });
+  const jobA = seedJob(repo.dir, 'job-a');
   const kit = fakeChildren();
   srv = await startServer(repo.dir, { port: 0, daemon: kit.opts });
   const port = Number(new URL(srv.url).port);
   try {
     const s = JSON.parse((await hit(port, { path: '/api/state' })).text);
     assert.deepEqual(s.config.daemon, { enabled: true });
-    assert.deepEqual(Object.keys(s.daemon), keys);
-    assert.equal(s.daemon.running, true, 'an enabled daemon starts with the server, no request needed');
-    assert.equal(s.daemon.status, 'idle');
+    assert.deepEqual(Object.keys(s.daemons), keys);
+    assert.equal(s.daemons.enabled, true);
+    assert.equal(s.daemons.maxConcurrent, 2);
+    assert.equal(s.daemons.inbox.running, true, 'an enabled pool starts its inbox with the server, no request needed');
+    assert.equal(s.daemons.inbox.status, 'idle');
     assert.equal(kit.children.length, 1);
 
-    const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)[1];
-    const r = await hit(port, {
-      method: 'POST',
-      path: '/api/requests',
-      headers: { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'next' }),
-    });
+    const r = await postRequest(port, { type: 'next' });
     assert.equal(r.status, 200);
     const rec = JSON.parse(r.text);
     assert.equal(rec.daemon, true);
     assert.equal('launched' in rec, false);
     await until(() => kit.children[0].written === TURN_LINE);
-    assert.equal(srv.daemon.state().status, 'busy', 'the enqueue pokes the daemon');
+    assert.equal(srv.pool.state().inbox.status, 'busy', 'the enqueue pokes the pool');
+    await postRequest(port, { type: 'resume', job: jobA });
+    await until(() => kit.of(jobA).length === 1);
+    const s2 = JSON.parse((await hit(port, { path: '/api/state' })).text);
+    assert.deepEqual(Object.keys(s2.daemons.jobs), [jobA]);
+    assert.deepEqual(Object.keys(s2.daemons.jobs[jobA]), sessionKeys);
+    assert.equal(s2.daemons.live, 1);
   } finally {
     await srv.close();
     repo.cleanup();
@@ -526,7 +712,7 @@ test('AC17: /api/state v4 exposes daemon state and boots an enabled daemon', asy
     .map((f) => fs.readFileSync(path.join(src, f), 'utf8'))
     .join('\n');
   assert.ok(app.includes('/api/requests'), 'read the dashboard sources');
-  assert.equal(DASH_API_VERSION, 6, 'the dashboard reads API_VERSION from src/lib/types.ts');
+  assert.equal(DASH_API_VERSION, 7, 'the dashboard reads API_VERSION from src/lib/types.ts');
   assert.doesNotMatch(app, /launcher|launched/);
 });
 
@@ -632,7 +818,7 @@ test('/api/config reads the schema and writes only editable keys', async () => {
   srv = await startServer(repo.dir, { port: 0, daemon: kit.opts });
   port = Number(new URL(srv.url).port);
   try {
-    assert.equal(srv.daemon.state().wanted, true);
+    assert.equal(srv.pool.state().wanted, true);
     const c = JSON.parse((await hit(port, { path: '/api/config' })).text);
     assert.equal(c.lockedBy, 'daemon');
     assert.equal(c.writable, false);
@@ -690,7 +876,7 @@ test('GET /api/about reports versions', async () => {
     assert.equal(r.status, 200);
     const a = JSON.parse(r.text);
     assert.equal(a.forgeVersion, JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version);
-    assert.equal(a.apiVersion, 6);
+    assert.equal(a.apiVersion, 7);
     assert.equal(a.pluginRoot, PLUGIN_ROOT);
     assert.deepEqual(a.schemaVersions, { config: schema.CONFIG_SCHEMA_VERSION, job: schema.JOB_SCHEMA_VERSION, event: schema.EVENT_SCHEMA_VERSION });
     assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'pricing.json'), 'utf8')).asOf);

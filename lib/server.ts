@@ -6,15 +6,17 @@ import path from 'node:path';
 import { daemonProblems, loadConfig, validateConfig } from './config.ts';
 import { ConfigSetError, FIELDS } from './config-fields.ts';
 import { setConfigValue } from './config-set.ts';
-import { createDaemon } from './daemon.ts';
+import { logBaseOf, readInfo, readLogPage, sessionFiles } from './daemon.ts';
+import type { DaemonOptions } from './daemon.ts';
+import { createPool } from './daemon-pool.ts';
+import type { DaemonPool, PoolState } from './daemon-pool.ts';
 import { doctor } from './doctor.ts';
-import type { Daemon, DaemonOptions, SupervisorState } from './daemon.ts';
 import { listJobs, loadJob, progress, readEvents, jobDir } from './jobs.ts';
 import { paths, exists, PLUGIN_ROOT } from './paths.ts';
 import { API_VERSION, CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from './schema.ts';
 import { computeStats } from './stats.ts';
 import { listRuns, listTasks, compareRuns, forgeVersion } from './evals.ts';
-import { enqueue, listRequests } from './requests.ts';
+import { INBOX_SCOPE, enqueue, listRequests, validScope } from './requests.ts';
 import { loadTracker } from './trackers/index.ts';
 import { roster } from './roster.ts';
 import { getPath, readJson, readText } from './util.ts';
@@ -24,7 +26,9 @@ import type {
   ApiState,
   BacklogResponse,
   ConfigResponse,
-  DaemonState,
+  DaemonLogPage,
+  DaemonPoolState,
+  DaemonSessionState,
   DoctorResponse,
   EvalsResponse,
   ForgeTruncatedLine,
@@ -47,7 +51,7 @@ export interface ServerOptions {
 export interface RunningServer {
   server: http.Server;
   url: string;
-  daemon: Daemon;
+  pool: DaemonPool;
   close: () => Promise<void>;
 }
 
@@ -79,10 +83,11 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
   const host = opts.host ?? '127.0.0.1';
   const distDir = opts.distDir ?? DIST_DIR;
   let backlogCache: { at: number; data: BacklogResponse } | null = null;
-  const clients = new Set<http.ServerResponse>();
-  let daemon: Daemon | null = null;
+  /** Open event streams and the session each one follows; MAX_SSE_CLIENTS counts them all. */
+  const clients = new Map<http.ServerResponse, string>();
+  let pool: DaemonPool | null = null;
   let ping: NodeJS.Timeout | null = null;
-  const daemonState = (): DaemonState => ({ ...(daemon ? daemon.state() : idleDaemonState()), clients: clients.size });
+  const poolState = (): DaemonPoolState => ({ ...(pool ? pool.state() : idlePoolState(root)), clients: clients.size });
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -97,8 +102,9 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         return hit ? immutable(res, hit) : send(res, 404, 'text/plain', 'not found');
       }
       if (req.method === 'GET' && p === '/forge.png') return sendFile(res, path.join(PLUGIN_ROOT, 'assets', 'forge.png'), 'image/png');
-      if (req.method === 'GET' && p === '/api/state') return json(res, state(root, daemonState()));
-      if (req.method === 'GET' && p === '/api/events') return events(req, res);
+      if (req.method === 'GET' && p === '/api/state') return json(res, state(root, poolState()));
+      if (req.method === 'GET' && p === '/api/events') return events(req, res, url);
+      if (req.method === 'GET' && p === '/api/daemons/log') return sessionLog(req, res, url);
       if (req.method === 'GET' && p === '/api/stats') return json(res, computeStats(root, { since: url.searchParams.get('since') ?? undefined }));
       if (req.method === 'GET' && p === '/api/evals') return json(res, { tasks: listTasks(root).map(({ dir: _d, request: _r, ...t }) => t), runs: listRuns(root) } satisfies EvalsResponse);
       if (req.method === 'GET' && p === '/api/evals/compare') return json(res, compareRuns(root, url.searchParams.get('a') ?? '', url.searchParams.get('b') ?? ''));
@@ -116,7 +122,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         }
         return json(res, backlogCache.data);
       }
-      if (req.method === 'GET' && p === '/api/config') return json(res, configResponse(root, Boolean(daemon?.state().wanted)));
+      if (req.method === 'GET' && p === '/api/config') return json(res, configResponse(root, Boolean(pool?.state().wanted)));
       if (req.method === 'GET' && p === '/api/about') return json(res, about());
       if (req.method === 'GET' && p === '/api/doctor') {
         // It spawns git and gh, so it takes the token like a POST.
@@ -145,8 +151,8 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         const body = JSON.parse((await readBody(req)) || '{}');
         const { config } = loadConfig(root);
         const rec = enqueue(root, config, { type: body.type, job: body.job, text: body.text, args: body.args, from: 'dashboard' });
-        daemon?.poke();
-        return json(res, { ...rec, daemon: Boolean(daemon?.state().wanted) } satisfies PostRequestResponse);
+        pool?.poke();
+        return json(res, { ...rec, daemon: Boolean(pool?.state().wanted) } satisfies PostRequestResponse);
       }
       if (req.method === 'POST' && p === '/api/config') {
         if (guardPost(req, res, token)) return;
@@ -159,7 +165,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.key !== 'string' || !Object.prototype.hasOwnProperty.call(body, 'value'))
           return jsonStatus(res, 400, { error: 'body must be {"key": string, "value": …}' });
         // A change would trip the daemon's trust check mid-turn, and only a human may restart it.
-        if (daemon?.state().wanted) return jsonStatus(res, 409, { error: DAEMON_LOCK });
+        if (pool?.state().wanted) return jsonStatus(res, 409, { error: DAEMON_LOCK });
         try {
           const r = setConfigValue(root, body.key, body.value);
           if (r.changed) backlogCache = null;
@@ -177,18 +183,30 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         } catch {
           return jsonStatus(res, 400, { error: 'body is not JSON' });
         }
-        const action = body && typeof body === 'object' ? body.action : undefined;
-        if (action === 'stop') {
-          await daemon?.stop('http');
-          return json(res, daemonState());
+        const obj = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+        const action = obj.action;
+        if (action !== 'start' && action !== 'stop') return jsonStatus(res, 400, { error: 'action must be "start" or "stop"' });
+        if (obj.scope !== undefined) {
+          // Checked before anything is built from it.
+          if (!validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox" or a job id' });
+          if (obj.scope !== INBOX_SCOPE && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
+          if (action === 'stop') {
+            await pool?.stopSession(obj.scope);
+            return json(res, poolState());
+          }
+          if (pool?.startSession(obj.scope).error) return jsonStatus(res, 409, { error: 'start the daemon first' });
+          return json(res, poolState());
         }
-        if (action !== 'start') return jsonStatus(res, 400, { error: 'action must be "start" or "stop"' });
+        if (action === 'stop') {
+          await pool?.stop('http');
+          return json(res, poolState());
+        }
         const { config } = loadConfig(root);
         if (config.daemon?.enabled !== true) return jsonStatus(res, 409, { error: 'daemon.enabled is false in .forge/config.yml' });
         const problem = daemonProblems(config, root)[0];
         if (problem) return jsonStatus(res, 409, { error: problem });
-        daemon?.start('http');
-        return json(res, daemonState());
+        pool?.start('http');
+        return json(res, poolState());
       }
       send(res, 404, 'text/plain', 'not found');
     } catch (e) {
@@ -198,33 +216,30 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
   });
 
   /**
-   * Server-sent events: the daemon's state, then its buffered log lines, then live ones. GET
-   * only and loopback-only like every route; an Origin, when sent, must be ours, and there are
-   * no CORS headers, so another site can't read the stream. A cross-site request is refused when
-   * the browser sends Fetch Metadata; one that doesn't can still hold a slot until the stream is
-   * recycled (sseMaxAgeMs), which costs the live log's availability, never the daemon.
+   * Server-sent events for one session: its state, then its buffered log lines, then live ones,
+   * each with its log offset as the id. GET only and loopback-only like every route; readGuard
+   * keeps other sites out. A cross-site request from a browser that sends no Fetch Metadata can
+   * still hold a slot until the stream is recycled (sseMaxAgeMs), which costs the live log's
+   * availability, never the daemon.
    */
-  function events(req: http.IncomingMessage, res: http.ServerResponse): void {
-    const origin = req.headers.origin;
-    if (origin !== undefined && !sameOrigin(origin, req.headers.host)) return send(res, 403, 'text/plain', 'bad origin');
-    // A no-cors request from another site (fetch no-cors, <img>, <script>) carries no Origin, but
-    // browsers that send Fetch Metadata label it cross-site; refuse it so it can't hold a slot.
-    const site = req.headers['sec-fetch-site'];
-    if (site !== undefined && site !== 'same-origin' && site !== 'none') return send(res, 403, 'text/plain', 'cross-site');
+  function events(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
+    if (readGuard(req, res)) return;
+    const scope = url.searchParams.get('session');
+    // Syntax only, so the logs of deleted jobs stay viewable.
+    if (!validScope(scope)) return jsonStatus(res, 400, { error: 'session must be "_inbox" or a job id' });
     if (clients.size >= MAX_SSE_CLIENTS) return send(res, 503, 'text/plain', 'too many event streams');
     res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
     res.write('retry: 3000\n\n');
-    clients.add(res);
-    res.write(stateFrame(daemonState()));
+    clients.set(res, scope);
+    res.write(stateFrame(pool ? pool.sessionState(scope) : offSessionState(root, scope)));
     const last = Number(req.headers['last-event-id']);
-    for (const r of daemon?.recent(req.headers['last-event-id'] === undefined || !Number.isFinite(last) ? undefined : last) ?? []) res.write(lineFrame(r.seq, r.line));
+    for (const r of pool?.recent(scope, req.headers['last-event-id'] === undefined || !Number.isFinite(last) ? undefined : last) ?? []) res.write(lineFrame(r.offset, r.line));
     const recycle = setTimeout(() => res.end(), opts.sseMaxAgeMs ?? SSE_MAX_AGE_MS);
     recycle.unref();
     // The response's close, not the request's: a GET's request side ends as soon as it is read.
     res.on('close', () => {
       clearTimeout(recycle);
       clients.delete(res);
-      broadcast(clients, stateFrame(daemonState()));
     });
     if (!ping) {
       ping = setInterval(() => broadcast(clients, ': ping\n\n'), opts.ssePingMs ?? SSE_PING_MS);
@@ -232,20 +247,60 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     }
   }
 
+  /**
+   * GET /api/daemons/log: a page of one session's log, read backwards from `before`. The scope is
+   * validated before any path is built, the file must resolve inside the daemons dir, and it is
+   * read through one non-blocking descriptor checked to be a regular file.
+   */
+  function sessionLog(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
+    if (readGuard(req, res)) return;
+    const scope = url.searchParams.get('session');
+    if (!validScope(scope)) return jsonStatus(res, 400, { error: 'session must be "_inbox" or a job id' });
+    const rawBefore = url.searchParams.get('before');
+    const before = rawBefore === null || rawBefore === '' ? null : Number(rawBefore);
+    if (before !== null && !(Number.isSafeInteger(before) && before >= 0)) return jsonStatus(res, 400, { error: 'before must be a log offset' });
+    const f = sessionFiles(root, scope);
+    const empty: DaemonLogPage = { scope, lines: [], start: 0, end: 0, more: false };
+    let real: string;
+    let dir: string;
+    try {
+      dir = fs.realpathSync(f.dir);
+      real = fs.realpathSync(f.log);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return json(res, empty);
+      return jsonStatus(res, 404, { error: 'no session log' });
+    }
+    if (!real.startsWith(dir + path.sep)) return jsonStatus(res, 404, { error: 'no session log' });
+    let fd: number | undefined;
+    try {
+      // O_NONBLOCK: a FIFO planted as the log must not hang the server; fstat rejects it.
+      fd = fs.openSync(real, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0));
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile()) return jsonStatus(res, 404, { error: 'no session log' });
+      const page = readLogPage(fd, stat.size, logBaseOf(readInfo(f.info)), { before });
+      return json(res, { scope, ...page } satisfies DaemonLogPage);
+    } catch {
+      return jsonStatus(res, 404, { error: 'no session log' });
+    } finally {
+      if (fd !== undefined) fs.closeSync(fd);
+    }
+  }
+
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(opts.port ?? 7400, host, () => {
-      // Created only once the port is ours, so a dash retrying ports never starts a second daemon.
-      const d = createDaemon(root, opts.daemon);
-      daemon = d;
-      d.subscribe((e) => broadcast(clients, e.kind === 'line' ? lineFrame(e.seq, e.line) : stateFrame({ ...e.state, clients: clients.size })));
+      // Created only once the port is ours, so a dash retrying ports never starts a second pool.
+      const d = createPool(root, opts.daemon);
+      pool = d;
+      // Each stream gets only its own session's lines and state.
+      d.subscribe((e) => broadcast(clients, e.kind === 'line' ? lineFrame(e.offset, e.line) : stateFrame(e.state), SSE_SLOW_CLIENT_BYTES, e.scope));
       try {
         const { config } = loadConfig(root);
         if (config.daemon?.enabled === true && !daemonProblems(config, root).length) d.start('boot');
       } catch {}
       const close = async () => {
         if (ping) clearInterval(ping);
-        for (const c of clients) c.end();
+        for (const c of clients.keys()) c.end();
         clients.clear();
         await d.close();
         await new Promise((r) => {
@@ -253,7 +308,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
           server.closeAllConnections?.();
         });
       };
-      resolve({ server, url: `http://${host}:${(server.address() as AddressInfo).port}`, daemon: d, close });
+      resolve({ server, url: `http://${host}:${(server.address() as AddressInfo).port}`, pool: d, close });
     });
   });
 }
@@ -285,9 +340,14 @@ function about(): AboutResponse {
   };
 }
 
-/** The daemon block before a daemon exists (never visible once the server is listening). */
-function idleDaemonState(): SupervisorState {
-  return { enabled: false, wanted: false, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, held: null, lastError: null };
+/** A session's state before the pool exists (never visible once the server is listening). */
+function offSessionState(_root: string, scope: string): DaemonSessionState {
+  return { scope, wanted: false, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, failures: 0, held: null, waiting: false, lastError: null };
+}
+
+/** The pool block before a pool exists (never visible once the server is listening). */
+function idlePoolState(root: string): PoolState {
+  return { enabled: false, wanted: false, maxConcurrent: 1, live: 0, lastError: null, inbox: offSessionState(root, INBOX_SCOPE), jobs: {} };
 }
 
 /**
@@ -308,6 +368,21 @@ function guardToken(req: http.IncomingMessage, res: http.ServerResponse, token: 
   return false;
 }
 
+/**
+ * The checks every streaming or log-reading GET shares: an Origin, when sent, must be ours, and a
+ * request the browser labels cross-site through Fetch Metadata is refused. A no-cors request from
+ * another site (fetch no-cors, <img>, <script>) carries no Origin, which is why the second check
+ * exists. There are no CORS headers, so another site can't read the reply either way. Returns
+ * true when it has already answered the request.
+ */
+function readGuard(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+  const origin = req.headers.origin;
+  if (origin !== undefined && !sameOrigin(origin, req.headers.host)) return send(res, 403, 'text/plain', 'bad origin'), true;
+  const site = req.headers['sec-fetch-site'];
+  if (site !== undefined && site !== 'same-origin' && site !== 'none') return send(res, 403, 'text/plain', 'cross-site'), true;
+  return false;
+}
+
 function sameOrigin(origin: string, host: string | undefined): boolean {
   try {
     return new URL(origin).host === host;
@@ -316,14 +391,14 @@ function sameOrigin(origin: string, host: string | undefined): boolean {
   }
 }
 
-function stateFrame(st: DaemonState): string {
+function stateFrame(st: DaemonSessionState): string {
   return `event: state\ndata: ${JSON.stringify(st)}\n\n`;
 }
 
 /**
  * Lines are single-line JSON already; a stray CR would still end an SSE field, so it goes.
  */
-function lineFrame(seq: number, line: string): string {
+function lineFrame(offset: number, line: string): string {
   let data = line.replace(/\r/g, '');
   const bytes = Buffer.byteLength(data);
   if (bytes > SSE_MAX_LINE) {
@@ -333,15 +408,19 @@ function lineFrame(seq: number, line: string): string {
     } catch {}
     data = JSON.stringify({ type: 'forge-truncated', originalType, bytes } satisfies ForgeTruncatedLine);
   }
-  return `event: line\nid: ${seq}\ndata: ${data}\n\n`;
+  return `event: line\nid: ${offset}\ndata: ${data}\n\n`;
 }
 
+type SseClient = { write: (s: string) => unknown; end: () => unknown; writableLength: number };
+
 /**
- * Writes a frame to every client and ends any whose unsent buffer is over the cap, so one
- * stalled browser tab can't grow the server's memory; it reconnects with Last-Event-ID.
+ * Writes a frame to every client (in a Map, only those following `scope`) and ends any whose
+ * unsent buffer is over the cap, so one stalled browser tab can't grow the server's memory; it
+ * reconnects with Last-Event-ID.
  */
-export function broadcast(clients: Set<{ write: (s: string) => unknown; end: () => unknown; writableLength: number }>, frame: string, capBytes = SSE_SLOW_CLIENT_BYTES): void {
-  for (const res of [...clients]) {
+export function broadcast<C extends SseClient>(clients: Set<C> | Map<C, string>, frame: string, capBytes = SSE_SLOW_CLIENT_BYTES, scope?: string): void {
+  for (const res of [...clients.keys()]) {
+    if (scope !== undefined && clients instanceof Map && clients.get(res) !== scope) continue;
     res.write(frame);
     if (res.writableLength > capBytes) {
       clients.delete(res);
@@ -355,7 +434,7 @@ function isLoopbackHost(host: string | undefined): boolean {
   return name === '127.0.0.1' || name === 'localhost' || name === '[::1]';
 }
 
-function state(root: string, daemon: DaemonState): ApiState {
+function state(root: string, daemons: DaemonPoolState): ApiState {
   const { config, initialized } = loadConfig(root);
   const jobs = listJobs(root).map((j) => {
     const events = readEvents(root, j.id);
@@ -375,8 +454,8 @@ function state(root: string, daemon: DaemonState): ApiState {
       models: config.runtime.models,
       daemon: { enabled: config.daemon?.enabled === true },
     },
-    // `enabled` from this read of config.yml, so it is current even while the daemon is stopped.
-    daemon: { ...daemon, enabled: config.daemon?.enabled === true },
+    // `enabled` from this read of config.yml, so it is current even while the pool is stopped.
+    daemons: { ...daemons, enabled: config.daemon?.enabled === true },
     jobs,
     requests: listRequests(root).filter((r) => r.status === 'pending' || r.status === 'in-progress'),
     now: new Date().toISOString(),
