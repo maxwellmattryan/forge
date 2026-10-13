@@ -26,7 +26,7 @@ export function parseArgs(argv: string[]): { pos: string[]; flags: Record<string
 export const list = (v: any): string[] => (v === undefined || v === true ? [] : ([] as unknown[]).concat(v).flatMap((x) => String(x).split(',')).map((s) => s.trim()).filter(Boolean));
 
 /** Strings print raw, everything else as compact JSON. */
-export function out(data: any, flags: Record<string, any>): void {
+export function out(data: unknown, flags: Record<string, any>): void {
   if (typeof data === 'string') return void process.stdout.write(data.endsWith('\n') ? data : data + '\n');
   process.stdout.write(JSON.stringify(data, null, flags.pretty ? 2 : 0) + '\n');
 }

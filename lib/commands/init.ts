@@ -69,7 +69,7 @@ export async function doctor(root: string, config: Config, initialized: boolean)
   for (const j of listJobs(root).filter((x) => isActive(x) && x.port)) {
     if (j.worktree && !exists(j.worktree)) add(`job ${j.id} worktree`, false, `missing: ${j.worktree}`);
   }
-  const unsupported = listJobs(root).filter((j) => (j as any)._unsupported);
+  const unsupported = listJobs(root).filter((j) => j._unsupported);
   if (unsupported.length) add('job schema', false, `${unsupported.length} job(s) from a newer Forge`);
   return { ok: checks.every((c) => c.ok), checks };
 }

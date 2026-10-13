@@ -335,7 +335,7 @@ export function createDaemon(root: string, opts: DaemonOptions = {}): Daemon {
     return ok;
   }
 
-  const logEvent = (event: string, extra: Record<string, any> = {}) => logLine(JSON.stringify({ type: 'forge-daemon', at: now(), event, ...extra }));
+  const logEvent = (event: string, extra: Record<string, unknown> = {}) => logLine(JSON.stringify({ type: 'forge-daemon', at: now(), event, ...extra }));
 
   function state(): SupervisorState {
     return {
