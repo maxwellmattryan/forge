@@ -1,5 +1,5 @@
 // Per-job budget use, derived client-side from fields /api/state already serves. Mirrors
-// effectiveLimits/measureBudget/exceededKeys in lib/budget.mjs (the dashboard cannot import lib/).
+// effectiveLimits/measureBudget/exceededKeys in lib/budget.ts (the dashboard cannot import lib/).
 // No DOM access, so node:test can import it.
 import { esc, num, usd, ago, toneChip } from './util.ts';
 import type { BudgetKey, BudgetLimits, Job } from './types.ts';
