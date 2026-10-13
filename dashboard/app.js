@@ -4,7 +4,7 @@ import { budgetChip, budgetCell, budgetPanel } from './budget.js';
 import { screenshotsPanel } from './screenshots.js';
 import { depChips, depSection } from './deps.js';
 const TOKEN = document.querySelector('meta[name="forge-token"]')?.content ?? '';
-const API_VERSION = 3;
+const API_VERSION = 4;
 
 const STAGES = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', 'review', 'decide', 'integrate', 'pr', 'done'];
 const CORE_STAGES = new Set(['backlog', 'spec', 'build', 'review', 'pr', 'done']);
@@ -104,7 +104,7 @@ async function request(type, payload = {}) {
       headers: { 'content-type': 'application/json', 'x-forge-token': TOKEN },
       body: JSON.stringify({ type, ...payload }),
     });
-    toast(r.launched ? `Queued "${type}" and launched an orchestrator` : `Queued "${type}". Your orchestrator session picks it up (/forge requests).`);
+    toast(r.daemon ? `Queued "${type}". The daemon picks it up.` : `Queued "${type}". Your orchestrator session picks it up (/forge requests).`);
     refresh();
   } catch (e) {
     toast(`Request failed: ${e.message}`, true);
@@ -537,7 +537,7 @@ function viewEvals() {
     <label class="flex flex-col gap-1 text-xs text-muted">Tags (comma separated)<input id="eval-tags" placeholder="replay, ui"></label>
     <label class="flex flex-col gap-1 text-xs text-muted">Tasks (comma separated)<input id="eval-tasks" placeholder="all"></label>
     <label class="flex flex-col gap-1 text-xs text-muted">Label<input id="eval-label" placeholder="baseline"></label>
-    <div class="text-[11px] text-muted">${e.tasks.length} task(s) available. ${S.data.config.launcher ? 'A launcher is configured, so runs start immediately.' : 'Runs are queued for your orchestrator session.'}</div>
+    <div class="text-[11px] text-muted">${e.tasks.length} task(s) available. ${S.data.config.daemon?.enabled ? 'The daemon is enabled, so runs start automatically.' : 'Runs are queued for your orchestrator session.'}</div>
   </div>`;
   const runs = e.runs ?? [];
   if (runs.length) {
