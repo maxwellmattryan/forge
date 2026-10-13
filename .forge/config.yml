@@ -1,6 +1,6 @@
 # Forge configuration. Every key is documented in docs/CONFIG.md of the Forge plugin.
 # Re-run `/forge init` to change answers interactively, or edit this file directly.
-schemaVersion: 1
+schemaVersion: 2
 project:
   name: Forge
   description: "Claude Code plugin that runs a software factory: jobs in worktrees, agent roster, PR/tracker sync, dashboard, evals and retros. The repo is also its own plugin marketplace."
@@ -27,7 +27,7 @@ worktrees:
     targetDir: null
 commands:
   setup: npm ci
-  build: 'npm run build:dashboard && test -z "$(git status --porcelain -- dashboard/dist)"'
+  build: npm run build:dashboard && test -z "$(git status --porcelain -- dashboard/dist)"
   test: npm run test
   lint: for f in $(find lib lib/commands lib/trackers dashboard -maxdepth 1 -name '*.mjs') bin/forge; do node --check "$f" || exit 1; done && claude plugin validate . --strict
   format: null
@@ -39,6 +39,20 @@ verify:
   - lint
   - typecheck
   - test
+verifyE2e:
+  when: ui
+  paths:
+    - "*.html"
+    - "*.css"
+    - "*.scss"
+    - "*.sass"
+    - "*.less"
+    - "*.svelte"
+    - "*.vue"
+    - "*.jsx"
+    - "*.tsx"
+    - "*.astro"
+verifyIntegrity: warn
 ports:
   base: 4100
   span: 100
@@ -46,6 +60,7 @@ runtime:
   provider: anthropic
   host: claude-code
   maxParallelJobs: 2
+  diversity: false
   models:
     orchestrator: inherit
     planner: opus
@@ -86,6 +101,12 @@ pipeline:
   specApproval: always
   design: none
   maxRounds: 3
+  budget:
+    tokens: null
+    usd: null
+    minutes: null
+    changedLines: null
+    verifyRetries: 2
 review:
   blockOn:
     - blocker
@@ -100,6 +121,12 @@ review:
       when: lib/server.ts, lib/pr.ts, lib/trackers/*, hooks/*, anything that ingests tracker/PR/web text, runs shell commands, or touches the dashboard's Host/Origin/token checks
     - name: docs
       when: CLI commands or their JSON output, config keys, orchestrator behaviour in skills/forge/**, or anything README.md and docs/*.md describe
+    - name: ui
+      when: "user-visible dashboard changes: dashboard/src/**, dashboard/style.css, dashboard/index.html (check light and dark themes and a phone-width viewport)"
+    - name: accessibility
+      when: "dashboard/src/**, dashboard/style.css, dashboard/index.html: keyboard, focus, contrast, ARIA"
+    - name: ux
+      when: "dashboard flows, copy, empty and error states: dashboard/src/**"
   onPrFeedback: changed
 approver:
   alwaysEscalate:
@@ -147,4 +174,28 @@ evals:
   testPattern: ^test/.*\.test\.ts$
 dashboard:
   port: 7400
-  launcher: null
+daemon:
+  enabled: false
+  command: claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode dontAsk --allowedTools {allowedTools}
+  allowedTools:
+    - Agent
+    - Skill
+    - Read
+    - Glob
+    - Grep
+    - Edit
+    - Write
+    - Bash(forge:*)
+    - Bash(git status:*)
+    - Bash(git rev-parse:*)
+    - Bash(git add:*)
+    - Bash(git rm:*)
+    - Bash(git commit:*)
+    - Bash(git merge --abort:*)
+    - Bash(git rebase --abort:*)
+    - Bash(gh pr view:*)
+    - Bash(gh pr list:*)
+    - Bash(gh pr checks:*)
+    - Bash(gh run view:*)
+  maxConcurrent: 1
+  idleStopMinutes: 30
