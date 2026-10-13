@@ -208,8 +208,10 @@ export interface TransitionSide {
   waitingOn: WaitingOn | null;
 }
 
-/** Usage an agent reported at agent-end: recordAgent in lib/jobs.mjs. */
+/** Usage an agent reported at agent-end: the agent case in lib/commands/job.mjs (transcript fields from importClaudeCodeTranscript in lib/usage.mjs). */
 export interface AgentUsage {
+  model?: string | null;
+  outputEstimated?: boolean;
   totalTokens?: number;
   input?: number;
   output?: number;
