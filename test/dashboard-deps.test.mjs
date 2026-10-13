@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { depLinks, dependents, depChips, depSection } from '../dashboard/src/lib/deps.ts';
+import { depLinks, dependents, blockLinks, depHint } from '../dashboard/src/lib/deps.ts';
 
 const jobs = [
   { id: 'done-dep', title: 'Done', stage: 'done', state: 'done', dependsOn: [] },
@@ -25,36 +25,31 @@ test('depLinks: done is ok, missing and cancelled are bad, anything else warns',
   assert.deepEqual(dependents(jobs[1], jobs).map((j) => j.id), ['child']);
 });
 
-test('depChips: one clickable chip per dependency, nothing without dependencies', () => {
-  const html = depChips(child, jobs);
-  assert.equal(html.match(/data-action="open"/g).length, 4);
-  assert.match(html, /<span data-action="open" data-id="done-dep" title="Done · done\/done" class="chip bg-ok\/15 text-ok[^"]*">after done-dep<\/span>/);
-  assert.match(html, /data-id="live-dep" title="Live · build\/running" class="chip bg-warn\/15 text-warn/);
-  assert.match(html, /data-id="dead-dep"[^>]*class="chip bg-bad\/15 text-bad/);
-  assert.match(html, /data-id="gone" title="missing" class="chip bg-bad\/15 text-bad[^"]*">after gone</);
-  assert.equal(depChips(jobs[4], jobs), '');
-  assert.equal(depChips({ id: 'x' }, jobs), '');
-});
-
-test('depSection: depends-on and blocks rows, each only when non-empty', () => {
-  const s = depSection(child, jobs);
-  assert.match(s, /Depends on/);
-  assert.doesNotMatch(s, /Blocks/);
-  const blocker = depSection(jobs[1], jobs);
-  assert.match(blocker, /Blocks/);
-  assert.doesNotMatch(blocker, /Depends on/);
-  assert.match(blocker, /<button data-action="open" data-id="child"/);
-  assert.equal(depSection(jobs[4], jobs), '');
-});
-
-test('hostile ids and titles render escaped', () => {
+test('blockLinks and depHint match the old drawer section', () => {
+  // Depends on: the board chips and the drawer row share depLinks; titles come from depHint.
+  assert.deepEqual(
+    depLinks(child, jobs).map((l) => [l.id, l.state, l.tone, depHint(l)]),
+    [
+      ['done-dep', 'done', 'ok', 'Done · done/done'],
+      ['live-dep', 'running', 'warn', 'Live · build/running'],
+      ['dead-dep', 'cancelled', 'bad', 'Dead · spec/cancelled'],
+      ['gone', 'missing', 'bad', 'missing'],
+    ],
+  );
+  assert.deepEqual(blockLinks(child, jobs), [], 'child blocks nothing');
+  // Blocks: the jobs that depend on this one.
+  assert.deepEqual(blockLinks(jobs[1], jobs), [{ id: 'child', title: 'Child', stage: 'backlog', state: 'waiting', tone: 'warn' }]);
+  assert.equal(depHint(blockLinks(jobs[1], jobs)[0]), 'Child · backlog/waiting');
+  assert.deepEqual(blockLinks(jobs[0], jobs).map((l) => l.id), ['child']);
+  assert.deepEqual([depLinks(jobs[4], jobs), blockLinks(jobs[4], jobs)], [[], []], 'no section without links');
+  assert.equal(depHint({ title: null, stage: 'build', state: 'running' }), ' · build/running', 'a missing title renders empty, as before');
+  const done = { id: 'shipped', title: 'S', stage: 'done', state: 'done', dependsOn: ['plain'] };
+  assert.deepEqual(blockLinks(jobs[4], [...jobs, done]).map((l) => [l.id, l.tone]), [['shipped', 'ok']]);
+  // Hostile ids and titles come back verbatim: Svelte escapes them at render time.
   const evil = [
     { id: 'x"><img src=x onerror=alert(1)>', title: '<script>alert(1)</script>', stage: 'build', state: 'running', dependsOn: [] },
     { id: 'kid', title: 'Kid', stage: 'backlog', state: 'queued', dependsOn: ['x"><img src=x onerror=alert(1)>'] },
   ];
-  for (const html of [depChips(evil[1], evil), depSection(evil[1], evil), depSection(evil[0], evil)]) {
-    assert.doesNotMatch(html, /<script>|<img/);
-  }
-  assert.match(depChips(evil[1], evil), /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
-  assert.match(depChips(evil[1], evil), /data-id="x&quot;&gt;&lt;img src=x onerror=alert\(1\)&gt;"/);
+  assert.equal(depHint(depLinks(evil[1], evil)[0]), '<script>alert(1)</script> · build/running');
+  assert.equal(blockLinks(evil[0], evil)[0].id, 'kid');
 });

@@ -14,35 +14,7 @@
       } catch {}
     </script>
     <link rel="stylesheet" href="/style.css" />
+    <script type="module" src="/src/main.ts"></script>
   </head>
-  <body class="min-h-screen">
-    <div class="flex min-h-screen">
-      <aside id="sidebar" class="hidden md:flex w-56 shrink-0 flex-col border-r border-line bg-panel px-3 py-4 gap-1 sticky top-0 h-screen">
-        <div class="flex items-center gap-2.5 px-2 pb-3">
-          <img src="/forge.png" alt="" class="size-9 rounded-lg" />
-          <div class="min-w-0">
-            <div class="text-[15px] font-semibold leading-4 tracking-tight">Forge</div>
-            <div class="text-[10px] uppercase tracking-[0.12em] text-muted">software factory</div>
-          </div>
-        </div>
-        <div class="brand-rule mx-2 mb-3"></div>
-        <div class="px-3 pb-3 text-[11px] text-muted truncate">repo <span id="repo-name" class="font-mono text-fg"></span></div>
-        <nav id="nav" class="flex flex-col gap-0.5"></nav>
-        <div class="mt-auto flex flex-col gap-1 border-t border-line pt-3 text-xs text-muted">
-          <div id="footer-sessions" class="px-3"></div>
-          <button id="theme-toggle" class="nav-item"></button>
-          <div id="footer-version" class="px-3 text-[10px]"></div>
-        </div>
-      </aside>
-      <main class="flex-1 min-w-0">
-        <header class="md:hidden flex items-center gap-2 border-b border-line bg-panel px-4 py-3 overflow-x-auto" id="mobile-nav"></header>
-        <div id="daemon" class="mx-auto max-w-[1400px] px-4 md:px-8 pt-6 empty:hidden"></div>
-        <div id="view" class="mx-auto max-w-[1400px] px-4 md:px-8 pt-4 pb-6"></div>
-      </main>
-    </div>
-    <div id="drawer-backdrop" class="fixed inset-0 bg-black/40 hidden z-30"></div>
-    <aside id="drawer" class="fixed right-0 top-0 h-full w-full max-w-3xl bg-bg border-l border-line z-40 translate-x-full transition-transform overflow-y-auto"></aside>
-    <div id="toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 hidden card px-4 py-2 text-sm shadow-lg"></div>
-    <script type="module" src="/app.js"></script>
-  </body>
+  <body class="min-h-screen"></body>
 </html>

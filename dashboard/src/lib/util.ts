@@ -1,5 +1,5 @@
-// Shared dashboard helpers. No DOM access at import time (api and toast touch fetch/document only
-// when called), so node:test can import them.
+// Shared dashboard helpers. No DOM access (api touches fetch only when called), so node:test can import them.
+// Toasts live in toast.svelte.ts now that components render them.
 export const esc = (v: unknown): string => String(v ?? '').replace(/[&<>"']/g, (c) => (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }) as Record<string, string>)[c]);
 export const num = (n: unknown): string => (n == null ? '—' : Number(n).toLocaleString());
 export const usd = (n: unknown): string => (n == null ? '—' : `$${Number(n) < 1 ? Number(n).toFixed(3) : Number(n).toFixed(2)}`);
@@ -35,13 +35,4 @@ export async function api<T = unknown>(path: string, opts?: RequestInit): Promis
   if (!res.ok) throw new Error((await res.text()) || res.statusText);
   const type = res.headers.get('content-type') ?? '';
   return type.includes('json') ? res.json() : (res.text() as Promise<T>);
-}
-let toastTimer: ReturnType<typeof setTimeout> | undefined;
-export function toast(msg: string, bad = false): void {
-  const el = document.getElementById('toast') as HTMLElement;
-  el.textContent = msg;
-  el.classList.toggle('text-bad', bad);
-  el.classList.remove('hidden');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.add('hidden'), 4000);
 }

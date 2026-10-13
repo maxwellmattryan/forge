@@ -1,13 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pillModel, daemonBar, lineView, lineHtml, appendLine, postDaemon, MAX_TEXT } from '../dashboard/src/lib/daemon.ts';
+import { pillModel, barModel, mergeDaemonState, lineView, appendLine, postDaemon, MAX_TEXT, START_HINT } from '../dashboard/src/lib/daemon.ts';
 
 const base = { enabled: true, wanted: false, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, held: null, lastError: null, clients: 0 };
 const d = (over = {}) => ({ ...base, ...over });
-const ui = (over = {}) => ({ open: false, pending: false, ...over });
+const ui = (over = {}) => ({ pending: false, ...over });
 const XSS = '<script>alert(1)</script> and <img src=x onerror=alert(1)>';
-const button = (html, name) => html.match(new RegExp(`<button[^>]*data-daemon="${name}"[^>]*>`))?.[0] ?? '';
-const disabled = (html, name) => / disabled\b/.test(button(html, name));
 
 test('pillModel maps daemon state to label and tone', () => {
   const cases = [
@@ -41,52 +39,59 @@ test('pillModel hides the bar when the daemon is unused', () => {
   assert.equal(pillModel(undefined), null);
   assert.equal(pillModel(null), null);
   assert.equal(pillModel(d({ enabled: false })), null);
-  assert.equal(daemonBar(d({ enabled: false }), ui()), '');
-  assert.equal(daemonBar(undefined, ui({ open: true })), '');
+  assert.equal(barModel(d({ enabled: false }), ui()), null);
+  assert.equal(barModel(undefined, ui()), null);
   // Disabled in config but still running (e.g. just switched off) keeps the bar.
   assert.ok(pillModel(d({ enabled: false, running: true, status: 'idle' })));
   assert.ok(pillModel(d({ enabled: false, wanted: true })));
 });
 
-test('daemonBar enables start/stop by state', () => {
-  let h = daemonBar(d(), ui());
-  assert.ok(!disabled(h, 'start'), 'enabled, stopped: start on');
-  assert.ok(disabled(h, 'stop'), 'nothing to stop');
-  assert.match(h, /Daemon stopped/);
+test('barModel enables start/stop by state', () => {
+  let m = barModel(d(), ui());
+  assert.equal(m.canStart, true, 'enabled, stopped: start on');
+  assert.equal(m.canStop, false, 'nothing to stop');
+  assert.equal(m.startHint, null);
+  assert.equal(m.pill.label, 'stopped');
 
-  h = daemonBar(d({ status: 'idle', wanted: true, running: true }), ui());
-  assert.ok(disabled(h, 'start'));
-  assert.ok(!disabled(h, 'stop'));
+  m = barModel(d({ status: 'idle', wanted: true, running: true }), ui());
+  assert.equal(m.canStart, false);
+  assert.equal(m.canStop, true);
+  assert.equal(m.startHint, null, 'enabled: no config hint');
 
-  h = daemonBar(d({ status: 'off', wanted: true }), ui());
-  assert.ok(disabled(h, 'start'), 'standby: already wanted');
-  assert.ok(!disabled(h, 'stop'));
+  m = barModel(d({ status: 'off', wanted: true }), ui());
+  assert.equal(m.canStart, false, 'standby: already wanted');
+  assert.equal(m.canStop, true);
 
-  h = daemonBar(d({ enabled: false, running: true, status: 'idle' }), ui());
-  assert.ok(disabled(h, 'start'));
-  assert.match(button(h, 'start'), /title="Set daemon\.enabled: true in \.forge\/config\.yml"/);
-  assert.ok(!disabled(h, 'stop'));
+  m = barModel(d({ enabled: false, running: true, status: 'idle' }), ui());
+  assert.equal(m.canStart, false);
+  assert.equal(m.startHint, 'Set daemon.enabled: true in .forge/config.yml');
+  assert.equal(m.startHint, START_HINT);
+  assert.equal(m.canStop, true);
 
-  h = daemonBar(d(), ui({ pending: true }));
-  assert.ok(disabled(h, 'start') && disabled(h, 'stop'), 'both off while a request is in flight');
-  assert.doesNotMatch(button(h, 'start'), /title=/, 'no config hint when merely pending');
+  m = barModel(d(), ui({ pending: true }));
+  assert.ok(!m.canStart && !m.canStop, 'both off while a request is in flight');
+  assert.equal(m.startHint, null, 'no config hint when merely pending');
 
-  assert.match(button(daemonBar(d(), ui()), 'log'), /aria-expanded="false"/);
-  h = daemonBar(d(), ui({ open: true }));
-  assert.match(button(h, 'log'), /aria-expanded="true"/);
-  assert.match(h, /data-daemon-log[^>]*max-h-72[^>]*overflow-y-auto/);
-  assert.match(h, /No daemon output yet\./);
-  assert.match(daemonBar(d(), ui({ open: true, closed: true })), /Log stream closed\. Reopen the log to retry\./);
-  assert.doesNotMatch(daemonBar(d(), ui()), /data-daemon-log/);
+  m = barModel(d({ enabled: false, running: true, status: 'idle' }), ui({ pending: true }));
+  assert.ok(!m.canStart && !m.canStop);
+  assert.equal(m.startHint, START_HINT, 'the config hint stays while pending');
 });
 
-test('daemonBar shows the budget hold', () => {
-  const h = daemonBar(d({ status: 'off', wanted: true, held: { reason: 'budget', jobs: ['a-job', 'b-job'] } }), ui());
-  assert.match(h, /<span class="chip bg-warn\/15 text-warn" title="a-job, b-job">held: budget<\/span>/);
-  assert.doesNotMatch(daemonBar(d(), ui()), /held: budget/);
-  const e = daemonBar(d({ status: 'idle', running: true, wanted: true, lastError: 'tick failed: x' }), ui());
-  assert.match(e, /class="truncate[^"]*text-muted" title="tick failed: x">tick failed: x</);
-  assert.doesNotMatch(daemonBar(d({ lastError: 'x' }), ui()), /class="truncate/, 'the error pill already says it');
+test('barModel shows the budget hold and the error', () => {
+  assert.equal(barModel(d({ status: 'off', wanted: true, held: { reason: 'budget', jobs: ['a-job', 'b-job'] } }), ui()).held, 'a-job, b-job');
+  assert.equal(barModel(d({ status: 'off', wanted: true, held: { reason: 'budget', jobs: [] } }), ui()).held, '', 'held with no jobs still shows the chip');
+  assert.equal(barModel(d(), ui()).held, null);
+  assert.equal(barModel(d({ status: 'idle', running: true, wanted: true, lastError: 'tick failed: x' }), ui()).error, 'tick failed: x');
+  assert.equal(barModel(d({ lastError: 'x' }), ui()).error, null, 'the error pill already says it');
+  assert.equal(barModel(d(), ui()).error, null);
+});
+
+test('mergeDaemonState keeps enabled from /api/state', () => {
+  assert.deepEqual(mergeDaemonState(d({ enabled: true, status: 'off' }), { enabled: false, status: 'idle', running: true }), { ...d({ enabled: true }), status: 'idle', running: true });
+  assert.equal(mergeDaemonState(d({ enabled: false }), { enabled: true }).enabled, false);
+  assert.equal(mergeDaemonState(null, { enabled: true, status: 'idle' }).enabled, true, 'no prior state: take the frame');
+  assert.deepEqual(mergeDaemonState(d(), 'garbage'), d(), 'non-objects merge as nothing');
+  assert.deepEqual(mergeDaemonState(d(), null), d());
 });
 
 test('lineView summarises stream-json and forge lines', () => {
@@ -134,7 +139,7 @@ test('lineView caps long text', () => {
   assert.equal(lineView(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: long }] } })).text.length, MAX_TEXT + 1);
 });
 
-test('everything rendered is escaped', () => {
+test('lineView leaves escaping to the renderer', () => {
   const lines = [
     JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: XSS }, { type: 'tool_use', name: XSS, input: { subagent_type: XSS } }] } }),
     JSON.stringify({ type: 'forge-stderr', text: XSS }),
@@ -144,19 +149,12 @@ test('everything rendered is escaped', () => {
     XSS,
   ];
   for (const raw of lines) {
-    const h = lineHtml('1"><img src=x>', raw);
-    assert.doesNotMatch(h, /<script|<img/i, raw);
-    assert.match(h, /&lt;/, raw);
+    const v = lineView(raw);
+    // Svelte escapes text interpolation; pre-escaping here would show &lt; to the user.
+    assert.match(`${v.tag} ${v.text}`, /<script|<img/i, raw);
+    assert.doesNotMatch(`${v.tag} ${v.text}`, /&lt;/, raw);
   }
-  const bars = [
-    daemonBar(d({ status: 'idle', running: true, wanted: true, lastError: XSS, sessionId: XSS, held: { jobs: [XSS, XSS] } }), ui({ open: true })),
-    daemonBar(d({ status: XSS, lastError: XSS, sessionId: XSS }), ui()),
-    daemonBar(d({ enabled: false, running: true, status: 'idle', lastError: XSS, held: { jobs: XSS } }), ui()),
-  ];
-  for (const h of bars) {
-    assert.doesNotMatch(h, /<script|<img/i);
-    assert.match(h, /&lt;script&gt;/);
-  }
+  assert.match(lineView(JSON.stringify({ type: XSS })).tag, /<script>/, 'an unknown type becomes the tag verbatim');
 });
 
 test('appendLine caps, dedupes and resets on a server restart', () => {
