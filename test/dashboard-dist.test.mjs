@@ -36,18 +36,19 @@ function listFiles(dir, rel = '') {
 
 test('package.json: exact-pinned devDependencies only, no install hooks', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-  assert.deepEqual(pkg.devDependencies, { '@tailwindcss/vite': '4.1.18', tailwindcss: '4.1.18', typescript: '6.0.3', vite: '7.3.7' });
+  const pinned = { '@sveltejs/vite-plugin-svelte': '6.2.4', '@tailwindcss/vite': '4.1.18', svelte: '5.57.1', 'svelte-check': '4.7.6', tailwindcss: '4.1.18', typescript: '6.0.3', vite: '7.3.7' };
+  assert.deepEqual(pkg.devDependencies, pinned);
   for (const [name, v] of Object.entries(pkg.devDependencies)) assert.match(String(v), /^\d+\.\d+\.\d+$/, `${name} must be exact-pinned`);
   assert.equal(pkg.dependencies, undefined, 'the plugin has zero runtime dependencies');
   for (const hook of ['prepare', 'preinstall', 'install', 'postinstall']) assert.equal(pkg.scripts?.[hook], undefined, `no ${hook} script`);
   assert.equal(typeof pkg.scripts?.['build:dashboard'], 'string');
-  assert.equal(pkg.scripts?.['check:dashboard'], 'tsc -p dashboard/tsconfig.json');
+  assert.equal(pkg.scripts?.['check:dashboard'], 'svelte-check --tsconfig dashboard/tsconfig.json --fail-on-warnings');
   const lock = JSON.parse(fs.readFileSync(path.join(ROOT, 'package-lock.json'), 'utf8'));
   assert.equal(lock.lockfileVersion, 3);
-  assert.equal(lock.packages['node_modules/vite']?.version, '7.3.7');
-  assert.equal(lock.packages['node_modules/tailwindcss']?.version, '4.1.18');
-  assert.equal(lock.packages['node_modules/@tailwindcss/vite']?.version, '4.1.18');
-  assert.equal(lock.packages['node_modules/typescript']?.version, '6.0.3');
+  for (const [name, v] of Object.entries(pinned)) assert.equal(lock.packages[`node_modules/${name}`]?.version, v, `lockfile resolves ${name}`);
+  // esbuild and fsevents predate the Svelte toolchain; anything new that runs code on install fails here.
+  const scripted = Object.entries(lock.packages).filter(([, e]) => e?.hasInstallScript).map(([k]) => k).sort();
+  assert.deepEqual(scripted, ['node_modules/esbuild', 'node_modules/fsevents']);
 });
 
 test('dist holds only the manifest\'s files plus index, manifest and stamp', () => {
@@ -114,6 +115,17 @@ test('build-stamp hashes notice source, lockfile and dist edits', () => {
     assert.notEqual(withTsconfig, edited, 'added tsconfig.json');
     fs.writeFileSync(path.join(dash, 'tsconfig.json'), '{"compilerOptions":{}}\n');
     assert.notEqual(sourceHash(dash, lock), withTsconfig, 'edited tsconfig.json');
+    // Svelte components nest under src/components/, and svelte.config.mjs changes how they compile.
+    fs.mkdirSync(path.join(dash, 'src', 'components'), { recursive: true });
+    fs.writeFileSync(path.join(dash, 'src', 'components', 'X.svelte'), '<p>x</p>\n');
+    const component = sourceHash(dash, lock);
+    assert.notEqual(component, withTsconfig, 'added nested svelte component');
+    fs.appendFileSync(path.join(dash, 'src', 'components', 'X.svelte'), '<!-- edit -->\n');
+    const editedComponent = sourceHash(dash, lock);
+    assert.notEqual(editedComponent, component, 'edited nested svelte component');
+    fs.writeFileSync(path.join(dash, 'svelte.config.mjs'), 'export default {};\n');
+    assert.notEqual(sourceHash(dash, lock), editedComponent, 'added svelte.config.mjs');
+    fs.rmSync(path.join(dash, 'svelte.config.mjs'));
     fs.rmSync(path.join(dash, 'src'), { recursive: true });
     fs.rmSync(path.join(dash, 'tsconfig.json'));
     writeLock('7.3.8');
@@ -146,7 +158,7 @@ test('dist index keeps token meta and theme bootstrap, loads only local hashed a
   assert.ok(theme > 0, 'theme bootstrap is inline and unchanged');
   assert.ok(fs.readFileSync(path.join(DASHBOARD, 'index.html'), 'utf8').includes(THEME_SCRIPT), 'source keeps the same bootstrap');
   assert.ok(html.includes('<link rel="icon" type="image/png" href="/forge.png" />'));
-  assert.ok(html.includes('<img src="/forge.png"'));
+  assert.match(html, /<body class="min-h-screen">\s*<\/body>/, 'the Svelte app mounts into an empty body');
   const modules = [...html.matchAll(/<script type="module"[^>]*\ssrc="\/([^"]+)"/g)].map((m) => m[1]);
   assert.equal(modules.length, 1, 'one module script');
   assert.ok(named.has(modules[0]), `${modules[0]} is a manifest file`);

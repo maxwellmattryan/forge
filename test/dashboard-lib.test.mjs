@@ -32,25 +32,13 @@ test('tsconfig is strict and erasable-only', () => {
   assert.deepEqual(o.lib, ['es2022', 'dom', 'dom.iterable']);
   assert.deepEqual(o.types, []);
   assert.equal(o.skipLibCheck, true);
-  assert.equal(o.allowJs, undefined, 'app.js and daemon.js stay unchecked');
-  assert.deepEqual(tsconfig.include, ['src/**/*.ts']);
+  assert.equal(o.allowJs, undefined, 'no JavaScript sources: the app is .ts and .svelte only');
+  assert.deepEqual(tsconfig.include, ['src/**/*.ts', 'src/**/*.svelte']);
 });
 
-test('app.js and daemon.js consume the TS modules and keep no copies', () => {
-  const app = read('dashboard/app.js');
-  for (const mod of ['util', 'markdown', 'labels', 'budget', 'deps', 'screenshots', 'types'])
-    assert.match(app, new RegExp(`from '\\./src/lib/${mod}\\.ts';`), `app.js imports ./src/lib/${mod}.ts`);
-  assert.doesNotMatch(app, /from '\.\/(util|budget|deps|screenshots)\.js'/);
-  for (const gone of ['function md(', 'function inline(', 'const safeUrl', 'const pct', 'const tokensShort', 'const dur', 'const API_VERSION', 'const STAGES =', 'const STAGE_LABEL', 'const WAIT_LABEL'])
-    assert.ok(!app.includes(gone), `app.js still defines ${gone}`);
-  const daemon = read('dashboard/daemon.js');
-  assert.match(daemon, /from '\.\/src\/lib\/daemon\.ts';/);
-  assert.doesNotMatch(daemon, /from '\.\/util\.js'/);
-  for (const gone of ['export function pillModel', 'export function lineView', 'function daemonBar', 'function lineHtml', 'function appendLine', 'function postDaemon'])
-    assert.ok(!daemon.includes(gone), `daemon.js still defines ${gone}`);
-  assert.match(daemon, /export function mountDaemon\(/);
-  for (const f of ['util', 'budget', 'deps', 'screenshots']) assert.equal(fs.existsSync(path.join(DASHBOARD, `${f}.js`)), false, `dashboard/${f}.js is gone`);
-  for (const f of ['util', 'markdown', 'labels', 'budget', 'deps', 'screenshots', 'daemon', 'types'])
+test('src/lib modules exist and the vanilla copies are gone', () => {
+  for (const f of ['app', 'daemon', 'util', 'budget', 'deps', 'screenshots']) assert.equal(fs.existsSync(path.join(DASHBOARD, `${f}.js`)), false, `dashboard/${f}.js is gone`);
+  for (const f of ['util', 'markdown', 'labels', 'budget', 'deps', 'screenshots', 'daemon', 'types', 'view', 'prefs', 'icons', 'daemon-log'])
     assert.ok(fs.existsSync(path.join(DASHBOARD, 'src', 'lib', `${f}.ts`)), `dashboard/src/lib/${f}.ts exists`);
 });
 

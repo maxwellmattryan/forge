@@ -95,6 +95,7 @@ test('dashboard server serves the page no-store and only manifest-allowlisted di
       '/assets/..%2Fmanifest.json', '/..%2Flib%2Fserver.mjs', '/../lib/server.mjs', '/%2e%2e/lib/server.mjs',
       '/lib.js', '/server.mjs', '/index.js', '/package.json', '/node_modules/vite/package.json',
       '/src/lib/util.ts', '/dashboard/src/lib/util.ts', '/src/lib/types.ts', '/tsconfig.json', '/dashboard/tsconfig.json',
+      '/src/main.ts', '/src/App.svelte', '/dashboard/src/App.svelte', '/src/lib/view.ts', '/svelte.config.mjs', '/dashboard/svelte.config.mjs',
     ];
     for (const p of notFound) assert.equal((await get(port, p)).status, 404, p);
     assert.equal((await get(port, '/' + real, `evil.example:${port}`)).status, 421);
@@ -517,7 +518,14 @@ test('AC17: /api/state v4 exposes daemon state and boots an enabled daemon', asy
     await srv.close();
     repo.cleanup();
   }
-  const app = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'app.js'), 'utf8');
+  const src = path.resolve(import.meta.dirname, '..', 'dashboard', 'src');
+  const app = fs
+    .readdirSync(src, { recursive: true })
+    .map(String)
+    .filter((f) => /\.(ts|svelte)$/.test(f))
+    .map((f) => fs.readFileSync(path.join(src, f), 'utf8'))
+    .join('\n');
+  assert.ok(app.includes('/api/requests'), 'read the dashboard sources');
   assert.equal(DASH_API_VERSION, 4, 'the dashboard reads API_VERSION from src/lib/types.ts');
   assert.doesNotMatch(app, /launcher|launched/);
 });

@@ -1,0 +1,21 @@
+<!-- The drawer's Dependencies card: "Depends on" and "Blocks" rows, each only when non-empty. -->
+<script lang="ts">
+  import Chip from './Chip.svelte';
+  import { blockLinks, depHint, depLinks, type DepLink } from '../lib/deps.ts';
+  import { S, openDrawer } from '../lib/app.svelte.ts';
+  import type { Job } from '../lib/types.ts';
+
+  let { job }: { job: Partial<Job> } = $props();
+  const deps = $derived(depLinks(job, S.data?.jobs ?? []));
+  const blocks = $derived(blockLinks(job, S.data?.jobs ?? []));
+</script>
+
+{#snippet row(label: string, links: DepLink[])}
+  {#if links.length}
+    <div class="flex items-start gap-2"><div class="text-[11px] text-muted w-20 shrink-0 pt-2">{label}</div><div class="flex flex-wrap gap-2 min-w-0">{#each links as l, i (i)}<button title={depHint(l)} class="btn font-mono text-xs" onclick={() => openDrawer(l.id)}>{l.id} <Chip tone={l.tone} text={l.state} /></button>{/each}</div></div>
+  {/if}
+{/snippet}
+
+{#if deps.length || blocks.length}
+  <div class="card p-4 flex flex-col gap-2"><h3 class="text-sm font-semibold">Dependencies</h3>{@render row('Depends on', deps)}{@render row('Blocks', blocks)}</div>
+{/if}

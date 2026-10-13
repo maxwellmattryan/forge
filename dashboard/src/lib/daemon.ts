@@ -1,11 +1,11 @@
-// The daemon bar's pure, DOM-free half: pill model, bar and log-line HTML, the client log buffer and POST /api/daemon.
-// Log lines are session output, i.e. untrusted text, so every value is escaped before it reaches the DOM.
-import { esc, ago, TONE_CLASS, toneChip } from './util.ts';
+// The daemon bar's pure, DOM-free half: pill and bar models, log-line summaries, the client log buffer and POST /api/daemon.
+// Log lines are session output, i.e. untrusted text: these return plain strings and DaemonBar.svelte renders them as text.
+import { ago } from './util.ts';
 import type { DaemonState } from './types.ts';
 
 export const MAX_LINES = 500;
 export const MAX_TEXT = 400;
-const START_HINT = 'Set daemon.enabled: true in .forge/config.yml';
+export const START_HINT = 'Set daemon.enabled: true in .forge/config.yml';
 export const EMPTY_NOTE = 'No daemon output yet.';
 export const CLOSED_NOTE = 'Log stream closed. Reopen the log to retry.';
 const DAEMON_KEYS = ['message', 'pid', 'sessionId', 'requests', 'jobs', 'code', 'signal', 'reason', 'bytes'];
@@ -23,10 +23,16 @@ export interface Pill {
   title: string;
 }
 
-export interface BarUi {
-  open: boolean;
-  pending: boolean;
-  closed?: boolean;
+export interface BarModel {
+  pill: Pill;
+  /** The held jobs, for the "held: budget" chip's title; null when nothing is held. */
+  held: string | null;
+  /** lastError, unless the pill already says error. */
+  error: string | null;
+  canStart: boolean;
+  canStop: boolean;
+  /** Why Start is disabled when the config, not a pending request, is the reason. */
+  startHint: string | null;
 }
 
 export interface LineView {
@@ -60,38 +66,26 @@ export function pillModel(daemon: DaemonInput): Pill | null {
   return { label, tone, title };
 }
 
-/**
- * The whole bar's HTML, or '' exactly (so `#daemon:empty` hides it) when the daemon is unused.
- * The header and the log pane are separate nodes so the mount can refresh one without the other.
- */
-export function daemonBar(daemon: DaemonInput, ui: BarUi): string {
+/** Everything the bar header shows, or null exactly when the bar is hidden. */
+export function barModel(daemon: DaemonInput, { pending }: { pending: boolean }): BarModel | null {
   const pill = pillModel(daemon);
-  if (!pill) return '';
+  if (!pill) return null;
   const d = obj(daemon);
-  const canStart = d.enabled === true && !d.wanted && !d.running;
-  const canStop = Boolean(d.wanted || d.running);
-  const held = d.held
-    ? `<span class="chip ${TONE_CLASS.warn}" title="${esc(str(obj(d.held).jobs ?? []))}">held: budget</span>`
-    : '';
-  const err = d.lastError && pill.label !== 'error'
-    ? `<span class="truncate min-w-0 flex-1 text-xs text-muted" title="${esc(d.lastError)}">${esc(d.lastError)}</span>`
-    : '<span class="flex-1"></span>';
-  const startAttrs = canStart && !ui.pending ? '' : ` disabled${d.enabled === true ? '' : ` title="${esc(START_HINT)}"`}`;
-  const head =
-    `<div data-daemon-head class="flex flex-wrap items-center gap-2">` +
-    `<span class="chip ${TONE_CLASS[pill.tone]}" title="${esc(pill.title)}">Daemon ${esc(pill.label)}</span>${held}${err}` +
-    `<span class="flex items-center gap-2">` +
-    `<button class="btn text-xs" data-daemon="start"${startAttrs}>Start</button>` +
-    `<button class="btn text-xs" data-daemon="stop"${canStop && !ui.pending ? '' : ' disabled'}>Stop</button>` +
-    `<button class="btn text-xs" data-daemon="log" aria-expanded="${ui.open ? 'true' : 'false'}">Log</button>` +
-    `</span></div>`;
-  const pane = ui.open
-    ? `<div data-daemon-log class="mt-2 max-h-72 overflow-y-auto rounded-lg bg-raised p-2 font-mono text-[11px] leading-5 whitespace-pre-wrap break-words">${noteHtml(ui.closed ? CLOSED_NOTE : EMPTY_NOTE)}</div>`
-    : '';
-  return `<div class="card px-4 py-2.5">${head}${pane}</div>`;
+  const canStart = d.enabled === true && !d.wanted && !d.running && !pending;
+  return {
+    pill,
+    held: d.held ? str(obj(d.held).jobs ?? []) : null,
+    error: d.lastError && pill.label !== 'error' ? str(d.lastError) : null,
+    canStart,
+    canStop: Boolean(d.wanted || d.running) && !pending,
+    startHint: !canStart && d.enabled !== true ? START_HINT : null,
+  };
 }
 
-export const noteHtml = (text: string): string => `<div data-daemon-note class="text-muted">${esc(text)}</div>`;
+/** SSE and POST states carry no config read, so `enabled` stays whatever the last /api/state said. */
+export function mergeDaemonState(prev: DaemonInput, st: unknown): Partial<DaemonState> {
+  return { ...obj(prev), ...obj(st), enabled: prev ? obj(prev).enabled : obj(st).enabled };
+}
 
 function daemonText(ev: Record<string, any>): string {
   const parts = [str(ev.event)];
@@ -116,7 +110,7 @@ function toolText(ev: Record<string, any>): string {
   return parts.length ? parts.join(' · ') : '(empty)';
 }
 
-/** One raw daemon.log line summarised for display. Text is capped; escaping happens in lineHtml. */
+/** One raw daemon.log line summarised for display. Text is capped and unescaped: the renderer escapes it. */
 export function lineView(raw: string): LineView {
   const line = String(raw ?? '');
   let parsed;
@@ -162,14 +156,6 @@ export function lineView(raw: string): LineView {
       v = ['muted', str(ev.type ?? ev.event ?? 'json'), JSON.stringify(ev)];
   }
   return { tone: v[0], tag: v[1], text: cap(v[2]) };
-}
-
-export function lineHtml(seq: number | string, raw: string): string {
-  const v = lineView(raw);
-  const tag = v.tone && TONE_CLASS[v.tone]
-    ? toneChip(v.tone, v.tag).replace('class="chip ', 'class="chip shrink-0 ')
-    : `<span class="chip shrink-0 text-muted">${esc(v.tag)}</span>`;
-  return `<div data-seq="${esc(seq)}" class="flex items-start gap-2">${tag}<span class="min-w-0">${esc(v.text)}</span></div>`;
 }
 
 /**

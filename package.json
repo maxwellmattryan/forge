@@ -25,7 +25,7 @@
   "scripts": {
     "test": "node --test \"test/*.test.mjs\"",
     "build:dashboard": "vite build --config dashboard/vite.config.mjs && node dashboard/build-stamp.mjs",
-    "check:dashboard": "tsc -p dashboard/tsconfig.json"
+    "check:dashboard": "svelte-check --tsconfig dashboard/tsconfig.json --fail-on-warnings"
   },
   "repository": {
     "type": "git",
@@ -41,7 +41,10 @@
     "worktrees"
   ],
   "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "6.2.4",
     "@tailwindcss/vite": "4.1.18",
+    "svelte": "5.57.1",
+    "svelte-check": "4.7.6",
     "tailwindcss": "4.1.18",
     "typescript": "6.0.3",
     "vite": "7.3.7"
