@@ -598,3 +598,84 @@ test('parseDiffLines: follows hunk counts through context lines, blank context a
   assert.deepEqual(a.removed, ["test('t1', () => {});", "test('t5', () => {});", '++ b/x']);
   assert.equal(files.size, 1, 'an added line reading "++ b/…" is not a file header');
 });
+
+test('hiddenChanges: sparse checkout is not a hidden change; a skip-worktree file on disk is', () => {
+  const { repo } = jobRepo({ 'a/x.txt': 'x\n', 'b/test/y.test.mjs': "test('y', () => {});\n", 'b/z.txt': 'z\n' });
+  const wt = `${repo.dir}-sparse`;
+  const config = defaults();
+  try {
+    repo.git('worktree', 'add', '-q', wt, '-b', 'sparse-job');
+    execFileSync('git', ['sparse-checkout', 'set', 'a'], { cwd: wt, stdio: 'pipe' });
+    assert.match(execFileSync('git', ['ls-files', '-v'], { cwd: wt, encoding: 'utf8' }), /^S b\/test\/y\.test\.mjs$/m, 'sparse checkout sets skip-worktree');
+    assert.equal(fs.existsSync(path.join(wt, 'b')), false);
+    assert.deepEqual(hiddenChanges(wt, config), [], 'paths outside the sparse set are not hidden changes');
+
+    // Outside a sparse checkout: a skip-worktree file still on disk can hide edits.
+    repo.git('update-index', '--skip-worktree', 'a/x.txt');
+    fs.writeFileSync(path.join(repo.dir, 'a/x.txt'), 'edited\n');
+    assert.deepEqual(hiddenChanges(repo.dir, config), ['skip-worktree: a/x.txt']);
+  } finally {
+    fs.rmSync(wt, { recursive: true, force: true });
+    repo.cleanup();
+  }
+});
+
+test('deletionSanctions: the path must end the clause', () => {
+  const sanctions = (line) => deletionSanctions(`## Approach\n${line}\n`);
+  for (const line of [
+    'Remove the `test/a.test.mjs` case for the old flag.',
+    "Remove `test/a.test.mjs`'s duplicate assertion.",
+    'Remove `test/a.test.mjs` assertions that cover the removed --legacy flag.',
+    'Drop `test/a.test.mjs` coverage of the deprecated path',
+    'Remove `test/a.test.mjs` from the lint glob.',
+    'Drop `test/a.test.mjs` from `package.json` scripts.test so it stops running.',
+    'Remove `test/a.test.mjs` and `test/b.test.mjs` from the glob.',
+  ]) {
+    assert.deepEqual(sanctions(line), [], line);
+  }
+  assert.deepEqual(sanctions('Delete `test/a.test.mjs`, then update the README.'), ['test/a.test.mjs']);
+  assert.deepEqual(sanctions('Delete `test/a.test.mjs` entirely'), ['test/a.test.mjs']);
+  assert.deepEqual(sanctions('Delete `test/a.test.mjs` and update the docs'), ['test/a.test.mjs']);
+  assert.deepEqual(sanctions('Delete test/a.test.mjs.'), ['test/a.test.mjs']);
+  assert.deepEqual(sanctions('Delete test/a.test.mjs.bak'), ['test/a.test.mjs.bak'], 'a bare word is taken whole, never a prefix of it');
+  assert.deepEqual(sanctions('Remove `test/a.test.mjs` — superseded'), ['test/a.test.mjs']);
+  assert.deepEqual(renameSanctions('## Approach\nMove `test/a.test.mjs` to `test/old/` with its fixtures removed.\n'), [], 'a move target must end the clause too');
+});
+
+test('markers: common skip idioms, and the { skip } shorthand only as test options', () => {
+  const hits = [
+    ['tests/test_a.py', 'pytestmark = pytest.mark.skip(reason="later")', true],
+    ['app/conftest_helpers.py', 'pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="x")', false],
+    ['tests/test_a.py', '        self.skipTest("flaky")', true],
+    ['lib/helpers.py', '    raise unittest.SkipTest("no db")', false],
+    ['test/a.test.mjs', '    this.skip();', true],
+    ['test/a.test.ts', "test.skipIf(process.env.CI)('slow', () => {", true],
+    ['test/a.test.ts', "describe.runIf(false)('never', () => {", true],
+    ['pkg/a_test.go', '//go:build ignore', true],
+    ['pkg/a_test.go', '// +build linux,ignore', true],
+    ['test/a.test.mjs', "test('x', { skip }, () => {", true],
+    ['test/a.test.mjs', "it('x', { timeout: 5, only }, () => {", true],
+  ];
+  for (const [file, line, isTest] of hits) assert.equal(markerHits(file, line, isTest), true, `${file}: ${line}`);
+  const misses = [
+    ['test/todo.test.mjs', 'const { todo } = res.body;'],
+    ['test/a.test.mjs', "import { test, skip } from 'node:test';"],
+    ['test/todo.test.mjs', 'expect(r).toEqual({ todo });'],
+    ['test/a.test.mjs', 'const { only } = opts;'],
+    ['test/a.test.mjs', 'list.skipWhile(x)'],
+    ['pkg/a.go', '//go:build ignore'],
+    ['pkg/a_test.go', '//go:build linux'],
+  ];
+  for (const [file, line] of misses) assert.equal(markerHits(file, line, file !== 'pkg/a.go'), false, `${file}: ${line}`);
+
+  const { repo, check } = jobRepo({ 'tests/test_a.py': 'def test_one():\n    pass\n' });
+  try {
+    write(repo.dir, 'tests/test_a.py', 'import pytest\npytestmark = pytest.mark.skip(reason="later")\n\ndef test_one():\n    pass\n');
+    commitAll(repo.dir, 'skip module');
+    const r = check();
+    assert.deepEqual(r.markers.map((m) => `${m.path}:${m.line}`), ['tests/test_a.py:2']);
+    assert.equal(r.ok, false);
+  } finally {
+    repo.cleanup();
+  }
+});
