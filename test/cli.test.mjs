@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { scratchGitConfig, tempRepo } from './helpers.mjs';
 import { createWorktree, removeWorktree, verifiedHead } from '../lib/worktree.mjs';
 import { loadConfig } from '../lib/config.mjs';
@@ -343,14 +343,76 @@ test('integrate --keep-conflicts leaves the merge or rebase for the integrator t
     r = f('integrate', id, '--strategy', 'rebase', '--keep-conflicts');
     assert.equal(r.out.inProgress, true);
     assert.equal(inProgress('rebase-merge'), true, 'the integrator never has to start `git rebase` itself');
+    assert.equal(f('integrate', id, '--continue').out.conflicts[0], 'README.md', '--continue reports unstaged conflicts');
     fs.writeFileSync(path.join(wt, 'README.md'), '# both\n');
     git('add', 'README.md');
-    git('rebase', '--continue');
+    // A todo line integrate never writes (an exec would run shell) stops --continue.
+    const todo = path.resolve(wt, git('rev-parse', '--git-path', 'rebase-merge/git-rebase-todo'));
+    const original = fs.readFileSync(todo, 'utf8');
+    fs.writeFileSync(todo, original + 'exec touch pwned\n');
+    r = f('integrate', id, '--continue');
+    assert.notEqual(r.status, 0);
+    assert.equal(inProgress('rebase-merge'), true);
+    fs.writeFileSync(todo, original);
+    r = f('integrate', id, '--continue');
+    assert.equal(r.status, 0);
+    assert.deepEqual(r.out, { ok: true, strategy: 'rebase', rewritten: true });
     assert.equal(inProgress('rebase-merge'), false);
+    assert.equal(fs.existsSync(path.join(wt, 'pwned')), false);
     assert.equal(f('integrate', id).out.behind, 0);
+
+    // Merge: --continue commits the staged resolution.
+    fs.writeFileSync(path.join(repo.dir, 'README.md'), '# theirs again\n');
+    commitAll(repo.dir, 'theirs 2');
+    assert.equal(f('integrate', id, '--strategy', 'merge', '--keep-conflicts').out.inProgress, true);
+    fs.writeFileSync(path.join(wt, 'README.md'), '# both again\n');
+    git('add', 'README.md');
+    r = f('integrate', id, '--continue');
+    assert.deepEqual(r.out, { ok: true, strategy: 'merge', rewritten: false });
+    assert.equal(inProgress('MERGE_HEAD'), false);
+    assert.equal(git('rev-list', '--parents', '-n', '1', 'HEAD').split(' ').length, 3, 'a merge commit');
+    assert.equal(f('integrate', id, '--continue').status, 1, 'nothing in progress');
   } finally {
     fs.rmSync(answers, { force: true });
     fs.rmSync(wtRoot, { recursive: true, force: true });
+    repo.cleanup();
+  }
+});
+
+test('forge git: read-only history without --output or configured programs', () => {
+  const repo = tempRepo();
+  const env = { ...process.env, FORGE_ROOT: repo.dir };
+  const f = (...args) => spawnSync(process.execPath, [BIN, 'git', ...args], { cwd: repo.dir, encoding: 'utf8', env });
+  try {
+    fs.writeFileSync(path.join(repo.dir, 'README.md'), '# changed\n');
+    commitAll(repo.dir, 'second');
+    let r = f('log', '--oneline', '-n', '1');
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /second/);
+    r = f('diff', '--stat', 'HEAD~1...HEAD', '--', 'README.md');
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /README\.md/);
+    assert.equal(f('show', '--stat', 'HEAD').status, 0);
+    assert.equal(f('range-diff', 'HEAD~1', 'HEAD~1', 'HEAD').status, 0);
+    for (const bad of [['log', '--format=format:x', '--output=.git/config'], ['diff', '--output', 'x'], ['show', '--ext-diff'], ['log', '-p', '--textconv'], ['diff', '--open-files-in-pager=sh']]) {
+      r = f(...bad);
+      assert.notEqual(r.status, 0, bad.join(' '));
+      assert.match(r.stderr, /refuses/, bad.join(' '));
+    }
+    assert.doesNotMatch(fs.readFileSync(path.join(repo.dir, '.git', 'config'), 'utf8'), /^x$/m, '.git/config is untouched');
+    assert.match(f('status').stderr, /runs only diff, log, show, range-diff/);
+    // A textconv driver planted in config never runs through the wrapper.
+    repo.git('config', 'diff.evil.textconv', `sh -c 'touch ${path.join(repo.dir, 'pwned')}; cat'`);
+    fs.writeFileSync(path.join(repo.dir, '.gitattributes'), '*.md diff=evil\n');
+    fs.writeFileSync(path.join(repo.dir, 'README.md'), '# third\n');
+    assert.equal(f('diff').status, 0);
+    assert.equal(f('log', '-p', '-n', '1').status, 0);
+    assert.equal(fs.existsSync(path.join(repo.dir, 'pwned')), false);
+    execFileSync('git', ['--no-pager', 'diff'], { cwd: repo.dir, stdio: 'pipe' });
+    assert.equal(fs.existsSync(path.join(repo.dir, 'pwned')), true, 'control: plain git diff runs the driver');
+    // Paths after -- stay paths, even when they look like refused options.
+    assert.equal(f('log', '--oneline', '--', '--output=x').status, 0);
+  } finally {
     repo.cleanup();
   }
 });
