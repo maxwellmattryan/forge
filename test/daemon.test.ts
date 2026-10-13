@@ -1270,6 +1270,61 @@ test('budget hold is per job session', async () => {
     const held = eventsIn(logOf(root, a), 'held');
     assert.deepEqual(held.map((e) => e.held), ['budget', null], 'held is logged only when it changes');
     assert.equal(eventsIn(logOf(root, b), 'held').length, 0);
+    // At turn level: approving a parked job is the acknowledgement, so it is never held.
+    const p2 = parked('Parked approve');
+    enqueue(root, null, { type: 'approve', job: p2, from: 'dashboard' });
+    d.poke();
+    await waitFor(() => kit.last(p2) && turnsIn(kit.last(p2)) === 1, 2000, 'the approve turn');
+    assert.equal(d.sessionState(p2).held, null);
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('a symlink planted as a session log or record is never followed', { skip: process.platform === 'win32' && 'POSIX-only' }, async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const target = path.join(repo.dir, 'victim.txt');
+  fs.writeFileSync(target, 'untouched\n');
+  fs.mkdirSync(daemonsDir(repo.dir), { recursive: true });
+  fs.symlinkSync(target, path.join(daemonsDir(repo.dir), `${INBOX}.log`));
+  fs.writeFileSync(path.join(repo.dir, 'rec.json'), JSON.stringify({ sessionId: crypto.randomUUID(), resumable: true }));
+  fs.symlinkSync(path.join(repo.dir, 'rec.json'), path.join(daemonsDir(repo.dir), 'job-x.json'));
+  const d = kitPool(repo.dir, kit);
+  try {
+    d.start();
+    kit.children[0].line({ type: 'assistant', x: 1 });
+    await sleep(50);
+    assert.equal(fs.readFileSync(target, 'utf8'), 'untouched\n', 'the log symlink target is never written');
+    assert.equal(d.state().inbox.running, true, 'the session keeps running without its log file');
+    assert.equal(d.sessionState('job-x').sessionId, null, 'a symlinked record reads as no record');
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('a failed turn marks its session failing until a turn works', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit);
+  try {
+    const a = createJob(repo.dir, defaults(), { title: 'Job A' }).id;
+    enqueue(repo.dir, null, { type: 'resume', job: a, from: 'dashboard' });
+    d.start();
+    await settle();
+    // What claude 2.1.296 printed with an expired login.
+    kit.last(a).line({ type: 'result', subtype: 'success', is_error: true, result: 'Failed to authenticate: OAuth session expired and could not be refreshed' });
+    await waitFor(() => d.sessionState(a).status === 'idle', 2000, 'idle');
+    assert.equal(d.sessionState(a).lastError, 'last turn failed: Failed to authenticate: OAuth session expired and could not be refreshed');
+    assert.equal(d.state().jobs[a].lastError?.startsWith('last turn failed'), true, 'a failing session stays listed');
+    assert.equal(d.sessionState(a).wanted, true, 'still wanted: the next request gets a turn');
+    enqueue(repo.dir, null, { type: 'answer', job: a, text: 'retry', from: 'dashboard' });
+    d.poke();
+    await waitFor(() => turnsIn(kit.last(a)) === 2, 2000, 'the next turn');
+    kit.last(a).line({ type: 'result', subtype: 'success', is_error: false });
+    await waitFor(() => d.sessionState(a).lastError === null, 2000, 'a working turn clears it');
   } finally {
     await d.close();
     repo.cleanup();

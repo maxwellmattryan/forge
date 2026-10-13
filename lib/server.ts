@@ -270,7 +270,10 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       if ((e as NodeJS.ErrnoException).code === 'ENOENT') return json(res, empty);
       return jsonStatus(res, 404, { error: 'no session log' });
     }
-    if (!real.startsWith(dir + path.sep)) return jsonStatus(res, 404, { error: 'no session log' });
+    // The daemons dir itself must be where it should be: a symlinked .forge/runtime or daemons
+    // dir would otherwise move the confinement root somewhere else.
+    const expected = path.join(fs.realpathSync(root), path.relative(root, f.dir));
+    if (dir !== expected || !real.startsWith(dir + path.sep)) return jsonStatus(res, 404, { error: 'no session log' });
     let fd: number | undefined;
     try {
       // O_NONBLOCK: a FIFO planted as the log must not hang the server; fstat rejects it.
@@ -454,12 +457,16 @@ function state(root: string, daemons: DaemonPoolState): ApiState {
       models: config.runtime.models,
       daemon: { enabled: config.daemon?.enabled === true },
     },
-    // `enabled` from this read of config.yml, so it is current even while the pool is stopped.
-    daemons: { ...daemons, enabled: config.daemon?.enabled === true },
+    // `enabled` and the cap from this read of config.yml, so they are current even while the pool is stopped.
+    daemons: { ...daemons, enabled: config.daemon?.enabled === true, maxConcurrent: validCap(config.daemon?.maxConcurrent) ?? daemons.maxConcurrent },
     jobs,
     requests: listRequests(root).filter((r) => r.status === 'pending' || r.status === 'in-progress'),
     now: new Date().toISOString(),
   };
+}
+
+function validCap(n: unknown): number | null {
+  return typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 16 ? n : null;
 }
 
 function jobDetail(root: string, id: string): JobDetail {

@@ -536,10 +536,64 @@ test('session log history is paged and confined', async () => {
     assert.ok(!escaped.text.includes('hunter2'));
     fs.mkdirSync(path.join(dir, 'job-c.log'));
     assert.equal((await page('session=job-c')).status, 404, 'a non-file is refused');
+    // A symlinked daemons dir moves nothing: the confinement root is the real .forge/runtime/daemons.
+    const moved = path.join(outside, 'daemons');
+    fs.mkdirSync(moved);
+    fs.writeFileSync(path.join(moved, 'job-d.log'), '{"type":"moved","token":"hunter3"}\n');
+    const other = tempRepo();
+    try {
+      fs.mkdirSync(path.join(other.dir, '.forge', 'runtime'), { recursive: true });
+      fs.symlinkSync(moved, path.join(other.dir, '.forge', 'runtime', 'daemons'));
+      const srv2 = await startServer(other.dir, { port: 0, daemon: fakeChildren().opts });
+      try {
+        const r = await hit(Number(new URL(srv2.url).port), { path: '/api/daemons/log?session=job-d' });
+        assert.equal(r.status, 404);
+        assert.ok(!r.text.includes('hunter3'));
+      } finally {
+        await srv2.close();
+      }
+    } finally {
+      other.cleanup();
+    }
   } finally {
     await close();
     repo.cleanup();
     fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test('a FIFO planted as a session record never hangs the server', { skip: process.platform === 'win32' && 'POSIX-only' }, async () => {
+  const repo = tempRepo();
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const port = Number(new URL(url).port);
+  const dir = path.join(repo.dir, '.forge', 'runtime', 'daemons');
+  const open = [];
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    for (const name of ['fifo-a.json', 'fifo-b.json', 'fifo-b.log']) assert.equal(spawnSync('mkfifo', [path.join(dir, name)]).status, 0, name);
+    fs.unlinkSync(path.join(dir, 'fifo-b.log'));
+    fs.writeFileSync(path.join(dir, 'fifo-b.log'), '{"type":"ok"}\n');
+    // A record that is a symlink to a real file is not followed either.
+    fs.writeFileSync(path.join(repo.dir, 'elsewhere.json'), JSON.stringify({ logBase: 999, sessionId: '11111111-2222-3333-4444-555555555555' }));
+    fs.symlinkSync(path.join(repo.dir, 'elsewhere.json'), path.join(dir, 'link-c.json'));
+    fs.writeFileSync(path.join(dir, 'link-c.log'), '{"type":"ok"}\n');
+    const t0 = Date.now();
+    const s = await sse(port, {}, 'fifo-a');
+    open.push(s);
+    assert.equal(s.status, 200);
+    await until(() => s.frames.some((f) => f.event === 'state'), 2000);
+    assert.equal(JSON.parse(s.frames.find((f) => f.event === 'state').data).sessionId, null);
+    const page = await hit(port, { path: '/api/daemons/log?session=fifo-b' });
+    assert.equal(page.status, 200);
+    assert.deepEqual(JSON.parse(page.text).lines.map((l) => l.offset), [0], 'a FIFO record counts as no record (logBase 0)');
+    const linked = JSON.parse((await hit(port, { path: '/api/daemons/log?session=link-c' })).text);
+    assert.equal(linked.lines[0].offset, 0, 'a symlinked record is not followed');
+    assert.equal((await hit(port, { path: '/api/state' })).status, 200, 'the server still answers');
+    assert.ok(Date.now() - t0 < 3000);
+  } finally {
+    for (const o of open) o.close();
+    await close();
+    repo.cleanup();
   }
 });
 

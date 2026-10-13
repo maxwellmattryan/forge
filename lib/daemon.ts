@@ -62,7 +62,8 @@ export function sessionOptions(opts: DaemonOptions = {}): SessionOptions {
     maxLineBytes: opts.maxLineBytes ?? 8 * 1024 * 1024,
     rotateBytes: opts.rotateBytes ?? 20 * 1024 * 1024,
     env: opts.env ?? process.env,
-    openLog: opts.openLog ?? ((file: string) => fs.createWriteStream(file, { flags: 'a' })),
+    // fd-based, so a symlink planted as <scope>.log is refused rather than followed.
+    openLog: opts.openLog ?? ((file: string) => fs.createWriteStream(file, { fd: openAppend(file) })),
     readConfig: opts.loadConfig ?? defaultLoadConfig,
   };
 }
@@ -244,10 +245,15 @@ function signalGroup(pid: number, signal: NodeJS.Signals): void {
 }
 
 function appendLine(file: string, line: unknown): void {
+  let fd: number | undefined;
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.appendFileSync(file, JSON.stringify(line) + '\n');
-  } catch {}
+    fd = openAppend(file);
+    fs.writeSync(fd, JSON.stringify(line) + '\n');
+  } catch {
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
 }
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -279,12 +285,6 @@ export function isOurChild(info: any, pid: number): boolean {
 }
 
 /**
- * A child left behind by a `forge dash` that died without stopping it. Only acts when the
- * recorded server is gone, the child is alive, and isOurChild proves it is the claude process
- * the record describes, so a reused or planted pid is never signalled.
- */
-
-/**
  * A scope's runtime files. The scope is checked first, so no path is ever built from an
  * unvalidated one.
  */
@@ -304,14 +304,34 @@ function legacyFiles(root: string): { info: string; log: string } {
   return { info: path.join(dir, 'daemon.json'), log: path.join(dir, 'daemon.log') };
 }
 
-/** A corrupt record is treated as absent rather than wedging the dashboard. */
+const MAX_RECORD = 64 * 1024;
+/** Open flags for runtime files something else may have planted: never follow a link, never block on a FIFO. */
+const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0;
+const NONBLOCK = fs.constants.O_NONBLOCK ?? 0;
+
+/**
+ * A session record, or {} for anything else: a missing, corrupt, oversized or non-regular file
+ * (a FIFO or symlink planted in the runtime dir must not hang or redirect the server). Read
+ * through one descriptor opened without following links or blocking.
+ */
 export function readInfo(file: string): any {
+  let fd: number | undefined;
   try {
-    const v = JSON.parse(fs.readFileSync(file, 'utf8'));
+    fd = fs.openSync(file, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK);
+    const st = fs.fstatSync(fd);
+    if (!st.isFile() || st.size > MAX_RECORD) return {};
+    const v = JSON.parse(fs.readFileSync(fd, 'utf8'));
     return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
   } catch {
     return {};
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
   }
+}
+
+/** Opens a log for appending without following a planted symlink. */
+export function openAppend(file: string): number {
+  return fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT | NOFOLLOW, 0o644);
 }
 
 /** The record is a local file anyone with repo access can edit: logBase must be a sane byte count. */
@@ -429,7 +449,12 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
         size = fs.statSync(f.log).size;
       } catch {}
       pos = info.logBase + size;
-      sink = o.openLog(f.log);
+      try {
+        sink = o.openLog(f.log);
+      } catch {
+        // A symlink or non-file planted as the log: keep supervising, just without the file.
+        sink = { write: () => true };
+      }
       sink.on?.('error', () => {});
     }
     return sink;
@@ -648,15 +673,21 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       logEvent('session-changed', { from, to: ev.session_id });
       changed();
     }
-    if (ev.type === 'result') onResult(proc);
+    if (ev.type === 'result') onResult(proc, ev);
   }
 
-  function onResult(proc: DaemonChild): void {
+  function onResult(proc: DaemonChild, ev: Record<string, any>): void {
     proc._forge.result = true;
     proc._forge.committed.push(...inFlight);
     failures = 0;
-    // A working turn clears errors from earlier exits; a refusal or fatal error stays.
-    if (lastError && /^daemon exited/.test(lastError)) lastError = null;
+    // A working turn clears errors from earlier exits and failed turns; a refusal or fatal error stays.
+    if (lastError && /^(daemon exited|last turn failed)/.test(lastError)) lastError = null;
+    // claude reports an API failure (an expired login, say) as a result with is_error, often
+    // with subtype "success": the session is alive but no request is making progress.
+    if (ev.is_error === true) {
+      const why = typeof ev.result === 'string' && ev.result.trim() ? ev.result.trim() : String(ev.subtype ?? 'error');
+      lastError = `last turn failed: ${why.slice(0, 300)}`;
+    }
     for (const id of inFlight) committed.add(id);
     inFlight = [];
     lastResultAt = now();
@@ -688,6 +719,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       // exiting 1, so the test is "no system/init", and whatever that result committed is undone:
       // no turn actually ran.
       for (const id of meta.committed) committed.delete(id);
+      if (lastError?.startsWith('last turn failed')) lastError = null;
       logEvent('resume-failed', { sessionId: info.sessionId, code });
       info = { ...info, sessionId: crypto.randomUUID(), resumable: false };
       persist();
