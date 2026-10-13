@@ -168,7 +168,8 @@
   {:else if loading && !entries.length}
     <div class="text-sm text-muted">{$t('session.loading')}</div>
   {:else if !entries.length}
-    <Empty>{scope === INBOX_SCOPE ? $t('session.emptyInbox') : $t('session.empty')}</Empty>
+    {@const enabled = S.data?.daemons?.enabled === true}
+    <Empty>{#if scope === INBOX_SCOPE}{enabled ? $t('session.emptyInboxEnabled') : $t('session.emptyInbox')}{:else}{enabled ? $t('session.emptyEnabled') : $t('session.empty')}{/if}</Empty>
   {/if}
   {#if entries.length}
     <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrollable region must be reachable from the keyboard) -->

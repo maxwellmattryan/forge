@@ -385,6 +385,8 @@
     "stopInbox": "Stop inbox",
     "startJob": "Start this job's session",
     "stopJob": "Stop this job's session",
-    "startHint": "Re-enables this session; it starts on its next request"
+    "startHint": "Re-enables this session; it starts on its next request",
+    "emptyEnabled": "No session log for this job yet. Its session starts with the job's next request.",
+    "emptyInboxEnabled": "No inbox session log yet. It starts with the next request that has no job."
   }
 }
