@@ -3,20 +3,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { listJobs, readEvents, jobDir } from './jobs.ts';
-import { listRuns } from './evals.mjs';
+import { listRuns } from './evals.ts';
 import { paths, exists } from './paths.ts';
-import { computeStats } from './stats.mjs';
+import { computeStats } from './stats.ts';
+import type { Config, HumanDelta, LoadedJob } from './types.ts';
 import { readText, writeJsonAtomic } from './util.ts';
 
-/** @param {string} root */
-export function lastRetro(root) {
+export function lastRetro(root: string): LoadedJob | null {
   return listJobs(root)
     .filter((j) => j.kind === 'retro')
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0] ?? null;
 }
 
-/** @param {string} root @param {any} config */
-export function retroDue(root, config) {
+export function retroDue(root: string, config: Config): { due: boolean; finishedSinceLast: number; every: number; lastRetro: string | null } {
   const last = lastRetro(root);
   const since = last?.createdAt ?? null;
   const finished = listJobs(root).filter(
@@ -28,24 +27,24 @@ export function retroDue(root, config) {
 /**
  * File paths come from commits by GitHub users, so they are data: control characters and Unicode
  * line separators go too, so no path can break out of its line or its code span.
- * @param {string} p
  */
-const safePath = (p) => String(p).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029`]/g, '').slice(0, 200);
+const safePath = (p: string): string => String(p).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029`]/g, '').slice(0, 200);
 
-/** @param {any} d */
-function deltaLine(d) {
-  const files = (d.files ?? []).slice(0, 20).map((/** @type {string} */ f) => `\`${safePath(f)}\``).join(', ');
-  const more = d.fileCount > 20 ? ` (+${d.fileCount - 20} more)` : '';
+/** Only for a measured delta, which always has its counts. */
+function deltaLine(d: HumanDelta): string {
+  const files = (d.files ?? []).slice(0, 20).map((f) => `\`${safePath(f)}\``).join(', ');
+  const more = d.fileCount! > 20 ? ` (+${d.fileCount! - 20} more)` : '';
   return `- human delta after Forge's last push: ${d.commits} commit(s), +${d.linesAdded}/-${d.linesDeleted} lines in: ${files}${more}`;
 }
 
-/** @param {string} text @param {number} n */
-const head = (text, n) => text.split('\n').slice(0, n).join('\n').trim();
+const head = (text: string, n: number): string => text.split('\n').slice(0, n).join('\n').trim();
 
-/**
- * @param {string} root @param {any} config @param {string} retroJobId @param {{since?:string}} [opts]
- */
-export function prepareRetro(root, config, retroJobId, opts = {}) {
+export function prepareRetro(
+  root: string,
+  config: Config,
+  retroJobId: string,
+  opts: { since?: string } = {},
+): { stats: string; signals: string; experiments: string | null; jobsInWindow: number; since: string | null } {
   const since = opts.since ?? lastRetro(root)?.createdAt ?? undefined;
   const stats = computeStats(root, { since });
   const dir = jobDir(root, retroJobId);
@@ -62,11 +61,11 @@ export function prepareRetro(root, config, retroJobId, opts = {}) {
   for (const j of jobs) {
     const jd = jobDir(root, j.id);
     const events = readEvents(root, j.id);
-    const lines = [];
+    const lines: string[] = [];
     for (const e of events) {
       if (e.type === 'human') lines.push(`- human **${e.action}**${e.note ? `: ${String(e.note).slice(0, 400)}` : ''}`);
       if (e.type === 'command' && !e.ok && /^verify-/.test(e.name ?? '')) lines.push(`- verify step failed: ${e.name}`);
-      if (e.type === 'integrate-conflicts') lines.push(`- merge conflicts in: ${(e.conflicts ?? []).join(', ')}`);
+      if (e.type === 'integrate-conflicts') lines.push(`- merge conflicts in: ${((e.conflicts ?? []) as string[]).join(', ')}`); // the event lists the conflicted paths
     }
     for (const r of Object.keys(j.verify ?? {})) if (j.verify[r] === 'FAIL') lines.push(`- verify FAIL in round ${r}`);
     for (const [round, v] of Object.entries(j.verdicts ?? {})) {
@@ -84,7 +83,7 @@ export function prepareRetro(root, config, retroJobId, opts = {}) {
     if (fb && !fb.includes('No outstanding human feedback')) lines.push(`- PR feedback:\n${head(fb.replace(/^# .*\n/, ''), 20).replace(/^/gm, '  ')}`);
     const questions = readText(path.join(jd, 'questions.md'));
     if (questions) lines.push(`- asked the human:\n${head(questions, 8).replace(/^/gm, '  ')}`);
-    if (j.pr?.humanDelta?.status === 'measured' && j.pr.humanDelta.fileCount > 0) lines.push(deltaLine(j.pr.humanDelta));
+    if (j.pr?.humanDelta?.status === 'measured' && j.pr.humanDelta.fileCount! > 0) lines.push(deltaLine(j.pr.humanDelta));
     if (!lines.length) continue;
     out.push(`## ${j.id} (${j.state}, rounds ${Object.keys(j.verdicts ?? {}).length}, ${j.usage?.totalTokens ?? 0} tokens)`, ...lines, '');
   }

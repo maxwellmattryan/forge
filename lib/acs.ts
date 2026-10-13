@@ -15,12 +15,32 @@ const ID = /^AC[- ]?(\d+)(?!\d)/i;
 const NO_PROOF = new Set(['', '-', '—', 'none', 'n/a', 'tbd']);
 const PASS = /^\s*(pass|passed|ok|yes|green|✓|✅)(?![a-z])/i;
 
+/** The latest round's AC table in build.md: buildAcTable. */
+export interface AcTable {
+  round: number | null;
+  table: boolean;
+  rows: Record<string, { proof: string; result: string }>;
+  order: string[];
+}
+
+/** How far the latest AC table covers the spec: acCoverage. */
+export interface AcCoverage {
+  total: number;
+  covered: number;
+  unmapped: string[];
+  failing: string[];
+  extra: string[];
+  round: number | null;
+  table: boolean;
+  spec: boolean;
+  build: boolean;
+}
+
 /**
  * Lines outside code fences, with fence markers and fenced content blanked, so an example spec or
  * table quoted in a fence can't open or close a section.
- * @param {string} text @returns {(string|null)[]}
  */
-function unfenced(text) {
+function unfenced(text: string): (string | null)[] {
   let fenced = false;
   return text.split(/\r?\n/).map((line) => {
     if (FENCE.test(line)) {
@@ -34,13 +54,11 @@ function unfenced(text) {
 /**
  * AC ids from the first `Acceptance criteria…` section. Labelled items (`AC3`, `AC-3`, `**AC3**`)
  * win; a spec with no labels at all gets positional ids, so specs written before labels still work.
- * @param {string} text @returns {string[]}
  */
-export function specAcs(text) {
+export function specAcs(text: string): string[] {
   const lines = unfenced(text);
   let level = 0;
-  /** @type {(string|null)[]} */
-  const items = [];
+  const items: (string | null)[] = [];
   let inside = false;
   for (const line of lines) {
     if (line === null) continue;
@@ -62,8 +80,8 @@ export function specAcs(text) {
   return [...new Set(ids)];
 }
 
-/** Cells of a table row: split on unescaped pipes, drop the empty edge cells. @param {string} line */
-function cells(line) {
+/** Cells of a table row: split on unescaped pipes, drop the empty edge cells. */
+function cells(line: string): string[] {
   const parts = line.split(/(?<!\\)\|/).map((c) => c.trim());
   if (parts.length && parts[0] === '') parts.shift();
   if (parts.length && parts[parts.length - 1] === '') parts.pop();
@@ -73,14 +91,11 @@ function cells(line) {
 /**
  * The AC table of the latest round in build.md. Never falls back to an earlier round: proof has to
  * be current, so a round without a table maps nothing.
- * @param {string} text
- * @returns {{ round: number|null, table: boolean, rows: Record<string, {proof: string, result: string}>, order: string[] }}
  */
-export function buildAcTable(text) {
+export function buildAcTable(text: string): AcTable {
   const lines = unfenced(text);
   let start = 0;
-  /** @type {number|null} */
-  let round = null;
+  let round: number | null = null;
   lines.forEach((line, i) => {
     const h = line === null ? null : HEADING.exec(line);
     const r = h && h[1].length === 2 ? /^round\s+(\d+)\b/i.exec(h[2]) : null;
@@ -92,34 +107,31 @@ export function buildAcTable(text) {
   let end = lines.length;
   if (round !== null) {
     for (let i = start; i < lines.length; i++) {
-      const h = lines[i] === null ? null : HEADING.exec(/** @type {string} */ (lines[i]));
+      const h = lines[i] === null ? null : HEADING.exec(lines[i] as string);
       if (h && h[1].length <= 2) {
         end = i;
         break;
       }
     }
   }
-  /** @type {string[][] | null} */
-  let table = null;
+  let table: string[][] | null = null;
   for (let i = start; i < end - 1; i++) {
     const line = lines[i];
     const sep = lines[i + 1];
     if (line === null || sep === null || !line.includes('|') || !SEPARATOR.test(sep)) continue;
     const header = cells(line);
     if (!/^ac$/i.test(header[0] ?? '')) continue;
-    const body = [];
+    const body: string[][] = [];
     let j = i + 2;
-    for (; j < end && lines[j] !== null && /** @type {string} */ (lines[j]).includes('|'); j++) body.push(cells(/** @type {string} */ (lines[j])));
+    for (; j < end && lines[j] !== null && (lines[j] as string).includes('|'); j++) body.push(cells(lines[j] as string));
     table = [header, ...body];
     i = j - 1;
   }
-  /** @type {Record<string, {proof: string, result: string}>} */
-  const rows = {};
-  /** @type {string[]} */
-  const order = [];
+  const rows: Record<string, { proof: string; result: string }> = {};
+  const order: string[] = [];
   if (table) {
     const [header, ...body] = table;
-    const find = (/** @type {RegExp} */ re, /** @type {number} */ fallback) => {
+    const find = (re: RegExp, fallback: number) => {
       const i = header.findIndex((h, k) => k > 0 && re.test(h));
       return i > 0 ? i : fallback;
     };
@@ -138,15 +150,12 @@ export function buildAcTable(text) {
 
 /**
  * Coverage of the spec's ACs by the latest round's table. Pure; missing files are `null`.
- * @param {string|null} specText @param {string|null} buildText
  */
-export function acCoverage(specText, buildText) {
+export function acCoverage(specText: string | null, buildText: string | null): AcCoverage {
   const ids = specText === null ? [] : specAcs(specText);
-  const t = buildText === null ? { round: null, table: false, rows: {}, order: [] } : buildAcTable(buildText);
-  /** @type {string[]} */
-  const unmapped = [];
-  /** @type {string[]} */
-  const failing = [];
+  const t: AcTable = buildText === null ? { round: null, table: false, rows: {}, order: [] } : buildAcTable(buildText);
+  const unmapped: string[] = [];
+  const failing: string[] = [];
   let covered = 0;
   for (const id of ids) {
     const row = t.rows[id];
@@ -159,13 +168,10 @@ export function acCoverage(specText, buildText) {
   return { total: ids.length, covered, unmapped, failing, extra, round: t.round, table: t.table, spec: specText !== null, build: buildText !== null };
 }
 
-/**
- * Read-only: no event, no job.json change, no file written.
- * @param {string} root @param {string} id
- */
-export function jobAcs(root, id) {
+/** Read-only: no event, no job.json change, no file written. */
+export function jobAcs(root: string, id: string): AcCoverage & { id: string } {
   const job = loadJob(root, id);
   const dir = jobDir(root, job.id);
-  const read = (/** @type {string} */ name) => (exists(path.join(dir, name)) ? readText(path.join(dir, name)) : null);
+  const read = (name: string) => (exists(path.join(dir, name)) ? readText(path.join(dir, name)) : null);
   return { id: job.id, ...acCoverage(read('spec.md'), read('build.md')) };
 }

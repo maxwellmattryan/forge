@@ -97,7 +97,7 @@ review:
       always: true
     - name: security
       model: opus
-      when: lib/server.mjs, lib/pr.mjs, lib/trackers/*, hooks/*, anything that ingests tracker/PR/web text, runs shell commands, or touches the dashboard's Host/Origin/token checks
+      when: lib/server.mjs, lib/pr.ts, lib/trackers/*, hooks/*, anything that ingests tracker/PR/web text, runs shell commands, or touches the dashboard's Host/Origin/token checks
     - name: docs
       when: CLI commands or their JSON output, config keys, orchestrator behaviour in skills/forge/**, or anything README.md and docs/*.md describe
   onPrFeedback: changed

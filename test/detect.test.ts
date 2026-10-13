@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.mjs';
-import { detect } from '../lib/detect.mjs';
+import { detect } from '../lib/detect.ts';
 
 /** A fresh repo with the given files; returns detect()'s commands and tools. @param {Record<string,string>} files */
 function detectWith(files) {
   const repo = tempRepo();
   try {
-    for (const [rel, text] of Object.entries(files)) fs.writeFileSync(path.join(repo.dir, rel), text);
+    for (const [rel, text] of Object.entries(files)) fs.writeFileSync(path.join(repo.dir, rel), text as any);
     const d = detect(repo.dir);
     return { e2e: d.commands.e2e, tools: d.tools };
   } finally {

@@ -5,27 +5,28 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { DEFAULT_TEST_PATTERN } from './integrity.mjs';
+import { DEFAULT_TEST_PATTERN } from './integrity.ts';
 import { createJob, loadJob, logEvent, setJob, jobDir } from './jobs.ts';
 import { paths, exists, PLUGIN_ROOT } from './paths.ts';
-import { createWorktree } from './worktree.mjs';
+import { createWorktree } from './worktree.ts';
 import { ForgeError, fill, now, readJson, readText, run, slugify, tail, withLock, writeJsonAtomic } from './util.ts';
-import { repoSlug } from './pr.mjs';
-import { firstVerifyRun } from './stats.mjs';
+import { repoSlug } from './pr.ts';
+import { firstVerifyRun } from './stats.ts';
 import * as yaml from './yaml.ts';
+import type { Config, EvalCompare, EvalResult, EvalRun, EvalSummary, EvalTask } from './types.ts';
 
-/** @param {string} root */
-export function evalsDir(root) {
+/** An eval task as loadTask reads it: the served EvalTask plus its directory and request text. */
+export type LoadedTask = EvalTask & { dir: string; request: string };
+
+export function evalsDir(root: string): string {
   return path.join(paths(root).dir, 'evals');
 }
 
-/** @param {string} root */
-function runsDir(root) {
+function runsDir(root: string): string {
   return path.join(evalsDir(root), 'runs');
 }
 
-/** @param {string} root */
-export function listTasks(root) {
+export function listTasks(root: string): LoadedTask[] {
   const dir = evalsDir(root);
   if (!exists(dir)) return [];
   return fs
@@ -34,8 +35,7 @@ export function listTasks(root) {
     .map((d) => loadTask(root, d.name));
 }
 
-/** @param {string} root @param {string} name */
-export function loadTask(root, name) {
+export function loadTask(root: string, name: string): LoadedTask {
   const dir = path.join(evalsDir(root), name);
   const file = path.join(dir, 'task.yml');
   if (!exists(file)) throw new ForgeError(`no eval task "${name}"`);
@@ -55,16 +55,15 @@ export function loadTask(root, name) {
   };
 }
 
-export function forgeVersion() {
+export function forgeVersion(): string {
   return readJson(path.join(PLUGIN_ROOT, 'package.json'), { version: '0.0.0' }).version;
 }
 
 /**
  * Captures everything repo-side that shapes Forge behaviour, so a retro or config change
  * shows up as a different hash between two eval runs.
- * @param {string} root @param {any} config
  */
-export function configHash(root, config) {
+export function configHash(root: string, config: Config): string {
   const h = crypto.createHash('sha256');
   h.update(JSON.stringify(config));
   const p = paths(root);
@@ -78,11 +77,16 @@ export function configHash(root, config) {
 /**
  * Turns a merged PR into a replay eval: start from its base commit, ask for what the PR did,
  * and use the tests it added as the hidden check. Works for any repo whose PRs carry tests.
- * @param {string} root @param {any} config @param {number} pr @param {{name?:string, testPattern?:string}} [opts]
  */
-export function mineFromPr(root, config, pr, opts = {}) {
+export function mineFromPr(
+  root: string,
+  config: Config,
+  pr: number,
+  opts: { name?: string; testPattern?: string } = {},
+): { name: string; dir: string; hasTests: boolean; hasReference: boolean } {
   const slug = repoSlug(root, config);
-  const info = JSON.parse(
+  // gh output: raw input.
+  const info: any = JSON.parse(
     run('gh', ['pr', 'view', String(pr), '-R', slug, '--json', 'number,title,body,state,baseRefOid,mergeCommit,closingIssuesReferences,url'], { cwd: root }).stdout,
   );
   if (info.state !== 'MERGED') throw new ForgeError(`PR #${pr} is not merged`);
@@ -95,7 +99,7 @@ export function mineFromPr(root, config, pr, opts = {}) {
   const dir = path.join(evalsDir(root), name);
   if (exists(dir)) throw new ForgeError(`eval task ${name} already exists`);
   fs.mkdirSync(path.join(dir, 'check'), { recursive: true });
-  const issues = (info.closingIssuesReferences ?? []).map((/** @type {any} */ i) => i.number);
+  const issues = (info.closingIssuesReferences ?? []).map((i: any) => i.number);
   let request = `${info.title}\n\n${(info.body ?? '').replace(/<!--[\s\S]*?-->/g, '').trim()}`;
   for (const n of issues) {
     const issue = run('gh', ['issue', 'view', String(n), '-R', slug, '--json', 'title,body'], { cwd: root, allowFail: true });
@@ -118,11 +122,10 @@ export function mineFromPr(root, config, pr, opts = {}) {
   return { name, dir, hasTests: Boolean(tests), hasReference: Boolean(rest) };
 }
 
-/** @param {string} diff @param {RegExp} testRe */
-function splitDiff(diff, testRe) {
+function splitDiff(diff: string, testRe: RegExp): { tests: string; rest: string } {
   const chunks = diff.split(/^(?=diff --git )/m).filter((c) => c.startsWith('diff --git'));
-  const tests = [];
-  const rest = [];
+  const tests: string[] = [];
+  const rest: string[] = [];
   for (const c of chunks) {
     const file = c.match(/^diff --git a\/(\S+) b\/(\S+)/)?.[2] ?? '';
     (testRe.test(file) ? tests : rest).push(c);
@@ -130,18 +133,15 @@ function splitDiff(diff, testRe) {
   return { tests: tests.join(''), rest: rest.join('') };
 }
 
-/**
- * @param {string} root @param {any} config
- * @param {{tasks?:string[], tags?:string[], label?:string}} opts
- */
-export function startRun(root, config, opts) {
+/** The record has no summary yet: listRuns computes it until the run is done. */
+export function startRun(root: string, config: Config, opts: { tasks?: string[]; tags?: string[]; label?: string }): Omit<EvalRun, 'summary'> {
   let tasks = listTasks(root);
   if (opts.tasks?.length) tasks = tasks.filter((t) => opts.tasks?.includes(t.name));
-  if (opts.tags?.length) tasks = tasks.filter((t) => t.tags.some((/** @type {string} */ g) => opts.tags?.includes(g)));
+  if (opts.tags?.length) tasks = tasks.filter((t) => t.tags.some((g) => opts.tags?.includes(g)));
   if (!tasks.length) throw new ForgeError('no eval tasks selected (add some under .forge/evals/ or run `forge eval mine --pr <n>`)');
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '-');
   const runId = `${stamp}${opts.label ? `-${slugify(opts.label, 3)}` : ''}`;
-  const record = {
+  const record: Omit<EvalRun, 'summary'> = {
     schemaVersion: 1,
     id: runId,
     label: opts.label ?? null,
@@ -151,7 +151,7 @@ export function startRun(root, config, opts) {
     startedAt: now(),
     finishedAt: null,
     status: 'running',
-    tasks: /** @type {any[]} */ ([]),
+    tasks: [],
   };
   for (const t of tasks) {
     const job = createJob(root, config, {
@@ -171,17 +171,15 @@ export function startRun(root, config, opts) {
 
 /**
  * Applies the hidden check on top of the job's final commit and records the job's Forge metrics.
- * @param {string} root @param {any} config @param {string} jobId
  */
-export function gradeJob(root, config, jobId) {
+export function gradeJob(root: string, config: Config, jobId: string): EvalResult {
   const job = loadJob(root, jobId);
-  const meta = /** @type {any} */ (job).eval;
+  const meta = job.eval;
   if (!meta) throw new ForgeError(`job ${jobId} is not an eval job`);
   const task = loadTask(root, meta.task);
   const wt = job.worktree;
   if (!wt || !exists(wt)) throw new ForgeError(`eval job ${jobId} has no worktree`);
-  /** @type {any} */
-  const check = { ran: false, pass: null, tail: null };
+  const check: EvalResult['check'] = { ran: false, pass: null, tail: null };
   const cmd = task.check.command ?? config.commands.test;
   if (task.check.patch || task.check.files) {
     run('git', ['stash', '--include-untracked'], { cwd: wt, allowFail: true });
@@ -208,7 +206,7 @@ export function gradeJob(root, config, jobId) {
   const judgeText = readText(path.join(jobDir(root, jobId), 'eval-judge.md'));
   const score = judgeText.match(/^\s*SCORE:\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+)/im);
   const rounds = Object.keys(job.verdicts).map(Number);
-  const result = {
+  const result: EvalResult = {
     check,
     judge: score ? { score: Number(score[1]), outOf: Number(score[2]) } : null,
     decision: job.decision,
@@ -223,9 +221,10 @@ export function gradeJob(root, config, jobId) {
   const runFile = path.join(runsDir(root), `${meta.run}.json`);
   withLock(path.join(paths(root).locks, `eval-${meta.run}`), () => {
     const rec = readJson(runFile);
-    const entry = rec.tasks.find((/** @type {any} */ t) => t.job === jobId);
+    // The run file is JSON on disk: raw input.
+    const entry = rec.tasks.find((t: any) => t.job === jobId);
     if (entry) entry.result = result;
-    if (rec.tasks.every((/** @type {any} */ t) => t.result)) {
+    if (rec.tasks.every((t: any) => t.result)) {
       rec.status = 'done';
       rec.finishedAt = now();
       rec.summary = summarize(rec);
@@ -237,18 +236,18 @@ export function gradeJob(root, config, jobId) {
   return result;
 }
 
-/** @param {any} rec */
-export function summarize(rec) {
-  const rs = rec.tasks.map((/** @type {any} */ t) => t.result).filter(Boolean);
-  const avg = (/** @type {(r:any)=>number|null} */ f) => {
-    const xs = rs.map(f).filter((/** @type {any} */ x) => typeof x === 'number');
+export function summarize(rec: Pick<EvalRun, 'tasks'>): EvalSummary {
+  // filter(Boolean) drops the ungraded tasks' null results.
+  const rs = rec.tasks.map((t) => t.result).filter(Boolean) as EvalResult[];
+  const avg = (f: (r: EvalResult) => number | null) => {
+    const xs = rs.map(f).filter((x) => typeof x === 'number');
     return xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 1000) / 1000 : null;
   };
-  const checked = rs.filter((/** @type {any} */ r) => r.check?.ran);
+  const checked = rs.filter((r) => r.check?.ran);
   return {
     tasks: rec.tasks.length,
     graded: rs.length,
-    checkPassRate: checked.length ? Math.round((checked.filter((/** @type {any} */ r) => r.check.pass).length / checked.length) * 1000) / 1000 : null,
+    checkPassRate: checked.length ? Math.round((checked.filter((r) => r.check.pass).length / checked.length) * 1000) / 1000 : null,
     avgJudgeScore: avg((r) => (r.judge ? r.judge.score / r.judge.outOf : null)),
     firstPassRate: avg((r) => (r.firstPass === null ? null : r.firstPass ? 1 : 0)),
     avgRounds: avg((r) => r.rounds),
@@ -259,8 +258,7 @@ export function summarize(rec) {
   };
 }
 
-/** @param {string} root */
-export function listRuns(root) {
+export function listRuns(root: string): EvalRun[] {
   const dir = runsDir(root);
   if (!exists(dir)) return [];
   return fs
@@ -273,28 +271,26 @@ export function listRuns(root) {
     .sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
 }
 
-/** @param {string} root @param {string} a @param {string} b */
-export function compareRuns(root, a, b) {
+export function compareRuns(root: string, a: string, b: string): EvalCompare {
   const runs = listRuns(root);
   const ra = runs.find((r) => r.id === a);
   const rb = runs.find((r) => r.id === b);
   if (!ra || !rb) throw new ForgeError(`unknown run ${!ra ? a : b}`);
-  /** @type {Record<string, any>} */
-  const delta = {};
-  for (const k of Object.keys(ra.summary)) {
+  const delta: Record<string, any> = {};
+  // A summary has exactly EvalSummary's keys.
+  for (const k of Object.keys(ra.summary) as (keyof EvalSummary)[]) {
     const x = ra.summary[k];
     const y = rb.summary[k];
     delta[k] = { a: x, b: y, change: typeof x === 'number' && typeof y === 'number' ? Math.round((y - x) * 1000) / 1000 : null };
   }
-  const perTask = ra.tasks.map((/** @type {any} */ t) => {
-    const other = rb.tasks.find((/** @type {any} */ u) => u.task === t.task);
+  const perTask = ra.tasks.map((t) => {
+    const other = rb.tasks.find((u) => u.task === t.task);
     return { task: t.task, a: t.result?.check?.pass ?? null, b: other?.result?.check?.pass ?? null };
   });
   return { a: { id: ra.id, configHash: ra.configHash, forgeVersion: ra.forgeVersion }, b: { id: rb.id, configHash: rb.configHash, forgeVersion: rb.forgeVersion }, delta, perTask };
 }
 
-/** @param {string} root @param {string} name @param {string} title @param {string} request */
-export function createTask(root, name, title, request) {
+export function createTask(root: string, name: string, title: string, request: string): { dir: string } {
   const dir = path.join(evalsDir(root), slugify(name, 6));
   if (exists(dir)) throw new ForgeError(`eval task ${name} already exists`);
   fs.mkdirSync(path.join(dir, 'check'), { recursive: true });

@@ -47,6 +47,7 @@ In Claude Code:
 /plugin install forge@forge
 ```
 Requirements: Node ≥ 22.18, git ≥ 2.38, and the GitHub CLI (`gh`) for PR and GitHub-tracker features.
+On Node older than 22.18 the CLI fails at import and the attribution hook cannot load: it exits 1, which Claude Code does not treat as a block, so `aiAttribution: forbid` is not enforced.
 
 The CLI also works on its own (for other agent runtimes, scripts or CI):
 ```bash

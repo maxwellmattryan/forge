@@ -6,9 +6,9 @@ import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.mjs';
 import { defaults } from '../lib/config.ts';
 import { createJob, setJob } from '../lib/jobs.ts';
-import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from '../lib/delta.mjs';
-import { computeStats } from '../lib/stats.mjs';
-import { prepareRetro } from '../lib/retro.mjs';
+import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from '../lib/delta.ts';
+import { computeStats } from '../lib/stats.ts';
+import { prepareRetro } from '../lib/retro.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 
@@ -171,11 +171,11 @@ test('AC7: stats report the human delta rate, median lines and coverage', () => 
       { ...base, id: 'c', pr: { state: 'MERGED', humanDelta: { status: 'unavailable', reason: 'no pushed sha', commits: null, lines: null, fileCount: null, files: [] } } },
       { ...base, id: 'd', state: 'waiting', pr: { state: 'OPEN' } },
     ];
-    const q = computeStats(r.dir, { jobs }).quality;
+    const q = computeStats(r.dir, { jobs } as any).quality;
     assert.equal(q.humanDeltaRate, 0.5);
     assert.equal(q.medianHumanDeltaLines, 10);
     assert.deepEqual(q.humanDeltaCoverage, { merged: 3, measured: 2 });
-    const none = computeStats(r.dir, { jobs: jobs.map((j) => ({ ...j, pr: { state: j.pr.state } })) }).quality;
+    const none = computeStats(r.dir, { jobs: jobs.map((j) => ({ ...j, pr: { state: j.pr.state } })) as any }).quality;
     assert.equal(none.humanDeltaRate, null);
     assert.equal(none.medianHumanDeltaLines, null);
     assert.deepEqual(none.humanDeltaCoverage, { merged: 3, measured: 0 });

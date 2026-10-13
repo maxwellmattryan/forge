@@ -1,17 +1,75 @@
 // Verify's test-integrity report: what the committed diff did to the tests and to the config that
 // runs them. A build can go green by deleting a test, adding `.skip`, or editing the test script;
 // this makes those changes visible to reviewers and, under `verifyIntegrity: block`, fails verify.
-// Must not import evals.mjs or worktree.mjs: worktree imports this module, and evals imports worktree.
+// Must not import evals.ts or worktree.ts: worktree imports this module, and evals imports worktree.
 import fs from 'node:fs';
 import path from 'node:path';
 import { jobDir } from './jobs.ts';
 import { exists } from './paths.ts';
-import { approachPaths, approachSection, realHistoryEnv, resolveBase } from './scope.mjs';
+import { approachPaths, approachSection, realHistoryEnv, resolveBase } from './scope.ts';
+import type { Config, Job } from './types.ts';
 import { ForgeError, run } from './util.ts';
 
 export const DEFAULT_TEST_PATTERN = '(^|/)(tests?|__tests__|spec|specs)/|[._-](test|spec)s?\\.[A-Za-z0-9]+$|_test\\.(go|py|rs)$|(^|/)test_[^/]+\\.py$';
 
 const JSON_LIST_LIMIT = 10;
+
+/** A test file the diff deleted, or made stop running: an entry of IntegrityReport.deleted. */
+export interface DeletedTest {
+  path: string;
+  to?: string | null;
+  why?: string;
+  inSpec: boolean;
+}
+
+/** Verify's test-integrity report: testIntegrity. */
+export interface IntegrityReport {
+  mode: 'block' | 'warn';
+  base: string | null;
+  mergeBase: string | null;
+  head: string | null;
+  deleted: DeletedTest[];
+  renamed: { from: string; to: string }[];
+  markers: { path: string; line: number; text: string }[];
+  count: { before: number; after: number; delta: number; files: { path: string; before: number; after: number }[] };
+  configEdits: { path: string; detail: string }[];
+  blocking: number;
+  findings: number;
+  ok: boolean;
+  error?: string;
+}
+
+/** The `integrity` key of verify's JSON: compactIntegrity. */
+export type CompactIntegrity =
+  | { mode: IntegrityReport['mode']; ok: boolean; error: string }
+  | {
+      mode: IntegrityReport['mode'];
+      ok: boolean;
+      base: string | null;
+      findings: number;
+      blocking: number;
+      deletedTests: string[];
+      renamedTests: string[];
+      skipMarkers: string[];
+      testCount: { before: number; after: number; delta: number };
+      configEdits: string[];
+      more: number;
+    };
+
+/** One `git diff --raw -z` entry: parseRaw. */
+interface RawChange {
+  status: string;
+  from: string | null;
+  to: string | null;
+  oldMode: string;
+  newMode: string;
+}
+
+/** Added and removed lines of one file: a value of parseDiffLines's map. */
+export interface FileLines {
+  added: { line: number; text: string }[];
+  removed: string[];
+}
 
 const TEST_FILE_MARKERS = [
   /\b(describe|it|test|context|suite|t)\.(skip|only|todo)\b/,
@@ -43,17 +101,16 @@ const INTERPRETERS = new Set(['node', 'bash', 'sh', 'zsh', 'python', 'python3', 
 
 /**
  * Whether one added or removed line (without its `+`/`-`) is a skip or focus marker.
- * @param {string} file @param {string} line @param {boolean} isTest
  */
-export function markerHits(file, line, isTest) {
+export function markerHits(file: string, line: string, isTest: boolean): boolean {
   if (ANY_FILE_MARKERS.some((re) => re.test(line))) return true;
   if (!isTest) return false;
   if (file.endsWith('_test.go') && GO_BUILD_IGNORE.test(line)) return true;
   return TEST_FILE_MARKERS.some((re) => re.test(line));
 }
 
-/** Declared tests; skipped ones still count, so only deletions lower the total. @param {string} text */
-export function countTestDecls(text) {
+/** Declared tests; skipped ones still count, so only deletions lower the total. */
+export function countTestDecls(text: string): number {
   let n = 0;
   for (const re of TEST_DECLS) n += (text.match(re) ?? []).length;
   return n;
@@ -62,10 +119,9 @@ export function countTestDecls(text) {
 /**
  * The lines under every dev-dependencies table (plain, dotted or target-specific), so a Cargo.toml
  * edit counts as a test-config edit only when the dev-dependencies themselves change.
- * @param {string} tomlText
  */
-export function devDepsSection(tomlText) {
-  const out = [];
+export function devDepsSection(tomlText: string): string {
+  const out: string[] = [];
   let inside = false;
   for (const raw of tomlText.split(/\r?\n/)) {
     const line = raw.trim();
@@ -83,23 +139,21 @@ export function devDepsSection(tomlText) {
 /**
  * What changed in the keys of package.json that decide how tests run, or null when none did.
  * A missing file or key counts as empty.
- * @param {string | null} beforeText @param {string | null} afterText
- * @returns {string | null}
  */
-export function packageJsonDetail(beforeText, afterText) {
-  /** @param {string | null} t */
-  const parse = (t) => {
+export function packageJsonDetail(beforeText: string | null, afterText: string | null): string | null {
+  // Parsed package.json: raw input.
+  const parse = (t: string | null): any => {
     const v = JSON.parse(t?.trim() ? t : '{}');
     return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
   };
-  let a, b;
+  let a: any, b: any;
   try {
     a = parse(beforeText);
     b = parse(afterText);
   } catch {
     return 'edited (unparseable)';
   }
-  const parts = [];
+  const parts: string[] = [];
   const sa = a.scripts && typeof a.scripts === 'object' ? a.scripts : {};
   const sb = b.scripts && typeof b.scripts === 'object' ? b.scripts : {};
   if (JSON.stringify(sa) !== JSON.stringify(sb)) {
@@ -113,12 +167,11 @@ export function packageJsonDetail(beforeText, afterText) {
 /**
  * Script files the configured commands run, so editing `scripts/test.sh` shows up as a test-config
  * edit. Only the program each command segment runs is taken, never its arguments or lint targets.
- * @param {any} config @returns {string[]}
  */
-export function commandSources(config) {
-  const out = new Set();
-  /** @param {any} cmds @param {string} prefix */
-  const scan = (cmds, prefix) => {
+export function commandSources(config: Pick<Config, 'commands' | 'services'>): string[] {
+  const out = new Set<string>();
+  // Commands come from YAML, so a value need not be a string.
+  const scan = (cmds: Record<string, unknown> | undefined, prefix: string) => {
     for (const cmd of Object.values(cmds ?? {})) {
       if (typeof cmd !== 'string') continue;
       for (const segment of cmd.split(/&&|\|\||;|\|/)) {
@@ -137,8 +190,8 @@ export function commandSources(config) {
   return [...out];
 }
 
-/** Paths that are test, build or CI config whatever their content. @param {string} p */
-export function isConfigPath(p) {
+/** Paths that are test, build or CI config whatever their content. */
+export function isConfigPath(p: string): boolean {
   const base = path.posix.basename(p);
   if (/^(Makefile|makefile|GNUmakefile|justfile|Justfile)$/.test(base) || base.endsWith('.mk')) return true;
   if (/^(\.github\/workflows|\.circleci|\.buildkite)\//.test(p) || ['.gitlab-ci.yml', 'azure-pipelines.yml', 'Jenkinsfile', '.forge/config.yml'].includes(p)) return true;
@@ -157,16 +210,15 @@ const MOVE_RE = new RegExp(`\\b(?:move|moves|rename|renames)\\s+${OBJECT}(${ITEM
 // "Remove `x`'s assertion" name a part of the file, not the file.
 const CLAUSE_END = /^(?:\s*$|\s*[.;:!?),]|\s*[\u2013\u2014]|\s+-\s|\s+(?:and|or|but|because|since|as|entirely|outright|completely)\b)/i;
 
-/** @param {string} line @param {RegExpMatchArray} m @param {string} last the final captured item */
-const endsClause = (line, m, last) => /[.;:!?),]$/.test(last) || CLAUSE_END.test(line.slice((m.index ?? 0) + m[0].length));
+/** `last` is the final captured item. */
+const endsClause = (line: string, m: RegExpMatchArray, last: string): boolean => /[.;:!?),]$/.test(last) || CLAUSE_END.test(line.slice((m.index ?? 0) + m[0].length));
 // Any negation voids the whole line; that only fails safe (the deletion blocks and a human decides).
 const NEGATIONS = /n't\b|\b(not|never|keeps?|avoids?|without|leaves?|cannot)\b/i;
 
 /**
  * The Approach lines that may sanction something: curly quotes normalised, negated lines dropped.
- * @param {string} specText @returns {string[]}
  */
-function sanctionLines(specText) {
+function sanctionLines(specText: string): string[] {
   const section = approachSection(specText);
   if (section === null) return [];
   return section
@@ -175,17 +227,15 @@ function sanctionLines(specText) {
     .filter((l) => !NEGATIONS.test(l));
 }
 
-/** @param {string} raw @returns {string[]} */
-const tokens = (raw) => approachPaths(`## Approach\n${raw}`);
+const tokens = (raw: string): string[] => approachPaths(`## Approach\n${raw}`);
 
 /**
  * Paths the spec's Approach explicitly says to delete: the exact path is the object of
  * delete/remove/drop (``Delete `test/old.test.mjs` ``, ``Remove the test files `a` and `b` ``).
  * A mention ("in `test/x.test.mjs`, remove the flaky case") sanctions nothing.
- * @param {string} specText @returns {string[]}
  */
-export function deletionSanctions(specText) {
-  const out = new Set();
+export function deletionSanctions(specText: string): string[] {
+  const out = new Set<string>();
   for (const line of sanctionLines(specText)) {
     for (const m of line.matchAll(DELETE_RE)) if (endsClause(line, m, m[1])) for (const p of tokens(m[1])) out.add(p);
   }
@@ -195,11 +245,9 @@ export function deletionSanctions(specText) {
 /**
  * Test moves the spec's Approach states as ``Move `from` to `to` `` (or rename … to/into/as …); a
  * `to` ending in `/` names a directory that keeps the file name.
- * @param {string} specText @returns {[string, string][]}
  */
-export function renameSanctions(specText) {
-  /** @type {[string, string][]} */
-  const out = [];
+export function renameSanctions(specText: string): [string, string][] {
+  const out: [string, string][] = [];
   for (const line of sanctionLines(specText)) {
     for (const m of line.matchAll(MOVE_RE)) {
       if (!endsClause(line, m, m[2])) continue;
@@ -212,18 +260,15 @@ export function renameSanctions(specText) {
   return out;
 }
 
-/** @param {[string, string][]} pairs @param {string} from @param {string} to */
-const renameSanctioned = (pairs, from, to) => pairs.some(([f, t]) => f === from && (t === to || (t.endsWith('/') && `${t}${path.posix.basename(from)}` === to)));
+const renameSanctioned = (pairs: [string, string][], from: string, to: string): boolean => pairs.some(([f, t]) => f === from && (t === to || (t.endsWith('/') && `${t}${path.posix.basename(from)}` === to)));
 
 /**
  * Whether an in-pattern rename may take the file out of the runner's glob: a new directory
  * (`test/a.test.mjs` → `test/old/a.test.mjs` leaves `test/*.test.mjs`), a changed test suffix
  * (`.test.mjs` → `.test.mjs.off`, `.test.js` → `.test.ts`) or a lost `test_` prefix.
- * @param {string} from @param {string} to
  */
-export function renameDropsTest(from, to) {
-  /** @param {string} p */
-  const kind = (p) => {
+export function renameDropsTest(from: string, to: string): boolean {
+  const kind = (p: string) => {
     const b = path.posix.basename(p);
     return { dir: path.posix.dirname(p), suffix: /(?:[._-](?:test|spec)s?)?(?:\.[^.]*)?$/.exec(b)?.[0] ?? '', prefixed: /^test_/.test(b) };
   };
@@ -235,11 +280,10 @@ export function renameDropsTest(from, to) {
 /**
  * `git diff --raw -z` entries. `from` is null for an added file, `to` for a deleted one; modes tell
  * a regular file (100644/100755) from a symlink (120000) or a submodule (160000).
- * @param {string} raw @returns {{status:string, from:string|null, to:string|null, oldMode:string, newMode:string}[]}
  */
-function parseRaw(raw) {
+function parseRaw(raw: string): RawChange[] {
   const tok = raw.split('\0');
-  const out = [];
+  const out: RawChange[] = [];
   for (let i = 0; i < tok.length && tok[i]; ) {
     const [oldMode, newMode, , , st] = tok[i].replace(/^:/, '').split(' ');
     const status = (st ?? '')[0];
@@ -254,18 +298,17 @@ function parseRaw(raw) {
   return out;
 }
 
-const C_ESCAPES = /** @type {Record<string, number>} */ ({ a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, '\\': 92 });
+const C_ESCAPES: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, '\\': 92 };
 
 /**
  * A `---`/`+++` header path: git appends a tab after names with spaces and C-quotes names with
  * control characters, quotes or backslashes (octal escapes are UTF-8 bytes).
- * @param {string} p
  */
-function unquote(p) {
+function unquote(p: string): string {
   p = p.replace(/\t$/, '');
   if (p.length < 2 || !p.startsWith('"') || !p.endsWith('"')) return p;
   const src = Buffer.from(p.slice(1, -1), 'utf8');
-  const bytes = [];
+  const bytes: number[] = [];
   for (let i = 0; i < src.length; i++) {
     if (src[i] !== 92) {
       bytes.push(src[i]);
@@ -287,15 +330,11 @@ function unquote(p) {
 /**
  * Added and removed lines per file from a `-U0` diff. Hunk line counts are honoured, so an added
  * line that itself reads `++ b/x` cannot be mistaken for a file header.
- * @param {string} raw
- * @returns {Map<string, {added:{line:number, text:string}[], removed:string[]}>}
  */
-export function parseDiffLines(raw) {
-  /** @type {Map<string, {added:{line:number, text:string}[], removed:string[]}>} */
-  const files = new Map();
-  let oldPath = null;
-  /** @type {{added:{line:number, text:string}[], removed:string[]} | null} */
-  let cur = null;
+export function parseDiffLines(raw: string): Map<string, FileLines> {
+  const files = new Map<string, FileLines>();
+  let oldPath: string | null = null;
+  let cur: FileLines | null = null;
   let minus = 0;
   let plus = 0;
   let next = 0;
@@ -353,18 +392,17 @@ export function parseDiffLines(raw) {
  * report vouches for (tests and test/CI config). Verify treats any of these as an unclean worktree,
  * since the commands would run on files the report never saw. Forge's own eval checkouts
  * sparse-exclude `.forge/evals/`, and the standard git-lfs filter is trusted.
- * @param {string} cwd @param {any} config @returns {string[]}
  */
-export function hiddenChanges(cwd, config) {
-  const git = (/** @type {string[]} */ args, /** @type {string | undefined} */ input) => run('git', args, { cwd, input }).stdout;
-  const out = [];
-  const files = [];
-  let testRe = null;
+export function hiddenChanges(cwd: string, config: Pick<Config, 'commands' | 'services' | 'evals'>): string[] {
+  const git = (args: string[], input?: string) => run('git', args, { cwd, input }).stdout;
+  const out: string[] = [];
+  const files: string[] = [];
+  let testRe: RegExp | null = null;
   try {
     testRe = new RegExp(config.evals?.testPattern ?? DEFAULT_TEST_PATTERN);
   } catch {}
   const sources = new Set(commandSources(config));
-  const isWatched = (/** @type {string} */ p) => Boolean(testRe?.test(p) || isConfigPath(p) || ['package.json', 'Cargo.toml'].includes(path.posix.basename(p)) || sources.has(p));
+  const isWatched = (p: string) => Boolean(testRe?.test(p) || isConfigPath(p) || ['package.json', 'Cargo.toml'].includes(path.posix.basename(p)) || sources.has(p));
   const sparse = sparseSet(cwd);
   for (const entry of git(['ls-files', '-v', '-z']).split('\0')) {
     if (!entry) continue;
@@ -402,13 +440,12 @@ const CONE_LINE = /^(?:\/\*|!\/\*\/|\/.+\/|!\/.+\/\*\/)$/;
  * patterns, non-cone patterns, patterns git would refuse as cone) gets `cone: false`, and only
  * paths that are not tests or test config may be missing. Every failure here falls back to the
  * stricter answer.
- * @param {string} cwd @returns {{cone: boolean, excludes: (p: string) => boolean} | null}
  */
-function sparseSet(cwd) {
-  const cfg = (/** @type {string} */ key) => run('git', ['config', '--get', '--bool', key], { cwd, allowFail: true }).stdout.trim() === 'true';
+function sparseSet(cwd: string): { cone: boolean; excludes: (p: string) => boolean } | null {
+  const cfg = (key: string) => run('git', ['config', '--get', '--bool', key], { cwd, allowFail: true }).stdout.trim() === 'true';
   if (!cfg('core.sparseCheckout')) return null;
   const file = path.resolve(cwd, run('git', ['rev-parse', '--git-path', 'info/sparse-checkout'], { cwd }).stdout.trim());
-  let lines = [];
+  let lines: string[] = [];
   try {
     lines = fs.readFileSync(file, 'utf8').split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
   } catch {}
@@ -428,14 +465,12 @@ function sparseSet(cwd) {
 /**
  * Turns a report into an integrity error (fails `block`, printed under `warn`), for checks verify
  * could not complete; an unfinished check must never read as "no findings".
- * @param {any} report @param {string} message
  */
-export function integrityError(report, message) {
+export function integrityError(report: IntegrityReport, message: string): IntegrityReport {
   return { ...report, error: report.error ? `${report.error}; ${message}` : message, ok: report.mode !== 'block' };
 }
 
-/** @param {string} p */
-function isSymlink(p) {
+function isSymlink(p: string): boolean {
   try {
     return fs.lstatSync(p).isSymbolicLink();
   } catch {
@@ -443,17 +478,16 @@ function isSymlink(p) {
   }
 }
 
-const LINK_MODES = /** @type {Record<string, string>} */ ({ 120000: 'symlink', 160000: 'submodule' });
+const LINK_MODES: Record<string, string> = { 120000: 'symlink', 160000: 'submodule' };
 
 /**
  * How many commits the job branch's reflog records as made on it (`commit:` entries) are already
  * in the merge-base. Honest bases never contain them; a base ref moved onto the job's work does,
  * and would otherwise shrink the diff to nothing. A heuristic until the base sha is pinned per job.
- * @param {(args: string[]) => string} git @param {string | undefined} branch @param {string} mergeBase
  */
-function baseHasJobCommits(git, branch, mergeBase) {
+function baseHasJobCommits(git: (args: string[]) => string, branch: string | null | undefined, mergeBase: string): number {
   if (!branch) return 0;
-  let log;
+  let log: string;
   try {
     log = git(['reflog', 'show', '--format=%H %gs', `refs/heads/${branch}`, '--']);
   } catch {
@@ -478,26 +512,24 @@ function baseHasJobCommits(git, branch, mergeBase) {
 /**
  * The integrity report for `merge-base(base, HEAD)..HEAD` in the job's worktree. Never throws:
  * a report that cannot be computed carries `error`, and fails only under `block`.
- * @param {string} root @param {any} config @param {any} job
  */
-export function testIntegrity(root, config, job) {
+export function testIntegrity(root: string, config: Config, job: Pick<Job, 'id' | 'worktree' | 'base'> & { branch?: string | null }): IntegrityReport {
   const mode = config.verifyIntegrity === 'block' ? 'block' : 'warn';
-  /** @type {any} */
-  const report = { mode, base: null, mergeBase: null, head: null, deleted: [], renamed: [], markers: [], count: { before: 0, after: 0, delta: 0, files: [] }, configEdits: [], blocking: 0, findings: 0, ok: true };
+  const report: IntegrityReport = { mode, base: null, mergeBase: null, head: null, deleted: [], renamed: [], markers: [], count: { before: 0, after: 0, delta: 0, files: [] }, configEdits: [], blocking: 0, findings: 0, ok: true };
   try {
-    const cwd = job.worktree;
+    // verify runs this only for a job with a worktree.
+    const cwd = job.worktree!;
     const env = realHistoryEnv();
-    const git = (/** @type {string[]} */ args) => run('git', args, { cwd, env }).stdout;
+    const git = (args: string[]) => run('git', args, { cwd, env }).stdout;
     const { baseRef, mergeBase } = resolveBase(cwd, config, job);
     report.base = baseRef;
     report.mergeBase = mergeBase;
     report.head = git(['rev-parse', 'HEAD']).trim();
-    /** @type {RegExp} */
-    let testRe;
+    let testRe: RegExp;
     try {
       testRe = new RegExp(config.evals?.testPattern ?? DEFAULT_TEST_PATTERN);
     } catch (e) {
-      throw new ForgeError(`invalid evals.testPattern: ${/** @type {Error} */ (e).message}`);
+      throw new ForgeError(`invalid evals.testPattern: ${(e as Error).message}`);
     }
     // Repo config is writable from the job's worktree, so pin everything the parsers depend on:
     // quoting, prefixes, drivers, colour, hunk merging, blank-context rendering, relative paths and
@@ -508,18 +540,17 @@ export function testIntegrity(root, config, job) {
     ];
     const changes = parseRaw(git([...diffArgs, '--raw', '-z', mergeBase, 'HEAD']));
     const lines = parseDiffLines(git([...diffArgs, '--text', '-U0', mergeBase, 'HEAD']));
-    /** @param {string} rev @param {string | null} p @returns {string | null} */
-    const read = (rev, p) => {
+    const read = (rev: string, p: string | null): string | null => {
       if (!p) return null;
       const r = run('git', ['cat-file', 'blob', `${rev}:${p}`], { cwd, env, allowFail: true });
       return r.ok ? r.stdout : null;
     };
     // Config files with binary content are reported as unparseable rather than parsed.
-    const text = (/** @type {string} */ rev, /** @type {string | null} */ p) => {
+    const text = (rev: string, p: string | null) => {
       const t = read(rev, p);
       return t !== null && !t.includes('\0') ? t : null;
     };
-    const isTest = (/** @type {string | null} */ p) => Boolean(p && testRe.test(p));
+    const isTest = (p: string | null) => Boolean(p && testRe.test(p));
 
     const jobCommits = baseHasJobCommits(git, job.branch, mergeBase);
     if (jobCommits) throw new ForgeError(`base ${baseRef} already contains ${jobCommits} commit(s) made on ${job.branch}; its ref may have been moved, so the diff cannot be trusted`);
@@ -537,18 +568,20 @@ export function testIntegrity(root, config, job) {
         else if (gone) report.deleted.push({ path: c.from, why: `now a ${gone}`, inSpec: false });
         else if (c.status === 'R' && !isTest(c.to)) report.deleted.push({ path: c.from, to: c.to, why: 'renamed out of the test pattern', inSpec: false });
         // Only an explicit "Move `from` to `to`" in the spec sanctions this; a rename out of the pattern never.
-        else if (c.status === 'R' && renameDropsTest(c.from, /** @type {string} */ (c.to)))
-          report.deleted.push({ path: c.from, to: c.to, why: 'moved where the runner may not pick it up', inSpec: renameSanctioned(moves, c.from, /** @type {string} */ (c.to)) });
-        else if (c.status === 'R') report.renamed.push({ from: c.from, to: c.to });
+        else if (c.status === 'R' && renameDropsTest(c.from, c.to as string))
+          report.deleted.push({ path: c.from, to: c.to, why: 'moved where the runner may not pick it up', inSpec: renameSanctioned(moves, c.from, c.to as string) });
+        // A rename has both sides.
+        else if (c.status === 'R') report.renamed.push({ from: c.from, to: c.to! });
       }
       if (isTest(c.from) || isTest(c.to)) {
         const before = isTest(c.from) ? countTestDecls(read(mergeBase, c.from) ?? '') : 0;
         // A symlink, a submodule or a rename the runner may not pick up no longer runs, whatever it contains.
-        const runs = isTest(c.to) && !LINK_MODES[c.newMode] && !(c.status === 'R' && isTest(c.from) && renameDropsTest(/** @type {string} */ (c.from), /** @type {string} */ (c.to)));
+        const runs = isTest(c.to) && !LINK_MODES[c.newMode] && !(c.status === 'R' && isTest(c.from) && renameDropsTest(c.from as string, c.to as string));
         const after = runs ? countTestDecls(read('HEAD', c.to) ?? '') : 0;
         report.count.before += before;
         report.count.after += after;
-        if (before !== after) report.count.files.push({ path: c.to ?? c.from, before, after });
+        // One side is a test, so at least one path is set.
+        if (before !== after) report.count.files.push({ path: c.to ?? c.from!, before, after });
       }
       const edit = configEdit(c, sources, text, mergeBase);
       if (edit) report.configEdits.push(edit);
@@ -560,7 +593,7 @@ export function testIntegrity(root, config, job) {
       const hits = added.filter((a) => markerHits(file, a.text, t));
       if (!hits.length) continue;
       // Only the same marker moved or reindented cancels out; an unrelated removed line does not.
-      const norm = (/** @type {string} */ x) => x.replace(/\s+/g, '');
+      const norm = (x: string) => x.replace(/\s+/g, '');
       const pool = removed.filter((r) => markerHits(file, r, t)).map(norm);
       const unmatched = hits.filter((h) => {
         const i = pool.indexOf(norm(h.text));
@@ -573,23 +606,23 @@ export function testIntegrity(root, config, job) {
       for (const h of hits) report.markers.push({ path: file, line: h.line, text: h.text.trim() });
     }
   } catch (e) {
-    report.error = /** @type {Error} */ (e).message;
+    report.error = (e as Error).message;
     report.ok = mode !== 'block';
     return report;
   }
-  report.blocking = report.deleted.filter((/** @type {any} */ d) => !d.inSpec).length + report.markers.length;
+  report.blocking = report.deleted.filter((d) => !d.inSpec).length + report.markers.length;
   report.findings = report.deleted.length + report.renamed.length + report.markers.length + report.configEdits.length + (report.count.delta < 0 ? 1 : 0);
   report.ok = mode !== 'block' || report.blocking === 0;
   return report;
 }
 
-/**
- * @param {{status:string, from:string|null, to:string|null}} c @param {Set<string>} sources
- * @param {(rev:string, p:string|null) => string|null} show @param {string} mergeBase
- * @returns {{path:string, detail:string} | null}
- */
-function configEdit(c, sources, show, mergeBase) {
-  const p = /** @type {string} */ (c.to ?? c.from);
+function configEdit(
+  c: { status: string; from: string | null; to: string | null },
+  sources: Set<string>,
+  show: (rev: string, p: string | null) => string | null,
+  mergeBase: string,
+): { path: string; detail: string } | null {
+  const p = (c.to ?? c.from) as string;
   const detail = c.status === 'A' || c.status === 'C' ? 'added' : c.status === 'D' ? 'deleted' : c.status === 'R' ? `renamed from ${c.from}` : 'edited';
   const names = [c.from, c.to].filter((x) => x !== null);
   const base = path.posix.basename(p);
@@ -612,37 +645,32 @@ function configEdit(c, sources, show, mergeBase) {
 /**
  * Paths and details come from the builder's commits: escape control characters so a file name
  * with a newline cannot start a heading or a fake instruction line in agent-read markdown.
- * @param {string} s
  */
-const clean = (s) => String(s).replace(/[\x00-\x1f\x7f\u2028\u2029]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
+const clean = (s: string): string => String(s).replace(/[\x00-\x1f\x7f\u2028\u2029]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
 
-/** An inline code span whose delimiter is longer than any backtick run inside it. @param {string} p */
-const code = (p) => {
+/** An inline code span whose delimiter is longer than any backtick run inside it. */
+const code = (p: string): string => {
   const c = clean(p);
   if (!c.includes('`')) return `\`${c}\``;
   const fence = '`'.repeat(Math.max(...(c.match(/`+/g) ?? ['']).map((r) => r.length)) + 1);
   return `${fence} ${c} ${fence}`;
 };
 
-/** @param {any} d */
-const deletedSuffix = (d) => `${d.to ? ` → ${code(d.to)}` : ''}${d.why ? ` (${d.why})` : ''}${d.inSpec ? ' (named in spec)' : ''}`;
+const deletedSuffix = (d: DeletedTest): string => `${d.to ? ` → ${code(d.to)}` : ''}${d.why ? ` (${d.why})` : ''}${d.inSpec ? ' (named in spec)' : ''}`;
 
-/** @param {any} report */
-function heading(report) {
+function heading(report: IntegrityReport): string {
   if (report.error) return 'error';
   if (report.mode === 'block' && report.blocking > 0) return `FAILED (${report.blocking} blocking)`;
   if (report.findings > 0) return `WARN (${report.findings} finding${report.findings === 1 ? '' : 's'})`;
   return 'ok';
 }
 
-/** @param {number} n */
-const signed = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '±0');
+const signed = (n: number): string => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : '±0');
 
 /**
  * The `## integrity` section of verify/round-N.md, with every finding listed.
- * @param {any} report @returns {string}
  */
-export function renderIntegrity(report) {
+export function renderIntegrity(report: IntegrityReport): string {
   const c = report.count;
   const base = report.base ? `base ${code(report.base)}${report.mergeBase ? ` @ ${report.mergeBase.slice(0, 7)}` : ''}` : 'base unresolved';
   const lines = [`## integrity: ${heading(report)}`, '', `Mode \`${report.mode}\` · ${base} · test declarations ${c.before} → ${c.after} (${signed(c.delta)})`, ''];
@@ -654,34 +682,31 @@ export function renderIntegrity(report) {
     lines.push('No deleted or renamed tests, skip/focus markers, test-count drop or test/CI config edits.', '');
     return lines.join('\n');
   }
-  /** @param {string} title @param {string[]} items */
-  const section = (title, items) => {
+  const section = (title: string, items: string[]) => {
     if (items.length) lines.push(`### ${title} (${items.length})`, '', ...items, '');
   };
   section(
     'Deleted test files',
-    report.deleted.map((/** @type {any} */ d) => `- ${code(d.path)}${deletedSuffix(d)}`),
+    report.deleted.map((d) => `- ${code(d.path)}${deletedSuffix(d)}`),
   );
-  section('Renamed test files', report.renamed.map((/** @type {any} */ r) => `- ${code(r.from)} → ${code(r.to)}`));
+  section('Renamed test files', report.renamed.map((r) => `- ${code(r.from)} → ${code(r.to)}`));
   if (report.markers.length) {
     // A text fence, so backticks in the marked line cannot break the markdown.
-    const marked = report.markers.map((/** @type {any} */ m) => clean(`${m.path}:${m.line}: ${m.text.length > 160 ? `${m.text.slice(0, 160)}…` : m.text}`).replace(/```/g, "'''"));
+    const marked = report.markers.map((m) => clean(`${m.path}:${m.line}: ${m.text.length > 160 ? `${m.text.slice(0, 160)}…` : m.text}`).replace(/```/g, "'''"));
     lines.push(`### Skip/focus markers added (${report.markers.length})`, '', '```text', ...marked, '```', '');
   }
-  if (c.delta < 0) section('Test count dropped', c.files.filter((/** @type {any} */ f) => f.after < f.before).map((/** @type {any} */ f) => `- ${code(f.path)}: ${f.before} → ${f.after}`));
-  section('Test, build or CI config edits', report.configEdits.map((/** @type {any} */ e) => `- ${code(e.path)}: ${clean(e.detail)}`));
+  if (c.delta < 0) section('Test count dropped', c.files.filter((f) => f.after < f.before).map((f) => `- ${code(f.path)}: ${f.before} → ${f.after}`));
+  section('Test, build or CI config edits', report.configEdits.map((e) => `- ${code(e.path)}: ${clean(e.detail)}`));
   return lines.join('\n');
 }
 
 /**
  * The compact `integrity` key of verify's JSON: each list capped, `more` counts what was dropped.
- * @param {any} report
  */
-export function compactIntegrity(report) {
+export function compactIntegrity(report: IntegrityReport): CompactIntegrity {
   if (report.error) return { mode: report.mode, ok: report.ok, error: report.error };
   let more = 0;
-  /** @param {string[]} xs */
-  const cap = (xs) => {
+  const cap = (xs: string[]) => {
     more += Math.max(0, xs.length - JSON_LIST_LIMIT);
     return xs.slice(0, JSON_LIST_LIMIT);
   };
@@ -691,20 +716,20 @@ export function compactIntegrity(report) {
     base: report.base,
     findings: report.findings,
     blocking: report.blocking,
-    deletedTests: cap(report.deleted.map((/** @type {any} */ d) => `${d.path}${d.to ? ` -> ${d.to}` : d.why ? ` (${d.why})` : ''}${d.inSpec ? ' (in spec)' : ''}`)),
-    renamedTests: cap(report.renamed.map((/** @type {any} */ r) => `${r.from} -> ${r.to}`)),
-    skipMarkers: cap(report.markers.map((/** @type {any} */ m) => `${m.path}:${m.line}`)),
+    deletedTests: cap(report.deleted.map((d) => `${d.path}${d.to ? ` -> ${d.to}` : d.why ? ` (${d.why})` : ''}${d.inSpec ? ' (in spec)' : ''}`)),
+    renamedTests: cap(report.renamed.map((r) => `${r.from} -> ${r.to}`)),
+    skipMarkers: cap(report.markers.map((m) => `${m.path}:${m.line}`)),
     testCount: { before: report.count.before, after: report.count.after, delta: report.count.delta },
-    configEdits: cap(report.configEdits.map((/** @type {any} */ e) => e.path)),
+    configEdits: cap(report.configEdits.map((e) => e.path)),
     more,
   };
 }
 
-/** One line per blocking finding, for verify's `failure.tail`. @param {any} report */
-export function blockingLines(report) {
+/** One line per blocking finding, for verify's `failure.tail`. */
+export function blockingLines(report: IntegrityReport): string {
   if (report.error) return report.error;
   return [
-    ...report.deleted.filter((/** @type {any} */ d) => !d.inSpec).map((/** @type {any} */ d) => clean(`deleted ${d.path}${d.to ? ` (${d.why}: ${d.to})` : d.why ? ` (${d.why})` : ''}`)),
-    ...report.markers.map((/** @type {any} */ m) => clean(`skip marker ${m.path}:${m.line}`)),
+    ...report.deleted.filter((d) => !d.inSpec).map((d) => clean(`deleted ${d.path}${d.to ? ` (${d.why}: ${d.to})` : d.why ? ` (${d.why})` : ''}`)),
+    ...report.markers.map((m) => clean(`skip marker ${m.path}:${m.line}`)),
   ].join('\n');
 }

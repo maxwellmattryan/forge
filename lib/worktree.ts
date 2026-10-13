@@ -2,41 +2,86 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { enforceBudget } from './budget.mjs';
+import { enforceBudget } from './budget.ts';
 import { loadConfig, worktreeRoot } from './config.ts';
-import { e2ePlan } from './e2e.mjs';
-import { stackSource } from './deps.mjs';
-import { blockingLines, compactIntegrity, hiddenChanges, integrityError, renderIntegrity, testIntegrity } from './integrity.mjs';
+import { e2ePlan } from './e2e.ts';
+import { stackSource } from './deps.ts';
+import { blockingLines, compactIntegrity, hiddenChanges, integrityError, renderIntegrity, testIntegrity } from './integrity.ts';
+import type { CompactIntegrity, IntegrityReport } from './integrity.ts';
 import { listJobs, isActive, loadJob, logEvent, setJob, touchJob, updateJob, jobDir } from './jobs.ts';
 import { exists, resolveFrom } from './paths.ts';
+import type { Config, Job, ServiceConfig, VerifyRun } from './types.ts';
 import { ForgeError, fill, now, readJson, run, tail, withLock, writeJsonAtomic } from './util.ts';
 
-/** @param {string} root @param {string} branch @param {string} remote */
-function branchState(root, branch, remote) {
+/** What `forge worktree create` returns: createWorktree. */
+export type CreateWorktreeResult =
+  | { path: string; created: false; ok?: undefined }
+  | { path: string; created: true; port: number; stackedOn?: string; base?: string; setup: { cmd: string; ok: boolean; tail: string }[]; ok: boolean };
+
+/** What `forge run` returns: runCommand. */
+export interface CommandResult {
+  name: string;
+  cmd: string;
+  ok: boolean;
+  exit: number | null;
+  durationMs: number;
+  log: string;
+  tail: string;
+}
+
+/** One verify step: a command's result, a skipped step, or a gate verify adds itself (worktree-clean, integrity). */
+export interface VerifyStep {
+  name: string;
+  ok: boolean;
+  exit?: number | null;
+  tail?: string;
+  skipped?: boolean;
+  reason?: string;
+  cmd?: string;
+  log?: string;
+  durationMs?: number;
+}
+
+/** What `forge verify` returns: verify. */
+export interface VerifyResult {
+  ok: boolean;
+  round: number;
+  attempt: number;
+  sha: string;
+  file: string;
+  steps: Omit<VerifyStep, 'tail'>[];
+  failure: VerifyStep | undefined;
+  integrity: CompactIntegrity | null;
+  budget?: NonNullable<ReturnType<typeof enforceBudget>>;
+}
+
+function branchState(root: string, branch: string, remote: string): { local: boolean; remote: boolean } {
   const local = run('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { cwd: root, allowFail: true }).ok;
   const remoteRef = run('git', ['rev-parse', '--verify', '--quiet', `refs/remotes/${remote}/${branch}`], { cwd: root, allowFail: true }).ok;
   return { local, remote: remoteRef };
 }
 
-/**
- * @param {string} root @param {any} config @param {string} id
- * @param {{from?:string, sparseExclude?:string[], isolate?:boolean}} [opts]
- */
-export function createWorktree(root, config, id, opts = {}) {
+export function createWorktree(
+  root: string,
+  config: Config,
+  id: string,
+  opts: { from?: string; sparseExclude?: string[]; isolate?: boolean } = {},
+): CreateWorktreeResult {
   const job = loadJob(root, id);
   const wtRoot = worktreeRoot(root, config);
   const dir = path.join(wtRoot, id);
   if (job.worktree && exists(job.worktree)) return { path: job.worktree, created: false };
   const remote = config.git.remote;
   run('git', ['fetch', remote, '--prune'], { cwd: root, allowFail: true });
-  const st = opts.isolate ? null : branchState(root, job.branch, remote);
+  // createJob always sets branch and base; the `!`s below rely on it.
+  const st = opts.isolate ? null : branchState(root, job.branch!, remote);
   // A new branch stacks on the one dependency that has not merged yet. Checked before anything
   // is created, so a refusal leaves no worktree and no job changes behind.
   const stack = st && !st.local && !st.remote && !opts.from ? stackSource(root, config, job) : null;
   fs.mkdirSync(wtRoot, { recursive: true });
-  const defaultStart = () => opts.from ?? (run('git', ['rev-parse', '--verify', '--quiet', `${remote}/${job.base}`], { cwd: root, allowFail: true }).ok ? `${remote}/${job.base}` : job.base);
+  const defaultStart = () => opts.from ?? (run('git', ['rev-parse', '--verify', '--quiet', `${remote}/${job.base}`], { cwd: root, allowFail: true }).ok ? `${remote}/${job.base}` : job.base!);
   if (opts.isolate || !st) {
-    cloneIsolated(root, defaultStart(), dir, job.branch, job.base, opts.sparseExclude ?? []);
+    cloneIsolated(root, defaultStart(), dir, job.branch!, job.base!, opts.sparseExclude ?? []);
   } else {
     addWorktree(root, dir, job, remote, st, opts.sparseExclude ?? [], stack ? () => stack.start : defaultStart);
   }
@@ -52,7 +97,7 @@ export function createWorktree(root, config, id, opts = {}) {
   const port = allocatePort(root, config, id);
   setJob(root, id, { fields: { worktree: dir, port } });
   logEvent(root, id, 'worktree', { path: dir, port });
-  const setupLog = [];
+  const setupLog: { cmd: string; ok: boolean; tail: string }[] = [];
   for (const cmd of config.worktrees.setup ?? []) {
     const res = shell(fill(cmd, vars(root, job, dir, port)), dir, envFor(job, dir, port));
     setupLog.push({ cmd, ok: res.ok, tail: tail(res.output, 15) });
@@ -64,18 +109,23 @@ export function createWorktree(root, config, id, opts = {}) {
   return { path: dir, created: true, port, ...stacked, setup: setupLog, ok: true };
 }
 
-/**
- * @param {string} root @param {string} dir @param {any} job @param {string} remote
- * @param {{local:boolean, remote:boolean}} st @param {string[]} sparseExclude @param {() => string} start
- */
-function addWorktree(root, dir, job, remote, st, sparseExclude, start) {
+function addWorktree(
+  root: string,
+  dir: string,
+  job: Job,
+  remote: string,
+  st: { local: boolean; remote: boolean },
+  sparseExclude: string[],
+  start: () => string,
+): void {
   const checkoutArgs = sparseExclude.length ? ['--no-checkout'] : [];
+  // createJob always sets branch.
   if (st.local) {
-    run('git', ['worktree', 'add', ...checkoutArgs, dir, job.branch], { cwd: root });
+    run('git', ['worktree', 'add', ...checkoutArgs, dir, job.branch!], { cwd: root });
   } else if (st.remote) {
-    run('git', ['worktree', 'add', ...checkoutArgs, '--track', '-b', job.branch, dir, `${remote}/${job.branch}`], { cwd: root });
+    run('git', ['worktree', 'add', ...checkoutArgs, '--track', '-b', job.branch!, dir, `${remote}/${job.branch}`], { cwd: root });
   } else {
-    run('git', ['worktree', 'add', ...checkoutArgs, '--no-track', '-b', job.branch, dir, start()], { cwd: root });
+    run('git', ['worktree', 'add', ...checkoutArgs, '--no-track', '-b', job.branch!, dir, start()], { cwd: root });
   }
   if (sparseExclude.length) {
     sparseCheckout(dir, sparseExclude);
@@ -83,8 +133,7 @@ function addWorktree(root, dir, job, remote, st, sparseExclude, start) {
   }
 }
 
-/** @param {string} dir @param {string[]} exclude @param {NodeJS.ProcessEnv} [env] */
-function sparseCheckout(dir, exclude, env) {
+function sparseCheckout(dir: string, exclude: string[], env?: NodeJS.ProcessEnv): void {
   run('git', ['sparse-checkout', 'set', '--no-cone', '/*', ...exclude.map((p) => `!/${p.replace(/^\/+/, '')}`)], { cwd: dir, env });
 }
 
@@ -92,16 +141,15 @@ function sparseCheckout(dir, exclude, env) {
  * A git worktree shares the main checkout's object store and refs, so an eval builder could
  * read the real fix with `git log --all`. A standalone shallow clone holds only the base commit.
  * The base branch name points at it too, so `git diff <base>...HEAD` keeps working for reviewers.
- * @param {string} root @param {string} start @param {string} dir @param {string} branch @param {string} base @param {string[]} sparseExclude
  */
-function cloneIsolated(root, start, dir, branch, base, sparseExclude) {
+function cloneIsolated(root: string, start: string, dir: string, branch: string, base: string, sparseExclude: string[]): void {
   const resolved = run('git', ['rev-parse', '--verify', '--quiet', `${start}^{commit}`], { cwd: root, allowFail: true });
   if (!resolved.ok) throw new ForgeError(`eval base ${start} not found in the main checkout`);
   const sha = resolved.stdout.trim();
   // An inherited GIT_DIR (e.g. Forge run from a git hook) would point these commands at another repository.
   const env = { ...process.env };
   for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR']) delete env[k];
-  const git = (/** @type {string[]} */ args, cwd = dir) => run('git', args, { cwd, env });
+  const git = (args: string[], cwd = dir) => run('git', args, { cwd, env });
   // Never reuse a leftover directory: cleanup on failure would delete whatever was in it.
   if (exists(dir)) throw new ForgeError(`${dir} already exists; remove it before starting the eval`);
   try {
@@ -130,11 +178,10 @@ function cloneIsolated(root, start, dir, branch, base, sparseExclude) {
  * would otherwise be invisible to agents working there.
  * Paths excluded from a sparse checkout stay excluded: a broad entry like `.forge/**` must not
  * copy hidden eval checks back in.
- * @param {string} root @param {string} dir @param {string[]} entries @param {string[]} [exclude]
  */
-function copyUntracked(root, dir, entries, exclude = []) {
+function copyUntracked(root: string, dir: string, entries: string[], exclude: string[] = []): void {
   const hidden = exclude.map((p) => p.replace(/^\/+|\/+$/g, ''));
-  const isHidden = (/** @type {string} */ rel) => {
+  const isHidden = (rel: string) => {
     const r = path.normalize(rel).replace(/\\/g, '/');
     return hidden.some((h) => r === h || r.startsWith(`${h}/`) || h.startsWith(`${r}/`));
   };
@@ -154,9 +201,8 @@ function copyUntracked(root, dir, entries, exclude = []) {
 /**
  * Minimal glob: "**" crosses directories, "*" does not. Untracked-only lookups keep it fast
  * because git already knows which ignored files exist.
- * @param {string} root @param {string} pattern
  */
-function globFiles(root, pattern) {
+function globFiles(root: string, pattern: string): string[] {
   const re = new RegExp(
     '^' +
       pattern
@@ -174,9 +220,8 @@ function globFiles(root, pattern) {
 /**
  * Cargo discovers config by walking up from the working directory, so one file above all
  * worktrees points every job at a single target dir: dependencies compile once, not per job.
- * @param {string} root @param {any} config @param {string} wtRoot
  */
-function writeSharedCargoTarget(root, config, wtRoot) {
+function writeSharedCargoTarget(root: string, config: Config, wtRoot: string): void {
   const td = config.worktrees.cargo.targetDir;
   const target = td === 'main' ? path.join(root, 'target') : td ? resolveFrom(root, td) : path.join(wtRoot, '.cargo-target');
   const cfgDir = path.join(wtRoot, '.cargo');
@@ -186,48 +231,42 @@ function writeSharedCargoTarget(root, config, wtRoot) {
   if (!exists(file) || fs.readFileSync(file, 'utf8') !== body) fs.writeFileSync(file, body);
 }
 
-/** @param {string} root @param {any} config @param {string} id */
-function allocatePort(root, config, id) {
+function allocatePort(root: string, config: Config, id: string): number {
   const taken = new Set(listJobs(root).filter((j) => isActive(j) && j.id !== id && j.port).map((j) => j.port));
   for (let p = config.ports.base; p < config.ports.base + config.ports.span; p++) if (!taken.has(p)) return p;
   throw new ForgeError(`no free port in ${config.ports.base}-${config.ports.base + config.ports.span - 1}`);
 }
 
-/** @param {string} root @param {any} job @param {string} dir @param {number|null} port */
-function vars(root, job, dir, port) {
-  return { job: job.id, port: port ?? '', worktree: dir, root, branch: job.branch, base: job.base };
+function vars(root: string, job: Job, dir: string, port: number | null): Record<string, string | number> {
+  // createJob always sets branch and base.
+  return { job: job.id, port: port ?? '', worktree: dir, root, branch: job.branch!, base: job.base! };
 }
 
-/** @param {any} job @param {string} dir @param {number|null} port */
-function envFor(job, dir, port) {
+function envFor(job: Job, dir: string, port: number | null): NodeJS.ProcessEnv {
   return { ...process.env, FORGE_JOB: job.id, FORGE_WORKTREE: dir, PORT: port ? String(port) : '', FORGE_PORT: port ? String(port) : '' };
 }
 
-/** @param {string} cmd @param {string} cwd @param {NodeJS.ProcessEnv} env */
-function shell(cmd, cwd, env) {
+function shell(cmd: string, cwd: string, env: NodeJS.ProcessEnv): { ok: boolean; status: number | null; output: string } {
   const res = run(process.env.SHELL || '/bin/sh', ['-lc', cmd], { cwd, env, allowFail: true });
   return { ok: res.ok, status: res.status, output: `${res.stdout}${res.stderr ? `\n${res.stderr}` : ''}` };
 }
 
 /**
  * A job touching exactly one service uses that service's command, else the top-level one.
- * @param {any} config @param {any} job @param {string} name @returns {string|null}
  */
-export function commandTemplate(config, job, name) {
+export function commandTemplate(config: Config, job: Job, name: string): string | null {
   return jobService(config, job)?.commands?.[name] ?? config.commands[name] ?? null;
 }
 
-/** @param {any} config @param {any} job @returns {any} */
-function jobService(config, job) {
-  return job.services.length === 1 ? config.services.find((/** @type {any} */ s) => s.name === job.services[0]) ?? null : null;
+function jobService(config: Config, job: Job): ServiceConfig | null {
+  return job.services.length === 1 ? config.services.find((s) => s.name === job.services[0]) ?? null : null;
 }
 
 /**
  * Runs a configured command inside the job's worktree. Full output goes to a log file and only
  * a tail comes back, so agents spend context on failures rather than on passing build noise.
- * @param {string} root @param {any} config @param {string} id @param {string} name @param {{tail?:number, label?:string}} [opts]
  */
-export function runCommand(root, config, id, name, opts = {}) {
+export function runCommand(root: string, config: Config, id: string, name: string, opts: { tail?: number; label?: string } = {}): CommandResult {
   const job = loadJob(root, id);
   const service = jobService(config, job);
   const template = commandTemplate(config, job, name);
@@ -253,29 +292,26 @@ export function runCommand(root, config, id, name, opts = {}) {
  * otherwise cost a full round of reviewer agents. Every run is evidence bound to the commit
  * it checked: it records the HEAD sha and keeps earlier attempts instead of overwriting them.
  * Uncommitted changes fail the gate first, because reviewers and the PR only ever see commits.
- * @param {string} root @param {any} config @param {string} id
  */
-export function verify(root, config, id) {
+export function verify(root: string, config: Config, id: string): VerifyResult {
   const job = loadJob(root, id);
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
   const sha = run('git', ['rev-parse', 'HEAD'], { cwd: job.worktree }).stdout.trim();
   // fsmonitor, untracked-file and submodule settings are repo config the worktree can write, and each can hide changes.
   const status = ['-c', 'core.fsmonitor=false', 'status', '--porcelain', '--untracked-files=normal', '--ignore-submodules=none'];
   const changed = run('git', status, { cwd: job.worktree }).stdout.trim();
-  let hiddenError = null;
+  let hiddenError: string | null = null;
   let hidden = '';
   if (!changed) {
     try {
       hidden = hiddenChanges(job.worktree, config).join('\n');
     } catch (e) {
-      hiddenError = /** @type {Error} */ (e).message;
+      hiddenError = (e as Error).message;
     }
   }
   const dirty = changed || hidden;
-  /** @type {any[]} */
-  const results = [];
-  /** @type {any} */
-  let integrity = null;
+  const results: VerifyStep[] = [];
+  let integrity: IntegrityReport | null = null;
   if (dirty) {
     results.push({ name: 'worktree-clean', ok: false, exit: null, tail: dirty });
   } else {
@@ -299,28 +335,28 @@ export function verify(root, config, id) {
     if (!integrity.ok) results.push({ name: 'integrity', ok: false, exit: null, tail: blockingLines(integrity) });
   }
   const ok = results.every((r) => r.ok);
-  const attempt = job.verifyRuns.filter((/** @type {any} */ r) => r.round === job.round).length + 1;
+  const attempt = job.verifyRuns.filter((r) => r.round === job.round).length + 1;
   const lines = [`VERIFY: ${ok ? 'PASS' : 'FAIL'}`, '', `Round ${job.round} · attempt ${attempt} · ${sha.slice(0, 12)} · ${now()}`, ''];
   for (const r of results) {
     if (r.name === 'worktree-clean') {
-      lines.push('## worktree-clean: FAILED (uncommitted or hidden changes)', '', 'Commit or discard these (or clear the index flags and filters) before verify can run:', '', '```', r.tail, '```', '');
+      lines.push('## worktree-clean: FAILED (uncommitted or hidden changes)', '', 'Commit or discard these (or clear the index flags and filters) before verify can run:', '', '```', r.tail!, '```', ''); // the gate's tail lists the changes
       continue;
     }
     if (r.name === 'integrity') continue;
     lines.push(`## ${r.name}: ${r.skipped ? `skipped (${r.reason ?? 'no command configured'})` : r.ok ? 'ok' : `FAILED (exit ${r.exit})`}`);
     if ('cmd' in r) lines.push('', '`' + r.cmd + '` · log: `' + r.log + '`');
     if (r.reason && !r.skipped) lines.push('', `Trigger: ${r.reason}`);
-    if ('tail' in r && !r.ok) lines.push('', '```', r.tail, '```');
+    if ('tail' in r && !r.ok) lines.push('', '```', r.tail!, '```'); // 'tail' in r: the step has one
     lines.push('');
   }
   if (integrity) lines.push(renderIntegrity(integrity));
   const dir = path.join(jobDir(root, id), 'verify');
   fs.mkdirSync(dir, { recursive: true });
   const latest = path.join(dir, `round-${job.round}.md`);
-  const previous = job.verifyRuns.filter((/** @type {any} */ r) => r.round === job.round).pop();
+  const previous = job.verifyRuns.filter((r) => r.round === job.round).pop();
   if (previous && exists(latest)) fs.renameSync(latest, path.join(dir, `round-${job.round}-attempt-${previous.attempt}.md`));
   fs.writeFileSync(latest, lines.join('\n'));
-  const rec = { round: job.round, attempt, sha, ok, at: now(), file: path.relative(jobDir(root, id), latest) };
+  const rec: VerifyRun = { round: job.round, attempt, sha, ok, at: now(), file: path.relative(jobDir(root, id), latest) };
   updateJob(root, id, (j) => {
     j.verify[job.round] = ok ? 'PASS' : 'FAIL';
     j.verifyRuns.push(rec);
@@ -335,9 +371,8 @@ export function verify(root, config, id) {
 /**
  * Whether the worktree's HEAD is the commit the latest verify run passed on. Anything that
  * publishes a branch should refuse when it is not: evidence for an older commit is not evidence.
- * @param {string} root @param {string} id
  */
-export function verifiedHead(root, id) {
+export function verifiedHead(root: string, id: string): { head: string; last: VerifyRun | null; verified: boolean } {
   const job = loadJob(root, id);
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree`);
   const head = run('git', ['rev-parse', 'HEAD'], { cwd: job.worktree }).stdout.trim();
@@ -350,9 +385,13 @@ export function verifiedHead(root, id) {
  * Idempotent per command: parallel reviewers share one job port, so a live recorded process is
  * returned instead of starting a second one that would collide on it. A live process whose port
  * does not answer yet is still reused (it may be booting); callers poll until `listening`.
- * @param {string} root @param {any} config @param {string} id @param {string} name
  */
-export async function startBackground(root, config, id, name) {
+export async function startBackground(
+  root: string,
+  config: Config,
+  id: string,
+  name: string,
+): Promise<{ pid: number | undefined; port: number | null; log: string; reused: boolean; listening: boolean | null }> {
   const job = loadJob(root, id);
   const template = config.commands[name];
   if (!template) throw new ForgeError(`no "${name}" command configured`);
@@ -368,9 +407,10 @@ export async function startBackground(root, config, id, name) {
     const logFile = path.join(dir, 'logs', `${name}.log`);
     fs.mkdirSync(path.dirname(logFile), { recursive: true });
     const fd = fs.openSync(logFile, 'a');
-    const child = spawn(process.env.SHELL || '/bin/sh', ['-lc', fill(template, vars(root, job, job.worktree, job.port))], {
-      cwd: job.worktree,
-      env: envFor(job, job.worktree, job.port),
+    // Checked above; the narrowing does not reach into this callback.
+    const child = spawn(process.env.SHELL || '/bin/sh', ['-lc', fill(template, vars(root, job, job.worktree!, job.port))], {
+      cwd: job.worktree!,
+      env: envFor(job, job.worktree!, job.port),
       detached: true,
       stdio: ['ignore', fd, fd],
     });
@@ -388,9 +428,8 @@ export async function startBackground(root, config, id, name) {
 /**
  * The process group first (the shell's children keep it alive), then the pid. EPERM counts as
  * dead too: a process we may not signal is not ours, so the pid was reused.
- * @param {unknown} pid
  */
-export function pidAlive(pid) {
+export function pidAlive(pid: unknown): boolean {
   if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return false;
   for (const target of [-pid, pid]) {
     try {
@@ -401,12 +440,12 @@ export function pidAlive(pid) {
   return false;
 }
 
-/** Whether something accepts TCP connections on the port, over IPv4 then IPv6. @param {number} port */
-async function portAnswers(port) {
+/** Whether something accepts TCP connections on the port, over IPv4 then IPv6. */
+async function portAnswers(port: number): Promise<boolean> {
   for (const host of ['127.0.0.1', '::1']) {
     const ok = await new Promise((resolve) => {
       const sock = net.connect({ port, host });
-      const done = (/** @type {boolean} */ v) => {
+      const done = (v: boolean) => {
         clearTimeout(timer);
         sock.destroy();
         resolve(v);
@@ -420,18 +459,17 @@ async function portAnswers(port) {
   return false;
 }
 
-/** @param {string} root @param {string} id */
-export function stopBackground(root, id) {
+export function stopBackground(root: string, id: string): string[] {
   const pidFile = path.join(jobDir(root, id), 'runtime.json');
   const rt = readJson(pidFile, {});
-  const stopped = [];
+  const stopped: string[] = [];
   for (const [name, info] of Object.entries(rt)) {
     try {
-      process.kill(-/** @type {any} */ (info).pid, 'SIGTERM');
+      process.kill(-(info as any).pid, 'SIGTERM');
       stopped.push(name);
     } catch {
       try {
-        process.kill(/** @type {any} */ (info).pid, 'SIGTERM');
+        process.kill((info as any).pid, 'SIGTERM');
         stopped.push(name);
       } catch {}
     }
@@ -441,33 +479,33 @@ export function stopBackground(root, id) {
   return stopped;
 }
 
-/** @param {string} root @param {string} id @param {{deleteBranch?:boolean, force?:boolean}} [opts] */
-export function removeWorktree(root, id, opts = {}) {
+export function removeWorktree(root: string, id: string, opts: { deleteBranch?: boolean; force?: boolean } = {}): { removed: string | null } {
   const job = loadJob(root, id);
   stopBackground(root, id);
   // Eval jobs get a standalone clone (a .git directory) that `git worktree remove` does not know.
   const standalone = Boolean(job.worktree && exists(job.worktree) && isDir(path.join(job.worktree, '.git')));
   if (standalone) {
     // job.worktree is writable job state; deleting a directory is only safe for an eval clone Forge made.
-    if (!job.eval || !insideDir(worktreeRoot(root, loadConfig(root).config), job.worktree) || insideDir(job.worktree, root) || realpath(job.worktree) === realpath(root)) {
+    // standalone implies job.worktree is set, here and below.
+    if (!job.eval || !insideDir(worktreeRoot(root, loadConfig(root).config), job.worktree!) || insideDir(job.worktree!, root) || realpath(job.worktree!) === realpath(root)) {
       throw new ForgeError(`refusing to delete ${job.worktree}: not an eval checkout inside the worktrees root`);
     }
-    if (!opts.force && run('git', ['status', '--porcelain'], { cwd: job.worktree }).stdout.trim()) {
+    if (!opts.force && run('git', ['status', '--porcelain'], { cwd: job.worktree! }).stdout.trim()) {
       throw new ForgeError(`${job.worktree} has uncommitted changes; use --force to remove it anyway`);
     }
-    fs.rmSync(job.worktree, { recursive: true, force: true });
+    fs.rmSync(job.worktree!, { recursive: true, force: true });
   } else if (job.worktree && exists(job.worktree)) {
     run('git', ['worktree', 'remove', ...(opts.force ? ['--force'] : []), job.worktree], { cwd: root });
   }
   run('git', ['worktree', 'prune'], { cwd: root, allowFail: true });
-  if (opts.deleteBranch && !standalone) run('git', ['branch', '-D', job.branch], { cwd: root, allowFail: true });
+  // createJob always sets branch.
+  if (opts.deleteBranch && !standalone) run('git', ['branch', '-D', job.branch!], { cwd: root, allowFail: true });
   setJob(root, id, { fields: { worktree: null } });
   logEvent(root, id, 'worktree-removed', { branchDeleted: Boolean(opts.deleteBranch) });
   return { removed: job.worktree };
 }
 
-/** @param {string} p */
-function realpath(p) {
+function realpath(p: string): string {
   try {
     return fs.realpathSync(p);
   } catch {
@@ -475,14 +513,13 @@ function realpath(p) {
   }
 }
 
-/** Strictly inside: the parent itself does not count. @param {string} parent @param {string} child */
-function insideDir(parent, child) {
+/** Strictly inside: the parent itself does not count. */
+function insideDir(parent: string, child: string): boolean {
   const rel = path.relative(realpath(parent), realpath(child));
   return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
-/** @param {string} p */
-function isDir(p) {
+function isDir(p: string): boolean {
   try {
     return fs.statSync(p).isDirectory();
   } catch {
@@ -490,9 +527,9 @@ function isDir(p) {
   }
 }
 
-/** Port probing lets `forge doctor` warn when something outside Forge holds a job's port. @param {number} port */
-export function portInUse(port) {
-  return new Promise((resolve) => {
+/** Port probing lets `forge doctor` warn when something outside Forge holds a job's port. */
+export function portInUse(port: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
     const srv = net.createServer();
     srv.once('error', () => resolve(true));
     srv.once('listening', () => srv.close(() => resolve(false)));

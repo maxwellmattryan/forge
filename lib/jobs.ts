@@ -4,7 +4,7 @@ import path from 'node:path';
 import { paths, exists } from './paths.ts';
 import { STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, normalizeJob, serializeJob } from './schema.ts';
 import type { AgentUsage, Config, Job, JobAgent, JobEvent, JobState, LoadedJob, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
-import { estimateCost } from './usage.mjs';
+import { estimateCost } from './usage.ts';
 import { ForgeError, now, readJson, readText, setPath, slugify, shortId, withLock, writeJsonAtomic } from './util.ts';
 
 /** A session that has not touched its job for this long is presumed dead and can be taken over. */

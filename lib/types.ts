@@ -27,7 +27,7 @@ export interface JobSource {
   url: string | null;
 }
 
-/** GitHub check rollup: summarizeChecks in lib/pr.mjs. */
+/** GitHub check rollup: summarizeChecks in lib/pr.ts. */
 export interface PrChecks {
   state: 'passing' | 'failing' | 'pending' | 'none';
   passing: number;
@@ -35,7 +35,7 @@ export interface PrChecks {
   pending: number;
 }
 
-/** Commits humans pushed after Forge: measureOnMerge in lib/pr.mjs (shape from lib/delta.mjs). */
+/** Commits humans pushed after Forge: measureOnMerge in lib/pr.ts (shape from lib/delta.ts). */
 export interface HumanDelta {
   status: 'measured' | 'rewritten' | 'unavailable';
   reason?: string;
@@ -51,7 +51,7 @@ export interface HumanDelta {
   attempts?: number;
 }
 
-/** A job's pull request: findPr, openPr and syncPr in lib/pr.mjs; sync-only fields are optional. */
+/** A job's pull request: findPr, openPr and syncPr in lib/pr.ts; sync-only fields are optional. */
 export interface JobPr {
   number: number;
   url: string;
@@ -125,17 +125,17 @@ export interface JobUsage {
 /** Budget limits per key; null means unlimited: defaults().pipeline.budget in lib/config.ts. */
 export type BudgetLimits = Partial<Record<BudgetKey, number | null>>;
 
-/** What a job has spent per key: measureBudget in lib/budget.mjs. */
+/** What a job has spent per key: measureBudget in lib/budget.ts. */
 export type BudgetUsed = Record<BudgetKey, number | null>;
 
-/** Per-job budget state: enforceBudget and budgetCmd in lib/budget.mjs. */
+/** Per-job budget state: enforceBudget and budgetCmd in lib/budget.ts. */
 export interface JobBudget {
   limits: BudgetLimits;
   ack: Partial<Record<BudgetKey, { used: number; round: number }>>;
   lastCheck: { at: string; checkpoint: string; used: BudgetUsed } | null;
 }
 
-/** One verify attempt: verify in lib/worktree.mjs. */
+/** One verify attempt: verify in lib/worktree.ts. */
 export interface VerifyRun {
   round: number;
   attempt: number;
@@ -208,7 +208,7 @@ export interface TransitionSide {
   waitingOn: WaitingOn | null;
 }
 
-/** Usage an agent reported at agent-end: the agent case in lib/commands/job.mjs (transcript fields from importClaudeCodeTranscript in lib/usage.mjs). */
+/** Usage an agent reported at agent-end: the agent case in lib/commands/job.mjs (transcript fields from importClaudeCodeTranscript in lib/usage.ts). */
 export interface AgentUsage {
   model?: string | null;
   outputEstimated?: boolean;
@@ -519,14 +519,14 @@ export interface JobDetail {
  */
 export type JobFileText = string;
 
-/** Usage per role or model in stats: computeStats in lib/stats.mjs. */
+/** Usage per role or model in stats: computeStats in lib/stats.ts. */
 export interface UsageRow {
   tokens: number;
   estCostUsd: number;
   runs: number;
 }
 
-/** One review lens's record: computeStats in lib/stats.mjs. */
+/** One review lens's record: computeStats in lib/stats.ts. */
 export interface ReviewerStats {
   reviews: number;
   changes: number;
@@ -534,7 +534,7 @@ export interface ReviewerStats {
   changeRate: number | null;
 }
 
-/** GET /api/stats: computeStats in lib/stats.mjs. */
+/** GET /api/stats: computeStats in lib/stats.ts. */
 export interface Stats {
   generatedAt: string;
   since: string | null;
@@ -565,7 +565,7 @@ export interface Stats {
   reviewers: Record<string, ReviewerStats>;
 }
 
-/** An eval task as served: loadTask in lib/evals.mjs minus `dir` and `request`. */
+/** An eval task as served: loadTask in lib/evals.ts minus `dir` and `request`. */
 export interface EvalTask {
   name: string;
   title: string;
@@ -577,7 +577,7 @@ export interface EvalTask {
   source: { pr: number; url: string; mergeCommit: string | null } | null;
 }
 
-/** A graded eval job: gradeJob in lib/evals.mjs. */
+/** A graded eval job: gradeJob in lib/evals.ts. */
 export interface EvalResult {
   check: { ran: boolean; pass: boolean | null; tail: string | null; reason?: string };
   judge: { score: number; outOf: number } | null;
@@ -591,7 +591,7 @@ export interface EvalResult {
   gradedAt: string;
 }
 
-/** Aggregates over a run's graded tasks: summarize in lib/evals.mjs. */
+/** Aggregates over a run's graded tasks: summarize in lib/evals.ts. */
 export interface EvalSummary {
   tasks: number;
   graded: number;
@@ -605,7 +605,7 @@ export interface EvalSummary {
   avgMinutes: number | null;
 }
 
-/** An eval run record: startRun and gradeJob in lib/evals.mjs, with summary filled by listRuns. */
+/** An eval run record: startRun and gradeJob in lib/evals.ts, with summary filled by listRuns. */
 export interface EvalRun {
   schemaVersion: number;
   id: string;
@@ -620,13 +620,13 @@ export interface EvalRun {
   summary: EvalSummary;
 }
 
-/** GET /api/evals: the handler in lib/server.mjs over listTasks/listRuns in lib/evals.mjs. */
+/** GET /api/evals: the handler in lib/server.mjs over listTasks/listRuns in lib/evals.ts. */
 export interface EvalsResponse {
   tasks: EvalTask[];
   runs: EvalRun[];
 }
 
-/** GET /api/evals/compare: compareRuns in lib/evals.mjs. */
+/** GET /api/evals/compare: compareRuns in lib/evals.ts. */
 export interface EvalCompare {
   a: { id: string; configHash: string; forgeVersion: string };
   b: { id: string; configHash: string; forgeVersion: string };

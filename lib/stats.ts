@@ -2,53 +2,42 @@
 // what makes them comparable across every repo Forge runs in and gives the retro loop
 // something stable to improve against.
 import { listJobs, readEvents } from './jobs.ts';
+import type { Job, ReviewerStats, Stats, UsageRow } from './types.ts';
 
-/** @param {number[]} xs */
-const median = (xs) => {
+const median = (xs: number[]): number | null => {
   if (!xs.length) return null;
   const s = [...xs].sort((a, b) => a - b);
   const m = Math.floor(s.length / 2);
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
-/** @param {number} n @param {number} d */
-const ratio = (n, d) => (d ? Math.round((n / d) * 1000) / 1000 : null);
-/** @param {number} n */
-const r2 = (n) => Math.round(n * 100) / 100;
+const ratio = (n: number, d: number): number | null => (d ? Math.round((n / d) * 1000) / 1000 : null);
+const r2 = (n: number): number => Math.round(n * 100) / 100;
 
 /**
  * Whether the very first verify attempt of round 1 passed, or null when the job never got there.
  * Later attempts in the same round are retries and must not count as a first pass.
- * @param {any} job
  */
-export function firstVerifyRun(job) {
-  const first = (job.verifyRuns ?? []).find((/** @type {any} */ r) => r.round === 1 && r.attempt === 1);
+export function firstVerifyRun(job: Pick<Job, 'verifyRuns' | 'verify'>): boolean | null {
+  const first = (job.verifyRuns ?? []).find((r) => r.round === 1 && r.attempt === 1);
   if (first) return Boolean(first.ok);
   return job.verify?.[1] ? job.verify[1] === 'PASS' : null;
 }
 
-/**
- * @param {string} root
- * @param {{since?:string, includeEvals?:boolean, jobs?:any[]}} [opts]
- */
-export function computeStats(root, opts = {}) {
+export function computeStats(root: string, opts: { since?: string; includeEvals?: boolean; jobs?: Job[] } = {}): Stats {
   const since = opts.since ? Date.parse(opts.since) : 0;
-  const jobs = (opts.jobs ?? listJobs(root)).filter((j) => (opts.includeEvals || j.kind !== 'eval') && Date.parse(j.createdAt ?? 0) >= since);
+  const jobs = (opts.jobs ?? listJobs(root)).filter((j) => (opts.includeEvals || j.kind !== 'eval') && Date.parse((j.createdAt ?? 0) as string) >= since);
   const counts = { total: jobs.length, active: 0, done: 0, cancelled: 0, failed: 0, waiting: 0 };
   let reviewed = 0, firstPass = 0, roundsSum = 0, decided = 0, escalated = 0, verified = 0, verifyFirstPass = 0;
   let withPr = 0, prWithHumanFeedback = 0, humanRework = 0, specJobs = 0, specFirstTry = 0;
   let merged = 0, deltaMeasured = 0, deltaNonEmpty = 0;
-  /** @type {number[]} */ const deltaLines = [];
-  /** @type {number[]} */ const timeToPr = [];
-  /** @type {number[]} */ const cycle = [];
-  /** @type {Record<string, {reviews:number, changes:number, blockers:number}>} */
-  const reviewers = {};
-  /** @type {Record<string, {tokens:number, estCostUsd:number, runs:number}>} */
-  const byRole = {};
-  /** @type {Record<string, {tokens:number, estCostUsd:number, runs:number}>} */
-  const byModel = {};
+  const deltaLines: number[] = [];
+  const timeToPr: number[] = [];
+  const cycle: number[] = [];
+  const reviewers: Record<string, ReviewerStats> = {};
+  const byRole: Record<string, UsageRow> = {};
+  const byModel: Record<string, UsageRow> = {};
   let tokens = 0, cost = 0, agentRuns = 0, agentRunsWithUsage = 0, exactRuns = 0;
-  /** @type {Record<string, number>} */
-  const waitingOn = {};
+  const waitingOn: Record<string, number> = {};
 
   for (const j of jobs) {
     if (j.state === 'done') counts.done++;
@@ -57,7 +46,8 @@ export function computeStats(root, opts = {}) {
     else counts.active++;
     if (j.state === 'waiting') {
       counts.waiting++;
-      waitingOn[j.waitingOn] = (waitingOn[j.waitingOn] ?? 0) + 1;
+      // setJob refuses state "waiting" without a waitingOn.
+      waitingOn[j.waitingOn!] = (waitingOn[j.waitingOn!] ?? 0) + 1;
     }
     const rounds = Object.keys(j.verdicts ?? {}).map(Number).sort((a, b) => a - b);
     if (rounds.length) {
@@ -67,7 +57,8 @@ export function computeStats(root, opts = {}) {
       if (first && Object.values(first).every((v) => v === 'PASS')) firstPass++;
       for (const r of rounds) {
         for (const [name, v] of Object.entries(j.verdicts[r] ?? {})) {
-          const s = (reviewers[name] ??= { reviews: 0, changes: 0, blockers: 0 });
+          // changeRate is filled in for every lens after the loop.
+          const s = (reviewers[name] ??= { reviews: 0, changes: 0, blockers: 0 } as ReviewerStats);
           s.reviews++;
           if (v === 'CHANGES') s.changes++;
         }
@@ -83,7 +74,8 @@ export function computeStats(root, opts = {}) {
     if (delta?.status === 'measured') {
       deltaMeasured++;
       // Empty "retrigger CI" commits touch no files, so they are not an escape.
-      if (delta.fileCount > 0) {
+      // A measured delta always has a fileCount.
+      if (delta.fileCount! > 0) {
         deltaNonEmpty++;
         deltaLines.push(delta.lines ?? 0);
       }
@@ -93,7 +85,8 @@ export function computeStats(root, opts = {}) {
       if (j.decision === 'ESCALATE') escalated++;
     }
     const events = readEvents(root, j.id);
-    const created = Date.parse(j.createdAt);
+    // createJob always sets createdAt.
+    const created = Date.parse(j.createdAt!);
     const opened = events.find((e) => e.type === 'pr-opened');
     if (opened) {
       withPr++;
@@ -147,8 +140,8 @@ export function computeStats(root, opts = {}) {
       specFirstApprovalRate: ratio(specFirstTry, specJobs),
     },
     speed: {
-      medianMinutesToPr: median(timeToPr) === null ? null : r2(/** @type {number} */ (median(timeToPr))),
-      medianMinutesToDone: median(cycle) === null ? null : r2(/** @type {number} */ (median(cycle))),
+      medianMinutesToPr: median(timeToPr) === null ? null : r2(median(timeToPr) as number),
+      medianMinutesToDone: median(cycle) === null ? null : r2(median(cycle) as number),
     },
     cost: {
       totalTokens: tokens,
