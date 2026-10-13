@@ -600,7 +600,7 @@ test('parseDiffLines: follows hunk counts through context lines, blank context a
 });
 
 test('hiddenChanges: sparse checkout is not a hidden change; a skip-worktree file on disk is', () => {
-  const { repo } = jobRepo({ 'a/x.txt': 'x\n', 'b/test/y.test.mjs': "test('y', () => {});\n", 'b/z.txt': 'z\n' });
+  const { repo } = jobRepo({ 'a/x.txt': 'x\n', 'a/test/q.test.mjs': "test('q', () => {});\n", 'b/test/y.test.mjs': "test('y', () => {});\n", 'b/z.txt': 'z\n', 'lib/x.mjs': 'export {};\n' });
   const wt = `${repo.dir}-sparse`;
   const config = defaults();
   try {
@@ -609,6 +609,29 @@ test('hiddenChanges: sparse checkout is not a hidden change; a skip-worktree fil
     assert.match(execFileSync('git', ['ls-files', '-v'], { cwd: wt, encoding: 'utf8' }), /^S b\/test\/y\.test\.mjs$/m, 'sparse checkout sets skip-worktree');
     assert.equal(fs.existsSync(path.join(wt, 'b')), false);
     assert.deepEqual(hiddenChanges(wt, config), [], 'paths outside the sparse set are not hidden changes');
+    // A file outside the sparse set that is back on disk can hold edits git won't show. Git normally
+    // clears the bit for such files (then status sees the edit); this setting keeps it, as a builder could.
+    execFileSync('git', ['config', 'sparse.expectFilesOutsideOfPatterns', 'true'], { cwd: wt });
+    fs.mkdirSync(path.join(wt, 'b/test'), { recursive: true });
+    fs.writeFileSync(path.join(wt, 'b/test/y.test.mjs'), "test.skip('y', () => {});\n");
+    assert.deepEqual(hiddenChanges(wt, config), ['skip-worktree: b/test/y.test.mjs']);
+    fs.rmSync(path.join(wt, 'b'), { recursive: true });
+    execFileSync('git', ['config', '--unset', 'sparse.expectFilesOutsideOfPatterns'], { cwd: wt });
+    // Inside the cone, skip-worktree plus deleting the file still hides a test from the runner.
+    execFileSync('git', ['update-index', '--skip-worktree', 'a/test/q.test.mjs'], { cwd: wt });
+    fs.rmSync(path.join(wt, 'a/test/q.test.mjs'));
+    assert.deepEqual(hiddenChanges(wt, config), ['skip-worktree: a/test/q.test.mjs']);
+
+    // Outside a sparse checkout every skip-worktree entry counts, watched or not, as in round 3.
+    repo.git('update-index', '--skip-worktree', 'lib/x.mjs');
+    fs.rmSync(path.join(repo.dir, 'lib/x.mjs'));
+    assert.deepEqual(hiddenChanges(repo.dir, config), ['skip-worktree: lib/x.mjs']);
+    // Turning core.sparseCheckout on without a patterns file does not make it a sparse checkout.
+    repo.git('config', 'core.sparseCheckout', 'true');
+    assert.deepEqual(hiddenChanges(repo.dir, config), ['skip-worktree: lib/x.mjs']);
+    repo.git('config', 'core.sparseCheckout', 'false');
+    repo.git('update-index', '--no-skip-worktree', 'lib/x.mjs');
+    repo.git('checkout', '--', 'lib/x.mjs');
 
     // Outside a sparse checkout: a skip-worktree file still on disk can hide edits.
     repo.git('update-index', '--skip-worktree', 'a/x.txt');
@@ -655,6 +678,9 @@ test('markers: common skip idioms, and the { skip } shorthand only as test optio
     ['pkg/a_test.go', '// +build linux,ignore', true],
     ['test/a.test.mjs', "test('x', { skip }, () => {", true],
     ['test/a.test.mjs', "it('x', { timeout: 5, only }, () => {", true],
+    ['test/a.test.mjs', '  { skip },', true],
+    ['test/a.test.mjs', 'const opts = { skip };', true],
+    ['test/a.test.mjs', '  { timeout: 5, todo }', true],
   ];
   for (const [file, line, isTest] of hits) assert.equal(markerHits(file, line, isTest), true, `${file}: ${line}`);
   const misses = [
@@ -662,8 +688,11 @@ test('markers: common skip idioms, and the { skip } shorthand only as test optio
     ['test/a.test.mjs', "import { test, skip } from 'node:test';"],
     ['test/todo.test.mjs', 'expect(r).toEqual({ todo });'],
     ['test/a.test.mjs', 'const { only } = opts;'],
+    ['test/a.test.mjs', '  ({ skip }) => run(skip),'],
+    ['test/todo.test.mjs', 'const item = { todo, done: false };'],
     ['test/a.test.mjs', 'list.skipWhile(x)'],
     ['pkg/a.go', '//go:build ignore'],
+    ['testdata/gen.go', '//go:build ignore'],
     ['pkg/a_test.go', '//go:build linux'],
   ];
   for (const [file, line] of misses) assert.equal(markerHits(file, line, file !== 'pkg/a.go'), false, `${file}: ${line}`);
