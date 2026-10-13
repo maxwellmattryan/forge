@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.1
+
+- One PR per issue: the planner shapes a single job into ordered phases that each leave the branch green, and a split proposal is a human gate. New `pipeline.split` (`ask` by default, or `auto` | `never`) parks a `PLAN: SPLIT` on `split-approval` until `/forge approve` creates the child jobs or `/forge revise` keeps it as one; `/forge issue <ref>` and dashboard starts always plan as `never`. `API_VERSION` 5.
+- Forge's own config: scoped ui, accessibility and ux lenses in the review panel.
+
 ## 0.8.0
 
 - Daemon: `forge dash` can supervise one headless `claude -p` session that handles dashboard requests without a human session open (`daemon.enabled`, off by default). Config schema 2 replaces `dashboard.launcher` with a `daemon:` block; the dashboard gets a daemon status pill, start/stop buttons and a live log pane over SSE; `API_VERSION` 4.
