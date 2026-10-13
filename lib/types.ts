@@ -145,7 +145,7 @@ export interface VerifyRun {
   file: string;
 }
 
-/** A reviewer's settled verdict for a round: the verdicts case in lib/commands/job.mjs (via roundVerdicts in lib/jobs.ts). */
+/** A reviewer's settled verdict for a round: the verdicts case in lib/commands/job.ts (via roundVerdicts in lib/jobs.ts). */
 export type Verdict = 'PASS' | 'CHANGES' | 'MALFORMED';
 
 /** A job record: normalizeJob in lib/schema.ts. */
@@ -208,7 +208,7 @@ export interface TransitionSide {
   waitingOn: WaitingOn | null;
 }
 
-/** Usage an agent reported at agent-end: the agent case in lib/commands/job.mjs (transcript fields from importClaudeCodeTranscript in lib/usage.ts). */
+/** Usage an agent reported at agent-end: the agent case in lib/commands/job.ts (transcript fields from importClaudeCodeTranscript in lib/usage.ts). */
 export interface AgentUsage {
   model?: string | null;
   outputEstimated?: boolean;
@@ -323,7 +323,7 @@ export interface Config {
     models: Record<string, string>;
   };
   tracker: {
-    /** local | github | none | the name of a .forge/trackers/<name>.mjs module */
+    /** local | github | none | the name of a .forge/trackers/<name>.mjs or .ts module */
     kind: string;
     local: { path: string };
     github: {
@@ -418,13 +418,13 @@ export interface ForgeRequest {
 
 // ---------- tracker contract ----------
 
-/** What every tracker method receives: loadTracker's callers (lib/trackers/index.mjs). */
+/** What every tracker method receives: loadTracker's callers (lib/trackers/index.ts). */
 export interface TrackerCtx {
   root: string;
   config: Config;
 }
 
-/** A backlog item: the TrackerItem typedef in lib/trackers/index.mjs. */
+/** A backlog item, as a tracker's list() and get() return it (lib/trackers/index.ts). */
 export interface TrackerItem {
   ref: string;
   title: string;
@@ -438,7 +438,7 @@ export interface TrackerItem {
 }
 
 /**
- * The tracker contract. Every adapter (built-in or a repo's own `.forge/trackers/<name>.mjs`)
+ * The tracker contract. Every adapter (built-in or a repo's own `.forge/trackers/<name>.mjs` or `.ts`)
  * default-exports an object with these synchronous methods. docs/TRACKERS.md has the details.
  */
 export interface Tracker {
@@ -463,10 +463,10 @@ export interface PipelineConfig {
   budget: BudgetLimits;
 }
 
-/** Supervisor status: state() in lib/daemon.mjs. */
+/** Supervisor status: state() in lib/daemon.ts. */
 export type DaemonStatus = 'off' | 'idle' | 'busy' | 'stopping';
 
-/** The daemon as the dashboard sees it: state() in lib/daemon.mjs (or idleDaemonState) plus `clients` from lib/server.mjs. */
+/** The daemon as the dashboard sees it: state() in lib/daemon.ts (or idleDaemonState) plus `clients` from lib/server.ts. */
 export interface DaemonState {
   enabled: boolean;
   wanted: boolean;
@@ -482,10 +482,10 @@ export interface DaemonState {
   clients: number;
 }
 
-/** A job row in /api/state: state() in lib/server.mjs. */
+/** A job row in /api/state: state() in lib/server.ts. */
 export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number };
 
-/** GET /api/state: state() in lib/server.mjs. */
+/** GET /api/state: state() in lib/server.ts. */
 export interface ApiState {
   apiVersion: number;
   forgeVersion: string;
@@ -505,7 +505,7 @@ export interface ApiState {
   now: string;
 }
 
-/** GET /api/jobs/:id: jobDetail in lib/server.mjs. */
+/** GET /api/jobs/:id: jobDetail in lib/server.ts. */
 export interface JobDetail {
   job: Job & { progress: Progress };
   events: JobEvent[];
@@ -514,7 +514,7 @@ export interface JobDetail {
 }
 
 /**
- * GET /api/jobs/:id/file for a text file: the text/plain body (send in lib/server.mjs). Images come
+ * GET /api/jobs/:id/file for a text file: the text/plain body (send in lib/server.ts). Images come
  * back as raw bytes and /raw as sandboxed HTML; neither goes through api().
  */
 export type JobFileText = string;
@@ -620,7 +620,7 @@ export interface EvalRun {
   summary: EvalSummary;
 }
 
-/** GET /api/evals: the handler in lib/server.mjs over listTasks/listRuns in lib/evals.ts. */
+/** GET /api/evals: the handler in lib/server.ts over listTasks/listRuns in lib/evals.ts. */
 export interface EvalsResponse {
   tasks: EvalTask[];
   runs: EvalRun[];
@@ -646,7 +646,7 @@ export interface Roster {
   warnings: string[];
 }
 
-/** GET /api/backlog: the handler in lib/server.mjs over the tracker's list(). */
+/** GET /api/backlog: the handler in lib/server.ts over the tracker's list(). */
 export interface BacklogResponse {
   tracker: string;
   items: TrackerItem[];
@@ -655,10 +655,10 @@ export interface BacklogResponse {
 
 // ---------- SSE frames (/api/events) ----------
 
-/** One /api/events frame: stateFrame and lineFrame in lib/server.mjs; `id` is the line's seq, `data` the raw log line. */
+/** One /api/events frame: stateFrame and lineFrame in lib/server.ts; `id` is the line's seq, `data` the raw log line. */
 export type SseFrame = { event: 'state'; data: DaemonState } | { event: 'line'; id: number; data: string };
 
-/** The line a frame carries instead of an oversized one: lineFrame in lib/server.mjs. */
+/** The line a frame carries instead of an oversized one: lineFrame in lib/server.ts. */
 export interface ForgeTruncatedLine {
   type: 'forge-truncated';
   originalType: string | null;
@@ -667,7 +667,7 @@ export interface ForgeTruncatedLine {
 
 // ---------- POST bodies and replies ----------
 
-/** POST /api/requests body: read by the handler in lib/server.mjs and passed to enqueue. */
+/** POST /api/requests body: read by the handler in lib/server.ts and passed to enqueue. */
 export interface PostRequestBody {
   type: RequestType;
   job?: string | null;
@@ -675,19 +675,19 @@ export interface PostRequestBody {
   args?: Record<string, unknown>;
 }
 
-/** POST /api/requests reply: the handler in lib/server.mjs. */
+/** POST /api/requests reply: the handler in lib/server.ts. */
 export type PostRequestResponse = ForgeRequest & { daemon: boolean };
 
-/** POST /api/daemon body: the handler in lib/server.mjs. */
+/** POST /api/daemon body: the handler in lib/server.ts. */
 export interface PostDaemonBody {
   action: 'start' | 'stop';
 }
 
-/** POST /api/daemon reply on success: daemonState in lib/server.mjs. */
+/** POST /api/daemon reply on success: daemonState in lib/server.ts. */
 export type PostDaemonResponse = DaemonState;
 
 /**
- * JSON error body: jsonStatus for /api/daemon's 400/409 and the catch-all 500 in lib/server.mjs.
+ * JSON error body: jsonStatus for /api/daemon's 400/409 and the catch-all 500 in lib/server.ts.
  * The POST guard failures (403/415/421) are text/plain, not this.
  */
 export interface ApiError {

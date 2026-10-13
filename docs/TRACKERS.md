@@ -21,7 +21,7 @@ Forge talks to issue trackers through a small synchronous contract. Built-ins:
 
 ## Writing an adapter (Jira, Linear, GitLab, …)
 
-Create `.forge/trackers/<name>.mjs` and set `tracker.kind: <name>`. Default-export an object with these **synchronous** methods (shell out with `child_process.spawnSync` to a CLI, or `curl`, if the service has no sync SDK):
+Create `.forge/trackers/<name>.mjs` (or `<name>.ts`) and set `tracker.kind: <name>`. Default-export an object with these **synchronous** methods (shell out with `child_process.spawnSync` to a CLI, or `curl`, if the service has no sync SDK):
 
 ```js
 export default {
@@ -38,8 +38,11 @@ export default {
 
 With the daemon (docs/CONFIG.md "Daemon"), the daemon session pins every file under `.forge/trackers/` and refuses symlinks there. Imports from outside that directory are not pinned, so keep the module self-contained.
 
+A `.ts` adapter runs through Node's type stripping (Node ≥ 22.18), so use erasable syntax only: annotations, `type`/`interface` and `import type`, but no `enum`, `namespace` or parameter properties. Node loads it as an ES module when your repo's nearest `package.json` has no `type` field or `"type": "module"`. Under `"type": "commonjs"`, use `.mjs`. If both `<name>.mjs` and `<name>.ts` exist, Forge loads the `.mjs`.
+
 `ctx` is `{ root, config }`; put adapter settings anywhere under `tracker.<name>` in the config. Map job state to your workflow with:
 ```js
-import { statusKey } from '<plugin>/lib/trackers/status.mjs'; // queued | in-progress | review | blocked | done | cancelled
+import { statusKey } from '<plugin>/lib/trackers/status.ts'; // queued | in-progress | review | blocked | done | cancelled
 ```
+(`status.mjs` still re-exports it for adapters written against older Forge.)
 Keep credentials in the environment or the tool's own auth, never in the config file. Forge treats `update`/`comment` failures as non-fatal and logs them on the job.

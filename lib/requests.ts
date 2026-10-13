@@ -1,6 +1,6 @@
 // A small file-based inbox. The dashboard (or anything else) drops requests here; an
 // orchestrator session drains them: the human's own (`/forge requests`) or, with
-// `daemon.enabled`, the headless one `forge dash` supervises (lib/daemon.mjs). Enqueueing only
+// `daemon.enabled`, the headless one `forge dash` supervises (lib/daemon.ts). Enqueueing only
 // writes a file, so nothing here starts a process.
 import fs from 'node:fs';
 import path from 'node:path';

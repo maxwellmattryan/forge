@@ -10,7 +10,7 @@ State and configuration for Forge, a software factory (https://github.com/maxwel
 | `notes/<role>.md` | yes | Optional per-role addenda (e.g. `builder.md`) |
 | `reviewers/<name>.md` | yes | Repo-specific reviewer checklists (override or extend the plugin catalog) |
 | `evals/` | yes | Eval tasks and run results |
-| `trackers/<name>.mjs` | yes | Custom tracker adapters |
+| `trackers/<name>.mjs` or `.ts` | yes | Custom tracker adapters |
 | `jobs/`, `locks/`, `runtime/` | no | Runtime state |
 
 Dashboard: `forge dash` (or `/forge dash`).
