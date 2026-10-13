@@ -1,6 +1,6 @@
 # `.forge/config.yml`
 
-`/forge init` writes this file. Every key is optional; anything omitted takes the default shown. The file uses a strict YAML subset (block maps and lists, quoted or plain scalars, `[a, b]` / `{a: 1}` flow collections, `|` blocks, comments; no anchors or tags). `forge config validate` checks it, and `forge config show` prints the effective config.
+`/forge init` writes this file. Every key is optional; anything omitted takes the default shown. The file uses a strict YAML subset (block maps and lists, quoted or plain scalars, `[a, b]` / `{a: 1}` flow collections, `|` blocks, comments; no anchors or tags). `forge config validate` checks it, `forge config show` prints the effective config, `forge config get <key>` prints one effective value, and `forge config set <key> <value>` changes one editable key (see [Changing settings](#changing-settings)).
 
 Command templates may use `{port}`, `{job}`, `{worktree}`, `{root}`, `{branch}` and `{base}`. Commands also get `PORT`, `FORGE_PORT`, `FORGE_JOB` and `FORGE_WORKTREE` in their environment.
 
@@ -175,6 +175,18 @@ daemon:                      # opt-in headless orchestrator supervised by `forge
   maxConcurrent: 1           # supervised sessions; only 1 is accepted for now
   idleStopMinutes: 30        # stop an idle session after this long (null: never); new work resumes it
 ```
+
+## Changing settings
+
+`forge config get <dotted.key>` prints the effective value (defaults merged with the file): strings raw, everything else as JSON, and `null` for a path that doesn't exist. `forge config set <dotted.key> <value>` changes exactly that key in the main checkout's `.forge/config.yml` and prints `{"ok":true,"key":…,"value":…,"previous":…,"changed":true}`. Only that value's line changes (or, for a missing key, one line is inserted as the last child of its section), so comments, blank lines and key order survive. Setting a key to its current value writes nothing and replies `"changed":false`. The dashboard's Settings modal saves through the same code (`POST /api/config`).
+
+**Values** follow the key's type: `true`/`false`; a decimal number; `null` for keys that allow it; text as written; and lists as `[a, b]` or a JSON array (`'["a","b"]'`, `[]`). Values are checked against the key's range or options, text may not contain control characters or exceed 200 characters, and `review.blockOn` must include `blocker`. The result must also pass `forge config validate`, though problems the file already had never block an unrelated change.
+
+**Editable keys**: `pipeline.plan`, `split`, `specApproval`, `design`, `maxRounds` and every `pipeline.budget.*`; `review.blockOn` and `review.onPrFeedback`; `runtime.models.<role>`, `runtime.maxParallelJobs` and `runtime.diversity`; `tracker.github.ready.*`, `tracker.github.claim.assign`, `tracker.github.statusSync` and `tracker.github.labels.prefix`; `dashboard.port` (used by the next `forge dash`); and `daemon.idleStopMinutes`. The rule: a key is editable only when it can't name a command, file, module, tool or repository Forge runs, loads or writes to, and can't loosen a security or attribution policy. Everything else (`commands.*`, `worktrees.*`, `verify*`, `git.*`, `merge.*`, `approver.*`, `aiAttribution`, `infra.*`, `review.panel`, `tracker.kind`, `tracker.github.repo`/`comments`/`project.*`, `daemon.enabled`/`command`/`allowedTools`/`maxConcurrent`, …) is refused with `<key> is not editable with forge config set (<why>); edit .forge/config.yml by hand`, and the dashboard shows it read-only. `lib/config-fields.ts` is the allowlist.
+
+**Errors** exit 1 and leave the file byte-identical: an unknown key, a read-only key, an invalid value, or a layout the edit can't change without dropping a comment (a block map or `|` block, a list of maps, a list with comments between or on its items, a key inside a flow map). A repo without `.forge/config.yml` exits 2; `/forge init` creates it.
+
+**The daemon.** A daemon session may not run `forge config set` (like `forge init write` and `forge migrate`). If you run it while the dashboard's daemon is running, the change stops the daemon, exactly as a hand edit does (see [Daemon](#daemon)); the dashboard refuses to save settings until you stop the daemon, and only you may start it again.
 
 ## Split gate
 
