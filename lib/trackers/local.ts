@@ -11,19 +11,34 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { paths, resolveFrom, exists } from '../paths.ts';
 import { ForgeError, slugify, withLock } from '../util.ts';
+import type { Tracker, TrackerCtx, TrackerItem } from '../types.ts';
 
 const ITEM_RE = /^([-*])\s+\[([ xX~\-])\]\s+(.*?)(?:\s+→\s+(\S+))?\s*$/;
 
-/** @param {any} ctx */
-function file(ctx) {
+/** A parsed backlog line: its checkbox mark, the job it points at and its indented description. */
+interface BacklogEntry {
+  ref: string;
+  title: string;
+  mark: string;
+  job: string | null;
+  line: number;
+  body: string[];
+}
+
+/** backlog.md split into lines, with the items found in it. */
+interface BacklogDoc {
+  lines: string[];
+  items: BacklogEntry[];
+  file?: string;
+}
+
+function file(ctx: TrackerCtx): string {
   return resolveFrom(ctx.root, ctx.config.tracker.local.path);
 }
 
-/** @param {string} text */
-function parse(text) {
+function parse(text: string): BacklogDoc {
   const lines = text.split('\n');
-  /** @type {{ref:string,title:string,mark:string,job:string|null,line:number,body:string[]}[]} */
-  const items = [];
+  const items: BacklogEntry[] = [];
   lines.forEach((l, i) => {
     const m = l.match(ITEM_RE);
     if (m && !/^\s/.test(l)) {
@@ -35,11 +50,9 @@ function parse(text) {
   return { lines, items };
 }
 
-/** @param {string} mark */
-const statusOf = (mark) => ({ ' ': 'ready', '~': 'in-progress', x: 'done', '-': 'dropped' })[mark] ?? 'ready';
+const statusOf = (mark: string): string => ({ ' ': 'ready', '~': 'in-progress', x: 'done', '-': 'dropped' } as Record<string, string>)[mark] ?? 'ready';
 
-/** @param {any} ctx @param {(doc:{lines:string[], items:any[]})=>void} fn */
-function edit(ctx, fn) {
+function edit<T>(ctx: TrackerCtx, fn: (doc: BacklogDoc) => T): T {
   const f = file(ctx);
   return withLock(path.join(paths(ctx.root).locks, 'backlog'), () => {
     const doc = parse(exists(f) ? fs.readFileSync(f, 'utf8') : '# Backlog\n');
@@ -49,8 +62,7 @@ function edit(ctx, fn) {
   });
 }
 
-/** @param {any} item */
-const toItem = (item) => ({
+const toItem = (item: BacklogEntry): TrackerItem => ({
   ref: item.ref,
   title: item.title,
   body: item.body.join('\n'),
@@ -60,19 +72,16 @@ const toItem = (item) => ({
   labels: [],
 });
 
-/** @param {any} doc @param {string} ref */
-function find(doc, ref) {
-  const it = doc.items.find((/** @type {any} */ i) => i.ref === ref);
+function find(doc: BacklogDoc, ref: string): BacklogEntry {
+  const it = doc.items.find((i) => i.ref === ref);
   if (!it) throw new ForgeError(`no backlog item "${ref}" in ${doc.file ?? 'backlog'}`);
   return it;
 }
 
-/** @param {any} doc @param {any} it @param {string} mark @param {string|null} job */
-function rewrite(doc, it, mark, job) {
+function rewrite(doc: BacklogDoc, it: BacklogEntry, mark: string, job: string | null): void {
   doc.lines[it.line] = `- [${mark}] ${it.title}${job ? ` → ${job}` : ''}`;
 }
 
-/** @type {import('./index.mjs').Tracker} */
 export default {
   name: 'local',
   list(ctx, opts = {}) {
@@ -99,7 +108,7 @@ export default {
   },
   update(ctx, ref, job) {
     edit(ctx, (doc) => {
-      const it = doc.items.find((/** @type {any} */ i) => i.ref === ref);
+      const it = doc.items.find((i) => i.ref === ref);
       if (!it) return;
       if (job.state === 'done') rewrite(doc, it, 'x', job.id);
       else if (job.state === 'cancelled') rewrite(doc, it, ' ', null);
@@ -110,7 +119,7 @@ export default {
   create(ctx, item) {
     return edit(ctx, (doc) => {
       const ref = slugify(item.title, 8);
-      if (doc.items.some((/** @type {any} */ i) => i.ref === ref)) return { ref };
+      if (doc.items.some((i) => i.ref === ref)) return { ref };
       while (doc.lines.length && doc.lines[doc.lines.length - 1] === '') doc.lines.pop();
       doc.lines.push(`- [ ] ${item.title}`);
       const body = [item.parentRef ? `Part of: ${item.parentRef}` : null, item.body?.trim()].filter(Boolean).join('\n');
@@ -125,4 +134,4 @@ export default {
       rewrite(doc, it, opts.reason === 'not-planned' ? '-' : 'x', it.job);
     });
   },
-};
+} satisfies Tracker;

@@ -4,6 +4,7 @@
 // the session it supervises does, through the same claims and CLI as a human's session.
 // docs/ARCHITECTURE.md "Daemon" and "Daemon security" describe the rules this file keeps.
 import { spawn as nodeSpawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,6 +15,61 @@ import { PLUGIN_ROOT, paths } from './paths.ts';
 import { listRequests } from './requests.ts';
 import { isClaudeExecutable, now, run, sleepSync, splitWords, writeJsonAtomic } from './util.ts';
 import { pidAlive } from './worktree.ts';
+import type { Config, DaemonState, DaemonStatus } from './types.ts';
+
+/** The supervisor's own state: state() below. The server adds `clients` to make a DaemonState. */
+export type SupervisorState = Omit<DaemonState, 'clients'>;
+
+/** What subscribers receive: a log line as it is written, or the new state after a change. */
+export type DaemonEvent = { kind: 'line'; seq: number; line: string } | { kind: 'state'; state: SupervisorState };
+
+/** Where daemon.log goes: an fs.WriteStream, or a test's stand-in. */
+export interface LogSink {
+  write(line: string): boolean;
+  on?(event: 'error', fn: (e: Error) => void): unknown;
+  once?(event: 'drain', fn: () => void): unknown;
+  end?(cb?: () => void): unknown;
+}
+
+/** Injection points for tests; every one defaults to the real thing. */
+export interface DaemonOptions {
+  spawn?: typeof nodeSpawn;
+  killTree?: (child: DaemonChild, signal: NodeJS.Signals) => void;
+  pollMs?: number;
+  graceMs?: number;
+  maxLineBytes?: number;
+  rotateBytes?: number;
+  env?: NodeJS.ProcessEnv;
+  openLog?: (file: string) => LogSink;
+  loadConfig?: (root: string, opts?: { text?: string | null }) => { config: Config };
+}
+
+/** What the supervisor records about each child it spawned. */
+interface ChildMeta {
+  resume: boolean;
+  stdout: boolean;
+  /** a system/init was seen (claude emits one as each turn starts) */
+  init: boolean;
+  result: boolean;
+  asked: boolean;
+  /** ids its results covered */
+  committed: string[];
+}
+
+/** A spawned session, with the supervisor's bookkeeping attached. */
+export type DaemonChild = ChildProcess & { _forge: ChildMeta };
+
+/** The supervisor createDaemon returns: one per `forge dash`. */
+export interface Daemon {
+  start(reason?: string): SupervisorState;
+  stop(reason?: string): Promise<SupervisorState>;
+  poke(): void;
+  state(): SupervisorState;
+  subscribe(fn: (e: DaemonEvent) => void): () => void;
+  recent(afterSeq?: number): { seq: number; line: string }[];
+  close(): Promise<void>;
+  killSync(): void;
+}
 
 /**
  * The only bytes the daemon ever writes to the child's stdin. Nothing from requests, HTTP or
@@ -27,7 +83,7 @@ export const TURN = Object.freeze({
 export const TURN_LINE = JSON.stringify(TURN) + '\n';
 
 /** Request types that act on a job a budget stop may have parked. `approve` is the acknowledgement, so it is never held. */
-export const HOLD_TYPES = ['resume', 'rework', 'answer', 'revise-spec'];
+export const HOLD_TYPES: string[] = ['resume', 'rework', 'answer', 'revise-spec'];
 
 /**
  * Paths the session may never write, appended to every daemon command as --disallowedTools
@@ -64,14 +120,12 @@ export const GIT_PINS = Object.freeze([
 /**
  * The child's environment: this plugin's bin/ first on PATH, git pins appended after any the
  * caller already set, and a no-op editor so `git merge|rebase --continue` can't wait on a TTY.
- * @param {NodeJS.ProcessEnv} env
  */
-export function sessionEnv(env) {
+export function sessionEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   // This plugin's bin/ goes first on PATH, so the session's `forge` is the same version as the
   // supervisor's even when another Forge install is on PATH (seen in the AC18 headless run).
   const PATH = [path.join(PLUGIN_ROOT, 'bin'), env.PATH].filter(Boolean).join(path.delimiter);
-  /** @type {NodeJS.ProcessEnv} */
-  const out = { ...env, PATH, FORGE_DAEMON: '1', GIT_EDITOR: 'true' };
+  const out: NodeJS.ProcessEnv = { ...env, PATH, FORGE_DAEMON: '1', GIT_EDITOR: 'true' };
   const count = Number(env.GIT_CONFIG_COUNT ?? 0);
   const base = Number.isInteger(count) && count > 0 ? count : 0;
   GIT_PINS.forEach(([key, value], i) => {
@@ -82,19 +136,16 @@ export function sessionEnv(env) {
   return out;
 }
 
-/** `daemon.command` split into words; see splitWords in lib/util.ts. @param {string} template @returns {string[]} */
-export function parseTemplate(template) {
+/** `daemon.command` split into words; see splitWords in lib/util.ts. */
+export function parseTemplate(template: string): string[] {
   return splitWords(template, 'daemon.command');
 }
 
 /**
  * Placeholders expand after splitting, so a plugin path with spaces stays one argument.
  * DENY_TOOLS always follows the template.
- * @param {string} template
- * @param {{pluginRoot:string, session:{id:string, resume:boolean}, allowedTools:string[]}} vars
- * @returns {string[]}
  */
-export function buildArgv(template, vars) {
+export function buildArgv(template: string, vars: { pluginRoot: string; session: { id: string; resume: boolean }; allowedTools: string[] }): string[] {
   const tools = (vars.allowedTools ?? []).join(',');
   const argv = parseTemplate(template).flatMap((tok) => {
     if (tok === '{session}') return [vars.session.resume ? '--resume' : '--session-id', vars.session.id];
@@ -106,9 +157,8 @@ export function buildArgv(template, vars) {
 /**
  * A request is held while its job is parked on a budget that is still exceeded; once a human
  * raises or acknowledges it, the request becomes eligible on the next tick.
- * @param {string} root @param {any} config @param {any} rec
  */
-export function heldByBudget(root, config, rec) {
+export function heldByBudget(root: string, config: Config, rec: { type: string; job: string | null }): boolean {
   if (!HOLD_TYPES.includes(rec?.type) || typeof rec.job !== 'string' || !JOB_ID.test(rec.job)) return false;
   let job;
   try {
@@ -120,14 +170,13 @@ export function heldByBudget(root, config, rec) {
   return exceededKeys(effectiveLimits(config, job), measureBudget(job), job.budget.ack, job.round).length > 0;
 }
 
-/** @param {string} root */
-function files(root) {
+function files(root: string) {
   const dir = paths(root).runtime;
   return { dir, info: path.join(dir, 'daemon.json'), log: path.join(dir, 'daemon.log') };
 }
 
-/** A corrupt daemon.json is treated as absent rather than wedging the dashboard. @param {string} file */
-function readInfo(file) {
+/** A corrupt daemon.json is treated as absent rather than wedging the dashboard. */
+function readInfo(file: string): any {
   try {
     const v = JSON.parse(fs.readFileSync(file, 'utf8'));
     return v && typeof v === 'object' ? v : {};
@@ -136,28 +185,26 @@ function readInfo(file) {
   }
 }
 
-/** @param {any} child @param {NodeJS.Signals} signal */
-function defaultKillTree(child, signal) {
+function defaultKillTree(child: DaemonChild, signal: NodeJS.Signals): void {
   if (process.platform === 'win32') return void child.kill(signal);
   // The child leads its own group (detached), so the group signal reaches whatever it started.
+  // A child without a pid never spawned, and its error handler drops it before anything kills it.
   try {
-    process.kill(-child.pid, signal);
+    process.kill(-child.pid!, signal);
   } catch {
     try {
-      process.kill(child.pid, signal);
+      process.kill(child.pid!, signal);
     } catch {}
   }
 }
 
-/** @param {number} pid @param {NodeJS.Signals} signal */
-function signalGroup(pid, signal) {
+function signalGroup(pid: number, signal: NodeJS.Signals): void {
   try {
     process.kill(-pid, signal);
   } catch {}
 }
 
-/** @param {string} file @param {any} line */
-function appendLine(file, line) {
+function appendLine(file: string, line: unknown): void {
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.appendFileSync(file, JSON.stringify(line) + '\n');
@@ -173,9 +220,8 @@ const START_SLACK_MS = 30_000;
  * lives in the repo's runtime dir, so it is checked rather than trusted: the process must lead
  * its own group (we spawn detached), not be us or our group, have started when the record says,
  * and run the recorded claude executable with the recorded session uuid as its session flag.
- * @param {any} info @param {number} pid
  */
-function isOurChild(info, pid) {
+function isOurChild(info: any, pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) return false;
   const ids = [info.sessionId, info.spawnSessionId].filter((s) => typeof s === 'string' && UUID.test(s));
   if (!ids.length || typeof info.argv0 !== 'string' || !isClaudeExecutable(info.argv0) || !Date.parse(info.startedAt)) return false;
@@ -197,10 +243,8 @@ function isOurChild(info, pid) {
  * A child left behind by a `forge dash` that died without stopping it. Only acts when the
  * recorded server is gone, the child is alive, and isOurChild proves it is the claude process
  * the record describes, so a reused or planted pid is never signalled.
- * @param {string} root @param {{graceMs?:number}} [opts]
- * @returns {{reaped:boolean, pid:number|null}}
  */
-export function reapOrphan(root, opts = {}) {
+export function reapOrphan(root: string, opts: { graceMs?: number } = {}): { reaped: boolean; pid: number | null } {
   const none = { reaped: false, pid: null };
   if (process.platform === 'win32') return none;
   const f = files(root);
@@ -218,19 +262,7 @@ export function reapOrphan(root, opts = {}) {
   return { reaped: true, pid };
 }
 
-/**
- * @typedef {{kind:'line', seq:number, line:string} | {kind:'state', state:any}} DaemonEvent
- * @typedef {{
- *   spawn?: typeof nodeSpawn, killTree?: (child:any, signal:NodeJS.Signals)=>void,
- *   pollMs?: number, graceMs?: number, maxLineBytes?: number, rotateBytes?: number,
- *   env?: NodeJS.ProcessEnv, openLog?: (file:string)=>any, loadConfig?: (root:string, opts?:{text?:string|null})=>{config:any},
- * }} DaemonOptions
- */
-
-/**
- * @param {string} root @param {DaemonOptions} [opts]
- */
-export function createDaemon(root, opts = {}) {
+export function createDaemon(root: string, opts: DaemonOptions = {}): Daemon {
   const spawn = opts.spawn ?? nodeSpawn;
   const killTree = opts.killTree ?? defaultKillTree;
   const pollMs = opts.pollMs ?? 2000;
@@ -238,52 +270,40 @@ export function createDaemon(root, opts = {}) {
   const maxLineBytes = opts.maxLineBytes ?? 8 * 1024 * 1024;
   const rotateBytes = opts.rotateBytes ?? 20 * 1024 * 1024;
   const env = opts.env ?? process.env;
-  const openLog = opts.openLog ?? ((/** @type {string} */ file) => fs.createWriteStream(file, { flags: 'a' }));
+  const openLog = opts.openLog ?? ((file: string) => fs.createWriteStream(file, { flags: 'a' }));
   const readConfig = opts.loadConfig ?? defaultLoadConfig;
   const f = files(root);
 
   reapOrphan(root, { graceMs });
-  /** @type {any} */
-  let info = { sessionId: null, resumable: false, pid: null, serverPid: null, argv0: null, startedAt: null, lastTurnAt: null, ...readInfo(f.info) };
+  let info: any = { sessionId: null, resumable: false, pid: null, serverPid: null, argv0: null, startedAt: null, lastTurnAt: null, ...readInfo(f.info) };
 
   let enabled = false;
   let wanted = false;
-  /** @type {'off'|'idle'|'busy'|'stopping'} */
-  let status = 'off';
-  /** @type {any} */
-  let child = null;
+  let status: DaemonStatus = 'off';
+  let child: DaemonChild | null = null;
   let turns = 0;
-  /** @type {string|null} */
-  let lastResultAt = null;
-  /** @type {string|null} */
-  let lastError = null;
-  /** @type {{reason:'budget', jobs:string[]}|null} */
-  let held = null;
-  /** trustDigest taken when a human (dashboard or `forge dash`) last started the daemon. @type {string|null} */
-  let trusted = null;
+  let lastResultAt: string | null = null;
+  let lastError: string | null = null;
+  let held: SupervisorState['held'] = null;
+  /** trustDigest taken when a human (dashboard or `forge dash`) last started the daemon. */
+  let trusted: string | null = null;
   let failures = 0;
   /** Request ids a finished turn has already covered; pruned to ids still pending. */
-  const committed = new Set();
-  /** @type {string[]} */
-  let inFlight = [];
-  /** @type {any} */
-  let sink = null;
-  /** @type {{seq:number, line:string}[]} */
-  const ring = [];
+  const committed = new Set<string>();
+  let inFlight: string[] = [];
+  let sink: LogSink | null = null;
+  const ring: { seq: number; line: string }[] = [];
   let seq = 0;
-  /** @type {Set<(e:DaemonEvent)=>void>} */
-  const subscribers = new Set();
-  /** @type {NodeJS.Timeout|null} */
-  let pollTimer = null;
-  /** @type {NodeJS.Timeout|null} */
-  let idleTimer = null;
+  const subscribers = new Set<(e: DaemonEvent) => void>();
+  let pollTimer: NodeJS.Timeout | null = null;
+  let idleTimer: NodeJS.Timeout | null = null;
   let closed = false;
 
   // Never recreate a repo that was deleted under a running supervisor (or a test's temp repo).
   const persist = () => {
     if (fs.existsSync(root)) writeJsonAtomic(f.info, info);
   };
-  const emit = (/** @type {DaemonEvent} */ e) => {
+  const emit = (e: DaemonEvent) => {
     for (const fn of subscribers) {
       try {
         fn(e);
@@ -295,7 +315,7 @@ export function createDaemon(root, opts = {}) {
     config();
   } catch {}
 
-  function logSink() {
+  function logSink(): LogSink {
     if (!sink) {
       if (!fs.existsSync(root)) return { write: () => true };
       fs.mkdirSync(f.dir, { recursive: true });
@@ -305,8 +325,8 @@ export function createDaemon(root, opts = {}) {
     return sink;
   }
 
-  /** Appends one line to daemon.log and the replay ring; returns the sink's write() result. @param {string} line */
-  function logLine(line) {
+  /** Appends one line to daemon.log and the replay ring; returns the sink's write() result. */
+  function logLine(line: string): boolean {
     const ok = logSink().write(line + '\n');
     seq++;
     ring.push({ seq, line: capLine(line) });
@@ -315,10 +335,9 @@ export function createDaemon(root, opts = {}) {
     return ok;
   }
 
-  /** @param {string} event @param {Record<string, any>} [extra] */
-  const logEvent = (event, extra = {}) => logLine(JSON.stringify({ type: 'forge-daemon', at: now(), event, ...extra }));
+  const logEvent = (event: string, extra: Record<string, any> = {}) => logLine(JSON.stringify({ type: 'forge-daemon', at: now(), event, ...extra }));
 
-  function state() {
+  function state(): SupervisorState {
     return {
       enabled,
       wanted,
@@ -334,7 +353,7 @@ export function createDaemon(root, opts = {}) {
     };
   }
 
-  function config() {
+  function config(): Config {
     const { config: c } = readConfig(root);
     enabled = c.daemon?.enabled === true;
     return c;
@@ -345,8 +364,7 @@ export function createDaemon(root, opts = {}) {
     idleTimer = null;
   }
 
-  /** @param {any} c */
-  function armIdle(c) {
+  function armIdle(c: Config): void {
     clearIdle();
     const minutes = c?.daemon?.idleStopMinutes;
     if (typeof minutes !== 'number' || !(minutes > 0)) return;
@@ -357,8 +375,7 @@ export function createDaemon(root, opts = {}) {
     idleTimer.unref?.();
   }
 
-  /** @param {string} message */
-  function fatal(message) {
+  function fatal(message: string): void {
     wanted = false;
     status = 'off';
     lastError = message;
@@ -393,8 +410,8 @@ export function createDaemon(root, opts = {}) {
     } catch {}
   }
 
-  /** @param {any} c @param {string} [reason] @returns {boolean} whether a child is now running */
-  function spawnChild(c, reason) {
+  /** Returns whether a child is now running. */
+  function spawnChild(c: Config, reason?: string): boolean {
     const links = trackerSymlinks(root);
     if (links.length) {
       fatal(`cannot start daemon: .forge/trackers/ contains symlinks (${links.join(', ')}), whose targets the daemon can't pin; replace them with files`);
@@ -403,12 +420,11 @@ export function createDaemon(root, opts = {}) {
     // Respawns (idle stop, resume failure) happen without a human, so they reuse start()'s snapshot.
     // config.yml is read once, hashed, and that same text is what argv is built from: a file
     // swapped and restored between two reads (by a job's background process, say) can't slip in.
-    /** @type {Buffer|null} */
-    let bytes = null;
+    let bytes: Buffer | null = null;
     try {
       bytes = fs.readFileSync(paths(root).config);
     } catch (e) {
-      if (/** @type {any} */ (e).code !== 'ENOENT') bytes = Buffer.from(`!${/** @type {any} */ (e).code}`);
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') bytes = Buffer.from(`!${(e as NodeJS.ErrnoException).code}`);
     }
     if (!trusted || trustDigest(root, bytes) !== trusted) {
       untrusted();
@@ -417,7 +433,7 @@ export function createDaemon(root, opts = {}) {
     try {
       c = readConfig(root, { text: bytes === null ? null : bytes.toString('utf8') }).config;
     } catch (e) {
-      fatal(`cannot start daemon: ${/** @type {Error} */ (e).message}`);
+      fatal(`cannot start daemon: ${(e as Error).message}`);
       return false;
     }
     if (c.daemon?.enabled !== true) {
@@ -437,27 +453,27 @@ export function createDaemon(root, opts = {}) {
     try {
       argv = buildArgv(c.daemon.command, { pluginRoot: PLUGIN_ROOT, session: { id: info.sessionId, resume }, allowedTools: c.daemon.allowedTools });
     } catch (e) {
-      fatal(`cannot start daemon: ${/** @type {Error} */ (e).message}`);
+      fatal(`cannot start daemon: ${(e as Error).message}`);
       return false;
     }
     let c2;
     try {
       c2 = spawn(argv[0], argv.slice(1), { cwd: root, detached: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...sessionEnv(env), [TRUST_ENV]: trusted } });
     } catch (e) {
-      fatal(`cannot start daemon: ${/** @type {Error} */ (e).message}`);
+      fatal(`cannot start daemon: ${(e as Error).message}`);
       return false;
     }
-    const proc = c2;
+    // _forge is attached on the next lines, before anything reads it.
+    const proc = c2 as DaemonChild;
     child = proc;
     status = 'idle';
-    /** init: a system/init was seen (claude emits one as each turn starts); committed: ids its results covered */
-    const meta = { resume, stdout: false, init: false, result: false, asked: false, committed: /** @type {string[]} */ ([]) };
+    const meta: ChildMeta = { resume, stdout: false, init: false, result: false, asked: false, committed: [] };
     proc._forge = meta;
     info = { ...info, pid: proc.pid ?? null, serverPid: process.pid, argv0: argv[0], startedAt: now(), spawnSessionId: info.sessionId };
     persist();
     logEvent('spawn', { pid: proc.pid ?? null, sessionId: info.sessionId, resume, ...(reason ? { reason } : {}) });
 
-    proc.on('error', (/** @type {Error} */ e) => {
+    proc.on('error', (e: Error) => {
       if (child !== proc) return;
       if (!proc.pid) {
         // Never started (ENOENT, EACCES): retrying can't help, so stop wanting it.
@@ -470,7 +486,7 @@ export function createDaemon(root, opts = {}) {
       } else logEvent('error', { message: e.message });
     });
     // EPIPE on a child that died mid-write must not take the server down.
-    proc.stdin?.on('error', (/** @type {Error} */ e) => {
+    proc.stdin?.on('error', (e: Error) => {
       if (child === proc) logEvent('error', { message: `stdin: ${e.message}` });
     });
     proc.stdout?.on(
@@ -483,23 +499,24 @@ export function createDaemon(root, opts = {}) {
       'data',
       splitter(STDERR_CAP, (text) => void logLine(JSON.stringify({ type: 'forge-stderr', at: now(), text })), null),
     );
-    proc.on('close', (/** @type {number|null} */ code, /** @type {string|null} */ signal) => onExit(proc, code, signal));
+    proc.on('close', (code: number | null, signal: string | null) => onExit(proc, code, signal));
     armIdle(c);
     changed();
     return true;
   }
 
-  /** @param {any} proc @param {string} line */
-  function onStdout(proc, line) {
+  function onStdout(proc: DaemonChild, line: string): void {
     const meta = proc._forge;
-    let ev = null;
+    let ev: any = null;
     try {
       ev = JSON.parse(line);
     } catch {}
     const ok = ev && typeof ev === 'object' ? logLine(line) : logLine(JSON.stringify({ type: 'forge-raw', at: now(), text: line }));
     if (!ok && proc.stdout && !proc.stdout.isPaused()) {
       proc.stdout.pause();
-      logSink().once('drain', () => proc.stdout.resume());
+      // write() returned false, so the sink is a real stream (the stand-in never does), and stdout was
+      // checked just above, where the callback can't see the narrowing.
+      logSink().once!('drain', () => proc.stdout!.resume());
     }
     if (child !== proc) return;
     if (!meta.stdout) {
@@ -523,8 +540,7 @@ export function createDaemon(root, opts = {}) {
     if (ev.type === 'result') onResult(proc);
   }
 
-  /** @param {any} proc */
-  function onResult(proc) {
+  function onResult(proc: DaemonChild): void {
     proc._forge.result = true;
     proc._forge.committed.push(...inFlight);
     failures = 0;
@@ -544,8 +560,7 @@ export function createDaemon(root, opts = {}) {
     tick();
   }
 
-  /** @param {any} proc @param {number|null} code @param {string|null} signal */
-  function onExit(proc, code, signal) {
+  function onExit(proc: DaemonChild, code: number | null, signal: string | null): void {
     if (child !== proc) return;
     const meta = proc._forge;
     child = null;
@@ -570,7 +585,7 @@ export function createDaemon(root, opts = {}) {
         try {
           if (spawnChild(config())) tick();
         } catch (e) {
-          fatal(`cannot start daemon: ${/** @type {Error} */ (e).message}`);
+          fatal(`cannot start daemon: ${(e as Error).message}`);
         }
       }
       return;
@@ -585,8 +600,8 @@ export function createDaemon(root, opts = {}) {
     changed();
   }
 
-  /** Stops the current child: SIGTERM to its group, SIGKILL after graceMs. @param {string} event @param {boolean} endStdin @param {string} [reason] */
-  async function kill(event, endStdin, reason) {
+  /** Stops the current child: SIGTERM to its group, SIGKILL after graceMs. */
+  async function kill(event: string, endStdin: boolean, reason?: string): Promise<void> {
     const proc = child;
     if (!proc) {
       status = 'off';
@@ -599,9 +614,8 @@ export function createDaemon(root, opts = {}) {
     logEvent(event, { pid: proc.pid ?? null, ...(reason ? { reason } : {}) });
     changed();
     const closedP = new Promise((resolve) => proc.once('close', () => resolve(true)));
-    const wait = (/** @type {number} */ ms) => {
-      /** @type {NodeJS.Timeout|undefined} */
-      let timer;
+    const wait = (ms: number) => {
+      let timer: NodeJS.Timeout | undefined;
       const timeout = new Promise((r) => (timer = setTimeout(() => r(false), ms)));
       // Cleared once the child closes, so a pending grace timer never holds the process open.
       return Promise.race([closedP, timeout]).finally(() => clearTimeout(timer));
@@ -632,7 +646,7 @@ export function createDaemon(root, opts = {}) {
     }
   }
 
-  function tick() {
+  function tick(): void {
     if (!wanted || closed) return;
     try {
       const c = config();
@@ -640,13 +654,14 @@ export function createDaemon(root, opts = {}) {
       const pending = listRequests(root, { status: 'pending' });
       const ids = new Set(pending.map((r) => r.id));
       for (const id of committed) if (!ids.has(id)) committed.delete(id);
-      const heldJobs = new Set();
-      const eligible = [];
+      const heldJobs = new Set<string>();
+      const eligible: string[] = [];
       for (const r of pending) {
-        if (heldByBudget(root, c, r)) heldJobs.add(r.job);
+        // heldByBudget is true only for a request whose job is a string.
+        if (heldByBudget(root, c, r)) heldJobs.add(r.job!);
         else eligible.push(r.id);
       }
-      const nextHeld = heldJobs.size ? { reason: /** @type {'budget'} */ ('budget'), jobs: [...heldJobs].sort() } : null;
+      const nextHeld = heldJobs.size ? { reason: 'budget' as const, jobs: [...heldJobs].sort() } : null;
       if (JSON.stringify(nextHeld) !== JSON.stringify(held)) {
         held = nextHeld;
         logEvent('held', { jobs: held?.jobs ?? [] });
@@ -658,7 +673,7 @@ export function createDaemon(root, opts = {}) {
       writeTurn(eligible);
     } catch (e) {
       // A broken config.yml fails every poll: log and broadcast the error once, not every 2 s.
-      const message = `daemon tick failed: ${/** @type {Error} */ (e).message}`;
+      const message = `daemon tick failed: ${(e as Error).message}`;
       if (message !== lastError) {
         lastError = message;
         logEvent('error', { message });
@@ -672,9 +687,9 @@ export function createDaemon(root, opts = {}) {
     }
   }
 
-  /** @param {string[]} ids */
-  function writeTurn(ids) {
-    child.stdin.write(TURN_LINE);
+  function writeTurn(ids: string[]): void {
+    // tick() only calls this once a child is running, and its stdin is a pipe.
+    child!.stdin!.write(TURN_LINE);
     status = 'busy';
     inFlight = ids;
     turns++;
@@ -686,7 +701,6 @@ export function createDaemon(root, opts = {}) {
   }
 
   return {
-    /** @param {string} [reason] */
     start(reason = 'start') {
       if (closed) return state();
       // Before reading config, so a change in between fails spawnChild's comparison instead of being blessed.
@@ -712,7 +726,6 @@ export function createDaemon(root, opts = {}) {
       tick();
       return state();
     },
-    /** @param {string} [reason] */
     async stop(reason = 'stop') {
       wanted = false;
       await kill('stop', false, reason);
@@ -722,12 +735,11 @@ export function createDaemon(root, opts = {}) {
       tick();
     },
     state,
-    /** @param {(e:DaemonEvent)=>void} fn */
     subscribe(fn) {
       subscribers.add(fn);
       return () => void subscribers.delete(fn);
     },
-    /** Buffered lines after `afterSeq`; all of them when it is missing or ahead of us (a restarted server). @param {number} [afterSeq] */
+    /** Buffered lines after `afterSeq`; all of them when it is missing or ahead of us (a restarted server). */
     recent(afterSeq) {
       if (afterSeq === undefined || !Number.isFinite(afterSeq) || afterSeq > seq) return ring.slice();
       return ring.filter((r) => r.seq > afterSeq);
@@ -760,11 +772,10 @@ export function createDaemon(root, opts = {}) {
   };
 }
 
-/** @param {string} line */
-function capLine(line) {
+function capLine(line: string): string {
   const bytes = Buffer.byteLength(line);
   if (bytes <= RING_LINE_BYTES) return line;
-  let originalType = null;
+  let originalType: unknown = null;
   try {
     originalType = JSON.parse(line)?.type ?? null;
   } catch {}
@@ -775,15 +786,13 @@ function capLine(line) {
  * Byte-capped line splitter, so one runaway line can't grow memory without bound. A line longer
  * than `max` is dropped up to its newline and reported through `onTooLong`; with no
  * `onTooLong` its first `max` bytes are kept instead.
- * @param {number} max @param {(line:string)=>void} onLine @param {((bytes:number)=>void)|null} onTooLong
  */
-function splitter(max, onLine, onTooLong) {
-  /** @type {Buffer[]} */
-  let parts = [];
+function splitter(max: number, onLine: (line: string) => void, onTooLong: ((bytes: number) => void) | null): (data: Buffer | string) => void {
+  let parts: Buffer[] = [];
   let size = 0;
   let dropping = false;
   let dropped = 0;
-  return (/** @type {Buffer|string} */ data) => {
+  return (data: Buffer | string) => {
     const chunk = typeof data === 'string' ? Buffer.from(data) : data;
     let start = 0;
     while (start <= chunk.length) {

@@ -1,24 +1,44 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { daemonProblems, loadConfig } from './config.ts';
-import { createDaemon } from './daemon.mjs';
+import { createDaemon } from './daemon.ts';
+import type { Daemon, DaemonOptions, SupervisorState } from './daemon.ts';
 import { listJobs, loadJob, progress, readEvents, jobDir } from './jobs.ts';
 import { paths, exists, PLUGIN_ROOT } from './paths.ts';
 import { API_VERSION } from './schema.ts';
 import { computeStats } from './stats.ts';
 import { listRuns, listTasks, compareRuns, forgeVersion } from './evals.ts';
 import { enqueue, listRequests } from './requests.ts';
-import { loadTracker } from './trackers/index.mjs';
+import { loadTracker } from './trackers/index.ts';
 import { roster } from './roster.ts';
 import { readText } from './util.ts';
+import type { ApiError, ApiState, BacklogResponse, DaemonState, EvalsResponse, ForgeTruncatedLine, JobDetail, PostRequestResponse } from './types.ts';
+
+/** startServer's options. `distDir` is a test seam like `sseMaxAgeMs`. */
+export interface ServerOptions {
+  port?: number;
+  host?: string;
+  daemon?: DaemonOptions;
+  sseMaxAgeMs?: number;
+  ssePingMs?: number;
+  distDir?: string;
+}
+
+/** A listening dashboard server: what startServer resolves to. */
+export interface RunningServer {
+  server: http.Server;
+  url: string;
+  daemon: Daemon;
+  close: () => Promise<void>;
+}
 
 const TEXT_EXT = new Set(['.md', '.log', '.patch', '.diff', '.json', '.jsonl', '.txt', '.yml', '.yaml', '.html']);
 const MAX_FILE = 2 * 1024 * 1024;
 // Raster formats only: SVG can carry script, so it is never served as an image.
-/** @type {Record<string, string>} */
-const IMAGE_TYPES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
+const IMAGE_TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
 const MAX_IMAGE = 10 * 1024 * 1024;
 const MAX_SCREENSHOTS = 200;
 const MAX_SSE_CLIENTS = 8;
@@ -31,29 +51,22 @@ const SSE_MAX_AGE_MS = 5 * 60_000;
 const DIST_DIR = path.join(PLUGIN_ROOT, 'dashboard', 'dist');
 const NOT_BUILT = 'dashboard is not built: run npm run build:dashboard';
 const DIST_ASSET = /^assets\/[\w.-]+\.(js|css)$/;
-/** @type {Record<string, string>} */
-const DIST_TYPES = { js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8' };
+const DIST_TYPES: Record<string, string> = { js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8' };
 
 /**
  * Read-mostly, localhost-only server. POSTs need the per-process token embedded in the page,
  * so another site in the same browser cannot enqueue work or start the daemon.
  * `distDir` is a test seam like `sseMaxAgeMs`; it defaults to the plugin's committed dashboard/dist.
- * @param {string} root @param {{port?:number, host?:string, daemon?:import('./daemon.mjs').DaemonOptions, sseMaxAgeMs?:number, ssePingMs?:number, distDir?:string}} opts
- * @returns {Promise<{server:http.Server, url:string, daemon:ReturnType<typeof createDaemon>, close:()=>Promise<void>}>}
  */
-export function startServer(root, opts = {}) {
+export function startServer(root: string, opts: ServerOptions = {}): Promise<RunningServer> {
   const token = crypto.randomBytes(16).toString('hex');
   const host = opts.host ?? '127.0.0.1';
   const distDir = opts.distDir ?? DIST_DIR;
-  /** @type {{at:number, data:any}|null} */
-  let backlogCache = null;
-  /** @type {Set<http.ServerResponse>} */
-  const clients = new Set();
-  /** @type {ReturnType<typeof createDaemon>|null} */
-  let daemon = null;
-  /** @type {NodeJS.Timeout|null} */
-  let ping = null;
-  const daemonState = () => ({ ...(daemon ? daemon.state() : idleDaemonState()), clients: clients.size });
+  let backlogCache: { at: number; data: BacklogResponse } | null = null;
+  const clients = new Set<http.ServerResponse>();
+  let daemon: Daemon | null = null;
+  let ping: NodeJS.Timeout | null = null;
+  const daemonState = (): DaemonState => ({ ...(daemon ? daemon.state() : idleDaemonState()), clients: clients.size });
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -71,7 +84,7 @@ export function startServer(root, opts = {}) {
       if (req.method === 'GET' && p === '/api/state') return json(res, state(root, daemonState()));
       if (req.method === 'GET' && p === '/api/events') return events(req, res);
       if (req.method === 'GET' && p === '/api/stats') return json(res, computeStats(root, { since: url.searchParams.get('since') ?? undefined }));
-      if (req.method === 'GET' && p === '/api/evals') return json(res, { tasks: listTasks(root).map(({ dir: _d, request: _r, ...t }) => t), runs: listRuns(root) });
+      if (req.method === 'GET' && p === '/api/evals') return json(res, { tasks: listTasks(root).map(({ dir: _d, request: _r, ...t }) => t), runs: listRuns(root) } satisfies EvalsResponse);
       if (req.method === 'GET' && p === '/api/evals/compare') return json(res, compareRuns(root, url.searchParams.get('a') ?? '', url.searchParams.get('b') ?? ''));
       if (req.method === 'GET' && p === '/api/requests') return json(res, listRequests(root));
       if (req.method === 'GET' && p === '/api/roster') return json(res, roster(root, loadConfig(root).config));
@@ -82,7 +95,7 @@ export function startServer(root, opts = {}) {
             const tracker = await loadTracker(root, config);
             backlogCache = { at: Date.now(), data: { tracker: tracker.name, items: tracker.list({ root, config }, { limit: 200 }) } };
           } catch (e) {
-            backlogCache = { at: Date.now(), data: { tracker: config.tracker.kind, items: [], error: /** @type {Error} */ (e).message } };
+            backlogCache = { at: Date.now(), data: { tracker: config.tracker.kind, items: [], error: (e as Error).message } };
           }
         }
         return json(res, backlogCache.data);
@@ -109,11 +122,11 @@ export function startServer(root, opts = {}) {
         const { config } = loadConfig(root);
         const rec = enqueue(root, config, { type: body.type, job: body.job, text: body.text, args: body.args, from: 'dashboard' });
         daemon?.poke();
-        return json(res, { ...rec, daemon: Boolean(daemon?.state().wanted) });
+        return json(res, { ...rec, daemon: Boolean(daemon?.state().wanted) } satisfies PostRequestResponse);
       }
       if (req.method === 'POST' && p === '/api/daemon') {
         if (guardPost(req, res, token)) return;
-        let body;
+        let body: any;
         try {
           body = JSON.parse((await readBody(req)) || '{}');
         } catch {
@@ -135,7 +148,7 @@ export function startServer(root, opts = {}) {
       send(res, 404, 'text/plain', 'not found');
     } catch (e) {
       if (res.headersSent) return void res.end();
-      send(res, 500, 'application/json', JSON.stringify({ error: /** @type {Error} */ (e).message }));
+      send(res, 500, 'application/json', JSON.stringify({ error: (e as Error).message } satisfies ApiError));
     }
   });
 
@@ -145,9 +158,8 @@ export function startServer(root, opts = {}) {
    * no CORS headers, so another site can't read the stream. A cross-site request is refused when
    * the browser sends Fetch Metadata; one that doesn't can still hold a slot until the stream is
    * recycled (sseMaxAgeMs), which costs the live log's availability, never the daemon.
-   * @param {http.IncomingMessage} req @param {http.ServerResponse} res
    */
-  function events(req, res) {
+  function events(req: http.IncomingMessage, res: http.ServerResponse): void {
     const origin = req.headers.origin;
     if (origin !== undefined && !sameOrigin(origin, req.headers.host)) return send(res, 403, 'text/plain', 'bad origin');
     // A no-cors request from another site (fetch no-cors, <img>, <script>) carries no Origin, but
@@ -196,30 +208,28 @@ export function startServer(root, opts = {}) {
           server.closeAllConnections?.();
         });
       };
-      resolve({ server, url: `http://${host}:${/** @type {any} */ (server.address()).port}`, daemon: d, close });
+      resolve({ server, url: `http://${host}:${(server.address() as AddressInfo).port}`, daemon: d, close });
     });
   });
 }
 
 /** The daemon block before a daemon exists (never visible once the server is listening). */
-function idleDaemonState() {
+function idleDaemonState(): SupervisorState {
   return { enabled: false, wanted: false, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, held: null, lastError: null };
 }
 
 /**
  * Token, then Origin, then JSON: the checks every POST shares. Returns true when it has
  * already answered the request.
- * @param {http.IncomingMessage} req @param {http.ServerResponse} res @param {string} token
  */
-function guardPost(req, res, token) {
+function guardPost(req: http.IncomingMessage, res: http.ServerResponse, token: string): boolean {
   if (req.headers['x-forge-token'] !== token) return send(res, 403, 'text/plain', 'bad token'), true;
   if (!req.headers.origin || !sameOrigin(req.headers.origin, req.headers.host)) return send(res, 403, 'text/plain', 'bad origin'), true;
   if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) return send(res, 415, 'text/plain', 'json only'), true;
   return false;
 }
 
-/** @param {string} origin @param {string|undefined} host */
-function sameOrigin(origin, host) {
+function sameOrigin(origin: string, host: string | undefined): boolean {
   try {
     return new URL(origin).host === host;
   } catch {
@@ -227,24 +237,22 @@ function sameOrigin(origin, host) {
   }
 }
 
-/** @param {any} st */
-function stateFrame(st) {
+function stateFrame(st: DaemonState): string {
   return `event: state\ndata: ${JSON.stringify(st)}\n\n`;
 }
 
 /**
  * Lines are single-line JSON already; a stray CR would still end an SSE field, so it goes.
- * @param {number} seq @param {string} line
  */
-function lineFrame(seq, line) {
+function lineFrame(seq: number, line: string): string {
   let data = line.replace(/\r/g, '');
   const bytes = Buffer.byteLength(data);
   if (bytes > SSE_MAX_LINE) {
-    let originalType = null;
+    let originalType: string | null = null;
     try {
       originalType = JSON.parse(data)?.type ?? null;
     } catch {}
-    data = JSON.stringify({ type: 'forge-truncated', originalType, bytes });
+    data = JSON.stringify({ type: 'forge-truncated', originalType, bytes } satisfies ForgeTruncatedLine);
   }
   return `event: line\nid: ${seq}\ndata: ${data}\n\n`;
 }
@@ -252,9 +260,8 @@ function lineFrame(seq, line) {
 /**
  * Writes a frame to every client and ends any whose unsent buffer is over the cap, so one
  * stalled browser tab can't grow the server's memory; it reconnects with Last-Event-ID.
- * @param {Set<{write:(s:string)=>any, end:()=>any, writableLength:number}>} clients @param {string} frame @param {number} [capBytes]
  */
-export function broadcast(clients, frame, capBytes = SSE_SLOW_CLIENT_BYTES) {
+export function broadcast(clients: Set<{ write: (s: string) => unknown; end: () => unknown; writableLength: number }>, frame: string, capBytes = SSE_SLOW_CLIENT_BYTES): void {
   for (const res of [...clients]) {
     res.write(frame);
     if (res.writableLength > capBytes) {
@@ -264,14 +271,12 @@ export function broadcast(clients, frame, capBytes = SSE_SLOW_CLIENT_BYTES) {
   }
 }
 
-/** @param {string|undefined} host */
-function isLoopbackHost(host) {
+function isLoopbackHost(host: string | undefined): boolean {
   const name = String(host ?? '').replace(/:\d+$/, '').toLowerCase();
   return name === '127.0.0.1' || name === 'localhost' || name === '[::1]';
 }
 
-/** @param {string} root @param {any} daemon */
-function state(root, daemon) {
+function state(root: string, daemon: DaemonState): ApiState {
   const { config, initialized } = loadConfig(root);
   const jobs = listJobs(root).map((j) => {
     const events = readEvents(root, j.id);
@@ -286,7 +291,7 @@ function state(root, daemon) {
     config: {
       base: config.git.base,
       tracker: config.tracker.kind,
-      panel: config.review.panel.map((/** @type {any} */ r) => r.name),
+      panel: config.review.panel.map((r) => r.name),
       pipeline: config.pipeline,
       models: config.runtime.models,
       daemon: { enabled: config.daemon?.enabled === true },
@@ -299,13 +304,11 @@ function state(root, daemon) {
   };
 }
 
-/** @param {string} root @param {string} id */
-function jobDetail(root, id) {
+function jobDetail(root: string, id: string): JobDetail {
   const job = loadJob(root, id);
   const dir = jobDir(root, id);
-  /** @type {string[]} */
-  const files = [];
-  const walk = (/** @type {string} */ d, /** @type {number} */ depth) => {
+  const files: string[] = [];
+  const walk = (d: string, depth: number) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       if (e.name.startsWith('.')) continue;
       const full = path.join(d, e.name);
@@ -316,7 +319,7 @@ function jobDetail(root, id) {
   };
   walk(dir, 0);
   const order = ['request.md', 'plan.md', 'spec.md', 'design.md', 'mockup.html', 'questions.md', 'tasks.md', 'build.md', 'verify/', 'review/', 'decision.md', 'runbook.md', 'pr.md', 'pr-feedback.md', 'feedback.md', 'eval-judge.md'];
-  const rank = (/** @type {string} */ f) => {
+  const rank = (f: string) => {
     const i = order.findIndex((o) => (o.endsWith('/') ? f.startsWith(o) : f === o));
     return i === -1 ? (f.startsWith('logs/') ? 1000 : 500) : i;
   };
@@ -327,12 +330,10 @@ function jobDetail(root, id) {
 /**
  * Images under the job's `screenshots/` dir, as paths relative to the job dir. Symlinks are
  * skipped (`isFile()` is false for them), so the list never points outside the job.
- * @param {string} dir
  */
-function listScreenshots(dir) {
-  /** @type {string[]} */
-  const out = [];
-  const walk = (/** @type {string} */ d, /** @type {number} */ depth) => {
+function listScreenshots(dir: string): string[] {
+  const out: string[] = [];
+  const walk = (d: string, depth: number) => {
     let entries;
     try {
       entries = fs.readdirSync(d, { withFileTypes: true });
@@ -353,19 +354,16 @@ function listScreenshots(dir) {
 /**
  * Screenshots are agent-written files, so they are confined twice: the request path must sit under
  * `screenshots/`, and the resolved file (after symlinks) must stay inside the job dir.
- * @param {http.ServerResponse} res @param {string} base @param {string} file
  */
-function sendImage(res, base, file) {
+function sendImage(res: http.ServerResponse, base: string, file: string): void {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Content-Security-Policy', "default-src 'none'");
   // The Host check can't stop another site from embedding an <img> of this URL; CORP makes the
   // browser refuse cross-origin loads, so screenshots of real data never reach a foreign page.
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
   if (path.relative(base, file).split(path.sep)[0] !== 'screenshots') return send(res, 404, 'text/plain', 'not found');
-  /** @type {[number, string, string|Buffer]} */
-  let reply = [404, 'text/plain', 'not found'];
-  /** @type {number|undefined} */
-  let fd;
+  let reply: [number, string, string | Buffer] = [404, 'text/plain', 'not found'];
+  let fd: number | undefined;
   try {
     // Resolve once, then check, stat and read through one descriptor, so a symlink swapped in
     // between the check and the read can't redirect it.
@@ -385,15 +383,13 @@ function sendImage(res, base, file) {
   return send(res, ...reply);
 }
 
-/** @param {string} base @param {string} rel */
-function safeJoin(base, rel) {
+function safeJoin(base: string, rel: string): string | null {
   if (!rel || rel.includes('\0')) return null;
   const full = path.resolve(base, rel);
   return full.startsWith(base + path.sep) ? full : null;
 }
 
-/** @param {string} file @param {number} bytes */
-function readTail(file, bytes) {
+function readTail(file: string, bytes: number): string {
   const fd = fs.openSync(file, 'r');
   const size = fs.fstatSync(fd).size;
   const buf = Buffer.alloc(Math.min(bytes, size));
@@ -402,8 +398,7 @@ function readTail(file, bytes) {
   return buf.toString('utf8');
 }
 
-/** @param {http.IncomingMessage} req */
-function readBody(req) {
+function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = '';
     req.on('data', (c) => {
@@ -420,13 +415,10 @@ function readBody(req) {
  * the allowlist and nothing under dashboard/ is served by directory, so sources, the manifest and
  * the rest of the plugin root never are. Entries that aren't plain `assets/<file>.js|css` names
  * are dropped, and a missing or unparseable manifest allows nothing.
- * @param {string} distDir
- * @returns {Map<string, {file:string, type:string}>}
  */
-export function distAllowlist(distDir) {
-  /** @type {Map<string, {file:string, type:string}>} */
-  const out = new Map();
-  let manifest;
+export function distAllowlist(distDir: string): Map<string, { file: string; type: string }> {
+  const out = new Map<string, { file: string; type: string }>();
+  let manifest: any;
   try {
     manifest = JSON.parse(fs.readFileSync(path.join(distDir, 'manifest.json'), 'utf8'));
   } catch {
@@ -434,8 +426,7 @@ export function distAllowlist(distDir) {
   }
   if (!manifest || typeof manifest !== 'object') return out;
   const assetsDir = path.join(distDir, 'assets') + path.sep;
-  /** @param {unknown} s */
-  const accept = (s) => {
+  const accept = (s: unknown) => {
     if (typeof s !== 'string') return;
     const m = DIST_ASSET.exec(s);
     if (!m) return;
@@ -443,7 +434,8 @@ export function distAllowlist(distDir) {
     if (!file.startsWith(assetsDir)) return;
     out.set('/' + s, { file, type: DIST_TYPES[m[1]] });
   };
-  for (const entry of Object.values(manifest)) {
+  // Raw JSON from the build: each entry is checked before it is used.
+  for (const entry of Object.values<any>(manifest)) {
     if (!entry || typeof entry !== 'object') continue;
     accept(entry.file);
     for (const k of ['css', 'assets']) if (Array.isArray(entry[k])) entry[k].forEach(accept);
@@ -451,8 +443,7 @@ export function distAllowlist(distDir) {
   return out;
 }
 
-/** @param {http.ServerResponse} res @param {string} token @param {string} distDir */
-function page(res, token, distDir) {
+function page(res: http.ServerResponse, token: string, distDir: string): void {
   let html;
   try {
     // The page loads only manifest files, so it counts as built only when both exist.
@@ -466,8 +457,8 @@ function page(res, token, distDir) {
   send(res, 200, 'text/html; charset=utf-8', html.replace('__FORGE_TOKEN__', token));
 }
 
-/** Hashed file names change with their content, so they are cached for good. @param {http.ServerResponse} res @param {{file:string, type:string}} hit */
-function immutable(res, hit) {
+/** Hashed file names change with their content, so they are cached for good. */
+function immutable(res: http.ServerResponse, hit: { file: string; type: string }): void {
   let body;
   try {
     body = fs.readFileSync(hit.file);
@@ -479,26 +470,22 @@ function immutable(res, hit) {
   send(res, 200, hit.type, body);
 }
 
-/** @param {http.ServerResponse} res @param {string} file @param {string} type */
-function sendFile(res, file, type) {
+function sendFile(res: http.ServerResponse, file: string, type: string): void {
   res.setHeader('Cache-Control', 'max-age=86400');
   send(res, 200, type, fs.readFileSync(file));
 }
 
-/** @param {http.ServerResponse} res @param {any} data */
-function json(res, data) {
+function json(res: http.ServerResponse, data: unknown): void {
   res.setHeader('Cache-Control', 'no-store');
   send(res, 200, 'application/json; charset=utf-8', JSON.stringify(data));
 }
 
-/** @param {http.ServerResponse} res @param {number} status @param {any} data */
-function jsonStatus(res, status, data) {
+function jsonStatus(res: http.ServerResponse, status: number, data: ApiError): void {
   res.setHeader('Cache-Control', 'no-store');
   send(res, status, 'application/json; charset=utf-8', JSON.stringify(data));
 }
 
-/** @param {http.ServerResponse} res @param {number} status @param {string} type @param {string|Buffer} body */
-function send(res, status, type, body) {
+function send(res: http.ServerResponse, status: number, type: string, body: string | Buffer): void {
   res.writeHead(status, { 'Content-Type': type, 'X-Content-Type-Options': 'nosniff' });
   res.end(body);
 }

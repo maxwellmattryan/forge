@@ -5,9 +5,9 @@ import path from 'node:path';
 import { tempRepo } from './helpers.mjs';
 import { defaults } from '../lib/config.ts';
 import { createJob, setJob } from '../lib/jobs.ts';
-import local from '../lib/trackers/local.mjs';
-import { statusKey } from '../lib/trackers/status.mjs';
-import { statusMap } from '../lib/trackers/github.mjs';
+import local from '../lib/trackers/local.ts';
+import { statusKey } from '../lib/trackers/status.ts';
+import { statusMap } from '../lib/trackers/github.ts';
 
 test('local backlog: create, list, claim, update, close', () => {
   const repo = tempRepo();

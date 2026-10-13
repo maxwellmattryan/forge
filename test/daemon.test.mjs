@@ -13,7 +13,7 @@ import { budgetCmd } from '../lib/budget.ts';
 import { createJob, setJob, updateJob } from '../lib/jobs.ts';
 import { PLUGIN_ROOT } from '../lib/paths.ts';
 import { claimRequest, enqueue } from '../lib/requests.ts';
-import { DENY_TOOLS, GIT_PINS, TRUST_CHANGED, TURN, TURN_LINE, buildArgv, createDaemon, heldByBudget, parseTemplate, reapOrphan, sessionEnv } from '../lib/daemon.mjs';
+import { DENY_TOOLS, GIT_PINS, TRUST_CHANGED, TURN, TURN_LINE, buildArgv, createDaemon, heldByBudget, parseTemplate, reapOrphan, sessionEnv } from '../lib/daemon.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const FAKE = path.resolve(import.meta.dirname, 'fixtures', 'fake-claude.mjs');

@@ -9,8 +9,8 @@ import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.mjs';
-import { broadcast, distAllowlist, startServer } from '../lib/server.mjs';
-import { TURN_LINE } from '../lib/daemon.mjs';
+import { broadcast, distAllowlist, startServer } from '../lib/server.ts';
+import { TURN_LINE } from '../lib/daemon.ts';
 import * as yaml from '../lib/yaml.ts';
 import { API_VERSION as DASH_API_VERSION } from '../dashboard/src/lib/types.ts';
 
@@ -92,8 +92,8 @@ test('dashboard server serves the page no-store and only manifest-allowlisted di
       '/style.css', '/vite.config.mjs', '/build-stamp.mjs', '/manifest.json', '/build-stamp.json',
       '/dist/index.html', '/dashboard/dist/index.html', '/dashboard/app.js', '/assets', '/assets/',
       `/${real}.map`, `/${real}/`, `/${real}%00`, `/ASSETS/${real.slice('assets/'.length)}`,
-      '/assets/..%2Fmanifest.json', '/..%2Flib%2Fserver.mjs', '/../lib/server.mjs', '/%2e%2e/lib/server.mjs',
-      '/lib.js', '/server.mjs', '/index.js', '/package.json', '/node_modules/vite/package.json',
+      '/assets/..%2Fmanifest.json', '/..%2Flib%2Fserver.ts', '/../lib/server.ts', '/%2e%2e/lib/server.ts',
+      '/lib.js', '/server.ts', '/index.js', '/package.json', '/node_modules/vite/package.json',
       '/src/lib/util.ts', '/dashboard/src/lib/util.ts', '/src/lib/types.ts', '/tsconfig.json', '/dashboard/tsconfig.json',
       '/src/main.ts', '/src/App.svelte', '/dashboard/src/App.svelte', '/src/lib/view.ts', '/svelte.config.mjs', '/dashboard/svelte.config.mjs',
     ];
@@ -114,8 +114,8 @@ test('distAllowlist accepts only plain assets/*.js|css entries', () => {
     fs.writeFileSync(path.join(tmp, 'manifest.json'), 'null');
     assert.equal(distAllowlist(tmp).size, 0, 'null manifest');
     const manifest = {
-      'index.html': { file: 'assets/index-AbC_1.js', css: ['assets/index-x.y-2.css', '../lib/server.mjs', 7], assets: ['assets/extra-3.js', null] },
-      a: { file: '../lib/server.mjs' },
+      'index.html': { file: 'assets/index-AbC_1.js', css: ['assets/index-x.y-2.css', '../lib/server.ts', 7], assets: ['assets/extra-3.js', null] },
+      a: { file: '../lib/server.ts' },
       b: { file: '/etc/passwd' },
       c: { file: 'assets/../../x.js' },
       d: { file: 'assets/sub/x.js' },
