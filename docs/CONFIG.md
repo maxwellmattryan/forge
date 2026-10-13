@@ -164,7 +164,7 @@ evals:
 dashboard:
   port: 7400
 
-daemon:                      # opt-in headless orchestrator supervised by `forge dash` (see "Daemon" below)
+daemon:                      # opt-in headless sessions supervised by `forge dash`: an inbox plus one per job (see "Daemon" below)
   enabled: false             # true: `forge dash` starts it, and POST /api/daemon may start it again after a stop
   command: claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode dontAsk --allowedTools {allowedTools}
   allowedTools:              # refused if it names blanket git/gh (see "Daemon" below)
@@ -172,7 +172,7 @@ daemon:                      # opt-in headless orchestrator supervised by `forge
      "Bash(git status:*)", "Bash(git rev-parse:*)", "Bash(git add:*)", "Bash(git rm:*)", "Bash(git commit:*)",
      "Bash(git merge --abort:*)", "Bash(git rebase --abort:*)",
      "Bash(gh pr view:*)", "Bash(gh pr list:*)", "Bash(gh pr checks:*)", "Bash(gh run view:*)"]
-  maxConcurrent: 1           # supervised sessions; only 1 is accepted for now
+  maxConcurrent: 3           # job sessions at once (1-16), besides the inbox
   idleStopMinutes: 30        # stop an idle session after this long (null: never); new work resumes it
 ```
 
@@ -223,7 +223,7 @@ Verify's clean check also fails, in either mode, when the files on disk can diff
 
 ## Daemon
 
-With `daemon.enabled: true`, `forge dash` supervises one long-lived headless orchestrator session, so requests queued from the dashboard get handled without a Claude Code window open. Whenever new pending requests appear and the session is idle, it writes the session one fixed turn, `/forge requests`, on stdin; the session claims and handles them exactly as yours would. It spends tokens unattended, under the permissions `allowedTools` grants, so it is off by default.
+With `daemon.enabled: true`, `forge dash` supervises headless orchestrator sessions, so requests queued from the dashboard get handled without a Claude Code window open: one **inbox** session for requests without a job (`next`, `run`, `sync`, `retro`, `eval-run`), which only does intake and hands each new job off, and one session **per job**, started when that job has work. Whenever a session's pending requests change and it is idle, it gets one fixed turn, `/forge requests`, on stdin; the session claims and handles them exactly as yours would, seeing only its own scope's requests. Each session fails, idles and logs on its own. They spend tokens unattended, under the permissions `allowedTools` grants, so the daemon is off by default.
 
 - **`command`** is split into argv like a shell would split words (whitespace; `'…'` literal; `"…"` with `\"` and `\\`), then run directly, with no shell: no pipes, globbing, `$VARS` or `~`. Its first word must be a bare `claude` (found on PATH) or an absolute path to `claude` outside the repo; relative paths are refused because the session runs with the repo as its working directory. This catches mistakes; it isn't a security boundary: whoever can edit this file can run code through the daemon (docs/ARCHITECTURE.md "Daemon security"), so give the `daemon` keys code-owner review. The session's PATH starts with this plugin's `bin/`, so its `forge` is the same version as `forge dash`'s. Placeholders expand after splitting, so each stays one argument even with spaces in it:
   - `{pluginRoot}`: this plugin's directory. Pass it with `--plugin-dir` so the session has the `/forge` skill and the `forge:*` agents; `--resume` doesn't restore it, so it is passed on every spawn.
@@ -235,12 +235,12 @@ With `daemon.enabled: true`, `forge dash` supervises one long-lived headless orc
 - **Git inside the session** runs with `core.hooksPath=/dev/null` and `core.fsmonitor=false` pinned through `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` (appended after any you already export), plus `GIT_EDITOR=true`. That covers subagents, `forge` and your verify commands too: **no git hooks run in daemon mode**, including your pre-commit and pre-push hooks and Git LFS's pre-push upload, so repos that depend on hooks should keep those checks in `commands.*`/`verify`, and LFS repos should not push from the daemon.
 - **What the session may not change.** Forge always appends `--disallowedTools Edit(.forge/config.yml),Edit(.forge/trackers/**)` to `command`. Every `forge` call in the session also checks that those files are the ones a human started the daemon with, and refuses if they changed (`forge init write`, `forge migrate` and `forge config set` always refuse there). If they change while the daemon runs, by the session or by you, the supervisor stops it with an error in the dashboard and never restarts it on its own: review `git diff .forge/`, then press Start, which takes a fresh snapshot. docs/ARCHITECTURE.md "Daemon security" explains the layers.
 - **`enabled`** means the daemon may run and starts with `forge dash`. `POST /api/daemon {"action":"stop"}` stops it until the next `start` or the next `forge dash`; to keep it off across restarts, set `enabled: false`.
-- **`maxConcurrent`** is the number of supervised sessions, and only `1` is accepted. Jobs still run in parallel inside that session, up to `runtime.maxParallelJobs`.
-- **`idleStopMinutes`**: a session with no turn in flight for this long is stopped. The daemon stays wanted, and the next request resumes the same session. `null` never stops it.
+- **`maxConcurrent`** (an integer from 1 to 16, default 3) caps how many job sessions run at once; the inbox session is not counted. A job with work beyond the cap waits for a slot, and an idle job session gives its slot up to a waiting job (it resumes its conversation the next time it has work). Each job session drives one job, so `runtime.maxParallelJobs` (how many jobs your own interactive session runs at once) does not apply to the pool. Spend scales with the number of live sessions: set `maxConcurrent: 1` for one job session at a time. The dashboard shows this key read-only.
+- **`idleStopMinutes`**: a session with no turn in flight for this long is stopped. It stays wanted, and its next request resumes the same conversation. `null` never stops it. A job session also stops once its job is done, cancelled or failed and nothing is left for it.
 - **Budget hold.** `pipeline.budget` limits are per job, so a budget stop is pending per request: a `resume`, `rework`, `answer` or `revise-spec` request whose job is at `waiting: budget` and still over a limit sends no turn. Once you raise or acknowledge the budget (`forge job budget <id> --set … | --ack`), the next tick sends it. `approve` is never held (approving a budget-parked job is the acknowledgement), nor are `cancel` and requests without a job.
 - **Migration from `dashboard.launcher`** (config `schemaVersion` 1 → 2): a non-empty launcher moves to `daemon.command` (an existing `daemon.command` wins) and `dashboard.launcher` is removed; `enabled` is never set, so upgrading never turns the daemon on. A launcher was a shell template with `{prompt}`, run once per request; `forge config validate` and `forge doctor` reject a `{prompt}` command until you rewrite it in the form above (usually: take the default `command` and add your flags), because the daemon sends its turn on stdin and never through a shell. A launcher that ran some other agent CLI cannot be migrated: the daemon supervises only Claude Code's stream-json mode. The migration happens in memory on every read; `forge migrate` writes it to disk.
 
-Files (gitignored, under `.forge/runtime/`): `daemon.json` (session id, pids), `daemon.log` (every stdout event plus `forge-daemon`/`forge-stderr` lines; rotated to `daemon.log.1` past 20 MiB). docs/ARCHITECTURE.md "Daemon" covers the lifecycle and "Daemon security" the threat model.
+Files (gitignored, under `.forge/runtime/daemons/`): `<scope>.json` (session id, pids, the log's base offset) and `<scope>.log` (every stdout event plus `forge-daemon`/`forge-stderr` lines; rotated to `<scope>.log.1` past 20 MiB), where the scope is `_inbox` or a job id. The session learns its scope only from `FORGE_DAEMON_SCOPE` in its environment. A `daemon.json` / `daemon.log` left by an older Forge is reaped and then ignored; you may delete it. `forge daemon status` lists the sessions and `forge daemon log <job>|--inbox [--lines N] [--follow]` prints one's log. docs/ARCHITECTURE.md "Daemon" covers the lifecycle and "Daemon security" the threat model.
 
 ## Repo-layer files
 
