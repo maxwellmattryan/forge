@@ -81,7 +81,7 @@ The skill can be invoked as `/forge` or, fully qualified, `/forge:forge`.
 
 - **The orchestrator** (the `forge` skill) runs the loop and is the only one that changes job state, always through the CLI. It reads verdict lines and one-line agent replies, never code or full reviews, so it can drive many jobs without filling its context.
 - **Agents** (`agents/*.md`) each own one step and one output file: planner → `plan.md`, spec-writer → `spec.md`, designer → `design.md`/`mockup.html`, builder → commits + `tasks.md` + `build.md`, reviewer → `review/round-N/<lens>.md` (and `review/integration/code.md` after a resolved conflict, judged by `forge job verdicts --round integration`), approver → `decision.md` + `pr.md`, integrator → merge resolution, retro → improvement proposals, judge → eval scores. They get their context from files, so any session can resume any job.
-- **The CLI** (`forge`) owns the deterministic parts: state transitions, worktrees, ports, running and logging commands, the verify gate, scope checks (files changed vs the spec's Approach), verdict policy, PRs, trackers, usage accounting, stats, evals and the dashboard server.
+- **The CLI** (`forge`) owns the deterministic parts: state transitions, worktrees, ports, running and logging commands, the verify gate, scope checks (files changed vs the spec's Approach), AC coverage (`forge job acs`: spec ACs vs the builder's proof table), verdict policy, PRs, trackers, usage accounting, stats, evals and the dashboard server.
 - **Merging waits for CI.** `forge pr merge` (used when `merge.auto: true`) syncs first, then merges directly only when checks pass or the repo has no CI workflows, refuses when they fail, and while checks are pending queues GitHub auto-merge only if branch protection will hold the PR; otherwise it defers and the next `forge sync` retries. Refused and failed merges exit 1. `--now` is a human override that bypasses CI and is logged as `pr-merge-bypass`; the orchestrator never uses it on its own.
 - **State** lives in `.forge/jobs/<id>/` (gitignored) in the main checkout, shared by every worktree and session: `job.json`, an append-only `events.jsonl`, and the agents' markdown files.
 
@@ -91,7 +91,7 @@ Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CONFIG.md](docs
 
 `forge dash` serves a single-page dashboard bound to localhost:
 
-- **Pipeline**: kanban by stage, or a table, filtered by active, waiting or done. Cards show progress, review verdicts per lens, PR and CI state, running agents, budget use against `pipeline.budget`, and an `after <job>` chip per dependency that opens it; the job drawer lists what a job depends on and what it blocks.
+- **Pipeline**: kanban by stage, or a table, filtered by active, waiting or done. Cards show progress, review verdicts per lens, PR and CI state, running agents, budget use against `pipeline.budget`, and an `after <job>` chip per dependency that opens it; the job drawer lists what a job depends on and what it blocks, plus its files, timeline and screenshots.
 - **Needs you**: every human gate, with its document and one-click actions.
 - **Backlog**: your tracker's ready items; start one with a click.
 - **Agents**: running agents, orchestrator sessions, and the roster with models and prompt hashes.

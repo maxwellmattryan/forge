@@ -32,8 +32,8 @@ Suggested reviewers: <lens names from the panel, e.g. code, tests, ui, security>
 <what changes, from the user's / caller's point of view. Include states: empty, loading, error, edge cases>
 
 ## Acceptance criteria
-- [ ] AC1 — <observable, testable statement>
-- [ ] AC2 — ...
+- [ ] AC1 — <observable, testable statement> · Proven by: <test file + test name | command | manual step | screenshots/<name>.png>
+- [ ] AC2 — ... · Proven by: ...
 
 ## Out of scope
 - ...
@@ -51,7 +51,7 @@ Suggested reviewers: <lens names from the panel, e.g. code, tests, ui, security>
 - [ ] <small, ordered, verifiable steps the builder ticks off; include tests and docs>
 ```
 
-Rules: every AC must be checkable by a test or a concrete manual step. Prefer the smallest change that fully meets the goal. If something is a judgement call, decide and note it in Approach rather than leaving it open. Only ask when the answer changes what gets built.
+Rules: every AC must be checkable by a test or a concrete manual step. Every AC names its proof; label ACs `AC<n>`. Prefer the smallest change that fully meets the goal. If something is a judgement call, decide and note it in Approach rather than leaving it open. Only ask when the answer changes what gets built.
 
 If `design.md` lists **Spec deltas**, fold them in and keep spec and design consistent. The spec wins on behaviour, the design wins on visuals. If they truly conflict, ask.
 

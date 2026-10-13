@@ -1,6 +1,7 @@
 // Forge dashboard. Vanilla ES module, no build step. Talks only to the local `forge dash` server.
 import { esc, num, usd, ago, toneChip } from './util.js';
 import { budgetChip, budgetCell, budgetPanel } from './budget.js';
+import { screenshotsPanel } from './screenshots.js';
 import { depChips, depSection } from './deps.js';
 const TOKEN = document.querySelector('meta[name="forge-token"]')?.content ?? '';
 const API_VERSION = 3;
@@ -672,6 +673,7 @@ function renderDrawer() {
     ${matrix}
     ${budgetPanel(j, S.data?.config?.pipeline?.budget)}
     ${usage}
+    ${screenshotsPanel(j.id, d.screenshots ?? [])}
     <div class="flex gap-1 border-b border-line">${['files', 'timeline'].map((t) => `<button data-action="tab" data-value="${t}" class="px-3 py-2 text-sm -mb-px border-b-2 ${S.drawer.tab === t ? 'border-accent text-fg' : 'border-transparent text-muted'}">${t[0].toUpperCase() + t.slice(1)}${t === 'timeline' ? ` <span class="text-muted">${d.events.length}</span>` : ''}</button>`).join('')}</div>
     ${S.drawer.tab === 'files' ? `<div class="grid md:grid-cols-[180px_1fr] gap-4"><div class="flex md:flex-col gap-0.5 overflow-x-auto md:overflow-visible">${files}</div><div class="min-w-0">${content}</div></div>` : `<ul>${timeline}</ul>`}
   </div>`;

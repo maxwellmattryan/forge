@@ -11,4 +11,6 @@ Check (look at the real thing if a browser tool is available; otherwise review m
 - Responsive at phone, tablet and desktop widths; no horizontal scroll or clipped text.
 - No layout shift on load; images sized; long strings and i18n don't break layouts.
 
+Save screenshots of what you checked to the job's `screenshots` dir (in your brief; create it if missing) as `<lens>-<what>.png` and list them under Verified; if you could not capture any, say so.
+
 Not your job: flows and copy (ux lens), screen-reader semantics (accessibility lens).

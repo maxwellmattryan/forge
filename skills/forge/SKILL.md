@@ -97,6 +97,7 @@ On `NEEDS-INPUT`: `--state waiting --waiting-on input`, show the human `question
 
 ### 6. Verify
 `forge verify <id>` (deterministic: the configured build/lint/test commands, logged). It refuses an uncommitted worktree, records the HEAD sha it checked, and keeps every attempt (`attempt` in its output). On failure, send the builder back with the verify file as input **without** a new review round, until verify returns `budget.stopped`: `pipeline.budget.verifyRetries` is used up and the job is already waiting on `budget`.
+When `commands.e2e` is set, verify also runs it after the other steps if the diff touches `verifyE2e.paths` (or always/never per `verifyE2e.when`); a failing e2e is a verify failure like any other.
 
 ### 7. Review
 First run `forge job scope <id>` (read only its JSON). If the panel has `ui`, `ux` or `accessibility` and `commands.dev` is set, run `forge run <id> dev --background` once now and put its `port` in those reviewers' briefs. Then spawn one **reviewer** per selected lens, **all in parallel** (background), each with its lens, its checklist path (`checklists` in job paths), the scope `file`, and its output `review/round-<n>/<lens>.md`. Wait for **all** of them, then `forge stop <id>` if you started the server. Then:
@@ -104,7 +105,7 @@ First run `forge job scope <id>` (read only its JSON). If the panel has `ui`, `u
 Verdicts come from the tagged severities under the repo's `review.blockOn`, not from the reviewer's own first line.
 
 ### 8. Decide
-Spawn **approver** with `approver.alwaysEscalate`, `merge.auto`, `merge.autoWhen`, `infra.mode` and the scope path in the brief. Then `forge job decision <id>`.
+Run `forge job acs <id>` and paste its JSON into the approver brief. Spawn **approver** with `approver.alwaysEscalate`, `merge.auto`, `merge.autoWhen`, `infra.mode` and the scope path in the brief. Then `forge job decision <id>`.
 `ESCALATE` → `--state waiting --waiting-on escalation --reason "<reason>"`, report, stop. A human `approve` continues to step 9.
 If `runbook.md` exists and `infra.mode` is `human`, include the runbook path in the report. Pre-merge steps mean the job waits on `infra` until the human resumes it.
 
