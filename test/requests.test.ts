@@ -161,11 +161,11 @@ test('requests scope, --intake and daemon provenance', () => {
     assert.equal(handed.from, 'daemon:_inbox', 'a daemon session records which session queued it');
     assert.deepEqual(handed.args, { intake: 'run' });
     assert.equal(cli({ ...trust, FORGE_DAEMON_SCOPE: x }, 'requests', 'add', 'resume', '--job', x).json().from, `daemon:${x}`);
-    // The only hand-off a daemon session may queue is resume: never a human decision for another job.
+    // Guardrail (not a security boundary: provenance is the caller's env): a daemon session following the skill queues only resume hand-offs.
     for (const type of ['approve', 'revise-spec', 'rework', 'answer', 'cancel', 'next', 'run', 'sync']) {
       const r = cli({ ...trust, FORGE_DAEMON_SCOPE: '_inbox' }, 'requests', 'add', type, '--job', x, '--text', 't');
       assert.equal(r.ok, false, type);
-      assert.match(r.out, /may only queue resume requests/, type);
+      assert.match(r.out, /queues only resume hand-offs/, type);
     }
     assert.equal(cli({ FORGE_DAEMON: undefined }, 'requests', 'add', 'approve', '--job', x).ok, true, 'a human may queue anything');
     assert.equal(listRequests(root).filter((r) => r.args?.intake).length, 3);

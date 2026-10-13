@@ -46,11 +46,12 @@ export function requestsCmd(
       if (flags.intake !== 'run' && flags.intake !== 'next') throw new ForgeError(`--intake must be run or next (got ${JSON.stringify(flags.intake)})`);
       args.intake = flags.intake;
     }
-    // Provenance: a request one daemon session hands another says which session queued it. The
-    // only hand-off the skill needs is resume, so a session misled by tracker text can't queue an
-    // approval (or any other human decision) for another job's session.
+    // A guardrail against accidental cross-job requests, not a security boundary: provenance comes
+    // from the caller's environment and isn't authenticated (docs/ARCHITECTURE.md "Untrusted input").
+    // The only hand-off the skill needs is resume, so a session following the skill never queues a
+    // human decision for another job's session.
     const s = scoped();
-    if (s.daemon && type !== 'resume') throw new ForgeError(`a daemon session may only queue resume requests (got ${JSON.stringify(type)}); human decisions come from a human`);
+    if (s.daemon && type !== 'resume') throw new ForgeError(`a daemon session queues only resume hand-offs (got ${JSON.stringify(type)}); human decisions come from a human`);
     return enqueue(root, config, { type, job: flags.job, text: flags.text, args, from: s.daemon ? `daemon:${s.scope}` : 'cli' });
   }
   if (sub === 'claim' || sub === 'ack') {
