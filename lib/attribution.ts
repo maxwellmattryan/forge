@@ -1,9 +1,9 @@
-// @ts-check
 // AI-attribution policy. Forge's default is that nothing it produces (commits, PR bodies,
 // issues, comments, releases) credits an AI: the human who runs Forge is the author. Messages
 // may still *mention* AI tools; only signatures, trailers and "generated with" footers are removed.
 import { pathToFileURL } from 'node:url';
-import { run } from './util.mjs';
+import type { Config } from './types.ts';
+import { run } from './util.ts';
 
 const AI = '(claude|anthropic|openai|chatgpt|gpt-?\\d|copilot|gemini|codex|cursor|devin|aider|windsurf|ai assistant|ai agent)';
 
@@ -17,24 +17,20 @@ const LINE_PATTERNS = [
   /^\s*🤖.*$/,
 ];
 
-/** @param {string} line */
-const isAttributionLine = (line) => LINE_PATTERNS.some((re) => re.test(line));
+const isAttributionLine = (line: string): boolean => LINE_PATTERNS.some((re) => re.test(line));
 
-/** @param {string} text */
-export function findAttribution(text) {
+export function findAttribution(text: string): string[] {
   return String(text ?? '')
     .split('\n')
     .filter(isAttributionLine)
     .map((l) => l.trim());
 }
 
-/** @param {string} text */
-export function hasAttribution(text) {
+export function hasAttribution(text: string): boolean {
   return findAttribution(text).length > 0;
 }
 
-/** @param {string} text */
-export function stripAttribution(text) {
+export function stripAttribution(text: string): string {
   const kept = String(text ?? '')
     .split('\n')
     .filter((l) => !isAttributionLine(l));
@@ -42,8 +38,7 @@ export function stripAttribution(text) {
   return kept.join('\n') + (String(text ?? '').endsWith('\n') ? '\n' : '');
 }
 
-/** @param {any} config */
-export function attributionForbidden(config) {
+export function attributionForbidden(config: Config | null | undefined): boolean {
   if (process.env.FORGE_AI_ATTRIBUTION === 'allow') return false;
   return (config?.aiAttribution ?? 'forbid') !== 'allow';
 }
@@ -52,10 +47,8 @@ export function attributionForbidden(config) {
  * Rewrites unpushed-or-owned commits between base and HEAD whose messages carry AI attribution.
  * Uses a non-interactive rebase whose exec step amends each commit's message in place, so
  * authorship, dates and content are untouched.
- * @param {string} cwd @param {string} base
- * @returns {{rewritten:number, commits:string[]}}
  */
-export function scrubBranch(cwd, base) {
+export function scrubBranch(cwd: string, base: string): { rewritten: number; commits: string[] } {
   const log = run('git', ['log', '--format=%H%x00%B%x1e', `${base}..HEAD`], { cwd, allowFail: true });
   if (!log.ok) return { rewritten: 0, commits: [] };
   const offending = log.stdout
@@ -71,7 +64,7 @@ export function scrubBranch(cwd, base) {
   return { rewritten: offending.length, commits: offending };
 }
 
-function amendHead() {
+function amendHead(): void {
   const msg = run('git', ['log', '-1', '--format=%B']).stdout;
   const clean = stripAttribution(msg);
   if (clean.trim() && clean !== msg) run('git', ['commit', '--amend', '--no-verify', '--allow-empty', '-F', '-'], { input: clean });

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parse, stringify, YamlError } from '../lib/yaml.mjs';
+import { parse, stringify, YamlError } from '../lib/yaml.ts';
 
 test('parses a GitHub project-config file', () => {
   const doc = parse(`# GitHub Project Configuration

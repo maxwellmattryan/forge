@@ -10,7 +10,7 @@ import { esc, num, usd, ago, pct, tokensShort, dur } from '../dashboard/src/lib/
 import { md, inline, safeUrl } from '../dashboard/src/lib/markdown.ts';
 import { STAGE_LABEL, WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
 import * as types from '../dashboard/src/lib/types.ts';
-import * as schema from '../lib/schema.mjs';
+import * as schema from '../lib/schema.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DASHBOARD = path.join(ROOT, 'dashboard');
@@ -98,7 +98,7 @@ test('formatters and esc render exactly as before', () => {
   assert.equal(esc(null), '');
 });
 
-test('types.ts constants and labels match lib/schema.mjs', () => {
+test('types.ts constants and labels match lib/schema.ts', () => {
   assert.equal(types.API_VERSION, schema.API_VERSION);
   assert.deepEqual([...types.STAGES], [...schema.STAGES]);
   assert.deepEqual([...types.STATES], [...schema.STATES]);
@@ -124,6 +124,7 @@ test('runtime code never imports dashboard sources', () => {
     const text = fs.readFileSync(f, 'utf8');
     const rel = path.relative(ROOT, f);
     assert.ok(!text.includes('dashboard/src'), `${rel} mentions dashboard/src`);
-    assert.doesNotMatch(text, /(?:from\s*|import\s*\(\s*|require\s*\(\s*)['"][^'"]*\.ts['"]/, `${rel} imports a .ts file`);
+    // The engine is TypeScript too now, so only a .ts import that reaches into dashboard/ is refused.
+    assert.doesNotMatch(text, /(?:from\s*|import\s*\(\s*|require\s*\(\s*)['"][^'"]*dashboard[^'"]*\.ts['"]/, `${rel} imports a dashboard .ts file`);
   }
 });

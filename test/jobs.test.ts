@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.mjs';
-import { defaults } from '../lib/config.mjs';
-import { claimJob, createJob, loadJob, roundVerdicts, setJob, recordAgent, progress, parseDecision, touchJob, jobDir } from '../lib/jobs.mjs';
+import { defaults } from '../lib/config.ts';
+import { claimJob, createJob, loadJob, roundVerdicts, setJob, recordAgent, progress, parseDecision, touchJob, jobDir } from '../lib/jobs.ts';
 import { computeStats } from '../lib/stats.mjs';
-import { JOB_SCHEMA_VERSION } from '../lib/schema.mjs';
-import { sleepSync } from '../lib/util.mjs';
+import { JOB_SCHEMA_VERSION } from '../lib/schema.ts';
+import { sleepSync } from '../lib/util.ts';
 
 test('job lifecycle: ids, transitions, claims, usage, verdict policy', () => {
   const repo = tempRepo();
@@ -82,7 +82,7 @@ test('job lifecycle: ids, transitions, claims, usage, verdict policy', () => {
     assert.equal(s.counts.total, 3);
     assert.equal(s.quality.firstPassReviewRate, 0);
     assert.equal(s.quality.avgRounds, 2);
-    assert.equal(s.reviewers.ui.changeRate, 0.5);
+    assert.equal((s.reviewers.ui as any).changeRate, 0.5);
     assert.equal(loadJob(root, a.id).verdicts['2'].ui, 'PASS');
   } finally {
     repo.cleanup();

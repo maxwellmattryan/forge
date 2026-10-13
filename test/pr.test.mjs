@@ -5,8 +5,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.mjs';
 import { mergeAction, hasCiWorkflows, mergePr } from '../lib/pr.mjs';
-import { defaults } from '../lib/config.mjs';
-import { createJob, setJob, readEvents } from '../lib/jobs.mjs';
+import { defaults } from '../lib/config.ts';
+import { createJob, setJob, readEvents } from '../lib/jobs.ts';
 
 test('mergeAction: direct merge only when CI passed or the repo has none', () => {
   const B = { mergeState: 'BLOCKED' };

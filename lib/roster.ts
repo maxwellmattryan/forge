@@ -1,20 +1,18 @@
-// @ts-check
 // The agent roster: every role's prompt, the model it runs on, and a content hash of the
 // prompt plus the repo's addendum for that role. Hashes let eval runs and retros attribute a
 // change in behaviour to a change in instructions.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { modelFor, reviewerChecklist } from './config.mjs';
-import { paths, exists, PLUGIN_ROOT } from './paths.mjs';
-import { readText } from './util.mjs';
+import { modelFor, reviewerChecklist } from './config.ts';
+import { paths, exists, PLUGIN_ROOT } from './paths.ts';
+import type { Config, PanelEntry, Roster } from './types.ts';
+import { readText } from './util.ts';
 
-/** @param {string} text */
-function frontmatter(text) {
+function frontmatter(text: string): { meta: Record<string, string>; body: string } {
   const m = text.match(/^---\n([\s\S]*?)\n---\n?/);
   if (!m) return { meta: {}, body: text };
-  /** @type {Record<string, string>} */
-  const meta = {};
+  const meta: Record<string, string> = {};
   for (const line of m[1].split('\n')) {
     const kv = line.match(/^(\w[\w-]*):\s*(.*)$/);
     if (kv) meta[kv[1]] = kv[2].replace(/^["']|["']$/g, '');
@@ -22,11 +20,9 @@ function frontmatter(text) {
   return { meta, body: text.slice(m[0].length) };
 }
 
-/** @param {...string} parts */
-const hash = (...parts) => crypto.createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 12);
+const hash = (...parts: string[]): string => crypto.createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 12);
 
-/** @param {string} root @param {any} config */
-export function roster(root, config) {
+export function roster(root: string, config: Config): Roster {
   const p = paths(root);
   const learnings = readText(path.join(p.notes, 'learnings.md'));
   const agentsDir = path.join(PLUGIN_ROOT, 'agents');
@@ -46,7 +42,7 @@ export function roster(root, config) {
         addendum: exists(addendumFile) ? path.relative(root, addendumFile) : null,
       };
     });
-  const reviewers = (config.review.panel ?? []).map((/** @type {any} */ r) => {
+  const reviewers = (config.review.panel ?? []).map((r: PanelEntry) => {
     const file = reviewerChecklist(root, r.name, r.checklist);
     return {
       name: r.name,
@@ -70,9 +66,8 @@ export function roster(root, config) {
 /**
  * A model's family: same-family models share training and therefore blind spots, which is
  * what diversity guards against; version suffixes don't change that.
- * @param {any} config @param {string} model
  */
-export function modelFamily(config, model) {
+export function modelFamily(config: Config, model: string): string {
   let m = String(model ?? 'inherit');
   if (m.toLowerCase() === 'inherit') m = String(config.runtime?.models?.orchestrator ?? 'inherit');
   const fam = m.match(/(opus|sonnet|haiku|fable)/i);
@@ -82,15 +77,14 @@ export function modelFamily(config, model) {
 /**
  * Which gatekeepers (approver, then panel lenses in order) share the builder's model family.
  * Pure: config in, report out. Warnings only when `runtime.diversity` asks for them.
- * @param {any} config
  */
-export function modelOverlap(config) {
+export function modelOverlap(config: Config): { enabled: boolean; builder: string; overlap: { role: string; model: string }[]; warnings: string[] } {
   const enabled = config.runtime?.diversity === true;
   const builder = modelFor(config, 'builder');
   const family = modelFamily(config, builder);
   const candidates = [
     { role: 'approver', model: modelFor(config, 'approver') },
-    ...(config.review?.panel ?? []).map((/** @type {any} */ r) => ({ role: `reviewer:${r.name}`, model: r.model ?? modelFor(config, 'reviewer') })),
+    ...(config.review?.panel ?? []).map((r: PanelEntry) => ({ role: `reviewer:${r.name}`, model: r.model ?? modelFor(config, 'reviewer') })),
   ];
   const overlap = candidates.filter((c) => modelFamily(config, c.model) === family);
   const warnings = enabled

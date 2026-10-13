@@ -1,8 +1,8 @@
-// @ts-check
 // Versioned data shapes. Every persisted file carries `schemaVersion`; readers upgrade old
 // shapes in memory (and `forge migrate` rewrites them on disk), so a plugin update never
 // strands jobs or configs written by an older version. A file from a *newer* plugin is
 // refused rather than guessed at.
+import type { Job, LoadedJob } from './types.ts';
 
 export const CONFIG_SCHEMA_VERSION = 2;
 export const JOB_SCHEMA_VERSION = 3;
@@ -10,7 +10,7 @@ export const EVENT_SCHEMA_VERSION = 1;
 /** Bumped when /api/state changes shape; the dashboard is served by the same plugin version. */
 export const API_VERSION = 4;
 
-export const STAGES = /** @type {const} */ ([
+export const STAGES = [
   'backlog',
   'plan',
   'spec',
@@ -22,11 +22,11 @@ export const STAGES = /** @type {const} */ ([
   'integrate',
   'pr',
   'done',
-]);
+] as const;
 
-export const STATES = /** @type {const} */ (['queued', 'running', 'waiting', 'blocked', 'failed', 'cancelled', 'done']);
+export const STATES = ['queued', 'running', 'waiting', 'blocked', 'failed', 'cancelled', 'done'] as const;
 
-export const WAITING_ON = /** @type {const} */ ([
+export const WAITING_ON = [
   'spec-approval',
   'input',
   'escalation',
@@ -36,15 +36,15 @@ export const WAITING_ON = /** @type {const} */ ([
   'pr-review',
   'external',
   'budget',
-]);
+] as const;
 
 /** Budget keys in the fixed order reasons and reports list them. */
-export const BUDGET_KEYS = /** @type {const} */ (['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries']);
+export const BUDGET_KEYS = ['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries'] as const;
 
-export const SEVERITIES = /** @type {const} */ (['blocker', 'major', 'minor', 'nit']);
+export const SEVERITIES = ['blocker', 'major', 'minor', 'nit'] as const;
 
-/** @type {Record<number, (c:any)=>any>} config migrations keyed by the version they upgrade *from* */
-const CONFIG_MIGRATIONS = {
+/** Config migrations keyed by the version they upgrade *from*. */
+const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // v2 replaces the per-request `dashboard.launcher` shell template with the supervised `daemon:`
   // block. A launcher becomes `daemon.command` so its owner sees why validation rejects it, but
   // `enabled` is never set: an upgrade must not turn on an unattended, permission-skipping process.
@@ -57,8 +57,7 @@ const CONFIG_MIGRATIONS = {
   },
 };
 
-/** @type {Record<number, (j:any)=>any>} */
-const JOB_MIGRATIONS = {
+const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
   // v1 kept one PASS/FAIL per round; v2 keeps every attempt with the sha it ran against.
   1: (j) => ({
     ...j,
@@ -72,16 +71,13 @@ const JOB_MIGRATIONS = {
   }),
 };
 
-/** @param {any[]} runs @returns {Record<string, number>} */
-function failedVerifiesByRound(runs) {
-  /** @type {Record<string, number>} */
-  const out = {};
+function failedVerifiesByRound(runs: any[]): Record<string, number> {
+  const out: Record<string, number> = {};
   for (const r of runs) if (r && r.ok === false) out[String(r.round)] = (out[String(r.round)] ?? 0) + 1;
   return out;
 }
 
-/** @param {any} raw */
-export function migrateConfig(raw) {
+export function migrateConfig(raw: any): { config: any; from: number | undefined } {
   let config = raw ?? {};
   const from = config.schemaVersion ?? CONFIG_SCHEMA_VERSION;
   if (from > CONFIG_SCHEMA_VERSION) return { config, from };
@@ -96,9 +92,8 @@ export function migrateConfig(raw) {
 
 /**
  * Upgrades and fills defaults so every consumer can rely on the current shape.
- * @param {any} raw
  */
-export function normalizeJob(raw) {
+export function normalizeJob(raw: any): LoadedJob {
   let job = raw ?? {};
   const from = job.schemaVersion ?? 1;
   if (from > JOB_SCHEMA_VERSION) return { ...job, _unsupported: true };
@@ -148,8 +143,7 @@ export function normalizeJob(raw) {
   };
 }
 
-/** @param {any} job */
-export function serializeJob(job) {
+export function serializeJob(job: LoadedJob): Job {
   const { _unsupported, ...rest } = job;
   return { ...rest, schemaVersion: JOB_SCHEMA_VERSION };
 }

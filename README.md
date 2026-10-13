@@ -46,13 +46,14 @@ In Claude Code:
 /plugin marketplace add maxwellmattryan/forge
 /plugin install forge@forge
 ```
-Requirements: Node ≥ 20, git ≥ 2.38, and the GitHub CLI (`gh`) for PR and GitHub-tracker features.
+Requirements: Node ≥ 22.18, git ≥ 2.38, and the GitHub CLI (`gh`) for PR and GitHub-tracker features.
 
 The CLI also works on its own (for other agent runtimes, scripts or CI):
 ```bash
-npm install -g github:maxwellmattryan/forge   # or: yarn global add github:maxwellmattryan/forge
+git clone https://github.com/maxwellmattryan/forge && cd forge && npm link
 forge help
 ```
+Forge's engine is TypeScript that Node runs directly, and Node does not strip types under `node_modules`, so install from a clone, not as a global npm package.
 
 ## Start
 

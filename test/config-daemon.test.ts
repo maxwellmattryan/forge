@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.mjs';
-import { defaults, loadConfig, validateConfig } from '../lib/config.mjs';
-import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.mjs';
+import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
+import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 import { migrate } from '../lib/commands/init.mjs';
-import * as yaml from '../lib/yaml.mjs';
+import * as yaml from '../lib/yaml.ts';
 
 const DEFAULT_COMMAND =
   'claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode dontAsk --allowedTools {allowedTools}';

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.mjs';
-import { defaults, validateConfig } from '../lib/config.mjs';
+import { defaults, validateConfig } from '../lib/config.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const commitAll = (cwd, msg) => {

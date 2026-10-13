@@ -1,14 +1,14 @@
-// @ts-check
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PLUGIN_ROOT, paths, exists, resolveFrom } from './paths.mjs';
-import { CONFIG_SCHEMA_VERSION, migrateConfig } from './schema.mjs';
-import { ForgeError, deepMerge, isClaudeExecutable, readText, splitWords } from './util.mjs';
-import * as yaml from './yaml.mjs';
+import { PLUGIN_ROOT, paths, exists, resolveFrom } from './paths.ts';
+import { CONFIG_SCHEMA_VERSION, migrateConfig } from './schema.ts';
+import type { Config, LoadedConfig } from './types.ts';
+import { ForgeError, deepMerge, isClaudeExecutable, readText, splitWords } from './util.ts';
+import * as yaml from './yaml.ts';
 
 /** Every key Forge reads, with its default. docs/CONFIG.md documents each one. */
-export function defaults() {
+export function defaults(): Config {
   return {
     schemaVersion: CONFIG_SCHEMA_VERSION,
     project: {
@@ -185,20 +185,19 @@ export function defaults() {
 }
 
 /**
- * @param {string} root
- * @param {{text?: string|null}} [opts] text: config.yml's contents already read (null: absent),
- *   so a caller that verified those bytes parses the same ones
+ * `opts.text`: config.yml's contents already read (null: absent), so a caller that verified
+ * those bytes parses the same ones.
  */
-export function loadConfig(root, opts = {}) {
+export function loadConfig(root: string, opts: { text?: string | null } = {}): LoadedConfig {
   const p = paths(root);
   const base = defaults();
   const text = 'text' in opts ? opts.text : exists(p.config) ? readText(p.config) : null;
   if (text === null || text === undefined) return { config: base, initialized: false, path: p.config };
-  let raw;
+  let raw: any;
   try {
     raw = yaml.parse(text) ?? {};
   } catch (e) {
-    throw new ForgeError(`${p.config}: ${/** @type {Error} */ (e).message}`);
+    throw new ForgeError(`${p.config}: ${(e as Error).message}`);
   }
   const migrated = migrateConfig(raw);
   const config = deepMerge(base, migrated.config);
@@ -208,11 +207,10 @@ export function loadConfig(root, opts = {}) {
 
 /**
  * Returns human-readable problems; an empty list means the config is usable.
- * @param {any} c @param {string} root
  */
-export function validateConfig(c, root) {
-  const problems = [];
-  const oneOf = (/** @type {string} */ key, /** @type {any} */ value, /** @type {any[]} */ allowed) => {
+export function validateConfig(c: any, root: string): string[] {
+  const problems: string[] = [];
+  const oneOf = (key: string, value: any, allowed: any[]) => {
     if (!allowed.includes(value)) problems.push(`${key} must be one of ${allowed.join(' | ')} (got ${JSON.stringify(value)})`);
   };
   if (c.schemaVersion > CONFIG_SCHEMA_VERSION)
@@ -239,7 +237,7 @@ export function validateConfig(c, root) {
   }
   oneOf('verifyE2e.when', c.verifyE2e?.when, ['ui', 'always', 'never']);
   const e2ePaths = c.verifyE2e?.paths;
-  if (!Array.isArray(e2ePaths) || e2ePaths.some((p) => typeof p !== 'string' || !p.trim()))
+  if (!Array.isArray(e2ePaths) || e2ePaths.some((p: any) => typeof p !== 'string' || !p.trim()))
     problems.push(`verifyE2e.paths must be a list of non-empty strings (got ${JSON.stringify(e2ePaths)})`);
   for (const v of c.verify ?? []) if (!(v in c.commands)) problems.push(`verify step "${v}" is not a key in commands`);
   if (!Number.isInteger(c.pipeline.maxRounds) || c.pipeline.maxRounds < 1) problems.push('pipeline.maxRounds must be a positive integer');
@@ -256,20 +254,19 @@ export function validateConfig(c, root) {
  * Checked whether or not the daemon is enabled, so a migrated launcher surfaces in
  * `forge config validate` / `forge doctor`. Every message starts with `daemon.` or
  * `dashboard.launcher`, which is how the server picks out the ones that block a start.
- * @param {any} c @param {string} [root] when given, an absolute executable inside it is refused too
+ * When `root` is given, an absolute executable inside it is refused too.
  */
-export function daemonProblems(c, root) {
-  const problems = [];
+export function daemonProblems(c: any, root?: string): string[] {
+  const problems: string[] = [];
   const d = c.daemon ?? {};
   if (c.dashboard && typeof c.dashboard === 'object' && 'launcher' in c.dashboard)
     problems.push('dashboard.launcher was replaced by daemon.command in config schemaVersion 2; run `forge migrate` and see docs/CONFIG.md "Daemon"');
   if (d.enabled !== undefined && typeof d.enabled !== 'boolean') problems.push(`daemon.enabled must be true or false (got ${JSON.stringify(d.enabled)})`);
-  /** @type {string[]|null} */
-  let words = null;
+  let words: string[] | null = null;
   try {
     words = typeof d.command === 'string' ? splitWords(d.command, 'daemon.command') : null;
   } catch (e) {
-    problems.push(/** @type {Error} */ (e).message);
+    problems.push((e as Error).message);
   }
   if (typeof d.command !== 'string' || !d.command.trim()) problems.push('daemon.command must be a non-empty command template');
   else if (!words) {
@@ -282,13 +279,13 @@ export function daemonProblems(c, root) {
   const tools = d.allowedTools;
   if (!Array.isArray(tools)) problems.push(`daemon.allowedTools must be a list of tool names (got ${JSON.stringify(tools)})`);
   else {
-    const bad = tools.filter((t) => typeof t !== 'string' || !t.trim() || t.includes(','));
-    if (bad.length) problems.push(`daemon.allowedTools entries must be non-empty strings without commas (got ${bad.map((t) => JSON.stringify(t)).join(', ')})`);
+    const bad = tools.filter((t: any) => typeof t !== 'string' || !t.trim() || t.includes(','));
+    if (bad.length) problems.push(`daemon.allowedTools entries must be non-empty strings without commas (got ${bad.map((t: any) => JSON.stringify(t)).join(', ')})`);
     if (!tools.includes('Agent')) problems.push('daemon.allowedTools must include Agent: the orchestrator runs every role as a subagent');
-    const broad = tools.filter((t) => typeof t === 'string' && broadBash(t));
+    const broad = tools.filter((t: any) => typeof t === 'string' && broadBash(t));
     if (broad.length)
       problems.push(
-        `daemon.allowedTools must not include ${broad.map((t) => JSON.stringify(t)).join(', ')}: those reach arbitrary code execution, file writes or GitHub writes in an unattended session; use the scoped forms and \`forge git\` (docs/CONFIG.md "Daemon")`,
+        `daemon.allowedTools must not include ${broad.map((t: any) => JSON.stringify(t)).join(', ')}: those reach arbitrary code execution, file writes or GitHub writes in an unattended session; use the scoped forms and \`forge git\` (docs/CONFIG.md "Daemon")`,
       );
   }
   if (words) problems.push(...wideningFlags(words));
@@ -307,22 +304,22 @@ export const TRUST_ENV = 'FORGE_DAEMON_TRUST';
  * realpath, `.forge/config.yml` (commands run through a shell; daemon.* starts sessions) and the
  * custom tracker modules imported from `.forge/trackers/`. An unreadable entry hashes as a
  * marker rather than throwing, so a tampered file can't turn the check into a crash.
- * @param {string} root @param {Buffer|null} [configBytes] config.yml as already read (null: absent)
+ * `configBytes` is config.yml as already read (null: absent).
  */
-export function trustDigest(root, configBytes) {
+export function trustDigest(root: string, configBytes?: Buffer | null): string {
   const h = crypto.createHash('sha256');
-  const add = (/** @type {string} */ label, /** @type {string|Buffer} */ data) => h.update(`${label}\0${Buffer.byteLength(data)}\0`).update(data);
+  const add = (label: string, data: string | Buffer) => h.update(`${label}\0${Buffer.byteLength(data)}\0`).update(data);
   let real = path.resolve(root);
   try {
     real = fs.realpathSync(root);
   } catch {}
   add('root', real);
   const p = paths(root);
-  const file = (/** @type {string} */ label, /** @type {string} */ f) => {
+  const file = (label: string, f: string) => {
     try {
       add(label, fs.readFileSync(f));
     } catch (e) {
-      add(label, `!${/** @type {any} */ (e).code ?? 'unreadable'}`);
+      add(label, `!${(e as any).code ?? 'unreadable'}`);
     }
   };
   if (configBytes === undefined) file('config', p.config);
@@ -338,24 +335,22 @@ export function trustDigest(root, configBytes) {
   return h.digest('hex');
 }
 
-/** Symlinks under `.forge/trackers/`, which a daemon session refuses. @param {string} root */
-export function trackerSymlinks(root) {
+/** Symlinks under `.forge/trackers/`, which a daemon session refuses. */
+export function trackerSymlinks(root: string): string[] {
   return symlinksUnder(paths(root).trackers);
 }
 
-/** @param {string} dir @returns {string[]} paths under dir that are symlinks */
-function symlinksUnder(dir) {
+/** Paths under dir that are symlinks. */
+function symlinksUnder(dir: string): string[] {
   return walk(dir).filter((e) => e.link).map((e) => e.rel);
 }
 
 /**
  * Every entry under `dir`, sorted, without following symlinks (`readdir`'s recursive mode
  * follows them, so a link loop never ends).
- * @param {string} dir @param {string} [prefix] @returns {{rel:string, link:boolean, dir:boolean}[]}
  */
-function walk(dir, prefix = '') {
-  /** @type {fs.Dirent[]} */
-  let entries = [];
+function walk(dir: string, prefix = ''): { rel: string; link: boolean; dir: boolean }[] {
+  let entries: fs.Dirent[] = [];
   try {
     entries = fs.readdirSync(path.join(dir, prefix), { withFileTypes: true });
   } catch {
@@ -376,24 +371,21 @@ function walk(dir, prefix = '') {
  * without this an agent misled by tracker text could rewrite `commands.*` and have
  * `forge verify` run them, or edit `daemon.*` for the next spawn. Fails closed. config.yml is
  * read once and `configText` returned, so the caller parses exactly the bytes that were checked.
- * @param {string} root @param {NodeJS.ProcessEnv} [env]
- * @returns {{problem: string|null, configText?: string|null}}
  */
-export function daemonTrust(root, env = process.env) {
+export function daemonTrust(root: string, env: NodeJS.ProcessEnv = process.env): { problem: string | null; configText?: string | null } {
   if (env.FORGE_DAEMON !== '1') return { problem: null };
-  const refuse = (/** @type {string} */ why) => ({ problem: `forge refuses to run in this daemon session: ${why}` });
+  const refuse = (why: string) => ({ problem: `forge refuses to run in this daemon session: ${why}` });
   const want = env[TRUST_ENV];
   if (typeof want !== 'string' || !/^[0-9a-f]{64}$/.test(want))
     return refuse(`${TRUST_ENV} is missing, so it can't check that .forge/config.yml is the one a human started the daemon with`);
   // A symlink's target can change without the link changing, so the digest couldn't pin it.
   const links = trackerSymlinks(root);
   if (links.length) return refuse(`.forge/trackers/ contains symlinks (${links.join(', ')}), which the daemon can't pin; a human replaces them with files`);
-  /** @type {Buffer|null} */
-  let bytes = null;
+  let bytes: Buffer | null = null;
   try {
     bytes = fs.readFileSync(paths(root).config);
   } catch (e) {
-    if (/** @type {any} */ (e).code !== 'ENOENT') return refuse(`.forge/config.yml is unreadable (${/** @type {any} */ (e).code})`);
+    if ((e as any).code !== 'ENOENT') return refuse(`.forge/config.yml is unreadable (${(e as any).code})`);
   }
   if (trustDigest(root, bytes) !== want)
     return refuse(
@@ -416,8 +408,7 @@ const BROAD_BASH = [
   /^gh (api|extension|alias|auth|secret|codespace)\b/,
 ];
 
-/** @param {string} tool */
-function broadBash(tool) {
+function broadBash(tool: string): boolean {
   const m = /^Bash(?:\((.*)\))?$/.exec(tool.trim());
   if (!m) return false;
   const spec = (m[1] ?? '').trim().replace(/(:\*|\s*\*)$/, '').trim();
@@ -431,10 +422,9 @@ const SAFE_PERMISSION_MODES = ['dontAsk', 'default', 'plan'];
  * Claude flags that widen what the unattended session may do beyond `daemon.allowedTools`:
  * skip or relax permission checks, load extra settings/hooks/MCP tools/plugins/agents, grant more
  * directories, or bypass the allowedTools list with a literal one.
- * @param {string[]} words
  */
-function wideningFlags(words) {
-  const problems = [];
+function wideningFlags(words: string[]): string[] {
+  const problems: string[] = [];
   const why = 'it widens the unattended session\'s permissions beyond daemon.allowedTools (docs/CONFIG.md "Daemon")';
   for (let i = 1; i < words.length; i++) {
     const w = words[i];
@@ -460,10 +450,9 @@ function wideningFlags(words) {
   return problems;
 }
 
-/** @param {string} root @param {string} file */
-function insideRepo(root, file) {
+function insideRepo(root: string, file: string): boolean {
   if (!path.isAbsolute(file)) return false;
-  const real = (/** @type {string} */ p) => {
+  const real = (p: string) => {
     try {
       return fs.realpathSync(p);
     } catch {
@@ -474,8 +463,7 @@ function insideRepo(root, file) {
   return !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
-/** @param {string} root */
-function customTrackers(root) {
+function customTrackers(root: string): string[] {
   const dir = paths(root).trackers;
   if (!exists(dir)) return [];
   return fs.readdirSync(dir).filter((f) => f.endsWith('.mjs')).map((f) => f.replace(/\.mjs$/, ''));
@@ -483,28 +471,24 @@ function customTrackers(root) {
 
 /**
  * Repo-local checklists override the plugin catalog so teams can tune a lens without forking.
- * @param {string} root @param {string} name @param {string} [explicit]
  */
-export function reviewerChecklist(root, name, explicit) {
-  const candidates = [];
+export function reviewerChecklist(root: string, name: string, explicit?: string): string | null {
+  const candidates: string[] = [];
   if (explicit) candidates.push(resolveFrom(root, explicit));
   candidates.push(path.join(paths(root).reviewers, `${name}.md`));
   candidates.push(path.join(PLUGIN_ROOT, 'reviewers', `${name}.md`));
   return candidates.find(exists) ?? null;
 }
 
-/** @param {any} config @param {string} role */
-export function modelFor(config, role) {
+export function modelFor(config: Config, role: string): string {
   return config.runtime.models[role] ?? config.runtime.models.reviewer ?? 'inherit';
 }
 
-/** @param {string} root @param {any} config */
-export function worktreeRoot(root, config) {
+export function worktreeRoot(root: string, config: Config): string {
   return resolveFrom(root, config.worktrees.root.replace('{repo}', path.basename(root)));
 }
 
-/** @param {any} config */
-export function stringifyConfig(config) {
+export function stringifyConfig(config: Config): string {
   const header =
     '# Forge configuration. Every key is documented in docs/CONFIG.md of the Forge plugin.\n' +
     '# Re-run `/forge init` to change answers interactively, or edit this file directly.\n';

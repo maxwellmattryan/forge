@@ -5,11 +5,11 @@
 // repo's .forge/config.yml.
 import fs from 'node:fs';
 import path from 'node:path';
-import { findAttribution } from '../lib/attribution.mjs';
+import { findAttribution } from '../lib/attribution.ts';
 
 const PUBLISHING = /\b(git\s+(commit|tag|notes|merge)|gh\s+(pr|issue|release|api|gist)|glab\s+(mr|issue|release))\b/;
 
-function repoAllows(cwd) {
+function repoAllows(cwd: string): boolean {
   let dir = cwd;
   for (let i = 0; i < 30 && dir; i++) {
     const cfg = path.join(dir, '.forge', 'config.yml');
@@ -22,8 +22,8 @@ function repoAllows(cwd) {
 }
 
 /** Message files passed by flag (-F, --file, --body-file) can carry the attribution too. */
-function referencedFiles(command, cwd) {
-  const out = [];
+function referencedFiles(command: string, cwd: string): string[] {
+  const out: string[] = [];
   for (const m of command.matchAll(/(?:^|\s)(?:-F|--file|--body-file|-t|--template)\s+("[^"]+"|'[^']+'|[^\s;&|]+)/g)) {
     const p = m[1].replace(/^["']|["']$/g, '');
     if (p === '-') continue;
@@ -38,7 +38,7 @@ function referencedFiles(command, cwd) {
 let input = '';
 process.stdin.on('data', (c) => (input += c));
 process.stdin.on('end', () => {
-  let event;
+  let event: any;
   try {
     event = JSON.parse(input || '{}');
   } catch {

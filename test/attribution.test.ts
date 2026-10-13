@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.mjs';
-import { hasAttribution, stripAttribution, scrubBranch } from '../lib/attribution.mjs';
+import { hasAttribution, stripAttribution, scrubBranch } from '../lib/attribution.ts';
 
-const HOOK = path.resolve(import.meta.dirname, '..', 'hooks', 'no-ai-attribution.mjs');
+const HOOK = path.resolve(import.meta.dirname, '..', 'hooks', 'no-ai-attribution.ts');
 
 test('finds and strips AI signatures but not mere mentions', () => {
   const msg = 'feat: add toggle\n\nParses Claude Code transcripts for usage.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n';

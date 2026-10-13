@@ -9,7 +9,7 @@ Forge is packaged for Claude Code, but nothing in its design is specific to one 
 | Orchestrator procedure | `skills/forge/SKILL.md` + `skills/forge/reference/*.md` | the orchestrator's instructions |
 | Roles | `agents/<role>.md` | each sub-agent's system prompt (ignore the YAML frontmatter, except `model` as a hint) |
 | Review lenses | `reviewers/<lens>.md`, `.forge/reviewers/<lens>.md` | handed to the reviewer role as its checklist |
-| CLI | `bin/forge` (Node ≥ 20) | install with `npm i -g github:maxwellmattryan/forge` so `forge` is on PATH for the orchestrator and every sub-agent |
+| CLI | `bin/forge` (Node ≥ 22.18) | inside Claude Code the plugin puts `bin/` on PATH; elsewhere `git clone` it and run `npm link` so `forge` is on PATH for the orchestrator and every sub-agent |
 
 ## Substitutions when reading SKILL.md
 
@@ -17,7 +17,7 @@ Forge is packaged for Claude Code, but nothing in its design is specific to one 
 |---|---|
 | `$ARGUMENTS` | the user's request |
 | `${CLAUDE_SESSION_ID}` | any id unique to this orchestrator session (e.g. `<runtime>-<timestamp>`) |
-| `${CLAUDE_PLUGIN_ROOT}` | where Forge is installed (`npm root -g`/@maxwellmattryan/forge, or a clone) |
+| `${CLAUDE_PLUGIN_ROOT}` | where Forge is installed (the plugin's directory, or your clone) |
 | "spawn with the Agent tool, `subagent_type: "forge:<role>"`, `model`" | start a sub-agent (or a fresh-context run) whose system prompt is `agents/<role>.md` and whose user message is the brief; pick the model from `runtime.models` translated to your provider |
 | "run in the background / wait for notifications" | run sub-agents concurrently if your runtime can; otherwise sequentially, which is slower but equivalent |
 | "SendMessage to resume the builder" | start a fresh builder with the same brief plus rework inputs. Roles recover from files by design. |

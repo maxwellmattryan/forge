@@ -1,32 +1,35 @@
-// @ts-check
 // A small file-based inbox. The dashboard (or anything else) drops requests here; an
 // orchestrator session drains them: the human's own (`/forge requests`) or, with
 // `daemon.enabled`, the headless one `forge dash` supervises (lib/daemon.mjs). Enqueueing only
 // writes a file, so nothing here starts a process.
 import fs from 'node:fs';
 import path from 'node:path';
-import { paths, exists } from './paths.mjs';
-import { ForgeError, now, readJson, shortId, withLock, writeJsonAtomic } from './util.mjs';
+import { paths, exists } from './paths.ts';
+import type { ForgeRequest } from './types.ts';
+import { ForgeError, now, readJson, shortId, withLock, writeJsonAtomic } from './util.ts';
 
-export const REQUEST_TYPES = ['next', 'run', 'approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume', 'sync', 'eval-run', 'retro'];
+export const REQUEST_TYPES = ['next', 'run', 'approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume', 'sync', 'eval-run', 'retro'] as const;
 
-/** @param {string} root */
-function dir(root) {
+function dir(root: string): string {
   return path.join(paths(root).runtime, 'requests');
 }
 
 /**
- * @param {string} root @param {any} _config kept so callers need not change
- * @param {{type:string, job?:string|null, text?:string|null, args?:Record<string, any>, from?:string}} req
+ * `_config` is kept so callers need not change.
  */
-export function enqueue(root, _config, req) {
-  if (!REQUEST_TYPES.includes(req.type)) throw new ForgeError(`unknown request type "${req.type}"`);
+export function enqueue(
+  root: string,
+  _config: any,
+  req: { type: string; job?: string | null; text?: string | null; args?: Record<string, any>; from?: string },
+): ForgeRequest {
+  if (!(REQUEST_TYPES as readonly string[]).includes(req.type)) throw new ForgeError(`unknown request type "${req.type}"`);
   if (['approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume'].includes(req.type) && !req.job)
     throw new ForgeError(`request "${req.type}" needs a job`);
   const id = `${Date.now()}-${shortId()}`;
-  const rec = {
+  const rec: ForgeRequest = {
     id,
-    type: req.type,
+    // Validated against REQUEST_TYPES above.
+    type: req.type as ForgeRequest['type'],
     job: req.job ?? null,
     text: req.text ? String(req.text).slice(0, 8000) : null,
     args: req.args ?? {},
@@ -38,8 +41,7 @@ export function enqueue(root, _config, req) {
   return rec;
 }
 
-/** @param {string} root @param {{status?:string}} [opts] */
-export function listRequests(root, opts = {}) {
+export function listRequests(root: string, opts: { status?: string } = {}): ForgeRequest[] {
   const d = dir(root);
   if (!exists(d)) return [];
   return fs
@@ -53,15 +55,13 @@ export function listRequests(root, opts = {}) {
 /** A claim older than this with no ack is presumed abandoned (its session died) and can be retaken. */
 const CLAIM_STALE_MS = 30 * 60 * 1000;
 
-/** @param {string} root */
-const lockDir = (root) => path.join(paths(root).locks, 'requests');
+const lockDir = (root: string): string => path.join(paths(root).locks, 'requests');
 
 /**
  * Two orchestrator sessions drain the same inbox, so a request is claimed under a lock before
  * anything acts on it. The second claimant is refused (exit 3) while the first is live.
- * @param {string} root @param {string} id @param {string} session @param {boolean} [force]
  */
-export function claimRequest(root, id, session, force = false) {
+export function claimRequest(root: string, id: string, session: string, force = false): ForgeRequest {
   const file = path.join(dir(root), `${id}.json`);
   if (!exists(file)) throw new ForgeError(`no request ${id}`);
   return withLock(lockDir(root), () => {
@@ -77,8 +77,7 @@ export function claimRequest(root, id, session, force = false) {
   });
 }
 
-/** @param {string} root @param {string} id @param {{status:'done'|'rejected'|'in-progress', result?:string}} update */
-export function ackRequest(root, id, update) {
+export function ackRequest(root: string, id: string, update: { status: 'done' | 'rejected' | 'in-progress'; result?: string }): ForgeRequest {
   const file = path.join(dir(root), `${id}.json`);
   if (!exists(file)) throw new ForgeError(`no request ${id}`);
   return withLock(lockDir(root), () => {

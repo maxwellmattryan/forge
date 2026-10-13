@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.mjs';
-import { defaults } from '../lib/config.mjs';
+import { defaults } from '../lib/config.ts';
 import { blockingLines, commandSources, compactIntegrity, countTestDecls, deletionSanctions, devDepsSection, hiddenChanges, integrityError, isConfigPath, markerHits, packageJsonDetail, parseDiffLines, renameDropsTest, renameSanctions, renderIntegrity, testIntegrity } from '../lib/integrity.mjs';
 
 const commitAll = (cwd, msg) => {

@@ -19,13 +19,13 @@ LLMs are good at judgement and unreliable at bookkeeping. Everything with a sing
 2. **Context stays small.** `forge verify` returns pass/fail plus a log tail, not 3,000 lines of compiler output. `forge job verdicts --compact` returns one word per lens. `forge job scope` returns at most 20 out-of-spec files; the full list goes to `scope.md`.
 3. **The protocol is portable.** Any agent runtime that can run shell commands can drive Forge (see PROTOCOL.md).
 
-The CLI is plain ES-module JavaScript with JSDoc types and zero dependencies. That means no build step, no install step inside the plugin, and Node is already present wherever Claude Code is. The dashboard is built with Vite at development time and its output (`dashboard/dist/`) is committed, so installing still needs no build or install step. The dashboard is a Svelte 5 app in strict TypeScript (`dashboard/src/`), type-checked with svelte-check and compiled by Vite at development time; nothing at runtime loads Svelte's compiler or TypeScript. A native (e.g. Rust) port would only pay off for a long-running worker daemon. The CLI's commands and JSON outputs are the contract, so a port could replace it without touching the skill or agents.
+The CLI is TypeScript that Node ≥ 22.18 runs directly through its built-in type stripping, with zero dependencies. That means no build step, no install step inside the plugin, and Node is already present wherever Claude Code is. The conversion is landing in stages: files not yet converted are still ES modules with JSDoc types. Node does not strip types under `node_modules`, which is why Forge has no npm-package install. The dashboard is built with Vite at development time and its output (`dashboard/dist/`) is committed, so installing still needs no build or install step. The dashboard is a Svelte 5 app in strict TypeScript (`dashboard/src/`), type-checked with svelte-check and compiled by Vite at development time; nothing at runtime loads Svelte's compiler or TypeScript. A native (e.g. Rust) port would only pay off for a long-running worker daemon. The CLI's commands and JSON outputs are the contract, so a port could replace it without touching the skill or agents.
 
 ## Data and versioning
 
 Every persisted shape carries a version: `config.yml` → `schemaVersion`, `job.json` → `schemaVersion`, each event line → `v`, `/api/state` → `apiVersion`.
 
-- **Readers upgrade, writers write current.** `normalizeJob` and `migrateConfig` (in `lib/schema.mjs`) upgrade old shapes in memory and fill defaults, so new code reads old jobs. `forge migrate` rewrites them on disk.
+- **Readers upgrade, writers write current.** `normalizeJob` and `migrateConfig` (in `lib/schema.ts`) upgrade old shapes in memory and fill defaults, so new code reads old jobs. `forge migrate` rewrites them on disk.
 - **Newer-than-me is refused, not guessed.** A plugin that meets a job from a newer schema stops with "update the plugin".
 - **Unknown fields are preserved.** Normalisation spreads the raw object first, so fields from a newer minor version survive a read-modify-write by an older one.
 - **The dashboard is served by the same plugin version as the CLI**, so they can't disagree. The page checks `apiVersion` anyway, for a dashboard left open across an update.
@@ -110,7 +110,7 @@ Issue bodies, comments and PR reviews come from people outside the session, and 
 
 ## Authorship policy
 
-`lib/attribution.mjs` defines what counts as AI attribution: signature lines and trailers, not mentions. It is shared by the Bash `PreToolUse` hook (`hooks/no-ai-attribution.mjs`, which blocks before anything is written), by `forge pr open` (which scrubs branch commit messages with a non-interactive `rebase --exec`, then pushes with `--force-with-lease` if anything changed), and by the GitHub tracker (which strips issue and comment bodies). The policy is on by default (`aiAttribution: forbid`).
+`lib/attribution.ts` defines what counts as AI attribution: signature lines and trailers, not mentions. It is shared by the Bash `PreToolUse` hook (`hooks/no-ai-attribution.ts`, which blocks before anything is written), by `forge pr open` (which scrubs branch commit messages with a non-interactive `rebase --exec`, then pushes with `--force-with-lease` if anything changed), and by the GitHub tracker (which strips issue and comment bodies). The policy is on by default (`aiAttribution: forbid`).
 
 ## Review policy
 

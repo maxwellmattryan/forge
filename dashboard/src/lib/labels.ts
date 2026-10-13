@@ -1,4 +1,4 @@
-// Display names for stages and waiting reasons, typed as complete Records so tsc demands a label for every value lib/schema.mjs defines.
+// Display names for stages and waiting reasons, typed as complete Records so tsc demands a label for every value lib/schema.ts defines.
 import type { Stage, WaitingOn } from './types.ts';
 
 export const STAGE_LABEL: Record<Stage, string> = { backlog: 'Queued', plan: 'Plan', spec: 'Spec', design: 'Design', build: 'Build', verify: 'Verify', review: 'Review', decide: 'Decide', integrate: 'Integrate', pr: 'PR', done: 'Done' };
