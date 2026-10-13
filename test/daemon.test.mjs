@@ -12,7 +12,7 @@ import { defaults } from '../lib/config.mjs';
 import { budgetCmd } from '../lib/budget.mjs';
 import { createJob, setJob, updateJob } from '../lib/jobs.mjs';
 import { PLUGIN_ROOT } from '../lib/paths.mjs';
-import { enqueue } from '../lib/requests.mjs';
+import { claimRequest, enqueue } from '../lib/requests.mjs';
 import { TURN, TURN_LINE, buildArgv, createDaemon, heldByBudget, parseTemplate, reapOrphan } from '../lib/daemon.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
@@ -147,6 +147,12 @@ test('AC6: idle/busy state machine and edge-triggered turns', async () => {
     const c = kit.children[0];
     await settle();
     assert.equal(c.written, '', 'a fresh child gets nothing without work');
+
+    const claimed = enqueue(repo.dir, null, { type: 'sync', from: 'dashboard' });
+    claimRequest(repo.dir, claimed.id, 'someone-else');
+    d.poke();
+    await sleep(30);
+    assert.equal(c.written, '', 'an in-progress (claimed) request never triggers a turn');
 
     enqueue(repo.dir, null, { type: 'next', from: 'dashboard' });
     d.poke();
@@ -330,11 +336,29 @@ test('AC9: session id persists and restarts resume with --plugin-dir', async () 
     await d2.close();
     assert.ok(fs.readFileSync(path.join(repo.dir, '.forge', 'runtime', 'daemon.log'), 'utf8').includes('"event":"session-changed"'));
 
+    // A non-uuid session_id from the child is ignored (it would become the value after --resume).
+    const d2b = make();
+    d2b.start();
+    const c2b = kit.children.at(-1);
+    c2b.line({ type: 'system', subtype: 'init', session_id: '--dangerously-skip-permissions' });
+    await sleep(30);
+    assert.equal(d2b.state().sessionId, other);
+    await d2b.close();
+    assert.equal(info().sessionId, other);
+    // A planted non-uuid session id in daemon.json is never resumed.
+    fs.writeFileSync(path.join(repo.dir, '.forge', 'runtime', 'daemon.json'), JSON.stringify({ sessionId: '--plugin-dir=./x', resumable: true }));
+    const dx = make();
+    dx.start();
+    const cx = kit.children.at(-1);
+    assert.equal(cx.args[0], '--session-id');
+    assert.match(cx.args[1], /^[0-9a-f-]{36}$/);
+    await dx.close();
+
     // Never wrote stdout: nothing to resume, so the next spawn starts a new session.
     fs.writeFileSync(path.join(repo.dir, '.forge', 'runtime', 'daemon.json'), JSON.stringify({ sessionId: other, resumable: false }));
     const d3 = make();
     d3.start();
-    const c3 = kit.children[2];
+    const c3 = kit.children.at(-1);
     assert.equal(c3.args[0], '--session-id');
     assert.notEqual(c3.args[1], other);
     const s3 = c3.args[1];
@@ -342,7 +366,7 @@ test('AC9: session id persists and restarts resume with --plugin-dir', async () 
     assert.equal(info().resumable, false);
     const d4 = make();
     d4.start();
-    const c4 = kit.children[3];
+    const c4 = kit.children.at(-1);
     assert.equal(c4.args[0], '--session-id');
     assert.notEqual(c4.args[1], s3);
     await d4.close();
@@ -444,7 +468,7 @@ test('AC11: crash loop cap and missing executable', async () => {
   };
   const d2 = createDaemon(repo.dir, {
     spawn: /** @type {any} */ (countingSpawn),
-    loadConfig: () => ({ config: config({ command: `"${path.join(repo.dir, 'missing', 'claude')}" {session}` }) }),
+    loadConfig: () => ({ config: config({ command: `"${repo.dir}-missing/bin/claude" {session}` }) }),
     pollMs: 20,
   });
   try {
@@ -518,8 +542,7 @@ async function nullNeverStops(repo) {
   }
 }
 
-test('AC13: stop, dash --stop and crash leave no orphaned child', async (t) => {
-  if (process.platform === 'win32') return t.skip('process groups are POSIX-only');
+test('AC13: stop, dash --stop and crash leave no orphaned child', { skip: process.platform === 'win32' && 'process groups are POSIX-only' }, async () => {
   const repo = tempRepo();
   const runtime = path.join(repo.dir, '.forge', 'runtime');
   const info = () => {
@@ -700,8 +723,7 @@ test('AC14: log, truncation, rotation and stdout backpressure', async () => {
   }
 });
 
-test('AC13: reapOrphan never signals a process it cannot prove is its claude child', async (t) => {
-  if (process.platform === 'win32') return t.skip('POSIX-only');
+test('AC13: reapOrphan never signals a process it cannot prove is its claude child', { skip: process.platform === 'win32' && 'POSIX-only' }, async () => {
   const repo = tempRepo();
   const file = path.join(repo.dir, '.forge', 'runtime', 'daemon.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -742,6 +764,153 @@ test('AC13: reapOrphan never signals a process it cannot prove is its claude chi
         process.kill(-p.pid, 'SIGKILL');
       } catch {}
     }
+    repo.cleanup();
+  }
+});
+
+test('AC6: stop mid-turn, start while stopping, and repeated stop/start are deterministic', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  /** Children whose stop the test releases by hand, so every interleaving is pinned. */
+  const held = new Set();
+  const killTree = (c, signal) => {
+    kit.kills.push(signal);
+    held.add(c);
+  };
+  const release = (c) => {
+    held.delete(c);
+    c.exit(null, 'SIGTERM');
+  };
+  const d = createDaemon(repo.dir, { spawn: kit.spawn, killTree, loadConfig: () => ({ config: config() }), pollMs: 3_600_000, graceMs: 60_000 });
+  try {
+    d.start();
+    const c1 = kit.children[0];
+    enqueue(repo.dir, null, { type: 'next', from: 'dashboard' });
+    d.poke();
+    await settle();
+    assert.equal(turnsIn(c1), 1);
+    assert.equal(d.state().status, 'busy');
+
+    // stop() mid-turn: the turn is abandoned, nothing is written while stopping.
+    const stopping = d.stop('test');
+    assert.equal(d.state().status, 'stopping');
+    assert.deepEqual(kit.kills, ['SIGTERM']);
+    d.poke();
+    await sleep(20);
+    assert.equal(turnsIn(c1), 1, 'no turn while stopping');
+
+    // start() while stopping spawns nothing until the old child is gone; a second start() is a no-op.
+    d.start('again');
+    d.start('again');
+    assert.equal(kit.children.length, 1);
+    assert.equal(d.state().wanted, true);
+    assert.equal(d.state().status, 'stopping');
+    release(c1);
+    await stopping;
+    assert.equal(kit.children.length, 2, 'exactly one child after the stop finishes');
+    const c2 = kit.children[1];
+    assert.equal(d.state().running, true);
+    assert.equal(d.state().pid, c2.pid);
+    await waitFor(() => turnsIn(c2) === 1, 2000, 'the abandoned request on the new child');
+    assert.equal(d.state().turns, 2, 'the stopped turn was never committed, so the request retriggers');
+
+    // stop() twice: one child stops, nothing respawns.
+    const s1 = d.stop();
+    const s2 = d.stop();
+    assert.equal(kit.children.length, 2);
+    release(c2);
+    const [r1, r2] = await Promise.all([s1, s2]);
+    for (const r of [r1, r2]) {
+      assert.equal(r.status, 'off');
+      assert.equal(r.running, false);
+      assert.equal(r.wanted, false);
+    }
+    assert.equal(kit.children.length, 2);
+    assert.equal(d.state().lastError, null, 'an exit we asked for is not an error');
+
+    // start() twice: one child.
+    d.start();
+    d.start();
+    assert.equal(kit.children.length, 3);
+    const c3 = kit.children[2];
+    const closing = d.close();
+    release(c3);
+    await closing;
+    assert.equal(kit.children.length, 3, 'close() never respawns');
+  } finally {
+    for (const c of held) c.exit(null, 'SIGKILL');
+    repo.cleanup();
+  }
+});
+
+test('AC11: the failure count resets on a result, and a child that dies mid-turn retriggers its requests', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const d = createDaemon(repo.dir, { spawn: kit.spawn, killTree: kit.killTree, loadConfig: () => ({ config: config() }), pollMs: 20 });
+  try {
+    enqueue(repo.dir, null, { type: 'next', from: 'dashboard' });
+    d.start();
+    const c1 = kit.children[0];
+    await waitFor(() => turnsIn(c1) === 1, 2000, 'the first turn');
+    c1.exit(1, null);
+    await waitFor(() => kit.children.length === 2 && turnsIn(kit.children[1]) === 1, 2000, 'a new child gets the dropped turn');
+    assert.equal(d.state().turns, 2);
+    assert.equal(turnsIn(c1), 1);
+    kit.children[1].exit(1, null);
+    await waitFor(() => kit.children.length === 3 && turnsIn(kit.children[2]) === 1, 2000, 'the third child');
+    assert.match(d.state().lastError, /daemon exited \(code 1/);
+    // A result resets the count; the next crash is the first of a new streak.
+    kit.children[2].line({ type: 'result' });
+    await waitFor(() => d.state().status === 'idle', 2000, 'idle');
+    assert.equal(d.state().lastError, null, 'a working turn clears the exit error');
+    kit.children[2].exit(1, null);
+    await waitFor(() => !d.state().running, 2000, 'the crash');
+    assert.equal(d.state().wanted, true, 'two crashes, a result, then one crash: still wanted');
+    enqueue(repo.dir, null, { type: 'sync', from: 'dashboard' });
+    d.poke();
+    // The session wrote stdout, so these children resume; each emits init first, so its crash is a
+    // real failure rather than a lost transcript.
+    const crash = async (n, what) => {
+      await waitFor(() => kit.children.length === n && turnsIn(kit.children[n - 1]) === 1, 2000, what);
+      const c = kit.children[n - 1];
+      assert.equal(c.args[0], '--resume');
+      c.line({ type: 'system', subtype: 'init', session_id: d.state().sessionId });
+      await sleep(10);
+      c.exit(1, null);
+      await waitFor(() => !d.state().running || kit.children.length > n, 2000, 'the crash');
+    };
+    await crash(4, 'a respawn for new work');
+    assert.equal(d.state().wanted, true, 'first crash of a new streak');
+    await crash(5, 'the dropped turn on a new child');
+    assert.equal(d.state().wanted, true, 'second crash of the new streak');
+    await crash(6, 'another respawn');
+    assert.equal(d.state().wanted, false, 'the third consecutive crash stops it');
+    assert.match(d.state().lastError, /3 failed starts/);
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('AC12: a real child busy past idleStopMinutes is not idle-stopped, and stop() mid-turn kills it', async () => {
+  const repo = tempRepo();
+  const fx = fixtureRun(repo, { FAKE_CLAUDE_DELAY_MS: '5000' });
+  const d = createDaemon(repo.dir, { env: fx.env, loadConfig: () => ({ config: config({ command: FAKE_COMMAND, idleStopMinutes: 0.001 }) }), pollMs: 30, graceMs: 1000 });
+  try {
+    enqueue(repo.dir, null, { type: 'next', from: 'dashboard' });
+    d.start();
+    const pid = d.state().pid;
+    await waitFor(() => fx.stdinOf(pid).length === 1, 5000, 'the turn to reach the child');
+    await sleep(300);
+    assert.equal(d.state().status, 'busy', 'idle stop never fires mid-turn');
+    assert.equal(d.state().running, true);
+    const s = await d.stop();
+    assert.equal(s.status, 'off');
+    assert.equal(alive(pid), false);
+    assert.equal(d.state().lastResultAt, null, 'the turn was abandoned');
+  } finally {
+    await d.close();
+    fx.killAll();
     repo.cleanup();
   }
 });

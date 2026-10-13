@@ -234,7 +234,7 @@ test('AC15: SSE event stream is loopback-only, capped and replayable', async () 
   const repo = tempRepo();
   writeConfig(repo.dir, { enabled: true, command: 'claude {session}' });
   const kit = fakeChildren();
-  const { url, daemon, close } = await startServer(repo.dir, { port: 0, daemon: kit.opts });
+  const { url, daemon, close } = await startServer(repo.dir, { port: 0, daemon: kit.opts, ssePingMs: 50 });
   const port = Number(new URL(url).port);
   const open = [];
   try {
@@ -264,6 +264,9 @@ test('AC15: SSE event stream is loopback-only, capped and replayable', async () 
 
     c.line({ type: 'assistant', n: 2 });
     await until(() => a.frames.some((f) => f.event === 'line' && f.data === '{"type":"assistant","n":2}'));
+    c.line({ type: 'result', subtype: 'success' });
+    await until(() => a.frames.slice(2).some((f) => f.event === 'state' && JSON.parse(f.data).lastResultAt), 2000);
+    await until(() => a.frames.some((f) => f.comment === 'ping'), 2000);
     const lines = a.frames.filter((f) => f.event === 'line').map((f) => Number(f.id));
     assert.deepEqual(lines, [...lines].sort((x, y) => x - y), 'ids increase');
     assert.equal(new Set(lines).size, lines.length);
@@ -286,6 +289,11 @@ test('AC15: SSE event stream is loopback-only, capped and replayable', async () 
     assert.equal((await hit(port, { path: '/api/events', headers: { host: `evil.example:${port}` } })).status, 421);
     assert.equal((await hit(port, { path: '/api/events', headers: { origin: 'http://evil.example' } })).status, 403);
     assert.equal((await hit(port, { path: '/api/events', headers: { origin: 'null' } })).status, 403);
+    // A no-cors cross-site request has no Origin; Fetch Metadata still names it.
+    for (const site of ['cross-site', 'same-site']) assert.equal((await hit(port, { path: '/api/events', headers: { 'sec-fetch-site': site } })).status, 403, site);
+    const fm = await sse(port, { 'sec-fetch-site': 'same-origin' });
+    open.push(fm);
+    assert.equal(fm.status, 200);
     const same = await sse(port, { origin: `http://127.0.0.1:${port}` });
     open.push(same);
     assert.equal(same.status, 200);

