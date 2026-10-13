@@ -765,7 +765,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     info = { ...info, lastTurnAt: now() };
     persist();
     clearIdle();
-    logEvent('turn', { requests: ids.length });
+    logEvent('turn', { requests: ids.length, turn: turns });
     changed();
   }
 

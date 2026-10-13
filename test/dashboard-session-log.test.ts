@@ -151,6 +151,9 @@ test('long text, empty logs and odd lines', () => {
   const a = early.turns[0].items[0];
   assert.ok(a.kind === 'subagent' && a.known && a.role === 'forge:planner' && a.items.length === 1);
   assert.equal(parseEntry(FIXTURE[3]), parseEntry(FIXTURE[3]), 'parsed lines are cached per entry');
+  // A window that starts mid-log says so, and the supervisor's turn number wins over counting.
+  const mid = buildSessionView(entries([assistant([{ type: 'text', text: 'tail of turn 6' }]), sup('turn', { requests: 1, turn: 7 })]), DEFAULT_FILTERS, { partial: true });
+  assert.deepEqual(mid.turns.map((t) => t.label), ['Earlier lines', 'Turn 7 · 1 request']);
 });
 
 test('strings are returned unescaped', () => {

@@ -50,7 +50,7 @@
   let closed = $state(false);
   let loading = $state(false);
   let error = $state<string | null>(null);
-  const view = $derived(buildSessionView(entries, filters));
+  const view = $derived(buildSessionView(entries, filters, { partial: more }));
   let follow = $state(true);
   let pane = $state<HTMLDivElement>();
 
@@ -125,7 +125,7 @@
       {#if it.result}{@render result(it.result)}{/if}
     </details>
   {:else if it.kind === 'init'}
-    {@render line('muted', 'init', `${it.model} · ${it.session}`)}
+    {@render line('muted', 'init', [it.model, it.session].filter(Boolean).join(' · '))}
   {:else if it.kind === 'result'}
     {@render line(it.tone, 'result', it.text)}
   {:else if it.kind === 'supervisor'}
@@ -166,7 +166,7 @@
       {#if !view.turns.length}<div class="text-muted">{$t('session.noMatch')}</div>{/if}
       {#each view.turns as g (g.offset)}
         <section class="mb-2">
-          <h3 class="sticky top-0 bg-raised py-0.5 text-[11px] font-semibold text-muted">{g.label}</h3>
+          <h3 class="sticky top-0 z-10 bg-raised py-0.5 text-[11px] font-semibold text-muted">{g.label}</h3>
           <div class="flex flex-col gap-1">{#each g.items as it, i (i)}{@render item(it)}{/each}</div>
         </section>
       {/each}

@@ -64,7 +64,7 @@ export interface SessionView {
 
 /** What one line says, before grouping. A line may carry several content blocks, so parseEntry returns a list. */
 export type Parsed =
-  | { kind: 'turn'; offset: number; requests: number }
+  | { kind: 'turn'; offset: number; requests: number; turn: number | null }
   | { kind: 'item'; parent: string | null; item: Item }
   | { kind: 'tool-use'; offset: number; parent: string | null; id: string; name: string; input: unknown }
   | { kind: 'tool-result'; offset: number; parent: string | null; id: string; isError: boolean; content: string };
@@ -148,7 +148,7 @@ function parseLine(offset: number, line: string): Parsed[] {
   switch (ev.type) {
     case 'forge-daemon': {
       const event = str(ev.event);
-      if (event === 'turn') return [{ kind: 'turn', offset, requests: Number(ev.requests) || 0 }];
+      if (event === 'turn') return [{ kind: 'turn', offset, requests: Number(ev.requests) || 0, turn: Number.isInteger(ev.turn) && ev.turn > 0 ? ev.turn : null }];
       return [item({ kind: 'supervisor', offset, tone: supervisorTone(event), event, text: supervisorText(ev) })];
     }
     case 'forge-stderr':
@@ -229,15 +229,20 @@ function applyFilters(items: Item[], f: Filters, needle: string): Item[] {
   return out;
 }
 
-/** Groups a log's entries into turns, nests subagent lines under their Agent call, then filters. */
-export function buildSessionView(entries: readonly Entry[], filters: Filters = DEFAULT_FILTERS): SessionView {
+/**
+ * Groups a log's entries into turns, nests subagent lines under their Agent call, then filters.
+ * `partial`: the entries start mid-log (older lines are on the server), so the lines before the
+ * first turn are not the session's start. Turns are numbered by the supervisor when its event says.
+ */
+export function buildSessionView(entries: readonly Entry[], filters: Filters = DEFAULT_FILTERS, opts: { partial?: boolean } = {}): SessionView {
+  const first = opts.partial ? 'Earlier lines' : 'Session start';
   const turns: TurnGroup[] = [];
   let current: TurnGroup | null = null;
   const totals = { turns: 0, costUsd: 0, results: 0 };
   const tools = new Map<string, Item & { kind: 'tool' | 'subagent' }>();
   const group = (offset: number): TurnGroup => {
     if (!current) {
-      current = { offset, label: 'Session start', items: [] };
+      current = { offset, label: first, items: [] };
       turns.push(current);
     }
     return current;
@@ -257,7 +262,7 @@ export function buildSessionView(entries: readonly Entry[], filters: Filters = D
     for (const p of parseEntry(e)) {
       if (p.kind === 'turn') {
         totals.turns++;
-        current = { offset: p.offset, label: `Turn ${totals.turns} · ${p.requests} ${p.requests === 1 ? 'request' : 'requests'}`, items: [] };
+        current = { offset: p.offset, label: `Turn ${p.turn ?? totals.turns} · ${p.requests} ${p.requests === 1 ? 'request' : 'requests'}`, items: [] };
         turns.push(current);
       } else if (p.kind === 'item') {
         if (p.item.kind === 'result') {
@@ -291,7 +296,7 @@ export function buildSessionView(entries: readonly Entry[], filters: Filters = D
     }
   }
   const needle = filters.text.trim().toLowerCase();
-  const filtered = turns.map((t) => ({ ...t, items: applyFilters(t.items, filters, needle) })).filter((t) => t.items.length || (!needle && t.label !== 'Session start'));
+  const filtered = turns.map((t) => ({ ...t, items: applyFilters(t.items, filters, needle) })).filter((t) => t.items.length || (!needle && t.label !== first));
   return { turns: filtered, totals };
 }
 
