@@ -33,8 +33,8 @@ Then `forge pr open <id>` (push + reuse), `--stage pr --state waiting --waiting-
 Runs only when `forge integrate` returned conflicts **and** the integrator resolved them (`INTEGRATE: done`), after `forge verify <id>` passed and before `forge pr open`. Clean integrations and the `ask` / `defer` policies skip it.
 
 1. Spawn one `forge:reviewer`, lens `code`, output `integrationReview` from `forge job paths <id>` (`review/integration/code.md`). The brief names the conflicted files from the `forge integrate` result and the diff to read, using the `Before:` / `Merge:` shas from the `## Integration` block in `build.md`:
-   - merge: `git show --remerge-diff <merge sha>` (the resolution) plus `git diff <merge sha>..HEAD` (fallout fixes);
-   - rebase: `git range-diff <remote>/<base> <before sha> HEAD` (how each job commit changed while replayed) plus `git diff <remote>/<base>...HEAD`.
+   - merge: `forge git show --remerge-diff <merge sha>` (the resolution) plus `forge git diff <merge sha>..HEAD` (fallout fixes);
+   - rebase: `forge git range-diff <remote>/<base> <before sha> HEAD` (how each job commit changed while replayed) plus `forge git diff <remote>/<base>...HEAD`.
 2. `forge job verdicts <id> --round integration --compact` (reviewers default to `code`; it logs an `integration-review` event and leaves `job.verdicts` alone).
    - `PASS` → `forge pr open <id>`.
    - `MALFORMED` → re-spawn the reviewer once; still malformed → re-run with `--malformed changes`.

@@ -21,18 +21,11 @@ const DEFAULT_TOOLS = [
   'Write',
   'Bash(forge:*)',
   'Bash(git status:*)',
-  'Bash(git diff:*)',
-  'Bash(git log:*)',
-  'Bash(git show:*)',
   'Bash(git rev-parse:*)',
-  'Bash(git range-diff:*)',
   'Bash(git add:*)',
   'Bash(git rm:*)',
-  'Bash(git mv:*)',
   'Bash(git commit:*)',
-  'Bash(git merge --continue:*)',
   'Bash(git merge --abort:*)',
-  'Bash(git rebase --continue:*)',
   'Bash(git rebase --abort:*)',
   'Bash(gh pr view:*)',
   'Bash(gh pr list:*)',
@@ -138,21 +131,21 @@ test('AC3: daemon config validation', () => {
   assert.deepEqual(problems((c) => (c.daemon.idleStopMinutes = 0.5)), []);
 });
 
-test('daemon.allowedTools refuses blanket git/gh and unscoped Bash', () => {
+test('daemon.allowedTools refuses blanket git/gh, unscoped Bash and file-writing git forms', () => {
   const problems = (tools) => {
     const c = defaults();
     c.daemon.allowedTools = [...c.daemon.allowedTools, ...tools];
     return validateConfig(c, process.cwd()).filter((p) => p.startsWith('daemon.'));
   };
   assert.ok(!defaults().daemon.allowedTools.some((t) => /^Bash\((git|gh)(:\*| \*)\)$/.test(t)), 'the default names subcommands');
-  for (const t of ['Bash', 'Bash(*)', 'Bash(git:*)', 'Bash(gh:*)', 'Bash(git *)', 'Bash(git*)', 'Bash(git -c:*)', 'Bash(git config:*)', 'Bash(git grep:*)', 'Bash(git rebase:*)', 'Bash(git rebase --exec:*)', 'Bash(git submodule foreach:*)', 'Bash(gh api:*)', 'Bash(gh api -X POST:*)', 'Bash(gh extension:*)', 'Bash(gh auth:*)']) {
+  for (const t of ['Bash', 'Bash(*)', 'Bash(git:*)', 'Bash(gh:*)', 'Bash(git *)', 'Bash(git*)', 'Bash(git -c:*)', 'Bash(git config:*)', 'Bash(git grep:*)', 'Bash(git rebase:*)', 'Bash(git rebase --exec:*)', 'Bash(git submodule foreach:*)', 'Bash(gh api:*)', 'Bash(gh api -X POST:*)', 'Bash(gh extension:*)', 'Bash(gh auth:*)', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)', 'Bash(git range-diff:*)', 'Bash(git format-patch:*)', 'Bash(git mv:*)']) {
     const got = problems([t]);
     assert.equal(got.length, 1, `${t}: ${JSON.stringify(got)}`);
-    assert.match(got[0], /must name git\/gh subcommands/, t);
+    assert.match(got[0], /must not include .*forge git/, t);
     assert.ok(got[0].includes(JSON.stringify(t)), `${t} is named in the message`);
   }
   assert.equal(problems(['Bash(git:*)', 'Bash(gh:*)']).length, 1, 'one problem lists every broad entry');
-  for (const t of ['Bash(git rebase --skip:*)', 'Bash(git blame:*)', 'Bash(gh issue view:*)', 'Bash(npm test:*)', 'Bash(github-tool:*)', 'Bash(gitk:*)', 'mcp__x__y'])
+  for (const t of ['Bash(git rebase --skip:*)', 'Bash(git rebase --continue:*)', 'Bash(git merge --continue:*)', 'Bash(git diffstat:*)', 'Bash(git blame:*)', 'Bash(gh issue view:*)', 'Bash(npm test:*)', 'Bash(github-tool:*)', 'Bash(gitk:*)', 'mcp__x__y'])
     assert.deepEqual(problems([t]), [], `${t} is allowed`);
 });
 
@@ -188,4 +181,9 @@ test('daemon.command refuses permission-widening flags', () => {
   for (const mode of ['dontAsk', 'default', 'plan']) assert.deepEqual(problems(`claude -p {session} --permission-mode ${mode}`), [], mode);
   assert.deepEqual(problems(`${base} --model opus --max-turns 50 --disallowedTools WebFetch`), [], 'narrowing and neutral flags are fine');
   assert.deepEqual(problems('claude -p {session} --plugin-dir={pluginRoot} --allowedTools={allowedTools}'), [], '--flag=value placeholders are accepted');
+  // claude reads these values variadically, so a bare word after them would be one more tool or plugin dir.
+  refused('--allowedTools {allowedTools} Bash', /must not put "Bash" after --allowedTools's value/);
+  refused('--allowedTools={allowedTools} Bash(curl:*)', /after --allowedTools's value/);
+  assert.equal(problems('claude -p --plugin-dir {pluginRoot} /tmp/evil {session} --allowedTools {allowedTools}').length, 1, 'a second plugin dir after the value');
+  assert.deepEqual(problems('claude -p --allowedTools {allowedTools} {session}'), [], '{session} may follow: it expands to a flag');
 });
