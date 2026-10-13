@@ -4,21 +4,36 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadJob, jobDir } from './jobs.ts';
 import { exists } from './paths.ts';
+import type { Config, Job } from './types.ts';
 import { ForgeError, now, run } from './util.ts';
 
 const LIST_LIMIT = 20;
 
+/** What `forge job scope` prints: jobScope. */
+export interface ScopeReport {
+  id: string;
+  base: string;
+  mergeBase: string;
+  head: string;
+  dirty: boolean;
+  approach: boolean;
+  specPaths: number;
+  changed: number;
+  inSpec: number;
+  outOfSpec: string[];
+  more: number;
+  file: string;
+}
+
 /**
  * The text under the `Approach` heading, up to the next heading of the same or higher level.
  * Headings inside fenced code blocks don't count, so an example spec quoted in a fence can't end it.
- * @param {string} specText @returns {string | null}
  */
-export function approachSection(specText) {
+export function approachSection(specText: string): string | null {
   const lines = specText.split(/\r?\n/);
   let level = 0;
   let fenced = false;
-  /** @type {string[] | null} */
-  let out = null;
+  let out: string[] | null = null;
   for (const line of lines) {
     if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
     const h = fenced ? null : /^(#{1,6})\s+(.*?)\s*$/.exec(line);
@@ -33,8 +48,7 @@ export function approachSection(specText) {
   return out ? out.join('\n') : null;
 }
 
-/** @param {string} raw @returns {string | null} */
-function cleanToken(raw) {
+function cleanToken(raw: string): string | null {
   let t = raw;
   for (let prev = ''; prev !== t; ) {
     prev = t;
@@ -48,8 +62,8 @@ function cleanToken(raw) {
   return t;
 }
 
-/** One level of brace expansion: `lib/{a,b}.mjs` → `lib/a.mjs`, `lib/b.mjs`. @param {string} t */
-function expandBraces(t) {
+/** One level of brace expansion: `lib/{a,b}.mjs` → `lib/a.mjs`, `lib/b.mjs`. */
+function expandBraces(t: string): string[] {
   const m = /^(.*?)\{([^{}]*,[^{}]*)\}(.*)$/.exec(t);
   return m ? m[2].split(',').map((alt) => m[1] + alt + m[3]) : [t];
 }
@@ -57,15 +71,14 @@ function expandBraces(t) {
 /**
  * Path-like tokens named in the Approach section: backtick spans and whitespace-separated words.
  * Prose that happens to look like a path survives, which only makes the check more lenient.
- * @param {string} specText @returns {string[]}
  */
-export function approachPaths(specText) {
+export function approachPaths(specText: string): string[] {
   const section = approachSection(specText);
   if (section === null) return [];
   const spans = [...section.matchAll(/`([^`\n]+)`/g)].map((m) => m[1]);
   // Words containing a backtick are already covered by their span; re-reading them only adds noise.
   const words = section.split(/\s+/).filter((w) => w && !w.includes('`'));
-  const out = new Set();
+  const out = new Set<string>();
   for (const raw of [...spans, ...words]) {
     const t = cleanToken(raw);
     if (!t) continue;
@@ -74,8 +87,8 @@ export function approachPaths(specText) {
   return [...out];
 }
 
-/** `**` crosses directories, `*` and `?` do not; anchored to the whole string. @param {string} glob */
-function globToRegExp(glob) {
+/** `**` crosses directories, `*` and `?` do not; anchored to the whole string. */
+function globToRegExp(glob: string): RegExp {
   const body = glob
     .split('**/')
     .map((part) =>
@@ -88,11 +101,8 @@ function globToRegExp(glob) {
   return new RegExp(`^${body}$`);
 }
 
-/**
- * Whether a changed file is covered by any token named in the spec.
- * @param {string} file @param {string[]} tokens
- */
-export function inSpec(file, tokens) {
+/** Whether a changed file is covered by any token named in the spec. */
+export function inSpec(file: string, tokens: string[]): boolean {
   const base = path.posix.basename(file);
   return tokens.some((t) => {
     if (file === t) return true;
@@ -106,15 +116,13 @@ export function inSpec(file, tokens) {
   });
 }
 
-/** @param {string} cwd @param {string[]} args */
-const git = (cwd, args) => run('git', args, { cwd }).stdout.trim();
+const git = (cwd: string, args: string[]): string => run('git', args, { cwd }).stdout.trim();
 
 /**
  * Env for git calls that must see the committed history as it is: replace objects and grafts are
  * repository state the job's worktree can write, and either can make two commits look related.
- * @returns {NodeJS.ProcessEnv}
  */
-export function realHistoryEnv() {
+export function realHistoryEnv(): NodeJS.ProcessEnv {
   return { ...process.env, GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: path.join(os.devNull, 'forge-no-grafts') };
 }
 
@@ -123,13 +131,10 @@ export function realHistoryEnv() {
  * Shared by `forge job scope` and verify's integrity report so both read the same diff.
  * Refs are fully qualified and replace objects and grafts are ignored, so a tag named like the base
  * branch, a `git replace` or `.git/info/grafts` made from the job's worktree cannot move the comparison point.
- * @param {string} cwd @param {any} config @param {any} job
- * @returns {{baseRef: string, mergeBase: string}}
  */
-export function resolveBase(cwd, config, job) {
+export function resolveBase(cwd: string, config: Config, job: Pick<Job, 'base'>): { baseRef: string; mergeBase: string } {
   const base = String(job.base ?? '');
-  /** @type {[string, string][]} */
-  const candidates = base.startsWith('refs/')
+  const candidates: [string, string][] = base.startsWith('refs/')
     ? [[base, base]]
     : /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(base)
       ? [[base, base]]
@@ -148,9 +153,8 @@ export function resolveBase(cwd, config, job) {
 /**
  * Compares the committed diff since the merge-base with the spec's Approach paths and writes scope.md.
  * Read-only for job state: no event, no job.json change.
- * @param {string} root @param {any} config @param {string} id
  */
-export function jobScope(root, config, id) {
+export function jobScope(root: string, config: Config, id: string): ScopeReport {
   const job = loadJob(root, id);
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
   const dir = jobDir(root, job.id);
@@ -186,11 +190,8 @@ export function jobScope(root, config, id) {
   };
 }
 
-/**
- * @param {{baseRef:string, mergeBase:string, head:string, dirty:boolean, approach:boolean, tokens:string[], inside:string[], outside:string[], changed:number}} s
- */
-function renderScope(s) {
-  const list = (/** @type {string[]} */ xs) => (xs.length ? xs.map((x) => `- \`${x}\``) : ['- none']);
+function renderScope(s: { baseRef: string; mergeBase: string; head: string; dirty: boolean; approach: boolean; tokens: string[]; inside: string[]; outside: string[]; changed: number }): string {
+  const list = (xs: string[]) => (xs.length ? xs.map((x) => `- \`${x}\``) : ['- none']);
   return [
     `SCOPE: ${s.outside.length} of ${s.changed} changed files outside spec Approach`,
     '',

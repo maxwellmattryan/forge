@@ -9,7 +9,7 @@ import { execFile, spawn as nodeSpawn, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tempRepo } from './helpers.mjs';
 import { TRUST_ENV, defaults, trustDigest } from '../lib/config.ts';
-import { budgetCmd } from '../lib/budget.mjs';
+import { budgetCmd } from '../lib/budget.ts';
 import { createJob, setJob, updateJob } from '../lib/jobs.ts';
 import { PLUGIN_ROOT } from '../lib/paths.ts';
 import { claimRequest, enqueue } from '../lib/requests.ts';

@@ -4,23 +4,29 @@
 import { loadJob, logEvent, setJob, updateJob } from './jobs.ts';
 import { exists } from './paths.ts';
 import { BUDGET_KEYS } from './schema.ts';
+import type { BudgetKey, BudgetLimits, BudgetUsed, Config, Job, JobBudget } from './types.ts';
 import { ForgeError, now, run } from './util.ts';
 
 const TERMINAL = ['done', 'cancelled', 'failed'];
 
-/** @param {any} config @param {any} job @returns {Record<string, number|null>} */
-export function effectiveLimits(config, job) {
+/** A key over its limit: exceededKeys. */
+export interface BudgetExceeded {
+  key: BudgetKey;
+  used: number;
+  limit: number;
+}
+
+export function effectiveLimits(config: Config, job: Pick<Job, 'budget'>): BudgetLimits {
   const merged = { ...(config?.pipeline?.budget ?? {}), ...(job.budget?.limits ?? {}) };
   return Object.fromEntries(BUDGET_KEYS.map((k) => [k, merged[k] ?? null]));
 }
 
 /**
  * What the job has spent. `null` means unmeasured and never trips.
- * @param {any} job @returns {Record<string, number|null>}
  */
-export function measureBudget(job) {
+export function measureBudget(job: Job): BudgetUsed {
   // byModel holds the same runs as byRole, so summing both would double-count.
-  const ms = Object.values(job.usage?.byRole ?? {}).reduce((n, /** @type {any} */ r) => n + (Number(r?.durationMs) || 0), 0);
+  const ms = Object.values(job.usage?.byRole ?? {}).reduce((n, r) => n + (Number(r?.durationMs) || 0), 0);
   return {
     tokens: job.usage?.totalTokens ?? 0,
     usd: job.usage?.estCostUsd ?? 0,
@@ -30,8 +36,8 @@ export function measureBudget(job) {
   };
 }
 
-/** Committed lines added + deleted against the base. @param {any} job @returns {number|null} */
-function changedLines(job) {
+/** Committed lines added + deleted against the base. */
+function changedLines(job: Job): number | null {
   if (!job.worktree || !job.base || !exists(job.worktree)) return null;
   const r = run('git', ['diff', '--numstat', `${job.base}...HEAD`], { cwd: job.worktree, allowFail: true });
   if (!r.ok) return null;
@@ -47,12 +53,9 @@ function changedLines(job) {
 /**
  * An acknowledged key trips again only after another full budget past the acknowledged point;
  * a verifyRetries ack belongs to its round.
- * @param {Record<string, number|null>} limits @param {Record<string, number|null>} used
- * @param {Record<string, {used:number, round:number}>} ack @param {number} round
- * @returns {{key:string, used:number, limit:number}[]}
  */
-export function exceededKeys(limits, used, ack, round) {
-  const out = [];
+export function exceededKeys(limits: BudgetLimits, used: Partial<BudgetUsed>, ack: JobBudget['ack'] | undefined, round: number): BudgetExceeded[] {
+  const out: BudgetExceeded[] = [];
   for (const key of BUDGET_KEYS) {
     const limit = limits[key];
     const u = used[key];
@@ -64,21 +67,22 @@ export function exceededKeys(limits, used, ack, round) {
   return out;
 }
 
-/** @param {string} key @param {number} v */
-const fmt = (key, v) => (key === 'usd' ? v.toFixed(2) : key === 'minutes' ? v.toFixed(1) : String(Math.round(v)));
+const fmt = (key: string, v: number): string => (key === 'usd' ? v.toFixed(2) : key === 'minutes' ? v.toFixed(1) : String(Math.round(v)));
 
-/** @param {{key:string, used:number, limit:number}[]} exceeded */
-export function formatReason(exceeded) {
+export function formatReason(exceeded: BudgetExceeded[]): string {
   return `budget exceeded: ${exceeded.map((e) => `${e.key} ${fmt(e.key, e.used)}/${fmt(e.key, e.limit)}`).join(', ')}`;
 }
 
 /**
  * A checkpoint: records `lastCheck`, and parks the job at waiting:budget when a key is over.
  * Returns the block the command adds to its output, or null when there is nothing to report.
- * @param {string} root @param {any} config @param {string} id @param {string} checkpoint
- * @returns {{stopped:true, reason:string, exceeded:{key:string, used:number, limit:number}[]}|null}
  */
-export function enforceBudget(root, config, id, checkpoint) {
+export function enforceBudget(
+  root: string,
+  config: Config,
+  id: string,
+  checkpoint: string,
+): { stopped: true; reason: string; exceeded: BudgetExceeded[] } | null {
   const job = loadJob(root, id);
   const used = measureBudget(job);
   const exceeded = exceededKeys(effectiveLimits(config, job), used, job.budget.ack, job.round);
@@ -99,13 +103,14 @@ export function enforceBudget(root, config, id, checkpoint) {
   return { stopped: true, reason, exceeded };
 }
 
-/** @param {string} kv @returns {[string, number|null|undefined]} undefined removes the override */
-function parseSet(kv) {
+/** An undefined value removes the override. */
+function parseSet(kv: string): [BudgetKey, number | null | undefined] {
   const allowed = `allowed keys: ${BUDGET_KEYS.join(', ')}; values: a non-negative number, null or default`;
   const eq = kv.indexOf('=');
-  const key = eq > 0 ? kv.slice(0, eq).trim() : '';
+  // Checked against BUDGET_KEYS below, before it is returned.
+  const key = (eq > 0 ? kv.slice(0, eq).trim() : '') as BudgetKey;
   const raw = eq > 0 ? kv.slice(eq + 1).trim() : '';
-  if (!(/** @type {readonly string[]} */ (BUDGET_KEYS).includes(key))) throw new ForgeError(`unknown budget key in "${kv}" (${allowed})`);
+  if (!(BUDGET_KEYS as readonly string[]).includes(key)) throw new ForgeError(`unknown budget key in "${kv}" (${allowed})`);
   if (raw === 'default') return [key, undefined];
   if (raw === 'null') return [key, null];
   const n = raw === '' ? NaN : Number(raw);
@@ -117,9 +122,13 @@ function parseSet(kv) {
 /**
  * `forge job budget <id> [--set k=v …] [--ack]`. Never changes state: the orchestrator resumes
  * the job so every transition stays visible through the normal loop.
- * @param {string} root @param {any} config @param {string} id @param {{set?:string[], ack?:boolean}} opts
  */
-export function budgetCmd(root, config, id, opts = {}) {
+export function budgetCmd(
+  root: string,
+  config: Config,
+  id: string,
+  opts: { set?: string[]; ack?: boolean } = {},
+): { id: string; limits: BudgetLimits; used: BudgetUsed; exceeded: BudgetKey[]; ack: JobBudget['ack']; acked: BudgetKey[]; stillExceeded: BudgetKey[] } {
   const sets = (opts.set ?? []).map(parseSet);
   if (sets.length) {
     updateJob(root, id, (j) => {

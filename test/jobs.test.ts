@@ -5,7 +5,7 @@ import path from 'node:path';
 import { tempRepo } from './helpers.mjs';
 import { defaults } from '../lib/config.ts';
 import { claimJob, createJob, loadJob, roundVerdicts, setJob, recordAgent, progress, parseDecision, touchJob, jobDir } from '../lib/jobs.ts';
-import { computeStats } from '../lib/stats.mjs';
+import { computeStats } from '../lib/stats.ts';
 import { JOB_SCHEMA_VERSION } from '../lib/schema.ts';
 import { sleepSync } from '../lib/util.ts';
 

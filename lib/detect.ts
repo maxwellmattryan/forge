@@ -6,11 +6,36 @@ import { exists } from './paths.ts';
 import { hasBinary, readText, run } from './util.ts';
 import * as yaml from './yaml.ts';
 
-/** @param {string} root @param {string} rel */
-const has = (root, rel) => exists(path.join(root, rel));
+/** .github/project-config.yml as read for init: its fields are raw YAML, or `error` when it does not parse. */
+export interface DetectedProject {
+  file: string;
+  owner?: any;
+  number?: any;
+  name?: any;
+  statusField?: any;
+  statusOptions?: any;
+  error?: string;
+}
 
-/** @param {string} root @param {string} rel */
-function readJsonSafe(root, rel) {
+/** What `forge init detect` prints: detect. */
+export interface Detection {
+  repo: { name: string; remoteUrl: string | null; github: string | null; branches: string[]; suggestedBase: string; originHead: string | null };
+  instructions: { tracked: string[]; ignored: string[] };
+  untracked: { env: string[] };
+  stack: { kinds: string[]; packageManager: string | null; ui: string[]; cargoWorkspace: boolean; monorepo: boolean; workspaces: string[] };
+  commands: Record<string, string | null>;
+  infra: { files: string[]; clis: string[] };
+  github: { project: DetectedProject | null; workflows: string[]; ghInstalled: boolean };
+  design: { figma: string[] };
+  repoAgents: string[];
+  tools: { agentBrowser: boolean; playwright: boolean; cypress: boolean };
+  suggestions: Record<string, unknown>;
+}
+
+const has = (root: string, rel: string): boolean => exists(path.join(root, rel));
+
+// Parsed package.json: raw input.
+function readJsonSafe(root: string, rel: string): any {
   try {
     return JSON.parse(fs.readFileSync(path.join(root, rel), 'utf8'));
   } catch {
@@ -18,9 +43,8 @@ function readJsonSafe(root, rel) {
   }
 }
 
-/** @param {string} root */
-export function detect(root) {
-  const git = (/** @type {string[]} */ args) => run('git', args, { cwd: root, allowFail: true });
+export function detect(root: string): Detection {
+  const git = (args: string[]) => run('git', args, { cwd: root, allowFail: true });
   const remoteUrl = git(['remote', 'get-url', 'origin']).stdout.trim() || null;
   const ghSlug = remoteUrl?.match(/github\.com[:/]([^/]+\/[^/.]+?)(?:\.git)?$/)?.[1] ?? null;
   const originHead = git(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).stdout.trim().replace(/^origin\//, '') || null;
@@ -28,14 +52,14 @@ export function detect(root) {
   const base = branches.includes('develop') ? 'develop' : originHead ?? (branches.includes('main') ? 'main' : branches.includes('master') ? 'master' : branches[0] ?? 'main');
 
   const ignored = git(['ls-files', '--others', '--ignored', '--exclude-standard']).stdout.split('\n').filter(Boolean);
-  const notHeavy = (/** @type {string} */ f) => !/(^|\/)(node_modules|target|dist|build|\.git|\.svelte-kit|\.next)\//.test(f);
+  const notHeavy = (f: string) => !/(^|\/)(node_modules|target|dist|build|\.git|\.svelte-kit|\.next)\//.test(f);
   const instructionFiles = ['AGENTS.md', 'CLAUDE.md', '.github/copilot-instructions.md', 'CONTRIBUTING.md'].filter((f) => has(root, f));
   const ignoredInstructions = ignored.filter((f) => notHeavy(f) && /(^|\/)(CLAUDE|AGENTS)\.md$/.test(f));
   const envFiles = ignored.filter((f) => notHeavy(f) && /(^|\/)\.env(\.[\w-]+)?$/.test(f) && !/\.example$/.test(f));
 
   const pkg = readJsonSafe(root, 'package.json');
   const pm = has(root, 'yarn.lock') ? 'yarn' : has(root, 'pnpm-lock.yaml') ? 'pnpm' : has(root, 'bun.lockb') || has(root, 'bun.lock') ? 'bun' : pkg ? 'npm' : null;
-  const runScript = (/** @type {string} */ s) => (pm === 'npm' ? `npm run ${s}` : `${pm} ${s}`);
+  const runScript = (s: string) => (pm === 'npm' ? `npm run ${s}` : `${pm} ${s}`);
   const scripts = pkg?.scripts ?? {};
   const cargo = readText(path.join(root, 'Cargo.toml'));
   const isCargoWorkspace = /^\[workspace\]/m.test(cargo);
@@ -43,15 +67,14 @@ export function detect(root) {
   const makeTargets = (readText(path.join(root, 'Makefile')).match(/^([a-zA-Z][\w-]*):/gm) ?? []).map((t) => t.slice(0, -1));
 
   const deps = { ...(pkg?.dependencies ?? {}), ...(pkg?.devDependencies ?? {}) };
-  const cfgFile = (/** @type {string} */ name) => ['js', 'ts', 'mjs', 'cjs'].some((e) => has(root, `${name}.config.${e}`));
+  const cfgFile = (name: string) => ['js', 'ts', 'mjs', 'cjs'].some((e) => has(root, `${name}.config.${e}`));
   const playwrightDep = '@playwright/test' in deps || 'playwright' in deps;
   const cypressDep = 'cypress' in deps;
   const playwright = playwrightDep || cfgFile('playwright');
   const cypress = cypressDep || cfgFile('cypress');
-  const pmExec = (/** @type {string} */ cmd) => ({ npm: `npx ${cmd}`, pnpm: `pnpm exec ${cmd}`, yarn: `yarn ${cmd}`, bun: `bunx ${cmd}` })[pm ?? 'npm'];
+  const pmExec = (cmd: string) => ({ npm: `npx ${cmd}`, pnpm: `pnpm exec ${cmd}`, yarn: `yarn ${cmd}`, bun: `bunx ${cmd}` })[pm ?? 'npm'];
 
-  /** @type {Record<string, string|null>} */
-  const commands = { setup: null, build: null, test: null, lint: null, format: null, typecheck: null, dev: null, e2e: null };
+  const commands: Record<string, string | null> = { setup: null, build: null, test: null, lint: null, format: null, typecheck: null, dev: null, e2e: null };
   if (pkg) {
     commands.setup = pm === 'yarn' ? 'yarn install --frozen-lockfile' : pm === 'pnpm' ? 'pnpm install --frozen-lockfile' : pm === 'bun' ? 'bun install' : 'npm ci';
     if (scripts.build) commands.build = runScript('build');
@@ -96,7 +119,7 @@ export function detect(root) {
   for (const t of ['build', 'test', 'lint', 'format']) if (!commands[t] && makeTargets.includes(t)) commands[t] = `make ${t}`;
 
   const ui = ['svelte', '@sveltejs/kit', 'react', 'next', 'vue', 'nuxt', 'solid-js', '@angular/core', 'astro', 'tauri', '@tauri-apps/api'].filter((d) => d in deps);
-  const kinds = [];
+  const kinds: string[] = [];
   if (ui.length) kinds.push('web-ui');
   if (cargo) kinds.push('rust');
   if (pkg && !ui.length) kinds.push('node');
@@ -107,7 +130,7 @@ export function detect(root) {
   if (/no_std|cortex-m|embassy|stm32/i.test(cargo)) kinds.push('embedded');
   if (/\b(bbx_dsp|cpal|rodio|dasp|fundsp)\b/.test(cargo)) kinds.push('realtime-audio');
 
-  const workspaces = pkg?.workspaces ? [].concat(pkg.workspaces.packages ?? pkg.workspaces) : [];
+  const workspaces: string[] = pkg?.workspaces ? [].concat(pkg.workspaces.packages ?? pkg.workspaces) : [];
   const cargoMembers = cargo.match(/members\s*=\s*\[([\s\S]*?)\]/)?.[1]?.match(/"([^"]+)"/g)?.map((m) => m.slice(1, -1)) ?? [];
   const monorepo = workspaces.length > 1 || cargoMembers.length > 1;
 
@@ -117,13 +140,13 @@ export function detect(root) {
   if (tracked.some((f) => /(^|\/)(k8s|kubernetes|helm|charts)\//.test(f))) infraFiles.push('kubernetes manifests');
   const cloudClis = ['gcloud', 'aws', 'az', 'kubectl', 'terraform', 'wrangler', 'flyctl', 'vercel', 'pulumi'].filter(hasBinary);
 
-  let project = null;
+  let project: DetectedProject | null = null;
   if (has(root, '.github/project-config.yml')) {
     try {
       const pc = yaml.parse(readText(path.join(root, '.github/project-config.yml')));
       project = { file: '.github/project-config.yml', owner: pc?.project?.owner ?? null, number: pc?.project?.number ?? null, name: pc?.project?.name ?? null, statusField: pc?.fields?.status?.name ?? null, statusOptions: pc?.fields?.status?.options ?? [] };
     } catch (e) {
-      project = { file: '.github/project-config.yml', error: /** @type {Error} */ (e).message };
+      project = { file: '.github/project-config.yml', error: (e as Error).message };
     }
   }
 
@@ -132,8 +155,7 @@ export function detect(root) {
   const repoAgents = has(root, '.claude/agents') ? fs.readdirSync(path.join(root, '.claude/agents')).filter((f) => f.endsWith('.md')).map((f) => f.replace(/\.md$/, '')) : [];
   const workflows = has(root, '.github/workflows') ? fs.readdirSync(path.join(root, '.github/workflows')) : [];
 
-  /** @type {string[]} */
-  const reviewers = ['code', 'tests'];
+  const reviewers: string[] = ['code', 'tests'];
   if (ui.length) reviewers.push('ui', 'ux', 'accessibility');
   if (pkg || has(root, 'go.mod') || has(root, 'pyproject.toml') || infraFiles.length) reviewers.push('security');
   if (kinds.includes('realtime-audio') || kinds.includes('audio-plugin') || kinds.includes('embedded')) reviewers.push('performance', 'realtime');

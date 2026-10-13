@@ -3,12 +3,34 @@ import os from 'node:os';
 import path from 'node:path';
 import { readJson } from './util.ts';
 import { PLUGIN_ROOT } from './paths.ts';
+import type { AgentUsage } from './types.ts';
 
-/** @type {any} */
-let cached = null;
+/** One model's prices in USD per million tokens: an entry of lib/pricing.json's `models`. */
+export interface ModelRate {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
 
-/** @param {Record<string, any>} [overrides] */
-export function pricing(overrides = {}) {
+/** lib/pricing.json merged with config.usage.pricing: pricing(). */
+export interface PricingTable {
+  aliases: Record<string, string>;
+  models: Record<string, ModelRate>;
+  blend: ModelRate;
+  [key: string]: any;
+}
+
+/** What importClaudeCodeTranscript returns: AgentUsage's transcript fields, all set, plus the file read. */
+export type TranscriptUsage = Required<Pick<AgentUsage, 'input' | 'output' | 'cacheRead' | 'cacheWrite' | 'toolUses' | 'durationMs' | 'totalTokens' | 'exact' | 'outputEstimated'>> & {
+  model: string | null;
+  transcript: string;
+};
+
+// Parsed pricing.json: raw input.
+let cached: any = null;
+
+export function pricing(overrides: Record<string, any> = {}): PricingTable {
   cached ??= readJson(path.join(PLUGIN_ROOT, 'lib', 'pricing.json'));
   return {
     ...cached,
@@ -18,8 +40,7 @@ export function pricing(overrides = {}) {
   };
 }
 
-/** @param {string|null|undefined} model @param {any} table */
-export function resolveModel(model, table) {
+export function resolveModel(model: string | null | undefined, table: PricingTable): string | null {
   if (!model) return null;
   const m = String(model).toLowerCase();
   if (table.models[m]) return m;
@@ -29,12 +50,10 @@ export function resolveModel(model, table) {
   return null;
 }
 
-/**
- * @param {{model?:string|null, totalTokens?:number, input?:number, output?:number, cacheRead?:number, cacheWrite?:number}} u
- * @param {Record<string, any>} [overrides]
- * @returns {{usd:number, model:string|null, method:'exact'|'blended'|'unpriced'}}
- */
-export function estimateCost(u, overrides) {
+export function estimateCost(
+  u: { model?: string | null; totalTokens?: number; input?: number; output?: number; cacheRead?: number; cacheWrite?: number },
+  overrides?: Record<string, any>,
+): { usd: number; model: string | null; method: 'exact' | 'blended' | 'unpriced' } {
   const table = pricing(overrides);
   const model = resolveModel(u.model, table);
   const rate = model ? table.models[model] : null;
@@ -57,21 +76,19 @@ export function estimateCost(u, overrides) {
  * Each content block is logged as its own line sharing the message id, and the logged usage is the
  * message_start snapshot: input and cache counts are exact, output_tokens is not. Output is therefore
  * estimated from the logged content (≈3.5 chars/token) whenever that exceeds the logged value.
- * @param {string} agentId @param {{projectsDir?:string}} [opts]
  */
-export function importClaudeCodeTranscript(agentId, opts = {}) {
+export function importClaudeCodeTranscript(agentId: string, opts: { projectsDir?: string } = {}): TranscriptUsage | null {
   const projects = opts.projectsDir ?? path.join(os.homedir(), '.claude', 'projects');
   const file = findTranscript(projects, `agent-${agentId}.jsonl`);
   if (!file) return null;
-  /** @type {Map<string, {usage:any, model:string|null, chars:number}>} */
-  const byMessage = new Map();
-  /** @type {Set<string>} */
-  const toolIds = new Set();
-  let firstTs = null;
-  let lastTs = null;
+  // usage is a transcript line's raw usage object.
+  const byMessage = new Map<string, { usage: any; model: string | null; chars: number }>();
+  const toolIds = new Set<string>();
+  let firstTs: string | null = null;
+  let lastTs: string | null = null;
   for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
     if (!line.trim()) continue;
-    let o;
+    let o: any;
     try {
       o = JSON.parse(line);
     } catch {
@@ -95,7 +112,7 @@ export function importClaudeCodeTranscript(agentId, opts = {}) {
     }
     byMessage.set(key, entry);
   }
-  const out = { model: /** @type {string|null} */ (null), input: 0, output: 0, cacheRead: 0, cacheWrite: 0, toolUses: toolIds.size, durationMs: 0, totalTokens: 0, exact: true, outputEstimated: false, transcript: file };
+  const out: TranscriptUsage = { model: null, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, toolUses: toolIds.size, durationMs: 0, totalTokens: 0, exact: true, outputEstimated: false, transcript: file };
   for (const m of byMessage.values()) {
     const u = m.usage;
     out.model ??= m.model;
@@ -111,8 +128,7 @@ export function importClaudeCodeTranscript(agentId, opts = {}) {
   return out;
 }
 
-/** @param {string} projects @param {string} name */
-function findTranscript(projects, name) {
+function findTranscript(projects: string, name: string): string | null {
   if (!fs.existsSync(projects)) return null;
   for (const proj of fs.readdirSync(projects)) {
     const projDir = path.join(projects, proj);

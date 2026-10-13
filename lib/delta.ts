@@ -1,5 +1,6 @@
 // The human delta: what people changed on a PR branch after Forge's last push. It is the
 // escape rate that review threads only approximate, and the retro's strongest signal.
+import type { HumanDelta } from './types.ts';
 import { run } from './util.ts';
 
 const MAX_FILES = 100;
@@ -8,26 +9,18 @@ const SHA = /^[0-9a-f]{7,64}$/i;
 // A missing commit can be a transient fetch failure, so a merged PR gets a few more syncs to find it.
 const MAX_ATTEMPTS = 3;
 
-/** @param {unknown} s @returns {s is string} */
-export const isSha = (s) => typeof s === 'string' && SHA.test(s);
+export const isSha = (s: unknown): s is string => typeof s === 'string' && SHA.test(s);
 
 /**
  * Fetches one commit by sha. GitHub keeps serving a PR's head after its branch is deleted.
  * Returns false without running git when `sha` is not a sha, so outside input never becomes an option.
- * @param {string} cwd @param {string} remote @param {unknown} sha
  */
-export function fetchCommit(cwd, remote, sha) {
+export function fetchCommit(cwd: string, remote: string, sha: unknown): boolean {
   if (!isSha(sha)) return false;
   return run('git', ['fetch', '--quiet', remote, '--', sha], { cwd, allowFail: true }).ok;
 }
 
-/**
- * @typedef {{status:'measured'|'rewritten'|'unavailable', reason?:string, commits:number|null,
- *   linesAdded:number|null, linesDeleted:number|null, lines:number|null, fileCount:number|null, files:string[]}} HumanDelta
- */
-
-/** @param {'rewritten'|'unavailable'} status @param {string} [reason] @returns {HumanDelta} */
-const empty = (status, reason) => ({
+const empty = (status: 'rewritten' | 'unavailable', reason?: string): HumanDelta => ({
   status,
   ...(reason ? { reason } : {}),
   commits: null,
@@ -42,10 +35,8 @@ const empty = (status, reason) => ({
  * Counts commits and lines added on top of `base` along the branch's first-parent line.
  * Merge commits are skipped so base-branch work pulled in by "Update branch" never counts as
  * human edits; the price is that conflict fixes made inside a merge are not counted either.
- * @param {string} cwd @param {string|null|undefined} base @param {string|null|undefined} head
- * @returns {HumanDelta}
  */
-export function measureHumanDelta(cwd, base, head) {
+export function measureHumanDelta(cwd: string, base: string | null | undefined, head: string | null | undefined): HumanDelta {
   if (!base) return empty('unavailable', 'no pushed sha');
   if (!isSha(base) || !isSha(head)) return empty('unavailable', 'missing commits');
   for (const sha of [base, head]) {
@@ -57,7 +48,7 @@ export function measureHumanDelta(cwd, base, head) {
   // -z keeps paths with spaces, tabs or newlines intact instead of git's quoted form.
   const out = run('git', ['log', '--first-parent', '--no-merges', '--no-renames', '--numstat', '-z', '--format=', range], { cwd }).stdout;
   let linesAdded = 0, linesDeleted = 0;
-  const seen = new Set();
+  const seen = new Set<string>();
   for (const rec of out.split('\0')) {
     const m = rec.replace(/^\n+/, '').match(/^(\d+|-)\t(\d+|-)\t([\s\S]+)$/);
     if (!m) continue;
@@ -70,15 +61,14 @@ export function measureHumanDelta(cwd, base, head) {
   return { status: 'measured', commits, linesAdded, linesDeleted, lines: linesAdded + linesDeleted, fileCount: all.length, files: all.slice(0, MAX_FILES) };
 }
 
-/** Whether this result may still change on a later sync (the commits were not found yet). @param {any} d */
-export const isRetryable = (d) => d?.status === 'unavailable' && d.reason === 'missing commits' && (d.attempts ?? 1) < MAX_ATTEMPTS;
+/** Whether this result may still change on a later sync (the commits were not found yet). */
+export const isRetryable = (d: HumanDelta | null | undefined): boolean => d?.status === 'unavailable' && d.reason === 'missing commits' && (d.attempts ?? 1) < MAX_ATTEMPTS;
 
 /**
  * Measure on the first sync that sees the merge, and again only while the commits could not be
  * found, up to MAX_ATTEMPTS, so one failed fetch does not settle the result for good.
- * @param {string|undefined} prState @param {any} existing
  */
-export const shouldMeasureDelta = (prState, existing) => prState === 'MERGED' && (!existing || isRetryable(existing));
+export const shouldMeasureDelta = (prState: string | undefined, existing: HumanDelta | null | undefined): boolean => prState === 'MERGED' && (!existing || isRetryable(existing));
 
-/** The compact form carried on the `pr-synced` event. @param {any} d */
-export const deltaSummary = (d) => ({ status: d.status, commits: d.commits, lines: d.lines, fileCount: d.fileCount });
+/** The compact form carried on the `pr-synced` event. */
+export const deltaSummary = (d: HumanDelta): Pick<HumanDelta, 'status' | 'commits' | 'lines' | 'fileCount'> => ({ status: d.status, commits: d.commits, lines: d.lines, fileCount: d.fileCount });

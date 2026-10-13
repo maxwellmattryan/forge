@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.mjs';
-import { detect } from '../lib/detect.mjs';
+import { detect } from '../lib/detect.ts';
 
 /** A fresh repo with the given files; returns detect()'s commands and tools. @param {Record<string,string>} files */
 function detectWith(files) {

@@ -1,18 +1,25 @@
 // Dependencies between jobs (`job.dependsOn`): validation, parking, claim refusal, stacked
-// branches and retargeting. Imports only jobs/paths/util: worktree.mjs imports this module,
-// and pr.mjs imports worktree.mjs, so anything more would be a cycle.
+// branches and retargeting. Imports only jobs/paths/util: worktree.ts imports this module,
+// and pr.ts imports worktree.ts, so anything more would be a cycle.
 import path from 'node:path';
 import { claimJob, isActive, jobDir, listJobs, loadJob, logEvent, setJob } from './jobs.ts';
 import { exists } from './paths.ts';
+import type { Config, Job, LoadedJob } from './types.ts';
 import { ForgeError, run } from './util.ts';
 
 export const DEP_REASON = 'dependencies not done: ';
 
-/** Hand-edited job.json can hold anything; only string ids count. @param {any} job @returns {string[]} */
-const depIds = (job) => (Array.isArray(job?.dependsOn) ? job.dependsOn.filter((/** @type {unknown} */ d) => typeof d === 'string' && d) : []);
+/** A dependency that blocks a job: unmetDependencies. `state` is 'missing' when its job.json is gone. */
+export interface UnmetDependency {
+  id: string;
+  stage: string | null;
+  state: string;
+}
 
-/** @param {string} root @param {string} id */
-function tryLoad(root, id) {
+/** Hand-edited job.json can hold anything; only string ids count. */
+const depIds = (job: Job): string[] => (Array.isArray(job?.dependsOn) ? job.dependsOn.filter((d: unknown) => typeof d === 'string' && d) : []);
+
+function tryLoad(root: string, id: string): LoadedJob | null {
   try {
     return loadJob(root, id);
   } catch {
@@ -20,8 +27,7 @@ function tryLoad(root, id) {
   }
 }
 
-/** @param {string} root @param {string} id */
-function jobExists(root, id) {
+function jobExists(root: string, id: string): boolean {
   try {
     return exists(path.join(jobDir(root, id), 'job.json'));
   } catch {
@@ -32,11 +38,9 @@ function jobExists(root, id) {
 /**
  * Dependencies whose job is not `done`, in `dependsOn` order. `cancelled` blocks too: a human
  * removes the dependency or forces the claim.
- * @param {string} root @param {any} job @returns {{id:string, stage:string|null, state:string}[]}
  */
-export function unmetDependencies(root, job) {
-  /** @type {{id:string, stage:string|null, state:string}[]} */
-  const unmet = [];
+export function unmetDependencies(root: string, job: Job): UnmetDependency[] {
+  const unmet: UnmetDependency[] = [];
   for (const id of depIds(job)) {
     const dep = tryLoad(root, id);
     if (!dep) unmet.push({ id, stage: null, state: 'missing' });
@@ -45,30 +49,21 @@ export function unmetDependencies(root, job) {
   return unmet;
 }
 
-/** @param {{id:string, stage:string|null, state:string}[]} unmet */
-const describe = (unmet) => unmet.map((u) => (u.state === 'missing' ? `${u.id} (missing)` : `${u.id} (${u.stage}/${u.state})`)).join(', ');
+const describe = (unmet: UnmetDependency[]): string => unmet.map((u) => (u.state === 'missing' ? `${u.id} (missing)` : `${u.id} (${u.stage}/${u.state})`)).join(', ');
 
-/** @param {any} job */
-const isParked = (job) => job.state === 'waiting' && job.waitingOn === 'external' && String(job.reason ?? '').startsWith(DEP_REASON);
+const isParked = (job: Job): boolean => job.state === 'waiting' && job.waitingOn === 'external' && String(job.reason ?? '').startsWith(DEP_REASON);
 
-/**
- * @param {string} root @param {string} id @param {unknown} value
- * @returns {string[]}
- */
-export function validateDependsOn(root, id, value) {
+export function validateDependsOn(root: string, id: string, value: unknown): string[] {
   if (!Array.isArray(value) || value.some((v) => typeof v !== 'string' || !v)) throw new ForgeError('dependsOn must be a JSON array of job ids, e.g. dependsOn=["a","b"]');
-  const ids = [...new Set(/** @type {string[]} */ (value))];
+  const ids = [...new Set(value as string[])];
   if (ids.includes(id)) throw new ForgeError(`job ${id} cannot depend on itself`);
   const unknown = ids.filter((d) => !jobExists(root, d));
   if (unknown.length) throw new ForgeError(`unknown job id(s) in dependsOn: ${unknown.join(', ')}`);
-  /** @type {Map<string, string[]>} */
-  const graph = new Map(listJobs(root).map((j) => [j.id, depIds(j)]));
+  const graph = new Map<string, string[]>(listJobs(root).map((j) => [j.id, depIds(j)]));
   graph.set(id, ids);
   // Every cycle this write can create passes through `id`, so a search from it is enough.
-  /** @type {Set<string>} */
-  const seen = new Set();
-  /** @param {string} node @param {string[]} trail @returns {string[]|null} */
-  const back = (node, trail) => {
+  const seen = new Set<string>();
+  const back = (node: string, trail: string[]): string[] | null => {
     for (const next of graph.get(node) ?? []) {
       if (next === id) return [...trail, next];
       if (seen.has(next)) continue;
@@ -87,9 +82,8 @@ export function validateDependsOn(root, id, value) {
  * Parks a queued job behind its unmet dependencies, rewrites the reason of an already parked
  * one, and releases a parked job once they are all done. Other waits (spec approval, input…)
  * are never overwritten.
- * @param {string} root @param {string} id
  */
-export function refreshDependencyWait(root, id) {
+export function refreshDependencyWait(root: string, id: string): { unmet: UnmetDependency[]; parked: boolean; released: boolean } {
   const job = loadJob(root, id);
   const unmet = unmetDependencies(root, job);
   const parked = isParked(job);
@@ -108,10 +102,8 @@ export function refreshDependencyWait(root, id) {
 /**
  * The dependency check runs before the ownership check, so a blocked job reports that first.
  * `force` overrides both.
- * @param {string} root @param {string} id @param {string} session @param {boolean} force
- * @returns {{job:any, overridden:string[]}}
  */
-export function claimRespectingDeps(root, id, session, force) {
+export function claimRespectingDeps(root: string, id: string, session: string, force: boolean): { job: LoadedJob; overridden: string[] } {
   const unmet = unmetDependencies(root, loadJob(root, id));
   if (unmet.length && !force) {
     refreshDependencyWait(root, id);
@@ -126,16 +118,15 @@ export function claimRespectingDeps(root, id, session, force) {
   return { job: refreshDependencyWait(root, id).released ? loadJob(root, id) : claimed, overridden: [] };
 }
 
-/** `<remote>/<name>` when the remote-tracking ref exists, else the local name. @param {string} root @param {any} config @param {string} name */
-export function baseRef(root, config, name) {
+/** `<remote>/<name>` when the remote-tracking ref exists, else the local name. */
+export function baseRef(root: string, config: Config, name: string): string {
   return refExists(root, `refs/remotes/${config.git.remote}/${name}`) ? `${config.git.remote}/${name}` : name;
 }
 
-/** @param {string} root @param {string} ref */
-const refExists = (root, ref) => run('git', ['rev-parse', '--verify', '--quiet', ref], { cwd: root, allowFail: true }).ok;
+const refExists = (root: string, ref: string): boolean => run('git', ['rev-parse', '--verify', '--quiet', ref], { cwd: root, allowFail: true }).ok;
 
-/** The dependency's branch as a ref (remote first), or null when it exists nowhere. @param {string} root @param {any} config @param {any} dep */
-function depBranchRef(root, config, dep) {
+/** The dependency's branch as a ref (remote first), or null when it exists nowhere. */
+function depBranchRef(root: string, config: Config, dep: Job): string | null {
   if (!dep.branch) return null;
   if (refExists(root, `refs/remotes/${config.git.remote}/${dep.branch}`)) return `${config.git.remote}/${dep.branch}`;
   if (refExists(root, `refs/heads/${dep.branch}`)) return dep.branch;
@@ -145,9 +136,9 @@ function depBranchRef(root, config, dep) {
 /**
  * A dependency is merged when its PR merged, when its branch is already in `base`, or when its
  * branch is gone and the job is done (a merged branch deleted after cleanup).
- * @param {string} root @param {any} config @param {any} dep @param {string} base a ref such as `origin/main`
+ * `base` is a ref such as `origin/main`.
  */
-export function isMerged(root, config, dep, base) {
+export function isMerged(root: string, config: Config, dep: Job, base: string): boolean {
   if (dep.pr?.state === 'MERGED') return true;
   const ref = depBranchRef(root, config, dep);
   if (ref) return run('git', ['merge-base', '--is-ancestor', ref, base], { cwd: root, allowFail: true }).ok;
@@ -157,34 +148,32 @@ export function isMerged(root, config, dep, base) {
 /**
  * Where a new branch for `job` starts: null for the usual base, or the one unmerged
  * dependency's branch to stack on.
- * @param {string} root @param {any} config @param {any} job
- * @returns {{dependency:string, start:string, base:string}|null}
  */
-export function stackSource(root, config, job) {
+export function stackSource(root: string, config: Config, job: Job): { dependency: string; start: string; base: string } | null {
   const deps = depIds(job).map((d) => {
     const dep = tryLoad(root, d);
     if (!dep) throw new ForgeError(`dependency ${d} not found`);
     return dep;
   });
   if (!deps.length) return null;
-  const base = baseRef(root, config, job.base);
+  // createJob always sets base.
+  const base = baseRef(root, config, job.base!);
   const unmerged = deps.filter((d) => !isMerged(root, config, d, base));
   if (!unmerged.length) return null;
   if (unmerged.length > 1) throw new ForgeError(`job ${job.id} depends on more than one unmerged job (${unmerged.map((d) => d.id).join(', ')}); wait until at most one is unmerged`);
   const dep = unmerged[0];
   const start = depBranchRef(root, config, dep);
   if (!start) throw new ForgeError(`dependency ${dep.id} has no branch yet (${dep.branch}); create its worktree first`);
-  return { dependency: dep.id, start, base: dep.branch };
+  // depBranchRef found a ref, so the dependency has a branch.
+  return { dependency: dep.id, start, base: dep.branch! };
 }
 
 /**
  * Stacked jobs (base = a dependency's branch) whose dependency has merged, with the base they
  * move back to: the dependency's own base, else the repo base.
- * @param {string} root @param {any} config
- * @returns {{id:string, from:string, to:string, dependency:string}[]}
  */
-export function retargetPlan(root, config) {
-  const candidates = [];
+export function retargetPlan(root: string, config: Config): { id: string; from: string; to: string; dependency: string }[] {
+  const candidates: { job: LoadedJob; dep: LoadedJob }[] = [];
   for (const job of listJobs(root).filter((j) => isActive(j) && j.kind !== 'eval' && j.base)) {
     for (const d of depIds(job)) {
       const dep = tryLoad(root, d);
@@ -193,11 +182,11 @@ export function retargetPlan(root, config) {
   }
   if (!candidates.length) return [];
   run('git', ['fetch', config.git.remote, '--prune'], { cwd: root, allowFail: true });
-  const plan = [];
+  const plan: { id: string; from: string; to: string; dependency: string }[] = [];
   for (const { job, dep } of candidates) {
     const to = dep.base && dep.base !== job.base ? dep.base : config.git.base;
     if (to === job.base) continue;
-    if (isMerged(root, config, dep, baseRef(root, config, to))) plan.push({ id: job.id, from: job.base, to, dependency: dep.id });
+    if (isMerged(root, config, dep, baseRef(root, config, to))) plan.push({ id: job.id, from: job.base!, to, dependency: dep.id }); // candidates all have a base
   }
   return plan;
 }

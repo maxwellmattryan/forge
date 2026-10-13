@@ -6,8 +6,8 @@ import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.mjs';
 import { defaults } from '../lib/config.ts';
 import { createJob, setJob } from '../lib/jobs.ts';
-import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from '../lib/delta.mjs';
-import { computeStats } from '../lib/stats.mjs';
+import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from '../lib/delta.ts';
+import { computeStats } from '../lib/stats.ts';
 import { prepareRetro } from '../lib/retro.mjs';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
