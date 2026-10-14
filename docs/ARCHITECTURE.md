@@ -42,7 +42,7 @@ When a shape must change: bump the version constant, add a migration keyed by th
 `queued | running | waiting | blocked | failed | cancelled | done`
 
 `waitingOn` says why a job is waiting:
-`spec-approval | split-approval | input | escalation | infra | conflicts | rounds-exhausted | pr-review | external | budget`
+`spec-approval | split-approval | issue-link | input | escalation | infra | conflicts | rounds-exhausted | pr-review | external | budget`
 
 Trackers see a coarser view: `queued`, `in-progress`, `review`, `blocked`, `done`, `cancelled`. Adapters map those to labels, GitHub Project options, or anything else.
 

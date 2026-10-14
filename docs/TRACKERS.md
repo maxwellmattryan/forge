@@ -19,6 +19,18 @@ Forge talks to issue trackers through a small synchronous contract. Built-ins:
 
 `ready.projectStatus` limits `/forge next` to items in a given column (e.g. `🔖 Todo`).
 
+## Linking jobs to issues
+
+With a tracker in use, every job maps to one issue and one PR. A job started from an issue (`/forge issue <ref>`, `/forge next`, a dashboard Start) is linked when it is created. Any other job, including `/forge <free text>` from the CLI or the dashboard, passes an issue gate at Intake: `forge job link <id> --suggest` searches the tracker with words from the job's title, writes the best matches to `issue-candidates.md` (fenced as untrusted data) and `issue-candidates.json` in the job dir, and the job waits on `issue-link` until you answer:
+
+- `/forge approve <id> <ref>` links an existing issue (`forge job link <id> <ref>`): it checks the item exists and no other active job holds it, claims it like `/forge issue` would, and records it as the job's `source`.
+- `/forge approve <id> new` creates an issue from the job's title and `request.md`, then links it (`forge job link <id> --create`).
+- `/forge approve <id> none [reason]` records that this job needs no issue (`forge job link <id> --none --reason "…"`), so `forge pr open` stops flagging it.
+
+Jobs that never ask: `tracker.kind: none`, eval and retro jobs, and split children (they get the parent's sub-issue when they are created). `forge pr open` adds `unlinked: true` to its result for a job that still has no issue and no override. There is no repo-wide switch: `tracker.kind: none` and the per-job override cover it.
+
+`forge tracker search <query> [--limit n] [--job <id>]` is the bounded search behind it: at most `--limit` (default 5, at most 20) open items, ranked by how many search words appear in each title (2 points) and body (1 point), printed without bodies.
+
 ## Writing an adapter (Jira, Linear, GitLab, …)
 
 Create `.forge/trackers/<name>.mjs` (or `<name>.ts`) and set `tracker.kind: <name>`. Default-export an object with these **synchronous** methods (shell out with `child_process.spawnSync` to a CLI, or `curl`, if the service has no sync SDK):
@@ -33,8 +45,12 @@ export default {
   comment(ctx, ref, body) {},
   create(ctx, { title, body, labels, parentRef }) { return { ref, url }; },
   close(ctx, ref, { reason }) {},
+  // Optional: open items matching a free-text query, bodies included, at most `limit` of them.
+  search(ctx, query, { limit }) { return [/* { ref, title, url, labels, body } */]; },
 };
 ```
+
+`search` is optional. Forge re-ranks whatever it returns, and without it, it scores the first 200 items of `list({ limit: 200 })`, so a large tracker should implement it with the service's own search.
 
 With the daemon (docs/CONFIG.md "Daemon"), the daemon session pins every file under `.forge/trackers/` and refuses symlinks there. Imports from outside that directory are not pinned, so keep the module self-contained.
 

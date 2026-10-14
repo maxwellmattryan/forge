@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadJob, logEvent, setJob, jobDir } from './jobs.ts';
+import { prLinkNote } from './issue-link.ts';
 import { exists } from './paths.ts';
 import { attributionForbidden, scrubBranch, stripAttribution } from './attribution.ts';
 import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from './delta.ts';
@@ -99,7 +100,7 @@ export function openPr(
   config: Config,
   id: string,
   opts: { title?: string; draft?: boolean; force?: boolean } = {},
-): { number: number; url: string; created: boolean } {
+): { number: number; url: string; created: boolean; unlinked?: true } {
   requireGh();
   const job = loadJob(root, id);
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree`);
@@ -132,7 +133,7 @@ export function openPr(
   if (existing && existing.state === 'OPEN') {
     setJob(root, id, { fields: { 'pr.pushedSha': pushedSha } });
     logEvent(root, id, 'pr-updated', { number: existing.number });
-    return { number: existing.number, url: existing.url, created: false };
+    return { number: existing.number, url: existing.url, created: false, ...prLinkNote(job, config) };
   }
   const bodyFile = path.join(jobDir(root, id), 'pr-body.md');
   fs.writeFileSync(bodyFile, prBody(root, config, job));
@@ -144,7 +145,7 @@ export function openPr(
   const number = Number(url.match(/\/pull\/(\d+)/)?.[1]);
   setJob(root, id, { fields: { pr: { number, url, state: 'OPEN', isDraft: Boolean(opts.draft ?? config.pr.draft), openedAt: now(), lastSyncedAt: now(), pushedSha } } });
   logEvent(root, id, 'pr-opened', { number, url });
-  return { number, url, created: true };
+  return { number, url, created: true, ...prLinkNote(job, config) };
 }
 
 /**

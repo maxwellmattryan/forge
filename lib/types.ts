@@ -156,6 +156,8 @@ export interface Job {
   kind: string;
   size: string | null;
   source: JobSource | null;
+  /** The human's override for the issue link: `forge job link --none` in lib/tracker-link.ts. */
+  noIssue: { reason: string | null; at: string } | null;
   parent: string | null;
   children: string[];
   dependsOn: string[];
@@ -504,6 +506,12 @@ export interface Tracker {
   comment: (ctx: TrackerCtx, ref: string, body: string) => void;
   create: (ctx: TrackerCtx, item: { title: string; body?: string; labels?: string[]; parentRef?: string | null }) => { ref: string; url?: string | null };
   close: (ctx: TrackerCtx, ref: string, opts?: { reason?: 'completed' | 'not-planned' }) => void;
+  /**
+   * Optional: open items matching a free-text query, best first, at most `opts.limit` of them
+   * (bodies included, for local re-ranking). Without it, searchTracker in lib/tracker-link.ts scores
+   * a capped list() instead.
+   */
+  search?: (ctx: TrackerCtx, query: string, opts: { limit: number }) => TrackerItem[];
 }
 
 // ---------- HTTP API: GET responses ----------

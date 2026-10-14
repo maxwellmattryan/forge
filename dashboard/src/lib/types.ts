@@ -1,9 +1,9 @@
-// Shapes of the forge dash HTTP API for API_VERSION 7. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 8. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
 
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 7;
+export const API_VERSION = 8;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 
@@ -14,7 +14,7 @@ export const STAGES = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', '
 export const STATES = ['queued', 'running', 'waiting', 'blocked', 'failed', 'cancelled', 'done'] as const;
 
 /** lib/schema.ts WAITING_ON. */
-export const WAITING_ON = ['spec-approval', 'split-approval', 'input', 'escalation', 'infra', 'conflicts', 'rounds-exhausted', 'pr-review', 'external', 'budget'] as const;
+export const WAITING_ON = ['spec-approval', 'split-approval', 'issue-link', 'input', 'escalation', 'infra', 'conflicts', 'rounds-exhausted', 'pr-review', 'external', 'budget'] as const;
 
 /** A pipeline stage: STAGES in lib/schema.ts. */
 export type Stage = (typeof STAGES)[number];
@@ -163,6 +163,8 @@ export interface Job {
   kind: string;
   size: string | null;
   source: JobSource | null;
+  /** The human's override for the issue link: `forge job link --none` in lib/tracker-link.ts. */
+  noIssue: { reason: string | null; at: string } | null;
   parent: string | null;
   children: string[];
   dependsOn: string[];
