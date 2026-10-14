@@ -67,6 +67,23 @@
     "startAll": "Start the daemon (all sessions)",
     "stopAll": "Stop the daemon (all sessions)"
   },
+  "permission": {
+    "heading": {
+      "one": "{count} tool call waiting for permission",
+      "other": "{count} tool calls waiting for permission"
+    },
+    "chip": "needs permission",
+    "inbox": "Inbox",
+    "asks": "The session asks to use {tool}",
+    "asksSubagent": "A subagent asks to use {tool}",
+    "agentSays": "The agent says:",
+    "outside": "Outside its folders:",
+    "allow": "Allow once",
+    "allowSession": "Allow for this session",
+    "deny": "Deny",
+    "sessionGrants": "For this session also allows: {grants}",
+    "failed": "Permission answer failed: {error}"
+  },
   "compare": {
     "summary": "config {a} → {b} · Forge v{va} → v{vb}",
     "metric": "Metric",

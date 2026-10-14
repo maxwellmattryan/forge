@@ -5,7 +5,7 @@
   import Banner from './Banner.svelte';
   import Chip from './Chip.svelte';
   import Empty from './Empty.svelte';
-  import { TONE_CLASS, usd } from '../lib/util.ts';
+  import { TONE_CLASS, clock, usd } from '../lib/util.ts';
   import { INBOX_SCOPE } from '../lib/types.ts';
   import type { DaemonSessionState } from '../lib/types.ts';
   import { buildSessionView, readFilters } from '../lib/session-log.ts';
@@ -99,8 +99,12 @@
 
 <svelte:document onvisibilitychange={() => log.visibilityChanged()} />
 
-{#snippet line(tone: string | null, tag: string, text: string)}
-  <div class="flex items-start gap-2">{#if tone && TONE_CLASS[tone]}<Chip {tone} text={tag} extra="shrink-0" />{:else}<span class="chip shrink-0 text-muted">{tag}</span>{/if}<span class="min-w-0 whitespace-pre-wrap break-words">{text}</span></div>
+{#snippet when(at: string | null)}
+  <time datetime={at ?? undefined} title={at ?? undefined} class="inline-block w-[8ch] shrink-0 text-muted tabular-nums">{clock(at)}</time>
+{/snippet}
+
+{#snippet line(at: string | null, tone: string | null, tag: string, text: string)}
+  <div class="flex items-start gap-2">{@render when(at)}{#if tone && TONE_CLASS[tone]}<Chip {tone} text={tag} extra="shrink-0" />{:else}<span class="chip shrink-0 text-muted">{tag}</span>{/if}<span class="min-w-0 whitespace-pre-wrap break-words">{text}</span></div>
 {/snippet}
 
 {#snippet result(r: NonNullable<Extract<Item, { kind: 'tool' }>['result']>)}
@@ -113,30 +117,32 @@
 
 {#snippet item(it: Item)}
   {#if it.kind === 'text'}
-    {#if it.long}<details><summary class="cursor-pointer whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text.slice(0, 200)}…</summary><div class="whitespace-pre-wrap break-words">{it.text}</div></details>{:else}<div class="whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text}</div>{/if}
+    <div class="flex items-start gap-2">{@render when(it.at)}{#if it.long}<details class="min-w-0"><summary class="cursor-pointer whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text.slice(0, 200)}…</summary><div class="whitespace-pre-wrap break-words">{it.text}</div></details>{:else}<div class="min-w-0 whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text}</div>{/if}</div>
   {:else if it.kind === 'thinking'}
-    <details class="text-muted"><summary class="cursor-pointer">{$t('session.thinkingItem')}</summary><div class="whitespace-pre-wrap break-words">{it.text}</div></details>
+    <details class="text-muted"><summary class="cursor-pointer">{@render when(it.at)}{$t('session.thinkingItem')}</summary><div class="whitespace-pre-wrap break-words">{it.text}</div></details>
   {:else if it.kind === 'tool'}
     <details class="border border-line/60 px-2 py-1 {it.tone === 'bad' ? 'border-bad/50' : ''}">
-      <summary class="cursor-pointer break-all"><span class="text-accent">→ {it.name}</span> <span class="text-muted">{it.summary}</span>{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
+      <summary class="cursor-pointer break-all">{@render when(it.at)}<span class="text-accent">→ {it.name}</span> <span class="text-muted">{it.summary}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
       <div class="mt-1 text-[10px] uppercase tracking-wide text-muted">{$t('session.input')}</div>
       <pre class="whitespace-pre-wrap break-words bg-bg p-2">{it.input}</pre>
       {#if it.result}{@render result(it.result)}{/if}
     </details>
   {:else if it.kind === 'subagent'}
     <details class="border border-info/40 bg-info/5 px-2 py-1">
-      <summary class="cursor-pointer break-all"><Chip tone={it.known ? 'info' : 'muted'} text={it.role} /> <span>{it.description}</span>{#if it.hidden} <span class="text-muted">{$t('session.hiddenLines', { count: it.hidden })}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
+      <summary class="cursor-pointer break-all">{@render when(it.at)}<Chip tone={it.known ? 'info' : 'muted'} text={it.role} /> <span>{it.description}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.hidden} <span class="text-muted">{$t('session.hiddenLines', { count: it.hidden })}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
       {#if it.items.length}<div class="mt-1 flex flex-col gap-1 border-l border-info/40 pl-2">{#each it.items as child, i (i)}{@render item(child)}{/each}</div>{/if}
       {#if it.result}{@render result(it.result)}{/if}
     </details>
   {:else if it.kind === 'init'}
-    {@render line('muted', 'init', [it.model, it.session].filter(Boolean).join(' · '))}
+    {@render line(it.at, 'muted', 'init', [it.model, it.session].filter(Boolean).join(' · '))}
   {:else if it.kind === 'result'}
-    {@render line(it.tone, 'result', it.text)}
+    {@render line(it.at, it.tone, 'result', it.text)}
   {:else if it.kind === 'supervisor'}
-    {@render line(it.tone, 'supervisor', it.text)}
+    {@render line(it.at, it.tone, 'supervisor', it.text)}
+  {:else if it.kind === 'task'}
+    {@render line(it.at, it.tone, it.role || 'task', it.text)}
   {:else}
-    {@render line(it.tone, it.kind, it.text)}
+    {@render line(it.at, it.tone, it.kind, it.text)}
   {/if}
 {/snippet}
 
@@ -177,7 +183,7 @@
       {#if !view.turns.length}<div class="text-muted">{$t('session.noMatch')}</div>{/if}
       {#each view.turns as g (g.offset)}
         <section class="mb-2">
-          <h3 class="sticky top-0 z-10 bg-raised pt-2 pb-0.5 text-[11px] font-semibold text-muted">{g.label}</h3>
+          <h3 class="sticky top-0 z-10 bg-raised pt-2 pb-0.5 text-[11px] font-semibold text-muted">{g.label}{#if g.at} <time datetime={g.at} title={g.at} class="font-normal tabular-nums">· {clock(g.at)}</time>{/if}</h3>
           <div class="flex flex-col gap-1">{#each g.items as it, i (i)}{@render item(it)}{/each}</div>
         </section>
       {/each}

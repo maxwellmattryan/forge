@@ -9,7 +9,7 @@ import { migrate } from '../lib/commands/init.ts';
 import * as yaml from '../lib/yaml.ts';
 
 const DEFAULT_COMMAND =
-  'claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode dontAsk --allowedTools {allowedTools}';
+  'claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode default --allowedTools {allowedTools}';
 
 const DEFAULT_TOOLS = [
   'Agent',

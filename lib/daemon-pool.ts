@@ -8,7 +8,7 @@ import { TRUST_CHANGED, UUID, createSession, otherOwner, readInfo, reapOrphans, 
 import type { DaemonOptions, Session, SessionContext, SessionEvent } from './daemon.ts';
 import { loadJob } from './jobs.ts';
 import { INBOX_SCOPE, listRequests, requestScope, validScope } from './requests.ts';
-import type { Config, DaemonPoolState, DaemonSessionState, ForgeRequest } from './types.ts';
+import type { Config, DaemonPoolState, DaemonSessionState, ForgeRequest, PermissionDecision } from './types.ts';
 
 /** The pool's own state: state() below. The server adds `clients` to make a DaemonPoolState. */
 export type PoolState = Omit<DaemonPoolState, 'clients'>;
@@ -20,6 +20,8 @@ export interface DaemonPool {
   /** Re-enables one session inside a wanted pool; `error` when the pool isn't wanted. */
   startSession(scope: string): { error: string | null };
   stopSession(scope: string): Promise<PoolState>;
+  /** Answers one session's permission prompt; false when there is no such prompt. */
+  answerPermission(scope: string, id: string, decision: PermissionDecision): boolean;
   poke(): void;
   state(): PoolState;
   sessionState(scope: string): DaemonSessionState;
@@ -48,6 +50,7 @@ export function offState(root: string, scope: string): DaemonSessionState {
     held: null,
     waiting: false,
     lastError: null,
+    permissions: [],
   };
 }
 
@@ -282,6 +285,9 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
       if (scope === INBOX_SCOPE) inboxEager = false;
       await s.kill('stop', false, 'human');
       return state();
+    },
+    answerPermission(scope, id, decision) {
+      return sessions.get(scope)?.answerPermission(id, decision) ?? false;
     },
     poke() {
       tick();

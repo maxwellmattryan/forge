@@ -13,7 +13,7 @@ import { budgetCmd } from '../lib/budget.ts';
 import { createJob, setJob, updateJob } from '../lib/jobs.ts';
 import { PLUGIN_ROOT } from '../lib/paths.ts';
 import { INBOX_SCOPE, SCOPE_ENV, ackRequest, claimRequest, enqueue, listRequests, requestScope, validScope } from '../lib/requests.ts';
-import { DENY_TOOLS, GIT_PINS, TRUST_CHANGED, TURN, TURN_LINE, apiKeyVars, buildArgv, heldByBudget, parseTemplate, reapOrphans, sessionEnv } from '../lib/daemon.ts';
+import { DENY_TOOLS, GIT_PINS, PERMISSION_DENIED, PROMPT_TOOL, TRUST_CHANGED, TURN, TURN_LINE, apiKeyVars, buildArgv, heldByBudget, parseTemplate, reapOrphans, sessionEnv } from '../lib/daemon.ts';
 import { createPool } from '../lib/daemon-pool.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
@@ -139,8 +139,10 @@ test('AC5: command template to argv', async () => {
     '--x=/p/with space/forge',
     '--disallowedTools',
     'Edit(.forge/config.yml),Edit(.forge/trackers/**)',
+    '--permission-prompt-tool',
+    'stdio',
   ]);
-  const deny = ['--disallowedTools', DENY_TOOLS.join(',')];
+  const deny = ['--disallowedTools', DENY_TOOLS.join(','), ...PROMPT_TOOL];
   assert.deepEqual(buildArgv('c {session}', { ...vars, session: { id: 'abc-123', resume: true } }), ['c', '--resume', 'abc-123', ...deny]);
   // A path containing quotes or $() is never re-split or interpreted.
   assert.deepEqual(buildArgv('c {pluginRoot}', { ...vars, pluginRoot: `/x "y" $(rm -rf z)` }), ['c', `/x "y" $(rm -rf z)`, ...deny]);
@@ -154,7 +156,7 @@ test('AC5: command template to argv', async () => {
     assert.equal(kit.children.length, 1, 'a pool start brings up only the inbox');
     assert.equal(c.cmd, 'claude');
     assert.equal(c.args[0], '--session-id');
-    assert.deepEqual(c.args.slice(2), ['--plugin-dir', PLUGIN_ROOT, '--allowedTools', defaults().daemon.allowedTools.join(','), '--disallowedTools', DENY_TOOLS.join(',')]);
+    assert.deepEqual(c.args.slice(2), ['--plugin-dir', PLUGIN_ROOT, '--allowedTools', defaults().daemon.allowedTools.join(','), '--disallowedTools', DENY_TOOLS.join(','), ...PROMPT_TOOL]);
     assert.equal(c.opts.shell, undefined, 'no shell');
     assert.equal(c.opts.detached, true);
     assert.equal(c.opts.cwd, repo.dir);
@@ -167,6 +169,130 @@ test('AC5: command template to argv', async () => {
       { ...sessionEnv(process.env), [TRUST_ENV]: trustDigest(repo.dir), [SCOPE_ENV]: INBOX },
       'the session gets the pinned git config, the trust snapshot and its scope',
     );
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('permission prompts wait for a human, and only the decision crosses to the session', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit);
+  const prompts = () => d.state().inbox.permissions;
+  const responses = (c) =>
+    c.written
+      .split('\n')
+      .filter((l) => l.includes('control_response'))
+      .map((l) => JSON.parse(l).response);
+  const ask = (c, requestId, extra = {}) =>
+    c.line({
+      type: 'control_request',
+      request_id: requestId,
+      request: {
+        subtype: 'can_use_tool',
+        tool_name: 'Bash',
+        input: { command: 'cp a b', description: 'copy' },
+        description: 'copy the fonts',
+        agent_id: 'abc123',
+        blocked_path: '/elsewhere/b',
+        permission_suggestions: [
+          { type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'cp a b' }], behavior: 'allow', destination: 'localSettings' },
+          { type: 'addRules', rules: [{ toolName: 'Bash' }], behavior: 'deny', destination: 'session' },
+          { type: 'addDirectories', directories: ['/elsewhere', 'relative/dir'], destination: 'session' },
+          { type: 'setMode', mode: 'bypassPermissions', destination: 'session' },
+        ],
+        ...extra,
+      },
+    });
+  try {
+    d.start();
+    const c = kit.last(INBOX);
+    ask(c, 'req-1');
+    await waitFor(() => prompts().length === 1, 2000, 'a prompt');
+    const [p] = prompts();
+    assert.deepEqual({ ...p, id: undefined, at: undefined }, {
+      id: undefined,
+      at: undefined,
+      tool: 'Bash',
+      input: JSON.stringify({ command: 'cp a b', description: 'copy' }),
+      description: 'copy the fonts',
+      agentId: 'abc123',
+      blockedPath: '/elsewhere/b',
+      sessionRules: ['Bash(cp a b)'],
+      sessionDirs: ['/elsewhere'],
+    });
+    assert.equal(d.state().inbox.status, 'idle', 'a prompt changes no status by itself');
+    assert.equal(responses(c).length, 0, 'nothing is answered without a human');
+
+    assert.equal(d.answerPermission(INBOX, p.id, 'session'), true);
+    assert.equal(d.answerPermission(INBOX, p.id, 'allow'), false, 'a prompt is answered once');
+    assert.deepEqual(prompts(), []);
+    assert.deepEqual(responses(c)[0], {
+      subtype: 'success',
+      request_id: 'req-1',
+      response: {
+        behavior: 'allow',
+        updatedInput: { command: 'cp a b', description: 'copy' },
+        // Only allow rules and absolute directories, and only for this session: no settings file, no mode change.
+        updatedPermissions: [
+          { type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'cp a b' }], behavior: 'allow', destination: 'session' },
+          { type: 'addDirectories', directories: ['/elsewhere'], destination: 'session' },
+        ],
+      },
+    });
+
+    ask(c, 'req-2');
+    await waitFor(() => prompts().length === 1, 2000, 'a second prompt');
+    assert.equal(d.answerPermission(INBOX, prompts()[0].id, 'allow'), true);
+    assert.deepEqual(responses(c)[1].response, { behavior: 'allow', updatedInput: { command: 'cp a b', description: 'copy' } }, 'allow once adds no rules');
+
+    ask(c, 'req-3');
+    await waitFor(() => prompts().length === 1, 2000, 'a third prompt');
+    assert.equal(d.answerPermission(INBOX, prompts()[0].id, 'deny'), true);
+    assert.deepEqual(responses(c)[2].response, { behavior: 'deny', message: PERMISSION_DENIED });
+
+    assert.equal(d.answerPermission('some-job', crypto.randomUUID(), 'allow'), false, 'an unknown scope or id answers nothing');
+
+    ask(c, 'req-4');
+    await waitFor(() => prompts().length === 1, 2000, 'a prompt to cancel');
+    c.line({ type: 'control_cancel_request', request_id: 'req-4' });
+    await waitFor(() => prompts().length === 0, 2000, 'the cancel');
+
+    c.line({ type: 'control_request', request_id: 'req-5', request: { subtype: 'hook_callback' } });
+    await waitFor(() => responses(c).length === 4, 2000, 'an error for an unknown subtype');
+    assert.equal(responses(c)[3].subtype, 'error');
+    assert.equal(responses(c)[3].request_id, 'req-5');
+
+    ask(c, 'req-6');
+    await waitFor(() => prompts().length === 1, 2000, 'a prompt before exit');
+    const id = prompts()[0].id;
+    c.exit(1, null);
+    await waitFor(() => !d.state().inbox.running, 2000, 'the exit');
+    assert.deepEqual(prompts(), [], "a dead child's prompts go away");
+    assert.equal(d.answerPermission(INBOX, id, 'allow'), false);
+
+    await logged(repo.dir, INBOX, 'permission-cancelled');
+    const decisions = eventsIn(logOf(repo.dir), 'permission').map((e) => e.decision);
+    assert.deepEqual(decisions, ['session', 'allow', 'deny'], 'every answer is logged');
+    assert.equal(eventsIn(logOf(repo.dir), 'permission-asked').length, 5);
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('permission prompts past the cap are denied without asking', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit);
+  try {
+    d.start();
+    const c = kit.last(INBOX);
+    for (let i = 0; i < 21; i++) c.line({ type: 'control_request', request_id: `r${i}`, request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: `echo ${i}` } } });
+    await waitFor(() => c.written.includes('"r20"'), 2000, 'the 21st answered');
+    assert.equal(d.state().inbox.permissions.length, 20);
+    assert.ok(c.written.includes(JSON.stringify(PERMISSION_DENIED)), 'the overflow is denied');
   } finally {
     await d.close();
     repo.cleanup();
@@ -692,19 +818,21 @@ test('AC14: log, truncation, rotation and stdout backpressure', async () => {
     assert.equal(fs.readFileSync(`${logFile}.1`, 'utf8'), old, 'a log over rotateBytes moves to <scope>.log.1 at spawn');
     assert.equal(infoOf(repo.dir).logBase, old.length, 'the rotated size moves into logBase');
     const c = kit.children[0];
-    const verbatim = '{"type":"assistant","b":  1}';
+    const verbatim = '{"type":"assistant","timestamp":"2026-01-01","b":  1}'; // under maxLineBytes
     c.line(verbatim);
     c.line('plain text');
     c.stdout.write('{"type":"x","pad":"' + 'y'.repeat(40));
     c.stdout.write('y'.repeat(60) + '"}\n{"type":"after"}\n');
     c.stderr.write('warn: ' + 'e'.repeat(5000) + '\n');
     await waitFor(() => lines.some((l) => l.line.includes('forge-stderr')), 2000, 'stderr');
-    await waitFor(() => lines.some((l) => l.line === '{"type":"after"}'), 2000, 'the line after the long one');
+    await waitFor(() => lines.some((l) => l.line.startsWith('{"type":"after"')), 2000, 'the line after the long one');
     await d.close();
     const text = fs.readFileSync(logFile, 'utf8');
     const log = text.trim().split('\n');
-    assert.ok(log.includes(verbatim), 'stdout lines are logged verbatim');
+    assert.ok(log.includes(verbatim), 'a stdout line with its own timestamp is logged verbatim');
     const parsed = log.map((l) => JSON.parse(l));
+    const after = parsed.find((e) => e.type === 'after');
+    assert.ok(typeof after?.at === 'string' && !Number.isNaN(Date.parse(after.at)), 'a stdout line without a timestamp is stamped with the receipt time as at');
     assert.ok(parsed.some((e) => e.type === 'forge-daemon' && e.event === 'spawn'));
     assert.ok(parsed.some((e) => e.type === 'forge-raw' && e.text === 'plain text'));
     const trunc = parsed.find((e) => e.event === 'line-truncated');

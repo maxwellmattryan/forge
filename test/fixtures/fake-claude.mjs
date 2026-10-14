@@ -10,6 +10,8 @@
 //   FAKE_CLAUDE_SUBAGENT      per turn: an Agent call to forge:builder, two child lines, its result and a costed result
 //   FAKE_CLAUDE_IGNORE_TERM   ignore SIGTERM (only SIGKILL stops it)
 //   FAKE_CLAUDE_IGNORE_EOF    keep running after stdin ends
+//   FAKE_CLAUDE_ASK           per turn: a can_use_tool control_request for this Bash command, held until its control_response;
+//                             the result then says what the answer was
 import fs from 'node:fs';
 import readline from 'node:readline';
 
@@ -46,6 +48,8 @@ function serve() {
   let turn = 0;
   const out = (/** @type {any} */ ev) => process.stdout.write(JSON.stringify(ev) + '\n');
   let first = true;
+  /** control_request ids waiting for an answer, and what to do with it. */
+  const pending = new Map();
   readline.createInterface({ input: process.stdin }).on('line', (line) => {
     log({ stdin: line });
     let msg;
@@ -53,6 +57,11 @@ function serve() {
       msg = JSON.parse(line);
     } catch {
       return;
+    }
+    if (msg?.type === 'control_response' && pending.has(msg.response?.request_id)) {
+      const done = pending.get(msg.response.request_id);
+      pending.delete(msg.response.request_id);
+      return done(msg.response.response?.behavior ?? 'error');
     }
     if (msg?.type !== 'user') return;
     if (first) out({ type: 'system', subtype: 'init', session_id: session });
@@ -62,7 +71,27 @@ function serve() {
     if (env.FAKE_CLAUDE_SUBAGENT) subagent(out, session, turn);
     const cost = env.FAKE_CLAUDE_SUBAGENT ? { total_cost_usd: 0.25, num_turns: 3, duration_ms: 1200 } : {};
     const failed = env.FAKE_CLAUDE_RESULT_ERROR ? { is_error: true, result: env.FAKE_CLAUDE_RESULT_ERROR } : { is_error: false };
-    setTimeout(() => out({ type: 'result', subtype: 'success', session_id: session, ...cost, ...failed }), delay);
+    const finish = (/** @type {string | null} */ answer) =>
+      setTimeout(() => out({ type: 'result', subtype: 'success', session_id: session, ...cost, ...failed, ...(answer ? { result: `permission: ${answer}` } : {}) }), delay);
+    if (!env.FAKE_CLAUDE_ASK) return finish(null);
+    const requestId = `ask-${turn}`;
+    pending.set(requestId, finish);
+    out({
+      type: 'control_request',
+      request_id: requestId,
+      request: {
+        subtype: 'can_use_tool',
+        tool_name: 'Bash',
+        input: { command: env.FAKE_CLAUDE_ASK, description: 'Copy the fonts into the worktree' },
+        description: 'Copy the fonts into the worktree',
+        agent_id: 'a1b2c3',
+        permission_suggestions: [
+          { type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: env.FAKE_CLAUDE_ASK }], behavior: 'allow', destination: 'localSettings' },
+          { type: 'setMode', mode: 'acceptEdits', destination: 'session' },
+        ],
+        tool_use_id: `toolu_ask_${turn}`,
+      },
+    });
   });
   // Without IGNORE_EOF the process ends on its own once stdin closes and pending results are out.
   if (env.FAKE_CLAUDE_IGNORE_EOF) setInterval(() => {}, 1 << 30);

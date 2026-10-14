@@ -1,12 +1,15 @@
 <!-- A job's Thread in the drawer: its request and the requests about it with the session's replies, the gate's actions
-     when the job needs a human, then the job's live session log. Request text and results are untrusted and render as
+     when the job needs a human and its session's permission prompts, then the job's live session log. Request text and results are untrusted and render as
      plain text. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
   import JobActions from './JobActions.svelte';
+  import PermissionPrompts from './PermissionPrompts.svelte';
   import SessionLog from './SessionLog.svelte';
   import { ago } from '../lib/util.ts';
   import { needsHuman } from '../lib/view.ts';
+  import { pendingPrompts } from '../lib/permissions.ts';
+  import { S } from '../lib/app.svelte.ts';
   import { threadItems, type ThreadAction, type ThreadFrom, type ThreadOpening, type ThreadStatus } from '../lib/thread.ts';
   import type { ForgeRequest, Job } from '../lib/types.ts';
   import { t } from '../lib/locale.ts';
@@ -14,6 +17,7 @@
   let { job, requests, opening, active }: { job: Job; requests: ForgeRequest[]; opening: ThreadOpening; active: boolean } = $props();
   const items = $derived(threadItems(requests, opening));
   const actionable = $derived(needsHuman(job) || job.state === 'failed' || job.state === 'blocked');
+  const asking = $derived(pendingPrompts(S.data?.daemons ?? null, job.id).length > 0);
 
   const who = $derived<Record<ThreadFrom, string>>({ you: $t('thread.you'), cli: $t('thread.cli'), forge: $t('thread.forge'), tracker: $t('thread.tracker') });
   const statusText = $derived<Record<ThreadStatus, string>>({ queued: $t('thread.queued'), handling: $t('thread.handling'), done: $t('thread.done'), rejected: $t('thread.rejected') });
@@ -78,9 +82,10 @@
   </section>
   <section class="flex flex-col gap-2" aria-labelledby="thread-composer-{job.id}">
     <h3 id="thread-composer-{job.id}" class="text-[11px] uppercase tracking-wide text-muted">{$t('thread.composer')}</h3>
+    <PermissionPrompts scope={job.id} />
     {#if actionable}
       {#key job.id}<JobActions {job} noteId="thread-note-{job.id}" />{/key}
-    {:else}
+    {:else if !asking}
       <div class="text-sm text-muted">{$t('thread.nothing')}</div>
     {/if}
   </section>

@@ -725,6 +725,34 @@ export interface DaemonSessionState {
   /** Has fresh work but no free slot under daemon.maxConcurrent. */
   waiting: boolean;
   lastError: string | null;
+  /** Tool calls outside the allowlist the session is waiting on a human for, oldest first. */
+  permissions: DaemonPermissionPrompt[];
+}
+
+/** How a human answers a permission prompt: allow this call, allow it and its suggested rules for the rest of the session, or deny it. */
+export type PermissionDecision = 'allow' | 'session' | 'deny';
+
+/**
+ * A tool call a daemon session's permission check sent to the supervisor instead of refusing:
+ * lib/daemon.ts. Every field but id and at comes from the session, so it is untrusted text.
+ */
+export interface DaemonPermissionPrompt {
+  /** The supervisor's id for the prompt, not claude's request id. */
+  id: string;
+  tool: string;
+  /** The tool's input as JSON, capped. */
+  input: string;
+  /** The agent's own words for the call. */
+  description: string | null;
+  /** Set when a subagent made the call. */
+  agentId: string | null;
+  /** The path outside the session's working directories that triggered the prompt. */
+  blockedPath: string | null;
+  /** What "allow for this session" adds on top of this call: permission rules and directories. Both empty when it adds nothing. */
+  sessionRules: string[];
+  sessionDirs: string[];
+  /** When the supervisor received it. */
+  at: string;
 }
 
 /** The session pool as the dashboard sees it: state() in lib/daemon-pool.ts plus `clients` from lib/server.ts. */

@@ -1,9 +1,9 @@
-// Shapes of the forge dash HTTP API for API_VERSION 10. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 11. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
 
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 10;
+export const API_VERSION = 11;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 
@@ -295,6 +295,34 @@ export interface DaemonSessionState {
   /** Has fresh work but no free slot under daemon.maxConcurrent. */
   waiting: boolean;
   lastError: string | null;
+  /** Tool calls outside the allowlist the session is waiting on a human for, oldest first. */
+  permissions: DaemonPermissionPrompt[];
+}
+
+/** How a human answers a permission prompt: allow this call, allow it and its suggested rules for the rest of the session, or deny it. */
+export type PermissionDecision = 'allow' | 'session' | 'deny';
+
+/**
+ * A tool call a daemon session's permission check sent to the supervisor instead of refusing:
+ * lib/daemon.ts. Every field but id and at comes from the session, so it is untrusted text.
+ */
+export interface DaemonPermissionPrompt {
+  /** The supervisor's id for the prompt, not claude's request id. */
+  id: string;
+  tool: string;
+  /** The tool's input as JSON, capped. */
+  input: string;
+  /** The agent's own words for the call. */
+  description: string | null;
+  /** Set when a subagent made the call. */
+  agentId: string | null;
+  /** The path outside the session's working directories that triggered the prompt. */
+  blockedPath: string | null;
+  /** What "allow for this session" adds on top of this call: permission rules and directories. Both empty when it adds nothing. */
+  sessionRules: string[];
+  sessionDirs: string[];
+  /** When the supervisor received it. */
+  at: string;
 }
 
 /** The session pool as the dashboard sees it: state() in lib/daemon-pool.ts plus `clients` from lib/server.ts. */

@@ -42,11 +42,14 @@ export interface PoolModel {
   startHint: string | null;
 }
 
+const running = (s: unknown) => obj(s).running === true;
+const asking = (s: unknown) => running(s) && Array.isArray(obj(s).permissions) && obj(s).permissions.length > 0;
+
 /** Status labels in the order the bar lists job chips. */
-const ORDER = ['busy', 'failing', 'idle', 'stopping', 'waiting for slot', 'held: budget', 'error', 'stopped', 'standby', 'no session'];
+const ORDER = ['needs permission', 'busy', 'failing', 'idle', 'stopping', 'waiting for slot', 'held: budget', 'error', 'stopped', 'standby', 'no session'];
 
 /**
- * One session's status chip: busy, failing (alive, but its last turn failed), idle, stopping,
+ * One session's status chip: needs permission (a tool call waits on a human), busy, failing (alive, but its last turn failed), idle, stopping,
  * waiting for slot, held: budget, error, stopped, standby or no session.
  */
 export function sessionPill(session: SessionInput): Pill {
@@ -54,6 +57,7 @@ export function sessionPill(session: SessionInput): Pill {
   let label = 'no session';
   let tone = 'muted';
   if (!session) [label, tone] = ['no session', 'muted'];
+  else if (asking(s)) [label, tone] = ['needs permission', 'warn'];
   else if (s.status === 'busy') [label, tone] = ['busy', 'accent'];
   else if (s.status === 'stopping') [label, tone] = ['stopping', 'warn'];
   else if (s.waiting) [label, tone] = ['waiting for slot', 'warn'];
@@ -75,8 +79,6 @@ export function sessionPill(session: SessionInput): Pill {
   return { label, tone, title };
 }
 
-const running = (s: unknown) => obj(s).running === true;
-
 /** Everything the daemon bar shows, or null exactly when it is hidden. */
 export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): PoolModel | null {
   const p = obj(pool);
@@ -86,7 +88,8 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
   if (!pool || (!p.enabled && !p.wanted && !anyRunning)) return null;
   let label = 'stopped';
   let tone = 'muted';
-  if (sessions.some((s) => s.status === 'busy')) [label, tone] = ['busy', 'accent'];
+  if (sessions.some(asking)) [label, tone] = ['needs permission', 'warn'];
+  else if (sessions.some((s) => s.status === 'busy')) [label, tone] = ['busy', 'accent'];
   else if (p.wanted && sessions.some((s) => s.lastError)) [label, tone] = ['failing', 'bad'];
   else if (anyRunning) [label, tone] = ['idle', 'ok'];
   else if (sessions.some((s) => s.status === 'stopping')) [label, tone] = ['stopping', 'warn'];

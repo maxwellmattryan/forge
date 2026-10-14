@@ -16,7 +16,7 @@ import { PLUGIN_ROOT, paths } from './paths.ts';
 import { SCOPE_ENV, validJobId, validScope } from './requests.ts';
 import { isClaudeExecutable, now, run, sleepSync, splitWords, writeJsonAtomic } from './util.ts';
 import { pidAlive } from './worktree.ts';
-import type { Config, DaemonAuth, DaemonSessionState, DaemonStatus, ForgeRequest } from './types.ts';
+import type { Config, DaemonAuth, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, ForgeRequest, PermissionDecision } from './types.ts';
 
 /** What a session reports to its pool: a log line as it is written, or its new state after a change. */
 export type SessionEvent = { kind: 'line'; scope: string; offset: number; line: string } | { kind: 'state'; scope: string; state: DaemonSessionState };
@@ -123,6 +123,8 @@ export interface Session {
   /** Returns whether a child is now running. */
   spawn(c: Config, reason?: string): boolean;
   writeTurn(ids: string[]): void;
+  /** Answers a pending permission prompt; false when there is none by that id (answered, or its child exited). */
+  answerPermission(id: string, decision: PermissionDecision): boolean;
   kill(event: string, endStdin: boolean, reason?: string): Promise<void>;
   logEvent(event: string, extra?: Record<string, unknown>): void;
   setWaiting(waiting: boolean): void;
@@ -135,9 +137,10 @@ export interface Session {
 }
 
 /**
- * The only bytes the daemon ever writes to the child's stdin. Nothing from requests, HTTP or
- * config reaches it, so inbox text can't become a prompt: the session reads requests through
- * `forge requests`, where they are fenced as data.
+ * The only user message the daemon ever writes to the child's stdin; the only other lines are
+ * permission answers (permissionResponse). Nothing from requests, HTTP or config reaches either,
+ * so inbox text can't become a prompt: the session reads requests through `forge requests`,
+ * where they are fenced as data.
  */
 export const TURN = Object.freeze({
   type: 'user',
@@ -156,6 +159,78 @@ export const HOLD_TYPES: string[] = ['resume', 'rework', 'answer', 'revise-spec'
  * check that also covers writes made through Bash (docs/ARCHITECTURE.md "Daemon security").
  */
 export const DENY_TOOLS = Object.freeze(['Edit(.forge/config.yml)', 'Edit(.forge/trackers/**)']);
+
+/**
+ * Appended to every daemon command: claude sends each permission check it would otherwise ask a
+ * person about to the supervisor as a `can_use_tool` control request on stdout, and waits for the
+ * answer on stdin. Under `--permission-mode dontAsk` nothing is ever asked, so nothing arrives.
+ */
+export const PROMPT_TOOL = Object.freeze(['--permission-prompt-tool', 'stdio']);
+
+/** What a denied tool call returns to the agent. Fixed text: nothing a human types reaches the session. */
+export const PERMISSION_DENIED =
+  'A human denied this tool call from the Forge dashboard. Do not retry it or work around it with another tool: continue without it, or record what you needed and why in your output file.';
+/** Prompts waiting at once per session; past this, new ones are denied without asking. */
+const MAX_PROMPTS = 20;
+const PROMPT_INPUT_CHARS = 4000;
+const PROMPT_TEXT_CHARS = 500;
+const PROMPT_PATH_CHARS = 1000;
+
+const cap = (v: unknown, n: number): string | null => (typeof v === 'string' && v ? (v.length > n ? `${v.slice(0, n)}…` : v) : null);
+const record = (v: unknown): Record<string, any> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : {});
+
+/** The updatedPermissions "allow for this session" sends: claude's own suggestions, rebuilt from their checked fields. */
+export interface SessionGrant {
+  rules: { toolName: string; ruleContent?: string }[];
+  dirs: string[];
+}
+
+/**
+ * The parts of claude's `permission_suggestions` the supervisor may grant: allow rules and extra
+ * directories, always for this session only. A suggestion to save rules to a settings file or to
+ * change the permission mode is dropped, because either outlives the human's view of this call.
+ */
+export function sessionGrant(suggestions: unknown): SessionGrant {
+  const rules: SessionGrant['rules'] = [];
+  const dirs: string[] = [];
+  for (const raw of Array.isArray(suggestions) ? suggestions.slice(0, 20) : []) {
+    const sug = record(raw);
+    if (sug.type === 'addRules' && sug.behavior === 'allow' && Array.isArray(sug.rules)) {
+      for (const r of sug.rules.slice(0, 20).map(record)) {
+        if (typeof r.toolName !== 'string' || !r.toolName || r.toolName.length > 200) continue;
+        if (r.ruleContent !== undefined && (typeof r.ruleContent !== 'string' || r.ruleContent.length > PROMPT_INPUT_CHARS)) continue;
+        rules.push(typeof r.ruleContent === 'string' ? { toolName: r.toolName, ruleContent: r.ruleContent } : { toolName: r.toolName });
+      }
+    } else if (sug.type === 'addDirectories' && Array.isArray(sug.directories)) {
+      for (const d of sug.directories.slice(0, 20)) if (typeof d === 'string' && path.isAbsolute(d) && d.length <= PROMPT_PATH_CHARS) dirs.push(d);
+    }
+  }
+  return { rules, dirs };
+}
+
+/** A rule as claude's settings write it: `Bash(npm test)`, or a bare tool name. */
+export function ruleText(r: { toolName: string; ruleContent?: string }): string {
+  return r.ruleContent === undefined ? r.toolName : `${r.toolName}(${r.ruleContent})`;
+}
+
+/**
+ * The control_response line answering a `can_use_tool` request. An allow echoes the input claude
+ * sent, unchanged; a deny carries PERMISSION_DENIED. The human picks only the decision.
+ */
+export function permissionResponse(requestId: string, decision: PermissionDecision, input: Record<string, unknown>, grant: SessionGrant): string {
+  let response: Record<string, unknown>;
+  if (decision === 'deny') response = { behavior: 'deny', message: PERMISSION_DENIED };
+  else {
+    response = { behavior: 'allow', updatedInput: input };
+    if (decision === 'session') {
+      const updates: Record<string, unknown>[] = [];
+      if (grant.rules.length) updates.push({ type: 'addRules', rules: grant.rules, behavior: 'allow', destination: 'session' });
+      if (grant.dirs.length) updates.push({ type: 'addDirectories', directories: grant.dirs, destination: 'session' });
+      if (updates.length) response.updatedPermissions = updates;
+    }
+  }
+  return JSON.stringify({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response } }) + '\n';
+}
 
 /** Why the supervisor stopped: shown in the dashboard, so it speaks to the human. */
 export const TRUST_CHANGED =
@@ -243,7 +318,7 @@ export function parseTemplate(template: string): string[] {
 
 /**
  * Placeholders expand after splitting, so a plugin path with spaces stays one argument.
- * DENY_TOOLS always follows the template.
+ * DENY_TOOLS and PROMPT_TOOL always follow the template.
  */
 export function buildArgv(template: string, vars: { pluginRoot: string; session: { id: string; resume: boolean }; allowedTools: string[] }): string[] {
   const tools = (vars.allowedTools ?? []).join(',');
@@ -251,7 +326,7 @@ export function buildArgv(template: string, vars: { pluginRoot: string; session:
     if (tok === '{session}') return [vars.session.resume ? '--resume' : '--session-id', vars.session.id];
     return [tok.replaceAll('{pluginRoot}', vars.pluginRoot).replaceAll('{allowedTools}', tools)];
   });
-  return [...argv, '--disallowedTools', DENY_TOOLS.join(',')];
+  return [...argv, '--disallowedTools', DENY_TOOLS.join(','), ...PROMPT_TOOL];
 }
 
 /**
@@ -524,6 +599,8 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   const ring: { offset: number; line: string }[] = [];
   let idleTimer: NodeJS.Timeout | null = null;
   let closed = false;
+  /** Permission prompts waiting on a human, by the supervisor's id, oldest first. */
+  const prompts = new Map<string, { proc: DaemonChild; requestId: string; input: Record<string, unknown>; grant: SessionGrant; prompt: DaemonPermissionPrompt }>();
 
   // Never recreate a repo that was deleted under a running supervisor (or a test's temp repo).
   const persist = () => {
@@ -580,7 +657,78 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       held,
       waiting,
       lastError,
+      permissions: [...prompts.values()].map((p) => p.prompt),
     };
+  }
+
+  /** Its child is gone, so nothing can answer them. */
+  function dropPrompts(): void {
+    prompts.clear();
+  }
+
+  function writeControl(proc: DaemonChild, line: string): void {
+    proc.stdin?.write(line);
+  }
+
+  /**
+   * A `control_request` from claude. `can_use_tool` becomes a prompt the dashboard shows until a
+   * human answers it; claude sends no other subtype unless asked to, so any other gets an error
+   * rather than leaving claude waiting.
+   */
+  function onControl(proc: DaemonChild, ev: Record<string, any>): void {
+    const requestId = ev.request_id;
+    if (typeof requestId !== 'string' || !requestId || requestId.length > 200) return void logEvent('error', { message: 'ignored a control_request without a usable request_id' });
+    const req = record(ev.request);
+    if (req.subtype !== 'can_use_tool') {
+      const error = `forge does not handle ${String(req.subtype).slice(0, 40)} control requests`;
+      return writeControl(proc, JSON.stringify({ type: 'control_response', response: { subtype: 'error', request_id: requestId, error } }) + '\n');
+    }
+    const tool = cap(req.tool_name, 200) ?? 'unknown';
+    const input = record(req.input);
+    if (prompts.size >= MAX_PROMPTS) {
+      logEvent('permission', { tool, decision: 'deny', reason: 'too-many' });
+      return writeControl(proc, permissionResponse(requestId, 'deny', input, { rules: [], dirs: [] }));
+    }
+    const grant = sessionGrant(req.permission_suggestions);
+    let json = '';
+    try {
+      json = JSON.stringify(input);
+    } catch {}
+    const id = crypto.randomUUID();
+    const prompt: DaemonPermissionPrompt = {
+      id,
+      tool,
+      input: cap(json, PROMPT_INPUT_CHARS) ?? '{}',
+      description: cap(req.description, PROMPT_TEXT_CHARS),
+      agentId: cap(req.agent_id, 64),
+      blockedPath: cap(req.blocked_path, PROMPT_PATH_CHARS),
+      sessionRules: grant.rules.map(ruleText),
+      sessionDirs: grant.dirs,
+      at: now(),
+    };
+    prompts.set(id, { proc, requestId, input, grant, prompt });
+    logEvent('permission-asked', { id, tool });
+    changed();
+  }
+
+  /** claude withdrew a request (its turn was interrupted): the prompt goes away unanswered. */
+  function onControlCancel(ev: Record<string, any>): void {
+    for (const [id, p] of prompts) {
+      if (p.requestId !== ev.request_id) continue;
+      prompts.delete(id);
+      logEvent('permission-cancelled', { id, tool: p.prompt.tool });
+      changed();
+    }
+  }
+
+  function answerPermission(id: string, decision: PermissionDecision): boolean {
+    const p = prompts.get(id);
+    if (!p || p.proc !== child) return false;
+    prompts.delete(id);
+    writeControl(p.proc, permissionResponse(p.requestId, decision, p.input, p.grant));
+    logEvent('permission', { id, tool: p.prompt.tool, decision });
+    changed();
+    return true;
   }
 
   function clearIdle() {
@@ -734,13 +882,24 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     return true;
   }
 
+  /**
+   * claude stamps only its assistant and user lines (`timestamp`); its system, result and
+   * progress events carry no time at all. Those get the receipt time as `at`, the key the
+   * supervisor's own events use, so the dashboard can show a time on every line. A line that
+   * already has either key is logged verbatim.
+   */
+  function stamped(ev: any, line: string): string {
+    if (Array.isArray(ev) || typeof ev.timestamp === 'string' || typeof ev.at === 'string') return line;
+    return JSON.stringify({ ...ev, at: now() });
+  }
+
   function onStdout(proc: DaemonChild, line: string): void {
     const meta = proc._forge;
     let ev: any = null;
     try {
       ev = JSON.parse(line);
     } catch {}
-    const ok = ev && typeof ev === 'object' ? logLine(line) : logLine(JSON.stringify({ type: 'forge-raw', at: now(), text: line }));
+    const ok = ev && typeof ev === 'object' ? logLine(stamped(ev, line)) : logLine(JSON.stringify({ type: 'forge-raw', at: now(), text: line }));
     if (!ok && proc.stdout && !proc.stdout.isPaused()) {
       proc.stdout.pause();
       // write() returned false, so the sink is a real stream (the stand-in never does), and stdout was
@@ -766,6 +925,8 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       logEvent('session-changed', { from, to: ev.session_id });
       changed();
     }
+    if (ev.type === 'control_request') onControl(proc, ev);
+    if (ev.type === 'control_cancel_request') onControlCancel(ev);
     if (ev.type === 'rate_limit_event') rateLimit = parseRateLimit(ev.rate_limit_info) ?? rateLimit;
     if (ev.type === 'result') onResult(proc, ev);
   }
@@ -842,6 +1003,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     const meta = proc._forge;
     child = null;
     clearIdle();
+    dropPrompts();
     inFlight = [];
     status = 'off';
     info = { ...info, pid: null };
@@ -920,6 +1082,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     if (child === proc) {
       // No close event at all (a stuck pipe): treat it as gone so the supervisor can't wedge.
       child = null;
+      dropPrompts();
       info = { ...info, pid: null };
       persist();
     }
@@ -989,6 +1152,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     },
     spawn: spawnChild,
     writeTurn,
+    answerPermission,
     kill,
     logEvent,
     setWaiting(w) {

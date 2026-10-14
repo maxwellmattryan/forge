@@ -1,7 +1,9 @@
 // A session log's structure, built from its raw lines: turns, text, thinking, tool calls with their
-// results, subagents grouped by parent_tool_use_id, results, stderr and the supervisor's own events.
+// results, subagents grouped by parent_tool_use_id, background task progress folded into the call it
+// reports on, results, stderr and the supervisor's own events.
 // Every line is session output, i.e. untrusted text: this returns plain strings, SessionLog.svelte
 // renders them as text, and nothing here escapes or interprets markup.
+import { dur, tokensShort } from './util.ts';
 
 /** One log line and its offset (the SSE id and the history key). */
 export interface Entry {
@@ -22,8 +24,14 @@ export const MAX_ENTRIES = 5000;
 export const PREVIEW_CHARS = 300;
 export const LONG_TEXT = 2000;
 const SUMMARY_CHARS = 120;
-const SUPERVISOR_KEYS = ['message', 'pid', 'sessionId', 'requests', 'held', 'jobs', 'code', 'signal', 'reason', 'state', 'maxConcurrent', 'bytes', 'from', 'to'];
+const SUPERVISOR_KEYS = ['message', 'pid', 'sessionId', 'requests', 'held', 'jobs', 'code', 'signal', 'reason', 'state', 'maxConcurrent', 'bytes', 'from', 'to', 'tool', 'decision'];
 const AGENT_TOOLS = new Set(['Agent', 'Task']);
+/**
+ * claude's bookkeeping lines, dropped: a thinking-token meter, the skill catalog (several KiB per
+ * line), the background task list (task_started says the same), hook start/progress (hook_response
+ * has the outcome) and the Agent heartbeat (task_progress has the elapsed time).
+ */
+const NOISE = new Set(['thinking_tokens', 'commands_changed', 'background_tasks_changed', 'hook_started', 'hook_progress']);
 
 export interface ToolResult {
   isError: boolean;
@@ -33,9 +41,29 @@ export interface ToolResult {
   more: boolean;
 }
 
+/**
+ * What claude's task_started / task_progress / task_updated / task_notification lines said about a
+ * background task (an Agent call or a backgrounded Bash), latest first wins.
+ */
+export interface TaskInfo {
+  /** running, completed, failed, … as claude names them. */
+  status: string | null;
+  /** The task's current step, from task_progress ("Editing lib/step.ts"). */
+  activity: string;
+  tokens: number | null;
+  toolUses: number | null;
+  durationMs: number | null;
+  /** Time of the latest line about the task. */
+  at: string | null;
+  /** The one-line rendering of the above. */
+  text: string;
+}
+
 interface ItemBase {
   offset: number;
   tone: string | null;
+  /** When the line was written (claude's `timestamp`, or the receipt time the supervisor stamps as `at`). */
+  at: string | null;
 }
 
 export type Item =
@@ -43,10 +71,12 @@ export type Item =
   | (ItemBase & { kind: 'init'; model: string; session: string })
   | (ItemBase & { kind: 'text'; text: string; long: boolean })
   | (ItemBase & { kind: 'thinking'; text: string })
-  | (ItemBase & { kind: 'tool'; id: string; name: string; summary: string; input: string; result: ToolResult | null })
-  | (ItemBase & { kind: 'subagent'; id: string; role: string; description: string; summary: string; input: string; items: Item[]; result: ToolResult | null; known: boolean; hidden: number })
+  | (ItemBase & { kind: 'tool'; id: string; name: string; summary: string; input: string; result: ToolResult | null; task: TaskInfo | null })
+  | (ItemBase & { kind: 'subagent'; id: string; role: string; description: string; summary: string; input: string; items: Item[]; result: ToolResult | null; known: boolean; hidden: number; task: TaskInfo | null })
   | (ItemBase & { kind: 'result'; text: string; costUsd: number | null })
-  | (ItemBase & { kind: 'stderr' | 'raw' | 'truncated' | 'rate-limit' | 'other'; text: string });
+  /** A task line whose call is not in the loaded window: one item per task, updated in place. */
+  | (ItemBase & { kind: 'task'; id: string; role: string; task: TaskInfo; text: string })
+  | (ItemBase & { kind: 'stderr' | 'raw' | 'truncated' | 'rate-limit' | 'denied' | 'hook' | 'other'; text: string });
 
 export type ItemKind = Item['kind'] | 'turn';
 
@@ -54,6 +84,7 @@ export interface TurnGroup {
   /** Offset of the turn event, or of the first line for "Session start". */
   offset: number;
   label: string;
+  at: string | null;
   items: Item[];
 }
 
@@ -62,12 +93,16 @@ export interface SessionView {
   totals: { turns: number; costUsd: number; results: number };
 }
 
+type TaskPatch = Partial<Omit<TaskInfo, 'text'>>;
+
 /** What one line says, before grouping. A line may carry several content blocks, so parseEntry returns a list. */
 export type Parsed =
-  | { kind: 'turn'; offset: number; requests: number; turn: number | null }
+  | { kind: 'turn'; offset: number; at: string | null; requests: number; turn: number | null }
   | { kind: 'item'; parent: string | null; item: Item }
-  | { kind: 'tool-use'; offset: number; parent: string | null; id: string; name: string; input: unknown }
-  | { kind: 'tool-result'; offset: number; parent: string | null; id: string; isError: boolean; content: string };
+  | { kind: 'tool-use'; offset: number; at: string | null; parent: string | null; id: string; name: string; input: unknown }
+  | { kind: 'tool-result'; offset: number; at: string | null; parent: string | null; id: string; isError: boolean; content: string }
+  /** `id` is the call's tool_use_id; task_updated names only the task_id, resolved through an earlier line about the same task. */
+  | { kind: 'task'; offset: number; at: string | null; id: string | null; taskId: string; role: string; patch: TaskPatch };
 
 const obj = (v: unknown): Record<string, any> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : {});
 const str = (v: unknown): string => (Array.isArray(v) ? v.join(', ') : v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
@@ -79,6 +114,7 @@ const pretty = (v: unknown): string => {
     return String(v);
   }
 };
+const numOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 /** A tool call's one-line summary: what a human scanning the log wants to see first. */
 export function toolSummary(name: string, input: unknown): string {
@@ -111,6 +147,19 @@ export function toolResult(isError: boolean, content: string): ToolResult {
   return { isError, preview: clip(content, PREVIEW_CHARS), full: content, more: content.length > PREVIEW_CHARS };
 }
 
+/** The task's one line: `completed · Editing lib/step.ts · 12 tools · 32k tokens · 1m 7s`, whichever parts are known. */
+export function taskText(t: Omit<TaskInfo, 'text'>): string {
+  const bits = [t.status ?? '', clip(t.activity, SUMMARY_CHARS), t.toolUses !== null ? `${t.toolUses} ${t.toolUses === 1 ? 'tool' : 'tools'}` : '', t.tokens !== null ? `${tokensShort(t.tokens)} tokens` : '', t.durationMs !== null ? dur(t.durationMs) : ''];
+  return bits.filter(Boolean).join(' · ');
+}
+
+function mergeTask(prev: TaskInfo | null, patch: TaskPatch): TaskInfo {
+  const base: Omit<TaskInfo, 'text'> = prev ?? { status: null, activity: '', tokens: null, toolUses: null, durationMs: null, at: null };
+  const next = { ...base };
+  for (const k of Object.keys(patch) as (keyof TaskPatch)[]) if (patch[k] !== undefined && patch[k] !== null && patch[k] !== '') (next as Record<string, unknown>)[k] = patch[k];
+  return { ...next, text: taskText(next) };
+}
+
 function supervisorText(ev: Record<string, any>): string {
   const parts = [str(ev.event)];
   for (const k of SUPERVISOR_KEYS) if (ev[k] != null) parts.push(`${k}=${str(ev[k])}`);
@@ -119,8 +168,20 @@ function supervisorText(ev: Record<string, any>): string {
 
 function supervisorTone(event: string): string {
   if (['error', 'resume-failed', 'line-truncated'].includes(event)) return 'bad';
-  if (['held', 'waiting'].includes(event)) return 'warn';
+  if (['held', 'waiting', 'permission-asked'].includes(event)) return 'warn';
   return 'muted';
+}
+
+/** `rate_limit_event` as one line: the status and each window's utilisation. */
+function rateLimitText(info: Record<string, any>): string {
+  const windows = obj(info.unifiedWindows);
+  const parts = [str(info.status), str(info.rateLimitType)];
+  for (const [name, w] of Object.entries(windows)) {
+    const u = numOrNull(obj(w).utilization);
+    if (u !== null) parts.push(`${name} ${Math.round(u * 100)}%`);
+  }
+  if (info.isUsingOverage === true) parts.push('overage');
+  return parts.filter(Boolean).join(' · ') || JSON.stringify(info);
 }
 
 const cache = new WeakMap<Entry, Parsed[]>();
@@ -142,33 +203,64 @@ function parseLine(offset: number, line: string): Parsed[] {
     if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('not an object');
     ev = v;
   } catch {
-    return [item({ kind: 'raw', offset, tone: 'muted', text: line })];
+    return [item({ kind: 'raw', offset, at: null, tone: 'muted', text: line })];
   }
   const parent = typeof ev.parent_tool_use_id === 'string' && ev.parent_tool_use_id ? ev.parent_tool_use_id : null;
+  const at = typeof ev.timestamp === 'string' ? ev.timestamp : typeof ev.at === 'string' ? ev.at : null;
   switch (ev.type) {
     case 'forge-daemon': {
       const event = str(ev.event);
-      if (event === 'turn') return [{ kind: 'turn', offset, requests: Number(ev.requests) || 0, turn: Number.isInteger(ev.turn) && ev.turn > 0 ? ev.turn : null }];
-      return [item({ kind: 'supervisor', offset, tone: supervisorTone(event), event, text: supervisorText(ev) })];
+      if (event === 'turn') return [{ kind: 'turn', offset, at, requests: Number(ev.requests) || 0, turn: Number.isInteger(ev.turn) && ev.turn > 0 ? ev.turn : null }];
+      return [item({ kind: 'supervisor', offset, at, tone: supervisorTone(event), event, text: supervisorText(ev) })];
     }
     case 'forge-stderr':
-      return [item({ kind: 'stderr', offset, tone: 'bad', text: str(ev.text) })];
+      return [item({ kind: 'stderr', offset, at, tone: 'bad', text: str(ev.text) })];
     case 'forge-raw':
-      return [item({ kind: 'raw', offset, tone: 'muted', text: str(ev.text) })];
+      return [item({ kind: 'raw', offset, at, tone: 'muted', text: str(ev.text) })];
     case 'forge-truncated':
-      return [item({ kind: 'truncated', offset, tone: 'warn', text: `${str(ev.originalType ?? 'line')} · ${str(ev.bytes)} bytes` })];
-    case 'system':
-      if (ev.subtype === 'init') return [item({ kind: 'init', offset, tone: 'muted', model: str(ev.model), session: str(ev.session_id).slice(0, 8) }, parent)];
-      return [item({ kind: 'other', offset, tone: 'muted', text: `system ${str(ev.subtype)}` }, parent)];
+      return [item({ kind: 'truncated', offset, at, tone: 'warn', text: `${str(ev.originalType ?? 'line')} · ${str(ev.bytes)} bytes` })];
+    case 'system': {
+      const sub = str(ev.subtype);
+      if (sub === 'init') return [item({ kind: 'init', offset, at, tone: 'muted', model: str(ev.model), session: str(ev.session_id).slice(0, 8) }, parent)];
+      if (NOISE.has(sub)) return [];
+      // Background task lines name the call they report on by tool_use_id, not parent_tool_use_id.
+      if (sub.startsWith('task_') && (typeof ev.tool_use_id === 'string' && ev.tool_use_id || typeof ev.task_id === 'string' && ev.task_id)) {
+        const role = str(ev.subagent_type) || str(ev.task_type);
+        const usage = obj(ev.usage);
+        const patch: TaskPatch =
+          sub === 'task_progress'
+            ? { activity: str(ev.description), tokens: numOrNull(usage.total_tokens), toolUses: numOrNull(usage.tool_uses), durationMs: numOrNull(usage.duration_ms), at }
+            : sub === 'task_notification'
+              ? { status: str(ev.status), at }
+              : sub === 'task_updated'
+                ? { status: str(obj(ev.patch).status), at }
+                : sub === 'task_started'
+                  ? { status: 'running', at }
+                  : { at };
+        return [{ kind: 'task', offset, at, id: typeof ev.tool_use_id === 'string' && ev.tool_use_id ? ev.tool_use_id : null, taskId: str(ev.task_id), role, patch }];
+      }
+      if (sub === 'permission_denied') return [item({ kind: 'denied', offset, at, tone: 'warn', text: [str(ev.tool_name), clip(str(ev.message), 200)].filter(Boolean).join(': ') }, parent)];
+      if (sub === 'hook_response') {
+        const outcome = str(ev.outcome);
+        const bits = [str(ev.hook_name), outcome, ev.exit_code != null ? `exit ${str(ev.exit_code)}` : '', outcome && outcome !== 'success' ? clip(str(ev.stderr ?? ev.output).trim(), 200) : ''];
+        return [item({ kind: 'hook', offset, at, tone: outcome && outcome !== 'success' ? 'warn' : 'muted', text: bits.filter(Boolean).join(' · ') }, parent)];
+      }
+      return [item({ kind: 'other', offset, at, tone: 'muted', text: `system ${sub}` }, parent)];
+    }
+    case 'tool_progress':
+    // The supervisor logs each as permission-asked / permission-cancelled with the same tool name.
+    case 'control_request':
+    case 'control_cancel_request':
+      return [];
     case 'assistant': {
       const blocks = Array.isArray(obj(ev.message).content) ? (obj(ev.message).content as unknown[]).map(obj) : [];
       const out: Parsed[] = [];
       // An API failure (auth, overload) arrives as an assistant message flagged with `error`.
       const tone = ev.error || ev.is_api_error_message ? 'bad' : null;
       for (const b of blocks) {
-        if (b.type === 'text' && str(b.text).trim()) out.push(item({ kind: 'text', offset, tone, text: str(b.text), long: str(b.text).length > LONG_TEXT }, parent));
-        else if (b.type === 'thinking' || b.type === 'redacted_thinking') out.push(item({ kind: 'thinking', offset, tone: 'muted', text: str(b.thinking ?? b.data ?? '') }, parent));
-        else if (b.type === 'tool_use') out.push({ kind: 'tool-use', offset, parent, id: str(b.id), name: str(b.name), input: b.input });
+        if (b.type === 'text' && str(b.text).trim()) out.push(item({ kind: 'text', offset, at, tone, text: str(b.text), long: str(b.text).length > LONG_TEXT }, parent));
+        else if (b.type === 'thinking' || b.type === 'redacted_thinking') out.push(item({ kind: 'thinking', offset, at, tone: 'muted', text: str(b.thinking ?? b.data ?? '') }, parent));
+        else if (b.type === 'tool_use') out.push({ kind: 'tool-use', offset, at, parent, id: str(b.id), name: str(b.name), input: b.input });
       }
       return out;
     }
@@ -177,10 +269,10 @@ function parseLine(offset: number, line: string): Parsed[] {
       const blocks = Array.isArray(content) ? (content as unknown[]).map(obj) : [];
       const out: Parsed[] = blocks
         .filter((b) => b.type === 'tool_result')
-        .map((b) => ({ kind: 'tool-result' as const, offset, parent, id: str(b.tool_use_id), isError: b.is_error === true, content: resultText(b.content) }));
+        .map((b) => ({ kind: 'tool-result' as const, offset, at, parent, id: str(b.tool_use_id), isError: b.is_error === true, content: resultText(b.content) }));
       // A subagent's prompt arrives as a user text message under its parent: show it like text.
-      if (typeof content === 'string' && content.trim()) out.push(item({ kind: 'text', offset, tone: 'muted', text: content, long: content.length > LONG_TEXT }, parent));
-      for (const b of blocks) if (b.type === 'text' && str(b.text).trim()) out.push(item({ kind: 'text', offset, tone: 'muted', text: str(b.text), long: str(b.text).length > LONG_TEXT }, parent));
+      if (typeof content === 'string' && content.trim()) out.push(item({ kind: 'text', offset, at, tone: 'muted', text: content, long: content.length > LONG_TEXT }, parent));
+      for (const b of blocks) if (b.type === 'text' && str(b.text).trim()) out.push(item({ kind: 'text', offset, at, tone: 'muted', text: str(b.text), long: str(b.text).length > LONG_TEXT }, parent));
       return out;
     }
     case 'result': {
@@ -189,12 +281,15 @@ function parseLine(offset: number, line: string): Parsed[] {
       const kind = ev.is_error === true && !str(ev.subtype).startsWith('error') ? 'turn failed' : str(ev.subtype);
       const why = ev.is_error === true && typeof ev.result === 'string' && ev.result.trim() ? clip(ev.result.trim(), 200) : '';
       const bits = [kind, why, ev.num_turns != null ? `${str(ev.num_turns)} turns` : '', ev.duration_ms != null ? `${Math.round(Number(ev.duration_ms) / 1000)}s` : '', cost !== null ? `$${cost.toFixed(4)}` : ''];
-      return [item({ kind: 'result', offset, tone: ev.is_error ? 'bad' : 'ok', text: bits.filter(Boolean).join(' · '), costUsd: cost }, parent)];
+      return [item({ kind: 'result', offset, at, tone: ev.is_error ? 'bad' : 'ok', text: bits.filter(Boolean).join(' · '), costUsd: cost }, parent)];
     }
-    case 'rate_limit_event':
-      return [item({ kind: 'rate-limit', offset, tone: 'warn', text: JSON.stringify(ev) }, parent)];
+    case 'rate_limit_event': {
+      const info = obj(ev.rate_limit_info);
+      const status = str(info.status);
+      return [item({ kind: 'rate-limit', offset, at, tone: status && status !== 'allowed' ? 'warn' : 'muted', text: rateLimitText(info) }, parent)];
+    }
     default:
-      return [item({ kind: 'other', offset, tone: 'muted', text: JSON.stringify(ev) }, parent)];
+      return [item({ kind: 'other', offset, at, tone: 'muted', text: JSON.stringify(ev) }, parent)];
   }
 }
 
@@ -202,11 +297,13 @@ function parseLine(offset: number, line: string): Parsed[] {
 function haystack(it: Item): string {
   switch (it.kind) {
     case 'tool':
-      return `${it.name} ${it.summary} ${it.input} ${it.result?.full ?? ''}`;
+      return `${it.name} ${it.summary} ${it.input} ${it.result?.full ?? ''} ${it.task?.text ?? ''}`;
     case 'subagent':
-      return `${it.role} ${it.description} ${it.input} ${it.result?.full ?? ''}`;
+      return `${it.role} ${it.description} ${it.input} ${it.result?.full ?? ''} ${it.task?.text ?? ''}`;
     case 'init':
       return `init ${it.model} ${it.session}`;
+    case 'task':
+      return `${it.role} ${it.text}`;
     case 'supervisor':
       return it.text;
     default:
@@ -235,7 +332,8 @@ function applyFilters(items: Item[], f: Filters, needle: string): Item[] {
 }
 
 /**
- * Groups a log's entries into turns, nests subagent lines under their Agent call, then filters.
+ * Groups a log's entries into turns, nests subagent lines under their Agent call, folds background
+ * task lines into the call they report on, then filters.
  * `partial`: the entries start mid-log (older lines are on the server), so the lines before the
  * first turn are not the session's start. Turns are numbered by the supervisor when its event says.
  */
@@ -245,20 +343,24 @@ export function buildSessionView(entries: readonly Entry[], filters: Filters = D
   let current: TurnGroup | null = null;
   const totals = { turns: 0, costUsd: 0, results: 0 };
   const tools = new Map<string, Item & { kind: 'tool' | 'subagent' }>();
-  const group = (offset: number): TurnGroup => {
+  /** Task lines whose call is not in the window: one item each, kept current. */
+  const orphans = new Map<string, Item & { kind: 'task' }>();
+  /** task_id → tool_use_id, from the task lines that carry both. */
+  const callOfTask = new Map<string, string>();
+  const group = (offset: number, at: string | null): TurnGroup => {
     if (!current) {
-      current = { offset, label: first, items: [] };
+      current = { offset, label: first, at, items: [] };
       turns.push(current);
     }
     return current;
   };
   /** Where a line with this parent goes: the turn, its Agent call's block, or a block for an unknown call. */
-  const target = (offset: number, parent: string | null): Item[] => {
-    const g = group(offset);
+  const target = (offset: number, at: string | null, parent: string | null): Item[] => {
+    const g = group(offset, at);
     if (!parent) return g.items;
     const known = tools.get(parent);
     if (known && known.kind === 'subagent') return known.items;
-    const sub: Item = { kind: 'subagent', offset, tone: 'muted', id: parent, role: 'Subagent (unknown call)', description: '', summary: '', input: '', items: [], result: null, known: false, hidden: 0 };
+    const sub: Item = { kind: 'subagent', offset, at, tone: 'muted', id: parent, role: 'Subagent (unknown call)', description: '', summary: '', input: '', items: [], result: null, known: false, hidden: 0, task: null };
     tools.set(parent, sub);
     g.items.push(sub);
     return sub.items;
@@ -267,36 +369,58 @@ export function buildSessionView(entries: readonly Entry[], filters: Filters = D
     for (const p of parseEntry(e)) {
       if (p.kind === 'turn') {
         totals.turns++;
-        current = { offset: p.offset, label: `Turn ${p.turn ?? totals.turns} · ${p.requests} ${p.requests === 1 ? 'request' : 'requests'}`, items: [] };
+        current = { offset: p.offset, label: `Turn ${p.turn ?? totals.turns} · ${p.requests} ${p.requests === 1 ? 'request' : 'requests'}`, at: p.at, items: [] };
         turns.push(current);
       } else if (p.kind === 'item') {
         if (p.item.kind === 'result') {
           totals.results++;
           if (p.item.costUsd !== null) totals.costUsd += p.item.costUsd;
         }
-        target(p.item.offset, p.parent).push(p.item);
+        target(p.item.offset, p.item.at, p.parent).push(p.item);
       } else if (p.kind === 'tool-use') {
         const input = pretty(p.input ?? {});
         const summary = toolSummary(p.name, p.input);
         const it: Item & { kind: 'tool' | 'subagent' } = AGENT_TOOLS.has(p.name)
-          ? { kind: 'subagent', offset: p.offset, tone: 'info', id: p.id, role: str(obj(p.input).subagent_type) || 'agent', description: str(obj(p.input).description), summary, input, items: [], result: null, known: true, hidden: 0 }
-          : { kind: 'tool', offset: p.offset, tone: null, id: p.id, name: p.name, summary, input, result: null };
-        const into = target(p.offset, p.parent);
+          ? { kind: 'subagent', offset: p.offset, at: p.at, tone: 'info', id: p.id, role: str(obj(p.input).subagent_type) || 'agent', description: str(obj(p.input).description), summary, input, items: [], result: null, known: true, hidden: 0, task: null }
+          : { kind: 'tool', offset: p.offset, at: p.at, tone: null, id: p.id, name: p.name, summary, input, result: null, task: null };
+        const into = target(p.offset, p.at, p.parent);
         // A placeholder made for this id by an earlier child line is adopted, not duplicated.
         const early = tools.get(p.id);
         if (it.kind === 'subagent' && early?.kind === 'subagent' && !early.known) {
-          Object.assign(early, { ...it, items: early.items, offset: Math.min(early.offset, it.offset) });
+          Object.assign(early, { ...it, items: early.items, offset: Math.min(early.offset, it.offset), task: early.task });
           continue;
         }
         if (p.id) tools.set(p.id, it);
         into.push(it);
+      } else if (p.kind === 'task') {
+        if (p.id && p.taskId) callOfTask.set(p.taskId, p.id);
+        const id = p.id ?? callOfTask.get(p.taskId);
+        // A task_updated for a task no loaded line has named: nothing to attach it to, and the notification repeats its status.
+        if (!id) continue;
+        const call = tools.get(id);
+        if (call) {
+          call.task = mergeTask(call.task, p.patch);
+          if (p.patch.status === 'failed') call.tone = 'bad';
+          continue;
+        }
+        const seen = orphans.get(id);
+        if (seen) {
+          seen.task = mergeTask(seen.task, p.patch);
+          seen.text = seen.task.text;
+          if (p.patch.status === 'failed') seen.tone = 'bad';
+          continue;
+        }
+        const task = mergeTask(null, p.patch);
+        const it: Item & { kind: 'task' } = { kind: 'task', offset: p.offset, at: p.at, tone: p.patch.status === 'failed' ? 'bad' : 'muted', id, role: p.role, task, text: task.text };
+        orphans.set(id, it);
+        target(p.offset, p.at, null).push(it);
       } else {
         const call = tools.get(p.id);
         const r = toolResult(p.isError, p.content);
         if (call) {
           call.result = r;
           if (p.isError) call.tone = 'bad';
-        } else target(p.offset, p.parent).push({ kind: 'other', offset: p.offset, tone: p.isError ? 'bad' : 'muted', text: `result for an unknown call: ${r.preview}` });
+        } else target(p.offset, p.at, p.parent).push({ kind: 'other', offset: p.offset, at: p.at, tone: p.isError ? 'bad' : 'muted', text: `result for an unknown call: ${r.preview}` });
       }
     }
   }

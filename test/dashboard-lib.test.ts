@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { esc, num, usd, ago, pct, tokensShort, dur } from '../dashboard/src/lib/util.ts';
+import { esc, num, usd, ago, pct, tokensShort, dur, clock } from '../dashboard/src/lib/util.ts';
 import { md, inline, safeUrl } from '../dashboard/src/lib/markdown.ts';
 import { STAGE_LABEL, WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
 import * as types from '../dashboard/src/lib/types.ts';
@@ -127,4 +127,12 @@ test('runtime code never imports dashboard sources', () => {
     // The engine is TypeScript too now, so only a .ts import that reaches into dashboard/ is refused.
     assert.doesNotMatch(text, /(?:from\s*|import\s*\(\s*|require\s*\(\s*)['"][^'"]*dashboard[^'"]*\.ts['"]/, `${rel} imports a dashboard .ts file`);
   }
+});
+
+test('clock: a local HH:MM:SS, or nothing for a missing or unparseable time', () => {
+  assert.match(clock('2026-10-14T04:36:00.672Z'), /^\d{2}:\d{2}:\d{2}$/);
+  assert.equal(clock(new Date(2026, 0, 1, 9, 5, 7).toISOString()), '09:05:07');
+  assert.equal(clock(null), '');
+  assert.equal(clock(''), '');
+  assert.equal(clock('yesterday'), '');
 });
