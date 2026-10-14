@@ -258,36 +258,206 @@ function ruleFor(css: string, selector: string): string {
   return out.join(';');
 }
 
+/** Channel-wise sRGB interpolation, what `color-mix(in srgb, a p, b)` computes for opaque colours. */
+const mix = (a: Rgba, p: number, b: Rgba): Rgba => [a[0] * p + b[0] * (1 - p), a[1] * p + b[1] * (1 - p), a[2] * p + b[2] * (1 - p), 1];
+
 // The token each chip tone writes its text in (.chip.<tone> in dashboard/style.css).
 const CHIP_TOKEN: Record<string, string> = { ok: 'ok', bad: 'bad', warn: 'warn', info: 'info', ink: 'ink', muted: 'muted', live: 'ink', rev: 'redline' };
+// The live chip's fill as the build writes it. The surface leads: Tailwind's color-mix fallback keeps the first
+// colour, so a browser without color-mix gets a plain chip rather than ink text on an ink fill.
+const LIVE_FILL = 'background-color:color-mix(in srgb,var(--surface,var(--bg)),var(--ink)12%)';
 
-test('chip tones meet 4.5:1 on bg, panel and raised', () => {
-  const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
+test('chip tones meet 4.5:1 on bg, panel and chrome', () => {
+  assert.deepEqual(mix([255, 0, 100, 1], 0.5, [0, 255, 0, 1]), [127.5, 127.5, 50, 1], 'self-check: mix');
   const css = builtCss();
-  const themes: Record<string, Map<string, string>> = { cyanotype: scope(design, SCOPES[0]), vellum: scope(design, SCOPES[1]) };
   for (const tone of Object.keys(TONE_CLASS)) {
     const token = CHIP_TOKEN[tone];
     assert.ok(token, `TONE_CLASS.${tone} has a token mapping in this test`);
     assert.match(ruleFor(css, `.chip.${TONE_CLASS[tone]}`), new RegExp(`color:var\\(--${token}\\)`), `.chip.${TONE_CLASS[tone]} colours its text with --${token}`);
-    for (const [theme, vars] of Object.entries(themes)) {
-      const color = (k: string): Rgba => {
-        const c = parseColor(vars.get(`--${k}`) ?? '');
-        assert.ok(c, `${theme} --${k} is a colour`);
-        return c;
-      };
-      const bg = color('bg');
-      const surfaces: Record<string, Rgba> = { bg, panel: over(color('panel'), bg), raised: over(color('raised'), bg) };
-      // The live chip's hatch (1px of --line-soft in every 5px) averages out to a fifth of its alpha.
-      if (tone === 'live') {
-        const [r, g, b, a] = color('line-soft');
-        for (const k of Object.keys(surfaces)) surfaces[`${k}+hatch`] = over([r, g, b, a * 0.2], surfaces[k]);
-      }
+    for (const [theme, color] of Object.entries(themeColors())) {
+      // A chip fills with the surface it sits on; the live chip with 12% ink over that surface.
+      const fill = (s: Rgba) => (tone === 'live' ? mix(color('ink'), 0.12, s) : s);
+      const surfaces: Record<string, Rgba> = { bg: fill(color('bg')), panel: fill(color('panel')), chrome: fill(color('chrome')) };
+      // Button chips (DaemonBar) sketch over their fill inside a sheet.
+      surfaces['panel+sketch'] = over(color('sketch-line'), fill(color('panel')));
       for (const [k, surface] of Object.entries(surfaces)) {
         const ratio = contrast(color(token), surface);
         assert.ok(ratio >= 4.5, `${theme} chip ${tone} (--${token}) on ${k} is ${ratio.toFixed(2)}:1`);
       }
     }
   }
+  const live = ruleFor(css, '.chip.live');
+  assert.ok(live.includes(LIVE_FILL), `.chip.live is an opaque ink tint of its surface (${live})`);
+  assert.doesNotMatch(live, /background-image|gradient/, 'the live chip has no hatch');
+  assert.match(ruleFor(css, '.chip'), /background-color:var\(--surface,var\(--bg\)\)/, 'a chip fills with its surface');
+});
+
+// ---------- fills: what each background resolves to, measured on the built CSS ----------
+
+/** The value of every custom property the built CSS declares, for vars that aren't design tokens (Tailwind's own). */
+function builtVars(css: string): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const m of css.matchAll(/(?<=[{;])\s*(--[\w-]+)\s*:([^;{}]*)/g)) out.set(m[1], [...(out.get(m[1]) ?? []), m[2].trim()]);
+  return out;
+}
+
+/** Splits on commas outside parentheses. */
+function args(value: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (const c of value) {
+    if (c === '(') depth++;
+    if (c === ')') depth--;
+    if (c === ',' && depth === 0) {
+      out.push(cur.trim());
+      cur = '';
+    } else cur += c;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+const VAR = /^var\((--[\w-]+)\s*(?:,(.*))?\)$/;
+
+/** Every value a var() can take: its token value in each theme, else what the built CSS declares, else its fallback. */
+function varValues(name: string, fallback: string | undefined, themes: Map<string, string>[], built: Map<string, string[]>): string[] {
+  const fromTokens = themes.map((t) => t.get(name)).filter((v): v is string => v !== undefined);
+  if (fromTokens.length) return fromTokens;
+  if (name !== '--surface' && built.has(name)) return built.get(name) ?? [];
+  assert.ok(fallback, `${name} resolves to nothing`);
+  return [fallback];
+}
+
+/** Whether a background colour is opaque in both themes: an opaque token, the surface, or a mix of opaque colours. */
+function opaque(value: string, themes: Map<string, string>[], built: Map<string, string[]>): boolean {
+  const v = value.trim();
+  if (v === 'var(--surface,var(--bg))') return true;
+  const mixed = /^color-mix\((.*)\)$/.exec(v);
+  if (mixed) {
+    const [space, ...colors] = args(mixed[1]);
+    return space === 'in srgb' && colors.length === 2 && colors.every((c) => opaque(c.replace(/\s*\d+(\.\d+)?%$/, '').replace(/\)\d+(\.\d+)?%$/, ')'), themes, built));
+  }
+  const ref = VAR.exec(v);
+  if (ref) return varValues(ref[1], ref[2], themes, built).every((x) => opaque(x, themes, built));
+  const c = parseColor(v);
+  return c !== null && c[3] === 1;
+}
+
+// The unlayered rule that draws every native field (its selector list holds a comma inside :not()).
+const NATIVE = 'input:not([type=checkbox],[type=radio]),textarea,select';
+const FILLED = [
+  '.chip', '.chip.live', '.chip.hl', '.btn', '.btn.sel', '.btn.primary', '.btn.primary[disabled]', '.btn:active', '.nav a', '.nav button', '.tab', '.tab.active',
+  '.input', '.check', '.radio', '.track', '.fill', '.fill.ok', '.fill.warn', '.fill.bad', NATIVE, 'select option', '.sheet', '.sheet.clickable:hover',
+  '.solid', '.plain', '.chrome',
+];
+const SKETCH_VALUE = 'repeating-linear-gradient(45deg,color-mix(in srgb,transparent,var(--sketch-line)var(--sketch))0 1px,transparent 1px var(--hatch-pitch))';
+// Tailwind's fallback for browsers without color-mix: no sketch at all.
+const SKETCH_FALLBACK = 'repeating-linear-gradient(45deg,transparent 0 1px,transparent 1px var(--hatch-pitch))';
+const SELECT_ARROW = 'linear-gradient(45deg,transparent 50%,var(--fg)50%),linear-gradient(135deg,var(--fg)50%,transparent 50%)';
+
+/** The bodies of every rule whose selector list names `selector` or is exactly it. */
+function rulesOf(css: string, selector: string): string {
+  const out: string[] = [];
+  for (const m of css.matchAll(/([^{}]*)\{([^{}]*)\}/g)) if (m[1].trim() === selector || m[1].split(',').some((x) => x.trim() === selector)) out.push(m[2]);
+  return out.join(';');
+}
+
+/** background, background-color and background-image declarations of every rule (at any depth) of a selector. */
+const backgrounds = (css: string, selector: string) =>
+  [...rulesOf(css, selector).matchAll(/(?:^|;)\s*(background(?:-color|-image)?)\s*:([^;]*)/g)].map((m) => [m[1], m[2].trim()] as const);
+
+test('filled elements are opaque', () => {
+  const css = builtCss();
+  const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
+  const themes = [scope(design, SCOPES[0]), scope(design, SCOPES[1]), scope(design, SCOPES[2])];
+  const built = builtVars(css);
+  assert.ok(opaque('color-mix(in srgb,var(--surface,var(--bg)),var(--ink)12%)', themes, built), 'self-check: the live mix');
+  assert.ok(!opaque('#0000', themes, built) && !opaque('transparent', themes, built) && !opaque('var(--raised)', themes, built), 'self-check: see-through values');
+  assert.ok(!opaque('color-mix(in srgb,var(--ink) 12%,transparent)', themes, built), 'self-check: a mix with transparent');
+  for (const sel of FILLED) {
+    const decls = backgrounds(css, sel);
+    assert.ok(decls.length > 0, `${sel} has a background`);
+    for (const [prop, value] of decls) {
+      if (prop === 'background-image') {
+        assert.ok(['none', SKETCH_VALUE, SKETCH_FALLBACK, SELECT_ARROW].includes(value), `${sel} draws ${value}: only the sketch and the select arrow`);
+        continue;
+      }
+      assert.ok(opaque(value, themes, built), `${sel} › ${prop}:${value} is see-through`);
+    }
+  }
+  const surfaces = [...css.matchAll(/(?<=[{;])\s*--surface\s*:([^;{}]*)/g)].map((m) => m[1].trim());
+  assert.ok(surfaces.length >= 4, `checked ${surfaces.length} --surface declarations`);
+  for (const s of surfaces) assert.ok(['var(--bg)', 'var(--panel)', 'var(--chrome)'].includes(s), `--surface:${s} is not an opaque surface`);
+  assert.ok(!themes.some((t) => t.has('--surface')), '--surface is never a token');
+});
+
+// Every see-through fill in the built CSS, with why it is allowed. Nothing a person reads text on is here except
+// the raised wash, which only ever lands on a plain opaque fill.
+const ALPHA_ALLOWED: Record<string, string> = {
+  '.ground › --grid-major': 'the 64px grid, drawn only on the ground',
+  '.ground › --grid-minor': 'the 8px grid, drawn only on the ground',
+  '.falloff:after › --fall': 'the exposure falloff on the ground behind main',
+  '* › sketch gradient': 'the hover sketch, at var(--sketch) strength over the control’s own opaque fill',
+  '.backdrop › literal': 'the modal scrim under the drawer and dialogs',
+  '[data-theme=vellum] .backdrop › literal': 'the vellum modal scrim',
+  '.dim-line:before,.dim-line:after › --line': 'a 1px dimension rule, not a fill',
+  '.clickable:hover › --raised': 'a hovered table row over its sheet’s panel',
+  '.nav a.active,.nav button.active › --raised': 'the active nav item over chrome or panel; it never sketches',
+  '.prose code › --raised': 'inline code in markdown, which renders only in the drawer and dialogs (panel)',
+  '.bg-raised › --raised': 'the command bar’s active option and the drawer’s selected file and file view, all on panel',
+};
+
+/** The alpha sources of one background value: translucent literals, mixes with transparent, translucent tokens. */
+function alphaSources(value: string, themes: Map<string, string>[], built: Map<string, string[]>): string[] {
+  const v = value.replace(/url\([^)]*\)/g, '');
+  const out = new Set<string>();
+  for (const m of v.matchAll(/#[0-9a-fA-F]{3,8}\b|(?:rgba?|hsla?)\([^)]*\)/g)) {
+    const lit = m[0].startsWith('hsl') ? /[\s,/]([\d.]+%?)\s*\)$/.exec(m[0]) : null;
+    const alpha = lit ? parseFloat(lit[1]) / (lit[1].endsWith('%') ? 100 : 1) : (parseColor(m[0])?.[3] ?? 1);
+    // Fully transparent draws nothing: that is no fill, not a see-through one ('filled elements are opaque' bans it on fills).
+    if (alpha < 1 && alpha > 0) out.add('literal');
+  }
+  for (const m of v.matchAll(/color-mix\(([^()]*(?:\([^()]*(?:\([^()]*\)[^()]*)*\)[^()]*)*)\)/g)) if (args(m[1]).some((a) => /^transparent\b/.test(a))) out.add('color-mix(…, transparent)');
+  for (const m of v.matchAll(/var\((--[\w-]+)/g)) {
+    if (m[1] === '--surface') continue;
+    const values = varValues(m[1], 'transparent', themes, built);
+    if (values.some((x) => {
+      const c = parseColor(x);
+      return c !== null && c[3] < 1 && c[3] > 0;
+    }))
+      out.add(m[1]);
+  }
+  return [...out];
+}
+
+test('no fill is see-through: alpha only on the ground, the sketch and the allowlist', () => {
+  const css = builtCss();
+  const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
+  const themes = [scope(design, SCOPES[0]), scope(design, SCOPES[1]), scope(design, SCOPES[2])];
+  const built = builtVars(css);
+  assert.deepEqual(alphaSources('rgba(0,0,0,.5) #0000 var(--panel) var(--raised) rgb(0 0 0/.2)', themes, built).sort(), ['--raised', 'literal'], 'self-check: literal and token alpha');
+  assert.deepEqual(alphaSources('color-mix(in srgb,var(--ink) 12%,transparent)', themes, built), ['color-mix(…, transparent)'], 'self-check: a mix with transparent');
+  assert.deepEqual(alphaSources('hsla(0,0%,0%,.3)', themes, built), ['literal'], 'self-check: hsla');
+  const measured = new Set<string>();
+  let decls = 0;
+  for (const m of css.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
+    const selector = m[1].trim();
+    for (const d of m[2].matchAll(/(?:^|;)\s*(background(?:-color|-image)?)\s*:([^;]*)/g)) {
+      decls++;
+      const value = d[2].trim();
+      if (value === SKETCH_VALUE) {
+        measured.add('* › sketch gradient');
+        continue;
+      }
+      for (const source of alphaSources(value, themes, built)) measured.add(`${selector} › ${source}`);
+    }
+  }
+  assert.ok(decls >= 60, `checked ${decls} background declarations`);
+  assert.deepEqual([...measured].sort(), Object.keys(ALPHA_ALLOWED).sort(), 'the see-through fills equal the allowlist');
+  // The active nav item's raised wash is the one control state allowed (over chrome or panel, and it never sketches).
+  for (const key of Object.keys(ALPHA_ALLOWED).filter((k) => k !== '.nav a.active,.nav button.active › --raised'))
+    assert.doesNotMatch(key.split(' › ')[0], /\.(chip|btn|nav|tab|fill|track|toast)\b/, `${key}: no control is allowed to be see-through`);
 });
 
 // The sidebar and the phone header are opaque --chrome (App.svelte), the furthest step from the ground; the
@@ -313,7 +483,7 @@ test('chrome sidebar keeps text at 4.5:1', () => {
   assert.ok(!app.includes('bg-black/'), 'no translucent shade is left');
   const nav = fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'components', 'Nav.svelte'), 'utf8');
   assert.match(nav, /<span class="mono num \{on \? '' : 'muted'\}">/);
-  assert.match(nav, /<span class="chip rev \{on \? 'bg-panel' : ''\}">/);
+  assert.match(nav, /<span class="chip rev">/, 'the Inbox tag fills with the chrome under it, active or not');
   assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'views', 'Pipeline.svelte'), 'utf8'), /opacity-70/, 'a selected filter count is full --on-ink');
 
   // --highlight is about 1.6:1 on vellum paper, so a hovered link turns --fg there.

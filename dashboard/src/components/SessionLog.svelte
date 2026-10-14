@@ -170,7 +170,7 @@
       {#if it.result}{@render result(it.result)}{/if}
     </details>
   {:else if it.kind === 'subagent'}
-    <details class="hatch border border-info px-2 py-1">
+    <details class="border border-info px-2 py-1">
       <summary class="cursor-pointer break-all">{@render when(it.at)}<Chip tone={it.known ? 'info' : 'muted'} text={it.role} /> <span>{it.description}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.hidden} <span class="text-muted">{$t('session.hiddenLines', { count: it.hidden })}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
       {#if it.prompt}
         <details class="mt-1">

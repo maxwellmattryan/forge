@@ -21,9 +21,10 @@ h1, h2, h3, p { margin: 0; }
 /* Appearance prefs (Settings › General › Grid, Paper): off drops the grid, or the fibre and the falloff. */
 html[data-grid="off"] .ground { background-image: none; }
 html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::after { display: none; }
-.plain { background-color: var(--panel); }
-.solid { background-color: var(--panel); } /* an overlay: the drawer, dialogs, toasts */
-.chrome { background-color: var(--chrome); } /* the sidebar and the phone header: the furthest step from the ground */
+/* --surface: the colour a control's rest fill takes. Never declared in a token scope, so on the ground it falls back to bg. */
+.plain { background-color: var(--panel); --surface: var(--panel); }
+.solid { background-color: var(--panel); --surface: var(--panel); } /* an overlay: the drawer, dialogs, toasts */
+.chrome { background-color: var(--chrome); --surface: var(--chrome); } /* the sidebar and the phone header: the furthest step from the ground */
 .dashed { border-style: dashed; } /* only the border: a dashed .btn keeps its fill and its sketch */
 
 /* ---------- the sketch: 45° lines that fade in and slide 6px into place over a hovered control's own fill ---------- */
@@ -33,13 +34,8 @@ html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::
 @media (hover: hover) { .sketch:hover { --sketch: 100%; background-position: 0 0; } }
 .sketch.hover { --sketch: 100%; background-position: 0 0; }
 
-/* ---------- hatching ---------- */
-.hatch { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
-.hatch-dense { background-image: repeating-linear-gradient(45deg, var(--line) 0 1px, transparent 1px 4px); }
-.crosshatch { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px), repeating-linear-gradient(-45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
-
 /* ---------- sheet: an outlined panel; .ticks adds corner register marks ---------- */
-.sheet { border: 1px solid var(--line); background-color: var(--panel); position: relative; } /* background-color, not the shorthand: .sheet.clickable keeps its sketch */
+.sheet { border: 1px solid var(--line); background-color: var(--panel); --surface: var(--panel); position: relative; } /* background-color, not the shorthand: .sheet.clickable keeps its sketch */
 .sheet.ticks > .tk { position: absolute; inset: 0; pointer-events: none; }
 .sheet.ticks::before, .sheet.ticks::after, .sheet.ticks > .tk::before, .sheet.ticks > .tk::after { content: ""; position: absolute; width: 9px; height: 9px; border-color: var(--line-strong); border-style: solid; }
 .sheet.ticks::before { top: -1px; left: -1px; border-width: 1px 0 0 1px; } .sheet.ticks::after { top: -1px; right: -1px; border-width: 1px 1px 0 0; }
@@ -49,7 +45,7 @@ html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::
 .sheet.hover { border-color: var(--line-strong); background-color: var(--panel); --sketch: 100%; background-position: 0 0; } /* a hovered card keeps its panel */
 .sheet.clickable:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 3px; }
 .sheet.redline { border-color: var(--redline); outline: 1px dashed var(--redline); outline-offset: 3px; }
-.sheet.dashed { border-style: dashed; background-color: transparent; } /* a board column: a container drawn on the ground */
+.sheet.dashed { border-style: dashed; background-color: transparent; --surface: var(--bg); } /* a board column: a container drawn on the ground */
 .sheet.solid { background-color: var(--panel); }
 
 /* ---------- type ---------- */
@@ -70,7 +66,7 @@ html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::
 .prose.compact { font-size: 12px; line-height: 18px; } .prose.compact h1, .prose.compact h2, .prose.compact h3 { font-size: 13px; line-height: 18px; font-weight: 600; margin: 8px 0 4px; } .prose.compact p, .prose.compact ul, .prose.compact ol, .prose.compact pre, .prose.compact blockquote, .prose.compact table { margin: 4px 0; } .prose.compact pre { font-size: 11px; line-height: 16px; padding: 8px; } .prose.compact > :first-child { margin-top: 0; } .prose.compact > :last-child { margin-bottom: 0; }
 
 /* ---------- buttons ---------- */
-.btn { font-family: var(--font-mono); font-weight: 500; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg); background-color: transparent; background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; border: 1px solid var(--line-strong); border-radius: 0; padding: 7px 12px; line-height: 16px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; transition: --sketch .16s ease-out, background-position .16s ease-out, background-color .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease, transform .12s ease; white-space: nowrap; position: relative; }
+.btn { font-family: var(--font-mono); font-weight: 500; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg); background-color: var(--surface, var(--bg)); background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; border: 1px solid var(--line-strong); border-radius: 0; padding: 7px 12px; line-height: 16px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; transition: --sketch .16s ease-out, background-position .16s ease-out, background-color .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease, transform .12s ease; white-space: nowrap; position: relative; }
 @media (hover: hover) { .btn:hover { --sketch: 100%; background-position: 0 0; } .btn:hover .muted { color: inherit; } }
 .btn.hover { --sketch: 100%; background-position: 0 0; }
 .btn.hover .muted { color: inherit; } /* muted falls to about 4.2:1 on the ground plus the sketch */
@@ -81,7 +77,7 @@ html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::
 .btn.primary { background: var(--ink); color: var(--on-ink); border-color: var(--ink); box-shadow: var(--shadow-primary); }
 .btn.primary:hover, .btn.primary.hover { background-image: none; box-shadow: 4px 4px 0 0 var(--line); transform: translate(-1px,-1px); }
 .btn.primary:active, .btn.primary.active { box-shadow: none; transform: translate(2px,2px); }
-.btn.primary[disabled] { background: transparent; color: var(--fg); border-color: var(--line-strong); box-shadow: none; }
+.btn.primary[disabled] { background-color: var(--surface, var(--bg)); background-image: none; color: var(--fg); border-color: var(--line-strong); box-shadow: none; }
 .btn.sm { font-size: 11px; padding: 5px 9px; }
 .btn.icon { padding: 7px; }
 .btn.touch { min-width: 44px; min-height: 44px; justify-content: center; }
@@ -90,10 +86,10 @@ html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::
 .seg label:has(input:focus-visible) { outline: 1px dashed var(--line-strong); outline-offset: 3px; z-index: 1; } /* a radio seg: the visually hidden input focuses, its label draws the ring */
 
 /* ---------- chips: outlined annotations ---------- */
-.chip { font-family: var(--font-mono); font-weight: 500; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; line-height: 14px; padding: 2px 6px; border: 1px solid currentColor; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; background: transparent; }
+.chip { font-family: var(--font-mono); font-weight: 500; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; line-height: 14px; padding: 2px 6px; border: 1px solid currentColor; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; background-color: var(--surface, var(--bg)); }
 .chip.ok { color: var(--ok); } .chip.bad { color: var(--bad); } .chip.warn { color: var(--warn); } .chip.info { color: var(--info); } .chip.ink { color: var(--ink); }
 .chip.muted { color: var(--muted); border-style: dashed; }
-.chip.live { color: var(--ink); background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 5px); }
+.chip.live { color: var(--ink); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--ink) 12%); } /* an opaque ink tint of the surface */
 .chip.rev { color: var(--redline); border-color: var(--redline); }
 .chip.hl { color: #14355f; background: var(--highlight); border-color: var(--highlight); }
 button.chip { cursor: pointer; background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; transition: --sketch .16s ease-out, background-position .16s ease-out; }
@@ -102,7 +98,7 @@ button.chip[aria-expanded="true"] { outline: 1px dashed currentColor; outline-of
 
 /* ---------- nav ---------- */
 .nav { display: flex; flex-direction: column; gap: 2px; }
-.nav a, .nav button { font-family: var(--font-mono); font-weight: 500; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px 9px 12px; border: 1px solid transparent; background-color: transparent; background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; width: 100%; cursor: pointer; line-height: 16px; transition: --sketch .16s ease-out, background-position .16s ease-out, background-color .12s ease, border-color .12s ease, color .12s ease; position: relative; text-align: left; }
+.nav a, .nav button { font-family: var(--font-mono); font-weight: 500; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px 9px 12px; border: 1px solid transparent; background-color: var(--surface, var(--bg)); background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; width: 100%; cursor: pointer; line-height: 16px; transition: --sketch .16s ease-out, background-position .16s ease-out, background-color .12s ease, border-color .12s ease, color .12s ease; position: relative; text-align: left; }
 .nav a:hover, .nav a.hover, .nav button:hover { color: var(--fg); border-color: var(--line-soft); }
 @media (hover: hover) { .nav a:hover, .nav button:hover { --sketch: 100%; background-position: 0 0; } }
 .nav a.hover { --sketch: 100%; background-position: 0 0; }
@@ -115,30 +111,29 @@ button.chip[aria-expanded="true"] { outline: 1px dashed currentColor; outline-of
 .nav.row a, .nav.row button { width: auto; flex: none; }
 
 /* ---------- inputs ---------- */
-.input { font-family: var(--font-mono); font-size: 13px; color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 0; padding: 7px 10px; outline: none; line-height: 18px; }
+.input { font-family: var(--font-mono); font-size: 13px; color: var(--fg); background-color: var(--surface, var(--bg)); border: 1px solid var(--line); border-radius: 0; padding: 7px 10px; outline: none; line-height: 18px; }
 .input::placeholder { color: var(--dim); }
 .input:focus, .input.focus { border-color: var(--line-strong); outline: 1px dashed var(--line-strong); outline-offset: 2px; }
 .input:hover, .input.hover { border-color: var(--line-strong); }
 .input:disabled, .input.disabled { opacity: .4; border-style: dashed; cursor: not-allowed; }
 textarea.input { font-family: var(--font-sans); font-size: 14px; resize: vertical; }
 select.input { appearance: none; padding-right: 28px; background-image: linear-gradient(45deg, transparent 50%, var(--fg) 50%), linear-gradient(135deg, var(--fg) 50%, transparent 50%); background-position: calc(100% - 15px) 14px, calc(100% - 10px) 14px; background-size: 5px 5px; background-repeat: no-repeat; }
-.check { width: 14px; height: 14px; border: 1px solid var(--line-strong); display: inline-block; position: relative; flex: none; appearance: none; margin: 0; background: transparent; cursor: pointer; vertical-align: middle; } /* also drawn on a native <input type="checkbox" class="check"> */
+.check { width: 14px; height: 14px; border: 1px solid var(--line-strong); display: inline-block; position: relative; flex: none; appearance: none; margin: 0; background-color: var(--surface, var(--bg)); cursor: pointer; vertical-align: middle; } /* also drawn on a native <input type="checkbox" class="check"> */
 .check:disabled { opacity: .4; border-style: dashed; cursor: not-allowed; }
 .check.on::after, .check:checked::after { content: ""; position: absolute; inset: 2px; background: var(--ink); }
-.radio { width: 14px; height: 14px; border: 1px solid var(--line-strong); border-radius: 50%; display: inline-block; position: relative; flex: none; }
+.radio { width: 14px; height: 14px; border: 1px solid var(--line-strong); border-radius: 50%; display: inline-block; position: relative; flex: none; background-color: var(--surface, var(--bg)); }
 .radio.on::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--ink); }
 .field { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 
 /* ---------- progress ---------- */
-.track { height: 8px; border: 1px solid var(--line); position: relative; }
-.fill { height: 100%; background: var(--ink); background-image: repeating-linear-gradient(45deg, rgba(21,66,122,.5) 0 1px, transparent 1px 4px); position: relative; }
-[data-theme="vellum"] .fill { background-image: repeating-linear-gradient(45deg, rgba(241,236,223,.55) 0 1px, transparent 1px 4px); }
+.track { height: 8px; border: 1px solid var(--line); position: relative; background-color: var(--surface, var(--bg)); }
+.fill { height: 100%; background: var(--ink); position: relative; }
 .fill::after { content: ""; position: absolute; right: -1px; top: -4px; bottom: -4px; width: 1px; background: var(--ink); }
 .fill.ok { background: var(--ok); } .fill.warn { background: var(--warn); } .fill.bad { background: var(--bad); }
 
 /* ---------- tabs ---------- */
 .tabs { display: flex; border-bottom: 1px solid var(--line); }
-.tab { font-family: var(--font-mono); font-weight: 500; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 8px 14px; border: 1px solid transparent; border-bottom: 0; background-color: transparent; background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; transition: --sketch .16s ease-out, background-position .16s ease-out, background-color .12s ease, border-color .12s ease, color .12s ease; cursor: pointer; margin-bottom: -1px; }
+.tab { font-family: var(--font-mono); font-weight: 500; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 8px 14px; border: 1px solid transparent; border-bottom: 0; background-color: var(--surface, var(--bg)); background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; transition: --sketch .16s ease-out, background-position .16s ease-out, background-color .12s ease, border-color .12s ease, color .12s ease; cursor: pointer; margin-bottom: -1px; }
 .tab:hover, .tab.hover { color: var(--fg); }
 @media (hover: hover) { .tab:hover { --sketch: 100%; background-position: 0 0; } }
 .tab.hover { --sketch: 100%; background-position: 0 0; }
@@ -149,7 +144,7 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 .tbl th { font-family: var(--font-mono); font-weight: 500; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); }
 .tbl td { padding: 8px 12px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
 .tbl tr:last-child td { border-bottom: 0; }
-.tbl tr.clickable { cursor: pointer; } .tbl tr.clickable:hover td { background: var(--raised); }
+.tbl tr.clickable { cursor: pointer; }
 .tbl .r { text-align: right; }
 
 /* ---------- title block ---------- */

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { endOf, tags } from './svelte-markup.ts';
+import { ancestry, endOf, tags, type Placed } from './svelte-markup.ts';
 import { TONE_CLASS } from '../dashboard/src/lib/util.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -349,6 +349,8 @@ test('the ground is the only patterned surface', () => {
     const lists = rel.endsWith('.svelte') ? fileClassLists(rel) : tsClassLists(read(rel));
     for (const cls of lists.flat()) {
       assert.notEqual(base(cls), 'bg-bg', `${rel} fills with bg-bg: an overlay is panel, the ground is bg`);
+      assert.ok(!['ground', 'hatch', 'hatch-dense', 'crosshatch'].includes(base(cls)), `${rel} uses ${cls}: the grid, the fibre and the sketch are the only patterns`);
+      if (rel !== 'App.svelte') assert.notEqual(base(cls), 'falloff', `${rel} uses falloff`);
       assert.doesNotMatch(base(cls), /^bg-.+\/.+$/, `${rel} fills with ${cls}, a see-through tint`);
     }
   }
@@ -460,4 +462,62 @@ test('Inbox lists dependency parks apart, with Resume', () => {
   assert.match(block, /<JobActions job=\{j\} noteId="park-\{j\.id\}" \/>/);
   assert.match(text, /\{#if groups\.urgent\.length\}/, 'the empty state still keys on the urgent list');
   assert.match(read('lib/dock.ts'), /const actionable = needsHuman\(job\) \|\| isDependencyPark\(job\) \|\|/, "the drawer's dock keeps the gate's actions for parks");
+});
+
+// Two backgrounds never conflict: a filled element (chip, button, progress, any bg-*) never shows a pattern through
+// or around it, patterns never stack, and a sketched control never sits in another one (two sketches at once).
+const CARRIERS = ['hatch', 'hatch-dense', 'crosshatch', 'sketch', 'ground'];
+const classesOf = (el: Placed) => classTokens(el.attrs.find((a) => a.name === 'class')?.value ?? '""').map(base);
+const isCarrier = (c: string[]) => c.some((x) => CARRIERS.includes(x));
+const isOpaque = (c: string[]) => (c.includes('sheet') && !c.includes('dashed')) || ['solid', 'plain', 'chrome', 'bg-panel'].some((x) => c.includes(x));
+const isFilled = (c: string[]) => ['chip', 'btn', 'fill', 'track'].some((x) => c.includes(x)) || c.some((x) => x.startsWith('bg-'));
+const isSketched = (el: Placed, c: string[]) => c.includes('btn') || (c.includes('sheet') && c.includes('clickable')) || c.includes('tab') || (el.name === 'button' && c.includes('chip'));
+
+/** What breaks the rule in one component's markup. */
+function conflicts(file: string, text: string): string[] {
+  const out: string[] = [];
+  for (const el of ancestry(file, text)) {
+    const c = classesOf(el);
+    const what = `<${el.name} class="${c.join(' ')}">`;
+    if (isFilled(c)) {
+      for (const a of el.ancestors) {
+        const ac = classesOf(a);
+        if (isCarrier(ac)) {
+          out.push(`${file}: ${what} sits on a pattern (${ac.join(' ')})`);
+          break;
+        }
+        if (isOpaque(ac)) break;
+      }
+    }
+    if (isCarrier(c) && el.ancestors.some((a) => isCarrier(classesOf(a)))) out.push(`${file}: ${what} draws a pattern inside a pattern`);
+    if (isSketched(el, c) && el.ancestors.some((a) => isSketched(a, classesOf(a)))) out.push(`${file}: ${what} sketches inside a sketched control`);
+  }
+  return out;
+}
+
+test('no filled element nests in a patterned one', () => {
+  // The walker: nearest ancestor first, past blocks, void elements and self-closed tags; unbalanced closes throw.
+  const walked = ancestry('x.svelte', '<script>let a = "<b>";</script><style>.x{}</style><!-- <i> --><div class="a">{#if x}<img src="y" /><br><Comp /><svelte:element this="p"><span class="b"></span></svelte:element>{/if}</div>');
+  const span = walked.find((e) => e.name === 'span');
+  assert.deepEqual(span?.ancestors.map((a) => a.name), ['svelte:element', 'div']);
+  assert.deepEqual(walked.map((e) => e.name), ['div', 'img', 'br', 'Comp', 'svelte:element', 'span']);
+  assert.throws(() => ancestry('x.svelte', '<div></span></div>'), /closes nothing/);
+  // Each failure is caught, and an opaque sheet in between passes.
+  assert.equal(conflicts('x', '<div class="hatch"><span class="chip ok"></span></div>').length, 1, 'a chip on a hatch');
+  assert.equal(conflicts('x', '<div class="sketch p-2"><div><button class="btn sm"></button></div></div>').length, 1, 'a button on a sketch, two levels down');
+  assert.equal(conflicts('x', '<div class="ground"><i class="bg-ink"></i></div>').length, 1, 'a bg-* fill on the ground class');
+  assert.deepEqual(conflicts('x', '<div class="hatch"><div class="sheet"><span class="chip"></span></div></div>'), [], 'an intervening sheet passes');
+  assert.deepEqual(conflicts('x', '<div class="hatch"><div class="solid"><div class="track"><div class="fill"></div></div></div></div>'), [], 'an intervening solid passes');
+  assert.equal(conflicts('x', '<div class="hatch"><div class="sheet dashed"><span class="chip"></span></div></div>').length, 1, 'a dashed sheet is see-through');
+  assert.equal(conflicts('x', '<div class="sketch"><div class="sheet"><div class="crosshatch"></div></div></div>').length, 1, 'a pattern in a pattern');
+  assert.equal(conflicts('x', '<button class="sheet ticks clickable"><span class="tk"></span><span class="btn sm"></span></button>').length, 1, 'a button in a sketched card');
+  assert.equal(conflicts('x', '<div class="tab"><button class="chip ok"></button></div>').length, 1, 'a button chip in a tab');
+  assert.deepEqual(conflicts('x', '<button class="sheet clickable"><span class="chip live"></span></button>'), [], 'a span chip in a card is fine: the sketch is not inherited');
+
+  const files = svelteFiles();
+  assert.ok(files.length >= 35, `checked ${files.length} components`);
+  for (const rel of files) assert.deepEqual(conflicts(rel, read(rel)), [], `${rel} keeps one background per layer`);
+  for (const rel of tsFiles()) {
+    for (const list of tsClassLists(read(rel))) assert.ok(!isCarrier(list.map(base)), `${rel} builds a pattern carrier (${list.join(' ')})`);
+  }
 });

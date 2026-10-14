@@ -6,7 +6,7 @@
 @source "./src/**/*.ts";
 @source "./src/**/*.svelte";
 /* Emitted before any markup uses them, so later jobs only change markup. */
-@source inline("ground falloff plain chrome sketch hatch hatch-dense crosshatch sheet ticks redline dashed solid clickable h label callout mono num muted dimmed caption dim-line prose btn seg chip nav input check radio field track fill tabs tab tbl tblock kpi ic dot backdrop mark");
+@source inline("ground falloff plain chrome sketch sheet ticks redline dashed solid clickable h label callout mono num muted dimmed caption dim-line prose btn seg chip nav input check radio field track fill tabs tab tbl tblock kpi ic dot backdrop mark");
 
 @custom-variant dark (&:where([data-theme=cyanotype], [data-theme=cyanotype] *));
 
@@ -230,7 +230,9 @@
   }
   html[data-paper="off"] &::after { display: none; }
 }
-@utility plain { background-color: var(--panel); }
+/* --surface is the colour a control's rest fill takes: never declared in a token scope, so a control on the
+   ground falls back to bg (`var(--surface, var(--bg))`); sheets and overlays set panel, the chrome sets chrome. */
+@utility plain { background-color: var(--panel); --surface: var(--panel); }
 
 /* ---------- the sketch: 45° lines that fade in and slide into place over a hovered control ----------
    The image is declared at rest at 0% strength, so hover sets only --sketch and the position; a rule that
@@ -245,17 +247,13 @@
   &.hover { --sketch: 100%; background-position: 0 0; }
 }
 
-/* ---------- hatching ---------- */
-@utility hatch { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
-@utility hatch-dense { background-image: repeating-linear-gradient(45deg, var(--line) 0 1px, transparent 1px 4px); }
-@utility crosshatch { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px), repeating-linear-gradient(-45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
-
 /* ---------- sheet: an outlined panel; ticks adds corner register marks ---------- */
 /* background-color, not the shorthand, so `sheet clickable` keeps its sketch. A hovered card keeps its panel:
    `.clickable:hover` alone would wash it with the translucent raised. */
 @utility sheet {
   border: 1px solid var(--line);
   background-color: var(--panel);
+  --surface: var(--panel);
   position: relative;
   &.clickable {
     cursor: pointer;
@@ -267,7 +265,8 @@
   &.hover { border-color: var(--line-strong); background-color: var(--panel); --sketch: 100%; background-position: 0 0; }
   &.clickable:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 3px; }
   &.redline { border-color: var(--redline); outline: 1px dashed var(--redline); outline-offset: 3px; }
-  &.dashed { border-style: dashed; background-color: transparent; }
+  /* A board column: a container drawn on the ground, so what sits in it fills with bg. */
+  &.dashed { border-style: dashed; background-color: transparent; --surface: var(--bg); }
   &.solid { background-color: var(--panel); }
 }
 @utility ticks {
@@ -281,9 +280,9 @@
 @utility redline { border-color: var(--redline); outline: 1px dashed var(--redline); outline-offset: 3px; }
 /* Only the border: a `btn dashed` (the ⌘K trigger) keeps its fill and its sketch. */
 @utility dashed { border-style: dashed; }
-@utility solid { background-color: var(--panel); }
+@utility solid { background-color: var(--panel); --surface: var(--panel); }
 /* The sidebar and the phone header: opaque, the furthest step from the ground. */
-@utility chrome { background-color: var(--chrome); }
+@utility chrome { background-color: var(--chrome); --surface: var(--chrome); }
 @utility clickable {
   cursor: pointer;
   transition: background-color .12s ease, border-color .12s ease;
@@ -364,7 +363,7 @@
   text-transform: uppercase;
   text-decoration: none;
   color: var(--fg);
-  background-color: transparent;
+  background-color: var(--surface, var(--bg));
   background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch));
   background-position: calc(-1 * var(--hatch-pitch)) 0;
   border: 1px solid var(--line-strong);
@@ -391,7 +390,7 @@
   &.primary { background: var(--ink); color: var(--on-ink); border-color: var(--ink); box-shadow: var(--shadow-primary); }
   &.primary:hover, &.primary.hover { background-image: none; box-shadow: 4px 4px 0 0 var(--line); transform: translate(-1px,-1px); }
   &.primary:active, &.primary.active { box-shadow: none; transform: translate(2px,2px); }
-  &.primary[disabled] { background: transparent; color: var(--fg); border-color: var(--line-strong); box-shadow: none; transform: none; }
+  &.primary[disabled] { background-color: var(--surface, var(--bg)); background-image: none; color: var(--fg); border-color: var(--line-strong); box-shadow: none; transform: none; }
   &.sm { font-size: 11px; padding: 5px 9px; }
   &.icon { padding: 7px; }
   &.touch { min-width: 44px; min-height: 44px; justify-content: center; }
@@ -420,7 +419,7 @@
   align-items: center;
   gap: 6px;
   white-space: nowrap;
-  background: transparent;
+  background-color: var(--surface, var(--bg));
   & a { text-decoration: none; }
   &.ok { color: var(--ok); }
   &.bad { color: var(--bad); }
@@ -428,7 +427,9 @@
   &.info { color: var(--info); }
   &.ink { color: var(--ink); }
   &.muted { color: var(--muted); border-style: dashed; }
-  &.live { color: var(--ink); background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 5px); }
+  /* RUNNING: an opaque ink tint of the surface. The surface comes first: Tailwind's color-mix fallback keeps
+     the first colour, and ink would hide the chip's ink text. */
+  &.live { color: var(--ink); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--ink) 12%); }
   &.rev { color: var(--redline); border-color: var(--redline); }
   &.hl { color: #14355f; background: var(--highlight); border-color: var(--highlight); }
   &:is(button) {
@@ -447,7 +448,7 @@
   flex-direction: column;
   gap: 2px;
   text-decoration: none;
-  & a, & button { font-family: var(--font-mono); font-weight: 500; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px 9px 12px; border: 1px solid transparent; background-color: transparent; width: 100%; cursor: pointer; line-height: 16px; position: relative; text-align: left;
+  & a, & button { font-family: var(--font-mono); font-weight: 500; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px 9px 12px; border: 1px solid transparent; background-color: var(--surface, var(--bg)); width: 100%; cursor: pointer; line-height: 16px; position: relative; text-align: left;
     background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch));
     background-position: calc(-1 * var(--hatch-pitch)) 0;
     transition: --sketch .16s ease-out, background-position .16s ease-out, background-color .12s ease, border-color .12s ease, color .12s ease;
@@ -470,7 +471,7 @@
   font-family: var(--font-mono);
   font-size: 13px;
   color: var(--fg);
-  background: transparent;
+  background-color: var(--surface, var(--bg));
   border: 1px solid var(--line);
   border-radius: 0;
   padding: 7px 10px;
@@ -493,7 +494,7 @@
   /* On a native checkbox: drawn, but still the input, so labels, keyboard and semantics are the browser's. */
   appearance: none;
   margin: 0;
-  background: transparent;
+  background-color: var(--surface, var(--bg));
   cursor: pointer;
   vertical-align: middle;
   &.on::after, &:checked::after { content: ""; position: absolute; inset: 2px; background: var(--ink); }
@@ -507,18 +508,17 @@
   display: inline-block;
   position: relative;
   flex: none;
+  background-color: var(--surface, var(--bg));
   &.on::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--ink); }
 }
 @utility field { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 
 /* ---------- progress ---------- */
-@utility track { height: 8px; border: 1px solid var(--line); position: relative; }
+@utility track { height: 8px; border: 1px solid var(--line); position: relative; background-color: var(--surface, var(--bg)); }
 @utility fill {
   height: 100%;
   background: var(--ink);
-  background-image: repeating-linear-gradient(45deg, rgba(21,66,122,.5) 0 1px, transparent 1px 4px);
   position: relative;
-  [data-theme="vellum"] & { background-image: repeating-linear-gradient(45deg, rgba(241,236,223,.55) 0 1px, transparent 1px 4px); }
   &::after { content: ""; position: absolute; right: -1px; top: -4px; bottom: -4px; width: 1px; background: var(--ink); }
   &.ok { background: var(--ok); }
   &.warn { background: var(--warn); }
@@ -543,7 +543,7 @@
   padding: 8px 14px;
   border: 1px solid transparent;
   border-bottom: 0;
-  background-color: transparent;
+  background-color: var(--surface, var(--bg));
   background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch));
   background-position: calc(-1 * var(--hatch-pitch)) 0;
   transition: --sketch .16s ease-out, background-position .16s ease-out, background-color .12s ease, border-color .12s ease, color .12s ease;
@@ -564,7 +564,6 @@
   & td { padding: 8px 12px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
   & tr:last-child td { border-bottom: 0; }
   & tr.clickable { cursor: pointer; }
-  & tr.clickable:hover td { background: var(--raised); }
   & .r { text-align: right; }
 }
 
@@ -635,7 +634,7 @@ input:not([type=checkbox], [type=radio]), textarea, select {
   font-family: var(--font-mono);
   font-size: 13px;
   color: var(--fg);
-  background: transparent;
+  background-color: var(--surface, var(--bg));
   border: 1px solid var(--line);
   border-radius: 0;
   padding: 7px 10px;
