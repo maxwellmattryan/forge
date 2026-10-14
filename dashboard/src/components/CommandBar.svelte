@@ -181,7 +181,7 @@
 <div class="fixed inset-0 z-45 flex items-start justify-center bg-black/50 md:p-6 md:pt-[12vh]" onmousedown={backdropDown} onclick={backdrop}>
   <div bind:this={dialog} role="dialog" aria-modal="true" aria-label={$t('command.title')} tabindex="-1" class="flex flex-col w-full min-w-0 max-h-[85vh] bg-bg border-b border-line shadow-2xl md:max-w-2xl md:rounded-xl md:border overflow-hidden" onkeydown={trap}>
     <div class="flex items-center gap-2 border-b border-line px-3">
-      <Icon name="command" class="size-4 shrink-0 text-muted" />
+      <Icon name="command" class="shrink-0 text-muted" />
       <input
         bind:this={input}
         bind:value={text}
@@ -214,9 +214,9 @@
           onclick={() => activate(o)}
         >
           {#if o.kind === 'run-job'}
-            <Icon name="command" class="size-4 shrink-0 text-accent" /><span class="font-medium text-fg shrink-0">{$t('command.start')}</span><span class="flex min-w-0 flex-col"><span class="truncate">{text.trim()}</span>{#if o.verbLike}<span class="text-xs text-muted">{$t('command.verbLike')}</span>{/if}</span>
+            <Icon name="command" class="shrink-0 text-accent" /><span class="font-medium text-fg shrink-0">{$t('command.start')}</span><span class="flex min-w-0 flex-col"><span class="truncate">{text.trim()}</span>{#if o.verbLike}<span class="text-xs text-muted">{$t('command.verbLike')}</span>{/if}</span>
           {:else if o.kind === 'run-command'}
-            <Icon name="command" class="size-4 shrink-0 text-accent" /><span class="font-medium text-fg shrink-0">{$t('command.send')}</span><span class="truncate min-w-0 font-mono">{text.trim()}</span>
+            <Icon name="command" class="shrink-0 text-accent" /><span class="font-medium text-fg shrink-0">{$t('command.send')}</span><span class="truncate min-w-0 font-mono">{text.trim()}</span>
           {:else if o.kind === 'verb'}
             <span class="font-mono text-fg shrink-0 w-16">{o.verb}</span><span class="truncate min-w-0">{hints[o.verb]}</span>
           {:else if o.kind === 'job'}
