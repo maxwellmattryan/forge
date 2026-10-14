@@ -1,8 +1,9 @@
-<!-- The dashboard shell: sidebar, phone nav, banners, the active view, the daemon bar, the drawer, the command bar and the toast. -->
+<!-- The dashboard shell: sidebar, phone nav, banners, the active view, the daemon bar, the drawer, the command palette and its phone button, and the toast. -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import Banner from './components/Banner.svelte';
   import CommandBar from './components/CommandBar.svelte';
+  import CommandTrigger from './components/CommandTrigger.svelte';
   import DaemonBar from './components/DaemonBar.svelte';
   import Drawer from './components/Drawer.svelte';
   import Icon from './components/Icon.svelte';
@@ -23,16 +24,15 @@
   import { INBOX_SCOPE } from './lib/types.ts';
   import { t } from './lib/locale.ts';
   import { settingsKey } from './lib/settings.ts';
-  import { commandKey, shortcutLabel } from './lib/command.ts';
+  import { commandKey, shellEscape } from './lib/command.ts';
+  import { closePalette, openPalette, palette } from './lib/palette.svelte.ts';
   import { pref } from './lib/prefs.ts';
 
   let settingsOpen = $state(false);
   let settings = $state<ReturnType<typeof Settings>>();
-  let commandOpen = $state(false);
   let command = $state<ReturnType<typeof CommandBar>>();
-  // Focus goes back here when a modal closes.
-  let opener: HTMLElement | null = null;
-  const shortcut = shortcutLabel(typeof navigator === 'undefined' ? '' : navigator.platform);
+  // Focus goes back here when Settings closes (the palette keeps its own, in palette.svelte.ts).
+  let settingsOpener: HTMLElement | null = null;
   const active = $derived(activeSessions(S.data?.daemons));
   // One active session per line: the sidebar cell and the phone strip share it.
   const activeTitle = $derived(active.count ? active.ids.map((id) => (id === INBOX_SCOPE ? $t('live.inbox') : id)).join('\n') : $t('live.none'));
@@ -52,48 +52,45 @@
   });
 
   function openSettings(): void {
-    opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    settingsOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     settingsOpen = true;
   }
 
   function closeSettings(): void {
     settingsOpen = false;
-    const back = opener;
-    opener = null;
-    tick().then(() => back?.focus());
-  }
-
-  function openCommand(): void {
-    if (commandOpen) return void command?.focus();
-    opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    commandOpen = true;
-  }
-
-  function closeCommand(): void {
-    commandOpen = false;
-    const back = opener;
-    opener = null;
+    const back = settingsOpener;
+    settingsOpener = null;
     tick().then(() => back?.focus());
   }
 
   function onKey(e: KeyboardEvent): void {
-    const bar = commandKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, open: commandOpen, settingsOpen, repeat: e.repeat, composing: e.isComposing });
-    if (bar) {
+    if (commandKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, open: palette.open, settingsOpen, repeat: e.repeat, composing: e.isComposing }) === 'open') {
       e.preventDefault();
-      if (bar === 'open') openCommand();
-      else closeCommand();
+      // Again while open: back to the input, keeping the scope.
+      if (palette.open) command?.focus();
+      else openPalette();
       return;
     }
-    if (commandOpen) return;
+    if (e.key === 'Escape') {
+      // Escape that cancels an IME composition closes nothing.
+      if (e.isComposing) return;
+      const layer = shellEscape({ command: palette.open, settings: settingsOpen, drawer: S.drawer.id !== null });
+      if (layer === 'command') {
+        e.preventDefault();
+        closePalette();
+      } else if (layer === 'settings') {
+        e.preventDefault();
+        settings?.requestClose();
+      } else if (layer === 'drawer') closeDrawer();
+      return;
+    }
+    if (palette.open) return;
     const target = e.target instanceof HTMLElement ? e.target : null;
     const action = settingsKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, targetTag: target?.tagName ?? '', editable: target?.isContentEditable ?? false, open: settingsOpen, shortcut: pref.get('settingsShortcut', 'on') !== 'off', repeat: e.repeat, composing: e.isComposing });
     if (action === 'open') {
       e.preventDefault();
       openSettings();
-    } else if (action === 'close') {
-      e.preventDefault();
-      settings?.requestClose();
-    } else if (!settingsOpen && e.key === 'Escape') closeDrawer();
+    }
   }
 
   onMount(() => {
@@ -112,12 +109,11 @@
 
 <svelte:window onhashchange={route} onkeydown={onKey} />
 
-<div class="flex min-h-screen" inert={settingsOpen || commandOpen}>
+<div class="flex min-h-screen" inert={settingsOpen || palette.open}>
   <aside id="sidebar" class="hidden md:flex w-(--size-sidebar) shrink-0 flex-col gap-1 border-r border-line bg-black/5 dark:bg-black/8 px-3 py-4 sticky top-0 h-screen overflow-y-auto">
     <div class="sheet ticks flex items-center gap-3 py-3 pr-3 pl-3.5 mb-1.5"><span class="tk"></span><img src="/forge.png" alt="" class="mark shrink-0" /><div class="min-w-0"><div class="h sheet-title">{$t('app.brand')}</div><div class="label mt-0.5">{$t('app.tagline')}</div></div></div>
     <div class="dim-line mx-0.5 mt-0.5 mb-2.5"><span class="end"></span>{$t('app.dwg', { view: viewLabel })}<span class="end"></span></div>
     <div class="label flex min-w-0 items-baseline gap-2 px-2.5 pb-2.5"><span class="shrink-0">{$t('app.repo')}</span><span id="repo-name" class="mono truncate font-normal normal-case tracking-normal text-fg">{S.data?.repo?.name ?? ''}</span></div>
-    <button id="command-open" class="btn dashed mb-2.5 w-full justify-between" aria-haspopup="dialog" aria-keyshortcuts="Meta+K Control+K" onclick={openCommand}><span class="flex min-w-0 items-center gap-2 overflow-hidden"><Icon name="command" /><span class="truncate">{$t('command.open')}</span></span><kbd class="mono muted shrink-0 text-[10px]">{shortcut}</kbd></button>
     <nav id="nav" class="nav"><Nav /></nav>
     <div class="mt-auto flex flex-col gap-2 pt-3">
       <div class="nav"><button id="settings-open" aria-haspopup="dialog" aria-keyshortcuts="," onclick={openSettings}><span class="lbl"><Icon name="settings" />{$t('settings.open')}</span></button></div>
@@ -131,15 +127,14 @@
     </div>
   </aside>
   <main class="falloff flex-1 min-w-0">
-    <!-- The command and settings buttons stay outside the scrolling nav, so they are always on screen. -->
+    <!-- The settings button stays outside the scrolling nav, so it is always on screen; the palette's phone button is the FAB below. -->
     <header class="md:hidden flex items-center gap-1 border-b border-line bg-black/5 dark:bg-black/8 pr-2">
       <div id="mobile-nav" class="nav row flex-1 min-w-0 overflow-x-auto p-2"><Nav mobile /></div>
       <span id="mobile-sessions" class="label flex shrink-0 items-center gap-1.5 px-1" title={activeTitle}><LiveDot on={active.count > 0} /><span class="num">{$t('app.tblock.sessionsValue', { count: active.count })}</span></span>
-      <button id="command-open-mobile" class="btn icon touch shrink-0" aria-label={$t('command.open')} aria-haspopup="dialog" onclick={openCommand}><Icon name="command" /></button>
       <button id="settings-open-mobile" class="btn icon touch shrink-0" aria-label={$t('settings.open')} aria-haspopup="dialog" onclick={openSettings}><Icon name="settings" /></button>
     </header>
     <DaemonBar />
-    <div id="view" class="mx-auto max-w-[1400px] px-4 md:px-8 pt-4 pb-6">
+    <div id="view" class="mx-auto max-w-[1400px] px-4 md:px-8 pt-4 pb-24 md:pb-6">
       {#if !S.data}
         {#if S.error}<Banner msg={S.error} />{:else}<div class="text-muted text-sm">{$t('common.loading')}</div>{/if}
       {:else}
@@ -154,8 +149,10 @@
       {/if}
     </div>
   </main>
+  <!-- Outside main: main.falloff isolates, which would trap the phone button's z-20 inside main's stacking context. -->
+  <CommandTrigger variant="fab" />
 </div>
-<div inert={settingsOpen || commandOpen}><Drawer /></div>
+<div inert={settingsOpen || palette.open}><Drawer /></div>
 {#if settingsOpen}<Settings bind:this={settings} onclose={closeSettings} />{/if}
-{#if commandOpen}<CommandBar bind:this={command} onclose={closeCommand} />{/if}
+{#if palette.open}<CommandBar bind:this={command} onclose={closePalette} />{/if}
 <Toast />

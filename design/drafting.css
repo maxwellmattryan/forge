@@ -2,7 +2,7 @@
 :root { --paper: url(textures/paper.svg); --paper-opacity: .18; --paper-blend: soft-light; --fall: rgba(0,0,0,.28); }
 [data-theme="vellum"] { --paper-opacity: .55; --paper-blend: multiply; --fall: rgba(60,40,0,.10); }
 
-html { background: var(--bg); color: var(--fg); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+html { background: var(--bg); color: var(--fg); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; scrollbar-gutter: stable; }
 body { margin: 0; font-size: 14px; line-height: 20px; }
 *, *::before, *::after { box-sizing: border-box; }
 ::selection { background: var(--highlight); color: #14355f; }
@@ -156,6 +156,9 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 @keyframes ping { 75%, 100% { transform: scale(2); opacity: 0; } }
 .backdrop { background: rgba(8,28,58,.7); }
 [data-theme="vellum"] .backdrop { background: rgba(20,53,95,.45); }
+/* The command palette's lighter backdrop: what is behind it stays readable. */
+.scrim { background: rgba(8,28,58,.3); }
+[data-theme="vellum"] .scrim { background: rgba(20,53,95,.2); }
 .mark { width: 36px; height: 36px; filter: grayscale(1) brightness(1.4) contrast(1.1); mix-blend-mode: screen; }
 [data-theme="vellum"] .mark { filter: grayscale(1) brightness(.9) contrast(1.25); mix-blend-mode: multiply; }
 .row { display: flex; align-items: center; gap: 8px; } .wrap { flex-wrap: wrap; } .col { display: flex; flex-direction: column; } .grow { flex: 1; min-width: 0; }

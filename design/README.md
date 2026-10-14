@@ -35,7 +35,7 @@ Three families, all Google-hosted (no files): Space Grotesk for headings, IBM Pl
 
 ## Drawing conventions
 
-- Sheets (`.sheet.ticks`) are outlines with 9px `tick` marks at the corners: the standard card, KPI tile, table wrapper, thread message, dialog. A dashed outline without ticks (`.dashed`) is a container: board columns, the ⌘K button, a focus ring. A `redline` sheet (red outline plus a dashed red outline 3px outside it) is a thing waiting on a person.
+- Sheets (`.sheet.ticks`) are outlines with 9px `tick` marks at the corners: the standard card, KPI tile, table wrapper, thread message, dialog. A dashed outline without ticks (`.dashed`) is a container: board columns, the ⌘K button at the end of each page header, a focus ring. A `redline` sheet (red outline plus a dashed red outline 3px outside it) is a thing waiting on a person.
 - Hatching replaces tints: `hatch` (1px `line-soft` at 45° every `hatch-pitch` 6px) for hover and the live chip, `hatch-dense` (4px) for progress fills, `crosshatch` for disabled regions and empty states.
 - Dimension lines (`.dim-line`: a hairline with 10px end ticks and a `dim` label) replace subtitles under page titles and name the drawing in the sidebar. Callouts (`.callout`: an 18px leader line before a `label`) head every section inside a sheet or dialog.
 - The title block (`.tblock`) at the sidebar's foot carries what a footer would: DRAWN BY, SESSIONS, REV (the version), API, SHEET (the view and its number).
@@ -44,9 +44,9 @@ Three families, all Google-hosted (no files): Space Grotesk for headings, IBM Pl
 ## Spacing and layout
 
 - An 8px grid with a 64px major. `space-2` is the resting gap inside a sheet; `space-3` the padding of a dense card and the horizontal inset of buttons and cells; `space-4` the padding of a standard sheet; columns and the sidebar are multiples of `space-16`.
-- The shell is a `size-sidebar` (236px) column on a slightly darkened ground with a `line` right edge, then a main column capped at `size-content-max` with `space-4` gutters on phones and `space-8` at md and up. Below md the sidebar becomes a horizontal strip of nav items with 44px (`space-11`) command and settings targets.
+- The shell is a `size-sidebar` (236px) column on a slightly darkened ground with a `line` right edge, then a main column capped at `size-content-max` with `space-4` gutters on phones and `space-8` at md and up. Below md the sidebar becomes a horizontal strip of nav items with a 44px (`space-11`) settings target, and the command palette opens from a 56px square primary button fixed at the bottom right (the FAB), above the safe area; the view and the toast keep clear of it.
 - The pipeline board is four dashed group columns (Queued, Plan, Build, Ship) in a grid of 1 column below `lg`, 2 at `lg` and 4 at `xl`, so it never scrolls sideways; at `xl` each column scrolls inside itself. Done and cancelled jobs sit in a full-width Done section below the grid when the filter holds any. The table layout is a ticked sheet around `.tbl`.
-- The drawer slides in from the right at `size-drawer-max` with `shadow-drawer` (a stacked sheet to its left); the settings dialog (`size-dialog`) and the command bar (672px) are centred solid sheets with `shadow-dialog`, full-width sheets below md.
+- The drawer slides in from the right at `size-drawer-max` with `shadow-drawer` (a stacked sheet to its left); the settings dialog (`size-dialog`) and the command bar (672px) are centred solid sheets with `shadow-dialog`, full-width sheets below md. Settings and the drawer sit over `backdrop`; the command bar sits over the lighter `scrim` (about a third as dark), so the page or drawer it was opened from stays readable.
 
 ## Radii, borders and shadows
 

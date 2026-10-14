@@ -1,6 +1,7 @@
 <!-- The job drawer and its backdrop. It renders the drawerView snapshot, so it changes only where the old renderDrawer() ran. -->
 <script lang="ts">
   import ActionDock from './ActionDock.svelte';
+  import CommandTrigger from './CommandTrigger.svelte';
   import Banner from './Banner.svelte';
   import Chip from './Chip.svelte';
   import DepSection from './DepSection.svelte';
@@ -19,6 +20,7 @@
   import { threadItems, threadMarks, threadOpening, unreadCount } from '../lib/thread.ts';
   import { ago, dur, num, tokensShort, usd } from '../lib/util.ts';
   import { eventDetail, verdictMatrix } from '../lib/view.ts';
+  import { scopeVerbs } from '../lib/command.ts';
   import { S, closeDrawer, loadFile, setDrawerTab } from '../lib/app.svelte.ts';
   import { ticker } from '../lib/clock.svelte.ts';
   import { freshCount, sessionActivity } from '../lib/live.ts';
@@ -68,7 +70,7 @@
     {@const j = job}
     <div class="min-h-0 flex-1 overflow-y-auto">
       <div class="p-5 md:p-6 flex flex-col gap-5">
-        <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="h sheet-title">{j.title}</h2><div class="mono muted">{j.id}</div></div><button class="btn icon shrink-0" aria-label={$t('drawer.close')} onclick={closeDrawer}><Icon name="close" /></button></div>
+        <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="h sheet-title">{j.title}</h2><div class="mono muted">{j.id}</div></div><div class="flex shrink-0 items-center gap-2">{#if scopeVerbs(j).length}<CommandTrigger variant="drawer" job={j.id} />{/if}<button class="btn icon shrink-0" aria-label={$t('drawer.close')} onclick={closeDrawer}><Icon name="close" /></button></div></div>
         <div class="flex flex-wrap gap-1.5"><span class="chip ink">{STAGE_LABEL[j.stage] ?? j.stage}</span><StateChip job={j} />{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}</div>
         {#if activity}<SessionActivity {activity} extra="caption" />{/if}
         {#if j.reason}<div class="text-sm text-muted">{j.reason}</div>{/if}
