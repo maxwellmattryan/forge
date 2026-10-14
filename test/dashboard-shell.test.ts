@@ -466,7 +466,7 @@ test('the live halo is the only animation and is motion-safe', () => {
   assert.match(dot, /<span class="relative inline-flex shrink-0" aria-hidden="true">/, 'on: the dot and halo are aria-hidden');
 
   assert.match(read('components/SessionActivity.svelte'), /<LiveDot on=\{activity\.kind === 'working'\} \/>/);
-  for (const f of ['components/JobCard.svelte']) assert.match(read(f), /<SessionActivity\b/, `${f} renders the live dot through SessionActivity`);
+  for (const f of ['components/JobCard.svelte', 'components/Drawer.svelte']) assert.match(read(f), /<SessionActivity\b/, `${f} renders the live dot through SessionActivity`);
   assert.match(read('App.svelte'), /<LiveDot\b/, 'App.svelte renders the live dot');
 
   const css = fs
@@ -508,7 +508,7 @@ test('design docs name the live halo', () => {
 });
 
 test('ticking times read the shared clock and stay out of live regions', () => {
-  const TICKING = ['components/JobCard.svelte', 'components/JobsTable.svelte', 'components/SessionActivity.svelte'];
+  const TICKING = ['components/JobCard.svelte', 'components/JobsTable.svelte', 'components/Drawer.svelte', 'components/ThreadPanel.svelte', 'components/SessionActivity.svelte'];
   for (const f of TICKING) {
     const text = read(f);
     const calls = [...text.matchAll(/\bago\(/g)].map((m) => {
@@ -551,4 +551,36 @@ test('the sidebar and phone strip show the live session indicator', () => {
   assert.ok(app.indexOf('id="mobile-nav"') < mobileAt && mobileAt < app.indexOf('id="command-open-mobile"'), 'the phone strip puts it between the nav and the command button');
 
   assert.match(read('components/Nav.svelte'), /navCounts\(S\.data\?\.jobs \?\? \[\]\)/, 'the Needs-you badge reads the same jobs snapshot as the board');
+});
+
+test('the drawer marks new rows and counts unread Thread changes', () => {
+  const file = 'components/Drawer.svelte';
+  const text = read(file);
+  const markup = text.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '');
+  const chips = markup.indexOf('<PrChip pr={j.pr} />');
+  const line = markup.indexOf('<SessionActivity');
+  assert.ok(chips > 0 && line > chips && line < markup.indexOf('{#if j.reason}'), 'the activity line sits right after the chip row');
+  assert.match(text, /const activity = \$derived\(job \? sessionActivity\(S\.data\?\.daemons\?\.jobs\?\.\[job\.id\], shown\?\.detail\.events\.at\(-1\)\?\.ts\) : null\)/);
+
+  assert.match(text, /const unread = \$derived\(shown && job \? unreadCount\(threadMarks\(threadItems\(/);
+  assert.match(text, /S\.threadSeen\[job\.id\] \?\? null\)/);
+  assert.match(markup, /\{\$t\('drawer\.threadTab'\)\}\{#if unread > 0\}<span class="chip hl ml-1\.5">\{\$t\('drawer\.threadUnread', \{ count: unread \}\)\}<\/span>\{\/if\}/, 'the Thread tab shows chip hl N new');
+
+  assert.match(text, /const fresh = \$derived\(shown \? freshCount\(shown\.detail\.events\.length, S\.drawer\.eventsAtOpen\) : 0\)/);
+  assert.match(markup, /\{#if i < fresh\}<span class="dot hl size-1\.5 shrink-0 self-center" aria-hidden="true"><\/span><span class="sr-only">\{\$t\('live\.new'\)\}<\/span>\{\/if\}/, 'fresh Timeline rows start with dot hl and a hidden "new"');
+  assert.match(markup, /<ThreadPanel [^>]*baseline=\{S\.drawer\.threadAtOpen\}/);
+
+  const thread = read('components/ThreadPanel.svelte');
+  assert.match(thread, /baseline = null \}: \{[^}]*baseline\?: string\[\] \| null \}/, 'ThreadPanel takes a baseline prop');
+  assert.match(thread, /\{#if seenAtOpen && !seenAtOpen\.has\(threadMark\(m\)\)\}<span class="dot hl size-1\.5 shrink-0" aria-hidden="true"><\/span><span class="sr-only">\{\$t\('live\.new'\)\}<\/span>\{\/if\}/, 'a message not in the baseline is marked new');
+  assert.match(thread, /const seenAtOpen = \$derived\(baseline \? new Set\(baseline\) : null\)/, 'no baseline, no marks');
+
+  // The baselines: set on a full load, reset on open and close; the Thread counts as read on first load and while shown.
+  const state = read('lib/app.svelte.ts');
+  assert.match(state, /if \(full\) \{\s*\/\/[^\n]*\n\s*S\.drawer\.eventsAtOpen = detail\.events\.length;\s*S\.drawer\.threadAtOpen = marksOf\(detail\);/);
+  for (const fn of ['export async function openDrawer(', 'export function closeDrawer(']) {
+    const body = state.slice(state.indexOf(fn), state.indexOf('\n}\n', state.indexOf(fn)));
+    assert.match(body, /S\.drawer\.eventsAtOpen = null;\s*S\.drawer\.threadAtOpen = null;/, `${fn} resets the baselines`);
+  }
+  assert.match(state, /if \(id && \(!Object\.hasOwn\(S\.threadSeen, id\) \|\| S\.drawer\.tab === 'thread'\)\) S\.threadSeen = \{ \.\.\.S\.threadSeen, \[id\]: marksOf\(d\) \};/);
 });
