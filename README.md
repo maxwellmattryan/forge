@@ -78,6 +78,7 @@ The skill can be invoked as `/forge` or, fully qualified, `/forge:forge`.
 | `/forge approve <job>` · `revise <job> <note>` · `answer <job> <text>` · `rework <job> <note>` · `cancel <job>` | human decisions |
 | `/forge status` · `sync` · `dash` · `doctor` · `requests` | operate |
 | `/forge retro` · `/forge eval …` | improve and measure |
+| `forge daemon status` · `forge daemon log <job>\|--inbox [--lines N] [--follow]` | the daemon's sessions and a session's log, from the terminal |
 | `forge config get <key>` · `forge config set <key> <value>` | read the effective config, or change one editable key in `.forge/config.yml`, keeping its comments (see [Changing settings](docs/CONFIG.md#changing-settings)) |
 
 ## How it works
@@ -94,7 +95,7 @@ Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CONFIG.md](docs
 
 `forge dash` serves a single-page dashboard bound to localhost:
 
-- **Pipeline**: kanban by stage, or a table, filtered by active, waiting or done. Cards show progress, review verdicts per lens, PR and CI state, running agents, budget use against `pipeline.budget`, and an `after <job>` chip per dependency that opens it; the job drawer lists what a job depends on and what it blocks, plus its files, timeline and screenshots.
+- **Pipeline**: kanban by stage, or a table, filtered by active, waiting or done. Cards show progress, review verdicts per lens, PR and CI state, running agents, budget use against `pipeline.budget`, and an `after <job>` chip per dependency that opens it; the job drawer lists what a job depends on and what it blocks, plus its files, timeline, screenshots and its daemon **Session**: the job's headless session log, live, grouped by turn, with every tool call and its result, subagents (`forge:builder`, `forge:reviewer`, …) nested under the call that started them, errors, cost, filters and Start/Stop for that job's session.
 - **Needs you**: every human gate, with its document and one-click actions.
 - **Backlog**: your tracker's ready items; start one with a click.
 - **Agents**: running agents, orchestrator sessions, and the roster with models and prompt hashes.
@@ -104,7 +105,7 @@ Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CONFIG.md](docs
 
 The dashboard is a Svelte 5 + TypeScript single-page app. Its built output (`dashboard/dist/`) is committed, so installing the plugin builds and installs nothing.
 
-Buttons don't run agents directly. They queue requests, and an orchestrator session drains them: your own (`/forge requests`), so permissions and spend stay with you, or, with `daemon.enabled: true`, a headless Claude Code session that `forge dash` supervises and nudges whenever new requests arrive. The daemon spends tokens unattended, limited to the tools in `daemon.allowedTools`; see [Daemon](docs/CONFIG.md#daemon). When the daemon is in use, a bar above every view shows its status (idle, busy, standby, stopped, held on budget), Start and Stop buttons, and a live log pane streamed from `/api/events`.
+Buttons don't run agents directly. They queue requests, and an orchestrator session drains them: your own (`/forge requests`), so permissions and spend stay with you, or, with `daemon.enabled: true`, a headless Claude Code session that `forge dash` supervises and nudges whenever new requests arrive. With the daemon, each job gets its own headless session (up to `daemon.maxConcurrent` at once), and a small inbox session takes requests that have no job yet, so one job's crash never stalls another and each job has a log of its own. The daemon spends tokens unattended, limited to the tools in `daemon.allowedTools`; see [Daemon](docs/CONFIG.md#daemon). When it is in use, a bar above every view summarises the pool: its status, the inbox (click it for the inbox's live log), `live/cap` job sessions, holds on budget, jobs waiting for a slot, a chip per job session that opens its Session tab, and Start and Stop. `forge daemon status` and `forge daemon log <job> --follow` show the same from a terminal.
 
 ## Authorship
 

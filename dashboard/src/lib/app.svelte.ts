@@ -190,12 +190,12 @@ function renderDrawer(): void {
   S.drawerView = { detail: d, file: S.drawer.file, content: S.drawer.content, tab: S.drawer.tab };
 }
 
-export async function openDrawer(id: string, file: string | null = null): Promise<void> {
+export async function openDrawer(id: string, file: string | null = null, tab = 'files'): Promise<void> {
   S.drawer.id = id;
   S.drawer.detail = null;
   S.drawer.file = file;
   S.drawer.content = null;
-  S.drawer.tab = 'files';
+  S.drawer.tab = tab;
   await loadDrawer(true);
 }
 

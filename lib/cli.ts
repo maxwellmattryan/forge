@@ -18,6 +18,7 @@ import { ForgeError, readJson, run } from './util.ts';
 import * as wt from './worktree.ts';
 import { out, parseArgs, req } from './commands/args.ts';
 import { configCmd } from './commands/config.ts';
+import { daemonCmd } from './commands/daemon.ts';
 import { dash } from './commands/dash.ts';
 import { evalCmd } from './commands/eval.ts';
 import { gitRead } from './commands/git.ts';
@@ -42,7 +43,8 @@ Usage: forge <command> [options]   (state, worktrees, PRs, trackers, evals, dash
   forge tracker list|get|claim|update|comment|create|close
   forge stats [--since DATE] [--json]  forge roster   forge retro due|prepare <job>
   forge eval list|new|mine|start|grade|runs|compare|report
-  forge requests [list|add|claim|ack]
+  forge requests [list|scope|add|claim|ack]
+  forge daemon status   forge daemon log <job>|--inbox [--lines N] [--follow]   (the dash session pool)
   forge init detect|write --answers FILE   forge config [show|get PATH|validate]
   forge doctor   forge migrate   forge dash [--background|--stop] [--port N]   forge version
 
@@ -172,6 +174,12 @@ export async function main(argv: string[]): Promise<void> {
       return out(requestsCmd(root, config, sub, rest, flags), flags);
     case 'migrate':
       return out(migrate(root), flags);
+    case 'daemon': {
+      const r = await daemonCmd(root, sub, rest, flags);
+      // `log --follow` streams to stdout itself and returns nothing.
+      if (r !== undefined) out(r, flags);
+      return;
+    }
     case 'dash':
       return dash(root, config, flags);
     default:
