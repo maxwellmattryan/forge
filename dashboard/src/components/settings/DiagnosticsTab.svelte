@@ -52,20 +52,23 @@
   </div>
   {#if session.doctorError && !session.doctorRunning}<Banner msg={session.doctorError} />{/if}
   {#if d}
-    <ul class="sheet divide-y divide-line">
-      {#each d.checks as c, i (i)}
-        <li class="flex items-start gap-3 px-3 py-2.5 text-sm min-w-0">
-          {#if c.ok}<Chip tone="ok" text={$t('settings.diagnostics.ok')} extra="shrink-0 w-14 justify-center" />{:else}<Chip tone="bad" text={$t('settings.diagnostics.fail')} extra="shrink-0 w-14 justify-center" />{/if}
-          <div class="min-w-0"><div class="font-medium">{c.name}</div>{#if c.detail}<div class="text-xs text-muted font-mono break-all">{c.detail}</div>{/if}</div>
-        </li>
-      {/each}
-    </ul>
+    <div class="sheet ticks">
+      <span class="tk"></span>
+      <ul class="divide-y divide-line">
+        {#each d.checks as c, i (i)}
+          <li class="flex items-start gap-3 px-3 py-2.5 text-sm min-w-0">
+            {#if c.ok}<Chip tone="ok" text={$t('settings.diagnostics.ok')} extra="shrink-0 w-14 justify-center" />{:else}<Chip tone="bad" text={$t('settings.diagnostics.fail')} extra="shrink-0 w-14 justify-center" />{/if}
+            <div class="min-w-0"><div class="font-medium">{c.name}</div>{#if c.detail}<div class="mono muted text-[11px] break-all">{c.detail}</div>{/if}</div>
+          </li>
+        {/each}
+      </ul>
+    </div>
   {/if}
   <div class="flex flex-wrap gap-2">
     <button class="btn min-h-11 md:min-h-0" disabled={session.doctorRunning} onclick={again}>{$t('settings.diagnostics.again')}</button>
     <button class="btn min-h-11 md:min-h-0" disabled={!d || session.doctorRunning} onclick={copy}>{$t('settings.diagnostics.copy')}</button>
   </div>
   {#if fallback !== null}
-    <label class="flex flex-col gap-1 text-xs text-muted">{$t('settings.diagnostics.report')}<textarea bind:this={box} readonly rows="8" class="w-full font-mono text-[12px]" value={fallback}></textarea></label>
+    <label class="label flex flex-col gap-1">{$t('settings.diagnostics.report')}<textarea bind:this={box} readonly rows="8" class="input w-full normal-case tracking-normal" value={fallback}></textarea></label>
   {/if}
 </div>

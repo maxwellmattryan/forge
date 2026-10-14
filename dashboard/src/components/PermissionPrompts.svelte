@@ -35,19 +35,19 @@
         <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
           <Chip tone="warn" text={$t('permission.chip')} />
           {#if scope === undefined}
-            {#if s === INBOX_SCOPE}<span class="text-muted">{$t('permission.inbox')}</span>{:else}<button class="font-mono text-fg underline decoration-dotted cursor-pointer truncate max-w-full" title={s} onclick={() => openDrawer(s, null, 'thread')}>{s}</button>{/if}
+            {#if s === INBOX_SCOPE}<span class="text-muted">{$t('permission.inbox')}</span>{:else}<button class="mono text-fg underline decoration-dotted cursor-pointer truncate max-w-full" title={s} onclick={() => openDrawer(s, null, 'thread')}>{s}</button>{/if}
           {/if}
           <span class="text-fg">{p.agentId ? $t('permission.asksSubagent', { tool: p.tool }) : $t('permission.asks', { tool: p.tool })}</span>
           <span class="flex-1"></span>
           {#if p.at}<span class="text-muted">{ago(p.at)}</span>{/if}
         </div>
-        <pre class="max-h-48 overflow-auto bg-raised px-2.5 py-2 text-xs font-mono whitespace-pre-wrap break-all">{promptInput(p)}</pre>
+        <pre class="max-h-48 overflow-auto border border-line-soft px-2.5 py-2 mono whitespace-pre-wrap break-all">{promptInput(p)}</pre>
         {#if p.description}<p class="text-xs text-muted break-words"><span class="font-medium text-fg">{$t('permission.agentSays')}</span> {p.description}</p>{/if}
-        {#if p.blockedPath}<p class="text-xs text-muted break-all"><span class="font-medium text-fg">{$t('permission.outside')}</span> <span class="font-mono">{p.blockedPath}</span></p>{/if}
+        {#if p.blockedPath}<p class="text-xs text-muted break-all"><span class="font-medium text-fg">{$t('permission.outside')}</span> <span class="mono">{p.blockedPath}</span></p>{/if}
         <div class="flex flex-wrap items-center gap-2">
-          <button class="btn text-xs" disabled={answering.includes(p.id)} onclick={() => answer(s, p.id, 'allow')}>{$t('permission.allow')}</button>
-          {#if grantsMore(p)}<button class="btn text-xs" disabled={answering.includes(p.id)} onclick={() => answer(s, p.id, 'session')}>{$t('permission.allowSession')}</button>{/if}
-          <button class="btn text-xs" disabled={answering.includes(p.id)} onclick={() => answer(s, p.id, 'deny')}>{$t('permission.deny')}</button>
+          <button class="btn sm" disabled={answering.includes(p.id)} onclick={() => answer(s, p.id, 'allow')}>{$t('permission.allow')}</button>
+          {#if grantsMore(p)}<button class="btn sm" disabled={answering.includes(p.id)} onclick={() => answer(s, p.id, 'session')}>{$t('permission.allowSession')}</button>{/if}
+          <button class="btn sm" disabled={answering.includes(p.id)} onclick={() => answer(s, p.id, 'deny')}>{$t('permission.deny')}</button>
           {#if grantsMore(p)}<span class="min-w-0 flex-1 truncate text-[11px] text-muted" title={[...p.sessionRules, ...p.sessionDirs].join('\n')}>{$t('permission.sessionGrants', { grants: [...p.sessionRules, ...p.sessionDirs].join(', ') })}</span>{/if}
         </div>
       </article>

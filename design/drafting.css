@@ -7,6 +7,9 @@ body { margin: 0; font-size: 14px; line-height: 20px; }
 *, *::before, *::after { box-sizing: border-box; }
 ::selection { background: var(--highlight); color: #14355f; }
 a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; } a:hover { color: var(--highlight); }
+[data-theme="vellum"] a:hover { color: var(--fg); } /* highlight is only a fill on vellum; as text it is ~1.8:1 */
+:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
 button, input, select, textarea { font: inherit; color: inherit; }
 h1, h2, h3, p { margin: 0; }
 

@@ -177,3 +177,73 @@ test('appearance prefs turn the grid and paper off', () => {
   assert.ok(drafting.includes('html[data-grid="off"] .ground { background-image: none; }'), 'design/drafting.css drops the grid');
   assert.ok(drafting.includes('html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::after { display: none; }'), 'design/drafting.css drops the fibre and the falloff');
 });
+
+/** The body of the first `@media` block whose prelude matches, braces balanced. */
+function mediaBody(css: string, prelude: RegExp): string {
+  const m = new RegExp(`@media\\s*${prelude.source}\\s*\\{`).exec(css);
+  assert.ok(m, `the built CSS has an @media ${prelude.source} block`);
+  let depth = 1;
+  let i = m.index + m[0].length;
+  for (; i < css.length && depth; i++) depth += css[i] === '{' ? 1 : css[i] === '}' ? -1 : 0;
+  return css.slice(m.index + m[0].length, i - 1);
+}
+
+test('reduced motion disables transitions and animations', () => {
+  const body = mediaBody(builtCss(), /\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/);
+  const rule = ruleFor(body, '*');
+  assert.ok(ruleFor(body, ':before') === rule && ruleFor(body, ':after') === rule, '*, ::before and ::after share the rule');
+  assert.match(rule, /transition:none!important/);
+  assert.match(rule, /animation:none!important/);
+  // Unlayered, so the !important beats every utility's transition (the drawer's slide included).
+  assert.ok(builtCss().lastIndexOf('@media(prefers-reduced-motion:reduce)') > builtCss().indexOf('.transition'), 'the block comes after the utilities');
+  assert.ok(
+    draftingCss().includes('@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }'),
+    'design/drafting.css has the same block',
+  );
+});
+
+test('every control has the drafting focus ring', () => {
+  const css = builtCss();
+  assert.match(ruleFor(css, ':focus-visible'), /outline:1px dashed var\(--line-strong\)/, 'a base ring for every focusable element');
+  const check = ruleFor(css, '.check');
+  assert.match(check, /appearance:none/, 'the checkbox is drawn, not the OS one');
+  assert.match(ruleFor(css, '.check:checked:after'), /background:var\(--ink\)/, 'a checked box fills with ink');
+  assert.match(ruleFor(css, '.check:disabled'), /border-style:dashed/);
+  assert.match(ruleFor(css, 'input[type=checkbox]:focus-visible'), /outline:1px dashed var\(--line-strong\)/, 'a drawn checkbox keeps the ring');
+  assert.match(ruleFor(css, '.seg label:has(input:focus-visible)'), /outline:1px dashed var\(--line-strong\)/, 'a radio seg rings the focused label');
+  for (const sel of ['.btn:focus-visible', '.nav a:focus-visible', '.clickable:focus-visible']) assert.match(ruleFor(css, sel), /outline:1px dashed var\(--line-strong\)/, sel);
+  assert.doesNotMatch(css, /:focus(-visible)?\{[^}]*box-shadow/, 'no glow on focus');
+  const drafting = draftingCss();
+  for (const line of [
+    ':focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 2px; }',
+    'appearance: none; margin: 0; background: transparent; cursor: pointer; vertical-align: middle; }',
+    '.check:disabled { opacity: .4; border-style: dashed; cursor: not-allowed; }',
+    '.check.on::after, .check:checked::after {',
+    '.seg label:has(input:focus-visible) { outline: 1px dashed var(--line-strong); outline-offset: 3px; z-index: 1; }',
+  ])
+    assert.ok(drafting.includes(line), `design/drafting.css mirrors ${line}`);
+});
+
+test('phone targets are 44px', () => {
+  // `width < 48rem` is built as `not all and (min-width:48rem)`; accept either.
+  const body = mediaBody(builtCss(), /(\(\s*width\s*<\s*48rem\s*\)|not all and \(min-width:48rem\))/);
+  const TARGETS = ['button:not(.chip)', 'a.btn', '.nav a', '[role=tab]', '[role=option]', 'summary', 'select', 'input:not([type=checkbox],[type=radio])', 'label:has(>input[type=checkbox])', 'label:has(>input[type=radio])'];
+  // Split on top-level commas only: `input:not([type=checkbox],[type=radio])` holds one.
+  const tall = [...body.matchAll(/([^{}]*)\{([^{}]*)\}/g)].filter((m) => /min-height:44px/.test(m[2])).flatMap((m) => splitTop(m[1], /,/));
+  for (const sel of TARGETS) assert.ok(tall.includes(sel), `${sel} is 44px tall on phones (${tall.join(" | ")})`);
+  assert.match(ruleFor(body, '.btn.icon'), /min-width:44px/, 'icon buttons are 44px wide too');
+  assert.match(ruleFor(body, '.chip:is(button)'), /position:relative/);
+  const hit = ruleFor(body, '.chip:is(button):after');
+  assert.match(hit, /content:""/);
+  assert.match(hit, /width:max\(100%,\s*44px\)/);
+  assert.match(hit, /height:max\(100%,\s*44px\)/);
+  assert.match(hit, /position:absolute/);
+  // The chip's hit area sits under its neighbours (a tap just outside a chip reaches the control there).
+  assert.match(hit, /z-index:-1/);
+  assert.match(ruleFor(body, ':has(>.chip:is(button))'), /isolation:isolate/);
+  // A checkbox without a label around it (a config boolean) gets a 44px hit area too.
+  const box = ruleFor(body, '.check:not(label>.check):before');
+  assert.match(box, /width:44px/);
+  assert.match(box, /height:44px/);
+  assert.match(box, /position:absolute/);
+});

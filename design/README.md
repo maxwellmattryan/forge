@@ -21,7 +21,7 @@ Two themes, the same drawing. Cyanotype is the primary: white line on a Prussian
 - `ink` is full-strength drawing ink: the primary button, the selected segment, the progress fill, the active rule, the live-agent dot. `on-ink` is the text on it. There is no second accent.
 - `redline` is markup red and means *you*: `REV` tags, the dashed red outline of a job waiting on a person, banners, the settings-tab error dot. `highlight` is marker yellow and means *changed*: unsaved dots, held and waiting counts, `::selection`; on vellum it is only ever a fill under dark text.
 - Status hues each carry one meaning and always a word: `ok` success, `warn` attention, `bad` failure, `info` neutral kind. Chips are the hue as text in its own outline, never a tint fill; `ok` and `bad` differ in lightness as well as hue in both themes.
-- Contrast: every text colour clears 4.5:1 on `bg`, `panel` and `raised` in both themes (the weakest are `redline`/`bad` at 4.6:1 on cyanotype `raised` and `ok` at 4.65:1 on vellum `raised`; `warn` there is 4.7:1); `dim` is the stated exception. Lines are decorative and never the sole carrier of meaning: the thing a line encloses always has a word or a chip.
+- Contrast: every text colour clears 4.5:1 on `bg`, `panel` and `raised` in both themes (the weakest are `redline`/`bad` at 4.6:1 on cyanotype `raised` and `ok` at 4.65:1 on vellum `raised`; `warn` there is 4.7:1); `dim` is the stated exception. The sidebar's darkened ground is black at 8% on cyanotype and 5% on vellum, which keeps `muted` at 4.79:1 there, and hovered links turn `fg` on vellum, because `highlight` is only ever a fill there. Lines are decorative and never the sole carrier of meaning: the thing a line encloses always has a word or a chip.
 
 ## Typography
 
@@ -61,7 +61,7 @@ Three families, all Google-hosted (no files): Space Grotesk for headings, IBM Pl
 - Pressed or selected: solid `ink` with `on-ink` text (buttons, segments); a primary button drops onto its shadow. The active nav item or tab takes `raised`, a `line-strong` border and the 3px `ink` rule.
 - Disabled: 40% opacity and a dashed border; a disabled primary button loses its fill and shadow.
 - Live: the `live` chip (ink over hatching) and an `ink` dot before the agent's role. Needs you: `redline`. Changed: `highlight`.
-- Motion is limited to 120ms colour and transform transitions and the drawer's slide; the paper and grid never move.
+- Motion is limited to 120ms colour and transform transitions and the drawer's slide; the paper and grid never move. Reduced motion turns off every transition, including the drawer's slide.
 
 ## Iconography and imagery
 

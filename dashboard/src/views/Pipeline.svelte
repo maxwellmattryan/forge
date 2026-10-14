@@ -29,7 +29,7 @@
   {#snippet sub()}{$t('pipeline.active', { count: counts.active })} · {$t('pipeline.base')} <code class="font-mono">{data.config.base}</code> · {$t('pipeline.tracker', { tracker: data.config.tracker })}{/snippet}
   {#snippet right()}
     <div class="seg">
-      {#each FILTERS as f (f)}{@const on = S.filter === f}<button class="btn sm {on ? 'sel' : ''}" aria-pressed={on} onclick={() => setFilter(f)}>{filterLabel[f]} <span class="num {on ? 'opacity-70' : 'muted'}">{counts[f]}</span></button>{/each}
+      {#each FILTERS as f (f)}{@const on = S.filter === f}<button class="btn sm {on ? 'sel' : ''}" aria-pressed={on} onclick={() => setFilter(f)}>{filterLabel[f]} <span class="num {on ? '' : 'muted'}">{counts[f]}</span></button>{/each}
     </div>
     <div class="seg">
       {#each LAYOUTS as l (l)}{@const on = S.layout === l}<button class="btn sm {on ? 'sel' : ''}" aria-pressed={on} onclick={() => setLayout(l)}><Icon name={l} />{layoutLabel[l]}</button>{/each}
