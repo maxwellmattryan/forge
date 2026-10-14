@@ -127,6 +127,7 @@ export const FIELDS: ConfigField[] = [
   field('daemon.command', 'daemon', 'Command', 'The claude command the daemon runs, split into words without a shell.', { type: 'string', locked: 'runs a program' }),
   field('daemon.allowedTools', 'daemon', 'Allowed tools', 'Tools the unattended session may use.', { type: 'list', locked: 'grants the unattended session permissions' }),
   field('daemon.maxConcurrent', 'daemon', 'Max concurrent', 'Job sessions the daemon runs at once, besides the inbox.', { type: 'integer', min: 1, max: 16, locked: 'caps unattended job sessions' }),
+  field('daemon.auth', 'daemon', 'Billing', 'What daemon sessions run on: your Claude login (subscription), or an ANTHROPIC_API_KEY exported where forge dash starts (api-key). Subscription drops the key from their environment.', { type: 'enum', options: ['subscription', 'api-key'] }),
   field('daemon.idleStopMinutes', 'daemon', 'Idle stop (minutes)', 'Stop an idle session after this long; new work resumes it. Empty means never.', { type: 'number', min: 0, minExclusive: true, nullable: true }),
 ];
 

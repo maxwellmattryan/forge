@@ -37,6 +37,7 @@ test('AC1: defaults carry the daemon block and no dashboard.launcher', () => {
     allowedTools: DEFAULT_TOOLS,
     maxConcurrent: 3,
     idleStopMinutes: 30,
+    auth: 'subscription',
   });
   assert.deepEqual(d.dashboard, { port: 7400 });
   assert.equal(CONFIG_SCHEMA_VERSION, 2);
@@ -123,6 +124,8 @@ test('AC3: daemon config validation', () => {
   one('idleStop string', (c) => (c.daemon.idleStopMinutes = '30'), /idleStopMinutes/);
   one('idleStop negative', (c) => (c.daemon.idleStopMinutes = -1), /idleStopMinutes/);
   one('enabled string', (c) => (c.daemon.enabled = 'yes'), /daemon\.enabled/);
+  for (const a of ['key', true, null]) one(`auth ${JSON.stringify(a)}`, (c) => (c.daemon.auth = a), /^daemon\.auth must be one of subscription \| api-key/);
+  assert.deepEqual(problems((c) => (c.daemon.auth = 'api-key')), []);
   one('leftover launcher', (c) => (c.dashboard.launcher = null), /^dashboard\.launcher/);
   assert.deepEqual(problems((c) => (c.daemon.idleStopMinutes = null)), [], 'null means never');
   assert.deepEqual(problems((c) => (c.daemon.idleStopMinutes = 0.5)), []);

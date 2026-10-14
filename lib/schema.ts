@@ -48,6 +48,9 @@ export const BUDGET_KEYS = ['tokens', 'usd', 'minutes', 'changedLines', 'verifyR
 
 export const SEVERITIES = ['blocker', 'major', 'minor', 'nit'] as const;
 
+/** daemon.auth: the credential a daemon session runs on. */
+export const DAEMON_AUTH = ['subscription', 'api-key'] as const;
+
 /** Config migrations keyed by the version they upgrade *from*. */
 const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // v2 replaces the per-request `dashboard.launcher` shell template with the supervised `daemon:`

@@ -16,7 +16,7 @@ import { PLUGIN_ROOT, paths } from './paths.ts';
 import { SCOPE_ENV, validJobId, validScope } from './requests.ts';
 import { isClaudeExecutable, now, run, sleepSync, splitWords, writeJsonAtomic } from './util.ts';
 import { pidAlive } from './worktree.ts';
-import type { Config, DaemonSessionState, DaemonStatus, ForgeRequest } from './types.ts';
+import type { Config, DaemonAuth, DaemonSessionState, DaemonStatus, ForgeRequest } from './types.ts';
 
 /** What a session reports to its pool: a log line as it is written, or its new state after a change. */
 export type SessionEvent = { kind: 'line'; scope: string; offset: number; line: string } | { kind: 'state'; scope: string; state: DaemonSessionState };
@@ -173,14 +173,28 @@ export const GIT_PINS = Object.freeze([
 ]);
 
 /**
- * The child's environment: this plugin's bin/ first on PATH, git pins appended after any the
- * caller already set, and a no-op editor so `git merge|rebase --continue` can't wait on a TTY.
+ * Variables that make claude bill an API account instead of the Claude login. `forge dash` is
+ * usually started from a shell that exports one for some other tool, and a headless session
+ * never asks which to use.
  */
-export function sessionEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export const API_KEY_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const;
+
+/** The API_KEY_VARS that are set (non-empty) in `env`. */
+export function apiKeyVars(env: NodeJS.ProcessEnv): string[] {
+  return API_KEY_VARS.filter((k) => Boolean(env[k]));
+}
+
+/**
+ * The child's environment: this plugin's bin/ first on PATH, git pins appended after any the
+ * caller already set, a no-op editor so `git merge|rebase --continue` can't wait on a TTY, and
+ * no API key unless `daemon.auth` is api-key.
+ */
+export function sessionEnv(env: NodeJS.ProcessEnv, auth: DaemonAuth = 'subscription'): NodeJS.ProcessEnv {
   // This plugin's bin/ goes first on PATH, so the session's `forge` is the same version as the
   // supervisor's even when another Forge install is on PATH (seen in the AC18 headless run).
   const PATH = [path.join(PLUGIN_ROOT, 'bin'), env.PATH].filter(Boolean).join(path.delimiter);
   const out: NodeJS.ProcessEnv = { ...env, PATH, FORGE_DAEMON: '1', GIT_EDITOR: 'true' };
+  if (auth !== 'api-key') for (const k of API_KEY_VARS) delete out[k];
   const count = Number(env.GIT_CONFIG_COUNT ?? 0);
   const base = Number.isInteger(count) && count > 0 ? count : 0;
   GIT_PINS.forEach(([key, value], i) => {
@@ -631,7 +645,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     let c2;
     try {
       // The scope reaches the session only through its environment, never stdin or argv.
-      c2 = o.spawn(argv[0], argv.slice(1), { cwd: root, detached: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...sessionEnv(o.env), [TRUST_ENV]: trusted, [SCOPE_ENV]: scope } });
+      c2 = o.spawn(argv[0], argv.slice(1), { cwd: root, detached: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...sessionEnv(o.env, c.daemon.auth), [TRUST_ENV]: trusted, [SCOPE_ENV]: scope } });
     } catch (e) {
       sessionFatal(`cannot start daemon: ${(e as Error).message}`);
       return false;
@@ -646,6 +660,8 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     info = { ...info, pid: proc.pid ?? null, serverPid: process.pid, argv0: argv[0], startedAt: now(), spawnSessionId: info.sessionId };
     persist();
     logEvent('spawn', { pid: proc.pid ?? null, sessionId: info.sessionId, resume, ...(reason ? { reason } : {}) });
+    const keys = apiKeyVars(o.env);
+    if (keys.length) logEvent('auth', { auth: c.daemon.auth, vars: keys, passed: c.daemon.auth === 'api-key' });
 
     proc.on('error', (e: Error) => {
       if (child !== proc) return;

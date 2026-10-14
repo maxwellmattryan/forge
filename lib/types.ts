@@ -2,7 +2,7 @@
 // this file never runs. The dashboard's src/lib/types.ts carries a copy of the API shapes, kept
 // equal by test/types-parity.ts, until the dashboard imports this file. Unions that have a runtime
 // list are derived from that list, never retyped.
-import type { BUDGET_KEYS, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
+import type { BUDGET_KEYS, DAEMON_AUTH, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import type { REQUEST_TYPES } from './requests.ts';
 
 // ---------- enumerations ----------
@@ -392,8 +392,12 @@ export interface Config {
     allowedTools: string[];
     maxConcurrent: number;
     idleStopMinutes: number | null;
+    auth: DaemonAuth;
   };
 }
+
+/** Which credential a daemon session runs on: the Claude login (subscription) or an API key from the environment. */
+export type DaemonAuth = (typeof DAEMON_AUTH)[number];
 
 /** What loadConfig in lib/config.ts returns. */
 export interface LoadedConfig {

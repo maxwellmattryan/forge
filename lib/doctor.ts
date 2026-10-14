@@ -1,6 +1,7 @@
 // `forge doctor` and GET /api/doctor: is this machine and repo ready for Forge?
 import path from 'node:path';
 import { validateConfig } from './config.ts';
+import { apiKeyVars } from './daemon.ts';
 import { isActive, listJobs } from './jobs.ts';
 import { paths, exists } from './paths.ts';
 import type { Config, DoctorCheck, DoctorReport } from './types.ts';
@@ -24,6 +25,11 @@ export async function doctor(root: string, config: Config, initialized: boolean)
   if (initialized) {
     const problems = validateConfig(config, root);
     add('config valid', !problems.length, problems.join('; '));
+  }
+  const keys = apiKeyVars(process.env);
+  if (initialized && config.daemon.enabled && keys.length) {
+    const api = config.daemon.auth === 'api-key';
+    add('daemon billing', true, api ? `${keys.join(', ')} set: sessions bill that API account (daemon.auth: api-key)` : `${keys.join(', ')} set but ignored: sessions use your Claude login (daemon.auth: subscription)`);
   }
   const needsGh = config.pr.enabled || config.tracker.kind === 'github';
   if (needsGh) {

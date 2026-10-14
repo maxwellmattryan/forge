@@ -1,13 +1,51 @@
 // `forge dash`: start the dashboard in the foreground or as a detached, pid-tracked process.
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import readline from 'node:readline/promises';
 import { paths, PLUGIN_ROOT } from '../paths.ts';
-import { reapOrphans } from '../daemon.ts';
-import { ForgeError, readJson, sleepSync, writeJsonAtomic } from '../util.ts';
+import { setConfigValue } from '../config-set.ts';
+import { apiKeyVars, reapOrphans } from '../daemon.ts';
+import { ForgeError, getPath, readJson, readText, sleepSync, writeJsonAtomic } from '../util.ts';
+import * as yaml from '../yaml.ts';
 import { pidAlive } from '../worktree.ts';
 import { out } from './args.ts';
 import type { RunningServer } from '../server.ts';
 import type { Config } from '../types.ts';
+
+/**
+ * An ANTHROPIC_API_KEY in this shell would make headless sessions bill an API account instead of
+ * the Claude login, which almost nobody wants, so sessions drop it unless `daemon.auth` says
+ * api-key. The first time a daemon-enabled repo starts with a key set and no explicit choice in
+ * config.yml, a terminal asks once and records the answer; anywhere else (a Claude Code session,
+ * a script) the subscription is assumed and the output says so.
+ */
+async function settleDaemonAuth(root: string, config: Config): Promise<{ note?: string }> {
+  const keys = apiKeyVars(process.env);
+  if (!config.daemon.enabled || !keys.length) return {};
+  const file = paths(root).config;
+  let explicit: unknown;
+  try {
+    explicit = getPath(yaml.parse(readText(file)) ?? {}, 'daemon.auth');
+  } catch {
+    return {};
+  }
+  const vars = keys.join(' and ');
+  if (explicit !== undefined) return {};
+  if (!process.stdin.isTTY || !process.stderr.isTTY) {
+    return { note: `${vars} is set but daemon sessions run on your Claude login; set daemon.auth: api-key in .forge/config.yml to bill the API key instead` };
+  }
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
+  let answer = '';
+  try {
+    answer = await rl.question(`${vars} is set in this shell. Daemon sessions run on your Claude login unless you choose the API key.\nBill daemon sessions to the API key instead? [y/N] `);
+  } finally {
+    rl.close();
+  }
+  const auth = /^y(es)?$/i.test(answer.trim()) ? 'api-key' : 'subscription';
+  setConfigValue(root, 'daemon.auth', auth);
+  config.daemon.auth = auth;
+  return { note: `daemon.auth: ${auth} written to .forge/config.yml` };
+}
 
 export async function dash(root: string, config: Config, flags: Record<string, any>): Promise<void> {
   const rtFile = path.join(paths(root).runtime, 'dashboard.json');
@@ -34,6 +72,7 @@ export async function dash(root: string, config: Config, flags: Record<string, a
   }
   if (alive && !flags.foreground) return out({ url: current.url, pid: current.pid, running: true }, flags);
   const port = Number(flags.port ?? config.dashboard.port ?? 7400);
+  const note = await settleDaemonAuth(root, config);
   if (flags.background) {
     const child = spawn(process.execPath, [path.join(PLUGIN_ROOT, 'bin', 'forge'), 'dash', '--foreground', '--port', String(port)], {
       cwd: root,
@@ -43,11 +82,12 @@ export async function dash(root: string, config: Config, flags: Record<string, a
     child.unref();
     for (let i = 0; i < 60; i++) {
       const rt = readJson(rtFile, null);
-      if (rt?.pid === child.pid) return out({ url: rt.url, pid: child.pid, started: true }, flags);
+      if (rt?.pid === child.pid) return out({ url: rt.url, pid: child.pid, started: true, ...note }, flags);
       sleepSync(50);
     }
-    return out({ url: `http://127.0.0.1:${port}`, pid: child.pid, started: true, unconfirmed: true }, flags);
+    return out({ url: `http://127.0.0.1:${port}`, pid: child.pid, started: true, unconfirmed: true, ...note }, flags);
   }
+  if (note.note) process.stderr.write(`${note.note}\n`);
   const { startServer } = await import('../server.ts');
   let res: RunningServer | undefined;
   for (let p = port; p < port + 20; p++) {

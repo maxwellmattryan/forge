@@ -13,7 +13,7 @@ import { budgetCmd } from '../lib/budget.ts';
 import { createJob, setJob, updateJob } from '../lib/jobs.ts';
 import { PLUGIN_ROOT } from '../lib/paths.ts';
 import { INBOX_SCOPE, SCOPE_ENV, ackRequest, claimRequest, enqueue, requestScope, validScope } from '../lib/requests.ts';
-import { DENY_TOOLS, GIT_PINS, TRUST_CHANGED, TURN, TURN_LINE, buildArgv, heldByBudget, parseTemplate, reapOrphans, sessionEnv } from '../lib/daemon.ts';
+import { DENY_TOOLS, GIT_PINS, TRUST_CHANGED, TURN, TURN_LINE, apiKeyVars, buildArgv, heldByBudget, parseTemplate, reapOrphans, sessionEnv } from '../lib/daemon.ts';
 import { createPool } from '../lib/daemon-pool.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
@@ -1031,6 +1031,21 @@ test('a spawn builds argv from the config bytes it hashed, not from a second rea
     await d.close();
     repo.cleanup();
   }
+});
+
+test('sessionEnv drops API keys unless daemon.auth is api-key', () => {
+  const env = { PATH: '/usr/bin', ANTHROPIC_API_KEY: 'sk-ant-x', ANTHROPIC_AUTH_TOKEN: 'tok', OTHER: '1' };
+  const sub = sessionEnv(env);
+  assert.equal(sub.ANTHROPIC_API_KEY, undefined, 'the key would make claude bill the API account instead of the login');
+  assert.equal(sub.ANTHROPIC_AUTH_TOKEN, undefined);
+  assert.equal(sub.OTHER, '1');
+  assert.equal(env.ANTHROPIC_API_KEY, 'sk-ant-x', 'the caller\'s env is untouched');
+  assert.deepEqual(sessionEnv(env, 'subscription').ANTHROPIC_API_KEY, undefined);
+  const api = sessionEnv(env, 'api-key');
+  assert.equal(api.ANTHROPIC_API_KEY, 'sk-ant-x');
+  assert.equal(api.ANTHROPIC_AUTH_TOKEN, 'tok');
+  assert.deepEqual(apiKeyVars(env), ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']);
+  assert.deepEqual(apiKeyVars({ ANTHROPIC_API_KEY: '' }), [], 'an empty value does not count');
 });
 
 test('sessionEnv pins git hooks and fsmonitor off, after any config the caller exports', () => {

@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PLUGIN_ROOT, paths, exists, resolveFrom } from './paths.ts';
-import { CONFIG_SCHEMA_VERSION, migrateConfig } from './schema.ts';
+import { CONFIG_SCHEMA_VERSION, DAEMON_AUTH, migrateConfig } from './schema.ts';
 import type { Config, LoadedConfig } from './types.ts';
 import { ForgeError, deepMerge, isClaudeExecutable, readText, splitWords } from './util.ts';
 import * as yaml from './yaml.ts';
@@ -180,6 +180,10 @@ export function defaults(): Config {
       // Matches runtime.maxParallelJobs; each job session drives one job.
       maxConcurrent: 3,
       idleStopMinutes: 30,
+      // Sessions run on the Claude login. An ANTHROPIC_API_KEY exported in the shell that ran
+      // `forge dash` is dropped from their environment unless this is api-key, because claude
+      // would silently bill it instead of the subscription.
+      auth: 'subscription',
     },
   };
 }
@@ -295,6 +299,7 @@ export function daemonProblems(c: any, root?: string): string[] {
   const idle = d.idleStopMinutes;
   if (idle !== null && !(typeof idle === 'number' && Number.isFinite(idle) && idle > 0))
     problems.push(`daemon.idleStopMinutes must be null or a positive number (got ${JSON.stringify(idle)})`);
+  if (!DAEMON_AUTH.includes(d.auth)) problems.push(`daemon.auth must be one of ${DAEMON_AUTH.join(' | ')} (got ${JSON.stringify(d.auth)})`);
   return problems;
 }
 
