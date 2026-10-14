@@ -5,6 +5,7 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { defaults, validateConfig } from '../lib/config.ts';
+import { setJob } from '../lib/jobs.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const commitAll = (cwd, msg) => {
@@ -165,7 +166,7 @@ test('e2e failure fails verify; unresolvable base runs it', () => {
 
     s.configure();
     const lib = s.job(['lib/x.mjs']);
-    s.f('job', 'set', lib.id, '--field', 'base=no-such-branch');
+    setJob(s.repo.dir, lib.id, { fields: { base: 'no-such-branch' } });
     const b = s.verify(lib.id);
     assert.equal(b.status, 0);
     const e2e = b.out.steps.find((x) => x.name === 'e2e');
