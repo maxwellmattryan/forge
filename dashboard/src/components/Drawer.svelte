@@ -6,8 +6,8 @@
   import Icon from './Icon.svelte';
   import PrChip from './PrChip.svelte';
   import ProgressBar from './ProgressBar.svelte';
-  import SessionLog from './SessionLog.svelte';
   import StateChip from './StateChip.svelte';
+  import ThreadPanel from './ThreadPanel.svelte';
   import { budgetPanel } from '../lib/budget.ts';
   import { STAGE_LABEL } from '../lib/labels.ts';
   import { md, safeUrl } from '../lib/markdown.ts';
@@ -26,19 +26,19 @@
   const matrix = $derived(job ? verdictMatrix(job) : null);
   const usageRows = $derived(Object.entries(job?.usage?.byRole ?? {}));
   const events = $derived(shown ? shown.detail.events.slice().reverse() : []);
-  const TABS = ['files', 'timeline', 'session'];
+  const TABS = ['files', 'timeline', 'thread'];
   let tabStrip = $state<HTMLDivElement>();
   let scrolledFor: string | null = null;
-  // Opened from a session chip: bring the log into view instead of leaving it below the fold.
+  // Opened on the Thread (a session chip, a new job): bring it into view instead of leaving it below the fold.
   $effect(() => {
     const id = job?.id ?? null;
-    if (!id || shown?.tab !== 'session' || !tabStrip || scrolledFor === id) return;
+    if (!id || shown?.tab !== 'thread' || !tabStrip || scrolledFor === id) return;
     scrolledFor = id;
     const strip = tabStrip;
     strip.scrollIntoView({ block: 'start' });
     // Again once the log's first page has rendered and made the drawer tall enough to scroll that far.
     // No cleanup: a drawer refresh re-runs this effect, and must not cancel the second scroll.
-    setTimeout(() => S.drawer.id === id && S.drawer.tab === 'session' && strip.scrollIntoView({ block: 'start' }), 500);
+    setTimeout(() => S.drawer.id === id && S.drawer.tab === 'thread' && strip.scrollIntoView({ block: 'start' }), 500);
   });
 </script>
 
@@ -113,7 +113,7 @@
         </div>
       {/if}
       {@html screenshotsPanel(j.id, d.screenshots ?? [])}
-      <div bind:this={tabStrip} class="flex gap-1 border-b border-line">{#each TABS as tab (tab)}<button class="px-3 py-2 text-sm -mb-px border-b-2 {shown.tab === tab ? 'border-accent text-fg' : 'border-transparent text-muted'}" aria-pressed={shown.tab === tab ? 'true' : 'false'} onclick={() => setDrawerTab(tab)}>{#if tab === 'timeline'}{$t('drawer.timeline')} <span class="text-muted">{d.events.length}</span>{:else if tab === 'session'}{$t('drawer.sessionTab')}{:else}{$t('drawer.files')}{/if}</button>{/each}</div>
+      <div bind:this={tabStrip} class="flex gap-1 border-b border-line">{#each TABS as tab (tab)}<button class="px-3 py-2 text-sm -mb-px border-b-2 {shown.tab === tab ? 'border-accent text-fg' : 'border-transparent text-muted'}" aria-pressed={shown.tab === tab ? 'true' : 'false'} onclick={() => setDrawerTab(tab)}>{#if tab === 'timeline'}{$t('drawer.timeline')} <span class="text-muted">{d.events.length}</span>{:else if tab === 'thread'}{$t('drawer.threadTab')}{:else}{$t('drawer.files')}{/if}</button>{/each}</div>
       {#if shown.tab === 'files'}
         {@const file = shown.file}
         {@const content = shown.content}
@@ -134,10 +134,8 @@
             {/if}
           </div>
         </div>
-      {:else if shown.tab === 'session'}
-        <!-- Keyed by job id only, so the drawer's 2 s refresh never re-creates the log or its stream; `active` closes the
-             stream as soon as the drawer closes, though its last view stays while it slides out. -->
-        {#key j.id}<SessionLog scope={j.id} active={open} />{/key}
+      {:else if shown.tab === 'thread'}
+        <ThreadPanel job={j} requests={d.requests ?? []} active={open} />
       {:else}
         <ul>
           {#each events as e, i (i)}

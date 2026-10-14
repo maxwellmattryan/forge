@@ -117,14 +117,20 @@ export const inboxKind = (job: JobLike): InboxKind => (job.state === 'failed' ? 
 
 /** The file the card links to ("Read … →"), or null. */
 export function inboxDoc(kind: InboxKind, job: JobLike): string | null {
-  const docs: Record<string, string> = { 'spec-approval': 'spec.md', 'split-approval': 'plan.md', input: 'questions.md', escalation: 'decision.md', infra: 'runbook.md', 'rounds-exhausted': `review/round-${job.round}` };
+  const docs: Record<string, string> = { 'spec-approval': 'spec.md', 'split-approval': 'plan.md', 'issue-link': 'issue-candidates.md', input: 'questions.md', escalation: 'decision.md', infra: 'runbook.md', 'rounds-exhausted': `review/round-${job.round}` };
   return docs[s(kind)] ?? null;
 }
 
 export const notePlaceholder = (kind: InboxKind): string =>
-  kind === 'input' ? 'Your answer…' : kind === 'budget' ? 'Optional: new limits, e.g. usd=20 tokens=2000000' : 'Optional note for the agents…';
+  kind === 'input'
+    ? 'Your answer…'
+    : kind === 'budget'
+      ? 'Optional: new limits, e.g. usd=20 tokens=2000000'
+      : kind === 'issue-link'
+        ? 'Optional: why this job needs no issue…'
+        : 'Optional note for the agents…';
 
-export const showsNote = (kind: InboxKind): boolean => ['spec-approval', 'split-approval', 'input', 'escalation', 'rounds-exhausted', 'budget'].includes(s(kind));
+export const showsNote = (kind: InboxKind): boolean => ['spec-approval', 'split-approval', 'issue-link', 'input', 'escalation', 'rounds-exhausted', 'budget'].includes(s(kind));
 
 export interface InboxAction {
   label: string;
@@ -143,6 +149,9 @@ export function inboxActions(kind: InboxKind): InboxAction[] {
       return [act('Approve spec', 'approve', true), act('Request changes', 'revise-spec', false, true)];
     case 'split-approval':
       return [act('Approve split', 'approve', true), act('Keep as one job', 'revise-spec')];
+    // The link, create and no-issue buttons come from IssueLinkActions.svelte.
+    case 'issue-link':
+      return [act('Cancel job', 'cancel')];
     case 'input':
       return [act('Send answer', 'answer', true, true)];
     case 'escalation':

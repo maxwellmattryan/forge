@@ -93,7 +93,7 @@
     "files": "Files",
     "timeline": "Timeline",
     "noFiles": "No files yet.",
-    "sessionTab": "Session"
+    "threadTab": "Thread"
   },
   "inbox": {
     "title": "Needs you",
@@ -419,5 +419,27 @@
       "other": "{count} suggestions"
     },
     "empty": "No suggestions"
+  },
+  "thread": {
+    "conversation": "Conversation",
+    "composer": "Your move",
+    "you": "You",
+    "cli": "CLI",
+    "forge": "Forge",
+    "queued": "queued",
+    "handling": "handling",
+    "done": "done",
+    "rejected": "rejected",
+    "empty": "Requests about this job and the session's replies appear here.",
+    "nothing": "Nothing needs you on this job right now."
+  },
+  "issueLink": {
+    "candidates": "Issues that may fit",
+    "link": "Link",
+    "linkRef": "Link {ref}",
+    "otherRef": "Other issue",
+    "otherPlaceholder": "#123 or a backlog ref",
+    "create": "Create a new issue",
+    "none": "No issue needed"
   }
 }
