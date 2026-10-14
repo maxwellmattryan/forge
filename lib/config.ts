@@ -156,8 +156,10 @@ export function defaults(): Config {
         'claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode dontAsk --allowedTools {allowedTools}',
       // Only the git/gh forms the skill and agents name. Everything else goes through `forge`:
       // checks, pushes, PRs, tracker writes, history reads (`forge git`, since diff/log/show take
-      // --output) and finishing a merge or rebase (`forge integrate --continue`). Blanket git/gh
-      // would reach code execution and arbitrary GitHub writes (docs/ARCHITECTURE.md "Daemon security").
+      // --output), finishing a merge or rebase (`forge integrate --continue`) and commits, which go
+      // through `forge git add|commit <job>` because the session's cwd is the main checkout, where a
+      // bare `git add`/`git commit` would land on the base branch. Blanket git/gh would reach code
+      // execution and arbitrary GitHub writes (docs/ARCHITECTURE.md "Daemon security").
       allowedTools: [
         'Agent',
         'Skill',
@@ -167,11 +169,7 @@ export function defaults(): Config {
         'Edit',
         'Write',
         'Bash(forge:*)',
-        'Bash(git status:*)',
         'Bash(git rev-parse:*)',
-        'Bash(git add:*)',
-        'Bash(git rm:*)',
-        'Bash(git commit:*)',
         'Bash(git merge --abort:*)',
         'Bash(git rebase --abort:*)',
         'Bash(gh pr view:*)',
