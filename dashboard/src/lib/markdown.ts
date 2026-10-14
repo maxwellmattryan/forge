@@ -3,24 +3,63 @@ import { esc } from './util.ts';
 
 export const safeUrl = (u: unknown): string | null => (/^(https?:\/\/|#|\/(?!\/))/i.test(String(u ?? '')) ? String(u) : null);
 
+const A = ' target="_blank" rel="noopener noreferrer"';
+// A private-use character stands in for each rendered link while emphasis and chips run, so no
+// pattern ever sees generated HTML. It is stripped from input first, so text can't forge one.
+const SLOT = '';
+const LINK = /\[([^\]]+)\]\(([^)\s]+)\)/g;
+// The lookbehind keeps today's rule (a bare URL starts a line or follows whitespace or `(`) while
+// reading the real character before a gap, so text right after a link's `)` is never autolinked.
+const BARE = /(?<![^\s(])https?:\/\/[^\s<)]+/g;
+const TONE: Record<string, string> = { blocker: 'bad', major: 'warn', minor: 'info', nit: 'muted' };
+
+// Emphasis then chips, over escaped text and slots only. The tags emitted hold no `*`, `_` or `[`,
+// so the chip pass can't match inside what emphasis produced.
+function decorate(t: string): string {
+  return t
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|\W)\*([^*\s][^*]*)\*/g, '$1<em>$2</em>')
+    .replace(/(^|\W)_([^_\s][^_]*)_(?=\W|$)/g, '$1<em>$2</em>')
+    .replace(/\[(blocker|major|minor|nit)\]/gi, (m, sev: string) => `<span class="chip ${TONE[sev.toLowerCase()]}">${sev.toLowerCase()}</span>`);
+}
+
+// One prose segment: explicit links, then bare URLs only in the gaps between them, each rendered once
+// into a slot, so a URL inside a link's URL or label is never wrapped again.
+function prose(part: string): string {
+  const t = esc(part);
+  const bare = new RegExp(BARE);
+  const slots: string[] = [];
+  let stream = '';
+  let at = 0;
+  const gap = (end: number) => {
+    // Slicing at `end` stops a bare URL at the next link; lastIndex lets the lookbehind see the character before `at`.
+    const view = t.slice(0, end);
+    bare.lastIndex = at;
+    for (let m; (m = bare.exec(view)); at = m.index + m[0].length) {
+      stream += view.slice(at, m.index) + SLOT;
+      slots.push(`<a href="${m[0]}"${A}>${m[0]}</a>`);
+    }
+    stream += view.slice(at);
+    at = end;
+  };
+  for (const m of t.matchAll(LINK)) {
+    gap(m.index);
+    const u = safeUrl(m[2].replace(/&amp;/g, '&'));
+    slots.push(u ? `<a href="${esc(u)}"${A}>${decorate(m[1])}</a>` : decorate(m[1]));
+    stream += SLOT;
+    at = m.index + m[0].length;
+  }
+  gap(t.length);
+  let k = 0;
+  // A function replacement inserts each slot verbatim and never rescans it.
+  return decorate(stream).replace(new RegExp(SLOT, 'g'), () => slots[k++]);
+}
+
 export function inline(s: string): string {
   return s
+    .replaceAll(SLOT, '')
     .split(/(`[^`]+`)/g)
-    .map((part) => {
-      if (/^`[^`]+`$/.test(part)) return `<code>${esc(part.slice(1, -1))}</code>`;
-      let t = esc(part);
-      t = t.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label: string, url: string) => {
-        const u = safeUrl(url.replace(/&amp;/g, '&'));
-        return u ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${label}</a>` : label;
-      });
-      t = t.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (m, pre: string, url: string) => `${pre}<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`);
-      t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/(^|\W)\*([^*\s][^*]*)\*/g, '$1<em>$2</em>').replace(/(^|\W)_([^_\s][^_]*)_(?=\W|$)/g, '$1<em>$2</em>');
-      t = t.replace(/\[(blocker|major|minor|nit)\]/gi, (m, sev: string) => {
-        const tone = ({ blocker: 'bad', major: 'warn', minor: 'info', nit: 'muted' } as Record<string, string>)[sev.toLowerCase()];
-        return `<span class="chip ${tone}">${sev.toLowerCase()}</span>`;
-      });
-      return t;
-    })
+    .map((part) => (/^`[^`]+`$/.test(part) ? `<code>${esc(part.slice(1, -1))}</code>` : prose(part)))
     .join('');
 }
 
