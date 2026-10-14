@@ -87,6 +87,7 @@ button.chip[aria-expanded="true"] { outline: 1px dashed currentColor; outline-of
 .nav .ic { width: 18px; height: 18px; }
 .nav .lbl { display: flex; align-items: center; gap: 10px; }
 .nav.row { flex-direction: row; gap: 4px; }
+.nav.row a, .nav.row button { width: auto; flex: none; }
 
 /* ---------- inputs ---------- */
 .input { font-family: var(--font-mono); font-size: 13px; color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 0; padding: 7px 10px; outline: none; line-height: 18px; }

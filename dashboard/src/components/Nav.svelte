@@ -1,4 +1,4 @@
-<!-- The view links: the sidebar list, or the compact phone bar when `mobile`. -->
+<!-- The view links: the sidebar list, or the compact phone strip (no icons) when `mobile`. -->
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { S } from '../lib/app.svelte.ts';
@@ -18,10 +18,12 @@
   const badge = (id: string): number => (id === 'pipeline' ? counts.active : id === 'inbox' ? counts.needs : 0);
 </script>
 
+<!-- Inside a .nav container (App.svelte): the sidebar column, or the phone strip's .nav.row. -->
 {#each VIEWS as v (v.id)}
-  {#if mobile}
-    <a href="#/{v.id}" class="nav-item shrink-0 {S.view === v.id ? 'active' : ''}">{badge(v.id) ? `${labels[v.id]} ` : labels[v.id]}{#if badge(v.id)}<span class="text-muted">{badge(v.id)}</span>{/if}</a>
-  {:else}
-    <a href="#/{v.id}" class="nav-item {S.view === v.id ? 'active' : ''}"><span class="flex items-center gap-2"><Icon name={v.icon} />{labels[v.id]}</span>{#if badge(v.id)}<span class="text-[11px] tabular-nums {v.id === 'inbox' ? 'chip bg-warn/15 text-warn' : 'text-muted'}">{badge(v.id)}</span>{/if}</a>
-  {/if}
+  {@const n = badge(v.id)}
+  {@const on = S.view === v.id}
+  <a href="#/{v.id}" class={on ? 'active' : ''} aria-current={on ? 'page' : undefined}
+    ><span class="lbl">{#if !mobile}<Icon name={v.icon} />{/if}{labels[v.id]}</span>
+    {#if n}{#if v.id === 'inbox'}<span class="chip rev">{n}</span>{:else}<span class="mono muted num">{n}</span>{/if}{/if}</a
+  >
 {/each}

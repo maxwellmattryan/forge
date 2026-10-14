@@ -28,7 +28,7 @@ const MODIFIERS = [
   '.h.display', '.h.page', '.h.sheet-title', '.h.section', '.h.card', '.callout:before', '.dim-line .end', '.prose h1', '.prose-md h3', '.prose-md pre code',
   '.btn.primary', '.btn.sel', '.btn.sm', '.btn.icon', '.btn.touch', '.btn.active', '.btn.focus', '.btn.disabled', '.btn[disabled]', '.btn .ic', '.seg .btn',
   '.chip.ok', '.chip.bad', '.chip.warn', '.chip.info', '.chip.ink', '.chip.muted', '.chip.live', '.chip.rev', '.chip.hl', '.chip:is(button)',
-  '.nav a', '.nav button', '.nav a.active', '.nav .lbl', '.nav.row', '.nav-item.active', '.nav-item.active:before', '.btn-primary.btn',
+  '.nav a', '.nav button', '.nav a.active', '.nav .lbl', '.nav.row', '.nav.row a', '.nav.row button', '.nav-item.active', '.nav-item.active:before', '.btn-primary.btn',
   '.input:focus', '.input:is(textarea)', '.input:is(select)', '.check.on:after', '.radio.on:after', '.fill.ok', '.fill.warn', '.fill.bad', '[data-theme=vellum] .fill',
   '.tab.active', '.tbl th', '.tbl tr.clickable', '.tbl .r', '.tblock>div.wide', '.tblock .k', '.kpi .v', '.ic .cx',
   '.dot.ok', '.dot.ink', '.dot.hl', '.dot.red', '.dot.hollow', '[data-theme=vellum] .backdrop', '[data-theme=vellum] .mark', '.ground:before', '.falloff:after',
@@ -55,6 +55,9 @@ test('every drafting utility is ported', () => {
   // The layout helpers stay Tailwind's: a custom `grow` would emit next to flex-grow.
   for (const name of ['row', 'wrap', 'col', 'grow']) assert.doesNotMatch(source, new RegExp(`@utility ${name}\\s*\\{`), `${name} is not ported`);
   for (const sel of MODIFIERS) assert.ok(css.includes(sel), `the built CSS has ${sel}`);
+  // A .nav.row item keeps its natural width (the column rule sets width: 100%), in the build and in the drawing.
+  assert.match(ruleFor(css, '.nav.row a'), /width:auto/);
+  assert.ok(fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8').includes('.nav.row a, .nav.row button { width: auto;'), 'design/drafting.css has the .nav.row item rule');
   assert.ok(!hasClass('.hatch{}.h-4{}', 'h') && hasClass('.h.card{}', 'h') && hasClass('.x .h{', 'h'), 'the class matcher');
 });
 

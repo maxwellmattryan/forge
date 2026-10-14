@@ -16,7 +16,7 @@
   import Analytics from './views/Analytics.svelte';
   import Evals from './views/Evals.svelte';
   import { S, closeDrawer, loadView, refresh, route } from './lib/app.svelte.ts';
-  import { activeSessions } from './lib/view.ts';
+  import { VIEWS, activeSessions, viewIndex, type ViewId } from './lib/view.ts';
   import { t } from './lib/locale.ts';
   import { settingsKey } from './lib/settings.ts';
   import { commandKey, shortcutLabel } from './lib/command.ts';
@@ -30,6 +30,16 @@
   let opener: HTMLElement | null = null;
   const shortcut = shortcutLabel(typeof navigator === 'undefined' ? '' : navigator.platform);
   const sessions = $derived(activeSessions(S.data?.jobs ?? [], Date.now()));
+  // The same map Nav.svelte builds, for the DWG line and the title block's SHEET cell.
+  const labels = $derived<Record<ViewId, string>>({
+    pipeline: $t('nav.pipeline'),
+    inbox: $t('nav.inbox'),
+    backlog: $t('nav.backlog'),
+    agents: $t('nav.agents'),
+    analytics: $t('nav.analytics'),
+    evals: $t('nav.evals'),
+  });
+  const viewLabel = $derived(labels[S.view]);
 
   $effect(() => {
     document.title = S.data?.repo?.name ? $t('app.titleRepo', { repo: S.data.repo.name }) : $t('app.title');
@@ -95,30 +105,29 @@
 <svelte:window onhashchange={route} onkeydown={onKey} />
 
 <div class="flex min-h-screen" inert={settingsOpen || commandOpen}>
-  <aside id="sidebar" class="hidden md:flex w-56 shrink-0 flex-col border-r border-line bg-panel px-3 py-4 gap-1 sticky top-0 h-screen">
-    <div class="flex items-center gap-2.5 px-2 pb-3">
-      <img src="/forge.png" alt="" class="size-9 rounded-lg" />
-      <div class="min-w-0">
-        <div class="text-[15px] font-semibold leading-4 tracking-tight">{$t('app.brand')}</div>
-        <div class="text-[10px] uppercase tracking-[0.12em] text-muted">{$t('app.tagline')}</div>
+  <aside id="sidebar" class="hidden md:flex w-(--size-sidebar) shrink-0 flex-col gap-1 border-r border-line bg-black/8 px-3 py-4 sticky top-0 h-screen overflow-y-auto">
+    <div class="sheet ticks flex items-center gap-3 py-3 pr-3 pl-3.5 mb-1.5"><span class="tk"></span><img src="/forge.png" alt="" class="mark shrink-0" /><div class="min-w-0"><div class="h sheet-title">{$t('app.brand')}</div><div class="label mt-0.5">{$t('app.tagline')}</div></div></div>
+    <div class="dim-line mx-0.5 mt-0.5 mb-2.5"><span class="end"></span>{$t('app.dwg', { view: viewLabel })}<span class="end"></span></div>
+    <div class="label flex min-w-0 items-baseline gap-2 px-2.5 pb-2.5"><span class="shrink-0">{$t('app.repo')}</span><span id="repo-name" class="mono truncate font-normal normal-case tracking-normal text-fg">{S.data?.repo?.name ?? ''}</span></div>
+    <button id="command-open" class="btn dashed mb-2.5 w-full justify-between" aria-haspopup="dialog" aria-keyshortcuts="Meta+K Control+K" onclick={openCommand}><span class="flex min-w-0 items-center gap-2 overflow-hidden"><Icon name="command" /><span class="truncate">{$t('command.open')}</span></span><kbd class="mono muted shrink-0 text-[10px]">{shortcut}</kbd></button>
+    <nav id="nav" class="nav"><Nav /></nav>
+    <div class="mt-auto flex flex-col gap-2 pt-3">
+      <div class="nav"><button id="settings-open" aria-haspopup="dialog" aria-keyshortcuts="," onclick={openSettings}><span class="lbl"><Icon name="settings" />{$t('settings.open')}</span></button></div>
+      <div class="tblock">
+        <div><span class="k">{$t('app.tblock.drawnBy')}</span>{$t('app.tblock.drawnByValue')}</div>
+        <div id="footer-sessions"><span class="k">{$t('app.tblock.sessions')}</span><span class="dot {sessions ? 'ok' : 'hollow'} mr-1 align-middle"></span>{$t('app.tblock.sessionsValue', { count: sessions })}</div>
+        <div id="footer-version"><span class="k">{$t('app.tblock.rev')}</span>{S.data ? $t('app.tblock.revValue', { version: S.data.forgeVersion }) : '—'}</div>
+        <div><span class="k">{$t('app.tblock.api')}</span>{S.data ? S.data.apiVersion : '—'}</div>
+        <div class="wide"><span class="k">{$t('app.tblock.sheet')}</span>{$t('app.tblock.sheetValue', { view: viewLabel, index: viewIndex(S.view), total: VIEWS.length })}</div>
       </div>
-    </div>
-    <div class="brand-rule mx-2 mb-3"></div>
-    <div class="px-3 pb-3 text-[11px] text-muted truncate">{$t('app.repo')} <span id="repo-name" class="font-mono text-fg">{S.data?.repo?.name ?? ''}</span></div>
-    <button id="command-open" class="nav-item mb-2 gap-1.5 px-2.5 border border-line whitespace-nowrap" aria-haspopup="dialog" aria-keyshortcuts="Meta+K Control+K" onclick={openCommand}><span class="flex min-w-0 items-center gap-1.5"><Icon name="command" class="shrink-0" /><span class="truncate text-[13px]">{$t('command.open')}</span></span><kbd class="shrink-0 text-[10px] font-sans text-muted">{shortcut}</kbd></button>
-    <nav id="nav" class="flex flex-col gap-0.5"><Nav /></nav>
-    <div class="mt-auto flex flex-col gap-1 border-t border-line pt-3 text-xs text-muted">
-      <div id="footer-sessions" class="px-3"><span class="inline-block size-1.5 rounded-full {sessions ? 'bg-ok' : 'bg-muted'} mr-1.5 align-middle"></span>{$t('app.sessions', { count: sessions })}</div>
-      <button id="settings-open" class="nav-item" aria-haspopup="dialog" aria-keyshortcuts="," onclick={openSettings}><span class="flex items-center gap-2"><Icon name="settings" />{$t('settings.open')}</span></button>
-      <div id="footer-version" class="px-3 text-[10px]">{S.data ? $t('app.version', { version: S.data.forgeVersion, api: S.data.apiVersion }) : ''}</div>
     </div>
   </aside>
   <main class="falloff flex-1 min-w-0">
-    <!-- The gear stays outside the scrolling nav, so it is always on screen. -->
-    <header class="md:hidden flex items-center border-b border-line bg-panel">
-      <div class="flex flex-1 min-w-0 items-center gap-2 px-4 py-3 overflow-x-auto" id="mobile-nav"><Nav mobile /></div>
-      <button id="command-open-mobile" class="nav-item shrink-0 min-h-11 min-w-11 justify-center" aria-label={$t('command.open')} aria-haspopup="dialog" onclick={openCommand}><Icon name="command" /></button>
-      <button id="settings-open-mobile" class="nav-item shrink-0 mr-2 min-h-11 min-w-11 justify-center" aria-label={$t('settings.open')} aria-haspopup="dialog" onclick={openSettings}><Icon name="settings" /></button>
+    <!-- The command and settings buttons stay outside the scrolling nav, so they are always on screen. -->
+    <header class="md:hidden flex items-center gap-1 border-b border-line bg-black/8 pr-2">
+      <div id="mobile-nav" class="nav row flex-1 min-w-0 overflow-x-auto p-2"><Nav mobile /></div>
+      <button id="command-open-mobile" class="btn icon touch shrink-0" aria-label={$t('command.open')} aria-haspopup="dialog" onclick={openCommand}><Icon name="command" /></button>
+      <button id="settings-open-mobile" class="btn icon touch shrink-0" aria-label={$t('settings.open')} aria-haspopup="dialog" onclick={openSettings}><Icon name="settings" /></button>
     </header>
     <DaemonBar />
     <div id="view" class="mx-auto max-w-[1400px] px-4 md:px-8 pt-4 pb-6">

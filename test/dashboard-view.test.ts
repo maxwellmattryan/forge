@@ -109,6 +109,15 @@ test('pipeline: filters, counts, board columns and nav badges', () => {
   assert.deepEqual(V.runningAgents([{ id: 'j', agents: { builder: { status: 'running', model: 'opus' }, x: { status: 'done' } } }] as any).map((a) => [a.job.id, a.role, a.model]), [['j', 'builder', 'opus']]);
 });
 
+test("viewIndex: each view's position in the sidebar order", () => {
+  assert.equal(V.VIEWS.length, 6);
+  assert.equal(V.viewIndex('pipeline'), 1);
+  assert.equal(V.viewIndex('inbox'), 2);
+  assert.equal(V.viewIndex('evals'), 6);
+  assert.equal(V.viewIndex('nope'), 1, 'an unknown id reads as the first view');
+  V.VIEWS.forEach((v, i) => assert.equal(V.viewIndex(v.id), i + 1, v.id));
+});
+
 test('inbox groups urgent jobs and PRs awaiting review', () => {
   const g = V.inboxGroups(JOBS);
   assert.deepEqual(g.urgent.map((j) => j.id), ['b', 'c', 'd']);
