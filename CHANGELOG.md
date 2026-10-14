@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.1
+
+- Daemon billing: new `daemon.auth` (`subscription` by default, or `api-key`). Headless sessions drop `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` from their environment unless it is `api-key`, because claude would otherwise bill that API account instead of the Claude login, and its spend cap then failed every turn with a 400. The first terminal `forge dash` with a key set and no explicit choice asks once and records the answer; elsewhere the subscription is assumed and the output says so. The session log records an `auth` event, `forge doctor` reports which account sessions use, and the key is editable in the dashboard's Daemon settings.
+
 ## 0.10.0
 
 - Daemon handoff: a job passed from the inbox session to its own job session, or from one job-session incarnation to the next, no longer needs `--force`. `forge job claim` takes over a recorded daemon owner that has provably let go (the inbox handing off, a session whose child is not running, or a session id its record has moved on from) and logs a note; live daemons and interactive owners are still refused. `forge requests add resume --job <id> --session <s>` releases the claim on handoff, and the inbox scope can no longer create worktrees or start agents.
