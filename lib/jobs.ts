@@ -5,7 +5,7 @@ import { paths, exists } from './paths.ts';
 import { STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, normalizeJob, serializeJob } from './schema.ts';
 import type { AgentUsage, Config, Job, JobAgent, JobOwner, JobEvent, JobState, LoadedJob, OwnerStatus, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
 import { estimateCost } from './usage.ts';
-import { ForgeError, now, readJson, readText, setPath, slugify, shortId, withLock, writeJsonAtomic } from './util.ts';
+import { ForgeError, assertSafeRef, now, readJson, readText, setPath, slugify, shortId, withLock, writeJsonAtomic } from './util.ts';
 
 /** A session that has not touched its job for this long is presumed dead and can be taken over. */
 const OWNER_STALE_MS = 30 * 60 * 1000;
@@ -108,6 +108,8 @@ export function createJob(
   opts: { title: string; ref?: string; url?: string; tracker?: string; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; services?: string[]; origin?: string; splitMode?: 'never' | null },
 ): LoadedJob {
   if (!opts.title) throw new ForgeError('a job needs a title');
+  // A PR's headRefName arrives here as --branch, and the branch later fills shell templates.
+  if (opts.branch !== undefined) assertSafeRef(opts.branch, '--branch');
   const p = paths(root);
   fs.mkdirSync(p.jobs, { recursive: true });
   const slug = opts.slug ? slugify(opts.slug) : slugify(opts.title, 5);

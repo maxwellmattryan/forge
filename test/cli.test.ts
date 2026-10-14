@@ -7,6 +7,7 @@ import { scratchGitConfig, tempRepo } from './helpers.ts';
 import { createWorktree, removeWorktree, verifiedHead } from '../lib/worktree.ts';
 import { TRUST_ENV, loadConfig, trustDigest } from '../lib/config.ts';
 import { setJob } from '../lib/jobs.ts';
+import { jobCmd } from '../lib/commands/job.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const commitAll = (cwd, msg) => {
@@ -114,10 +115,10 @@ test('end-to-end: init, intake, worktree, verify, eval isolation', () => {
     assert.ok(!f('job', 'get', evalJob, 'worktree'), 'job.worktree is cleared');
 
     // job.worktree is writable state: a bad value must never turn removal into rm -rf of the main checkout.
-    f('job', 'set', evalJob, '--field', `worktree=${repo.dir}`);
+    setJob(repo.dir, evalJob, { fields: { worktree: repo.dir } });
     assert.throws(() => removeWorktree(repo.dir, evalJob, { force: true }), /refusing to delete/);
     assert.ok(fs.existsSync(path.join(repo.dir, '.git')) && fs.existsSync(path.join(repo.dir, 'README.md')), 'main checkout survives');
-    f('job', 'set', evalJob, '--field', 'worktree=null');
+    setJob(repo.dir, evalJob, { fields: { worktree: null } });
 
     const { config } = loadConfig(repo.dir);
     const { id: iso } = f('job', 'new', '--title', 'Isolated paths');
@@ -284,7 +285,7 @@ test('verify integrity: warn and block', () => {
     execFileSync('git', ['checkout', '--', 'test/b.test.mjs'], { cwd: wtPath });
 
     // AC7 through verify: an unresolvable base fails block with the error as the tail, and passes warn.
-    f('job', 'set', id, '--field', 'base=no-such-branch');
+    setJob(repo.dir, id, { fields: { base: 'no-such-branch' } });
     const errored = failing('verify', id).out;
     assert.equal(errored.failure.name, 'integrity');
     assert.match(errored.failure.tail, /base no-such-branch not found/);
@@ -536,6 +537,51 @@ test('job set --field rejects malformed JSON and non-array list fields without w
     assert.deepEqual(job().reviewers, ['code']);
     assert.equal(job().round, 2);
     assert.equal(job().kind, 'bug');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('job set refuses identity fields and leaves job.json untouched', async () => {
+  const { repo, cli, id, refuses, job } = guardRepo();
+  try {
+    const cases = [
+      ['branch=main', 'branch', 'forge job new --branch'],
+      ['worktree=/tmp/x', 'worktree', 'forge worktree create|remove'],
+      ['id=other', 'id', 'forge job new'],
+      ['owner={}', 'owner', 'forge job claim|release'],
+      ['owner.session=x', 'owner', 'forge job claim|release'],
+      ['pr.number=1', 'pr', 'forge pr find|open|sync'],
+      ['base=main', 'base', 'forge worktree create or forge sync'],
+      ['schemaVersion=1', 'schemaVersion', 'forge migrate'],
+      ['createdAt=x', 'createdAt', 'forge job new'],
+      ['port=1', 'port', 'forge worktree create|remove'],
+      ['runs=[]', 'runs', 'forge job claim|release'],
+      ['source=null', 'source', 'forge job link'],
+      ['usage={}', 'usage', 'forge job agent'],
+    ];
+    for (const [kv, key, hint] of cases) {
+      const r = refuses(['job', 'set', id, '--field', kv], new RegExp(`^forge: --field ${key} is not settable; use `));
+      assert.ok(r.stderr.includes(`use ${hint}\n`), r.stderr);
+    }
+    // A locked key in the same call stops the valid one too.
+    refuses(['job', 'set', id, '--field', 'kind=bug', '--field', 'branch=main'], /--field branch is not settable/);
+
+    for (const kv of ['__proto__.polluted=1', 'meta.constructor.x=1', 'meta.prototype=1', '__proto__={"polluted":1}'])
+      refuses(['job', 'set', id, '--field', kv], /: __proto__, constructor and prototype are not field names$/m);
+    // In-process too, where a write through setPath would reach this test's Object.prototype.
+    const { config } = loadConfig(repo.dir);
+    for (const field of ['__proto__.polluted=1', 'constructor.prototype.polluted=1'])
+      await assert.rejects(jobCmd(repo.dir, config, 'set', [id], { field }), /are not field names/);
+    assert.equal(({} as any).polluted, undefined);
+
+    const ok = cli('job', 'set', id, '--field', 'round=2', '--field', 'reviewers=["code"]', '--field', 'kind=bug', '--field', 'meta.note=x', '--field', 'toString=1');
+    assert.equal(ok.status, 0, ok.stderr);
+    const j = job();
+    assert.equal(j.round, 2);
+    assert.deepEqual(j.reviewers, ['code']);
+    assert.equal(j.kind, 'bug');
+    assert.equal(j.meta.note, 'x');
   } finally {
     repo.cleanup();
   }

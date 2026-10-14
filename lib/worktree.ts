@@ -11,7 +11,7 @@ import type { CompactIntegrity, IntegrityReport } from './integrity.ts';
 import { listJobs, isActive, loadJob, logEvent, setJob, touchJob, updateJob, jobDir } from './jobs.ts';
 import { exists, resolveFrom } from './paths.ts';
 import type { Config, Job, ServiceConfig, VerifyRun } from './types.ts';
-import { ForgeError, fill, now, readJson, run, tail, withLock, writeJsonAtomic } from './util.ts';
+import { ForgeError, assertSafeRef, fill, now, readJson, run, tail, withLock, writeJsonAtomic } from './util.ts';
 
 /** What `forge worktree create` returns: createWorktree. */
 export type CreateWorktreeResult =
@@ -68,6 +68,8 @@ export function createWorktree(
   opts: { from?: string; sparseExclude?: string[]; isolate?: boolean } = {},
 ): CreateWorktreeResult {
   const job = loadJob(root, id);
+  // Before git sees them (a leading - is an option) and before anything is created.
+  checkRefs(job);
   const wtRoot = worktreeRoot(root, config);
   const dir = path.join(wtRoot, id);
   if (job.worktree && exists(job.worktree)) return { path: job.worktree, created: false };
@@ -237,8 +239,16 @@ function allocatePort(root: string, config: Config, id: string): number {
   throw new ForgeError(`no free port in ${config.ports.base}-${config.ports.base + config.ports.span - 1}`);
 }
 
+// Placeholders fill a shell command, and job.json can be edited outside the CLI, so these are
+// checked here at the sink rather than trusted from createJob.
+function checkRefs(job: Job): void {
+  assertSafeRef(job.id, 'job.id');
+  assertSafeRef(job.branch, 'job.branch');
+  assertSafeRef(job.base, 'job.base');
+}
+
 function vars(root: string, job: Job, dir: string, port: number | null): Record<string, string | number> {
-  // createJob always sets branch and base.
+  checkRefs(job);
   return { job: job.id, port: port ?? '', worktree: dir, root, branch: job.branch!, base: job.base! };
 }
 
@@ -411,11 +421,13 @@ export async function startBackground(
     const rt = readJson(pidFile, {});
     const prev = rt[name];
     if (prev && pidAlive(prev.pid)) return { pid: prev.pid, log: path.resolve(dir, String(prev.log ?? `logs/${name}.log`)), reused: true };
+    // Filled before the log is opened, so a refused value leaves nothing behind.
+    // Checked above; the narrowing does not reach into this callback.
+    const cmd = fill(template, vars(root, job, job.worktree!, job.port));
     const logFile = path.join(dir, 'logs', `${name}.log`);
     fs.mkdirSync(path.dirname(logFile), { recursive: true });
     const fd = fs.openSync(logFile, 'a');
-    // Checked above; the narrowing does not reach into this callback.
-    const child = spawn(process.env.SHELL || '/bin/sh', ['-lc', fill(template, vars(root, job, job.worktree!, job.port))], {
+    const child = spawn(process.env.SHELL || '/bin/sh', ['-lc', cmd], {
       cwd: job.worktree!,
       env: envFor(job, job.worktree!, job.port),
       detached: true,

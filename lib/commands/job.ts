@@ -26,6 +26,27 @@ const HUMAN_ACTIONS = ['approve-spec', 'revise-spec', 'approve-split', 'revise-s
 // List fields `step`, the briefs and the dashboard iterate; each maps to the example its error shows.
 const ARRAY_FIELDS: Record<string, string> = { reviewers: '["code","tests"]', services: '["api"]', dependsOn: '["<job id>"]', children: '["<job id>"]' };
 
+// A job's identity: what it pushes to, where it lives and who owns it. A session misled by request
+// text could otherwise run `--field branch=main` and have `forge pr open` push there, so only the
+// command that owns each key may write it. Each maps to that command, for the error.
+const LOCKED_FIELDS: Record<string, string> = {
+  id: 'forge job new',
+  createdAt: 'forge job new',
+  branch: 'forge job new --branch',
+  base: 'forge worktree create or forge sync',
+  worktree: 'forge worktree create|remove',
+  port: 'forge worktree create|remove',
+  owner: 'forge job claim|release',
+  runs: 'forge job claim|release',
+  source: 'forge job link',
+  pr: 'forge pr find|open|sync',
+  schemaVersion: 'forge migrate',
+  usage: 'forge job agent',
+};
+
+// setPath walks these into Object.prototype.
+const PROTO_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 /** The result is printed as JSON. */
 export async function jobCmd(root: string, config: Config, sub: string | undefined, rest: string[], flags: Record<string, any>): Promise<unknown> {
   const id = rest[0];
@@ -82,6 +103,10 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         const eq = kv.indexOf('=');
         if (eq < 1) throw new ForgeError(`--field expects key=value, got "${kv}"`);
         const key = kv.slice(0, eq);
+        // Checked before coerce, so `owner={}` gets the lock message rather than a JSON error.
+        const segments = key.split('.');
+        if (segments.some((s) => PROTO_KEYS.has(s))) throw new ForgeError(`--field ${key}: __proto__, constructor and prototype are not field names`);
+        if (Object.hasOwn(LOCKED_FIELDS, segments[0])) throw new ForgeError(`--field ${segments[0]} is not settable; use ${LOCKED_FIELDS[segments[0]]}`);
         fields[key] = coerce(kv.slice(eq + 1), key);
       }
       for (const [key, example] of Object.entries(ARRAY_FIELDS)) {

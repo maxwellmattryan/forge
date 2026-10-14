@@ -14,6 +14,19 @@ export class ForgeError extends Error {
 export const now = (): string => new Date().toISOString();
 
 /**
+ * A branch or job name that is safe as one shell word and as a git argument: no metacharacters,
+ * no whitespace, and no leading `-` that git would read as an option.
+ */
+export const SAFE_REF = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
+
+/** `value` when it matches SAFE_REF; otherwise a one-line ForgeError naming `field`. */
+export function assertSafeRef(value: unknown, field: string): string {
+  if (typeof value === 'string' && SAFE_REF.test(value)) return value;
+  const shown = (JSON.stringify(value) ?? String(value)).slice(0, 80);
+  throw new ForgeError(`${field} ${shown} is not a safe branch name: it must start with a letter or digit and use only A-Z a-z 0-9 . _ / - (at most 200 characters)`);
+}
+
+/**
  * Runs a binary without a shell so arguments can never be reinterpreted.
  */
 export function run(
