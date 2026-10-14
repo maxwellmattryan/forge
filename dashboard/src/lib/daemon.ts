@@ -60,7 +60,7 @@ export function sessionPill(session: SessionInput): Pill {
   let tone = 'muted';
   if (!session) [label, tone] = ['no session', 'muted'];
   else if (asking(s)) [label, tone] = ['needs permission', 'warn'];
-  else if (s.status === 'busy') [label, tone] = ['busy', 'accent'];
+  else if (s.status === 'busy') [label, tone] = ['busy', 'live'];
   else if (s.status === 'stopping') [label, tone] = ['stopping', 'warn'];
   else if (s.waiting) [label, tone] = ['waiting for slot', 'warn'];
   else if (s.held) [label, tone] = ['held: budget', 'warn'];
@@ -91,7 +91,7 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
   let label = 'stopped';
   let tone = 'muted';
   if (sessions.some(asking)) [label, tone] = ['needs permission', 'warn'];
-  else if (sessions.some((s) => s.status === 'busy')) [label, tone] = ['busy', 'accent'];
+  else if (sessions.some((s) => s.status === 'busy')) [label, tone] = ['busy', 'live'];
   else if (p.wanted && sessions.some((s) => s.lastError)) [label, tone] = ['failing', 'bad'];
   else if (anyRunning) [label, tone] = ['idle', 'ok'];
   else if (sessions.some((s) => s.status === 'stopping')) [label, tone] = ['stopping', 'warn'];

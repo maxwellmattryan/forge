@@ -64,7 +64,7 @@
         {@const o = j.ownerStatus}
         {@const values = { session: o?.session ?? '', since: ago(o?.since), active: ago(o?.heartbeat) }}
         <div class="flex flex-wrap items-center gap-3">
-          <button class="btn btn-primary" disabled={!r.enabled} aria-describedby={r.note ? 'drawer-owner-note' : undefined} onclick={() => req({ type: 'resume', job: j.id })}>{$t('drawer.resume')}</button>
+          <button class="btn primary" disabled={!r.enabled} aria-describedby={r.note ? 'drawer-owner-note' : undefined} onclick={() => req({ type: 'resume', job: j.id })}>{$t('drawer.resume')}</button>
           {#if r.note}<span id="drawer-owner-note" class="min-w-0 text-sm text-muted wrap-anywhere">{r.note === 'live' ? $t('drawer.ownerLive', values) : r.note === 'agent' ? $t('drawer.ownerAgent', values) : r.note === 'stale' ? $t('drawer.ownerStale', values) : $t('drawer.ownerGone', values)}</span>{/if}
         </div>
       {/if}
@@ -77,50 +77,50 @@
       </div>
       <DepSection job={j} />
       {#if matrix}
-        <div class="card overflow-x-auto">
+        <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
           <table class="tbl">
             <thead><tr><th>{$t('table.round')}</th><th>{$t('drawer.verify')}</th>{#each matrix.reviewers as r (r)}<th>{r}</th>{/each}</tr></thead>
             <tbody>
               {#each matrix.rounds as r (r)}
                 {@const verify = j.verify?.[r]}
                 <tr>
-                  <td class="tabular-nums">{r}</td>
+                  <td class="num">{r}</td>
                   <td>{#if verify}<Chip tone={verify === 'PASS' ? 'ok' : 'bad'} text={verify} />{:else}—{/if}</td>{#each matrix.reviewers as name (name)}{@const v = j.verdicts?.[r]?.[name]}<td>{#if v}<Chip tone={v === 'PASS' ? 'ok' : 'bad'} text={v} />{:else}—{/if}</td>{/each}
                 </tr>
               {/each}
             </tbody>
           </table>
-        </div>
+        </div></div>
       {/if}
       {@html budgetPanel(j, S.data?.config?.pipeline?.budget)}
       {#if usageRows.length}
-        <div class="card overflow-x-auto">
+        <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
           <table class="tbl">
-            <thead><tr><th>{$t('drawer.agent')}</th><th>{$t('common.runs')}</th><th class="text-right">{$t('common.tokens')}</th><th class="text-right">{$t('drawer.output')}</th><th class="text-right">{$t('drawer.tools')}</th><th class="text-right">{$t('drawer.time')}</th><th class="text-right">{$t('common.estCost')}</th></tr></thead>
+            <thead><tr><th>{$t('drawer.agent')}</th><th>{$t('common.runs')}</th><th class="r">{$t('common.tokens')}</th><th class="r">{$t('drawer.output')}</th><th class="r">{$t('drawer.tools')}</th><th class="r">{$t('drawer.time')}</th><th class="r">{$t('common.estCost')}</th></tr></thead>
             <tbody>
               {#each usageRows as [k, v] (k)}
                 <tr>
                   <td>{k}</td>
-                  <td class="tabular-nums">{v.runs}</td>
-                  <td class="text-right tabular-nums">{num(v.tokens)}</td>
-                  <td class="text-right tabular-nums">{v.output ? num(v.output) : '—'}</td>
-                  <td class="text-right tabular-nums">{num(v.toolUses)}</td>
-                  <td class="text-right tabular-nums">{dur(v.durationMs)}</td>
-                  <td class="text-right tabular-nums">{usd(v.estCostUsd)}</td>
+                  <td class="num">{v.runs}</td>
+                  <td class="r num">{num(v.tokens)}</td>
+                  <td class="r num">{v.output ? num(v.output) : '—'}</td>
+                  <td class="r num">{num(v.toolUses)}</td>
+                  <td class="r num">{dur(v.durationMs)}</td>
+                  <td class="r num">{usd(v.estCostUsd)}</td>
                 </tr>
               {/each}
               <tr class="font-medium">
                 <td>{$t('drawer.total')}</td>
                 <td></td>
-                <td class="text-right tabular-nums">{num(j.usage.totalTokens)}</td>
+                <td class="r num">{num(j.usage.totalTokens)}</td>
                 <td></td>
                 <td></td>
                 <td></td>
-                <td class="text-right tabular-nums">{usd(j.usage.estCostUsd)}</td>
+                <td class="r num">{usd(j.usage.estCostUsd)}</td>
               </tr>
             </tbody>
           </table>
-        </div>
+        </div></div>
       {/if}
       {@html screenshotsPanel(j.id, d.screenshots ?? [])}
       <div bind:this={tabStrip} class="tabs">{#each TABS as tab (tab)}<button class="tab {shown.tab === tab ? 'active' : ''}" aria-pressed={shown.tab === tab ? 'true' : 'false'} onclick={() => setDrawerTab(tab)}>{#if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted">{d.events.length}</span>{:else if tab === 'thread'}{$t('drawer.threadTab')}{:else}{$t('drawer.files')}{/if}</button>{/each}</div>
@@ -135,7 +135,7 @@
                 <!-- svelte-ignore a11y_missing_attribute (no title, as on main: the iframe sits under the file list that names it) -->
                 <iframe sandbox="allow-scripts" class="w-full h-[70vh] border border-line bg-white" src="/api/jobs/{encodeURIComponent(j.id)}/raw?path={encodeURIComponent(file)}"></iframe>
               {:else if file.endsWith('.md')}
-                <div class="prose-md">{@html md(content.text)}</div>
+                <div class="prose">{@html md(content.text)}</div>
               {:else}
                 <pre class="text-[12px] font-mono whitespace-pre-wrap break-words bg-raised p-3">{content.text}</pre>
               {/if}
@@ -150,7 +150,7 @@
         <ul>
           {#each events as e, i (i)}
             {@const x = eventDetail(e, { tokens: tokensShort, dur })}
-            <li class="flex gap-3 py-1.5 border-b border-line text-xs"><span class="text-muted whitespace-nowrap w-16 shrink-0">{ago(e.ts)}</span><span class="font-mono text-accent shrink-0 w-28 truncate">{e.type}</span><span class="min-w-0 break-words">{x.pre}{#if x.bold !== null}<b>{x.bold}</b>{/if}{x.post}</span></li>
+            <li class="flex gap-3 py-1.5 border-b border-line text-xs"><span class="text-muted whitespace-nowrap w-16 shrink-0">{ago(e.ts)}</span><span class="font-mono text-ink shrink-0 w-28 truncate">{e.type}</span><span class="min-w-0 break-words">{x.pre}{#if x.bold !== null}<b>{x.bold}</b>{/if}{x.post}</span></li>
           {/each}
         </ul>
       {/if}

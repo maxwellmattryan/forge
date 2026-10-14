@@ -1,12 +1,12 @@
 /* The Drafting design system (design/ is the drawing: tokens.css, drafting.css, components/*). Tokens
    are CSS variables in two themes; the reference rules are ported as @utility classes of the same
-   names so they can be @apply'd; the old class names survive as aliases until job 4 removes them. */
+   names so they can be @apply'd. */
 @import "tailwindcss" source(none);
 @source "./index.html";
 @source "./src/**/*.ts";
 @source "./src/**/*.svelte";
 /* Emitted before any markup uses them, so later jobs only change markup. */
-@source inline("ground falloff plain hatch hatch-dense crosshatch sheet ticks redline dashed solid clickable h label callout mono num muted dimmed caption dim-line prose btn seg chip nav input check radio field track fill tabs tab tbl tblock kpi ic dot backdrop mark card btn-primary nav-item kpi-label kpi-value prose-md ember-bar brand-rule");
+@source inline("ground falloff plain hatch hatch-dense crosshatch sheet ticks redline dashed solid clickable h label callout mono num muted dimmed caption dim-line prose btn seg chip nav input check radio field track fill tabs tab tbl tblock kpi ic dot backdrop mark");
 
 @custom-variant dark (&:where([data-theme=cyanotype], [data-theme=cyanotype] *));
 
@@ -30,9 +30,6 @@
   --color-warn: var(--warn);
   --color-bad: var(--bad);
   --color-info: var(--info);
-  /* alias: removed in job 4 (old markup uses text-accent, bg-accent/15, border-accent/60) */
-  --color-accent: var(--ink);
-  --color-on-accent: var(--on-ink);
 }
 /* The font tokens share their names with Tailwind's font keys; `reference` keeps Tailwind from
    emitting `--font-sans: var(--font-sans)`, a self-reference that would void the token. */
@@ -78,11 +75,11 @@
   --dim: #7f9fc9;
   --ink: #ffffff;
   --on-ink: #15427a;
-  --redline: #ff9382;
+  --redline: #ffb5a8;
   --highlight: #ffd861;
   --ok: #86e3bd;
   --warn: #ffd861;
-  --bad: #ff9382;
+  --bad: #ffb5a8;
   --info: #9ad6ff;
   --shadow-primary: 3px 3px 0 0 rgba(226,238,255,0.28);
   --shadow-dialog: 8px 8px 0 0 rgba(255,255,255,0.08);
@@ -90,9 +87,6 @@
   /* drafting extras (design/drafting.css) */
   --paper-blend: soft-light;
   --fall: rgba(0,0,0,.28);
-  /* alias: removed in job 4 (CommandBar and screenshots.ts use var(--accent) in arbitrary values) */
-  --accent: var(--ink);
-  --on-accent: var(--on-ink);
 }
 
 [data-theme="vellum"] {
@@ -110,11 +104,11 @@
   --dim: #8597b3;
   --ink: #1f4e8c;
   --on-ink: #f6f2e8;
-  --redline: #c02d1b;
+  --redline: #b02817;
   --highlight: #e8b400;
   --ok: #1a6e50;
-  --warn: #8a6300;
-  --bad: #c02d1b;
+  --warn: #7d5a00;
+  --bad: #b02817;
   --info: #2b5f9b;
   --shadow-primary: 3px 3px 0 0 rgba(31,78,140,0.3);
   --shadow-dialog: 8px 8px 0 0 rgba(31,78,140,0.12);
@@ -123,9 +117,6 @@
   --paper-opacity: .55;
   --paper-blend: multiply;
   --fall: rgba(60,40,0,.10);
-  /* alias: removed in job 4 */
-  --accent: var(--ink);
-  --on-accent: var(--on-ink);
 }
 
 :root {
@@ -230,9 +221,10 @@
 @utility crosshatch { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px), repeating-linear-gradient(-45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
 
 /* ---------- sheet: an outlined panel; ticks adds corner register marks ---------- */
+/* background-color, not the shorthand, so `sheet hatch` and `sheet crosshatch` keep their image. */
 @utility sheet {
   border: 1px solid var(--line);
-  background: var(--panel);
+  background-color: var(--panel);
   position: relative;
   &.clickable { cursor: pointer; transition: background-color .12s ease, border-color .12s ease; }
   &.clickable:hover, &.hover { border-color: var(--line-strong); background-color: var(--raised); }
@@ -297,7 +289,7 @@
   &::before, &::after { content: ""; flex: 1; height: 1px; background: var(--line); }
   & .end { width: 1px; height: 10px; background: var(--line-strong); flex: none; }
 }
-/* prose: the reference rules plus what the old prose-md had (h3, lists, links, tables). */
+/* prose: the reference rules plus h3, lists, links and tables for the drawer's markdown. */
 @utility prose {
   font-size: 14px;
   line-height: 24px;
@@ -520,10 +512,6 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  /* alias: removed in job 4. Old markup uses kpi alone, so it draws the sheet outline too; the
-     same declarations as sheet, so `sheet kpi` later is harmless. */
-  border: 1px solid var(--line);
-  background: var(--panel);
   & .v { font-family: var(--font-mono); font-size: 24px; line-height: 28px; font-weight: 500; font-variant-numeric: tabular-nums; }
 }
 
@@ -562,60 +550,6 @@
   mix-blend-mode: screen;
   [data-theme="vellum"] & { filter: grayscale(1) brightness(.9) contrast(1.25); mix-blend-mode: multiply; }
 }
-
-/* ---------- aliases of the old class names ---------- */
-/* alias: removed in job 4 */
-@utility card { @apply sheet; }
-/* alias: removed in job 4. Used together with btn; the .btn qualifier keeps the reference's
-   `.btn.primary` specificity so btn's own states never win over it. */
-@utility btn-primary {
-  &.btn { background: var(--ink); color: var(--on-ink); border-color: var(--ink); box-shadow: var(--shadow-primary); }
-  &.btn:hover { background-image: none; box-shadow: 4px 4px 0 0 var(--line); transform: translate(-1px,-1px); }
-  &.btn:active { box-shadow: none; transform: translate(2px,2px); }
-  &.btn[disabled] { background: transparent; color: var(--fg); border-color: var(--line-strong); box-shadow: none; transform: none; }
-}
-/* alias: removed in job 4. The .nav a rules on the element itself, without width: 100%, because
-   the phone strip lays nav items out in a row. */
-@utility nav-item {
-  font-family: var(--font-mono);
-  font-weight: 500;
-  font-size: 13px;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  color: var(--muted);
-  text-decoration: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 9px 10px 9px 12px;
-  border: 1px solid transparent;
-  background: transparent;
-  cursor: pointer;
-  line-height: 16px;
-  transition: all .12s ease;
-  position: relative;
-  text-align: left;
-  &:hover, &.hover { color: var(--fg); border-color: var(--line-soft); background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
-  &.active { color: var(--fg); border-color: var(--line-strong); background-color: var(--raised); background-image: none; }
-  &.active::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px; background: var(--ink); }
-  &:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 2px; }
-}
-/* alias: removed in job 4 */
-@utility kpi-label { @apply label; }
-/* alias: removed in job 4 */
-@utility kpi-value { font-family: var(--font-mono); font-size: 24px; line-height: 28px; font-weight: 500; font-variant-numeric: tabular-nums; }
-/* alias: removed in job 4 */
-@utility prose-md { @apply prose; }
-/* alias: removed in job 4. The fill declarations without height, which the old markup sets itself. */
-@utility ember-bar {
-  background: var(--ink);
-  background-image: repeating-linear-gradient(45deg, rgba(21,66,122,.5) 0 1px, transparent 1px 4px);
-  position: relative;
-  [data-theme="vellum"] & { background-image: repeating-linear-gradient(45deg, rgba(241,236,223,.55) 0 1px, transparent 1px 4px); }
-}
-/* alias: removed in job 4 */
-@utility brand-rule { @apply dim-line; }
 
 /* ---------- native form controls: the .input look on every field old markup renders ----------
    Unlayered, as before, so it outranks utilities on those elements. */

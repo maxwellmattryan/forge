@@ -31,7 +31,7 @@
 {#if prompts.length}
   <section class="flex flex-col gap-2" aria-label={$t('permission.heading', { count: prompts.length })}>
     {#each prompts as { scope: s, prompt: p } (p.id)}
-      <article class="card border-warn/50 p-3 flex flex-col gap-2">
+      <article class="sheet redline p-3 flex flex-col gap-2">
         <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
           <Chip tone="warn" text={$t('permission.chip')} />
           {#if scope === undefined}
@@ -41,7 +41,7 @@
           <span class="flex-1"></span>
           {#if p.at}<span class="text-muted">{ago(p.at)}</span>{/if}
         </div>
-        <pre class="max-h-48 overflow-auto rounded-lg bg-raised px-2.5 py-2 text-xs font-mono whitespace-pre-wrap break-all">{promptInput(p)}</pre>
+        <pre class="max-h-48 overflow-auto bg-raised px-2.5 py-2 text-xs font-mono whitespace-pre-wrap break-all">{promptInput(p)}</pre>
         {#if p.description}<p class="text-xs text-muted break-words"><span class="font-medium text-fg">{$t('permission.agentSays')}</span> {p.description}</p>{/if}
         {#if p.blockedPath}<p class="text-xs text-muted break-all"><span class="font-medium text-fg">{$t('permission.outside')}</span> <span class="font-mono">{p.blockedPath}</span></p>{/if}
         <div class="flex flex-wrap items-center gap-2">

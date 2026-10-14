@@ -38,17 +38,18 @@
   {/snippet}
 </PageHeader>
 {#if !jobs.length}
-  <Empty>{$t('pipeline.empty')} <code class="font-mono">{$t('pipeline.cmdFeature')}</code> {$t('pipeline.or')} <code class="font-mono">{$t('pipeline.cmdNext')}</code>.</Empty>
+  <Empty>{$t('pipeline.empty')} <code class="mono text-fg">{$t('pipeline.cmdFeature')}</code> {$t('pipeline.or')} <code class="mono text-fg">{$t('pipeline.cmdNext')}</code>.</Empty>
 {:else if S.layout === 'table'}
   <JobsTable {jobs} />
 {:else}
   <div class="flex gap-3 overflow-x-auto pb-4 -mx-4 px-4 md:mx-0 md:px-0">
     {#each boardStages(jobs) as stage (stage)}
       {@const list = jobs.filter((j) => j.stage === stage)}
-      <section class="w-72 shrink-0 card bg-panel/60 flex flex-col max-h-[calc(100vh-180px)]">
-        <header class="flex items-center justify-between px-3 py-2.5 border-b border-line"><span class="text-sm font-medium">{STAGE_LABEL[stage as Stage]}</span><span class="text-xs text-muted tabular-nums">{list.length}</span></header>
-        <div class="flex flex-col gap-2 p-2 overflow-y-auto">
-          {#each list as j (j.id)}<JobCard job={j} />{:else}<div class="text-xs text-muted px-1 py-3 text-center">—</div>{/each}
+      <section class="sheet dashed w-(--size-board-column) shrink-0 flex flex-col max-h-[calc(100vh-180px)]">
+        <header class="flex items-center justify-between px-3 py-2 border-b border-dashed border-line"><span class="label text-fg">{STAGE_LABEL[stage as Stage]}</span><span class="mono muted num text-[11px]">{list.length}</span></header>
+        <!-- At least p-2.5: a redline card's outline sits 3px outside it and the scroller would clip it. -->
+        <div class="flex flex-col gap-2.5 p-2.5 overflow-y-auto">
+          {#each list as j (j.id)}<JobCard job={j} />{:else}<div class="caption muted text-center py-3">—</div>{/each}
         </div>
       </section>
     {/each}

@@ -21,7 +21,7 @@
 
   const who = $derived<Record<ThreadFrom, string>>({ you: $t('thread.you'), cli: $t('thread.cli'), forge: $t('thread.forge'), tracker: $t('thread.tracker') });
   const statusText = $derived<Record<ThreadStatus, string>>({ queued: $t('thread.queued'), handling: $t('thread.handling'), done: $t('thread.done'), rejected: $t('thread.rejected') });
-  const TONE: Record<ThreadStatus, string> = { queued: 'muted', handling: 'accent', done: 'ok', rejected: 'bad' };
+  const TONE: Record<ThreadStatus, string> = { queued: 'muted', handling: 'live', done: 'ok', rejected: 'bad' };
 
   /** What a message asks for, in words: never the raw request type. */
   function actionText(a: ThreadAction): string {
@@ -63,16 +63,17 @@
 
 <div class="flex flex-col gap-5">
   <section class="flex flex-col gap-2" aria-labelledby="thread-conversation-{job.id}">
-    <h3 id="thread-conversation-{job.id}" class="text-[11px] uppercase tracking-wide text-muted">{$t('thread.conversation')}</h3>
+    <h3 id="thread-conversation-{job.id}" class="label callout">{$t('thread.conversation')}</h3>
     {#if items.length}
       <ol class="flex flex-col gap-2">
         {#each items as m (m.id)}
-          <li class="card p-3 flex flex-col gap-1.5">
-            <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+          <li class="sheet ticks p-3 flex flex-col gap-1.5">
+            <span class="tk"></span>
+            <div class="caption flex flex-wrap items-center gap-x-2 gap-y-1">
               <span class="font-medium text-fg">{who[m.from]}</span><span class="text-fg">{actionText(m.action)}</span>{#if m.at}<span class="text-muted">{ago(m.at)}</span>{/if}<span class="flex-1"></span>{#if m.status}<Chip tone={TONE[m.status]} text={statusText[m.status]} />{/if}
             </div>
             {#if m.text}<p class="text-sm whitespace-pre-wrap break-words">{m.text}</p>{/if}
-            {#if m.result}<div class="border-l-2 border-accent/50 pl-2.5 text-sm text-muted whitespace-pre-wrap break-words"><span class="text-xs font-medium text-fg">{who.forge}</span> {m.result}</div>{/if}
+            {#if m.result}<div class="border-l border-line-strong pl-2.5 text-sm text-muted whitespace-pre-wrap break-words"><span class="text-xs font-medium text-fg">{who.forge}</span> {m.result}</div>{/if}
           </li>
         {/each}
       </ol>
@@ -81,7 +82,7 @@
     {/if}
   </section>
   <section class="flex flex-col gap-2" aria-labelledby="thread-composer-{job.id}">
-    <h3 id="thread-composer-{job.id}" class="text-[11px] uppercase tracking-wide text-muted">{$t('thread.composer')}</h3>
+    <h3 id="thread-composer-{job.id}" class="label callout">{$t('thread.composer')}</h3>
     <PermissionPrompts scope={job.id} />
     {#if actionable}
       {#key job.id}<JobActions {job} noteId="thread-note-{job.id}" />{/key}

@@ -1,35 +1,27 @@
-// The Drafting shell (design/jobs/03-shell.md): the sidebar, nav, page header, Pipeline controls and the overlays
-// draw square corners and hard-offset shadows, and their segments and nav links expose their selected state.
-// Reads source files only, like dashboard-svelte.test.ts.
+// The Drafting shell and job surfaces (design/jobs/03-shell.md, 04-job-surfaces.md): every source draws square
+// corners and hard-offset shadows and uses none of the pre-Drafting class names, the job surfaces use the Drafting
+// markup, and segments and nav links expose their selected state. Reads source files only, like dashboard-svelte.test.ts.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { endOf, tags } from './svelte-markup.ts';
+import { TONE_CLASS } from '../dashboard/src/lib/util.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = path.join(ROOT, 'dashboard', 'src');
 const read = (rel: string) => fs.readFileSync(path.join(SRC, rel), 'utf8');
 
-// The files this restyle moved onto the Drafting markup. Job 4 widens the list as it restyles the rest.
-const SHELL_FILES = [
-  'App.svelte',
-  'components/Nav.svelte',
-  'components/PageHeader.svelte',
-  'views/Pipeline.svelte',
-  'views/Analytics.svelte',
-  'components/Drawer.svelte',
-  'components/Settings.svelte',
-  'components/settings/ConfigTab.svelte',
-  'components/CommandBar.svelte',
-  'components/Banner.svelte',
-  'components/Toast.svelte',
-];
-
-const ROUNDED = /(^|:)rounded(-(?!full\b)[\w[\]-]+)?$/;
-const BLURRED = /(^|:)shadow-(lg|2xl)$/;
-const banned = (cls: string) => ROUNDED.test(cls) || BLURRED.test(cls);
+const ROUNDED = /^rounded(-(?!full\b)[\w[\]-]+)?$/;
+const BLURRED = /^shadow-(lg|2xl)$/;
+// Job 1's aliases, deleted in job 4. `card` alone is the old sheet alias; next to `h` it is the Drafting title style.
+const OLD = new Set(['btn-primary', 'kpi-label', 'kpi-value', 'prose-md', 'ember-bar', 'brand-rule', 'nav-item']);
+const ACCENT = /^[\w-]+-(on-)?accent(\/\d+)?$/;
+/** Variant prefixes (`hover:`, `md:`) are stripped, so `hover:text-accent` is `text-accent`. */
+const base = (cls: string) => cls.slice(cls.lastIndexOf(':') + 1);
+const bannedIn = (classes: string[]) => classes.filter((c) => ROUNDED.test(base(c)) || BLURRED.test(base(c)) || OLD.has(base(c)) || ACCENT.test(base(c)) || (base(c) === 'card' && !classes.includes('h')));
+const banned = (cls: string) => bannedIn([cls]).length > 0;
 
 /** Every string literal in a JS expression: the class names a `{cond ? 'a' : 'b'}` can apply. */
 function literals(expr: string): string[] {
@@ -65,22 +57,156 @@ function classTokens(value: string): string[] {
   return [rest, ...parts].flatMap((s) => s.split(/\s+/)).filter(Boolean);
 }
 
-/** Class tokens of every element and component in a file. */
-const fileClasses = (rel: string) => tags(rel, read(rel)).flatMap((t) => t.attrs.filter((a) => a.name === 'class' && a.value).flatMap((a) => classTokens(a.value as string)));
+/** Class tokens of each class attribute in a file, one list per attribute (so `card` can be checked against `h`). */
+const fileClassLists = (rel: string) => tags(rel, read(rel)).flatMap((t) => t.attrs.filter((a) => a.name === 'class' && a.value).map((a) => classTokens(a.value as string)));
 
-test('shell files use no rounded or blurred-shadow classes', () => {
-  // The matcher itself: the corner and shadow classes it must catch, and the Drafting ones it must let through.
-  for (const bad of ['rounded', 'rounded-lg', 'md:rounded-xl', 'rounded-t-lg', 'rounded-[4px]', 'shadow-lg', 'shadow-2xl', 'md:shadow-2xl']) assert.ok(banned(bad), `${bad} is caught`);
-  for (const ok of ['rounded-full', 'shadow-(--shadow-dialog)', 'shadow-(--shadow-drawer)', 'shadow-[inset_3px_0_0_var(--ink)]', 'md:shadow-(--shadow-dialog)', 'border-line']) assert.ok(!banned(ok), `${ok} passes`);
+/** The fixed text of every `class="…"` in TS source, `${…}` interpolations dropped. */
+function tsClassLists(text: string): string[][] {
+  const out: string[][] = [];
+  for (const m of text.matchAll(/class="/g)) {
+    let v = '';
+    for (let i = (m.index ?? 0) + m[0].length; i < text.length && text[i] !== '"'; i++) {
+      if (text[i] === '$' && text[i + 1] === '{') {
+        const end = endOf(text, i + 1);
+        assert.ok(end > 0, `cannot parse the interpolation near ${text.slice(i, i + 40)}`);
+        v += ' ';
+        i = end;
+      } else v += text[i];
+    }
+    out.push(v.split(/\s+/).filter(Boolean));
+  }
+  return out;
+}
+
+test('dashboard sources use no old, rounded or blurred-shadow classes', () => {
+  // The matcher itself: the classes it must catch, and the Drafting ones it must let through.
+  for (const bad of ['rounded', 'rounded-lg', 'md:rounded-xl', 'rounded-t-lg', 'rounded-[4px]', 'shadow-lg', 'shadow-2xl', 'md:shadow-2xl', 'btn-primary', 'hover:text-accent', 'bg-accent/15', 'text-on-accent', 'border-accent', 'kpi-value', 'nav-item', 'prose-md', 'card'])
+    assert.ok(banned(bad), `${bad} is caught`);
+  for (const ok of ['rounded-full', 'shadow-(--shadow-dialog)', 'shadow-(--shadow-drawer)', 'shadow-[inset_3px_0_0_var(--ink)]', 'md:shadow-(--shadow-dialog)', 'border-line', 'text-ink', 'primary', 'kpi', 'prose', 'nav'])
+    assert.ok(!banned(ok), `${ok} passes`);
+  assert.deepEqual(bannedIn(['h', 'card', 'line-clamp-2']), [], '`h card` is the Drafting title style');
+  assert.deepEqual(bannedIn(['card', 'p-3']), ['card'], '`card` alone is the old alias');
   assert.deepEqual(classTokens(`"btn sm {on ? 'sel' : 'shadow-2xl'}"`), ['btn', 'sm', 'sel', 'shadow-2xl'], 'class tokens include those inside expressions');
   assert.deepEqual(classTokens(`{on ? 'active' : 'md:rounded-xl'}`), ['active', 'md:rounded-xl'], 'class={…} expressions are read too');
+  assert.deepEqual(tsClassLists('`<div class="sheet ${x ? `a` : "b"} card"><i class="h card">`'), [['sheet', 'card'], ['h', 'card']], 'TS class strings drop their interpolations');
 
-  for (const rel of SHELL_FILES) {
-    const classes = fileClasses(rel);
-    assert.ok(classes.length > 0, `${rel} has class attributes`);
-    assert.deepEqual(classes.filter(banned), [], `${rel} draws square corners and hard shadows`);
+  const files = svelteFiles();
+  assert.ok(files.length >= 35, `checked ${files.length} components`);
+  for (const rel of files) {
+    const lists = fileClassLists(rel);
+    assert.deepEqual(lists.flatMap(bannedIn), [], `${rel} uses only Drafting classes, square corners and hard shadows`);
   }
+  const ts = tsFiles();
+  assert.ok(ts.some((f) => f.endsWith('.svelte.ts')), 'rune modules are read too');
+  for (const rel of ts) assert.deepEqual(tsClassLists(fs.readFileSync(path.join(SRC, rel), 'utf8')).flatMap(bannedIn), [], `${rel} builds only Drafting classes`);
+  for (const [tone, cls] of Object.entries(TONE_CLASS)) assert.deepEqual(bannedIn(cls.split(/\s+/)), [], `TONE_CLASS.${tone} is a Drafting chip modifier`);
 });
+
+const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+type El = { name: string; classes: string[]; parents: El[]; first: El | null };
+
+/** Every element of a file with its ancestors and its first child element, from a bracket-aware walk of the markup. */
+function elements(rel: string, text = read(rel)): El[] {
+  const s = text.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '').replace(/<!--[\s\S]*?-->/g, '');
+  const out: El[] = [];
+  const stack: El[] = [];
+  for (let i = 0; i < s.length; ) {
+    if (s[i] === '{') {
+      const end = endOf(s, i);
+      assert.ok(end > 0, `${rel}: cannot parse markup near ${s.slice(i, i + 40)}`);
+      i = end + 1;
+      continue;
+    }
+    const m = s[i] === '<' ? /^<(\/?)([A-Za-z][\w:.-]*)/.exec(s.slice(i)) : null;
+    if (!m) {
+      i++;
+      continue;
+    }
+    let j = i + m[0].length;
+    for (; j < s.length && s[j] !== '>'; j++) {
+      if (s[j] === '{' || s[j] === '"' || s[j] === "'") j = s[j] === '{' ? endOf(s, j) : s.indexOf(s[j], j + 1);
+      assert.ok(j >= 0, `${rel}: cannot parse the tag near ${s.slice(i, i + 40)}`);
+    }
+    const raw = s.slice(i, j + 1);
+    i = j + 1;
+    if (m[1]) {
+      const at = stack.map((e) => e.name).lastIndexOf(m[2]);
+      assert.ok(at >= 0, `${rel}: </${m[2]}> closes nothing`);
+      stack.length = at;
+      continue;
+    }
+    const tag = tags(rel, raw)[0];
+    const cls = tag.attrs.find((a) => a.name === 'class')?.value;
+    const el: El = { name: m[2], classes: cls ? classTokens(cls) : [], parents: [...stack], first: null };
+    const parent = stack.at(-1);
+    if (parent && !parent.first) parent.first = el;
+    out.push(el);
+    if (!raw.endsWith('/>') && !VOID.has(m[2])) stack.push(el);
+  }
+  return out;
+}
+
+const has = (el: El, ...names: string[]) => names.every((n) => el.classes.includes(n));
+
+test('job surfaces use the Drafting markup', () => {
+  const walked = elements('x.svelte', `<div class="sheet ticks"><span class="tk"></span>{#if a}<img src="x" /><input>{/if}<div class="overflow-x-auto"><table class="tbl"></table></div></div>`);
+  const table = walked.find((e) => e.name === 'table');
+  assert.deepEqual(table?.parents.map((p) => p.name), ['div', 'div'], 'the walker tracks ancestors past void and self-closed elements');
+  assert.equal(walked[0].first?.name, 'span');
+
+  // StateChip: a rev tone is the REV · <state> tag, with the prefix hidden from screen readers.
+  const chip = read('components/StateChip.svelte');
+  assert.match(chip, /\{#if tone === 'rev'\}<span class="chip rev"><span aria-hidden="true">\{\$t\('common\.rev'\)\} ·<\/span> \{stateText\(job\)\}<\/span>\{:else\}<Chip \{tone\}/);
+
+  // JobCard: a ticked, clickable sheet, redlined exactly when a human is needed.
+  const card = tags('components/JobCard.svelte', read('components/JobCard.svelte')).find((t) => t.name === 'button');
+  const cardClass = card?.attrs.find((a) => a.name === 'class')?.value ?? '';
+  assert.match(cardClass, /^"sheet ticks clickable \{needsHuman\(j\) \? 'redline' : ''\} /);
+  assert.ok(!classTokens(cardClass).includes('card'), 'no card alias on the JobCard root');
+
+  // InboxCard: everything in the Inbox waits on a person, so its root is always redlined.
+  const inbox = elements('components/InboxCard.svelte');
+  assert.ok(has(inbox[0], 'sheet', 'ticks', 'redline'), `InboxCard's root is sheet ticks redline (${inbox[0].classes.join(' ')})`);
+
+  // Every ticks element starts with its .tk span, which draws the two bottom corners.
+  for (const rel of svelteFiles()) {
+    for (const el of elements(rel).filter((e) => e.classes.includes('ticks'))) {
+      assert.ok(el.first?.name === 'span' && el.first.classes.includes('tk'), `${rel}: <${el.name} class="${el.classes.join(' ')}"> has a .tk span as its first child`);
+    }
+  }
+
+  // Every .tbl sits in a ticked sheet. A component whose table has no sheet of its own (CompareTable) counts only
+  // when every place that renders it is inside one.
+  const inSheet = (el: El) => el.parents.some((p) => has(p, 'sheet', 'ticks'));
+  let tables = 0;
+  for (const rel of svelteFiles()) {
+    for (const el of elements(rel).filter((e) => e.name === 'table' && e.classes.includes('tbl'))) {
+      tables++;
+      if (inSheet(el)) continue;
+      const name = path.basename(rel, '.svelte');
+      const uses = svelteFiles().flatMap((f) => elements(f).filter((e) => e.name === name));
+      assert.ok(uses.length > 0 && uses.every(inSheet), `${rel}: its .tbl sits inside a sheet ticks element (directly or wherever <${name}> is rendered)`);
+    }
+  }
+  assert.ok(tables >= 14, `checked ${tables} tables`);
+  for (const f of tsFiles()) assert.doesNotMatch(fs.readFileSync(path.join(SRC, f), 'utf8'), /class="[^"]*\btbl\b/, `${f} builds no .tbl outside a component`);
+});
+
+/** Every .ts file under dashboard/src (including *.svelte.ts), relative to it. */
+function tsFiles(dir = SRC): string[] {
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .flatMap((e) => (e.isDirectory() ? tsFiles(path.join(dir, e.name)) : e.name.endsWith('.ts') ? [path.relative(SRC, path.join(dir, e.name))] : []))
+    .sort();
+}
+
+/** Every .svelte file under dashboard/src, relative to it. */
+function svelteFiles(dir = SRC): string[] {
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .flatMap((e) => (e.isDirectory() ? svelteFiles(path.join(dir, e.name)) : e.name.endsWith('.svelte') ? [path.relative(SRC, path.join(dir, e.name))] : []))
+    .sort();
+}
 
 test('segments and nav expose their selected state', () => {
   const pipeline = read('views/Pipeline.svelte');

@@ -1,5 +1,5 @@
 // The Drafting utility set (design/drafting.css) ported into dashboard/style.css as @utility
-// classes, the old class names kept as aliases, and the drawing rules: square corners, hard shadows.
+// classes, the old class names gone, and the drawing rules: square corners, hard shadows.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -21,14 +21,13 @@ const UTILITIES = (
   'ground falloff plain hatch hatch-dense crosshatch sheet ticks redline dashed solid clickable h label callout mono num muted dimmed caption ' +
   'dim-line prose btn seg chip nav input check radio field track fill tabs tab tbl tblock kpi ic dot backdrop mark'
 ).split(' ');
-const ALIASES = 'card btn-primary nav-item kpi kpi-label kpi-value tbl prose-md ember-bar brand-rule'.split(' ');
 // Compound selectors as the build writes them (minified, attribute quotes dropped).
 const MODIFIERS = [
   '.sheet.clickable', '.sheet.hover', '.sheet.redline', '.sheet.dashed', '.sheet.solid', '.ticks>.tk', '.ticks:before', '.ticks>.tk:after',
-  '.h.display', '.h.page', '.h.sheet-title', '.h.section', '.h.card', '.callout:before', '.dim-line .end', '.prose h1', '.prose-md h3', '.prose-md pre code',
+  '.h.display', '.h.page', '.h.sheet-title', '.h.section', '.h.card', '.callout:before', '.dim-line .end', '.prose h1', '.prose h3', '.prose pre code',
   '.btn.primary', '.btn.sel', '.btn.sm', '.btn.icon', '.btn.touch', '.btn.active', '.btn.focus', '.btn.disabled', '.btn[disabled]', '.btn .ic', '.seg .btn',
   '.chip.ok', '.chip.bad', '.chip.warn', '.chip.info', '.chip.ink', '.chip.muted', '.chip.live', '.chip.rev', '.chip.hl', '.chip:is(button)',
-  '.nav a', '.nav button', '.nav a.active', '.nav .lbl', '.nav.row', '.nav.row a', '.nav.row button', '.nav-item.active', '.nav-item.active:before', '.btn-primary.btn',
+  '.nav a', '.nav button', '.nav a.active', '.nav .lbl', '.nav.row', '.nav.row a', '.nav.row button',
   '.input:focus', '.input:is(textarea)', '.input:is(select)', '.check.on:after', '.radio.on:after', '.fill.ok', '.fill.warn', '.fill.bad', '[data-theme=vellum] .fill',
   '.tab.active', '.tbl th', '.tbl tr.clickable', '.tbl .r', '.tblock>div.wide', '.tblock .k', '.kpi .v', '.ic .cx',
   '.dot.ok', '.dot.ink', '.dot.hl', '.dot.red', '.dot.hollow', '[data-theme=vellum] .backdrop', '[data-theme=vellum] .mark', '.ground:before', '.falloff:after',
@@ -59,23 +58,35 @@ test('every drafting utility is ported', () => {
   assert.match(ruleFor(css, '.nav.row a'), /width:auto/);
   assert.ok(fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8').includes('.nav.row a, .nav.row button { width: auto;'), 'design/drafting.css has the .nav.row item rule');
   assert.ok(!hasClass('.hatch{}.h-4{}', 'h') && hasClass('.h.card{}', 'h') && hasClass('.x .h{', 'h'), 'the class matcher');
+  // A sheet sets only its background colour, so `sheet hatch` and `sheet crosshatch` keep their image (Empty).
+  const sheet = ruleFor(css, '.sheet');
+  assert.match(sheet, /background-color:var\(--panel\)/);
+  assert.doesNotMatch(sheet, /(^|[;{])background:/, 'no background shorthand on .sheet');
+  const drafting = fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8');
+  const sheetRule = /^\.sheet \{([^}]*)\}/m.exec(drafting)?.[1] ?? '';
+  assert.match(sheetRule, /background-color: var\(--panel\)/, 'design/drafting.css .sheet sets background-color');
+  assert.doesNotMatch(sheetRule, /(^|;)\s*background:/, 'design/drafting.css .sheet has no background shorthand');
 });
 
-test('old class names still apply', () => {
+test('old class names are gone', () => {
   const source = fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8');
   const css = builtCss();
-  for (const name of ALIASES) assert.ok(hasClass(css, name), `the built CSS has a .${name} rule`);
-  for (const name of ['card', 'btn-primary', 'nav-item', 'kpi-label', 'kpi-value', 'prose-md', 'ember-bar', 'brand-rule']) {
-    const at = source.indexOf(`@utility ${name} {`);
-    assert.ok(at > 0, `style.css declares @utility ${name}`);
-    assert.ok(source.slice(Math.max(0, at - 200), at).includes('/* alias: removed in job 4'), `${name} is marked as an alias`);
+  const OLD = ['card', 'btn-primary', 'nav-item', 'kpi-label', 'kpi-value', 'prose-md', 'ember-bar', 'brand-rule'];
+  for (const name of OLD) assert.doesNotMatch(source, new RegExp(`@utility ${escapeRe(name)}\\s*\\{`), `style.css declares no @utility ${name}`);
+  assert.ok(!source.includes('alias: removed in job 4'), 'no alias comments are left');
+  const inline = /@source inline\("([^"]*)"\)/.exec(source)?.[1].split(/\s+/) ?? [];
+  assert.ok(inline.includes('sheet'), 'the @source inline list is read');
+  assert.deepEqual(inline.filter((n) => OLD.includes(n)), [], 'no old names in @source inline');
+  for (const name of [...OLD.slice(1), 'text-accent']) assert.ok(!hasClass(css, name), `the built CSS has no .${name} rule`);
+  // `.card` survives only as the Drafting title style, `.h.card`.
+  const cards = [...css.matchAll(/[^{}]*\{/g)].flatMap((m) => m[0].slice(0, -1).split(',')).filter((sel) => hasClass(sel, 'card'));
+  assert.ok(cards.length > 0 && cards.every((sel) => sel.trim() === '.h.card'), `.card appears only as .h.card (${cards.join(' | ')})`);
+  for (const v of ['--accent', '--on-accent', '--color-accent', '--color-on-accent']) {
+    assert.ok(!new RegExp(`${escapeRe(v)}(?![\\w-])`).test(source), `style.css has no ${v}`);
+    assert.ok(!new RegExp(`${escapeRe(v)}(?![\\w-])`).test(css), `the built CSS has no ${v}`);
   }
-  // Mapped onto the new rules, not left with the old look.
-  assert.match(ruleFor(css, '.card'), /border:1px solid var\(--line\);background:var\(--panel\)/);
-  assert.match(ruleFor(css, '.kpi-label'), /font-family:var\(--font-mono\)/);
-  assert.match(ruleFor(css, '.brand-rule'), /display:flex/);
-  assert.match(ruleFor(css, '.btn-primary.btn'), /background:var\(--ink\)/);
-  assert.match(ruleFor(css, '.text-accent'), /color:var\(--ink\)/);
+  // kpi is the reference rule now: the sheet outline comes from `sheet ticks kpi` markup.
+  assert.doesNotMatch(ruleFor(css, '.kpi'), /border|background/);
   for (const gone of ['--ember-hot', '--color-ember-hot', 'Inter', 'JetBrains Mono']) assert.ok(!css.includes(gone), `${gone} is gone`);
 });
 

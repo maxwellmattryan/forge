@@ -5,4 +5,4 @@
   let { children }: { children: Snippet } = $props();
 </script>
 
-<div class="card px-4 py-10 text-center text-sm text-muted"><img src="/forge.png" alt="" class="size-10 mx-auto mb-3 rounded-lg opacity-80" />{@render children()}</div>
+<div class="sheet crosshatch flex flex-col items-center gap-3 px-4 py-10 text-center text-muted"><img src="/forge.png" alt="" class="mark" /><div>{@render children()}</div></div>

@@ -23,7 +23,7 @@ h1, h2, h3, p { margin: 0; }
 .crosshatch { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px), repeating-linear-gradient(-45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
 
 /* ---------- sheet: an outlined panel; .ticks adds corner register marks ---------- */
-.sheet { border: 1px solid var(--line); background: var(--panel); position: relative; }
+.sheet { border: 1px solid var(--line); background-color: var(--panel); position: relative; } /* background-color: .sheet.hatch / .sheet.crosshatch keep their image */
 .sheet.ticks > .tk { position: absolute; inset: 0; pointer-events: none; }
 .sheet.ticks::before, .sheet.ticks::after, .sheet.ticks > .tk::before, .sheet.ticks > .tk::after { content: ""; position: absolute; width: 9px; height: 9px; border-color: var(--line-strong); border-style: solid; }
 .sheet.ticks::before { top: -1px; left: -1px; border-width: 1px 0 0 1px; } .sheet.ticks::after { top: -1px; right: -1px; border-width: 1px 1px 0 0; }

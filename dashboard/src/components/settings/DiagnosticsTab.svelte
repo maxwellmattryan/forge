@@ -52,7 +52,7 @@
   </div>
   {#if session.doctorError && !session.doctorRunning}<Banner msg={session.doctorError} />{/if}
   {#if d}
-    <ul class="card divide-y divide-line">
+    <ul class="sheet divide-y divide-line">
       {#each d.checks as c, i (i)}
         <li class="flex items-start gap-3 px-3 py-2.5 text-sm min-w-0">
           {#if c.ok}<Chip tone="ok" text={$t('settings.diagnostics.ok')} extra="shrink-0 w-14 justify-center" />{:else}<Chip tone="bad" text={$t('settings.diagnostics.fail')} extra="shrink-0 w-14 justify-center" />{/if}

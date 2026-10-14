@@ -65,7 +65,7 @@
     <div id="{id}-label">{@render head()}</div>
     {@render help()}
     {#if f.type === 'object'}
-      <pre {id} role="group" aria-labelledby="{id}-label" aria-describedby="{id}-help" class="text-[12px] font-mono whitespace-pre-wrap break-all bg-raised rounded-lg p-3">{JSON.stringify(value ?? null, null, 2)}</pre>
+      <pre {id} role="group" aria-labelledby="{id}-label" aria-describedby="{id}-help" class="text-[12px] font-mono whitespace-pre-wrap break-all bg-raised p-3">{JSON.stringify(value ?? null, null, 2)}</pre>
     {:else}
       <div {id} role="group" aria-labelledby="{id}-label" aria-describedby="{id}-help" class="text-sm font-mono break-all">{shown ?? $t('settings.field.none')}</div>
     {/if}

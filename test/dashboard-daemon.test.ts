@@ -13,7 +13,7 @@ test('sessionPill labels and tones every session status', () => {
     return [p.label, p.tone];
   };
   assert.deepEqual(pill(null), ['no session', 'muted']);
-  assert.deepEqual(pill({ status: 'busy', running: true }), ['busy', 'accent']);
+  assert.deepEqual(pill({ status: 'busy', running: true }), ['busy', 'live']);
   assert.deepEqual(pill({ status: 'idle', running: true }), ['idle', 'ok']);
   assert.deepEqual(pill({ status: 'stopping', running: true }), ['stopping', 'warn']);
   assert.deepEqual(pill({ waiting: true }), ['waiting for slot', 'warn']);
@@ -56,7 +56,7 @@ test('poolModel derives the pill, inbox, live/cap, holds, waits and job chips', 
     },
   });
   const m = poolModel(p, { pending: false });
-  assert.deepEqual([m.pill.label, m.pill.tone], ['busy', 'accent'], 'busy if any session is busy');
+  assert.deepEqual([m.pill.label, m.pill.tone], ['busy', 'live'], 'busy if any session is busy');
   assert.deepEqual([m.inbox.label, m.inbox.tone], ['idle', 'ok']);
   assert.equal(m.live, 2);
   assert.equal(m.cap, 2);

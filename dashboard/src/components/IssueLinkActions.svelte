@@ -37,10 +37,10 @@
     <ul class="flex flex-col gap-1.5" aria-label={$t('issueLink.candidates')}>
       {#each candidates as c (c.ref)}
         {@const href = safeUrl(c.url)}
-        <li class="flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm min-w-0">
+        <li class="sheet flex items-center gap-2 px-3 py-2 text-sm min-w-0">
           <span class="font-mono text-muted shrink-0 max-w-[40%] truncate">{c.ref}</span>
-          {#if href}<a class="min-w-0 flex-1 truncate text-accent" {href} target="_blank" rel="noopener noreferrer" title={c.title}>{c.title}</a>{:else}<span class="min-w-0 flex-1 truncate" title={c.title}>{c.title}</span>{/if}
-          <button class="btn text-xs shrink-0" aria-label={$t('issueLink.linkRef', { ref: c.ref })} onclick={() => link(c.ref)}>{$t('issueLink.link')}</button>
+          {#if href}<a class="min-w-0 flex-1 truncate text-ink" {href} target="_blank" rel="noopener noreferrer" title={c.title}>{c.title}</a>{:else}<span class="min-w-0 flex-1 truncate" title={c.title}>{c.title}</span>{/if}
+          <button class="btn sm shrink-0" aria-label={$t('issueLink.linkRef', { ref: c.ref })} onclick={() => link(c.ref)}>{$t('issueLink.link')}</button>
         </li>
       {/each}
     </ul>
@@ -50,10 +50,10 @@
   <div class="flex flex-wrap items-center gap-2">
     <label for={refId} class="text-xs text-muted">{$t('issueLink.otherRef')}</label>
     <input id={refId} type="text" class="w-40" autocomplete="off" placeholder={$t('issueLink.otherPlaceholder')} bind:value={other} />
-    <button class="btn text-xs" disabled={!otherRef} onclick={() => otherRef && link(otherRef)}>{$t('issueLink.link')}</button>
+    <button class="btn sm" disabled={!otherRef} onclick={() => otherRef && link(otherRef)}>{$t('issueLink.link')}</button>
   </div>
   <div class="flex flex-wrap gap-2">
-    <button class="btn btn-primary" onclick={() => link('new')}>{$t('issueLink.create')}</button>
+    <button class="btn primary" onclick={() => link('new')}>{$t('issueLink.create')}</button>
     <button class="btn" onclick={() => link('none')}>{$t('issueLink.none')}</button>
   </div>
 </div>

@@ -27,26 +27,26 @@
   <Empty>{$t('inbox.empty')}</Empty>
 {/if}
 {#if groups.prs.length}
-  <h2 class="text-sm font-semibold mt-8 mb-3">{$t('inbox.prs')}</h2>
-  <div class="card overflow-x-auto">
+  <h2 class="h section mt-8 mb-3">{$t('inbox.prs')}</h2>
+  <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
     <table class="tbl">
       <tbody>
         {#each groups.prs as j (j.id)}
           {@const u = safeUrl(j.pr?.url)}
           <tr>
-            <td><button class="font-medium text-left hover:text-accent" onclick={() => openDrawer(j.id)}>{j.title}</button></td>
+            <td><button class="h card text-left hover:text-ink" onclick={() => openDrawer(j.id)}>{j.title}</button></td>
             <td><PrChip pr={j.pr} /></td>
             <td class="text-muted">{j.pr?.unresolvedThreads ? $t('inbox.threads', { count: j.pr.unresolvedThreads }) : $t('inbox.noThreads')}{j.pr?.behindBy ? $t('inbox.behind', { count: j.pr.behindBy }) : ''}</td>
-            <td class="text-right whitespace-nowrap">{#if u}<a class="btn" href={u} target="_blank" rel="noopener">{$t('inbox.openPr')}</a>{/if} <button class="btn" onclick={() => req({ type: 'rework', job: j.id, fixedText: 'Address the PR feedback' })}>{$t('inbox.addressFeedback')}</button></td>
+            <td class="r whitespace-nowrap">{#if u}<a class="btn" href={u} target="_blank" rel="noopener">{$t('inbox.openPr')}</a>{/if} <button class="btn" onclick={() => req({ type: 'rework', job: j.id, fixedText: 'Address the PR feedback' })}>{$t('inbox.addressFeedback')}</button></td>
           </tr>
         {/each}
       </tbody>
     </table>
-  </div>
+  </div></div>
 {/if}
 {#if reqs.length}
-  <h2 class="text-sm font-semibold mt-8 mb-3">{$t('inbox.queued')}</h2>
-  <div class="card overflow-x-auto">
+  <h2 class="h section mt-8 mb-3">{$t('inbox.queued')}</h2>
+  <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
     <table class="tbl">
       <tbody>
         {#each reqs as r (r.id)}
@@ -60,5 +60,5 @@
         {/each}
       </tbody>
     </table>
-  </div>
+  </div></div>
 {/if}

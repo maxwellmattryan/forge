@@ -13,29 +13,28 @@
 </script>
 
 {#snippet kpi(label: string, value: string, sub = '')}
-  <div class="kpi"><div class="kpi-label">{label}</div><div class="kpi-value">{value}</div>{#if sub}<div class="text-[11px] text-muted">{sub}</div>{/if}</div>
+  <div class="sheet ticks kpi"><span class="tk"></span><div class="label">{label}</div><div class="v">{value}</div>{#if sub}<div class="caption muted">{sub}</div>{/if}</div>
 {/snippet}
 
 {#snippet usageTable(title: string, rows: Record<string, UsageRow>)}
   {@const bars = usageBars(rows)}
-  <div class="card overflow-x-auto">
-    <div class="px-3 pt-3 text-sm font-semibold">{title}</div>
+  <div class="sheet ticks"><span class="tk"></span><div class="label callout px-3 pt-3">{title}</div><div class="overflow-x-auto">
     <table class="tbl">
-      <thead><tr><th>{$t('analytics.name')}</th><th>{$t('common.runs')}</th><th class="w-1/3">{$t('common.tokens')}</th><th class="text-right">{$t('common.estCost')}</th></tr></thead>
+      <thead><tr><th>{$t('analytics.name')}</th><th>{$t('common.runs')}</th><th class="w-1/3">{$t('common.tokens')}</th><th class="r">{$t('common.estCost')}</th></tr></thead>
       <tbody>
         {#each bars as { key, row, width } (key)}
           <tr>
             <td class="font-medium">{key}</td>
-            <td class="tabular-nums">{row.runs}</td>
-            <td><div class="flex items-center gap-2"><div class="h-1.5 rounded-full ember-bar" style="width:{width}%"></div><span class="text-[11px] text-muted tabular-nums">{tokensShort(row.tokens)}</span></div></td>
-            <td class="text-right tabular-nums">{usd(row.estCostUsd)}</td>
+            <td class="num">{row.runs}</td>
+            <td><div class="flex items-center gap-2"><div class="track flex-1"><div class="fill" style="width:{width}%"></div></div><span class="mono muted num text-[11px]">{tokensShort(row.tokens)}</span></div></td>
+            <td class="r num">{usd(row.estCostUsd)}</td>
           </tr>
         {:else}
           <tr><td colspan="4" class="text-muted">{$t('analytics.noUsage')}</td></tr>
         {/each}
       </tbody>
     </table>
-  </div>
+  </div></div>
 {/snippet}
 
 <PageHeader title={$t('analytics.title')}>
@@ -60,38 +59,36 @@
     {@render kpi($t('analytics.cost'), usd(s.cost.estCostUsd), $t('analytics.costSub', { cost: usd(s.cost.avgCostPerJobUsd), withUsage: cov.withUsage, agentRuns: cov.agentRuns, exact: cov.exact }))}
   </div>
   <div class="grid gap-3 lg:grid-cols-2 mt-6">{@render usageTable($t('analytics.byRole'), s.cost.byRole)}{@render usageTable($t('analytics.byModel'), s.cost.byModel)}</div>
-  <div class="card overflow-x-auto mt-6">
-    <div class="px-3 pt-3 text-sm font-semibold">{$t('analytics.lenses')}</div>
+  <div class="sheet ticks mt-6"><span class="tk"></span><div class="label callout px-3 pt-3">{$t('analytics.lenses')}</div><div class="overflow-x-auto">
     <table class="tbl">
       <thead><tr><th>{$t('common.lens')}</th><th>{$t('analytics.reviews')}</th><th>{$t('analytics.askedChanges')}</th></tr></thead>
       <tbody>
         {#each Object.entries(s.reviewers) as [k, v] (k)}
-          <tr><td class="font-medium">{k}</td><td class="tabular-nums">{v.reviews}</td><td class="tabular-nums">{pct(v.changeRate)}</td></tr>
+          <tr><td class="font-medium">{k}</td><td class="num">{v.reviews}</td><td class="num">{pct(v.changeRate)}</td></tr>
         {:else}
           <tr><td colspan="3" class="text-muted">{$t('analytics.noReviews')}</td></tr>
         {/each}
       </tbody>
     </table>
-  </div>
+  </div></div>
   {#if jobs.length}
-    <div class="card overflow-x-auto mt-6">
-      <div class="px-3 pt-3 text-sm font-semibold">{$t('analytics.byUsage')}</div>
+    <div class="sheet ticks mt-6"><span class="tk"></span><div class="label callout px-3 pt-3">{$t('analytics.byUsage')}</div><div class="overflow-x-auto">
       <table class="tbl">
-        <thead><tr><th>{$t('common.job')}</th><th>{$t('common.rounds')}</th><th>{$t('analytics.duration')}</th><th class="text-right">{$t('common.tokens')}</th><th class="text-right">{$t('common.estCost')}</th><th>{$t('analytics.usageSource')}</th></tr></thead>
+        <thead><tr><th>{$t('common.job')}</th><th>{$t('common.rounds')}</th><th>{$t('analytics.duration')}</th><th class="r">{$t('common.tokens')}</th><th class="r">{$t('common.estCost')}</th><th>{$t('analytics.usageSource')}</th></tr></thead>
         <tbody>
           {#each jobs as j (j.id)}
-            <tr class="hover:bg-raised cursor-pointer" onclick={() => openDrawer(j.id)}>
+            <tr class="clickable" onclick={() => openDrawer(j.id)}>
               <td>{j.title}</td>
-              <td class="tabular-nums">{j.round || '—'}</td>
-              <td class="tabular-nums">{dur(jobMs(j))}</td>
-              <td class="text-right tabular-nums">{num(j.usage.totalTokens)}</td>
-              <td class="text-right tabular-nums">{usd(j.usage.estCostUsd)}</td>
+              <td class="num">{j.round || '—'}</td>
+              <td class="num">{dur(jobMs(j))}</td>
+              <td class="r num">{num(j.usage.totalTokens)}</td>
+              <td class="r num">{usd(j.usage.estCostUsd)}</td>
               <td class="text-muted">{j.usage.exact ? $t('analytics.transcript') : $t('analytics.reported')}</td>
             </tr>
           {/each}
         </tbody>
       </table>
-    </div>
+    </div></div>
   {/if}
   <p class="text-[11px] text-muted mt-3">{$t('analytics.footnote')}</p>
 {/if}
