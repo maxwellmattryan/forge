@@ -6,7 +6,7 @@ import path from 'node:path';
 import { daemonProblems, loadConfig, validateConfig } from './config.ts';
 import { ConfigSetError, FIELDS } from './config-fields.ts';
 import { setConfigValue } from './config-set.ts';
-import { logBaseOf, readInfo, readLogPage, sessionFiles } from './daemon.ts';
+import { UUID, logBaseOf, readInfo, readLogPage, sessionFiles } from './daemon.ts';
 import type { DaemonOptions } from './daemon.ts';
 import { createPool } from './daemon-pool.ts';
 import type { DaemonPool, PoolState } from './daemon-pool.ts';
@@ -36,6 +36,7 @@ import type {
   ForgeTruncatedLine,
   JobDetail,
   JobSource,
+  PermissionDecision,
   PostConfigResponse,
   PostJobResponse,
   PostRequestResponse,
@@ -200,6 +201,22 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
           if (e instanceof ConfigSetError) return jsonStatus(res, CONFIG_STATUS[e.reason], { error: e.message });
           throw e;
         }
+      }
+      if (req.method === 'POST' && p === '/api/daemon/permission') {
+        if (guardPost(req, res, token)) return;
+        let body: any;
+        try {
+          body = JSON.parse((await readBody(req)) || '{}');
+        } catch {
+          return jsonStatus(res, 400, { error: 'body is not JSON' });
+        }
+        const obj = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+        if (!validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox" or a job id' });
+        if (typeof obj.id !== 'string' || !UUID.test(obj.id)) return jsonStatus(res, 400, { error: 'id must be a permission prompt id' });
+        if (!PERMISSION_DECISIONS.includes(obj.decision)) return jsonStatus(res, 400, { error: `decision must be one of ${PERMISSION_DECISIONS.join(', ')}` });
+        // Only the decision travels on: what the session gets back is built from claude's own request.
+        if (!pool?.answerPermission(obj.scope, obj.id, obj.decision)) return jsonStatus(res, 404, { error: 'that permission prompt is gone: already answered, or its session stopped' });
+        return json(res, poolState());
       }
       if (req.method === 'POST' && p === '/api/daemon') {
         if (guardPost(req, res, token)) return;
@@ -382,6 +399,8 @@ function requestArgsProblem(body: Record<string, any>): string | null {
   return null;
 }
 
+const PERMISSION_DECISIONS: readonly PermissionDecision[] = ['allow', 'session', 'deny'];
+
 const DAEMON_LOCK = 'stop the daemon first: any change to .forge/config.yml stops it, and only a human may start it again';
 const CONFIG_STATUS: Record<ConfigSetError['reason'], number> = { unknown: 400, invalid: 400, locked: 403, uninitialized: 409, 'unsupported-yaml': 409 };
 
@@ -411,7 +430,7 @@ function about(): AboutResponse {
 
 /** A session's state before the pool exists (never visible once the server is listening). */
 function offSessionState(_root: string, scope: string): DaemonSessionState {
-  return { scope, wanted: false, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, failures: 0, held: null, waiting: false, lastError: null };
+  return { scope, wanted: false, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, failures: 0, held: null, waiting: false, lastError: null, permissions: [] };
 }
 
 /** The pool block before a pool exists (never visible once the server is listening). */

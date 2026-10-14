@@ -373,14 +373,15 @@ test('per-session SSE is scoped, validated and slot-limited', async () => {
     const r = await postRequest(port, { type: 'resume', job: jobA });
     assert.equal(r.status, 200);
     await until(() => kit.of(jobA).length === 1);
+    // Prefix matches: the supervisor appends a receipt-time `at` to lines without a timestamp.
     kit.of(jobA)[0].line({ type: 'assistant', only: 'A' });
-    await until(() => forA.frames.some((f) => f.event === 'line' && f.data === '{"type":"assistant","only":"A"}'));
+    await until(() => forA.frames.some((f) => f.event === 'line' && f.data.startsWith('{"type":"assistant","only":"A"')));
     assert.ok(forA.frames.some((f) => f.event === 'state' && JSON.parse(f.data).status === 'busy'), "A's state changes reach A's stream");
     assert.ok(forA.frames.filter((f) => f.event === 'state').every((f) => JSON.parse(f.data).scope === jobA));
     c.line({ type: 'assistant', n: 2 });
-    await until(() => a.frames.some((f) => f.event === 'line' && f.data === '{"type":"assistant","n":2}'));
-    assert.ok(!a.frames.some((f) => f.data === '{"type":"assistant","only":"A"}'), "the inbox stream never sees A's lines");
-    assert.ok(!forA.frames.some((f) => f.data === '{"type":"assistant","n":2}'), "A's stream never sees the inbox's lines");
+    await until(() => a.frames.some((f) => f.event === 'line' && f.data.startsWith('{"type":"assistant","n":2')));
+    assert.ok(!a.frames.some((f) => f.event === 'line' && f.data.startsWith('{"type":"assistant","only":"A"')), "the inbox stream never sees A's lines");
+    assert.ok(!forA.frames.some((f) => f.event === 'line' && f.data.startsWith('{"type":"assistant","n":2')), "A's stream never sees the inbox's lines");
     const aIds = forA.frames.filter((f) => f.event === 'line').map((f) => Number(f.id));
     assert.deepEqual(aIds, pool.recent(jobA).map((x) => x.offset).slice(-aIds.length));
 
@@ -648,6 +649,47 @@ test('POST /api/daemon is token, origin and JSON guarded', async () => {
   }
 });
 
+test('POST /api/daemon/permission answers a prompt, guarded like every POST', async () => {
+  const repo = tempRepo();
+  writeConfig(repo.dir, { enabled: true, command: 'claude {session}' });
+  const kit = fakeChildren();
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: kit.opts });
+  const port = Number(new URL(url).port);
+  try {
+    const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)[1];
+    const good = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (body, headers: any = good) => hit(port, { method: 'POST', path: '/api/daemon/permission', headers, body: JSON.stringify(body) });
+    await until(() => kit.children.length === 1);
+    const c = kit.children[0];
+    c.line({ type: 'control_request', request_id: 'r1', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'cp a b' } } });
+    const stateNow = async () => JSON.parse((await hit(port, { path: '/api/state' })).text).daemons.inbox;
+    let inbox;
+    const end = Date.now() + 3000;
+    while (Date.now() < end && !(inbox = await stateNow()).permissions.length) await new Promise((r) => setTimeout(r, 10));
+    assert.equal(inbox.permissions.length, 1, '/api/state lists the prompt');
+    const id = inbox.permissions[0].id;
+    const body = { scope: '_inbox', id, decision: 'allow' };
+
+    assert.equal((await post(body, { ...good, 'x-forge-token': 'wrong' })).status, 403);
+    assert.equal((await post(body, { ...good, origin: 'http://evil.example' })).status, 403);
+    assert.equal((await post(body, { ...good, 'content-type': 'text/plain' })).status, 415);
+    assert.equal((await post({ ...body, scope: '../x' })).status, 400);
+    assert.equal((await post({ ...body, id: 'not-a-uuid' })).status, 400);
+    assert.equal((await post({ ...body, decision: 'always' })).status, 400);
+    assert.equal((await post({ ...body, id: crypto.randomUUID() })).status, 404);
+    assert.ok(!c.written.includes('control_response'), 'no refused POST answered the prompt');
+
+    const ok = await post(body);
+    assert.equal(ok.status, 200);
+    assert.deepEqual(JSON.parse(ok.text).inbox.permissions, []);
+    assert.ok(c.written.includes('"request_id":"r1"'));
+    assert.equal((await post(body)).status, 404, 'answered once');
+  } finally {
+    await close();
+    repo.cleanup();
+  }
+});
+
 test('POST /api/daemon starts and stops one session', async () => {
   const repo = tempRepo();
   writeConfig(repo.dir, { enabled: true, command: 'claude {session}' });
@@ -706,7 +748,7 @@ test('POST /api/daemon starts and stops one session', async () => {
 test('/api/state exposes the session pool', async () => {
   const repo = tempRepo();
   const keys = ['enabled', 'wanted', 'maxConcurrent', 'live', 'lastError', 'inbox', 'jobs', 'clients'];
-  const sessionKeys = ['scope', 'wanted', 'running', 'status', 'sessionId', 'pid', 'lastTurnAt', 'lastResultAt', 'turns', 'failures', 'held', 'waiting', 'lastError'];
+  const sessionKeys = ['scope', 'wanted', 'running', 'status', 'sessionId', 'pid', 'lastTurnAt', 'lastResultAt', 'turns', 'failures', 'held', 'waiting', 'lastError', 'permissions'];
   const kitOff = fakeChildren();
   let srv = await startServer(repo.dir, { port: 0, daemon: kitOff.opts });
   try {
@@ -766,7 +808,7 @@ test('/api/state exposes the session pool', async () => {
     .map((f) => fs.readFileSync(path.join(src, f), 'utf8'))
     .join('\n');
   assert.ok(app.includes('/api/requests'), 'read the dashboard sources');
-  assert.equal(DASH_API_VERSION, 10, 'the dashboard reads API_VERSION from src/lib/types.ts');
+  assert.equal(DASH_API_VERSION, 11, 'the dashboard reads API_VERSION from src/lib/types.ts');
   assert.doesNotMatch(app, /launcher|launched/);
 });
 
@@ -930,7 +972,7 @@ test('GET /api/about reports versions', async () => {
     assert.equal(r.status, 200);
     const a = JSON.parse(r.text);
     assert.equal(a.forgeVersion, JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version);
-    assert.equal(a.apiVersion, 10);
+    assert.equal(a.apiVersion, 11);
     assert.equal(a.pluginRoot, PLUGIN_ROOT);
     assert.deepEqual(a.schemaVersions, { config: schema.CONFIG_SCHEMA_VERSION, job: schema.JOB_SCHEMA_VERSION, event: schema.EVENT_SCHEMA_VERSION });
     assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'pricing.json'), 'utf8')).asOf);

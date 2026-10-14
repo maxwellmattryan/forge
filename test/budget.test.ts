@@ -41,9 +41,9 @@ test('AC1/AC2/AC16: defaults, validation, waitingOn and versions', () => {
   assert.deepEqual(budgetProblems({ tokens: null, usd: 2.5, verifyRetries: 0 }), []);
   assert.ok(WAITING_ON.includes('budget'));
   assert.equal(JOB_SCHEMA_VERSION, 6);
-  assert.equal(API_VERSION, 10);
+  assert.equal(API_VERSION, 11);
   assert.deepEqual(BUDGET_KEYS, ['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries']);
-  assert.equal(DASH_API_VERSION, 10);
+  assert.equal(DASH_API_VERSION, 11);
   assert.equal(DASH_API_VERSION, API_VERSION);
   assert.equal(WAIT_LABEL.budget, 'Budget exceeded');
   const { repo, root, id } = setup();

@@ -1,7 +1,7 @@
 // dashboard/src/lib/session-log.ts: a session's raw stream-json lines into turns, items and subagent groups.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_FILTERS, LONG_TEXT, MAX_ENTRIES, PREVIEW_CHARS, buildSessionView, mergeEntry, parseEntry, readFilters, toolSummary } from '../dashboard/src/lib/session-log.ts';
+import { DEFAULT_FILTERS, LONG_TEXT, MAX_ENTRIES, PREVIEW_CHARS, buildSessionView, mergeEntry, parseEntry, readFilters, taskText, toolSummary } from '../dashboard/src/lib/session-log.ts';
 
 const XSS = '<script>alert(1)</script><img src=x onerror=alert(2)>';
 
@@ -52,7 +52,7 @@ test('turns, items and subagent groups from a fixture stream', () => {
   assert.deepEqual(v.totals, { turns: 2, costUsd: 0.75, results: 2 });
   const [start, t1, t2] = v.turns;
   assert.deepEqual(start.items.map((i) => i.kind), ['supervisor', 'init']);
-  assert.deepEqual(start.items[1], { kind: 'init', offset: FIXTURE[1].offset, tone: 'muted', model: 'claude-opus-5-5', session: '01234567' });
+  assert.deepEqual(start.items[1], { kind: 'init', offset: FIXTURE[1].offset, at: null, tone: 'muted', model: 'claude-opus-5-5', session: '01234567' });
   assert.equal(start.items[0].kind === 'supervisor' && start.items[0].text, 'spawn pid=42 sessionId=abc reason=work');
   assert.deepEqual(t1.items.map((i) => i.kind), ['thinking', 'text', 'tool', 'tool', 'subagent', 'subagent', 'result', 'stderr', 'raw', 'truncated', 'supervisor']);
 
@@ -214,6 +214,85 @@ test('supervisor and forge lines are tagged and toned like the old daemon pane',
   assert.deepEqual(one({ type: 'forge-truncated', originalType: null, bytes: 5 }), ['truncated', 'warn', 'line · 5 bytes']);
   assert.deepEqual(one({ type: 'system', subtype: 'compact_boundary' }), ['other', 'muted', 'system compact_boundary']);
   assert.deepEqual(one({ event: 'thing' }), ['other', 'muted', '{"event":"thing"}']);
+  assert.deepEqual(one({ type: 'system', subtype: 'permission_denied', tool_name: 'Bash', message: 'Permission to use Bash has been denied' }), ['denied', 'warn', 'Bash: Permission to use Bash has been denied']);
+  assert.deepEqual(one({ type: 'system', subtype: 'hook_response', hook_name: 'SessionStart:startup', outcome: 'success', exit_code: 0, stdout: 'x' }), ['hook', 'muted', 'SessionStart:startup · success · exit 0']);
+  assert.deepEqual(one({ type: 'system', subtype: 'hook_response', hook_name: 'PreToolUse:Bash', outcome: 'blocking', exit_code: 2, stderr: 'no AI attribution\n' }), ['hook', 'warn', 'PreToolUse:Bash · blocking · exit 2 · no AI attribution']);
+  assert.deepEqual(one({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', rateLimitType: 'five_hour', unifiedWindows: { five_hour: { utilization: 0.04 }, seven_day: { utilization: 0.361 } } } }), ['rate-limit', 'muted', 'allowed · five_hour · five_hour 4% · seven_day 36%']);
+  assert.deepEqual(one({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', rateLimitType: 'five_hour', isUsingOverage: true } }), ['rate-limit', 'warn', 'rejected · five_hour · overage']);
   // What claude 2.1.296 printed when its login had expired.
   assert.deepEqual(one({ type: 'assistant', error: 'authentication_failed', is_api_error_message: true, message: { content: [{ type: 'text', text: 'Failed to authenticate' }] } }), ['text', 'bad', 'Failed to authenticate']);
+});
+
+test('background task lines fold into the call they report on, with a time on every line', () => {
+  const T = (n: number) => `2026-10-14T04:36:0${n}.000Z`;
+  const task = (subtype: string, tool_use_id: string, extra = {}, at: string | null = null) => ({ type: 'system', subtype, tool_use_id, task_id: `task-${tool_use_id}`, ...(at ? { at } : {}), ...extra });
+  const v = buildSessionView(
+    entries([
+      { ...sup('turn', { requests: 1 }), at: T(0) },
+      { ...assistant([{ type: 'tool_use', id: 'a1', name: 'Agent', input: { subagent_type: 'forge:builder', description: 'Build round 1' } }]), timestamp: T(1) },
+      task('task_started', 'a1', { description: 'Build round 1', task_type: 'local_agent', subagent_type: 'forge:builder' }, T(2)),
+      task('task_progress', 'a1', { description: 'Running npm test', subagent_type: 'forge:builder', usage: { total_tokens: 1200, tool_uses: 1, duration_ms: 7007 }, last_tool_name: 'Bash' }, T(3)),
+      task('task_progress', 'a1', { description: 'Editing lib/step.ts', subagent_type: 'forge:builder', usage: { total_tokens: 32327, tool_uses: 12, duration_ms: 67007 }, last_tool_name: 'Edit' }, T(4)),
+      { type: 'tool_progress', tool_use_id: 'a1-heartbeat-0', tool_name: 'Agent', parent_tool_use_id: 'a1', elapsed_time_seconds: 30, heartbeat: true },
+      { type: 'system', subtype: 'thinking_tokens', estimated_tokens: 50 },
+      { type: 'system', subtype: 'commands_changed', commands: [{ name: 'x', description: 'y' }] },
+      { type: 'system', subtype: 'background_tasks_changed', tasks: [] },
+      { type: 'system', subtype: 'hook_started', hook_name: 'SessionStart:startup' },
+      // task_updated names only the task, resolved through the lines above that carry both ids.
+      { type: 'system', subtype: 'task_updated', task_id: 'task-a1', patch: { status: 'completed', end_time: 1 }, at: T(5) },
+      { type: 'system', subtype: 'task_updated', task_id: 'never-seen', patch: { status: 'completed' } },
+      task('task_notification', 'a1', { status: 'completed', summary: 'Build round 1' }, T(6)),
+      { ...assistant([{ type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'npm test', run_in_background: true } }]), timestamp: T(7) },
+      task('task_started', 'b1', { description: 'Run the test suite', task_type: 'local_bash' }, T(7)),
+      task('task_notification', 'b1', { status: 'failed', summary: 'Run the test suite' }, T(8)),
+      // A task whose call is not in the window: one line, kept current, never one per progress event.
+      task('task_progress', 'gone', { description: 'Reading spec', subagent_type: 'forge:reviewer', usage: { total_tokens: 10, tool_uses: 1, duration_ms: 1000 } }, T(8)),
+      task('task_progress', 'gone', { description: 'Writing review', subagent_type: 'forge:reviewer', usage: { total_tokens: 2000, tool_uses: 4, duration_ms: 9000 } }, T(9)),
+      task('task_notification', 'gone', { status: 'completed' }, T(9)),
+    ]),
+  );
+  assert.equal(v.turns.length, 1);
+  const [turn] = v.turns;
+  assert.equal(turn.at, T(0), 'the turn header carries the turn event time');
+  assert.deepEqual(turn.items.map((i) => i.kind), ['subagent', 'tool', 'task'], 'noise lines are dropped and task lines fold into their calls');
+  const agent = turn.items[0];
+  assert.ok(agent.kind === 'subagent');
+  assert.equal(agent.at, T(1), "claude's own timestamp is the line's time");
+  assert.equal(agent.task?.status, 'completed');
+  assert.equal(buildSessionView(entries([{ type: 'system', subtype: 'task_updated', task_id: 'never-seen', patch: { status: 'completed' } }])).turns.length, 0, 'an unresolvable task_updated is dropped');
+  assert.equal(agent.task?.activity, 'Editing lib/step.ts', 'the latest progress wins');
+  assert.equal(agent.task?.at, T(6));
+  assert.equal(agent.task?.text, 'completed · Editing lib/step.ts · 12 tools · 32k tokens · 1m 7s');
+  assert.equal(agent.tone, 'info');
+  const bash = turn.items[1];
+  assert.ok(bash.kind === 'tool');
+  assert.equal(bash.task?.text, 'failed');
+  assert.equal(bash.tone, 'bad', 'a failed task marks its call');
+  const orphan = turn.items[2];
+  assert.ok(orphan.kind === 'task');
+  assert.equal(orphan.id, 'gone');
+  assert.equal(orphan.role, 'forge:reviewer');
+  assert.equal(orphan.at, T(8), 'the item keeps the time of its first line');
+  assert.equal(orphan.text, 'completed · Writing review · 4 tools · 2k tokens · 0m 9s');
+  assert.equal(taskText({ status: null, activity: '', tokens: null, toolUses: 1, durationMs: null, at: null }), '1 tool');
+  // Filters see the folded task text.
+  assert.equal(buildSessionView(entries([assistant([{ type: 'tool_use', id: 'a1', name: 'Agent', input: {} }]), task('task_progress', 'a1', { description: 'Editing lib/step.ts' })]), { ...DEFAULT_FILTERS, text: 'step.ts' }).turns[0].items.length, 1);
+  // Lines without a time (logs written before the supervisor stamped them) have at: null.
+  const old = buildSessionView(entries([{ type: 'result', subtype: 'success' }, sup('exit', { code: 0 })])).turns[0].items;
+  assert.deepEqual(old.map((i) => i.at), [null, 't']);
+});
+
+test("permission prompts show as the supervisor's events; claude's raw control lines are dropped", () => {
+  const [asked, ctl, cancel, answered] = entries([
+    sup('permission-asked', { id: 'p1', tool: 'Bash' }),
+    { type: 'control_request', request_id: 'r1', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: XSS } } },
+    { type: 'control_cancel_request', request_id: 'r1' },
+    sup('permission', { id: 'p1', tool: 'Bash', decision: 'deny' }),
+  ]).map(parseEntry);
+  assert.deepEqual(ctl, []);
+  assert.deepEqual(cancel, []);
+  const item = (p: any) => p[0].item;
+  assert.equal(item(asked).text, 'permission-asked tool=Bash');
+  assert.equal(item(asked).tone, 'warn');
+  assert.equal(item(answered).text, 'permission tool=Bash decision=deny');
 });

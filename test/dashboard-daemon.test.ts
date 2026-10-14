@@ -130,3 +130,18 @@ test('postDaemon sends the token and scope, and surfaces the server error', asyn
   await assert.rejects(postDaemon('stop', 't', undefined, reply(403, 'bad token')), { message: 'bad token' });
   await assert.rejects(postDaemon('stop', 't', undefined, reply(500, '', 'Internal Server Error')), { message: 'Internal Server Error' });
 });
+
+test('a running session with a permission prompt says so, in its pill and the pool pill, ahead of busy', () => {
+  const prompt = { id: 'p1', tool: 'Bash', input: '{}', description: null, agentId: null, blockedPath: null, sessionRules: [], sessionDirs: [], at: '2026-10-14T00:00:00Z' };
+  const asking = session({ scope: 'job-a', status: 'busy', running: true, permissions: [prompt] });
+  assert.deepEqual([sessionPill(asking).label, sessionPill(asking).tone], ['needs permission', 'warn']);
+  assert.equal(sessionPill(session({ status: 'busy', running: true, permissions: [] })).label, 'busy');
+  assert.equal(sessionPill(session({ permissions: [prompt] })).label, 'no session', 'a stopped session has no live prompt');
+  const m = poolModel(pool({ jobs: { 'job-b': session({ scope: 'job-b', status: 'busy', running: true }), 'job-a': asking } }), { pending: false })!;
+  assert.equal(m.pill.label, 'needs permission');
+  assert.deepEqual(
+    m.jobs.map((j) => j.id),
+    ['job-a', 'job-b'],
+    'a job waiting on a human is listed first',
+  );
+});

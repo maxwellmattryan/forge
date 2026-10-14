@@ -176,7 +176,7 @@ dashboard:
   port: 7400
 daemon:
   enabled: true
-  command: claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode dontAsk --allowedTools {allowedTools}
+  command: claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode default --allowedTools {allowedTools}
   allowedTools:
     - Agent
     - Skill

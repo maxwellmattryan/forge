@@ -1,6 +1,7 @@
 <!-- The daemon bar: a summary of the session pool (pill, inbox, live job sessions, holds, waits, per-job chips), pool
-     Start/Stop, and the inbox's log inline. Session errors are untrusted text and render as text. -->
+     Start/Stop, every session's pending permission prompts, and the inbox's log inline. Session errors are untrusted text and render as text. -->
 <script lang="ts">
+  import PermissionPrompts from './PermissionPrompts.svelte';
   import SessionLog from './SessionLog.svelte';
   import { TONE_CLASS } from '../lib/util.ts';
   import { INBOX_SCOPE } from '../lib/types.ts';
@@ -60,5 +61,6 @@
           <button class="btn text-xs" disabled={!model.canStop} aria-label={$t('daemon.stopAll')} onclick={() => act('stop')}>{$t('daemon.stop')}</button>
         </span>
       </div>
+      <div class="mt-2 empty:hidden"><PermissionPrompts /></div>
       {#if inboxOpen}<div class="mt-3 border-t border-line pt-3"><SessionLog scope={INBOX_SCOPE} compact /></div>{/if}
     </div>{/if}</div>

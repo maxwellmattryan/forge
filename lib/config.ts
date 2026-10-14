@@ -153,7 +153,7 @@ export function defaults(): Config {
     daemon: {
       enabled: false,
       command:
-        'claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode dontAsk --allowedTools {allowedTools}',
+        'claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode default --allowedTools {allowedTools}',
       // Only the git/gh forms the skill and agents name. Everything else goes through `forge`:
       // checks, pushes, PRs, tracker writes, history reads (`forge git`, since diff/log/show take
       // --output), finishing a merge or rebase (`forge integrate --continue`) and commits, which go
@@ -422,7 +422,7 @@ function broadBash(tool: string): boolean {
   return BROAD_BASH.some((re) => re.test(spec));
 }
 
-/** Modes that never approve more than allowedTools lists. */
+/** Modes that never approve more than allowedTools lists without a human: `default` asks one in the dashboard, `dontAsk` refuses. */
 const SAFE_PERMISSION_MODES = ['dontAsk', 'default', 'plan'];
 
 /**
@@ -442,7 +442,7 @@ function wideningFlags(words: string[]): string[] {
     if (['--dangerously-skip-permissions', '--allow-dangerously-skip-permissions', '--settings', '--mcp-config', '--add-dir', '--permission-prompt-tool', '--agents'].includes(flag))
       problems.push(`daemon.command must not pass ${flag}: ${why}`);
     else if (flag === '--permission-mode' && !SAFE_PERMISSION_MODES.includes(value ?? ''))
-      problems.push(`daemon.command must not pass --permission-mode ${value ?? ''}: ${why}; use dontAsk`);
+      problems.push(`daemon.command must not pass --permission-mode ${value ?? ''}: ${why}; use default (ask a human in the dashboard) or dontAsk (refuse)`);
     else if (flag === '--plugin-dir' && value !== '{pluginRoot}') problems.push(`daemon.command must not pass --plugin-dir ${value ?? ''}: only {pluginRoot} may be loaded, since ${why}`);
     else if ((flag === '--allowedTools' || flag === '--allowed-tools') && value !== '{allowedTools}')
       problems.push(`daemon.command must pass ${flag} {allowedTools}, not a literal list, so daemon.allowedTools is validated`);

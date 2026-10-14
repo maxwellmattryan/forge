@@ -41,7 +41,7 @@ export function gitRead(args: string[]): number {
 }
 
 // `forge git add|commit <job> …`: the only way a daemon session stages and commits. Its cwd is the
-// main checkout and `dontAsk` refuses `cd` and `git -C`, so a bare `git commit` would land on the
+// main checkout and its allowlist has no `cd` or `git -C`, so a bare `git commit` would land on the
 // base branch. These run git in the job's worktree only, take no git options at all (no `-c`,
 // `--no-verify`, `--amend`, `-C`, `--git-dir`), and keep every path inside the worktree.
 
