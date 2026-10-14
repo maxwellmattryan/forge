@@ -1,11 +1,17 @@
 <!-- One session's structured log (a job's, or the inbox's in the daemon bar): status and Start/Stop, filters, and turns with
-     tool calls and subagents, followed live. Every log string is untrusted session output and renders as text. -->
+     tool calls and subagents, followed live. Every log string is untrusted session output: text and thinking bodies and a
+     subagent's prompt and result render only through the escape-first md() (as text in Raw or above 20k characters); tool
+     input, tool results and every other line render as text. -->
 <script lang="ts">
   import { onDestroy, tick, untrack } from 'svelte';
   import Banner from './Banner.svelte';
   import Chip from './Chip.svelte';
   import Icon from './Icon.svelte';
   import Empty from './Empty.svelte';
+  import MarkdownToggle from './MarkdownToggle.svelte';
+  import { md } from '../lib/markdown.ts';
+  import { renderable } from '../lib/md-view.ts';
+  import { mdView } from '../lib/md-view.svelte.ts';
   import { TONE_CLASS, clock, usd } from '../lib/util.ts';
   import { INBOX_SCOPE } from '../lib/types.ts';
   import type { DaemonSessionState } from '../lib/types.ts';
@@ -152,9 +158,10 @@
 
 {#snippet item(it: Item)}
   {#if it.kind === 'text'}
-    <div class="flex items-start gap-2">{@render when(it.at)}{#if it.long}<details class="min-w-0"><summary class="cursor-pointer whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text.slice(0, 200)}…</summary><div class="whitespace-pre-wrap break-words">{it.text}</div></details>{:else}<div class="min-w-0 whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text}</div>{/if}</div>
+    {@const prose = renderable(it.text, mdView.session)}
+    <div class="flex items-start gap-2">{@render when(it.at)}{#if it.long}<details class="min-w-0"><summary class="cursor-pointer whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text.slice(0, 200)}…</summary>{#if prose}<div class="prose compact break-words">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words">{it.text}</div>{/if}</details>{:else if prose}<div class="prose compact min-w-0 break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{@html md(it.text)}</div>{:else}<div class="min-w-0 whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text}</div>{/if}</div>
   {:else if it.kind === 'thinking'}
-    <details class="text-muted"><summary class="cursor-pointer">{@render when(it.at)}{$t('session.thinkingItem')}</summary><div class="whitespace-pre-wrap break-words">{it.text}</div></details>
+    <details class="text-muted"><summary class="cursor-pointer">{@render when(it.at)}{$t('session.thinkingItem')}</summary>{#if renderable(it.text, mdView.session)}<div class="prose compact break-words">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words">{it.text}</div>{/if}</details>
   {:else if it.kind === 'tool'}
     <details class="border px-2 py-1 {it.tone === 'bad' ? 'border-bad' : 'border-line-soft'}">
       <summary class="cursor-pointer break-all">{@render when(it.at)}<span class="text-ink">→ {it.name}</span> <span class="text-muted">{it.summary}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
@@ -165,8 +172,18 @@
   {:else if it.kind === 'subagent'}
     <details class="hatch border border-info px-2 py-1">
       <summary class="cursor-pointer break-all">{@render when(it.at)}<Chip tone={it.known ? 'info' : 'muted'} text={it.role} /> <span>{it.description}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.hidden} <span class="text-muted">{$t('session.hiddenLines', { count: it.hidden })}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
+      {#if it.prompt}
+        <details class="mt-1">
+          <summary class="cursor-pointer text-muted">{$t('session.prompt')}</summary>
+          {#if renderable(it.prompt, mdView.session)}<div class="prose compact break-words border border-line-soft p-2">{@html md(it.prompt)}</div>{:else}<pre class="whitespace-pre-wrap break-words border border-line-soft p-2">{it.prompt}</pre>{/if}
+        </details>
+      {/if}
       {#if it.items.length}<div class="mt-1 flex flex-col gap-1 border-l border-info/40 pl-2">{#each it.items as child, i (i)}{@render item(child)}{/each}</div>{/if}
-      {#if it.result}{@render result(it.result)}{/if}
+      {#if it.result}
+        {#if renderable(it.result.full, mdView.session)}
+          <div class="mt-1"><div class="label text-[9px]">{$t('session.result')}</div><div class="prose compact break-words border border-line-soft p-2 {it.result.isError ? 'text-bad' : ''}">{@html md(it.result.full)}</div></div>
+        {:else}{@render result(it.result)}{/if}
+      {/if}
     </details>
   {:else if it.kind === 'init'}
     {@render line(it.at, 'muted', 'init', [it.model, it.session].filter(Boolean).join(' · '))}
@@ -210,6 +227,7 @@
     <label class="field"><input type="checkbox" class="check" bind:checked={filters.tools} />{$t('session.tools')}</label>
     <label class="field"><input type="checkbox" class="check" bind:checked={filters.thinking} />{$t('session.thinking')}</label>
     <label class="field"><input type="checkbox" class="check" bind:checked={filters.subagents} />{$t('session.subagents')}</label>
+    <MarkdownToggle surface="session" />
     <button class="btn sm {follow ? 'sel' : ''}" aria-pressed={follow ? 'true' : 'false'} onclick={jump}>{$t('session.follow')}</button>
     {#if more}<button class="btn sm" onclick={() => log.loadOlder()}>{$t('session.loadOlder')}</button>{/if}
   </div>

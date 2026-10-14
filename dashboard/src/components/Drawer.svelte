@@ -5,6 +5,7 @@
   import Chip from './Chip.svelte';
   import DepSection from './DepSection.svelte';
   import Icon from './Icon.svelte';
+  import MarkdownToggle from './MarkdownToggle.svelte';
   import PrChip from './PrChip.svelte';
   import ProgressBar from './ProgressBar.svelte';
   import SessionActivity from './SessionActivity.svelte';
@@ -13,6 +14,7 @@
   import { budgetPanel } from '../lib/budget.ts';
   import { STAGE_LABEL } from '../lib/labels.ts';
   import { md, safeUrl } from '../lib/markdown.ts';
+  import { mdView } from '../lib/md-view.svelte.ts';
   import { screenshotsPanel } from '../lib/screenshots.ts';
   import { threadItems, threadMarks, threadOpening, unreadCount } from '../lib/thread.ts';
   import { ago, dur, num, tokensShort, usd } from '../lib/util.ts';
@@ -137,7 +139,12 @@
                   <!-- svelte-ignore a11y_missing_attribute (no title, as on main: the iframe sits under the file list that names it) -->
                   <iframe sandbox="allow-scripts" class="w-full h-[70vh] border border-line bg-white" src="/api/jobs/{encodeURIComponent(j.id)}/raw?path={encodeURIComponent(file)}"></iframe>
                 {:else if file.endsWith('.md')}
-                  <div class="prose">{@html md(content.text)}</div>
+                  <div class="flex justify-end mb-2"><MarkdownToggle surface="files" /></div>
+                  {#if mdView.files === 'rendered'}
+                    <div class="prose">{@html md(content.text)}</div>
+                  {:else}
+                    <pre class="text-[12px] font-mono whitespace-pre-wrap break-words bg-raised p-3">{content.text}</pre>
+                  {/if}
                 {:else}
                   <pre class="text-[12px] font-mono whitespace-pre-wrap break-words bg-raised p-3">{content.text}</pre>
                 {/if}

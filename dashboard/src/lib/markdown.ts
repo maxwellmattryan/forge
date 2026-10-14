@@ -63,8 +63,23 @@ export function inline(s: string): string {
     .join('');
 }
 
+// The session log rebuilds its items on every line, so without this each subagent's prompt and result would be
+// re-parsed each time. Bounded, oldest first out: the output is a pure function of the key.
+const MEMO_MAX = 500;
+const memo = new Map<string, string>();
+
 export function md(src: unknown): string {
-  const lines = String(src ?? '').replace(/\r/g, '').split('\n');
+  const key = String(src ?? '');
+  const hit = memo.get(key);
+  if (hit !== undefined) return hit;
+  const html = render(key);
+  memo.set(key, html);
+  if (memo.size > MEMO_MAX) memo.delete(memo.keys().next().value!);
+  return html;
+}
+
+function render(src: string): string {
+  const lines = src.replace(/\r/g, '').split('\n');
   let html = '';
   let i = 0;
   const isBlock = (l: string) => /^(```|#{1,6}\s|\s*[-*+]\s|\s*\d+\.\s|>|\||<!--|(-{3,}|\*{3,})\s*$)/.test(l);

@@ -450,6 +450,7 @@
     "result": "Result",
     "fullResult": "Full result",
     "input": "Input",
+    "prompt": "Prompt",
     "error": "error",
     "thinkingItem": "Thinking",
     "hiddenLines": {
@@ -557,5 +558,12 @@
     "create": "Create a new issue",
     "none": "No issue needed",
     "noMatches": "No matching open issues were found."
+  },
+  "markdown": {
+    "files": "Show file as",
+    "thread": "Show conversation as",
+    "session": "Show session log as",
+    "rendered": "Rendered",
+    "raw": "Raw"
   }
 }
