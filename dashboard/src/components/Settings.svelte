@@ -145,7 +145,7 @@
           >
         {/each}
       </div>
-      <div bind:this={panel} role="tabpanel" id="settings-panel-{tab}" aria-labelledby="settings-tab-{tab}" tabindex="0" class="flex-1 min-h-0 min-w-0 overflow-y-auto">
+      <div bind:this={panel} role="tabpanel" id="settings-panel-{tab}" aria-labelledby="settings-tab-{tab}" tabindex="0" class="flex-1 min-h-0 min-w-0 overflow-y-auto focus-visible:outline-1 focus-visible:outline-dashed focus-visible:outline-line-strong focus-visible:-outline-offset-2">
         <div class="label callout px-4 pt-4 md:px-6" aria-hidden="true">{labels[tab]}</div>
         {#if tab === 'general'}<GeneralTab />
         {:else if tab === 'diagnostics'}<DiagnosticsTab {session} />
