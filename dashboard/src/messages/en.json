@@ -90,7 +90,9 @@
     "waiting": "waiting",
     "idle": "idle",
     "line": "{state} · {ago}",
-    "columnWorking": "{count} working"
+    "columnWorking": "{count} working",
+    "inbox": "inbox",
+    "none": "No session is working"
   },
   "permission": {
     "heading": {

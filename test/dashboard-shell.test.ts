@@ -467,6 +467,7 @@ test('the live halo is the only animation and is motion-safe', () => {
 
   assert.match(read('components/SessionActivity.svelte'), /<LiveDot on=\{activity\.kind === 'working'\} \/>/);
   for (const f of ['components/JobCard.svelte']) assert.match(read(f), /<SessionActivity\b/, `${f} renders the live dot through SessionActivity`);
+  assert.match(read('App.svelte'), /<LiveDot\b/, 'App.svelte renders the live dot');
 
   const css = fs
     .readdirSync(path.join(ROOT, 'dashboard', 'dist', 'assets'))
@@ -525,4 +526,29 @@ test('ticking times read the shared clock and stay out of live regions', () => {
   const app = read('App.svelte');
   const mount = app.slice(app.indexOf('onMount(() => {'));
   assert.match(mount, /const stopClock = startClock\(\);[\s\S]*?return \(\) => \{\s*stopClock\(\);/, 'App.svelte starts the clock in onMount and stops it in the cleanup');
+});
+
+test('the sidebar and phone strip show the live session indicator', () => {
+  assert.doesNotMatch(read('lib/view.ts'), /export const activeSessions\b/, 'view.ts no longer exports activeSessions');
+  const app = read('App.svelte');
+  assert.match(app, /import \{ activeSessions \} from '\.\/lib\/live\.ts';/);
+  assert.doesNotMatch(app, /import \{[^}]*\bactiveSessions\b[^}]*\} from '\.\/lib\/view\.ts'/);
+  assert.match(app, /const active = \$derived\(activeSessions\(S\.data\?\.daemons\)\)/);
+  assert.match(app, /const activeTitle = \$derived\(active\.count \? active\.ids\.map\(\(id\) => \(id === INBOX_SCOPE \? \$t\('live\.inbox'\) : id\)\)\.join\('\\n'\) : \$t\('live\.none'\)\)/, 'the tooltip lists active ids, the inbox by name');
+
+  const walked = elements('App.svelte');
+  for (const id of ['footer-sessions', 'mobile-sessions']) {
+    const cell = walked.find((e) => attr(e, 'id') === id);
+    assert.ok(cell, `#${id}`);
+    assert.equal(attr(cell, 'title'), '{activeTitle}', `#${id} carries the active-session tooltip`);
+    const dots = walked.filter((e) => e.name === 'LiveDot' && e.parents.includes(cell));
+    assert.equal(dots.length, 1, `#${id} renders one <LiveDot`);
+    assert.equal(attr(dots[0], 'on'), '{active.count > 0}');
+    assert.ok(!walked.some((e) => e.parents.includes(cell) && e.attrs.some((a) => a.name === 'aria-live')), `#${id} is not a live region`);
+  }
+  assert.match(app, /\$t\('app\.tblock\.sessionsValue', \{ count: active\.count \}\)/);
+  const mobileAt = app.indexOf('id="mobile-sessions"');
+  assert.ok(app.indexOf('id="mobile-nav"') < mobileAt && mobileAt < app.indexOf('id="command-open-mobile"'), 'the phone strip puts it between the nav and the command button');
+
+  assert.match(read('components/Nav.svelte'), /navCounts\(S\.data\?\.jobs \?\? \[\]\)/, 'the Needs-you badge reads the same jobs snapshot as the board');
 });
