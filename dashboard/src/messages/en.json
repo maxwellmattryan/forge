@@ -91,6 +91,7 @@
     "b": "B"
   },
   "drawer": {
+    "close": "Close",
     "branch": "Branch",
     "base": "Base",
     "port": "Port",

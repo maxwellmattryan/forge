@@ -1,6 +1,7 @@
 <!-- The daemon bar: a summary of the session pool (pill, inbox, live job sessions, holds, waits, per-job chips), pool
      Start/Stop, every session's pending permission prompts, and the inbox's log inline. Session errors are untrusted text and render as text. -->
 <script lang="ts">
+  import Icon from './Icon.svelte';
   import PermissionPrompts from './PermissionPrompts.svelte';
   import SessionLog from './SessionLog.svelte';
   import { TONE_CLASS } from '../lib/util.ts';
@@ -57,8 +58,8 @@
         {#each model.jobs as j (j.id)}<button class="chip cursor-pointer max-w-full {TONE_CLASS[j.pill.tone]}" title={`${j.id}\n${j.pill.title}`} onclick={() => openDrawer(j.id, null, 'thread')}><span class="truncate font-mono">{j.label}</span> · {j.pill.label}</button>{/each}
         {#if model.error !== null}<span class="truncate min-w-0 flex-1 text-xs text-muted" title={model.error}>{model.error}</span>{:else}<span class="flex-1"></span>{/if}
         <span class="flex items-center gap-2">
-          <button class="btn text-xs" disabled={!model.canStart} title={model.startHint} aria-label={$t('daemon.startAll')} onclick={() => act('start')}>{$t('daemon.start')}</button>
-          <button class="btn text-xs" disabled={!model.canStop} aria-label={$t('daemon.stopAll')} onclick={() => act('stop')}>{$t('daemon.stop')}</button>
+          <button class="btn text-xs" disabled={!model.canStart} title={model.startHint} aria-label={$t('daemon.startAll')} onclick={() => act('start')}><Icon name="play" />{$t('daemon.start')}</button>
+          <button class="btn text-xs" disabled={!model.canStop} aria-label={$t('daemon.stopAll')} onclick={() => act('stop')}><Icon name="stop" />{$t('daemon.stop')}</button>
         </span>
       </div>
       <div class="mt-2 empty:hidden"><PermissionPrompts /></div>

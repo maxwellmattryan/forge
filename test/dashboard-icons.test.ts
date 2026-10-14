@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tags } from './svelte-markup.ts';
 import { ICONS } from '../dashboard/src/lib/icons.ts';
+import { SETTINGS_TABS } from '../dashboard/src/lib/settings.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ICON_DIR = path.join(ROOT, 'design', 'icons');
@@ -61,6 +62,12 @@ function attr(tag: Tag, name: string): string | true | undefined {
   return a.value.replace(/^(["'])([\s\S]*)\1$/, '$2');
 }
 
+const svelteFiles = () =>
+  fs
+    .readdirSync(SRC, { recursive: true })
+    .map((f) => String(f).split(path.sep).join('/'))
+    .filter((f) => f.endsWith('.svelte'))
+    .sort();
 
 test('ICONS matches design/icons file for file', () => {
   const names = fs.readdirSync(ICON_DIR).filter((f) => f.endsWith('.svg')).map((f) => f.slice(0, -4)).sort();
@@ -115,3 +122,33 @@ test('Icon.svelte draws the Drafting line', () => {
   for (const el of ['path', 'circle', 'rect']) assert.ok(all.some((x) => x.name === el), `renders <${el}>`);
 });
 
+test('settings tabs, controls and call sites use the set', () => {
+  for (const tab of SETTINGS_TABS) {
+    assert.equal(tab.icon, tab.id);
+    assert.ok(tab.icon in ICONS, `${tab.icon} is an icon`);
+  }
+
+  const settings = tags('Settings.svelte', readSrc('components/Settings.svelte'));
+  const tabAt = settings.findIndex((x) => x.name === 'button' && attr(x, 'role') === 'tab');
+  assert.ok(tabAt >= 0, 'Settings.svelte has a role="tab" button');
+  const inside: Tag[] = [];
+  for (const x of settings.slice(tabAt + 1)) {
+    if (x.name === 'button' || x.name === 'div') break;
+    inside.push(x);
+  }
+  assert.ok(inside.some((x) => x.name === 'Icon' && attr(x, 'name') === '{item.icon}'), 'the tab button renders <Icon name={item.icon} />');
+
+  for (const file of svelteFiles()) {
+    for (const x of tags(file, readSrc(file))) {
+      if (x.name !== 'Icon') continue;
+      const cls = attr(x, 'class');
+      assert.ok(!(typeof cls === 'string' && cls.includes('size-')), `${file}: <Icon> sets a size class (${cls})`);
+    }
+  }
+
+  for (const file of ['components/DaemonBar.svelte', 'components/SessionLog.svelte']) {
+    const text = readSrc(file);
+    assert.ok(text.includes('<Icon name="play"'), `${file} has the play icon`);
+    assert.ok(text.includes('<Icon name="stop"'), `${file} has the stop icon`);
+  }
+});

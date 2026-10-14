@@ -140,7 +140,7 @@
             tabindex={tab === item.id ? 0 : -1}
             class="nav-item shrink-0 min-h-11 md:min-h-0 whitespace-nowrap {tab === item.id ? 'active' : ''}"
             onclick={() => select(item.id)}
-            ><span>{labels[item.id]}</span>{#if marks[item.id] === 'error'}<span class="size-1.5 rounded-full bg-bad shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('settings.tabs.hasError')}</span>{:else if marks[item.id] === 'changed'}<span class="size-1.5 rounded-full bg-accent shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('settings.tabs.hasChanges')}</span>{/if}</button
+            ><span class="flex items-center gap-2"><Icon name={item.icon} />{labels[item.id]}</span>{#if marks[item.id] === 'error'}<span class="size-1.5 rounded-full bg-bad shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('settings.tabs.hasError')}</span>{:else if marks[item.id] === 'changed'}<span class="size-1.5 rounded-full bg-accent shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('settings.tabs.hasChanges')}</span>{/if}</button
           >
         {/each}
       </div>

@@ -1,18 +1,19 @@
 // The settings modal's keyboard and focus rules, as plain functions node:test can pin.
 import type { ConfigSection } from './types.ts';
+import type { IconName } from './icons.ts';
 
 /** The tab rail, in order; config tabs name the ConfigSection their fields come from. */
 export const SETTINGS_TABS = [
-  { id: 'general', section: null },
-  { id: 'pipeline', section: 'pipeline' },
-  { id: 'review', section: 'review' },
-  { id: 'agents', section: 'agents' },
-  { id: 'tracker', section: 'tracker' },
-  { id: 'dashboard', section: 'dashboard' },
-  { id: 'daemon', section: 'daemon' },
-  { id: 'diagnostics', section: null },
-  { id: 'about', section: null },
-] as const satisfies readonly { id: string; section: ConfigSection | null }[];
+  { id: 'general', icon: 'general', section: null },
+  { id: 'pipeline', icon: 'pipeline', section: 'pipeline' },
+  { id: 'review', icon: 'review', section: 'review' },
+  { id: 'agents', icon: 'agents', section: 'agents' },
+  { id: 'tracker', icon: 'tracker', section: 'tracker' },
+  { id: 'dashboard', icon: 'dashboard', section: 'dashboard' },
+  { id: 'daemon', icon: 'daemon', section: 'daemon' },
+  { id: 'diagnostics', icon: 'diagnostics', section: null },
+  { id: 'about', icon: 'about', section: null },
+] as const satisfies readonly { id: string; icon: IconName; section: ConfigSection | null }[];
 
 export type SettingsTabId = (typeof SETTINGS_TABS)[number]['id'];
 
