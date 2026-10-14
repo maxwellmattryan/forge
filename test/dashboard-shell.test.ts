@@ -485,6 +485,10 @@ test('command triggers: header on every view, phone FAB in the inert shell, draw
   assert.ok(shell && has(shell, 'flex', 'min-h-screen'), 'inside the shell div whose inert covers the palette');
   assert.ok(!fabUse.parents.some((p) => p.name === 'main'), 'outside main, whose falloff isolates');
 
+  const drawer = read('components/Drawer.svelte');
+  assert.equal(drawer.match(/<CommandTrigger variant="drawer"/g)?.length, 1, 'the drawer header has one "Command for this job"');
+  assert.ok(drawer.includes('{#if scopeVerbs(j).length}<CommandTrigger variant="drawer" job={j.id} />{/if}'), 'only for a job with something to command');
+
   const view = elements('App.svelte').find((e) => attrOf(e, 'id') === 'view');
   assert.ok(view && has(view, 'pb-24', 'md:pb-6'), "#view's last row stays clear of the FAB");
   const toast = elements('components/Toast.svelte').find((e) => attrOf(e, 'id') === 'toast');

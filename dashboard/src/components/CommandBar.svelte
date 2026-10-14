@@ -5,7 +5,8 @@
   import Icon from './Icon.svelte';
   import StateChip from './StateChip.svelte';
   import { S, createJob, loadBacklog, openDrawer, postRequest, refresh } from '../lib/app.svelte.ts';
-  import { commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, suggest, type CommandCtx, type Suggestion, type Verb } from '../lib/command.ts';
+  import { commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, scopedJob, suggest, type CommandCtx, type Suggestion, type Verb } from '../lib/command.ts';
+  import { clearScope, palette } from '../lib/palette.svelte.ts';
   import { buildRequest } from '../lib/view.ts';
   import { wrapFocus } from '../lib/settings.ts';
   import { toast } from '../lib/toast.svelte.ts';
@@ -22,7 +23,9 @@
   let input = $state<HTMLInputElement>();
   let pressedOnBackdrop = false;
 
-  const ctx = $derived<CommandCtx>({ jobs: S.data?.jobs ?? [], backlog: S.backlog ? S.backlog.items : null, tracker: S.data?.config?.tracker ?? 'none' });
+  const ctx = $derived<CommandCtx>({ jobs: S.data?.jobs ?? [], backlog: S.backlog ? S.backlog.items : null, tracker: S.data?.config?.tracker ?? 'none', scope: palette.scope });
+  // Null once the job is unknown or closes, even while the palette is open: then the scope is simply ignored.
+  const scoped = $derived(scopedJob(ctx));
   const parsed = $derived(parseCommand(text, ctx));
   const options = $derived(suggest(text, ctx));
   const isFree = $derived(parsed.kind === 'free');
@@ -84,10 +87,18 @@
     else insert(o.insert);
   }
 
+  function removeScope(): void {
+    clearScope();
+    tick().then(() => input?.focus());
+  }
+
   function inputKey(e: KeyboardEvent): void {
     if (e.isComposing) return;
     const n = options.length;
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (e.key === 'Backspace' && text === '' && scoped) {
+      e.preventDefault();
+      clearScope();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       if (n) active = (active + (e.key === 'ArrowDown' ? 1 : -1) + n) % n;
     } else if (e.key === 'Tab' && !e.shiftKey) {
@@ -184,6 +195,11 @@
     <span class="tk"></span>
     <div class="flex items-center gap-2 border-b border-line px-3">
       <Icon name="command" class="shrink-0 text-muted" />
+      {#if scoped}
+        <!-- The chip is the combobox's description; removing the scope is its own labelled button, so the description reads the job. -->
+        <span id="command-scope" class="chip ink min-w-0 max-w-[40%]" title={scoped.id}><span class="truncate">{$t('command.scope', { job: scoped.id })}</span></span>
+        <button class="btn icon sm shrink-0" aria-label={$t('command.clearScope')} onclick={removeScope}><Icon name="close" /></button>
+      {/if}
       <input
         bind:this={input}
         bind:value={text}
@@ -191,6 +207,7 @@
         type="text"
         role="combobox"
         aria-label={$t('command.label')}
+        aria-describedby={scoped ? 'command-scope' : undefined}
         aria-expanded={options.length > 0}
         aria-controls="command-list"
         aria-autocomplete="list"
@@ -216,7 +233,7 @@
           onclick={() => activate(o)}
         >
           {#if o.kind === 'run-job'}
-            <Icon name="command" class="shrink-0 text-ink" /><span class="font-medium text-fg shrink-0">{$t('command.start')}</span><span class="flex min-w-0 flex-col"><span class="truncate">{text.trim()}</span>{#if o.verbLike}<span class="text-xs text-muted">{$t('command.verbLike')}</span>{/if}</span>
+            <Icon name="command" class="shrink-0 text-ink" /><span class="font-medium text-fg shrink-0">{$t('command.start')}</span><span class="flex min-w-0 flex-col"><span class="truncate">{text.trim()}</span>{#if o.verbLike}<span class="text-xs text-muted">{$t('command.verbLike')}</span>{/if}{#if scoped}<span class="text-xs text-muted">{$t('command.newJobScoped', { job: scoped.id })}</span>{/if}</span>
           {:else if o.kind === 'run-command'}
             <Icon name="command" class="shrink-0 text-ink" /><span class="font-medium text-fg shrink-0">{$t('command.send')}</span><span class="truncate min-w-0 font-mono">{text.trim()}</span>
           {:else if o.kind === 'verb'}
