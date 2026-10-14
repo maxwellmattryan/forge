@@ -36,7 +36,8 @@ Usage: forge <command> [options]   (state, worktrees, PRs, trackers, evals, dash
 
   forge status                       active jobs at a glance (add --all for finished)
   forge next [--claim --session S] [--force]   next ready tracker item whose job is not blocked (optionally start a job)
-  forge job new|from-ref|link|list|show|get|set|claim|release|note|human|agent|round|budget|verdicts|decision|progress|paths|scope|acs
+  forge job new|from-ref|link|list|show|get|set|claim|release|note|human|agent|round|budget|verdicts|decision|progress|paths|scope|acs|step
+  forge job step <id>                the job's next action (spawn, run, wait, procedure, done) and the agent brief; read-only
   forge worktree create|remove|path|prune <id>
   forge run <id> <command> [--background]   forge stop <id>   forge verify <id>
   forge integrate <id> [--strategy merge|rebase] [--keep-conflicts | --continue]

@@ -2,13 +2,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { jobAcs } from '../acs.ts';
+import { jobPathMap } from '../brief.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
-import { reviewerChecklist } from '../config.ts';
 import { daemonClaimOpts, refuseInboxDrive } from '../daemon-owner.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
 import { agentOutputMissing, claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, updateJob, jobDir } from '../jobs.ts';
-import { paths, exists } from '../paths.ts';
+import { exists } from '../paths.ts';
 import { jobScope } from '../scope.ts';
+import { loadStepInput, step } from '../step.ts';
 import { createAndLink, linkJob, markNoIssue, suggestLink } from '../tracker-link.ts';
 import { loadTracker } from '../trackers/index.ts';
 import { importClaudeCodeTranscript } from '../usage.ts';
@@ -220,8 +221,10 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       return jobScope(root, config, req(id, 'job id'));
     case 'acs':
       return jobAcs(root, req(id, 'job id'));
+    case 'step':
+      return step(loadStepInput(root, config, loadJob(root, req(id, 'job id')).id));
     default:
-      throw new ForgeError('usage: forge job new|from-ref|link|list|show|get|set|claim|release|note|human|agent|round|budget|verdicts|decision|progress|paths|scope|acs');
+      throw new ForgeError('usage: forge job new|from-ref|link|list|show|get|set|claim|release|note|human|agent|round|budget|verdicts|decision|progress|paths|scope|acs|step');
   }
 }
 
@@ -230,37 +233,9 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
  * The review directories are created here, before any reviewer is briefed with them.
  */
 export function jobPaths(root: string, config: Config, job: Job): Record<string, unknown> {
-  const dir = jobDir(root, job.id);
-  const p = paths(root);
-  const round = Math.max(job.round, 1);
-  return {
-    jobDir: dir,
-    worktree: job.worktree,
-    request: path.join(dir, 'request.md'),
-    plan: path.join(dir, 'plan.md'),
-    spec: path.join(dir, 'spec.md'),
-    design: path.join(dir, 'design.md'),
-    mockup: path.join(dir, 'mockup.html'),
-    tasks: path.join(dir, 'tasks.md'),
-    build: path.join(dir, 'build.md'),
-    verify: path.join(dir, 'verify', `round-${job.round}.md`),
-    scope: path.join(dir, 'scope.md'),
-    screenshots: path.join(dir, 'screenshots'),
-    reviewDir: ensureReviewDir(root, job.id, round),
-    previousReviewDir: round > 1 ? path.join(dir, 'review', `round-${round - 1}`) : null,
-    integrationReview: path.join(ensureReviewDir(root, job.id, 'integration'), 'code.md'),
-    decision: path.join(dir, 'decision.md'),
-    questions: path.join(dir, 'questions.md'),
-    runbook: path.join(dir, 'runbook.md'),
-    prFeedback: path.join(dir, 'pr-feedback.md'),
-    prBody: path.join(dir, 'pr.md'),
-    feedback: path.join(dir, 'feedback.md'),
-    learnings: path.join(p.notes, 'learnings.md'),
-    notesDir: p.notes,
-    config: p.config,
-    instructions: (config.project.instructions ?? []).map((f: string) => path.join(job.worktree ?? root, f)).filter(exists),
-    checklists: Object.fromEntries((job.reviewers ?? []).map((r: string) => [r, reviewerChecklist(root, r, config.review.panel.find((x) => x.name === r)?.checklist)])),
-  };
+  ensureReviewDir(root, job.id, Math.max(job.round, 1));
+  ensureReviewDir(root, job.id, 'integration');
+  return jobPathMap(root, config, job);
 }
 
 /** The job as `forge job show` prints it without --full. */
