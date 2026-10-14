@@ -198,7 +198,7 @@
         autocomplete="off"
         spellcheck="false"
         placeholder={$t('command.placeholder')}
-        class="flex-1 min-w-0 my-2 text-[15px]"
+        class="flex-1 min-w-0 border-0! px-1.5! py-3! text-[15px] focus:-outline-offset-2!"
         onkeydown={inputKey}
         oninput={() => (error = null)}
       />
@@ -234,7 +234,7 @@
     <div class="sr-only" aria-live="polite">{options.length ? $t('command.count', { count: options.length }) : (emptyText ?? $t('command.empty'))}</div>
     {#if isFree}
       <div class="flex flex-col gap-1 border-t border-line px-4 py-3">
-        <label for="command-title" class="text-[11px] text-muted">{$t('command.titleLabel')}</label>
+        <label for="command-title" class="label">{$t('command.titleLabel')}</label>
         <input id="command-title" type="text" bind:value={title} maxlength="120" autocomplete="off" placeholder={$t('command.titlePlaceholder')} class="w-full" onkeydown={titleKey} />
       </div>
     {/if}

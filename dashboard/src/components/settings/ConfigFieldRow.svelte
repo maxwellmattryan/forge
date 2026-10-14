@@ -52,11 +52,11 @@
 
 {#snippet head()}
   <span class="text-sm font-medium">{f.label}</span>
-  <span class="ml-2 font-mono text-[11px] text-muted break-all">{f.key}</span>
+  <span class="ml-2 mono muted text-[11px] break-all">{f.key}</span>
 {/snippet}
 
 {#snippet help()}
-  <p id="{id}-help" class="text-xs text-muted">{f.help} {$t('settings.field.default', { value: defaultText ?? $t('settings.field.none') })}</p>
+  <p id="{id}-help" class="caption muted">{f.help} {$t('settings.field.default', { value: defaultText ?? $t('settings.field.none') })}</p>
 {/snippet}
 
 <div class="flex flex-col gap-1.5 py-4 border-b border-line last:border-b-0 min-w-0">
@@ -65,11 +65,11 @@
     <div id="{id}-label">{@render head()}</div>
     {@render help()}
     {#if f.type === 'object'}
-      <pre {id} role="group" aria-labelledby="{id}-label" aria-describedby="{id}-help" class="text-[12px] font-mono whitespace-pre-wrap break-all bg-raised p-3">{JSON.stringify(value ?? null, null, 2)}</pre>
+      <pre {id} role="group" aria-labelledby="{id}-label" aria-describedby="{id}-help" class="mono whitespace-pre-wrap break-all border border-line-soft p-3">{JSON.stringify(value ?? null, null, 2)}</pre>
     {:else}
       <div {id} role="group" aria-labelledby="{id}-label" aria-describedby="{id}-help" class="text-sm font-mono break-all">{shown ?? $t('settings.field.none')}</div>
     {/if}
-    <p class="text-xs text-muted">{$t('settings.field.readOnly', { reason: f.lockedReason ?? '' })}</p>
+    <p class="caption muted">{$t('settings.field.readOnly', { reason: f.lockedReason ?? '' })}</p>
   {:else if f.type === 'list' && f.options}
     <fieldset class="flex flex-col gap-1.5 min-w-0" aria-describedby={describedBy}>
       <legend>{@render head()}</legend>
@@ -77,17 +77,17 @@
       <div class="flex flex-wrap gap-x-4 gap-y-1 mt-1">
         {#each f.options as o (o)}
           {@const fixed = f.required?.includes(o) ?? false}
-          <label class="flex items-center gap-1.5 text-sm min-h-8"><input type="checkbox" checked={fixed || (Array.isArray(draft) && draft.includes(o))} disabled={disabled || fixed} aria-describedby={fixed ? `${id}-required` : undefined} aria-invalid={error ? 'true' : undefined} onchange={(e) => toggle(o, e.currentTarget.checked)} />{o}</label>
+          <label class="field min-h-8"><input type="checkbox" class="check" checked={fixed || (Array.isArray(draft) && draft.includes(o))} disabled={disabled || fixed} aria-describedby={fixed ? `${id}-required` : undefined} aria-invalid={error ? 'true' : undefined} onchange={(e) => toggle(o, e.currentTarget.checked)} />{o}</label>
         {/each}
       </div>
-      {#if f.required?.length}<p id="{id}-required" class="text-xs text-muted">{$t('settings.field.required', { items: f.required.join(', ') })}</p>{/if}
+      {#if f.required?.length}<p id="{id}-required" class="caption muted">{$t('settings.field.required', { items: f.required.join(', ') })}</p>{/if}
     </fieldset>
   {:else}
     <label for={id}>{@render head()}</label>
     {@render help()}
     {#if f.type === 'boolean'}
       <!-- The state text sits beside the checkbox, outside its label, so the checkbox's name stays the field label. -->
-      <div class="flex items-center gap-2 text-sm min-h-8"><input {id} type="checkbox" checked={draft === true} {disabled} aria-describedby={describedBy} onchange={(e) => session.setDraft(f.key, e.currentTarget.checked)} /><span aria-hidden="true">{draft === true ? $t('settings.field.on') : $t('settings.field.off')}</span></div>
+      <div class="flex items-center gap-2 text-sm min-h-8"><input {id} type="checkbox" class="check" checked={draft === true} {disabled} aria-describedby={describedBy} onchange={(e) => session.setDraft(f.key, e.currentTarget.checked)} /><span aria-hidden="true">{draft === true ? $t('settings.field.on') : $t('settings.field.off')}</span></div>
     {:else if f.type === 'enum'}
       <select {id} class="self-start" value={draft} {disabled} aria-invalid={error ? 'true' : undefined} aria-describedby={describedBy} onchange={(e) => session.setDraft(f.key, e.currentTarget.value)}>
         {#each f.options ?? [] as o (o)}<option value={o}>{o}</option>{/each}
@@ -101,5 +101,5 @@
       <textarea {id} rows="3" class="w-full max-w-md font-mono" value={String(draft)} placeholder={$t('settings.field.onePerLine')} {disabled} aria-invalid={error ? 'true' : undefined} aria-describedby={describedBy} oninput={(e) => session.setDraft(f.key, e.currentTarget.value)}></textarea>
     {/if}
   {/if}
-  {#if error}<p id="{id}-error" class="text-xs text-bad" role={serverError && parsed.ok ? 'alert' : undefined}>{error}</p>{/if}
+  {#if error}<p id="{id}-error" class="caption text-bad" role={serverError && parsed.ok ? 'alert' : undefined}>{error}</p>{/if}
 </div>

@@ -12,10 +12,12 @@
         const light = matchMedia('(prefers-color-scheme: light)').matches;
         document.documentElement.dataset.theme =
           saved === 'cyanotype' || saved === 'dark' ? 'cyanotype' : saved === 'vellum' || saved === 'light' ? 'vellum' : light ? 'vellum' : 'cyanotype';
+        document.documentElement.dataset.grid = localStorage.getItem('forge.grid') === 'off' ? 'off' : 'on';
+        document.documentElement.dataset.paper = localStorage.getItem('forge.paper') === 'off' ? 'off' : 'on';
       } catch {}
     </script>
-    <script type="module" crossorigin src="/assets/index-DyQTms9z.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-Dk_a5J4F.css">
+    <script type="module" crossorigin src="/assets/index-BDEa7jZs.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DWenm9DS.css">
   </head>
   <body class="ground min-h-screen"></body>
 </html>

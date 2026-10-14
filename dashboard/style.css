@@ -175,6 +175,10 @@
   ::selection { background: var(--highlight); color: #14355f; }
   a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
   a:hover { color: var(--highlight); }
+  /* highlight is only ever a fill on vellum: as text on paper it is about 1.8:1. */
+  [data-theme="vellum"] a:hover { color: var(--fg); }
+  /* The drafting focus ring on every control; utilities with their own focus rules (and outline-none) still win. */
+  :focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 2px; }
 }
 
 /* ---------- the ground: grid + paper fibre + exposure falloff ----------
@@ -200,6 +204,9 @@
     opacity: var(--paper-opacity);
     mix-blend-mode: var(--paper-blend);
   }
+  /* Settings › General › Grid and Paper (index.html sets the attributes before first paint). */
+  html[data-grid="off"] & { background-image: none; }
+  html[data-paper="off"] &::before { display: none; }
 }
 @utility falloff {
   position: relative;
@@ -212,6 +219,7 @@
     pointer-events: none;
     background: radial-gradient(120% 100% at 50% 40%, transparent 50%, var(--fall) 100%);
   }
+  html[data-paper="off"] &::after { display: none; }
 }
 @utility plain { background: var(--bg); }
 
@@ -348,6 +356,8 @@
   display: flex;
   & .btn { margin-right: -1px; }
   & .btn:last-child { margin-right: 0; }
+  /* A radio seg hides its inputs (sr-only), so the focused one's label draws the ring. */
+  & label:has(input:focus-visible) { outline: 1px dashed var(--line-strong); outline-offset: 3px; z-index: 1; }
 }
 
 /* ---------- chips: outlined annotations ---------- */
@@ -424,7 +434,14 @@
   display: inline-block;
   position: relative;
   flex: none;
-  &.on::after { content: ""; position: absolute; inset: 2px; background: var(--ink); }
+  /* On a native checkbox: drawn, but still the input, so labels, keyboard and semantics are the browser's. */
+  appearance: none;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  vertical-align: middle;
+  &.on::after, &:checked::after { content: ""; position: absolute; inset: 2px; background: var(--ink); }
+  &:disabled { opacity: .4; border-style: dashed; cursor: not-allowed; }
 }
 @utility radio {
   width: 14px;
@@ -576,3 +593,21 @@ select option { background: var(--bg); color: var(--fg); }
 input[type=checkbox], input[type=radio] { accent-color: var(--ink); }
 input[type=checkbox]:disabled, input[type=radio]:disabled { opacity: .4; cursor: not-allowed; }
 input[type=checkbox]:focus-visible, input[type=radio]:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 2px; }
+
+/* Reduced motion: nothing slides or fades; every end state is unchanged. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+/* Phones: 44px touch targets. Inline links in prose and table text are exempt (WCAG 2.5.5). */
+@media (width < 48rem) {
+  button:not(.chip), a.btn, .nav a, [role="tab"], [role="option"], summary, select, input:not([type="checkbox"], [type="radio"]), label:has(> input[type="checkbox"]), label:has(> input[type="radio"]) { min-height: 44px; }
+  .btn.icon { min-width: 44px; justify-content: center; }
+  .chip:is(button) { position: relative; }
+  .chip:is(button)::after { content: ""; position: absolute; left: 50%; top: 50%; width: max(100%, 44px); height: max(100%, 44px); translate: -50% -50%; z-index: -1; }
+  /* A chip's hit area sits under its neighbours: z-index -1 inside an isolated parent paints it above the
+     parent's background but below every sibling, so a tap just outside a chip still reaches the control there. */
+  :has(> .chip:is(button)) { isolation: isolate; }
+  /* A checkbox with no label around it (a config field's boolean) gets the same transparent hit area. Its
+     neighbours are text (the On/Off beside it), so this one stays on top and a tap on that text toggles it. */
+  .check:not(label > .check)::before { content: ""; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; translate: -50% -50%; }
+}

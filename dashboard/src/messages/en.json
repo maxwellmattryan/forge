@@ -320,6 +320,13 @@
       "theme": "Theme",
       "cyanotype": "Cyanotype",
       "vellum": "Vellum",
+      "system": "System",
+      "appearance": "Appearance",
+      "languageKeyboard": "Language and keyboard",
+      "grid": "Grid",
+      "gridHint": "Draw the 8px grid on the ground",
+      "paper": "Paper",
+      "paperHint": "Fibre texture and exposure falloff",
       "hint": "Press , to open settings.",
       "shortcut": "Open settings with the , key",
       "hintOff": "The , shortcut is off. Use the Settings button."

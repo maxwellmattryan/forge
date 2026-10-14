@@ -105,7 +105,7 @@
 <svelte:window onhashchange={route} onkeydown={onKey} />
 
 <div class="flex min-h-screen" inert={settingsOpen || commandOpen}>
-  <aside id="sidebar" class="hidden md:flex w-(--size-sidebar) shrink-0 flex-col gap-1 border-r border-line bg-black/8 px-3 py-4 sticky top-0 h-screen overflow-y-auto">
+  <aside id="sidebar" class="hidden md:flex w-(--size-sidebar) shrink-0 flex-col gap-1 border-r border-line bg-black/5 dark:bg-black/8 px-3 py-4 sticky top-0 h-screen overflow-y-auto">
     <div class="sheet ticks flex items-center gap-3 py-3 pr-3 pl-3.5 mb-1.5"><span class="tk"></span><img src="/forge.png" alt="" class="mark shrink-0" /><div class="min-w-0"><div class="h sheet-title">{$t('app.brand')}</div><div class="label mt-0.5">{$t('app.tagline')}</div></div></div>
     <div class="dim-line mx-0.5 mt-0.5 mb-2.5"><span class="end"></span>{$t('app.dwg', { view: viewLabel })}<span class="end"></span></div>
     <div class="label flex min-w-0 items-baseline gap-2 px-2.5 pb-2.5"><span class="shrink-0">{$t('app.repo')}</span><span id="repo-name" class="mono truncate font-normal normal-case tracking-normal text-fg">{S.data?.repo?.name ?? ''}</span></div>
@@ -124,7 +124,7 @@
   </aside>
   <main class="falloff flex-1 min-w-0">
     <!-- The command and settings buttons stay outside the scrolling nav, so they are always on screen. -->
-    <header class="md:hidden flex items-center gap-1 border-b border-line bg-black/8 pr-2">
+    <header class="md:hidden flex items-center gap-1 border-b border-line bg-black/5 dark:bg-black/8 pr-2">
       <div id="mobile-nav" class="nav row flex-1 min-w-0 overflow-x-auto p-2"><Nav mobile /></div>
       <button id="command-open-mobile" class="btn icon touch shrink-0" aria-label={$t('command.open')} aria-haspopup="dialog" onclick={openCommand}><Icon name="command" /></button>
       <button id="settings-open-mobile" class="btn icon touch shrink-0" aria-label={$t('settings.open')} aria-haspopup="dialog" onclick={openSettings}><Icon name="settings" /></button>
