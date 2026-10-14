@@ -18,9 +18,13 @@ import github, { inRepo } from '../lib/trackers/github.ts';
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 
 /** A scratch repo initialised with the given tracker, and a CLI runner that never throws. */
-function setup(kind = 'local', backlog?: string) {
+function setup(kind = 'local', backlog?: string, adapter?: string) {
   const repo = tempRepo();
   const root = repo.dir;
+  if (adapter) {
+    fs.mkdirSync(path.join(root, '.forge', 'trackers'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.forge', 'trackers', `${kind}.mjs`), adapter);
+  }
   const cli = (...args: string[]) => {
     const r = spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, FORGE_ROOT: root } });
     let json: any = null;
@@ -163,6 +167,40 @@ test('job link --create and --none', () => {
     s.cli('tracker', 'create', '--title', 'Typo fixes');
     assert.equal(s.cli('job', 'link', waived, 'typo-fixes').status, 0);
     assert.equal(loadJob(s.root, waived).noIssue, null);
+  } finally {
+    s.repo.cleanup();
+  }
+});
+
+test('job link: a failed claim exits 3 and writes nothing', () => {
+  const adapter = `export default { name: 'acme', list: () => [], get: (_c, ref) => (ref === 'A-1' ? { ref: 'A-1', title: 'Held', url: 'https://acme.example/A-1' } : null), claim: () => ({ ok: false, reason: 'assigned to someone else' }), update() {}, comment() {}, create: () => ({ ref: 'A-1' }), close() {} };\n`;
+  const s = setup('acme', undefined, adapter);
+  try {
+    const id = s.newJob('Held work');
+    const before = s.raw(id);
+    const r = s.cli('job', 'link', id, 'A-1');
+    assert.equal(r.status, 3, r.stderr);
+    assert.match(r.stderr, /could not claim A-1: assigned to someone else/);
+    assert.equal(s.raw(id), before, 'job.json is unchanged');
+    assert.ok(!readEvents(s.root, id).some((e) => e.type === 'linked'), 'no linked event');
+    const created = s.cli('job', 'link', id, '--create');
+    assert.equal(created.status, 3, '--create links the same way, so the same refusal');
+    assert.equal(s.raw(id), before);
+  } finally {
+    s.repo.cleanup();
+  }
+});
+
+test('job link --create caps the issue body at 20,000 characters', () => {
+  const s = setup('local', '# Backlog\n');
+  try {
+    const body = 'b'.repeat(25_000);
+    const id = s.newJob('Huge request', '--body', body);
+    const r = s.cli('job', 'link', id, '--create');
+    assert.equal(r.status, 0, r.stderr);
+    const lines = s.backlog().split('\n');
+    const at = lines.findIndex((l) => l.startsWith('- [~] Huge request'));
+    assert.equal(lines[at + 1], `  ${'b'.repeat(20_000)}`, 'request.md body, without its title, capped');
   } finally {
     s.repo.cleanup();
   }
@@ -376,7 +414,7 @@ test('SKILL.md gates Intake on issue-link and routes the answers', () => {
   assert.ok(intake.includes('--waiting-on issue-link --reason "link an issue"'));
   for (const answer of ['/forge approve <id> <ref>', '/forge approve <id> new', '/forge approve <id> none [reason]']) assert.ok(intake.includes(answer), answer);
   const approve = skill.split('\n').find((l) => l.startsWith('| `approve <job>'))!;
-  for (const s of ['issue-link', 'args.link', 'forge job link <job> <ref>', '--create', '--none --reason']) assert.ok(approve.includes(s), s);
+  for (const s of ['issue-link', 'args.link', 'forge job link <job> <ref>', '--create', "--none --reason '<rest of the note>'", '^#?[A-Za-z0-9][A-Za-z0-9._-]*$']) assert.ok(approve.includes(s), s);
   const requests = skill.slice(skill.indexOf('## Requests'), skill.indexOf('## Self-improvement'));
   for (const s of ['`next` (args.n, default 1) → `next <n>`', '`args.intake: new`', 'Split mode: pipeline.split', 'using `args.link`']) assert.ok(requests.includes(s), s);
   assert.ok(skill.includes('If its result has `unlinked: true`, report'));

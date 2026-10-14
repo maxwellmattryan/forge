@@ -1078,6 +1078,8 @@ test('POST /api/requests validates link and n args', async () => {
       { type: 'next', args: { n: 1 } },
       { type: 'next', args: { n: 16 } },
       { type: 'next', args: {} },
+      { type: 'run', args: { ref: '12' } },
+      { type: 'run', args: { ref: '#reading-list' } },
     ];
     for (const body of good) {
       const r = await postJson(port, '/api/requests', body);
@@ -1096,6 +1098,10 @@ test('POST /api/requests validates link and n args', async () => {
       { type: 'next', args: { n: 2.5 } },
       { type: 'next', args: { n: '3' } },
       { type: 'sync', args: { n: 2 } },
+      { type: 'run', args: {} },
+      { type: 'run', args: { ref: '--exec=x' } },
+      { type: 'run', args: { ref: 'a b' } },
+      { type: 'run' },
     ];
     for (const body of bad) {
       const r = await postJson(port, '/api/requests', body);
@@ -1137,7 +1143,10 @@ test('job detail lists the job\'s requests', async () => {
     assert.deepEqual(detail.requests.map((r) => r.id), ids.slice(-50), 'the newest 50, oldest first');
     assert.ok(detail.requests.every((r) => r.job === a));
     assert.deepEqual(detail.requests.slice(-3).map((r) => [r.status, r.result ?? null]), [['rejected', 'no'], ['in-progress', null], ['done', 'answered']], 'every status');
+    assert.equal(detail.request, null, 'a job without request.md has no opening message');
+    fs.writeFileSync(path.join(repo.dir, '.forge', 'jobs', b, 'request.md'), `# Title line\n\n  ${'w'.repeat(2500)}\n`);
     const other = JSON.parse((await hit(port, { path: `/api/jobs/${b}` })).text);
+    assert.equal(other.request, `${'w'.repeat(2000)}…`, 'the request without its title, trimmed and capped');
     assert.deepEqual(other.requests.map((r) => r.text), ['other job']);
   } finally {
     await close();

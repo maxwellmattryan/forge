@@ -66,6 +66,7 @@ const MAX_IMAGE = 10 * 1024 * 1024;
 const MAX_SCREENSHOTS = 200;
 /** The newest requests a job's Thread shows. */
 const MAX_JOB_REQUESTS = 50;
+const MAX_REQUEST_EXCERPT = 2000;
 const MAX_SSE_CLIENTS = 8;
 const SSE_SLOW_CLIENT_BYTES = 1024 * 1024;
 const SSE_MAX_LINE = 64 * 1024;
@@ -366,6 +367,8 @@ function hasSlugText(title: string): boolean {
 /** POST /api/requests: the args a request type may carry beyond what enqueue checks. Null when fine. */
 function requestArgsProblem(body: Record<string, any>): string | null {
   const args = body.args;
+  // The inbox session puts a run's ref on `forge job from-ref <ref>`, so it is checked here, not only in the bar.
+  if (body.type === 'run' && !normalizeRef(args?.ref)) return 'args.ref must be an issue ref';
   if (!args || typeof args !== 'object' || Array.isArray(args)) return null;
   if (Object.prototype.hasOwnProperty.call(args, 'link')) {
     if (body.type !== 'approve') return 'args.link is only for approve requests';
@@ -557,7 +560,15 @@ function jobDetail(root: string, id: string): JobDetail {
     files,
     screenshots: listScreenshots(dir),
     requests: listRequests(root).filter((r) => r.job === id).slice(-MAX_JOB_REQUESTS),
+    request: requestExcerpt(dir),
   };
+}
+
+/** request.md without its `# title` line, for the Thread's opening message; null when empty. */
+function requestExcerpt(dir: string): string | null {
+  const body = readText(path.join(dir, 'request.md')).replace(/^\s*# [^\n]*\n?/, '').trim();
+  if (!body) return null;
+  return body.length > MAX_REQUEST_EXCERPT ? `${body.slice(0, MAX_REQUEST_EXCERPT)}…` : body;
 }
 
 /**

@@ -5,6 +5,8 @@ const FILLER = /^(please|pls|can you|could you|would you|i want to|i'd like to|w
 const MAX_WORDS = 8;
 const MAX_CHARS = 60;
 const MAX_TITLE = 120;
+/** Only the start of the text is read: the title is at most 60 characters, and the regexes stay cheap. */
+const MAX_INPUT = 500;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
 
 /** Control characters out, whitespace collapsed, capped at 120: null when nothing is left. */
@@ -36,6 +38,7 @@ function plainLine(line: string): string {
  */
 export function deriveTitle(text: string): string | null {
   const line = String(text ?? '')
+    .slice(0, MAX_INPUT)
     .split(/\r?\n|\r/)
     .map(plainLine)
     .find((l) => /[\p{L}\p{N}]/u.test(l));

@@ -32,6 +32,9 @@ test('deriveTitle examples', () => {
     if (t) assert.ok(t.length <= 60 && t.split(' ').length <= 8, t);
   }
   assert.equal(deriveTitle('Fix\u0007 the\u2028bell'), 'Fix the bell');
+  assert.equal(deriveTitle(`${' '.repeat(500)}Late words`), null, 'only the first 500 characters are read');
+  assert.equal(deriveTitle('.'.repeat(20_000) + ' x'), null, 'a long run of punctuation is cut, not scanned');
+  assert.equal(deriveTitle(`Add export${'.'.repeat(20_000)}`), 'Add export');
 });
 
 test('normalizeTitle', () => {

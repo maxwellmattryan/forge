@@ -605,6 +605,8 @@ export interface JobDetail {
   screenshots: string[];
   /** This job's requests in every status, oldest first, at most the last 50. */
   requests: ForgeRequest[];
+  /** request.md without its `# title` line, trimmed, at most 2,000 characters: the Thread's opening message. */
+  request: string | null;
 }
 
 /**
