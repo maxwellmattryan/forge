@@ -46,6 +46,13 @@ const FIXTURE = entries([
   sup('error', { message: 'daemon exited (code 1, signal null)' }),
 ]);
 
+/** The fixture's Agent call (forge:builder, prompt "Implement it."). */
+function FIXTURE_AGENT() {
+  const it = buildSessionView(FIXTURE).turns[1].items.find((i) => i.kind === 'subagent' && i.known);
+  assert.ok(it?.kind === 'subagent');
+  return it;
+}
+
 test('turns, items and subagent groups from a fixture stream', () => {
   const v = buildSessionView(FIXTURE, { ...DEFAULT_FILTERS, thinking: true });
   assert.deepEqual(v.turns.map((t) => t.label), ['Session start', 'Turn 1 · 2 requests', 'Turn 2 · 1 request']);
@@ -164,6 +171,7 @@ test('strings are returned unescaped', () => {
       sup('error', { message: XSS }),
       assistant([{ type: 'text', text: XSS }, { type: 'tool_use', id: 'x1', name: XSS, input: { command: XSS } }]),
       user([{ type: 'tool_result', tool_use_id: 'x1', content: XSS }]),
+      assistant([{ type: 'tool_use', id: 'x2', name: 'Agent', input: { subagent_type: 'forge:builder', description: 'd', prompt: XSS } }]),
       { type: 'forge-stderr', text: XSS },
       XSS,
     ]),
@@ -172,6 +180,34 @@ test('strings are returned unescaped', () => {
   const text = JSON.stringify(v);
   assert.ok(text.includes('<script>alert(1)</script>'));
   assert.ok(!text.includes('&lt;'));
+  const agent = v.turns[0].items.find((i) => i.kind === 'subagent');
+  assert.ok(agent?.kind === 'subagent');
+  assert.equal(agent.prompt, XSS, 'the prompt comes back unescaped: md() escapes');
+});
+
+test('subagent carries its prompt', () => {
+  const agent = FIXTURE_AGENT();
+  assert.equal(agent.prompt, 'Implement it.');
+  for (const name of ['Agent', 'Task']) {
+    const it: any = buildSessionView(entries([assistant([{ type: 'tool_use', id: 'a1', name, input: { subagent_type: 'forge:planner', prompt: '# Plan\n- **one**' } }])])).turns[0].items[0];
+    assert.equal(it.kind, 'subagent', name);
+    assert.equal(it.prompt, '# Plan\n- **one**', name);
+  }
+  const bare: any = buildSessionView(entries([assistant([{ type: 'tool_use', id: 'a1', name: 'Agent', input: { subagent_type: 'forge:planner' } }])])).turns[0].items[0];
+  assert.equal(bare.prompt, '', 'no input.prompt: empty');
+  // An unknown call, then the same placeholder once its call arrives (out-of-order lines).
+  const ghost: any = buildSessionView(entries([assistant([{ type: 'text', text: 'child' }], 'a1')])).turns[0].items[0];
+  assert.ok(ghost.kind === 'subagent' && !ghost.known);
+  assert.equal(ghost.prompt, '', 'an unknown call has no prompt');
+  const adopted: any = buildSessionView(entries([assistant([{ type: 'text', text: 'child' }], 'a1'), assistant([{ type: 'tool_use', id: 'a1', name: 'Agent', input: { subagent_type: 'forge:planner', prompt: 'Plan it.' } }])])).turns[0].items;
+  assert.equal(adopted.length, 1);
+  assert.ok(adopted[0].known && adopted[0].items.length === 1);
+  assert.equal(adopted[0].prompt, 'Plan it.', 'the adopted placeholder carries the call prompt');
+  // A text filter that matches only the prompt keeps the block. The input JSON escapes the quotes, so only the prompt matches.
+  const quoted = entries([assistant([{ type: 'tool_use', id: 'a1', name: 'Agent', input: { subagent_type: 'forge:planner', description: 'Plan', prompt: 'Run "forge verify" now.' } }]), assistant([{ type: 'text', text: 'unrelated' }])]);
+  const hit = buildSessionView(quoted, { ...DEFAULT_FILTERS, text: 'run "forge verify"' }).turns.flatMap((t) => t.items);
+  assert.deepEqual(hit.map((i) => i.kind), ['subagent']);
+  assert.equal(hit[0].kind === 'subagent' && hit[0].role, 'forge:planner');
 });
 
 test('mergeEntry inserts by offset without duplicates or older lines', () => {

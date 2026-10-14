@@ -1,8 +1,9 @@
 // A session log's structure, built from its raw lines: turns, text, thinking, tool calls with their
 // results, subagents grouped by parent_tool_use_id, background task progress folded into the call it
 // reports on, results, stderr and the supervisor's own events.
-// Every line is session output, i.e. untrusted text: this returns plain strings, SessionLog.svelte
-// renders them as text, and nothing here escapes or interprets markup.
+// Every line is session output, i.e. untrusted text: this returns plain strings, and nothing here escapes or
+// interprets markup. SessionLog.svelte renders them as text, except text/thinking bodies and a subagent's prompt
+// and result, which go only through the escape-first md().
 import { dur, tokensShort } from './util.ts';
 
 /** One log line and its offset (the SSE id and the history key). */
@@ -76,7 +77,7 @@ export type Item =
   | (ItemBase & { kind: 'text'; text: string; long: boolean })
   | (ItemBase & { kind: 'thinking'; text: string })
   | (ItemBase & { kind: 'tool'; id: string; name: string; summary: string; input: string; result: ToolResult | null; task: TaskInfo | null })
-  | (ItemBase & { kind: 'subagent'; id: string; role: string; description: string; summary: string; input: string; items: Item[]; result: ToolResult | null; known: boolean; hidden: number; task: TaskInfo | null })
+  | (ItemBase & { kind: 'subagent'; id: string; role: string; description: string; summary: string; input: string; prompt: string; items: Item[]; result: ToolResult | null; known: boolean; hidden: number; task: TaskInfo | null })
   | (ItemBase & { kind: 'result'; text: string; costUsd: number | null })
   /** A task line whose call is not in the loaded window: one item per task, updated in place. */
   | (ItemBase & { kind: 'task'; id: string; role: string; task: TaskInfo; text: string })
@@ -305,7 +306,7 @@ function haystack(it: Item): string {
     case 'tool':
       return `${it.name} ${it.summary} ${it.input} ${it.result?.full ?? ''} ${it.task?.text ?? ''}`;
     case 'subagent':
-      return `${it.role} ${it.description} ${it.input} ${it.result?.full ?? ''} ${it.task?.text ?? ''}`;
+      return `${it.role} ${it.description} ${it.prompt} ${it.input} ${it.result?.full ?? ''} ${it.task?.text ?? ''}`;
     case 'init':
       return `init ${it.model} ${it.session}`;
     case 'task':
@@ -366,7 +367,7 @@ export function buildSessionView(entries: readonly Entry[], filters: Filters = D
     if (!parent) return g.items;
     const known = tools.get(parent);
     if (known && known.kind === 'subagent') return known.items;
-    const sub: Item = { kind: 'subagent', offset, at, tone: 'muted', id: parent, role: 'Subagent (unknown call)', description: '', summary: '', input: '', items: [], result: null, known: false, hidden: 0, task: null };
+    const sub: Item = { kind: 'subagent', offset, at, tone: 'muted', id: parent, role: 'Subagent (unknown call)', description: '', summary: '', input: '', prompt: '', items: [], result: null, known: false, hidden: 0, task: null };
     tools.set(parent, sub);
     g.items.push(sub);
     return sub.items;
@@ -387,7 +388,7 @@ export function buildSessionView(entries: readonly Entry[], filters: Filters = D
         const input = pretty(p.input ?? {});
         const summary = toolSummary(p.name, p.input);
         const it: Item & { kind: 'tool' | 'subagent' } = AGENT_TOOLS.has(p.name)
-          ? { kind: 'subagent', offset: p.offset, at: p.at, tone: 'info', id: p.id, role: str(obj(p.input).subagent_type) || 'agent', description: str(obj(p.input).description), summary, input, items: [], result: null, known: true, hidden: 0, task: null }
+          ? { kind: 'subagent', offset: p.offset, at: p.at, tone: 'info', id: p.id, role: str(obj(p.input).subagent_type) || 'agent', description: str(obj(p.input).description), summary, input, prompt: str(obj(p.input).prompt), items: [], result: null, known: true, hidden: 0, task: null }
           : { kind: 'tool', offset: p.offset, at: p.at, tone: null, id: p.id, name: p.name, summary, input, result: null, task: null };
         const into = target(p.offset, p.at, p.parent);
         // A placeholder made for this id by an earlier child line is adopted, not duplicated.
