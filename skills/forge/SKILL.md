@@ -28,7 +28,7 @@ forge sync       # PRs and trackers; cleans merged worktrees
 forge requests   # dashboard/inbox requests: reference/requests.md, before new work
 ```
 No `.forge/config.yml` (exit 2) → **init** (`reference/init.md`) unless the user asked for something else.
-Report `sync` results in one line each: merged PRs, new PR feedback, new conflicts, finished umbrella jobs, `unblocked: true` (`/forge continue <id>`), `retargeted`. For each `mergeDeferred: true`, run `forge pr merge <id>`.
+Report `sync` results, one line each: merged PRs, PR feedback, conflicts, finished umbrellas, `unblocked: true` (`/forge continue <id>`), `retargeted`. For each `mergeDeferred: true`, run `forge pr merge <id>`.
 
 ## Commands (route on the first word of the arguments)
 | Arguments | Do |
@@ -43,7 +43,7 @@ Report `sync` results in one line each: merged PRs, new PR feedback, new conflic
 | `dash` | `forge dash --background` and give the URL |
 | `init`, `retro`, `eval …`, `requests` | `reference/init.md`, `retro.md`, `evals.md`, `requests.md` |
 | `doctor` | `forge doctor`; explain failures with fixes |
-| `update` | `forge update` only (no doctor/sync/requests first; it needs no `.forge/`). Report `from → to`, then each `warnings` and `next` entry on one line. On error, relay the message. |
+| `update` | `forge update` only. Report `from → to`, then each `warnings` and `next` entry in one line each; on error, relay it. |
 
 ## Run a job
 Claim it: `forge job claim <id> --session ${CLAUDE_SESSION_ID}`. Exit 3: another live session owns it, so tell the human and stop. Exit 4: it waits on unfinished dependencies; report that line and move on. Pass `--force` only when the human asks to stack it on an unmerged dependency.
@@ -56,10 +56,10 @@ Then loop: `forge job step <id>`, act on its `action`, step again.
 - `procedure`: load `reference` (`reference/split.md`, `retro.md`, `pr-lifecycle.md`) and follow it, then step again.
 - `done`: report `tell` if present, and stop.
 
-After a job reaches `pr` or `done`, run `forge retro due`. If `due: true`, tell the human once: "N jobs since the last retro; `/forge retro` proposes improvements." Don't run it unasked.
+After a job reaches `pr` or `done`, run `forge retro due`. If `due: true`, tell the human once: "N jobs since the last retro; `/forge retro` proposes improvements." Never run it unasked.
 
 ## Parallel jobs
-Drive up to `runtime.maxParallelJobs` jobs at once (a daemon job session drives only its own), advancing each as its notifications arrive. `forge job step` is the state of every job, so keep no table of your own. Claims and heartbeats keep sessions from colliding.
+Drive up to `runtime.maxParallelJobs` jobs at once (a daemon job session drives only its own), advancing each as its notifications arrive. `forge job step` is every job's state; keep no table of your own.
 
 ## Reporting style
-Short. One line per job event the human should know about, with the job id and, when blocked, the exact unblock command. Link the dashboard instead of pasting tables.
+Short. One line per job event, with the job id and, when blocked, the exact unblock command. Link the dashboard, don't paste tables.
