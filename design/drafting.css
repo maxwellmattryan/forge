@@ -21,7 +21,7 @@ h1, h2, h3, p { margin: 0; }
 /* Appearance prefs (Settings › General › Grid, Paper): off drops the grid, or the fibre and the falloff. */
 html[data-grid="off"] .ground { background-image: none; }
 html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::after { display: none; }
-.plain { background: var(--bg); }
+.plain { background-color: var(--panel); }
 
 /* ---------- hatching ---------- */
 .hatch { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
@@ -39,7 +39,7 @@ html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::
 .sheet.clickable:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 3px; }
 .sheet.redline { border-color: var(--redline); outline: 1px dashed var(--redline); outline-offset: 3px; }
 .sheet.dashed { border-style: dashed; background: transparent; }
-.sheet.solid { background: var(--bg); }
+.sheet.solid { background-color: var(--panel); }
 
 /* ---------- type ---------- */
 .h { font-family: var(--font-head); font-weight: 700; letter-spacing: -.01em; line-height: 1.1; }
@@ -124,7 +124,7 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 .tabs { display: flex; border-bottom: 1px solid var(--line); }
 .tab { font-family: var(--font-mono); font-weight: 500; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 8px 14px; border: 1px solid transparent; border-bottom: 0; background: transparent; cursor: pointer; margin-bottom: -1px; }
 .tab:hover { color: var(--fg); background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
-.tab.active { color: var(--fg); border-color: var(--line); background: var(--bg); }
+.tab.active { color: var(--fg); border-color: var(--line); background-color: var(--panel); background-image: none; }
 
 /* ---------- tables ---------- */
 .tbl { width: 100%; border-collapse: collapse; font-size: 14px; }

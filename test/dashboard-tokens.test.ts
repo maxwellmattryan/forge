@@ -198,6 +198,59 @@ test('text tokens meet 4.5:1 except the documented exceptions', () => {
   assert.deepEqual(failing.sort(), [...EXCEPTIONS].sort(), 'the exception list equals the measured failures');
 });
 
+/** The two theme scopes of design/tokens.css, as a colour reader per theme. */
+function themeColors(): Record<string, (k: string) => Rgba> {
+  const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
+  const out: Record<string, (k: string) => Rgba> = {};
+  for (const [theme, sel] of [['cyanotype', SCOPES[0]], ['vellum', SCOPES[1]]]) {
+    const vars = scope(design, sel);
+    out[theme] = (k: string): Rgba => {
+      const c = parseColor(vars.get(`--${k}`) ?? '');
+      assert.ok(c, `${theme} --${k} is a colour`);
+      return c;
+    };
+  }
+  return out;
+}
+
+// Each level steps away from the ground toward the theme's highest-contrast colour: ground (bg + grid
+// + paper), sheets and overlays (panel), the sidebar (chrome). The sketch and the active wash are
+// translucent and land on those opaque fills, so text is measured on each combination.
+test('sheets, chrome and sketch keep text at 4.5:1', (t) => {
+  const lowest: Record<string, [number, string]> = {};
+  for (const [theme, color] of Object.entries(themeColors())) {
+    for (const k of ['panel', 'chrome']) assert.equal(color(k)[3], 1, `${theme} --${k} is opaque`);
+    const bg = color('bg');
+    const panel = color('panel');
+    const chrome = color('chrome');
+    const surfaces: Record<string, Rgba> = {
+      panel,
+      'panel+raised': over(color('raised'), panel),
+      'panel+sketch': over(color('sketch-line'), panel),
+      chrome,
+      'chrome+raised': over(color('raised'), chrome),
+      'chrome+sketch': over(color('sketch-line'), chrome),
+    };
+    for (const [s, surface] of Object.entries(surfaces)) {
+      for (const k of TEXT_BY_THEME[theme]) {
+        const ratio = contrast(color(k), surface);
+        assert.ok(ratio >= 4.5, `${theme} --${k} on ${s} is ${ratio.toFixed(2)}:1`);
+        const key = `${theme} ${s}`;
+        if (!lowest[key] || ratio < lowest[key][0]) lowest[key] = [ratio, k];
+      }
+    }
+    // A hovered control on the ground (board columns, page headers) draws the sketch over bg.
+    const onGround = contrast(color('fg'), over(color('sketch-line'), bg));
+    assert.ok(onGround >= 4.5, `${theme} --fg on bg + sketch is ${onGround.toFixed(2)}:1`);
+    const fg = color('fg');
+    const ladder = [bg, panel, chrome].map((s) => contrast(fg, s));
+    assert.ok(ladder[0] < ladder[1] && ladder[1] < ladder[2], `${theme} fg steps up from the ground: ${ladder.map((r) => r.toFixed(2)).join(' → ')}`);
+    const step = contrast(panel, bg);
+    assert.ok(step >= 1.1, `${theme} a sheet stands off the ground (${step.toFixed(3)}:1)`);
+  }
+  for (const [key, [ratio, k]] of Object.entries(lowest)) t.diagnostic(`lowest ${key}: --${k} ${ratio.toFixed(2)}:1`);
+});
+
 /** The bodies of every rule whose selector list names exactly `selector` (the build merges equal rules). */
 function ruleFor(css: string, selector: string): string {
   const out: string[] = [];
@@ -273,7 +326,7 @@ test('sidebar ground and link hover keep text at 4.5:1', () => {
   assert.doesNotMatch(app, /(?<!dark:)bg-black\/8/, 'no theme-blind 8% shade is left');
   const nav = fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'components', 'Nav.svelte'), 'utf8');
   assert.match(nav, /<span class="mono num \{on \? '' : 'muted'\}">/);
-  assert.match(nav, /<span class="chip rev \{on \? 'bg-bg' : ''\}">/);
+  assert.match(nav, /<span class="chip rev \{on \? 'bg-panel' : ''\}">/);
   assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'views', 'Pipeline.svelte'), 'utf8'), /opacity-70/, 'a selected filter count is full --on-ink');
 
   // --highlight is about 1.6:1 on vellum paper, so a hovered link turns --fg there.

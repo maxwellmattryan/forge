@@ -174,7 +174,7 @@ test('dist index keeps token meta and theme bootstrap, loads only local hashed a
 
 // Applied only from JS expressions, or custom utilities/classes: the likeliest to be missed.
 const DYNAMIC_CLASSES =
-  'ok bad warn info ink muted live rev chip btn primary sel redline sheet ticks clickable dashed crosshatch hatch track fill tbl kpi label callout prose dot hollow active bg-bg translate-x-full hidden text-fg hover:text-fg text-ok text-bad text-muted';
+  'ok bad warn info ink muted live rev chip btn primary sel redline sheet ticks clickable dashed crosshatch hatch track fill tbl kpi label callout prose dot hollow active bg-panel solid translate-x-full hidden text-fg hover:text-fg text-ok text-bad text-muted';
 
 test('compiled CSS covers dynamically applied and custom classes', () => {
   const css = [...manifestFiles()].filter((f) => f.endsWith('.css')).map((f) => fs.readFileSync(path.join(DIST, f), 'utf8')).join('\n');

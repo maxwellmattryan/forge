@@ -63,8 +63,10 @@
 :root, [data-theme="cyanotype"] {
   --bg: #15427a;
   --bg-deep: #0e3263;
-  --panel: rgba(255,255,255,0.035);
+  --panel: #103867;
   --raised: rgba(255,255,255,0.09);
+  --chrome: #0b2b57;
+  --sketch-line: rgba(226,238,255,0.14);
   --line: rgba(226,238,255,0.55);
   --line-soft: rgba(226,238,255,0.28);
   --line-strong: #eef5ff;
@@ -84,6 +86,7 @@
   --shadow-primary: 3px 3px 0 0 rgba(226,238,255,0.28);
   --shadow-dialog: 8px 8px 0 0 rgba(255,255,255,0.08);
   --shadow-drawer: -8px 0 0 0 rgba(255,255,255,0.06);
+  --shadow-chrome: 8px 0 0 0 rgba(255,255,255,0.06);
   /* drafting extras (design/drafting.css) */
   --paper-blend: soft-light;
   --fall: rgba(0,0,0,.28);
@@ -92,8 +95,10 @@
 [data-theme="vellum"] {
   --bg: #f1ecdf;
   --bg-deep: #e6e0d0;
-  --panel: rgba(255,255,255,0.35);
+  --panel: #fbf8f1;
   --raised: rgba(31,78,140,0.08);
+  --chrome: #fffdf8;
+  --sketch-line: rgba(31,78,140,0.14);
   --line: rgba(31,78,140,0.6);
   --line-soft: rgba(31,78,140,0.3);
   --line-strong: #1f4e8c;
@@ -113,6 +118,7 @@
   --shadow-primary: 3px 3px 0 0 rgba(31,78,140,0.3);
   --shadow-dialog: 8px 8px 0 0 rgba(31,78,140,0.12);
   --shadow-drawer: -8px 0 0 0 rgba(31,78,140,0.1);
+  --shadow-chrome: 8px 0 0 0 rgba(31,78,140,0.1);
   /* drafting extras (design/drafting.css) */
   --paper-opacity: .55;
   --paper-blend: multiply;
@@ -220,7 +226,7 @@
   }
   html[data-paper="off"] &::after { display: none; }
 }
-@utility plain { background: var(--bg); }
+@utility plain { background-color: var(--panel); }
 
 /* ---------- hatching ---------- */
 @utility hatch { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
@@ -238,7 +244,7 @@
   &.clickable:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 3px; }
   &.redline { border-color: var(--redline); outline: 1px dashed var(--redline); outline-offset: 3px; }
   &.dashed { border-style: dashed; background: transparent; }
-  &.solid { background: var(--bg); }
+  &.solid { background-color: var(--panel); }
 }
 @utility ticks {
   & > .tk { position: absolute; inset: 0; pointer-events: none; }
@@ -250,7 +256,7 @@
 }
 @utility redline { border-color: var(--redline); outline: 1px dashed var(--redline); outline-offset: 3px; }
 @utility dashed { border-style: dashed; background: transparent; }
-@utility solid { background: var(--bg); }
+@utility solid { background-color: var(--panel); }
 @utility clickable {
   cursor: pointer;
   transition: background-color .12s ease, border-color .12s ease;
@@ -497,7 +503,7 @@
   cursor: pointer;
   margin-bottom: -1px;
   &:hover { color: var(--fg); background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
-  &.active { color: var(--fg); border-color: var(--line); background: var(--bg); }
+  &.active { color: var(--fg); border-color: var(--line); background-color: var(--panel); background-image: none; }
 }
 
 /* ---------- tables ---------- */
@@ -594,7 +600,7 @@ input:not([type=checkbox], [type=radio]):disabled, textarea:disabled, select:dis
 textarea { font-family: var(--font-sans); font-size: 14px; }
 select { appearance: none; padding-right: 28px; background-image: linear-gradient(45deg, transparent 50%, var(--fg) 50%), linear-gradient(135deg, var(--fg) 50%, transparent 50%); background-position: calc(100% - 15px) 14px, calc(100% - 10px) 14px; background-size: 5px 5px; background-repeat: no-repeat; }
 /* The open list is drawn by the OS; give it the sheet's colours so options stay readable. */
-select option { background: var(--bg); color: var(--fg); }
+select option { background: var(--panel); color: var(--fg); }
 /* Native checkboxes and radios ignore borders, so they keep a visible focus outline and take the ink colour. */
 input[type=checkbox], input[type=radio] { accent-color: var(--ink); }
 input[type=checkbox]:disabled, input[type=radio]:disabled { opacity: .4; cursor: not-allowed; }

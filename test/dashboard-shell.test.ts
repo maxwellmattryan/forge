@@ -302,7 +302,7 @@ test('the action dock sits outside the drawer tabs', () => {
   assert.equal(section?.name, 'section', "the dock's root is a section");
   assert.ok(section.attrs.some((a) => a.name === 'aria-labelledby'), 'labelled by its heading');
   const dockCls = classTokens(section.attrs.find((a) => a.name === 'class')?.value ?? '');
-  for (const c of ['shrink-0', 'border-t', 'border-line', 'bg-bg', 'overflow-y-auto', 'max-h-[45dvh]']) assert.ok(dockCls.includes(c), `the dock has ${c}`);
+  for (const c of ['shrink-0', 'border-t', 'border-line', 'bg-panel', 'overflow-y-auto', 'max-h-[45dvh]']) assert.ok(dockCls.includes(c), `the dock has ${c}`);
 
   const thread = read('components/ThreadPanel.svelte');
   assert.ok(!thread.includes('<JobActions'), 'the Thread no longer holds the gate actions');
@@ -328,6 +328,32 @@ test('the action dock sits outside the drawer tabs', () => {
 });
 
 const unquote = (v: string | undefined) => (v ?? '').replace(/^["']|["']$/g, '');
+
+// Three levels: the ground (grid and paper, on <body> alone), opaque sheets and overlays (panel), the chrome
+// sidebar. Nothing above the ground carries a pattern or lets one through.
+test('the ground is the only patterned surface', () => {
+  const index = fs.readFileSync(path.join(ROOT, 'dashboard', 'index.html'), 'utf8');
+  const grounds = tags('index.html', index).filter((t) => classTokens(t.attrs.find((a) => a.name === 'class')?.value ?? '""').includes('ground'));
+  assert.deepEqual(grounds.map((t) => t.name), ['body'], 'index.html has `ground` on <body> only');
+  const falloff = elements('App.svelte').filter((e) => e.classes.includes('falloff'));
+  assert.deepEqual(falloff.map((e) => e.name), ['main'], 'App.svelte has `falloff` on <main> only');
+
+  for (const rel of svelteFiles()) {
+    for (const el of elements(rel)) {
+      const where = `${rel}: <${el.name} class="${el.classes.join(' ')}">`;
+      assert.ok(!el.classes.includes('ground'), `${where} uses ground`);
+      if (!(rel === 'App.svelte' && el.name === 'main')) assert.ok(!el.classes.includes('falloff'), `${where} uses falloff`);
+    }
+  }
+  for (const rel of [...svelteFiles(), ...tsFiles()]) {
+    const lists = rel.endsWith('.svelte') ? fileClassLists(rel) : tsClassLists(read(rel));
+    for (const cls of lists.flat()) assert.notEqual(base(cls), 'bg-bg', `${rel} fills with bg-bg: an overlay is panel, the ground is bg`);
+  }
+
+  const drawer = tags('components/Drawer.svelte', read('components/Drawer.svelte')).find((t) => t.name === 'aside' && t.attrs.some((a) => a.name === 'id' && a.value === '"drawer"'));
+  const cls = classTokens(drawer?.attrs.find((a) => a.name === 'class')?.value ?? '""');
+  assert.ok(cls.includes('solid') && !cls.includes('bg-bg'), `the drawer is a solid panel (${cls.join(' ')})`);
+});
 
 test('checkboxes are drawn and the theme seg keeps its radiogroup', () => {
   // Every native checkbox is the drawn .check (a styled native input, so labels and keys are the browser's).
