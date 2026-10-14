@@ -16,7 +16,7 @@ import { PLUGIN_ROOT, paths } from './paths.ts';
 import { SCOPE_ENV, validJobId, validScope } from './requests.ts';
 import { isClaudeExecutable, now, run, sleepSync, splitWords, writeJsonAtomic } from './util.ts';
 import { pidAlive } from './worktree.ts';
-import type { Config, DaemonAuth, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, ForgeRequest, PermissionDecision } from './types.ts';
+import type { Config, DaemonAuth, DaemonPermissionMode, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, ForgeRequest, PermissionDecision } from './types.ts';
 
 /** What a session reports to its pool: a log line as it is written, or its new state after a change. */
 export type SessionEvent = { kind: 'line'; scope: string; offset: number; line: string } | { kind: 'state'; scope: string; state: DaemonSessionState };
@@ -43,6 +43,8 @@ export interface DaemonOptions {
   /** Backoff after a failed turn: first wait, and the cap it doubles up to. */
   retryMinMs?: number;
   retryMaxMs?: number;
+  /** How long claude has to confirm a mode switch before the supervisor stops treating it as pending. */
+  modeConfirmMs?: number;
 }
 
 /** DaemonOptions with every default filled in. */
@@ -54,6 +56,7 @@ export interface SessionOptions {
   rotateBytes: number;
   retryMinMs: number;
   retryMaxMs: number;
+  modeConfirmMs: number;
   env: NodeJS.ProcessEnv;
   openLog: (file: string) => LogSink;
   readConfig: (root: string, opts?: { text?: string | null }) => { config: Config };
@@ -68,6 +71,7 @@ export function sessionOptions(opts: DaemonOptions = {}): SessionOptions {
     rotateBytes: opts.rotateBytes ?? 20 * 1024 * 1024,
     retryMinMs: opts.retryMinMs ?? 60_000,
     retryMaxMs: opts.retryMaxMs ?? 60 * 60_000,
+    modeConfirmMs: opts.modeConfirmMs ?? 15_000,
     env: opts.env ?? process.env,
     // fd-based, so a symlink planted as <scope>.log is refused rather than followed.
     openLog: opts.openLog ?? ((file: string) => fs.createWriteStream(file, { fd: openAppend(file) })),
@@ -90,6 +94,10 @@ export interface SessionContext {
   onResult(scope: string): void;
   /** Something freed a slot or may have left work unserved: tick. */
   poke(): void;
+  /** The mode a human chose for this scope in the dashboard, or null to keep daemon.command's. */
+  permissionMode(scope: string): DaemonPermissionMode | null;
+  /** claude refused a switch to `mode`; `live` is the mode it still reports. */
+  permissionModeRefused(scope: string, mode: DaemonPermissionMode, live: string | null): void;
 }
 
 /** What the supervisor records about each child it spawned. */
@@ -125,6 +133,8 @@ export interface Session {
   writeTurn(ids: string[]): void;
   /** Answers a pending permission prompt; false when there is none by that id (answered, or its child exited). */
   answerPermission(id: string, decision: PermissionDecision): boolean;
+  /** Asks the running child to switch permission mode; false when no child runs (the next spawn takes ctx.permissionMode). */
+  setPermissionMode(mode: DaemonPermissionMode): boolean;
   kill(event: string, endStdin: boolean, reason?: string): Promise<void>;
   logEvent(event: string, extra?: Record<string, unknown>): void;
   setWaiting(waiting: boolean): void;
@@ -138,7 +148,8 @@ export interface Session {
 
 /**
  * The only user message the daemon ever writes to the child's stdin; the only other lines are
- * permission answers (permissionResponse). Nothing from requests, HTTP or config reaches either,
+ * permission answers (permissionResponse) and mode switches (modeRequest), whose only variable part
+ * is a value from a fixed list. Nothing from requests, HTTP or config reaches either,
  * so inbox text can't become a prompt: the session reads requests through `forge requests`,
  * where they are fenced as data.
  */
@@ -166,6 +177,62 @@ export const DENY_TOOLS = Object.freeze(['Edit(.forge/config.yml)', 'Edit(.forge
  * answer on stdin. Under `--permission-mode dontAsk` nothing is ever asked, so nothing arrives.
  */
 export const PROMPT_TOOL = Object.freeze(['--permission-prompt-tool', 'stdio']);
+
+/**
+ * The modes a human may switch one session to from the dashboard. `auto` is here but refused in
+ * daemon.command (lib/config.ts SAFE_PERMISSION_MODES): a repo's config can't put every session on
+ * every machine in it, but a human watching the dashboard may put one session there, for as long
+ * as that `forge dash` runs. `bypassPermissions` never: claude refuses it on a session launched
+ * without --dangerously-skip-permissions anyway.
+ */
+export const PERMISSION_MODES: readonly DaemonPermissionMode[] = Object.freeze(['default', 'auto', 'dontAsk']);
+
+/**
+ * The mode `daemon.command` starts sessions in: its --permission-mode value, with `manual` (the name
+ * claude now lists for `default`, which it still accepts and reports) read as `default`. claude's own
+ * default applies when the flag is absent or the template doesn't parse.
+ */
+export function commandPermissionMode(template: unknown): string {
+  let words: string[];
+  try {
+    words = parseTemplate(String(template ?? ''));
+  } catch {
+    return 'default';
+  }
+  let mode = 'default';
+  for (let i = 1; i < words.length; i++) {
+    if (words[i] === '--permission-mode' && i + 1 < words.length) mode = words[i + 1];
+    else if (words[i].startsWith('--permission-mode=')) mode = words[i].slice('--permission-mode='.length);
+  }
+  return mode === 'manual' ? 'default' : mode;
+}
+
+/** argv with every --permission-mode dropped and `mode` appended, so the human's choice is the one claude reads. */
+export function withPermissionMode(argv: string[], mode: DaemonPermissionMode): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (i > 0 && argv[i] === '--permission-mode') i++;
+    else if (i > 0 && argv[i].startsWith('--permission-mode=')) continue;
+    else out.push(argv[i]);
+  }
+  return [...out, '--permission-mode', mode];
+}
+
+/**
+ * How much a mode lets a session do without a human, for deciding which way a switch goes. A mode
+ * Forge doesn't know ranks above them all, so a switch away from it counts as a narrowing.
+ */
+export function modeReach(mode: string | null): number {
+  if (mode === 'dontAsk' || mode === 'plan') return 0;
+  if (mode === 'default' || mode === 'manual') return 1;
+  if (mode === 'auto') return 2;
+  return 3;
+}
+
+/** The control_request line asking claude to switch the session's permission mode. */
+export function modeRequest(requestId: string, mode: DaemonPermissionMode): string {
+  return JSON.stringify({ type: 'control_request', request_id: requestId, request: { subtype: 'set_permission_mode', mode } }) + '\n';
+}
 
 /** What a denied tool call returns to the agent. Fixed text: nothing a human types reaches the session. */
 export const PERMISSION_DENIED =
@@ -329,12 +396,16 @@ export function parseTemplate(template: string): string[] {
  * Placeholders expand after splitting, so a plugin path with spaces stays one argument.
  * DENY_TOOLS and PROMPT_TOOL always follow the template.
  */
-export function buildArgv(template: string, vars: { pluginRoot: string; session: { id: string; resume: boolean }; allowedTools: string[] }): string[] {
+export function buildArgv(
+  template: string,
+  vars: { pluginRoot: string; session: { id: string; resume: boolean }; allowedTools: string[]; permissionMode?: DaemonPermissionMode | null },
+): string[] {
   const tools = (vars.allowedTools ?? []).join(',');
-  const argv = parseTemplate(template).flatMap((tok) => {
+  let argv = parseTemplate(template).flatMap((tok) => {
     if (tok === '{session}') return [vars.session.resume ? '--resume' : '--session-id', vars.session.id];
     return [tok.replaceAll('{pluginRoot}', vars.pluginRoot).replaceAll('{allowedTools}', tools)];
   });
+  if (vars.permissionMode) argv = withPermissionMode(argv, vars.permissionMode);
   return [...argv, '--disallowedTools', DENY_TOOLS.join(','), ...PROMPT_TOOL];
 }
 
@@ -610,6 +681,14 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   let closed = false;
   /** Permission prompts waiting on a human, by the supervisor's id, oldest first. */
   const prompts = new Map<string, { proc: DaemonChild; requestId: string; input: Record<string, unknown>; grant: SessionGrant; prompt: DaemonPermissionPrompt }>();
+  /**
+   * The mode the current child runs in: the one it was launched with until claude reports one (it
+   * does so only at its first turn's init), then claude's word. Never null while a child runs, so a
+   * refused switch can't make the pool forget a more permissive launch mode.
+   */
+  let liveMode: string | null = null;
+  /** Mode switches sent to the current child and not yet answered, by request id, each with its confirmation deadline. */
+  const modeRequests = new Map<string, { mode: DaemonPermissionMode; timer: NodeJS.Timeout }>();
 
   // Never recreate a repo that was deleted under a running supervisor (or a test's temp repo).
   const persist = () => {
@@ -667,12 +746,20 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       waiting,
       lastError,
       permissions: [...prompts.values()].map((p) => p.prompt),
+      permissionMode: child ? liveMode : null,
     };
   }
 
-  /** Its child is gone, so nothing can answer them. */
+  /** Its child is gone, so nothing can answer them, and nothing it reported about its mode holds. */
   function dropPrompts(): void {
     prompts.clear();
+    clearModeRequests();
+    liveMode = null;
+  }
+
+  function clearModeRequests(): void {
+    for (const r of modeRequests.values()) clearTimeout(r.timer);
+    modeRequests.clear();
   }
 
   function writeControl(proc: DaemonChild, line: string): void {
@@ -734,6 +821,52 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       logEvent('permission-cancelled', { id, tool: p.prompt.tool });
       changed();
     }
+  }
+
+  function setPermissionMode(mode: DaemonPermissionMode): boolean {
+    if (!child || !PERMISSION_MODES.includes(mode)) return false;
+    const requestId = `forge-mode-${crypto.randomUUID()}`;
+    const proc = child;
+    const timer = setTimeout(() => {
+      if (!modeRequests.delete(requestId) || child !== proc) return;
+      modeFailed(mode, `claude did not confirm permission mode ${mode}`);
+    }, o.modeConfirmMs);
+    timer.unref?.();
+    modeRequests.set(requestId, { mode, timer });
+    writeControl(child, modeRequest(requestId, mode));
+    logEvent('permission-mode-requested', { mode });
+    return true;
+  }
+
+  /** claude's answer to a control_request the supervisor sent: only mode switches are ever sent. */
+  function onControlResponse(ev: Record<string, any>): void {
+    const res = record(ev.response);
+    const requestId = res.request_id;
+    if (typeof requestId !== 'string') return;
+    const pending = modeRequests.get(requestId);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    modeRequests.delete(requestId);
+    const { mode } = pending;
+    if (res.subtype === 'success') return void logEvent('permission-mode', { mode });
+    modeFailed(mode, `claude refused permission mode ${mode}: ${cap(res.error, PROMPT_TEXT_CHARS) ?? 'no reason given'}`);
+  }
+
+  /**
+   * A switch claude refused or never confirmed. One that would have widened the session falls back:
+   * the dashboard shows the mode the session still runs in. One that would have narrowed it stops
+   * the child instead, so the session never keeps more reach than the human chose: its next spawn
+   * starts in the chosen mode.
+   */
+  function modeFailed(mode: DaemonPermissionMode, why: string): void {
+    if (modeReach(mode) < modeReach(liveMode)) {
+      logEvent('error', { message: `${why}; stopping the session so it starts in ${mode}` });
+      void kill('stop', true, 'permission-mode');
+      return;
+    }
+    logEvent('error', { message: why });
+    ctx.permissionModeRefused(scope, mode, liveMode);
+    changed();
   }
 
   function answerPermission(id: string, decision: PermissionDecision): boolean {
@@ -838,8 +971,9 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     const resume = Boolean(info.resumable && typeof info.sessionId === 'string' && UUID.test(info.sessionId));
     if (!resume) info = { ...withSessionId(info, crypto.randomUUID()), resumable: false };
     let argv;
+    const launchMode = ctx.permissionMode(scope);
     try {
-      argv = buildArgv(c.daemon.command, { pluginRoot: PLUGIN_ROOT, session: { id: info.sessionId, resume }, allowedTools: c.daemon.allowedTools });
+      argv = buildArgv(c.daemon.command, { pluginRoot: PLUGIN_ROOT, session: { id: info.sessionId, resume }, allowedTools: c.daemon.allowedTools, permissionMode: launchMode });
     } catch (e) {
       ctx.fatal(`cannot start daemon: ${(e as Error).message}`);
       return false;
@@ -857,6 +991,8 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     child = proc;
     status = 'idle';
     waiting = false;
+    liveMode = launchMode ?? commandPermissionMode(c.daemon.command);
+    clearModeRequests();
     const meta: ChildMeta = { resume, stdout: false, init: false, result: false, asked: false, committed: [] };
     proc._forge = meta;
     info = { ...info, pid: proc.pid ?? null, serverPid: process.pid, argv0: argv[0], startedAt: now(), spawnSessionId: info.sessionId };
@@ -940,7 +1076,16 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       logEvent('session-changed', { from, to: ev.session_id });
       changed();
     }
+    // claude reports its mode at each turn's init and in a status event after every switch.
+    if (ev.type === 'system' && (ev.subtype === 'init' || ev.subtype === 'status') && typeof ev.permissionMode === 'string') {
+      const mode = cap(ev.permissionMode, 40);
+      if (mode !== liveMode) {
+        liveMode = mode;
+        changed();
+      }
+    }
     if (ev.type === 'control_request') onControl(proc, ev);
+    if (ev.type === 'control_response') onControlResponse(ev);
     if (ev.type === 'control_cancel_request') onControlCancel(ev);
     if (ev.type === 'rate_limit_event') rateLimit = parseRateLimit(ev.rate_limit_info) ?? rateLimit;
     if (ev.type === 'result') onResult(proc, ev);
@@ -1168,6 +1313,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     spawn: spawnChild,
     writeTurn,
     answerPermission,
+    setPermissionMode,
     kill,
     logEvent,
     setWaiting(w) {

@@ -296,3 +296,15 @@ test("permission prompts show as the supervisor's events; claude's raw control l
   assert.equal(item(asked).tone, 'warn');
   assert.equal(item(answered).text, 'permission tool=Bash decision=deny');
 });
+
+test('a mode switch shows as the supervisor’s events with the mode; claude’s control_response is dropped', () => {
+  const [set, response, failed] = entries([
+    sup('permission-mode', { mode: 'auto' }),
+    { type: 'control_response', response: { subtype: 'success', request_id: 'forge-mode-1', response: { mode: 'auto' } } },
+    sup('error', { message: 'claude refused permission mode auto: no' }),
+  ]).map(parseEntry);
+  assert.deepEqual(response, []);
+  const item = (p: any) => p[0].item;
+  assert.equal(item(set).text, 'permission-mode mode=auto');
+  assert.equal(item(failed).tone, 'bad');
+});

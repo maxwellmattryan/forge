@@ -422,8 +422,12 @@ function broadBash(tool: string): boolean {
   return BROAD_BASH.some((re) => re.test(spec));
 }
 
-/** Modes that never approve more than allowedTools lists without a human: `default` asks one in the dashboard, `dontAsk` refuses. */
-const SAFE_PERMISSION_MODES = ['dontAsk', 'default', 'plan'];
+/**
+ * Modes that never approve more than allowedTools lists without a human: `default` asks one in the
+ * dashboard (`manual` is the name claude now lists for it), `dontAsk` refuses. `auto` is left out:
+ * only a human in the dashboard may put a session there (lib/daemon.ts PERMISSION_MODES).
+ */
+const SAFE_PERMISSION_MODES = ['dontAsk', 'default', 'manual', 'plan'];
 
 /**
  * Claude flags that widen what the unattended session may do beyond `daemon.allowedTools`:
@@ -442,7 +446,7 @@ function wideningFlags(words: string[]): string[] {
     if (['--dangerously-skip-permissions', '--allow-dangerously-skip-permissions', '--settings', '--mcp-config', '--add-dir', '--permission-prompt-tool', '--agents'].includes(flag))
       problems.push(`daemon.command must not pass ${flag}: ${why}`);
     else if (flag === '--permission-mode' && !SAFE_PERMISSION_MODES.includes(value ?? ''))
-      problems.push(`daemon.command must not pass --permission-mode ${value ?? ''}: ${why}; use default (ask a human in the dashboard) or dontAsk (refuse)`);
+      problems.push(`daemon.command must not pass --permission-mode ${value ?? ''}: ${why}; use default or manual (ask a human in the dashboard) or dontAsk (refuse)`);
     else if (flag === '--plugin-dir' && value !== '{pluginRoot}') problems.push(`daemon.command must not pass --plugin-dir ${value ?? ''}: only {pluginRoot} may be loaded, since ${why}`);
     else if ((flag === '--allowedTools' || flag === '--allowed-tools') && value !== '{allowedTools}')
       problems.push(`daemon.command must pass ${flag} {allowedTools}, not a literal list, so daemon.allowedTools is validated`);

@@ -1,7 +1,7 @@
 // The daemon bar's and the Session tab's models (dashboard/src/lib/daemon.ts). The log-line cases live in dashboard-session-log.test.ts.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { START_HINT, mergePoolState, mergeSessionState, poolModel, postDaemon, sessionControls, sessionPill } from '../dashboard/src/lib/daemon.ts';
+import { PERMISSION_MODES, START_HINT, mergePoolState, mergeSessionState, poolModel, postDaemon, postDaemonMode, sessionControls, sessionMode, sessionPill } from '../dashboard/src/lib/daemon.ts';
 
 const XSS = '<script>alert(1)</script><img src=x onerror=alert(2)>';
 const session = (o: any = {}): any => ({ scope: 'job', wanted: true, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, failures: 0, held: null, waiting: false, lastError: null, ...o });
@@ -144,4 +144,41 @@ test('a running session with a permission prompt says so, in its pill and the po
     ['job-a', 'job-b'],
     'a job waiting on a human is listed first',
   );
+});
+
+test('sessionMode: the choice comes from the pool, the report from the running session', () => {
+  const p = pool({ permissionMode: 'default', permissionModes: { 'job-a': 'auto', 'job-b': 'bypassPermissions' } });
+  assert.deepEqual(sessionMode(p, 'job-a', session({ running: true, permissionMode: 'auto' })), { chosen: 'auto', live: null, overridden: true });
+  assert.deepEqual(sessionMode(p, 'job-a', session({ running: true, permissionMode: 'default' })), { chosen: 'auto', live: 'default', overridden: true }, 'a switch claude has not confirmed');
+  assert.deepEqual(sessionMode(p, 'job-a', session({ running: false, permissionMode: 'default' })), { chosen: 'auto', live: null, overridden: true }, 'a stopped session reports nothing');
+  assert.deepEqual(sessionMode(p, 'job-b', null), { chosen: 'default', live: null, overridden: false }, 'an unknown mode in the reply is ignored');
+  assert.deepEqual(sessionMode(pool({ permissionMode: 'plan' }), 'job-c', null), { chosen: 'plan', live: null, overridden: false }, "daemon.command's mode, even one the selector can't set");
+  assert.deepEqual(sessionMode(null, 'job-c', undefined), { chosen: 'default', live: null, overridden: false });
+  assert.deepEqual(PERMISSION_MODES, ['default', 'auto', 'dontAsk']);
+});
+
+test('poolModel marks job chips a human switched to another mode', () => {
+  const m = poolModel(pool({ permissionModes: { 'job-a': 'auto' }, jobs: { 'job-a': session({ scope: 'job-a', running: true, status: 'idle' }), 'job-b': session({ scope: 'job-b', running: true, status: 'idle' }) } }), { pending: false });
+  assert.deepEqual(
+    m.jobs.map((j) => [j.id, j.mode]),
+    [
+      ['job-a', 'auto'],
+      ['job-b', null],
+    ],
+  );
+});
+
+test('postDaemonMode posts the scope and mode with the token', async () => {
+  const calls = [];
+  const fetchImpl: any = async (url, init) => {
+    calls.push({ url, init });
+    return { ok: url === '/api/daemon/mode', status: 200, statusText: '', text: async () => '{"permissionModes":{"job-a":"auto"}}' };
+  };
+  const st = await postDaemonMode('job-a', 'auto', 'tok', fetchImpl);
+  assert.deepEqual(st, { permissionModes: { 'job-a': 'auto' } });
+  assert.equal(calls[0].url, '/api/daemon/mode');
+  assert.equal(calls[0].init.headers['x-forge-token'], 'tok');
+  assert.deepEqual(JSON.parse(calls[0].init.body), { scope: 'job-a', mode: 'auto' });
+  const failing: any = async () => ({ ok: false, status: 400, statusText: 'Bad Request', text: async () => '{"error":"mode must be one of default, auto, dontAsk"}' });
+  await assert.rejects(postDaemonMode('job-a', 'auto', 'tok', failing), /mode must be one of/);
 });
