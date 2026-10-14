@@ -154,7 +154,31 @@ test('job surfaces use the Drafting markup', () => {
       assert.ok(el.first?.name === 'span' && el.first.classes.includes('tk'), `${rel}: <${el.name} class="${el.classes.join(' ')}"> has a .tk span as its first child`);
     }
   }
+
+  // Every .tbl sits in a ticked sheet. A component whose table has no sheet of its own (CompareTable) counts only
+  // when every place that renders it is inside one.
+  const inSheet = (el: El) => el.parents.some((p) => has(p, 'sheet', 'ticks'));
+  let tables = 0;
+  for (const rel of svelteFiles()) {
+    for (const el of elements(rel).filter((e) => e.name === 'table' && e.classes.includes('tbl'))) {
+      tables++;
+      if (inSheet(el)) continue;
+      const name = path.basename(rel, '.svelte');
+      const uses = svelteFiles().flatMap((f) => elements(f).filter((e) => e.name === name));
+      assert.ok(uses.length > 0 && uses.every(inSheet), `${rel}: its .tbl sits inside a sheet ticks element (directly or wherever <${name}> is rendered)`);
+    }
+  }
+  assert.ok(tables >= 14, `checked ${tables} tables`);
+  for (const f of tsFiles()) assert.doesNotMatch(fs.readFileSync(path.join(SRC, f), 'utf8'), /class="[^"]*\btbl\b/, `${f} builds no .tbl outside a component`);
 });
+
+/** Every .ts file under dashboard/src (including *.svelte.ts), relative to it. */
+function tsFiles(dir = SRC): string[] {
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .flatMap((e) => (e.isDirectory() ? tsFiles(path.join(dir, e.name)) : e.name.endsWith('.ts') ? [path.relative(SRC, path.join(dir, e.name))] : []))
+    .sort();
+}
 
 /** Every .svelte file under dashboard/src, relative to it. */
 function svelteFiles(dir = SRC): string[] {

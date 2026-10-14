@@ -14,23 +14,24 @@
   let { jobs }: { jobs: StateJob[] } = $props();
 </script>
 
-<div class="card overflow-x-auto">
+<!-- The scroller sits inside the sheet so it never clips the corner ticks. -->
+<div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
   <table class="tbl">
-    <thead><tr><th>{$t('common.job')}</th><th>{$t('table.stage')}</th><th>{$t('table.state')}</th><th>{$t('table.round')}</th><th>{$t('table.tasks')}</th><th>{$t('table.verdicts')}</th><th>{$t('table.pr')}</th><th class="text-right">{$t('common.tokens')}</th><th class="text-right">{$t('common.estCost')}</th><th>{$t('table.budget')}</th><th>{$t('table.updated')}</th></tr></thead>
+    <thead><tr><th>{$t('common.job')}</th><th>{$t('table.stage')}</th><th>{$t('table.state')}</th><th>{$t('table.round')}</th><th>{$t('table.tasks')}</th><th>{$t('table.verdicts')}</th><th>{$t('table.pr')}</th><th class="r">{$t('common.tokens')}</th><th class="r">{$t('common.estCost')}</th><th>{$t('table.budget')}</th><th>{$t('table.updated')}</th></tr></thead>
     <tbody>
       {#each jobs as j (j.id)}
         {@const v = j.verdicts?.[j.round]}
-        <tr class="hover:bg-raised cursor-pointer" onclick={() => openDrawer(j.id)}>
-          <td><div class="font-medium">{j.title}</div><div class="text-[11px] text-muted font-mono">{j.id}</div></td>
+        <tr class="clickable" onclick={() => openDrawer(j.id)}>
+          <td><div class="h card">{j.title}</div><div class="mono muted text-[11px]">{j.id}</div></td>
           <td>{STAGE_LABEL[j.stage] ?? j.stage}</td><td><StateChip job={j} /></td>
-          <td class="tabular-nums">{j.round ? `${j.round}/${j.maxRounds}` : '—'}</td>
-          <td class="tabular-nums">{j.progress?.total ? `${j.progress.done}/${j.progress.total}` : '—'}</td>
+          <td class="num">{j.round ? `${j.round}/${j.maxRounds}` : '—'}</td>
+          <td class="num">{j.progress?.total ? `${j.progress.done}/${j.progress.total}` : '—'}</td>
           <td><div class="flex flex-wrap gap-1">{#each j.reviewers ?? [] as r, i (i)}<VerdictChip name={r} verdict={v?.[r]} />{/each}</div></td>
           <td>{#if prChipModel(j.pr)}<PrChip pr={j.pr} />{:else}—{/if}</td>
-          <td class="text-right tabular-nums">{num(j.usage?.totalTokens)}</td><td class="text-right tabular-nums">{usd(j.usage?.estCostUsd)}</td><td class="whitespace-nowrap">{@html budgetCell(j, S.data?.config?.pipeline?.budget)}</td>
+          <td class="r num">{num(j.usage?.totalTokens)}</td><td class="r num">{usd(j.usage?.estCostUsd)}</td><td class="whitespace-nowrap">{@html budgetCell(j, S.data?.config?.pipeline?.budget)}</td>
           <td class="text-muted whitespace-nowrap">{ago(j.updatedAt)}</td>
         </tr>
       {/each}
     </tbody>
   </table>
-</div>
+</div></div>

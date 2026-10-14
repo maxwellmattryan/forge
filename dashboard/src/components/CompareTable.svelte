@@ -8,12 +8,15 @@
   const rows = $derived(compareRows(c));
 </script>
 
-<div class="text-[11px] text-muted mt-3">{$t('compare.summary', { a: c.a.configHash, b: c.b.configHash, va: c.a.forgeVersion, vb: c.b.forgeVersion })}</div>
-<table class="tbl mt-2">
-  <thead><tr><th>{$t('compare.metric')}</th><th>{$t('compare.a')}</th><th>{$t('compare.b')}</th><th>Δ</th></tr></thead>
-  <tbody>
-    {#each rows as r (r.key)}
-      <tr><td>{r.key}</td><td class="tabular-nums">{r.a}</td><td class="tabular-nums">{r.b}</td><td class="tabular-nums {r.tone}">{r.change}</td></tr>
-    {/each}
-  </tbody>
-</table>
+<!-- No sheet of its own: it sits inside the Evals compare sheet. -->
+<div class="caption muted mono mt-3">{$t('compare.summary', { a: c.a.configHash, b: c.b.configHash, va: c.a.forgeVersion, vb: c.b.forgeVersion })}</div>
+<div class="overflow-x-auto mt-2">
+  <table class="tbl">
+    <thead><tr><th>{$t('compare.metric')}</th><th>{$t('compare.a')}</th><th>{$t('compare.b')}</th><th>Δ</th></tr></thead>
+    <tbody>
+      {#each rows as r (r.key)}
+        <tr><td>{r.key}</td><td class="num">{r.a}</td><td class="num">{r.b}</td><td class="num {r.tone}">{r.change}</td></tr>
+      {/each}
+    </tbody>
+  </table>
+</div>

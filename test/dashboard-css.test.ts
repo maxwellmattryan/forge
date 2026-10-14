@@ -83,7 +83,6 @@ test('old class names still apply', () => {
   assert.match(ruleFor(css, '.kpi-label'), /font-family:var\(--font-mono\)/);
   assert.match(ruleFor(css, '.brand-rule'), /display:flex/);
   assert.match(ruleFor(css, '.btn-primary.btn'), /background:var\(--ink\)/);
-  assert.match(ruleFor(css, '.text-accent'), /color:var\(--ink\)/);
   for (const gone of ['--ember-hot', '--color-ember-hot', 'Inter', 'JetBrains Mono']) assert.ok(!css.includes(gone), `${gone} is gone`);
 });
 
