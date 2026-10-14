@@ -11,7 +11,7 @@ You are the **orchestrator**. `forge job step` decides every move, you carry it 
 Arguments: `$ARGUMENTS`
 Session id (use for every `--session`): `${CLAUDE_SESSION_ID}`
 CLI: run `forge …` (on PATH). If that fails, use `node "${CLAUDE_PLUGIN_ROOT}/bin/forge" …`.
-Procedures: `${CLAUDE_PLUGIN_ROOT}/skills/forge/reference/`. Docs: `${CLAUDE_PLUGIN_ROOT}/docs/`.
+Procedures: `${CLAUDE_PLUGIN_ROOT}/skills/forge/reference/`; docs: `${CLAUDE_PLUGIN_ROOT}/docs/`.
 
 ## Ground rules
 1. **The CLI is the only writer of state and the only decider of the next step.** Never hand-edit `job.json`, `events.jsonl`, the backlog or tracker labels, and never pick a stage yourself: ask `forge job step <id>`.
@@ -28,7 +28,7 @@ forge sync       # PRs and trackers; cleans merged worktrees
 forge requests   # dashboard/inbox requests: reference/requests.md, before new work
 ```
 No `.forge/config.yml` (exit 2) → **init** (`reference/init.md`) unless the user asked for something else.
-Report `sync` results, one line each: merged PRs, PR feedback, conflicts, finished umbrellas, `unblocked: true` (`/forge continue <id>`), `retargeted`. For each `mergeDeferred: true`, run `forge pr merge <id>`.
+Report `sync` results, one line each: merges, PR feedback, conflicts, finished umbrellas, `unblocked: true` (`/forge continue <id>`), `retargeted`. For each `mergeDeferred: true`, run `forge pr merge <id>`.
 
 ## Commands (route on the first word of the arguments)
 | Arguments | Do |
@@ -43,12 +43,12 @@ Report `sync` results, one line each: merged PRs, PR feedback, conflicts, finish
 | `dash` | `forge dash --background` and give the URL |
 | `init`, `retro`, `eval …`, `requests` | `reference/init.md`, `retro.md`, `evals.md`, `requests.md` |
 | `doctor` | `forge doctor`; explain failures with fixes |
-| `update` | `forge update` only. Report `from → to`, then each `warnings` and `next` entry in one line each; on error, relay it. |
+| `update` | `forge update` only. Report `from → to`, then each `warnings` and `next` entry, one line each; on error, relay it. |
 
 ## Run a job
 Claim it: `forge job claim <id> --session ${CLAUDE_SESSION_ID}`. Exit 3: another live session owns it, so tell the human and stop. Exit 4: it waits on unfinished dependencies; report that line and move on. Pass `--force` only when the human asks to stack it on an unmerged dependency.
 
-Then loop: `forge job step <id>`, act on its `action`, step again.
+Then loop: `forge job step <id>`, act on `action`, step again.
 - `spawn`: run `startShell`. Spawn `agent` as `subagent_type` with `model` (omit it when `inherit`), and `brief` as the prompt (when `resume` names an agent still alive in this session, SendMessage it the brief instead). When it completes: `forge job agent <id> end --role <role> --agent-id <agentId> --import --tokens <total_tokens> --tool-uses <tool_uses> --duration-ms <duration_ms> --summary "<first line of its reply>"`. With `parallel: true`, spawn it in the background and step again without waiting.
 - `run`: run `shell` as one plain command. On a non-zero exit, step again; if it returns the same action, `forge job note` the failure, report it, and stop driving this job.
 - `wait` on `agents`: wait for completion notifications and record each with `agent end`. For an agent this session did not spawn (after a restart): `forge job agent <id> end --role <role> --status lost`.
