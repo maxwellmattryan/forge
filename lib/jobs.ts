@@ -21,6 +21,11 @@ export function jobDir(root: string, id: string): string {
   return paths(root).job(id);
 }
 
+/** request.md without the `# title` line createJob writes, trimmed and uncapped; callers cap it. */
+export function requestBody(root: string, id: string): string {
+  return readText(path.join(jobDir(root, id), 'request.md')).replace(/^\s*# [^\n]*\n?/, '').trim();
+}
+
 export function loadJob(root: string, id: string): LoadedJob {
   const file = path.join(jobDir(root, id), 'job.json');
   if (!exists(file)) throw new ForgeError(`no job "${id}" (looked in ${path.dirname(file)})`);

@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as V from '../dashboard/src/lib/view.ts';
 import { WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
-import { cleanRef, parseCandidates, threadAction, threadItems } from '../dashboard/src/lib/thread.ts';
+import { cleanRef, parseCandidates, threadAction, threadItems, threadOpening } from '../dashboard/src/lib/thread.ts';
 import { dur, tokensShort } from '../dashboard/src/lib/util.ts';
 
 // Per waiting kind: the card's buttons, its textarea placeholder (null: no textarea) and its "Read …" link.
@@ -201,6 +201,14 @@ test('thread items', () => {
     ],
   );
   assert.deepEqual(threadItems([], { text: 'Imported body', at: null, tracker: true })[0].from, 'tracker');
+  // Typed in the bar, then linked or --create'd at the issue-link gate: it has a source, but the words are still yours.
+  const linkedLater = { job: { createdAt: '2026-10-13T00:00:00Z', source: { tracker: 'github', ref: '42', url: null } }, request: 'Add a reading-time badge', requestFromTracker: false };
+  assert.deepEqual(
+    threadItems([], threadOpening(linkedLater)).map((i) => [i.from, i.action, i.text, i.at]),
+    [['you', { kind: 'request' }, 'Add a reading-time badge', '2026-10-13T00:00:00Z']],
+  );
+  assert.equal(threadItems([], threadOpening({ ...linkedLater, request: 'Issue body', requestFromTracker: true }))[0].from, 'tracker', 'from-ref: the issue\'s text');
+  assert.equal(threadOpening({ job: { createdAt: null }, request: null } as any).tracker, false, 'an older server without the flag');
   assert.deepEqual(threadItems([], { text: null, at: null, tracker: false }), [], 'no request text, no opening message');
   // Every answer to the issue-link gate reads differently, and next says how many.
   const a = (type: string, args: Record<string, unknown>, from = 'dashboard') => threadAction({ type, args, from } as any);

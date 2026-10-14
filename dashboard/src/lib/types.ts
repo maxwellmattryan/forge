@@ -359,6 +359,8 @@ export interface JobDetail {
   requests: ForgeRequest[];
   /** request.md without its `# title` line, trimmed, at most 2,000 characters: the Thread's opening message. */
   request: string | null;
+  /** The job's `created` event has a ref (from-ref), so `request` is the issue's text. A later `job link` doesn't count. */
+  requestFromTracker: boolean;
 }
 
 /**

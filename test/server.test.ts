@@ -1147,6 +1147,17 @@ test('job detail lists the job\'s requests', async () => {
     fs.writeFileSync(path.join(repo.dir, '.forge', 'jobs', b, 'request.md'), `# Title line\n\n  ${'w'.repeat(2500)}\n`);
     const other = JSON.parse((await hit(port, { path: `/api/jobs/${b}` })).text);
     assert.equal(other.request, `${'w'.repeat(2000)}…`, 'the request without its title, trimmed and capped');
+    assert.equal(detail.requestFromTracker, false, 'no created event: not tracker text');
+    // Created from the bar, then linked at the gate: job.source is set, but only the created event's source counts.
+    const event = (type, data) => JSON.stringify({ v: 1, ts: new Date().toISOString(), type, ...data }) + '\n';
+    const jobJson = path.join(repo.dir, '.forge', 'jobs', b, 'job.json');
+    fs.writeFileSync(jobJson, JSON.stringify({ ...JSON.parse(fs.readFileSync(jobJson, 'utf8')), source: { tracker: 'local', ref: 'reading-list', url: null } }));
+    fs.writeFileSync(path.join(repo.dir, '.forge', 'jobs', b, 'events.jsonl'), event('created', { title: b, source: null, origin: 'dashboard' }) + event('linked', { tracker: 'local', ref: 'reading-list', url: null }));
+    const linked = JSON.parse((await hit(port, { path: `/api/jobs/${b}` })).text);
+    assert.equal(linked.job.source.ref, 'reading-list');
+    assert.equal(linked.requestFromTracker, false, 'linked later: the request is still the user\'s words');
+    fs.writeFileSync(path.join(repo.dir, '.forge', 'jobs', a, 'events.jsonl'), event('created', { title: a, source: { tracker: 'local', ref: 'reading-list', url: null } }));
+    assert.equal(JSON.parse((await hit(port, { path: `/api/jobs/${a}` })).text).requestFromTracker, true, 'from-ref: the created event has the ref');
     assert.deepEqual(other.requests.map((r) => r.text), ['other job']);
   } finally {
     await close();

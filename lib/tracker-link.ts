@@ -5,8 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { issueLinkStatus, normalizeRef, queryTerms, scoreItems, searchTerms } from './issue-link.ts';
 import type { IssueLinkStatus, ScoredItem } from './issue-link.ts';
-import { isActive, jobDir, listJobs, loadJob, logEvent, updateJob } from './jobs.ts';
-import { ForgeError, now, readText, writeJsonAtomic } from './util.ts';
+import { isActive, jobDir, listJobs, loadJob, logEvent, requestBody, updateJob } from './jobs.ts';
+import { ForgeError, now, writeJsonAtomic } from './util.ts';
 import type { Config, Job, JobSource, Tracker } from './types.ts';
 
 /** The fallback for adapters without search(): never more than this many items are scored. */
@@ -138,8 +138,7 @@ export function linkJob(root: string, config: Config, tracker: Tracker, id: stri
 
 /** request.md without its `# title` line, trimmed and capped: the body of a new issue. */
 export function issueBody(root: string, id: string): string {
-  const text = readText(path.join(jobDir(root, id), 'request.md')).replace(/^\s*# [^\n]*\n?/, '');
-  return text.trim().slice(0, MAX_BODY);
+  return requestBody(root, id).slice(0, MAX_BODY);
 }
 
 /** `forge job link <id> --create`: a new issue titled after the job, then linked like any other. */

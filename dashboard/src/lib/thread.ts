@@ -1,6 +1,6 @@
 // A job's Thread in the drawer: its requests as a conversation, and the issue-link gate's
 // candidates. Plain functions, so node:test can pin them.
-import type { ForgeRequest } from './types.ts';
+import type { ForgeRequest, Job, JobDetail } from './types.ts';
 
 /** Who said it: you (the dashboard), the CLI, a Forge daemon session hand-off, or the tracker the job came from. */
 export type ThreadFrom = 'you' | 'cli' | 'forge' | 'tracker';
@@ -41,6 +41,14 @@ export interface ThreadOpening {
   at: string | null;
   /** The job came from a tracker item, so the text is the issue's, not yours. */
   tracker: boolean;
+}
+
+/**
+ * The opening message from GET /api/jobs/:id. It trusts `requestFromTracker`, never `job.source`:
+ * `forge job link` and `--create` give a job a source while request.md still holds your own words.
+ */
+export function threadOpening(d: Pick<JobDetail, 'request' | 'requestFromTracker'> & { job: Pick<Job, 'createdAt'> }): ThreadOpening {
+  return { text: d.request ?? null, at: d.job.createdAt ?? null, tracker: d.requestFromTracker === true };
 }
 
 const STATUS: Record<ForgeRequest['status'], ThreadStatus> = { pending: 'queued', 'in-progress': 'handling', done: 'done', rejected: 'rejected' };

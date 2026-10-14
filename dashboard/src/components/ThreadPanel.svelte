@@ -7,12 +7,12 @@
   import SessionLog from './SessionLog.svelte';
   import { ago } from '../lib/util.ts';
   import { needsHuman } from '../lib/view.ts';
-  import { threadItems, type ThreadAction, type ThreadFrom, type ThreadStatus } from '../lib/thread.ts';
+  import { threadItems, type ThreadAction, type ThreadFrom, type ThreadOpening, type ThreadStatus } from '../lib/thread.ts';
   import type { ForgeRequest, Job } from '../lib/types.ts';
   import { t } from '../lib/locale.ts';
 
-  let { job, requests, request, active }: { job: Job; requests: ForgeRequest[]; request: string | null; active: boolean } = $props();
-  const items = $derived(threadItems(requests, { text: request, at: job.createdAt, tracker: Boolean(job.source?.ref) }));
+  let { job, requests, opening, active }: { job: Job; requests: ForgeRequest[]; opening: ThreadOpening; active: boolean } = $props();
+  const items = $derived(threadItems(requests, opening));
   const actionable = $derived(needsHuman(job) || job.state === 'failed' || job.state === 'blocked');
 
   const who = $derived<Record<ThreadFrom, string>>({ you: $t('thread.you'), cli: $t('thread.cli'), forge: $t('thread.forge'), tracker: $t('thread.tracker') });

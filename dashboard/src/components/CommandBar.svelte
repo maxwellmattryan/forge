@@ -28,6 +28,17 @@
   const isFree = $derived(parsed.kind === 'free');
   const canRun = $derived(parsed.kind !== 'empty' && parsed.kind !== 'partial');
   const empty = $derived(emptyReason(parsed, options, S.backlog?.error, ctx));
+  const emptyText = $derived(
+    empty === null
+      ? null
+      : empty === 'noJobs'
+        ? $t('command.noJobs')
+        : empty === 'noItems'
+          ? $t('command.noItems')
+          : empty === 'backlogLoading'
+            ? $t('command.backlogLoading')
+            : $t('command.backlogFailed', { error: S.backlog?.error ?? '' }),
+  );
 
   const hints = $derived<Record<Verb, string>>({
     next: $t('command.hints.next'),
@@ -216,8 +227,9 @@
         </li>
       {/each}
     </ul>
-    {#if empty}<p class="px-4 py-3 text-sm text-muted">{empty === 'noJobs' ? $t('command.noJobs') : empty === 'noItems' ? $t('command.noItems') : empty === 'backlogLoading' ? $t('command.backlogLoading') : $t('command.backlogFailed', { error: S.backlog?.error ?? '' })}</p>{/if}
-    <div class="sr-only" aria-live="polite">{options.length ? $t('command.count', { count: options.length }) : $t('command.empty')}</div>
+    {#if emptyText}<p class="px-4 py-3 text-sm text-muted" aria-hidden="true">{emptyText}</p>{/if}
+    <!-- The visible reason is announced here, so a screen reader hears "Loading the backlog…", not just "No suggestions". -->
+    <div class="sr-only" aria-live="polite">{options.length ? $t('command.count', { count: options.length }) : (emptyText ?? $t('command.empty'))}</div>
     {#if isFree}
       <div class="flex flex-col gap-1 border-t border-line px-4 py-3">
         <label for="command-title" class="text-[11px] text-muted">{$t('command.titleLabel')}</label>

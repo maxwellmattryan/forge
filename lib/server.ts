@@ -11,7 +11,7 @@ import type { DaemonOptions } from './daemon.ts';
 import { createPool } from './daemon-pool.ts';
 import type { DaemonPool, PoolState } from './daemon-pool.ts';
 import { doctor } from './doctor.ts';
-import { createJob, listJobs, loadJob, progress, readEvents, jobDir } from './jobs.ts';
+import { createJob, listJobs, loadJob, progress, readEvents, jobDir, requestBody } from './jobs.ts';
 import { normalizeRef } from './issue-link.ts';
 import { paths, exists, PLUGIN_ROOT } from './paths.ts';
 import { API_VERSION, CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from './schema.ts';
@@ -35,6 +35,7 @@ import type {
   EvalsResponse,
   ForgeTruncatedLine,
   JobDetail,
+  JobSource,
   PostConfigResponse,
   PostJobResponse,
   PostRequestResponse,
@@ -554,19 +555,23 @@ function jobDetail(root: string, id: string): JobDetail {
     return i === -1 ? (f.startsWith('logs/') ? 1000 : 500) : i;
   };
   files.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, undefined, { numeric: true }));
+  const events = readEvents(root, id);
+  // `forge job link` and `--create` set job.source later, so only the source at creation says request.md is tracker text.
+  const createdSource = events.find((e) => e.type === 'created')?.source as Partial<JobSource> | null | undefined;
   return {
     job: { ...job, progress: progress(root, id) },
-    events: readEvents(root, id).slice(-400),
+    events: events.slice(-400),
     files,
     screenshots: listScreenshots(dir),
     requests: listRequests(root).filter((r) => r.job === id).slice(-MAX_JOB_REQUESTS),
-    request: requestExcerpt(dir),
+    request: requestExcerpt(root, id),
+    requestFromTracker: Boolean(createdSource?.ref),
   };
 }
 
 /** request.md without its `# title` line, for the Thread's opening message; null when empty. */
-function requestExcerpt(dir: string): string | null {
-  const body = readText(path.join(dir, 'request.md')).replace(/^\s*# [^\n]*\n?/, '').trim();
+function requestExcerpt(root: string, id: string): string | null {
+  const body = requestBody(root, id);
   if (!body) return null;
   return body.length > MAX_REQUEST_EXCERPT ? `${body.slice(0, MAX_REQUEST_EXCERPT)}…` : body;
 }

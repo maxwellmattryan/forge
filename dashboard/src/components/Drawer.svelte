@@ -12,6 +12,7 @@
   import { STAGE_LABEL } from '../lib/labels.ts';
   import { md, safeUrl } from '../lib/markdown.ts';
   import { screenshotsPanel } from '../lib/screenshots.ts';
+  import { threadOpening } from '../lib/thread.ts';
   import { ago, dur, num, tokensShort, usd } from '../lib/util.ts';
   import { eventDetail, verdictMatrix } from '../lib/view.ts';
   import { S, closeDrawer, loadFile, setDrawerTab } from '../lib/app.svelte.ts';
@@ -135,7 +136,7 @@
           </div>
         </div>
       {:else if shown.tab === 'thread'}
-        <ThreadPanel job={j} requests={d.requests ?? []} request={d.request ?? null} active={open} />
+        <ThreadPanel job={j} requests={d.requests ?? []} opening={threadOpening(d)} active={open} />
       {:else}
         <ul>
           {#each events as e, i (i)}
