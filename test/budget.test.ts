@@ -40,10 +40,10 @@ test('AC1/AC2/AC16: defaults, validation, waitingOn and versions', () => {
   assert.equal(budgetProblems({ tokens: 'lots' }).length, 1);
   assert.deepEqual(budgetProblems({ tokens: null, usd: 2.5, verifyRetries: 0 }), []);
   assert.ok(WAITING_ON.includes('budget'));
-  assert.equal(JOB_SCHEMA_VERSION, 3);
-  assert.equal(API_VERSION, 7);
+  assert.equal(JOB_SCHEMA_VERSION, 4);
+  assert.equal(API_VERSION, 8);
   assert.deepEqual(BUDGET_KEYS, ['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries']);
-  assert.equal(DASH_API_VERSION, 7);
+  assert.equal(DASH_API_VERSION, 8);
   assert.equal(DASH_API_VERSION, API_VERSION);
   assert.equal(WAIT_LABEL.budget, 'Budget exceeded');
   const { repo, root, id } = setup();
@@ -263,7 +263,7 @@ test('AC6/AC7/AC13: changed lines and verify retries through the CLI', () => {
   }
 });
 
-test('AC15: v2 and v1 jobs read as v3 and forge migrate rewrites them', () => {
+test('AC15: v2 and v1 jobs read as current and forge migrate rewrites them', () => {
   const repo = tempRepo();
   try {
     const root = repo.dir;
@@ -284,19 +284,19 @@ test('AC15: v2 and v1 jobs read as v3 and forge migrate rewrites them', () => {
     });
 
     const two = loadJob(root, v2.id);
-    assert.equal(two.schemaVersion, 3);
+    assert.equal(two.schemaVersion, JOB_SCHEMA_VERSION);
     assert.deepEqual(two.verifyRetries, { 1: 2, 2: 1 });
     assert.deepEqual(two.budget, { limits: {}, ack: {}, lastCheck: null });
     assert.equal(two.verifyRuns.length, 5, 'nothing is lost');
     const one = loadJob(root, v1.id);
-    assert.equal(one.schemaVersion, 3);
+    assert.equal(one.schemaVersion, JOB_SCHEMA_VERSION);
     assert.deepEqual(one.verifyRetries, { 1: 1 });
 
     const { changed } = migrate(root);
     assert.equal(changed.length, 2);
     for (const id of [v2.id, v1.id]) {
       const raw = JSON.parse(fs.readFileSync(fileOf(id), 'utf8'));
-      assert.equal(raw.schemaVersion, 3);
+      assert.equal(raw.schemaVersion, JOB_SCHEMA_VERSION);
       assert.ok(raw.budget && raw.verifyRetries);
     }
   } finally {

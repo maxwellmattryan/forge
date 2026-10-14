@@ -98,6 +98,11 @@ export interface JobAgent {
   endedAt?: string | null;
   round?: number;
   summary?: string;
+  /**
+   * Per agent id, the last transcript timestamp `--import` has recorded. A resumed agent appends to
+   * the same transcript, so the next import counts only what comes after it.
+   */
+  importedThrough?: Record<string, string>;
 }
 
 /** One role's or model's usage totals: addUsage in lib/jobs.ts. */

@@ -21,10 +21,15 @@ export interface PricingTable {
   [key: string]: any;
 }
 
-/** What importClaudeCodeTranscript returns: AgentUsage's transcript fields, all set, plus the file read. */
+/**
+ * What importClaudeCodeTranscript returns: AgentUsage's transcript fields, all set, plus the file
+ * read and `through`, the transcript's last timestamp (the cursor the next import of this agent
+ * passes as `since`).
+ */
 export type TranscriptUsage = Required<Pick<AgentUsage, 'input' | 'output' | 'cacheRead' | 'cacheWrite' | 'toolUses' | 'durationMs' | 'totalTokens' | 'exact' | 'outputEstimated'>> & {
   model: string | null;
   transcript: string;
+  through: string | null;
 };
 
 // Parsed pricing.json: raw input.
@@ -76,16 +81,22 @@ export function estimateCost(
  * Each content block is logged as its own line sharing the message id, and the logged usage is the
  * message_start snapshot: input and cache counts are exact, output_tokens is not. Output is therefore
  * estimated from the logged content (≈3.5 chars/token) whenever that exceeds the logged value.
+ * A resumed agent (SendMessage) appends to the same file, so `since` (the previous import's
+ * `through`) skips every line at or before it: each import counts, and times, only the new span.
+ * A line without a timestamp belongs to the span of the timestamped line before it.
  */
-export function importClaudeCodeTranscript(agentId: string, opts: { projectsDir?: string } = {}): TranscriptUsage | null {
+export function importClaudeCodeTranscript(agentId: string, opts: { projectsDir?: string; since?: string | null } = {}): TranscriptUsage | null {
   const projects = opts.projectsDir ?? path.join(os.homedir(), '.claude', 'projects');
   const file = findTranscript(projects, `agent-${agentId}.jsonl`);
   if (!file) return null;
   // usage is a transcript line's raw usage object.
   const byMessage = new Map<string, { usage: any; model: string | null; chars: number }>();
   const toolIds = new Set<string>();
+  const since = opts.since ? Date.parse(opts.since) : NaN;
+  let skipping = !Number.isNaN(since);
   let firstTs: string | null = null;
   let lastTs: string | null = null;
+  let through: string | null = opts.since ?? null;
   for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
     if (!line.trim()) continue;
     let o: any;
@@ -95,9 +106,14 @@ export function importClaudeCodeTranscript(agentId: string, opts: { projectsDir?
       continue;
     }
     if (o.timestamp) {
-      firstTs ??= o.timestamp;
-      lastTs = o.timestamp;
+      through = o.timestamp;
+      if (skipping) skipping = !(Date.parse(o.timestamp) > since);
+      if (!skipping) {
+        firstTs ??= o.timestamp;
+        lastTs = o.timestamp;
+      }
     }
+    if (skipping) continue;
     const msg = o.message;
     if (o.type !== 'assistant' || !msg?.usage) continue;
     const key = msg.id ?? o.uuid;
@@ -112,7 +128,7 @@ export function importClaudeCodeTranscript(agentId: string, opts: { projectsDir?
     }
     byMessage.set(key, entry);
   }
-  const out: TranscriptUsage = { model: null, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, toolUses: toolIds.size, durationMs: 0, totalTokens: 0, exact: true, outputEstimated: false, transcript: file };
+  const out: TranscriptUsage = { model: null, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, toolUses: toolIds.size, durationMs: 0, totalTokens: 0, exact: true, outputEstimated: false, transcript: file, through };
   for (const m of byMessage.values()) {
     const u = m.usage;
     out.model ??= m.model;
