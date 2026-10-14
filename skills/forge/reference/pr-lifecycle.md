@@ -29,6 +29,8 @@ Act on the result, in this order:
 
 Then `forge pr open <id>` (push + reuse), `--stage pr --state waiting --waiting-on pr-review`, `forge job release <id>`. Report what was addressed, one line per thread.
 
+`unlinked: true` in a `forge pr open` result is reported (SKILL.md step 10), never acted on: linking an issue is the human's call.
+
 ## Integration review
 Runs only when `forge integrate` returned conflicts **and** the integrator resolved them (`INTEGRATE: done`), after `forge verify <id>` passed and before `forge pr open`. Clean integrations and the `ask` / `defer` policies skip it.
 

@@ -90,7 +90,7 @@ test('forge job agent end --import records only the resumed round', () => {
   }
 });
 
-test('v3 jobs gain an import cursor at each ended agent', () => {
+test('v3 and v4 jobs gain an import cursor at each ended agent', () => {
   const repo = tempRepo();
   try {
     const job = createJob(repo.dir, defaults(), { title: 'Old' });

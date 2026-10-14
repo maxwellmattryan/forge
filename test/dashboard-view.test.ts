@@ -4,6 +4,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as V from '../dashboard/src/lib/view.ts';
+import { WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
+import { cleanRef, parseCandidates, threadAction, threadItems, threadOpening } from '../dashboard/src/lib/thread.ts';
 import { dur, tokensShort } from '../dashboard/src/lib/util.ts';
 
 // Per waiting kind: the card's buttons, its textarea placeholder (null: no textarea) and its "Read …" link.
@@ -42,6 +44,9 @@ test('requests: the exact POST bodies of main\'s buttons', () => {
   assert.deepEqual(V.evalRunBody({ tags: ' replay, ui ', tasks: '   ', label: 'base' }), REQUESTS.evalRun, 'Run eval');
   assert.deepEqual(V.evalRunBody({ tags: '', tasks: null, label: '' }), REQUESTS.evalRunEmpty, 'Run eval, empty form');
   assert.deepEqual(Object.keys(body({ type: 'next' })), ['type', 'job', 'text', 'args'], 'same key order on the wire');
+  assert.deepEqual(body({ type: 'approve', job: 'j1', note: ' why ', args: { link: 'none' } }), { type: 'approve', job: 'j1', text: 'why', args: { link: 'none' } }, 'args ride along');
+  assert.deepEqual(body({ type: 'run', ref: '12', args: { n: 2 } }), { type: 'run', job: null, text: null, args: { ref: '12', n: 2 } }, 'args merge after ref');
+  assert.deepEqual(body({ type: 'next', args: { n: 3 } }), { type: 'next', job: null, text: null, args: { n: 3 } });
   assert.equal(V.queuedMessage('next', true), 'Queued "next". The daemon picks it up.');
   assert.equal(V.queuedMessage('next', false), 'Queued "next". Your orchestrator session picks it up (/forge requests).');
 });
@@ -167,4 +172,103 @@ test('analytics: stats query, usage bars and top jobs', () => {
   assert.equal(V.jobMs({ createdAt: '2026-10-12T00:00:00Z', finishedAt: '2026-10-12T00:01:00Z' }), 60000);
   assert.equal(V.jobMs({ createdAt: '2026-10-12T00:00:00Z', updatedAt: '2026-10-12T00:00:00Z' }), null, 'zero is null, as main had it');
   assert.equal(V.jobMs({}), null);
+});
+
+test('thread items', () => {
+  const r = (id: string, from: string, status: string, extra: Record<string, unknown> = {}): any => ({ id, type: 'answer', job: 'j1', text: `t ${id}`, args: {}, from, status, createdAt: `2026-10-13T00:00:0${id[0]}Z`, ...extra });
+  const items = threadItems([
+    r('3-c', 'daemon:j1', 'done', { type: 'resume', text: null, result: 'continued from build' }),
+    r('1-a', 'dashboard', 'pending'),
+    r('2-b', 'cli', 'in-progress', { result: '' }),
+    r('4-d', 'someone-else', 'rejected', { result: 'not a human' }),
+  ]);
+  assert.deepEqual(items.map((i) => i.id), ['1-a', '2-b', '3-c', '4-d'], 'oldest first');
+  assert.deepEqual(items.map((i) => i.from), ['you', 'cli', 'forge', 'cli']);
+  assert.deepEqual(items.map((i) => i.status), ['queued', 'handling', 'done', 'rejected']);
+  assert.deepEqual(items.map((i) => i.result), [null, null, 'continued from build', 'not a human']);
+  assert.deepEqual(items.map((i) => i.text), ['t 1-a', 't 2-b', null, 't 4-d']);
+  assert.deepEqual(items.map((i) => i.action), [{ kind: 'verb', verb: 'answer' }, { kind: 'verb', verb: 'answer' }, { kind: 'resumed' }, { kind: 'verb', verb: 'answer' }], 'friendly actions, never the raw type');
+  assert.equal(items[0].at, '2026-10-13T00:00:01Z');
+  assert.deepEqual(threadItems([]), []);
+  assert.deepEqual(threadItems(undefined), []);
+  // A job from the command bar: its request opens the thread as yours, then "Start this job", not "resume".
+  const created = threadItems([r('5-e', 'dashboard', 'pending', { type: 'resume', text: null, args: { intake: 'new' } })], { text: 'Add a reading-time badge', at: '2026-10-13T00:00:00Z', tracker: false });
+  assert.deepEqual(
+    created.map((i) => [i.id, i.from, i.action, i.text, i.status]),
+    [
+      ['request', 'you', { kind: 'request' }, 'Add a reading-time badge', null],
+      ['5-e', 'you', { kind: 'started' }, null, 'queued'],
+    ],
+  );
+  assert.deepEqual(threadItems([], { text: 'Imported body', at: null, tracker: true })[0].from, 'tracker');
+  // Typed in the bar, then linked or --create'd at the issue-link gate: it has a source, but the words are still yours.
+  const linkedLater = { job: { createdAt: '2026-10-13T00:00:00Z', source: { tracker: 'github', ref: '42', url: null } }, request: 'Add a reading-time badge', requestFromTracker: false };
+  assert.deepEqual(
+    threadItems([], threadOpening(linkedLater)).map((i) => [i.from, i.action, i.text, i.at]),
+    [['you', { kind: 'request' }, 'Add a reading-time badge', '2026-10-13T00:00:00Z']],
+  );
+  assert.equal(threadItems([], threadOpening({ ...linkedLater, request: 'Issue body', requestFromTracker: true }))[0].from, 'tracker', 'from-ref: the issue\'s text');
+  assert.equal(threadOpening({ job: { createdAt: null }, request: null } as any).tracker, false, 'an older server without the flag');
+  assert.deepEqual(threadItems([], { text: null, at: null, tracker: false }), [], 'no request text, no opening message');
+  // Every answer to the issue-link gate reads differently, and next says how many.
+  const a = (type: string, args: Record<string, unknown>, from = 'dashboard') => threadAction({ type, args, from } as any);
+  assert.deepEqual(a('approve', { link: '42' }), { kind: 'link', ref: '42' });
+  assert.deepEqual(a('approve', { link: '#42' }), { kind: 'link', ref: '42' });
+  assert.deepEqual(a('approve', { link: 'new' }), { kind: 'link-new' });
+  assert.deepEqual(a('approve', { link: 'none' }), { kind: 'link-none' });
+  assert.deepEqual(a('approve', {}), { kind: 'verb', verb: 'approve' });
+  assert.deepEqual(a('next', { n: 3 }), { kind: 'next', n: 3 });
+  assert.deepEqual(a('next', {}), { kind: 'next', n: 1 });
+  assert.deepEqual(a('run', { ref: '12' }), { kind: 'run', ref: '12' });
+  assert.deepEqual(a('resume', { intake: 'run' }, 'daemon:_inbox'), { kind: 'handoff' });
+  assert.deepEqual(a('revise-spec', {}), { kind: 'verb', verb: 'revise' });
+  assert.deepEqual(a('eval-run', {}), { kind: 'verb', verb: 'eval' });
+  const hostile = threadItems([r('1-x', 'dashboard', 'done', { text: '<script>alert(1)</script>', result: '<img src=x onerror=alert(1)>' })])[0];
+  assert.equal(hostile.text, '<script>alert(1)</script>', 'kept as text: Svelte escapes it');
+});
+
+test('issue-link candidates and actions', () => {
+  const good = { ref: '12', title: 'Reading time badge', url: 'https://github.com/o/r/issues/12', labels: [], score: 6 };
+  const json = JSON.stringify({
+    query: 'reading time',
+    tracker: 'github',
+    items: [
+      good,
+      { ref: '../etc', title: 'bad ref', url: null },
+      { ref: 13, title: 'numeric ref', url: null },
+      { ref: '14', title: 'x'.repeat(201), url: null },
+      { ref: '15', title: 7, url: null },
+      { ref: '16', title: 'bad url', url: 5 },
+      null,
+      'junk',
+      { ref: 'local-ref', title: '<img src=x onerror=alert(1)>' },
+      { ref: '17', title: 'a', url: null },
+      { ref: '18', title: 'b', url: null },
+      { ref: '19', title: 'c', url: null },
+      { ref: '20', title: 'd', url: null },
+    ],
+  });
+  const c = parseCandidates(json);
+  assert.deepEqual(c.map((x) => x.ref), ['12', 'local-ref', '17', '18', '19'], 'malformed dropped, at most 5');
+  assert.deepEqual(c[0], { ref: '12', title: 'Reading time badge', url: 'https://github.com/o/r/issues/12' });
+  assert.deepEqual(c[1], { ref: 'local-ref', title: '<img src=x onerror=alert(1)>', url: null });
+  assert.equal(parseCandidates(JSON.stringify({ items: [{ ref: 'a', title: 'x'.repeat(200) }] })).length, 1, '200 characters is fine');
+  for (const bad of ['', 'not json', 'null', '[]', '{"items": "no"}', '{"items": {}}']) assert.deepEqual(parseCandidates(bad), [], bad);
+  assert.equal(cleanRef('#12'), '12');
+  assert.equal(cleanRef(' reading-list '), 'reading-list');
+  assert.equal(cleanRef('../x'), null);
+  assert.equal(cleanRef(''), null);
+
+  const k = V.inboxKind({ state: 'waiting', waitingOn: 'issue-link' } as any);
+  assert.equal(V.inboxDoc(k, { round: 0 } as any), 'issue-candidates.md');
+  assert.equal(V.showsNote(k), true);
+  assert.equal(V.notePlaceholder(k), 'Optional: why this job needs no issue…');
+  assert.deepEqual(V.inboxActions(k), [{ label: 'Cancel job', type: 'cancel', primary: false, needsNote: false }], 'the link buttons come from IssueLinkActions');
+  assert.equal(WAIT_LABEL['issue-link'], 'Issue to link');
+  assert.equal(V.stateText({ state: 'waiting', waitingOn: 'issue-link' }), 'Issue to link');
+  assert.equal(V.needsHuman({ state: 'waiting', waitingOn: 'issue-link' }), true);
+  const link = (to: string, note: string | null = null) => (V.buildRequest({ type: 'approve', job: 'j1', note, args: { link: to } }) as any).body;
+  assert.deepEqual(link('12'), { type: 'approve', job: 'j1', text: null, args: { link: '12' } });
+  assert.deepEqual(link('none', 'tiny fix'), { type: 'approve', job: 'j1', text: 'tiny fix', args: { link: 'none' } });
+  assert.deepEqual(link('new'), { type: 'approve', job: 'j1', text: null, args: { link: 'new' } });
 });

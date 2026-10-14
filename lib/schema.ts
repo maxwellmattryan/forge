@@ -5,13 +5,13 @@
 import type { Job, LoadedJob } from './types.ts';
 
 export const CONFIG_SCHEMA_VERSION = 2;
-export const JOB_SCHEMA_VERSION = 4;
+export const JOB_SCHEMA_VERSION = 5;
 export const EVENT_SCHEMA_VERSION = 1;
 /**
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 8;
+export const API_VERSION = 9;
 
 export const STAGES = [
   'backlog',
@@ -32,6 +32,7 @@ export const STATES = ['queued', 'running', 'waiting', 'blocked', 'failed', 'can
 export const WAITING_ON = [
   'spec-approval',
   'split-approval',
+  'issue-link',
   'input',
   'escalation',
   'infra',
@@ -73,9 +74,11 @@ const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
     verifyRetries: j.verifyRetries ?? failedVerifiesByRound(j.verifyRuns ?? []),
     budget: j.budget ?? { limits: {}, ack: {}, lastCheck: null },
   }),
-  // v4 adds each agent record's import cursor. An ended agent's usage is already recorded and its
+  // v4 adds the human's "this job needs no issue" override (forge job link --none).
+  3: (j) => ({ ...j, noIssue: j.noIssue ?? null }),
+  // v5 adds each agent record's import cursor. An ended agent's usage is already recorded and its
   // transcript ends before its endedAt, so that is a safe cursor: resuming it counts only new work.
-  3: (j) => ({
+  4: (j) => ({
     ...j,
     agents: Object.fromEntries(
       Object.entries(j.agents ?? {}).map(([role, a]: [string, any]) => [
@@ -125,6 +128,7 @@ export function normalizeJob(raw: any): LoadedJob {
     kind: job.kind ?? 'feature',
     size: job.size ?? null,
     source: job.source ?? null,
+    noIssue: job.noIssue ?? null,
     parent: job.parent ?? null,
     children: job.children ?? [],
     dependsOn: job.dependsOn ?? [],

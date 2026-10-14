@@ -7,12 +7,15 @@ import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '.
 import { claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, roundVerdicts, setJob, updateJob, jobDir } from '../jobs.ts';
 import { paths, exists } from '../paths.ts';
 import { jobScope } from '../scope.ts';
+import { createAndLink, linkJob, markNoIssue, suggestLink } from '../tracker-link.ts';
 import { loadTracker } from '../trackers/index.ts';
 import { importClaudeCodeTranscript } from '../usage.ts';
 import { ForgeError, coerce, getPath, run } from '../util.ts';
 import { bodyFrom, list, req } from './args.ts';
 import { mirrorToTracker, startFromRef } from './tracker.ts';
 import type { AgentUsage, Config, Job } from '../types.ts';
+
+const LINK_USAGE = 'usage: forge job link <id> <ref> | --create | --none [--reason R] | --suggest';
 
 /** The result is printed as JSON. */
 export async function jobCmd(root: string, config: Config, sub: string | undefined, rest: string[], flags: Record<string, any>): Promise<unknown> {
@@ -33,6 +36,16 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       });
       if (flags.session) claimJob(root, job.id, String(flags.session));
       return { id: job.id, branch: job.branch, dir: path.relative(root, jobDir(root, job.id)) };
+    }
+    case 'link': {
+      const jobId = req(id, 'job id');
+      const ref = rest[1];
+      const modes = [ref !== undefined, flags.create === true, flags.none === true, flags.suggest === true].filter(Boolean).length;
+      if (modes !== 1) throw new ForgeError(LINK_USAGE);
+      if (flags.suggest) return suggestLink(root, config, jobId, () => loadTracker(root, config));
+      if (flags.none) return markNoIssue(root, jobId, typeof flags.reason === 'string' ? flags.reason : null);
+      const tracker = await loadTracker(root, config);
+      return flags.create ? createAndLink(root, config, tracker, jobId) : linkJob(root, config, tracker, jobId, ref!);
     }
     case 'from-ref': {
       const tracker = await loadTracker(root, config);
@@ -186,7 +199,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     case 'acs':
       return jobAcs(root, req(id, 'job id'));
     default:
-      throw new ForgeError('usage: forge job new|from-ref|list|show|get|set|claim|release|note|human|agent|round|budget|verdicts|decision|progress|paths|scope|acs');
+      throw new ForgeError('usage: forge job new|from-ref|link|list|show|get|set|claim|release|note|human|agent|round|budget|verdicts|decision|progress|paths|scope|acs');
   }
 }
 
@@ -252,6 +265,7 @@ export function compactJob(root: string, job: Job): Record<string, unknown> {
     port: job.port,
     pr: job.pr ? { number: job.pr.number, url: job.pr.url, state: job.pr.state, checks: job.pr.checks?.state, behindBy: job.pr.behindBy, conflicts: job.pr.conflicts, unresolvedThreads: job.pr.unresolvedThreads } : null,
     source: job.source,
+    noIssue: job.noIssue,
     owner: job.owner?.session ?? null,
     progress: progress(root, job.id),
     tokens: job.usage.totalTokens,

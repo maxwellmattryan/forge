@@ -13,6 +13,7 @@ import type { Config, Tracker } from '../types.ts';
 const none: Tracker = {
   name: 'none',
   list: () => [],
+  search: () => [],
   get: () => null,
   claim: () => ({ ok: true }),
   update: () => {},

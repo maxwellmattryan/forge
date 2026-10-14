@@ -59,6 +59,8 @@ export type Checks = [
   Expect<Equal<engine.ForgeTruncatedLine, dash.ForgeTruncatedLine>>,
   Expect<Equal<engine.PostRequestBody, dash.PostRequestBody>>,
   Expect<Equal<engine.PostRequestResponse, dash.PostRequestResponse>>,
+  Expect<Equal<engine.PostJobBody, dash.PostJobBody>>,
+  Expect<Equal<engine.PostJobResponse, dash.PostJobResponse>>,
   Expect<Equal<engine.PostDaemonBody, dash.PostDaemonBody>>,
   Expect<Equal<engine.PostDaemonResponse, dash.PostDaemonResponse>>,
   Expect<Equal<engine.ApiError, dash.ApiError>>,

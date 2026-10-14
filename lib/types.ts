@@ -161,6 +161,8 @@ export interface Job {
   kind: string;
   size: string | null;
   source: JobSource | null;
+  /** The human's override for the issue link: `forge job link --none` in lib/tracker-link.ts. */
+  noIssue: { reason: string | null; at: string } | null;
   parent: string | null;
   children: string[];
   dependsOn: string[];
@@ -509,6 +511,12 @@ export interface Tracker {
   comment: (ctx: TrackerCtx, ref: string, body: string) => void;
   create: (ctx: TrackerCtx, item: { title: string; body?: string; labels?: string[]; parentRef?: string | null }) => { ref: string; url?: string | null };
   close: (ctx: TrackerCtx, ref: string, opts?: { reason?: 'completed' | 'not-planned' }) => void;
+  /**
+   * Optional: open items matching a free-text query, best first, at most `opts.limit` of them
+   * (bodies included, for local re-ranking). Without it, searchTracker in lib/tracker-link.ts scores
+   * a capped list() instead.
+   */
+  search?: (ctx: TrackerCtx, query: string, opts: { limit: number }) => TrackerItem[];
 }
 
 // ---------- HTTP API: GET responses ----------
@@ -600,6 +608,12 @@ export interface JobDetail {
   events: JobEvent[];
   files: string[];
   screenshots: string[];
+  /** This job's requests in every status, oldest first, at most the last 50. */
+  requests: ForgeRequest[];
+  /** request.md without its `# title` line, trimmed, at most 2,000 characters: the Thread's opening message. */
+  request: string | null;
+  /** The job's `created` event has a ref (from-ref), so `request` is the issue's text. A later `job link` doesn't count. */
+  requestFromTracker: boolean;
 }
 
 /**
@@ -792,6 +806,21 @@ export interface PostRequestBody {
 
 /** POST /api/requests reply: the handler in lib/server.ts. */
 export type PostRequestResponse = ForgeRequest & { daemon: boolean };
+
+/** POST /api/jobs body: a new job from free text; `title` overrides the one derived from `text`. */
+export interface PostJobBody {
+  text: string;
+  title?: string | null;
+}
+
+/** POST /api/jobs reply: the new job and the `resume` request queued for its session. */
+export interface PostJobResponse {
+  id: string;
+  title: string;
+  branch: string | null;
+  request: ForgeRequest;
+  daemon: boolean;
+}
 
 /** POST /api/config body: the handler in lib/server.ts passes it to setConfigValue. */
 export interface PostConfigBody {

@@ -34,13 +34,13 @@ Usage: forge <command> [options]   (state, worktrees, PRs, trackers, evals, dash
 
   forge status                       active jobs at a glance (add --all for finished)
   forge next [--claim --session S] [--force]   next ready tracker item whose job is not blocked (optionally start a job)
-  forge job new|from-ref|list|show|get|set|claim|release|note|human|agent|round|budget|verdicts|decision|progress|paths|scope|acs
+  forge job new|from-ref|link|list|show|get|set|claim|release|note|human|agent|round|budget|verdicts|decision|progress|paths|scope|acs
   forge worktree create|remove|path|prune <id>
   forge run <id> <command> [--background]   forge stop <id>   forge verify <id>
   forge integrate <id> [--strategy merge|rebase] [--keep-conflicts | --continue]
   forge git diff|log|show|range-diff [git args]   read-only git for agents (no --output)
   forge pr find|open|sync|merge <id> [--now]   forge sync          reconcile PRs + trackers for all jobs
-  forge tracker list|get|claim|update|comment|create|close
+  forge tracker list|get|search|claim|update|comment|create|close
   forge stats [--since DATE] [--json]  forge roster   forge retro due|prepare <job>
   forge eval list|new|mine|start|grade|runs|compare|report
   forge requests [list|scope|add|claim|ack]

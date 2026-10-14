@@ -3,6 +3,8 @@ import { DEP_REASON, refreshDependencyWait, retargetPlan, unmetDependencies } fr
 import { createJob, isActive, listJobs, loadJob, logEvent, readEvents, setJob, claimJob } from '../jobs.ts';
 import * as pr from '../pr.ts';
 import { listRequests } from '../requests.ts';
+import { searchTerms } from '../issue-link.ts';
+import { clampLimit, publicHits, searchTracker } from '../tracker-link.ts';
 import { loadTracker } from '../trackers/index.ts';
 import { ForgeError } from '../util.ts';
 import * as wt from '../worktree.ts';
@@ -31,8 +33,14 @@ export async function trackerCmd(root: string, config: Config, sub: string | und
     case 'close':
       tracker.close(ctx, req(rest[0], 'ref'), { reason: flags.reason });
       return { ok: true };
+    case 'search': {
+      let query = rest.join(' ').trim();
+      if (!query && typeof flags.job === 'string') query = searchTerms(loadJob(root, flags.job).title).join(' ');
+      const r = searchTracker(root, config, tracker, req(query, 'query (or --job <id>)'), clampLimit(flags.limit));
+      return { tracker: r.tracker, query: r.query, items: publicHits(r.items) };
+    }
     default:
-      throw new ForgeError('usage: forge tracker list|get|claim|update|comment|create|close');
+      throw new ForgeError('usage: forge tracker list|get|search|claim|update|comment|create|close');
   }
 }
 

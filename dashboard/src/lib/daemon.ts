@@ -1,4 +1,4 @@
-// The daemon bar's and the Session tab's pure, DOM-free half: session pills, the pool summary and POST /api/daemon.
+// The daemon bar's and the Thread session log's pure, DOM-free half: session pills, the pool summary and POST /api/daemon.
 // Session state and errors come from session output, i.e. untrusted text: these return plain strings rendered as text.
 import { ago } from './util.ts';
 import type { DaemonPoolState, DaemonSessionState } from './types.ts';
@@ -116,7 +116,7 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
 }
 
 /**
- * The Session tab's Start/Stop: Start once the pool runs and this session is stopped or failed;
+ * The Thread session log's Start/Stop: Start once the pool runs and this session is stopped or failed;
  * Stop while it runs, or while the pool runs and it would spawn on demand (stopping it then keeps it off).
  */
 export function sessionControls(session: SessionInput, poolWanted: boolean, pending: boolean): { canStart: boolean; canStop: boolean } {

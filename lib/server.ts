@@ -11,7 +11,8 @@ import type { DaemonOptions } from './daemon.ts';
 import { createPool } from './daemon-pool.ts';
 import type { DaemonPool, PoolState } from './daemon-pool.ts';
 import { doctor } from './doctor.ts';
-import { listJobs, loadJob, progress, readEvents, jobDir } from './jobs.ts';
+import { createJob, listJobs, loadJob, progress, readEvents, jobDir, requestBody } from './jobs.ts';
+import { normalizeRef } from './issue-link.ts';
 import { paths, exists, PLUGIN_ROOT } from './paths.ts';
 import { API_VERSION, CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from './schema.ts';
 import { computeStats } from './stats.ts';
@@ -19,6 +20,7 @@ import { listRuns, listTasks, compareRuns, forgeVersion } from './evals.ts';
 import { INBOX_SCOPE, enqueue, listRequests, validScope } from './requests.ts';
 import { loadTracker } from './trackers/index.ts';
 import { roster } from './roster.ts';
+import { deriveTitle, normalizeTitle } from './title.ts';
 import { getPath, readJson, readText } from './util.ts';
 import type {
   AboutResponse,
@@ -33,7 +35,9 @@ import type {
   EvalsResponse,
   ForgeTruncatedLine,
   JobDetail,
+  JobSource,
   PostConfigResponse,
+  PostJobResponse,
   PostRequestResponse,
 } from './types.ts';
 
@@ -61,6 +65,9 @@ const MAX_FILE = 2 * 1024 * 1024;
 const IMAGE_TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
 const MAX_IMAGE = 10 * 1024 * 1024;
 const MAX_SCREENSHOTS = 200;
+/** The newest requests a job's Thread shows. */
+const MAX_JOB_REQUESTS = 50;
+const MAX_REQUEST_EXCERPT = 2000;
 const MAX_SSE_CLIENTS = 8;
 const SSE_SLOW_CLIENT_BYTES = 1024 * 1024;
 const SSE_MAX_LINE = 64 * 1024;
@@ -130,6 +137,21 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         const { config, initialized } = loadConfig(root);
         return json(res, { ...(await doctor(root, config, initialized)), at: new Date().toISOString() } satisfies DoctorResponse);
       }
+      if (req.method === 'POST' && p === '/api/jobs') {
+        if (guardPost(req, res, token)) return;
+        const parsed = await readJsonBody(req);
+        if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
+        const { config, initialized } = loadConfig(root);
+        if (!initialized) return jsonStatus(res, 409, { error: 'Forge is not set up in this repo: run /forge init first' });
+        const input = jobInput(parsed.body);
+        if ('error' in input) return jsonStatus(res, 400, { error: input.error });
+        // The text goes only to request.md (and, through the title, job.json and events.jsonl); the
+        // queued resume carries none, so it never reaches a daemon session's stdin, argv or env.
+        const job = createJob(root, config, { title: input.title, body: input.text, origin: 'dashboard', slug: hasSlugText(input.title) ? undefined : 'request' });
+        const request = enqueue(root, config, { type: 'resume', job: job.id, text: null, args: { intake: 'new' }, from: 'dashboard' });
+        pool?.poke();
+        return json(res, { id: job.id, title: job.title, branch: job.branch, request, daemon: Boolean(pool?.state().wanted) } satisfies PostJobResponse);
+      }
       const m = p.match(/^\/api\/jobs\/([A-Za-z0-9._-]+)(\/file|\/raw)?$/);
       if (req.method === 'GET' && m) {
         const id = m[1];
@@ -148,7 +170,11 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       }
       if (req.method === 'POST' && p === '/api/requests') {
         if (guardPost(req, res, token)) return;
-        const body = JSON.parse((await readBody(req)) || '{}');
+        const parsed = await readJsonBody(req);
+        if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
+        const body: Record<string, any> = parsed.body && typeof parsed.body === 'object' && !Array.isArray(parsed.body) ? parsed.body : {};
+        const problem = requestArgsProblem(body);
+        if (problem) return jsonStatus(res, 400, { error: problem });
         const { config } = loadConfig(root);
         const rec = enqueue(root, config, { type: body.type, job: body.job, text: body.text, args: body.args, from: 'dashboard' });
         pool?.poke();
@@ -315,6 +341,45 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       resolve({ server, url: `http://${host}:${(server.address() as AddressInfo).port}`, pool: d, close });
     });
   });
+}
+
+const MAX_JOB_TEXT = 20_000;
+
+/** POST /api/jobs: the request text and its title (the override, cleaned, or one derived from the text). */
+function jobInput(body: unknown): { text: string; title: string } | { error: string } {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'body must be a JSON object: {"text": string, "title"?: string}' };
+  const { text, title } = body as Record<string, unknown>;
+  if (typeof text !== 'string' || !text.trim()) return { error: 'text must be a non-empty string' };
+  if (text.length > MAX_JOB_TEXT) return { error: `text is over ${MAX_JOB_TEXT.toLocaleString('en-US')} characters` };
+  if (title !== undefined && title !== null) {
+    if (typeof title !== 'string') return { error: 'title must be a string' };
+    const clean = normalizeTitle(title);
+    return clean ? { text, title: clean } : { error: 'title is empty' };
+  }
+  const derived = deriveTitle(text);
+  return derived ? { text, title: derived } : { error: 'the text has no words to make a title from: add a title' };
+}
+
+/** Whether slugify would find words in the title: otherwise it falls back to a bare `job-…` id. */
+function hasSlugText(title: string): boolean {
+  return /[a-z0-9]/.test(title.toLowerCase().normalize('NFKD'));
+}
+
+/** POST /api/requests: the args a request type may carry beyond what enqueue checks. Null when fine. */
+function requestArgsProblem(body: Record<string, any>): string | null {
+  const args = body.args;
+  // The inbox session puts a run's ref on `forge job from-ref <ref>`, so it is checked here, not only in the bar.
+  if (body.type === 'run' && !normalizeRef(args?.ref)) return 'args.ref must be an issue ref';
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return null;
+  if (Object.prototype.hasOwnProperty.call(args, 'link')) {
+    if (body.type !== 'approve') return 'args.link is only for approve requests';
+    if (args.link !== 'new' && args.link !== 'none' && !normalizeRef(args.link)) return 'args.link must be "new", "none" or an issue ref';
+  }
+  if (Object.prototype.hasOwnProperty.call(args, 'n')) {
+    if (body.type !== 'next') return 'args.n is only for next requests';
+    if (!Number.isInteger(args.n) || args.n < 1 || args.n > 16) return 'args.n must be an integer from 1 to 16';
+  }
+  return null;
 }
 
 const DAEMON_LOCK = 'stop the daemon first: any change to .forge/config.yml stops it, and only a human may start it again';
@@ -490,7 +555,25 @@ function jobDetail(root: string, id: string): JobDetail {
     return i === -1 ? (f.startsWith('logs/') ? 1000 : 500) : i;
   };
   files.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, undefined, { numeric: true }));
-  return { job: { ...job, progress: progress(root, id) }, events: readEvents(root, id).slice(-400), files, screenshots: listScreenshots(dir) };
+  const events = readEvents(root, id);
+  // `forge job link` and `--create` set job.source later, so only the source at creation says request.md is tracker text.
+  const createdSource = events.find((e) => e.type === 'created')?.source as Partial<JobSource> | null | undefined;
+  return {
+    job: { ...job, progress: progress(root, id) },
+    events: events.slice(-400),
+    files,
+    screenshots: listScreenshots(dir),
+    requests: listRequests(root).filter((r) => r.job === id).slice(-MAX_JOB_REQUESTS),
+    request: requestExcerpt(root, id),
+    requestFromTracker: Boolean(createdSource?.ref),
+  };
+}
+
+/** request.md without its `# title` line, for the Thread's opening message; null when empty. */
+function requestExcerpt(root: string, id: string): string | null {
+  const body = requestBody(root, id);
+  if (!body) return null;
+  return body.length > MAX_REQUEST_EXCERPT ? `${body.slice(0, MAX_REQUEST_EXCERPT)}…` : body;
 }
 
 /**
@@ -563,6 +646,21 @@ function readTail(file: string, bytes: number): string {
   fs.readSync(fd, buf, 0, buf.length, size - buf.length);
   fs.closeSync(fd);
   return buf.toString('utf8');
+}
+
+/** A POST body parsed as JSON, or the 400 message: never a 500 for a client's mistake. */
+async function readJsonBody(req: http.IncomingMessage): Promise<{ body: unknown } | { error: string }> {
+  let raw: string;
+  try {
+    raw = await readBody(req);
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+  try {
+    return { body: JSON.parse(raw || '{}') };
+  } catch {
+    return { error: 'body is not JSON' };
+  }
 }
 
 function readBody(req: http.IncomingMessage): Promise<string> {
