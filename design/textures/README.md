@@ -1,0 +1,3 @@
+The paper: `paper.svg`, a 512px tile of anisotropic fractal noise (base frequency 0.012 × 0.32, three octaves) that reads as the fibre of drafting stock.
+
+It is laid over every full-page ground by `.ground::before` in `components/bundle.css`: soft-light at `paper-opacity` 0.18 on cyanotype, multiply at 0.55 on vellum. The grid beneath it is pure CSS (`grid-minor` every 8px, `grid-major` every 64px), and the exposure falloff above it is a radial shade to `bg-deep`. Dialogs, the drawer and the command bar sit on plain `bg` with no texture, so type on them stays crisp. Never place the fibre over text or a sheet's fill.
