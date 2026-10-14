@@ -193,7 +193,8 @@
 <div class="fixed inset-0 z-45 flex items-start justify-center scrim md:p-6 md:pt-[12vh]" onmousedown={backdropDown} onclick={backdrop}>
   <div bind:this={dialog} role="dialog" aria-modal="true" aria-label={$t('command.title')} tabindex="-1" class="sheet ticks solid flex flex-col w-full min-w-0 max-h-[85vh] shadow-(--shadow-dialog) md:max-w-[672px]" onkeydown={trap}>
     <span class="tk"></span>
-    <div class="flex items-center gap-2 border-b border-line px-3">
+    <!-- flex-wrap with a 10rem input basis: on a phone the scope chip and its remove button take the first line, so the input keeps room to type. -->
+    <div class="flex flex-wrap items-center gap-x-2 border-b border-line px-3">
       <Icon name="command" class="shrink-0 text-muted" />
       {#if scoped}
         <!-- The chip is the combobox's description; removing the scope is its own labelled button, so the description reads the job. -->
@@ -215,7 +216,7 @@
         autocomplete="off"
         spellcheck="false"
         placeholder={$t('command.placeholder')}
-        class="flex-1 min-w-0 border-0! px-1.5! py-3! text-[15px] focus:-outline-offset-2!"
+        class="grow basis-40 min-w-0 border-0! px-1.5! py-3! text-[15px] focus:-outline-offset-2!"
         onkeydown={inputKey}
         oninput={() => (error = null)}
       />
