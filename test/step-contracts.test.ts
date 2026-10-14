@@ -196,7 +196,7 @@ test('recorded inputs for step', () => {
     // from-ref names the split mode of the job it creates; next --claim does not.
     s.f('tracker', 'create', '--title', 'Picked issue');
     s.f('tracker', 'create', '--title', 'Queued issue');
-    const picked = s.f('job', 'from-ref', 'picked-issue');
+    const picked = s.f('job', 'from-ref', 'picked-issue', '--session', 's0');
     assert.equal(loadJob(s.root, picked.id).splitMode, 'never');
     const next = s.f('next', '--claim', '--session', 's1');
     assert.equal(next.id, 'queued-issue');

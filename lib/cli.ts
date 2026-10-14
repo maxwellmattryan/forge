@@ -35,9 +35,9 @@ const HELP = () => `⚒️  Forge v${forgeVersion()}: a lightweight, self-improv
 Usage: forge <command> [options]   (state, worktrees, PRs, trackers, evals, dashboard)
 
   forge status                       active jobs at a glance (add --all for finished)
-  forge next [--claim --session S] [--force]   next ready tracker item whose job is not blocked (optionally start a job)
+  forge next [--claim --session S] [--force]   resume a queued unowned job (with --claim --session), else the next ready tracker item whose job is not blocked (optionally start a job)
   forge job new|from-ref|link|list|show|get|set|claim|release|note|human|agent|round|budget|verdicts|decision|progress|paths|scope|acs|step
-  forge job step <id>                the job's next action (spawn, run, wait, procedure, done) and the agent brief; read-only
+  forge job step <id> [--session S]  the job's next action (spawn, run, wait, procedure, done) and the agent brief; read-only, except --session <owner> refreshes its heartbeat
   forge worktree create|remove|path|prune <id>
   forge run <id> <command> [--background]   forge stop <id>   forge verify <id>
   forge integrate <id> [--strategy merge|rebase] [--keep-conflicts | --continue]

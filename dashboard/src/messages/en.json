@@ -120,7 +120,12 @@
     "files": "Files",
     "timeline": "Timeline",
     "noFiles": "No files yet.",
-    "threadTab": "Thread"
+    "threadTab": "Thread",
+    "resume": "Resume",
+    "ownerLive": "Held by session {session} (claimed {since}, last active {active}).",
+    "ownerAgent": "Held by session {session} (claimed {since}); an agent is still running.",
+    "ownerStale": "Session {session} was last active {active}. Resume takes the job over.",
+    "ownerGone": "Session {session} has exited. Resume takes the job over."
   },
   "inbox": {
     "title": "Needs you",
@@ -445,6 +450,7 @@
     "hints": {
       "next": "Take the next ready backlog items: next [n]",
       "issue": "Start a job from a tracker item: issue <ref>",
+      "continue": "Resume a queued, failed or stalled job: continue <job> (or resume <job>)",
       "approve": "Approve a waiting job: approve <job> [note]",
       "answer": "Answer a job's question: answer <job> <text>",
       "revise": "Ask for spec changes: revise <job> <note>",

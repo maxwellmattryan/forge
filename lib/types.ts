@@ -82,6 +82,30 @@ export interface JobOwner {
   heartbeat: string;
 }
 
+/** Why a daemon owner provably let go of a job: ownerYield in lib/daemon-owner.ts. */
+export type YieldReason = 'moved-on' | 'not-running' | 'inbox-handoff';
+
+/** `dead` only with a daemon-record proof (ownerStatusWithProof); the time rule alone gives the rest. */
+export type OwnerStatusKind = 'none' | 'live' | 'stale' | 'dead';
+
+/** Whether a job's owner still drives it: ownerStatus in lib/jobs.ts, ownerStatusWithProof in lib/daemon-owner.ts. */
+export interface OwnerStatus {
+  status: OwnerStatusKind;
+  session: string | null;
+  since: string | null;
+  heartbeat: string | null;
+  /** An agent has been marked running for under 2 hours. */
+  agentRunning: boolean;
+  /** Set only with status `dead`. */
+  reason: YieldReason | null;
+  /**
+   * The owner is this job's own daemon session, recorded and running: a `resume` reaches that
+   * session, which claims as itself, so a live owner doesn't block it. Proven only in the job
+   * detail and the resume guard; false in /api/state.
+   */
+  jobSession: boolean;
+}
+
 /** One orchestrator session's stint on a job: claimJob/releaseJob in lib/jobs.ts. */
 export interface JobRun {
   session: string;
@@ -794,7 +818,7 @@ export interface DaemonLogPage {
 }
 
 /** A job row in /api/state: state() in lib/server.ts. */
-export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number };
+export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus };
 
 /** GET /api/state: state() in lib/server.ts. */
 export interface ApiState {
@@ -818,7 +842,7 @@ export interface ApiState {
 
 /** GET /api/jobs/:id: jobDetail in lib/server.ts. */
 export interface JobDetail {
-  job: Job & { progress: Progress };
+  job: Job & { progress: Progress; ownerStatus: OwnerStatus };
   events: JobEvent[];
   files: string[];
   screenshots: string[];

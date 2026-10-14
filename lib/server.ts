@@ -11,13 +11,14 @@ import type { DaemonOptions } from './daemon.ts';
 import { createPool } from './daemon-pool.ts';
 import type { DaemonPool, PoolState } from './daemon-pool.ts';
 import { doctor } from './doctor.ts';
-import { createJob, listJobs, loadJob, progress, readEvents, jobDir, requestBody } from './jobs.ts';
+import { jobSessionEnv, ownerStatusWithProof } from './daemon-owner.ts';
+import { createJob, listJobs, loadJob, ownerStatus, progress, readEvents, jobDir, requestBody } from './jobs.ts';
 import { normalizeRef } from './issue-link.ts';
 import { paths, exists, PLUGIN_ROOT } from './paths.ts';
 import { API_VERSION, CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from './schema.ts';
 import { computeStats } from './stats.ts';
 import { listRuns, listTasks, compareRuns, forgeVersion } from './evals.ts';
-import { INBOX_SCOPE, enqueue, listRequests, validScope } from './requests.ts';
+import { INBOX_SCOPE, enqueue, listRequests, validJobId, validScope } from './requests.ts';
 import { loadTracker } from './trackers/index.ts';
 import { roster } from './roster.ts';
 import { deriveTitle, normalizeTitle } from './title.ts';
@@ -36,6 +37,7 @@ import type {
   ForgeTruncatedLine,
   JobDetail,
   JobSource,
+  LoadedJob,
   PermissionDecision,
   PostConfigResponse,
   PostDaemonModeResponse,
@@ -157,7 +159,8 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       const m = p.match(/^\/api\/jobs\/([A-Za-z0-9._-]+)(\/file|\/raw)?$/);
       if (req.method === 'GET' && m) {
         const id = m[1];
-        if (!m[2]) return json(res, jobDetail(root, id));
+        // The detail's owner proof can spawn `ps`, so other sites may not trigger it (as for the log routes).
+        if (!m[2]) return readGuard(req, res) ? undefined : json(res, jobDetail(root, id));
         const rel = url.searchParams.get('path') ?? '';
         const file = safeJoin(jobDir(root, id), rel);
         if (file && m[2] === '/file' && IMAGE_TYPES[path.extname(file).toLowerCase()]) return sendImage(res, jobDir(root, id), file);
@@ -177,6 +180,8 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         const body: Record<string, any> = parsed.body && typeof parsed.body === 'object' && !Array.isArray(parsed.body) ? parsed.body : {};
         const problem = requestArgsProblem(body);
         if (problem) return jsonStatus(res, 400, { error: problem });
+        const held = resumeHeld(root, body);
+        if (held) return jsonStatus(res, 409, { error: held });
         const { config } = loadConfig(root);
         const rec = enqueue(root, config, { type: body.type, job: body.job, text: body.text, args: body.args, from: 'dashboard' });
         pool?.poke();
@@ -400,6 +405,26 @@ function hasSlugText(title: string): boolean {
   return /[a-z0-9]/.test(title.toLowerCase().normalize('NFKD'));
 }
 
+/**
+ * POST /api/requests: why a resume would only bounce off a live owner, or null. Advisory: the job
+ * session's own claim (inside the job lock) decides. Any `args` are ignored here, so `force` or
+ * `intake` cannot switch it off. A bad or unknown id is left to enqueue and the inbox.
+ */
+function resumeHeld(root: string, body: Record<string, any>): string | null {
+  if (body.type !== 'resume' || !validJobId(body.job) || !exists(path.join(jobDir(root, body.job), 'job.json'))) return null;
+  let job: LoadedJob;
+  try {
+    job = loadJob(root, body.job);
+  } catch {
+    // A job.json from a newer Forge or a broken one: the inbox reports it, as for an unknown id.
+    return null;
+  }
+  const o = ownerStatusWithProof(root, job, { env: jobSessionEnv(job.id) });
+  if (o.status !== 'live' || o.jobSession) return null;
+  const held = o.agentRunning ? `claimed ${o.since}; an agent is still running` : `claimed ${o.since}, last active ${o.heartbeat}`;
+  return `job ${job.id} is held by session ${o.session} (${held}); resume it from that session or wait until it stops`;
+}
+
 /** POST /api/requests: the args a request type may carry beyond what enqueue checks. Null when fine. */
 function requestArgsProblem(body: Record<string, any>): string | null {
   const args = body.args;
@@ -545,7 +570,8 @@ function state(root: string, daemons: DaemonPoolState): ApiState {
   const jobs = listJobs(root).map((j) => {
     const events = readEvents(root, j.id);
     const last = events[events.length - 1] ?? null;
-    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length };
+    // The time rule only, so polling never spawns `ps`; the job detail adds the daemon proofs.
+    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: ownerStatus(j) };
   });
   return {
     apiVersion: API_VERSION,
@@ -596,7 +622,7 @@ function jobDetail(root: string, id: string): JobDetail {
   // `forge job link` and `--create` set job.source later, so only the source at creation says request.md is tracker text.
   const createdSource = events.find((e) => e.type === 'created')?.source as Partial<JobSource> | null | undefined;
   return {
-    job: { ...job, progress: progress(root, id) },
+    job: { ...job, progress: progress(root, id), ownerStatus: ownerStatusWithProof(root, job, { env: jobSessionEnv(job.id) }) },
     events: events.slice(-400),
     files,
     screenshots: listScreenshots(dir),
