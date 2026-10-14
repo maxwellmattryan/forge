@@ -202,6 +202,49 @@ test('no raw HTML sinks in dashboard sources', () => {
   }
 });
 
+// Prose (assistant text, thinking, a subagent's prompt and report, request text) may reach md(); structural strings
+// (tool input JSON, tool results, log lines, errors, reasons) never do, because md()'s links and emphasis could
+// mislead a human about what a command does.
+const MD_SURFACES = ['src/components/SessionLog.svelte', 'src/components/ThreadPanel.svelte', 'src/components/Drawer.svelte'];
+const STRUCTURAL = /\b(input|summary|preview|lastError|reason)\b|line\(/;
+
+/** The argument text of every `md(…)` call in `text`; a call that never closes is reported as null. */
+function mdArgs(/** @type {string} */ text) {
+  return [...text.matchAll(/(?<![\w$.])md\(/g)].map((m) => {
+    const open = m.index + m[0].length - 1;
+    const end = endOf(text, open);
+    return end < 0 ? null : text.slice(open + 1, end);
+  });
+}
+
+test("prose renders through md(); tool input, results and log lines stay text", () => {
+  for (const f of MD_SURFACES) {
+    const text = read(f);
+    assert.match(text, /import MarkdownToggle from '\.\/MarkdownToggle\.svelte';/, `${f} imports MarkdownToggle`);
+    assert.ok(text.includes('{@html md('), `${f} renders prose through {@html md(…)}`);
+    const args = mdArgs(text);
+    assert.ok(args.length > 0, `${f} calls md()`);
+    for (const a of args) {
+      assert.notEqual(a, null, `${f}: an md( call that never closes`);
+      assert.doesNotMatch(String(a), STRUCTURAL, `${f}: md(${a}) takes a structural string`);
+    }
+  }
+  const log = read('src/components/SessionLog.svelte');
+  let seen = 0;
+  for (const m of log.matchAll(/\{(it\.input|r\.preview|r\.full)\}/g)) {
+    const before = log.slice(0, m.index);
+    assert.ok(before.lastIndexOf('<pre') > before.lastIndexOf('</pre>'), `SessionLog.svelte: ${m[0]} renders inside a <pre>`);
+    seen++;
+  }
+  assert.ok(seen >= 3, 'tool input, the result preview and the full result are all checked');
+  // The guard itself: a structural argument and a value outside <pre> are both caught.
+  assert.match(String(mdArgs('{@html md(it.input)}')[0]), STRUCTURAL);
+  assert.match(String(mdArgs('{@html md(line(at, tone, tag, text))}')[0]), STRUCTURAL);
+  assert.doesNotMatch(String(mdArgs('{@html md(it.result.full)}')[0]), STRUCTURAL);
+  assert.deepEqual(mdArgs('{@html md(x}'), [null]);
+  assert.deepEqual(mdArgs('const s = osmd(a); x.md(b); md(c)'), ['c']);
+});
+
 test('mockups render only in the sandboxed /raw iframe', () => {
   const hits = sources().flatMap((f) => [...read(f).matchAll(/<iframe\b[^>]*>/g)].map((m) => [f, m[0]]));
   assert.equal(hits.length, 1, `exactly one <iframe>: ${JSON.stringify(hits)}`);

@@ -8,7 +8,7 @@ Forge is a software factory for AI coding agents: you hand it a feature, a bug o
 - Numbers, ids, refs, branches, verbs and paths are always mono (`mono`, `mono-log`): `job-7f3a`, `#142`, `LIN-88`, `forge/job-7f3a`, `/forge continue`.
 - Drafting vocabulary is used sparingly and literally: `REV` marks what a human must revise or approve; `DWG`, `SHEET` and the title block name the page; a dimension line carries a measurement-like fact (`3 ACTIVE · BASE MAIN · GITHUB`). Do not invent more.
 - Em-dash `—` is the empty value in tables and fact grids; a crosshatched sheet is the empty state. Counts sit after their label: "Active 3".
-- No emoji anywhere. Status is a word in a chip, never a glyph alone. Untrusted text (session output, tracker titles, request notes) renders as plain text.
+- No emoji anywhere. Status is a word in a chip, never a glyph alone. Untrusted text (session output, tracker titles, request notes) renders as plain text, or as markdown only through the escape-first `md()` with a Raw view one click away.
 
 ## Colour
 

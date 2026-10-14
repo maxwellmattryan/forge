@@ -1,9 +1,14 @@
 <!-- A job's Thread in the drawer: its request and the requests about it with the session's replies, then the job's live
      session log. The gate's actions and the session's permission prompts live in the drawer's ActionDock, on every tab.
-     Request text and results are untrusted and render as plain text. -->
+     Request text and results are untrusted: they render only through the escape-first md(), or as plain text in Raw
+     (and above 20k characters). -->
 <script lang="ts">
   import Chip from './Chip.svelte';
+  import MarkdownToggle from './MarkdownToggle.svelte';
   import SessionLog from './SessionLog.svelte';
+  import { md } from '../lib/markdown.ts';
+  import { renderable } from '../lib/md-view.ts';
+  import { mdView } from '../lib/md-view.svelte.ts';
   import { ago } from '../lib/util.ts';
   import { threadItems, type ThreadAction, type ThreadFrom, type ThreadOpening, type ThreadStatus } from '../lib/thread.ts';
   import type { ForgeRequest, Job } from '../lib/types.ts';
@@ -56,7 +61,10 @@
 
 <div class="flex flex-col gap-5">
   <section class="flex flex-col gap-2" aria-labelledby="thread-conversation-{job.id}">
-    <h3 id="thread-conversation-{job.id}" class="label callout">{$t('thread.conversation')}</h3>
+    <div class="flex items-center justify-between gap-2">
+      <h3 id="thread-conversation-{job.id}" class="label callout">{$t('thread.conversation')}</h3>
+      {#if items.length}<MarkdownToggle surface="thread" />{/if}
+    </div>
     {#if items.length}
       <ol class="flex flex-col gap-2">
         {#each items as m (m.id)}
@@ -65,8 +73,16 @@
             <div class="caption flex flex-wrap items-center gap-x-2 gap-y-1">
               <span class="font-medium text-fg">{who[m.from]}</span><span class="text-fg">{actionText(m.action)}</span>{#if m.at}<span class="text-muted">{ago(m.at)}</span>{/if}<span class="flex-1"></span>{#if m.status}<Chip tone={TONE[m.status]} text={statusText[m.status]} />{/if}
             </div>
-            {#if m.text}<p class="text-sm whitespace-pre-wrap break-words">{m.text}</p>{/if}
-            {#if m.result}<div class="border-l border-line-strong pl-2.5 text-sm text-muted whitespace-pre-wrap break-words"><span class="text-xs font-medium text-fg">{who.forge}</span> {m.result}</div>{/if}
+            {#if m.text}
+              {#if renderable(m.text, mdView.thread)}<div class="prose compact break-words">{@html md(m.text)}</div>{:else}<p class="text-sm whitespace-pre-wrap break-words">{m.text}</p>{/if}
+            {/if}
+            {#if m.result}
+              {#if renderable(m.result, mdView.thread)}
+                <div class="border-l border-line-strong pl-2.5 text-muted"><div class="text-xs font-medium text-fg">{who.forge}</div><div class="prose compact break-words">{@html md(m.result)}</div></div>
+              {:else}
+                <div class="border-l border-line-strong pl-2.5 text-sm text-muted whitespace-pre-wrap break-words"><span class="text-xs font-medium text-fg">{who.forge}</span> {m.result}</div>
+              {/if}
+            {/if}
           </li>
         {/each}
       </ol>

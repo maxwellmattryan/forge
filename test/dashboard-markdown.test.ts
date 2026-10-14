@@ -97,3 +97,23 @@ test('U+E000 in input is dropped', () => {
   assert.equal(inline(' https://a.b'), ` <a href="https://a.b"${A}>https://a.b</a>`);
   assert.equal(inline('[x](https://u.v)'), `<a href="https://u.v"${A}>x</a>`);
 });
+
+test('hostile HTML in session prose is escaped, markdown still renders', () => {
+  const html = md('<script>alert(1)</script><img src=x onerror=alert(2)>\n**b**');
+  assert.ok(html.includes('&lt;script&gt;'), html);
+  assert.ok(html.includes('<strong>b</strong>'), html);
+  assert.ok(!html.includes('<img'), html);
+  assert.ok(!html.includes('<script'), html);
+  assertStructure(html);
+});
+
+test('md memo returns identical output across eviction', () => {
+  const first = '# Report\n- **done**\n```\n<b>x</b>\n```';
+  const once = md(first);
+  assert.equal(md(first), once, 'a hit returns the cached string');
+  // Far more distinct inputs than the memo holds, so the first one is evicted and parsed again.
+  for (let i = 0; i < 2000; i++) assert.equal(md(`line ${i} *em*`), `<p>line ${i} <em>em</em></p>`);
+  assert.equal(md(first), once, 'an evicted input renders the same again');
+  assert.equal(md(null), md(''), 'null and undefined key as the empty string');
+  assert.equal(md(undefined), '');
+});
