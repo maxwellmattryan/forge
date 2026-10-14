@@ -175,7 +175,7 @@ evals:
 dashboard:
   port: 7400
 daemon:
-  enabled: false
+  enabled: true
   command: claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode dontAsk --allowedTools {allowedTools}
   allowedTools:
     - Agent
