@@ -24,6 +24,9 @@ export const VIEWS = [
 ] as const;
 export type ViewId = (typeof VIEWS)[number]['id'];
 
+/** The view's 1-based position in the sidebar, for the title block's SHEET cell; unknown ids read as the first view. */
+export const viewIndex = (view: string): number => Math.max(0, VIEWS.findIndex((v) => v.id === view)) + 1;
+
 // ---------- chips and cards ----------
 
 export function stateTone(job: JobLike): Tone {

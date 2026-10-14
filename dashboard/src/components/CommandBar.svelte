@@ -1,5 +1,5 @@
 <!-- The command bar (Cmd/Ctrl-K): a modal ARIA combobox that starts a job from free text or sends a /forge-style command.
-     A centred card at md and up, a full-width sheet at the top below. lib/command.ts holds the grammar and mapping. -->
+     A centred sheet at md and up, a full-width sheet at the top below. lib/command.ts holds the grammar and mapping. -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import Icon from './Icon.svelte';
@@ -178,8 +178,9 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop; Escape closes the dialog from the keyboard) -->
-<div class="fixed inset-0 z-45 flex items-start justify-center bg-black/50 md:p-6 md:pt-[12vh]" onmousedown={backdropDown} onclick={backdrop}>
-  <div bind:this={dialog} role="dialog" aria-modal="true" aria-label={$t('command.title')} tabindex="-1" class="flex flex-col w-full min-w-0 max-h-[85vh] bg-bg border-b border-line shadow-2xl md:max-w-2xl md:rounded-xl md:border overflow-hidden" onkeydown={trap}>
+<div class="fixed inset-0 z-45 flex items-start justify-center backdrop md:p-6 md:pt-[12vh]" onmousedown={backdropDown} onclick={backdrop}>
+  <div bind:this={dialog} role="dialog" aria-modal="true" aria-label={$t('command.title')} tabindex="-1" class="sheet ticks solid flex flex-col w-full min-w-0 max-h-[85vh] shadow-(--shadow-dialog) md:max-w-[672px]" onkeydown={trap}>
+    <span class="tk"></span>
     <div class="flex items-center gap-2 border-b border-line px-3">
       <Icon name="command" class="shrink-0 text-muted" />
       <input
@@ -200,7 +201,7 @@
         onkeydown={inputKey}
         oninput={() => (error = null)}
       />
-      <button class="btn size-11 justify-center p-0 shrink-0 md:hidden" aria-label={$t('command.close')} onclick={onclose}><Icon name="close" /></button>
+      <button class="btn icon touch shrink-0 md:hidden" aria-label={$t('command.close')} onclick={onclose}><Icon name="close" /></button>
     </div>
     <!-- svelte-ignore a11y_click_events_have_key_events (options are chosen from the keyboard through the combobox: arrows, Tab and Enter) -->
     <ul id="command-list" role="listbox" aria-label={$t('command.suggestions')} class="flex-1 min-h-0 overflow-y-auto p-1.5 {options.length ? '' : 'hidden'}">
@@ -209,14 +210,14 @@
           id={optionId(i)}
           role="option"
           aria-selected={i === active}
-          class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm cursor-pointer {i === active ? 'bg-raised text-fg shadow-[inset_3px_0_0_var(--accent)]' : 'text-muted'}"
+          class="flex items-center gap-3 px-3 py-2 text-sm cursor-pointer {i === active ? 'bg-raised text-fg shadow-[inset_3px_0_0_var(--ink)]' : 'text-muted'}"
           onmousemove={() => (active = i)}
           onclick={() => activate(o)}
         >
           {#if o.kind === 'run-job'}
-            <Icon name="command" class="shrink-0 text-accent" /><span class="font-medium text-fg shrink-0">{$t('command.start')}</span><span class="flex min-w-0 flex-col"><span class="truncate">{text.trim()}</span>{#if o.verbLike}<span class="text-xs text-muted">{$t('command.verbLike')}</span>{/if}</span>
+            <Icon name="command" class="shrink-0 text-ink" /><span class="font-medium text-fg shrink-0">{$t('command.start')}</span><span class="flex min-w-0 flex-col"><span class="truncate">{text.trim()}</span>{#if o.verbLike}<span class="text-xs text-muted">{$t('command.verbLike')}</span>{/if}</span>
           {:else if o.kind === 'run-command'}
-            <Icon name="command" class="shrink-0 text-accent" /><span class="font-medium text-fg shrink-0">{$t('command.send')}</span><span class="truncate min-w-0 font-mono">{text.trim()}</span>
+            <Icon name="command" class="shrink-0 text-ink" /><span class="font-medium text-fg shrink-0">{$t('command.send')}</span><span class="truncate min-w-0 font-mono">{text.trim()}</span>
           {:else if o.kind === 'verb'}
             <span class="font-mono text-fg shrink-0 w-16">{o.verb}</span><span class="truncate min-w-0">{hints[o.verb]}</span>
           {:else if o.kind === 'job'}
@@ -238,7 +239,7 @@
     {/if}
     {#if error}<div role="alert" class="border-t border-line bg-panel px-4 py-2 text-sm text-bad">{error}</div>{/if}
     <div class="flex items-center justify-end gap-2 border-t border-line px-4 py-2.5">
-      <button class="btn btn-primary" disabled={pending || !canRun} onclick={submit}>{pending ? $t('command.working') : isFree ? $t('command.start') : canRun ? $t('command.send') : $t('command.run')}</button>
+      <button class="btn primary" disabled={pending || !canRun} onclick={submit}>{pending ? $t('command.working') : isFree ? $t('command.start') : canRun ? $t('command.send') : $t('command.run')}</button>
     </div>
   </div>
 </div>

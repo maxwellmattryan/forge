@@ -172,7 +172,7 @@ test('dist index keeps token meta and theme bootstrap, loads only local hashed a
 
 // Applied only from JS expressions, or custom utilities/classes: the likeliest to be missed.
 const DYNAMIC_CLASSES =
-  'bg-ok/15 text-ok bg-bad/15 text-bad bg-warn/15 text-warn bg-info/15 text-info bg-accent/15 text-accent bg-raised text-muted bg-ok bg-warn bg-bad bg-muted border-warn/50 border-accent/60 border-accent border-transparent text-fg hover:text-fg translate-x-full hidden card chip btn btn-primary nav-item active kpi kpi-label kpi-value tbl prose-md ember-bar brand-rule';
+  'bg-ok/15 text-ok bg-bad/15 text-bad bg-warn/15 text-warn bg-info/15 text-info bg-accent/15 text-accent bg-raised text-muted bg-ok bg-warn bg-bad bg-muted border-warn/50 border-accent/60 border-accent text-fg hover:text-fg translate-x-full hidden card chip btn btn-primary nav-item active sel opacity-70 hollow kpi kpi-label kpi-value tbl prose-md ember-bar brand-rule';
 
 test('compiled CSS covers dynamically applied and custom classes', () => {
   const css = [...manifestFiles()].filter((f) => f.endsWith('.css')).map((f) => fs.readFileSync(path.join(DIST, f), 'utf8')).join('\n');

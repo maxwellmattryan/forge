@@ -5,11 +5,18 @@
     "brand": "Forge",
     "tagline": "software factory",
     "repo": "repo",
-    "sessions": {
-      "one": "{count} session active",
-      "other": "{count} sessions active"
+    "dwg": "DWG · {view}",
+    "tblock": {
+      "drawnBy": "DRAWN BY",
+      "drawnByValue": "forge",
+      "sessions": "SESSIONS",
+      "sessionsValue": "{count} active",
+      "rev": "REV",
+      "revValue": "v{version}",
+      "api": "API",
+      "sheet": "SHEET",
+      "sheetValue": "{view} · {index} of {total}"
     },
-    "version": "Forge v{version} · api {api}",
     "noConfig": "This repo has no .forge/config.yml yet. Run /forge init."
   },
   "common": {
@@ -21,7 +28,8 @@
     "model": "Model",
     "lens": "Lens",
     "job": "Job",
-    "rounds": "Rounds"
+    "rounds": "Rounds",
+    "rev": "REV"
   },
   "nav": {
     "pipeline": "Pipeline",
@@ -271,6 +279,7 @@
   "settings": {
     "open": "Settings",
     "title": "Settings",
+    "sheet": "Sheet S-01",
     "close": "Close settings",
     "discard": "Discard unsaved changes?",
     "loading": "Loading settings…",

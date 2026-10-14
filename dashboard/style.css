@@ -403,6 +403,8 @@
   & .ic { width: 18px; height: 18px; }
   & .lbl { display: flex; align-items: center; gap: 10px; }
   &.row { flex-direction: row; gap: 4px; }
+  /* Row items keep their natural width: the column rule above stretches them to 100%. */
+  &.row a, &.row button { width: auto; flex: none; }
 }
 
 /* ---------- inputs ---------- */
