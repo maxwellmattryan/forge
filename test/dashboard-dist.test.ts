@@ -140,13 +140,15 @@ test('build-stamp hashes notice source, lockfile and dist edits', () => {
   }
 });
 
-// The theme bootstrap must run before the stylesheet so there is no flash of the wrong theme.
+// The appearance bootstrap (theme, grid, paper) must run before the stylesheet so there is no flash of the wrong look.
 const THEME_SCRIPT = `<script>
       try {
         const saved = localStorage.getItem('forge.theme');
         const light = matchMedia('(prefers-color-scheme: light)').matches;
         document.documentElement.dataset.theme =
           saved === 'cyanotype' || saved === 'dark' ? 'cyanotype' : saved === 'vellum' || saved === 'light' ? 'vellum' : light ? 'vellum' : 'cyanotype';
+        document.documentElement.dataset.grid = localStorage.getItem('forge.grid') === 'off' ? 'off' : 'on';
+        document.documentElement.dataset.paper = localStorage.getItem('forge.paper') === 'off' ? 'off' : 'on';
       } catch {}
     </script>`;
 
@@ -172,7 +174,7 @@ test('dist index keeps token meta and theme bootstrap, loads only local hashed a
 
 // Applied only from JS expressions, or custom utilities/classes: the likeliest to be missed.
 const DYNAMIC_CLASSES =
-  'ok bad warn info ink muted live rev chip btn primary sel redline sheet ticks clickable dashed crosshatch hatch track fill tbl kpi label callout prose dot hollow active opacity-70 translate-x-full hidden text-fg hover:text-fg text-ok text-bad text-muted';
+  'ok bad warn info ink muted live rev chip btn primary sel redline sheet ticks clickable dashed crosshatch hatch track fill tbl kpi label callout prose dot hollow active bg-bg translate-x-full hidden text-fg hover:text-fg text-ok text-bad text-muted';
 
 test('compiled CSS covers dynamically applied and custom classes', () => {
   const css = [...manifestFiles()].filter((f) => f.endsWith('.css')).map((f) => fs.readFileSync(path.join(DIST, f), 'utf8')).join('\n');

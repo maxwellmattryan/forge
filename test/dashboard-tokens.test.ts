@@ -236,3 +236,51 @@ test('chip tones meet 4.5:1 on bg, panel and raised', () => {
     }
   }
 });
+
+// The sidebar and the phone strip darken the ground (App.svelte); the active nav item lays --raised
+// over that. Measured in job 5: black at 8% put vellum --muted at 4.47:1, so vellum uses 5%.
+const SIDEBAR_SHADE: Record<string, Rgba> = { cyanotype: [0, 0, 0, 0.08], vellum: [0, 0, 0, 0.05] };
+
+test('sidebar ground and link hover keep text at 4.5:1', () => {
+  const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
+  const themes: Record<string, Map<string, string>> = { cyanotype: scope(design, SCOPES[0]), vellum: scope(design, SCOPES[1]) };
+  for (const [theme, vars] of Object.entries(themes)) {
+    const color = (k: string): Rgba => {
+      const c = parseColor(vars.get(`--${k}`) ?? '');
+      assert.ok(c, `${theme} --${k} is a colour`);
+      return c;
+    };
+    const ground = over(SIDEBAR_SHADE[theme], color('bg'));
+    const active = over(color('raised'), ground);
+    const at = (k: string, surface: Rgba) => contrast(color(k), surface);
+    // Labels, the repo line and inactive nav counts are --muted on the darkened ground.
+    assert.ok(at('muted', ground) >= 4.5, `${theme} --muted on the sidebar is ${at('muted', ground).toFixed(2)}:1`);
+    // The active item's label and its count are --fg on --raised (Nav.svelte drops `muted` when on);
+    // the Inbox tag sits on a --bg fill there.
+    for (const s of [ground, active]) assert.ok(at('fg', s) >= 4.5, `${theme} --fg on the sidebar is ${at('fg', s).toFixed(2)}:1`);
+    assert.ok(at('redline', color('bg')) >= 4.5, `${theme} the active Inbox tag is ${at('redline', color('bg')).toFixed(2)}:1`);
+    assert.ok(at('redline', ground) >= 4.5, `${theme} an inactive Inbox tag is ${at('redline', ground).toFixed(2)}:1`);
+    // Why the active item needs those: --muted, and the tag without its fill, drop below 4.5 on vellum.
+    if (theme === 'vellum') assert.ok(at('muted', active) < 4.5 && at('redline', active) < 4.5, 'the measurement that motivates the Nav fills');
+  }
+  // On the cyanotype sidebar a muted count stays readable on --raised too.
+  const cyan = themes.cyanotype;
+  const cbg = parseColor(cyan.get('--bg') ?? '') as Rgba;
+  assert.ok(contrast(parseColor(cyan.get('--muted') ?? '') as Rgba, over(parseColor(cyan.get('--raised') ?? '') as Rgba, over(SIDEBAR_SHADE.cyanotype, cbg))) >= 4.5);
+
+  const app = fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'App.svelte'), 'utf8');
+  assert.equal(app.split('bg-black/5 dark:bg-black/8').length - 1, 2, 'the sidebar and the phone header share the shade');
+  assert.doesNotMatch(app, /(?<!dark:)bg-black\/8/, 'no theme-blind 8% shade is left');
+  const nav = fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'components', 'Nav.svelte'), 'utf8');
+  assert.match(nav, /<span class="mono num \{on \? '' : 'muted'\}">/);
+  assert.match(nav, /<span class="chip rev \{on \? 'bg-bg' : ''\}">/);
+  assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'views', 'Pipeline.svelte'), 'utf8'), /opacity-70/, 'a selected filter count is full --on-ink');
+
+  // --highlight is about 1.6:1 on vellum paper, so a hovered link turns --fg there.
+  const css = builtCss();
+  assert.match(ruleFor(css, '[data-theme=vellum] a:hover'), /color:var\(--fg\)/);
+  const vellum = themes.vellum;
+  const vbg = parseColor(vellum.get('--bg') ?? '') as Rgba;
+  assert.ok(contrast(parseColor(vellum.get('--highlight') ?? '') as Rgba, vbg) < 4.5, 'the measurement that motivates the rule');
+  assert.ok(contrast(parseColor(vellum.get('--fg') ?? '') as Rgba, vbg) >= 4.5);
+});

@@ -195,9 +195,9 @@
   {#if mode.chosen === 'auto'}<div class="text-xs text-warn">{$t('session.modes.autoWarning')}</div>{/if}
   <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
     <input class="input min-w-0 flex-1 basis-40" type="search" placeholder={$t('session.filter')} aria-label={$t('session.filter')} bind:value={filters.text} />
-    <label class="field"><input type="checkbox" bind:checked={filters.tools} />{$t('session.tools')}</label>
-    <label class="field"><input type="checkbox" bind:checked={filters.thinking} />{$t('session.thinking')}</label>
-    <label class="field"><input type="checkbox" bind:checked={filters.subagents} />{$t('session.subagents')}</label>
+    <label class="field"><input type="checkbox" class="check" bind:checked={filters.tools} />{$t('session.tools')}</label>
+    <label class="field"><input type="checkbox" class="check" bind:checked={filters.thinking} />{$t('session.thinking')}</label>
+    <label class="field"><input type="checkbox" class="check" bind:checked={filters.subagents} />{$t('session.subagents')}</label>
     <button class="btn sm {follow ? 'sel' : ''}" aria-pressed={follow ? 'true' : 'false'} onclick={jump}>{$t('session.follow')}</button>
     {#if more}<button class="btn sm" onclick={() => log.loadOlder()}>{$t('session.loadOlder')}</button>{/if}
   </div>

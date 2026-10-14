@@ -253,3 +253,39 @@ test("DepChips and the card's agents line truncate with a full-text title", () =
   assert.match(line[2], /\$t\('job\.runningAgents', \{ count: agents\.count \}\)/);
   assert.doesNotMatch(card, /running\.join\(/);
 });
+
+const unquote = (v: string | undefined) => (v ?? '').replace(/^["']|["']$/g, '');
+
+test('checkboxes are drawn and the theme seg keeps its radiogroup', () => {
+  // Every native checkbox is the drawn .check (a styled native input, so labels and keys are the browser's).
+  let boxes = 0;
+  for (const rel of svelteFiles()) {
+    for (const tag of tags(rel, read(rel)).filter((t) => t.name === 'input' && t.attrs.some((a) => a.name === 'type' && unquote(a.value) === 'checkbox'))) {
+      boxes++;
+      const cls = tag.attrs.find((a) => a.name === 'class')?.value;
+      assert.ok(cls && classTokens(cls).includes('check'), `${rel}: a checkbox without the check class (${cls ?? 'no class'})`);
+    }
+  }
+  assert.ok(boxes >= 8, `checked ${boxes} checkboxes`);
+
+  const rel = 'components/settings/GeneralTab.svelte';
+  const general = read(rel);
+  const all = tags(rel, general);
+  const groups = all.filter((t) => t.attrs.some((a) => a.name === 'role' && unquote(a.value) === 'radiogroup'));
+  assert.equal(groups.length, 1, 'one radiogroup');
+  assert.equal(unquote(groups[0].attrs.find((a) => a.name === 'aria-labelledby')?.value), 'settings-theme-label');
+  assert.ok(all.some((t) => t.attrs.some((a) => a.name === 'id' && unquote(a.value) === 'settings-theme-label')), 'the group label exists');
+  const radios = all.filter((t) => t.name === 'input' && t.attrs.some((a) => a.name === 'type' && unquote(a.value) === 'radio'));
+  assert.equal(radios.length, 1, 'one radio, repeated over THEME_CHOICES');
+  assert.equal(unquote(radios[0].attrs.find((a) => a.name === 'name')?.value), 'settings-theme', "Settings.svelte's focus trap groups radios by name");
+  assert.match(general, /\{#each THEME_CHOICES as c \(c\)\}/);
+  // The theme and the drawings go through lib/theme.ts, which owns <html>'s attributes and their prefs.
+  assert.match(general, /setDrawing\('grid', /);
+  assert.match(general, /setDrawing\('paper', /);
+  assert.match(general, /chooseTheme\(c\)/);
+  for (const f of [...svelteFiles(), ...tsFiles()].filter((f) => f !== 'lib/theme.ts')) {
+    const text = read(f);
+    assert.doesNotMatch(text, /data-(grid|paper)|dataset\.(grid|paper|theme)|dataset\[/, `${f} sets appearance attributes outside lib/theme.ts`);
+    assert.doesNotMatch(text, /pref\.set\('(grid|paper|theme)'/, `${f} writes an appearance pref outside lib/theme.ts`);
+  }
+});

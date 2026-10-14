@@ -102,7 +102,13 @@ Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CONFIG.md](docs
 
 ## Dashboard
 
-`forge dash` serves a single-page dashboard bound to localhost:
+`forge dash` serves a single-page dashboard bound to localhost, drawn like a blueprint (the cyanotype theme here; vellum is the paper one):
+
+![The Pipeline board in the cyanotype theme: jobs in Queued, Plan, Spec and Design columns, two of them redlined because they wait on a person](assets/screenshots/pipeline.png)
+
+![A job's drawer open on its Thread: two requests about the job, one answered by Forge, above the job's session log with its filters](assets/screenshots/job-drawer.png)
+
+![Settings › General: the Theme segments (Cyanotype, Vellum, System), the Grid and Paper checkboxes, the language and the settings shortcut](assets/screenshots/settings-appearance.png)
 
 - **Pipeline**: kanban by stage, or a table, filtered by active, waiting or done. Cards show progress, review verdicts per lens, PR and CI state, running agents, budget use against `pipeline.budget`, and an `after <job>` chip per dependency that opens it; the job drawer has **Resume** for a queued, failed or stalled job (disabled, naming the session, while another session still holds it), lists what a job depends on and what it blocks, plus its files, timeline, screenshots and its **Thread**: the job's own request (yours, or the issue's text for a job started from an issue), then the requests sent about the job (yours, the CLI's and Forge's hand-offs) with the session's replies, the gate's actions when the job needs you, and the job's headless session log, live, grouped by turn with a time on every line, with every tool call and its result, subagents (`forge:builder`, `forge:reviewer`, …) nested under the call that started them with their live progress (current step, tool count, tokens, elapsed) and outcome folded into that line, permission denials, hook outcomes, rate-limit status, errors, cost, filters and Start/Stop for that job's session.
 - **Command bar** (Cmd-K or Ctrl-K, or **New job or command** in the sidebar): type a request in plain words to start a job (its title is derived from the text, or give one), or a command with completion: `next [n]`, `sync`, `retro`, `continue <job> [note]` (or `resume`), `approve|revise|rework|answer|cancel <job> [note]`, `issue <ref>`. A new job's card appears at once and its drawer opens on the Thread.
@@ -111,7 +117,7 @@ Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CONFIG.md](docs
 - **Agents**: running agents, orchestrator sessions, and the roster with models and prompt hashes.
 - **Analytics**: Forge metrics plus token and cost breakdowns by role and model.
 - **Evals**: runs, side-by-side comparisons, and a Run eval button.
-- **Settings** (the gear, or press `,`): language and theme (Cyanotype or Vellum), the editable `.forge/config.yml` keys as forms saved through `forge config set`'s write path, `forge doctor` diagnostics with a copyable report, and the versions Forge is running. Settings are locked while the daemon runs, because any change to `config.yml` stops it.
+- **Settings** (the gear, or press `,`): **General** holds this browser's preferences, never stored in `config.yml`: Theme (`cyanotype`, `vellum`, or `system` to follow the OS, live; the old `dark` and `light` still read as cyanotype and vellum), **Grid** (the 8px drawing grid) and **Paper** (the fibre texture and the corner falloff), plus language and the `,` shortcut. The dashboard also honours your OS's reduced-motion setting: nothing slides or fades. The rest of Settings is the editable `.forge/config.yml` keys as forms saved through `forge config set`'s write path, `forge doctor` diagnostics with a copyable report, and the versions Forge is running. Settings are locked while the daemon runs, because any change to `config.yml` stops it.
 
 The dashboard is a Svelte 5 + TypeScript single-page app. Its built output (`dashboard/dist/`) is committed, so installing the plugin builds and installs nothing.
 

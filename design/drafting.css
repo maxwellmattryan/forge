@@ -7,6 +7,9 @@ body { margin: 0; font-size: 14px; line-height: 20px; }
 *, *::before, *::after { box-sizing: border-box; }
 ::selection { background: var(--highlight); color: #14355f; }
 a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; } a:hover { color: var(--highlight); }
+[data-theme="vellum"] a:hover { color: var(--fg); } /* highlight is only a fill on vellum; as text it is ~1.8:1 */
+:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
 button, input, select, textarea { font: inherit; color: inherit; }
 h1, h2, h3, p { margin: 0; }
 
@@ -15,6 +18,9 @@ h1, h2, h3, p { margin: 0; }
 .ground::before { content: ""; position: absolute; inset: 0; background-image: var(--paper); background-size: 512px 512px; opacity: var(--paper-opacity); mix-blend-mode: var(--paper-blend); pointer-events: none; z-index: 1; }
 .ground.falloff::after { content: ""; position: absolute; inset: 0; background: radial-gradient(120% 100% at 50% 40%, transparent 50%, var(--fall) 100%); pointer-events: none; z-index: 1; }
 .ground > * { position: relative; z-index: 2; }
+/* Appearance prefs (Settings › General › Grid, Paper): off drops the grid, or the fibre and the falloff. */
+html[data-grid="off"] .ground { background-image: none; }
+html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::after { display: none; }
 .plain { background: var(--bg); }
 
 /* ---------- hatching ---------- */
@@ -66,6 +72,7 @@ h1, h2, h3, p { margin: 0; }
 .btn.touch { min-width: 44px; min-height: 44px; justify-content: center; }
 .btn .ic { width: 15px; height: 15px; }
 .seg { display: flex; } .seg .btn { margin-right: -1px; } .seg .btn:last-child { margin-right: 0; }
+.seg label:has(input:focus-visible) { outline: 1px dashed var(--line-strong); outline-offset: 3px; z-index: 1; } /* a radio seg: the visually hidden input focuses, its label draws the ring */
 
 /* ---------- chips: outlined annotations ---------- */
 .chip { font-family: var(--font-mono); font-weight: 500; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; line-height: 14px; padding: 2px 6px; border: 1px solid currentColor; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; background: transparent; }
@@ -97,8 +104,9 @@ button.chip[aria-expanded="true"] { outline: 1px dashed currentColor; outline-of
 .input:disabled, .input.disabled { opacity: .4; border-style: dashed; cursor: not-allowed; }
 textarea.input { font-family: var(--font-sans); font-size: 14px; resize: vertical; }
 select.input { appearance: none; padding-right: 28px; background-image: linear-gradient(45deg, transparent 50%, var(--fg) 50%), linear-gradient(135deg, var(--fg) 50%, transparent 50%); background-position: calc(100% - 15px) 14px, calc(100% - 10px) 14px; background-size: 5px 5px; background-repeat: no-repeat; }
-.check { width: 14px; height: 14px; border: 1px solid var(--line-strong); display: inline-block; position: relative; flex: none; }
-.check.on::after { content: ""; position: absolute; inset: 2px; background: var(--ink); }
+.check { width: 14px; height: 14px; border: 1px solid var(--line-strong); display: inline-block; position: relative; flex: none; appearance: none; margin: 0; background: transparent; cursor: pointer; vertical-align: middle; } /* also drawn on a native <input type="checkbox" class="check"> */
+.check:disabled { opacity: .4; border-style: dashed; cursor: not-allowed; }
+.check.on::after, .check:checked::after { content: ""; position: absolute; inset: 2px; background: var(--ink); }
 .radio { width: 14px; height: 14px; border: 1px solid var(--line-strong); border-radius: 50%; display: inline-block; position: relative; flex: none; }
 .radio.on::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--ink); }
 .field { display: flex; align-items: center; gap: 8px; font-size: 13px; }
