@@ -53,7 +53,7 @@
             {@const s = r.summary ?? {}}
             <tr>
               <td><div class="font-mono text-xs">{r.id}</div><div class="text-[11px] text-muted">{r.label ?? ''}</div></td>
-              <td><Chip tone={r.status === 'done' ? 'ok' : 'accent'} text={r.status} /></td>
+              <td><Chip tone={r.status === 'done' ? 'ok' : 'live'} text={r.status} /></td>
               <td class="font-mono text-[11px] text-muted">{r.configHash}<br />v{r.forgeVersion}</td>
               <td class="tabular-nums">{pct(s.checkPassRate)}</td>
               <td class="tabular-nums">{pct(s.avgJudgeScore)}</td>

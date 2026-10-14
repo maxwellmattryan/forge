@@ -7,6 +7,7 @@ import * as V from '../dashboard/src/lib/view.ts';
 import { WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
 import { cleanRef, parseCandidates, threadAction, threadItems, threadOpening } from '../dashboard/src/lib/thread.ts';
 import { dur, tokensShort } from '../dashboard/src/lib/util.ts';
+import { STATES, WAITING_ON } from '../dashboard/src/lib/types.ts';
 
 // Per waiting kind: the card's buttons, its textarea placeholder (null: no textarea) and its "Read …" link.
 const INBOX = {"spec-approval":{"actions":[{"label":"Approve spec","type":"approve","primary":true,"needsNote":false},{"label":"Request changes","type":"revise-spec","primary":false,"needsNote":true}],"note":"Optional note for the agents…","doc":"spec.md"},"split-approval":{"actions":[{"label":"Approve split","type":"approve","primary":true,"needsNote":false},{"label":"Keep as one job","type":"revise-spec","primary":false,"needsNote":false}],"note":"Optional note for the agents…","doc":"plan.md"},"input":{"actions":[{"label":"Send answer","type":"answer","primary":true,"needsNote":true}],"note":"Your answer…","doc":"questions.md"},"escalation":{"actions":[{"label":"Approve","type":"approve","primary":true,"needsNote":false},{"label":"Rework","type":"rework","primary":false,"needsNote":true},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":"Optional note for the agents…","doc":"decision.md"},"rounds-exhausted":{"actions":[{"label":"Another round","type":"rework","primary":false,"needsNote":true},{"label":"Accept as is","type":"approve","primary":false,"needsNote":false},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":"Optional note for the agents…","doc":"review/round-2"},"budget":{"actions":[{"label":"Approve & continue","type":"approve","primary":true,"needsNote":true},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":"Optional: new limits, e.g. usd=20 tokens=2000000","doc":null},"infra":{"actions":[{"label":"Steps done, resume","type":"resume","primary":true,"needsNote":false}],"note":null,"doc":"runbook.md"},"conflicts":{"actions":[{"label":"Fix conflicts now","type":"rework","primary":true,"needsNote":false,"text":"Resolve merge conflicts with the base branch"},{"label":"Leave for later","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null},"external":{"actions":[{"label":"Unblocked, resume","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null},"failed":{"actions":[{"label":"Retry","type":"resume","primary":false,"needsNote":false},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":null,"doc":null},"pr-review":{"actions":[{"label":"Resume","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null},"mystery":{"actions":[{"label":"Resume","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null}};
@@ -52,8 +53,19 @@ test('requests: the exact POST bodies of main\'s buttons', () => {
 });
 
 test('chips: state, verdict and PR tones and text', () => {
-  const tones: any = [['done', null, 'ok'], ['failed', null, 'bad'], ['cancelled', null, 'muted'], ['waiting', 'pr-review', 'info'], ['waiting', 'input', 'warn'], ['blocked', null, 'bad'], ['running', null, 'accent'], ['queued', null, 'muted']];
-  for (const [state, waitingOn, tone] of tones) assert.equal(V.stateTone({ state, waitingOn }), tone, `${state}/${waitingOn}`);
+  const TONE: Record<string, string> = { running: 'live', failed: 'bad', blocked: 'bad', done: 'ok', queued: 'muted', cancelled: 'muted' };
+  let checked = 0;
+  for (const state of STATES)
+    for (const waitingOn of state === 'waiting' ? WAITING_ON : [null]) {
+      const j: any = { state, waitingOn };
+      const want = state === 'waiting' ? (waitingOn === 'pr-review' ? 'info' : 'rev') : TONE[state];
+      const got = V.stateTone(j);
+      assert.equal(got, want, `${state}/${waitingOn}`);
+      assert.equal(got === 'rev', V.needsHuman(j), `${state}/${waitingOn}: rev exactly when a human is needed`);
+      assert.notEqual(got, 'accent');
+      checked++;
+    }
+  assert.equal(checked, STATES.length - 1 + WAITING_ON.length);
   assert.equal(V.stateText({ state: 'waiting', waitingOn: 'input' }), 'Question for you');
   assert.equal(V.stateText({ state: 'waiting', waitingOn: 'later' } as any), 'later', 'unknown wait reasons show raw');
   assert.equal(V.stateText({ state: 'running' }), 'running');
@@ -61,7 +73,7 @@ test('chips: state, verdict and PR tones and text', () => {
   // main's prChip, as [input, toneChip(tone, text)] with toneChip stubbed to `[tone:text]`.
   const prs: any = [
     [null, ''], [{}, ''], [{ number: 5, state: 'MERGED' }, '[ok:#5]'], [{ number: 5, state: 'CLOSED', conflicts: true }, '[muted:#5 · conflicts]'],
-    [{ number: 5, state: 'OPEN', conflicts: true }, '[bad:#5 · conflicts]'], [{ number: 5, state: 'OPEN', checks: { state: 'failing' } }, '[bad:#5 · failing]'],
+    [{ number: 5, state: 'OPEN', conflicts: true }, '[warn:#5 · conflicts]'], [{ number: 5, state: 'OPEN', checks: { state: 'failing' } }, '[bad:#5 · failing]'],
     [{ number: 5, state: 'OPEN', checks: { state: 'pending' } }, '[warn:#5 · pending]'], [{ number: 5, state: 'OPEN', checks: { state: 'passing' } }, '[info:#5 · passing]'],
     [{ number: 5, state: 'OPEN', checks: { state: 'none' } }, '[info:#5]'], [{ number: 5, state: 'OPEN' }, '[info:#5]'],
   ];

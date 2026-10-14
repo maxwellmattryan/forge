@@ -27,14 +27,16 @@ export const dur = (ms: number | null | undefined): string => {
   const s = Math.round((ms % 60000) / 1000);
   return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m ${s}s`;
 };
-/** Chip colours per tone, shared by toneChip and chips that need extra attributes. */
+/** The .chip modifier per tone (outline and text in the tone colour, no fill), shared by toneChip and chips that need extra attributes. */
 export const TONE_CLASS: Record<string, string> = {
-  ok: 'bg-ok/15 text-ok',
-  bad: 'bg-bad/15 text-bad',
-  warn: 'bg-warn/15 text-warn',
-  info: 'bg-info/15 text-info',
-  accent: 'bg-accent/15 text-accent',
-  muted: 'bg-raised text-muted',
+  ok: 'ok',
+  bad: 'bad',
+  warn: 'warn',
+  info: 'info',
+  ink: 'ink',
+  muted: 'muted',
+  live: 'live',
+  rev: 'rev',
 };
 export const toneChip = (tone: string, text: unknown): string => `<span class="chip ${TONE_CLASS[tone]}">${esc(text)}</span>`;
 /** fetch that throws the response text (or status text) on a non-2xx and parses JSON bodies. */

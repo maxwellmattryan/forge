@@ -111,7 +111,10 @@ test('budgetPanel: shows counted / limit, the ack and the bar tone', () => {
   const html = budgetPanel(j, { tokens: 1000 });
   assert.ok(html.includes(`${(800).toLocaleString()} / ${(1000).toLocaleString()}`));
   assert.ok(html.includes('acknowledged'));
-  assert.ok(html.includes('bg-warn') && html.includes('width:80%'));
+  assert.ok(html.includes('<div class="fill warn" style="width:80%">'), 'a track > fill bar in the row tone');
+  assert.ok(html.startsWith('<div class="sheet ticks p-4 flex flex-col gap-2"><span class="tk"></span>'), 'a ticked sheet with its tk first');
+  assert.ok(html.includes('<h3 class="h section">Budget</h3>'));
+  assert.ok(html.includes('<div class="col-span-2 md:col-span-1 track">'));
   assert.ok(budgetPanel(job(), {}).includes('unlimited'));
   assert.ok(budgetPanel(job(), { changedLines: 10 }).includes('not measured yet'));
 });

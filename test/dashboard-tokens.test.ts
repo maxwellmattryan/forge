@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { TONE_CLASS } from '../dashboard/src/lib/util.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dashboard', 'dist');
@@ -168,8 +169,9 @@ const over = ([r, g, b, a]: Rgba, [R, G, B]: Rgba): Rgba => [r * a + R * (1 - a)
 // › Colour). On vellum --highlight is only ever a fill under dark text, never text itself.
 const TEXT = ['fg', 'muted', 'ink', 'redline', 'ok', 'warn', 'bad', 'info'];
 const TEXT_BY_THEME: Record<string, string[]> = { cyanotype: [...TEXT, 'highlight'], vellum: TEXT };
-// Measured failures on the translucent surfaces; job 5's accessibility pass resolves them.
-const EXCEPTIONS = ['cyanotype redline/panel', 'cyanotype bad/panel', 'cyanotype redline/raised', 'cyanotype bad/raised', 'vellum redline/raised', 'vellum bad/raised', 'vellum warn/raised'];
+// Empty: job 4 lifted --redline/--bad (both themes) and vellum --warn until every text token
+// cleared 4.5:1 on the translucent surfaces too. A new failure is a token to fix, not an entry here.
+const EXCEPTIONS: string[] = [];
 
 test('text tokens meet 4.5:1 except the documented exceptions', () => {
   const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
@@ -194,4 +196,43 @@ test('text tokens meet 4.5:1 except the documented exceptions', () => {
     assert.ok(onHighlight >= 4.5, `${theme} #14355f on --highlight is ${onHighlight.toFixed(2)}:1`);
   }
   assert.deepEqual(failing.sort(), [...EXCEPTIONS].sort(), 'the exception list equals the measured failures');
+});
+
+/** The bodies of every rule whose selector list names exactly `selector` (the build merges equal rules). */
+function ruleFor(css: string, selector: string): string {
+  const out: string[] = [];
+  for (const m of css.matchAll(/([^{}]*)\{([^{}]*)\}/g)) if (m[1].split(',').some((x) => x.trim() === selector)) out.push(m[2]);
+  return out.join(';');
+}
+
+// The token each chip tone writes its text in (.chip.<tone> in dashboard/style.css).
+const CHIP_TOKEN: Record<string, string> = { ok: 'ok', bad: 'bad', warn: 'warn', info: 'info', ink: 'ink', muted: 'muted', live: 'ink', rev: 'redline' };
+
+test('chip tones meet 4.5:1 on bg, panel and raised', () => {
+  const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
+  const css = builtCss();
+  const themes: Record<string, Map<string, string>> = { cyanotype: scope(design, SCOPES[0]), vellum: scope(design, SCOPES[1]) };
+  for (const tone of Object.keys(TONE_CLASS)) {
+    const token = CHIP_TOKEN[tone];
+    assert.ok(token, `TONE_CLASS.${tone} has a token mapping in this test`);
+    assert.match(ruleFor(css, `.chip.${TONE_CLASS[tone]}`), new RegExp(`color:var\\(--${token}\\)`), `.chip.${TONE_CLASS[tone]} colours its text with --${token}`);
+    for (const [theme, vars] of Object.entries(themes)) {
+      const color = (k: string): Rgba => {
+        const c = parseColor(vars.get(`--${k}`) ?? '');
+        assert.ok(c, `${theme} --${k} is a colour`);
+        return c;
+      };
+      const bg = color('bg');
+      const surfaces: Record<string, Rgba> = { bg, panel: over(color('panel'), bg), raised: over(color('raised'), bg) };
+      // The live chip's hatch (1px of --line-soft in every 5px) averages out to a fifth of its alpha.
+      if (tone === 'live') {
+        const [r, g, b, a] = color('line-soft');
+        for (const k of Object.keys(surfaces)) surfaces[`${k}+hatch`] = over([r, g, b, a * 0.2], surfaces[k]);
+      }
+      for (const [k, surface] of Object.entries(surfaces)) {
+        const ratio = contrast(color(token), surface);
+        assert.ok(ratio >= 4.5, `${theme} chip ${tone} (--${token}) on ${k} is ${ratio.toFixed(2)}:1`);
+      }
+    }
+  }
 });

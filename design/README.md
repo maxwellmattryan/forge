@@ -21,7 +21,7 @@ Two themes, the same drawing. Cyanotype is the primary: white line on a Prussian
 - `ink` is full-strength drawing ink: the primary button, the selected segment, the progress fill, the active rule, the live-agent dot. `on-ink` is the text on it. There is no second accent.
 - `redline` is markup red and means *you*: `REV` tags, the dashed red outline of a job waiting on a person, banners, the settings-tab error dot. `highlight` is marker yellow and means *changed*: unsaved dots, held and waiting counts, `::selection`; on vellum it is only ever a fill under dark text.
 - Status hues each carry one meaning and always a word: `ok` success, `warn` attention, `bad` failure, `info` neutral kind. Chips are the hue as text in its own outline, never a tint fill; `ok` and `bad` differ in lightness as well as hue in both themes.
-- Contrast: every text colour clears 4.5:1 on `bg`, `panel` and `raised` in both themes (the weakest are `redline`/`bad` at 4.7:1 on cyanotype and `warn` at 4.6:1 on vellum); `dim` is the stated exception. Lines are decorative and never the sole carrier of meaning: the thing a line encloses always has a word or a chip.
+- Contrast: every text colour clears 4.5:1 on `bg`, `panel` and `raised` in both themes (the weakest are `redline`/`bad` at 4.6:1 on cyanotype `raised` and `ok` at 4.65:1 on vellum `raised`; `warn` there is 4.7:1); `dim` is the stated exception. Lines are decorative and never the sole carrier of meaning: the thing a line encloses always has a word or a chip.
 
 ## Typography
 

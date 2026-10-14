@@ -6,7 +6,7 @@ import { WAIT_LABEL } from './labels.ts';
 
 /** job.json can be hand-edited, so helpers read fields defensively despite the types. */
 type JobLike = Partial<Job> & { progress?: Progress };
-type Tone = 'ok' | 'bad' | 'warn' | 'info' | 'accent' | 'muted';
+type Tone = 'ok' | 'bad' | 'warn' | 'info' | 'muted' | 'live' | 'rev';
 
 const obj = (v: unknown): Record<string, any> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : {});
 const s = (v: unknown): string => String(v ?? '');
@@ -33,9 +33,10 @@ export function stateTone(job: JobLike): Tone {
   if (job.state === 'done') return 'ok';
   if (job.state === 'failed') return 'bad';
   if (job.state === 'cancelled') return 'muted';
-  if (job.state === 'waiting') return job.waitingOn === 'pr-review' ? 'info' : 'warn';
+  // Every wait but pr-review needs a human (needsHuman), which the Drafting system marks in redline.
+  if (job.state === 'waiting') return job.waitingOn === 'pr-review' ? 'info' : 'rev';
   if (job.state === 'blocked') return 'bad';
-  if (job.state === 'running') return 'accent';
+  if (job.state === 'running') return 'live';
   return 'muted';
 }
 
@@ -46,7 +47,7 @@ export const verdictTone = (v: string | null | undefined): Tone => (v === 'PASS'
 
 export function prChipModel(pr: Partial<JobPr> | null | undefined): { tone: Tone; text: string } | null {
   if (!pr?.number) return null;
-  const tone: Tone = pr.state === 'MERGED' ? 'ok' : pr.state === 'CLOSED' ? 'muted' : pr.conflicts ? 'bad' : pr.checks?.state === 'failing' ? 'bad' : pr.checks?.state === 'pending' ? 'warn' : 'info';
+  const tone: Tone = pr.state === 'MERGED' ? 'ok' : pr.state === 'CLOSED' ? 'muted' : pr.conflicts ? 'warn' : pr.checks?.state === 'failing' ? 'bad' : pr.checks?.state === 'pending' ? 'warn' : 'info';
   const extra = pr.conflicts ? ' · conflicts' : pr.checks?.state && pr.checks.state !== 'none' ? ` · ${pr.checks.state}` : '';
   return { tone, text: `#${pr.number}${extra}` };
 }

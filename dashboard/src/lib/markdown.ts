@@ -16,7 +16,7 @@ export function inline(s: string): string {
       t = t.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (m, pre: string, url: string) => `${pre}<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`);
       t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/(^|\W)\*([^*\s][^*]*)\*/g, '$1<em>$2</em>').replace(/(^|\W)_([^_\s][^_]*)_(?=\W|$)/g, '$1<em>$2</em>');
       t = t.replace(/\[(blocker|major|minor|nit)\]/gi, (m, sev: string) => {
-        const tone = ({ blocker: 'bg-bad/15 text-bad', major: 'bg-warn/15 text-warn', minor: 'bg-info/15 text-info', nit: 'bg-raised text-muted' } as Record<string, string>)[sev.toLowerCase()];
+        const tone = ({ blocker: 'bad', major: 'warn', minor: 'info', nit: 'muted' } as Record<string, string>)[sev.toLowerCase()];
         return `<span class="chip ${tone}">${sev.toLowerCase()}</span>`;
       });
       return t;

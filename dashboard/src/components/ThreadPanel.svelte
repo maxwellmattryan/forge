@@ -21,7 +21,7 @@
 
   const who = $derived<Record<ThreadFrom, string>>({ you: $t('thread.you'), cli: $t('thread.cli'), forge: $t('thread.forge'), tracker: $t('thread.tracker') });
   const statusText = $derived<Record<ThreadStatus, string>>({ queued: $t('thread.queued'), handling: $t('thread.handling'), done: $t('thread.done'), rejected: $t('thread.rejected') });
-  const TONE: Record<ThreadStatus, string> = { queued: 'muted', handling: 'accent', done: 'ok', rejected: 'bad' };
+  const TONE: Record<ThreadStatus, string> = { queued: 'muted', handling: 'live', done: 'ok', rejected: 'bad' };
 
   /** What a message asks for, in words: never the raw request type. */
   function actionText(a: ThreadAction): string {

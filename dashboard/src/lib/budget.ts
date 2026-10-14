@@ -7,7 +7,6 @@ import type { BudgetKey, BudgetLimits, Job } from './types.ts';
 export const BUDGET_KEYS = ['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries'] as const satisfies readonly BudgetKey[];
 export const BUDGET_LABELS = { tokens: 'Tokens', usd: 'Est. cost', minutes: 'Agent minutes', changedLines: 'Changed lines', verifyRetries: 'Verify retries' };
 const WARN_AT = 0.8;
-const BAR = { ok: 'bg-ok', warn: 'bg-warn', bad: 'bg-bad' };
 
 /** Hand-edited job.json can hold anything; only finite numbers are rendered. */
 const fin = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -98,9 +97,9 @@ function rowHtml(r: BudgetRow): string {
   else value = `${esc(fmt(r.key, r.counted))} / ${esc(fmt(r.key, r.limit))}${r.ackBase > 0 ? muted(`· ${fmt(r.key, r.ackBase)} acknowledged`) : ''}`;
   const width = r.tone && r.fraction !== null ? Math.round(Math.min(Math.max(r.fraction, 0), 1) * 100) : null;
   const bar = r.tone && width !== null
-    ? `<div class="col-span-2 md:col-span-1 h-1.5 rounded-full bg-raised overflow-hidden"><div class="h-full ${BAR[r.tone]}" style="width:${width}%"></div></div>`
+    ? `<div class="col-span-2 md:col-span-1 track"><div class="fill ${r.tone}" style="width:${width}%"></div></div>`
     : '<div class="hidden md:block"></div>';
-  return `<div class="grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[10rem_minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-3 gap-y-1 py-1"><div class="text-xs text-muted">${esc(r.label)}</div><div class="text-sm tabular-nums text-right md:text-left break-words ${r.tone === 'bad' ? 'text-bad' : ''}">${value}</div>${bar}</div>`;
+  return `<div class="grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[10rem_minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-3 gap-y-1 py-1"><div class="label">${esc(r.label)}</div><div class="text-sm tabular-nums text-right md:text-left break-words ${r.tone === 'bad' ? 'text-bad' : ''}">${value}</div>${bar}</div>`;
 }
 
 export function budgetPanel(job: JobInput, configBudget: BudgetLimits | null | undefined, { compact = false }: { compact?: boolean } = {}): string {
@@ -110,5 +109,5 @@ export function budgetPanel(job: JobInput, configBudget: BudgetLimits | null | u
   const checked = Object.keys(lc).length
     ? `checked ${Number.isFinite(Date.parse(lc.at)) ? ago(lc.at) : '—'} · ${lc.checkpoint ?? '—'}`
     : 'not checked yet';
-  return `<div class="card p-4 flex flex-col gap-2"><div class="flex flex-wrap items-center justify-between gap-2"><h3 class="text-sm font-semibold">Budget</h3><span class="text-[11px] text-muted">${esc(checked)}</span></div>${rows}</div>`;
+  return `<div class="sheet ticks p-4 flex flex-col gap-2"><span class="tk"></span><div class="flex flex-wrap items-center justify-between gap-2"><h3 class="h section">Budget</h3><span class="label">${esc(checked)}</span></div>${rows}</div>`;
 }

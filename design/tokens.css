@@ -15,11 +15,11 @@
   --dim: #7f9fc9;
   --ink: #ffffff;
   --on-ink: #15427a;
-  --redline: #ff9382;
+  --redline: #ffb5a8;
   --highlight: #ffd861;
   --ok: #86e3bd;
   --warn: #ffd861;
-  --bad: #ff9382;
+  --bad: #ffb5a8;
   --info: #9ad6ff;
   --shadow-primary: 3px 3px 0 0 rgba(226,238,255,0.28);
   --shadow-dialog: 8px 8px 0 0 rgba(255,255,255,0.08);
@@ -41,11 +41,11 @@
   --dim: #8597b3;
   --ink: #1f4e8c;
   --on-ink: #f6f2e8;
-  --redline: #c02d1b;
+  --redline: #b02817;
   --highlight: #e8b400;
   --ok: #1a6e50;
-  --warn: #8a6300;
-  --bad: #c02d1b;
+  --warn: #7d5a00;
+  --bad: #b02817;
   --info: #2b5f9b;
   --shadow-primary: 3px 3px 0 0 rgba(31,78,140,0.3);
   --shadow-dialog: 8px 8px 0 0 rgba(31,78,140,0.12);

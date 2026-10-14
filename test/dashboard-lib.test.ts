@@ -57,7 +57,7 @@ test('md, inline and safeUrl render exactly as before', () => {
       '<ul><li class="list-none -ml-5"><span class="text-muted mr-1">☑</span>done</li><li class="list-none -ml-5"><span class="text-muted mr-1">☐</span>open</li><li class="list-none -ml-5"><span class="text-muted mr-1">◐</span>half</li><li>plain</li></ul>',
     ],
     ['1. one\n2. two', '<ol><li>one</li><li>two</li></ol>'],
-    ['- [blocker] bad <b>\n- [NIT] tiny', '<ul><li><span class="chip bg-bad/15 text-bad">blocker</span> bad &lt;b&gt;</li><li><span class="chip bg-raised text-muted">nit</span> tiny</li></ul>'],
+    ['- [blocker] bad <b>\n- [NIT] tiny', '<ul><li><span class="chip bad">blocker</span> bad &lt;b&gt;</li><li><span class="chip muted">nit</span> tiny</li></ul>'],
     ['| a | b |\n|---|---|\n| <i> | `c` |', '<div class="overflow-x-auto"><table><tr><th>a</th><th>b</th></tr><tr><td>&lt;i&gt;</td><td><code>c</code></td></tr></table></div>'],
     ['> quoted <q>\n> more', '<blockquote>quoted &lt;q&gt; more</blockquote>'],
     ['---', '<hr class="border-line my-3">'],
