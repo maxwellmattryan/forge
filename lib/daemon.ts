@@ -40,6 +40,9 @@ export interface DaemonOptions {
   env?: NodeJS.ProcessEnv;
   openLog?: (file: string) => LogSink;
   loadConfig?: (root: string, opts?: { text?: string | null }) => { config: Config };
+  /** Backoff after a failed turn: first wait, and the cap it doubles up to. */
+  retryMinMs?: number;
+  retryMaxMs?: number;
 }
 
 /** DaemonOptions with every default filled in. */
@@ -49,6 +52,8 @@ export interface SessionOptions {
   graceMs: number;
   maxLineBytes: number;
   rotateBytes: number;
+  retryMinMs: number;
+  retryMaxMs: number;
   env: NodeJS.ProcessEnv;
   openLog: (file: string) => LogSink;
   readConfig: (root: string, opts?: { text?: string | null }) => { config: Config };
@@ -61,6 +66,8 @@ export function sessionOptions(opts: DaemonOptions = {}): SessionOptions {
     graceMs: opts.graceMs ?? 5000,
     maxLineBytes: opts.maxLineBytes ?? 8 * 1024 * 1024,
     rotateBytes: opts.rotateBytes ?? 20 * 1024 * 1024,
+    retryMinMs: opts.retryMinMs ?? 60_000,
+    retryMaxMs: opts.retryMaxMs ?? 60 * 60_000,
     env: opts.env ?? process.env,
     // fd-based, so a symlink planted as <scope>.log is refused rather than followed.
     openLog: opts.openLog ?? ((file: string) => fs.createWriteStream(file, { fd: openAppend(file) })),
@@ -159,6 +166,30 @@ const RING_SIZE = 200;
 const RING_LINE_BYTES = 64 * 1024;
 const STDERR_CAP = 4096;
 const MAX_FAILURES = 3;
+/**
+ * A failed turn whose message says the account is out of quota, not that the request is broken:
+ * it is retried for as long as it takes, never counted as a strike. Claude Code's wording for the
+ * subscription windows and the API's 400 for a spend cap ("usage limits"), 429 and 529 all match.
+ */
+const LIMIT_TEXT = /usage limit|rate limit|limit reached|hit your limit|too many requests|\b429\b|overloaded|\b529\b/i;
+
+/** The part of a `rate_limit_event` the supervisor uses: whether the last request was refused, and when the window resets. */
+export interface RateLimitInfo {
+  status: string;
+  /** ms since the epoch */
+  resetsAt: number | null;
+}
+
+/** Reads `rate_limit_info` from a `rate_limit_event` line tolerantly; the shape is Claude Code's, not a contract. */
+export function parseRateLimit(info: unknown): RateLimitInfo | null {
+  if (!info || typeof info !== 'object') return null;
+  const r = info as Record<string, unknown>;
+  if (typeof r.status !== 'string') return null;
+  const raw = typeof r.resetsAt === 'number' && Number.isFinite(r.resetsAt) && r.resetsAt > 0 ? r.resetsAt : null;
+  // Observed as epoch seconds; accept milliseconds too, in case that changes.
+  const resetsAt = raw === null ? null : raw < 1e12 ? Math.round(raw * 1000) : Math.round(raw);
+  return { status: r.status, resetsAt };
+}
 
 /**
  * Git config pinned for the session and everything it runs (subagents, `forge`, verify commands).
@@ -476,9 +507,17 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   let held: 'budget' | null = null;
   let waiting = false;
   let failures = 0;
-  /** Request ids a finished turn has already covered; pruned to ids still pending. */
+  /** Request ids a working turn has already covered; pruned to ids still pending. */
   const committed = new Set<string>();
   let inFlight: string[] = [];
+  /** No turn is written before this time (ms): set by a failed turn, cleared by a working one or a human start. */
+  let retryAt: number | null = null;
+  /** Failed turns in a row (any kind): the backoff exponent. */
+  let turnFailures = 0;
+  /** Failed turns in a row that were not a quota limit: at MAX_FAILURES the session stops wanting itself. */
+  let strikes = 0;
+  /** The last rate_limit_event of the turn in flight. */
+  let rateLimit: RateLimitInfo | null = null;
   let sink: LogSink | null = null;
   /** Offset of the next line: logBase plus its byte position in <scope>.log. */
   let pos = info.logBase;
@@ -727,25 +766,27 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       logEvent('session-changed', { from, to: ev.session_id });
       changed();
     }
+    if (ev.type === 'rate_limit_event') rateLimit = parseRateLimit(ev.rate_limit_info) ?? rateLimit;
     if (ev.type === 'result') onResult(proc, ev);
   }
 
   function onResult(proc: DaemonChild, ev: Record<string, any>): void {
     proc._forge.result = true;
-    proc._forge.committed.push(...inFlight);
     failures = 0;
-    // A working turn clears errors from earlier exits and failed turns; a refusal or fatal error stays.
+    // A result clears errors from earlier exits and failed turns; a refusal or fatal error stays.
     if (lastError && /^(daemon exited|last turn failed)/.test(lastError)) lastError = null;
-    // claude reports an API failure (an expired login, say) as a result with is_error, often
-    // with subtype "success": the session is alive but no request is making progress.
-    if (ev.is_error === true) {
-      const why = typeof ev.result === 'string' && ev.result.trim() ? ev.result.trim() : String(ev.subtype ?? 'error');
-      lastError = `last turn failed: ${why.slice(0, 300)}`;
-    }
-    for (const id of inFlight) committed.add(id);
+    const ids = inFlight;
     inFlight = [];
     lastResultAt = now();
     if (status === 'busy') status = 'idle';
+    if (ev.is_error === true) failedTurn(proc, ev, ids);
+    else {
+      proc._forge.committed.push(...ids);
+      for (const id of ids) committed.add(id);
+      turnFailures = 0;
+      strikes = 0;
+      retryAt = null;
+    }
     logEvent('result', { turns });
     changed();
     if (status === 'idle') {
@@ -754,6 +795,46 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       } catch {}
     }
     ctx.onResult(scope);
+  }
+
+  /**
+   * claude reports an API failure (an expired login, an exhausted quota) as a result with is_error,
+   * often with subtype "success": the session is alive but no request made progress. Nothing is
+   * committed, so the requests stay fresh, and the session waits before its next turn: until the
+   * rate-limit window resets when claude said which one refused it, otherwise with a doubling
+   * backoff. A limit is retried for as long as it takes; any other error strikes out at MAX_FAILURES.
+   */
+  function failedTurn(proc: DaemonChild, ev: Record<string, any>, ids: string[]): void {
+    const why = (typeof ev.result === 'string' && ev.result.trim() ? ev.result.trim() : String(ev.subtype ?? 'error')).slice(0, 300);
+    const meta = proc._forge;
+    const t = Date.now();
+    if (meta.resume && !meta.init) {
+      // A lost transcript on --resume prints this result and exits 1; onExit then starts over and
+      // clears the wait. The wait only guards against a child that stays up without ever initialising.
+      retryAt = t + o.retryMinMs;
+      lastError = `last turn failed: ${why}`;
+      return;
+    }
+    const rejected = rateLimit?.status === 'rejected';
+    const reset = rejected && rateLimit!.resetsAt !== null && rateLimit!.resetsAt > t ? rateLimit!.resetsAt : null;
+    const limit = rejected || LIMIT_TEXT.test(why);
+    turnFailures++;
+    if (!limit) strikes++;
+    if (!limit && strikes >= MAX_FAILURES) {
+      wanted = false;
+      retryAt = null;
+      lastError = `daemon stopped after ${MAX_FAILURES} failed turns: ${why}`;
+      logEvent('error', { message: lastError });
+      // The child would otherwise sit idle in a slot other jobs could use.
+      void kill('stop', true, 'failed-turns');
+      return;
+    }
+    // A limit with no reset time (a spend cap's 400, say) starts its backoff higher: retrying sooner can't help.
+    const backoff = Math.min(o.retryMaxMs, o.retryMinMs * (limit ? 5 : 1) * 2 ** (turnFailures - 1));
+    retryAt = reset ?? t + backoff;
+    const at = new Date(retryAt).toISOString();
+    lastError = `last turn failed: ${why}; retry at ${at}`;
+    logEvent('retry', { at, reason: limit ? 'limit' : 'error', attempt: turnFailures, requests: ids.length });
   }
 
   function onExit(proc: DaemonChild, code: number | null, signal: string | null): void {
@@ -779,6 +860,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       // no turn actually ran.
       for (const id of meta.committed) committed.delete(id);
       if (lastError?.startsWith('last turn failed')) lastError = null;
+      retryAt = null;
       logEvent('resume-failed', { sessionId: info.sessionId, code });
       info = { ...withSessionId(info, crypto.randomUUID()), resumable: false };
       persist();
@@ -852,6 +934,8 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     child!.stdin!.write(TURN_LINE);
     status = 'busy';
     inFlight = ids;
+    rateLimit = null;
+    retryAt = null;
     turns++;
     info = { ...info, lastTurnAt: now() };
     persist();
@@ -899,6 +983,8 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
         logEvent('held', { held: next });
         changed();
       }
+      // Backing off after a failed turn: the requests stay fresh, the turn just waits.
+      if (retryAt !== null && Date.now() < retryAt) return { eligible, fresh: false };
       return { eligible, fresh: eligible.some((id) => !committed.has(id)) };
     },
     spawn: spawnChild,
@@ -920,6 +1006,9 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     reset() {
       wanted = true;
       failures = 0;
+      turnFailures = 0;
+      strikes = 0;
+      retryAt = null;
       lastError = null;
       changed();
     },
