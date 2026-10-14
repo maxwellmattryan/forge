@@ -120,7 +120,7 @@ review:
       model: opus
       when: lib/server.ts, lib/pr.ts, lib/trackers/*, hooks/*, anything that ingests tracker/PR/web text, runs shell commands, or touches the dashboard's Host/Origin/token checks
     - name: docs
-      when: CLI commands or their JSON output, config keys, orchestrator behaviour in skills/forge/**, or anything README.md and docs/*.md describe
+      when: "the diff adds, removes or renames a CLI command, flag or JSON output field, a config key or an /api shape, or changes orchestrator behaviour in skills/forge/**"
     - name: ui
       when: "user-visible dashboard changes: dashboard/src/**, dashboard/style.css, dashboard/index.html (check light and dark themes and a phone-width viewport)"
     - name: accessibility
