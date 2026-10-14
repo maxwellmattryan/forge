@@ -14,7 +14,7 @@ import { createAndLink, linkJob, markNoIssue, suggestLink } from '../tracker-lin
 import { loadTracker } from '../trackers/index.ts';
 import { importClaudeCodeTranscript } from '../usage.ts';
 import { ForgeError, coerce, getPath, run } from '../util.ts';
-import { bodyFrom, list, req } from './args.ts';
+import { bodyFrom, list, num, oneOf, req, requireJob, str } from './args.ts';
 import { mirrorToTracker, startFromRef } from './tracker.ts';
 import type { AgentUsage, Config, Job } from '../types.ts';
 
@@ -31,6 +31,8 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
   const id = rest[0];
   switch (sub) {
     case 'new': {
+      // Read before createJob, so a bare --session fails instead of claiming as session "true".
+      const session = str(flags.session, '--session');
       const job = createJob(root, config, {
         title: req(flags.title, '--title'),
         ref: flags.ref,
@@ -44,7 +46,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         services: list(flags.services),
       });
       // A split child starts unowned: the session claims each child only when it runs it.
-      if (flags.session && !flags.parent) claimJob(root, job.id, String(flags.session), false, daemonClaimOpts(root, job.id));
+      if (session && !flags.parent) claimJob(root, job.id, session, false, daemonClaimOpts(root, job.id));
       return { id: job.id, branch: job.branch, dir: path.relative(root, jobDir(root, job.id)) };
     }
     case 'link': {
@@ -73,6 +75,8 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     case 'get':
       return getPath(loadJob(root, req(id, 'job id')), rest[1] ?? '') ?? null;
     case 'set': {
+      const jobId = requireJob(root, id).id;
+      const note = str(flags.note, '--note');
       const fields: Record<string, any> = {};
       for (const kv of flags.field === undefined || flags.field === true ? [] : ([] as unknown[]).concat(flags.field).map(String)) {
         const eq = kv.indexOf('=');
@@ -85,13 +89,13 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         if (key in fields && !(Array.isArray(v) && v.every((x) => typeof x === 'string'))) throw new ForgeError(`--field ${key} must be a JSON array of strings, e.g. --field '${key}=${example}'`);
       }
       // Checked before anything is written, so a bad list leaves job.json untouched.
-      if ('dependsOn' in fields) fields.dependsOn = validateDependsOn(root, req(id, 'job id'), fields.dependsOn);
-      let job = setJob(root, req(id, 'job id'), {
+      if ('dependsOn' in fields) fields.dependsOn = validateDependsOn(root, jobId, fields.dependsOn);
+      let job = setJob(root, jobId, {
         stage: flags.stage,
         state: flags.state,
         waitingOn: flags['waiting-on'] === undefined ? undefined : flags['waiting-on'] === 'none' ? null : flags['waiting-on'],
         reason: flags.reason,
-        note: flags.note,
+        note,
         fields,
       });
       if ('dependsOn' in fields) {
@@ -102,30 +106,39 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       return { id: job.id, stage: job.stage, state: job.state, waitingOn: job.waitingOn };
     }
     case 'claim': {
-      const jobId = req(id, 'job id');
-      const { job, overridden } = claimRespectingDeps(root, jobId, req(flags.session, '--session'), Boolean(flags.force), daemonClaimOpts(root, jobId));
+      const jobId = requireJob(root, id).id;
+      const { job, overridden } = claimRespectingDeps(root, jobId, req(str(flags.session, '--session'), '--session'), Boolean(flags.force), daemonClaimOpts(root, jobId));
       return { id: job.id, owner: job.owner, ...(overridden.length ? { dependenciesOverridden: overridden } : {}) };
     }
-    case 'release':
-      releaseJob(root, req(id, 'job id'));
-      return { id, released: true };
+    case 'release': {
+      const jobId = requireJob(root, id).id;
+      releaseJob(root, jobId);
+      return { id: jobId, released: true };
+    }
     case 'note':
-      logEvent(root, req(id, 'job id'), 'note', { text: rest.slice(1).join(' ') || bodyFrom(flags) });
+      logEvent(root, requireJob(root, id).id, 'note', { text: rest.slice(1).join(' ') || bodyFrom(flags) });
       return { ok: true };
     case 'human': {
-      const action = req(rest[1], 'action (approve-spec|revise-spec|approve-split|revise-split|approve|rework|answer|reject)');
-      const jobId = req(id, 'job id');
+      const jobId = requireJob(root, id).id;
+      const action = oneOf(rest[1], HUMAN_ACTIONS, 'action');
+      const note = str(flags.note, '--note');
       // A rejected split re-plans as one job; recorded before the event so step never sees one without the other.
       if (action === 'revise-split') setJob(root, jobId, { fields: { splitMode: 'never' } });
-      logEvent(root, jobId, 'human', { action, note: flags.note ?? (rest.slice(2).join(' ') || null) });
+      logEvent(root, jobId, 'human', { action, note: note ?? (rest.slice(2).join(' ') || null) });
       return { ok: true };
     }
     case 'agent': {
+      const jobId = requireJob(root, id).id;
       const phase = req(rest[1], 'start|end');
       if (!['start', 'end'].includes(phase)) throw new ForgeError('phase must be start or end');
-      // `end` stays allowed, so a stray start can still be closed.
-      if (phase === 'start') refuseInboxDrive(req(id, 'job id'));
       const role = req(flags.role, '--role');
+      // Validated before anything is written, so a bad count leaves job.json and its usage untouched.
+      const summary = str(flags.summary, '--summary');
+      const tokens = num(flags.tokens, '--tokens');
+      const toolUses = num(flags['tool-uses'], '--tool-uses');
+      const durationMs = num(flags['duration-ms'], '--duration-ms');
+      // `end` stays allowed, so a stray start can still be closed.
+      if (phase === 'start') refuseInboxDrive(jobId);
       let usage: (AgentUsage & { transcript?: string; through?: string | null }) | undefined;
       let since: string | null = null;
       let output: string | null = null;
@@ -133,30 +146,29 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       if (phase === 'start' && flags.output !== undefined) {
         if (typeof flags.output !== 'string' || !flags.output) throw new ForgeError('--output needs a path');
         // Resolved and checked before anything is written, so a refused path leaves no trace.
-        output = resolveAgentOutput(root, loadJob(root, req(id, 'job id')).id, flags.output);
-        fs.mkdirSync(path.dirname(path.join(jobDir(root, String(id)), output)), { recursive: true });
+        output = resolveAgentOutput(root, jobId, flags.output);
+        fs.mkdirSync(path.dirname(path.join(jobDir(root, jobId), output)), { recursive: true });
       }
       if (phase === 'end') {
-        const before = loadJob(root, req(id, 'job id'));
-        outputMissing = agentOutputMissing(root, before.id, role, before.agents[role], typeof flags.summary === 'string' ? flags.summary : undefined);
+        const before = loadJob(root, jobId);
+        outputMissing = agentOutputMissing(root, before.id, role, before.agents[role], summary);
         if (flags.import && flags['agent-id']) {
-          since = importCursor(loadJob(root, req(id, 'job id')), String(flags['agent-id']));
+          since = importCursor(before, String(flags['agent-id']));
           usage = importClaudeCodeTranscript(String(flags['agent-id']), { since }) ?? undefined;
         }
-        if (!usage && (flags.tokens || flags['tool-uses'] || flags['duration-ms']))
-          usage = { totalTokens: Number(flags.tokens ?? 0), toolUses: Number(flags['tool-uses'] ?? 0), durationMs: Number(flags['duration-ms'] ?? 0) };
-        if (usage && !usage.toolUses && flags['tool-uses']) usage.toolUses = Number(flags['tool-uses']);
+        if (!usage && (tokens !== undefined || toolUses !== undefined || durationMs !== undefined)) usage = { totalTokens: tokens ?? 0, toolUses: toolUses ?? 0, durationMs: durationMs ?? 0 };
+        if (usage && !usage.toolUses && toolUses) usage.toolUses = toolUses;
       }
       const job = recordAgent(
         root,
-        req(id, 'job id'),
+        jobId,
         {
           role,
           phase: phase as 'start' | 'end',
           model: flags.model ?? usage?.model ?? undefined,
           agentId: flags['agent-id'],
           status: flags.status,
-          summary: flags.summary,
+          summary,
           // The transcript's path and cursor are set to undefined, so the usage job.json records is
           // only token counts; the cursor goes to the agent record instead.
           usage: usage ? ({ ...usage, transcript: undefined, through: undefined } as AgentUsage) : undefined,
@@ -216,17 +228,18 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       return { ...v, sha };
     }
     case 'decision': {
-      const d = parseDecision(root, req(id, 'job id'));
+      const jobId = requireJob(root, id).id;
+      const d = parseDecision(root, jobId);
       if (d.decision) {
-        setJob(root, id, { fields: { decision: d.decision } });
-        logEvent(root, id, 'decision', d);
+        setJob(root, jobId, { fields: { decision: d.decision } });
+        logEvent(root, jobId, 'decision', d);
       }
       return d;
     }
     case 'budget':
       return budgetCmd(root, config, req(id, 'job id'), { set: list(flags.set), ack: Boolean(flags.ack) });
     case 'progress':
-      return progress(root, req(id, 'job id'));
+      return progress(root, requireJob(root, id).id);
     case 'paths':
       return jobPaths(root, config, loadJob(root, req(id, 'job id')));
     case 'scope':
@@ -236,7 +249,8 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     case 'step': {
       const jobId = loadJob(root, req(id, 'job id')).id;
       // The loop's heartbeat: only the owner's own step refreshes its claim, and nothing else changes.
-      if (typeof flags.session === 'string') touchJob(root, jobId, flags.session);
+      const session = str(flags.session, '--session');
+      if (session !== undefined) touchJob(root, jobId, session);
       return step(loadStepInput(root, config, jobId));
     }
     default:

@@ -9,7 +9,7 @@ import { clampLimit, publicHits, searchTracker } from '../tracker-link.ts';
 import { loadTracker } from '../trackers/index.ts';
 import { ForgeError } from '../util.ts';
 import * as wt from '../worktree.ts';
-import { bodyFrom, list, req } from './args.ts';
+import { bodyFrom, list, num, req, str } from './args.ts';
 import type { Config, Job, JobPr, Tracker, TrackerItem } from '../types.ts';
 
 /** The result is printed as JSON. */
@@ -17,8 +17,11 @@ export async function trackerCmd(root: string, config: Config, sub: string | und
   const tracker = await loadTracker(root, config);
   const ctx = { root, config };
   switch (sub) {
-    case 'list':
-      return tracker.list(ctx, { ready: Boolean(flags.ready), limit: flags.limit ? Number(flags.limit) : undefined }).map(({ body: _b, ...i }) => i);
+    case 'list': {
+      // 0 keeps meaning no limit.
+      const limit = num(flags.limit, '--limit', { integer: true });
+      return tracker.list(ctx, { ready: Boolean(flags.ready), limit: limit || undefined }).map(({ body: _b, ...i }) => i);
+    }
     case 'get':
       return tracker.get(ctx, req(rest[0], 'ref'));
     case 'claim':
@@ -71,8 +74,8 @@ function resumeQueued(root: string, session: string): Job | null {
 }
 
 /** Ready tracker items, minus those whose active job waits on dependencies (listed as `blocked`). */
-function readyItems(root: string, config: Config, tracker: Tracker, flags: Record<string, any>): { ready: TrackerItem[]; blocked: { ref: string; id: string; waitingOn: string[] }[] } {
-  const items = tracker.list({ root, config }, { ready: true, limit: Number(flags.limit ?? 20) });
+function readyItems(root: string, config: Config, tracker: Tracker, flags: Record<string, any>, limit: number): { ready: TrackerItem[]; blocked: { ref: string; id: string; waitingOn: string[] }[] } {
+  const items = tracker.list({ root, config }, { ready: true, limit });
   const blocked: { ref: string; id: string; waitingOn: string[] }[] = [];
   // --force skips nothing. Otherwise an item is blocked when the active job it would resume
   // (the same match startFromRef uses) has unmet dependencies.
@@ -91,21 +94,25 @@ function readyItems(root: string, config: Config, tracker: Tracker, flags: Recor
 export async function nextCmd(root: string, config: Config, flags: Record<string, any>): Promise<unknown> {
   // A session asking for work first resumes a queued job nobody drives, before it creates one.
   // --force never applies here: it would take a live owner's job or a blocked one.
-  const session = flags.claim && typeof flags.session === 'string' && flags.session ? flags.session : null;
+  // Validated before resumeQueued claims anything: a bad --limit after a claim would only reach the
+  // tracker-error catch below.
+  const limit = num(flags.limit, '--limit', { integer: true }) ?? 20;
+  const sessionFlag = str(flags.session, '--session');
+  const session = flags.claim && sessionFlag ? sessionFlag : null;
   const resumed = session ? resumeQueued(root, session) : null;
   if (resumed) {
     let blocked: { ref: string; id: string; waitingOn: string[] }[] = [];
     // The job is already claimed, so a tracker hiccup only costs the `blocked` report; it is
     // recorded on the job, as mirrorToTracker records its own.
     try {
-      blocked = readyItems(root, config, await loadTracker(root, config), flags).blocked;
+      blocked = readyItems(root, config, await loadTracker(root, config), flags, limit).blocked;
     } catch (e) {
       logEvent(root, resumed.id, 'tracker-error', { error: (e as Error).message.slice(0, 300) });
     }
     return { id: resumed.id, ref: resumed.source?.ref ?? null, title: resumed.title, branch: resumed.branch, stage: resumed.stage, state: resumed.state, resumed: true, ...(blocked.length ? { blocked } : {}) };
   }
   const tracker = await loadTracker(root, config);
-  const { ready, blocked } = readyItems(root, config, tracker, flags);
+  const { ready, blocked } = readyItems(root, config, tracker, flags, limit);
   const extra = blocked.length ? { blocked } : {};
   const item = ready[0];
   if (!item) return { item: null, ...extra };
@@ -122,6 +129,7 @@ export async function startFromRef(
   flags: Record<string, any>,
   opts: { splitMode?: 'never' } = {},
 ): Promise<{ id: string; existing: true; stage: Job['stage']; state: Job['state'] } | { id: string; ref: string; title: string; branch: Job['branch'] }> {
+  const session = str(flags.session, '--session');
   const ctx = { root, config };
   const item = tracker.get(ctx, ref);
   if (!item) throw new ForgeError(`no ${tracker.name} item "${ref}"`);
@@ -134,7 +142,7 @@ export async function startFromRef(
     setJob(root, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` });
     throw new ForgeError(`could not claim ${ref}: ${claim.reason}`, 3);
   }
-  if (flags.session) claimJob(root, job.id, String(flags.session), false, daemonClaimOpts(root, job.id));
+  if (session) claimJob(root, job.id, session, false, daemonClaimOpts(root, job.id));
   return { id: job.id, ref: item.ref, title: item.title, branch: job.branch };
 }
 
