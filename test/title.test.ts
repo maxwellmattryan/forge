@@ -31,11 +31,11 @@ test('deriveTitle examples', () => {
     const t = deriveTitle(input);
     if (t) assert.ok(t.length <= 60 && t.split(' ').length <= 8, t);
   }
-  assert.equal(deriveTitle('Fix\u0007 the bell'), 'Fix the bell');
+  assert.equal(deriveTitle('Fix\u0007 the\u2028bell'), 'Fix the bell');
 });
 
 test('normalizeTitle', () => {
-  assert.equal(normalizeTitle('  My   title\n\twith\u0000 junk here '), 'My title with junk here');
+  assert.equal(normalizeTitle('  My   title\n\twith\u0000 junk\u2028here '), 'My title with junk here');
   assert.equal(normalizeTitle('a'.repeat(200))!.length, 120);
   assert.equal(normalizeTitle(' \n\t '), null);
   assert.equal(normalizeTitle(''), null);
