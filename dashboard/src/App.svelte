@@ -16,7 +16,9 @@
   import Analytics from './views/Analytics.svelte';
   import Evals from './views/Evals.svelte';
   import { S, closeDrawer, loadView, refresh, route } from './lib/app.svelte.ts';
-  import { VIEWS, activeSessions, viewIndex, type ViewId } from './lib/view.ts';
+  import { startClock } from './lib/clock.svelte.ts';
+  import { VIEWS, viewIndex, type ViewId } from './lib/view.ts';
+  import { activeSessions } from './lib/live.ts';
   import { t } from './lib/locale.ts';
   import { settingsKey } from './lib/settings.ts';
   import { commandKey, shortcutLabel } from './lib/command.ts';
@@ -29,7 +31,7 @@
   // Focus goes back here when a modal closes.
   let opener: HTMLElement | null = null;
   const shortcut = shortcutLabel(typeof navigator === 'undefined' ? '' : navigator.platform);
-  const sessions = $derived(activeSessions(S.data?.jobs ?? [], Date.now()));
+  const active = $derived(activeSessions(S.data?.daemons));
   // The same map Nav.svelte builds, for the DWG line and the title block's SHEET cell.
   const labels = $derived<Record<ViewId, string>>({
     pipeline: $t('nav.pipeline'),
@@ -95,7 +97,9 @@
     refresh();
     const poll = setInterval(() => document.visibilityState === 'visible' && refresh(), 2000);
     const views = setInterval(() => document.visibilityState === 'visible' && ['analytics', 'evals', 'agents'].includes(S.view) && loadView(), 15000);
+    const stopClock = startClock();
     return () => {
+      stopClock();
       clearInterval(poll);
       clearInterval(views);
     };
@@ -115,7 +119,7 @@
       <div class="nav"><button id="settings-open" aria-haspopup="dialog" aria-keyshortcuts="," onclick={openSettings}><span class="lbl"><Icon name="settings" />{$t('settings.open')}</span></button></div>
       <div class="tblock">
         <div><span class="k">{$t('app.tblock.drawnBy')}</span>{$t('app.tblock.drawnByValue')}</div>
-        <div id="footer-sessions"><span class="k">{$t('app.tblock.sessions')}</span><span class="dot {sessions ? 'ok' : 'hollow'} mr-1 align-middle"></span>{$t('app.tblock.sessionsValue', { count: sessions })}</div>
+        <div id="footer-sessions"><span class="k">{$t('app.tblock.sessions')}</span><span class="dot {active.count ? 'ok' : 'hollow'} mr-1 align-middle"></span>{$t('app.tblock.sessionsValue', { count: active.count })}</div>
         <div id="footer-version"><span class="k">{$t('app.tblock.rev')}</span>{S.data ? $t('app.tblock.revValue', { version: S.data.forgeVersion }) : '—'}</div>
         <div><span class="k">{$t('app.tblock.api')}</span>{S.data ? S.data.apiVersion : '—'}</div>
         <div class="wide"><span class="k">{$t('app.tblock.sheet')}</span>{$t('app.tblock.sheetValue', { view: viewLabel, index: viewIndex(S.view), total: VIEWS.length })}</div>

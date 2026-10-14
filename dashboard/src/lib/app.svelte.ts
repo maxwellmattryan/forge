@@ -23,6 +23,7 @@ import type {
 import { pref } from './prefs.ts';
 import { toast } from './toast.svelte.ts';
 import { VIEWS, buildRequest, pickDrawerFile, queuedMessage, statsQuery } from './view.ts';
+import { addFlashes, changedJobs } from './live.ts';
 import type { RequestBody, RequestInput, ViewId } from './view.ts';
 
 /** The backlog, or the error a forced refresh hit (that reply has no tracker). */
@@ -60,6 +61,8 @@ class AppState {
   compare = new CompareState();
   drawer = new DrawerState();
   drawerView = $state.raw<DrawerView>(null);
+  /** Job id → when its card's change flash ends (epoch ms). */
+  flashes = $state.raw<Record<string, number>>({});
 }
 
 export const S = new AppState();
@@ -68,6 +71,9 @@ const TOKEN = (): string => document.querySelector<HTMLMetaElement>('meta[name="
 let token: string | null = null;
 /** Read once, as the old app.js did at load. */
 export const forgeToken = (): string => (token ??= TOKEN());
+
+/** The last poll's job signatures; null until the first poll, so the page's first load flashes nothing. */
+let sigs: Record<string, string> | null = null;
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -79,6 +85,10 @@ export async function refresh(): Promise<void> {
     S.error = data.apiVersion > API_VERSION ? 'This data was written by a newer Forge. Restart `forge dash` after updating the plugin.' : null;
     const key = JSON.stringify({ ...data, now: undefined });
     if (key !== S.dataKey) {
+      // Only a poll whose data changed gets here, so an identical poll never flashes.
+      const r = changedJobs(sigs, data.jobs);
+      sigs = r.sigs;
+      S.flashes = addFlashes(S.flashes, r.changed, Date.now());
       S.data = data;
       S.dataKey = key;
     }

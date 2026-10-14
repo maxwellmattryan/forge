@@ -106,6 +106,20 @@ export function threadItems(requests: ForgeRequest[] | null | undefined, opening
   return [...out, ...rest];
 }
 
+/** What a reader has seen of one message: it changes when the message's status changes or its result arrives. */
+export const threadMark = (item: Pick<ThreadItem, 'id' | 'status' | 'result'>): string => `${item.id}|${item.status ?? '-'}|${item.result ? 'r' : ''}`;
+export const threadMarks = (items: Pick<ThreadItem, 'id' | 'status' | 'result'>[]): string[] => items.map(threadMark);
+
+/**
+ * The Thread tab's unread count: marks not in `seen`, so a new request, a new result and a status change each count once
+ * per message (a status change and a result together still count one). Nothing is unread before a baseline exists.
+ */
+export function unreadCount(marks: string[], seen: string[] | null): number {
+  if (!seen) return 0;
+  const read = new Set(seen);
+  return marks.filter((m) => !read.has(m)).length;
+}
+
 /** lib/issue-link.ts REF, duplicated: the dashboard never imports engine modules. */
 export const REF = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const MAX_TITLE = 200;

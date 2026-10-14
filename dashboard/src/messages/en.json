@@ -84,6 +84,14 @@
     "stopAll": "Stop the daemon (all sessions)",
     "modeTitle": "Permission mode: {mode}"
   },
+  "live": {
+    "working": "working",
+    "asking": "needs permission",
+    "waiting": "waiting",
+    "idle": "idle",
+    "line": "{state} · {ago}",
+    "columnWorking": "{count} working"
+  },
   "permission": {
     "heading": {
       "one": "{count} tool call waiting for permission",
