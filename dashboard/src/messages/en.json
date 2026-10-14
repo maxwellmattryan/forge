@@ -144,6 +144,7 @@
     "read": "Read {doc} →",
     "empty": "Nothing is waiting on you.",
     "prs": "Open PRs awaiting review",
+    "parks": "Waiting on dependencies",
     "threads": "{count} unresolved thread(s)",
     "noThreads": "no open threads",
     "behind": " · {count} behind",
@@ -168,6 +169,14 @@
       "board": "Board",
       "table": "Table"
     },
+    "group": {
+      "queued": "Queued",
+      "plan": "Plan",
+      "build": "Build",
+      "ship": "Ship",
+      "done": "Done"
+    },
+    "stepper": "Stage {n} of {total}: {stage}",
     "empty": "No jobs here yet. Start one with",
     "cmdFeature": "/forge <feature>",
     "or": "or",

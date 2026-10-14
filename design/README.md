@@ -45,12 +45,12 @@ Three families, all Google-hosted (no files): Space Grotesk for headings, IBM Pl
 
 - An 8px grid with a 64px major. `space-2` is the resting gap inside a sheet; `space-3` the padding of a dense card and the horizontal inset of buttons and cells; `space-4` the padding of a standard sheet; columns and the sidebar are multiples of `space-16`.
 - The shell is a `size-sidebar` (236px) column on a slightly darkened ground with a `line` right edge, then a main column capped at `size-content-max` with `space-4` gutters on phones and `space-8` at md and up. Below md the sidebar becomes a horizontal strip of nav items with 44px (`space-11`) command and settings targets.
-- The pipeline board scrolls horizontally in `size-board-column` (276px) dashed columns; the table layout is a ticked sheet around `.tbl`.
+- The pipeline board is four dashed group columns (Queued, Plan, Build, Ship) in a grid of 1 column below `lg`, 2 at `lg` and 4 at `xl`, so it never scrolls sideways; at `xl` each column scrolls inside itself. Done and cancelled jobs sit in a full-width Done section below the grid when the filter holds any. The table layout is a ticked sheet around `.tbl`.
 - The drawer slides in from the right at `size-drawer-max` with `shadow-drawer` (a stacked sheet to its left); the settings dialog (`size-dialog`) and the command bar (672px) are centred solid sheets with `shadow-dialog`, full-width sheets below md.
 
 ## Radii, borders and shadows
 
-- `radius-0` everywhere. The two exceptions are drawn, not styled: the `REV` tag is a 10px-rounded callout (`radius-tag`) and dots are circles (`radius-dot`).
+- `radius-0` everywhere; dots are circles (`radius-dot`).
 - Every border is 1px. Hover never thickens a line; it strengthens its colour (`line` → `line-strong`) or hatches the face.
 - Shadows are hard offsets, never blur: `shadow-primary` (3px) under the primary button, `shadow-dialog` (8px) behind dialogs, `shadow-drawer` (-8px) beside the drawer. Each reads as a second sheet behind the first.
 

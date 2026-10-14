@@ -134,7 +134,6 @@
   --space-11: 44px;
   --space-16: 64px;
   --radius-0: 0px;
-  --radius-tag: 10px;
   --radius-dot: 9999px;
   --size-icon: 18px;
   --size-mark: 36px;
@@ -384,7 +383,7 @@
   &.ink { color: var(--ink); }
   &.muted { color: var(--muted); border-style: dashed; }
   &.live { color: var(--ink); background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 5px); }
-  &.rev { color: var(--redline); border-color: var(--redline); border-radius: var(--radius-tag); padding: 2px 8px; }
+  &.rev { color: var(--redline); border-color: var(--redline); }
   &.hl { color: #14355f; background: var(--highlight); border-color: var(--highlight); }
   &:is(button) { cursor: pointer; }
   &:is(button):hover { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 5px); }

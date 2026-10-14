@@ -15,3 +15,5 @@ export const WAIT_LABEL: Record<WaitingOn, string> = {
   external: 'External dependency',
   budget: 'Budget exceeded',
 };
+/** A dependency park's state chip: an external wait the engine set itself, so it needs no human. */
+export const PARK_LABEL = 'Dependencies';

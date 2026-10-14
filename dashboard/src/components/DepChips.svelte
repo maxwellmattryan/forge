@@ -17,7 +17,7 @@
 </script>
 
 {#if links.length}
-  <div class="flex flex-wrap gap-1">
+  <div class="basis-full min-w-0 flex flex-wrap gap-1">
     {#each links as l, i (i)}
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (a span, as on main: the card is a button already, and a button can't nest one) -->
       <span title={depChipTitle(l)} class="chip {TONE_CLASS[l.tone]} max-w-full min-w-0 cursor-pointer hover:underline" onclick={(e) => open(e, l.id)}><span class="truncate">{$t('deps.after', { label: depLabel(l) })}</span></span>

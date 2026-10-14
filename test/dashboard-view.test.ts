@@ -4,10 +4,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as V from '../dashboard/src/lib/view.ts';
-import { WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
+import { PARK_LABEL, WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
 import { cleanRef, parseCandidates, threadAction, threadItems, threadOpening } from '../dashboard/src/lib/thread.ts';
 import { dur, tokensShort } from '../dashboard/src/lib/util.ts';
-import { STATES, WAITING_ON } from '../dashboard/src/lib/types.ts';
+import { STAGES, STATES, WAITING_ON } from '../dashboard/src/lib/types.ts';
+import { DEP_REASON } from '../lib/deps.ts';
 
 // Per waiting kind: the card's buttons, its textarea placeholder (null: no textarea) and its "Read …" link.
 const INBOX = {"spec-approval":{"actions":[{"label":"Approve spec","type":"approve","primary":true,"needsNote":false},{"label":"Request changes","type":"revise-spec","primary":false,"needsNote":true}],"note":"Optional note for the agents…","doc":"spec.md"},"split-approval":{"actions":[{"label":"Approve split","type":"approve","primary":true,"needsNote":false},{"label":"Keep as one job","type":"revise-spec","primary":false,"needsNote":false}],"note":"Optional note for the agents…","doc":"plan.md"},"input":{"actions":[{"label":"Send answer","type":"answer","primary":true,"needsNote":true}],"note":"Your answer…","doc":"questions.md"},"escalation":{"actions":[{"label":"Approve","type":"approve","primary":true,"needsNote":false},{"label":"Rework","type":"rework","primary":false,"needsNote":true},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":"Optional note for the agents…","doc":"decision.md"},"rounds-exhausted":{"actions":[{"label":"Another round","type":"rework","primary":false,"needsNote":true},{"label":"Accept as is","type":"approve","primary":false,"needsNote":false},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":"Optional note for the agents…","doc":"review/round-2"},"budget":{"actions":[{"label":"Approve & continue","type":"approve","primary":true,"needsNote":true},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":"Optional: new limits, e.g. usd=20 tokens=2000000","doc":null},"infra":{"actions":[{"label":"Steps done, resume","type":"resume","primary":true,"needsNote":false}],"note":null,"doc":"runbook.md"},"conflicts":{"actions":[{"label":"Fix conflicts now","type":"rework","primary":true,"needsNote":false,"text":"Resolve merge conflicts with the base branch"},{"label":"Leave for later","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null},"external":{"actions":[{"label":"Unblocked, resume","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null},"failed":{"actions":[{"label":"Retry","type":"resume","primary":false,"needsNote":false},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":null,"doc":null},"pr-review":{"actions":[{"label":"Resume","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null},"mystery":{"actions":[{"label":"Resume","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null}};
@@ -88,6 +89,9 @@ test('chips: state, verdict and PR tones and text', () => {
   assert.equal(V.cardRef({ id: 'my-job', source: { ref: 'ENG-4' } } as any), 'ENG-4');
   assert.equal(V.cardRef({ id: 'slug', source: { ref: 'slug' } } as any), null);
   assert.equal(V.cardRef({ id: 'x', source: null }), null);
+  assert.equal(V.cardRef({ id: 'job-x', source: { ref: '85' } } as any), '#85', 'a numeric ref is always #n');
+  assert.equal(V.cardRef({ id: '12', source: { ref: '12' } } as any), '#12');
+  assert.equal(V.cardRef({ id: 'slug-ab12', source: { ref: 'slug' } } as any), null, 'a local slug ref the id starts with');
   assert.deepEqual(V.runningRoles({ agents: { builder: { status: 'running' }, reviewer: { status: 'done' } } } as any), ['builder']);
 });
 
@@ -118,8 +122,8 @@ test('pipeline: filters, counts, board columns and nav badges', () => {
   const base = JOBS.slice(0, 9);
   for (const [f, ids] of Object.entries(FILTERS)) assert.deepEqual(V.filterJobs(base, f).map((j) => j.id), ids, f);
   assert.deepEqual(V.pipelineCounts(base), { all: 9, active: 5, waiting: 3, done: 2 }, 'all counts evals; the rest do not');
-  assert.deepEqual(V.boardStages([]), ['backlog', 'spec', 'build', 'review', 'pr', 'done']);
-  assert.deepEqual(V.boardStages(JOBS), ['backlog', 'plan', 'spec', 'build', 'verify', 'review', 'pr', 'done']);
+  assert.deepEqual(V.boardColumns([]).map((c) => c.id), ['queued', 'plan', 'build', 'ship']);
+  assert.deepEqual(V.boardColumns(JOBS).map((c) => [c.id, c.jobs.map((j) => j.id)]), [['queued', ['i']], ['plan', ['b']], ['build', ['c', 'd', 'a', 'g']], ['ship', ['p']], ['done', ['e', 'f', 'h']]]);
   assert.deepEqual(V.navCounts(JOBS), { active: 7, needs: 2 }, 'pr-review waits are not "needs you"');
   assert.deepEqual(V.VIEWS.map((v) => v.id), ['pipeline', 'inbox', 'backlog', 'agents', 'analytics', 'evals']);
   const now = Date.parse('2026-10-12T12:00:00Z');
@@ -149,6 +153,7 @@ test('inbox groups urgent jobs and PRs awaiting review', () => {
   const g = V.inboxGroups(JOBS);
   assert.deepEqual(g.urgent.map((j) => j.id), ['b', 'c', 'd']);
   assert.deepEqual(g.prs.map((j) => j.id), ['p']);
+  assert.deepEqual(g.parks, []);
 });
 
 test('evals: compare rows keep the old table\'s values and tones', () => {
@@ -329,4 +334,174 @@ test('resumeModel', () => {
   assert.deepEqual(m('failed', null), show(true, null));
   assert.deepEqual(m('queued', { ...os('live'), jobSession: true }), show(true, null), "the job's own daemon session takes the resume");
   assert.deepEqual(m('running', { ...os('live'), jobSession: true }), hidden, 'running with a live owner stays hidden');
+});
+
+// Modelled on this repo's .forge snapshot: five dependency parks, two real human gates, one running build, one spec
+// in progress, one done and one cancelled job.
+const SNAPSHOT: any = [
+  ['67-drafting-restyle-5-5-appearance', 'build', 'running', null, null, '67', '2026-10-14T19:38:26Z'],
+  ['alive-dashboard-live-session-indicators-q3ik', 'backlog', 'waiting', 'external', 'dependencies not done: job-drawer-action-dock-decisions-0s08 (backlog/waiting)', null, '2026-10-14T18:00:00Z'],
+  ['job-drawer-action-dock-decisions-0s08', 'backlog', 'waiting', 'issue-link', 'link an issue', null, '2026-10-14T12:00:00Z'],
+  ['markdown-everywhere-in-the-dashboard-2l9s', 'backlog', 'waiting', 'external', 'dependencies not done: job-drawer-action-dock-decisions-0s08 (backlog/waiting)', null, '2026-10-14T17:00:00Z'],
+  ['pipeline-board-four-grouped-columns-77fc', 'spec', 'running', null, null, '89', '2026-10-14T20:13:15Z'],
+  ['restyle-the-dashboard-in-the-79e6', 'plan', 'waiting', 'external', 'split into 5 jobs', '62', '2026-10-14T03:32:19Z'],
+  ['surface-hierarchy-opaque-sheets-and-xki2', 'backlog', 'waiting', 'external', 'dependencies not done: 67-drafting-restyle-5-5-appearance (build/running)', null, '2026-10-14T19:00:00Z'],
+  ['three-themes-whiter-vellum-true-rwun', 'backlog', 'waiting', 'external', 'dependencies not done: surface-hierarchy-opaque-sheets-and-xki2 (backlog/waiting)', null, '2026-10-14T16:00:00Z'],
+  ['universal-command-palette-triggers-out-s3yj', 'backlog', 'waiting', 'external', 'dependencies not done: 67-drafting-restyle-5-5-appearance (build/running)', null, '2026-10-14T19:00:00Z'],
+  ['66-drafting-restyle-4-5-job', 'done', 'done', null, null, '66', '2026-10-14T10:00:00Z'],
+  ['23-split-lib-cli-mjs-into', 'plan', 'cancelled', null, null, '23', '2026-10-12T10:00:00Z'],
+].map(([id, stage, state, waitingOn, reason, ref, updatedAt]) => ({ id, kind: 'feature', stage, state, waitingOn, reason, source: ref ? { tracker: 'github', ref } : null, updatedAt }));
+
+const PARKS = ['alive-dashboard-live-session-indicators-q3ik', 'markdown-everywhere-in-the-dashboard-2l9s', 'surface-hierarchy-opaque-sheets-and-xki2', 'three-themes-whiter-vellum-true-rwun', 'universal-command-palette-triggers-out-s3yj'];
+
+test('board: groups, columns and the snapshot fixture', () => {
+  assert.deepEqual(V.BOARD_GROUPS.flatMap((g) => [...g.stages]), [...STAGES], 'every stage in exactly one group, in pipeline order');
+  assert.deepEqual(V.STEPPER_STAGES, STAGES.slice(1, -1));
+  const empty = V.boardColumns([]);
+  assert.deepEqual(empty.map((c) => c.id), ['queued', 'plan', 'build', 'ship']);
+  assert.ok(empty.every((c) => c.jobs.length === 0));
+
+  const ids = (cols: { id: string; jobs: { id?: string }[] }[]) => Object.fromEntries(cols.map((c) => [c.id, c.jobs.map((j) => j.id)]));
+  const active = {
+    queued: ['job-drawer-action-dock-decisions-0s08', 'surface-hierarchy-opaque-sheets-and-xki2', 'universal-command-palette-triggers-out-s3yj', 'alive-dashboard-live-session-indicators-q3ik', 'markdown-everywhere-in-the-dashboard-2l9s', 'three-themes-whiter-vellum-true-rwun'],
+    plan: ['restyle-the-dashboard-in-the-79e6', 'pipeline-board-four-grouped-columns-77fc'],
+    build: ['67-drafting-restyle-5-5-appearance'],
+    ship: [],
+  };
+  const cols = V.boardColumns(V.filterJobs(SNAPSHOT, 'active'));
+  assert.deepEqual(cols.map((c) => c.id), ['queued', 'plan', 'build', 'ship'], 'no Done column under the Active filter');
+  assert.deepEqual(ids(cols), active);
+  const all = V.boardColumns(SNAPSHOT);
+  assert.deepEqual(all.map((c) => c.id), ['queued', 'plan', 'build', 'ship', 'done']);
+  assert.deepEqual(ids(all), { ...active, done: ['66-drafting-restyle-4-5-job', '23-split-lib-cli-mjs-into'] });
+  assert.equal(SNAPSHOT.length, 11, 'boardColumns does not mutate or drop its input');
+
+  assert.equal(V.boardGroup({ stage: 'plan', state: 'cancelled' }), 'done');
+  assert.equal(V.boardGroup({ stage: 'pr', state: 'done' }), 'done', 'a finished job left in an earlier stage');
+  assert.equal(V.boardGroup({ stage: 'done', state: 'running' }), 'done');
+  assert.equal(V.boardGroup({ stage: 'mystery', state: 'queued' } as any), 'queued', 'an unknown stage is never invisible');
+  assert.equal(V.boardGroup({ state: 'queued' }), 'queued');
+  for (const g of V.BOARD_GROUPS.slice(0, 4)) for (const stage of g.stages) assert.equal(V.boardGroup({ stage, state: 'running' }), g.id, stage);
+});
+
+test('stageSteps: one row per stage plus needs-you, failed, blocked, cancelled and unknown', () => {
+  const render = (j: any) => {
+    const chars = V.stageSteps(j).map((x) => (x.status === 'past' ? 'p' : x.status === 'future' ? 'f' : x.tone === 'red' ? 'R' : 'I'));
+    return [0, 3, 6].map((i) => chars.slice(i, i + 3).join('')).join(' ');
+  };
+  const rows: [any, string][] = [
+    [{ stage: 'backlog', state: 'queued' }, 'fff fff fff'],
+    [{ stage: 'plan', state: 'running' }, 'Iff fff fff'],
+    [{ stage: 'spec', state: 'running' }, 'pIf fff fff'],
+    [{ stage: 'design', state: 'running' }, 'ppI fff fff'],
+    [{ stage: 'build', state: 'running' }, 'ppp Iff fff'],
+    [{ stage: 'verify', state: 'running' }, 'ppp pIf fff'],
+    [{ stage: 'review', state: 'running' }, 'ppp ppI fff'],
+    [{ stage: 'decide', state: 'running' }, 'ppp ppp Iff'],
+    [{ stage: 'integrate', state: 'running' }, 'ppp ppp pIf'],
+    [{ stage: 'pr', state: 'running' }, 'ppp ppp ppI'],
+    [{ stage: 'done', state: 'done' }, 'ppp ppp ppp'],
+    [{ stage: 'spec', state: 'waiting', waitingOn: 'spec-approval' }, 'pRf fff fff'],
+    [{ stage: 'build', state: 'failed' }, 'ppp Rff fff'],
+    [{ stage: 'verify', state: 'blocked' }, 'ppp pRf fff'],
+    [{ stage: 'plan', state: 'cancelled' }, 'Iff fff fff'],
+    [{ stage: 'mystery', state: 'queued' }, 'fff fff fff'],
+    [{ stage: 'pr', state: 'waiting', waitingOn: 'pr-review' }, 'ppp ppp ppI'],
+  ];
+  for (const [j, want] of rows) assert.equal(render(j), want, `${j.stage}/${j.state}${j.waitingOn ? ` ${j.waitingOn}` : ''}`);
+  assert.equal(render({ stage: 'build', state: 'waiting', waitingOn: 'external', reason: 'dependencies not done: x' }), 'ppp Iff fff', 'a dependency park is not red');
+  for (const [j] of rows) {
+    const steps = V.stageSteps(j);
+    assert.equal(steps.length, 9);
+    assert.deepEqual(steps.map((x) => x.stage), V.STEPPER_STAGES);
+    assert.ok(steps.every((x) => x.status === 'current' || x.tone === 'ink'), 'only the current step can be red');
+  }
+  const pos = (j: any) => V.stepPosition(V.stageSteps(j));
+  assert.equal(pos({ stage: 'backlog', state: 'queued' }), 0);
+  assert.equal(pos({ stage: 'mystery', state: 'queued' }), 0);
+  assert.equal(pos({ stage: 'done', state: 'done' }), 9);
+  V.STEPPER_STAGES.forEach((stage, i) => assert.equal(pos({ stage, state: 'running' }), i + 1, stage));
+});
+
+test('dependency parks are not human gates', () => {
+  assert.equal(V.DEP_PARK_PREFIX, DEP_REASON, 'the dashboard reads the reason the engine writes');
+  const park: any = { state: 'waiting', waitingOn: 'external', reason: `${DEP_REASON}a (build/running)` };
+  assert.equal(V.isDependencyPark(park), true);
+  assert.equal(V.needsHuman(park), false);
+  assert.equal(V.stateTone(park), 'muted');
+  assert.equal(V.stateText(park), 'Dependencies');
+  assert.equal(V.stateText(park), PARK_LABEL);
+  for (const other of [
+    { state: 'waiting', waitingOn: 'external', reason: 'waiting on the vendor' },
+    { state: 'waiting', waitingOn: 'external', reason: null },
+    { state: 'waiting', waitingOn: 'external' },
+    { state: 'waiting', waitingOn: 'input', reason: `${DEP_REASON}a (build/running)` },
+  ] as any[]) {
+    assert.equal(V.isDependencyPark(other), false, JSON.stringify(other));
+    assert.equal(V.stateTone(other), 'rev', JSON.stringify(other));
+    assert.equal(V.needsHuman(other), true, JSON.stringify(other));
+  }
+  assert.equal(V.isDependencyPark({ state: 'queued', waitingOn: 'external', reason: `${DEP_REASON}a` } as any), false, 'only a waiting job is parked');
+  assert.equal(V.stateText({ state: 'waiting', waitingOn: 'external', reason: 'x' }), 'External dependency');
+
+  assert.deepEqual(V.navCounts(SNAPSHOT), { active: 9, needs: 2 });
+  const g = V.inboxGroups(SNAPSHOT);
+  assert.deepEqual(g.urgent.map((j) => j.id), ['job-drawer-action-dock-decisions-0s08', 'restyle-the-dashboard-in-the-79e6']);
+  assert.deepEqual(g.prs, []);
+  assert.deepEqual(g.parks.map((j) => j.id), PARKS, 'five parks, in input order');
+  assert.equal(V.boardRank(park), 3, 'a park sorts with the queued jobs');
+});
+
+test('boardRank and sortByRank: rank, then newest, then id', () => {
+  const R = (j: any) => V.boardRank(j);
+  assert.equal(R({ state: 'waiting', waitingOn: 'input' }), 0);
+  assert.equal(R({ state: 'failed' }), 0);
+  assert.equal(R({ state: 'blocked' }), 0);
+  assert.equal(R({ state: 'running' }), 1);
+  assert.equal(R({ state: 'waiting', waitingOn: 'pr-review' }), 2);
+  assert.equal(R({ state: 'queued' }), 3);
+  assert.equal(R({ state: 'waiting', waitingOn: 'external', reason: `${DEP_REASON}x` }), 3);
+  assert.equal(R({ state: 'mystery' }), 3, 'an unknown state');
+  assert.equal(R({ state: 'done' }), 4);
+  assert.equal(R({ state: 'cancelled' }), 4);
+
+  const jobs: any = [
+    { id: 'done', state: 'done', updatedAt: '2026-10-14T23:00:00Z' },
+    { id: 'q-none', state: 'queued' },
+    { id: 'q-bad', state: 'queued', updatedAt: 'not a date' },
+    { id: 'q-old', state: 'queued', updatedAt: '2026-10-13T00:00:00Z' },
+    { id: 'q-b', state: 'queued', updatedAt: '2026-10-14T00:00:00Z' },
+    { id: 'q-a', state: 'queued', updatedAt: '2026-10-14T00:00:00Z' },
+    { id: 'pr', state: 'waiting', waitingOn: 'pr-review', updatedAt: '2026-10-14T00:00:00Z' },
+    { id: 'run', state: 'running', updatedAt: '2026-10-01T00:00:00Z' },
+    { id: 'fail', state: 'failed', updatedAt: '2026-10-01T00:00:00Z' },
+  ];
+  const before = jobs.map((j) => j.id);
+  const sorted = V.sortByRank(jobs);
+  assert.deepEqual(sorted.map((j) => j.id), ['fail', 'run', 'pr', 'q-a', 'q-b', 'q-old', 'q-bad', 'q-none', 'done'], 'equal rank and time fall back to id; a missing or invalid date sorts last');
+  assert.deepEqual(jobs.map((j) => j.id), before, 'a new array; the input keeps its order');
+  assert.notEqual(sorted, jobs);
+});
+
+test('cardModel: slots and null rules', () => {
+  const bare = V.cardModel({ id: 'slug-ab12', stage: 'backlog', state: 'queued', source: { ref: 'slug' }, round: 0 } as any);
+  assert.deepEqual(bare, { ref: 'slug-ab12', refTitle: 'slug-ab12', steps: V.stageSteps({ stage: 'backlog', state: 'queued' }), stage: 'Queued', round: null, progress: null, lenses: null });
+  assert.equal(V.cardModel({ id: 'x', reviewers: [], progress: { done: 0, total: 0 } } as any).lenses, null, 'no reviewers, no lenses');
+  assert.equal(V.cardModel({ id: 'x', progress: { done: 0, total: 0 } } as any).progress, null, 'no tasks, no bar');
+
+  const full = V.cardModel({
+    id: '89-board', stage: 'verify', state: 'running', source: { ref: '89' }, round: 2, maxRounds: 3, progress: { done: 3, total: 5 },
+    reviewers: ['code', 'ui'], verdicts: { 1: { code: 'CHANGES', ui: 'PASS' }, 2: { code: 'PASS' } },
+  } as any);
+  assert.equal(full.ref, '#89');
+  assert.equal(full.refTitle, '89-board');
+  assert.equal(full.stage, 'Verify');
+  assert.deepEqual(full.round, { round: 2, max: 3 });
+  assert.deepEqual(full.progress, { done: 3, total: 5 });
+  assert.deepEqual(full.lenses, [{ name: 'code', verdict: 'PASS' }, { name: 'ui', verdict: null }], "this round's verdicts only");
+  assert.equal(V.stepPosition(full.steps), 5);
+
+  assert.deepEqual(V.cardModel({ id: 'x', round: 1 } as any).round, { round: 1, max: null }, 'a missing maxRounds');
+  assert.equal(V.cardModel({ id: 'x', stage: 'mystery' } as any).stage, 'mystery', 'an unknown stage shows raw');
+  assert.equal(V.cardModel({ id: 'my-job', source: { ref: 'ENG-4' } } as any).ref, 'ENG-4');
 });
