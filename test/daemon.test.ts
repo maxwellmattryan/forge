@@ -13,7 +13,7 @@ import { budgetCmd } from '../lib/budget.ts';
 import { createJob, setJob, updateJob } from '../lib/jobs.ts';
 import { PLUGIN_ROOT } from '../lib/paths.ts';
 import { INBOX_SCOPE, SCOPE_ENV, ackRequest, claimRequest, enqueue, listRequests, requestScope, validScope } from '../lib/requests.ts';
-import { DENY_TOOLS, GIT_PINS, PERMISSION_DENIED, PROMPT_TOOL, TRUST_CHANGED, TURN, TURN_LINE, apiKeyVars, buildArgv, heldByBudget, parseTemplate, reapOrphans, sessionEnv, PROMPT_INPUT_CHARS, sessionGrant, PERMISSION_MODES, commandPermissionMode, withPermissionMode } from '../lib/daemon.ts';
+import { DENY_TOOLS, GIT_PINS, PERMISSION_DENIED, PROMPT_TOOL, TRUST_CHANGED, TURN, TURN_LINE, apiKeyVars, buildArgv, heldByBudget, parseTemplate, reapOrphans, sessionEnv, PROMPT_INPUT_CHARS, sessionGrant, PERMISSION_MODES, commandPermissionMode, modeReach, withPermissionMode } from '../lib/daemon.ts';
 import { createPool } from '../lib/daemon-pool.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
@@ -414,11 +414,19 @@ test('a human switches one session’s permission mode: live while it runs, at i
     assert.equal(args[args.indexOf('--permission-mode') + 1], 'auto');
     assert.equal(modeRequests(kit.last(job)).length, 0, 'a fresh child needs no switch');
     assert.equal(d.sessionState(job).permissionMode, 'auto', 'before its first init, the mode it was launched in');
-    // A switch refused before claude reported anything must not make the pool forget the launch mode.
+    // A narrowing switch claude refuses, even before it reported any mode, stops the session rather than leave it in auto.
+    const launched = kit.last(job);
     d.setPermissionMode(job, 'default');
-    const early = modeRequests(kit.last(job))[0];
-    kit.last(job).line({ type: 'control_response', response: { subtype: 'error', request_id: early.request_id, error: 'busy' } });
-    await waitFor(() => d.state().permissionModes[job] === 'auto', 2000, 'the launch mode kept');
+    const early = modeRequests(launched)[0];
+    launched.line({ type: 'control_response', response: { subtype: 'error', request_id: early.request_id, error: 'busy' } });
+    await waitFor(() => launched.exited, 2000, 'the stop');
+    assert.deepEqual(d.state().permissionModes, { [INBOX]: 'dontAsk' }, 'the human\'s choice stands');
+    await logged(repo.dir, job, 'error');
+    assert.match(eventsIn(logOf(repo.dir, job), 'error').at(-1).message, /refused permission mode default: busy; stopping the session so it starts in default/);
+    enqueue(repo.dir, null, { type: 'answer', job, text: 'go on', from: 'dashboard' });
+    d.poke();
+    await waitFor(() => kit.of(job).length === 2, 2000, 'the respawn');
+    assert.equal(kit.last(job).args[kit.last(job).args.indexOf('--permission-mode') + 1], 'default', 'it starts in the chosen mode');
 
     // Refusals, and a dead child reports no mode.
     assert.match(d.setPermissionMode(INBOX, 'bypassPermissions' as any).error ?? '', /mode must be one of default, auto, dontAsk/);
@@ -1193,7 +1201,39 @@ test('AC11: the failure count resets on a result, and a child that dies mid-turn
   }
 });
 
-test('a real child switches permission mode live, and a refused switch falls back to the mode it reports', async () => {
+test('a switch claude never confirms: a narrowing one stops the session, a widening one falls back', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit, config({ command: 'claude {session} --permission-mode default' }), { modeConfirmMs: 30 });
+  try {
+    d.start();
+    const first = kit.last(INBOX);
+    d.setPermissionMode(INBOX, 'auto');
+    await waitFor(() => d.state().permissionModes[INBOX] === undefined, 2000, 'the widening fallback');
+    assert.equal(first.exited, false, 'a widening that never happened needs no stop');
+    first.line({ type: 'system', subtype: 'status', status: null, permissionMode: 'auto' });
+    await waitFor(() => d.state().inbox.permissionMode === 'auto', 2000, 'auto reported');
+    d.setPermissionMode(INBOX, 'dontAsk');
+    await waitFor(() => first.exited, 2000, 'the narrowing stop');
+    assert.deepEqual(d.state().permissionModes, { [INBOX]: 'dontAsk' });
+    await logged(repo.dir, INBOX, 'error');
+    assert.match(eventsIn(logOf(repo.dir), 'error').at(-1).message, /did not confirm permission mode dontAsk; stopping the session/);
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('modeReach orders modes by what they allow without a human', () => {
+  assert.ok(modeReach('dontAsk') < modeReach('default'));
+  assert.equal(modeReach('plan'), modeReach('dontAsk'));
+  assert.equal(modeReach('manual'), modeReach('default'));
+  assert.ok(modeReach('default') < modeReach('auto'));
+  assert.ok(modeReach('auto') < modeReach('bypassPermissions'), 'an unknown mode counts as the widest');
+  assert.ok(modeReach('auto') < modeReach(null));
+});
+
+test('a real child switches permission mode live, and a refused narrowing stops it', async () => {
   const repo = tempRepo();
   const fx = fixtureRun(repo, { FAKE_CLAUDE_REFUSE_MODE: 'dontAsk' });
   const d = createPool(repo.dir, { env: fx.env, loadConfig: () => ({ config: config({ command: `${FAKE_COMMAND} --permission-mode manual` }) }), pollMs: 30, graceMs: 1000 });
@@ -1205,9 +1245,11 @@ test('a real child switches permission mode live, and a refused switch falls bac
     assert.deepEqual(d.setPermissionMode(INBOX, 'auto'), { error: null });
     await waitFor(() => d.state().inbox.permissionMode === 'auto', 5000, 'the live switch');
     await logged(repo.dir, INBOX, 'permission-mode');
+    const pid = d.state().inbox.pid;
     d.setPermissionMode(INBOX, 'dontAsk');
-    await waitFor(() => d.state().permissionModes[INBOX] === 'auto', 5000, 'the fallback after a refusal');
-    assert.equal(d.state().inbox.permissionMode, 'auto');
+    await waitFor(() => !d.state().inbox.running, 5000, 'the stop after a refused narrowing');
+    assert.equal(alive(pid), false);
+    assert.deepEqual(d.state().permissionModes, { [INBOX]: 'dontAsk' });
   } finally {
     await d.close();
     fx.killAll();
