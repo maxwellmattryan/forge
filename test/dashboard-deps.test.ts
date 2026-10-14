@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { depLinks, dependents, blockLinks, depHint } from '../dashboard/src/lib/deps.ts';
+import { depLinks, dependents, blockLinks, depHint, depLabel, depChipTitle } from '../dashboard/src/lib/deps.ts';
 
 const jobs: any = [
   { id: 'done-dep', title: 'Done', stage: 'done', state: 'done', dependsOn: [] },
@@ -38,7 +38,7 @@ test('blockLinks and depHint match the old drawer section', () => {
   );
   assert.deepEqual(blockLinks(child, jobs), [], 'child blocks nothing');
   // Blocks: the jobs that depend on this one.
-  assert.deepEqual(blockLinks(jobs[1], jobs), [{ id: 'child', title: 'Child', stage: 'backlog', state: 'waiting', tone: 'warn' }]);
+  assert.deepEqual(blockLinks(jobs[1], jobs), [{ id: 'child', title: 'Child', ref: null, stage: 'backlog', state: 'waiting', tone: 'warn' }]);
   assert.equal(depHint(blockLinks(jobs[1], jobs)[0]), 'Child · backlog/waiting');
   assert.deepEqual(blockLinks(jobs[0], jobs).map((l) => l.id), ['child']);
   assert.deepEqual([depLinks(jobs[4], jobs), blockLinks(jobs[4], jobs)], [[], []], 'no section without links');
@@ -52,4 +52,47 @@ test('blockLinks and depHint match the old drawer section', () => {
   ];
   assert.equal(depHint(depLinks(evil[1], evil)[0]), '<script>alert(1)</script> · build/running');
   assert.equal(blockLinks(evil[0], evil)[0].id, 'kid');
+});
+
+// An issue-linked job (GitHub #66), a local slug job (ref equal to its id) and a card depending on both plus a missing one.
+const linked: any = [
+  { id: '66-x', title: 'Drafting', source: { ref: '66' }, stage: 'done', state: 'done', dependsOn: [] },
+  { id: 'local-slug', title: 'Local', source: { ref: 'local-slug' }, stage: 'build', state: 'running', dependsOn: [] },
+  { id: 'card', title: 'Card', stage: 'build', state: 'running', dependsOn: ['66-x', 'local-slug', 'gone'] },
+];
+
+test("depLinks and blockLinks carry the dependency's tracker ref", () => {
+  assert.deepEqual(
+    depLinks(linked[2], linked).map((l) => [l.id, l.ref]),
+    [
+      ['66-x', '#66'],
+      ['local-slug', null],
+      ['gone', null],
+    ],
+  );
+  assert.deepEqual(depLinks(linked[2], linked)[0], { id: '66-x', title: 'Drafting', ref: '#66', stage: 'done', state: 'done', tone: 'ok' }, 'every other field is unchanged');
+  assert.deepEqual(depLinks(linked[2], linked)[2], { id: 'gone', title: null, ref: null, stage: null, state: 'missing', tone: 'bad' });
+  const issueChild: any = { id: '70-kid', title: 'Kid', source: { ref: '70' }, stage: 'spec', state: 'queued', dependsOn: ['66-x'] };
+  assert.deepEqual(blockLinks(linked[0], [...linked, issueChild]).map((l) => [l.id, l.ref]), [['card', null], ['70-kid', '#70']]);
+  assert.deepEqual(blockLinks(linked[0], [...linked, issueChild])[1], { id: '70-kid', title: 'Kid', ref: '#70', stage: 'spec', state: 'queued', tone: 'warn' });
+});
+
+test('depLabel: issue ref plus title, else the id', () => {
+  assert.equal(depLabel(depLinks(linked[2], linked)[0]), '#66 Drafting');
+  assert.equal(depLabel(depLinks(linked[2], linked)[1]), 'local-slug', 'a local slug job shows its id');
+  assert.equal(depLabel(depLinks(linked[2], linked)[2]), 'gone', 'a missing dependency shows its id');
+  assert.equal(depLabel({ id: '66-x', ref: '#66', title: null }), '66-x', 'no title');
+  assert.equal(depLabel({ id: '66-x', ref: '#66', title: '   ' }), '66-x', 'a whitespace-only title');
+  assert.equal(depLabel({ id: '66-x', ref: '#66', title: '  Padded title \n' }), '#66 Padded title', 'the title is trimmed');
+  assert.equal(depLabel({ id: 'slug', ref: null, title: 'Has a title' }), 'slug', 'no ref');
+  const long = 'L'.repeat(120);
+  assert.equal(depLabel({ id: '66-x', ref: '#66', title: long }), `#66 ${long}`, 'CSS truncates, the helper never cuts');
+  assert.equal(depLabel({ id: '66-x', ref: '#66', title: '<script>alert(1)</script>' }), '#66 <script>alert(1)</script>', 'hostile text is verbatim: Svelte escapes it');
+  assert.equal(depLabel({ id: '<img src=x onerror=alert(1)>', ref: null, title: null }), '<img src=x onerror=alert(1)>');
+});
+
+test('depChipTitle: full id then the hint', () => {
+  assert.equal(depChipTitle(depLinks(linked[2], linked)[0]), '66-x · Drafting · done/done');
+  assert.equal(depChipTitle(depLinks(linked[2], linked)[1]), 'local-slug · Local · build/running');
+  assert.equal(depChipTitle(depLinks(linked[2], linked)[2]), 'gone · missing');
 });

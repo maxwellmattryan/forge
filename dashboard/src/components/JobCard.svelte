@@ -7,14 +7,14 @@
   import DepChips from './DepChips.svelte';
   import { budgetChip } from '../lib/budget.ts';
   import { ago, tokensShort } from '../lib/util.ts';
-  import { cardRef, needsHuman, runningRoles } from '../lib/view.ts';
+  import { agentsSummary, cardRef, needsHuman, runningRoles } from '../lib/view.ts';
   import { S, openDrawer } from '../lib/app.svelte.ts';
   import type { StateJob } from '../lib/types.ts';
   import { t } from '../lib/locale.ts';
 
   let { job: j }: { job: StateJob } = $props();
   const verdicts = $derived(j.verdicts?.[j.round] ?? null);
-  const running = $derived(runningRoles(j));
+  const agents = $derived(agentsSummary(runningRoles(j)));
   const ref = $derived(cardRef(j));
 </script>
 
@@ -30,7 +30,7 @@
   {/if}
   <div class="label flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px]">
     {#if j.round}<span>{$t('job.round', { round: j.round, max: j.maxRounds })}</span>{/if}<PrChip pr={j.pr} />{@html budgetChip(j, S.data?.config?.pipeline?.budget)}
-    {#if running.length}<span class="flex items-center gap-1.5 text-ink"><span class="dot ink size-1.5"></span>{running.join(', ')}</span>{/if}
+    {#if agents}<span class="flex items-center gap-1.5 text-ink min-w-0 max-w-full" title={agents.title}><span class="dot ink size-1.5 shrink-0"></span><span class="truncate">{#if agents.kind === 'role'}{agents.role}{:else if agents.kind === 'reviewers'}{$t('job.runningReviewers', { count: agents.count })}{:else}{$t('job.runningAgents', { count: agents.count })}{/if}</span></span>{/if}
     <span class="ml-auto normal-case tracking-normal">{$t('job.usage', { tokens: tokensShort(j.usage?.totalTokens), ago: ago(j.updatedAt) })}</span>
   </div>
 </button>

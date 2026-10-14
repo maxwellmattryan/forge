@@ -41,7 +41,15 @@
   },
   "job": {
     "round": "round {round}/{max}",
-    "usage": "{tokens} tok · {ago}"
+    "usage": "{tokens} tok · {ago}",
+    "runningReviewers": {
+      "one": "{count} reviewer",
+      "other": "{count} reviewers"
+    },
+    "runningAgents": {
+      "one": "{count} agent",
+      "other": "{count} agents"
+    }
   },
   "table": {
     "stage": "Stage",
@@ -58,7 +66,7 @@
     "pending": "pending"
   },
   "deps": {
-    "after": "after {id}",
+    "after": "after {label}",
     "title": "Dependencies",
     "dependsOn": "Depends on",
     "blocks": "Blocks"
