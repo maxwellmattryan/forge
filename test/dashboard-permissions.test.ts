@@ -1,7 +1,7 @@
 // Daemon permission prompts in the dashboard (dashboard/src/lib/permissions.ts).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { grantsMore, pendingPrompts, postPermission, promptInput, readPrompt } from '../dashboard/src/lib/permissions.ts';
+import { grantsMore, pendingPrompts, postPermission, promptInput, promptRefreshKey, readPrompt } from '../dashboard/src/lib/permissions.ts';
 
 const XSS = '<script>alert(1)</script><img src=x onerror=alert(2)>';
 const prompt = (o: any = {}) => ({ id: 'p1', tool: 'Bash', input: '{"command":"cp a b"}', description: null, agentId: null, blockedPath: null, sessionRules: [], sessionDirs: [], at: '2026-10-14T00:00:01Z', ...o });
@@ -71,4 +71,21 @@ test('postPermission sends the token and only scope, id and decision, and surfac
   assert.deepEqual(JSON.parse(calls[0].init.body), { scope: 'job-a', id: 'p1', decision: 'session' });
   const gone: any = async () => new Response('{"error":"that permission prompt is gone"}', { status: 404 });
   await assert.rejects(postPermission('job-a', 'p1', 'allow', 'tok', gone), /prompt is gone/);
+});
+
+test('promptRefreshKey: refresh once per changed prompt set', () => {
+  const s = (...ids: string[]) => ({ scope: 'job-a', permissions: ids.map((id) => prompt({ id })) });
+  assert.equal(promptRefreshKey(s('b', 'a'), s(), null), 'a\nb', "a new prompt the poll hasn't seen: the sorted key");
+  assert.equal(promptRefreshKey(s('b', 'a'), s(), 'a\nb'), null, 'already asked for this set');
+  assert.equal(promptRefreshKey(s('b', 'a'), s('a', 'b'), null), null, 'the poll has the same ids in another order');
+  assert.equal(promptRefreshKey({ scope: 'job-a', state: 'running' }, s('a'), null), null, 'a partial frame without permissions never asks');
+  assert.equal(promptRefreshKey({ permissions: 'junk' }, s('a'), null), null, 'nor does one whose permissions is not a list');
+  assert.equal(promptRefreshKey(s(), s('a'), null), '', 'answered elsewhere: the frame has none, the poll still has one');
+  assert.equal(promptRefreshKey(s(), s('a'), ''), null, 'and only once');
+  assert.equal(promptRefreshKey(s(), s(), null), null, 'nothing on either side');
+  assert.equal(promptRefreshKey(s('a'), null, null), 'a', 'a missing polled session counts as no prompts');
+  assert.equal(promptRefreshKey(s(), undefined, null), null);
+  assert.equal(promptRefreshKey(s(), { scope: 'job-a' }, null), null, 'an older poll without permissions counts as none');
+  assert.equal(promptRefreshKey({ permissions: [prompt({ id: 'a' }), { tool: 'Bash' }, 'junk', prompt({ id: '' })] }, s('a'), null), null, 'malformed prompts are skipped');
+  assert.equal(promptRefreshKey(s('a', 'c'), s('a'), 'a'), 'a\nc', 'a later set asks again');
 });

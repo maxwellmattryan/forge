@@ -1,0 +1,33 @@
+<!-- The job drawer's action dock: this job's permission prompts, Resume and the gate's actions, pinned under the
+     scrolling body. It lives outside the Files / Timeline / Thread tabs so a one-click decision never needs a scroll or
+     a tab switch, and renders nothing when the job needs no one. Prompt text is untrusted and PermissionPrompts renders
+     it as plain text. -->
+<script lang="ts">
+  import JobActions from './JobActions.svelte';
+  import PermissionPrompts from './PermissionPrompts.svelte';
+  import { dockModel } from '../lib/dock.ts';
+  import { ago } from '../lib/util.ts';
+  import { S, req } from '../lib/app.svelte.ts';
+  import type { JobDetail } from '../lib/types.ts';
+  import { t } from '../lib/locale.ts';
+
+  let { job }: { job: JobDetail['job'] } = $props();
+  const m = $derived(dockModel(job, S.data?.daemons ?? null));
+</script>
+
+{#if m.show}
+  <section aria-labelledby="dock-heading-{job.id}" class="shrink-0 border-t border-line bg-bg max-h-[45dvh] overflow-y-auto px-5 py-4 md:px-6 flex flex-col gap-3">
+    <h3 id="dock-heading-{job.id}" class="label callout">{$t('dock.label')}</h3>
+    <PermissionPrompts scope={job.id} />
+    {#if m.resume.show}
+      {@const r = m.resume}
+      {@const o = job.ownerStatus}
+      {@const values = { session: o?.session ?? '', since: ago(o?.since), active: ago(o?.heartbeat) }}
+      <div class="flex flex-wrap items-center gap-3">
+        <button class="btn primary" disabled={!r.enabled} aria-describedby={r.note ? `dock-owner-note-${job.id}` : undefined} onclick={() => req({ type: 'resume', job: job.id })}>{$t('drawer.resume')}</button>
+        {#if r.note}<span id="dock-owner-note-{job.id}" class="min-w-0 text-sm text-muted wrap-anywhere">{r.note === 'live' ? $t('drawer.ownerLive', values) : r.note === 'agent' ? $t('drawer.ownerAgent', values) : r.note === 'stale' ? $t('drawer.ownerStale', values) : $t('drawer.ownerGone', values)}</span>{/if}
+      </div>
+    {/if}
+    {#if m.actionable}{#key job.id}<JobActions {job} noteId="dock-note-{job.id}" />{/key}{/if}
+  </section>
+{/if}

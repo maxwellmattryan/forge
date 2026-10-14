@@ -254,6 +254,79 @@ test("DepChips and the card's agents line truncate with a full-text title", () =
   assert.doesNotMatch(card, /running\.join\(/);
 });
 
+/**
+ * The `{#…}` / `{:…}` headers of every block still open where `needle` first appears in a component's markup, one
+ * list per open block (opener first, then its `{:else …}` branches). `<script>` and comments are dropped first.
+ */
+function openBlocksAt(text: string, needle: string): string[][] {
+  const s = text.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '').replace(/<!--[\s\S]*?-->/g, '');
+  const at = s.indexOf(needle);
+  assert.ok(at >= 0, `${needle} not found`);
+  const frames: string[][] = [];
+  for (let i = 0; i < at; i++) {
+    if (s[i] !== '{') continue;
+    const end = endOf(s, i);
+    assert.ok(end > 0, `cannot parse markup near ${JSON.stringify(s.slice(i, i + 60))}`);
+    const body = s.slice(i + 1, end).trim();
+    if (body[0] === '#') frames.push([body]);
+    else if (body[0] === ':') frames.at(-1)?.push(body);
+    else if (body[0] === '/') frames.pop();
+    i = end;
+  }
+  return frames;
+}
+
+test('the action dock sits outside the drawer tabs', () => {
+  const tabbed = (text: string) => openBlocksAt(text, '<ActionDock').flat().filter((h) => /shown\.tab/.test(h));
+  assert.deepEqual(tabbed("{#if shown.tab === 'a'}x{:else}<ActionDock />{/if}"), ["#if shown.tab === 'a'"], 'self-check: inside a tab block');
+  assert.deepEqual(tabbed("{#if a}{:else if shown.tab === 'b'}<ActionDock />{/if}"), [":else if shown.tab === 'b'"], 'self-check: inside a tab branch');
+  assert.deepEqual(tabbed('{#if a}{/if}<ActionDock />'), [], 'self-check: after a closed block');
+  assert.deepEqual(tabbed('{#if a}{:else if shown.tab === "b"}{/if}{#if b}<ActionDock />{/if}'), [], 'self-check: a closed branch does not leak');
+
+  const drawer = read('components/Drawer.svelte');
+  assert.equal(drawer.match(/<ActionDock\b/g)?.length, 1, 'Drawer renders the dock exactly once');
+  assert.deepEqual(tabbed(drawer), [], 'no block around the dock depends on the tab');
+  const aside = tags('components/Drawer.svelte', drawer).find((t) => t.name === 'aside' && t.attrs.some((a) => a.name === 'id' && a.value === '"drawer"'));
+  assert.ok(aside, 'the drawer aside');
+  const cls = classTokens(aside.attrs.find((a) => a.name === 'class')?.value ?? '');
+  for (const c of ['flex', 'flex-col', 'h-dvh']) assert.ok(cls.includes(c), `the aside has ${c}`);
+  for (const c of ['h-full', 'overflow-y-auto']) assert.ok(!cls.includes(c), `the aside has no ${c}: the body scrolls, not the drawer`);
+  assert.doesNotMatch(drawer, /resumeModel\(/, 'Resume moved to the dock');
+  assert.doesNotMatch(drawer, /type: 'resume'/);
+
+  const dock = read('components/ActionDock.svelte');
+  assert.match(dock, /dockModel\(/);
+  assert.ok(dock.includes('<PermissionPrompts scope={job.id} />'), 'the dock holds the prompts');
+  assert.ok(dock.includes('{#key job.id}<JobActions'), 'the note is keyed by job id, so it survives polls');
+  const section = tags('components/ActionDock.svelte', dock)[0];
+  assert.equal(section?.name, 'section', "the dock's root is a section");
+  assert.ok(section.attrs.some((a) => a.name === 'aria-labelledby'), 'labelled by its heading');
+  const dockCls = classTokens(section.attrs.find((a) => a.name === 'class')?.value ?? '');
+  for (const c of ['shrink-0', 'border-t', 'border-line', 'bg-bg', 'overflow-y-auto', 'max-h-[45dvh]']) assert.ok(dockCls.includes(c), `the dock has ${c}`);
+
+  const thread = read('components/ThreadPanel.svelte');
+  assert.ok(!thread.includes('<JobActions'), 'the Thread no longer holds the gate actions');
+  assert.ok(!thread.includes('<PermissionPrompts'), 'nor the prompts');
+
+  const log = read('components/SessionLog.svelte');
+  /** The body of the `{…}` block that opens after `marker`. */
+  const bodyAfter = (marker: string) => {
+    const from = log.indexOf(marker);
+    assert.ok(from >= 0, `SessionLog has ${marker}`);
+    const open = log.indexOf('{', from + marker.length);
+    const end = endOf(log, open);
+    assert.ok(end > open, `cannot parse the block after ${marker}`);
+    return log.slice(open + 1, end);
+  };
+  const onScroll = bodyAfter('function onScroll(');
+  assert.match(onScroll, /follow = atBottom\(/, 'Follow comes from atBottom');
+  assert.doesNotMatch(log, /<= 24/, 'no inline slack comparison is left');
+  const onState = bodyAfter('onState: (st) =>');
+  const asked = onState.indexOf('promptRefreshKey(');
+  assert.ok(asked >= 0, 'a state frame checks its prompt ids against the poll');
+  assert.ok(onState.indexOf('refresh()', asked) > asked, 'and then re-polls');
+});
+
 const unquote = (v: string | undefined) => (v ?? '').replace(/^["']|["']$/g, '');
 
 test('checkboxes are drawn and the theme seg keeps its radiogroup', () => {
