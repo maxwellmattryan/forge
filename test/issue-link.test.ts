@@ -326,3 +326,16 @@ test('pr open reports unlinked only when missing', () => {
   const src = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'lib', 'pr.ts'), 'utf8');
   assert.equal(src.match(/created: (true|false), \.\.\.prLinkNote\(job, config\)/g)?.length, 2);
 });
+
+test('SKILL.md gates Intake on issue-link and routes the answers', () => {
+  const skill = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'skills', 'forge', 'SKILL.md'), 'utf8');
+  const intake = skill.slice(skill.indexOf('### 0. Intake'), skill.indexOf('### 1. Plan'));
+  assert.ok(intake.indexOf('forge job link <id> --suggest') < intake.indexOf('forge worktree create'), 'the gate runs before the worktree');
+  assert.ok(intake.includes('--waiting-on issue-link --reason "link an issue"'));
+  for (const answer of ['/forge approve <id> <ref>', '/forge approve <id> new', '/forge approve <id> none [reason]']) assert.ok(intake.includes(answer), answer);
+  const approve = skill.split('\n').find((l) => l.startsWith('| `approve <job>'))!;
+  for (const s of ['issue-link', 'args.link', 'forge job link <job> <ref>', '--create', '--none --reason']) assert.ok(approve.includes(s), s);
+  const requests = skill.slice(skill.indexOf('## Requests'), skill.indexOf('## Self-improvement'));
+  for (const s of ['`next` (args.n, default 1) → `next <n>`', '`args.intake: new`', 'Split mode: pipeline.split', 'using `args.link`']) assert.ok(requests.includes(s), s);
+  assert.ok(skill.includes('If its result has `unlinked: true`, report'));
+});
