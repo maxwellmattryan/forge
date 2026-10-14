@@ -1,6 +1,6 @@
 // The command bar's grammar, completions, keyboard rule and request mapping: plain functions over
 // the dashboard's state, so node:test can pin them. CommandBar.svelte holds only markup.
-import type { PostJobBody, RequestType, StateJob, TrackerItem } from './types.ts';
+import type { OwnerStatus, PostJobBody, RequestType, StateJob, TrackerItem } from './types.ts';
 import { buildRequest, needsHuman, resumeModel } from './view.ts';
 import type { RequestInput } from './view.ts';
 
@@ -25,6 +25,8 @@ export interface CommandCtx {
   /** /api/backlog items, or null when not loaded (or it failed): ref completion is then empty. */
   backlog: TrackerItem[] | null;
   tracker: string;
+  /** The job the palette was opened for (the drawer's trigger): its verbs lead the empty list. Ignored unless the job is open. */
+  scope?: string | null;
 }
 
 export type Parsed =
@@ -42,7 +44,9 @@ export type Suggestion =
   | { kind: 'run-command' }
   | { kind: 'verb'; verb: Verb; insert: string }
   | { kind: 'job'; job: StateJob; insert: string }
-  | { kind: 'ref'; item: TrackerItem; insert: string };
+  | { kind: 'ref'; item: TrackerItem; insert: string }
+  /** A scoped job's verb: its own kind, so the unscoped `verb` rows stay exactly as they are. */
+  | { kind: 'scoped'; verb: JobVerb; job: StateJob; insert: string };
 
 const isVerb = (w: string): w is Verb => (VERBS as readonly string[]).includes(w);
 const isJobVerb = (w: string): w is JobVerb => (JOB_VERBS as readonly string[]).includes(w);
@@ -110,12 +114,44 @@ function refMatches(ctx: CommandCtx, raw: string): TrackerItem[] {
 
 const runnable = (p: Parsed): boolean => p.kind !== 'empty' && p.kind !== 'partial';
 
-/** The bar's options, at most 8 once something is typed (all the verbs on an empty bar): the Run option when there is something to run, then completions. */
+const REWORK_GATES: ReadonlySet<string> = new Set(['escalation', 'rounds-exhausted', 'conflicts']);
+
+/**
+ * The job verbs that make sense for one job now, in `VERBS` order: what the drawer's palette offers first.
+ * `continue` follows the drawer's Resume, `approve` every human gate (it is what `approve <job>` accepts on any of them),
+ * and the note-taking verbs only the gate that reads them. Closed jobs get none.
+ */
+export function scopeVerbs(job: Pick<StateJob, 'state' | 'waitingOn' | 'kind'> & { ownerStatus?: OwnerStatus | null }): JobVerb[] {
+  if (job.state === 'done' || job.state === 'cancelled') return [];
+  const gate = needsHuman(job) ? String(job.waitingOn ?? '') : null;
+  const on: Record<JobVerb, boolean> = {
+    continue: resumeModel(job).enabled,
+    approve: gate !== null,
+    answer: gate === 'input',
+    revise: gate === 'spec-approval',
+    rework: gate !== null && REWORK_GATES.has(gate),
+    cancel: true,
+  };
+  return VERBS.filter((v): v is JobVerb => isJobVerb(v) && on[v]);
+}
+
+/** The palette's scoped job: the open job `ctx.scope` names, else null (unknown, closed, or no scope). */
+export function scopedJob(ctx: CommandCtx): StateJob | null {
+  if (!ctx.scope) return null;
+  return ctx.jobs.find((j) => j.id === ctx.scope && openJob(j)) ?? null;
+}
+
+/** The bar's options, at most 8 once something is typed (on an empty bar, a scoped job's verbs and then all the verbs): the Run option when there is something to run, then completions. */
 export function suggest(input: string, ctx: CommandCtx): Suggestion[] {
   const p = parseCommand(input, ctx);
   const out: Suggestion[] = [];
   const { word, rest, spaced, typed } = split(input);
-  if (p.kind === 'empty') return VERBS.map((verb) => ({ kind: 'verb', verb, insert: `${verb} ` }));
+  if (p.kind === 'empty') {
+    const all: Suggestion[] = VERBS.map((verb) => ({ kind: 'verb', verb, insert: `${verb} ` }));
+    const job = scopedJob(ctx);
+    if (!job) return all;
+    return [...scopeVerbs(job).map((verb): Suggestion => ({ kind: 'scoped', verb, job, insert: `${verb} ${job.id} ` })), ...all];
+  }
   const runJob: Suggestion = { kind: 'run-job', verbLike: isVerb(word) };
   // An alias being typed (`res`…`resume`) offers the verb it stands for, once no verb matches the word itself.
   const aliased = VERBS.some((v) => v.startsWith(typed)) ? [] : Object.entries(ALIASES).filter(([a]) => a.startsWith(typed)).map(([, v]) => v);
@@ -187,6 +223,16 @@ export function commandKey(e: CommandKeyInput): 'open' | 'close' | null {
   if (e.key.toLowerCase() !== 'k' || !(e.ctrlKey || e.metaKey) || e.altKey || e.repeat || e.composing) return null;
   if (e.settingsOpen) return null;
   return 'open';
+}
+
+/**
+ * Which layer Escape closes: the palette over everything (it can open over the drawer), then Settings, then the
+ * drawer, so one Escape never closes two layers.
+ */
+export function shellEscape(s: { command: boolean; settings: boolean; drawer: boolean }): 'command' | 'settings' | 'drawer' | null {
+  if (s.command) return 'command';
+  if (s.settings) return 'settings';
+  return s.drawer ? 'drawer' : null;
 }
 
 /** The shortcut hint: `⌘K` on Apple platforms, `Ctrl K` elsewhere. */

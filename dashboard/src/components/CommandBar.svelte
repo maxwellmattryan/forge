@@ -223,6 +223,8 @@
             <span class="font-mono text-fg shrink-0 w-16">{o.verb}</span><span class="truncate min-w-0">{hints[o.verb]}</span>
           {:else if o.kind === 'job'}
             <span class="font-mono text-fg truncate min-w-0 flex-1 sm:flex-none sm:shrink-0 sm:max-w-[45%]">{o.job.id}</span><span class="hidden sm:inline truncate min-w-0 flex-1">{o.job.title}</span><StateChip job={o.job} />
+          {:else if o.kind === 'scoped'}
+            <span class="font-mono text-fg shrink-0 w-16">{o.verb}</span><span class="font-mono truncate min-w-0">{o.job.id}</span>
           {:else}
             <span class="font-mono text-fg shrink-0">{o.item.ref}</span><span class="truncate min-w-0">{o.item.title}</span>
           {/if}
