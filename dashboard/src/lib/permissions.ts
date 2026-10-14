@@ -44,6 +44,29 @@ export function pendingPrompts(pool: Partial<DaemonPoolState> | null | undefined
   return out.sort((a, b) => (a.prompt.at < b.prompt.at ? -1 : a.prompt.at > b.prompt.at ? 1 : 0));
 }
 
+/** The sorted ids of a session's valid prompts, one per line; null when it carries no `permissions` array. */
+function promptKey(session: unknown): string | null {
+  const list = obj(session).permissions;
+  if (!Array.isArray(list)) return null;
+  const ids: string[] = [];
+  for (const raw of list) {
+    const p = readPrompt(raw);
+    if (p) ids.push(p.id);
+  }
+  return ids.sort().join('\n');
+}
+
+/**
+ * The frame's prompt-id key when it differs from the poll's and from the last key a refresh was asked for; else null.
+ * A frame without `permissions` (a partial update) never asks; a missing polled session counts as no prompts.
+ */
+export function promptRefreshKey(frame: unknown, polled: unknown, last: string | null): string | null {
+  const key = promptKey(frame);
+  if (key === null) return null;
+  const polledKey = promptKey(polled) ?? '';
+  return key !== polledKey && key !== last ? key : null;
+}
+
 const INPUT_KEYS: Record<string, string> = { Bash: 'command', Read: 'file_path', Edit: 'file_path', Write: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path', WebFetch: 'url', Glob: 'pattern', Grep: 'pattern' };
 
 /**
