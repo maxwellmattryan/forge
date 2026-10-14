@@ -28,6 +28,7 @@ import { jobCmd } from './commands/job.ts';
 import { requestsCmd } from './commands/requests.ts';
 import { statsText, statusTable } from './commands/status.ts';
 import { nextCmd, syncAll, trackerCmd } from './commands/tracker.ts';
+import { updateCmd } from './commands/update.ts';
 
 const HELP = () => `⚒️  Forge v${forgeVersion()}: a lightweight, self-improving software factory
 
@@ -50,6 +51,7 @@ Usage: forge <command> [options]   (state, worktrees, PRs, trackers, evals, dash
   forge daemon status   forge daemon log <job>|--inbox [--lines N] [--follow]   (the dash session pool)
   forge init detect|write --answers FILE   forge config [show|get PATH|validate]
   forge doctor   forge migrate   forge dash [--background|--stop] [--port N]   forge version
+  forge update [--check] [--keep-dash]   update this Forge install (Claude Code plugin or git clone)
 
 Docs: ${path.join(PLUGIN_ROOT, 'docs')}`;
 
@@ -64,6 +66,7 @@ export async function main(argv: string[]): Promise<void> {
   const [cmd, sub, ...rest] = pos;
   if (!cmd || cmd === 'help' || flags.help) return out(HELP(), flags);
   if (cmd === 'version') return out({ version: forgeVersion() }, flags);
+  if (cmd === 'update') return updateCmd(flags);
 
   const root = mainRoot();
   let loadOpts: { text?: string | null } = {};

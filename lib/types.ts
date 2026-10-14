@@ -461,6 +461,59 @@ export interface DoctorReport {
   checks: DoctorCheck[];
 }
 
+// ---------- forge update ----------
+
+/** How the running Forge was installed: detectInstall in lib/update.ts. */
+export type InstallKind = 'plugin' | 'git' | 'unknown';
+
+/** The running install as detectInstall in lib/update.ts sees it. */
+export interface InstallInfo {
+  kind: InstallKind;
+  root: string;
+  version: string;
+  /** `<plugin>@<marketplace>`, plugin installs only. */
+  plugin?: string;
+  marketplace?: string;
+  /** The Claude Code `plugins/` dir the install sits under. */
+  pluginsDir?: string;
+  /** Why a path that looked like a plugin install was not trusted. */
+  reason?: string;
+}
+
+/** What `forge update --check` prints: updateForge in lib/update.ts. */
+export interface UpdateCheck {
+  kind: InstallKind;
+  root: string;
+  version: string;
+  plugin?: string;
+  branch?: string;
+  upstream?: string;
+  commands: string[];
+  blocked?: string;
+  dashboard?: { running: true; url: string };
+  warnings?: string[];
+}
+
+/** This repo's dashboard after an update: updateForge in lib/update.ts. */
+export type UpdateDashboard = { restarted: true; url?: string } | { running: true; stale: true; url: string };
+
+/** What `forge update` prints: updateForge in lib/update.ts. */
+export interface UpdateResult {
+  kind: InstallKind;
+  root: string;
+  from: string;
+  to: string;
+  updated: boolean;
+  /** Only when the update moved the install to another directory. */
+  newRoot?: string;
+  /** Git installs: short shas before and after. */
+  head?: { from: string; to: string };
+  commands: string[];
+  dashboard?: UpdateDashboard;
+  warnings?: string[];
+  next: string[];
+}
+
 // ---------- requests ----------
 
 /** Request types the inbox accepts: REQUEST_TYPES in lib/requests.ts. */

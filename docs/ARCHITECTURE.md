@@ -33,6 +33,18 @@ Every persisted shape carries a version: `config.yml` → `schemaVersion`, `job.
 
 When a shape must change: bump the version constant, add a migration keyed by the old version, and keep normalisers tolerant.
 
+## Updating
+
+`forge update` (`lib/update.ts`) updates the install that is running, its own `PLUGIN_ROOT` after realpath, never whichever `forge` comes first on `PATH`. It works outside a git repo and without `.forge/`, like `forge version`.
+
+- **Detection, plugin first.** A root under `plugins/cache/<marketplace>/<plugin>/<version>` (with `plugins/installed_plugins.json` beside it) or `plugins/marketplaces/<marketplace>` (with `plugins/known_marketplaces.json`) is a Claude Code plugin install. The plugins dir comes from the root's own path rather than `CLAUDE_CONFIG_DIR`, so it always describes this install. This check runs before the git check because Claude Code's cache dirs can contain a `.git`, and pulling there would fork the install from what Claude Code tracks. Otherwise a root that is its own git toplevel is a clone (`npm link`, `claude --plugin-dir`). Anything else is unknown, and the command prints the manual route instead of guessing.
+- **Commands.** For a plugin it runs `claude plugin marketplace update <marketplace>`, then `claude plugin update <plugin>@<marketplace>`. Names from the path must match `^[A-Za-z0-9][A-Za-z0-9._-]*$` and are passed as separate argv entries with no shell, so a directory named like an option never reaches `claude`. For a clone it runs `git pull --ff-only`. The explicit flag overrides `pull.rebase` and `pull.ff`.
+- **Refusals.** A clone with uncommitted changes, a detached HEAD or no upstream is left untouched. Forge never stashes, resets, rebases or merges, and a diverged history fails with git's own message. A daemon session (`FORGE_DAEMON=1`) is refused before detection or any subprocess, because an unattended agent must not swap the code it and the dashboard run on. An interactive session runs under the human's own permissions and can only move the install to its marketplace's or upstream's head, which is accepted.
+- **Versions.** The new version is read from disk after the update: for a plugin, from the `installPath` that `installed_plugins.json` now records (user scope first). The cached `forgeVersion()` belongs to the old code.
+- **Dashboard.** If the repo at cwd has a running dashboard and the version changed, Forge restarts it by running the new install's `bin/forge dash --stop` and `dash --background`. `forge dash` spawns the server from its own `PLUGIN_ROOT`, so running the old bin would bring the old code back up. `--keep-dash`, or a restart that fails, leaves it running and reports it as stale. Dashboards in other repos get a hint, because Forge keeps no global registry of them.
+- **Nothing is built.** `dashboard/dist/` is committed and there are no runtime dependencies, so an update never runs `npm install` or a build.
+- **Shadowing.** A `forge` earlier on `PATH` that resolves under `node_modules` (an old global npm copy) cannot run, because Node does not strip types there. Forge warns and names the uninstall command. It deletes nothing.
+
 ## Job model
 
 `stage` is where the job is in the pipeline:

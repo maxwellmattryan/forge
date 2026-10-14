@@ -56,6 +56,10 @@ forge help
 ```
 Forge's engine is TypeScript that Node runs directly, and Node does not strip types under `node_modules`, so install from a clone, not as a global npm package.
 
+### Updating
+
+Run `forge update` in a terminal or `/forge update` in Claude Code. It updates the install that is running. For a plugin install it runs `claude plugin marketplace update <marketplace>` and then `claude plugin update forge@<marketplace>`. For a clone it runs `git pull --ff-only`, and refuses when the checkout has uncommitted changes, a detached HEAD or no upstream. It prints the old and new versions, restarts the current repo's running dashboard on the new code, and lists what still needs a restart: a new Claude Code session for a plugin install, and dashboards in other repos. `forge update --check` only shows what it would run. `--keep-dash` leaves this repo's dashboard alone. Nothing is built or installed, because `dashboard/dist/` is committed and Forge has no runtime dependencies.
+
 ## Start
 
 ```
@@ -81,6 +85,7 @@ The skill can be invoked as `/forge` or, fully qualified, `/forge:forge`.
 | `forge git commit <job> (--message T \| --message-file F) [-- paths]` · `forge git add <job> -- paths` | commit or stage in the job's worktree, on its branch, from any cwd (how agents commit, in a daemon session too); refuses git options, paths outside the worktree and AI attribution |
 | `forge daemon status` · `forge daemon log <job>\|--inbox [--lines N] [--follow]` | the daemon's sessions and a session's log, from the terminal |
 | `forge job link <job> <ref>\|--create\|--none` · `forge tracker search <query>` | link a job to an issue, create one, or record that it needs none; search the tracker (see [Linking jobs to issues](docs/TRACKERS.md#linking-jobs-to-issues)) |
+| `forge update [--check] [--keep-dash]` · `/forge update` | update this Forge install (plugin or clone) and restart this repo's dashboard on the new code (see [Updating](#updating)) |
 | `forge config get <key>` · `forge config set <key> <value>` | read the effective config, or change one editable key in `.forge/config.yml`, keeping its comments (see [Changing settings](docs/CONFIG.md#changing-settings)) |
 
 ## How it works
