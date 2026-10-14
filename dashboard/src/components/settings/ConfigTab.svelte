@@ -55,13 +55,13 @@
     </div>
     <div class="sticky bottom-0 flex flex-wrap items-center justify-end gap-x-2 gap-y-1.5 border-t border-line bg-bg px-4 md:px-6 py-2.5">
       <div bind:this={status} tabindex="-1" class="mr-auto min-w-0 text-xs outline-none" aria-live="polite">
-        <span class="text-muted">{$t('settings.save.unsaved', { count: changed.length })}</span>{#if invalid.length}<span class="text-muted"> · {$t('settings.save.invalid', { count: invalid.length })}</span>{/if}
+        {#if changed.length || invalid.length}<span class="chip rev max-w-full whitespace-normal"><span aria-hidden="true">{$t('common.rev')} · </span>{$t('settings.save.unsaved', { count: changed.length })}{#if invalid.length} · {$t('settings.save.invalid', { count: invalid.length })}{/if}</span>{:else}<span class="label">{$t('settings.save.unsaved', { count: 0 })}</span>{/if}
         {#if problem}
           <button class="block text-left text-bad underline-offset-2 hover:underline break-words" onclick={() => goto(problem.key)}>{session.failedKey ? $t('settings.save.failedHere', { label: problem.label, error: session.saveErrors[problem.key] ?? '' }) : $t('settings.save.fixHere', { label: problem.label })}</button>
         {/if}
       </div>
       <button class="btn min-h-11 md:min-h-0" disabled={!Object.keys(session.drafts).length || session.saving} onclick={() => session.reset()}>{$t('settings.save.reset')}</button>
-      <button class="btn btn-primary min-h-11 md:min-h-0" disabled={!canSave} onclick={save}>{$t('settings.save.save')}</button>
+      <button class="btn primary min-h-11 md:min-h-0" disabled={!canSave} onclick={save}>{$t('settings.save.save')}</button>
     </div>
   </div>
 {/if}

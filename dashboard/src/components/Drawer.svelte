@@ -44,26 +44,26 @@
 </script>
 
 {#snippet fact(k: string, v: unknown)}
-  <div><div class="text-[11px] text-muted">{k}</div><div class="text-sm font-mono break-all">{v}</div></div>
+  <div><div class="label">{k}</div><div class="mono break-all">{v}</div></div>
 {/snippet}
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop, as on main; Escape closes the drawer from the keyboard) -->
-<div id="drawer-backdrop" class="fixed inset-0 bg-black/40 {open ? '' : 'hidden'} z-30" onclick={closeDrawer}></div>
-<aside id="drawer" class="fixed right-0 top-0 h-full w-full max-w-3xl bg-bg border-l border-line z-40 {open ? '' : 'translate-x-full'} transition-transform overflow-y-auto">
+<div id="drawer-backdrop" class="fixed inset-0 backdrop {open ? '' : 'hidden'} z-30" onclick={closeDrawer}></div>
+<aside id="drawer" class="fixed right-0 top-0 h-full w-full max-w-(--size-drawer-max) bg-bg border-l border-line z-40 {open ? 'shadow-(--shadow-drawer)' : 'translate-x-full'} transition-transform overflow-y-auto">
   {#if view && 'error' in view}
     <div class="p-6"><Banner msg={view.error} /></div>
   {:else if shown && job}
     {@const d = shown.detail}
     {@const j = job}
     <div class="p-5 md:p-6 flex flex-col gap-5">
-      <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="text-lg font-semibold">{j.title}</h2><div class="text-xs text-muted font-mono">{j.id}</div></div><button class="btn" aria-label={$t('drawer.close')} onclick={closeDrawer}><Icon name="close" /></button></div>
-      <div class="flex flex-wrap gap-1.5"><Chip tone="muted" text={STAGE_LABEL[j.stage] ?? j.stage} /><StateChip job={j} />{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}</div>
+      <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="h sheet-title">{j.title}</h2><div class="mono muted">{j.id}</div></div><button class="btn icon shrink-0" aria-label={$t('drawer.close')} onclick={closeDrawer}><Icon name="close" /></button></div>
+      <div class="flex flex-wrap gap-1.5"><span class="chip ink">{STAGE_LABEL[j.stage] ?? j.stage}</span><StateChip job={j} />{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}</div>
       {#if j.reason}<div class="text-sm text-muted">{j.reason}</div>{/if}
       <ProgressBar progress={j.progress} />
       <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
         {@render fact($t('drawer.branch'), j.branch ?? '—')}{@render fact($t('drawer.base'), j.base ?? '—')}{@render fact($t('drawer.port'), j.port ?? '—')}{@render fact($t('drawer.worktree'), j.worktree ?? '—')}
-        <div><div class="text-[11px] text-muted">{$t('drawer.pr')}</div><div class="text-sm font-mono break-all">{#if prUrl}<a class="text-accent" href={prUrl} target="_blank" rel="noopener">#{j.pr?.number}</a>{:else}—{/if}</div></div>
-        <div><div class="text-[11px] text-muted">{$t('drawer.source')}</div><div class="text-sm font-mono break-all">{#if srcUrl}<a class="text-accent" href={srcUrl} target="_blank" rel="noopener">{j.source?.ref ?? $t('drawer.link')}</a>{:else}{j.source?.ref ?? '—'}{/if}</div></div>
+        <div><div class="label">{$t('drawer.pr')}</div><div class="mono break-all">{#if prUrl}<a class="text-ink" href={prUrl} target="_blank" rel="noopener">#{j.pr?.number}</a>{:else}—{/if}</div></div>
+        <div><div class="label">{$t('drawer.source')}</div><div class="mono break-all">{#if srcUrl}<a class="text-ink" href={srcUrl} target="_blank" rel="noopener">{j.source?.ref ?? $t('drawer.link')}</a>{:else}{j.source?.ref ?? '—'}{/if}</div></div>
         {@render fact($t('drawer.session'), j.owner?.session ?? '—')}{@render fact($t('drawer.created'), ago(j.createdAt))}{@render fact($t('drawer.updated'), ago(j.updatedAt))}
       </div>
       <DepSection job={j} />
@@ -114,7 +114,7 @@
         </div>
       {/if}
       {@html screenshotsPanel(j.id, d.screenshots ?? [])}
-      <div bind:this={tabStrip} class="flex gap-1 border-b border-line">{#each TABS as tab (tab)}<button class="px-3 py-2 text-sm -mb-px border-b-2 {shown.tab === tab ? 'border-accent text-fg' : 'border-transparent text-muted'}" aria-pressed={shown.tab === tab ? 'true' : 'false'} onclick={() => setDrawerTab(tab)}>{#if tab === 'timeline'}{$t('drawer.timeline')} <span class="text-muted">{d.events.length}</span>{:else if tab === 'thread'}{$t('drawer.threadTab')}{:else}{$t('drawer.files')}{/if}</button>{/each}</div>
+      <div bind:this={tabStrip} class="tabs">{#each TABS as tab (tab)}<button class="tab {shown.tab === tab ? 'active' : ''}" aria-pressed={shown.tab === tab ? 'true' : 'false'} onclick={() => setDrawerTab(tab)}>{#if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted">{d.events.length}</span>{:else if tab === 'thread'}{$t('drawer.threadTab')}{:else}{$t('drawer.files')}{/if}</button>{/each}</div>
       {#if shown.tab === 'files'}
         {@const file = shown.file}
         {@const content = shown.content}
@@ -124,11 +124,11 @@
             {#if file && content}
               {#if 'html' in content}
                 <!-- svelte-ignore a11y_missing_attribute (no title, as on main: the iframe sits under the file list that names it) -->
-                <iframe sandbox="allow-scripts" class="w-full h-[70vh] rounded-lg border border-line bg-white" src="/api/jobs/{encodeURIComponent(j.id)}/raw?path={encodeURIComponent(file)}"></iframe>
+                <iframe sandbox="allow-scripts" class="w-full h-[70vh] border border-line bg-white" src="/api/jobs/{encodeURIComponent(j.id)}/raw?path={encodeURIComponent(file)}"></iframe>
               {:else if file.endsWith('.md')}
                 <div class="prose-md">{@html md(content.text)}</div>
               {:else}
-                <pre class="text-[12px] font-mono whitespace-pre-wrap break-words bg-raised rounded-lg p-3">{content.text}</pre>
+                <pre class="text-[12px] font-mono whitespace-pre-wrap break-words bg-raised p-3">{content.text}</pre>
               {/if}
             {:else}
               <div class="text-sm text-muted">{$t('drawer.noFiles')}</div>

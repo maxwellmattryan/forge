@@ -1,4 +1,4 @@
-<!-- The settings modal: a labelled, focus-trapped dialog with a tab rail. A centred card at md and up, a full-screen sheet below. -->
+<!-- The settings modal: a labelled, focus-trapped dialog with a tab rail. A centred sheet at md and up, a full-screen sheet below. -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import Icon from './Icon.svelte';
@@ -123,14 +123,15 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop; Escape and the close button close the dialog from the keyboard) -->
-<div class="fixed inset-0 z-45 flex md:items-center md:justify-center md:p-6 bg-black/50" onmousedown={backdropDown} onclick={backdrop}>
-  <div bind:this={dialog} role="dialog" aria-modal="true" aria-labelledby="settings-title" tabindex="-1" class="flex flex-col w-full h-full min-w-0 bg-bg md:h-[min(80vh,720px)] md:max-w-4xl md:rounded-xl md:border md:border-line md:shadow-2xl overflow-hidden" onkeydown={trap}>
+<div class="fixed inset-0 z-45 flex md:items-center md:justify-center md:p-6 backdrop" onmousedown={backdropDown} onclick={backdrop}>
+  <div bind:this={dialog} role="dialog" aria-modal="true" aria-labelledby="settings-title" tabindex="-1" class="sheet ticks solid flex flex-col w-full h-full min-w-0 md:h-[min(80vh,720px)] md:max-w-(--size-dialog) md:shadow-(--shadow-dialog)" onkeydown={trap}>
+    <span class="tk"></span>
     <div class="flex items-center justify-between gap-3 border-b border-line px-4 py-2 md:px-5">
-      <h2 id="settings-title" class="text-base font-semibold">{$t('settings.title')}</h2>
-      <button class="btn size-11 justify-center p-0" aria-label={$t('settings.close')} onclick={requestClose}><Icon name="close" /></button>
+      <div class="flex min-w-0 items-baseline gap-3.5"><h2 id="settings-title" class="h sheet-title">{$t('settings.title')}</h2><span class="label">{$t('settings.sheet')}</span></div>
+      <button class="btn icon touch shrink-0" aria-label={$t('settings.close')} onclick={requestClose}><Icon name="close" /></button>
     </div>
     <div class="flex flex-col md:flex-row flex-1 min-h-0">
-      <div role="tablist" tabindex="-1" aria-label={$t('settings.sections')} aria-orientation={wide ? 'vertical' : 'horizontal'} class="flex md:flex-col gap-1 shrink-0 overflow-x-auto md:overflow-y-auto md:w-48 border-b md:border-b-0 md:border-r border-line p-2" onkeydown={railKey}>
+      <div role="tablist" tabindex="-1" aria-label={$t('settings.sections')} aria-orientation={wide ? 'vertical' : 'horizontal'} class="nav {wide ? '' : 'row'} shrink-0 overflow-x-auto md:overflow-y-auto md:w-(--size-settings-rail) border-b md:border-b-0 md:border-r border-line p-2" onkeydown={railKey}>
         {#each SETTINGS_TABS as item (item.id)}
           <button
             role="tab"
@@ -138,13 +139,14 @@
             aria-selected={tab === item.id}
             aria-controls="settings-panel-{item.id}"
             tabindex={tab === item.id ? 0 : -1}
-            class="nav-item shrink-0 min-h-11 md:min-h-0 whitespace-nowrap {tab === item.id ? 'active' : ''}"
+            class="min-h-11 md:min-h-0 whitespace-nowrap {tab === item.id ? 'active' : ''}"
             onclick={() => select(item.id)}
-            ><span class="flex items-center gap-2"><Icon name={item.icon} />{labels[item.id]}</span>{#if marks[item.id] === 'error'}<span class="size-1.5 rounded-full bg-bad shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('settings.tabs.hasError')}</span>{:else if marks[item.id] === 'changed'}<span class="size-1.5 rounded-full bg-accent shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('settings.tabs.hasChanges')}</span>{/if}</button
+            ><span class="lbl"><Icon name={item.icon} />{labels[item.id]}</span>{#if marks[item.id] === 'error'}<span class="dot red" aria-hidden="true"></span><span class="sr-only">{$t('settings.tabs.hasError')}</span>{:else if marks[item.id] === 'changed'}<span class="dot hl" aria-hidden="true"></span><span class="sr-only">{$t('settings.tabs.hasChanges')}</span>{/if}</button
           >
         {/each}
       </div>
       <div bind:this={panel} role="tabpanel" id="settings-panel-{tab}" aria-labelledby="settings-tab-{tab}" tabindex="0" class="flex-1 min-h-0 min-w-0 overflow-y-auto">
+        <div class="label callout px-4 pt-4 md:px-6" aria-hidden="true">{labels[tab]}</div>
         {#if tab === 'general'}<GeneralTab />
         {:else if tab === 'diagnostics'}<DiagnosticsTab {session} />
         {:else if tab === 'about'}<AboutTab {session} />
