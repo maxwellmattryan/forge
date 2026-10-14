@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0
+
+- Daemon per job: `forge dash` supervises a pool of headless sessions, one per job with work plus an inbox session for requests without a job, each with its own crash strikes, budget hold, idle stop, resume and log (`daemon.maxConcurrent`, default 3). New `forge daemon status` and `forge daemon log <job>|--inbox`; inside a session, `forge requests` sees only its own scope. The job drawer's live session log shows turns, tool calls and nested subagents.
+- Dashboard settings: a Settings modal (`,`) edits an allowlist of config keys through the new `forge config get|set`, which keeps comments and key order in `config.yml`, and adds Diagnostics (`forge doctor`) and About. Keys that can name a command, file, tool or repository, or loosen a security policy, stay read-only. Dashboard text moves to `dashboard/src/messages/en.json`.
+- Command bar and threads: Cmd/Ctrl-K creates jobs from free text and sends `/forge`-style commands, and each job's drawer has a Thread tab. With a tracker configured, a job not started from an issue waits on `issue-link` until it is linked (`forge job link <id> <ref> | --create | --none | --suggest`); new `forge tracker search`. Job schema 4 adds `noIssue`.
+- Review files: `forge job round` and `forge job paths` create the review directories up front, roles write files with the Write tool, and `forge job verdicts` reports `MISSING` when a reviewer ended without writing its review.
+- Usage: `forge job agent end --import` for a resumed agent (the builder in rework rounds) counts only what the agent did since its previous import, so earlier rounds are no longer counted again. Job schema 5 adds a per-agent import cursor; existing ended agents get theirs from `endedAt`. `API_VERSION` 9.
+
 ## 0.8.1
 
 - One PR per issue: the planner shapes a single job into ordered phases that each leave the branch green, and a split proposal is a human gate. New `pipeline.split` (`ask` by default, or `auto` | `never`) parks a `PLAN: SPLIT` on `split-approval` until `/forge approve` creates the child jobs or `/forge revise` keeps it as one; `/forge issue <ref>` and dashboard starts always plan as `never`. `API_VERSION` 5.
