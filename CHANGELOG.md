@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Daemon retries: a turn claude reports as failed (an expired login, a rate limit, a spend cap) no longer strands its requests. The session commits nothing, keeps the requests pending and sends the turn again: at the window's reset when a `rate_limit_event` said which one refused it, otherwise after a backoff that doubles from 1 minute to 1 hour. Limits are retried for as long as it takes; any other error strikes out after 3 in a row, stopping the session and its child with the reason shown. The session's error now ends with `retry at <time>`, and the log gains a `retry` event.
+
 ## 0.10.2
 
 - Daemon turns: the skill now tells a headless session to run every `forge` call as a plain command, one per Bash call. Under `--permission-mode dontAsk` the allowlist is matched against each part of a compound command, so `forge requests scope; echo $?` was refused whole and the session concluded Bash was blocked.

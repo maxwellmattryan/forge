@@ -12,7 +12,7 @@ import { TRUST_ENV, defaults, trustDigest } from '../lib/config.ts';
 import { budgetCmd } from '../lib/budget.ts';
 import { createJob, setJob, updateJob } from '../lib/jobs.ts';
 import { PLUGIN_ROOT } from '../lib/paths.ts';
-import { INBOX_SCOPE, SCOPE_ENV, ackRequest, claimRequest, enqueue, requestScope, validScope } from '../lib/requests.ts';
+import { INBOX_SCOPE, SCOPE_ENV, ackRequest, claimRequest, enqueue, listRequests, requestScope, validScope } from '../lib/requests.ts';
 import { DENY_TOOLS, GIT_PINS, TRUST_CHANGED, TURN, TURN_LINE, apiKeyVars, buildArgv, heldByBudget, parseTemplate, reapOrphans, sessionEnv } from '../lib/daemon.ts';
 import { createPool } from '../lib/daemon-pool.ts';
 
@@ -1412,7 +1412,7 @@ test('a FIFO planted as a session log never blocks the supervisor', { skip: proc
 test('a failed turn marks its session failing until a turn works', async () => {
   const repo = tempRepo();
   const kit = fakeKit();
-  const d = kitPool(repo.dir, kit);
+  const d = kitPool(repo.dir, kit, config(), { retryMinMs: 20, retryMaxMs: 20 });
   try {
     const a = createJob(repo.dir, defaults(), { title: 'Job A' }).id;
     enqueue(repo.dir, null, { type: 'resume', job: a, from: 'dashboard' });
@@ -1421,9 +1421,10 @@ test('a failed turn marks its session failing until a turn works', async () => {
     // What claude 2.1.296 printed with an expired login.
     kit.last(a).line({ type: 'result', subtype: 'success', is_error: true, result: 'Failed to authenticate: OAuth session expired and could not be refreshed' });
     await waitFor(() => d.sessionState(a).status === 'idle', 2000, 'idle');
-    assert.equal(d.sessionState(a).lastError, 'last turn failed: Failed to authenticate: OAuth session expired and could not be refreshed');
+    assert.match(d.sessionState(a).lastError, /^last turn failed: Failed to authenticate: OAuth session expired and could not be refreshed; retry at \d{4}-/);
     assert.equal(d.state().jobs[a].lastError?.startsWith('last turn failed'), true, 'a failing session stays listed');
     assert.equal(d.sessionState(a).wanted, true, 'still wanted: the next request gets a turn');
+    await sleep(30);
     enqueue(repo.dir, null, { type: 'answer', job: a, text: 'retry', from: 'dashboard' });
     d.poke();
     await waitFor(() => turnsIn(kit.last(a)) === 2, 2000, 'the next turn');
@@ -1434,9 +1435,94 @@ test('a failed turn marks its session failing until a turn works', async () => {
     d.poke();
     await waitFor(() => turnsIn(kit.last(a)) === 3, 2000, 'a third turn');
     kit.last(a).line({ type: 'result', subtype: 'success', is_error: true, result: 'overloaded' });
-    await waitFor(() => d.sessionState(a).lastError === 'last turn failed: overloaded', 2000, 'failing again');
+    await waitFor(() => d.sessionState(a).lastError?.startsWith('last turn failed: overloaded'), 2000, 'failing again');
     await d.stop();
     assert.equal(d.sessionState(a).lastError, null);
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('a failed turn leaves its requests pending and retries them after a backoff, striking out at three', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit, config(), { retryMinMs: 150, retryMaxMs: 150 });
+  try {
+    const a = createJob(repo.dir, defaults(), { title: 'Job A' }).id;
+    const req = enqueue(repo.dir, null, { type: 'resume', job: a, from: 'dashboard' });
+    d.start();
+    await settle();
+    assert.equal(turnsIn(kit.last(a)), 1);
+    const fail = (why) => kit.last(a).line({ type: 'result', subtype: 'success', is_error: true, result: why });
+    fail('Failed to authenticate: OAuth session expired and could not be refreshed');
+    await waitFor(() => d.sessionState(a).status === 'idle', 2000, 'idle');
+    // The request was never claimed, so it is still pending, and the session does not count it as handled.
+    assert.deepEqual(listRequests(repo.dir, { status: 'pending' }).map((r) => r.id), [req.id]);
+    d.poke();
+    await sleep(30);
+    assert.equal(turnsIn(kit.last(a)), 1, 'no turn inside the backoff');
+    await waitFor(() => (d.poke(), turnsIn(kit.last(a)) === 2), 2000, 'the retry turn');
+    assert.deepEqual(
+      eventsIn(logOf(repo.dir, a), 'retry').map((e) => [e.reason, e.attempt, e.requests]),
+      [['error', 1, 1]],
+    );
+    fail('Failed to authenticate: OAuth session expired and could not be refreshed');
+    await waitFor(() => (d.poke(), turnsIn(kit.last(a)) === 3), 2000, 'the second retry');
+    fail('Failed to authenticate: OAuth session expired and could not be refreshed');
+    await waitFor(() => d.sessionState(a).wanted === false, 2000, 'struck out');
+    assert.match(d.sessionState(a).lastError, /^daemon stopped after 3 failed turns: Failed to authenticate/);
+    await waitFor(() => d.sessionState(a).running === false, 2000, 'its child is stopped so the slot frees');
+    assert.equal(d.state().jobs[a]?.lastError?.startsWith('daemon stopped'), true, 'still listed with the reason');
+    // A human's start clears the strikes and the request gets its turn at once.
+    assert.equal(d.startSession(a).error, null);
+    await waitFor(() => turnsIn(kit.last(a)) === 1 && kit.of(a).length === 2, 2000, 'a fresh child with a turn');
+    assert.equal(d.sessionState(a).lastError, null);
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('a turn refused by a rate limit retries when the window resets and never strikes out', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit, config(), { retryMinMs: 100, retryMaxMs: 100 });
+  try {
+    const a = createJob(repo.dir, defaults(), { title: 'Job A' }).id;
+    enqueue(repo.dir, null, { type: 'resume', job: a, from: 'dashboard' });
+    d.start();
+    await settle();
+    const fail = (why) => kit.last(a).line({ type: 'result', subtype: 'success', is_error: true, result: why });
+    // What claude prints on stdout before the turn fails: the window that refused it, epoch seconds.
+    const resets = Date.now() + 400;
+    kit.last(a).line({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: resets / 1000, rateLimitType: 'five_hour' } });
+    fail("You've hit your limit");
+    await waitFor(() => d.sessionState(a).status === 'idle', 2000, 'idle');
+    assert.equal(d.sessionState(a).lastError, `last turn failed: You've hit your limit; retry at ${new Date(resets).toISOString()}`);
+    d.poke();
+    await sleep(150);
+    assert.equal(turnsIn(kit.last(a)), 1, 'no turn before the reset, even past the plain backoff');
+    await waitFor(() => (d.poke(), turnsIn(kit.last(a)) === 2), 2000, 'the turn at the reset');
+    // Limit errors recognised by their text alone, with no event: a backoff, and no strike however often.
+    for (let i = 0; i < 4; i++) {
+      fail('API Error: 400 You have reached your specified API usage limits. You will regain access on 2026-11-01 at 00:00 UTC.');
+      await waitFor(() => (d.poke(), turnsIn(kit.last(a)) === 3 + i), 3000, `retry ${i + 1}`);
+    }
+    assert.equal(d.sessionState(a).wanted, true);
+    assert.deepEqual(
+      eventsIn(logOf(repo.dir, a), 'retry').map((e) => e.reason),
+      ['limit', 'limit', 'limit', 'limit', 'limit'],
+    );
+    // A `rejected` event from an earlier turn does not colour a later failure.
+    kit.last(a).line({ type: 'result', subtype: 'success', is_error: false });
+    await waitFor(() => d.sessionState(a).lastError === null, 2000, 'a working turn clears it');
+    enqueue(repo.dir, null, { type: 'answer', job: a, text: 'more', from: 'dashboard' });
+    d.poke();
+    await waitFor(() => turnsIn(kit.last(a)) === 7, 2000, 'a new turn');
+    fail('something else broke');
+    await waitFor(() => eventsIn(logOf(repo.dir, a), 'retry').length === 6, 2000, 'a sixth retry in the log');
+    assert.equal(eventsIn(logOf(repo.dir, a), 'retry').at(-1).reason, 'error');
   } finally {
     await d.close();
     repo.cleanup();
