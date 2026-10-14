@@ -32,8 +32,8 @@
   <div class="flex flex-col gap-1.5">
     <div id="settings-theme-label" class="text-sm font-medium">{$t('settings.general.theme')}</div>
     <div role="radiogroup" aria-labelledby="settings-theme-label" class="flex flex-wrap gap-2">
-      <label class="btn min-h-11 {theme === 'cyanotype' ? 'border-accent/60 text-fg' : 'text-muted'}"><input type="radio" name="settings-theme" value="cyanotype" checked={theme === 'cyanotype'} onchange={() => pick('cyanotype')} />{$t('settings.general.cyanotype')}</label>
-      <label class="btn min-h-11 {theme === 'vellum' ? 'border-accent/60 text-fg' : 'text-muted'}"><input type="radio" name="settings-theme" value="vellum" checked={theme === 'vellum'} onchange={() => pick('vellum')} />{$t('settings.general.vellum')}</label>
+      <label class="btn min-h-11 {theme === 'cyanotype' ? 'border-ink/60 text-fg' : 'text-muted'}"><input type="radio" name="settings-theme" value="cyanotype" checked={theme === 'cyanotype'} onchange={() => pick('cyanotype')} />{$t('settings.general.cyanotype')}</label>
+      <label class="btn min-h-11 {theme === 'vellum' ? 'border-ink/60 text-fg' : 'text-muted'}"><input type="radio" name="settings-theme" value="vellum" checked={theme === 'vellum'} onchange={() => pick('vellum')} />{$t('settings.general.vellum')}</label>
     </div>
   </div>
   <div class="flex flex-col gap-1">

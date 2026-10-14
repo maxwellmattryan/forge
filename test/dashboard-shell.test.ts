@@ -1,35 +1,27 @@
-// The Drafting shell (design/jobs/03-shell.md): the sidebar, nav, page header, Pipeline controls and the overlays
-// draw square corners and hard-offset shadows, and their segments and nav links expose their selected state.
-// Reads source files only, like dashboard-svelte.test.ts.
+// The Drafting shell and job surfaces (design/jobs/03-shell.md, 04-job-surfaces.md): every source draws square
+// corners and hard-offset shadows and uses none of the pre-Drafting class names, the job surfaces use the Drafting
+// markup, and segments and nav links expose their selected state. Reads source files only, like dashboard-svelte.test.ts.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { endOf, tags } from './svelte-markup.ts';
+import { TONE_CLASS } from '../dashboard/src/lib/util.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = path.join(ROOT, 'dashboard', 'src');
 const read = (rel: string) => fs.readFileSync(path.join(SRC, rel), 'utf8');
 
-// The files this restyle moved onto the Drafting markup. Job 4 widens the list as it restyles the rest.
-const SHELL_FILES = [
-  'App.svelte',
-  'components/Nav.svelte',
-  'components/PageHeader.svelte',
-  'views/Pipeline.svelte',
-  'views/Analytics.svelte',
-  'components/Drawer.svelte',
-  'components/Settings.svelte',
-  'components/settings/ConfigTab.svelte',
-  'components/CommandBar.svelte',
-  'components/Banner.svelte',
-  'components/Toast.svelte',
-];
-
-const ROUNDED = /(^|:)rounded(-(?!full\b)[\w[\]-]+)?$/;
-const BLURRED = /(^|:)shadow-(lg|2xl)$/;
-const banned = (cls: string) => ROUNDED.test(cls) || BLURRED.test(cls);
+const ROUNDED = /^rounded(-(?!full\b)[\w[\]-]+)?$/;
+const BLURRED = /^shadow-(lg|2xl)$/;
+// Job 1's aliases, deleted in job 4. `card` alone is the old sheet alias; next to `h` it is the Drafting title style.
+const OLD = new Set(['btn-primary', 'kpi-label', 'kpi-value', 'prose-md', 'ember-bar', 'brand-rule', 'nav-item']);
+const ACCENT = /^[\w-]+-(on-)?accent(\/\d+)?$/;
+/** Variant prefixes (`hover:`, `md:`) are stripped, so `hover:text-accent` is `text-accent`. */
+const base = (cls: string) => cls.slice(cls.lastIndexOf(':') + 1);
+const bannedIn = (classes: string[]) => classes.filter((c) => ROUNDED.test(base(c)) || BLURRED.test(base(c)) || OLD.has(base(c)) || ACCENT.test(base(c)) || (base(c) === 'card' && !classes.includes('h')));
+const banned = (cls: string) => bannedIn([cls]).length > 0;
 
 /** Every string literal in a JS expression: the class names a `{cond ? 'a' : 'b'}` can apply. */
 function literals(expr: string): string[] {
@@ -65,21 +57,49 @@ function classTokens(value: string): string[] {
   return [rest, ...parts].flatMap((s) => s.split(/\s+/)).filter(Boolean);
 }
 
-/** Class tokens of every element and component in a file. */
-const fileClasses = (rel: string) => tags(rel, read(rel)).flatMap((t) => t.attrs.filter((a) => a.name === 'class' && a.value).flatMap((a) => classTokens(a.value as string)));
+/** Class tokens of each class attribute in a file, one list per attribute (so `card` can be checked against `h`). */
+const fileClassLists = (rel: string) => tags(rel, read(rel)).flatMap((t) => t.attrs.filter((a) => a.name === 'class' && a.value).map((a) => classTokens(a.value as string)));
 
-test('shell files use no rounded or blurred-shadow classes', () => {
-  // The matcher itself: the corner and shadow classes it must catch, and the Drafting ones it must let through.
-  for (const bad of ['rounded', 'rounded-lg', 'md:rounded-xl', 'rounded-t-lg', 'rounded-[4px]', 'shadow-lg', 'shadow-2xl', 'md:shadow-2xl']) assert.ok(banned(bad), `${bad} is caught`);
-  for (const ok of ['rounded-full', 'shadow-(--shadow-dialog)', 'shadow-(--shadow-drawer)', 'shadow-[inset_3px_0_0_var(--ink)]', 'md:shadow-(--shadow-dialog)', 'border-line']) assert.ok(!banned(ok), `${ok} passes`);
+/** The fixed text of every `class="…"` in TS source, `${…}` interpolations dropped. */
+function tsClassLists(text: string): string[][] {
+  const out: string[][] = [];
+  for (const m of text.matchAll(/class="/g)) {
+    let v = '';
+    for (let i = (m.index ?? 0) + m[0].length; i < text.length && text[i] !== '"'; i++) {
+      if (text[i] === '$' && text[i + 1] === '{') {
+        const end = endOf(text, i + 1);
+        assert.ok(end > 0, `cannot parse the interpolation near ${text.slice(i, i + 40)}`);
+        v += ' ';
+        i = end;
+      } else v += text[i];
+    }
+    out.push(v.split(/\s+/).filter(Boolean));
+  }
+  return out;
+}
+
+test('dashboard sources use no old, rounded or blurred-shadow classes', () => {
+  // The matcher itself: the classes it must catch, and the Drafting ones it must let through.
+  for (const bad of ['rounded', 'rounded-lg', 'md:rounded-xl', 'rounded-t-lg', 'rounded-[4px]', 'shadow-lg', 'shadow-2xl', 'md:shadow-2xl', 'btn-primary', 'hover:text-accent', 'bg-accent/15', 'text-on-accent', 'border-accent', 'kpi-value', 'nav-item', 'prose-md', 'card'])
+    assert.ok(banned(bad), `${bad} is caught`);
+  for (const ok of ['rounded-full', 'shadow-(--shadow-dialog)', 'shadow-(--shadow-drawer)', 'shadow-[inset_3px_0_0_var(--ink)]', 'md:shadow-(--shadow-dialog)', 'border-line', 'text-ink', 'primary', 'kpi', 'prose', 'nav'])
+    assert.ok(!banned(ok), `${ok} passes`);
+  assert.deepEqual(bannedIn(['h', 'card', 'line-clamp-2']), [], '`h card` is the Drafting title style');
+  assert.deepEqual(bannedIn(['card', 'p-3']), ['card'], '`card` alone is the old alias');
   assert.deepEqual(classTokens(`"btn sm {on ? 'sel' : 'shadow-2xl'}"`), ['btn', 'sm', 'sel', 'shadow-2xl'], 'class tokens include those inside expressions');
   assert.deepEqual(classTokens(`{on ? 'active' : 'md:rounded-xl'}`), ['active', 'md:rounded-xl'], 'class={…} expressions are read too');
+  assert.deepEqual(tsClassLists('`<div class="sheet ${x ? `a` : "b"} card"><i class="h card">`'), [['sheet', 'card'], ['h', 'card']], 'TS class strings drop their interpolations');
 
-  for (const rel of SHELL_FILES) {
-    const classes = fileClasses(rel);
-    assert.ok(classes.length > 0, `${rel} has class attributes`);
-    assert.deepEqual(classes.filter(banned), [], `${rel} draws square corners and hard shadows`);
+  const files = svelteFiles();
+  assert.ok(files.length >= 35, `checked ${files.length} components`);
+  for (const rel of files) {
+    const lists = fileClassLists(rel);
+    assert.deepEqual(lists.flatMap(bannedIn), [], `${rel} uses only Drafting classes, square corners and hard shadows`);
   }
+  const ts = tsFiles();
+  assert.ok(ts.some((f) => f.endsWith('.svelte.ts')), 'rune modules are read too');
+  for (const rel of ts) assert.deepEqual(tsClassLists(fs.readFileSync(path.join(SRC, rel), 'utf8')).flatMap(bannedIn), [], `${rel} builds only Drafting classes`);
+  for (const [tone, cls] of Object.entries(TONE_CLASS)) assert.deepEqual(bannedIn(cls.split(/\s+/)), [], `TONE_CLASS.${tone} is a Drafting chip modifier`);
 });
 
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);

@@ -111,8 +111,8 @@ function sameValue(a: string, b: string): boolean {
 
 const SCOPES = [':root, [data-theme="cyanotype"]', '[data-theme="vellum"]', ':root'];
 const EXTRAS: Record<string, string[]> = {
-  [SCOPES[0]]: ['--accent', '--on-accent', '--paper-blend', '--fall'],
-  [SCOPES[1]]: ['--accent', '--on-accent', '--paper-opacity', '--paper-blend', '--fall'],
+  [SCOPES[0]]: ['--paper-blend', '--fall'],
+  [SCOPES[1]]: ['--paper-opacity', '--paper-blend', '--fall'],
   [SCOPES[2]]: [],
 };
 
@@ -144,7 +144,7 @@ test('built CSS carries every design token in both themes', () => {
       assert.ok(sameValue(value, got.get(name) ?? ''), `${sel} › ${name}: design ${value}, built ${got.get(name)}`);
     }
     const extra = [...got.keys()].filter((k) => !want.has(k)).sort();
-    assert.deepEqual(extra, [...EXTRAS[sel]].sort(), `${sel}: only the drafting extras and aliases are added`);
+    assert.deepEqual(extra, [...EXTRAS[sel]].sort(), `${sel}: only the drafting extras are added`);
   }
   assert.ok(count >= 80, `checked ${count} tokens`);
   for (const m of css.matchAll(/(--(?:[\w-]|\\.)+)\s*:([^;}]*)/g)) {
