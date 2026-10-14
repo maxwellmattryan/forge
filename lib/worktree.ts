@@ -242,8 +242,15 @@ function vars(root: string, job: Job, dir: string, port: number | null): Record<
   return { job: job.id, port: port ?? '', worktree: dir, root, branch: job.branch!, base: job.base! };
 }
 
-function envFor(job: Job, dir: string, port: number | null): NodeJS.ProcessEnv {
-  return { ...process.env, FORGE_JOB: job.id, FORGE_WORKTREE: dir, PORT: port ? String(port) : '', FORGE_PORT: port ? String(port) : '' };
+// The daemon's trust check guards the session's own `forge` calls; a configured command that
+// calls `forge` (a test suite on scratch repos) must behave as it does for a human.
+const DAEMON_MARKER = /^FORGE_DAEMON(_|$)/;
+
+/** A configured command's environment: `base` without the daemon markers (git pins kept), plus the job's variables. */
+export function envFor(job: Job, dir: string, port: number | null, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...base };
+  for (const k of Object.keys(env)) if (DAEMON_MARKER.test(k)) delete env[k];
+  return Object.assign(env, { FORGE_JOB: job.id, FORGE_WORKTREE: dir, PORT: port ? String(port) : '', FORGE_PORT: port ? String(port) : '' });
 }
 
 function shell(cmd: string, cwd: string, env: NodeJS.ProcessEnv): { ok: boolean; status: number | null; output: string } {
