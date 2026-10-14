@@ -123,7 +123,7 @@ test('SKILL.md is the loop', () => {
   }
   // The frontmatter is unchanged: name, description and argument-hint.
   assert.match(skill, /^---\nname: forge\ndescription: Run Forge, a software factory\./);
-  assert.match(skill, /\nargument-hint: "<feature> \| next \[n\] \| issue <ref> \| continue <job\|#pr> \| approve\|revise\|answer\|rework\|cancel <job> \[note\] \| status \| sync \| dash \| init \| retro \| eval … \| requests \| doctor"\n---\n/);
+  assert.match(skill, /\nargument-hint: "<feature> \| next \[n\] \| issue <ref> \| continue <job\|#pr> \| approve\|revise\|answer\|rework\|cancel <job> \[note\] \| status \| sync \| dash \| init \| retro \| eval … \| requests \| doctor \| update"\n---\n/);
 });
 
 test('docs mention job step', () => {
