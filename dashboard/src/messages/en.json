@@ -464,6 +464,10 @@
   },
   "command": {
     "open": "New job or command",
+    "forJob": "Command for this job",
+    "scope": "For {job}",
+    "clearScope": "Remove the job scope",
+    "newJobScoped": "Starts a new job; it doesn't message {job}",
     "title": "New job or command",
     "label": "Describe a new job, or type a command",
     "placeholder": "Describe a job, or type next, approve <job>, issue <ref>…",

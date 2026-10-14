@@ -432,3 +432,65 @@ test('Inbox lists dependency parks apart, with Resume', () => {
   assert.match(text, /\{#if groups\.urgent\.length\}/, 'the empty state still keys on the urgent list');
   assert.match(read('lib/dock.ts'), /const actionable = needsHuman\(job\) \|\| isDependencyPark\(job\) \|\|/, "the drawer's dock keeps the gate's actions for parks");
 });
+
+/** An attribute's value with its quotes dropped (`"x"` → `x`; `{x}` stays as written). */
+const attrOf = (el: { attrs: { name?: string; value?: string }[] }, name: string) => unquote(el.attrs.find((a) => a.name === name)?.value);
+
+test('the sidebar is navigation only', () => {
+  const app = elements('App.svelte');
+  const sidebar = app.find((e) => e.name === 'aside' && attrOf(e, 'id') === 'sidebar');
+  assert.ok(sidebar, 'aside#sidebar');
+  const inside = app.filter((e) => e.parents.includes(sidebar));
+  assert.ok(inside.some((e) => e.name === 'nav' && attrOf(e, 'id') === 'nav'), 'the sidebar keeps the nav');
+  assert.ok(inside.some((e) => e.classes.includes('tblock')), 'and the title block');
+  const popups = inside.filter((e) => e.attrs.some((a) => a.name === 'aria-haspopup'));
+  assert.deepEqual(popups.map((e) => attrOf(e, 'id')), ['settings-open'], 'only Settings opens a dialog from the sidebar');
+  const phone = app.find((e) => e.name === 'header' && e.classes.includes('md:hidden'));
+  assert.ok(phone, 'the phone strip');
+  const phoneButtons = app.filter((e) => e.name === 'button' && e.parents.includes(phone));
+  assert.deepEqual(phoneButtons.map((e) => attrOf(e, 'id')), ['settings-open-mobile'], 'the phone strip keeps only the settings button');
+  const all = (fs.readdirSync(SRC, { recursive: true, withFileTypes: true }) as fs.Dirent[]).filter((e) => e.isFile()).map((e) => path.relative(SRC, path.join(e.parentPath, e.name)));
+  assert.ok(all.includes('App.svelte') && all.includes(path.join('messages', 'en.json')), `walked ${all.length} files`);
+  for (const rel of all) assert.ok(!read(rel).includes('command-open'), `${rel} mentions no command-open button`);
+});
+
+test('command triggers: header on every view, phone FAB in the inert shell, drawer', () => {
+  const header = read('components/PageHeader.svelte');
+  assert.equal(header.match(/<CommandTrigger\b/g)?.length, 1, 'PageHeader renders one trigger');
+  assert.ok(header.includes('{@render right?.()}<CommandTrigger variant="header" />'), "the header trigger follows the view's own controls");
+  const h1 = elements('components/PageHeader.svelte').find((e) => e.name === 'h1');
+  assert.equal(attrOf(h1!, 'tabindex'), '-1', 'the heading is the focus fallback');
+  const views = fs.readdirSync(path.join(SRC, 'views')).filter((f) => f.endsWith('.svelte'));
+  assert.equal(views.length, 6);
+  for (const v of views) assert.equal(read(`views/${v}`).match(/<PageHeader\b/g)?.length, 1, `${v} renders one PageHeader`);
+
+  const shortcut = svelteFiles().flatMap((rel) => elements(rel).filter((e) => attrOf(e, 'aria-keyshortcuts') === 'Meta+K Control+K').map((e) => ({ rel, e })));
+  assert.equal(shortcut.length, 1, 'one element announces the palette shortcut');
+  assert.equal(shortcut[0].rel, 'components/CommandTrigger.svelte');
+  assert.equal(attrOf(shortcut[0].e, 'aria-haspopup'), 'dialog');
+  assert.ok(shortcut[0].e.classes.includes('max-md:hidden'), 'the header trigger is hidden below md');
+
+  const trigger = elements('components/CommandTrigger.svelte');
+  const fab = trigger.find((e) => e.name === 'div' && has(e, 'md:hidden', 'fixed', 'z-20'));
+  assert.ok(fab, 'the FAB wrapper is md:hidden fixed z-20');
+  assert.equal(fab.first?.name, 'button');
+  assert.ok(attrOf(fab.first!, 'aria-label'), 'the FAB is labelled');
+  assert.equal(attrOf(fab.first!, 'aria-haspopup'), 'dialog');
+
+  const app = read('App.svelte');
+  assert.equal(app.match(/<CommandTrigger variant="fab" \/>/g)?.length, 1, 'App renders the FAB once');
+  const fabUse = elements('App.svelte').find((e) => e.name === 'CommandTrigger');
+  assert.ok(fabUse, 'the FAB in App');
+  const shell = fabUse.parents.find((p) => p.name === 'div' && attrOf(p, 'inert') === '{settingsOpen || palette.open}');
+  assert.ok(shell && has(shell, 'flex', 'min-h-screen'), 'inside the shell div whose inert covers the palette');
+  assert.ok(!fabUse.parents.some((p) => p.name === 'main'), 'outside main, whose falloff isolates');
+
+  const drawer = read('components/Drawer.svelte');
+  assert.equal(drawer.match(/<CommandTrigger variant="drawer"/g)?.length, 1, 'the drawer header has one "Command for this job"');
+  assert.ok(drawer.includes('{#if scopeVerbs(j).length}<CommandTrigger variant="drawer" job={j.id} />{/if}'), 'only for a job with something to command');
+
+  const view = elements('App.svelte').find((e) => attrOf(e, 'id') === 'view');
+  assert.ok(view && has(view, 'pb-24', 'md:pb-6'), "#view's last row stays clear of the FAB");
+  const toast = elements('components/Toast.svelte').find((e) => attrOf(e, 'id') === 'toast');
+  assert.ok(toast && has(toast, 'bottom-24', 'md:bottom-4'), 'the toast sits above the FAB on phones');
+});
