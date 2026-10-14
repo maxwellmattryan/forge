@@ -102,7 +102,8 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
     poke: () => tick(),
     permissionMode: (scope) => modes.get(scope) ?? null,
     permissionModeRefused(scope, mode, live) {
-      if (modes.get(scope) !== mode) return;
+      // The refused choice may be daemon.command's own mode, which holds no entry; a later choice wins.
+      if ((modes.get(scope) ?? baseMode) !== mode) return;
       // Show what the session is really in rather than a choice claude turned down.
       const kept = PERMISSION_MODES.find((m) => m === live);
       if (kept && kept !== baseMode) modes.set(scope, kept);

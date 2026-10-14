@@ -413,6 +413,12 @@ test('a human switches one session’s permission mode: live while it runs, at i
     assert.equal(args.filter((w) => w === '--permission-mode').length, 1);
     assert.equal(args[args.indexOf('--permission-mode') + 1], 'auto');
     assert.equal(modeRequests(kit.last(job)).length, 0, 'a fresh child needs no switch');
+    assert.equal(d.sessionState(job).permissionMode, 'auto', 'before its first init, the mode it was launched in');
+    // A switch refused before claude reported anything must not make the pool forget the launch mode.
+    d.setPermissionMode(job, 'default');
+    const early = modeRequests(kit.last(job))[0];
+    kit.last(job).line({ type: 'control_response', response: { subtype: 'error', request_id: early.request_id, error: 'busy' } });
+    await waitFor(() => d.state().permissionModes[job] === 'auto', 2000, 'the launch mode kept');
 
     // Refusals, and a dead child reports no mode.
     assert.match(d.setPermissionMode(INBOX, 'bypassPermissions' as any).error ?? '', /mode must be one of default, auto, dontAsk/);

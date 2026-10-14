@@ -666,7 +666,11 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   let closed = false;
   /** Permission prompts waiting on a human, by the supervisor's id, oldest first. */
   const prompts = new Map<string, { proc: DaemonChild; requestId: string; input: Record<string, unknown>; grant: SessionGrant; prompt: DaemonPermissionPrompt }>();
-  /** The permission mode claude last reported for the current child. */
+  /**
+   * The mode the current child runs in: the one it was launched with until claude reports one (it
+   * does so only at its first turn's init), then claude's word. Never null while a child runs, so a
+   * refused switch can't make the pool forget a more permissive launch mode.
+   */
   let liveMode: string | null = null;
   /** Mode switches sent to the current child and not yet answered, by request id. */
   const modeRequests = new Map<string, DaemonPermissionMode>();
@@ -924,8 +928,9 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     const resume = Boolean(info.resumable && typeof info.sessionId === 'string' && UUID.test(info.sessionId));
     if (!resume) info = { ...withSessionId(info, crypto.randomUUID()), resumable: false };
     let argv;
+    const launchMode = ctx.permissionMode(scope);
     try {
-      argv = buildArgv(c.daemon.command, { pluginRoot: PLUGIN_ROOT, session: { id: info.sessionId, resume }, allowedTools: c.daemon.allowedTools, permissionMode: ctx.permissionMode(scope) });
+      argv = buildArgv(c.daemon.command, { pluginRoot: PLUGIN_ROOT, session: { id: info.sessionId, resume }, allowedTools: c.daemon.allowedTools, permissionMode: launchMode });
     } catch (e) {
       ctx.fatal(`cannot start daemon: ${(e as Error).message}`);
       return false;
@@ -943,7 +948,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     child = proc;
     status = 'idle';
     waiting = false;
-    liveMode = null;
+    liveMode = launchMode ?? commandPermissionMode(c.daemon.command);
     modeRequests.clear();
     const meta: ChildMeta = { resume, stdout: false, init: false, result: false, asked: false, committed: [] };
     proc._forge = meta;
