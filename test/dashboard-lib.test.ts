@@ -82,8 +82,12 @@ test('formatters and esc render exactly as before', () => {
   assert.equal(tokensShort(null), '—');
   assert.equal(tokensShort(999), '999');
   assert.equal(tokensShort(1500), '2k');
-  assert.equal(tokensShort(999999), '1000k');
+  assert.equal(tokensShort(999999), '1.0M');
   assert.equal(tokensShort(1234567), '1.2M');
+  assert.equal(tokensShort(999_960_000), '1.000B');
+  assert.equal(tokensShort(1_469_000_000), '1.469B');
+  assert.equal(tokensShort(2_500_000_000_000), '2.500T');
+  assert.equal(tokensShort(1_234_000_000_000_000), '1234.000T');
   assert.equal(dur(null), '—');
   assert.equal(dur(0), '0m 0s');
   assert.equal(dur(61000), '1m 1s');
