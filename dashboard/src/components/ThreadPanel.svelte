@@ -7,7 +7,7 @@
   import PermissionPrompts from './PermissionPrompts.svelte';
   import SessionLog from './SessionLog.svelte';
   import { ago } from '../lib/util.ts';
-  import { needsHuman } from '../lib/view.ts';
+  import { isDependencyPark, needsHuman } from '../lib/view.ts';
   import { pendingPrompts } from '../lib/permissions.ts';
   import { S } from '../lib/app.svelte.ts';
   import { threadItems, type ThreadAction, type ThreadFrom, type ThreadOpening, type ThreadStatus } from '../lib/thread.ts';
@@ -16,7 +16,7 @@
 
   let { job, requests, opening, active }: { job: Job; requests: ForgeRequest[]; opening: ThreadOpening; active: boolean } = $props();
   const items = $derived(threadItems(requests, opening));
-  const actionable = $derived(needsHuman(job) || job.state === 'failed' || job.state === 'blocked');
+  const actionable = $derived(needsHuman(job) || isDependencyPark(job) || job.state === 'failed' || job.state === 'blocked');
   const asking = $derived(pendingPrompts(S.data?.daemons ?? null, job.id).length > 0);
 
   const who = $derived<Record<ThreadFrom, string>>({ you: $t('thread.you'), cli: $t('thread.cli'), forge: $t('thread.forge'), tracker: $t('thread.tracker') });

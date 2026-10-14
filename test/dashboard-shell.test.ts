@@ -103,7 +103,7 @@ test('dashboard sources use no old, rounded or blurred-shadow classes', () => {
 });
 
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
-type El = { name: string; classes: string[]; parents: El[]; first: El | null };
+type El = { name: string; classes: string[]; attrs: { name?: string; value?: string }[]; parents: El[]; first: El | null };
 
 /** Every element of a file with its ancestors and its first child element, from a bracket-aware walk of the markup. */
 function elements(rel: string, text = read(rel)): El[] {
@@ -137,7 +137,7 @@ function elements(rel: string, text = read(rel)): El[] {
     }
     const tag = tags(rel, raw)[0];
     const cls = tag.attrs.find((a) => a.name === 'class')?.value;
-    const el: El = { name: m[2], classes: cls ? classTokens(cls) : [], parents: [...stack], first: null };
+    const el: El = { name: m[2], classes: cls ? classTokens(cls) : [], attrs: tag.attrs, parents: [...stack], first: null };
     const parent = stack.at(-1);
     if (parent && !parent.first) parent.first = el;
     out.push(el);
@@ -288,4 +288,74 @@ test('checkboxes are drawn and the theme seg keeps its radiogroup', () => {
     assert.doesNotMatch(text, /data-(grid|paper)|dataset\.(grid|paper|theme)|dataset\[/, `${f} sets appearance attributes outside lib/theme.ts`);
     assert.doesNotMatch(text, /pref\.set\('(grid|paper|theme)'/, `${f} writes an appearance pref outside lib/theme.ts`);
   }
+});
+
+/** An attribute's value with its quotes dropped, or undefined. */
+const attr = (el: El | undefined, name: string) => el?.attrs.find((a) => a.name === name)?.value?.replace(/^["']|["']$/g, '');
+
+test('JobCard renders seven fixed slots from the card model', () => {
+  const file = 'components/JobCard.svelte';
+  const text = read(file);
+  const walked = elements(file);
+  const root = walked[0];
+  assert.equal(root.name, 'button');
+  const children = walked.filter((e) => e.parents.at(-1) === root);
+  assert.equal(children[0].name, 'span');
+  assert.ok(has(children[0], 'tk'), 'the .tk span comes first');
+  assert.deepEqual(children.slice(1).map((e) => attr(e, 'data-slot')), ['title', 'ref', 'state', 'stage', 'progress', 'lenses', 'footer']);
+
+  const markup = text.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '').replace(/<!--[\s\S]*?-->/g, '');
+  const conds = [...markup.matchAll(/\{(?:#if|:else if)\s+([^}]*)\}/g)].map((x) => x[1]);
+  assert.ok(conds.length >= 4, `checked ${conds.length} conditions`);
+  for (const c of conds) assert.match(c, /^(m\.|agents)/, `{#if ${c}} reads the card model or the agents line`);
+  for (const raw of ['j.state', 'j.stage', 'j.waitingOn', 'j.round']) assert.ok(!text.includes(raw), `JobCard reads no ${raw}`);
+  assert.equal(text.split('needsHuman(').length - 1, 1, 'needsHuman( appears once');
+  assert.match(attr(root, 'class') ?? '', /\{needsHuman\(j\) \? 'redline' : ''\}/, 'in the root class');
+  assert.match(text, /const m = \$derived\(cardModel\(j\)\)/);
+  assert.match(text, /<DepChips job=\{j\} \/><\/div>/, 'the dependency chips close the state slot');
+  assert.match(read('components/DepChips.svelte'), /<div class="basis-full flex flex-wrap gap-1">/, 'and always start their own line');
+});
+
+test('StageStepper is shared by the card and the table', () => {
+  const file = 'components/StageStepper.svelte';
+  const text = read(file);
+  const root = elements(file)[0];
+  assert.equal(attr(root, 'role'), 'img');
+  assert.match(attr(root, 'aria-label') ?? '', /^\{\$t\('pipeline\.stepper', \{ n: stepPosition\(steps\), total: steps\.length, stage \}\)\}$/);
+  for (const cls of ["'dot ink'", "'dot hollow'", "'dot ink outline outline-1 outline-offset-1 outline-ink'", "'dot red outline outline-1 outline-offset-1 outline-redline'"])
+    assert.ok(text.includes(cls), `the dot class ${cls} is a whole literal`);
+  assert.doesNotMatch(text, /\bas t\b|\(t\)|\bt =>/, 'no loop variable shadows the $t store');
+  for (const f of ['components/JobCard.svelte', 'components/JobsTable.svelte']) assert.match(read(f), /<StageStepper steps=\{m\.steps\} stage=\{m\.stage\} \/>/, `${f} renders the stepper`);
+
+  const table = read('components/JobsTable.svelte');
+  assert.ok(!table.includes('table.round'), 'no Round column');
+  const buttons = tags('components/JobsTable.svelte', table).filter((x) => x.name === 'button');
+  assert.equal(buttons.length, 1);
+  assert.ok(attr(buttons[0] as El, 'class')?.includes('h card text-left'), 'the title is the one button');
+  assert.match(table, /\{#each rows as j \(j\.id\)\}/);
+  assert.match(table, /const rows = \$derived\(sortByRank\(jobs\)\)/, 'rows follow the board order');
+});
+
+test('Pipeline board is four grouped columns', () => {
+  const text = read('views/Pipeline.svelte');
+  for (const gone of ['overflow-x-auto', 'w-(--size-board-column)']) assert.ok(!text.includes(gone), `no ${gone}`);
+  for (const want of ['grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-3', 'xl:max-h-[calc(100vh-180px)]', 'grid-cols-[repeat(auto-fill,minmax(236px,1fr))]', 'boardColumns('])
+    assert.ok(text.includes(want), `has ${want}`);
+  for (const id of ['queued', 'plan', 'build', 'ship', 'done']) assert.ok(text.includes(`$t('pipeline.group.${id}')`), `uses pipeline.group.${id}`);
+  const all = [...tsFiles(), ...svelteFiles()].map((f) => [f, read(f)]);
+  for (const [f, src] of all) assert.doesNotMatch(src, /\bboardStages\b|\bCORE_STAGES\b/, `${f} has no boardStages or CORE_STAGES`);
+});
+
+test('Inbox lists dependency parks apart, with Resume', () => {
+  const file = 'views/Inbox.svelte';
+  const text = read(file);
+  assert.match(text, /<h2 class="h section mt-8 mb-3">\{\$t\('inbox\.parks'\)\}<\/h2>/);
+  const parks = text.slice(text.indexOf("$t('inbox.parks')"));
+  const block = parks.slice(0, parks.indexOf('{/if}'));
+  assert.match(block, /<div class="sheet ticks"><span class="tk"><\/span><div class="overflow-x-auto">\s*<table class="tbl">/, 'a sheet ticks table');
+  assert.match(block, /\{#each groups\.parks as j \(j\.id\)\}/);
+  assert.match(block, /<DepChips job=\{j\} \/>/);
+  assert.match(block, /<JobActions job=\{j\} noteId="park-\{j\.id\}" \/>/);
+  assert.match(text, /\{#if groups\.urgent\.length\}/, 'the empty state still keys on the urgent list');
+  assert.match(read('components/ThreadPanel.svelte'), /const actionable = \$derived\(needsHuman\(job\) \|\| isDependencyPark\(job\) \|\|/, "the drawer's Thread keeps Resume for parks");
 });
