@@ -1093,3 +1093,31 @@ export type PostDaemonModeResponse = DaemonPoolState;
 export interface ApiError {
   error: string;
 }
+
+/** What a command runs against: mainRoot(), loadConfig() and whether `.forge/` exists. */
+export interface CliContext {
+  root: string;
+  config: Config;
+  initialized: boolean;
+}
+
+/** One command's outcome from `dispatch` in lib/cli.ts: `main` prints `data` unless the command `printed` itself. */
+export interface Dispatched {
+  data?: unknown;
+  exitCode: number;
+  pretty?: true;
+  printed?: true;
+}
+
+/** The dispatcher, passed in so lib/commands/ never imports lib/cli.ts. */
+export type Dispatch = (argv: string[], ctx: CliContext) => Promise<Dispatched>;
+
+/** One command `forge job advance` ran: `result`/`error` are one line of at most 200 characters. */
+export interface AdvanceRan {
+  rule: string;
+  command: string[];
+  ok: boolean;
+  result?: string;
+  error?: string;
+  tell?: string;
+}

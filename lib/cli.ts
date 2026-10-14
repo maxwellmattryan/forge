@@ -29,6 +29,7 @@ import { requestsCmd } from './commands/requests.ts';
 import { statsText, statusTable } from './commands/status.ts';
 import { nextCmd, syncAll, trackerCmd } from './commands/tracker.ts';
 import { updateCmd } from './commands/update.ts';
+import type { CliContext, Dispatched } from './types.ts';
 
 const HELP = () => `⚒️  Forge v${forgeVersion()}: a lightweight, self-improving software factory
 
@@ -64,7 +65,7 @@ export async function main(argv: string[]): Promise<void> {
     return;
   }
   const { pos, flags } = parseArgs(argv);
-  const [cmd, sub, ...rest] = pos;
+  const [cmd] = pos;
   if (!cmd || cmd === 'help' || flags.help) return out(HELP(), flags);
   if (cmd === 'version') return out({ version: forgeVersion() }, flags);
   if (cmd === 'update') return updateCmd(flags);
@@ -75,47 +76,67 @@ export async function main(argv: string[]): Promise<void> {
     // Before loadConfig, which then parses the checked bytes rather than reading the file again.
     const trust = daemonTrust(root);
     if (trust.problem) throw new ForgeError(trust.problem);
-    const rewrite = cmd === 'init' && sub === 'write' ? 'init write' : cmd === 'migrate' ? 'migrate' : cmd === 'config' && sub === 'set' ? 'config set' : null;
-    if (rewrite) throw new ForgeError(`forge ${rewrite} rewrites .forge/config.yml, which a daemon session may not do; a human runs it in their own session`);
     loadOpts = { text: trust.configText };
   }
   const { config, initialized } = loadConfig(root, loadOpts);
+  const r = await dispatch(argv, { root, config, initialized });
+  if (!r.printed) out(r.data, r.pretty ? { ...flags, pretty: true } : flags);
+  // Only a failure is written: `config validate` sets process.exitCode itself and returns printed.
+  if (r.exitCode) process.exitCode = r.exitCode;
+}
+
+/**
+ * One command, returned instead of printed, so `forge job advance` can run step's commands
+ * in-process. Commands that print for themselves (`config`, `dash`, `daemon log --follow`)
+ * return `printed`; advance never runs those (runnableInProcess in lib/commands/advance.ts).
+ */
+export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatched> {
+  const { root, config, initialized } = ctx;
+  const { pos, flags } = parseArgs(argv);
+  const [cmd, sub, ...rest] = pos;
+  if (process.env.FORGE_DAEMON === '1') {
+    const rewrite = cmd === 'init' && sub === 'write' ? 'init write' : cmd === 'migrate' ? 'migrate' : cmd === 'config' && sub === 'set' ? 'config set' : null;
+    if (rewrite) throw new ForgeError(`forge ${rewrite} rewrites .forge/config.yml, which a daemon session may not do; a human runs it in their own session`);
+  }
   const needInit = () => {
     if (!initialized) throw new ForgeError(NEED_INIT, 2);
   };
+  const ok = (data: unknown): Dispatched => ({ data, exitCode: 0 });
+  const printed: Dispatched = { printed: true, exitCode: 0 };
 
   switch (cmd) {
     case 'init': {
-      if (sub === 'detect') return out(detect(root), flags);
+      if (sub === 'detect') return ok(detect(root));
       if (sub === 'write') {
         const answers = flags.answers ? readJson(String(flags.answers)) : {};
-        return out(initWrite(root, answers, Boolean(flags.force)), flags);
+        return ok(initWrite(root, answers, Boolean(flags.force)));
       }
       throw new ForgeError('usage: forge init detect | forge init write --answers FILE [--force]');
     }
     case 'config':
-      return configCmd(root, config, initialized, sub, rest, flags);
+      configCmd(root, config, initialized, sub, rest, flags);
+      return printed;
     case 'doctor':
-      return out(await doctor(root, config, initialized), { ...flags, pretty: true });
+      return { data: await doctor(root, config, initialized), exitCode: 0, pretty: true };
     case 'status':
       needInit();
-      return out(statusTable(root, Boolean(flags.all)), flags);
+      return ok(statusTable(root, Boolean(flags.all)));
     case 'next':
       needInit();
-      return out(await nextCmd(root, config, flags), flags);
+      return ok(await nextCmd(root, config, flags));
     case 'job':
       needInit();
-      return out(await jobCmd(root, config, sub, rest, flags), flags);
+      return ok(await jobCmd(root, config, sub, rest, flags));
     case 'worktree': {
       needInit();
       if (sub === 'create') {
         const id = req(rest[0], 'job id');
         refuseInboxDrive(id);
-        return out(wt.createWorktree(root, config, id), flags);
+        return ok(wt.createWorktree(root, config, id));
       }
-      if (sub === 'remove') return out(wt.removeWorktree(root, req(rest[0], 'job id'), { deleteBranch: Boolean(flags['delete-branch']), force: Boolean(flags.force) }), flags);
-      if (sub === 'path') return out(loadJob(root, req(rest[0], 'job id')).worktree ?? '', flags);
-      if (sub === 'prune') return out(run('git', ['worktree', 'prune', '-v'], { cwd: root }).stderr.trim() || 'nothing to prune', flags);
+      if (sub === 'remove') return ok(wt.removeWorktree(root, req(rest[0], 'job id'), { deleteBranch: Boolean(flags['delete-branch']), force: Boolean(flags.force) }));
+      if (sub === 'path') return ok(loadJob(root, req(rest[0], 'job id')).worktree ?? '');
+      if (sub === 'prune') return ok(run('git', ['worktree', 'prune', '-v'], { cwd: root }).stderr.trim() || 'nothing to prune');
       throw new ForgeError('usage: forge worktree create|remove|path|prune <id>');
     }
     case 'run': {
@@ -123,81 +144,73 @@ export async function main(argv: string[]): Promise<void> {
       const id = req(sub, 'job id');
       const name = req(rest[0], 'command name');
       const tail = num(flags.tail, '--tail', { integer: true }) ?? 40;
-      if (flags.background) return out(await wt.startBackground(root, config, id, name), flags);
+      if (flags.background) return ok(await wt.startBackground(root, config, id, name));
       const r = wt.runCommand(root, config, id, name, { tail });
-      out(r, flags);
-      if (!r.ok) process.exitCode = 1;
-      return;
+      return { data: r, exitCode: r.ok ? 0 : 1 };
     }
     case 'stop':
-      return out({ stopped: wt.stopBackground(root, req(sub, 'job id')) }, flags);
+      return ok({ stopped: wt.stopBackground(root, req(sub, 'job id')) });
     case 'verify': {
       needInit();
       const r = wt.verify(root, config, req(sub, 'job id'));
-      out(r, flags);
-      if (!r.ok) process.exitCode = 1;
-      return;
+      return { data: r, exitCode: r.ok ? 0 : 1 };
     }
     case 'integrate': {
       needInit();
       const id = req(sub, 'job id');
       const r = flags.continue ? pr.integrateContinue(root, id) : pr.integrate(root, config, id, { strategy: flags.strategy, keepConflicts: Boolean(flags['keep-conflicts']) });
-      out(r, flags);
-      if (!r.ok) process.exitCode = 1;
-      return;
+      return { data: r, exitCode: r.ok ? 0 : 1 };
     }
     case 'pr': {
       needInit();
       const id = req(rest[0], 'job id');
-      if (sub === 'find') return out(pr.findPr(root, config, id), flags);
-      if (sub === 'open') return out(pr.openPr(root, config, id, { title: flags.title, draft: flags.draft === undefined ? undefined : Boolean(flags.draft), force: Boolean(flags.force) }), flags);
-      if (sub === 'sync') return out(pr.syncPr(root, config, id), flags);
+      if (sub === 'find') return ok(pr.findPr(root, config, id));
+      if (sub === 'open') return ok(pr.openPr(root, config, id, { title: flags.title, draft: flags.draft === undefined ? undefined : Boolean(flags.draft), force: Boolean(flags.force) }));
+      if (sub === 'sync') return ok(pr.syncPr(root, config, id));
       if (sub === 'merge') {
         // Strictly `true`: `--now <id>` would make parseArgs swallow the id as the flag's value,
         // and that mistake must not silently bypass CI.
         const r = pr.mergePr(root, config, id, { now: flags.now === true });
-        out(r, flags);
-        if (r.action === 'refused' || r.action === 'failed') process.exitCode = 1;
-        return;
+        return { data: r, exitCode: r.action === 'refused' || r.action === 'failed' ? 1 : 0 };
       }
       throw new ForgeError('usage: forge pr find|open|sync|merge <id> [--now]');
     }
     case 'sync':
       needInit();
-      return out(await syncAll(root, config), flags);
+      return ok(await syncAll(root, config));
     case 'tracker':
       needInit();
-      return out(await trackerCmd(root, config, sub, rest, flags), flags);
+      return ok(await trackerCmd(root, config, sub, rest, flags));
     case 'stats': {
       const s = computeStats(root, { since: flags.since, includeEvals: Boolean(flags['include-evals']) });
-      return out(flags.json ? s : statsText(s), flags);
+      return ok(flags.json ? s : statsText(s));
     }
     case 'roster':
-      return out(roster(root, config), flags);
+      return ok(roster(root, config));
     case 'retro': {
       needInit();
-      if (sub === 'due') return out(retroDue(root, config), flags);
-      if (sub === 'prepare') return out(prepareRetro(root, config, requireJob(root, rest[0]).id, { since: flags.since }), flags);
+      if (sub === 'due') return ok(retroDue(root, config));
+      if (sub === 'prepare') return ok(prepareRetro(root, config, requireJob(root, rest[0]).id, { since: flags.since }));
       throw new ForgeError('usage: forge retro due | forge retro prepare <job> [--since DATE]');
     }
     case 'eval':
       needInit();
-      return out(await evalCmd(root, config, sub, rest, flags), flags);
+      return ok(await evalCmd(root, config, sub, rest, flags));
     case 'requests':
-      return out(requestsCmd(root, config, sub, rest, flags), flags);
+      return ok(requestsCmd(root, config, sub, rest, flags));
     case 'migrate':
-      return out(migrate(root), flags);
+      return ok(migrate(root));
     case 'daemon': {
       const r = await daemonCmd(root, sub, rest, flags);
       // `log --follow` streams to stdout itself and returns nothing.
-      if (r !== undefined) out(r, flags);
-      return;
+      return r === undefined ? printed : ok(r);
     }
     case 'dash':
-      return dash(root, config, flags);
+      await dash(root, config, flags);
+      return printed;
     case 'git':
       needInit();
-      return out(gitWrite(root, config, argv.slice(1)), flags);
+      return ok(gitWrite(root, config, argv.slice(1)));
     default:
       throw new ForgeError(`unknown command "${cmd}"\n\n${HELP()}`);
   }
