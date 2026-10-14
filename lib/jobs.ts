@@ -21,6 +21,11 @@ export function jobDir(root: string, id: string): string {
   return paths(root).job(id);
 }
 
+/** request.md without the `# title` line createJob writes, trimmed and uncapped; callers cap it. */
+export function requestBody(root: string, id: string): string {
+  return readText(path.join(jobDir(root, id), 'request.md')).replace(/^\s*# [^\n]*\n?/, '').trim();
+}
+
 export function loadJob(root: string, id: string): LoadedJob {
   const file = path.join(jobDir(root, id), 'job.json');
   if (!exists(file)) throw new ForgeError(`no job "${id}" (looked in ${path.dirname(file)})`);
@@ -71,7 +76,7 @@ export function readEvents(root: string, id: string): JobEvent[] {
 export function createJob(
   root: string,
   config: Config,
-  opts: { title: string; ref?: string; url?: string; tracker?: string; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; services?: string[] },
+  opts: { title: string; ref?: string; url?: string; tracker?: string; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; services?: string[]; origin?: string },
 ): LoadedJob {
   if (!opts.title) throw new ForgeError('a job needs a title');
   const p = paths(root);
@@ -104,7 +109,7 @@ export function createJob(
   });
   writeJsonAtomic(path.join(p.job(id), 'job.json'), serializeJob(job));
   fs.writeFileSync(path.join(p.job(id), 'request.md'), `# ${opts.title}\n\n${opts.body?.trim() ?? ''}\n`);
-  logEvent(root, id, 'created', { title: opts.title, source: job.source });
+  logEvent(root, id, 'created', { title: opts.title, source: job.source, ...(opts.origin ? { origin: opts.origin } : {}) });
   if (opts.parent) {
     updateJob(root, opts.parent, (parent) => {
       if (!parent.children.includes(id)) parent.children.push(id);

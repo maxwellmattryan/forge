@@ -5,6 +5,7 @@ export const STAGE_LABEL: Record<Stage, string> = { backlog: 'Queued', plan: 'Pl
 export const WAIT_LABEL: Record<WaitingOn, string> = {
   'spec-approval': 'Spec approval',
   'split-approval': 'Split approval',
+  'issue-link': 'Issue to link',
   input: 'Question for you',
   escalation: 'Escalated',
   infra: 'Infra steps',

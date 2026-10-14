@@ -9,6 +9,7 @@
 // An item's ref is the slug of its title, so refs survive reordering.
 import fs from 'node:fs';
 import path from 'node:path';
+import { queryTerms, scoreItems } from '../issue-link.ts';
 import { paths, resolveFrom, exists } from '../paths.ts';
 import { ForgeError, slugify, withLock } from '../util.ts';
 import type { Tracker, TrackerCtx, TrackerItem } from '../types.ts';
@@ -90,6 +91,12 @@ export default {
     const items = parse(fs.readFileSync(f, 'utf8')).items.map(toItem);
     const out = opts.ready ? items.filter((i) => i.status === 'ready') : items;
     return opts.limit ? out.slice(0, opts.limit) : out;
+  },
+  search(ctx, query, opts) {
+    const f = file(ctx);
+    if (!exists(f)) return [];
+    const open = parse(fs.readFileSync(f, 'utf8')).items.map(toItem).filter((i) => i.status === 'ready' || i.status === 'in-progress');
+    return scoreItems(open, queryTerms(query)).slice(0, opts.limit);
   },
   get(ctx, ref) {
     const f = file(ctx);

@@ -93,7 +93,7 @@
     "files": "Files",
     "timeline": "Timeline",
     "noFiles": "No files yet.",
-    "sessionTab": "Session"
+    "threadTab": "Thread"
   },
   "inbox": {
     "title": "Needs you",
@@ -388,5 +388,88 @@
     "startHint": "Re-enables this session; it starts on its next request",
     "emptyEnabled": "No session log for this job yet. Its session starts with the job's next request.",
     "emptyInboxEnabled": "No inbox session log yet. It starts with the next request that has no job."
+  },
+  "command": {
+    "open": "New job or command",
+    "title": "New job or command",
+    "label": "Describe a new job, or type a command",
+    "placeholder": "Describe a job, or type next, approve <job>, issue <ref>…",
+    "suggestions": "Suggestions",
+    "close": "Close",
+    "titleLabel": "Title (optional)",
+    "titlePlaceholder": "Derived from the text when left empty",
+    "run": "Run",
+    "start": "Start job",
+    "send": "Send",
+    "working": "Working…",
+    "hints": {
+      "next": "Take the next ready backlog items: next [n]",
+      "issue": "Start a job from a tracker item: issue <ref>",
+      "approve": "Approve a waiting job: approve <job> [note]",
+      "answer": "Answer a job's question: answer <job> <text>",
+      "revise": "Ask for spec changes: revise <job> <note>",
+      "rework": "Run another build round: rework <job> [note]",
+      "cancel": "Cancel a job: cancel <job>",
+      "sync": "Sync PRs and the tracker",
+      "retro": "Propose improvements from recent jobs"
+    },
+    "count": {
+      "one": "{count} suggestion",
+      "other": "{count} suggestions"
+    },
+    "empty": "No suggestions",
+    "verbLike": "No command matches; this starts a new job",
+    "noJobs": "No open jobs match",
+    "noItems": "No open backlog items match",
+    "backlogLoading": "Loading the backlog…",
+    "backlogFailed": "Couldn't load the backlog: {error}"
+  },
+  "thread": {
+    "conversation": "Conversation",
+    "composer": "Your move",
+    "you": "You",
+    "cli": "CLI",
+    "forge": "Forge",
+    "queued": "queued",
+    "handling": "handling",
+    "done": "done",
+    "rejected": "rejected",
+    "empty": "Requests about this job and the session's replies appear here.",
+    "nothing": "Nothing needs you on this job right now.",
+    "tracker": "Tracker",
+    "action": {
+      "request": "New job",
+      "imported": "Issue this job came from",
+      "started": "Start this job",
+      "handoff": "Hand off to this job's session",
+      "resumed": "Continue the job",
+      "link": "Link issue {ref}",
+      "linkNew": "Create a new issue",
+      "linkNone": "No issue needed",
+      "next": {
+        "one": "Take the next ready item",
+        "other": "Take the next {count} ready items"
+      },
+      "run": "Start issue {ref}",
+      "approve": "Approve",
+      "revise": "Request spec changes",
+      "rework": "Another round",
+      "answer": "Answer",
+      "cancel": "Cancel the job",
+      "sync": "Sync",
+      "eval": "Run evals",
+      "retro": "Run a retro"
+    }
+  },
+  "issueLink": {
+    "prompt": "Link this job to an issue so its PR closes it, or say none is needed.",
+    "candidates": "Issues that may fit",
+    "link": "Link",
+    "linkRef": "Link {ref}",
+    "otherRef": "Other issue",
+    "otherPlaceholder": "#123 or a backlog ref",
+    "create": "Create a new issue",
+    "none": "No issue needed",
+    "noMatches": "No matching open issues were found."
   }
 }

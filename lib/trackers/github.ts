@@ -13,6 +13,7 @@ import * as yaml from '../yaml.ts';
 import { repoSlug } from '../pr.ts';
 import { listJobs, isActive } from '../jobs.ts';
 import { statusKey, STATUS_KEYS } from './status.ts';
+import { queryTerms } from '../issue-link.ts';
 import { attributionForbidden, stripAttribution } from '../attribution.ts';
 import type { LoadedJob, Tracker, TrackerCtx, TrackerItem } from '../types.ts';
 
@@ -23,6 +24,23 @@ export interface ProjectCoords {
   statusField: string;
   statusOptions: string[] | null;
 }
+
+/** At most this many issues come back from one search, before local re-ranking. */
+const SEARCH_FETCH = 30;
+
+/** An issue URL under the configured repo: https, github.com (or GH_HOST), path `/<owner>/<repo>/issues/<n>`. */
+export function inRepo(url: unknown, slug: string): boolean {
+  if (typeof url !== 'string') return false;
+  try {
+    const u = new URL(url);
+    const hosts = new Set(['github.com', String(process.env.GH_HOST ?? '').toLowerCase()].filter(Boolean));
+    return u.protocol === 'https:' && hosts.has(u.hostname.toLowerCase()) && new RegExp(`^/${escapeRe(slug)}/issues/\\d+$`, 'i').test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function gh(ctx: Pick<TrackerCtx, 'root'>, args: string[], input?: string) {
   return run('gh', args, { cwd: ctx.root, input });
@@ -164,6 +182,28 @@ export default {
       items = items.filter((it) => !it.claimedBy && !(it.labels ?? []).some((l: string) => exclude.has(l)));
       if (ready.projectStatus) items = items.filter((it) => it.status === ready.projectStatus);
     }
+    return items;
+  },
+  search(ctx, query, opts) {
+    const slug = repoSlug(ctx.root, ctx.config);
+    // Only plain words reach GitHub's search syntax: qualifiers (`repo:`, `is:`, `label:` …), quotes,
+    // parentheses, negation and OR are all dropped, so a query can't widen or redirect the search.
+    const terms = queryTerms(query);
+    if (!terms.length) return [];
+    const found = new Map<number, TrackerItem>();
+    const searchOnce = (q: string) => {
+      const args = ['issue', 'list', '-R', slug, '--state', 'open', '--search', q, '--json', 'number,title,url,labels,body', '--limit', String(SEARCH_FETCH)];
+      for (const i of JSON.parse(gh(ctx, args).stdout)) {
+        // Belt and braces: an item from anywhere but the configured repo is never a candidate.
+        if (!inRepo(i?.url, slug) || found.has(i.number)) continue;
+        found.set(i.number, { ...toItem(i), body: String(i.body ?? '') });
+      }
+    };
+    searchOnce(terms.join(' '));
+    // GitHub ANDs the words; when that is too narrow, any of them will do.
+    if (found.size < opts.limit && terms.length > 1) searchOnce(terms.join(' OR '));
+    const items = [...found.values()].slice(0, SEARCH_FETCH);
+    for (const it of items) it.claimedBy = activeLocalJob(ctx, it.ref)?.id ?? null;
     return items;
   },
   get(ctx, ref) {

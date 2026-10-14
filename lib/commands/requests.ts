@@ -6,7 +6,7 @@ import { ForgeError } from '../util.ts';
 import { req } from './args.ts';
 import type { Config, ForgeRequest } from '../types.ts';
 
-const USAGE = 'usage: forge requests [list [--all]|scope|add TYPE [--job ID] [--text T] [--intake run|next]|claim ID --session S|ack ID]';
+const USAGE = 'usage: forge requests [list [--all]|scope|add TYPE [--job ID] [--text T] [--intake run|next|new]|claim ID --session S|ack ID]';
 
 /** What `forge requests scope` prints: which session this is, so the orchestrator knows its role. */
 export interface ScopeInfo {
@@ -43,7 +43,7 @@ export function requestsCmd(
     const args: Record<string, string> = {};
     if (flags.intake !== undefined) {
       if (type !== 'resume') throw new ForgeError('--intake is only for resume requests');
-      if (flags.intake !== 'run' && flags.intake !== 'next') throw new ForgeError(`--intake must be run or next (got ${JSON.stringify(flags.intake)})`);
+      if (!['run', 'next', 'new'].includes(flags.intake)) throw new ForgeError(`--intake must be run, next or new (got ${JSON.stringify(flags.intake)})`);
       args.intake = flags.intake;
     }
     // A guardrail against accidental cross-job requests, not a security boundary: provenance comes

@@ -8,6 +8,8 @@ import { createJob, setJob } from '../lib/jobs.ts';
 import local from '../lib/trackers/local.ts';
 import { statusKey } from '../lib/trackers/status.ts';
 import { statusMap } from '../lib/trackers/github.ts';
+import { scoreItems, searchTerms } from '../lib/issue-link.ts';
+import { execFileSync } from 'node:child_process';
 
 test('local backlog: create, list, claim, update, close', () => {
   const repo = tempRepo();
@@ -47,4 +49,48 @@ test('status keys and project option matching', () => {
   assert.deepEqual(map, { queued: '🔖 Todo', 'in-progress': '🏗 In Progress', review: '🔎 In Review', blocked: '🚫 Blocked', done: '🎉 Done', cancelled: null });
   config.tracker.github.project.statusMap = { blocked: '⏸️ Paused' };
   assert.equal(statusMap({ config }, options).blocked, '⏸️ Paused');
+});
+
+test('local search is scored and bounded', () => {
+  const repo = tempRepo();
+  const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
+  const cli = (...args: string[]) => JSON.parse(execFileSync(process.execPath, [BIN, ...args], { cwd: repo.dir, encoding: 'utf8', env: { ...process.env, FORGE_ROOT: repo.dir } }));
+  try {
+    const answers = path.join(repo.dir, '.answers.json');
+    fs.writeFileSync(answers, JSON.stringify({ tracker: { kind: 'local' }, pr: { enabled: false } }));
+    cli('init', 'write', '--answers', answers);
+    const many = Array.from({ length: 25 }, (_, n) => `- [ ] Widget number ${n}`).join('\n');
+    fs.writeFileSync(
+      path.join(repo.dir, '.forge', 'backlog.md'),
+      `# Backlog\n\n- [ ] Plain gadget\n  mentions widget and export\n- [ ] Export widget data\n  export as widget csv\n- [x] Export widget done\n- [~] Export claimed → someone\n${many}\n`,
+    );
+    const r = cli('tracker', 'search', 'export', 'widget', '--limit', '3');
+    assert.equal(r.tracker, 'local');
+    assert.equal(r.query, 'export widget');
+    // Both terms in title and body (6) first; then ties at 2 in backlog order, an in-progress item included.
+    assert.deepEqual(r.items.map((i) => [i.ref, i.score]), [['export-widget-data', 6], ['plain-gadget', 2], ['export-claimed', 2]]);
+    assert.ok(r.items.every((i) => !('body' in i)), 'bodies never appear');
+    assert.deepEqual(Object.keys(r.items[0]), ['ref', 'title', 'url', 'labels', 'status', 'claimedBy', 'score']);
+    assert.equal(cli('tracker', 'search', 'widget', '--limit', '50').items.length, 20, 'the limit is clamped to 20');
+    assert.equal(cli('tracker', 'search', 'widget', '--limit', '0').items.length, 1, 'and to at least 1');
+    assert.equal(cli('tracker', 'search', 'widget').items.length, 5, 'the default is 5');
+    assert.deepEqual(cli('tracker', 'search', 'the', 'and').items, [], 'stopwords only: nothing to search for');
+
+    const job = cli('job', 'new', '--title', 'Add CSV export for widgets');
+    assert.equal(cli('tracker', 'search', '--job', job.id).query, 'csv export widgets');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('searchTerms drops stopwords and short words and keeps at most 6', () => {
+  assert.deepEqual(searchTerms('Add a dark-mode toggle to the Settings page'), ['dark', 'mode', 'toggle', 'settings', 'page']);
+  assert.deepEqual(searchTerms('Fix it: the API is slow, slow, SLOW'), ['api', 'slow']);
+  assert.deepEqual(searchTerms('one two three four five six seven eight nine'), ['one', 'two', 'three', 'four', 'five', 'six']);
+  assert.deepEqual(searchTerms('Café résumé'), ['cafe', 'resume']);
+  assert.deepEqual(searchTerms(''), []);
+  assert.deepEqual(
+    scoreItems([{ ref: 'a', title: 'x', body: 'csv' }, { ref: 'b', title: 'CSV export' }, { ref: 'c', title: 'nothing' }, { ref: 'd', title: 'csv', body: 'csv' }], ['csv', 'export']).map((i) => [i.ref, i.score]),
+    [['b', 4], ['d', 3], ['a', 1]],
+  );
 });

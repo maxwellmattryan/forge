@@ -1,9 +1,9 @@
-// Shapes of the forge dash HTTP API for API_VERSION 7. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 8. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
 
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 7;
+export const API_VERSION = 8;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 
@@ -14,7 +14,7 @@ export const STAGES = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', '
 export const STATES = ['queued', 'running', 'waiting', 'blocked', 'failed', 'cancelled', 'done'] as const;
 
 /** lib/schema.ts WAITING_ON. */
-export const WAITING_ON = ['spec-approval', 'split-approval', 'input', 'escalation', 'infra', 'conflicts', 'rounds-exhausted', 'pr-review', 'external', 'budget'] as const;
+export const WAITING_ON = ['spec-approval', 'split-approval', 'issue-link', 'input', 'escalation', 'infra', 'conflicts', 'rounds-exhausted', 'pr-review', 'external', 'budget'] as const;
 
 /** A pipeline stage: STAGES in lib/schema.ts. */
 export type Stage = (typeof STAGES)[number];
@@ -163,6 +163,8 @@ export interface Job {
   kind: string;
   size: string | null;
   source: JobSource | null;
+  /** The human's override for the issue link: `forge job link --none` in lib/tracker-link.ts. */
+  noIssue: { reason: string | null; at: string } | null;
   parent: string | null;
   children: string[];
   dependsOn: string[];
@@ -353,6 +355,12 @@ export interface JobDetail {
   events: JobEvent[];
   files: string[];
   screenshots: string[];
+  /** This job's requests in every status, oldest first, at most the last 50. */
+  requests: ForgeRequest[];
+  /** request.md without its `# title` line, trimmed, at most 2,000 characters: the Thread's opening message. */
+  request: string | null;
+  /** The job's `created` event has a ref (from-ref), so `request` is the issue's text. A later `job link` doesn't count. */
+  requestFromTracker: boolean;
 }
 
 /**
@@ -601,6 +609,21 @@ export interface PostRequestBody {
 
 /** POST /api/requests reply: the handler in lib/server.ts. */
 export type PostRequestResponse = ForgeRequest & { daemon: boolean };
+
+/** POST /api/jobs body: a new job from free text; `title` overrides the one derived from `text`. */
+export interface PostJobBody {
+  text: string;
+  title?: string | null;
+}
+
+/** POST /api/jobs reply: the new job and the `resume` request queued for its session. */
+export interface PostJobResponse {
+  id: string;
+  title: string;
+  branch: string | null;
+  request: ForgeRequest;
+  daemon: boolean;
+}
 
 /** POST /api/config body: the handler in lib/server.ts passes it to setConfigValue. */
 export interface PostConfigBody {
