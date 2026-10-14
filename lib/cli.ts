@@ -4,6 +4,7 @@
 // Command groups live in lib/commands/; this file only routes.
 import path from 'node:path';
 import { daemonTrust, loadConfig } from './config.ts';
+import { refuseInboxDrive } from './daemon-owner.ts';
 import { NEED_INIT } from './config-set.ts';
 import { detect } from './detect.ts';
 import { doctor } from './doctor.ts';
@@ -100,7 +101,11 @@ export async function main(argv: string[]): Promise<void> {
       return out(await jobCmd(root, config, sub, rest, flags), flags);
     case 'worktree': {
       needInit();
-      if (sub === 'create') return out(wt.createWorktree(root, config, req(rest[0], 'job id')), flags);
+      if (sub === 'create') {
+        const id = req(rest[0], 'job id');
+        refuseInboxDrive(id);
+        return out(wt.createWorktree(root, config, id), flags);
+      }
       if (sub === 'remove') return out(wt.removeWorktree(root, req(rest[0], 'job id'), { deleteBranch: Boolean(flags['delete-branch']), force: Boolean(flags.force) }), flags);
       if (sub === 'path') return out(loadJob(root, req(rest[0], 'job id')).worktree ?? '', flags);
       if (sub === 'prune') return out(run('git', ['worktree', 'prune', '-v'], { cwd: root }).stderr.trim() || 'nothing to prune', flags);

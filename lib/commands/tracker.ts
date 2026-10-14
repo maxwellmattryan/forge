@@ -1,4 +1,5 @@
 // Tracker commands, starting jobs from tracker refs, and `forge sync` (PRs + trackers for every job).
+import { daemonClaimOpts } from '../daemon-owner.ts';
 import { DEP_REASON, refreshDependencyWait, retargetPlan, unmetDependencies } from '../deps.ts';
 import { createJob, isActive, listJobs, loadJob, logEvent, readEvents, setJob, claimJob } from '../jobs.ts';
 import * as pr from '../pr.ts';
@@ -85,7 +86,7 @@ export async function startFromRef(
     setJob(root, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` });
     throw new ForgeError(`could not claim ${ref}: ${claim.reason}`, 3);
   }
-  if (flags.session) claimJob(root, job.id, String(flags.session));
+  if (flags.session) claimJob(root, job.id, String(flags.session), false, daemonClaimOpts(root, job.id));
   return { id: job.id, ref: item.ref, title: item.title, branch: job.branch };
 }
 

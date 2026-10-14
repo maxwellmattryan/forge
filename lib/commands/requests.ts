@@ -1,12 +1,16 @@
 // `forge requests`: the dashboard inbox. A session claims a request before handling it so two
 // orchestrators draining the inbox at once cannot both act on the same one. Inside a daemon session
 // (FORGE_DAEMON=1) the session sees and claims only the requests routed to its scope.
-import { INBOX_SCOPE, ackRequest, claimRequest, daemonScope, enqueue, listRequests, requestScope } from '../requests.ts';
+import path from 'node:path';
+import { inboxSessionIds } from '../daemon-owner.ts';
+import { releaseJob } from '../jobs.ts';
+import { exists, paths } from '../paths.ts';
+import { INBOX_SCOPE, ackRequest, claimRequest, daemonScope, enqueue, listRequests, requestScope, validJobId } from '../requests.ts';
 import { ForgeError } from '../util.ts';
 import { req } from './args.ts';
 import type { Config, ForgeRequest } from '../types.ts';
 
-const USAGE = 'usage: forge requests [list [--all]|scope|add TYPE [--job ID] [--text T] [--intake run|next|new]|claim ID --session S|ack ID]';
+const USAGE = 'usage: forge requests [list [--all]|scope|add TYPE [--job ID] [--text T] [--intake run|next|new] [--session S]|claim ID --session S|ack ID]';
 
 /** What `forge requests scope` prints: which session this is, so the orchestrator knows its role. */
 export interface ScopeInfo {
@@ -22,7 +26,7 @@ export function requestsCmd(
   rest: string[],
   flags: Record<string, any>,
   env: NodeJS.ProcessEnv = process.env,
-): ForgeRequest | ForgeRequest[] | ScopeInfo {
+): ForgeRequest | (ForgeRequest & { released: boolean }) | ForgeRequest[] | ScopeInfo {
   const scoped = () => {
     const s = daemonScope(env);
     if ('problem' in s) throw new ForgeError(s.problem);
@@ -52,7 +56,16 @@ export function requestsCmd(
     // human decision for another job's session.
     const s = scoped();
     if (s.daemon && type !== 'resume') throw new ForgeError(`a daemon session queues only resume hand-offs (got ${JSON.stringify(type)}); a session following the skill hands off only resume`);
-    return enqueue(root, config, { type, job: flags.job, text: flags.text, args, from: s.daemon ? `daemon:${s.scope}` : 'cli' });
+    const rec = enqueue(root, config, { type, job: flags.job, text: flags.text, args, from: s.daemon ? `daemon:${s.scope}` : 'cli' });
+    if (type !== 'resume') return rec;
+    // A hand-off lets go of the claim, so the job's session can take it without --force: when the
+    // caller names itself as the owner, or the inbox hands off a job one of its sessions claimed.
+    const job = rec.job;
+    if (!validJobId(job) || !exists(path.join(paths(root).jobs, job, 'job.json'))) return { ...rec, released: false };
+    const session = typeof flags.session === 'string' && flags.session ? flags.session : null;
+    const inbox = s.daemon && s.scope === INBOX_SCOPE ? inboxSessionIds(root) : [];
+    const released = releaseJob(root, job, (o) => Boolean(o && ((session !== null && o.session === session) || inbox.includes(o.session))));
+    return { ...rec, released };
   }
   if (sub === 'claim' || sub === 'ack') {
     const id = req(rest[0], 'request id');

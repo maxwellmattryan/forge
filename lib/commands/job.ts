@@ -3,6 +3,7 @@ import path from 'node:path';
 import { jobAcs } from '../acs.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
 import { reviewerChecklist } from '../config.ts';
+import { daemonClaimOpts, refuseInboxDrive } from '../daemon-owner.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
 import { claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, roundVerdicts, setJob, updateJob, jobDir } from '../jobs.ts';
 import { paths, exists } from '../paths.ts';
@@ -34,7 +35,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         slug: flags.slug,
         services: list(flags.services),
       });
-      if (flags.session) claimJob(root, job.id, String(flags.session));
+      if (flags.session) claimJob(root, job.id, String(flags.session), false, daemonClaimOpts(root, job.id));
       return { id: job.id, branch: job.branch, dir: path.relative(root, jobDir(root, job.id)) };
     }
     case 'link': {
@@ -86,7 +87,8 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       return { id: job.id, stage: job.stage, state: job.state, waitingOn: job.waitingOn };
     }
     case 'claim': {
-      const { job, overridden } = claimRespectingDeps(root, req(id, 'job id'), req(flags.session, '--session'), Boolean(flags.force));
+      const jobId = req(id, 'job id');
+      const { job, overridden } = claimRespectingDeps(root, jobId, req(flags.session, '--session'), Boolean(flags.force), daemonClaimOpts(root, jobId));
       return { id: job.id, owner: job.owner, ...(overridden.length ? { dependenciesOverridden: overridden } : {}) };
     }
     case 'release':
@@ -103,6 +105,8 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     case 'agent': {
       const phase = req(rest[1], 'start|end');
       if (!['start', 'end'].includes(phase)) throw new ForgeError('phase must be start or end');
+      // `end` stays allowed, so a stray start can still be closed.
+      if (phase === 'start') refuseInboxDrive(req(id, 'job id'));
       let usage: (AgentUsage & { transcript?: string; through?: string | null }) | undefined;
       let since: string | null = null;
       if (phase === 'end') {
