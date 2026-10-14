@@ -103,6 +103,12 @@ export interface JobAgent {
    * the same transcript, so the next import counts only what comes after it.
    */
   importedThrough?: Record<string, string>;
+  /** The role's single output, job-dir-relative: `agent start --output` or the role's default. */
+  output?: string | null;
+  /** `agent end` found no output written since this run started. */
+  outputMissing?: boolean;
+  /** This run is the one retry after a missing or malformed output: `agent start --retry`. */
+  retry?: boolean;
 }
 
 /** One role's or model's usage totals: addUsage in lib/jobs.ts. */
@@ -148,6 +154,8 @@ export interface VerifyRun {
   ok: boolean;
   at: string | null;
   file: string;
+  /** The name of the step that failed (`test`, `integrity`, …), null on a pass. */
+  failure?: string | null;
 }
 
 /** A reviewer's settled verdict for a round: the verdicts case in lib/commands/job.ts (via roundVerdicts in lib/jobs.ts). */
@@ -195,6 +203,8 @@ export interface Job {
   updatedAt: string | null;
   finishedAt: string | null;
   eval: { run: string; task: string } | null;
+  /** `never` when the planner must not split this job (from-ref, revise-split); null follows pipeline.split. */
+  splitMode: 'never' | null;
 }
 
 /** tasks.md checkbox counts: progress in lib/jobs.ts. */

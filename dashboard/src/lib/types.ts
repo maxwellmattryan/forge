@@ -1,9 +1,9 @@
-// Shapes of the forge dash HTTP API for API_VERSION 9. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 10. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
 
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 9;
+export const API_VERSION = 10;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 
@@ -110,6 +110,12 @@ export interface JobAgent {
    * the same transcript, so the next import counts only what comes after it.
    */
   importedThrough?: Record<string, string>;
+  /** The role's single output, job-dir-relative: `agent start --output` or the role's default. */
+  output?: string | null;
+  /** `agent end` found no output written since this run started. */
+  outputMissing?: boolean;
+  /** This run is the one retry after a missing or malformed output: `agent start --retry`. */
+  retry?: boolean;
 }
 
 /** One role's or model's usage totals: addUsage in lib/jobs.ts. */
@@ -155,6 +161,8 @@ export interface VerifyRun {
   ok: boolean;
   at: string | null;
   file: string;
+  /** The name of the step that failed (`test`, `integrity`, …), null on a pass. */
+  failure?: string | null;
 }
 
 /** A reviewer's settled verdict for a round: the verdicts case in lib/commands/job.ts (via roundVerdicts in lib/jobs.ts). */
@@ -202,6 +210,8 @@ export interface Job {
   updatedAt: string | null;
   finishedAt: string | null;
   eval: { run: string; task: string } | null;
+  /** `never` when the planner must not split this job (from-ref, revise-split); null follows pipeline.split. */
+  splitMode: 'never' | null;
 }
 
 /** tasks.md checkbox counts: progress in lib/jobs.ts. */

@@ -18,6 +18,10 @@ export function scratchGitConfig(git) {
 // (which fails under parallel test files) or core.hooksPath must not decide whether a test passes.
 process.env.GIT_CONFIG_GLOBAL = path.resolve(import.meta.dirname, 'fixtures', 'gitconfig');
 process.env.GIT_CONFIG_NOSYSTEM = '1';
+// A suite run from a daemon session (as `forge verify` is when the daemon drives a job) inherits
+// the session's markers and git pins; the CLI it spawns would then apply daemon rules to scratch
+// repos. Tests that exercise daemon mode set these themselves.
+for (const k of Object.keys(process.env)) if (/^FORGE_DAEMON(_|$)|^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/.test(k)) delete process.env[k];
 
 /** A throwaway git repo with one commit; FORGE_ROOT pins the CLI's main checkout to it. */
 export function tempRepo() {

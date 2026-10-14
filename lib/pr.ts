@@ -80,7 +80,11 @@ export function findPr(root: string, config: Config, id: string): any {
     const linked = nodes.find((n: any) => n.state === 'OPEN') ?? nodes[0];
     if (linked) pr = view(root, slug, linked.number);
   }
-  if (!pr) return null;
+  if (!pr) {
+    // Recorded so `forge job step` knows the lookup ran and moves past Intake.
+    logEvent(root, id, 'pr-find', { found: false });
+    return null;
+  }
   if (pr.isCrossRepository) throw new ForgeError(`PR #${pr.number} comes from a fork; Forge only adopts branches in ${slug}`);
   const fields = { pr: { number: pr.number, url: pr.url, state: pr.state, isDraft: pr.isDraft, lastSyncedAt: now() } };
   if (pr.headRefName && pr.headRefName !== job.branch) Object.assign(fields, { branch: pr.headRefName });

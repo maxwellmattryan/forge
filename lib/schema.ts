@@ -5,13 +5,13 @@
 import type { Job, LoadedJob } from './types.ts';
 
 export const CONFIG_SCHEMA_VERSION = 2;
-export const JOB_SCHEMA_VERSION = 5;
+export const JOB_SCHEMA_VERSION = 6;
 export const EVENT_SCHEMA_VERSION = 1;
 /**
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 9;
+export const API_VERSION = 10;
 
 export const STAGES = [
   'backlog',
@@ -90,6 +90,9 @@ const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
       ]),
     ),
   }),
+  // v6 records whether a job's planner must never split it (from-ref, revise-split). A v5 job did
+  // not record how it started, so it is not backfilled to "never": it keeps pipeline.split.
+  5: (j) => ({ ...j, splitMode: j.splitMode ?? null }),
 };
 
 function failedVerifiesByRound(runs: any[]): Record<string, number> {
@@ -162,6 +165,7 @@ export function normalizeJob(raw: any): LoadedJob {
     updatedAt: job.updatedAt ?? null,
     finishedAt: job.finishedAt ?? null,
     eval: job.eval ?? null,
+    splitMode: job.splitMode ?? null,
   };
 }
 
