@@ -727,7 +727,15 @@ export interface DaemonSessionState {
   lastError: string | null;
   /** Tool calls outside the allowlist the session is waiting on a human for, oldest first. */
   permissions: DaemonPermissionPrompt[];
+  /** The permission mode claude last reported for the running child (at init or after a switch); null while none runs. */
+  permissionMode: string | null;
 }
+
+/**
+ * The permission modes a human may put one daemon session in from the dashboard: `default` asks in the
+ * dashboard, `auto` lets Claude Code's classifier approve routine calls, `dontAsk` refuses. lib/daemon.ts PERMISSION_MODES.
+ */
+export type DaemonPermissionMode = 'default' | 'auto' | 'dontAsk';
 
 /** How a human answers a permission prompt: allow this call, allow it and its suggested rules for the rest of the session, or deny it. */
 export type PermissionDecision = 'allow' | 'session' | 'deny';
@@ -766,6 +774,10 @@ export interface DaemonPoolState {
   inbox: DaemonSessionState;
   /** Job sessions worth showing: running, stopping, waiting, held, failed or stopped by a human. */
   jobs: Record<string, DaemonSessionState>;
+  /** The permission mode daemon.command starts sessions in (`manual` reads as `default`). */
+  permissionMode: string;
+  /** Sessions a human put in another mode from the dashboard, by scope. Held in memory only, so they end with `forge dash`. */
+  permissionModes: Record<string, DaemonPermissionMode>;
   /** Open /api/events streams across all sessions. */
   clients: number;
 }
@@ -1039,6 +1051,16 @@ export interface PostDaemonBody {
 
 /** POST /api/daemon reply on success: poolState in lib/server.ts. */
 export type PostDaemonResponse = DaemonPoolState;
+
+/** POST /api/daemon/mode body: the handler in lib/server.ts. */
+export interface PostDaemonModeBody {
+  /** `_inbox` or a job id. */
+  scope: string;
+  mode: DaemonPermissionMode;
+}
+
+/** POST /api/daemon/mode reply on success: poolState in lib/server.ts. */
+export type PostDaemonModeResponse = DaemonPoolState;
 
 /**
  * JSON error body: jsonStatus for /api/daemon's and /api/config's 4xx and the catch-all 500 in lib/server.ts.

@@ -4,11 +4,11 @@
 // is repo-wide: the trust snapshot, routing, the cap and the stops config changes force.
 // docs/ARCHITECTURE.md "Daemon" describes the rules.
 import { trustDigest } from './config.ts';
-import { TRUST_CHANGED, UUID, createSession, otherOwner, readInfo, reapOrphans, sessionFiles, sessionOptions } from './daemon.ts';
+import { PERMISSION_MODES, TRUST_CHANGED, UUID, commandPermissionMode, createSession, otherOwner, readInfo, reapOrphans, sessionFiles, sessionOptions } from './daemon.ts';
 import type { DaemonOptions, Session, SessionContext, SessionEvent } from './daemon.ts';
 import { loadJob } from './jobs.ts';
 import { INBOX_SCOPE, listRequests, requestScope, validScope } from './requests.ts';
-import type { Config, DaemonPoolState, DaemonSessionState, ForgeRequest, PermissionDecision } from './types.ts';
+import type { Config, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, ForgeRequest, PermissionDecision } from './types.ts';
 
 /** The pool's own state: state() below. The server adds `clients` to make a DaemonPoolState. */
 export type PoolState = Omit<DaemonPoolState, 'clients'>;
@@ -22,6 +22,8 @@ export interface DaemonPool {
   stopSession(scope: string): Promise<PoolState>;
   /** Answers one session's permission prompt; false when there is no such prompt. */
   answerPermission(scope: string, id: string, decision: PermissionDecision): boolean;
+  /** Puts one session in a permission mode: now if its child runs, else from its next spawn. */
+  setPermissionMode(scope: string, mode: DaemonPermissionMode): { error: string | null };
   poke(): void;
   state(): PoolState;
   sessionState(scope: string): DaemonSessionState;
@@ -51,6 +53,7 @@ export function offState(root: string, scope: string): DaemonSessionState {
     waiting: false,
     lastError: null,
     permissions: [],
+    permissionMode: null,
   };
 }
 
@@ -71,6 +74,13 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
   let inboxEager = false;
   let startReason = 'start';
   const sessions = new Map<string, Session>();
+  /**
+   * Modes a human chose in the dashboard, by scope; only those that differ from daemon.command's.
+   * In memory on purpose: a session can write files in the repo, runtime records included, so a
+   * mode read back from disk would be one the session could pick for itself.
+   */
+  const modes = new Map<string, DaemonPermissionMode>();
+  let baseMode = 'default';
   const subscribers = new Set<(e: SessionEvent) => void>();
 
   const emit = (e: SessionEvent) => {
@@ -90,6 +100,14 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
     emit,
     onResult,
     poke: () => tick(),
+    permissionMode: (scope) => modes.get(scope) ?? null,
+    permissionModeRefused(scope, mode, live) {
+      if (modes.get(scope) !== mode) return;
+      // Show what the session is really in rather than a choice claude turned down.
+      const kept = PERMISSION_MODES.find((m) => m === live);
+      if (kept && kept !== baseMode) modes.set(scope, kept);
+      else modes.delete(scope);
+    },
   };
 
   function session(scope: string): Session {
@@ -109,6 +127,7 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
     const m = c.daemon?.maxConcurrent;
     // An out-of-range value is a daemonProblems refusal at spawn; until then count it as 1.
     maxConcurrent = Number.isInteger(m) && m >= 1 && m <= 16 ? m : 1;
+    baseMode = commandPermissionMode(c.daemon?.command);
     return c;
   }
   try {
@@ -233,7 +252,17 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
   function state(): PoolState {
     const jobs: Record<string, DaemonSessionState> = {};
     for (const s of jobSessions().sort((a, b) => (a.scope < b.scope ? -1 : 1))) if (listed(s)) jobs[s.scope] = s.state();
-    return { enabled, wanted, maxConcurrent, live: jobSessions().filter((s) => s.running).length, lastError, inbox: inbox.state(), jobs };
+    return {
+      enabled,
+      wanted,
+      maxConcurrent,
+      live: jobSessions().filter((s) => s.running).length,
+      lastError,
+      inbox: inbox.state(),
+      jobs,
+      permissionMode: baseMode,
+      permissionModes: Object.fromEntries([...modes].sort(([a], [b]) => (a < b ? -1 : 1))),
+    };
   }
 
   return {
@@ -288,6 +317,18 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
     },
     answerPermission(scope, id, decision) {
       return sessions.get(scope)?.answerPermission(id, decision) ?? false;
+    },
+    setPermissionMode(scope, mode) {
+      if (!validScope(scope)) return { error: 'invalid scope' };
+      if (!PERMISSION_MODES.includes(mode)) return { error: `mode must be one of ${PERMISSION_MODES.join(', ')}` };
+      if (closed) return { error: 'the dashboard is shutting down' };
+      if (mode === baseMode) modes.delete(scope);
+      else modes.set(scope, mode);
+      const s = sessions.get(scope);
+      s?.logEvent('permission-mode-set', { mode });
+      // A running child switches now; claude confirms with a status event, which updates its state.
+      s?.setPermissionMode(mode);
+      return { error: null };
     },
     poke() {
       tick();

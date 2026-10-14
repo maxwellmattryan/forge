@@ -1,7 +1,7 @@
 // The daemon bar's and the Thread session log's pure, DOM-free half: session pills, the pool summary and POST /api/daemon.
 // Session state and errors come from session output, i.e. untrusted text: these return plain strings rendered as text.
 import { ago } from './util.ts';
-import type { DaemonPoolState, DaemonSessionState } from './types.ts';
+import type { DaemonPermissionMode, DaemonPoolState, DaemonSessionState } from './types.ts';
 
 export const START_HINT = 'Set daemon.enabled: true in .forge/config.yml';
 const JOB_LABEL = 24;
@@ -23,6 +23,8 @@ export interface JobChip {
   id: string;
   label: string;
   pill: Pill;
+  /** The mode a human put this session in, when it isn't daemon.command's. */
+  mode: DaemonPermissionMode | null;
 }
 
 export interface PoolModel {
@@ -96,7 +98,7 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
   else if (p.wanted) [label, tone] = ['standby', 'muted'];
   else if (p.lastError) [label, tone] = ['error', 'bad'];
   const chips = jobs
-    .map(([id, s]) => ({ id, label: id.length > JOB_LABEL ? `${id.slice(0, JOB_LABEL)}…` : id, pill: sessionPill(s) }))
+    .map(([id, s]) => ({ id, label: id.length > JOB_LABEL ? `${id.slice(0, JOB_LABEL)}…` : id, pill: sessionPill(s), mode: chosenOverride(p, id) }))
     .sort((a, b) => ORDER.indexOf(a.pill.label) - ORDER.indexOf(b.pill.label) || (a.id < b.id ? -1 : 1));
   const canStart = p.enabled === true && !p.wanted && !anyRunning && !pending;
   return {
@@ -131,6 +133,33 @@ export function sessionControls(session: SessionInput, poolWanted: boolean, pend
   };
 }
 
+/** The modes a session can be switched to: lib/daemon.ts PERMISSION_MODES. */
+export const PERMISSION_MODES: readonly DaemonPermissionMode[] = ['default', 'auto', 'dontAsk'];
+
+function chosenOverride(p: Record<string, any>, scope: string): DaemonPermissionMode | null {
+  const m = obj(p.permissionModes)[scope];
+  return PERMISSION_MODES.find((x) => x === m) ?? null;
+}
+
+export interface SessionMode {
+  /** The mode the session runs in, or starts in next: the human's choice, else daemon.command's. */
+  chosen: string;
+  /** The running child reports another mode: a switch claude hasn't confirmed yet. */
+  live: string | null;
+  /** Whether a human chose it (as opposed to daemon.command). */
+  overridden: boolean;
+}
+
+/** One session's permission mode for the selector, from the pool (the choice) and the session (what claude reports). */
+export function sessionMode(pool: PoolInput, scope: string, session: SessionInput): SessionMode {
+  const p = obj(pool);
+  const override = chosenOverride(p, scope);
+  const chosen = override ?? (typeof p.permissionMode === 'string' && p.permissionMode ? p.permissionMode : 'default');
+  const s = obj(session);
+  const reported = s.running === true && typeof s.permissionMode === 'string' && s.permissionMode ? s.permissionMode : null;
+  return { chosen, live: reported !== null && reported !== chosen ? reported : null, overridden: override !== null };
+}
+
 /** A POST reply carries no config read, so `enabled` stays whatever the last /api/state said. */
 export function mergePoolState(prev: PoolInput, next: unknown): Partial<DaemonPoolState> {
   return { ...obj(prev), ...obj(next), enabled: prev ? obj(prev).enabled : obj(next).enabled };
@@ -141,15 +170,24 @@ export function mergeSessionState(prev: SessionInput, next: unknown): Partial<Da
   return { ...obj(prev), ...obj(next) };
 }
 
+/** POST /api/daemon/mode: puts one session in a permission mode. Resolves with the pool state; throws like postDaemon. */
+export async function postDaemonMode(scope: string, mode: DaemonPermissionMode, token: string, fetchImpl: typeof fetch = fetch): Promise<DaemonPoolState> {
+  return postJson('/api/daemon/mode', { scope, mode }, token, fetchImpl);
+}
+
 /**
  * POST /api/daemon, for the pool or (with `scope`) one session. Resolves with the pool state;
  * throws with the server's `error` field, else its text, else the status text.
  */
 export async function postDaemon(action: 'start' | 'stop', token: string, scope?: string, fetchImpl: typeof fetch = fetch): Promise<DaemonPoolState> {
-  const res = await fetchImpl('/api/daemon', {
+  return postJson('/api/daemon', scope === undefined ? { action } : { action, scope }, token, fetchImpl);
+}
+
+async function postJson(url: string, payload: unknown, token: string, fetchImpl: typeof fetch): Promise<DaemonPoolState> {
+  const res = await fetchImpl(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-forge-token': token },
-    body: JSON.stringify(scope === undefined ? { action } : { action, scope }),
+    body: JSON.stringify(payload),
   });
   const text = await res.text();
   let body = null;

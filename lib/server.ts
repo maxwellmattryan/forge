@@ -6,7 +6,7 @@ import path from 'node:path';
 import { daemonProblems, loadConfig, validateConfig } from './config.ts';
 import { ConfigSetError, FIELDS } from './config-fields.ts';
 import { setConfigValue } from './config-set.ts';
-import { UUID, logBaseOf, readInfo, readLogPage, sessionFiles } from './daemon.ts';
+import { PERMISSION_MODES, UUID, logBaseOf, readInfo, readLogPage, sessionFiles } from './daemon.ts';
 import type { DaemonOptions } from './daemon.ts';
 import { createPool } from './daemon-pool.ts';
 import type { DaemonPool, PoolState } from './daemon-pool.ts';
@@ -38,6 +38,7 @@ import type {
   JobSource,
   PermissionDecision,
   PostConfigResponse,
+  PostDaemonModeResponse,
   PostJobResponse,
   PostRequestResponse,
 } from './types.ts';
@@ -217,6 +218,23 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         // Only the decision travels on: what the session gets back is built from claude's own request.
         if (!pool?.answerPermission(obj.scope, obj.id, obj.decision)) return jsonStatus(res, 404, { error: 'that permission prompt is gone: already answered, or its session stopped' });
         return json(res, poolState());
+      }
+      if (req.method === 'POST' && p === '/api/daemon/mode') {
+        if (guardPost(req, res, token)) return;
+        let body: any;
+        try {
+          body = JSON.parse((await readBody(req)) || '{}');
+        } catch {
+          return jsonStatus(res, 400, { error: 'body is not JSON' });
+        }
+        const obj = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+        if (!validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox" or a job id' });
+        if (obj.scope !== INBOX_SCOPE && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
+        if (!PERMISSION_MODES.includes(obj.mode)) return jsonStatus(res, 400, { error: `mode must be one of ${PERMISSION_MODES.join(', ')}` });
+        // Only a value from that fixed list travels on, to the supervisor's memory and the session's stdin.
+        const r = pool?.setPermissionMode(obj.scope, obj.mode) ?? { error: 'the daemon pool is not ready' };
+        if (r.error) return jsonStatus(res, 409, { error: r.error });
+        return json(res, poolState() satisfies PostDaemonModeResponse);
       }
       if (req.method === 'POST' && p === '/api/daemon') {
         if (guardPost(req, res, token)) return;
@@ -430,12 +448,12 @@ function about(): AboutResponse {
 
 /** A session's state before the pool exists (never visible once the server is listening). */
 function offSessionState(_root: string, scope: string): DaemonSessionState {
-  return { scope, wanted: false, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, failures: 0, held: null, waiting: false, lastError: null, permissions: [] };
+  return { scope, wanted: false, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, failures: 0, held: null, waiting: false, lastError: null, permissions: [], permissionMode: null };
 }
 
 /** The pool block before a pool exists (never visible once the server is listening). */
 function idlePoolState(root: string): PoolState {
-  return { enabled: false, wanted: false, maxConcurrent: 1, live: 0, lastError: null, inbox: offSessionState(root, INBOX_SCOPE), jobs: {} };
+  return { enabled: false, wanted: false, maxConcurrent: 1, live: 0, lastError: null, inbox: offSessionState(root, INBOX_SCOPE), jobs: {}, permissionMode: 'default', permissionModes: {} };
 }
 
 /**

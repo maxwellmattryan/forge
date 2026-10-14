@@ -24,7 +24,7 @@ export const MAX_ENTRIES = 5000;
 export const PREVIEW_CHARS = 300;
 export const LONG_TEXT = 2000;
 const SUMMARY_CHARS = 120;
-const SUPERVISOR_KEYS = ['message', 'pid', 'sessionId', 'requests', 'held', 'jobs', 'code', 'signal', 'reason', 'state', 'maxConcurrent', 'bytes', 'from', 'to', 'tool', 'decision'];
+const SUPERVISOR_KEYS = ['message', 'pid', 'sessionId', 'requests', 'held', 'jobs', 'code', 'signal', 'reason', 'state', 'maxConcurrent', 'bytes', 'from', 'to', 'tool', 'decision', 'mode'];
 const AGENT_TOOLS = new Set(['Agent', 'Task']);
 /**
  * claude's bookkeeping lines, dropped: a thinking-token meter, the skill catalog (several KiB per
@@ -248,9 +248,11 @@ function parseLine(offset: number, line: string): Parsed[] {
       return [item({ kind: 'other', offset, at, tone: 'muted', text: `system ${sub}` }, parent)];
     }
     case 'tool_progress':
-    // The supervisor logs each as permission-asked / permission-cancelled with the same tool name.
+    // The supervisor logs each as permission-asked / permission-cancelled with the same tool name, and
+    // claude's answer to a mode switch as permission-mode or an error.
     case 'control_request':
     case 'control_cancel_request':
+    case 'control_response':
       return [];
     case 'assistant': {
       const blocks = Array.isArray(obj(ev.message).content) ? (obj(ev.message).content as unknown[]).map(obj) : [];

@@ -17,6 +17,7 @@
   let pool = $derived<Partial<DaemonPoolState> | null>(S.data?.daemons ?? null);
   let pending = $state(false);
   const model = $derived(poolModel(pool, { pending }));
+  const modeName = $derived<Record<string, string>>({ default: $t('session.modes.default'), auto: $t('session.modes.auto'), dontAsk: $t('session.modes.dontAsk') });
 
   const readOpen = (): boolean => {
     try {
@@ -55,7 +56,7 @@
         <span class="text-xs text-muted tabular-nums">{$t('daemon.live', { live: model.live, cap: model.cap })}</span>
         {#if model.held.length}<span class="chip {TONE_CLASS.warn}" title={model.held.join('\n')}>{$t('daemon.held', { count: model.held.length })}</span>{/if}
         {#if model.waiting.length}<span class="chip {TONE_CLASS.warn}" title={model.waiting.join('\n')}>{$t('daemon.waiting', { count: model.waiting.length })}</span>{/if}
-        {#each model.jobs as j (j.id)}<button class="chip cursor-pointer max-w-full {TONE_CLASS[j.pill.tone]}" title={`${j.id}\n${j.pill.title}`} onclick={() => openDrawer(j.id, null, 'thread')}><span class="truncate font-mono">{j.label}</span> · {j.pill.label}</button>{/each}
+        {#each model.jobs as j (j.id)}<button class="chip cursor-pointer max-w-full {TONE_CLASS[j.pill.tone]}" title={[j.id, j.pill.title, ...(j.mode ? [$t('daemon.modeTitle', { mode: modeName[j.mode] })] : [])].join('\n')} onclick={() => openDrawer(j.id, null, 'thread')}><span class="truncate font-mono">{j.label}</span> · {j.pill.label}{#if j.mode} · {modeName[j.mode]}{/if}</button>{/each}
         {#if model.error !== null}<span class="truncate min-w-0 flex-1 text-xs text-muted" title={model.error}>{model.error}</span>{:else}<span class="flex-1"></span>{/if}
         <span class="flex items-center gap-2">
           <button class="btn text-xs" disabled={!model.canStart} title={model.startHint} aria-label={$t('daemon.startAll')} onclick={() => act('start')}><Icon name="play" />{$t('daemon.start')}</button>
