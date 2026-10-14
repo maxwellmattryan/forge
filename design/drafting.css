@@ -22,6 +22,7 @@ h1, h2, h3, p { margin: 0; }
 html[data-grid="off"] .ground { background-image: none; }
 html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::after { display: none; }
 .plain { background-color: var(--panel); }
+.chrome { background-color: var(--chrome); } /* the sidebar and the phone header: the furthest step from the ground */
 
 /* ---------- hatching ---------- */
 .hatch { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }

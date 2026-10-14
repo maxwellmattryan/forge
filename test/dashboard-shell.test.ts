@@ -347,7 +347,10 @@ test('the ground is the only patterned surface', () => {
   }
   for (const rel of [...svelteFiles(), ...tsFiles()]) {
     const lists = rel.endsWith('.svelte') ? fileClassLists(rel) : tsClassLists(read(rel));
-    for (const cls of lists.flat()) assert.notEqual(base(cls), 'bg-bg', `${rel} fills with bg-bg: an overlay is panel, the ground is bg`);
+    for (const cls of lists.flat()) {
+      assert.notEqual(base(cls), 'bg-bg', `${rel} fills with bg-bg: an overlay is panel, the ground is bg`);
+      assert.doesNotMatch(base(cls), /^bg-.+\/.+$/, `${rel} fills with ${cls}, a see-through tint`);
+    }
   }
 
   const drawer = tags('components/Drawer.svelte', read('components/Drawer.svelte')).find((t) => t.name === 'aside' && t.attrs.some((a) => a.name === 'id' && a.value === '"drawer"'));

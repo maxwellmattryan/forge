@@ -6,7 +6,7 @@
 @source "./src/**/*.ts";
 @source "./src/**/*.svelte";
 /* Emitted before any markup uses them, so later jobs only change markup. */
-@source inline("ground falloff plain hatch hatch-dense crosshatch sheet ticks redline dashed solid clickable h label callout mono num muted dimmed caption dim-line prose btn seg chip nav input check radio field track fill tabs tab tbl tblock kpi ic dot backdrop mark");
+@source inline("ground falloff plain chrome hatch hatch-dense crosshatch sheet ticks redline dashed solid clickable h label callout mono num muted dimmed caption dim-line prose btn seg chip nav input check radio field track fill tabs tab tbl tblock kpi ic dot backdrop mark");
 
 @custom-variant dark (&:where([data-theme=cyanotype], [data-theme=cyanotype] *));
 
@@ -257,6 +257,8 @@
 @utility redline { border-color: var(--redline); outline: 1px dashed var(--redline); outline-offset: 3px; }
 @utility dashed { border-style: dashed; background: transparent; }
 @utility solid { background-color: var(--panel); }
+/* The sidebar and the phone header: opaque, the furthest step from the ground. */
+@utility chrome { background-color: var(--chrome); }
 @utility clickable {
   cursor: pointer;
   transition: background-color .12s ease, border-color .12s ease;

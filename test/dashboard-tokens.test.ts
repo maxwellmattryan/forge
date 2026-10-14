@@ -290,40 +290,27 @@ test('chip tones meet 4.5:1 on bg, panel and raised', () => {
   }
 });
 
-// The sidebar and the phone strip darken the ground (App.svelte); the active nav item lays --raised
-// over that. Measured in job 5: black at 8% put vellum --muted at 4.47:1, so vellum uses 5%.
-const SIDEBAR_SHADE: Record<string, Rgba> = { cyanotype: [0, 0, 0, 0.08], vellum: [0, 0, 0, 0.05] };
-
-test('sidebar ground and link hover keep text at 4.5:1', () => {
+// The sidebar and the phone header are opaque --chrome (App.svelte), the furthest step from the ground; the
+// active nav item lays --raised over it, and the Inbox tag fills with the chrome under it.
+test('chrome sidebar keeps text at 4.5:1', () => {
   const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
   const themes: Record<string, Map<string, string>> = { cyanotype: scope(design, SCOPES[0]), vellum: scope(design, SCOPES[1]) };
-  for (const [theme, vars] of Object.entries(themes)) {
-    const color = (k: string): Rgba => {
-      const c = parseColor(vars.get(`--${k}`) ?? '');
-      assert.ok(c, `${theme} --${k} is a colour`);
-      return c;
-    };
-    const ground = over(SIDEBAR_SHADE[theme], color('bg'));
-    const active = over(color('raised'), ground);
+  for (const [theme, color] of Object.entries(themeColors())) {
+    const chrome = color('chrome');
+    const active = over(color('raised'), chrome);
     const at = (k: string, surface: Rgba) => contrast(color(k), surface);
-    // Labels, the repo line and inactive nav counts are --muted on the darkened ground.
-    assert.ok(at('muted', ground) >= 4.5, `${theme} --muted on the sidebar is ${at('muted', ground).toFixed(2)}:1`);
-    // The active item's label and its count are --fg on --raised (Nav.svelte drops `muted` when on);
-    // the Inbox tag sits on a --bg fill there.
-    for (const s of [ground, active]) assert.ok(at('fg', s) >= 4.5, `${theme} --fg on the sidebar is ${at('fg', s).toFixed(2)}:1`);
-    assert.ok(at('redline', color('bg')) >= 4.5, `${theme} the active Inbox tag is ${at('redline', color('bg')).toFixed(2)}:1`);
-    assert.ok(at('redline', ground) >= 4.5, `${theme} an inactive Inbox tag is ${at('redline', ground).toFixed(2)}:1`);
-    // Why the active item needs those: --muted, and the tag without its fill, drop below 4.5 on vellum.
-    if (theme === 'vellum') assert.ok(at('muted', active) < 4.5 && at('redline', active) < 4.5, 'the measurement that motivates the Nav fills');
+    // Labels, the repo line and nav counts are --muted; the active label and its count are --fg on --raised.
+    for (const k of ['muted', 'fg']) {
+      for (const [s, surface] of [['chrome', chrome], ['chrome+raised', active]] as const)
+        assert.ok(at(k, surface) >= 4.5, `${theme} --${k} on ${s} is ${at(k, surface).toFixed(2)}:1`);
+    }
+    assert.ok(at('redline', chrome) >= 4.5, `${theme} the Inbox tag is ${at('redline', chrome).toFixed(2)}:1`);
   }
-  // On the cyanotype sidebar a muted count stays readable on --raised too.
-  const cyan = themes.cyanotype;
-  const cbg = parseColor(cyan.get('--bg') ?? '') as Rgba;
-  assert.ok(contrast(parseColor(cyan.get('--muted') ?? '') as Rgba, over(parseColor(cyan.get('--raised') ?? '') as Rgba, over(SIDEBAR_SHADE.cyanotype, cbg))) >= 4.5);
 
   const app = fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'App.svelte'), 'utf8');
-  assert.equal(app.split('bg-black/5 dark:bg-black/8').length - 1, 2, 'the sidebar and the phone header share the shade');
-  assert.doesNotMatch(app, /(?<!dark:)bg-black\/8/, 'no theme-blind 8% shade is left');
+  assert.ok(/<aside id="sidebar" class="[^"]*\bchrome z-10 border-line-strong shadow-\(--shadow-chrome\)[^"]*"/.test(app), 'the sidebar is chrome, above main, with a hard right shadow');
+  assert.ok(/<header class="[^"]*\bchrome border-line-strong[^"]*"/.test(app), 'the phone header is chrome');
+  assert.ok(!app.includes('bg-black/'), 'no translucent shade is left');
   const nav = fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'components', 'Nav.svelte'), 'utf8');
   assert.match(nav, /<span class="mono num \{on \? '' : 'muted'\}">/);
   assert.match(nav, /<span class="chip rev \{on \? 'bg-panel' : ''\}">/);

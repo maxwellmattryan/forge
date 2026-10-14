@@ -18,7 +18,7 @@ function builtCss(): string {
 }
 
 const UTILITIES = (
-  'ground falloff plain hatch hatch-dense crosshatch sheet ticks redline dashed solid clickable h label callout mono num muted dimmed caption ' +
+  'ground falloff plain chrome hatch hatch-dense crosshatch sheet ticks redline dashed solid clickable h label callout mono num muted dimmed caption ' +
   'dim-line prose btn seg chip nav input check radio field track fill tabs tab tbl tblock kpi ic dot backdrop mark'
 ).split(' ');
 // Compound selectors as the build writes them (minified, attribute quotes dropped).
