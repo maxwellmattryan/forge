@@ -6,7 +6,7 @@
 @source "./src/**/*.ts";
 @source "./src/**/*.svelte";
 /* Emitted before any markup uses them, so later jobs only change markup. */
-@source inline("ground falloff plain chrome hatch hatch-dense crosshatch sheet ticks redline dashed solid clickable h label callout mono num muted dimmed caption dim-line prose btn seg chip nav input check radio field track fill tabs tab tbl tblock kpi ic dot backdrop mark");
+@source inline("ground falloff plain chrome sketch hatch hatch-dense crosshatch sheet ticks redline dashed solid clickable h label callout mono num muted dimmed caption dim-line prose btn seg chip nav input check radio field track fill tabs tab tbl tblock kpi ic dot backdrop mark");
 
 @custom-variant dark (&:where([data-theme=cyanotype], [data-theme=cyanotype] *));
 
@@ -162,6 +162,10 @@
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+/* The hover sketch's strength: registered so it transitions (a plain custom property would snap), and not
+   inherited, so a hovered card's chips and buttons keep their own sketch at 0%. */
+@property --sketch { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
+
 /* ---------- fonts: vendored Latin subsets (dashboard/fonts/README.md), never linked ---------- */
 @font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 500; font-display: swap; src: url(./fonts/SpaceGrotesk-500.woff2) format("woff2"); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
 @font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 700; font-display: swap; src: url(./fonts/SpaceGrotesk-700.woff2) format("woff2"); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
@@ -228,22 +232,42 @@
 }
 @utility plain { background-color: var(--panel); }
 
+/* ---------- the sketch: 45° lines that fade in and slide into place over a hovered control ----------
+   The image is declared at rest at 0% strength, so hover sets only --sketch and the position; a rule that
+   resets the background (sel, primary, active, disabled) leaves nothing to sketch. Gated on hover: hover,
+   so a tap on a touch screen leaves no lines behind. `transparent` comes first in the mix because Tailwind's
+   color-mix fallback keeps the first colour: browsers without color-mix then draw no sketch, not a full-strength one. */
+@utility sketch {
+  background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch));
+  background-position: calc(-1 * var(--hatch-pitch)) 0;
+  transition: --sketch .16s ease-out, background-position .16s ease-out, border-color .12s ease, color .12s ease;
+  @media (hover: hover) { &:hover { --sketch: 100%; background-position: 0 0; } }
+  &.hover { --sketch: 100%; background-position: 0 0; }
+}
+
 /* ---------- hatching ---------- */
 @utility hatch { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
 @utility hatch-dense { background-image: repeating-linear-gradient(45deg, var(--line) 0 1px, transparent 1px 4px); }
 @utility crosshatch { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px), repeating-linear-gradient(-45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
 
 /* ---------- sheet: an outlined panel; ticks adds corner register marks ---------- */
-/* background-color, not the shorthand, so `sheet hatch` and `sheet crosshatch` keep their image. */
+/* background-color, not the shorthand, so `sheet clickable` keeps its sketch. A hovered card keeps its panel:
+   `.clickable:hover` alone would wash it with the translucent raised. */
 @utility sheet {
   border: 1px solid var(--line);
   background-color: var(--panel);
   position: relative;
-  &.clickable { cursor: pointer; transition: background-color .12s ease, border-color .12s ease; }
-  &.clickable:hover, &.hover { border-color: var(--line-strong); background-color: var(--raised); }
+  &.clickable {
+    cursor: pointer;
+    background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch));
+    background-position: calc(-1 * var(--hatch-pitch)) 0;
+    transition: --sketch .16s ease-out, background-position .16s ease-out, border-color .12s ease;
+  }
+  @media (hover: hover) { &.clickable:hover { border-color: var(--line-strong); background-color: var(--panel); --sketch: 100%; background-position: 0 0; } }
+  &.hover { border-color: var(--line-strong); background-color: var(--panel); --sketch: 100%; background-position: 0 0; }
   &.clickable:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 3px; }
   &.redline { border-color: var(--redline); outline: 1px dashed var(--redline); outline-offset: 3px; }
-  &.dashed { border-style: dashed; background: transparent; }
+  &.dashed { border-style: dashed; background-color: transparent; }
   &.solid { background-color: var(--panel); }
 }
 @utility ticks {
@@ -255,7 +279,8 @@
   & > .tk::after { bottom: -1px; right: -1px; border-width: 0 1px 1px 0; }
 }
 @utility redline { border-color: var(--redline); outline: 1px dashed var(--redline); outline-offset: 3px; }
-@utility dashed { border-style: dashed; background: transparent; }
+/* Only the border: a `btn dashed` (the ⌘K trigger) keeps its fill and its sketch. */
+@utility dashed { border-style: dashed; }
 @utility solid { background-color: var(--panel); }
 /* The sidebar and the phone header: opaque, the furthest step from the ground. */
 @utility chrome { background-color: var(--chrome); }
@@ -339,7 +364,9 @@
   text-transform: uppercase;
   text-decoration: none;
   color: var(--fg);
-  background: transparent;
+  background-color: transparent;
+  background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch));
+  background-position: calc(-1 * var(--hatch-pitch)) 0;
   border: 1px solid var(--line-strong);
   border-radius: 0;
   padding: 7px 12px;
@@ -348,11 +375,15 @@
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  transition: all .12s ease;
+  /* Listed, not `all`: the registered --sketch has to be named to animate. */
+  transition: --sketch .16s ease-out, background-position .16s ease-out, background-color .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease, transform .12s ease;
   white-space: nowrap;
   position: relative;
   & a { text-decoration: none; }
-  &:hover, &.hover { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
+  /* muted text (the Pipeline filter counts) falls to about 4.2:1 on the sketch over the ground, so it takes the button's fg. */
+  @media (hover: hover) { &:hover { --sketch: 100%; background-position: 0 0; } &:hover .muted { color: inherit; } }
+  &.hover { --sketch: 100%; background-position: 0 0; }
+  &.hover .muted { color: inherit; }
   &:active, &.active { background: var(--ink); color: var(--on-ink); background-image: none; }
   &:focus-visible, &.focus { outline: 1px dashed var(--line-strong); outline-offset: 3px; }
   &[disabled], &.disabled { opacity: .4; cursor: not-allowed; border-style: dashed; background-image: none; }
@@ -400,8 +431,13 @@
   &.live { color: var(--ink); background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 5px); }
   &.rev { color: var(--redline); border-color: var(--redline); }
   &.hl { color: #14355f; background: var(--highlight); border-color: var(--highlight); }
-  &:is(button) { cursor: pointer; }
-  &:is(button):hover { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 5px); }
+  &:is(button) {
+    cursor: pointer;
+    background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch));
+    background-position: calc(-1 * var(--hatch-pitch)) 0;
+    transition: --sketch .16s ease-out, background-position .16s ease-out;
+  }
+  @media (hover: hover) { &:is(button):hover { --sketch: 100%; background-position: 0 0; } }
   &:is(button)[aria-expanded="true"] { outline: 1px dashed currentColor; outline-offset: 2px; }
 }
 
@@ -411,8 +447,14 @@
   flex-direction: column;
   gap: 2px;
   text-decoration: none;
-  & a, & button { font-family: var(--font-mono); font-weight: 500; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px 9px 12px; border: 1px solid transparent; background: transparent; width: 100%; cursor: pointer; line-height: 16px; transition: all .12s ease; position: relative; text-align: left; }
-  & a:hover, & a.hover, & button:hover { color: var(--fg); border-color: var(--line-soft); background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
+  & a, & button { font-family: var(--font-mono); font-weight: 500; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px 9px 12px; border: 1px solid transparent; background-color: transparent; width: 100%; cursor: pointer; line-height: 16px; position: relative; text-align: left;
+    background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch));
+    background-position: calc(-1 * var(--hatch-pitch)) 0;
+    transition: --sketch .16s ease-out, background-position .16s ease-out, background-color .12s ease, border-color .12s ease, color .12s ease;
+  }
+  & a:hover, & a.hover, & button:hover { color: var(--fg); border-color: var(--line-soft); }
+  @media (hover: hover) { & a:hover, & button:hover { --sketch: 100%; background-position: 0 0; } }
+  & a.hover { --sketch: 100%; background-position: 0 0; }
   & a.active, & button.active { color: var(--fg); border-color: var(--line-strong); background-color: var(--raised); background-image: none; }
   & a.active::before, & button.active::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px; background: var(--ink); }
   & a:focus-visible, & button:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 2px; }
@@ -501,10 +543,15 @@
   padding: 8px 14px;
   border: 1px solid transparent;
   border-bottom: 0;
-  background: transparent;
+  background-color: transparent;
+  background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch));
+  background-position: calc(-1 * var(--hatch-pitch)) 0;
+  transition: --sketch .16s ease-out, background-position .16s ease-out, background-color .12s ease, border-color .12s ease, color .12s ease;
   cursor: pointer;
   margin-bottom: -1px;
-  &:hover { color: var(--fg); background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
+  &:hover, &.hover { color: var(--fg); }
+  @media (hover: hover) { &:hover { --sketch: 100%; background-position: 0 0; } }
+  &.hover { --sketch: 100%; background-position: 0 0; }
   &.active { color: var(--fg); border-color: var(--line); background-color: var(--panel); background-image: none; }
 }
 

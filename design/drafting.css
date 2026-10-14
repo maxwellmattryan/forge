@@ -1,4 +1,4 @@
-/* Forge — Drafting. Reference stylesheet: reads every colour, font, shadow and pitch from tokens.css; declares only textures and drawing rules. Port these into dashboard/style.css as @utility classes (see MIGRATION.md). */
+/* Forge — Drafting. Reference stylesheet: reads every colour, font, shadow and pitch from tokens.css; declares only textures and drawing rules. Three levels: the ground (grid + paper fibre), opaque sheets and overlays (panel), the chrome sidebar; the only patterns are the grid, the fibre and the hover sketch. Port these into dashboard/style.css as @utility classes (see MIGRATION.md). */
 :root { --paper: url(textures/paper.svg); --paper-opacity: .18; --paper-blend: soft-light; --fall: rgba(0,0,0,.28); }
 [data-theme="vellum"] { --paper-opacity: .55; --paper-blend: multiply; --fall: rgba(60,40,0,.10); }
 
@@ -22,7 +22,16 @@ h1, h2, h3, p { margin: 0; }
 html[data-grid="off"] .ground { background-image: none; }
 html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::after { display: none; }
 .plain { background-color: var(--panel); }
+.solid { background-color: var(--panel); } /* an overlay: the drawer, dialogs, toasts */
 .chrome { background-color: var(--chrome); } /* the sidebar and the phone header: the furthest step from the ground */
+.dashed { border-style: dashed; } /* only the border: a dashed .btn keeps its fill and its sketch */
+
+/* ---------- the sketch: 45° lines that fade in and slide 6px into place over a hovered control's own fill ---------- */
+/* Registered so it transitions; not inherited, so a hovered card's chips keep theirs at 0%. Hover sets only --sketch and the position: a rule that resets the background (sel, primary, active, disabled) leaves nothing to sketch. */
+@property --sketch { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
+.sketch { background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; transition: --sketch .16s ease-out, background-position .16s ease-out, border-color .12s ease, color .12s ease; }
+@media (hover: hover) { .sketch:hover { --sketch: 100%; background-position: 0 0; } }
+.sketch.hover { --sketch: 100%; background-position: 0 0; }
 
 /* ---------- hatching ---------- */
 .hatch { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
@@ -30,16 +39,17 @@ html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::
 .crosshatch { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px), repeating-linear-gradient(-45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
 
 /* ---------- sheet: an outlined panel; .ticks adds corner register marks ---------- */
-.sheet { border: 1px solid var(--line); background-color: var(--panel); position: relative; } /* background-color: .sheet.hatch / .sheet.crosshatch keep their image */
+.sheet { border: 1px solid var(--line); background-color: var(--panel); position: relative; } /* background-color, not the shorthand: .sheet.clickable keeps its sketch */
 .sheet.ticks > .tk { position: absolute; inset: 0; pointer-events: none; }
 .sheet.ticks::before, .sheet.ticks::after, .sheet.ticks > .tk::before, .sheet.ticks > .tk::after { content: ""; position: absolute; width: 9px; height: 9px; border-color: var(--line-strong); border-style: solid; }
 .sheet.ticks::before { top: -1px; left: -1px; border-width: 1px 0 0 1px; } .sheet.ticks::after { top: -1px; right: -1px; border-width: 1px 1px 0 0; }
 .sheet.ticks > .tk::before { bottom: -1px; left: -1px; border-width: 0 0 1px 1px; } .sheet.ticks > .tk::after { bottom: -1px; right: -1px; border-width: 0 1px 1px 0; }
-.sheet.clickable { cursor: pointer; transition: background-color .12s ease, border-color .12s ease; }
-.sheet.clickable:hover, .sheet.hover { border-color: var(--line-strong); background-color: var(--raised); }
+.sheet.clickable { cursor: pointer; background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; transition: --sketch .16s ease-out, background-position .16s ease-out, border-color .12s ease; }
+@media (hover: hover) { .sheet.clickable:hover { border-color: var(--line-strong); background-color: var(--panel); --sketch: 100%; background-position: 0 0; } }
+.sheet.hover { border-color: var(--line-strong); background-color: var(--panel); --sketch: 100%; background-position: 0 0; } /* a hovered card keeps its panel */
 .sheet.clickable:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 3px; }
 .sheet.redline { border-color: var(--redline); outline: 1px dashed var(--redline); outline-offset: 3px; }
-.sheet.dashed { border-style: dashed; background: transparent; }
+.sheet.dashed { border-style: dashed; background-color: transparent; } /* a board column: a container drawn on the ground */
 .sheet.solid { background-color: var(--panel); }
 
 /* ---------- type ---------- */
@@ -60,8 +70,10 @@ html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::
 .prose.compact { font-size: 12px; line-height: 18px; } .prose.compact h1, .prose.compact h2, .prose.compact h3 { font-size: 13px; line-height: 18px; font-weight: 600; margin: 8px 0 4px; } .prose.compact p, .prose.compact ul, .prose.compact ol, .prose.compact pre, .prose.compact blockquote, .prose.compact table { margin: 4px 0; } .prose.compact pre { font-size: 11px; line-height: 16px; padding: 8px; } .prose.compact > :first-child { margin-top: 0; } .prose.compact > :last-child { margin-bottom: 0; }
 
 /* ---------- buttons ---------- */
-.btn { font-family: var(--font-mono); font-weight: 500; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg); background: transparent; border: 1px solid var(--line-strong); border-radius: 0; padding: 7px 12px; line-height: 16px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; transition: all .12s ease; white-space: nowrap; position: relative; }
-.btn:hover, .btn.hover { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
+.btn { font-family: var(--font-mono); font-weight: 500; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg); background-color: transparent; background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; border: 1px solid var(--line-strong); border-radius: 0; padding: 7px 12px; line-height: 16px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; transition: --sketch .16s ease-out, background-position .16s ease-out, background-color .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease, transform .12s ease; white-space: nowrap; position: relative; }
+@media (hover: hover) { .btn:hover { --sketch: 100%; background-position: 0 0; } .btn:hover .muted { color: inherit; } }
+.btn.hover { --sketch: 100%; background-position: 0 0; }
+.btn.hover .muted { color: inherit; } /* muted falls to about 4.2:1 on the ground plus the sketch */
 .btn:active, .btn.active { background: var(--ink); color: var(--on-ink); background-image: none; }
 .btn:focus-visible, .btn.focus { outline: 1px dashed var(--line-strong); outline-offset: 3px; }
 .btn[disabled], .btn.disabled { opacity: .4; cursor: not-allowed; border-style: dashed; background-image: none; }
@@ -84,13 +96,16 @@ html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::
 .chip.live { color: var(--ink); background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 5px); }
 .chip.rev { color: var(--redline); border-color: var(--redline); }
 .chip.hl { color: #14355f; background: var(--highlight); border-color: var(--highlight); }
-button.chip { cursor: pointer; } button.chip:hover { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 5px); }
+button.chip { cursor: pointer; background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; transition: --sketch .16s ease-out, background-position .16s ease-out; }
+@media (hover: hover) { button.chip:hover { --sketch: 100%; background-position: 0 0; } }
 button.chip[aria-expanded="true"] { outline: 1px dashed currentColor; outline-offset: 2px; }
 
 /* ---------- nav ---------- */
 .nav { display: flex; flex-direction: column; gap: 2px; }
-.nav a, .nav button { font-family: var(--font-mono); font-weight: 500; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px 9px 12px; border: 1px solid transparent; background: transparent; width: 100%; cursor: pointer; line-height: 16px; transition: all .12s ease; position: relative; text-align: left; }
-.nav a:hover, .nav a.hover, .nav button:hover { color: var(--fg); border-color: var(--line-soft); background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
+.nav a, .nav button { font-family: var(--font-mono); font-weight: 500; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px 9px 12px; border: 1px solid transparent; background-color: transparent; background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; width: 100%; cursor: pointer; line-height: 16px; transition: --sketch .16s ease-out, background-position .16s ease-out, background-color .12s ease, border-color .12s ease, color .12s ease; position: relative; text-align: left; }
+.nav a:hover, .nav a.hover, .nav button:hover { color: var(--fg); border-color: var(--line-soft); }
+@media (hover: hover) { .nav a:hover, .nav button:hover { --sketch: 100%; background-position: 0 0; } }
+.nav a.hover { --sketch: 100%; background-position: 0 0; }
 .nav a.active, .nav button.active { color: var(--fg); border-color: var(--line-strong); background-color: var(--raised); background-image: none; }
 .nav a.active::before, .nav button.active::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px; background: var(--ink); }
 .nav a:focus-visible, .nav button:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 2px; }
@@ -123,8 +138,10 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 
 /* ---------- tabs ---------- */
 .tabs { display: flex; border-bottom: 1px solid var(--line); }
-.tab { font-family: var(--font-mono); font-weight: 500; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 8px 14px; border: 1px solid transparent; border-bottom: 0; background: transparent; cursor: pointer; margin-bottom: -1px; }
-.tab:hover { color: var(--fg); background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
+.tab { font-family: var(--font-mono); font-weight: 500; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 8px 14px; border: 1px solid transparent; border-bottom: 0; background-color: transparent; background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; transition: --sketch .16s ease-out, background-position .16s ease-out, background-color .12s ease, border-color .12s ease, color .12s ease; cursor: pointer; margin-bottom: -1px; }
+.tab:hover, .tab.hover { color: var(--fg); }
+@media (hover: hover) { .tab:hover { --sketch: 100%; background-position: 0 0; } }
+.tab.hover { --sketch: 100%; background-position: 0 0; }
 .tab.active { color: var(--fg); border-color: var(--line); background-color: var(--panel); background-image: none; }
 
 /* ---------- tables ---------- */
