@@ -40,7 +40,7 @@
 
 <PageHeader title={$t('analytics.title')}>
   {#snippet sub()}{$t('analytics.sub')}{/snippet}
-  {#snippet right()}<select value={S.window} onchange={(e) => setWindow(e.currentTarget.value)}>{#each STATS_WINDOWS as [v, l] (v)}<option value={v}>{l}</option>{/each}</select>{/snippet}
+  {#snippet right()}<select class="input" value={S.window} onchange={(e) => setWindow(e.currentTarget.value)}>{#each STATS_WINDOWS as [v, l] (v)}<option value={v}>{l}</option>{/each}</select>{/snippet}
 </PageHeader>
 {#if !s}
   <div class="text-muted text-sm">{$t('common.loading')}</div>

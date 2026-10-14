@@ -26,15 +26,15 @@
 </script>
 
 <PageHeader title={$t('pipeline.title')}>
-  {#snippet sub()}{$t('pipeline.active', { count: counts.active })} · {$t('pipeline.base')} <code class="font-mono text-xs">{data.config.base}</code> · {$t('pipeline.tracker', { tracker: data.config.tracker })}{/snippet}
+  {#snippet sub()}{$t('pipeline.active', { count: counts.active })} · {$t('pipeline.base')} <code class="font-mono">{data.config.base}</code> · {$t('pipeline.tracker', { tracker: data.config.tracker })}{/snippet}
   {#snippet right()}
-    <div class="flex flex-wrap gap-1.5">
-      {#each FILTERS as f (f)}<button class="btn {S.filter === f ? 'border-accent/60 text-fg' : 'text-muted'}" onclick={() => setFilter(f)}>{filterLabel[f]} <span class="text-muted tabular-nums">{counts[f]}</span></button>{/each}
+    <div class="seg">
+      {#each FILTERS as f (f)}{@const on = S.filter === f}<button class="btn sm {on ? 'sel' : ''}" aria-pressed={on} onclick={() => setFilter(f)}>{filterLabel[f]} <span class="num {on ? 'opacity-70' : 'muted'}">{counts[f]}</span></button>{/each}
     </div>
-    <div class="flex rounded-lg border border-line overflow-hidden">
-      {#each LAYOUTS as l (l)}<button class="px-2.5 py-1.5 text-sm flex items-center gap-1.5 {S.layout === l ? 'bg-raised text-fg' : 'text-muted'}" onclick={() => setLayout(l)}><Icon name={l} />{layoutLabel[l]}</button>{/each}
+    <div class="seg">
+      {#each LAYOUTS as l (l)}{@const on = S.layout === l}<button class="btn sm {on ? 'sel' : ''}" aria-pressed={on} onclick={() => setLayout(l)}><Icon name={l} />{layoutLabel[l]}</button>{/each}
     </div>
-    <button class="btn btn-primary" onclick={() => req({ type: 'next' })}>{$t('common.runNext')}</button>
+    <button class="btn primary" onclick={() => req({ type: 'next' })}>{$t('common.runNext')}</button>
   {/snippet}
 </PageHeader>
 {#if !jobs.length}
