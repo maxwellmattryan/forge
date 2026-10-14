@@ -4,6 +4,7 @@
 // list are derived from that list, never retyped.
 import type { BUDGET_KEYS, DAEMON_AUTH, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import type { REQUEST_TYPES } from './requests.ts';
+import type { AcCoverage } from './acs.ts';
 
 // ---------- enumerations ----------
 
@@ -103,6 +104,12 @@ export interface JobAgent {
    * the same transcript, so the next import counts only what comes after it.
    */
   importedThrough?: Record<string, string>;
+  /** The role's single output, job-dir-relative: `agent start --output` or the role's default. */
+  output?: string | null;
+  /** `agent end` found no output written since this run started. */
+  outputMissing?: boolean;
+  /** This run is the one retry after a missing or malformed output: `agent start --retry`. */
+  retry?: boolean;
 }
 
 /** One role's or model's usage totals: addUsage in lib/jobs.ts. */
@@ -148,6 +155,8 @@ export interface VerifyRun {
   ok: boolean;
   at: string | null;
   file: string;
+  /** The name of the step that failed (`test`, `integrity`, …), null on a pass. */
+  failure?: string | null;
 }
 
 /** A reviewer's settled verdict for a round: the verdicts case in lib/commands/job.ts (via roundVerdicts in lib/jobs.ts). */
@@ -195,6 +204,8 @@ export interface Job {
   updatedAt: string | null;
   finishedAt: string | null;
   eval: { run: string; task: string } | null;
+  /** `never` when the planner must not split this job (from-ref, revise-split); null follows pipeline.split. */
+  splitMode: 'never' | null;
 }
 
 /** tasks.md checkbox counts: progress in lib/jobs.ts. */
@@ -205,6 +216,112 @@ export interface Progress {
 
 /** A job as loadJob and normalizeJob return it: normalizeJob marks one written by a newer Forge. */
 export type LoadedJob = Job & { _unsupported?: true };
+
+// ---------- forge job step (lib/step.ts; not /api shapes) ----------
+
+/** What a `wait` waits on: a gate, or the agents still running. */
+export type StepWaitingOn = WaitingOn | 'agents';
+
+interface StepBase {
+  id: string;
+  /** The rule in lib/step.ts RULES that chose this action. */
+  rule: string;
+}
+
+/** Spawn one agent: run `start` (argv after `forge`), spawn `agent` with `model` and `brief`, then `agent end`. */
+export interface StepSpawn extends StepBase {
+  action: 'spawn';
+  role: string;
+  agent: string;
+  lens?: string;
+  model: string;
+  round: number;
+  output?: string;
+  retry?: true;
+  resume?: string;
+  parallel?: true;
+  start: string[];
+  startShell: string;
+  brief: string;
+}
+
+/** Run one forge command: `command` is argv after `forge`, `shell` the same as one quoted line. */
+export interface StepRun extends StepBase {
+  action: 'run';
+  command: string[];
+  shell: string;
+  why: string;
+  tell?: string;
+}
+
+/** Wait on agents or a human gate; `tell` is what to report. */
+export interface StepWait extends StepBase {
+  action: 'wait';
+  waitingOn: StepWaitingOn;
+  running: string[];
+  tell?: string;
+}
+
+/** Follow a reference procedure the CLI does not decide (split children, PR continuation, retro). */
+export interface StepProcedure extends StepBase {
+  action: 'procedure';
+  reference: string;
+  why: string;
+}
+
+/** Nothing more to drive. */
+export interface StepDone extends StepBase {
+  action: 'done';
+  state: JobState;
+  tell?: string;
+}
+
+/** What `forge job step` prints. */
+export type StepAction = StepSpawn | StepRun | StepWait | StepProcedure | StepDone;
+
+/** The round's or integration review's verdicts as step reads them: roundVerdicts in lib/jobs.ts. */
+export interface StepVerdicts {
+  complete: boolean;
+  outcome: string;
+  reviewers: Record<string, { verdict: string }>;
+}
+
+/** Everything `step` decides from, read once by loadStepInput in lib/step.ts. */
+export interface StepInput {
+  job: Job;
+  config: Config;
+  root: string;
+  jobDir: string;
+  pluginRoot: string;
+  /** jobPathMap in lib/brief.ts. */
+  paths: Record<string, unknown>;
+  /** Which job files exist, by name. */
+  files: Record<StepFile, boolean>;
+  /** The absolute paths in `paths` that exist, for brief inputs. */
+  present: string[];
+  worktreeExists: boolean;
+  /** requestBody(): its length and the lines that start with a list marker or a heading. */
+  request: { length: number; listLines: number };
+  plan: { verdict: 'SINGLE' | 'SPLIT' | null; jobs: number; recommendSplit: boolean };
+  /** spec.md's header lines and Approach paths; suggested names and services are raw, step filters them. */
+  spec: { size: string | null; needsDesign: boolean; services: string[]; suggested: string[]; approachPaths: string[] };
+  /** design.md's `## Spec deltas` section is non-empty and not None. */
+  designDeltas: boolean;
+  decision: { decision: string | null; autoMerge: boolean };
+  runbookBeforeMerge: boolean;
+  verdicts: { round: StepVerdicts | null; integration: StepVerdicts | null };
+  acs: AcCoverage;
+  /** The record names in runtime.json. */
+  runtime: string[];
+  /** The events step reads, oldest first: human, round, worktree*, pr-*, scope, integrate*, integration-review, decision, fields, eval-graded, transition, agent-start/end. */
+  events: JobEvent[];
+  evalTask: { rubric: string | null; reference: string | null } | null;
+  /** Checklist path per panel lens and selected reviewer. */
+  checklists: Record<string, string | null>;
+}
+
+/** The job files StepInput.files records. */
+export type StepFile = 'request' | 'plan' | 'spec' | 'design' | 'mockup' | 'build' | 'tasks' | 'questions' | 'feedback' | 'prFeedback' | 'runbook' | 'decision' | 'scope' | 'issueCandidates' | 'evalJudge';
 
 // ---------- events ----------
 

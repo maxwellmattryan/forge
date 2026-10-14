@@ -13,11 +13,12 @@ Repos never copy the engine or the roster, so there is nothing to drift. Everyth
 
 ## Why a CLI does the bookkeeping
 
-LLMs are good at judgement and unreliable at bookkeeping. Everything with a single right answer is code: valid state transitions, unique job ids, atomic writes, locks, port allocation, worktree setup, command logging, verdict policy, PR and tracker calls, usage maths. Agents and the orchestrator call `forge …` and get compact JSON back. Three things follow:
+LLMs are good at judgement and unreliable at bookkeeping. Everything with a single right answer is code: valid state transitions, which transition comes next, unique job ids, atomic writes, locks, port allocation, worktree setup, command logging, verdict policy, PR and tracker calls, usage maths. Agents and the orchestrator call `forge …` and get compact JSON back. Four things follow:
 
 1. **Data shapes can't drift.** No model hand-writes `job.json`, so a skill update can't produce state that a dashboard update can't read.
 2. **Context stays small.** `forge verify` returns pass/fail plus a log tail, not 3,000 lines of compiler output. `forge job verdicts --compact` returns one word per lens. `forge job scope` returns at most 20 out-of-spec files; the full list goes to `scope.md`.
 3. **The protocol is portable.** Any agent runtime that can run shell commands can drive Forge (see PROTOCOL.md).
+4. **The pipeline is tested code.** `forge job step <id>` (`lib/step.ts`) is the one decider of transitions: a pure function from recorded state (`job.json`, the config, which job files exist, the events it needs) to the next action: `spawn` an agent with the brief `lib/brief.ts` rendered, `run` one forge command, `wait` on agents or a human gate, follow a reference `procedure`, or `done`. It never writes, so the same state always gives the same answer, and each rule is a row in `test/step.test.ts`. The facts the orchestrator used to carry in conversation are recorded instead: suggested lenses in the `spec.md` header, the builder to resume in `agents.builder.agentId`, reviewers in flight in agent `status`, split mode in `job.splitMode`, human decisions in `human` events, and missing outputs in `outputMissing`, which `forge job agent … end` sets for single-output roles. Commands it emits are built only from ids, numbers, config names and fixed templates, never from file contents or agent replies, and briefs carry paths, never contents, so text an agent wrote after reading tracker or PR input never becomes a shell argument or another agent's prompt.
 
 The CLI is TypeScript that Node ≥ 22.18 runs directly through its built-in type stripping, with zero dependencies. That means no build step, no install step inside the plugin, and Node is already present wherever Claude Code is. The only JavaScript left in the engine is `bin/forge`, an extensionless entry that imports `lib/cli.ts`, and `lib/trackers/status.mjs`, a one-line re-export kept for custom tracker adapters. Node does not strip types under `node_modules`, which is why Forge has no npm-package install. The dashboard is built with Vite at development time and its output (`dashboard/dist/`) is committed, so installing still needs no build or install step. The dashboard is a Svelte 5 app in strict TypeScript (`dashboard/src/`), type-checked with svelte-check and compiled by Vite at development time; nothing at runtime loads Svelte's compiler or TypeScript. A native (e.g. Rust) port would only pay off for a long-running worker daemon. The CLI's commands and JSON outputs are the contract, so a port could replace it without touching the skill or agents.
 
@@ -32,6 +33,8 @@ Every persisted shape carries a version: `config.yml` → `schemaVersion`, `job.
 - **Events are append-only**, so history is never rewritten by a migration.
 
 When a shape must change: bump the version constant, add a migration keyed by the old version, and keep normalisers tolerant.
+
+Job schema v6 (API version 10) records what `forge job step` decides from: `splitMode` (`never` for jobs from `forge job from-ref` and after a `revise-split`, else null; a v5 job reads as null, because v5 never recorded how a job started), each agent record's `output`, `retry` and `outputMissing`, and each verify run's `failure` (the failing step's name). Events gained `pr-find` (`forge pr find` adopted nothing) and `scope` (`forge job scope` ran, with its round and HEAD).
 
 ## Updating
 

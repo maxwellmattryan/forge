@@ -1,0 +1,439 @@
+// `step` as a table (issue #68): fixture state → the action it must return. Every rule ID in
+// lib/step.ts RULES names at least one row ("every rule has a row"), and every row's commands are
+// checked for shell safety ("emitted commands are shell-safe").
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { RULES, hasSpecDeltas, parsePlan, parseSpecHeader, roundLenses, selectPanel, shellLine, step } from '../lib/step.ts';
+import type { Job, StepAction, VerifyRun } from '../lib/types.ts';
+import { JOB_DIR, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
+import type { FixtureOpts } from './step-fixture.ts';
+
+interface Row {
+  name: string;
+  fx: FixtureOpts;
+  want: Record<string, unknown>;
+  check?: (a: any) => void;
+}
+
+const run = (...command: string[]) => ({ action: 'run', command });
+const vr = (round: number, at: number, ok: boolean, failure: string | null = ok ? null : 'test'): VerifyRun => ({ round, attempt: 1, sha: 's', ok, at: t(at), file: `verify/round-${round}.md`, failure });
+const job = (j: Partial<Job>): Partial<Job> => ({ state: 'running', ...j });
+const SPEC_DONE = { 'spec-writer': ag(0, 1, 2) };
+const PANEL_SET = ev('fields', 3, { fields: { reviewers: ['code', 'tests'] } });
+
+/** A job in review, round 1: builder done, verify passed, scope written. */
+const inReview = (agents: Job['agents'] = {}, more: Partial<Job> = {}): Partial<Job> =>
+  job({ stage: 'review', round: 1, reviewers: ['code', 'tests'], verifyRuns: [vr(1, 10, true)], agents: { builder: ag(1, 5, 9), ...agents }, ...more });
+const scoped = [ev('round', 4, { round: 1 }), ev('scope', 11, { round: 1 })];
+
+/** A job at decide, round 1, approver done at minute 21. */
+const atDecide = (more: Partial<Job> = {}): Partial<Job> => job({ stage: 'decide', round: 1, reviewers: ['code'], verdicts: { 1: { code: 'PASS' } }, agents: { approver: ag(1, 20, 21) }, ...more });
+
+/** A job in integrate that entered the stage at minute 30. */
+const entered = ev('transition', 30, { from: { stage: 'decide', state: 'running', waitingOn: null }, to: { stage: 'integrate', state: 'running', waitingOn: null } });
+const atIntegrate = (more: Partial<Job> = {}): Partial<Job> => job({ stage: 'integrate', round: 1, reviewers: ['code'], verdicts: { 1: { code: 'PASS' } }, verifyRuns: [vr(1, 10, true)], ...more });
+const conflicts = ev('integrate-conflicts', 31, { strategy: 'rebase', conflicts: ['a.ts', '`x`'], behind: 2 });
+
+const rows: Row[] = [
+  // ---- Global
+  { name: 'G1 a done job is done', fx: { job: job({ stage: 'done', state: 'done' }) }, want: { action: 'done', state: 'done' } },
+  { name: 'G1 a cancelled job is done', fx: { job: job({ stage: 'build', state: 'cancelled' }) }, want: { action: 'done', state: 'cancelled', tell: 'j is cancelled' } },
+  { name: 'G2 a failed job reports its reason', fx: { job: job({ stage: 'backlog', state: 'failed', reason: 'worktree setup failed' }) }, want: { action: 'done', state: 'failed', tell: 'j failed: worktree setup failed' } },
+  { name: 'G3 releases the claim while the PR waits', fx: { job: job({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review', owner: { session: 's', host: 'h', since: t(0), heartbeat: t(0) } }) }, want: run('job', 'release', 'j') },
+  { name: 'G3 stops background processes', fx: { job: job({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review' }), runtime: ['dev'] }, want: run('stop', 'j') },
+  {
+    name: 'G3 waits on review and names a missing issue',
+    fx: { config: (c) => (c.tracker.kind = 'local'), job: job({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review', pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }) },
+    want: { action: 'wait', waitingOn: 'pr-review', running: [], tell: 'j PR https://github.com/o/r/pull/7 waits on review\nj has no linked issue: `forge job link j <ref>` or `--none`' },
+  },
+  { name: 'G4 waiting on budget', fx: { job: job({ stage: 'build', state: 'waiting', waitingOn: 'budget', reason: 'usd 12 > 10' }) }, want: { action: 'wait', waitingOn: 'budget', tell: 'j over budget: usd 12 > 10. /forge approve j to acknowledge, or raise it: forge job budget j --set usd=…' } },
+  { name: 'G4 blocked waits on external', fx: { job: job({ stage: 'build', state: 'blocked', reason: 'dependency' }) }, want: { action: 'wait', waitingOn: 'external', tell: 'j waits: dependency' } },
+  { name: 'G4 an escalation names the decision', fx: { job: job({ stage: 'decide', state: 'waiting', waitingOn: 'escalation', reason: 'approver escalated: see decision.md' }) }, want: { action: 'wait', waitingOn: 'escalation', tell: `j escalated (approver escalated: see decision.md): see ${path.join(JOB_DIR, 'decision.md')}. /forge approve j or /forge rework j <note>` } },
+  { name: 'G4 spec approval names the spec and mockup', fx: { files: ['spec', 'mockup'], job: job({ stage: 'spec', state: 'waiting', waitingOn: 'spec-approval' }) }, want: { action: 'wait', waitingOn: 'spec-approval', tell: `j spec ready: ${path.join(JOB_DIR, 'spec.md')} · mockup ${path.join(JOB_DIR, 'mockup.html')}. /forge approve j or /forge revise j <note>` } },
+  { name: 'G4 running agents are listed at a gate', fx: { job: job({ stage: 'review', state: 'waiting', waitingOn: 'budget', agents: { 'reviewer:tests': ag(1, 1) } }) }, want: { action: 'wait', waitingOn: 'budget', running: ['reviewer:tests'] } },
+  { name: 'G5 waits on running agents', fx: { job: job({ stage: 'build', round: 1, agents: { builder: ag(1, 5) } }) }, want: { action: 'wait', waitingOn: 'agents', running: ['builder'] } },
+  { name: 'L1 respawns a lost builder without resume', fx: { files: ['spec'], job: job({ stage: 'build', round: 1, agents: { builder: ag(1, 5, 6, { status: 'lost' }) } }), events: [ev('round', 4)] }, want: { action: 'spawn', role: 'builder' }, check: (a) => assert.equal(a.resume, undefined) },
+  { name: 'L1 respawns a failed approver', fx: { job: atDecide({ agents: { approver: ag(1, 20, 21, { status: 'failed' }) } }) }, want: { action: 'spawn', role: 'approver' } },
+
+  // ---- Per-role generic rules
+  { name: 'N1 parks a spec-writer that asked', fx: { job: job({ stage: 'spec', agents: { 'spec-writer': ag(0, 1, 2, { summary: 'SPEC: NEEDS-INPUT · 2 questions' }) } }) }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'input', '--reason', 'spec-writer has questions') },
+  { name: 'N1 an eval NEEDS-INPUT fails the task', fx: { job: job({ kind: 'eval', stage: 'spec', agents: { 'spec-writer': ag(0, 1, 2, { summary: 'NEEDS-INPUT' }) } }) }, want: run('job', 'set', 'j', '--state', 'failed', '--reason', 'eval: NEEDS-INPUT fails the task') },
+  { name: 'N1 builder asked in this round', fx: { job: job({ stage: 'build', round: 1, agents: { builder: ag(1, 5, 6, { summary: 'needs-input' }) } }), events: [ev('round', 4)] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'input', '--reason', 'builder has questions') },
+  {
+    name: 'N2 resumes the agent after an answer',
+    fx: { files: ['questions'], job: job({ stage: 'spec', agents: { 'spec-writer': ag(0, 1, 2, { summary: 'NEEDS-INPUT' }) } }), events: [ev('human', 5, { action: 'answer', note: 'x' })] },
+    want: { action: 'spawn', role: 'spec-writer', resume: 'a1' },
+    check: (a) => assert.ok(a.brief.includes(path.join(JOB_DIR, 'questions.md'))),
+  },
+  {
+    name: 'M1 retries a reviewer that wrote no review',
+    fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: true, output: 'review/round-1/code.md' }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped },
+    want: { action: 'spawn', role: 'reviewer:code', lens: 'code', retry: true, output: path.join(JOB_DIR, 'review', 'round-1', 'code.md') },
+    check: (a) => {
+      assert.equal(a.start.at(-1), '--retry');
+      assert.ok(a.brief.includes(`Retry: ${path.join(JOB_DIR, 'review', 'round-1', 'code.md')}`));
+    },
+  },
+  {
+    name: 'M1 a pre-v6 reviewer record falls back to MISSING',
+    fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13), 'reviewer:tests': ag(1, 12, 13) }), events: scoped, verdicts: { round: verdicts({ code: 'MISSING', tests: 'PASS' }) } },
+    want: { action: 'spawn', role: 'reviewer:code', retry: true },
+  },
+  {
+    name: 'M2 escalates after the retry also wrote nothing',
+    fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: true, retry: true }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped },
+    want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'reviewer code wrote no review', '--note', 'reviewer:code ended twice without writing code.md'),
+  },
+  { name: 'M1 approver wrote no decision.md', fx: { job: atDecide({ agents: { approver: ag(1, 20, 21, { outputMissing: true }) } }) }, want: { action: 'spawn', role: 'approver', retry: true } },
+  { name: 'M2 approver twice without decision.md', fx: { job: atDecide({ agents: { approver: ag(1, 20, 21, { outputMissing: true, retry: true }) } }) }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'approver wrote no decision.md', '--note', 'approver ended twice without writing decision.md') },
+
+  // ---- Kind gates
+  { name: 'K1 a retro job starts with the procedure', fx: { job: job({ kind: 'retro', stage: 'backlog' }) }, want: { action: 'procedure', reference: path.join(path.resolve(import.meta.dirname, '..'), 'skills', 'forge', 'reference', 'retro.md') } },
+  { name: 'K1 a retro that wrote no spec.md', fx: { job: job({ kind: 'retro', stage: 'backlog', agents: { retro: ag(0, 1, 2) } }) }, want: { action: 'procedure' } },
+  { name: 'K2 a retro with spec.md moves to spec', fx: { files: ['spec'], job: job({ kind: 'retro', stage: 'backlog', agents: { retro: ag(0, 1, 2) } }) }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'running') },
+
+  // ---- Intake
+  { name: 'I1 looks for issue candidates', fx: { config: (c) => (c.tracker.kind = 'local'), job: job({ stage: 'backlog', state: 'queued' }) }, want: run('job', 'link', 'j', '--suggest') },
+  { name: 'I2 waits for a human to link one', fx: { config: (c) => (c.tracker.kind = 'local'), files: ['issueCandidates'], job: job({ stage: 'backlog' }) }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'issue-link', '--reason', 'link an issue') },
+  { name: 'G4 issue-link tell names the candidates as untrusted', fx: { job: job({ stage: 'backlog', state: 'waiting', waitingOn: 'issue-link' }) }, want: { action: 'wait', tell: `j needs an issue: candidates in ${path.join(JOB_DIR, 'issue-candidates.md')} (untrusted). /forge approve j <ref> | new | none [reason]` } },
+  { name: 'I3 creates the worktree', fx: { worktree: false, job: job({ stage: 'backlog' }) }, want: run('worktree', 'create', 'j') },
+  { name: 'I4 a failed setup command fails the job', fx: { job: job({ stage: 'backlog' }), events: [ev('worktree', 1), ev('worktree-setup-failed', 2)] }, want: run('job', 'set', 'j', '--state', 'failed', '--reason', 'worktree setup failed') },
+  { name: 'I5 looks for an existing PR', fx: { job: job({ stage: 'backlog' }) }, want: run('pr', 'find', 'j') },
+  { name: 'I6 an existing PR is a continuation', fx: { job: job({ stage: 'backlog', pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }), events: [ev('pr-adopted', 1)] }, want: { action: 'procedure', why: 'PR exists' } },
+  { name: 'I7 a long request gets a planner', fx: { job: job({ stage: 'backlog' }), events: [ev('pr-find', 1, { found: false })], request: { length: 601 } }, want: run('job', 'set', 'j', '--stage', 'plan', '--state', 'running') },
+  { name: 'I7 three list lines get a planner', fx: { job: job({ stage: 'backlog' }), events: [ev('pr-find', 1)], request: { listLines: 3 } }, want: run('job', 'set', 'j', '--stage', 'plan', '--state', 'running') },
+  { name: 'I7 pipeline.plan always plans', fx: { config: (c) => (c.pipeline.plan = 'always'), job: job({ stage: 'backlog' }), events: [ev('pr-find', 1)] }, want: run('job', 'set', 'j', '--stage', 'plan', '--state', 'running') },
+  { name: 'I8 a short request goes straight to spec', fx: { job: job({ stage: 'backlog' }), events: [ev('pr-find', 1)], request: { length: 600, listLines: 2 } }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'running') },
+  { name: 'I8 pipeline.plan never skips planning', fx: { config: (c) => (c.pipeline.plan = 'never'), job: job({ stage: 'backlog' }), events: [ev('pr-find', 1)], request: { length: 5000 } }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'running') },
+  { name: 'I8 pr.enabled false skips the PR lookup', fx: { config: (c) => (c.pr.enabled = false), job: job({ stage: 'backlog' }) }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'running') },
+
+  // ---- Plan
+  { name: 'P1 spawns the planner', fx: { job: job({ stage: 'plan' }) }, want: { action: 'spawn', role: 'planner', output: path.join(JOB_DIR, 'plan.md') }, check: (a) => assert.ok(a.brief.includes('Split mode: ask')) },
+  { name: 'P1 re-plans after revise-split with split mode never', fx: { job: job({ stage: 'plan', splitMode: 'never', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SPLIT', jobs: 2 }, events: [ev('human', 3, { action: 'revise-split' })] }, want: { action: 'spawn', role: 'planner' }, check: (a) => assert.ok(a.brief.includes('Split mode: never')) },
+  { name: 'P2 a split under auto follows split.md', fx: { config: (c) => (c.pipeline.split = 'auto'), job: job({ stage: 'plan', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SPLIT', jobs: 3 } }, want: { action: 'procedure', why: 'PLAN: SPLIT under pipeline.split auto' }, check: (a) => assert.ok(a.reference.endsWith(path.join('reference', 'split.md'))) },
+  { name: 'P3 a split under ask waits for approval', fx: { job: job({ stage: 'plan', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SPLIT', jobs: 3 } }, want: run('job', 'set', 'j', '--stage', 'plan', '--state', 'waiting', '--waiting-on', 'split-approval', '--reason', 'planner proposes 3 jobs') },
+  { name: 'P3 a split returned under never still waits', fx: { config: (c) => (c.pipeline.split = 'never'), job: job({ stage: 'plan', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SPLIT', jobs: 2 } }, want: { action: 'run', rule: 'P3' } },
+  { name: 'G4 split-approval tell', fx: { files: ['plan'], plan: { verdict: 'SPLIT', jobs: 3 }, job: job({ stage: 'plan', state: 'waiting', waitingOn: 'split-approval' }) }, want: { action: 'wait', tell: `j planner proposes 3 jobs: ${path.join(JOB_DIR, 'plan.md')}. /forge approve j to create them, or /forge revise j [note] to keep one job` } },
+  { name: 'P4 a single plan moves to spec', fx: { job: job({ stage: 'plan', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SINGLE' } }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'running'), check: (a) => assert.equal(a.tell, undefined) },
+  { name: 'P4 a split recommendation is told', fx: { job: job({ stage: 'plan', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SINGLE', recommendSplit: true } }, want: { action: 'run', tell: `j plan recommends splitting: ${path.join(JOB_DIR, 'plan.md')}` } },
+  { name: 'P5 a plan without a PLAN line escalates', fx: { job: job({ stage: 'plan', agents: { planner: ag(0, 1, 2) } }) }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'plan.md has no PLAN line') },
+  { name: 'M1 planner wrote no plan.md', fx: { job: job({ stage: 'plan', agents: { planner: ag(0, 1, 2, { outputMissing: true }) } }) }, want: { action: 'spawn', role: 'planner', retry: true } },
+
+  // ---- Split mode
+  { name: 'split mode auto: a new job splits', fx: { config: (c) => (c.pipeline.split = 'auto'), job: job({ stage: 'plan', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SPLIT', jobs: 2 } }, want: { action: 'procedure', rule: 'P2' } },
+  { name: 'split mode auto: a from-ref job never splits', fx: { config: (c) => (c.pipeline.split = 'auto'), job: job({ stage: 'plan', splitMode: 'never', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SPLIT', jobs: 2 } }, want: { action: 'run', rule: 'P3' } },
+  { name: 'split mode auto: a from-ref planner is briefed never', fx: { config: (c) => (c.pipeline.split = 'auto'), job: job({ stage: 'plan', splitMode: 'never' }) }, want: { action: 'spawn', rule: 'P1' }, check: (a) => assert.ok(a.brief.includes('Split mode: never')) },
+  { name: 'split mode ask: the planner is briefed ask', fx: { job: job({ stage: 'plan' }) }, want: { action: 'spawn' }, check: (a) => assert.ok(a.brief.includes('Split mode: ask')) },
+  { name: 'split mode never: the planner is briefed never', fx: { config: (c) => (c.pipeline.split = 'never'), job: job({ stage: 'plan' }) }, want: { action: 'spawn' }, check: (a) => assert.ok(a.brief.includes('Split mode: never')) },
+  { name: 'split mode: a revise-split job moves on once re-planned', fx: { config: (c) => (c.pipeline.split = 'auto'), job: job({ stage: 'plan', splitMode: 'never', agents: { planner: ag(0, 4, 5) } }), plan: { verdict: 'SINGLE' }, events: [ev('human', 3, { action: 'revise-split' })] }, want: { action: 'run', rule: 'P4' } },
+
+  // ---- Spec
+  { name: 'SP1 spawns the spec-writer', fx: { files: ['request'], job: job({ stage: 'spec' }) }, want: { action: 'spawn', role: 'spec-writer', agent: 'forge:spec-writer', model: 'opus', output: path.join(JOB_DIR, 'spec.md') }, check: (a) => assert.ok(a.brief.includes('Review panel: code, tests, security')) },
+  { name: 'SP2 a revise-spec re-runs the spec-writer with feedback', fx: { files: ['feedback'], job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, ev('human', 4, { action: 'revise-spec' })] }, want: { action: 'spawn', role: 'spec-writer' }, check: (a) => assert.ok(a.brief.includes(path.join(JOB_DIR, 'feedback.md'))) },
+  { name: 'SP3 panel always lenses', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }) }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]') },
+  { name: 'SP3 panel adds suggested lenses that exist', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { suggested: ['security', 'docs'] } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests","security"]') },
+  { name: 'SP3 panel drops unknown and malformed names', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { suggested: ['evil;rm', 'UI ', 'Security', 'a\';touch x;\''] } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]') },
+  {
+    name: 'SP3 panel adds lenses whose when paths the Approach names, in panel order',
+    fx: {
+      config: (c) =>
+        (c.review.panel = [
+          { name: 'ui', when: 'dashboard/src/**, dashboard/style.css (check themes)' },
+          { name: 'code', always: true },
+          { name: 'security', when: 'lib/server.ts, lib/trackers/*, anything that runs shell commands' },
+          { name: 'perf', when: 'hot paths and big loops' },
+          { name: 'docs', when: 'README.md' },
+        ]),
+      job: job({ stage: 'spec', agents: SPEC_DONE }),
+      spec: { approachPaths: ['dashboard/src/App.svelte', 'lib/trackers/github.ts'] },
+    },
+    want: run('job', 'set', 'j', '--field', 'reviewers=["ui","code","security"]'),
+  },
+  {
+    name: 'SP3 panel records size and known services only',
+    fx: { config: (c) => (c.services = [{ name: 'api', path: 'api' }]), job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { size: 'L', services: ['api', 'evil;x', 'web'] } },
+    want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]', '--field', 'size=L', '--field', 'services=["api"]'),
+  },
+  { name: 'SP3 panel ignores a size that is not S, M or L', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { size: 'XL;rm' } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]') },
+  { name: 'SP3 panel for a retro job is code and docs', fx: { files: ['spec'], job: job({ kind: 'retro', stage: 'spec', agents: { retro: ag(0, 1, 2) } }), spec: { suggested: ['security'] } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","docs"]') },
+  { name: 'SP3 panel is re-recorded after a new spec', fx: { job: job({ stage: 'spec', agents: { 'spec-writer': ag(0, 4, 5) } }), events: [PANEL_SET] }, want: { action: 'run', rule: 'SP3' } },
+  { name: 'SP4 a spec that needs design', fx: { config: (c) => (c.pipeline.design = 'reference'), job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET], spec: { needsDesign: true } }, want: run('job', 'set', 'j', '--stage', 'design', '--state', 'running') },
+  { name: 'SP5 the spec gate under always', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET] }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready') },
+  { name: 'SP5 large gates an L spec', fx: { config: (c) => (c.pipeline.specApproval = 'large'), job: job({ stage: 'spec', size: 'L', agents: SPEC_DONE }), events: [PANEL_SET] }, want: { action: 'run', rule: 'SP5' } },
+  { name: 'SP5 a retro spec always waits', fx: { config: (c) => (c.pipeline.specApproval = 'never'), files: ['spec'], job: job({ kind: 'retro', stage: 'spec', agents: { retro: ag(0, 1, 2) } }), events: [PANEL_SET] }, want: { action: 'run', rule: 'SP5' } },
+  { name: 'SP6 builds after a human approved the spec', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, ev('human', 4, { action: 'approve-spec' })] }, want: run('job', 'set', 'j', '--stage', 'build', '--state', 'running') },
+  { name: 'SP6 large lets an M spec through', fx: { config: (c) => (c.pipeline.specApproval = 'large'), job: job({ stage: 'spec', size: 'M', agents: SPEC_DONE }), events: [PANEL_SET] }, want: { action: 'run', rule: 'SP6' } },
+  { name: 'eval mode: no spec gate', fx: { job: job({ kind: 'eval', stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET] }, want: { action: 'run', rule: 'SP6' } },
+
+  // ---- Design
+  { name: 'D1 spawns the designer in reference mode', fx: { config: (c) => (c.pipeline.design = 'reference'), job: job({ stage: 'design', agents: SPEC_DONE }) }, want: { action: 'spawn', role: 'designer', output: path.join(JOB_DIR, 'design.md') }, check: (a) => assert.ok(a.brief.includes('Mode: reference')) },
+  { name: 'D1 mockup mode', fx: { config: (c) => (c.pipeline.design = 'mockup'), job: job({ stage: 'design', agents: SPEC_DONE }) }, want: { action: 'spawn', role: 'designer' }, check: (a) => assert.ok(a.brief.includes('Mode: mockup')) },
+  { name: 'eval mode: the designer uses references', fx: { config: (c) => (c.pipeline.design = 'mockup'), job: job({ kind: 'eval', stage: 'design', agents: SPEC_DONE }) }, want: { action: 'spawn', rule: 'D1' }, check: (a) => assert.ok(a.brief.includes('Mode: reference')) },
+  { name: 'M1 designer wrote no design.md', fx: { job: job({ stage: 'design', agents: { ...SPEC_DONE, designer: ag(0, 4, 5, { outputMissing: true }) } }) }, want: { action: 'spawn', role: 'designer', retry: true } },
+  { name: 'D2 folds the spec deltas in', fx: { job: job({ stage: 'design', agents: { ...SPEC_DONE, designer: ag(0, 4, 5) } }), designDeltas: true }, want: { action: 'spawn', role: 'spec-writer' }, check: (a) => assert.ok(a.brief.includes('Fold in the Spec deltas from design.md.')) },
+  { name: 'D3 back to spec once folded in', fx: { job: job({ stage: 'design', agents: { 'spec-writer': ag(0, 6, 7), designer: ag(0, 4, 5) } }), designDeltas: true }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'running') },
+  { name: 'D3 back to spec without deltas', fx: { job: job({ stage: 'design', agents: { ...SPEC_DONE, designer: ag(0, 4, 5) } }) }, want: { action: 'run', rule: 'D3' } },
+  { name: 'N1 the fold-in spec-writer asked', fx: { job: job({ stage: 'design', agents: { 'spec-writer': ag(0, 6, 7, { summary: 'NEEDS-INPUT' }), designer: ag(0, 4, 5) } }), designDeltas: true }, want: { action: 'run', rule: 'N1' } },
+
+  // ---- Build
+  { name: 'B1 starts round 1', fx: { job: job({ stage: 'build', round: 0 }) }, want: run('job', 'round', 'j') },
+  { name: 'B1 starts the next round after CHANGES', fx: { job: job({ stage: 'build', round: 1, verdicts: { 1: { code: 'CHANGES' } }, agents: { builder: ag(1, 5, 6) } }) }, want: run('job', 'round', 'j') },
+  { name: 'B1 a human rework starts a round', fx: { job: job({ stage: 'build', round: 2, agents: { builder: ag(2, 5, 6) } }), events: [ev('round', 4), ev('human', 7, { action: 'rework' })] }, want: run('job', 'round', 'j') },
+  { name: 'B2 rounds exhausted', fx: { job: job({ stage: 'build', round: 4, maxRounds: 3, agents: { builder: ag(3, 5, 6) } }), events: [ev('round', 7)] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 4 exceeds maxRounds 3') },
+  { name: 'rounds exhausted: a human rework continues', fx: { job: job({ stage: 'build', round: 4, maxRounds: 3, agents: { builder: ag(3, 5, 6) } }), events: [ev('human', 7, { action: 'rework' }), ev('round', 8)] }, want: { action: 'spawn', rule: 'B4', role: 'builder' } },
+  { name: 'G4 rounds-exhausted tell', fx: { job: job({ stage: 'build', round: 4, maxRounds: 3, state: 'waiting', waitingOn: 'rounds-exhausted' }) }, want: { action: 'wait', tell: 'j used all 3 rounds. /forge approve j to ship, or /forge rework j <note>' } },
+  {
+    name: 'B3 integrity fails twice around a builder run',
+    fx: { job: job({ stage: 'build', round: 1, verifyRuns: [vr(1, 10, false, 'integrity'), vr(1, 14, false, 'integrity')], agents: { builder: ag(1, 11, 12) } }), events: [ev('round', 4)] },
+    want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'integrity: verify failed twice on test integrity'),
+  },
+  {
+    name: 'B4 spawns the round-1 builder',
+    fx: { files: ['spec', 'tasks'], job: job({ stage: 'build', round: 1 }), events: [ev('round', 4)] },
+    want: { action: 'spawn', role: 'builder', agent: 'forge:builder', round: 1 },
+    check: (a) => {
+      assert.equal(a.output, undefined);
+      assert.ok(!a.brief.includes('Rework:'));
+      assert.ok(a.brief.includes('Infra: mode human · allowed []'));
+      assert.ok(a.brief.includes(`Inputs: ${path.join(JOB_DIR, 'spec.md')}, ${path.join(JOB_DIR, 'tasks.md')}`));
+    },
+  },
+  {
+    name: 'B4 resumes the builder for a review rework',
+    fx: { files: ['spec', 'feedback'], present: [path.join(JOB_DIR, 'review', 'round-1')], job: job({ stage: 'build', round: 2, verdicts: { 1: { code: 'CHANGES' } }, agents: { builder: ag(1, 5, 6, { agentId: 'b1' }) } }), events: [ev('round', 7)] },
+    want: { action: 'spawn', role: 'builder', resume: 'b1' },
+    check: (a) => {
+      assert.ok(a.brief.includes('Rework: review, feedback'));
+      assert.ok(a.brief.includes(path.join(JOB_DIR, 'review', 'round-1')));
+    },
+  },
+  {
+    name: 'B4 a failing verify sends the builder back',
+    fx: { present: [path.join(JOB_DIR, 'verify', 'round-1.md')], job: job({ stage: 'build', round: 1, verifyRuns: [vr(1, 10, false)], agents: { builder: ag(1, 5, 6) } }), events: [ev('round', 4)] },
+    want: { action: 'spawn', role: 'builder', resume: 'a5' },
+    check: (a) => assert.ok(a.brief.includes('Rework: verify') && a.brief.includes(path.join(JOB_DIR, 'verify', 'round-1.md'))),
+  },
+  {
+    name: 'B4 a PR rework brings pr-feedback',
+    fx: { files: ['prFeedback'], job: job({ stage: 'build', round: 2, verdicts: { 1: { code: 'PASS' } }, pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) }, agents: { builder: ag(1, 5, 6) } }), events: [ev('round', 7)] },
+    want: { action: 'spawn', role: 'builder' },
+    check: (a) => assert.ok(a.brief.includes('Rework: pr-feedback') && a.brief.includes(path.join(JOB_DIR, 'pr-feedback.md'))),
+  },
+  { name: 'B5 the builder committed: verify', fx: { job: job({ stage: 'build', round: 1, agents: { builder: ag(1, 5, 6) } }), events: [ev('round', 4)] }, want: run('job', 'set', 'j', '--stage', 'verify', '--state', 'running') },
+
+  // ---- Verify
+  { name: 'V1 verifies the round', fx: { job: job({ stage: 'verify', round: 1, agents: { builder: ag(1, 5, 6) } }) }, want: { ...run('verify', 'j'), shell: "forge verify j" } },
+  { name: 'V1 re-verifies after the builder fixed it', fx: { job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 4, false)], agents: { builder: ag(1, 5, 6) } }) }, want: run('verify', 'j') },
+  { name: 'V2 a pass goes to review', fx: { job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 7, true)], agents: { builder: ag(1, 5, 6) } }) }, want: run('job', 'set', 'j', '--stage', 'review', '--state', 'running') },
+  { name: 'V3 a failure goes back to build', fx: { job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 7, false)], agents: { builder: ag(1, 5, 6) } }) }, want: run('job', 'set', 'j', '--stage', 'build', '--state', 'running') },
+
+  // ---- Review
+  { name: 'RV1 no lens this round goes to pr', fx: { config: (c) => (c.review.onPrFeedback = 'none'), job: inReview({}, { pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }) }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running') },
+  { name: 'RV2 writes the scope report first', fx: { job: inReview(), events: [ev('scope', 3, { round: 1 })] }, want: run('job', 'scope', 'j') },
+  { name: 'RV3 starts the dev server for UI lenses', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({}, { reviewers: ['code', 'ui'] }), events: scoped }, want: run('run', 'j', 'dev', '--background') },
+  {
+    name: 'RV4 spawns the first lens in parallel',
+    fx: { job: inReview(), events: scoped },
+    want: { action: 'spawn', role: 'reviewer:code', agent: 'forge:reviewer', lens: 'code', model: 'sonnet', parallel: true, output: path.join(JOB_DIR, 'review', 'round-1', 'code.md') },
+    check: (a) => {
+      assert.deepEqual(a.start, ['job', 'agent', 'j', 'start', '--role', 'reviewer:code', '--model', 'sonnet', '--output', path.join(JOB_DIR, 'review', 'round-1', 'code.md')]);
+      assert.ok(a.brief.includes('Lens: code') && a.brief.includes(`Scope: ${path.join(JOB_DIR, 'scope.md')}`) && a.brief.includes('Checklist: '));
+    },
+  },
+  { name: 'RV4 spawns the next lens while one runs', fx: { job: inReview({ 'reviewer:code': ag(1, 12) }), events: scoped }, want: { action: 'spawn', role: 'reviewer:tests' } },
+  { name: 'RV4 a panel model wins', fx: { job: inReview({}, { reviewers: ['security'] }), events: scoped }, want: { action: 'spawn', role: 'reviewer:security', model: 'opus' } },
+  { name: 'RV4 a UI lens gets the dev server', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:code': ag(1, 12, 13) }, { reviewers: ['code', 'ui'] }), events: scoped, runtime: ['dev'] }, want: { action: 'spawn', role: 'reviewer:ui' }, check: (a) => assert.ok(a.brief.includes('Dev server: http://localhost:4100')) },
+  { name: 'G5 waits once every lens has started', fx: { job: inReview({ 'reviewer:code': ag(1, 12), 'reviewer:tests': ag(1, 12, 13) }), events: scoped }, want: { action: 'wait', waitingOn: 'agents', running: ['reviewer:code'] } },
+  {
+    name: 'RV5 a malformed review gets one retry',
+    fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped, verdicts: { round: verdicts({ code: 'MALFORMED', tests: 'PASS' }) } },
+    want: { action: 'spawn', role: 'reviewer:code', retry: true },
+    check: (a) => assert.ok(a.brief.includes(`Retry: ${path.join(JOB_DIR, 'review', 'round-1', 'code.md')} has no VERDICT line; rewrite it in the required format.`)),
+  },
+  { name: 'RV5 malformed twice counts as CHANGES', fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false, retry: true }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped, verdicts: { round: verdicts({ code: 'MALFORMED', tests: 'PASS' }) } }, want: run('job', 'verdicts', 'j', '--compact', '--malformed', 'changes') },
+  { name: 'RV6 records the verdicts', fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped, verdicts: { round: verdicts({ code: 'PASS', tests: 'CHANGES' }) } }, want: run('job', 'verdicts', 'j', '--compact') },
+  { name: 'RV7 stops the dev server once verdicts are in', fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } } }), events: scoped, runtime: ['dev'] }, want: run('stop', 'j') },
+  { name: 'RV7 stops a UI review\'s dev server', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:ui': ag(1, 12, 13) }, { reviewers: ['ui'], verdicts: { 1: { ui: 'PASS' } } }), events: scoped, runtime: ['dev'] }, want: run('stop', 'j') },
+  { name: 'RV8 a UI lens with the dev server stopped moves on, never restarting it', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:code': ag(1, 12, 13), 'reviewer:ui': ag(1, 12, 13) }, { reviewers: ['code', 'ui'], verdicts: { 1: { code: 'PASS', ui: 'PASS' } } }), events: scoped, runtime: [] }, want: run('job', 'set', 'j', '--stage', 'decide', '--state', 'running') },
+  { name: 'RV3 a UI retry before the verdicts gets the app again', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false }), 'reviewer:ui': ag(1, 12, 13, { outputMissing: true }) }, { reviewers: ['code', 'ui'] }), events: scoped, runtime: [] }, want: run('run', 'j', 'dev', '--background') },
+  { name: 'RV8 every lens passed: decide', fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } } }), events: scoped }, want: run('job', 'set', 'j', '--stage', 'decide', '--state', 'running') },
+  { name: 'RV8 a lens asked for changes: build', fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'CHANGES' } } }), events: scoped }, want: run('job', 'set', 'j', '--stage', 'build', '--state', 'running') },
+  { name: 'RV8 a PR rework that passed goes to pr', fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } }, pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }), events: scoped }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running') },
+
+  // ---- PR rework under onPrFeedback
+  { name: 'PR rework full: the whole panel reviews', fx: { config: (c) => (c.review.onPrFeedback = 'full'), job: inReview({ 'reviewer:code': ag(1, 12), 'reviewer:tests': ag(1, 12) }, { reviewers: ['code', 'tests', 'security'], pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }), events: scoped }, want: { action: 'spawn', role: 'reviewer:security' } },
+  {
+    name: 'PR rework changed: only the always lenses, recorded with --reviewers',
+    fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }, { reviewers: ['code', 'tests', 'security'], pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }), events: scoped, verdicts: { round: verdicts({ code: 'PASS', tests: 'PASS' }) } },
+    want: run('job', 'verdicts', 'j', '--compact', '--reviewers', 'code,tests'),
+  },
+  { name: 'PR rework none: verify goes straight to pr', fx: { config: (c) => (c.review.onPrFeedback = 'none'), job: job({ stage: 'verify', round: 2, verifyRuns: [vr(2, 7, true)], agents: { builder: ag(2, 5, 6) }, pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }) }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running') },
+
+  // ---- Decide
+  {
+    name: 'DC1 spawns the approver with policy and acs',
+    fx: { job: job({ stage: 'decide', round: 1 }) },
+    want: { action: 'spawn', role: 'approver', output: path.join(JOB_DIR, 'decision.md') },
+    check: (a) => {
+      assert.ok(a.brief.includes('Acceptance criteria (forge job acs): {"total":0'));
+      assert.ok(a.brief.includes('Always escalate: ["changes to CI/CD'));
+      assert.ok(a.brief.includes('Merge: auto false · autoWhen []'));
+      assert.ok(a.brief.includes('Infra: mode human'));
+      assert.ok(a.brief.includes(path.join(JOB_DIR, 'pr.md')));
+    },
+  },
+  { name: 'DC2 records the decision', fx: { job: atDecide(), decision: { decision: 'APPROVE' } }, want: run('job', 'decision', 'j') },
+  { name: 'DC3 a decision.md without a decision line escalates', fx: { job: atDecide() }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'decision.md has no APPROVE/ESCALATE line') },
+  { name: 'DC4 eval mode: the judge scores a rubric task', fx: { job: atDecide({ kind: 'eval', eval: { run: 'r', task: 'hello' } }), decision: { decision: 'ESCALATE' }, events: [ev('decision', 22)], evalTask: { rubric: 'rubric.md', reference: null } }, want: { action: 'spawn', role: 'judge', output: path.join(JOB_DIR, 'eval-judge.md') }, check: (a) => assert.ok(a.brief.includes(`Eval task: ${path.join('/repo', '.forge', 'evals', 'hello')}`)) },
+  { name: 'DC5 eval mode: grade once judged', fx: { job: atDecide({ kind: 'eval', eval: { run: 'r', task: 'hello' }, agents: { approver: ag(1, 20, 21), judge: ag(1, 23, 24) } }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], evalTask: { rubric: 'rubric.md', reference: null } }, want: run('eval', 'grade', 'j') },
+  { name: 'DC5 eval mode: no rubric, no judge', fx: { job: atDecide({ kind: 'eval', eval: { run: 'r', task: 'hello' } }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], evalTask: { rubric: null, reference: null } }, want: run('eval', 'grade', 'j') },
+  { name: 'DC6 eval mode: graded is done', fx: { job: atDecide({ kind: 'eval', eval: { run: 'r', task: 'hello' } }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22), ev('eval-graded', 23)] }, want: run('job', 'set', 'j', '--stage', 'done', '--state', 'done') },
+  { name: 'DC7 an escalation waits on a human', fx: { job: atDecide(), decision: { decision: 'ESCALATE' }, events: [ev('decision', 22)] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'approver escalated: see decision.md') },
+  { name: 'DC8 runbook steps before merge', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], runbookBeforeMerge: true }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'infra', '--reason', 'runbook: steps before merge') },
+  { name: 'DC9 approved: integrate', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)] }, want: run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running') },
+
+  // ---- Integrate
+  { name: 'IG1 integrates the base', fx: { job: atIntegrate(), events: [entered] }, want: run('integrate', 'j') },
+  { name: 'IG1 without an entry transition anchors on the decision, ignoring an older integration', fx: { job: atIntegrate(), events: [ev('integrated', 5, { behind: 0 }), ev('decision', 22)] }, want: run('integrate', 'j') },
+  { name: 'IG2 re-verifies new commits', fx: { job: atIntegrate(), events: [entered, ev('integrated', 31, { behind: 2, strategy: 'rebase' })] }, want: run('verify', 'j') },
+  { name: 'IG2 a failing verify after integrating goes to build', fx: { job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 32, false)] }), events: [entered, ev('integrated', 31, { behind: 2 })] }, want: run('job', 'set', 'j', '--stage', 'build', '--state', 'running') },
+  { name: 'IG3 up to date: pr', fx: { job: atIntegrate(), events: [entered, ev('integrated', 31, { behind: 0 })] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running') },
+  { name: 'IG3 verified after new commits: pr', fx: { job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 32, true)] }), events: [entered, ev('integrated', 31, { behind: 2 })] }, want: { action: 'run', rule: 'IG3' } },
+  { name: 'IG4 conflicts under ask wait on a human', fx: { job: atIntegrate(), events: [entered, conflicts] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'conflicts', '--reason', 'conflicts with base: 2 files') },
+  { name: 'G4 conflicts tell', fx: { job: atIntegrate({ state: 'waiting', waitingOn: 'conflicts' }) }, want: { action: 'wait', tell: 'j conflicts with main. /forge approve j to have the integrator fix them' } },
+  { name: 'IG5 conflicts under defer go to pr', fx: { config: (c) => (c.pr.conflicts = 'defer'), job: atIntegrate(), events: [entered, conflicts] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running', '--note', 'conflicts with base deferred') },
+  {
+    name: 'IG6 conflicts under fix spawn the integrator',
+    fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate(), events: [entered, conflicts] },
+    want: { action: 'spawn', role: 'integrator', model: 'sonnet' },
+    check: (a) => {
+      assert.ok(a.brief.includes('Strategy: rebase'));
+      assert.ok(a.brief.includes('Conflicts: ["a.ts","`x`"]'));
+      assert.equal(a.output, undefined);
+    },
+  },
+  { name: 'IG6 ask with a human approve spawns the integrator', fx: { job: atIntegrate(), events: [entered, conflicts, ev('human', 32, { action: 'approve' })] }, want: { action: 'spawn', role: 'integrator' } },
+  { name: 'IG6 an open PR integrates with pr.updateStrategy', fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }), events: [entered, conflicts] }, want: { action: 'spawn', role: 'integrator' }, check: (a) => assert.ok(a.brief.includes('Strategy: merge')) },
+  { name: 'IG7 verifies the resolution', fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ agents: { integrator: ag(1, 33, 36) } }), events: [entered, conflicts, ev('agent-start', 33, { role: 'integrator' })] }, want: run('verify', 'j') },
+  { name: 'IG7 a failing verify after the resolution escalates', fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 37, false)], agents: { integrator: ag(1, 33, 36) } }), events: [entered, conflicts, ev('agent-start', 33, { role: 'integrator' })] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'integration: verify failed after conflict resolution') },
+  {
+    name: 'IG8 spawns the integration reviewer',
+    fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 37, true)], agents: { integrator: ag(1, 33, 36), 'reviewer:code': ag(1, 12, 13) } }), events: [entered, conflicts, ev('agent-start', 33, { role: 'integrator' })] },
+    want: { action: 'spawn', role: 'reviewer:code', output: path.join(JOB_DIR, 'review', 'integration', 'code.md') },
+    check: (a) => {
+      assert.equal(a.parallel, undefined);
+      assert.ok(a.brief.includes('Integration review: conflicted files ["a.ts","`x`"]'));
+      assert.ok(a.brief.includes("Diff: use the Before/Merge shas in build.md's ## Integration block, as in "));
+    },
+  },
+  { name: 'IG9 records the integration review', fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 37, true)], agents: { integrator: ag(1, 33, 36), 'reviewer:code': ag(1, 38, 39, { outputMissing: false }) } }), events: [entered, conflicts, ev('agent-start', 33, { role: 'integrator' })], verdicts: { integration: verdicts({ code: 'PASS' }) } }, want: run('job', 'verdicts', 'j', '--round', 'integration', '--compact') },
+  { name: 'RV5 a malformed integration review gets one retry', fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 37, true)], agents: { integrator: ag(1, 33, 36), 'reviewer:code': ag(1, 38, 39, { outputMissing: false }) } }), events: [entered, conflicts, ev('agent-start', 33, { role: 'integrator' })], verdicts: { integration: verdicts({ code: 'MALFORMED' }) } }, want: { action: 'spawn', role: 'reviewer:code', retry: true } },
+  { name: 'IG10 a passing integration review goes to pr', fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 37, true)], agents: { integrator: ag(1, 33, 36), 'reviewer:code': ag(1, 38, 39, { outputMissing: false }) } }), events: [entered, conflicts, ev('agent-start', 33, { role: 'integrator' }), ev('integration-review', 40, { outcome: 'PASS' })] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running') },
+  {
+    name: 'IG10 CHANGES once: the integrator fixes it',
+    fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 37, true)], agents: { integrator: ag(1, 33, 36), 'reviewer:code': ag(1, 38, 39, { outputMissing: false }) } }), events: [entered, conflicts, ev('agent-start', 33, { role: 'integrator' }), ev('integration-review', 40, { outcome: 'CHANGES' })] },
+    want: { action: 'spawn', role: 'integrator', resume: 'a33' },
+    check: (a) => assert.ok(a.brief.includes(`Integration review: ${path.join(JOB_DIR, 'review', 'integration', 'code.md')}`)),
+  },
+  { name: 'IG10 CHANGES after two integrator runs escalates', fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 46, true)], agents: { integrator: ag(1, 41, 45), 'reviewer:code': ag(1, 47, 48, { outputMissing: false }) } }), events: [entered, conflicts, ev('agent-start', 33, { role: 'integrator' }), ev('integration-review', 40, { outcome: 'CHANGES' }), ev('agent-start', 41, { role: 'integrator' }), ev('integration-review', 49, { outcome: 'CHANGES' })] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'integration review: CHANGES') },
+
+  // ---- PR
+  { name: 'PR1 pr.enabled false finishes on the branch', fx: { config: (c) => (c.pr.enabled = false), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }) }, want: { ...run('job', 'set', 'j', '--stage', 'done', '--state', 'done'), tell: 'j finished on branch forge/j' } },
+  { name: 'PR2 an unverified HEAD is verified first', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, false)] }) }, want: run('verify', 'j') },
+  { name: 'PR3 opens the PR', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }) }, want: run('pr', 'open', 'j') },
+  { name: 'PR4 merges an eligible PR', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11)] }, want: run('pr', 'merge', 'j') },
+  { name: 'PR5 once a merge was tried, the PR waits', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11), ev('pr-merge-refused', 12)] }, want: { action: 'run', rule: 'PR5' } },
+  { name: 'PR5 waits on PR review', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('pr-updated', 11)] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review') },
+
+  // ---- Fallback
+  { name: 'X1 a state no rule covers is parked', fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped, verdicts: { round: verdicts({ code: 'PENDING', tests: 'PASS' }) } }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'step found no rule for stage review') },
+
+  // ---- Hostile inputs (AC11)
+  { name: 'hostile: a lens name with quotes never reaches a command', fx: { job: inReview({}, { reviewers: ["a';touch x;'", 'code'] }), events: scoped }, want: { action: 'spawn', role: 'reviewer:code' } },
+  { name: 'hostile: a decision reason with $(id) stays out of commands', fx: { job: atDecide({ reason: 'ship it $(id)' }), decision: { decision: 'ESCALATE' }, events: [ev('decision', 22)] }, want: { action: 'run', rule: 'DC7' } },
+  { name: 'hostile: a conflicted file name stays out of commands', fx: { job: atIntegrate(), events: [entered, ev('integrate-conflicts', 31, { conflicts: ['`x`', '$(rm -rf ~)', "'; id"], behind: 1 })] }, want: { action: 'run', rule: 'IG4' } },
+  { name: 'hostile: an agent id is not passed as resume', fx: { job: job({ stage: 'build', round: 2, verdicts: { 1: { code: 'CHANGES' } }, agents: { builder: ag(1, 5, 6, { agentId: 'x; rm -rf' }) } }), events: [ev('round', 7)] }, want: { action: 'spawn', role: 'builder' }, check: (a) => assert.equal(a.resume, undefined) },
+];
+
+const SAFE = /^[A-Za-z0-9 ._:/@=,+\-[\]"]*$/;
+
+function assertSafe(a: StepAction, name: string) {
+  const argv = a.action === 'run' ? a.command : a.action === 'spawn' ? a.start : [];
+  for (const el of argv) {
+    assert.match(el, SAFE, `${name}: ${el}`);
+    assert.ok(!el.includes("'"), `${name}: ${el}`);
+    for (const bad of ["a';touch x;'", '$(id)', '`x`', '$(rm', 'x; rm']) assert.ok(!el.includes(bad), `${name}: ${el} contains ${bad}`);
+  }
+  if (a.action === 'run') assert.equal(a.shell, shellLine(a.command));
+  if (a.action === 'spawn') assert.equal(a.startShell, shellLine(a.start));
+}
+
+for (const row of rows) {
+  test(row.name, () => {
+    const a = step(fixture(row.fx)) as any;
+    const prefix = row.name.split(' ')[0];
+    if ((RULES as readonly string[]).includes(prefix)) assert.equal(a.rule, prefix, `${row.name}: decided by ${a.rule}`);
+    for (const [k, v] of Object.entries(row.want)) assert.deepEqual(a[k], v, `${row.name}: ${k}`);
+    row.check?.(a);
+    assertSafe(a, row.name);
+  });
+}
+
+test('every rule has a row', () => {
+  const missing = RULES.filter((r) => !rows.some((row) => row.name.startsWith(`${r} `)));
+  assert.deepEqual(missing, []);
+});
+
+test('emitted commands are shell-safe', () => {
+  for (const row of rows) assertSafe(step(fixture(row.fx)), row.name);
+  assert.equal(shellLine(['job', 'set', 'j', '--reason', 'spec ready', '--field', 'reviewers=["code"]']), `forge job set j --reason 'spec ready' --field 'reviewers=["code"]'`);
+  assert.equal(shellLine(['verify', 'j']), 'forge verify j');
+  for (const bad of ["it's", 'a;b', '$(id)', '`x`', 'a\nb', 'a|b', 'a&b', '~/x', 'a>b']) assert.throws(() => shellLine(['job', 'note', bad]), /unsafe argument/, bad);
+});
+
+test('a UI review starts the dev server once and stops it once', () => {
+  // Plays runtime.json and the recorded verdicts through each action until step leaves the stage:
+  // RV3 and RV7 must not alternate once the verdicts are in.
+  const runtime: string[] = [];
+  const reviewers = { 'reviewer:code': ag(1, 12, 13, { outputMissing: false }), 'reviewer:ui': ag(1, 12, 13, { outputMissing: false }) };
+  const seen: string[] = [];
+  let recorded = false;
+  for (let i = 0; i < 10; i++) {
+    const a = step(
+      fixture({
+        config: (c) => (c.commands.dev = 'npm run dev'),
+        job: inReview(reviewers, { reviewers: ['code', 'ui'], ...(recorded ? { verdicts: { 1: { code: 'PASS', ui: 'PASS' } } } : {}) }),
+        events: scoped,
+        runtime: [...runtime],
+        verdicts: { round: verdicts({ code: 'PASS', ui: 'PASS' }) },
+      }),
+    );
+    seen.push(a.rule);
+    if (a.rule === 'RV3') runtime.push('dev');
+    else if (a.rule === 'RV6') recorded = true;
+    else if (a.rule === 'RV7') runtime.length = 0;
+    else break;
+  }
+  assert.deepEqual(seen, ['RV3', 'RV6', 'RV7', 'RV8']);
+});
+
+test('loadStepInput parsers read plan, spec header and design deltas', () => {
+  assert.deepEqual(parsePlan('PLAN: SPLIT\nSize: L\n\n## Jobs            (only for SPLIT)\n1. A — x. Depends on: -\n2. B — y. Depends on: #1\n\n## External\n- None\n'), { verdict: 'SPLIT', jobs: 2, recommendSplit: false });
+  assert.deepEqual(parsePlan('PLAN: SINGLE\n## External\n- Recommend splitting: (a) x (b) y\n'), { verdict: 'SINGLE', jobs: 0, recommendSplit: true });
+  assert.deepEqual(parsePlan('# no plan line\n'), { verdict: null, jobs: 0, recommendSplit: false });
+  const header = parseSpecHeader('# T\n\nSize: L\nServices: -\nNeeds design: yes\nSuggested reviewers: code, tests, UI , evil;rm\n\n## Goal\nSize: S\n');
+  assert.deepEqual(header, { size: 'L', needsDesign: true, services: [], suggested: ['code', 'tests', 'UI', 'evil;rm'] });
+  assert.deepEqual(parseSpecHeader('Services: api, web\n').services, ['api', 'web']);
+  assert.equal(hasSpecDeltas('## Spec deltas\n"None"\n## Open questions\nx\n'), false);
+  assert.equal(hasSpecDeltas('## Spec deltas\n- None.\n'), false);
+  assert.equal(hasSpecDeltas('## Spec deltas\n- AC3 needs an empty state\n'), true);
+  assert.equal(hasSpecDeltas('# Design\n'), false);
+});
+
+test('roundLenses and selectPanel are pure helpers', () => {
+  const f = fixture({ job: { reviewers: ['code', 'tests', 'security'] } });
+  assert.deepEqual(roundLenses(f.job, f.config), ['code', 'tests', 'security']);
+  assert.deepEqual(roundLenses({ reviewers: [], pr: null }, f.config), ['code', 'tests']);
+  assert.deepEqual(selectPanel({ ...f, spec: { ...f.spec, suggested: ['security'] } }), ['code', 'tests', 'security']);
+});

@@ -18,10 +18,10 @@ Aim for 5-15 tasks with tags (`replay`, `ui`, `bugfix`, `refactor`, …) so subs
 ```bash
 forge eval start [--tags a,b] [--tasks x,y] [--label "<what changed>"]
 ```
-It returns a run record whose tasks map to eval jobs with worktrees ready. Drive each job through the normal pipeline in **eval mode**:
-- no tracker, no PR, no integrate. Skip spec approval (no human gates); a `NEEDS-INPUT` from any agent fails the task (`forge job note` it)
+It returns a run record whose tasks map to eval jobs with worktrees ready. Drive each job with the step loop (SKILL.md **Run a job**); step applies **eval mode** from the job's `kind: eval`:
+- no tracker, no PR, no integrate, and no spec approval (no human gates); a `NEEDS-INPUT` from any agent fails the task
 - design: references only, no mockups
-- after **Decide** (APPROVE or ESCALATE alike): if the task has `rubric.md` or `reference.patch`, spawn **judge** (role `judge`, output `eval-judge.md` in the job dir), then `forge eval grade <job>`
+- after **Decide** (APPROVE or ESCALATE alike): if the task has `rubric.md` or `reference.patch`, it spawns the **judge** (output `eval-judge.md` in the job dir), then runs `forge eval grade <job>`
 Run up to `runtime.maxParallelJobs` tasks at once.
 
 ## Read results

@@ -76,7 +76,7 @@ export function readEvents(root: string, id: string): JobEvent[] {
 export function createJob(
   root: string,
   config: Config,
-  opts: { title: string; ref?: string; url?: string; tracker?: string; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; services?: string[]; origin?: string },
+  opts: { title: string; ref?: string; url?: string; tracker?: string; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; services?: string[]; origin?: string; splitMode?: 'never' | null },
 ): LoadedJob {
   if (!opts.title) throw new ForgeError('a job needs a title');
   const p = paths(root);
@@ -104,6 +104,7 @@ export function createJob(
     branch: opts.branch ?? `${config.git.branchPrefix}${id}`,
     base: config.git.base,
     maxRounds: config.pipeline.maxRounds,
+    splitMode: opts.splitMode ?? null,
     createdAt: now(),
     updatedAt: now(),
   });
@@ -225,7 +226,22 @@ export function releaseJob(root: string, id: string, onlyIf?: (owner: JobOwner |
 export function recordAgent(
   root: string,
   id: string,
-  rec: { role: string; phase: 'start' | 'end'; model?: string; agentId?: string; status?: string; summary?: string; usage?: AgentUsage; importedThrough?: string | null },
+  rec: {
+    role: string;
+    phase: 'start' | 'end';
+    model?: string;
+    agentId?: string;
+    status?: string;
+    summary?: string;
+    usage?: AgentUsage;
+    importedThrough?: string | null;
+    /** start: the job-dir-relative output (resolveAgentOutput). */
+    output?: string | null;
+    /** start: this run is the one retry. */
+    retry?: boolean;
+    /** end: the output check's result, when an output is known. */
+    outputMissing?: boolean;
+  },
   config: Config,
 ): LoadedJob {
   const job = updateJob(root, id, (j) => {
@@ -238,6 +254,9 @@ export function recordAgent(
       a.endedAt = null;
       a.round = j.round;
       a.runs += 1;
+      a.output = rec.output ?? null;
+      a.retry = Boolean(rec.retry);
+      delete a.outputMissing;
     } else {
       a.status = rec.status ?? 'done';
       a.endedAt = now();
@@ -246,6 +265,7 @@ export function recordAgent(
       if (rec.summary) a.summary = rec.summary.slice(0, 280);
       if (rec.usage) addUsage(j, rec.role, a.model, rec.usage, config);
       if (rec.agentId && rec.importedThrough) (a.importedThrough ??= {})[rec.agentId] = rec.importedThrough;
+      if (rec.outputMissing !== undefined) a.outputMissing = rec.outputMissing;
     }
   });
   logEvent(root, id, `agent-${rec.phase}`, {
@@ -255,8 +275,74 @@ export function recordAgent(
     status: rec.status,
     summary: rec.summary,
     usage: rec.usage,
+    ...(rec.phase === 'start' ? { output: rec.output ?? undefined, retry: rec.retry || undefined } : {}),
+    ...(rec.outputMissing !== undefined ? { outputMissing: rec.outputMissing } : {}),
   });
   return job;
+}
+
+/**
+ * Resolves `agent start --output` against the job dir and refuses anything that lands outside
+ * it, including through a symlinked parent, so the flag can neither create directories nor probe
+ * files elsewhere. Returns the job-dir-relative path.
+ */
+export function resolveAgentOutput(root: string, id: string, value: string): string {
+  const dir = jobDir(root, id);
+  const abs = path.resolve(dir, value);
+  const realDir = fs.realpathSync(dir);
+  const refuse = () => new ForgeError(`--output must be inside the job dir ${dir}, got "${value}"`);
+  // The nearest existing ancestor decides where the path really goes; the rest is created later.
+  // lstat, so a dangling symlink counts as existing and is resolved (and refused), never skipped.
+  const present = (p: string) => {
+    try {
+      fs.lstatSync(p);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  let existing = abs;
+  while (!present(existing) && path.dirname(existing) !== existing) existing = path.dirname(existing);
+  let resolved: string;
+  try {
+    resolved = fs.realpathSync(existing);
+  } catch {
+    throw refuse();
+  }
+  const rel = path.relative(realDir, path.join(resolved, path.relative(existing, abs)));
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) throw refuse();
+  return rel;
+}
+
+/** The output a role writes when its start recorded none: the single-output roles only. */
+export function defaultAgentOutput(role: string, round: number | undefined): string | null {
+  if (role.startsWith('reviewer:')) return path.join('review', `round-${round ?? 0}`, `${role.slice('reviewer:'.length)}.md`);
+  if (role === 'approver') return 'decision.md';
+  if (role === 'spec-writer') return 'spec.md';
+  return null;
+}
+
+/** Roles that may answer NEEDS-INPUT with questions.md instead of their output. */
+const ASKING_ROLES = ['spec-writer', 'planner', 'integrator'];
+
+/**
+ * Whether the agent ending now wrote its output: the file exists and was written after the run
+ * started (with 2s of slack for coarse mtimes), so a stale file from an earlier run doesn't count.
+ * Null when the role has no known output.
+ */
+export function agentOutputMissing(root: string, id: string, role: string, a: JobAgent | undefined, summary: string | undefined): boolean | null {
+  const rel = a?.output ?? defaultAgentOutput(role, a?.round);
+  if (!rel) return null;
+  const dir = jobDir(root, id);
+  if (ASKING_ROLES.includes(role) && summary && /\bNEEDS-INPUT\b/i.test(summary) && exists(path.join(dir, 'questions.md'))) return false;
+  let mtime: number;
+  try {
+    mtime = fs.statSync(path.join(dir, rel)).mtimeMs;
+  } catch {
+    return true;
+  }
+  const started = a?.startedAt ? Date.parse(a.startedAt) : NaN;
+  return Number.isFinite(started) ? mtime < started - 2000 : false;
 }
 
 /** Where the next `--import` of this agent's transcript starts: the latest cursor any role recorded for it. */

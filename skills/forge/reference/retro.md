@@ -9,11 +9,12 @@ forge job new --title "Forge retro <YYYY-MM-DD>" --kind retro --session ${CLAUDE
 forge retro prepare <id>                         # writes stats.json + signals.md into the job dir
 forge worktree create <id>
 ```
-Spawn **retro** (role `retro`) with: the stats and signals paths, `.forge/notes/` (learnings, addenda, experiments.md), `.forge/reviewers/`, `.forge/config.yml`, the configured `improve.maxLearnings`, and `forge eval runs` output if any. It writes `retro.md` and `spec.md`.
+When `forge job step` sent you here for an existing retro job, skip the `forge job new` line; if its retro agent already ended without a `spec.md`, go straight to the cancel below.
+Spawn **retro** (`forge:retro`), wrapped like any spawn: `forge job agent <id> start --role retro --model <runtime.models.retro> --output <job dir>/spec.md`, then `forge job agent <id> end --role retro …` when it completes. Its brief: the stats and signals paths, `.forge/notes/` (learnings, addenda, experiments.md), `.forge/reviewers/`, `.forge/config.yml`, the configured `improve.maxLearnings`, and `forge eval runs` output if any. It writes `retro.md` and `spec.md`.
 
-If it proposes nothing (too little data), report that and cancel the job.
+If it proposes nothing (too little data, no `spec.md`), report that and cancel the job.
 
-Otherwise continue the normal pipeline from the **Spec gate**. Retro jobs **always** wait for spec approval, whatever `pipeline.specApproval` says. The human sees `retro.md` (evidence) and `spec.md` (exact edits). Build: the builder edits only `.forge/` files in the worktree and appends to `.forge/notes/experiments.md`. Review lenses: `code` and `docs`. Then decide, PR, and merge as usual.
+Otherwise run the step loop (SKILL.md **Run a job**). Step records the panel (`code` and `docs`) and always stops at the spec gate, whatever `pipeline.specApproval` says. The human sees `retro.md` (evidence) and `spec.md` (exact edits). Build: the builder edits only `.forge/` files in the worktree and appends to `.forge/notes/experiments.md`. Then decide, PR, and merge as usual.
 
 ## Measure
 If eval tasks exist, suggest running the same eval subset on the base branch (baseline) and on the retro branch's config before merging, then `forge eval compare`. Otherwise the next retro evaluates the experiment from live metrics.

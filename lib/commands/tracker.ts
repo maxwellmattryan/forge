@@ -74,13 +74,15 @@ export async function startFromRef(
   tracker: Tracker,
   ref: string,
   flags: Record<string, any>,
+  opts: { splitMode?: 'never' } = {},
 ): Promise<{ id: string; existing: true; stage: Job['stage']; state: Job['state'] } | { id: string; ref: string; title: string; branch: Job['branch'] }> {
   const ctx = { root, config };
   const item = tracker.get(ctx, ref);
   if (!item) throw new ForgeError(`no ${tracker.name} item "${ref}"`);
+  // An existing job keeps its own split mode: from-ref only names the mode of the job it creates.
   const existing = listJobs(root).find((j) => isActive(j) && j.source && String(j.source.ref) === String(ref));
   if (existing) return { id: existing.id, existing: true, stage: existing.stage, state: existing.state };
-  const job = createJob(root, config, { title: item.title, ref: item.ref, url: item.url ?? undefined, tracker: tracker.name, body: item.body ?? '' });
+  const job = createJob(root, config, { title: item.title, ref: item.ref, url: item.url ?? undefined, tracker: tracker.name, body: item.body ?? '', splitMode: opts.splitMode });
   const claim = tracker.claim(ctx, item.ref, job);
   if (!claim.ok) {
     setJob(root, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` });

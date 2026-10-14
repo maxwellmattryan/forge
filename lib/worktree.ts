@@ -356,7 +356,7 @@ export function verify(root: string, config: Config, id: string): VerifyResult {
   const previous = job.verifyRuns.filter((r) => r.round === job.round).pop();
   if (previous && exists(latest)) fs.renameSync(latest, path.join(dir, `round-${job.round}-attempt-${previous.attempt}.md`));
   fs.writeFileSync(latest, lines.join('\n'));
-  const rec: VerifyRun = { round: job.round, attempt, sha, ok, at: now(), file: path.relative(jobDir(root, id), latest) };
+  const rec: VerifyRun = { round: job.round, attempt, sha, ok, at: now(), file: path.relative(jobDir(root, id), latest), failure: results.find((r) => !r.ok)?.name ?? null };
   updateJob(root, id, (j) => {
     j.verify[job.round] = ok ? 'PASS' : 'FAIL';
     j.verifyRuns.push(rec);

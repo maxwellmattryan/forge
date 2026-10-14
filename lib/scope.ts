@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadJob, jobDir } from './jobs.ts';
+import { loadJob, jobDir, logEvent } from './jobs.ts';
 import { exists } from './paths.ts';
 import type { Config, Job } from './types.ts';
 import { ForgeError, now, run } from './util.ts';
@@ -152,7 +152,7 @@ export function resolveBase(cwd: string, config: Config, job: Pick<Job, 'base'>)
 
 /**
  * Compares the committed diff since the merge-base with the spec's Approach paths and writes scope.md.
- * Read-only for job state: no event, no job.json change.
+ * No job.json change; one `scope` event, so `forge job step` knows this round's scope is current.
  */
 export function jobScope(root: string, config: Config, id: string): ScopeReport {
   const job = loadJob(root, id);
@@ -174,6 +174,7 @@ export function jobScope(root: string, config: Config, id: string): ScopeReport 
 
   const file = path.join(dir, 'scope.md');
   fs.writeFileSync(file, renderScope({ baseRef, mergeBase, head, dirty, approach, tokens, inside, outside, changed: changedFiles.length }));
+  logEvent(root, job.id, 'scope', { round: job.round, head });
   return {
     id: job.id,
     base: baseRef,

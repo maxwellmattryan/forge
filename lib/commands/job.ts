@@ -1,13 +1,15 @@
 // `forge job …`: every write to a job's state goes through here.
+import fs from 'node:fs';
 import path from 'node:path';
 import { jobAcs } from '../acs.ts';
+import { jobPathMap } from '../brief.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
-import { reviewerChecklist } from '../config.ts';
 import { daemonClaimOpts, refuseInboxDrive } from '../daemon-owner.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
-import { claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, roundVerdicts, setJob, updateJob, jobDir } from '../jobs.ts';
-import { paths, exists } from '../paths.ts';
+import { agentOutputMissing, claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, updateJob, jobDir } from '../jobs.ts';
+import { exists } from '../paths.ts';
 import { jobScope } from '../scope.ts';
+import { loadStepInput, step } from '../step.ts';
 import { createAndLink, linkJob, markNoIssue, suggestLink } from '../tracker-link.ts';
 import { loadTracker } from '../trackers/index.ts';
 import { importClaudeCodeTranscript } from '../usage.ts';
@@ -50,7 +52,8 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     }
     case 'from-ref': {
       const tracker = await loadTracker(root, config);
-      return startFromRef(root, config, tracker, req(id, 'tracker ref'), flags);
+      // An issue the human picked is planned as one job, whatever pipeline.split says.
+      return startFromRef(root, config, tracker, req(id, 'tracker ref'), flags, { splitMode: 'never' });
     }
     case 'list': {
       const jobs = listJobs(root).filter((j) => (flags.all ? true : isActive(j)));
@@ -99,7 +102,10 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       return { ok: true };
     case 'human': {
       const action = req(rest[1], 'action (approve-spec|revise-spec|approve-split|revise-split|approve|rework|answer|reject)');
-      logEvent(root, req(id, 'job id'), 'human', { action, note: flags.note ?? (rest.slice(2).join(' ') || null) });
+      const jobId = req(id, 'job id');
+      // A rejected split re-plans as one job; recorded before the event so step never sees one without the other.
+      if (action === 'revise-split') setJob(root, jobId, { fields: { splitMode: 'never' } });
+      logEvent(root, jobId, 'human', { action, note: flags.note ?? (rest.slice(2).join(' ') || null) });
       return { ok: true };
     }
     case 'agent': {
@@ -107,9 +113,20 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       if (!['start', 'end'].includes(phase)) throw new ForgeError('phase must be start or end');
       // `end` stays allowed, so a stray start can still be closed.
       if (phase === 'start') refuseInboxDrive(req(id, 'job id'));
+      const role = req(flags.role, '--role');
       let usage: (AgentUsage & { transcript?: string; through?: string | null }) | undefined;
       let since: string | null = null;
+      let output: string | null = null;
+      let outputMissing: boolean | null = null;
+      if (phase === 'start' && flags.output !== undefined) {
+        if (typeof flags.output !== 'string' || !flags.output) throw new ForgeError('--output needs a path');
+        // Resolved and checked before anything is written, so a refused path leaves no trace.
+        output = resolveAgentOutput(root, loadJob(root, req(id, 'job id')).id, flags.output);
+        fs.mkdirSync(path.dirname(path.join(jobDir(root, String(id)), output)), { recursive: true });
+      }
       if (phase === 'end') {
+        const before = loadJob(root, req(id, 'job id'));
+        outputMissing = agentOutputMissing(root, before.id, role, before.agents[role], typeof flags.summary === 'string' ? flags.summary : undefined);
         if (flags.import && flags['agent-id']) {
           since = importCursor(loadJob(root, req(id, 'job id')), String(flags['agent-id']));
           usage = importClaudeCodeTranscript(String(flags['agent-id']), { since }) ?? undefined;
@@ -122,7 +139,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         root,
         req(id, 'job id'),
         {
-          role: req(flags.role, '--role'),
+          role,
           phase: phase as 'start' | 'end',
           model: flags.model ?? usage?.model ?? undefined,
           agentId: flags['agent-id'],
@@ -132,12 +149,14 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
           // only token counts; the cursor goes to the agent record instead.
           usage: usage ? ({ ...usage, transcript: undefined, through: undefined } as AgentUsage) : undefined,
           importedThrough: usage?.through,
+          ...(phase === 'start' ? { output, retry: flags.retry === true } : {}),
+          ...(outputMissing !== null ? { outputMissing } : {}),
         },
         config,
       );
-      const a = job.agents[String(flags.role)];
+      const a = job.agents[role];
       const budget = phase === 'end' ? enforceBudget(root, config, job.id, 'agent-end') : null;
-      return { role: flags.role, status: a.status, model: a.model, usage: usage ? { tokens: usage.totalTokens, exact: Boolean(usage.exact), ...(since && usage.transcript ? { since } : {}) } : null, jobTokens: job.usage.totalTokens, jobCostUsd: job.usage.estCostUsd, ...(budget ? { budget } : {}) };
+      return { role, status: a.status, model: a.model, usage: usage ? { tokens: usage.totalTokens, exact: Boolean(usage.exact), ...(since && usage.transcript ? { since } : {}) } : null, jobTokens: job.usage.totalTokens, jobCostUsd: job.usage.estCostUsd, ...(outputMissing !== null ? { outputMissing } : {}), ...(budget ? { budget } : {}) };
     }
     case 'round': {
       // Checked before incrementing, so after approval re-running `forge job round` starts the round.
@@ -202,8 +221,10 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       return jobScope(root, config, req(id, 'job id'));
     case 'acs':
       return jobAcs(root, req(id, 'job id'));
+    case 'step':
+      return step(loadStepInput(root, config, loadJob(root, req(id, 'job id')).id));
     default:
-      throw new ForgeError('usage: forge job new|from-ref|link|list|show|get|set|claim|release|note|human|agent|round|budget|verdicts|decision|progress|paths|scope|acs');
+      throw new ForgeError('usage: forge job new|from-ref|link|list|show|get|set|claim|release|note|human|agent|round|budget|verdicts|decision|progress|paths|scope|acs|step');
   }
 }
 
@@ -212,37 +233,9 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
  * The review directories are created here, before any reviewer is briefed with them.
  */
 export function jobPaths(root: string, config: Config, job: Job): Record<string, unknown> {
-  const dir = jobDir(root, job.id);
-  const p = paths(root);
-  const round = Math.max(job.round, 1);
-  return {
-    jobDir: dir,
-    worktree: job.worktree,
-    request: path.join(dir, 'request.md'),
-    plan: path.join(dir, 'plan.md'),
-    spec: path.join(dir, 'spec.md'),
-    design: path.join(dir, 'design.md'),
-    mockup: path.join(dir, 'mockup.html'),
-    tasks: path.join(dir, 'tasks.md'),
-    build: path.join(dir, 'build.md'),
-    verify: path.join(dir, 'verify', `round-${job.round}.md`),
-    scope: path.join(dir, 'scope.md'),
-    screenshots: path.join(dir, 'screenshots'),
-    reviewDir: ensureReviewDir(root, job.id, round),
-    previousReviewDir: round > 1 ? path.join(dir, 'review', `round-${round - 1}`) : null,
-    integrationReview: path.join(ensureReviewDir(root, job.id, 'integration'), 'code.md'),
-    decision: path.join(dir, 'decision.md'),
-    questions: path.join(dir, 'questions.md'),
-    runbook: path.join(dir, 'runbook.md'),
-    prFeedback: path.join(dir, 'pr-feedback.md'),
-    prBody: path.join(dir, 'pr.md'),
-    feedback: path.join(dir, 'feedback.md'),
-    learnings: path.join(p.notes, 'learnings.md'),
-    notesDir: p.notes,
-    config: p.config,
-    instructions: (config.project.instructions ?? []).map((f: string) => path.join(job.worktree ?? root, f)).filter(exists),
-    checklists: Object.fromEntries((job.reviewers ?? []).map((r: string) => [r, reviewerChecklist(root, r, config.review.panel.find((x) => x.name === r)?.checklist)])),
-  };
+  ensureReviewDir(root, job.id, Math.max(job.round, 1));
+  ensureReviewDir(root, job.id, 'integration');
+  return jobPathMap(root, config, job);
 }
 
 /** The job as `forge job show` prints it without --full. */
