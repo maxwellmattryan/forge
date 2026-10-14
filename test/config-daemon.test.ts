@@ -186,7 +186,7 @@ test('daemon.command refuses permission-widening flags', () => {
   refused('--permission-mode auto', /permission-mode auto/);
   assert.equal(problems('claude -p {session} --permission-mode').length, 1, 'a missing mode value is refused');
   assert.equal(problems('claude -p {session} --allowedTools Bash,Read').length, 1, 'a literal list bypasses allowedTools validation');
-  for (const mode of ['dontAsk', 'default', 'plan']) assert.deepEqual(problems(`claude -p {session} --permission-mode ${mode}`), [], mode);
+  for (const mode of ['dontAsk', 'default', 'manual', 'plan']) assert.deepEqual(problems(`claude -p {session} --permission-mode ${mode}`), [], mode);
   assert.deepEqual(problems(`${base} --model opus --max-turns 50 --disallowedTools WebFetch`), [], 'narrowing and neutral flags are fine');
   assert.deepEqual(problems('claude -p {session} --plugin-dir={pluginRoot} --allowedTools={allowedTools}'), [], '--flag=value placeholders are accepted');
   // claude reads these values variadically, so a bare word after them would be one more tool or plugin dir.

@@ -12,7 +12,7 @@
   import { buildSessionView, readFilters } from '../lib/session-log.ts';
   import type { Entry, Filters, Item } from '../lib/session-log.ts';
   import { createSessionLog } from '../lib/daemon-log.ts';
-  import { mergeSessionState, postDaemon, sessionControls, sessionPill } from '../lib/daemon.ts';
+  import { PERMISSION_MODES, mergeSessionState, postDaemon, postDaemonMode, sessionControls, sessionMode, sessionPill } from '../lib/daemon.ts';
   import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
   import { pref } from '../lib/prefs.ts';
   import { toast } from '../lib/toast.svelte.ts';
@@ -28,6 +28,12 @@
   let pending = $state(false);
   const pill = $derived(sessionPill(session));
   const controls = $derived(sessionControls(session, poolWanted, pending));
+  // The choice lives in the pool, so it shows (and applies at the next spawn) even while no child runs.
+  const mode = $derived(sessionMode(S.data?.daemons ?? null, scope, session));
+  /** Shown until the next /api/state carries the new choice, so the select doesn't jump back meanwhile. */
+  let picked = $state<string | null>(null);
+  const modeName = $derived<Record<string, string>>({ default: $t('session.modes.default'), auto: $t('session.modes.auto'), dontAsk: $t('session.modes.dontAsk') });
+  const modeHint = $derived<Record<string, string>>({ default: $t('session.modes.defaultHint'), auto: $t('session.modes.autoHint'), dontAsk: $t('session.modes.dontAskHint') });
 
   let filters = $state<Filters>(readFilters(pref.get('sessionFilters', '')));
   $effect(() => pref.set('sessionFilters', JSON.stringify(filters)));
@@ -96,6 +102,22 @@
       pending = false;
     }
   }
+
+  async function setMode(value: string): Promise<void> {
+    const next = PERMISSION_MODES.find((m) => m === value);
+    if (!next || next === mode.chosen) return;
+    picked = next;
+    pending = true;
+    try {
+      await postDaemonMode(scope, next, forgeToken());
+      await refresh();
+    } catch (err) {
+      toast($t('session.modeFailed', { error: err instanceof Error ? err.message : String(err) }), true);
+    } finally {
+      picked = null;
+      pending = false;
+    }
+  }
 </script>
 
 <svelte:document onvisibilitychange={() => log.visibilityChanged()} />
@@ -153,6 +175,13 @@
     <span class="text-xs text-muted">{$t('session.turns', { count: view.totals.turns })}</span>
     {#if view.totals.results}<span class="text-xs text-muted" title={$t('session.costTitle')}>{$t('session.cost', { cost: usd(view.totals.costUsd) })}</span>{/if}
     <span class="flex-1"></span>
+    <label class="flex items-center gap-1.5 text-xs text-muted" title={modeHint[picked ?? mode.chosen] ?? ''}>
+      {$t('session.modeLabel')}
+      <select class="py-1 text-xs" value={picked ?? mode.chosen} disabled={pending || S.data?.daemons?.enabled !== true} onchange={(e) => setMode(e.currentTarget.value)}>
+        {#each PERMISSION_MODES as m (m)}<option value={m}>{modeName[m]}</option>{/each}
+        {#if !PERMISSION_MODES.some((m) => m === mode.chosen)}<option value={mode.chosen} disabled>{mode.chosen}</option>{/if}
+      </select>
+    </label>
     {#if scope === INBOX_SCOPE}
       <button class="btn text-xs" disabled={!controls.canStart} title={$t('session.startHint')} onclick={() => act('start')}><Icon name="play" />{$t('session.startInbox')}</button>
       <button class="btn text-xs" disabled={!controls.canStop} onclick={() => act('stop')}><Icon name="stop" />{$t('session.stopInbox')}</button>
@@ -162,6 +191,8 @@
     {/if}
   </div>
   {#if session?.lastError}<div role="status" class="text-xs text-bad break-words">{session.lastError}</div>{/if}
+  {#if mode.live !== null}<div role="status" class="text-xs text-muted">{$t('session.modeSwitching', { mode: modeName[mode.live] ?? mode.live })}</div>{/if}
+  {#if mode.chosen === 'auto'}<div class="text-xs text-warn">{$t('session.modes.autoWarning')}</div>{/if}
   <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
     <input class="min-w-0 flex-1 basis-40 rounded-lg border border-line bg-raised px-2 py-1" type="search" placeholder={$t('session.filter')} aria-label={$t('session.filter')} bind:value={filters.text} />
     <label class="flex items-center gap-1"><input type="checkbox" bind:checked={filters.tools} />{$t('session.tools')}</label>

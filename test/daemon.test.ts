@@ -13,7 +13,7 @@ import { budgetCmd } from '../lib/budget.ts';
 import { createJob, setJob, updateJob } from '../lib/jobs.ts';
 import { PLUGIN_ROOT } from '../lib/paths.ts';
 import { INBOX_SCOPE, SCOPE_ENV, ackRequest, claimRequest, enqueue, listRequests, requestScope, validScope } from '../lib/requests.ts';
-import { DENY_TOOLS, GIT_PINS, PERMISSION_DENIED, PROMPT_TOOL, TRUST_CHANGED, TURN, TURN_LINE, apiKeyVars, buildArgv, heldByBudget, parseTemplate, reapOrphans, sessionEnv, PROMPT_INPUT_CHARS, sessionGrant } from '../lib/daemon.ts';
+import { DENY_TOOLS, GIT_PINS, PERMISSION_DENIED, PROMPT_TOOL, TRUST_CHANGED, TURN, TURN_LINE, apiKeyVars, buildArgv, heldByBudget, parseTemplate, reapOrphans, sessionEnv, PROMPT_INPUT_CHARS, sessionGrant, PERMISSION_MODES, commandPermissionMode, modeReach, withPermissionMode } from '../lib/daemon.ts';
 import { createPool } from '../lib/daemon-pool.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
@@ -334,6 +334,113 @@ test('a session grant never widens a tool to its every call', () => {
   assert.deepEqual(rules([{ toolName: 'Bash' }, { toolName: 'Edit' }]), [], 'a bare tool rule allows every call: dropped');
   assert.deepEqual(rules([{ toolName: 'Bash', ruleContent: '*' }, { toolName: 'Bash', ruleContent: ':*' }, { toolName: 'Bash', ruleContent: '**' }, { toolName: 'Bash', ruleContent: ' ' }, { toolName: 'Bash', ruleContent: '' }]), [], 'so does a wildcard-only pattern');
   assert.deepEqual(sessionGrant([{ type: 'addRules', behavior: 'deny', destination: 'session', rules: [{ toolName: 'Bash', ruleContent: 'rm:*' }] }, { type: 'setMode', mode: 'bypassPermissions' }]).rules, [], 'deny rules and mode changes are never forwarded');
+});
+
+test('commandPermissionMode reads daemon.command, and a chosen mode replaces it in argv', () => {
+  assert.equal(commandPermissionMode('claude {session}'), 'default', "claude's default when the flag is absent");
+  assert.equal(commandPermissionMode('claude {session} --permission-mode dontAsk'), 'dontAsk');
+  assert.equal(commandPermissionMode('claude {session} --permission-mode=plan'), 'plan');
+  assert.equal(commandPermissionMode('claude {session} --permission-mode manual'), 'default', 'manual is the name claude now lists for default');
+  assert.equal(commandPermissionMode(`claude "open`), 'default', 'an unparsable template');
+  assert.equal(commandPermissionMode(undefined), 'default');
+  const vars = { pluginRoot: '/p', session: { id: 'abc', resume: false }, allowedTools: ['Agent'] };
+  const tail = ['--disallowedTools', DENY_TOOLS.join(','), ...PROMPT_TOOL];
+  assert.deepEqual(buildArgv('c {session} --permission-mode default --x', { ...vars, permissionMode: 'auto' }), ['c', '--session-id', 'abc', '--x', '--permission-mode', 'auto', ...tail]);
+  assert.deepEqual(buildArgv('c --permission-mode=dontAsk {session}', { ...vars, permissionMode: 'default' }), ['c', '--session-id', 'abc', '--permission-mode', 'default', ...tail]);
+  assert.deepEqual(buildArgv('c {session}', { ...vars, permissionMode: 'dontAsk' }), ['c', '--session-id', 'abc', '--permission-mode', 'dontAsk', ...tail], 'appended when absent');
+  assert.deepEqual(buildArgv('c {session} --permission-mode plan', { ...vars, permissionMode: null }), ['c', '--session-id', 'abc', '--permission-mode', 'plan', ...tail], "no choice keeps the template's");
+  assert.deepEqual(withPermissionMode(['--permission-mode', 'x'], 'auto'), ['--permission-mode', 'x', '--permission-mode', 'auto'], 'the executable is never dropped');
+  assert.deepEqual(PERMISSION_MODES, ['default', 'auto', 'dontAsk'], 'never bypassPermissions or acceptEdits');
+});
+
+test('a human switches one session’s permission mode: live while it runs, at its next spawn otherwise', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit, config({ command: 'claude {session} --permission-mode default --allowedTools {allowedTools}' }));
+  const modeRequests = (c) =>
+    c.written
+      .split('\n')
+      .filter((l) => l.includes('set_permission_mode'))
+      .map((l) => JSON.parse(l));
+  try {
+    const job = createJob(repo.dir, defaults(), { title: 'Job A' }).id;
+    d.start();
+    const inbox = kit.last(INBOX);
+    assert.equal(d.state().permissionMode, 'default');
+    assert.deepEqual(d.state().permissionModes, {});
+    inbox.line({ type: 'system', subtype: 'init', session_id: crypto.randomUUID(), permissionMode: 'default' });
+    await waitFor(() => d.state().inbox.permissionMode === 'default', 2000, 'the init mode');
+
+    // Live: the running child is asked, and only claude's own report changes what the session says it runs in.
+    assert.deepEqual(d.setPermissionMode(INBOX, 'auto'), { error: null });
+    assert.deepEqual(d.state().permissionModes, { [INBOX]: 'auto' });
+    const [req] = modeRequests(inbox);
+    assert.equal(req.type, 'control_request');
+    assert.deepEqual(req.request, { subtype: 'set_permission_mode', mode: 'auto' });
+    assert.match(req.request_id, /^forge-mode-/);
+    assert.equal(d.state().inbox.permissionMode, 'default', 'not until claude confirms');
+    inbox.line({ type: 'control_response', response: { subtype: 'success', request_id: req.request_id, response: { mode: 'auto' } } });
+    inbox.line({ type: 'system', subtype: 'status', status: null, permissionMode: 'auto' });
+    await waitFor(() => d.state().inbox.permissionMode === 'auto', 2000, 'the switch');
+    await logged(repo.dir, INBOX, 'permission-mode');
+
+    // Back to daemon.command's mode: nothing is held for the scope any more.
+    assert.deepEqual(d.setPermissionMode(INBOX, 'default'), { error: null });
+    assert.deepEqual(d.state().permissionModes, {});
+    assert.equal(modeRequests(inbox).length, 2);
+
+    // claude refuses a switch: the choice falls back to what the session still reports.
+    inbox.line({ type: 'system', subtype: 'status', status: null, permissionMode: 'dontAsk' });
+    await waitFor(() => d.state().inbox.permissionMode === 'dontAsk', 2000, 'a reported mode');
+    d.setPermissionMode(INBOX, 'auto');
+    const refused = modeRequests(inbox)[2];
+    inbox.line({ type: 'control_response', response: { subtype: 'error', request_id: refused.request_id, error: 'auto mode is unavailable' } });
+    await waitFor(() => d.state().permissionModes[INBOX] === 'dontAsk', 2000, 'the fallback');
+    await logged(repo.dir, INBOX, 'error');
+    assert.match(eventsIn(logOf(repo.dir), 'error').at(-1).message, /refused permission mode auto: auto mode is unavailable/);
+    // A response to a request the supervisor never sent changes nothing.
+    inbox.line({ type: 'control_response', response: { subtype: 'error', request_id: 'forge-mode-unknown', error: 'x' } });
+    await settle();
+    assert.equal(d.state().permissionModes[INBOX], 'dontAsk');
+
+    // Before its session exists: held, then passed on the spawn's argv, which carries one --permission-mode.
+    assert.deepEqual(d.setPermissionMode(job, 'auto'), { error: null });
+    assert.equal(kit.of(job).length, 0);
+    enqueue(repo.dir, null, { type: 'resume', job, from: 'dashboard' });
+    d.poke();
+    await waitFor(() => kit.of(job).length === 1, 2000, "the job's session");
+    const args = kit.last(job).args;
+    assert.equal(args.filter((w) => w === '--permission-mode').length, 1);
+    assert.equal(args[args.indexOf('--permission-mode') + 1], 'auto');
+    assert.equal(modeRequests(kit.last(job)).length, 0, 'a fresh child needs no switch');
+    assert.equal(d.sessionState(job).permissionMode, 'auto', 'before its first init, the mode it was launched in');
+    // A narrowing switch claude refuses, even before it reported any mode, stops the session rather than leave it in auto.
+    const launched = kit.last(job);
+    d.setPermissionMode(job, 'default');
+    const early = modeRequests(launched)[0];
+    launched.line({ type: 'control_response', response: { subtype: 'error', request_id: early.request_id, error: 'busy' } });
+    await waitFor(() => launched.exited, 2000, 'the stop');
+    assert.deepEqual(d.state().permissionModes, { [INBOX]: 'dontAsk' }, 'the human\'s choice stands');
+    await logged(repo.dir, job, 'error');
+    assert.match(eventsIn(logOf(repo.dir, job), 'error').at(-1).message, /refused permission mode default: busy; stopping the session so it starts in default/);
+    enqueue(repo.dir, null, { type: 'answer', job, text: 'go on', from: 'dashboard' });
+    d.poke();
+    await waitFor(() => kit.of(job).length === 2, 2000, 'the respawn');
+    assert.equal(kit.last(job).args[kit.last(job).args.indexOf('--permission-mode') + 1], 'default', 'it starts in the chosen mode');
+
+    // Refusals, and a dead child reports no mode.
+    assert.match(d.setPermissionMode(INBOX, 'bypassPermissions' as any).error ?? '', /mode must be one of default, auto, dontAsk/);
+    assert.match(d.setPermissionMode(INBOX, 'acceptEdits' as any).error ?? '', /mode must be one of/);
+    assert.equal(d.setPermissionMode('../x', 'auto').error, 'invalid scope');
+    inbox.exit(0, null);
+    await waitFor(() => !d.state().inbox.running, 2000, 'the exit');
+    assert.equal(d.state().inbox.permissionMode, null);
+    assert.equal(d.state().permissionModes[INBOX], 'dontAsk', 'the choice outlives the child');
+    assert.ok(!fs.readFileSync(path.join(daemonsDir(repo.dir), `${INBOX}.json`), 'utf8').includes('dontAsk'), 'and is never written where the session could edit it');
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
 });
 
 test('AC6: idle/busy state machine and edge-triggered turns', async () => {
@@ -1090,6 +1197,62 @@ test('AC11: the failure count resets on a result, and a child that dies mid-turn
     assert.match(ib().lastError, /3 failed starts/);
   } finally {
     await d.close();
+    repo.cleanup();
+  }
+});
+
+test('a switch claude never confirms: a narrowing one stops the session, a widening one falls back', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit, config({ command: 'claude {session} --permission-mode default' }), { modeConfirmMs: 30 });
+  try {
+    d.start();
+    const first = kit.last(INBOX);
+    d.setPermissionMode(INBOX, 'auto');
+    await waitFor(() => d.state().permissionModes[INBOX] === undefined, 2000, 'the widening fallback');
+    assert.equal(first.exited, false, 'a widening that never happened needs no stop');
+    first.line({ type: 'system', subtype: 'status', status: null, permissionMode: 'auto' });
+    await waitFor(() => d.state().inbox.permissionMode === 'auto', 2000, 'auto reported');
+    d.setPermissionMode(INBOX, 'dontAsk');
+    await waitFor(() => first.exited, 2000, 'the narrowing stop');
+    assert.deepEqual(d.state().permissionModes, { [INBOX]: 'dontAsk' });
+    await logged(repo.dir, INBOX, 'error');
+    assert.match(eventsIn(logOf(repo.dir), 'error').at(-1).message, /did not confirm permission mode dontAsk; stopping the session/);
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('modeReach orders modes by what they allow without a human', () => {
+  assert.ok(modeReach('dontAsk') < modeReach('default'));
+  assert.equal(modeReach('plan'), modeReach('dontAsk'));
+  assert.equal(modeReach('manual'), modeReach('default'));
+  assert.ok(modeReach('default') < modeReach('auto'));
+  assert.ok(modeReach('auto') < modeReach('bypassPermissions'), 'an unknown mode counts as the widest');
+  assert.ok(modeReach('auto') < modeReach(null));
+});
+
+test('a real child switches permission mode live, and a refused narrowing stops it', async () => {
+  const repo = tempRepo();
+  const fx = fixtureRun(repo, { FAKE_CLAUDE_REFUSE_MODE: 'dontAsk' });
+  const d = createPool(repo.dir, { env: fx.env, loadConfig: () => ({ config: config({ command: `${FAKE_COMMAND} --permission-mode manual` }) }), pollMs: 30, graceMs: 1000 });
+  try {
+    enqueue(repo.dir, null, { type: 'next', from: 'dashboard' });
+    d.start();
+    await waitFor(() => d.state().inbox.permissionMode === 'default', 5000, 'init to report manual as default');
+    assert.equal(d.state().permissionMode, 'default');
+    assert.deepEqual(d.setPermissionMode(INBOX, 'auto'), { error: null });
+    await waitFor(() => d.state().inbox.permissionMode === 'auto', 5000, 'the live switch');
+    await logged(repo.dir, INBOX, 'permission-mode');
+    const pid = d.state().inbox.pid;
+    d.setPermissionMode(INBOX, 'dontAsk');
+    await waitFor(() => !d.state().inbox.running, 5000, 'the stop after a refused narrowing');
+    assert.equal(alive(pid), false);
+    assert.deepEqual(d.state().permissionModes, { [INBOX]: 'dontAsk' });
+  } finally {
+    await d.close();
+    fx.killAll();
     repo.cleanup();
   }
 });

@@ -12,6 +12,9 @@
 //   FAKE_CLAUDE_IGNORE_EOF    keep running after stdin ends
 //   FAKE_CLAUDE_ASK           per turn: a can_use_tool control_request for this Bash command, held until its control_response;
 //                             the result then says what the answer was
+//   FAKE_CLAUDE_REFUSE_MODE   answer a set_permission_mode to this mode with an error, as claude does for a mode it can't enter
+// Like claude 2.1.299: init reports --permission-mode (manual read as default), and a set_permission_mode control_request is
+// answered with a control_response, then a system/status event carrying the new mode.
 import fs from 'node:fs';
 import readline from 'node:readline';
 
@@ -48,6 +51,8 @@ function serve() {
   let turn = 0;
   const out = (/** @type {any} */ ev) => process.stdout.write(JSON.stringify(ev) + '\n');
   let first = true;
+  const asked = flag('--permission-mode');
+  let mode = asked === null || asked === 'manual' ? 'default' : asked;
   /** control_request ids waiting for an answer, and what to do with it. */
   const pending = new Map();
   readline.createInterface({ input: process.stdin }).on('line', (line) => {
@@ -63,8 +68,16 @@ function serve() {
       pending.delete(msg.response.request_id);
       return done(msg.response.response?.behavior ?? 'error');
     }
+    if (msg?.type === 'control_request' && msg.request?.subtype === 'set_permission_mode') {
+      const next = msg.request.mode;
+      if (next === env.FAKE_CLAUDE_REFUSE_MODE)
+        return out({ type: 'control_response', response: { subtype: 'error', request_id: msg.request_id, error: `Cannot set permission mode to ${next}` } });
+      mode = next;
+      out({ type: 'control_response', response: { subtype: 'success', request_id: msg.request_id, response: { mode } } });
+      return out({ type: 'system', subtype: 'status', status: null, permissionMode: mode, session_id: session });
+    }
     if (msg?.type !== 'user') return;
-    if (first) out({ type: 'system', subtype: 'init', session_id: session });
+    if (first) out({ type: 'system', subtype: 'init', session_id: session, permissionMode: mode });
     first = false;
     out({ type: 'assistant', session_id: session, message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] } });
     turn++;
