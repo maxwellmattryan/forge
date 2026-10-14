@@ -26,7 +26,8 @@
   <span data-slot="title" class="h card line-clamp-2">{j.title}</span>
   <span data-slot="ref" class="mono muted text-[11px] truncate" title={m.refTitle}>{m.ref}</span>
   <div data-slot="state" class="flex flex-wrap items-center gap-1.5"><StateChip job={j} /><PrChip pr={j.pr} />{@html budgetChip(j, S.data?.config?.pipeline?.budget)}<DepChips job={j} /></div>
-  <div data-slot="stage" class="flex items-center gap-2 min-w-0"><StageStepper steps={m.steps} stage={m.stage} /><span class="label text-[10px] truncate">{m.stage}{#if m.round} · {$t('job.round', m.round)}{/if}</span></div>
+  <!-- Wraps: on a narrow card the stage and round drop under the stepper rather than truncating the round away. -->
+  <div data-slot="stage" class="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0"><StageStepper steps={m.steps} stage={m.stage} /><span class="label text-[10px] truncate min-w-0 max-w-full">{m.stage}{#if m.round}{' · '}{$t('job.round', m.round)}{/if}</span></div>
   {#if m.progress}<div data-slot="progress"><ProgressBar progress={m.progress} /></div>{/if}
   {#if m.lenses}<div data-slot="lenses" class="flex flex-wrap gap-1">{#each m.lenses as l, i (i)}<VerdictChip name={l.name} verdict={l.verdict} />{/each}</div>{/if}
   <div data-slot="footer" class="label flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px]">

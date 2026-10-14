@@ -26,7 +26,7 @@
         <tr class="clickable" onclick={() => openDrawer(j.id)}>
           <!-- stopPropagation: the row's own click would load the drawer a second time. -->
           <td><button class="h card text-left hover:text-ink" onclick={(e) => { e.stopPropagation(); openDrawer(j.id); }}>{j.title}</button><div class="mono muted text-[11px] truncate" title={m.refTitle}>{m.ref}</div></td>
-          <td><div class="flex items-center gap-2"><StageStepper steps={m.steps} stage={m.stage} /><span class="whitespace-nowrap">{m.stage}{#if m.round} · {$t('job.round', m.round)}{/if}</span></div></td>
+          <td><div class="flex items-center gap-2"><StageStepper steps={m.steps} stage={m.stage} /><span class="whitespace-nowrap">{m.stage}{#if m.round}{' · '}{$t('job.round', m.round)}{/if}</span></div></td>
           <td><StateChip job={j} /></td>
           <td class="num">{j.progress?.total ? `${j.progress.done}/${j.progress.total}` : '—'}</td>
           <td><div class="flex flex-wrap gap-1">{#each m.lenses ?? [] as l, i (i)}<VerdictChip name={l.name} verdict={l.verdict} />{/each}</div></td>

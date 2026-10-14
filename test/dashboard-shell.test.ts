@@ -313,7 +313,7 @@ test('JobCard renders seven fixed slots from the card model', () => {
   assert.match(attr(root, 'class') ?? '', /\{needsHuman\(j\) \? 'redline' : ''\}/, 'in the root class');
   assert.match(text, /const m = \$derived\(cardModel\(j\)\)/);
   assert.match(text, /<DepChips job=\{j\} \/><\/div>/, 'the dependency chips close the state slot');
-  assert.match(read('components/DepChips.svelte'), /<div class="basis-full flex flex-wrap gap-1">/, 'and always start their own line');
+  assert.match(read('components/DepChips.svelte'), /<div class="basis-full min-w-0 flex flex-wrap gap-1">/, "and always start their own line, shrinking to the card's width");
 });
 
 test('StageStepper is shared by the card and the table', () => {
