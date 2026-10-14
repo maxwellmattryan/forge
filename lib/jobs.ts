@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { paths, exists } from './paths.ts';
 import { STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, normalizeJob, serializeJob } from './schema.ts';
-import type { AgentUsage, Config, Job, JobAgent, JobOwner, JobEvent, JobState, LoadedJob, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
+import type { AgentUsage, Config, Job, JobAgent, JobOwner, JobEvent, JobState, LoadedJob, OwnerStatus, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
 import { estimateCost } from './usage.ts';
 import { ForgeError, now, readJson, readText, setPath, slugify, shortId, withLock, writeJsonAtomic } from './util.ts';
 
@@ -35,7 +35,9 @@ export function loadJob(root: string, id: string): LoadedJob {
 }
 
 /**
- * All job.json writes go through here: locked, atomic, timestamped, heartbeat-refreshing.
+ * All job.json writes go through here: locked, atomic, timestamped. It never refreshes the
+ * owner's heartbeat (see touchJob): a write by sync, another session or the dashboard says
+ * nothing about whether the owner is still alive.
  */
 export function updateJob(root: string, id: string, mutate: (job: LoadedJob) => void): LoadedJob {
   const dir = jobDir(root, id);
@@ -43,15 +45,42 @@ export function updateJob(root: string, id: string, mutate: (job: LoadedJob) => 
     const job = loadJob(root, id);
     mutate(job);
     job.updatedAt = now();
-    if (job.owner) job.owner.heartbeat = job.updatedAt;
     writeJsonAtomic(path.join(dir, 'job.json'), serializeJob(job));
     return job;
   });
 }
 
-/** Refreshes the owner heartbeat without changing anything else. */
-export function touchJob(root: string, id: string): LoadedJob {
-  return updateJob(root, id, () => {});
+/**
+ * The owner's own activity: refreshes its heartbeat. With `session`, only when that session is
+ * the owner; anyone else writes nothing. Without it, refreshes whoever owns the job (the worktree
+ * commands, which only the driving session's agents run). Returns whether it refreshed.
+ */
+export function touchJob(root: string, id: string, session?: string): boolean {
+  const skip = new Error('not the owner');
+  try {
+    updateJob(root, id, (j) => {
+      // Thrown rather than returned, so a foreign touch leaves job.json byte-identical.
+      if (!j.owner || (session !== undefined && j.owner.session !== session)) throw skip;
+      j.owner.heartbeat = now();
+    });
+  } catch (e) {
+    if (e === skip) return false;
+    throw e;
+  }
+  return true;
+}
+
+/**
+ * Whether the owner still counts as driving the job, by time alone: its heartbeat is under
+ * OWNER_STALE_MS old, or an agent has been marked running for under RUNNING_AGENT_MAX_MS.
+ * claimJob refuses a `live` owner; lib/daemon-owner.ts adds the `dead` proofs.
+ */
+export function ownerStatus(job: Pick<Job, 'owner' | 'agents'>, at = Date.now()): OwnerStatus {
+  const o = job.owner;
+  if (!o) return { status: 'none', session: null, since: null, heartbeat: null, agentRunning: false, reason: null };
+  const heartbeatFresh = at - Date.parse(o.heartbeat ?? o.since) < OWNER_STALE_MS;
+  const agentRunning = Object.values(job.agents ?? {}).some((a: JobAgent) => a.status === 'running' && Boolean(a.startedAt) && at - Date.parse(a.startedAt!) < RUNNING_AGENT_MAX_MS);
+  return { status: heartbeatFresh || agentRunning ? 'live' : 'stale', session: o.session, since: o.since ?? null, heartbeat: o.heartbeat ?? null, agentRunning, reason: null };
 }
 
 export function logEvent(root: string, id: string, type: string, data: Record<string, any> = {}): void {
@@ -145,7 +174,7 @@ export function isActive(job: Job): boolean {
 export function setJob(
   root: string,
   id: string,
-  change: { stage?: string; state?: string; waitingOn?: string | null; reason?: string | null; fields?: Record<string, any>; note?: string },
+  change: { stage?: string; state?: string; waitingOn?: string | null; reason?: string | null; fields?: Record<string, any>; note?: string; release?: boolean },
 ): LoadedJob {
   if (change.stage && !STAGES.includes(change.stage as any))
     throw new ForgeError(`unknown stage "${change.stage}" (${STAGES.join(', ')})`);
@@ -154,6 +183,7 @@ export function setJob(
   if (change.waitingOn && !WAITING_ON.includes(change.waitingOn as any))
     throw new ForgeError(`unknown waiting-on "${change.waitingOn}" (${WAITING_ON.join(', ')})`);
   let before: TransitionSide | null = null;
+  let released = false;
   const job = updateJob(root, id, (j) => {
     before = { stage: j.stage, state: j.state, waitingOn: j.waitingOn };
     // stage, state and waitingOn were checked against their lists above.
@@ -165,12 +195,20 @@ export function setJob(
     if (j.state === 'waiting' && !j.waitingOn) throw new ForgeError('state "waiting" needs --waiting-on');
     for (const [k, v] of Object.entries(change.fields ?? {})) setPath(j, k, v);
     if (['done', 'cancelled'].includes(j.state) && !j.finishedAt) j.finishedAt = now();
+    // In the same locked write, so no session can claim between the change and the release.
+    if (change.release && j.owner) {
+      const run = j.runs[j.runs.length - 1];
+      if (run && !run.endedAt) run.endedAt = now();
+      j.owner = null;
+      released = true;
+    }
   });
   const b = before as any;
   if (b.stage !== job.stage || b.state !== job.state || b.waitingOn !== job.waitingOn)
     logEvent(root, id, 'transition', { from: b, to: { stage: job.stage, state: job.state, waitingOn: job.waitingOn }, reason: change.reason ?? undefined });
   if (change.fields && Object.keys(change.fields).length) logEvent(root, id, 'fields', { fields: change.fields });
   if (change.note) logEvent(root, id, 'note', { text: change.note });
+  if (released) logEvent(root, id, 'released');
   return job;
 }
 
@@ -187,9 +225,8 @@ export function claimJob(root: string, id: string, session: string, force = fals
   let yielded: { from: string; reason: string } | null = null;
   const job = updateJob(root, id, (j) => {
     const o = j.owner;
-    const heartbeatFresh = o && Date.now() - Date.parse(o.heartbeat ?? o.since) < OWNER_STALE_MS;
-    const agentRunning = Object.values(j.agents).some((a: JobAgent) => a.status === 'running' && a.startedAt && Date.now() - Date.parse(a.startedAt) < RUNNING_AGENT_MAX_MS);
-    if (o && o.session !== session && (heartbeatFresh || agentRunning) && !force) {
+    const { status, agentRunning } = ownerStatus(j);
+    if (o && o.session !== session && status === 'live' && !force) {
       // Asked inside the lock, so the owner it judges is the one being replaced.
       const reason = opts.yields?.(o) ?? null;
       if (!reason) throw new ForgeError(`job ${id} is being driven by session ${o.session} (${agentRunning ? 'an agent is still running' : `last active ${o.heartbeat}`}); pass --force to take over`, 3);
@@ -209,7 +246,7 @@ export function releaseJob(root: string, id: string, onlyIf?: (owner: JobOwner |
   const keep = new Error('owner kept');
   try {
     updateJob(root, id, (j) => {
-      // Thrown rather than returned, so a kept claim isn't rewritten with a fresh heartbeat.
+      // Thrown rather than returned, so a kept claim leaves job.json untouched.
       if (onlyIf && !onlyIf(j.owner)) throw keep;
       const run = j.runs[j.runs.length - 1];
       if (run && !run.endedAt) run.endedAt = now();
