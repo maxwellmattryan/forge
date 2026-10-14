@@ -17,7 +17,7 @@ import { roster } from './roster.ts';
 import { computeStats } from './stats.ts';
 import { ForgeError, readJson, run } from './util.ts';
 import * as wt from './worktree.ts';
-import { out, parseArgs, req } from './commands/args.ts';
+import { num, out, parseArgs, req, requireJob } from './commands/args.ts';
 import { configCmd } from './commands/config.ts';
 import { daemonCmd } from './commands/daemon.ts';
 import { dash } from './commands/dash.ts';
@@ -122,8 +122,9 @@ export async function main(argv: string[]): Promise<void> {
       needInit();
       const id = req(sub, 'job id');
       const name = req(rest[0], 'command name');
+      const tail = num(flags.tail, '--tail', { integer: true }) ?? 40;
       if (flags.background) return out(await wt.startBackground(root, config, id, name), flags);
-      const r = wt.runCommand(root, config, id, name, { tail: Number(flags.tail ?? 40) });
+      const r = wt.runCommand(root, config, id, name, { tail });
       out(r, flags);
       if (!r.ok) process.exitCode = 1;
       return;
@@ -176,7 +177,7 @@ export async function main(argv: string[]): Promise<void> {
     case 'retro': {
       needInit();
       if (sub === 'due') return out(retroDue(root, config), flags);
-      if (sub === 'prepare') return out(prepareRetro(root, config, req(rest[0], 'retro job id'), { since: flags.since }), flags);
+      if (sub === 'prepare') return out(prepareRetro(root, config, requireJob(root, rest[0]).id, { since: flags.since }), flags);
       throw new ForgeError('usage: forge retro due | forge retro prepare <job> [--since DATE]');
     }
     case 'eval':

@@ -7,7 +7,7 @@ import { releaseJob } from '../jobs.ts';
 import { exists, paths } from '../paths.ts';
 import { INBOX_SCOPE, ackRequest, claimRequest, daemonScope, enqueue, listRequests, requestScope, validJobId } from '../requests.ts';
 import { ForgeError } from '../util.ts';
-import { req } from './args.ts';
+import { req, str } from './args.ts';
 import type { Config, ForgeRequest } from '../types.ts';
 
 const USAGE = 'usage: forge requests [list [--all]|scope|add TYPE [--job ID] [--text T] [--intake run|next|new] [--session S]|claim ID --session S|ack ID]';
@@ -44,6 +44,9 @@ export function requestsCmd(
   }
   if (sub === 'add') {
     const type = req(rest[0], 'type');
+    // Read before enqueue, so a bare --job or --session queues nothing.
+    const jobFlag = str(flags.job, '--job');
+    const session = str(flags.session, '--session') ?? null;
     const args: Record<string, string> = {};
     if (flags.intake !== undefined) {
       if (type !== 'resume') throw new ForgeError('--intake is only for resume requests');
@@ -56,13 +59,12 @@ export function requestsCmd(
     // human decision for another job's session.
     const s = scoped();
     if (s.daemon && type !== 'resume') throw new ForgeError(`a daemon session queues only resume hand-offs (got ${JSON.stringify(type)}); a session following the skill hands off only resume`);
-    const rec = enqueue(root, config, { type, job: flags.job, text: flags.text, args, from: s.daemon ? `daemon:${s.scope}` : 'cli' });
+    const rec = enqueue(root, config, { type, job: jobFlag, text: flags.text, args, from: s.daemon ? `daemon:${s.scope}` : 'cli' });
     if (type !== 'resume') return rec;
     // A hand-off lets go of the claim, so the job's session can take it without --force: when the
     // caller names itself as the owner, or the inbox hands off a job one of its sessions claimed.
     const job = rec.job;
     if (!validJobId(job) || !exists(path.join(paths(root).jobs, job, 'job.json'))) return { ...rec, released: false };
-    const session = typeof flags.session === 'string' && flags.session ? flags.session : null;
     const inbox = s.daemon && s.scope === INBOX_SCOPE ? inboxSessionIds(root) : [];
     const released = releaseJob(root, job, (o) => Boolean(o && ((session !== null && o.session === session) || inbox.includes(o.session))));
     return { ...rec, released };
@@ -78,7 +80,7 @@ export function requestsCmd(
       const where = requestScope(root, rec);
       if (where !== s.scope) throw new ForgeError(`request ${id} belongs to scope ${where}, not this session's scope ${s.scope}`, 1);
     }
-    if (sub === 'claim') return claimRequest(root, id, req(flags.session, '--session'), Boolean(flags.force));
+    if (sub === 'claim') return claimRequest(root, id, req(str(flags.session, '--session'), '--session'), Boolean(flags.force));
     return ackRequest(root, id, { status: flags.status ?? 'done', result: flags.result });
   }
   throw new ForgeError(USAGE);

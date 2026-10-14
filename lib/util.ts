@@ -170,8 +170,12 @@ export function setPath(obj: any, dotted: string, value: any): void {
   o[keys[keys.length - 1]] = value;
 }
 
-/** Interprets CLI values so `--field round=2` stores a number, not "2". */
-export function coerce(v: string): any {
+/**
+ * Interprets CLI values so `--field round=2` stores a number, not "2". A `[`/`{` value that is not
+ * JSON is almost always one whose quotes the shell stripped, so it fails rather than being stored
+ * as a string that crashes `forge job step` later.
+ */
+export function coerce(v: string, key = 'value'): any {
   if (v === 'true') return true;
   if (v === 'false') return false;
   if (v === 'null') return null;
@@ -180,7 +184,11 @@ export function coerce(v: string): any {
     try {
       return JSON.parse(v);
     } catch {
-      return v;
+      const bare = /^\[([^"\[\]{}]*)\]$/.exec(v);
+      const suggestion = bare
+        ? JSON.stringify(bare[1].split(',').map((s) => s.trim()).filter(Boolean))
+        : v.startsWith('[') ? '["a","b"]' : '{"k":"v"}';
+      throw new ForgeError(`--field ${key}: ${JSON.stringify(v.slice(0, 80))} is not valid JSON; quote it for the shell, e.g. --field '${key}=${suggestion}'`);
     }
   }
   return v;
