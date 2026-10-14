@@ -61,6 +61,17 @@ export const runningRoles = (job: JobLike): string[] =>
     .filter(([, a]) => a.status === 'running')
     .map(([role]) => role);
 
+export type AgentsSummary = { kind: 'role'; role: string; title: string } | { kind: 'reviewers' | 'agents'; count: number; title: string };
+
+/** The card footer's running-agents line: the role when one runs, else a count (all reviewers or mixed); the title lists every role. */
+export function agentsSummary(roles: string[]): AgentsSummary | null {
+  if (!roles.length) return null;
+  const title = roles.join(', ');
+  if (roles.length === 1) return { kind: 'role', role: roles[0] as string, title };
+  const reviewers = roles.every((r) => r === 'reviewer' || r.startsWith('reviewer:'));
+  return { kind: reviewers ? 'reviewers' : 'agents', count: roles.length, title };
+}
+
 /** The card's tracker ref: `ref` when the id doesn't start with it, `#ref` for numeric refs, else null. */
 export function cardRef(job: JobLike): string | null {
   const ref = job.source?.ref;

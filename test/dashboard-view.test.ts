@@ -91,6 +91,21 @@ test('chips: state, verdict and PR tones and text', () => {
   assert.deepEqual(V.runningRoles({ agents: { builder: { status: 'running' }, reviewer: { status: 'done' } } } as any), ['builder']);
 });
 
+test('agentsSummary: 0, 1, 2 and 7 agents, reviewers vs mixed roles', () => {
+  assert.equal(V.agentsSummary([]), null);
+  assert.deepEqual(V.agentsSummary(['builder']), { kind: 'role', role: 'builder', title: 'builder' });
+  assert.deepEqual(V.agentsSummary(['reviewer:code']), { kind: 'role', role: 'reviewer:code', title: 'reviewer:code' });
+  assert.deepEqual(V.agentsSummary(['reviewer:code', 'reviewer:tests']), { kind: 'reviewers', count: 2, title: 'reviewer:code, reviewer:tests' });
+  const lenses = ['code', 'tests', 'security', 'docs', 'ui', 'accessibility', 'ux'].map((l) => `reviewer:${l}`);
+  assert.deepEqual(V.agentsSummary(lenses), { kind: 'reviewers', count: 7, title: lenses.join(', ') });
+  assert.deepEqual(V.agentsSummary(['builder', 'reviewer:code']), { kind: 'agents', count: 2, title: 'builder, reviewer:code' });
+  assert.deepEqual(V.agentsSummary(['reviewer', 'reviewer:ux']), { kind: 'reviewers', count: 2, title: 'reviewer, reviewer:ux' }, 'a bare reviewer counts');
+  assert.equal(V.agentsSummary(['reviewers-lead', 'reviewer:ux'])?.kind, 'agents', 'only `reviewer` or `reviewer:<lens>` counts');
+  // Fed from runningRoles, in agents key order.
+  const job: any = { agents: { 'reviewer:ux': { status: 'running' }, builder: { status: 'done' }, 'reviewer:code': { status: 'running' } } };
+  assert.deepEqual(V.agentsSummary(V.runningRoles(job)), { kind: 'reviewers', count: 2, title: 'reviewer:ux, reviewer:code' });
+});
+
 const JOBS: any = [
   { id: 'a', state: 'running', kind: 'feature', stage: 'build' }, { id: 'b', state: 'waiting', waitingOn: 'input', kind: 'feature', stage: 'spec' },
   { id: 'c', state: 'blocked', kind: 'bug', stage: 'verify' }, { id: 'd', state: 'failed', kind: 'feature', stage: 'build' },

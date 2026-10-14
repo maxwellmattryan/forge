@@ -231,3 +231,25 @@ test('segments and nav expose their selected state', () => {
   assert.equal(attr('class'), `{on ? 'active' : ''}`);
   assert.match(nav, /\{@const on = S\.view === v\.id\}/);
 });
+
+test("DepChips and the card's agents line truncate with a full-text title", () => {
+  const chips = read('components/DepChips.svelte');
+  const chip = chips.match(/<span title=\{depChipTitle\(l\)\} class="chip ([^"]*)" onclick=\{\(e\) => open\(e, l\.id\)\}>(.*?)<\/span><\/span>/);
+  assert.ok(chip, 'the chip span carries title={depChipTitle(l)} and opens its own id');
+  const classes = chip[1].split(/\s+/);
+  for (const c of ['max-w-full', 'min-w-0', 'cursor-pointer', 'hover:underline']) assert.ok(classes.includes(c), `chip class has ${c}`);
+  assert.match(chip[2], /^<span class="truncate">\{\$t\('deps\.after', \{ label: depLabel\(l\) \}\)\}$/, 'the label sits in an inner truncate span');
+  assert.match(chips, /e\.stopPropagation\(\);\s*openDrawer\(id\);/, "the chip opens its dependency's drawer, not the card's");
+  assert.doesNotMatch(chips, /depHint/, 'the board chip title comes from depChipTitle');
+
+  const card = read('components/JobCard.svelte');
+  assert.match(card, /agentsSummary\(runningRoles\(j\)\)/);
+  const line = card.match(/\{#if agents\}<span class="([^"]*)" title=\{agents\.title\}>(.*?)<\/span><\/span>\{\/if\}/);
+  assert.ok(line, 'one element with title={agents.title}');
+  for (const c of ['min-w-0', 'max-w-full']) assert.ok(line[1].split(/\s+/).includes(c), `agents line has ${c}`);
+  assert.match(line[2], /^<span class="dot ink[^"]*"><\/span><span class="truncate">/, 'the dot, then a truncate text span');
+  assert.match(line[2], /\{#if agents\.kind === 'role'\}\{agents\.role\}/);
+  assert.match(line[2], /\$t\('job\.runningReviewers', \{ count: agents\.count \}\)/);
+  assert.match(line[2], /\$t\('job\.runningAgents', \{ count: agents\.count \}\)/);
+  assert.doesNotMatch(card, /running\.join\(/);
+});
