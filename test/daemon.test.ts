@@ -13,7 +13,7 @@ import { budgetCmd } from '../lib/budget.ts';
 import { createJob, setJob, updateJob } from '../lib/jobs.ts';
 import { PLUGIN_ROOT } from '../lib/paths.ts';
 import { INBOX_SCOPE, SCOPE_ENV, ackRequest, claimRequest, enqueue, listRequests, requestScope, validScope } from '../lib/requests.ts';
-import { DENY_TOOLS, GIT_PINS, PERMISSION_DENIED, PROMPT_TOOL, TRUST_CHANGED, TURN, TURN_LINE, apiKeyVars, buildArgv, heldByBudget, parseTemplate, reapOrphans, sessionEnv } from '../lib/daemon.ts';
+import { DENY_TOOLS, GIT_PINS, PERMISSION_DENIED, PROMPT_TOOL, TRUST_CHANGED, TURN, TURN_LINE, apiKeyVars, buildArgv, heldByBudget, parseTemplate, reapOrphans, sessionEnv, PROMPT_INPUT_CHARS, sessionGrant } from '../lib/daemon.ts';
 import { createPool } from '../lib/daemon-pool.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
@@ -297,6 +297,43 @@ test('permission prompts past the cap are denied without asking', async () => {
     await d.close();
     repo.cleanup();
   }
+});
+
+test('a prompt is never shown cut short: an input too long to show whole, or an unusable tool name, is denied unasked', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit);
+  try {
+    d.start();
+    const c = kit.last(INBOX);
+    const ask = (request_id, tool_name, input) => c.line({ type: 'control_request', request_id, request: { subtype: 'can_use_tool', tool_name, input } });
+    ask('big', 'Bash', { command: 'echo ' + 'x'.repeat(PROMPT_INPUT_CHARS) });
+    ask('noname', 7, { command: 'echo hi' });
+    ask('longname', 'B'.repeat(201), { command: 'echo hi' });
+    ask('fits', 'Bash', { command: 'echo ' + 'y'.repeat(PROMPT_INPUT_CHARS - 20) });
+    await waitFor(() => c.written.includes('"longname"'), 2000, 'the unusable name answered');
+    assert.ok(c.written.includes('"big"') && c.written.includes('"noname"'), 'the long input and the missing name are answered');
+    assert.equal(c.written.split(JSON.stringify(PERMISSION_DENIED)).length - 1, 3, 'all three are denied');
+    const shown = d.state().inbox.permissions;
+    assert.equal(shown.length, 1, 'only the call that can be shown whole waits for a human');
+    assert.equal(shown[0].input, JSON.stringify({ command: 'echo ' + 'y'.repeat(PROMPT_INPUT_CHARS - 20) }), 'and it is shown in full');
+    const log = d.recent(INBOX).map((x) => x.line).join('\n');
+    for (const reason of ['too-large', 'unusable-tool-name']) assert.ok(log.includes(`"reason":"${reason}"`), reason);
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('a session grant never widens a tool to its every call', () => {
+  const rules = (list) => sessionGrant([{ type: 'addRules', behavior: 'allow', destination: 'session', rules: list }]).rules;
+  assert.deepEqual(rules([{ toolName: 'Bash', ruleContent: 'cp:*' }, { toolName: 'WebFetch', ruleContent: 'domain:example.com' }]), [
+    { toolName: 'Bash', ruleContent: 'cp:*' },
+    { toolName: 'WebFetch', ruleContent: 'domain:example.com' },
+  ]);
+  assert.deepEqual(rules([{ toolName: 'Bash' }, { toolName: 'Edit' }]), [], 'a bare tool rule allows every call: dropped');
+  assert.deepEqual(rules([{ toolName: 'Bash', ruleContent: '*' }, { toolName: 'Bash', ruleContent: ':*' }, { toolName: 'Bash', ruleContent: '**' }, { toolName: 'Bash', ruleContent: ' ' }, { toolName: 'Bash', ruleContent: '' }]), [], 'so does a wildcard-only pattern');
+  assert.deepEqual(sessionGrant([{ type: 'addRules', behavior: 'deny', destination: 'session', rules: [{ toolName: 'Bash', ruleContent: 'rm:*' }] }, { type: 'setMode', mode: 'bypassPermissions' }]).rules, [], 'deny rules and mode changes are never forwarded');
 });
 
 test('AC6: idle/busy state machine and edge-triggered turns', async () => {

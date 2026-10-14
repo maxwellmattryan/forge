@@ -172,7 +172,11 @@ export const PERMISSION_DENIED =
   'A human denied this tool call from the Forge dashboard. Do not retry it or work around it with another tool: continue without it, or record what you needed and why in your output file.';
 /** Prompts waiting at once per session; past this, new ones are denied without asking. */
 const MAX_PROMPTS = 20;
-const PROMPT_INPUT_CHARS = 4000;
+/**
+ * The longest tool input a prompt shows. It is never truncated: what the human reads is exactly
+ * what an allow runs, so a longer input is denied without asking.
+ */
+export const PROMPT_INPUT_CHARS = 4000;
 const PROMPT_TEXT_CHARS = 500;
 const PROMPT_PATH_CHARS = 1000;
 
@@ -189,6 +193,8 @@ export interface SessionGrant {
  * The parts of claude's `permission_suggestions` the supervisor may grant: allow rules and extra
  * directories, always for this session only. A suggestion to save rules to a settings file or to
  * change the permission mode is dropped, because either outlives the human's view of this call.
+ * So is a rule that would allow a tool's every call (a bare tool name, or a wildcard-only pattern):
+ * the human saw one call, and a grant that wide is a config change, not an answer to it.
  */
 export function sessionGrant(suggestions: unknown): SessionGrant {
   const rules: SessionGrant['rules'] = [];
@@ -198,8 +204,8 @@ export function sessionGrant(suggestions: unknown): SessionGrant {
     if (sug.type === 'addRules' && sug.behavior === 'allow' && Array.isArray(sug.rules)) {
       for (const r of sug.rules.slice(0, 20).map(record)) {
         if (typeof r.toolName !== 'string' || !r.toolName || r.toolName.length > 200) continue;
-        if (r.ruleContent !== undefined && (typeof r.ruleContent !== 'string' || r.ruleContent.length > PROMPT_INPUT_CHARS)) continue;
-        rules.push(typeof r.ruleContent === 'string' ? { toolName: r.toolName, ruleContent: r.ruleContent } : { toolName: r.toolName });
+        if (typeof r.ruleContent !== 'string' || r.ruleContent.length > PROMPT_INPUT_CHARS || WILDCARD_RULE.test(r.ruleContent)) continue;
+        rules.push({ toolName: r.toolName, ruleContent: r.ruleContent });
       }
     } else if (sug.type === 'addDirectories' && Array.isArray(sug.directories)) {
       for (const d of sug.directories.slice(0, 20)) if (typeof d === 'string' && path.isAbsolute(d) && d.length <= PROMPT_PATH_CHARS) dirs.push(d);
@@ -207,6 +213,9 @@ export function sessionGrant(suggestions: unknown): SessionGrant {
   }
   return { rules, dirs };
 }
+
+/** A rule content that matches everything: only `*`, `:` and whitespace (`*`, `:*`, `**`). */
+const WILDCARD_RULE = /^[\s*:]*$/;
 
 /** A rule as claude's settings write it: `Bash(npm test)`, or a bare tool name. */
 export function ruleText(r: { toolName: string; ruleContent?: string }): string {
@@ -685,20 +694,26 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     }
     const tool = cap(req.tool_name, 200) ?? 'unknown';
     const input = record(req.input);
-    if (prompts.size >= MAX_PROMPTS) {
-      logEvent('permission', { tool, decision: 'deny', reason: 'too-many' });
-      return writeControl(proc, permissionResponse(requestId, 'deny', input, { rules: [], dirs: [] }));
-    }
-    const grant = sessionGrant(req.permission_suggestions);
-    let json = '';
+    const deny = (reason: string) => {
+      logEvent('permission', { tool, decision: 'deny', reason });
+      writeControl(proc, permissionResponse(requestId, 'deny', input, { rules: [], dirs: [] }));
+    };
+    if (prompts.size >= MAX_PROMPTS) return deny('too-many');
+    let json: string | undefined;
     try {
       json = JSON.stringify(input);
     } catch {}
+    // The dashboard must show the whole input, because an allow runs all of it: a call it can't show
+    // whole is refused rather than shown cut short, and so is one whose tool name was cut.
+    if (typeof json !== 'string') return deny('unserialisable-input');
+    if (json.length > PROMPT_INPUT_CHARS) return deny('too-large');
+    if (tool === 'unknown' || tool.endsWith('…')) return deny('unusable-tool-name');
+    const grant = sessionGrant(req.permission_suggestions);
     const id = crypto.randomUUID();
     const prompt: DaemonPermissionPrompt = {
       id,
       tool,
-      input: cap(json, PROMPT_INPUT_CHARS) ?? '{}',
+      input: json,
       description: cap(req.description, PROMPT_TEXT_CHARS),
       agentId: cap(req.agent_id, 64),
       blockedPath: cap(req.blocked_path, PROMPT_PATH_CHARS),
