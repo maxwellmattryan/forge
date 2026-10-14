@@ -20,7 +20,8 @@
 
 <button class="sheet ticks clickable {needsHuman(j) ? 'redline' : ''} w-full text-left p-3 pb-2.5 flex flex-col gap-2" onclick={() => openDrawer(j.id)}>
   <span class="tk"></span>
-  <div class="flex items-start justify-between gap-2"><span class="h card flex-1 min-w-0 line-clamp-2">{j.title}</span><StateChip job={j} /></div>
+  <!-- Wraps so a long `REV · <state>` tag drops under the title instead of squeezing it in a 276px column. -->
+  <div class="flex flex-wrap items-start justify-between gap-x-2 gap-y-1.5"><span class="h card flex-1 min-w-32 line-clamp-2">{j.title}</span><StateChip job={j} /></div>
   <div class="mono muted text-[11px] flex flex-wrap items-center gap-1.5">{#if ref !== null}<span>{ref}</span>·{/if}<span class="truncate max-w-40">{j.id}</span></div>
   <DepChips job={j} />
   <ProgressBar progress={j.progress} />
