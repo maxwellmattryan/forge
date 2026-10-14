@@ -107,6 +107,9 @@
     "a": "A",
     "b": "B"
   },
+  "dock": {
+    "label": "Your move"
+  },
   "drawer": {
     "close": "Close",
     "branch": "Branch",
@@ -480,7 +483,6 @@
   },
   "thread": {
     "conversation": "Conversation",
-    "composer": "Your move",
     "you": "You",
     "cli": "CLI",
     "forge": "Forge",
@@ -489,7 +491,6 @@
     "done": "done",
     "rejected": "rejected",
     "empty": "Requests about this job and the session's replies appear here.",
-    "nothing": "Nothing needs you on this job right now.",
     "tracker": "Tracker",
     "action": {
       "request": "New job",
