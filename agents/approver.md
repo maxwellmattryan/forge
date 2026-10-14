@@ -51,4 +51,5 @@ The pull request body. Concise, for a human reviewer:
 ```
 
 ## Finish
+Write output files with the Write or Edit tool, never a shell redirect or heredoc, and confirm each exists before you reply.
 Reply with one line: `DECISION: APPROVE|ESCALATE · risk <level> · auto-merge yes|no`.

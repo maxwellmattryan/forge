@@ -44,5 +44,6 @@ Acceptance criteria:
 Every round ends with this table: one row per spec AC, its proof (the test, command, manual step or screenshot the spec names), and `pass` only when that proof ran green this round. `forge job acs <job>` shows unmapped or failing ACs.
 
 ## Finish
+Write output files with the Write or Edit tool, never a shell redirect or heredoc, and confirm each exists before you reply.
 Reply in at most 4 lines: `BUILD: done · <n> commits · tasks <done>/<total> · tests pass|fail`, then one line on anything reviewers must know.
 If you cannot proceed without a human decision, write numbered questions to `questions.md` and reply `NEEDS-INPUT`. If only a human can perform required infra steps and the code is otherwise done, finish the runbook and reply `BUILD: done · … · runbook yes`.
