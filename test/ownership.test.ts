@@ -400,7 +400,7 @@ test('owner status agrees with what a claim would do', () => {
   const ago = (m: number) => new Date(at - m * 60 * 1000).toISOString();
   const owner = (heartbeat: string) => ({ session: 'A', host: 'h', since: ago(90), heartbeat });
   assert.equal(ownerStatus({ owner: null, agents: {} }, at).status, 'none');
-  assert.deepEqual(ownerStatus({ owner: owner(ago(5)), agents: {} }, at), { status: 'live', session: 'A', since: ago(90), heartbeat: ago(5), agentRunning: false, reason: null });
+  assert.deepEqual(ownerStatus({ owner: owner(ago(5)), agents: {} }, at), { status: 'live', session: 'A', since: ago(90), heartbeat: ago(5), agentRunning: false, reason: null, jobSession: false });
   const agent = ownerStatus({ owner: owner(ago(45)), agents: { builder: { runs: 1, status: 'running', startedAt: ago(60) } } } as any, at);
   assert.deepEqual([agent.status, agent.agentRunning], ['live', true]);
   assert.equal(ownerStatus({ owner: owner(ago(45)), agents: { builder: { runs: 1, status: 'running', startedAt: ago(150) } } } as any, at).status, 'stale', 'an agent running past 2 h no longer counts');
@@ -453,8 +453,63 @@ test('owner status agrees with what a claim would do', () => {
         claimed = false;
       }
       assert.equal(claimed, st.status !== 'live', `${what}: a claim succeeds exactly when the owner is not live`);
+      assert.equal(st.jobSession, false, `${what}: not the job's own session`);
     }
+
+    // A live owner that is the job's own running daemon session: still live (a claim by anyone else
+    // is refused), but a resume reaches it, so it is marked.
+    fs.rmSync(daemonsDir(root), { recursive: true, force: true });
+    const own = createJob(root, config, { title: 'own session' }).id;
+    const sid = uuid();
+    claimJob(root, own, sid);
+    writeRecord(root, own, { sessionId: sid, spawnSessionId: sid, pid: process.pid });
+    const live = { env: jobSessionEnv(own), isLive: () => true };
+    assert.deepEqual([ownerStatusWithProof(root, loadJob(root, own), live).status, ownerStatusWithProof(root, loadJob(root, own), live).jobSession], ['live', true]);
+    assert.throws(() => claimJob(root, own, uuid(), false, { yields: () => null }), (e: any) => e.exitCode === 3);
+    assert.equal(claimJob(root, own, sid, false, daemonClaimOpts(root, own, jobSessionEnv(own))).owner!.session, sid, 'the job session reclaims as itself');
+    // The same session recorded under another job's scope is not this job's session.
+    fs.rmSync(daemonsDir(root), { recursive: true, force: true });
+    writeRecord(root, 'other-job', { sessionId: sid, spawnSessionId: sid, pid: process.pid });
+    assert.equal(ownerStatusWithProof(root, loadJob(root, own), live).jobSession, false);
+    assert.equal(ownerStatus(loadJob(root, own)).jobSession, false, 'the time rule never proves it');
   } finally {
     repo.cleanup();
+  }
+});
+
+test('next --claim breaks createdAt ties by id and reports blocked items with a resume', () => {
+  const s = scratch();
+  try {
+    const b = s.newJob('b-job');
+    const a = s.newJob('a-job');
+    for (const q of [a, b]) s.plant(q, (j) => (j.createdAt = '2026-01-01T00:00:00.000Z'));
+    // A tracker item whose job waits on dependencies shows up as blocked, next to the resume.
+    s.newJob('blocker');
+    s.f('job', 'set', 'blocker', '--state', 'running');
+    const waits = s.newJob('waits');
+    s.f('job', 'set', waits, '--field', 'dependsOn=["blocker"]');
+    s.f('tracker', 'create', '--title', 'Waits');
+    const first = s.f('next', '--claim', '--session', 'S');
+    assert.equal(first.id, a, 'same createdAt: the smaller id wins');
+    assert.equal(first.resumed, true);
+    assert.deepEqual(first.blocked, [{ ref: 'waits', id: waits, waitingOn: ['blocker'] }]);
+    assert.equal(s.f('next', '--claim', '--session', 'S').id, b);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('next --claim resumes a job whose daemon owner has exited, though its heartbeat is fresh', () => {
+  const s = scratch();
+  try {
+    const q = s.newJob('q');
+    const gone = uuid();
+    s.f('job', 'claim', q, '--session', gone);
+    writeRecord(s.root, q, { sessionId: gone, spawnSessionId: gone, pid: deadPid() });
+    const next = s.f('next', '--claim', '--session', 'S');
+    assert.deepEqual([next.id, next.resumed], [q, true]);
+    assert.equal(s.job(q).owner.session, 'S');
+  } finally {
+    s.cleanup();
   }
 });

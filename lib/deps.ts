@@ -93,8 +93,9 @@ export function refreshDependencyWait(root: string, id: string): { unmet: UnmetD
     const reason = DEP_REASON + describe(unmet);
     // Parking releases the owner: nobody drives a parked job. A rewrite keeps it, so a --force
     // claim on a parked job survives sync.
-    if (!parked) setJob(root, id, { state: 'waiting', waitingOn: 'external', reason, release: true });
-    else if (job.reason !== reason) setJob(root, id, { state: 'waiting', waitingOn: 'external', reason });
+    const wait = { state: 'waiting', waitingOn: 'external', reason };
+    if (!parked) setJob(root, id, { ...wait, release: true });
+    else if (job.reason !== reason) setJob(root, id, wait);
     return { unmet, parked: true, released: false };
   }
   if (!unmet.length && parked) {

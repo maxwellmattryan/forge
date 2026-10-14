@@ -82,6 +82,7 @@ export interface ResumeModel {
  * Resume is for an open, non-eval job nobody is driving: queued or failed, or any non-waiting job
  * whose owner is stale or provably gone (waiting jobs keep their gate buttons). A live owner
  * disables it, since the job's session would refuse the claim; the server refuses it too (409).
+ * The exception is a live owner that is the job's own daemon session, which takes the resume itself.
  */
 export function resumeModel(j: Pick<JobLike, 'state' | 'kind'> & { ownerStatus?: OwnerStatus | null }): ResumeModel {
   const status = j.ownerStatus?.status ?? 'none';
@@ -89,6 +90,8 @@ export function resumeModel(j: Pick<JobLike, 'state' | 'kind'> & { ownerStatus?:
   if (j.kind === 'eval' || j.state === 'done' || j.state === 'cancelled' || j.state === 'waiting') return hidden;
   const idle = status === 'stale' || status === 'dead';
   if (!(j.state === 'queued' || j.state === 'failed' || idle)) return hidden;
+  // The job's own daemon session takes the resume itself, so its live claim doesn't block it.
+  if (status === 'live' && j.ownerStatus?.jobSession) return { show: true, enabled: true, note: null };
   const note = status === 'live' ? (j.ownerStatus?.agentRunning ? 'agent' : 'live') : status === 'stale' ? 'stale' : status === 'dead' ? 'gone' : null;
   return { show: true, enabled: status !== 'live', note };
 }

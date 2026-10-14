@@ -61,7 +61,8 @@ export function jobSessionEnv(jobId: string): NodeJS.ProcessEnv {
 /**
  * ownerStatus plus the daemon-record proofs: a live-looking owner that ownerYield shows has let
  * go is `dead`, so it agrees with what claimJob would do with daemonClaimOpts and the same env.
- * Spawns `ps` only for a live-looking owner in a session record.
+ * A live owner that is this job's own running daemon session sets `jobSession`. Spawns `ps` only
+ * for a live-looking owner in a session record.
  */
 export function ownerStatusWithProof(
   root: string,
@@ -71,7 +72,21 @@ export function ownerStatusWithProof(
   const s = ownerStatus(job);
   if (s.status !== 'live') return s;
   const reason = ownerYield(root, job.id, job.owner, opts);
-  return reason ? { ...s, status: 'dead', reason } : s;
+  if (reason) return { ...s, status: 'dead', reason };
+  return { ...s, jobSession: ownedByJobSession(root, job.id, job.owner?.session, opts.isLive ?? recordedChildLive) };
+}
+
+/**
+ * The owner is the current session of this job's own daemon record, and its child runs. A resume
+ * routed to the job reaches exactly that session, which then claims as itself (claimJob lets an
+ * owner reclaim), so it is not held from it.
+ */
+function ownedByJobSession(root: string, jobId: string, sid: string | undefined, isLive: (info: any) => boolean): boolean {
+  if (typeof sid !== 'string' || !UUID.test(sid) || jobId === INBOX_SCOPE) return false;
+  const rec = sessionRecords(root).find((r) => r.scope === jobId);
+  if (!rec) return false;
+  const info = readInfo(rec.info);
+  return info.sessionId === sid && isLive(info);
 }
 
 /** The claimJob options every command-layer claim passes. */

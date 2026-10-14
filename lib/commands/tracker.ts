@@ -95,10 +95,13 @@ export async function nextCmd(root: string, config: Config, flags: Record<string
   const resumed = session ? resumeQueued(root, session) : null;
   if (resumed) {
     let blocked: { ref: string; id: string; waitingOn: string[] }[] = [];
-    // The job is already claimed, so a tracker hiccup only costs the `blocked` report.
+    // The job is already claimed, so a tracker hiccup only costs the `blocked` report; it is
+    // recorded on the job, as mirrorToTracker records its own.
     try {
       blocked = readyItems(root, config, await loadTracker(root, config), flags).blocked;
-    } catch {}
+    } catch (e) {
+      logEvent(root, resumed.id, 'tracker-error', { error: (e as Error).message.slice(0, 300) });
+    }
     return { id: resumed.id, ref: resumed.source?.ref ?? null, title: resumed.title, branch: resumed.branch, stage: resumed.stage, state: resumed.state, resumed: true, ...(blocked.length ? { blocked } : {}) };
   }
   const tracker = await loadTracker(root, config);

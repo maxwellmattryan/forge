@@ -104,6 +104,12 @@ export interface OwnerStatus {
   agentRunning: boolean;
   /** Set only with status `dead`. */
   reason: YieldReason | null;
+  /**
+   * The owner is this job's own daemon session, recorded and running: a `resume` reaches that
+   * session, which claims as itself, so a live owner doesn't block it. Proven only in the job
+   * detail and the resume guard; false in /api/state.
+   */
+  jobSession: boolean;
 }
 
 /** One orchestrator session's stint on a job: claimJob/releaseJob in lib/jobs.ts. */

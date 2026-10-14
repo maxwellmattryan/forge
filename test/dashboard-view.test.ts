@@ -300,4 +300,6 @@ test('resumeModel', () => {
   assert.deepEqual(m('queued', os('none'), 'eval'), hidden, 'eval jobs');
   assert.deepEqual(m('queued', undefined), show(true, null), 'a missing ownerStatus counts as none');
   assert.deepEqual(m('failed', null), show(true, null));
+  assert.deepEqual(m('queued', { ...os('live'), jobSession: true }), show(true, null), "the job's own daemon session takes the resume");
+  assert.deepEqual(m('running', { ...os('live'), jobSession: true }), hidden, 'running with a live owner stays hidden');
 });

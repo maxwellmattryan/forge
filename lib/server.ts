@@ -158,7 +158,8 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       const m = p.match(/^\/api\/jobs\/([A-Za-z0-9._-]+)(\/file|\/raw)?$/);
       if (req.method === 'GET' && m) {
         const id = m[1];
-        if (!m[2]) return json(res, jobDetail(root, id));
+        // The detail's owner proof can spawn `ps`, so other sites may not trigger it (as for the log routes).
+        if (!m[2]) return readGuard(req, res) ? undefined : json(res, jobDetail(root, id));
         const rel = url.searchParams.get('path') ?? '';
         const file = safeJoin(jobDir(root, id), rel);
         if (file && m[2] === '/file' && IMAGE_TYPES[path.extname(file).toLowerCase()]) return sendImage(res, jobDir(root, id), file);
@@ -401,7 +402,7 @@ function resumeHeld(root: string, body: Record<string, any>): string | null {
     return null;
   }
   const o = ownerStatusWithProof(root, job, { env: jobSessionEnv(job.id) });
-  if (o.status !== 'live') return null;
+  if (o.status !== 'live' || o.jobSession) return null;
   const held = o.agentRunning ? `claimed ${o.since}; an agent is still running` : `claimed ${o.since}, last active ${o.heartbeat}`;
   return `job ${job.id} is held by session ${o.session} (${held}); resume it from that session or wait until it stops`;
 }

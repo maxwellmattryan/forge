@@ -7,7 +7,7 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { broadcast, distAllowlist, startServer } from '../lib/server.ts';
 import { TURN_LINE } from '../lib/daemon.ts';
@@ -1249,7 +1249,7 @@ test('owner status in /api/state and job detail', async () => {
     assert.equal(st.apiVersion, 12);
     const byId = Object.fromEntries(st.jobs.map((j) => [j.id, j.ownerStatus]));
     assert.deepEqual(Object.fromEntries(Object.entries(byId).map(([k, v]: [string, any]) => [k, v.status])), { 'j-none': 'none', 'j-live': 'live', 'j-agent': 'live', 'j-stale': 'stale', 'j-dead': 'live' }, 'the time rule only: never dead');
-    assert.deepEqual(byId['j-none'], { status: 'none', session: null, since: null, heartbeat: null, agentRunning: false, reason: null });
+    assert.deepEqual(byId['j-none'], { status: 'none', session: null, since: null, heartbeat: null, agentRunning: false, reason: null, jobSession: false });
     assert.equal(byId['j-agent'].agentRunning, true);
     assert.equal(byId['j-live'].session, 'sess-live');
     const detail = (id) => hit(port, { path: `/api/jobs/${id}` }).then((r) => JSON.parse(r.text).job.ownerStatus);
@@ -1328,6 +1328,42 @@ test("resume text never reaches a daemon session's stdin, argv or env", async ()
       assert.ok(!exposed.includes(marker), `${c.scope}: the marker reached argv or env`);
     }
   } finally {
+    await close();
+    repo.cleanup();
+  }
+});
+
+test("a resume reaches the job's own live daemon session", { skip: process.platform === 'win32' && 'POSIX-only' }, async () => {
+  const repo = tempRepo();
+  const sid = '3c2b1a09-8f7e-4d6c-9b5a-4f3e2d1c0b9a';
+  ownedJob(repo.dir, 'j-own', { session: sid, minutes: 1 });
+  ownedJob(repo.dir, 'j-other', { session: sid, minutes: 1 });
+  // A provably live child: the recorded claude executable running with the recorded session id.
+  const child = spawn(FAKE_CLAUDE, ['--session-id', sid], { detached: true, stdio: ['pipe', 'ignore', 'ignore'] });
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const port = Number(new URL(url).port);
+  try {
+    await new Promise((r) => setTimeout(r, 200));
+    const d = path.join(repo.dir, '.forge', 'runtime', 'daemons');
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, 'j-own.json'), JSON.stringify({ resumable: true, serverPid: process.pid, argv0: FAKE_CLAUDE, startedAt: new Date().toISOString(), sessionId: sid, spawnSessionId: sid, pid: child.pid }));
+    const own = JSON.parse((await hit(port, { path: '/api/jobs/j-own' })).text).job.ownerStatus;
+    assert.deepEqual([own.status, own.jobSession], ['live', true]);
+    const st = JSON.parse((await hit(port, { path: '/api/state' })).text).jobs.find((j) => j.id === 'j-own').ownerStatus;
+    assert.equal(st.jobSession, false, '/api/state never runs the proof');
+    const r = await postJson(port, '/api/requests', { type: 'resume', job: 'j-own', text: null, args: {} });
+    assert.equal(r.status, 200, r.text);
+    // The same session owning another job is that job's live foreign owner.
+    const other = await postJson(port, '/api/requests', { type: 'resume', job: 'j-other', text: null, args: {} });
+    assert.equal(other.status, 409, other.text);
+    assert.equal(JSON.parse((await hit(port, { path: '/api/jobs/j-other' })).text).job.ownerStatus.jobSession, false);
+    // The detail runs `ps`, so other sites may not request it.
+    assert.equal((await hit(port, { path: '/api/jobs/j-own', headers: { 'sec-fetch-site': 'cross-site' } })).status, 403);
+    assert.equal((await hit(port, { path: '/api/jobs/j-own', headers: { origin: 'http://evil.example' } })).status, 403);
+  } finally {
+    try {
+      process.kill(-child.pid!, 'SIGKILL');
+    } catch {}
     await close();
     repo.cleanup();
   }

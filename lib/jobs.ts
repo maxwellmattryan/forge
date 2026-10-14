@@ -77,10 +77,10 @@ export function touchJob(root: string, id: string, session?: string): boolean {
  */
 export function ownerStatus(job: Pick<Job, 'owner' | 'agents'>, at = Date.now()): OwnerStatus {
   const o = job.owner;
-  if (!o) return { status: 'none', session: null, since: null, heartbeat: null, agentRunning: false, reason: null };
+  if (!o) return { status: 'none', session: null, since: null, heartbeat: null, agentRunning: false, reason: null, jobSession: false };
   const heartbeatFresh = at - Date.parse(o.heartbeat ?? o.since) < OWNER_STALE_MS;
   const agentRunning = Object.values(job.agents ?? {}).some((a: JobAgent) => a.status === 'running' && Boolean(a.startedAt) && at - Date.parse(a.startedAt!) < RUNNING_AGENT_MAX_MS);
-  return { status: heartbeatFresh || agentRunning ? 'live' : 'stale', session: o.session, since: o.since ?? null, heartbeat: o.heartbeat ?? null, agentRunning, reason: null };
+  return { status: heartbeatFresh || agentRunning ? 'live' : 'stale', session: o.session, since: o.since ?? null, heartbeat: o.heartbeat ?? null, agentRunning, reason: null, jobSession: false };
 }
 
 export function logEvent(root: string, id: string, type: string, data: Record<string, any> = {}): void {
