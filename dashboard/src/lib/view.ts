@@ -1,8 +1,7 @@
 // The dashboard's view logic, ported as-is from the pre-Svelte app.js so node:test can pin it: components hold only markup.
 // Plain functions and constants, no DOM access.
-import { STAGES } from './types.ts';
-import type { EvalCompare, Job, JobEvent, JobPr, OwnerStatus, Progress, RequestType, StateJob, WaitingOn } from './types.ts';
-import { WAIT_LABEL } from './labels.ts';
+import type { EvalCompare, Job, JobEvent, JobPr, OwnerStatus, Progress, RequestType, Stage, StateJob, WaitingOn } from './types.ts';
+import { PARK_LABEL, STAGE_LABEL, WAIT_LABEL } from './labels.ts';
 
 /** job.json can be hand-edited, so helpers read fields defensively despite the types. */
 type JobLike = Partial<Job> & { progress?: Progress };
@@ -10,8 +9,6 @@ type Tone = 'ok' | 'bad' | 'warn' | 'info' | 'muted' | 'live' | 'rev';
 
 const obj = (v: unknown): Record<string, any> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : {});
 const s = (v: unknown): string => String(v ?? '');
-
-export const CORE_STAGES = new Set(['backlog', 'spec', 'build', 'review', 'pr', 'done']);
 
 // Labels come from messages/en.json (nav.<id>), through Nav.svelte.
 export const VIEWS = [
@@ -33,7 +30,8 @@ export function stateTone(job: JobLike): Tone {
   if (job.state === 'done') return 'ok';
   if (job.state === 'failed') return 'bad';
   if (job.state === 'cancelled') return 'muted';
-  // Every wait but pr-review needs a human (needsHuman), which the Drafting system marks in redline.
+  if (isDependencyPark(job)) return 'muted';
+  // Every other wait but pr-review needs a human (needsHuman), which the Drafting system marks in redline.
   if (job.state === 'waiting') return job.waitingOn === 'pr-review' ? 'info' : 'rev';
   if (job.state === 'blocked') return 'bad';
   if (job.state === 'running') return 'live';
@@ -41,7 +39,7 @@ export function stateTone(job: JobLike): Tone {
 }
 
 export const stateText = (job: JobLike): string =>
-  s(job.state === 'waiting' ? (WAIT_LABEL[job.waitingOn as WaitingOn] ?? job.waitingOn) : job.state);
+  isDependencyPark(job) ? PARK_LABEL : s(job.state === 'waiting' ? (WAIT_LABEL[job.waitingOn as WaitingOn] ?? job.waitingOn) : job.state);
 
 export const verdictTone = (v: string | null | undefined): Tone => (v === 'PASS' ? 'ok' : v === 'CHANGES' ? 'bad' : v === 'MALFORMED' ? 'warn' : 'muted');
 
@@ -72,16 +70,25 @@ export function agentsSummary(roles: string[]): AgentsSummary | null {
   return { kind: reviewers ? 'reviewers' : 'agents', count: roles.length, title };
 }
 
-/** The card's tracker ref: `ref` when the id doesn't start with it, `#ref` for numeric refs, else null. */
+/**
+ * The card's tracker ref: `#n` for a numeric ref, a non-numeric ref the id doesn't start with as-is (`ENG-4`), else
+ * null. A local slug ref whose id is `<slug>-<suffix>` would only print a near-copy of the id.
+ */
 export function cardRef(job: JobLike): string | null {
-  const ref = job.source?.ref;
-  if (ref && !s(job.id).startsWith(String(ref))) return String(ref);
-  if (/^\d+$/.test(String(ref ?? ''))) return `#${ref}`;
+  const ref = s(job.source?.ref);
+  if (/^\d+$/.test(ref)) return `#${ref}`;
+  if (ref && !s(job.id).startsWith(ref)) return ref;
   return null;
 }
 
-/** A waiting job a human must act on (pr-review waits are listed separately). */
-export const needsHuman = (j: JobLike): boolean => j.state === 'waiting' && j.waitingOn !== 'pr-review';
+/** lib/deps.ts DEP_REASON; test/dashboard-view.test.ts pins the two equal. */
+export const DEP_PARK_PREFIX = 'dependencies not done: ';
+
+/** A job the engine parked until its dependencies finish: it resumes by itself, so no human is needed. */
+export const isDependencyPark = (j: JobLike): boolean => j.state === 'waiting' && j.waitingOn === 'external' && s(j.reason).startsWith(DEP_PARK_PREFIX);
+
+/** A waiting job a human must act on (pr-review waits are listed separately; dependency parks wait on other jobs). */
+export const needsHuman = (j: JobLike): boolean => j.state === 'waiting' && j.waitingOn !== 'pr-review' && !isDependencyPark(j);
 
 /** The drawer's Resume: shown, whether it can be clicked, and which owner note goes beside it. */
 export interface ResumeModel {
@@ -130,7 +137,99 @@ export function pipelineCounts(jobs: JobLike[]): { all: number; active: number; 
   };
 }
 
-export const boardStages = (jobs: JobLike[]): string[] => STAGES.filter((st) => CORE_STAGES.has(st) || jobs.some((j) => j.stage === st));
+// ---------- board ----------
+
+export const BOARD_GROUPS = [
+  { id: 'queued', stages: ['backlog'] },
+  { id: 'plan', stages: ['plan', 'spec', 'design'] },
+  { id: 'build', stages: ['build', 'verify', 'review'] },
+  { id: 'ship', stages: ['decide', 'integrate', 'pr'] },
+  { id: 'done', stages: ['done'] },
+] as const;
+export type BoardGroupId = (typeof BOARD_GROUPS)[number]['id'];
+/** The stepper's 9 stages: plan…pr, i.e. the plan, build and ship groups. */
+export const STEPPER_STAGES: Stage[] = BOARD_GROUPS.slice(1, 4).flatMap((g) => [...g.stages]);
+
+/** The board column a job sits in. A finished job left in an earlier stage still lands in Done, and a stage no group
+ *  knows (a hand-edited job.json) lands in Queued so the job is never invisible. */
+export function boardGroup(j: JobLike): BoardGroupId {
+  if (j.state === 'cancelled' || j.state === 'done' || j.stage === 'done') return 'done';
+  return BOARD_GROUPS.find((g) => (g.stages as readonly string[]).includes(s(j.stage)))?.id ?? 'queued';
+}
+
+/** Urgency: 0 needs you, failed or blocked; 1 running; 2 PR review; 3 queued and other waits (dependency parks); 4 finished. */
+export function boardRank(j: JobLike): 0 | 1 | 2 | 3 | 4 {
+  if (needsHuman(j) || j.state === 'failed' || j.state === 'blocked') return 0;
+  if (j.state === 'running') return 1;
+  if (j.state === 'waiting' && j.waitingOn === 'pr-review') return 2;
+  if (j.state === 'done' || j.state === 'cancelled') return 4;
+  return 3;
+}
+
+/** A new array by urgency, then newest updatedAt (a missing or invalid date last), then id ascending. */
+export function sortByRank<T extends JobLike>(jobs: T[]): T[] {
+  const time = (j: T) => {
+    const ms = Date.parse(s(j.updatedAt));
+    return Number.isNaN(ms) ? -Infinity : ms;
+  };
+  return jobs
+    .map((j) => ({ j, rank: boardRank(j), at: time(j), id: s(j.id) }))
+    .sort((a, b) => a.rank - b.rank || (a.at === b.at ? 0 : b.at > a.at ? 1 : -1) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((x) => x.j);
+}
+
+/** Queued, Plan, Build and Ship always; Done only when it holds a job. Each column is sorted by urgency. */
+export function boardColumns<T extends JobLike>(jobs: T[]): { id: BoardGroupId; jobs: T[] }[] {
+  const sorted = sortByRank(jobs);
+  return BOARD_GROUPS.map((g) => ({ id: g.id, jobs: sorted.filter((j) => boardGroup(j) === g.id) })).filter((c) => c.id !== 'done' || c.jobs.length > 0);
+}
+
+export interface StageStep {
+  stage: Stage;
+  status: 'past' | 'current' | 'future';
+  tone: 'ink' | 'red';
+}
+
+/** The card's 9-dot stepper over STEPPER_STAGES. Only the current step can be red: when the job needs a human, failed or is blocked. */
+export function stageSteps(j: JobLike): StageStep[] {
+  const at = j.stage === 'done' ? STEPPER_STAGES.length : STEPPER_STAGES.indexOf(j.stage as Stage);
+  const red = needsHuman(j) || j.state === 'failed' || j.state === 'blocked';
+  return STEPPER_STAGES.map((stage, i) => {
+    const status = at < 0 || i > at ? 'future' : i < at ? 'past' : 'current';
+    return { stage, status, tone: status === 'current' && red ? 'red' : 'ink' };
+  });
+}
+
+/** The 1-based step a screen reader hears: the current step, else the count of past steps (0 before plan, 9 when done). */
+export const stepPosition = (steps: StageStep[]): number => {
+  const i = steps.findIndex((x) => x.status === 'current');
+  return i >= 0 ? i + 1 : steps.filter((x) => x.status === 'past').length;
+};
+
+export interface CardModel {
+  ref: string;
+  refTitle: string;
+  steps: StageStep[];
+  stage: string;
+  round: { round: number; max: number | null } | null;
+  progress: Progress | null;
+  lenses: { name: string; verdict: string | null }[] | null;
+}
+
+/** Everything a card's slots show, so JobCard reads no raw job state. */
+export function cardModel(j: JobLike): CardModel {
+  const round = Number(j.round) || 0;
+  const verdicts = j.verdicts?.[round];
+  return {
+    ref: cardRef(j) ?? s(j.id),
+    refTitle: s(j.id),
+    steps: stageSteps(j),
+    stage: STAGE_LABEL[j.stage as Stage] ?? s(j.stage),
+    round: round > 0 ? { round, max: j.maxRounds ?? null } : null,
+    progress: j.progress && progressWidth(j.progress) !== null ? j.progress : null,
+    lenses: j.reviewers?.length ? j.reviewers.map((name) => ({ name, verdict: verdicts?.[name] ?? null })) : null,
+  };
+}
 
 export function navCounts(jobs: JobLike[]): { active: number; needs: number } {
   return { active: jobs.filter(isOpen).length, needs: jobs.filter((j) => needsHuman(j) || j.state === 'failed').length };
@@ -144,10 +243,11 @@ export const activeSessions = (jobs: JobLike[], now: number): number =>
 
 // ---------- inbox ----------
 
-export function inboxGroups<T extends JobLike>(jobs: T[]): { urgent: T[]; prs: T[] } {
+export function inboxGroups<T extends JobLike>(jobs: T[]): { urgent: T[]; prs: T[]; parks: T[] } {
   return {
     urgent: jobs.filter((j) => needsHuman(j) || j.state === 'failed' || j.state === 'blocked'),
     prs: jobs.filter((j) => j.state === 'waiting' && j.waitingOn === 'pr-review'),
+    parks: jobs.filter(isDependencyPark),
   };
 }
 

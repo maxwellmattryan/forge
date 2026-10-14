@@ -165,6 +165,13 @@
       "board": "Board",
       "table": "Table"
     },
+    "group": {
+      "queued": "Queued",
+      "plan": "Plan",
+      "build": "Build",
+      "ship": "Ship",
+      "done": "Done"
+    },
     "empty": "No jobs here yet. Start one with",
     "cmdFeature": "/forge <feature>",
     "or": "or",
