@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.0
+
+- Daemon handoff: a job passed from the inbox session to its own job session, or from one job-session incarnation to the next, no longer needs `--force`. `forge job claim` takes over a recorded daemon owner that has provably let go (the inbox handing off, a session whose child is not running, or a session id its record has moved on from) and logs a note; live daemons and interactive owners are still refused. `forge requests add resume --job <id> --session <s>` releases the claim on handoff, and the inbox scope can no longer create worktrees or start agents.
+- Daemon commits: new `forge git add <job> -- <paths>` and `forge git commit <job> --message … | --message-file …` run git inside the job's worktree from any cwd. They refuse other git options, paths outside the worktree, the main checkout, the wrong branch, a merge in progress and AI attribution, and pin hooks off only under the daemon. The builder and integrator prompts commit through them, and the default `daemon.allowedTools` drops the bare `git status|add|rm|commit` entries (configs that still list them keep validating; remove them by hand).
+
 ## 0.9.0
 
 - Daemon per job: `forge dash` supervises a pool of headless sessions, one per job with work plus an inbox session for requests without a job, each with its own crash strikes, budget hold, idle stop, resume and log (`daemon.maxConcurrent`, default 3). New `forge daemon status` and `forge daemon log <job>|--inbox`; inside a session, `forge requests` sees only its own scope. The job drawer's live session log shows turns, tool calls and nested subagents.
