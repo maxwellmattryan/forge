@@ -7,6 +7,7 @@
   import DaemonBar from './components/DaemonBar.svelte';
   import Drawer from './components/Drawer.svelte';
   import Icon from './components/Icon.svelte';
+  import LiveDot from './components/LiveDot.svelte';
   import Nav from './components/Nav.svelte';
   import Settings from './components/Settings.svelte';
   import Toast from './components/Toast.svelte';
@@ -17,7 +18,10 @@
   import Analytics from './views/Analytics.svelte';
   import Evals from './views/Evals.svelte';
   import { S, closeDrawer, loadView, refresh, route } from './lib/app.svelte.ts';
-  import { VIEWS, activeSessions, viewIndex, type ViewId } from './lib/view.ts';
+  import { startClock } from './lib/clock.svelte.ts';
+  import { VIEWS, viewIndex, type ViewId } from './lib/view.ts';
+  import { activeSessions } from './lib/live.ts';
+  import { INBOX_SCOPE } from './lib/types.ts';
   import { t } from './lib/locale.ts';
   import { settingsKey } from './lib/settings.ts';
   import { commandKey, shellEscape } from './lib/command.ts';
@@ -29,7 +33,9 @@
   let command = $state<ReturnType<typeof CommandBar>>();
   // Focus goes back here when Settings closes (the palette keeps its own, in palette.svelte.ts).
   let settingsOpener: HTMLElement | null = null;
-  const sessions = $derived(activeSessions(S.data?.jobs ?? [], Date.now()));
+  const active = $derived(activeSessions(S.data?.daemons));
+  // One active session per line: the sidebar cell and the phone strip share it.
+  const activeTitle = $derived(active.count ? active.ids.map((id) => (id === INBOX_SCOPE ? $t('live.inbox') : id)).join('\n') : $t('live.none'));
   // The same map Nav.svelte builds, for the DWG line and the title block's SHEET cell.
   const labels = $derived<Record<ViewId, string>>({
     pipeline: $t('nav.pipeline'),
@@ -92,7 +98,9 @@
     refresh();
     const poll = setInterval(() => document.visibilityState === 'visible' && refresh(), 2000);
     const views = setInterval(() => document.visibilityState === 'visible' && ['analytics', 'evals', 'agents'].includes(S.view) && loadView(), 15000);
+    const stopClock = startClock();
     return () => {
+      stopClock();
       clearInterval(poll);
       clearInterval(views);
     };
@@ -111,7 +119,7 @@
       <div class="nav"><button id="settings-open" aria-haspopup="dialog" aria-keyshortcuts="," onclick={openSettings}><span class="lbl"><Icon name="settings" />{$t('settings.open')}</span></button></div>
       <div class="tblock">
         <div><span class="k">{$t('app.tblock.drawnBy')}</span>{$t('app.tblock.drawnByValue')}</div>
-        <div id="footer-sessions"><span class="k">{$t('app.tblock.sessions')}</span><span class="dot {sessions ? 'ok' : 'hollow'} mr-1 align-middle"></span>{$t('app.tblock.sessionsValue', { count: sessions })}</div>
+        <div id="footer-sessions" title={activeTitle}><span class="k">{$t('app.tblock.sessions')}</span><span class="mr-1 inline-flex align-middle"><LiveDot on={active.count > 0} /></span>{$t('app.tblock.sessionsValue', { count: active.count })}</div>
         <div id="footer-version"><span class="k">{$t('app.tblock.rev')}</span>{S.data ? $t('app.tblock.revValue', { version: S.data.forgeVersion }) : '—'}</div>
         <div><span class="k">{$t('app.tblock.api')}</span>{S.data ? S.data.apiVersion : '—'}</div>
         <div class="wide"><span class="k">{$t('app.tblock.sheet')}</span>{$t('app.tblock.sheetValue', { view: viewLabel, index: viewIndex(S.view), total: VIEWS.length })}</div>
@@ -122,6 +130,7 @@
     <!-- The settings button stays outside the scrolling nav, so it is always on screen; the palette's phone button is the FAB below. -->
     <header class="md:hidden flex items-center gap-1 border-b border-line bg-black/5 dark:bg-black/8 pr-2">
       <div id="mobile-nav" class="nav row flex-1 min-w-0 overflow-x-auto p-2"><Nav mobile /></div>
+      <span id="mobile-sessions" class="label flex shrink-0 items-center gap-1.5 px-1" title={activeTitle}><LiveDot on={active.count > 0} /><span class="num">{$t('app.tblock.sessionsValue', { count: active.count })}</span></span>
       <button id="settings-open-mobile" class="btn icon touch shrink-0" aria-label={$t('settings.open')} aria-haspopup="dialog" onclick={openSettings}><Icon name="settings" /></button>
     </header>
     <DaemonBar />

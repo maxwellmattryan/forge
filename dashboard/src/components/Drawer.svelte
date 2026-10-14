@@ -9,6 +9,7 @@
   import MarkdownToggle from './MarkdownToggle.svelte';
   import PrChip from './PrChip.svelte';
   import ProgressBar from './ProgressBar.svelte';
+  import SessionActivity from './SessionActivity.svelte';
   import StateChip from './StateChip.svelte';
   import ThreadPanel from './ThreadPanel.svelte';
   import { budgetPanel } from '../lib/budget.ts';
@@ -16,11 +17,13 @@
   import { md, safeUrl } from '../lib/markdown.ts';
   import { mdView } from '../lib/md-view.svelte.ts';
   import { screenshotsPanel } from '../lib/screenshots.ts';
-  import { threadOpening } from '../lib/thread.ts';
+  import { threadItems, threadMarks, threadOpening, unreadCount } from '../lib/thread.ts';
   import { ago, dur, num, tokensShort, usd } from '../lib/util.ts';
   import { eventDetail, verdictMatrix } from '../lib/view.ts';
   import { scopeVerbs } from '../lib/command.ts';
   import { S, closeDrawer, loadFile, setDrawerTab } from '../lib/app.svelte.ts';
+  import { ticker } from '../lib/clock.svelte.ts';
+  import { freshCount, sessionActivity } from '../lib/live.ts';
   import { t } from '../lib/locale.ts';
 
   const open = $derived(S.drawer.id !== null);
@@ -32,6 +35,10 @@
   const matrix = $derived(job ? verdictMatrix(job) : null);
   const usageRows = $derived(Object.entries(job?.usage?.byRole ?? {}));
   const events = $derived(shown ? shown.detail.events.slice().reverse() : []);
+  const activity = $derived(job ? sessionActivity(S.data?.daemons?.jobs?.[job.id], shown?.detail.events.at(-1)?.ts) : null);
+  // Timeline rows are newest first, so the first `fresh` arrived after the drawer opened.
+  const fresh = $derived(shown ? freshCount(shown.detail.events.length, S.drawer.eventsAtOpen) : 0);
+  const unread = $derived(shown && job ? unreadCount(threadMarks(threadItems(shown.detail.requests ?? [], threadOpening(shown.detail))), S.threadSeen[job.id] ?? null) : 0);
   const TABS = ['files', 'timeline', 'thread'];
   let tabStrip = $state<HTMLDivElement>();
   let scrolledFor: string | null = null;
@@ -65,13 +72,14 @@
       <div class="p-5 md:p-6 flex flex-col gap-5">
         <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="h sheet-title">{j.title}</h2><div class="mono muted">{j.id}</div></div><div class="flex shrink-0 items-center gap-2">{#if scopeVerbs(j).length}<CommandTrigger variant="drawer" job={j.id} />{/if}<button class="btn icon shrink-0" aria-label={$t('drawer.close')} onclick={closeDrawer}><Icon name="close" /></button></div></div>
         <div class="flex flex-wrap gap-1.5"><span class="chip ink">{STAGE_LABEL[j.stage] ?? j.stage}</span><StateChip job={j} />{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}</div>
+        {#if activity}<SessionActivity {activity} extra="caption" />{/if}
         {#if j.reason}<div class="text-sm text-muted">{j.reason}</div>{/if}
         <ProgressBar progress={j.progress} />
         <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
           {@render fact($t('drawer.branch'), j.branch ?? '—')}{@render fact($t('drawer.base'), j.base ?? '—')}{@render fact($t('drawer.port'), j.port ?? '—')}{@render fact($t('drawer.worktree'), j.worktree ?? '—')}
           <div><div class="label">{$t('drawer.pr')}</div><div class="mono break-all">{#if prUrl}<a class="text-ink" href={prUrl} target="_blank" rel="noopener">#{j.pr?.number}</a>{:else}—{/if}</div></div>
           <div><div class="label">{$t('drawer.source')}</div><div class="mono break-all">{#if srcUrl}<a class="text-ink" href={srcUrl} target="_blank" rel="noopener">{j.source?.ref ?? $t('drawer.link')}</a>{:else}{j.source?.ref ?? '—'}{/if}</div></div>
-          {@render fact($t('drawer.session'), j.owner?.session ?? '—')}{@render fact($t('drawer.created'), ago(j.createdAt))}{@render fact($t('drawer.updated'), ago(j.updatedAt))}
+          {@render fact($t('drawer.session'), j.owner?.session ?? '—')}{@render fact($t('drawer.created'), ago(j.createdAt, ticker.now))}{@render fact($t('drawer.updated'), ago(j.updatedAt, ticker.now))}
         </div>
         <DepSection job={j} />
         {#if matrix}
@@ -121,7 +129,7 @@
           </div></div>
         {/if}
         {@html screenshotsPanel(j.id, d.screenshots ?? [])}
-        <div bind:this={tabStrip} class="tabs">{#each TABS as tab (tab)}<button class="tab {shown.tab === tab ? 'active' : ''}" aria-pressed={shown.tab === tab ? 'true' : 'false'} onclick={() => setDrawerTab(tab)}>{#if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted">{d.events.length}</span>{:else if tab === 'thread'}{$t('drawer.threadTab')}{:else}{$t('drawer.files')}{/if}</button>{/each}</div>
+        <div bind:this={tabStrip} class="tabs">{#each TABS as tab (tab)}<button class="tab {shown.tab === tab ? 'active' : ''}" aria-pressed={shown.tab === tab ? 'true' : 'false'} onclick={() => setDrawerTab(tab)}>{#if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted">{d.events.length}</span>{:else if tab === 'thread'}{$t('drawer.threadTab')}{#if unread > 0}<span class="chip hl ml-1.5">{$t('drawer.threadUnread', { count: unread })}</span>{/if}{:else}{$t('drawer.files')}{/if}</button>{/each}</div>
         {#if shown.tab === 'files'}
           {@const file = shown.file}
           {@const content = shown.content}
@@ -148,12 +156,12 @@
             </div>
           </div>
         {:else if shown.tab === 'thread'}
-          <ThreadPanel job={j} requests={d.requests ?? []} opening={threadOpening(d)} active={open} />
+          <ThreadPanel job={j} requests={d.requests ?? []} opening={threadOpening(d)} active={open} baseline={S.drawer.threadAtOpen} />
         {:else}
           <ul>
             {#each events as e, i (i)}
               {@const x = eventDetail(e, { tokens: tokensShort, dur })}
-              <li class="flex gap-3 py-1.5 border-b border-line text-xs"><span class="text-muted whitespace-nowrap w-16 shrink-0">{ago(e.ts)}</span><span class="font-mono text-ink shrink-0 w-28 truncate">{e.type}</span><span class="min-w-0 break-words">{x.pre}{#if x.bold !== null}<b>{x.bold}</b>{/if}{x.post}</span></li>
+              <li class="flex gap-3 py-1.5 border-b border-line text-xs">{#if i < fresh}<span class="dot hl size-1.5 shrink-0 self-center" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="text-muted whitespace-nowrap w-16 shrink-0">{ago(e.ts, ticker.now)}</span><span class="font-mono text-ink shrink-0 w-28 truncate">{e.type}</span><span class="min-w-0 break-words">{x.pre}{#if x.bold !== null}<b>{x.bold}</b>{/if}{x.post}</span></li>
             {/each}
           </ul>
         {/if}

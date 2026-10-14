@@ -6,7 +6,7 @@ import type { DaemonPermissionMode, DaemonPoolState, DaemonSessionState } from '
 export const START_HINT = 'Set daemon.enabled: true in .forge/config.yml';
 const JOB_LABEL = 24;
 
-const obj = (v: unknown): Record<string, any> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : {});
+export const obj = (v: unknown): Record<string, any> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : {});
 
 /** A session as /api/state, SSE or a POST reply delivers it; any field may be missing. */
 export type SessionInput = Partial<DaemonSessionState> | null | undefined;
@@ -45,7 +45,8 @@ export interface PoolModel {
 }
 
 const running = (s: unknown) => obj(s).running === true;
-const asking = (s: unknown) => running(s) && Array.isArray(obj(s).permissions) && obj(s).permissions.length > 0;
+/** A running session with a tool call waiting on a human: the bar's and the board's "needs permission". */
+export const asking = (s: unknown): boolean => running(s) && Array.isArray(obj(s).permissions) && obj(s).permissions.length > 0;
 
 /** Status labels in the order the bar lists job chips. */
 const ORDER = ['needs permission', 'busy', 'failing', 'idle', 'stopping', 'waiting for slot', 'held: budget', 'error', 'stopped', 'standby', 'no session'];

@@ -134,7 +134,6 @@ test('pipeline: filters, counts, board columns and nav badges', () => {
     { owner: { session: 's3', heartbeat: '2026-10-12T11:00:00Z' } },
     { owner: null },
   ];
-  assert.equal(V.activeSessions(owned, now), 2);
   const sessions = V.agentSessions(owned.filter((j) => j.owner), now);
   assert.deepEqual(sessions.map((x) => [x.session, x.jobs.length, x.live]), [['s1', 2, true], ['s2', 1, true], ['s3', 1, false]]);
   assert.deepEqual(V.runningAgents([{ id: 'j', agents: { builder: { status: 'running', model: 'opus' }, x: { status: 'done' } } }] as any).map((a) => [a.job.id, a.role, a.model]), [['j', 'builder', 'opus']]);

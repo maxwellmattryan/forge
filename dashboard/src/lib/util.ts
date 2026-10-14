@@ -3,9 +3,10 @@
 export const esc = (v: unknown): string => String(v ?? '').replace(/[&<>"']/g, (c) => (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }) as Record<string, string>)[c]);
 export const num = (n: unknown): string => (n == null ? '—' : Number(n).toLocaleString());
 export const usd = (n: unknown): string => (n == null ? '—' : `$${Number(n) < 1 ? Number(n).toFixed(3) : Number(n).toFixed(2)}`);
-export const ago = (iso: string | null | undefined): string => {
+/** `now` defaults to the wall clock; the board and the drawer pass the shared ticker's so their times tick. */
+export const ago = (iso: string | null | undefined, now: number = Date.now()): string => {
   if (!iso) return '—';
-  const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+  const s = Math.max(0, (now - Date.parse(iso)) / 1000);
   if (s < 60) return `${Math.round(s)}s ago`;
   if (s < 3600) return `${Math.round(s / 60)}m ago`;
   if (s < 86400) return `${Math.round(s / 3600)}h ago`;

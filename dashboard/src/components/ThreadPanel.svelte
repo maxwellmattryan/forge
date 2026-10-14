@@ -10,12 +10,15 @@
   import { renderable } from '../lib/md-view.ts';
   import { mdView } from '../lib/md-view.svelte.ts';
   import { ago } from '../lib/util.ts';
-  import { threadItems, type ThreadAction, type ThreadFrom, type ThreadOpening, type ThreadStatus } from '../lib/thread.ts';
+  import { ticker } from '../lib/clock.svelte.ts';
+  import { threadItems, threadMark, type ThreadAction, type ThreadFrom, type ThreadOpening, type ThreadStatus } from '../lib/thread.ts';
   import type { ForgeRequest, Job } from '../lib/types.ts';
   import { t } from '../lib/locale.ts';
 
-  let { job, requests, opening, active }: { job: Job; requests: ForgeRequest[]; opening: ThreadOpening; active: boolean } = $props();
+  /** `baseline`: the Thread's marks when the drawer opened; a message whose mark is not in it is new or changed since. */
+  let { job, requests, opening, active, baseline = null }: { job: Job; requests: ForgeRequest[]; opening: ThreadOpening; active: boolean; baseline?: string[] | null } = $props();
   const items = $derived(threadItems(requests, opening));
+  const seenAtOpen = $derived(baseline ? new Set(baseline) : null);
 
   const who = $derived<Record<ThreadFrom, string>>({ you: $t('thread.you'), cli: $t('thread.cli'), forge: $t('thread.forge'), tracker: $t('thread.tracker') });
   const statusText = $derived<Record<ThreadStatus, string>>({ queued: $t('thread.queued'), handling: $t('thread.handling'), done: $t('thread.done'), rejected: $t('thread.rejected') });
@@ -71,7 +74,7 @@
           <li class="sheet ticks p-3 flex flex-col gap-1.5">
             <span class="tk"></span>
             <div class="caption flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span class="font-medium text-fg">{who[m.from]}</span><span class="text-fg">{actionText(m.action)}</span>{#if m.at}<span class="text-muted">{ago(m.at)}</span>{/if}<span class="flex-1"></span>{#if m.status}<Chip tone={TONE[m.status]} text={statusText[m.status]} />{/if}
+              {#if seenAtOpen && !seenAtOpen.has(threadMark(m))}<span class="dot hl size-1.5 shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="font-medium text-fg">{who[m.from]}</span><span class="text-fg">{actionText(m.action)}</span>{#if m.at}<span class="text-muted">{ago(m.at, ticker.now)}</span>{/if}<span class="flex-1"></span>{#if m.status}<Chip tone={TONE[m.status]} text={statusText[m.status]} />{/if}
             </div>
             {#if m.text}
               {#if renderable(m.text, mdView.thread)}<div class="prose compact break-words">{@html md(m.text)}</div>{:else}<p class="text-sm whitespace-pre-wrap break-words">{m.text}</p>{/if}

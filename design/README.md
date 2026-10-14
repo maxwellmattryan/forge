@@ -60,8 +60,11 @@ Three families, all Google-hosted (no files): Space Grotesk for headings, IBM Pl
 - Focus: a 1px dashed `line-strong` outline at 2–3px (`dash`), on every control; checkboxes and radios too. Never a glow.
 - Pressed or selected: solid `ink` with `on-ink` text (buttons, segments); a primary button drops onto its shadow. The active nav item or tab takes `raised`, a `line-strong` border and the 3px `ink` rule.
 - Disabled: 40% opacity and a dashed border; a disabled primary button loses its fill and shadow.
-- Live: the `live` chip (ink over hatching) and an `ink` dot before the agent's role. Needs you: `redline`. Changed: `highlight`.
-- Motion is limited to 120ms colour and transform transitions and the drawer's slide; the paper and grid never move. Reduced motion turns off every transition, including the drawer's slide.
+- Live: the `live` chip (ink over hatching), an `ink` dot before the agent's role, and the live dot for an active daemon session: one looping `animate-ping` halo on the live dot marks an active session; it is the only looping motion and it is off under reduced motion. Idle and waiting sessions are a hollow dot; a session waiting on a permission is the `warn` chip *needs permission*. Needs you: `redline`. Changed: `highlight` (a card's `dot hl` for 3 s after a poll changes it, a drawer row that arrived since it opened, the Thread tab's `chip hl` unread count).
+
+## Motion
+
+Motion is limited to 120ms colour and transform transitions, the drawer's slide, and the live dot: one looping `animate-ping` halo on the live dot marks an active session; it is the only looping motion and it is off under reduced motion. The paper and grid never move. Reduced motion turns off every transition and animation, including the drawer's slide and the halo.
 
 ## Iconography and imagery
 

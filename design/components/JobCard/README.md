@@ -6,7 +6,7 @@ A job card is a clickable ticked sheet (`space-3` padding, `space-2` column). Ev
 4. **Stage**: the stepper, then `VERIFY · ROUND 2/3` in `label` (the round only from round 1).
 5. **Progress**: the hatched bar, when the job has tasks.
 6. **Verdicts**: one `VerdictChip` per reviewer, when the job has reviewers.
-7. **Footer** in `label` size: the running agent (`ink` dot plus role, or a count), then `{tokens} tok · {ago}` at the far right.
+7. **Footer** in `label` size: the job's daemon session activity first when it has one (`LiveDot` plus *working · 4s ago*, the `warn` chip *needs permission · 4s ago*, or a hollow dot with *waiting* or *idle · 4s ago*), then the running agent (`ink` dot plus role, or a count), then `{tokens} tok · {ago}` at the far right. A 6px `dot hl` sits before that time for 3 s after a poll changes the job (its event count, state or stage); its space is always reserved, so the card never shifts. The times tick every second.
 
 Progress and verdicts are left out when there is nothing to show, on every card alike; every other slot always renders, so cards never change shape with their state.
 
