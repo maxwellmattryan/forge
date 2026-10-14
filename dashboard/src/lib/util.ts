@@ -20,7 +20,22 @@ export const clock = (iso: string | null | undefined): string => {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 };
 export const pct = (x: number | null | undefined): string => (x == null ? '—' : `${Math.round(x * 100)}%`);
-export const tokensShort = (n: number | null | undefined): string => (n == null ? '—' : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
+const TOKEN_UNITS = [
+  [1e3, 'k', 0],
+  [1e6, 'M', 1],
+  [1e9, 'B', 3],
+  [1e12, 'T', 3],
+] as const;
+export const tokensShort = (n: number | null | undefined): string => {
+  if (n == null) return '—';
+  if (n < 1e3) return String(n);
+  // Step up a unit when rounding carries to 1000 (999.95M would print as "1000.0M"); T is the last stop.
+  for (const [size, unit, digits] of TOKEN_UNITS) {
+    const s = (n / size).toFixed(digits);
+    if (Number(s) < 1000 || unit === 'T') return s + unit;
+  }
+  return String(n);
+};
 export const dur = (ms: number | null | undefined): string => {
   if (ms == null) return '—';
   const m = Math.floor(ms / 60000);
