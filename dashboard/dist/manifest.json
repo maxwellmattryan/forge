@@ -1,11 +1,53 @@
 {
+  "fonts/IBMPlexMono-400.woff2": {
+    "file": "assets/IBMPlexMono-400-DMJ8VG8y.woff2",
+    "src": "fonts/IBMPlexMono-400.woff2"
+  },
+  "fonts/IBMPlexMono-500.woff2": {
+    "file": "assets/IBMPlexMono-500-DSY6xOcd.woff2",
+    "src": "fonts/IBMPlexMono-500.woff2"
+  },
+  "fonts/IBMPlexMono-600.woff2": {
+    "file": "assets/IBMPlexMono-600-BgSNZQsw.woff2",
+    "src": "fonts/IBMPlexMono-600.woff2"
+  },
+  "fonts/IBMPlexSans-400.woff2": {
+    "file": "assets/IBMPlexSans-400-CDDApCn2.woff2",
+    "src": "fonts/IBMPlexSans-400.woff2"
+  },
+  "fonts/IBMPlexSans-500.woff2": {
+    "file": "assets/IBMPlexSans-500-6ng42L7E.woff2",
+    "src": "fonts/IBMPlexSans-500.woff2"
+  },
+  "fonts/IBMPlexSans-600.woff2": {
+    "file": "assets/IBMPlexSans-600-CuJfVYMP.woff2",
+    "src": "fonts/IBMPlexSans-600.woff2"
+  },
+  "fonts/SpaceGrotesk-500.woff2": {
+    "file": "assets/SpaceGrotesk-500-lFbtlQH6.woff2",
+    "src": "fonts/SpaceGrotesk-500.woff2"
+  },
+  "fonts/SpaceGrotesk-700.woff2": {
+    "file": "assets/SpaceGrotesk-700-RjhwGPKo.woff2",
+    "src": "fonts/SpaceGrotesk-700.woff2"
+  },
   "index.html": {
-    "file": "assets/index-Dfx67WBG.js",
+    "file": "assets/index-D5E9Bzpw.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
     "css": [
-      "assets/index-CwJkVA5O.css"
+      "assets/index-BKyWQYHu.css"
+    ],
+    "assets": [
+      "assets/SpaceGrotesk-500-lFbtlQH6.woff2",
+      "assets/SpaceGrotesk-700-RjhwGPKo.woff2",
+      "assets/IBMPlexSans-400-CDDApCn2.woff2",
+      "assets/IBMPlexSans-500-6ng42L7E.woff2",
+      "assets/IBMPlexSans-600-CuJfVYMP.woff2",
+      "assets/IBMPlexMono-400-DMJ8VG8y.woff2",
+      "assets/IBMPlexMono-500-DSY6xOcd.woff2",
+      "assets/IBMPlexMono-600-BgSNZQsw.woff2"
     ]
   }
 }
