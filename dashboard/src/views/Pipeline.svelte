@@ -8,6 +8,7 @@
   import PageHeader from '../components/PageHeader.svelte';
   import type { ApiState } from '../lib/types.ts';
   import { boardColumns, filterJobs, pipelineCounts, type BoardGroupId } from '../lib/view.ts';
+  import { workingCount } from '../lib/live.ts';
   import { S, req, setFilter, setLayout } from '../lib/app.svelte.ts';
   import { t } from '../lib/locale.ts';
 
@@ -54,9 +55,10 @@
 {:else}
   <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-3">
     {#each open as c (c.id)}
+      {@const w = workingCount(c.jobs, data.daemons)}
       <!-- min-w-0: a long truncated title or chip must not widen its grid track. -->
       <section class="sheet dashed min-w-0 flex flex-col xl:max-h-[calc(100vh-180px)]">
-        <header class="flex items-center justify-between px-3 py-2 border-b border-dashed border-line"><span class="label text-fg">{groupLabel[c.id]}</span><span class="mono muted num text-[11px]">{c.jobs.length}</span></header>
+        <header class="flex items-center justify-between px-3 py-2 border-b border-dashed border-line"><span class="label text-fg">{groupLabel[c.id]}</span><span class="flex items-center gap-2">{#if w}<span class="label text-ink">{$t('live.columnWorking', { count: w })}</span>{/if}<span class="mono muted num text-[11px]">{c.jobs.length}</span></span></header>
         <!-- At least p-2.5: a redline card's outline sits 3px outside it and the scroller would clip it. -->
         <div class="flex flex-col gap-2.5 p-2.5 overflow-y-auto">
           {#each c.jobs as j (j.id)}<JobCard job={j} />{:else}<div class="caption muted text-center py-3">—</div>{/each}

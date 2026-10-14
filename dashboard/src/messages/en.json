@@ -84,6 +84,17 @@
     "stopAll": "Stop the daemon (all sessions)",
     "modeTitle": "Permission mode: {mode}"
   },
+  "live": {
+    "working": "working",
+    "asking": "needs permission",
+    "waiting": "waiting",
+    "idle": "idle",
+    "line": "{state} · {ago}",
+    "columnWorking": "{count} working",
+    "inbox": "inbox",
+    "none": "No session is working",
+    "new": "new"
+  },
   "permission": {
     "heading": {
       "one": "{count} tool call waiting for permission",
@@ -136,7 +147,11 @@
     "ownerLive": "Held by session {session} (claimed {since}, last active {active}).",
     "ownerAgent": "Held by session {session} (claimed {since}); an agent is still running.",
     "ownerStale": "Session {session} was last active {active}. Resume takes the job over.",
-    "ownerGone": "Session {session} has exited. Resume takes the job over."
+    "ownerGone": "Session {session} has exited. Resume takes the job over.",
+    "threadUnread": {
+      "one": "{count} new",
+      "other": "{count} new"
+    }
   },
   "inbox": {
     "title": "Needs you",

@@ -9,6 +9,7 @@
   import { ago, num, usd } from '../lib/util.ts';
   import { cardModel, prChipModel, sortByRank } from '../lib/view.ts';
   import { S, openDrawer } from '../lib/app.svelte.ts';
+  import { ticker } from '../lib/clock.svelte.ts';
   import type { StateJob } from '../lib/types.ts';
   import { t } from '../lib/locale.ts';
 
@@ -32,7 +33,7 @@
           <td><div class="flex flex-wrap gap-1">{#each m.lenses ?? [] as l, i (i)}<VerdictChip name={l.name} verdict={l.verdict} />{/each}</div></td>
           <td>{#if prChipModel(j.pr)}<PrChip pr={j.pr} />{:else}—{/if}</td>
           <td class="r num">{num(j.usage?.totalTokens)}</td><td class="r num">{usd(j.usage?.estCostUsd)}</td><td class="whitespace-nowrap">{@html budgetCell(j, S.data?.config?.pipeline?.budget)}</td>
-          <td class="text-muted whitespace-nowrap">{ago(j.updatedAt)}</td>
+          <td class="text-muted whitespace-nowrap">{ago(j.updatedAt, ticker.now)}</td>
         </tr>
       {/each}
     </tbody>

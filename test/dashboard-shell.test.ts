@@ -418,6 +418,18 @@ test('JobCard renders seven fixed slots from the card model', () => {
   assert.match(text, /const m = \$derived\(cardModel\(j\)\)/);
   assert.match(text, /<DepChips job=\{j\} \/><\/div>/, 'the dependency chips close the state slot');
   assert.match(read('components/DepChips.svelte'), /<div class="basis-full min-w-0 flex flex-wrap gap-1">/, "and always start their own line, shrinking to the card's width");
+
+  // The footer leads with the session activity and reserves the flash dot's space, driven by the poll's flashes and the ticker.
+  const footer = walked.find((e) => attr(e, 'data-slot') === 'footer');
+  assert.ok(footer, 'the footer slot');
+  const inFooter = walked.filter((e) => e.parents.includes(footer));
+  assert.equal(inFooter[0]?.name, 'SessionActivity', 'the footer renders <SessionActivity first');
+  assert.match(text, /const act = \$derived\(sessionActivity\(S\.data\?\.daemons\?\.jobs\?\.\[j\.id\], j\.lastEvent\?\.ts\)\)/);
+  assert.match(text, /const flashing = \$derived\(\(S\.flashes\[j\.id\] \?\? 0\) > ticker\.now\)/);
+  const flash = inFooter.find((e) => e.classes.includes('dot') && e.classes.includes('hl'));
+  assert.ok(flash, 'a flash dot in the footer');
+  assert.match(attr(flash, 'class') ?? '', /^\{flashing \? 'dot hl' : 'dot invisible'\}/, 'whole literals, so Tailwind sees both and the hidden dot keeps its space');
+  assert.equal(attr(flash, 'aria-hidden'), 'true');
 });
 
 test('StageStepper is shared by the card and the table', () => {
@@ -448,6 +460,14 @@ test('Pipeline board is four grouped columns', () => {
   for (const id of ['queued', 'plan', 'build', 'ship', 'done']) assert.ok(text.includes(`$t('pipeline.group.${id}')`), `uses pipeline.group.${id}`);
   const all = [...tsFiles(), ...svelteFiles()].map((f) => [f, read(f)]);
   for (const [f, src] of all) assert.doesNotMatch(src, /\bboardStages\b|\bCORE_STAGES\b/, `${f} has no boardStages or CORE_STAGES`);
+
+  // Open columns count their working sessions; Done does not.
+  assert.match(text, /\{#each open as c \(c\.id\)\}\s*\{@const w = workingCount\(c\.jobs, data\.daemons\)\}/);
+  const openBlock = text.slice(text.indexOf('{#each open as c'), text.indexOf('{/each}', text.indexOf('{#each open as c')));
+  assert.match(openBlock, /\{#if w\}<span class="label text-ink">\{\$t\('live\.columnWorking', \{ count: w \}\)\}<\/span>\{\/if\}/, 'an open column header shows N working');
+  const doneBlock = text.slice(text.indexOf('{#if done}'));
+  assert.ok(!doneBlock.includes('live.columnWorking') && !doneBlock.includes('workingCount('), "Done's header has no working count");
+  assert.equal(text.split("$t('live.columnWorking'").length - 1, 1, 'one working count, in the open columns');
 });
 
 test('Inbox lists dependency parks apart, with Resume', () => {
@@ -520,6 +540,138 @@ test('no filled element nests in a patterned one', () => {
   for (const rel of tsFiles()) {
     for (const list of tsClassLists(read(rel))) assert.ok(!isCarrier(list.map(base)), `${rel} builds a pattern carrier (${list.join(' ')})`);
   }
+});
+
+/** Every file under dashboard/src, relative to it. */
+const srcFiles = () => [...tsFiles(), ...svelteFiles()];
+
+test('the live halo is the only animation and is motion-safe', () => {
+  const animate = /(?<![\w-])(?:[\w-]+:)*animate-[\w-]+/g;
+  const uses = srcFiles().flatMap((f) => [...read(f).matchAll(animate)].map((m) => [f, m[0]]));
+  assert.deepEqual(uses, [['components/LiveDot.svelte', 'motion-safe:animate-ping']], 'one animate-* token in dashboard/src: the motion-safe halo');
+  const dot = read('components/LiveDot.svelte');
+  assert.match(dot, /<span class="dot ink absolute inset-0 opacity-75 motion-safe:animate-ping"><\/span><span class="dot ink relative"><\/span>/);
+  assert.match(dot, /<span class="dot hollow shrink-0" aria-hidden="true"><\/span>/, 'off: a hollow dot');
+  assert.match(dot, /<span class="relative inline-flex shrink-0" aria-hidden="true">/, 'on: the dot and halo are aria-hidden');
+
+  assert.match(read('components/SessionActivity.svelte'), /<LiveDot on=\{activity\.kind === 'working'\} \/>/);
+  for (const f of ['components/JobCard.svelte', 'components/Drawer.svelte']) assert.match(read(f), /<SessionActivity\b/, `${f} renders the live dot through SessionActivity`);
+  assert.match(read('App.svelte'), /<LiveDot\b/, 'App.svelte renders the live dot');
+
+  const css = fs
+    .readdirSync(path.join(ROOT, 'dashboard', 'dist', 'assets'))
+    .filter((f) => f.endsWith('.css'))
+    .map((f) => fs.readFileSync(path.join(ROOT, 'dashboard', 'dist', 'assets', f), 'utf8'))
+    .join('\n');
+  const at = css.indexOf('.motion-safe\\:animate-ping{');
+  assert.ok(at > 0, 'the built CSS has the halo');
+  const media = css.lastIndexOf('@media', at);
+  assert.match(css.slice(media, at), /^@media\s*\(\s*prefers-reduced-motion\s*:\s*no-preference\s*\)\s*\{$/, 'inside a prefers-reduced-motion: no-preference block');
+  assert.equal(css.split('.motion-safe\\:animate-ping{').length - 1, 1, 'and nowhere else');
+});
+
+test('no custom keyframes or animate utilities in dashboard sources', () => {
+  const files = [['style.css', fs.readFileSync(path.join(ROOT, 'dashboard', 'style.css'), 'utf8')], ...srcFiles().map((f) => [f, read(f)])];
+  assert.ok(files.length > 40, `checked ${files.length} files`);
+  for (const [f, text] of files) {
+    assert.doesNotMatch(text, /@keyframes/, `${f} defines no @keyframes`);
+    assert.doesNotMatch(text, /--animate-/, `${f} sets no --animate- variable`);
+    assert.doesNotMatch(text, /@utility\s+animate-/, `${f} declares no animate utility`);
+  }
+});
+
+test('design docs name the live halo', () => {
+  const DESIGN = path.join(ROOT, 'design');
+  const readme = fs.readFileSync(path.join(DESIGN, 'README.md'), 'utf8');
+  const section = (name: string) => {
+    const start = readme.indexOf(`\n## ${name}\n`);
+    assert.ok(start >= 0, `design/README.md has § ${name}`);
+    const end = readme.indexOf('\n## ', start + 1);
+    return readme.slice(start, end < 0 ? undefined : end);
+  };
+  const SENTENCE = 'one looping `animate-ping` halo on the live dot marks an active session; it is the only looping motion and it is off under reduced motion';
+  for (const name of ['States', 'Motion']) assert.ok(section(name).includes(SENTENCE), `§ ${name} names the live halo`);
+  for (const f of ['README.md', 'preview.html']) assert.ok(fs.existsSync(path.join(DESIGN, 'components', 'LiveDot', f)), `design/components/LiveDot/${f} exists`);
+  const index = fs.readFileSync(path.join(DESIGN, 'components', 'index.html'), 'utf8');
+  for (const href of ['LiveDot/preview.html', 'LiveDot/README.md']) assert.ok(index.includes(`href="${href}"`), `index.html links ${href}`);
+});
+
+test('ticking times read the shared clock and stay out of live regions', () => {
+  const TICKING = ['components/JobCard.svelte', 'components/JobsTable.svelte', 'components/Drawer.svelte', 'components/ThreadPanel.svelte', 'components/SessionActivity.svelte'];
+  for (const f of TICKING) {
+    const text = read(f);
+    const calls = [...text.matchAll(/\bago\(/g)].map((m) => {
+      const end = endOf(text, m.index + 3);
+      assert.ok(end > 0, `${f}: cannot parse the ago( call`);
+      return text.slice(m.index, end + 1);
+    });
+    assert.ok(calls.length > 0, `${f} calls ago(`);
+    for (const c of calls) assert.match(c, /, ticker\.now\)$/, `${f}: ${c} passes ticker.now`);
+  }
+  const clockUsers = srcFiles().filter((f) => /from '[./]*(lib\/)?clock\.svelte\.ts'/.test(read(f)));
+  for (const f of TICKING) assert.ok(clockUsers.includes(f), `${f} imports the ticker`);
+  for (const f of clockUsers) assert.doesNotMatch(read(f), /aria-live="(polite|assertive)"/, `${f} ticks, so it has no aria-live region`);
+
+  const app = read('App.svelte');
+  const mount = app.slice(app.indexOf('onMount(() => {'));
+  assert.match(mount, /const stopClock = startClock\(\);[\s\S]*?return \(\) => \{\s*stopClock\(\);/, 'App.svelte starts the clock in onMount and stops it in the cleanup');
+});
+
+test('the sidebar and phone strip show the live session indicator', () => {
+  assert.doesNotMatch(read('lib/view.ts'), /export const activeSessions\b/, 'view.ts no longer exports activeSessions');
+  const app = read('App.svelte');
+  assert.match(app, /import \{ activeSessions \} from '\.\/lib\/live\.ts';/);
+  assert.doesNotMatch(app, /import \{[^}]*\bactiveSessions\b[^}]*\} from '\.\/lib\/view\.ts'/);
+  assert.match(app, /const active = \$derived\(activeSessions\(S\.data\?\.daemons\)\)/);
+  assert.match(app, /const activeTitle = \$derived\(active\.count \? active\.ids\.map\(\(id\) => \(id === INBOX_SCOPE \? \$t\('live\.inbox'\) : id\)\)\.join\('\\n'\) : \$t\('live\.none'\)\)/, 'the tooltip lists active ids, the inbox by name');
+
+  const walked = elements('App.svelte');
+  for (const id of ['footer-sessions', 'mobile-sessions']) {
+    const cell = walked.find((e) => attr(e, 'id') === id);
+    assert.ok(cell, `#${id}`);
+    assert.equal(attr(cell, 'title'), '{activeTitle}', `#${id} carries the active-session tooltip`);
+    const dots = walked.filter((e) => e.name === 'LiveDot' && e.parents.includes(cell));
+    assert.equal(dots.length, 1, `#${id} renders one <LiveDot`);
+    assert.equal(attr(dots[0], 'on'), '{active.count > 0}');
+    assert.ok(!walked.some((e) => e.parents.includes(cell) && e.attrs.some((a) => a.name === 'aria-live')), `#${id} is not a live region`);
+  }
+  assert.match(app, /\$t\('app\.tblock\.sessionsValue', \{ count: active\.count \}\)/);
+  const mobileAt = app.indexOf('id="mobile-sessions"');
+  assert.ok(app.indexOf('id="mobile-nav"') < mobileAt && mobileAt < app.indexOf('id="settings-open-mobile"'), 'the phone strip puts it between the nav and the settings button');
+
+  assert.match(read('components/Nav.svelte'), /navCounts\(S\.data\?\.jobs \?\? \[\]\)/, 'the Needs-you badge reads the same jobs snapshot as the board');
+});
+
+test('the drawer marks new rows and counts unread Thread changes', () => {
+  const file = 'components/Drawer.svelte';
+  const text = read(file);
+  const markup = text.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '');
+  const chips = markup.indexOf('<PrChip pr={j.pr} />');
+  const line = markup.indexOf('<SessionActivity');
+  assert.ok(chips > 0 && line > chips && line < markup.indexOf('{#if j.reason}'), 'the activity line sits right after the chip row');
+  assert.match(text, /const activity = \$derived\(job \? sessionActivity\(S\.data\?\.daemons\?\.jobs\?\.\[job\.id\], shown\?\.detail\.events\.at\(-1\)\?\.ts\) : null\)/);
+
+  assert.match(text, /const unread = \$derived\(shown && job \? unreadCount\(threadMarks\(threadItems\(/);
+  assert.match(text, /S\.threadSeen\[job\.id\] \?\? null\)/);
+  assert.match(markup, /\{\$t\('drawer\.threadTab'\)\}\{#if unread > 0\}<span class="chip hl ml-1\.5">\{\$t\('drawer\.threadUnread', \{ count: unread \}\)\}<\/span>\{\/if\}/, 'the Thread tab shows chip hl N new');
+
+  assert.match(text, /const fresh = \$derived\(shown \? freshCount\(shown\.detail\.events\.length, S\.drawer\.eventsAtOpen\) : 0\)/);
+  assert.match(markup, /\{#if i < fresh\}<span class="dot hl size-1\.5 shrink-0 self-center" aria-hidden="true"><\/span><span class="sr-only">\{\$t\('live\.new'\)\}<\/span>\{\/if\}/, 'fresh Timeline rows start with dot hl and a hidden "new"');
+  assert.match(markup, /<ThreadPanel [^>]*baseline=\{S\.drawer\.threadAtOpen\}/);
+
+  const thread = read('components/ThreadPanel.svelte');
+  assert.match(thread, /baseline = null \}: \{[^}]*baseline\?: string\[\] \| null \}/, 'ThreadPanel takes a baseline prop');
+  assert.match(thread, /\{#if seenAtOpen && !seenAtOpen\.has\(threadMark\(m\)\)\}<span class="dot hl size-1\.5 shrink-0" aria-hidden="true"><\/span><span class="sr-only">\{\$t\('live\.new'\)\}<\/span>\{\/if\}/, 'a message not in the baseline is marked new');
+  assert.match(thread, /const seenAtOpen = \$derived\(baseline \? new Set\(baseline\) : null\)/, 'no baseline, no marks');
+
+  // The baselines: set on a full load, reset on open and close; the Thread counts as read on first load and while shown.
+  const state = read('lib/app.svelte.ts');
+  assert.match(state, /if \(full\) \{\s*\/\/[^\n]*\n\s*S\.drawer\.eventsAtOpen = detail\.events\.length;\s*S\.drawer\.threadAtOpen = marksOf\(detail\);/);
+  for (const fn of ['export async function openDrawer(', 'export function closeDrawer(']) {
+    const body = state.slice(state.indexOf(fn), state.indexOf('\n}\n', state.indexOf(fn)));
+    assert.match(body, /S\.drawer\.eventsAtOpen = null;\s*S\.drawer\.threadAtOpen = null;/, `${fn} resets the baselines`);
+  }
+  assert.match(state, /if \(id && \(!Object\.hasOwn\(S\.threadSeen, id\) \|\| S\.drawer\.tab === 'thread'\)\) S\.threadSeen = \{ \.\.\.S\.threadSeen, \[id\]: marksOf\(d\) \};/);
 });
 
 /** An attribute's value with its quotes dropped (`"x"` → `x`; `{x}` stays as written). */

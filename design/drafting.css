@@ -164,6 +164,9 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 .ic .cx { stroke-dasharray: 2 2; opacity: .6; }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
 .dot.ok { background: var(--ok); } .dot.ink { background: var(--ink); } .dot.hl { background: var(--highlight); } .dot.red { background: var(--redline); } .dot.hollow { border: 1px solid var(--dim); }
+/* The live dot's halo (Tailwind's animate-ping): wrap a .dot.ink.halo and a .dot.ink in a relative inline-flex span. The reduced-motion block above stops it. */
+.halo { position: absolute; inset: 0; opacity: .75; animation: ping 1s cubic-bezier(0,0,.2,1) infinite; }
+@keyframes ping { 75%, 100% { transform: scale(2); opacity: 0; } }
 .backdrop { background: rgba(8,28,58,.7); }
 [data-theme="vellum"] .backdrop { background: rgba(20,53,95,.45); }
 /* The command palette's lighter backdrop: what is behind it stays readable. */

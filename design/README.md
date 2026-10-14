@@ -61,8 +61,11 @@ Three families, all Google-hosted (no files): Space Grotesk for headings, IBM Pl
 - Focus: a 1px dashed `line-strong` outline at 2–3px (`dash`), on every control; checkboxes and radios too. Never a glow.
 - Pressed or selected: solid `ink` with `on-ink` text (buttons, segments); a primary button drops onto its shadow. The active nav item takes `raised`, a `line-strong` border and the 3px `ink` rule; the active tab fills with `panel` and draws its three sides in `line`.
 - Disabled: 40% opacity and a dashed border; a disabled primary button takes its surface's fill and loses its shadow.
-- Live: the `live` chip (ink text on an opaque 12% ink tint of its surface) and an `ink` dot before the agent's role. Needs you: `redline`. Changed: `highlight`.
-- Motion is limited to 120ms colour and transform transitions, the 160 ms sketch (`ease-out`) and the drawer's slide; the paper and grid never move. Reduced motion turns off every transition: the sketch appears and disappears at once, and the drawer doesn't slide.
+- Live: the `live` chip (ink text on an opaque 12% ink tint of its surface), an `ink` dot before the agent's role, and the live dot for an active daemon session: one looping `animate-ping` halo on the live dot marks an active session; it is the only looping motion and it is off under reduced motion. Idle and waiting sessions are a hollow dot; a session waiting on a permission is the `warn` chip *needs permission*. Needs you: `redline`. Changed: `highlight` (a card's `dot hl` for 3 s after a poll changes it, a drawer row that arrived since it opened, the Thread tab's `chip hl` unread count).
+
+## Motion
+
+Motion is limited to 120ms colour and transform transitions, the 160 ms sketch (`ease-out`), the drawer's slide, and the live dot: one looping `animate-ping` halo on the live dot marks an active session; it is the only looping motion and it is off under reduced motion. The paper and grid never move. Reduced motion turns off every transition and animation: the sketch appears and disappears at once, and the drawer doesn't slide or show the halo.
 
 ## Iconography and imagery
 

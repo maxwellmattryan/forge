@@ -293,7 +293,7 @@ test('the sketch hover is one registered property', () => {
 
   for (const m of css.matchAll(/animation(-name)?:([^;}]*)/g)) assert.doesNotMatch(m[2], /sketch/, 'the sketch is a transition, not an animation');
   assert.doesNotMatch(css, /@keyframes[^{]*sketch/);
-  assert.equal(css.match(/prefers-reduced-motion/g)?.length, 1, 'one reduced-motion block covers the sketch');
+  assert.equal(css.match(/prefers-reduced-motion\s*:\s*reduce/g)?.length, 1, 'one reduced-motion block covers the sketch (the live halo is the separate no-preference query)');
 
   const drafting = draftingCss();
   const S = 'background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0;';

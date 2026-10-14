@@ -102,6 +102,18 @@ test('formatters and esc render exactly as before', () => {
   assert.equal(esc(null), '');
 });
 
+test('ago takes a fixed now', () => {
+  const now = Date.parse('2026-10-14T12:00:00Z');
+  const before = (s: number) => new Date(now - s * 1000).toISOString();
+  assert.equal(ago(before(59), now), '59s ago');
+  assert.equal(ago(before(60), now), '1m ago');
+  assert.equal(ago(before(3600), now), '1h ago');
+  assert.equal(ago(null, now), '—');
+  // Without `now` it reads the wall clock: a time a few ms old is "0s ago", and one a day old is "1d ago".
+  assert.equal(ago(new Date().toISOString()), '0s ago');
+  assert.equal(ago(new Date(Date.now() - 86400000).toISOString()), '1d ago');
+});
+
 test('types.ts constants and labels match lib/schema.ts', () => {
   assert.equal(types.API_VERSION, schema.API_VERSION);
   assert.deepEqual([...types.STAGES], [...schema.STAGES]);

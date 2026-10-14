@@ -237,10 +237,6 @@ export function navCounts(jobs: JobLike[]): { active: number; needs: number } {
 
 const live = (o: { heartbeat?: string | null; since?: string | null }, now: number) => now - Date.parse(s(o.heartbeat ?? o.since)) < 30 * 60000;
 
-/** Distinct orchestrator sessions that heartbeated in the last 30 minutes. */
-export const activeSessions = (jobs: JobLike[], now: number): number =>
-  new Set(jobs.filter((j) => j.owner && live(j.owner, now)).map((j) => j.owner?.session)).size;
-
 // ---------- inbox ----------
 
 export function inboxGroups<T extends JobLike>(jobs: T[]): { urgent: T[]; prs: T[]; parks: T[] } {

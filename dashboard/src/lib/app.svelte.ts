@@ -23,6 +23,8 @@ import type {
 import { pref } from './prefs.ts';
 import { toast } from './toast.svelte.ts';
 import { VIEWS, buildRequest, pickDrawerFile, queuedMessage, statsQuery } from './view.ts';
+import { addFlashes, changedJobs } from './live.ts';
+import { threadItems, threadMarks, threadOpening } from './thread.ts';
 import type { RequestBody, RequestInput, ViewId } from './view.ts';
 
 /** The backlog, or the error a forced refresh hit (that reply has no tracker). */
@@ -43,6 +45,10 @@ class DrawerState {
   tab = $state('files');
   detail = $state.raw<JobDetail | null>(null);
   content = $state.raw<DrawerContent | null>(null);
+  /** The Timeline's length when this drawer opened: later rows are marked new. Null until the first load. */
+  eventsAtOpen = $state<number | null>(null);
+  /** The Thread's marks when this drawer opened: messages new or changed since are marked. Null until the first load. */
+  threadAtOpen = $state.raw<string[] | null>(null);
 }
 
 class AppState {
@@ -60,6 +66,10 @@ class AppState {
   compare = new CompareState();
   drawer = new DrawerState();
   drawerView = $state.raw<DrawerView>(null);
+  /** Job id → when its card's change flash ends (epoch ms). */
+  flashes = $state.raw<Record<string, number>>({});
+  /** Job id → the Thread marks last shown, for the tab's unread count. In memory, so it lasts the page's lifetime. */
+  threadSeen = $state.raw<Record<string, string[]>>({});
 }
 
 export const S = new AppState();
@@ -68,6 +78,9 @@ const TOKEN = (): string => document.querySelector<HTMLMetaElement>('meta[name="
 let token: string | null = null;
 /** Read once, as the old app.js did at load. */
 export const forgeToken = (): string => (token ??= TOKEN());
+
+/** The last poll's job signatures; null until the first poll, so the page's first load flashes nothing. */
+let sigs: Record<string, string> | null = null;
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -79,6 +92,10 @@ export async function refresh(): Promise<void> {
     S.error = data.apiVersion > API_VERSION ? 'This data was written by a newer Forge. Restart `forge dash` after updating the plugin.' : null;
     const key = JSON.stringify({ ...data, now: undefined });
     if (key !== S.dataKey) {
+      // Only a poll whose data changed gets here, so an identical poll never flashes.
+      const r = changedJobs(sigs, data.jobs);
+      sigs = r.sigs;
+      S.flashes = addFlashes(S.flashes, r.changed, Date.now());
       S.data = data;
       S.dataKey = key;
     }
@@ -200,10 +217,15 @@ export const fetchAbout = (): Promise<AboutResponse> => jsonFetch<AboutResponse>
 
 // ---------- drawer ----------
 
+const marksOf = (d: JobDetail): string[] => threadMarks(threadItems(d.requests, threadOpening(d)));
+
 function renderDrawer(): void {
   const d = S.drawer.detail;
+  const id = S.drawer.id;
   if (!d) return;
   S.drawerView = { detail: d, file: S.drawer.file, content: S.drawer.content, tab: S.drawer.tab };
+  // A job's first load counts as read, and so does everything while the Thread is the shown tab.
+  if (id && (!Object.hasOwn(S.threadSeen, id) || S.drawer.tab === 'thread')) S.threadSeen = { ...S.threadSeen, [id]: marksOf(d) };
 }
 
 export async function openDrawer(id: string, file: string | null = null, tab = 'files'): Promise<void> {
@@ -212,6 +234,8 @@ export async function openDrawer(id: string, file: string | null = null, tab = '
   S.drawer.file = file;
   S.drawer.content = null;
   S.drawer.tab = tab;
+  S.drawer.eventsAtOpen = null;
+  S.drawer.threadAtOpen = null;
   await loadDrawer(true);
 }
 
@@ -222,6 +246,8 @@ export function closeDrawer(): void {
   S.drawer.file = null;
   S.drawer.content = null;
   S.drawer.tab = 'files';
+  S.drawer.eventsAtOpen = null;
+  S.drawer.threadAtOpen = null;
 }
 
 async function loadDrawer(full: boolean): Promise<void> {
@@ -232,6 +258,11 @@ async function loadDrawer(full: boolean): Promise<void> {
     if (S.drawer.id !== id) return;
     const changed = JSON.stringify(detail) !== JSON.stringify(S.drawer.detail);
     S.drawer.detail = detail;
+    if (full) {
+      // The baselines new rows are marked against; reopening the drawer resets them.
+      S.drawer.eventsAtOpen = detail.events.length;
+      S.drawer.threadAtOpen = marksOf(detail);
+    }
     S.drawer.file = pickDrawerFile(detail.files, S.drawer.file);
     if (S.drawer.file && (full || changed)) await loadFile(S.drawer.file, false);
     if (full || changed) renderDrawer();
