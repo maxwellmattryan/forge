@@ -174,3 +174,45 @@ export function literals(expr: string): { value: string; before: string; after: 
   }
   return out;
 }
+
+const VOID_ELEMENTS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+type Attr = { name?: string; value?: string; spread?: string };
+export type Placed = { name: string; attrs: Attr[]; ancestors: Placed[] };
+
+/**
+ * Every opening element of a component's markup with its ancestors, nearest first. `<script>`, `<style>` and
+ * comments are dropped and `{…}` is skipped as in `tags()`. Components and `svelte:*` tags count as elements;
+ * void elements and `/>` open nothing. An unbalanced close throws.
+ */
+export function ancestry(file: string, text: string): Placed[] {
+  const s = text.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '').replace(/<style\b[^>]*>[\s\S]*?<\/style>/g, '').replace(/<!--[\s\S]*?-->/g, '');
+  const out: Placed[] = [];
+  const stack: Placed[] = [];
+  for (let i = 0; i < s.length; ) {
+    if (s[i] === '{') {
+      const end = endOf(s, i);
+      if (end < 0) throw new Error(`${file}: cannot parse markup near ${JSON.stringify(s.slice(i, i + 60))}`);
+      i = end + 1;
+      continue;
+    }
+    const m = s[i] === '<' ? /^<(\/?)([A-Za-z][\w:.-]*)/.exec(s.slice(i, i + 80)) : null;
+    if (!m) {
+      i++;
+      continue;
+    }
+    const end = tagEnd(s, i);
+    if (end < 0) throw new Error(`${file}: cannot parse tag near ${JSON.stringify(s.slice(i, i + 60))}`);
+    const raw = s.slice(i, end);
+    i = end;
+    if (m[1]) {
+      const at = stack.map((e) => e.name).lastIndexOf(m[2]);
+      if (at < 0) throw new Error(`${file}: </${m[2]}> closes nothing`);
+      stack.length = at;
+      continue;
+    }
+    const el: Placed = { name: m[2], attrs: tags(file, raw)[0]?.attrs ?? [], ancestors: [...stack].reverse() };
+    out.push(el);
+    if (!raw.endsWith('/>') && !VOID_ELEMENTS.has(m[2])) stack.push(el);
+  }
+  return out;
+}

@@ -170,7 +170,7 @@
       {#if it.result}{@render result(it.result)}{/if}
     </details>
   {:else if it.kind === 'subagent'}
-    <details class="hatch border border-info px-2 py-1">
+    <details class="border border-info px-2 py-1">
       <summary class="cursor-pointer break-all">{@render when(it.at)}<Chip tone={it.known ? 'info' : 'muted'} text={it.role} /> <span>{it.description}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.hidden} <span class="text-muted">{$t('session.hiddenLines', { count: it.hidden })}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
       {#if it.prompt}
         <details class="mt-1">
@@ -245,7 +245,7 @@
       {#if !view.turns.length}<div class="text-muted">{$t('session.noMatch')}</div>{/if}
       {#each view.turns as g (g.offset)}
         <section class="mb-2">
-          <h3 class="label sticky top-0 z-10 bg-bg pt-2 pb-1">{g.label}{#if g.at} <time datetime={g.at} title={g.at} class="font-normal tabular-nums">· {clock(g.at)}</time>{/if}</h3>
+          <h3 class="label sticky top-0 z-10 bg-panel pt-2 pb-1">{g.label}{#if g.at} <time datetime={g.at} title={g.at} class="font-normal tabular-nums">· {clock(g.at)}</time>{/if}</h3>
           <div class="flex flex-col gap-1">{#each g.items as it, i (i)}{@render item(it)}{/each}</div>
         </section>
       {/each}

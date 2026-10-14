@@ -18,7 +18,7 @@ function builtCss(): string {
 }
 
 const UTILITIES = (
-  'ground falloff plain hatch hatch-dense crosshatch sheet ticks redline dashed solid clickable h label callout mono num muted dimmed caption ' +
+  'ground falloff plain chrome sketch sheet ticks redline dashed solid clickable h label callout mono num muted dimmed caption ' +
   'dim-line prose btn seg chip nav input check radio field track fill tabs tab tbl tblock kpi ic dot backdrop scrim mark'
 ).split(' ');
 // Compound selectors as the build writes them (minified, attribute quotes dropped).
@@ -28,7 +28,7 @@ const MODIFIERS = [
   '.btn.primary', '.btn.sel', '.btn.sm', '.btn.icon', '.btn.touch', '.btn.active', '.btn.focus', '.btn.disabled', '.btn[disabled]', '.btn .ic', '.seg .btn',
   '.chip.ok', '.chip.bad', '.chip.warn', '.chip.info', '.chip.ink', '.chip.muted', '.chip.live', '.chip.rev', '.chip.hl', '.chip:is(button)',
   '.nav a', '.nav button', '.nav a.active', '.nav .lbl', '.nav.row', '.nav.row a', '.nav.row button',
-  '.input:focus', '.input:is(textarea)', '.input:is(select)', '.check.on:after', '.radio.on:after', '.fill.ok', '.fill.warn', '.fill.bad', '[data-theme=vellum] .fill',
+  '.input:focus', '.input:is(textarea)', '.input:is(select)', '.check.on:after', '.radio.on:after', '.fill.ok', '.fill.warn', '.fill.bad',
   '.tab.active', '.tbl th', '.tbl tr.clickable', '.tbl .r', '.tblock>div.wide', '.tblock .k', '.kpi .v', '.ic .cx',
   '.dot.ok', '.dot.ink', '.dot.hl', '.dot.red', '.dot.hollow', '[data-theme=vellum] .backdrop', '[data-theme=vellum] .scrim', '[data-theme=vellum] .mark', '.ground:before', '.falloff:after',
 ];
@@ -59,7 +59,7 @@ test('every drafting utility is ported', () => {
   assert.ok(fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8').includes('.nav.row a, .nav.row button { width: auto;'), 'design/drafting.css has the .nav.row item rule');
   assert.ok(fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8').includes('.prose.compact {'), 'design/drafting.css has the .prose.compact rules');
   assert.ok(!hasClass('.hatch{}.h-4{}', 'h') && hasClass('.h.card{}', 'h') && hasClass('.x .h{', 'h'), 'the class matcher');
-  // A sheet sets only its background colour, so `sheet hatch` and `sheet crosshatch` keep their image (Empty).
+  // A sheet sets only its background colour, so `sheet clickable` keeps its sketch.
   const sheet = ruleFor(css, '.sheet');
   assert.match(sheet, /background-color:var\(--panel\)/);
   assert.doesNotMatch(sheet, /(^|[;{])background:/, 'no background shorthand on .sheet');
@@ -227,6 +227,146 @@ test('reduced motion disables transitions and animations', () => {
   );
 });
 
+/** Every `@media` block whose prelude matches (Tailwind's `hover:` variants emit their own): the bodies joined, and the CSS without them. */
+function mediaSplit(css: string, prelude: RegExp): { inside: string; outside: string } {
+  const inside: string[] = [];
+  let outside = '';
+  for (let rest = css; ; ) {
+    const m = new RegExp(`@media\\s*${prelude.source}\\s*\\{`).exec(rest);
+    if (!m) {
+      outside += rest;
+      break;
+    }
+    const body = mediaBody(rest.slice(m.index), prelude);
+    inside.push(body);
+    outside += rest.slice(0, m.index);
+    rest = rest.slice(m.index + m[0].length + body.length + 1);
+  }
+  return { inside: inside.join('\n'), outside };
+}
+const HOVER_MEDIA = /\(\s*hover\s*:\s*hover\s*\)/;
+
+// The sketch, as the build writes it. `transparent` leads the mix: Tailwind's color-mix fallback keeps the
+// first colour, so a browser without color-mix draws no sketch rather than a full-strength one.
+const SKETCH_IMAGE = 'background-image:repeating-linear-gradient(45deg,color-mix(in srgb,transparent,var(--sketch-line)var(--sketch))0 1px,transparent 1px var(--hatch-pitch))';
+const SKETCH_AT_REST = 'background-position:calc(-1*var(--hatch-pitch))0';
+const SKETCH_ON = /--sketch:100%;background-position:0 0(;|$)/;
+const SKETCHED = ['.sheet.clickable', '.btn', '.nav a', '.tab', '.chip:is(button)'];
+/** The hover rule of each sketched control, and its `.hover` twin for the previews (chips have none). */
+const HOVER: Record<string, [string, string | null]> = {
+  '.sheet.clickable': ['.sheet.clickable:hover', '.sheet.hover'],
+  '.btn': ['.btn:hover', '.btn.hover'],
+  '.nav a': ['.nav a:hover', '.nav a.hover'],
+  '.tab': ['.tab:hover', '.tab.hover'],
+  '.chip:is(button)': ['.chip:is(button):hover', null],
+};
+
+test('the sketch hover is one registered property', () => {
+  const css = builtCss();
+  const property = /@property --sketch\{([^}]*)\}/.exec(css)?.[1];
+  assert.equal(property, 'syntax:"<percentage>";inherits:false;initial-value:0%', 'the built CSS registers --sketch, not inherited');
+  const sketch = ruleFor(css, '.sketch');
+  assert.ok(sketch.includes(SKETCH_IMAGE), `.sketch draws var(--sketch-line) at var(--sketch) (${sketch})`);
+  assert.ok(sketch.includes(SKETCH_AT_REST), '.sketch starts one pitch off');
+
+  const { inside: hover, outside: ungated } = mediaSplit(css, HOVER_MEDIA);
+  const split = mediaSplit('.a{x:1}@media (hover:hover){.b:hover{y:2}}.c{z:3}', HOVER_MEDIA);
+  assert.deepEqual([split.inside, split.outside], ['.b:hover{y:2}', '.a{x:1}.c{z:3}'], 'self-check: the media splitter');
+  for (const sel of ['.sketch', ...SKETCHED]) {
+    const rest = ruleFor(css, sel);
+    assert.ok(rest.includes(SKETCH_IMAGE), `${sel} declares the sketch at rest`);
+    assert.ok(rest.includes(SKETCH_AT_REST), `${sel} starts the sketch one pitch off`);
+    assert.match(rest, /transition:--sketch \.16s ease-out,background-position \.16s ease-out/, `${sel} transitions the registered --sketch`);
+    const [on, twin] = HOVER[sel] ?? ['.sketch:hover', '.sketch.hover'];
+    assert.match(ruleFor(hover, on), SKETCH_ON, `${on} sketches, inside @media (hover:hover)`);
+    if (twin) assert.match(ruleFor(css, twin), SKETCH_ON, `${twin} sketches (previews)`);
+    // Ungated, a tap on a touch screen would leave the lines on.
+    assert.doesNotMatch(ruleFor(ungated, on), /--sketch:/, `${on} sets --sketch only inside @media (hover:hover)`);
+  }
+  assert.match(ruleFor(hover, '.sheet.clickable:hover'), /background-color:var\(--panel\)/, 'a hovered card keeps its panel');
+  assert.match(ruleFor(css, '.sheet.hover'), /background-color:var\(--panel\)/);
+  assert.match(ruleFor(hover, '.btn:hover .muted'), /color:inherit/, 'muted text in a hovered button takes its fg');
+  assert.match(ruleFor(css, '.btn.hover .muted'), /color:inherit/);
+  // Selected, primary, pressed and disabled buttons, the active nav item and the active tab drop the image.
+  for (const sel of ['.btn.sel', '.btn.primary', '.btn:active']) assert.match(ruleFor(css, sel), /background:var\(--ink\)/, `${sel} resets the background`);
+  for (const sel of ['.btn[disabled]', '.nav a.active', '.tab.active']) assert.match(ruleFor(css, sel), /background-image:none/, `${sel} drops the sketch`);
+
+  for (const m of css.matchAll(/animation(-name)?:([^;}]*)/g)) assert.doesNotMatch(m[2], /sketch/, 'the sketch is a transition, not an animation');
+  assert.doesNotMatch(css, /@keyframes[^{]*sketch/);
+  assert.equal(css.match(/prefers-reduced-motion\s*:\s*reduce/g)?.length, 1, 'one reduced-motion block covers the sketch (the live halo is the separate no-preference query)');
+
+  const drafting = draftingCss();
+  const S = 'background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0;';
+  const H = '--sketch: 100%; background-position: 0 0;';
+  for (const line of [
+    '@property --sketch { syntax: "<percentage>"; inherits: false; initial-value: 0%; }',
+    `.sketch { ${S} transition: --sketch .16s ease-out, background-position .16s ease-out, border-color .12s ease, color .12s ease; }`,
+    `@media (hover: hover) { .sketch:hover { ${H} } }`,
+    `.sketch.hover { ${H} }`,
+    '.chrome { background-color: var(--chrome); --surface: var(--chrome); }',
+    `.sheet.clickable { cursor: pointer; ${S} transition: --sketch .16s ease-out, background-position .16s ease-out, border-color .12s ease; }`,
+    `@media (hover: hover) { .sheet.clickable:hover { border-color: var(--line-strong); background-color: var(--panel); ${H} } }`,
+    `.sheet.hover { border-color: var(--line-strong); background-color: var(--panel); ${H} }`,
+    `@media (hover: hover) { .btn:hover { ${H} } .btn:hover .muted { color: inherit; } }`,
+    `.btn.hover { ${H} }`,
+    `@media (hover: hover) { button.chip:hover { ${H} } }`,
+    `@media (hover: hover) { .nav a:hover, .nav button:hover { ${H} } }`,
+    `.nav a.hover { ${H} }`,
+    `@media (hover: hover) { .tab:hover { ${H} } }`,
+    `.tab.hover { ${H} }`,
+  ])
+    assert.ok(drafting.includes(line), `design/drafting.css mirrors ${line}`);
+  for (const sel of ['.btn {', 'button.chip {', '.nav a, .nav button {', '.tab {']) {
+    const rule = drafting.slice(drafting.indexOf(sel)).split('\n')[0];
+    assert.ok(rule.includes(S) && rule.includes('transition: --sketch .16s ease-out'), `design/drafting.css ${sel} declares the sketch at rest`);
+  }
+});
+
+test('grid and paper live only on the ground', () => {
+  const css = builtCss();
+  let grids = 0;
+  let urls = 0;
+  for (const m of css.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
+    const [selector, body] = [m[1].trim(), m[2]];
+    if (/var\(--grid-(minor|major)\)/.test(body)) {
+      grids++;
+      assert.ok(splitTop(selector, /,/).every((s) => hasClass(s, 'ground')), `${selector} draws the grid off the ground`);
+    }
+    if (body.includes('url(') && !selector.startsWith('@font-face')) {
+      urls++;
+      assert.equal(selector, '.ground:before', `${selector} carries a texture off the ground`);
+    }
+  }
+  assert.ok(grids >= 1 && urls === 1, `the grid (${grids} rules) and the paper (${urls}) are on the ground`);
+  const sources: [string, string][] = [
+    ['the built CSS', css],
+    ['dashboard/style.css', fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8')],
+    ['design/drafting.css', draftingCss()],
+  ];
+  for (const name of ['hatch', 'hatch-dense', 'crosshatch']) {
+    for (const [where, text] of sources) {
+      const rules = [...text.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{};]*)\{/g)].map((x) => x[1]);
+      assert.ok(!rules.some((sel) => hasClass(sel, name) || new RegExp(`@utility ${name}\\s*$`).test(sel.trim())), `${where} has no .${name} rule`);
+    }
+  }
+});
+
+test('surfaces are opaque and dashed strips nothing', () => {
+  const css = builtCss();
+  assert.doesNotMatch(ruleFor(css, '.dashed'), /background/, '.dashed sets only the border, so the ⌘K btn dashed keeps its sketch');
+  for (const sel of ['.solid', '.plain', '.sheet.solid', '.chrome']) {
+    const rule = ruleFor(css, sel);
+    assert.match(rule, /background-color:var\(--(panel|chrome)\)/, `${sel} fills with an opaque token`);
+    assert.doesNotMatch(rule, /(^|;)background:/, `${sel} uses background-color, never the shorthand`);
+  }
+  for (const sel of ['.solid', '.plain', '.sheet.solid', '.tab.active']) assert.match(ruleFor(css, sel), /background-color:var\(--panel\)/, `${sel} is panel`);
+  assert.match(ruleFor(css, 'select option'), /background:var\(--panel\)/, 'the open list is panel');
+  assert.match(ruleFor(css, '.sheet.dashed'), /background-color:#0000|background-color:transparent/, 'a board column stays a container drawn on the ground');
+  const drafting = draftingCss();
+  for (const line of ['.solid { background-color: var(--panel); --surface: var(--panel); }', '.plain { background-color: var(--panel); --surface: var(--panel); }', '.sheet.solid { background-color: var(--panel); }', '.dashed { border-style: dashed; }'])
+    assert.ok(drafting.includes(line), `design/drafting.css has ${line}`);
+});
+
 test('every control has the drafting focus ring', () => {
   const css = builtCss();
   assert.match(ruleFor(css, ':focus-visible'), /outline:1px dashed var\(--line-strong\)/, 'a base ring for every focusable element');
@@ -241,7 +381,7 @@ test('every control has the drafting focus ring', () => {
   const drafting = draftingCss();
   for (const line of [
     ':focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 2px; }',
-    'appearance: none; margin: 0; background: transparent; cursor: pointer; vertical-align: middle; }',
+    'appearance: none; margin: 0; background-color: var(--surface, var(--bg)); cursor: pointer; vertical-align: middle; }',
     '.check:disabled { opacity: .4; border-style: dashed; cursor: not-allowed; }',
     '.check.on::after, .check:checked::after {',
     '.seg label:has(input:focus-visible) { outline: 1px dashed var(--line-strong); outline-offset: 3px; z-index: 1; }',

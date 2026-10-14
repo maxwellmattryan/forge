@@ -16,7 +16,7 @@
 </script>
 
 {#if m.show}
-  <section aria-labelledby="dock-heading-{job.id}" class="shrink-0 border-t border-line bg-bg max-h-[45dvh] overflow-y-auto px-5 py-4 md:px-6 flex flex-col gap-3">
+  <section aria-labelledby="dock-heading-{job.id}" class="shrink-0 border-t border-line bg-panel max-h-[45dvh] overflow-y-auto px-5 py-4 md:px-6 flex flex-col gap-3">
     <h3 id="dock-heading-{job.id}" class="label callout">{$t('dock.label')}</h3>
     <PermissionPrompts scope={job.id} />
     {#if m.resume.show}

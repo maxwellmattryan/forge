@@ -62,7 +62,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop, as on main; Escape closes the drawer from the keyboard) -->
 <div id="drawer-backdrop" class="fixed inset-0 backdrop {open ? '' : 'hidden'} z-30" onclick={closeDrawer}></div>
 <!-- A full-height column: the body scrolls, and the action dock under it stays put on every tab. -->
-<aside id="drawer" class="fixed right-0 top-0 h-dvh flex flex-col w-full max-w-(--size-drawer-max) bg-bg border-l border-line z-40 {open ? 'shadow-(--shadow-drawer)' : 'translate-x-full'} transition-transform">
+<aside id="drawer" class="fixed right-0 top-0 h-dvh flex flex-col w-full max-w-(--size-drawer-max) solid border-l border-line z-40 {open ? 'shadow-(--shadow-drawer)' : 'translate-x-full'} transition-transform">
   {#if view && 'error' in view}
     <div class="min-h-0 flex-1 overflow-y-auto p-6"><Banner msg={view.error} /></div>
   {:else if shown && job}
