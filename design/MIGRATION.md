@@ -28,7 +28,7 @@ The code is the implementation; this folder is the drawing. When they disagree d
 | `--ok`, `--warn`, `--bad`, `--info` | same names | new values; `--bad` equals `--redline` today but stays its own token |
 | — | `--highlight` | marker yellow: unsaved dots, selection |
 | — | `--grid-minor`, `--grid-major` | the ground's grid |
-| Tailwind radii | `--radius-0`, `--radius-tag`, `--radius-dot` | `rounded-*` utilities disappear from markup except `rounded-full` on dots |
+| Tailwind radii | `--radius-0`, `--radius-dot` | `rounded-*` utilities disappear from markup except `rounded-full` on dots |
 | `shadow-lg`, `shadow-2xl` | `--shadow-dialog`, `--shadow-drawer`, `--shadow-primary` | hard offsets, no blur |
 | `--font-sans`, `--font-mono` | `--font-sans`, `--font-mono`, `--font-head` | Inter → IBM Plex Sans; JetBrains Mono → IBM Plex Mono; Space Grotesk for headings |
 

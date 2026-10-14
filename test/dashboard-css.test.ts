@@ -110,7 +110,7 @@ function splitTop(value: string, sep: RegExp): string[] {
   return out;
 }
 
-const ROUND_OK = /^(0|0px|50%|9999px|10px|calc\(infinity\s*\*\s*1px\)|3\.40282e\+?38px|var\(--radius-(dot|tag)\))$/;
+const ROUND_OK = /^(0|0px|50%|9999px|calc\(infinity\s*\*\s*1px\)|3\.40282e\+?38px|var\(--radius-dot\))$/;
 
 /** Shadow parts that blur; a part that is only a var() is checked where that variable is declared. */
 function blurred(value: string): string[] {
@@ -246,4 +246,24 @@ test('phone targets are 44px', () => {
   assert.match(box, /width:44px/);
   assert.match(box, /height:44px/);
   assert.match(box, /position:absolute/);
+});
+
+test('the REV chip is the same rectangle as every chip', () => {
+  const css = builtCss();
+  const drafting = fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8');
+  const built = ruleFor(css, '.chip.rev');
+  const drawn = /^\.chip\.rev \{([^}]*)\}/m.exec(drafting)?.[1] ?? '';
+  for (const [where, rule] of [['the built CSS', built], ['design/drafting.css', drawn]]) {
+    assert.match(rule, /color:\s*var\(--redline\)/, `${where}: .chip.rev is redline`);
+    assert.doesNotMatch(rule, /border-radius/, `${where}: .chip.rev has square corners`);
+    assert.doesNotMatch(rule, /(^|[;\s])padding/, `${where}: .chip.rev keeps the chip padding`);
+  }
+  for (const [where, text] of [
+    ['design/tokens.css', fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8')],
+    ['design/tokens.json', fs.readFileSync(path.join(ROOT, 'design', 'tokens.json'), 'utf8')],
+    ['dashboard/style.css', fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8')],
+    ['the built CSS', css],
+  ])
+    assert.ok(!text.includes('radius-tag'), `${where} has no radius-tag`);
+  assert.ok(!ROUND_OK.test('10px') && !ROUND_OK.test('var(--radius-tag)'), 'no rounded-tag exception is left');
 });
