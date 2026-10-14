@@ -32,4 +32,5 @@ A code reviewer then checks your resolution. If your brief includes an integrati
 If a conflict needs a product decision (both sides changed behaviour incompatibly), abort (`git merge --abort` / `git rebase --abort`), write the question to `questions.md`, and reply `NEEDS-INPUT`.
 
 ## Finish
+Write output files with the Write or Edit tool, never a shell redirect or heredoc, and confirm each exists before you reply.
 Reply with one line: `INTEGRATE: done|needs-input · conflicts <n> · checks pass|fail`.

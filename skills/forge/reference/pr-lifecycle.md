@@ -38,6 +38,7 @@ Runs only when `forge integrate` returned conflicts **and** the integrator resol
 2. `forge job verdicts <id> --round integration --compact` (reviewers default to `code`; it logs an `integration-review` event and leaves `job.verdicts` alone).
    - `PASS` → `forge pr open <id>`.
    - `MALFORMED` → re-spawn the reviewer once; still malformed → re-run with `--malformed changes`.
+   - `MISSING` (the reviewer ended without writing `missing.code`) → re-spawn it once; still missing → `--state waiting --waiting-on escalation --reason "integration review: no review written"` and report.
    - `CHANGES` → resume (or respawn) the integrator with `review/integration/code.md` as input, then `forge verify <id>` and re-review (it overwrites the same file). One fix attempt only. Still `CHANGES` → `forge job set <id> --state waiting --waiting-on escalation --reason "integration review: CHANGES"`, report, and don't open the PR. A human `approve` then proceeds to `pr open`.
 
 ## Parallel sessions on one PR

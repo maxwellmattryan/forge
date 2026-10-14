@@ -37,4 +37,5 @@ Source of truth: <Figma frame links / existing screens / "none: derived from des
 If the brief says **mockup mode**, also write `mockup.html`: one self-contained static page (inline CSS, no external requests, no scripts unless needed for a state toggle) that shows each screen/state side by side, using the app's real tokens/colours. It's a reference for the builder and the human, not production code.
 
 ## Finish
+Write output files with the Write or Edit tool, never a shell redirect or heredoc, and confirm each exists before you reply.
 Reply in at most 3 lines: `DESIGN: ready · source <figma|existing|derived> · spec deltas <n> · mockup yes|no`.
