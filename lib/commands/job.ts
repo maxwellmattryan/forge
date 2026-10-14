@@ -20,6 +20,12 @@ import type { AgentUsage, Config, Job } from '../types.ts';
 
 const LINK_USAGE = 'usage: forge job link <id> <ref> | --create | --none [--reason R] | --suggest';
 
+// `forge stats` and `forge job step` read these from `human` events, so an invented action is refused.
+const HUMAN_ACTIONS = ['approve-spec', 'revise-spec', 'approve-split', 'revise-split', 'approve', 'rework', 'answer'] as const;
+
+// List fields `step`, the briefs and the dashboard iterate; each maps to the example its error shows.
+const ARRAY_FIELDS: Record<string, string> = { reviewers: '["code","tests"]', services: '["api"]', dependsOn: '["<job id>"]', children: '["<job id>"]' };
+
 /** The result is printed as JSON. */
 export async function jobCmd(root: string, config: Config, sub: string | undefined, rest: string[], flags: Record<string, any>): Promise<unknown> {
   const id = rest[0];
@@ -71,7 +77,12 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       for (const kv of flags.field === undefined || flags.field === true ? [] : ([] as unknown[]).concat(flags.field).map(String)) {
         const eq = kv.indexOf('=');
         if (eq < 1) throw new ForgeError(`--field expects key=value, got "${kv}"`);
-        fields[kv.slice(0, eq)] = coerce(kv.slice(eq + 1));
+        const key = kv.slice(0, eq);
+        fields[key] = coerce(kv.slice(eq + 1), key);
+      }
+      for (const [key, example] of Object.entries(ARRAY_FIELDS)) {
+        const v = fields[key];
+        if (key in fields && !(Array.isArray(v) && v.every((x) => typeof x === 'string'))) throw new ForgeError(`--field ${key} must be a JSON array of strings, e.g. --field '${key}=${example}'`);
       }
       // Checked before anything is written, so a bad list leaves job.json untouched.
       if ('dependsOn' in fields) fields.dependsOn = validateDependsOn(root, req(id, 'job id'), fields.dependsOn);

@@ -1,6 +1,8 @@
 // Argument parsing and output helpers shared by every command module.
 import fs from 'node:fs';
+import { loadJob } from '../jobs.ts';
 import { ForgeError } from '../util.ts';
+import type { LoadedJob } from '../types.ts';
 
 export function parseArgs(argv: string[]): { pos: string[]; flags: Record<string, any> } {
   const pos: string[] = [];
@@ -39,4 +41,36 @@ export function bodyFrom(flags: Record<string, any>): string {
 export function req(v: any, what: string): string {
   if (v === undefined || v === null || v === '' || v === true) throw new ForgeError(`missing ${what}`);
   return String(v);
+}
+
+/**
+ * A string flag. A bare `--flag` (its value swallowed because it started with --) or `--flag=`
+ * would otherwise be stored as `true` or "", and a repeated flag as an array.
+ */
+export function str(v: unknown, flag: string): string | undefined {
+  if (v === undefined) return undefined;
+  if (v === true || v === '') throw new ForgeError(`missing value for ${flag} (write ${flag}=<value> if the value starts with --)`);
+  if (Array.isArray(v)) throw new ForgeError(`${flag} given more than once`);
+  return String(v);
+}
+
+/** A count flag: Number() alone turns "abc" into NaN and lets negatives through into job state. */
+export function num(v: unknown, flag: string, opts: { integer?: boolean } = {}): number | undefined {
+  if (v === undefined) return undefined;
+  if (v === true || v === '') throw new ForgeError(`missing value for ${flag}`);
+  const n = Array.isArray(v) ? NaN : Number(v);
+  if (!Number.isFinite(n) || n < 0 || (opts.integer && !Number.isInteger(n))) throw new ForgeError(`${flag} must be a non-negative ${opts.integer ? 'integer' : 'number'} (got ${JSON.stringify(String(v))})`);
+  return n;
+}
+
+/** A closed set of words, so an invented value fails instead of being logged as if it meant something. */
+export function oneOf<T extends string>(v: unknown, allowed: readonly T[], what: string): T {
+  const s = req(v, `${what} (${allowed.join('|')})`);
+  if (!(allowed as readonly string[]).includes(s)) throw new ForgeError(`unknown ${what} ${JSON.stringify(s)} (${allowed.join(', ')})`);
+  return s as T;
+}
+
+/** Checked before any write: updateJob's lock would otherwise create a ghost job directory. */
+export function requireJob(root: string, id: unknown): LoadedJob {
+  return loadJob(root, req(id, 'job id'));
 }
