@@ -4,12 +4,13 @@
 // the session records (lib/daemon.ts); an owner in no record keeps the time-based rule in claimJob.
 // A separate module because lib/daemon.ts imports lib/jobs.ts, which must not import it back.
 import { UUID, isOurChild, readInfo, sessionRecords } from './daemon.ts';
-import { INBOX_SCOPE, daemonScope } from './requests.ts';
+import { ownerStatus } from './jobs.ts';
+import { INBOX_SCOPE, SCOPE_ENV, daemonScope } from './requests.ts';
 import { ForgeError } from './util.ts';
 import { pidAlive } from './worktree.ts';
-import type { JobOwner } from './types.ts';
+import type { Job, JobOwner, OwnerStatus, YieldReason } from './types.ts';
 
-export type YieldReason = 'moved-on' | 'not-running' | 'inbox-handoff';
+export type { YieldReason } from './types.ts';
 
 /** The child a record describes is running: alive, and provably the claude process it recorded. */
 const recordedChildLive = (info: any): boolean => Number.isInteger(info.pid) && pidAlive(info.pid) && isOurChild(info, info.pid);
@@ -50,6 +51,27 @@ export function ownerYield(
     return current.some((r) => isLive(r.info)) ? null : 'not-running';
   }
   return records.some((r) => pastIds(r.info).includes(sid)) ? 'moved-on' : null;
+}
+
+/** The env a job's own daemon session claims with, so a proof is judged as that session would judge it. */
+export function jobSessionEnv(jobId: string): NodeJS.ProcessEnv {
+  return { FORGE_DAEMON: '1', [SCOPE_ENV]: jobId };
+}
+
+/**
+ * ownerStatus plus the daemon-record proofs: a live-looking owner that ownerYield shows has let
+ * go is `dead`, so it agrees with what claimJob would do with daemonClaimOpts and the same env.
+ * Spawns `ps` only for a live-looking owner in a session record.
+ */
+export function ownerStatusWithProof(
+  root: string,
+  job: Pick<Job, 'id' | 'owner' | 'agents'>,
+  opts: { env?: NodeJS.ProcessEnv; isLive?: (info: any) => boolean } = {},
+): OwnerStatus {
+  const s = ownerStatus(job);
+  if (s.status !== 'live') return s;
+  const reason = ownerYield(root, job.id, job.owner, opts);
+  return reason ? { ...s, status: 'dead', reason } : s;
 }
 
 /** The claimJob options every command-layer claim passes. */

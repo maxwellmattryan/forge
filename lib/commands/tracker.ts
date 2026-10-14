@@ -1,6 +1,6 @@
 // Tracker commands, starting jobs from tracker refs, and `forge sync` (PRs + trackers for every job).
-import { daemonClaimOpts } from '../daemon-owner.ts';
-import { DEP_REASON, refreshDependencyWait, retargetPlan, unmetDependencies } from '../deps.ts';
+import { daemonClaimOpts, ownerStatusWithProof } from '../daemon-owner.ts';
+import { DEP_REASON, claimRespectingDeps, refreshDependencyWait, retargetPlan, unmetDependencies } from '../deps.ts';
 import { createJob, isActive, listJobs, loadJob, logEvent, readEvents, setJob, claimJob } from '../jobs.ts';
 import * as pr from '../pr.ts';
 import { listRequests } from '../requests.ts';
@@ -10,7 +10,7 @@ import { loadTracker } from '../trackers/index.ts';
 import { ForgeError } from '../util.ts';
 import * as wt from '../worktree.ts';
 import { bodyFrom, list, req } from './args.ts';
-import type { Config, Job, JobPr, Tracker } from '../types.ts';
+import type { Config, Job, JobPr, Tracker, TrackerItem } from '../types.ts';
 
 /** The result is printed as JSON. */
 export async function trackerCmd(root: string, config: Config, sub: string | undefined, rest: string[], flags: Record<string, any>): Promise<unknown> {
@@ -45,9 +45,33 @@ export async function trackerCmd(root: string, config: Config, sub: string | und
   }
 }
 
-/** `forge next --claim` and `forge job from-ref`. The result is printed as JSON. */
-export async function nextCmd(root: string, config: Config, flags: Record<string, any>): Promise<unknown> {
-  const tracker = await loadTracker(root, config);
+/**
+ * Queued jobs nobody drives, oldest first: active, not eval, not an umbrella, dependencies done,
+ * no resume hand-off pending or in progress, and an owner that is absent, stale or provably dead.
+ */
+function resumeCandidates(root: string): Job[] {
+  const handedOff = new Set(listRequests(root).filter((r) => r.type === 'resume' && (r.status === 'pending' || r.status === 'in-progress') && r.job).map((r) => r.job));
+  return listJobs(root)
+    .filter((j) => isActive(j) && j.state === 'queued' && j.kind !== 'eval' && !j.children?.length && !handedOff.has(j.id) && !unmetDependencies(root, j).length)
+    .filter((j) => ownerStatusWithProof(root, j, { env: process.env }).status !== 'live')
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id.localeCompare(b.id));
+}
+
+/** Claims the first resumable job for `session`, or null. A claim lost to a race moves on. */
+function resumeQueued(root: string, session: string): Job | null {
+  for (const candidate of resumeCandidates(root)) {
+    try {
+      return claimRespectingDeps(root, candidate.id, session, false, daemonClaimOpts(root, candidate.id)).job;
+    } catch (e) {
+      if (e instanceof ForgeError && (e.exitCode === 3 || e.exitCode === 4)) continue;
+      throw e;
+    }
+  }
+  return null;
+}
+
+/** Ready tracker items, minus those whose active job waits on dependencies (listed as `blocked`). */
+function readyItems(root: string, config: Config, tracker: Tracker, flags: Record<string, any>): { ready: TrackerItem[]; blocked: { ref: string; id: string; waitingOn: string[] }[] } {
   const items = tracker.list({ root, config }, { ready: true, limit: Number(flags.limit ?? 20) });
   const blocked: { ref: string; id: string; waitingOn: string[] }[] = [];
   // --force skips nothing. Otherwise an item is blocked when the active job it would resume
@@ -60,11 +84,30 @@ export async function nextCmd(root: string, config: Config, flags: Record<string
     if (unmet.length) blocked.push({ ref: i.ref, id: job!.id, waitingOn: unmet.map((u) => u.id) });
     return !unmet.length;
   });
+  return { ready, blocked };
+}
+
+/** `forge next --claim` and `forge job from-ref`. The result is printed as JSON. */
+export async function nextCmd(root: string, config: Config, flags: Record<string, any>): Promise<unknown> {
+  // A session asking for work first resumes a queued job nobody drives, before it creates one.
+  // --force never applies here: it would take a live owner's job or a blocked one.
+  const session = flags.claim && typeof flags.session === 'string' && flags.session ? flags.session : null;
+  const resumed = session ? resumeQueued(root, session) : null;
+  if (resumed) {
+    let blocked: { ref: string; id: string; waitingOn: string[] }[] = [];
+    // The job is already claimed, so a tracker hiccup only costs the `blocked` report.
+    try {
+      blocked = readyItems(root, config, await loadTracker(root, config), flags).blocked;
+    } catch {}
+    return { id: resumed.id, ref: resumed.source?.ref ?? null, title: resumed.title, branch: resumed.branch, stage: resumed.stage, state: resumed.state, resumed: true, ...(blocked.length ? { blocked } : {}) };
+  }
+  const tracker = await loadTracker(root, config);
+  const { ready, blocked } = readyItems(root, config, tracker, flags);
   const extra = blocked.length ? { blocked } : {};
   const item = ready[0];
   if (!item) return { item: null, ...extra };
   if (!flags.claim) return { item, more: ready.length - 1, ...extra };
-  return { ...(await startFromRef(root, config, tracker, item.ref, flags)), ...extra };
+  return { ...(await startFromRef(root, config, tracker, item.ref, flags)), ...(session ? { resumed: false } : {}), ...extra };
 }
 
 /** Starts (or finds) the job for a tracker item and claims the item for it. */

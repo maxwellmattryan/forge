@@ -4,15 +4,28 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
+import { daemonClaimOpts, jobSessionEnv, ownerStatusWithProof } from '../lib/daemon-owner.ts';
 import { refreshDependencyWait, DEP_REASON } from '../lib/deps.ts';
-import { claimJob, createJob, jobDir, loadJob, readEvents, recordAgent, releaseJob, setJob, touchJob, updateJob } from '../lib/jobs.ts';
+import { claimJob, createJob, jobDir, loadJob, ownerStatus, readEvents, recordAgent, releaseJob, setJob, touchJob, updateJob } from '../lib/jobs.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const OLD = '2020-01-02T03:04:05.000Z';
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60 * 1000).toISOString();
+const FAKE_BIN = path.resolve(import.meta.dirname, 'fixtures', 'bin', 'claude');
+const uuid = () => crypto.randomUUID();
+
+/** A pid that belonged to a child which has exited and been reaped. */
+const deadPid = (): number => spawnSync(process.execPath, ['-e', '0']).pid as number;
+
+const daemonsDir = (root: string) => path.join(root, '.forge', 'runtime', 'daemons');
+function writeRecord(root: string, scope: string, rec: Record<string, unknown>) {
+  fs.mkdirSync(daemonsDir(root), { recursive: true });
+  fs.writeFileSync(path.join(daemonsDir(root), `${scope}.json`), JSON.stringify({ resumable: true, serverPid: null, argv0: FAKE_BIN, startedAt: new Date().toISOString(), ...rec }));
+}
 
 /** A scratch repo with a local tracker, PRs off and worktrees in `<repo>.wt`. */
 function scratch() {
@@ -282,5 +295,166 @@ test('split children start unowned', () => {
     assert.equal(s.job(x).owner.session, 'S');
   } finally {
     s.cleanup();
+  }
+});
+
+/** Job dirs under .forge/jobs, so a test can tell that nothing new was created. */
+const jobDirs = (root: string) => fs.readdirSync(path.join(root, '.forge', 'jobs')).sort();
+
+test('next --claim resumes a queued job before new tracker items', () => {
+  const s = scratch();
+  try {
+    const q = s.newJob('q');
+    s.f('tracker', 'create', '--title', 'T item');
+    const dirs = jobDirs(s.root);
+    const next = s.f('next', '--claim', '--session', 'S');
+    assert.deepEqual(next, { id: q, ref: 'q', title: 'Job q', branch: `forge/${q}`, stage: 'backlog', state: 'queued', resumed: true });
+    assert.equal(s.job(q).owner.session, 'S');
+    assert.equal(s.f('tracker', 'get', 't-item').status, 'ready', 'the tracker item stays unclaimed');
+    assert.deepEqual(jobDirs(s.root), dirs, 'no job was created');
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('next --claim skips live, blocked, handed-off, eval and umbrella jobs', () => {
+  const s = scratch();
+  try {
+    const blocker = s.newJob('blocker');
+    s.f('job', 'set', blocker, '--state', 'running');
+    const cases: [string, (q: string) => void][] = [
+      ['a fresh owner', (q) => s.f('job', 'claim', q, '--session', 'A')],
+      ['a running agent', (q) => {
+        s.f('job', 'claim', q, '--session', 'A');
+        s.plant(q, (j) => (j.owner.heartbeat = minutesAgo(45)));
+        s.f('job', 'agent', q, 'start', '--role', 'builder');
+      }],
+      ['unmet dependencies', (q) => s.plant(q, (j) => (j.dependsOn = [blocker]))],
+      ['a pending resume request', (q) => s.f('requests', 'add', 'resume', '--job', q)],
+      ['an in-progress resume request', (q) => s.f('requests', 'claim', s.f('requests', 'add', 'resume', '--job', q).id, '--session', 'H')],
+      ['kind eval', (q) => s.f('job', 'set', q, '--field', 'kind=eval')],
+      ['children', (q) => s.plant(q, (j) => (j.children = ['some-child']))],
+    ];
+    cases.forEach(([what, setup], n) => {
+      const q = s.newJob(`q${n}`);
+      setup(q);
+      const before = s.job(q).owner?.session ?? null;
+      s.f('tracker', 'create', '--title', `T${n}`);
+      const next = s.f('next', '--claim', '--session', 'S');
+      assert.equal(next.resumed, false, `${what}: not resumed`);
+      assert.equal(next.ref, `t${n}`, `${what}: the tracker item starts instead`);
+      assert.notEqual(next.id, q);
+      assert.equal(s.job(q).owner?.session ?? null, before, `${what}: the job's owner is unchanged`);
+    });
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('next --claim takes over a stale owner, oldest first', () => {
+  const s = scratch();
+  try {
+    const newer = s.newJob('newer');
+    const older = s.newJob('older');
+    for (const [q, created] of [[newer, '2026-01-02T00:00:00.000Z'], [older, '2026-01-01T00:00:00.000Z']]) {
+      s.f('job', 'claim', q, '--session', 'A');
+      s.plant(q, (j) => {
+        j.owner.heartbeat = minutesAgo(45);
+        j.createdAt = created;
+      });
+    }
+    const first = s.f('next', '--claim', '--session', 'S');
+    assert.equal(first.id, older);
+    assert.equal(first.resumed, true);
+    assert.equal(s.job(older).owner.session, 'S', 'taken over without --force');
+    const second = s.f('next', '--claim', '--session', 'S');
+    assert.equal(second.id, newer, 'the job S just claimed is not picked again');
+    assert.deepEqual(s.f('next', '--claim', '--session', 'S'), { item: null });
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('next without a session stays tracker-only', () => {
+  const s = scratch();
+  try {
+    const q = s.newJob('q');
+    s.f('tracker', 'create', '--title', 'T item');
+    const before = fs.readFileSync(s.jobFile(q), 'utf8');
+    assert.deepEqual(Object.keys(s.f('next')).sort(), ['item', 'more']);
+    const noClaim = s.f('next', '--session', 'S');
+    assert.equal(noClaim.item.ref, 't-item');
+    assert.equal(noClaim.id, undefined);
+    const claimed = s.f('next', '--claim');
+    assert.equal(claimed.ref, 't-item');
+    assert.equal(claimed.resumed, undefined);
+    assert.notEqual(claimed.id, q);
+    assert.equal(fs.readFileSync(s.jobFile(q), 'utf8'), before, 'the queued job is untouched');
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('owner status agrees with what a claim would do', () => {
+  const at = Date.parse('2026-06-01T12:00:00.000Z');
+  const ago = (m: number) => new Date(at - m * 60 * 1000).toISOString();
+  const owner = (heartbeat: string) => ({ session: 'A', host: 'h', since: ago(90), heartbeat });
+  assert.equal(ownerStatus({ owner: null, agents: {} }, at).status, 'none');
+  assert.deepEqual(ownerStatus({ owner: owner(ago(5)), agents: {} }, at), { status: 'live', session: 'A', since: ago(90), heartbeat: ago(5), agentRunning: false, reason: null });
+  const agent = ownerStatus({ owner: owner(ago(45)), agents: { builder: { runs: 1, status: 'running', startedAt: ago(60) } } } as any, at);
+  assert.deepEqual([agent.status, agent.agentRunning], ['live', true]);
+  assert.equal(ownerStatus({ owner: owner(ago(45)), agents: { builder: { runs: 1, status: 'running', startedAt: ago(150) } } } as any, at).status, 'stale', 'an agent running past 2 h no longer counts');
+  assert.equal(ownerStatus({ owner: owner(ago(45)), agents: {} }, at).status, 'stale');
+
+  const repo = tempRepo();
+  const root = repo.dir;
+  const config = defaults();
+  try {
+    const cases: [string, string, string | null, (id: string) => void][] = [
+      ['none', 'none', null, () => {}],
+      ['live by heartbeat', 'live', null, (id) => claimJob(root, id, uuid())],
+      ['live by agent', 'live', null, (id) => {
+        claimJob(root, id, uuid());
+        updateJob(root, id, (j) => (j.owner!.heartbeat = minutesAgo(45)));
+        recordAgent(root, id, { role: 'builder', phase: 'start' }, config);
+      }],
+      ['stale', 'stale', null, (id) => {
+        claimJob(root, id, uuid());
+        updateJob(root, id, (j) => (j.owner!.heartbeat = minutesAgo(45)));
+      }],
+      ['not running', 'dead', 'not-running', (id) => {
+        const x = uuid();
+        claimJob(root, id, x);
+        writeRecord(root, id, { sessionId: x, spawnSessionId: x, pid: deadPid() });
+      }],
+      ['moved on', 'dead', 'moved-on', (id) => {
+        const x = uuid();
+        claimJob(root, id, x);
+        writeRecord(root, id, { sessionId: uuid(), pastSessionIds: [x], pid: null });
+      }],
+      ['inbox hand-off', 'dead', 'inbox-handoff', (id) => {
+        const x = uuid();
+        claimJob(root, id, x);
+        writeRecord(root, '_inbox', { sessionId: x, spawnSessionId: x, pastSessionIds: [], pid: null });
+      }],
+    ];
+    for (const [what, status, reason, setup] of cases) {
+      fs.rmSync(daemonsDir(root), { recursive: true, force: true });
+      const id = createJob(root, config, { title: what }).id;
+      setup(id);
+      const st = ownerStatusWithProof(root, loadJob(root, id), { env: jobSessionEnv(id) });
+      assert.equal(st.status, status, what);
+      assert.equal(st.reason, reason, what);
+      let claimed = true;
+      try {
+        claimJob(root, id, uuid(), false, daemonClaimOpts(root, id, jobSessionEnv(id)));
+      } catch (e: any) {
+        assert.equal(e.exitCode, 3);
+        claimed = false;
+      }
+      assert.equal(claimed, st.status !== 'live', `${what}: a claim succeeds exactly when the owner is not live`);
+    }
+  } finally {
+    repo.cleanup();
   }
 });
