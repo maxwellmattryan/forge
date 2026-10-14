@@ -9,9 +9,10 @@
   import { TONE_CLASS, clock, usd } from '../lib/util.ts';
   import { INBOX_SCOPE } from '../lib/types.ts';
   import type { DaemonSessionState } from '../lib/types.ts';
-  import { buildSessionView, readFilters } from '../lib/session-log.ts';
+  import { atBottom, buildSessionView, readFilters } from '../lib/session-log.ts';
   import type { Entry, Filters, Item } from '../lib/session-log.ts';
   import { createSessionLog } from '../lib/daemon-log.ts';
+  import { promptRefreshKey } from '../lib/permissions.ts';
   import { PERMISSION_MODES, mergeSessionState, postDaemon, postDaemonMode, sessionControls, sessionMode, sessionPill } from '../lib/daemon.ts';
   import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
   import { pref } from '../lib/prefs.ts';
@@ -38,11 +39,22 @@
   let filters = $state<Filters>(readFilters(pref.get('sessionFilters', '')));
   $effect(() => pref.set('sessionFilters', JSON.stringify(filters)));
 
+  // The stream sees a new or answered prompt before the poll does, and PermissionPrompts (the drawer's dock, the
+  // daemon bar) reads the poll: re-poll once per prompt-id set the poll doesn't have yet. Not $state: nothing renders it.
+  let promptsAsked: string | null = null;
+
   // untrack: the log belongs to the scope it was created for; Drawer keys this component by job id.
   const log = untrack(() =>
     createSessionLog({
       scope,
-      onState: (st) => (live = mergeSessionState(live, st)),
+      onState: (st) => {
+        live = mergeSessionState(live, st);
+        const key = promptRefreshKey(st, polled, promptsAsked);
+        if (key !== null) {
+          promptsAsked = key;
+          void refresh();
+        }
+      },
       onChange: () => {
         entries = log.entries.slice();
         more = log.more;
@@ -82,7 +94,7 @@
 
   function onScroll(): void {
     if (!pane) return;
-    follow = pane.scrollHeight - pane.scrollTop - pane.clientHeight <= 24;
+    follow = atBottom(pane.scrollHeight, pane.scrollTop, pane.clientHeight);
   }
 
   function jump(): void {

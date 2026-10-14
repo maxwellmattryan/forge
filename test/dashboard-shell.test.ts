@@ -307,4 +307,22 @@ test('the action dock sits outside the drawer tabs', () => {
   const thread = read('components/ThreadPanel.svelte');
   assert.ok(!thread.includes('<JobActions'), 'the Thread no longer holds the gate actions');
   assert.ok(!thread.includes('<PermissionPrompts'), 'nor the prompts');
+
+  const log = read('components/SessionLog.svelte');
+  /** The body of the `{…}` block that opens after `marker`. */
+  const bodyAfter = (marker: string) => {
+    const from = log.indexOf(marker);
+    assert.ok(from >= 0, `SessionLog has ${marker}`);
+    const open = log.indexOf('{', from + marker.length);
+    const end = endOf(log, open);
+    assert.ok(end > open, `cannot parse the block after ${marker}`);
+    return log.slice(open + 1, end);
+  };
+  const onScroll = bodyAfter('function onScroll(');
+  assert.match(onScroll, /follow = atBottom\(/, 'Follow comes from atBottom');
+  assert.doesNotMatch(log, /<= 24/, 'no inline slack comparison is left');
+  const onState = bodyAfter('onState: (st) =>');
+  const asked = onState.indexOf('promptRefreshKey(');
+  assert.ok(asked >= 0, 'a state frame checks its prompt ids against the poll');
+  assert.ok(onState.indexOf('refresh()', asked) > asked, 'and then re-polls');
 });
