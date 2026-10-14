@@ -71,7 +71,7 @@ export function readEvents(root: string, id: string): JobEvent[] {
 export function createJob(
   root: string,
   config: Config,
-  opts: { title: string; ref?: string; url?: string; tracker?: string; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; services?: string[] },
+  opts: { title: string; ref?: string; url?: string; tracker?: string; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; services?: string[]; origin?: string },
 ): LoadedJob {
   if (!opts.title) throw new ForgeError('a job needs a title');
   const p = paths(root);
@@ -104,7 +104,7 @@ export function createJob(
   });
   writeJsonAtomic(path.join(p.job(id), 'job.json'), serializeJob(job));
   fs.writeFileSync(path.join(p.job(id), 'request.md'), `# ${opts.title}\n\n${opts.body?.trim() ?? ''}\n`);
-  logEvent(root, id, 'created', { title: opts.title, source: job.source });
+  logEvent(root, id, 'created', { title: opts.title, source: job.source, ...(opts.origin ? { origin: opts.origin } : {}) });
   if (opts.parent) {
     updateJob(root, opts.parent, (parent) => {
       if (!parent.children.includes(id)) parent.children.push(id);

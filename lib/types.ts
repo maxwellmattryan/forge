@@ -603,6 +603,8 @@ export interface JobDetail {
   events: JobEvent[];
   files: string[];
   screenshots: string[];
+  /** This job's requests in every status, oldest first, at most the last 50. */
+  requests: ForgeRequest[];
 }
 
 /**
@@ -795,6 +797,21 @@ export interface PostRequestBody {
 
 /** POST /api/requests reply: the handler in lib/server.ts. */
 export type PostRequestResponse = ForgeRequest & { daemon: boolean };
+
+/** POST /api/jobs body: a new job from free text; `title` overrides the one derived from `text`. */
+export interface PostJobBody {
+  text: string;
+  title?: string | null;
+}
+
+/** POST /api/jobs reply: the new job and the `resume` request queued for its session. */
+export interface PostJobResponse {
+  id: string;
+  title: string;
+  branch: string | null;
+  request: ForgeRequest;
+  daemon: boolean;
+}
 
 /** POST /api/config body: the handler in lib/server.ts passes it to setConfigValue. */
 export interface PostConfigBody {

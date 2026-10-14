@@ -147,6 +147,7 @@ test('requests scope, --intake and daemon provenance', () => {
     assert.deepEqual(human.args, { intake: 'run' });
     assert.equal(human.from, 'cli');
     assert.deepEqual(cli({ FORGE_DAEMON: undefined }, 'requests', 'add', 'resume', '--job', x, '--intake', 'next').json().args, { intake: 'next' });
+    assert.deepEqual(cli({ FORGE_DAEMON: undefined }, 'requests', 'add', 'resume', '--job', x, '--intake', 'new').json().args, { intake: 'new' });
     for (const args of [
       ['requests', 'add', 'approve', '--job', x, '--intake', 'run'],
       ['requests', 'add', 'next', '--intake', 'next'],
@@ -168,7 +169,7 @@ test('requests scope, --intake and daemon provenance', () => {
       assert.match(r.out, /queues only resume hand-offs/, type);
     }
     assert.equal(cli({ FORGE_DAEMON: undefined }, 'requests', 'add', 'approve', '--job', x).ok, true, 'a human may queue anything');
-    assert.equal(listRequests(root).filter((r) => r.args?.intake).length, 3);
+    assert.equal(listRequests(root).filter((r) => r.args?.intake).length, 4);
   } finally {
     repo.cleanup();
   }
