@@ -4,7 +4,7 @@ import { jobAcs } from '../acs.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
 import { reviewerChecklist } from '../config.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
-import { claimJob, createJob, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, roundVerdicts, setJob, updateJob, jobDir } from '../jobs.ts';
+import { claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, roundVerdicts, setJob, updateJob, jobDir } from '../jobs.ts';
 import { paths, exists } from '../paths.ts';
 import { jobScope } from '../scope.ts';
 import { loadTracker } from '../trackers/index.ts';
@@ -132,6 +132,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       const job = updateJob(root, String(id), (j) => {
         j.round += 1;
       });
+      ensureReviewDir(root, job.id, job.round);
       logEvent(root, job.id, 'round', { round: job.round });
       return { round: job.round, maxRounds: job.maxRounds, exhausted: job.round > job.maxRounds };
     }
@@ -158,7 +159,12 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         }
         if (coerced.length) logEvent(root, job.id, 'note', { text: `${integration ? 'integration review' : `round ${round}`}: malformed review(s) from ${coerced.join(', ')} counted as CHANGES` });
       }
-      if (flags.compact) return { round, complete: v.complete, outcome: v.outcome, sha, reviewers: Object.fromEntries(Object.entries(v.reviewers).map(([k, r]) => [k, r.verdict === 'CHANGES' ? `CHANGES(${r.blocking})` : r.verdict])) };
+      if (flags.compact) {
+        // Absolute paths, so the orchestrator can hand a re-spawned reviewer its output verbatim.
+        const missing = Object.fromEntries(Object.entries(v.reviewers).filter(([, r]) => r.verdict === 'MISSING').map(([k, r]) => [k, r.path]));
+        const reviewers = Object.fromEntries(Object.entries(v.reviewers).map(([k, r]) => [k, r.verdict === 'CHANGES' ? `CHANGES(${r.blocking})` : r.verdict]));
+        return { round, complete: v.complete, outcome: v.outcome, sha, reviewers, ...(Object.keys(missing).length ? { missing } : {}) };
+      }
       return { ...v, sha };
     }
     case 'decision': {
@@ -186,6 +192,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
 
 /**
  * Absolute paths an agent prompt needs, so the orchestrator can hand them over verbatim.
+ * The review directories are created here, before any reviewer is briefed with them.
  */
 export function jobPaths(root: string, config: Config, job: Job): Record<string, unknown> {
   const dir = jobDir(root, job.id);
@@ -204,9 +211,9 @@ export function jobPaths(root: string, config: Config, job: Job): Record<string,
     verify: path.join(dir, 'verify', `round-${job.round}.md`),
     scope: path.join(dir, 'scope.md'),
     screenshots: path.join(dir, 'screenshots'),
-    reviewDir: path.join(dir, 'review', `round-${round}`),
+    reviewDir: ensureReviewDir(root, job.id, round),
     previousReviewDir: round > 1 ? path.join(dir, 'review', `round-${round - 1}`) : null,
-    integrationReview: path.join(dir, 'review', 'integration', 'code.md'),
+    integrationReview: path.join(ensureReviewDir(root, job.id, 'integration'), 'code.md'),
     decision: path.join(dir, 'decision.md'),
     questions: path.join(dir, 'questions.md'),
     runbook: path.join(dir, 'runbook.md'),

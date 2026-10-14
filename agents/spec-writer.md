@@ -56,5 +56,6 @@ Rules: every AC must be checkable by a test or a concrete manual step. Every AC 
 If `design.md` lists **Spec deltas**, fold them in and keep spec and design consistent. The spec wins on behaviour, the design wins on visuals. If they truly conflict, ask.
 
 ## Finish
+Write output files with the Write or Edit tool, never a shell redirect or heredoc, and confirm each exists before you reply.
 Reply in at most 4 lines: `SPEC: ready · size S|M|L · design yes|no · infra none|plan-only|human-steps · reviewers <list>`, then a one-line summary.
 If blocked on ambiguity, write numbered questions to `questions.md` and reply `NEEDS-INPUT`.

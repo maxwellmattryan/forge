@@ -46,6 +46,7 @@ Services: <names from config.services, or "-">
 ```
 
 ## Finish
+Write output files with the Write or Edit tool, never a shell redirect or heredoc, and confirm each exists before you reply.
 Your final message is read by an orchestrator with a tight context budget. Reply with at most 4 lines:
 `PLAN: SINGLE|SPLIT · size S|M|L · <n> jobs · external: yes|no`, then one line of summary.
 If the request is too ambiguous to plan, write your questions to `questions.md` (numbered, each answerable in one line) and reply `NEEDS-INPUT`.

@@ -289,6 +289,9 @@ export function parseReview(text: string): { declared: string | null; counts: Re
  * round; `malformedAs: 'changes'` counts the rest as CHANGES so a reviewer that fails the
  * format twice cannot stall the job.
  * `round: 'integration'` reads the post-integration mini review in `review/integration/`.
+ * A missing file is MISSING once that lens's reviewer has ended for this review (the agent
+ * claimed success but never wrote it), and PENDING while it has not, so the orchestrator
+ * re-spawns a reviewer that lost its output instead of waiting on it forever.
  */
 export function roundVerdicts(
   root: string,
@@ -297,13 +300,14 @@ export function roundVerdicts(
   reviewers: string[],
   blockOn: string[],
   opts: { malformedAs?: 'changes' } = {},
-): { round: number | 'integration'; complete: boolean; outcome: Verdict | 'PENDING'; reviewers: Record<string, any> } {
-  const dir = path.join(jobDir(root, id), 'review', round === 'integration' ? 'integration' : `round-${round}`);
+): { round: number | 'integration'; complete: boolean; outcome: Verdict | 'PENDING' | 'MISSING'; reviewers: Record<string, any> } {
+  const dir = reviewDir(root, id, round);
+  const ended = reviewerEnded(root, id, round);
   const out: Record<string, any> = {};
   for (const r of reviewers) {
     const file = path.join(dir, `${r}.md`);
     if (!exists(file)) {
-      out[r] = { verdict: 'PENDING' };
+      out[r] = ended(r) ? { verdict: 'MISSING', file: path.relative(jobDir(root, id), file), path: file } : { verdict: 'PENDING' };
       continue;
     }
     const { declared, counts } = parseReview(readText(file));
@@ -317,9 +321,40 @@ export function roundVerdicts(
     out[r] = { verdict, declared, counts, blocking, coerced, file: path.relative(jobDir(root, id), file) };
   }
   const values = Object.values(out).map((v) => v.verdict);
-  const complete = !values.includes('PENDING');
-  const outcome = !complete ? 'PENDING' : values.includes('MALFORMED') ? 'MALFORMED' : values.includes('CHANGES') ? 'CHANGES' : 'PASS';
+  const complete = !values.includes('PENDING') && !values.includes('MISSING');
+  const outcome = values.includes('PENDING') ? 'PENDING' : values.includes('MISSING') ? 'MISSING' : values.includes('MALFORMED') ? 'MALFORMED' : values.includes('CHANGES') ? 'CHANGES' : 'PASS';
   return { round, complete, outcome, reviewers: out };
+}
+
+/** Where a round's review files go: `review/round-<n>/` or `review/integration/`. */
+export function reviewDir(root: string, id: string, round: number | 'integration'): string {
+  return path.join(jobDir(root, id), 'review', round === 'integration' ? 'integration' : `round-${round}`);
+}
+
+/**
+ * Created up front because reviewers that write with a shell redirect fail on a missing
+ * directory, and the orchestrator only learns of it from an absent file.
+ */
+export function ensureReviewDir(root: string, id: string, round: number | 'integration'): string {
+  const dir = reviewDir(root, id, round);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/**
+ * Whether lens `r`'s reviewer started and ended for this review, read from `job.agents`
+ * (`reviewer:<lens>`). A numbered round matches the round the agent started in; the
+ * integration review has no number, so its reviewer must have started after the last
+ * conflicted integration.
+ */
+function reviewerEnded(root: string, id: string, round: number | 'integration'): (r: string) => boolean {
+  const job = loadJob(root, id);
+  const since = round === 'integration' ? readEvents(root, id).findLast((e) => e.type === 'integrate-conflicts')?.ts : undefined;
+  return (r) => {
+    const a = job.agents[`reviewer:${r}`];
+    if (!a?.endedAt || a.status === 'running' || !a.startedAt) return false;
+    return round === 'integration' ? since !== undefined && a.startedAt >= since : a.round === round;
+  };
 }
 
 export function parseDecision(root: string, id: string): { decision: string | null; reason: string | null } {

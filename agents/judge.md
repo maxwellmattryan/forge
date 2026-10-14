@@ -32,4 +32,5 @@ SCORE: <0-5>/5
 Scale: 5 = a strong engineer's merged PR · 3 = acceptable with review fixes · 1 = largely wrong · 0 = nothing useful.
 
 ## Finish
+Write output files with the Write tool, never a shell redirect or heredoc, and confirm each exists before you reply.
 Reply with one line: `JUDGE: <n>/5`.
