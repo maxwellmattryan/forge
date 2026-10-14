@@ -13,10 +13,10 @@
 
 {#snippet row(label: string, links: DepLink[])}
   {#if links.length}
-    <div class="flex items-start gap-2"><div class="text-[11px] text-muted w-20 shrink-0 pt-2">{label}</div><div class="flex flex-wrap gap-2 min-w-0">{#each links as l, i (i)}<button title={depHint(l)} class="btn font-mono text-xs" onclick={() => openDrawer(l.id)}>{l.id} <Chip tone={l.tone} text={l.state} /></button>{/each}</div></div>
+    <div class="flex items-start gap-2"><div class="label w-20 shrink-0 pt-2">{label}</div><div class="flex flex-wrap gap-2 min-w-0">{#each links as l, i (i)}<button title={depHint(l)} class="btn sm normal-case tracking-normal font-mono" onclick={() => openDrawer(l.id)}>{l.id} <Chip tone={l.tone} text={l.state} /></button>{/each}</div></div>
   {/if}
 {/snippet}
 
 {#if deps.length || blocks.length}
-  <div class="card p-4 flex flex-col gap-2"><h3 class="text-sm font-semibold">{$t('deps.title')}</h3>{@render row($t('deps.dependsOn'), deps)}{@render row($t('deps.blocks'), blocks)}</div>
+  <div class="sheet ticks p-4 flex flex-col gap-2.5"><span class="tk"></span><h3 class="h section">{$t('deps.title')}</h3>{@render row($t('deps.dependsOn'), deps)}{@render row($t('deps.blocks'), blocks)}</div>
 {/if}

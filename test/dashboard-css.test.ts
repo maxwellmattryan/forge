@@ -59,6 +59,14 @@ test('every drafting utility is ported', () => {
   assert.match(ruleFor(css, '.nav.row a'), /width:auto/);
   assert.ok(fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8').includes('.nav.row a, .nav.row button { width: auto;'), 'design/drafting.css has the .nav.row item rule');
   assert.ok(!hasClass('.hatch{}.h-4{}', 'h') && hasClass('.h.card{}', 'h') && hasClass('.x .h{', 'h'), 'the class matcher');
+  // A sheet sets only its background colour, so `sheet hatch` and `sheet crosshatch` keep their image (Empty).
+  const sheet = ruleFor(css, '.sheet');
+  assert.match(sheet, /background-color:var\(--panel\)/);
+  assert.doesNotMatch(sheet, /(^|[;{])background:/, 'no background shorthand on .sheet');
+  const drafting = fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8');
+  const sheetRule = /^\.sheet \{([^}]*)\}/m.exec(drafting)?.[1] ?? '';
+  assert.match(sheetRule, /background-color: var\(--panel\)/, 'design/drafting.css .sheet sets background-color');
+  assert.doesNotMatch(sheetRule, /(^|;)\s*background:/, 'design/drafting.css .sheet has no background shorthand');
 });
 
 test('old class names still apply', () => {
@@ -71,7 +79,7 @@ test('old class names still apply', () => {
     assert.ok(source.slice(Math.max(0, at - 200), at).includes('/* alias: removed in job 4'), `${name} is marked as an alias`);
   }
   // Mapped onto the new rules, not left with the old look.
-  assert.match(ruleFor(css, '.card'), /border:1px solid var\(--line\);background:var\(--panel\)/);
+  assert.match(ruleFor(css, '.card'), /border:1px solid var\(--line\);background-color:var\(--panel\)/);
   assert.match(ruleFor(css, '.kpi-label'), /font-family:var\(--font-mono\)/);
   assert.match(ruleFor(css, '.brand-rule'), /display:flex/);
   assert.match(ruleFor(css, '.btn-primary.btn'), /background:var\(--ink\)/);

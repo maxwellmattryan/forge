@@ -82,6 +82,88 @@ test('shell files use no rounded or blurred-shadow classes', () => {
   }
 });
 
+const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+type El = { name: string; classes: string[]; parents: El[]; first: El | null };
+
+/** Every element of a file with its ancestors and its first child element, from a bracket-aware walk of the markup. */
+function elements(rel: string, text = read(rel)): El[] {
+  const s = text.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '').replace(/<!--[\s\S]*?-->/g, '');
+  const out: El[] = [];
+  const stack: El[] = [];
+  for (let i = 0; i < s.length; ) {
+    if (s[i] === '{') {
+      const end = endOf(s, i);
+      assert.ok(end > 0, `${rel}: cannot parse markup near ${s.slice(i, i + 40)}`);
+      i = end + 1;
+      continue;
+    }
+    const m = s[i] === '<' ? /^<(\/?)([A-Za-z][\w:.-]*)/.exec(s.slice(i)) : null;
+    if (!m) {
+      i++;
+      continue;
+    }
+    let j = i + m[0].length;
+    for (; j < s.length && s[j] !== '>'; j++) {
+      if (s[j] === '{' || s[j] === '"' || s[j] === "'") j = s[j] === '{' ? endOf(s, j) : s.indexOf(s[j], j + 1);
+      assert.ok(j >= 0, `${rel}: cannot parse the tag near ${s.slice(i, i + 40)}`);
+    }
+    const raw = s.slice(i, j + 1);
+    i = j + 1;
+    if (m[1]) {
+      const at = stack.map((e) => e.name).lastIndexOf(m[2]);
+      assert.ok(at >= 0, `${rel}: </${m[2]}> closes nothing`);
+      stack.length = at;
+      continue;
+    }
+    const tag = tags(rel, raw)[0];
+    const cls = tag.attrs.find((a) => a.name === 'class')?.value;
+    const el: El = { name: m[2], classes: cls ? classTokens(cls) : [], parents: [...stack], first: null };
+    const parent = stack.at(-1);
+    if (parent && !parent.first) parent.first = el;
+    out.push(el);
+    if (!raw.endsWith('/>') && !VOID.has(m[2])) stack.push(el);
+  }
+  return out;
+}
+
+const has = (el: El, ...names: string[]) => names.every((n) => el.classes.includes(n));
+
+test('job surfaces use the Drafting markup', () => {
+  const walked = elements('x.svelte', `<div class="sheet ticks"><span class="tk"></span>{#if a}<img src="x" /><input>{/if}<div class="overflow-x-auto"><table class="tbl"></table></div></div>`);
+  const table = walked.find((e) => e.name === 'table');
+  assert.deepEqual(table?.parents.map((p) => p.name), ['div', 'div'], 'the walker tracks ancestors past void and self-closed elements');
+  assert.equal(walked[0].first?.name, 'span');
+
+  // StateChip: a rev tone is the REV · <state> tag, with the prefix hidden from screen readers.
+  const chip = read('components/StateChip.svelte');
+  assert.match(chip, /\{#if tone === 'rev'\}<span class="chip rev"><span aria-hidden="true">\{\$t\('common\.rev'\)\} ·<\/span> \{stateText\(job\)\}<\/span>\{:else\}<Chip \{tone\}/);
+
+  // JobCard: a ticked, clickable sheet, redlined exactly when a human is needed.
+  const card = tags('components/JobCard.svelte', read('components/JobCard.svelte')).find((t) => t.name === 'button');
+  const cardClass = card?.attrs.find((a) => a.name === 'class')?.value ?? '';
+  assert.match(cardClass, /^"sheet ticks clickable \{needsHuman\(j\) \? 'redline' : ''\} /);
+  assert.ok(!classTokens(cardClass).includes('card'), 'no card alias on the JobCard root');
+
+  // InboxCard: everything in the Inbox waits on a person, so its root is always redlined.
+  const inbox = elements('components/InboxCard.svelte');
+  assert.ok(has(inbox[0], 'sheet', 'ticks', 'redline'), `InboxCard's root is sheet ticks redline (${inbox[0].classes.join(' ')})`);
+
+  // Every ticks element starts with its .tk span, which draws the two bottom corners.
+  for (const rel of svelteFiles()) {
+    for (const el of elements(rel).filter((e) => e.classes.includes('ticks'))) {
+      assert.ok(el.first?.name === 'span' && el.first.classes.includes('tk'), `${rel}: <${el.name} class="${el.classes.join(' ')}"> has a .tk span as its first child`);
+    }
+  }
+});
+
+/** Every .svelte file under dashboard/src, relative to it. */
+function svelteFiles(dir = SRC): string[] {
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .flatMap((e) => (e.isDirectory() ? svelteFiles(path.join(dir, e.name)) : e.name.endsWith('.svelte') ? [path.relative(SRC, path.join(dir, e.name))] : []))
+    .sort();
+}
+
 test('segments and nav expose their selected state', () => {
   const pipeline = read('views/Pipeline.svelte');
   const buttons = tags('views/Pipeline.svelte', pipeline).filter((t) => t.name === 'button' && t.attrs.some((a) => a.name === 'class' && /\bsel\b/.test(a.value ?? '')));

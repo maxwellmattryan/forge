@@ -14,9 +14,9 @@
 
 <!-- For an issue link the note is only the "No issue needed" reason, so it follows those buttons. -->
 {#if kind === 'issue-link'}<IssueLinkActions id={j.id} refId="{noteId}-ref" {note} />{/if}
-{#if showsNote(kind)}<textarea id={noteId} rows="2" class="w-full" placeholder={notePlaceholder(kind)} aria-label={notePlaceholder(kind)} bind:value={note}></textarea>{/if}
+{#if showsNote(kind)}<textarea id={noteId} rows="2" class="input w-full" placeholder={notePlaceholder(kind)} aria-label={notePlaceholder(kind)} bind:value={note}></textarea>{/if}
 <div class="flex flex-wrap gap-2">
   {#each inboxActions(kind) as a (a.label)}
-    <button class="btn {a.primary ? 'btn-primary' : ''}" onclick={() => req({ type: a.type, job: j.id, note: showsNote(kind) ? note : null, needsNote: a.needsNote, fixedText: a.text ?? null })}>{a.label}</button>
+    <button class="btn {a.primary ? 'primary' : ''}" onclick={() => req({ type: a.type, job: j.id, note: showsNote(kind) ? note : null, needsNote: a.needsNote, fixedText: a.text ?? null })}>{a.label}</button>
   {/each}
 </div>

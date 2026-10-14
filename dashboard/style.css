@@ -230,9 +230,10 @@
 @utility crosshatch { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px), repeating-linear-gradient(-45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
 
 /* ---------- sheet: an outlined panel; ticks adds corner register marks ---------- */
+/* background-color, not the shorthand, so `sheet hatch` and `sheet crosshatch` keep their image. */
 @utility sheet {
   border: 1px solid var(--line);
-  background: var(--panel);
+  background-color: var(--panel);
   position: relative;
   &.clickable { cursor: pointer; transition: background-color .12s ease, border-color .12s ease; }
   &.clickable:hover, &.hover { border-color: var(--line-strong); background-color: var(--raised); }
