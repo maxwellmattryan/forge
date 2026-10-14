@@ -179,7 +179,7 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop; Escape closes the dialog from the keyboard) -->
-<div class="fixed inset-0 z-45 flex items-start justify-center backdrop md:p-6 md:pt-[12vh]" onmousedown={backdropDown} onclick={backdrop}>
+<div class="fixed inset-0 z-45 flex items-start justify-center scrim md:p-6 md:pt-[12vh]" onmousedown={backdropDown} onclick={backdrop}>
   <div bind:this={dialog} role="dialog" aria-modal="true" aria-label={$t('command.title')} tabindex="-1" class="sheet ticks solid flex flex-col w-full min-w-0 max-h-[85vh] shadow-(--shadow-dialog) md:max-w-[672px]" onkeydown={trap}>
     <span class="tk"></span>
     <div class="flex items-center gap-2 border-b border-line px-3">

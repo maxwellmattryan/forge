@@ -19,7 +19,7 @@ function builtCss(): string {
 
 const UTILITIES = (
   'ground falloff plain hatch hatch-dense crosshatch sheet ticks redline dashed solid clickable h label callout mono num muted dimmed caption ' +
-  'dim-line prose btn seg chip nav input check radio field track fill tabs tab tbl tblock kpi ic dot backdrop mark'
+  'dim-line prose btn seg chip nav input check radio field track fill tabs tab tbl tblock kpi ic dot backdrop scrim mark'
 ).split(' ');
 // Compound selectors as the build writes them (minified, attribute quotes dropped).
 const MODIFIERS = [
@@ -30,7 +30,7 @@ const MODIFIERS = [
   '.nav a', '.nav button', '.nav a.active', '.nav .lbl', '.nav.row', '.nav.row a', '.nav.row button',
   '.input:focus', '.input:is(textarea)', '.input:is(select)', '.check.on:after', '.radio.on:after', '.fill.ok', '.fill.warn', '.fill.bad', '[data-theme=vellum] .fill',
   '.tab.active', '.tbl th', '.tbl tr.clickable', '.tbl .r', '.tblock>div.wide', '.tblock .k', '.kpi .v', '.ic .cx',
-  '.dot.ok', '.dot.ink', '.dot.hl', '.dot.red', '.dot.hollow', '[data-theme=vellum] .backdrop', '[data-theme=vellum] .mark', '.ground:before', '.falloff:after',
+  '.dot.ok', '.dot.ink', '.dot.hl', '.dot.red', '.dot.hollow', '[data-theme=vellum] .backdrop', '[data-theme=vellum] .scrim', '[data-theme=vellum] .mark', '.ground:before', '.falloff:after',
 ];
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -66,6 +66,25 @@ test('every drafting utility is ported', () => {
   const sheetRule = /^\.sheet \{([^}]*)\}/m.exec(drafting)?.[1] ?? '';
   assert.match(sheetRule, /background-color: var\(--panel\)/, 'design/drafting.css .sheet sets background-color');
   assert.doesNotMatch(sheetRule, /(^|;)\s*background:/, 'design/drafting.css .sheet has no background shorthand');
+});
+
+test('palette scrim and stable scrollbar gutter', () => {
+  const source = fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8');
+  const scrim = /@utility scrim\s*\{([\s\S]*?)\n\}/.exec(source)?.[1] ?? '';
+  assert.match(scrim, /^\s*background: rgba\(8,28,58,\.3\);/, 'cyanotype scrim is .3');
+  assert.match(scrim, /\[data-theme="vellum"\] & \{ background: rgba\(20,53,95,\.2\); \}/, 'vellum scrim is .2');
+  const css = builtCss();
+  assert.match(ruleFor(css, '.scrim'), /background:(rgba\(8,28,58,\.3\)|#081c3a4d)/);
+  assert.match(ruleFor(css, '[data-theme=vellum] .scrim'), /background:(rgba\(20,53,95,\.2\)|#14355f33)/);
+  assert.match(ruleFor(css, 'html'), /scrollbar-gutter:stable/, 'the built html rule keeps a stable gutter');
+  const drafting = fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8');
+  assert.match(/^html \{([^}]*)\}/m.exec(drafting)?.[1] ?? '', /scrollbar-gutter: stable;/, 'design/drafting.css html has it too');
+  assert.ok(drafting.includes('.scrim { background: rgba(8,28,58,.3); }'), 'design/drafting.css .scrim');
+  assert.ok(drafting.includes('[data-theme="vellum"] .scrim { background: rgba(20,53,95,.2); }'), 'design/drafting.css vellum .scrim');
+  const root = (rel: string) => /class="([^"]*)"/.exec(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', rel), 'utf8').replace(/<script\b[\s\S]*?<\/script>|<!--[\s\S]*?-->/g, ''))?.[1].split(/\s+/) ?? [];
+  const bar = root('CommandBar.svelte');
+  assert.ok(bar.includes('scrim') && !bar.includes('backdrop'), `the palette's root uses scrim (${bar.join(' ')})`);
+  for (const rel of ['Settings.svelte', 'Drawer.svelte']) assert.match(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', rel), 'utf8'), /class="[^"]*\bbackdrop\b/, `${rel} keeps backdrop`);
 });
 
 test('old class names are gone', () => {
@@ -180,12 +199,17 @@ test('appearance prefs turn the grid and paper off', () => {
 
 /** The body of the first `@media` block whose prelude matches, braces balanced. */
 function mediaBody(css: string, prelude: RegExp): string {
-  const m = new RegExp(`@media\\s*${prelude.source}\\s*\\{`).exec(css);
-  assert.ok(m, `the built CSS has an @media ${prelude.source} block`);
-  let depth = 1;
-  let i = m.index + m[0].length;
-  for (; i < css.length && depth; i++) depth += css[i] === '{' ? 1 : css[i] === '}' ? -1 : 0;
-  return css.slice(m.index + m[0].length, i - 1);
+  // Every block with that prelude: Tailwind's own variants (`max-md:hidden`) emit their own block with the same query.
+  const blocks = [...css.matchAll(new RegExp(`@media\\s*${prelude.source}\\s*\\{`, 'g'))];
+  assert.ok(blocks.length, `the built CSS has an @media ${prelude.source} block`);
+  return blocks
+    .map((m) => {
+      let depth = 1;
+      let i = (m.index ?? 0) + m[0].length;
+      for (; i < css.length && depth; i++) depth += css[i] === '{' ? 1 : css[i] === '}' ? -1 : 0;
+      return css.slice((m.index ?? 0) + m[0].length, i - 1);
+    })
+    .join('');
 }
 
 test('reduced motion disables transitions and animations', () => {

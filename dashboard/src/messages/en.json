@@ -463,6 +463,7 @@
   },
   "command": {
     "open": "New job or command",
+    "forJob": "Command for this job",
     "title": "New job or command",
     "label": "Describe a new job, or type a command",
     "placeholder": "Describe a job, or type next, approve <job>, issue <ref>…",
