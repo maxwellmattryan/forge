@@ -1,5 +1,6 @@
 <!-- The job drawer and its backdrop. It renders the drawerView snapshot, so it changes only where the old renderDrawer() ran. -->
 <script lang="ts">
+  import ActionDock from './ActionDock.svelte';
   import Banner from './Banner.svelte';
   import Chip from './Chip.svelte';
   import DepSection from './DepSection.svelte';
@@ -14,8 +15,8 @@
   import { screenshotsPanel } from '../lib/screenshots.ts';
   import { threadOpening } from '../lib/thread.ts';
   import { ago, dur, num, tokensShort, usd } from '../lib/util.ts';
-  import { eventDetail, resumeModel, verdictMatrix } from '../lib/view.ts';
-  import { S, closeDrawer, loadFile, req, setDrawerTab } from '../lib/app.svelte.ts';
+  import { eventDetail, verdictMatrix } from '../lib/view.ts';
+  import { S, closeDrawer, loadFile, setDrawerTab } from '../lib/app.svelte.ts';
   import { t } from '../lib/locale.ts';
 
   const open = $derived(S.drawer.id !== null);
@@ -49,111 +50,106 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop, as on main; Escape closes the drawer from the keyboard) -->
 <div id="drawer-backdrop" class="fixed inset-0 backdrop {open ? '' : 'hidden'} z-30" onclick={closeDrawer}></div>
-<aside id="drawer" class="fixed right-0 top-0 h-full w-full max-w-(--size-drawer-max) bg-bg border-l border-line z-40 {open ? 'shadow-(--shadow-drawer)' : 'translate-x-full'} transition-transform overflow-y-auto">
+<!-- A full-height column: the body scrolls, and the action dock under it stays put on every tab. -->
+<aside id="drawer" class="fixed right-0 top-0 h-dvh flex flex-col w-full max-w-(--size-drawer-max) bg-bg border-l border-line z-40 {open ? 'shadow-(--shadow-drawer)' : 'translate-x-full'} transition-transform">
   {#if view && 'error' in view}
-    <div class="p-6"><Banner msg={view.error} /></div>
+    <div class="min-h-0 flex-1 overflow-y-auto p-6"><Banner msg={view.error} /></div>
   {:else if shown && job}
     {@const d = shown.detail}
     {@const j = job}
-    {@const r = resumeModel(j)}
-    <div class="p-5 md:p-6 flex flex-col gap-5">
-      <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="h sheet-title">{j.title}</h2><div class="mono muted">{j.id}</div></div><button class="btn icon shrink-0" aria-label={$t('drawer.close')} onclick={closeDrawer}><Icon name="close" /></button></div>
-      <div class="flex flex-wrap gap-1.5"><span class="chip ink">{STAGE_LABEL[j.stage] ?? j.stage}</span><StateChip job={j} />{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}</div>
-      {#if j.reason}<div class="text-sm text-muted">{j.reason}</div>{/if}
-      {#if r.show}
-        {@const o = j.ownerStatus}
-        {@const values = { session: o?.session ?? '', since: ago(o?.since), active: ago(o?.heartbeat) }}
-        <div class="flex flex-wrap items-center gap-3">
-          <button class="btn primary" disabled={!r.enabled} aria-describedby={r.note ? 'drawer-owner-note' : undefined} onclick={() => req({ type: 'resume', job: j.id })}>{$t('drawer.resume')}</button>
-          {#if r.note}<span id="drawer-owner-note" class="min-w-0 text-sm text-muted wrap-anywhere">{r.note === 'live' ? $t('drawer.ownerLive', values) : r.note === 'agent' ? $t('drawer.ownerAgent', values) : r.note === 'stale' ? $t('drawer.ownerStale', values) : $t('drawer.ownerGone', values)}</span>{/if}
+    <div class="min-h-0 flex-1 overflow-y-auto">
+      <div class="p-5 md:p-6 flex flex-col gap-5">
+        <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="h sheet-title">{j.title}</h2><div class="mono muted">{j.id}</div></div><button class="btn icon shrink-0" aria-label={$t('drawer.close')} onclick={closeDrawer}><Icon name="close" /></button></div>
+        <div class="flex flex-wrap gap-1.5"><span class="chip ink">{STAGE_LABEL[j.stage] ?? j.stage}</span><StateChip job={j} />{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}</div>
+        {#if j.reason}<div class="text-sm text-muted">{j.reason}</div>{/if}
+        <ProgressBar progress={j.progress} />
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+          {@render fact($t('drawer.branch'), j.branch ?? '—')}{@render fact($t('drawer.base'), j.base ?? '—')}{@render fact($t('drawer.port'), j.port ?? '—')}{@render fact($t('drawer.worktree'), j.worktree ?? '—')}
+          <div><div class="label">{$t('drawer.pr')}</div><div class="mono break-all">{#if prUrl}<a class="text-ink" href={prUrl} target="_blank" rel="noopener">#{j.pr?.number}</a>{:else}—{/if}</div></div>
+          <div><div class="label">{$t('drawer.source')}</div><div class="mono break-all">{#if srcUrl}<a class="text-ink" href={srcUrl} target="_blank" rel="noopener">{j.source?.ref ?? $t('drawer.link')}</a>{:else}{j.source?.ref ?? '—'}{/if}</div></div>
+          {@render fact($t('drawer.session'), j.owner?.session ?? '—')}{@render fact($t('drawer.created'), ago(j.createdAt))}{@render fact($t('drawer.updated'), ago(j.updatedAt))}
         </div>
-      {/if}
-      <ProgressBar progress={j.progress} />
-      <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-        {@render fact($t('drawer.branch'), j.branch ?? '—')}{@render fact($t('drawer.base'), j.base ?? '—')}{@render fact($t('drawer.port'), j.port ?? '—')}{@render fact($t('drawer.worktree'), j.worktree ?? '—')}
-        <div><div class="label">{$t('drawer.pr')}</div><div class="mono break-all">{#if prUrl}<a class="text-ink" href={prUrl} target="_blank" rel="noopener">#{j.pr?.number}</a>{:else}—{/if}</div></div>
-        <div><div class="label">{$t('drawer.source')}</div><div class="mono break-all">{#if srcUrl}<a class="text-ink" href={srcUrl} target="_blank" rel="noopener">{j.source?.ref ?? $t('drawer.link')}</a>{:else}{j.source?.ref ?? '—'}{/if}</div></div>
-        {@render fact($t('drawer.session'), j.owner?.session ?? '—')}{@render fact($t('drawer.created'), ago(j.createdAt))}{@render fact($t('drawer.updated'), ago(j.updatedAt))}
-      </div>
-      <DepSection job={j} />
-      {#if matrix}
-        <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
-          <table class="tbl">
-            <thead><tr><th>{$t('table.round')}</th><th>{$t('drawer.verify')}</th>{#each matrix.reviewers as r (r)}<th>{r}</th>{/each}</tr></thead>
-            <tbody>
-              {#each matrix.rounds as r (r)}
-                {@const verify = j.verify?.[r]}
-                <tr>
-                  <td class="num">{r}</td>
-                  <td>{#if verify}<Chip tone={verify === 'PASS' ? 'ok' : 'bad'} text={verify} />{:else}—{/if}</td>{#each matrix.reviewers as name (name)}{@const v = j.verdicts?.[r]?.[name]}<td>{#if v}<Chip tone={v === 'PASS' ? 'ok' : 'bad'} text={v} />{:else}—{/if}</td>{/each}
+        <DepSection job={j} />
+        {#if matrix}
+          <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
+            <table class="tbl">
+              <thead><tr><th>{$t('table.round')}</th><th>{$t('drawer.verify')}</th>{#each matrix.reviewers as r (r)}<th>{r}</th>{/each}</tr></thead>
+              <tbody>
+                {#each matrix.rounds as r (r)}
+                  {@const verify = j.verify?.[r]}
+                  <tr>
+                    <td class="num">{r}</td>
+                    <td>{#if verify}<Chip tone={verify === 'PASS' ? 'ok' : 'bad'} text={verify} />{:else}—{/if}</td>{#each matrix.reviewers as name (name)}{@const v = j.verdicts?.[r]?.[name]}<td>{#if v}<Chip tone={v === 'PASS' ? 'ok' : 'bad'} text={v} />{:else}—{/if}</td>{/each}
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div></div>
+        {/if}
+        {@html budgetPanel(j, S.data?.config?.pipeline?.budget)}
+        {#if usageRows.length}
+          <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
+            <table class="tbl">
+              <thead><tr><th>{$t('drawer.agent')}</th><th>{$t('common.runs')}</th><th class="r">{$t('common.tokens')}</th><th class="r">{$t('drawer.output')}</th><th class="r">{$t('drawer.tools')}</th><th class="r">{$t('drawer.time')}</th><th class="r">{$t('common.estCost')}</th></tr></thead>
+              <tbody>
+                {#each usageRows as [k, v] (k)}
+                  <tr>
+                    <td>{k}</td>
+                    <td class="num">{v.runs}</td>
+                    <td class="r num">{num(v.tokens)}</td>
+                    <td class="r num">{v.output ? num(v.output) : '—'}</td>
+                    <td class="r num">{num(v.toolUses)}</td>
+                    <td class="r num">{dur(v.durationMs)}</td>
+                    <td class="r num">{usd(v.estCostUsd)}</td>
+                  </tr>
+                {/each}
+                <tr class="font-medium">
+                  <td>{$t('drawer.total')}</td>
+                  <td></td>
+                  <td class="r num">{num(j.usage.totalTokens)}</td>
+                  <td></td>
+                  <td></td>
+                  <td></td>
+                  <td class="r num">{usd(j.usage.estCostUsd)}</td>
                 </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div></div>
-      {/if}
-      {@html budgetPanel(j, S.data?.config?.pipeline?.budget)}
-      {#if usageRows.length}
-        <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
-          <table class="tbl">
-            <thead><tr><th>{$t('drawer.agent')}</th><th>{$t('common.runs')}</th><th class="r">{$t('common.tokens')}</th><th class="r">{$t('drawer.output')}</th><th class="r">{$t('drawer.tools')}</th><th class="r">{$t('drawer.time')}</th><th class="r">{$t('common.estCost')}</th></tr></thead>
-            <tbody>
-              {#each usageRows as [k, v] (k)}
-                <tr>
-                  <td>{k}</td>
-                  <td class="num">{v.runs}</td>
-                  <td class="r num">{num(v.tokens)}</td>
-                  <td class="r num">{v.output ? num(v.output) : '—'}</td>
-                  <td class="r num">{num(v.toolUses)}</td>
-                  <td class="r num">{dur(v.durationMs)}</td>
-                  <td class="r num">{usd(v.estCostUsd)}</td>
-                </tr>
-              {/each}
-              <tr class="font-medium">
-                <td>{$t('drawer.total')}</td>
-                <td></td>
-                <td class="r num">{num(j.usage.totalTokens)}</td>
-                <td></td>
-                <td></td>
-                <td></td>
-                <td class="r num">{usd(j.usage.estCostUsd)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div></div>
-      {/if}
-      {@html screenshotsPanel(j.id, d.screenshots ?? [])}
-      <div bind:this={tabStrip} class="tabs">{#each TABS as tab (tab)}<button class="tab {shown.tab === tab ? 'active' : ''}" aria-pressed={shown.tab === tab ? 'true' : 'false'} onclick={() => setDrawerTab(tab)}>{#if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted">{d.events.length}</span>{:else if tab === 'thread'}{$t('drawer.threadTab')}{:else}{$t('drawer.files')}{/if}</button>{/each}</div>
-      {#if shown.tab === 'files'}
-        {@const file = shown.file}
-        {@const content = shown.content}
-        <div class="grid md:grid-cols-[180px_1fr] gap-4">
-          <div class="flex md:flex-col gap-0.5 overflow-x-auto md:overflow-visible">{#each d.files as f (f)}<button class="block w-full text-left truncate px-2 py-1 text-xs font-mono {file === f ? 'bg-raised text-fg' : 'text-muted hover:text-fg'}" onclick={() => loadFile(f)}>{f}</button>{/each}</div>
-          <div class="min-w-0">
-            {#if file && content}
-              {#if 'html' in content}
-                <!-- svelte-ignore a11y_missing_attribute (no title, as on main: the iframe sits under the file list that names it) -->
-                <iframe sandbox="allow-scripts" class="w-full h-[70vh] border border-line bg-white" src="/api/jobs/{encodeURIComponent(j.id)}/raw?path={encodeURIComponent(file)}"></iframe>
-              {:else if file.endsWith('.md')}
-                <div class="prose">{@html md(content.text)}</div>
+              </tbody>
+            </table>
+          </div></div>
+        {/if}
+        {@html screenshotsPanel(j.id, d.screenshots ?? [])}
+        <div bind:this={tabStrip} class="tabs">{#each TABS as tab (tab)}<button class="tab {shown.tab === tab ? 'active' : ''}" aria-pressed={shown.tab === tab ? 'true' : 'false'} onclick={() => setDrawerTab(tab)}>{#if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted">{d.events.length}</span>{:else if tab === 'thread'}{$t('drawer.threadTab')}{:else}{$t('drawer.files')}{/if}</button>{/each}</div>
+        {#if shown.tab === 'files'}
+          {@const file = shown.file}
+          {@const content = shown.content}
+          <div class="grid md:grid-cols-[180px_1fr] gap-4">
+            <div class="flex md:flex-col gap-0.5 overflow-x-auto md:overflow-visible">{#each d.files as f (f)}<button class="block w-full text-left truncate px-2 py-1 text-xs font-mono {file === f ? 'bg-raised text-fg' : 'text-muted hover:text-fg'}" onclick={() => loadFile(f)}>{f}</button>{/each}</div>
+            <div class="min-w-0">
+              {#if file && content}
+                {#if 'html' in content}
+                  <!-- svelte-ignore a11y_missing_attribute (no title, as on main: the iframe sits under the file list that names it) -->
+                  <iframe sandbox="allow-scripts" class="w-full h-[70vh] border border-line bg-white" src="/api/jobs/{encodeURIComponent(j.id)}/raw?path={encodeURIComponent(file)}"></iframe>
+                {:else if file.endsWith('.md')}
+                  <div class="prose">{@html md(content.text)}</div>
+                {:else}
+                  <pre class="text-[12px] font-mono whitespace-pre-wrap break-words bg-raised p-3">{content.text}</pre>
+                {/if}
               {:else}
-                <pre class="text-[12px] font-mono whitespace-pre-wrap break-words bg-raised p-3">{content.text}</pre>
+                <div class="text-sm text-muted">{$t('drawer.noFiles')}</div>
               {/if}
-            {:else}
-              <div class="text-sm text-muted">{$t('drawer.noFiles')}</div>
-            {/if}
+            </div>
           </div>
-        </div>
-      {:else if shown.tab === 'thread'}
-        <ThreadPanel job={j} requests={d.requests ?? []} opening={threadOpening(d)} active={open} />
-      {:else}
-        <ul>
-          {#each events as e, i (i)}
-            {@const x = eventDetail(e, { tokens: tokensShort, dur })}
-            <li class="flex gap-3 py-1.5 border-b border-line text-xs"><span class="text-muted whitespace-nowrap w-16 shrink-0">{ago(e.ts)}</span><span class="font-mono text-ink shrink-0 w-28 truncate">{e.type}</span><span class="min-w-0 break-words">{x.pre}{#if x.bold !== null}<b>{x.bold}</b>{/if}{x.post}</span></li>
-          {/each}
-        </ul>
-      {/if}
+        {:else if shown.tab === 'thread'}
+          <ThreadPanel job={j} requests={d.requests ?? []} opening={threadOpening(d)} active={open} />
+        {:else}
+          <ul>
+            {#each events as e, i (i)}
+              {@const x = eventDetail(e, { tokens: tokensShort, dur })}
+              <li class="flex gap-3 py-1.5 border-b border-line text-xs"><span class="text-muted whitespace-nowrap w-16 shrink-0">{ago(e.ts)}</span><span class="font-mono text-ink shrink-0 w-28 truncate">{e.type}</span><span class="min-w-0 break-words">{x.pre}{#if x.bold !== null}<b>{x.bold}</b>{/if}{x.post}</span></li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
     </div>
+    <ActionDock job={j} />
   {/if}
 </aside>

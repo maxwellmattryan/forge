@@ -23,6 +23,10 @@ export const DEFAULT_FILTERS: Filters = Object.freeze({ text: '', tools: true, t
 export const MAX_ENTRIES = 5000;
 export const PREVIEW_CHARS = 300;
 export const LONG_TEXT = 2000;
+/** How far from the bottom (px) the pane still counts as at the bottom, so Follow stays on. */
+export const FOLLOW_SLACK = 24;
+/** Whether a scrolled pane is within `slack` px of its bottom; content shorter than the pane always is. */
+export const atBottom = (scrollHeight: number, scrollTop: number, clientHeight: number, slack = FOLLOW_SLACK): boolean => scrollHeight - scrollTop - clientHeight <= slack;
 const SUMMARY_CHARS = 120;
 const SUPERVISOR_KEYS = ['message', 'pid', 'sessionId', 'requests', 'held', 'jobs', 'code', 'signal', 'reason', 'state', 'maxConcurrent', 'bytes', 'from', 'to', 'tool', 'decision', 'mode'];
 const AGENT_TOOLS = new Set(['Agent', 'Task']);
