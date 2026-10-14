@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { mergeAction, hasCiWorkflows, mergePr } from '../lib/pr.ts';
+import { findPr, mergeAction, hasCiWorkflows, mergePr } from '../lib/pr.ts';
 import { defaults } from '../lib/config.ts';
-import { createJob, setJob, readEvents } from '../lib/jobs.ts';
+import { createJob, loadJob, setJob, readEvents } from '../lib/jobs.ts';
 
 test('mergeAction: direct merge only when CI passed or the repo has none', () => {
   const B = { mergeState: 'BLOCKED' };
@@ -73,7 +73,8 @@ test('hasCiWorkflows: reads the ref, falls back to the working tree', () => {
 const FAKE_GH = `#!/bin/sh
 echo "$*" >> "$FAKE_GH_LOG"
 case "$1 $2" in
-  "pr view") printf '{"number":7,"url":"https://github.com/o/r/pull/7","state":"%s","isDraft":false,"headRefOid":"abc123","mergeable":"MERGEABLE","mergeStateStatus":"%s","reviewDecision":"","statusCheckRollup":%s,"mergedAt":null,"closedAt":null,"headRefName":"forge/x","baseRefName":"main"}' "$FAKE_PR_STATE" "$FAKE_MERGE_STATE" "$FAKE_ROLLUP" ;;
+  "pr view") printf '{"number":7,"url":"https://github.com/o/r/pull/7","state":"%s","isDraft":false,"headRefOid":"abc123","mergeable":"MERGEABLE","mergeStateStatus":"%s","reviewDecision":"","statusCheckRollup":%s,"mergedAt":null,"closedAt":null,"headRefName":"%s","baseRefName":"%s"}' "$FAKE_PR_STATE" "$FAKE_MERGE_STATE" "$FAKE_ROLLUP" "\${FAKE_HEAD_REF:-forge/x}" "\${FAKE_BASE_REF:-main}" ;;
+  "pr list") printf '[{"number":7,"url":"https://github.com/o/r/pull/7","state":"OPEN","isDraft":false,"isCrossRepository":false,"headRefName":"%s","baseRefName":"%s"}]' "\${FAKE_HEAD_REF:-forge/x}" "\${FAKE_BASE_REF:-main}" ;;
   "repo view") echo o/r ;;
   "api graphql") echo '{"data":{"repository":{"pullRequest":{}}}}' ;;
   "pr merge") if [ -n "$FAKE_MERGE_FAIL" ]; then echo "auto-merge is not allowed" >&2; exit 1; fi ;;
@@ -242,6 +243,45 @@ test('forge pr merge: refused exits 1, --now must not swallow the id', { skip: p
     assert.ok(h.events(id).includes('pr-merge-bypass'));
   } finally {
     fs.rmSync(path.join(h.repo.dir, '..', `${path.basename(h.repo.dir)}.wt`), { recursive: true, force: true });
+    h.done();
+  }
+});
+
+test('findPr refuses to adopt a PR with an unsafe ref name', { skip: process.platform === 'win32' }, () => {
+  const h = ghHarness();
+  try {
+    const root = h.repo.dir;
+    const identity = (id: string) => {
+      const j = loadJob(root, id);
+      return { branch: j.branch, base: j.base, pr: j.pr };
+    };
+    const cases = [
+      ['headRefName', { FAKE_HEAD_REF: 'x;id' }, 'x;id'],
+      ['baseRefName', { FAKE_BASE_REF: 'main$(id)' }, 'main$(id)'],
+    ] as const;
+    for (const [field, env, value] of cases) {
+      for (const linked of [true, false]) {
+        const id = h.scenario();
+        // Unlinked, the PR is found by branch (`gh pr list`) and would be adopted.
+        if (!linked) setJob(root, id, { fields: { pr: null } });
+        Object.assign(process.env, { FAKE_HEAD_REF: '', FAKE_BASE_REF: '' }, env);
+        const before = identity(id);
+        assert.throws(() => findPr(root, h.config, id), new RegExp(`unsafe ${field}`));
+        assert.deepEqual(identity(id), before, `${field} linked=${linked}: branch, base and pr unchanged`);
+        const evs = readEvents(root, id);
+        const refused = evs.filter((e) => e.type === 'pr-adopt-refused');
+        assert.deepEqual(refused.map((e) => [e.number, e.field]), [[7, field]]);
+        assert.ok(!evs.some((e) => e.type === 'pr-adopted'));
+        assert.ok(!JSON.stringify(refused).includes(value), 'the raw value is never logged');
+      }
+    }
+    Object.assign(process.env, { FAKE_HEAD_REF: '', FAKE_BASE_REF: '' });
+    const id = h.scenario();
+    setJob(root, id, { fields: { pr: null } });
+    assert.equal(findPr(root, h.config, id).headRefName, 'forge/x', 'safe refs are still adopted');
+    assert.equal(loadJob(root, id).branch, 'forge/x');
+    assert.ok(h.events(id).includes('pr-adopted'));
+  } finally {
     h.done();
   }
 });

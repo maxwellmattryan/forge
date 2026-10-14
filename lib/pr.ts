@@ -6,7 +6,7 @@ import { exists } from './paths.ts';
 import { attributionForbidden, scrubBranch, stripAttribution } from './attribution.ts';
 import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from './delta.ts';
 import type { Config, HumanDelta, Job, JobPr, PrChecks } from './types.ts';
-import { ForgeError, hasBinary, now, readText, run } from './util.ts';
+import { ForgeError, SAFE_REF, hasBinary, now, readText, run } from './util.ts';
 import { verifiedHead } from './worktree.ts';
 
 const MARKER = '<!-- forge -->';
@@ -62,7 +62,7 @@ export function findPr(root: string, config: Config, id: string): any {
   requireGh();
   const job = loadJob(root, id);
   const slug = repoSlug(root, config);
-  if (job.pr?.number) return view(root, slug, job.pr.number);
+  if (job.pr?.number) return refuseUnsafeRefs(root, id, view(root, slug, job.pr.number));
   // createJob always sets branch.
   const byBranch = JSON.parse(gh(root, ['pr', 'list', '-R', slug, '--head', job.branch!, '--state', 'all', '--json', PR_FIELDS, '--limit', '5']).stdout);
   const sameRepo = byBranch.filter((p: any) => !p.isCrossRepository);
@@ -86,11 +86,25 @@ export function findPr(root: string, config: Config, id: string): any {
     return null;
   }
   if (pr.isCrossRepository) throw new ForgeError(`PR #${pr.number} comes from a fork; Forge only adopts branches in ${slug}`);
+  refuseUnsafeRefs(root, id, pr);
   const fields = { pr: { number: pr.number, url: pr.url, state: pr.state, isDraft: pr.isDraft, lastSyncedAt: now() } };
   if (pr.headRefName && pr.headRefName !== job.branch) Object.assign(fields, { branch: pr.headRefName });
   if (pr.baseRefName && pr.baseRefName !== job.base) Object.assign(fields, { base: pr.baseRefName });
   setJob(root, id, { fields });
   logEvent(root, id, 'pr-adopted', { number: pr.number, branch: pr.headRefName });
+  return pr;
+}
+
+// A ref name becomes job.branch/base, which fill shell templates and git argv. Only the field
+// name is logged: the value is outside text.
+function refuseUnsafeRefs(root: string, id: string, pr: any): any {
+  for (const field of ['headRefName', 'baseRefName'] as const) {
+    const v = pr?.[field];
+    if (v && !(typeof v === 'string' && SAFE_REF.test(v))) {
+      logEvent(root, id, 'pr-adopt-refused', { number: Number(pr.number), field });
+      throw new ForgeError(`PR #${Number(pr.number)} has an unsafe ${field} ${(JSON.stringify(v) ?? String(v)).slice(0, 80)}; Forge does not adopt it`);
+    }
+  }
   return pr;
 }
 

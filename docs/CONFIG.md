@@ -2,7 +2,7 @@
 
 `/forge init` writes this file. Every key is optional; anything omitted takes the default shown. The file uses a strict YAML subset (block maps and lists, quoted or plain scalars, `[a, b]` / `{a: 1}` flow collections, `|` blocks, comments; no anchors or tags). `forge config validate` checks it, `forge config show` prints the effective config, `forge config get <key>` prints one effective value, and `forge config set <key> <value>` changes one editable key (see [Changing settings](#changing-settings)).
 
-Command templates may use `{port}`, `{job}`, `{worktree}`, `{root}`, `{branch}` and `{base}`. Commands also get `PORT`, `FORGE_PORT`, `FORGE_JOB` and `FORGE_WORKTREE` in their environment, and never the daemon session's `FORGE_DAEMON*` variables, so a command that calls `forge` behaves the same under the daemon as for a human.
+Command templates may use `{port}`, `{job}`, `{worktree}`, `{root}`, `{branch}` and `{base}`. Placeholders are filled in unquoted, so `{job}`, `{branch}` and `{base}` are checked first: each must start with a letter or digit and use only `A-Z a-z 0-9 . _ / -` (at most 200 characters), and an unsafe value stops the command before it runs, with an error naming the field. Commands also get `PORT`, `FORGE_PORT`, `FORGE_JOB` and `FORGE_WORKTREE` in their environment, and never the daemon session's `FORGE_DAEMON*` variables, so a command that calls `forge` behaves the same under the daemon as for a human.
 
 ```yaml
 schemaVersion: 2

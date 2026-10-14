@@ -17,7 +17,7 @@ import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts 
 import { PLUGIN_ROOT, exists } from './paths.ts';
 import { approachPaths, inSpec } from './scope.ts';
 import type { Config, Job, JobAgent, JobEvent, StepAction, StepDone, StepFile, StepInput, StepProcedure, StepRun, StepSpawn, StepVerdicts, StepWait, StepWaitingOn, VerifyRun, WaitingOn } from './types.ts';
-import { ForgeError, readJson, readText } from './util.ts';
+import { ForgeError, SAFE_REF, readJson, readText } from './util.ts';
 
 export const RULES = [
   'G1', 'G2', 'G3', 'G4', 'G5', 'L1', 'N1', 'N2', 'M1', 'M2', 'K1', 'K2',
@@ -47,7 +47,6 @@ const UI_LENSES = ['ui', 'ux', 'accessibility'];
 const SAFE_ELEMENT = /^[A-Za-z0-9 ._:/@=,+\-[\]"]*$/;
 const BARE_ELEMENT = /^[A-Za-z0-9._:/@=,+-]+$/;
 const AGENT_ID = /^[A-Za-z0-9_-]{1,100}$/;
-const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
 const SAFE_URL = /^https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9._/-]+$/;
 
 /** Events loadStepInput keeps; everything else in events.jsonl is noise to step. */
@@ -470,7 +469,7 @@ export function gateTell(x: StepInput, waitingOn: WaitingOn): string {
     case 'infra':
       return `${id} waits on runbook steps before merge: ${p(x, 'runbook')}. /forge continue ${id} when done`;
     case 'conflicts':
-      return `${id} conflicts with ${safe(j.base, SAFE_NAME, 'its base branch')}. /forge approve ${id} to have the integrator fix them`;
+      return `${id} conflicts with ${safe(j.base, SAFE_REF, 'its base branch')}. /forge approve ${id} to have the integrator fix them`;
     case 'budget':
       return `${id} over budget: ${reason}. /forge approve ${id} to acknowledge, or raise it: forge job budget ${id} --set usd=…`;
     case 'pr-review':
@@ -529,7 +528,7 @@ function decide(x: StepInput): StepAction {
 
   // Global
   if (j.state === 'done' || j.state === 'cancelled' || j.stage === 'done') {
-    const tell = j.state === 'cancelled' ? `${j.id} is cancelled` : j.pr?.url ? `${j.id} is done: ${safe(j.pr.url, SAFE_URL, `PR #${Number(j.pr.number) || '?'}`)}` : `${j.id} finished on branch ${safe(j.branch, SAFE_NAME, 'its branch')}`;
+    const tell = j.state === 'cancelled' ? `${j.id} is cancelled` : j.pr?.url ? `${j.id} is done: ${safe(j.pr.url, SAFE_URL, `PR #${Number(j.pr.number) || '?'}`)}` : `${j.id} finished on branch ${safe(j.branch, SAFE_REF, 'its branch')}`;
     return done(x, 'G1', tell);
   }
   if (j.state === 'failed') return done(x, 'G2', `${j.id} failed: ${j.reason ?? 'no reason recorded'}`);
@@ -633,7 +632,7 @@ function spec(x: StepInput): StepAction {
   if (!after(panelEv?.ts, authored)) {
     const fields = [`reviewers=${JSON.stringify(selectPanel(x))}`];
     if (x.spec.size && /^[SML]$/.test(x.spec.size)) fields.push(`size=${x.spec.size}`);
-    const services = x.spec.services.filter((s) => SAFE_NAME.test(s) && c.services.some((cs) => cs.name === s));
+    const services = x.spec.services.filter((s) => SAFE_REF.test(s) && c.services.some((cs) => cs.name === s));
     if (services.length) fields.push(`services=${JSON.stringify(services)}`);
     return set(x, 'SP3', { fields }, 'record the review panel the spec implies');
   }
@@ -806,7 +805,7 @@ function integrate(x: StepInput): StepAction {
 
 function pr(x: StepInput): StepAction {
   const j = x.job;
-  if (!x.config.pr.enabled) return toStage(x, 'PR1', 'done', 'PRs are off: the branch is the result', { tell: `${j.id} finished on branch ${safe(j.branch, SAFE_NAME, 'its branch')}` });
+  if (!x.config.pr.enabled) return toStage(x, 'PR1', 'done', 'PRs are off: the branch is the result', { tell: `${j.id} finished on branch ${safe(j.branch, SAFE_REF, 'its branch')}` });
   const last = j.verifyRuns.at(-1);
   if (!last?.ok) return run(x, 'PR2', ['verify', j.id], 'pr open needs a verified HEAD');
   const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated');
