@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.2
+
+- Daemon turns: the skill now tells a headless session to run every `forge` call as a plain command, one per Bash call. Under `--permission-mode dontAsk` the allowlist is matched against each part of a compound command, so `forge requests scope; echo $?` was refused whole and the session concluded Bash was blocked.
+
 ## 0.10.1
 
 - Daemon billing: new `daemon.auth` (`subscription` by default, or `api-key`). Headless sessions drop `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` from their environment unless it is `api-key`, because claude would otherwise bill that API account instead of the Claude login, and its spend cap then failed every turn with a 400. The first terminal `forge dash` with a key set and no explicit choice asks once and records the answer; elsewhere the subscription is assumed and the output says so. The session log records an `auth` event, `forge doctor` reports which account sessions use, and the key is editable in the dashboard's Daemon settings.
