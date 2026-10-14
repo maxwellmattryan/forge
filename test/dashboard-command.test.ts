@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tags } from './svelte-markup.ts';
-import { VERBS, commandKey, commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, shortcutLabel, suggest } from '../dashboard/src/lib/command.ts';
+import { VERBS, commandKey, commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, scopeVerbs, scopedJob, shellEscape, shortcutLabel, suggest } from '../dashboard/src/lib/command.ts';
 import { buildRequest } from '../dashboard/src/lib/view.ts';
 
 const job = (id: string, state = 'running', extra: Record<string, unknown> = {}): any => ({ id, title: `Title of ${id}`, state, waitingOn: null, stage: 'build', ...extra });
@@ -139,6 +139,59 @@ test('continue and resume', () => {
   assert.equal(emptyReason(parseCommand('continue ', none), suggest('continue ', none), null, none), 'noJobs');
 });
 
+test('scopeVerbs per state and gate', () => {
+  const owner = (status: string) => ({ ownerStatus: { status, session: status === 'none' ? null : 's1', since: null, heartbeat: null, agentRunning: false, reason: null } });
+  const gate = (waitingOn: string) => scopeVerbs(job('x', 'waiting', { waitingOn, ...owner('none') }));
+  assert.deepEqual(gate('spec-approval'), ['approve', 'revise', 'cancel']);
+  for (const g of ['split-approval', 'issue-link', 'infra', 'external', 'budget']) assert.deepEqual(gate(g), ['approve', 'cancel'], g);
+  assert.deepEqual(gate('input'), ['approve', 'answer', 'cancel']);
+  for (const g of ['escalation', 'rounds-exhausted', 'conflicts']) assert.deepEqual(gate(g), ['approve', 'rework', 'cancel'], g);
+  assert.deepEqual(gate('pr-review'), ['cancel'], 'a PR review waits on the PR, not a gate');
+  assert.deepEqual(scopeVerbs(job('x', 'failed', owner('none'))), ['continue', 'cancel']);
+  assert.deepEqual(scopeVerbs(job('x', 'failed')), ['continue', 'cancel'], 'no ownerStatus at all');
+  assert.deepEqual(scopeVerbs(job('x', 'queued', owner('none'))), ['continue', 'cancel']);
+  assert.deepEqual(scopeVerbs(job('x', 'running', owner('live'))), ['cancel'], 'a live owner drives it');
+  assert.deepEqual(scopeVerbs(job('x', 'running', owner('stale'))), ['continue', 'cancel']);
+  assert.deepEqual(scopeVerbs(job('x', 'done', owner('none'))), []);
+  assert.deepEqual(scopeVerbs(job('x', 'cancelled', owner('stale'))), []);
+  // Always in VERBS order.
+  for (const g of ['spec-approval', 'input', 'escalation']) {
+    const got = gate(g);
+    assert.deepEqual(got, VERBS.filter((v) => (got as string[]).includes(v)), `${g} in VERBS order`);
+  }
+});
+
+test('suggest lists the scoped job\'s verbs first', () => {
+  const id = 'add-dark-mode-c3d4';
+  const plain = suggest('', ctx);
+  const scoped = suggest('', { ...ctx, scope: id });
+  const head = scoped.slice(0, 3);
+  assert.deepEqual(head, ['approve', 'revise', 'cancel'].map((verb) => ({ kind: 'scoped', verb, job: JOBS[1], insert: `${verb} ${id} ` })));
+  assert.deepEqual(scoped.slice(3), plain, 'then every global verb, unchanged');
+  assert.equal(plain.length, VERBS.length);
+  for (const scope of ['add-old-thing-e5f6', 'add-cancelled-i9j0', 'no-such-job', null, undefined, '']) assert.deepEqual(suggest('', { ...ctx, scope }), plain, `scope ${scope} is ignored`);
+  for (const s of ['re', 'approve ', 'Add a badge', 'cancel add-', 'issue ']) assert.deepEqual(suggest(s, { ...ctx, scope: id }), suggest(s, ctx), `typed ${JSON.stringify(s)} completes as unscoped`);
+  assert.equal(scopedJob({ ...ctx, scope: id }), JOBS[1]);
+  assert.equal(scopedJob({ ...ctx, scope: 'add-reading-time-a1b2' })?.id, 'add-reading-time-a1b2');
+  for (const scope of ['add-old-thing-e5f6', 'add-cancelled-i9j0', 'no-such-job', null, undefined]) assert.equal(scopedJob({ ...ctx, scope }), null, `scope ${scope}`);
+  assert.equal(scopedJob(ctx), null);
+  // A scoped row inserts a complete command that parses and sends for that job.
+  assert.deepEqual(parseCommand(head[0].kind === 'scoped' ? head[0].insert : '', ctx), { kind: 'job', verb: 'approve', job: id, note: '' });
+});
+
+test('shellEscape precedence', () => {
+  for (const command of [false, true]) {
+    for (const settings of [false, true]) {
+      for (const drawer of [false, true]) {
+        const want = command ? 'command' : settings ? 'settings' : drawer ? 'drawer' : null;
+        assert.equal(shellEscape({ command, settings, drawer }), want, JSON.stringify({ command, settings, drawer }));
+      }
+    }
+  }
+  assert.equal(shellEscape({ command: true, settings: false, drawer: true }), 'command', 'a palette opened from the drawer closes alone');
+  assert.equal(shellEscape({ command: false, settings: false, drawer: false }), null);
+});
+
 test('commandKey', () => {
   const k = (o: Partial<Parameters<typeof commandKey>[0]>) => commandKey({ key: 'k', ctrlKey: false, metaKey: true, altKey: false, open: false, settingsOpen: false, ...o });
   assert.equal(k({}), 'open', 'Cmd-K');
@@ -213,4 +266,9 @@ test('command bar markup is an ARIA combobox', () => {
   assert.ok(attr(option, 'id'), 'options have ids for aria-activedescendant');
   assert.equal(with_('aria-live', '"polite"').length, 1, 'one polite live region');
   assert.ok(with_('role', '"alert"').length >= 1, 'server errors show as an alert');
+  // The job scope: a chip that describes the combobox, and its own labelled remove button.
+  assert.equal(with_('id', '"command-scope"').length, 1, 'the scope chip');
+  const remove = with_('aria-label', "{$t('command.clearScope')}");
+  assert.ok(remove.length === 1 && remove[0].name === 'button', 'a button removes the scope');
+  assert.match(attr(combo, 'aria-describedby') ?? '', /^\{(\w+) \? 'command-scope' : undefined\}$/, 'the combobox is described by the chip only while scoped');
 });

@@ -6,11 +6,8 @@
 @source "./src/**/*.ts";
 @source "./src/**/*.svelte";
 /* Emitted before any markup uses them, so later jobs only change markup. */
-@source inline("ground falloff plain chrome sketch sheet ticks redline dashed solid clickable h label callout mono num muted dimmed caption dim-line prose btn seg chip nav input check radio field track fill tabs tab tbl tblock kpi ic dot backdrop mark");
+@source inline("ground falloff plain chrome sketch sheet ticks redline dashed solid clickable h label callout mono num muted dimmed caption dim-line prose btn seg chip nav input check radio field track fill tabs tab tbl tblock kpi ic dot backdrop scrim mark");
 
-@custom-variant dark (&:where([data-theme=cyanotype], [data-theme=cyanotype] *));
-
-/* inline: utilities read the token variables directly instead of emitting copies of them. */
 @theme inline {
   --color-bg: var(--bg);
   --color-bg-deep: var(--bg-deep);
@@ -178,7 +175,8 @@
 
 /* ---------- base (the top of drafting.css; preflight already zeroes margins and box-sizing) ---------- */
 @layer base {
-  html { background: var(--bg); color: var(--fg); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  /* A stable gutter: locking body scroll under the palette or a dialog does not shift the page sideways. */
+  html { background: var(--bg); color: var(--fg); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; scrollbar-gutter: stable; }
   body { font-family: var(--font-sans); font-size: 14px; line-height: 20px; }
   h1, h2, h3, h4 { font-family: var(--font-head); letter-spacing: -0.01em; }
   ::selection { background: var(--highlight); color: #14355f; }
@@ -619,6 +617,11 @@
 @utility backdrop {
   background: rgba(8,28,58,.7);
   [data-theme="vellum"] & { background: rgba(20,53,95,.45); }
+}
+/* The palette's lighter backdrop: the page or drawer behind it stays readable. Vellum keeps backdrop's ratio to cyanotype. */
+@utility scrim {
+  background: rgba(8,28,58,.3);
+  [data-theme="vellum"] & { background: rgba(20,53,95,.2); }
 }
 @utility mark {
   width: 36px;

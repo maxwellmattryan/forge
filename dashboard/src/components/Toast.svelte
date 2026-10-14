@@ -4,4 +4,4 @@
   import { t } from '../lib/locale.ts';
 </script>
 
-<div id="toast" role="status" aria-live={toast.bad ? 'assertive' : 'polite'} aria-atomic="true" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-[calc(100vw-2rem)]">{#if toast.shown}<div class="sheet ticks solid flex items-center gap-2.5 px-4 py-2 text-sm shadow-(--shadow-dialog) {toast.bad ? 'text-bad' : ''}"><span class="tk"></span>{#if toast.bad}<span class="chip rev shrink-0" aria-hidden="true">{$t('common.rev')}</span>{/if}<span class="min-w-0">{toast.msg}</span></div>{/if}</div>
+<div id="toast" role="status" aria-live={toast.bad ? 'assertive' : 'polite'} aria-atomic="true" class="fixed bottom-24 md:bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-[calc(100vw-2rem)]">{#if toast.shown}<div class="sheet ticks solid flex items-center gap-2.5 px-4 py-2 text-sm shadow-(--shadow-dialog) {toast.bad ? 'text-bad' : ''}"><span class="tk"></span>{#if toast.bad}<span class="chip rev shrink-0" aria-hidden="true">{$t('common.rev')}</span>{/if}<span class="min-w-0">{toast.msg}</span></div>{/if}</div>

@@ -401,6 +401,8 @@ const ALPHA_ALLOWED: Record<string, string> = {
   '* › sketch gradient': 'the hover sketch, at var(--sketch) strength over the control’s own opaque fill',
   '.backdrop › literal': 'the modal scrim under the drawer and dialogs',
   '[data-theme=vellum] .backdrop › literal': 'the vellum modal scrim',
+  '.scrim › literal': 'the palette’s lighter modal scrim',
+  '[data-theme=vellum] .scrim › literal': 'the vellum palette scrim',
   '.dim-line:before,.dim-line:after › --line': 'a 1px dimension rule, not a fill',
   '.clickable:hover › --raised': 'a hovered table row over its sheet’s panel',
   '.nav a.active,.nav button.active › --raised': 'the active nav item over chrome or panel; it never sketches',

@@ -5,7 +5,8 @@
   import Icon from './Icon.svelte';
   import StateChip from './StateChip.svelte';
   import { S, createJob, loadBacklog, openDrawer, postRequest, refresh } from '../lib/app.svelte.ts';
-  import { commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, suggest, type CommandCtx, type Suggestion, type Verb } from '../lib/command.ts';
+  import { commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, scopedJob, suggest, type CommandCtx, type Suggestion, type Verb } from '../lib/command.ts';
+  import { clearScope, palette } from '../lib/palette.svelte.ts';
   import { buildRequest } from '../lib/view.ts';
   import { wrapFocus } from '../lib/settings.ts';
   import { toast } from '../lib/toast.svelte.ts';
@@ -22,7 +23,9 @@
   let input = $state<HTMLInputElement>();
   let pressedOnBackdrop = false;
 
-  const ctx = $derived<CommandCtx>({ jobs: S.data?.jobs ?? [], backlog: S.backlog ? S.backlog.items : null, tracker: S.data?.config?.tracker ?? 'none' });
+  const ctx = $derived<CommandCtx>({ jobs: S.data?.jobs ?? [], backlog: S.backlog ? S.backlog.items : null, tracker: S.data?.config?.tracker ?? 'none', scope: palette.scope });
+  // Null once the job is unknown or closes, even while the palette is open: then the scope is simply ignored.
+  const scoped = $derived(scopedJob(ctx));
   const parsed = $derived(parseCommand(text, ctx));
   const options = $derived(suggest(text, ctx));
   const isFree = $derived(parsed.kind === 'free');
@@ -84,10 +87,18 @@
     else insert(o.insert);
   }
 
+  function removeScope(): void {
+    clearScope();
+    tick().then(() => input?.focus());
+  }
+
   function inputKey(e: KeyboardEvent): void {
     if (e.isComposing) return;
     const n = options.length;
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (e.key === 'Backspace' && text === '' && scoped) {
+      e.preventDefault();
+      clearScope();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       if (n) active = (active + (e.key === 'ArrowDown' ? 1 : -1) + n) % n;
     } else if (e.key === 'Tab' && !e.shiftKey) {
@@ -179,11 +190,17 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop; Escape closes the dialog from the keyboard) -->
-<div class="fixed inset-0 z-45 flex items-start justify-center backdrop md:p-6 md:pt-[12vh]" onmousedown={backdropDown} onclick={backdrop}>
+<div class="fixed inset-0 z-45 flex items-start justify-center scrim md:p-6 md:pt-[12vh]" onmousedown={backdropDown} onclick={backdrop}>
   <div bind:this={dialog} role="dialog" aria-modal="true" aria-label={$t('command.title')} tabindex="-1" class="sheet ticks solid flex flex-col w-full min-w-0 max-h-[85vh] shadow-(--shadow-dialog) md:max-w-[672px]" onkeydown={trap}>
     <span class="tk"></span>
-    <div class="flex items-center gap-2 border-b border-line px-3">
+    <!-- flex-wrap with a 10rem input basis: on a phone the scope chip and its remove button take the first line, so the input keeps room to type. -->
+    <div class="flex flex-wrap items-center gap-x-2 border-b border-line px-3">
       <Icon name="command" class="shrink-0 text-muted" />
+      {#if scoped}
+        <!-- The chip is the combobox's description; removing the scope is its own labelled button, so the description reads the job. -->
+        <span id="command-scope" class="chip ink min-w-0 max-w-[40%]" title={scoped.id}><span class="truncate">{$t('command.scope', { job: scoped.id })}</span></span>
+        <button class="btn icon sm shrink-0" aria-label={$t('command.clearScope')} onclick={removeScope}><Icon name="close" /></button>
+      {/if}
       <input
         bind:this={input}
         bind:value={text}
@@ -191,6 +208,7 @@
         type="text"
         role="combobox"
         aria-label={$t('command.label')}
+        aria-describedby={scoped ? 'command-scope' : undefined}
         aria-expanded={options.length > 0}
         aria-controls="command-list"
         aria-autocomplete="list"
@@ -198,7 +216,7 @@
         autocomplete="off"
         spellcheck="false"
         placeholder={$t('command.placeholder')}
-        class="flex-1 min-w-0 border-0! px-1.5! py-3! text-[15px] focus:-outline-offset-2!"
+        class="grow basis-40 min-w-0 border-0! px-1.5! py-3! text-[15px] focus:-outline-offset-2!"
         onkeydown={inputKey}
         oninput={() => (error = null)}
       />
@@ -216,13 +234,15 @@
           onclick={() => activate(o)}
         >
           {#if o.kind === 'run-job'}
-            <Icon name="command" class="shrink-0 text-ink" /><span class="font-medium text-fg shrink-0">{$t('command.start')}</span><span class="flex min-w-0 flex-col"><span class="truncate">{text.trim()}</span>{#if o.verbLike}<span class="text-xs text-muted">{$t('command.verbLike')}</span>{/if}</span>
+            <Icon name="command" class="shrink-0 text-ink" /><span class="font-medium text-fg shrink-0">{$t('command.start')}</span><span class="flex min-w-0 flex-col"><span class="truncate">{text.trim()}</span>{#if o.verbLike}<span class="text-xs text-muted">{$t('command.verbLike')}</span>{/if}{#if scoped}<span class="text-xs text-muted">{$t('command.newJobScoped', { job: scoped.id })}</span>{/if}</span>
           {:else if o.kind === 'run-command'}
             <Icon name="command" class="shrink-0 text-ink" /><span class="font-medium text-fg shrink-0">{$t('command.send')}</span><span class="truncate min-w-0 font-mono">{text.trim()}</span>
           {:else if o.kind === 'verb'}
             <span class="font-mono text-fg shrink-0 w-16">{o.verb}</span><span class="truncate min-w-0">{hints[o.verb]}</span>
           {:else if o.kind === 'job'}
             <span class="font-mono text-fg truncate min-w-0 flex-1 sm:flex-none sm:shrink-0 sm:max-w-[45%]">{o.job.id}</span><span class="hidden sm:inline truncate min-w-0 flex-1">{o.job.title}</span><StateChip job={o.job} />
+          {:else if o.kind === 'scoped'}
+            <span class="font-mono text-fg shrink-0 w-16">{o.verb}</span><span class="font-mono truncate min-w-0">{o.job.id}</span>
           {:else}
             <span class="font-mono text-fg shrink-0">{o.item.ref}</span><span class="truncate min-w-0">{o.item.title}</span>
           {/if}
