@@ -91,7 +91,7 @@ tracker:
                              # keys: queued, in-progress, review, blocked, done, cancelled
 
 pipeline:
-  plan: auto                 # auto | always | never
+  plan: auto                 # auto | always | never (auto: a planner when the request is over 600 characters or has 3+ list or heading lines)
   split: ask                 # ask | auto | never (what a SPLIT plan does; see "Split gate" below)
   specApproval: always       # always | large | never
   design: none               # none | reference | mockup
@@ -112,7 +112,7 @@ review:
     - { name: tests, always: true }
     - { name: security, model: opus, when: "input handling, auth, secrets, network, dependencies, file or process access" }
   #   - { name: realtime, checklist: .forge/reviewers/realtime.md, when: "audio thread code" }
-  onPrFeedback: changed      # changed | full | none (which lenses re-run after PR feedback)
+  onPrFeedback: changed      # changed | full | none (which lenses re-run after PR feedback; changed = the always: true lenses)
 
 approver:
   alwaysEscalate:            # plain-language classes the approver must escalate
@@ -190,7 +190,15 @@ daemon:                      # opt-in headless sessions supervised by `forge das
 
 ## Split gate
 
-`pipeline.split` decides what happens when the planner proposes several jobs for one request. `ask` (the default) parks the job on `split-approval` and creates nothing until you `/forge approve` it (create the jobs) or `/forge revise` it (keep it as one job). `auto` creates the tracker sub-issues and child jobs right away, and `never` makes the planner always plan one job, noting any split it would recommend under `## External`. A job started with `/forge issue <ref>` (or a dashboard Start) always plans as `never`: you chose that boundary.
+`pipeline.split` decides what happens when the planner proposes several jobs for one request. `ask` (the default) parks the job on `split-approval` and creates nothing until you `/forge approve` it (create the jobs) or `/forge revise` it (keep it as one job). `auto` creates the tracker sub-issues and child jobs right away, and `never` makes the planner always plan one job, noting any split it would recommend under `## External`. A job started with `/forge issue <ref>` (or a dashboard Start) always plans as `never`: you chose that boundary. `forge job from-ref` records that as the job's `splitMode: "never"`, and so does `/forge revise` on a split proposal; every other job follows `pipeline.split`.
+
+## How step reads the pipeline keys
+
+`forge job step` decides each move from these keys and the job's recorded state:
+
+- **`pipeline.plan: auto`** runs the planner when the request body (`request.md` without its title) is longer than 600 characters, or has 3 or more lines that start with a list marker (`-`, `*`, `1.`) or a `#` heading. `always` always plans and `never` never does.
+- **`review.panel`** is picked once the spec is written: every `always: true` lens, plus the spec's `Suggested reviewers:` that are in the panel, plus each lens whose `when` names a path (a token with a `/` or a file extension, such as `lib/server.ts` or `dashboard/src/**`) that one of the spec's Approach paths falls under. A `when` written only in prose is left to the spec-writer's suggestion. Names that aren't plain lowercase lens names are dropped.
+- **`review.onPrFeedback`** picks the lenses for a rework round on an open PR: `full` re-runs the job's whole recorded panel, `none` skips review and goes straight to `forge pr open`, and `changed` (the default) re-runs the `always: true` lenses. `changed` can't look at which files the round touched, because step decides from recorded state, not the diff.
 
 ## Model profiles
 

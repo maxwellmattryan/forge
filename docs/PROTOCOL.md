@@ -18,9 +18,9 @@ Forge is packaged for Claude Code, but nothing in its design is specific to one 
 | `$ARGUMENTS` | the user's request |
 | `${CLAUDE_SESSION_ID}` | any id unique to this orchestrator session (e.g. `<runtime>-<timestamp>`) |
 | `${CLAUDE_PLUGIN_ROOT}` | where Forge is installed (the plugin's directory, or your clone) |
-| "spawn with the Agent tool, `subagent_type: "forge:<role>"`, `model`" | start a sub-agent (or a fresh-context run) whose system prompt is `agents/<role>.md` and whose user message is the brief; pick the model from `runtime.models` translated to your provider |
-| "run in the background / wait for notifications" | run sub-agents concurrently if your runtime can; otherwise sequentially, which is slower but equivalent |
-| "SendMessage to resume the builder" | start a fresh builder with the same brief plus rework inputs. Roles recover from files by design. |
+| a `spawn` action's `agent` (`forge:<role>`), `model` and `brief` | start a sub-agent (or a fresh-context run) whose system prompt is `agents/<role>.md` and whose user message is `brief`; translate `model` to your provider |
+| "run in the background / wait for notifications" (`parallel: true`, `wait` on `agents`) | run sub-agents concurrently if your runtime can; otherwise sequentially, which is slower but equivalent |
+| "SendMessage" to a `resume` agent | start a fresh agent with the same brief. Roles recover from files by design. |
 | `forge job agent … --import` | omit `--import`; pass whatever usage your runtime reports (`--tokens`, `--tool-uses`, `--duration-ms`), or nothing |
 | AskUserQuestion (init) | ask the questions in plain text |
 
@@ -30,9 +30,10 @@ Set `runtime.provider`/`runtime.host` in `.forge/config.yml` so humans and the d
 
 Whatever drives Forge must:
 1. change job state only through `forge` commands
-2. give each role its inputs as **paths**, and accept only the outputs that role owns
-3. stop at human gates (`waiting`), and record why
-4. keep builders and integrators inside the job's worktree
-5. publish only verified commits: `forge verify` after the last commit, before `forge pr open` (which refuses anything else)
+2. drive each job with the step loop: run `forge job step <id>`, do the one action it returns (`spawn`: run `start`, start the agent with `brief`, then `forge job agent <id> end --role <role> --summary "<its reply line>"`; `run`: execute `command`, argv after `forge`; `wait`: on `agents`, wait for them, on a gate, report `tell` and stop; `procedure`: follow `reference`; `done`: stop), then step again. Don't decide stages yourself.
+3. give each role its inputs as **paths** (step's briefs already do), and accept only the outputs that role owns
+4. stop at human gates (`waiting`), and record why
+5. keep builders and integrators inside the job's worktree
+6. publish only verified commits: `forge verify` after the last commit, before `forge pr open` (which refuses anything else)
 
 Everything else (dashboard, PR sync, trackers, evals, retros) works the same regardless of runtime.

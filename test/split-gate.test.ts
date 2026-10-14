@@ -1,6 +1,6 @@
 // The split gate (issue #49): pipeline.split, the split-approval waiting reason, and the prompt and
-// orchestrator contracts that carry it. Most of the gate lives in markdown the orchestrator follows,
-// so those tests pin the literal instructions rather than running a session.
+// orchestrator contracts that carry it. `forge job step` decides the gate (rows below run it); the
+// human commands and the child-creation path are markdown, so those tests pin the literal text.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -12,6 +12,8 @@ import { createJob, loadJob, readEvents, setJob } from '../lib/jobs.ts';
 import { WAITING_ON } from '../lib/schema.ts';
 import { WAITING_ON as DASH_WAITING_ON } from '../dashboard/src/lib/types.ts';
 import { statusKey } from '../lib/trackers/status.ts';
+import { step } from '../lib/step.ts';
+import { ag, fixture } from './step-fixture.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const BIN = path.join(ROOT, 'bin', 'forge');
@@ -76,44 +78,50 @@ const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const between = (text: string, from: string, to: string) => {
   const start = text.indexOf(from);
   assert.ok(start >= 0, `missing ${from}`);
-  const end = text.indexOf(to, start);
-  assert.ok(end > start, `missing ${to} after ${from}`);
-  return text.slice(start, end);
+  const end = text.indexOf(to, start + from.length);
+  return end > start ? text.slice(start, end) : text.slice(start);
 };
-const SKILL = read('skills/forge/SKILL.md');
-const planStep = between(SKILL, '### 1. Plan', '### 2. Spec');
-const row = (cmd: string) => {
-  const line = SKILL.split('\n').find((l) => l.startsWith(`| \`${cmd}`));
-  assert.ok(line, `no ${cmd} row`);
+// The split gate's decisions live in `forge job step` (lib/step.ts); the human commands and the
+// child-creation procedure live in the orchestrator's references.
+const COMMANDS = read('skills/forge/reference/commands.md');
+const SPLIT = read('skills/forge/reference/split.md');
+const approveRow = (gate: string) => {
+  const line = between(COMMANDS, '## `approve', '\n## ').split('\n').find((l) => l.startsWith(`| \`${gate}\``));
+  assert.ok(line, `no approve row for ${gate}`);
   return line;
 };
-const askBranch = planStep.slice(planStep.indexOf('under `ask`'));
+const planned = (split: 'ask' | 'auto' | 'never', splitMode: 'never' | null = null) =>
+  fixture({ config: (c) => (c.pipeline.split = split), job: { stage: 'plan', state: 'running', splitMode, agents: { planner: ag(0, 1, 2) } }, plan: { verdict: 'SPLIT', jobs: 3 } });
 
-test('SKILL.md gates a split on split-approval under ask', () => {
-  assert.ok(planStep.includes('pipeline.split'));
-  assert.ok(askBranch.length < planStep.length, 'step 1 has an ask branch');
-  const ask = askBranch.slice(0, askBranch.indexOf('Stop this job'));
-  assert.ok(ask.includes('--waiting-on split-approval'));
-  assert.ok(ask.includes('create no tracker issue and no job'));
-  assert.ok(!ask.includes('forge tracker create') && !ask.includes('forge job new'), 'the ask branch creates nothing');
+test('a split under ask waits on split-approval and creates nothing', () => {
+  const a = step(planned('ask'));
+  assert.equal(a.action, 'run');
+  assert.equal(a.rule, 'P3');
+  if (a.action !== 'run') return;
+  assert.deepEqual(a.command, ['job', 'set', 'j', '--stage', 'plan', '--state', 'waiting', '--waiting-on', 'split-approval', '--reason', 'planner proposes 3 jobs']);
+  assert.equal(step(planned('never')).rule, 'P3', 'a SPLIT returned under never waits too');
 
-  const approve = row('approve');
-  assert.ok(approve.includes('split-approval') && approve.includes('approve-split') && approve.includes('child-creation path'));
-  const revise = row('revise');
-  assert.ok(revise.includes('split-approval') && revise.includes('revise-split') && revise.includes('Split mode: never'));
+  const approve = approveRow('split-approval');
+  assert.ok(approve.includes('approve-split') && approve.includes('reference/split.md'));
+  const revise = between(COMMANDS, '## `revise', '\n## ');
+  for (const s of ['split-approval', 'revise-split', 'split mode `never`', '--stage plan --state running']) assert.ok(revise.includes(s), s);
 });
 
-test('SKILL.md keeps today\'s split path under auto', () => {
-  const auto = between(planStep, 'under `auto`', 'under `ask`');
+test('split.md keeps today\'s split path under auto', () => {
+  const a = step(planned('auto'));
+  assert.equal(a.action, 'procedure');
+  if (a.action === 'procedure') assert.equal(a.reference, path.join(ROOT, 'skills', 'forge', 'reference', 'split.md'));
   for (const s of ['forge tracker create --title … --body … --parent <ref>', 'forge job new --title … --body … --parent <id>', 'dependsOn', '--waiting-on external --reason "split into N jobs"'])
-    assert.ok(auto.includes(s), s);
+    assert.ok(SPLIT.includes(s), s);
 });
 
 test('issue <ref> plans with split mode never', () => {
-  assert.ok(row('issue <ref>').includes('Split mode: never'));
-  assert.ok(planStep.includes('Split mode: <mode>'));
-  assert.ok(/`never` when the job came from `issue <ref>` \(or a `run` request\)/.test(planStep));
-  assert.ok(planStep.includes('whatever the config says'));
+  assert.equal(step(planned('auto', 'never')).rule, 'P3', 'a from-ref job never splits, whatever the config says');
+  const spawn = step(fixture({ config: (c) => (c.pipeline.split = 'auto'), job: { stage: 'plan', state: 'running', splitMode: 'never' } }));
+  assert.ok(spawn.action === 'spawn' && spawn.brief.split('\n').includes('Split mode: never'));
+  const fresh = step(fixture({ config: (c) => (c.pipeline.split = 'auto'), job: { stage: 'plan', state: 'running' } }));
+  assert.ok(fresh.action === 'spawn' && fresh.brief.split('\n').includes('Split mode: auto'));
+  assert.ok(read('skills/forge/SKILL.md').split('\n').some((l) => l.startsWith('| `issue <ref>`') && l.includes('forge job from-ref')));
   // The planner half: under never the plan stays one job and a split opinion is only advice.
   const planner = read('agents/planner.md');
   assert.ok(planner.includes('Split mode'));

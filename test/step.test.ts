@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { RULES, roundLenses, selectPanel, shellLine, step } from '../lib/step.ts';
+import { RULES, hasSpecDeltas, parsePlan, parseSpecHeader, roundLenses, selectPanel, shellLine, step } from '../lib/step.ts';
 import type { Job, StepAction, VerifyRun } from '../lib/types.ts';
 import { JOB_DIR, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
 import type { FixtureOpts } from './step-fixture.ts';
@@ -386,6 +386,19 @@ test('emitted commands are shell-safe', () => {
   assert.equal(shellLine(['job', 'set', 'j', '--reason', 'spec ready', '--field', 'reviewers=["code"]']), `forge job set j --reason 'spec ready' --field 'reviewers=["code"]'`);
   assert.equal(shellLine(['verify', 'j']), 'forge verify j');
   for (const bad of ["it's", 'a;b', '$(id)', '`x`', 'a\nb', 'a|b', 'a&b', '~/x', 'a>b']) assert.throws(() => shellLine(['job', 'note', bad]), /unsafe argument/, bad);
+});
+
+test('loadStepInput parsers read plan, spec header and design deltas', () => {
+  assert.deepEqual(parsePlan('PLAN: SPLIT\nSize: L\n\n## Jobs            (only for SPLIT)\n1. A — x. Depends on: -\n2. B — y. Depends on: #1\n\n## External\n- None\n'), { verdict: 'SPLIT', jobs: 2, recommendSplit: false });
+  assert.deepEqual(parsePlan('PLAN: SINGLE\n## External\n- Recommend splitting: (a) x (b) y\n'), { verdict: 'SINGLE', jobs: 0, recommendSplit: true });
+  assert.deepEqual(parsePlan('# no plan line\n'), { verdict: null, jobs: 0, recommendSplit: false });
+  const header = parseSpecHeader('# T\n\nSize: L\nServices: -\nNeeds design: yes\nSuggested reviewers: code, tests, UI , evil;rm\n\n## Goal\nSize: S\n');
+  assert.deepEqual(header, { size: 'L', needsDesign: true, services: [], suggested: ['code', 'tests', 'UI', 'evil;rm'] });
+  assert.deepEqual(parseSpecHeader('Services: api, web\n').services, ['api', 'web']);
+  assert.equal(hasSpecDeltas('## Spec deltas\n"None"\n## Open questions\nx\n'), false);
+  assert.equal(hasSpecDeltas('## Spec deltas\n- None.\n'), false);
+  assert.equal(hasSpecDeltas('## Spec deltas\n- AC3 needs an empty state\n'), true);
+  assert.equal(hasSpecDeltas('# Design\n'), false);
 });
 
 test('roundLenses and selectPanel are pure helpers', () => {

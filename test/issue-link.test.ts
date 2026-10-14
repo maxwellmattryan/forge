@@ -14,6 +14,9 @@ import { WAITING_ON as DASH_WAITING_ON } from '../dashboard/src/lib/types.ts';
 import { issueLinkStatus, prLinkNote, queryTerms } from '../lib/issue-link.ts';
 import { searchTracker } from '../lib/tracker-link.ts';
 import github, { inRepo } from '../lib/trackers/github.ts';
+import { gateTell, step } from '../lib/step.ts';
+import type { StepFile } from '../lib/types.ts';
+import { fixture } from './step-fixture.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 
@@ -406,15 +409,25 @@ test('pr open reports unlinked only when missing', () => {
   assert.equal(src.match(/created: (true|false), \.\.\.prLinkNote\(job, config\)/g)?.length, 2);
 });
 
-test('SKILL.md gates Intake on issue-link and routes the answers', () => {
-  const skill = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'skills', 'forge', 'SKILL.md'), 'utf8');
-  const intake = skill.slice(skill.indexOf('### 0. Intake'), skill.indexOf('### 1. Plan'));
-  assert.ok(intake.indexOf('forge job link <id> --suggest') < intake.indexOf('forge worktree create'), 'the gate runs before the worktree');
-  assert.ok(intake.includes('--waiting-on issue-link --reason "link an issue"'));
-  for (const answer of ['/forge approve <id> <ref>', '/forge approve <id> new', '/forge approve <id> none [reason]']) assert.ok(intake.includes(answer), answer);
-  const approve = skill.split('\n').find((l) => l.startsWith('| `approve <job>'))!;
-  for (const s of ['issue-link', 'args.link', 'forge job link <job> <ref>', '--create', "--none --reason '<rest of the note>'", '^#?[A-Za-z0-9][A-Za-z0-9._-]*$']) assert.ok(approve.includes(s), s);
-  const requests = skill.slice(skill.indexOf('## Requests'), skill.indexOf('## Self-improvement'));
+test('Intake gates on issue-link and the answers route through commands.md', () => {
+  // `forge job step` rows I1 and I2: the gate runs before the worktree exists.
+  const intake = (files: StepFile[] = []) => step(fixture({ config: (c) => (c.tracker.kind = 'local'), worktree: false, files, job: { stage: 'backlog', state: 'queued' } }));
+  const i1 = intake();
+  assert.equal(i1.rule, 'I1');
+  assert.ok(i1.action === 'run' && i1.shell === 'forge job link j --suggest');
+  const i2 = intake(['issueCandidates']);
+  assert.equal(i2.rule, 'I2');
+  assert.ok(i2.action === 'run' && i2.shell === "forge job set j --state waiting --waiting-on issue-link --reason 'link an issue'");
+  const tell = gateTell(fixture(), 'issue-link');
+  for (const answer of ['/forge approve j <ref> | new | none [reason]', '(untrusted)']) assert.ok(tell.includes(answer), answer);
+
+  const ref = path.resolve(import.meta.dirname, '..', 'skills', 'forge', 'reference');
+  const commands = fs.readFileSync(path.join(ref, 'commands.md'), 'utf8');
+  const approve = commands.slice(commands.indexOf('## `approve'), commands.indexOf('## `revise'));
+  for (const s of ['issue-link', 'args.link', 'forge job link <job> <ref>', '--create', "--none --reason '<rest of the note>'", '^#?[A-Za-z0-9][A-Za-z0-9._-]*$', '--stage backlog --state running']) assert.ok(approve.includes(s), s);
+  const requests = fs.readFileSync(path.join(ref, 'requests.md'), 'utf8');
   for (const s of ['`next` (args.n, default 1) → `next <n>`', '`args.intake: new`', 'Split mode: pipeline.split', 'using `args.link`']) assert.ok(requests.includes(s), s);
-  assert.ok(skill.includes('If its result has `unlinked: true`, report'));
+  // `unlinked` is reported, never acted on: step's pr-review tell carries it.
+  const waiting = step(fixture({ config: (c) => (c.tracker.kind = 'local'), job: { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', pr: { number: 1, url: 'https://github.com/o/r/pull/1', state: 'OPEN', isDraft: false, lastSyncedAt: 'now' } } }));
+  assert.ok(waiting.action === 'wait' && waiting.tell?.includes('j has no linked issue: `forge job link j <ref>` or `--none`'));
 });

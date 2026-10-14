@@ -179,7 +179,7 @@ export function hasSpecDeltas(text: string): boolean {
   const body: string[] = [];
   for (const l of lines.slice(start + 1)) {
     if (/^#{1,6}\s/.test(l)) break;
-    const t = l.replace(/^\s*[-*]\s*/, '').trim();
+    const t = l.replace(/^\s*[-*]\s*/, '').trim().replace(/^["'`*_]+|["'`*_]+$/g, '');
     if (t) body.push(t);
   }
   return body.length > 0 && !(body.length === 1 && /^(none|n\/a|-)\.?$/i.test(body[0]));
@@ -669,7 +669,7 @@ function build(x: StepInput): StepAction {
   if (lv && prev && !lv.ok && !prev.ok && lv.failure === 'integrity' && prev.failure === 'integrity' && b?.endedAt && after(b.endedAt, prev.at) && !after(b.endedAt, lv.at)) {
     return park(x, 'B3', 'escalation', 'integrity: verify failed twice on test integrity');
   }
-  if (!startedIn(b, j.round) || (lv && !lv.ok && after(lv.at, b?.endedAt)) || after(rework?.ts, b?.startedAt)) return spawn(x, 'B4', 'builder', { resume: true, answered: Boolean(x.files.questions && human(x, 'answer')) });
+  if (!startedIn(b, j.round) || (lv && !lv.ok && after(lv.at, b?.endedAt)) || after(rework?.ts, b?.startedAt)) return spawn(x, 'B4', 'builder', { resume: true });
   if (endedIn(b, j.round)) return toStage(x, 'B5', 'verify', 'the builder committed this round');
   return stuck(x);
 }

@@ -12,7 +12,7 @@ A change that spans services should usually be split by the planner into per-ser
 | `plan-only` | the above plus the read-only/plan commands listed in `infra.allowed` (e.g. `terraform plan`, `kubectl get`) | apply, deploy, delete, create credentials |
 | `agent` | the above plus the mutating commands listed in `infra.allowed` | anything not listed; every such job still escalates to a human |
 
-Include `infra.mode` and `infra.allowed` in builder and approver briefs. Never run a cloud CLI yourself on Forge's behalf.
+`forge job step` puts `infra.mode` and `infra.allowed` in the builder and approver briefs. Never run a cloud CLI yourself on Forge's behalf.
 
 ## Runbooks
 Whenever a human must act, the builder writes `runbook.md` in the job dir:
@@ -27,7 +27,7 @@ Requires: <access/roles the human needs>
 ## Rollback
 - <how to undo>
 ```
-**Before-merge** steps: after Decide, `--state waiting --waiting-on infra --reason "runbook: N steps before merge"`. Report the runbook path. The human runs `/forge continue <id>` (or presses "Steps done" in the dashboard) to resume at Integrate.
+**Before-merge** steps: after an `APPROVE`, step sees the runbook's `When: before merge` line and parks the job on `infra` (`--reason "runbook: steps before merge"`); its `tell` names the runbook path. The human runs `/forge continue <id>` or `/forge approve <id>` (or presses "Steps done" in the dashboard) to resume at Integrate.
 **After-merge** steps: proceed to the PR. The PR body (`pr.md`) links the runbook, and the final report repeats it.
 
 ## Work in other repos or teams

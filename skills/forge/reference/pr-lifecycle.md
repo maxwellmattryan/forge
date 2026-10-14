@@ -9,30 +9,32 @@ A job can outlive a session. A PR can stay open for days, collect review comment
 
 Then `forge job claim <id> --session ${CLAUDE_SESSION_ID}` and `forge worktree create <id>` (a no-op when it exists, and it tracks the remote branch when not local).
 
+A job waiting on `infra` needs no PR reading: the human's runbook steps are done, so `forge job human <id> approve --note "steps done"`, `forge job set <id> --stage integrate --state running`, and run the step loop.
+
 ## Read the situation
 ```bash
 forge pr sync <id>
 ```
-Act on the result, in this order:
+Act on the result, in this order. Each case either stops or sets the job's stage once and then runs the step loop (SKILL.md **Run a job**), which does the rest:
 1. `state: MERGED` → the job is done (sync already set it). Report, and run `forge sync` to clean up.
 2. `state: CLOSED` → ask the human whether to reopen, start a new PR, or cancel.
-3. `conflicts: true` or `behindBy > 0` → `forge integrate <id>` (open PRs default to a merge strategy, so no force-push is needed). Conflicts follow `pr.conflicts`: `ask` → `--state waiting --waiting-on conflicts` and report the files, offering "fix now" or "later" · `fix` → integrator agent, `forge verify <id>`, then the [integration review](#integration-review) below · `defer` → leave it and note it. After a successful integration with new commits, run `forge verify <id>`, then `forge pr open <id>` (which pushes and reuses the PR).
-4. `unresolvedThreads > 0`, `changesRequested > 0`, or a human note → a **rework round**: `forge job set <id> --stage build --state running`, builder inputs `pr-feedback.md` (written by sync, containing reviews, unresolved threads and conversation) plus `feedback.md` with the human's note.
-5. `checks.state: failing` → a rework round whose brief says CI fails. The builder inspects it with `gh pr checks <n>` / `gh run view <run-id> --log-failed` and fixes it.
+3. `conflicts: true` or `behindBy > 0` → `forge job set <id> --stage integrate --state running`. Step runs `forge integrate <id>` (open PRs default to a merge strategy, so no force-push is needed), applies `pr.conflicts` (`ask` waits on `conflicts`, `fix` spawns the integrator, re-verifies and runs the [integration review](#integration-review), `defer` notes it), re-verifies new commits, and runs `forge pr open <id>` (which pushes and reuses the PR).
+4. `unresolvedThreads > 0`, `changesRequested > 0`, or a human note → a **rework round**: `forge job human <id> rework --note "<the human's note, or: address the PR feedback>"`, write the note to `feedback.md`, then `forge job set <id> --stage build --state running`. Step starts a new round and gives the builder `pr-feedback.md` (written by sync, containing reviews, unresolved threads and conversation) plus `feedback.md`.
+5. `checks.state: failing` → a rework round as in 4, with `feedback.md` saying CI fails. The builder inspects it with `gh pr checks <n>` / `gh run view <run-id> --log-failed` and fixes it.
 6. Nothing to do → report "PR #n is green and waiting on review" and stop.
 
 ## After a rework round
-`forge verify <id>` → review according to `review.onPrFeedback`:
-- `changed` (default): only the lenses relevant to what changed this round (always `code`; `tests` if tests changed; UI lenses if UI changed; `security` if the feedback was security-related)
-- `full`: the whole panel
+Step verifies, then reviews according to `review.onPrFeedback`:
+- `changed` (default): the `always: true` lenses (step decides from recorded state, not the diff)
+- `full`: the whole recorded panel
 - `none`: skip straight to push
 
-Then `forge pr open <id>` (push + reuse), `--stage pr --state waiting --waiting-on pr-review`, `forge job release <id>`. Report what was addressed, one line per thread.
+Then it opens the PR again (push + reuse), parks the job on `pr-review` and releases the claim. Report what was addressed, one line per thread.
 
-`unlinked: true` in a `forge pr open` result is reported (SKILL.md step 10), never acted on: linking an issue is the human's call.
+`unlinked: true` in a `forge pr open` result is reported (step's `pr-review` tell carries it), never acted on: linking an issue is the human's call.
 
 ## Integration review
-Runs only when `forge integrate` returned conflicts **and** the integrator resolved them (`INTEGRATE: done`), after `forge verify <id>` passed and before `forge pr open`. Clean integrations and the `ask` / `defer` policies skip it.
+`forge job step` drives this review; the steps below are reference for humans reading a job's history. It runs only when `forge integrate` returned conflicts **and** the integrator resolved them (`INTEGRATE: done`), after `forge verify <id>` passed and before `forge pr open`. Clean integrations and the `ask` / `defer` policies skip it.
 
 1. Spawn one `forge:reviewer`, lens `code`, output `integrationReview` from `forge job paths <id>` (`review/integration/code.md`). The brief names the conflicted files from the `forge integrate` result and the diff to read, using the `Before:` / `Merge:` shas from the `## Integration` block in `build.md`:
    - merge: `forge git show --remerge-diff <merge sha>` (the resolution) plus `forge git diff <merge sha>..HEAD` (fallout fixes);
