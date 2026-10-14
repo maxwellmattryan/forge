@@ -1,0 +1,8 @@
+# Builder addendum (this repo)
+
+**Engine code treats its inputs as hostile.** Most security-lens send-backs here are the same few holes. Before you report done on anything in `lib/` that reads job state, repo files, git or `gh` output, or config:
+- **git and gh**: put `--` before revisions and paths, and validate values that come from `gh` or job state before they reach argv (a commit SHA matches `/^[0-9a-f]{40}$/`). When you parse git output, pin the config that reshapes it, as `lib/integrity.ts` does (`-c diff.interHunkContext=0 -c core.quotepath=off`, `--no-ext-diff --no-textconv`). Repo and worktree config, attributes and sparse checkout are all builder-writable.
+- **paths**: a path from job.json, config or the worktree may be a symlink or a FIFO. Resolve it, then open with `O_NOFOLLOW | O_NONBLOCK` as `lib/server.ts` does. Before any recursive delete, check that the resolved path sits under the root you expect (the worktrees root or the job dir).
+- **executables from config**: accept a bare name looked up on PATH or an absolute path outside the repo (`isClaudeExecutable` + `insideRepo` in `lib/config.ts`), never a relative path or a basename match.
+- **regexes over outside text**: no adjacent or nested unbounded quantifiers that can match the same characters (`(.*?)\s*#*\s*$`). Add a test with a 10k-character hostile line.
+Add one test per hole you close. Evidence: daemon-per-job-with-detailed-alva, daemon-supervisor-config-migration-and-roz1, 1-verify-reports-test-integrity-deleted, 17-measure-the-human-delta-after, 7-eval-worktrees-leak-the-solution, 4-wave2-ac-ui-proof-model-diversity. (added 2026-10-13)
