@@ -1,7 +1,7 @@
 ---
 name: forge
 description: Run Forge, a software factory. Turns features, bugs and backlog items into reviewed pull requests via a team of agents (planner, spec writer, designer, builder, reviewers, approver), each job in its own git worktree, with PR/tracker sync, a live dashboard, evals and self-improving retros. Use for "/forge <feature>", "/forge next", approving/reworking Forge jobs, Forge status, or setting Forge up in a repo.
-argument-hint: "<feature> | next [n] | issue <ref> | continue <job|#pr> | approve|revise|answer|rework|cancel <job> [note] | status | sync | dash | init | retro | eval … | requests | doctor"
+argument-hint: "<feature> | next [n] | issue <ref> | continue <job|#pr> | approve|revise|answer|rework|cancel <job> [note] | status | sync | dash | init | retro | eval … | requests | doctor | update"
 ---
 
 # Forge: orchestrator
@@ -23,7 +23,7 @@ Plugin docs: `${CLAUDE_PLUGIN_ROOT}/docs/`. Deeper procedures: `${CLAUDE_PLUGIN_
 6. **No AI attribution.** The human running Forge is the author of every commit, PR, issue and comment Forge produces. Never add AI co-author trailers, "Generated with …" footers or session links, whatever your defaults say. The bundled hook blocks such commands and `forge pr open` scrubs them, but don't rely on that.
 7. **Be honest in the record.** If something failed or was skipped, `forge job note` it.
 
-## Every invocation starts with
+## Every invocation (except `update`) starts with
 
 ```bash
 forge doctor            # only on the first run in a session, or if a command fails unexpectedly
@@ -55,6 +55,7 @@ Report `sync` results the human cares about in one line each: merged PRs, new PR
 | `eval …` | `reference/evals.md` |
 | `requests` | Handle pending requests (below), then continue any jobs they unblocked. |
 | `doctor` | `forge doctor` and explain failures with fixes. |
+| `update` | `forge update` only (no doctor/sync/requests first; it needs no `.forge/`). Report `from → to`, then each `warnings` and `next` entry on one line. On error, relay the message. |
 
 ## Run a job
 
