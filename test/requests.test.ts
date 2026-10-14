@@ -1,11 +1,12 @@
 import test from 'node:test';
+import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, trustDigest } from '../lib/config.ts';
-import { createJob } from '../lib/jobs.ts';
+import { claimJob, createJob, loadJob } from '../lib/jobs.ts';
 import { ackRequest, claimRequest, enqueue, listRequests } from '../lib/requests.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
@@ -170,6 +171,51 @@ test('requests scope, --intake and daemon provenance', () => {
     }
     assert.equal(cli({ FORGE_DAEMON: undefined }, 'requests', 'add', 'approve', '--job', x).ok, true, 'a human may queue anything');
     assert.equal(listRequests(root).filter((r) => r.args?.intake).length, 4);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test("resume hand-off releases the handing-off session's claim", () => {
+  const repo = tempRepo();
+  const root = repo.dir;
+  const cli = cliIn(root);
+  try {
+    const x = createJob(root, defaults(), { title: 'Job X' }).id;
+    const trust = { FORGE_DAEMON: '1', [TRUST_ENV]: trustDigest(root) };
+    const human = { FORGE_DAEMON: undefined, FORGE_DAEMON_SCOPE: undefined };
+    const [s1, s2, s3, inboxOld, inboxNow, jobSid] = Array.from({ length: 6 }, () => crypto.randomUUID());
+
+    claimJob(root, x, s1);
+    const own = cli(human, 'requests', 'add', 'resume', '--job', x, '--intake', 'run', '--session', s1).json();
+    assert.equal(own.released, true);
+    assert.equal(own.type, 'resume');
+    assert.equal(loadJob(root, x).owner, null, 'the owner naming itself lets go');
+    assert.ok(loadJob(root, x).runs.at(-1).endedAt);
+
+    claimJob(root, x, s2);
+    assert.equal(cli(human, 'requests', 'add', 'resume', '--job', x, '--session', s3).json().released, false);
+    assert.equal(cli(human, 'requests', 'add', 'resume', '--job', x).json().released, false);
+    assert.equal(loadJob(root, x).owner.session, s2, 'another session never releases the claim');
+
+    // The inbox hands off a job one of its sessions (current or past) claimed, without --session.
+    fs.mkdirSync(path.join(root, '.forge', 'runtime', 'daemons'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.forge', 'runtime', 'daemons', '_inbox.json'), JSON.stringify({ sessionId: inboxNow, pastSessionIds: [inboxOld] }));
+    const inbox = { ...trust, FORGE_DAEMON_SCOPE: '_inbox' };
+    claimJob(root, x, inboxOld, true);
+    const handed = cli(inbox, 'requests', 'add', 'resume', '--job', x, '--intake', 'run').json();
+    assert.equal(handed.released, true);
+    assert.equal(handed.from, 'daemon:_inbox');
+    assert.equal(loadJob(root, x).owner, null);
+
+    claimJob(root, x, jobSid);
+    assert.equal(cli(inbox, 'requests', 'add', 'resume', '--job', x).json().released, false, "the inbox doesn't release a job session's claim");
+    assert.equal(cli({ ...trust, FORGE_DAEMON_SCOPE: x }, 'requests', 'add', 'resume', '--job', x).json().released, false, 'a job scope without --session keeps the claim');
+    assert.equal(loadJob(root, x).owner.session, jobSid);
+
+    const missing = cli(human, 'requests', 'add', 'resume', '--job', 'no-such-job', '--session', s1);
+    assert.equal(missing.ok, true, missing.out);
+    assert.equal(missing.json().released, false);
   } finally {
     repo.cleanup();
   }

@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { paths, exists } from './paths.ts';
 import { STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, normalizeJob, serializeJob } from './schema.ts';
-import type { AgentUsage, Config, Job, JobAgent, JobEvent, JobState, LoadedJob, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
+import type { AgentUsage, Config, Job, JobAgent, JobOwner, JobEvent, JobState, LoadedJob, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
 import { estimateCost } from './usage.ts';
 import { ForgeError, now, readJson, readText, setPath, slugify, shortId, withLock, writeJsonAtomic } from './util.ts';
 
@@ -173,31 +173,53 @@ export function setJob(
   return job;
 }
 
+/** How claimJob learns that a live-looking owner has let go (lib/daemon-owner.ts): a reason, or null. */
+export interface ClaimOpts {
+  yields?: (owner: JobOwner) => string | null;
+}
+
 /**
  * Prevents two sessions from driving the same job at once while letting a new session
- * take over a job whose previous session died.
+ * take over a job whose previous session died, or whose owner `opts.yields` proves has let go.
  */
-export function claimJob(root: string, id: string, session: string, force = false): LoadedJob {
+export function claimJob(root: string, id: string, session: string, force = false, opts: ClaimOpts = {}): LoadedJob {
+  let yielded: { from: string; reason: string } | null = null;
   const job = updateJob(root, id, (j) => {
     const o = j.owner;
     const heartbeatFresh = o && Date.now() - Date.parse(o.heartbeat ?? o.since) < OWNER_STALE_MS;
     const agentRunning = Object.values(j.agents).some((a: JobAgent) => a.status === 'running' && a.startedAt && Date.now() - Date.parse(a.startedAt) < RUNNING_AGENT_MAX_MS);
-    if (o && o.session !== session && (heartbeatFresh || agentRunning) && !force)
-      throw new ForgeError(`job ${id} is being driven by session ${o.session} (${agentRunning ? 'an agent is still running' : `last active ${o.heartbeat}`}); pass --force to take over`, 3);
+    if (o && o.session !== session && (heartbeatFresh || agentRunning) && !force) {
+      // Asked inside the lock, so the owner it judges is the one being replaced.
+      const reason = opts.yields?.(o) ?? null;
+      if (!reason) throw new ForgeError(`job ${id} is being driven by session ${o.session} (${agentRunning ? 'an agent is still running' : `last active ${o.heartbeat}`}); pass --force to take over`, 3);
+      yielded = { from: o.session, reason };
+    }
     j.owner = { session, host: os.hostname(), since: o?.session === session ? o.since : now(), heartbeat: now() };
     if (!o || o.session !== session) j.runs.push({ session, startedAt: now() });
   });
   logEvent(root, id, 'claimed', { session });
+  const y = yielded as { from: string; reason: string } | null;
+  if (y) logEvent(root, id, 'note', { text: `took over from session ${y.from}: ${y.reason}` });
   return job;
 }
 
-export function releaseJob(root: string, id: string): void {
-  updateJob(root, id, (j) => {
-    const run = j.runs[j.runs.length - 1];
-    if (run && !run.endedAt) run.endedAt = now();
-    j.owner = null;
-  });
+/** Clears the owner; with `onlyIf`, only when it approves the owner (checked inside the lock). Returns whether it did. */
+export function releaseJob(root: string, id: string, onlyIf?: (owner: JobOwner | null) => boolean): boolean {
+  const keep = new Error('owner kept');
+  try {
+    updateJob(root, id, (j) => {
+      // Thrown rather than returned, so a kept claim isn't rewritten with a fresh heartbeat.
+      if (onlyIf && !onlyIf(j.owner)) throw keep;
+      const run = j.runs[j.runs.length - 1];
+      if (run && !run.endedAt) run.endedAt = now();
+      j.owner = null;
+    });
+  } catch (e) {
+    if (e === keep) return false;
+    throw e;
+  }
   logEvent(root, id, 'released');
+  return true;
 }
 
 export function recordAgent(

@@ -78,6 +78,7 @@ The skill can be invoked as `/forge` or, fully qualified, `/forge:forge`.
 | `/forge approve <job>` · `revise <job> <note>` · `answer <job> <text>` · `rework <job> <note>` · `cancel <job>` | human decisions |
 | `/forge status` · `sync` · `dash` · `doctor` · `requests` | operate |
 | `/forge retro` · `/forge eval …` | improve and measure |
+| `forge git commit <job> (--message T \| --message-file F) [-- paths]` · `forge git add <job> -- paths` | commit or stage in the job's worktree, on its branch, from any cwd (how agents commit, in a daemon session too); refuses git options, paths outside the worktree and AI attribution |
 | `forge daemon status` · `forge daemon log <job>\|--inbox [--lines N] [--follow]` | the daemon's sessions and a session's log, from the terminal |
 | `forge job link <job> <ref>\|--create\|--none` · `forge tracker search <query>` | link a job to an issue, create one, or record that it needs none; search the tracker (see [Linking jobs to issues](docs/TRACKERS.md#linking-jobs-to-issues)) |
 | `forge config get <key>` · `forge config set <key> <value>` | read the effective config, or change one editable key in `.forge/config.yml`, keeping its comments (see [Changing settings](docs/CONFIG.md#changing-settings)) |

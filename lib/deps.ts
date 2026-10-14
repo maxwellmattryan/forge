@@ -3,6 +3,7 @@
 // and pr.ts imports worktree.ts, so anything more would be a cycle.
 import path from 'node:path';
 import { claimJob, isActive, jobDir, listJobs, loadJob, logEvent, setJob } from './jobs.ts';
+import type { ClaimOpts } from './jobs.ts';
 import { exists } from './paths.ts';
 import type { Config, Job, LoadedJob } from './types.ts';
 import { ForgeError, run } from './util.ts';
@@ -103,13 +104,13 @@ export function refreshDependencyWait(root: string, id: string): { unmet: UnmetD
  * The dependency check runs before the ownership check, so a blocked job reports that first.
  * `force` overrides both.
  */
-export function claimRespectingDeps(root: string, id: string, session: string, force: boolean): { job: LoadedJob; overridden: string[] } {
+export function claimRespectingDeps(root: string, id: string, session: string, force: boolean, opts: ClaimOpts = {}): { job: LoadedJob; overridden: string[] } {
   const unmet = unmetDependencies(root, loadJob(root, id));
   if (unmet.length && !force) {
     refreshDependencyWait(root, id);
     throw new ForgeError(`job ${id} waits on dependencies not done: ${describe(unmet)}; pass --force to claim anyway`, 4);
   }
-  const claimed = claimJob(root, id, session, force);
+  const claimed = claimJob(root, id, session, force, opts);
   if (unmet.length) {
     const ids = unmet.map((u) => u.id);
     logEvent(root, id, 'dependencies-overridden', { unmet: ids });

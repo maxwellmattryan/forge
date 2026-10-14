@@ -257,6 +257,21 @@ function appendLine(file: string, line: unknown): void {
 }
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** How many replaced session ids a record remembers, so a job claimed by an old incarnation can be handed on. */
+export const MAX_PAST_SESSION_IDS = 20;
+
+/**
+ * The record after its session id becomes `next`: the old id (a uuid only, since the record is a
+ * local file anyone with repo access can edit) joins `pastSessionIds`, deduped and capped. A record
+ * runs one child at a time, so a past id names a session that has exited (lib/daemon-owner.ts).
+ */
+export function withSessionId(info: any, next: string): any {
+  const kept = [...(Array.isArray(info.pastSessionIds) ? info.pastSessionIds : []), info.sessionId].filter((s: unknown): s is string => typeof s === 'string' && UUID.test(s) && s !== next);
+  // Deduped keeping each id's latest position, so the cap drops the oldest.
+  const past = kept.filter((s, i) => kept.lastIndexOf(s) === i);
+  return { ...info, sessionId: next, pastSessionIds: past.slice(-MAX_PAST_SESSION_IDS) };
+}
+
 /** How far the process's start time may be from the recorded `startedAt` (ps reports whole seconds). */
 const START_SLACK_MS = 30_000;
 
@@ -605,7 +620,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     rotate();
     // The record is a local file anyone with repo access can edit; only a uuid may follow --resume.
     const resume = Boolean(info.resumable && typeof info.sessionId === 'string' && UUID.test(info.sessionId));
-    if (!resume) info = { ...info, sessionId: crypto.randomUUID(), resumable: false };
+    if (!resume) info = { ...withSessionId(info, crypto.randomUUID()), resumable: false };
     let argv;
     try {
       argv = buildArgv(c.daemon.command, { pluginRoot: PLUGIN_ROOT, session: { id: info.sessionId, resume }, allowedTools: c.daemon.allowedTools });
@@ -691,7 +706,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       // It becomes the value after --resume on the next spawn, so it must be a uuid, never a flag.
       if (!UUID.test(ev.session_id)) return void logEvent('error', { message: `ignored a non-uuid session_id: ${JSON.stringify(ev.session_id.slice(0, 80))}` });
       const from = info.sessionId;
-      info = { ...info, sessionId: ev.session_id };
+      info = withSessionId(info, ev.session_id);
       persist();
       logEvent('session-changed', { from, to: ev.session_id });
       changed();
@@ -749,7 +764,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       for (const id of meta.committed) committed.delete(id);
       if (lastError?.startsWith('last turn failed')) lastError = null;
       logEvent('resume-failed', { sessionId: info.sessionId, code });
-      info = { ...info, sessionId: crypto.randomUUID(), resumable: false };
+      info = { ...withSessionId(info, crypto.randomUUID()), resumable: false };
       persist();
       changed();
       // Its own slot was just freed, so the respawn needs no new one.

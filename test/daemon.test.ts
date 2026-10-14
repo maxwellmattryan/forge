@@ -344,6 +344,64 @@ test('AC9: session id persists and restarts resume with --plugin-dir', async () 
   }
 });
 
+test('records past session ids', async () => {
+  const repo = tempRepo();
+  const record = path.join(daemonsDir(repo.dir), `${INBOX}.json`);
+  const info = () => infoOf(repo.dir);
+  const kit = fakeKit();
+  const make = () => kitPool(repo.dir, kit);
+  try {
+    fs.mkdirSync(daemonsDir(repo.dir), { recursive: true });
+    // A fresh spawn (nothing to resume) replaces the id.
+    const a = crypto.randomUUID();
+    fs.writeFileSync(record, JSON.stringify({ sessionId: a, resumable: false }));
+    const d1 = make();
+    d1.start();
+    const b = kit.last(INBOX).args[1];
+    assert.deepEqual(info().pastSessionIds, [a]);
+    assert.equal('pastSessionIds' in d1.state().inbox, false, '/api session state leaves it out');
+    // So does an init that reports a different id.
+    const c = crypto.randomUUID();
+    kit.last(INBOX).line({ type: 'system', subtype: 'init', session_id: c });
+    await waitFor(() => info().sessionId === c, 2000, 'session change');
+    assert.deepEqual(info().pastSessionIds, [a, b]);
+    await d1.close();
+
+    // And a resume whose transcript is gone.
+    const d2 = make();
+    d2.start();
+    const resumed = kit.last(INBOX);
+    assert.deepEqual(resumed.args.slice(0, 2), ['--resume', c]);
+    const before = kit.of(INBOX).length;
+    resumed.exit(1, null);
+    await waitFor(() => kit.of(INBOX).length === before + 1, 2000, 'the fresh respawn');
+    assert.ok(info().pastSessionIds.includes(c), 'the id whose resume failed is past');
+    assert.equal(info().sessionId, kit.last(INBOX).args[1]);
+    assert.equal(info().pastSessionIds.includes(info().sessionId), false);
+    await d2.close();
+
+    // Capped at the last 20, uuids only, deduped.
+    const many = Array.from({ length: 25 }, () => crypto.randomUUID());
+    const cur = crypto.randomUUID();
+    fs.writeFileSync(record, JSON.stringify({ sessionId: cur, resumable: false, pastSessionIds: ['--resume', 42, ...many, many[24]] }));
+    const d3 = make();
+    d3.start();
+    const past = info().pastSessionIds;
+    assert.equal(past.length, 20);
+    assert.ok(past.every((s) => /^[0-9a-f-]{36}$/.test(s)));
+    assert.deepEqual(past, [...many.slice(6), cur]);
+    await d3.close();
+    // A planted non-uuid id is never recorded as past.
+    fs.writeFileSync(record, JSON.stringify({ sessionId: '--plugin-dir=./x', resumable: false, pastSessionIds: [] }));
+    const d4 = make();
+    d4.start();
+    assert.deepEqual(info().pastSessionIds, []);
+    await d4.close();
+  } finally {
+    repo.cleanup();
+  }
+});
+
 /** Real fake-claude processes: their pids are read back from the fixture's log and killed in `finally`. */
 function fixtureRun(repo, extraEnv = {}) {
   const logFile = path.join(repo.dir, 'fake-claude.jsonl');

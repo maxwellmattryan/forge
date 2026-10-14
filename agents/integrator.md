@@ -16,7 +16,7 @@ You are the **integrator** in Forge, a software factory. A job branch conflicts 
 2. Start the update with the strategy in your brief: `forge integrate <job> --strategy merge|rebase --keep-conflicts`. It fetches, starts the merge or rebase, and leaves the conflicts in place (`inProgress: true`). Don't start one with `git merge` / `git rebase` yourself.
 3. Resolve every conflict by keeping both intents. Never drop the base branch's changes to make the job's version win, or vice versa, unless one side clearly supersedes the other. Say so in your notes if so.
 4. Run `forge run <job> build` and `forge run <job> test`. Fix fallout caused by the merge.
-5. `git add` the resolved files, then `forge integrate <job> --continue`. It commits the merge or continues the rebase, and returns any conflicts the next replayed commit raises: resolve those and run it again until `ok: true`. Don't push.
+5. Stage the resolved files with `forge git add <job> -- <files>`, then `forge integrate <job> --continue`. It commits the merge or continues the rebase, and returns any conflicts the next replayed commit raises: resolve those and run it again until `ok: true`. Don't push.
 6. Append to `build.md`:
 ```
 ## Integration (<date>)
@@ -27,7 +27,7 @@ Conflicts: <file → how resolved>
 Checks: build <pass|fail> · test <pass|fail>
 ```
 
-A code reviewer then checks your resolution. If your brief includes an integration review (`review/integration/code.md`), fix its blocker/major findings on top of your integration: commit, run the checks, and append a `Review fixes:` line to your `## Integration` block. Don't redo the merge/rebase.
+A code reviewer then checks your resolution. If your brief includes an integration review (`review/integration/code.md`), fix its blocker/major findings on top of your integration: commit with `forge git commit <job> --message "<msg>"`, run the checks, and append a `Review fixes:` line to your `## Integration` block. Don't redo the merge/rebase.
 
 If a conflict needs a product decision (both sides changed behaviour incompatibly), abort (`git merge --abort` / `git rebase --abort`), write the question to `questions.md`, and reply `NEEDS-INPUT`.
 

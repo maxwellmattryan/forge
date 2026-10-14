@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
-import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
+import { daemonProblems, defaults, loadConfig, validateConfig } from '../lib/config.ts';
 import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 import { migrate } from '../lib/commands/init.ts';
 import * as yaml from '../lib/yaml.ts';
@@ -20,11 +20,7 @@ const DEFAULT_TOOLS = [
   'Edit',
   'Write',
   'Bash(forge:*)',
-  'Bash(git status:*)',
   'Bash(git rev-parse:*)',
-  'Bash(git add:*)',
-  'Bash(git rm:*)',
-  'Bash(git commit:*)',
   'Bash(git merge --abort:*)',
   'Bash(git rebase --abort:*)',
   'Bash(gh pr view:*)',
@@ -148,6 +144,14 @@ test('daemon.allowedTools refuses blanket git/gh, unscoped Bash and file-writing
   assert.equal(problems(['Bash(git:*)', 'Bash(gh:*)']).length, 1, 'one problem lists every broad entry');
   for (const t of ['Bash(git rebase --skip:*)', 'Bash(git rebase --continue:*)', 'Bash(git merge --continue:*)', 'Bash(git diffstat:*)', 'Bash(git blame:*)', 'Bash(gh issue view:*)', 'Bash(npm test:*)', 'Bash(github-tool:*)', 'Bash(gitk:*)', 'mcp__x__y'])
     assert.deepEqual(problems([t]), [], `${t} is allowed`);
+});
+
+test('legacy git entries still validate', () => {
+  const legacy = ['Bash(git status:*)', 'Bash(git add:*)', 'Bash(git rm:*)', 'Bash(git commit:*)'];
+  for (const t of legacy) assert.equal(defaults().daemon.allowedTools.includes(t), false, `${t} is not a default: commits go through forge git commit`);
+  const c = defaults();
+  c.daemon.allowedTools = [...c.daemon.allowedTools, ...legacy];
+  assert.deepEqual(daemonProblems(c, process.cwd()), [], 'a config that still lists them passes');
 });
 
 test('daemon.command refuses permission-widening flags', () => {

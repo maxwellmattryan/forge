@@ -4,6 +4,7 @@
 // Command groups live in lib/commands/; this file only routes.
 import path from 'node:path';
 import { daemonTrust, loadConfig } from './config.ts';
+import { refuseInboxDrive } from './daemon-owner.ts';
 import { NEED_INIT } from './config-set.ts';
 import { detect } from './detect.ts';
 import { doctor } from './doctor.ts';
@@ -21,7 +22,7 @@ import { configCmd } from './commands/config.ts';
 import { daemonCmd } from './commands/daemon.ts';
 import { dash } from './commands/dash.ts';
 import { evalCmd } from './commands/eval.ts';
-import { gitRead } from './commands/git.ts';
+import { gitRead, gitWrite } from './commands/git.ts';
 import { initWrite, migrate } from './commands/init.ts';
 import { jobCmd } from './commands/job.ts';
 import { requestsCmd } from './commands/requests.ts';
@@ -39,6 +40,8 @@ Usage: forge <command> [options]   (state, worktrees, PRs, trackers, evals, dash
   forge run <id> <command> [--background]   forge stop <id>   forge verify <id>
   forge integrate <id> [--strategy merge|rebase] [--keep-conflicts | --continue]
   forge git diff|log|show|range-diff [git args]   read-only git for agents (no --output)
+  forge git add <id> -- <path>...    stage paths in the job's worktree
+  forge git commit <id> (--message T | --message-file F) [-- <path>...]   commit in the job's worktree, on its branch
   forge pr find|open|sync|merge <id> [--now]   forge sync          reconcile PRs + trackers for all jobs
   forge tracker list|get|search|claim|update|comment|create|close
   forge stats [--since DATE] [--json]  forge roster   forge retro due|prepare <job>
@@ -51,8 +54,9 @@ Usage: forge <command> [options]   (state, worktrees, PRs, trackers, evals, dash
 Docs: ${path.join(PLUGIN_ROOT, 'docs')}`;
 
 export async function main(argv: string[]): Promise<void> {
-  // git's own options pass through untouched, so this runs before Forge's flag parsing.
-  if (argv[0] === 'git') {
+  // git's own options pass through untouched, so this runs before Forge's flag parsing. The writing
+  // subcommands go through the daemon trust check and config below like any other command.
+  if (argv[0] === 'git' && argv[1] !== 'add' && argv[1] !== 'commit') {
     process.exitCode = gitRead(argv.slice(1));
     return;
   }
@@ -100,7 +104,11 @@ export async function main(argv: string[]): Promise<void> {
       return out(await jobCmd(root, config, sub, rest, flags), flags);
     case 'worktree': {
       needInit();
-      if (sub === 'create') return out(wt.createWorktree(root, config, req(rest[0], 'job id')), flags);
+      if (sub === 'create') {
+        const id = req(rest[0], 'job id');
+        refuseInboxDrive(id);
+        return out(wt.createWorktree(root, config, id), flags);
+      }
       if (sub === 'remove') return out(wt.removeWorktree(root, req(rest[0], 'job id'), { deleteBranch: Boolean(flags['delete-branch']), force: Boolean(flags.force) }), flags);
       if (sub === 'path') return out(loadJob(root, req(rest[0], 'job id')).worktree ?? '', flags);
       if (sub === 'prune') return out(run('git', ['worktree', 'prune', '-v'], { cwd: root }).stderr.trim() || 'nothing to prune', flags);
@@ -182,6 +190,9 @@ export async function main(argv: string[]): Promise<void> {
     }
     case 'dash':
       return dash(root, config, flags);
+    case 'git':
+      needInit();
+      return out(gitWrite(root, config, argv.slice(1)), flags);
     default:
       throw new ForgeError(`unknown command "${cmd}"\n\n${HELP()}`);
   }
