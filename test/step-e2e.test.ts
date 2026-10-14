@@ -139,6 +139,33 @@ test('a job runs to done on step alone', () => {
   }
 });
 
+test('a UI lens starts the dev server once and stops it once', () => {
+  const s = scratch({
+    pipeline: { specApproval: 'never' },
+    commands: { build: 'true', lint: 'true', test: 'test -f hello.sh', dev: 'sleep 30' },
+    review: { panel: [{ name: 'code', always: true }, { name: 'tests', always: true }, { name: 'ui', when: 'hello.sh' }] },
+  });
+  let id = '';
+  try {
+    id = s.f('job', 'new', '--title', 'Add a hello script', '--body', 'Add hello.sh that prints hi.').id;
+    const steps = { n: 0 };
+    const last = drive(s, id, steps);
+    assert.equal(last.action, 'done', JSON.stringify(last));
+    const job = loadJob(s.root, id);
+    assert.deepEqual(job.reviewers, ['code', 'tests', 'ui']);
+    assert.equal(job.agents['reviewer:ui']?.status, 'done');
+    const events = readEvents(s.root, id);
+    assert.equal(events.filter((e) => e.type === 'background-start').length, 1, 'started once');
+    assert.equal(events.filter((e) => e.type === 'background-stop').length, 1, 'stopped once');
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(jobDir(s.root, id), 'runtime.json'), 'utf8')), {});
+    assert.ok(steps.n < 60, `${steps.n} steps`);
+  } finally {
+    // A failed run must not leave the dev server behind.
+    if (id) s.raw('stop', id);
+    s.cleanup();
+  }
+});
+
 test('spec gate pauses and resumes', () => {
   const s = scratch({ pipeline: { specApproval: 'always' } });
   try {

@@ -290,12 +290,27 @@ export function resolveAgentOutput(root: string, id: string, value: string): str
   const dir = jobDir(root, id);
   const abs = path.resolve(dir, value);
   const realDir = fs.realpathSync(dir);
+  const refuse = () => new ForgeError(`--output must be inside the job dir ${dir}, got "${value}"`);
   // The nearest existing ancestor decides where the path really goes; the rest is created later.
+  // lstat, so a dangling symlink counts as existing and is resolved (and refused), never skipped.
+  const present = (p: string) => {
+    try {
+      fs.lstatSync(p);
+      return true;
+    } catch {
+      return false;
+    }
+  };
   let existing = abs;
-  while (!fs.existsSync(existing) && path.dirname(existing) !== existing) existing = path.dirname(existing);
-  const real = path.join(fs.realpathSync(existing), path.relative(existing, abs));
-  const rel = path.relative(realDir, real);
-  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) throw new ForgeError(`--output must be inside the job dir ${dir}, got "${value}"`);
+  while (!present(existing) && path.dirname(existing) !== existing) existing = path.dirname(existing);
+  let resolved: string;
+  try {
+    resolved = fs.realpathSync(existing);
+  } catch {
+    throw refuse();
+  }
+  const rel = path.relative(realDir, path.join(resolved, path.relative(existing, abs)));
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) throw refuse();
   return rel;
 }
 

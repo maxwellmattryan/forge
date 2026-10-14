@@ -10,7 +10,7 @@ You are the **orchestrator**. `forge job step` decides every move, you carry it 
 
 Arguments: `$ARGUMENTS`
 Session id (use for every `--session`): `${CLAUDE_SESSION_ID}`
-CLI: run `forge …` (the plugin puts it on PATH). If that fails, use `node "${CLAUDE_PLUGIN_ROOT}/bin/forge" …`.
+CLI: run `forge …` (on PATH). If that fails, use `node "${CLAUDE_PLUGIN_ROOT}/bin/forge" …`.
 Procedures: `${CLAUDE_PLUGIN_ROOT}/skills/forge/reference/`. Docs: `${CLAUDE_PLUGIN_ROOT}/docs/`.
 
 ## Ground rules
@@ -24,7 +24,7 @@ Procedures: `${CLAUDE_PLUGIN_ROOT}/skills/forge/reference/`. Docs: `${CLAUDE_PLU
 ## Every invocation (except `update`) starts with
 ```bash
 forge doctor     # only on the first run in a session, or after an unexpected failure
-forge sync       # PRs (merged/closed/conflicts/feedback) and trackers; cleans merged worktrees
+forge sync       # PRs and trackers; cleans merged worktrees
 forge requests   # dashboard/inbox requests: reference/requests.md, before new work
 ```
 No `.forge/config.yml` (exit 2) → **init** (`reference/init.md`) unless the user asked for something else.
@@ -49,7 +49,7 @@ Report `sync` results in one line each: merged PRs, new PR feedback, new conflic
 Claim it: `forge job claim <id> --session ${CLAUDE_SESSION_ID}`. Exit 3: another live session owns it, so tell the human and stop. Exit 4: it waits on unfinished dependencies; report that line and move on. Pass `--force` only when the human asks to stack it on an unmerged dependency.
 
 Then loop: `forge job step <id>`, act on its `action`, step again.
-- `spawn`: run `startShell`. Spawn `agent` as `subagent_type` with `model`, and `brief` as the prompt (when `resume` names an agent still alive in this session, SendMessage it the brief instead). When it completes: `forge job agent <id> end --role <role> --agent-id <agentId> --import --tokens <total_tokens> --tool-uses <tool_uses> --duration-ms <duration_ms> --summary "<first line of its reply>"`. With `parallel: true`, spawn it in the background and step again without waiting.
+- `spawn`: run `startShell`. Spawn `agent` as `subagent_type` with `model` (omit it when `inherit`), and `brief` as the prompt (when `resume` names an agent still alive in this session, SendMessage it the brief instead). When it completes: `forge job agent <id> end --role <role> --agent-id <agentId> --import --tokens <total_tokens> --tool-uses <tool_uses> --duration-ms <duration_ms> --summary "<first line of its reply>"`. With `parallel: true`, spawn it in the background and step again without waiting.
 - `run`: run `shell` as one plain command. On a non-zero exit, step again; if it returns the same action, `forge job note` the failure, report it, and stop driving this job.
 - `wait` on `agents`: wait for completion notifications and record each with `agent end`. For an agent this session did not spawn (after a restart): `forge job agent <id> end --role <role> --status lost`.
 - `wait` on a gate: report `tell` (for `input`, also the questions in `questions.md`) and stop driving this job.

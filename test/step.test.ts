@@ -254,6 +254,9 @@ const rows: Row[] = [
   { name: 'RV5 malformed twice counts as CHANGES', fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false, retry: true }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped, verdicts: { round: verdicts({ code: 'MALFORMED', tests: 'PASS' }) } }, want: run('job', 'verdicts', 'j', '--compact', '--malformed', 'changes') },
   { name: 'RV6 records the verdicts', fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped, verdicts: { round: verdicts({ code: 'PASS', tests: 'CHANGES' }) } }, want: run('job', 'verdicts', 'j', '--compact') },
   { name: 'RV7 stops the dev server once verdicts are in', fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } } }), events: scoped, runtime: ['dev'] }, want: run('stop', 'j') },
+  { name: 'RV7 stops a UI review\'s dev server', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:ui': ag(1, 12, 13) }, { reviewers: ['ui'], verdicts: { 1: { ui: 'PASS' } } }), events: scoped, runtime: ['dev'] }, want: run('stop', 'j') },
+  { name: 'RV8 a UI lens with the dev server stopped moves on, never restarting it', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:code': ag(1, 12, 13), 'reviewer:ui': ag(1, 12, 13) }, { reviewers: ['code', 'ui'], verdicts: { 1: { code: 'PASS', ui: 'PASS' } } }), events: scoped, runtime: [] }, want: run('job', 'set', 'j', '--stage', 'decide', '--state', 'running') },
+  { name: 'RV3 a UI retry before the verdicts gets the app again', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false }), 'reviewer:ui': ag(1, 12, 13, { outputMissing: true }) }, { reviewers: ['code', 'ui'] }), events: scoped, runtime: [] }, want: run('run', 'j', 'dev', '--background') },
   { name: 'RV8 every lens passed: decide', fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } } }), events: scoped }, want: run('job', 'set', 'j', '--stage', 'decide', '--state', 'running') },
   { name: 'RV8 a lens asked for changes: build', fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'CHANGES' } } }), events: scoped }, want: run('job', 'set', 'j', '--stage', 'build', '--state', 'running') },
   { name: 'RV8 a PR rework that passed goes to pr', fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } }, pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }), events: scoped }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running') },
@@ -292,6 +295,7 @@ const rows: Row[] = [
 
   // ---- Integrate
   { name: 'IG1 integrates the base', fx: { job: atIntegrate(), events: [entered] }, want: run('integrate', 'j') },
+  { name: 'IG1 without an entry transition anchors on the decision, ignoring an older integration', fx: { job: atIntegrate(), events: [ev('integrated', 5, { behind: 0 }), ev('decision', 22)] }, want: run('integrate', 'j') },
   { name: 'IG2 re-verifies new commits', fx: { job: atIntegrate(), events: [entered, ev('integrated', 31, { behind: 2, strategy: 'rebase' })] }, want: run('verify', 'j') },
   { name: 'IG2 a failing verify after integrating goes to build', fx: { job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 32, false)] }), events: [entered, ev('integrated', 31, { behind: 2 })] }, want: run('job', 'set', 'j', '--stage', 'build', '--state', 'running') },
   { name: 'IG3 up to date: pr', fx: { job: atIntegrate(), events: [entered, ev('integrated', 31, { behind: 0 })] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running') },
@@ -386,6 +390,32 @@ test('emitted commands are shell-safe', () => {
   assert.equal(shellLine(['job', 'set', 'j', '--reason', 'spec ready', '--field', 'reviewers=["code"]']), `forge job set j --reason 'spec ready' --field 'reviewers=["code"]'`);
   assert.equal(shellLine(['verify', 'j']), 'forge verify j');
   for (const bad of ["it's", 'a;b', '$(id)', '`x`', 'a\nb', 'a|b', 'a&b', '~/x', 'a>b']) assert.throws(() => shellLine(['job', 'note', bad]), /unsafe argument/, bad);
+});
+
+test('a UI review starts the dev server once and stops it once', () => {
+  // Plays runtime.json and the recorded verdicts through each action until step leaves the stage:
+  // RV3 and RV7 must not alternate once the verdicts are in.
+  const runtime: string[] = [];
+  const reviewers = { 'reviewer:code': ag(1, 12, 13, { outputMissing: false }), 'reviewer:ui': ag(1, 12, 13, { outputMissing: false }) };
+  const seen: string[] = [];
+  let recorded = false;
+  for (let i = 0; i < 10; i++) {
+    const a = step(
+      fixture({
+        config: (c) => (c.commands.dev = 'npm run dev'),
+        job: inReview(reviewers, { reviewers: ['code', 'ui'], ...(recorded ? { verdicts: { 1: { code: 'PASS', ui: 'PASS' } } } : {}) }),
+        events: scoped,
+        runtime: [...runtime],
+        verdicts: { round: verdicts({ code: 'PASS', ui: 'PASS' }) },
+      }),
+    );
+    seen.push(a.rule);
+    if (a.rule === 'RV3') runtime.push('dev');
+    else if (a.rule === 'RV6') recorded = true;
+    else if (a.rule === 'RV7') runtime.length = 0;
+    else break;
+  }
+  assert.deepEqual(seen, ['RV3', 'RV6', 'RV7', 'RV8']);
 });
 
 test('loadStepInput parsers read plan, spec header and design deltas', () => {

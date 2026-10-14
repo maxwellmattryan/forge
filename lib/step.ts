@@ -694,7 +694,10 @@ function review(x: StepInput): StepAction {
   if (!lenses.length) return toStage(x, 'RV1', 'pr', 'no lens reviews this round');
   const lv = lastVerify(x);
   if (!x.events.some((e) => e.type === 'scope' && e.round === j.round && after(e.ts, lv?.at))) return run(x, 'RV2', ['job', 'scope', j.id], 'reviewers read the scope report');
-  if (lenses.some((l) => UI_LENSES.includes(l)) && x.config.commands.dev && !x.runtime.includes('dev')) return run(x, 'RV3', ['run', j.id, 'dev', '--background'], 'UI lenses review the running app');
+  // Only until the round's verdicts are recorded: after that RV7 stops the server, and starting it
+  // again here would alternate with that stop forever. Retries before then still get the app.
+  const recordedVerdicts = Boolean(j.verdicts[String(j.round)]);
+  if (!recordedVerdicts && lenses.some((l) => UI_LENSES.includes(l)) && x.config.commands.dev && !x.runtime.includes('dev')) return run(x, 'RV3', ['run', j.id, 'dev', '--background'], 'UI lenses review the running app');
   const next = nextLens(x);
   if (next) return spawn(x, 'RV4', `reviewer:${next}`);
   for (const l of lenses) {
@@ -733,6 +736,7 @@ function decideStage(x: StepInput): StepAction {
   if (j.kind === 'eval') {
     const judge = agent(x, 'judge');
     const needsJudge = Boolean(x.evalTask && (x.evalTask.rubric || x.evalTask.reference));
+    // No M1/M2 for the judge: a missing eval-judge.md grades as `judge: null`, which is the honest result.
     if (needsJudge && !(ended(judge) && after(judge.endedAt, ap.endedAt))) return spawn(x, 'DC4', 'judge');
     if (!lastEvent(x, (e) => e.type === 'eval-graded')) return run(x, 'DC5', ['eval', 'grade', j.id], 'grade the eval task');
     return toStage(x, 'DC6', 'done', 'the eval task is graded');
@@ -745,7 +749,9 @@ function decideStage(x: StepInput): StepAction {
 
 function integrate(x: StepInput): StepAction {
   const j = x.job;
-  const since = stageSince(x);
+  // A job set to integrate before transitions were logged has no entry event; anchor on the
+  // decision that sent it here (or the last passing verify), so an earlier episode's events don't count.
+  const since = stageSince(x) ?? lastEvent(x, (e) => e.type === 'decision')?.ts ?? j.verifyRuns.filter((r) => r.ok).at(-1)?.at ?? null;
   // The first integrate event since the job entered this stage is step's own `forge integrate`;
   // later ones are the integrator's `--keep-conflicts` and `--continue`.
   const first = x.events.find((e) => (e.type === 'integrated' || e.type === 'integrate-conflicts') && after(e.ts, since));

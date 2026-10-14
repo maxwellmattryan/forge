@@ -49,7 +49,8 @@ function snapshot(dir: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const f of fs.readdirSync(dir, { recursive: true }).map(String).sort()) {
     const p = path.join(dir, f);
-    out[f] = fs.statSync(p).isDirectory() ? '<dir>' : fs.readFileSync(p, 'base64');
+    const st = fs.lstatSync(p);
+    out[f] = st.isSymbolicLink() ? `<link ${fs.readlinkSync(p)}>` : st.isDirectory() ? '<dir>' : fs.readFileSync(p, 'base64');
   }
   return out;
 }
@@ -163,10 +164,13 @@ test('agent start records output and retry, refuses escapes', () => {
     assert.equal(a.retry, false);
 
     const outside = path.join(path.dirname(s.root), `escape-${path.basename(s.root)}`);
+    const absent = path.join(path.dirname(s.root), `escape-abs-${path.basename(s.root)}`);
     fs.mkdirSync(outside);
     fs.symlinkSync(outside, path.join(dir, 'link'));
+    // A dangling link is an existing entry too: it resolves outside, so it is refused, not skipped.
+    fs.symlinkSync(path.join(outside, 'not-yet'), path.join(dir, 'dangling'));
     try {
-      for (const bad of ['../x/y.md', '/tmp/forge-escape-x/y.md', 'link/sub/y.md', '.']) {
+      for (const bad of ['../x/y.md', path.join(absent, 'y.md'), 'link/sub/y.md', 'dangling/sub/y.md', '.']) {
         const before = snapshot(dir);
         const events = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8');
         const r = s.raw('job', 'agent', id, 'start', '--role', 'reviewer:code', '--output', bad);
@@ -177,7 +181,7 @@ test('agent start records output and retry, refuses escapes', () => {
       }
       assert.deepEqual(fs.readdirSync(outside), [], 'no directory created through the symlink');
       assert.equal(fs.existsSync(path.join(path.dirname(dir), 'x')), false);
-      assert.equal(fs.existsSync('/tmp/forge-escape-x'), false);
+      assert.equal(fs.existsSync(absent), false);
     } finally {
       fs.rmSync(outside, { recursive: true, force: true });
     }
