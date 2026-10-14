@@ -30,7 +30,7 @@ Set `runtime.provider`/`runtime.host` in `.forge/config.yml` so humans and the d
 
 Whatever drives Forge must:
 1. change job state only through `forge` commands
-2. drive each job with the step loop: run `forge job step <id>`, do the one action it returns (`spawn`: run `start`, argv after `forge` (`startShell` is the same as one command line), start the agent with `brief`, then `forge job agent <id> end --role <role> --summary "<its reply line>"`; `run`: execute `command`, argv after `forge`; `wait`: on `agents`, wait for them, on a gate, report `tell` and stop; `procedure`: follow `reference`; `done`: stop), then step again. Don't decide stages yourself.
+2. drive each job with the step loop: run `forge job step <id> --session <your session>` (stepping keeps your claim alive), do the one action it returns (`spawn`: run `start`, argv after `forge` (`startShell` is the same as one command line), start the agent with `brief`, then `forge job agent <id> end --role <role> --summary "<its reply line>"`; `run`: execute `command`, argv after `forge`; `wait`: on `agents`, wait for them, on a gate, report `tell` and stop; `procedure`: follow `reference`; `done`: stop), then step again. Don't decide stages yourself.
 3. give each role its inputs as **paths** (step's briefs already do), and accept only the outputs that role owns
 4. stop at human gates (`waiting`), and record why
 5. keep builders and integrators inside the job's worktree
