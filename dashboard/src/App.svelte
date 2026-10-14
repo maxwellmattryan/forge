@@ -105,7 +105,7 @@
     </div>
     <div class="brand-rule mx-2 mb-3"></div>
     <div class="px-3 pb-3 text-[11px] text-muted truncate">{$t('app.repo')} <span id="repo-name" class="font-mono text-fg">{S.data?.repo?.name ?? ''}</span></div>
-    <button id="command-open" class="nav-item mb-2 gap-1.5 px-2.5 border border-line whitespace-nowrap" aria-haspopup="dialog" aria-keyshortcuts="Meta+K Control+K" onclick={openCommand}><span class="flex min-w-0 items-center gap-1.5"><Icon name="command" class="size-4 shrink-0" /><span class="truncate text-[13px]">{$t('command.open')}</span></span><kbd class="shrink-0 text-[10px] font-sans text-muted">{shortcut}</kbd></button>
+    <button id="command-open" class="nav-item mb-2 gap-1.5 px-2.5 border border-line whitespace-nowrap" aria-haspopup="dialog" aria-keyshortcuts="Meta+K Control+K" onclick={openCommand}><span class="flex min-w-0 items-center gap-1.5"><Icon name="command" class="shrink-0" /><span class="truncate text-[13px]">{$t('command.open')}</span></span><kbd class="shrink-0 text-[10px] font-sans text-muted">{shortcut}</kbd></button>
     <nav id="nav" class="flex flex-col gap-0.5"><Nav /></nav>
     <div class="mt-auto flex flex-col gap-1 border-t border-line pt-3 text-xs text-muted">
       <div id="footer-sessions" class="px-3"><span class="inline-block size-1.5 rounded-full {sessions ? 'bg-ok' : 'bg-muted'} mr-1.5 align-middle"></span>{$t('app.sessions', { count: sessions })}</div>

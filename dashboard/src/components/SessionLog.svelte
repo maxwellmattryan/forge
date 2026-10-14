@@ -4,6 +4,7 @@
   import { onDestroy, tick, untrack } from 'svelte';
   import Banner from './Banner.svelte';
   import Chip from './Chip.svelte';
+  import Icon from './Icon.svelte';
   import Empty from './Empty.svelte';
   import { TONE_CLASS, clock, usd } from '../lib/util.ts';
   import { INBOX_SCOPE } from '../lib/types.ts';
@@ -153,11 +154,11 @@
     {#if view.totals.results}<span class="text-xs text-muted" title={$t('session.costTitle')}>{$t('session.cost', { cost: usd(view.totals.costUsd) })}</span>{/if}
     <span class="flex-1"></span>
     {#if scope === INBOX_SCOPE}
-      <button class="btn text-xs" disabled={!controls.canStart} title={$t('session.startHint')} onclick={() => act('start')}>{$t('session.startInbox')}</button>
-      <button class="btn text-xs" disabled={!controls.canStop} onclick={() => act('stop')}>{$t('session.stopInbox')}</button>
+      <button class="btn text-xs" disabled={!controls.canStart} title={$t('session.startHint')} onclick={() => act('start')}><Icon name="play" />{$t('session.startInbox')}</button>
+      <button class="btn text-xs" disabled={!controls.canStop} onclick={() => act('stop')}><Icon name="stop" />{$t('session.stopInbox')}</button>
     {:else}
-      <button class="btn text-xs" disabled={!controls.canStart} title={$t('session.startHint')} aria-label={$t('session.startJob')} onclick={() => act('start')}>{$t('session.start')}</button>
-      <button class="btn text-xs" disabled={!controls.canStop} aria-label={$t('session.stopJob')} onclick={() => act('stop')}>{$t('session.stop')}</button>
+      <button class="btn text-xs" disabled={!controls.canStart} title={$t('session.startHint')} aria-label={$t('session.startJob')} onclick={() => act('start')}><Icon name="play" />{$t('session.start')}</button>
+      <button class="btn text-xs" disabled={!controls.canStop} aria-label={$t('session.stopJob')} onclick={() => act('stop')}><Icon name="stop" />{$t('session.stop')}</button>
     {/if}
   </div>
   {#if session?.lastError}<div role="status" class="text-xs text-bad break-words">{session.lastError}</div>{/if}

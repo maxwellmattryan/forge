@@ -56,7 +56,7 @@
     {@const d = shown.detail}
     {@const j = job}
     <div class="p-5 md:p-6 flex flex-col gap-5">
-      <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="text-lg font-semibold">{j.title}</h2><div class="text-xs text-muted font-mono">{j.id}</div></div><button class="btn" onclick={closeDrawer}><Icon name="close" /></button></div>
+      <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="text-lg font-semibold">{j.title}</h2><div class="text-xs text-muted font-mono">{j.id}</div></div><button class="btn" aria-label={$t('drawer.close')} onclick={closeDrawer}><Icon name="close" /></button></div>
       <div class="flex flex-wrap gap-1.5"><Chip tone="muted" text={STAGE_LABEL[j.stage] ?? j.stage} /><StateChip job={j} />{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}</div>
       {#if j.reason}<div class="text-sm text-muted">{j.reason}</div>{/if}
       <ProgressBar progress={j.progress} />
