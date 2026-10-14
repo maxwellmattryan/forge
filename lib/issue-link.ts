@@ -37,10 +37,22 @@ export function searchTerms(title: string): string[] {
   const words = String(title ?? '')
     .toLowerCase()
     .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .split(/[^a-z0-9]+/)
     .filter((w) => w.length >= 3 && !STOPWORDS.has(w));
   return [...new Set(words)].slice(0, 6);
+}
+
+/**
+ * Search terms from a free-text query: whitespace tokens carrying search syntax (a `:` qualifier,
+ * quotes, parentheses, a leading `-`) are dropped first, then searchTerms keeps plain words only.
+ */
+export function queryTerms(query: string): string[] {
+  const plain = String(query ?? '')
+    .split(/\s+/)
+    .filter((t) => t && !/[:()"\\]/.test(t) && !t.startsWith('-'));
+  // `OR` is too short and `AND`/`NOT` are stopwords, so no boolean operator survives either.
+  return searchTerms(plain.join(' '));
 }
 
 /**

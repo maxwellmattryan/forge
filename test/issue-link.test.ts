@@ -11,9 +11,9 @@ import { defaults } from '../lib/config.ts';
 import { createJob, jobDir, loadJob, readEvents } from '../lib/jobs.ts';
 import { JOB_SCHEMA_VERSION, WAITING_ON } from '../lib/schema.ts';
 import { WAITING_ON as DASH_WAITING_ON } from '../dashboard/src/lib/types.ts';
-import { issueLinkStatus, prLinkNote } from '../lib/issue-link.ts';
+import { issueLinkStatus, prLinkNote, queryTerms } from '../lib/issue-link.ts';
 import { searchTracker } from '../lib/tracker-link.ts';
-import github from '../lib/trackers/github.ts';
+import github, { inRepo } from '../lib/trackers/github.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 
@@ -285,6 +285,48 @@ test('github search argv via a fake gh', { skip: process.platform === 'win32' },
     assert.ok(!calls.flat().some((a) => /evil|user:me/i.test(a)), 'repo:, org: and user: qualifiers are dropped');
     assert.deepEqual(r.items.map((i) => [i.ref, i.score]), [['7', 6], ['9', 5]], 're-ranked locally, the unrelated one dropped');
     assert.deepEqual(r.items[1].labels, ['ui']);
+  } finally {
+    for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+    Object.assign(process.env, saved);
+    fs.rmSync(bin, { recursive: true, force: true });
+    repo.cleanup();
+  }
+});
+
+test('github search: qualifiers and syntax cannot widen or redirect it', { skip: process.platform === 'win32' }, () => {
+  const repo = tempRepo();
+  const bin = path.join(repo.dir, '..', `fakebin-${path.basename(repo.dir)}`);
+  const saved = { ...process.env };
+  try {
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'gh'), FAKE_GH, { mode: 0o755 });
+    const log = path.join(bin, 'calls.log');
+    const issues = path.join(bin, 'issues.json');
+    fs.writeFileSync(log, '');
+    fs.writeFileSync(
+      issues,
+      JSON.stringify([
+        { number: 5, title: 'Reading time badge', url: 'https://github.com/evil/x/issues/5', labels: [], body: '' },
+        { number: 6, title: 'Reading time badge', url: 'http://github.com/o/r/issues/6', labels: [], body: '' },
+        { number: 8, title: 'Reading time badge', url: 'https://github.com/o/r/pull/8', labels: [], body: '' },
+        { number: 3, title: 'Reading time badge', url: 'https://github.com/o/r/issues/3', labels: [], body: '' },
+      ]),
+    );
+    Object.assign(process.env, { PATH: `${bin}${path.delimiter}${saved.PATH}`, FAKE_GH_LOG: log, FAKE_GH_ISSUES: issues });
+    const config = defaults();
+    config.tracker.kind = 'github';
+    config.tracker.github.repo = 'o/r';
+    const hostile = 'reading is:closed label:"x" (time OR badge) "quoted words" -negated in:body repo:evil/x org:evil user:me NOT secret';
+    assert.deepEqual(queryTerms(hostile), ['reading', 'secret']);
+    const r = searchTracker(repo.dir, config, github, hostile, 5);
+    const searches = fs.readFileSync(log, 'utf8').split('\n').filter((l, i, a) => a[i - 1] === '--search');
+    assert.deepEqual(searches, ['reading secret', 'reading OR secret']);
+    for (const q of searches) assert.match(q, /^[a-z0-9]+(?: (?:OR )?[a-z0-9]+)*$/, 'plain words only');
+    assert.deepEqual(r.items.map((i) => i.ref), ['3'], 'items outside https://github.com/o/r/issues/ are dropped');
+    assert.equal(inRepo('https://github.com/O/R/issues/3', 'o/r'), true);
+    assert.equal(inRepo('https://github.com/o/r/issues/3/../../../evil/x/issues/1', 'o/r'), false);
+    assert.equal(inRepo('https://github.com.evil.io/o/r/issues/3', 'o/r'), false);
+    assert.equal(inRepo(null, 'o/r'), false);
   } finally {
     for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
     Object.assign(process.env, saved);

@@ -29,7 +29,7 @@ With a tracker in use, every job maps to one issue and one PR. A job started fro
 
 Jobs that never ask: `tracker.kind: none`, eval and retro jobs, and split children (they get the parent's sub-issue when they are created). `forge pr open` adds `unlinked: true` to its result for a job that still has no issue and no override. There is no repo-wide switch: `tracker.kind: none` and the per-job override cover it.
 
-`forge tracker search <query> [--limit n] [--job <id>]` is the bounded search behind it: at most `--limit` (default 5, at most 20) open items, ranked by how many search words appear in each title (2 points) and body (1 point), printed without bodies.
+`forge tracker search <query> [--limit n] [--job <id>]` is the bounded search behind it: at most `--limit` (default 5, at most 20) open items, ranked by how many search words appear in each title (2 points) and body (1 point), printed without bodies. Only plain words reach the tracker: tokens with search syntax (`is:`, `repo:`, `label:`, quotes, parentheses, `-` negation) are dropped, and GitHub results outside the configured repo are discarded.
 
 ## Writing an adapter (Jira, Linear, GitLab, …)
 

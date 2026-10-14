@@ -3,7 +3,7 @@
 // The pure helpers (status, terms, scoring) are in lib/issue-link.ts.
 import fs from 'node:fs';
 import path from 'node:path';
-import { issueLinkStatus, normalizeRef, scoreItems, searchTerms } from './issue-link.ts';
+import { issueLinkStatus, normalizeRef, queryTerms, scoreItems, searchTerms } from './issue-link.ts';
 import type { IssueLinkStatus, ScoredItem } from './issue-link.ts';
 import { isActive, jobDir, listJobs, loadJob, logEvent, updateJob } from './jobs.ts';
 import { ForgeError, now, readText, writeJsonAtomic } from './util.ts';
@@ -50,7 +50,7 @@ export function clampLimit(raw: unknown, fallback = 5): number {
  * without one a capped list() is scored here, so a whole tracker never reaches the output.
  */
 export function searchTracker(root: string, config: Config, tracker: Tracker, query: string, limit: number): SearchResult {
-  const terms = searchTerms(query);
+  const terms = queryTerms(query);
   if (config.tracker.kind === 'none' || !terms.length) return { tracker: tracker.name, query, items: [] };
   const ctx = { root, config };
   const raw = tracker.search ? tracker.search(ctx, query, { limit }) : tracker.list(ctx, { limit: FALLBACK_LIST }).slice(0, FALLBACK_LIST);
