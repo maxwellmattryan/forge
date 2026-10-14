@@ -133,8 +133,9 @@ const HEAD = `<head>
     <script>
       try {
         const saved = localStorage.getItem('forge.theme');
-        const prefers = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-        document.documentElement.dataset.theme = saved || prefers;
+        const light = matchMedia('(prefers-color-scheme: light)').matches;
+        document.documentElement.dataset.theme =
+          saved === 'cyanotype' || saved === 'dark' ? 'cyanotype' : saved === 'vellum' || saved === 'light' ? 'vellum' : light ? 'vellum' : 'cyanotype';
       } catch {}
     </script>
     <link rel="stylesheet" href="/style.css" />
@@ -146,7 +147,7 @@ test('inventory: the Svelte app replaced app.js and daemon.js', () => {
   for (const f of FILES) assert.ok(fs.existsSync(path.join(DASHBOARD, f)), `dashboard/${f} exists`);
   const html = read('index.html');
   assert.ok(html.includes(HEAD), 'index.html keeps its head; only the module entry changed');
-  assert.match(html, /<body class="min-h-screen"><\/body>/);
+  assert.match(html, /<body class="ground min-h-screen"><\/body>/);
   assert.equal([...html.matchAll(/<script type="module"/g)].length, 1);
   const all = [...sources(), 'index.html', 'vite.config.mjs', 'svelte.config.mjs'].map((f) => [f, read(f)]);
   for (const [f, text] of all)

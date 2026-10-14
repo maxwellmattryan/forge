@@ -82,7 +82,7 @@ test('dashboard server serves the page no-store and only manifest-allowlisted di
     for (const f of files) {
       const r = await get(port, '/' + f);
       assert.equal(r.status, 200, f);
-      assert.equal(r.type, f.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/css; charset=utf-8', f);
+      assert.equal(r.type, f.endsWith('.js') ? 'text/javascript; charset=utf-8' : f.endsWith('.woff2') ? 'font/woff2' : 'text/css; charset=utf-8', f);
       assert.equal(r.headers['cache-control'], 'public, max-age=31536000, immutable', f);
       assert.equal(r.headers['x-content-type-options'], 'nosniff', f);
       assert.ok(r.body.equals(fs.readFileSync(path.join(DIST, f))), `${f} bytes`);
@@ -96,6 +96,7 @@ test('dashboard server serves the page no-store and only manifest-allowlisted di
       '/assets/..%2Fmanifest.json', '/..%2Flib%2Fserver.ts', '/../lib/server.ts', '/%2e%2e/lib/server.ts',
       '/lib.js', '/server.ts', '/index.js', '/package.json', '/node_modules/vite/package.json',
       '/src/lib/util.ts', '/dashboard/src/lib/util.ts', '/src/lib/types.ts', '/tsconfig.json', '/dashboard/tsconfig.json',
+      '/fonts/IBMPlexSans-400.woff2', '/dashboard/fonts/OFL.txt', '/fonts/README.md', '/textures/paper.svg', '/dashboard/textures/paper.svg',
       '/src/main.ts', '/src/App.svelte', '/dashboard/src/App.svelte', '/src/lib/view.ts', '/svelte.config.mjs', '/dashboard/svelte.config.mjs',
     ];
     for (const p of notFound) assert.equal((await get(port, p)).status, 404, p);
@@ -106,7 +107,7 @@ test('dashboard server serves the page no-store and only manifest-allowlisted di
   }
 });
 
-test('distAllowlist accepts only plain assets/*.js|css entries', () => {
+test('distAllowlist accepts only plain assets/*.js|css|woff2 entries', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-dist-'));
   try {
     assert.equal(distAllowlist(tmp).size, 0, 'missing manifest');
@@ -120,7 +121,8 @@ test('distAllowlist accepts only plain assets/*.js|css entries', () => {
       b: { file: '/etc/passwd' },
       c: { file: 'assets/../../x.js' },
       d: { file: 'assets/sub/x.js' },
-      e: { file: 'assets/x.svg', css: ['assets/x.html'] },
+      e: { file: 'assets/x.svg', css: ['assets/x.html'], assets: ['assets/x.woff', 'assets/x.ttf', 'assets/x.woff2.svg'] },
+      fonts: { file: 'assets/Plex-400-a_B.woff2' },
       f: { file: 'index.html' },
       g: { file: 42, css: 'assets/notarray.css' },
       h: null,
@@ -128,7 +130,8 @@ test('distAllowlist accepts only plain assets/*.js|css entries', () => {
     };
     fs.writeFileSync(path.join(tmp, 'manifest.json'), JSON.stringify(manifest));
     const map = distAllowlist(tmp);
-    assert.deepEqual([...map.keys()].sort(), ['/assets/extra-3.js', '/assets/index-AbC_1.js', '/assets/index-x.y-2.css']);
+    assert.deepEqual([...map.keys()].sort(), ['/assets/Plex-400-a_B.woff2', '/assets/extra-3.js', '/assets/index-AbC_1.js', '/assets/index-x.y-2.css']);
+    assert.deepEqual(map.get('/assets/Plex-400-a_B.woff2'), { file: path.join(tmp, 'assets', 'Plex-400-a_B.woff2'), type: 'font/woff2' });
     assert.deepEqual(map.get('/assets/index-AbC_1.js'), { file: path.join(tmp, 'assets', 'index-AbC_1.js'), type: 'text/javascript; charset=utf-8' });
     assert.deepEqual(map.get('/assets/index-x.y-2.css'), { file: path.join(tmp, 'assets', 'index-x.y-2.css'), type: 'text/css; charset=utf-8' });
   } finally {

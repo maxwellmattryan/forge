@@ -78,8 +78,8 @@ const SSE_PING_MS = 15_000;
 const SSE_MAX_AGE_MS = 5 * 60_000;
 const DIST_DIR = path.join(PLUGIN_ROOT, 'dashboard', 'dist');
 const NOT_BUILT = 'dashboard is not built: run npm run build:dashboard';
-const DIST_ASSET = /^assets\/[\w.-]+\.(js|css)$/;
-const DIST_TYPES: Record<string, string> = { js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8' };
+const DIST_ASSET = /^assets\/[\w.-]+\.(js|css|woff2)$/;
+const DIST_TYPES: Record<string, string> = { js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', woff2: 'font/woff2' };
 
 /**
  * Read-mostly, localhost-only server. POSTs need the per-process token embedded in the page,
@@ -697,8 +697,9 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 /**
  * The URL paths the dashboard may serve from dist/, keyed `/assets/<file>`. The Vite manifest is
  * the allowlist and nothing under dashboard/ is served by directory, so sources, the manifest and
- * the rest of the plugin root never are. Entries that aren't plain `assets/<file>.js|css` names
- * are dropped, and a missing or unparseable manifest allows nothing.
+ * the rest of the plugin root never are. Entries that aren't plain `assets/<file>.js|css|woff2`
+ * names are dropped (the vendored fonts are the only woff2; SVG and HTML never qualify), and a
+ * missing or unparseable manifest allows nothing.
  */
 export function distAllowlist(distDir: string): Map<string, { file: string; type: string }> {
   const out = new Map<string, { file: string; type: string }>();

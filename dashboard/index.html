@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="cyanotype">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -9,12 +9,13 @@
     <script>
       try {
         const saved = localStorage.getItem('forge.theme');
-        const prefers = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-        document.documentElement.dataset.theme = saved || prefers;
+        const light = matchMedia('(prefers-color-scheme: light)').matches;
+        document.documentElement.dataset.theme =
+          saved === 'cyanotype' || saved === 'dark' ? 'cyanotype' : saved === 'vellum' || saved === 'light' ? 'vellum' : light ? 'vellum' : 'cyanotype';
       } catch {}
     </script>
     <link rel="stylesheet" href="/style.css" />
     <script type="module" src="/src/main.ts"></script>
   </head>
-  <body class="min-h-screen"></body>
+  <body class="ground min-h-screen"></body>
 </html>

@@ -119,7 +119,7 @@
         {@const file = shown.file}
         {@const content = shown.content}
         <div class="grid md:grid-cols-[180px_1fr] gap-4">
-          <div class="flex md:flex-col gap-0.5 overflow-x-auto md:overflow-visible">{#each d.files as f (f)}<button class="block w-full text-left truncate rounded px-2 py-1 text-xs font-mono {file === f ? 'bg-raised text-fg' : 'text-muted hover:text-fg'}" onclick={() => loadFile(f)}>{f}</button>{/each}</div>
+          <div class="flex md:flex-col gap-0.5 overflow-x-auto md:overflow-visible">{#each d.files as f (f)}<button class="block w-full text-left truncate px-2 py-1 text-xs font-mono {file === f ? 'bg-raised text-fg' : 'text-muted hover:text-fg'}" onclick={() => loadFile(f)}>{f}</button>{/each}</div>
           <div class="min-w-0">
             {#if file && content}
               {#if 'html' in content}

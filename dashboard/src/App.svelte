@@ -113,7 +113,7 @@
       <div id="footer-version" class="px-3 text-[10px]">{S.data ? $t('app.version', { version: S.data.forgeVersion, api: S.data.apiVersion }) : ''}</div>
     </div>
   </aside>
-  <main class="flex-1 min-w-0">
+  <main class="falloff flex-1 min-w-0">
     <!-- The gear stays outside the scrolling nav, so it is always on screen. -->
     <header class="md:hidden flex items-center border-b border-line bg-panel">
       <div class="flex flex-1 min-w-0 items-center gap-2 px-4 py-3 overflow-x-auto" id="mobile-nav"><Nav mobile /></div>
