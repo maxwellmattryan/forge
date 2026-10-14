@@ -1,9 +1,9 @@
-// Shapes of the forge dash HTTP API for API_VERSION 8. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 9. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
 
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 8;
+export const API_VERSION = 9;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 
@@ -105,6 +105,11 @@ export interface JobAgent {
   endedAt?: string | null;
   round?: number;
   summary?: string;
+  /**
+   * Per agent id, the last transcript timestamp `--import` has recorded. A resumed agent appends to
+   * the same transcript, so the next import counts only what comes after it.
+   */
+  importedThrough?: Record<string, string>;
 }
 
 /** One role's or model's usage totals: addUsage in lib/jobs.ts. */

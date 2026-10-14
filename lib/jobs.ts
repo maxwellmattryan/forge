@@ -203,7 +203,7 @@ export function releaseJob(root: string, id: string): void {
 export function recordAgent(
   root: string,
   id: string,
-  rec: { role: string; phase: 'start' | 'end'; model?: string; agentId?: string; status?: string; summary?: string; usage?: AgentUsage },
+  rec: { role: string; phase: 'start' | 'end'; model?: string; agentId?: string; status?: string; summary?: string; usage?: AgentUsage; importedThrough?: string | null },
   config: Config,
 ): LoadedJob {
   const job = updateJob(root, id, (j) => {
@@ -223,6 +223,7 @@ export function recordAgent(
       if (rec.model) a.model = rec.model;
       if (rec.summary) a.summary = rec.summary.slice(0, 280);
       if (rec.usage) addUsage(j, rec.role, a.model, rec.usage, config);
+      if (rec.agentId && rec.importedThrough) (a.importedThrough ??= {})[rec.agentId] = rec.importedThrough;
     }
   });
   logEvent(root, id, `agent-${rec.phase}`, {
@@ -234,6 +235,16 @@ export function recordAgent(
     usage: rec.usage,
   });
   return job;
+}
+
+/** Where the next `--import` of this agent's transcript starts: the latest cursor any role recorded for it. */
+export function importCursor(job: Job, agentId: string): string | null {
+  let latest: string | null = null;
+  for (const a of Object.values(job.agents)) {
+    const ts = a.importedThrough?.[agentId];
+    if (ts && (!latest || Date.parse(ts) > Date.parse(latest))) latest = ts;
+  }
+  return latest;
 }
 
 export function addUsage(job: Job, role: string, model: string | null | undefined, u: AgentUsage, config: Config): void {

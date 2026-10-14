@@ -4,7 +4,7 @@ import { jobAcs } from '../acs.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
 import { reviewerChecklist } from '../config.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
-import { claimJob, createJob, ensureReviewDir, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, roundVerdicts, setJob, updateJob, jobDir } from '../jobs.ts';
+import { claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, roundVerdicts, setJob, updateJob, jobDir } from '../jobs.ts';
 import { paths, exists } from '../paths.ts';
 import { jobScope } from '../scope.ts';
 import { createAndLink, linkJob, markNoIssue, suggestLink } from '../tracker-link.ts';
@@ -103,9 +103,13 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     case 'agent': {
       const phase = req(rest[1], 'start|end');
       if (!['start', 'end'].includes(phase)) throw new ForgeError('phase must be start or end');
-      let usage: (AgentUsage & { transcript?: string }) | undefined;
+      let usage: (AgentUsage & { transcript?: string; through?: string | null }) | undefined;
+      let since: string | null = null;
       if (phase === 'end') {
-        if (flags.import && flags['agent-id']) usage = importClaudeCodeTranscript(String(flags['agent-id'])) ?? undefined;
+        if (flags.import && flags['agent-id']) {
+          since = importCursor(loadJob(root, req(id, 'job id')), String(flags['agent-id']));
+          usage = importClaudeCodeTranscript(String(flags['agent-id']), { since }) ?? undefined;
+        }
         if (!usage && (flags.tokens || flags['tool-uses'] || flags['duration-ms']))
           usage = { totalTokens: Number(flags.tokens ?? 0), toolUses: Number(flags['tool-uses'] ?? 0), durationMs: Number(flags['duration-ms'] ?? 0) };
         if (usage && !usage.toolUses && flags['tool-uses']) usage.toolUses = Number(flags['tool-uses']);
@@ -120,14 +124,16 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
           agentId: flags['agent-id'],
           status: flags.status,
           summary: flags.summary,
-          // The transcript's path is set to undefined, so job.json never records it.
-          usage: usage ? ({ ...usage, transcript: undefined } as AgentUsage) : undefined,
+          // The transcript's path and cursor are set to undefined, so the usage job.json records is
+          // only token counts; the cursor goes to the agent record instead.
+          usage: usage ? ({ ...usage, transcript: undefined, through: undefined } as AgentUsage) : undefined,
+          importedThrough: usage?.through,
         },
         config,
       );
       const a = job.agents[String(flags.role)];
       const budget = phase === 'end' ? enforceBudget(root, config, job.id, 'agent-end') : null;
-      return { role: flags.role, status: a.status, model: a.model, usage: usage ? { tokens: usage.totalTokens, exact: Boolean(usage.exact) } : null, jobTokens: job.usage.totalTokens, jobCostUsd: job.usage.estCostUsd, ...(budget ? { budget } : {}) };
+      return { role: flags.role, status: a.status, model: a.model, usage: usage ? { tokens: usage.totalTokens, exact: Boolean(usage.exact), ...(since && usage.transcript ? { since } : {}) } : null, jobTokens: job.usage.totalTokens, jobCostUsd: job.usage.estCostUsd, ...(budget ? { budget } : {}) };
     }
     case 'round': {
       // Checked before incrementing, so after approval re-running `forge job round` starts the round.

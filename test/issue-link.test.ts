@@ -47,7 +47,7 @@ function setup(kind = 'local', backlog?: string, adapter?: string) {
   return { repo, root, cli, raw, newJob, backlog: () => fs.readFileSync(backlogFile, 'utf8') };
 }
 
-test('reads a schema v3 job as v4', () => {
+test('reads a schema v3 job as current, with noIssue', () => {
   const repo = tempRepo();
   try {
     const job = createJob(repo.dir, defaults(), { title: 'Old one' });
@@ -56,8 +56,7 @@ test('reads a schema v3 job as v4', () => {
     delete v3.noIssue;
     fs.writeFileSync(file, JSON.stringify({ ...v3, schemaVersion: 3 }));
     const loaded = loadJob(repo.dir, job.id);
-    assert.equal(JOB_SCHEMA_VERSION, 4);
-    assert.equal(loaded.schemaVersion, 4);
+    assert.equal(loaded.schemaVersion, JOB_SCHEMA_VERSION);
     assert.equal(loaded.noIssue, null);
     assert.ok(WAITING_ON.includes('issue-link'));
     assert.ok(DASH_WAITING_ON.includes('issue-link'));
