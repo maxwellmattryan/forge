@@ -313,6 +313,13 @@
   & blockquote { border-left: 1px solid var(--line-strong); padding-left: 12px; color: var(--muted); margin: 8px 0; }
   & table { margin: 8px 0; font-size: 12px; border-collapse: collapse; }
   & td, & th { border: 1px solid var(--line); padding: 4px 8px; }
+  /* compact: session and thread prose, sized to sit in a log line; it keeps the inherited font family. */
+  &.compact { font-size: 12px; line-height: 18px; }
+  &.compact h1, &.compact h2, &.compact h3 { font-size: 13px; line-height: 18px; font-weight: 600; margin: 8px 0 4px; }
+  &.compact p, &.compact ul, &.compact ol, &.compact pre, &.compact blockquote, &.compact table { margin: 4px 0; }
+  &.compact pre { font-size: 11px; line-height: 16px; padding: 8px; }
+  &.compact > :first-child { margin-top: 0; }
+  &.compact > :last-child { margin-bottom: 0; }
 }
 
 /* ---------- buttons ---------- */
