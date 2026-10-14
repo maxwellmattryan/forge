@@ -50,6 +50,8 @@ export default {
 };
 ```
 
+Refs must be 1 to 100 characters of letters, digits, `.`, `_` and `-`, starting with a letter or digit (Jira's `PROJ-123` fits). A ref ends up as a command-line argument, so the dashboard's Start button and `forge job link` refuse any other ref, and a ref like `group/repo#12` must be mapped to that shape by the adapter.
+
 `search` is optional. Forge re-ranks whatever it returns, and without it, it scores the first 200 items of `list({ limit: 200 })`, so a large tracker should implement it with the service's own search.
 
 With the daemon (docs/CONFIG.md "Daemon"), the daemon session pins every file under `.forge/trackers/` and refuses symlinks there. Imports from outside that directory are not pinned, so keep the module self-contained.
