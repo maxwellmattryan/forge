@@ -12,7 +12,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DASHBOARD = path.join(ROOT, 'dashboard');
 const DIST = path.join(DASHBOARD, 'dist');
 const STALE = 'dashboard/dist is stale: run `npm run build:dashboard` and commit dashboard/dist';
-const ASSET = /^assets\/[\w.-]+\.(js|css)$/;
+const ASSET = /^assets\/[\w.-]+\.(js|css|woff2)$/;
 
 /** Every file name the manifest points at (file, css[] and assets[] of each entry). */
 function manifestFiles(): any {
@@ -144,8 +144,9 @@ test('build-stamp hashes notice source, lockfile and dist edits', () => {
 const THEME_SCRIPT = `<script>
       try {
         const saved = localStorage.getItem('forge.theme');
-        const prefers = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-        document.documentElement.dataset.theme = saved || prefers;
+        const light = matchMedia('(prefers-color-scheme: light)').matches;
+        document.documentElement.dataset.theme =
+          saved === 'cyanotype' || saved === 'dark' ? 'cyanotype' : saved === 'vellum' || saved === 'light' ? 'vellum' : light ? 'vellum' : 'cyanotype';
       } catch {}
     </script>`;
 
@@ -153,12 +154,12 @@ test('dist index keeps token meta and theme bootstrap, loads only local hashed a
   const html = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
   const named = manifestFiles();
   assert.ok(html.includes('<meta name="forge-token" content="__FORGE_TOKEN__" />'));
-  assert.match(html, /<html lang="en" data-theme="dark">/);
+  assert.match(html, /<html lang="en" data-theme="cyanotype">/);
   const theme = html.indexOf(THEME_SCRIPT);
   assert.ok(theme > 0, 'theme bootstrap is inline and unchanged');
   assert.ok(fs.readFileSync(path.join(DASHBOARD, 'index.html'), 'utf8').includes(THEME_SCRIPT), 'source keeps the same bootstrap');
   assert.ok(html.includes('<link rel="icon" type="image/png" href="/forge.png" />'));
-  assert.match(html, /<body class="min-h-screen">\s*<\/body>/, 'the Svelte app mounts into an empty body');
+  assert.match(html, /<body class="ground min-h-screen">\s*<\/body>/, 'the Svelte app mounts into an empty body');
   const modules = [...html.matchAll(/<script type="module"[^>]*\ssrc="\/([^"]+)"/g)].map((m) => m[1]);
   assert.equal(modules.length, 1, 'one module script');
   assert.ok(named.has(modules[0]), `${modules[0]} is a manifest file`);

@@ -106,8 +106,8 @@
 {#snippet result(r: NonNullable<Extract<Item, { kind: 'tool' }>['result']>)}
   <div class="mt-1">
     <div class="text-[10px] uppercase tracking-wide text-muted">{$t('session.result')}</div>
-    <pre class="whitespace-pre-wrap break-words rounded bg-bg p-2 {r.isError ? 'text-bad' : ''}">{r.preview}</pre>
-    {#if r.more}<details class="mt-1"><summary class="cursor-pointer text-muted">{$t('session.fullResult')}</summary><pre class="whitespace-pre-wrap break-words rounded bg-bg p-2 {r.isError ? 'text-bad' : ''}">{r.full}</pre></details>{/if}
+    <pre class="whitespace-pre-wrap break-words bg-bg p-2 {r.isError ? 'text-bad' : ''}">{r.preview}</pre>
+    {#if r.more}<details class="mt-1"><summary class="cursor-pointer text-muted">{$t('session.fullResult')}</summary><pre class="whitespace-pre-wrap break-words bg-bg p-2 {r.isError ? 'text-bad' : ''}">{r.full}</pre></details>{/if}
   </div>
 {/snippet}
 
@@ -117,14 +117,14 @@
   {:else if it.kind === 'thinking'}
     <details class="text-muted"><summary class="cursor-pointer">{$t('session.thinkingItem')}</summary><div class="whitespace-pre-wrap break-words">{it.text}</div></details>
   {:else if it.kind === 'tool'}
-    <details class="rounded border border-line/60 px-2 py-1 {it.tone === 'bad' ? 'border-bad/50' : ''}">
+    <details class="border border-line/60 px-2 py-1 {it.tone === 'bad' ? 'border-bad/50' : ''}">
       <summary class="cursor-pointer break-all"><span class="text-accent">→ {it.name}</span> <span class="text-muted">{it.summary}</span>{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
       <div class="mt-1 text-[10px] uppercase tracking-wide text-muted">{$t('session.input')}</div>
-      <pre class="whitespace-pre-wrap break-words rounded bg-bg p-2">{it.input}</pre>
+      <pre class="whitespace-pre-wrap break-words bg-bg p-2">{it.input}</pre>
       {#if it.result}{@render result(it.result)}{/if}
     </details>
   {:else if it.kind === 'subagent'}
-    <details class="rounded border border-info/40 bg-info/5 px-2 py-1">
+    <details class="border border-info/40 bg-info/5 px-2 py-1">
       <summary class="cursor-pointer break-all"><Chip tone={it.known ? 'info' : 'muted'} text={it.role} /> <span>{it.description}</span>{#if it.hidden} <span class="text-muted">{$t('session.hiddenLines', { count: it.hidden })}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
       {#if it.items.length}<div class="mt-1 flex flex-col gap-1 border-l border-info/40 pl-2">{#each it.items as child, i (i)}{@render item(child)}{/each}</div>{/if}
       {#if it.result}{@render result(it.result)}{/if}

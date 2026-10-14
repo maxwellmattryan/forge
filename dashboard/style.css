@@ -1,67 +1,642 @@
+/* The Drafting design system (design/ is the drawing: tokens.css, drafting.css, components/*). Tokens
+   are CSS variables in two themes; the reference rules are ported as @utility classes of the same
+   names so they can be @apply'd; the old class names survive as aliases until job 4 removes them. */
 @import "tailwindcss" source(none);
 @source "./index.html";
 @source "./src/**/*.ts";
 @source "./src/**/*.svelte";
+/* Emitted before any markup uses them, so later jobs only change markup. */
+@source inline("ground falloff plain hatch hatch-dense crosshatch sheet ticks redline dashed solid clickable h label callout mono num muted dimmed caption dim-line prose btn seg chip nav input check radio field track fill tabs tab tbl tblock kpi ic dot backdrop mark card btn-primary nav-item kpi-label kpi-value prose-md ember-bar brand-rule");
 
-@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
-@theme {
+@custom-variant dark (&:where([data-theme=cyanotype], [data-theme=cyanotype] *));
+
+/* inline: utilities read the token variables directly instead of emitting copies of them. */
+@theme inline {
   --color-bg: var(--bg);
+  --color-bg-deep: var(--bg-deep);
   --color-panel: var(--panel);
   --color-raised: var(--raised);
   --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-line-strong: var(--line-strong);
   --color-fg: var(--fg);
   --color-muted: var(--muted);
-  --color-accent: var(--accent);
+  --color-dim: var(--dim);
+  --color-ink: var(--ink);
+  --color-on-ink: var(--on-ink);
+  --color-redline: var(--redline);
+  --color-highlight: var(--highlight);
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --color-bad: var(--bad);
   --color-info: var(--info);
-  --color-on-accent: var(--on-accent);
-  --color-ember-hot: var(--ember-hot);
-  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* alias: removed in job 4 (old markup uses text-accent, bg-accent/15, border-accent/60) */
+  --color-accent: var(--ink);
+  --color-on-accent: var(--on-ink);
 }
+/* The font tokens share their names with Tailwind's font keys; `reference` keeps Tailwind from
+   emitting `--font-sans: var(--font-sans)`, a self-reference that would void the token. */
+@theme inline reference {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-head: var(--font-head);
+}
+
+/* Square corners and hard shadows: every rounded-* but rounded-full renders square, and the
+   blurred Tailwind shadows become the dialog's offset sheet. */
+@theme {
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
+  --radius-3xl: 0;
+  --radius-4xl: 0;
+  --shadow-2xs: var(--shadow-dialog);
+  --shadow-xs: var(--shadow-dialog);
+  --shadow-sm: var(--shadow-dialog);
+  --shadow-md: var(--shadow-dialog);
+  --shadow-lg: var(--shadow-dialog);
+  --shadow-xl: var(--shadow-dialog);
+  --shadow-2xl: var(--shadow-dialog);
+}
+
+/* ---------- tokens: copied verbatim from design/tokens.css ---------- */
+:root, [data-theme="cyanotype"] {
+  --bg: #15427a;
+  --bg-deep: #0e3263;
+  --panel: rgba(255,255,255,0.035);
+  --raised: rgba(255,255,255,0.09);
+  --line: rgba(226,238,255,0.55);
+  --line-soft: rgba(226,238,255,0.28);
+  --line-strong: #eef5ff;
+  --grid-minor: rgba(255,255,255,0.06);
+  --grid-major: rgba(255,255,255,0.13);
+  --fg: #f3f8ff;
+  --muted: #b2cbec;
+  --dim: #7f9fc9;
+  --ink: #ffffff;
+  --on-ink: #15427a;
+  --redline: #ff9382;
+  --highlight: #ffd861;
+  --ok: #86e3bd;
+  --warn: #ffd861;
+  --bad: #ff9382;
+  --info: #9ad6ff;
+  --shadow-primary: 3px 3px 0 0 rgba(226,238,255,0.28);
+  --shadow-dialog: 8px 8px 0 0 rgba(255,255,255,0.08);
+  --shadow-drawer: -8px 0 0 0 rgba(255,255,255,0.06);
+  /* drafting extras (design/drafting.css) */
+  --paper-blend: soft-light;
+  --fall: rgba(0,0,0,.28);
+  /* alias: removed in job 4 (CommandBar and screenshots.ts use var(--accent) in arbitrary values) */
+  --accent: var(--ink);
+  --on-accent: var(--on-ink);
+}
+
+[data-theme="vellum"] {
+  --bg: #f1ecdf;
+  --bg-deep: #e6e0d0;
+  --panel: rgba(255,255,255,0.35);
+  --raised: rgba(31,78,140,0.08);
+  --line: rgba(31,78,140,0.6);
+  --line-soft: rgba(31,78,140,0.3);
+  --line-strong: #1f4e8c;
+  --grid-minor: rgba(31,78,140,0.08);
+  --grid-major: rgba(31,78,140,0.16);
+  --fg: #14355f;
+  --muted: #4a6184;
+  --dim: #8597b3;
+  --ink: #1f4e8c;
+  --on-ink: #f6f2e8;
+  --redline: #c02d1b;
+  --highlight: #e8b400;
+  --ok: #1a6e50;
+  --warn: #8a6300;
+  --bad: #c02d1b;
+  --info: #2b5f9b;
+  --shadow-primary: 3px 3px 0 0 rgba(31,78,140,0.3);
+  --shadow-dialog: 8px 8px 0 0 rgba(31,78,140,0.12);
+  --shadow-drawer: -8px 0 0 0 rgba(31,78,140,0.1);
+  /* drafting extras (design/drafting.css) */
+  --paper-opacity: .55;
+  --paper-blend: multiply;
+  --fall: rgba(60,40,0,.10);
+  /* alias: removed in job 4 */
+  --accent: var(--ink);
+  --on-accent: var(--on-ink);
+}
+
 :root {
-  --bg: #f4f4f6; --panel: #ffffff; --raised: #ececef; --line: #dcdce2; --fg: #17171b; --muted: #63636e;
-  --accent: #c2410c; --on-accent: #ffffff; --ember-hot: #fb923c;
-  --ok: #15803d; --warn: #a16207; --bad: #dc2626; --info: #2563eb;
+  --space-0\.5: 2px;
+  --space-1: 4px;
+  --space-1\.5: 6px;
+  --space-2: 8px;
+  --space-2\.5: 10px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-11: 44px;
+  --space-16: 64px;
+  --radius-0: 0px;
+  --radius-tag: 10px;
+  --radius-dot: 9999px;
+  --size-icon: 18px;
+  --size-mark: 36px;
+  --size-sidebar: 236px;
+  --size-settings-rail: 216px;
+  --size-board-column: 276px;
+  --size-content-max: 1400px;
+  --size-drawer-max: 768px;
+  --size-dialog: 960px;
+  --hatch-pitch: 6px;
+  --grid-minor-step: 8px;
+  --grid-major-step: 64px;
+  --tick: 9px;
+  --stroke-icon: 1.25px;
+  --stroke-line: 1px;
+  --dash: 4px 4px;
+  --paper-opacity: 0.18;
+  --font-head: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-:root[data-theme='dark'] {
-  --bg: #0c0c0e; --panel: #151518; --raised: #1d1d21; --line: #2b2b31; --fg: #ececef; --muted: #8f8f99;
-  --accent: #fb923c; --on-accent: #1c0d02; --ember-hot: #fde68a;
-  --ok: #34d399; --warn: #facc15; --bad: #f87171; --info: #60a5fa;
+
+/* ---------- fonts: vendored Latin subsets (dashboard/fonts/README.md), never linked ---------- */
+@font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 500; font-display: swap; src: url(./fonts/SpaceGrotesk-500.woff2) format("woff2"); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 700; font-display: swap; src: url(./fonts/SpaceGrotesk-700.woff2) format("woff2"); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 400; font-display: swap; src: url(./fonts/IBMPlexSans-400.woff2) format("woff2"); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 500; font-display: swap; src: url(./fonts/IBMPlexSans-500.woff2) format("woff2"); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-weight: 600; font-display: swap; src: url(./fonts/IBMPlexSans-600.woff2) format("woff2"); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url(./fonts/IBMPlexMono-400.woff2) format("woff2"); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url(./fonts/IBMPlexMono-500.woff2) format("woff2"); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 600; font-display: swap; src: url(./fonts/IBMPlexMono-600.woff2) format("woff2"); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+
+/* ---------- base (the top of drafting.css; preflight already zeroes margins and box-sizing) ---------- */
+@layer base {
+  html { background: var(--bg); color: var(--fg); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  body { font-family: var(--font-sans); font-size: 14px; line-height: 20px; }
+  h1, h2, h3, h4 { font-family: var(--font-head); letter-spacing: -0.01em; }
+  ::selection { background: var(--highlight); color: #14355f; }
+  a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+  a:hover { color: var(--highlight); }
 }
-body { @apply bg-bg text-fg font-sans antialiased; }
-@utility card { @apply bg-panel border border-line rounded-xl; }
-@utility chip { @apply inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium leading-4 whitespace-nowrap; }
-@utility btn { @apply inline-flex items-center gap-1.5 rounded-lg border border-line bg-raised px-3 py-1.5 text-sm hover:border-accent/60 disabled:opacity-50 cursor-pointer; }
-.btn-primary { @apply border-transparent text-on-accent font-medium; background: linear-gradient(180deg, color-mix(in oklab, var(--accent), var(--ember-hot) 22%), var(--accent)); box-shadow: 0 1px 0 rgb(255 255 255 / .18) inset, 0 4px 14px -6px var(--accent); }
-.btn-primary:hover { filter: brightness(1.06); }
-.ember-bar { background: linear-gradient(90deg, var(--ember-hot), var(--accent)); }
-.brand-rule { height: 1px; background: linear-gradient(90deg, transparent, var(--accent), var(--ember-hot), transparent); opacity: .6; }
-@utility nav-item { @apply flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm text-muted hover:bg-raised hover:text-fg; }
-.nav-item.active { @apply bg-raised text-fg; box-shadow: inset 2px 0 0 var(--accent); }
-@utility kpi { @apply bg-panel border border-line rounded-xl p-4 flex flex-col gap-1; }
-@utility kpi-label { @apply text-[11px] uppercase tracking-wide text-muted; }
-@utility kpi-value { @apply text-2xl font-semibold tabular-nums; }
-.tbl { @apply w-full text-sm; }
-.tbl th { @apply text-left text-[11px] uppercase tracking-wide text-muted font-medium px-3 py-2 border-b border-line; }
-.tbl td { @apply px-3 py-2 border-b border-line align-top; }
-.prose-md { @apply text-sm leading-6; }
-.prose-md h1 { @apply text-lg font-semibold mt-4 mb-2; }
-.prose-md h2 { @apply text-base font-semibold mt-4 mb-2; }
-.prose-md h3 { @apply text-sm font-semibold mt-3 mb-1; }
-.prose-md p { @apply my-2; }
-.prose-md ul { @apply list-disc pl-5 my-2; }
-.prose-md ol { @apply list-decimal pl-5 my-2; }
-.prose-md code { @apply font-mono text-[12px] bg-raised rounded px-1; }
-.prose-md pre { @apply bg-raised rounded-lg p-3 overflow-x-auto my-2 text-[12px]; }
-.prose-md pre code { @apply bg-transparent p-0; }
-.prose-md a { @apply text-accent underline; }
-.prose-md table { @apply my-2 text-xs; }
-.prose-md td, .prose-md th { @apply border border-line px-2 py-1; }
-.prose-md blockquote { @apply border-l-2 border-line pl-3 text-muted; }
-input:not([type=checkbox], [type=radio]), textarea, select { @apply bg-raised border border-line rounded-lg px-2.5 py-1.5 text-sm outline-none focus:border-accent disabled:opacity-50 disabled:cursor-not-allowed; }
-/* Native checkboxes and radios ignore borders, so they keep a visible focus ring and take the accent colour. */
-input[type=checkbox], input[type=radio] { accent-color: var(--accent); @apply disabled:opacity-50 disabled:cursor-not-allowed; }
-input[type=checkbox]:focus-visible, input[type=radio]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- the ground: grid + paper fibre + exposure falloff ----------
+   Deviates from the reference on purpose: Svelte mounts the fixed drawer, dialogs and toasts
+   straight into <body>, so there is no `.ground > * { position: relative }` (it would break their
+   fixed positioning). The paper sits on a fixed layer behind everything instead. */
+@utility ground {
+  isolation: isolate;
+  background-color: var(--bg);
+  background-image: linear-gradient(var(--grid-major) 1px, transparent 1px), linear-gradient(90deg, var(--grid-major) 1px, transparent 1px), linear-gradient(var(--grid-minor) 1px, transparent 1px), linear-gradient(90deg, var(--grid-minor) 1px, transparent 1px);
+  background-size: 64px 64px, 64px 64px, 8px 8px, 8px 8px;
+  background-position: -1px -1px;
+  background-attachment: fixed;
+  &::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    /* Referenced directly (not through a custom property) so Vite rewrites and inlines it. */
+    background-image: url(./textures/paper.svg);
+    background-size: 512px 512px;
+    opacity: var(--paper-opacity);
+    mix-blend-mode: var(--paper-blend);
+  }
+}
+@utility falloff {
+  position: relative;
+  isolation: isolate;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: radial-gradient(120% 100% at 50% 40%, transparent 50%, var(--fall) 100%);
+  }
+}
+@utility plain { background: var(--bg); }
+
+/* ---------- hatching ---------- */
+@utility hatch { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
+@utility hatch-dense { background-image: repeating-linear-gradient(45deg, var(--line) 0 1px, transparent 1px 4px); }
+@utility crosshatch { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px), repeating-linear-gradient(-45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
+
+/* ---------- sheet: an outlined panel; ticks adds corner register marks ---------- */
+@utility sheet {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  position: relative;
+  &.clickable { cursor: pointer; transition: background-color .12s ease, border-color .12s ease; }
+  &.clickable:hover, &.hover { border-color: var(--line-strong); background-color: var(--raised); }
+  &.clickable:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 3px; }
+  &.redline { border-color: var(--redline); outline: 1px dashed var(--redline); outline-offset: 3px; }
+  &.dashed { border-style: dashed; background: transparent; }
+  &.solid { background: var(--bg); }
+}
+@utility ticks {
+  & > .tk { position: absolute; inset: 0; pointer-events: none; }
+  &::before, &::after, & > .tk::before, & > .tk::after { content: ""; position: absolute; width: 9px; height: 9px; border-color: var(--line-strong); border-style: solid; }
+  &::before { top: -1px; left: -1px; border-width: 1px 0 0 1px; }
+  &::after { top: -1px; right: -1px; border-width: 1px 1px 0 0; }
+  & > .tk::before { bottom: -1px; left: -1px; border-width: 0 0 1px 1px; }
+  & > .tk::after { bottom: -1px; right: -1px; border-width: 0 1px 1px 0; }
+}
+@utility redline { border-color: var(--redline); outline: 1px dashed var(--redline); outline-offset: 3px; }
+@utility dashed { border-style: dashed; background: transparent; }
+@utility solid { background: var(--bg); }
+@utility clickable {
+  cursor: pointer;
+  transition: background-color .12s ease, border-color .12s ease;
+  &:hover { border-color: var(--line-strong); background-color: var(--raised); }
+  &:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 3px; }
+}
+
+/* ---------- type ---------- */
+@utility h {
+  font-family: var(--font-head);
+  font-weight: 700;
+  letter-spacing: -.01em;
+  line-height: 1.1;
+  &.display { font-size: 64px; line-height: 64px; }
+  &.page { font-size: 34px; line-height: 38px; }
+  &.sheet-title { font-size: 22px; line-height: 26px; }
+  &.section { font-size: 16px; line-height: 22px; }
+  &.card { font-size: 14px; line-height: 18px; font-weight: 500; letter-spacing: 0; }
+}
+@utility label { font-family: var(--font-mono); font-weight: 500; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); line-height: 16px; }
+@utility callout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  &::before { content: ""; width: 18px; height: 1px; background: var(--line-strong); flex: none; }
+}
+@utility mono { font-family: var(--font-mono); font-size: 12px; line-height: 18px; }
+@utility num { font-variant-numeric: tabular-nums; }
+@utility muted { color: var(--muted); }
+@utility dimmed { color: var(--dim); }
+@utility caption { font-size: 12px; line-height: 16px; }
+@utility dim-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--muted);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  &::before, &::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  & .end { width: 1px; height: 10px; background: var(--line-strong); flex: none; }
+}
+/* prose: the reference rules plus what the old prose-md had (h3, lists, links, tables). */
+@utility prose {
+  font-size: 14px;
+  line-height: 24px;
+  & h1 { font-family: var(--font-head); font-size: 22px; line-height: 26px; margin: 16px 0 8px; }
+  & h2 { font-family: var(--font-head); font-size: 16px; line-height: 22px; margin: 16px 0 8px; }
+  & h3 { font-family: var(--font-head); font-size: 14px; line-height: 20px; font-weight: 600; margin: 12px 0 4px; }
+  & p { margin: 8px 0; }
+  & ul { list-style: disc; padding-left: 20px; margin: 8px 0; }
+  & ol { list-style: decimal; padding-left: 20px; margin: 8px 0; }
+  & a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+  & code { font-family: var(--font-mono); font-size: 12px; background: var(--raised); padding: 0 4px; }
+  & pre { font-family: var(--font-mono); font-size: 12px; line-height: 18px; border: 1px solid var(--line); padding: 12px; overflow-x: auto; margin: 8px 0; }
+  & pre code { background: transparent; padding: 0; }
+  & blockquote { border-left: 1px solid var(--line-strong); padding-left: 12px; color: var(--muted); margin: 8px 0; }
+  & table { margin: 8px 0; font-size: 12px; border-collapse: collapse; }
+  & td, & th { border: 1px solid var(--line); padding: 4px 8px; }
+}
+
+/* ---------- buttons ---------- */
+@utility btn {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  padding: 7px 12px;
+  line-height: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all .12s ease;
+  white-space: nowrap;
+  position: relative;
+  & a { text-decoration: none; }
+  &:hover, &.hover { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
+  &:active, &.active { background: var(--ink); color: var(--on-ink); background-image: none; }
+  &:focus-visible, &.focus { outline: 1px dashed var(--line-strong); outline-offset: 3px; }
+  &[disabled], &.disabled { opacity: .4; cursor: not-allowed; border-style: dashed; background-image: none; }
+  &.sel { background: var(--ink); color: var(--on-ink); }
+  &.primary { background: var(--ink); color: var(--on-ink); border-color: var(--ink); box-shadow: var(--shadow-primary); }
+  &.primary:hover, &.primary.hover { background-image: none; box-shadow: 4px 4px 0 0 var(--line); transform: translate(-1px,-1px); }
+  &.primary:active, &.primary.active { box-shadow: none; transform: translate(2px,2px); }
+  &.primary[disabled] { background: transparent; color: var(--fg); border-color: var(--line-strong); box-shadow: none; transform: none; }
+  &.sm { font-size: 11px; padding: 5px 9px; }
+  &.icon { padding: 7px; }
+  &.touch { min-width: 44px; min-height: 44px; justify-content: center; }
+  & .ic { width: 15px; height: 15px; }
+}
+@utility seg {
+  display: flex;
+  & .btn { margin-right: -1px; }
+  & .btn:last-child { margin-right: 0; }
+}
+
+/* ---------- chips: outlined annotations ---------- */
+@utility chip {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  line-height: 14px;
+  padding: 2px 6px;
+  border: 1px solid currentColor;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  background: transparent;
+  & a { text-decoration: none; }
+  &.ok { color: var(--ok); }
+  &.bad { color: var(--bad); }
+  &.warn { color: var(--warn); }
+  &.info { color: var(--info); }
+  &.ink { color: var(--ink); }
+  &.muted { color: var(--muted); border-style: dashed; }
+  &.live { color: var(--ink); background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 5px); }
+  &.rev { color: var(--redline); border-color: var(--redline); border-radius: var(--radius-tag); padding: 2px 8px; }
+  &.hl { color: #14355f; background: var(--highlight); border-color: var(--highlight); }
+  &:is(button) { cursor: pointer; }
+  &:is(button):hover { background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 5px); }
+  &:is(button)[aria-expanded="true"] { outline: 1px dashed currentColor; outline-offset: 2px; }
+}
+
+/* ---------- nav ---------- */
+@utility nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-decoration: none;
+  & a, & button { font-family: var(--font-mono); font-weight: 500; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); text-decoration: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px 9px 12px; border: 1px solid transparent; background: transparent; width: 100%; cursor: pointer; line-height: 16px; transition: all .12s ease; position: relative; text-align: left; }
+  & a:hover, & a.hover, & button:hover { color: var(--fg); border-color: var(--line-soft); background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
+  & a.active, & button.active { color: var(--fg); border-color: var(--line-strong); background-color: var(--raised); background-image: none; }
+  & a.active::before, & button.active::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px; background: var(--ink); }
+  & a:focus-visible, & button:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 2px; }
+  & .ic { width: 18px; height: 18px; }
+  & .lbl { display: flex; align-items: center; gap: 10px; }
+  &.row { flex-direction: row; gap: 4px; }
+}
+
+/* ---------- inputs ---------- */
+@utility input {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 7px 10px;
+  outline: none;
+  line-height: 18px;
+  &::placeholder { color: var(--dim); }
+  &:focus, &.focus { border-color: var(--line-strong); outline: 1px dashed var(--line-strong); outline-offset: 2px; }
+  &:hover, &.hover { border-color: var(--line-strong); }
+  &:disabled, &.disabled { opacity: .4; border-style: dashed; cursor: not-allowed; }
+  &:is(textarea) { font-family: var(--font-sans); font-size: 14px; resize: vertical; }
+  &:is(select) { appearance: none; padding-right: 28px; background-image: linear-gradient(45deg, transparent 50%, var(--fg) 50%), linear-gradient(135deg, var(--fg) 50%, transparent 50%); background-position: calc(100% - 15px) 14px, calc(100% - 10px) 14px; background-size: 5px 5px; background-repeat: no-repeat; }
+}
+@utility check {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--line-strong);
+  display: inline-block;
+  position: relative;
+  flex: none;
+  &.on::after { content: ""; position: absolute; inset: 2px; background: var(--ink); }
+}
+@utility radio {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  display: inline-block;
+  position: relative;
+  flex: none;
+  &.on::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--ink); }
+}
+@utility field { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+
+/* ---------- progress ---------- */
+@utility track { height: 8px; border: 1px solid var(--line); position: relative; }
+@utility fill {
+  height: 100%;
+  background: var(--ink);
+  background-image: repeating-linear-gradient(45deg, rgba(21,66,122,.5) 0 1px, transparent 1px 4px);
+  position: relative;
+  [data-theme="vellum"] & { background-image: repeating-linear-gradient(45deg, rgba(241,236,223,.55) 0 1px, transparent 1px 4px); }
+  &::after { content: ""; position: absolute; right: -1px; top: -4px; bottom: -4px; width: 1px; background: var(--ink); }
+  &.ok { background: var(--ok); }
+  &.warn { background: var(--warn); }
+  &.bad { background: var(--bad); }
+}
+
+/* ---------- tabs ---------- */
+@utility tabs {
+  display: flex;
+  border-bottom: 1px solid var(--line);
+  text-decoration: none;
+  & a { text-decoration: none; }
+}
+@utility tab {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--muted);
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  background: transparent;
+  cursor: pointer;
+  margin-bottom: -1px;
+  &:hover { color: var(--fg); background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
+  &.active { color: var(--fg); border-color: var(--line); background: var(--bg); }
+}
+
+/* ---------- tables ---------- */
+@utility tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  & th { font-family: var(--font-mono); font-weight: 500; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  & td { padding: 8px 12px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  & tr:last-child td { border-bottom: 0; }
+  & tr.clickable { cursor: pointer; }
+  & tr.clickable:hover td { background: var(--raised); }
+  & .r { text-align: right; }
+}
+
+/* ---------- title block ---------- */
+@utility tblock {
+  border: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 14px;
+  letter-spacing: .06em;
+  & > div { padding: 5px 8px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  & > div:nth-child(2n) { border-right: 0; }
+  & > div:nth-last-child(-n+2) { border-bottom: 0; }
+  & > div.wide { grid-column: 1 / -1; border-right: 0; }
+  & .k { color: var(--dim); font-size: 9px; display: block; }
+}
+
+/* ---------- kpi ---------- */
+@utility kpi {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* alias: removed in job 4. Old markup uses kpi alone, so it draws the sheet outline too; the
+     same declarations as sheet, so `sheet kpi` later is harmless. */
+  border: 1px solid var(--line);
+  background: var(--panel);
+  & .v { font-family: var(--font-mono); font-size: 24px; line-height: 28px; font-weight: 500; font-variant-numeric: tabular-nums; }
+}
+
+/* ---------- misc ---------- */
+@utility ic {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
+  & .cx { stroke-dasharray: 2 2; opacity: .6; }
+}
+@utility dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+  &.ok { background: var(--ok); }
+  &.ink { background: var(--ink); }
+  &.hl { background: var(--highlight); }
+  &.red { background: var(--redline); }
+  &.hollow { border: 1px solid var(--dim); }
+}
+@utility backdrop {
+  background: rgba(8,28,58,.7);
+  [data-theme="vellum"] & { background: rgba(20,53,95,.45); }
+}
+@utility mark {
+  width: 36px;
+  height: 36px;
+  filter: grayscale(1) brightness(1.4) contrast(1.1);
+  mix-blend-mode: screen;
+  [data-theme="vellum"] & { filter: grayscale(1) brightness(.9) contrast(1.25); mix-blend-mode: multiply; }
+}
+
+/* ---------- aliases of the old class names ---------- */
+/* alias: removed in job 4 */
+@utility card { @apply sheet; }
+/* alias: removed in job 4. Used together with btn; the .btn qualifier keeps the reference's
+   `.btn.primary` specificity so btn's own states never win over it. */
+@utility btn-primary {
+  &.btn { background: var(--ink); color: var(--on-ink); border-color: var(--ink); box-shadow: var(--shadow-primary); }
+  &.btn:hover { background-image: none; box-shadow: 4px 4px 0 0 var(--line); transform: translate(-1px,-1px); }
+  &.btn:active { box-shadow: none; transform: translate(2px,2px); }
+  &.btn[disabled] { background: transparent; color: var(--fg); border-color: var(--line-strong); box-shadow: none; transform: none; }
+}
+/* alias: removed in job 4. The .nav a rules on the element itself, without width: 100%, because
+   the phone strip lays nav items out in a row. */
+@utility nav-item {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 13px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px 9px 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  line-height: 16px;
+  transition: all .12s ease;
+  position: relative;
+  text-align: left;
+  &:hover, &.hover { color: var(--fg); border-color: var(--line-soft); background-image: repeating-linear-gradient(45deg, var(--line-soft) 0 1px, transparent 1px 6px); }
+  &.active { color: var(--fg); border-color: var(--line-strong); background-color: var(--raised); background-image: none; }
+  &.active::before { content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px; background: var(--ink); }
+  &:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 2px; }
+}
+/* alias: removed in job 4 */
+@utility kpi-label { @apply label; }
+/* alias: removed in job 4 */
+@utility kpi-value { font-family: var(--font-mono); font-size: 24px; line-height: 28px; font-weight: 500; font-variant-numeric: tabular-nums; }
+/* alias: removed in job 4 */
+@utility prose-md { @apply prose; }
+/* alias: removed in job 4. The fill declarations without height, which the old markup sets itself. */
+@utility ember-bar {
+  background: var(--ink);
+  background-image: repeating-linear-gradient(45deg, rgba(21,66,122,.5) 0 1px, transparent 1px 4px);
+  position: relative;
+  [data-theme="vellum"] & { background-image: repeating-linear-gradient(45deg, rgba(241,236,223,.55) 0 1px, transparent 1px 4px); }
+}
+/* alias: removed in job 4 */
+@utility brand-rule { @apply dim-line; }
+
+/* ---------- native form controls: the .input look on every field old markup renders ----------
+   Unlayered, as before, so it outranks utilities on those elements. */
+input:not([type=checkbox], [type=radio]), textarea, select {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 7px 10px;
+  outline: none;
+  line-height: 18px;
+}
+input:not([type=checkbox], [type=radio])::placeholder, textarea::placeholder { color: var(--dim); }
+input:not([type=checkbox], [type=radio]):hover, textarea:hover, select:hover { border-color: var(--line-strong); }
+input:not([type=checkbox], [type=radio]):focus, textarea:focus, select:focus { border-color: var(--line-strong); outline: 1px dashed var(--line-strong); outline-offset: 2px; }
+input:not([type=checkbox], [type=radio]):disabled, textarea:disabled, select:disabled { opacity: .4; border-style: dashed; cursor: not-allowed; }
+textarea { font-family: var(--font-sans); font-size: 14px; }
+select { appearance: none; padding-right: 28px; background-image: linear-gradient(45deg, transparent 50%, var(--fg) 50%), linear-gradient(135deg, var(--fg) 50%, transparent 50%); background-position: calc(100% - 15px) 14px, calc(100% - 10px) 14px; background-size: 5px 5px; background-repeat: no-repeat; }
+/* The open list is drawn by the OS; give it the sheet's colours so options stay readable. */
+select option { background: var(--bg); color: var(--fg); }
+/* Native checkboxes and radios ignore borders, so they keep a visible focus outline and take the ink colour. */
+input[type=checkbox], input[type=radio] { accent-color: var(--ink); }
+input[type=checkbox]:disabled, input[type=radio]:disabled { opacity: .4; cursor: not-allowed; }
+input[type=checkbox]:focus-visible, input[type=radio]:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 2px; }

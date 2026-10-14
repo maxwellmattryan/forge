@@ -53,7 +53,7 @@
       {#if locked}<div class="pt-3"><Banner msg={$t('settings.locked')} /></div>{/if}
       {#each fields as f (f.key)}<ConfigFieldRow field={f} value={c.values[f.key]} {session} disabled={locked || session.saving} />{/each}
     </div>
-    <div class="sticky bottom-0 flex flex-wrap items-center justify-end gap-x-2 gap-y-1.5 border-t border-line bg-panel px-4 md:px-6 py-2.5">
+    <div class="sticky bottom-0 flex flex-wrap items-center justify-end gap-x-2 gap-y-1.5 border-t border-line bg-bg px-4 md:px-6 py-2.5">
       <div bind:this={status} tabindex="-1" class="mr-auto min-w-0 text-xs outline-none" aria-live="polite">
         <span class="text-muted">{$t('settings.save.unsaved', { count: changed.length })}</span>{#if invalid.length}<span class="text-muted"> · {$t('settings.save.invalid', { count: invalid.length })}</span>{/if}
         {#if problem}
