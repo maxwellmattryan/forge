@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.11.0
 
+- Self-update: new `forge update` (`/forge update` in Claude Code) updates the install that is running, a plugin install through `claude plugin marketplace update` and `claude plugin update`, or a clone through `git pull --ff-only`, prints the old and new versions and restarts the current repo's dashboard on the new code. `--check` only shows what it would run, `--keep-dash` leaves the dashboard alone, and a clone with uncommitted changes, a detached HEAD or no upstream is refused.
 - Daemon retries: a turn claude reports as failed (an expired login, a rate limit, a spend cap) no longer strands its requests. The session commits nothing, keeps the requests pending and sends the turn again: at the window's reset when a `rate_limit_event` said which one refused it, otherwise after a backoff that doubles from 1 minute to 1 hour. Limits are retried for as long as it takes; any other error strikes out after 3 in a row, stopping the session and its child with the reason shown. The session's error now ends with `retry at <time>`, and the log gains a `retry` event.
 
 ## 0.10.2
