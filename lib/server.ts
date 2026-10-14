@@ -68,6 +68,9 @@ const MAX_FILE = 2 * 1024 * 1024;
 // Raster formats only: SVG can carry script, so it is never served as an image.
 const IMAGE_TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
 const MAX_IMAGE = 10 * 1024 * 1024;
+// Mockups must be self-contained (inline script and style, data: images and fonts), and the frame makes
+// no network request, so an agent misled into writing secrets into a mockup can't send them anywhere.
+const RAW_CSP = "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:";
 const MAX_SCREENSHOTS = 200;
 /** The newest requests a job's Thread shows. */
 const MAX_JOB_REQUESTS = 50;
@@ -166,7 +169,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (file && m[2] === '/file' && IMAGE_TYPES[path.extname(file).toLowerCase()]) return sendImage(res, jobDir(root, id), file);
         if (!file || !exists(file) || !TEXT_EXT.has(path.extname(file))) return send(res, 404, 'text/plain', 'not found');
         if (m[2] === '/raw') {
-          res.setHeader('Content-Security-Policy', 'sandbox allow-scripts');
+          res.setHeader('Content-Security-Policy', RAW_CSP);
           return send(res, 200, 'text/html; charset=utf-8', fs.readFileSync(file));
         }
         const size = fs.statSync(file).size;

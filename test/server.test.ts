@@ -235,6 +235,33 @@ test('serves job screenshots as images only, confined to screenshots/', async ()
   }
 });
 
+test('serves job HTML at /raw under a no-network sandbox CSP', async () => {
+  const repo = tempRepo();
+  const env = { ...process.env, FORGE_ROOT: repo.dir };
+  const bin = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
+  const forge = (...args) => JSON.parse(execFileSync(process.execPath, [bin, ...args], { cwd: repo.dir, encoding: 'utf8', env }));
+  forge('init', 'write');
+  const job = forge('job', 'new', '--title', 'Mockup');
+  const html = '<style>p{color:red}</style><p id=o></p><script>o.textContent="ok";fetch("https://example.com")</script><img src="https://example.com/x.png">';
+  fs.writeFileSync(path.join(repo.dir, job.dir, 'mockup.html'), html);
+  const { server, url } = await startServer(repo.dir, { port: 0 });
+  const port = Number(new URL(url).port);
+  try {
+    const r = await get(port, `/api/jobs/${job.id}/raw?path=mockup.html`);
+    assert.equal(r.status, 200);
+    assert.equal(r.type, 'text/html; charset=utf-8');
+    assert.ok(r.body.equals(Buffer.from(html)));
+    const csp = r.headers['content-security-policy'];
+    assert.equal(csp, "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:");
+    assert.ok(csp.includes('sandbox allow-scripts'));
+    assert.ok(csp.includes("default-src 'none'"));
+    for (const loose of ['connect-src', 'http', '*', "'self'"]) assert.ok(!csp.includes(loose), loose);
+  } finally {
+    server.close();
+    repo.cleanup();
+  }
+});
+
 // ---- Daemon endpoints. Every pool here gets in-memory children: nothing real is spawned or signalled.
 
 /** @param {number} port @param {{method?:string, path:string, headers?:Record<string,string>, body?:string}} o */
