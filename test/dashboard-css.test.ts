@@ -163,3 +163,17 @@ test('no rounded corners or blurred shadows', () => {
     assert.doesNotMatch(text, /(?<![\w-])rounded(?![\w-])/, `${path.relative(ROOT, f)} uses a bare rounded class (Tailwind's literal .25rem)`);
   }
 });
+
+const draftingCss = () => fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8');
+
+test('appearance prefs turn the grid and paper off', () => {
+  const css = builtCss();
+  assert.match(ruleFor(css, 'html[data-grid=off] .ground'), /background-image:none/);
+  assert.match(ruleFor(css, 'html[data-paper=off] .ground:before'), /display:none/);
+  assert.match(ruleFor(css, 'html[data-paper=off] .falloff:after'), /display:none/);
+  // On by default: nothing hides them unless the attribute says off.
+  assert.doesNotMatch(css, /data-(grid|paper)=on/);
+  const drafting = draftingCss();
+  assert.ok(drafting.includes('html[data-grid="off"] .ground { background-image: none; }'), 'design/drafting.css drops the grid');
+  assert.ok(drafting.includes('html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::after { display: none; }'), 'design/drafting.css drops the fibre and the falloff');
+});

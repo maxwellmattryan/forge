@@ -140,13 +140,15 @@ test('build-stamp hashes notice source, lockfile and dist edits', () => {
   }
 });
 
-// The theme bootstrap must run before the stylesheet so there is no flash of the wrong theme.
+// The appearance bootstrap (theme, grid, paper) must run before the stylesheet so there is no flash of the wrong look.
 const THEME_SCRIPT = `<script>
       try {
         const saved = localStorage.getItem('forge.theme');
         const light = matchMedia('(prefers-color-scheme: light)').matches;
         document.documentElement.dataset.theme =
           saved === 'cyanotype' || saved === 'dark' ? 'cyanotype' : saved === 'vellum' || saved === 'light' ? 'vellum' : light ? 'vellum' : 'cyanotype';
+        document.documentElement.dataset.grid = localStorage.getItem('forge.grid') === 'off' ? 'off' : 'on';
+        document.documentElement.dataset.paper = localStorage.getItem('forge.paper') === 'off' ? 'off' : 'on';
       } catch {}
     </script>`;
 

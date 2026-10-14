@@ -200,6 +200,9 @@
     opacity: var(--paper-opacity);
     mix-blend-mode: var(--paper-blend);
   }
+  /* Settings › General › Grid and Paper (index.html sets the attributes before first paint). */
+  html[data-grid="off"] & { background-image: none; }
+  html[data-paper="off"] &::before { display: none; }
 }
 @utility falloff {
   position: relative;
@@ -212,6 +215,7 @@
     pointer-events: none;
     background: radial-gradient(120% 100% at 50% 40%, transparent 50%, var(--fall) 100%);
   }
+  html[data-paper="off"] &::after { display: none; }
 }
 @utility plain { background: var(--bg); }
 
@@ -348,6 +352,8 @@
   display: flex;
   & .btn { margin-right: -1px; }
   & .btn:last-child { margin-right: 0; }
+  /* A radio seg hides its inputs (sr-only), so the focused one's label draws the ring. */
+  & label:has(input:focus-visible) { outline: 1px dashed var(--line-strong); outline-offset: 3px; z-index: 1; }
 }
 
 /* ---------- chips: outlined annotations ---------- */
@@ -424,7 +430,14 @@
   display: inline-block;
   position: relative;
   flex: none;
-  &.on::after { content: ""; position: absolute; inset: 2px; background: var(--ink); }
+  /* On a native checkbox: drawn, but still the input, so labels, keyboard and semantics are the browser's. */
+  appearance: none;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  vertical-align: middle;
+  &.on::after, &:checked::after { content: ""; position: absolute; inset: 2px; background: var(--ink); }
+  &:disabled { opacity: .4; border-style: dashed; cursor: not-allowed; }
 }
 @utility radio {
   width: 14px;
