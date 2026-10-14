@@ -1,0 +1,171 @@
+// The command bar (dashboard/src/lib/command.ts and CommandBar.svelte): grammar, completions,
+// keyboard rule, request mapping and the combobox markup.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { tags } from './svelte-markup.ts';
+import { VERBS, commandKey, commandRequest, createdMessage, parseCommand, shortcutLabel, suggest } from '../dashboard/src/lib/command.ts';
+import { buildRequest } from '../dashboard/src/lib/view.ts';
+
+const job = (id: string, state = 'running', extra: Record<string, unknown> = {}): any => ({ id, title: `Title of ${id}`, state, waitingOn: null, stage: 'build', ...extra });
+const JOBS = [
+  job('add-reading-time-a1b2'),
+  job('add-dark-mode-c3d4', 'waiting', { waitingOn: 'spec-approval' }),
+  job('add-old-thing-e5f6', 'done'),
+  job('fix-login-g7h8', 'failed'),
+  job('add-cancelled-i9j0', 'cancelled'),
+  job('add-pr-k1l2', 'waiting', { waitingOn: 'pr-review' }),
+];
+const BACKLOG: any[] = [
+  { ref: 'reading-list', title: 'Reading list page', status: 'ready', claimedBy: null },
+  { ref: 'reading-time', title: 'Reading time badge', status: 'in-progress', claimedBy: 'add-reading-time-a1b2' },
+  { ref: 'export-csv', title: 'Export reading stats to CSV', status: 'ready', claimedBy: null },
+  { ref: 'old-item', title: 'Old reading item', status: 'done', claimedBy: null },
+];
+const ctx: any = { jobs: JOBS, backlog: BACKLOG, tracker: 'local' };
+const gh: any = { jobs: JOBS, backlog: null, tracker: 'github' };
+
+test('parseCommand grammar', () => {
+  const p = (s: string, c = ctx) => parseCommand(s, c);
+  assert.deepEqual(p(''), { kind: 'empty' });
+  assert.deepEqual(p('   '), { kind: 'empty' });
+  assert.deepEqual(p('/forge '), { kind: 'empty' });
+  // next [n]
+  assert.deepEqual(p('next'), { kind: 'next', n: null });
+  assert.deepEqual(p('NEXT 3'), { kind: 'next', n: 3 });
+  assert.deepEqual(p('/forge next 3'), { kind: 'next', n: 3 });
+  assert.deepEqual(p('/next 16'), { kind: 'next', n: 16 });
+  for (const s of ['next 0', 'next 17', 'next 2.5', 'next button is broken']) assert.deepEqual(p(s), { kind: 'free', text: s }, s);
+  // sync, retro
+  assert.deepEqual(p('sync'), { kind: 'sync' });
+  assert.deepEqual(p('/forge retro '), { kind: 'retro' });
+  assert.deepEqual(p('sync the header'), { kind: 'free', text: 'sync the header' });
+  assert.deepEqual(p('retro board redesign').kind, 'free');
+  // job verbs
+  assert.deepEqual(p('approve add-dark-mode-c3d4'), { kind: 'job', verb: 'approve', job: 'add-dark-mode-c3d4', note: '' });
+  assert.deepEqual(p('Approve add-dark-mode-c3d4 looks good'), { kind: 'job', verb: 'approve', job: 'add-dark-mode-c3d4', note: 'looks good' });
+  assert.deepEqual(p('revise add-dark-mode-c3d4'), { kind: 'job', verb: 'revise', job: 'add-dark-mode-c3d4', note: '' }, 'revise without a note is a command; the submit says what is missing');
+  assert.deepEqual(p('answer fix-login-g7h8 use OAuth'), { kind: 'job', verb: 'answer', job: 'fix-login-g7h8', note: 'use OAuth' });
+  assert.deepEqual(p('cancel add-pr-k1l2'), { kind: 'job', verb: 'cancel', job: 'add-pr-k1l2', note: '' });
+  assert.deepEqual(p('approve'), { kind: 'partial', verb: 'approve', arg: '' });
+  assert.deepEqual(p('approve '), { kind: 'partial', verb: 'approve', arg: '' });
+  assert.deepEqual(p('rework add-'), { kind: 'partial', verb: 'rework', arg: 'add-' });
+  assert.deepEqual(p('approve unknown-job'), { kind: 'free', text: 'approve unknown-job' }, 'approve <unknown>');
+  assert.deepEqual(p('approve add-old-thing-e5f6').kind, 'free', 'done jobs are not candidates');
+  assert.deepEqual(p('cancel add-cancelled-i9j0').kind, 'free', 'cancelled jobs are not candidates');
+  assert.deepEqual(p('approve add- the rest').kind, 'free', 'a prefix followed by more words is text');
+  // issue <ref>
+  assert.deepEqual(p('issue reading-list'), { kind: 'issue', ref: 'reading-list' });
+  assert.deepEqual(p('issue #export-csv'), { kind: 'issue', ref: 'export-csv' });
+  assert.deepEqual(p('issue'), { kind: 'partial', verb: 'issue', arg: '' });
+  assert.deepEqual(p('issue read'), { kind: 'partial', verb: 'issue', arg: 'read' });
+  assert.deepEqual(p('issue tracker is slow'), { kind: 'free', text: 'issue tracker is slow' });
+  assert.deepEqual(p('issue 42'), { kind: 'free', text: 'issue 42' }, 'numeric refs are syntactic only on github');
+  assert.deepEqual(p('issue #42', gh), { kind: 'issue', ref: '42' });
+  assert.deepEqual(p('issue 42', gh), { kind: 'issue', ref: '42' }, 'works with no backlog loaded');
+  // free text
+  assert.deepEqual(p('Add a reading-time badge'), { kind: 'free', text: 'Add a reading-time badge' });
+  assert.deepEqual(p('app'), { kind: 'free', text: 'app' }, 'a verb prefix alone is text until completed');
+  assert.deepEqual(p('/forge Add dark mode '), { kind: 'free', text: '/forge Add dark mode' });
+});
+
+test('suggest ordering and limits', () => {
+  const kinds = (s: string, c = ctx) => suggest(s, c).map((o: any) => (o.kind === 'verb' ? `verb:${o.verb}` : o.kind === 'job' ? `job:${o.job.id}` : o.kind === 'ref' ? `ref:${o.item.ref}` : o.kind));
+  const empty = suggest('', ctx);
+  assert.equal(empty.length, 8, 'at most 8');
+  assert.deepEqual(empty.map((o: any) => o.verb), VERBS.slice(0, 8));
+  assert.ok(empty.every((o: any) => o.kind === 'verb' && o.insert === `${o.verb} `));
+  assert.deepEqual(kinds('re'), ['verb:revise', 'verb:rework', 'verb:retro', 'run-job'], 'verb prefixes first, then a new job');
+  assert.deepEqual(kinds('approve'), ['verb:approve'], 'completes the verb with its space');
+  assert.deepEqual(kinds('Add a badge'), ['run-job'], 'free text: Start job first');
+  assert.deepEqual(kinds('next button is broken'), ['run-job']);
+  assert.deepEqual(kinds('next'), ['run-command'], 'a complete command: Send first');
+  assert.deepEqual(kinds('n'), ['verb:next', 'run-job']);
+  assert.deepEqual(kinds('approve '), ['job:add-dark-mode-c3d4', 'job:fix-login-g7h8', 'job:add-reading-time-a1b2', 'job:add-pr-k1l2'], 'jobs needing a human first, done and cancelled excluded');
+  assert.deepEqual(kinds('approve add-'), ['job:add-dark-mode-c3d4', 'job:add-reading-time-a1b2', 'job:add-pr-k1l2']);
+  assert.equal((suggest('approve add-d', ctx)[0] as any).insert, 'approve add-dark-mode-c3d4 ');
+  assert.deepEqual(kinds('approve add-dark-mode-c3d4 ship'), ['run-command']);
+  assert.deepEqual(kinds('issue '), ['ref:reading-list', 'ref:export-csv'], 'open, unclaimed items only');
+  assert.deepEqual(kinds('issue read'), ['ref:reading-list', 'ref:export-csv'], 'ref prefix or title substring');
+  assert.deepEqual(kinds('issue exp'), ['ref:export-csv']);
+  assert.equal((suggest('issue exp', ctx)[0] as any).insert, 'issue export-csv');
+  assert.deepEqual(kinds('issue export-csv'), ['run-command']);
+  assert.deepEqual(kinds('issue ', gh), [], 'no backlog: no ref completion');
+  const many: any = { ...ctx, jobs: Array.from({ length: 20 }, (_, i) => job(`job-${i}`)) };
+  assert.equal(suggest('cancel job-', many).length, 8);
+});
+
+test('commandKey', () => {
+  const k = (o: Partial<Parameters<typeof commandKey>[0]>) => commandKey({ key: 'k', ctrlKey: false, metaKey: true, altKey: false, open: false, settingsOpen: false, ...o });
+  assert.equal(k({}), 'open', 'Cmd-K');
+  assert.equal(k({ metaKey: false, ctrlKey: true }), 'open', 'Ctrl-K');
+  assert.equal(k({ key: 'K' }), 'open', 'with Shift or Caps Lock');
+  assert.equal(k({ metaKey: false }), null, 'a bare k is typing');
+  assert.equal(k({ altKey: true }), null, 'not with Alt');
+  assert.equal(k({ repeat: true }), null, 'not on auto-repeat');
+  assert.equal(k({ composing: true }), null, 'not mid-composition');
+  assert.equal(k({ settingsOpen: true }), null, 'never over Settings');
+  assert.equal(k({ open: true }), 'open', 'again while open: refocus, and keep the browser shortcut away');
+  assert.equal(k({ key: 'Escape', metaKey: false, open: true }), 'close');
+  assert.equal(k({ key: 'Escape', metaKey: false }), null, 'Escape while closed is the drawer\'s');
+  // A field has focus: the chord still opens it (there is no target check at all).
+  assert.equal(k({ ctrlKey: true, metaKey: false }), 'open');
+  assert.equal(shortcutLabel('MacIntel'), '⌘K');
+  assert.equal(shortcutLabel('iPhone'), '⌘K');
+  assert.equal(shortcutLabel('Win32'), 'Ctrl K');
+  assert.equal(shortcutLabel('Linux x86_64'), 'Ctrl K');
+  assert.equal(shortcutLabel(''), 'Ctrl K');
+  assert.equal(createdMessage('add-x-1a2b', true), 'Created add-x-1a2b. The daemon picks it up.');
+  assert.equal(createdMessage('add-x-1a2b', false), 'Created add-x-1a2b. Start the daemon, or run /forge requests in Claude Code.');
+});
+
+test('commandRequest bodies', () => {
+  const body = (s: string, c = ctx) => {
+    const r: any = commandRequest(parseCommand(s, c));
+    if ('error' in r) return r;
+    if (r.kind === 'job') return { job: r.body };
+    const b: any = buildRequest(r.input);
+    return b.body;
+  };
+  assert.deepEqual(body('  Add a reading-time badge  '), { job: { text: 'Add a reading-time badge' } });
+  assert.deepEqual(body('next'), { type: 'next', job: null, text: null, args: {} });
+  assert.deepEqual(body('/forge next 3'), { type: 'next', job: null, text: null, args: { n: 3 } });
+  assert.deepEqual(body('sync'), { type: 'sync', job: null, text: null, args: {} });
+  assert.deepEqual(body('retro'), { type: 'retro', job: null, text: null, args: {} });
+  assert.deepEqual(body('approve add-dark-mode-c3d4'), { type: 'approve', job: 'add-dark-mode-c3d4', text: null, args: {} });
+  assert.deepEqual(body('approve add-dark-mode-c3d4  ship it '), { type: 'approve', job: 'add-dark-mode-c3d4', text: 'ship it', args: {} });
+  assert.deepEqual(body('revise add-dark-mode-c3d4 split the toggle'), { type: 'revise-spec', job: 'add-dark-mode-c3d4', text: 'split the toggle', args: {} });
+  assert.deepEqual(body('rework fix-login-g7h8'), { type: 'rework', job: 'fix-login-g7h8', text: null, args: {} });
+  assert.deepEqual(body('answer fix-login-g7h8 yes'), { type: 'answer', job: 'fix-login-g7h8', text: 'yes', args: {} });
+  assert.deepEqual(body('cancel fix-login-g7h8'), { type: 'cancel', job: 'fix-login-g7h8', text: null, args: {} });
+  assert.deepEqual(body('issue #export-csv'), { type: 'run', job: null, text: null, args: { ref: 'export-csv' } });
+  assert.deepEqual(body('issue 42', gh), { type: 'run', job: null, text: null, args: { ref: '42' } });
+  assert.deepEqual(body('revise add-dark-mode-c3d4'), { error: 'Write something first.' });
+  assert.deepEqual(body('answer fix-login-g7h8'), { error: 'Write something first.' });
+  assert.ok('error' in body('approve '), 'a partial command sends nothing');
+  assert.ok('error' in body(''), 'nor does an empty bar');
+});
+
+test('command bar markup is an ARIA combobox', () => {
+  const file = path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'CommandBar.svelte');
+  const all = tags('CommandBar.svelte', fs.readFileSync(file, 'utf8'));
+  const attr = (t: any, name: string) => t.attrs.find((a: any) => a.name === name)?.value;
+  const with_ = (name: string, value: string) => all.filter((t) => attr(t, name) === value);
+  const [dialog] = with_('role', '"dialog"');
+  assert.ok(dialog, 'a dialog');
+  assert.equal(attr(dialog, 'aria-modal'), '"true"');
+  assert.match(attr(dialog, 'aria-label') ?? attr(dialog, 'aria-labelledby') ?? '', /\$t\('command\.title'\)|\S/);
+  const [combo] = with_('role', '"combobox"');
+  assert.ok(combo && combo.name === 'input', 'the input is the combobox');
+  for (const a of ['aria-expanded', 'aria-activedescendant', 'aria-label']) assert.ok(attr(combo, a), a);
+  assert.equal(attr(combo, 'aria-controls'), '"command-list"');
+  assert.equal(attr(combo, 'aria-autocomplete'), '"list"');
+  const [list] = with_('role', '"listbox"');
+  assert.equal(attr(list, 'id'), '"command-list"');
+  const [option] = with_('role', '"option"');
+  assert.ok(attr(option, 'aria-selected'), 'options carry aria-selected');
+  assert.ok(attr(option, 'id'), 'options have ids for aria-activedescendant');
+  assert.equal(with_('aria-live', '"polite"').length, 1, 'one polite live region');
+  assert.ok(with_('role', '"alert"').length >= 1, 'server errors show as an alert');
+});

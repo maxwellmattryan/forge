@@ -14,6 +14,8 @@ import type {
   JobDetail,
   PostConfigBody,
   PostConfigResponse,
+  PostJobBody,
+  PostJobResponse,
   PostRequestResponse,
   Roster,
   Stats,
@@ -137,18 +139,32 @@ export async function compareRuns(a: string, b: string): Promise<void> {
 
 // ---------- requests ----------
 
+const postInit = (body: unknown): RequestInit => ({
+  method: 'POST',
+  headers: { 'content-type': 'application/json', 'x-forge-token': forgeToken() },
+  body: JSON.stringify(body),
+});
+
+/** Queues a request; throws the server's `error` text, so the command bar can keep it in the dialog. */
+export const postRequest = (body: RequestBody): Promise<PostRequestResponse> => jsonFetch<PostRequestResponse>('/api/requests', postInit(body));
+
 export async function request(body: RequestBody): Promise<void> {
   try {
-    const r = await api<PostRequestResponse>('/api/requests', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-forge-token': forgeToken() },
-      body: JSON.stringify(body),
-    });
+    const r = await postRequest(body);
     toast(queuedMessage(body.type, r.daemon));
     refresh();
   } catch (e) {
     toast(`Request failed: ${message(e)}`, true);
   }
+}
+
+/** POST /api/jobs: a new job from free text. Throws the server's `error` text. */
+export const createJob = (body: PostJobBody): Promise<PostJobResponse> => jsonFetch<PostJobResponse>('/api/jobs', postInit(body));
+
+/** Fills S.backlog for the command bar's ref completion, once; a failure leaves it empty with the error. */
+export async function loadBacklog(): Promise<void> {
+  if (S.backlog) return;
+  S.backlog = await api<BacklogResponse>('/api/backlog').catch((e: unknown) => ({ items: [], error: message(e) }));
 }
 
 /** A request button: builds the body as the old `req` handler did, or toasts why not. */
@@ -160,27 +176,27 @@ export function req(input: RequestInput): void {
 
 // ---------- settings ----------
 
-/** fetch for the settings endpoints: errors carry the reply's `error` text, never a raw JSON body. */
-async function settingsFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+/** fetch for JSON endpoints: errors carry the reply's `error` text, never a raw JSON body. */
+async function jsonFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, init);
   const text = await res.text();
   if (!res.ok) throw new Error(errorText(text) || res.statusText);
   return JSON.parse(text) as T;
 }
 
-export const fetchConfig = (): Promise<ConfigResponse> => settingsFetch<ConfigResponse>('/api/config');
+export const fetchConfig = (): Promise<ConfigResponse> => jsonFetch<ConfigResponse>('/api/config');
 
 export const postConfig = (key: string, value: ConfigValue): Promise<PostConfigResponse> =>
-  settingsFetch<PostConfigResponse>('/api/config', {
+  jsonFetch<PostConfigResponse>('/api/config', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-forge-token': forgeToken() },
     body: JSON.stringify({ key, value } satisfies PostConfigBody),
   });
 
 /** Takes the token: the server runs git and gh for it. */
-export const fetchDoctor = (): Promise<DoctorResponse> => settingsFetch<DoctorResponse>('/api/doctor', { headers: { 'x-forge-token': forgeToken() } });
+export const fetchDoctor = (): Promise<DoctorResponse> => jsonFetch<DoctorResponse>('/api/doctor', { headers: { 'x-forge-token': forgeToken() } });
 
-export const fetchAbout = (): Promise<AboutResponse> => settingsFetch<AboutResponse>('/api/about');
+export const fetchAbout = (): Promise<AboutResponse> => jsonFetch<AboutResponse>('/api/about');
 
 // ---------- drawer ----------
 

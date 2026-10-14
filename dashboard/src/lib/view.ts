@@ -182,13 +182,15 @@ export interface RequestInput {
   /** A button's fixed text, which wins over the note. */
   fixedText?: string | null;
   ref?: string | null;
+  /** Extra args (`n` for next, `link` for an issue-link approve), merged after `ref`. */
+  args?: Record<string, unknown>;
 }
 
 /** The POST /api/requests body a request button sends, or the toast it shows instead. */
-export function buildRequest({ type, job = null, note = null, needsNote = false, fixedText = null, ref = null }: RequestInput): { body: RequestBody } | { error: string } {
+export function buildRequest({ type, job = null, note = null, needsNote = false, fixedText = null, ref = null, args }: RequestInput): { body: RequestBody } | { error: string } {
   const text = fixedText ?? note?.trim() ?? null;
   if (needsNote && !text && ['answer', 'revise-spec'].includes(type)) return { error: 'Write something first.' };
-  return { body: { type, job: job ?? null, text: text || null, args: ref ? { ref } : {} } };
+  return { body: { type, job: job ?? null, text: text || null, args: { ...(ref ? { ref } : {}), ...(args ?? {}) } } };
 }
 
 export function evalRunBody(form: { tags?: string | null; tasks?: string | null; label?: string | null }): RequestBody {
