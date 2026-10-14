@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as V from '../dashboard/src/lib/view.ts';
 import { WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
-import { cleanRef, parseCandidates, threadItems } from '../dashboard/src/lib/thread.ts';
+import { cleanRef, parseCandidates, threadAction, threadItems } from '../dashboard/src/lib/thread.ts';
 import { dur, tokensShort } from '../dashboard/src/lib/util.ts';
 
 // Per waiting kind: the card's buttons, its textarea placeholder (null: no textarea) and its "Read …" link.
@@ -187,10 +187,34 @@ test('thread items', () => {
   assert.deepEqual(items.map((i) => i.status), ['queued', 'handling', 'done', 'rejected']);
   assert.deepEqual(items.map((i) => i.result), [null, null, 'continued from build', 'not a human']);
   assert.deepEqual(items.map((i) => i.text), ['t 1-a', 't 2-b', null, 't 4-d']);
-  assert.equal(items[2].type, 'resume');
+  assert.deepEqual(items.map((i) => i.action), [{ kind: 'verb', verb: 'answer' }, { kind: 'verb', verb: 'answer' }, { kind: 'resumed' }, { kind: 'verb', verb: 'answer' }], 'friendly actions, never the raw type');
   assert.equal(items[0].at, '2026-10-13T00:00:01Z');
   assert.deepEqual(threadItems([]), []);
   assert.deepEqual(threadItems(undefined), []);
+  // A job from the command bar: its request opens the thread as yours, then "Start this job", not "resume".
+  const created = threadItems([r('5-e', 'dashboard', 'pending', { type: 'resume', text: null, args: { intake: 'new' } })], { text: 'Add a reading-time badge', at: '2026-10-13T00:00:00Z', tracker: false });
+  assert.deepEqual(
+    created.map((i) => [i.id, i.from, i.action, i.text, i.status]),
+    [
+      ['request', 'you', { kind: 'request' }, 'Add a reading-time badge', null],
+      ['5-e', 'you', { kind: 'started' }, null, 'queued'],
+    ],
+  );
+  assert.deepEqual(threadItems([], { text: 'Imported body', at: null, tracker: true })[0].from, 'tracker');
+  assert.deepEqual(threadItems([], { text: null, at: null, tracker: false }), [], 'no request text, no opening message');
+  // Every answer to the issue-link gate reads differently, and next says how many.
+  const a = (type: string, args: Record<string, unknown>, from = 'dashboard') => threadAction({ type, args, from } as any);
+  assert.deepEqual(a('approve', { link: '42' }), { kind: 'link', ref: '42' });
+  assert.deepEqual(a('approve', { link: '#42' }), { kind: 'link', ref: '42' });
+  assert.deepEqual(a('approve', { link: 'new' }), { kind: 'link-new' });
+  assert.deepEqual(a('approve', { link: 'none' }), { kind: 'link-none' });
+  assert.deepEqual(a('approve', {}), { kind: 'verb', verb: 'approve' });
+  assert.deepEqual(a('next', { n: 3 }), { kind: 'next', n: 3 });
+  assert.deepEqual(a('next', {}), { kind: 'next', n: 1 });
+  assert.deepEqual(a('run', { ref: '12' }), { kind: 'run', ref: '12' });
+  assert.deepEqual(a('resume', { intake: 'run' }, 'daemon:_inbox'), { kind: 'handoff' });
+  assert.deepEqual(a('revise-spec', {}), { kind: 'verb', verb: 'revise' });
+  assert.deepEqual(a('eval-run', {}), { kind: 'verb', verb: 'eval' });
   const hostile = threadItems([r('1-x', 'dashboard', 'done', { text: '<script>alert(1)</script>', result: '<img src=x onerror=alert(1)>' })])[0];
   assert.equal(hostile.text, '<script>alert(1)</script>', 'kept as text: Svelte escapes it');
 });

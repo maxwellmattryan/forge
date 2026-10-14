@@ -135,7 +135,7 @@
           </div>
         </div>
       {:else if shown.tab === 'thread'}
-        <ThreadPanel job={j} requests={d.requests ?? []} active={open} />
+        <ThreadPanel job={j} requests={d.requests ?? []} request={d.request ?? null} active={open} />
       {:else}
         <ul>
           {#each events as e, i (i)}

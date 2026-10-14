@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tags } from './svelte-markup.ts';
-import { VERBS, commandKey, commandRequest, createdMessage, parseCommand, shortcutLabel, suggest } from '../dashboard/src/lib/command.ts';
+import { VERBS, commandKey, commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, shortcutLabel, suggest } from '../dashboard/src/lib/command.ts';
 import { buildRequest } from '../dashboard/src/lib/view.ts';
 
 const job = (id: string, state = 'running', extra: Record<string, unknown> = {}): any => ({ id, title: `Title of ${id}`, state, waitingOn: null, stage: 'build', ...extra });
@@ -73,8 +73,8 @@ test('parseCommand grammar', () => {
 test('suggest ordering and limits', () => {
   const kinds = (s: string, c = ctx) => suggest(s, c).map((o: any) => (o.kind === 'verb' ? `verb:${o.verb}` : o.kind === 'job' ? `job:${o.job.id}` : o.kind === 'ref' ? `ref:${o.item.ref}` : o.kind));
   const empty = suggest('', ctx);
-  assert.equal(empty.length, 8, 'at most 8');
-  assert.deepEqual(empty.map((o: any) => o.verb), VERBS.slice(0, 8));
+  assert.equal(empty.length, VERBS.length, 'the empty bar lists every verb');
+  assert.deepEqual(empty.map((o: any) => o.verb), [...VERBS]);
   assert.ok(empty.every((o: any) => o.kind === 'verb' && o.insert === `${o.verb} `));
   assert.deepEqual(kinds('re'), ['verb:revise', 'verb:rework', 'verb:retro', 'run-job'], 'verb prefixes first, then a new job');
   assert.deepEqual(kinds('approve'), ['verb:approve'], 'completes the verb with its space');
@@ -92,6 +92,15 @@ test('suggest ordering and limits', () => {
   assert.equal((suggest('issue exp', ctx)[0] as any).insert, 'issue export-csv');
   assert.deepEqual(kinds('issue export-csv'), ['run-command']);
   assert.deepEqual(kinds('issue ', gh), [], 'no backlog: no ref completion');
+  assert.deepEqual(suggest('approve my-typo', ctx), [{ kind: 'run-job', verbLike: true }], 'a command word with no match says it becomes a job');
+  assert.deepEqual(suggest('Add a badge', ctx), [{ kind: 'run-job', verbLike: false }]);
+  const reason = (s: string, c = ctx, err: string | null = null) => emptyReason(parseCommand(s, c), suggest(s, c), err, c);
+  assert.equal(reason('approve ', { ...ctx, jobs: [job('done-1', 'done')] }), 'noJobs', 'no open jobs');
+  assert.equal(reason('issue ', { ...ctx, backlog: [] }), 'noItems');
+  assert.equal(reason('issue ', { ...ctx, backlog: null }), 'backlogLoading');
+  assert.equal(reason('issue ', { ...ctx, backlog: [] }, 'gh: not logged in'), 'backlogFailed');
+  assert.equal(reason('approve '), null, 'options to show');
+  assert.equal(reason('Add a badge'), null);
   const many: any = { ...ctx, jobs: Array.from({ length: 20 }, (_, i) => job(`job-${i}`)) };
   assert.equal(suggest('cancel job-', many).length, 8);
 });
@@ -117,6 +126,8 @@ test('commandKey', () => {
   assert.equal(shortcutLabel('Linux x86_64'), 'Ctrl K');
   assert.equal(shortcutLabel(''), 'Ctrl K');
   assert.equal(createdMessage('add-x-1a2b', true), 'Created add-x-1a2b. The daemon picks it up.');
+  assert.equal(commandQueuedMessage('approve', 'add-x-1a2b', true), 'Queued "approve" for add-x-1a2b. The daemon picks it up.');
+  assert.equal(commandQueuedMessage('sync', null, false), 'Queued "sync". Your orchestrator session picks it up (/forge requests).');
   assert.equal(createdMessage('add-x-1a2b', false), 'Created add-x-1a2b. Start the daemon, or run /forge requests in Claude Code.');
 });
 

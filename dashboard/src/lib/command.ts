@@ -4,7 +4,7 @@ import type { PostJobBody, RequestType, StateJob, TrackerItem } from './types.ts
 import { buildRequest, needsHuman } from './view.ts';
 import type { RequestInput } from './view.ts';
 
-/** First words the bar understands, in the order the empty bar lists them (it shows at most 8). */
+/** First words the bar understands, in the order the empty bar lists them (all of them: the empty list is where they are discovered). */
 export const VERBS = ['next', 'issue', 'approve', 'answer', 'revise', 'rework', 'cancel', 'sync', 'retro'] as const;
 export type Verb = (typeof VERBS)[number];
 
@@ -35,7 +35,8 @@ export type Parsed =
   | { kind: 'issue'; ref: string };
 
 export type Suggestion =
-  | { kind: 'run-job' }
+  /** `verbLike`: the text starts with a command word but matched no command, so the hint says it becomes a job. */
+  | { kind: 'run-job'; verbLike: boolean }
   | { kind: 'run-command' }
   | { kind: 'verb'; verb: Verb; insert: string }
   | { kind: 'job'; job: StateJob; insert: string }
@@ -106,15 +107,16 @@ function refMatches(ctx: CommandCtx, raw: string): TrackerItem[] {
 
 const runnable = (p: Parsed): boolean => p.kind !== 'empty' && p.kind !== 'partial';
 
-/** The bar's options, at most 8: the Run option when there is something to run, then completions. */
+/** The bar's options, at most 8 once something is typed (all the verbs on an empty bar): the Run option when there is something to run, then completions. */
 export function suggest(input: string, ctx: CommandCtx): Suggestion[] {
   const p = parseCommand(input, ctx);
   const out: Suggestion[] = [];
   const { word, rest, spaced } = split(input);
-  if (p.kind === 'empty') return VERBS.slice(0, MAX_SUGGESTIONS).map((verb) => ({ kind: 'verb', verb, insert: `${verb} ` }));
+  if (p.kind === 'empty') return VERBS.map((verb) => ({ kind: 'verb', verb, insert: `${verb} ` }));
+  const runJob: Suggestion = { kind: 'run-job', verbLike: isVerb(word) };
   const verbs: Suggestion[] = !spaced ? VERBS.filter((v) => v.startsWith(word) && !(v === word && runnable(p))).map((verb) => ({ kind: 'verb', verb, insert: `${verb} ` })) : [];
-  if (p.kind === 'free' && verbs.length) out.push(...verbs, { kind: 'run-job' });
-  else if (runnable(p)) out.push({ kind: p.kind === 'free' ? 'run-job' : 'run-command' }, ...verbs);
+  if (p.kind === 'free' && verbs.length) out.push(...verbs, runJob);
+  else if (runnable(p)) out.push(p.kind === 'free' ? runJob : { kind: 'run-command' }, ...verbs);
   else out.push(...verbs);
   if (p.kind === 'partial' && spaced && isJobVerb(p.verb)) {
     const arg = p.arg.toLowerCase();
@@ -183,6 +185,20 @@ export function commandKey(e: CommandKeyInput): 'open' | 'close' | null {
 
 /** The shortcut hint: `⌘K` on Apple platforms, `Ctrl K` elsewhere. */
 export const shortcutLabel = (platform: string): string => (/mac|iphone|ipad|ipod/i.test(platform) ? '⌘K' : 'Ctrl K');
+
+/** Why a partial command has no options, for the visible line in place of the list; null when it has some. */
+export function emptyReason(p: Parsed, options: Suggestion[], backlogError: string | null | undefined, ctx: CommandCtx): 'noJobs' | 'noItems' | 'backlogLoading' | 'backlogFailed' | null {
+  if (options.length || p.kind !== 'partial') return null;
+  if (p.verb !== 'issue') return isJobVerb(p.verb) ? 'noJobs' : null;
+  if (backlogError) return 'backlogFailed';
+  return ctx.backlog === null ? 'backlogLoading' : 'noItems';
+}
+
+/** The toast after a command: a job verb names its job. */
+export const commandQueuedMessage = (type: string, job: string | null | undefined, daemon: boolean): string => {
+  const what = job ? `"${type}" for ${job}` : `"${type}"`;
+  return daemon ? `Queued ${what}. The daemon picks it up.` : `Queued ${what}. Your orchestrator session picks it up (/forge requests).`;
+};
 
 /** The toast after POST /api/jobs. */
 export const createdMessage = (id: string, daemon: boolean): string =>

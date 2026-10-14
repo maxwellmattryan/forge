@@ -402,7 +402,6 @@
     "start": "Start job",
     "send": "Send",
     "working": "Working…",
-    "newJob": "Start a new job from this text",
     "hints": {
       "next": "Take the next ready backlog items: next [n]",
       "issue": "Start a job from a tracker item: issue <ref>",
@@ -418,7 +417,12 @@
       "one": "{count} suggestion",
       "other": "{count} suggestions"
     },
-    "empty": "No suggestions"
+    "empty": "No suggestions",
+    "verbLike": "No command matches; this starts a new job",
+    "noJobs": "No open jobs match",
+    "noItems": "No open backlog items match",
+    "backlogLoading": "Loading the backlog…",
+    "backlogFailed": "Couldn't load the backlog: {error}"
   },
   "thread": {
     "conversation": "Conversation",
@@ -431,15 +435,41 @@
     "done": "done",
     "rejected": "rejected",
     "empty": "Requests about this job and the session's replies appear here.",
-    "nothing": "Nothing needs you on this job right now."
+    "nothing": "Nothing needs you on this job right now.",
+    "tracker": "Tracker",
+    "action": {
+      "request": "New job",
+      "imported": "Issue this job came from",
+      "started": "Start this job",
+      "handoff": "Hand off to this job's session",
+      "resumed": "Continue the job",
+      "link": "Link issue {ref}",
+      "linkNew": "Create a new issue",
+      "linkNone": "No issue needed",
+      "next": {
+        "one": "Take the next ready item",
+        "other": "Take the next {count} ready items"
+      },
+      "run": "Start issue {ref}",
+      "approve": "Approve",
+      "revise": "Request spec changes",
+      "rework": "Another round",
+      "answer": "Answer",
+      "cancel": "Cancel the job",
+      "sync": "Sync",
+      "eval": "Run evals",
+      "retro": "Run a retro"
+    }
   },
   "issueLink": {
+    "prompt": "Link this job to an issue so its PR closes it, or say none is needed.",
     "candidates": "Issues that may fit",
     "link": "Link",
     "linkRef": "Link {ref}",
     "otherRef": "Other issue",
     "otherPlaceholder": "#123 or a backlog ref",
     "create": "Create a new issue",
-    "none": "No issue needed"
+    "none": "No issue needed",
+    "noMatches": "No matching open issues were found."
   }
 }
