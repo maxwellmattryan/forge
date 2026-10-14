@@ -1,7 +1,7 @@
 // The dashboard's view logic, ported as-is from the pre-Svelte app.js so node:test can pin it: components hold only markup.
 // Plain functions and constants, no DOM access.
 import { STAGES } from './types.ts';
-import type { EvalCompare, Job, JobEvent, JobPr, Progress, RequestType, StateJob, WaitingOn } from './types.ts';
+import type { EvalCompare, Job, JobEvent, JobPr, OwnerStatus, Progress, RequestType, StateJob, WaitingOn } from './types.ts';
 import { WAIT_LABEL } from './labels.ts';
 
 /** job.json can be hand-edited, so helpers read fields defensively despite the types. */
@@ -70,6 +70,28 @@ export function cardRef(job: JobLike): string | null {
 
 /** A waiting job a human must act on (pr-review waits are listed separately). */
 export const needsHuman = (j: JobLike): boolean => j.state === 'waiting' && j.waitingOn !== 'pr-review';
+
+/** The drawer's Resume: shown, whether it can be clicked, and which owner note goes beside it. */
+export interface ResumeModel {
+  show: boolean;
+  enabled: boolean;
+  note: 'live' | 'agent' | 'stale' | 'gone' | null;
+}
+
+/**
+ * Resume is for an open, non-eval job nobody is driving: queued or failed, or any non-waiting job
+ * whose owner is stale or provably gone (waiting jobs keep their gate buttons). A live owner
+ * disables it, since the job's session would refuse the claim; the server refuses it too (409).
+ */
+export function resumeModel(j: Pick<JobLike, 'state' | 'kind'> & { ownerStatus?: OwnerStatus | null }): ResumeModel {
+  const status = j.ownerStatus?.status ?? 'none';
+  const hidden: ResumeModel = { show: false, enabled: false, note: null };
+  if (j.kind === 'eval' || j.state === 'done' || j.state === 'cancelled' || j.state === 'waiting') return hidden;
+  const idle = status === 'stale' || status === 'dead';
+  if (!(j.state === 'queued' || j.state === 'failed' || idle)) return hidden;
+  const note = status === 'live' ? (j.ownerStatus?.agentRunning ? 'agent' : 'live') : status === 'stale' ? 'stale' : status === 'dead' ? 'gone' : null;
+  return { show: true, enabled: status !== 'live', note };
+}
 
 // ---------- pipeline ----------
 

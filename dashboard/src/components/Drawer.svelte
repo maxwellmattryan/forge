@@ -14,8 +14,8 @@
   import { screenshotsPanel } from '../lib/screenshots.ts';
   import { threadOpening } from '../lib/thread.ts';
   import { ago, dur, num, tokensShort, usd } from '../lib/util.ts';
-  import { eventDetail, verdictMatrix } from '../lib/view.ts';
-  import { S, closeDrawer, loadFile, setDrawerTab } from '../lib/app.svelte.ts';
+  import { eventDetail, resumeModel, verdictMatrix } from '../lib/view.ts';
+  import { S, closeDrawer, loadFile, req, setDrawerTab } from '../lib/app.svelte.ts';
   import { t } from '../lib/locale.ts';
 
   const open = $derived(S.drawer.id !== null);
@@ -55,10 +55,19 @@
   {:else if shown && job}
     {@const d = shown.detail}
     {@const j = job}
+    {@const r = resumeModel(j)}
     <div class="p-5 md:p-6 flex flex-col gap-5">
       <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="h sheet-title">{j.title}</h2><div class="mono muted">{j.id}</div></div><button class="btn icon shrink-0" aria-label={$t('drawer.close')} onclick={closeDrawer}><Icon name="close" /></button></div>
       <div class="flex flex-wrap gap-1.5"><span class="chip ink">{STAGE_LABEL[j.stage] ?? j.stage}</span><StateChip job={j} />{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}</div>
       {#if j.reason}<div class="text-sm text-muted">{j.reason}</div>{/if}
+      {#if r.show}
+        {@const o = j.ownerStatus}
+        {@const values = { session: o?.session ?? '', since: ago(o?.since), active: ago(o?.heartbeat) }}
+        <div class="flex flex-wrap items-center gap-3">
+          <button class="btn btn-primary" disabled={!r.enabled} aria-describedby={r.note ? 'drawer-owner-note' : undefined} onclick={() => req({ type: 'resume', job: j.id })}>{$t('drawer.resume')}</button>
+          {#if r.note}<span id="drawer-owner-note" class="min-w-0 text-sm text-muted wrap-anywhere">{r.note === 'live' ? $t('drawer.ownerLive', values) : r.note === 'agent' ? $t('drawer.ownerAgent', values) : r.note === 'stale' ? $t('drawer.ownerStale', values) : $t('drawer.ownerGone', values)}</span>{/if}
+        </div>
+      {/if}
       <ProgressBar progress={j.progress} />
       <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
         {@render fact($t('drawer.branch'), j.branch ?? '—')}{@render fact($t('drawer.base'), j.base ?? '—')}{@render fact($t('drawer.port'), j.port ?? '—')}{@render fact($t('drawer.worktree'), j.worktree ?? '—')}

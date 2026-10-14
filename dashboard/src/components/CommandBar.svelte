@@ -43,6 +43,7 @@
   const hints = $derived<Record<Verb, string>>({
     next: $t('command.hints.next'),
     issue: $t('command.hints.issue'),
+    continue: $t('command.hints.continue'),
     approve: $t('command.hints.approve'),
     answer: $t('command.hints.answer'),
     revise: $t('command.hints.revise'),

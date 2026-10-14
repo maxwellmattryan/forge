@@ -1,9 +1,9 @@
-// Shapes of the forge dash HTTP API for API_VERSION 11. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 12. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
 
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 11;
+export const API_VERSION = 12;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 
@@ -86,6 +86,24 @@ export interface JobOwner {
   host: string;
   since: string;
   heartbeat: string;
+}
+
+/** Why a daemon owner provably let go of a job: ownerYield in lib/daemon-owner.ts. */
+export type YieldReason = 'moved-on' | 'not-running' | 'inbox-handoff';
+
+/** `dead` only in the job detail, which adds the daemon-record proof; /api/state gives the rest. */
+export type OwnerStatusKind = 'none' | 'live' | 'stale' | 'dead';
+
+/** Whether a job's owner still drives it: ownerStatus in lib/jobs.ts, ownerStatusWithProof in lib/daemon-owner.ts. */
+export interface OwnerStatus {
+  status: OwnerStatusKind;
+  session: string | null;
+  since: string | null;
+  heartbeat: string | null;
+  /** An agent has been marked running for under 2 hours. */
+  agentRunning: boolean;
+  /** Set only with status `dead`. */
+  reason: YieldReason | null;
 }
 
 /** One orchestrator session's stint on a job: claimJob/releaseJob in lib/jobs.ts. */
@@ -352,7 +370,7 @@ export interface DaemonLogPage {
 }
 
 /** A job row in /api/state: state() in lib/server.ts. */
-export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number };
+export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus };
 
 /** Request types the inbox accepts: REQUEST_TYPES in lib/requests.ts. */
 export type RequestType = 'next' | 'run' | 'approve' | 'revise-spec' | 'rework' | 'answer' | 'cancel' | 'resume' | 'sync' | 'eval-run' | 'retro';
@@ -394,7 +412,7 @@ export interface ApiState {
 
 /** GET /api/jobs/:id: jobDetail in lib/server.ts. */
 export interface JobDetail {
-  job: Job & { progress: Progress };
+  job: Job & { progress: Progress; ownerStatus: OwnerStatus };
   events: JobEvent[];
   files: string[];
   screenshots: string[];

@@ -800,7 +800,7 @@ export interface DaemonLogPage {
 }
 
 /** A job row in /api/state: state() in lib/server.ts. */
-export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number };
+export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus };
 
 /** GET /api/state: state() in lib/server.ts. */
 export interface ApiState {
@@ -824,7 +824,7 @@ export interface ApiState {
 
 /** GET /api/jobs/:id: jobDetail in lib/server.ts. */
 export interface JobDetail {
-  job: Job & { progress: Progress };
+  job: Job & { progress: Progress; ownerStatus: OwnerStatus };
   events: JobEvent[];
   files: string[];
   screenshots: string[];

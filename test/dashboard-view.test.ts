@@ -281,3 +281,23 @@ test('issue-link candidates and actions', () => {
   assert.deepEqual(link('none', 'tiny fix'), { type: 'approve', job: 'j1', text: 'tiny fix', args: { link: 'none' } });
   assert.deepEqual(link('new'), { type: 'approve', job: 'j1', text: null, args: { link: 'new' } });
 });
+
+test('resumeModel', () => {
+  const os = (status: string, agentRunning = false): any => ({ status, session: 's1', since: null, heartbeat: null, agentRunning, reason: status === 'dead' ? 'not-running' : null });
+  const m = (state: string, ownerStatus: any, kind = 'feature') => V.resumeModel({ state, kind, ownerStatus } as any);
+  const show = (enabled: boolean, note: string | null) => ({ show: true, enabled, note });
+  const hidden = { show: false, enabled: false, note: null };
+  assert.deepEqual(m('queued', os('none')), show(true, null), 'queued, no owner');
+  assert.deepEqual(m('queued', os('live')), show(false, 'live'), 'queued, live owner');
+  assert.deepEqual(m('failed', os('live', true)), show(false, 'agent'), 'failed, live owner with an agent');
+  assert.deepEqual(m('running', os('stale')), show(true, 'stale'), 'running, stale owner');
+  assert.deepEqual(m('blocked', os('dead')), show(true, 'gone'), 'blocked, dead owner');
+  assert.deepEqual(m('running', os('live')), hidden, 'running, live owner');
+  assert.deepEqual(m('running', os('none')), hidden, 'running, no owner');
+  assert.deepEqual(m('waiting', os('stale')), hidden, 'waiting keeps its gate buttons');
+  assert.deepEqual(m('done', os('none')), hidden);
+  assert.deepEqual(m('cancelled', os('stale')), hidden);
+  assert.deepEqual(m('queued', os('none'), 'eval'), hidden, 'eval jobs');
+  assert.deepEqual(m('queued', undefined), show(true, null), 'a missing ownerStatus counts as none');
+  assert.deepEqual(m('failed', null), show(true, null));
+});
