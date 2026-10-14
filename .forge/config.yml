@@ -197,5 +197,5 @@ daemon:
     - Bash(gh pr list:*)
     - Bash(gh pr checks:*)
     - Bash(gh run view:*)
-  maxConcurrent: 1
+  maxConcurrent: 4
   idleStopMinutes: 30
