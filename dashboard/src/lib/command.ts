@@ -1,17 +1,19 @@
 // The command bar's grammar, completions, keyboard rule and request mapping: plain functions over
 // the dashboard's state, so node:test can pin them. CommandBar.svelte holds only markup.
 import type { PostJobBody, RequestType, StateJob, TrackerItem } from './types.ts';
-import { buildRequest, needsHuman } from './view.ts';
+import { buildRequest, needsHuman, resumeModel } from './view.ts';
 import type { RequestInput } from './view.ts';
 
 /** First words the bar understands, in the order the empty bar lists them (all of them: the empty list is where they are discovered). */
-export const VERBS = ['next', 'issue', 'approve', 'answer', 'revise', 'rework', 'cancel', 'sync', 'retro'] as const;
+export const VERBS = ['next', 'issue', 'continue', 'approve', 'answer', 'revise', 'rework', 'cancel', 'sync', 'retro'] as const;
 export type Verb = (typeof VERBS)[number];
 
-export const JOB_VERBS = ['approve', 'revise', 'rework', 'answer', 'cancel'] as const;
+export const JOB_VERBS = ['continue', 'approve', 'revise', 'rework', 'answer', 'cancel'] as const;
 export type JobVerb = (typeof JOB_VERBS)[number];
 
-const VERB_TYPE: Record<JobVerb, RequestType> = { approve: 'approve', revise: 'revise-spec', rework: 'rework', answer: 'answer', cancel: 'cancel' };
+const VERB_TYPE: Record<JobVerb, RequestType> = { continue: 'resume', approve: 'approve', revise: 'revise-spec', rework: 'rework', answer: 'answer', cancel: 'cancel' };
+/** Words that mean a verb: `resume` is what the request is called, `continue` what the bar lists. */
+const ALIASES: Record<string, Verb> = { resume: 'continue' };
 const NEEDS_NOTE: ReadonlySet<JobVerb> = new Set(['revise', 'answer']);
 const MAX_SUGGESTIONS = 8;
 const MAX_N = 16;
@@ -56,10 +58,11 @@ function unprefixed(input: string): string {
 }
 
 /** The first word, lowercased, what follows it, and whether a space was typed after it. */
-function split(input: string): { word: string; rest: string; spaced: boolean } {
+function split(input: string): { word: string; rest: string; spaced: boolean; typed: string } {
   const s = unprefixed(input);
   const m = /^(\S*)(\s*)([\s\S]*)$/.exec(s)!;
-  return { word: m[1].toLowerCase(), rest: m[3], spaced: m[2].length > 0 };
+  const typed = m[1].toLowerCase();
+  return { word: ALIASES[typed] ?? typed, rest: m[3], spaced: m[2].length > 0, typed };
 }
 
 function issueRef(raw: string): string {
@@ -111,16 +114,19 @@ const runnable = (p: Parsed): boolean => p.kind !== 'empty' && p.kind !== 'parti
 export function suggest(input: string, ctx: CommandCtx): Suggestion[] {
   const p = parseCommand(input, ctx);
   const out: Suggestion[] = [];
-  const { word, rest, spaced } = split(input);
+  const { word, rest, spaced, typed } = split(input);
   if (p.kind === 'empty') return VERBS.map((verb) => ({ kind: 'verb', verb, insert: `${verb} ` }));
   const runJob: Suggestion = { kind: 'run-job', verbLike: isVerb(word) };
-  const verbs: Suggestion[] = !spaced ? VERBS.filter((v) => v.startsWith(word) && !(v === word && runnable(p))).map((verb) => ({ kind: 'verb', verb, insert: `${verb} ` })) : [];
+  // An alias being typed (`res`…`resume`) offers the verb it stands for, once no verb matches the word itself.
+  const aliased = VERBS.some((v) => v.startsWith(typed)) ? [] : Object.entries(ALIASES).filter(([a]) => a.startsWith(typed)).map(([, v]) => v);
+  const verbs: Suggestion[] = !spaced ? VERBS.filter((v) => (v.startsWith(typed) || aliased.includes(v)) && !(v === word && runnable(p))).map((verb) => ({ kind: 'verb', verb, insert: `${verb} ` })) : [];
   if (p.kind === 'free' && verbs.length) out.push(...verbs, runJob);
   else if (runnable(p)) out.push(p.kind === 'free' ? runJob : { kind: 'run-command' }, ...verbs);
   else out.push(...verbs);
   if (p.kind === 'partial' && spaced && isJobVerb(p.verb)) {
     const arg = p.arg.toLowerCase();
-    const open = ctx.jobs.filter((j) => openJob(j) && j.id.toLowerCase().startsWith(arg));
+    // `continue` offers only jobs whose drawer Resume is enabled; typing any open id still parses.
+    const open = ctx.jobs.filter((j) => openJob(j) && j.id.toLowerCase().startsWith(arg) && (p.verb !== 'continue' || resumeModel(j).enabled));
     const urgent = (j: StateJob) => needsHuman(j) || j.state === 'failed' || j.state === 'blocked';
     for (const job of [...open.filter(urgent), ...open.filter((j) => !urgent(j))]) out.push({ kind: 'job', job, insert: `${p.verb} ${job.id} ` });
   }

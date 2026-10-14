@@ -6,7 +6,7 @@ import { jobPathMap } from '../brief.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
 import { daemonClaimOpts, refuseInboxDrive } from '../daemon-owner.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
-import { agentOutputMissing, claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, updateJob, jobDir } from '../jobs.ts';
+import { agentOutputMissing, claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, touchJob, updateJob, jobDir } from '../jobs.ts';
 import { exists } from '../paths.ts';
 import { jobScope } from '../scope.ts';
 import { loadStepInput, step } from '../step.ts';
@@ -37,7 +37,8 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         slug: flags.slug,
         services: list(flags.services),
       });
-      if (flags.session) claimJob(root, job.id, String(flags.session), false, daemonClaimOpts(root, job.id));
+      // A split child starts unowned: the session claims each child only when it runs it.
+      if (flags.session && !flags.parent) claimJob(root, job.id, String(flags.session), false, daemonClaimOpts(root, job.id));
       return { id: job.id, branch: job.branch, dir: path.relative(root, jobDir(root, job.id)) };
     }
     case 'link': {
@@ -221,8 +222,12 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       return jobScope(root, config, req(id, 'job id'));
     case 'acs':
       return jobAcs(root, req(id, 'job id'));
-    case 'step':
-      return step(loadStepInput(root, config, loadJob(root, req(id, 'job id')).id));
+    case 'step': {
+      const jobId = loadJob(root, req(id, 'job id')).id;
+      // The loop's heartbeat: only the owner's own step refreshes its claim, and nothing else changes.
+      if (typeof flags.session === 'string') touchJob(root, jobId, flags.session);
+      return step(loadStepInput(root, config, jobId));
+    }
     default:
       throw new ForgeError('usage: forge job new|from-ref|link|list|show|get|set|claim|release|note|human|agent|round|budget|verdicts|decision|progress|paths|scope|acs|step');
   }

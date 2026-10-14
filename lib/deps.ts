@@ -80,8 +80,9 @@ export function validateDependsOn(root: string, id: string, value: unknown): str
 }
 
 /**
- * Parks a queued job behind its unmet dependencies, rewrites the reason of an already parked
- * one, and releases a parked job once they are all done. Other waits (spec approval, input…)
+ * Parks a queued job behind its unmet dependencies (releasing its owner), rewrites the reason of
+ * an already parked one, and unparks a parked job once they are all done (`released` in the
+ * result means unparked, not an owner release). Other waits (spec approval, input…)
  * are never overwritten.
  */
 export function refreshDependencyWait(root: string, id: string): { unmet: UnmetDependency[]; parked: boolean; released: boolean } {
@@ -90,7 +91,11 @@ export function refreshDependencyWait(root: string, id: string): { unmet: UnmetD
   const parked = isParked(job);
   if (unmet.length && (job.state === 'queued' || parked)) {
     const reason = DEP_REASON + describe(unmet);
-    if (!parked || job.reason !== reason) setJob(root, id, { state: 'waiting', waitingOn: 'external', reason });
+    // Parking releases the owner: nobody drives a parked job. A rewrite keeps it, so a --force
+    // claim on a parked job survives sync.
+    const wait = { state: 'waiting', waitingOn: 'external', reason };
+    if (!parked) setJob(root, id, { ...wait, release: true });
+    else if (job.reason !== reason) setJob(root, id, wait);
     return { unmet, parked: true, released: false };
   }
   if (!unmet.length && parked) {

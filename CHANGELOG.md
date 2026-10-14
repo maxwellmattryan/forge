@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.0
+
+- Stale claims: a job's claim now stays alive only through its owner's own activity. Writes from other sessions (`forge sync` unblocking a dependency, dashboard requests, commands acting on someone else's job) no longer refresh the owner's heartbeat, so a dead session's claim goes stale and another session can take the job without `--force`. Parking a job on unfinished dependencies releases its claim, and `forge job new --parent` (a split's children) creates jobs unowned. A live owner, by its own fresh heartbeat or a running agent, is still never taken over silently, and `--force` is unchanged.
+- `forge next --claim` resumes a queued, unowned (or stale-owned), dependency-satisfied job before it starts a new tracker item, and its output says which it did.
+- Dashboard Resume: a queued, failed or stale-owned job's drawer gets a **Resume** button that sends a `resume` request for the job's daemon session, and the command bar gains `continue <job>` (alias `resume <job>`). While another live session holds the job, the button is disabled, the drawer says who holds it and since when, and `POST /api/requests` refuses a resume with 409; the job's own daemon session can still be resumed. `GET /api/jobs/:id` now refuses cross-site requests. `API_VERSION` 12.
+
 ## 0.13.0
 
 - Dashboard restyle, parts 1–3 of the Drafting design system (`design/`). Behaviour, routes, `/api` shapes and config keys are unchanged. **Foundations:** `dashboard/style.css` is rebuilt on the Drafting tokens and utilities, with square corners and no blurred shadows; the `light`/`dark` themes become `cyanotype`/`vellum` (a stored value is carried over); Space Grotesk, IBM Plex Sans and IBM Plex Mono are vendored as woff2 under `dashboard/fonts/`, so the page still loads nothing from another origin. **Iconography:** the 23 Drafting icons replace the old 13, and every Settings tab gets one. **Shell:** the sidebar becomes a drawing margin with a title block, page headers get a dimension line, Pipeline filters become drawn segments, and the drawer, Settings, command bar, banner and toast become sheets.

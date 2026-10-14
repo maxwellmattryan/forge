@@ -105,6 +105,40 @@ test('suggest ordering and limits', () => {
   assert.equal(suggest('cancel job-', many).length, 8);
 });
 
+test('continue and resume', () => {
+  const owner = (status: string, agentRunning = false) => ({ ownerStatus: { status, session: 's1', since: null, heartbeat: null, agentRunning, reason: null } });
+  const jobs = [
+    job('add-queued-q1', 'queued', owner('none')),
+    job('add-held-q2', 'queued', owner('live')),
+    job('add-failed-f1', 'failed', owner('stale')),
+    job('add-stalled-r1', 'running', owner('stale')),
+    job('add-running-r2', 'running', owner('live')),
+    job('add-waiting-w1', 'waiting', { waitingOn: 'spec-approval', ...owner('stale') }),
+    job('add-done-d1', 'done', owner('none')),
+  ];
+  const c: any = { jobs, backlog: [], tracker: 'local' };
+  assert.deepEqual(parseCommand('continue add-queued-q1', c), { kind: 'job', verb: 'continue', job: 'add-queued-q1', note: '' });
+  assert.deepEqual(parseCommand('resume add-queued-q1 pick it up again', c), { kind: 'job', verb: 'continue', job: 'add-queued-q1', note: 'pick it up again' });
+  assert.deepEqual(parseCommand('/forge Resume add-running-r2', c), { kind: 'job', verb: 'continue', job: 'add-running-r2', note: '' }, 'any open job parses; the server decides');
+  assert.equal(parseCommand('continue add-done-d1', c).kind, 'free');
+  const sent = commandRequest(parseCommand('resume add-queued-q1 pick it up', c));
+  assert.ok('input' in sent && buildRequest(sent.input));
+  assert.deepEqual(buildRequest((sent as any).input), { body: { type: 'resume', job: 'add-queued-q1', text: 'pick it up', args: {} } });
+  assert.deepEqual(buildRequest((commandRequest(parseCommand('continue add-queued-q1', c)) as any).input), { body: { type: 'resume', job: 'add-queued-q1', text: null, args: {} } });
+  assert.deepEqual([...VERBS].slice(0, 3), ['next', 'issue', 'continue']);
+
+  const ids = (s: string) => suggest(s, c).filter((o: any) => o.kind === 'job').map((o: any) => o.job.id);
+  assert.deepEqual(ids('continue '), ['add-failed-f1', 'add-queued-q1', 'add-stalled-r1'], 'only jobs with an enabled Resume, urgent first');
+  assert.deepEqual(ids('resume '), ids('continue '));
+  assert.equal((suggest('resume add-q', c)[0] as any).insert, 'continue add-queued-q1 ');
+  const verbs = (s: string) => suggest(s, c).filter((o: any) => o.kind === 'verb').map((o: any) => o.verb);
+  assert.deepEqual(verbs('resume'), ['continue'], 'the alias offers the continue verb');
+  assert.deepEqual(verbs('res'), ['continue']);
+  assert.deepEqual(verbs('cont'), ['continue']);
+  const none: any = { ...c, jobs: [job('add-held-q2', 'queued', owner('live'))] };
+  assert.equal(emptyReason(parseCommand('continue ', none), suggest('continue ', none), null, none), 'noJobs');
+});
+
 test('commandKey', () => {
   const k = (o: Partial<Parameters<typeof commandKey>[0]>) => commandKey({ key: 'k', ctrlKey: false, metaKey: true, altKey: false, open: false, settingsOpen: false, ...o });
   assert.equal(k({}), 'open', 'Cmd-K');
