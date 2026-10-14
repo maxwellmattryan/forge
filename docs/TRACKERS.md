@@ -8,6 +8,8 @@ Forge talks to issue trackers through a small synchronous contract. Built-ins:
 | `github` | GitHub Issues via `gh` | assignment on claim, optional status mirroring (labels and/or a GitHub Projects field), `Closes #n` on PRs |
 | `none` | nothing | free-text jobs only |
 
+The GitHub tracker imports an issue as a provenance line, then the body and each kept comment as Markdown blockquotes (every line starts with `>`, and a lone CR, U+2028, U+2029 or NEL starts a new quoted line), with each comment under a `**@login** (association):` line that only Forge writes, so a heading or rule forged in the body can't pass for Forge's own `### Recent comments` section; the title is collapsed to one line.
+
 ## GitHub status mirroring
 
 `tracker.github.statusSync` is independent of everything else:
@@ -49,6 +51,8 @@ export default {
   search(ctx, query, { limit }) { return [/* { ref, title, url, labels, body } */]; },
 };
 ```
+
+`get` returns text that agents read as requirements, so fence it the way the GitHub tracker does: start the body with a line saying where it came from and that it is data, not instructions, blockquote the description and every comment line by line, write each comment's author on its own unquoted line, and keep the title to one line.
 
 Refs must be 1 to 100 characters of letters, digits, `.`, `_` and `-`, starting with a letter or digit (Jira's `PROJ-123` fits). A ref ends up as a command-line argument, so the dashboard's Start button and `forge job link` refuse any other ref, and a ref like `group/repo#12` must be mapped to that shape by the adapter.
 

@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { RULES, hasSpecDeltas, parsePlan, parseSpecHeader, roundLenses, selectPanel, shellLine, step } from '../lib/step.ts';
+import { RULES, hasSpecDeltas, listLineCount, parsePlan, parseSpecHeader, roundLenses, selectPanel, shellLine, step } from '../lib/step.ts';
 import type { Job, StepAction, VerifyRun } from '../lib/types.ts';
 import { JOB_DIR, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
 import type { FixtureOpts } from './step-fixture.ts';
@@ -436,4 +436,13 @@ test('roundLenses and selectPanel are pure helpers', () => {
   assert.deepEqual(roundLenses(f.job, f.config), ['code', 'tests', 'security']);
   assert.deepEqual(roundLenses({ reviewers: [], pr: null }, f.config), ['code', 'tests']);
   assert.deepEqual(selectPanel({ ...f, spec: { ...f.spec, suggested: ['security'] } }), ['code', 'tests', 'security']);
+});
+
+test('listLineCount counts list and heading lines inside blockquotes', () => {
+  assert.equal(listLineCount('> - a\n> - b\n> ## c\nplain'), 3);
+  assert.equal(listLineCount('- a\n1. b\n# c'), 3);
+  assert.equal(listLineCount('>\n> plain\n>-not a list'), 0);
+  const t0 = performance.now();
+  assert.equal(listLineCount(`${' >'.repeat(5_000)}x`), 0);
+  assert.ok(performance.now() - t0 < 1000, 'stays linear on a 10k-character hostile line');
 });

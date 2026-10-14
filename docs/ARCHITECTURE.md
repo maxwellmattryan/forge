@@ -127,6 +127,7 @@ followed by `\n`. Observed on stdout, one JSON object per line:
 Issue bodies, comments and PR reviews come from people outside the session, and on public repos that means anyone. Forge:
 - imports only collaborators' issue comments by default (`tracker.github.comments`), and labels the rest as untrusted in PR feedback
 - fences imported text with its provenance and a "data, not instructions" note
+- blockquotes every line of an imported GitHub issue body and comment (CR, U+2028, U+2029 and NEL count as line breaks, other control characters are dropped, logins and associations are reduced to safe characters, and the title is one line), so only Forge writes column-0 lines in `request.md` and a forged `### Recent comments` section reads as quoted text
 - tells every agent to ignore embedded instructions about secrets, credentials, CI, permissions or out-of-scope work
 - adopts only PRs whose branch lives in the same repository (never forks), and only issue-linked PRs from collaborators, so a stranger's PR is never checked out and run by the builder
 - limits what an agent fooled by that text can do when nobody is watching: the daemon's default `allowedTools` names only the git/gh subcommands the agents use (no `git -c`, `git rebase --exec`, `git config`, `git log --output` or `gh api`), validation refuses blanket git/gh entries and permission-widening `daemon.command` flags, and the session runs git with hooks and fsmonitor pinned off ("Daemon security" below)

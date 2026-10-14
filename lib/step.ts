@@ -73,6 +73,14 @@ export function shellLine(argv: string[]): string {
 
 // ---------- reading ----------
 
+/**
+ * List and heading lines in a request, for `pipeline.plan: auto`. Imported issue bodies are
+ * blockquoted, so `> - item` and `> ## Heading` count as well.
+ */
+export function listLineCount(body: string): number {
+  return body.split('\n').filter((l) => /^[\s>]*(?:[-*]|\d+\.)\s|^[\s>]*#/.test(l)).length;
+}
+
 /** Every read step needs, and nothing else: no directory is created and no file or event is written. */
 export function loadStepInput(root: string, config: Config, id: string): StepInput {
   const job = loadJob(root, id);
@@ -129,7 +137,7 @@ export function loadStepInput(root: string, config: Config, id: string): StepInp
     files,
     present,
     worktreeExists: Boolean(job.worktree && exists(job.worktree)),
-    request: { length: body.length, listLines: body.split('\n').filter((l) => /^\s*(?:[-*]|\d+\.)\s|^\s*#/.test(l)).length },
+    request: { length: body.length, listLines: listLineCount(body) },
     plan: parsePlan(read('plan.md') ?? ''),
     spec: { ...parseSpecHeader(specText), approachPaths: approachPaths(specText) },
     designDeltas: hasSpecDeltas(read('design.md') ?? ''),
