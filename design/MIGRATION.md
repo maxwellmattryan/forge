@@ -41,7 +41,7 @@ Spacing keeps Tailwind's 4px scale; `tokens.json` lists the steps in use and add
 |---|---|---|
 | `.card` (`bg-panel border border-line rounded-xl`) | `.sheet.ticks` with an inner `<span class="tk">` (a thing) · `.sheet.dashed` (a container) · `.sheet.redline` (needs a human) | `components/Card` |
 | `.chip` + `TONE_CLASS` tints (`bg-ok/15 text-ok` …) | `.chip.<tone>`: outline in its own colour, no fill; new tones `live` (hatched ink), `rev` (rounded red), `hl` (yellow fill); `muted` is dashed | `components/Chip` |
-| `.btn`, `.btn-primary` | `.btn`, `.btn.primary` (ink fill, `--shadow-primary`), `.btn.sel`, `.btn.sm`, `.btn.icon`, `.btn.touch`; groups in `.seg` | `components/Button`, `SegmentedControl` |
+| `.btn`, `.btn-primary` | `.btn`, `.btn.primary` (ink fill, `--shadow-primary`), `.btn.sel`, `.btn.sm`, `.btn.icon`, `.btn.ghost` (the close control), `.btn.touch`; groups in `.seg` | `components/Button`, `SegmentedControl` |
 | `.nav-item`, `.nav-item.active` (inset 2px accent) | `.nav a`/`button`, `.active` = `--raised` + `--line-strong` border + 3px `--ink` left rule; hover hatches | `components/NavItem` |
 | global `input, textarea, select` (raised fill, accent focus border) | `.input`: outline only, dashed-outline focus; `.check` / `.radio` drawn (`appearance: none`) | `components/FormControls` |
 | `.kpi`, `.kpi-label`, `.kpi-value` | `.sheet.ticks.kpi` with `.label` and `.v` | `components/Kpi` |
@@ -51,7 +51,7 @@ Spacing keeps Tailwind's 4px scale; `tokens.json` lists the steps in use and add
 | `.brand-rule`, sidebar footer | `.dim-line` (`DWG · PIPELINE`) and `.tblock` (DRAWN BY / SESSIONS / REV / API / SHEET) | `components/Sidebar` |
 | `PageHeader` subtitle `<p>` | `.dim-line` under the `h1` | `components/PageHeader` |
 | Drawer tab strip (`border-b-2 border-accent`) | `.tabs` > `.tab.active` (three drawn sides, `--bg` fill) | `components/Tabs`, `Drawer` |
-| Board/table toggle, filter buttons | `.seg` of `.btn.sm`, selected `.sel` | `components/SegmentedControl` |
+| Board/table toggle, filter buttons | `.seg` of `.btn` (md, as page header controls are), selected `.sel` | `components/SegmentedControl` |
 | `JobCard` `border-warn/50`, `InboxCard` `border-warn/40` | `.sheet.redline` + `.chip.rev` `REV · <state>` | `components/JobCard`, `InboxCard` |
 | `Empty` (`card`, mark at 80%) | `.sheet.crosshatch` + `.mark` | `components/Empty` |
 | `Banner` (`warn` tint) | `.sheet.redline` with a `REV` chip | `components/Banner` |
@@ -61,6 +61,24 @@ Spacing keeps Tailwind's 4px scale; `tokens.json` lists the steps in use and add
 | `img /forge.png` | `.mark` (one-colour print of the anvil, blend per theme) | `components/Sidebar`, `Empty` |
 
 The `TONE_CLASS` map in `src/lib/util.ts` is the one place tones are named; `stateTone`/`verdictTone`/`prChipModel` in `src/lib/view.ts` decide which tone a state gets. The port adds `rev` and `live` to the map and routes `needsHuman(job)` states to `rev` and running states to `live`; nothing else in `view.ts` changes.
+
+## Control sizing
+
+Every control has one fixed height, from four tokens in `tokens.css` (`size` in `tokens.json`). Controls that sit side by side line up because they share a token, not because their padding happens to agree.
+
+| Token | Value | Variants |
+|---|---|---|
+| `--control-xs` | 20px | `chip` and `button.chip`: inline annotations in tables, cards, log lines and inside buttons |
+| `--control-sm` | 28px | `btn sm`, `btn sm icon`, `chip sm`, `input sm` / `select.sm`: dense toolbars |
+| `--control-md` | 32px | `btn`, `btn primary`, `btn icon`, `input`, `select`, native text inputs; a textarea's minimum height |
+| `--control-lg` | 40px | `tab` (the drawer's tab strip) |
+
+- **A row holds one size**, with `gap-2` (8px, `--space-2`) between controls. A `seg` has no height of its own: its members are buttons of one size, and they still touch (the -1px overlap).
+- **sm or md.** Use sm in dense toolbars and in drawer and sheet headers: the drawer header, the daemon bar, the session log, permission prompts. Use md in page headers, forms and action rows: every view's header, `JobActions`, the action dock, settings.
+- **Icon buttons are square** at their siblings' height: `btn icon` is 32×32, `btn sm icon` 28×28, with the 15px icon centred. A button with an icon and a label is as tall as one without.
+- **Chips are xs annotations** unless they sit in a control row, where they take `chip sm` (the daemon bar, the session pill, the palette's scope).
+- **Phones (below 48rem) get a 44px floor:** every `button` but chips, `a.btn`, `select` and text input, sm ones included, is at least 44px tall, and icon buttons at least 44px wide. Native `input.sm` / `select.sm` sizing sits only inside a `min-width: 48rem` block, so it never beats the floor. Button chips keep their transparent 44px hit area; `btn touch` and the 56px FAB are unchanged.
+- **One close control.** `CloseButton.svelte` renders `btn icon ghost` (plus `sm` beside sm siblings) holding the `close` icon. At rest its border is transparent, so only the cross shows; hover draws the sketch and a `--line` border, never heavier than a neighbouring `btn`'s `--line-strong`; it keeps the dashed focus ring and the ink press. The drawer, the Settings dialog, the command palette and the toast use it, and nothing else draws the close icon.
 
 ## Order of work
 

@@ -32,12 +32,12 @@
     "src": "fonts/SpaceGrotesk-700.woff2"
   },
   "index.html": {
-    "file": "assets/index-B1C9xbv4.js",
+    "file": "assets/index-DSnprsmr.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
     "css": [
-      "assets/index-BVrHVU35.css"
+      "assets/index-CCkHDqQg.css"
     ],
     "assets": [
       "assets/SpaceGrotesk-500-lFbtlQH6.woff2",

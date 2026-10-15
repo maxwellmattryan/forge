@@ -111,6 +111,10 @@
   --size-content-max: 1400px;
   --size-drawer-max: 768px;
   --size-dialog: 960px;
+  --control-xs: 20px;
+  --control-sm: 28px;
+  --control-md: 32px;
+  --control-lg: 40px;
   --hatch-pitch: 6px;
   --grid-minor-step: 8px;
   --grid-major-step: 64px;

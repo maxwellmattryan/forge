@@ -23,7 +23,7 @@
       {@const r = m.resume}
       {@const o = job.ownerStatus}
       {@const values = { session: o?.session ?? '', since: ago(o?.since), active: ago(o?.heartbeat) }}
-      <div class="flex flex-wrap items-center gap-3">
+      <div class="flex flex-wrap items-center gap-2">
         <button class="btn primary" disabled={!r.enabled} aria-describedby={r.note ? `dock-owner-note-${job.id}` : undefined} onclick={() => req({ type: 'resume', job: job.id })}>{$t('drawer.resume')}</button>
         {#if r.note}<span id="dock-owner-note-{job.id}" class="min-w-0 text-sm text-muted wrap-anywhere">{r.note === 'live' ? $t('drawer.ownerLive', values) : r.note === 'agent' ? $t('drawer.ownerAgent', values) : r.note === 'stale' ? $t('drawer.ownerStale', values) : $t('drawer.ownerGone', values)}</span>{/if}
       </div>

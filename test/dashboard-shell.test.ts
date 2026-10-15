@@ -793,3 +793,111 @@ test('command triggers: header on every view, phone FAB in the inert shell, draw
   const toast = elements('components/Toast.svelte').find((e) => attrOf(e, 'id') === 'toast');
   assert.ok(toast && has(toast, 'bottom-24', 'md:bottom-4'), 'the toast sits above the FAB on phones');
 });
+
+test('one close control: drawer, dialogs and toast', () => {
+  const close = elements('components/CloseButton.svelte');
+  const button = close.find((e) => e.name === 'button');
+  assert.ok(button && has(button, 'btn', 'icon', 'ghost'), `CloseButton renders a btn icon ghost button (${button?.classes.join(' ')})`);
+  assert.ok(button.classes.includes('sm'), "the sm modifier is one of its class literals ({size === 'sm' ? 'sm' : ''})");
+  assert.match(read('components/CloseButton.svelte'), /class="btn icon ghost shrink-0 \{size === 'sm' \? 'sm' : ''\} \{cls\}"/, 'sm only for size="sm"');
+  assert.equal(attrOf(button, 'aria-label'), '{label}');
+  assert.equal(attrOf(button, 'type'), 'button');
+  assert.equal(button.first?.name, 'Icon', 'it holds the close icon');
+
+  const uses: [string, number, string | null][] = [
+    ['components/Drawer.svelte', 1, 'sm'],
+    ['components/Settings.svelte', 1, null],
+    ['components/CommandBar.svelte', 2, null],
+    ['components/Toast.svelte', 1, 'sm'],
+  ];
+  for (const [rel, count, size] of uses) {
+    const found = elements(rel).filter((e) => e.name === 'CloseButton');
+    assert.equal(found.length, count, `${rel} renders ${count} <CloseButton>`);
+    assert.ok(found.every((e) => attrOf(e, 'label')), `${rel}: every CloseButton is labelled`);
+    if (size) assert.ok(found.every((e) => attrOf(e, 'size') === size), `${rel}: its CloseButton is ${size}`);
+  }
+  const bar = elements('components/CommandBar.svelte').filter((e) => e.name === 'CloseButton');
+  assert.deepEqual(bar.map((e) => attrOf(e, 'size') || 'md').sort(), ['md', 'sm'], 'the palette: an md phone close and an sm clear-scope');
+  assert.ok(bar.some((e) => attrOf(e, 'class') === 'md:hidden'), 'the phone close hides from md up');
+  const scope = elements('components/CommandBar.svelte').find((e) => attrOf(e, 'id') === 'command-scope');
+  assert.ok(scope && has(scope, 'chip', 'ink', 'sm'), 'the scope chip is sm, beside its sm clear button');
+
+  for (const rel of svelteFiles().filter((f) => f !== 'components/CloseButton.svelte'))
+    assert.doesNotMatch(read(rel), /<Icon name="close"/, `${rel} draws no close icon of its own`);
+
+  // AC7: Dismiss sits outside the live region, which is always rendered and holds only the message.
+  const toast = elements('components/Toast.svelte');
+  const status = toast.filter((e) => attrOf(e, 'role') === 'status');
+  assert.equal(status.length, 1, 'one live region');
+  assert.ok(attrOf(status[0], 'aria-live') && attrOf(status[0], 'aria-atomic') === 'true', 'it is a live region');
+  const dismiss = toast.find((e) => e.name === 'CloseButton');
+  assert.ok(dismiss && !dismiss.parents.includes(status[0]), 'Dismiss is not inside role="status"');
+  assert.equal(attrOf(dismiss, 'label'), "{$t('common.dismiss')}");
+  assert.equal(attrOf(dismiss, 'onclick'), '{dismissToast}');
+  const markup = read('components/Toast.svelte').replace(/<script\b[\s\S]*?<\/script>|<!--[\s\S]*?-->/g, '');
+  const live = markup.indexOf('role="status"');
+  const before = markup.slice(0, live);
+  assert.ok(live > 0 && (before.match(/\{#(if|each|key|await)\b/g) ?? []).length === (before.match(/\{\/(if|each|key|await)\}/g) ?? []).length, 'no open block wraps the live region: it is always in the DOM');
+  const root = toast.find((e) => attrOf(e, 'id') === 'toast');
+  assert.ok(root && has(root, 'bottom-24', 'md:bottom-4'), '#toast keeps its position');
+  for (const [ev, fn] of [['onmouseenter', 'holdToast'], ['onmouseleave', 'releaseToast'], ['onfocusin', 'holdToast'], ['onfocusout', 'releaseToast']])
+    assert.equal(attrOf(root, ev), `{${fn}}`, `#toast ${ev} → ${fn}`);
+  const state = read('lib/toast.svelte.ts');
+  for (const fn of ['holdToast', 'releaseToast', 'dismissToast']) assert.match(state, new RegExp(`export function ${fn}\\(`), `toast.svelte.ts exports ${fn}`);
+  assert.match(state, /opener\?\.isConnected\) opener\.focus\(\)/, 'a dismiss returns focus to a still-connected opener');
+});
+
+test('controls in one row share one size', () => {
+  // Page headers are md: no view's right snippet holds an sm control.
+  const views = fs.readdirSync(path.join(SRC, 'views')).filter((f) => f.endsWith('.svelte'));
+  let rights = 0;
+  for (const v of views) {
+    const text = read(`views/${v}`);
+    const at = text.indexOf('{#snippet right()}');
+    if (at < 0) continue;
+    rights++;
+    const body = text.slice(at + '{#snippet right()}'.length, text.indexOf('{/snippet}', at));
+    for (const el of elements(`views/${v}`, body)) assert.ok(!el.classes.includes('sm'), `${v}: <${el.name} class="${el.classes.join(' ')}"> in the page header is md`);
+  }
+  assert.ok(rights >= 4, `checked ${rights} page header snippets`);
+  const pipeline = elements('views/Pipeline.svelte').filter((e) => e.name === 'button' && attrOf(e, 'aria-pressed'));
+  assert.equal(pipeline.length, 2, "the Pipeline's two segs");
+  for (const b of pipeline) assert.ok(b.classes.includes('btn') && !b.classes.includes('sm'), `a Pipeline seg is btn (${b.classes.join(' ')})`);
+  const header = elements('components/CommandTrigger.svelte').find((e) => attrOf(e, 'aria-keyshortcuts'));
+  assert.ok(header && has(header, 'btn', 'dashed') && !header.classes.includes('sm'), `the header trigger is btn dashed (${header?.classes.join(' ')})`);
+  const fab = elements('components/CommandTrigger.svelte').find((e) => e.classes.includes('primary'));
+  assert.ok(fab?.classes.includes('size-14!'), 'the FAB stays 56px over btn icon');
+  const right = elements('components/PageHeader.svelte').find((e) => e.name === 'div' && e.first?.name === 'CommandTrigger');
+  assert.ok(right && right.classes.includes('gap-2') && !right.classes.includes('gap-2.5'), `PageHeader's right container uses gap-2 (${right?.classes.join(' ')})`);
+
+  // The daemon bar and the session log are sm rows: their chips and fields take chip sm and input sm.
+  const daemonChips = elements('components/DaemonBar.svelte').filter((e) => e.classes.includes('chip'));
+  assert.ok(daemonChips.length >= 6, `checked ${daemonChips.length} daemon bar chips`);
+  for (const c of daemonChips) assert.ok(c.classes.includes('sm'), `DaemonBar: <${c.name} class="${c.classes.join(' ')}"> is chip sm`);
+  const log = elements('components/SessionLog.svelte');
+  const pill = log.find((e) => attrOf(e, 'role') === 'status' && e.classes.includes('chip'));
+  assert.ok(pill?.classes.includes('sm'), 'the session pill is chip sm');
+  const search = log.find((e) => e.name === 'input' && attrOf(e, 'type') === 'search');
+  assert.ok(search && has(search, 'input', 'sm'), 'the session filter is input sm');
+  const select = log.find((e) => e.name === 'select');
+  assert.ok(select && has(select, 'input', 'sm'), 'the mode select is input sm');
+
+  // The issue chooser's other-ref Link sits beside an md input.
+  const other = elements('components/IssueLinkActions.svelte').find((e) => e.name === 'button' && attrOf(e, 'disabled') === '{!otherRef}');
+  assert.ok(other && other.classes.includes('btn') && !other.classes.includes('sm'), `the other-ref button is btn (${other?.classes.join(' ')})`);
+
+  // The Inbox PR row: two md buttons in a gap-2 flex, not a literal space.
+  const inbox = elements('views/Inbox.svelte');
+  const open = inbox.find((e) => e.name === 'a' && e.classes.includes('btn'));
+  const cell = open?.parents.at(-1);
+  assert.ok(cell && cell.name === 'div' && has(cell, 'flex', 'gap-2'), `the PR-row buttons share a gap-2 flex (${cell?.classes.join(' ')})`);
+  assert.equal(inbox.filter((e) => e.parents.at(-1) === cell && e.classes.includes('btn')).length, 2, 'both buttons sit in it');
+
+  const dock = elements('components/ActionDock.svelte').find((e) => e.name === 'div' && e.first?.name === 'button' && e.first.classes.includes('primary'));
+  assert.ok(dock && dock.classes.includes('gap-2') && !dock.classes.includes('gap-3'), 'the resume row uses gap-2');
+  const unsaved = elements('components/settings/ConfigTab.svelte').find((e) => has(e, 'chip', 'rev'));
+  assert.ok(unsaved?.classes.includes('sm'), 'the unsaved chip sits in the save row as chip sm');
+  // The phone rule gives every button 44px; a btn needs no min-h-11 of its own.
+  for (const rel of ['components/settings/AboutTab.svelte', 'components/settings/ConfigTab.svelte', 'components/settings/DiagnosticsTab.svelte'])
+    for (const el of elements(rel).filter((e) => e.classes.includes('btn'))) assert.ok(!el.classes.includes('min-h-11'), `${rel}: a btn carries no min-h-11`);
+});
