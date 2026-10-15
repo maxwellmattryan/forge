@@ -29,21 +29,21 @@ html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::
 .dashed { border-style: dashed; } /* only the border: a dashed .btn keeps its fill and its sketch */
 
 /* ---------- the sketch: 45° lines that fade in and slide 6px into place over a hovered control's own fill ---------- */
-/* Registered so it transitions; not inherited, so a hovered card's chips keep theirs at 0%. Hover sets only --sketch and the position: a rule that resets the background (sel, primary, active, disabled) leaves nothing to sketch. */
+/* Registered so it transitions; not inherited, so a chip inside a hovered control keeps its own at 0%. Hover sets only --sketch and the position: a rule that resets the background (sel, primary, active, disabled) leaves nothing to sketch. */
 @property --sketch { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
 .sketch { background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; transition: --sketch .16s ease-out, background-position .16s ease-out, border-color .12s ease, color .12s ease; }
 @media (hover: hover) { .sketch:hover { --sketch: 100%; background-position: 0 0; } }
 .sketch.hover { --sketch: 100%; background-position: 0 0; }
 
 /* ---------- sheet: an outlined panel; .ticks adds corner register marks ---------- */
-.sheet { border: 1px solid var(--line); background-color: var(--panel); --surface: var(--panel); position: relative; } /* background-color, not the shorthand: .sheet.clickable keeps its sketch */
+.sheet { border: 1px solid var(--line); background-color: var(--panel); --surface: var(--panel); position: relative; } /* background-color, not the shorthand: a class composed with it keeps its own background-image */
 .sheet.ticks > .tk { position: absolute; inset: 0; pointer-events: none; }
 .sheet.ticks::before, .sheet.ticks::after, .sheet.ticks > .tk::before, .sheet.ticks > .tk::after { content: ""; position: absolute; width: 9px; height: 9px; border-color: var(--line-strong); border-style: solid; }
 .sheet.ticks::before { top: -1px; left: -1px; border-width: 1px 0 0 1px; } .sheet.ticks::after { top: -1px; right: -1px; border-width: 1px 1px 0 0; }
 .sheet.ticks > .tk::before { bottom: -1px; left: -1px; border-width: 0 0 1px 1px; } .sheet.ticks > .tk::after { bottom: -1px; right: -1px; border-width: 0 1px 1px 0; }
-.sheet.clickable { cursor: pointer; background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; transition: --sketch .16s ease-out, background-position .16s ease-out, border-color .12s ease; }
-@media (hover: hover) { .sheet.clickable:hover { border-color: var(--line-strong); background-color: var(--panel); --sketch: 100%; background-position: 0 0; } }
-.sheet.hover { border-color: var(--line-strong); background-color: var(--panel); --sketch: 100%; background-position: 0 0; } /* a hovered card keeps its panel */
+.sheet.clickable { cursor: pointer; }
+@media (hover: hover) { .sheet.clickable:hover { border-color: var(--line-strong); background-color: var(--panel); } }
+.sheet.hover { border-color: var(--line-strong); background-color: var(--panel); } /* a hovered card keeps its panel: the outline strengthens at once, nothing fills or fades */
 .sheet.clickable:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 3px; }
 .sheet.redline { border-color: var(--redline); outline: 1px dashed var(--redline); outline-offset: 3px; }
 .sheet.dashed { border-style: dashed; background-color: transparent; --surface: var(--bg); } /* a board column: a container drawn on the ground */

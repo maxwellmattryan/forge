@@ -60,7 +60,7 @@ test('every drafting utility is ported', () => {
   assert.ok(fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8').includes('.nav.row a, .nav.row button { width: auto;'), 'design/drafting.css has the .nav.row item rule');
   assert.ok(fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8').includes('.prose.compact {'), 'design/drafting.css has the .prose.compact rules');
   assert.ok(!hasClass('.hatch{}.h-4{}', 'h') && hasClass('.h.card{}', 'h') && hasClass('.x .h{', 'h'), 'the class matcher');
-  // A sheet sets only its background colour, so `sheet clickable` keeps its sketch.
+  // A sheet sets only its background colour, never the shorthand, so a class composed with it keeps its own background-image.
   const sheet = ruleFor(css, '.sheet');
   assert.match(sheet, /background-color:var\(--panel\)/);
   assert.doesNotMatch(sheet, /(^|[;{])background:/, 'no background shorthand on .sheet');
@@ -252,10 +252,9 @@ const HOVER_MEDIA = /\(\s*hover\s*:\s*hover\s*\)/;
 const SKETCH_IMAGE = 'background-image:repeating-linear-gradient(45deg,color-mix(in srgb,transparent,var(--sketch-line)var(--sketch))0 1px,transparent 1px var(--hatch-pitch))';
 const SKETCH_AT_REST = 'background-position:calc(-1*var(--hatch-pitch))0';
 const SKETCH_ON = /--sketch:100%;background-position:0 0(;|$)/;
-const SKETCHED = ['.sheet.clickable', '.btn', '.nav a', '.tab', '.chip:is(button)'];
+const SKETCHED = ['.btn', '.nav a', '.tab', '.chip:is(button)'];
 /** The hover rule of each sketched control, and its `.hover` twin for the previews (chips have none). */
 const HOVER: Record<string, [string, string | null]> = {
-  '.sheet.clickable': ['.sheet.clickable:hover', '.sheet.hover'],
   '.btn': ['.btn:hover', '.btn.hover'],
   '.nav a': ['.nav a:hover', '.nav a.hover'],
   '.tab': ['.tab:hover', '.tab.hover'],
@@ -305,9 +304,9 @@ test('the sketch hover is one registered property', () => {
     `@media (hover: hover) { .sketch:hover { ${H} } }`,
     `.sketch.hover { ${H} }`,
     '.chrome { background-color: var(--chrome); --surface: var(--chrome); }',
-    `.sheet.clickable { cursor: pointer; ${S} transition: --sketch .16s ease-out, background-position .16s ease-out, border-color .12s ease; }`,
-    `@media (hover: hover) { .sheet.clickable:hover { border-color: var(--line-strong); background-color: var(--panel); ${H} } }`,
-    `.sheet.hover { border-color: var(--line-strong); background-color: var(--panel); ${H} }`,
+    '.sheet.clickable { cursor: pointer; }',
+    '@media (hover: hover) { .sheet.clickable:hover { border-color: var(--line-strong); background-color: var(--panel); } }',
+    '.sheet.hover { border-color: var(--line-strong); background-color: var(--panel); }',
     `@media (hover: hover) { .btn:hover { ${H} } .btn:hover .muted { color: inherit; } }`,
     `.btn.hover { ${H} }`,
     `@media (hover: hover) { button.chip:hover { ${H} } }`,
@@ -321,6 +320,50 @@ test('the sketch hover is one registered property', () => {
     const rule = drafting.slice(drafting.indexOf(sel)).split('\n')[0];
     assert.ok(rule.includes(S) && rule.includes('transition: --sketch .16s ease-out'), `design/drafting.css ${sel} declares the sketch at rest`);
   }
+});
+
+/** Every `selector { body }` whose selector list has the `sheet` class, at any nesting (@media, @supports). */
+const sheetRules = (css: string) =>
+  [...css.matchAll(/([^{}]*)\{([^{}]*)\}/g)].filter((m) => m[1].split(',').some((s) => hasClass(s, 'sheet'))).map((m) => [m[1].trim(), m[2]] as const);
+
+// A card is the dashboard's most-hovered surface: its outline strengthens at once, nothing fills or fades.
+test('a card hovers at once, without a sketch', () => {
+  const css = builtCss();
+  const { inside: hover, outside: ungated } = mediaSplit(css, HOVER_MEDIA);
+  const sheets = sheetRules(css);
+  assert.ok(sheets.length >= 8, `the built CSS has the sheet rules (${sheets.length})`);
+  for (const [sel, body] of sheets) assert.doesNotMatch(body, /--sketch|transition/, `${sel} sets no --sketch and no transition`);
+  assert.deepEqual(sheetRules('.sheet-title{transition:x}.x .sheet.y{a:b}@supports (c:d){.sheet.clickable{e:f}}').map(([s]) => s), ['.x .sheet.y', '.sheet.clickable'], 'self-check: the sheet rule finder');
+
+  // ruleFor joins every copy of the selector, so this covers Tailwind's color-mix @supports fallback too.
+  const card = ruleFor(css, '.sheet.clickable');
+  assert.match(card, /cursor:pointer/);
+  assert.doesNotMatch(card, /background-image|background-position|transition/, `.sheet.clickable draws nothing at rest (${card})`);
+  for (const [sel, body] of [['.sheet.clickable:hover', ruleFor(hover, '.sheet.clickable:hover')], ['.sheet.hover', ruleFor(css, '.sheet.hover')]]) {
+    assert.match(body, /border-color:var\(--line-strong\)/, `${sel} strengthens the outline`);
+    assert.match(body, /background-color:var\(--panel\)/, `${sel} keeps its panel`);
+    assert.doesNotMatch(body, /--sketch|background-image|background-position/, `${sel} draws no sketch (${body})`);
+  }
+  assert.equal(ruleFor(ungated, '.sheet.clickable:hover'), '', '.sheet.clickable:hover only inside @media (hover:hover)');
+
+  // The utility a card and a table row share: once .sheet.clickable stops declaring its own, it would inherit this fade.
+  const clickable = ruleFor(css, '.clickable');
+  assert.match(clickable, /cursor:pointer/);
+  assert.doesNotMatch(clickable, /transition/, `.clickable changes at once (${clickable})`);
+  const washed = ruleFor(css, '.clickable:hover');
+  assert.match(washed, /background-color:var\(--raised\)/, 'a clickable row still washes with raised');
+  assert.match(washed, /border-color:var\(--line-strong\)/);
+
+  const drafting = draftingCss();
+  const card3 = [
+    '.sheet.clickable { cursor: pointer; }',
+    '@media (hover: hover) { .sheet.clickable:hover { border-color: var(--line-strong); background-color: var(--panel); } }',
+    '.sheet.hover { border-color: var(--line-strong); background-color: var(--panel); }',
+  ].join('\n');
+  assert.ok(drafting.includes(card3), 'design/drafting.css draws the card hover as three lines, in order');
+  const drawn = sheetRules(drafting.replace(/\/\*[\s\S]*?\*\//g, ''));
+  assert.ok(drawn.length >= 8, `design/drafting.css has the sheet rules (${drawn.length})`);
+  for (const [sel, body] of drawn) assert.doesNotMatch(body, /--sketch|transition/, `design/drafting.css ${sel} mentions no --sketch and no transition`);
 });
 
 test('grid and paper live only on the ground', () => {

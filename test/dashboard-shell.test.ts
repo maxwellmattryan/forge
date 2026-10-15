@@ -495,7 +495,7 @@ const classesOf = (el: Placed) => classTokens(el.attrs.find((a) => a.name === 'c
 const isCarrier = (c: string[]) => c.some((x) => CARRIERS.includes(x));
 const isOpaque = (c: string[]) => (c.includes('sheet') && !c.includes('dashed')) || ['solid', 'plain', 'chrome', 'bg-panel'].some((x) => c.includes(x));
 const isFilled = (c: string[]) => ['chip', 'btn', 'fill', 'track'].some((x) => c.includes(x)) || c.some((x) => x.startsWith('bg-'));
-const isSketched = (el: Placed, c: string[]) => c.includes('btn') || (c.includes('sheet') && c.includes('clickable')) || c.includes('tab') || (el.name === 'button' && c.includes('chip'));
+const isSketched = (el: Placed, c: string[]) => c.includes('btn') || c.includes('tab') || (el.name === 'button' && c.includes('chip'));
 
 /** What breaks the rule in one component's markup. */
 function conflicts(file: string, text: string): string[] {
@@ -534,9 +534,10 @@ test('no filled element nests in a patterned one', () => {
   assert.deepEqual(conflicts('x', '<div class="hatch"><div class="solid"><div class="track"><div class="fill"></div></div></div></div>'), [], 'an intervening solid passes');
   assert.equal(conflicts('x', '<div class="hatch"><div class="sheet dashed"><span class="chip"></span></div></div>').length, 1, 'a dashed sheet is see-through');
   assert.equal(conflicts('x', '<div class="sketch"><div class="sheet"><div class="crosshatch"></div></div></div>').length, 1, 'a pattern in a pattern');
-  assert.equal(conflicts('x', '<button class="sheet ticks clickable"><span class="tk"></span><span class="btn sm"></span></button>').length, 1, 'a button in a sketched card');
+  assert.equal(conflicts('x', '<div class="tab"><span class="btn sm"></span></div>').length, 1, 'a button in a tab');
+  assert.deepEqual(conflicts('x', '<button class="sheet ticks clickable"><span class="tk"></span><span class="btn sm"></span></button>'), [], 'a card does not sketch, so a button in it is one sketch');
   assert.equal(conflicts('x', '<div class="tab"><button class="chip ok"></button></div>').length, 1, 'a button chip in a tab');
-  assert.deepEqual(conflicts('x', '<button class="sheet clickable"><span class="chip live"></span></button>'), [], 'a span chip in a card is fine: the sketch is not inherited');
+  assert.deepEqual(conflicts('x', '<button class="sheet clickable"><span class="chip live"></span></button>'), [], 'a span chip in a card is fine');
 
   const files = svelteFiles();
   assert.ok(files.length >= 35, `checked ${files.length} components`);
