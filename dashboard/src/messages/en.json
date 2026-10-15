@@ -562,7 +562,12 @@
     "otherPlaceholder": "#123 or a backlog ref",
     "create": "Create a new issue",
     "none": "No issue needed",
-    "noMatches": "No matching open issues were found."
+    "noMatches": "No matching open issues were found.",
+    "promptSpec": "Approving the spec also links its issue. Pick one Forge found, another, a new one, or say none is needed.",
+    "approveLink": "Approve & link",
+    "approveLinkRef": "Approve the spec and link {ref}",
+    "approveCreate": "Approve & create an issue",
+    "approveNone": "Approve, no issue needed"
   },
   "markdown": {
     "files": "Show file as",
