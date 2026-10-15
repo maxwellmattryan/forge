@@ -463,8 +463,8 @@ test('every control has the drafting focus ring', () => {
 });
 
 test('phone targets are 44px', () => {
-  // `width < 48rem` is built as `not all and (min-width:48rem)`; accept either.
-  const body = mediaBody(builtCss(), /(\(\s*width\s*<\s*48rem\s*\)|not all and \(min-width:48rem\))/);
+  // `width < 48rem` is built as `not all and (min-width:48rem)` or `not all and (width>=48rem)`; accept any.
+  const body = mediaBody(builtCss(), /(\(\s*width\s*<\s*48rem\s*\)|not all and \((min-width:|width>=)48rem\))/);
   const TARGETS = ['button:not(.chip)', 'a.btn', '.nav a', '[role=tab]', '[role=option]', 'summary', 'select', 'input:not([type=checkbox],[type=radio])', 'label:has(>input[type=checkbox])', 'label:has(>input[type=radio])'];
   // Split on top-level commas only: `input:not([type=checkbox],[type=radio])` holds one.
   const tall = [...body.matchAll(/([^{}]*)\{([^{}]*)\}/g)].filter((m) => /min-height:44px/.test(m[2])).flatMap((m) => splitTop(m[1], /,/));
