@@ -142,7 +142,7 @@ test('job new --effort sets the level and refuses unknown ones', () => {
       [['--effort', 'high', '--effort', 'low'], '--effort given more than once'],
     ] as const) {
       const r = s.raw({}, 'job', 'new', '--title', 'u', ...args);
-      assert.equal(r.status, 1, args.join(' '));
+      assert.equal(r.status, 2, args.join(' '));
       assert.ok(r.stderr.includes(message), `${args.join(' ')}: ${r.stderr}`);
       assert.deepEqual(jobsIn(s.root), before, `${args.join(' ')} creates no job dir`);
     }
@@ -174,20 +174,21 @@ test('job effort sets, inherits and logs', () => {
     assert.equal(loadJob(s.root, id).effort, null);
     assert.deepEqual(effortEvents().map((e) => e.effort), ['medium', 'xhigh', null]);
 
+    // Usage errors exit 2 and a missing job exits 1 (docs/CLI.md "Exit codes").
     const usage = 'usage: forge job effort <id> low|medium|high|xhigh|max | --inherit';
     const before = snapshot(dir);
-    for (const [args, message] of [
-      [[id, 'ultra'], 'unknown effort "ultra" (low, medium, high, xhigh, max)'],
-      [[id, 'HIGH'], 'unknown effort "HIGH" (low, medium, high, xhigh, max)'],
-      [[id, 'high', '--inherit'], usage],
-      [[id], usage],
-      [[id, '--inherit', 'high'], usage],
-      [[id, 'high', 'low'], usage],
-      [['no-such-job', 'high'], 'no job "no-such-job"'],
-      [[], 'missing job id'],
+    for (const [args, message, status] of [
+      [[id, 'ultra'], 'unknown effort "ultra" (low, medium, high, xhigh, max)', 2],
+      [[id, 'HIGH'], 'unknown effort "HIGH" (low, medium, high, xhigh, max)', 2],
+      [[id, 'high', '--inherit'], usage, 2],
+      [[id], usage, 2],
+      [[id, '--inherit', 'high'], usage, 2],
+      [[id, 'high', 'low'], usage, 2],
+      [['no-such-job', 'high'], 'no job "no-such-job"', 1],
+      [[], 'missing job id', 2],
     ] as const) {
       const r = s.raw({}, 'job', 'effort', ...args);
-      assert.equal(r.status, 1, args.join(' '));
+      assert.equal(r.status, status, args.join(' '));
       assert.ok(r.stderr.includes(message), `${args.join(' ')}: ${r.stderr}`);
       assert.deepEqual(snapshot(dir), before, `${args.join(' ')} leaves job.json and events.jsonl byte-identical`);
     }

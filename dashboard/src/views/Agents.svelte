@@ -53,7 +53,7 @@
 {/if}
 {#if r}
   <h2 class="sheet h section w-fit max-w-full px-3 py-1.5 mt-8 mb-3">{$t('agents.roster')}</h2>
-  <p class="flex flex-wrap items-center gap-1.5 text-xs text-muted mb-3">{$t('agents.effortDefault')}{#if defaultEffort}<EffortChip level={defaultEffort} />{:else}<span>{$t('effort.claude')}</span>{/if}</p>
+  <p class="plain w-fit max-w-full flex flex-wrap items-center gap-1.5 px-3 py-1.5 text-xs text-muted mb-3">{$t('agents.effortDefault')}{#if defaultEffort}<EffortChip level={defaultEffort} />{:else}<span>{$t('effort.claude')}</span>{/if}</p>
   <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
     <table class="tbl">
       <thead><tr><th>{$t('agents.role')}</th><th>{$t('common.model')}</th><th>{$t('agents.promptHash')}</th><th>{$t('agents.addendum')}</th></tr></thead>
