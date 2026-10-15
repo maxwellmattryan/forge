@@ -1,4 +1,5 @@
-// Theme ids: cyanotype (default) and vellum, with the pre-Drafting ids still honoured. The inline
+// Theme ids: cyanotype (default), vellum and nightprint, with the pre-Drafting ids still honoured.
+// System follows the OS: light → vellum, dark → nightprint. The inline
 // bootstrap in index.html duplicates normalizeTheme (it runs before the bundle), so both are run
 // over the same inputs here.
 import test from 'node:test';
@@ -7,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
-import { THEMES, normalizeTheme, setTheme, currentTheme, themeChoice, chooseTheme, followSystemTheme, DRAWINGS, drawingOn, currentDrawing, setDrawing } from '../dashboard/src/lib/theme.ts';
+import { THEMES, THEME_CHOICES, SYSTEM_DARK, normalizeTheme, setTheme, currentTheme, themeChoice, chooseTheme, followSystemTheme, DRAWINGS, drawingOn, currentDrawing, setDrawing } from '../dashboard/src/lib/theme.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -16,25 +17,29 @@ const CASES: [string | null, boolean, string][] = [
   ['cyanotype', true, 'cyanotype'],
   ['dark', false, 'cyanotype'],
   ['dark', true, 'cyanotype'],
-  [null, false, 'cyanotype'],
-  ['bogus', false, 'cyanotype'],
+  [null, false, 'nightprint'],
+  ['bogus', false, 'nightprint'],
   ['vellum', false, 'vellum'],
   ['vellum', true, 'vellum'],
   ['light', false, 'vellum'],
   ['light', true, 'vellum'],
   [null, true, 'vellum'],
   ['bogus', true, 'vellum'],
-  ['', false, 'cyanotype'],
+  ['', false, 'nightprint'],
   ['', true, 'vellum'],
   // System is stored explicitly and follows the OS, like an unset value.
-  ['system', false, 'cyanotype'],
+  ['system', false, 'nightprint'],
   ['system', true, 'vellum'],
+  ['nightprint', false, 'nightprint'],
+  ['nightprint', true, 'nightprint'],
 ];
 
 test('normalizeTheme maps legacy and new ids', () => {
-  assert.deepEqual([...THEMES], ['cyanotype', 'vellum']);
+  assert.deepEqual([...THEMES], ['cyanotype', 'vellum', 'nightprint']);
+  assert.deepEqual([...THEME_CHOICES], [...THEMES, 'system']);
+  assert.equal(SYSTEM_DARK, 'nightprint');
   for (const [saved, light, want] of CASES) assert.equal(normalizeTheme(saved, light), want, `(${saved}, ${light})`);
-  assert.equal(normalizeTheme(undefined, false), 'cyanotype');
+  assert.equal(normalizeTheme(undefined, false), 'nightprint');
 });
 
 /** Runs the inline <script> of an index.html with stubbed storage, media query and document. */
@@ -138,7 +143,8 @@ function fakeMedia(light: boolean) {
 test('themeChoice maps saved values to a choice', () => {
   for (const v of ['cyanotype', 'dark']) assert.equal(themeChoice(v), 'cyanotype', v);
   for (const v of ['vellum', 'light']) assert.equal(themeChoice(v), 'vellum', v);
-  for (const v of [null, undefined, '', 'system', 'bogus', 'Cyanotype']) assert.equal(themeChoice(v), 'system', String(v));
+  assert.equal(themeChoice('nightprint'), 'nightprint');
+  for (const v of [null, undefined, '', 'system', 'bogus', 'Cyanotype', 'Nightprint']) assert.equal(themeChoice(v), 'system', String(v));
   // System renders what an unset value always has: the OS theme.
   for (const light of [false, true]) assert.equal(normalizeTheme('system', light), normalizeTheme(null, light));
 });
@@ -171,23 +177,35 @@ test('chooseTheme and followSystemTheme apply the choice', () => {
       chooseTheme('system');
       assert.equal(dataset.theme, 'vellum');
       media.flip(false);
-      assert.equal(dataset.theme, 'cyanotype', 'System follows a live OS change to dark');
+      assert.equal(dataset.theme, 'nightprint', 'System follows a live OS change to dark');
       media.flip(true);
       assert.equal(dataset.theme, 'vellum', 'and back to light');
+
+      chooseTheme('nightprint');
+      assert.equal(store.get('forge.theme'), 'nightprint');
+      assert.equal(dataset.theme, 'nightprint', 'an explicit nightprint on a light OS');
+      media.flip(true);
+      assert.equal(dataset.theme, 'nightprint', 'an explicit nightprint ignores the OS');
+      media.flip(false);
+      assert.equal(dataset.theme, 'nightprint');
+      chooseTheme('system');
+      assert.equal(dataset.theme, 'nightprint', 'System on a dark OS renders nightprint');
+      media.flip(true);
+      assert.equal(dataset.theme, 'vellum');
 
       // A legacy or unknown saved value counts as System too.
       store.set('forge.theme', 'bogus');
       media.flip(false);
-      assert.equal(dataset.theme, 'cyanotype');
+      assert.equal(dataset.theme, 'nightprint');
       store.set('forge.theme', 'light');
       media.flip(false);
-      assert.equal(dataset.theme, 'cyanotype', 'legacy light is an explicit vellum choice, so the listener leaves it');
+      assert.equal(dataset.theme, 'nightprint', 'legacy light is an explicit vellum choice, so the listener leaves it');
 
       stop();
       assert.deepEqual(media.removed, media.added, 'the unsubscribe removes the same listener');
       store.set('forge.theme', 'system');
       media.flip(true);
-      assert.equal(dataset.theme, 'cyanotype', 'nothing follows after unsubscribing');
+      assert.equal(dataset.theme, 'nightprint', 'nothing follows after unsubscribing');
     },
   );
   withGlobals(
@@ -252,6 +270,15 @@ test('setTheme writes the new id', () => {
     setTheme('cyanotype');
     assert.equal(store.get('forge.theme'), 'cyanotype');
     assert.equal(dataset.theme, 'cyanotype');
+    setTheme('nightprint');
+    assert.equal(store.get('forge.theme'), 'nightprint');
+    assert.equal(dataset.theme, 'nightprint');
+    assert.equal(currentTheme(), 'nightprint');
+    // A missing or unknown attribute shows the :root default, so that is what currentTheme reports.
+    delete dataset.theme;
+    assert.equal(currentTheme(), 'cyanotype');
+    dataset.theme = 'bogus';
+    assert.equal(currentTheme(), 'cyanotype');
   } finally {
     for (const [k, d] of Object.entries(saved)) {
       if (d) Object.defineProperty(g, k, d);

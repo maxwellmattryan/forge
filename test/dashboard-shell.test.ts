@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ancestry, endOf, tags, type Placed } from './svelte-markup.ts';
 import { TONE_CLASS } from '../dashboard/src/lib/util.ts';
+import { THEME_CHOICES } from '../dashboard/src/lib/theme.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = path.join(ROOT, 'dashboard', 'src');
@@ -383,6 +384,9 @@ test('checkboxes are drawn and the theme seg keeps its radiogroup', () => {
   assert.equal(radios.length, 1, 'one radio, repeated over THEME_CHOICES');
   assert.equal(unquote(radios[0].attrs.find((a) => a.name === 'name')?.value), 'settings-theme', "Settings.svelte's focus trap groups radios by name");
   assert.match(general, /\{#each THEME_CHOICES as c \(c\)\}/);
+  assert.equal(THEME_CHOICES.length, 4, 'three themes and System');
+  assert.deepEqual([...THEME_CHOICES], ['cyanotype', 'vellum', 'nightprint', 'system']);
+  assert.match(general, /nightprint: \$t\('settings\.general\.nightprint'\)/, 'every choice has a label');
   // The theme and the drawings go through lib/theme.ts, which owns <html>'s attributes and their prefs.
   assert.match(general, /setDrawing\('grid', /);
   assert.match(general, /setDrawing\('paper', /);

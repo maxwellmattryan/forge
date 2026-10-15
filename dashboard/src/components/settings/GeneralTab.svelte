@@ -9,7 +9,7 @@
   let paper = $state(currentDrawing('paper'));
   let shortcut = $state(pref.get('settingsShortcut', 'on') !== 'off');
   const codes = Object.keys(CATALOGS);
-  const labels = $derived<Record<ThemeChoice, string>>({ cyanotype: $t('settings.general.cyanotype'), vellum: $t('settings.general.vellum'), system: $t('settings.general.system') });
+  const labels = $derived<Record<ThemeChoice, string>>({ cyanotype: $t('settings.general.cyanotype'), vellum: $t('settings.general.vellum'), nightprint: $t('settings.general.nightprint'), system: $t('settings.general.system') });
 
   function languageName(code: string): string {
     try {
@@ -30,7 +30,7 @@
     <h3 class="label callout">{$t('settings.general.appearance')}</h3>
     <div class="grid grid-cols-1 sm:grid-cols-[150px_1fr] gap-x-5 gap-y-3 sm:items-center">
       <div id="settings-theme-label">{$t('settings.general.theme')}</div>
-      <div role="radiogroup" aria-labelledby="settings-theme-label" class="seg self-start">
+      <div role="radiogroup" aria-labelledby="settings-theme-label" class="seg flex-wrap gap-y-2 self-start">
         {#each THEME_CHOICES as c (c)}<label class={choice === c ? 'btn sm sel' : 'btn sm'}><input type="radio" class="sr-only" name="settings-theme" value={c} checked={choice === c} onchange={() => pick(c)} />{labels[c]}</label>{/each}
       </div>
       <div id="settings-grid-label">{$t('settings.general.grid')}</div>

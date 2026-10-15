@@ -1,5 +1,6 @@
 // The Drafting tokens: design/tokens.css is the drawing, the built dashboard CSS must carry every
-// variable of it in the same scope with the same value, and the text colours must stay readable.
+// variable of it in the same scope with the same value, and the text colours must stay readable in
+// all three themes (cyanotype, vellum, nightprint).
 // Reads files only; a small regex-based declaration reader stands in for a CSS parser.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -7,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TONE_CLASS } from '../dashboard/src/lib/util.ts';
+import { THEMES } from '../dashboard/src/lib/theme.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dashboard', 'dist');
@@ -109,12 +111,15 @@ function sameValue(a: string, b: string): boolean {
   });
 }
 
-const SCOPES = [':root, [data-theme="cyanotype"]', '[data-theme="vellum"]', ':root'];
+const SCOPES = [':root, [data-theme="cyanotype"]', '[data-theme="vellum"]', '[data-theme="nightprint"]', ':root'];
 const EXTRAS: Record<string, string[]> = {
   [SCOPES[0]]: ['--paper-blend', '--fall'],
   [SCOPES[1]]: ['--paper-opacity', '--paper-blend', '--fall'],
-  [SCOPES[2]]: [],
+  [SCOPES[2]]: ['--paper-opacity', '--paper-blend', '--fall'],
+  [SCOPES[3]]: [],
 };
+/** Each theme's own token block in design/tokens.css (the scalar `:root` block is shared). */
+const THEME_SCOPE: Record<string, string> = { cyanotype: SCOPES[0], vellum: SCOPES[1], nightprint: SCOPES[2] };
 
 test('the token value reader normalises the way the build rewrites values', () => {
   assert.ok(sameValue('rgba(255,255,255,0.035)', '#ffffff09'));
@@ -130,7 +135,7 @@ test('the token value reader normalises the way the build rewrites values', () =
   assert.deepEqual([...vars.keys()], ['--space-0\\.5', '--a']);
 });
 
-test('built CSS carries every design token in both themes', () => {
+test('built CSS carries every design token in every theme', () => {
   const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
   const css = builtCss();
   let count = 0;
@@ -146,7 +151,7 @@ test('built CSS carries every design token in both themes', () => {
     const extra = [...got.keys()].filter((k) => !want.has(k)).sort();
     assert.deepEqual(extra, [...EXTRAS[sel]].sort(), `${sel}: only the drafting extras are added`);
   }
-  assert.ok(count >= 80, `checked ${count} tokens`);
+  assert.ok(count >= 100, `checked ${count} tokens`);
   for (const m of css.matchAll(/(--(?:[\w-]|\\.)+)\s*:([^;}]*)/g)) {
     const name = m[1].replace(/[\\.]/g, (c) => '\\' + c);
     assert.doesNotMatch(m[2], new RegExp(`var\\(\\s*${name}\\s*[,)]`), `${m[1]} references itself`);
@@ -166,16 +171,18 @@ const contrast = (a: Rgba, b: Rgba) => {
 const over = ([r, g, b, a]: Rgba, [R, G, B]: Rgba): Rgba => [r * a + R * (1 - a), g * a + G * (1 - a), b * a + B * (1 - a), 1];
 
 // --dim is for placeholders and title-block keys only and fails 4.5:1 by design (design/README.md
-// › Colour). On vellum --highlight is only ever a fill under dark text, never text itself.
+// › Colour). On vellum --highlight is only ever a fill under dark text, never text itself; the two dark
+// themes also use it as text (a hovered link).
 const TEXT = ['fg', 'muted', 'ink', 'redline', 'ok', 'warn', 'bad', 'info'];
-const TEXT_BY_THEME: Record<string, string[]> = { cyanotype: [...TEXT, 'highlight'], vellum: TEXT };
-// Empty: job 4 lifted --redline/--bad (both themes) and vellum --warn until every text token
+const TEXT_BY_THEME: Record<string, string[]> = { cyanotype: [...TEXT, 'highlight'], vellum: TEXT, nightprint: [...TEXT, 'highlight'] };
+// Empty in all three themes: job 4 lifted --redline/--bad and vellum --warn until every text token
 // cleared 4.5:1 on the translucent surfaces too. A new failure is a token to fix, not an entry here.
 const EXCEPTIONS: string[] = [];
 
 test('text tokens meet 4.5:1 except the documented exceptions', () => {
   const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
-  const themes: Record<string, Map<string, string>> = { cyanotype: scope(design, SCOPES[0]), vellum: scope(design, SCOPES[1]) };
+  const themes: Record<string, Map<string, string>> = Object.fromEntries(THEMES.map((th) => [th, scope(design, THEME_SCOPE[th])]));
+  assert.deepEqual(Object.keys(themes), ['cyanotype', 'vellum', 'nightprint']);
   const failing: string[] = [];
   for (const [theme, vars] of Object.entries(themes)) {
     const color = (k: string): Rgba => {
@@ -198,12 +205,12 @@ test('text tokens meet 4.5:1 except the documented exceptions', () => {
   assert.deepEqual(failing.sort(), [...EXCEPTIONS].sort(), 'the exception list equals the measured failures');
 });
 
-/** The two theme scopes of design/tokens.css, as a colour reader per theme. */
+/** The three theme scopes of design/tokens.css, as a colour reader per theme. */
 function themeColors(): Record<string, (k: string) => Rgba> {
   const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
   const out: Record<string, (k: string) => Rgba> = {};
-  for (const [theme, sel] of [['cyanotype', SCOPES[0]], ['vellum', SCOPES[1]]]) {
-    const vars = scope(design, sel);
+  for (const theme of THEMES) {
+    const vars = scope(design, THEME_SCOPE[theme]);
     out[theme] = (k: string): Rgba => {
       const c = parseColor(vars.get(`--${k}`) ?? '');
       assert.ok(c, `${theme} --${k} is a colour`);
@@ -247,6 +254,11 @@ test('sheets, chrome and sketch keep text at 4.5:1', (t) => {
     assert.ok(ladder[0] < ladder[1] && ladder[1] < ladder[2], `${theme} fg steps up from the ground: ${ladder.map((r) => r.toFixed(2)).join(' → ')}`);
     const step = contrast(panel, bg);
     assert.ok(step >= 1.1, `${theme} a sheet stands off the ground (${step.toFixed(3)}:1)`);
+    // For design/README.md › Colour: the ladder, the step, and the ground-level numbers the docs quote.
+    t.diagnostic(`${theme} fg ladder bg → panel → chrome: ${ladder.map((r) => r.toFixed(2)).join(' → ')}; sheet step ${step.toFixed(3)}:1`);
+    const raisedGround = over(color('raised'), bg);
+    const weakest = TEXT_BY_THEME[theme].map((k) => [contrast(color(k), raisedGround), k] as const).sort((x, y) => x[0] - y[0])[0];
+    t.diagnostic(`${theme} lowest bg+raised: --${weakest[1]} ${weakest[0].toFixed(2)}:1; --muted on bg+sketch ${contrast(color('muted'), over(color('sketch-line'), bg)).toFixed(2)}:1; --dim on bg ${contrast(color('dim'), bg).toFixed(2)}:1; --line-strong on bg ${contrast(color('line-strong'), bg).toFixed(2)}:1`);
   }
   for (const [key, [ratio, k]] of Object.entries(lowest)) t.diagnostic(`lowest ${key}: --${k} ${ratio.toFixed(2)}:1`);
 });
@@ -329,7 +341,7 @@ function varValues(name: string, fallback: string | undefined, themes: Map<strin
   return [fallback];
 }
 
-/** Whether a background colour is opaque in both themes: an opaque token, the surface, or a mix of opaque colours. */
+/** Whether a background colour is opaque in every theme: an opaque token, the surface, or a mix of opaque colours. */
 function opaque(value: string, themes: Map<string, string>[], built: Map<string, string[]>): boolean {
   const v = value.trim();
   if (v === 'var(--surface,var(--bg))') return true;
@@ -370,7 +382,7 @@ const backgrounds = (css: string, selector: string) =>
 test('filled elements are opaque', () => {
   const css = builtCss();
   const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
-  const themes = [scope(design, SCOPES[0]), scope(design, SCOPES[1]), scope(design, SCOPES[2])];
+  const themes = SCOPES.map((sel) => scope(design, sel));
   const built = builtVars(css);
   assert.ok(opaque('color-mix(in srgb,var(--surface,var(--bg)),var(--ink)12%)', themes, built), 'self-check: the live mix');
   assert.ok(!opaque('#0000', themes, built) && !opaque('transparent', themes, built) && !opaque('var(--raised)', themes, built), 'self-check: see-through values');
@@ -436,7 +448,7 @@ function alphaSources(value: string, themes: Map<string, string>[], built: Map<s
 test('no fill is see-through: alpha only on the ground, the sketch and the allowlist', () => {
   const css = builtCss();
   const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
-  const themes = [scope(design, SCOPES[0]), scope(design, SCOPES[1]), scope(design, SCOPES[2])];
+  const themes = SCOPES.map((sel) => scope(design, sel));
   const built = builtVars(css);
   assert.deepEqual(alphaSources('rgba(0,0,0,.5) #0000 var(--panel) var(--raised) rgb(0 0 0/.2)', themes, built).sort(), ['--raised', 'literal'], 'self-check: literal and token alpha');
   assert.deepEqual(alphaSources('color-mix(in srgb,var(--ink) 12%,transparent)', themes, built), ['color-mix(…, transparent)'], 'self-check: a mix with transparent');
@@ -466,7 +478,8 @@ test('no fill is see-through: alpha only on the ground, the sketch and the allow
 // active nav item lays --raised over it, and the Inbox tag fills with the chrome under it.
 test('chrome sidebar keeps text at 4.5:1', () => {
   const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
-  const themes: Record<string, Map<string, string>> = { cyanotype: scope(design, SCOPES[0]), vellum: scope(design, SCOPES[1]) };
+  const themes: Record<string, Map<string, string>> = Object.fromEntries(THEMES.map((th) => [th, scope(design, THEME_SCOPE[th])]));
+  assert.deepEqual(Object.keys(themeColors()), ['cyanotype', 'vellum', 'nightprint'], 'the sidebar is measured in every theme');
   for (const [theme, color] of Object.entries(themeColors())) {
     const chrome = color('chrome');
     const active = over(color('raised'), chrome);
@@ -495,4 +508,131 @@ test('chrome sidebar keeps text at 4.5:1', () => {
   const vbg = parseColor(vellum.get('--bg') ?? '') as Rgba;
   assert.ok(contrast(parseColor(vellum.get('--highlight') ?? '') as Rgba, vbg) < 4.5, 'the measurement that motivates the rule');
   assert.ok(contrast(parseColor(vellum.get('--fg') ?? '') as Rgba, vbg) >= 4.5);
+});
+
+// ---------- the three themes: cascade, color-scheme, and the overrides each one takes ----------
+
+/**
+ * The custom properties a theme resolves to through the cascade: the unlayered top-level blocks in
+ * source order, each applying when its selector list names `:root` or `[data-theme=<id>]`, the last
+ * declaration winning. Descendant rules (`[data-theme=x] .a`) never apply.
+ */
+function effective(css: string, theme: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const b of topLevelVars(css)) {
+    const parts = args(b.selector);
+    if (parts.includes(':root') || parts.includes(`[data-theme=${theme}]`)) for (const [k, v] of b.vars) out.set(k, v);
+  }
+  return out;
+}
+
+/** A drafting extra as written in drafting.css and as the build minifies it (`.10` becomes `.1`). */
+const sameExtra = (a: string, b: string) => sameValue(a, b) || (a.trim() !== '' && !Number.isNaN(Number(a)) && Number(a) === Number(b));
+
+const DRAFTING_EXTRAS = ['--paper-opacity', '--paper-blend', '--fall'];
+const PAPER_OPACITY: Record<string, number> = { cyanotype: 0.18, vellum: 0.55, nightprint: 0.1 };
+
+test("each theme's tokens and extras win the cascade", () => {
+  const sample = ':root{--a:1;--p:.18}:root,[data-theme="x"]{--a:2}[data-theme=y]{--a:3;--p:.5}[data-theme=x] .b{--a:9}@layer l{:root{--a:8}}';
+  assert.deepEqual(Object.fromEntries(effective(sample, 'x')), { '--a': '2', '--p': '.18' }, 'self-check: the shared :root block applies');
+  assert.deepEqual(Object.fromEntries(effective(sample, 'y')), { '--a': '3', '--p': '.5' }, 'self-check: a later theme block wins, descendants and layers never apply');
+  assert.deepEqual(Object.fromEntries(effective('[data-theme=y]{--p:.5}:root{--p:.18}', 'y')), { '--p': '.18' }, 'self-check: a later :root block wins');
+  assert.ok(sameExtra('.10', '.1') && !sameExtra('.10', '.18') && !sameExtra('', '0'), 'self-check: numeric extras');
+
+  const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
+  const drafting = fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8');
+  const css = builtCss();
+  for (const theme of THEMES) {
+    const got = effective(css, theme);
+    const want = new Map([...scope(design, SCOPES[3]), ...scope(design, THEME_SCOPE[theme])]);
+    // The drafting extras as design/drafting.css resolves them for this theme.
+    const extras = effective(drafting, theme);
+    for (const k of DRAFTING_EXTRAS) {
+      assert.ok(extras.has(k), `design/drafting.css gives ${theme} a ${k}`);
+      want.set(k, extras.get(k) ?? '');
+    }
+    for (const [name, value] of want) assert.ok(sameExtra(value, got.get(name) ?? ''), `${theme} › ${name}: design ${value}, effective ${got.get(name)}`);
+    assert.equal(Number(got.get('--paper-opacity')), PAPER_OPACITY[theme], `${theme} › the paper fibre's opacity`);
+  }
+});
+
+/** Every rule at any depth whose selector names `[data-theme=<id>]`: [normalised selector, body]. */
+function themeRules(css: string, id: string): [string, string][] {
+  const out: [string, string][] = [];
+  for (const m of css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
+    const sel = normSelector(m[1].split(';').pop() ?? '');
+    if (sel.includes(`[data-theme=${id}]`)) out.push([sel, m[2]]);
+  }
+  return out;
+}
+
+const colorScheme = (body: string) => /(?:^|;)\s*color-scheme\s*:\s*([^;]*)/.exec(body)?.[1].trim();
+
+// Native UI (scrollbars, an open <select>, autofill) follows the theme. Nightprint takes the dark defaults
+// (the cyanotype backdrop and scrim, the screen-blended mark, highlight on link hover); only vellum overrides.
+const COLOR_SCHEME: Record<string, string> = { cyanotype: 'dark', vellum: 'light', nightprint: 'dark' };
+const VELLUM_RULES = ['[data-theme=vellum]', '[data-theme=vellum]a:hover', '[data-theme=vellum].backdrop', '[data-theme=vellum].scrim', '[data-theme=vellum].mark'];
+
+test('themes declare color-scheme and nightprint takes the dark defaults', () => {
+  const sample = '@layer a,b;@layer b{[data-theme="x"] .m{c:1}}[data-theme=x]{color-scheme:dark;--a:1}.y{c:2}';
+  assert.deepEqual(themeRules(sample, 'x'), [['[data-theme=x].m', 'c:1'], ['[data-theme=x]', 'color-scheme:dark;--a:1']], 'self-check: nested and top-level rules');
+  assert.equal(colorScheme('--a:1;color-scheme: light'), 'light', 'self-check: color-scheme');
+
+  const css = builtCss();
+  for (const theme of THEMES) {
+    const block = ruleFor(css, normSelector(THEME_SCOPE[theme]).split(',').pop() ?? '');
+    assert.equal(colorScheme(block), COLOR_SCHEME[theme], `${theme}'s token block declares color-scheme:${COLOR_SCHEME[theme]}`);
+  }
+  assert.deepEqual(themeRules(css, 'nightprint').map(([sel]) => sel), ['[data-theme=nightprint]'], 'only the token block names nightprint');
+  assert.deepEqual(themeRules(css, 'vellum').map(([sel]) => sel).sort(), [...VELLUM_RULES].sort(), 'vellum keeps exactly its four overrides');
+});
+
+// design/tokens.json is the source tokens.css is generated from: the same themes as the dashboard
+// offers, one value per theme on every colour and shadow, and the same value as the CSS.
+test('tokens.json themes equal THEMES and every token value matches tokens.css', () => {
+  const json = JSON.parse(fs.readFileSync(path.join(ROOT, 'design', 'tokens.json'), 'utf8'));
+  const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
+  assert.deepEqual(json.color.themes.map((x: { id: string }) => x.id), [...THEMES], 'tokens.json themes are THEMES, in order');
+  const tokens: { name: string; value: Record<string, string> }[] = [...json.color.tokens, ...json.shadow.tokens];
+  assert.ok(tokens.length >= 26, `checked ${tokens.length} themed tokens`);
+  for (const theme of THEMES) {
+    const vars = scope(design, THEME_SCOPE[theme]);
+    assert.deepEqual([...vars.keys()].sort(), tokens.map((x) => `--${x.name}`).sort(), `${theme}: tokens.css and tokens.json name the same tokens`);
+    for (const { name, value } of tokens) {
+      assert.deepEqual(Object.keys(value).sort(), [...THEMES].sort(), `${name} has exactly one value per theme`);
+      assert.ok(sameValue(value[theme], vars.get(`--${name}`) ?? ''), `${theme} › ${name}: tokens.json ${value[theme]}, tokens.css ${vars.get(`--${name}`)}`);
+    }
+  }
+});
+
+// Vellum is a near-white paper, not a cream one: its ground's channels stay within 10 of each other.
+test('vellum bg is near-neutral', () => {
+  const spread = ([r, g, b]: Rgba) => Math.max(r, g, b) - Math.min(r, g, b);
+  assert.equal(spread([241, 236, 223, 1]), 18, 'self-check: the old cream ground');
+  const bg = themeColors().vellum('bg');
+  assert.ok(spread(bg) <= 10, `vellum --bg spreads ${spread(bg)} across its channels`);
+});
+
+// On a dark ground the grid is drawn in light lines: each level stands off bg, major more than minor. The
+// dashed focus ring (line-strong) stays visible on every surface it can land on, in every theme.
+test('cyanotype grid is lighter than bg', () => {
+  const colors = themeColors();
+  for (const theme of ['cyanotype', 'nightprint']) {
+    const color = colors[theme];
+    const bg = color('bg');
+    const [minor, major] = (['grid-minor', 'grid-major'] as const).map((k) => {
+      const drawn = over(color(k), bg);
+      assert.ok(luminance(drawn) > luminance(bg), `${theme} --${k} is lighter than --bg`);
+      const ratio = contrast(drawn, bg);
+      assert.ok(ratio >= 1.1, `${theme} --${k} stands ${ratio.toFixed(3)}:1 off --bg`);
+      return ratio;
+    });
+    assert.ok(major > minor, `${theme} the major grid (${major.toFixed(3)}) stands further off than the minor (${minor.toFixed(3)})`);
+  }
+  for (const [theme, color] of Object.entries(colors)) {
+    for (const s of ['bg', 'panel', 'chrome']) {
+      const ratio = contrast(color('line-strong'), color(s));
+      assert.ok(ratio >= 3, `${theme} the focus ring (--line-strong) on --${s} is ${ratio.toFixed(2)}:1`);
+    }
+  }
 });
