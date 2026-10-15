@@ -63,6 +63,13 @@ test("SessionStart hook puts the plugin's bin first", POSIX, () => {
     assert.equal(r.status, 0, r.stderr);
     assert.equal(r.stdout.trim(), path.join(ROOT, 'bin', 'forge'));
 
+    // The line already there without a trailing newline (something else rewrote the file) counts too.
+    const bare = path.join(tmp, 'bare.sh');
+    fs.writeFileSync(bare, `export FOO=1\nexport PATH='${path.join(ROOT, 'bin')}':"$PATH"`);
+    const bareBefore = fs.readFileSync(bare);
+    assert.equal(runHook(HOOK, { CLAUDE_ENV_FILE: bare }, tmp).status, 0);
+    assert.ok(fs.readFileSync(bare).equals(bareBefore), 'no duplicate line');
+
     // A missing env file is created; an unwritable one is reported on stderr, never stdout, exit 0.
     const fresh = path.join(tmp, 'fresh.sh');
     assert.equal(runHook(HOOK, { CLAUDE_ENV_FILE: fresh }, tmp).status, 0);

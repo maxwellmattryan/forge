@@ -25,7 +25,7 @@ try {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
     }
     // Resume, clear and compact run the hook again on the same file.
-    if (!current.includes(line + '\n')) fs.appendFileSync(file, (current && !current.endsWith('\n') ? '\n' : '') + line + '\n');
+    if (!current.split('\n').includes(line)) fs.appendFileSync(file, (current && !current.endsWith('\n') ? '\n' : '') + line + '\n');
   }
 } catch (e) {
   process.stderr.write(`forge plugin-path hook: ${(e as Error).message}\n`);
