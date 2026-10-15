@@ -1,7 +1,8 @@
 <!-- The command bar (Cmd/Ctrl-K): a modal ARIA combobox that starts a job from free text or sends a /forge-style command.
-     A centred sheet at md and up, a full-width sheet at the top below. lib/command.ts holds the grammar and mapping. -->
+     A centred sheet at md and up, a full-width sheet at the top below. It starts from the text typed into the status bar's
+     input, with the caret at the end. lib/command.ts holds the grammar and mapping. -->
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import CloseButton from './CloseButton.svelte';
   import Icon from './Icon.svelte';
   import StateChip from './StateChip.svelte';
@@ -16,7 +17,7 @@
 
   let { onclose }: { onclose: () => void } = $props();
 
-  let text = $state('');
+  let text = $state(untrack(() => palette.text));
   let title = $state('');
   let active = $state(0);
   let pending = $state(false);
@@ -182,7 +183,10 @@
     if (!S.backlog) loadBacklog();
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    tick().then(() => input?.focus());
+    tick().then(() => {
+      input?.focus();
+      input?.setSelectionRange(text.length, text.length);
+    });
     return () => {
       document.body.style.overflow = overflow;
     };

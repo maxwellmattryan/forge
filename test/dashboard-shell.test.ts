@@ -794,7 +794,7 @@ test('the drawer header is compact and Details holds the rest', () => {
   assert.ok(headHtml.length > 0, 'the header block precedes the strip');
 
   // AC10: title row, summary row, reason line, and nothing else.
-  assert.ok(headHtml.includes('{#if scopeVerbs(j).length}<CommandTrigger variant="drawer" job={j.id} />{/if}'), 'the title row keeps Command for this job');
+  assert.ok(headHtml.includes('{#if scopeVerbs(j).length}<CommandTrigger job={j.id} />{/if}'), 'the title row keeps Command for this job');
   assert.ok(headHtml.includes(`<CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} />`), 'and the close button');
   const rows = walked.filter((e) => e.parents.at(-1) === head);
   assert.deepEqual(rows.map((e) => e.name), ['div', 'div', 'div'], 'the title row, the summary row, the reason line');
@@ -884,40 +884,62 @@ test('the sidebar is navigation only', () => {
   for (const rel of all) assert.ok(!read(rel).includes('command-open'), `${rel} mentions no command-open button`);
 });
 
-test('command triggers: header on every view, phone FAB in the inert shell, drawer', () => {
+test('command input: inline at md and up, a trigger below md, one shortcut, no header or FAB trigger', () => {
   const header = read('components/PageHeader.svelte');
-  assert.equal(header.match(/<CommandTrigger\b/g)?.length, 1, 'PageHeader renders one trigger');
-  assert.ok(header.includes('{@render right?.()}<CommandTrigger variant="header" />'), "the header trigger follows the view's own controls");
+  assert.doesNotMatch(header, /CommandTrigger/, 'PageHeader renders no palette trigger');
   const h1 = elements('components/PageHeader.svelte').find((e) => e.name === 'h1');
   assert.equal(attrOf(h1!, 'tabindex'), '-1', 'the heading is the focus fallback');
   const views = fs.readdirSync(path.join(SRC, 'views')).filter((f) => f.endsWith('.svelte'));
   assert.equal(views.length, 6);
   for (const v of views) assert.equal(read(`views/${v}`).match(/<PageHeader\b/g)?.length, 1, `${v} renders one PageHeader`);
 
+  // md and up: the inline input, the one element that announces the shortcut.
   const shortcut = svelteFiles().flatMap((rel) => elements(rel).filter((e) => attrOf(e, 'aria-keyshortcuts') === 'Meta+K Control+K').map((e) => ({ rel, e })));
   assert.equal(shortcut.length, 1, 'one element announces the palette shortcut');
-  assert.equal(shortcut[0].rel, 'components/CommandTrigger.svelte');
-  assert.equal(attrOf(shortcut[0].e, 'aria-haspopup'), 'dialog');
-  assert.ok(shortcut[0].e.classes.includes('max-md:hidden'), 'the header trigger is hidden below md');
+  assert.equal(shortcut[0].rel, 'components/StatusBar.svelte');
+  const input = shortcut[0].e;
+  assert.equal(input.name, 'input');
+  assert.equal(attrOf(input, 'id'), 'statusbar-command');
+  assert.equal(attrOf(input, 'aria-label'), "{$t('command.open')}");
+  assert.equal(attrOf(input, 'aria-haspopup'), 'dialog');
+  assert.ok(input.classes.includes('max-md:hidden'), 'hidden below md');
+  const bar = read('components/StatusBar.svelte');
+  for (const [ev, type] of [['oninput', 'input'], ['oncompositionend', 'compositionend'], ['onkeydown', 'keydown']]) assert.equal(attrOf(input, ev), `{(e) => inline(e, '${type}')}`, `${ev} goes through inline()`);
+  assert.match(bar, /if \(inlineInputAction\(\{ type, value: el\.value, key, composing \}\) !== 'open'\) return;/, 'inline() asks inlineInputAction');
+  assert.match(bar, /openPalette\(\{ text: el\.value, opener: el \}\);\s*el\.value = '';/, 'it hands its text to the palette and clears');
+  assert.match(bar, /export function commandState\(\): \{ visible: boolean; focused: boolean \}/);
+  assert.match(bar, /export function focusCommand\(\): void/);
 
-  const trigger = elements('components/CommandTrigger.svelte');
-  const fab = trigger.find((e) => e.name === 'div' && has(e, 'md:hidden', 'fixed', 'z-20'));
-  assert.ok(fab, 'the FAB wrapper is md:hidden fixed z-20');
-  assert.equal(fab.first?.name, 'button');
-  assert.ok(attrOf(fab.first!, 'aria-label'), 'the FAB is labelled');
-  assert.equal(attrOf(fab.first!, 'aria-haspopup'), 'dialog');
+  // Below md: one button between the clusters.
+  const phone = elements('components/StatusBar.svelte').filter((e) => e.name === 'button' && e.classes.includes('md:hidden') && !/openPopover/.test(attrOf(e, 'onclick')));
+  assert.equal(phone.length, 1, 'one phone palette button');
+  assert.equal(attrOf(phone[0], 'aria-haspopup'), 'dialog');
+  assert.match(attrOf(phone[0], 'onclick'), /openPalette\(\{ opener: e\.currentTarget \}\)/);
+  assert.ok(phone[0].parents.some((p) => p.name === 'footer'), 'inside the bar');
 
+  // App: no FAB, and Cmd/Ctrl-K follows shortcutAction.
   const app = read('App.svelte');
-  assert.equal(app.match(/<CommandTrigger variant="fab" \/>/g)?.length, 1, 'App renders the FAB once');
-  const fabUse = elements('App.svelte').find((e) => e.name === 'CommandTrigger');
-  assert.ok(fabUse, 'the FAB in App');
-  const shell = fabUse.parents.find((p) => p.name === 'div' && attrOf(p, 'inert') === '{settingsOpen || palette.open}');
-  assert.ok(shell && has(shell, 'flex', 'min-h-screen'), 'inside the shell div whose inert covers the palette');
-  assert.ok(!fabUse.parents.some((p) => p.name === 'main'), 'outside main, whose falloff isolates');
+  assert.doesNotMatch(app, /CommandTrigger/, 'App imports no CommandTrigger: the FAB is gone');
+  assert.match(app, /<StatusBar bind:this=\{bar\} \/>/);
+  assert.match(app, /const action = shortcutAction\(\{ paletteOpen: palette\.open, inlineVisible: inline\.visible, inlineFocused: inline\.focused \}\);/);
+  assert.match(app, /if \(action === 'focus-palette'\) command\?\.focus\(\);\s*else if \(action === 'focus-inline'\) bar\?\.focusCommand\(\);\s*else openPalette\(\);/);
 
+  // The drawer keeps Command for this job; CommandTrigger is that button alone.
+  const trigger = read('components/CommandTrigger.svelte');
+  assert.doesNotMatch(trigger, /variant|'header'|'fab'/, 'no header or fab variant, no variant prop');
+  assert.match(trigger, /let \{ job \}: \{ job: string \| null \} = \$props\(\);/);
   const drawer = read('components/Drawer.svelte');
-  assert.equal(drawer.match(/<CommandTrigger variant="drawer"/g)?.length, 1, 'the drawer header has one "Command for this job"');
-  assert.ok(drawer.includes('{#if scopeVerbs(j).length}<CommandTrigger variant="drawer" job={j.id} />{/if}'), 'only for a job with something to command');
+  assert.equal(drawer.match(/<CommandTrigger\b/g)?.length, 1, 'the drawer header has one "Command for this job"');
+  assert.ok(drawer.includes('{#if scopeVerbs(j).length}<CommandTrigger job={j.id} />{/if}'), 'only for a job with something to command');
+
+  // The palette starts from the bar's text, caret at the end.
+  const palette = read('lib/palette.svelte.ts');
+  assert.match(palette, /text = \$state\(''\);/);
+  assert.match(palette, /export function openPalette\(opts: \{ scope\?: string \| null; opener\?: HTMLElement \| null; text\?: string \} = \{\}\): void/);
+  assert.match(palette, /palette\.text = opts\.text \?\? '';/);
+  const cmd = read('components/CommandBar.svelte');
+  assert.match(cmd, /let text = \$state\(untrack\(\(\) => palette\.text\)\);/);
+  assert.match(cmd, /input\?\.focus\(\);\s*input\?\.setSelectionRange\(text\.length, text\.length\);/);
 });
 
 test('one close control: drawer, dialogs and toast', () => {
@@ -990,11 +1012,7 @@ test('controls in one row share one size', () => {
   const pipeline = elements('views/Pipeline.svelte').filter((e) => e.name === 'button' && attrOf(e, 'aria-pressed'));
   assert.equal(pipeline.length, 2, "the Pipeline's two segs");
   for (const b of pipeline) assert.ok(b.classes.includes('btn') && !b.classes.includes('sm'), `a Pipeline seg is btn (${b.classes.join(' ')})`);
-  const header = elements('components/CommandTrigger.svelte').find((e) => attrOf(e, 'aria-keyshortcuts'));
-  assert.ok(header && has(header, 'btn', 'dashed') && !header.classes.includes('sm'), `the header trigger is btn dashed (${header?.classes.join(' ')})`);
-  const fab = elements('components/CommandTrigger.svelte').find((e) => e.classes.includes('primary'));
-  assert.ok(fab?.classes.includes('size-14!'), 'the FAB stays 56px over btn icon');
-  const right = elements('components/PageHeader.svelte').find((e) => e.name === 'div' && e.first?.name === 'CommandTrigger');
+  const right = elements('components/PageHeader.svelte').filter((e) => e.name === 'div').at(-1);
   assert.ok(right && right.classes.includes('gap-2') && !right.classes.includes('gap-2.5'), `PageHeader's right container uses gap-2 (${right?.classes.join(' ')})`);
 
   // The Daemon popover and the session log are sm rows: their chips and fields take chip sm and input sm.
@@ -1065,6 +1083,7 @@ test('status bar: one fixed footer in the inert shell, outside main', () => {
   assert.ok(shell && has(shell, 'flex', 'min-h-screen'), 'inside the shell div whose inert covers Settings and the palette');
   assert.ok(!use.parents.some((p) => p.name === 'main'), 'outside main, whose falloff isolates');
   assert.doesNotMatch(app, /DaemonBar/, 'App imports no DaemonBar');
+  assert.doesNotMatch(app, /CommandTrigger/, 'nor CommandTrigger');
   assert.ok(!fs.existsSync(path.join(SRC, 'components', 'DaemonBar.svelte')), 'DaemonBar.svelte is gone');
 
   const bar = elements('components/StatusBar.svelte');
@@ -1115,7 +1134,8 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
   assert.equal(attrOf(close[0], 'size'), 'sm');
   const script = read('components/Popover.svelte');
   assert.match(script, /document\.addEventListener\('pointerdown', down, true\)/, 'a capture-phase pointerdown while open');
-  assert.match(script, /return \(\) => document\.removeEventListener\('pointerdown', down, true\)/, 'removed on destroy');
+  assert.match(script, /document\.removeEventListener\('pointerdown', down, true\);/, 'removed on destroy');
+  assert.match(script, /document\.addEventListener\('focusin', focusIn, true\)/, 'focus that lands outside later closes it too');
   assert.match(script, /closePopover\('outside', \{ targetFocusable: target\.closest\(TABBABLE\) !== null \}\)/);
   assert.match(script, /closePopover\('focusout', \{ relatedInside: to === null \? null : within\(to\) \}\)/, 'no relatedTarget is null, never outside');
 
@@ -1176,6 +1196,22 @@ test('the view, the toast and the drawer clear the status bar', () => {
   assert.ok(toast && clears(toast) && toast.classes.some((c) => c.startsWith('bottom-')), '#toast sits above the bar and the inset');
   for (const c of ['bottom-24', 'md:bottom-4']) assert.ok(!toast.classes.includes(c), `#toast drops ${c}`);
   assert.ok(toast.classes.includes('z-50'), 'the toast stays z-50');
+
+  // md and up the drawer ends at the bar's top edge; below md it keeps the full height and covers the bar.
+  const drawer = elements('components/Drawer.svelte');
+  const aside = drawer.find((e) => e.name === 'aside' && attrOf(e, 'id') === 'drawer');
+  assert.ok(aside, 'aside#drawer');
+  assert.ok(aside.classes.includes('h-dvh'), 'the drawer keeps h-dvh');
+  assert.ok(aside.classes.includes('md:h-[calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom))]'), 'md and up it is 100dvh less the bar and the inset');
+  assert.ok(aside.classes.includes('z-40'), 'the drawer stays z-40');
+  const backdrop = drawer.find((e) => attrOf(e, 'id') === 'drawer-backdrop');
+  assert.ok(backdrop?.classes.includes('z-30'), 'the backdrop stays z-30');
+  const footer = elements('components/StatusBar.svelte').find((e) => e.name === 'footer');
+  assert.ok(footer?.classes.includes('z-35'), 'the bar sits between them');
+  const readme = fs.readFileSync(path.join(ROOT, 'design', 'README.md'), 'utf8');
+  const shell = readme.split('\n').find((l) => l.startsWith('- The shell is'));
+  assert.ok(shell?.includes('sidebar z-10, drawer backdrop z-30, status bar z-35, drawer z-40, popovers z-42, Settings and the palette z-45, toast z-50'), 'design/README.md lists the z-order');
+  assert.ok(shell.includes('size-statusbar') && !/FAB/.test(shell), 'and names the token, not the FAB');
 });
 
 test('the daemon popover keeps every daemon bar control', () => {
@@ -1214,4 +1250,19 @@ test('the model popover is read-only', () => {
   assert.match(panel, /onMount\(\(\) => \{[\s\S]*?loadRoster\(\)/, 'fetched each time it opens');
   for (const key of ['loading', 'failed', 'noReviewers']) assert.ok(panel.includes(`$t('statusbar.model.${key}'`), `the ${key} state`);
   assert.match(read('lib/app.svelte.ts'), /export async function loadRoster\(\): Promise<void> \{\s*S\.roster = await api<Roster>\('\/api\/roster'\);/, 'GET /api/roster, the error left to the caller');
+});
+
+test('docs name the status bar', () => {
+  const COMPONENTS = path.join(ROOT, 'design', 'components');
+  for (const f of ['README.md', 'preview.html']) assert.ok(fs.existsSync(path.join(COMPONENTS, 'StatusBar', f)), `design/components/StatusBar/${f} exists`);
+  assert.ok(!fs.existsSync(path.join(COMPONENTS, 'DaemonBar')), 'design/components/DaemonBar is gone');
+  const index = fs.readFileSync(path.join(COMPONENTS, 'index.html'), 'utf8');
+  for (const href of ['StatusBar/preview.html', 'StatusBar/README.md']) assert.ok(index.includes(`href="${href}"`), `index.html links ${href}`);
+  assert.doesNotMatch(index, /DaemonBar/, 'and no DaemonBar');
+  const migration = fs.readFileSync(path.join(ROOT, 'design', 'MIGRATION.md'), 'utf8');
+  for (const rule of ['**sm or md.**', '**Chips are xs annotations**']) {
+    const line = migration.split('\n').find((l) => l.includes(rule));
+    assert.ok(line?.includes('status bar'), `MIGRATION.md's ${rule} rule names the status bar`);
+    assert.doesNotMatch(line, /daemon bar/i);
+  }
 });

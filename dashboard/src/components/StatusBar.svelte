@@ -18,9 +18,11 @@
   import { API_VERSION } from '../lib/types.ts';
   import type { DaemonPoolState } from '../lib/types.ts';
   import { mergePoolState, poolModel, postDaemon } from '../lib/daemon.ts';
-  import { barModel, connectionState, modelSummary, promptAnnouncement } from '../lib/statusbar.ts';
+  import { barModel, connectionState, inlineInputAction, modelSummary, promptAnnouncement, type InlineInputEvent } from '../lib/statusbar.ts';
+  import { shortcutLabel } from '../lib/command.ts';
   import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
   import { closePopover, focusInPopover, openPopover, popover } from '../lib/popover.svelte.ts';
+  import { openPalette } from '../lib/palette.svelte.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
 
@@ -31,6 +33,7 @@
   const bar = $derived(barModel(pool, { pending }));
   const models = $derived(modelSummary(S.data?.config?.models));
   const conn = $derived(connectionState({ online: S.online, apiVersion: S.data?.apiVersion, clientApi: API_VERSION }));
+  const shortcut = shortcutLabel(typeof navigator === 'undefined' ? '' : navigator.platform);
 
   /** Tone → text colour, whole literals so Tailwind sees them. */
   const TONE_TEXT: Record<string, string> = { ok: 'text-ok', warn: 'text-warn', bad: 'text-bad', info: 'text-info', ink: 'text-ink', live: 'text-ink', muted: 'text-muted' };
@@ -80,6 +83,28 @@
     });
   });
 
+  // ---------- the inline command input ----------
+  let input = $state<HTMLInputElement>();
+
+  function inline(e: Event & { currentTarget: HTMLInputElement }, type: InlineInputEvent['type']): void {
+    const el = e.currentTarget;
+    const composing = 'isComposing' in e && type !== 'compositionend' ? Boolean(e.isComposing) : false;
+    const key = e instanceof KeyboardEvent ? e.key : undefined;
+    if (inlineInputAction({ type, value: el.value, key, composing }) !== 'open') return;
+    if (type === 'keydown') e.preventDefault();
+    openPalette({ text: el.value, opener: el });
+    el.value = '';
+  }
+
+  /** For App's Cmd/Ctrl-K: whether the inline input shows (md and up) and has focus. */
+  export function commandState(): { visible: boolean; focused: boolean } {
+    return { visible: Boolean(input && input.getClientRects().length > 0), focused: Boolean(input && document.activeElement === input) };
+  }
+
+  export function focusCommand(): void {
+    input?.focus();
+  }
+
   const expanded = (id: 'daemon' | 'inbox' | 'model' | 'connection'): boolean => popover.open === id;
   const controls = (id: 'daemon' | 'inbox' | 'model' | 'connection'): string | undefined => (popover.open === id ? `popover-${id}` : undefined);
 </script>
@@ -95,17 +120,17 @@
         <span class="inline-flex md:hidden"><Icon name="daemon" /></span>
         <LiveDot on={bar.daemon.active} />
         {#if bar.daemon.off}
-          <span class="truncate text-muted max-md:sr-only">{$t('statusbar.daemon.off')}</span>
+          <span class="truncate text-muted max-lg:sr-only">{$t('statusbar.daemon.off')}</span>
         {:else}
-          <span class="truncate max-md:sr-only {TONE_TEXT[bar.daemon.pill.tone]}"><span class="max-xl:sr-only">{$t('statusbar.daemon.title')}{' '}</span>{bar.daemon.pill.label}</span>
+          <span class="truncate max-lg:sr-only {TONE_TEXT[bar.daemon.pill.tone]}"><span class="max-xl:sr-only">{$t('statusbar.daemon.title')}{' '}</span>{bar.daemon.pill.label}</span>
           <span class="num shrink-0 max-md:sr-only">{bar.daemon.live}/{bar.daemon.cap}<span class="sr-only">{' '}{$t('statusbar.daemon.sessions')}</span></span>
         {/if}
       </button>
       {#if bar.inbox}
         <button class="btn sm ghost min-w-0 max-md:min-w-11 max-md:justify-center" aria-haspopup="dialog" aria-expanded={expanded('inbox')} aria-controls={controls('inbox')} onclick={(e) => openPopover('inbox', e.currentTarget)}>
           <span class="inline-flex {TONE_TEXT[bar.inbox.tone]}"><Icon name="inbox" /></span>
-          <span class="truncate max-md:sr-only {TONE_TEXT[bar.inbox.tone]}"><span class="max-xl:sr-only">{$t('statusbar.inbox.name')}{' '}</span>{bar.inbox.label}</span>
-          {#if bar.prompts}<span class="num shrink-0 text-warn"><span class="md:hidden" aria-hidden="true">{bar.prompts}</span><span class="max-md:sr-only">{$t('statusbar.inbox.prompts', { count: bar.prompts })}</span></span>{/if}
+          <span class="truncate max-lg:sr-only {TONE_TEXT[bar.inbox.tone]}"><span class="max-xl:sr-only">{$t('statusbar.inbox.name')}{' '}</span>{bar.inbox.label}</span>
+          {#if bar.prompts}<span class="num shrink-0 text-warn"><span class="lg:hidden" aria-hidden="true">{bar.prompts}</span><span class="max-lg:sr-only">{$t('statusbar.inbox.prompts', { count: bar.prompts })}</span></span>{/if}
         </button>
       {/if}
       {#if bar.held}
@@ -117,20 +142,42 @@
     {/if}
   </div>
 
-  <div class="flex min-w-0 flex-1 items-center justify-center md:flex-none"></div>
+  <div class="flex min-w-0 flex-1 items-center justify-center md:flex-none">
+    <!-- Below md: one button fills the space between the clusters. -->
+    <button class="btn md:hidden min-w-0 flex-1 justify-center px-2! normal-case tracking-normal" aria-haspopup="dialog" onclick={(e) => openPalette({ opener: e.currentTarget })}><Icon name="command" /><span class="truncate">{$t('command.open')}</span></button>
+    <!-- md and up: a real input; typing hands its text to the palette. The kbd is hidden because aria-keyshortcuts announces it. -->
+    <span class="relative max-md:hidden">
+      <input
+        bind:this={input}
+        id="statusbar-command"
+        type="text"
+        aria-label={$t('command.open')}
+        aria-haspopup="dialog"
+        aria-keyshortcuts="Meta+K Control+K"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder={$t('command.open')}
+        class="max-md:hidden w-56 lg:w-64 xl:w-80 2xl:w-96 pr-14!"
+        oninput={(e) => inline(e, 'input')}
+        oncompositionend={(e) => inline(e, 'compositionend')}
+        onkeydown={(e) => inline(e, 'keydown')}
+      />
+      <kbd class="mono muted pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-[10px]" aria-hidden="true">{shortcut}</kbd>
+    </span>
+  </div>
 
   <div class="flex min-w-0 shrink-0 items-center justify-end gap-0.5 overflow-x-clip md:gap-1 md:px-1">
     {#if S.data}
       <button class="btn sm ghost min-w-0 max-md:min-w-11 max-md:justify-center" aria-haspopup="dialog" aria-expanded={expanded('model')} aria-controls={controls('model')} onclick={(e) => openPopover('model', e.currentTarget)}>
         <Icon name="agents" />
         <span class="sr-only">{$t('statusbar.model.name')}{' '}</span>
-        <span class="truncate max-md:sr-only">{#if models.provider}<span class="max-xl:sr-only">{models.provider}{' · '}</span>{/if}{models.label ?? $t('statusbar.model.session')}{#if models.effort}<span class="max-xl:sr-only">{' · '}{$t('statusbar.model.effort', { effort: models.effort })}</span>{/if}</span>
+        <span class="truncate max-lg:sr-only">{#if models.provider}<span class="max-xl:sr-only">{models.provider}{' · '}</span>{/if}{models.label ?? $t('statusbar.model.session')}{#if models.effort}<span class="max-xl:sr-only">{' · '}{$t('statusbar.model.effort', { effort: models.effort })}</span>{/if}</span>
       </button>
     {/if}
     <button class="btn sm ghost min-w-0 max-md:min-w-11 max-md:justify-center" aria-haspopup="dialog" aria-expanded={expanded('connection')} aria-controls={controls('connection')} onclick={(e) => openPopover('connection', e.currentTarget)}>
       <span class={CONN_DOT[conn.tone]} aria-hidden="true"></span>
       <span class="sr-only">{$t('statusbar.conn.title')}{' '}</span>
-      <span class="truncate max-md:sr-only {TONE_TEXT[conn.tone]}">{#if conn.state === 'connecting'}{$t('statusbar.conn.connecting')}{:else if conn.state === 'offline'}{$t('statusbar.conn.offline')}{:else if conn.state === 'outdated'}{$t('statusbar.conn.outdated')}{:else}{$t('statusbar.conn.live')}{/if}</span>
+      <span class="truncate max-lg:sr-only {TONE_TEXT[conn.tone]}">{#if conn.state === 'connecting'}{$t('statusbar.conn.connecting')}{:else if conn.state === 'offline'}{$t('statusbar.conn.offline')}{:else if conn.state === 'outdated'}{$t('statusbar.conn.outdated')}{:else}{$t('statusbar.conn.live')}{/if}</span>
     </button>
   </div>
 

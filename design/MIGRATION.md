@@ -73,10 +73,10 @@ Every control has one fixed height, from four tokens in `tokens.css` (`size` in 
 | `--control-lg` | 40px | `tab` (the drawer's tab strip) |
 
 - **A row holds one size**, with `gap-2` (8px, `--space-2`) between controls. A `seg` has no height of its own: its members are buttons of one size, and they still touch (the -1px overlap).
-- **sm or md.** Use sm in dense toolbars and in drawer and sheet headers: the drawer header, the daemon bar, the session log, permission prompts. Use md in page headers, forms and action rows: every view's header, `JobActions`, the action dock, settings.
+- **sm or md.** Use sm in dense toolbars and in drawer and sheet headers: the drawer header, the status bar and its popovers, the session log, permission prompts. Use md in page headers, forms and action rows: every view's header, `JobActions`, the action dock, settings.
 - **Icon buttons are square** at their siblings' height: `btn icon` is 32×32, `btn sm icon` 28×28, with the 15px icon centred. A button with an icon and a label is as tall as one without.
-- **Chips are xs annotations** unless they sit in a control row, where they take `chip sm` (the daemon bar, the session pill, the palette's scope).
-- **Phones (below 48rem) get a 44px floor:** every `button` but chips, `a.btn`, `select` and text input, sm ones included, is at least 44px tall, and icon buttons at least 44px wide. Native `input.sm` / `select.sm` sizing sits only inside a `min-width: 48rem` block, so it never beats the floor. Button chips keep their transparent 44px hit area; `btn touch` and the 56px FAB are unchanged.
+- **Chips are xs annotations** unless they sit in a control row, where they take `chip sm` (the status bar's Daemon popover, the session pill, the palette's scope).
+- **Phones (below 48rem) get a 44px floor:** every `button` but chips, `a.btn`, `select` and text input, sm ones included, is at least 44px tall, and icon buttons at least 44px wide. Native `input.sm` / `select.sm` sizing sits only inside a `min-width: 48rem` block, so it never beats the floor. Button chips keep their transparent 44px hit area; `btn touch` is unchanged.
 - **One close control.** `CloseButton.svelte` renders `btn icon ghost` (plus `sm` beside sm siblings) holding the `close` icon. At rest its border is transparent, so only the cross shows; hover draws the sketch and a `--line` border, never heavier than a neighbouring `btn`'s `--line-strong`; it keeps the dashed focus ring and the ink press. The drawer, the Settings dialog, the command palette and the toast use it, and nothing else draws the close icon.
 
 ## Order of work

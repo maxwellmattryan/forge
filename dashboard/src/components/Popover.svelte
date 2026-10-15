@@ -39,10 +39,20 @@
     closePopover('focusout', { relatedInside: to === null ? null : within(to) });
   }
 
+  // Tab past the page's last control leaves the document (a focusout with no relatedTarget, which closes nothing); focus
+  // that later lands outside closes it then.
+  function focusIn(e: FocusEvent): void {
+    if (e.target instanceof Node && !within(e.target)) closePopover('focusout', { relatedInside: false });
+  }
+
   onMount(() => {
     el?.focus();
     document.addEventListener('pointerdown', down, true);
-    return () => document.removeEventListener('pointerdown', down, true);
+    document.addEventListener('focusin', focusIn, true);
+    return () => {
+      document.removeEventListener('pointerdown', down, true);
+      document.removeEventListener('focusin', focusIn, true);
+    };
   });
 </script>
 

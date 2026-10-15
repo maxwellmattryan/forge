@@ -2,7 +2,7 @@ The command bar is the ⌘K dialog: a solid ticked sheet (opaque `panel` fill, `
 
 Option rows are `body`: the active one takes a `raised` wash and a 3px `ink` rule on its left; verb rows show the verb in mono `fg` and its hint; job rows show id, title and a `StateChip`; the runnable row leads with the `command` glyph in `ink` and *Start* or *Send* in 500. The dialog traps focus, closes on Escape or a scrim click, and is a full-width sheet on phones.
 
-Three triggers open it: the dashed header button at the end of every page header (md and up), a 56px square `primary` icon button fixed at the bottom right on phones (the FAB, under the drawer's backdrop), and *Command for this job* (`btn sm`, icon only below sm) left of Close in the drawer header.
+Three triggers open it: the status bar's *New job or command* input at md and up (typing or pasting there opens the palette with that text and the caret at the end; Enter or ArrowDown in the empty input opens it empty; ⌘K / Ctrl K focuses the input, and a second press opens the palette), the status bar's full-width *New job or command* button below md, and *Command for this job* (`btn sm`, icon only below sm) left of Close in the drawer header. Closing it returns focus to the trigger that opened it.
 
 Opened from the drawer it is scoped to that job: an `ink` chip *For <job id>* (truncated, full id in its title) and a small remove button sit between the glyph and the input, and with an empty input the job's applicable verbs lead the list as scoped rows (verb and job id in mono), followed by every global verb. Backspace in the empty input or the remove button drops the scope. Free text while scoped still starts a new job, and its Start row says it doesn't message the scoped job.
 

@@ -238,7 +238,11 @@ function mediaSplit(css: string, prelude: RegExp): { inside: string; outside: st
       outside += rest;
       break;
     }
-    const body = mediaBody(rest.slice(m.index), prelude);
+    // This block only: mediaBody joins every block with the prelude, which would skip the rules between them.
+    let depth = 1;
+    let i = m.index + m[0].length;
+    for (; i < rest.length && depth; i++) depth += rest[i] === '{' ? 1 : rest[i] === '}' ? -1 : 0;
+    const body = rest.slice(m.index + m[0].length, i - 1);
     inside.push(body);
     outside += rest.slice(0, m.index);
     rest = rest.slice(m.index + m[0].length + body.length + 1);

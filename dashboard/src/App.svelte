@@ -3,7 +3,6 @@
   import { onMount, tick, untrack } from 'svelte';
   import Banner from './components/Banner.svelte';
   import CommandBar from './components/CommandBar.svelte';
-  import CommandTrigger from './components/CommandTrigger.svelte';
   import Drawer from './components/Drawer.svelte';
   import Icon from './components/Icon.svelte';
   import LiveDot from './components/LiveDot.svelte';
@@ -24,7 +23,7 @@
   import { INBOX_SCOPE } from './lib/types.ts';
   import { t } from './lib/locale.ts';
   import { settingsKey } from './lib/settings.ts';
-  import { commandKey, shellEscape } from './lib/command.ts';
+  import { commandKey, shellEscape, shortcutAction } from './lib/command.ts';
   import { closePalette, openPalette, palette } from './lib/palette.svelte.ts';
   import { closePopover, popover } from './lib/popover.svelte.ts';
   import { pref } from './lib/prefs.ts';
@@ -32,6 +31,7 @@
   let settingsOpen = $state(false);
   let settings = $state<ReturnType<typeof Settings>>();
   let command = $state<ReturnType<typeof CommandBar>>();
+  let bar = $state<ReturnType<typeof StatusBar>>();
   // Focus goes back here when Settings closes (the palette keeps its own, in palette.svelte.ts).
   let settingsOpener: HTMLElement | null = null;
   const active = $derived(activeSessions(S.data?.daemons));
@@ -72,8 +72,11 @@
   function onKey(e: KeyboardEvent): void {
     if (commandKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, open: palette.open, settingsOpen, repeat: e.repeat, composing: e.isComposing }) === 'open') {
       e.preventDefault();
-      // Again while open: back to the input, keeping the scope.
-      if (palette.open) command?.focus();
+      // Open: back to its input, keeping the scope. md and up: the first press focuses the bar's input, the second opens.
+      const inline = bar?.commandState() ?? { visible: false, focused: false };
+      const action = shortcutAction({ paletteOpen: palette.open, inlineVisible: inline.visible, inlineFocused: inline.focused });
+      if (action === 'focus-palette') command?.focus();
+      else if (action === 'focus-inline') bar?.focusCommand();
       else openPalette();
       return;
     }
@@ -136,7 +139,7 @@
     </div>
   </aside>
   <main class="falloff flex-1 min-w-0">
-    <!-- The settings button stays outside the scrolling nav, so it is always on screen; the palette's phone button is the FAB below. -->
+    <!-- The settings button stays outside the scrolling nav, so it is always on screen; the palette opens from the status bar. -->
     <header class="md:hidden flex items-center gap-1 border-b chrome border-line-strong pr-2">
       <div id="mobile-nav" class="nav row flex-1 min-w-0 overflow-x-auto p-2"><Nav mobile /></div>
       <span id="mobile-sessions" class="label flex shrink-0 items-center gap-1.5 px-1" title={activeTitle}><LiveDot on={active.count > 0} /><span class="num">{$t('app.tblock.sessionsValue', { count: active.count })}</span></span>
@@ -157,10 +160,9 @@
       {/if}
     </div>
   </main>
-  <!-- Outside main: main.falloff isolates, which would trap the phone button's z-20 inside main's stacking context. -->
-  <CommandTrigger variant="fab" />
-  <!-- Outside main for the same reason: the bar's z-35 and its popovers' z-42 must rise above the drawer's backdrop and the drawer. -->
-  <StatusBar />
+  <!-- Outside main: main.falloff isolates, which would trap the bar's z-35 and its popovers' z-42 inside main's stacking
+       context, under the drawer's backdrop and the drawer. -->
+  <StatusBar bind:this={bar} />
 </div>
 <div inert={settingsOpen || palette.open}><Drawer /></div>
 {#if settingsOpen}<Settings bind:this={settings} onclose={closeSettings} />{/if}
