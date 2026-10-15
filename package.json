@@ -43,7 +43,7 @@
     "worktrees"
   ],
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "6.2.4",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "22.18.13",
     "svelte": "5.57.2",
