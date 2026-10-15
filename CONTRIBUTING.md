@@ -27,7 +27,7 @@ Before you open a PR, run every command in [the verify list](AGENTS.md#verify-be
 
 ## Dependencies
 
-Forge has zero runtime dependencies by rule, so a PR that adds one is closed. Dependabot proposes devDependency updates weekly. Before merging one, the maintainer commits two changes on the Dependabot branch, as the comment in [.github/dependabot.yml](.github/dependabot.yml) describes. The first is a rebuilt `dashboard/dist/` from `npm run build:dashboard`, because the dist build stamp hashes the resolved versions in `package-lock.json`. The second is the new versions in the pinned map in `test/dashboard-dist.test.ts`, which asserts every devDependency's exact version.
+Forge has zero runtime dependencies by rule, so a PR that adds one is closed. Dependabot proposes devDependency updates weekly. Before merging one, the maintainer commits on the Dependabot branch, as the comment in [.github/dependabot.yml](.github/dependabot.yml) describes. Every update needs a rebuilt `dashboard/dist/` from `npm run build:dashboard`, because the dist build stamp hashes the resolved versions in `package-lock.json`. When a devDependency's own version changes, the new version also goes in the pinned map in `test/dashboard-dist.test.ts`, which asserts every devDependency's exact version; a lockfile-only update leaves that map alone.
 
 ## Security and conduct
 
