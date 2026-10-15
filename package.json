@@ -1,6 +1,6 @@
 {
   "name": "@maxwellmattryan/forge",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Forge: a lightweight, self-improving software factory for AI coding agents: orchestrator, agent roster, worktrees, PR sync, trackers, evals and a live dashboard.",
   "type": "module",
   "license": "MIT",
@@ -51,7 +51,7 @@
     "svelte": "5.57.2",
     "svelte-check": "4.7.6",
     "tailwindcss": "4.3.3",
-    "typescript": "7.0.2",
+    "typescript": "6.0.3",
     "vite": "8.3.4"
   }
 }
