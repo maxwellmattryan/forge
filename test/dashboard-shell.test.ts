@@ -652,7 +652,8 @@ test('the drawer marks new rows and counts unread Thread changes', () => {
   const markup = text.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '');
   const chips = markup.indexOf('<PrChip pr={j.pr} />');
   const line = markup.indexOf('<SessionActivity');
-  assert.ok(chips > 0 && line > chips && line < markup.indexOf('{#if j.reason}'), 'the activity line sits right after the chip row');
+  assert.ok(chips > 0 && line > chips && line < markup.indexOf('{#if j.reason}'), 'the activity line follows the chips, before the reason');
+  assert.ok(markup.includes(`{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}{#if activity}<SessionActivity {activity} extra="caption" />{/if}</div>`), 'inside the summary row, after the kind chip');
   assert.match(text, /const activity = \$derived\(job \? sessionActivity\(S\.data\?\.daemons\?\.jobs\?\.\[job\.id\], shown\?\.detail\.events\.at\(-1\)\?\.ts\) : null\)/);
 
   assert.match(text, /const unread = \$derived\(shown && job \? unreadCount\(threadMarks\(threadItems\(/);
@@ -720,6 +721,131 @@ test('the Log tab holds the session feed alone', () => {
   assert.ok(header, 'ThreadPanel opens with its header comment');
   assert.doesNotMatch(header[1], /session log/i, 'the header comment no longer mentions the session log');
   assert.match(header[1].replace(/\s+/g, ' '), /its request and the requests about it with the session's replies/);
+});
+
+/** Drawer.svelte's markup walked, with its scrolling body, header block, tab strip and tab panel picked out. */
+function drawerParts() {
+  const walked = elements('components/Drawer.svelte');
+  const one = (pred: (e: El) => boolean, what: string) => {
+    const hits = walked.filter(pred);
+    assert.equal(hits.length, 1, `Drawer has one ${what}`);
+    return hits[0];
+  };
+  const body = one((e) => attr(e, 'bind:this') === '{body}', 'scrolling body (bind:this={body})');
+  const head = one((e) => attr(e, 'bind:this') === '{head}', 'header block (bind:this={head})');
+  const strip = one((e) => attr(e, 'role') === 'tablist', 'tablist');
+  const panel = one((e) => attr(e, 'role') === 'tabpanel', 'tabpanel');
+  const tabs = walked.filter((e) => attr(e, 'role') === 'tab');
+  return { walked, body, head, strip, panel, tabs };
+}
+
+test('drawer tabs are an ARIA tablist', () => {
+  const text = read('components/Drawer.svelte');
+  const { body, head, strip, panel, tabs } = drawerParts();
+  assert.match(text, /import \{ DRAWER_TABS, moveDrawerTab, tabScrollTop, type DrawerTab \} from '\.\.\/lib\/drawer\.ts';/);
+  assert.doesNotMatch(text, /const TABS\b/, 'no local tab list');
+  assert.ok(text.includes('{#each DRAWER_TABS as tab (tab)}'), 'the strip iterates DRAWER_TABS');
+
+  // AC6: the tablist, its tabs and the panel.
+  assert.equal(attr(strip, 'aria-label'), "{$t('drawer.tabs')}");
+  assert.equal(attr(strip, 'onkeydown'), '{stripKey}');
+  const key = fnBody(text.replace(/\n {2}/g, '\n'), 'function stripKey(');
+  assert.match(key, /const next = moveDrawerTab\(shown\.tab, e\.key\);/, 'arrow, Home and End keys go through moveDrawerTab');
+  assert.match(key, /e\.preventDefault\(\);\s*selectTab\(next, true\);/, 'a move selects the tab and focuses it');
+  assert.equal(tabs.length, 1, 'one tab button, repeated per tab');
+  const tab = tabs[0];
+  assert.equal(tab.name, 'button');
+  assert.ok(tab.parents.includes(strip), 'the tabs sit in the strip');
+  assert.equal(attr(tab, 'id'), 'drawer-tab-{tab}');
+  assert.equal(attr(tab, 'aria-selected'), '{shown.tab === tab}');
+  assert.equal(attr(tab, 'aria-controls'), 'drawer-panel-{tab}');
+  assert.equal(attr(tab, 'tabindex'), '{shown.tab === tab ? 0 : -1}', 'roving tabindex: the selected tab is the single Tab stop');
+  assert.equal(attr(tab, 'onclick'), '{() => selectTab(tab)}');
+  assert.ok(has(tab, 'tab', 'shrink-0', 'whitespace-nowrap'), `the tab never wraps or squeezes (${tab.classes.join(' ')})`);
+  assert.equal(attr(panel, 'id'), 'drawer-panel-{shown.tab}');
+  assert.equal(attr(panel, 'aria-labelledby'), 'drawer-tab-{shown.tab}');
+  assert.equal(attr(panel, 'tabindex'), '0');
+  assert.ok(!/aria-pressed/.test(text), 'no aria-pressed is left on the drawer tabs');
+
+  // AC7: sticky, opaque and above the content, a direct child of the scrolling body outside the header block.
+  assert.ok(has(strip, 'tabs', 'sticky', 'top-0', 'solid'), `the strip is a sticky, opaque .tabs (${strip.classes.join(' ')})`);
+  assert.ok(strip.classes.some((c) => /^z-\d+$/.test(c)), 'and has a z-index');
+  // AC17: on a phone it scrolls sideways and never grows a vertical scrollbar of its own.
+  assert.ok(has(strip, 'overflow-x-auto', 'overflow-y-hidden'), 'the strip scrolls only sideways');
+  assert.equal(strip.parents.at(-1), body, 'the strip is a direct child of the scrolling body');
+  assert.ok(!strip.parents.includes(head), 'outside the header block');
+  assert.equal(head.parents.at(-1), body, 'the header block is a direct child of the body');
+  assert.equal(panel.parents.at(-1), body, 'and so is the panel');
+  assert.ok(has(body, 'min-h-0', 'flex-1', 'overflow-y-auto'), 'the body is what scrolls');
+  // The strip outranks the session log's own sticky group headings (z-10), which scroll under it.
+  const zOf = (cls: string[]) => Number(cls.find((c) => /^z-\d+$/.test(c))?.slice(2) ?? 0);
+  const logHeads = elements('components/SessionLog.svelte').filter((e) => e.classes.includes('sticky'));
+  assert.ok(logHeads.length > 0);
+  for (const h of logHeads) assert.ok(zOf(strip.classes) > zOf(h.classes), "the strip stacks above the log's sticky headings");
+});
+
+test('the drawer header is compact and Details holds the rest', () => {
+  const text = read('components/Drawer.svelte');
+  const markup = text.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '').replace(/<!--[\s\S]*?-->/g, '');
+  const { walked, head } = drawerParts();
+  const headHtml = markup.slice(markup.indexOf('bind:this={head}'), markup.indexOf('role="tablist"'));
+  assert.ok(headHtml.length > 0, 'the header block precedes the strip');
+
+  // AC10: title row, summary row, reason line, and nothing else.
+  assert.ok(headHtml.includes('{#if scopeVerbs(j).length}<CommandTrigger variant="drawer" job={j.id} />{/if}'), 'the title row keeps Command for this job');
+  assert.ok(headHtml.includes(`aria-label={$t('drawer.close')}`), 'and the close button');
+  const rows = walked.filter((e) => e.parents.at(-1) === head);
+  assert.deepEqual(rows.map((e) => e.name), ['div', 'div', 'div'], 'the title row, the summary row, the reason line');
+  const summary = rows[1];
+  assert.ok(has(summary, 'flex', 'flex-wrap', 'items-center', 'gap-1.5'), 'one wrapping summary row');
+  const inSummary = walked.filter((e) => e.parents.includes(summary)).map((e) => e.name);
+  for (const c of ['StateChip', 'Chip', 'PrChip', 'SessionActivity']) assert.ok(inSummary.includes(c), `the summary row holds <${c}>`);
+  assert.match(headHtml, /<span class="chip ink">\{STAGE_LABEL\[j\.stage\] \?\? j\.stage\}<\/span>/, 'the stage chip');
+  assert.ok(headHtml.includes("{#if j.round}<Chip tone=\"muted\" text={$t('job.round'"), 'the round chip');
+  assert.ok(headHtml.includes("{#if j.kind !== 'feature'}<Chip tone=\"info\" text={j.kind} />{/if}"), 'the kind chip');
+  assert.ok(headHtml.includes('{#if j.reason}<div class="text-sm text-muted truncate" title={j.reason}>{j.reason}</div>{/if}'), 'the reason on one truncated line, in full in its title');
+  const DETAILS = ['<ProgressBar', '<div class="grid grid-cols-2 md:grid-cols-3 gap-3">', '<DepSection', '{#if matrix}', '<table class="tbl">', '{@html budgetPanel(', '{#if usageRows.length}', '{@html screenshotsPanel('];
+  for (const part of DETAILS) {
+    assert.ok(!headHtml.includes(part), `${part} is not in the header`);
+    const at = markup.indexOf(part);
+    assert.ok(at >= 0, `Drawer still renders ${part}`);
+    const tabBranches = openBlocksAt(markup, part).filter((b) => b.some((h) => /shown\.tab/.test(h)));
+    assert.deepEqual(tabBranches.map((b) => b.at(-1)), [":else if shown.tab === 'details'"], `${part} renders only on Details`);
+  }
+  // Every table in the drawer is a Details table (the matrix and the usage).
+  for (const m of markup.matchAll(/<table\b/g)) assert.deepEqual(openBlocksAt(markup.slice(0, m.index) + '<TABLE_HERE', '<TABLE_HERE').filter((b) => b.some((h) => /shown\.tab/.test(h))).map((b) => b.at(-1)), [":else if shown.tab === 'details'"]);
+  // In order, after the full reason.
+  const det = markup.slice(markup.indexOf("{:else if shown.tab === 'details'}"));
+  const order = ["{$t('drawer.reason')}", ...DETAILS.filter((p) => p !== '<table class="tbl">')].map((p) => det.indexOf(p));
+  assert.ok(order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1])), `Details holds the reason, progress, facts, deps, matrix, budget, usage and screenshots in that order (${order})`);
+  assert.ok(det.includes("{#if j.reason}<div><div class=\"label\">{$t('drawer.reason')}</div><div class=\"text-sm break-words\">{j.reason}</div></div>{/if}"), 'the full reason, as text');
+  const gridBlocks = openBlocksAt(markup, '<div class="grid grid-cols-2 md:grid-cols-3 gap-3">');
+  assert.deepEqual(gridBlocks.at(-1)?.at(-1), ":else if shown.tab === 'details'", 'the facts grid renders unconditionally on Details, so it is never empty');
+
+  // The tab chain is exhaustive with explicit branches.
+  const chain = openBlocksAt(markup, '{@html screenshotsPanel(').find((b) => b[0] === "#if shown.tab === 'thread'");
+  assert.deepEqual(chain, ["#if shown.tab === 'thread'", ":else if shown.tab === 'log'", ":else if shown.tab === 'files'", ":else if shown.tab === 'timeline'", ":else if shown.tab === 'details'"]);
+
+  // AC11: no scroll hacks.
+  for (const s of ['scrollIntoView', 'setTimeout', 'scrolledFor', 'tabStrip']) assert.ok(!text.includes(s), `Drawer has no ${s}`);
+});
+
+test('drawer scroll resets when the job id changes', () => {
+  const text = read('components/Drawer.svelte');
+  const script = /<script\b[^>]*>([\s\S]*?)<\/script>/.exec(text)?.[1] ?? '';
+  assert.match(script, /let body = \$state<HTMLDivElement>\(\);/);
+  assert.match(script, /let head = \$state<HTMLDivElement>\(\);/);
+  const effects = [...script.matchAll(/\$effect\(\(\) => \{/g)].map((m) => script.slice(m.index, endOf(script, m.index + m[0].length - 1) + 1));
+  const reset = effects.filter((e) => /S\.drawer\.id/.test(e));
+  assert.equal(reset.length, 1, 'one effect reads the drawer id');
+  assert.match(reset[0], /void S\.drawer\.id;\s*if \(body\) body\.scrollTop = 0;/, 'and puts the body back at the top');
+  assert.doesNotMatch(reset[0], /S\.drawerView|shown|job\b/, 'it reads only the id, so a poll refresh never moves the scroll');
+
+  const select = fnBody(script.replace(/\n {2}/g, '\n'), 'function selectTab(');
+  const scroll = select.indexOf('body.scrollTop = tabScrollTop(body.scrollTop, head.offsetHeight)');
+  assert.ok(scroll > 0, 'switching tabs lands the new tab under the stuck strip');
+  assert.ok(select.indexOf('setDrawerTab(tab)') > scroll, 'before the tab changes');
+  assert.match(select, /if \(focus\) document\.getElementById\('drawer-tab-' \+ tab\)\?\.focus\(\);/);
 });
 
 test('drawer entry points pick their tab', () => {
