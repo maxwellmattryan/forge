@@ -83,6 +83,10 @@
   --size-content-max: 1400px;
   --size-drawer-max: 768px;
   --size-dialog: 960px;
+  --control-xs: 20px;
+  --control-sm: 28px;
+  --control-md: 32px;
+  --control-lg: 40px;
   --hatch-pitch: 6px;
   --grid-minor-step: 8px;
   --grid-major-step: 64px;
@@ -404,7 +408,10 @@
   background-position: calc(-1 * var(--hatch-pitch)) 0;
   border: 1px solid var(--line-strong);
   border-radius: 0;
-  padding: 7px 12px;
+  /* A fixed height, not padding: controls side by side measure the same whatever they hold (MIGRATION.md
+     "Control sizing"). The phone rule's min-height: 44px still wins over it. */
+  height: var(--control-md);
+  padding: 0 12px;
   line-height: 16px;
   display: inline-flex;
   align-items: center;
@@ -427,8 +434,14 @@
   &.primary:hover, &.primary.hover { background-image: none; box-shadow: 4px 4px 0 0 var(--line); transform: translate(-1px,-1px); }
   &.primary:active, &.primary.active { box-shadow: none; transform: translate(2px,2px); }
   &.primary[disabled] { background-color: var(--surface, var(--bg)); background-image: none; color: var(--fg); border-color: var(--line-strong); box-shadow: none; transform: none; }
-  &.sm { font-size: 11px; padding: 5px 9px; }
-  &.icon { padding: 7px; }
+  &.sm { font-size: 11px; height: var(--control-sm); padding: 0 9px; }
+  &.icon { width: var(--control-md); padding: 0; justify-content: center; }
+  &.sm.icon { width: var(--control-sm); padding: 0; }
+  /* The quiet close: no border at rest, so only the cross shows; hover draws --line, never heavier than a
+     neighbouring btn's --line-strong. The background is btn's, so the sketch, press and ring stay. */
+  &.ghost { border-color: transparent; }
+  @media (hover: hover) { &.ghost:hover { border-color: var(--line); } }
+  &.ghost.hover { border-color: var(--line); }
   &.touch { min-width: 44px; min-height: 44px; justify-content: center; }
   & .ic { width: 15px; height: 15px; }
 }
@@ -449,6 +462,8 @@
   text-transform: uppercase;
   text-decoration: none;
   line-height: 14px;
+  /* min-height, not height: a chip may wrap (the config tab's unsaved chip) and keeps its 2px of air. */
+  min-height: var(--control-xs);
   padding: 2px 6px;
   border: 1px solid currentColor;
   display: inline-flex;
@@ -468,6 +483,8 @@
   &.live { color: var(--ink); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--ink) 12%); }
   &.rev { color: var(--redline); border-color: var(--redline); }
   &.hl { color: #14355f; background: var(--highlight); border-color: var(--highlight); }
+  /* A chip in a row of sm controls (the daemon bar, the palette's scope) takes their height. */
+  &.sm { min-height: var(--control-sm); padding-inline: 9px; }
   &:is(button) {
     cursor: pointer;
     background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch));
@@ -510,15 +527,20 @@
   background-color: var(--surface, var(--bg));
   border: 1px solid var(--line);
   border-radius: 0;
-  padding: 7px 10px;
+  /* 20px is the 18px line plus the 2px border: the padding centres one line at the control height. */
+  min-height: var(--control-md);
+  padding: calc((var(--control-md) - 20px) / 2) 10px;
   outline: none;
   line-height: 18px;
+  &.sm { min-height: var(--control-sm); padding-block: calc((var(--control-sm) - 20px) / 2); padding-inline: 8px; font-size: 12px; }
   &::placeholder { color: var(--dim); }
   &:focus, &.focus { border-color: var(--line-strong); outline: 1px dashed var(--line-strong); outline-offset: 2px; }
   &:hover, &.hover { border-color: var(--line-strong); }
   &:disabled, &.disabled { opacity: .4; border-style: dashed; cursor: not-allowed; }
-  &:is(textarea) { font-family: var(--font-sans); font-size: 14px; resize: vertical; }
-  &:is(select) { appearance: none; padding-right: 28px; background-image: linear-gradient(45deg, transparent 50%, var(--fg) 50%), linear-gradient(135deg, var(--fg) 50%, transparent 50%); background-position: calc(100% - 15px) 14px, calc(100% - 10px) 14px; background-size: 5px 5px; background-repeat: no-repeat; }
+  &:is(textarea) { font-family: var(--font-sans); font-size: 14px; resize: vertical; padding: 6px 10px; }
+  /* .sm sets padding-inline, which would put a select's text under the chevron. */
+  &.sm:is(select) { padding-right: 28px; }
+  &:is(select) { appearance: none; padding-right: 28px; background-image: linear-gradient(45deg, transparent 50%, var(--fg) 50%), linear-gradient(135deg, var(--fg) 50%, transparent 50%); background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
 }
 @utility check {
   width: 14px;
@@ -576,7 +598,11 @@
   text-transform: uppercase;
   text-decoration: none;
   color: var(--muted);
-  padding: 8px 14px;
+  height: var(--control-lg);
+  display: inline-flex;
+  align-items: center;
+  line-height: 16px;
+  padding: 0 14px;
   border: 1px solid transparent;
   border-bottom: 0;
   background-color: var(--surface, var(--bg));
@@ -678,16 +704,22 @@ input:not([type=checkbox], [type=radio]), textarea, select {
   background-color: var(--surface, var(--bg));
   border: 1px solid var(--line);
   border-radius: 0;
-  padding: 7px 10px;
   outline: none;
   line-height: 18px;
+}
+input:not([type=checkbox], [type=radio]), select { min-height: var(--control-md); padding: calc((var(--control-md) - 20px) / 2) 10px; }
+textarea { padding: 6px 10px; min-height: var(--control-md); }
+/* Inside md-and-up only: these selectors outrank the phone rule's 44px floor below. */
+@media (width >= 48rem) {
+  input.sm:not([type=checkbox], [type=radio]), select.sm { min-height: var(--control-sm); padding-block: calc((var(--control-sm) - 20px) / 2); padding-inline: 8px; font-size: 12px; }
+  select.sm { padding-right: 28px; }
 }
 input:not([type=checkbox], [type=radio])::placeholder, textarea::placeholder { color: var(--dim); }
 input:not([type=checkbox], [type=radio]):hover, textarea:hover, select:hover { border-color: var(--line-strong); }
 input:not([type=checkbox], [type=radio]):focus, textarea:focus, select:focus { border-color: var(--line-strong); outline: 1px dashed var(--line-strong); outline-offset: 2px; }
 input:not([type=checkbox], [type=radio]):disabled, textarea:disabled, select:disabled { opacity: .4; border-style: dashed; cursor: not-allowed; }
 textarea { font-family: var(--font-sans); font-size: 14px; }
-select { appearance: none; padding-right: 28px; background-image: linear-gradient(45deg, transparent 50%, var(--fg) 50%), linear-gradient(135deg, var(--fg) 50%, transparent 50%); background-position: calc(100% - 15px) 14px, calc(100% - 10px) 14px; background-size: 5px 5px; background-repeat: no-repeat; }
+select { appearance: none; padding-right: 28px; background-image: linear-gradient(45deg, transparent 50%, var(--fg) 50%), linear-gradient(135deg, var(--fg) 50%, transparent 50%); background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
 /* The open list is drawn by the OS; give it the sheet's colours so options stay readable. */
 select option { background: var(--panel); color: var(--fg); }
 /* Native checkboxes and radios ignore borders, so they keep a visible focus outline and take the ink colour. */

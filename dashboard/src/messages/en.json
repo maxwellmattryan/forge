@@ -29,7 +29,8 @@
     "lens": "Lens",
     "job": "Job",
     "rounds": "Rounds",
-    "rev": "REV"
+    "rev": "REV",
+    "dismiss": "Dismiss"
   },
   "nav": {
     "pipeline": "Pipeline",

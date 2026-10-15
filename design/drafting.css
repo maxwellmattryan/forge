@@ -67,7 +67,7 @@ html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::
 .prose.compact { font-size: 12px; line-height: 18px; } .prose.compact h1, .prose.compact h2, .prose.compact h3 { font-size: 13px; line-height: 18px; font-weight: 600; margin: 8px 0 4px; } .prose.compact p, .prose.compact ul, .prose.compact ol, .prose.compact pre, .prose.compact blockquote, .prose.compact table { margin: 4px 0; } .prose.compact pre { font-size: 11px; line-height: 16px; padding: 8px; } .prose.compact > :first-child { margin-top: 0; } .prose.compact > :last-child { margin-bottom: 0; }
 
 /* ---------- buttons ---------- */
-.btn { font-family: var(--font-mono); font-weight: 500; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg); background-color: var(--surface, var(--bg)); background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; border: 1px solid var(--line-strong); border-radius: 0; padding: 7px 12px; line-height: 16px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; transition: --sketch .16s ease-out, background-position .16s ease-out, background-color .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease, transform .12s ease; white-space: nowrap; position: relative; }
+.btn { font-family: var(--font-mono); font-weight: 500; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg); background-color: var(--surface, var(--bg)); background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; border: 1px solid var(--line-strong); border-radius: 0; height: var(--control-md); padding: 0 12px; line-height: 16px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; transition: --sketch .16s ease-out, background-position .16s ease-out, background-color .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease, transform .12s ease; white-space: nowrap; position: relative; }
 @media (hover: hover) { .btn:hover { --sketch: 100%; background-position: 0 0; } .btn:hover .muted { color: inherit; } }
 .btn.hover { --sketch: 100%; background-position: 0 0; }
 .btn.hover .muted { color: inherit; } /* muted falls to about 4.2:1 on the ground plus the sketch */
@@ -79,20 +79,25 @@ html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::
 .btn.primary:hover, .btn.primary.hover { background-image: none; box-shadow: 4px 4px 0 0 var(--line); transform: translate(-1px,-1px); }
 .btn.primary:active, .btn.primary.active { box-shadow: none; transform: translate(2px,2px); }
 .btn.primary[disabled] { background-color: var(--surface, var(--bg)); background-image: none; color: var(--fg); border-color: var(--line-strong); box-shadow: none; }
-.btn.sm { font-size: 11px; padding: 5px 9px; }
-.btn.icon { padding: 7px; }
+.btn.sm { font-size: 11px; height: var(--control-sm); padding: 0 9px; }
+.btn.icon { width: var(--control-md); padding: 0; justify-content: center; }
+.btn.sm.icon { width: var(--control-sm); padding: 0; } /* icon buttons are square at their text siblings' height */
+.btn.ghost { border-color: transparent; } /* the quiet close: only the cross shows at rest */
+@media (hover: hover) { .btn.ghost:hover { border-color: var(--line); } }
+.btn.ghost.hover { border-color: var(--line); } /* --line, never heavier than a neighbouring btn's --line-strong */
 .btn.touch { min-width: 44px; min-height: 44px; justify-content: center; }
 .btn .ic { width: 15px; height: 15px; }
 .seg { display: flex; } .seg .btn { margin-right: -1px; } .seg .btn:last-child { margin-right: 0; }
 .seg label:has(input:focus-visible) { outline: 1px dashed var(--line-strong); outline-offset: 3px; z-index: 1; } /* a radio seg: the visually hidden input focuses, its label draws the ring */
 
 /* ---------- chips: outlined annotations ---------- */
-.chip { font-family: var(--font-mono); font-weight: 500; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; line-height: 14px; padding: 2px 6px; border: 1px solid currentColor; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; background-color: var(--surface, var(--bg)); }
+.chip { font-family: var(--font-mono); font-weight: 500; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; line-height: 14px; min-height: var(--control-xs); padding: 2px 6px; border: 1px solid currentColor; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; background-color: var(--surface, var(--bg)); }
 .chip.ok { color: var(--ok); } .chip.bad { color: var(--bad); } .chip.warn { color: var(--warn); } .chip.info { color: var(--info); } .chip.ink { color: var(--ink); }
 .chip.muted { color: var(--muted); border-style: dashed; }
 .chip.live { color: var(--ink); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--ink) 12%); } /* an opaque ink tint of the surface */
 .chip.rev { color: var(--redline); border-color: var(--redline); }
 .chip.hl { color: #14355f; background: var(--highlight); border-color: var(--highlight); }
+.chip.sm { min-height: var(--control-sm); padding-inline: 9px; } /* a chip in a row of sm controls */
 button.chip { cursor: pointer; background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; transition: --sketch .16s ease-out, background-position .16s ease-out; }
 @media (hover: hover) { button.chip:hover { --sketch: 100%; background-position: 0 0; } }
 button.chip[aria-expanded="true"] { outline: 1px dashed currentColor; outline-offset: 2px; }
@@ -112,13 +117,15 @@ button.chip[aria-expanded="true"] { outline: 1px dashed currentColor; outline-of
 .nav.row a, .nav.row button { width: auto; flex: none; }
 
 /* ---------- inputs ---------- */
-.input { font-family: var(--font-mono); font-size: 13px; color: var(--fg); background-color: var(--surface, var(--bg)); border: 1px solid var(--line); border-radius: 0; padding: 7px 10px; outline: none; line-height: 18px; }
+.input { font-family: var(--font-mono); font-size: 13px; color: var(--fg); background-color: var(--surface, var(--bg)); border: 1px solid var(--line); border-radius: 0; min-height: var(--control-md); padding: calc((var(--control-md) - 20px) / 2) 10px; outline: none; line-height: 18px; } /* 20px: the 18px line plus the 2px border */
+.input.sm { min-height: var(--control-sm); padding-block: calc((var(--control-sm) - 20px) / 2); padding-inline: 8px; font-size: 12px; }
 .input::placeholder { color: var(--dim); }
 .input:focus, .input.focus { border-color: var(--line-strong); outline: 1px dashed var(--line-strong); outline-offset: 2px; }
 .input:hover, .input.hover { border-color: var(--line-strong); }
 .input:disabled, .input.disabled { opacity: .4; border-style: dashed; cursor: not-allowed; }
-textarea.input { font-family: var(--font-sans); font-size: 14px; resize: vertical; }
-select.input { appearance: none; padding-right: 28px; background-image: linear-gradient(45deg, transparent 50%, var(--fg) 50%), linear-gradient(135deg, var(--fg) 50%, transparent 50%); background-position: calc(100% - 15px) 14px, calc(100% - 10px) 14px; background-size: 5px 5px; background-repeat: no-repeat; }
+textarea.input { font-family: var(--font-sans); font-size: 14px; resize: vertical; padding: 6px 10px; }
+select.input { appearance: none; padding-right: 28px; background-image: linear-gradient(45deg, transparent 50%, var(--fg) 50%), linear-gradient(135deg, var(--fg) 50%, transparent 50%); background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+select.input.sm { padding-right: 28px; }
 .check { width: 14px; height: 14px; border: 1px solid var(--line-strong); display: inline-block; position: relative; flex: none; appearance: none; margin: 0; background-color: var(--surface, var(--bg)); cursor: pointer; vertical-align: middle; } /* also drawn on a native <input type="checkbox" class="check"> */
 .check:disabled { opacity: .4; border-style: dashed; cursor: not-allowed; }
 .check.on::after, .check:checked::after { content: ""; position: absolute; inset: 2px; background: var(--ink); }
@@ -134,7 +141,7 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 
 /* ---------- tabs ---------- */
 .tabs { display: flex; border-bottom: 1px solid var(--line); }
-.tab { font-family: var(--font-mono); font-weight: 500; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 8px 14px; border: 1px solid transparent; border-bottom: 0; background-color: var(--surface, var(--bg)); background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; transition: --sketch .16s ease-out, background-position .16s ease-out, background-color .12s ease, border-color .12s ease, color .12s ease; cursor: pointer; margin-bottom: -1px; }
+.tab { font-family: var(--font-mono); font-weight: 500; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); height: var(--control-lg); display: inline-flex; align-items: center; line-height: 16px; padding: 0 14px; border: 1px solid transparent; border-bottom: 0; background-color: var(--surface, var(--bg)); background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0; transition: --sketch .16s ease-out, background-position .16s ease-out, background-color .12s ease, border-color .12s ease, color .12s ease; cursor: pointer; margin-bottom: -1px; }
 .tab:hover, .tab.hover { color: var(--fg); }
 @media (hover: hover) { .tab:hover { --sketch: 100%; background-position: 0 0; } }
 .tab.hover { --sketch: 100%; background-position: 0 0; }

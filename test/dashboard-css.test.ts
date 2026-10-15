@@ -25,19 +25,20 @@ const UTILITIES = (
 const MODIFIERS = [
   '.sheet.clickable', '.sheet.hover', '.sheet.redline', '.sheet.dashed', '.sheet.solid', '.ticks>.tk', '.ticks:before', '.ticks>.tk:after',
   '.h.display', '.h.page', '.h.sheet-title', '.h.section', '.h.card', '.callout:before', '.dim-line .end', '.prose h1', '.prose h3', '.prose pre code', '.prose.compact',
-  '.btn.primary', '.btn.sel', '.btn.sm', '.btn.icon', '.btn.touch', '.btn.active', '.btn.focus', '.btn.disabled', '.btn[disabled]', '.btn .ic', '.seg .btn',
-  '.chip.ok', '.chip.bad', '.chip.warn', '.chip.info', '.chip.ink', '.chip.muted', '.chip.live', '.chip.rev', '.chip.hl', '.chip:is(button)',
+  '.btn.primary', '.btn.sel', '.btn.sm', '.btn.icon', '.btn.sm.icon', '.btn.ghost', '.btn.touch', '.btn.active', '.btn.focus', '.btn.disabled', '.btn[disabled]', '.btn .ic', '.seg .btn',
+  '.chip.ok', '.chip.bad', '.chip.warn', '.chip.info', '.chip.ink', '.chip.muted', '.chip.live', '.chip.rev', '.chip.hl', '.chip.sm', '.chip:is(button)',
   '.nav a', '.nav button', '.nav a.active', '.nav .lbl', '.nav.row', '.nav.row a', '.nav.row button',
-  '.input:focus', '.input:is(textarea)', '.input:is(select)', '.check.on:after', '.radio.on:after', '.fill.ok', '.fill.warn', '.fill.bad',
+  '.input:focus', '.input.sm', '.input:is(textarea)', '.input:is(select)', '.check.on:after', '.radio.on:after', '.fill.ok', '.fill.warn', '.fill.bad',
   '.tab.active', '.tbl th', '.tbl tr.clickable', '.tbl .r', '.tblock>div.wide', '.tblock .k', '.kpi .v', '.ic .cx',
   '.dot.ok', '.dot.ink', '.dot.hl', '.dot.red', '.dot.hollow', '[data-theme=vellum] .backdrop', '[data-theme=vellum] .scrim', '[data-theme=vellum] .mark', '.ground:before', '.falloff:after',
 ];
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-/** The bodies of every rule whose selector list names exactly `selector` (the build merges equal rules). */
+/** The bodies of every rule whose selector list names exactly `selector` (the build merges equal rules). The list splits
+ * on top-level commas, so `input:not([type=checkbox],[type=radio])` is one selector. */
 function ruleFor(css: string, selector: string): string {
   const out: string[] = [];
-  for (const m of css.matchAll(/([^{}]*)\{([^{}]*)\}/g)) if (m[1].split(',').some((s) => s.trim() === selector)) out.push(m[2]);
+  for (const m of css.matchAll(/([^{}]*)\{([^{}]*)\}/g)) if (splitTop(m[1], /,/).some((s) => s.trim() === selector)) out.push(m[2]);
   return out.join(';');
 }
 
@@ -431,4 +432,131 @@ test('the REV chip is the same rectangle as every chip', () => {
   ])
     assert.ok(!text.includes('radius-tag'), `${where} has no radius-tag`);
   assert.ok(!ROUND_OK.test('10px') && !ROUND_OK.test('var(--radius-tag)'), 'no rounded-tag exception is left');
+});
+
+// ---------- control sizing: four height tokens, one per variant (design/MIGRATION.md "Control sizing") ----------
+const CONTROL_TOKENS: [string, string][] = [['control-xs', '20px'], ['control-sm', '28px'], ['control-md', '32px'], ['control-lg', '40px']];
+/** The scalar `:root {` block of a source stylesheet (the theme blocks start `:root, [data-theme…`). */
+const scalarRoot = (text: string) => /^:root \{([^}]*)\}/m.exec(text)?.[1] ?? '';
+/** A one-line rule body in design/drafting.css, by its exact selector at the start of a line. */
+const drawn = (selector: string) => new RegExp(`^${escapeRe(selector)} \\{([^}]*)\\}`, 'm').exec(draftingCss())?.[1] ?? '';
+/** The vertical padding each declaration sets: the first value of `padding`, `padding-block`, `padding-top` and `padding-bottom`. */
+function verticalPadding(rule: string): string[] {
+  const out: string[] = [];
+  for (const m of rule.matchAll(/(?:^|;)\s*(padding(?:-block|-top|-bottom)?)\s*:\s*([^;]*)/g)) out.push(splitTop(m[2].replace(/\)(?=[^\s,)])/g, ') '), /\s/)[0]);
+  return out;
+}
+const MIN_MD = /(\(\s*width\s*>=\s*48rem\s*\)|\(min-width:48rem\))/;
+
+test('control heights are tokens in the drawing, the source and the build', () => {
+  const tokensCss = scalarRoot(fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8'));
+  const source = scalarRoot(fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8'));
+  const json = JSON.parse(fs.readFileSync(path.join(ROOT, 'design', 'tokens.json'), 'utf8'));
+  const sizes: { name: string; value: string; usage: string }[] = json.size.tokens;
+  const built = ruleFor(builtCss(), ':root');
+  assert.ok(tokensCss.includes('--size-dialog') && source.includes('--size-dialog'), 'the scalar :root blocks are read');
+  for (const [name, value] of CONTROL_TOKENS) {
+    assert.ok(tokensCss.includes(`--${name}: ${value};`), `design/tokens.css :root declares --${name}: ${value}`);
+    assert.ok(source.includes(`--${name}: ${value};`), `dashboard/style.css :root declares --${name}: ${value}`);
+    assert.ok(built.includes(`--${name}:${value}`), `the built :root carries --${name}:${value}`);
+    const entry = sizes.find((t) => t.name === name);
+    assert.equal(entry?.value, value, `design/tokens.json size.tokens has ${name} = ${value}`);
+    assert.ok(entry?.usage?.trim(), `design/tokens.json ${name} has a usage`);
+  }
+});
+
+test('every control variant resolves to one control height', () => {
+  const css = builtCss();
+  const { inside: md, outside } = mediaSplit(css, MIN_MD);
+  const INPUT = 'input:not([type=checkbox],[type=radio])';
+  const SIZE: [string, string, string][] = [
+    ['.btn', 'height', 'control-md'],
+    ['.btn.sm', 'height', 'control-sm'],
+    ['.chip', 'min-height', 'control-xs'],
+    ['.chip.sm', 'min-height', 'control-sm'],
+    ['.input', 'min-height', 'control-md'],
+    ['.input.sm', 'min-height', 'control-sm'],
+    ['.tab', 'height', 'control-lg'],
+  ];
+  for (const [sel, prop, token] of SIZE) {
+    const rule = ruleFor(outside, sel);
+    assert.ok(new RegExp(`(^|;)${prop}:var\\(--${token}\\)(;|$)`).test(rule), `${sel} sets ${prop}:var(--${token}) (${rule})`);
+    for (const other of CONTROL_TOKENS.map(([n]) => n).filter((n) => n !== token)) assert.ok(!rule.includes(`var(--${other})`), `${sel} names only --${token}`);
+  }
+  for (const sel of ['.btn', '.btn.sm', '.tab']) assert.deepEqual(verticalPadding(ruleFor(outside, sel)).filter((v) => v !== '0'), [], `${sel} has no vertical padding`);
+  for (const [sel, token] of [['.input', 'control-md'], ['.input.sm', 'control-sm']]) {
+    const pads = verticalPadding(ruleFor(outside, sel));
+    assert.ok(pads.length > 0 && pads.every((v) => v.startsWith(`calc((var(--${token})`)), `${sel} pads with a calc() of --${token} (${pads.join(' | ')})`);
+  }
+  // The unlayered native rules: md everywhere, sm only from 48rem up (more specific, they would beat the phone 44px).
+  for (const sel of [INPUT, 'select']) {
+    const rule = ruleFor(outside, sel);
+    assert.match(rule, /(^|;)min-height:var\(--control-md\)/, `${sel} is md`);
+    assert.ok(verticalPadding(rule).some((v) => v.startsWith('calc((var(--control-md)')), `${sel} pads with a calc() of --control-md`);
+  }
+  assert.match(ruleFor(outside, 'textarea'), /min-height:var\(--control-md\)/, 'a textarea is at least md');
+  for (const sel of ['input.sm:not([type=checkbox],[type=radio])', 'select.sm']) {
+    assert.match(ruleFor(md, sel), /min-height:var\(--control-sm\)/, `${sel} is sm inside @media (width >= 48rem)`);
+    assert.ok(verticalPadding(ruleFor(md, sel)).every((v) => v.startsWith('calc((var(--control-sm)')), `${sel} pads with a calc() of --control-sm`);
+    assert.doesNotMatch(ruleFor(outside, sel), /min-height/, `${sel} sets no height outside the md block`);
+  }
+  const source = fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8');
+  assert.match(source, /@media \(width >= 48rem\) \{\n\s*input\.sm:not\(\[type=checkbox\], \[type=radio\]\), select\.sm \{/, 'style.css keeps native sm inside the md block');
+
+  // The drawing.
+  const D: [string, RegExp][] = [
+    ['.btn', /height: var\(--control-md\); padding: 0 12px;/],
+    ['.btn.sm', /height: var\(--control-sm\); padding: 0 9px;/],
+    ['.chip', /min-height: var\(--control-xs\);/],
+    ['.chip.sm', /min-height: var\(--control-sm\);/],
+    ['.input', /min-height: var\(--control-md\); padding: calc\(\(var\(--control-md\) - 20px\) \/ 2\) 10px;/],
+    ['.input.sm', /min-height: var\(--control-sm\); padding-block: calc\(\(var\(--control-sm\) - 20px\) \/ 2\);/],
+    ['.tab', /height: var\(--control-lg\);.*padding: 0 14px;/],
+  ];
+  for (const [sel, want] of D) assert.match(drawn(sel), want, `design/drafting.css ${sel}`);
+});
+
+test('icon buttons are square at their text siblings\' height', () => {
+  const css = builtCss();
+  const icon = ruleFor(css, '.btn.icon');
+  assert.match(icon, /(^|;)width:var\(--control-md\)/);
+  assert.match(icon, /(^|;)padding:0(;|$)/);
+  assert.match(icon, /justify-content:center/);
+  const sm = ruleFor(css, '.btn.sm.icon');
+  assert.match(sm, /(^|;)width:var\(--control-sm\)/);
+  assert.match(sm, /(^|;)padding:0(;|$)/, 'beats .btn.sm\'s horizontal padding');
+  assert.match(ruleFor(css, '.btn'), /align-items:center/, 'the icon is centred vertically');
+  assert.match(drawn('.btn.icon'), /width: var\(--control-md\); padding: 0; justify-content: center;/);
+  assert.match(drawn('.btn.sm.icon'), /width: var\(--control-sm\); padding: 0;/);
+});
+
+test('the ghost close keeps the sketch and a light border', () => {
+  const css = builtCss();
+  const { inside: hover } = mediaSplit(css, HOVER_MEDIA);
+  assert.match(ruleFor(css, '.btn.ghost'), /border-color:(transparent|#0000)/, 'no border at rest');
+  assert.match(ruleFor(hover, '.btn.ghost:hover'), /border-color:var\(--line\)/, 'hover draws --line, inside @media (hover:hover)');
+  assert.match(ruleFor(css, '.btn.ghost.hover'), /border-color:var\(--line\)/);
+  const ghosts = [...css.matchAll(/([^{}]*)\{([^{}]*)\}/g)].filter((m) => hasClass(m[1], 'ghost'));
+  assert.ok(ghosts.length >= 3, `found ${ghosts.length} ghost rules`);
+  for (const [, sel, body] of ghosts) assert.doesNotMatch(body, /background-image:none|(^|;)background:/, `${sel.trim()} leaves the background (and the sketch) to btn`);
+  const drafting = draftingCss();
+  for (const line of ['.btn.ghost { border-color: transparent; }', '@media (hover: hover) { .btn.ghost:hover { border-color: var(--line); } }', '.btn.ghost.hover { border-color: var(--line); }'])
+    assert.ok(drafting.includes(line), `design/drafting.css has ${line}`);
+});
+
+test('the control sizing rule is documented', () => {
+  const doc = fs.readFileSync(path.join(ROOT, 'design', 'MIGRATION.md'), 'utf8');
+  const at = doc.indexOf('\n## Control sizing\n');
+  assert.ok(at >= 0, 'design/MIGRATION.md has a ## Control sizing section');
+  const section = doc.slice(at + 1).split(/\n## /)[0];
+  for (const [name, value] of CONTROL_TOKENS) assert.ok(section.includes(`\`--${name}\` | ${value}`), `it names --${name} (${value})`);
+  for (const v of ['`btn sm`', '`btn sm icon`', '`chip sm`', '`input sm`', '`btn`', '`btn primary`', '`btn icon`', '`chip`', '`tab`']) assert.ok(section.includes(v), `it names the variant ${v}`);
+  assert.match(section, /sm or md/i, 'when to use sm vs md');
+  assert.match(section, /44px/, 'the phone rule');
+  assert.match(section, /`CloseButton\.svelte` renders `btn icon ghost`/, 'the ghost close control');
+  // The previews draw the close as the same quiet control.
+  const preview = (name: string) => fs.readFileSync(path.join(ROOT, 'design', 'components', name, 'preview.html'), 'utf8');
+  for (const name of ['Button', 'Drawer', 'SettingsDialog']) assert.match(preview(name), /<button class="btn icon ghost" aria-label="Close">/, `${name} preview draws btn icon ghost`);
+  assert.match(preview('CommandBar'), /<button class="btn icon sm ghost" aria-label="Remove the job scope">/, 'CommandBar preview: the clear-scope close is sm ghost beside chip sm');
+  assert.match(preview('CommandBar'), /class="chip ink sm"/);
 });

@@ -1,6 +1,7 @@
 <!-- The settings modal: a labelled, focus-trapped dialog with a tab rail. A centred sheet at md and up, a full-screen sheet below. -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import CloseButton from './CloseButton.svelte';
   import Icon from './Icon.svelte';
   import AboutTab from './settings/AboutTab.svelte';
   import ConfigTab from './settings/ConfigTab.svelte';
@@ -128,7 +129,7 @@
     <span class="tk"></span>
     <div class="flex items-center justify-between gap-3 border-b border-line px-4 py-2 md:px-5">
       <div class="flex min-w-0 items-baseline gap-3.5"><h2 id="settings-title" class="h sheet-title">{$t('settings.title')}</h2><span class="label">{$t('settings.sheet')}</span></div>
-      <button class="btn icon touch shrink-0" aria-label={$t('settings.close')} onclick={requestClose}><Icon name="close" /></button>
+      <CloseButton label={$t('settings.close')} onclick={requestClose} />
     </div>
     <div class="flex flex-col md:flex-row flex-1 min-h-0">
       <div role="tablist" tabindex="-1" aria-label={$t('settings.sections')} aria-orientation={wide ? 'vertical' : 'horizontal'} class="nav {wide ? '' : 'row'} shrink-0 overflow-x-auto md:overflow-y-auto md:w-(--size-settings-rail) border-b md:border-b-0 md:border-r border-line p-2" onkeydown={railKey}>
