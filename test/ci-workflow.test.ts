@@ -37,14 +37,39 @@ const JOBS = ['audit', 'verify'];
 const JOB_KEYS = ['name', 'runs-on', 'timeout-minutes', 'strategy', 'steps'];
 const STEP_KEYS = ['name', 'uses', 'with', 'run', 'env', 'continue-on-error'];
 const ACTIONS = ['actions/checkout', 'actions/setup-node'];
-const SETUP_NODE_WITH = ['node-version', 'node-version-file', 'package-manager-cache'];
 const VALIDATE_ENV = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' };
+// Values pinned exactly, not just by key: each is free text a one-line edit could use to drop coverage or mask a failure.
+// Branch protection requires checks by these names, so a rename would leave a required check waiting forever.
+const JOB_NAMES: Record<string, string> = { verify: 'verify (${{ matrix.os }}, node ${{ matrix.node }})', audit: 'audit' };
+// An `exclude` or `include` under the matrix silently drops or swaps a cell.
+const STRATEGIES: Record<string, unknown> = {
+  verify: { 'fail-fast': false, matrix: { os: ['ubuntu-latest', 'macos-latest'], node: ['22.18.0', '24.x'] } },
+};
+const SETUP_NODE_WITH: Record<string, unknown> = {
+  verify: { 'node-version': '${{ matrix.node }}', 'package-manager-cache': false },
+  audit: { 'node-version-file': '.nvmrc', 'package-manager-cache': false },
+};
+// An extra step before the blocking audit could swap the lockfile it reads.
+const AUDIT_RUNS = ['npm audit --omit=dev', 'npm audit'];
+// The one free-form script in the gate. AC3 maps it to its git command, so anything else in it (emptying the test files,
+// checking out old sources) would pass the list check; hold it to this exact text instead.
+const STALE_SCRIPT = [
+  'stale="$(git status --porcelain -- dashboard/dist)"',
+  'if [ -n "$stale" ]; then',
+  '  echo "::error title=Stale dashboard/dist::dashboard/dist is stale: run npm run build:dashboard and commit dashboard/dist"',
+  '  echo "Stale files:"',
+  '  echo "$stale"',
+  '  exit 1',
+  'fi',
+].join('\n');
 const EXPRESSIONS = [
   '${{ matrix.os }}',
   '${{ matrix.node }}',
   '${{ github.workflow }}',
   '${{ github.event.pull_request.number || github.sha }}',
 ];
+// These and the expression allowlist read the raw text, comments included, so a comment saying "no secrets" fails too.
+// That is deliberate: it fails closed with a clear message, and the parser's view of the file never has to be trusted.
 const SECRETS = /\bsecrets\b/i;
 const TOKEN = /\bgithub\s*(?:\.|\[\s*['"])token\b|toJSON\(\s*github\s*\)/i;
 
@@ -121,6 +146,13 @@ function hardeningProblems(wf: any): string[] {
   for (const [id, job] of jobsOf(wf)) {
     if (!isMap(job)) continue;
     for (const k of extraKeys(job, JOB_KEYS)) out.push(`job ${id} must not set ${k}`);
+    if (id in JOB_NAMES && job.name !== JOB_NAMES[id]) out.push(`job ${id} must be named exactly ${JOB_NAMES[id]}`);
+    if (!isDeepStrictEqual(job.strategy, STRATEGIES[id]))
+      out.push(id in STRATEGIES ? `job ${id} strategy must be exactly ${JSON.stringify(STRATEGIES[id])}` : `job ${id} must not set strategy`);
+    if (id === 'audit') {
+      const runs = stepsOf(job).map(runOf).filter((r) => r !== null);
+      if (!isDeepStrictEqual(runs, AUDIT_RUNS)) out.push(`job audit must run exactly ${AUDIT_RUNS.join(', then ')}`);
+    }
     const actions = stepsOf(job).filter((s) => isMap(s) && 'uses' in s).map((s) => String(s.uses).split('@')[0]);
     if (!isDeepStrictEqual(actions, ACTIONS)) out.push(`job ${id} must use exactly ${ACTIONS.join(' then ')}, got ${actions.join(', ') || 'none'}`);
     for (const step of stepsOf(job)) {
@@ -130,7 +162,7 @@ function hardeningProblems(wf: any): string[] {
         out.push(`${at}: checkout must set exactly persist-credentials: false`);
       if (usesAction(step, 'actions/setup-node')) {
         if (step.with?.['package-manager-cache'] !== false) out.push(`${at}: setup-node must set package-manager-cache: false`);
-        for (const k of extraKeys(step.with, SETUP_NODE_WITH)) out.push(`${at}: setup-node must not set ${k}`);
+        if (!isDeepStrictEqual(step.with, SETUP_NODE_WITH[id])) out.push(`${at}: setup-node must set exactly ${JSON.stringify(SETUP_NODE_WITH[id] ?? null)}`);
       }
       if ('continue-on-error' in step && runOf(step) !== 'npm audit') out.push(`${at}: only the report-only npm audit may set continue-on-error`);
       const run = runOf(step);
@@ -138,6 +170,7 @@ function hardeningProblems(wf: any): string[] {
         for (const [re, what] of MASKS) if (re.test(run)) out.push(`${at}: run must not mask a failure with ${what}`);
         if (run.includes('${{')) out.push(`${at}: run must not interpolate an expression`);
         if (ENV_REACH.test(run)) out.push(`${at}: run must not set the environment of later steps`);
+        if (run.includes(STALE_CMD) && run.trim() !== STALE_SCRIPT) out.push(`${at}: the stale-dist script must be exactly the reviewed one`);
       }
       if ('env' in step) {
         if (run !== VALIDATE || !isDeepStrictEqual(step.env, VALIDATE_ENV)) out.push(`${at}: only Validate plugin may set env, and only ${JSON.stringify(VALIDATE_ENV)}`);
@@ -201,11 +234,14 @@ function cliProblems(wf: any): string[] {
     const run = runOf(s)?.trim() ?? '';
     if (CLI_INSTALL.test(run) && !CLI_PINNED.test(run)) out.push(`the Claude Code CLI install must pin an exact x.y.z version: ${run}`);
   }
+  // A second install would decide which CLI actually validates, and AC3 skips every install, so allow exactly one.
+  const installs = steps.filter((s) => CLI_INSTALL.test(runOf(s)?.trim() ?? '')).length;
+  if (installs > 1) out.push(`verify must install the Claude Code CLI exactly once, got ${installs}`);
   const install = steps.findIndex((s) => CLI_PINNED.test(runOf(s)?.trim() ?? ''));
   const validate = steps.findIndex((s) => runOf(s)?.trim() === VALIDATE);
   if (install === -1) out.push('verify must install @anthropic-ai/claude-code at an exact version');
   if (validate === -1) out.push(`verify must run ${VALIDATE}`);
-  if (install !== -1 && validate !== -1 && install > validate) out.push('the CLI must be installed before the plugin is validated');
+  if (install !== -1 && validate !== -1 && install !== validate - 1) out.push('the CLI must be installed in the step directly before the plugin is validated');
   // A condition or continue-on-error here would make validation a quiet skip.
   for (const i of [install, validate]) {
     if (i === -1) continue;
@@ -288,6 +324,22 @@ test('verify matrix covers Node 22.18.0 and Node 24 on Ubuntu and macOS', () => 
   const setup = stepsOf(verify).filter((s) => usesAction(s, 'actions/setup-node'));
   assert.equal(setup.length, 1);
   assert.equal(setup[0].with['node-version'], '${{ matrix.node }}');
+  // One check per cell, under the names branch protection requires.
+  assert.equal(verify.name, 'verify (${{ matrix.os }}, node ${{ matrix.node }})');
+  assert.deepEqual(Object.keys(verify.strategy), ['fail-fast', 'matrix']);
+  assert.deepEqual(Object.keys(verify.strategy.matrix), ['os', 'node']);
+
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.strategy.matrix.exclude = [{ node: '22.18.0' }]; })), 'a matrix exclude dropping the floor');
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.strategy.matrix.exclude = [{ os: 'macos-latest' }]; })), 'a matrix exclude dropping macOS');
+  assertFlags(hardeningProblems(mutate((wf) => {
+    wf.jobs.verify.strategy.matrix.include = [{ os: 'macos-latest', node: '24.x', extra: true }];
+  })), 'a matrix include');
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.strategy['fail-fast'] = true; })), 'fail-fast: true');
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.name = 'build'; })), 'verify renamed');
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.audit.strategy = { matrix: { os: ['ubuntu-latest'] } }; })), 'a strategy on audit');
+  assertFlags(hardeningProblems(mutate((wf) => {
+    stepNamed(wf, 'verify', 'Set up Node ${{ matrix.node }}').with['node-version'] = '24.x';
+  })), 'a hard-coded node-version');
 });
 
 test('ci runs the AGENTS.md verify list in the same order and nothing else', () => {
@@ -350,6 +402,17 @@ test('the stale dist step fails and names the stale files', POSIX, () => {
   } finally {
     repo.cleanup();
   }
+
+  // AC3 maps this script to its git command, so extra lines in it must fail elsewhere; both of these pass the scratch repo above.
+  assert.deepEqual(hardeningProblems(WF), []);
+  const prepend = (line: string) => mutate((wf) => {
+    const step = stepNamed(wf, 'verify', 'Check dashboard/dist is committed');
+    step.run = `${line}\n${step.run}`;
+  });
+  for (const line of ['for t in test/*.test.ts; do : > "$t"; done', 'git checkout HEAD~50 -- test lib']) {
+    assert.deepEqual(verifyListProblems(AGENTS, prepend(line)), [], 'the list check alone does not see it');
+    assertFlags(hardeningProblems(prepend(line)), `the stale-dist script also running ${line}`);
+  }
 });
 
 test('the syntax-check step fails when any file has a syntax error, not only the last', POSIX, () => {
@@ -394,6 +457,19 @@ test('the Claude Code CLI is pinned and plugin validation always runs', () => {
     const i = steps.findIndex((s: Step) => s.name === 'Install Claude Code CLI');
     [steps[i], steps[i + 1]] = [steps[i + 1], steps[i]];
   })), 'install after validate');
+  // The last install wins, so a second one could run validation on any version.
+  const downgrade = mutate((wf) => {
+    const steps = wf.jobs.verify.steps;
+    const i = steps.findIndex((s: Step) => s.run === VALIDATE);
+    steps.splice(i, 0, { name: 'Downgrade Claude Code CLI', run: 'npm install -g @anthropic-ai/claude-code@1.0.0' });
+  });
+  assert.deepEqual(verifyListProblems(AGENTS, downgrade), [], 'the list check skips every install');
+  assertFlags(cliProblems(downgrade), 'a second, pinned install just before validate');
+  assertFlags(cliProblems(mutate((wf) => {
+    const steps = wf.jobs.verify.steps;
+    const i = steps.findIndex((s: Step) => s.name === 'Install Claude Code CLI');
+    steps.splice(i - 1, 0, steps.splice(i, 1)[0]);
+  })), 'an install that is not directly before validate');
 });
 
 test('the audit job blocks on runtime advisories and only reports devDependency ones', () => {
@@ -409,6 +485,13 @@ test('the audit job blocks on runtime advisories and only reports devDependency 
   assert.ok(!('continue-on-error' in steps[runtime]), 'the runtime audit blocks');
   assert.ok(all > runtime, 'the full audit comes after the runtime audit');
   assert.equal(steps[all]['continue-on-error'], true);
+  assert.equal(audit.name, 'audit');
+
+  assertFlags(hardeningProblems(mutate((wf) => {
+    wf.jobs.audit.steps.splice(2, 0, { name: 'Older lockfile', run: 'git checkout HEAD~1 -- package-lock.json' });
+  })), 'an extra run before the blocking audit');
+  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'audit', 'Audit runtime dependencies').run = 'npm audit --omit=dev --audit-level=critical'; })), 'a weakened runtime audit');
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.audit.name = 'verify (ubuntu-latest, node 22.18.0)'; })), 'audit renamed to a verify check name');
 });
 
 test('a new push to a PR cancels its previous run and pushes to main never cancel', () => {
