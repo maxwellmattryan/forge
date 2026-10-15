@@ -1,0 +1,42 @@
+# Dependabot keeps Forge's exact-pinned build toolchain current through reviewed PRs.
+#
+# Forge has zero runtime dependencies by rule (AGENTS.md "Rules"). Only devDependencies, the
+# dashboard build and type-check toolchain, are updated here, and any PR that adds or bumps a
+# runtime dependency is closed.
+#
+# Minor and patch bumps arrive grouped, one PR a week; majors arrive as separate PRs. @types/node
+# majors are ignored, because @types/node must track the Node floor (22.18), not the newest Node.
+#
+# Every npm bump changes package-lock.json, which the build stamp of the committed
+# dashboard/dist/ hashes, and the pinned map in test/dashboard-dist.test.ts. Before merging, a
+# maintainer runs `npm run build:dashboard`, updates that pinned map, and commits both on the
+# Dependabot branch.
+#
+# The 7-day cooldown lets a fresh release age before it is proposed, a hedge against a
+# compromised publish.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    allow:
+      - dependency-type: development
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+    groups:
+      dev-toolchain:
+        dependency-type: development
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+  # Finds nothing to update until .github/workflows/ exists.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]

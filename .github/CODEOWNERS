@@ -1,0 +1,13 @@
+# These paths decide what Forge executes, what the dashboard and the daemon allow, and how job
+# and config shapes migrate. GitHub enforces the review only once main has a "Require review from
+# Code Owners" rule. See SECURITY.md "Configuration is code".
+/.forge/config.yml @maxwellmattryan
+/.forge/trackers/** @maxwellmattryan
+/lib/server.ts @maxwellmattryan
+/lib/daemon.ts @maxwellmattryan
+/lib/daemon-pool.ts @maxwellmattryan
+/hooks/** @maxwellmattryan
+/lib/attribution.ts @maxwellmattryan
+/lib/config-fields.ts @maxwellmattryan
+/.github/** @maxwellmattryan
+/lib/schema.ts @maxwellmattryan
