@@ -81,7 +81,6 @@ test('ordinary markdown renders exactly as on main', () => {
     ['[x](https://x.y) and https://z.w', `<a href="https://x.y"${A}>x</a> and <a href="https://z.w"${A}>https://z.w</a>`],
     ['`c`https://x.y', `<code>c</code><a href="https://x.y"${A}>https://x.y</a>`],
     ['[a](https://x.y)https://z.w', `<a href="https://x.y"${A}>a</a>https://z.w`],
-    ['see https://a.b/c, and http://d.e/f.', `see <a href="https://a.b/c,"${A}>https://a.b/c,</a> and <a href="http://d.e/f."${A}>http://d.e/f.</a>`],
     [
       '**bold** _it_ *em* [major] [MINOR] [blocker]',
       '<strong>bold</strong> <em>it</em> <em>em</em> <span class="chip warn">major</span> <span class="chip info">minor</span> <span class="chip bad">blocker</span>',
@@ -90,6 +89,25 @@ test('ordinary markdown renders exactly as on main', () => {
     ['x_y_z and snake_case_name', 'x_y_z and snake_case_name'],
   ];
   for (const [input, expected] of goldens) assert.equal(inline(input), expected, JSON.stringify(input));
+});
+
+test('a bare URL leaves trailing punctuation and quotes to the sentence', () => {
+  const cases = [
+    ['see https://a.b/c, and http://d.e/f.', `see <a href="https://a.b/c"${A}>https://a.b/c</a>, and <a href="http://d.e/f"${A}>http://d.e/f</a>.`],
+    ['is it https://a.b/c?! yes', `is it <a href="https://a.b/c"${A}>https://a.b/c</a>?! yes`],
+    ['at https://a.b/c: then; https://d.e/f;', `at <a href="https://a.b/c"${A}>https://a.b/c</a>: then; <a href="https://d.e/f"${A}>https://d.e/f</a>;`],
+    // A URL starts after whitespace or `(` only, so these quotes are the closing ones.
+    [`see https://a.b/c" and https://d.e/f'.`, `see <a href="https://a.b/c"${A}>https://a.b/c</a>&quot; and <a href="https://d.e/f"${A}>https://d.e/f</a>&#39;.`],
+    ['(see https://a.b/c.) more', `(see <a href="https://a.b/c"${A}>https://a.b/c</a>.) more`],
+    ['https://a.b/c>', `<a href="https://a.b/c"${A}>https://a.b/c</a>&gt;`],
+    // Inside the URL nothing is trimmed, and an entity's closing `;` stays with it.
+    ['https://a.b/v1.2/x?q=1,2&r=3', `<a href="https://a.b/v1.2/x?q=1,2&amp;r=3"${A}>https://a.b/v1.2/x?q=1,2&amp;r=3</a>`],
+    ['https://a.b/c?x&', `<a href="https://a.b/c?x&amp;"${A}>https://a.b/c?x&amp;</a>`],
+    ['https://a.b/c?x&.', `<a href="https://a.b/c?x&amp;"${A}>https://a.b/c?x&amp;</a>.`],
+    // Nothing left after the scheme: plain text.
+    ['see https://... later', 'see https://... later'],
+  ];
+  for (const [input, expected] of cases) assert.equal(inline(input), expected, JSON.stringify(input));
 });
 
 test('U+E000 in input is dropped', () => {

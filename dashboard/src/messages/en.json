@@ -673,6 +673,75 @@
     "approveCreate": "Approve & create an issue",
     "approveNone": "Approve, no issue needed"
   },
+  "github": {
+    "kind": {
+      "pull": "Pull request",
+      "issue": "Issue",
+      "repo": "Repository",
+      "commit": "Commit"
+    },
+    "state": {
+      "open": "Open",
+      "draft": "Draft",
+      "merged": "Merged",
+      "closed": "Closed",
+      "notPlanned": "Not planned",
+      "duplicate": "Duplicate"
+    },
+    "checks": {
+      "success": "Checks pass",
+      "failure": "Checks fail",
+      "pending": "Checks running"
+    },
+    "review": {
+      "approved": "Approved",
+      "changesRequested": "Changes requested",
+      "required": "Review required"
+    },
+    "repo": {
+      "private": "Private",
+      "fork": "Fork",
+      "archived": "Archived"
+    },
+    "facts": {
+      "files": {
+        "one": "{n} file",
+        "other": "{n} files"
+      },
+      "comments": {
+        "one": "{n} comment",
+        "other": "{n} comments"
+      },
+      "stars": {
+        "one": "{n} star",
+        "other": "{n} stars"
+      },
+      "forks": {
+        "one": "{n} fork",
+        "other": "{n} forks"
+      },
+      "openIssues": {
+        "one": "{n} open issue",
+        "other": "{n} open issues"
+      },
+      "openPulls": {
+        "one": "{n} open PR",
+        "other": "{n} open PRs"
+      },
+      "openedBy": "opened {ago} by {author}",
+      "opened": "opened {ago}",
+      "committedBy": "committed {ago} by {author}",
+      "committed": "committed {ago}",
+      "pushed": "pushed {ago}",
+      "assigned": "assigned to {names}"
+    },
+    "error": {
+      "ghMissing": "Install the GitHub CLI (gh) to preview GitHub links.",
+      "notFound": "GitHub has no such page, or this login can’t see it.",
+      "failed": "Couldn’t load the preview: {message}"
+    },
+    "open": "Open on GitHub ↗"
+  },
   "effort": {
     "label": "Effort",
     "hint": "How much the model thinks for this job. Inherit uses runtime.effort from Settings.",

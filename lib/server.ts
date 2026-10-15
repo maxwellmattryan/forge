@@ -11,6 +11,8 @@ import type { DaemonOptions } from './daemon.ts';
 import { createPool } from './daemon-pool.ts';
 import type { DaemonPool, PoolState } from './daemon-pool.ts';
 import { doctor } from './doctor.ts';
+import { createPreviewer, ghRunner, parseGitHubUrl } from './github-preview.ts';
+import type { GhRunner } from './github-preview.ts';
 import { jobSessionEnv, ownerStatusWithProof } from './daemon-owner.ts';
 import { createJob, listJobs, loadJob, ownerStatus, progress, readEvents, jobDir, requestBody, setJobEffort } from './jobs.ts';
 import { normalizeRef } from './issue-link.ts';
@@ -34,6 +36,7 @@ import type {
   DaemonSessionState,
   DoctorResponse,
   EvalsResponse,
+  GitHubPreviewResponse,
   ForgeTruncatedLine,
   JobDetail,
   JobSource,
@@ -59,6 +62,8 @@ export interface ServerOptions {
    * the daemon off until Start. No config key or /api route reaches it.
    */
   dev?: boolean;
+  /** Test seam: what runs gh for GitHub previews. */
+  ghRun?: GhRunner;
 }
 
 /** A listening dashboard server: what startServer resolves to. */
@@ -110,6 +115,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
   const host = opts.host ?? '127.0.0.1';
   const distDir = distDirFor(opts);
   const notBuilt = opts.dev ? DEV_NOT_BUILT : NOT_BUILT;
+  const previewGitHub = createPreviewer({ run: opts.ghRun ?? ghRunner(root) });
   let backlogCache: { at: number; data: BacklogResponse } | null = null;
   /** Open event streams and the session each one follows; MAX_SSE_CLIENTS counts them all. */
   const clients = new Map<http.ServerResponse, string>();
@@ -157,6 +163,13 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (guardToken(req, res, token)) return;
         const { config, initialized } = loadConfig(root);
         return json(res, { ...(await doctor(root, config, initialized)), at: new Date().toISOString() } satisfies DoctorResponse);
+      }
+      if (req.method === 'GET' && p === '/api/github/preview') {
+        // It spawns gh and spends the login's GitHub rate limit, so it takes the token like a POST.
+        if (guardToken(req, res, token)) return;
+        const target = parseGitHubUrl(url.searchParams.get('url') ?? '');
+        if (!target) return jsonStatus(res, 400, { error: 'not a GitHub repository, pull request, issue or commit URL' });
+        return json(res, (await previewGitHub(target)) satisfies GitHubPreviewResponse);
       }
       if (req.method === 'POST' && p === '/api/jobs') {
         if (guardPost(req, res, token)) return;

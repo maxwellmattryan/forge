@@ -226,10 +226,12 @@ export function commandKey(e: CommandKeyInput): 'open' | 'close' | null {
 }
 
 /**
- * Which layer Escape closes: the palette over everything (it can open over the drawer), then Settings, then a status
- * bar popover (it opens over the drawer at md and up), then the drawer, so one Escape never closes two layers.
+ * Which layer Escape closes: a GitHub hover card first (it floats over every layer, including the one its link is in),
+ * then the palette (it can open over the drawer), then Settings, then a status bar popover (it opens over the drawer at md
+ * and up), then the drawer, so one Escape never closes two layers.
  */
-export function shellEscape(s: { command: boolean; settings: boolean; popover: boolean; drawer: boolean }): 'command' | 'settings' | 'popover' | 'drawer' | null {
+export function shellEscape(s: { card?: boolean; command: boolean; settings: boolean; popover: boolean; drawer: boolean }): 'card' | 'command' | 'settings' | 'popover' | 'drawer' | null {
+  if (s.card) return 'card';
   if (s.command) return 'command';
   if (s.settings) return 'settings';
   if (s.popover) return 'popover';

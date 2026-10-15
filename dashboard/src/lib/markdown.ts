@@ -11,6 +11,17 @@ const LINK = /\[([^\]]+)\]\(([^)\s]+)\)/g;
 // The lookbehind keeps today's rule (a bare URL starts a line or follows whitespace or `(`) while
 // reading the real character before a gap, so text right after a link's `)` is never autolinked.
 const BARE = /(?<![^\s(])https?:\/\/[^\s<)]+/g;
+// Sentence punctuation and quotes after a bare URL belong to the sentence, as GitHub reads them. BARE runs on escaped
+// text, so a quote or angle bracket is a whole entity here, and a `;` that closes an entity (`&amp;`) stays in the URL.
+const TRAIL = /(?:&quot;|&#39;|&gt;|&lt;|[.,:!?]|(?<!&[a-z]+|&#\d+);)$/;
+
+/** A bare URL match without its trailing punctuation; null when nothing is left after the scheme. */
+function trimBare(url: string): string | null {
+  let u = url;
+  while (TRAIL.test(u)) u = u.replace(TRAIL, '');
+  return /^https?:\/\/./.test(u) ? u : null;
+}
+
 const TONE: Record<string, string> = { blocker: 'bad', major: 'warn', minor: 'info', nit: 'muted' };
 
 // Emphasis then chips, over escaped text and slots only. The tags emitted hold no `*`, `_` or `[`,
@@ -35,9 +46,13 @@ function prose(part: string): string {
     // Slicing at `end` stops a bare URL at the next link; lastIndex lets the lookbehind see the character before `at`.
     const view = t.slice(0, end);
     bare.lastIndex = at;
-    for (let m; (m = bare.exec(view)); at = m.index + m[0].length) {
+    // A trimmed match advances `at` only past the URL, so its punctuation is copied as text with the next gap.
+    for (let m; (m = bare.exec(view)); ) {
+      const u = trimBare(m[0]);
+      if (!u) continue;
       stream += view.slice(at, m.index) + SLOT;
-      slots.push(`<a href="${m[0]}"${A}>${m[0]}</a>`);
+      slots.push(`<a href="${u}"${A}>${u}</a>`);
+      at = m.index + u.length;
     }
     stream += view.slice(at);
     at = end;
