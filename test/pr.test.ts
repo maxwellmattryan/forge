@@ -524,6 +524,7 @@ test('syncTransition matrix', () => {
     ['ask behind routes', 'ask', at(), BEHIND, true, false, behindR, true, SHA_A, 1],
     ['fix behind routes', 'fix', at(), BEHIND, true, false, behindR, true, SHA_A, 1],
     ['defer behind routes', 'defer', at(), BEHIND, true, false, behindR, true, SHA_A, 1],
+    ['one commit behind reads singular', 'ask', at(), { behindBy: 1 }, true, false, { ...behindR, reason: 'forge sync: PR #7 is 1 commit behind its base' }, true, SHA_A, 1],
     ['ask neither parks on review', 'ask', at(), {}, true, false, reviewPark, false, null, 0],
     ['fix neither parks on review', 'fix', at(), {}, true, false, reviewPark, false, null, 0],
     ['defer neither parks on review', 'defer', at(), {}, true, false, reviewPark, false, null, 0],

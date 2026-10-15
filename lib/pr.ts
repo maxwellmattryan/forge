@@ -216,11 +216,6 @@ function firstParagraph(md: string): string {
   return md.replace(/^#.*$/gm, '').trim().split(/\n\s*\n/)[0]?.trim() ?? '';
 }
 
-/**
- * Reconciles a job with reality on GitHub: merged/closed state, mergeability, how far behind
- * base it is, CI status and outstanding human feedback. This is what lets a later session
- * pick a job back up with an accurate picture.
- */
 /** What syncTransition decides: the job change, whether it routes to integrate, and the integrateFor to keep. */
 export interface SyncTransition {
   change: Pick<JobChange, 'stage' | 'state' | 'waitingOn' | 'reason' | 'note'>;
@@ -256,7 +251,7 @@ export function syncTransition(
   const trigger = conflicting ? policy === 'fix' : behindBy > 0;
   if (opts.route && parked && trigger && head !== null && head === prev.pushedSha && prev.integrateFor !== head && !opts.ownerLive()) {
     const n = Number.isSafeInteger(pr.number) ? pr.number : '?';
-    const reason = conflicting ? `forge sync: PR #${n} conflicts with its base (pr.conflicts: fix)` : `forge sync: PR #${n} is ${behindBy} commits behind its base`;
+    const reason = conflicting ? `forge sync: PR #${n} conflicts with its base (pr.conflicts: fix)` : `forge sync: PR #${n} is ${behindBy} commit${behindBy === 1 ? '' : 's'} behind its base`;
     return { change: { stage: 'integrate', state: 'running', waitingOn: null, reason }, integrate: true, integrateFor: head };
   }
   if (job.state === 'running') return stay();
@@ -272,7 +267,12 @@ export interface SyncResult {
   integrate?: true;
 }
 
-/** `route: false` (mergePr) syncs without ever moving the job to integrate. */
+/**
+ * Reconciles a job with reality on GitHub: merged/closed state, mergeability, how far behind
+ * base it is, CI status and outstanding human feedback. This is what lets a later session
+ * pick a job back up with an accurate picture.
+ * `route: false` (mergePr) syncs without ever moving the job to integrate.
+ */
 export function syncPr(root: string, config: Config, id: string, opts: { route?: boolean } = {}): SyncResult {
   const route = opts.route !== false;
   requireGh();
