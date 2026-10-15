@@ -78,6 +78,8 @@ export interface JobPr {
   changesRequested?: number;
   mergedAt?: string | null;
   humanDelta?: HumanDelta;
+  /** The head sha forge sync last moved to integrate, so it routes each head once. */
+  integrateFor?: string;
 }
 
 /** The session driving a job: claimJob in lib/jobs.ts. */

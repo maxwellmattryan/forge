@@ -27,8 +27,8 @@ forge doctor     # first run in a session, or after a failure
 forge sync       # PRs and trackers; cleans merged worktrees
 forge requests   # dashboard/inbox requests: reference/requests.md, before new work
 ```
-No `.forge/config.yml` (exit 2) → **init** (`reference/init.md`) unless the user asked for something else.
-Report `sync` results, one line each: merges, PR feedback, conflicts, finished umbrellas, `unblocked: true` (`/forge continue <id>`), `retargeted`. For each `mergeDeferred: true`, run `forge pr merge <id>`.
+No `.forge/config.yml` (exit 2) → **init** (`reference/init.md`) unless the user asked otherwise.
+Report `sync` results, a line each: merges, PR feedback, conflicts, finished umbrellas, `unblocked: true`/`integrating` (`/forge continue <id>`), `retargeted`. For each `mergeDeferred: true`, run `forge pr merge <id>`.
 
 ## Commands (route on the first word)
 | Arguments | Do |

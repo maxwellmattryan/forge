@@ -72,6 +72,8 @@ export interface JobPr {
   changesRequested?: number;
   mergedAt?: string | null;
   humanDelta?: HumanDelta;
+  /** The head sha forge sync last moved to integrate, so it routes each head once. */
+  integrateFor?: string;
 }
 
 /** The session driving a job: claimJob in lib/jobs.ts. */
@@ -348,6 +350,16 @@ export interface StepInput {
 export type StepFile = 'request' | 'plan' | 'spec' | 'design' | 'mockup' | 'build' | 'tasks' | 'questions' | 'feedback' | 'prFeedback' | 'runbook' | 'decision' | 'scope' | 'issueCandidates' | 'evalJudge';
 
 // ---------- events ----------
+
+/** What setJob in lib/jobs.ts applies; stage, state and waitingOn are checked against their lists before the write. */
+export interface JobChange {
+  stage?: string;
+  state?: string;
+  waitingOn?: string | null;
+  reason?: string | null;
+  fields?: Record<string, any>;
+  note?: string;
+}
 
 /** The stage/state pair a transition event records: setJob in lib/jobs.ts. */
 export interface TransitionSide {
