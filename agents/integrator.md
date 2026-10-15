@@ -16,7 +16,7 @@ You are the **integrator** in Forge, a software factory. A job branch conflicts 
 2. Start the update with the strategy in your brief: `forge integrate <job> --strategy merge|rebase --keep-conflicts`. It fetches, starts the merge or rebase, and leaves the conflicts in place (`inProgress: true`). Don't start one with `git merge` / `git rebase` yourself.
 3. Resolve every conflict by keeping both intents. Never drop the base branch's changes to make the job's version win, or vice versa, unless one side clearly supersedes the other. Say so in your notes if so.
 4. Run `forge run <job> build` and `forge run <job> test`. Fix fallout caused by the merge.
-5. Stage the resolved files with `forge git add <job> -- <files>`, then `forge integrate <job> --continue`. It commits the merge or continues the rebase, and returns any conflicts the next replayed commit raises: resolve those and run it again until `ok: true`. Don't push.
+5. Stage the resolved files with `forge git add <job> -- <files>`, then `forge integrate <job> --continue`. It commits the merge or continues the rebase, and returns any conflicts the next replayed commit raises: resolve those and run it again until `ok: true`. Paths under `Regenerated:` in your brief (`regenerated` in a result) are generated files Forge rebuilds itself, so don't hand-merge them; if `--continue` returns `regenerateError`, the build failed on your resolution: fix it, stage, and run `--continue` again. Don't push.
 6. Append to `build.md`:
 ```
 ## Integration (<date>)

@@ -43,6 +43,19 @@ function readJsonSafe(root: string, rel: string): any {
   }
 }
 
+const OUTPUT_DIRS = new Set(['dist', 'build', 'out']);
+
+/** Committed build output a build command likely regenerates: `dist|build|out` at the top level or one below. */
+export function generatedDirs(tracked: string[]): string[] {
+  const out = new Set<string>();
+  for (const f of tracked) {
+    const parts = f.split('/');
+    if (parts.length >= 2 && OUTPUT_DIRS.has(parts[0])) out.add(`${parts[0]}/**`);
+    else if (parts.length >= 3 && OUTPUT_DIRS.has(parts[1])) out.add(`${parts[0]}/${parts[1]}/**`);
+  }
+  return [...out].sort();
+}
+
 export function detect(root: string): Detection {
   const git = (args: string[]) => run('git', args, { cwd: root, allowFail: true });
   const remoteUrl = git(['remote', 'get-url', 'origin']).stdout.trim() || null;
@@ -135,9 +148,10 @@ export function detect(root: string): Detection {
   const monorepo = workspaces.length > 1 || cargoMembers.length > 1;
 
   const infraFiles = ['Dockerfile', 'docker-compose.yml', 'compose.yaml', 'wrangler.toml', 'wrangler.jsonc', 'fly.toml', 'vercel.json', 'netlify.toml', 'serverless.yml', 'app.yaml', 'Pulumi.yaml'].filter((f) => has(root, f));
-  const tracked = git(['ls-files']).stdout.split('\n');
+  const tracked = git(['ls-files', '-z']).stdout.split('\0');
   if (tracked.some((f) => f.endsWith('.tf'))) infraFiles.push('*.tf (terraform)');
   if (tracked.some((f) => /(^|\/)(k8s|kubernetes|helm|charts)\//.test(f))) infraFiles.push('kubernetes manifests');
+  const generated = commands.build ? generatedDirs(tracked) : [];
   const cloudClis = ['gcloud', 'aws', 'az', 'kubectl', 'terraform', 'wrangler', 'flyctl', 'vercel', 'pulumi'].filter(hasBinary);
 
   let project: DetectedProject | null = null;
@@ -179,6 +193,7 @@ export function detect(root: string): Detection {
       'worktrees.copy': [...new Set([...ignoredInstructions, ...envFiles])],
       'worktrees.setup': commands.setup ? [commands.setup] : [],
       'worktrees.cargo.sharedTarget': Boolean(cargo),
+      'worktrees.generated': generated,
       'tracker.kind': ghSlug ? 'github' : 'local',
       'tracker.github.statusSync': project?.number ? 'project' : 'none',
       'review.panel': reviewers,

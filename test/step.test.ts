@@ -300,6 +300,8 @@ const rows: Row[] = [
   { name: 'IG2 a failing verify after integrating goes to build', fx: { job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 32, false)] }), events: [entered, ev('integrated', 31, { behind: 2 })] }, want: run('job', 'set', 'j', '--stage', 'build', '--state', 'running') },
   { name: 'IG3 up to date: pr', fx: { job: atIntegrate(), events: [entered, ev('integrated', 31, { behind: 0 })] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running') },
   { name: 'IG3 verified after new commits: pr', fx: { job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 32, true)] }), events: [entered, ev('integrated', 31, { behind: 2 })] }, want: { action: 'run', rule: 'IG3' } },
+  { name: 'IG2 re-verifies a regenerated integration', fx: { job: atIntegrate(), events: [entered, ev('integrated', 31, { behind: 2, strategy: 'merge', regenerated: ['dist/out.txt'] })] }, want: run('verify', 'j') },
+  { name: 'IG3 regenerated and verified: pr', fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 32, true)] }), events: [entered, ev('integrated', 31, { behind: 2, strategy: 'merge', regenerated: ['dist/out.txt'] })] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running') },
   { name: 'IG4 conflicts under ask wait on a human', fx: { job: atIntegrate(), events: [entered, conflicts] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'conflicts', '--reason', 'conflicts with base: 2 files') },
   { name: 'G4 conflicts tell', fx: { job: atIntegrate({ state: 'waiting', waitingOn: 'conflicts' }) }, want: { action: 'wait', tell: 'j conflicts with main. /forge approve j to have the integrator fix them' } },
   { name: 'IG5 conflicts under defer go to pr', fx: { config: (c) => (c.pr.conflicts = 'defer'), job: atIntegrate(), events: [entered, conflicts] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running', '--note', 'conflicts with base deferred') },
@@ -310,7 +312,19 @@ const rows: Row[] = [
     check: (a) => {
       assert.ok(a.brief.includes('Strategy: rebase'));
       assert.ok(a.brief.includes('Conflicts: ["a.ts","`x`"]'));
+      assert.ok(!a.brief.includes('Regenerated:'), 'no line without regenerated paths');
       assert.equal(a.output, undefined);
+    },
+  },
+  {
+    name: 'IG6 brief lists only real conflicts',
+    fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate(), events: [entered, ev('integrate-conflicts', 31, { strategy: 'merge', conflicts: ['README.md'], behind: 1, regenerated: ['dist/out.txt'] })] },
+    want: { action: 'spawn', role: 'integrator' },
+    check: (a) => {
+      const lines = a.brief.split('\n');
+      assert.ok(lines.includes('Conflicts: ["README.md"]'), a.brief);
+      assert.ok(lines.some((l) => l.startsWith('Regenerated: ["dist/out.txt"]')), a.brief);
+      assert.ok(!lines.find((l) => l.startsWith('Conflicts:')).includes('dist/out.txt'));
     },
   },
   { name: 'IG6 ask with a human approve spawns the integrator', fx: { job: atIntegrate(), events: [entered, conflicts, ev('human', 32, { action: 'approve' })] }, want: { action: 'spawn', role: 'integrator' } },

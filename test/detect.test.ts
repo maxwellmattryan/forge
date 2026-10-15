@@ -50,3 +50,31 @@ test('suggests an e2e command for Playwright and Cypress', () => {
   assert.equal(r.tools.playwright, false);
   assert.equal(r.tools.cypress, false);
 });
+
+test('suggests worktrees.generated for committed build output', () => {
+  const suggest = (files: Record<string, string>, untracked: Record<string, string> = {}) => {
+    const repo = tempRepo();
+    try {
+      const write = (all: Record<string, string>) => {
+        for (const [rel, text] of Object.entries(all)) {
+          fs.mkdirSync(path.dirname(path.join(repo.dir, rel)), { recursive: true });
+          fs.writeFileSync(path.join(repo.dir, rel), text);
+        }
+      };
+      write(files);
+      repo.git('add', '-A');
+      repo.git('commit', '-qm', 'files');
+      write(untracked);
+      return detect(repo.dir).suggestions['worktrees.generated'];
+    } finally {
+      repo.cleanup();
+    }
+  };
+  const build = { 'package.json': pkg({ scripts: { build: 'vite build' } }) };
+  assert.deepEqual(suggest({ ...build, 'dashboard/dist/index.html': '<p>' }), ['dashboard/dist/**']);
+  assert.deepEqual(suggest({ ...build, 'dist/a.js': '1' }), ['dist/**']);
+  assert.deepEqual(suggest({ ...build, 'out/a.js': '1', 'web/build/b.js': '1', 'dist/a.js': '1', 'dist/c/d.js': '1' }), ['dist/**', 'out/**', 'web/build/**'], 'sorted and unique');
+  assert.deepEqual(suggest(build, { 'dist/a.js': '1' }), [], 'an untracked dist is not committed output');
+  assert.deepEqual(suggest({ ...build, 'a/b/dist/x': '1' }), [], 'third level is not suggested');
+  assert.deepEqual(suggest({ 'dist/a.js': '1' }), [], 'no build command, nothing regenerates it');
+});

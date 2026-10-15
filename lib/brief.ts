@@ -73,8 +73,8 @@ export interface RoleContext {
   answered?: boolean;
   /** Builder rework inputs, in the order the `Rework:` line lists them. */
   rework?: ('review' | 'verify' | 'pr-feedback' | 'feedback' | 'answer')[];
-  /** The integration: conflicted files from the integrate-conflicts event, and whether this is the fix pass. */
-  integration?: { conflicts: string[]; fix?: boolean };
+  /** The integration: conflicted files from the integrate-conflicts event, the generated ones Forge rebuilds, and whether this is the fix pass. */
+  integration?: { conflicts: string[]; regenerated?: string[]; fix?: boolean };
   strategy?: string;
 }
 
@@ -143,6 +143,8 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
         [
           `Strategy: ${ctx.strategy ?? 'rebase'}`,
           `Conflicts: ${JSON.stringify(ctx.integration?.conflicts ?? [])}`,
+          // JSON for the same reason as Conflicts: a file name must not start a line of the brief.
+          ...(ctx.integration?.regenerated?.length ? [`Regenerated: ${JSON.stringify(ctx.integration.regenerated)} (Forge rebuilds these at --continue; don't hand-merge them)`] : []),
           ...(ctx.integration?.fix ? [`Integration review: ${p('integrationReview')}`] : []),
         ],
       );
