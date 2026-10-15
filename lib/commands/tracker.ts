@@ -164,15 +164,20 @@ function lastMergeEvent(root: string, id: string): string | null {
   return readEvents(root, id).filter((e) => MERGE_EVENTS.has(e.type)).pop()?.type ?? null;
 }
 
-/** `forge sync`: PRs and trackers for every job, then stacked-branch retargets, dependency waits and umbrella jobs. */
-export async function syncAll(root: string, config: Config): Promise<{ synced: number; results: Record<string, unknown>[]; requests: number }> {
+/**
+ * `forge sync`: PRs and trackers for every job, then stacked-branch retargets, dependency waits and
+ * umbrella jobs. `integrating` lists the jobs this sync moved to integrate.
+ */
+export async function syncAll(root: string, config: Config): Promise<{ synced: number; results: Record<string, unknown>[]; requests: number; integrating: string[] }> {
   const results: Record<string, unknown>[] = [];
+  const integrating: string[] = [];
   for (const job of listJobs(root).filter((j) => j.kind !== 'eval')) {
     const watch = isActive(job) ? job.pr?.number || job.stage === 'pr' : job.pr?.state === 'OPEN';
     if (!watch || !config.pr.enabled) continue;
     try {
       const before: Partial<JobPr> = job.pr ?? {};
       const r = pr.syncPr(root, config, job.id);
+      if (r.integrate) integrating.push(job.id);
       const after = loadJob(root, job.id);
       await mirrorToTracker(root, config, after);
       let cleaned = false;
@@ -230,5 +235,6 @@ export async function syncAll(root: string, config: Config): Promise<{ synced: n
       results.push({ id: job.id, umbrellaDone: true });
     }
   }
-  return { synced: results.length, results, requests: listRequests(root, { status: 'pending' }).length };
+  // Counted last, so it includes the resumes sync queued for the jobs it routed.
+  return { synced: results.length, results, requests: listRequests(root, { status: 'pending' }).length, integrating };
 }

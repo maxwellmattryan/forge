@@ -1,11 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { ownerStatusWithProof } from './daemon-owner.ts';
 import { loadJob, logEvent, setJob, jobDir } from './jobs.ts';
 import { prLinkNote } from './issue-link.ts';
 import { exists } from './paths.ts';
+import { enqueue, listRequests } from './requests.ts';
 import { attributionForbidden, scrubBranch, stripAttribution } from './attribution.ts';
 import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from './delta.ts';
-import type { Config, HumanDelta, Job, JobPr, PrChecks } from './types.ts';
+import type { Config, HumanDelta, Job, JobChange, JobPr, PrChecks } from './types.ts';
 import { ForgeError, SAFE_REF, hasBinary, now, readText, run } from './util.ts';
 import { cleanGenerated, generatedConfig, generatedPaths, partitionConflicts, rebuild, regenerateProblem, takeBaseSide } from './regenerate.ts';
 import type { Strategy } from './regenerate.ts';
@@ -219,7 +221,60 @@ function firstParagraph(md: string): string {
  * base it is, CI status and outstanding human feedback. This is what lets a later session
  * pick a job back up with an accurate picture.
  */
-export function syncPr(root: string, config: Config, id: string): { id: string; pr: JobPr | null } {
+/** What syncTransition decides: the job change, whether it routes to integrate, and the integrateFor to keep. */
+export interface SyncTransition {
+  change: Pick<JobChange, 'stage' | 'state' | 'waitingOn' | 'reason' | 'note'>;
+  integrate: boolean;
+  integrateFor: string | null;
+}
+
+/**
+ * The state a sync leaves a job in. `pr` is the merged record (job.pr plus what GitHub just said),
+ * `job.pr` the previous one. A PR job routes to integrate only from a state sync itself parks in,
+ * on a head Forge pushed and has not routed before, and with no live session driving it, so no
+ * one else's commits or session are ever acted on. `ownerLive` runs last: it may spawn `ps`.
+ */
+export function syncTransition(
+  job: Pick<Job, 'stage' | 'state' | 'waitingOn' | 'pr'>,
+  pr: JobPr,
+  config: Pick<Config, 'pr'>,
+  opts: { route: boolean; ownerLive: () => boolean },
+): SyncTransition {
+  const prev: Partial<JobPr> = job.pr ?? {};
+  // gh output: only a real sha is compared or stored.
+  const head = isSha(pr.headOid) ? pr.headOid : null;
+  const kept = head !== null && prev.integrateFor === head ? head : null;
+  const stay = (change: SyncTransition['change'] = {}): SyncTransition => ({ change, integrate: false, integrateFor: kept });
+  if (pr.state === 'MERGED') return stay(job.state !== 'done' ? { stage: 'done', state: 'done', reason: 'PR merged' } : {});
+  if (pr.state === 'CLOSED') return stay(!['cancelled', 'done'].includes(job.state) ? { state: 'cancelled', reason: 'PR closed without merging' } : {});
+  if (pr.state !== 'OPEN' || job.stage !== 'pr') return stay();
+  const policy = config.pr.conflicts;
+  const conflicting = pr.mergeable === 'CONFLICTING';
+  const behindBy = typeof pr.behindBy === 'number' && Number.isSafeInteger(pr.behindBy) && pr.behindBy > 0 ? pr.behindBy : 0;
+  const parked = job.state === 'waiting' && (job.waitingOn === 'pr-review' || job.waitingOn === 'conflicts');
+  // Updating a branch that is only behind needs no conflict decision, so it routes under every policy.
+  const trigger = conflicting ? policy === 'fix' : behindBy > 0;
+  if (opts.route && parked && trigger && head !== null && head === prev.pushedSha && prev.integrateFor !== head && !opts.ownerLive()) {
+    const n = Number.isSafeInteger(pr.number) ? pr.number : '?';
+    const reason = conflicting ? `forge sync: PR #${n} conflicts with its base (pr.conflicts: fix)` : `forge sync: PR #${n} is ${behindBy} commits behind its base`;
+    return { change: { stage: 'integrate', state: 'running', waitingOn: null, reason }, integrate: true, integrateFor: head };
+  }
+  if (job.state === 'running') return stay();
+  if (conflicting && policy === 'defer')
+    return stay({ state: 'waiting', waitingOn: 'pr-review', ...(prev.conflicts !== true ? { note: 'conflicts with base deferred by pr.conflicts' } : {}) });
+  return stay({ state: 'waiting', waitingOn: conflicting ? 'conflicts' : 'pr-review' });
+}
+
+/** What `forge pr sync` returns: `integrate` only when this sync moved the job to integrate. */
+export interface SyncResult {
+  id: string;
+  pr: JobPr | null;
+  integrate?: true;
+}
+
+/** `route: false` (mergePr) syncs without ever moving the job to integrate. */
+export function syncPr(root: string, config: Config, id: string, opts: { route?: boolean } = {}): SyncResult {
+  const route = opts.route !== false;
   requireGh();
   let job = loadJob(root, id);
   if (!job.pr?.number) {
@@ -236,8 +291,7 @@ export function syncPr(root: string, config: Config, id: string): { id: string; 
   const feedback = fetchFeedback(root, slug, pr.number);
   writeFeedback(root, id, pr, feedback);
   const checks = summarizeChecks(pr.statusCheckRollup ?? []);
-  const next = {
-    ...job.pr,
+  const fresh = {
     number: pr.number,
     url: pr.url,
     state: pr.state,
@@ -256,23 +310,37 @@ export function syncPr(root: string, config: Config, id: string): { id: string; 
   };
   const measured = shouldMeasureDelta(pr.state, job.pr?.humanDelta);
   const humanDelta = measured ? measureOnMerge(root, config, job, pr.headRefOid) : job.pr?.humanDelta;
-  const change: { fields: { pr: JobPr }; stage?: string; state?: string; reason?: string; waitingOn?: string } = { fields: { pr: { ...next, ...(humanDelta ? { humanDelta } : {}) } } };
-  if (pr.state === 'MERGED' && job.state !== 'done') Object.assign(change, { stage: 'done', state: 'done', reason: 'PR merged' });
-  else if (pr.state === 'CLOSED' && !['cancelled', 'done'].includes(job.state)) Object.assign(change, { state: 'cancelled', reason: 'PR closed without merging' });
-  else if (pr.state === 'OPEN' && job.stage === 'pr' && job.state !== 'running') Object.assign(change, { state: 'waiting', waitingOn: next.conflicts ? 'conflicts' : 'pr-review' });
-  setJob(root, id, change);
+  let synced: JobPr | null = null;
+  let integrate = false;
+  // Decided inside the job lock, from the job as stored then: a session that claimed it during the
+  // network calls above is the owner this judges, so sync never flips a job someone else drives.
+  setJob(root, id, {
+    derive: (j) => {
+      const merged: JobPr = { ...j.pr, ...fresh, ...(humanDelta ? { humanDelta } : {}) };
+      const t = syncTransition(j, merged, config, { route, ownerLive: () => ownerStatusWithProof(root, j, { env: process.env }).status === 'live' });
+      const { integrateFor: _previous, ...rest } = merged;
+      synced = t.integrateFor ? { ...rest, integrateFor: t.integrateFor } : rest;
+      integrate = t.integrate;
+      return { ...t.change, fields: { pr: synced } };
+    },
+  });
   const prev: Partial<JobPr> = job.pr ?? {};
   logEvent(root, id, 'pr-synced', {
     state: pr.state,
     checks: checks.state,
-    behindBy: next.behindBy,
-    conflicts: next.conflicts,
-    unresolvedThreads: next.unresolvedThreads,
-    newFeedback: next.unresolvedThreads > (prev.unresolvedThreads ?? 0) || next.changesRequested > (prev.changesRequested ?? 0),
+    behindBy: fresh.behindBy,
+    conflicts: fresh.conflicts,
+    unresolvedThreads: fresh.unresolvedThreads,
+    newFeedback: fresh.unresolvedThreads > (prev.unresolvedThreads ?? 0) || fresh.changesRequested > (prev.changesRequested ?? 0),
     // measured: measureOnMerge set humanDelta.
     humanDelta: measured ? deltaSummary(humanDelta!) : undefined,
+    integrate: integrate || undefined,
   });
-  return { id, pr: change.fields.pr };
+  // The pool spawns the job's session, which claims it and runs the step loop. A fixed text: no PR
+  // title, branch or body reaches a daemon session through it.
+  if (integrate && config.daemon?.enabled === true && !listRequests(root, { status: 'pending' }).some((r) => r.type === 'resume' && r.job === id))
+    enqueue(root, config, { type: 'resume', job: id, text: 'forge sync moved this job to integrate', from: 'sync' });
+  return integrate ? { id, pr: synced, integrate: true } : { id, pr: synced };
 }
 
 function measureOnMerge(root: string, config: Config, job: Job, headRefOid: unknown): HumanDelta {
@@ -575,7 +643,8 @@ export function mergePr(root: string, config: Config, id: string, opts: { now?: 
   requireGh();
   const job = loadJob(root, id);
   if (!job.pr?.number) throw new ForgeError(`job ${id} has no PR`);
-  const { pr: synced } = syncPr(root, config, id);
+  // A merge never routes: a conflicting PR parks as before, and the next forge sync routes it.
+  const { pr: synced } = syncPr(root, config, id, { route: false });
   const number = synced?.number ?? job.pr.number;
   const checks = synced?.checks?.state;
   if (synced?.state === 'MERGED') return { merged: true, action: 'already-merged', checks };
