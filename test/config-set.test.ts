@@ -179,6 +179,25 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     }
   });
 
+  test('verifySecrets is shown and locked', async () => {
+    const f = FIELDS.find((x) => x.key === 'verifySecrets');
+    assert.ok(f, 'verifySecrets is in the schema');
+    assert.deepEqual(
+      { key: f.key, section: f.section, type: f.type, options: f.options, editable: f.editable, lockedReason: f.lockedReason, default: f.default },
+      { key: 'verifySecrets', section: 'pipeline', type: 'enum', options: ['block', 'warn'], editable: false, lockedReason: 'loosens a security gate', default: 'block' },
+    );
+    assert.ok(fs.readFileSync(path.join(ROOT, 'docs', 'CONFIG.md'), 'utf8').includes('verifySecrets: block'), 'docs/CONFIG.md names verifySecrets');
+    const s = scratch();
+    try {
+      const r = await s.forge('config', 'set', 'verifySecrets', 'warn');
+      assert.equal(r.code, 1);
+      assert.match(r.err, /verifySecrets is not editable with forge config set \(loosens a security gate\)/);
+      assert.equal(s.read(), FIXTURE, 'the file is untouched');
+    } finally {
+      s.repo.cleanup();
+    }
+  });
+
   test('field schema is an allowlist over documented keys', async () => {
     const docs = fs.readFileSync(path.join(ROOT, 'docs', 'CONFIG.md'), 'utf8');
     const base = defaults();

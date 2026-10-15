@@ -132,7 +132,7 @@ test('AC5: command template to argv', async () => {
     '{unknown}',
     '--x=/p/with space/forge',
     '--disallowedTools',
-    'Edit(.forge/config.yml),Edit(.forge/trackers/**)',
+    'Edit(.forge/config.yml),Edit(.forge/trackers/**),Edit(.forge/secrets-allow.txt)',
     '--permission-prompt-tool',
     'stdio',
   ]);

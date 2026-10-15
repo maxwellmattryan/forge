@@ -13,7 +13,7 @@ import { bodyFrom, list, num, req, str, usageError } from './args.ts';
 import type { Config, HelpGroup, Job, JobPr, Tracker, TrackerItem } from '../types.ts';
 
 const TRACKER_EXITS: [1 | 5, string][] = [
-  [1, 'the tracker refused the call, or no such item or job'],
+  [1, 'the tracker refused the call, no such item or job, or a likely secret in the text Forge would send (code secret_found)'],
   [5, 'gh failed (GitHub tracker)'],
 ];
 const BODY: [string, string][] = [

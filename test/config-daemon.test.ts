@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tempRepo } from './helpers.ts';
-import { daemonProblems, defaults, loadConfig, validateConfig } from '../lib/config.ts';
+import { forgeAsync, tempRepo } from './helpers.ts';
+import { TRUST_ENV, daemonProblems, defaults, loadConfig, trustDigest, validateConfig } from '../lib/config.ts';
 import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 import { migrate } from '../lib/commands/init.ts';
 import * as yaml from '../lib/yaml.ts';
@@ -194,4 +194,34 @@ test('daemon.command refuses permission-widening flags', () => {
   refused('--allowedTools={allowedTools} Bash(curl:*)', /after --allowedTools's value/);
   assert.equal(problems('claude -p --plugin-dir {pluginRoot} /tmp/evil {session} --allowedTools {allowedTools}').length, 1, 'a second plugin dir after the value');
   assert.deepEqual(problems('claude -p --allowedTools {allowedTools} {session}'), [], '{session} may follow: it expands to a flag');
+});
+
+test('the trust digest covers the secrets allowlist', async () => {
+  const repo = tempRepo();
+  try {
+    const answers = path.join(repo.dir, '..', `answers-${path.basename(repo.dir)}.json`);
+    fs.writeFileSync(answers, '{}');
+    const human = await forgeAsync(repo.dir, ['init', 'write', '--answers', answers]);
+    fs.rmSync(answers);
+    assert.equal(human.status, 0, human.stderr);
+    const file = path.join(repo.dir, '.forge', 'secrets-allow.txt');
+    const absent = trustDigest(repo.dir);
+    fs.writeFileSync(file, 'test/fixtures/**\n');
+    const created = trustDigest(repo.dir);
+    assert.notEqual(created, absent, 'creating it changes the digest');
+    fs.writeFileSync(file, 'test/fixtures/**\n**\n');
+    const edited = trustDigest(repo.dir);
+    assert.notEqual(edited, created, 'editing it changes the digest');
+    fs.rmSync(file);
+    assert.equal(trustDigest(repo.dir), absent, 'deleting it restores the original digest');
+
+    const daemon = { FORGE_DAEMON: '1', [TRUST_ENV]: absent };
+    assert.equal((await forgeAsync(repo.dir, ['status'], daemon)).status, 0, 'an unchanged allowlist runs');
+    fs.writeFileSync(file, '**\n');
+    const r = await forgeAsync(repo.dir, ['status'], daemon);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /secrets-allow\.txt or \.forge\/trackers\/ changed since a human started the daemon/);
+  } finally {
+    repo.cleanup();
+  }
 });

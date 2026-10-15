@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tempRepo } from './helpers.ts';
+import { forgeAsync, tempRepo } from './helpers.ts';
+import { loadTracker } from '../lib/trackers/index.ts';
+import { token } from './secret-fixtures.ts';
 import { defaults } from '../lib/config.ts';
 import { createJob, setJob } from '../lib/jobs.ts';
 import local from '../lib/trackers/local.ts';
@@ -93,4 +95,77 @@ test('searchTerms drops stopwords and short words and keeps at most 6', () => {
     scoreItems([{ ref: 'a', title: 'x', body: 'csv' }, { ref: 'b', title: 'CSV export' }, { ref: 'c', title: 'nothing' }, { ref: 'd', title: 'csv', body: 'csv' }], ['csv', 'export']).map((i) => [i.ref, i.score]),
     [['b', 4], ['d', 3], ['a', 1]],
   );
+});
+
+// A custom adapter that records every call it receives, so a refused write shows as a missing line.
+const RECORDING_ADAPTER = `import fs from 'node:fs';
+import path from 'node:path';
+const log = (ctx, line) => fs.appendFileSync(path.join(ctx.root, 'calls.log'), line + '\\n');
+export default {
+  name: 'rec',
+  list: () => [],
+  get: () => null,
+  claim(ctx, ref) { log(ctx, 'claim ' + ref); return { ok: true }; },
+  update(ctx, ref) { log(ctx, 'update ' + ref); },
+  comment(ctx, ref) { log(ctx, 'comment ' + ref); },
+  create(ctx) { log(ctx, 'create'); return { ref: 'R-2' }; },
+  close() {},
+};
+`;
+
+test('tracker writes refuse a likely secret', async () => {
+  const repo = tempRepo();
+  try {
+    const answers = path.join(repo.dir, '..', `answers-${path.basename(repo.dir)}.json`);
+    fs.writeFileSync(answers, '{}');
+    assert.equal((await forgeAsync(repo.dir, ['init', 'write', '--answers', answers])).status, 0);
+    fs.rmSync(answers);
+    const backlog = path.join(repo.dir, '.forge', 'backlog.md');
+    if (!fs.existsSync(backlog)) fs.writeFileSync(backlog, '# Backlog\n');
+    const before = fs.readFileSync(backlog);
+    const key = token.github('tracker');
+    const r = await forgeAsync(repo.dir, ['tracker', 'create', '--title', 'T', '--body', `use ${key}`, '--json']);
+    assert.equal(r.status, 1);
+    assert.equal(JSON.parse(r.stdout).error.code, 'secret_found');
+    assert.ok(!r.stdout.includes(key) && !r.stderr.includes(key));
+    assert.deepEqual(fs.readFileSync(backlog), before, 'the backlog is byte-identical');
+
+    // A custom adapter: no comment for a token body, no update for a job whose title holds one.
+    fs.mkdirSync(path.join(repo.dir, '.forge', 'trackers'), { recursive: true });
+    fs.writeFileSync(path.join(repo.dir, '.forge', 'trackers', 'rec.mjs'), RECORDING_ADAPTER);
+    const config = defaults();
+    config.tracker.kind = 'rec';
+    const ctx = { root: repo.dir, config };
+    const calls = () => (fs.existsSync(path.join(repo.dir, 'calls.log')) ? fs.readFileSync(path.join(repo.dir, 'calls.log'), 'utf8').trim().split('\n') : []);
+    const rec = await loadTracker(repo.dir, config);
+    const refused = (e: any) => e.code === 'secret_found' && !e.message.includes(key);
+    assert.throws(() => rec.comment(ctx, 'R-1', `token: ${key}`), refused);
+    assert.throws(() => rec.create(ctx, { title: 'ok', body: `token: ${key}` }), refused);
+    const leaky = createJob(repo.dir, defaults(), { title: `Rotate ${key}` });
+    assert.throws(() => rec.update(ctx, 'R-1', leaky), refused);
+    const claimed = rec.claim(ctx, 'R-1', leaky);
+    assert.equal(claimed.ok, false, 'a refused claim reads like any refused claim, so callers cancel');
+    assert.match(String(claimed.reason), /^possible secret in the job's title or reason: github-token/);
+    assert.ok(!String(claimed.reason).includes(key));
+    assert.deepEqual(calls(), [], 'the adapter was never called');
+    rec.comment(ctx, 'R-1', 'all clear');
+    const clean = createJob(repo.dir, defaults(), { title: 'Rotate the key' });
+    assert.deepEqual(rec.claim(ctx, 'R-1', clean), { ok: true });
+    assert.deepEqual(calls(), ['comment R-1', 'claim R-1'], 'clean writes go through');
+
+    // The built-in local update sends only a status: the same job is not refused.
+    const lctx = { root: repo.dir, config: defaults() };
+    const loc = await loadTracker(repo.dir, defaults());
+    const item = loc.create(lctx, { title: 'Rotate', body: 'plain' });
+    loc.update(lctx, item.ref, leaky);
+
+    // forge job link --create reads request.md, which holds the token.
+    const job = await forgeAsync(repo.dir, ['job', 'new', '--title', 'Leaky request', '--body', `the key is ${key}`]);
+    const id = JSON.parse(job.stdout).id;
+    const linked = await forgeAsync(repo.dir, ['job', 'link', id, '--create', '--json']);
+    assert.equal(linked.status, 1);
+    assert.equal(JSON.parse(linked.stdout).error.code, 'secret_found');
+  } finally {
+    repo.cleanup();
+  }
 });

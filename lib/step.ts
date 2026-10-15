@@ -31,6 +31,8 @@ export const RULES = [
   'DC1', 'DC2', 'DC3', 'DC4', 'DC5', 'DC6', 'DC7', 'DC8', 'DC9',
   'IG1', 'IG2', 'IG3', 'IG4', 'IG5', 'IG6', 'IG7', 'IG8', 'IG9', 'IG10',
   'PR1', 'PR2', 'PR3', 'PR4', 'PR5',
+  // A secret scan stopped the job: park on `human` (SC1, SC3), or scan again once a human approved (SC2).
+  'SC1', 'SC2', 'SC3',
   // No rule matched: a state step can't advance, parked visibly instead of looping.
   'X1',
 ] as const;
@@ -53,7 +55,7 @@ const SAFE_URL = /^https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9._/-]+$/;
 const STEP_EVENTS = new Set([
   'human', 'round', 'worktree', 'worktree-setup-failed', 'pr-find', 'pr-adopted', 'scope', 'integrated', 'integrate-conflicts',
   'integration-review', 'decision', 'fields', 'pr-opened', 'pr-updated', 'pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
-  'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end',
+  'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found',
 ]);
 const MERGE_EVENTS = ['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed'];
 
@@ -480,6 +482,10 @@ export function gateTell(x: StepInput, waitingOn: WaitingOn): string {
       return `${id} over budget: ${reason}. /forge approve ${id} to acknowledge, or raise it: forge job budget ${id} --set usd=…`;
     case 'pr-review':
       return prReviewTell(x);
+    case 'human':
+      if (reason.startsWith('secret scan'))
+        return `${id} stopped on a possible secret (${reason}). Masked findings and fingerprints: forge secrets scan ${id}. Remove the value (rewrite the branch if it was committed) or add its fingerprint to .forge/secrets-allow.txt in the main checkout, then /forge approve ${id} to scan again, or /forge rework ${id} <note>`;
+      return `${id} needs a human: ${reason}. /forge approve ${id} once it is resolved, or /forge rework ${id} <note>`;
     default:
       return `${id} waits: ${reason}`;
   }
@@ -558,6 +564,9 @@ function decide(x: StepInput): StepAction {
     if (j.stage === 'backlog') return toStage(x, 'K2', 'spec', 'the retro wrote spec.md');
   }
 
+  const secret = secretGate(x);
+  if (secret) return secret;
+
   switch (j.stage) {
     case 'backlog':
       return intake(x);
@@ -581,6 +590,30 @@ function decide(x: StepInput): StepAction {
       return pr(x);
   }
   return stuck(x);
+}
+
+/**
+ * SC1–SC3: a likely credential stopped verify or `pr open`. No agent retry gets past it: the job
+ * parks on `human` until a human removes or allowlists the value and approves, and then the scan
+ * runs again (SC2, or PR3 after SC3), which parks it again if the value is still there. A builder or
+ * integrator that ran since the failing verify (a rework) hands the decision back to V1/IG7.
+ */
+function secretGate(x: StepInput): StepAction | null {
+  const j = x.job;
+  if (j.stage !== 'verify' && j.stage !== 'integrate' && j.stage !== 'pr') return null;
+  const stop = (rule: RuleId, reason: string) =>
+    j.kind === 'eval' ? set(x, rule, { state: 'failed', reason: `eval: ${reason}` }, 'an eval job has no human to clear a secret') : park(x, rule, 'human', reason);
+  const last = j.verifyRuns.at(-1);
+  if (last && !last.ok && last.failure === 'secrets' && !['builder', 'integrator'].some((r) => after(agent(x, r)?.endedAt, last.at))) {
+    if (after(human(x, 'approve')?.ts, last.at)) return run(x, 'SC2', ['verify', j.id], 'a human cleared the secret scan: scan again');
+    return stop('SC1', `secret scan blocked verify round ${Number(last.round) || 0}`);
+  }
+  if (j.stage === 'pr') {
+    const refused = lastEvent(x, (e) => e.type === 'secret-found' && e.gate === 'pr' && e.blocked === true);
+    const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated');
+    if (refused && after(refused.ts, opened?.ts) && after(refused.ts, last?.at) && !after(human(x, 'approve')?.ts, refused.ts)) return stop('SC3', 'secret scan blocked pr open');
+  }
+  return null;
 }
 
 function stuck(x: StepInput): StepRun {

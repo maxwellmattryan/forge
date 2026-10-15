@@ -460,6 +460,15 @@ test('README CLI table is generated from the help tables', () => {
   assert.throws(() => syncReadme('# no markers\n'), /no <!-- forge:commands:start/);
 });
 
+test('the secret scanner has its error code, help and README row', () => {
+  assert.equal(ERROR_CODES.secret_found, 1);
+  assert.equal(new ForgeError('x', 'secret_found').exitCode, 1);
+  const help = findHelp(['secrets', 'scan']);
+  assert.ok(help, 'forge help secrets scan resolves');
+  const readme = read('README.md');
+  assert.ok(readme.slice(readme.indexOf(README_START), readme.indexOf(README_END)).includes('secrets scan'), 'README lists secrets scan');
+});
+
 test('docs/CLI.md matches the error code table', () => {
   const doc = read('docs/CLI.md');
   const rows = (heading: string) => [...section(doc, heading).matchAll(/^\| `?([a-z_]+)`? \| (\d) \|/gm)].map((m) => [m[1], Number(m[2])] as const);
@@ -544,7 +553,7 @@ test('CLI JSON keys are stable', POSIX, () => {
     assert.deepEqual(keyPaths(verify), [
       'attempt', 'file', 'integrity', 'integrity.base', 'integrity.blocking', 'integrity.configEdits', 'integrity.deletedTests', 'integrity.findings', 'integrity.mode', 'integrity.more',
       'integrity.ok', 'integrity.renamedTests', 'integrity.skipMarkers', 'integrity.testCount', 'integrity.testCount.after', 'integrity.testCount.before', 'integrity.testCount.delta',
-      'ok', 'round', 'sha', 'steps', 'steps[].cmd', 'steps[].durationMs', 'steps[].exit', 'steps[].log', 'steps[].name', 'steps[].ok', 'steps[].skipped',
+      'ok', 'round', 'secrets', 'secrets.allowed', 'secrets.count', 'secrets.findings', 'secrets.mode', 'secrets.more', 'secrets.ok', 'sha', 'steps', 'steps[].cmd', 'steps[].durationMs', 'steps[].exit', 'steps[].log', 'steps[].name', 'steps[].ok', 'steps[].skipped',
     ]);
     assert.deepEqual(keyPaths(s.json(['stats', '--json']), ['waitingOn', 'cost.byRole', 'cost.byModel', 'reviewers']), [
       'cost', 'cost.avgCostPerJobUsd', 'cost.avgTokensPerJob', 'cost.byModel', 'cost.byRole', 'cost.estCostUsd', 'cost.reportingCoverage', 'cost.reportingCoverage.agentRuns',

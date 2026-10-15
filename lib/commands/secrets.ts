@@ -1,0 +1,81 @@
+// `forge secrets scan`: what the secret scanner (lib/secrets.ts) finds in a job's branch and PR
+// text, or in the main checkout's tracked files. This module, not lib/secrets.ts, imports lib/pr.ts:
+// pr.ts imports the scanner.
+import { loadJob } from '../jobs.ts';
+import { exists } from '../paths.ts';
+import { prText } from '../pr.ts';
+import { applyAllowlist, findingLine, scanBranch, scanPaths, scanUnits, textUnit } from '../secrets.ts';
+import { ForgeError } from '../util.ts';
+import { list, usageError } from './args.ts';
+import type { CliContext, Dispatched, HelpGroup, SecretScan } from '../types.ts';
+
+const SECRETS: HelpGroup = {
+  name: 'secrets',
+  summary: 'scan for likely credentials before anything leaves the machine',
+  commands: [
+    {
+      command: 'secrets scan',
+      args: '[<id> | --paths <globs>]',
+      summary:
+        "report likely credentials, masked with their fingerprints: a job's commits, commit messages, net diff, staged changes and PR title and body, or the main checkout's tracked files matching the globs; prints text (--json for the full result)",
+      flags: [['--paths <globs>', "scan the main checkout's tracked files matching these globs (comma-separated or repeated) instead of a job"]],
+      exits: [
+        [1, 'a finding, an incomplete scan, or no such job or worktree'],
+        [5, 'git failed'],
+      ],
+      readme: true,
+    },
+  ],
+};
+
+export const HELP: HelpGroup[] = [SECRETS];
+
+/** The text report: a summary line, one line per finding, then the allowed ones and allowlist problems. */
+function report(scan: SecretScan, target: string): string {
+  const lines = [`SECRETS: ${scan.findings.length} found, ${scan.allowed.length} allowed (${target})`];
+  for (const f of scan.findings) lines.push(findingLine(f));
+  for (const f of scan.allowed) lines.push(`allowed  ${findingLine(f)}  ${f.allowedBy}`);
+  for (const p of scan.allowlist.problems) lines.push(`allowlist: ${p}`);
+  return lines.join('\n');
+}
+
+const json = (scan: SecretScan, target: Record<string, unknown>) => ({
+  target,
+  count: scan.findings.length,
+  allowed: scan.allowed.length,
+  findings: scan.findings,
+  allowedFindings: scan.allowed,
+  scanned: scan.scanned,
+  allowlist: { file: scan.allowlist.file, present: scan.allowlist.present, entries: scan.allowlist.entries, problems: scan.allowlist.problems },
+});
+
+export function secretsCmd(ctx: CliContext, sub: string | undefined, rest: string[], flags: Record<string, any>): Dispatched {
+  const { root, config } = ctx;
+  if (sub !== 'scan') throw usageError(SECRETS);
+  const globs = list(flags.paths);
+  const id = rest[0];
+  if ((id === undefined) === (flags.paths === undefined) || rest.length > 1 || (flags.paths !== undefined && !globs.length)) throw usageError(SECRETS, 'scan');
+  let scan: SecretScan;
+  let target: Record<string, unknown>;
+  let summary: string;
+  if (id !== undefined) {
+    const job = loadJob(root, id);
+    if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${job.id} has no worktree yet; run: forge worktree create ${job.id}`);
+    scan = scanBranch(root, config, job, { staged: true });
+    if (config.pr.enabled && !scan.error) {
+      const text = prText(root, config, job);
+      const units = [textUnit('(pr title)', text.title), textUnit('(pr body)', text.body)];
+      // A token in the PR text that also sits in the branch is still reported here: it is another place.
+      const more = applyAllowlist(scanUnits(units, { config }), scan.allowlist);
+      scan = { ...scan, findings: [...scan.findings, ...more.findings], allowed: [...scan.allowed, ...more.allowed], scanned: { ...scan.scanned, texts: scan.scanned.texts + units.length } };
+    }
+    target = { job: job.id };
+    summary = `${job.id}, base ${scan.base ?? 'unresolved'} @ ${scan.mergeBase ? scan.mergeBase.slice(0, 7) : '-'}, ${scan.scanned.commits} commit${scan.scanned.commits === 1 ? '' : 's'}`;
+  } else {
+    scan = scanPaths(root, config, globs);
+    target = { paths: globs };
+    summary = `paths ${globs.join(', ')}, ${scan.scanned.files} file${scan.scanned.files === 1 ? '' : 's'}`;
+  }
+  if (scan.error) throw new ForgeError(`secret scan incomplete: ${scan.error}`);
+  return { data: flags.json ? json(scan, target) : report(scan, summary), exitCode: scan.findings.length ? 1 : 0 };
+}

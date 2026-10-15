@@ -625,6 +625,36 @@
       "sync": "Sync",
       "eval": "Run evals",
       "retro": "Run a retro"
+    },
+    "secret": {
+      "verify": {
+        "one": "Possible secret in the branch",
+        "other": "{count} possible secrets in the branch"
+      },
+      "commit": {
+        "one": "Possible secret in a commit",
+        "other": "{count} possible secrets in a commit"
+      },
+      "pr": {
+        "one": "Possible secret in the PR",
+        "other": "{count} possible secrets in the PR"
+      },
+      "agentEnd": {
+        "one": "Possible secret in {role}'s output",
+        "other": "{count} possible secrets in {role}'s output"
+      },
+      "elsewhere": {
+        "one": "Possible secret found",
+        "other": "{count} possible secrets found"
+      },
+      "anAgent": "an agent",
+      "blocked": "blocked",
+      "noted": "noted",
+      "more": {
+        "one": "and {count} more",
+        "other": "and {count} more"
+      },
+      "findings": "Masked findings"
     }
   },
   "issueLink": {

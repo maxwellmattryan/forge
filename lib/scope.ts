@@ -131,8 +131,9 @@ export function realHistoryEnv(): NodeJS.ProcessEnv {
  * Shared by `forge job scope` and verify's integrity report so both read the same diff.
  * Refs are fully qualified and replace objects and grafts are ignored, so a tag named like the base
  * branch, a `git replace` or `.git/info/grafts` made from the job's worktree cannot move the comparison point.
+ * `head` is a commit id when a caller binds its evidence to the commit it read (the secret scan), else HEAD.
  */
-export function resolveBase(cwd: string, config: Config, job: Pick<Job, 'base'>): { baseRef: string; mergeBase: string } {
+export function resolveBase(cwd: string, config: Config, job: Pick<Job, 'base'>, head = 'HEAD'): { baseRef: string; mergeBase: string } {
   const base = String(job.base ?? '');
   const candidates: [string, string][] = base.startsWith('refs/')
     ? [[base, base]]
@@ -145,7 +146,7 @@ export function resolveBase(cwd: string, config: Config, job: Pick<Job, 'base'>)
   const env = realHistoryEnv();
   for (const [name, ref] of candidates) {
     const r = run('git', ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { cwd, env, allowFail: true });
-    if (r.ok) return { baseRef: name, mergeBase: run('git', ['merge-base', r.stdout.trim(), 'HEAD'], { cwd, env }).stdout.trim() };
+    if (r.ok) return { baseRef: name, mergeBase: run('git', ['merge-base', r.stdout.trim(), head], { cwd, env }).stdout.trim() };
   }
   throw new ForgeError(`base ${job.base} not found`);
 }

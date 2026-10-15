@@ -1,7 +1,8 @@
 <!-- A job's Thread in the drawer: its request and the requests about it with the session's replies. The gate's
      actions and the session's permission prompts live in the drawer's ActionDock, on every tab. Request text and
      results are untrusted: they render only through the escape-first md(), or as plain text in Raw (and above 20k
-     characters). -->
+     characters). The secret scanner's notes (secret-found events) are a redlined sheet whose masked findings are plain
+     text, never markdown. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
@@ -10,18 +11,35 @@
   import { mdView } from '../lib/md-view.svelte.ts';
   import { ago } from '../lib/util.ts';
   import { ticker } from '../lib/clock.svelte.ts';
-  import { threadItems, threadMark, type ThreadAction, type ThreadFrom, type ThreadOpening, type ThreadStatus } from '../lib/thread.ts';
-  import type { ForgeRequest, Job } from '../lib/types.ts';
+  import { secretLine, threadItems, threadMark, type ThreadAction, type ThreadFrom, type ThreadOpening, type ThreadSecret, type ThreadStatus } from '../lib/thread.ts';
+  import type { ForgeRequest, Job, JobEvent } from '../lib/types.ts';
   import { t } from '../lib/locale.ts';
 
   /** `baseline`: the Thread's marks when the drawer opened; a message whose mark is not in it is new or changed since. */
-  let { job, requests, opening, baseline = null }: { job: Job; requests: ForgeRequest[]; opening: ThreadOpening; baseline?: string[] | null } = $props();
-  const items = $derived(threadItems(requests, opening));
+  let { job, requests, opening, events = [], baseline = null }: { job: Job; requests: ForgeRequest[]; opening: ThreadOpening; events?: JobEvent[]; baseline?: string[] | null } = $props();
+  const items = $derived(threadItems(requests, opening, events));
   const seenAtOpen = $derived(baseline ? new Set(baseline) : null);
 
   const who = $derived<Record<ThreadFrom, string>>({ you: $t('thread.you'), cli: $t('thread.cli'), forge: $t('thread.forge'), tracker: $t('thread.tracker') });
   const statusText = $derived<Record<ThreadStatus, string>>({ queued: $t('thread.queued'), handling: $t('thread.handling'), done: $t('thread.done'), rejected: $t('thread.rejected') });
   const TONE: Record<ThreadStatus, string> = { queued: 'muted', handling: 'live', done: 'ok', rejected: 'bad' };
+
+  /** What the scanner found and where, in words: "2 possible secrets in builder's output". */
+  function secretText(n: ThreadSecret): string {
+    const count = n.count;
+    switch (n.gate) {
+      case 'verify':
+        return $t('thread.secret.verify', { count });
+      case 'commit':
+        return $t('thread.secret.commit', { count });
+      case 'pr':
+        return $t('thread.secret.pr', { count });
+      case 'agent-end':
+        return $t('thread.secret.agentEnd', { count, role: n.role ?? $t('thread.secret.anAgent') });
+      default:
+        return $t('thread.secret.elsewhere', { count });
+    }
+  }
 
   /** What a message asks for, in words: never the raw request type. */
   function actionText(a: ThreadAction): string {
@@ -46,6 +64,9 @@
         return $t('thread.action.next', { count: a.n });
       case 'run':
         return $t('thread.action.run', { ref: a.ref });
+      // Notes render their own caption (secretText); this keeps the switch total.
+      case 'secret':
+        return $t('thread.forge');
       default:
         return {
           approve: $t('thread.action.approve'),
@@ -70,6 +91,20 @@
     {#if items.length}
       <ol class="flex flex-col gap-2">
         {#each items as m (m.id)}
+          {#if m.secret}
+            <li class="sheet ticks redline p-3 flex flex-col gap-1.5">
+              <span class="tk"></span>
+              <div class="caption flex flex-wrap items-center gap-x-2 gap-y-1">
+                {#if seenAtOpen && !seenAtOpen.has(threadMark(m))}<span class="dot hl size-1.5 shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="font-medium text-fg">{who.forge}</span><span class="text-fg">{secretText(m.secret)}</span>{#if m.at}<span class="text-muted">{ago(m.at, ticker.now)}</span>{/if}<span class="flex-1"></span>{#if m.secret.blocked}<Chip tone="rev" text={$t('thread.secret.blocked')} />{:else}<Chip tone="warn" text={$t('thread.secret.noted')} />{/if}
+              </div>
+              {#if m.secret.findings.length}
+                <ul class="flex flex-col gap-0.5" aria-label={$t('thread.secret.findings')}>
+                  {#each m.secret.findings as f, i (i)}<li class="text-sm font-mono break-all">{secretLine(f)}</li>{/each}
+                </ul>
+              {/if}
+              {#if m.secret.more > 0}<p class="text-sm text-muted">{$t('thread.secret.more', { count: m.secret.more })}</p>{/if}
+            </li>
+          {:else}
           <li class="sheet ticks p-3 flex flex-col gap-1.5">
             <span class="tk"></span>
             <div class="caption flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -86,6 +121,7 @@
               {/if}
             {/if}
           </li>
+          {/if}
         {/each}
       </ol>
     {:else}
