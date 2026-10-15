@@ -17,6 +17,7 @@ import { roster } from './roster.ts';
 import { computeStats } from './stats.ts';
 import { ForgeError, readJson, run } from './util.ts';
 import * as wt from './worktree.ts';
+import { advanceCmd } from './commands/advance.ts';
 import { num, out, parseArgs, req, requireJob } from './commands/args.ts';
 import { configCmd } from './commands/config.ts';
 import { daemonCmd } from './commands/daemon.ts';
@@ -37,8 +38,9 @@ Usage: forge <command> [options]   (state, worktrees, PRs, trackers, evals, dash
 
   forge status                       active jobs at a glance (add --all for finished)
   forge next [--claim --session S] [--force]   resume a queued unowned job (with --claim --session), else the next ready tracker item whose job is not blocked (optionally start a job)
-  forge job new|from-ref|link|list|show|get|set|claim|release|note|human|agent|round|budget|verdicts|decision|progress|paths|scope|acs|step
+  forge job new|from-ref|link|list|show|get|set|claim|release|note|human|agent|round|budget|verdicts|decision|progress|paths|scope|acs|step|advance
   forge job step <id> [--session S]  the job's next action (spawn, run, wait, procedure, done) and the agent brief; read-only, except --session <owner> refreshes its heartbeat
+  forge job advance <id> --session S [--max N]  run step's run actions in-process up to the next spawn, wait, procedure or done (at most N commands, default 20)
   forge worktree create|remove|path|prune <id>
   forge run <id> <command> [--background]   forge stop <id>   forge verify <id>
   forge integrate <id> [--strategy merge|rebase] [--keep-conflicts | --continue]
@@ -126,6 +128,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       return ok(await nextCmd(root, config, flags));
     case 'job':
       needInit();
+      if (sub === 'advance') return advanceCmd(ctx, rest, flags, dispatch);
       return ok(await jobCmd(root, config, sub, rest, flags));
     case 'worktree': {
       needInit();

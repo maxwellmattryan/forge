@@ -279,7 +279,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       return step(loadStepInput(root, config, jobId));
     }
     default:
-      throw new ForgeError('usage: forge job new|from-ref|link|list|show|get|set|claim|release|note|human|agent|round|budget|verdicts|decision|progress|paths|scope|acs|step');
+      throw new ForgeError('usage: forge job new|from-ref|link|list|show|get|set|claim|release|note|human|agent|round|budget|verdicts|decision|progress|paths|scope|acs|step|advance');
   }
 }
 
