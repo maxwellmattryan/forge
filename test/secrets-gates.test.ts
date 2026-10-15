@@ -441,6 +441,25 @@ describe('secret gates', { concurrency: 4 }, () => {
       assert.equal(JSON.parse(r.stdout).error.code, 'secret_found');
       assert.equal(fs.readFileSync(ghLog, 'utf8'), '', 'gh was never called');
       assert.ok(!remoteBranches().includes('forge/'), 'nothing was pushed');
+      // url and pushurl split: the fetch goes to the push URL, so a broken fetch URL can't keep a
+      // moved base in place while the push still reaches the real remote.
+      execFileSync('git', ['update-ref', 'refs/remotes/origin/main', 'HEAD'], { cwd: j.wt });
+      execFileSync('git', ['config', 'remote.origin.url', path.join(bin, 'no-such-remote.git')], { cwd: j.wt });
+      execFileSync('git', ['config', 'remote.origin.pushurl', bare], { cwd: j.wt });
+      r = await s.raw(['pr', 'open', j.id, '--force', '--json'], env);
+      assert.equal(r.status, 1, r.stderr);
+      assert.equal(JSON.parse(r.stdout).error.code, 'secret_found', 'the base was refreshed from the push URL');
+      // Under block, a fetch that fails refuses the open instead of scanning against a stale base.
+      execFileSync('git', ['update-ref', 'refs/remotes/origin/main', 'HEAD'], { cwd: j.wt });
+      execFileSync('git', ['config', 'remote.origin.pushurl', path.join(bin, 'also-missing.git')], { cwd: j.wt });
+      r = await s.raw(['pr', 'open', j.id, '--force', '--json'], env);
+      assert.equal(r.status, 5, r.stdout);
+      const refused = JSON.parse(r.stdout).error;
+      assert.equal(refused.code, 'external');
+      assert.match(refused.message, /^can't refresh base main from the push remote before the secret scan \(git fetch from origin's push URL exited \d+\)/);
+      assert.ok(!refused.message.includes('also-missing'), 'the URL is not echoed');
+      assert.equal(fs.readFileSync(ghLog, 'utf8'), '', 'gh was never called');
+      assert.ok(!remoteBranches().includes('forge/'), 'nothing was pushed');
       const all = s.trail(j.dir) + s.trail(old.dir);
       assert.ok(!all.includes(key) && !all.includes(pat));
     } finally {
