@@ -755,6 +755,8 @@ export interface DaemonSessionState {
   permissions: DaemonPermissionPrompt[];
   /** The permission mode claude last reported for the running child (at init or after a switch); null while none runs. */
   permissionMode: string | null;
+  /** A running agent of the job this session drives keeps it from slot eviction and idle stop; null otherwise and while none runs. */
+  kept: 'agents' | null;
 }
 
 /**

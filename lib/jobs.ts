@@ -14,7 +14,7 @@ const OWNER_STALE_MS = 30 * 60 * 1000;
  * so a long builder with no CLI writes is not mistaken for a dead session. The ceiling keeps a
  * crashed session from holding a job forever.
  */
-const RUNNING_AGENT_MAX_MS = 2 * 60 * 60 * 1000;
+export const RUNNING_AGENT_MAX_MS = 2 * 60 * 60 * 1000;
 
 export function jobDir(root: string, id: string): string {
   if (!/^[a-z0-9][a-z0-9._-]*$/i.test(id)) throw new ForgeError(`invalid job id "${id}"`);

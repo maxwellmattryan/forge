@@ -11,12 +11,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { effectiveLimits, exceededKeys, measureBudget } from './budget.ts';
 import { TRUST_ENV, daemonProblems, loadConfig as defaultLoadConfig, trackerSymlinks, trustDigest } from './config.ts';
-import { loadJob } from './jobs.ts';
+import { RUNNING_AGENT_MAX_MS, loadJob } from './jobs.ts';
 import { PLUGIN_ROOT, paths } from './paths.ts';
-import { SCOPE_ENV, validJobId, validScope } from './requests.ts';
+import { INBOX_SCOPE, SCOPE_ENV, validJobId, validScope } from './requests.ts';
 import { isClaudeExecutable, now, run, sleepSync, splitWords, writeJsonAtomic } from './util.ts';
 import { pidAlive } from './worktree.ts';
-import type { Config, DaemonAuth, DaemonPermissionMode, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, ForgeRequest, PermissionDecision } from './types.ts';
+import type { Config, DaemonAuth, DaemonPermissionMode, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, ForgeRequest, JobAgent, PermissionDecision } from './types.ts';
 
 /** What a session reports to its pool: a log line as it is written, or its new state after a change. */
 export type SessionEvent = { kind: 'line'; scope: string; offset: number; line: string } | { kind: 'state'; scope: string; state: DaemonSessionState };
@@ -45,6 +45,8 @@ export interface DaemonOptions {
   retryMaxMs?: number;
   /** How long claude has to confirm a mode switch before the supervisor stops treating it as pending. */
   modeConfirmMs?: number;
+  /** How long after its last result or agent end a job session keeps its slot from a waiting job. */
+  slotGraceMs?: number;
 }
 
 /** DaemonOptions with every default filled in. */
@@ -57,6 +59,7 @@ export interface SessionOptions {
   retryMinMs: number;
   retryMaxMs: number;
   modeConfirmMs: number;
+  slotGraceMs: number;
   env: NodeJS.ProcessEnv;
   openLog: (file: string) => LogSink;
   readConfig: (root: string, opts?: { text?: string | null }) => { config: Config };
@@ -72,6 +75,8 @@ export function sessionOptions(opts: DaemonOptions = {}): SessionOptions {
     retryMinMs: opts.retryMinMs ?? 60_000,
     retryMaxMs: opts.retryMaxMs ?? 60 * 60_000,
     modeConfirmMs: opts.modeConfirmMs ?? 15_000,
+    // A review round ends a turn while its reviewers start: the grace covers the gap before they are recorded.
+    slotGraceMs: opts.slotGraceMs ?? 30_000,
     env: opts.env ?? process.env,
     // fd-based, so a symlink planted as <scope>.log is refused rather than followed.
     openLog: opts.openLog ?? ((file: string) => fs.createWriteStream(file, { fd: openAppend(file) })),
@@ -125,6 +130,12 @@ export interface Session {
   readonly held: 'budget' | null;
   readonly lastError: string | null;
   readonly lastResultAt: string | null;
+  /** Cached: a running agent of the job it drives keeps it (refreshKept). */
+  readonly kept: 'agents' | null;
+  /** Recomputes kept from job.json; emits a state frame when it changed. */
+  refreshKept(): void;
+  /** Why it may not be evicted for a slot now: running agents, or a result or agent end under graceMs ago. */
+  keptBy(graceMs: number, at?: number): 'agents' | 'grace' | null;
   state(): DaemonSessionState;
   /** Applies this tick's pending requests for the scope: prunes, holds, and says whether any is fresh. */
   route(c: Config, pending: ForgeRequest[]): { eligible: string[]; fresh: boolean };
@@ -425,6 +436,54 @@ export function heldByBudget(root: string, config: Config, rec: { type: string; 
   return exceededKeys(effectiveLimits(config, job), measureBudget(job), job.budget.ack, job.round).length > 0;
 }
 
+/** What a job session's agents say about keeping it: sessionAgents. */
+export interface SessionAgents {
+  /** Roles of its owned agents marked running, sorted. */
+  running: string[];
+  /** A running agent started under RUNNING_AGENT_MAX_MS ago: the session keeps its slot and isn't idle-stopped. */
+  keeps: boolean;
+  /** The latest endedAt across its owned agents, whatever their status. */
+  lastEndAt: string | null;
+}
+
+const noAgents = (): SessionAgents => ({ running: [], keeps: false, lastEndAt: null });
+
+/**
+ * The agents a job session drives: those in its job.json, only while the job's owner is this
+ * session. Another owner's agents (a human's terminal session, say), the inbox, and a missing or
+ * unreadable job all give none, so a session can never be kept, or have agents marked lost, on
+ * the strength of agents it doesn't drive. A running agent keeps it only for RUNNING_AGENT_MAX_MS
+ * after its start, the ceiling ownerStatus uses, so a phantom can't hold a slot forever.
+ */
+export function sessionAgents(root: string, scope: string, sessionId: string | null, at = Date.now()): SessionAgents {
+  if (scope === INBOX_SCOPE || !validJobId(scope) || !sessionId) return noAgents();
+  let job;
+  try {
+    job = loadJob(root, scope);
+  } catch {
+    return noAgents();
+  }
+  if (job.owner?.session !== sessionId) return noAgents();
+  const running: string[] = [];
+  let keeps = false;
+  let lastEnd = -Infinity;
+  let lastEndAt: string | null = null;
+  for (const [role, a] of Object.entries(job.agents ?? {}) as [string, JobAgent | undefined][]) {
+    if (a?.status === 'running') {
+      running.push(role);
+      const started = typeof a.startedAt === 'string' ? Date.parse(a.startedAt) : NaN;
+      if (Number.isFinite(started) && at - started < RUNNING_AGENT_MAX_MS) keeps = true;
+    }
+    const endedAt = a?.endedAt;
+    const ended = typeof endedAt === 'string' ? Date.parse(endedAt) : NaN;
+    if (Number.isFinite(ended) && ended > lastEnd) {
+      lastEnd = ended;
+      lastEndAt = endedAt!;
+    }
+  }
+  return { running: running.sort(), keeps, lastEndAt };
+}
+
 function defaultKillTree(child: DaemonChild, signal: NodeJS.Signals): void {
   if (process.platform === 'win32') return void child.kill(signal);
   // The child leads its own group (detached), so the group signal reaches whatever it started.
@@ -678,6 +737,10 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   let pos = info.logBase;
   const ring: { offset: number; line: string }[] = [];
   let idleTimer: NodeJS.Timeout | null = null;
+  /** When the idle timer was last armed (spawn or result), in ms. */
+  let idleSince = 0;
+  /** Last computed by refreshKept: running agents of its job keep it. */
+  let kept: 'agents' | null = null;
   let closed = false;
   /** Permission prompts waiting on a human, by the supervisor's id, oldest first. */
   const prompts = new Map<string, { proc: DaemonChild; requestId: string; input: Record<string, unknown>; grant: SessionGrant; prompt: DaemonPermissionPrompt }>();
@@ -747,7 +810,28 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       lastError,
       permissions: [...prompts.values()].map((p) => p.prompt),
       permissionMode: child ? liveMode : null,
+      kept,
     };
+  }
+
+  const agents = (at?: number) => sessionAgents(root, scope, typeof info.sessionId === 'string' ? info.sessionId : null, at);
+
+  function computeKept(): 'agents' | null {
+    return child && status !== 'stopping' && agents().keeps ? 'agents' : null;
+  }
+
+  function refreshKept(): void {
+    const next = computeKept();
+    if (next === kept) return;
+    kept = next;
+    changed();
+  }
+
+  function keptBy(graceMs: number, at = Date.now()): 'agents' | 'grace' | null {
+    const a = agents(at);
+    if (a.keeps) return 'agents';
+    const times = [lastResultAt, a.lastEndAt].map((t) => (t ? Date.parse(t) : NaN)).filter(Number.isFinite);
+    return times.length && at - Math.max(...times) < graceMs ? 'grace' : null;
   }
 
   /** Its child is gone, so nothing can answer them, and nothing it reported about its mode holds. */
@@ -888,10 +972,25 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     clearIdle();
     const minutes = c?.daemon?.idleStopMinutes;
     if (typeof minutes !== 'number' || !(minutes > 0)) return;
+    idleSince = Date.now();
+    idleAfter(minutes * 60_000, minutes * 60_000);
+  }
+
+  /**
+   * The window counts from the later of the arming and the last agent end, and never runs out while
+   * an agent keeps the session: an orchestrator waiting on background reviewers is idle, not done.
+   */
+  function idleAfter(delay: number, ms: number): void {
     idleTimer = setTimeout(() => {
       idleTimer = null;
-      if (status === 'idle' && child) void kill('idle-stop', true, 'idle');
-    }, minutes * 60_000);
+      if (status !== 'idle' || !child) return;
+      const a = agents();
+      if (a.keeps) return idleAfter(ms, ms);
+      const end = a.lastEndAt ? Date.parse(a.lastEndAt) : NaN;
+      const left = Math.max(idleSince, Number.isFinite(end) ? end : 0) + ms - Date.now();
+      if (left > 0) return idleAfter(left, ms);
+      void kill('idle-stop', true, 'idle');
+    }, delay);
     idleTimer.unref?.();
   }
 
@@ -1067,6 +1166,15 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     }
     if (!ev || typeof ev !== 'object') return;
     if (ev.type === 'system' && ev.subtype === 'init') meta.init = true;
+    if (ev.type === 'system' && ev.subtype === 'init' && status === 'idle' && meta.result) {
+      // A turn nobody wrote: a background agent finished and its notification woke the orchestrator.
+      // init alone is the signal, so a stray line after a result can never leave the session busy.
+      status = 'busy';
+      clearIdle();
+      logEvent('wake');
+      kept = computeKept();
+      changed();
+    }
     if (ev.type === 'system' && ev.subtype === 'init' && typeof ev.session_id === 'string' && ev.session_id && ev.session_id !== info.sessionId) {
       // It becomes the value after --resume on the next spawn, so it must be a uuid, never a flag.
       if (!UUID.test(ev.session_id)) return void logEvent('error', { message: `ignored a non-uuid session_id: ${JSON.stringify(ev.session_id.slice(0, 80))}` });
@@ -1100,6 +1208,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     inFlight = [];
     lastResultAt = now();
     if (status === 'busy') status = 'idle';
+    kept = computeKept();
     if (ev.is_error === true) failedTurn(proc, ev, ids);
     else {
       proc._forge.committed.push(...ids);
@@ -1166,6 +1275,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     dropPrompts();
     inFlight = [];
     status = 'off';
+    kept = null;
     info = { ...info, pid: null };
     persist();
     logEvent('exit', { code, signal });
@@ -1220,6 +1330,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     proc._forge.asked = true;
     clearIdle();
     status = 'stopping';
+    kept = null;
     logEvent(event, { pid: proc.pid ?? null, ...(reason ? { reason } : {}) });
     changed();
     const closedP = new Promise((resolve) => proc.once('close', () => resolve(true)));
@@ -1242,6 +1353,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     if (child === proc) {
       // No close event at all (a stuck pipe): treat it as gone so the supervisor can't wedge.
       child = null;
+      kept = null;
       dropPrompts();
       info = { ...info, pid: null };
       persist();
@@ -1290,6 +1402,11 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     get lastResultAt() {
       return lastResultAt;
     },
+    get kept() {
+      return kept;
+    },
+    refreshKept,
+    keptBy,
     state,
     route(c, pending) {
       const ids = new Set(pending.map((r) => r.id));

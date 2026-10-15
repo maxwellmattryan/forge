@@ -10,10 +10,10 @@ import { promisify } from 'node:util';
 import { tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, trustDigest } from '../lib/config.ts';
 import { budgetCmd } from '../lib/budget.ts';
-import { createJob, setJob, updateJob } from '../lib/jobs.ts';
+import { createJob, recordAgent, setJob, updateJob } from '../lib/jobs.ts';
 import { PLUGIN_ROOT } from '../lib/paths.ts';
 import { INBOX_SCOPE, SCOPE_ENV, ackRequest, claimRequest, enqueue, listRequests, requestScope, validScope } from '../lib/requests.ts';
-import { DENY_TOOLS, GIT_PINS, PERMISSION_DENIED, PROMPT_TOOL, TRUST_CHANGED, TURN, TURN_LINE, apiKeyVars, buildArgv, heldByBudget, parseTemplate, reapOrphans, sessionEnv, PROMPT_INPUT_CHARS, sessionGrant, PERMISSION_MODES, commandPermissionMode, modeReach, withPermissionMode } from '../lib/daemon.ts';
+import { DENY_TOOLS, GIT_PINS, PERMISSION_DENIED, PROMPT_TOOL, TRUST_CHANGED, TURN, TURN_LINE, apiKeyVars, buildArgv, heldByBudget, parseTemplate, reapOrphans, sessionEnv, PROMPT_INPUT_CHARS, sessionGrant, PERMISSION_MODES, commandPermissionMode, modeReach, withPermissionMode, sessionAgents, sessionOptions } from '../lib/daemon.ts';
 import { createPool } from '../lib/daemon-pool.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
@@ -115,7 +115,7 @@ const turnsIn = (child) => child.written.split(TURN_LINE).length - 1;
 
 /** A pool over in-memory children that never polls on its own. */
 function kitPool(dir, kit, cfg: any = config(), extra = {}) {
-  return createPool(dir, { spawn: kit.spawn, killTree: kit.killTree, loadConfig: () => ({ config: cfg }), pollMs: 3_600_000, ...extra });
+  return createPool(dir, { spawn: kit.spawn, killTree: kit.killTree, loadConfig: () => ({ config: cfg }), pollMs: 3_600_000, slotGraceMs: 0, ...extra });
 }
 
 test('AC5: command template to argv', async () => {
@@ -1591,6 +1591,248 @@ test('maxConcurrent caps job sessions and frees idle slots for waiting jobs', as
     assert.equal(d.sessionState(c).waiting, false);
     assert.equal(kit.maxJobsLive, 2, 'never more than maxConcurrent job sessions at once');
     assert.equal(d.state().inbox.running, true);
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+// ---- Agent-aware slots and idleness (daemon-pool-never-evicts-a-yzu5).
+
+/** Makes the job's owner the session that drives it, as `forge job claim` from that session would. */
+function ownBy(root, id, session) {
+  const at = new Date().toISOString();
+  updateJob(root, id, (j) => {
+    j.owner = { session, since: at, heartbeat: at };
+  });
+}
+const agentStart = (root, id, role) => recordAgent(root, id, { role, phase: 'start' }, defaults());
+const agentEnd = (root, id, role) => recordAgent(root, id, { role, phase: 'end', status: 'done' }, defaults());
+
+test('a slot is never taken from a session whose job has agents running', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit, config({ maxConcurrent: 2 }));
+  try {
+    const [a, b, c] = ['A', 'B', 'C'].map((t) => createJob(repo.dir, defaults(), { title: `Job ${t}` }).id);
+    await enqueueInOrder(repo.dir, [{ type: 'resume', job: a }, { type: 'resume', job: b }, { type: 'resume', job: c }]);
+    d.start();
+    await settle();
+    assert.equal(d.sessionState(c).waiting, true);
+    ownBy(repo.dir, a, d.sessionState(a).sessionId);
+    agentStart(repo.dir, a, 'reviewer:code');
+    // A's turn ends with its reviewer still running, the oldest result of the two.
+    kit.last(a).line({ type: 'result' });
+    await waitFor(() => d.sessionState(a).status === 'idle', 2000, 'A idle');
+    assert.equal(d.sessionState(a).kept, 'agents');
+    assert.equal(d.state().jobs[a].kept, 'agents');
+    assert.equal(d.state().jobs[b].kept, null);
+    assert.equal(d.sessionState(c).waiting, true, 'A kept its slot');
+    kit.last(b).line({ type: 'result' });
+    await waitFor(() => kit.last(c), 2000, "C to get B's slot");
+    await logged(repo.dir, b, 'idle-stop');
+    assert.equal(eventsIn(logOf(repo.dir, b), 'idle-stop')[0].reason, 'slot');
+    assert.equal(kit.last(b).exited, true);
+    assert.equal(kit.last(a).exited, false);
+    assert.equal(eventsIn(logOf(repo.dir, a), 'idle-stop').length, 0, 'A was never stopped');
+    assert.equal(turnsIn(kit.last(c)), 1);
+    assert.equal(kit.maxJobsLive, 2);
+    // Once the agent ends, the next tick reports A as no longer kept.
+    agentEnd(repo.dir, a, 'reviewer:code');
+    d.poke();
+    assert.equal(d.sessionState(a).kept, null);
+    assert.equal(d.state().jobs[a].kept, null);
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('a waiting job keeps waiting while every slot drives agents', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit, config({ maxConcurrent: 1 }));
+  try {
+    const [a, b] = ['A', 'B'].map((t) => createJob(repo.dir, defaults(), { title: `Job ${t}` }).id);
+    await enqueueInOrder(repo.dir, [{ type: 'resume', job: a }, { type: 'resume', job: b }]);
+    d.start();
+    await settle();
+    ownBy(repo.dir, a, d.sessionState(a).sessionId);
+    agentStart(repo.dir, a, 'builder');
+    kit.last(a).line({ type: 'result' });
+    await waitFor(() => d.sessionState(a).status === 'idle', 2000, 'A idle');
+    for (let i = 0; i < 3; i++) d.poke();
+    await logged(repo.dir, b, 'waiting');
+    await sleep(30);
+    assert.equal(d.sessionState(b).waiting, true);
+    assert.equal(eventsIn(logOf(repo.dir, b), 'waiting').length, 1, 'waiting is logged once');
+    assert.equal(eventsIn(logOf(repo.dir, a), 'idle-stop').length, 0);
+    assert.equal(d.state().live, 1, 'the kept session still counts toward the cap');
+    assert.equal(kit.of(b).length, 0);
+    agentEnd(repo.dir, a, 'builder');
+    d.poke();
+    await waitFor(() => kit.last(b), 2000, 'B to get the slot once the agent ended');
+    assert.equal(eventsIn(logOf(repo.dir, a), 'idle-stop')[0].reason, 'slot');
+    assert.equal(kit.maxJobsLive, 1);
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('a session keeps its slot for a grace after its last result', async () => {
+  assert.equal(sessionOptions().slotGraceMs, 30_000);
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit, config({ maxConcurrent: 1 }), { slotGraceMs: 200 });
+  try {
+    const [a, b] = ['A', 'B'].map((t) => createJob(repo.dir, defaults(), { title: `Job ${t}` }).id);
+    await enqueueInOrder(repo.dir, [{ type: 'resume', job: a }, { type: 'resume', job: b }]);
+    d.start();
+    await settle();
+    const resultAt = Date.now();
+    kit.last(a).line({ type: 'result' });
+    await waitFor(() => d.sessionState(a).status === 'idle', 2000, 'A idle');
+    d.poke();
+    await sleep(20);
+    if (Date.now() - resultAt < 150) {
+      assert.equal(kit.last(a).exited, false, 'inside the grace');
+      assert.equal(d.sessionState(b).waiting, true);
+    }
+    await sleep(Math.max(0, resultAt + 250 - Date.now()));
+    d.poke();
+    await waitFor(() => kit.last(b), 2000, 'B to get the slot after the grace');
+    const stop = eventsIn(logOf(repo.dir, a), 'idle-stop');
+    assert.equal(stop.length, 1);
+    assert.equal(stop[0].reason, 'slot');
+    assert.ok(Date.parse(stop[0].at) - resultAt >= 200, 'never inside the grace');
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test("only fresh agents of the job's own session keep it", async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit, config({ maxConcurrent: 3 }));
+  try {
+    const [other, stale, unowned, w1, w2, w3] = ['Other', 'Stale', 'Unowned', 'W1', 'W2', 'W3'].map((t) => createJob(repo.dir, defaults(), { title: t }).id);
+    await enqueueInOrder(repo.dir, [other, stale, unowned, w1, w2, w3].map((job) => ({ type: 'resume', job })));
+    /** Each session's kept as it went idle, before the tick that evicted it. */
+    const keptWhenIdle = new Map();
+    d.subscribe((e) => {
+      if (e.kind === 'state' && e.state.status === 'idle' && e.state.running) keptWhenIdle.set(e.scope, e.state.kept);
+    });
+    d.start();
+    await settle();
+    assert.deepEqual([w1, w2, w3].map((id) => d.sessionState(id).waiting), [true, true, true]);
+    // Another session (a human's terminal, say) owns this job and runs its agent.
+    ownBy(repo.dir, other, crypto.randomUUID());
+    agentStart(repo.dir, other, 'builder');
+    // This session's own agent, but marked running for longer than the 2 h ceiling.
+    ownBy(repo.dir, stale, d.sessionState(stale).sessionId);
+    agentStart(repo.dir, stale, 'builder');
+    updateJob(repo.dir, stale, (j) => {
+      j.agents.builder.startedAt = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    });
+    // No owner at all.
+    agentStart(repo.dir, unowned, 'builder');
+    for (const id of [other, stale, unowned]) kit.last(id).line({ type: 'result' });
+    await waitFor(() => [w1, w2, w3].every((id) => kit.last(id)), 2000, 'every waiter to get a slot');
+    for (const id of [other, stale, unowned]) {
+      await logged(repo.dir, id, 'idle-stop');
+      assert.equal(eventsIn(logOf(repo.dir, id), 'idle-stop')[0].reason, 'slot', id);
+    }
+    for (const id of [other, stale, unowned]) assert.equal(keptWhenIdle.get(id), null, `${id} reported kept: null`);
+    // sessionAgents itself: the inbox, an invalid id, a missing job and no session id own nothing.
+    const sid = crypto.randomUUID();
+    const none = { running: [], keeps: false, lastEndAt: null };
+    assert.deepEqual(sessionAgents(repo.dir, INBOX, sid), none);
+    assert.deepEqual(sessionAgents(repo.dir, '../etc', sid), none);
+    assert.deepEqual(sessionAgents(repo.dir, 'no-such-job', sid), none);
+    assert.deepEqual(sessionAgents(repo.dir, stale, null), none);
+    assert.deepEqual(sessionAgents(repo.dir, other, sid), none, 'another owner');
+    const own = sessionAgents(repo.dir, stale, d.sessionState(stale).sessionId);
+    assert.deepEqual(own.running, ['builder'], 'a stale agent is still running');
+    assert.equal(own.keeps, false, 'but keeps nothing');
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('idle stop counts from the last agent end', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const windowMs = 240;
+  const d = kitPool(repo.dir, kit, config({ idleStopMinutes: windowMs / 60_000 }));
+  try {
+    const a = createJob(repo.dir, defaults(), { title: 'Job A' }).id;
+    enqueue(repo.dir, null, { type: 'resume', job: a, from: 'dashboard' });
+    d.start();
+    await settle();
+    ownBy(repo.dir, a, d.sessionState(a).sessionId);
+    agentStart(repo.dir, a, 'reviewer:code');
+    kit.last(a).line({ type: 'result' });
+    await waitFor(() => d.sessionState(a).status === 'idle', 2000, 'A idle');
+    await sleep(windowMs * 2.5);
+    assert.equal(eventsIn(logOf(repo.dir, a), 'idle-stop').length, 0, 'not while its agent runs');
+    assert.equal(kit.last(a).exited, false);
+    const before = Date.now();
+    agentEnd(repo.dir, a, 'reviewer:code');
+    await logged(repo.dir, a, 'idle-stop');
+    const stop = eventsIn(logOf(repo.dir, a), 'idle-stop');
+    assert.equal(stop.length, 1);
+    assert.equal(stop[0].reason, 'idle');
+    assert.ok(Date.parse(stop[0].at) >= before + windowMs, `stopped ${Date.parse(stop[0].at) - before} ms after the agent ended`);
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('a turn claude starts by itself counts as busy', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit, config({ maxConcurrent: 1, idleStopMinutes: 100 / 60_000 }));
+  try {
+    const a = createJob(repo.dir, defaults(), { title: 'Job A' }).id;
+    enqueue(repo.dir, null, { type: 'resume', job: a, from: 'dashboard' });
+    d.start();
+    await settle();
+    const inbox = kit.last(INBOX);
+    // The inbox has had no result yet, and A is busy with its written turn: neither init is a wake.
+    inbox.line({ type: 'system', subtype: 'init' });
+    kit.last(a).line({ type: 'system', subtype: 'init' });
+    await settle();
+    assert.equal(d.state().inbox.status, 'idle');
+    kit.last(a).line({ type: 'result' });
+    await waitFor(() => d.sessionState(a).status === 'idle', 2000, 'A idle');
+    assert.equal(d.sessionState(a).turns, 1);
+    // A background agent's notification wakes the orchestrator.
+    kit.last(a).line({ type: 'system', subtype: 'init' });
+    await waitFor(() => d.sessionState(a).status === 'busy', 2000, 'A busy on its own turn');
+    kit.last(a).line({ type: 'system', subtype: 'init' });
+    const b = createJob(repo.dir, defaults(), { title: 'Job B' }).id;
+    enqueue(repo.dir, null, { type: 'resume', job: b, from: 'dashboard' });
+    d.poke();
+    await sleep(300);
+    assert.equal(d.sessionState(a).status, 'busy');
+    assert.equal(d.sessionState(b).waiting, true, 'a woken session is not evicted');
+    assert.equal(eventsIn(logOf(repo.dir, a), 'idle-stop').length, 0, 'nor idle-stopped');
+    assert.equal(turnsIn(kit.last(a)), 1, 'the pool writes it no turn');
+    assert.equal(d.sessionState(a).turns, 1, 'turns counts written turns only');
+    await logged(repo.dir, a, 'wake');
+    assert.equal(eventsIn(logOf(repo.dir, a), 'wake').length, 1, 'one wake per self-started turn');
+    assert.equal(eventsIn(logOf(repo.dir, INBOX), 'wake').length, 0);
+    const resultsBefore = eventsIn(logOf(repo.dir, a), 'result').length;
+    kit.last(a).line({ type: 'result' });
+    await waitFor(() => eventsIn(logOf(repo.dir, a), 'result').length > resultsBefore, 2000, 'the second result');
+    // Back to idle, so B's wait takes its slot.
+    await waitFor(() => kit.last(b), 2000, 'B to get the slot');
+    assert.equal(eventsIn(logOf(repo.dir, a), 'idle-stop')[0].reason, 'slot');
+    assert.equal(d.sessionState(a).turns, 1);
   } finally {
     await d.close();
     repo.cleanup();
