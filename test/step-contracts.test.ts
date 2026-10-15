@@ -74,7 +74,7 @@ test('reads a v5 job', () => {
     assert.deepEqual(loaded.agents, raw.agents, 'agents are otherwise unchanged');
     assert.deepEqual(loaded.verifyRuns, raw.verifyRuns, 'verify runs are otherwise unchanged');
     assert.equal(normalizeJob({ id: 'x', schemaVersion: 5 }).splitMode, null);
-    assert.equal(normalizeJob({ id: 'x', schemaVersion: 8 })._unsupported, true);
+    assert.equal(normalizeJob({ id: 'x', schemaVersion: 9 })._unsupported, true);
 
     const migrated = s.f('migrate');
     assert.ok(migrated.changed.includes(path.relative(s.root, file)));
