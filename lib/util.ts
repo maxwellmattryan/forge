@@ -6,7 +6,7 @@ import path from 'node:path';
  * The CLI's error codes and the exit each one fixes (docs/CLI.md "Error codes"). Scripts branch on
  * these, so renaming or removing one is a breaking change.
  */
-export const ERROR_CODES = { failed: 1, not_found: 1, internal: 1, usage: 2, unknown_command: 2, not_initialized: 2, not_a_repo: 2, config_invalid: 2, owned: 3, blocked: 4, external: 5 } as const;
+export const ERROR_CODES = { failed: 1, not_found: 1, internal: 1, secret_found: 1, usage: 2, unknown_command: 2, not_initialized: 2, not_a_repo: 2, config_invalid: 2, owned: 3, blocked: 4, external: 5 } as const;
 export type ErrorCode = keyof typeof ERROR_CODES;
 export type ExitCode = (typeof ERROR_CODES)[ErrorCode];
 /** The code a bare exit number means, so `new ForgeError(msg, 3)` written before codes existed keeps working. */

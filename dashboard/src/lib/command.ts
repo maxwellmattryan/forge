@@ -114,7 +114,7 @@ function refMatches(ctx: CommandCtx, raw: string): TrackerItem[] {
 
 const runnable = (p: Parsed): boolean => p.kind !== 'empty' && p.kind !== 'partial';
 
-const REWORK_GATES: ReadonlySet<string> = new Set(['escalation', 'rounds-exhausted', 'conflicts']);
+const REWORK_GATES: ReadonlySet<string> = new Set(['escalation', 'rounds-exhausted', 'conflicts', 'human']);
 
 /**
  * The job verbs that make sense for one job now, in `VERBS` order: what the drawer's palette offers first.

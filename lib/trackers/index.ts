@@ -2,10 +2,11 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { daemonTrust } from '../config.ts';
 import { paths, exists } from '../paths.ts';
+import { refuseSecrets, textUnit } from '../secrets.ts';
 import { ForgeError } from '../util.ts';
 import local from './local.ts';
 import github from './github.ts';
-import type { Config, Tracker } from '../types.ts';
+import type { Config, Job, TextUnit, Tracker, TrackerCtx } from '../types.ts';
 
 // The tracker contract (Tracker, TrackerCtx and TrackerItem) lives in lib/types.ts. Every adapter, built-in
 // or a repo's own `.forge/trackers/<name>.mjs` or `.ts`, default-exports one. docs/TRACKERS.md has the details.
@@ -24,11 +25,50 @@ const none: Tracker = {
   close: () => {},
 };
 
+/**
+ * An adapter whose writes are scanned for likely credentials first, so every caller (forge tracker
+ * comment|create, job link --create, the split procedure, Forge's own mirrors) gets the same refusal.
+ * Built with Object.create so every other method is the adapter's own; the guarded ones call the
+ * adapter with itself as the receiver, so a class instance with #private fields keeps working. The
+ * built-in update and claim send only a status key; a custom adapter's receive the whole job, so its
+ * title and reason are scanned too. A refused claim returns `{ok: false}` like any refused claim, so
+ * callers cancel the job they just created instead of leaving it behind.
+ */
+export function guardTracker(adapter: Tracker, opts: { custom: boolean }): Tracker {
+  const g: Tracker = Object.create(adapter);
+  const refuse = (ctx: TrackerCtx, what: string, units: TextUnit[]) => refuseSecrets(ctx.root, ctx.config, units, { what });
+  g.comment = (ctx, ref, body) => {
+    refuse(ctx, 'the tracker comment', [textUnit('(tracker comment)', String(body ?? ''))]);
+    return adapter.comment(ctx, ref, body);
+  };
+  g.create = (ctx, item) => {
+    refuse(ctx, 'the issue title or body', [textUnit('(issue title)', String(item?.title ?? '')), textUnit('(issue body)', String(item?.body ?? ''))]);
+    return adapter.create(ctx, item);
+  };
+  if (opts.custom) {
+    const jobUnits = (job: Job) => [textUnit('(job title)', String(job?.title ?? '')), textUnit('(job reason)', String(job?.reason ?? ''))];
+    g.update = (ctx, ref, job) => {
+      refuse(ctx, "the job's title or reason", jobUnits(job));
+      return adapter.update(ctx, ref, job);
+    };
+    g.claim = (ctx, ref, job) => {
+      try {
+        refuse(ctx, "the job's title or reason", jobUnits(job));
+      } catch (e) {
+        if (e instanceof ForgeError && e.code === 'secret_found') return { ok: false, reason: e.message };
+        throw e;
+      }
+      return adapter.claim(ctx, ref, job);
+    };
+  }
+  return g;
+}
+
 export async function loadTracker(root: string, config: Config): Promise<Tracker> {
   const kind = config.tracker.kind;
-  if (kind === 'local') return local;
-  if (kind === 'github') return github;
-  if (kind === 'none') return none;
+  if (kind === 'local') return guardTracker(local, { custom: false });
+  if (kind === 'github') return guardTracker(github, { custom: false });
+  if (kind === 'none') return guardTracker(none, { custom: false });
   const dir = paths(root).trackers;
   const mjs = path.join(dir, `${kind}.mjs`);
   const ts = path.join(dir, `${kind}.ts`);
@@ -42,7 +82,7 @@ export async function loadTracker(root: string, config: Config): Promise<Tracker
   const t = mod.default;
   for (const m of ['list', 'get', 'claim', 'update', 'comment', 'create', 'close'])
     if (typeof t?.[m] !== 'function') throw new ForgeError(`custom tracker ${file} is missing ${m}()`);
-  return t;
+  return guardTracker(t, { custom: true });
 }
 
 export { statusKey, STATUS_KEYS } from './status.ts';

@@ -177,7 +177,7 @@ test('verify and worktree setup fill {args} with nothing', async () => {
   const r = x.raw('verify', x.id);
   assert.equal(r.status, 0, `${r.stderr}${r.stdout}`);
   const out = JSON.parse(r.stdout);
-  assert.equal(out.steps[0].cmd, 'test -z "" && echo "check[]"');
+  assert.equal(out.steps.find((st) => st.name === 'check').cmd, 'test -z "" && echo "check[]"');
   const md = fs.readFileSync(path.join(x.dir, 'verify', 'round-1.md'), 'utf8');
   assert.match(md, /^## check: ok$/m);
   assert.doesNotMatch(md, /\{args\}/);

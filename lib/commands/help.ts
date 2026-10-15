@@ -14,6 +14,7 @@ import { HELP as GIT } from './git.ts';
 import { HELP as INIT } from './init.ts';
 import { HELP as JOB } from './job.ts';
 import { HELP as REQUESTS } from './requests.ts';
+import { HELP as SECRETS } from './secrets.ts';
 import { HELP as STATUS } from './status.ts';
 import { HELP as TRACKER } from './tracker.ts';
 import { HELP as UPDATE } from './update.ts';
@@ -114,7 +115,7 @@ export const CORE: HelpGroup[] = [
           ['--draft', 'open it as a draft'],
           ['--force', 'publish a HEAD that forge verify has not passed'],
         ],
-        exits: [[1, 'no such job or worktree, an unverified HEAD, or nothing to push'], GH_FAILED],
+        exits: [[1, 'no such job or worktree, an unverified HEAD, nothing to push, or a likely secret in the PR title or body or the commits it would push (code secret_found)'], GH_FAILED],
       },
       { command: 'pr sync', args: '<id>', summary: "read the PR's state, checks and review feedback into the job", exits: [NO_JOB, GH_FAILED] },
       {
@@ -162,8 +163,8 @@ export const CORE: HelpGroup[] = [
   },
 ];
 
-const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...GIT, ...EVAL, ...REQUESTS, ...DAEMON, ...INIT, ...CONFIG, ...DASH, ...UPDATE];
-const ORDER = ['status', 'next', 'job', 'worktree', 'run', 'stop', 'verify', 'integrate', 'git', 'pr', 'sync', 'tracker', 'stats', 'roster', 'retro', 'eval', 'requests', 'daemon', 'init', 'migrate', 'config', 'doctor', 'dash', 'version', 'update', 'help'];
+const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...SECRETS, ...GIT, ...EVAL, ...REQUESTS, ...DAEMON, ...INIT, ...CONFIG, ...DASH, ...UPDATE];
+const ORDER = ['status', 'next', 'job', 'worktree', 'run', 'stop', 'verify', 'secrets', 'integrate', 'git', 'pr', 'sync', 'tracker', 'stats', 'roster', 'retro', 'eval', 'requests', 'daemon', 'init', 'migrate', 'config', 'doctor', 'dash', 'version', 'update', 'help'];
 
 /** Every command group, in the order the overview lists them. */
 export const GROUPS: HelpGroup[] = ORDER.map((name) => {
