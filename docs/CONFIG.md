@@ -57,6 +57,7 @@ runtime:
   host: claude-code
   maxParallelJobs: 3
   diversity: false           # warn when the approver or a lens shares the builder's model family (never blocks)
+  effort: null               # low | medium | high | xhigh | max: the default reasoning effort for jobs (null: Claude Code's own setting); see "Effort"
   models:                    # per role; aliases (opus, sonnet, haiku, fable) or full model ids
     orchestrator: inherit
     planner: opus
@@ -187,7 +188,7 @@ daemon:                      # opt-in headless sessions supervised by `forge das
 
 **Values** follow the key's type: `true`/`false`; a decimal number; `null` for keys that allow it; text as written; and lists as `[a, b]` or a JSON array (`'["a","b"]'`, `[]`). Values are checked against the key's range or options, text may not contain control or invisible formatting characters (bidi overrides, zero-width characters) or exceed 200 characters, `review.blockOn` must keep both `blocker` and `major` (adding `minor` or `nit` is allowed), `daemon.idleStopMinutes` must be greater than 0 (or `null`), and `tracker.github.labels.prefix` must be at least 2 characters ending in `:`, `/` or `-`, because Forge removes every issue label that starts with it. The result must also pass `forge config validate`, though problems the file already had never block an unrelated change.
 
-**Editable keys**: `pipeline.plan`, `split`, `specApproval`, `design`, `maxRounds` and every `pipeline.budget.*`; `review.blockOn` and `review.onPrFeedback`; `runtime.models.<role>`, `runtime.maxParallelJobs` and `runtime.diversity`; `tracker.github.ready.*`, `tracker.github.claim.assign`, `tracker.github.statusSync` and `tracker.github.labels.prefix`; `dashboard.port` (used by the next `forge dash`); and `daemon.idleStopMinutes` and `daemon.auth`. The rule: a key is editable only when it can't name a command, file, module, tool or repository Forge runs, loads or writes to, and can't loosen a security or attribution policy. Everything else (`commands.*`, `worktrees.*`, `verify*`, `git.*`, `merge.*`, `approver.*`, `aiAttribution`, `infra.*`, `review.panel`, `tracker.kind`, `tracker.github.repo`/`comments`/`project.*`, `daemon.enabled`/`command`/`allowedTools`/`maxConcurrent`, …) is refused with `<key> is not editable with forge config set (<why>); edit .forge/config.yml by hand`, and the dashboard shows it read-only. `lib/config-fields.ts` is the allowlist.
+**Editable keys**: `pipeline.plan`, `split`, `specApproval`, `design`, `maxRounds` and every `pipeline.budget.*`; `review.blockOn` and `review.onPrFeedback`; `runtime.models.<role>`, `runtime.maxParallelJobs`, `runtime.diversity` and `runtime.effort`; `tracker.github.ready.*`, `tracker.github.claim.assign`, `tracker.github.statusSync` and `tracker.github.labels.prefix`; `dashboard.port` (used by the next `forge dash`); and `daemon.idleStopMinutes` and `daemon.auth`. The rule: a key is editable only when it can't name a command, file, module, tool or repository Forge runs, loads or writes to, and can't loosen a security or attribution policy. Everything else (`commands.*`, `worktrees.*`, `verify*`, `git.*`, `merge.*`, `approver.*`, `aiAttribution`, `infra.*`, `review.panel`, `tracker.kind`, `tracker.github.repo`/`comments`/`project.*`, `daemon.enabled`/`command`/`allowedTools`/`maxConcurrent`, …) is refused with `<key> is not editable with forge config set (<why>); edit .forge/config.yml by hand`, and the dashboard shows it read-only. `lib/config-fields.ts` is the allowlist.
 
 **Errors** exit 1 and leave the file byte-identical: an unknown key, a read-only key, an invalid value, or a layout the edit can't change without dropping a comment (a block map or `|` block, a list of maps, a list with comments between or on its items, a key inside a flow map). A repo without `.forge/config.yml` exits 2; `/forge init` creates it.
 
@@ -225,6 +226,17 @@ Both routes have the same guards. The job is not claimed by a live session (the 
 | Max quality | everything `opus`; spec-writer and builder `fable` if available |
 
 Any profile can add `runtime.diversity: true`. Expect warnings by design where a profile shares families: the Balanced security lens is `opus` like the builder, and Economy and Max quality put the builder and approver on one family. `forge roster` always reports `diversity.overlap`: the approver and every panel lens whose model shares the builder's family (`opus`, `sonnet`, `haiku` or `fable` when the model names one, else the whole model string; `inherit` resolves through `runtime.models.orchestrator`). With `diversity: true`, `forge roster` and `forge init write` also return one warning per overlap. Diversity warns; it never blocks a job.
+
+## Effort
+
+Reasoning effort is how much the model thinks before it answers: `low`, `medium`, `high`, `xhigh` or `max`. Higher levels cost more tokens and time. Forge sets it per job:
+
+- **Precedence.** A job's own effort (`forge job new … --effort <level>`, `forge job effort <id> <level>`, or the drawer's **Effort** select) wins. Without one, `runtime.effort` applies. When neither is set, Forge passes nothing: `daemon.command`'s own `--effort` applies if it has one, and otherwise Claude Code's own setting does. `forge job effort <id> --inherit` clears a job's level. A value outside the five levels counts as unset wherever it is read, and `forge config validate`, `forge doctor` and every daemon start refuse an invalid `runtime.effort`.
+- **Daemon sessions** start with `--effort <level>` on their `claude -p` command line, replacing any `--effort` in `daemon.command`. The inbox session uses `runtime.effort`. Each session's log records the level it started with and where it came from (`job`, `config` or `none`).
+- **Agents.** `forge job step` puts the effective level on every `spawn` action, and every brief has an `Effort:` line, so the orchestrator, yours or a daemon's, passes it to each agent it starts. The `forge:*` agents set no effort of their own, so without one they inherit their session's.
+- **Changing it.** A job's new effort applies to the agents started after the change at once, and to a running daemon session the next time it starts (after an idle stop, a restart, or a slot handover). Forge never stops a session to apply it. Changing `runtime.effort` while the daemon runs is a config change, so the trust check stops the daemon, as for any edit of this file; a job's effort lives in its `job.json` and stops nothing.
+- **A daemon session may not change effort**: `forge job effort` and `forge job new --effort` refuse under `FORGE_DAEMON=1`, and `forge job set --field effort=…` is always refused. Set it from the dashboard or your own session.
+- Needs a Claude Code with `--effort` (checked on 2.1.299).
 
 ## Verify integrity
 

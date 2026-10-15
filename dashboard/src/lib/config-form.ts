@@ -41,6 +41,8 @@ export function parseDraft(f: ConfigField, draft: Draft): Parsed {
     }
     case 'enum': {
       const s = String(draft);
+      // A nullable enum's "Not set" option is the empty value.
+      if (!s && f.nullable) return { ok: true, value: null };
       return (f.options ?? []).includes(s) ? { ok: true, value: s } : { ok: false, error: 'settings.form.option' };
     }
     case 'list': {

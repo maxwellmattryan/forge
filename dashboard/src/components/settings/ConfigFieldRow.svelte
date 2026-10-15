@@ -90,6 +90,7 @@
       <div class="flex items-center gap-2 text-sm min-h-8"><input {id} type="checkbox" class="check" checked={draft === true} {disabled} aria-describedby={describedBy} onchange={(e) => session.setDraft(f.key, e.currentTarget.checked)} /><span aria-hidden="true">{draft === true ? $t('settings.field.on') : $t('settings.field.off')}</span></div>
     {:else if f.type === 'enum'}
       <select {id} class="self-start" value={draft} {disabled} aria-invalid={error ? 'true' : undefined} aria-describedby={describedBy} onchange={(e) => session.setDraft(f.key, e.currentTarget.value)}>
+        {#if f.nullable}<option value="">{$t('settings.field.unset')}</option>{/if}
         {#each f.options ?? [] as o (o)}<option value={o}>{o}</option>{/each}
       </select>
     {:else if f.type === 'integer' || f.type === 'number'}

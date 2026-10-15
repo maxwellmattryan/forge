@@ -2,7 +2,7 @@
 // this file never runs. The dashboard's src/lib/types.ts carries a copy of the API shapes, kept
 // equal by test/types-parity.ts, until the dashboard imports this file. Unions that have a runtime
 // list are derived from that list, never retyped.
-import type { BUDGET_KEYS, DAEMON_AUTH, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
+import type { BUDGET_KEYS, DAEMON_AUTH, EFFORTS, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import type { REQUEST_TYPES } from './requests.ts';
 import type { AcCoverage } from './acs.ts';
 
@@ -18,6 +18,10 @@ export type WaitingOn = (typeof WAITING_ON)[number];
 export type BudgetKey = (typeof BUDGET_KEYS)[number];
 /** A review finding's severity: SEVERITIES in lib/schema.ts. */
 export type Severity = (typeof SEVERITIES)[number];
+/** A reasoning effort level: EFFORTS in lib/schema.ts. */
+export type Effort = (typeof EFFORTS)[number];
+/** Where a resolved effort came from: resolveEffort in lib/config.ts. */
+export type EffortSource = 'job' | 'config' | 'none';
 
 // ---------- job data ----------
 
@@ -232,6 +236,8 @@ export interface Job {
   eval: { run: string; task: string } | null;
   /** `never` when the planner must not split this job (from-ref, revise-split); null follows pipeline.split. */
   splitMode: 'never' | null;
+  /** The human's reasoning effort for this job (`forge job effort`); null inherits runtime.effort. */
+  effort: Effort | null;
 }
 
 /** tasks.md checkbox counts: progress in lib/jobs.ts. */
@@ -482,6 +488,8 @@ export interface Config {
     host: string;
     maxParallelJobs: number;
     diversity: boolean;
+    /** The default reasoning effort for jobs; null leaves it to Claude Code's own setting. */
+    effort: Effort | null;
     models: Record<string, string>;
   };
   tracker: {
@@ -1108,6 +1116,19 @@ export interface PostDaemonModeBody {
 
 /** POST /api/daemon/mode reply on success: poolState in lib/server.ts. */
 export type PostDaemonModeResponse = DaemonPoolState;
+
+/** POST /api/jobs/:id/effort body: the handler in lib/server.ts. null inherits runtime.effort. */
+export interface PostJobEffortBody {
+  effort: Effort | null;
+}
+
+/** POST /api/jobs/:id/effort reply, and `forge job effort`'s output: setJobEffort in lib/jobs.ts. */
+export interface PostJobEffortResponse {
+  id: string;
+  effort: Effort | null;
+  previous: Effort | null;
+  changed: boolean;
+}
 
 /**
  * JSON error body: jsonStatus for /api/daemon's and /api/config's 4xx and the catch-all 500 in lib/server.ts.

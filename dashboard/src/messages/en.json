@@ -435,7 +435,8 @@
       "on": "On",
       "off": "Off",
       "onePerLine": "One per line",
-      "required": "Always on: {items}. Findings of these severities always force another round."
+      "required": "Always on: {items}. Findings of these severities always force another round.",
+      "unset": "Not set"
     },
     "form": {
       "required": "Enter a value.",
