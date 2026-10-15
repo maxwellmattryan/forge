@@ -1,0 +1,57 @@
+<!doctype html>
+<!-- Static reference rendition. Switch data-theme to "ash" on <html> to see the light theme. -->
+<html lang="en" data-theme="forge">
+<head><meta charset="utf-8"><title>Forge — cover</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@700&family=DM+Mono:wght@400;500&display=swap">
+<style>
+  html, body { margin: 0; background: var(--bg); }
+  .cover { position: relative; width: 960px; height: 288px; overflow: hidden; background: var(--bg); }
+  .cover svg { position: absolute; inset: 0; }
+  .plateblk { fill: var(--panel); stroke: var(--line); stroke-width: 1; }
+  .bevel { stroke: var(--edge-light); stroke-width: 1; }
+  .rivet { fill: var(--line-strong); }
+  .gleam { fill: var(--gleam); } .deep { fill: var(--gleam-deep); } .hot { fill: var(--gleam-hot); }
+  .ember { fill: var(--ember); } .spark { fill: var(--spark); }
+  .seam { stroke: var(--edge-dark); stroke-width: 1; }
+  .name { position: absolute; left: 48px; bottom: 58px; margin: 0; font-family: var(--font-head); font-size: 120px; line-height: .9; font-weight: 700; letter-spacing: .01em; text-transform: uppercase; color: var(--fg); max-width: 440px; }
+  .tagline { position: absolute; left: 52px; bottom: 36px; margin: 0; font-family: var(--font-mono); font-size: 13px; line-height: 16px; letter-spacing: .10em; text-transform: uppercase; color: var(--muted); max-width: 440px; }
+</style>
+<link rel="stylesheet" href="../../tokens.css">
+<link rel="stylesheet" href="../../smithy.css">
+</head>
+<body>
+<div class="cover">
+<!--
+  blocks: an iron plate (panel, line seam, edge-light bevel) 480×288 (x 480, y 0, bleeds top, right and bottom) · a gleam slab 384×128 (x 544, y 32, bleeds right) with its gleam-deep shadowed edge 384×16 beneath it (y 160) · an ember slab 160×64 (x 544, y 192) · a spark slab 32×64 (x 720, y 192) · a gleam-hot bar 192×8 (x 768, y 220, bleeds right): the shining progress fill; the gleam and ember slabs cut radius-cut (10px) at their top-left and bottom-right corners like every plate, the dots radius-dot
+  arrangement: one tall iron plate filling the right half, the polished face laid on it as a wide gleam slab over its shadowed edge, the ember and spark slabs small beneath it, the bright bar running off the right edge
+  pattern: "a literal motif (rivets, the stepper's dots) → that silhouette built from radii": a rivet grid on the plate at the space-16 (64px) pitch, inset space-4 from the plate edges, 26 rivets of 4px (the riveted plate's rivet), plus the stepper's nine 8px dots under the spark; chosen because the system is forged metal: plates riveted, gleam where the machine works, ember where it waits for a person
+  scales: space-16 64 pitch, space-4 16 inset, control-md 32, radius-cut 10, rivet 4, dot 8, stroke-line 1
+-->
+<svg width="960" height="288" viewBox="0 0 960 288" aria-hidden="true">
+  <rect class="plateblk" x="480.5" y="-1" width="480" height="290"/>
+  <line class="bevel" x1="481" y1="0.5" x2="960" y2="0.5"/>
+  <g class="rivet">
+    <circle cx="512" cy="16" r="2"/><circle cx="576" cy="16" r="2"/><circle cx="640" cy="16" r="2"/><circle cx="704" cy="16" r="2"/><circle cx="768" cy="16" r="2"/><circle cx="832" cy="16" r="2"/><circle cx="896" cy="16" r="2"/>
+    <circle cx="512" cy="96" r="2"/><circle cx="512" cy="160" r="2"/><circle cx="512" cy="224" r="2"/>
+    <circle cx="512" cy="272" r="2"/><circle cx="576" cy="272" r="2"/><circle cx="640" cy="272" r="2"/><circle cx="704" cy="272" r="2"/><circle cx="768" cy="272" r="2"/><circle cx="832" cy="272" r="2"/><circle cx="896" cy="272" r="2"/>
+    
+    <circle cx="944" cy="16" r="2"/><circle cx="944" cy="96" r="2"/><circle cx="944" cy="160" r="2"/><circle cx="944" cy="224" r="2"/><circle cx="944" cy="272" r="2"/>
+    <circle cx="576" cy="96" r="2"/><circle cx="576" cy="160" r="2"/><circle cx="576" cy="224" r="2"/>
+  </g>
+  <path class="deep" d="M544 160h416v16H554l-10-6z"/>
+  <path class="gleam" d="M554 32h406v128H544V42z"/>
+  <path class="ember" d="M554 192h150v54l-10 10H544v-54z"/>
+  <rect class="spark" x="720" y="192" width="32" height="64" rx="2"/>
+  <rect class="hot" x="768" y="220" width="192" height="8" rx="2"/>
+  <g class="gleam">
+    <circle cx="772" cy="252" r="4"/><circle cx="788" cy="252" r="4"/><circle cx="804" cy="252" r="4"/>
+    <circle cx="828" cy="252" r="4"/><circle cx="844" cy="252" r="4"/><circle cx="860" cy="252" r="4"/>
+  </g>
+  <g class="ember"><circle cx="884" cy="252" r="4"/></g>
+  <g class="rivet"><circle cx="908" cy="252" r="4"/><circle cx="932" cy="252" r="4"/></g>
+</svg>
+<h1 class="name">Forge</h1>
+<p class="tagline">software factory</p>
+</div>
+</body>
+</html>

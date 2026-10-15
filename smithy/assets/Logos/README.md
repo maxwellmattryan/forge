@@ -1,0 +1,3 @@
+The Forge mark is the anvil and hammer, `forge.png` (256×256), carried over from `assets/forge.png` unchanged: a raster on its own light grey rounded tile. It is the one asset the Smithy direction does not restyle.
+
+Use it at `size-mark` (36px) in the sidebar's brand plate and at 40px in the empty state, always with its own tile showing (the tile reads as a plate in Ash and as a lit tile in Forge); never recolour, blend or crop it, and never set it on `gleam`. Beside it the name is set in `sheet-title` and *software factory* in `label`. Where only type fits (the window title, a plain-text context), the name alone is the mark. A one-colour SVG mark for Forge does not exist yet; propose one before drawing it into the chrome.
