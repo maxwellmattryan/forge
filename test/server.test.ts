@@ -1240,10 +1240,10 @@ test('job detail lists the job\'s requests', async () => {
   const ids: string[] = [];
   for (let i = 0; i < 55; i++) {
     ids.push(enqueue(repo.dir, null, { type: 'answer', job: a, text: `answer ${i}`, from: 'dashboard' }).id);
-    // Distinct milliseconds keep the id order the creation order. Waiting until the clock is past the
-    // id's own millisecond also holds when the wall clock steps back under load.
+    // Distinct milliseconds keep the id order the creation order. Date.now() can read one millisecond
+    // back right after it moved on (seen on macOS under load), so wait until it is two past the id's.
     const t = Number(ids[i].split('-')[0]);
-    while (Date.now() <= t);
+    while (Date.now() <= t + 1);
   }
   enqueue(repo.dir, null, { type: 'answer', job: b, text: 'other job', from: 'dashboard' });
   enqueue(repo.dir, null, { type: 'next', from: 'dashboard' });
