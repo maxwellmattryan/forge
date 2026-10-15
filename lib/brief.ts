@@ -1,7 +1,7 @@
 // Agent briefs for `forge job step`: paths and config-derived lines only, never file contents, so
 // text an agent wrote (after reading tracker or PR text) is never re-injected into another prompt.
 import path from 'node:path';
-import { reviewerChecklist } from './config.ts';
+import { resolveEffort, reviewerChecklist } from './config.ts';
 import { jobDir, reviewDir } from './jobs.ts';
 import { paths, exists } from './paths.ts';
 import type { Config, Job, StepInput } from './types.ts';
@@ -168,6 +168,7 @@ export function renderBrief(input: StepInput, spec: BriefSpec): string {
     `Job paths (JSON): ${JSON.stringify(input.paths)}`,
     `Inputs: ${present.length ? present.join(', ') : 'none'}`,
     `Output: ${spec.outputs.join(', ')}`,
+    `Effort: ${resolveEffort(input.config, input.job).level ?? 'inherit'}`,
     ...spec.extra,
     ...(spec.retry ? [spec.retry] : []),
     UNTRUSTED_LINE,

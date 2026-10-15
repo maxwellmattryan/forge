@@ -49,12 +49,12 @@ Report `sync` results, a line each: merges, PR feedback, conflicts, finished umb
 Claim it: `forge job claim <id> --session ${CLAUDE_SESSION_ID}`. Exit 3: another live session owns it: tell the human, stop. Exit 4: it waits on dependencies; report that, move on. Pass `--force` only when the human asks to stack it on an unmerged dependency.
 
 Then loop: `forge job advance <id> --session ${CLAUDE_SESSION_ID}` (Bash timeout 600000; it runs the `run` actions), report each `tell` in `ran`, act on `action`, advance again.
-- `spawn`: run `startShell`. Spawn `agent` as `subagent_type` with `model` (omit it when `inherit`), and `brief` as the prompt (when `resume` names an agent alive in this session, SendMessage it the brief). On completion: `forge job agent <id> end --role <role> --agent-id <agentId> --import --tokens <total_tokens> --tool-uses <tool_uses> --duration-ms <duration_ms> --summary "<first line of its reply>"`. With `parallel: true`, spawn it in the background and advance again at once.
+- `spawn`: run `startShell`. Spawn `agent` as `subagent_type` with `brief` as the prompt, `model` unless `inherit` and `effort` unless null (when `resume` names an agent alive in this session, SendMessage it the brief). On completion: `forge job agent <id> end --role <role> --agent-id <agentId> --import --tokens <total_tokens> --tool-uses <tool_uses> --duration-ms <duration_ms> --summary "<first line of its reply>"`. With `parallel: true`, spawn it in the background and advance at once.
 - `failed: true`: `forge job step <id>`; on the same `rule` and `command`, `forge job note` the `error`, report it, stop; else advance again. `capped: true`: note, report, stop. Exit 3: as for the claim.
 - `wait` on `agents`: wait for their notifications and record each with `agent end`. For one this session did not spawn (after a restart): `forge job agent <id> end --role <role> --status lost`.
 - `wait` on a gate: report `tell` (for `input`, also `questions.md`) and stop driving it.
-- `procedure`: load `reference` (`reference/split.md`, `retro.md`, `pr-lifecycle.md`) and follow it, then advance again.
-- `done`: report any `tell`, and stop.
+- `procedure`: load `reference` (`reference/split.md`, `retro.md`, `pr-lifecycle.md`) and follow it, then advance.
+- `done`: report any `tell` and stop.
 
 After `pr` or `done`, run `forge retro due`; if `due: true`, tell the human once that `/forge retro` proposes improvements (never run it unasked).
 

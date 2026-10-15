@@ -424,6 +424,10 @@ const rows: Row[] = [
   { name: 'hostile: a lens name with quotes never reaches a command', fx: { job: inReview({}, { reviewers: ["a';touch x;'", 'code'] }), events: scoped }, want: { action: 'spawn', role: 'reviewer:code' } },
   { name: 'hostile: a decision reason with $(id) stays out of commands', fx: { job: atDecide({ reason: 'ship it $(id)' }), decision: { decision: 'ESCALATE' }, events: [ev('decision', 22)] }, want: { action: 'run', rule: 'DC7' } },
   { name: 'hostile: a conflicted file name stays out of commands', fx: { job: atIntegrate(), events: [entered, ev('integrate-conflicts', 31, { conflicts: ['`x`', '$(rm -rf ~)', "'; id"], behind: 1 })] }, want: { action: 'run', rule: 'IG4' } },
+  // Effort: the Agent tool's `effort`, resolved like the daemon's --effort; no rule of its own.
+  { name: "spawn carries the job's effort", fx: { config: (c) => (c.runtime.effort = 'medium'), files: ['spec'], job: job({ stage: 'build', round: 1, effort: 'high', agents: { builder: ag(1, 5, 6, { status: 'lost' }) } }), events: [ev('round', 4)] }, want: { action: 'spawn', role: 'builder', effort: 'high' }, check: (a) => assert.ok(a.brief.split('\n').includes('Effort: high')) },
+  { name: 'spawn inherits runtime.effort', fx: { config: (c) => (c.runtime.effort = 'medium'), job: atDecide({ agents: { approver: ag(1, 20, 21, { status: 'failed' }) } }) }, want: { action: 'spawn', role: 'approver', effort: 'medium' } },
+  { name: 'spawn effort is null when nothing is set', fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: true, output: 'review/round-1/code.md' }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped }, want: { action: 'spawn', role: 'reviewer:code', effort: null }, check: (a) => assert.ok(a.brief.split('\n').includes('Effort: inherit')) },
   { name: 'hostile: an agent id is not passed as resume', fx: { job: job({ stage: 'build', round: 2, verdicts: { 1: { code: 'CHANGES' } }, agents: { builder: ag(1, 5, 6, { agentId: 'x; rm -rf' }) } }), events: [ev('round', 7)] }, want: { action: 'spawn', role: 'builder' }, check: (a) => assert.equal(a.resume, undefined) },
 ];
 
@@ -450,6 +454,12 @@ for (const row of rows) {
     assertSafe(a, row.name);
   });
 }
+
+test('every spawn carries an effort key', () => {
+  const spawns = rows.map((row) => step(fixture(row.fx))).filter((a) => a.action === 'spawn');
+  assert.ok(spawns.length > 20);
+  for (const a of spawns) assert.ok(Object.hasOwn(a, 'effort'), `${a.rule} ${(a as any).role}`);
+});
 
 test('every rule has a row', () => {
   const missing = RULES.filter((r) => !rows.some((row) => row.name.startsWith(`${r} `)));

@@ -275,6 +275,8 @@ export interface StepSpawn extends StepBase {
   start: string[];
   startShell: string;
   brief: string;
+  /** The Agent tool's `effort`: the job's effective level (resolveEffort), or null to pass none. */
+  effort: Effort | null;
 }
 
 /** Run one forge command: `command` is argv after `forge`, `shell` the same as one quoted line. */
