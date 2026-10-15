@@ -89,7 +89,7 @@ function scratch() {
       const wt = createWorktree(root, config, id);
       assert.equal(wt.ok, true, JSON.stringify(wt));
       updateJob(root, id, (j) => (j.round = 1));
-      return { id, dir: jobDir(root, id) };
+      return { id, dir: jobDir(root, id), wt: wt.path };
     },
     verify(id: string, extraEnv: NodeJS.ProcessEnv = {}) {
       const r = spawnSync(process.execPath, [BIN, 'verify', id], { cwd: root, encoding: 'utf8', env: { ...env, ...extraEnv } });
@@ -296,17 +296,24 @@ test('verify refuses a newer config and a malformed verify list without running 
     [withVerify('  - []\n'), 'forge: verify: verify entry 1 must be a step name or a non-empty list of step names (got [])'],
     [withVerify('  - test\n  - [test]\n'), 'forge: verify: verify step "test" is listed more than once'],
   ];
-  for (const [text, message] of cases) {
-    fs.writeFileSync(x.cfgFile, text);
-    const r = x.verify(j.id);
-    assert.equal(r.status, 1, message);
-    assert.equal(r.stdout, '');
-    assert.equal(r.stderr.trim(), message);
-    assert.deepEqual(loadJob(x.root, j.id).verifyRuns, [], `${message}: no verify run recorded`);
-    assert.equal(fs.existsSync(path.join(j.dir, 'verify', 'round-1.md')), false);
-    assert.deepEqual(x.logs(j.dir), []);
-    assert.deepEqual(x.commands(j.id), []);
+  // Clean, then with an untracked file in the worktree: the refusal comes before the clean check,
+  // so a dirty worktree gets the same message and no worktree-clean run is recorded either.
+  const stray = path.join(j.wt, 'stray.txt');
+  for (const dirty of [false, true]) {
+    if (dirty) fs.writeFileSync(stray, 'x\n');
+    for (const [text, message] of cases) {
+      fs.writeFileSync(x.cfgFile, text);
+      const r = x.verify(j.id);
+      assert.equal(r.status, 1, message);
+      assert.equal(r.stdout, '', `${message}: no result, so no worktree-clean step`);
+      assert.equal(r.stderr.trim(), message);
+      assert.deepEqual(loadJob(x.root, j.id).verifyRuns, [], `${message}: no verify run recorded`);
+      assert.equal(fs.existsSync(path.join(j.dir, 'verify', 'round-1.md')), false);
+      assert.deepEqual(x.logs(j.dir), []);
+      assert.deepEqual(x.commands(j.id), []);
+    }
   }
+  fs.rmSync(stray);
   fs.writeFileSync(x.cfgFile, withVerify('  - [test]\n'));
   const r = x.verify(j.id);
   assert.equal(r.status, 0, `${r.stderr} ${JSON.stringify(r.out)}`);

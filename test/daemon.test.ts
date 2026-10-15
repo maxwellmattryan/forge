@@ -7,7 +7,7 @@ import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { execFile, spawn as nodeSpawn, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
-import { tempRepo } from './helpers.ts';
+import { tempRepo, waitFor as waitUntil } from './helpers.ts';
 import { TRUST_ENV, defaults, trustDigest } from '../lib/config.ts';
 import { budgetCmd } from '../lib/budget.ts';
 import { createJob, loadJob, markAgentsLost, readEvents, recordAgent, setJob, updateJob } from '../lib/jobs.ts';
@@ -26,15 +26,8 @@ const INBOX = INBOX_SCOPE;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const settle = () => new Promise((r) => setImmediate(r));
 
-/** @param {() => any} cond */
-async function waitFor(cond, ms = 5000, what = 'condition') {
-  const end = Date.now() + ms;
-  while (Date.now() < end) {
-    if (await cond()) return;
-    await sleep(10);
-  }
-  assert.fail(`timed out waiting for ${what}`);
-}
+/** The shared poller with this file's positional (condition, ms, what) call shape. @param {() => any} cond */
+const waitFor = (cond, ms = 5000, what = 'condition') => waitUntil(cond, { timeoutMs: ms, intervalMs: 10, what });
 
 const alive = (pid) => {
   try {

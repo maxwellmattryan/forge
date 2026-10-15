@@ -33,7 +33,9 @@ if (process.env.SHELL !== NO_LOGIN_SHELL) {
 }
 // The suite starts the CLI thousands of times; on Node versions that cache compiled TypeScript this
 // roughly halves each start. Entries are keyed by source content, so an edited file is never stale.
-process.env.NODE_COMPILE_CACHE ??= path.join(os.tmpdir(), 'forge-test-compile-cache');
+// The cache sits in this checkout's ignored node_modules/.cache, not a shared temp dir another user
+// could fill first: its entries are code this process runs.
+process.env.NODE_COMPILE_CACHE ??= path.resolve(import.meta.dirname, '..', 'node_modules', '.cache', 'forge', 'compile-cache');
 
 /** A throwaway git repo with one commit; FORGE_ROOT pins the CLI's main checkout to it. */
 export function tempRepo() {
