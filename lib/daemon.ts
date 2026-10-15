@@ -450,6 +450,13 @@ export interface SessionAgents {
 }
 
 const noAgents = (): SessionAgents => ({ running: [], keeps: false, lastEndAt: null });
+/**
+ * How far ahead of now a job.json time may be and still count (clock skew between writers).
+ * job.json is the session's own to write, so a time further ahead is ignored: a future startedAt
+ * would otherwise dodge the RUNNING_AGENT_MAX_MS ceiling, and a future endedAt would hold the grace
+ * (and the idle window) open for as long as it says.
+ */
+const CLOCK_SKEW_MS = 60_000;
 
 /**
  * The agents a job session drives: those in its job.json, only while the job's owner is this
@@ -475,11 +482,11 @@ export function sessionAgents(root: string, scope: string, sessionId: string | n
     if (a?.status === 'running') {
       running.push(role);
       const started = typeof a.startedAt === 'string' ? Date.parse(a.startedAt) : NaN;
-      if (Number.isFinite(started) && at - started < RUNNING_AGENT_MAX_MS) keeps = true;
+      if (Number.isFinite(started) && started <= at + CLOCK_SKEW_MS && at - started < RUNNING_AGENT_MAX_MS) keeps = true;
     }
     const endedAt = a?.endedAt;
     const ended = typeof endedAt === 'string' ? Date.parse(endedAt) : NaN;
-    if (Number.isFinite(ended) && ended > lastEnd) {
+    if (Number.isFinite(ended) && ended <= at + CLOCK_SKEW_MS && ended > lastEnd) {
       lastEnd = ended;
       lastEndAt = endedAt!;
     }
@@ -847,7 +854,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       } catch {
         cfg = defaults();
       }
-      const roles = markAgentsLost(root, scope, running, LOST_SUMMARY, cfg);
+      const roles = markAgentsLost(root, scope, running, LOST_SUMMARY, cfg, info.sessionId);
       if (roles.length) logEvent('agents-lost', { roles });
     } catch (e) {
       logEvent('error', { message: `marking agents lost: ${(e as Error).message}` });
@@ -1015,7 +1022,8 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       if (a.keeps) return idleAfter(ms, ms);
       const end = a.lastEndAt ? Date.parse(a.lastEndAt) : NaN;
       const left = Math.max(idleSince, Number.isFinite(end) ? end : 0) + ms - Date.now();
-      if (left > 0) return idleAfter(left, ms);
+      // Never longer than the window, so no job.json time can push setTimeout past its 2^31-1 ms limit.
+      if (left > 0) return idleAfter(Math.min(left, ms), ms);
       void kill('idle-stop', true, 'idle');
     }, delay);
     idleTimer.unref?.();

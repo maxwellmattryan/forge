@@ -80,6 +80,7 @@ export function sessionPill(session: SessionInput): Pill {
         s.lastTurnAt ? `last turn ${ago(s.lastTurnAt)}` : 'no turns yet',
         ...(Number(s.failures) ? [`${Number(s.failures)} failed starts`] : []),
         ...(s.lastError ? [String(s.lastError)] : []),
+        ...(label === 'agents running' ? ['kept: its job has agents running'] : []),
         ...(label === 'standby' || label === 'no session' ? ['starts on its next request'] : []),
       ].join('\n');
   return { label, tone, title };

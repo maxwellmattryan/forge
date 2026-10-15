@@ -10,7 +10,7 @@ import { promisify } from 'node:util';
 import { tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, trustDigest } from '../lib/config.ts';
 import { budgetCmd } from '../lib/budget.ts';
-import { createJob, loadJob, readEvents, recordAgent, setJob, updateJob } from '../lib/jobs.ts';
+import { createJob, loadJob, markAgentsLost, readEvents, recordAgent, setJob, updateJob } from '../lib/jobs.ts';
 import { loadStepInput, step } from '../lib/step.ts';
 import { PLUGIN_ROOT } from '../lib/paths.ts';
 import { INBOX_SCOPE, SCOPE_ENV, ackRequest, claimRequest, enqueue, listRequests, requestScope, validScope } from '../lib/requests.ts';
@@ -1685,7 +1685,7 @@ test('a session keeps its slot for a grace after its last result', async () => {
   assert.equal(sessionOptions().slotGraceMs, 30_000);
   const repo = tempRepo();
   const kit = fakeKit();
-  const d = kitPool(repo.dir, kit, config({ maxConcurrent: 1 }), { slotGraceMs: 200 });
+  const d = kitPool(repo.dir, kit, config({ maxConcurrent: 1 }), { slotGraceMs: 1000 });
   try {
     const [a, b] = ['A', 'B'].map((t) => createJob(repo.dir, defaults(), { title: `Job ${t}` }).id);
     await enqueueInOrder(repo.dir, [{ type: 'resume', job: a }, { type: 'resume', job: b }]);
@@ -1696,17 +1696,17 @@ test('a session keeps its slot for a grace after its last result', async () => {
     await waitFor(() => d.sessionState(a).status === 'idle', 2000, 'A idle');
     d.poke();
     await sleep(20);
-    if (Date.now() - resultAt < 150) {
+    if (Date.now() - resultAt < 800) {
       assert.equal(kit.last(a).exited, false, 'inside the grace');
       assert.equal(d.sessionState(b).waiting, true);
     }
-    await sleep(Math.max(0, resultAt + 250 - Date.now()));
+    await sleep(Math.max(0, resultAt + 1050 - Date.now()));
     d.poke();
     await waitFor(() => kit.last(b), 2000, 'B to get the slot after the grace');
     const stop = eventsIn(logOf(repo.dir, a), 'idle-stop');
     assert.equal(stop.length, 1);
     assert.equal(stop[0].reason, 'slot');
-    assert.ok(Date.parse(stop[0].at) - resultAt >= 200, 'never inside the grace');
+    assert.ok(Date.parse(stop[0].at) - resultAt >= 1000, 'never inside the grace');
   } finally {
     await d.close();
     repo.cleanup();
@@ -1763,6 +1763,75 @@ test("only fresh agents of the job's own session keep it", async () => {
     assert.equal(loadJob(repo.dir, unowned).agents.builder.status, 'running');
   } finally {
     await d.close();
+    repo.cleanup();
+  }
+});
+
+test('a time in job.json from the future keeps nothing', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const windowMs = 120;
+  const d = kitPool(repo.dir, kit, config({ maxConcurrent: 2, idleStopMinutes: windowMs / 60_000 }));
+  const future = '2999-01-01T00:00:00.000Z';
+  try {
+    const [started, ended, w1, w2] = ['Started', 'Ended', 'W1', 'W2'].map((t) => createJob(repo.dir, defaults(), { title: t }).id);
+    await enqueueInOrder(repo.dir, [started, ended, w1, w2].map((job) => ({ type: 'resume', job })));
+    const keptWhenIdle = new Map();
+    d.subscribe((e) => {
+      if (e.kind === 'state' && e.state.status === 'idle' && e.state.running) keptWhenIdle.set(e.scope, e.state.kept);
+    });
+    d.start();
+    await settle();
+    // What a session could write with `forge job set --field agents.<role>.startedAt=…`, or with Edit.
+    ownBy(repo.dir, started, d.sessionState(started).sessionId);
+    agentStart(repo.dir, started, 'builder');
+    updateJob(repo.dir, started, (j) => {
+      j.agents.builder.startedAt = future;
+    });
+    ownBy(repo.dir, ended, d.sessionState(ended).sessionId);
+    agentStart(repo.dir, ended, 'builder');
+    agentEnd(repo.dir, ended, 'builder');
+    updateJob(repo.dir, ended, (j) => {
+      j.agents.builder.endedAt = future;
+    });
+    assert.equal(sessionAgents(repo.dir, started, d.sessionState(started).sessionId).keeps, false, 'a future start keeps nothing');
+    assert.equal(sessionAgents(repo.dir, ended, d.sessionState(ended).sessionId).lastEndAt, null, 'a future end is ignored');
+    for (const id of [started, ended]) kit.last(id).line({ type: 'result' });
+    await waitFor(() => kit.last(w1) && kit.last(w2), 2000, 'both waiters to get a slot');
+    for (const id of [started, ended]) {
+      await logged(repo.dir, id, 'idle-stop');
+      assert.equal(eventsIn(logOf(repo.dir, id), 'idle-stop')[0].reason, 'slot', id);
+      assert.equal(keptWhenIdle.get(id), null, `${id} reported kept: null`);
+    }
+    // The idle window still runs out on a session whose job claims an end far in the future.
+    ownBy(repo.dir, w1, d.sessionState(w1).sessionId);
+    agentStart(repo.dir, w1, 'builder');
+    agentEnd(repo.dir, w1, 'builder');
+    updateJob(repo.dir, w1, (j) => {
+      j.agents.builder.endedAt = future;
+    });
+    kit.last(w1).line({ type: 'result' });
+    await logged(repo.dir, w1, 'idle-stop');
+    assert.equal(eventsIn(logOf(repo.dir, w1), 'idle-stop')[0].reason, 'idle');
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('marking agents lost stops when another session has claimed the job', () => {
+  const repo = tempRepo();
+  try {
+    const id = createJob(repo.dir, defaults(), { title: 'Job' }).id;
+    const mine = crypto.randomUUID();
+    ownBy(repo.dir, id, crypto.randomUUID());
+    agentStart(repo.dir, id, 'builder');
+    assert.deepEqual(markAgentsLost(repo.dir, id, ['builder'], LOST_SUMMARY, defaults(), mine), []);
+    assert.equal(loadJob(repo.dir, id).agents.builder.status, 'running');
+    ownBy(repo.dir, id, mine);
+    assert.deepEqual(markAgentsLost(repo.dir, id, ['builder'], LOST_SUMMARY, defaults(), mine), ['builder']);
+    assert.equal(loadJob(repo.dir, id).agents.builder.status, 'lost');
+  } finally {
     repo.cleanup();
   }
 });

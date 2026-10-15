@@ -40,6 +40,8 @@ test('a session kept by running agents says so, after busy and before failing', 
   const kept = { running: true, status: 'idle', kept: 'agents' };
   assert.deepEqual(pill(kept), ['agents running', 'live']);
   assert.deepEqual(pill({ ...kept, kept: null }), ['idle', 'ok']);
+  assert.match(sessionPill(session(kept)).title, /kept: its job has agents running/, 'the title says why an idle session holds its slot');
+  assert.doesNotMatch(sessionPill(session({ ...kept, kept: null })).title, /kept:/);
   assert.deepEqual(pill({ ...kept, status: 'busy' }), ['busy', 'live']);
   assert.deepEqual(pill({ ...kept, status: 'stopping' }), ['stopping', 'warn']);
   assert.deepEqual(pill({ ...kept, waiting: true }), ['waiting for slot', 'warn']);
