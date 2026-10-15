@@ -1,4 +1,4 @@
-<!-- A job's reasoning effort, beside the Permissions select in its Thread. Inherit clears the job's own level. It works with
+<!-- A job's reasoning effort, beside the Permissions select in its Log tab. Inherit clears the job's own level. It works with
      the daemon off too, because an interactive orchestrator reads the level from `forge job step`. A running session keeps
      the level it started with until its next spawn, which the note says. -->
 <script lang="ts">
@@ -40,7 +40,7 @@
   <label class="flex items-center gap-1.5 text-xs text-muted" title={$t('effort.hint')}>
     {$t('effort.label')}
     <!-- Named outright: a label wrapping a select can otherwise lend it the chosen option's text. -->
-    <select class="py-1 text-xs" aria-label={$t('effort.label')} value={picked ?? row.effort ?? ''} disabled={pending} onchange={(e) => choose(e.currentTarget.value)}>
+    <select class="input sm" aria-label={$t('effort.label')} value={picked ?? row.effort ?? ''} disabled={pending} onchange={(e) => choose(e.currentTarget.value)}>
       <option value="">{$t('effort.inherit', { level: fallback ? name[fallback] : $t('effort.claude') })}</option>
       {#each EFFORTS as e (e)}<option value={e}>{name[e]}</option>{/each}
     </select>
