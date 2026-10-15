@@ -7,18 +7,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { builtCss } from './built-css.ts';
 import { TONE_CLASS } from '../dashboard/src/lib/util.ts';
 import { THEMES } from '../dashboard/src/lib/theme.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DIST = path.join(ROOT, 'dashboard', 'dist');
-
-function builtCss(): string {
-  const manifest = JSON.parse(fs.readFileSync(path.join(DIST, 'manifest.json'), 'utf8'));
-  const files = new Set<string>();
-  for (const e of Object.values<any>(manifest)) for (const f of [e.file, ...(e.css ?? [])]) if (String(f).endsWith('.css')) files.add(f);
-  return [...files].map((f) => fs.readFileSync(path.join(DIST, f), 'utf8')).join('\n');
-}
 
 const normSelector = (s: string) => s.replace(/["'\s]/g, '');
 

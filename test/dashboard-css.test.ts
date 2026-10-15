@@ -5,17 +5,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { builtCss } from './built-css.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DASHBOARD = path.join(ROOT, 'dashboard');
-const DIST = path.join(DASHBOARD, 'dist');
-
-function builtCss(): string {
-  const manifest = JSON.parse(fs.readFileSync(path.join(DIST, 'manifest.json'), 'utf8'));
-  const files = new Set<string>();
-  for (const e of Object.values<any>(manifest)) for (const f of [e.file, ...(e.css ?? [])]) if (String(f).endsWith('.css')) files.add(f);
-  return [...files].map((f) => fs.readFileSync(path.join(DIST, f), 'utf8')).join('\n');
-}
 
 const UTILITIES = (
   'ground falloff plain chrome sketch sheet ticks redline dashed solid clickable h label callout mono num muted dimmed caption ' +

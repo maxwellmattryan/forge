@@ -234,7 +234,7 @@ test('dependabot.yml updates dev dependencies and actions weekly, grouped', () =
     schedule: { interval: 'weekly' },
     allow: [{ 'dependency-type': 'development' }],
     cooldown: { 'default-days': 7 },
-    ignore: [{ 'dependency-name': '@types/node', 'update-types': ['version-update:semver-major'] }],
+    ignore: [{ 'dependency-name': '@types/node', 'update-types': ['version-update:semver-major', 'version-update:semver-minor'] }],
     groups: { 'dev-toolchain': { 'dependency-type': 'development', patterns: ['*'], 'update-types': ['minor', 'patch'] } },
   });
   assert.deepEqual(actions, {

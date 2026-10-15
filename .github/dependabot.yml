@@ -5,7 +5,8 @@
 # runtime dependency is closed.
 #
 # Minor and patch bumps arrive grouped, one PR a week; majors arrive as separate PRs. @types/node
-# majors are ignored, because @types/node must track the Node floor (22.18), not the newest Node.
+# majors and minors are ignored, because @types/node must track the Node floor (22.18), not the
+# newest Node: 22.20 types would type-check APIs that 22.18 does not have.
 #
 # Before merging an npm bump, a maintainer commits on the Dependabot branch:
 # - always, a rebuilt dashboard/dist/ from `npm run build:dashboard`, because the dist build
@@ -27,7 +28,7 @@ updates:
       default-days: 7
     ignore:
       - dependency-name: "@types/node"
-        update-types: ["version-update:semver-major"]
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     groups:
       dev-toolchain:
         dependency-type: development
