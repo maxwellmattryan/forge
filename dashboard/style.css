@@ -202,7 +202,7 @@
 }
 
 /* The hover sketch's strength: registered so it transitions (a plain custom property would snap), and not
-   inherited, so a hovered card's chips and buttons keep their own sketch at 0%. */
+   inherited, so a chip or button inside a hovered control keeps its own sketch at 0%. */
 @property --sketch { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
 
 /* ---------- fonts: vendored Latin subsets (dashboard/fonts/README.md), never linked ---------- */
@@ -288,21 +288,17 @@
 }
 
 /* ---------- sheet: an outlined panel; ticks adds corner register marks ---------- */
-/* background-color, not the shorthand, so `sheet clickable` keeps its sketch. A hovered card keeps its panel:
-   `.clickable:hover` alone would wash it with the translucent raised. */
+/* background-color, not the shorthand, so a class composed with a sheet keeps its own background-image. A hovered
+   card strengthens its outline at once, with no sketch and no transition, and keeps its panel: `.clickable:hover`
+   alone would wash it with the translucent raised. */
 @utility sheet {
   border: 1px solid var(--line);
   background-color: var(--panel);
   --surface: var(--panel);
   position: relative;
-  &.clickable {
-    cursor: pointer;
-    background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch));
-    background-position: calc(-1 * var(--hatch-pitch)) 0;
-    transition: --sketch .16s ease-out, background-position .16s ease-out, border-color .12s ease;
-  }
-  @media (hover: hover) { &.clickable:hover { border-color: var(--line-strong); background-color: var(--panel); --sketch: 100%; background-position: 0 0; } }
-  &.hover { border-color: var(--line-strong); background-color: var(--panel); --sketch: 100%; background-position: 0 0; }
+  &.clickable { cursor: pointer; }
+  @media (hover: hover) { &.clickable:hover { border-color: var(--line-strong); background-color: var(--panel); } }
+  &.hover { border-color: var(--line-strong); background-color: var(--panel); }
   &.clickable:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 3px; }
   &.redline { border-color: var(--redline); outline: 1px dashed var(--redline); outline-offset: 3px; }
   /* A board column: a container drawn on the ground, so what sits in it fills with bg. */
@@ -325,7 +321,6 @@
 @utility chrome { background-color: var(--chrome); --surface: var(--chrome); }
 @utility clickable {
   cursor: pointer;
-  transition: background-color .12s ease, border-color .12s ease;
   &:hover { border-color: var(--line-strong); background-color: var(--raised); }
   &:focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 3px; }
 }
