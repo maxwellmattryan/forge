@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
-import { claimJob, createJob, loadJob, roundVerdicts, setJob, recordAgent, progress, parseDecision, touchJob, jobDir } from '../lib/jobs.ts';
+import { claimJob, createJob, loadJob, readEvents, roundVerdicts, setJob, recordAgent, progress, parseDecision, touchJob, jobDir } from '../lib/jobs.ts';
 import { computeStats } from '../lib/stats.ts';
 import { JOB_SCHEMA_VERSION } from '../lib/schema.ts';
 import { sleepSync } from '../lib/util.ts';
@@ -135,6 +135,55 @@ test('reads a schema v1 job and migrates its verify results', () => {
       'old per-round results become attempt 1 with no sha',
     );
     assert.equal(loaded.verify[1], 'FAIL', 'the compatible field survives');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('setJob derive decides from the locked job', () => {
+  const repo = tempRepo();
+  try {
+    const root = repo.dir;
+    const job = createJob(root, defaults(), { title: 'Derived' });
+    const file = path.join(jobDir(root, job.id), 'job.json');
+    setJob(root, job.id, { stage: 'pr', state: 'waiting', waitingOn: 'pr-review' });
+    // The caller loaded `stale` before a session claimed the job: derive must see the claim.
+    const stale = loadJob(root, job.id);
+    claimJob(root, job.id, 'session-1');
+    assert.equal(stale.owner, null);
+    const seen: (string | null)[] = [];
+    const out = setJob(root, job.id, {
+      fields: { 'pr.number': 7 },
+      reason: 'static',
+      derive: (j) => {
+        seen.push(j.owner?.session ?? null);
+        return j.owner ? { state: 'waiting', waitingOn: 'conflicts', reason: 'derived', fields: { 'pr.number': 8 }, note: 'derived note' } : { stage: 'integrate', state: 'running' };
+      },
+    });
+    assert.deepEqual(seen, ['session-1'], 'called once, with the job as stored at write time');
+    assert.equal(out.stage, 'pr');
+    assert.equal(out.waitingOn, 'conflicts');
+    assert.equal(out.reason, 'derived', 'the derived value wins over the static one');
+    assert.equal(out.pr?.number, 8);
+    assert.equal(out.owner?.session, 'session-1', 'the owner is untouched');
+    const stored = loadJob(root, job.id);
+    assert.deepEqual([stored.waitingOn, stored.reason, stored.pr?.number], ['conflicts', 'derived', 8], 'applied in the same write');
+    const evs = readEvents(root, job.id);
+    const tr = evs.filter((e) => e.type === 'transition').at(-1)!;
+    assert.deepEqual([tr.to.waitingOn, tr.reason], ['conflicts', 'derived'], 'the transition event reads the effective change');
+    assert.deepEqual(evs.filter((e) => e.type === 'fields').at(-1)!.fields, { 'pr.number': 8 });
+    assert.equal(evs.filter((e) => e.type === 'note').at(-1)!.text, 'derived note');
+
+    for (const bad of [{ stage: 'nope' }, { state: 'nope' }, { waitingOn: 'nope' }, { state: 'waiting', waitingOn: null }]) {
+      const bytes = fs.readFileSync(file);
+      const count = readEvents(root, job.id).length;
+      assert.throws(() => setJob(root, job.id, { fields: { 'pr.number': 9 }, derive: () => bad }), /unknown|needs --waiting-on/, JSON.stringify(bad));
+      assert.ok(fs.readFileSync(file).equals(bytes), `${JSON.stringify(bad)}: job.json is byte-identical`);
+      assert.equal(readEvents(root, job.id).length, count, `${JSON.stringify(bad)}: no event`);
+    }
+
+    const plain = setJob(root, job.id, { reason: 'static only', fields: { 'pr.number': 10 }, derive: () => null });
+    assert.deepEqual([plain.stage, plain.state, plain.waitingOn, plain.reason, plain.pr?.number], ['pr', 'waiting', 'conflicts', 'static only', 10], 'a null result applies the static change');
   } finally {
     repo.cleanup();
   }

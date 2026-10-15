@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { paths, exists } from './paths.ts';
 import { STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, normalizeJob, serializeJob } from './schema.ts';
-import type { AgentUsage, Config, Job, JobAgent, JobOwner, JobEvent, JobState, LoadedJob, OwnerStatus, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
+import type { AgentUsage, Config, Job, JobAgent, JobChange, JobOwner, JobEvent, JobState, LoadedJob, OwnerStatus, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
 import { estimateCost } from './usage.ts';
 import { ForgeError, assertSafeRef, now, readJson, readText, setPath, slugify, shortId, withLock, writeJsonAtomic } from './util.ts';
 
@@ -173,32 +173,51 @@ export function isActive(job: Job): boolean {
   return !['done', 'cancelled'].includes(job.state);
 }
 
-export function setJob(
-  root: string,
-  id: string,
-  change: { stage?: string; state?: string; waitingOn?: string | null; reason?: string | null; fields?: Record<string, any>; note?: string; release?: boolean },
-): LoadedJob {
+function checkChange(change: JobChange): void {
   if (change.stage && !STAGES.includes(change.stage as any))
     throw new ForgeError(`unknown stage "${change.stage}" (${STAGES.join(', ')})`);
   if (change.state && !STATES.includes(change.state as any))
     throw new ForgeError(`unknown state "${change.state}" (${STATES.join(', ')})`);
   if (change.waitingOn && !WAITING_ON.includes(change.waitingOn as any))
     throw new ForgeError(`unknown waiting-on "${change.waitingOn}" (${WAITING_ON.join(', ')})`);
+}
+
+/**
+ * `derive` decides part of the change from the job as stored at write time, inside the lock, so a
+ * claim or edit that lands between a caller's load and its write is what the decision sees. Its
+ * result is merged over the static change; null applies the static change alone.
+ */
+export function setJob(
+  root: string,
+  id: string,
+  change: JobChange & { release?: boolean; derive?: (j: LoadedJob) => JobChange | null },
+): LoadedJob {
+  checkChange(change);
+  const { derive, release, ...base } = change;
   let before: TransitionSide | null = null;
   let released = false;
+  // The change actually applied: the static one, or derive's result merged over it.
+  let c: JobChange = base;
   const job = updateJob(root, id, (j) => {
     before = { stage: j.stage, state: j.state, waitingOn: j.waitingOn };
-    // stage, state and waitingOn were checked against their lists above.
-    if (change.stage) j.stage = change.stage as Stage;
-    if (change.state) j.state = change.state as JobState;
-    if (change.state && change.state !== 'waiting' && change.waitingOn === undefined) j.waitingOn = null;
-    if (change.waitingOn !== undefined) j.waitingOn = change.waitingOn as WaitingOn | null;
-    if (change.reason !== undefined) j.reason = change.reason;
+    const derived = derive?.(j);
+    if (derived) {
+      const merged = { ...base, ...derived };
+      // Before any mutation, so an invalid derived value leaves job.json untouched.
+      checkChange(merged);
+      c = merged;
+    }
+    // stage, state and waitingOn were checked against their lists.
+    if (c.stage) j.stage = c.stage as Stage;
+    if (c.state) j.state = c.state as JobState;
+    if (c.state && c.state !== 'waiting' && c.waitingOn === undefined) j.waitingOn = null;
+    if (c.waitingOn !== undefined) j.waitingOn = c.waitingOn as WaitingOn | null;
+    if (c.reason !== undefined) j.reason = c.reason;
     if (j.state === 'waiting' && !j.waitingOn) throw new ForgeError('state "waiting" needs --waiting-on');
-    for (const [k, v] of Object.entries(change.fields ?? {})) setPath(j, k, v);
+    for (const [k, v] of Object.entries(c.fields ?? {})) setPath(j, k, v);
     if (['done', 'cancelled'].includes(j.state) && !j.finishedAt) j.finishedAt = now();
     // In the same locked write, so no session can claim between the change and the release.
-    if (change.release && j.owner) {
+    if (release && j.owner) {
       const run = j.runs[j.runs.length - 1];
       if (run && !run.endedAt) run.endedAt = now();
       j.owner = null;
@@ -207,9 +226,9 @@ export function setJob(
   });
   const b = before as any;
   if (b.stage !== job.stage || b.state !== job.state || b.waitingOn !== job.waitingOn)
-    logEvent(root, id, 'transition', { from: b, to: { stage: job.stage, state: job.state, waitingOn: job.waitingOn }, reason: change.reason ?? undefined });
-  if (change.fields && Object.keys(change.fields).length) logEvent(root, id, 'fields', { fields: change.fields });
-  if (change.note) logEvent(root, id, 'note', { text: change.note });
+    logEvent(root, id, 'transition', { from: b, to: { stage: job.stage, state: job.state, waitingOn: job.waitingOn }, reason: c.reason ?? undefined });
+  if (c.fields && Object.keys(c.fields).length) logEvent(root, id, 'fields', { fields: c.fields });
+  if (c.note) logEvent(root, id, 'note', { text: c.note });
   if (released) logEvent(root, id, 'released');
   return job;
 }
