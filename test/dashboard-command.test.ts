@@ -145,7 +145,7 @@ test('scopeVerbs per state and gate', () => {
   assert.deepEqual(gate('spec-approval'), ['approve', 'revise', 'cancel']);
   for (const g of ['split-approval', 'issue-link', 'infra', 'external', 'budget']) assert.deepEqual(gate(g), ['approve', 'cancel'], g);
   assert.deepEqual(gate('input'), ['approve', 'answer', 'cancel']);
-  for (const g of ['escalation', 'rounds-exhausted', 'conflicts']) assert.deepEqual(gate(g), ['approve', 'rework', 'cancel'], g);
+  for (const g of ['escalation', 'rounds-exhausted', 'conflicts', 'human']) assert.deepEqual(gate(g), ['approve', 'rework', 'cancel'], g);
   assert.deepEqual(gate('pr-review'), ['cancel'], 'a PR review waits on the PR, not a gate');
   assert.deepEqual(scopeVerbs(job('x', 'failed', owner('none'))), ['continue', 'cancel']);
   assert.deepEqual(scopeVerbs(job('x', 'failed')), ['continue', 'cancel'], 'no ownerStatus at all');

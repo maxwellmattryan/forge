@@ -95,7 +95,7 @@ The `forge` CLI underneath is also for scripts, CI and other agent runtimes: `fo
 | `forge job advance <id> --session S [--max N]` | runs step's `run` actions in-process (at most N, default 20) and returns the next `spawn`, `wait`, `procedure` or `done` with `ran`, one line per command it ran; refuses (exit 3) a job session S does not hold, and stops at the first failed command (exit 1) |
 | `forge secrets scan [<id> \| --paths <globs>]` | report likely credentials, masked with their fingerprints: a job's commits, commit messages, net diff, staged changes and PR title and body, or the main checkout's tracked files matching the globs; prints text (--json for the full result) |
 | `forge git add <id> -- <path>...` | stage paths in the job's worktree, from any cwd; refuses git options and paths outside the worktree |
-| `forge git commit <id> (--message T \| --message-file F) [-- <path>...]` | commit in the job's worktree, on its branch, from any cwd (how agents commit, in a daemon session too); refuses git options, paths outside the worktree and AI attribution |
+| `forge git commit <id> (--message T \| --message-file F) [-- <path>...]` | commit in the job's worktree, on its branch, from any cwd (how agents commit, in a daemon session too); refuses git options, paths outside the worktree, AI attribution and a likely secret (in the message always; in the staged changes under verifySecrets: block) |
 | `forge tracker search <query> [--limit N] [--job <id>]` | search the tracker (see [Linking jobs to issues](docs/TRACKERS.md#linking-jobs-to-issues)) |
 | `forge daemon status` | the daemon's sessions, from the terminal |
 | `forge daemon log <job>\|--inbox [--lines N] [--follow]` | a session's log, from the terminal |

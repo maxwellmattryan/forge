@@ -66,7 +66,7 @@ async function scratch(extra: Record<string, unknown> = {}) {
     const parts = [...outputs];
     for (const rel of fs.readdirSync(dir, { recursive: true }).map(String)) {
       const p = path.join(dir, rel);
-      if (fs.statSync(p).isFile() && !/^(build|pr|tasks)\.md$/.test(rel)) parts.push(fs.readFileSync(p, 'utf8'));
+      if (fs.statSync(p).isFile() && !/^(build|pr|tasks|notes)\.md$/.test(rel)) parts.push(fs.readFileSync(p, 'utf8'));
     }
     return parts.join('\n');
   };
@@ -313,6 +313,156 @@ describe('secret gates', { concurrency: 4 }, () => {
       assert.equal(r.out.secrets.ok, true);
       assert.match(r.out.secrets.error, /not found/);
       assert.match(r.out.steps.find((x: any) => x.name === 'secrets').reason, /^scan incomplete \(verifySecrets: warn\): base no-such-branch not found/);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('forge git commit refuses a secret in the message or staged changes', async () => {
+    const s = await scratch();
+    try {
+      const j = await s.job({});
+      const head = () => execFileSync('git', ['rev-parse', 'HEAD'], { cwd: j.wt, encoding: 'utf8' }).trim();
+      const staged = () => execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: j.wt, encoding: 'utf8' }).trim();
+      const start = head();
+      write(j.wt, 'notes.txt', 'fine\n');
+      const pat = token.github('commit-msg');
+      let r = await s.raw(['git', 'commit', j.id, '--message', `add notes with ${pat}`, '--json']);
+      assert.equal(r.status, 1);
+      assert.equal(JSON.parse(r.stdout).error.code, 'secret_found');
+      assert.equal(head(), start, 'nothing committed');
+      assert.equal(staged(), '', 'the message is refused before anything is staged');
+
+      const key = token.aws('commit');
+      write(j.wt, 'cfg/app.cfg', `key = ${key}\n`);
+      r = await s.raw(['git', 'commit', j.id, '--message', 'add config']);
+      assert.equal(r.status, 1);
+      assert.match(r.stderr, /possible secret in the staged changes: aws-access-key at cfg\/app\.cfg:1 \(AKIA…/);
+      assert.equal(head(), start, 'HEAD unchanged');
+      assert.match(staged(), /cfg\/app\.cfg/, 'the index stays staged');
+      let ev = s.events(j.dir).filter((e) => e.type === 'secret-found' && e.gate === 'commit');
+      assert.deepEqual(ev.map((e) => [e.blocked, e.count, e.findings[0].path]), [[true, 1, '(commit message)'], [true, 1, 'cfg/app.cfg']]);
+
+      await s.configure({ verifySecrets: 'warn' });
+      r = await s.raw(['git', 'commit', j.id, '--message', 'add config']);
+      assert.equal(r.status, 0, r.stderr);
+      const out = JSON.parse(r.stdout);
+      assert.equal(out.secrets, 1);
+      assert.notEqual(head(), start);
+      ev = s.events(j.dir).filter((e) => e.type === 'secret-found' && e.gate === 'commit');
+      assert.equal(ev.at(-1).blocked, false);
+      // The message is text Forge publishes: refused under warn too.
+      write(j.wt, 'more.txt', 'x\n');
+      r = await s.raw(['git', 'commit', j.id, '--message', `note ${pat}`]);
+      assert.equal(r.status, 1);
+      const all = s.trail(j.dir);
+      assert.ok(!all.includes(key) && !all.includes(pat));
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('forge pr open refuses before gh and push', async () => {
+    const s = await scratch();
+    const bin = path.join(s.repo.dir, '..', `fakebin-${path.basename(s.repo.dir)}`);
+    const bare = path.join(s.repo.dir, '..', `remote-${path.basename(s.repo.dir)}.git`);
+    try {
+      fs.mkdirSync(bin);
+      const ghLog = path.join(bin, 'gh.log');
+      fs.writeFileSync(ghLog, '');
+      fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\necho "$*" >> "${ghLog}"\nexit 1\n`, { mode: 0o755 });
+      execFileSync('git', ['init', '-q', '--bare', bare]);
+      execFileSync('git', ['remote', 'add', 'origin', bare], { cwd: s.repo.dir });
+      execFileSync('git', ['push', '-q', 'origin', 'main'], { cwd: s.repo.dir });
+      const env = { PATH: `${bin}:${process.env.PATH}` };
+      const remoteBranches = () => execFileSync('git', ['ls-remote', '--heads', bare], { encoding: 'utf8' });
+
+      const j = await s.job({ 'src/a.ts': 'export const a = 1;\n' });
+      assert.equal((await s.verify(j.id)).status, 0);
+      const pat = token.github('pr-body');
+      write(j.dir, 'pr.md', `## Summary\n\nTested with ${pat}.\n`);
+      let r = await s.raw(['pr', 'open', j.id, '--json'], env);
+      assert.equal(r.status, 1, r.stderr);
+      const err = JSON.parse(r.stdout).error;
+      assert.equal(err.code, 'secret_found');
+      assert.match(err.message, /^possible secret in the PR title or body: github-token at \(pr body\) line 3 \(ghp_…/);
+      assert.equal(fs.readFileSync(ghLog, 'utf8'), '', 'gh was never called');
+      assert.ok(!remoteBranches().includes('forge/'), 'nothing was pushed');
+      let ev = s.events(j.dir).filter((e) => e.type === 'secret-found' && e.gate === 'pr');
+      assert.deepEqual(ev.map((e) => e.blocked), [true]);
+
+      // --force on an unverified HEAD whose commit adds a key: refused the same way, before the push.
+      fs.rmSync(path.join(j.dir, 'pr.md'));
+      const key = token.anthropic('force');
+      write(j.wt, 'src/b.ts', `export const k = '${key}';\n`);
+      commitAll(j.wt, 'add b');
+      r = await s.raw(['pr', 'open', j.id, '--force', '--json'], env);
+      assert.equal(r.status, 1, r.stderr);
+      assert.equal(JSON.parse(r.stdout).error.code, 'secret_found');
+      assert.equal(fs.readFileSync(ghLog, 'utf8'), '');
+      assert.ok(!remoteBranches().includes('forge/'));
+      ev = s.events(j.dir).filter((e) => e.type === 'secret-found' && e.gate === 'pr');
+      assert.deepEqual(ev.map((e) => [e.blocked, e.findings[0].kind]), [[true, 'github-token'], [true, 'anthropic-key']]);
+      const all = s.trail(j.dir);
+      assert.ok(!all.includes(key) && !all.includes(pat));
+    } finally {
+      s.cleanup();
+      fs.rmSync(bin, { recursive: true, force: true });
+      fs.rmSync(bare, { recursive: true, force: true });
+    }
+  });
+
+  test('forge job agent end notes secrets in agent output', async () => {
+    const s = await scratch();
+    try {
+      const j = await s.job({});
+      const pat = token.slack('agent');
+      const end = async () => JSON.parse((await s.raw(['job', 'agent', j.id, 'end', '--role', 'builder'])).stdout);
+      const found = () => s.events(j.dir).filter((e) => e.type === 'secret-found');
+      await s.f('job', 'agent', j.id, 'start', '--role', 'builder');
+      write(j.dir, 'build.md', `## Round 1\n\nUsed ${pat} to test.\n`);
+      let out = await end();
+      assert.equal(out.secrets, 1);
+      const [ev] = found();
+      assert.equal(ev.gate, 'agent-end');
+      assert.equal(ev.role, 'builder');
+      assert.equal(ev.blocked, false);
+      assert.deepEqual(ev.findings.map((f: any) => [f.kind, f.path, f.line]), [['slack-token', 'build.md', 3]]);
+
+      // Older than the start, outside the role's list, a symlink out of the job dir, or clean: nothing.
+      const outside = path.join(s.repo.dir, '..', `outside-${path.basename(s.repo.dir)}.md`);
+      const cases: [string, () => void][] = [
+        ['older than the start', () => {
+          const old = new Date(Date.now() - 3_600_000);
+          fs.utimesSync(path.join(j.dir, 'build.md'), old, old);
+        }],
+        ['outside the list', () => {
+          write(j.dir, 'build.md', 'clean\n');
+          write(j.dir, 'notes.md', `token ${pat}\n`);
+        }],
+        ['a symlink out of the job dir', () => {
+          fs.rmSync(path.join(j.dir, 'build.md'));
+          fs.writeFileSync(outside, `token ${pat}\n`);
+          fs.symlinkSync(outside, path.join(j.dir, 'build.md'));
+        }],
+        ['clean', () => {
+          fs.rmSync(path.join(j.dir, 'build.md'));
+          write(j.dir, 'build.md', 'all clean\n');
+        }],
+      ];
+      try {
+        for (const [what, arrange] of cases) {
+          await s.f('job', 'agent', j.id, 'start', '--role', 'builder');
+          await new Promise((r) => setTimeout(r, 5));
+          arrange();
+          out = await end();
+          assert.equal(out.secrets, undefined, what);
+          assert.equal(found().length, 1, what);
+        }
+      } finally {
+        fs.rmSync(outside, { force: true });
+      }
+      assert.ok(!s.trail(j.dir).includes(pat));
     } finally {
       s.cleanup();
     }

@@ -113,9 +113,9 @@ export const CORE: HelpGroup[] = [
         flags: [
           ['--title T', 'the PR title (default: the job title)'],
           ['--draft', 'open it as a draft'],
-          ['--force', 'publish a HEAD that forge verify has not passed'],
+          ['--force', 'publish a HEAD that forge verify has not passed (its commits are still scanned for secrets)'],
         ],
-        exits: [[1, 'no such job or worktree, an unverified HEAD, or nothing to push'], GH_FAILED],
+        exits: [[1, 'no such job or worktree, an unverified HEAD, nothing to push, or a likely secret in the PR title or body or, with --force, the commits (code secret_found)'], GH_FAILED],
       },
       { command: 'pr sync', args: '<id>', summary: "read the PR's state, checks and review feedback into the job", exits: [NO_JOB, GH_FAILED] },
       {

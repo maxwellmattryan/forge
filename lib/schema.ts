@@ -5,13 +5,13 @@
 import type { Job, LoadedJob } from './types.ts';
 
 export const CONFIG_SCHEMA_VERSION = 3;
-export const JOB_SCHEMA_VERSION = 7;
+export const JOB_SCHEMA_VERSION = 8;
 export const EVENT_SCHEMA_VERSION = 1;
 /**
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 15;
+export const API_VERSION = 16;
 
 export const STAGES = [
   'backlog',
@@ -41,6 +41,8 @@ export const WAITING_ON = [
   'pr-review',
   'external',
   'budget',
+  // A CLI check stopped the job and only a human can clear it; the reason names the check.
+  'human',
 ] as const;
 
 /** Budget keys in the fixed order reasons and reports list them. */
@@ -102,6 +104,10 @@ const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
   // v7 adds the human's per-job reasoning effort. null inherits runtime.effort, which is what every
   // v6 job ran at, so the upgrade changes no job's effort.
   6: (j) => ({ ...j, effort: j.effort ?? null }),
+  // v8 adds `waitingOn: human` (a CLI check, such as the secret scan, stopped the job). No v7 job
+  // waits on it, so nothing changes; the bump makes an older Forge refuse a job parked on a gate it
+  // can't explain.
+  7: (j) => j,
 };
 
 function failedVerifiesByRound(runs: any[]): Record<string, number> {
