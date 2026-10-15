@@ -65,8 +65,8 @@
     </div>
   {/if}
   <div class="flex flex-wrap gap-2">
-    <button class="btn min-h-11 md:min-h-0" disabled={session.doctorRunning} onclick={again}>{$t('settings.diagnostics.again')}</button>
-    <button class="btn min-h-11 md:min-h-0" disabled={!d || session.doctorRunning} onclick={copy}>{$t('settings.diagnostics.copy')}</button>
+    <button class="btn" disabled={session.doctorRunning} onclick={again}>{$t('settings.diagnostics.again')}</button>
+    <button class="btn" disabled={!d || session.doctorRunning} onclick={copy}>{$t('settings.diagnostics.copy')}</button>
   </div>
   {#if fallback !== null}
     <label class="label flex flex-col gap-1">{$t('settings.diagnostics.report')}<textarea bind:this={box} readonly rows="8" class="input w-full normal-case tracking-normal" value={fallback}></textarea></label>

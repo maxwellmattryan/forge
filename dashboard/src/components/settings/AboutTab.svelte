@@ -40,8 +40,8 @@
       </dl>
     </div>
     <div class="flex flex-wrap gap-2">
-      {#if repo}<a class="btn min-h-11 md:min-h-0" href={repo} target="_blank" rel="noopener noreferrer">{$t('settings.about.repo')}</a>{/if}
-      {#if docs}<a class="btn min-h-11 md:min-h-0" href={docs} target="_blank" rel="noopener noreferrer">{$t('settings.about.docs')}</a>{/if}
+      {#if repo}<a class="btn" href={repo} target="_blank" rel="noopener noreferrer">{$t('settings.about.repo')}</a>{/if}
+      {#if docs}<a class="btn" href={docs} target="_blank" rel="noopener noreferrer">{$t('settings.about.docs')}</a>{/if}
     </div>
   {/if}
 </div>

@@ -2,6 +2,7 @@
      A centred sheet at md and up, a full-width sheet at the top below. lib/command.ts holds the grammar and mapping. -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import CloseButton from './CloseButton.svelte';
   import Icon from './Icon.svelte';
   import StateChip from './StateChip.svelte';
   import { S, createJob, loadBacklog, openDrawer, postRequest, refresh } from '../lib/app.svelte.ts';
@@ -198,8 +199,8 @@
       <Icon name="command" class="shrink-0 text-muted" />
       {#if scoped}
         <!-- The chip is the combobox's description; removing the scope is its own labelled button, so the description reads the job. -->
-        <span id="command-scope" class="chip ink min-w-0 max-w-[40%]" title={scoped.id}><span class="truncate">{$t('command.scope', { job: scoped.id })}</span></span>
-        <button class="btn icon sm shrink-0" aria-label={$t('command.clearScope')} onclick={removeScope}><Icon name="close" /></button>
+        <span id="command-scope" class="chip ink sm min-w-0 max-w-[40%]" title={scoped.id}><span class="truncate">{$t('command.scope', { job: scoped.id })}</span></span>
+        <CloseButton size="sm" label={$t('command.clearScope')} onclick={removeScope} />
       {/if}
       <input
         bind:this={input}
@@ -220,7 +221,7 @@
         onkeydown={inputKey}
         oninput={() => (error = null)}
       />
-      <button class="btn icon touch shrink-0 md:hidden" aria-label={$t('command.close')} onclick={onclose}><Icon name="close" /></button>
+      <CloseButton class="md:hidden" label={$t('command.close')} onclick={onclose} />
     </div>
     <!-- svelte-ignore a11y_click_events_have_key_events (options are chosen from the keyboard through the combobox: arrows, Tab and Enter) -->
     <ul id="command-list" role="listbox" aria-label={$t('command.suggestions')} class="flex-1 min-h-0 overflow-y-auto p-1.5 {options.length ? '' : 'hidden'}">

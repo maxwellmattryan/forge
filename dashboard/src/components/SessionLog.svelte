@@ -200,13 +200,13 @@
 
 <div class="flex flex-col gap-2">
   <div class="flex flex-wrap items-center gap-2">
-    <span role="status" class="chip {TONE_CLASS[pill.tone]}" title={pill.title}>{pill.label}</span>
+    <span role="status" class="chip sm {TONE_CLASS[pill.tone]}" title={pill.title}>{pill.label}</span>
     <span class="text-xs text-muted">{$t('session.turns', { count: view.totals.turns })}</span>
     {#if view.totals.results}<span class="text-xs text-muted" title={$t('session.costTitle')}>{$t('session.cost', { cost: usd(view.totals.costUsd) })}</span>{/if}
     <span class="flex-1"></span>
     <label class="flex items-center gap-1.5 text-xs text-muted" title={modeHint[picked ?? mode.chosen] ?? ''}>
       {$t('session.modeLabel')}
-      <select class="py-1 text-xs" value={picked ?? mode.chosen} disabled={pending || S.data?.daemons?.enabled !== true} onchange={(e) => setMode(e.currentTarget.value)}>
+      <select class="input sm" value={picked ?? mode.chosen} disabled={pending || S.data?.daemons?.enabled !== true} onchange={(e) => setMode(e.currentTarget.value)}>
         {#each PERMISSION_MODES as m (m)}<option value={m}>{modeName[m]}</option>{/each}
         {#if !PERMISSION_MODES.some((m) => m === mode.chosen)}<option value={mode.chosen} disabled>{mode.chosen}</option>{/if}
       </select>
@@ -223,7 +223,7 @@
   {#if mode.live !== null}<div role="status" class="text-xs text-muted">{$t('session.modeSwitching', { mode: modeName[mode.live] ?? mode.live })}</div>{/if}
   {#if mode.chosen === 'auto'}<div class="text-xs text-warn">{$t('session.modes.autoWarning')}</div>{/if}
   <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
-    <input class="input min-w-0 flex-1 basis-40" type="search" placeholder={$t('session.filter')} aria-label={$t('session.filter')} bind:value={filters.text} />
+    <input class="input sm min-w-0 flex-1 basis-40" type="search" placeholder={$t('session.filter')} aria-label={$t('session.filter')} bind:value={filters.text} />
     <label class="field"><input type="checkbox" class="check" bind:checked={filters.tools} />{$t('session.tools')}</label>
     <label class="field"><input type="checkbox" class="check" bind:checked={filters.thinking} />{$t('session.thinking')}</label>
     <label class="field"><input type="checkbox" class="check" bind:checked={filters.subagents} />{$t('session.subagents')}</label>

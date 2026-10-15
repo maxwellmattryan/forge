@@ -40,7 +40,7 @@
             <td><button class="h card text-left hover:text-ink" onclick={() => openDrawer(j.id)}>{j.title}</button></td>
             <td><PrChip pr={j.pr} /></td>
             <td class="text-muted">{j.pr?.unresolvedThreads ? $t('inbox.threads', { count: j.pr.unresolvedThreads }) : $t('inbox.noThreads')}{j.pr?.behindBy ? $t('inbox.behind', { count: j.pr.behindBy }) : ''}</td>
-            <td class="r whitespace-nowrap">{#if u}<a class="btn" href={u} target="_blank" rel="noopener">{$t('inbox.openPr')}</a>{/if} <button class="btn" onclick={() => req({ type: 'rework', job: j.id, fixedText: 'Address the PR feedback' })}>{$t('inbox.addressFeedback')}</button></td>
+            <td class="r whitespace-nowrap"><div class="flex justify-end gap-2">{#if u}<a class="btn" href={u} target="_blank" rel="noopener">{$t('inbox.openPr')}</a>{/if}<button class="btn" onclick={() => req({ type: 'rework', job: j.id, fixedText: 'Address the PR feedback' })}>{$t('inbox.addressFeedback')}</button></div></td>
           </tr>
         {/each}
       </tbody>

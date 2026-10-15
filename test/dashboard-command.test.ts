@@ -268,7 +268,8 @@ test('command bar markup is an ARIA combobox', () => {
   assert.ok(with_('role', '"alert"').length >= 1, 'server errors show as an alert');
   // The job scope: a chip that describes the combobox, and its own labelled remove button.
   assert.equal(with_('id', '"command-scope"').length, 1, 'the scope chip');
-  const remove = with_('aria-label', "{$t('command.clearScope')}");
-  assert.ok(remove.length === 1 && remove[0].name === 'button', 'a button removes the scope');
+  // The shared close control (CloseButton renders a button with aria-label={label}).
+  const remove = with_('label', "{$t('command.clearScope')}");
+  assert.ok(remove.length === 1 && remove[0].name === 'CloseButton', 'a button removes the scope');
   assert.match(attr(combo, 'aria-describedby') ?? '', /^\{(\w+) \? 'command-scope' : undefined\}$/, 'the combobox is described by the chip only while scoped');
 });
