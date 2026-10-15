@@ -14,7 +14,7 @@ const OWNER_STALE_MS = 30 * 60 * 1000;
  * so a long builder with no CLI writes is not mistaken for a dead session. The ceiling keeps a
  * crashed session from holding a job forever.
  */
-const RUNNING_AGENT_MAX_MS = 2 * 60 * 60 * 1000;
+export const RUNNING_AGENT_MAX_MS = 2 * 60 * 60 * 1000;
 
 export function jobDir(root: string, id: string): string {
   if (!/^[a-z0-9][a-z0-9._-]*$/i.test(id)) throw new ForgeError(`invalid job id "${id}"`);
@@ -318,6 +318,27 @@ export function recordAgent(
     ...(rec.outputMissing !== undefined ? { outputMissing: rec.outputMissing } : {}),
   });
   return job;
+}
+
+/**
+ * Ends each role still marked running with status `lost`, as `forge job agent <id> end --role
+ * <role> --status lost` would, minus the transcript import and budget check: a lost agent carries
+ * no usage. Each role is re-read first, so one another writer ended meanwhile keeps its status, and
+ * with `owner`, so is one whose job another session has claimed since.
+ * Returns the roles it ended.
+ */
+export function markAgentsLost(root: string, id: string, roles: string[], summary: string, config: Config, owner?: string): string[] {
+  const ended: string[] = [];
+  for (const role of roles) {
+    const job = loadJob(root, id);
+    if (owner !== undefined && job.owner?.session !== owner) break;
+    const a = job.agents[role];
+    if (a?.status !== 'running') continue;
+    const outputMissing = agentOutputMissing(root, id, role, a, undefined);
+    recordAgent(root, id, { role, phase: 'end', status: 'lost', summary, ...(outputMissing !== null ? { outputMissing } : {}) }, config);
+    ended.push(role);
+  }
+  return ended;
 }
 
 /**

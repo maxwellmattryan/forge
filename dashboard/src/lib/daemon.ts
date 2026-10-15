@@ -34,6 +34,8 @@ export interface PoolModel {
   cap: number;
   held: string[];
   waiting: string[];
+  /** Job sessions kept by running agents of their job. */
+  kept: string[];
   /** Listed job sessions, in status order. */
   jobs: JobChip[];
   /** lastError, unless the pill already says error. */
@@ -49,11 +51,11 @@ const running = (s: unknown) => obj(s).running === true;
 export const asking = (s: unknown): boolean => running(s) && Array.isArray(obj(s).permissions) && obj(s).permissions.length > 0;
 
 /** Status labels in the order the bar lists job chips. */
-const ORDER = ['needs permission', 'busy', 'failing', 'idle', 'stopping', 'waiting for slot', 'held: budget', 'error', 'stopped', 'standby', 'no session'];
+const ORDER = ['needs permission', 'busy', 'agents running', 'failing', 'idle', 'stopping', 'waiting for slot', 'held: budget', 'error', 'stopped', 'standby', 'no session'];
 
 /**
- * One session's status chip: needs permission (a tool call waits on a human), busy, failing (alive, but its last turn failed), idle, stopping,
- * waiting for slot, held: budget, error, stopped, standby or no session.
+ * One session's status chip: needs permission (a tool call waits on a human), busy, stopping, waiting for slot, held: budget,
+ * failing (alive, but its last turn failed) or error, agents running (idle, but its job's agents keep it), idle, stopped, standby or no session.
  */
 export function sessionPill(session: SessionInput): Pill {
   const s = obj(session);
@@ -66,6 +68,7 @@ export function sessionPill(session: SessionInput): Pill {
   else if (s.waiting) [label, tone] = ['waiting for slot', 'warn'];
   else if (s.held) [label, tone] = ['held: budget', 'warn'];
   else if (s.lastError) [label, tone] = s.status === 'idle' ? ['failing', 'bad'] : ['error', 'bad'];
+  else if (s.kept === 'agents' && s.status === 'idle') [label, tone] = ['agents running', 'live'];
   else if (s.status === 'idle') [label, tone] = ['idle', 'ok'];
   else if (s.wanted === false) [label, tone] = ['stopped', 'muted'];
   else if (s.sessionId || Number(s.turns) > 0) [label, tone] = ['standby', 'muted'];
@@ -77,6 +80,7 @@ export function sessionPill(session: SessionInput): Pill {
         s.lastTurnAt ? `last turn ${ago(s.lastTurnAt)}` : 'no turns yet',
         ...(Number(s.failures) ? [`${Number(s.failures)} failed starts`] : []),
         ...(s.lastError ? [String(s.lastError)] : []),
+        ...(label === 'agents running' ? ['kept: its job has agents running'] : []),
         ...(label === 'standby' || label === 'no session' ? ['starts on its next request'] : []),
       ].join('\n');
   return { label, tone, title };
@@ -113,6 +117,7 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
     cap: Number(p.maxConcurrent) || 0,
     held: jobs.filter(([, s]) => s.held).map(([id]) => id),
     waiting: jobs.filter(([, s]) => s.waiting).map(([id]) => id),
+    kept: jobs.filter(([, s]) => s.kept === 'agents').map(([id]) => id),
     jobs: chips,
     error: p.lastError && label !== 'error' ? String(p.lastError) : null,
     canStart,

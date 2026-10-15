@@ -2,7 +2,7 @@
 // so they work with or without a running `forge dash` and never talk to its server.
 import fs from 'node:fs';
 import path from 'node:path';
-import { openRead, readInfo, readLogPage, sessionFiles, sessionRecords } from '../daemon.ts';
+import { openRead, readInfo, readLogPage, sessionAgents, sessionFiles, sessionRecords } from '../daemon.ts';
 import { paths } from '../paths.ts';
 import { INBOX_SCOPE, validJobId } from '../requests.ts';
 import { ForgeError, readJson } from '../util.ts';
@@ -14,7 +14,20 @@ const FOLLOW_MS = 250;
 
 export interface DaemonStatusOut {
   dashboard: { pid: number; url: string | null; alive: boolean } | null;
-  sessions: { scope: string; job: string | null; pid: number | null; alive: boolean; sessionId: string | null; startedAt: string | null; lastTurnAt: string | null; logBytes: number }[];
+  sessions: {
+    scope: string;
+    job: string | null;
+    pid: number | null;
+    alive: boolean;
+    sessionId: string | null;
+    startedAt: string | null;
+    lastTurnAt: string | null;
+    logBytes: number;
+    /** 'agents' while a fresh running agent of the job this session owns keeps it from slot eviction and idle stop. */
+    kept: 'agents' | null;
+    /** Roles of the running agents of the job this session owns, sorted. */
+    agents: string[];
+  }[];
 }
 
 /**
@@ -47,15 +60,19 @@ function status(root: string): DaemonStatusOut {
     try {
       logBytes = fs.statSync(r.log).size;
     } catch {}
+    const alive = pid !== null && pidAlive(pid);
+    const owned = alive && r.scope !== INBOX_SCOPE ? sessionAgents(root, r.scope, str(info.sessionId)) : null;
     return {
       scope: r.scope,
       job: r.scope === INBOX_SCOPE ? null : r.scope,
       pid,
-      alive: pid !== null && pidAlive(pid),
+      alive,
       sessionId: str(info.sessionId),
       startedAt: str(info.startedAt),
       lastTurnAt: str(info.lastTurnAt),
       logBytes,
+      kept: owned?.keeps ? ('agents' as const) : null,
+      agents: owned?.running ?? [],
     };
   });
   return { dashboard, sessions };

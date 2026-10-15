@@ -54,6 +54,7 @@ export function offState(root: string, scope: string): DaemonSessionState {
     lastError: null,
     permissions: [],
     permissionMode: null,
+    kept: null,
   };
 }
 
@@ -213,11 +214,13 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
           }
         } else w.s.setWaiting(true);
       }
+      for (const s of jobSessions()) if (s.running) s.refreshKept();
       // Each waiting job gets the slot of an idle session (oldest result first), unless one is already being freed.
+      // A session whose job has agents running, or that just finished a turn or an agent, keeps its slot.
       const short = waiters.filter((w) => w.s.waiting).length - jobSessions().filter((s) => s.status === 'stopping').length;
       if (short > 0) {
         const idle = jobSessions()
-          .filter((s) => s.status === 'idle')
+          .filter((s) => s.status === 'idle' && s.keptBy(o.slotGraceMs) === null)
           .sort((a, b) => (a.lastResultAt ?? '').localeCompare(b.lastResultAt ?? ''));
         for (const s of idle.slice(0, short)) void s.kill('idle-stop', true, 'slot');
       }

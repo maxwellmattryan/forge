@@ -1,9 +1,9 @@
-// Shapes of the forge dash HTTP API for API_VERSION 13. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 14. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
 
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 13;
+export const API_VERSION = 14;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 
@@ -323,6 +323,8 @@ export interface DaemonSessionState {
   permissions: DaemonPermissionPrompt[];
   /** The permission mode claude last reported for the running child (at init or after a switch); null while none runs. */
   permissionMode: string | null;
+  /** A running agent of the job this session drives keeps it from slot eviction and idle stop; null otherwise and while none runs. */
+  kept: 'agents' | null;
 }
 
 /**

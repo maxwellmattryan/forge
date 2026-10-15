@@ -56,6 +56,7 @@
         <span class="mono muted num">{$t('daemon.live', { live: model.live, cap: model.cap })}</span>
         {#if model.held.length}<span class="chip {TONE_CLASS.warn}" title={model.held.join('\n')}>{$t('daemon.held', { count: model.held.length })}</span>{/if}
         {#if model.waiting.length}<span class="chip {TONE_CLASS.warn}" title={model.waiting.join('\n')}>{$t('daemon.waiting', { count: model.waiting.length })}</span>{/if}
+        {#if model.kept.length}<span class="chip {TONE_CLASS.live}" title={model.kept.join('\n')}>{$t('daemon.kept', { count: model.kept.length })}</span>{/if}
         {#each model.jobs as j (j.id)}<button class="chip cursor-pointer max-w-full {TONE_CLASS[j.pill.tone]}" title={[j.id, j.pill.title, ...(j.mode ? [$t('daemon.modeTitle', { mode: modeName[j.mode] })] : [])].join('\n')} onclick={() => openDrawer(j.id, null, 'thread')}><span class="truncate font-mono">{j.label}</span> · {j.pill.label}{#if j.mode} · {modeName[j.mode]}{/if}</button>{/each}
         {#if model.error !== null}<span class="truncate min-w-0 flex-1 text-xs text-muted" title={model.error}>{model.error}</span>{:else}<span class="flex-1"></span>{/if}
         <span class="flex items-center gap-2">

@@ -820,7 +820,7 @@ test('POST /api/daemon starts and stops one session', async () => {
 test('/api/state exposes the session pool', async () => {
   const repo = tempRepo();
   const keys = ['enabled', 'wanted', 'maxConcurrent', 'live', 'lastError', 'inbox', 'jobs', 'permissionMode', 'permissionModes', 'clients'];
-  const sessionKeys = ['scope', 'wanted', 'running', 'status', 'sessionId', 'pid', 'lastTurnAt', 'lastResultAt', 'turns', 'failures', 'held', 'waiting', 'lastError', 'permissions', 'permissionMode'];
+  const sessionKeys = ['scope', 'wanted', 'running', 'status', 'sessionId', 'pid', 'lastTurnAt', 'lastResultAt', 'turns', 'failures', 'held', 'waiting', 'lastError', 'permissions', 'permissionMode', 'kept'];
   const kitOff = fakeChildren();
   let srv = await startServer(repo.dir, { port: 0, daemon: kitOff.opts });
   try {
@@ -880,7 +880,7 @@ test('/api/state exposes the session pool', async () => {
     .map((f) => fs.readFileSync(path.join(src, f), 'utf8'))
     .join('\n');
   assert.ok(app.includes('/api/requests'), 'read the dashboard sources');
-  assert.equal(DASH_API_VERSION, 13, 'the dashboard reads API_VERSION from src/lib/types.ts');
+  assert.equal(DASH_API_VERSION, 14, 'the dashboard reads API_VERSION from src/lib/types.ts');
   assert.doesNotMatch(app, /launcher|launched/);
 });
 
@@ -1044,7 +1044,7 @@ test('GET /api/about reports versions', async () => {
     assert.equal(r.status, 200);
     const a = JSON.parse(r.text);
     assert.equal(a.forgeVersion, JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version);
-    assert.equal(a.apiVersion, 13);
+    assert.equal(a.apiVersion, 14);
     assert.equal(a.pluginRoot, PLUGIN_ROOT);
     assert.deepEqual(a.schemaVersions, { config: schema.CONFIG_SCHEMA_VERSION, job: schema.JOB_SCHEMA_VERSION, event: schema.EVENT_SCHEMA_VERSION });
     assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'pricing.json'), 'utf8')).asOf);
@@ -1315,7 +1315,7 @@ test('owner status in /api/state and job detail', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 13);
+    assert.equal(st.apiVersion, 14);
     const byId = Object.fromEntries(st.jobs.map((j) => [j.id, j.ownerStatus]));
     assert.deepEqual(Object.fromEntries(Object.entries(byId).map(([k, v]: [string, any]) => [k, v.status])), { 'j-none': 'none', 'j-live': 'live', 'j-agent': 'live', 'j-stale': 'stale', 'j-dead': 'live' }, 'the time rule only: never dead');
     assert.deepEqual(byId['j-none'], { status: 'none', session: null, since: null, heartbeat: null, agentRunning: false, reason: null, jobSession: false });
