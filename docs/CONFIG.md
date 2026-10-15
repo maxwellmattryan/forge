@@ -51,7 +51,7 @@ verifyE2e:                   # after every verify step passes, also run commands
                              # `forge job scope` matching: exact path, `dir/` prefix, * ** ? globs; a slash-free
                              # glob also matches the basename. A list here replaces the default.
 verifyIntegrity: warn        # warn | block: block fails verify on deleted test files or added skip/focus markers
-verifySecrets: block         # block | warn: block fails verify, and refuses commits and a forced pr open, on a likely
+verifySecrets: block         # block | warn: block fails verify, and refuses commits and pr open, on a likely
                              # credential ("Secret scanning"); warn only reports it. Text Forge sends is always refused
 ports: { base: 4100, span: 100 }
 
@@ -244,7 +244,7 @@ Reasoning effort is how much the model thinks before it answers: `low`, `medium`
 
 ## Verify groups
 
-An entry in `verify` is a step name or a list of step names. A list is a group: its steps start together and run at the same time, and the next entry starts only after all of them have finished. Group steps that don't depend on each other's output, typically the checks that follow a build, in one list:
+An entry in `verify` is a step name or a list of step names; the built-in `secrets` step always runs before the first entry ("Secret scanning"). A list is a group: its steps start together and run at the same time, and the next entry starts only after all of them have finished. Group steps that don't depend on each other's output, typically the checks that follow a build, in one list:
 
 ```yaml
 verify:
@@ -281,7 +281,7 @@ Forge refuses to publish a likely credential, and the check lives in its own cod
 |---|---|---|
 | `forge verify` | a `secrets` step before the first configured group, clean worktree or not: every non-merge commit in `merge-base..HEAD` on its own (a key added and deleted later is still found), the net diff (what a merge brought in), every commit message, and the staged changes | `block`: the step fails, no configured group runs, the integrity report is still computed. `warn`: the step passes with a reason |
 | `forge git commit` | the message, before anything is staged; then the staged diff against HEAD | the message: always refused. Staged content: refused under `block` (the index stays staged), committed under `warn` with `secrets: <n>` in the result |
-| `forge pr open` | the PR title and body exactly as Forge would send them, before any `gh` call or push, even when the PR exists; with `--force` on an unverified HEAD, also the commit range (commits, messages, net diff) | the text: always refused. The range: refused under `block` |
+| `forge pr open` | the PR title and body exactly as Forge would send them, before any `gh` call or push, even when the PR exists; then the commit range (commits, messages, net diff) of the HEAD it pushes, verified or not (`--force` skips verify, and a HEAD verified by a Forge without the scanner was never scanned), after refreshing the base's remote-tracking ref from the remote | the text: always refused. The range: refused under `block` |
 | tracker writes | `comment` bodies and `create` titles and bodies, in every adapter (`forge tracker comment\|create`, `forge job link --create`, `job human … --link new`, the split procedure); a custom adapter's `update`/`claim` also have the job's title and reason scanned | always refused |
 | `forge job agent end` | the role's output, its extras (builder: `build.md`, `tasks.md`; integrator: `build.md`; approver: `pr.md`, `runbook.md`; designer: `mockup.html`; retro: `spec.md`) and `questions.md`, when written since the agent started and a regular file inside the job dir | never blocks: a `secret-found` event, and `secrets: <n>` in the result |
 
@@ -307,11 +307,11 @@ sha256:<64 lower-case hex>
 
 A path glob never allows text: commit messages, the PR title and body, tracker text and job-dir files need the fingerprint. A malformed `sha256:` line or a `!` line is listed as a problem and ignored; a symlinked allowlist allows nothing. An allowed finding is listed with the line that allowed it (`allowedBy: .forge/secrets-allow.txt:<line>`).
 
-**Modes.** `verifySecrets` covers content: verify's branch scan, the staged scan in `forge git commit` and the range scan in `forge pr open --force`. Text Forge composes and sends is refused in either mode. The mode always comes from the main checkout's config, and any value other than `warn` counts as `block`. A scan that cannot finish (base not found, a git failure, more than 1,000 commits) fails under `block` and passes with `error` under `warn`; it never reads as clean.
+**Modes.** `verifySecrets` covers content: verify's branch scan, the staged scan in `forge git commit` and the range scan in `forge pr open`. Text Forge composes and sends is refused in either mode. The mode always comes from the main checkout's config, and any value other than `warn` counts as `block`. A scan that cannot finish (base not found, a git failure, more than 1,000 commits) fails under `block` and passes with `error` under `warn`; it never reads as clean.
 
 **The human gate.** When verify fails on `secrets` (in the verify, integrate or pr stage) and no builder or integrator has run since, or `forge pr open` was refused, `forge job step` parks the job on `waitingOn: human` with the reason `secret scan blocked verify round <n>` or `secret scan blocked pr open` (an eval job fails instead). No agent retry gets past it. A human removes the value (and rewrites the branch if it was committed; Forge never amends, rebases or force-pushes for it) or allowlists it, then `/forge approve <id>`: step runs the scan again and parks the job again if the value is still there. `/forge rework <id> <note>` sends it back to build.
 
-**Residual risks.** A secret split across strings or lines, or encoded (base64 of a token, compressed or binary formats), is found only if the entropy check happens to catch it. An evil merge whose content a later commit deletes is not seen. The sha256 of a short `password=` value can be guessed offline from its fingerprint. Regex false positives happen; the allowlist handles them. Forge does not revoke or rotate a leaked credential.
+**Residual risks.** A secret split across strings or lines, or encoded (base64 of a token, compressed or binary formats), is found only if the entropy check happens to catch it. An evil merge whose content a later commit deletes is not seen. The sha256 of a short `password=` value can be guessed offline from its fingerprint. A key in a UTF-16 file (NUL-interleaved text) gets only the provider patterns, which can't match it. A file the branch routes through `filter=lfs` is scanned as its pointer, while a push outside Forge uploads the real content. Verify compares against the base's remote-tracking ref as the checkout has it, which the job's worktree can move with `git update-ref`; `forge pr open` fetches the base first, so the range it pushes is scanned against the remote's real base. Regex false positives happen; the allowlist handles them. Forge does not revoke or rotate a leaked credential.
 
 ## Daemon
 

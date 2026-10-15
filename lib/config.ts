@@ -50,7 +50,7 @@ export function defaults(): Config {
       paths: ['*.html', '*.css', '*.scss', '*.sass', '*.less', '*.svelte', '*.vue', '*.jsx', '*.tsx', '*.astro'],
     },
     verifyIntegrity: 'warn',
-    // block fails verify (and refuses commits and a forced pr open) on a likely credential; warn reports it.
+    // block fails verify (and refuses commits and pr open) on a likely credential; warn reports it.
     verifySecrets: 'block',
     ports: { base: 4100, span: 100 },
     runtime: {

@@ -143,7 +143,10 @@ test('tracker writes refuse a likely secret', async () => {
     assert.throws(() => rec.create(ctx, { title: 'ok', body: `token: ${key}` }), refused);
     const leaky = createJob(repo.dir, defaults(), { title: `Rotate ${key}` });
     assert.throws(() => rec.update(ctx, 'R-1', leaky), refused);
-    assert.throws(() => rec.claim(ctx, 'R-1', leaky), refused);
+    const claimed = rec.claim(ctx, 'R-1', leaky);
+    assert.equal(claimed.ok, false, 'a refused claim reads like any refused claim, so callers cancel');
+    assert.match(String(claimed.reason), /^possible secret in the job's title or reason: github-token/);
+    assert.ok(!String(claimed.reason).includes(key));
     assert.deepEqual(calls(), [], 'the adapter was never called');
     rec.comment(ctx, 'R-1', 'all clear');
     const clean = createJob(repo.dir, defaults(), { title: 'Rotate the key' });

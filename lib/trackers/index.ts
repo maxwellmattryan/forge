@@ -28,30 +28,37 @@ const none: Tracker = {
 /**
  * An adapter whose writes are scanned for likely credentials first, so every caller (forge tracker
  * comment|create, job link --create, the split procedure, Forge's own mirrors) gets the same refusal.
- * Built with Object.create so prototype methods and `this.update` inside `claim` keep working. The
+ * Built with Object.create so every other method is the adapter's own; the guarded ones call the
+ * adapter with itself as the receiver, so a class instance with #private fields keeps working. The
  * built-in update and claim send only a status key; a custom adapter's receive the whole job, so its
- * title and reason are scanned too.
+ * title and reason are scanned too. A refused claim returns `{ok: false}` like any refused claim, so
+ * callers cancel the job they just created instead of leaving it behind.
  */
 export function guardTracker(adapter: Tracker, opts: { custom: boolean }): Tracker {
   const g: Tracker = Object.create(adapter);
   const refuse = (ctx: TrackerCtx, what: string, units: TextUnit[]) => refuseSecrets(ctx.root, ctx.config, units, { what });
-  g.comment = function (ctx, ref, body) {
+  g.comment = (ctx, ref, body) => {
     refuse(ctx, 'the tracker comment', [textUnit('(tracker comment)', String(body ?? ''))]);
-    return adapter.comment.call(this, ctx, ref, body);
+    return adapter.comment(ctx, ref, body);
   };
-  g.create = function (ctx, item) {
+  g.create = (ctx, item) => {
     refuse(ctx, 'the issue title or body', [textUnit('(issue title)', String(item?.title ?? '')), textUnit('(issue body)', String(item?.body ?? ''))]);
-    return adapter.create.call(this, ctx, item);
+    return adapter.create(ctx, item);
   };
   if (opts.custom) {
     const jobUnits = (job: Job) => [textUnit('(job title)', String(job?.title ?? '')), textUnit('(job reason)', String(job?.reason ?? ''))];
-    g.update = function (ctx, ref, job) {
+    g.update = (ctx, ref, job) => {
       refuse(ctx, "the job's title or reason", jobUnits(job));
-      return adapter.update.call(this, ctx, ref, job);
+      return adapter.update(ctx, ref, job);
     };
-    g.claim = function (ctx, ref, job) {
-      refuse(ctx, "the job's title or reason", jobUnits(job));
-      return adapter.claim.call(this, ctx, ref, job);
+    g.claim = (ctx, ref, job) => {
+      try {
+        refuse(ctx, "the job's title or reason", jobUnits(job));
+      } catch (e) {
+        if (e instanceof ForgeError && e.code === 'secret_found') return { ok: false, reason: e.message };
+        throw e;
+      }
+      return adapter.claim(ctx, ref, job);
     };
   }
   return g;

@@ -482,7 +482,8 @@ export async function verify(root: string, config: Config, id: string): Promise<
   // staged changes are scanned too, so a key the builder has not committed yet is still reported.
   const mode = secretMode(config);
   const scanStarted = Date.now();
-  const secrets = scanBranch(root, config, job, { staged: true });
+  // Bound to `sha`, the commit this run records as checked, not whatever HEAD is by the time the scan reads it.
+  const secrets = scanBranch(root, config, job, { staged: true, head: sha });
   const secretsStep: VerifyStep = { name: 'secrets', ok: secretsOk(secrets, mode), exit: null, durationMs: Date.now() - scanStarted };
   const n = secrets.findings.length;
   if (!secretsStep.ok) secretsStep.tail = secretsTail(secrets);

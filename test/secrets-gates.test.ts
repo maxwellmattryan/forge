@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { fingerprint } from '../lib/secrets.ts';
 import { defaults } from '../lib/config.ts';
-import { setJob } from '../lib/jobs.ts';
+import { setJob, updateJob } from '../lib/jobs.ts';
 import { token } from './secret-fixtures.ts';
 
 const commitAll = (cwd: string, msg: string) => {
@@ -254,6 +254,23 @@ describe('secret gates', { concurrency: 4 }, () => {
     }
   });
 
+  test('repo config cannot re-encode commit messages past the scan', async () => {
+    const s = await scratch();
+    try {
+      const key = token.stripe('utf16');
+      const j = await s.job({ 'a.txt': 'plain\n' }, `deploy with ${key}`);
+      // Worktree-writable repo config that interleaves NULs into `git log` output.
+      execFileSync('git', ['config', 'i18n.logOutputEncoding', 'UTF-16'], { cwd: j.wt });
+      execFileSync('git', ['config', 'log.showSignature', 'true'], { cwd: j.wt });
+      const r = await s.verify(j.id);
+      assert.equal(r.status, 1);
+      assert.equal(r.out.failure.name, 'secrets');
+      assert.ok(r.out.secrets.findings.some((f: any) => f.kind === 'stripe-live-key' && f.path.startsWith('(commit message ')), JSON.stringify(r.out.secrets));
+    } finally {
+      s.cleanup();
+    }
+  });
+
   test('repo config in the worktree cannot hide or allow a secret', async () => {
     const s = await scratch();
     try {
@@ -403,7 +420,28 @@ describe('secret gates', { concurrency: 4 }, () => {
       assert.ok(!remoteBranches().includes('forge/'));
       ev = s.events(j.dir).filter((e) => e.type === 'secret-found' && e.gate === 'pr');
       assert.deepEqual(ev.map((e) => [e.blocked, e.findings[0].kind]), [[true, 'github-token'], [true, 'anthropic-key']]);
-      const all = s.trail(j.dir);
+
+      // A remote-tracking base moved onto the key commit from the worktree is refreshed before the scan.
+      execFileSync('git', ['update-ref', 'refs/remotes/origin/main', 'HEAD'], { cwd: j.wt });
+      write(j.wt, 'src/c.ts', 'export const c = 3;\n');
+      commitAll(j.wt, 'one more');
+      r = await s.raw(['pr', 'open', j.id, '--force', '--json'], env);
+      assert.equal(r.status, 1, r.stderr);
+      assert.equal(JSON.parse(r.stdout).error.code, 'secret_found');
+      assert.equal(fs.readFileSync(ghLog, 'utf8'), '');
+
+      // A HEAD verified by a Forge without the scanner is still scanned: pr open is the real exit.
+      const old = await s.job({ 'src/old.ts': `export const k = '${key}';\n` });
+      const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: old.wt, encoding: 'utf8' }).trim();
+      updateJob(s.repo.dir, old.id, (job) => {
+        job.verifyRuns.push({ round: 1, attempt: 1, sha: head, ok: true, at: new Date().toISOString(), file: 'verify/round-1.md', failure: null });
+      });
+      r = await s.raw(['pr', 'open', old.id, '--json'], env);
+      assert.equal(r.status, 1, r.stderr);
+      assert.equal(JSON.parse(r.stdout).error.code, 'secret_found');
+      assert.equal(fs.readFileSync(ghLog, 'utf8'), '', 'gh was never called');
+      assert.ok(!remoteBranches().includes('forge/'), 'nothing was pushed');
+      const all = s.trail(j.dir) + s.trail(old.dir);
       assert.ok(!all.includes(key) && !all.includes(pat));
     } finally {
       s.cleanup();
@@ -453,7 +491,6 @@ describe('secret gates', { concurrency: 4 }, () => {
       try {
         for (const [what, arrange] of cases) {
           await s.f('job', 'agent', j.id, 'start', '--role', 'builder');
-          await new Promise((r) => setTimeout(r, 5));
           arrange();
           out = await end();
           assert.equal(out.secrets, undefined, what);

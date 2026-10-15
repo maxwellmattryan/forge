@@ -168,7 +168,6 @@ function scanUnit(unit: TextUnit, config: Pick<Config, 'worktrees'> | null): Raw
     out.push({ kind, path: unit.path, line: lineAt(unit, lineOffset), excerpt: mask(value), fingerprint: fingerprint(value), commit: unit.commit, file: unit.file });
   };
   for (const p of PATTERNS) {
-    p.re.lastIndex = 0;
     for (const m of unit.text.matchAll(p.re)) {
       const idx = m.indices!;
       if (p.kind === 'private-key') {
@@ -190,7 +189,6 @@ function scanUnit(unit: TextUnit, config: Pick<Config, 'worktrees'> | null): Raw
   const checkEntropy = unit.entropy ?? unit.file;
   if (!checkEntropy || entropyOff(unit.path, config, unit.text)) return out;
   for (const [re, group] of [[QUOTED, 2], [ASSIGNED, 2]] as const) {
-    re.lastIndex = 0;
     for (const m of unit.text.matchAll(re)) {
       const value = m[group];
       const span = m.indices![group];
@@ -348,13 +346,18 @@ export const textUnit = (label: string, text: string): TextUnit => ({ path: labe
 
 // ---------- scans ----------
 
+// Repo config can re-encode log output (i18n.logOutputEncoding UTF-16 interleaves NULs, which the
+// message parse splits on) or add signature text, so the message scan pins both.
+const LOG_PINS: readonly string[] = ['-c', 'i18n.logOutputEncoding=UTF-8'];
+
 /**
  * What a job's branch would publish, against `merge-base(base, HEAD)` as integrity computes it:
  * every non-merge commit on its own (a key added then deleted still counts), the net diff (what a
  * merge brought in), every commit message, and with `staged` the index. Never throws for git
- * trouble: the problem goes into `error`, and an unfinished scan never reads as clean.
+ * trouble: the problem goes into `error`, and an unfinished scan never reads as clean. `head` (a
+ * commit id) binds the scan to the commit the caller records as checked; HEAD otherwise.
  */
-export function scanBranch(root: string, config: Config, job: Pick<Job, 'id' | 'worktree' | 'base'>, opts: { staged: boolean }): SecretScan {
+export function scanBranch(root: string, config: Config, job: Pick<Job, 'id' | 'worktree' | 'base'>, opts: { staged: boolean; head?: string }): SecretScan {
   const allow = loadAllowlist(root);
   const scan = emptyScan(allow);
   const raw: RawFinding[] = [];
@@ -363,11 +366,14 @@ export function scanBranch(root: string, config: Config, job: Pick<Job, 'id' | '
     const cwd = job.worktree;
     const env = realHistoryEnv();
     const git = (args: string[]) => run('git', args, { cwd, env }).stdout;
-    const { baseRef, mergeBase } = resolveBase(cwd, config, job);
+    const head = opts.head ?? 'HEAD';
+    if (head !== 'HEAD' && !SHA.test(head)) throw new ForgeError(`${JSON.stringify(head.slice(0, 80))} is not a commit id`);
+    const { baseRef, mergeBase } = resolveBase(cwd, config, job, head);
     scan.base = baseRef;
     scan.mergeBase = mergeBase;
     if (!SHA.test(mergeBase)) throw new ForgeError(`merge-base ${JSON.stringify(mergeBase.slice(0, 80))} is not a commit id`);
-    const shas = git(['rev-list', '--reverse', '--no-merges', `${mergeBase}..HEAD`, '--']).split('\n').filter(Boolean);
+    const range = `${mergeBase}..${head}`;
+    const shas = git(['rev-list', '--reverse', '--no-merges', range, '--']).split('\n').filter(Boolean);
     if (shas.length > MAX_COMMITS) throw new ForgeError(`the branch has ${shas.length} commits since its base; the scanner reads at most ${MAX_COMMITS}`);
     const units: TextUnit[] = [];
     const files = new Set<string>();
@@ -378,11 +384,15 @@ export function scanBranch(root: string, config: Config, job: Pick<Job, 'id' | '
     };
     for (const sha of shas) {
       if (!SHA.test(sha)) throw new ForgeError(`git rev-list printed ${JSON.stringify(sha.slice(0, 80))}, not a commit id`);
-      addDiff(git([...PINNED_GIT_CONFIG, 'show', '--format=', ...PINNED_DIFF_OPTS, '--text', '-U0', sha, '--']), sha.slice(0, 12));
+      addDiff(git([...PINNED_GIT_CONFIG, 'show', '--no-show-signature', '--format=', ...PINNED_DIFF_OPTS, '--text', '-U0', sha, '--']), sha.slice(0, 12));
     }
-    addDiff(git([...PINNED_GIT_CONFIG, 'diff', ...PINNED_DIFF_OPTS, '--text', '-U0', mergeBase, 'HEAD', '--']), null);
-    const log = git(['log', '--format=%x00%H%x00%B', `${mergeBase}..HEAD`, '--']).split('\0');
+    addDiff(git([...PINNED_GIT_CONFIG, 'diff', ...PINNED_DIFF_OPTS, '--text', '-U0', mergeBase, head, '--']), null);
+    const log = git([...PINNED_GIT_CONFIG, ...LOG_PINS, 'log', '--encoding=UTF-8', '--no-show-signature', '--no-color', '--format=%x00%H%x00%B', range, '--']).split('\0');
+    // Fail closed: every record starts with a full sha, and there is one per commit in the range.
+    const expected = Number(git(['rev-list', '--count', range, '--']).trim());
+    if (log[0] !== '' || (log.length - 1) / 2 !== expected) throw new ForgeError(`git log printed ${Math.floor((log.length - 1) / 2)} commit messages for ${expected} commits; the message scan cannot be trusted`);
     for (let i = 1; i + 1 < log.length; i += 2) {
+      if (!SHA.test(log[i])) throw new ForgeError(`git log printed ${JSON.stringify(log[i].slice(0, 80))} where a commit id belongs; the message scan cannot be trusted`);
       const sha12 = log[i].slice(0, 12);
       units.push({ path: `(commit message ${sha12})`, line: 1, text: log[i + 1], file: false, commit: sha12 });
       scan.scanned.texts++;

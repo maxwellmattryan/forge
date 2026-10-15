@@ -139,14 +139,16 @@ export function openPr(
   // where nothing has left the machine yet.
   const text = prText(root, config, job, opts.title);
   refuseSecrets(root, config, [textUnit('(pr title)', text.title), textUnit('(pr body)', text.body)], { what: 'the PR title or body', id, gate: 'pr' });
-  if (!evidence.verified) {
-    // --force skips verify, so the range verify would have scanned is scanned here.
-    const mode = secretMode(config);
-    const scan = scanBranch(root, config, job, { staged: false });
-    logSecrets(root, id, 'pr', scan, { blocked: mode === 'block' });
-    if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of ${id}'s commits could not finish (${scan.error}); forge pr open --force won't push an unscanned branch`, 'secret_found', `forge secrets scan ${id}`);
-    if (mode === 'block' && scan.findings.length) throw new ForgeError(refusalMessage(`the commits of ${id}`, scan.findings), 'secret_found', `forge secrets scan ${id}`);
-  }
+  // The commits are scanned here too, verified or not: this is the real exit, a HEAD verified by a
+  // Forge without the scanner was never scanned, and --force skips verify altogether. The base ref is
+  // refreshed from the remote first, so a remote-tracking ref moved from the worktree can't shrink the range.
+  const mode = secretMode(config);
+  if (SAFE_REF.test(String(job.base)) && SAFE_REF.test(config.git.remote))
+    run('git', ['fetch', '--quiet', '--no-tags', config.git.remote, `+refs/heads/${job.base}:refs/remotes/${config.git.remote}/${job.base}`], { cwd: job.worktree, allowFail: true });
+  const scan = scanBranch(root, config, job, { staged: false, head: evidence.head });
+  logSecrets(root, id, 'pr', scan, { blocked: mode === 'block' });
+  if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of ${id}'s commits could not finish (${scan.error}); forge pr open won't push an unscanned branch`, 'secret_found', `forge secrets scan ${id}`);
+  if (mode === 'block' && scan.findings.length) throw new ForgeError(refusalMessage(`the commits of ${id}`, scan.findings), 'secret_found', `forge secrets scan ${id}`);
   const slug = repoSlug(root, config);
   const ahead = run('git', ['rev-list', '--count', `${config.git.remote}/${job.base}..HEAD`], { cwd: job.worktree, allowFail: true });
   if (ahead.ok && ahead.stdout.trim() === '0') throw new ForgeError(`branch ${job.branch} has no commits ahead of ${job.base}`);
