@@ -1,11 +1,11 @@
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { execFileSync, spawnSync } from 'node:child_process';
-import { tempRepo } from './helpers.ts';
+import { execFileSync } from 'node:child_process';
+import { forgeAsync, tempRepo } from './helpers.ts';
 import { defaults, validateConfig } from '../lib/config.ts';
 import { jobWorktreeProblem, partitionConflicts } from '../lib/regenerate.ts';
 
@@ -36,7 +36,6 @@ test('validateConfig checks worktrees.generated and generatedBy', () => {
   }
 });
 
-const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const commitAll = (cwd: string, msg: string) => {
   execFileSync('git', ['add', '-A'], { cwd });
   execFileSync('git', ['-c', 'user.email=t@e.st', '-c', 'user.name=T', 'commit', '-qm', msg], { cwd });
@@ -67,13 +66,13 @@ const assetName = (text: string) => `dist/assets/${createHash('sha256').update(t
  * A scratch repo whose `commands.gen` rebuilds dist/ from src/, with a claimed job and its worktree.
  * `config` patches the answers; `edit` rewrites config.yml afterwards (for configs validation refuses).
  */
-function fixture(o: { config?: Record<string, any>; edit?: (text: string) => string; extra?: Record<string, string> } = {}) {
+async function fixture(o: { config?: Record<string, any>; edit?: (text: string) => string; extra?: Record<string, string> } = {}) {
   const repo = tempRepo();
   const env = { ...process.env, FORGE_ROOT: repo.dir, GIT_EDITOR: 'true' };
   const wtRoot = path.join(repo.dir, '..', `${path.basename(repo.dir)}.wt`);
   const answers = path.join(repo.dir, '..', `answers-regen-${path.basename(repo.dir)}.json`);
-  const forge = (args: string[], extraEnv: Record<string, string> = {}) => {
-    const r = spawnSync(process.execPath, [BIN, ...args], { cwd: repo.dir, encoding: 'utf8', env: { ...env, ...extraEnv } });
+  const forge = async (args: string[], extraEnv: Record<string, string> = {}) => {
+    const r = await forgeAsync(repo.dir, args, { GIT_EDITOR: 'true', ...extraEnv });
     let out: any = null;
     try {
       out = JSON.parse(r.stdout);
@@ -95,16 +94,16 @@ function fixture(o: { config?: Record<string, any>; edit?: (text: string) => str
   gen(repo.dir);
   const base = { commands: { gen: 'node gen.mjs', bad: 'node bad.mjs', test: 'true' }, worktrees: { root: `../${path.basename(repo.dir)}.wt`, generated: ['dist/**'], generatedBy: 'gen' } };
   fs.writeFileSync(answers, JSON.stringify({ ...base, ...o.config, worktrees: { ...base.worktrees, ...o.config?.worktrees }, commands: { ...base.commands, ...o.config?.commands } }));
-  const init = forge(['init', 'write', '--answers', answers]);
+  const init = await forge(['init', 'write', '--answers', answers]);
   assert.equal(init.out?.ok, true, init.stderr);
   if (o.edit) {
     const file = path.join(repo.dir, '.forge', 'config.yml');
     fs.writeFileSync(file, o.edit(fs.readFileSync(file, 'utf8')));
   }
   commitAll(repo.dir, 'forge');
-  forge(['tracker', 'create', '--title', 'Regen']);
-  const id: string = forge(['next', '--claim', '--session', 's1']).out.id;
-  const wt: string = forge(['worktree', 'create', id]).out.path;
+  await forge(['tracker', 'create', '--title', 'Regen']);
+  const id: string = (await forge(['next', '--claim', '--session', 's1'])).out.id;
+  const wt: string = (await forge(['worktree', 'create', id])).out.path;
   const git = (...args: string[]) => execFileSync('git', args, { cwd: wt, encoding: 'utf8', env, stdio: 'pipe' });
   const events = () =>
     fs
@@ -141,7 +140,7 @@ function fixture(o: { config?: Record<string, any>; edit?: (text: string) => str
     },
   };
 }
-type Fixture = ReturnType<typeof fixture>;
+type Fixture = Awaited<ReturnType<typeof fixture>>;
 
 /** Each side adds a different source and commits its rebuilt dist/: a conflict on dist/out.txt only. */
 function generatedOnly(f: Fixture) {
@@ -180,359 +179,362 @@ function assertFreshBuild(f: Fixture) {
   assert.deepEqual(f.assets(), [assetName(text)], 'stale hashed assets are deleted and the new one added');
 }
 
-test('merge: only generated conflicts are rebuilt and committed', () => {
-  const f = fixture();
-  try {
-    generatedOnly(f);
-    const staleBranch = f.assets('HEAD')[0];
-    const expected = probe(f, 'merge');
-    assert.ok(expected.includes('dist/out.txt') && expected.every((p) => p.startsWith('dist/')), expected.join());
-    const r = f.forge(['integrate', f.id, '--strategy', 'merge']);
-    assert.equal(r.status, 0, r.stderr);
-    assert.deepEqual(r.out, { ok: true, behind: 1, strategy: 'merge', rewritten: false, regenerated: expected });
-    assert.equal(f.git('rev-list', '--parents', '-n', '1', 'HEAD').trim().split(' ').length, 3, 'a two-parent merge commit');
-    assert.deepEqual(f.sources().sort(), ['a\n', 'b\n', 'c\n']);
-    assertFreshBuild(f);
-    assert.ok(!f.assets().includes(staleBranch));
-    assert.equal(f.git('status', '--porcelain'), '');
-    const evs = f.events();
-    assert.deepEqual(evs.filter((e) => e.type === 'integrate-conflicts'), []);
-    const last = evs.at(-1);
-    assert.equal(last.type, 'integrated');
-    assert.deepEqual([last.behind, last.strategy, last.regenerated], [1, 'merge', expected]);
-    const logs = fs.readdirSync(path.join(f.repo.dir, '.forge', 'jobs', f.id, 'logs'));
-    assert.ok(logs.some((l) => l.startsWith('integrate-regenerate-')), 'the build log is kept');
-  } finally {
-    f.cleanup();
-  }
-});
-
-test('rebase: every pick that conflicts only on generated paths is rebuilt', () => {
-  const f = fixture();
-  try {
-    f.commit('branch', { 'src/b.txt': 'b\n' }, 'branch b');
-    f.commit('branch', { 'src/d.txt': 'd\n' }, 'branch d');
-    f.commit('base', { 'src/c.txt': 'c\n' }, 'base c');
-    const r = f.forge(['integrate', f.id, '--strategy', 'rebase']);
-    assert.equal(r.status, 0, r.stderr);
-    assert.deepEqual(Object.keys(r.out), ['ok', 'behind', 'strategy', 'rewritten', 'regenerated']);
-    assert.deepEqual([r.out.ok, r.out.behind, r.out.strategy, r.out.rewritten], [true, 1, 'rebase', true]);
-    assertRegenerated(r.out.regenerated);
-    assert.equal(f.git('rev-list', '--merges', 'HEAD').trim(), '', 'linear history');
-    assert.equal(f.git('rev-list', '--count', 'main..HEAD').trim(), '2', 'both picks are on the base');
-    f.git('merge-base', '--is-ancestor', 'main', 'HEAD');
-    assertFreshBuild(f);
-    assert.equal(f.inProgress('rebase-merge'), false);
-    assert.equal(f.git('status', '--porcelain'), '');
-  } finally {
-    f.cleanup();
-  }
-});
-
-test('the base side wins for generated paths the build does not rewrite', () => {
-  for (const strategy of ['merge', 'rebase']) {
-    const f = fixture({ extra: { 'dist/static.txt': 'init\n', 'dist/old.txt': 'old\n' } });
+// Every test below builds its own fixture repo, so they run side by side.
+describe('integrate regenerates generated paths', { concurrency: 4 }, () => {
+  test('merge: only generated conflicts are rebuilt and committed', async () => {
+    const f = await fixture();
     try {
-      f.commit('branch', { 'src/b.txt': 'b\n', 'dist/static.txt': 'branch\n', 'dist/old.txt': 'branch edit\n' }, 'branch');
-      f.commit('base', { 'src/c.txt': 'c\n', 'dist/static.txt': 'base\n', 'dist/old.txt': null }, 'base');
-      const r = f.forge(['integrate', f.id, '--strategy', strategy]);
-      assert.equal(r.status, 0, `${strategy}: ${r.stderr} ${JSON.stringify(r.out)}`);
-      assertRegenerated(r.out.regenerated, ['dist/old.txt', 'dist/static.txt']);
-      assert.equal(f.git('show', 'HEAD:dist/static.txt'), 'base\n', `${strategy}: the base side of a path the build never writes`);
-      assert.equal(f.git('ls-tree', '--name-only', 'HEAD', '--', 'dist/old.txt').trim(), '', `${strategy}: deleted on base, deleted here (modify/delete)`);
+      generatedOnly(f);
+      const staleBranch = f.assets('HEAD')[0];
+      const expected = probe(f, 'merge');
+      assert.ok(expected.includes('dist/out.txt') && expected.every((p) => p.startsWith('dist/')), expected.join());
+      const r = await f.forge(['integrate', f.id, '--strategy', 'merge']);
+      assert.equal(r.status, 0, r.stderr);
+      assert.deepEqual(r.out, { ok: true, behind: 1, strategy: 'merge', rewritten: false, regenerated: expected });
+      assert.equal(f.git('rev-list', '--parents', '-n', '1', 'HEAD').trim().split(' ').length, 3, 'a two-parent merge commit');
+      assert.deepEqual(f.sources().sort(), ['a\n', 'b\n', 'c\n']);
       assertFreshBuild(f);
-      assert.equal(f.git('status', '--porcelain'), '', strategy);
+      assert.ok(!f.assets().includes(staleBranch));
+      assert.equal(f.git('status', '--porcelain'), '');
+      const evs = f.events();
+      assert.deepEqual(evs.filter((e) => e.type === 'integrate-conflicts'), []);
+      const last = evs.at(-1);
+      assert.equal(last.type, 'integrated');
+      assert.deepEqual([last.behind, last.strategy, last.regenerated], [1, 'merge', expected]);
+      const logs = fs.readdirSync(path.join(f.repo.dir, '.forge', 'jobs', f.id, 'logs'));
+      assert.ok(logs.some((l) => l.startsWith('integrate-regenerate-')), 'the build log is kept');
     } finally {
       f.cleanup();
     }
-  }
-});
+  });
 
-test('mixed: only real conflicts are left for the integrator', () => {
-  const f = fixture();
-  try {
-    f.commit('branch', { 'src/b.txt': 'b\n', 'README.md': '# ours\n' }, 'branch');
-    f.commit('base', { 'src/c.txt': 'c\n', 'README.md': '# theirs\n' }, 'base');
-    const head = f.git('rev-parse', 'HEAD');
-    const before = genRuns(f);
-    let r = f.forge(['integrate', f.id, '--strategy', 'merge']);
-    assert.equal(r.status, 1);
-    const { regenerated, ...rest } = r.out;
-    assert.deepEqual(rest, { ok: false, behind: 1, strategy: 'merge', conflicts: ['README.md'], inProgress: false });
-    assertRegenerated(regenerated);
-    assert.equal(f.inProgress('MERGE_HEAD'), false, 'the merge is aborted');
-    assert.equal(f.git('status', '--porcelain'), '');
-    assert.equal(f.git('rev-parse', 'HEAD'), head);
-    const ev = f.events().filter((e) => e.type === 'integrate-conflicts').at(-1);
-    assert.deepEqual([ev.conflicts, ev.regenerated], [['README.md'], regenerated]);
-    assert.equal(genRuns(f), before, 'nothing is built while sources may hold conflict markers');
-
-    r = f.forge(['integrate', f.id, '--strategy', 'merge', '--keep-conflicts']);
-    assert.equal(r.status, 1);
-    assert.deepEqual(r.out, { ok: false, behind: 1, strategy: 'merge', conflicts: ['README.md'], inProgress: true, regenerated });
-    assert.deepEqual(f.unmerged(), ['README.md']);
-    assert.equal(f.git('show', ':dist/out.txt'), f.git('show', 'main:dist/out.txt'), 'the generated path is staged from the base side');
-  } finally {
-    f.cleanup();
-  }
-});
-
-test('continue rebuilds and carries on through generated-only picks', () => {
-  const f = fixture();
-  try {
-    f.commit('branch', { 'src/b.txt': 'b\n', 'README.md': '# ours\n' }, 'branch');
-    f.commit('base', { 'src/c.txt': 'c\n', 'README.md': '# theirs\n' }, 'base');
-    assert.equal(f.forge(['integrate', f.id, '--strategy', 'merge', '--keep-conflicts']).out.inProgress, true);
-    fs.writeFileSync(path.join(f.wt, 'README.md'), '# both\n');
-    f.git('add', 'README.md');
-    const r = f.forge(['integrate', f.id, '--continue']);
-    assert.equal(r.status, 0, r.stderr);
-    assert.equal(r.out.ok, true);
-    assert.equal(r.out.strategy, 'merge');
-    assert.ok(r.out.regenerated.includes('dist/out.txt'), JSON.stringify(r.out));
-    assert.equal(f.git('rev-list', '--parents', '-n', '1', 'HEAD').trim().split(' ').length, 3, 'a merge commit');
-    assertFreshBuild(f);
-    assert.equal(f.git('status', '--porcelain'), '');
-    const last = f.events().at(-1);
-    assert.deepEqual([last.type, last.strategy, last.regenerated], ['integrated', 'merge', r.out.regenerated]);
-  } finally {
-    f.cleanup();
-  }
-
-  // Rebase: pick 1 is mixed, pick 2 conflicts only on generated paths; one --continue finishes both.
-  const g = fixture();
-  try {
-    g.commit('branch', { 'src/b.txt': 'b\n', 'README.md': '# ours\n' }, 'branch 1');
-    g.commit('branch', { 'src/d.txt': 'd\n' }, 'branch 2');
-    g.commit('base', { 'src/c.txt': 'c\n', 'README.md': '# theirs\n' }, 'base');
-    let r = g.forge(['integrate', g.id, '--strategy', 'rebase', '--keep-conflicts']);
-    assert.deepEqual([r.out.ok, r.out.conflicts, r.out.inProgress], [false, ['README.md'], true]);
-    assertRegenerated(r.out.regenerated);
-    fs.writeFileSync(path.join(g.wt, 'README.md'), '# both\n');
-    g.git('add', 'README.md');
-    r = g.forge(['integrate', g.id, '--continue']);
-    assert.equal(r.status, 0, `${r.stderr} ${JSON.stringify(r.out)}`);
-    assert.equal(r.out.ok, true);
-    assert.equal(r.out.rewritten, true);
-    assert.ok(r.out.regenerated.includes('dist/out.txt'));
-    assert.equal(g.inProgress('rebase-merge'), false);
-    assert.equal(g.git('rev-list', '--count', 'main..HEAD').trim(), '2');
-    assertFreshBuild(g);
-    assert.equal(g.git('status', '--porcelain'), '');
-  } finally {
-    g.cleanup();
-  }
-});
-
-test('a failing build falls back to today\'s behaviour', () => {
-  const f = fixture({ config: { worktrees: { generatedBy: 'bad' } } });
-  try {
-    generatedOnly(f);
-    const head = f.git('rev-parse', 'HEAD');
-    const expected = probe(f, 'merge');
-    let r = f.forge(['integrate', f.id, '--strategy', 'merge']);
-    assert.equal(r.status, 1);
-    assert.deepEqual(r.out.conflicts.sort(), expected, 'every unmerged path, generated ones included');
-    assert.equal(r.out.inProgress, false);
-    assert.equal(r.out.regenerated, undefined);
-    assert.match(r.out.regenerateError, /^commands\.bad exited 3 \(log logs\/integrate-regenerate-.*\.log\)\n[\s\S]*BUILD-BROKE on purpose/);
-    assert.equal(f.inProgress('MERGE_HEAD'), false, 'the merge is aborted');
-    assert.equal(f.git('status', '--porcelain'), '', 'the build output is cleaned up');
-    assert.equal(f.git('rev-parse', 'HEAD'), head);
-    const ev = f.events().filter((e) => e.type === 'integrate-conflicts').at(-1);
-    assert.equal(ev.regenerateError, r.out.regenerateError);
-
-    r = f.forge(['integrate', f.id, '--strategy', 'merge', '--keep-conflicts']);
-    assert.equal(r.status, 1);
-    assert.deepEqual(r.out.conflicts.sort(), expected);
-    assert.equal(r.out.inProgress, true);
-    assert.deepEqual(f.unmerged().sort(), expected, 'the generated paths are still unmerged for the integrator');
-    assert.match(fs.readFileSync(path.join(f.wt, 'dist', 'out.txt'), 'utf8'), /^<<<<<<< /m, 'with their conflict markers back');
-    assert.equal(fs.existsSync(path.join(f.wt, 'dist', 'junk.txt')), false);
-
-    // The integrator resolves it; the build still fails at --continue, so nothing is committed.
-    f.git('add', '-A', 'dist');
-    r = f.forge(['integrate', f.id, '--continue']);
-    assert.equal(r.status, 1);
-    assert.equal(r.out.ok, false);
-    assert.deepEqual(r.out.conflicts, []);
-    assert.equal(r.out.inProgress, true);
-    assert.match(r.out.regenerateError, /BUILD-BROKE/);
-    assert.equal(f.git('rev-parse', 'HEAD'), head, 'HEAD unchanged');
-    assert.equal(f.inProgress('MERGE_HEAD'), true);
-  } finally {
-    f.cleanup();
-  }
-});
-
-test('no regenerate command falls back', () => {
-  const f = fixture({ edit: (t) => t.replace(/generatedBy: gen/, 'generatedBy: lint') });
-  try {
-    generatedOnly(f);
-    const expected = probe(f, 'merge');
-    const r = f.forge(['integrate', f.id, '--strategy', 'merge']);
-    assert.equal(r.status, 1);
-    assert.deepEqual(r.out.conflicts.sort(), expected);
-    assert.match(r.out.regenerateError, /not configured/);
-    assert.equal(f.inProgress('MERGE_HEAD'), false);
-    assert.equal(f.git('status', '--porcelain'), '');
-  } finally {
-    f.cleanup();
-  }
-});
-
-test('a glob that matches nothing changes nothing', () => {
-  const f = fixture({ edit: (t) => t.replace(/- dist\/\*\*/, '- nomatch/**').replace(/generated: \["dist\/\*\*"\]/, 'generated: ["nomatch/**"]') });
-  try {
-    assert.match(fs.readFileSync(path.join(f.repo.dir, '.forge', 'config.yml'), 'utf8'), /nomatch/);
-    f.commit('branch', { 'README.md': '# ours\n' }, 'ours', { build: false });
-    f.commit('base', { 'README.md': '# theirs\n' }, 'theirs', { build: false });
-    let r = f.forge(['integrate', f.id, '--strategy', 'merge']);
-    assert.deepEqual(r.out, { ok: false, behind: 1, strategy: 'merge', conflicts: ['README.md'], inProgress: false });
-    r = f.forge(['integrate', f.id, '--strategy', 'merge', '--keep-conflicts']);
-    assert.deepEqual(r.out, { ok: false, behind: 1, strategy: 'merge', conflicts: ['README.md'], inProgress: true });
-    r = f.forge(['integrate', f.id, '--continue']);
-    assert.deepEqual(r.out, { ok: false, strategy: 'merge', conflicts: ['README.md'], inProgress: true });
-    fs.writeFileSync(path.join(f.wt, 'README.md'), '# both\n');
-    f.git('add', 'README.md');
-    r = f.forge(['integrate', f.id, '--continue']);
-    assert.deepEqual(r.out, { ok: true, strategy: 'merge', rewritten: false });
-    for (const e of f.events().filter((e) => e.type.startsWith('integrat'))) {
-      assert.equal('regenerated' in e || 'regenerateError' in e, false, JSON.stringify(e));
+  test('rebase: every pick that conflicts only on generated paths is rebuilt', async () => {
+    const f = await fixture();
+    try {
+      f.commit('branch', { 'src/b.txt': 'b\n' }, 'branch b');
+      f.commit('branch', { 'src/d.txt': 'd\n' }, 'branch d');
+      f.commit('base', { 'src/c.txt': 'c\n' }, 'base c');
+      const r = await f.forge(['integrate', f.id, '--strategy', 'rebase']);
+      assert.equal(r.status, 0, r.stderr);
+      assert.deepEqual(Object.keys(r.out), ['ok', 'behind', 'strategy', 'rewritten', 'regenerated']);
+      assert.deepEqual([r.out.ok, r.out.behind, r.out.strategy, r.out.rewritten], [true, 1, 'rebase', true]);
+      assertRegenerated(r.out.regenerated);
+      assert.equal(f.git('rev-list', '--merges', 'HEAD').trim(), '', 'linear history');
+      assert.equal(f.git('rev-list', '--count', 'main..HEAD').trim(), '2', 'both picks are on the base');
+      f.git('merge-base', '--is-ancestor', 'main', 'HEAD');
+      assertFreshBuild(f);
+      assert.equal(f.inProgress('rebase-merge'), false);
+      assert.equal(f.git('status', '--porcelain'), '');
+    } finally {
+      f.cleanup();
     }
-    assert.equal(genRuns(f), 0, 'the build never ran');
-  } finally {
-    f.cleanup();
-  }
-});
+  });
 
-test('hostile conflicted paths are refused', () => {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-regen-')));
-  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-regen-out-')));
-  try {
-    fs.symlinkSync(outside, path.join(dir, 'linked'));
-    const hostile = ['-rf', '--output=x', '../x', '/etc/passwd', 'a/../../x', 'sub/.git/config', 'linked/out.txt', 'a/./b', 'dist//x', ''];
-    const r = partitionConflicts(dir, [...hostile, 'dist/ok.txt'], ['**']);
-    assert.deepEqual(r.generated, ['dist/ok.txt']);
-    assert.deepEqual(r.other, hostile, 'refused paths stay in git\'s order');
-    assert.deepEqual(partitionConflicts(dir, ['dist/ok.txt', 'src/x.ts'], ['dist/**']), { generated: ['dist/ok.txt'], other: ['src/x.ts'] });
-    assert.deepEqual(partitionConflicts(dir, ['dist/ok.txt'], []), { generated: [], other: ['dist/ok.txt'] });
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-    fs.rmSync(outside, { recursive: true, force: true });
-  }
-
-  // End to end: a conflicted `-n.txt` under glob `**` stays a conflict, never reaches git before `--`, and nothing builds.
-  const f = fixture({ edit: (t) => t.replace(/- dist\/\*\*/, '- "**"').replace(/generated: \["dist\/\*\*"\]/, 'generated: ["**"]') });
-  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-gitlog-'));
-  try {
-    f.commit('branch', { '-n.txt': 'ours\n' }, 'ours', { build: false });
-    f.commit('base', { '-n.txt': 'theirs\n' }, 'theirs', { build: false });
-    const log = path.join(bin, 'argv.log');
-    const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
-    fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nfor a in "$@"; do printf '%s\\037' "$a" >> "${log}"; done\nprintf '\\n' >> "${log}"\nexec "${realGit}" "$@"\n`, { mode: 0o755 });
-    const r = f.forge(['integrate', f.id, '--strategy', 'merge', '--keep-conflicts'], { PATH: `${bin}${path.delimiter}${process.env.PATH}` });
-    assert.equal(r.status, 1);
-    assert.deepEqual(r.out.conflicts, ['-n.txt']);
-    assert.equal(r.out.regenerated, undefined);
-    assert.deepEqual(f.unmerged(), ['-n.txt']);
-    const calls = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => l.split('\x1f').slice(0, -1));
-    assert.ok(calls.some((argv) => argv.includes('merge')), 'the wrapper saw forge\'s git calls');
-    for (const argv of calls) {
-      const at = argv.indexOf('-n.txt');
-      if (at >= 0) assert.ok(argv.indexOf('--') >= 0 && argv.indexOf('--') < at, `-n.txt only after --: ${argv.join(' ')}`);
+  test('the base side wins for generated paths the build does not rewrite', async () => {
+    for (const strategy of ['merge', 'rebase']) {
+      const f = await fixture({ extra: { 'dist/static.txt': 'init\n', 'dist/old.txt': 'old\n' } });
+      try {
+        f.commit('branch', { 'src/b.txt': 'b\n', 'dist/static.txt': 'branch\n', 'dist/old.txt': 'branch edit\n' }, 'branch');
+        f.commit('base', { 'src/c.txt': 'c\n', 'dist/static.txt': 'base\n', 'dist/old.txt': null }, 'base');
+        const r = await f.forge(['integrate', f.id, '--strategy', strategy]);
+        assert.equal(r.status, 0, `${strategy}: ${r.stderr} ${JSON.stringify(r.out)}`);
+        assertRegenerated(r.out.regenerated, ['dist/old.txt', 'dist/static.txt']);
+        assert.equal(f.git('show', 'HEAD:dist/static.txt'), 'base\n', `${strategy}: the base side of a path the build never writes`);
+        assert.equal(f.git('ls-tree', '--name-only', 'HEAD', '--', 'dist/old.txt').trim(), '', `${strategy}: deleted on base, deleted here (modify/delete)`);
+        assertFreshBuild(f);
+        assert.equal(f.git('status', '--porcelain'), '', strategy);
+      } finally {
+        f.cleanup();
+      }
     }
-    assert.equal(genRuns(f), 0, 'the build did not run');
-  } finally {
-    fs.rmSync(bin, { recursive: true, force: true });
-    f.cleanup();
-  }
-});
+  });
 
-test('the regenerate guard refuses a worktree that is not the job\'s', () => {
-  const repo = tempRepo();
-  const wt = path.join(repo.dir, '..', `${path.basename(repo.dir)}-guard`);
-  try {
-    repo.git('worktree', 'add', '-q', '-b', 'feat', wt);
-    const git = (...args: string[]) => execFileSync('git', args, { cwd: wt, encoding: 'utf8', stdio: 'pipe', env: { ...process.env, GIT_EDITOR: 'true' } });
-    fs.writeFileSync(path.join(wt, 'README.md'), '# feat\n');
-    commitAll(wt, 'feat');
-    fs.writeFileSync(path.join(repo.dir, 'README.md'), '# main\n');
-    commitAll(repo.dir, 'main');
-    const job = { id: 'j', worktree: wt, branch: 'feat' };
-    const cases = (when: string) => {
-      assert.equal(jobWorktreeProblem(repo.dir, job), null, `${when}: the job's own worktree on its branch`);
-      assert.match(jobWorktreeProblem(repo.dir, { ...job, worktree: repo.dir }) ?? '', /main checkout/, `${when}: the main checkout`);
-      const link = `${wt}-link`;
-      fs.symlinkSync(repo.dir, link);
-      try {
-        assert.match(jobWorktreeProblem(repo.dir, { ...job, worktree: link }) ?? '', /main checkout/, `${when}: a link to the main checkout`);
-      } finally {
-        fs.rmSync(link);
+  test('mixed: only real conflicts are left for the integrator', async () => {
+    const f = await fixture();
+    try {
+      f.commit('branch', { 'src/b.txt': 'b\n', 'README.md': '# ours\n' }, 'branch');
+      f.commit('base', { 'src/c.txt': 'c\n', 'README.md': '# theirs\n' }, 'base');
+      const head = f.git('rev-parse', 'HEAD');
+      const before = genRuns(f);
+      let r = await f.forge(['integrate', f.id, '--strategy', 'merge']);
+      assert.equal(r.status, 1);
+      const { regenerated, ...rest } = r.out;
+      assert.deepEqual(rest, { ok: false, behind: 1, strategy: 'merge', conflicts: ['README.md'], inProgress: false });
+      assertRegenerated(regenerated);
+      assert.equal(f.inProgress('MERGE_HEAD'), false, 'the merge is aborted');
+      assert.equal(f.git('status', '--porcelain'), '');
+      assert.equal(f.git('rev-parse', 'HEAD'), head);
+      const ev = f.events().filter((e) => e.type === 'integrate-conflicts').at(-1);
+      assert.deepEqual([ev.conflicts, ev.regenerated], [['README.md'], regenerated]);
+      assert.equal(genRuns(f), before, 'nothing is built while sources may hold conflict markers');
+
+      r = await f.forge(['integrate', f.id, '--strategy', 'merge', '--keep-conflicts']);
+      assert.equal(r.status, 1);
+      assert.deepEqual(r.out, { ok: false, behind: 1, strategy: 'merge', conflicts: ['README.md'], inProgress: true, regenerated });
+      assert.deepEqual(f.unmerged(), ['README.md']);
+      assert.equal(f.git('show', ':dist/out.txt'), f.git('show', 'main:dist/out.txt'), 'the generated path is staged from the base side');
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  test('continue rebuilds and carries on through generated-only picks', async () => {
+    const f = await fixture();
+    try {
+      f.commit('branch', { 'src/b.txt': 'b\n', 'README.md': '# ours\n' }, 'branch');
+      f.commit('base', { 'src/c.txt': 'c\n', 'README.md': '# theirs\n' }, 'base');
+      assert.equal((await f.forge(['integrate', f.id, '--strategy', 'merge', '--keep-conflicts'])).out.inProgress, true);
+      fs.writeFileSync(path.join(f.wt, 'README.md'), '# both\n');
+      f.git('add', 'README.md');
+      const r = await f.forge(['integrate', f.id, '--continue']);
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(r.out.ok, true);
+      assert.equal(r.out.strategy, 'merge');
+      assert.ok(r.out.regenerated.includes('dist/out.txt'), JSON.stringify(r.out));
+      assert.equal(f.git('rev-list', '--parents', '-n', '1', 'HEAD').trim().split(' ').length, 3, 'a merge commit');
+      assertFreshBuild(f);
+      assert.equal(f.git('status', '--porcelain'), '');
+      const last = f.events().at(-1);
+      assert.deepEqual([last.type, last.strategy, last.regenerated], ['integrated', 'merge', r.out.regenerated]);
+    } finally {
+      f.cleanup();
+    }
+
+    // Rebase: pick 1 is mixed, pick 2 conflicts only on generated paths; one --continue finishes both.
+    const g = await fixture();
+    try {
+      g.commit('branch', { 'src/b.txt': 'b\n', 'README.md': '# ours\n' }, 'branch 1');
+      g.commit('branch', { 'src/d.txt': 'd\n' }, 'branch 2');
+      g.commit('base', { 'src/c.txt': 'c\n', 'README.md': '# theirs\n' }, 'base');
+      let r = await g.forge(['integrate', g.id, '--strategy', 'rebase', '--keep-conflicts']);
+      assert.deepEqual([r.out.ok, r.out.conflicts, r.out.inProgress], [false, ['README.md'], true]);
+      assertRegenerated(r.out.regenerated);
+      fs.writeFileSync(path.join(g.wt, 'README.md'), '# both\n');
+      g.git('add', 'README.md');
+      r = await g.forge(['integrate', g.id, '--continue']);
+      assert.equal(r.status, 0, `${r.stderr} ${JSON.stringify(r.out)}`);
+      assert.equal(r.out.ok, true);
+      assert.equal(r.out.rewritten, true);
+      assert.ok(r.out.regenerated.includes('dist/out.txt'));
+      assert.equal(g.inProgress('rebase-merge'), false);
+      assert.equal(g.git('rev-list', '--count', 'main..HEAD').trim(), '2');
+      assertFreshBuild(g);
+      assert.equal(g.git('status', '--porcelain'), '');
+    } finally {
+      g.cleanup();
+    }
+  });
+
+  test('a failing build falls back to today\'s behaviour', async () => {
+    const f = await fixture({ config: { worktrees: { generatedBy: 'bad' } } });
+    try {
+      generatedOnly(f);
+      const head = f.git('rev-parse', 'HEAD');
+      const expected = probe(f, 'merge');
+      let r = await f.forge(['integrate', f.id, '--strategy', 'merge']);
+      assert.equal(r.status, 1);
+      assert.deepEqual(r.out.conflicts.sort(), expected, 'every unmerged path, generated ones included');
+      assert.equal(r.out.inProgress, false);
+      assert.equal(r.out.regenerated, undefined);
+      assert.match(r.out.regenerateError, /^commands\.bad exited 3 \(log logs\/integrate-regenerate-.*\.log\)\n[\s\S]*BUILD-BROKE on purpose/);
+      assert.equal(f.inProgress('MERGE_HEAD'), false, 'the merge is aborted');
+      assert.equal(f.git('status', '--porcelain'), '', 'the build output is cleaned up');
+      assert.equal(f.git('rev-parse', 'HEAD'), head);
+      const ev = f.events().filter((e) => e.type === 'integrate-conflicts').at(-1);
+      assert.equal(ev.regenerateError, r.out.regenerateError);
+
+      r = await f.forge(['integrate', f.id, '--strategy', 'merge', '--keep-conflicts']);
+      assert.equal(r.status, 1);
+      assert.deepEqual(r.out.conflicts.sort(), expected);
+      assert.equal(r.out.inProgress, true);
+      assert.deepEqual(f.unmerged().sort(), expected, 'the generated paths are still unmerged for the integrator');
+      assert.match(fs.readFileSync(path.join(f.wt, 'dist', 'out.txt'), 'utf8'), /^<<<<<<< /m, 'with their conflict markers back');
+      assert.equal(fs.existsSync(path.join(f.wt, 'dist', 'junk.txt')), false);
+
+      // The integrator resolves it; the build still fails at --continue, so nothing is committed.
+      f.git('add', '-A', 'dist');
+      r = await f.forge(['integrate', f.id, '--continue']);
+      assert.equal(r.status, 1);
+      assert.equal(r.out.ok, false);
+      assert.deepEqual(r.out.conflicts, []);
+      assert.equal(r.out.inProgress, true);
+      assert.match(r.out.regenerateError, /BUILD-BROKE/);
+      assert.equal(f.git('rev-parse', 'HEAD'), head, 'HEAD unchanged');
+      assert.equal(f.inProgress('MERGE_HEAD'), true);
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  test('no regenerate command falls back', async () => {
+    const f = await fixture({ edit: (t) => t.replace(/generatedBy: gen/, 'generatedBy: lint') });
+    try {
+      generatedOnly(f);
+      const expected = probe(f, 'merge');
+      const r = await f.forge(['integrate', f.id, '--strategy', 'merge']);
+      assert.equal(r.status, 1);
+      assert.deepEqual(r.out.conflicts.sort(), expected);
+      assert.match(r.out.regenerateError, /not configured/);
+      assert.equal(f.inProgress('MERGE_HEAD'), false);
+      assert.equal(f.git('status', '--porcelain'), '');
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  test('a glob that matches nothing changes nothing', async () => {
+    const f = await fixture({ edit: (t) => t.replace(/- dist\/\*\*/, '- nomatch/**').replace(/generated: \["dist\/\*\*"\]/, 'generated: ["nomatch/**"]') });
+    try {
+      assert.match(fs.readFileSync(path.join(f.repo.dir, '.forge', 'config.yml'), 'utf8'), /nomatch/);
+      f.commit('branch', { 'README.md': '# ours\n' }, 'ours', { build: false });
+      f.commit('base', { 'README.md': '# theirs\n' }, 'theirs', { build: false });
+      let r = await f.forge(['integrate', f.id, '--strategy', 'merge']);
+      assert.deepEqual(r.out, { ok: false, behind: 1, strategy: 'merge', conflicts: ['README.md'], inProgress: false });
+      r = await f.forge(['integrate', f.id, '--strategy', 'merge', '--keep-conflicts']);
+      assert.deepEqual(r.out, { ok: false, behind: 1, strategy: 'merge', conflicts: ['README.md'], inProgress: true });
+      r = await f.forge(['integrate', f.id, '--continue']);
+      assert.deepEqual(r.out, { ok: false, strategy: 'merge', conflicts: ['README.md'], inProgress: true });
+      fs.writeFileSync(path.join(f.wt, 'README.md'), '# both\n');
+      f.git('add', 'README.md');
+      r = await f.forge(['integrate', f.id, '--continue']);
+      assert.deepEqual(r.out, { ok: true, strategy: 'merge', rewritten: false });
+      for (const e of f.events().filter((e) => e.type.startsWith('integrat'))) {
+        assert.equal('regenerated' in e || 'regenerateError' in e, false, JSON.stringify(e));
       }
-      fs.mkdirSync(path.join(wt, 'sub'), { recursive: true });
-      assert.match(jobWorktreeProblem(repo.dir, { ...job, worktree: path.join(wt, 'sub') }) ?? '', /not the root of a git worktree/, `${when}: a subdirectory`);
-      const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-plain-'));
-      try {
-        assert.match(jobWorktreeProblem(repo.dir, { ...job, worktree: plain }) ?? '', /not the root of a git worktree/, `${when}: not a repo`);
-      } finally {
-        fs.rmSync(plain, { recursive: true, force: true });
+      assert.equal(genRuns(f), 0, 'the build never ran');
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  test('hostile conflicted paths are refused', async () => {
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-regen-')));
+    const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-regen-out-')));
+    try {
+      fs.symlinkSync(outside, path.join(dir, 'linked'));
+      const hostile = ['-rf', '--output=x', '../x', '/etc/passwd', 'a/../../x', 'sub/.git/config', 'linked/out.txt', 'a/./b', 'dist//x', ''];
+      const r = partitionConflicts(dir, [...hostile, 'dist/ok.txt'], ['**']);
+      assert.deepEqual(r.generated, ['dist/ok.txt']);
+      assert.deepEqual(r.other, hostile, 'refused paths stay in git\'s order');
+      assert.deepEqual(partitionConflicts(dir, ['dist/ok.txt', 'src/x.ts'], ['dist/**']), { generated: ['dist/ok.txt'], other: ['src/x.ts'] });
+      assert.deepEqual(partitionConflicts(dir, ['dist/ok.txt'], []), { generated: [], other: ['dist/ok.txt'] });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+
+    // End to end: a conflicted `-n.txt` under glob `**` stays a conflict, never reaches git before `--`, and nothing builds.
+    const f = await fixture({ edit: (t) => t.replace(/- dist\/\*\*/, '- "**"').replace(/generated: \["dist\/\*\*"\]/, 'generated: ["**"]') });
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-gitlog-'));
+    try {
+      f.commit('branch', { '-n.txt': 'ours\n' }, 'ours', { build: false });
+      f.commit('base', { '-n.txt': 'theirs\n' }, 'theirs', { build: false });
+      const log = path.join(bin, 'argv.log');
+      const realGit = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+      fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nfor a in "$@"; do printf '%s\\037' "$a" >> "${log}"; done\nprintf '\\n' >> "${log}"\nexec "${realGit}" "$@"\n`, { mode: 0o755 });
+      const r = await f.forge(['integrate', f.id, '--strategy', 'merge', '--keep-conflicts'], { PATH: `${bin}${path.delimiter}${process.env.PATH}` });
+      assert.equal(r.status, 1);
+      assert.deepEqual(r.out.conflicts, ['-n.txt']);
+      assert.equal(r.out.regenerated, undefined);
+      assert.deepEqual(f.unmerged(), ['-n.txt']);
+      const calls = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => l.split('\x1f').slice(0, -1));
+      assert.ok(calls.some((argv) => argv.includes('merge')), 'the wrapper saw forge\'s git calls');
+      for (const argv of calls) {
+        const at = argv.indexOf('-n.txt');
+        if (at >= 0) assert.ok(argv.indexOf('--') >= 0 && argv.indexOf('--') < at, `-n.txt only after --: ${argv.join(' ')}`);
       }
-      assert.match(jobWorktreeProblem(repo.dir, { ...job, branch: 'other' }) ?? '', /not the job's branch other/, `${when}: another branch`);
-    };
-    assert.throws(() => git('merge', 'main'));
-    assert.ok(fs.existsSync(path.resolve(wt, git('rev-parse', '--git-path', 'MERGE_HEAD').trim())));
-    cases('mid-merge');
-    git('merge', '--abort');
-    assert.throws(() => git('rebase', 'main'));
-    assert.ok(fs.existsSync(path.resolve(wt, git('rev-parse', '--git-path', 'rebase-merge').trim())));
-    cases('mid-rebase');
-    git('rebase', '--abort');
-  } finally {
-    fs.rmSync(wt, { recursive: true, force: true });
-    repo.cleanup();
-  }
-});
+      assert.equal(genRuns(f), 0, 'the build did not run');
+    } finally {
+      fs.rmSync(bin, { recursive: true, force: true });
+      f.cleanup();
+    }
+  });
 
-test('integrate does not regenerate in a worktree on another branch', () => {
-  const f = fixture();
-  try {
-    generatedOnly(f);
-    f.git('checkout', '-q', '-b', 'elsewhere');
-    const before = genRuns(f);
-    const r = f.forge(['integrate', f.id, '--strategy', 'merge']);
-    assert.equal(r.status, 1);
-    assert.ok(r.out.conflicts.includes('dist/out.txt'));
-    assert.match(r.out.regenerateError, /refusing to regenerate: .*not the job's branch/);
-    assert.equal(genRuns(f), before, 'the build did not run');
-    assert.equal(f.inProgress('MERGE_HEAD'), false);
-    assert.equal(f.git('status', '--porcelain'), '');
-  } finally {
-    f.cleanup();
-  }
+  test('the regenerate guard refuses a worktree that is not the job\'s', async () => {
+    const repo = tempRepo();
+    const wt = path.join(repo.dir, '..', `${path.basename(repo.dir)}-guard`);
+    try {
+      repo.git('worktree', 'add', '-q', '-b', 'feat', wt);
+      const git = (...args: string[]) => execFileSync('git', args, { cwd: wt, encoding: 'utf8', stdio: 'pipe', env: { ...process.env, GIT_EDITOR: 'true' } });
+      fs.writeFileSync(path.join(wt, 'README.md'), '# feat\n');
+      commitAll(wt, 'feat');
+      fs.writeFileSync(path.join(repo.dir, 'README.md'), '# main\n');
+      commitAll(repo.dir, 'main');
+      const job = { id: 'j', worktree: wt, branch: 'feat' };
+      const cases = (when: string) => {
+        assert.equal(jobWorktreeProblem(repo.dir, job), null, `${when}: the job's own worktree on its branch`);
+        assert.match(jobWorktreeProblem(repo.dir, { ...job, worktree: repo.dir }) ?? '', /main checkout/, `${when}: the main checkout`);
+        const link = `${wt}-link`;
+        fs.symlinkSync(repo.dir, link);
+        try {
+          assert.match(jobWorktreeProblem(repo.dir, { ...job, worktree: link }) ?? '', /main checkout/, `${when}: a link to the main checkout`);
+        } finally {
+          fs.rmSync(link);
+        }
+        fs.mkdirSync(path.join(wt, 'sub'), { recursive: true });
+        assert.match(jobWorktreeProblem(repo.dir, { ...job, worktree: path.join(wt, 'sub') }) ?? '', /not the root of a git worktree/, `${when}: a subdirectory`);
+        const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-plain-'));
+        try {
+          assert.match(jobWorktreeProblem(repo.dir, { ...job, worktree: plain }) ?? '', /not the root of a git worktree/, `${when}: not a repo`);
+        } finally {
+          fs.rmSync(plain, { recursive: true, force: true });
+        }
+        assert.match(jobWorktreeProblem(repo.dir, { ...job, branch: 'other' }) ?? '', /not the job's branch other/, `${when}: another branch`);
+      };
+      assert.throws(() => git('merge', 'main'));
+      assert.ok(fs.existsSync(path.resolve(wt, git('rev-parse', '--git-path', 'MERGE_HEAD').trim())));
+      cases('mid-merge');
+      git('merge', '--abort');
+      assert.throws(() => git('rebase', 'main'));
+      assert.ok(fs.existsSync(path.resolve(wt, git('rev-parse', '--git-path', 'rebase-merge').trim())));
+      cases('mid-rebase');
+      git('rebase', '--abort');
+    } finally {
+      fs.rmSync(wt, { recursive: true, force: true });
+      repo.cleanup();
+    }
+  });
 
-  // --continue checks the guard before it touches a generated path, not only before it builds.
-  const g = fixture();
-  try {
-    generatedOnly(g);
-    assert.throws(() => g.git('merge', '--no-edit', 'main'));
-    const expected = g.unmerged().sort();
-    assert.ok(expected.includes('dist/out.txt'), expected.join());
-    const ours = g.git('show', ':2:dist/out.txt');
-    g.git('update-ref', 'refs/heads/elsewhere', 'HEAD');
-    g.git('symbolic-ref', 'HEAD', 'refs/heads/elsewhere');
-    const head = g.git('rev-parse', 'HEAD');
-    const before = genRuns(g);
-    const r = g.forge(['integrate', g.id, '--continue']);
-    assert.equal(r.status, 1);
-    assert.deepEqual([r.out.ok, r.out.inProgress], [false, true]);
-    assert.deepEqual(r.out.conflicts.sort(), expected);
-    assert.match(r.out.regenerateError, /refusing to regenerate: .*not the job's branch/);
-    assert.deepEqual(g.unmerged().sort(), expected, 'nothing was taken from the base side or staged');
-    assert.equal(g.git('show', ':2:dist/out.txt'), ours);
-    assert.equal(genRuns(g), before, 'the build did not run');
-    assert.equal(g.git('rev-parse', 'HEAD'), head, 'nothing committed');
-  } finally {
-    g.cleanup();
-  }
+  test('integrate does not regenerate in a worktree on another branch', async () => {
+    const f = await fixture();
+    try {
+      generatedOnly(f);
+      f.git('checkout', '-q', '-b', 'elsewhere');
+      const before = genRuns(f);
+      const r = await f.forge(['integrate', f.id, '--strategy', 'merge']);
+      assert.equal(r.status, 1);
+      assert.ok(r.out.conflicts.includes('dist/out.txt'));
+      assert.match(r.out.regenerateError, /refusing to regenerate: .*not the job's branch/);
+      assert.equal(genRuns(f), before, 'the build did not run');
+      assert.equal(f.inProgress('MERGE_HEAD'), false);
+      assert.equal(f.git('status', '--porcelain'), '');
+    } finally {
+      f.cleanup();
+    }
+
+    // --continue checks the guard before it touches a generated path, not only before it builds.
+    const g = await fixture();
+    try {
+      generatedOnly(g);
+      assert.throws(() => g.git('merge', '--no-edit', 'main'));
+      const expected = g.unmerged().sort();
+      assert.ok(expected.includes('dist/out.txt'), expected.join());
+      const ours = g.git('show', ':2:dist/out.txt');
+      g.git('update-ref', 'refs/heads/elsewhere', 'HEAD');
+      g.git('symbolic-ref', 'HEAD', 'refs/heads/elsewhere');
+      const head = g.git('rev-parse', 'HEAD');
+      const before = genRuns(g);
+      const r = await g.forge(['integrate', g.id, '--continue']);
+      assert.equal(r.status, 1);
+      assert.deepEqual([r.out.ok, r.out.inProgress], [false, true]);
+      assert.deepEqual(r.out.conflicts.sort(), expected);
+      assert.match(r.out.regenerateError, /refusing to regenerate: .*not the job's branch/);
+      assert.deepEqual(g.unmerged().sort(), expected, 'nothing was taken from the base side or staged');
+      assert.equal(g.git('show', ':2:dist/out.txt'), ours);
+      assert.equal(genRuns(g), before, 'the build did not run');
+      assert.equal(g.git('rev-parse', 'HEAD'), head, 'nothing committed');
+    } finally {
+      g.cleanup();
+    }
+  });
 });

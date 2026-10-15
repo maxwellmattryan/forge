@@ -1,12 +1,12 @@
 // 1 job = 1 PR = 1 issue: the schema v4 override, the link status, `forge job link` in every mode,
 // bounded tracker search (local, GitHub via a fake gh, and the custom-adapter fallback) and the
 // `unlinked` note `forge pr open` adds.
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { tempRepo } from './helpers.ts';
+import { forgeAsync, tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
 import { createJob, jobDir, loadJob, readEvents } from '../lib/jobs.ts';
 import { JOB_SCHEMA_VERSION, WAITING_ON } from '../lib/schema.ts';
@@ -21,15 +21,15 @@ import { fixture } from './step-fixture.ts';
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 
 /** A scratch repo initialised with the given tracker, and a CLI runner that never throws. */
-function setup(kind = 'local', backlog?: string, adapter?: string) {
+async function setup(kind = 'local', backlog?: string, adapter?: string) {
   const repo = tempRepo();
   const root = repo.dir;
   if (adapter) {
     fs.mkdirSync(path.join(root, '.forge', 'trackers'), { recursive: true });
     fs.writeFileSync(path.join(root, '.forge', 'trackers', `${kind}.mjs`), adapter);
   }
-  const cli = (...args: string[]) => {
-    const r = spawnSync(process.execPath, [BIN, ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, FORGE_ROOT: root } });
+  const cli = async (...args: string[]) => {
+    const r = await forgeAsync(root, args);
     let json: any = null;
     try {
       json = JSON.parse(r.stdout);
@@ -38,12 +38,12 @@ function setup(kind = 'local', backlog?: string, adapter?: string) {
   };
   const answers = path.join(root, '.answers.json');
   fs.writeFileSync(answers, JSON.stringify({ tracker: { kind }, pr: { enabled: false } }));
-  assert.equal(cli('init', 'write', '--answers', answers).status, 0);
+  assert.equal((await cli('init', 'write', '--answers', answers)).status, 0);
   const backlogFile = path.join(root, '.forge', 'backlog.md');
   if (backlog !== undefined) fs.writeFileSync(backlogFile, backlog);
   const raw = (id: string) => fs.readFileSync(path.join(jobDir(root, id), 'job.json'), 'utf8');
-  const newJob = (title: string, ...extra: string[]) => {
-    const r = cli('job', 'new', '--title', title, ...extra);
+  const newJob = async (title: string, ...extra: string[]) => {
+    const r = await cli('job', 'new', '--title', title, ...extra);
     assert.equal(r.status, 0, r.stderr);
     return r.json.id as string;
   };
@@ -83,206 +83,210 @@ test('issueLinkStatus covers every case', () => {
   assert.equal(issueLinkStatus(job(), local), 'missing');
 });
 
-test('job link: links, refuses and stays idempotent', () => {
-  const s = setup('local', '# Backlog\n\n- [ ] Reading time badge\n- [ ] Dark mode toggle\n');
-  try {
-    const id = s.newJob('Show reading time');
-    const linked = s.cli('job', 'link', id, '#reading-time-badge');
-    assert.equal(linked.status, 0, linked.stderr);
-    assert.deepEqual(linked.json, { id, source: { tracker: 'local', ref: 'reading-time-badge', url: null } });
-    assert.deepEqual(loadJob(s.root, id).source, { tracker: 'local', ref: 'reading-time-badge', url: null });
-    assert.match(s.backlog(), new RegExp(`- \\[~\\] Reading time badge → ${id}`));
-    assert.deepEqual(readEvents(s.root, id).filter((e) => e.type === 'linked').map((e: any) => e.ref), ['reading-time-badge']);
+// The CLI tests each build their own scratch repo, so they run side by side; the GitHub tests below
+// swap process.env.PATH for a fake gh and stay outside, one at a time.
+describe('forge job link', { concurrency: 4 }, () => {
+  test('job link: links, refuses and stays idempotent', async () => {
+    const s = await setup('local', '# Backlog\n\n- [ ] Reading time badge\n- [ ] Dark mode toggle\n');
+    try {
+      const id = await s.newJob('Show reading time');
+      const linked = await s.cli('job', 'link', id, '#reading-time-badge');
+      assert.equal(linked.status, 0, linked.stderr);
+      assert.deepEqual(linked.json, { id, source: { tracker: 'local', ref: 'reading-time-badge', url: null } });
+      assert.deepEqual(loadJob(s.root, id).source, { tracker: 'local', ref: 'reading-time-badge', url: null });
+      assert.match(s.backlog(), new RegExp(`- \\[~\\] Reading time badge → ${id}`));
+      assert.deepEqual(readEvents(s.root, id).filter((e) => e.type === 'linked').map((e: any) => e.ref), ['reading-time-badge']);
 
-    const before = s.raw(id);
-    const again = s.cli('job', 'link', id, 'reading-time-badge');
-    assert.equal(again.status, 0);
-    assert.deepEqual(again.json, linked.json, 'the same ref again is a no-op');
-    assert.equal(s.raw(id), before);
-    assert.equal(readEvents(s.root, id).filter((e) => e.type === 'linked').length, 1);
+      const before = s.raw(id);
+      const again = await s.cli('job', 'link', id, 'reading-time-badge');
+      assert.equal(again.status, 0);
+      assert.deepEqual(again.json, linked.json, 'the same ref again is a no-op');
+      assert.equal(s.raw(id), before);
+      assert.equal(readEvents(s.root, id).filter((e) => e.type === 'linked').length, 1);
 
-    const other = s.cli('job', 'link', id, 'dark-mode-toggle');
-    assert.notEqual(other.status, 0);
-    assert.match(other.stderr, /already linked to reading-time-badge/);
-    assert.equal(s.raw(id), before, 'a different ref leaves job.json unchanged');
+      const other = await s.cli('job', 'link', id, 'dark-mode-toggle');
+      assert.notEqual(other.status, 0);
+      assert.match(other.stderr, /already linked to reading-time-badge/);
+      assert.equal(s.raw(id), before, 'a different ref leaves job.json unchanged');
 
-    const second = s.newJob('Another thing');
-    const before2 = s.raw(second);
-    const unknown = s.cli('job', 'link', second, 'no-such-item');
-    assert.equal(unknown.status, 1);
-    assert.match(unknown.stderr, /no local item "no-such-item"/);
-    const taken = s.cli('job', 'link', second, 'reading-time-badge');
-    assert.equal(taken.status, 1);
-    assert.match(taken.stderr, new RegExp(`active job ${id}`));
-    const bad = s.cli('job', 'link', second, '../etc');
-    assert.notEqual(bad.status, 0);
-    assert.equal(s.raw(second), before2, 'every refusal leaves job.json unchanged');
+      const second = await s.newJob('Another thing');
+      const before2 = s.raw(second);
+      const unknown = await s.cli('job', 'link', second, 'no-such-item');
+      assert.equal(unknown.status, 1);
+      assert.match(unknown.stderr, /no local item "no-such-item"/);
+      const taken = await s.cli('job', 'link', second, 'reading-time-badge');
+      assert.equal(taken.status, 1);
+      assert.match(taken.stderr, new RegExp(`active job ${id}`));
+      const bad = await s.cli('job', 'link', second, '../etc');
+      assert.notEqual(bad.status, 0);
+      assert.equal(s.raw(second), before2, 'every refusal leaves job.json unchanged');
 
-    const usage = s.cli('job', 'link', second, 'dark-mode-toggle', '--none');
-    assert.notEqual(usage.status, 0, 'exactly one mode');
-    assert.match(usage.stderr, /usage: forge job link/);
-  } finally {
-    s.repo.cleanup();
-  }
-  const n = setup('none');
-  try {
-    const id = n.newJob('Untracked work');
-    const before = n.raw(id);
-    const r = n.cli('job', 'link', id, 'anything');
-    assert.notEqual(r.status, 0);
-    assert.match(r.stderr, /tracker.kind is "none"/);
-    assert.equal(n.raw(id), before);
-  } finally {
-    n.repo.cleanup();
-  }
-});
-
-test('job link --create and --none', () => {
-  const s = setup('local', '# Backlog\n');
-  try {
-    const id = s.newJob('Export to CSV', '--body', 'Users want a CSV export.\n\nWith headers.');
-    const r = s.cli('job', 'link', id, '--create');
-    assert.equal(r.status, 0, r.stderr);
-    assert.deepEqual(r.json, { id, source: { tracker: 'local', ref: 'export-to-csv', url: null }, created: true });
-    const text = s.backlog();
-    assert.match(text, new RegExp(`- \\[~\\] Export to CSV → ${id}\\n  Users want a CSV export\\.\\n  With headers\\.`));
-    assert.ok(!text.includes('# Export to CSV'), 'the request title line is not part of the body');
-
-    const again = s.cli('job', 'link', id, '--create');
-    assert.notEqual(again.status, 0, 'a linked job gets no second issue');
-
-    const waived = s.newJob('Bump a typo');
-    const none = s.cli('job', 'link', waived, '--none', '--reason', 'too small for an issue');
-    assert.equal(none.status, 0, none.stderr);
-    assert.equal(none.json.noIssue.reason, 'too small for an issue');
-    assert.equal(loadJob(s.root, waived).noIssue!.reason, 'too small for an issue');
-    const ev = readEvents(s.root, waived).find((e) => e.type === 'issue-link') as any;
-    assert.deepEqual([ev.none, ev.reason], [true, 'too small for an issue']);
-    assert.equal(s.cli('job', 'link', waived, '--none').json.noIssue.reason, null, 'the reason is optional');
-
-    const refused = s.cli('job', 'link', id, '--none', '--reason', 'x');
-    assert.notEqual(refused.status, 0);
-    assert.match(refused.stderr, /already linked/);
-    assert.equal(loadJob(s.root, id).noIssue, null);
-
-    // Linking clears an earlier override.
-    s.cli('tracker', 'create', '--title', 'Typo fixes');
-    assert.equal(s.cli('job', 'link', waived, 'typo-fixes').status, 0);
-    assert.equal(loadJob(s.root, waived).noIssue, null);
-  } finally {
-    s.repo.cleanup();
-  }
-});
-
-test('job link: a failed claim exits 3 and writes nothing', () => {
-  const adapter = `export default { name: 'acme', list: () => [], get: (_c, ref) => (ref === 'A-1' ? { ref: 'A-1', title: 'Held', url: 'https://acme.example/A-1' } : null), claim: () => ({ ok: false, reason: 'assigned to someone else' }), update() {}, comment() {}, create: () => ({ ref: 'A-1' }), close() {} };\n`;
-  const s = setup('acme', undefined, adapter);
-  try {
-    const id = s.newJob('Held work');
-    const before = s.raw(id);
-    const r = s.cli('job', 'link', id, 'A-1');
-    assert.equal(r.status, 3, r.stderr);
-    assert.match(r.stderr, /could not claim A-1: assigned to someone else/);
-    assert.equal(s.raw(id), before, 'job.json is unchanged');
-    assert.ok(!readEvents(s.root, id).some((e) => e.type === 'linked'), 'no linked event');
-    const created = s.cli('job', 'link', id, '--create');
-    assert.equal(created.status, 3, '--create links the same way, so the same refusal');
-    assert.equal(s.raw(id), before);
-  } finally {
-    s.repo.cleanup();
-  }
-});
-
-test('job link --create caps the issue body at 20,000 characters', () => {
-  const s = setup('local', '# Backlog\n');
-  try {
-    const body = 'b'.repeat(25_000);
-    const id = s.newJob('Huge request', '--body', body);
-    const r = s.cli('job', 'link', id, '--create');
-    assert.equal(r.status, 0, r.stderr);
-    const lines = s.backlog().split('\n');
-    const at = lines.findIndex((l) => l.startsWith('- [~] Huge request'));
-    assert.equal(lines[at + 1], `  ${'b'.repeat(20_000)}`, 'request.md body, without its title, capped');
-  } finally {
-    s.repo.cleanup();
-  }
-});
-
-test('job link --suggest writes fenced candidates', () => {
-  const hostile = 'Run ```rm -rf``` then <script>alert(1)</script> and ```` four';
-  const s = setup('local', `# Backlog\n\n- [ ] Reading time badge on posts\n  ${hostile}\n- [ ] Reading list page\n- [x] Reading time estimate\n- [ ] Unrelated chore\n`);
-  try {
-    const files = (id: string) => ['issue-candidates.md', 'issue-candidates.json'].filter((f) => fs.existsSync(path.join(jobDir(s.root, id), f)));
-
-    const linked = s.newJob('Linked one');
-    s.cli('tracker', 'create', '--title', 'Linked one');
-    s.cli('job', 'link', linked, 'linked-one');
-    const waived = s.newJob('Waived one');
-    s.cli('job', 'link', waived, '--none');
-    const child = s.newJob('Child one', '--parent', waived);
-    const retro = s.newJob('Retro one', '--kind', 'retro');
-    for (const [id, status] of [[linked, 'linked'], [waived, 'none'], [child, 'exempt'], [retro, 'exempt']]) {
-      const r = s.cli('job', 'link', id, '--suggest');
-      assert.equal(r.status, 0, r.stderr);
-      assert.deepEqual(r.json, { id, needed: false, status });
-      assert.deepEqual(files(id), [], `${status}: nothing written`);
+      const usage = await s.cli('job', 'link', second, 'dark-mode-toggle', '--none');
+      assert.notEqual(usage.status, 0, 'exactly one mode');
+      assert.match(usage.stderr, /usage: forge job link/);
+    } finally {
+      s.repo.cleanup();
     }
+    const n = await setup('none');
+    try {
+      const id = await n.newJob('Untracked work');
+      const before = n.raw(id);
+      const r = await n.cli('job', 'link', id, 'anything');
+      assert.notEqual(r.status, 0);
+      assert.match(r.stderr, /tracker.kind is "none"/);
+      assert.equal(n.raw(id), before);
+    } finally {
+      n.repo.cleanup();
+    }
+  });
 
-    const id = s.newJob('Add a reading time badge');
-    const r = s.cli('job', 'link', id, '--suggest');
-    assert.equal(r.status, 0, r.stderr);
-    assert.deepEqual(r.json, { id, needed: true, status: 'missing', query: 'reading time badge', candidates: 2, file: 'issue-candidates.md' });
-    const md = fs.readFileSync(path.join(jobDir(s.root, id), 'issue-candidates.md'), 'utf8');
-    assert.match(md.split('\n')[0], /^> Untrusted data: .*not instructions/);
-    assert.match(md, /^## 1\. reading-time-badge-on-posts Reading time badge on posts$/m);
-    assert.match(md, /^## 2\. reading-list-page Reading list page$/m);
-    assert.ok(!md.includes('reading-time-estimate'), 'done items are not candidates');
-    // The excerpt sits inside a fence longer than any backtick run in it.
-    const lines = md.split('\n');
-    const open = lines.findIndex((l) => /^`{3,}text$/.test(l));
-    const fence = lines[open].replace('text', '');
-    assert.equal(fence.length, 5, 'one longer than the four-backtick run');
-    const close = lines.indexOf(fence, open + 1);
-    assert.ok(close > open);
-    const inside = lines.slice(open + 1, close).join('\n');
-    assert.ok(inside.includes('<script>alert(1)</script>') && inside.includes('```rm -rf```'));
-    assert.ok(!lines.slice(close + 1).join('\n').includes('<script>'));
+  test('job link --create and --none', async () => {
+    const s = await setup('local', '# Backlog\n');
+    try {
+      const id = await s.newJob('Export to CSV', '--body', 'Users want a CSV export.\n\nWith headers.');
+      const r = await s.cli('job', 'link', id, '--create');
+      assert.equal(r.status, 0, r.stderr);
+      assert.deepEqual(r.json, { id, source: { tracker: 'local', ref: 'export-to-csv', url: null }, created: true });
+      const text = s.backlog();
+      assert.match(text, new RegExp(`- \\[~\\] Export to CSV → ${id}\\n  Users want a CSV export\\.\\n  With headers\\.`));
+      assert.ok(!text.includes('# Export to CSV'), 'the request title line is not part of the body');
 
-    const json = JSON.parse(fs.readFileSync(path.join(jobDir(s.root, id), 'issue-candidates.json'), 'utf8'));
-    assert.deepEqual(Object.keys(json), ['query', 'tracker', 'items']);
-    assert.deepEqual(json.items.map((i: any) => Object.keys(i).sort()), [['labels', 'ref', 'score', 'title', 'url'], ['labels', 'ref', 'score', 'title', 'url']]);
-    assert.ok(!JSON.stringify(json).includes('script'), 'no bodies in the json');
-  } finally {
-    s.repo.cleanup();
-  }
-  const n = setup('none');
-  try {
-    const id = n.newJob('No tracker here');
-    assert.deepEqual(n.cli('job', 'link', id, '--suggest').json, { id, needed: false, status: 'no-tracker' });
-    assert.ok(!fs.existsSync(path.join(jobDir(n.root, id), 'issue-candidates.md')));
-  } finally {
-    n.repo.cleanup();
-  }
-});
+      const again = await s.cli('job', 'link', id, '--create');
+      assert.notEqual(again.status, 0, 'a linked job gets no second issue');
 
-test('job link --suggest still writes both files when the search fails', () => {
-  const s = setup('local', '# Backlog\n');
-  try {
-    const id = s.newJob('Reading time badge');
-    // A directory where the backlog file should be makes the tracker's read throw.
-    fs.rmSync(path.join(s.root, '.forge', 'backlog.md'));
-    fs.mkdirSync(path.join(s.root, '.forge', 'backlog.md'));
-    const r = s.cli('job', 'link', id, '--suggest');
-    assert.equal(r.status, 0, r.stderr);
-    assert.equal(r.json.needed, true);
-    assert.equal(r.json.candidates, 0);
-    assert.ok(r.json.searchError);
-    const dir = jobDir(s.root, id);
-    assert.match(fs.readFileSync(path.join(dir, 'issue-candidates.md'), 'utf8'), /The search failed/);
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'issue-candidates.json'), 'utf8')).items, []);
-  } finally {
-    s.repo.cleanup();
-  }
+      const waived = await s.newJob('Bump a typo');
+      const none = await s.cli('job', 'link', waived, '--none', '--reason', 'too small for an issue');
+      assert.equal(none.status, 0, none.stderr);
+      assert.equal(none.json.noIssue.reason, 'too small for an issue');
+      assert.equal(loadJob(s.root, waived).noIssue!.reason, 'too small for an issue');
+      const ev = readEvents(s.root, waived).find((e) => e.type === 'issue-link') as any;
+      assert.deepEqual([ev.none, ev.reason], [true, 'too small for an issue']);
+      assert.equal((await s.cli('job', 'link', waived, '--none')).json.noIssue.reason, null, 'the reason is optional');
+
+      const refused = await s.cli('job', 'link', id, '--none', '--reason', 'x');
+      assert.notEqual(refused.status, 0);
+      assert.match(refused.stderr, /already linked/);
+      assert.equal(loadJob(s.root, id).noIssue, null);
+
+      // Linking clears an earlier override.
+      await s.cli('tracker', 'create', '--title', 'Typo fixes');
+      assert.equal((await s.cli('job', 'link', waived, 'typo-fixes')).status, 0);
+      assert.equal(loadJob(s.root, waived).noIssue, null);
+    } finally {
+      s.repo.cleanup();
+    }
+  });
+
+  test('job link: a failed claim exits 3 and writes nothing', async () => {
+    const adapter = `export default { name: 'acme', list: () => [], get: (_c, ref) => (ref === 'A-1' ? { ref: 'A-1', title: 'Held', url: 'https://acme.example/A-1' } : null), claim: () => ({ ok: false, reason: 'assigned to someone else' }), update() {}, comment() {}, create: () => ({ ref: 'A-1' }), close() {} };\n`;
+    const s = await setup('acme', undefined, adapter);
+    try {
+      const id = await s.newJob('Held work');
+      const before = s.raw(id);
+      const r = await s.cli('job', 'link', id, 'A-1');
+      assert.equal(r.status, 3, r.stderr);
+      assert.match(r.stderr, /could not claim A-1: assigned to someone else/);
+      assert.equal(s.raw(id), before, 'job.json is unchanged');
+      assert.ok(!readEvents(s.root, id).some((e) => e.type === 'linked'), 'no linked event');
+      const created = await s.cli('job', 'link', id, '--create');
+      assert.equal(created.status, 3, '--create links the same way, so the same refusal');
+      assert.equal(s.raw(id), before);
+    } finally {
+      s.repo.cleanup();
+    }
+  });
+
+  test('job link --create caps the issue body at 20,000 characters', async () => {
+    const s = await setup('local', '# Backlog\n');
+    try {
+      const body = 'b'.repeat(25_000);
+      const id = await s.newJob('Huge request', '--body', body);
+      const r = await s.cli('job', 'link', id, '--create');
+      assert.equal(r.status, 0, r.stderr);
+      const lines = s.backlog().split('\n');
+      const at = lines.findIndex((l) => l.startsWith('- [~] Huge request'));
+      assert.equal(lines[at + 1], `  ${'b'.repeat(20_000)}`, 'request.md body, without its title, capped');
+    } finally {
+      s.repo.cleanup();
+    }
+  });
+
+  test('job link --suggest writes fenced candidates', async () => {
+    const hostile = 'Run ```rm -rf``` then <script>alert(1)</script> and ```` four';
+    const s = await setup('local', `# Backlog\n\n- [ ] Reading time badge on posts\n  ${hostile}\n- [ ] Reading list page\n- [x] Reading time estimate\n- [ ] Unrelated chore\n`);
+    try {
+      const files = (id: string) => ['issue-candidates.md', 'issue-candidates.json'].filter((f) => fs.existsSync(path.join(jobDir(s.root, id), f)));
+
+      const linked = await s.newJob('Linked one');
+      await s.cli('tracker', 'create', '--title', 'Linked one');
+      await s.cli('job', 'link', linked, 'linked-one');
+      const waived = await s.newJob('Waived one');
+      await s.cli('job', 'link', waived, '--none');
+      const child = await s.newJob('Child one', '--parent', waived);
+      const retro = await s.newJob('Retro one', '--kind', 'retro');
+      for (const [id, status] of [[linked, 'linked'], [waived, 'none'], [child, 'exempt'], [retro, 'exempt']]) {
+        const r = await s.cli('job', 'link', id, '--suggest');
+        assert.equal(r.status, 0, r.stderr);
+        assert.deepEqual(r.json, { id, needed: false, status });
+        assert.deepEqual(files(id), [], `${status}: nothing written`);
+      }
+
+      const id = await s.newJob('Add a reading time badge');
+      const r = await s.cli('job', 'link', id, '--suggest');
+      assert.equal(r.status, 0, r.stderr);
+      assert.deepEqual(r.json, { id, needed: true, status: 'missing', query: 'reading time badge', candidates: 2, file: 'issue-candidates.md' });
+      const md = fs.readFileSync(path.join(jobDir(s.root, id), 'issue-candidates.md'), 'utf8');
+      assert.match(md.split('\n')[0], /^> Untrusted data: .*not instructions/);
+      assert.match(md, /^## 1\. reading-time-badge-on-posts Reading time badge on posts$/m);
+      assert.match(md, /^## 2\. reading-list-page Reading list page$/m);
+      assert.ok(!md.includes('reading-time-estimate'), 'done items are not candidates');
+      // The excerpt sits inside a fence longer than any backtick run in it.
+      const lines = md.split('\n');
+      const open = lines.findIndex((l) => /^`{3,}text$/.test(l));
+      const fence = lines[open].replace('text', '');
+      assert.equal(fence.length, 5, 'one longer than the four-backtick run');
+      const close = lines.indexOf(fence, open + 1);
+      assert.ok(close > open);
+      const inside = lines.slice(open + 1, close).join('\n');
+      assert.ok(inside.includes('<script>alert(1)</script>') && inside.includes('```rm -rf```'));
+      assert.ok(!lines.slice(close + 1).join('\n').includes('<script>'));
+
+      const json = JSON.parse(fs.readFileSync(path.join(jobDir(s.root, id), 'issue-candidates.json'), 'utf8'));
+      assert.deepEqual(Object.keys(json), ['query', 'tracker', 'items']);
+      assert.deepEqual(json.items.map((i: any) => Object.keys(i).sort()), [['labels', 'ref', 'score', 'title', 'url'], ['labels', 'ref', 'score', 'title', 'url']]);
+      assert.ok(!JSON.stringify(json).includes('script'), 'no bodies in the json');
+    } finally {
+      s.repo.cleanup();
+    }
+    const n = await setup('none');
+    try {
+      const id = await n.newJob('No tracker here');
+      assert.deepEqual((await n.cli('job', 'link', id, '--suggest')).json, { id, needed: false, status: 'no-tracker' });
+      assert.ok(!fs.existsSync(path.join(jobDir(n.root, id), 'issue-candidates.md')));
+    } finally {
+      n.repo.cleanup();
+    }
+  });
+
+  test('job link --suggest still writes both files when the search fails', async () => {
+    const s = await setup('local', '# Backlog\n');
+    try {
+      const id = await s.newJob('Reading time badge');
+      // A directory where the backlog file should be makes the tracker's read throw.
+      fs.rmSync(path.join(s.root, '.forge', 'backlog.md'));
+      fs.mkdirSync(path.join(s.root, '.forge', 'backlog.md'));
+      const r = await s.cli('job', 'link', id, '--suggest');
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(r.json.needed, true);
+      assert.equal(r.json.candidates, 0);
+      assert.ok(r.json.searchError);
+      const dir = jobDir(s.root, id);
+      assert.match(fs.readFileSync(path.join(dir, 'issue-candidates.md'), 'utf8'), /The search failed/);
+      assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'issue-candidates.json'), 'utf8')).items, []);
+    } finally {
+      s.repo.cleanup();
+    }
+  });
 });
 
 // A stand-in `gh`: each call's argv goes to the log one element per line, then a separator.
@@ -496,159 +500,161 @@ test('pr open reports unlinked only when missing', () => {
   assert.equal(src.match(/created: (true|false), \.\.\.prLinkNote\(job, config\)/g)?.length, 2);
 });
 
-test('job human --link links, then records the approval', () => {
-  const s = setup('local', '# Backlog\n\n- [ ] Reading time badge\n');
-  try {
-    const humans = (id: string) => readEvents(s.root, id).filter((e) => e.type === 'human') as any[];
-    const linked = s.newJob('Show reading time');
-    const r = s.cli('job', 'human', linked, 'approve-spec', '--link', '#reading-time-badge', '--note', 'looks good');
-    assert.equal(r.status, 0, r.stderr);
-    assert.deepEqual(r.json, { ok: true, link: { id: linked, source: { tracker: 'local', ref: 'reading-time-badge', url: null } } });
-    assert.equal(loadJob(s.root, linked).source?.ref, 'reading-time-badge');
-    assert.match(s.backlog(), new RegExp(`- \\[~\\] Reading time badge → ${linked}`), 'the item is claimed');
-    const evs = readEvents(s.root, linked);
-    const li = evs.findIndex((e) => e.type === 'linked');
-    const hi = evs.findIndex((e) => e.type === 'human');
-    assert.ok(li >= 0 && hi > li, 'the link is recorded before the approval');
-    assert.deepEqual([(evs[hi] as any).action, (evs[hi] as any).note], ['approve-spec', 'looks good']);
+describe('forge job human --link', { concurrency: 4 }, () => {
+  test('job human --link links, then records the approval', async () => {
+    const s = await setup('local', '# Backlog\n\n- [ ] Reading time badge\n');
+    try {
+      const humans = (id: string) => readEvents(s.root, id).filter((e) => e.type === 'human') as any[];
+      const linked = await s.newJob('Show reading time');
+      const r = await s.cli('job', 'human', linked, 'approve-spec', '--link', '#reading-time-badge', '--note', 'looks good');
+      assert.equal(r.status, 0, r.stderr);
+      assert.deepEqual(r.json, { ok: true, link: { id: linked, source: { tracker: 'local', ref: 'reading-time-badge', url: null } } });
+      assert.equal(loadJob(s.root, linked).source?.ref, 'reading-time-badge');
+      assert.match(s.backlog(), new RegExp(`- \\[~\\] Reading time badge → ${linked}`), 'the item is claimed');
+      const evs = readEvents(s.root, linked);
+      const li = evs.findIndex((e) => e.type === 'linked');
+      const hi = evs.findIndex((e) => e.type === 'human');
+      assert.ok(li >= 0 && hi > li, 'the link is recorded before the approval');
+      assert.deepEqual([(evs[hi] as any).action, (evs[hi] as any).note], ['approve-spec', 'looks good']);
 
-    const created = s.newJob('Export to CSV');
-    const c = s.cli('job', 'human', created, 'approve-spec', '--link', 'new');
-    assert.equal(c.status, 0, c.stderr);
-    assert.deepEqual(c.json, { ok: true, link: { id: created, source: { tracker: 'local', ref: 'export-to-csv', url: null }, created: true } });
-    assert.equal(humans(created)[0].action, 'approve-spec');
+      const created = await s.newJob('Export to CSV');
+      const c = await s.cli('job', 'human', created, 'approve-spec', '--link', 'new');
+      assert.equal(c.status, 0, c.stderr);
+      assert.deepEqual(c.json, { ok: true, link: { id: created, source: { tracker: 'local', ref: 'export-to-csv', url: null }, created: true } });
+      assert.equal(humans(created)[0].action, 'approve-spec');
 
-    const waived = s.newJob('Bump a typo');
-    const w = s.cli('job', 'human', waived, 'approve-spec', '--link', 'none', '--reason', 'too small for an issue');
-    assert.equal(w.status, 0, w.stderr);
-    assert.equal(w.json.ok, true);
-    assert.equal(w.json.link.noIssue.reason, 'too small for an issue');
-    assert.equal(loadJob(s.root, waived).noIssue!.reason, 'too small for an issue');
-    assert.equal(humans(waived).length, 1);
+      const waived = await s.newJob('Bump a typo');
+      const w = await s.cli('job', 'human', waived, 'approve-spec', '--link', 'none', '--reason', 'too small for an issue');
+      assert.equal(w.status, 0, w.stderr);
+      assert.equal(w.json.ok, true);
+      assert.equal(w.json.link.noIssue.reason, 'too small for an issue');
+      assert.equal(loadJob(s.root, waived).noIssue!.reason, 'too small for an issue');
+      assert.equal(humans(waived).length, 1);
 
-    // `approve` answers the issue-link gate the same way.
-    s.cli('tracker', 'create', '--title', 'Dark mode toggle');
-    const gate = s.newJob('Dark mode');
-    const a = s.cli('job', 'human', gate, 'approve', '--link', 'dark-mode-toggle', '--note', 'that one');
-    assert.equal(a.status, 0, a.stderr);
-    assert.deepEqual(a.json, { ok: true, link: { id: gate, source: { tracker: 'local', ref: 'dark-mode-toggle', url: null } } });
-    assert.deepEqual([humans(gate)[0].action, humans(gate)[0].note], ['approve', 'that one']);
-    const gate2 = s.newJob('Another one');
-    const a2 = s.cli('job', 'human', gate2, 'approve', '--link', 'new');
-    assert.equal(a2.status, 0, a2.stderr);
-    assert.equal(a2.json.link.created, true);
-    const gate3 = s.newJob('Third one');
-    const a3 = s.cli('job', 'human', gate3, 'approve', '--link', 'none');
-    assert.equal(a3.status, 0, a3.stderr);
-    assert.equal(a3.json.link.noIssue.reason, null);
+      // `approve` answers the issue-link gate the same way.
+      await s.cli('tracker', 'create', '--title', 'Dark mode toggle');
+      const gate = await s.newJob('Dark mode');
+      const a = await s.cli('job', 'human', gate, 'approve', '--link', 'dark-mode-toggle', '--note', 'that one');
+      assert.equal(a.status, 0, a.stderr);
+      assert.deepEqual(a.json, { ok: true, link: { id: gate, source: { tracker: 'local', ref: 'dark-mode-toggle', url: null } } });
+      assert.deepEqual([humans(gate)[0].action, humans(gate)[0].note], ['approve', 'that one']);
+      const gate2 = await s.newJob('Another one');
+      const a2 = await s.cli('job', 'human', gate2, 'approve', '--link', 'new');
+      assert.equal(a2.status, 0, a2.stderr);
+      assert.equal(a2.json.link.created, true);
+      const gate3 = await s.newJob('Third one');
+      const a3 = await s.cli('job', 'human', gate3, 'approve', '--link', 'none');
+      assert.equal(a3.status, 0, a3.stderr);
+      assert.equal(a3.json.link.noIssue.reason, null);
 
-    // Without --link the output is unchanged.
-    const plain = s.newJob('Plain approval');
-    assert.deepEqual(s.cli('job', 'human', plain, 'approve-spec').json, { ok: true });
-    assert.equal(loadJob(s.root, plain).source, null);
-  } finally {
-    s.repo.cleanup();
-  }
-});
-
-test('job human --link refuses and records nothing', () => {
-  const s = setup('local', '# Backlog\n\n- [ ] Reading time badge\n');
-  try {
-    const holder = s.newJob('Holder');
-    assert.equal(s.cli('job', 'link', holder, 'reading-time-badge').status, 0);
-    const id = s.newJob('Refused');
-    const before = s.raw(id);
-    const humans = () => readEvents(s.root, id).filter((e) => e.type === 'human').length;
-    const refusals: [string[], RegExp][] = [
-      [['approve-spec', '--link', 'no-such-item'], /no local item "no-such-item"/],
-      [['approve-spec', '--link', 'reading-time-badge'], new RegExp(`active job ${holder}`)],
-      [['approve', '--link', '../x'], /invalid ref/],
-      [['approve-spec', '--link', '-x'], /invalid ref/],
-      [['approve-spec', '--link=--create'], /invalid ref/],
-      [['approve-spec', '--link', '$(id)'], /invalid ref/],
-      [['approve-spec', '--link'], /--link needs <ref>, new or none/],
-      [['approve-spec', '--link', '--note', 'x'], /--link needs <ref>, new or none/],
-      [['approve-spec', '--link', 'new', '--link', 'none'], /--link needs <ref>, new or none/],
-      [['rework', '--link', 'new'], /--link is only for approve and approve-spec/],
-      [['answer', '--link', 'new'], /--link is only for approve and approve-spec/],
-      [['revise-spec', '--link', 'none'], /--link is only for approve and approve-spec/],
-      [['approve-split', '--link', 'new'], /--link is only for approve and approve-spec/],
-      [['revise-split', '--link', 'new'], /--link is only for approve and approve-spec/],
-      [['approve-spec', '--reason', 'x'], /--reason is only for --link none/],
-      [['approve-spec', '--link', 'new', '--reason', 'x'], /--reason is only for --link none/],
-    ];
-    for (const [args, msg] of refusals) {
-      const r = s.cli('job', 'human', id, ...args);
-      assert.notEqual(r.status, 0, args.join(' '));
-      assert.match(r.stderr, msg, args.join(' '));
-      assert.equal(s.raw(id), before, `${args.join(' ')} leaves job.json unchanged`);
-      assert.equal(humans(), 0, `${args.join(' ')} logs no human event`);
+      // Without --link the output is unchanged.
+      const plain = await s.newJob('Plain approval');
+      assert.deepEqual((await s.cli('job', 'human', plain, 'approve-spec')).json, { ok: true });
+      assert.equal(loadJob(s.root, plain).source, null);
+    } finally {
+      s.repo.cleanup();
     }
-    assert.ok(!readEvents(s.root, id).some((e) => e.type === 'linked' || e.type === 'issue-link'));
-  } finally {
-    s.repo.cleanup();
-  }
-  const adapter = `export default { name: 'acme', list: () => [], get: (_c, ref) => (ref === 'A-1' ? { ref: 'A-1', title: 'Held', url: 'https://acme.example/A-1' } : null), claim: () => ({ ok: false, reason: 'assigned to someone else' }), update() {}, comment() {}, create: () => ({ ref: 'A-1' }), close() {} };\n`;
-  const held = setup('acme', undefined, adapter);
-  try {
-    const id = held.newJob('Held work');
-    const before = held.raw(id);
-    const r = held.cli('job', 'human', id, 'approve-spec', '--link', 'A-1');
-    assert.equal(r.status, 3, 'a failed claim keeps its exit code');
-    assert.match(r.stderr, /could not claim A-1/);
-    assert.equal(held.raw(id), before);
-    assert.ok(!readEvents(held.root, id).some((e) => e.type === 'human'));
-  } finally {
-    held.repo.cleanup();
-  }
-  const n = setup('none');
-  try {
-    const id = n.newJob('Untracked work');
-    const before = n.raw(id);
-    for (const link of ['new', 'anything']) {
-      const r = n.cli('job', 'human', id, 'approve-spec', '--link', link);
-      assert.notEqual(r.status, 0);
-      assert.match(r.stderr, /tracker.kind is "none"/);
-      assert.equal(n.raw(id), before);
+  });
+
+  test('job human --link refuses and records nothing', async () => {
+    const s = await setup('local', '# Backlog\n\n- [ ] Reading time badge\n');
+    try {
+      const holder = await s.newJob('Holder');
+      assert.equal((await s.cli('job', 'link', holder, 'reading-time-badge')).status, 0);
+      const id = await s.newJob('Refused');
+      const before = s.raw(id);
+      const humans = () => readEvents(s.root, id).filter((e) => e.type === 'human').length;
+      const refusals: [string[], RegExp][] = [
+        [['approve-spec', '--link', 'no-such-item'], /no local item "no-such-item"/],
+        [['approve-spec', '--link', 'reading-time-badge'], new RegExp(`active job ${holder}`)],
+        [['approve', '--link', '../x'], /invalid ref/],
+        [['approve-spec', '--link', '-x'], /invalid ref/],
+        [['approve-spec', '--link=--create'], /invalid ref/],
+        [['approve-spec', '--link', '$(id)'], /invalid ref/],
+        [['approve-spec', '--link'], /--link needs <ref>, new or none/],
+        [['approve-spec', '--link', '--note', 'x'], /--link needs <ref>, new or none/],
+        [['approve-spec', '--link', 'new', '--link', 'none'], /--link needs <ref>, new or none/],
+        [['rework', '--link', 'new'], /--link is only for approve and approve-spec/],
+        [['answer', '--link', 'new'], /--link is only for approve and approve-spec/],
+        [['revise-spec', '--link', 'none'], /--link is only for approve and approve-spec/],
+        [['approve-split', '--link', 'new'], /--link is only for approve and approve-spec/],
+        [['revise-split', '--link', 'new'], /--link is only for approve and approve-spec/],
+        [['approve-spec', '--reason', 'x'], /--reason is only for --link none/],
+        [['approve-spec', '--link', 'new', '--reason', 'x'], /--reason is only for --link none/],
+      ];
+      for (const [args, msg] of refusals) {
+        const r = await s.cli('job', 'human', id, ...args);
+        assert.notEqual(r.status, 0, args.join(' '));
+        assert.match(r.stderr, msg, args.join(' '));
+        assert.equal(s.raw(id), before, `${args.join(' ')} leaves job.json unchanged`);
+        assert.equal(humans(), 0, `${args.join(' ')} logs no human event`);
+      }
+      assert.ok(!readEvents(s.root, id).some((e) => e.type === 'linked' || e.type === 'issue-link'));
+    } finally {
+      s.repo.cleanup();
     }
-    assert.ok(!readEvents(n.root, id).some((e) => e.type === 'human'));
-  } finally {
-    n.repo.cleanup();
-  }
-});
+    const adapter = `export default { name: 'acme', list: () => [], get: (_c, ref) => (ref === 'A-1' ? { ref: 'A-1', title: 'Held', url: 'https://acme.example/A-1' } : null), claim: () => ({ ok: false, reason: 'assigned to someone else' }), update() {}, comment() {}, create: () => ({ ref: 'A-1' }), close() {} };\n`;
+    const held = await setup('acme', undefined, adapter);
+    try {
+      const id = await held.newJob('Held work');
+      const before = held.raw(id);
+      const r = await held.cli('job', 'human', id, 'approve-spec', '--link', 'A-1');
+      assert.equal(r.status, 3, 'a failed claim keeps its exit code');
+      assert.match(r.stderr, /could not claim A-1/);
+      assert.equal(held.raw(id), before);
+      assert.ok(!readEvents(held.root, id).some((e) => e.type === 'human'));
+    } finally {
+      held.repo.cleanup();
+    }
+    const n = await setup('none');
+    try {
+      const id = await n.newJob('Untracked work');
+      const before = n.raw(id);
+      for (const link of ['new', 'anything']) {
+        const r = await n.cli('job', 'human', id, 'approve-spec', '--link', link);
+        assert.notEqual(r.status, 0);
+        assert.match(r.stderr, /tracker.kind is "none"/);
+        assert.equal(n.raw(id), before);
+      }
+      assert.ok(!readEvents(n.root, id).some((e) => e.type === 'human'));
+    } finally {
+      n.repo.cleanup();
+    }
+  });
 
-test('the spec gate links, and the answers route through commands.md', () => {
-  // `forge job step` I1 still searches before the worktree exists; with candidates, Intake goes on.
-  const intake = (files: StepFile[] = []) => step(fixture({ config: (c) => (c.tracker.kind = 'local'), worktree: false, files, job: { stage: 'backlog', state: 'queued' } }));
-  const i1 = intake();
-  assert.equal(i1.rule, 'I1');
-  assert.ok(i1.action === 'run' && i1.shell === 'forge job link j --suggest');
-  const i3 = intake(['issueCandidates']);
-  assert.equal(i3.rule, 'I3');
-  assert.ok(i3.action === 'run' && i3.shell === 'forge worktree create j');
-  const tell = gateTell(fixture(), 'issue-link');
-  for (const answer of ['/forge approve j <ref> | new | none [reason]', '(untrusted)']) assert.ok(tell.includes(answer), answer);
-  const unlinked = fixture({ config: (c) => (c.tracker.kind = 'local'), job: { stage: 'spec', state: 'waiting', waitingOn: 'spec-approval', reason: 'spec ready, issue unlinked' } });
-  assert.deepEqual(gateTell(unlinked, 'spec-approval').split('\n'), [gateTell(fixture(), 'spec-approval'), tell]);
+  test('the spec gate links, and the answers route through commands.md', async () => {
+    // `forge job step` I1 still searches before the worktree exists; with candidates, Intake goes on.
+    const intake = (files: StepFile[] = []) => step(fixture({ config: (c) => (c.tracker.kind = 'local'), worktree: false, files, job: { stage: 'backlog', state: 'queued' } }));
+    const i1 = intake();
+    assert.equal(i1.rule, 'I1');
+    assert.ok(i1.action === 'run' && i1.shell === 'forge job link j --suggest');
+    const i3 = intake(['issueCandidates']);
+    assert.equal(i3.rule, 'I3');
+    assert.ok(i3.action === 'run' && i3.shell === 'forge worktree create j');
+    const tell = gateTell(fixture(), 'issue-link');
+    for (const answer of ['/forge approve j <ref> | new | none [reason]', '(untrusted)']) assert.ok(tell.includes(answer), answer);
+    const unlinked = fixture({ config: (c) => (c.tracker.kind = 'local'), job: { stage: 'spec', state: 'waiting', waitingOn: 'spec-approval', reason: 'spec ready, issue unlinked' } });
+    assert.deepEqual(gateTell(unlinked, 'spec-approval').split('\n'), [gateTell(fixture(), 'spec-approval'), tell]);
 
-  const skill = path.resolve(import.meta.dirname, '..', 'skills', 'forge');
-  const ref = path.join(skill, 'reference');
-  const commands = fs.readFileSync(path.join(ref, 'commands.md'), 'utf8');
-  const approve = commands.slice(commands.indexOf('## `approve'), commands.indexOf('## `revise'));
-  const row = (on: string) => approve.split('\n').find((l) => l.startsWith(`| \`${on}\``)) ?? '';
-  for (const s of ['forge job human <job> approve-spec [--link …]', 'spec ready, issue unlinked', '`forge job set <job> --state running`']) assert.ok(row('spec-approval').includes(s), s);
-  for (const s of ['forge job human <job> approve --link <link>', '`forge job set <job> --state running`']) assert.ok(row('issue-link').includes(s), s);
-  for (const s of ['args.link', '`--link <ref>`', '`--link new`', "`--link none --reason '<rest of the note>'`", '^#?[A-Za-z0-9][A-Za-z0-9._-]*$', '`new`, `none`, all digits or starts with `#`', 'the CLI records nothing when the link fails']) assert.ok(approve.includes(s), s);
-  for (const s of ['--stage backlog', 'forge job link <job>']) assert.ok(!approve.includes(s), `${s} is gone from approve`);
-  const requests = fs.readFileSync(path.join(ref, 'requests.md'), 'utf8');
-  for (const s of ['`next` (args.n, default 1) → `next <n>`', '`args.intake: new`', 'Split mode: pipeline.split', 'or on a `spec-approval` job with `args.link` → the link rows of `approve`, using `args.link`']) assert.ok(requests.includes(s), s);
-  const skillMd = fs.readFileSync(path.join(skill, 'SKILL.md'), 'utf8');
-  // Inside the commands table the pipes are escaped, so the row stays one row.
-  assert.ok(skillMd.includes('| `approve <job> [<ref>\\|new\\|none] [note]`, `revise`'), 'SKILL.md commands row');
-  assert.ok(skillMd.includes('approve <job> [<ref>|new|none] [note]'), 'SKILL.md argument-hint');
-  const split = fs.readFileSync(path.join(ref, 'split.md'), 'utf8');
-  assert.ok(split.includes('`forge tracker create --title … --body … --parent <ref>` when the parent job has a `source.ref`, otherwise the same without `--parent`'), 'split.md --parent is conditional');
-  // `unlinked` is reported, never acted on: step's pr-review tell carries it.
-  const waiting = step(fixture({ config: (c) => (c.tracker.kind = 'local'), job: { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', pr: { number: 1, url: 'https://github.com/o/r/pull/1', state: 'OPEN', isDraft: false, lastSyncedAt: 'now' } } }));
-  assert.ok(waiting.action === 'wait' && waiting.tell?.includes('j has no linked issue: `forge job link j <ref>` or `--none`'));
+    const skill = path.resolve(import.meta.dirname, '..', 'skills', 'forge');
+    const ref = path.join(skill, 'reference');
+    const commands = fs.readFileSync(path.join(ref, 'commands.md'), 'utf8');
+    const approve = commands.slice(commands.indexOf('## `approve'), commands.indexOf('## `revise'));
+    const row = (on: string) => approve.split('\n').find((l) => l.startsWith(`| \`${on}\``)) ?? '';
+    for (const s of ['forge job human <job> approve-spec [--link …]', 'spec ready, issue unlinked', '`forge job set <job> --state running`']) assert.ok(row('spec-approval').includes(s), s);
+    for (const s of ['forge job human <job> approve --link <link>', '`forge job set <job> --state running`']) assert.ok(row('issue-link').includes(s), s);
+    for (const s of ['args.link', '`--link <ref>`', '`--link new`', "`--link none --reason '<rest of the note>'`", '^#?[A-Za-z0-9][A-Za-z0-9._-]*$', '`new`, `none`, all digits or starts with `#`', 'the CLI records nothing when the link fails']) assert.ok(approve.includes(s), s);
+    for (const s of ['--stage backlog', 'forge job link <job>']) assert.ok(!approve.includes(s), `${s} is gone from approve`);
+    const requests = fs.readFileSync(path.join(ref, 'requests.md'), 'utf8');
+    for (const s of ['`next` (args.n, default 1) → `next <n>`', '`args.intake: new`', 'Split mode: pipeline.split', 'or on a `spec-approval` job with `args.link` → the link rows of `approve`, using `args.link`']) assert.ok(requests.includes(s), s);
+    const skillMd = fs.readFileSync(path.join(skill, 'SKILL.md'), 'utf8');
+    // Inside the commands table the pipes are escaped, so the row stays one row.
+    assert.ok(skillMd.includes('| `approve <job> [<ref>\\|new\\|none] [note]`, `revise`'), 'SKILL.md commands row');
+    assert.ok(skillMd.includes('approve <job> [<ref>|new|none] [note]'), 'SKILL.md argument-hint');
+    const split = fs.readFileSync(path.join(ref, 'split.md'), 'utf8');
+    assert.ok(split.includes('`forge tracker create --title … --body … --parent <ref>` when the parent job has a `source.ref`, otherwise the same without `--parent`'), 'split.md --parent is conditional');
+    // `unlinked` is reported, never acted on: step's pr-review tell carries it.
+    const waiting = step(fixture({ config: (c) => (c.tracker.kind = 'local'), job: { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', pr: { number: 1, url: 'https://github.com/o/r/pull/1', state: 'OPEN', isDraft: false, lastSyncedAt: 'now' } } }));
+    assert.ok(waiting.action === 'wait' && waiting.tell?.includes('j has no linked issue: `forge job link j <ref>` or `--none`'));
+  });
 });
