@@ -510,7 +510,14 @@ export interface EvalTask {
 
 /** A graded eval job: gradeJob in lib/evals.ts. */
 export interface EvalResult {
-  check: { ran: boolean; pass: boolean | null; tail: string | null; reason?: string };
+  check: {
+    ran: boolean;
+    pass: boolean | null;
+    tail: string | null;
+    reason?: string;
+    /** Paths whose candidate version was replaced by the base before the hidden patch applied. */
+    replaced?: string[];
+  };
   judge: { score: number; outOf: number } | null;
   decision: string | null;
   rounds: number;

@@ -4,16 +4,17 @@
 // Forge configuration, so two runs can be compared to tell whether a change helped.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { DEFAULT_TEST_PATTERN } from './integrity.ts';
 import { createJob, loadJob, logEvent, setJob, jobDir } from './jobs.ts';
 import { paths, exists, PLUGIN_ROOT } from './paths.ts';
 import { createWorktree } from './worktree.ts';
-import { ForgeError, fill, now, readJson, readText, run, slugify, tail, withLock, writeJsonAtomic } from './util.ts';
+import { ForgeError, assertSafeRef, fill, now, readJson, readText, run, slugify, tail, withLock, writeJsonAtomic } from './util.ts';
 import { repoSlug } from './pr.ts';
 import { firstVerifyRun } from './stats.ts';
 import * as yaml from './yaml.ts';
-import type { Config, EvalCompare, EvalResult, EvalRun, EvalSummary, EvalTask } from './types.ts';
+import type { Config, EvalCompare, EvalResult, EvalRun, EvalSummary, EvalTask, Job } from './types.ts';
 
 /** An eval task as loadTask reads it: the served EvalTask plus its directory and request text. */
 export type LoadedTask = EvalTask & { dir: string; request: string };
@@ -169,6 +170,86 @@ export function startRun(root: string, config: Config, opts: { tasks?: string[];
   return record;
 }
 
+const NOT_APPLIED = 'hidden check did not apply cleanly';
+
+type PatchResult = { ok: true; replaced: string[] } | { ok: false; reason: string; tail: string | null };
+
+function notApplied(stderr: string): PatchResult {
+  const last = tail(stderr, 5).trim();
+  return { ok: false, reason: last ? `${NOT_APPLIED}: ${last}` : NOT_APPLIED, tail: tail(stderr, 20) };
+}
+
+/**
+ * Applies a task's hidden patch to the stashed clone. A builder that wrote its own copy of a file
+ * the patch touches would make a 3-way apply conflict, grading a merge conflict instead of the
+ * code, so the candidate's versions of exactly those files go back to the base first.
+ * The clone is the builder's: every path comes from git and goes back to git as a literal
+ * pathspec after `--`, and git does every file write, so its own refusal of `..` paths and paths
+ * beyond a symlink keeps grading inside the clone.
+ */
+function applyHiddenPatch(wt: string, job: Job, task: LoadedTask, patch: string): PatchResult {
+  // An inherited GIT_DIR or GIT_INDEX_FILE (Forge run from a git hook) would point git elsewhere.
+  const env = { ...process.env };
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR']) delete env[k];
+  const git = (args: string[], extraEnv: NodeJS.ProcessEnv = env) => run('git', args, { cwd: wt, env: extraEnv, allowFail: true });
+  const lines = (out: string) => out.split('\0').filter(Boolean);
+
+  const ref = task.base ?? job.base;
+  let base: string | null = null;
+  try {
+    const safe = assertSafeRef(ref, 'eval base');
+    const res = git(['rev-parse', '--verify', '--quiet', `${safe}^{commit}`]);
+    if (res.ok) base = res.stdout.trim();
+  } catch {
+    // An unsafe ref fails the check below rather than aborting the grade.
+  }
+  if (!base) return { ok: false, reason: `eval base ${ref} not found in the eval checkout`, tail: null };
+
+  // Applying to the base in a scratch index lets git parse the patch (renames, quoting, binary,
+  // created and deleted files) and proves the patch fits its own base before the worktree changes.
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-grade-'));
+  let touched: string[];
+  try {
+    const idx = { ...env, GIT_INDEX_FILE: path.join(tmp, 'index') };
+    const read = git(['read-tree', base], idx);
+    if (!read.ok) return notApplied(read.stderr);
+    const applied = git(['apply', '--cached', '--whitespace=nowarn', patch], idx);
+    if (!applied.ok) return notApplied(applied.stderr);
+    const listed = git(['diff', '--cached', '--no-ext-diff', '--no-renames', '--name-only', '-z', base], idx);
+    if (!listed.ok) return notApplied(listed.stderr);
+    touched = lines(listed.stdout);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+
+  // Without --literal-pathspecs a patch path such as `test/[ab].txt` is a glob over other files.
+  const lit = ['--literal-pathspecs'];
+  let changed: string[] = [];
+  if (touched.length) {
+    const diff = git([...lit, 'diff', '--no-ext-diff', '--no-renames', '--name-only', '-z', base, 'HEAD', '--', ...touched]);
+    if (!diff.ok) return notApplied(diff.stderr);
+    changed = lines(diff.stdout).sort();
+  }
+  if (changed.length) {
+    const tree = git([...lit, 'ls-tree', '-r', '-z', '--name-only', base, '--', ...changed]);
+    if (!tree.ok) return notApplied(tree.stderr);
+    const inBase = new Set(lines(tree.stdout));
+    const restore = changed.filter((p) => inBase.has(p));
+    const remove = changed.filter((p) => !inBase.has(p));
+    if (restore.length) {
+      const res = git([...lit, 'checkout', base, '--', ...restore]);
+      if (!res.ok) return notApplied(res.stderr);
+    }
+    if (remove.length) {
+      const res = git([...lit, 'rm', '-q', '-f', '--ignore-unmatch', '--', ...remove]);
+      if (!res.ok) return notApplied(res.stderr);
+    }
+  }
+  const res = git(['apply', '--whitespace=nowarn', patch]);
+  if (!res.ok) return notApplied(res.stderr);
+  return { ok: true, replaced: changed };
+}
+
 /**
  * Applies the hidden check on top of the job's final commit and records the job's Forge metrics.
  */
@@ -185,9 +266,15 @@ export function gradeJob(root: string, config: Config, jobId: string): EvalResul
     run('git', ['stash', '--include-untracked'], { cwd: wt, allowFail: true });
     let applied = true;
     if (task.check.patch) {
-      const res = run('git', ['apply', '--3way', '--whitespace=nowarn', path.join(task.dir, task.check.patch)], { cwd: wt, allowFail: true });
-      applied = res.ok;
-      if (!res.ok) check.tail = tail(res.stderr, 20);
+      const res = applyHiddenPatch(wt, job, task, path.join(task.dir, task.check.patch));
+      // `in` narrows here even under the tests' non-strict tsconfig, where `res.ok` does not.
+      if ('replaced' in res) {
+        check.replaced = res.replaced;
+      } else {
+        applied = false;
+        check.tail = res.tail;
+        check.reason = res.reason;
+      }
     }
     if (task.check.files) fs.cpSync(path.join(task.dir, task.check.files), wt, { recursive: true });
     if (applied && cmd) {
@@ -198,7 +285,6 @@ export function gradeJob(root: string, config: Config, jobId: string): EvalResul
     } else if (!applied) {
       check.ran = true;
       check.pass = false;
-      check.reason = 'hidden check did not apply cleanly';
     }
     run('git', ['reset', '--hard'], { cwd: wt, allowFail: true });
     run('git', ['clean', '-fd'], { cwd: wt, allowFail: true });

@@ -107,6 +107,7 @@ test('end-to-end: init, intake, worktree, verify, eval isolation', () => {
     assert.equal(sh(ewt, 'diff', '--name-only', 'main...HEAD'), 'hello.txt');
     const graded = f('eval', 'grade', evalJob);
     assert.equal(graded.check.pass, true);
+    assert.equal('replaced' in graded.check, false, 'a check.files-only task replaces nothing');
     fs.writeFileSync(path.join(ewt, 'scratch.txt'), 'x');
     assert.throws(() => execFileSync(process.execPath, [BIN, 'worktree', 'remove', evalJob], { cwd: repo.dir, stdio: 'pipe', env: { ...process.env, FORGE_ROOT: repo.dir } }));
     assert.ok(fs.existsSync(ewt), 'a dirty eval checkout is kept without --force');
