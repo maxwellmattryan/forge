@@ -675,7 +675,8 @@ function build(x: StepInput): StepAction {
   const rework = human(x, 'rework');
   const lv = lastVerify(x);
   if (j.round === 0 || j.verdicts[String(j.round)] || after(rework?.ts, lastEvent(x, (e) => e.type === 'round')?.ts)) return run(x, 'B1', ['job', 'round', j.id], 'start the next build round');
-  if (j.round > j.maxRounds && !after(rework?.ts, b?.startedAt)) return park(x, 'B2', 'rounds-exhausted', `round ${j.round} exceeds maxRounds ${j.maxRounds}`);
+  // A rework that came after the previous round started is the one that opened this round (B1), so the whole round is exempt. Comparing with the builder's start lost the exemption once the builder ran.
+  if (j.round > j.maxRounds && !after(rework?.ts, x.events.filter((e) => e.type === 'round').at(-2)?.ts)) return park(x, 'B2', 'rounds-exhausted', `round ${j.round} exceeds maxRounds ${j.maxRounds}`);
   if (endedIn(b, j.round)) {
     const n = needsInput(x, 'builder');
     if (n) return n;
