@@ -6,7 +6,7 @@ argument-hint: "<feature> | next [n] | issue <ref> | continue <job|#pr> | approv
 
 # Forge: orchestrator
 
-You are the **orchestrator**. `forge job step` decides every move, you carry it out, and the CLI records it. You never write specs, code or reviews, and you keep your context small.
+You are the **orchestrator**. `forge job step` decides every move, you carry it out, and the CLI records it. You never write specs, code or reviews.
 
 Arguments: `$ARGUMENTS`
 Session id (use for every `--session`): `${CLAUDE_SESSION_ID}`
@@ -46,17 +46,17 @@ Report `sync` results, one line each: merges, PR feedback, conflicts, finished u
 | `update` | `forge update` only. Report `from → to`, then each `warnings` and `next` entry, one line each; on error, relay it. |
 
 ## Run a job
-Claim it: `forge job claim <id> --session ${CLAUDE_SESSION_ID}`. Exit 3: another session owns it and is live (active in 30 min, or its agent runs): tell the human, stop. Exit 4: it waits on dependencies; report that, move on. Pass `--force` only when the human asks to stack it on an unmerged dependency.
+Claim it: `forge job claim <id> --session ${CLAUDE_SESSION_ID}`. Exit 3: another live session owns it: tell the human, stop. Exit 4: it waits on dependencies; report that, move on. Pass `--force` only when the human asks to stack it on an unmerged dependency.
 
-Then loop: `forge job step <id> --session ${CLAUDE_SESSION_ID}` (the claim's heartbeat), act on `action`, step again.
-- `spawn`: run `startShell`. Spawn `agent` as `subagent_type` with `model` (omit it when `inherit`), and `brief` as the prompt (when `resume` names an agent alive in this session, SendMessage it the brief). On completion: `forge job agent <id> end --role <role> --agent-id <agentId> --import --tokens <total_tokens> --tool-uses <tool_uses> --duration-ms <duration_ms> --summary "<first line of its reply>"`. With `parallel: true`, spawn it in the background and step again at once.
-- `run`: run `shell` as one plain command. On a non-zero exit, step again; if it returns the same action, `forge job note` the failure, report it, and stop driving it.
+Then loop: `forge job advance <id> --session ${CLAUDE_SESSION_ID}` (Bash timeout 600000; it runs the `run` actions), report each `tell` in `ran`, act on `action`, advance again.
+- `spawn`: run `startShell`. Spawn `agent` as `subagent_type` with `model` (omit it when `inherit`), and `brief` as the prompt (when `resume` names an agent alive in this session, SendMessage it the brief). On completion: `forge job agent <id> end --role <role> --agent-id <agentId> --import --tokens <total_tokens> --tool-uses <tool_uses> --duration-ms <duration_ms> --summary "<first line of its reply>"`. With `parallel: true`, spawn it in the background and advance again at once.
+- `failed: true`: `forge job step <id>`; on the same `rule` and `command`, `forge job note` the `error`, report it, stop; else advance again. `capped: true`: note, report, stop. Exit 3: as for the claim.
 - `wait` on `agents`: wait for their notifications and record each with `agent end`. For one this session did not spawn (after a restart): `forge job agent <id> end --role <role> --status lost`.
 - `wait` on a gate: report `tell` (for `input`, also `questions.md`) and stop driving it.
-- `procedure`: load `reference` (`reference/split.md`, `retro.md`, `pr-lifecycle.md`) and follow it, then step again.
+- `procedure`: load `reference` (`reference/split.md`, `retro.md`, `pr-lifecycle.md`) and follow it, then advance again.
 - `done`: report `tell` if present, and stop.
 
-After a job reaches `pr` or `done`, run `forge retro due`. If `due: true`, tell the human once: "N jobs since the last retro; `/forge retro` proposes improvements." Never run it unasked.
+After a job reaches `pr` or `done`, run `forge retro due`. If `due: true`, tell the human once that `/forge retro` proposes improvements; never run it unasked.
 
 ## Parallel jobs
 Drive up to `runtime.maxParallelJobs` jobs at once (a daemon job session drives only its own), advancing each as notifications arrive. `forge job step` is every job's state; keep no table.

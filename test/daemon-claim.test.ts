@@ -8,7 +8,7 @@ import { tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, trustDigest } from '../lib/config.ts';
 import { initWrite } from '../lib/commands/init.ts';
 import { daemonClaimOpts, inboxSessionIds, ownerYield } from '../lib/daemon-owner.ts';
-import { claimJob, createJob, loadJob, readEvents, recordAgent } from '../lib/jobs.ts';
+import { claimJob, createJob, jobDir, loadJob, readEvents, recordAgent } from '../lib/jobs.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const FAKE_BIN = path.resolve(import.meta.dirname, 'fixtures', 'bin', 'claude');
@@ -209,6 +209,12 @@ test('inbox scope refuses to drive a pipeline', () => {
     assert.deepEqual(loadJob(root, a).agents, {});
     // `end` stays allowed, so a stray start can still be closed.
     assert.equal(cli(inbox, 'job', 'agent', a, 'end', '--role', 'builder', '--status', 'failed').ok, true);
+    const jobFile = path.join(jobDir(root, a), 'job.json');
+    const beforeAdvance = fs.readFileSync(jobFile, 'utf8');
+    const adv = cli(inbox, 'job', 'advance', a, '--session', uuid());
+    assert.equal(adv.code, 1);
+    assert.match(adv.out, hint);
+    assert.equal(fs.readFileSync(jobFile, 'utf8'), beforeAdvance);
 
     const scoped = { ...trust, FORGE_DAEMON_SCOPE: a };
     const made = cli(scoped, 'worktree', 'create', a);
