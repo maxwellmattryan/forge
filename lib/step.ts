@@ -545,7 +545,7 @@ function decide(x: StepInput): StepAction {
     const on: WaitingOn = j.state === 'blocked' ? 'external' : (j.waitingOn ?? 'external');
     return wait(x, 'G4', on, gateTell(x, on));
   }
-  if (runningRoles(x).length && !(j.stage === 'review' && nextLens(x))) return wait(x, 'G5', 'agents');
+  if (runningRoles(x).length && !(j.stage === 'review' && (nextLens(x) || retryLens(x)))) return wait(x, 'G5', 'agents');
   const blocked = blockedRole(x);
   if (blocked) return spawn(x, 'L1', blocked);
 
@@ -702,6 +702,17 @@ function nextLens(x: StepInput): string | null {
   return roundLenses(x.job, x.config).find((l) => !startedIn(agent(x, `reviewer:${l}`), x.job.round)) ?? null;
 }
 
+/** M1 in the review stage: the first lens of this round whose reviewer ended without its review and has not had its retry; none once the round's verdicts are recorded. */
+function retryLens(x: StepInput): string | null {
+  const j = x.job;
+  if (j.verdicts[String(j.round)]) return null;
+  return roundLenses(j, x.config).find((l) => {
+    const a = agent(x, `reviewer:${l}`);
+    // outputMissing(), not a.outputMissing: a pre-v6 record falls back to the MISSING verdict.
+    return endedIn(a, j.round) && !a.retry && outputMissing(x, `reviewer:${l}`);
+  }) ?? null;
+}
+
 function review(x: StepInput): StepAction {
   const j = x.job;
   const lenses = roundLenses(j, x.config);
@@ -714,6 +725,9 @@ function review(x: StepInput): StepAction {
   if (!recordedVerdicts && lenses.some((l) => UI_LENSES.includes(l)) && x.config.commands.dev && !x.runtime.includes('dev')) return run(x, 'RV3', ['run', j.id, 'dev', '--background'], 'UI lenses review the running app');
   const next = nextLens(x);
   if (next) return spawn(x, 'RV4', `reviewer:${next}`);
+  // Retries go out back to back like first spawns, even while other reviewers run (G5 lets them through).
+  const retry = retryLens(x);
+  if (retry) return missingOutput(x, `reviewer:${retry}`)!;
   for (const l of lenses) {
     const m = missingOutput(x, `reviewer:${l}`);
     if (m) return m;
