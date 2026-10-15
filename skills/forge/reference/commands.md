@@ -27,7 +27,7 @@ An escalation before build (plan or spec stage) is better answered with `revise`
 Append the answer under the questions in `questions.md`, `forge job human <job> answer --note "…"`, then `forge job set <job> --state running`. Step resumes the agent that asked.
 
 ## `rework <job> <note>`
-`forge job human <job> rework --note "…"`, write the note to `feedback.md`, then `forge job set <job> --stage build --state running`. Step starts a new build round with it as input; this is allowed even after `maxRounds`. A `rework` on a job waiting on `conflicts` (the dashboard's "Fix conflicts now") is an `approve`.
+`forge job human <job> rework --note "…"`, write the note to `feedback.md`, then `forge job set <job> --stage build --state running`. Step starts a new build round with it as input; this is allowed even after `maxRounds`. The round the rework opens runs build, verify, review and decide; a further round with no new rework parks on `rounds-exhausted` again. A `rework` on a job waiting on `conflicts` (the dashboard's "Fix conflicts now") is an `approve`.
 
 ## `cancel <job>`
 `forge job set <job> --state cancelled --reason "…"`, then `forge stop <job>`. Leave the worktree unless asked to remove it (`forge worktree remove <job>`).
