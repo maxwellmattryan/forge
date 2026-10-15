@@ -90,6 +90,33 @@ const rows: Row[] = [
     fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: true, retry: true }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped },
     want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'reviewer code wrote no review', '--note', 'reviewer:code ended twice without writing code.md'),
   },
+  // Review-stage retries go out back to back like first spawns (RV4), not one per G5.
+  {
+    name: 'M1 retries a lost reviewer while another retry runs',
+    fx: { job: inReview({ 'reviewer:code': ag(1, 14, undefined, { retry: true }), 'reviewer:tests': ag(1, 12, 13, { status: 'lost', outputMissing: true }) }), events: scoped },
+    want: { action: 'spawn', role: 'reviewer:tests', parallel: true, retry: true },
+  },
+  {
+    name: 'G5 waits on a running retry; a retried lens is not respawned',
+    fx: { job: inReview({ 'reviewer:code': ag(1, 14), 'reviewer:tests': ag(1, 12, 13, { outputMissing: true, retry: true }) }), events: scoped },
+    want: { action: 'wait', waitingOn: 'agents', running: ['reviewer:code'] },
+  },
+  {
+    name: "M1 a retryable lens goes before another lens's M2",
+    fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: true, retry: true }), 'reviewer:tests': ag(1, 12, 13, { status: 'lost', outputMissing: true }) }), events: scoped },
+    want: { action: 'spawn', role: 'reviewer:tests', parallel: true, retry: true },
+  },
+  {
+    name: 'M1 a pre-v6 lost reviewer retries while another runs',
+    fx: { job: inReview({ 'reviewer:code': ag(1, 14), 'reviewer:tests': ag(1, 12, 13, { status: 'lost' }) }), events: scoped, verdicts: { round: verdicts({ code: 'MISSING', tests: 'MISSING' }) } },
+    want: { action: 'spawn', role: 'reviewer:tests', parallel: true, retry: true },
+  },
+  {
+    name: 'M1 a lost integration reviewer retries without parallel',
+    fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 37, true)], agents: { integrator: ag(1, 33, 36), 'reviewer:code': ag(1, 38, 39, { status: 'lost', outputMissing: true }) } }), events: [entered, conflicts, ev('agent-start', 33, { role: 'integrator' })] },
+    want: { action: 'spawn', role: 'reviewer:code', retry: true },
+    check: (a) => assert.equal(a.parallel, undefined),
+  },
   { name: 'M1 approver wrote no decision.md', fx: { job: atDecide({ agents: { approver: ag(1, 20, 21, { outputMissing: true }) } }) }, want: { action: 'spawn', role: 'approver', retry: true } },
   { name: 'M2 approver twice without decision.md', fx: { job: atDecide({ agents: { approver: ag(1, 20, 21, { outputMissing: true, retry: true }) } }) }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'approver wrote no decision.md', '--note', 'approver ended twice without writing decision.md') },
 
@@ -450,6 +477,35 @@ test('a UI review starts the dev server once and stops it once', () => {
     else break;
   }
   assert.deepEqual(seen, ['RV3', 'RV6', 'RV7', 'RV8']);
+});
+
+test('three lost reviewers are retried back to back, then one wait', () => {
+  // Plays each M1 through as its `agent start --retry`: the record becomes running and retried.
+  const roles = ['reviewer:code', 'reviewer:tests', 'reviewer:security'];
+  const agents: Job['agents'] = Object.fromEntries(roles.map((r) => [r, ag(1, 12, 13, { status: 'lost', outputMissing: true })]));
+  const spawned: string[] = [];
+  let last: any;
+  for (let i = 0; i < 10; i++) {
+    last = step(fixture({ job: inReview({ ...agents }, { reviewers: ['code', 'tests', 'security'] }), events: scoped }));
+    if (last.rule !== 'M1') break;
+    assert.equal(last.parallel, true);
+    assert.equal(last.retry, true);
+    spawned.push(last.role);
+    agents[last.role] = ag(1, 14, undefined, { retry: true });
+  }
+  assert.deepEqual(spawned, roles);
+  assert.equal(last.rule, 'G5');
+  assert.equal(last.action, 'wait');
+  assert.equal(last.waitingOn, 'agents');
+  assert.deepEqual(last.running, [...roles].sort());
+
+  // Every retry ends; code again wrote nothing: escalate, no fourth M1.
+  agents['reviewer:code'] = ag(1, 14, 15, { retry: true, outputMissing: true });
+  agents['reviewer:tests'] = ag(1, 14, 15, { retry: true, outputMissing: false });
+  agents['reviewer:security'] = ag(1, 14, 15, { retry: true, outputMissing: false });
+  const a = step(fixture({ job: inReview(agents, { reviewers: ['code', 'tests', 'security'] }), events: scoped, verdicts: { round: verdicts({ code: 'MISSING', tests: 'PASS', security: 'PASS' }) } })) as any;
+  assert.equal(a.rule, 'M2');
+  assert.deepEqual(a.command, ['job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'reviewer code wrote no review', '--note', 'reviewer:code ended twice without writing code.md']);
 });
 
 test('loadStepInput parsers read plan, spec header and design deltas', () => {
