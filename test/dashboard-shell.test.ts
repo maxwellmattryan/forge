@@ -678,6 +678,38 @@ test('the drawer marks new rows and counts unread Thread changes', () => {
   assert.match(state, /if \(id && \(!Object\.hasOwn\(S\.threadSeen, id\) \|\| S\.drawer\.tab === 'thread'\)\) S\.threadSeen = \{ \.\.\.S\.threadSeen, \[id\]: marksOf\(d\) \};/);
 });
 
+/** The body of the top-level function `fn` in `text`, up to its closing `\n}\n`. */
+function fnBody(text: string, fn: string): string {
+  const at = text.indexOf(fn);
+  assert.ok(at >= 0, `${fn} not found`);
+  return text.slice(at, text.indexOf('\n}\n', at));
+}
+
+test('drawer defaults to the Thread tab and resets it on close', () => {
+  const state = read('lib/app.svelte.ts');
+  assert.match(state, /import \{ DEFAULT_DRAWER_TAB, type DrawerTab \} from '\.\/drawer\.ts';/);
+  assert.match(state, /\n {2}tab = \$state<DrawerTab>\(DEFAULT_DRAWER_TAB\);/, 'DrawerState.tab starts at the default');
+  assert.match(state, /export type DrawerView = \{[^}]*\btab: DrawerTab \}/, "the view's tab is a DrawerTab");
+  assert.match(state, /export async function openDrawer\(id: string, file: string \| null = null, tab: DrawerTab = DEFAULT_DRAWER_TAB\): Promise<void> \{/);
+  assert.match(fnBody(state, 'export async function openDrawer('), /S\.drawer\.tab = tab;/);
+  assert.match(fnBody(state, 'export function closeDrawer('), /S\.drawer\.tab = DEFAULT_DRAWER_TAB;/, 'closing resets the remembered tab');
+  assert.match(state, /export function setDrawerTab\(tab: DrawerTab\): void \{/);
+  assert.doesNotMatch(state, /'files'/, "no 'files' default remains");
+});
+
+test('drawer entry points pick their tab', () => {
+  const calls = srcFiles().flatMap((f) => [...read(f).matchAll(/\bopenDrawer\(([^)]*)\)/g)].map((m) => ({ f, args: m[1] })));
+  assert.ok(calls.length >= 15, `found ${calls.length} openDrawer calls`);
+  assert.deepEqual(calls.filter((c) => /'thread'/.test(c.args)), [], "no caller asks for 'thread': it is the default");
+  const tabbed = calls.filter((c) => /'(log|files|timeline|details)'/.test(c.args)).map((c) => `${c.f}: openDrawer(${c.args})`).sort();
+  assert.deepEqual(tabbed, [
+    "components/DaemonBar.svelte: openDrawer(j.id, null, 'log')",
+    "components/InboxCard.svelte: openDrawer(j.id, doc, 'files')",
+    "components/PermissionPrompts.svelte: openDrawer(s, null, 'log')",
+  ], 'only the session entry points open on Log, and Read {doc} on Files');
+  assert.ok(read('components/CommandBar.svelte').includes('openDrawer(res.id);'), 'a new job opens on the default tab');
+});
+
 /** An attribute's value with its quotes dropped (`"x"` → `x`; `{x}` stays as written). */
 const attrOf = (el: { attrs: { name?: string; value?: string }[] }, name: string) => unquote(el.attrs.find((a) => a.name === name)?.value);
 

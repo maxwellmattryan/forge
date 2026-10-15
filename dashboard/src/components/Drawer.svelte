@@ -39,7 +39,7 @@
   // Timeline rows are newest first, so the first `fresh` arrived after the drawer opened.
   const fresh = $derived(shown ? freshCount(shown.detail.events.length, S.drawer.eventsAtOpen) : 0);
   const unread = $derived(shown && job ? unreadCount(threadMarks(threadItems(shown.detail.requests ?? [], threadOpening(shown.detail))), S.threadSeen[job.id] ?? null) : 0);
-  const TABS = ['files', 'timeline', 'thread'];
+  const TABS = ['files', 'timeline', 'thread'] as const;
   let tabStrip = $state<HTMLDivElement>();
   let scrolledFor: string | null = null;
   // Opened on the Thread (a session chip, a new job): bring it into view instead of leaving it below the fold.
