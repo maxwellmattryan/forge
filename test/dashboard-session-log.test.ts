@@ -247,6 +247,8 @@ test('supervisor and forge lines are tagged and toned like the old daemon pane',
   assert.deepEqual(one(sup('stop', { pid: 3, reason: 'job-finished' })), ['supervisor', 'muted', 'stop pid=3 reason=job-finished']);
   assert.deepEqual(one(sup('session-changed', { from: 'a', to: 'b' })), ['supervisor', 'muted', 'session-changed from=a to=b']);
   assert.deepEqual(one(sup('reaped', { pid: 7 })), ['supervisor', 'muted', 'reaped pid=7']);
+  assert.deepEqual(one(sup('wake')), ['supervisor', 'muted', 'wake']);
+  assert.deepEqual(one(sup('agents-lost', { roles: ['builder', 'reviewer:code'] })), ['supervisor', 'warn', 'agents-lost roles=builder, reviewer:code']);
   assert.deepEqual(one({ type: 'forge-truncated', originalType: null, bytes: 5 }), ['truncated', 'warn', 'line · 5 bytes']);
   assert.deepEqual(one({ type: 'system', subtype: 'compact_boundary' }), ['other', 'muted', 'system compact_boundary']);
   assert.deepEqual(one({ event: 'thing' }), ['other', 'muted', '{"event":"thing"}']);

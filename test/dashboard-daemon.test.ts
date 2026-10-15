@@ -32,6 +32,35 @@ test('sessionPill labels and tones every session status', () => {
   assert.ok(title.includes(XSS), 'text, never pre-escaped');
 });
 
+test('a session kept by running agents says so, after busy and before failing', () => {
+  const pill = (o) => {
+    const p = sessionPill(session(o));
+    return [p.label, p.tone];
+  };
+  const kept = { running: true, status: 'idle', kept: 'agents' };
+  assert.deepEqual(pill(kept), ['agents running', 'live']);
+  assert.deepEqual(pill({ ...kept, kept: null }), ['idle', 'ok']);
+  assert.deepEqual(pill({ ...kept, status: 'busy' }), ['busy', 'live']);
+  assert.deepEqual(pill({ ...kept, status: 'stopping' }), ['stopping', 'warn']);
+  assert.deepEqual(pill({ ...kept, waiting: true }), ['waiting for slot', 'warn']);
+  assert.deepEqual(pill({ ...kept, held: 'budget' }), ['held: budget', 'warn']);
+  assert.deepEqual(pill({ ...kept, lastError: 'last turn failed: x' }), ['failing', 'bad']);
+  assert.deepEqual(pill({ ...kept, permissions: [{ id: 'p' }] }), ['needs permission', 'warn']);
+  const m = poolModel(
+    pool({
+      jobs: {
+        'job-idle': session({ running: true, status: 'idle' }),
+        'job-failing': session({ running: true, status: 'idle', lastError: 'last turn failed: x' }),
+        'job-kept': session(kept),
+        'job-busy': session({ running: true, status: 'busy', kept: 'agents' }),
+      },
+    }),
+    { pending: false },
+  );
+  assert.deepEqual(m.kept, ['job-kept', 'job-busy'], 'every session its agents keep, busy or not');
+  assert.deepEqual(m.jobs.map((j) => [j.id, j.pill.label]), [['job-busy', 'busy'], ['job-kept', 'agents running'], ['job-failing', 'failing'], ['job-idle', 'idle']]);
+});
+
 test('poolModel hides exactly when nothing is enabled, wanted or running', () => {
   assert.equal(poolModel(null, { pending: false }), null);
   assert.equal(poolModel(pool({ enabled: false, wanted: false }), { pending: false }), null);

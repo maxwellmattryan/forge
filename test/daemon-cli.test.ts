@@ -6,6 +6,8 @@ import path from 'node:path';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { escapeControls } from '../lib/commands/daemon.ts';
+import { defaults } from '../lib/config.ts';
+import { createJob, recordAgent, updateJob } from '../lib/jobs.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 
@@ -38,11 +40,12 @@ test('daemon status and log', async () => {
     assert.deepEqual(st.dashboard, { pid: process.pid, url: 'http://127.0.0.1:7400', alive: true });
     assert.deepEqual(st.sessions.map((s) => s.scope), ['_inbox', 'Alpha-job', 'zeta-job'], 'the inbox first, then by scope');
     const [inbox, alpha, zeta] = st.sessions;
-    assert.deepEqual(inbox, { scope: '_inbox', job: null, pid: process.pid, alive: true, sessionId: '11111111-2222-3333-4444-555555555555', startedAt: '2026-10-13T00:00:00.000Z', lastTurnAt: null, logBytes: 0 });
+    assert.deepEqual(inbox, { scope: '_inbox', job: null, pid: process.pid, alive: true, sessionId: '11111111-2222-3333-4444-555555555555', startedAt: '2026-10-13T00:00:00.000Z', lastTurnAt: null, logBytes: 0, kept: null, agents: [] });
     assert.equal(alpha.job, 'Alpha-job');
     assert.equal(alpha.alive, false);
     assert.equal(zeta.alive, false, 'a dead pid is not alive');
     assert.equal(zeta.logBytes, 11);
+    assert.deepEqual([zeta.kept, zeta.agents], [null, []]);
 
     const log = path.join(dir, 'job-a.log');
     assert.match(cli('daemon', 'log', 'job-a').out, /no session log for job-a/);
@@ -109,6 +112,36 @@ test('daemon status and log', async () => {
     assert.ok(w.includes('born'), w);
   } finally {
     follower?.kill('SIGKILL');
+    repo.cleanup();
+  }
+});
+
+test('daemon status reports sessions kept by running agents', () => {
+  const repo = tempRepo();
+  const cli = cliIn(repo.dir);
+  const dir = path.join(repo.dir, '.forge', 'runtime', 'daemons');
+  const sid = '11111111-2222-3333-4444-555555555555';
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const [live, dead, other] = ['Live', 'Dead', 'Other'].map((t) => createJob(repo.dir, defaults(), { title: t }).id);
+    const at = new Date().toISOString();
+    for (const [id, owner] of [[live, sid], [dead, sid], [other, '99999999-2222-3333-4444-555555555555']]) {
+      updateJob(repo.dir, id, (j) => {
+        j.owner = { session: owner, host: 'test-host', since: at, heartbeat: at };
+      });
+      recordAgent(repo.dir, id, { role: 'reviewer:code', phase: 'start' }, defaults());
+    }
+    const rec = (pid) => JSON.stringify({ sessionId: sid, pid, startedAt: at, lastTurnAt: null, serverPid: null });
+    fs.writeFileSync(path.join(dir, `${live}.json`), rec(process.pid));
+    fs.writeFileSync(path.join(dir, `${dead}.json`), rec(2 ** 22 + 4321));
+    fs.writeFileSync(path.join(dir, `${other}.json`), rec(process.pid));
+    fs.writeFileSync(path.join(dir, '_inbox.json'), rec(process.pid));
+    const by = Object.fromEntries(JSON.parse(cli('daemon', 'status').out).sessions.map((s) => [s.scope, s]));
+    assert.deepEqual([by[live].kept, by[live].agents], ['agents', ['reviewer:code']]);
+    assert.deepEqual([by[dead].kept, by[dead].agents], [null, []], 'a dead pid');
+    assert.deepEqual([by[other].kept, by[other].agents], [null, []], 'another owner');
+    assert.deepEqual([by._inbox.kept, by._inbox.agents], [null, []], 'the inbox');
+  } finally {
     repo.cleanup();
   }
 });
