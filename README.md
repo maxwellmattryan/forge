@@ -13,9 +13,10 @@
 
 <p align="center">
   <a href="https://github.com/maxwellmattryan/forge/blob/main/CHANGELOG.md"><img alt="version" src="https://img.shields.io/github/package-json/v/maxwellmattryan/forge?color=F97316&label=version"></a>
+  <a href="https://github.com/maxwellmattryan/forge/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/maxwellmattryan/forge/ci.yml?branch=main&label=ci"></a>
   <a href="#install"><img alt="Claude Code plugin" src="https://img.shields.io/badge/Claude%20Code-plugin-EA580C"></a>
   <img alt="zero dependencies" src="https://img.shields.io/badge/dependencies-zero-C2410C">
-  <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A520-9A3412">
+  <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A522.18-9A3412">
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-7C2D12"></a>
 </p>
 
@@ -154,7 +155,7 @@ Opting out: `aiAttribution: allow` in a repo's `.forge/config.yml`, or `FORGE_AI
 ## Project
 
 - [Security policy](SECURITY.md): report vulnerabilities privately. Fixes go to the latest minor release ([supported versions](SECURITY.md#supported-versions)).
-- [Contributing](CONTRIBUTING.md): development setup, the verify list and pull-request conventions.
+- [Contributing](CONTRIBUTING.md): development setup and the local dev flow (`npm run dev`, `npm run dev:claude`), the verify list and pull-request conventions.
 - [Code of Conduct](CODE_OF_CONDUCT.md): Contributor Covenant 2.1.
 
 ## License

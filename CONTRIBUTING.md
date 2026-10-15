@@ -10,10 +10,18 @@ Before you open a PR, run every command in [the verify list](AGENTS.md#verify-be
 
 ## Running Forge from a checkout
 
-- `claude --plugin-dir /path/to/forge` loads the plugin into Claude Code without installing it.
+Run `npm ci` once. After that, the dashboard and the CLI run your local source, with no release or version bump.
+
+- **`npm run dev [-- --port N]`** builds the dashboard from `dashboard/` into `node_modules/.cache/forge/dashboard-dev/` and rebuilds it on every save. This checkout's `forge dash --dev` serves that build on `dashboard.port` (7400), or the next free port, and prints its URL. Edit a component, then reload the page. Until the first build lands (about 10 s), the page answers 503. One Ctrl-C stops both.
+  - It serves the `.forge/` of the repo you ran it from. To keep a real repo's state out of it, run `FORGE_ROOT=<scratch> npm run dev`, or `cd <scratch> && npm --prefix <checkout> run dev`.
+  - It refuses to start while a dashboard is already running for that repo. Stop that one with `forge dash --stop`, or point it at a scratch repo.
+  - The daemon stays off until you press Start, even with `daemon.enabled: true`. Its sessions then run this checkout's code.
+  - `dashboard/dist/` is never written. Before you commit dashboard changes, run `npm run build:dashboard` and commit the rebuilt `dist/` with them.
+- **`npm run dev:claude [-- <claude args>]`** opens Claude Code on this checkout's plugin (`claude --plugin-dir <checkout>`, with the checkout's `bin/` first on PATH), from the directory you ran it in. The plugin, its skills, agents and hooks, and every `forge` call run the checkout. For that session it overrides an installed Forge. From another repo, run `npm --prefix <checkout> run dev:claude`.
+- In any Claude Code session with Forge enabled, `forge` is the loaded plugin's CLI: a SessionStart hook puts that plugin's `bin/` first on PATH, ahead of an `npm link` or another install.
 - `npm link`, then `forge help`, runs the CLI on its own.
-- Point either at a scratch git repo in a temp dir, or set `FORGE_ROOT=<scratch>`, never at a real repo's `.forge/`. Delete the scratch repo and its `<repo>.worktrees` sibling afterwards.
-- For dashboard changes, follow the dashboard steps under [Verify before claiming it works](AGENTS.md#verify-before-claiming-it-works): seed a job or two in the scratch repo, run `forge dash --background`, and check both themes and a phone-width viewport.
+- Point any of these at a scratch git repo in a temp dir, or set `FORGE_ROOT=<scratch>`, never at a real repo's `.forge/`. Delete the scratch repo and its `<repo>.worktrees` sibling afterwards.
+- For dashboard changes, follow the dashboard steps under [Verify before claiming it works](AGENTS.md#verify-before-claiming-it-works) and check both themes and a phone-width viewport.
 
 ## Issues and pull requests
 

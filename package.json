@@ -27,7 +27,9 @@
     "build:dashboard": "vite build --config dashboard/vite.config.mjs && node dashboard/build-stamp.mjs",
     "check:dashboard": "{ [ dashboard/.svelte-check/manifest.json -nt package-lock.json ] && [ dashboard/.svelte-check/manifest.json -nt dashboard/svelte.config.mjs ]; } || rm -rf dashboard/.svelte-check; svelte-check --workspace dashboard --tsconfig tsconfig.json --fail-on-warnings --incremental",
     "typecheck": "tsc -p tsconfig.json --incremental --tsBuildInfoFile node_modules/.cache/forge/tsc-engine.tsbuildinfo && tsc -p test/tsconfig.json --incremental --tsBuildInfoFile node_modules/.cache/forge/tsc-test.tsbuildinfo",
-    "docs:commands": "node scripts/docs-commands.ts"
+    "docs:commands": "node scripts/docs-commands.ts",
+    "dev": "node scripts/dev.ts",
+    "dev:claude": "node scripts/dev-claude.ts"
   },
   "repository": {
     "type": "git",
