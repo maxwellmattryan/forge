@@ -543,3 +543,20 @@ test('the ghost close keeps the sketch and a light border', () => {
   for (const line of ['.btn.ghost { border-color: transparent; }', '@media (hover: hover) { .btn.ghost:hover { border-color: var(--line); } }', '.btn.ghost.hover { border-color: var(--line); }'])
     assert.ok(drafting.includes(line), `design/drafting.css has ${line}`);
 });
+
+test('the control sizing rule is documented', () => {
+  const doc = fs.readFileSync(path.join(ROOT, 'design', 'MIGRATION.md'), 'utf8');
+  const at = doc.indexOf('\n## Control sizing\n');
+  assert.ok(at >= 0, 'design/MIGRATION.md has a ## Control sizing section');
+  const section = doc.slice(at + 1).split(/\n## /)[0];
+  for (const [name, value] of CONTROL_TOKENS) assert.ok(section.includes(`\`--${name}\` | ${value}`), `it names --${name} (${value})`);
+  for (const v of ['`btn sm`', '`btn sm icon`', '`chip sm`', '`input sm`', '`btn`', '`btn primary`', '`btn icon`', '`chip`', '`tab`']) assert.ok(section.includes(v), `it names the variant ${v}`);
+  assert.match(section, /sm or md/i, 'when to use sm vs md');
+  assert.match(section, /44px/, 'the phone rule');
+  assert.match(section, /`CloseButton\.svelte` renders `btn icon ghost`/, 'the ghost close control');
+  // The previews draw the close as the same quiet control.
+  const preview = (name: string) => fs.readFileSync(path.join(ROOT, 'design', 'components', name, 'preview.html'), 'utf8');
+  for (const name of ['Button', 'Drawer', 'SettingsDialog']) assert.match(preview(name), /<button class="btn icon ghost" aria-label="Close">/, `${name} preview draws btn icon ghost`);
+  assert.match(preview('CommandBar'), /<button class="btn icon sm ghost" aria-label="Remove the job scope">/, 'CommandBar preview: the clear-scope close is sm ghost beside chip sm');
+  assert.match(preview('CommandBar'), /class="chip ink sm"/);
+});
