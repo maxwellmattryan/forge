@@ -254,6 +254,11 @@ test('sheets, chrome and sketch keep text at 4.5:1', (t) => {
     assert.ok(ladder[0] < ladder[1] && ladder[1] < ladder[2], `${theme} fg steps up from the ground: ${ladder.map((r) => r.toFixed(2)).join(' → ')}`);
     const step = contrast(panel, bg);
     assert.ok(step >= 1.1, `${theme} a sheet stands off the ground (${step.toFixed(3)}:1)`);
+    // For design/README.md › Colour: the ladder, the step, and the ground-level numbers the docs quote.
+    t.diagnostic(`${theme} fg ladder bg → panel → chrome: ${ladder.map((r) => r.toFixed(2)).join(' → ')}; sheet step ${step.toFixed(3)}:1`);
+    const raisedGround = over(color('raised'), bg);
+    const weakest = TEXT_BY_THEME[theme].map((k) => [contrast(color(k), raisedGround), k] as const).sort((x, y) => x[0] - y[0])[0];
+    t.diagnostic(`${theme} lowest bg+raised: --${weakest[1]} ${weakest[0].toFixed(2)}:1; --muted on bg+sketch ${contrast(color('muted'), over(color('sketch-line'), bg)).toFixed(2)}:1; --dim on bg ${contrast(color('dim'), bg).toFixed(2)}:1; --line-strong on bg ${contrast(color('line-strong'), bg).toFixed(2)}:1`);
   }
   for (const [key, [ratio, k]] of Object.entries(lowest)) t.diagnostic(`lowest ${key}: --${k} ${ratio.toFixed(2)}:1`);
 });

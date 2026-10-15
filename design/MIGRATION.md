@@ -1,6 +1,6 @@
 # Migrating the dashboard to the Drafting design system
 
-This folder is the source of truth for the dashboard's look from here on. It was authored as a Forge design system (the "Forge" artifact in Claude) and exported verbatim: `README.md` is the brand book, `tokens.json` the tokens, `tokens.css` their compiled form, `drafting.css` the reference stylesheet every `components/*/preview.html` is rendered with, `icons/` the 23 line icons, `textures/paper.svg` the paper fibre. Open any `components/<Name>/preview.html` in a browser; flip `data-theme` on `<html>` to `vellum` for the light theme. `components/index.html` links them all.
+This folder is the source of truth for the dashboard's look from here on. It was authored as a Forge design system (the "Forge" artifact in Claude) and exported verbatim: `README.md` is the brand book, `tokens.json` the tokens, `tokens.css` their compiled form, `drafting.css` the reference stylesheet every `components/*/preview.html` is rendered with, `icons/` the 23 line icons, `textures/paper.svg` the paper fibre. Open any `components/<Name>/preview.html` in a browser; flip `data-theme` on `<html>` to `vellum` for the light theme or `nightprint` for the dark one. `components/index.html` links them all.
 
 The code is the implementation; this folder is the drawing. When they disagree during migration, the drawing wins on visuals and the code wins on behaviour. Nothing here changes what the dashboard does: no new endpoints, no `/api` shape changes, no config keys.
 
@@ -8,9 +8,9 @@ The code is the implementation; this folder is the drawing. When they disagree d
 
 - **No external assets.** The dashboard loads nothing from the network (AGENTS.md), so the three typefaces are vendored, not linked: Space Grotesk, IBM Plex Sans and IBM Plex Mono are all SIL Open Font License; commit the `woff2` files (Latin subset, the weights in `tokens.json` `type.groups`: Grotesk 500/700, Plex Sans 400/500/600, Plex Mono 400/500/600) with their `OFL.txt`, declare them with `@font-face` in `dashboard/style.css`, and let Vite emit them into `dashboard/dist/assets/`. The server serves only what `dist/manifest.json` names: confirm CSS-referenced assets are listed (Vite's manifest `assets` field) and reachable through `lib/server.ts`'s allowlist, or extend the allowlist for them in the same change. `textures/paper.svg` travels the same way (a `url()` in `style.css`), or is inlined as a `data:` URI if that is simpler; it is 491 bytes.
 - **Tailwind v4 rules.** New classes are `@utility`s (so they can be `@apply`'d) or plain rules that are never `@apply`'d; class names in Svelte are whole literals. The reference `drafting.css` is plain CSS: port each rule block to an `@utility` of the same name (`sheet`, `ticks`, `hatch`, `btn`, `chip`, `nav-item`, …) and keep the token variables (`var(--line-strong)` and so on) rather than Tailwind colour utilities where a rule mixes several.
-- **Themes are `data-theme` on `<html>`.** The theme ids change from `light`/`dark` to `vellum`/`cyanotype`. `index.html`'s inline script and `src/lib/theme.ts` must keep accepting the old saved values of the `forge.theme` pref (`dark` → `cyanotype`, `light` → `vellum`) and map `prefers-color-scheme: light` to `vellum`. The `@custom-variant dark` becomes `[data-theme=cyanotype]`.
-- **Copy lives in `en.json`.** The new drafting words (`DWG`, `SHEET`, `REV`, `DRAWN BY`, `Cyanotype`, `Vellum`, `Grid`, `Paper`) are messages, never literals in markup.
-- **Rebuild `dist/` in the same commit.** `npm run build:dashboard` after every change; the e2e/ui lens checks both themes at phone width.
+- **Themes are `data-theme` on `<html>`.** The theme ids are `cyanotype` (the default), `vellum` and `nightprint`, replacing `light`/`dark`. `index.html`'s inline script and `src/lib/theme.ts` must keep accepting the old saved values of the `forge.theme` pref (`dark` → `cyanotype`, `light` → `vellum`), and System (an explicit `system`, or an unset or unknown value) maps `prefers-color-scheme: light` to `vellum` and dark to `nightprint`. There is no `dark:` variant: theme differences live in the token blocks, and only vellum overrides a few rules (`a:hover`, `.backdrop`, `.scrim`, `.mark`).
+- **Copy lives in `en.json`.** The new drafting words (`DWG`, `SHEET`, `REV`, `DRAWN BY`, `Cyanotype`, `Vellum`, `Nightprint`, `Grid`, `Paper`) are messages, never literals in markup.
+- **Rebuild `dist/` in the same commit.** `npm run build:dashboard` after every change; the e2e/ui lens checks every theme at phone width.
 
 ## Token mapping (old `style.css` → `tokens.css`)
 
@@ -21,7 +21,7 @@ The code is the implementation; this folder is the drawing. When they disagree d
 | `--raised` | `--raised` | active/hover wash only; inputs are no longer filled |
 | `--line` | `--line`, `--line-soft`, `--line-strong` | one line became three strengths |
 | `--fg`, `--muted` | `--fg`, `--muted` (+ `--dim`) | `--dim` is placeholders only (fails 4.5:1 by design) |
-| `--accent` | `--ink` | the one accent is now drawing ink; white on cyanotype, Prussian blue on vellum |
+| `--accent` | `--ink` | the one accent is now drawing ink; white on cyanotype, Prussian blue on vellum, pale blue on nightprint |
 | `--on-accent` | `--on-ink` | |
 | `--ember-hot` | — | removed with the gradients (`.ember-bar`, `.brand-rule`, `.btn-primary` background) |
 | `--warn` as "needs you" | `--redline` | *needs a human* is markup red, not yellow; `--warn` stays for held/waiting/budget |
@@ -71,4 +71,4 @@ Five jobs, one pull request each, in dependency order. Each is written up in `jo
 4. **Job surfaces** — cards, chips and tones, progress, board columns, empty states, daemon bar, thread, session log, KPIs and tables; remove the aliases.
 5. **Appearance settings and polish** — theme names and Grid/Paper preferences in General, accessibility pass, README screenshots.
 
-Every job verifies in both themes at desktop and phone width, rebuilds `dist/`, and keeps `npm test`, `npm run check:dashboard` and the i18n test green.
+Every job verifies in every theme at desktop and phone width, rebuilds `dist/`, and keeps `npm test`, `npm run check:dashboard` and the i18n test green.

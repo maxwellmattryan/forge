@@ -103,13 +103,13 @@ Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CONFIG.md](docs
 
 ## Dashboard
 
-`forge dash` serves a single-page dashboard bound to localhost, drawn like a blueprint (the cyanotype theme here; vellum is the paper one):
+`forge dash` serves a single-page dashboard bound to localhost, drawn like a blueprint (the cyanotype theme here; vellum is the paper one, nightprint the dark one):
 
 ![The Pipeline board in the cyanotype theme: jobs in Queued, Plan, Spec and Design columns, two of them redlined because they wait on a person](assets/screenshots/pipeline.png)
 
 ![A job's drawer open on its Thread: two requests about the job, one answered by Forge, above the job's session log with its filters](assets/screenshots/job-drawer.png)
 
-![Settings › General: the Theme segments (Cyanotype, Vellum, System), the Grid and Paper checkboxes, the language and the settings shortcut](assets/screenshots/settings-appearance.png)
+![Settings › General: the Theme segments (Cyanotype, Vellum, Nightprint, System), the Grid and Paper checkboxes, the language and the settings shortcut](assets/screenshots/settings-appearance.png)
 
 - **Command bar** (Cmd-K or Ctrl-K from anywhere, the dashed **New job or command** button at the end of every page header, or the round-cornerless command button at the bottom right on a phone): type a request in plain words to start a job (its title is derived from the text, or give one), or a command with completion: `next [n]`, `sync`, `retro`, `continue <job> [note]` (or `resume`), `approve|revise|rework|answer|cancel <job> [note]`, `issue <ref>`. A new job's card appears at once and its drawer opens on the Thread. A job's drawer has **Command for this job**, which opens the bar scoped to that job: a *For <job>* chip, and that job's applicable commands listed first (Backspace in the empty input or the chip's remove button drops the scope; free text still starts a new job). The bar's backdrop is a light scrim, so the page or drawer behind it stays readable.
 - **Needs you**: every human gate, with its document and one-click actions (for an issue to link: the candidates Forge found, another ref, a new issue, or none). Jobs parked on unfinished dependencies are not gates: they are listed apart, with **Unblocked, resume**, and are neither redlined nor counted in the badge.
@@ -117,7 +117,7 @@ Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CONFIG.md](docs
 - **Agents**: running agents, orchestrator sessions, and the roster with models and prompt hashes.
 - **Analytics**: Forge metrics plus token and cost breakdowns by role and model.
 - **Evals**: runs, side-by-side comparisons, and a Run eval button.
-- **Settings** (the gear, or press `,`): **General** holds this browser's preferences, never stored in `config.yml`: Theme (`cyanotype`, `vellum`, or `system` to follow the OS, live; the old `dark` and `light` still read as cyanotype and vellum), **Grid** (the 8px drawing grid) and **Paper** (the fibre texture and the corner falloff), plus language and the `,` shortcut. The dashboard also honours your OS's reduced-motion setting: nothing slides or fades, and the live dot does not pulse. The rest of Settings is the editable `.forge/config.yml` keys as forms saved through `forge config set`'s write path, `forge doctor` diagnostics with a copyable report, and the versions Forge is running. Settings are locked while the daemon runs, because any change to `config.yml` stops it.
+- **Settings** (the gear, or press `,`): **General** holds this browser's preferences, never stored in `config.yml`: Theme (`cyanotype`, `vellum`, `nightprint`, or `system`: vellum on a light OS, nightprint on a dark one, live; the old `dark` and `light` still read as cyanotype and vellum), **Grid** (the 8px drawing grid) and **Paper** (the fibre texture and the corner falloff), plus language and the `,` shortcut. The dashboard also honours your OS's reduced-motion setting: nothing slides or fades, and the live dot does not pulse. The rest of Settings is the editable `.forge/config.yml` keys as forms saved through `forge config set`'s write path, `forge doctor` diagnostics with a copyable report, and the versions Forge is running. Settings are locked while the daemon runs, because any change to `config.yml` stops it.
 
 The dashboard is a Svelte 5 + TypeScript single-page app. Its built output (`dashboard/dist/`) is committed, so installing the plugin builds and installs nothing.
 
