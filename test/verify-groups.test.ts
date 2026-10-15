@@ -91,8 +91,8 @@ function scratch() {
       updateJob(root, id, (j) => (j.round = 1));
       return { id, dir: jobDir(root, id) };
     },
-    verify(id: string) {
-      const r = raw('verify', id);
+    verify(id: string, extraEnv: NodeJS.ProcessEnv = {}) {
+      const r = spawnSync(process.execPath, [BIN, 'verify', id], { cwd: root, encoding: 'utf8', env: { ...env, ...extraEnv } });
       let out: any = null;
       try {
         out = JSON.parse(r.stdout);
@@ -249,6 +249,27 @@ test('an unset command in a group is skipped in place', () => {
     [...md.matchAll(/^## (\w+): (.*)$/gm)].map((m) => [m[1], m[2]]).filter(([n]) => n !== 'integrity'),
     [['x', 'ok'], ['skipme', 'skipped (no command configured)'], ['y', 'ok']],
   );
+});
+
+test('a group step past the 64 MiB output cap, or one that cannot start, fails without an exit code', () => {
+  const x = s();
+  // One byte over the cap, as spawnSync's maxBuffer is for the sequential path.
+  x.configure({ commands: { big: `node -e "process.stdout.write(Buffer.alloc(64 * 1024 * 1024 + 1))"`, small: x.step('small') }, verify: [['big', 'small']] });
+  const j = x.job('Overflow');
+  const r = x.verify(j.id);
+  assert.equal(r.status, 1);
+  assert.equal(r.out.failure.name, 'big');
+  assert.equal(r.out.failure.exit, null);
+  assert.match(r.out.failure.tail, /ENOBUFS: stdout passed 64 MiB, so the command was stopped/);
+  assert.equal(r.out.steps[1].ok, true, 'the sibling still finished');
+  assert.match(x.roundMd(j.dir), /^## big: FAILED \(exit null\)$/m);
+
+  x.configure({ commands: { a: 'true', b: 'true' }, verify: [['a', 'b']] });
+  const k = x.job('No shell');
+  const gone = x.verify(k.id, { SHELL: path.join(x.root, 'no-such-shell') });
+  assert.equal(gone.status, 1);
+  assert.deepEqual(gone.out.steps.map((st: any) => [st.name, st.ok, st.exit]), [['a', false, null], ['b', false, null]]);
+  assert.match(gone.out.failure.tail, /ENOENT/);
 });
 
 test('e2e listed inside a group is not run again', () => {
