@@ -30,11 +30,11 @@
 }
 
 [data-theme="vellum"] {
-  --bg: #f1efe9;
-  --bg-deep: #e5e3dc;
-  --panel: #fdfcf9;
+  --bg: #f1ecdf;
+  --bg-deep: #e6e0d0;
+  --panel: #fbf8f1;
   --raised: rgba(31,78,140,0.08);
-  --chrome: #ffffff;
+  --chrome: #fffdf8;
   --sketch-line: rgba(31,78,140,0.14);
   --line: rgba(31,78,140,0.6);
   --line-soft: rgba(31,78,140,0.3);
@@ -122,7 +122,7 @@
   --stroke-icon: 1.25px;
   --stroke-line: 1px;
   --dash: 4px 4px;
-  --paper-opacity: 0.18;
+  --paper-opacity: 0.08;
   --font-head: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
   --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;

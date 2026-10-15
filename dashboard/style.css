@@ -94,7 +94,7 @@
   --stroke-icon: 1.25px;
   --stroke-line: 1px;
   --dash: 4px 4px;
-  --paper-opacity: 0.18;
+  --paper-opacity: 0.08;
   --font-head: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
   --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -134,11 +134,11 @@
 }
 
 [data-theme="vellum"] {
-  --bg: #f1efe9;
-  --bg-deep: #e5e3dc;
-  --panel: #fdfcf9;
+  --bg: #f1ecdf;
+  --bg-deep: #e6e0d0;
+  --panel: #fbf8f1;
   --raised: rgba(31,78,140,0.08);
-  --chrome: #ffffff;
+  --chrome: #fffdf8;
   --sketch-line: rgba(31,78,140,0.14);
   --line: rgba(31,78,140,0.6);
   --line-soft: rgba(31,78,140,0.3);
@@ -161,7 +161,7 @@
   --shadow-drawer: -8px 0 0 0 rgba(31,78,140,0.1);
   --shadow-chrome: 8px 0 0 0 rgba(31,78,140,0.1);
   /* drafting extras (design/drafting.css) */
-  --paper-opacity: .55;
+  --paper-opacity: .10;
   --paper-blend: multiply;
   --fall: rgba(40,36,20,.08);
   color-scheme: light;
@@ -195,7 +195,7 @@
   --shadow-drawer: -8px 0 0 0 rgba(170,200,240,0.05);
   --shadow-chrome: 8px 0 0 0 rgba(170,200,240,0.05);
   /* drafting extras (design/drafting.css) */
-  --paper-opacity: .10;
+  --paper-opacity: .07;
   --paper-blend: soft-light;
   --fall: rgba(0,0,0,.45);
   color-scheme: dark;
@@ -230,10 +230,10 @@
   :focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 2px; }
 }
 
-/* ---------- the ground: grid + paper fibre + exposure falloff ----------
+/* ---------- the ground: grid + film grain + exposure falloff ----------
    Deviates from the reference on purpose: Svelte mounts the fixed drawer, dialogs and toasts
    straight into <body>, so there is no `.ground > * { position: relative }` (it would break their
-   fixed positioning). The paper sits on a fixed layer behind everything instead. */
+   fixed positioning). The grain sits on a fixed layer behind everything instead. */
 @utility ground {
   isolation: isolate;
   background-color: var(--bg);
@@ -247,9 +247,15 @@
     inset: 0;
     z-index: -1;
     pointer-events: none;
-    /* Referenced directly (not through a custom property) so Vite rewrites and inlines it. */
-    background-image: url(./textures/paper.svg);
-    background-size: 512px 512px;
+    /* A monochrome film grain, generated inline. Written in the rule, not through a custom property, so this
+       stays the one url() outside @font-face. The SVG has no size or viewBox: it takes the fixed layer's
+       size at one unit per px, so it never tiles, never stretches and does not move on scroll. Grey and
+       opaque (the colour matrix), and steep and light (the transfer): mostly near-white with dark specks, so
+       multiply on vellum reads as grain rather than a darker sheet, while soft-light on the dark themes
+       lightens them by about 1%. */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g' x='0' y='0' width='100%25' height='100%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch' seed='7'/%3E%3CfeColorMatrix values='.33 .33 .33 0 0 .33 .33 .33 0 0 .33 .33 .33 0 0 0 0 0 0 1'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='6' intercept='-2.1'/%3E%3CfeFuncG type='linear' slope='6' intercept='-2.1'/%3E%3CfeFuncB type='linear' slope='6' intercept='-2.1'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
     opacity: var(--paper-opacity);
     mix-blend-mode: var(--paper-blend);
   }
