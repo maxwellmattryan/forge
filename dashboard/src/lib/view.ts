@@ -257,14 +257,24 @@ export function inboxDoc(kind: InboxKind, job: JobLike): string | null {
   return docs[s(kind)] ?? null;
 }
 
-export const notePlaceholder = (kind: InboxKind): string =>
-  kind === 'input'
+/** SP5's reason in lib/step.ts for a job with no issue yet: its spec gate also picks the issue. */
+export const UNLINKED_SPEC_REASON = 'spec ready, issue unlinked';
+
+/** A spec gate that still needs an issue: the chooser stands in for the plain Approve. Re-checks source and noIssue, so a job linked while it waits gets the plain card. */
+export const specLinkPending = (j: Pick<JobLike, 'state' | 'waitingOn' | 'reason' | 'source' | 'noIssue'>): boolean =>
+  j.state === 'waiting' && j.waitingOn === 'spec-approval' && j.reason === UNLINKED_SPEC_REASON && !j.source?.ref && !j.noIssue;
+
+export function notePlaceholder(kind: InboxKind, opts: { linkPending?: boolean } = {}): string {
+  // On an unlinked spec gate the note is also the "no issue needed" reason.
+  if (kind === 'spec-approval' && opts.linkPending) return 'Optional note for the agents, or why no issue is needed…';
+  return kind === 'input'
     ? 'Your answer…'
     : kind === 'budget'
       ? 'Optional: new limits, e.g. usd=20 tokens=2000000'
       : kind === 'issue-link'
         ? 'Optional: why this job needs no issue…'
         : 'Optional note for the agents…';
+}
 
 export const showsNote = (kind: InboxKind): boolean => ['spec-approval', 'split-approval', 'issue-link', 'input', 'escalation', 'rounds-exhausted', 'budget'].includes(s(kind));
 
@@ -279,9 +289,11 @@ export interface InboxAction {
 const act = (label: string, type: RequestType, primary = false, needsNote = false, text?: string): InboxAction =>
   text === undefined ? { label, type, primary, needsNote } : { label, type, primary, needsNote, text };
 
-export function inboxActions(kind: InboxKind): InboxAction[] {
+export function inboxActions(kind: InboxKind, opts: { linkPending?: boolean } = {}): InboxAction[] {
   switch (kind) {
     case 'spec-approval':
+      // Each IssueLinkActions button approves the spec too, so a plain Approve would skip the link.
+      if (opts.linkPending) return [act('Request changes', 'revise-spec', false, true)];
       return [act('Approve spec', 'approve', true), act('Request changes', 'revise-spec', false, true)];
     case 'split-approval':
       return [act('Approve split', 'approve', true), act('Keep as one job', 'revise-spec')];

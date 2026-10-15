@@ -315,3 +315,17 @@ test('svelte config forces runes and the entry mounts the app', async () => {
   for (const src of ['./index.html', './src/**/*.ts', './src/**/*.svelte']) assert.ok(css.includes(`@source "${src}";`), `style.css sources ${src}`);
   assert.ok(!css.includes('@source "./*.js"'), 'no ./*.js source');
 });
+
+test('the issue chooser shows on an issue-link gate and, approving, on a pending spec gate only', () => {
+  const actions = read('src/components/JobActions.svelte');
+  const uses = actions.match(/<IssueLinkActions\b[^>]*\/>/g) ?? [];
+  assert.equal(uses.length, 2, 'one for issue-link, one for the spec gate');
+  assert.ok(!/\bapproving\b/.test(uses[0]) && /\bapproving\b/.test(uses[1]), 'only the spec-gate chooser approves');
+  assert.ok(actions.includes(`{#if kind === 'issue-link'}${uses[0]}{:else if pending}${uses[1]}{/if}`), 'gated by kind, then by specLinkPending');
+  assert.match(actions, /const pending = \$derived\(specLinkPending\(j\)\);/);
+  assert.match(actions, /inboxActions\(kind, \{ linkPending: pending \}\)/);
+  // Both modes send the same body: the approve request with args.link.
+  const chooser = read('src/components/IssueLinkActions.svelte');
+  assert.match(chooser, /const link = \(to: string\): void => req\(\{ type: 'approve', job: id, note, args: \{ link: to \} \}\);/);
+  assert.match(chooser, /approving = false/);
+});

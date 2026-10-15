@@ -313,6 +313,33 @@ test('issue-link candidates and actions', () => {
   assert.deepEqual(link('new'), { type: 'approve', job: 'j1', text: null, args: { link: 'new' } });
 });
 
+test('spec-approval on an unlinked job: the chooser replaces Approve', () => {
+  const gate = { state: 'waiting', waitingOn: 'spec-approval', reason: 'spec ready, issue unlinked', source: null, noIssue: null } as const;
+  assert.equal(V.UNLINKED_SPEC_REASON, 'spec ready, issue unlinked');
+  assert.equal(V.specLinkPending(gate), true);
+  assert.equal(V.specLinkPending({ ...gate, source: undefined, noIssue: undefined }), true, 'fields missing from a hand-edited job.json');
+  for (const [why, j] of [
+    ['linked while it waits', { ...gate, source: { tracker: 'local', ref: 'x', url: null } }],
+    ['no issue needed', { ...gate, noIssue: { reason: null, at: 'now' } }],
+    ['the plain reason', { ...gate, reason: 'spec ready' }],
+    ['no reason', { ...gate, reason: null }],
+    ['another gate', { ...gate, waitingOn: 'issue-link' }],
+    ['running again', { ...gate, state: 'running' }],
+  ] as const)
+    assert.equal(V.specLinkPending(j as any), false, why);
+
+  assert.deepEqual(V.inboxActions('spec-approval', { linkPending: true }), [{ label: 'Request changes', type: 'revise-spec', primary: false, needsNote: true }]);
+  assert.deepEqual(V.inboxActions('spec-approval'), INBOX['spec-approval'].actions, 'a linked spec card is unchanged');
+  assert.deepEqual(V.inboxActions('spec-approval', { linkPending: false }), INBOX['spec-approval'].actions);
+  assert.equal(V.notePlaceholder('spec-approval', { linkPending: true }), 'Optional note for the agents, or why no issue is needed…');
+  assert.equal(V.notePlaceholder('spec-approval'), INBOX['spec-approval'].note);
+  // linkPending only changes the spec gate.
+  for (const kind of Object.keys(INBOX)) if (kind !== 'spec-approval') {
+    assert.deepEqual(V.inboxActions(kind as any, { linkPending: true }), INBOX[kind].actions, kind);
+    assert.equal(V.notePlaceholder(kind as any, { linkPending: true }), V.notePlaceholder(kind as any), kind);
+  }
+});
+
 test('resumeModel', () => {
   const os = (status: string, agentRunning = false): any => ({ status, session: 's1', since: null, heartbeat: null, agentRunning, reason: status === 'dead' ? 'not-running' : null });
   const m = (state: string, ownerStatus: any, kind = 'feature') => V.resumeModel({ state, kind, ownerStatus } as any);

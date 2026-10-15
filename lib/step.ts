@@ -21,9 +21,9 @@ import { ForgeError, SAFE_REF, readJson, readText } from './util.ts';
 
 export const RULES = [
   'G1', 'G2', 'G3', 'G4', 'G5', 'L1', 'N1', 'N2', 'M1', 'M2', 'K1', 'K2',
-  'I1', 'I2', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8',
+  'I1', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8',
   'P1', 'P2', 'P3', 'P4', 'P5',
-  'SP1', 'SP2', 'SP3', 'SP4', 'SP5', 'SP6',
+  'SP1', 'SP2', 'SP3', 'SP4', 'SP5', 'SP6', 'SP7',
   'D1', 'D2', 'D3',
   'B1', 'B2', 'B3', 'B4', 'B5',
   'V1', 'V2', 'V3',
@@ -455,8 +455,11 @@ export function gateTell(x: StepInput, waitingOn: WaitingOn): string {
   const id = j.id;
   const reason = j.reason ?? 'no reason recorded';
   switch (waitingOn) {
-    case 'spec-approval':
-      return `${id} spec ready: ${p(x, 'spec')}${x.files.mockup ? ` · mockup ${p(x, 'mockup')}` : ''}. /forge approve ${id} or /forge revise ${id} <note>`;
+    case 'spec-approval': {
+      const line = `${id} spec ready: ${p(x, 'spec')}${x.files.mockup ? ` · mockup ${p(x, 'mockup')}` : ''}. /forge approve ${id} or /forge revise ${id} <note>`;
+      // Computed live, so a job linked while it waits drops back to the one line.
+      return issueLinkStatus(j, x.config) === 'missing' ? `${line}\n${gateTell(x, 'issue-link')}` : line;
+    }
     case 'split-approval':
       return `${id} planner proposes ${x.plan.jobs} jobs: ${p(x, 'plan')}. /forge approve ${id} to create them, or /forge revise ${id} [note] to keep one job`;
     case 'issue-link':
@@ -584,10 +587,8 @@ function stuck(x: StepInput): StepRun {
 
 function intake(x: StepInput): StepAction {
   const j = x.job;
-  if (issueLinkStatus(j, x.config) === 'missing') {
-    if (!x.files.issueCandidates) return run(x, 'I1', ['job', 'link', j.id, '--suggest'], 'every job needs an issue: look for candidates');
-    return park(x, 'I2', 'issue-link', 'link an issue');
-  }
+  // Intake only searches: the human picks the issue at the spec gate (SP5), or before build (SP7).
+  if (issueLinkStatus(j, x.config) === 'missing' && !x.files.issueCandidates) return run(x, 'I1', ['job', 'link', j.id, '--suggest'], 'every job needs an issue: look for candidates');
   if (!x.worktreeExists) return run(x, 'I3', ['worktree', 'create', j.id], 'the job needs its worktree');
   const wt = lastEvent(x, (e) => e.type === 'worktree');
   const failed = lastEvent(x, (e) => e.type === 'worktree-setup-failed');
@@ -640,9 +641,14 @@ function spec(x: StepInput): StepAction {
   if (c.pipeline.design !== 'none' && x.spec.needsDesign && !ended(agent(x, 'designer'))) return toStage(x, 'SP4', 'design', 'the spec needs design');
   const size = j.size ?? x.spec.size;
   const gated = c.pipeline.specApproval === 'always' || (c.pipeline.specApproval === 'large' && size === 'L') || j.kind === 'retro';
+  const missing = issueLinkStatus(j, c) === 'missing';
   if (gated && j.kind !== 'eval' && !after(human(x, 'approve-spec')?.ts, authored)) {
-    return set(x, 'SP5', { stage: 'spec', state: 'waiting', waitingOn: 'spec-approval', reason: 'spec ready' }, 'a human approves the spec');
+    // `, ` not ` · `: shellLine refuses characters outside its safe class.
+    const reason = missing ? 'spec ready, issue unlinked' : 'spec ready';
+    return set(x, 'SP5', { stage: 'spec', state: 'waiting', waitingOn: 'spec-approval', reason }, 'a human approves the spec');
   }
+  // The builder never starts on an unlinked job: a spec approved without a link, or one no gate stopped.
+  if (missing) return park(x, 'SP7', 'issue-link', 'link an issue before build');
   return toStage(x, 'SP6', 'build', 'the spec is ready to build');
 }
 
