@@ -739,3 +739,56 @@ test('command triggers: header on every view, phone FAB in the inert shell, draw
   const toast = elements('components/Toast.svelte').find((e) => attrOf(e, 'id') === 'toast');
   assert.ok(toast && has(toast, 'bottom-24', 'md:bottom-4'), 'the toast sits above the FAB on phones');
 });
+
+test('one close control: drawer, dialogs and toast', () => {
+  const close = elements('components/CloseButton.svelte');
+  const button = close.find((e) => e.name === 'button');
+  assert.ok(button && has(button, 'btn', 'icon', 'ghost'), `CloseButton renders a btn icon ghost button (${button?.classes.join(' ')})`);
+  assert.ok(button.classes.includes('sm'), "the sm modifier is one of its class literals ({size === 'sm' ? 'sm' : ''})");
+  assert.match(read('components/CloseButton.svelte'), /class="btn icon ghost shrink-0 \{size === 'sm' \? 'sm' : ''\} \{cls\}"/, 'sm only for size="sm"');
+  assert.equal(attrOf(button, 'aria-label'), '{label}');
+  assert.equal(attrOf(button, 'type'), 'button');
+  assert.equal(button.first?.name, 'Icon', 'it holds the close icon');
+
+  const uses: [string, number, string | null][] = [
+    ['components/Drawer.svelte', 1, 'sm'],
+    ['components/Settings.svelte', 1, null],
+    ['components/CommandBar.svelte', 2, null],
+    ['components/Toast.svelte', 1, 'sm'],
+  ];
+  for (const [rel, count, size] of uses) {
+    const found = elements(rel).filter((e) => e.name === 'CloseButton');
+    assert.equal(found.length, count, `${rel} renders ${count} <CloseButton>`);
+    assert.ok(found.every((e) => attrOf(e, 'label')), `${rel}: every CloseButton is labelled`);
+    if (size) assert.ok(found.every((e) => attrOf(e, 'size') === size), `${rel}: its CloseButton is ${size}`);
+  }
+  const bar = elements('components/CommandBar.svelte').filter((e) => e.name === 'CloseButton');
+  assert.deepEqual(bar.map((e) => attrOf(e, 'size') || 'md').sort(), ['md', 'sm'], 'the palette: an md phone close and an sm clear-scope');
+  assert.ok(bar.some((e) => attrOf(e, 'class') === 'md:hidden'), 'the phone close hides from md up');
+  const scope = elements('components/CommandBar.svelte').find((e) => attrOf(e, 'id') === 'command-scope');
+  assert.ok(scope && has(scope, 'chip', 'ink', 'sm'), 'the scope chip is sm, beside its sm clear button');
+
+  for (const rel of svelteFiles().filter((f) => f !== 'components/CloseButton.svelte'))
+    assert.doesNotMatch(read(rel), /<Icon name="close"/, `${rel} draws no close icon of its own`);
+
+  // AC7: Dismiss sits outside the live region, which is always rendered and holds only the message.
+  const toast = elements('components/Toast.svelte');
+  const status = toast.filter((e) => attrOf(e, 'role') === 'status');
+  assert.equal(status.length, 1, 'one live region');
+  assert.ok(attrOf(status[0], 'aria-live') && attrOf(status[0], 'aria-atomic') === 'true', 'it is a live region');
+  const dismiss = toast.find((e) => e.name === 'CloseButton');
+  assert.ok(dismiss && !dismiss.parents.includes(status[0]), 'Dismiss is not inside role="status"');
+  assert.equal(attrOf(dismiss, 'label'), "{$t('common.dismiss')}");
+  assert.equal(attrOf(dismiss, 'onclick'), '{dismissToast}');
+  const markup = read('components/Toast.svelte').replace(/<script\b[\s\S]*?<\/script>|<!--[\s\S]*?-->/g, '');
+  const live = markup.indexOf('role="status"');
+  const before = markup.slice(0, live);
+  assert.ok(live > 0 && (before.match(/\{#(if|each|key|await)\b/g) ?? []).length === (before.match(/\{\/(if|each|key|await)\}/g) ?? []).length, 'no open block wraps the live region: it is always in the DOM');
+  const root = toast.find((e) => attrOf(e, 'id') === 'toast');
+  assert.ok(root && has(root, 'bottom-24', 'md:bottom-4'), '#toast keeps its position');
+  for (const [ev, fn] of [['onmouseenter', 'holdToast'], ['onmouseleave', 'releaseToast'], ['onfocusin', 'holdToast'], ['onfocusout', 'releaseToast']])
+    assert.equal(attrOf(root, ev), `{${fn}}`, `#toast ${ev} → ${fn}`);
+  const state = read('lib/toast.svelte.ts');
+  for (const fn of ['holdToast', 'releaseToast', 'dismissToast']) assert.match(state, new RegExp(`export function ${fn}\\(`), `toast.svelte.ts exports ${fn}`);
+  assert.match(state, /opener\?\.isConnected\) opener\.focus\(\)/, 'a dismiss returns focus to a still-connected opener');
+});
