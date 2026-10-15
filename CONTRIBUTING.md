@@ -4,7 +4,7 @@ Forge is a Claude Code plugin that is also its own marketplace. Read [AGENTS.md]
 
 ## Setup
 
-You need Node ≥ 22.18, git ≥ 2.38 and the GitHub CLI (`gh`). Clone the repository, then run `npm ci`. It installs only the dashboard's build toolchain, all exact-pinned devDependencies, and runs no install scripts; the engine itself needs nothing installed.
+You need Node ≥ 22.18, git ≥ 2.38 and the GitHub CLI (`gh`). Clone the repository, then run `npm ci`. It installs only the dashboard's build toolchain, all exact-pinned devDependencies; the engine itself needs nothing installed. Forge's own `package.json` has no install scripts, but two toolchain packages run their own: esbuild, and fsevents on macOS. `test/dashboard-dist.test.ts` fails if any other package starts to.
 
 Before you open a PR, run every command in [the verify list](AGENTS.md#verify-before-claiming-it-works) in AGENTS.md. The pull-request template repeats it as a checklist. Check engine changes on Node 22.18 itself, not only on a newer 22.x.
 
@@ -27,7 +27,7 @@ Before you open a PR, run every command in [the verify list](AGENTS.md#verify-be
 
 ## Dependencies
 
-Forge has zero runtime dependencies by rule, so a PR that adds one is closed. Dependabot proposes devDependency updates weekly. Each one changes `package-lock.json`, so before merging, the maintainer runs `npm run build:dashboard`, updates the pinned map in `test/dashboard-dist.test.ts` and commits both on the Dependabot branch, as the comment in [.github/dependabot.yml](.github/dependabot.yml) describes.
+Forge has zero runtime dependencies by rule, so a PR that adds one is closed. Dependabot proposes devDependency updates weekly. Before merging one, the maintainer commits two changes on the Dependabot branch, as the comment in [.github/dependabot.yml](.github/dependabot.yml) describes. The first is a rebuilt `dashboard/dist/` from `npm run build:dashboard`, because the dist build stamp hashes the resolved versions in `package-lock.json`. The second is the new versions in the pinned map in `test/dashboard-dist.test.ts`, which asserts every devDependency's exact version.
 
 ## Security and conduct
 

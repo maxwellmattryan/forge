@@ -7,10 +7,11 @@
 # Minor and patch bumps arrive grouped, one PR a week; majors arrive as separate PRs. @types/node
 # majors are ignored, because @types/node must track the Node floor (22.18), not the newest Node.
 #
-# Every npm bump changes package-lock.json, which the build stamp of the committed
-# dashboard/dist/ hashes, and the pinned map in test/dashboard-dist.test.ts. Before merging, a
-# maintainer runs `npm run build:dashboard`, updates that pinned map, and commits both on the
-# Dependabot branch.
+# Before merging any npm bump, a maintainer commits two changes on the Dependabot branch:
+# - a rebuilt dashboard/dist/ from `npm run build:dashboard`, because the dist build stamp
+#   hashes the resolved versions in package-lock.json;
+# - the new versions in the pinned map in test/dashboard-dist.test.ts, which asserts every
+#   devDependency's exact version.
 #
 # The 7-day cooldown lets a fresh release age before it is proposed, a hedge against a
 # compromised publish.

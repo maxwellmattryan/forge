@@ -12,7 +12,7 @@ Include:
 - the steps to reproduce it, or a proof of concept
 - the impact you expect: what an attacker controls, and what they gain
 
-Vulnerabilities in Claude Code, `gh`, git or Node belong with those projects. Report them there, and say so here too if Forge makes one easier to reach.
+Vulnerabilities in Claude Code, `gh`, git or Node belong with those projects. Report them there, and report them here as well if Forge makes one easier to reach.
 
 ## What to expect
 
@@ -37,13 +37,13 @@ Forge acts with your git, `gh` and Claude Code permissions, and it reads text wr
 
 - **Tracker and PR text is untrusted.** Issue bodies, comments and reviews reach agents only fenced and labelled as data, and Forge never adopts a PR from a fork. See [Untrusted input](docs/ARCHITECTURE.md#untrusted-input).
 - **The dashboard is reachable from loopback only.** Every POST must carry the page's token, a matching Origin and a JSON body. See [Dashboard security](docs/ARCHITECTURE.md#dashboard-security).
-- **The daemon runs unattended, within `daemon.allowedTools`.** A trust digest of the config stops its sessions when `.forge/config.yml` or a tracker module changes under them. See [Daemon security](docs/ARCHITECTURE.md#daemon-security).
-- **Supply chain.** Forge has zero runtime dependencies, its devDependencies are exact-pinned, nothing runs at install time, and [Dependabot](.github/dependabot.yml) proposes toolchain updates as reviewed PRs.
+- **The daemon runs unattended.** It uses the tools in `daemon.allowedTools` on its own, and any other tool call is refused or waits for a human, unless a human switched that session to Auto. A trust digest of the config stops its sessions when `.forge/config.yml` or a tracker module changes under them. See [Daemon security](docs/ARCHITECTURE.md#daemon-security).
+- **Supply chain.** Forge has zero runtime dependencies and its devDependencies are exact-pinned. Installing the plugin runs nothing: no install scripts and no build. [Dependabot](.github/dependabot.yml) proposes toolchain updates as reviewed PRs.
 
 Not vulnerabilities:
-- anything that already needs write access to `.forge/config.yml` or `commands.*`, which is code (see below)
+- anything that already needs write access to `.forge/config.yml` (including `commands.*`) or `.forge/trackers/`, which are code (see below)
 - residual risks that docs/ARCHITECTURE.md already documents
-- actions an agent takes with tools a human allowed it to use
+- actions an agent takes with tools a human allowed it to use, unless untrusted tracker or PR text steered it there by crossing one of the boundaries above
 
 ## Configuration is code
 
