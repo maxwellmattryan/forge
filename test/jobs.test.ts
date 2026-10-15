@@ -170,7 +170,7 @@ test('setJob derive decides from the locked job', () => {
     assert.deepEqual([stored.waitingOn, stored.reason, stored.pr?.number], ['conflicts', 'derived', 8], 'applied in the same write');
     const evs = readEvents(root, job.id);
     const tr = evs.filter((e) => e.type === 'transition').at(-1)!;
-    assert.deepEqual([tr.to.waitingOn, tr.reason], ['conflicts', 'derived'], 'the transition event reads the effective change');
+    assert.deepEqual([(tr.to as { waitingOn: string | null }).waitingOn, tr.reason], ['conflicts', 'derived'], 'the transition event reads the effective change');
     assert.deepEqual(evs.filter((e) => e.type === 'fields').at(-1)!.fields, { 'pr.number': 8 });
     assert.equal(evs.filter((e) => e.type === 'note').at(-1)!.text, 'derived note');
 
