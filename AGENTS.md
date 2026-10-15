@@ -7,11 +7,12 @@ This repo is **Forge**: a Claude Code plugin that is also its own marketplace. T
 - `lib/`: the engine. `cli.ts` (routing only) + `commands/` (one module per command group, each with its `HELP` table; `help.ts` renders help and errors), `jobs.ts` (state + events), `step.ts` (`forge job step`: the pure decider of the next pipeline action) + `brief.ts` (the agent briefs it renders), `schema.ts` (versions, normalisers, migrations), `config.ts`, `config-fields.ts` (the settings allowlist and its validation) + `config-set.ts` (the one write path `forge config set` and `/api/config` share), `doctor.ts`, `worktree.ts`, `pr.ts`, `trackers/`, `stats.ts`, `evals.ts`, `retro.ts`, `usage.ts` + `pricing.json`, `server.ts`, `daemon.ts` (one supervised headless session) + `daemon-pool.ts` (the inbox and per-job sessions `forge dash` runs), `commands/daemon.ts` (`forge daemon status|log`), `detect.ts`, `yaml.ts`, `types.ts` (shared shapes)
 - `dashboard/`: a Svelte 5 app in strict TypeScript. It has `index.html`, `style.css`, `svelte.config.mjs`, and `src/` with `main.ts`, `App.svelte`, `views/` (one per page), `components/`, `messages/` (the i18n catalogs; `en.json` is the source, read through `lib/i18n.ts` and the `$t` store in `lib/locale.ts`), and `lib/`. `lib/` holds plain-TS helpers and API types that `npm test` imports (`types.ts` mirrors `/api/*`), plus `*.svelte.ts` rune state. Vite builds it into the committed `dashboard/dist/` (`npm run build:dashboard`), and `forge dash` serves that. `dashboard/fonts/` holds the vendored OFL woff2 typefaces (`README.md` records their source).
 - `design/`: the Drafting design system the dashboard is drawn from (`tokens.css`, `drafting.css`, `components/`, `MIGRATION.md`)
-- `hooks/`: plugin hooks (`hooks.json` + the no-AI-attribution PreToolUse hook)
+- `hooks/`: plugin hooks (`hooks.json`, the no-AI-attribution PreToolUse hook, and the SessionStart `plugin-path.ts` hook that puts the plugin's `bin/` first on PATH)
 - `skills/forge/`: the orchestrator (`SKILL.md`) and on-demand procedures (`reference/`)
 - `agents/`: one prompt per role · `reviewers/`: lens checklists · `templates/`: files `init` seeds into `.forge/`
 - `docs/`: user docs · `test/`: `node:test` suites
-- `scripts/`: dev-only TypeScript run through npm, type-checked with the engine (`docs-commands.ts` is `npm run docs:commands`)
+- `scripts/`: dev-only TypeScript run through npm, type-checked with the engine (`docs-commands.ts` is `npm run docs:commands`, `dev.ts` is `npm run dev`, `dev-claude.ts` is `npm run dev:claude`)
+- `.github/workflows/ci.yml`: CI, the verify list below on every PR and push to `main`
 
 ## Where a change goes
 
@@ -26,6 +27,7 @@ This repo is **Forge**: a Claude Code plugin that is also its own marketplace. T
 | tracker behaviour | `lib/trackers/{local,github}.ts`, contract in `lib/types.ts` (loader in `index.ts`), status mapping in `status.ts` (`status.mjs` re-exports it for older adapters) | `docs/TRACKERS.md` |
 | the dashboard | `dashboard/src/**` (`views/`, `components/`, `lib/`), `dashboard/index.html`, `dashboard/style.css`, and endpoints in `lib/server.ts` | rebuild and commit `dashboard/dist/` (`npm run build:dashboard`); `API_VERSION` on shape changes; `dashboard/src/lib/types.ts` on any `/api/*` or SSE shape change; `npm run check:dashboard`. The server's allowlist is `dist/manifest.json`, so new modules need no server change |
 | prices or model ids | `lib/pricing.json` (bump `asOf`) | take prices from Anthropic's current pricing, never from memory |
+| CI | `.github/workflows/ci.yml` | the verify list in this file, in the same order; `test/ci-workflow.test.ts` |
 
 Each dashboard page is one component in `dashboard/src/views/`. Put shared pieces in `components/` and logic you want tested in plain `src/lib/*.ts`, not in a growing view. Only one in-flight change may bump a version constant in `lib/schema.ts`: two branches that both migrate from the same version merge into a broken migration table.
 
@@ -45,16 +47,17 @@ Each dashboard page is one component in `dashboard/src/views/`. Put shared piece
 ## Verify before claiming it works
 ```bash
 npm ci                                  # once: the dashboard's build toolchain (devDependencies only)
-npm run build:dashboard && git status --porcelain -- dashboard/dist   # must print nothing
-npm run check:dashboard                 # svelte-check: strict TS over dashboard/src (.ts and .svelte), warnings fail
 npm run typecheck                       # tsc --noEmit: the engine (tsconfig.json) and its tests (test/tsconfig.json)
+npm run check:dashboard                 # svelte-check: strict TS over dashboard/src (.ts and .svelte), warnings fail
+npm run build:dashboard && git status --porcelain -- dashboard/dist   # must print nothing
 node --test "test/*.test.ts"            # not `node --test test/`: Node 22 treats a directory arg as a module
 for f in bin/forge lib/trackers/status.mjs dashboard/*.mjs; do node --check "$f"; done   # the JS files tsc does not check
 claude plugin validate . --strict
 ```
-- **Forge needs Node ≥ 22.18, for the plugin and the tests:** type stripping is on by default there and prints no warning. Check changes on 22.18 itself (`~/.nvm/versions/node/v22.18.0`), not only on a newer 22.x.
+- **CI runs this list.** `.github/workflows/ci.yml` runs these commands as named steps, in this order, on every PR and every push to `main`. It runs them on Node 22.18.0 (`.nvmrc`) and the latest Node 24, on Ubuntu and macOS. For the last step it installs `@anthropic-ai/claude-code@2.1.299` from npm. That pin is the CLI version maintainers run locally, so CI validates by the same rules as a local run, even when the release is only days old (the action pins wait two weeks). Bump it in the workflow and here together. `claude plugin validate` needs no login, so CI runs it rather than skipping it. A separate `audit` job runs `npm audit --omit=dev`, which blocks, and a report-only `npm audit`. Change this list and the workflow together: `test/ci-workflow.test.ts` fails when they differ. The same test holds the workflow to allowlists of triggers, keys, `env`, actions and `${{ }}` expressions, and pins the job names, the matrix, the action inputs, every `run` (the stale-dist script and the audit steps included) and the single CLI install exactly, so changing any of those means editing the test in the same diff.
+- **Forge needs Node ≥ 22.18, for the plugin and the tests:** type stripping is on by default there and prints no warning. Check changes on 22.18 itself (`~/.nvm/versions/node/v22.18.0`; `nvm use` reads `.nvmrc`), not only on a newer 22.x.
 - **Never point the CLI at a real repo's `.forge/` while developing.** Use a scratch git repo in a temp dir, or set `FORGE_ROOT=<scratch>` (as `test/helpers.ts` does). Delete scratch repos *and* their `<repo>.worktrees` siblings afterwards.
-- **Dashboard:** run `npm run build:dashboard` first (`forge dash` serves `dashboard/dist/`, not the sources). In a scratch repo, seed a job or two (`forge job new`, `forge job set`), run `forge dash --background`, and open it in a browser. Check the cyanotype and vellum themes, a phone-width viewport, the job drawer, and that markdown containing `<script>` / `<img onerror>` renders escaped. Stop it with `forge dash --stop` from the same scratch repo.
+- **Dashboard:** in a scratch repo, seed a job or two (`forge job new`, `forge job set`), then run `FORGE_ROOT=<scratch> npm run dev` from this checkout: it serves your sources and rebuilds on save (reload to see an edit; one Ctrl-C stops it). Open it in a browser. Check the cyanotype and vellum themes, a phone-width viewport, the job drawer, and that markdown containing `<script>` / `<img onerror>` renders escaped. Finally run `npm run build:dashboard` and commit `dist/` with the sources (`forge dash` serves `dashboard/dist/`, not the sources).
 - **The plugin inside Claude Code:** `claude --plugin-dir <this checkout>` loads it without installing. `claude plugin details forge` shows the component inventory and projected token cost, which is useful when trimming prompts.
 - **GitHub code paths** (`pr.ts`, `trackers/github.ts`): read-only checks against real repos are fine. Anything that writes (PRs, labels, Project fields, comments, issues) goes only to a throwaway repo the maintainer approves.
 
@@ -69,7 +72,7 @@ claude plugin validate . --strict
 - **Escape everything the dashboard renders.** Svelte's `{…}` escapes, so never call `esc()` in a component. `{@html}` is allowed only on `md()`, `budgetChip`/`budgetCell`/`budgetPanel` and `screenshotsPanel`, whose output is escape-first, and `test/dashboard-svelte.test.ts` enforces it. Session log lines are untrusted: supervisor, stderr, tool input and result lines render as text; assistant/thinking prose and subagent prompts and reports render only through `md()`. Don't add a markdown library or any `innerHTML`. Job HTML (mockups) renders only in the sandboxed iframe (`/raw`).
 - **Tests can't import `.svelte` or `.svelte.ts`** (runes need the compiler). Keep logic you want tested in plain `src/lib/*.ts`.
 - **Claude Code transcripts** (`~/.claude/projects/*/<session>/subagents/agent-<id>.jsonl`) log each content block as its own line sharing one `message.id`. Their `usage.output_tokens` is the stream's opening snapshot, not the final count, which is why `usage.ts` dedupes by message id, counts tools by block id, and estimates output from content.
-- **Plugin runtime**: `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_SESSION_ID}` are substituted in skill/agent *markdown*, not exported to the shell. `bin/` is on PATH while the plugin is enabled. Plugin agents are invoked as `forge:<role>`.
+- **Plugin runtime**: `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_SESSION_ID}` are substituted in skill/agent *markdown*, not exported to the shell. Claude Code appends `bin/` to the end of PATH; the SessionStart hook puts it first for every Bash command. Plugin agents are invoked as `forge:<role>`.
 - **CLI output**: string results print raw (e.g. `forge worktree path`), everything else prints compact JSON.
 - **`--field` values** are not comma-split, because JSON arrays contain commas. Other list flags are.
 - **Local tracker refs** are title slugs, and the job id for a non-numeric ref is the ref itself. Numeric (GitHub) refs become `<n>-<slug>`.

@@ -297,6 +297,8 @@ describe('the CLI end to end', { concurrency: 4 }, () => {
       execFileSync('git', ['checkout', '--', 'test/b.test.mjs'], { cwd: wtPath });
 
       // AC7 through verify: an unresolvable base fails block with the error as the tail, and passes warn.
+      // The secret scan reads the same base and would fail first under its own `block`, so it warns here.
+      await f('init', 'write', '--answers', answer({ verifySecrets: 'warn' }));
       setJob(repo.dir, id, { fields: { base: 'no-such-branch' } });
       const errored = (await failing('verify', id)).out;
       assert.equal(errored.failure.name, 'integrity');

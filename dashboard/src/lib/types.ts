@@ -1,9 +1,9 @@
-// Shapes of the forge dash HTTP API for API_VERSION 15. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 16. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
 
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 15;
+export const API_VERSION = 16;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 
@@ -14,7 +14,7 @@ export const STAGES = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', '
 export const STATES = ['queued', 'running', 'waiting', 'blocked', 'failed', 'cancelled', 'done'] as const;
 
 /** lib/schema.ts WAITING_ON. */
-export const WAITING_ON = ['spec-approval', 'split-approval', 'issue-link', 'input', 'escalation', 'infra', 'conflicts', 'rounds-exhausted', 'pr-review', 'external', 'budget'] as const;
+export const WAITING_ON = ['spec-approval', 'split-approval', 'issue-link', 'input', 'escalation', 'infra', 'conflicts', 'rounds-exhausted', 'pr-review', 'external', 'budget', 'human'] as const;
 
 /** lib/schema.ts EFFORTS: reasoning effort levels, lowest first. */
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
@@ -653,6 +653,90 @@ export interface AboutResponse {
   node: string;
   links: { repo: string | null; docs: string | null };
 }
+
+/** A CI rollup on a GitHub preview: GitHub's statusCheckRollup, folded to three outcomes; null when nothing ran. */
+export type GitHubChecks = 'success' | 'failure' | 'pending' | null;
+
+/** A repository's hover preview. Strings are GitHub text: render them as text. */
+export interface GitHubRepoPreview {
+  kind: 'repo';
+  repo: string;
+  url: string;
+  description: string | null;
+  private: boolean;
+  archived: boolean;
+  fork: boolean;
+  stars: number;
+  forks: number;
+  language: string | null;
+  defaultBranch: string | null;
+  openIssues: number;
+  openPulls: number;
+  license: string | null;
+  pushedAt: string | null;
+}
+
+/** A pull request's hover preview. `excerpt` is the start of the body as plain text. */
+export interface GitHubPullPreview {
+  kind: 'pull';
+  repo: string;
+  number: number;
+  url: string;
+  title: string;
+  state: 'open' | 'draft' | 'merged' | 'closed';
+  author: string | null;
+  createdAt: string;
+  updatedAt: string;
+  base: string;
+  head: string;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  comments: number;
+  review: 'approved' | 'changes_requested' | 'review_required' | null;
+  checks: GitHubChecks;
+  labels: string[];
+  excerpt: string;
+}
+
+/** An issue's hover preview. A closed issue keeps why it closed: completed (`closed`), not planned or a duplicate. */
+export interface GitHubIssuePreview {
+  kind: 'issue';
+  repo: string;
+  number: number;
+  url: string;
+  title: string;
+  state: 'open' | 'closed' | 'not_planned' | 'duplicate';
+  author: string | null;
+  createdAt: string;
+  updatedAt: string;
+  comments: number;
+  labels: string[];
+  assignees: string[];
+  excerpt: string;
+}
+
+/** A commit's hover preview. */
+export interface GitHubCommitPreview {
+  kind: 'commit';
+  repo: string;
+  sha: string;
+  url: string;
+  headline: string;
+  author: string | null;
+  committedAt: string;
+  additions: number;
+  deletions: number;
+  checks: GitHubChecks;
+}
+
+export type GitHubPreview = GitHubRepoPreview | GitHubPullPreview | GitHubIssuePreview | GitHubCommitPreview;
+
+/** Why a preview could not be fetched: no `gh` on PATH, GitHub has no such page (or no access), or anything else. */
+export type GitHubPreviewError = 'gh_missing' | 'not_found' | 'failed';
+
+/** GET /api/github/preview?url=: previewGitHub in lib/github-preview.ts. A URL it can't preview is a 400 ApiError. */
+export type GitHubPreviewResponse = { preview: GitHubPreview } | { error: GitHubPreviewError; message: string };
 
 /** GET /api/requests: listRequests in lib/requests.ts. */
 export type RequestsResponse = ForgeRequest[];

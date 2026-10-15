@@ -183,7 +183,7 @@ test('steps in a group run at the same time, after the steps before it', () => {
   const r = x.verify(j.id);
   assert.equal(r.status, 0, `${r.stderr} ${JSON.stringify(r.out)}`);
   assert.equal(r.out.ok, true);
-  assert.deepEqual(r.out.steps.map((st: any) => [st.name, st.ok]), [['build', true], ['a', true], ['b', true], ['c', true], ['d', true]]);
+  assert.deepEqual(r.out.steps.map((st: any) => [st.name, st.ok]), [['secrets', true], ['build', true], ['a', true], ['b', true], ['c', true], ['d', true]]);
   const cmds = x.commands(j.id);
   assert.equal(cmds[0], 'build', 'build finished first');
   assert.deepEqual(cmds.slice(1, 4).sort(), ['a', 'b', 'c']);
@@ -207,7 +207,7 @@ test('a failing group finishes its siblings, reports the first failure in config
   assert.equal(r.status, 1);
   assert.equal(r.out.ok, false);
   assert.equal(r.out.failure.name, 'a', 'the first failure in config order, not the first to finish');
-  assert.deepEqual(r.out.steps.map((st: any) => [st.name, st.ok]), [['a', false], ['b', true], ['c', false]]);
+  assert.deepEqual(r.out.steps.map((st: any) => [st.name, st.ok]), [['secrets', true], ['a', false], ['b', true], ['c', false]]);
   const cmds = x.commands(j.id);
   assert.deepEqual([...cmds].sort(), ['a', 'b', 'c'], 'one command event per group step, none for d');
   assert.ok(cmds.indexOf('c') < cmds.indexOf('a'), `c finished before a: ${cmds}`);
@@ -229,9 +229,9 @@ test('round-N.md and steps keep config order whatever finishes first', () => {
   const r = x.verify(j.id);
   assert.equal(r.status, 0, `${r.stderr} ${JSON.stringify(r.out)}`);
   assert.deepEqual(x.commands(j.id), ['c', 'b', 'a'], 'they finished in reverse config order');
-  assert.deepEqual(r.out.steps.map((st: any) => st.name), ['a', 'b', 'c']);
+  assert.deepEqual(r.out.steps.map((st: any) => st.name), ['secrets', 'a', 'b', 'c']);
   const md = x.roundMd(j.dir);
-  assert.deepEqual([...md.matchAll(/^## (\w+): /gm)].map((m) => m[1]).filter((n) => n !== 'integrity'), ['a', 'b', 'c']);
+  assert.deepEqual([...md.matchAll(/^## (\w+): /gm)].map((m) => m[1]).filter((n) => n !== 'integrity' && n !== 'secrets'), ['a', 'b', 'c']);
   for (const name of ['a', 'b', 'c']) assert.match(md, new RegExp(`^## ${name}: ok\\n\\n\`node rv\\.mjs [^\`]+ ${name}\\b[^\`]*\` · log: \`logs/verify-${name}-`, 'm'));
 });
 
@@ -241,12 +241,12 @@ test('an unset command in a group is skipped in place', () => {
   const j = x.job('Skipped');
   const r = x.verify(j.id);
   assert.equal(r.status, 0, `${r.stderr} ${JSON.stringify(r.out)}`);
-  assert.deepEqual(r.out.steps.map((st: any) => [st.name, st.ok, st.skipped ?? false]), [['x', true, false], ['skipme', true, true], ['y', true, false]]);
-  assert.deepEqual(r.out.steps[1], { name: 'skipme', ok: true, skipped: true });
+  assert.deepEqual(r.out.steps.map((st: any) => [st.name, st.ok, st.skipped ?? false]), [['secrets', true, false], ['x', true, false], ['skipme', true, true], ['y', true, false]]);
+  assert.deepEqual(r.out.steps[2], { name: 'skipme', ok: true, skipped: true });
   assert.deepEqual(x.commands(j.id).sort(), ['x', 'y']);
   const md = x.roundMd(j.dir);
   assert.deepEqual(
-    [...md.matchAll(/^## (\w+): (.*)$/gm)].map((m) => [m[1], m[2]]).filter(([n]) => n !== 'integrity'),
+    [...md.matchAll(/^## (\w+): (.*)$/gm)].map((m) => [m[1], m[2]]).filter(([n]) => n !== 'integrity' && n !== 'secrets'),
     [['x', 'ok'], ['skipme', 'skipped (no command configured)'], ['y', 'ok']],
   );
 });
@@ -261,14 +261,14 @@ test('a group step past the 64 MiB output cap, or one that cannot start, fails w
   assert.equal(r.out.failure.name, 'big');
   assert.equal(r.out.failure.exit, null);
   assert.match(r.out.failure.tail, /ENOBUFS: stdout passed 64 MiB, so the command was stopped/);
-  assert.equal(r.out.steps[1].ok, true, 'the sibling still finished');
+  assert.equal(r.out.steps[2].ok, true, 'the sibling still finished');
   assert.match(x.roundMd(j.dir), /^## big: FAILED \(exit null\)$/m);
 
   x.configure({ commands: { a: 'true', b: 'true' }, verify: [['a', 'b']] });
   const k = x.job('No shell');
   const gone = x.verify(k.id, { SHELL: path.join(x.root, 'no-such-shell') });
   assert.equal(gone.status, 1);
-  assert.deepEqual(gone.out.steps.map((st: any) => [st.name, st.ok, st.exit]), [['a', false, null], ['b', false, null]]);
+  assert.deepEqual(gone.out.steps.map((st: any) => [st.name, st.ok, st.exit]), [['secrets', true, null], ['a', false, null], ['b', false, null]]);
   assert.match(gone.out.failure.tail, /ENOENT/);
 });
 
@@ -278,8 +278,8 @@ test('e2e listed inside a group is not run again', () => {
   const j = x.job('E2E in a group');
   const r = x.verify(j.id);
   assert.equal(r.status, 0, `${r.stderr} ${JSON.stringify(r.out)}`);
-  assert.deepEqual(r.out.steps.map((st: any) => st.name), ['test', 'e2e']);
-  assert.equal(r.out.steps[1].reason, undefined, 'a group step, not the appended verifyE2e step');
+  assert.deepEqual(r.out.steps.map((st: any) => st.name), ['secrets', 'test', 'e2e']);
+  assert.equal(r.out.steps[2].reason, undefined, 'a group step, not the appended verifyE2e step');
   assert.equal(x.logs(j.dir).filter((l) => l.startsWith('verify-e2e-')).length, 1);
   assert.deepEqual(x.commands(j.id).sort(), ['e2e', 'test']);
 });

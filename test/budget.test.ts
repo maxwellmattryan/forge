@@ -26,7 +26,7 @@ function setup() {
   return { repo, root: repo.dir, config, id: job.id, agentEnd, count };
 }
 
-test('AC1/AC2/AC16: defaults, validation, waitingOn and versions', () => {
+test('AC1/AC2/AC16: defaults, validation, waitingOn and versions', async () => {
   const d = defaults();
   assert.deepEqual(d.pipeline.budget, { tokens: null, usd: null, minutes: null, changedLines: null, verifyRetries: 2 });
   const budgetProblems = (budget) => {
@@ -40,16 +40,22 @@ test('AC1/AC2/AC16: defaults, validation, waitingOn and versions', () => {
   assert.equal(budgetProblems({ tokens: 'lots' }).length, 1);
   assert.deepEqual(budgetProblems({ tokens: null, usd: 2.5, verifyRetries: 0 }), []);
   assert.ok(WAITING_ON.includes('budget'));
-  assert.equal(JOB_SCHEMA_VERSION, 7);
-  assert.equal(API_VERSION, 15);
+  assert.equal(JOB_SCHEMA_VERSION, 8);
+  assert.equal(API_VERSION, 16);
+  assert.equal(WAITING_ON.at(-1), 'human', 'v8 adds the human gate last');
   assert.deepEqual(BUDGET_KEYS, ['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries']);
-  assert.equal(DASH_API_VERSION, 15);
+  assert.equal(DASH_API_VERSION, 16);
   assert.equal(DASH_API_VERSION, API_VERSION);
   assert.equal(WAIT_LABEL.budget, 'Budget exceeded');
+  assert.equal(WAIT_LABEL.human, 'Human check');
   const { repo, root, id } = setup();
   try {
     setJob(root, id, { state: 'waiting', waitingOn: 'budget', reason: 'x' });
     assert.equal(loadJob(root, id).waitingOn, 'budget');
+    // `forge job set <id> --state waiting --waiting-on human --reason x`
+    await jobCmd(root, defaults(), 'set', [id], { state: 'waiting', 'waiting-on': 'human', reason: 'x' });
+    assert.equal(loadJob(root, id).waitingOn, 'human');
+    assert.equal(loadJob(root, id).reason, 'x');
   } finally {
     repo.cleanup();
   }

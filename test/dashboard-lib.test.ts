@@ -48,7 +48,8 @@ test('md, inline and safeUrl render exactly as before', () => {
     ['<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>', '<p>&lt;script&gt;alert(1)&lt;/script&gt;</p><p>&lt;img src=x onerror=alert(1)&gt;</p>'],
     ['[click](javascript:alert(1))', '<p>click)</p>'],
     ['[docs](https://example.com/a?b=1&c=2)', `<p><a href="https://example.com/a?b=1&amp;c=2"${A}>docs</a></p>`],
-    ['see https://example.com/x.', `<p>see <a href="https://example.com/x."${A}>https://example.com/x.</a></p>`],
+    // The period ends the sentence, not the URL (it was inside the link before).
+    ['see https://example.com/x.', `<p>see <a href="https://example.com/x"${A}>https://example.com/x</a>.</p>`],
     ['```\n<b>x</b>\n```', '<pre><code>&lt;b&gt;x&lt;/b&gt;</code></pre>'],
     ['use `<i>` and **bold** and *em* and _u_', '<p>use <code>&lt;i&gt;</code> and <strong>bold</strong> and <em>em</em> and <em>u</em></p>'],
     ['#### Deep <x>', '<h3>Deep &lt;x&gt;</h3>'],

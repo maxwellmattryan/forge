@@ -7,6 +7,13 @@
           { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/no-ai-attribution.ts"] }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/plugin-path.ts"] }
+        ]
+      }
     ]
   }
 }

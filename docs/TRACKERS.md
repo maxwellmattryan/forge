@@ -70,3 +70,5 @@ import { statusKey } from '<plugin>/lib/trackers/status.ts'; // queued | in-prog
 ```
 (`status.mjs` still re-exports it for adapters written against older Forge.)
 Keep credentials in the environment or the tool's own auth, never in the config file. Forge treats `update`/`comment` failures as non-fatal and logs them on the job.
+
+**Writes are scanned for secrets.** Forge wraps every adapter, built-in or custom, so `comment` bodies and `create` titles and bodies go through the secret scanner first (docs/CONFIG.md "Secret scanning"): `forge tracker comment|create`, `forge job link --create`, `job human … --link new`, the split procedure and Forge's own mirrors all reach it. A likely credential is refused with error code `secret_found` (exit 1) and your adapter is never called. A custom adapter's `update` and `claim` receive the whole job, so the job's `title` and `reason` are scanned before them too; the built-in ones send only a status. Only a `sha256:` fingerprint in `.forge/secrets-allow.txt` allows tracker text, never a path glob.

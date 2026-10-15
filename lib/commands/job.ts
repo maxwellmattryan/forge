@@ -7,6 +7,7 @@ import { budgetCmd, enforceBudget } from '../budget.ts';
 import { daemonClaimOpts, refuseInboxDrive } from '../daemon-owner.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
 import { agentOutputMissing, claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
+import { logSecrets, scanAgentOutputs } from '../secrets.ts';
 import { normalizeRef } from '../issue-link.ts';
 import { exists } from '../paths.ts';
 import { EFFORTS } from '../schema.ts';
@@ -136,7 +137,7 @@ const JOB: HelpGroup = {
     {
       command: 'job agent',
       args: '<id> start|end --role R [options]',
-      summary: 'record an agent starting or ending, with its usage',
+      summary: 'record an agent starting or ending, with its usage; end also scans what the agent wrote for likely secrets (a secret-found event and secrets: <n>, never a refusal)',
       flags: [
         ['--role R', 'the role, e.g. builder or reviewer:code (required)'],
         ['--model M', 'the model it ran on'],
@@ -404,9 +405,14 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         output = resolveAgentOutput(root, jobId, flags.output);
         fs.mkdirSync(path.dirname(path.join(jobDir(root, jobId), output)), { recursive: true });
       }
+      let secrets = 0;
       if (phase === 'end') {
         const before = loadJob(root, jobId);
         outputMissing = agentOutputMissing(root, before.id, role, before.agents[role], summary);
+        // Detection only: what the agent wrote stays in the job dir, but a human sees the note.
+        const scan = scanAgentOutputs(root, config, before, role);
+        logSecrets(root, before.id, 'agent-end', scan, { blocked: false, role });
+        secrets = scan.findings.length;
         if (flags.import && flags['agent-id']) {
           since = importCursor(before, String(flags['agent-id']));
           usage = importClaudeCodeTranscript(String(flags['agent-id']), { since }) ?? undefined;
@@ -435,7 +441,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       );
       const a = job.agents[role];
       const budget = phase === 'end' ? enforceBudget(root, config, job.id, 'agent-end') : null;
-      return { role, status: a.status, model: a.model, usage: usage ? { tokens: usage.totalTokens, exact: Boolean(usage.exact), ...(since && usage.transcript ? { since } : {}) } : null, jobTokens: job.usage.totalTokens, jobCostUsd: job.usage.estCostUsd, ...(outputMissing !== null ? { outputMissing } : {}), ...(budget ? { budget } : {}) };
+      return { role, status: a.status, model: a.model, usage: usage ? { tokens: usage.totalTokens, exact: Boolean(usage.exact), ...(since && usage.transcript ? { since } : {}) } : null, jobTokens: job.usage.totalTokens, jobCostUsd: job.usage.estCostUsd, ...(outputMissing !== null ? { outputMissing } : {}), ...(secrets ? { secrets } : {}), ...(budget ? { budget } : {}) };
     }
     case 'round': {
       // Checked before incrementing, so after approval re-running `forge job round` starts the round.

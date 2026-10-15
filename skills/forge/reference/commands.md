@@ -14,6 +14,7 @@ Read `waitingOn` from `forge job show <job>`, then:
 | `budget` | `forge job budget <job> --ack` (or `--set k=v` when the note names limits, e.g. `usd=20`), then `forge job human <job> approve --note "…"` | if `stillExceeded` is empty, `forge job set <job> --state running`; otherwise report it and leave the job waiting |
 | `split-approval` | `forge job human <job> approve-split --note "…"` | `reference/split.md` against the existing `plan.md`, then run the unblocked children |
 | `issue-link` | `forge job human <job> approve --link <link> --note "…"` (below) | `forge job set <job> --state running` |
+| `human` | `forge job human <job> approve --note "…"` | `forge job set <job> --state running` (step re-runs the check, which parks the job again if the value is still there) |
 
 An escalation before build (plan or spec stage) is better answered with `revise`.
 
@@ -27,7 +28,7 @@ An escalation before build (plan or spec stage) is better answered with `revise`
 Append the answer under the questions in `questions.md`, `forge job human <job> answer --note "…"`, then `forge job set <job> --state running`. Step resumes the agent that asked.
 
 ## `rework <job> <note>`
-`forge job human <job> rework --note "…"`, write the note to `feedback.md`, then `forge job set <job> --stage build --state running`. Step starts a new build round with it as input; this is allowed even after `maxRounds`. A `rework` on a job waiting on `conflicts` (the dashboard's "Fix conflicts now") is an `approve`.
+`forge job human <job> rework --note "…"`, write the note to `feedback.md`, then `forge job set <job> --stage build --state running`. Step starts a new build round with it as input; this is allowed even after `maxRounds`. The round the rework opens runs build, verify, review and decide; a further round with no new rework parks on `rounds-exhausted` again. A `rework` on a job waiting on `conflicts` (the dashboard's "Fix conflicts now") is an `approve`.
 
 ## `cancel <job>`
 `forge job set <job> --state cancelled --reason "…"`, then `forge stop <job>`. Leave the worktree unless asked to remove it (`forge worktree remove <job>`).

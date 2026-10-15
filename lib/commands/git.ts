@@ -8,8 +8,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { attributionForbidden, findAttribution } from '../attribution.ts';
 import { sessionEnv } from '../daemon.ts';
+import { PINNED_DIFF_OPTS, PINNED_GIT_CONFIG } from '../integrity.ts';
 import { jobDir, loadJob } from '../jobs.ts';
 import { resolveWorktreePaths } from '../paths.ts';
+import { applyAllowlist, diffUnits, loadAllowlist, logSecrets, refusalMessage, refuseSecrets, scanUnits, secretMode, textUnit } from '../secrets.ts';
 import { ForgeError, run } from '../util.ts';
 import { usageError } from './args.ts';
 import type { CommandHelp, Config, HelpGroup } from '../types.ts';
@@ -47,13 +49,14 @@ const GIT: HelpGroup = {
     {
       command: 'git commit',
       args: '<id> (--message T | --message-file F) [-- <path>...]',
-      summary: "commit in the job's worktree, on its branch, from any cwd (how agents commit, in a daemon session too); refuses git options, paths outside the worktree and AI attribution",
+      summary:
+        "commit in the job's worktree, on its branch, from any cwd (how agents commit, in a daemon session too); refuses git options, paths outside the worktree, AI attribution and a likely secret (in the message always; in the staged changes under verifySecrets: block)",
       flags: [
         ['--message T', 'the commit message'],
         ['--message-file F', 'read the message from F, a file inside the job dir'],
       ],
       exits: [
-        [1, 'no such job or worktree, the wrong branch, a merge or rebase in progress, nothing to commit, a refused option, path or message'],
+        [1, 'no such job or worktree, the wrong branch, a merge or rebase in progress, nothing to commit, a refused option, path or message, or a likely secret (code secret_found)'],
         [5, 'git failed'],
       ],
       readme: true,
@@ -133,7 +136,12 @@ function gitEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return env.FORGE_DAEMON === '1' ? sessionEnv(base) : base;
 }
 
-export function gitWrite(root: string, config: Config, args: string[], env: NodeJS.ProcessEnv = process.env): { id: string; staged: string[] } | { id: string; sha: string; branch: string; files: string[] } {
+export function gitWrite(
+  root: string,
+  config: Config,
+  args: string[],
+  env: NodeJS.ProcessEnv = process.env,
+): { id: string; staged: string[] } | { id: string; sha: string; branch: string; files: string[]; secrets?: number } {
   const [sub, id, ...rest] = args;
   if (sub !== 'add' && sub !== 'commit') throw usageError(GIT);
   if (!id || id.startsWith('-')) throw usageError(GIT, sub);
@@ -189,8 +197,18 @@ export function gitWrite(root: string, config: Config, args: string[], env: Node
     if (hits.length) throw new ForgeError(`AI attribution is not allowed in commits; remove these lines:\n${[...new Set(hits)].map((h) => `  - ${h}`).join('\n')}`);
   }
 
+  // Before anything is staged: the message is text Forge publishes, refused in either mode.
+  refuseSecrets(root, config, [textUnit('(commit message)', message)], { what: 'the commit message', id, gate: 'commit' });
+
   add(paths);
   if (git(['diff', '--cached', '--quiet'], { allowFail: true }).ok) throw new ForgeError(`nothing to commit in ${cwd}`);
+  // A builder can't rewrite history through forge git, so this is the last point where it can still
+  // take a key out. The index stays staged on a refusal, for the builder to fix.
+  const mode = secretMode(config);
+  const staged = diffUnits(git([...PINNED_GIT_CONFIG, 'diff', '--cached', ...PINNED_DIFF_OPTS, '--text', '-U0', '--']).stdout, 'staged');
+  const found = applyAllowlist(scanUnits(staged.units, { config }), loadAllowlist(root));
+  logSecrets(root, id, 'commit', found, { blocked: mode === 'block' });
+  if (mode === 'block' && found.findings.length) throw new ForgeError(refusalMessage('the staged changes', found.findings), 'secret_found', `forge secrets scan ${id}`);
   const tmp = path.join(dir, `.commit-msg-${process.pid}-${Date.now()}.txt`);
   fs.writeFileSync(tmp, message);
   try {
@@ -200,5 +218,5 @@ export function gitWrite(root: string, config: Config, args: string[], env: Node
   }
   const sha = git(['rev-parse', 'HEAD']).stdout.trim();
   const files = git(['diff-tree', '--no-commit-id', '--name-only', '-r', '--root', 'HEAD']).stdout.split('\n').filter(Boolean);
-  return { id, sha, branch, files };
+  return { id, sha, branch, files, ...(found.findings.length ? { secrets: found.findings.length } : {}) };
 }

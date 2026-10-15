@@ -5,13 +5,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as V from '../dashboard/src/lib/view.ts';
 import { PARK_LABEL, WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
-import { cleanRef, parseCandidates, threadAction, threadItems, threadOpening } from '../dashboard/src/lib/thread.ts';
+import { cleanRef, parseCandidates, secretItems, secretLine, threadAction, threadItems, threadMarks, threadOpening } from '../dashboard/src/lib/thread.ts';
 import { dur, tokensShort } from '../dashboard/src/lib/util.ts';
 import { STAGES, STATES, WAITING_ON } from '../dashboard/src/lib/types.ts';
 import { DEP_REASON } from '../lib/deps.ts';
 
 // Per waiting kind: the card's buttons, its textarea placeholder (null: no textarea) and its "Read …" link.
-const INBOX = {"spec-approval":{"actions":[{"label":"Approve spec","type":"approve","primary":true,"needsNote":false},{"label":"Request changes","type":"revise-spec","primary":false,"needsNote":true}],"note":"Optional note for the agents…","doc":"spec.md"},"split-approval":{"actions":[{"label":"Approve split","type":"approve","primary":true,"needsNote":false},{"label":"Keep as one job","type":"revise-spec","primary":false,"needsNote":false}],"note":"Optional note for the agents…","doc":"plan.md"},"input":{"actions":[{"label":"Send answer","type":"answer","primary":true,"needsNote":true}],"note":"Your answer…","doc":"questions.md"},"escalation":{"actions":[{"label":"Approve","type":"approve","primary":true,"needsNote":false},{"label":"Rework","type":"rework","primary":false,"needsNote":true},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":"Optional note for the agents…","doc":"decision.md"},"rounds-exhausted":{"actions":[{"label":"Another round","type":"rework","primary":false,"needsNote":true},{"label":"Accept as is","type":"approve","primary":false,"needsNote":false},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":"Optional note for the agents…","doc":"review/round-2"},"budget":{"actions":[{"label":"Approve & continue","type":"approve","primary":true,"needsNote":true},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":"Optional: new limits, e.g. usd=20 tokens=2000000","doc":null},"infra":{"actions":[{"label":"Steps done, resume","type":"resume","primary":true,"needsNote":false}],"note":null,"doc":"runbook.md"},"conflicts":{"actions":[{"label":"Fix conflicts now","type":"rework","primary":true,"needsNote":false,"text":"Resolve merge conflicts with the base branch"},{"label":"Leave for later","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null},"external":{"actions":[{"label":"Unblocked, resume","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null},"failed":{"actions":[{"label":"Retry","type":"resume","primary":false,"needsNote":false},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":null,"doc":null},"pr-review":{"actions":[{"label":"Resume","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null},"mystery":{"actions":[{"label":"Resume","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null}};
+const INBOX = {"spec-approval":{"actions":[{"label":"Approve spec","type":"approve","primary":true,"needsNote":false},{"label":"Request changes","type":"revise-spec","primary":false,"needsNote":true}],"note":"Optional note for the agents…","doc":"spec.md"},"split-approval":{"actions":[{"label":"Approve split","type":"approve","primary":true,"needsNote":false},{"label":"Keep as one job","type":"revise-spec","primary":false,"needsNote":false}],"note":"Optional note for the agents…","doc":"plan.md"},"input":{"actions":[{"label":"Send answer","type":"answer","primary":true,"needsNote":true}],"note":"Your answer…","doc":"questions.md"},"escalation":{"actions":[{"label":"Approve","type":"approve","primary":true,"needsNote":false},{"label":"Rework","type":"rework","primary":false,"needsNote":true},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":"Optional note for the agents…","doc":"decision.md"},"rounds-exhausted":{"actions":[{"label":"Another round","type":"rework","primary":false,"needsNote":true},{"label":"Accept as is","type":"approve","primary":false,"needsNote":false},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":"Optional note for the agents…","doc":"review/round-2"},"budget":{"actions":[{"label":"Approve & continue","type":"approve","primary":true,"needsNote":true},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":"Optional: new limits, e.g. usd=20 tokens=2000000","doc":null},"infra":{"actions":[{"label":"Steps done, resume","type":"resume","primary":true,"needsNote":false}],"note":null,"doc":"runbook.md"},"conflicts":{"actions":[{"label":"Fix conflicts now","type":"rework","primary":true,"needsNote":false,"text":"Resolve merge conflicts with the base branch"},{"label":"Leave for later","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null},"external":{"actions":[{"label":"Unblocked, resume","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null},"human":{"actions":[{"label":"Approve","type":"approve","primary":true,"needsNote":false},{"label":"Rework","type":"rework","primary":false,"needsNote":true},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":"Optional note for the agents…","doc":null},"failed":{"actions":[{"label":"Retry","type":"resume","primary":false,"needsNote":false},{"label":"Cancel job","type":"cancel","primary":false,"needsNote":false}],"note":null,"doc":null},"pr-review":{"actions":[{"label":"Resume","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null},"mystery":{"actions":[{"label":"Resume","type":"resume","primary":false,"needsNote":false}],"note":null,"doc":null}};
 const REQUESTS = {"runNext":{"type":"next","job":null,"text":null,"args":{}},"start":{"type":"run","job":null,"text":null,"args":{"ref":"12"}},"addressFeedback":{"type":"rework","job":"j2","text":"Address the PR feedback","args":{}},"approveWithNote":{"type":"approve","job":"j1","text":"ship it","args":{}},"approveNoNote":{"type":"approve","job":"j3","text":null,"args":{}},"answerEmpty":{"toast":["Write something first.",true]},"reworkEmpty":{"type":"rework","job":"j3","text":null,"args":{}},"fixConflicts":{"type":"rework","job":"j1","text":"Resolve merge conflicts with the base branch","args":{}},"evalRun":{"type":"eval-run","args":{"tags":"replay, ui","tasks":null,"label":"base"}},"evalRunEmpty":{"type":"eval-run","args":{"tags":null,"tasks":null,"label":null}}};
 const FILTERS = {"active":["a","b","c","d","i"],"waiting":["b","c","d"],"done":["e","f"],"all":["a","b","c","d","e","f","g","h","i"]};
 
@@ -265,6 +265,64 @@ test('thread items', () => {
   assert.deepEqual(a('eval-run', {}), { kind: 'verb', verb: 'eval' });
   const hostile = threadItems([r('1-x', 'dashboard', 'done', { text: '<script>alert(1)</script>', result: '<img src=x onerror=alert(1)>' })])[0];
   assert.equal(hostile.text, '<script>alert(1)</script>', 'kept as text: Svelte escapes it');
+});
+
+test('thread secret notes', () => {
+  const fp = `sha256:${'ab12'.repeat(16)}`;
+  const finding = (extra: Record<string, unknown> = {}) => ({ kind: 'aws-access-key', path: 'cfg/app.cfg', line: 3, excerpt: 'AKIA…XY', fingerprint: fp, ...extra });
+  const ev = (ts: string, data: Record<string, unknown>): any => ({ v: 1, ts, type: 'secret-found', ...data });
+  const events = [
+    { v: 1, ts: '2026-10-13T00:00:01Z', type: 'verify', ok: false },
+    ev('2026-10-13T00:00:02Z', {
+      gate: 'verify',
+      blocked: true,
+      count: 5,
+      allowed: 0,
+      more: 0,
+      findings: [
+        finding(),
+        finding({ kind: 'Not A Kind' }),
+        finding({ path: 7 }),
+        finding({ excerpt: 'x'.repeat(25) }),
+        finding({ kind: 'high-entropy', path: 'p'.repeat(600), line: -1, excerpt: '<script>', fingerprint: 'sha256:nothex' }),
+      ],
+    }),
+    ev('2026-10-13T00:00:04Z', { gate: 'telepathy', blocked: false, count: 14, more: 4, findings: Array.from({ length: 14 }, (_, i) => finding({ line: i + 1 })) }),
+    ev('2026-10-13T00:00:03Z', { gate: 'agent-end', role: 'builder', blocked: false, count: 1, findings: 'nope' }),
+    ev('2026-10-13T00:00:05Z', { gate: 'pr', role: 'Not a role!', blocked: 'yes', count: -2, findings: [] }),
+  ];
+  const notes = secretItems(events as any);
+  assert.deepEqual(notes.map((n) => [n.id, n.from, n.action, n.text, n.status]), [
+    ['secret:2026-10-13T00:00:02Z:1', 'forge', { kind: 'secret' }, null, null],
+    ['secret:2026-10-13T00:00:03Z:3', 'forge', { kind: 'secret' }, null, null],
+    ['secret:2026-10-13T00:00:04Z:2', 'forge', { kind: 'secret' }, null, null],
+    ['secret:2026-10-13T00:00:05Z:4', 'forge', { kind: 'secret' }, null, null],
+  ]);
+  const [verify, agent, other, pr] = notes.map((n) => n.secret!);
+  assert.deepEqual([verify.gate, verify.blocked, verify.count, verify.more], ['verify', true, 5, 0]);
+  assert.equal(verify.findings.length, 2, 'a bad kind, a non-string path and an over-long excerpt are dropped');
+  assert.deepEqual(verify.findings[0], { kind: 'aws-access-key', path: 'cfg/app.cfg', line: 3, excerpt: 'AKIA…XY', fingerprint: fp });
+  const odd = verify.findings[1];
+  assert.equal(odd.path.length, 500);
+  assert.ok(odd.path.endsWith('…'));
+  assert.equal(odd.line, null);
+  assert.equal(odd.fingerprint, null);
+  assert.equal(odd.excerpt, '<script>', 'kept as a plain string: Svelte escapes it');
+  assert.deepEqual([agent.gate, agent.role, agent.blocked, agent.count, agent.findings], ['agent-end', 'builder', false, 1, []], 'no valid findings: caption and count only');
+  assert.deepEqual([other.gate, other.findings.length, other.more, other.count], ['other', 10, 4, 14]);
+  assert.deepEqual([pr.gate, pr.role, pr.blocked, pr.count], ['pr', null, false, 0]);
+  assert.equal(secretLine(verify.findings[0]), `aws-access-key · cfg/app.cfg:3 · AKIA…XY · sha256:${'ab12'.repeat(3)}`);
+  assert.equal(secretLine({ kind: 'k', path: 'p', line: null, excerpt: '…', fingerprint: null }), 'k · p · …');
+
+  // Merged with the requests by time; a request comes first on a tie.
+  const req = (id: string, createdAt: string): any => ({ id, type: 'answer', job: 'j1', text: 'x', args: {}, from: 'dashboard', status: 'done', createdAt });
+  const merged = threadItems([req('1-a', '2026-10-13T00:00:02Z'), req('2-b', '2026-10-13T00:00:06Z')], { text: 'Opening', at: '2026-10-13T00:00:00Z', tracker: false }, events as any);
+  assert.deepEqual(merged.map((m) => m.id), ['request', '1-a', 'secret:2026-10-13T00:00:02Z:1', 'secret:2026-10-13T00:00:03Z:3', 'secret:2026-10-13T00:00:04Z:2', 'secret:2026-10-13T00:00:05Z:4', '2-b']);
+  assert.deepEqual(threadItems([req('1-a', '2026-10-13T00:00:02Z')], null), threadItems([req('1-a', '2026-10-13T00:00:02Z')], null, []), 'no events: the Thread as before');
+  assert.ok(merged.filter((m) => !m.secret).every((m) => m.secret === null));
+  // Each note is one mark, so a new one counts once toward the unread chip.
+  assert.equal(threadMarks(merged).length, merged.length);
+  assert.equal(new Set(threadMarks(merged)).size, merged.length);
 });
 
 test('issue-link candidates and actions', () => {

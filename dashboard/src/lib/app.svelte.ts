@@ -11,6 +11,7 @@ import type {
   DoctorResponse,
   EvalCompare,
   EvalsResponse,
+  GitHubPreviewResponse,
   JobDetail,
   PostConfigBody,
   PostConfigResponse,
@@ -226,11 +227,15 @@ export const postConfig = (key: string, value: ConfigValue): Promise<PostConfigR
 /** Takes the token: the server runs git and gh for it. */
 export const fetchDoctor = (): Promise<DoctorResponse> => jsonFetch<DoctorResponse>('/api/doctor', { headers: { 'x-forge-token': forgeToken() } });
 
+/** Takes the token: the server runs gh for it, on the login's rate limit. */
+export const fetchGitHubPreview = (url: string): Promise<GitHubPreviewResponse> =>
+  jsonFetch<GitHubPreviewResponse>(`/api/github/preview?url=${encodeURIComponent(url)}`, { headers: { 'x-forge-token': forgeToken() } });
+
 export const fetchAbout = (): Promise<AboutResponse> => jsonFetch<AboutResponse>('/api/about');
 
 // ---------- drawer ----------
 
-const marksOf = (d: JobDetail): string[] => threadMarks(threadItems(d.requests, threadOpening(d)));
+const marksOf = (d: JobDetail): string[] => threadMarks(threadItems(d.requests, threadOpening(d), d.events));
 
 function renderDrawer(): void {
   const d = S.drawer.detail;
