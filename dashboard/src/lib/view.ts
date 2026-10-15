@@ -5,7 +5,7 @@ import { PARK_LABEL, STAGE_LABEL, WAIT_LABEL } from './labels.ts';
 
 /** job.json can be hand-edited, so helpers read fields defensively despite the types. */
 type JobLike = Partial<Job> & { progress?: Progress };
-type Tone = 'ok' | 'bad' | 'warn' | 'info' | 'muted' | 'live' | 'rev';
+export type Tone = 'ok' | 'bad' | 'warn' | 'info' | 'muted' | 'live' | 'rev';
 
 const obj = (v: unknown): Record<string, any> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : {});
 const s = (v: unknown): string => String(v ?? '');

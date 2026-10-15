@@ -4,6 +4,7 @@
   import Banner from './components/Banner.svelte';
   import CommandBar from './components/CommandBar.svelte';
   import Drawer from './components/Drawer.svelte';
+  import GitHubCard from './components/GitHubCard.svelte';
   import Icon from './components/Icon.svelte';
   import LiveDot from './components/LiveDot.svelte';
   import Nav from './components/Nav.svelte';
@@ -26,6 +27,7 @@
   import { commandKey, shellEscape, shortcutAction } from './lib/command.ts';
   import { closePalette, openPalette, palette } from './lib/palette.svelte.ts';
   import { closePopover, popover } from './lib/popover.svelte.ts';
+  import { closeCard, ghCard } from './lib/github-card.svelte.ts';
   import { pref } from './lib/prefs.ts';
 
   let settingsOpen = $state(false);
@@ -83,8 +85,11 @@
     if (e.key === 'Escape') {
       // Escape that cancels an IME composition closes nothing.
       if (e.isComposing) return;
-      const layer = shellEscape({ command: palette.open, settings: settingsOpen, popover: popover.open !== null, drawer: S.drawer.id !== null });
-      if (layer === 'command') {
+      const layer = shellEscape({ card: ghCard.link !== null, command: palette.open, settings: settingsOpen, popover: popover.open !== null, drawer: S.drawer.id !== null });
+      if (layer === 'card') {
+        e.preventDefault();
+        closeCard();
+      } else if (layer === 'command') {
         e.preventDefault();
         closePalette();
       } else if (layer === 'settings') {
@@ -168,3 +173,5 @@
 {#if settingsOpen}<Settings bind:this={settings} onclose={closeSettings} />{/if}
 {#if palette.open}<CommandBar bind:this={command} onclose={closePalette} />{/if}
 <Toast />
+<!-- Last and outside every inert wrapper: it describes links in Settings and the palette too. -->
+<GitHubCard />

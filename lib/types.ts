@@ -1041,6 +1041,90 @@ export interface AboutResponse {
   links: { repo: string | null; docs: string | null };
 }
 
+/** A CI rollup on a GitHub preview: GitHub's statusCheckRollup, folded to three outcomes; null when nothing ran. */
+export type GitHubChecks = 'success' | 'failure' | 'pending' | null;
+
+/** A repository's hover preview. Strings are GitHub text: render them as text. */
+export interface GitHubRepoPreview {
+  kind: 'repo';
+  repo: string;
+  url: string;
+  description: string | null;
+  private: boolean;
+  archived: boolean;
+  fork: boolean;
+  stars: number;
+  forks: number;
+  language: string | null;
+  defaultBranch: string | null;
+  openIssues: number;
+  openPulls: number;
+  license: string | null;
+  pushedAt: string | null;
+}
+
+/** A pull request's hover preview. `excerpt` is the start of the body as plain text. */
+export interface GitHubPullPreview {
+  kind: 'pull';
+  repo: string;
+  number: number;
+  url: string;
+  title: string;
+  state: 'open' | 'draft' | 'merged' | 'closed';
+  author: string | null;
+  createdAt: string;
+  updatedAt: string;
+  base: string;
+  head: string;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  comments: number;
+  review: 'approved' | 'changes_requested' | 'review_required' | null;
+  checks: GitHubChecks;
+  labels: string[];
+  excerpt: string;
+}
+
+/** An issue's hover preview. A closed issue keeps why it closed: completed (`closed`), not planned or a duplicate. */
+export interface GitHubIssuePreview {
+  kind: 'issue';
+  repo: string;
+  number: number;
+  url: string;
+  title: string;
+  state: 'open' | 'closed' | 'not_planned' | 'duplicate';
+  author: string | null;
+  createdAt: string;
+  updatedAt: string;
+  comments: number;
+  labels: string[];
+  assignees: string[];
+  excerpt: string;
+}
+
+/** A commit's hover preview. */
+export interface GitHubCommitPreview {
+  kind: 'commit';
+  repo: string;
+  sha: string;
+  url: string;
+  headline: string;
+  author: string | null;
+  committedAt: string;
+  additions: number;
+  deletions: number;
+  checks: GitHubChecks;
+}
+
+export type GitHubPreview = GitHubRepoPreview | GitHubPullPreview | GitHubIssuePreview | GitHubCommitPreview;
+
+/** Why a preview could not be fetched: no `gh` on PATH, GitHub has no such page (or no access), or anything else. */
+export type GitHubPreviewError = 'gh_missing' | 'not_found' | 'failed';
+
+/** GET /api/github/preview?url=: previewGitHub in lib/github-preview.ts. A URL it can't preview is a 400 ApiError. */
+export type GitHubPreviewResponse = { preview: GitHubPreview } | { error: GitHubPreviewError; message: string };
+
 /** GET /api/requests: listRequests in lib/requests.ts. */
 export type RequestsResponse = ForgeRequest[];
 
