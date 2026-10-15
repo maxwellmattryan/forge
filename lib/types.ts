@@ -454,6 +454,8 @@ export interface Config {
     setup: string[];
     cleanup: 'on-merge' | 'manual';
     cargo: { sharedTarget: boolean; targetDir: string | null };
+    generated: string[];
+    generatedBy: string;
   };
   commands: CommandsConfig;
   verify: string[];

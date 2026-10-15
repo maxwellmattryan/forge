@@ -29,6 +29,9 @@ export function defaults(): Config {
       setup: [],
       cleanup: 'on-merge',
       cargo: { sharedTarget: false, targetDir: null },
+      // Committed paths a command regenerates: `forge integrate` rebuilds them instead of asking the integrator.
+      generated: [],
+      generatedBy: 'build',
     },
     commands: {
       setup: null,
@@ -244,6 +247,7 @@ export function validateConfig(c: any, root: string): string[] {
   const e2ePaths = c.verifyE2e?.paths;
   if (!Array.isArray(e2ePaths) || e2ePaths.some((p: any) => typeof p !== 'string' || !p.trim()))
     problems.push(`verifyE2e.paths must be a list of non-empty strings (got ${JSON.stringify(e2ePaths)})`);
+  problems.push(...generatedProblems(c));
   for (const v of c.verify ?? []) if (!(v in c.commands)) problems.push(`verify step "${v}" is not a key in commands`);
   if (!Number.isInteger(c.pipeline.maxRounds) || c.pipeline.maxRounds < 1) problems.push('pipeline.maxRounds must be a positive integer');
   for (const [k, v] of Object.entries(c.pipeline.budget ?? {})) {
@@ -252,6 +256,31 @@ export function validateConfig(c: any, root: string): string[] {
     else if (k === 'verifyRetries' && !Number.isInteger(v)) problems.push(`pipeline.budget.verifyRetries must be null or a non-negative integer (got ${v})`);
   }
   problems.push(...daemonProblems(c, root));
+  return problems;
+}
+
+/**
+ * Why a `worktrees.generated` entry can't be used, or null. The entries become git pathspecs and
+ * file-system paths mid-merge, so anything that could read as an option, pathspec magic (`:`),
+ * an exclusion (`!`) or a way out of the worktree is refused.
+ */
+export function globProblem(g: unknown): string | null {
+  if (typeof g !== 'string' || !g.trim()) return `worktrees.generated entries must be non-empty strings (got ${JSON.stringify(g)})`;
+  if (g.startsWith('/') || path.isAbsolute(g)) return `worktrees.generated entry ${JSON.stringify(g)} must be relative to the repo`;
+  if (/^[-!:]/.test(g)) return `worktrees.generated entry ${JSON.stringify(g)} must not start with -, ! or :`;
+  if (g.split(/[\\/]/).includes('..')) return `worktrees.generated entry ${JSON.stringify(g)} must not contain a .. segment`;
+  return null;
+}
+
+/** `worktrees.generated` and `generatedBy`: each glob usable, and a configured command to rebuild them. */
+export function generatedProblems(c: any): string[] {
+  const gen = c.worktrees?.generated;
+  if (gen === undefined) return [];
+  if (!Array.isArray(gen)) return [`worktrees.generated must be a list of paths or globs (got ${JSON.stringify(gen)})`];
+  const problems = gen.map(globProblem).filter((p): p is string => p !== null);
+  const by = c.worktrees?.generatedBy;
+  if (gen.length && (typeof by !== 'string' || !Object.hasOwn(c.commands ?? {}, by) || c.commands[by] == null))
+    problems.push(`worktrees.generatedBy must name a configured command (commands.${typeof by === 'string' ? by : '<name>'} is not set)`);
   return problems;
 }
 

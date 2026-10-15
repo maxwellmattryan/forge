@@ -27,6 +27,11 @@ worktrees:
   cargo:
     sharedTarget: false      # one Cargo target dir for every job worktree
     targetDir: null          # null → <worktrees.root>/.cargo-target · "main" → <repo>/target · or a path
+  generated: []              # committed paths/globs a command regenerates, e.g. ["dashboard/dist/**"]; matched
+                             # like verifyE2e.paths. When they conflict, forge integrate takes the base side,
+                             # runs generatedBy, stages the output and finishes the merge or rebase itself
+  generatedBy: build         # the commands.* entry that regenerates them. It runs mid-merge or mid-rebase, so it
+                             # must not fail just because the output differs from git (a `git status` check would)
 
 commands:                    # what `forge run <job> <name>` executes inside the worktree
   setup: null

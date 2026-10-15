@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, trustDigest } from '../lib/config.ts';
 import { FIELDS } from '../lib/config-fields.ts';
+import { setConfigValue } from '../lib/config-set.ts';
 import { getPath } from '../lib/util.ts';
 import { setIn } from '../lib/yaml.ts';
 
@@ -131,6 +132,18 @@ test('set rejects non-editable and unknown keys', () => {
   }
 });
 
+test('worktrees.generated and generatedBy are locked', () => {
+  const s = scratch();
+  try {
+    for (const [key, value] of [['worktrees.generated', ['dist/**']], ['worktrees.generatedBy', 'test']] as const) {
+      assert.throws(() => setConfigValue(s.repo.dir, key, value as any), (e: any) => e.reason === 'locked', key);
+      assert.equal(s.read(), FIXTURE, `${key}: file unchanged`);
+    }
+  } finally {
+    s.repo.cleanup();
+  }
+});
+
 test('field schema is an allowlist over documented keys', () => {
   const docs = fs.readFileSync(path.join(ROOT, 'docs', 'CONFIG.md'), 'utf8');
   const base = defaults();
@@ -152,6 +165,13 @@ test('field schema is an allowlist over documented keys', () => {
     for (const p of forbidden) assert.ok(!f.key.startsWith(p), `${f.key} must not be editable (${p})`);
   }
   assert.ok(FIELDS.some((f) => f.key === 'runtime.models.builder' && f.editable));
+  for (const [key, reason] of [['worktrees.generated', 'names paths a command regenerates'], ['worktrees.generatedBy', 'names a command Forge runs']]) {
+    const f = FIELDS.find((x) => x.key === key);
+    assert.ok(f, `${key} is in the schema`);
+    assert.equal(f.section, 'pipeline', key);
+    assert.equal(f.lockedReason, reason, key);
+  }
+  assert.ok(docs.includes('generated:') && docs.includes('generatedBy:'), 'docs/CONFIG.md documents worktrees.generated and generatedBy');
   assert.equal(FIELDS.filter((f) => f.key.startsWith('runtime.models.')).length, Object.keys(base.runtime.models).length, 'one field per role');
 });
 
