@@ -1,4 +1,4 @@
-<!-- One session's structured log (a job's, or the inbox's in the daemon bar): status and Start/Stop, filters, and turns with
+<!-- One session's structured log (a job's, or the inbox's in the status bar's Daemon popover): status and Start/Stop, filters, and turns with
      tool calls and subagents, followed live. Every log string is untrusted session output: text and thinking bodies and a
      subagent's prompt and result render only through the escape-first md() (as text in Raw or above 20k characters); tool
      input, tool results and every other line render as text. -->
@@ -46,7 +46,7 @@
   $effect(() => pref.set('sessionFilters', JSON.stringify(filters)));
 
   // The stream sees a new or answered prompt before the poll does, and PermissionPrompts (the drawer's dock, the
-  // daemon bar) reads the poll: re-poll once per prompt-id set the poll doesn't have yet. Not $state: nothing renders it.
+  // Inbox popover) reads the poll: re-poll once per prompt-id set the poll doesn't have yet. Not $state: nothing renders it.
   let promptsAsked: string | null = null;
 
   // untrack: the log belongs to the scope it was created for; Drawer keys this component by job id.

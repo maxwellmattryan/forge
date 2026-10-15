@@ -1,0 +1,33 @@
+<!-- The Connection popover's body: what the last /api/state poll said, both API versions, when data last arrived, the
+     error when offline or outdated, and Retry now. The error text names the server's reply and renders as text. -->
+<script lang="ts">
+  import Icon from '../Icon.svelte';
+  import { S, refresh } from '../../lib/app.svelte.ts';
+  import { ticker } from '../../lib/clock.svelte.ts';
+  import { API_VERSION } from '../../lib/types.ts';
+  import { ago } from '../../lib/util.ts';
+  import type { ConnectionState } from '../../lib/statusbar.ts';
+  import { t } from '../../lib/locale.ts';
+
+  let { status }: { status: ConnectionState } = $props();
+  let pending = $state(false);
+
+  async function retry(): Promise<void> {
+    pending = true;
+    await refresh();
+    pending = false;
+  }
+</script>
+
+<div class="flex flex-col gap-3">
+  <p class="text-sm text-fg">
+    {#if status === 'connecting'}{$t('statusbar.conn.connectingText')}{:else if status === 'offline'}{$t('statusbar.conn.offlineText')}{:else if status === 'outdated'}{$t('statusbar.conn.outdatedText')}{:else}{$t('statusbar.conn.liveText')}{/if}
+  </p>
+  <div class="mono muted flex flex-col gap-0.5">
+    {#if S.data}<div>{$t('statusbar.conn.server', { forge: S.data.forgeVersion, api: S.data.apiVersion })}</div>{/if}
+    <div>{$t('statusbar.conn.client', { api: API_VERSION })}</div>
+    <div>{S.polledAt ? $t('statusbar.conn.last', { ago: ago(S.polledAt, ticker.now) }) : $t('statusbar.conn.never')}</div>
+  </div>
+  {#if (status === 'offline' || status === 'outdated') && S.error}<p class="text-sm text-bad break-words">{S.error}</p>{/if}
+  <div><button class="btn sm" disabled={pending} onclick={retry}><Icon name="refresh" />{$t('statusbar.conn.retry')}</button></div>
+</div>

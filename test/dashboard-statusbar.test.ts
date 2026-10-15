@@ -110,6 +110,7 @@ test('modelSummary shows the builder and an effort only when given a valid level
   for (const level of ['low', 'medium', 'high', 'xhigh', 'max']) assert.equal(modelSummary(models, level).effort, level);
   for (const bad of ['', 'HIGH', 'ultra', 3, null, undefined, {}]) assert.equal(modelSummary(models, bad).effort, null, `${JSON.stringify(bad)} is no effort`);
   assert.equal(summaryText(modelSummary({ builder: 'opus' }, 'high'), 'Session default'), 'Anthropic · Opus · high');
+  assert.equal(summaryText(modelSummary({ builder: 'opus' }, 'max'), 'Session default', (e) => `${e} effort`), 'Anthropic · Opus · max effort', 'the effort goes through the caller\'s message');
   assert.equal(summaryText(modelSummary({ builder: 'inherit', orchestrator: 'inherit' }), 'Session default'), 'Anthropic · Session default');
   assert.equal(summaryText(modelSummary({ builder: 'my-model' }), 'Session default'), 'my-model', 'an unknown model drops the provider');
   assert.equal(modelSummary(null).label, null, 'no models: the session default');

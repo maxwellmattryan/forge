@@ -2,6 +2,8 @@
 // where it sits. popover.svelte.ts holds the open state; Popover.svelte and StatusBar.svelte apply these.
 
 export const POPOVERS = ['daemon', 'inbox', 'model', 'connection'] as const;
+/** What takes focus on its own: the palette's Tab trap, and whether a press outside a popover landed on a control. */
+export const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 export type PopoverId = (typeof POPOVERS)[number];
 
 /** A click on an indicator: its own popover closes, any other one replaces whatever is open. */

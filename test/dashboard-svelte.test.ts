@@ -120,7 +120,7 @@ const FILES = [
   'index.html', 'style.css', 'svelte.config.mjs', 'vite.config.mjs', 'tsconfig.json',
   'src/main.ts', 'src/App.svelte',
   ...['Pipeline', 'Inbox', 'Backlog', 'Agents', 'Analytics', 'Evals'].map((v) => `src/views/${v}.svelte`),
-  ...['Nav', 'Icon', 'Chip', 'StateChip', 'VerdictChip', 'PrChip', 'ProgressBar', 'PageHeader', 'Banner', 'Empty', 'JobCard', 'JobsTable', 'InboxCard', 'CompareTable', 'DepChips', 'DepSection', 'Drawer', 'DaemonBar', 'SessionLog', 'Toast'].map((c) => `src/components/${c}.svelte`),
+  ...['Nav', 'Icon', 'Chip', 'StateChip', 'VerdictChip', 'PrChip', 'ProgressBar', 'PageHeader', 'Banner', 'Empty', 'JobCard', 'JobsTable', 'InboxCard', 'CompareTable', 'DepChips', 'DepSection', 'Drawer', 'StatusBar', 'Popover', 'SessionLog', 'Toast'].map((c) => `src/components/${c}.svelte`),
   ...['app.svelte', 'toast.svelte', 'view', 'daemon-log', 'session-log', 'prefs', 'icons', 'daemon', 'deps', 'util'].map((m) => `src/lib/${m}.ts`),
 ];
 

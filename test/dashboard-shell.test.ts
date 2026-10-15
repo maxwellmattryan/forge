@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { ancestry, endOf, tags, type Placed } from './svelte-markup.ts';
 import { TONE_CLASS } from '../dashboard/src/lib/util.ts';
 import { THEME_CHOICES } from '../dashboard/src/lib/theme.ts';
+import { LOG_KEY } from '../dashboard/src/lib/daemon-log.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = path.join(ROOT, 'dashboard', 'src');
@@ -855,9 +856,9 @@ test('drawer entry points pick their tab', () => {
   assert.deepEqual(calls.filter((c) => /'thread'/.test(c.args)), [], "no caller asks for 'thread': it is the default");
   const tabbed = calls.filter((c) => /'(log|files|timeline|details)'/.test(c.args)).map((c) => `${c.f}: openDrawer(${c.args})`).sort();
   assert.deepEqual(tabbed, [
-    "components/DaemonBar.svelte: openDrawer(j.id, null, 'log')",
     "components/InboxCard.svelte: openDrawer(j.id, doc, 'files')",
     "components/PermissionPrompts.svelte: openDrawer(s, null, 'log')",
+    "components/statusbar/DaemonPanel.svelte: openDrawer(id, null, 'log')",
   ], 'only the session entry points open on Log, and Read {doc} on Files');
   assert.ok(read('components/CommandBar.svelte').includes('openDrawer(res.id);'), 'a new job opens on the default tab');
 });
@@ -917,11 +918,6 @@ test('command triggers: header on every view, phone FAB in the inert shell, draw
   const drawer = read('components/Drawer.svelte');
   assert.equal(drawer.match(/<CommandTrigger variant="drawer"/g)?.length, 1, 'the drawer header has one "Command for this job"');
   assert.ok(drawer.includes('{#if scopeVerbs(j).length}<CommandTrigger variant="drawer" job={j.id} />{/if}'), 'only for a job with something to command');
-
-  const view = elements('App.svelte').find((e) => attrOf(e, 'id') === 'view');
-  assert.ok(view && has(view, 'pb-24', 'md:pb-6'), "#view's last row stays clear of the FAB");
-  const toast = elements('components/Toast.svelte').find((e) => attrOf(e, 'id') === 'toast');
-  assert.ok(toast && has(toast, 'bottom-24', 'md:bottom-4'), 'the toast sits above the FAB on phones');
 });
 
 test('one close control: drawer, dialogs and toast', () => {
@@ -939,6 +935,7 @@ test('one close control: drawer, dialogs and toast', () => {
     ['components/Settings.svelte', 1, null],
     ['components/CommandBar.svelte', 2, null],
     ['components/Toast.svelte', 1, 'sm'],
+    ['components/Popover.svelte', 1, 'sm'],
   ];
   for (const [rel, count, size] of uses) {
     const found = elements(rel).filter((e) => e.name === 'CloseButton');
@@ -969,7 +966,7 @@ test('one close control: drawer, dialogs and toast', () => {
   const before = markup.slice(0, live);
   assert.ok(live > 0 && (before.match(/\{#(if|each|key|await)\b/g) ?? []).length === (before.match(/\{\/(if|each|key|await)\}/g) ?? []).length, 'no open block wraps the live region: it is always in the DOM');
   const root = toast.find((e) => attrOf(e, 'id') === 'toast');
-  assert.ok(root && has(root, 'bottom-24', 'md:bottom-4'), '#toast keeps its position');
+  assert.ok(root && clears(root), '#toast sits above the status bar at every width');
   for (const [ev, fn] of [['onmouseenter', 'holdToast'], ['onmouseleave', 'releaseToast'], ['onfocusin', 'holdToast'], ['onfocusout', 'releaseToast']])
     assert.equal(attrOf(root, ev), `{${fn}}`, `#toast ${ev} → ${fn}`);
   const state = read('lib/toast.svelte.ts');
@@ -1000,10 +997,10 @@ test('controls in one row share one size', () => {
   const right = elements('components/PageHeader.svelte').find((e) => e.name === 'div' && e.first?.name === 'CommandTrigger');
   assert.ok(right && right.classes.includes('gap-2') && !right.classes.includes('gap-2.5'), `PageHeader's right container uses gap-2 (${right?.classes.join(' ')})`);
 
-  // The daemon bar and the session log are sm rows: their chips and fields take chip sm and input sm.
-  const daemonChips = elements('components/DaemonBar.svelte').filter((e) => e.classes.includes('chip'));
-  assert.ok(daemonChips.length >= 6, `checked ${daemonChips.length} daemon bar chips`);
-  for (const c of daemonChips) assert.ok(c.classes.includes('sm'), `DaemonBar: <${c.name} class="${c.classes.join(' ')}"> is chip sm`);
+  // The Daemon popover and the session log are sm rows: their chips and fields take chip sm and input sm.
+  const daemonChips = elements('components/statusbar/DaemonPanel.svelte').filter((e) => e.classes.includes('chip'));
+  assert.ok(daemonChips.length >= 5, `checked ${daemonChips.length} Daemon popover chips`);
+  for (const c of daemonChips) assert.ok(c.classes.includes('sm'), `DaemonPanel: <${c.name} class="${c.classes.join(' ')}"> is chip sm`);
   const log = elements('components/SessionLog.svelte');
   const pill = log.find((e) => attrOf(e, 'role') === 'status' && e.classes.includes('chip'));
   assert.ok(pill?.classes.includes('sm'), 'the session pill is chip sm');
@@ -1030,4 +1027,191 @@ test('controls in one row share one size', () => {
   // The phone rule gives every button 44px; a btn needs no min-h-11 of its own.
   for (const rel of ['components/settings/AboutTab.svelte', 'components/settings/ConfigTab.svelte', 'components/settings/DiagnosticsTab.svelte'])
     for (const el of elements(rel).filter((e) => e.classes.includes('btn'))) assert.ok(!el.classes.includes('min-h-11'), `${rel}: a btn carries no min-h-11`);
+});
+
+// ---------- the status bar ----------
+
+/** The markup inside `{#if <cond>}` up to its matching `{/if}` (nested blocks counted), or null when there is no such block. */
+function ifBody(text: string, cond: string): string | null {
+  const open = `{#if ${cond}}`;
+  const at = text.indexOf(open);
+  if (at < 0) return null;
+  let depth = 1;
+  const re = /\{#if\b|\{\/if\}/g;
+  re.lastIndex = at + open.length;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    depth += m[0] === '{/if}' ? -1 : 1;
+    if (depth === 0) return text.slice(at + open.length, m.index);
+  }
+  return null;
+}
+
+/** No `{#if}`/`{#each}`/`{#key}`/`{#await}` is open at `at`: what is there is always in the DOM. */
+function unconditional(text: string, at: number): boolean {
+  const before = text.slice(0, at);
+  return (before.match(/\{#(if|each|key|await)\b/g) ?? []).length === (before.match(/\{\/(if|each|key|await)\}/g) ?? []).length;
+}
+
+/** Clears the status bar: one class names the bar's height token and the safe-area inset. */
+const clears = (el: El) => el.classes.some((c) => c.includes('var(--size-statusbar)') && c.includes('env(safe-area-inset-bottom)'));
+const markupOf = (rel: string) => read(rel).replace(/<script\b[\s\S]*?<\/script>|<!--[\s\S]*?-->/g, '');
+
+test('status bar: one fixed footer in the inert shell, outside main', () => {
+  const app = read('App.svelte');
+  assert.equal(app.match(/<StatusBar\b/g)?.length, 1, 'App renders the status bar once');
+  const use = elements('App.svelte').find((e) => e.name === 'StatusBar');
+  assert.ok(use, 'the StatusBar element');
+  const shell = use.parents.find((p) => p.name === 'div' && attrOf(p, 'inert') === '{settingsOpen || palette.open}');
+  assert.ok(shell && has(shell, 'flex', 'min-h-screen'), 'inside the shell div whose inert covers Settings and the palette');
+  assert.ok(!use.parents.some((p) => p.name === 'main'), 'outside main, whose falloff isolates');
+  assert.doesNotMatch(app, /DaemonBar/, 'App imports no DaemonBar');
+  assert.ok(!fs.existsSync(path.join(SRC, 'components', 'DaemonBar.svelte')), 'DaemonBar.svelte is gone');
+
+  const bar = elements('components/StatusBar.svelte');
+  const footers = bar.filter((e) => e.name === 'footer');
+  assert.equal(footers.length, 1, 'one footer');
+  const footer = footers[0];
+  assert.equal(attrOf(footer, 'id'), 'statusbar');
+  for (const c of ['fixed', 'bottom-0', 'right-0', 'left-0', 'md:left-(--size-sidebar)', 'z-35', 'chrome']) assert.ok(footer.classes.includes(c), `footer#statusbar has ${c}`);
+  assert.ok(footer.classes.some((c) => c.startsWith('pb-') && c.includes('env(safe-area-inset-bottom)')), 'its bottom padding is the safe-area inset');
+  assert.ok(footer.classes.some((c) => c.startsWith('h-') && c.includes('var(--size-statusbar)') && c.includes('env(safe-area-inset-bottom)')), 'its height is the token plus the inset');
+
+  // AC6: one live dot, on exactly when a session works; Inbox only with the daemon on; holds and waits from md up.
+  const markup = markupOf('components/StatusBar.svelte');
+  const dots = bar.filter((e) => e.name === 'LiveDot');
+  assert.equal(dots.length, 1, 'one LiveDot');
+  assert.equal(attrOf(dots[0], 'on'), '{bar.daemon.active}', 'bound to the model\'s active');
+  assert.ok(dots[0].parents.includes(footer));
+  const inbox = ifBody(markup, 'bar.inbox');
+  assert.ok(inbox?.includes("openPopover('inbox'"), 'the Inbox indicator renders inside {#if bar.inbox}');
+  assert.equal(markup.match(/openPopover\('inbox'/g)?.length, 1);
+  for (const [cond, msg] of [['bar.held', 'daemon.held'], ['bar.waiting', 'daemon.waiting']]) {
+    const body = ifBody(markup, cond);
+    assert.ok(body, `{#if ${cond}}`);
+    const button = elements('components/StatusBar.svelte', body).find((e) => e.name === 'button');
+    assert.ok(button?.classes.includes('max-md:hidden'), `${cond}: its button is max-md:hidden`);
+    assert.match(attrOf(button!, 'onclick'), /openPopover\('daemon', e\.currentTarget\)/, `${cond} opens the Daemon popover`);
+    assert.ok(body.includes(`$t('${msg}'`), `${cond} says ${msg}`);
+  }
+});
+
+test('popovers: labelled dialogs outside the bar, opened by labelled buttons', () => {
+  // AC14: the dialog.
+  const pop = elements('components/Popover.svelte');
+  const dialogs = pop.filter((e) => attrOf(e, 'role') === 'dialog');
+  assert.equal(dialogs.length, 1, 'one role="dialog"');
+  const dialog = dialogs[0];
+  assert.equal(attrOf(dialog, 'aria-labelledby'), 'popover-{id}-title', 'labelled by its heading');
+  assert.equal(attrOf(dialog, 'tabindex'), '-1', 'focusable, so its label is announced on open');
+  assert.equal(attrOf(dialog, 'id'), 'popover-{id}');
+  assert.ok(!dialog.attrs.some((a) => a.name === 'aria-modal'), 'non-modal');
+  for (const c of ['sheet', 'ticks', 'solid', 'fixed', 'z-42']) assert.ok(dialog.classes.includes(c), `the popover has ${c}`);
+  assert.ok(dialog.classes.some((c) => c.startsWith('bottom-') && c.includes('var(--size-statusbar)') && c.includes('env(safe-area-inset-bottom)') && c.includes('var(--space-2)')), 'it sits --space-2 above the bar');
+  assert.ok(dialog.classes.some((c) => c.startsWith('max-h-') && c.includes('100dvh') && c.includes('var(--size-statusbar)')), 'it scrolls inside the room above the bar');
+  const heading = pop.find((e) => e.name === 'h2');
+  assert.equal(attrOf(heading!, 'id'), 'popover-{id}-title');
+  const close = pop.filter((e) => e.name === 'CloseButton');
+  assert.equal(close.length, 1, 'one close button');
+  assert.equal(attrOf(close[0], 'size'), 'sm');
+  const script = read('components/Popover.svelte');
+  assert.match(script, /document\.addEventListener\('pointerdown', down, true\)/, 'a capture-phase pointerdown while open');
+  assert.match(script, /return \(\) => document\.removeEventListener\('pointerdown', down, true\)/, 'removed on destroy');
+  assert.match(script, /closePopover\('outside', \{ targetFocusable: target\.closest\(TABBABLE\) !== null \}\)/);
+  assert.match(script, /closePopover\('focusout', \{ relatedInside: to === null \? null : within\(to\) \}\)/, 'no relatedTarget is null, never outside');
+
+  // AC4: the popover is a sibling after the bar, never inside the fixed footer's stacking context.
+  const bar = elements('components/StatusBar.svelte');
+  const footer = bar.find((e) => e.name === 'footer')!;
+  const popovers = bar.filter((e) => e.name === 'Popover');
+  assert.equal(popovers.length, 1, 'one Popover');
+  assert.ok(!popovers[0].parents.includes(footer), 'not a descendant of footer#statusbar');
+
+  // Every indicator is a labelled button that opens a dialog and says whether it is open.
+  const indicators = bar.filter((e) => e.name === 'button' && /openPopover\(/.test(attrOf(e, 'onclick')));
+  assert.equal(indicators.length, 6, 'daemon, inbox, held, waiting, model, connection');
+  for (const b of indicators) {
+    assert.ok(b.parents.includes(footer), 'inside the bar');
+    assert.equal(attrOf(b, 'aria-haspopup'), 'dialog');
+    assert.ok(attrOf(b, 'aria-expanded'), 'aria-expanded');
+    assert.ok(attrOf(b, 'aria-controls'), 'aria-controls while open');
+  }
+  assert.deepEqual(indicators.map((b) => /openPopover\('(\w+)'/.exec(attrOf(b, 'onclick'))?.[1]), ['daemon', 'inbox', 'daemon', 'daemon', 'model', 'connection'], 'in tab order');
+  for (const b of bar.filter((e) => e.name === 'button' && e.parents.includes(footer))) assert.equal(attrOf(b, 'aria-haspopup'), 'dialog', 'every bar button opens a dialog');
+  const script2 = read('components/StatusBar.svelte');
+  assert.match(script2, /popover\.open === id \? `popover-\$\{id\}` : undefined/, 'aria-controls names the popover only while it is open');
+
+  // No live region of their own: the bar holds the one.
+  for (const rel of ['components/Popover.svelte', ...fs.readdirSync(path.join(SRC, 'components', 'statusbar')).map((f) => `components/statusbar/${f}`)]) {
+    const text = read(rel);
+    assert.doesNotMatch(text, /aria-live/, `${rel} has no aria-live`);
+    assert.doesNotMatch(text, /role="status"/, `${rel} has no role="status"`);
+  }
+  assert.equal(fs.readdirSync(path.join(SRC, 'components', 'statusbar')).sort().join(' '), 'ConnectionPanel.svelte DaemonPanel.svelte InboxPanel.svelte ModelPanel.svelte');
+
+  // AC8: one polite live region, always in the DOM, fed by promptAnnouncement and the permission heading.
+  const live = bar.filter((e) => e.attrs.some((a) => a.name === 'aria-live'));
+  assert.equal(live.length, 1, 'one aria-live element in the bar');
+  assert.equal(attrOf(live[0], 'aria-live'), 'polite');
+  assert.ok(live[0].parents.includes(footer) && live[0].classes.includes('sr-only'), 'visually hidden, inside the bar');
+  const markup = markupOf('components/StatusBar.svelte');
+  assert.ok(unconditional(markup, markup.indexOf('aria-live="polite"')), 'outside every {#if}: it is always in the DOM');
+  assert.match(markup, /aria-live="polite">\{announcement\}<\/div>/);
+  assert.match(script2, /const say = promptAnnouncement\(lastPrompts, next\);/);
+  assert.match(script2, /\$t\('permission\.heading', \{ count: say \}\)/);
+
+  // AC8: the Inbox popover lists every prompt in the pool, its pill, and the empty line.
+  const inbox = elements('components/statusbar/InboxPanel.svelte');
+  const prompts = inbox.filter((e) => e.name === 'PermissionPrompts');
+  assert.equal(prompts.length, 1);
+  assert.equal(prompts[0].attrs.length, 0, '<PermissionPrompts /> takes no scope: the whole pool');
+  assert.ok(inbox.some((e) => has(e, 'chip', 'sm')), 'the inbox pill');
+  assert.match(read('components/statusbar/InboxPanel.svelte'), /\$t\('statusbar\.inbox\.noPrompts'\)/, 'the empty line');
+});
+
+test('the view, the toast and the drawer clear the status bar', () => {
+  const view = elements('App.svelte').find((e) => attrOf(e, 'id') === 'view');
+  assert.ok(view && clears(view) && view.classes.some((c) => c.startsWith('pb-')), '#view pads its bottom by the bar and the inset');
+  for (const c of ['pb-24', 'md:pb-6']) assert.ok(!view.classes.includes(c), `#view drops ${c}`);
+  const toast = elements('components/Toast.svelte').find((e) => attrOf(e, 'id') === 'toast');
+  assert.ok(toast && clears(toast) && toast.classes.some((c) => c.startsWith('bottom-')), '#toast sits above the bar and the inset');
+  for (const c of ['bottom-24', 'md:bottom-4']) assert.ok(!toast.classes.includes(c), `#toast drops ${c}`);
+  assert.ok(toast.classes.includes('z-50'), 'the toast stays z-50');
+});
+
+test('the daemon popover keeps every daemon bar control', () => {
+  // The bar owns the pool, pending and act(), so the indicator and the popover agree; the popover gets act().
+  const bar = read('components/StatusBar.svelte');
+  assert.match(bar, /import \{[^}]*\bmergePoolState\b[^}]*\bpostDaemon\b[^}]*\} from '\.\.\/lib\/daemon\.ts';/, 'postDaemon and mergePoolState from lib/daemon.ts');
+  assert.match(bar, /await postDaemon\(action, forgeToken\(\)\)/, 'Start and Stop post through postDaemon with the token');
+  assert.match(bar, /pool = mergePoolState\(pool, st\)/);
+  assert.match(bar, /toast\(\$t\('daemon\.failed'/, 'a failed Start or Stop toasts');
+  assert.match(bar, /<DaemonPanel \{model\} \{pending\} \{act\} \/>/);
+  const panel = read('components/statusbar/DaemonPanel.svelte');
+  for (const [rel, text] of [['StatusBar', bar], ['DaemonPanel', panel]]) assert.doesNotMatch(text, /\bfetch\(/, `${rel} calls no fetch(`);
+  assert.match(panel, /import \{ LOG_KEY \} from '\.\.\/\.\.\/lib\/daemon-log\.ts';/);
+  assert.equal(LOG_KEY, 'forge.daemonLog', 'the toggle keeps its saved state');
+  assert.match(panel, /localStorage\.getItem\(LOG_KEY\) === '1'/);
+  assert.match(panel, /localStorage\.setItem\(LOG_KEY, inboxOpen \? '1' : '0'\)/);
+  const markup = markupOf('components/statusbar/DaemonPanel.svelte');
+  assert.equal(markup.match(/<SessionLog\b/g)?.length, 1);
+  assert.ok(ifBody(markup, 'inboxOpen')?.includes('<SessionLog scope={INBOX_SCOPE} compact />'), 'the inbox log renders only while the toggle is on');
+  const toggle = elements('components/statusbar/DaemonPanel.svelte').find((e) => attrOf(e, 'onclick') === '{toggleInbox}');
+  assert.ok(toggle && has(toggle, 'btn', 'sm') && attrOf(toggle, 'aria-expanded'), 'the Inbox log toggle is a btn sm with aria-expanded');
+  for (const icon of ['play', 'stop']) assert.ok(panel.includes(`<Icon name="${icon}" />`), `the ${icon} icon`);
+  assert.match(panel, /disabled=\{!model\.canStart\} title=\{model\.startHint\} aria-label=\{\$t\('daemon\.startAll'\)\}/, 'Start follows canStart and carries the config hint');
+  assert.match(panel, /disabled=\{!model\.canStop\} aria-label=\{\$t\('daemon\.stopAll'\)\}/);
+  for (const chip of ['daemon.held', 'daemon.waiting', 'daemon.kept']) assert.ok(panel.includes(`$t('${chip}'`), `the ${chip} chip`);
+  assert.match(markup, /\{#if model\.error !== null\}<p[^>]*>\{model\.error\}<\/p>\{\/if\}/, 'the pool error renders as text');
+  assert.doesNotMatch(panel, /\{@html/);
+  assert.match(panel, /closePopover\('navigate'\);\s*openDrawer\(id, null, 'log'\);/, 'a job chip closes the popover, then opens that job on its session log');
+  assert.match(markup, /\$t\('statusbar\.daemon\.disabled'\)/, 'the daemon-off explanation');
+});
+
+test('the model popover is read-only', () => {
+  const panel = read('components/statusbar/ModelPanel.svelte');
+  for (const banned of ['<select', '<input', 'postConfig', 'fetch(']) assert.ok(!panel.includes(banned), `ModelPanel has no ${banned}`);
+  assert.match(panel, /import \{[^}]*\bloadRoster\b[^}]*\} from '\.\.\/\.\.\/lib\/app\.svelte\.ts';/);
+  assert.match(panel, /onMount\(\(\) => \{[\s\S]*?loadRoster\(\)/, 'fetched each time it opens');
+  for (const key of ['loading', 'failed', 'noReviewers']) assert.ok(panel.includes(`$t('statusbar.model.${key}'`), `the ${key} state`);
+  assert.match(read('lib/app.svelte.ts'), /export async function loadRoster\(\): Promise<void> \{\s*S\.roster = await api<Roster>\('\/api\/roster'\);/, 'GET /api/roster, the error left to the caller');
 });

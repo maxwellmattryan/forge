@@ -86,6 +86,57 @@
     "stopAll": "Stop the daemon (all sessions)",
     "modeTitle": "Permission mode: {mode}"
   },
+  "statusbar": {
+    "label": "Status",
+    "close": "Close",
+    "daemon": {
+      "title": "Daemon",
+      "off": "Daemon off",
+      "sessions": "job sessions",
+      "disabled": "The daemon is off. Set daemon.enabled: true in .forge/config.yml, then start it here.",
+      "mode": "Default permissions: {mode}",
+      "jobs": "Job sessions",
+      "inboxLog": "Inbox log"
+    },
+    "inbox": {
+      "title": "Inbox session",
+      "name": "Inbox",
+      "prompts": {
+        "one": "{count} prompt",
+        "other": "{count} prompts"
+      },
+      "noPrompts": "No tool calls are waiting for permission."
+    },
+    "model": {
+      "title": "Models",
+      "name": "Model",
+      "session": "Session default",
+      "inherits": "inherits the orchestrator",
+      "roles": "Roles",
+      "reviewers": "Reviewers",
+      "loading": "Loading reviewers…",
+      "failed": "Couldn't load reviewers: {error}",
+      "noReviewers": "No review panel configured.",
+      "edit": "Change models in Settings › Agents.",
+      "effort": "{effort}"
+    },
+    "conn": {
+      "title": "Connection",
+      "connecting": "Connecting…",
+      "live": "Live",
+      "offline": "Offline",
+      "outdated": "Update needed",
+      "connectingText": "Waiting for the first reply from forge dash.",
+      "liveText": "Connected: the dashboard polls forge dash every 2 seconds.",
+      "offlineText": "The last poll of forge dash failed. Is it still running?",
+      "outdatedText": "forge dash serves a newer API than this dashboard. Reload the page; if that does not help, restart forge dash after updating the plugin.",
+      "server": "Server: Forge {forge}, API {api}",
+      "client": "Dashboard API {api}",
+      "last": "Last update {ago}",
+      "never": "No update yet",
+      "retry": "Retry now"
+    }
+  },
   "live": {
     "working": "working",
     "asking": "needs permission",
@@ -331,7 +382,7 @@
     "discard": "Discard unsaved changes?",
     "loading": "Loading settings…",
     "retry": "Retry",
-    "locked": "The daemon is running. Close settings and stop it in the daemon bar to change settings: any change to .forge/config.yml stops it, and only a human may start it again.",
+    "locked": "The daemon is running. Close settings and stop it from the Daemon indicator in the status bar to change settings: any change to .forge/config.yml stops it, and only a human may start it again.",
     "tabs": {
       "general": "General",
       "pipeline": "Pipeline",

@@ -69,8 +69,8 @@ export function modelSummary(models: Record<string, unknown> | null | undefined,
 }
 
 /** The summary as one line: provider, label (or `session` for the session's own model), effort, joined by ` · `. */
-export function summaryText(s: ModelLabel & { effort: string | null }, session: string): string {
-  return [s.provider, s.label ?? session, s.effort].filter((x): x is string => x !== null).join(' · ');
+export function summaryText(s: ModelLabel & { effort: string | null }, session: string, effortText: (effort: string) => string = (e) => e): string {
+  return [s.provider, s.label ?? session, s.effort === null ? null : effortText(s.effort)].filter((x): x is string => x !== null).join(' · ');
 }
 
 /** Roles in the order Forge runs them; any other key of `models` follows, sorted. */

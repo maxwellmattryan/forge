@@ -1,4 +1,4 @@
-// The daemon bar's and the Thread session log's pure, DOM-free half: session pills, the pool summary and POST /api/daemon.
+// The status bar's Daemon popover's and the session log's pure, DOM-free half: session pills, the pool summary and POST /api/daemon.
 // Session state and errors come from session output, i.e. untrusted text: these return plain strings rendered as text.
 import { ago } from './util.ts';
 import type { DaemonPermissionMode, DaemonPoolState, DaemonSessionState } from './types.ts';
@@ -47,10 +47,10 @@ export interface PoolModel {
 }
 
 const running = (s: unknown) => obj(s).running === true;
-/** A running session with a tool call waiting on a human: the bar's and the board's "needs permission". */
+/** A running session with a tool call waiting on a human: the status bar's and the board's "needs permission". */
 export const asking = (s: unknown): boolean => running(s) && Array.isArray(obj(s).permissions) && obj(s).permissions.length > 0;
 
-/** Status labels in the order the bar lists job chips. */
+/** Status labels in the order the Daemon popover lists job chips. */
 const ORDER = ['needs permission', 'busy', 'agents running', 'failing', 'idle', 'stopping', 'waiting for slot', 'held: budget', 'error', 'stopped', 'standby', 'no session'];
 
 /**
@@ -86,7 +86,7 @@ export function sessionPill(session: SessionInput): Pill {
   return { label, tone, title };
 }
 
-/** Everything the daemon bar shows, or null exactly when it is hidden. */
+/** Everything the Daemon popover shows, or null exactly when the daemon is off (not enabled, not wanted, nothing running). */
 export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): PoolModel | null {
   const p = obj(pool);
   const jobs = Object.entries(obj(p.jobs)).map(([id, s]) => [id, obj(s)] as const);

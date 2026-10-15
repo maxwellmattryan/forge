@@ -508,6 +508,19 @@ test('control heights are tokens in the drawing, the source and the build', () =
   }
 });
 
+test('the status bar height is a token in the drawing, the source and the build', () => {
+  const tokensCss = scalarRoot(fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8'));
+  const source = scalarRoot(fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8'));
+  const sizes: { name: string; value: string; usage: string }[] = JSON.parse(fs.readFileSync(path.join(ROOT, 'design', 'tokens.json'), 'utf8')).size.tokens;
+  assert.ok(tokensCss.includes('--size-dialog') && source.includes('--size-dialog'), 'the scalar :root blocks are read');
+  assert.ok(tokensCss.includes('--size-statusbar: 48px;'), 'design/tokens.css :root declares --size-statusbar: 48px');
+  assert.ok(source.includes('--size-statusbar: 48px;'), 'dashboard/style.css :root declares --size-statusbar: 48px');
+  assert.ok(ruleFor(builtCss(), ':root').includes('--size-statusbar:48px'), 'the built :root carries --size-statusbar:48px');
+  const entry = sizes.find((t) => t.name === 'size-statusbar');
+  assert.equal(entry?.value, '48px', 'design/tokens.json size.tokens has size-statusbar = 48px');
+  assert.ok(entry?.usage?.trim(), 'with a usage');
+});
+
 test('every control variant resolves to one control height', () => {
   const css = builtCss();
   const { inside: md, outside } = mediaSplit(css, MIN_MD);
