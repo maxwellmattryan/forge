@@ -5,6 +5,7 @@ import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, trustDigest } from '../lib/config.ts';
 import { FIELDS } from '../lib/config-fields.ts';
+import { EFFORTS } from '../lib/schema.ts';
 import { setConfigValue } from '../lib/config-set.ts';
 import { getPath } from '../lib/util.ts';
 import { setIn } from '../lib/yaml.ts';
@@ -90,6 +91,44 @@ describe('forge config set and get', { concurrency: 4 }, () => {
         const r = await s.forge('config', 'set', key, value);
         assert.equal(r.code, 0, `${key} ${value}: ${r.err}`);
         assert.deepEqual(JSON.parse(r.out).value, expected, key);
+      }
+    } finally {
+      s.repo.cleanup();
+    }
+  });
+
+  test('runtime.effort accepts the five levels and null', async () => {
+    const f = FIELDS.find((x) => x.key === 'runtime.effort');
+    assert.ok(f, 'runtime.effort is in the schema');
+    assert.equal(f.section, 'agents');
+    assert.equal(f.type, 'enum');
+    assert.deepEqual(f.options, [...EFFORTS]);
+    assert.equal(f.nullable, true);
+    assert.equal(f.editable, true);
+    assert.equal(f.default, null);
+    const s = scratch();
+    try {
+      const set = await s.forge('config', 'set', 'runtime.effort', 'xhigh');
+      assert.equal(set.code, 0, set.err);
+      assert.equal(set.out, '{"ok":true,"key":"runtime.effort","value":"xhigh","previous":null,"changed":true}');
+      const lines = s.read().split('\n');
+      const at = lines.indexOf('  effort: xhigh');
+      assert.ok(at > lines.indexOf('runtime:') && at < lines.indexOf('tracker:'), 'written under runtime:');
+      assert.equal(lines.length, FIXTURE.split('\n').length + 1, 'one line added');
+      assert.ok(s.read().includes('  diversity: false          # warn on shared model families\n'), 'comments kept');
+      for (const level of EFFORTS) assert.equal(setConfigValue(s.repo.dir, 'runtime.effort', level).value, level);
+      const cleared = await s.forge('config', 'set', 'runtime.effort', 'null');
+      assert.equal(cleared.code, 0, cleared.err);
+      assert.equal(JSON.parse(cleared.out).value, null);
+      assert.ok(s.read().includes('  effort: null\n'));
+      const before = s.read();
+      const r = await s.forge('config', 'set', 'runtime.effort', 'ultra');
+      assert.equal(r.code, 1);
+      assert.ok(r.err.includes('runtime.effort must be one of low | medium | high | xhigh | max, or null (got "ultra")'), r.err);
+      assert.equal(s.read(), before, 'ultra leaves the file byte-identical');
+      for (const bad of ['--add-dir=/', 'High', 'high --add-dir /', 3, true, ['high']]) {
+        assert.throws(() => setConfigValue(s.repo.dir, 'runtime.effort', bad as any), (e: any) => e.reason === 'invalid' && e.message.startsWith('runtime.effort must be one of'), String(bad));
+        assert.equal(s.read(), before, `${bad} leaves the file byte-identical`);
       }
     } finally {
       s.repo.cleanup();

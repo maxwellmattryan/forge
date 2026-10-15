@@ -306,7 +306,8 @@
     "always": "always",
     "whenRelevant": "when relevant",
     "missing": "missing",
-    "learnings": "Every agent also reads"
+    "learnings": "Every agent also reads",
+    "effortDefault": "Default effort for jobs:"
   },
   "analytics": {
     "title": "Analytics",
@@ -435,7 +436,8 @@
       "on": "On",
       "off": "Off",
       "onePerLine": "One per line",
-      "required": "Always on: {items}. Findings of these severities always force another round."
+      "required": "Always on: {items}. Findings of these severities always force another round.",
+      "unset": "Not set"
     },
     "form": {
       "required": "Enter a value.",
@@ -640,6 +642,22 @@
     "approveLinkRef": "Approve the spec and link {ref}",
     "approveCreate": "Approve & create an issue",
     "approveNone": "Approve, no issue needed"
+  },
+  "effort": {
+    "label": "Effort",
+    "hint": "How much the model thinks for this job. Inherit uses runtime.effort from Settings.",
+    "inherit": "Inherit ({level})",
+    "claude": "Claude Code's setting",
+    "levels": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "xhigh": "Extra high",
+      "max": "Max"
+    },
+    "chip": "{level} effort",
+    "restart": "Applies to new agents now and to the session when it restarts",
+    "failed": "Changing the effort failed: {error}"
   },
   "markdown": {
     "files": "Show file as",

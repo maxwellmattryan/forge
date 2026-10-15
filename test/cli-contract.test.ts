@@ -414,7 +414,7 @@ test('help covers every routed command', () => {
     s.init();
     const r = s.cli(['job', 'bogus']);
     assert.equal(r.status, 2);
-    assert.ok(r.stderr.includes('usage: forge job new|from-ref|link|list|show|get|set|claim|release|note|human|agent|round|budget|verdicts|decision|progress|paths|scope|acs|step|advance; run `forge help job`'), r.stderr);
+    assert.ok(r.stderr.includes('usage: forge job new|from-ref|link|list|show|get|set|effort|claim|release|note|human|agent|round|budget|verdicts|decision|progress|paths|scope|acs|step|advance; run `forge help job`'), r.stderr);
   } finally {
     s.cleanup();
   }
@@ -533,9 +533,9 @@ test('CLI JSON keys are stable', POSIX, () => {
     const verify = s.json(['verify', id]);
     assert.equal(verify.ok, true);
     // Renaming or dropping one of these keys is a breaking change (docs/CLI.md "Stability").
-    assert.deepEqual(keyPaths(s.json(['job', 'list'])), ['[].id', '[].owner', '[].pr', '[].round', '[].stage', '[].state', '[].title', '[].waitingOn']);
+    assert.deepEqual(keyPaths(s.json(['job', 'list'])), ['[].effort', '[].id', '[].owner', '[].pr', '[].round', '[].stage', '[].state', '[].title', '[].waitingOn']);
     assert.deepEqual(keyPaths(s.json(['job', 'show', id]), ['lastVerdicts']), [
-      'base', 'branch', 'decision', 'estCostUsd', 'id', 'kind', 'lastVerdicts', 'maxRounds', 'noIssue', 'owner', 'port', 'pr', 'progress', 'progress.done', 'progress.total',
+      'base', 'branch', 'decision', 'effort', 'estCostUsd', 'id', 'kind', 'lastVerdicts', 'maxRounds', 'noIssue', 'owner', 'port', 'pr', 'progress', 'progress.done', 'progress.total',
       'reason', 'reviewers', 'round', 'source', 'source.ref', 'source.tracker', 'source.url', 'stage', 'state', 'title', 'tokens', 'verified', 'verified.attempt',
       'verified.ok', 'verified.round', 'verified.sha', 'verify', 'waitingOn', 'worktree',
     ]);

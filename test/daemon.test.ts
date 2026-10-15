@@ -8,13 +8,13 @@ import { PassThrough } from 'node:stream';
 import { execFile, spawn as nodeSpawn, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tempRepo, waitFor as waitUntil } from './helpers.ts';
-import { TRUST_ENV, defaults, trustDigest } from '../lib/config.ts';
+import { TRUST_ENV, defaults, resolveEffort, trustDigest } from '../lib/config.ts';
 import { budgetCmd } from '../lib/budget.ts';
-import { createJob, loadJob, markAgentsLost, readEvents, recordAgent, setJob, updateJob } from '../lib/jobs.ts';
+import { createJob, jobDir, loadJob, markAgentsLost, readEvents, recordAgent, setJob, setJobEffort, updateJob } from '../lib/jobs.ts';
 import { loadStepInput, step } from '../lib/step.ts';
 import { PLUGIN_ROOT } from '../lib/paths.ts';
 import { INBOX_SCOPE, SCOPE_ENV, ackRequest, claimRequest, enqueue, listRequests, requestScope, validScope } from '../lib/requests.ts';
-import { DENY_TOOLS, GIT_PINS, PERMISSION_DENIED, PROMPT_TOOL, TRUST_CHANGED, TURN, TURN_LINE, apiKeyVars, buildArgv, heldByBudget, parseTemplate, reapOrphans, sessionEnv, PROMPT_INPUT_CHARS, sessionGrant, PERMISSION_MODES, commandPermissionMode, modeReach, withPermissionMode, sessionAgents, sessionOptions, LOST_SUMMARY } from '../lib/daemon.ts';
+import { DENY_TOOLS, GIT_PINS, PERMISSION_DENIED, PROMPT_TOOL, TRUST_CHANGED, TURN, TURN_LINE, apiKeyVars, buildArgv, heldByBudget, parseTemplate, reapOrphans, sessionEnv, PROMPT_INPUT_CHARS, sessionGrant, PERMISSION_MODES, commandPermissionMode, modeReach, withPermissionMode, withEffort, sessionAgents, sessionOptions, LOST_SUMMARY } from '../lib/daemon.ts';
 import { createPool } from '../lib/daemon-pool.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
@@ -345,6 +345,31 @@ test('commandPermissionMode reads daemon.command, and a chosen mode replaces it 
   assert.deepEqual(buildArgv('c {session} --permission-mode plan', { ...vars, permissionMode: null }), ['c', '--session-id', 'abc', '--permission-mode', 'plan', ...tail], "no choice keeps the template's");
   assert.deepEqual(withPermissionMode(['--permission-mode', 'x'], 'auto'), ['--permission-mode', 'x', '--permission-mode', 'auto'], 'the executable is never dropped');
   assert.deepEqual(PERMISSION_MODES, ['default', 'auto', 'dontAsk'], 'never bypassPermissions or acceptEdits');
+});
+
+test("an effective effort replaces daemon.command's --effort in argv", () => {
+  const vars = { pluginRoot: '/p', session: { id: 'abc', resume: false }, allowedTools: ['Agent'] };
+  const tail = ['--disallowedTools', DENY_TOOLS.join(','), ...PROMPT_TOOL];
+  const level = (job, runtime) => {
+    const c = defaults();
+    c.runtime.effort = runtime;
+    return resolveEffort(c, { effort: job }).level;
+  };
+  const high = buildArgv('c {session} --permission-mode default', { ...vars, permissionMode: 'auto', effort: level('high', 'medium') });
+  assert.deepEqual(high, ['c', '--session-id', 'abc', '--permission-mode', 'auto', '--effort', 'high', ...tail], "after Forge's --permission-mode, before --disallowedTools");
+  assert.equal(high.filter((w) => w === '--effort').length, 1);
+  assert.deepEqual(buildArgv('c {session}', { ...vars, effort: level(null, 'medium') }), ['c', '--session-id', 'abc', '--effort', 'medium', ...tail], 'job null inherits runtime.effort');
+  assert.deepEqual(buildArgv('c {session}', { ...vars, effort: level(null, null) }), ['c', '--session-id', 'abc', ...tail], 'nothing set: no --effort');
+  assert.deepEqual(buildArgv('c {session} --effort low', { ...vars, effort: level(null, null) }), ['c', '--session-id', 'abc', '--effort', 'low', ...tail], "nothing set: the template's own stays");
+  for (const template of ['c --effort low {session}', 'c {session} --effort=low', 'c --effort low {session} --effort=max --effort xhigh']) {
+    for (const [job, runtime, want] of [['high', null, 'high'], [null, 'medium', 'medium'], ['max', 'low', 'max']]) {
+      const argv = buildArgv(template, { ...vars, effort: level(job, runtime) });
+      assert.deepEqual(argv, ['c', '--session-id', 'abc', '--effort', want, ...tail], `${template} with job ${job} / runtime ${runtime}`);
+    }
+  }
+  assert.deepEqual(withEffort(['--effort', 'x'], 'high'), ['--effort', 'x', '--effort', 'high'], 'the executable is never dropped');
+  for (const bad of ['ultra', '--dangerously-skip-permissions', 'high --add-dir /', '', 3, ['high']])
+    assert.deepEqual(buildArgv('c {session}', { ...vars, effort: bad as any }), ['c', '--session-id', 'abc', ...tail], `${JSON.stringify(bad)} adds nothing`);
 });
 
 test('a human switches one session’s permission mode: live while it runs, at its next spawn otherwise', async () => {
@@ -2431,6 +2456,143 @@ test('reaping proves every record separately', { skip: process.platform === 'win
         process.kill(p.pid, 'SIGKILL');
       } catch {}
     }
+    repo.cleanup();
+  }
+});
+
+/** The value after `flag` in argv, or undefined. */
+const flagValue = (args, flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined);
+const effortCfg = (effort) => {
+  const c = config();
+  c.runtime.effort = effort;
+  return c;
+};
+
+test("each session spawns with its job's effective effort", async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const cfg = effortCfg('medium');
+  const d = kitPool(repo.dir, kit, cfg);
+  try {
+    const a = createJob(repo.dir, defaults(), { title: 'Job A', effort: 'high' }).id;
+    const b = createJob(repo.dir, defaults(), { title: 'Job B' }).id;
+    await enqueueInOrder(repo.dir, [{ type: 'resume', job: a }, { type: 'resume', job: b }, { type: 'next' }]);
+    d.start();
+    await settle();
+    assert.equal(kit.children.length, 3);
+    assert.equal(flagValue(kit.last(a).args, '--effort'), 'high');
+    assert.equal(flagValue(kit.last(b).args, '--effort'), 'medium');
+    assert.equal(flagValue(kit.last(INBOX).args, '--effort'), 'medium', 'the inbox uses runtime.effort');
+    for (const [scope, level, source] of [[a, 'high', 'job'], [b, 'medium', 'config'], [INBOX, 'medium', 'config']]) {
+      await logged(repo.dir, scope, 'effort');
+      const lines = logOf(repo.dir, scope).split('\n').filter(Boolean).map((l) => JSON.parse(l));
+      const at = lines.findIndex((e) => e.event === 'spawn');
+      assert.deepEqual(lines[at + 1], { type: 'forge-daemon', at: lines[at + 1].at, event: 'effort', level, source }, `${scope}: right after the spawn`);
+    }
+    assert.equal(d.state().jobs[a].effort, 'high', 'the level the running child got');
+    assert.equal(d.state().jobs[b].effort, 'medium');
+    assert.equal(d.state().inbox.effort, 'medium');
+
+    // runtime.effort unset: B's next spawn passes nothing and says so.
+    await d.stopSession(b);
+    assert.equal(d.sessionState(b).effort, null, 'no child, no effort');
+    cfg.runtime.effort = null;
+    assert.deepEqual(d.startSession(b), { error: null });
+    enqueue(repo.dir, null, { type: 'answer', job: b, text: 'go on', from: 'dashboard' });
+    d.poke();
+    await waitFor(() => kit.of(b).length === 2, 2000, "B's respawn");
+    assert.equal(kit.last(b).args.includes('--effort'), false);
+    await waitFor(() => eventsIn(logOf(repo.dir, b), 'effort').length === 2, 2000, "B's second effort event");
+    const last = eventsIn(logOf(repo.dir, b), 'effort').at(-1);
+    assert.deepEqual([last.level, last.source], ['inherit', 'none']);
+    assert.equal(d.state().jobs[b].effort, null, 'Forge passed none');
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('an effort change applies at the next spawn and stops nothing', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit, effortCfg(null));
+  try {
+    const a = createJob(repo.dir, defaults(), { title: 'Job A', effort: 'high' }).id;
+    enqueue(repo.dir, null, { type: 'resume', job: a, from: 'dashboard' });
+    d.start();
+    await waitFor(() => kit.of(a).length === 1, 2000, "A's session");
+    const first = kit.last(a);
+    assert.equal(flagValue(first.args, '--effort'), 'high');
+    const killsBefore = kit.kills.length;
+    assert.equal(setJobEffort(repo.dir, a, 'low', 'cli').changed, true);
+    d.poke();
+    await settle();
+    await sleep(50);
+    assert.equal(first.exited, false, 'the running child keeps running');
+    assert.equal(kit.kills.length, killsBefore, 'and is never signalled');
+    assert.equal(kit.of(a).length, 1);
+    assert.equal(d.state().jobs[a].effort, 'high', 'state reports what the running child got');
+
+    await d.stopSession(a);
+    assert.deepEqual(d.startSession(a), { error: null });
+    enqueue(repo.dir, null, { type: 'answer', job: a, text: 'go on', from: 'dashboard' });
+    d.poke();
+    await waitFor(() => kit.of(a).length === 2, 2000, "A's respawn");
+    assert.equal(flagValue(kit.last(a).args, '--effort'), 'low');
+    await waitFor(() => eventsIn(logOf(repo.dir, a), 'effort').length === 2, 2000, 'the new effort event');
+    const last = eventsIn(logOf(repo.dir, a), 'effort').at(-1);
+    assert.deepEqual([last.level, last.source], ['low', 'job']);
+    assert.equal(d.state().jobs[a].effort, 'low');
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('a tampered job effort never reaches argv', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit, effortCfg('medium'));
+  const tampered = ['--dangerously-skip-permissions', 'high --add-dir /'];
+  try {
+    const ids = tampered.map((value, i) => {
+      const id = createJob(repo.dir, defaults(), { title: `Tampered ${i}` }).id;
+      const file = path.join(jobDir(repo.dir, id), 'job.json');
+      // Written directly, as a session with the Write tool could.
+      fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), effort: value }));
+      return id;
+    });
+    await enqueueInOrder(repo.dir, ids.map((job) => ({ type: 'resume', job })));
+    d.start();
+    await settle();
+    for (const id of ids) {
+      const args = kit.last(id).args;
+      for (const value of tampered) assert.ok(!args.some((w) => w.includes(value)), `${id}: ${value} is nowhere in argv`);
+      assert.ok(!args.some((w) => w.includes('--dangerously-skip-permissions') || w.includes('--add-dir')), `${id}: no injected option`);
+      assert.equal(flagValue(args, '--effort'), 'medium', 'falls back to runtime.effort');
+      await logged(repo.dir, id, 'effort');
+      const ev = eventsIn(logOf(repo.dir, id), 'effort')[0];
+      assert.deepEqual([ev.level, ev.source], ['medium', 'config']);
+    }
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('an invalid runtime.effort starts no session', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit, effortCfg('ultra'));
+  try {
+    const a = createJob(repo.dir, defaults(), { title: 'Job A', effort: 'high' }).id;
+    await enqueueInOrder(repo.dir, [{ type: 'resume', job: a }, { type: 'next' }]);
+    d.start();
+    await settle();
+    assert.equal(kit.children.length, 0, 'no child, not even for a job with its own valid effort');
+    assert.match(d.state().lastError ?? '', /runtime\.effort must be one of low \| medium \| high \| xhigh \| max, or null \(got "ultra"\)/);
+  } finally {
+    await d.close();
     repo.cleanup();
   }
 });

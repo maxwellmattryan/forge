@@ -820,7 +820,7 @@ test('POST /api/daemon starts and stops one session', async () => {
 test('/api/state exposes the session pool', async () => {
   const repo = tempRepo();
   const keys = ['enabled', 'wanted', 'maxConcurrent', 'live', 'lastError', 'inbox', 'jobs', 'permissionMode', 'permissionModes', 'clients'];
-  const sessionKeys = ['scope', 'wanted', 'running', 'status', 'sessionId', 'pid', 'lastTurnAt', 'lastResultAt', 'turns', 'failures', 'held', 'waiting', 'lastError', 'permissions', 'permissionMode', 'kept'];
+  const sessionKeys = ['scope', 'wanted', 'running', 'status', 'sessionId', 'pid', 'lastTurnAt', 'lastResultAt', 'turns', 'failures', 'held', 'waiting', 'lastError', 'permissions', 'permissionMode', 'kept', 'effort'];
   const kitOff = fakeChildren();
   let srv = await startServer(repo.dir, { port: 0, daemon: kitOff.opts });
   try {
@@ -880,7 +880,7 @@ test('/api/state exposes the session pool', async () => {
     .map((f) => fs.readFileSync(path.join(src, f), 'utf8'))
     .join('\n');
   assert.ok(app.includes('/api/requests'), 'read the dashboard sources');
-  assert.equal(DASH_API_VERSION, 14, 'the dashboard reads API_VERSION from src/lib/types.ts');
+  assert.equal(DASH_API_VERSION, 15, 'the dashboard reads API_VERSION from src/lib/types.ts');
   assert.doesNotMatch(app, /launcher|launched/);
 });
 
@@ -1044,7 +1044,7 @@ test('GET /api/about reports versions', async () => {
     assert.equal(r.status, 200);
     const a = JSON.parse(r.text);
     assert.equal(a.forgeVersion, JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version);
-    assert.equal(a.apiVersion, 14);
+    assert.equal(a.apiVersion, 15);
     assert.equal(a.pluginRoot, PLUGIN_ROOT);
     assert.deepEqual(a.schemaVersions, { config: schema.CONFIG_SCHEMA_VERSION, job: schema.JOB_SCHEMA_VERSION, event: schema.EVENT_SCHEMA_VERSION });
     assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'pricing.json'), 'utf8')).asOf);
@@ -1316,7 +1316,7 @@ test('owner status in /api/state and job detail', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 14);
+    assert.equal(st.apiVersion, 15);
     const byId = Object.fromEntries(st.jobs.map((j) => [j.id, j.ownerStatus]));
     assert.deepEqual(Object.fromEntries(Object.entries(byId).map(([k, v]: [string, any]) => [k, v.status])), { 'j-none': 'none', 'j-live': 'live', 'j-agent': 'live', 'j-stale': 'stale', 'j-dead': 'live' }, 'the time rule only: never dead');
     assert.deepEqual(byId['j-none'], { status: 'none', session: null, since: null, heartbeat: null, agentRunning: false, reason: null, jobSession: false });
@@ -1435,6 +1435,119 @@ test("a resume reaches the job's own live daemon session", { skip: process.platf
       process.kill(-child.pid!, 'SIGKILL');
     } catch {}
     await close();
+    repo.cleanup();
+  }
+});
+
+// ---- Effort per job (issue #121).
+
+/** A job dir at the current schema with `effort` as written, valid or not. */
+function effortJob(dir: string, id: string, effort: unknown) {
+  seedJob(dir, id);
+  const file = path.join(dir, '.forge', 'jobs', id, 'job.json');
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), schemaVersion: 7, effort }));
+  return id;
+}
+
+test('/api/state and job detail carry effort', async () => {
+  const repo = tempRepo();
+  const config = (effort: unknown, daemon: Record<string, unknown>) => {
+    fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
+    fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 2, runtime: { effort }, daemon }));
+  };
+  config('medium', { enabled: true, command: 'claude {session}' });
+  const plain = seedJob(repo.dir, 'job-plain');
+  const high = effortJob(repo.dir, 'job-high', 'high');
+  const bad = effortJob(repo.dir, 'job-bad', '--add-dir=/');
+  const kit = fakeChildren();
+  let srv = await startServer(repo.dir, { port: 0, daemon: kit.opts });
+  try {
+    const port = Number(new URL(srv.url).port);
+    const s = JSON.parse((await hit(port, { path: '/api/state' })).text);
+    assert.equal(s.apiVersion, 15);
+    assert.equal(s.config.effort, 'medium');
+    const row = (id) => s.jobs.find((j) => j.id === id);
+    assert.equal(row(plain).effort, null, 'a v3 job reads as inherit');
+    assert.equal(row(high).effort, 'high');
+    assert.equal(row(bad).effort, null, 'a tampered value reads as inherit');
+    assert.equal(s.daemons.inbox.effort, 'medium', 'the inbox child got runtime.effort');
+    const detail = JSON.parse((await hit(port, { path: `/api/jobs/${high}` })).text);
+    assert.equal(detail.job.effort, 'high');
+    await postRequest(port, { type: 'resume', job: high });
+    await until(() => kit.of(high).length === 1);
+    const s2 = JSON.parse((await hit(port, { path: '/api/state' })).text);
+    assert.equal(s2.daemons.jobs[high].effort, 'high');
+    assert.equal(kit.of(high)[0].args[kit.of(high)[0].args.indexOf('--effort') + 1], 'high');
+  } finally {
+    await srv.close();
+  }
+  config('ultra', { enabled: false });
+  srv = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  try {
+    const s = JSON.parse((await hit(Number(new URL(srv.url).port), { path: '/api/state' })).text);
+    assert.equal(s.config.effort, null, 'an invalid runtime.effort reads as none');
+    assert.equal(s.daemons.inbox.effort, null, 'no child, no effort');
+  } finally {
+    await srv.close();
+    repo.cleanup();
+  }
+});
+
+test('POST /api/jobs/:id/effort sets a job\'s effort, guarded like every POST', async () => {
+  const repo = tempRepo();
+  writeConfig(repo.dir, { enabled: true, command: 'claude {session}' });
+  const id = seedJob(repo.dir, 'job-a');
+  const dir = path.join(repo.dir, '.forge', 'jobs', id);
+  const kit = fakeChildren();
+  const srv = await startServer(repo.dir, { port: 0, daemon: kit.opts });
+  const port = Number(new URL(srv.url).port);
+  const snapshot = () => fs.readdirSync(dir).sort().map((f) => [f, fs.readFileSync(path.join(dir, f), 'utf8')]);
+  const effortEvents = () => (fs.existsSync(path.join(dir, 'events.jsonl')) ? fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((e) => e.type === 'effort') : []);
+  try {
+    await until(() => kit.children.length === 1);
+    assert.equal(srv.pool.state().wanted, true, 'the pool is wanted');
+    const token = await tokenOf(port);
+    const good = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (body, headers: any = good, job = id) => hit(port, { method: 'POST', path: `/api/jobs/${job}/effort`, headers, body: typeof body === 'string' ? body : JSON.stringify(body) });
+
+    const before = snapshot();
+    const refusals: [number, any, any?, string?][] = [
+      [403, { effort: 'high' }, { ...good, 'x-forge-token': 'wrong' }],
+      [403, { effort: 'high' }, (({ 'x-forge-token': _t, ...rest }) => rest)(good)],
+      [403, { effort: 'high' }, { ...good, origin: 'http://evil.example' }],
+      [415, { effort: 'high' }, { ...good, 'content-type': 'text/plain' }],
+      [400, { effort: 'ultra' }],
+      [400, { effort: 5 }],
+      [400, { effort: '--dangerously-skip-permissions' }],
+      [400, {}],
+      [400, []],
+      [400, 'null'],
+      [400, '{not json'],
+      [404, { effort: 'high' }, good, 'no-such-job'],
+      [404, { effort: 'high' }, good, '_inbox'],
+      [404, { effort: 'high' }, good, '..%2Fx'],
+    ];
+    for (const [status, body, headers, job] of refusals) {
+      const r = await post(body, headers ?? good, job ?? id);
+      assert.equal(r.status, status, `${JSON.stringify(body)} ${job ?? ''}: ${r.text}`);
+      if (status === 400 && typeof body === 'object') assert.equal(JSON.parse(r.text).error, 'effort must be one of low, medium, high, xhigh, max, or null');
+    }
+    assert.equal((await hit(port, { path: `/api/jobs/${id}/effort` })).status, 404, 'GET is not a route');
+    assert.deepEqual(snapshot(), before, 'no refusal wrote anything');
+    assert.equal(fs.existsSync(path.join(repo.dir, '.forge', 'jobs', 'no-such-job')), false);
+
+    const ok = await post({ effort: 'high' });
+    assert.equal(ok.status, 200);
+    assert.deepEqual(JSON.parse(ok.text), { id, effort: 'high', previous: null, changed: true });
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'job.json'), 'utf8')).effort, 'high');
+    assert.deepEqual(effortEvents().map(({ effort, previous, from }) => ({ effort, previous, from })), [{ effort: 'high', previous: null, from: 'dashboard' }]);
+    assert.deepEqual(JSON.parse((await post({ effort: 'high' })).text), { id, effort: 'high', previous: 'high', changed: false });
+    assert.equal(effortEvents().length, 1, 'a no-op logs nothing');
+    assert.deepEqual(JSON.parse((await post({ effort: null })).text), { id, effort: null, previous: 'high', changed: true }, 'null inherits');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'job.json'), 'utf8')).effort, null);
+    assert.equal(kit.children.length, 1, 'nothing was spawned or stopped');
+  } finally {
+    await srv.close();
     repo.cleanup();
   }
 });
