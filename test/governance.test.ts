@@ -87,9 +87,13 @@ function anchors(md: string): Set<string> {
   return out;
 }
 
-/** Inline link and image targets outside fenced code and code spans, without any title. */
+/**
+ * Inline link and image targets outside fenced code and code spans, without any title. Matching
+ * on the `](` that ends every inline link's text, rather than on balanced brackets, also yields
+ * both targets of a nested badge such as `[![CI](img.svg)](url)`.
+ */
 function links(md: string): string[] {
-  return prose(md).flatMap((l) => [...l.replace(/`[^`]*`/g, '').matchAll(/!?\[[^\]]*\]\(\s*<?([^)\s>]+)/g)].map((m) => m[1]));
+  return prose(md).flatMap((l) => [...l.replace(/`[^`]*`/g, '').matchAll(/\]\(\s*<?([^)\s>]+)/g)].map((m) => m[1]));
 }
 
 /** The lines under `## <title>`, up to the next heading of level 1 or 2. */
@@ -296,12 +300,39 @@ test('issue forms are well formed and the bug form asks for forge doctor and for
     assert.equal(field(feature, id)?.type, 'textarea', id);
     assert.equal(field(feature, id).validations?.required, true, id);
   }
+
+  // The rest of each form, in order, as the spec's Approach lays it out.
+  const fields = (form: any) => form.body.filter((el: any) => el.type !== 'markdown').map((el: any) => `${el.id}:${el.type}:${el.validations?.required === true ? 'required' : 'optional'}`);
+  assert.deepEqual(fields(bug), [
+    'what-happened:textarea:required',
+    'steps:textarea:required',
+    'expected:textarea:required',
+    'doctor:textarea:required',
+    'version:input:required',
+    'install:dropdown:required',
+    'environment:input:optional',
+  ]);
+  assert.deepEqual(field(bug, 'install').attributes.options, ['Claude Code plugin', 'CLI from a clone']);
+  assert.deepEqual(fields(feature), ['problem:textarea:required', 'proposal:textarea:required', 'alternatives:textarea:optional', 'area:dropdown:optional']);
+  assert.deepEqual(field(feature, 'area').attributes.options, [
+    'CLI',
+    'Orchestrator and agents',
+    'Dashboard',
+    'Daemon',
+    'Trackers and PRs',
+    'Evals and retros',
+    'Docs',
+  ]);
 });
 
 test("the PR template's checklist mirrors the AGENTS.md verify commands", () => {
   const template = read('.github/pull_request_template.md');
   const boxes = template.split('\n').filter((l) => l.startsWith('- [ ]'));
-  for (const cmd of verifyCommands()) assert.ok(boxes.some((l) => l.includes(cmd)), `checklist item for ${cmd}`);
+  for (const cmd of verifyCommands())
+    assert.ok(
+      boxes.some((l) => l.includes(cmd)),
+      `add "- [ ] \`${cmd}\`" to .github/pull_request_template.md: its checklist mirrors AGENTS.md "Verify before claiming it works"`,
+    );
   assert.match(template, /^Closes #/m);
   assert.ok(boxes.some((l) => /AI attribution/.test(l)), 'checklist item for no AI attribution');
   assert.ok(boxes.some((l) => /version/i.test(l) && l.includes('CHANGELOG')), 'checklist item for no version or CHANGELOG bump');
@@ -341,6 +372,7 @@ test('relative links and anchors in the governance docs and README resolve', () 
   assert.equal(slug('`.forge/config.yml`'), 'forgeconfigyml');
   assert.equal(slug('Split gate: why 2 ways?'), 'split-gate-why-2-ways');
   assert.deepEqual([...anchors('# A\n## A\n```\n# B\n```\n')], ['a', 'a-1']);
+  assert.deepEqual(links('[![CI](ci.svg)](docs/CI.md "CI") and `[x](code.md)`\n```\n[y](fenced.md)\n```\n'), ['ci.svg', 'docs/CI.md']);
 });
 
 test('governance files carry no AI attribution lines', () => {
