@@ -9,7 +9,8 @@ import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { broadcast, distAllowlist, startServer } from '../lib/server.ts';
+import { broadcast, distAllowlist, distDirFor, startServer } from '../lib/server.ts';
+import { DEV_DIST_DIR } from '../lib/paths.ts';
 import { TURN_LINE } from '../lib/daemon.ts';
 import * as yaml from '../lib/yaml.ts';
 import { API_VERSION as DASH_API_VERSION } from '../dashboard/src/lib/types.ts';
@@ -61,6 +62,22 @@ function get(port, path, host = `127.0.0.1:${port}`): any {
 
 const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dashboard', 'dist');
 const NOT_BUILT = 'dashboard is not built: run npm run build:dashboard';
+const DEV_NOT_BUILT = 'dashboard dev build is not ready: npm run dev is still building it; reload in a moment';
+
+/** Paths the dist allowlist must answer 404 for, given one real manifest file `real`. */
+function notFoundPaths(real: string): string[] {
+  return [
+    '/app.js', '/util.js', '/budget.js', '/deps.js', '/screenshots.js', '/daemon.js',
+    '/style.css', '/vite.config.mjs', '/build-stamp.mjs', '/manifest.json', '/build-stamp.json',
+    '/dist/index.html', '/dashboard/dist/index.html', '/dashboard/app.js', '/assets', '/assets/',
+    `/${real}.map`, `/${real}/`, `/${real}%00`, `/ASSETS/${real.slice('assets/'.length)}`,
+    '/assets/..%2Fmanifest.json', '/..%2Flib%2Fserver.ts', '/../lib/server.ts', '/%2e%2e/lib/server.ts',
+    '/lib.js', '/server.ts', '/index.js', '/package.json', '/node_modules/vite/package.json',
+    '/src/lib/util.ts', '/dashboard/src/lib/util.ts', '/src/lib/types.ts', '/tsconfig.json', '/dashboard/tsconfig.json',
+    '/fonts/IBMPlexSans-400.woff2', '/dashboard/fonts/OFL.txt', '/fonts/README.md', '/textures/paper.svg', '/dashboard/textures/paper.svg',
+    '/src/main.ts', '/src/App.svelte', '/dashboard/src/App.svelte', '/src/lib/view.ts', '/svelte.config.mjs', '/dashboard/svelte.config.mjs',
+  ];
+}
 
 test('dashboard server serves the page no-store and only manifest-allowlisted dist assets', async () => {
   const repo = tempRepo();
@@ -88,18 +105,7 @@ test('dashboard server serves the page no-store and only manifest-allowlisted di
       assert.ok(r.body.equals(fs.readFileSync(path.join(DIST, f))), `${f} bytes`);
     }
     const real = files[0];
-    const notFound = [
-      '/app.js', '/util.js', '/budget.js', '/deps.js', '/screenshots.js', '/daemon.js',
-      '/style.css', '/vite.config.mjs', '/build-stamp.mjs', '/manifest.json', '/build-stamp.json',
-      '/dist/index.html', '/dashboard/dist/index.html', '/dashboard/app.js', '/assets', '/assets/',
-      `/${real}.map`, `/${real}/`, `/${real}%00`, `/ASSETS/${real.slice('assets/'.length)}`,
-      '/assets/..%2Fmanifest.json', '/..%2Flib%2Fserver.ts', '/../lib/server.ts', '/%2e%2e/lib/server.ts',
-      '/lib.js', '/server.ts', '/index.js', '/package.json', '/node_modules/vite/package.json',
-      '/src/lib/util.ts', '/dashboard/src/lib/util.ts', '/src/lib/types.ts', '/tsconfig.json', '/dashboard/tsconfig.json',
-      '/fonts/IBMPlexSans-400.woff2', '/dashboard/fonts/OFL.txt', '/fonts/README.md', '/textures/paper.svg', '/dashboard/textures/paper.svg',
-      '/src/main.ts', '/src/App.svelte', '/dashboard/src/App.svelte', '/src/lib/view.ts', '/svelte.config.mjs', '/dashboard/svelte.config.mjs',
-    ];
-    for (const p of notFound) assert.equal((await get(port, p)).status, 404, p);
+    for (const p of notFoundPaths(real)) assert.equal((await get(port, p)).status, 404, p);
     assert.equal((await get(port, '/' + real, `evil.example:${port}`)).status, 421);
   } finally {
     server.close();
@@ -359,6 +365,127 @@ async function postRequest(port, body) {
   const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)[1];
   return hit(port, { method: 'POST', path: '/api/requests', headers: { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
 }
+
+// ---- `forge dash --dev`: the dev build behind the same guards.
+
+test('dev mode serves the dev build behind the same guards', async () => {
+  const repo = tempRepo();
+  // A copy of the real build stands in for the dev dir: a test never writes the real DEV_DIST_DIR.
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-devdist-'));
+  fs.cpSync(DIST, tmp, { recursive: true });
+  // One file the manifest doesn't name, so serving by directory would show.
+  fs.writeFileSync(path.join(tmp, 'assets', 'stray-1.js'), 'stray');
+  const { url, close } = await startServer(repo.dir, { port: 0, dev: true, distDir: tmp, daemon: fakeChildren().opts });
+  const port = Number(new URL(url).port);
+  try {
+    for (const p of ['/', '/index.html']) {
+      const r = await get(port, p);
+      assert.equal(r.status, 200, p);
+      assert.equal(r.type, 'text/html; charset=utf-8', p);
+      assert.equal(r.headers['cache-control'], 'no-store', p);
+      const html = r.body.toString('utf8');
+      assert.ok(!html.includes('__FORGE_TOKEN__'), p);
+      assert.match(html, /<meta name="forge-token" content="[0-9a-f]{32}" \/>/, p);
+    }
+    const manifest = JSON.parse(fs.readFileSync(path.join(tmp, 'manifest.json'), 'utf8'));
+    const files: string[] = Object.values(manifest).flatMap((e: any) => [e.file, ...(e.css ?? []), ...(e.assets ?? [])]);
+    const served = new Set(files.map((f) => '/' + f));
+    for (const f of fs.readdirSync(path.join(tmp, 'assets'))) {
+      const r = await get(port, `/assets/${f}`);
+      assert.equal(r.status, served.has(`/assets/${f}`) ? 200 : 404, f);
+      if (r.status === 200) assert.ok(r.body.equals(fs.readFileSync(path.join(tmp, 'assets', f))), `${f} bytes`);
+    }
+    assert.equal((await get(port, '/assets/stray-1.js')).status, 404, 'only manifest-listed files');
+    for (const p of notFoundPaths(files[0])) assert.equal((await get(port, p)).status, 404, p);
+    assert.equal((await get(port, '/', `evil.example:${port}`)).status, 421);
+    assert.equal((await get(port, '/' + files[0], `evil.example:${port}`)).status, 421);
+
+    const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)[1];
+    const good = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (headers) => hit(port, { method: 'POST', path: '/api/requests', headers, body: '{"type":"sync"}' });
+    const { 'x-forge-token': _t, ...noToken } = good;
+    assert.equal((await post(noToken)).status, 403);
+    assert.equal((await post({ ...good, 'x-forge-token': 'wrong' })).status, 403);
+    assert.equal((await post({ ...good, origin: 'http://evil.example' })).status, 403);
+    const { origin: _o, ...noOrigin } = good;
+    assert.equal((await post(noOrigin)).status, 403);
+    assert.equal((await post({ ...good, 'content-type': 'text/plain' })).status, 415);
+  } finally {
+    await close();
+    repo.cleanup();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('dev mode defaults to the gitignored dev build dir', () => {
+  const plugin = path.resolve(import.meta.dirname, '..');
+  assert.equal(distDirFor({}), path.join(plugin, 'dashboard', 'dist'));
+  assert.equal(DEV_DIST_DIR, path.join(plugin, 'node_modules', '.cache', 'forge', 'dashboard-dev'));
+  assert.equal(distDirFor({ dev: true }), DEV_DIST_DIR);
+  assert.equal(distDirFor({ dev: true, distDir: '/x/y' }), '/x/y');
+  assert.equal(distDirFor({ distDir: '/x/y' }), '/x/y');
+});
+
+test('dev mode not-built message', async () => {
+  const repo = tempRepo();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-devnodist-'));
+  const dev = await startServer(repo.dir, { port: 0, dev: true, distDir: tmp, daemon: fakeChildren().opts });
+  const plain = await startServer(repo.dir, { port: 0, distDir: tmp, daemon: fakeChildren().opts });
+  try {
+    for (const [srv, text] of [[dev, DEV_NOT_BUILT], [plain, NOT_BUILT]] as const) {
+      const port = Number(new URL(srv.url).port);
+      for (const p of ['/', '/index.html']) {
+        const r = await get(port, p);
+        assert.equal(r.status, 503, p);
+        assert.match(r.type ?? '', /^text\/plain/, p);
+        assert.equal(r.headers['cache-control'], 'no-store', p);
+        assert.equal(r.body.toString('utf8'), text, p);
+      }
+      assert.equal((await get(port, '/api/state')).status, 200);
+    }
+  } finally {
+    await dev.close();
+    await plain.close();
+    repo.cleanup();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('dev mode leaves the daemon off until Start', async () => {
+  const repo = tempRepo();
+  writeConfig(repo.dir, { enabled: true, command: 'claude {session}' });
+  const kit = fakeChildren();
+  const srv = await startServer(repo.dir, { port: 0, dev: true, distDir: DIST, daemon: kit.opts });
+  const port = Number(new URL(srv.url).port);
+  try {
+    // Give a boot start every chance to happen before checking it didn't.
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal(kit.children.length, 0, 'no child at boot in dev mode');
+    const s = JSON.parse((await hit(port, { path: '/api/state' })).text);
+    assert.equal(s.daemons.wanted, false);
+    assert.equal(s.daemons.inbox.running, false);
+    const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)[1];
+    const headers = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const started = await hit(port, { method: 'POST', path: '/api/daemon', headers, body: '{"action":"start"}' });
+    assert.equal(started.status, 200);
+    assert.equal(JSON.parse(started.text).wanted, true);
+    assert.equal(kit.children.length, 1);
+    assert.equal(kit.children[0].scope, '_inbox');
+  } finally {
+    await srv.close();
+  }
+  // The control: the same setup without dev boots the inbox, as it always has.
+  const ctl = fakeChildren();
+  const plain = await startServer(repo.dir, { port: 0, distDir: DIST, daemon: ctl.opts });
+  try {
+    await until(() => ctl.children.length === 1);
+    assert.equal(ctl.children[0].scope, '_inbox');
+    assert.equal(JSON.parse((await hit(Number(new URL(plain.url).port), { path: '/api/state' })).text).daemons.wanted, true);
+  } finally {
+    await plain.close();
+    repo.cleanup();
+  }
+});
 
 test('per-session SSE is scoped, validated and slot-limited', async () => {
   const repo = tempRepo();

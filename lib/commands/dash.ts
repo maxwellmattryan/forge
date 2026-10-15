@@ -19,15 +19,16 @@ export const HELP: HelpGroup[] = [
     commands: [
       {
         command: 'dash',
-        args: '[--background|--stop] [--port N]',
+        args: '[--background|--stop] [--port N] [--dev]',
         summary: 'start the dashboard in the foreground (prints its URL), or detached with --background; --stop stops it and its sessions',
         flags: [
           ['--background', 'start it detached and print {url, pid}'],
           ['--stop', 'stop it and reap its sessions'],
           ['--port N', 'the first port to try (default: dashboard.port, 7400)'],
           ['--foreground', 'run in the foreground even when one is running'],
+          ['--dev', "serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist; the daemon stays off until Start; refused while a dashboard runs for this repo"],
         ],
-        exits: [[1, 'no free port near N']],
+        exits: [[1, 'no free port near N, or --dev while a dashboard is already running for this repo']],
       },
     ],
   },
@@ -91,11 +92,21 @@ export async function dash(root: string, config: Config, flags: Record<string, a
     const { reaped } = reapOrphans(root);
     return out({ stopped: Boolean(alive), daemonReaped: reaped.length > 0 }, flags);
   }
+  // A dev dashboard must never take over (or silently stand beside) the repo's live one: they would
+  // share dashboard.json and the session pool's records.
+  if (flags.dev && alive) {
+    throw new ForgeError(
+      `a dashboard is already running for this repo at ${current.url} (pid ${current.pid}); stop it with forge dash --stop, or point npm run dev at a scratch repo with FORGE_ROOT=<dir>`,
+      'failed',
+      'forge dash --stop',
+    );
+  }
   if (alive && !flags.foreground) return out({ url: current.url, pid: current.pid, running: true }, flags);
   const port = Number(flags.port ?? config.dashboard.port ?? 7400);
-  const note = await settleDaemonAuth(root, config);
+  // A dev dashboard never boots the daemon, so it has no billing question to ask or config to write.
+  const note = flags.dev ? {} : await settleDaemonAuth(root, config);
   if (flags.background) {
-    const child = spawn(process.execPath, [path.join(PLUGIN_ROOT, 'bin', 'forge'), 'dash', '--foreground', '--port', String(port)], {
+    const child = spawn(process.execPath, [path.join(PLUGIN_ROOT, 'bin', 'forge'), 'dash', '--foreground', '--port', String(port), ...(flags.dev ? ['--dev'] : [])], {
       cwd: root,
       detached: true,
       stdio: 'ignore',
@@ -113,7 +124,7 @@ export async function dash(root: string, config: Config, flags: Record<string, a
   let res: RunningServer | undefined;
   for (let p = port; p < port + 20; p++) {
     try {
-      res = await startServer(root, { port: p });
+      res = await startServer(root, { port: p, dev: Boolean(flags.dev) });
       break;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw e;
@@ -136,5 +147,5 @@ export async function dash(root: string, config: Config, flags: Record<string, a
   process.on('SIGINT', shutdown);
   // Last resort (an uncaught exception, a plain exit): signal every session's group synchronously.
   process.on('exit', () => server.pool.killSync());
-  process.stdout.write(`⚒️  Forge dashboard → ${res.url}\n`);
+  process.stdout.write(`⚒️  Forge dashboard${flags.dev ? ' (dev)' : ''} → ${res.url}\n`);
 }
