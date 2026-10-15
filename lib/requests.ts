@@ -111,7 +111,7 @@ const lockDir = (root: string): string => path.join(paths(root).locks, 'requests
  */
 export function claimRequest(root: string, id: string, session: string, force = false): ForgeRequest {
   const file = requestFile(root, id);
-  if (!exists(file)) throw new ForgeError(`no request ${id}`);
+  if (!exists(file)) throw new ForgeError(`no request ${id}`, 'not_found');
   return withLock(lockDir(root), () => {
     const rec = readJson(file);
     if (['done', 'rejected'].includes(rec.status)) throw new ForgeError(`request ${id} is already ${rec.status}`);
@@ -127,7 +127,7 @@ export function claimRequest(root: string, id: string, session: string, force = 
 
 export function ackRequest(root: string, id: string, update: { status: 'done' | 'rejected' | 'in-progress'; result?: string }): ForgeRequest {
   const file = requestFile(root, id);
-  if (!exists(file)) throw new ForgeError(`no request ${id}`);
+  if (!exists(file)) throw new ForgeError(`no request ${id}`, 'not_found');
   return withLock(lockDir(root), () => {
     const rec = readJson(file);
     rec.status = update.status;

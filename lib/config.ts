@@ -204,7 +204,7 @@ export function loadConfig(root: string, opts: { text?: string | null } = {}): L
   try {
     raw = yaml.parse(text) ?? {};
   } catch (e) {
-    throw new ForgeError(`${p.config}: ${(e as Error).message}`);
+    throw new ForgeError(`${p.config}: ${(e as Error).message}`, 'config_invalid');
   }
   const migrated = migrateConfig(raw);
   const config = deepMerge(base, migrated.config);

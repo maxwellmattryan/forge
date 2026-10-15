@@ -141,7 +141,7 @@ test('docs mention job step', () => {
   const s = scratch();
   try {
     const usage = s.raw('job');
-    assert.equal(usage.status, 1);
+    assert.equal(usage.status, 2);
     assert.match(usage.stderr, /usage: forge job [a-z|-]*\|step\b/);
     assert.match(s.raw('help').stdout, /forge job step <id>/);
   } finally {

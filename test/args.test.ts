@@ -20,7 +20,7 @@ test('str: missing values and repeats fail, strings pass through', () => {
   assert.equal(str(undefined, '--job'), undefined);
   assert.equal(str('j1', '--job'), 'j1');
   assert.equal(str('--weird', '--job'), '--weird');
-  assert.throws(() => str(true, '--job'), (e: unknown) => e instanceof ForgeError && e.exitCode === 1 && /^missing value for --job \(write --job=<value> if the value starts with --\)$/.test(e.message));
+  assert.throws(() => str(true, '--job'), (e: unknown) => e instanceof ForgeError && e.exitCode === 2 && /^missing value for --job \(write --job=<value> if the value starts with --\)$/.test(e.message));
   assert.throws(() => str('', '--note'), /missing value for --note/);
   assert.throws(() => str(['a', 'b'], '--session'), /--session given more than once/);
 });
@@ -73,7 +73,7 @@ test('coerce: unparseable JSON throws with the quoted form; other values coerce 
   assert.deepEqual(coerce('[]'), []);
   assert.throws(
     () => coerce('[code,tests]', 'reviewers'),
-    (e: unknown) => e instanceof ForgeError && e.exitCode === 1 && e.message === `--field reviewers: "[code,tests]" is not valid JSON; quote it for the shell, e.g. --field 'reviewers=["code","tests"]'`,
+    (e: unknown) => e instanceof ForgeError && e.exitCode === 2 && e.message === `--field reviewers: "[code,tests]" is not valid JSON; quote it for the shell, e.g. --field 'reviewers=["code","tests"]'`,
   );
   assert.throws(() => coerce('[ a , , b ]', 'services'), /--field 'services=\["a","b"\]'/);
   assert.throws(() => coerce('[[x]', 'k'), /--field 'k=\["a","b"\]'/);

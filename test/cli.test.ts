@@ -504,11 +504,11 @@ function guardRepo() {
   const id = JSON.parse(created.stdout).id;
   const jobDir = path.join(repo.dir, '.forge', 'jobs', id);
   const snapshot = () => ['job.json', 'events.jsonl'].map((f) => (fs.existsSync(path.join(jobDir, f)) ? fs.readFileSync(path.join(jobDir, f), 'utf8') : null));
-  /** Runs a command that must fail with one `forge:` line matching `pattern` and write nothing. */
-  const refuses = (args, pattern) => {
+  /** Runs a command that must fail with exit `exit` and one `forge:` line matching `pattern`, and write nothing. */
+  const refuses = (args, pattern, exit = 1) => {
     const before = snapshot();
     const r = cli(...args);
-    assert.equal(r.status, 1, `${args.join(' ')}: ${r.stdout}${r.stderr}`);
+    assert.equal(r.status, exit, `${args.join(' ')}: ${r.stdout}${r.stderr}`);
     assert.equal(r.stdout, '', args.join(' '));
     assert.match(r.stderr, /^forge: [^\n]*\n$/, `${args.join(' ')}: one stderr line`);
     assert.match(r.stderr, pattern, args.join(' '));
@@ -522,7 +522,7 @@ function guardRepo() {
 test('job set --field rejects malformed JSON and non-array list fields without writing', () => {
   const { repo, cli, id, refuses, job } = guardRepo();
   try {
-    const r = refuses(['job', 'set', id, '--field', 'reviewers=[code,tests]'], /reviewers/);
+    const r = refuses(['job', 'set', id, '--field', 'reviewers=[code,tests]'], /reviewers/, 2);
     assert.ok(r.stderr.includes(`--field 'reviewers=["code","tests"]'`), r.stderr);
     for (const kv of ['reviewers="code"', 'reviewers=code', 'services=5', 'children=null', 'dependsOn={}', 'reviewers=[1]'])
       refuses(['job', 'set', id, '--field', kv], /must be a JSON array of strings, e.g. --field '\w+=\[/);
@@ -621,17 +621,17 @@ test('bare string flags and bad numbers fail before anything is written', () => 
     const requests = path.join(repo.dir, '.forge', 'runtime', 'requests');
     const listRequests = () => (fs.existsSync(requests) ? fs.readdirSync(requests).sort() : []);
     const queued = listRequests();
-    refuses(['requests', 'add', 'resume', '--job'], /missing value for --job \(write --job=<value> if the value starts with --\)/);
-    refuses(['requests', 'add', 'resume', '--job='], /missing value for --job/);
-    refuses(['requests', 'add', 'resume', '--job', id, '--job', id], /--job given more than once/);
-    refuses(['requests', 'add', 'resume', '--job', id, '--session'], /missing value for --session/);
+    refuses(['requests', 'add', 'resume', '--job'], /missing value for --job \(write --job=<value> if the value starts with --\)/, 2);
+    refuses(['requests', 'add', 'resume', '--job='], /missing value for --job/, 2);
+    refuses(['requests', 'add', 'resume', '--job', id, '--job', id], /--job given more than once/, 2);
+    refuses(['requests', 'add', 'resume', '--job', id, '--session'], /missing value for --session/, 2);
     assert.deepEqual(listRequests(), queued, 'no request file was written');
 
-    refuses(['job', 'agent', id, 'end', '--role', 'builder', '--summary'], /missing value for --summary/);
-    refuses(['job', 'agent', id, 'end', '--role', 'builder', '--tokens', 'abc'], /--tokens must be a non-negative number \(got "abc"\)/);
-    refuses(['job', 'agent', id, 'end', '--role', 'builder', '--tokens', '-5'], /--tokens must be a non-negative number/);
-    refuses(['job', 'agent', id, 'end', '--role', 'builder', '--tool-uses', 'x'], /--tool-uses must be a non-negative number/);
-    refuses(['job', 'agent', id, 'end', '--role', 'builder', '--duration-ms'], /missing value for --duration-ms/);
+    refuses(['job', 'agent', id, 'end', '--role', 'builder', '--summary'], /missing value for --summary/, 2);
+    refuses(['job', 'agent', id, 'end', '--role', 'builder', '--tokens', 'abc'], /--tokens must be a non-negative number \(got "abc"\)/, 2);
+    refuses(['job', 'agent', id, 'end', '--role', 'builder', '--tokens', '-5'], /--tokens must be a non-negative number/, 2);
+    refuses(['job', 'agent', id, 'end', '--role', 'builder', '--tool-uses', 'x'], /--tool-uses must be a non-negative number/, 2);
+    refuses(['job', 'agent', id, 'end', '--role', 'builder', '--duration-ms'], /missing value for --duration-ms/, 2);
     const ok = cli('job', 'agent', id, 'end', '--role', 'builder', '--tokens', '100', '--tool-uses', '1', '--duration-ms', '1000');
     assert.equal(ok.status, 0, ok.stderr);
     assert.equal(JSON.parse(ok.stdout).usage.tokens, 100);
@@ -640,18 +640,18 @@ test('bare string flags and bad numbers fail before anything is written', () => 
     assert.equal(zero.status, 0, zero.stderr);
     assert.equal(JSON.parse(zero.stdout).usage.tokens, 0, '--tokens 0 still records usage');
 
-    refuses(['job', 'human', id, 'approve', '--note'], /missing value for --note/);
-    refuses(['job', 'set', id, '--note'], /missing value for --note/);
-    refuses(['job', 'claim', id, '--session'], /missing value for --session/);
-    refuses(['job', 'claim', id, '--session='], /missing value for --session/);
-    refuses(['job', 'step', id, '--session'], /missing value for --session/);
+    refuses(['job', 'human', id, 'approve', '--note'], /missing value for --note/, 2);
+    refuses(['job', 'set', id, '--note'], /missing value for --note/, 2);
+    refuses(['job', 'claim', id, '--session'], /missing value for --session/, 2);
+    refuses(['job', 'claim', id, '--session='], /missing value for --session/, 2);
+    refuses(['job', 'step', id, '--session'], /missing value for --session/, 2);
 
-    refuses(['tracker', 'list', '--limit', 'abc'], /--limit must be a non-negative integer \(got "abc"\)/);
-    refuses(['run', id, 'test', '--tail', 'x'], /--tail must be a non-negative integer \(got "x"\)/);
+    refuses(['tracker', 'list', '--limit', 'abc'], /--limit must be a non-negative integer \(got "abc"\)/, 2);
+    refuses(['run', id, 'test', '--tail', 'x'], /--tail must be a non-negative integer \(got "x"\)/, 2);
     // The queued, unowned job would be the first thing `next --claim` resumes.
     assert.equal(job().owner ?? null, null);
-    refuses(['next', '--claim', '--session', 's', '--limit', '-1'], /--limit must be a non-negative integer \(got "-1"\)/);
-    refuses(['next', '--claim', '--session', 's', '--limit', '1.5'], /--limit must be a non-negative integer/);
+    refuses(['next', '--claim', '--session', 's', '--limit', '-1'], /--limit must be a non-negative integer \(got "-1"\)/, 2);
+    refuses(['next', '--claim', '--session', 's', '--limit', '1.5'], /--limit must be a non-negative integer/, 2);
     assert.equal(job().owner ?? null, null, 'next claimed nothing');
   } finally {
     repo.cleanup();
@@ -661,10 +661,10 @@ test('bare string flags and bad numbers fail before anything is written', () => 
 test('job human accepts only known actions, and stats still counts them', () => {
   const { repo, cli, id, refuses } = guardRepo();
   try {
-    const r = refuses(['job', 'human', id, 'bogus'], /unknown action "bogus"/);
+    const r = refuses(['job', 'human', id, 'bogus'], /unknown action "bogus"/, 2);
     for (const a of ['approve-spec', 'revise-spec', 'approve-split', 'revise-split', 'approve', 'rework', 'answer']) assert.ok(r.stderr.includes(a), a);
-    refuses(['job', 'human', id, 'reject'], /unknown action "reject"/);
-    refuses(['job', 'human', id], /missing action \(approve-spec\|revise-spec\|approve-split\|revise-split\|approve\|rework\|answer\)/);
+    refuses(['job', 'human', id, 'reject'], /unknown action "reject"/, 2);
+    refuses(['job', 'human', id], /missing action \(approve-spec\|revise-spec\|approve-split\|revise-split\|approve\|rework\|answer\)/, 2);
     for (const a of ['revise-spec', 'approve-spec', 'rework']) {
       const ok = cli('job', 'human', id, a, '--note', `n ${a}`);
       assert.equal(ok.status, 0, ok.stderr);

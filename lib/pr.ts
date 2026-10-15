@@ -36,11 +36,11 @@ export function repoSlug(root: string, config: Config): string {
   if (config.tracker?.github?.repo) return config.tracker.github.repo;
   const r = run('gh', ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'], { cwd: root, allowFail: true });
   if (r.ok && r.stdout.trim()) return r.stdout.trim();
-  throw new ForgeError('cannot determine the GitHub repository; set tracker.github.repo or run `gh auth login`');
+  throw new ForgeError('cannot determine the GitHub repository; set tracker.github.repo or run `gh auth login`', 'external');
 }
 
 function requireGh(): void {
-  if (!hasBinary('gh')) throw new ForgeError('the GitHub CLI (gh) is required for PR features; install it or set pr.enabled: false');
+  if (!hasBinary('gh')) throw new ForgeError('the GitHub CLI (gh) is required for PR features; install it or set pr.enabled: false', 'external');
 }
 
 function gh(root: string, args: string[]): ReturnType<typeof run> {
@@ -451,7 +451,7 @@ function advance(cwd: string, strategy: Strategy, id: string): ReturnType<typeof
 }
 
 const advanceFailed = (strategy: Strategy, r: ReturnType<typeof run>): ForgeError =>
-  new ForgeError(`git ${strategy === 'rebase' ? 'rebase --continue' : 'commit --no-edit'} failed: ${(r.stderr || r.stdout).trim()}`);
+  new ForgeError(`git ${strategy === 'rebase' ? 'rebase --continue' : 'commit --no-edit'} failed: ${(r.stderr || r.stdout).trim()}`, 'external');
 
 const sortedList = (paths: Iterable<string>): string[] => [...new Set(paths)].sort();
 

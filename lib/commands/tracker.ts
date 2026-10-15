@@ -9,8 +9,89 @@ import { clampLimit, publicHits, searchTracker } from '../tracker-link.ts';
 import { loadTracker } from '../trackers/index.ts';
 import { ForgeError } from '../util.ts';
 import * as wt from '../worktree.ts';
-import { bodyFrom, list, num, req, str } from './args.ts';
-import type { Config, Job, JobPr, Tracker, TrackerItem } from '../types.ts';
+import { bodyFrom, list, num, req, str, usageError } from './args.ts';
+import type { Config, HelpGroup, Job, JobPr, Tracker, TrackerItem } from '../types.ts';
+
+const TRACKER_EXITS: [1 | 5, string][] = [
+  [1, 'the tracker refused the call, or no such item or job'],
+  [5, 'gh failed (GitHub tracker)'],
+];
+const BODY: [string, string][] = [
+  ['--body B', 'the text'],
+  ['--body-file F', 'read the text from F (- for stdin)'],
+];
+
+const TRACKER: HelpGroup = {
+  name: 'tracker',
+  summary: 'the configured issue tracker (tracker.kind): items, claims, comments',
+  commands: [
+    {
+      command: 'tracker list',
+      args: '[--ready] [--limit N]',
+      summary: 'tracker items, without bodies',
+      flags: [
+        ['--ready', 'only items ready to start'],
+        ['--limit N', 'at most N items (0: no limit)'],
+      ],
+      exits: TRACKER_EXITS,
+    },
+    { command: 'tracker get', args: '<ref>', summary: 'one tracker item', exits: TRACKER_EXITS },
+    {
+      command: 'tracker search',
+      args: '<query> [--limit N] [--job <id>]',
+      summary: 'search the tracker',
+      flags: [
+        ['--limit N', 'at most N items (default 5, at most 20)'],
+        ['--job <id>', "search for the words of a job's title"],
+      ],
+      exits: TRACKER_EXITS,
+      docs: ['Linking jobs to issues', 'docs/TRACKERS.md#linking-jobs-to-issues'],
+      readme: true,
+    },
+    { command: 'tracker claim', args: '<ref> <job>', summary: 'mark an item as taken by a job', exits: TRACKER_EXITS },
+    { command: 'tracker update', args: '<ref> <job>', summary: "mirror a job's status to its item", exits: TRACKER_EXITS },
+    { command: 'tracker comment', args: '<ref> [--body B | --body-file F]', summary: 'comment on an item', flags: BODY, exits: TRACKER_EXITS },
+    {
+      command: 'tracker create',
+      args: '--title T [--body B | --body-file F] [--label L]... [--parent REF]',
+      summary: 'create an item',
+      flags: [['--title T', 'the title (required)'], ...BODY, ['--label L', 'a label (repeatable, or comma-separated)'], ['--parent REF', 'the parent item']],
+      exits: TRACKER_EXITS,
+    },
+    { command: 'tracker close', args: '<ref> [--reason R]', summary: 'close an item', flags: [['--reason R', 'why, where the tracker records one']], exits: TRACKER_EXITS },
+  ],
+};
+
+export const HELP: HelpGroup[] = [
+  {
+    name: 'next',
+    summary: 'take the next piece of work',
+    commands: [
+      {
+        command: 'next',
+        args: '[--claim --session S] [--force] [--limit N]',
+        summary: 'resume a queued unowned job (with --claim --session), else the next ready tracker item whose job is not blocked (with --claim, start its job)',
+        flags: [
+          ['--claim', 'claim the work instead of only showing it'],
+          ['--session S', 'the session claiming it'],
+          ['--force', "don't skip items whose job waits on dependencies"],
+          ['--limit N', 'read at most N ready items (default 20)'],
+        ],
+        exits: [
+          [1, 'the tracker failed'],
+          [3, 'the tracker claim was lost to another job'],
+          [5, 'gh failed (GitHub tracker)'],
+        ],
+      },
+    ],
+  },
+  {
+    name: 'sync',
+    summary: 'reconcile PRs and trackers for all jobs',
+    commands: [{ command: 'sync', args: '', summary: "reconcile PRs and trackers for every job, retarget stacked PRs, release dependency waits and finish umbrella jobs; a job's failure is reported in its result" }],
+  },
+  TRACKER,
+];
 
 /** The result is printed as JSON. */
 export async function trackerCmd(root: string, config: Config, sub: string | undefined, rest: string[], flags: Record<string, any>): Promise<unknown> {
@@ -44,7 +125,7 @@ export async function trackerCmd(root: string, config: Config, sub: string | und
       return { tracker: r.tracker, query: r.query, items: publicHits(r.items) };
     }
     default:
-      throw new ForgeError('usage: forge tracker list|get|search|claim|update|comment|create|close');
+      throw usageError(TRACKER);
   }
 }
 

@@ -1,7 +1,69 @@
 import * as evals from '../evals.ts';
 import { ForgeError } from '../util.ts';
-import { bodyFrom, list, req } from './args.ts';
-import type { Config } from '../types.ts';
+import { bodyFrom, list, req, usageError } from './args.ts';
+import type { Config, HelpGroup } from '../types.ts';
+
+const EVAL: HelpGroup = {
+  name: 'eval',
+  summary: 'measure Forge on frozen tasks: the task suite, runs and comparisons',
+  commands: [
+    { command: 'eval list', args: '', summary: 'the eval tasks' },
+    {
+      command: 'eval new',
+      args: '<name> [--title T] (--request R | --body B | --body-file F)',
+      summary: 'add a task from a request',
+      flags: [
+        ['--title T', 'the title (default: the name)'],
+        ['--request R', 'the request text'],
+        ['--body B', 'the request text'],
+        ['--body-file F', 'read the request from F (- for stdin)'],
+      ],
+      exits: [[1, 'a task with that name already exists']],
+    },
+    {
+      command: 'eval mine',
+      args: '--pr N [--name N] [--test-pattern P]',
+      summary: 'add a task from a merged PR: its issue as the request, its tests as hidden checks',
+      flags: [
+        ['--pr N', 'the merged PR (required)'],
+        ['--name N', 'the task name (default: from the PR)'],
+        ['--test-pattern P', 'which changed files are the hidden tests'],
+      ],
+      exits: [
+        [1, 'the PR cannot be used'],
+        [5, 'gh or git failed'],
+      ],
+    },
+    {
+      command: 'eval start',
+      args: '[--tasks a,b] [--tags a,b] [--label L]',
+      summary: 'start a run: one eval job per task, each in its own worktree',
+      flags: [
+        ['--tasks a,b', 'only these tasks'],
+        ['--tags a,b', 'only tasks with these tags'],
+        ['--label L', "the run's label"],
+      ],
+      exits: [
+        [1, 'no task matches'],
+        [5, 'git failed'],
+      ],
+    },
+    {
+      command: 'eval grade',
+      args: '<job>',
+      summary: "grade an eval job's result against its task's checks",
+      exits: [
+        [1, 'no such job, or not an eval job'],
+        [5, 'git failed'],
+      ],
+    },
+    { command: 'eval runs', args: '', summary: 'the runs, with their summaries' },
+    { command: 'eval report', args: '<run>', summary: 'one run in full', exits: [[1, 'no such run']] },
+    { command: 'eval compare', args: '<runA> <runB>', summary: 'two runs side by side, per task', exits: [[1, 'no such run']] },
+  ],
+};
+
+export const HELP: HelpGroup[] = [EVAL];
 
 /** The result is printed as JSON. */
 export async function evalCmd(root: string, config: Config, sub: string | undefined, rest: string[], flags: Record<string, any>): Promise<unknown> {
@@ -26,6 +88,6 @@ export async function evalCmd(root: string, config: Config, sub: string | undefi
     case 'compare':
       return evals.compareRuns(root, req(rest[0], 'run A'), req(rest[1], 'run B'));
     default:
-      throw new ForgeError('usage: forge eval list|new|mine|start|grade|runs|report|compare');
+      throw usageError(EVAL);
   }
 }

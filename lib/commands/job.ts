@@ -15,11 +15,194 @@ import { createAndLink, linkJob, markNoIssue, suggestLink } from '../tracker-lin
 import { loadTracker } from '../trackers/index.ts';
 import { importClaudeCodeTranscript } from '../usage.ts';
 import { ForgeError, coerce, getPath, run } from '../util.ts';
-import { bodyFrom, list, num, oneOf, req, requireJob, str } from './args.ts';
+import { bodyFrom, list, num, oneOf, req, requireJob, str, usageError } from './args.ts';
 import { mirrorToTracker, startFromRef } from './tracker.ts';
-import type { AgentUsage, Config, Job } from '../types.ts';
+import type { AgentUsage, Config, HelpGroup, Job } from '../types.ts';
 
-const LINK_USAGE = 'usage: forge job link <id> <ref> | --create | --none [--reason R] | --suggest';
+const NO_JOB: [1, string] = [1, 'no such job'];
+const BODY: [string, string][] = [
+  ['--body B', 'the text'],
+  ['--body-file F', 'read the text from F (- for stdin)'],
+];
+
+// In the order `forge job` lists its subcommands. `advance` is routed by lib/cli.ts but documented here.
+const JOB: HelpGroup = {
+  name: 'job',
+  summary: "one job's state, agents and reviews; forge job step <id> returns its next action",
+  commands: [
+    {
+      command: 'job new',
+      args: '--title T [--body B | --body-file F] [--session S] [options]',
+      summary: 'create a job; with --session, claim it for that session (a split child, with --parent, starts unowned)',
+      flags: [
+        ['--title T', 'the title (required)'],
+        ...BODY,
+        ['--session S', 'claim the new job for session S'],
+        ['--ref R', 'the tracker ref it came from'],
+        ['--url U', "the tracker item's URL"],
+        ['--tracker T', 'the tracker kind of --ref (default: tracker.kind)'],
+        ['--kind K', 'feature, bug, …'],
+        ['--slug S', 'the words its id starts with (default: from the title)'],
+        ['--branch B', 'the branch to push to (default: git.branchPrefix + id)'],
+        ['--parent ID', 'the umbrella job this one was split from'],
+        ['--services a,b', 'the services it touches'],
+      ],
+      exits: [[1, 'an unsafe --branch']],
+    },
+    {
+      command: 'job from-ref',
+      args: '<ref> [--session S]',
+      summary: 'start (or find) the job for a tracker item, planned as one job, and claim the item for it',
+      flags: [['--session S', 'claim the job for session S']],
+      exits: [
+        [1, 'no such tracker item'],
+        [3, 'the tracker claim was lost to another job'],
+        [5, 'gh failed (GitHub tracker)'],
+      ],
+    },
+    {
+      command: 'job link',
+      args: '<id> <ref>|--create|--none [--reason R]|--suggest',
+      summary: 'link a job to an issue, create one, or record that it needs none',
+      flags: [
+        ['--create', 'create an issue from the job and link it'],
+        ['--none', 'record that the job needs no issue'],
+        ['--reason R', 'why, with --none'],
+        ['--suggest', 'list issues that look like this job, linking nothing'],
+      ],
+      exits: [
+        [1, 'no such job or item, the job or item is already linked, or tracker.kind is none'],
+        [3, 'the tracker claim was lost to another job'],
+        [5, 'gh failed (GitHub tracker)'],
+      ],
+      docs: ['Linking jobs to issues', 'docs/TRACKERS.md#linking-jobs-to-issues'],
+      readme: true,
+    },
+    { command: 'job list', args: '[--all]', summary: 'active jobs, one object each', flags: [['--all', 'include finished and cancelled jobs']] },
+    { command: 'job show', args: '<id> [--full]', summary: 'one job, compact (the whole job.json with --full)', flags: [['--full', 'print the whole job.json']], exits: [NO_JOB] },
+    { command: 'job get', args: '<id> [path]', summary: 'one value of job.json by dotted path (null when absent)', exits: [NO_JOB] },
+    {
+      command: 'job set',
+      args: '<id> [--stage S] [--state S] [--waiting-on W|none] [--reason R] [--note N] [--field key=value]...',
+      summary: "change a job's stage, state or fields; every check runs before anything is written",
+      flags: [
+        ['--stage S', 'the pipeline stage'],
+        ['--state S', 'queued, running, waiting, blocked, failed, cancelled or done'],
+        ['--waiting-on W', 'what a waiting job waits on (none clears it)'],
+        ['--reason R', 'why, shown with the state'],
+        ['--note N', 'a note logged with the change'],
+        ['--field key=value', 'set a field (values are JSON or plain words; repeatable)'],
+      ],
+      exits: [[1, 'no such job, a field set only by another command, a list field that is not a JSON array of strings, or an unknown or cyclic dependency']],
+    },
+    {
+      command: 'job claim',
+      args: '<id> --session S [--force]',
+      summary: 'claim a job for a session',
+      flags: [
+        ['--session S', 'the claiming session (required)'],
+        ['--force', 'take it from a live owner, or claim it with dependencies not done'],
+      ],
+      exits: [NO_JOB, [3, 'another live session holds the job'], [4, 'its dependencies are not done']],
+    },
+    { command: 'job release', args: '<id>', summary: "drop the job's owner", exits: [NO_JOB] },
+    { command: 'job note', args: '<id> [text] [--body B | --body-file F]', summary: 'log a note event', flags: BODY, exits: [NO_JOB] },
+    {
+      command: 'job human',
+      args: '<id> <action> [--note N] [--link <ref>|new|none] [--reason R]',
+      summary: 'record a human decision: approve-spec, revise-spec, approve-split, revise-split, approve, rework or answer',
+      flags: [
+        ['--note N', 'the human\'s note'],
+        ['--link <ref>|new|none', 'with approve or approve-spec: link an issue, create one, or record that none is needed'],
+        ['--reason R', 'why, with --link none'],
+      ],
+      exits: [
+        [1, 'no such job, or a --link that cannot be made'],
+        [3, 'the tracker claim was lost to another job'],
+        [5, 'gh failed (GitHub tracker)'],
+      ],
+    },
+    {
+      command: 'job agent',
+      args: '<id> start|end --role R [options]',
+      summary: 'record an agent starting or ending, with its usage',
+      flags: [
+        ['--role R', 'the role, e.g. builder or reviewer:code (required)'],
+        ['--model M', 'the model it ran on'],
+        ['--agent-id A', "the runtime's id for the agent"],
+        ['--status S', 'how it ended'],
+        ['--summary S', 'its one-line reply'],
+        ['--output P', 'with start: the file it must write, inside the job dir'],
+        ['--retry', 'with start: a retry of a lost agent'],
+        ['--tokens N', 'with end: tokens used'],
+        ['--tool-uses N', 'with end: tool calls made'],
+        ['--duration-ms N', 'with end: wall time'],
+        ['--import', "with end and --agent-id: read usage from the agent's Claude Code transcript"],
+      ],
+      exits: [[1, 'no such job, an --output outside the job dir, or the inbox session starting an agent']],
+    },
+    { command: 'job round', args: '<id>', summary: 'start the next review round, unless the budget is spent', exits: [NO_JOB] },
+    {
+      command: 'job budget',
+      args: '<id> [--set key=value,...] [--ack]',
+      summary: "the job's budget limits and use",
+      flags: [
+        ['--set key=value', 'set a limit: tokens, usd, minutes, changedLines or verifyRetries (default restores the configured one)'],
+        ['--ack', 'accept the limits now exceeded, so the job goes on'],
+      ],
+      exits: [[1, 'no such job, or an unknown budget key or bad value']],
+    },
+    {
+      command: 'job verdicts',
+      args: '<id> [--round N|integration] [--reviewers a,b] [--malformed changes] [--compact]',
+      summary: "read a round's review files and record their verdicts once all are in",
+      flags: [
+        ['--round N', 'the round (default: the current one), or integration'],
+        ['--reviewers a,b', 'the lenses to read (default: the job\'s reviewers)'],
+        ['--malformed changes', 'count a malformed review as CHANGES'],
+        ['--compact', 'one verdict per lens, and the missing files'],
+      ],
+      exits: [[1, 'no such job, or no reviewers selected']],
+    },
+    { command: 'job decision', args: '<id>', summary: "read decision.md and record the approver's decision", exits: [NO_JOB] },
+    { command: 'job progress', args: '<id>', summary: 'tasks done and total in tasks.md', exits: [NO_JOB] },
+    { command: 'job paths', args: '<id>', summary: "absolute paths of the job's files, for agent briefs", exits: [NO_JOB] },
+    {
+      command: 'job scope',
+      args: '<id>',
+      summary: "files the branch changed outside the spec's Approach",
+      exits: [
+        [1, 'no such job, no worktree or no spec.md'],
+        [5, 'git failed'],
+      ],
+    },
+    { command: 'job acs', args: '<id>', summary: "the spec's acceptance criteria and their proof in build.md", exits: [NO_JOB] },
+    {
+      command: 'job step',
+      args: '<id> [--session S]',
+      summary: "the job's next action (`spawn` with a ready agent brief, `run`, `wait`, `procedure` or `done`); read-only, the same state always gives the same answer, except that `--session <owner>` refreshes that session's claim heartbeat",
+      flags: [['--session S', "refresh session S's claim heartbeat, when S owns the job"]],
+      exits: [NO_JOB],
+      readme: true,
+    },
+    {
+      command: 'job advance',
+      args: '<id> --session S [--max N]',
+      summary: "runs step's `run` actions in-process (at most N, default 20) and returns the next `spawn`, `wait`, `procedure` or `done` with `ran`, one line per command it ran; refuses (exit 3) a job session S does not hold, and stops at the first failed command (exit 1)",
+      flags: [
+        ['--session S', 'the session driving the job (required)'],
+        ['--max N', 'run at most N commands (default 20)'],
+      ],
+      exits: [
+        [1, 'no such job, or a command it ran failed (the result says which)'],
+        [3, 'session S does not hold the job'],
+      ],
+      readme: true,
+    },
+  ],
+};
+
+export const HELP: HelpGroup[] = [JOB];
 
 // `forge stats` and `forge job step` read these from `human` events, so an invented action is refused.
 const HUMAN_ACTIONS = ['approve-spec', 'revise-spec', 'approve-split', 'revise-split', 'approve', 'rework', 'answer'] as const;
@@ -75,7 +258,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       const jobId = req(id, 'job id');
       const ref = rest[1];
       const modes = [ref !== undefined, flags.create === true, flags.none === true, flags.suggest === true].filter(Boolean).length;
-      if (modes !== 1) throw new ForgeError(LINK_USAGE);
+      if (modes !== 1) throw usageError(JOB, 'link');
       if (flags.suggest) return suggestLink(root, config, jobId, () => loadTracker(root, config));
       if (flags.none) return markNoIssue(root, jobId, typeof flags.reason === 'string' ? flags.reason : null);
       const tracker = await loadTracker(root, config);
@@ -102,7 +285,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       const fields: Record<string, any> = {};
       for (const kv of flags.field === undefined || flags.field === true ? [] : ([] as unknown[]).concat(flags.field).map(String)) {
         const eq = kv.indexOf('=');
-        if (eq < 1) throw new ForgeError(`--field expects key=value, got "${kv}"`);
+        if (eq < 1) throw new ForgeError(`--field expects key=value, got "${kv}"`, 'usage');
         const key = kv.slice(0, eq);
         // Checked before coerce, so `owner={}` gets the lock message rather than a JSON error.
         const segments = key.split('.');
@@ -169,7 +352,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     case 'agent': {
       const jobId = requireJob(root, id).id;
       const phase = req(rest[1], 'start|end');
-      if (!['start', 'end'].includes(phase)) throw new ForgeError('phase must be start or end');
+      if (!['start', 'end'].includes(phase)) throw new ForgeError('phase must be start or end', 'usage');
       const role = req(flags.role, '--role');
       // Validated before anything is written, so a bad count leaves job.json and its usage untouched.
       const summary = str(flags.summary, '--summary');
@@ -240,11 +423,11 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       // The integration review is a mini round after conflict resolution; it is logged as an
       // event only, because stats, retro and the dashboard read job.verdicts keys as numbers.
       const integration = flags.round === 'integration';
-      if (flags.round !== undefined && !integration && !/^[1-9]\d*$/.test(String(flags.round))) throw new ForgeError('--round must be a positive integer or "integration"');
+      if (flags.round !== undefined && !integration && !/^[1-9]\d*$/.test(String(flags.round))) throw new ForgeError('--round must be a positive integer or "integration"', 'usage');
       const round: number | 'integration' = integration ? 'integration' : Number(flags.round ?? job.round);
       const reviewers = list(flags.reviewers).length ? list(flags.reviewers) : integration ? ['code'] : job.reviewers;
       if (!reviewers.length) throw new ForgeError(`job ${id} has no reviewers selected; set them with: forge job set ${id} --field reviewers='["code","tests"]'`);
-      if (flags.malformed !== undefined && flags.malformed !== 'changes') throw new ForgeError('--malformed accepts only "changes"');
+      if (flags.malformed !== undefined && flags.malformed !== 'changes') throw new ForgeError('--malformed accepts only "changes"', 'usage');
       const v = roundVerdicts(root, job.id, round, reviewers, config.review.blockOn, { malformedAs: flags.malformed });
       // The sha reviewers saw is evidence; it tells a later reader whether the review is still current.
       const sha = job.worktree && exists(job.worktree) ? run('git', ['rev-parse', 'HEAD'], { cwd: job.worktree, allowFail: true }).stdout.trim() || null : null;
@@ -293,7 +476,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       return step(loadStepInput(root, config, jobId));
     }
     default:
-      throw new ForgeError('usage: forge job new|from-ref|link|list|show|get|set|claim|release|note|human|agent|round|budget|verdicts|decision|progress|paths|scope|acs|step|advance');
+      throw usageError(JOB);
   }
 }
 

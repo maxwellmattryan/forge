@@ -196,7 +196,7 @@ test('advance --max caps the commands it runs', POSIX, () => {
     for (const bad of ['-1', 'abc']) {
       const before = snapshot(dir);
       const r = s.raw('job', 'advance', id, '--session', 'S', '--max', bad);
-      assert.equal(r.status, 1, `--max ${bad}`);
+      assert.equal(r.status, 2, `--max ${bad}`);
       assert.match(r.stderr, /--max must be a non-negative integer/);
       assert.equal(r.stdout, '');
       assert.deepEqual(snapshot(dir), before, `--max ${bad} writes nothing`);
@@ -232,7 +232,7 @@ test('advance refuses a job its session does not hold', () => {
     const cases: [string, string[], number, RegExp][] = [
       [held, ['--session', 'B'], 3, /job \S+ is being driven by session A; advance only drives a job its session holds/],
       [free, ['--session', 'B'], 3, /job \S+ is not claimed by session B; run: forge job claim \S+ --session B/],
-      [held, [], 1, /missing --session/],
+      [held, [], 2, /missing --session/],
     ];
     for (const [id, args, code, msg] of cases) {
       const dir = jobDir(s.root, id);
@@ -349,11 +349,11 @@ test('job usage and help list advance', () => {
   const s = scratch();
   try {
     const bogus = s.raw('job', 'bogus');
-    assert.equal(bogus.status, 1);
+    assert.equal(bogus.status, 2);
     assert.match(bogus.stderr, /usage: forge job [^\n]*\|advance\b/);
     assert.match(bogus.stderr, /usage: forge job [^\n]*\|acs/);
     assert.match(bogus.stderr, /usage: forge job [a-z|-]*\|step\b/);
-    const help = s.raw('help');
+    const help = s.raw('help', 'job');
     assert.equal(help.status, 0);
     assert.ok(help.stdout.includes('forge job advance <id> --session S [--max N]'));
   } finally {

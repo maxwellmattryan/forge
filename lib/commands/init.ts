@@ -10,6 +10,32 @@ import { modelOverlap } from '../roster.ts';
 import { migrateConfig, normalizeJob, serializeJob } from '../schema.ts';
 import { ForgeError, deepMerge, readJson, readText, withLock, writeJsonAtomic } from '../util.ts';
 import * as yaml from '../yaml.ts';
+import type { HelpGroup } from '../types.ts';
+
+export const HELP: HelpGroup[] = [
+  {
+    name: 'init',
+    summary: 'set Forge up in this repo (/forge init drives it)',
+    commands: [
+      { command: 'init detect', args: '', summary: "the repo's stack, commands and services, as /forge init sees them" },
+      {
+        command: 'init write',
+        args: '--answers FILE [--force]',
+        summary: 'write .forge/config.yml from a JSON answers file, merged over the current config, and seed .forge/',
+        flags: [
+          ['--answers FILE', 'the answers, as JSON'],
+          ['--force', 'start from the defaults instead of the current config'],
+        ],
+        exits: [[1, 'the answers file cannot be read']],
+      },
+    ],
+  },
+  {
+    name: 'migrate',
+    summary: 'bring config.yml and every job.json to the current schema',
+    commands: [{ command: 'migrate', args: '', summary: 'bring config.yml and every job.json to the current schema, listing the files it changed' }],
+  },
+];
 
 /** `answers` is the orchestrator's JSON file, merged over defaults and validated before anything is written. */
 export function initWrite(root: string, answers: any, force: boolean): { ok: true; written: string[]; warnings: string[] } {
@@ -26,7 +52,7 @@ function writeInit(root: string, answers: any, force: boolean): { ok: true; writ
   const config = deepMerge(defaults(), answers);
   if (Array.isArray(answers?.review?.panel)) config.review.panel = answers.review.panel;
   const problems = validateConfig(config, root);
-  if (problems.length) throw new ForgeError(`config would be invalid:\n- ${problems.join('\n- ')}`);
+  if (problems.length) throw new ForgeError(`config would be invalid:\n- ${problems.join('\n- ')}`, 'config_invalid');
   fs.mkdirSync(p.dir, { recursive: true });
   fs.writeFileSync(p.config, stringifyConfig(config));
   const written = [path.relative(root, p.config)];

@@ -28,7 +28,7 @@ export function requestBody(root: string, id: string): string {
 
 export function loadJob(root: string, id: string): LoadedJob {
   const file = path.join(jobDir(root, id), 'job.json');
-  if (!exists(file)) throw new ForgeError(`no job "${id}" (looked in ${path.dirname(file)})`);
+  if (!exists(file)) throw new ForgeError(`no job "${id}" (looked in ${path.dirname(file)})`, 'not_found');
   const job = normalizeJob(readJson(file));
   if (job._unsupported) throw new ForgeError(`job ${id} was written by a newer Forge; update the plugin`);
   return job;
@@ -175,11 +175,11 @@ export function isActive(job: Job): boolean {
 
 function checkChange(change: JobChange): void {
   if (change.stage && !STAGES.includes(change.stage as any))
-    throw new ForgeError(`unknown stage "${change.stage}" (${STAGES.join(', ')})`);
+    throw new ForgeError(`unknown stage "${change.stage}" (${STAGES.join(', ')})`, 'usage');
   if (change.state && !STATES.includes(change.state as any))
-    throw new ForgeError(`unknown state "${change.state}" (${STATES.join(', ')})`);
+    throw new ForgeError(`unknown state "${change.state}" (${STATES.join(', ')})`, 'usage');
   if (change.waitingOn && !WAITING_ON.includes(change.waitingOn as any))
-    throw new ForgeError(`unknown waiting-on "${change.waitingOn}" (${WAITING_ON.join(', ')})`);
+    throw new ForgeError(`unknown waiting-on "${change.waitingOn}" (${WAITING_ON.join(', ')})`, 'usage');
 }
 
 /**
@@ -213,7 +213,7 @@ export function setJob(
     if (c.state && c.state !== 'waiting' && c.waitingOn === undefined) j.waitingOn = null;
     if (c.waitingOn !== undefined) j.waitingOn = c.waitingOn as WaitingOn | null;
     if (c.reason !== undefined) j.reason = c.reason;
-    if (j.state === 'waiting' && !j.waitingOn) throw new ForgeError('state "waiting" needs --waiting-on');
+    if (j.state === 'waiting' && !j.waitingOn) throw new ForgeError('state "waiting" needs --waiting-on', 'usage');
     for (const [k, v] of Object.entries(c.fields ?? {})) setPath(j, k, v);
     if (['done', 'cancelled'].includes(j.state) && !j.finishedAt) j.finishedAt = now();
     // In the same locked write, so no session can claim between the change and the release.

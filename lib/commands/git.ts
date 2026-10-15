@@ -11,12 +11,57 @@ import { sessionEnv } from '../daemon.ts';
 import { jobDir, loadJob } from '../jobs.ts';
 import { resolveWorktreePaths } from '../paths.ts';
 import { ForgeError, run } from '../util.ts';
-import type { Config } from '../types.ts';
+import { usageError } from './args.ts';
+import type { CommandHelp, Config, HelpGroup } from '../types.ts';
 
 // Re-exported: callers (and tests) imported it from here before it moved to lib/paths.ts.
 export { resolveWorktreePaths };
 
 export const READ_SUBCOMMANDS: string[] = ['diff', 'log', 'show', 'range-diff'];
+
+const readHelp = (sub: string): CommandHelp => ({
+  command: `git ${sub}`,
+  args: '[git args] [-- <path>...]',
+  summary: `read-only git ${sub} in the current directory, for agents: git's output and exit code pass through; --output, --ext-diff, --textconv and --open-files-in-pager are refused`,
+  exits: [
+    [1, 'a refused option'],
+    [5, 'git failed to start'],
+  ],
+});
+
+const GIT: HelpGroup = {
+  name: 'git',
+  summary: "read-only git for agents, and staging and committing in a job's worktree",
+  commands: [
+    ...READ_SUBCOMMANDS.map(readHelp),
+    {
+      command: 'git add',
+      args: '<id> -- <path>...',
+      summary: "stage paths in the job's worktree, from any cwd; refuses git options and paths outside the worktree",
+      exits: [
+        [1, 'no such job or worktree, an option, or a path outside the worktree or in .git'],
+        [5, 'git failed'],
+      ],
+      readme: true,
+    },
+    {
+      command: 'git commit',
+      args: '<id> (--message T | --message-file F) [-- <path>...]',
+      summary: "commit in the job's worktree, on its branch, from any cwd (how agents commit, in a daemon session too); refuses git options, paths outside the worktree and AI attribution",
+      flags: [
+        ['--message T', 'the commit message'],
+        ['--message-file F', 'read the message from F, a file inside the job dir'],
+      ],
+      exits: [
+        [1, 'no such job or worktree, the wrong branch, a merge or rebase in progress, nothing to commit, a refused option, path or message'],
+        [5, 'git failed'],
+      ],
+      readme: true,
+    },
+  ],
+};
+
+export const HELP: HelpGroup[] = [GIT];
 
 /** Options that write files or run config-defined programs. Git doesn't accept abbreviations of these. */
 const REFUSED = /^--(output|ext-diff|textconv|open-files-in-pager)(=|$)/;
@@ -28,7 +73,7 @@ const REFUSED = /^--(output|ext-diff|textconv|open-files-in-pager)(=|$)/;
  */
 export function gitReadArgv(args: string[]): string[] {
   const [sub, ...rest] = args;
-  if (!READ_SUBCOMMANDS.includes(sub)) throw new ForgeError(`forge git runs only ${READ_SUBCOMMANDS.join(', ')} (got ${JSON.stringify(sub ?? '')})`);
+  if (!READ_SUBCOMMANDS.includes(sub)) throw new ForgeError(`forge git runs only ${READ_SUBCOMMANDS.join(', ')} (got ${JSON.stringify(sub ?? '')})`, 'usage');
   const dashdash = rest.indexOf('--');
   const opts = dashdash < 0 ? rest : rest.slice(0, dashdash);
   const paths = dashdash < 0 ? [] : rest.slice(dashdash);
@@ -40,7 +85,7 @@ export function gitReadArgv(args: string[]): string[] {
 /** Runs git in the current directory with stdout/stderr passed through. */
 export function gitRead(args: string[]): number {
   const res = spawnSync('git', gitReadArgv(args), { stdio: 'inherit' });
-  if (res.error) throw new ForgeError(`git failed to start: ${res.error.message}`);
+  if (res.error) throw new ForgeError(`git failed to start: ${res.error.message}`, 'external');
   return res.status ?? 1;
 }
 
@@ -90,8 +135,8 @@ function gitEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 
 export function gitWrite(root: string, config: Config, args: string[], env: NodeJS.ProcessEnv = process.env): { id: string; staged: string[] } | { id: string; sha: string; branch: string; files: string[] } {
   const [sub, id, ...rest] = args;
-  if (sub !== 'add' && sub !== 'commit') throw new ForgeError('usage: forge git add <job> -- <path>... | forge git commit <job> (--message T | --message-file P) [-- <path>...]');
-  if (!id || id.startsWith('-')) throw new ForgeError(`usage: forge git ${sub} <job> …`);
+  if (sub !== 'add' && sub !== 'commit') throw usageError(GIT);
+  if (!id || id.startsWith('-')) throw usageError(GIT, sub);
   const job = loadJob(root, id);
   const opts = parseGitWriteArgs(rest);
   if (!job.worktree || !fs.existsSync(job.worktree)) throw new ForgeError(`job ${id} has no worktree`);
