@@ -89,6 +89,10 @@
   "statusbar": {
     "label": "Status",
     "close": "Close",
+    "command": {
+      "word": "New job",
+      "rest": " or command"
+    },
     "daemon": {
       "title": "Daemon",
       "off": "Daemon off",
@@ -135,6 +139,8 @@
       "live": "Live",
       "offline": "Offline",
       "outdated": "Update needed",
+      "outdatedWord": "Update",
+      "outdatedRest": " needed",
       "connectingText": "Waiting for the first reply from forge dash.",
       "liveText": "Connected: the dashboard polls forge dash every 2 seconds.",
       "offlineText": "The last poll of forge dash failed.",

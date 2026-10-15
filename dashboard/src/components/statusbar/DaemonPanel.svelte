@@ -43,10 +43,10 @@
 
 {#if model}
   <div class="flex flex-col gap-3" aria-busy={pending}>
-    <div class="flex flex-wrap items-center gap-2">
+    <!-- gap-x-3 keeps the two facts apart without a separator that a wrap would leave dangling. -->
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
       <span class="chip sm {TONE_CLASS[model.pill.tone]}" title={model.pill.title}>{$t('daemon.pill', { label: model.pill.label })}</span>
       <span class="mono muted num">{$t('daemon.live', { live: model.live, cap: model.cap })}</span>
-      <span class="mono muted" aria-hidden="true">·</span>
       <span class="mono muted">{$t('statusbar.daemon.mode', { mode: named(poolMode) })}</span>
     </div>
     {#if model.error !== null}<p class="text-sm text-bad whitespace-pre-line break-words">{model.error}</p>{/if}

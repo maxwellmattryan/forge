@@ -5,9 +5,8 @@
 <script lang="ts">
   import { onMount, type Snippet } from 'svelte';
   import CloseButton from './CloseButton.svelte';
-  import { FOCUSABLE, placePopover, type PopoverId } from '../lib/popover.ts';
+  import { FOCUSABLE, TAB_STOPS, placePopover, type PopoverId } from '../lib/popover.ts';
   import { closePopover, keepFocus } from '../lib/popover.svelte.ts';
-  import { TABBABLE } from '../lib/settings.ts';
   import { t } from '../lib/locale.ts';
 
   let { id, title, anchor, align, wide = false, children }: { id: PopoverId; title: string; anchor: HTMLElement; align: 'start' | 'end'; wide?: boolean; children: Snippet } = $props();
@@ -19,9 +18,10 @@
   const md = (): boolean => matchMedia('(width >= 48rem)').matches;
   let viewport = $state(document.documentElement.clientWidth);
   let narrow = $state(!md());
-  // Follows the window's width and the anchor: a cleared hold hands the Daemon popover back to the Daemon button.
+  // Follows the window's width and the anchor: a cleared hold hands the Daemon popover back to the Daemon button. The anchor
+  // prop reads the popover state, so it is briefly null while a closing popover unmounts.
   const place = $derived.by(() => {
-    const r = anchor.getBoundingClientRect();
+    const r = anchor ? anchor.getBoundingClientRect() : { left: 0, right: 0 };
     return placePopover({ triggerLeft: r.left, triggerRight: r.right, viewport, width: wide ? 560 : 400, align, narrow });
   });
 
@@ -30,7 +30,7 @@
     narrow = !md();
   }
 
-  const within = (n: Node): boolean => Boolean(el?.contains(n) || anchor.contains(n));
+  const within = (n: Node): boolean => Boolean(el?.contains(n) || anchor?.contains(n));
   const shown = (x: HTMLElement): boolean => x.getClientRects().length > 0;
 
   // Capture phase, so a control that stops the event still counts as outside.
@@ -57,7 +57,7 @@
   // last goes on to what follows the indicator, as if the popover sat right after it.
   function key(e: KeyboardEvent): void {
     if (e.key !== 'Tab' || e.defaultPrevented || !el) return;
-    const items = [...el.querySelectorAll<HTMLElement>(TABBABLE)].filter(shown);
+    const items = [...el.querySelectorAll<HTMLElement>(TAB_STOPS)].filter(shown);
     const at = document.activeElement;
     if (e.shiftKey) {
       if (at === el || at === items[0]) {
@@ -69,9 +69,12 @@
     if (at !== (items.at(-1) ?? el)) return;
     e.preventDefault();
     const box = el;
-    const next = [...document.querySelectorAll<HTMLElement>(TABBABLE)].find((x) => shown(x) && !box.contains(x) && (anchor.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
+    // Read before closing: the anchor prop follows the popover state, which closing clears.
+    const back = anchor;
+    const next = [...document.querySelectorAll<HTMLElement>(TAB_STOPS)].find((x) => shown(x) && !box.contains(x) && (back.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
     closePopover('focusout', { relatedInside: false });
-    next?.focus();
+    // Nothing follows the indicator (the last one, with no drawer or toast): back to the indicator, never the body.
+    (next ?? back).focus();
   }
 
   // A body that scrolls with no control in reach takes focus itself, so the keyboard can scroll it in every browser.

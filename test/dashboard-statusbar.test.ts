@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ROLE_ORDER, barModel, type BarModel, type DaemonIndicator, connectionState, inlineInputAction, modelLabel, modelSummary, promptAnnouncement, reviewerRows, roleRows, summaryText } from '../dashboard/src/lib/statusbar.ts';
-import { FOCUSABLE, POPOVERS, dismissal, placePopover, togglePopover, type DismissReason } from '../dashboard/src/lib/popover.ts';
+import { FOCUSABLE, POPOVERS, TAB_STOPS, dismissal, placePopover, togglePopover, type DismissReason } from '../dashboard/src/lib/popover.ts';
 import { TABBABLE } from '../dashboard/src/lib/settings.ts';
 
 const session = (o: any = {}): any => ({ scope: 'job', wanted: true, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, failures: 0, held: null, waiting: false, lastError: null, ...o });
@@ -207,4 +207,10 @@ test('a press outside counts as focusable on anything that takes focus, not only
   assert.ok(FOCUSABLE.startsWith(`${TABBABLE}, `), 'every Tab stop');
   for (const sel of ['select:not([disabled])', '[tabindex]', 'summary', '[contenteditable]']) assert.ok(FOCUSABLE.includes(sel), `and ${sel}`);
   assert.ok(!TABBABLE.includes('select'), 'the palette trap keeps its own list');
+});
+
+test("a popover's own Tab handling stops on summaries and selects, never on tabindex -1", () => {
+  assert.ok(TAB_STOPS.startsWith(`${TABBABLE}, `), 'every palette Tab stop');
+  for (const sel of ['select:not([disabled])', 'summary', '[contenteditable]']) assert.ok(TAB_STOPS.includes(sel), `and ${sel}`);
+  assert.ok(!/(^|, )\[tabindex\](,|$)/.test(TAB_STOPS), 'no bare [tabindex]: tabindex="-1" is not a Tab stop');
 });

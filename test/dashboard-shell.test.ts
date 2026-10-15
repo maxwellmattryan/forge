@@ -1195,8 +1195,10 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
   assert.match(script, /if \(to === null\) keepFocus\(\);/, 'a control that disabled itself or went away hands focus back to the dialog');
   // Tab moves through it as if it sat right after its indicator.
   assert.match(script, /if \(at === el \|\| at === items\[0\]\) \{\s*e\.preventDefault\(\);\s*closePopover\('close'\);/, 'Shift+Tab before its first stop goes back to the indicator');
-  assert.match(script, /anchor\.compareDocumentPosition\(x\) & Node\.DOCUMENT_POSITION_FOLLOWING/, 'Tab past its last stop goes on from the indicator');
-  assert.match(script, /closePopover\('focusout', \{ relatedInside: false \}\);\s*next\?\.focus\(\);/);
+  assert.match(script, /back\.compareDocumentPosition\(x\) & Node\.DOCUMENT_POSITION_FOLLOWING/, 'Tab past its last stop goes on from the indicator');
+  assert.match(script, /const back = anchor;[\s\S]*?closePopover\('focusout', \{ relatedInside: false \}\);[\s\S]*?\(next \?\? back\)\.focus\(\);/, 'with nothing after the indicator, back to it (read before closing clears the prop), never the body');
+  assert.match(script, /const items = \[\.\.\.el\.querySelectorAll<HTMLElement>\(TAB_STOPS\)\]/, 'its stops include summaries and selects (the Inbox log rows)');
+  assert.match(script, /document\.querySelectorAll<HTMLElement>\(TAB_STOPS\)\]\.find\(/, 'and so does the stop after the indicator');
   const scroller = pop.find((e) => attrOf(e, 'bind:this') === '{body}');
   assert.ok(scroller && scroller.classes.includes('overflow-y-auto'), 'the scrolling body');
   assert.equal(attrOf(scroller, 'tabindex'), '{scrollable ? 0 : undefined}', 'it takes focus only while it scrolls');
@@ -1217,7 +1219,7 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
     assert.equal(attrOf(b, 'aria-haspopup'), 'dialog');
     assert.ok(attrOf(b, 'aria-expanded'), 'aria-expanded');
     assert.ok(attrOf(b, 'aria-controls'), 'aria-controls while open');
-    assert.ok(attrOf(b, 'title'), 'a tooltip with the full label, for the widths that show only a glyph');
+    assert.match(attrOf(b, 'title'), /\? .* : undefined\}$/, 'a tooltip with the full label only while part of the text is hidden');
     assert.ok(!b.attrs.some((a) => a.name === 'aria-label'), 'no aria-label: the name comes from the content, sr-only parts included');
     assert.ok(!b.classes.includes('truncate') && !b.classes.includes('min-w-0'), 'labels are whole or hidden, never cut');
     assert.ok(/^(daemon|inbox|model|connection)$/.test(attrOf(b, 'data-popover')), 'data-popover names the popover it opens');
@@ -1349,10 +1351,12 @@ test('status bar labels are whole or sr-only, never cut', () => {
     assert.ok(inner && inner.classes.includes('w-max') && inner.parents.includes(cluster), `${row} is a max-content row inside ${box}`);
   }
   assert.ok(!bar.some((e) => e.parents.some((p) => attrOf(p, 'bind:this') === '{leftRow}' || attrOf(p, 'bind:this') === '{rightRow}') && e.classes.includes('truncate')), 'no indicator text truncates');
-  // fit() steps one level of text at a time to sr-only, from whole labels, until the row fits.
-  assert.match(script, /left = 0;\s*right = 0;\s*await tick\(\);/, 'every fit starts from whole labels');
+  // The fit loop steps one level of text at a time to sr-only, from whole labels, until the row fits.
+  assert.match(script, /left = 0;\s*right = 0;\s*mid = 0;\s*await tick\(\);/, 'every fit starts from whole labels');
   assert.match(script, /while \(me === fitting && left < LEFT_MAX && overflows\(leftBox, leftRow\)\) \{\s*left\+\+;\s*await tick\(\);/);
   assert.match(script, /while \(me === fitting && right < RIGHT_MAX && overflows\(rightBox, rightRow\)\) \{\s*right\+\+;\s*await tick\(\);/);
+  assert.match(script, /while \(me === fitting && phone && right < 3 && cut\(cmdLabel\)\) \{\s*right\+\+;/, 'on a phone, "needed" goes before the palette button\'s label');
+  assert.match(script, /while \(me === fitting && mid < MID_MAX && cut\(cmdLabel\)\) \{\s*mid\+\+;\s*await tick\(\);/, 'then the phone button\'s label');
   assert.match(script, /const ro = new ResizeObserver\(\(\) => fit\(\)\);\s*ro\.observe\(footer\);/, 'a resize refits');
   assert.match(script, /document\.fonts\?\.ready\.then\(\(\) => fit\(\)\)/, 'so does the fonts arriving');
   // The levels, in the order the text goes.
@@ -1362,14 +1366,20 @@ test('status bar labels are whole or sr-only, never cut', () => {
     [`<span class={left >= 1 ? 'sr-only' : ''}>{$t('statusbar.inbox.name')}`, 'level 1: the "Inbox" word'],
     [`{$t('statusbar.held.word')}<span class={left >= 2 ? 'sr-only' : ''}>{$t('statusbar.held.rest')}</span>`, 'level 2: why a job is held'],
     [`{$t('statusbar.waiting.word')}<span class={left >= 2 ? 'sr-only' : ''}>{$t('statusbar.waiting.rest')}</span>`, 'level 2: what a job waits for'],
-    [`<span class="max-md:sr-only {left >= 3 ? 'sr-only' : ''} {TONE_TEXT[bar.inbox.tone]}">`, "level 3: the inbox's state"],
-    [`<button class="btn sm ghost max-md:hidden {left >= 4 ? 'hidden!' : ''}"`, 'level 4: held and waiting (the Daemon popover keeps them)'],
+    [`<button class="btn sm ghost max-md:hidden {left >= 3 ? 'hidden!' : ''}"`, 'level 3: held and waiting'],
+    [`{#if holdsOut}<span class="sr-only">{', '}{holdText}</span>{/if}`, 'level 3: the Daemon indicator names them'],
+    [`<span class="inline-flex {left >= 5 || holdsOut ? '' : 'md:hidden'} {TONE_TEXT[daemonTone]}"><Icon name="daemon" /></span>`, 'and shows its glyph (warn while they are out of sight)'],
+    [`<span class="max-md:sr-only {left >= 4 ? 'sr-only' : ''} {TONE_TEXT[bar.inbox.tone]}">`, "level 4: the inbox's state"],
     [`<span class="max-md:sr-only {left >= 5 ? 'sr-only' : ''} {TONE_TEXT[bar.daemon.pill.tone]}">`, "level 5: the daemon's state"],
-    [`<span class="inline-flex {left >= 5 ? '' : 'md:hidden'} {TONE_TEXT[daemonTone]}"><Icon name="daemon" /></span>`, "level 5: the toned daemon glyph takes the state's place"],
     [`<span class="max-md:sr-only {left >= 6 ? 'sr-only' : ''}">{$t('statusbar.inbox.prompts'`, 'level 6: "prompts" after the count'],
+    [`<span class={left >= 7 ? 'sr-only' : left >= 6 ? '' : 'md:hidden'} aria-hidden="true">{bar.prompts}</span>`, 'level 7: the count'],
+    [`<span class="num max-md:sr-only {left >= 8 ? 'sr-only' : ''}">{bar.daemon.live}/{bar.daemon.cap}`, 'level 8: live/cap'],
     [`<span class={right >= 1 ? 'sr-only' : ''}>{models.provider}`, 'right level 1: the provider'],
     [`<span class="max-md:sr-only {right >= 2 ? 'sr-only' : ''}">`, 'right level 2: the model label'],
-    [`<span class="{connQuiet ? 'max-md:sr-only' : ''} {connQuiet && right >= 3 ? 'sr-only' : ''} {TONE_TEXT[conn.tone]}">{connWord}</span>`, 'right level 3: the connection word, only while Live or Connecting'],
+    [`<span class="{connQuiet ? 'max-md:sr-only' : ''} {(connQuiet && right >= 3) || right >= 4 ? 'sr-only' : ''} {TONE_TEXT[conn.tone]}">{connWord}</span>`, 'right level 3: Live or Connecting; level 4: the rest'],
+    [`<span class="text-warn {right >= 4 ? 'sr-only' : ''}">{$t('statusbar.conn.outdatedWord')}<span class={right >= 3 ? 'sr-only' : ''}>{$t('statusbar.conn.outdatedRest')}</span></span>`, 'right level 3: "needed" after "Update"'],
+    [`{$t('statusbar.command.word')}<span class={mid >= 1 ? 'sr-only' : ''}>{$t('statusbar.command.rest')}</span>`, 'centre level 1: "or command"'],
+    [`<span bind:this={cmdLabel} class="min-w-0 overflow-hidden whitespace-nowrap {mid >= 2 ? 'sr-only' : ''}">`, 'centre level 2: "New job"'],
   ])
     assert.ok(markup.includes(cut), what);
   assert.match(script, /const connQuiet = \$derived\(conn\.state === 'live' \|\| conn\.state === 'connecting'\);/, 'Offline and Update needed keep their word at every width');
