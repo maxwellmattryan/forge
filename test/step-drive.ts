@@ -68,8 +68,8 @@ export function play(s: Scratch, id: string, a: any): string {
   }
 }
 
-/** Drives the job with step alone until done or a human gate; returns the last action and the step count. */
-export async function drive(s: Scratch, id: string, steps: { n: number }): Promise<any> {
+/** Drives the job with step alone until done or a human gate; returns the last action and the step count. Every RV4 action is pushed onto `seen`. */
+export async function drive(s: Scratch, id: string, steps: { n: number }, seen: any[] = []): Promise<any> {
   const pending: any[] = [];
   const finish = async (a: any) => {
     const summary = play(s, id, a);
@@ -79,9 +79,11 @@ export async function drive(s: Scratch, id: string, steps: { n: number }): Promi
     steps.n++;
     const a = await s.f('job', 'step', id);
     if (a.action === 'spawn') {
-      await s.f(...a.start);
+      if (a.rule === 'RV4') seen.push(a);
+      // A batch (RV4 `spawns`) is started together, as a session launches it in one message.
+      for (const one of [a, ...(a.spawns ?? [])]) await s.f(...one.start);
       // Parallel spawns are left running, as a session would, until step says to wait on them.
-      if (a.parallel) pending.push(a);
+      if (a.parallel) pending.push(a, ...(a.spawns ?? []));
       else await finish(a);
       continue;
     }
