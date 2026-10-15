@@ -494,6 +494,9 @@ export function integrateContinue(root: string, config: Config, id: string): Int
     if (conflicts.length) {
       const part = usable ? partitionConflicts(cwd, conflicts, usable.globs) : { generated: [], other: conflicts };
       if (part.generated.length) {
+        // The guard before any write: a job.worktree that isn't the job's gets nothing deleted or staged.
+        const problem = regenerateProblem(root, config, job, usable!);
+        if (problem) return { ok: false, strategy, conflicts, inProgress: true, regenerateError: problem };
         takeBaseSide(cwd, strategy, part.generated, { stage: true });
         for (const p of part.generated) regenerated.add(p);
       }

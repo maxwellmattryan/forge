@@ -9,7 +9,7 @@ import { globProblem } from './config.ts';
 import { exists, resolveWorktreePaths } from './paths.ts';
 import { inSpec } from './scope.ts';
 import type { Config, Job } from './types.ts';
-import { readText, run } from './util.ts';
+import { run } from './util.ts';
 import { commandTemplate, runCommand } from './worktree.ts';
 
 export type Strategy = 'merge' | 'rebase';
@@ -53,6 +53,21 @@ export function generatedPaths(worktree: string, zlist: string, globs: string[])
   return [...new Set(zlist.split('\0').filter(Boolean))].filter((p) => inSpec(p, globs) && safePath(worktree, p));
 }
 
+/** A short regular file's text, or '': a FIFO or a link swapped into the worktree's git dir can't block or redirect the read. */
+function readSmall(file: string): string {
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOFOLLOW ?? 0));
+    if (!fs.fstatSync(fd).isFile()) return '';
+    const buf = Buffer.alloc(4096);
+    return buf.toString('utf8', 0, fs.readSync(fd, buf, 0, buf.length, 0));
+  } catch {
+    return '';
+  } finally {
+    if (fd !== null) fs.closeSync(fd);
+  }
+}
+
 /**
  * Why `job.worktree` is not a place to run the regenerate command, or null. It must be a worktree
  * root other than the main checkout, on the job's branch: `symbolic-ref` mid-merge, and the
@@ -85,7 +100,7 @@ export function jobWorktreeProblem(root: string, job: Pick<Job, 'id' | 'worktree
   };
   const rebaseDir = ['rebase-merge', 'rebase-apply'].map(gitPath).find((d): d is string => d !== null && exists(d));
   if (rebaseDir) {
-    const head = readText(path.join(rebaseDir, 'head-name')).trim();
+    const head = readSmall(path.join(rebaseDir, 'head-name')).trim();
     if (head !== `refs/heads/${job.branch}`) return `the rebase in ${cwd} is on ${JSON.stringify(head.slice(0, 200))}, not the job's branch ${job.branch}`;
     return null;
   }

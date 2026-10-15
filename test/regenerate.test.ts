@@ -493,3 +493,46 @@ test('the regenerate guard refuses a worktree that is not the job\'s', () => {
     repo.cleanup();
   }
 });
+
+test('integrate does not regenerate in a worktree on another branch', () => {
+  const f = fixture();
+  try {
+    generatedOnly(f);
+    f.git('checkout', '-q', '-b', 'elsewhere');
+    const before = genRuns(f);
+    const r = f.forge(['integrate', f.id, '--strategy', 'merge']);
+    assert.equal(r.status, 1);
+    assert.ok(r.out.conflicts.includes('dist/out.txt'));
+    assert.match(r.out.regenerateError, /refusing to regenerate: .*not the job's branch/);
+    assert.equal(genRuns(f), before, 'the build did not run');
+    assert.equal(f.inProgress('MERGE_HEAD'), false);
+    assert.equal(f.git('status', '--porcelain'), '');
+  } finally {
+    f.cleanup();
+  }
+
+  // --continue checks the guard before it touches a generated path, not only before it builds.
+  const g = fixture();
+  try {
+    generatedOnly(g);
+    assert.throws(() => g.git('merge', '--no-edit', 'main'));
+    const expected = g.unmerged().sort();
+    assert.ok(expected.includes('dist/out.txt'), expected.join());
+    const ours = g.git('show', ':2:dist/out.txt');
+    g.git('update-ref', 'refs/heads/elsewhere', 'HEAD');
+    g.git('symbolic-ref', 'HEAD', 'refs/heads/elsewhere');
+    const head = g.git('rev-parse', 'HEAD');
+    const before = genRuns(g);
+    const r = g.forge(['integrate', g.id, '--continue']);
+    assert.equal(r.status, 1);
+    assert.deepEqual([r.out.ok, r.out.inProgress], [false, true]);
+    assert.deepEqual(r.out.conflicts.sort(), expected);
+    assert.match(r.out.regenerateError, /refusing to regenerate: .*not the job's branch/);
+    assert.deepEqual(g.unmerged().sort(), expected, 'nothing was taken from the base side or staged');
+    assert.equal(g.git('show', ':2:dist/out.txt'), ours);
+    assert.equal(genRuns(g), before, 'the build did not run');
+    assert.equal(g.git('rev-parse', 'HEAD'), head, 'nothing committed');
+  } finally {
+    g.cleanup();
+  }
+});
