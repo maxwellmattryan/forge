@@ -5,9 +5,9 @@ The orchestrator, its agents, scripts, CI and other agent runtimes ([PROTOCOL.md
 ## Output
 
 - Success prints one compact JSON value and a newline on stdout. `--pretty` indents it, and `forge doctor` and `forge config show` always indent.
-- A few commands print text instead: `forge status` (a table), `forge stats` (a summary), `forge help`, and the string results of `forge worktree path`, `forge worktree prune`, `forge job get`, `forge config get` and `forge daemon log`. Under `--json` all of them print JSON (see below).
+- A few commands print text instead: `forge status` (a table), `forge stats` (a summary), `forge secrets scan` (a report), `forge help`, and the string results of `forge worktree path`, `forge worktree prune`, `forge job get`, `forge config get` and `forge daemon log`. Under `--json` all of them print JSON (see below).
 - An error prints exactly `forge: <message>` on stderr, nothing on stdout, and exits with its code from the tables below. `FORGE_DEBUG=1` adds the stack trace on stderr.
-- These commands report a failure in their own result instead of an error, and exit 1: `verify`, `run`, `integrate`, `pr merge`, `job advance`, `config validate` and `update`.
+- These commands report a failure in their own result instead of an error, and exit 1: `verify`, `run`, `integrate`, `pr merge`, `job advance`, `config validate`, `secrets scan` (a finding) and `update`.
 - `forge git diff|log|show|range-diff` pass git's stdout, stderr and exit code through once git runs.
 
 ## `--json`
@@ -45,7 +45,7 @@ With `--json`:
 | external | 5 | a tool Forge runs failed to start or exited non-zero: git, gh, claude |
 
 The exceptions:
-- `verify`, `run`, `integrate`, `pr merge`, `job advance`, `config validate` and `update` print their own result when they fail, and exit 1. `forge job advance` exits 3 when it refuses a job its session does not hold, and 1 when a command it ran failed, whatever that command's own exit would have been.
+- `verify`, `run`, `integrate`, `pr merge`, `job advance`, `config validate`, `secrets scan` and `update` print their own result when they fail, and exit 1. `secrets scan` fails on any finding; a scan that cannot finish is an error. `forge job advance` exits 3 when it refuses a job its session does not hold, and 1 when a command it ran failed, whatever that command's own exit would have been.
 - `forge git diff|log|show|range-diff` exit with git's own code once git runs.
 - The no-AI-attribution hook's exit 2 belongs to Claude Code's hook protocol, not this table.
 
