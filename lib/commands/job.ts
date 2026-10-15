@@ -7,6 +7,7 @@ import { budgetCmd, enforceBudget } from '../budget.ts';
 import { daemonClaimOpts, refuseInboxDrive } from '../daemon-owner.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
 import { agentOutputMissing, claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, touchJob, updateJob, jobDir } from '../jobs.ts';
+import { normalizeRef } from '../issue-link.ts';
 import { exists } from '../paths.ts';
 import { jobScope } from '../scope.ts';
 import { loadStepInput, step } from '../step.ts';
@@ -147,10 +148,23 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       const jobId = requireJob(root, id).id;
       const action = oneOf(rest[1], HUMAN_ACTIONS, 'action');
       const note = str(flags.note, '--note');
+      // Every check runs before any write, so a refused --link leaves job.json and events untouched.
+      const link = flags.link;
+      if (link !== undefined && (typeof link !== 'string' || !link.trim())) throw new ForgeError('--link needs <ref>, new or none');
+      if (link !== undefined && action !== 'approve-spec' && action !== 'approve') throw new ForgeError('--link is only for approve and approve-spec');
+      // Re-validated here, not only in the orchestrator: the value can come from request or dashboard text.
+      if (typeof link === 'string' && link !== 'new' && link !== 'none' && !normalizeRef(link)) throw new ForgeError(`invalid ref ${JSON.stringify(link.slice(0, 100))}`);
+      const reason = str(flags.reason, '--reason');
+      if (reason !== undefined && link !== 'none') throw new ForgeError('--reason is only for --link none');
       // A rejected split re-plans as one job; recorded before the event so step never sees one without the other.
       if (action === 'revise-split') setJob(root, jobId, { fields: { splitMode: 'never' } });
+      // The link goes first: if it throws, no approval is recorded and the job keeps waiting.
+      let linked: unknown;
+      if (link === 'none') linked = markNoIssue(root, jobId, reason ?? null);
+      else if (link === 'new') linked = createAndLink(root, config, await loadTracker(root, config), jobId);
+      else if (typeof link === 'string') linked = linkJob(root, config, await loadTracker(root, config), jobId, link);
       logEvent(root, jobId, 'human', { action, note: note ?? (rest.slice(2).join(' ') || null) });
-      return { ok: true };
+      return { ok: true, ...(link !== undefined ? { link: linked } : {}) };
     }
     case 'agent': {
       const jobId = requireJob(root, id).id;

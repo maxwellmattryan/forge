@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { RULES, hasSpecDeltas, listLineCount, parsePlan, parseSpecHeader, roundLenses, selectPanel, shellLine, step } from '../lib/step.ts';
-import type { Job, StepAction, VerifyRun } from '../lib/types.ts';
+import type { Config, Job, StepAction, VerifyRun } from '../lib/types.ts';
 import { JOB_DIR, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
 import type { FixtureOpts } from './step-fixture.ts';
 
@@ -20,6 +20,11 @@ const run = (...command: string[]) => ({ action: 'run', command });
 const vr = (round: number, at: number, ok: boolean, failure: string | null = ok ? null : 'test'): VerifyRun => ({ round, attempt: 1, sha: 's', ok, at: t(at), file: `verify/round-${round}.md`, failure });
 const job = (j: Partial<Job>): Partial<Job> => ({ state: 'running', ...j });
 const SPEC_DONE = { 'spec-writer': ag(0, 1, 2) };
+const LOCAL = (c: Config) => void (c.tracker.kind = 'local');
+const LINKED: Partial<Job> = { source: { tracker: 'local', ref: 'x', url: null } };
+const NO_ISSUE: Partial<Job> = { noIssue: { reason: null, at: t(0) } };
+const SPEC_TELL = `j spec ready: ${path.join(JOB_DIR, 'spec.md')}. /forge approve j or /forge revise j <note>`;
+const LINK_TELL = `j needs an issue: candidates in ${path.join(JOB_DIR, 'issue-candidates.md')} (untrusted). /forge approve j <ref> | new | none [reason]`;
 const PANEL_SET = ev('fields', 3, { fields: { reviewers: ['code', 'tests'] } });
 
 /** A job in review, round 1: builder done, verify passed, scope written. */
@@ -95,9 +100,11 @@ const rows: Row[] = [
 
   // ---- Intake
   { name: 'I1 looks for issue candidates', fx: { config: (c) => (c.tracker.kind = 'local'), job: job({ stage: 'backlog', state: 'queued' }) }, want: run('job', 'link', 'j', '--suggest') },
-  { name: 'I2 waits for a human to link one', fx: { config: (c) => (c.tracker.kind = 'local'), files: ['issueCandidates'], job: job({ stage: 'backlog' }) }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'issue-link', '--reason', 'link an issue') },
   { name: 'G4 issue-link tell names the candidates as untrusted', fx: { job: job({ stage: 'backlog', state: 'waiting', waitingOn: 'issue-link' }) }, want: { action: 'wait', tell: `j needs an issue: candidates in ${path.join(JOB_DIR, 'issue-candidates.md')} (untrusted). /forge approve j <ref> | new | none [reason]` } },
   { name: 'I3 creates the worktree', fx: { worktree: false, job: job({ stage: 'backlog' }) }, want: run('worktree', 'create', 'j') },
+  { name: 'I3 an unlinked job with candidates gets its worktree', fx: { config: LOCAL, files: ['issueCandidates'], worktree: false, job: job({ stage: 'backlog' }) }, want: run('worktree', 'create', 'j') },
+  { name: 'I8 an unlinked job specs like a linked one', fx: { config: LOCAL, files: ['issueCandidates'], job: job({ stage: 'backlog' }), events: [ev('pr-find', 1)] }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'running') },
+  { name: 'I7 an unlinked long request gets a planner', fx: { config: LOCAL, files: ['issueCandidates'], job: job({ stage: 'backlog' }), events: [ev('pr-find', 1)], request: { length: 601 } }, want: run('job', 'set', 'j', '--stage', 'plan', '--state', 'running') },
   { name: 'I4 a failed setup command fails the job', fx: { job: job({ stage: 'backlog' }), events: [ev('worktree', 1), ev('worktree-setup-failed', 2)] }, want: run('job', 'set', 'j', '--state', 'failed', '--reason', 'worktree setup failed') },
   { name: 'I5 looks for an existing PR', fx: { job: job({ stage: 'backlog' }) }, want: run('pr', 'find', 'j') },
   { name: 'I6 an existing PR is a continuation', fx: { job: job({ stage: 'backlog', pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }), events: [ev('pr-adopted', 1)] }, want: { action: 'procedure', why: 'PR exists' } },
@@ -164,6 +171,19 @@ const rows: Row[] = [
   { name: 'SP5 a retro spec always waits', fx: { config: (c) => (c.pipeline.specApproval = 'never'), files: ['spec'], job: job({ kind: 'retro', stage: 'spec', agents: { retro: ag(0, 1, 2) } }), events: [PANEL_SET] }, want: { action: 'run', rule: 'SP5' } },
   { name: 'SP6 builds after a human approved the spec', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, ev('human', 4, { action: 'approve-spec' })] }, want: run('job', 'set', 'j', '--stage', 'build', '--state', 'running') },
   { name: 'SP6 large lets an M spec through', fx: { config: (c) => (c.pipeline.specApproval = 'large'), job: job({ stage: 'spec', size: 'M', agents: SPEC_DONE }), events: [PANEL_SET] }, want: { action: 'run', rule: 'SP6' } },
+  // ---- One human visit: the issue is chosen at the spec gate, or SP7 parks before build
+  { name: "SP5 an unlinked job's gate says the issue is unlinked", fx: { config: LOCAL, job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET] }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready, issue unlinked') },
+  { name: "SP5 a linked job's gate is unchanged", fx: { config: LOCAL, job: job({ stage: 'spec', agents: SPEC_DONE, ...LINKED }), events: [PANEL_SET] }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready') },
+  { name: 'SP5 a job with no issue needed keeps the plain reason', fx: { config: LOCAL, job: job({ stage: 'spec', agents: SPEC_DONE, ...NO_ISSUE }), events: [PANEL_SET] }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready') },
+  { name: 'SP5 a retro gate keeps the plain reason under a tracker', fx: { config: LOCAL, files: ['spec'], job: job({ kind: 'retro', stage: 'spec', agents: { retro: ag(0, 1, 2) } }), events: [PANEL_SET] }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready') },
+  { name: 'G4 an unlinked spec gate tells the spec and the candidates', fx: { config: LOCAL, files: ['spec'], job: job({ stage: 'spec', state: 'waiting', waitingOn: 'spec-approval', reason: 'spec ready, issue unlinked' }) }, want: { action: 'wait', rule: 'G4', waitingOn: 'spec-approval', tell: `${SPEC_TELL}\n${LINK_TELL}` } },
+  { name: 'G4 a linked spec gate tells only the spec', fx: { config: LOCAL, files: ['spec'], job: job({ stage: 'spec', state: 'waiting', waitingOn: 'spec-approval', reason: 'spec ready', ...LINKED }) }, want: { action: 'wait', rule: 'G4', waitingOn: 'spec-approval', tell: SPEC_TELL } },
+  { name: 'SP7 an approved spec without an issue parks before build', fx: { config: LOCAL, job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, ev('human', 4, { action: 'approve-spec' })] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'issue-link', '--reason', 'link an issue before build'), rule: 'SP7' } },
+  { name: 'SP7 specApproval never parks before build', fx: { config: (c) => ((c.tracker.kind = 'local'), (c.pipeline.specApproval = 'never')), job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'issue-link', '--reason', 'link an issue before build'), rule: 'SP7' } },
+  { name: 'SP7 large with an M spec parks before build', fx: { config: (c) => ((c.tracker.kind = 'local'), (c.pipeline.specApproval = 'large')), job: job({ stage: 'spec', size: 'M', agents: SPEC_DONE }), events: [PANEL_SET] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'issue-link', '--reason', 'link an issue before build'), rule: 'SP7' } },
+  { name: 'SP6 builds an approved linked job', fx: { config: LOCAL, job: job({ stage: 'spec', agents: SPEC_DONE, ...LINKED }), events: [PANEL_SET, ev('human', 4, { action: 'approve-spec' })] }, want: { ...run('job', 'set', 'j', '--stage', 'build', '--state', 'running'), rule: 'SP6' } },
+  { name: 'SP6 builds an approved job with no issue needed', fx: { config: LOCAL, job: job({ stage: 'spec', agents: SPEC_DONE, ...NO_ISSUE }), events: [PANEL_SET, ev('human', 4, { action: 'approve-spec' })] }, want: { ...run('job', 'set', 'j', '--stage', 'build', '--state', 'running'), rule: 'SP6' } },
+  { name: 'SP6 a split child builds without an issue', fx: { config: LOCAL, job: job({ stage: 'spec', parent: 'p', agents: SPEC_DONE }), events: [PANEL_SET, ev('human', 4, { action: 'approve-spec' })] }, want: { ...run('job', 'set', 'j', '--stage', 'build', '--state', 'running'), rule: 'SP6' } },
   { name: 'eval mode: no spec gate', fx: { job: job({ kind: 'eval', stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET] }, want: { action: 'run', rule: 'SP6' } },
 
   // ---- Design

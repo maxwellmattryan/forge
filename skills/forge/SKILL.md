@@ -1,7 +1,7 @@
 ---
 name: forge
 description: Run Forge, a software factory. Turns features, bugs and backlog items into reviewed pull requests via a team of agents (planner, spec writer, designer, builder, reviewers, approver), each job in its own git worktree, with PR/tracker sync, a live dashboard, evals and self-improving retros. Use for "/forge <feature>", "/forge next", approving/reworking Forge jobs, Forge status, or setting Forge up in a repo.
-argument-hint: "<feature> | next [n] | issue <ref> | continue <job|#pr> | approve|revise|answer|rework|cancel <job> [note] | status | sync | dash | init | retro | eval … | requests | doctor | update"
+argument-hint: "<feature> | next [n] | issue <ref> | continue <job|#pr> | approve <job> [<ref>|new|none] [note] | revise|answer|rework|cancel <job> [note] | status | sync | dash | init | retro | eval … | requests | doctor | update"
 ---
 
 # Forge: orchestrator
@@ -10,7 +10,7 @@ You are the **orchestrator**. `forge job step` decides every move, you carry it 
 
 Arguments: `$ARGUMENTS`
 Session id (use for every `--session`): `${CLAUDE_SESSION_ID}`
-CLI: run `forge …` (on PATH). If that fails, use `node "${CLAUDE_PLUGIN_ROOT}/bin/forge" …`.
+CLI: `forge …` (on PATH), else `node "${CLAUDE_PLUGIN_ROOT}/bin/forge" …`.
 Procedures: `${CLAUDE_PLUGIN_ROOT}/skills/forge/reference/`; docs: `${CLAUDE_PLUGIN_ROOT}/docs/`.
 
 ## Ground rules
@@ -23,7 +23,7 @@ Procedures: `${CLAUDE_PLUGIN_ROOT}/skills/forge/reference/`; docs: `${CLAUDE_PLU
 
 ## Every invocation (except `update`) starts with
 ```bash
-forge doctor     # first run in a session, or after an unexpected failure
+forge doctor     # first run in a session, or after a failure
 forge sync       # PRs and trackers; cleans merged worktrees
 forge requests   # dashboard/inbox requests: reference/requests.md, before new work
 ```
@@ -38,12 +38,12 @@ Report `sync` results, one line each: merges, PR feedback, conflicts, finished u
 | `next [n]` | Up to `n` (default 1, max `runtime.maxParallelJobs`) times `forge next --claim --session ${CLAUDE_SESSION_ID}` (a queued job nobody drives, `resumed: true`, else a tracker item), then run them in parallel. |
 | `issue <ref>` | `forge job from-ref <ref> --session ${CLAUDE_SESSION_ID}` (planned as one job), then **Run a job**. |
 | `continue <job \| #pr \| ref> [note]` | `reference/pr-lifecycle.md` |
-| `approve`, `revise`, `answer`, `rework`, `cancel <job> [note]` | `reference/commands.md`, then **Run a job** |
+| `approve <job> [<ref>\|new\|none] [note]`, `revise`, `answer`, `rework`, `cancel <job> [note]` | `reference/commands.md`, then **Run a job** |
 | `sync` | the sync above; report |
 | `dash` | `forge dash --background` and give the URL |
 | `init`, `retro`, `eval …`, `requests` | `reference/init.md`, `retro.md`, `evals.md`, `requests.md` |
 | `doctor` | `forge doctor`; explain failures with fixes |
-| `update` | `forge update` only. Report `from → to`, then each `warnings` and `next` entry, one line each; on error, relay it. |
+| `update` | `forge update` only. Report `from → to` and each `warnings` and `next` entry, one line each, or the error. |
 
 ## Run a job
 Claim it: `forge job claim <id> --session ${CLAUDE_SESSION_ID}`. Exit 3: another live session owns it: tell the human, stop. Exit 4: it waits on dependencies; report that, move on. Pass `--force` only when the human asks to stack it on an unmerged dependency.
@@ -54,12 +54,12 @@ Then loop: `forge job advance <id> --session ${CLAUDE_SESSION_ID}` (Bash timeout
 - `wait` on `agents`: wait for their notifications and record each with `agent end`. For one this session did not spawn (after a restart): `forge job agent <id> end --role <role> --status lost`.
 - `wait` on a gate: report `tell` (for `input`, also `questions.md`) and stop driving it.
 - `procedure`: load `reference` (`reference/split.md`, `retro.md`, `pr-lifecycle.md`) and follow it, then advance again.
-- `done`: report `tell` if present, and stop.
+- `done`: report any `tell`, and stop.
 
-After a job reaches `pr` or `done`, run `forge retro due`. If `due: true`, tell the human once that `/forge retro` proposes improvements; never run it unasked.
+After `pr` or `done`, run `forge retro due`; if `due: true`, tell the human once that `/forge retro` proposes improvements (never run it unasked).
 
 ## Parallel jobs
 Drive up to `runtime.maxParallelJobs` jobs at once (a daemon job session drives only its own), advancing each as notifications arrive. `forge job step` is every job's state; keep no table.
 
 ## Reporting style
-Short. One line per job event, with the job id and, when blocked, the exact unblock command. Link the dashboard, don't paste tables.
+One short line per job event: the job id and, when blocked, the exact unblock command. Link the dashboard, don't paste tables.

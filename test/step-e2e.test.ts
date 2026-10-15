@@ -176,14 +176,76 @@ test('spec gate pauses and resumes', () => {
     assert.equal(last.waitingOn, 'spec-approval');
     assert.match(last.tell, /spec ready: .*spec\.md\. \/forge approve/);
     assert.deepEqual(s.f('job', 'step', id), last, 'the gate holds');
-    // reference/commands.md: approve on spec-approval.
+    // reference/commands.md: approve on spec-approval; step, not the resume, moves it to build.
     s.f('job', 'human', id, 'approve-spec', '--note', 'ok');
-    s.f('job', 'set', id, '--stage', 'build', '--state', 'running');
+    s.f('job', 'set', id, '--state', 'running');
     last = drive(s, id, steps);
     assert.equal(last.action, 'done', JSON.stringify(last));
     assert.deepEqual(stagesOf(s.root, id), ['backlog', 'spec', 'build', 'verify', 'review', 'decide', 'integrate', 'pr', 'done']);
     assertAgents(s.root, id);
     assert.ok(steps.n < 60, `${steps.n} steps`);
+  } finally {
+    s.cleanup();
+  }
+});
+
+/** Every wait the job entered, in order: the `waitingOn` of each transition into `waiting`. */
+function waitsOf(root: string, id: string): string[] {
+  return (readEvents(root, id).filter((e) => e.type === 'transition') as any[]).filter((e) => e.to.state === 'waiting').map((e) => e.to.waitingOn);
+}
+
+test('one visit: an unlinked job links at the spec gate', () => {
+  const s = scratch({ tracker: { kind: 'local' }, pipeline: { specApproval: 'always' } });
+  try {
+    const { id } = s.f('job', 'new', '--title', 'Add a hello script', '--body', 'Add hello.sh that prints hi.');
+    const steps = { n: 0 };
+    let last = drive(s, id, steps);
+    assert.equal(last.action, 'wait');
+    assert.equal(last.waitingOn, 'spec-approval');
+    assert.deepEqual(waitsOf(s.root, id), ['spec-approval'], 'no issue-link wait before the spec gate');
+    assert.equal(loadJob(s.root, id).reason, 'spec ready, issue unlinked');
+    const lines = last.tell.split('\n');
+    assert.equal(lines.length, 2);
+    assert.match(lines[0], /spec ready: .*spec\.md\. \/forge approve/);
+    assert.equal(lines[1], `${id} needs an issue: candidates in ${path.join(jobDir(s.root, id), 'issue-candidates.md')} (untrusted). /forge approve ${id} <ref> | new | none [reason]`);
+    // reference/commands.md: `/forge approve <id> none <reason>` on an unlinked spec gate.
+    const r = s.f('job', 'human', id, 'approve-spec', '--link', 'none', '--reason', 'tiny', '--note', 'ok');
+    assert.equal(r.link.noIssue.reason, 'tiny');
+    s.f('job', 'set', id, '--state', 'running');
+    last = drive(s, id, steps);
+    assert.equal(last.action, 'done', JSON.stringify(last));
+    assert.deepEqual(stagesOf(s.root, id), ['backlog', 'spec', 'build', 'verify', 'review', 'decide', 'integrate', 'pr', 'done']);
+    assert.deepEqual(waitsOf(s.root, id), ['spec-approval']);
+    assertAgents(s.root, id);
+    assert.ok(steps.n < 60, `${steps.n} steps`);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('a spec approved without an issue parks before build', () => {
+  const s = scratch({ tracker: { kind: 'local' }, pipeline: { specApproval: 'always' } });
+  try {
+    const { id } = s.f('job', 'new', '--title', 'Add a hello script', '--body', 'Add hello.sh that prints hi.');
+    const steps = { n: 0 };
+    let last = drive(s, id, steps);
+    assert.equal(last.waitingOn, 'spec-approval');
+    s.f('job', 'human', id, 'approve-spec', '--note', 'ok');
+    s.f('job', 'set', id, '--state', 'running');
+    last = drive(s, id, steps);
+    assert.equal(last.action, 'wait');
+    assert.equal(last.waitingOn, 'issue-link');
+    const job = loadJob(s.root, id);
+    assert.deepEqual([job.stage, job.reason], ['spec', 'link an issue before build']);
+    assert.ok(!job.agents.builder, 'the builder never started');
+    s.f('job', 'human', id, 'approve', '--link', 'new');
+    assert.ok(loadJob(s.root, id).source?.ref, 'linked to the new issue');
+    s.f('job', 'set', id, '--state', 'running');
+    last = drive(s, id, steps);
+    assert.equal(last.action, 'done', JSON.stringify(last));
+    assert.deepEqual(stagesOf(s.root, id), ['backlog', 'spec', 'build', 'verify', 'review', 'decide', 'integrate', 'pr', 'done']);
+    assert.deepEqual(waitsOf(s.root, id), ['spec-approval', 'issue-link']);
+    assertAgents(s.root, id);
   } finally {
     s.cleanup();
   }
