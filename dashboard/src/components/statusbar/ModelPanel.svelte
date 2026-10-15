@@ -27,13 +27,13 @@
   <li class="flex min-w-0 flex-wrap items-baseline gap-x-2 border-b border-line-soft py-1.5 last:border-b-0">
     <span class="mono w-28 shrink-0 truncate" title={name}>{name}</span>
     <span class="text-sm text-fg">{m.label ?? $t('statusbar.model.session')}</span>
-    {#if m.raw !== m.label}<span class="mono muted break-all">{m.raw}</span>{/if}
+    {#if m.label === null || m.raw.toLowerCase() !== m.label.toLowerCase()}<span class="mono muted break-all">{m.raw}</span>{/if}
     {#if m.inherited}<span class="text-xs text-muted">{$t('statusbar.model.inherits')}</span>{/if}
   </li>
 {/snippet}
 
 <div class="flex flex-col gap-4">
-  <p class="text-sm text-fg">{summaryText(summary, $t('statusbar.model.session'), (effort) => $t('statusbar.model.effort', { effort }))}</p>
+  <p class="flex flex-wrap items-baseline gap-x-2 text-sm text-fg"><span class="label">{$t('statusbar.model.builder')}</span><span>{summaryText(summary, $t('statusbar.model.session'), (effort) => $t('statusbar.model.effort', { effort }))}</span></p>
   <section class="flex flex-col gap-1" aria-labelledby="statusbar-roles">
     <h3 id="statusbar-roles" class="label">{$t('statusbar.model.roles')}</h3>
     <ul>{#each roles as r (r.role)}{@render row(r.role, r.model)}{/each}</ul>

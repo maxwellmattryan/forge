@@ -12,7 +12,9 @@
   let { status }: { status: ConnectionState } = $props();
   let pending = $state(false);
 
+  // Never disabled while it runs: a disabled button would drop keyboard focus to the body.
   async function retry(): Promise<void> {
+    if (pending) return;
     pending = true;
     await refresh();
     pending = false;
@@ -29,5 +31,5 @@
     <div>{S.polledAt ? $t('statusbar.conn.last', { ago: ago(S.polledAt, ticker.now) }) : $t('statusbar.conn.never')}</div>
   </div>
   {#if (status === 'offline' || status === 'outdated') && S.error}<p class="text-sm text-bad break-words">{S.error}</p>{/if}
-  <div><button class="btn sm" disabled={pending} onclick={retry}><Icon name="refresh" />{$t('statusbar.conn.retry')}</button></div>
+  <div><button class="btn sm" aria-busy={pending} onclick={retry}><Icon name="refresh" />{$t('statusbar.conn.retry')}</button></div>
 </div>

@@ -229,6 +229,8 @@
   [data-theme="vellum"] a:hover { color: var(--fg); }
   /* The drafting focus ring on every control; utilities with their own focus rules (and outline-none) still win. */
   :focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 2px; }
+  /* The status bar is fixed over the viewport's bottom: a control scrolled into view by focus stops clear of it. */
+  html { scroll-padding-bottom: calc(var(--size-statusbar) + env(safe-area-inset-bottom) + var(--space-2)); }
 }
 
 /* ---------- the ground: grid + film grain + exposure falloff ----------
@@ -321,7 +323,7 @@
   & > .tk::after { bottom: -1px; right: -1px; border-width: 0 1px 1px 0; }
 }
 @utility redline { border-color: var(--redline); outline: 1px dashed var(--redline); outline-offset: 3px; }
-/* Only the border: a `btn dashed` (the ⌘K trigger) keeps its fill and its sketch. */
+/* Only the border: a control that is also `dashed` keeps its fill and its sketch. */
 @utility dashed { border-style: dashed; }
 @utility solid { background-color: var(--panel); --surface: var(--panel); }
 /* The sidebar and the phone header: opaque, the furthest step from the ground. */
@@ -444,6 +446,8 @@
   &.ghost { border-color: transparent; }
   @media (hover: hover) { &.ghost:hover { border-color: var(--line); } }
   &.ghost.hover { border-color: var(--line); }
+  /* A status bar indicator whose popover is open keeps the strong edge, so the open popover's owner shows. */
+  &.ghost[aria-expanded="true"] { border-color: var(--line-strong); }
   &.touch { min-width: 44px; min-height: 44px; justify-content: center; }
   & .ic { width: 15px; height: 15px; }
 }
@@ -485,7 +489,7 @@
   &.live { color: var(--ink); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--ink) 12%); }
   &.rev { color: var(--redline); border-color: var(--redline); }
   &.hl { color: #14355f; background: var(--highlight); border-color: var(--highlight); }
-  /* A chip in a row of sm controls (the daemon bar, the palette's scope) takes their height. */
+  /* A chip in a row of sm controls (the status bar's Daemon popover, the palette's scope) takes their height. */
   &.sm { min-height: var(--control-sm); padding-inline: 9px; }
   &:is(button) {
     cursor: pointer;

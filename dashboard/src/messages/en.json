@@ -107,6 +107,14 @@
       },
       "noPrompts": "No tool calls are waiting for permission."
     },
+    "held": {
+      "word": "held",
+      "rest": ": budget"
+    },
+    "waiting": {
+      "word": "waiting",
+      "rest": " for slot"
+    },
     "model": {
       "title": "Models",
       "name": "Model",
@@ -118,7 +126,8 @@
       "failed": "Couldn't load reviewers: {error}",
       "noReviewers": "No review panel configured.",
       "edit": "Change models in Settings › Agents.",
-      "effort": "{effort}"
+      "effort": "{effort}",
+      "builder": "Builder"
     },
     "conn": {
       "title": "Connection",
@@ -128,7 +137,7 @@
       "outdated": "Update needed",
       "connectingText": "Waiting for the first reply from forge dash.",
       "liveText": "Connected: the dashboard polls forge dash every 2 seconds.",
-      "offlineText": "The last poll of forge dash failed. Is it still running?",
+      "offlineText": "The last poll of forge dash failed.",
       "outdatedText": "forge dash serves a newer API than this dashboard. Reload the page; if that does not help, restart forge dash after updating the plugin.",
       "server": "Server: Forge {forge}, API {api}",
       "client": "Dashboard API {api}",

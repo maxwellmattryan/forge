@@ -6,11 +6,17 @@
   import type { Pill } from '../../lib/daemon.ts';
   import { pendingPrompts } from '../../lib/permissions.ts';
   import { S } from '../../lib/app.svelte.ts';
+  import { keepFocus } from '../../lib/popover.svelte.ts';
   import { t } from '../../lib/locale.ts';
 
   let { inbox }: { inbox: Pill } = $props();
   // The same source PermissionPrompts reads, so the empty line shows exactly when it renders nothing.
   const prompts = $derived(pendingPrompts(S.data?.daemons ?? null).length);
+  // An answered prompt unmounts with its buttons: focus back on the popover, not the body.
+  $effect(() => {
+    void prompts;
+    keepFocus();
+  });
 </script>
 
 <div class="flex flex-col gap-3">

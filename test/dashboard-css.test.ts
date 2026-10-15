@@ -557,6 +557,16 @@ test('the status bar height is a token in the drawing, the source and the build'
   assert.ok(entry?.usage?.trim(), 'with a usage');
 });
 
+test('focus scrolls clear of the status bar, and an open indicator keeps its edge', () => {
+  const css = builtCss();
+  // WCAG 2.4.11: the bar is fixed over the viewport's bottom, so focus and scroll-into-view stop above it.
+  assert.match(ruleFor(css, 'html'), /scroll-padding-bottom:calc\(var\(--size-statusbar\) \+ env\(safe-area-inset-bottom\) \+ var\(--space-2\)\)/, 'html pads its scroll by the bar, the inset and a gap');
+  const drafting = draftingCss();
+  assert.match(ruleFor(css, '.btn.ghost[aria-expanded=true]'), /border-color:var\(--line-strong\)/, 'the built CSS draws an open indicator with the strong edge');
+  assert.ok(drafting.includes('.btn.ghost[aria-expanded="true"] { border-color: var(--line-strong); }'), 'design/drafting.css mirrors it');
+  assert.ok(css.indexOf('.btn.ghost[aria-expanded=true]') > css.indexOf('.btn.ghost:hover'), 'after the ghost hover, so hovering an open indicator keeps it');
+});
+
 test('every control variant resolves to one control height', () => {
   const css = builtCss();
   const { inside: md, outside } = mediaSplit(css, MIN_MD);

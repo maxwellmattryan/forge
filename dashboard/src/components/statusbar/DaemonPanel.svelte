@@ -17,6 +17,8 @@
   const modeName = $derived<Record<string, string>>({ default: $t('session.modes.default'), auto: $t('session.modes.auto'), dontAsk: $t('session.modes.dontAsk') });
   // The pool's own mode (daemon.command's), named as the session log's selector names it; another mode shows as written.
   const poolMode = $derived(S.data?.daemons?.permissionMode || 'default');
+  /** A mode's name, own keys only, so a mode from the server never reads Object.prototype. */
+  const named = (mode: string): string => (Object.hasOwn(modeName, mode) ? modeName[mode] : mode);
 
   const readOpen = (): boolean => {
     try {
@@ -44,7 +46,8 @@
     <div class="flex flex-wrap items-center gap-2">
       <span class="chip sm {TONE_CLASS[model.pill.tone]}" title={model.pill.title}>{$t('daemon.pill', { label: model.pill.label })}</span>
       <span class="mono muted num">{$t('daemon.live', { live: model.live, cap: model.cap })}</span>
-      <span class="mono muted">{$t('statusbar.daemon.mode', { mode: modeName[poolMode] ?? poolMode })}</span>
+      <span class="mono muted" aria-hidden="true">·</span>
+      <span class="mono muted">{$t('statusbar.daemon.mode', { mode: named(poolMode) })}</span>
     </div>
     {#if model.error !== null}<p class="text-sm text-bad whitespace-pre-line break-words">{model.error}</p>{/if}
     <div class="flex flex-wrap items-center gap-2">
@@ -58,7 +61,7 @@
       <div class="flex flex-col gap-1.5">
         <h3 class="label">{$t('statusbar.daemon.jobs')}</h3>
         <div class="flex flex-wrap items-center gap-2">
-          {#each model.jobs as j (j.id)}<button class="chip sm cursor-pointer max-w-full {TONE_CLASS[j.pill.tone]}" title={[j.id, j.pill.title, ...(j.mode ? [$t('daemon.modeTitle', { mode: modeName[j.mode] })] : [])].join('\n')} onclick={() => openJob(j.id)}><span class="truncate font-mono">{j.label}</span> · {j.pill.label}{#if j.mode} · {modeName[j.mode]}{/if}</button>{/each}
+          {#each model.jobs as j (j.id)}<button class="chip sm cursor-pointer max-w-full {TONE_CLASS[j.pill.tone]}" title={[j.id, j.pill.title, ...(j.mode ? [$t('daemon.modeTitle', { mode: named(j.mode) })] : [])].join('\n')} onclick={() => openJob(j.id)}><span class="truncate font-mono">{j.label}</span> · {j.pill.label}{#if j.mode} · {named(j.mode)}{/if}</button>{/each}
         </div>
       </div>
     {/if}

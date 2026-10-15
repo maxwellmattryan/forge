@@ -1,9 +1,14 @@
 // The status bar popovers' rules, pure like shellEscape: which one is open, when one closes and where focus goes, and
 // where it sits. popover.svelte.ts holds the open state; Popover.svelte and StatusBar.svelte apply these.
 
+import { TABBABLE } from './settings.ts';
+
 export const POPOVERS = ['daemon', 'inbox', 'model', 'connection'] as const;
-/** What takes focus on its own: the palette's Tab trap, and whether a press outside a popover landed on a control. */
-export const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+/**
+ * What a press can focus: whether a press outside a popover landed on something that takes focus itself (a select, the
+ * view's heading, a summary), so focus stays there rather than going back to the indicator. Wider than TABBABLE.
+ */
+export const FOCUSABLE = `${TABBABLE}, select:not([disabled]), [tabindex], [contenteditable]:not([contenteditable="false"]), summary`;
 export type PopoverId = (typeof POPOVERS)[number];
 
 /** A click on an indicator: its own popover closes, any other one replaces whatever is open. */

@@ -42,6 +42,21 @@ export function closePopover(reason: DismissReason, ctx: DismissCtx = {}): void 
   tick().then(() => setTimeout(() => (shown(back) ? back : heading())?.focus()));
 }
 
+/** Hands the open popover to another indicator of the same id (the Daemon button, when the Held one it opened from goes). */
+export function reanchor(trigger: HTMLElement): void {
+  if (popover.open !== null) popover.anchor = trigger;
+}
+
+/**
+ * A control inside the open popover that disables itself (Start, Stop) or goes away (an answered prompt) drops focus to
+ * the body while the dialog stays open: put it back on the dialog, so the keyboard keeps its place.
+ */
+export function keepFocus(): void {
+  tick().then(() => {
+    if (popover.open !== null && (document.activeElement === null || document.activeElement === document.body)) document.getElementById(`popover-${popover.open}`)?.focus();
+  });
+}
+
 /** Whether focus sits inside the open popover: a drawer opened from in there sends focus back to its indicator. */
 export function focusInPopover(): boolean {
   return popover.open !== null && (document.getElementById(`popover-${popover.open}`)?.contains(document.activeElement) ?? false);

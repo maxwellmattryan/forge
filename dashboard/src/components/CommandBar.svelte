@@ -9,9 +9,8 @@
   import { S, createJob, loadBacklog, openDrawer, postRequest, refresh } from '../lib/app.svelte.ts';
   import { commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, scopedJob, suggest, type CommandCtx, type Suggestion, type Verb } from '../lib/command.ts';
   import { clearScope, palette } from '../lib/palette.svelte.ts';
-  import { TABBABLE } from '../lib/popover.ts';
   import { buildRequest } from '../lib/view.ts';
-  import { wrapFocus } from '../lib/settings.ts';
+  import { TABBABLE, wrapFocus } from '../lib/settings.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
 

@@ -1190,8 +1190,17 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
   assert.match(script, /document\.addEventListener\('pointerdown', down, true\)/, 'a capture-phase pointerdown while open');
   assert.match(script, /document\.removeEventListener\('pointerdown', down, true\);/, 'removed on destroy');
   assert.match(script, /document\.addEventListener\('focusin', focusIn, true\)/, 'focus that lands outside later closes it too');
-  assert.match(script, /closePopover\('outside', \{ targetFocusable: target\.closest\(TABBABLE\) !== null \}\)/);
+  assert.match(script, /closePopover\('outside', \{ targetFocusable: target\.closest\(FOCUSABLE\) !== null \}\)/, 'a press on anything that takes focus (a select, the heading) keeps it');
   assert.match(script, /closePopover\('focusout', \{ relatedInside: to === null \? null : within\(to\) \}\)/, 'no relatedTarget is null, never outside');
+  assert.match(script, /if \(to === null\) keepFocus\(\);/, 'a control that disabled itself or went away hands focus back to the dialog');
+  // Tab moves through it as if it sat right after its indicator.
+  assert.match(script, /if \(at === el \|\| at === items\[0\]\) \{\s*e\.preventDefault\(\);\s*closePopover\('close'\);/, 'Shift+Tab before its first stop goes back to the indicator');
+  assert.match(script, /anchor\.compareDocumentPosition\(x\) & Node\.DOCUMENT_POSITION_FOLLOWING/, 'Tab past its last stop goes on from the indicator');
+  assert.match(script, /closePopover\('focusout', \{ relatedInside: false \}\);\s*next\?\.focus\(\);/);
+  const scroller = pop.find((e) => attrOf(e, 'bind:this') === '{body}');
+  assert.ok(scroller && scroller.classes.includes('overflow-y-auto'), 'the scrolling body');
+  assert.equal(attrOf(scroller, 'tabindex'), '{scrollable ? 0 : undefined}', 'it takes focus only while it scrolls');
+  assert.equal(attrOf(scroller, 'aria-labelledby'), '{scrollable ? `popover-${id}-title` : undefined}');
 
   // AC4: the popover is a sibling after the bar, never inside the fixed footer's stacking context.
   const bar = elements('components/StatusBar.svelte');
@@ -1208,7 +1217,14 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
     assert.equal(attrOf(b, 'aria-haspopup'), 'dialog');
     assert.ok(attrOf(b, 'aria-expanded'), 'aria-expanded');
     assert.ok(attrOf(b, 'aria-controls'), 'aria-controls while open');
+    assert.ok(attrOf(b, 'title'), 'a tooltip with the full label, for the widths that show only a glyph');
+    assert.ok(!b.attrs.some((a) => a.name === 'aria-label'), 'no aria-label: the name comes from the content, sr-only parts included');
+    assert.ok(!b.classes.includes('truncate') && !b.classes.includes('min-w-0'), 'labels are whole or hidden, never cut');
+    assert.ok(/^(daemon|inbox|model|connection)$/.test(attrOf(b, 'data-popover')), 'data-popover names the popover it opens');
+    // Below md every visible indicator is a 44x44 target with its ring drawn inside the 48px bar.
+    if (!b.classes.includes('max-md:hidden')) for (const c of ['max-md:min-w-11', 'max-md:focus-visible:-outline-offset-2']) assert.ok(b.classes.includes(c), `the ${attrOf(b, 'data-popover')} indicator has ${c}`);
   }
+  assert.equal(indicators.filter((b) => !b.classes.includes('max-md:hidden')).length, 4, 'daemon, inbox, model and connection show below md');
   assert.deepEqual(indicators.map((b) => /openPopover\('(\w+)'/.exec(attrOf(b, 'onclick'))?.[1]), ['daemon', 'inbox', 'daemon', 'daemon', 'model', 'connection'], 'in tab order');
   for (const b of bar.filter((e) => e.name === 'button' && e.parents.includes(footer))) assert.equal(attrOf(b, 'aria-haspopup'), 'dialog', 'every bar button opens a dialog');
   const script2 = read('components/StatusBar.svelte');
@@ -1319,4 +1335,87 @@ test('docs name the status bar', () => {
     assert.ok(line?.includes('status bar'), `MIGRATION.md's ${rule} rule names the status bar`);
     assert.doesNotMatch(line, /daemon bar/i);
   }
+});
+
+test('status bar labels are whole or sr-only, never cut', () => {
+  const bar = elements('components/StatusBar.svelte');
+  const script = read('components/StatusBar.svelte');
+  // Each cluster clips sideways, keeps 4px for the focus ring at every width, and holds a max-content row it measures.
+  for (const [box, row] of [['{leftBox}', '{leftRow}'], ['{rightBox}', '{rightRow}']]) {
+    const cluster = bar.find((e) => attrOf(e, 'bind:this') === box);
+    assert.ok(cluster && has(cluster, 'overflow-x-clip', 'px-1'), `${box} clips sideways with px-1 at every width (${cluster?.classes.join(' ')})`);
+    assert.ok(!cluster.classes.includes('md:px-1'), `${box}: the padding is not md-only`);
+    const inner = bar.find((e) => attrOf(e, 'bind:this') === row);
+    assert.ok(inner && inner.classes.includes('w-max') && inner.parents.includes(cluster), `${row} is a max-content row inside ${box}`);
+  }
+  assert.ok(!bar.some((e) => e.parents.some((p) => attrOf(p, 'bind:this') === '{leftRow}' || attrOf(p, 'bind:this') === '{rightRow}') && e.classes.includes('truncate')), 'no indicator text truncates');
+  // fit() steps one level of text at a time to sr-only, from whole labels, until the row fits.
+  assert.match(script, /left = 0;\s*right = 0;\s*await tick\(\);/, 'every fit starts from whole labels');
+  assert.match(script, /while \(me === fitting && left < LEFT_MAX && overflows\(leftBox, leftRow\)\) \{\s*left\+\+;\s*await tick\(\);/);
+  assert.match(script, /while \(me === fitting && right < RIGHT_MAX && overflows\(rightBox, rightRow\)\) \{\s*right\+\+;\s*await tick\(\);/);
+  assert.match(script, /const ro = new ResizeObserver\(\(\) => fit\(\)\);\s*ro\.observe\(footer\);/, 'a resize refits');
+  assert.match(script, /document\.fonts\?\.ready\.then\(\(\) => fit\(\)\)/, 'so does the fonts arriving');
+  // The levels, in the order the text goes.
+  const markup = markupOf('components/StatusBar.svelte');
+  for (const [cut, what] of [
+    [`<span class={left >= 1 ? 'sr-only' : ''}>{$t('statusbar.daemon.title')}`, 'level 1: the "Daemon" word'],
+    [`<span class={left >= 1 ? 'sr-only' : ''}>{$t('statusbar.inbox.name')}`, 'level 1: the "Inbox" word'],
+    [`{$t('statusbar.held.word')}<span class={left >= 2 ? 'sr-only' : ''}>{$t('statusbar.held.rest')}</span>`, 'level 2: why a job is held'],
+    [`{$t('statusbar.waiting.word')}<span class={left >= 2 ? 'sr-only' : ''}>{$t('statusbar.waiting.rest')}</span>`, 'level 2: what a job waits for'],
+    [`<span class="max-md:sr-only {left >= 3 ? 'sr-only' : ''} {TONE_TEXT[bar.inbox.tone]}">`, "level 3: the inbox's state"],
+    [`<button class="btn sm ghost max-md:hidden {left >= 4 ? 'hidden!' : ''}"`, 'level 4: held and waiting (the Daemon popover keeps them)'],
+    [`<span class="max-md:sr-only {left >= 5 ? 'sr-only' : ''} {TONE_TEXT[bar.daemon.pill.tone]}">`, "level 5: the daemon's state"],
+    [`<span class="inline-flex {left >= 5 ? '' : 'md:hidden'} {TONE_TEXT[daemonTone]}"><Icon name="daemon" /></span>`, "level 5: the toned daemon glyph takes the state's place"],
+    [`<span class="max-md:sr-only {left >= 6 ? 'sr-only' : ''}">{$t('statusbar.inbox.prompts'`, 'level 6: "prompts" after the count'],
+    [`<span class={right >= 1 ? 'sr-only' : ''}>{models.provider}`, 'right level 1: the provider'],
+    [`<span class="max-md:sr-only {right >= 2 ? 'sr-only' : ''}">`, 'right level 2: the model label'],
+    [`<span class="{connQuiet ? 'max-md:sr-only' : ''} {connQuiet && right >= 3 ? 'sr-only' : ''} {TONE_TEXT[conn.tone]}">{connWord}</span>`, 'right level 3: the connection word, only while Live or Connecting'],
+  ])
+    assert.ok(markup.includes(cut), what);
+  assert.match(script, /const connQuiet = \$derived\(conn\.state === 'live' \|\| conn\.state === 'connecting'\);/, 'Offline and Update needed keep their word at every width');
+  // The input's placeholder is its only visible label: muted, not dim, and the strong edge.
+  const input = bar.find((e) => attrOf(e, 'id') === 'statusbar-command');
+  for (const c of ['placeholder:text-muted!', 'border-line-strong!']) assert.ok(input?.classes.includes(c), `#statusbar-command has ${c}`);
+});
+
+test('popovers close on every route the spec lists', () => {
+  const app = read('App.svelte');
+  assert.match(app, /if \(settingsOpen \|\| palette\.open\) untrack\(\(\) => closePopover\('external'\)\);/, 'Settings or the palette opening closes it');
+  assert.match(app, /\} else if \(layer === 'popover'\) \{\s*e\.preventDefault\(\);\s*closePopover\('escape'\);/, 'Escape closes it through shellEscape');
+  const bar = read('components/StatusBar.svelte');
+  assert.match(bar, /if \(id !== null && id !== lastDrawer\) untrack\(\(\) => closePopover\(focusInPopover\(\) \? 'navigate' : 'external'\)\);/, 'a drawer opened by any route closes it');
+  assert.match(bar, /if \(other\) reanchor\(other\);\s*else closePopover\('gone'\);/, 'a vanished indicator hands it to another for the same popover, or closes it');
+  assert.match(bar, /querySelectorAll<HTMLElement>\(`\[data-popover="\$\{open\}"\]`\)/);
+  assert.match(bar, /keepFocus\(\);\s*\}/, 'Start and Stop keep keyboard focus in the popover');
+  const state = read('lib/popover.svelte.ts');
+  assert.match(state, /if \(reason === 'gone'\) \{\s*if \(inside\) tick\(\)\.then\(\(\) => heading\(\)\?\.focus\(\)\);/, 'gone: focus inside goes to the heading');
+  assert.match(state, /export function reanchor\(trigger: HTMLElement\): void/);
+  assert.match(state, /document\.activeElement === document\.body\)\) document\.getElementById\(`popover-\$\{popover\.open\}`\)\?\.focus\(\);/, 'keepFocus puts focus back on the open dialog');
+  assert.match(read('components/statusbar/InboxPanel.svelte'), /void prompts;\s*keepFocus\(\);/, 'an answered prompt keeps focus in the popover');
+  assert.match(read('components/statusbar/DaemonPanel.svelte'), /closePopover\('navigate'\);\s*openDrawer\(id, null, 'log'\);/, 'a job chip');
+
+  // AC11: the poll feeds Connection, and Retry now polls again without disabling itself.
+  const s = read('lib/app.svelte.ts');
+  assert.match(s, /const data = await api<ApiState>\('\/api\/state'\);\s*S\.online = true;\s*S\.polledAt = new Date\(\)\.toISOString\(\);/);
+  assert.match(s, /\} catch \(e\) \{\s*S\.online = false;/);
+  const conn = read('components/statusbar/ConnectionPanel.svelte');
+  assert.match(conn, /await refresh\(\);/);
+  const retry = elements('components/statusbar/ConnectionPanel.svelte').find((e) => e.name === 'button');
+  assert.equal(attrOf(retry!, 'onclick'), '{retry}');
+  assert.ok(!retry!.attrs.some((a) => a.name === 'disabled'), 'never disabled: focus would fall to the body');
+  assert.equal(attrOf(retry!, 'aria-busy'), '{pending}');
+});
+
+test('no doc or source names the removed bar or the old palette triggers', () => {
+  const STALE = /daemon bar|DaemonBar|\bFAB\b|phone button|dashed .*header/i;
+  const roots = ['README.md', 'docs', path.join('design', 'README.md'), path.join('design', 'components'), path.join('dashboard', 'src'), 'skills'];
+  const files = roots.flatMap((r) => {
+    const abs = path.join(ROOT, r);
+    if (fs.statSync(abs).isFile()) return [abs];
+    return (fs.readdirSync(abs, { recursive: true, withFileTypes: true }) as fs.Dirent[]).filter((e) => e.isFile()).map((e) => path.join(e.parentPath, e.name));
+  });
+  assert.ok(files.length > 100, `scanned ${files.length} files`);
+  const hits = files.flatMap((f) => fs.readFileSync(f, 'utf8').split('\n').map((l, i) => [f, i + 1, l] as const).filter(([, , l]) => STALE.test(l)).map(([f, n]) => `${path.relative(ROOT, f)}:${n}`));
+  assert.deepEqual(hits, []);
+  assert.match(read('messages/en.json'), /"locked": "[^"]*status bar[^"]*"/, 'settings.locked names the status bar');
 });

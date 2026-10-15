@@ -5,7 +5,10 @@
      Stacking, from the back: sidebar z-10, drawer backdrop z-30, this bar z-35, drawer z-40, popovers z-42, Settings and
      the palette z-45, toast z-50. At md and up the bar spans the content column only, so the sidebar keeps its full
      height and its title block, and the drawer ends at the bar's top edge. Session errors, titles and model strings are
-     untrusted and render as text. -->
+     untrusted and render as text.
+     Each cluster holds its indicators in a max-content row. When the row is wider than the cluster, the next level of text
+     goes sr-only (see fit()), so a visible label is always whole, never cut to an ellipsis. Below md every indicator is a
+     glyph or a dot. -->
 <script lang="ts">
   import { tick, untrack } from 'svelte';
   import Icon from './Icon.svelte';
@@ -18,10 +21,11 @@
   import { API_VERSION } from '../lib/types.ts';
   import type { DaemonPoolState } from '../lib/types.ts';
   import { mergePoolState, poolModel, postDaemon } from '../lib/daemon.ts';
-  import { barModel, connectionState, inlineInputAction, modelSummary, promptAnnouncement, type InlineInputEvent } from '../lib/statusbar.ts';
+  import { barModel, connectionState, inlineInputAction, modelSummary, promptAnnouncement, summaryText, type InlineInputEvent } from '../lib/statusbar.ts';
   import { shortcutLabel } from '../lib/command.ts';
   import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
-  import { closePopover, focusInPopover, openPopover, popover } from '../lib/popover.svelte.ts';
+  import { closePopover, focusInPopover, keepFocus, openPopover, popover, reanchor } from '../lib/popover.svelte.ts';
+  import type { PopoverId } from '../lib/popover.ts';
   import { openPalette } from '../lib/palette.svelte.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
@@ -40,6 +44,21 @@
   /** Connection's static dot: only LiveDot pulses. */
   const CONN_DOT: Record<string, string> = { muted: 'dot hollow', ok: 'dot ok', warn: 'dot bg-warn', bad: 'dot bg-bad' };
 
+  const daemonTone = $derived(bar.daemon.off ? 'muted' : bar.daemon.pill.tone);
+  const connWord = $derived(
+    conn.state === 'connecting' ? $t('statusbar.conn.connecting') : conn.state === 'offline' ? $t('statusbar.conn.offline') : conn.state === 'outdated' ? $t('statusbar.conn.outdated') : $t('statusbar.conn.live'),
+  );
+  // Live and Connecting differ by shape (a filled or a hollow dot); Offline and Update needed keep their word at every width.
+  const connQuiet = $derived(conn.state === 'live' || conn.state === 'connecting');
+  const modelText = $derived(summaryText(models, $t('statusbar.model.session'), (effort) => $t('statusbar.model.effort', { effort })));
+  // Tooltips with the full label, for the widths where an indicator shows only its glyph or dot.
+  const titles = $derived({
+    daemon: bar.daemon.off ? $t('statusbar.daemon.off') : `${$t('daemon.pill', { label: bar.daemon.pill.label })} · ${$t('daemon.live', { live: bar.daemon.live, cap: bar.daemon.cap })}`,
+    inbox: bar.inbox ? [$t('daemon.inbox', { label: bar.inbox.label }), ...(bar.prompts ? [$t('statusbar.inbox.prompts', { count: bar.prompts })] : [])].join(' · ') : '',
+    model: `${$t('statusbar.model.name')} · ${modelText}`,
+    connection: `${$t('statusbar.conn.title')} · ${connWord}`,
+  });
+
   async function act(action: 'start' | 'stop'): Promise<void> {
     pending = true;
     try {
@@ -51,6 +70,8 @@
       pending = false;
       toast($t('daemon.failed', { action, error: err instanceof Error ? err.message : String(err) }), true);
     }
+    // Start or Stop turned disabled under the keyboard: focus back on the popover, not the body.
+    keepFocus();
   }
 
   // The live region speaks only when the pool-wide prompt count rises; it is emptied first, so the same count can speak again.
@@ -74,12 +95,78 @@
     lastDrawer = id;
   });
 
-  // An indicator that stops rendering (the daemon disabled under the Inbox popover, a hold that cleared) takes its popover.
+  // ---------- fitting the clusters ----------
+  let footer = $state<HTMLElement>();
+  let leftBox = $state<HTMLDivElement>();
+  let leftRow = $state<HTMLDivElement>();
+  let rightBox = $state<HTMLDivElement>();
+  let rightRow = $state<HTMLDivElement>();
+  /**
+   * How much text each cluster hides, lowest value first. Left: 1 the "Daemon" and "Inbox" words, 2 the reasons of held and
+   * waiting, 3 the inbox's state (its toned glyph and the prompt count stay), 4 held and waiting (the Daemon popover keeps
+   * them), 5 the daemon's state (its toned glyph, the live dot and live/cap stay), 6 "prompts" after the count.
+   * Right: 1 the provider and the effort, 2 the model label, 3 the connection's word (only while it is Live or Connecting).
+   */
+  let left = $state(0);
+  let right = $state(0);
+  let fits = $state(0);
+  const LEFT_MAX = 6;
+  const RIGHT_MAX = 3;
+  let fitting = 0;
+
+  function overflows(box: HTMLElement | undefined, row: HTMLElement | undefined): boolean {
+    if (!box || !row) return false;
+    const s = getComputedStyle(box);
+    return row.getBoundingClientRect().width > box.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight) + 0.5;
+  }
+
+  /** From whole labels down, one level at a time, until each cluster's row fits. All in microtasks, so nothing flickers. */
+  async function fit(): Promise<void> {
+    const me = ++fitting;
+    left = 0;
+    right = 0;
+    await tick();
+    while (me === fitting && left < LEFT_MAX && overflows(leftBox, leftRow)) {
+      left++;
+      await tick();
+    }
+    while (me === fitting && right < RIGHT_MAX && overflows(rightBox, rightRow)) {
+      right++;
+      await tick();
+    }
+    if (me === fitting) fits++;
+  }
+
+  // Refit when what the labels say changes, when the bar resizes, and once the fonts arrive.
+  $effect(() => {
+    void bar;
+    void models;
+    void conn.state;
+    void S.data;
+    void $t;
+    untrack(() => fit());
+  });
+  $effect(() => {
+    if (!footer) return;
+    const ro = new ResizeObserver(() => fit());
+    ro.observe(footer);
+    document.fonts?.ready.then(() => fit());
+    return () => ro.disconnect();
+  });
+
+  // An indicator that stops rendering or showing takes its popover with it, unless another indicator for the same popover
+  // remains (a cleared hold hands the Daemon popover back to the Daemon button). Focus inside goes to the view's heading.
   $effect(() => {
     void bar;
     void S.data;
+    void fits;
     untrack(() => {
-      if (popover.open !== null && popover.anchor && !popover.anchor.isConnected) closePopover('gone');
+      const open = popover.open;
+      const anchor = popover.anchor;
+      if (open === null || !anchor || (anchor.isConnected && anchor.getClientRects().length > 0)) return;
+      const other = [...(footer?.querySelectorAll<HTMLElement>(`[data-popover="${open}"]`) ?? [])].find((b) => b.getClientRects().length > 0);
+      if (other) reanchor(other);
+      else closePopover('gone');
     });
   });
 
@@ -105,47 +192,52 @@
     input?.focus();
   }
 
-  const expanded = (id: 'daemon' | 'inbox' | 'model' | 'connection'): boolean => popover.open === id;
-  const controls = (id: 'daemon' | 'inbox' | 'model' | 'connection'): string | undefined => (popover.open === id ? `popover-${id}` : undefined);
+  const expanded = (id: PopoverId): boolean => popover.open === id;
+  const controls = (id: PopoverId): string | undefined => (popover.open === id ? `popover-${id}` : undefined);
 </script>
 
 <footer
+  bind:this={footer}
   id="statusbar"
   aria-label={$t('statusbar.label')}
   class="fixed bottom-0 right-0 left-0 md:left-(--size-sidebar) z-35 chrome border-t border-line-strong h-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex items-center gap-1 px-1 md:grid md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:gap-2 md:px-3"
 >
-  <div class="flex min-w-0 shrink-0 items-center gap-0.5 overflow-x-clip md:gap-1 md:px-1">
-    {#if S.data}
-      <button class="btn sm ghost min-w-0 max-md:min-w-11 max-md:justify-center" aria-haspopup="dialog" aria-expanded={expanded('daemon')} aria-controls={controls('daemon')} onclick={(e) => openPopover('daemon', e.currentTarget)}>
-        <span class="inline-flex md:hidden"><Icon name="daemon" /></span>
-        <LiveDot on={bar.daemon.active} />
-        {#if bar.daemon.off}
-          <span class="truncate text-muted max-lg:sr-only">{$t('statusbar.daemon.off')}</span>
-        {:else}
-          <span class="truncate max-lg:sr-only {TONE_TEXT[bar.daemon.pill.tone]}"><span class="max-xl:sr-only">{$t('statusbar.daemon.title')}{' '}</span>{bar.daemon.pill.label}</span>
-          <span class="num shrink-0 max-md:sr-only">{bar.daemon.live}/{bar.daemon.cap}<span class="sr-only">{' '}{$t('statusbar.daemon.sessions')}</span></span>
-        {/if}
-      </button>
-      {#if bar.inbox}
-        <button class="btn sm ghost min-w-0 max-md:min-w-11 max-md:justify-center" aria-haspopup="dialog" aria-expanded={expanded('inbox')} aria-controls={controls('inbox')} onclick={(e) => openPopover('inbox', e.currentTarget)}>
-          <span class="inline-flex {TONE_TEXT[bar.inbox.tone]}"><Icon name="inbox" /></span>
-          <span class="truncate max-lg:sr-only {TONE_TEXT[bar.inbox.tone]}"><span class="max-xl:sr-only">{$t('statusbar.inbox.name')}{' '}</span>{bar.inbox.label}</span>
-          {#if bar.prompts}<span class="num shrink-0 text-warn"><span class="lg:hidden" aria-hidden="true">{bar.prompts}</span><span class="max-lg:sr-only">{$t('statusbar.inbox.prompts', { count: bar.prompts })}</span></span>{/if}
+  <div bind:this={leftBox} class="flex min-w-0 shrink-0 items-center overflow-x-clip px-1" data-fit={left}>
+    <div bind:this={leftRow} class="flex w-max items-center gap-0.5 md:gap-1">
+      {#if S.data}
+        <button class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="daemon" title={titles.daemon} aria-haspopup="dialog" aria-expanded={expanded('daemon')} aria-controls={controls('daemon')} onclick={(e) => openPopover('daemon', e.currentTarget)}>
+          <span class="inline-flex {left >= 5 ? '' : 'md:hidden'} {TONE_TEXT[daemonTone]}"><Icon name="daemon" /></span>
+          <LiveDot on={bar.daemon.active} />
+          {#if bar.daemon.off}
+            <span class="text-muted max-md:sr-only {left >= 5 ? 'sr-only' : ''}">{$t('statusbar.daemon.off')}</span>
+          {:else}
+            <span class="max-md:sr-only {left >= 5 ? 'sr-only' : ''} {TONE_TEXT[bar.daemon.pill.tone]}"><span class={left >= 1 ? 'sr-only' : ''}>{$t('statusbar.daemon.title')}{' '}</span>{bar.daemon.pill.label}</span>
+            <span class="num max-md:sr-only">{bar.daemon.live}/{bar.daemon.cap}<span class="sr-only">{' '}{$t('statusbar.daemon.sessions')}</span></span>
+          {/if}
         </button>
+        {#if bar.inbox}
+          <button class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="inbox" title={titles.inbox} aria-haspopup="dialog" aria-expanded={expanded('inbox')} aria-controls={controls('inbox')} onclick={(e) => openPopover('inbox', e.currentTarget)}>
+            <span class="inline-flex {TONE_TEXT[bar.inbox.tone]}"><Icon name="inbox" /></span>
+            <span class="max-md:sr-only {left >= 3 ? 'sr-only' : ''} {TONE_TEXT[bar.inbox.tone]}"><span class={left >= 1 ? 'sr-only' : ''}>{$t('statusbar.inbox.name')}{' '}</span>{bar.inbox.label}</span>
+            {#if bar.prompts}<span class="num text-warn"><span class={left >= 6 ? '' : 'md:hidden'} aria-hidden="true">{bar.prompts}</span><span class="max-md:sr-only {left >= 6 ? 'sr-only' : ''}">{$t('statusbar.inbox.prompts', { count: bar.prompts })}</span></span>{/if}
+          </button>
+        {/if}
+        {#if bar.held}
+          <button class="btn sm ghost max-md:hidden {left >= 4 ? 'hidden!' : ''}" data-popover="daemon" title={$t('daemon.held', { count: bar.held })} aria-haspopup="dialog" aria-expanded={expanded('daemon')} aria-controls={controls('daemon')} onclick={(e) => openPopover('daemon', e.currentTarget)}><span class="text-warn">{$t('statusbar.held.word')}<span class={left >= 2 ? 'sr-only' : ''}>{$t('statusbar.held.rest')}</span>{' '}({bar.held})</span></button>
+        {/if}
+        {#if bar.waiting}
+          <button class="btn sm ghost max-md:hidden {left >= 4 ? 'hidden!' : ''}" data-popover="daemon" title={$t('daemon.waiting', { count: bar.waiting })} aria-haspopup="dialog" aria-expanded={expanded('daemon')} aria-controls={controls('daemon')} onclick={(e) => openPopover('daemon', e.currentTarget)}><span class="text-warn">{$t('statusbar.waiting.word')}<span class={left >= 2 ? 'sr-only' : ''}>{$t('statusbar.waiting.rest')}</span>{' '}({bar.waiting})</span></button>
+        {/if}
       {/if}
-      {#if bar.held}
-        <button class="btn sm ghost min-w-0 max-md:hidden" aria-haspopup="dialog" aria-expanded={expanded('daemon')} aria-controls={controls('daemon')} onclick={(e) => openPopover('daemon', e.currentTarget)}><span class="truncate text-warn">{$t('daemon.held', { count: bar.held })}</span></button>
-      {/if}
-      {#if bar.waiting}
-        <button class="btn sm ghost min-w-0 max-md:hidden" aria-haspopup="dialog" aria-expanded={expanded('daemon')} aria-controls={controls('daemon')} onclick={(e) => openPopover('daemon', e.currentTarget)}><span class="truncate text-warn">{$t('daemon.waiting', { count: bar.waiting })}</span></button>
-      {/if}
-    {/if}
+    </div>
   </div>
 
   <div class="flex min-w-0 flex-1 items-center justify-center md:flex-none">
     <!-- Below md: one button fills the space between the clusters. -->
-    <button class="btn md:hidden min-w-0 flex-1 justify-center px-2! normal-case tracking-normal" aria-haspopup="dialog" onclick={(e) => openPalette({ opener: e.currentTarget })}><Icon name="command" /><span class="truncate">{$t('command.open')}</span></button>
-    <!-- md and up: a real input; typing hands its text to the palette. The kbd is hidden because aria-keyshortcuts announces it. -->
+    <button class="btn md:hidden min-w-0 flex-1 justify-center px-2! normal-case tracking-normal max-md:focus-visible:-outline-offset-2" aria-haspopup="dialog" onclick={(e) => openPalette({ opener: e.currentTarget })}><Icon name="command" /><span class="truncate">{$t('command.open')}</span></button>
+    <!-- md and up: a real input; typing hands its text to the palette. The kbd is hidden because aria-keyshortcuts announces it,
+         and from lg up only, so the placeholder stays whole in the narrow md input. The placeholder is its only visible label,
+         so it takes muted (4.5:1 in every theme) rather than dim, and the strong edge. -->
     <span class="relative max-md:hidden">
       <input
         bind:this={input}
@@ -157,28 +249,30 @@
         autocomplete="off"
         spellcheck="false"
         placeholder={$t('command.open')}
-        class="max-md:hidden w-56 lg:w-64 xl:w-80 2xl:w-96 pr-14!"
+        class="max-md:hidden w-48 lg:w-64 xl:w-80 2xl:w-96 lg:pr-14! border-line-strong! placeholder:text-muted!"
         oninput={(e) => inline(e, 'input')}
         oncompositionend={(e) => inline(e, 'compositionend')}
         onkeydown={(e) => inline(e, 'keydown')}
       />
-      <kbd class="mono muted pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-[10px]" aria-hidden="true">{shortcut}</kbd>
+      <kbd class="mono muted pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-[10px] max-lg:hidden" aria-hidden="true">{shortcut}</kbd>
     </span>
   </div>
 
-  <div class="flex min-w-0 shrink-0 items-center justify-end gap-0.5 overflow-x-clip md:gap-1 md:px-1">
-    {#if S.data}
-      <button class="btn sm ghost min-w-0 max-md:min-w-11 max-md:justify-center" aria-haspopup="dialog" aria-expanded={expanded('model')} aria-controls={controls('model')} onclick={(e) => openPopover('model', e.currentTarget)}>
-        <Icon name="agents" />
-        <span class="sr-only">{$t('statusbar.model.name')}{' '}</span>
-        <span class="truncate max-lg:sr-only">{#if models.provider}<span class="max-xl:sr-only">{models.provider}{' · '}</span>{/if}{models.label ?? $t('statusbar.model.session')}{#if models.effort}<span class="max-xl:sr-only">{' · '}{$t('statusbar.model.effort', { effort: models.effort })}</span>{/if}</span>
+  <div bind:this={rightBox} class="flex min-w-0 shrink-0 items-center justify-end overflow-x-clip px-1" data-fit={right}>
+    <div bind:this={rightRow} class="flex w-max items-center gap-0.5 md:gap-1">
+      {#if S.data}
+        <button class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="model" title={titles.model} aria-haspopup="dialog" aria-expanded={expanded('model')} aria-controls={controls('model')} onclick={(e) => openPopover('model', e.currentTarget)}>
+          <Icon name="agents" />
+          <span class="sr-only">{$t('statusbar.model.name')}{' '}</span>
+          <span class="max-md:sr-only {right >= 2 ? 'sr-only' : ''}">{#if models.provider}<span class={right >= 1 ? 'sr-only' : ''}>{models.provider}{' · '}</span>{/if}{models.label ?? $t('statusbar.model.session')}{#if models.effort}<span class={right >= 1 ? 'sr-only' : ''}>{' · '}{$t('statusbar.model.effort', { effort: models.effort })}</span>{/if}</span>
+        </button>
+      {/if}
+      <button class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="connection" title={titles.connection} aria-haspopup="dialog" aria-expanded={expanded('connection')} aria-controls={controls('connection')} onclick={(e) => openPopover('connection', e.currentTarget)}>
+        <span class={CONN_DOT[conn.tone]} aria-hidden="true"></span>
+        <span class="sr-only">{$t('statusbar.conn.title')}{' '}</span>
+        <span class="{connQuiet ? 'max-md:sr-only' : ''} {connQuiet && right >= 3 ? 'sr-only' : ''} {TONE_TEXT[conn.tone]}">{connWord}</span>
       </button>
-    {/if}
-    <button class="btn sm ghost min-w-0 max-md:min-w-11 max-md:justify-center" aria-haspopup="dialog" aria-expanded={expanded('connection')} aria-controls={controls('connection')} onclick={(e) => openPopover('connection', e.currentTarget)}>
-      <span class={CONN_DOT[conn.tone]} aria-hidden="true"></span>
-      <span class="sr-only">{$t('statusbar.conn.title')}{' '}</span>
-      <span class="truncate max-lg:sr-only {TONE_TEXT[conn.tone]}">{#if conn.state === 'connecting'}{$t('statusbar.conn.connecting')}{:else if conn.state === 'offline'}{$t('statusbar.conn.offline')}{:else if conn.state === 'outdated'}{$t('statusbar.conn.outdated')}{:else}{$t('statusbar.conn.live')}{/if}</span>
-    </button>
+    </div>
   </div>
 
   <div class="sr-only" aria-live="polite">{announcement}</div>

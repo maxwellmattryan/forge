@@ -2,7 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ROLE_ORDER, barModel, type BarModel, type DaemonIndicator, connectionState, inlineInputAction, modelLabel, modelSummary, promptAnnouncement, reviewerRows, roleRows, summaryText } from '../dashboard/src/lib/statusbar.ts';
-import { POPOVERS, dismissal, placePopover, togglePopover, type DismissReason } from '../dashboard/src/lib/popover.ts';
+import { FOCUSABLE, POPOVERS, dismissal, placePopover, togglePopover, type DismissReason } from '../dashboard/src/lib/popover.ts';
+import { TABBABLE } from '../dashboard/src/lib/settings.ts';
 
 const session = (o: any = {}): any => ({ scope: 'job', wanted: true, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, failures: 0, held: null, waiting: false, lastError: null, ...o });
 const pool = (o: any = {}): any => ({ enabled: true, wanted: true, maxConcurrent: 3, live: 0, lastError: null, inbox: session({ scope: '_inbox' }), jobs: {}, clients: 0, ...o });
@@ -94,12 +95,9 @@ test('modelLabel resolves aliases, full ids, inherit and unknown models', () => 
   assert.equal(modelLabel('opus').raw, 'opus', 'raw keeps the value as written');
   const xss = '<img src=x onerror=alert(1)>';
   assert.deepEqual(pick(xss), [xss, null, false], 'markup is a plain unknown string: the component renders it as text');
-  // Config text is outside input: a long hostile value is linear.
-  const hostile = 'opus' + '-1'.repeat(5000) + '-'.repeat(10000);
-  const t0 = Date.now();
-  modelLabel(hostile);
-  modelLabel('-9'.repeat(10000));
-  assert.ok(Date.now() - t0 < 200, 'labels a 10k-character value quickly');
+  // Config text is outside input: values that make the version scan walk every group stay linear (a hang times out).
+  assert.deepEqual(pick('opus' + '-12345678'.repeat(2000)), ['Opus', 'Anthropic', false], 'every group after the family is a date');
+  assert.deepEqual(pick('claude-' + '9-'.repeat(5000) + 'haiku' + '-20240307'.repeat(1000)), ['Haiku 9.9', 'Anthropic', false], 'the old-id fallback over a long prefix');
 });
 
 test('modelSummary shows the builder and an effort only when given a valid level', () => {
@@ -203,4 +201,10 @@ test('inlineInputAction opens the palette on typed, composed or pasted text, and
   assert.equal(a('keydown', '', false, 'ArrowUp'), null);
   assert.equal(a('keydown', '', false, 'Tab'), null);
   assert.equal(a('keydown', '', false, 'a'), null, 'a printable key waits for its input event');
+});
+
+test('a press outside counts as focusable on anything that takes focus, not only Tab stops', () => {
+  assert.ok(FOCUSABLE.startsWith(`${TABBABLE}, `), 'every Tab stop');
+  for (const sel of ['select:not([disabled])', '[tabindex]', 'summary', '[contenteditable]']) assert.ok(FOCUSABLE.includes(sel), `and ${sel}`);
+  assert.ok(!TABBABLE.includes('select'), 'the palette trap keeps its own list');
 });
