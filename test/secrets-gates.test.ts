@@ -7,6 +7,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { fingerprint } from '../lib/secrets.ts';
+import { defaults } from '../lib/config.ts';
+import { setJob } from '../lib/jobs.ts';
 import { token } from './secret-fixtures.ts';
 
 const commitAll = (cwd: string, msg: string) => {
@@ -129,6 +131,203 @@ describe('secret gates', { concurrency: 4 }, () => {
       }
       const all = s.trail(j.dir);
       assert.ok(!all.includes(key) && !all.includes(pat), 'no planted value is printed');
+    } finally {
+      s.cleanup();
+    }
+  });
+  test('verify blocks a planted key and an allowlist entry clears it', async () => {
+    const s = await scratch();
+    try {
+      const key = token.aws('verify');
+      const j = await s.job({ 'cfg/app.cfg': `# app\nregion = eu\nkey = ${key}\n` });
+      let r = await s.verify(j.id);
+      assert.equal(r.status, 1, r.stderr);
+      assert.equal(r.out.failure.name, 'secrets');
+      assert.deepEqual(r.out.secrets, { mode: 'block', ok: false, count: 1, allowed: 0, findings: [{ kind: 'aws-access-key', path: 'cfg/app.cfg', line: 3 }], more: 0 });
+      assert.deepEqual(r.out.steps.map((x: any) => x.name), ['secrets'], 'no configured step ran');
+      assert.ok(r.out.integrity && r.out.integrity.mode, 'the integrity report is still computed');
+      assert.match(r.out.failure.tail, /^aws-access-key cfg\/app\.cfg:3 AKIA…[A-Z0-9?]{2} sha256:[0-9a-f]{12}…$/);
+      assert.ok(!fs.existsSync(path.join(j.dir, 'logs')) || !fs.readdirSync(path.join(j.dir, 'logs')).some((x) => x.startsWith('verify-test')), 'the test command never ran');
+      const md = fs.readFileSync(path.join(j.dir, 'verify', 'round-1.md'), 'utf8');
+      assert.ok(md.includes('## secrets: FAILED (1 finding)'), md);
+      const sha12 = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: j.wt, encoding: 'utf8' }).trim().slice(0, 12);
+      assert.ok(md.includes(`aws-access-key  cfg/app.cfg:3  ${sha12}  ${key.slice(0, 4)}…${key.slice(-2)}  ${fingerprint(key)}`), md);
+
+      // An allowlist committed on the job branch is not read: only the main checkout's counts.
+      write(j.wt, '.forge/secrets-allow.txt', `cfg/**\n${fingerprint(key)}\n`);
+      commitAll(j.wt, 'allow my own key');
+      r = await s.verify(j.id);
+      assert.equal(r.status, 1);
+      assert.equal(r.out.secrets.count, 1);
+      assert.equal(r.out.secrets.allowed, 0);
+
+      s.allow(['# known test key', fingerprint(key)]);
+      r = await s.verify(j.id);
+      assert.equal(r.status, 0, JSON.stringify(r.out.failure));
+      assert.equal(r.out.secrets.count, 0);
+      assert.equal(r.out.secrets.allowed, 1);
+      assert.deepEqual(r.out.steps.map((x: any) => x.name), ['secrets', 'test']);
+      const ok = fs.readFileSync(path.join(j.dir, 'verify', 'round-1.md'), 'utf8');
+      assert.ok(ok.includes('## secrets: ok') && ok.includes('allowed by .forge/secrets-allow.txt:2'), ok);
+      assert.ok(!s.trail(j.dir).includes(key), 'the planted value appears nowhere');
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('verify under warn reports and passes', async () => {
+    const s = await scratch({ verifySecrets: 'warn' });
+    try {
+      const key = token.github('warn');
+      const j = await s.job({ 'src/client.ts': `export const t = "${key}";\n` });
+      const r = await s.verify(j.id);
+      assert.equal(r.status, 0, JSON.stringify(r.out.failure));
+      const step = r.out.steps.find((x: any) => x.name === 'secrets');
+      assert.equal(step.ok, true);
+      assert.equal(step.reason, '1 possible secret (verifySecrets: warn)');
+      assert.equal(r.out.secrets.ok, true);
+      assert.equal(r.out.secrets.count, 1);
+      assert.equal(r.out.secrets.mode, 'warn');
+      assert.deepEqual(r.out.steps.map((x: any) => x.name), ['secrets', 'test']);
+      assert.ok(fs.readFileSync(path.join(j.dir, 'verify', 'round-1.md'), 'utf8').includes('## secrets: WARN (1 finding)'));
+      const ev = s.events(j.dir).filter((e) => e.type === 'secret-found');
+      assert.equal(ev.length, 1);
+      assert.equal(ev[0].blocked, false);
+      assert.ok(!s.trail(j.dir).includes(key));
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('verify scans every commit, commit messages and staged changes', async () => {
+    const s = await scratch();
+    try {
+      const fails = async (j: { id: string }, expect: (f: any) => boolean, what: string) => {
+        const r = await s.verify(j.id);
+        assert.equal(r.status, 1, what);
+        assert.equal(r.out.failure.name, 'secrets', what);
+        assert.ok(r.out.secrets.findings.some(expect), `${what}: ${JSON.stringify(r.out.secrets.findings)}`);
+        return r;
+      };
+      // Added in one commit, deleted in the next: the net diff is clean, the first commit is not.
+      const k1 = token.slack('gone');
+      const gone = await s.job({ 'notes.txt': `slack ${k1}\n` });
+      write(gone.wt, 'notes.txt', 'nothing here\n');
+      commitAll(gone.wt, 'remove it');
+      await fails(gone, (f) => f.kind === 'slack-token' && f.path === 'notes.txt', 'added then deleted');
+
+      const k2 = token.stripe('msg');
+      const msg = await s.job({ 'a.txt': 'plain\n' }, `deploy with ${k2}`);
+      const sha12 = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: msg.wt, encoding: 'utf8' }).trim().slice(0, 12);
+      await fails(msg, (f) => f.kind === 'stripe-live-key' && f.path === `(commit message ${sha12})`, 'commit message');
+
+      for (const attr of ['*.cfg -diff', '*.cfg binary']) {
+        const k = token.aws(attr);
+        const j = await s.job({ '.gitattributes': `${attr}\n`, 'svc/app.cfg': `key=${k}\n` });
+        await fails(j, (f) => f.kind === 'aws-access-key' && f.path === 'svc/app.cfg', attr);
+      }
+      const k3 = token.google('nul');
+      const nul = await s.job({ 'data/blob.bin': `head\0\0\nkey ${k3}\n` });
+      await fails(nul, (f) => f.kind === 'google-api-key' && f.path === 'data/blob.bin', 'NUL byte');
+
+      // A key only on the base branch is not the job's.
+      write(s.repo.dir, 'base.txt', `old ${token.aws('base')}\n`);
+      commitAll(s.repo.dir, 'base key');
+      const clean = await s.job({ 'b.txt': 'fine\n' });
+      let r = await s.verify(clean.id);
+      assert.equal(r.status, 0, JSON.stringify(r.out.failure));
+      assert.equal(r.out.secrets.count, 0);
+
+      // Staged but uncommitted: listed, while the dirty worktree is the failure.
+      const k4 = token.gitlab('staged');
+      write(clean.wt, 'c.txt', `gl ${k4}\n`);
+      execFileSync('git', ['add', 'c.txt'], { cwd: clean.wt });
+      r = await s.verify(clean.id);
+      assert.equal(r.status, 1);
+      assert.equal(r.out.failure.name, 'worktree-clean');
+      assert.deepEqual(r.out.steps.map((x: any) => x.name), ['worktree-clean', 'secrets']);
+      const md = fs.readFileSync(path.join(clean.dir, 'verify', 'round-1.md'), 'utf8');
+      assert.ok(md.includes('## secrets: FAILED (1 finding)') && md.includes('gitlab-token  c.txt:1  staged  glpa…'), md);
+      for (const [dir, k] of [[gone.dir, k1], [msg.dir, k2], [nul.dir, k3], [clean.dir, k4]]) assert.ok(!s.trail(dir).includes(k));
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('repo config in the worktree cannot hide or allow a secret', async () => {
+    const s = await scratch();
+    try {
+      const key = token.openai('cfg');
+      const j = await s.job({ 'app.py': `OPENAI = "${key}"\n` });
+      const cfg = fs.readFileSync(path.join(j.wt, '.forge', 'config.yml'), 'utf8');
+      write(j.wt, '.forge/config.yml', `${cfg}\nverifySecrets: warn\n`.replace(/^verifySecrets: block\n/m, ''));
+      commitAll(j.wt, 'loosen the gate');
+      const r = await s.verify(j.id);
+      assert.equal(r.status, 1);
+      assert.equal(r.out.secrets.mode, 'block');
+      assert.equal(r.out.failure.name, 'secrets');
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('no gate prints a planted value', async () => {
+    const s = await scratch();
+    try {
+      const keys = Array.from({ length: 12 }, (_, i) => token.aws(`many${i}`));
+      const j = await s.job({ 'keys.txt': keys.map((k, i) => `k${i} ${k}`).join('\n') + '\n' });
+      const r = await s.verify(j.id);
+      assert.equal(r.status, 1);
+      assert.equal(r.out.secrets.count, 12);
+      assert.equal(r.out.secrets.findings.length, 10);
+      assert.equal(r.out.secrets.more, 2);
+      const [ev] = s.events(j.dir).filter((e) => e.type === 'secret-found');
+      assert.equal(ev.gate, 'verify');
+      assert.equal(ev.blocked, true);
+      assert.equal(ev.count, 12);
+      assert.equal(ev.allowed, 0);
+      assert.equal(ev.round, 1);
+      assert.equal(ev.more, 2);
+      assert.equal(ev.findings.length, 10);
+      for (const f of ev.findings) assert.deepEqual(Object.keys(f).sort(), ['excerpt', 'fingerprint', 'kind', 'line', 'path']);
+      const all = s.trail(j.dir);
+      for (const k of keys) assert.ok(!all.includes(k) && !all.includes(k.slice(4)), 'neither the value nor its body');
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('a scan that cannot finish fails under block and passes with an error under warn', async () => {
+    const s = await scratch();
+    try {
+      const j = await s.job({ 'a.txt': 'fine\n' });
+      setJob(s.repo.dir, j.id, { fields: { base: 'no-such-branch' } });
+      let r = await s.verify(j.id);
+      assert.equal(r.status, 1);
+      assert.equal(r.out.failure.name, 'secrets');
+      assert.match(r.out.secrets.error, /base no-such-branch not found/);
+      assert.equal(r.out.secrets.ok, false);
+      assert.match(fs.readFileSync(path.join(j.dir, 'verify', 'round-1.md'), 'utf8'), /^## secrets: ERROR \(base no-such-branch not found\)$/m);
+      await s.configure({ verifySecrets: 'warn' });
+      r = await s.verify(j.id);
+      assert.equal(r.out.secrets.ok, true);
+      assert.match(r.out.secrets.error, /not found/);
+      assert.match(r.out.steps.find((x: any) => x.name === 'secrets').reason, /^scan incomplete \(verifySecrets: warn\): base no-such-branch not found/);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('verifySecrets default and validation', async () => {
+    assert.equal(defaults().verifySecrets, 'block');
+    const s = await scratch();
+    try {
+      const file = path.join(s.repo.dir, '.forge', 'config.yml');
+      assert.match(fs.readFileSync(file, 'utf8'), /^verifySecrets: block$/m);
+      fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^verifySecrets: block$/m, 'verifySecrets: strict'));
+      const r = await s.raw(['config', 'validate']);
+      assert.equal(r.status, 1);
+      assert.ok(JSON.parse(r.stdout).problems.includes('verifySecrets must be one of block | warn (got "strict")'), r.stdout);
     } finally {
       s.cleanup();
     }

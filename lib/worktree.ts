@@ -11,7 +11,8 @@ import type { CompactIntegrity, IntegrityReport } from './integrity.ts';
 import { listJobs, isActive, loadJob, logEvent, setJob, touchJob, updateJob, jobDir } from './jobs.ts';
 import { exists, resolveFrom } from './paths.ts';
 import { CONFIG_SCHEMA_VERSION } from './schema.ts';
-import type { Config, Job, ServiceConfig, VerifyRun } from './types.ts';
+import { logSecrets, renderSecrets, scanBranch, secretMode, secretsOk, secretsTail, compactSecrets } from './secrets.ts';
+import type { CompactSecrets, Config, Job, ServiceConfig, VerifyRun } from './types.ts';
 import { ForgeError, assertSafeRef, fill, now, readJson, run, shellArgs, tail, withLock, writeJsonAtomic } from './util.ts';
 
 /** What `forge worktree create` returns: createWorktree. */
@@ -30,7 +31,7 @@ export interface CommandResult {
   tail: string;
 }
 
-/** One verify step: a command's result, a skipped step, or a gate verify adds itself (worktree-clean, integrity). */
+/** One verify step: a command's result, a skipped step, or a gate verify adds itself (worktree-clean, secrets, integrity). */
 export interface VerifyStep {
   name: string;
   ok: boolean;
@@ -53,6 +54,7 @@ export interface VerifyResult {
   steps: Omit<VerifyStep, 'tail'>[];
   failure: VerifyStep | undefined;
   integrity: CompactIntegrity | null;
+  secrets: CompactSecrets;
   budget?: NonNullable<ReturnType<typeof enforceBudget>>;
 }
 
@@ -446,7 +448,8 @@ export async function runCommandAsync(root: string, config: Config, id: string, 
  * otherwise cost a full round of reviewer agents. Every run is evidence bound to the commit
  * it checked: it records the HEAD sha and keeps earlier attempts instead of overwriting them.
  * Uncommitted changes fail the gate first, because reviewers and the PR only ever see commits.
- * A `verify` entry that is a list runs its steps at the same time; the next entry waits for all of
+ * The secret scan (lib/secrets.ts) runs next, always; under `verifySecrets: block` a finding stops
+ * every configured step, though the integrity report is still computed. A `verify` entry that is a list runs its steps at the same time; the next entry waits for all of
  * them, and none runs after a group with a failure. Results stay in config order whatever finishes
  * first, so `failure` is the first failing step as configured, not the first to fail.
  */
@@ -474,10 +477,20 @@ export async function verify(root: string, config: Config, id: string): Promise<
   const dirty = changed || hidden;
   const results: VerifyStep[] = [];
   let integrity: IntegrityReport | null = null;
-  if (dirty) {
-    results.push({ name: 'worktree-clean', ok: false, exit: null, tail: dirty });
-  } else {
-    for (const group of groups) {
+  if (dirty) results.push({ name: 'worktree-clean', ok: false, exit: null, tail: dirty });
+  // Before any configured command, clean or not: a likely credential stops the round here, and the
+  // staged changes are scanned too, so a key the builder has not committed yet is still reported.
+  const mode = secretMode(config);
+  const scanStarted = Date.now();
+  const secrets = scanBranch(root, config, job, { staged: true });
+  const secretsStep: VerifyStep = { name: 'secrets', ok: secretsOk(secrets, mode), exit: null, durationMs: Date.now() - scanStarted };
+  const n = secrets.findings.length;
+  if (!secretsStep.ok) secretsStep.tail = secretsTail(secrets);
+  else if (secrets.error) secretsStep.reason = `scan incomplete (verifySecrets: warn): ${secrets.error}`;
+  else if (n) secretsStep.reason = `${n} possible secret${n === 1 ? '' : 's'} (verifySecrets: warn)`;
+  results.push(secretsStep);
+  if (!dirty) {
+    for (const group of secretsStep.ok ? groups : []) {
       // A failing step never stops its siblings: each finishes and keeps its own log. One that
       // throws is reported only once the others have settled, so none writes after verify returns.
       const settled = await Promise.allSettled(
@@ -508,6 +521,10 @@ export async function verify(root: string, config: Config, id: string): Promise<
       continue;
     }
     if (r.name === 'integrity') continue;
+    if (r.name === 'secrets') {
+      lines.push(renderSecrets(secrets, mode));
+      continue;
+    }
     lines.push(`## ${r.name}: ${r.skipped ? `skipped (${r.reason ?? 'no command configured'})` : r.ok ? 'ok' : `FAILED (exit ${r.exit})`}`);
     if ('cmd' in r) lines.push('', '`' + r.cmd + '` · log: `' + r.log + '`');
     if (r.reason && !r.skipped) lines.push('', `Trigger: ${r.reason}`);
@@ -529,8 +546,20 @@ export async function verify(root: string, config: Config, id: string): Promise<
     if (!ok) j.verifyRetries[String(job.round)] = (j.verifyRetries[String(job.round)] ?? 0) + 1;
   });
   logEvent(root, id, 'verify', rec);
+  logSecrets(root, id, 'verify', secrets, { blocked: mode === 'block', round: job.round });
   const budget = enforceBudget(root, config, id, 'verify');
-  return { ok, round: job.round, attempt, sha, file: path.relative(root, latest), steps: results.map(({ tail: _t, ...r }) => r), failure: results.find((r) => !r.ok), integrity: integrity ? compactIntegrity(integrity) : null, ...(budget ? { budget } : {}) };
+  return {
+    ok,
+    round: job.round,
+    attempt,
+    sha,
+    file: path.relative(root, latest),
+    steps: results.map(({ tail: _t, ...r }) => r),
+    failure: results.find((r) => !r.ok),
+    integrity: integrity ? compactIntegrity(integrity) : null,
+    secrets: compactSecrets(secrets, mode),
+    ...(budget ? { budget } : {}),
+  };
 }
 
 /**

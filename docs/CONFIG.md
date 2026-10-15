@@ -51,6 +51,8 @@ verifyE2e:                   # after every verify step passes, also run commands
                              # `forge job scope` matching: exact path, `dir/` prefix, * ** ? globs; a slash-free
                              # glob also matches the basename. A list here replaces the default.
 verifyIntegrity: warn        # warn | block: block fails verify on deleted test files or added skip/focus markers
+verifySecrets: block         # block | warn: block fails verify, and refuses commits and a forced pr open, on a likely
+                             # credential ("Secret scanning"); warn only reports it. Text Forge sends is always refused
 ports: { base: 4100, span: 100 }
 
 runtime:
@@ -271,6 +273,46 @@ Under `warn` the report never changes the result; reviewers and the approver rea
 
 Verify's clean check also fails, in either mode, when the files on disk can differ from HEAD without `git status` showing it: assume-unchanged flags, a skip-worktree file that is still on disk, or one missing from disk that no sparse checkout leaves out (paths outside a cone-mode sparse checkout are fine; with non-cone or malformed patterns only files that are not tests or test config may be missing), or a clean/smudge filter that changes a test or test-config file on checkout (the standard git-lfs filter is trusted; Forge's eval checkouts sparse-exclude only `.forge/evals/`). If that check itself cannot run, the report becomes an integrity error (fails `block`, printed under `warn`). In the verify JSON, `integrity` is `null` when the worktree is unclean (no report is computed) and `{ "mode", "ok", "error" }` when the report cannot be computed.
 
+## Secret scanning
+
+Forge refuses to publish a likely credential, and the check lives in its own code (`lib/secrets.ts`), not in a prompt. The scanner has no dependencies and runs wherever Forge sends something off the machine:
+
+| Gate | What it scans | On a finding |
+|---|---|---|
+| `forge verify` | a `secrets` step before the first configured group, clean worktree or not: every non-merge commit in `merge-base..HEAD` on its own (a key added and deleted later is still found), the net diff (what a merge brought in), every commit message, and the staged changes | `block`: the step fails, no configured group runs, the integrity report is still computed. `warn`: the step passes with a reason |
+| `forge git commit` | the message, before anything is staged; then the staged diff against HEAD | the message: always refused. Staged content: refused under `block` (the index stays staged), committed under `warn` with `secrets: <n>` in the result |
+| `forge pr open` | the PR title and body exactly as Forge would send them, before any `gh` call or push, even when the PR exists; with `--force` on an unverified HEAD, also the commit range (commits, messages, net diff) | the text: always refused. The range: refused under `block` |
+| tracker writes | `comment` bodies and `create` titles and bodies, in every adapter (`forge tracker comment\|create`, `forge job link --create`, `job human … --link new`, the split procedure); a custom adapter's `update`/`claim` also have the job's title and reason scanned | always refused |
+| `forge job agent end` | the role's output, its extras (builder: `build.md`, `tasks.md`; integrator: `build.md`; approver: `pr.md`, `runbook.md`; designer: `mockup.html`; retro: `spec.md`) and `questions.md`, when written since the agent started and a regular file inside the job dir | never blocks: a `secret-found` event, and `secrets: <n>` in the result |
+
+A refusal exits 1 with error code `secret_found` and a one-line message such as `possible secret in the PR body: aws-access-key at (pr body) line 3 (AKIA…XY, sha256:<64 hex>)`, plus how many more, and never calls the adapter, `gh` or `git commit`. `forge secrets scan <id>` shows what a job would publish, and `forge secrets scan --paths <globs>` scans the main checkout's tracked files (untracked files and symlinks are left out, files over 2 MiB are counted as skipped); both exit 1 on a finding.
+
+**What counts.** Provider patterns, each a kind: `private-key` (a PEM `PRIVATE KEY` block with at least 64 base64 characters, split over lines or written with literal `\n`, reported once at its first line), `aws-access-key`, `github-token`, `github-pat`, `gitlab-token`, `slack-token`, `stripe-live-key` (test keys are not), `anthropic-key`, `openai-key` (its body has a digit), `google-api-key`, `bearer-token` (an `Authorization: Bearer` header with a token of 20+ characters) and `url-credential` (`password=`/`token=`-style query values and `scheme://user:pass@host`). An `sk-ant-` key is only ever `anthropic-key`. Then `high-entropy`: a value of 33 to 256 characters of `[A-Za-z0-9+/_=-]` inside quotes or backticks, or after `name =`. A hex value (all lower- or all upper-case) needs at least 3.0 bits of entropy per character and a secret word on its line (`secret`, `token`, `passw`, `pwd`, `api_key`, `private_key`, `credential`, `auth_token`, `access_key`, `signing_key`, …); any other value needs at least 4.3 bits and an upper-case letter, a lower-case letter and a digit. SRI hashes (`sha512-…`), UUIDs, slugs, paths, values over 256 characters and anything of 32 characters or fewer are never flagged.
+
+**Where only provider patterns run.** Lockfiles (`package-lock.json`, `yarn.lock`, `Cargo.lock`, `go.sum`, …), `*.min.js`, `*.min.css`, `*.map`, `*.svg`, paths matching `worktrees.generated`, files whose added content holds a NUL byte, and the text Forge sends (commit messages, PR title and body, tracker text), where prose often quotes hashes and the gates refuse outright.
+
+**Placeholders are not findings:** an env reference (`${X}`, `$X`), a `<…>` or `{{…}}` value, a value with fewer than 5 distinct characters, one containing `example`, `placeholder`, `dummy`, `redacted`, `changeme`, `xxxx`, `****`, `your_` or `your-`, and one that is exactly a stock word such as `password` or `token`.
+
+**Masking and fingerprints.** A finding shows the first 4 and last 2 characters of a value of 16 or more (`AKIA…XY`), the first 2 of one of 8 to 15 (`hu…`), and nothing of a shorter one (`…`); a backtick, `|`, whitespace or control character in what is shown becomes `?`. The full value is never printed, logged, written to a file or put in an event. Each finding carries `fingerprint`: `sha256:` and the hex sha256 of the full value (of a PEM key, its body without whitespace). The fingerprint is not secret material and appears in output, errors, verify files and events.
+
+**Allowlist.** `.forge/secrets-allow.txt`, read from the main checkout only: a copy in the job's worktree, or committed on its branch, is ignored, and a daemon session can't edit it (it is in the trust digest and denied to `Edit`; see ARCHITECTURE.md "Daemon security"). A branch that edits it shows up as a config edit in the integrity report. One entry per line:
+
+```text
+# Comments and blank lines are ignored; a comment takes its own line.
+# A path glob (forge job scope matching) allows repository content only:
+test/fixtures/**
+# A fingerprint allows that value anywhere:
+sha256:<64 lower-case hex>
+```
+
+A path glob never allows text: commit messages, the PR title and body, tracker text and job-dir files need the fingerprint. A malformed `sha256:` line or a `!` line is listed as a problem and ignored; a symlinked allowlist allows nothing. An allowed finding is listed with the line that allowed it (`allowedBy: .forge/secrets-allow.txt:<line>`).
+
+**Modes.** `verifySecrets` covers content: verify's branch scan, the staged scan in `forge git commit` and the range scan in `forge pr open --force`. Text Forge composes and sends is refused in either mode. The mode always comes from the main checkout's config, and any value other than `warn` counts as `block`. A scan that cannot finish (base not found, a git failure, more than 1,000 commits) fails under `block` and passes with `error` under `warn`; it never reads as clean.
+
+**The human gate.** When verify fails on `secrets` (in the verify, integrate or pr stage) and no builder or integrator has run since, or `forge pr open` was refused, `forge job step` parks the job on `waitingOn: human` with the reason `secret scan blocked verify round <n>` or `secret scan blocked pr open` (an eval job fails instead). No agent retry gets past it. A human removes the value (and rewrites the branch if it was committed; Forge never amends, rebases or force-pushes for it) or allowlists it, then `/forge approve <id>`: step runs the scan again and parks the job again if the value is still there. `/forge rework <id> <note>` sends it back to build.
+
+**Residual risks.** A secret split across strings or lines, or encoded (base64 of a token, compressed or binary formats), is found only if the entropy check happens to catch it. An evil merge whose content a later commit deletes is not seen. The sha256 of a short `password=` value can be guessed offline from its fingerprint. Regex false positives happen; the allowlist handles them. Forge does not revoke or rotate a leaked credential.
+
 ## Daemon
 
 With `daemon.enabled: true`, `forge dash` supervises headless orchestrator sessions, so requests queued from the dashboard get handled without a Claude Code window open: one **inbox** session for requests without a job (`next`, `run`, `sync`, `retro`, `eval-run`), which only does intake and hands each new job off, and one session **per job**, started when that job has work. Whenever a session's pending requests change and it is idle, it gets one fixed turn, `/forge requests`, on stdin; the session claims and handles them exactly as yours would, seeing only its own scope's requests. Each session fails, idles and logs on its own. They spend tokens unattended, under the permissions `allowedTools` grants, so the daemon is off by default.
@@ -305,4 +347,5 @@ Files (gitignored, under `.forge/runtime/daemons/`): `<scope>.json` (session id,
 | `.forge/notes/experiments.md` | the retro's ledger of changes and their metrics |
 | `.forge/reviewers/<lens>.md` | a repo checklist; overrides the built-in lens of the same name |
 | `.forge/trackers/<name>.mjs` or `.ts` | a custom tracker adapter (see TRACKERS.md) |
+| `.forge/secrets-allow.txt` | path globs and `sha256:` fingerprints the secret scanner allows; read from the main checkout only ("Secret scanning") |
 | `.forge/evals/<task>/` | eval tasks (see IMPROVEMENT.md); `evals/runs/` holds results |
