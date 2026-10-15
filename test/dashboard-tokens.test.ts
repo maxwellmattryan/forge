@@ -141,7 +141,8 @@ test('built CSS carries every design token in every theme', () => {
       assert.ok(got.has(name), `${sel} › ${name} is missing from the built CSS`);
       assert.ok(sameValue(value, got.get(name) ?? ''), `${sel} › ${name}: design ${value}, built ${got.get(name)}`);
     }
-    const extra = [...got.keys()].filter((k) => !want.has(k)).sort();
+    // lightningcss adds --lightningcss-light/-dark beside every color-scheme, for its light-dark() fallback.
+    const extra = [...got.keys()].filter((k) => !want.has(k) && !k.startsWith('--lightningcss-')).sort();
     assert.deepEqual(extra, [...EXTRAS[sel]].sort(), `${sel}: only the drafting extras are added`);
   }
   assert.ok(count >= 100, `checked ${count} tokens`);

@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url';
 const DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dashboard', 'dist');
 
 /**
- * Every stylesheet the manifest names, joined. Spacing the minifier may or may not keep inside values
- * (`) 0`, `) var(`, ` * `) is dropped, so a toolchain bump that only changes spacing does not fail the
+ * Every stylesheet the manifest names, joined. Spacing a minifier may or may not keep (`) 0`, `) var(`,
+ * ` * `, `, `, `@media (`) is dropped, so a toolchain bump that only changes spacing does not fail the
  * literal comparisons; a space after `)` before a selector character (`:is(a) .b`) is a combinator and stays.
  */
 export function builtCss(): string {
@@ -18,5 +18,7 @@ export function builtCss(): string {
     .map((f) => fs.readFileSync(path.join(DIST, f), 'utf8'))
     .join('\n')
     .replace(/\)\s+(?=[\d-]|var\()/g, ')')
-    .replace(/\s+\*\s+/g, '*');
+    .replace(/\s+\*\s+/g, '*')
+    .replace(/,\s+/g, ',')
+    .replace(/@media\s+\(/g, '@media(');
 }
