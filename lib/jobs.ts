@@ -321,6 +321,25 @@ export function recordAgent(
 }
 
 /**
+ * Ends each role still marked running with status `lost`, as `forge job agent <id> end --role
+ * <role> --status lost` would, minus the transcript import and budget check: a lost agent carries
+ * no usage. Each role is re-read first, so one another writer ended meanwhile keeps its status.
+ * Returns the roles it ended.
+ */
+export function markAgentsLost(root: string, id: string, roles: string[], summary: string, config: Config): string[] {
+  const ended: string[] = [];
+  for (const role of roles) {
+    const job = loadJob(root, id);
+    const a = job.agents[role];
+    if (a?.status !== 'running') continue;
+    const outputMissing = agentOutputMissing(root, id, role, a, undefined);
+    recordAgent(root, id, { role, phase: 'end', status: 'lost', summary, ...(outputMissing !== null ? { outputMissing } : {}) }, config);
+    ended.push(role);
+  }
+  return ended;
+}
+
+/**
  * Resolves `agent start --output` against the job dir and refuses anything that lands outside
  * it, including through a symlinked parent, so the flag can neither create directories nor probe
  * files elsewhere. Returns the job-dir-relative path.

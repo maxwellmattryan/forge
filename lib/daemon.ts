@@ -10,8 +10,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { effectiveLimits, exceededKeys, measureBudget } from './budget.ts';
-import { TRUST_ENV, daemonProblems, loadConfig as defaultLoadConfig, trackerSymlinks, trustDigest } from './config.ts';
-import { RUNNING_AGENT_MAX_MS, loadJob } from './jobs.ts';
+import { TRUST_ENV, daemonProblems, defaults, loadConfig as defaultLoadConfig, trackerSymlinks, trustDigest } from './config.ts';
+import { RUNNING_AGENT_MAX_MS, loadJob, markAgentsLost } from './jobs.ts';
 import { PLUGIN_ROOT, paths } from './paths.ts';
 import { INBOX_SCOPE, SCOPE_ENV, validJobId, validScope } from './requests.ts';
 import { isClaudeExecutable, now, run, sleepSync, splitWords, writeJsonAtomic } from './util.ts';
@@ -322,6 +322,9 @@ export function permissionResponse(requestId: string, decision: PermissionDecisi
 /** Why the supervisor stopped: shown in the dashboard, so it speaks to the human. */
 export const TRUST_CHANGED =
   'daemon stopped: .forge/config.yml or .forge/trackers/ changed while it was running. The session can write files in this checkout, so only a human may approve that change: review `git diff .forge/`, then start the daemon again.';
+
+/** The summary an agent gets when its session's child exits under it. */
+export const LOST_SUMMARY = 'lost: its daemon session ended';
 
 const RING_SIZE = 200;
 /** Lines kept in memory for replay are capped like SSE frames; the session log keeps them verbatim. */
@@ -827,6 +830,30 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     changed();
   }
 
+  /**
+   * The child is gone, so every agent it drove is too: marking them lost lets the next session's
+   * step respawn or retry them instead of waiting on phantoms. Only agents of a job this session
+   * owns (sessionAgents), so another driver's agents are never touched. Never throws: an exit
+   * must finish whatever job.json says.
+   */
+  function loseAgents(): void {
+    if (!fs.existsSync(root)) return;
+    try {
+      const { running } = agents();
+      if (!running.length) return;
+      let cfg: Config;
+      try {
+        cfg = o.readConfig(root).config;
+      } catch {
+        cfg = defaults();
+      }
+      const roles = markAgentsLost(root, scope, running, LOST_SUMMARY, cfg);
+      if (roles.length) logEvent('agents-lost', { roles });
+    } catch (e) {
+      logEvent('error', { message: `marking agents lost: ${(e as Error).message}` });
+    }
+  }
+
   function keptBy(graceMs: number, at = Date.now()): 'agents' | 'grace' | null {
     const a = agents(at);
     if (a.keeps) return 'agents';
@@ -1279,6 +1306,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     info = { ...info, pid: null };
     persist();
     logEvent('exit', { code, signal });
+    loseAgents();
     if (meta.asked) {
       // A failed turn's error describes the process just stopped on purpose; the log keeps it.
       // Clearing it lets a finished or slot-stopped session be pruned instead of showing failing forever.
@@ -1357,6 +1385,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       dropPrompts();
       info = { ...info, pid: null };
       persist();
+      loseAgents();
     }
     if (!child) status = 'off';
     changed();
