@@ -258,6 +258,28 @@ export function helpCmd(words: readonly string[], flags: Record<string, any>): v
   out(h.command ? renderCommand(h.command) : h.group ? renderGroup(h.group) : renderOverview(), flags);
 }
 
+export const README_START = '<!-- forge:commands:start (generated from lib/commands/*.ts by npm run docs:commands; edit those tables) -->';
+export const README_END = '<!-- forge:commands:end -->';
+
+/** README's CLI table: the `readme: true` rows, in overview order. */
+export function readmeTable(): string {
+  const cell = (text: string) => text.replace(/\|/g, '\\|');
+  const rows = GROUPS.flatMap((g) => g.commands.filter((c) => c.readme));
+  return [
+    '| Command | What it does |',
+    '|---|---|',
+    ...rows.map((c) => `| ${cell(`\`${usageLine(c)}\``)} | ${cell(c.summary)}${c.docs ? ` (see [${c.docs[0]}](${c.docs[1]}))` : ''} |`),
+  ].join('\n');
+}
+
+/** README.md's text with the lines between the markers replaced by readmeTable(). */
+export function syncReadme(readme: string): string {
+  const start = readme.indexOf(README_START);
+  const end = readme.indexOf(README_END);
+  if (start < 0 || end < start) throw new ForgeError(`README.md has no ${README_START} … ${README_END} region`);
+  return `${readme.slice(0, start + README_START.length)}\n${readmeTable()}\n${readme.slice(end)}`;
+}
+
 /** A `usage:` error for a group in these tables (lib/cli.ts routes some groups itself). */
 export function usage(name: string, sub?: string): ForgeError {
   const g = GROUPS.find((x) => x.name === name);

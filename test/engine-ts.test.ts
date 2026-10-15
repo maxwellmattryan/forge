@@ -31,7 +31,7 @@ test('engine tsconfig is strict and erasable-only', () => {
       types: ['node'],
       skipLibCheck: true,
     },
-    include: ['lib/**/*', 'hooks/**/*', 'test/types-parity.ts'],
+    include: ['lib/**/*', 'hooks/**/*', 'scripts/**/*', 'test/types-parity.ts'],
   });
 });
 

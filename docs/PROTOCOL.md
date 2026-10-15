@@ -9,7 +9,7 @@ Forge is packaged for Claude Code, but nothing in its design is specific to one 
 | Orchestrator procedure | `skills/forge/SKILL.md` + `skills/forge/reference/*.md` | the orchestrator's instructions |
 | Roles | `agents/<role>.md` | each sub-agent's system prompt (ignore the YAML frontmatter, except `model` as a hint) |
 | Review lenses | `reviewers/<lens>.md`, `.forge/reviewers/<lens>.md` | handed to the reviewer role as its checklist |
-| CLI | `bin/forge` (Node ≥ 22.18) | inside Claude Code the plugin puts `bin/` on PATH; elsewhere `git clone` it and run `npm link` so `forge` is on PATH for the orchestrator and every sub-agent |
+| CLI | `bin/forge` (Node ≥ 22.18) | inside Claude Code the plugin puts `bin/` on PATH; elsewhere `git clone` it and run `npm link` so `forge` is on PATH for the orchestrator and every sub-agent. [docs/CLI.md](CLI.md) is its contract: exit codes, `--json` errors and the environment variables it reads |
 
 ## Substitutions when reading SKILL.md
 
