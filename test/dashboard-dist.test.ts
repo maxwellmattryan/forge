@@ -36,7 +36,7 @@ function listFiles(dir, rel = '') {
 
 test('package.json: exact-pinned devDependencies only, no install hooks', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-  const pinned = { '@sveltejs/vite-plugin-svelte': '6.2.4', '@tailwindcss/vite': '4.1.18', '@types/node': '22.18.13', svelte: '5.57.1', 'svelte-check': '4.7.6', tailwindcss: '4.1.18', typescript: '6.0.3', vite: '7.3.7' };
+  const pinned = { '@sveltejs/vite-plugin-svelte': '6.2.4', '@tailwindcss/vite': '4.3.3', '@types/node': '22.18.13', svelte: '5.57.2', 'svelte-check': '4.7.6', tailwindcss: '4.3.3', typescript: '6.0.3', vite: '7.3.7' };
   assert.deepEqual(pkg.devDependencies, pinned);
   for (const [name, v] of Object.entries(pkg.devDependencies)) assert.match(String(v), /^\d+\.\d+\.\d+$/, `${name} must be exact-pinned`);
   assert.equal(pkg.dependencies, undefined, 'the plugin has zero runtime dependencies');
