@@ -133,8 +133,8 @@ pr:
   closeIssue: true           # add "Closes #n" for GitHub-tracked jobs
   labels: []
   reviewers: []              # GitHub handles/teams to request
-  conflicts: ask             # ask | fix | defer
-  updateStrategy: merge      # merge | rebase (for branches with an open PR; before a PR: rebase)
+  conflicts: ask             # ask | fix | defer (see "Open PRs")
+  updateStrategy: merge      # merge | rebase: how forge integrate updates a branch with an open PR (before a PR: rebase)
 
 merge:
   auto: false                # let Forge merge approved PRs (waits for CI, even without branch protection; see README)
@@ -204,6 +204,15 @@ daemon:                      # opt-in headless sessions supervised by `forge das
 - **`pipeline.plan: auto`** runs the planner when the request body (`request.md` without its title) is longer than 600 characters, or has 3 or more lines that start with a list marker (`-`, `*`, `1.`) or a `#` heading. `always` always plans and `never` never does.
 - **`review.panel`** is picked once the spec is written: every `always: true` lens, plus the spec's `Suggested reviewers:` that are in the panel, plus each lens whose `when` names a path (a token with a `/` or a file extension, such as `lib/server.ts` or `dashboard/src/**`) that one of the spec's Approach paths falls under. A `when` written only in prose is left to the spec-writer's suggestion. Names that aren't plain lowercase lens names are dropped.
 - **`review.onPrFeedback`** picks the lenses for a rework round on an open PR: `full` re-runs the job's whole recorded panel, `none` skips review and goes straight to `forge pr open`, and `changed` (the default) re-runs the `always: true` lenses. `changed` can't look at which files the round touched, because step decides from recorded state, not the diff.
+
+## Open PRs
+
+`forge sync` (and `forge pr sync <id>`) re-reads every open PR. A job parked on `pr-review` or `conflicts` whose PR has moved under it is handled by these keys:
+
+- **`pr.conflicts`** decides a PR that conflicts with its base. `ask` (the default) waits on `conflicts` until you `/forge approve` it. `fix` has `forge sync` move the job to `integrate` itself, where the integrator resolves the conflicts, re-verifies and runs the integration review. `defer` leaves the job on `pr-review` with a note.
+- **`pr.updateStrategy`** is how a branch with an open PR is updated (`merge` by default, so nothing is force-pushed). A PR that is only behind its base needs no conflict decision, so `forge sync` moves it to `integrate` under every `pr.conflicts` policy, including the default `ask`, and `forge integrate` updates it with this strategy.
+
+Both routes have the same guards. The job is not claimed by a live session (the test `forge next` uses, judged inside the job lock), the PR head is the commit Forge pushed (a human push is left alone), and each head is routed once, so a failed integration doesn't loop. Sync never claims the job: with `daemon.enabled` it queues a `resume` for the job's session, and otherwise `forge sync` lists the job under `integrating` for `/forge continue <id>`. `forge pr merge` syncs without routing.
 
 ## Model profiles
 
