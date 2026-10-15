@@ -198,6 +198,38 @@ test('appearance prefs turn the grid and paper off', () => {
   assert.ok(drafting.includes('html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::after { display: none; }'), 'design/drafting.css drops the fibre and the falloff');
 });
 
+/** One declaration's value in a rule body, or undefined. */
+const decl = (body: string, prop: string) => new RegExp(`(?:^|;)\\s*${escapeRe(prop)}\\s*:\\s*([^;]*)`).exec(body)?.[1].trim();
+/** The quoted inline SVG in a stylesheet: the first `url("data:image/svg+xml…")`. */
+const grainUri = (text: string) => /url\(\s*"(data:image\/svg\+xml[^"]*)"\s*\)/.exec(text)?.[1];
+
+// The grain sits on a fixed layer the size of the viewport, drawn once (no tile, so no seam), and never moves:
+// no animation, no transition, no scroll. design/drafting.css draws the same grain at the same size.
+test('the grain is fixed, static and mirrored in design/', () => {
+  assert.equal(decl('a:1;background-size:100% 100%', 'background-size'), '100% 100%', 'self-check: decl');
+  assert.equal(grainUri('x{--paper:url("data:image/svg+xml,%3Csvg%3E")}'), 'data:image/svg+xml,%3Csvg%3E', 'self-check: grainUri');
+
+  const rule = ruleFor(builtCss(), '.ground:before');
+  assert.equal(decl(rule, 'position'), 'fixed', 'the grain is fixed to the viewport');
+  assert.equal(decl(rule, 'opacity'), 'var(--paper-opacity)');
+  assert.equal(decl(rule, 'mix-blend-mode'), 'var(--paper-blend)');
+  assert.doesNotMatch(rule, /(^|;)\s*(animation|transition)[\w-]*\s*:/, 'the grain never animates');
+  assert.equal(decl(rule, 'background-repeat'), 'no-repeat', 'the grain is drawn once');
+  assert.equal(decl(rule, 'background-size'), '100% 100%', 'the grain is the size of the layer');
+  assert.doesNotMatch(decodeURIComponent(grainUri(rule) ?? ''), /<svg[^>]*\s(width|height|viewBox)=/, 'the SVG has no size of its own, so 100% 100% never stretches it');
+
+  const style = fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8');
+  const drafting = draftingCss();
+  const uri = grainUri(style);
+  assert.ok(uri, 'dashboard/style.css writes the grain inline');
+  assert.equal(grainUri(rule), uri, 'the build keeps the grain as written');
+  assert.ok(drafting.includes(`--paper: url("${uri}");`), 'design/drafting.css declares the same grain in --paper');
+  const before = drafting.slice(drafting.indexOf('.ground::before {')).split('\n')[0];
+  assert.ok(before.includes('background-image: var(--paper);'), 'design/drafting.css draws --paper on the ground layer');
+  assert.ok(before.includes('background-repeat: no-repeat; background-size: 100% 100%;'), 'design/drafting.css mirrors the sizing');
+  assert.doesNotMatch(before, /animation|transition/, 'design/drafting.css never animates the grain');
+});
+
 /** The body of the first `@media` block whose prelude matches, braces balanced. */
 function mediaBody(css: string, prelude: RegExp): string {
   // Every block with that prelude: Tailwind's own variants (`max-md:hidden`) emit their own block with the same query.

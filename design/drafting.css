@@ -1,7 +1,7 @@
-/* Forge — Drafting. Reference stylesheet: reads every colour, font, shadow and pitch from tokens.css; declares only textures and drawing rules. Three themes: cyanotype (the default), vellum and nightprint. Three levels: the ground (grid + paper fibre), opaque sheets and overlays (panel), the chrome sidebar; the only patterns are the grid, the fibre and the hover sketch. Port these into dashboard/style.css as @utility classes (see MIGRATION.md). */
-:root { --paper: url(textures/paper.svg); --paper-opacity: .18; --paper-blend: soft-light; --fall: rgba(4,18,48,.4); color-scheme: dark; }
-[data-theme="vellum"] { --paper-opacity: .55; --paper-blend: multiply; --fall: rgba(40,36,20,.08); color-scheme: light; }
-[data-theme="nightprint"] { --paper-opacity: .10; --paper-blend: soft-light; --fall: rgba(0,0,0,.45); color-scheme: dark; }
+/* Forge — Drafting. Reference stylesheet: reads every colour, font, shadow and pitch from tokens.css; declares only the grain and drawing rules. Three themes: cyanotype (the default), vellum and nightprint. Three levels: the ground (grid + film grain), opaque sheets and overlays (panel), the chrome sidebar; the only patterns are the grid, the grain and the hover sketch. Port these into dashboard/style.css as @utility classes (see MIGRATION.md). */
+:root { --paper: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g' x='0' y='0' width='100%25' height='100%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch' seed='7'/%3E%3CfeColorMatrix values='.33 .33 .33 0 0 .33 .33 .33 0 0 .33 .33 .33 0 0 0 0 0 0 1'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='6' intercept='-2.1'/%3E%3CfeFuncG type='linear' slope='6' intercept='-2.1'/%3E%3CfeFuncB type='linear' slope='6' intercept='-2.1'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E"); --paper-opacity: .08; --paper-blend: soft-light; --fall: rgba(4,18,48,.4); color-scheme: dark; }
+[data-theme="vellum"] { --paper-opacity: .10; --paper-blend: multiply; --fall: rgba(40,36,20,.08); color-scheme: light; }
+[data-theme="nightprint"] { --paper-opacity: .07; --paper-blend: soft-light; --fall: rgba(0,0,0,.45); color-scheme: dark; }
 
 html { background: var(--bg); color: var(--fg); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; scrollbar-gutter: stable; }
 body { margin: 0; font-size: 14px; line-height: 20px; }
@@ -14,12 +14,13 @@ a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
 button, input, select, textarea { font: inherit; color: inherit; }
 h1, h2, h3, p { margin: 0; }
 
-/* ---------- the ground: grid + paper fibre + exposure falloff ---------- */
+/* ---------- the ground: grid + film grain + exposure falloff ---------- */
+/* The grain is an inline SVG with no size or viewBox: it takes the layer's size at one unit per px, so it never tiles or stretches. Static: it never animates. */
 .ground { position: relative; isolation: isolate; background-color: var(--bg); background-image: linear-gradient(var(--grid-major) 1px, transparent 1px), linear-gradient(90deg, var(--grid-major) 1px, transparent 1px), linear-gradient(var(--grid-minor) 1px, transparent 1px), linear-gradient(90deg, var(--grid-minor) 1px, transparent 1px); background-size: 64px 64px, 64px 64px, 8px 8px, 8px 8px; background-position: -1px -1px; }
-.ground::before { content: ""; position: absolute; inset: 0; background-image: var(--paper); background-size: 512px 512px; opacity: var(--paper-opacity); mix-blend-mode: var(--paper-blend); pointer-events: none; z-index: 1; }
+.ground::before { content: ""; position: absolute; inset: 0; background-image: var(--paper); background-repeat: no-repeat; background-size: 100% 100%; opacity: var(--paper-opacity); mix-blend-mode: var(--paper-blend); pointer-events: none; z-index: 1; }
 .ground.falloff::after { content: ""; position: absolute; inset: 0; background: radial-gradient(120% 100% at 50% 40%, transparent 50%, var(--fall) 100%); pointer-events: none; z-index: 1; }
 .ground > * { position: relative; z-index: 2; }
-/* Appearance prefs (Settings › General › Grid, Paper): off drops the grid, or the fibre and the falloff. */
+/* Appearance prefs (Settings › General › Grid, Paper): off drops the grid, or the grain and the falloff. */
 html[data-grid="off"] .ground { background-image: none; }
 html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::after { display: none; }
 /* --surface: the colour a control's rest fill takes. Never declared in a token scope, so on the ground it falls back to bg. */
