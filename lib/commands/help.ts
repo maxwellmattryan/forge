@@ -250,11 +250,21 @@ export function renderCommand(c: CommandHelp): string {
   return lines.join('\n');
 }
 
+/**
+ * A command as `forge help --json` prints it. `readme` only picks README rows, so it stays out of
+ * the JSON, where docs/CLI.md "Stability" would make it a field scripts may rely on.
+ */
+function publicCommand(c: CommandHelp): Omit<CommandHelp, 'readme'> {
+  const { readme: _readme, ...rest } = c;
+  return rest;
+}
+const publicGroup = (g: HelpGroup) => ({ ...g, commands: g.commands.map(publicCommand) });
+
 /** `forge help [words]`, `forge --help` and `forge <words> --help`. */
 export function helpCmd(words: readonly string[], flags: Record<string, any>): void {
   const h = findHelp(words);
   if (!h) throw new ForgeError(`unknown command "${words[0]}"; run \`forge help\` to list commands`, 'unknown_command', 'forge help');
-  if (flags.json) return out(h.command ?? h.group ?? { version: forgeVersion(), groups: GROUPS }, flags);
+  if (flags.json) return out(h.command ? publicCommand(h.command) : h.group ? publicGroup(h.group) : { version: forgeVersion(), groups: GROUPS.map(publicGroup) }, flags);
   out(h.command ? renderCommand(h.command) : h.group ? renderGroup(h.group) : renderOverview(), flags);
 }
 

@@ -354,6 +354,13 @@ test('help: overview, group, command', () => {
   assert.deepEqual(Object.keys(all), ['version', 'groups']);
   assert.deepEqual(all.groups.map((g: any) => g.name), GROUPS.map((g) => g.name));
   assert.equal(JSON.parse(helpCli('--json').stdout).groups.length, GROUPS.length);
+  // `readme` is internal (it picks README rows): it never reaches the JSON, where docs/CLI.md
+  // "Stability" would freeze it. Only these keys may appear on a command.
+  const PUBLIC = new Set(['command', 'args', 'summary', 'flags', 'exits', 'docs']);
+  const commands = [...all.groups.flatMap((g: any) => g.commands), ...JSON.parse(helpCli('help', 'job', '--json').stdout).commands, JSON.parse(helpCli('help', 'job', 'link', '--json').stdout), JSON.parse(helpCli('help', 'update', '--json').stdout)];
+  assert.ok(GROUPS.flatMap((g) => g.commands).some((c) => c.readme), 'the tables do mark README rows');
+  for (const c of commands) for (const k of Object.keys(c)) assert.ok(PUBLIC.has(k), `forge help --json prints ${k} on ${c.command}`);
+  for (const args of [['help', '--json'], ['help', 'job', '--json'], ['help', 'job', 'link', '--json'], ['help', 'update', '--json']]) assert.ok(!helpCli(...args).stdout.includes('"readme"'), args.join(' '));
 });
 
 test('help lists each command\'s exits', () => {
@@ -464,6 +471,14 @@ test('docs/CLI.md matches the error code table', () => {
   assert.deepEqual(exits, [['ok', 0], ['failed', 1], ['usage', 2], ['owned', 3], ['blocked', 4], ['external', 5]]);
   for (const [name, n] of exits) if (n > 0) assert.equal(DEFAULT_CODE[n as 1 | 2 | 3 | 4 | 5], name);
   for (const h of ['## Output', '## `--json`', '## Help', '## Environment variables', '## Stability']) section(doc, h);
+  // Every table row has its header's columns: a bare `|` inside a cell (even in code) splits it, so cells write `\|`.
+  const cols = (line: string) => line.split(/(?<!\\)\|/).length;
+  let header = 0;
+  for (const line of doc.split('\n')) {
+    if (!line.startsWith('|')) header = 0;
+    else if (!header) header = cols(line);
+    else assert.equal(cols(line), header, `docs/CLI.md: ${line.slice(0, 80)}`);
+  }
 });
 
 test('every FORGE_ variable is documented', () => {
