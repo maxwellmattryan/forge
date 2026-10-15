@@ -56,6 +56,10 @@ class AppState {
   data = $state.raw<ApiState | null>(null);
   dataKey = '';
   error = $state<string | null>(null);
+  /** The last /api/state poll: null until one finishes, then whether it succeeded. The status bar's Connection reads it. */
+  online = $state<boolean | null>(null);
+  /** When the last poll succeeded (ISO). */
+  polledAt = $state<string | null>(null);
   view = $state<ViewId>('pipeline');
   layout = $state(pref.get('layout', 'board'));
   filter = $state(pref.get('filter', 'active'));
@@ -90,6 +94,8 @@ const message = (e: unknown): string => (e instanceof Error ? e.message : String
 export async function refresh(): Promise<void> {
   try {
     const data = await api<ApiState>('/api/state');
+    S.online = true;
+    S.polledAt = new Date().toISOString();
     S.error = data.apiVersion > API_VERSION ? 'This data was written by a newer Forge. Restart `forge dash` after updating the plugin.' : null;
     const key = JSON.stringify({ ...data, now: undefined });
     if (key !== S.dataKey) {
@@ -102,6 +108,7 @@ export async function refresh(): Promise<void> {
     }
     if (S.drawer.id) loadDrawer(false);
   } catch (e) {
+    S.online = false;
     S.error = `Lost connection to the Forge server (${message(e)}). Is \`forge dash\` still running?`;
   }
 }
@@ -115,6 +122,11 @@ export async function loadView(): Promise<void> {
   } catch (e) {
     toast(message(e), true);
   }
+}
+
+/** GET /api/roster into S.roster, for the status bar's Model popover; the error reaches the caller, which shows it. */
+export async function loadRoster(): Promise<void> {
+  S.roster = await api<Roster>('/api/roster');
 }
 
 export function route(): void {

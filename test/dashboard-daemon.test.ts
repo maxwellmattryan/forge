@@ -1,4 +1,4 @@
-// The daemon bar's and the Session tab's models (dashboard/src/lib/daemon.ts). The log-line cases live in dashboard-session-log.test.ts.
+// The status bar's Daemon popover's and the session log's models (dashboard/src/lib/daemon.ts). The log-line cases live in dashboard-session-log.test.ts.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PERMISSION_MODES, START_HINT, mergePoolState, mergeSessionState, poolModel, postDaemon, postDaemonMode, sessionControls, sessionMode, sessionPill } from '../dashboard/src/lib/daemon.ts';

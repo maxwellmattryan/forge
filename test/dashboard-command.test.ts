@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tags } from './svelte-markup.ts';
-import { VERBS, commandKey, commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, scopeVerbs, scopedJob, shellEscape, shortcutLabel, suggest } from '../dashboard/src/lib/command.ts';
+import { VERBS, commandKey, commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, scopeVerbs, scopedJob, shellEscape, shortcutAction, shortcutLabel, suggest } from '../dashboard/src/lib/command.ts';
 import { buildRequest } from '../dashboard/src/lib/view.ts';
 
 const job = (id: string, state = 'running', extra: Record<string, unknown> = {}): any => ({ id, title: `Title of ${id}`, state, waitingOn: null, stage: 'build', ...extra });
@@ -180,16 +180,30 @@ test('suggest lists the scoped job\'s verbs first', () => {
 });
 
 test('shellEscape precedence', () => {
+  let n = 0;
   for (const command of [false, true]) {
     for (const settings of [false, true]) {
-      for (const drawer of [false, true]) {
-        const want = command ? 'command' : settings ? 'settings' : drawer ? 'drawer' : null;
-        assert.equal(shellEscape({ command, settings, drawer }), want, JSON.stringify({ command, settings, drawer }));
+      for (const popover of [false, true]) {
+        for (const drawer of [false, true]) {
+          const want = command ? 'command' : settings ? 'settings' : popover ? 'popover' : drawer ? 'drawer' : null;
+          assert.equal(shellEscape({ command, settings, popover, drawer }), want, JSON.stringify({ command, settings, popover, drawer }));
+          n++;
+        }
       }
     }
   }
-  assert.equal(shellEscape({ command: true, settings: false, drawer: true }), 'command', 'a palette opened from the drawer closes alone');
-  assert.equal(shellEscape({ command: false, settings: false, drawer: false }), null);
+  assert.equal(n, 16);
+  assert.equal(shellEscape({ command: true, settings: false, popover: false, drawer: true }), 'command', 'a palette opened from the drawer closes alone');
+  assert.equal(shellEscape({ command: false, settings: false, popover: true, drawer: true }), 'popover', 'a popover over the drawer closes first');
+  assert.equal(shellEscape({ command: false, settings: false, popover: false, drawer: false }), null);
+});
+
+test('shortcutAction', () => {
+  for (const inlineVisible of [false, true])
+    for (const inlineFocused of [false, true]) assert.equal(shortcutAction({ paletteOpen: true, inlineVisible, inlineFocused }), 'focus-palette', 'open palette: back to its input');
+  assert.equal(shortcutAction({ paletteOpen: false, inlineVisible: true, inlineFocused: false }), 'focus-inline', 'md and up: the first press focuses the bar');
+  assert.equal(shortcutAction({ paletteOpen: false, inlineVisible: true, inlineFocused: true }), 'open-palette', 'and a second opens the palette');
+  assert.equal(shortcutAction({ paletteOpen: false, inlineVisible: false, inlineFocused: false }), 'open-palette', 'below md the input is hidden: open the palette');
 });
 
 test('commandKey', () => {

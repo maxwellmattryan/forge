@@ -290,7 +290,7 @@ test('chip tones meet 4.5:1 on bg, panel and chrome', () => {
       // A chip fills with the surface it sits on; the live chip with 12% ink over that surface.
       const fill = (s: Rgba) => (tone === 'live' ? mix(color('ink'), 0.12, s) : s);
       const surfaces: Record<string, Rgba> = { bg: fill(color('bg')), panel: fill(color('panel')), chrome: fill(color('chrome')) };
-      // Button chips (DaemonBar) sketch over their fill inside a sheet.
+      // Button chips (the Daemon popover's job chips) sketch over their fill inside a sheet.
       surfaces['panel+sketch'] = over(color('sketch-line'), fill(color('panel')));
       for (const [k, surface] of Object.entries(surfaces)) {
         const ratio = contrast(color(token), surface);

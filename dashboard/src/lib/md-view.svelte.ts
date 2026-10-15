@@ -1,5 +1,5 @@
 // The Rendered/Raw choice per surface, saved as `forge.mdView.<surface>`. One module instance, so every instance of a
-// surface (the inbox log in the daemon bar and each drawer's log share `session`) flips together.
+// surface (the inbox log in the Daemon popover and each drawer's log share `session`) flips together.
 import { pref } from './prefs.ts';
 import { mdPrefKey, readMdView } from './md-view.ts';
 import type { MdSurface, MdView } from './md-view.ts';

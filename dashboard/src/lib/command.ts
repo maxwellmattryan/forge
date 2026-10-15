@@ -226,13 +226,25 @@ export function commandKey(e: CommandKeyInput): 'open' | 'close' | null {
 }
 
 /**
- * Which layer Escape closes: the palette over everything (it can open over the drawer), then Settings, then the
- * drawer, so one Escape never closes two layers.
+ * Which layer Escape closes: the palette over everything (it can open over the drawer), then Settings, then a status
+ * bar popover (it opens over the drawer at md and up), then the drawer, so one Escape never closes two layers.
  */
-export function shellEscape(s: { command: boolean; settings: boolean; drawer: boolean }): 'command' | 'settings' | 'drawer' | null {
+export function shellEscape(s: { command: boolean; settings: boolean; popover: boolean; drawer: boolean }): 'command' | 'settings' | 'popover' | 'drawer' | null {
   if (s.command) return 'command';
   if (s.settings) return 'settings';
+  if (s.popover) return 'popover';
   return s.drawer ? 'drawer' : null;
+}
+
+/**
+ * What Cmd/Ctrl-K does (Settings closed): back to the palette's input while it is open; else to the status bar's inline
+ * input when it shows and lacks focus; else (it has focus, or it is hidden below md) open the palette. So at md and up the
+ * first press focuses the bar and a second opens the palette.
+ */
+export function shortcutAction(s: { paletteOpen: boolean; inlineVisible: boolean; inlineFocused: boolean }): 'focus-palette' | 'focus-inline' | 'open-palette' {
+  if (s.paletteOpen) return 'focus-palette';
+  if (s.inlineVisible && !s.inlineFocused) return 'focus-inline';
+  return 'open-palette';
 }
 
 /** The shortcut hint: `⌘K` on Apple platforms, `Ctrl K` elsewhere. */

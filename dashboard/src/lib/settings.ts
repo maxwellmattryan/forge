@@ -61,6 +61,9 @@ export function moveTab(current: SettingsTabId, key: string): SettingsTabId | nu
   return null;
 }
 
+/** What Tab stops on: the palette's trap and a popover's Tab handling walk these. */
+export const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 /**
  * Where Tab (or Shift+Tab with `shift`) must send focus to stay inside the dialog: the index to
  * focus among its `count` tabbable elements, or null when the browser's own move stays inside.

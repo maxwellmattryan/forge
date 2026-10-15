@@ -86,6 +86,7 @@ html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::
 .btn.ghost { border-color: transparent; } /* the quiet close: only the cross shows at rest */
 @media (hover: hover) { .btn.ghost:hover { border-color: var(--line); } }
 .btn.ghost.hover { border-color: var(--line); } /* --line, never heavier than a neighbouring btn's --line-strong */
+.btn.ghost[aria-expanded="true"] { border-color: var(--line-strong); } /* a status bar indicator whose popover is open */
 .btn.touch { min-width: 44px; min-height: 44px; justify-content: center; }
 .btn .ic { width: 15px; height: 15px; }
 .seg { display: flex; } .seg .btn { margin-right: -1px; } .seg .btn:last-child { margin-right: 0; }

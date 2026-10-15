@@ -270,7 +270,11 @@ function mediaSplit(css: string, prelude: RegExp): { inside: string; outside: st
       outside += rest;
       break;
     }
-    const body = mediaBody(rest.slice(m.index), prelude);
+    // This block only: mediaBody joins every block with the prelude, which would skip the rules between them.
+    let depth = 1;
+    let i = m.index + m[0].length;
+    for (; i < rest.length && depth; i++) depth += rest[i] === '{' ? 1 : rest[i] === '}' ? -1 : 0;
+    const body = rest.slice(m.index + m[0].length, i - 1);
     inside.push(body);
     outside += rest.slice(0, m.index);
     rest = rest.slice(m.index + m[0].length + body.length + 1);
@@ -538,6 +542,29 @@ test('control heights are tokens in the drawing, the source and the build', () =
     assert.equal(entry?.value, value, `design/tokens.json size.tokens has ${name} = ${value}`);
     assert.ok(entry?.usage?.trim(), `design/tokens.json ${name} has a usage`);
   }
+});
+
+test('the status bar height is a token in the drawing, the source and the build', () => {
+  const tokensCss = scalarRoot(fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8'));
+  const source = scalarRoot(fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8'));
+  const sizes: { name: string; value: string; usage: string }[] = JSON.parse(fs.readFileSync(path.join(ROOT, 'design', 'tokens.json'), 'utf8')).size.tokens;
+  assert.ok(tokensCss.includes('--size-dialog') && source.includes('--size-dialog'), 'the scalar :root blocks are read');
+  assert.ok(tokensCss.includes('--size-statusbar: 48px;'), 'design/tokens.css :root declares --size-statusbar: 48px');
+  assert.ok(source.includes('--size-statusbar: 48px;'), 'dashboard/style.css :root declares --size-statusbar: 48px');
+  assert.ok(ruleFor(builtCss(), ':root').includes('--size-statusbar:48px'), 'the built :root carries --size-statusbar:48px');
+  const entry = sizes.find((t) => t.name === 'size-statusbar');
+  assert.equal(entry?.value, '48px', 'design/tokens.json size.tokens has size-statusbar = 48px');
+  assert.ok(entry?.usage?.trim(), 'with a usage');
+});
+
+test('focus scrolls clear of the status bar, and an open indicator keeps its edge', () => {
+  const css = builtCss();
+  // WCAG 2.4.11: the bar is fixed over the viewport's bottom, so focus and scroll-into-view stop above it.
+  assert.match(ruleFor(css, 'html'), /scroll-padding-bottom:calc\(var\(--size-statusbar\) \+ env\(safe-area-inset-bottom\) \+ var\(--space-2\)\)/, 'html pads its scroll by the bar, the inset and a gap');
+  const drafting = draftingCss();
+  assert.match(ruleFor(css, '.btn.ghost[aria-expanded=true]'), /border-color:var\(--line-strong\)/, 'the built CSS draws an open indicator with the strong edge');
+  assert.ok(drafting.includes('.btn.ghost[aria-expanded="true"] { border-color: var(--line-strong); }'), 'design/drafting.css mirrors it');
+  assert.ok(css.indexOf('.btn.ghost[aria-expanded=true]') > css.indexOf('.btn.ghost:hover'), 'after the ghost hover, so hovering an open indicator keeps it');
 });
 
 test('every control variant resolves to one control height', () => {

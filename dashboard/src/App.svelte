@@ -1,15 +1,14 @@
-<!-- The dashboard shell: sidebar, phone nav, banners, the active view, the daemon bar, the drawer, the command palette and its phone button, and the toast. -->
+<!-- The dashboard shell: sidebar, phone nav, banners, the active view, the status bar and its popovers, the drawer, the command palette, and the toast. -->
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import Banner from './components/Banner.svelte';
   import CommandBar from './components/CommandBar.svelte';
-  import CommandTrigger from './components/CommandTrigger.svelte';
-  import DaemonBar from './components/DaemonBar.svelte';
   import Drawer from './components/Drawer.svelte';
   import Icon from './components/Icon.svelte';
   import LiveDot from './components/LiveDot.svelte';
   import Nav from './components/Nav.svelte';
   import Settings from './components/Settings.svelte';
+  import StatusBar from './components/StatusBar.svelte';
   import Toast from './components/Toast.svelte';
   import Pipeline from './views/Pipeline.svelte';
   import Inbox from './views/Inbox.svelte';
@@ -24,13 +23,15 @@
   import { INBOX_SCOPE } from './lib/types.ts';
   import { t } from './lib/locale.ts';
   import { settingsKey } from './lib/settings.ts';
-  import { commandKey, shellEscape } from './lib/command.ts';
+  import { commandKey, shellEscape, shortcutAction } from './lib/command.ts';
   import { closePalette, openPalette, palette } from './lib/palette.svelte.ts';
+  import { closePopover, popover } from './lib/popover.svelte.ts';
   import { pref } from './lib/prefs.ts';
 
   let settingsOpen = $state(false);
   let settings = $state<ReturnType<typeof Settings>>();
   let command = $state<ReturnType<typeof CommandBar>>();
+  let bar = $state<ReturnType<typeof StatusBar>>();
   // Focus goes back here when Settings closes (the palette keeps its own, in palette.svelte.ts).
   let settingsOpener: HTMLElement | null = null;
   const active = $derived(activeSessions(S.data?.daemons));
@@ -46,6 +47,11 @@
     evals: $t('nav.evals'),
   });
   const viewLabel = $derived(labels[S.view]);
+
+  // Settings or the palette taking over closes a popover and leaves focus to that dialog.
+  $effect(() => {
+    if (settingsOpen || palette.open) untrack(() => closePopover('external'));
+  });
 
   $effect(() => {
     document.title = S.data?.repo?.name ? $t('app.titleRepo', { repo: S.data.repo.name }) : $t('app.title');
@@ -66,21 +72,27 @@
   function onKey(e: KeyboardEvent): void {
     if (commandKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, open: palette.open, settingsOpen, repeat: e.repeat, composing: e.isComposing }) === 'open') {
       e.preventDefault();
-      // Again while open: back to the input, keeping the scope.
-      if (palette.open) command?.focus();
+      // Open: back to its input, keeping the scope. md and up: the first press focuses the bar's input, the second opens.
+      const inline = bar?.commandState() ?? { visible: false, focused: false };
+      const action = shortcutAction({ paletteOpen: palette.open, inlineVisible: inline.visible, inlineFocused: inline.focused });
+      if (action === 'focus-palette') command?.focus();
+      else if (action === 'focus-inline') bar?.focusCommand();
       else openPalette();
       return;
     }
     if (e.key === 'Escape') {
       // Escape that cancels an IME composition closes nothing.
       if (e.isComposing) return;
-      const layer = shellEscape({ command: palette.open, settings: settingsOpen, drawer: S.drawer.id !== null });
+      const layer = shellEscape({ command: palette.open, settings: settingsOpen, popover: popover.open !== null, drawer: S.drawer.id !== null });
       if (layer === 'command') {
         e.preventDefault();
         closePalette();
       } else if (layer === 'settings') {
         e.preventDefault();
         settings?.requestClose();
+      } else if (layer === 'popover') {
+        e.preventDefault();
+        closePopover('escape');
       } else if (layer === 'drawer') closeDrawer();
       return;
     }
@@ -127,14 +139,13 @@
     </div>
   </aside>
   <main class="falloff flex-1 min-w-0">
-    <!-- The settings button stays outside the scrolling nav, so it is always on screen; the palette's phone button is the FAB below. -->
+    <!-- The settings button stays outside the scrolling nav, so it is always on screen; the palette opens from the status bar. -->
     <header class="md:hidden flex items-center gap-1 border-b chrome border-line-strong pr-2">
       <div id="mobile-nav" class="nav row flex-1 min-w-0 overflow-x-auto p-2"><Nav mobile /></div>
       <span id="mobile-sessions" class="label flex shrink-0 items-center gap-1.5 px-1" title={activeTitle}><LiveDot on={active.count > 0} /><span class="num">{$t('app.tblock.sessionsValue', { count: active.count })}</span></span>
       <button id="settings-open-mobile" class="btn icon touch shrink-0" aria-label={$t('settings.open')} aria-haspopup="dialog" onclick={openSettings}><Icon name="settings" /></button>
     </header>
-    <DaemonBar />
-    <div id="view" class="mx-auto max-w-[1400px] px-4 md:px-8 pt-4 pb-24 md:pb-6">
+    <div id="view" class="mx-auto max-w-[1400px] px-4 md:px-8 pt-4 pb-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-6))]">
       {#if !S.data}
         {#if S.error}<Banner msg={S.error} />{:else}<div class="sheet w-fit px-3 py-1.5 text-sm text-muted">{$t('common.loading')}</div>{/if}
       {:else}
@@ -149,8 +160,9 @@
       {/if}
     </div>
   </main>
-  <!-- Outside main: main.falloff isolates, which would trap the phone button's z-20 inside main's stacking context. -->
-  <CommandTrigger variant="fab" />
+  <!-- Outside main: main.falloff isolates, which would trap the bar's z-35 and its popovers' z-42 inside main's stacking
+       context, under the drawer's backdrop and the drawer. -->
+  <StatusBar bind:this={bar} />
 </div>
 <div inert={settingsOpen || palette.open}><Drawer /></div>
 {#if settingsOpen}<Settings bind:this={settings} onclose={closeSettings} />{/if}
