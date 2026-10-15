@@ -1,11 +1,10 @@
-<!-- A job's Thread in the drawer: its request and the requests about it with the session's replies, then the job's live
-     session log. The gate's actions and the session's permission prompts live in the drawer's ActionDock, on every tab.
-     Request text and results are untrusted: they render only through the escape-first md(), or as plain text in Raw
-     (and above 20k characters). -->
+<!-- A job's Thread in the drawer: its request and the requests about it with the session's replies. The gate's
+     actions and the session's permission prompts live in the drawer's ActionDock, on every tab. Request text and
+     results are untrusted: they render only through the escape-first md(), or as plain text in Raw (and above 20k
+     characters). -->
 <script lang="ts">
   import Chip from './Chip.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
-  import SessionLog from './SessionLog.svelte';
   import { md } from '../lib/markdown.ts';
   import { renderable } from '../lib/md-view.ts';
   import { mdView } from '../lib/md-view.svelte.ts';
@@ -16,7 +15,7 @@
   import { t } from '../lib/locale.ts';
 
   /** `baseline`: the Thread's marks when the drawer opened; a message whose mark is not in it is new or changed since. */
-  let { job, requests, opening, active, baseline = null }: { job: Job; requests: ForgeRequest[]; opening: ThreadOpening; active: boolean; baseline?: string[] | null } = $props();
+  let { job, requests, opening, baseline = null }: { job: Job; requests: ForgeRequest[]; opening: ThreadOpening; baseline?: string[] | null } = $props();
   const items = $derived(threadItems(requests, opening));
   const seenAtOpen = $derived(baseline ? new Set(baseline) : null);
 
@@ -93,7 +92,4 @@
       <div class="text-sm text-muted">{$t('thread.empty')}</div>
     {/if}
   </section>
-  <!-- Keyed by job id only, so the drawer's 2 s refresh never re-creates the log or its stream; `active` closes the
-       stream as soon as the drawer closes, though its last view stays while it slides out. -->
-  {#key job.id}<SessionLog scope={job.id} {active} />{/key}
 </div>

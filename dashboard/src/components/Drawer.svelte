@@ -6,10 +6,12 @@
   import Chip from './Chip.svelte';
   import DepSection from './DepSection.svelte';
   import Icon from './Icon.svelte';
+  import LiveDot from './LiveDot.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
   import PrChip from './PrChip.svelte';
   import ProgressBar from './ProgressBar.svelte';
   import SessionActivity from './SessionActivity.svelte';
+  import SessionLog from './SessionLog.svelte';
   import StateChip from './StateChip.svelte';
   import ThreadPanel from './ThreadPanel.svelte';
   import { budgetPanel } from '../lib/budget.ts';
@@ -39,7 +41,7 @@
   // Timeline rows are newest first, so the first `fresh` arrived after the drawer opened.
   const fresh = $derived(shown ? freshCount(shown.detail.events.length, S.drawer.eventsAtOpen) : 0);
   const unread = $derived(shown && job ? unreadCount(threadMarks(threadItems(shown.detail.requests ?? [], threadOpening(shown.detail))), S.threadSeen[job.id] ?? null) : 0);
-  const TABS = ['files', 'timeline', 'thread'] as const;
+  const TABS = ['thread', 'log', 'files', 'timeline'] as const;
   let tabStrip = $state<HTMLDivElement>();
   let scrolledFor: string | null = null;
   // Opened on the Thread (a session chip, a new job): bring it into view instead of leaving it below the fold.
@@ -129,7 +131,7 @@
           </div></div>
         {/if}
         {@html screenshotsPanel(j.id, d.screenshots ?? [])}
-        <div bind:this={tabStrip} class="tabs">{#each TABS as tab (tab)}<button class="tab {shown.tab === tab ? 'active' : ''}" aria-pressed={shown.tab === tab ? 'true' : 'false'} onclick={() => setDrawerTab(tab)}>{#if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted">{d.events.length}</span>{:else if tab === 'thread'}{$t('drawer.threadTab')}{#if unread > 0}<span class="chip hl ml-1.5">{$t('drawer.threadUnread', { count: unread })}</span>{/if}{:else}{$t('drawer.files')}{/if}</button>{/each}</div>
+        <div bind:this={tabStrip} class="tabs">{#each TABS as tab (tab)}<button class="tab {shown.tab === tab ? 'active' : ''}" aria-pressed={shown.tab === tab ? 'true' : 'false'} onclick={() => setDrawerTab(tab)}>{#if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted">{d.events.length}</span>{:else if tab === 'thread'}{$t('drawer.threadTab')}{#if unread > 0}<span class="chip hl ml-1.5">{$t('drawer.threadUnread', { count: unread })}</span>{/if}{:else if tab === 'log'}{$t('drawer.logTab')}{#if activity?.kind === 'working'}<span class="inline-flex ml-1.5 align-middle"><LiveDot on={true} /></span><span class="sr-only">{$t('live.working')}</span>{/if}{:else}{$t('drawer.files')}{/if}</button>{/each}</div>
         {#if shown.tab === 'files'}
           {@const file = shown.file}
           {@const content = shown.content}
@@ -156,7 +158,11 @@
             </div>
           </div>
         {:else if shown.tab === 'thread'}
-          <ThreadPanel job={j} requests={d.requests ?? []} opening={threadOpening(d)} active={open} baseline={S.drawer.threadAtOpen} />
+          <ThreadPanel job={j} requests={d.requests ?? []} opening={threadOpening(d)} baseline={S.drawer.threadAtOpen} />
+        {:else if shown.tab === 'log'}
+          <!-- Keyed by job id only, so the drawer's 2 s refresh never re-creates the log or its stream; `active` closes the
+               stream as soon as the drawer closes, though its last view stays while it slides out. -->
+          {#key j.id}<SessionLog scope={j.id} active={open} />{/key}
         {:else}
           <ul>
             {#each events as e, i (i)}

@@ -144,6 +144,7 @@
     "timeline": "Timeline",
     "noFiles": "No files yet.",
     "threadTab": "Thread",
+    "logTab": "Log",
     "resume": "Resume",
     "ownerLive": "Held by session {session} (claimed {since}, last active {active}).",
     "ownerAgent": "Held by session {session} (claimed {since}); an agent is still running.",

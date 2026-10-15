@@ -662,6 +662,13 @@ test('the drawer marks new rows and counts unread Thread changes', () => {
   assert.match(text, /const fresh = \$derived\(shown \? freshCount\(shown\.detail\.events\.length, S\.drawer\.eventsAtOpen\) : 0\)/);
   assert.match(markup, /\{#if i < fresh\}<span class="dot hl size-1\.5 shrink-0 self-center" aria-hidden="true"><\/span><span class="sr-only">\{\$t\('live\.new'\)\}<\/span>\{\/if\}/, 'fresh Timeline rows start with dot hl and a hidden "new"');
   assert.match(markup, /<ThreadPanel [^>]*baseline=\{S\.drawer\.threadAtOpen\}/);
+  // The Log label carries the live dot and a hidden "working" exactly while the job's session works.
+  const logLabel = /\{:else if tab === 'log'\}\{\$t\('drawer\.logTab'\)\}\{#if ([^}]*)\}(.*?)\{\/if\}/.exec(markup);
+  assert.ok(logLabel, 'the Log tab label');
+  assert.equal(logLabel[1], "activity?.kind === 'working'");
+  assert.ok(logLabel[2].includes('<LiveDot on={true} />'), 'the live dot');
+  assert.ok(logLabel[2].includes(`<span class="sr-only">{$t('live.working')}</span>`), 'and the hidden "working"');
+  assert.equal(markup.match(/<LiveDot\b/g)?.length, 1, 'the drawer has one live dot of its own, on the Log label');
 
   const thread = read('components/ThreadPanel.svelte');
   assert.match(thread, /baseline = null \}: \{[^}]*baseline\?: string\[\] \| null \}/, 'ThreadPanel takes a baseline prop');
@@ -695,6 +702,24 @@ test('drawer defaults to the Thread tab and resets it on close', () => {
   assert.match(fnBody(state, 'export function closeDrawer('), /S\.drawer\.tab = DEFAULT_DRAWER_TAB;/, 'closing resets the remembered tab');
   assert.match(state, /export function setDrawerTab\(tab: DrawerTab\): void \{/);
   assert.doesNotMatch(state, /'files'/, "no 'files' default remains");
+});
+
+test('the Log tab holds the session feed alone', () => {
+  const drawer = read('components/Drawer.svelte');
+  assert.equal(drawer.match(/<SessionLog\b/g)?.length, 1, 'Drawer renders the session log once');
+  assert.ok(drawer.includes('{#key j.id}<SessionLog scope={j.id} active={open} />{/key}'), 'keyed by job id, closed with the drawer');
+  assert.match(drawer, /import SessionLog from '\.\/SessionLog\.svelte';/);
+  const blocks = openBlocksAt(drawer, '<SessionLog');
+  const tabbed = blocks.flatMap((b) => b.filter((h) => /shown\.tab/.test(h)).map((h) => ({ h, last: h === b.at(-1) })));
+  assert.deepEqual(tabbed.filter((x) => x.last).map((x) => x.h), [":else if shown.tab === 'log'"], 'mounted only in the Log branch');
+
+  const thread = read('components/ThreadPanel.svelte');
+  assert.doesNotMatch(thread, /SessionLog/, 'ThreadPanel neither imports nor renders SessionLog');
+  assert.doesNotMatch(thread, /\bactive\b/, 'and takes no active prop');
+  const header = /^<!--([\s\S]*?)-->/.exec(thread);
+  assert.ok(header, 'ThreadPanel opens with its header comment');
+  assert.doesNotMatch(header[1], /session log/i, 'the header comment no longer mentions the session log');
+  assert.match(header[1].replace(/\s+/g, ' '), /its request and the requests about it with the session's replies/);
 });
 
 test('drawer entry points pick their tab', () => {
