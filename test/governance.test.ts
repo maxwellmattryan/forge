@@ -309,6 +309,40 @@ test("the PR template's checklist mirrors the AGENTS.md verify commands", () => 
   assert.deepEqual(links(template).filter((t) => !/^(https?|mailto):/.test(t)), []);
 });
 
+test('README links the governance files from a Project section before License', () => {
+  const readme = read('README.md').split('\n');
+  const start = readme.indexOf('## Project');
+  assert.ok(start >= 0, 'README has "## Project"');
+  const next = readme.findIndex((l, i) => i > start && /^#{1,6} /.test(l));
+  assert.equal(readme[next], '## License', 'the next heading is "## License"');
+  const targets = links(readme.slice(start, next).join('\n'));
+  for (const t of ['SECURITY.md', 'SECURITY.md#supported-versions', 'CONTRIBUTING.md', 'CODE_OF_CONDUCT.md']) assert.ok(targets.includes(t), `links ${t}`);
+});
+
+test('relative links and anchors in the governance docs and README resolve', () => {
+  let checked = 0;
+  for (const rel of ['README.md', 'SECURITY.md', 'CONTRIBUTING.md', 'CODE_OF_CONDUCT.md']) {
+    const from = path.join(ROOT, rel);
+    for (const target of links(read(rel))) {
+      if (/^(https?|mailto):/i.test(target)) continue;
+      const hash = target.indexOf('#');
+      const file = hash === 0 ? from : path.resolve(path.dirname(from), decodeURIComponent(hash === -1 ? target : target.slice(0, hash)));
+      assert.ok(fs.existsSync(file), `${rel}: ${target} names a path that does not exist`);
+      if (hash !== -1) {
+        const anchor = target.slice(hash + 1);
+        assert.ok(anchors(fs.readFileSync(file, 'utf8')).has(anchor), `${rel}: ${target} names no heading in ${path.relative(ROOT, file)}`);
+      }
+      checked++;
+    }
+  }
+  assert.ok(checked >= 20, `checked ${checked} links`);
+  // The slug rules the anchors above rely on.
+  assert.equal(slug('Verify before claiming it works'), 'verify-before-claiming-it-works');
+  assert.equal(slug('`.forge/config.yml`'), 'forgeconfigyml');
+  assert.equal(slug('Split gate: why 2 ways?'), 'split-gate-why-2-ways');
+  assert.deepEqual([...anchors('# A\n## A\n```\n# B\n```\n')], ['a', 'a-1']);
+});
+
 test('governance files carry no AI attribution lines', () => {
   for (const rel of [...GOVERNANCE, 'README.md']) assert.deepEqual(findAttribution(read(rel)), [], rel);
 });
