@@ -256,48 +256,46 @@ function vars(root: string, job: Job, dir: string, port: number | null): Record<
 }
 
 /**
- * Fills a command template. Extra arguments are quoted one by one (shellArgs) and go where the
- * template says `{args}`, or after the whole line when it doesn't. fill() makes a single pass, so
- * an argument's text is never filled again. Either placement is refused where the shell would not
- * read the quoted words as plain arguments: `{args}` inside quotes (where `$(…)` would expand or
- * a `'` would end the quoting), or an appended tail after a newline or an operator, where the
- * first argument would be a command of its own.
+ * Fills a command template. Arguments are opt-in: only a template that says `{args}` takes them,
+ * so a configured command touching outside systems can't be steered with flags a session picks.
+ * They are quoted one by one (shellArgs), and fill() makes a single pass, so an argument's text is
+ * never filled again. A template whose `{args}` the shell would not read as plain words is refused:
+ * one not standing as its own word (`\{args}`, `x{args}`), one inside quotes (`" {args} "`, where
+ * `$(…)` expands), and any template with a heredoc or a quoting form where `\'` doesn't close the quote.
  */
 function fillCommand(name: string, template: string, v: Record<string, string | number>, args: string[]): string {
   if (!args.length) return fill(template, v);
-  const quoted = shellArgs(args);
-  if (template.includes('{args}')) {
-    if (quotedPlaceholder(template))
-      throw new ForgeError(`forge run: commands.${name} puts {args} inside quotes, where the arguments would not stay literal; write {args} unquoted, as its own word`);
-    return fill(template, { ...v, args: quoted });
-  }
-  const line = fill(template, v).trimEnd();
-  if (openTail(line))
-    throw new ForgeError(`forge run: commands.${name} spans several lines or ends in an operator, so appended arguments could start a command of their own; put {args} where they go`);
-  return `${line} ${quoted}`;
-}
-
-/** Whether an `{args}` sits inside '…' or "…" (a backslash escapes outside single quotes). */
-function quotedPlaceholder(template: string): boolean {
-  let quote: string | null = null;
-  for (let i = 0; i < template.length; i++) {
-    const c = template[i];
-    if (c === '\\' && quote !== "'") i++;
-    else if (quote === null && (c === "'" || c === '"')) quote = c;
-    else if (quote !== null && c === quote) quote = null;
-    else if (quote !== null && template.startsWith('{args}', i)) return true;
-  }
-  return false;
+  if (!template.includes('{args}')) throw new ForgeError(`forge run: commands.${name} takes no arguments; put {args} in the template where they go`);
+  if (/<<|\$'|\\'/.test(template))
+    throw new ForgeError(`forge run: commands.${name} has a heredoc (<<) or a $'…' or \\' quote, where the arguments would not stay literal; take it out of the template to pass arguments`);
+  if (!placeholdersArePlainWords(template))
+    throw new ForgeError(`forge run: commands.${name} puts {args} inside quotes or another word, where the arguments would not stay literal; write {args} unquoted, as its own word`);
+  return fill(template, { ...v, args: shellArgs(args) });
 }
 
 /**
- * Whether a word appended to `line` could land where the shell expects a command or a redirect
- * target rather than an argument: after a line break, a control or redirect operator, an open
- * `(` or backtick, or a `!` that negates the next command. Quoted words are never keywords, so they
- * cannot complete an open construct.
+ * Whether every `{args}` stands as a whole unquoted word: after the start, a blank, a newline or
+ * `(`, before the end, a blank, a newline or `;` `&` `|` `)`, and outside '…' and "…". The quote
+ * scan is kept beside the whole-word rule because a placeholder with blanks on both sides can still
+ * sit inside "…" (`echo " {args} "`); a backslash escapes the next character outside single quotes.
  */
-function openTail(line: string): boolean {
-  return /[\r\n]/.test(line) || /[;&|(<>`]$/.test(line) || /(^|[;&|(]\s*)!$/.test(line);
+function placeholdersArePlainWords(template: string): boolean {
+  for (const m of template.matchAll(/\{args\}/g)) {
+    const before = m.index === 0 ? '' : template[m.index - 1];
+    const after = template[m.index + m[0].length] ?? '';
+    if (!/^[ \t\n(]?$/.test(before) || !/^[ \t\n;&|)]?$/.test(after)) return false;
+  }
+  // Every `{args}` is now preceded by a blank, `(` or the start, never a backslash, so the escape
+  // skip below can't step over one.
+  let quote: string | null = null;
+  for (let i = 0; i < template.length; i++) {
+    const c = template[i];
+    if (quote !== null && template.startsWith('{args}', i)) return false;
+    if (c === '\\' && quote !== "'") i++;
+    else if (quote === null && (c === "'" || c === '"')) quote = c;
+    else if (quote !== null && c === quote) quote = null;
+  }
+  return true;
 }
 
 // The daemon's trust check guards the session's own `forge` calls; a configured command that

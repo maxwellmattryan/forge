@@ -27,20 +27,21 @@ function scratch() {
       worktrees: { root: `../${path.basename(root)}.wt`, setup: ['echo "setup[{args}]"'] },
       commands: {
         echo: "printf '%s\\n'",
+        lines: "printf '%s\\n' {args}",
         at: "printf '[%s]' {args} end",
         test: 'true',
         dev: 'echo dev {args} end; sleep 30',
         check: 'test -z "{args}" && echo "check[{args}]"',
-        spaced: "printf '%s\\n'   ",
         block: 'echo one\necho two\n',
-        semi: 'echo a;',
-        and: 'echo a &&',
-        pipe: 'echo a |',
-        sub: 'echo $(',
-        redirect: 'echo a >',
-        negate: 'true; !',
+        words: "true\n(printf '<%s>' {args}) | cat; printf '%s.' {args};printf '\\t%s' x\t{args}\t&& echo",
         dquoted: 'echo "x{args}"',
         squoted: "echo '{args}'",
+        spacedq: 'echo " {args} "',
+        escaped: 'echo \\{args}',
+        dqescaped: 'echo "\\{args}"',
+        heredoc: 'cat <<EOF\n{args}\nEOF\n',
+        ansic: "echo $'a\\' {args} '",
+        fishq: "echo 'a\\' {args} '",
       },
       verify: ['check'],
     }),
@@ -81,25 +82,35 @@ let shared: ReturnType<typeof scratch> | null = null;
 const s = () => (shared ??= scratch());
 after(() => shared?.cleanup());
 
-test('args reach the command literally, appended or at {args}', () => {
+test('args reach the command literally at {args}, and a template without {args} refuses them', () => {
   const x = s();
   const run = (...args: string[]) => {
     const r = x.raw('run', x.id, ...args);
     assert.equal(r.status, 0, r.stderr);
     return JSON.parse(r.stdout);
   };
-  const appended = run('echo', '--', ...ARGS);
-  assert.equal(appended.cmd, `printf '%s\\n' 'a' 'b c' '$HOME' ';touch pwned' '*' '{job}' '\`id\`'`);
-  assert.equal(appended.tail, ARGS.join('\n'), 'one line per argument, nothing expanded');
+  const lines = run('lines', '--', ...ARGS);
+  assert.equal(lines.cmd, `printf '%s\\n' 'a' 'b c' '$HOME' ';touch pwned' '*' '{job}' '\`id\`'`);
+  assert.equal(lines.tail, ARGS.join('\n'), 'one line per argument, nothing expanded');
   const placed = run('at', '--', ...ARGS);
   assert.equal(placed.cmd, `printf '[%s]' 'a' 'b c' '$HOME' ';touch pwned' '*' '{job}' '\`id\`' end`);
   assert.equal(placed.tail, `${ARGS.map((a) => `[${a}]`).join('')}[end]`);
   const none = run('at');
   assert.equal(none.cmd, "printf '[%s]'  end", '{args} becomes nothing');
   assert.equal(none.tail, '[end]');
+  // Arguments are opt-in: a template without {args} refuses them, before anything runs.
+  const before = x.trace();
+  const refused = x.raw('run', x.id, 'echo', '--', ...ARGS);
+  assert.equal(refused.status, 1, refused.stdout);
+  assert.equal(refused.stdout, '');
+  assert.equal(refused.stderr, 'forge: forge run: commands.echo takes no arguments; put {args} in the template where they go\n');
+  assert.deepEqual(x.trace(), before, 'no log, no command event, job.json untouched');
+  // Without arguments it runs exactly as before.
+  const plain = run('echo');
+  assert.equal(plain.cmd, "printf '%s\\n'");
   // Flags after -- belong to the command, not to forge run.
-  assert.equal(run('echo', '--', '--tail', '1', '--background').tail, '--tail\n1\n--background');
-  assert.equal(run('echo', '--tail', '1', '--', 'x', 'y').tail, 'y', '--tail before -- is forge run\'s own');
+  assert.equal(run('lines', '--', '--tail', '1', '--background').tail, '--tail\n1\n--background');
+  assert.equal(run('lines', '--tail', '1', '--', 'x', 'y').tail, 'y', '--tail before -- is forge run\'s own');
   for (const dir of [x.wt, x.root]) assert.equal(fs.existsSync(path.join(dir, 'pwned')), false, `no pwned file in ${dir}`);
 });
 
@@ -114,45 +125,48 @@ test('unsafe args, args without -- and args with --background are refused before
     assert.deepEqual(x.trace(), before, `${JSON.stringify(args)}: no log, no command event, job.json untouched`);
   };
   for (const bad of ["it's", 'back\\slash', 'two\nlines', 'tab\there', 'esc\x1b[31m']) {
-    refused(['echo', '--', 'ok', bad], `forge run: argument 2 contains a quote, backslash or control character (got ${JSON.stringify(bad)})`);
+    refused(['lines', '--', 'ok', bad], `forge run: argument 2 contains a quote, backslash or control character (got ${JSON.stringify(bad)})`);
   }
   refused(['test', 'extra'], 'forge run takes extra arguments only after --: forge run <job> <command> -- <args…>');
   refused(['dev', '--background', 'x'], 'forge run takes extra arguments only after --: forge run <job> <command> -- <args…>');
   refused(['dev', '--background', '--', 'x'], 'forge run --background takes no extra arguments');
+  refused(['dev', '--background=1'], 'forge run: --background takes no value');
   assert.equal(fs.existsSync(path.join(x.dir, 'runtime.json')), false, 'no server was started');
   // NUL and DEL can't travel through argv, so the quoting itself is checked for them.
   for (const bad of ['nul\0', 'del\x7f', '\x01']) assert.throws(() => shellArgs(['ok', bad]), /argument 2 contains a quote, backslash or control character/);
   assert.equal(shellArgs(['a b', '', '$x']), "'a b' '' '$x'");
 });
 
-test('appended args after a newline or an operator, and {args} inside quotes, are refused before anything runs', () => {
+test('{args} that is not a plain unquoted word, a heredoc and $\'…\' or \\\' quoting are refused before anything runs', () => {
   const x = s();
-  const marker = path.join(x.root, 'pwned-tail');
-  const refused = (args: string[], message: string) => {
-    const before = x.trace();
-    const r = x.raw('run', x.id, ...args);
-    assert.equal(r.status, 1, `${JSON.stringify(args)}: ${r.stdout}${r.stderr}`);
-    assert.equal(r.stderr, `forge: ${message}\n`);
-    assert.deepEqual(x.trace(), before, `${JSON.stringify(args)}: no log, no command event, job.json untouched`);
-    assert.equal(fs.existsSync(marker), false, `${JSON.stringify(args)}: nothing ran`);
+  const marker = path.join(x.root, 'pwned-word');
+  const refused = (name: string, message: string) => {
+    for (const arg of [`$(touch ${marker})`, `;touch ${marker} #`]) {
+      const before = x.trace();
+      const r = x.raw('run', x.id, name, '--', arg);
+      assert.equal(r.status, 1, `${name} ${arg}: ${r.stdout}${r.stderr}`);
+      assert.equal(r.stderr, `forge: forge run: commands.${name} ${message}\n`);
+      assert.deepEqual(x.trace(), before, `${name} ${arg}: no log, no command event, job.json untouched`);
+      assert.equal(fs.existsSync(marker), false, `${name} ${arg}: nothing ran`);
+    }
   };
-  // The YAML block keeps its trailing newline, so the arguments would be a line of their own.
-  assert.equal(loadConfig(x.root).config.commands.block, 'echo one\necho two\n');
-  for (const name of ['block', 'semi', 'and', 'pipe', 'sub', 'redirect', 'negate']) {
-    refused([name, '--', 'touch', marker], `forge run: commands.${name} spans several lines or ends in an operator, so appended arguments could start a command of their own; put {args} where they go`);
-  }
-  refused(['dquoted', '--', `$(touch ${marker})`], 'forge run: commands.dquoted puts {args} inside quotes, where the arguments would not stay literal; write {args} unquoted, as its own word');
-  refused(['squoted', '--', `;touch ${marker}`], 'forge run: commands.squoted puts {args} inside quotes, where the arguments would not stay literal; write {args} unquoted, as its own word');
-  refused(['dev', '--background=1'], 'forge run: --background takes no value');
-  // Trailing spaces are not an operator: the arguments follow the trimmed line.
-  const r = x.raw('run', x.id, 'spaced', '--', 'a', 'b');
+  const notAWord = 'puts {args} inside quotes or another word, where the arguments would not stay literal; write {args} unquoted, as its own word';
+  // Not a word of its own (a backslash before it included, in and out of "…"), or a word inside quotes.
+  for (const name of ['dquoted', 'squoted', 'escaped', 'dqescaped', 'spacedq']) refused(name, notAWord);
+  assert.equal(loadConfig(x.root).config.commands.escaped, 'echo \\{args}');
+  // An unquoted heredoc body expands $(…); in $'…' (bash, zsh) and fish's '…', \' does not close the quote.
+  for (const name of ['heredoc', 'ansic', 'fishq'])
+    refused(name, "has a heredoc (<<) or a $'…' or \\' quote, where the arguments would not stay literal; take it out of the template to pass arguments");
+  // Whole words: after the start, a blank, a newline or (, before a blank, ; & | ) or the end.
+  const r = x.raw('run', x.id, 'words', '--', 'a', 'b c');
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(JSON.parse(r.stdout).cmd, "printf '%s\\n' 'a' 'b'");
-  assert.equal(JSON.parse(r.stdout).tail, 'a\nb');
-  // Without arguments a multi-line or quoted template runs as written.
-  const plain = x.raw('run', x.id, 'block');
-  assert.equal(plain.status, 0, plain.stderr);
-  assert.equal(JSON.parse(plain.stdout).tail, 'one\ntwo');
+  assert.equal(JSON.parse(r.stdout).tail, '<a><b c>a.b c.\tx\ta\tb c');
+  // Without arguments every template runs as written.
+  for (const [name, out] of [['block', 'one\ntwo'], ['heredoc', ''], ['spacedq', '']]) {
+    const plain = x.raw('run', x.id, name);
+    assert.equal(plain.status, 0, plain.stderr);
+    assert.equal(JSON.parse(plain.stdout).tail.trim(), out, name);
+  }
 });
 
 test('verify and worktree setup fill {args} with nothing', async () => {
