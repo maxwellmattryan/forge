@@ -6,6 +6,7 @@
   import Banner from './Banner.svelte';
   import Chip from './Chip.svelte';
   import DepSection from './DepSection.svelte';
+  import EffortChip from './EffortChip.svelte';
   import LiveDot from './LiveDot.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
   import PrChip from './PrChip.svelte';
@@ -15,6 +16,7 @@
   import StateChip from './StateChip.svelte';
   import ThreadPanel from './ThreadPanel.svelte';
   import { budgetPanel } from '../lib/budget.ts';
+  import { effortChip } from '../lib/effort.ts';
   import { STAGE_LABEL } from '../lib/labels.ts';
   import { md, safeUrl } from '../lib/markdown.ts';
   import { mdView } from '../lib/md-view.svelte.ts';
@@ -36,6 +38,7 @@
   const prUrl = $derived(safeUrl(job?.pr?.url));
   const srcUrl = $derived(safeUrl(job?.source?.url));
   const matrix = $derived(job ? verdictMatrix(job) : null);
+  const effort = $derived(job ? effortChip(job.effort, S.data?.config?.effort) : null);
   const usageRows = $derived(Object.entries(job?.usage?.byRole ?? {}));
   const events = $derived(shown ? shown.detail.events.slice().reverse() : []);
   const activity = $derived(job ? sessionActivity(S.data?.daemons?.jobs?.[job.id], shown?.detail.events.at(-1)?.ts) : null);
@@ -83,7 +86,7 @@
     <div bind:this={body} class="min-h-0 flex-1 overflow-y-auto">
       <div bind:this={head} class="p-5 md:p-6 pb-3 md:pb-4 flex flex-col gap-2">
         <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="h sheet-title">{j.title}</h2><div class="mono muted">{j.id}</div></div><div class="flex shrink-0 items-center gap-2">{#if scopeVerbs(j).length}<CommandTrigger job={j.id} />{/if}<CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div></div>
-        <div class="flex flex-wrap items-center gap-1.5"><span class="chip ink">{STAGE_LABEL[j.stage] ?? j.stage}</span><StateChip job={j} />{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}{#if activity}<SessionActivity {activity} extra="caption" />{/if}</div>
+        <div class="flex flex-wrap items-center gap-1.5"><span class="chip ink">{STAGE_LABEL[j.stage] ?? j.stage}</span><StateChip job={j} />{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}<EffortChip level={effort} />{#if activity}<SessionActivity {activity} extra="caption" />{/if}</div>
         {#if j.reason}<div class="text-sm text-muted truncate" title={j.reason}>{j.reason}</div>{/if}
       </div>
       <!-- Sticky and opaque, so no tab's content scrolls over it; it scrolls sideways when the tabs outgrow a phone. -->

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
-import { daemonProblems, loadConfig, validateConfig } from './config.ts';
+import { daemonProblems, loadConfig, resolveEffort, validateConfig } from './config.ts';
 import { ConfigSetError, FIELDS } from './config-fields.ts';
 import { setConfigValue } from './config-set.ts';
 import { PERMISSION_MODES, UUID, logBaseOf, readInfo, readLogPage, sessionFiles } from './daemon.ts';
@@ -12,10 +12,10 @@ import { createPool } from './daemon-pool.ts';
 import type { DaemonPool, PoolState } from './daemon-pool.ts';
 import { doctor } from './doctor.ts';
 import { jobSessionEnv, ownerStatusWithProof } from './daemon-owner.ts';
-import { createJob, listJobs, loadJob, ownerStatus, progress, readEvents, jobDir, requestBody } from './jobs.ts';
+import { createJob, listJobs, loadJob, ownerStatus, progress, readEvents, jobDir, requestBody, setJobEffort } from './jobs.ts';
 import { normalizeRef } from './issue-link.ts';
 import { paths, exists, PLUGIN_ROOT } from './paths.ts';
-import { API_VERSION, CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from './schema.ts';
+import { API_VERSION, CONFIG_SCHEMA_VERSION, EFFORTS, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from './schema.ts';
 import { computeStats } from './stats.ts';
 import { listRuns, listTasks, compareRuns, forgeVersion } from './evals.ts';
 import { INBOX_SCOPE, enqueue, listRequests, validJobId, validScope } from './requests.ts';
@@ -41,6 +41,7 @@ import type {
   PermissionDecision,
   PostConfigResponse,
   PostDaemonModeResponse,
+  PostJobEffortResponse,
   PostJobResponse,
   PostRequestResponse,
 } from './types.ts';
@@ -277,6 +278,20 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         pool?.start('http');
         return json(res, poolState());
       }
+      const em = p.match(/^\/api\/jobs\/([^/]+)\/effort$/);
+      if (req.method === 'POST' && em) {
+        if (guardPost(req, res, token)) return;
+        const parsed = await readJsonBody(req);
+        if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
+        // `_inbox` is not a job id, so it is a 404 like any unknown job.
+        const id = em[1];
+        if (!validJobId(id) || !exists(path.join(jobDir(root, id), 'job.json'))) return jsonStatus(res, 404, { error: validJobId(id) ? `no job ${id}` : 'no such job' });
+        const body = parsed.body;
+        const effort = body && typeof body === 'object' && !Array.isArray(body) && Object.hasOwn(body, 'effort') ? (body as Record<string, unknown>).effort : undefined;
+        if (effort !== null && !(EFFORTS as readonly unknown[]).includes(effort)) return jsonStatus(res, 400, { error: `effort must be one of ${EFFORTS.join(', ')}, or null` });
+        // No DAEMON_LOCK: job.json is outside the trust digest, and a running session picks the level up at its next spawn.
+        return json(res, setJobEffort(root, id, effort as PostJobEffortResponse['effort'], 'dashboard') satisfies PostJobEffortResponse);
+      }
       send(res, 404, 'text/plain', 'not found');
     } catch (e) {
       if (res.headersSent) return void res.end();
@@ -476,7 +491,7 @@ function about(): AboutResponse {
 
 /** A session's state before the pool exists (never visible once the server is listening). */
 function offSessionState(_root: string, scope: string): DaemonSessionState {
-  return { scope, wanted: false, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, failures: 0, held: null, waiting: false, lastError: null, permissions: [], permissionMode: null, kept: null };
+  return { scope, wanted: false, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, failures: 0, held: null, waiting: false, lastError: null, permissions: [], permissionMode: null, kept: null, effort: null };
 }
 
 /** The pool block before a pool exists (never visible once the server is listening). */
@@ -588,6 +603,8 @@ function state(root: string, daemons: DaemonPoolState): ApiState {
       pipeline: config.pipeline,
       models: config.runtime.models,
       daemon: { enabled: config.daemon?.enabled === true },
+      // Validated, so an invalid runtime.effort reads as none here while validate and doctor report it.
+      effort: resolveEffort(config).level,
     },
     // `enabled` and the cap from this read of config.yml, so they are current even while the pool is stopped.
     daemons: { ...daemons, enabled: config.daemon?.enabled === true, maxConcurrent: validCap(config.daemon?.maxConcurrent) ?? daemons.maxConcurrent },

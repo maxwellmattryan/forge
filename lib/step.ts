@@ -10,7 +10,7 @@ import path from 'node:path';
 import { acCoverage } from './acs.ts';
 import { jobPathMap, renderBrief, roleBrief } from './brief.ts';
 import type { RoleContext } from './brief.ts';
-import { reviewerChecklist } from './config.ts';
+import { resolveEffort, reviewerChecklist } from './config.ts';
 import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
 import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
@@ -388,6 +388,8 @@ function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: boolean; 
     start,
     startShell: shellLine(start),
     brief: renderBrief(x, roleBrief(x, role, ctx)),
+    // Always present, so the orchestrator can tell "pass none" from an older Forge that never said.
+    effort: resolveEffort(x.config, x.job).level,
   };
 }
 

@@ -15,7 +15,7 @@ import type { Stage, StepInput } from '../lib/types.ts';
 import { JOB_DIR, ag, fixture } from './step-fixture.ts';
 
 const SENTINEL = 'ZZSENTINEL-7f3a';
-const LABELS = ['Job id: ', 'Role: ', 'Round: ', 'Worktree: ', 'Base branch: ', 'Job paths (JSON): ', 'Inputs: ', 'Output: '];
+const LABELS = ['Job id: ', 'Role: ', 'Round: ', 'Worktree: ', 'Base branch: ', 'Job paths (JSON): ', 'Inputs: ', 'Output: ', 'Effort: '];
 
 const ROLES: [string, RoleContext][] = [
   ['planner', { splitMode: 'never', answered: true }],
@@ -38,6 +38,7 @@ function assertShape(brief: string, role: string) {
   for (const p of lines[7].slice('Output: '.length).split(', ')) assert.ok(path.isAbsolute(p), `${role}: output ${p} is absolute`);
   const inputs = lines[6].slice('Inputs: '.length);
   if (inputs !== 'none') for (const p of inputs.split(', ')) assert.ok(path.isAbsolute(p), `${role}: input ${p} is absolute`);
+  assert.match(lines[8], /^Effort: (low|medium|high|xhigh|max|inherit)$/, `${role}: effort line`);
   assert.equal(lines.at(-1), REPLY_LINE, `${role}: ends with the reply contract`);
 }
 
@@ -102,6 +103,15 @@ test('briefs carry paths, never contents', () => {
 
 const brief = (input: StepInput, role: string, ctx: RoleContext = {}) => renderBrief(input, roleBrief(input, role, ctx));
 const has = (b: string, line: string) => assert.ok(b.split('\n').includes(line), `missing line "${line}" in\n${b}`);
+
+test('every brief names the effective effort right after Output', () => {
+  const at = (b: string) => b.split('\n')[8];
+  const high = fixture({ config: (c) => (c.runtime.effort = 'medium'), job: { effort: 'high' } });
+  assert.equal(at(brief(high, 'builder')), 'Effort: high', "the job's own level wins");
+  assert.equal(at(brief(fixture({ config: (c) => (c.runtime.effort = 'medium') }), 'reviewer:code', { lens: 'code' })), 'Effort: medium', 'else runtime.effort');
+  assert.equal(at(brief(fixture(), 'approver')), 'Effort: inherit', 'nothing set');
+  assert.equal(at(brief(fixture({ job: { effort: '--add-dir=/' as any } }), 'approver')), 'Effort: inherit', 'a tampered value never reaches a brief');
+});
 
 test('planner brief carries the split mode', () => {
   const f = fixture({ files: ['request', 'feedback'] });

@@ -709,7 +709,7 @@ test('the drawer marks new rows and counts unread Thread changes', () => {
   const chips = markup.indexOf('<PrChip pr={j.pr} />');
   const line = markup.indexOf('<SessionActivity');
   assert.ok(chips > 0 && line > chips && line < markup.indexOf('{#if j.reason}'), 'the activity line follows the chips, before the reason');
-  assert.ok(markup.includes(`{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}{#if activity}<SessionActivity {activity} extra="caption" />{/if}</div>`), 'inside the summary row, after the kind chip');
+  assert.ok(markup.includes(`{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}<EffortChip level={effort} />{#if activity}<SessionActivity {activity} extra="caption" />{/if}</div>`), 'inside the summary row, after the kind and effort chips');
   assert.match(text, /const activity = \$derived\(job \? sessionActivity\(S\.data\?\.daemons\?\.jobs\?\.\[job\.id\], shown\?\.detail\.events\.at\(-1\)\?\.ts\) : null\)/);
 
   assert.match(text, /const unread = \$derived\(shown && job \? unreadCount\(threadMarks\(threadItems\(/);

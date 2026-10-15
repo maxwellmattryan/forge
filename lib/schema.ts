@@ -5,13 +5,13 @@
 import type { Job, LoadedJob } from './types.ts';
 
 export const CONFIG_SCHEMA_VERSION = 3;
-export const JOB_SCHEMA_VERSION = 6;
+export const JOB_SCHEMA_VERSION = 7;
 export const EVENT_SCHEMA_VERSION = 1;
 /**
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 14;
+export const API_VERSION = 15;
 
 export const STAGES = [
   'backlog',
@@ -50,6 +50,9 @@ export const SEVERITIES = ['blocker', 'major', 'minor', 'nit'] as const;
 
 /** daemon.auth: the credential a daemon session runs on. */
 export const DAEMON_AUTH = ['subscription', 'api-key'] as const;
+
+/** Reasoning effort levels: runtime.effort and job.effort, passed to claude as --effort and to agents. */
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 
 /** Config migrations keyed by the version they upgrade *from*. */
 const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
@@ -96,6 +99,9 @@ const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
   // v6 records whether a job's planner must never split it (from-ref, revise-split). A v5 job did
   // not record how it started, so it is not backfilled to "never": it keeps pipeline.split.
   5: (j) => ({ ...j, splitMode: j.splitMode ?? null }),
+  // v7 adds the human's per-job reasoning effort. null inherits runtime.effort, which is what every
+  // v6 job ran at, so the upgrade changes no job's effort.
+  6: (j) => ({ ...j, effort: j.effort ?? null }),
 };
 
 function failedVerifiesByRound(runs: any[]): Record<string, number> {
@@ -169,6 +175,8 @@ export function normalizeJob(raw: any): LoadedJob {
     finishedAt: job.finishedAt ?? null,
     eval: job.eval ?? null,
     splitMode: job.splitMode ?? null,
+    // A hand- or session-edited value outside the fixed list must never reach a daemon's argv.
+    effort: (EFFORTS as readonly unknown[]).includes(job.effort) ? job.effort : null,
   };
 }
 

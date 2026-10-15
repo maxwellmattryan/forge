@@ -1,8 +1,10 @@
 <!-- Agents: running agents, orchestrator sessions, and the roster and review panel. -->
 <script lang="ts">
+  import EffortChip from '../components/EffortChip.svelte';
   import Empty from '../components/Empty.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import { ago } from '../lib/util.ts';
+  import { effortChip } from '../lib/effort.ts';
   import type { ApiState } from '../lib/types.ts';
   import { agentSessions, runningAgents } from '../lib/view.ts';
   import { S, openDrawer } from '../lib/app.svelte.ts';
@@ -12,6 +14,7 @@
   const running = $derived(runningAgents(data.jobs));
   const sessions = $derived(agentSessions(data.jobs, Date.now()));
   const r = $derived(S.roster);
+  const defaultEffort = $derived(data.config?.effort ?? null);
 </script>
 
 <PageHeader title={$t('agents.title')}>
@@ -21,7 +24,8 @@
 {#if running.length}
   <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
     {#each running as a (`${a.job.id}/${a.role}`)}
-      <button class="sheet ticks clickable p-3 text-left" onclick={() => openDrawer(a.job.id)}><span class="tk"></span><div class="flex items-center justify-between gap-2"><span class="font-medium">{a.role}</span><span class="chip ink">{a.model ?? $t('agents.modelUnknown')}</span></div><div class="text-sm text-muted mt-1 line-clamp-1">{a.job.title}</div><div class="text-[11px] text-muted mt-1">{$t('agents.runningMeta', { round: a.round ?? '—', started: ago(a.startedAt) })}</div></button>
+      {@const effort = effortChip(a.job.effort, defaultEffort)}
+      <button class="sheet ticks clickable p-3 text-left" onclick={() => openDrawer(a.job.id)}><span class="tk"></span><div class="flex items-center justify-between gap-2"><span class="font-medium">{a.role}</span><span class="flex flex-wrap justify-end gap-1"><span class="chip ink">{a.model ?? $t('agents.modelUnknown')}</span><EffortChip level={effort} /></span></div><div class="text-sm text-muted mt-1 line-clamp-1">{a.job.title}</div><div class="text-[11px] text-muted mt-1">{$t('agents.runningMeta', { round: a.round ?? '—', started: ago(a.startedAt) })}</div></button>
     {/each}
   </div>
 {:else}
@@ -49,6 +53,7 @@
 {/if}
 {#if r}
   <h2 class="sheet h section w-fit max-w-full px-3 py-1.5 mt-8 mb-3">{$t('agents.roster')}</h2>
+  <p class="plain w-fit max-w-full flex flex-wrap items-center gap-1.5 px-3 py-1.5 text-xs text-muted mb-3">{$t('agents.effortDefault')}{#if defaultEffort}<EffortChip level={defaultEffort} />{:else}<span>{$t('effort.claude')}</span>{/if}</p>
   <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
     <table class="tbl">
       <thead><tr><th>{$t('agents.role')}</th><th>{$t('common.model')}</th><th>{$t('agents.promptHash')}</th><th>{$t('agents.addendum')}</th></tr></thead>

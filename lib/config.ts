@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PLUGIN_ROOT, paths, exists, resolveFrom } from './paths.ts';
-import { CONFIG_SCHEMA_VERSION, DAEMON_AUTH, migrateConfig } from './schema.ts';
-import type { Config, LoadedConfig, VerifyEntry } from './types.ts';
+import { CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORTS, migrateConfig } from './schema.ts';
+import type { Config, Effort, EffortSource, LoadedConfig, VerifyEntry } from './types.ts';
 import { ForgeError, deepMerge, isClaudeExecutable, readText, splitWords } from './util.ts';
 import * as yaml from './yaml.ts';
 
@@ -57,6 +57,8 @@ export function defaults(): Config {
       maxParallelJobs: 3,
       // Warn (never block) when the approver or a lens shares the builder's model family.
       diversity: false,
+      // null passes no --effort, so Claude Code's own setting applies; a job's effort overrides it.
+      effort: null,
       models: {
         orchestrator: 'inherit',
         planner: 'opus',
@@ -334,8 +336,9 @@ export function generatedProblems(c: any): string[] {
 
 /**
  * Checked whether or not the daemon is enabled, so a migrated launcher surfaces in
- * `forge config validate` / `forge doctor`. Every message starts with `daemon.` or
- * `dashboard.launcher`, which is how the server picks out the ones that block a start.
+ * `forge config validate` / `forge doctor`. Every message starts with `daemon.`,
+ * `dashboard.launcher` or `runtime.effort`: each one blocks a session start. runtime.effort is
+ * here because it becomes a word of every session's argv, so an invalid one fails closed.
  * When `root` is given, an absolute executable inside it is refused too.
  */
 export function daemonProblems(c: any, root?: string): string[] {
@@ -377,6 +380,9 @@ export function daemonProblems(c: any, root?: string): string[] {
   if (idle !== null && !(typeof idle === 'number' && Number.isFinite(idle) && idle > 0))
     problems.push(`daemon.idleStopMinutes must be null or a positive number (got ${JSON.stringify(idle)})`);
   if (!DAEMON_AUTH.includes(d.auth)) problems.push(`daemon.auth must be one of ${DAEMON_AUTH.join(' | ')} (got ${JSON.stringify(d.auth)})`);
+  const effort = c.runtime?.effort ?? null;
+  if (effort !== null && !validEffort(effort))
+    problems.push(`runtime.effort must be one of ${EFFORTS.join(' | ')}, or null (got ${JSON.stringify(effort)})`);
   return problems;
 }
 
@@ -572,6 +578,22 @@ export function reviewerChecklist(root: string, name: string, explicit?: string)
 
 export function modelFor(config: Config, role: string): string {
   return config.runtime.models[role] ?? config.runtime.models.reviewer ?? 'inherit';
+}
+
+/** `v` when it is one of EFFORTS, else null: anything else read from job.json or config counts as unset. */
+export function validEffort(v: unknown): Effort | null {
+  return (EFFORTS as readonly unknown[]).includes(v) ? (v as Effort) : null;
+}
+
+/**
+ * The one place a job's effort and runtime.effort combine: the daemon's argv, `forge job step`,
+ * the brief and /api/state all call it, so they can never disagree. A null level passes nothing.
+ */
+export function resolveEffort(config: Config, job?: { effort?: unknown } | null): { level: Effort | null; source: EffortSource } {
+  const own = validEffort(job?.effort);
+  if (own) return { level: own, source: 'job' };
+  const fallback = validEffort(config.runtime?.effort);
+  return fallback ? { level: fallback, source: 'config' } : { level: null, source: 'none' };
 }
 
 export function worktreeRoot(root: string, config: Config): string {

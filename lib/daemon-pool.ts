@@ -3,12 +3,12 @@
 // its requests name. Sessions fail, hold and stop on their own (lib/daemon.ts); the pool owns what
 // is repo-wide: the trust snapshot, routing, the cap and the stops config changes force.
 // docs/ARCHITECTURE.md "Daemon" describes the rules.
-import { trustDigest } from './config.ts';
+import { resolveEffort, trustDigest } from './config.ts';
 import { PERMISSION_MODES, TRUST_CHANGED, UUID, commandPermissionMode, createSession, otherOwner, readInfo, reapOrphans, sessionFiles, sessionOptions } from './daemon.ts';
 import type { DaemonOptions, Session, SessionContext, SessionEvent } from './daemon.ts';
 import { loadJob } from './jobs.ts';
 import { INBOX_SCOPE, listRequests, requestScope, validScope } from './requests.ts';
-import type { Config, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, ForgeRequest, PermissionDecision } from './types.ts';
+import type { Config, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, ForgeRequest, Job, PermissionDecision } from './types.ts';
 
 /** The pool's own state: state() below. The server adds `clients` to make a DaemonPoolState. */
 export type PoolState = Omit<DaemonPoolState, 'clients'>;
@@ -55,6 +55,7 @@ export function offState(root: string, scope: string): DaemonSessionState {
     permissions: [],
     permissionMode: null,
     kept: null,
+    effort: null,
   };
 }
 
@@ -110,7 +111,18 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
       if (kept && kept !== baseMode) modes.set(scope, kept);
       else modes.delete(scope);
     },
+    // Read at every spawn and never pushed to a running session: a change applies at its next spawn.
+    effort: (scope, c) => resolveEffort(c, scope === INBOX_SCOPE ? null : jobOrNull(scope)),
   };
+
+  /** The job a session drives, or null when it is missing or unreadable: its effort then falls back to the config's. */
+  function jobOrNull(scope: string): Job | null {
+    try {
+      return loadJob(root, scope);
+    } catch {
+      return null;
+    }
+  }
 
   function session(scope: string): Session {
     let s = sessions.get(scope);

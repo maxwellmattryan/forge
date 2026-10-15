@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { paths, exists } from './paths.ts';
-import { STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, normalizeJob, serializeJob } from './schema.ts';
-import type { AgentUsage, Config, Job, JobAgent, JobChange, JobOwner, JobEvent, JobState, LoadedJob, OwnerStatus, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
+import { EFFORTS, STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, normalizeJob, serializeJob } from './schema.ts';
+import type { AgentUsage, Config, Effort, Job, JobAgent, JobChange, JobOwner, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
 import { estimateCost } from './usage.ts';
 import { ForgeError, assertSafeRef, now, readJson, readText, setPath, slugify, shortId, withLock, writeJsonAtomic } from './util.ts';
 
@@ -102,12 +102,16 @@ export function readEvents(root: string, id: string): JobEvent[] {
     .filter(Boolean);
 }
 
+const isEffort = (v: unknown): v is Effort => (EFFORTS as readonly unknown[]).includes(v);
+const effortError = (v: unknown) => `unknown effort ${JSON.stringify(v)} (${EFFORTS.join(', ')})`;
+
 export function createJob(
   root: string,
   config: Config,
-  opts: { title: string; ref?: string; url?: string; tracker?: string; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; services?: string[]; origin?: string; splitMode?: 'never' | null },
+  opts: { title: string; ref?: string; url?: string; tracker?: string; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; services?: string[]; origin?: string; splitMode?: 'never' | null; effort?: Effort | null },
 ): LoadedJob {
   if (!opts.title) throw new ForgeError('a job needs a title');
+  if (opts.effort != null && !isEffort(opts.effort)) throw new ForgeError(effortError(opts.effort));
   // A PR's headRefName arrives here as --branch, and the branch later fills shell templates.
   if (opts.branch !== undefined) assertSafeRef(opts.branch, '--branch');
   const p = paths(root);
@@ -136,18 +140,45 @@ export function createJob(
     base: config.git.base,
     maxRounds: config.pipeline.maxRounds,
     splitMode: opts.splitMode ?? null,
+    effort: opts.effort ?? null,
     createdAt: now(),
     updatedAt: now(),
   });
   writeJsonAtomic(path.join(p.job(id), 'job.json'), serializeJob(job));
   fs.writeFileSync(path.join(p.job(id), 'request.md'), `# ${opts.title}\n\n${opts.body?.trim() ?? ''}\n`);
-  logEvent(root, id, 'created', { title: opts.title, source: job.source, ...(opts.origin ? { origin: opts.origin } : {}) });
+  logEvent(root, id, 'created', { title: opts.title, source: job.source, ...(opts.origin ? { origin: opts.origin } : {}), ...(job.effort ? { effort: job.effort } : {}) });
   if (opts.parent) {
     updateJob(root, opts.parent, (parent) => {
       if (!parent.children.includes(id)) parent.children.push(id);
     });
   }
   return job;
+}
+
+/**
+ * Sets or (null) clears a job's reasoning effort: the one write path of `forge job effort` and
+ * POST /api/jobs/:id/effort. Re-validated here because both callers pass outside text. A no-op
+ * writes nothing and logs nothing. It never touches a running session: the daemon reads the new
+ * level at that session's next spawn.
+ */
+export function setJobEffort(root: string, id: string, effort: Effort | null, from: 'cli' | 'dashboard'): PostJobEffortResponse {
+  if (effort !== null && !isEffort(effort)) throw new ForgeError(effortError(effort));
+  const unchanged = new Error('unchanged');
+  let previous: Effort | null = null;
+  let jobId = id;
+  try {
+    jobId = updateJob(root, id, (j) => {
+      previous = j.effort;
+      // Thrown rather than returned, so a no-op leaves job.json byte-identical.
+      if (previous === effort) throw unchanged;
+      j.effort = effort;
+    }).id;
+  } catch (e) {
+    if (e === unchanged) return { id: jobId, effort, previous, changed: false };
+    throw e;
+  }
+  logEvent(root, jobId, 'effort', { effort, previous, from });
+  return { id: jobId, effort, previous, changed: true };
 }
 
 export function listJobs(root: string): LoadedJob[] {

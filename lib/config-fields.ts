@@ -4,6 +4,7 @@
 // loads or writes to, and can't loosen a security or attribution policy. Everything else is
 // read-only here and edited by hand in .forge/config.yml.
 import { defaults } from './config.ts';
+import { EFFORTS } from './schema.ts';
 import type { ConfigField, ConfigFieldType, ConfigSection, ConfigValue } from './types.ts';
 import { ForgeError, getPath } from './util.ts';
 import * as yaml from './yaml.ts';
@@ -102,6 +103,8 @@ export const FIELDS: ConfigField[] = [
   ),
   field('runtime.maxParallelJobs', 'agents', 'Max parallel jobs', 'Jobs the orchestrator runs at once.', { type: 'integer', min: 1, max: 16 }),
   field('runtime.diversity', 'agents', 'Model diversity', "Warn (never block) when the approver or a lens shares the builder's model family.", { type: 'boolean' }),
+  // Editable: it changes how much the model thinks, never what it may do.
+  field('runtime.effort', 'agents', 'Effort', "How much the model thinks: low, medium, high, xhigh or max. Daemon sessions get --effort and the orchestrator passes it to each agent; a job's own effort overrides it. Empty leaves it to Claude Code's own setting.", { type: 'enum', options: [...EFFORTS], nullable: true }),
   field('runtime.provider', 'agents', 'Provider', 'Informational; the roster is provider-neutral markdown.', { type: 'string', locked: 'informational' }),
   field('runtime.host', 'agents', 'Host', 'The agent host Forge runs in.', { type: 'string', locked: 'informational' }),
 

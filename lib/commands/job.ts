@@ -6,9 +6,10 @@ import { jobPathMap } from '../brief.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
 import { daemonClaimOpts, refuseInboxDrive } from '../daemon-owner.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
-import { agentOutputMissing, claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, touchJob, updateJob, jobDir } from '../jobs.ts';
+import { agentOutputMissing, claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
 import { normalizeRef } from '../issue-link.ts';
 import { exists } from '../paths.ts';
+import { EFFORTS } from '../schema.ts';
 import { jobScope } from '../scope.ts';
 import { loadStepInput, step } from '../step.ts';
 import { createAndLink, linkJob, markNoIssue, suggestLink } from '../tracker-link.ts';
@@ -17,7 +18,7 @@ import { importClaudeCodeTranscript } from '../usage.ts';
 import { ForgeError, coerce, getPath, run } from '../util.ts';
 import { bodyFrom, list, num, oneOf, req, requireJob, str, usageError } from './args.ts';
 import { mirrorToTracker, startFromRef } from './tracker.ts';
-import type { AgentUsage, Config, HelpGroup, Job } from '../types.ts';
+import type { AgentUsage, Config, Effort, HelpGroup, Job } from '../types.ts';
 
 const NO_JOB: [1, string] = [1, 'no such job'];
 const BODY: [string, string][] = [
@@ -46,8 +47,9 @@ const JOB: HelpGroup = {
         ['--branch B', 'the branch to push to (default: git.branchPrefix + id)'],
         ['--parent ID', 'the umbrella job this one was split from'],
         ['--services a,b', 'the services it touches'],
+        ['--effort E', "the job's reasoning effort: low, medium, high, xhigh or max (default: inherit runtime.effort)"],
       ],
-      exits: [[1, 'an unsafe --branch']],
+      exits: [[1, 'an unsafe --branch, or --effort from a daemon session']],
     },
     {
       command: 'job from-ref',
@@ -94,6 +96,15 @@ const JOB: HelpGroup = {
         ['--field key=value', 'set a field (values are JSON or plain words; repeatable)'],
       ],
       exits: [[1, 'no such job, a field set only by another command, a list field that is not a JSON array of strings, or an unknown or cyclic dependency']],
+    },
+    {
+      command: 'job effort',
+      args: '<id> low|medium|high|xhigh|max | --inherit',
+      summary: "set a job's reasoning effort (forge job new --effort sets it at creation), or clear it so the job inherits runtime.effort; daemon sessions start with --effort and every agent gets it",
+      flags: [['--inherit', "clear the job's effort"]],
+      exits: [[1, 'no such job, or a daemon session']],
+      docs: ['Effort', 'docs/CONFIG.md#effort'],
+      readme: true,
     },
     {
       command: 'job claim',
@@ -204,6 +215,14 @@ const JOB: HelpGroup = {
 
 export const HELP: HelpGroup[] = [JOB];
 
+// Effort is the human's control over how much a job costs: a session misled by request text must
+// not raise its own job's, or another's, past what the human chose.
+const EFFORT_DAEMON_REFUSAL =
+  "forge job effort sets how hard a job's sessions and agents think, which a daemon session may not change; a human sets it from the dashboard or their own session";
+const refuseEffortInDaemon = () => {
+  if (process.env.FORGE_DAEMON === '1') throw new ForgeError(EFFORT_DAEMON_REFUSAL);
+};
+
 // `forge stats` and `forge job step` read these from `human` events, so an invented action is refused.
 const HUMAN_ACTIONS = ['approve-spec', 'revise-spec', 'approve-split', 'revise-split', 'approve', 'rework', 'answer'] as const;
 
@@ -226,6 +245,7 @@ const LOCKED_FIELDS: Record<string, string> = {
   pr: 'forge pr find|open|sync',
   schemaVersion: 'forge migrate',
   usage: 'forge job agent',
+  effort: 'forge job effort',
 };
 
 // setPath walks these into Object.prototype.
@@ -238,6 +258,11 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     case 'new': {
       // Read before createJob, so a bare --session fails instead of claiming as session "true".
       const session = str(flags.session, '--session');
+      let effort: Effort | undefined;
+      if (flags.effort !== undefined) {
+        refuseEffortInDaemon();
+        effort = oneOf(str(flags.effort, '--effort'), EFFORTS, 'effort');
+      }
       const job = createJob(root, config, {
         title: req(flags.title, '--title'),
         ref: flags.ref,
@@ -249,6 +274,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         kind: flags.kind,
         slug: flags.slug,
         services: list(flags.services),
+        effort,
       });
       // A split child starts unowned: the session claims each child only when it runs it.
       if (session && !flags.parent) claimJob(root, job.id, session, false, daemonClaimOpts(root, job.id));
@@ -271,7 +297,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     }
     case 'list': {
       const jobs = listJobs(root).filter((j) => (flags.all ? true : isActive(j)));
-      return jobs.map((j) => ({ id: j.id, title: j.title, stage: j.stage, state: j.state, waitingOn: j.waitingOn, round: j.round, pr: j.pr?.number ?? null, owner: j.owner?.session ?? null }));
+      return jobs.map((j) => ({ id: j.id, title: j.title, stage: j.stage, state: j.state, waitingOn: j.waitingOn, round: j.round, pr: j.pr?.number ?? null, owner: j.owner?.session ?? null, effort: j.effort }));
     }
     case 'show': {
       const job = loadJob(root, req(id, 'job id'));
@@ -279,6 +305,13 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     }
     case 'get':
       return getPath(loadJob(root, req(id, 'job id')), rest[1] ?? '') ?? null;
+    case 'effort': {
+      refuseEffortInDaemon();
+      const jobId = requireJob(root, id).id;
+      const level = rest[1];
+      if ((level !== undefined) === (flags.inherit === true) || rest.length > 2) throw usageError(JOB, 'effort');
+      return setJobEffort(root, jobId, level === undefined ? null : oneOf(level, EFFORTS, 'effort'), 'cli');
+    }
     case 'set': {
       const jobId = requireJob(root, id).id;
       const note = str(flags.note, '--note');
@@ -515,6 +548,7 @@ export function compactJob(root: string, job: Job): Record<string, unknown> {
     pr: job.pr ? { number: job.pr.number, url: job.pr.url, state: job.pr.state, checks: job.pr.checks?.state, behindBy: job.pr.behindBy, conflicts: job.pr.conflicts, unresolvedThreads: job.pr.unresolvedThreads } : null,
     source: job.source,
     noIssue: job.noIssue,
+    effort: job.effort,
     owner: job.owner?.session ?? null,
     progress: progress(root, job.id),
     tokens: job.usage.totalTokens,

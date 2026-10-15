@@ -90,6 +90,12 @@ test('config form drafts, parsing and changed keys', () => {
   const milestone = by('tracker.github.ready.milestone');
   assert.deepEqual(parseDraft(milestone, ''), { ok: true, value: null }, 'empty nullable string is null');
   assert.deepEqual(parseDraft(milestone, 'v1'), { ok: true, value: 'v1' });
+  const effort = by('runtime.effort');
+  assert.equal(draftOf(effort, null), '', 'unset effort drafts as the "Not set" option');
+  assert.deepEqual(parseDraft(effort, ''), { ok: true, value: null }, 'empty nullable enum is null');
+  assert.deepEqual(parseDraft(effort, 'high'), { ok: true, value: 'high' });
+  assert.deepEqual(parseDraft(effort, 'ultra'), { ok: false, error: 'settings.form.option' });
+  assert.deepEqual(parseDraft(by('pipeline.plan'), ''), { ok: false, error: 'settings.form.option' }, 'a non-nullable enum has no empty option');
   const rounds = by('pipeline.maxRounds');
   const prefix = by('tracker.github.labels.prefix');
   const errors = [
