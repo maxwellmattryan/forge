@@ -74,7 +74,7 @@
     if (e.key === 'Escape') {
       // Escape that cancels an IME composition closes nothing.
       if (e.isComposing) return;
-      const layer = shellEscape({ command: palette.open, settings: settingsOpen, drawer: S.drawer.id !== null });
+      const layer = shellEscape({ command: palette.open, settings: settingsOpen, popover: false, drawer: S.drawer.id !== null });
       if (layer === 'command') {
         e.preventDefault();
         closePalette();
