@@ -58,6 +58,7 @@ Every error carries one of these codes, and the code fixes the exit.
 | `failed` | 1 | the default for exit 1: the command ran and failed, or refused by policy |
 | `not_found` | 1 | no such job or request |
 | `internal` | 1 | not a Forge error: a bug or an unexpected Node error (rerun with `FORGE_DEBUG=1` for the stack) |
+| `secret_found` | 1 | the secret scanner found a likely credential in what Forge was about to commit or send (a commit, the PR title or body, a tracker write); the message shows it masked, with its fingerprint |
 | `usage` | 2 | the default for exit 2: the call could not be parsed; the hint names the help to read |
 | `unknown_command` | 2 | the first word is not a command |
 | `not_initialized` | 2 | the repo has no `.forge/config.yml`; run `/forge init` |

@@ -14,6 +14,13 @@ export const DEFAULT_TEST_PATTERN = '(^|/)(tests?|__tests__|spec|specs)/|[._-](t
 
 const JSON_LIST_LIMIT = 10;
 
+// Repo config is writable from the job's worktree, so pin everything the diff parsers depend on:
+// quoting, prefixes, drivers, colour, hunk merging, blank-context rendering, relative paths and
+// submodule visibility. Callers add `--text`, which defeats `-diff`/`binary` attributes that would
+// hide added lines. Shared with the secret scanner (lib/secrets.ts), which reads the same diffs.
+export const PINNED_GIT_CONFIG: readonly string[] = ['-c', 'core.quotepath=off', '-c', 'diff.interHunkContext=0', '-c', 'diff.suppressBlankEmpty=false', '-c', 'diff.relative=false'];
+export const PINNED_DIFF_OPTS: readonly string[] = ['--no-ext-diff', '--no-textconv', '--no-color', '--no-relative', '--ignore-submodules=none', '--inter-hunk-context=0', '--src-prefix=a/', '--dst-prefix=b/', '-M'];
+
 /** A test file the diff deleted, or made stop running: an entry of IntegrityReport.deleted. */
 export interface DeletedTest {
   path: string;
@@ -531,13 +538,7 @@ export function testIntegrity(root: string, config: Config, job: Pick<Job, 'id' 
     } catch (e) {
       throw new ForgeError(`invalid evals.testPattern: ${(e as Error).message}`);
     }
-    // Repo config is writable from the job's worktree, so pin everything the parsers depend on:
-    // quoting, prefixes, drivers, colour, hunk merging, blank-context rendering, relative paths and
-    // submodule visibility. `--text` defeats `-diff`/`binary` attributes that would hide added lines.
-    const diffArgs = [
-      ...['-c', 'core.quotepath=off', '-c', 'diff.interHunkContext=0', '-c', 'diff.suppressBlankEmpty=false', '-c', 'diff.relative=false'],
-      ...['diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-relative', '--ignore-submodules=none', '--inter-hunk-context=0', '--src-prefix=a/', '--dst-prefix=b/', '-M'],
-    ];
+    const diffArgs = [...PINNED_GIT_CONFIG, 'diff', ...PINNED_DIFF_OPTS];
     const changes = parseRaw(git([...diffArgs, '--raw', '-z', mergeBase, 'HEAD']));
     const lines = parseDiffLines(git([...diffArgs, '--text', '-U0', mergeBase, 'HEAD']));
     const read = (rev: string, p: string | null): string | null => {

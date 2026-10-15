@@ -9,6 +9,7 @@ import { attributionForbidden, scrubBranch, stripAttribution } from './attributi
 import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from './delta.ts';
 import type { Config, HumanDelta, Job, JobChange, JobPr, PrChecks } from './types.ts';
 import { ForgeError, SAFE_REF, hasBinary, now, readText, run } from './util.ts';
+import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretMode, textUnit } from './secrets.ts';
 import { cleanGenerated, generatedConfig, generatedPaths, partitionConflicts, rebuild, regenerateProblem, takeBaseSide } from './regenerate.ts';
 import type { Strategy } from './regenerate.ts';
 import { commandTemplate, verifiedHead } from './worktree.ts';
@@ -134,6 +135,18 @@ export function openPr(
     if (!opts.force) throw new ForgeError(`HEAD ${evidence.head.slice(0, 12)} of ${id} is not verified (${last}); run: forge verify ${id}, or pass --force`);
     logEvent(root, id, 'pr-unverified', { head: evidence.head, last: evidence.last });
   }
+  // Before any gh call or push, and even for a PR that already exists: the scan is the last point
+  // where nothing has left the machine yet.
+  const text = prText(root, config, job, opts.title);
+  refuseSecrets(root, config, [textUnit('(pr title)', text.title), textUnit('(pr body)', text.body)], { what: 'the PR title or body', id, gate: 'pr' });
+  if (!evidence.verified) {
+    // --force skips verify, so the range verify would have scanned is scanned here.
+    const mode = secretMode(config);
+    const scan = scanBranch(root, config, job, { staged: false });
+    logSecrets(root, id, 'pr', scan, { blocked: mode === 'block' });
+    if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of ${id}'s commits could not finish (${scan.error}); forge pr open --force won't push an unscanned branch`, 'secret_found', `forge secrets scan ${id}`);
+    if (mode === 'block' && scan.findings.length) throw new ForgeError(refusalMessage(`the commits of ${id}`, scan.findings), 'secret_found', `forge secrets scan ${id}`);
+  }
   const slug = repoSlug(root, config);
   const ahead = run('git', ['rev-list', '--count', `${config.git.remote}/${job.base}..HEAD`], { cwd: job.worktree, allowFail: true });
   if (ahead.ok && ahead.stdout.trim() === '0') throw new ForgeError(`branch ${job.branch} has no commits ahead of ${job.base}`);
@@ -158,8 +171,8 @@ export function openPr(
     return { number: existing.number, url: existing.url, created: false, ...prLinkNote(job, config) };
   }
   const bodyFile = path.join(jobDir(root, id), 'pr-body.md');
-  fs.writeFileSync(bodyFile, prBody(root, config, job));
-  const args = ['pr', 'create', '-R', slug, '--base', job.base!, '--head', job.branch!, '--title', opts.title ?? job.title, '--body-file', bodyFile];
+  fs.writeFileSync(bodyFile, text.body);
+  const args = ['pr', 'create', '-R', slug, '--base', job.base!, '--head', job.branch!, '--title', text.title, '--body-file', bodyFile];
   if (opts.draft ?? config.pr.draft) args.push('--draft');
   for (const l of config.pr.labels ?? []) args.push('--label', l);
   for (const r of config.pr.reviewers ?? []) args.push('--reviewer', r);
@@ -199,6 +212,14 @@ export function pushBranch(job: Job, config: Config, opts: { force?: boolean } =
   if (opts.force) args.splice(1, 0, '--force-with-lease');
   // Callers check the worktree first.
   run('git', args, { cwd: job.worktree! });
+}
+
+/**
+ * The PR title and body exactly as `forge pr open` sends them, so the secret scan (and
+ * `forge secrets scan`) reads the same text gh would receive.
+ */
+export function prText(root: string, config: Config, job: Job, title?: string): { title: string; body: string } {
+  return { title: title ?? job.title, body: prBody(root, config, job) };
 }
 
 function prBody(root: string, config: Config, job: Job): string {

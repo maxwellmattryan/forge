@@ -50,6 +50,8 @@ export function defaults(): Config {
       paths: ['*.html', '*.css', '*.scss', '*.sass', '*.less', '*.svelte', '*.vue', '*.jsx', '*.tsx', '*.astro'],
     },
     verifyIntegrity: 'warn',
+    // block fails verify (and refuses commits and a forced pr open) on a likely credential; warn reports it.
+    verifySecrets: 'block',
     ports: { base: 4100, span: 100 },
     runtime: {
       provider: 'anthropic',
@@ -239,6 +241,7 @@ export function validateConfig(c: any, root: string): string[] {
   if (c.runtime?.diversity !== undefined && typeof c.runtime.diversity !== 'boolean')
     problems.push(`runtime.diversity must be true or false (got ${JSON.stringify(c.runtime.diversity)})`);
   oneOf('verifyIntegrity', c.verifyIntegrity, ['warn', 'block']);
+  oneOf('verifySecrets', c.verifySecrets, ['block', 'warn']);
   if (!Array.isArray(c.review.panel) || !c.review.panel.length) problems.push('review.panel needs at least one reviewer');
   for (const r of c.review.panel ?? []) {
     if (!r?.name) problems.push('every review.panel entry needs a name');
