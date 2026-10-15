@@ -230,7 +230,7 @@ export const fetchAbout = (): Promise<AboutResponse> => jsonFetch<AboutResponse>
 
 // ---------- drawer ----------
 
-const marksOf = (d: JobDetail): string[] => threadMarks(threadItems(d.requests, threadOpening(d)));
+const marksOf = (d: JobDetail): string[] => threadMarks(threadItems(d.requests, threadOpening(d), d.events));
 
 function renderDrawer(): void {
   const d = S.drawer.detail;

@@ -329,3 +329,24 @@ test('the issue chooser shows on an issue-link gate and, approving, on a pending
   assert.match(chooser, /const link = \(to: string\): void => req\(\{ type: 'approve', job: id, note, args: \{ link: to \} \}\);/);
   assert.match(chooser, /approving = false/);
 });
+
+test('ThreadPanel renders secret notes as text in a redline sheet', () => {
+  const panel = read('src/components/ThreadPanel.svelte');
+  const start = panel.indexOf('{#if m.secret}');
+  // The branch ends where the request's own sheet starts.
+  const end = panel.indexOf('<li class="sheet ticks p-3', start);
+  assert.ok(start > 0 && end > start, 'ThreadPanel has a secret branch');
+  const branch = panel.slice(start, end);
+  assert.match(branch, /<li class="sheet ticks redline p-3 flex flex-col gap-1\.5">/);
+  assert.match(branch, /<Chip tone="rev" text=\{\$t\('thread\.secret\.blocked'\)\} \/>/);
+  assert.match(branch, /<Chip tone="warn" text=\{\$t\('thread\.secret\.noted'\)\} \/>/);
+  assert.match(branch, /\{secretLine\(f\)\}/);
+  assert.ok(!branch.includes('{@html') && !branch.includes('md('), 'excerpts and paths never reach md()');
+  assert.match(branch, /\$t\('thread\.secret\.more', \{ count: m\.secret\.more \}\)/);
+  for (const key of ['verify', 'commit', 'pr', 'agentEnd', 'elsewhere']) assert.ok(panel.includes(`$t('thread.secret.${key}'`), key);
+  assert.match(panel, /threadItems\(requests, opening, events\)/);
+  const drawer = read('src/components/Drawer.svelte');
+  assert.ok(drawer.includes('events={d.events ?? []}'), 'the Drawer passes events to the panel');
+  assert.ok(drawer.includes('threadItems(shown.detail.requests ?? [], threadOpening(shown.detail), shown.detail.events ?? [])'), 'and to the unread count');
+  assert.ok(read('src/lib/app.svelte.ts').includes('threadItems(d.requests, threadOpening(d), d.events)'), 'app.svelte.ts marks count the notes');
+});
