@@ -861,6 +861,8 @@ export interface ApiState {
     pipeline: PipelineConfig;
     models: Record<string, string>;
     daemon: { enabled: boolean };
+    /** runtime.effort when it is valid, else null. */
+    effort: Effort | null;
   };
   daemons: DaemonPoolState;
   jobs: StateJob[];

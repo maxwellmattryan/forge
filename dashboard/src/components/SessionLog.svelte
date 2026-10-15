@@ -6,6 +6,7 @@
   import { onDestroy, tick, untrack } from 'svelte';
   import Banner from './Banner.svelte';
   import Chip from './Chip.svelte';
+  import EffortSelect from './EffortSelect.svelte';
   import Icon from './Icon.svelte';
   import Empty from './Empty.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
@@ -211,6 +212,7 @@
         {#if !PERMISSION_MODES.some((m) => m === mode.chosen)}<option value={mode.chosen} disabled>{mode.chosen}</option>{/if}
       </select>
     </label>
+    {#if scope !== INBOX_SCOPE}<EffortSelect job={scope} />{/if}
     {#if scope === INBOX_SCOPE}
       <button class="btn sm" disabled={!controls.canStart} title={$t('session.startHint')} onclick={() => act('start')}><Icon name="play" />{$t('session.startInbox')}</button>
       <button class="btn sm" disabled={!controls.canStop} onclick={() => act('stop')}><Icon name="stop" />{$t('session.stopInbox')}</button>
