@@ -258,12 +258,46 @@ function vars(root: string, job: Job, dir: string, port: number | null): Record<
 /**
  * Fills a command template. Extra arguments are quoted one by one (shellArgs) and go where the
  * template says `{args}`, or after the whole line when it doesn't. fill() makes a single pass, so
- * an argument's text is never filled again.
+ * an argument's text is never filled again. Either placement is refused where the shell would not
+ * read the quoted words as plain arguments: `{args}` inside quotes (where `$(…)` would expand or
+ * a `'` would end the quoting), or an appended tail after a newline or an operator, where the
+ * first argument would be a command of its own.
  */
-function fillCommand(template: string, v: Record<string, string | number>, args: string[]): string {
+function fillCommand(name: string, template: string, v: Record<string, string | number>, args: string[]): string {
   if (!args.length) return fill(template, v);
   const quoted = shellArgs(args);
-  return template.includes('{args}') ? fill(template, { ...v, args: quoted }) : `${fill(template, v)} ${quoted}`;
+  if (template.includes('{args}')) {
+    if (quotedPlaceholder(template))
+      throw new ForgeError(`forge run: commands.${name} puts {args} inside quotes, where the arguments would not stay literal; write {args} unquoted, as its own word`);
+    return fill(template, { ...v, args: quoted });
+  }
+  const line = fill(template, v).trimEnd();
+  if (openTail(line))
+    throw new ForgeError(`forge run: commands.${name} spans several lines or ends in an operator, so appended arguments could start a command of their own; put {args} where they go`);
+  return `${line} ${quoted}`;
+}
+
+/** Whether an `{args}` sits inside '…' or "…" (a backslash escapes outside single quotes). */
+function quotedPlaceholder(template: string): boolean {
+  let quote: string | null = null;
+  for (let i = 0; i < template.length; i++) {
+    const c = template[i];
+    if (c === '\\' && quote !== "'") i++;
+    else if (quote === null && (c === "'" || c === '"')) quote = c;
+    else if (quote !== null && c === quote) quote = null;
+    else if (quote !== null && template.startsWith('{args}', i)) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether a word appended to `line` could land where the shell expects a command or a redirect
+ * target rather than an argument: after a line break, a control or redirect operator, an open
+ * `(` or backtick, or a `!` that negates the next command. Quoted words are never keywords, so they
+ * cannot complete an open construct.
+ */
+function openTail(line: string): boolean {
+  return /[\r\n]/.test(line) || /[;&|(<>`]$/.test(line) || /(^|[;&|(]\s*)!$/.test(line);
 }
 
 // The daemon's trust check guards the session's own `forge` calls; a configured command that
@@ -374,7 +408,7 @@ function prepareCommand(root: string, config: Config, id: string, name: string, 
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
   const cwd = service?.path ? path.join(job.worktree, service.path) : job.worktree;
   // Before touchJob: refused arguments leave no trace, not even a heartbeat.
-  const cmd = fillCommand(template, vars(root, job, job.worktree, job.port), opts.args ?? []);
+  const cmd = fillCommand(name, template, vars(root, job, job.worktree, job.port), opts.args ?? []);
   // Agents run commands all through a build; each one proves the session is alive.
   touchJob(root, id);
   return { cmd, cwd, env: envFor(job, job.worktree, job.port) };
@@ -446,10 +480,14 @@ export async function verify(root: string, config: Config, id: string): Promise<
     results.push({ name: 'worktree-clean', ok: false, exit: null, tail: dirty });
   } else {
     for (const group of groups) {
-      // A failing step never stops its siblings: each finishes and keeps its own log.
-      const ran = await Promise.all(
+      // A failing step never stops its siblings: each finishes and keeps its own log. One that
+      // throws is reported only once the others have settled, so none writes after verify returns.
+      const settled = await Promise.allSettled(
         group.map((step): Promise<VerifyStep> => (config.commands[step] ? runCommandAsync(root, config, id, step, { label: `verify-${step}` }) : Promise.resolve({ name: step, ok: true, skipped: true }))),
       );
+      const thrown = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
+      if (thrown) throw thrown.reason;
+      const ran = settled.map((s) => (s as PromiseFulfilledResult<VerifyStep>).value);
       results.push(...ran);
       if (ran.some((r) => !r.ok)) break;
     }

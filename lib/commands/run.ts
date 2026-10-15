@@ -13,9 +13,11 @@ const AFTER_DASHES = 'forge run takes extra arguments only after --: forge run <
 export async function runCmd(root: string, config: Config, argv: string[]): Promise<Dispatched> {
   const dashes = argv.indexOf('--');
   const args = dashes < 0 ? [] : argv.slice(dashes + 1);
-  const { pos, flags } = parseArgs(dashes < 0 ? argv : argv.slice(0, dashes));
+  const before = dashes < 0 ? argv : argv.slice(0, dashes);
+  const { pos, flags } = parseArgs(before);
   const id = req(pos[1], 'job id');
   const name = req(pos[2], 'command name');
+  if (before.some((a) => a.startsWith('--background='))) throw new ForgeError('forge run: --background takes no value');
   // A word after --background is parsed as its value, so it is an extra argument too.
   if (pos.length > 3 || (flags.background !== undefined && flags.background !== true)) throw new ForgeError(AFTER_DASHES);
   const tail = num(flags.tail, '--tail', { integer: true }) ?? 40;
