@@ -42,7 +42,10 @@ test('package.json: exact-pinned devDependencies only, no install hooks', () => 
   assert.equal(pkg.dependencies, undefined, 'the plugin has zero runtime dependencies');
   for (const hook of ['prepare', 'preinstall', 'install', 'postinstall']) assert.equal(pkg.scripts?.[hook], undefined, `no ${hook} script`);
   assert.equal(typeof pkg.scripts?.['build:dashboard'], 'string');
-  assert.equal(pkg.scripts?.['check:dashboard'], 'svelte-check --tsconfig dashboard/tsconfig.json --fail-on-warnings');
+  assert.equal(
+    pkg.scripts?.['check:dashboard'],
+    '{ [ dashboard/.svelte-check/manifest.json -nt package-lock.json ] && [ dashboard/.svelte-check/manifest.json -nt dashboard/svelte.config.mjs ]; } || rm -rf dashboard/.svelte-check; svelte-check --workspace dashboard --tsconfig tsconfig.json --fail-on-warnings --incremental',
+  );
   const lock = JSON.parse(fs.readFileSync(path.join(ROOT, 'package-lock.json'), 'utf8'));
   assert.equal(lock.lockfileVersion, 3);
   for (const [name, v] of Object.entries(pinned)) assert.equal(lock.packages[`node_modules/${name}`]?.version, v, `lockfile resolves ${name}`);
