@@ -36,7 +36,7 @@ function listFiles(dir, rel = '') {
 
 test('package.json: exact-pinned devDependencies only, no install hooks', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-  const pinned = { '@sveltejs/vite-plugin-svelte': '6.2.4', '@tailwindcss/vite': '4.3.3', '@types/node': '22.18.13', svelte: '5.57.2', 'svelte-check': '4.7.6', tailwindcss: '4.3.3', typescript: '6.0.3', vite: '7.3.7' };
+  const pinned = { '@sveltejs/vite-plugin-svelte': '7.3.1', '@tailwindcss/vite': '4.3.3', '@types/node': '22.18.13', svelte: '5.57.2', 'svelte-check': '4.7.6', tailwindcss: '4.3.3', typescript: '6.0.3', vite: '8.3.4' };
   assert.deepEqual(pkg.devDependencies, pinned);
   for (const [name, v] of Object.entries(pkg.devDependencies)) assert.match(String(v), /^\d+\.\d+\.\d+$/, `${name} must be exact-pinned`);
   assert.equal(pkg.dependencies, undefined, 'the plugin has zero runtime dependencies');
@@ -49,9 +49,9 @@ test('package.json: exact-pinned devDependencies only, no install hooks', () => 
   const lock = JSON.parse(fs.readFileSync(path.join(ROOT, 'package-lock.json'), 'utf8'));
   assert.equal(lock.lockfileVersion, 3);
   for (const [name, v] of Object.entries(pinned)) assert.equal(lock.packages[`node_modules/${name}`]?.version, v, `lockfile resolves ${name}`);
-  // esbuild and fsevents predate the Svelte toolchain; anything new that runs code on install fails here.
+  // fsevents is the only package that runs code on install (Vite 8 dropped esbuild); anything new fails here.
   const scripted = Object.entries(lock.packages).filter(([, e]: any) => e?.hasInstallScript).map(([k]) => k).sort();
-  assert.deepEqual(scripted, ['node_modules/esbuild', 'node_modules/fsevents']);
+  assert.deepEqual(scripted, ['node_modules/fsevents']);
 });
 
 test('dist holds only the manifest\'s files plus index, manifest and stamp', () => {
