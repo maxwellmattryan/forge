@@ -6,10 +6,12 @@
   import Banner from './Banner.svelte';
   import Chip from './Chip.svelte';
   import DepSection from './DepSection.svelte';
+  import LiveDot from './LiveDot.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
   import PrChip from './PrChip.svelte';
   import ProgressBar from './ProgressBar.svelte';
   import SessionActivity from './SessionActivity.svelte';
+  import SessionLog from './SessionLog.svelte';
   import StateChip from './StateChip.svelte';
   import ThreadPanel from './ThreadPanel.svelte';
   import { budgetPanel } from '../lib/budget.ts';
@@ -25,6 +27,7 @@
   import { ticker } from '../lib/clock.svelte.ts';
   import { freshCount, sessionActivity } from '../lib/live.ts';
   import { t } from '../lib/locale.ts';
+  import { DRAWER_TABS, moveDrawerTab, tabScrollTop, type DrawerTab } from '../lib/drawer.ts';
 
   const open = $derived(S.drawer.id !== null);
   const view = $derived(S.drawerView);
@@ -39,20 +42,27 @@
   // Timeline rows are newest first, so the first `fresh` arrived after the drawer opened.
   const fresh = $derived(shown ? freshCount(shown.detail.events.length, S.drawer.eventsAtOpen) : 0);
   const unread = $derived(shown && job ? unreadCount(threadMarks(threadItems(shown.detail.requests ?? [], threadOpening(shown.detail))), S.threadSeen[job.id] ?? null) : 0);
-  const TABS = ['files', 'timeline', 'thread'];
-  let tabStrip = $state<HTMLDivElement>();
-  let scrolledFor: string | null = null;
-  // Opened on the Thread (a session chip, a new job): bring it into view instead of leaving it below the fold.
+  let body = $state<HTMLDivElement>();
+  let head = $state<HTMLDivElement>();
+  // Closing the drawer, or opening another job from inside it, starts the next view at the top. A 2 s poll keeps the
+  // id, so it never moves the scroll.
   $effect(() => {
-    const id = job?.id ?? null;
-    if (!id || shown?.tab !== 'thread' || !tabStrip || scrolledFor === id) return;
-    scrolledFor = id;
-    const strip = tabStrip;
-    strip.scrollIntoView({ block: 'start' });
-    // Again once the log's first page has rendered and made the drawer tall enough to scroll that far.
-    // No cleanup: a drawer refresh re-runs this effect, and must not cancel the second scroll.
-    setTimeout(() => S.drawer.id === id && S.drawer.tab === 'thread' && strip.scrollIntoView({ block: 'start' }), 500);
+    void S.drawer.id;
+    if (body) body.scrollTop = 0;
   });
+  /** Past the header, the new tab starts right under the stuck strip; above it, the scroll stays where it is. */
+  function selectTab(tab: DrawerTab, focus = false): void {
+    if (body && head) body.scrollTop = tabScrollTop(body.scrollTop, head.offsetHeight);
+    setDrawerTab(tab);
+    if (focus) document.getElementById('drawer-tab-' + tab)?.focus();
+  }
+  function stripKey(e: KeyboardEvent): void {
+    if (!shown) return;
+    const next = moveDrawerTab(shown.tab, e.key);
+    if (!next) return;
+    e.preventDefault();
+    selectTab(next, true);
+  }
 </script>
 
 {#snippet fact(k: string, v: unknown)}
@@ -68,69 +78,22 @@
   {:else if shown && job}
     {@const d = shown.detail}
     {@const j = job}
-    <div class="min-h-0 flex-1 overflow-y-auto">
-      <div class="p-5 md:p-6 flex flex-col gap-5">
+    <div bind:this={body} class="min-h-0 flex-1 overflow-y-auto">
+      <div bind:this={head} class="p-5 md:p-6 pb-3 md:pb-4 flex flex-col gap-2">
         <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="h sheet-title">{j.title}</h2><div class="mono muted">{j.id}</div></div><div class="flex shrink-0 items-center gap-2">{#if scopeVerbs(j).length}<CommandTrigger variant="drawer" job={j.id} />{/if}<CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div></div>
-        <div class="flex flex-wrap gap-1.5"><span class="chip ink">{STAGE_LABEL[j.stage] ?? j.stage}</span><StateChip job={j} />{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}</div>
-        {#if activity}<SessionActivity {activity} extra="caption" />{/if}
-        {#if j.reason}<div class="text-sm text-muted">{j.reason}</div>{/if}
-        <ProgressBar progress={j.progress} />
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-          {@render fact($t('drawer.branch'), j.branch ?? '—')}{@render fact($t('drawer.base'), j.base ?? '—')}{@render fact($t('drawer.port'), j.port ?? '—')}{@render fact($t('drawer.worktree'), j.worktree ?? '—')}
-          <div><div class="label">{$t('drawer.pr')}</div><div class="mono break-all">{#if prUrl}<a class="text-ink" href={prUrl} target="_blank" rel="noopener">#{j.pr?.number}</a>{:else}—{/if}</div></div>
-          <div><div class="label">{$t('drawer.source')}</div><div class="mono break-all">{#if srcUrl}<a class="text-ink" href={srcUrl} target="_blank" rel="noopener">{j.source?.ref ?? $t('drawer.link')}</a>{:else}{j.source?.ref ?? '—'}{/if}</div></div>
-          {@render fact($t('drawer.session'), j.owner?.session ?? '—')}{@render fact($t('drawer.created'), ago(j.createdAt, ticker.now))}{@render fact($t('drawer.updated'), ago(j.updatedAt, ticker.now))}
-        </div>
-        <DepSection job={j} />
-        {#if matrix}
-          <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
-            <table class="tbl">
-              <thead><tr><th>{$t('table.round')}</th><th>{$t('drawer.verify')}</th>{#each matrix.reviewers as r (r)}<th>{r}</th>{/each}</tr></thead>
-              <tbody>
-                {#each matrix.rounds as r (r)}
-                  {@const verify = j.verify?.[r]}
-                  <tr>
-                    <td class="num">{r}</td>
-                    <td>{#if verify}<Chip tone={verify === 'PASS' ? 'ok' : 'bad'} text={verify} />{:else}—{/if}</td>{#each matrix.reviewers as name (name)}{@const v = j.verdicts?.[r]?.[name]}<td>{#if v}<Chip tone={v === 'PASS' ? 'ok' : 'bad'} text={v} />{:else}—{/if}</td>{/each}
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div></div>
-        {/if}
-        {@html budgetPanel(j, S.data?.config?.pipeline?.budget)}
-        {#if usageRows.length}
-          <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
-            <table class="tbl">
-              <thead><tr><th>{$t('drawer.agent')}</th><th>{$t('common.runs')}</th><th class="r">{$t('common.tokens')}</th><th class="r">{$t('drawer.output')}</th><th class="r">{$t('drawer.tools')}</th><th class="r">{$t('drawer.time')}</th><th class="r">{$t('common.estCost')}</th></tr></thead>
-              <tbody>
-                {#each usageRows as [k, v] (k)}
-                  <tr>
-                    <td>{k}</td>
-                    <td class="num">{v.runs}</td>
-                    <td class="r num">{num(v.tokens)}</td>
-                    <td class="r num">{v.output ? num(v.output) : '—'}</td>
-                    <td class="r num">{num(v.toolUses)}</td>
-                    <td class="r num">{dur(v.durationMs)}</td>
-                    <td class="r num">{usd(v.estCostUsd)}</td>
-                  </tr>
-                {/each}
-                <tr class="font-medium">
-                  <td>{$t('drawer.total')}</td>
-                  <td></td>
-                  <td class="r num">{num(j.usage.totalTokens)}</td>
-                  <td></td>
-                  <td></td>
-                  <td></td>
-                  <td class="r num">{usd(j.usage.estCostUsd)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div></div>
-        {/if}
-        {@html screenshotsPanel(j.id, d.screenshots ?? [])}
-        <div bind:this={tabStrip} class="tabs">{#each TABS as tab (tab)}<button class="tab {shown.tab === tab ? 'active' : ''}" aria-pressed={shown.tab === tab ? 'true' : 'false'} onclick={() => setDrawerTab(tab)}>{#if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted">{d.events.length}</span>{:else if tab === 'thread'}{$t('drawer.threadTab')}{#if unread > 0}<span class="chip hl ml-1.5">{$t('drawer.threadUnread', { count: unread })}</span>{/if}{:else}{$t('drawer.files')}{/if}</button>{/each}</div>
-        {#if shown.tab === 'files'}
+        <div class="flex flex-wrap items-center gap-1.5"><span class="chip ink">{STAGE_LABEL[j.stage] ?? j.stage}</span><StateChip job={j} />{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}{#if activity}<SessionActivity {activity} extra="caption" />{/if}</div>
+        {#if j.reason}<div class="text-sm text-muted truncate" title={j.reason}>{j.reason}</div>{/if}
+      </div>
+      <!-- Sticky and opaque, so no tab's content scrolls over it; it scrolls sideways when the tabs outgrow a phone. -->
+      <div role="tablist" tabindex="-1" aria-label={$t('drawer.tabs')} class="tabs sticky top-0 z-20 solid px-5 md:px-6 overflow-x-auto overflow-y-hidden" onkeydown={stripKey}>{#each DRAWER_TABS as tab (tab)}<button role="tab" id="drawer-tab-{tab}" aria-selected={shown.tab === tab} aria-controls="drawer-panel-{tab}" tabindex={shown.tab === tab ? 0 : -1} class="tab shrink-0 whitespace-nowrap focus-visible:-outline-offset-2 {shown.tab === tab ? 'active' : ''}" onclick={() => selectTab(tab)}>{#if tab === 'thread'}{$t('drawer.threadTab')}{#if unread > 0}<span class="chip hl ml-1.5">{$t('drawer.threadUnread', { count: unread })}</span>{/if}{:else if tab === 'log'}{$t('drawer.logTab')}{#if activity?.kind === 'working'}<span class="inline-flex ml-1.5 align-middle"><LiveDot on={true} /></span><span class="sr-only">{$t('live.working')}</span>{/if}{:else if tab === 'files'}{$t('drawer.files')}{:else if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted">{d.events.length}</span>{:else if tab === 'details'}{$t('drawer.detailsTab')}{/if}</button>{/each}</div>
+      <div role="tabpanel" id="drawer-panel-{shown.tab}" aria-labelledby="drawer-tab-{shown.tab}" tabindex="0" class="p-5 md:p-6 flex flex-col gap-5 focus-visible:outline-1 focus-visible:outline-dashed focus-visible:outline-line-strong focus-visible:-outline-offset-2">
+        {#if shown.tab === 'thread'}
+          <ThreadPanel job={j} requests={d.requests ?? []} opening={threadOpening(d)} baseline={S.drawer.threadAtOpen} />
+        {:else if shown.tab === 'log'}
+          <!-- Keyed by job id only, so the drawer's 2 s refresh never re-creates the log or its stream; `active` closes the
+               stream as soon as the drawer closes, though its last view stays while it slides out. -->
+          {#key j.id}<SessionLog scope={j.id} active={open} />{/key}
+        {:else if shown.tab === 'files'}
           {@const file = shown.file}
           {@const content = shown.content}
           <div class="grid md:grid-cols-[180px_1fr] gap-4">
@@ -155,15 +118,70 @@
               {/if}
             </div>
           </div>
-        {:else if shown.tab === 'thread'}
-          <ThreadPanel job={j} requests={d.requests ?? []} opening={threadOpening(d)} active={open} baseline={S.drawer.threadAtOpen} />
-        {:else}
+        {:else if shown.tab === 'timeline'}
           <ul>
             {#each events as e, i (i)}
               {@const x = eventDetail(e, { tokens: tokensShort, dur })}
               <li class="flex gap-3 py-1.5 border-b border-line text-xs">{#if i < fresh}<span class="dot hl size-1.5 shrink-0 self-center" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="text-muted whitespace-nowrap w-16 shrink-0">{ago(e.ts, ticker.now)}</span><span class="font-mono text-ink shrink-0 w-28 truncate">{e.type}</span><span class="min-w-0 break-words">{x.pre}{#if x.bold !== null}<b>{x.bold}</b>{/if}{x.post}</span></li>
             {/each}
           </ul>
+        {:else if shown.tab === 'details'}
+          {#if j.reason}<div><div class="label">{$t('drawer.reason')}</div><div class="text-sm break-words">{j.reason}</div></div>{/if}
+          <ProgressBar progress={j.progress} />
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {@render fact($t('drawer.branch'), j.branch ?? '—')}{@render fact($t('drawer.base'), j.base ?? '—')}{@render fact($t('drawer.port'), j.port ?? '—')}{@render fact($t('drawer.worktree'), j.worktree ?? '—')}
+            <div><div class="label">{$t('drawer.pr')}</div><div class="mono break-all">{#if prUrl}<a class="text-ink" href={prUrl} target="_blank" rel="noopener">#{j.pr?.number}</a>{:else}—{/if}</div></div>
+            <div><div class="label">{$t('drawer.source')}</div><div class="mono break-all">{#if srcUrl}<a class="text-ink" href={srcUrl} target="_blank" rel="noopener">{j.source?.ref ?? $t('drawer.link')}</a>{:else}{j.source?.ref ?? '—'}{/if}</div></div>
+            {@render fact($t('drawer.session'), j.owner?.session ?? '—')}{@render fact($t('drawer.created'), ago(j.createdAt, ticker.now))}{@render fact($t('drawer.updated'), ago(j.updatedAt, ticker.now))}
+          </div>
+          <DepSection job={j} />
+          {#if matrix}
+            <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
+              <table class="tbl">
+                <thead><tr><th>{$t('table.round')}</th><th>{$t('drawer.verify')}</th>{#each matrix.reviewers as r (r)}<th>{r}</th>{/each}</tr></thead>
+                <tbody>
+                  {#each matrix.rounds as r (r)}
+                    {@const verify = j.verify?.[r]}
+                    <tr>
+                      <td class="num">{r}</td>
+                      <td>{#if verify}<Chip tone={verify === 'PASS' ? 'ok' : 'bad'} text={verify} />{:else}—{/if}</td>{#each matrix.reviewers as name (name)}{@const v = j.verdicts?.[r]?.[name]}<td>{#if v}<Chip tone={v === 'PASS' ? 'ok' : 'bad'} text={v} />{:else}—{/if}</td>{/each}
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div></div>
+          {/if}
+          {@html budgetPanel(j, S.data?.config?.pipeline?.budget)}
+          {#if usageRows.length}
+            <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
+              <table class="tbl">
+                <thead><tr><th>{$t('drawer.agent')}</th><th>{$t('common.runs')}</th><th class="r">{$t('common.tokens')}</th><th class="r">{$t('drawer.output')}</th><th class="r">{$t('drawer.tools')}</th><th class="r">{$t('drawer.time')}</th><th class="r">{$t('common.estCost')}</th></tr></thead>
+                <tbody>
+                  {#each usageRows as [k, v] (k)}
+                    <tr>
+                      <td>{k}</td>
+                      <td class="num">{v.runs}</td>
+                      <td class="r num">{num(v.tokens)}</td>
+                      <td class="r num">{v.output ? num(v.output) : '—'}</td>
+                      <td class="r num">{num(v.toolUses)}</td>
+                      <td class="r num">{dur(v.durationMs)}</td>
+                      <td class="r num">{usd(v.estCostUsd)}</td>
+                    </tr>
+                  {/each}
+                  <tr class="font-medium">
+                    <td>{$t('drawer.total')}</td>
+                    <td></td>
+                    <td class="r num">{num(j.usage.totalTokens)}</td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td class="r num">{usd(j.usage.estCostUsd)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div></div>
+          {/if}
+          {@html screenshotsPanel(j.id, d.screenshots ?? [])}
         {/if}
       </div>
     </div>

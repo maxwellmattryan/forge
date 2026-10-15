@@ -108,7 +108,7 @@ Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CONFIG.md](docs
 
 ![The Pipeline board in the cyanotype theme: six jobs across the Queued, Plan, Build and Ship columns, one redlined because it waits on a person](assets/screenshots/pipeline.png)
 
-![A job's drawer open on its Thread: the job's request and two follow-ups, one answered by Forge, above the job's session log with its filters](assets/screenshots/job-drawer.png)
+![A job's drawer open on its Thread: the compact header and summary, the Thread, Log, Files, Timeline and Details tabs, the job's request and two follow-ups, one answered by Forge, and the dock with the gate's actions](assets/screenshots/job-drawer.png)
 
 ![Settings › General: the Theme segments (Cyanotype, Vellum, Nightprint, System), the Grid and Paper checkboxes, the language and the settings shortcut](assets/screenshots/settings-appearance.png)
 

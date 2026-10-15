@@ -25,13 +25,14 @@ import { toast } from './toast.svelte.ts';
 import { VIEWS, buildRequest, pickDrawerFile, queuedMessage, statsQuery } from './view.ts';
 import { addFlashes, changedJobs } from './live.ts';
 import { threadItems, threadMarks, threadOpening } from './thread.ts';
+import { DEFAULT_DRAWER_TAB, type DrawerTab } from './drawer.ts';
 import type { RequestBody, RequestInput, ViewId } from './view.ts';
 
 /** The backlog, or the error a forced refresh hit (that reply has no tracker). */
 export type BacklogView = Omit<BacklogResponse, 'tracker'> & { tracker?: string };
 export type DrawerContent = { html: true } | { text: string };
 /** What Drawer.svelte shows; reassigned only where the old renderDrawer() ran. */
-export type DrawerView = { detail: JobDetail; file: string | null; content: DrawerContent | null; tab: string } | { error: string } | null;
+export type DrawerView = { detail: JobDetail; file: string | null; content: DrawerContent | null; tab: DrawerTab } | { error: string } | null;
 
 class CompareState {
   a = $state('');
@@ -42,7 +43,7 @@ class CompareState {
 class DrawerState {
   id = $state<string | null>(null);
   file = $state<string | null>(null);
-  tab = $state('files');
+  tab = $state<DrawerTab>(DEFAULT_DRAWER_TAB);
   detail = $state.raw<JobDetail | null>(null);
   content = $state.raw<DrawerContent | null>(null);
   /** The Timeline's length when this drawer opened: later rows are marked new. Null until the first load. */
@@ -228,7 +229,7 @@ function renderDrawer(): void {
   if (id && (!Object.hasOwn(S.threadSeen, id) || S.drawer.tab === 'thread')) S.threadSeen = { ...S.threadSeen, [id]: marksOf(d) };
 }
 
-export async function openDrawer(id: string, file: string | null = null, tab = 'files'): Promise<void> {
+export async function openDrawer(id: string, file: string | null = null, tab: DrawerTab = DEFAULT_DRAWER_TAB): Promise<void> {
   S.drawer.id = id;
   S.drawer.detail = null;
   S.drawer.file = file;
@@ -245,7 +246,7 @@ export function closeDrawer(): void {
   S.drawer.detail = null;
   S.drawer.file = null;
   S.drawer.content = null;
-  S.drawer.tab = 'files';
+  S.drawer.tab = DEFAULT_DRAWER_TAB;
   S.drawer.eventsAtOpen = null;
   S.drawer.threadAtOpen = null;
 }
@@ -278,7 +279,7 @@ export async function loadFile(rel: string, rerender = true): Promise<void> {
   if (rerender) renderDrawer();
 }
 
-export function setDrawerTab(tab: string): void {
+export function setDrawerTab(tab: DrawerTab): void {
   S.drawer.tab = tab;
   renderDrawer();
 }
