@@ -1,6 +1,7 @@
 // Whether `forge verify` should run the e2e command: unit tests alone don't prove UI work, but a
 // browser suite is too slow to run on every backend-only change.
 // Must not import worktree.ts (it imports this module).
+import { verifySteps } from './config.ts';
 import { inSpec, resolveBase } from './scope.ts';
 import type { Config, Job } from './types.ts';
 import { run } from './util.ts';
@@ -25,8 +26,8 @@ export function uiChanges(cwd: string, config: Config, job: Job, globs: string[]
  */
 export function e2ePlan(config: Config, job: Job, template: string | null): null | { run: boolean; reason: string } {
   const policy: Partial<Config['verifyE2e']> = config.verifyE2e ?? {};
-  // Listed in `verify`, it already ran as a normal step; running it again would double a slow suite.
-  if ((config.verify ?? []).includes('e2e') || policy.when === 'never' || !template) return null;
+  // Listed in `verify` (in a group too), it already ran as a normal step; running it again would double a slow suite.
+  if (verifySteps(config.verify).includes('e2e') || policy.when === 'never' || !template) return null;
   if (policy.when === 'always') return { run: true, reason: 'verifyE2e.when: always' };
   // verify runs this only for a job with a worktree.
   const ui = uiChanges(job.worktree!, config, job, policy.paths ?? []);

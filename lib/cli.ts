@@ -135,7 +135,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       return ok({ stopped: wt.stopBackground(root, req(sub, 'job id')) });
     case 'verify': {
       needInit();
-      const r = wt.verify(root, config, req(sub, 'job id'));
+      const r = await wt.verify(root, config, req(sub, 'job id'));
       return { data: r, exitCode: r.ok ? 0 : 1 };
     }
     case 'integrate': {

@@ -445,6 +445,9 @@ export interface CommandsConfig {
   [name: string]: string | null;
 }
 
+/** One `verify` entry: a step name, or a group of step names that run at the same time (config schemaVersion 3). */
+export type VerifyEntry = string | string[];
+
 /** The effective config: defaults() in lib/config.ts merged with .forge/config.yml by loadConfig. docs/CONFIG.md documents each key. */
 export interface Config {
   schemaVersion: number;
@@ -470,7 +473,7 @@ export interface Config {
     generatedBy: string;
   };
   commands: CommandsConfig;
-  verify: string[];
+  verify: VerifyEntry[];
   verifyE2e: {
     when: 'ui' | 'always' | 'never';
     paths: string[];
