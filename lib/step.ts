@@ -355,6 +355,7 @@ function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: boolean; 
   if (o.retry) ctx.retry = o.retryLine ?? `Retry: ${output} was not written last time; write it before you reply.`;
   const conflicts = lastConflicts(x);
   const conflictFiles = Array.isArray(conflicts?.conflicts) ? (conflicts.conflicts as unknown[]).map(String) : [];
+  const regenerated = Array.isArray(conflicts?.regenerated) ? (conflicts.regenerated as unknown[]).map(String) : [];
   if (base === 'planner') ctx.splitMode = splitMode(x);
   if (base === 'spec-writer') ctx.foldIn = j.stage === 'design';
   if (base === 'designer') ctx.mode = x.config.pipeline.design === 'mockup' && j.kind !== 'eval' ? 'mockup' : 'reference';
@@ -363,7 +364,7 @@ function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: boolean; 
   if (base === 'integrator') {
     // The fix pass: an integration review of this episode's resolution asked for changes.
     const review = lastEvent(x, (e) => e.type === 'integration-review');
-    ctx.integration = { conflicts: conflictFiles, fix: Boolean(review && review.outcome === 'CHANGES' && after(review.ts, conflicts?.ts)) };
+    ctx.integration = { conflicts: conflictFiles, regenerated, fix: Boolean(review && review.outcome === 'CHANGES' && after(review.ts, conflicts?.ts)) };
     ctx.strategy = j.pr?.state === 'OPEN' ? x.config.pr.updateStrategy : 'rebase';
   }
   const model = modelOf(x.config, role);
