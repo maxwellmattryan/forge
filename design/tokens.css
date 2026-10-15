@@ -1,40 +1,40 @@
 /* Forge — generated from tokens.json (design/tokens.json). Themes: cyanotype, vellum, nightprint; the first is the default. */
 
 :root, [data-theme="cyanotype"] {
-  --bg: #15427a;
-  --bg-deep: #0e3263;
-  --panel: #103867;
+  --bg: #0f3f84;
+  --bg-deep: #0a2f66;
+  --panel: #0b3472;
   --raised: rgba(255,255,255,0.09);
-  --chrome: #0b2b57;
+  --chrome: #082a5e;
   --sketch-line: rgba(226,238,255,0.14);
-  --line: rgba(226,238,255,0.55);
-  --line-soft: rgba(226,238,255,0.28);
-  --line-strong: #eef5ff;
-  --grid-minor: rgba(255,255,255,0.06);
-  --grid-major: rgba(255,255,255,0.13);
-  --fg: #f3f8ff;
-  --muted: #b2cbec;
-  --dim: #7f9fc9;
+  --line: rgba(255,255,255,0.6);
+  --line-soft: rgba(255,255,255,0.3);
+  --line-strong: #ffffff;
+  --grid-minor: rgba(200,225,255,0.09);
+  --grid-major: rgba(200,225,255,0.18);
+  --fg: #ffffff;
+  --muted: #c3d7f2;
+  --dim: #86a8d4;
   --ink: #ffffff;
-  --on-ink: #15427a;
-  --redline: #ffb5a8;
-  --highlight: #ffd861;
-  --ok: #86e3bd;
-  --warn: #ffd861;
-  --bad: #ffb5a8;
-  --info: #9ad6ff;
-  --shadow-primary: 3px 3px 0 0 rgba(226,238,255,0.28);
+  --on-ink: #0f3f84;
+  --redline: #ffbdb1;
+  --highlight: #ffdc6e;
+  --ok: #8fe8c4;
+  --warn: #ffdc6e;
+  --bad: #ffbdb1;
+  --info: #a8ddff;
+  --shadow-primary: 3px 3px 0 0 rgba(255,255,255,0.3);
   --shadow-dialog: 8px 8px 0 0 rgba(255,255,255,0.08);
   --shadow-drawer: -8px 0 0 0 rgba(255,255,255,0.06);
   --shadow-chrome: 8px 0 0 0 rgba(255,255,255,0.06);
 }
 
 [data-theme="vellum"] {
-  --bg: #f1ecdf;
-  --bg-deep: #e6e0d0;
-  --panel: #fbf8f1;
+  --bg: #f1efe9;
+  --bg-deep: #e5e3dc;
+  --panel: #fdfcf9;
   --raised: rgba(31,78,140,0.08);
-  --chrome: #fffdf8;
+  --chrome: #ffffff;
   --sketch-line: rgba(31,78,140,0.14);
   --line: rgba(31,78,140,0.6);
   --line-soft: rgba(31,78,140,0.3);
@@ -45,7 +45,7 @@
   --muted: #4a6184;
   --dim: #8597b3;
   --ink: #1f4e8c;
-  --on-ink: #f6f2e8;
+  --on-ink: #fbfaf6;
   --redline: #b02817;
   --highlight: #e8b400;
   --ok: #1a6e50;

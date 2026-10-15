@@ -581,3 +581,53 @@ test('themes declare color-scheme and nightprint takes the dark defaults', () =>
   assert.deepEqual(themeRules(css, 'nightprint').map(([sel]) => sel), ['[data-theme=nightprint]'], 'only the token block names nightprint');
   assert.deepEqual(themeRules(css, 'vellum').map(([sel]) => sel).sort(), [...VELLUM_RULES].sort(), 'vellum keeps exactly its four overrides');
 });
+
+// design/tokens.json is the source tokens.css is generated from: the same themes as the dashboard
+// offers, one value per theme on every colour and shadow, and the same value as the CSS.
+test('tokens.json themes equal THEMES and every token value matches tokens.css', () => {
+  const json = JSON.parse(fs.readFileSync(path.join(ROOT, 'design', 'tokens.json'), 'utf8'));
+  const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
+  assert.deepEqual(json.color.themes.map((x: { id: string }) => x.id), [...THEMES], 'tokens.json themes are THEMES, in order');
+  const tokens: { name: string; value: Record<string, string> }[] = [...json.color.tokens, ...json.shadow.tokens];
+  assert.ok(tokens.length >= 26, `checked ${tokens.length} themed tokens`);
+  for (const theme of THEMES) {
+    const vars = scope(design, THEME_SCOPE[theme]);
+    assert.deepEqual([...vars.keys()].sort(), tokens.map((x) => `--${x.name}`).sort(), `${theme}: tokens.css and tokens.json name the same tokens`);
+    for (const { name, value } of tokens) {
+      assert.deepEqual(Object.keys(value).sort(), [...THEMES].sort(), `${name} has exactly one value per theme`);
+      assert.ok(sameValue(value[theme], vars.get(`--${name}`) ?? ''), `${theme} › ${name}: tokens.json ${value[theme]}, tokens.css ${vars.get(`--${name}`)}`);
+    }
+  }
+});
+
+// Vellum is a near-white paper, not a cream one: its ground's channels stay within 10 of each other.
+test('vellum bg is near-neutral', () => {
+  const spread = ([r, g, b]: Rgba) => Math.max(r, g, b) - Math.min(r, g, b);
+  assert.equal(spread([241, 236, 223, 1]), 18, 'self-check: the old cream ground');
+  const bg = themeColors().vellum('bg');
+  assert.ok(spread(bg) <= 10, `vellum --bg spreads ${spread(bg)} across its channels`);
+});
+
+// On a dark ground the grid is drawn in light lines: each level stands off bg, major more than minor. The
+// dashed focus ring (line-strong) stays visible on every surface it can land on, in every theme.
+test('cyanotype grid is lighter than bg', () => {
+  const colors = themeColors();
+  for (const theme of ['cyanotype', 'nightprint']) {
+    const color = colors[theme];
+    const bg = color('bg');
+    const [minor, major] = (['grid-minor', 'grid-major'] as const).map((k) => {
+      const drawn = over(color(k), bg);
+      assert.ok(luminance(drawn) > luminance(bg), `${theme} --${k} is lighter than --bg`);
+      const ratio = contrast(drawn, bg);
+      assert.ok(ratio >= 1.1, `${theme} --${k} stands ${ratio.toFixed(3)}:1 off --bg`);
+      return ratio;
+    });
+    assert.ok(major > minor, `${theme} the major grid (${major.toFixed(3)}) stands further off than the minor (${minor.toFixed(3)})`);
+  }
+  for (const [theme, color] of Object.entries(colors)) {
+    for (const s of ['bg', 'panel', 'chrome']) {
+      const ratio = contrast(color('line-strong'), color(s));
+      assert.ok(ratio >= 3, `${theme} the focus ring (--line-strong) on --${s} is ${ratio.toFixed(2)}:1`);
+    }
+  }
+});
