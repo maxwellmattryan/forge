@@ -833,6 +833,9 @@ async function nullNeverStops(repo) {
   const d2 = createPool(repo.dir, { env: fx2.env, loadConfig: () => ({ config: config({ command: FAKE_COMMAND, idleStopMinutes: null }) }), pollMs: 30, graceMs: 1000 });
   try {
     d2.start();
+    // Under load the session can still be starting after a fixed wait; the claim is about what
+    // happens once it is idle, so wait for that and then give it longer than idleStops' limit.
+    await waitFor(() => d2.state().inbox.status === 'idle', 5000, 'the session to go idle');
     await sleep(300);
     assert.equal(d2.state().inbox.running, true, 'null never stops');
     assert.equal(d2.state().inbox.status, 'idle');
