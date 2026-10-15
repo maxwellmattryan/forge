@@ -17,7 +17,7 @@ Run `npm ci` once. After that, the dashboard and the CLI run your local source, 
   - It refuses to start while a dashboard is already running for that repo. Stop that one with `forge dash --stop`, or point it at a scratch repo.
   - The daemon stays off until you press Start, even with `daemon.enabled: true`. Its sessions then run this checkout's code.
   - `dashboard/dist/` is never written. Before you commit dashboard changes, run `npm run build:dashboard` and commit the rebuilt `dist/` with them.
-- **`npm run dev:claude [-- <claude args>]`** opens Claude Code on this checkout's plugin, from the directory you ran it in. The plugin, its skills, agents and hooks, and every `forge` call run the checkout. For that session it overrides an installed Forge. From another repo, run `npm --prefix <checkout> run dev:claude`.
+- **`npm run dev:claude [-- <claude args>]`** opens Claude Code on this checkout's plugin (`claude --plugin-dir <checkout>`, with the checkout's `bin/` first on PATH), from the directory you ran it in. The plugin, its skills, agents and hooks, and every `forge` call run the checkout. For that session it overrides an installed Forge. From another repo, run `npm --prefix <checkout> run dev:claude`.
 - In any Claude Code session with Forge enabled, `forge` is the loaded plugin's CLI: a SessionStart hook puts that plugin's `bin/` first on PATH, ahead of an `npm link` or another install.
 - `npm link`, then `forge help`, runs the CLI on its own.
 - Point any of these at a scratch git repo in a temp dir, or set `FORGE_ROOT=<scratch>`, never at a real repo's `.forge/`. Delete the scratch repo and its `<repo>.worktrees` sibling afterwards.
