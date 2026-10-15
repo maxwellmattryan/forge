@@ -12,6 +12,7 @@ This repo is **Forge**: a Claude Code plugin that is also its own marketplace. T
 - `agents/`: one prompt per role · `reviewers/`: lens checklists · `templates/`: files `init` seeds into `.forge/`
 - `docs/`: user docs · `test/`: `node:test` suites
 - `scripts/`: dev-only TypeScript run through npm, type-checked with the engine (`docs-commands.ts` is `npm run docs:commands`)
+- `.github/workflows/ci.yml`: CI, the verify list below on every PR and push to `main`
 
 ## Where a change goes
 
@@ -26,6 +27,7 @@ This repo is **Forge**: a Claude Code plugin that is also its own marketplace. T
 | tracker behaviour | `lib/trackers/{local,github}.ts`, contract in `lib/types.ts` (loader in `index.ts`), status mapping in `status.ts` (`status.mjs` re-exports it for older adapters) | `docs/TRACKERS.md` |
 | the dashboard | `dashboard/src/**` (`views/`, `components/`, `lib/`), `dashboard/index.html`, `dashboard/style.css`, and endpoints in `lib/server.ts` | rebuild and commit `dashboard/dist/` (`npm run build:dashboard`); `API_VERSION` on shape changes; `dashboard/src/lib/types.ts` on any `/api/*` or SSE shape change; `npm run check:dashboard`. The server's allowlist is `dist/manifest.json`, so new modules need no server change |
 | prices or model ids | `lib/pricing.json` (bump `asOf`) | take prices from Anthropic's current pricing, never from memory |
+| CI | `.github/workflows/ci.yml` | the verify list in this file, in the same order; `test/ci-workflow.test.ts` |
 
 Each dashboard page is one component in `dashboard/src/views/`. Put shared pieces in `components/` and logic you want tested in plain `src/lib/*.ts`, not in a growing view. Only one in-flight change may bump a version constant in `lib/schema.ts`: two branches that both migrate from the same version merge into a broken migration table.
 
@@ -45,14 +47,15 @@ Each dashboard page is one component in `dashboard/src/views/`. Put shared piece
 ## Verify before claiming it works
 ```bash
 npm ci                                  # once: the dashboard's build toolchain (devDependencies only)
-npm run build:dashboard && git status --porcelain -- dashboard/dist   # must print nothing
-npm run check:dashboard                 # svelte-check: strict TS over dashboard/src (.ts and .svelte), warnings fail
 npm run typecheck                       # tsc --noEmit: the engine (tsconfig.json) and its tests (test/tsconfig.json)
+npm run check:dashboard                 # svelte-check: strict TS over dashboard/src (.ts and .svelte), warnings fail
+npm run build:dashboard && git status --porcelain -- dashboard/dist   # must print nothing
 node --test "test/*.test.ts"            # not `node --test test/`: Node 22 treats a directory arg as a module
 for f in bin/forge lib/trackers/status.mjs dashboard/*.mjs; do node --check "$f"; done   # the JS files tsc does not check
 claude plugin validate . --strict
 ```
-- **Forge needs Node ≥ 22.18, for the plugin and the tests:** type stripping is on by default there and prints no warning. Check changes on 22.18 itself (`~/.nvm/versions/node/v22.18.0`), not only on a newer 22.x.
+- **CI runs this list.** `.github/workflows/ci.yml` runs these commands as named steps, in this order, on every PR and every push to `main`. It runs them on Node 22.18.0 (`.nvmrc`) and the latest Node 24, on Ubuntu and macOS. For the last step it installs `@anthropic-ai/claude-code@2.1.299` from npm. That pin is the CLI version maintainers run locally, so CI validates by the same rules as a local run, even when the release is only days old (the action pins wait two weeks). Bump it in the workflow and here together. `claude plugin validate` needs no login, so CI runs it rather than skipping it. A separate `audit` job runs `npm audit --omit=dev`, which blocks, and a report-only `npm audit`. Change this list and the workflow together: `test/ci-workflow.test.ts` fails when they differ. The same test holds the workflow to allowlists of triggers, keys, `env`, actions and `${{ }}` expressions, and pins the job names, the matrix, the action inputs, every `run` (the stale-dist script and the audit steps included) and the single CLI install exactly, so changing any of those means editing the test in the same diff.
+- **Forge needs Node ≥ 22.18, for the plugin and the tests:** type stripping is on by default there and prints no warning. Check changes on 22.18 itself (`~/.nvm/versions/node/v22.18.0`; `nvm use` reads `.nvmrc`), not only on a newer 22.x.
 - **Never point the CLI at a real repo's `.forge/` while developing.** Use a scratch git repo in a temp dir, or set `FORGE_ROOT=<scratch>` (as `test/helpers.ts` does). Delete scratch repos *and* their `<repo>.worktrees` siblings afterwards.
 - **Dashboard:** run `npm run build:dashboard` first (`forge dash` serves `dashboard/dist/`, not the sources). In a scratch repo, seed a job or two (`forge job new`, `forge job set`), run `forge dash --background`, and open it in a browser. Check the cyanotype and vellum themes, a phone-width viewport, the job drawer, and that markdown containing `<script>` / `<img onerror>` renders escaped. Stop it with `forge dash --stop` from the same scratch repo.
 - **The plugin inside Claude Code:** `claude --plugin-dir <this checkout>` loads it without installing. `claude plugin details forge` shows the component inventory and projected token cost, which is useful when trimming prompts.
