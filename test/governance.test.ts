@@ -2,6 +2,7 @@
 // change. Reads files only: no git and no network.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { parse } from '../lib/yaml.ts';
@@ -10,9 +11,23 @@ import { findAttribution } from '../lib/attribution.ts';
 const ROOT = path.resolve(import.meta.dirname, '..');
 const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 
-const GOVERNANCE = ['SECURITY.md', '.github/CODEOWNERS', '.github/dependabot.yml'];
+const GOVERNANCE = [
+  'SECURITY.md',
+  'CONTRIBUTING.md',
+  'CODE_OF_CONDUCT.md',
+  '.github/CODEOWNERS',
+  '.github/dependabot.yml',
+  '.github/ISSUE_TEMPLATE/bug_report.yml',
+  '.github/ISSUE_TEMPLATE/feature_request.yml',
+  '.github/pull_request_template.md',
+];
 const OWNER = '@maxwellmattryan';
 const ADVISORY_URL = 'https://github.com/maxwellmattryan/forge/security/advisories/new';
+/** sha256 of Contributor Covenant 2.1 as published, `[INSERT CONTACT METHOD]` placeholder included. */
+const COC_SHA256 = '369bf7301883368fc19203bd0f1233fed2b83f0378ad19c4d0708bf61925339b';
+const COC_PLACEHOLDER = '[INSERT CONTACT METHOD]';
+const COC_CONTACT = `[the private reporting form](${ADVISORY_URL}) (title the report "Code of Conduct")`;
+const FORM_TYPES = new Set(['markdown', 'textarea', 'input', 'dropdown', 'checkboxes']);
 const CODEOWNED = [
   '/.forge/config.yml',
   '/.forge/trackers/**',
@@ -85,6 +100,53 @@ function section(md: string, title: string): string {
   const end = all.findIndex((l, i) => i > start && /^#{1,2} /.test(l));
   return all.slice(start + 1, end === -1 ? undefined : end).join('\n');
 }
+
+/** The command lines of the AGENTS.md verify block, each without its trailing ` # comment`. */
+function verifyCommands(): string[] {
+  const agents = read('AGENTS.md').split('\n');
+  const heading = agents.indexOf('## Verify before claiming it works');
+  assert.ok(heading >= 0, 'AGENTS.md has "## Verify before claiming it works"');
+  const open = agents.findIndex((l, i) => i > heading && l.startsWith('```'));
+  const close = agents.findIndex((l, i) => i > open && l.startsWith('```'));
+  assert.ok(open > heading && close > open, 'the verify section starts with a fenced block');
+  const commands = agents
+    .slice(open + 1, close)
+    .map((l) => l.split(/\s+#\s/)[0].trim())
+    .filter(Boolean);
+  assert.ok(commands.includes('npm ci') && commands.length >= 5, `parsed the verify commands: ${commands.join(' | ')}`);
+  return commands;
+}
+
+const sha256 = (text: string): string => crypto.createHash('sha256').update(text).digest('hex');
+
+/** A parsed issue form, after the checks GitHub applies before it shows the form instead of a blank issue. */
+function issueForm(rel: string): any {
+  const form = parse(read(rel));
+  for (const key of ['name', 'description']) assert.ok(typeof form[key] === 'string' && form[key].trim(), `${rel}: ${key}`);
+  assert.ok(Array.isArray(form.body) && form.body.length, `${rel}: body`);
+  assert.equal(form.title, undefined, `${rel}: no title, because Forge turns issue titles into job ids`);
+  const ids = new Set<string>();
+  for (const el of form.body) {
+    const where = `${rel}: ${el.id ?? el.type}`;
+    assert.ok(FORM_TYPES.has(el.type), `${where}: type ${el.type}`);
+    if (el.id !== undefined) {
+      assert.match(String(el.id), /^[A-Za-z0-9_-]+$/, where);
+      assert.ok(!ids.has(el.id), `${where}: duplicate id`);
+      ids.add(el.id);
+    }
+    if (el.type === 'markdown') {
+      assert.ok(typeof el.attributes?.value === 'string' && el.attributes.value.trim(), `${where}: value`);
+      assert.equal(el.validations, undefined, `${where}: markdown takes no validations`);
+    } else {
+      assert.ok(typeof el.attributes?.label === 'string' && el.attributes.label.trim(), `${where}: label`);
+    }
+    if (el.type === 'dropdown') assert.ok(Array.isArray(el.attributes.options) && el.attributes.options.length, `${where}: options`);
+  }
+  assert.ok(form.body.some((el: any) => el.type !== 'markdown'), `${rel}: at least one field`);
+  return form;
+}
+
+const field = (form: any, id: string): any => form.body.find((el: any) => el.id === id);
 
 test('governance files exist and stay under 120 lines', () => {
   for (const rel of GOVERNANCE) {
@@ -188,6 +250,63 @@ test('dependabot.yml updates dev dependencies and actions weekly, grouped', () =
   assert.ok(comments.includes('dashboard/dist/'));
   assert.ok(comments.includes('npm run build:dashboard'));
   assert.match(comments, /pinned map in test\/dashboard-dist\.test\.ts/);
+});
+
+test('CONTRIBUTING.md links the verify list instead of copying it and states the PR conventions', () => {
+  const contributing = read('CONTRIBUTING.md');
+  const targets = links(contributing);
+  for (const t of ['AGENTS.md#verify-before-claiming-it-works', 'README.md#authorship', 'SECURITY.md', 'CODE_OF_CONDUCT.md'])
+    assert.ok(targets.includes(t), `links ${t}`);
+  for (const s of ['claude --plugin-dir', 'Closes #', 'CHANGELOG.md', 'test/dashboard-dist.test.ts']) assert.ok(contributing.includes(s), s);
+  assert.match(contributing, /one PR per issue/i);
+  // The verify list lives in AGENTS.md alone, so a copy here can't drift from it.
+  for (const cmd of verifyCommands().filter((c) => c !== 'npm ci')) assert.ok(!contributing.includes(cmd), `copies the verify command ${cmd}`);
+});
+
+test('CODE_OF_CONDUCT.md is Contributor Covenant 2.1 verbatim apart from the contact', () => {
+  const coc = read('CODE_OF_CONDUCT.md');
+  const found = [...coc.matchAll(/responsible for enforcement at (.+)\. All complaints will be reviewed/g)];
+  assert.equal(found.length, 1);
+  assert.equal(found[0][1], COC_CONTACT);
+  assert.ok(!coc.includes(COC_PLACEHOLDER), 'the placeholder is replaced');
+  const restored = coc.replace(`at ${COC_CONTACT}. All complaints`, () => `at ${COC_PLACEHOLDER}. All complaints`);
+  assert.equal(sha256(restored), COC_SHA256);
+});
+
+test('issue forms are well formed and the bug form asks for forge doctor and forge version', () => {
+  const bug = issueForm('.github/ISSUE_TEMPLATE/bug_report.yml');
+  assert.deepEqual(bug.labels, ['bug']);
+  const doctor = field(bug, 'doctor');
+  assert.equal(doctor?.type, 'textarea');
+  assert.equal(doctor.attributes.render, 'text');
+  assert.equal(doctor.validations?.required, true);
+  assert.match(doctor.attributes.label, /forge doctor/);
+  const version = field(bug, 'version');
+  assert.equal(version?.type, 'input');
+  assert.equal(version.validations?.required, true);
+  assert.match(version.attributes.label, /forge version/);
+  assert.ok(
+    bug.body.some((el: any) => el.type === 'markdown' && el.attributes.value.includes('(https://github.com/maxwellmattryan/forge/blob/main/SECURITY.md)')),
+    'a markdown note sends security reports to SECURITY.md',
+  );
+
+  const feature = issueForm('.github/ISSUE_TEMPLATE/feature_request.yml');
+  assert.deepEqual(feature.labels, ['enhancement']);
+  for (const id of ['problem', 'proposal']) {
+    assert.equal(field(feature, id)?.type, 'textarea', id);
+    assert.equal(field(feature, id).validations?.required, true, id);
+  }
+});
+
+test("the PR template's checklist mirrors the AGENTS.md verify commands", () => {
+  const template = read('.github/pull_request_template.md');
+  const boxes = template.split('\n').filter((l) => l.startsWith('- [ ]'));
+  for (const cmd of verifyCommands()) assert.ok(boxes.some((l) => l.includes(cmd)), `checklist item for ${cmd}`);
+  assert.match(template, /^Closes #/m);
+  assert.ok(boxes.some((l) => /AI attribution/.test(l)), 'checklist item for no AI attribution');
+  assert.ok(boxes.some((l) => /version/i.test(l) && l.includes('CHANGELOG')), 'checklist item for no version or CHANGELOG bump');
+  // Relative links don't resolve in a PR body.
+  assert.deepEqual(links(template).filter((t) => !/^(https?|mailto):/.test(t)), []);
 });
 
 test('governance files carry no AI attribution lines', () => {

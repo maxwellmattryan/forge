@@ -1,0 +1,58 @@
+name: Bug report
+description: Something in Forge does not work as its docs say it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **A security issue?** Do not file it here. Report it privately as [SECURITY.md](https://github.com/maxwellmattryan/forge/blob/main/SECURITY.md) describes.
+
+        Search the existing issues first, and file one bug per issue.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, and what Forge did in response.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The commands or dashboard actions in order, starting from a fresh state if you can.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "`forge doctor` output"
+      description: Run `forge doctor` in the affected repo, and remove hostnames, home paths and tokens before you paste it.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: "`forge version` output"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run Forge?
+      options:
+        - Claude Code plugin
+        - CLI from a clone
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Your OS, Node version and Claude Code version.

@@ -1,0 +1,39 @@
+name: Feature request
+description: Propose a change to what Forge does.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One change per issue, because each issue becomes one pull request. Split a larger idea into several issues.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you are trying to do, and where Forge gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: The change you want, described as what Forge does once it lands.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other approaches you considered, including any workaround you use now.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - CLI
+        - Orchestrator and agents
+        - Dashboard
+        - Daemon
+        - Trackers and PRs
+        - Evals and retros
+        - Docs
