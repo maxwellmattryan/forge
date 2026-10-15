@@ -4,7 +4,7 @@
 // refused rather than guessed at.
 import type { Job, LoadedJob } from './types.ts';
 
-export const CONFIG_SCHEMA_VERSION = 2;
+export const CONFIG_SCHEMA_VERSION = 3;
 export const JOB_SCHEMA_VERSION = 7;
 export const EVENT_SCHEMA_VERSION = 1;
 /**
@@ -66,6 +66,9 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
     if (typeof launcher === 'string' && launcher.trim() && !c.daemon?.command) out.daemon = { ...(c.daemon ?? {}), command: launcher };
     return out;
   },
+  // v3 lets a `verify` entry be a list of steps that run at the same time. Every v2 list is a valid v3
+  // list, so nothing changes; the bump is what lets this and later Forges refuse a config they cannot read.
+  2: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {

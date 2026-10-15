@@ -278,7 +278,7 @@ export function gradeJob(root: string, config: Config, jobId: string): EvalResul
     }
     if (task.check.files) fs.cpSync(path.join(task.dir, task.check.files), wt, { recursive: true });
     if (applied && cmd) {
-      const res = run(process.env.SHELL || '/bin/sh', ['-lc', fill(cmd, { job: jobId, port: job.port ?? '', worktree: wt })], { cwd: wt, allowFail: true });
+      const res = run(process.env.SHELL || '/bin/sh', ['-lc', fill(cmd, { job: jobId, port: job.port ?? '', worktree: wt, args: '' })], { cwd: wt, allowFail: true });
       check.ran = true;
       check.pass = res.ok;
       check.tail = tail(`${res.stdout}\n${res.stderr}`, 30);

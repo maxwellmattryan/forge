@@ -2,10 +2,10 @@
 
 `/forge init` writes this file. Every key is optional; anything omitted takes the default shown. The file uses a strict YAML subset (block maps and lists, quoted or plain scalars, `[a, b]` / `{a: 1}` flow collections, `|` blocks, comments; no anchors or tags). `forge config validate` checks it, `forge config show` prints the effective config, `forge config get <key>` prints one effective value, and `forge config set <key> <value>` changes one editable key (see [Changing settings](#changing-settings)).
 
-Command templates may use `{port}`, `{job}`, `{worktree}`, `{root}`, `{branch}` and `{base}`. Placeholders are filled in unquoted, so `{job}`, `{branch}` and `{base}` are checked first: each must start with a letter or digit and use only `A-Z a-z 0-9 . _ / -` (at most 200 characters), and an unsafe value stops the command before it runs, with an error naming the field. Commands also get `PORT`, `FORGE_PORT`, `FORGE_JOB` and `FORGE_WORKTREE` in their environment, and never the daemon session's `FORGE_DAEMON*` variables, so a command that calls `forge` behaves the same under the daemon as for a human.
+Command templates may use `{port}`, `{job}`, `{worktree}`, `{root}`, `{branch}`, `{base}` and `{args}`. `{args}` holds the extra arguments of `forge run <job> <name> -- <args…>`, each already in single quotes, and arguments go only where a template has it: `forge run` refuses arguments for a template without `{args}`, so a command takes none unless you opt in. Write `{args}` unquoted, as a whole word: after the start, a space, a tab, a newline or `(`, and before the end, a space, a tab, a newline, `;`, `&`, `|` or `)`. Arguments for a template where it sits inside `'…'` or `"…"` or touches another word (`x{args}`, `\{args}`) are refused, and so are arguments for any template containing a heredoc (`<<`), `$'` or `\'`, where the quoting would not hold. The arguments become words of whatever command surrounds `{args}`, so `exec {args}`, `env {args}` or `time {args}` runs the first one as a program. An argument containing a quote, backslash or control character is refused too. Every refusal comes before anything runs. Only `forge run` has arguments: `forge verify`, worktree setup, `forge run --background`, `forge integrate`'s rebuild and `forge eval grade` fill `{args}` with nothing. The other placeholders are filled in unquoted, so `{job}`, `{branch}` and `{base}` are checked first: each must start with a letter or digit and use only `A-Z a-z 0-9 . _ / -` (at most 200 characters), and an unsafe value stops the command before it runs, with an error naming the field. Commands also get `PORT`, `FORGE_PORT`, `FORGE_JOB` and `FORGE_WORKTREE` in their environment, and never the daemon session's `FORGE_DAEMON*` variables, so a command that calls `forge` behaves the same under the daemon as for a human.
 
 ```yaml
-schemaVersion: 2
+schemaVersion: 3
 
 project:
   name: null                 # display name
@@ -42,7 +42,8 @@ commands:                    # what `forge run <job> <name>` executes inside the
   typecheck: null
   dev: null                  # e.g. "yarn dev --port {port}"
   e2e: null                  # browser/e2e suite; `forge run <job> e2e`, and verify runs it per verifyE2e below
-verify: [build, lint, test]  # the deterministic gate before review, in order; unset commands are skipped
+verify: [build, lint, test]  # the deterministic gate before review, in order; unset commands are skipped. A list
+                             # entry such as [lint, test] is a group whose steps run at the same time ("Verify groups")
 verifyE2e:                   # after every verify step passes, also run commands.e2e (nothing runs when it is unset,
                              # and nothing extra when e2e is already listed in verify)
   when: ui                   # ui: only when the job's diff touches `paths` · always · never
@@ -238,6 +239,20 @@ Reasoning effort is how much the model thinks before it answers: `low`, `medium`
 - **In the dashboard**, a job's Log tab has an **Effort** select beside Permissions (Inherit shows what it resolves to), a job whose own level differs from `runtime.effort` shows a chip such as "Extra high effort" on its card, in its drawer and on the Agents page, and Settings → Agents edits `runtime.effort`. While a job's session runs at another level than the one now set, a note says it applies to new agents now and to the session when it restarts.
 - **A daemon session may not change effort**: `forge job effort` and `forge job new --effort` refuse under `FORGE_DAEMON=1`, and `forge job set --field effort=…` is always refused. Set it from the dashboard or your own session.
 - Needs a Claude Code with `--effort` (checked on 2.1.299).
+
+## Verify groups
+
+An entry in `verify` is a step name or a list of step names. A list is a group: its steps start together and run at the same time, and the next entry starts only after all of them have finished. Group steps that don't depend on each other's output, typically the checks that follow a build, in one list:
+
+```yaml
+verify:
+  - build
+  - [lint, typecheck, test]
+```
+
+A failing step never stops its siblings: each runs to completion and keeps its own log and `command` event, and then no later entry runs. `failure` (and `verifyRuns[].failure`) is the first failing step in config order, not the first to finish, and `verify/round-N.md` and the JSON `steps` keep one entry per step in config order. A step with no command is reported `skipped (no command configured)` in its place, and `e2e` listed anywhere, inside a group too, is not run a second time by `verifyE2e`. Steps in a group share the worktree, the job's `{port}` and the environment, so don't group steps that write the same files (a formatter or `--fix` beside a test) or bind `{port}`. A `verify` of plain step names runs one step after another, as the default `[build, lint, test]` does. `forge verify` refuses to start (exit 1, nothing recorded) when `verify` is not a list, when an entry is neither a step name nor a non-empty list of names (a nested list included), or when a step is listed twice; `forge config validate` and `forge doctor` report the same problems.
+
+**Migration** (config `schemaVersion` 2 → 3): nothing changes, because every v2 `verify` is a valid v3 one, and `forge migrate` only rewrites the version. The bump lets Forge refuse a config it can't read: `forge verify` exits 1 on a `schemaVersion` newer than its own. A Forge older than this change can't tell, so it reads a group as one unknown step (`lint,typecheck,test`), reports it skipped and passes verify without it: update Forge everywhere verify runs before you commit a group.
 
 ## Verify integrity
 

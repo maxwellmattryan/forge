@@ -324,8 +324,11 @@ test('dispatch returns data and exit codes without printing', POSIX, async () =>
     const { config, initialized } = loadConfig(s.root);
     const ctx = { root: s.root, config, initialized };
     process.exitCode = undefined;
-    process.stdout.write = ((chunk: any) => {
-      written.push(String(chunk));
+    // verify awaits its commands, so the test runner's own report frames (Buffers) can flush in this
+    // window; they pass through. Everything Forge prints goes through out(), which writes strings.
+    process.stdout.write = ((chunk: any, ...rest: any[]) => {
+      if (typeof chunk !== 'string') return write.call(process.stdout, chunk, ...rest);
+      written.push(chunk);
       return true;
     }) as typeof process.stdout.write;
     const shown = await dispatch(['job', 'show', id], ctx);

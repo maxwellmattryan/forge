@@ -1,0 +1,9 @@
+#!/bin/sh
+# The suite's $SHELL (test/helpers.ts). Forge runs every configured command as `$SHELL -lc <command>`;
+# this runs it in the caller's own shell without -l, because a login profile (nvm, for one) can cost
+# a second per command and reorder PATH, and no test needs one.
+if [ "$1" = -lc ]; then
+  shift
+  exec "${FORGE_TEST_SHELL:-/bin/sh}" -c "$@"
+fi
+exec "${FORGE_TEST_SHELL:-/bin/sh}" "$@"
