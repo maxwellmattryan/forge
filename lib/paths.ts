@@ -71,6 +71,13 @@ export function exists(p: string): boolean {
 
 export const PLUGIN_ROOT: string = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+/**
+ * Where `npm run dev`'s watching Vite build lands and `forge dash --dev` serves from. node_modules/
+ * is already gitignored and outside dashboard/, so neither git, the build stamp, Tailwind's @source
+ * nor svelte-check ever sees it; `npm ci` wiping it is fine for a cache.
+ */
+export const DEV_DIST_DIR: string = path.join(PLUGIN_ROOT, 'node_modules', '.cache', 'forge', 'dashboard-dev');
+
 /** realpath of the deepest existing ancestor, with the rest re-appended: where `p` would land. */
 export function landing(p: string): string {
   let dir = p;

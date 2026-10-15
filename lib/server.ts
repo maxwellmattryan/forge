@@ -14,7 +14,7 @@ import { doctor } from './doctor.ts';
 import { jobSessionEnv, ownerStatusWithProof } from './daemon-owner.ts';
 import { createJob, listJobs, loadJob, ownerStatus, progress, readEvents, jobDir, requestBody, setJobEffort } from './jobs.ts';
 import { normalizeRef } from './issue-link.ts';
-import { paths, exists, PLUGIN_ROOT } from './paths.ts';
+import { paths, exists, DEV_DIST_DIR, PLUGIN_ROOT } from './paths.ts';
 import { API_VERSION, CONFIG_SCHEMA_VERSION, EFFORTS, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from './schema.ts';
 import { computeStats } from './stats.ts';
 import { listRuns, listTasks, compareRuns, forgeVersion } from './evals.ts';
@@ -54,6 +54,11 @@ export interface ServerOptions {
   sseMaxAgeMs?: number;
   ssePingMs?: number;
   distDir?: string;
+  /**
+   * Set only by `forge dash --dev` (what `npm run dev` runs): serve the watching dev build and leave
+   * the daemon off until Start. No config key or /api route reaches it.
+   */
+  dev?: boolean;
 }
 
 /** A listening dashboard server: what startServer resolves to. */
@@ -85,18 +90,26 @@ const SSE_PING_MS = 15_000;
 const SSE_MAX_AGE_MS = 5 * 60_000;
 const DIST_DIR = path.join(PLUGIN_ROOT, 'dashboard', 'dist');
 const NOT_BUILT = 'dashboard is not built: run npm run build:dashboard';
+const DEV_NOT_BUILT = 'dashboard dev build is not ready: npm run dev is still building it; reload in a moment';
 const DIST_ASSET = /^assets\/[\w.-]+\.(js|css|woff2)$/;
 const DIST_TYPES: Record<string, string> = { js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', woff2: 'font/woff2' };
+
+/** The build a server reads its page and assets from: an explicit test dir, the dev build, or dist/. */
+export function distDirFor(opts: ServerOptions): string {
+  return opts.distDir ?? (opts.dev ? DEV_DIST_DIR : DIST_DIR);
+}
 
 /**
  * Read-mostly, localhost-only server. POSTs need the per-process token embedded in the page,
  * so another site in the same browser cannot enqueue work or start the daemon.
- * `distDir` is a test seam like `sseMaxAgeMs`; it defaults to the plugin's committed dashboard/dist.
+ * `distDir` is a test seam like `sseMaxAgeMs`; it defaults to the plugin's committed dashboard/dist, or to
+ * the dev build under `dev`.
  */
 export function startServer(root: string, opts: ServerOptions = {}): Promise<RunningServer> {
   const token = crypto.randomBytes(16).toString('hex');
   const host = opts.host ?? '127.0.0.1';
-  const distDir = opts.distDir ?? DIST_DIR;
+  const distDir = distDirFor(opts);
+  const notBuilt = opts.dev ? DEV_NOT_BUILT : NOT_BUILT;
   let backlogCache: { at: number; data: BacklogResponse } | null = null;
   /** Open event streams and the session each one follows; MAX_SSE_CLIENTS counts them all. */
   const clients = new Map<http.ServerResponse, string>();
@@ -109,7 +122,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       if (!isLoopbackHost(req.headers.host)) return send(res, 421, 'text/plain', 'misdirected request');
       const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
       const p = url.pathname;
-      if (req.method === 'GET' && (p === '/' || p === '/index.html')) return page(res, token, distDir);
+      if (req.method === 'GET' && (p === '/' || p === '/index.html')) return page(res, token, distDir, notBuilt);
       // Re-read per request so a rebuild under a running `forge dash` is picked up; the manifest is
       // tiny. The pathname is never decoded or joined: lookup is by exact string.
       if (req.method === 'GET' && p.startsWith('/assets/')) {
@@ -384,7 +397,9 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       d.subscribe((e) => broadcast(clients, e.kind === 'line' ? lineFrame(e.offset, e.line) : stateFrame(e.state), SSE_SLOW_CLIENT_BYTES, e.scope));
       try {
         const { config } = loadConfig(root);
-        if (config.daemon?.enabled === true && !daemonProblems(config, root).length) d.start('boot');
+        // A dev dashboard often runs in a fresh clone of a repo that commits daemon.enabled: true,
+        // so it never boots a paid session by itself; Start still works.
+        if (!opts.dev && config.daemon?.enabled === true && !daemonProblems(config, root).length) d.start('boot');
       } catch {}
       const close = async () => {
         if (ping) clearInterval(ping);
@@ -792,7 +807,7 @@ export function distAllowlist(distDir: string): Map<string, { file: string; type
   return out;
 }
 
-function page(res: http.ServerResponse, token: string, distDir: string): void {
+function page(res: http.ServerResponse, token: string, distDir: string, notBuilt: string): void {
   let html;
   try {
     // The page loads only manifest files, so it counts as built only when both exist.
@@ -800,7 +815,7 @@ function page(res: http.ServerResponse, token: string, distDir: string): void {
     html = fs.readFileSync(path.join(distDir, 'index.html'), 'utf8');
   } catch {
     res.setHeader('Cache-Control', 'no-store');
-    return send(res, 503, 'text/plain', NOT_BUILT);
+    return send(res, 503, 'text/plain', notBuilt);
   }
   res.setHeader('Cache-Control', 'no-store');
   send(res, 200, 'text/html; charset=utf-8', html.replace('__FORGE_TOKEN__', token));
