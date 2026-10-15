@@ -9,8 +9,12 @@ import path from 'node:path';
 import { attributionForbidden, findAttribution } from '../attribution.ts';
 import { sessionEnv } from '../daemon.ts';
 import { jobDir, loadJob } from '../jobs.ts';
+import { resolveWorktreePaths } from '../paths.ts';
 import { ForgeError, run } from '../util.ts';
 import type { Config } from '../types.ts';
+
+// Re-exported: callers (and tests) imported it from here before it moved to lib/paths.ts.
+export { resolveWorktreePaths };
 
 export const READ_SUBCOMMANDS: string[] = ['diff', 'log', 'show', 'range-diff'];
 
@@ -74,37 +78,6 @@ export function parseGitWriteArgs(args: string[]): GitWriteArgs {
     else throw new ForgeError(`unexpected argument ${JSON.stringify(a.slice(0, 80))}: paths go after --`);
   }
   return out;
-}
-
-/** realpath of the deepest existing ancestor, with the rest re-appended: where `p` would land. */
-function landing(p: string): string {
-  let dir = p;
-  const rest: string[] = [];
-  while (!fs.existsSync(dir)) {
-    const up = path.dirname(dir);
-    if (up === dir) break;
-    rest.unshift(path.basename(dir));
-    dir = up;
-  }
-  return path.join(fs.realpathSync(dir), ...rest);
-}
-
-/**
- * Paths relative to the worktree (relative inputs resolve against it). The parent is resolved
- * through symlinks, so a linked directory can't lead outside; the entry itself is not, since git
- * stages a symlink as a link. Anything outside the worktree or in a `.git` is refused.
- */
-export function resolveWorktreePaths(worktree: string, paths: string[]): string[] {
-  const top = fs.realpathSync(worktree);
-  return paths.map((p) => {
-    if (!p || p.includes('\0')) throw new ForgeError(`invalid path ${JSON.stringify(p)}`);
-    const abs = path.resolve(top, p);
-    const real = abs === top ? top : path.join(landing(path.dirname(abs)), path.basename(abs));
-    const rel = path.relative(top, real);
-    if (rel.startsWith('..') || path.isAbsolute(rel)) throw new ForgeError(`${JSON.stringify(p)} is outside the job's worktree ${top}`);
-    if (rel.split(path.sep).some((seg) => seg.toLowerCase() === '.git')) throw new ForgeError(`${JSON.stringify(p)} is inside .git`);
-    return rel === '' ? '.' : rel.split(path.sep).join('/');
-  });
 }
 
 /** Git's environment: the caller's, minus anything that points git at another repo, with the daemon's pins under FORGE_DAEMON=1. */

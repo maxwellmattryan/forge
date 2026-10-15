@@ -7,7 +7,9 @@ import { attributionForbidden, scrubBranch, stripAttribution } from './attributi
 import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from './delta.ts';
 import type { Config, HumanDelta, Job, JobPr, PrChecks } from './types.ts';
 import { ForgeError, SAFE_REF, hasBinary, now, readText, run } from './util.ts';
-import { verifiedHead } from './worktree.ts';
+import { cleanGenerated, generatedConfig, generatedPaths, partitionConflicts, rebuild, regenerateProblem, takeBaseSide } from './regenerate.ts';
+import type { Strategy } from './regenerate.ts';
+import { commandTemplate, verifiedHead } from './worktree.ts';
 
 const MARKER = '<!-- forge -->';
 
@@ -341,20 +343,59 @@ function writeFeedback(root: string, id: string, pr: any, fb: PrFeedback): void 
 const who = (c: any): string => `@${c.author?.login}${TRUSTED_ASSOCIATIONS.has(c.authorAssociation) ? '' : ' (no write access, untrusted)'}`;
 const oneLine = (s: string): string => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, 600);
 
+/** What `forge integrate` returns. `regenerated` / `regenerateError` appear only when non-empty. */
+export type IntegrateResult =
+  | { ok: true; behind: number; strategy: Strategy | null; rewritten: boolean; regenerated?: string[] }
+  | { ok: false; behind: number; strategy: Strategy; conflicts: string[]; inProgress: boolean; regenerated?: string[]; regenerateError?: string };
+
+/** What `forge integrate --continue` returns. */
+export type IntegrateContinueResult =
+  | { ok: false; strategy: Strategy; conflicts: string[]; inProgress: true; regenerated?: string[]; regenerateError?: string }
+  | { ok: true; strategy: Strategy; rewritten: boolean; regenerated?: string[] };
+
+/** Unmerged paths, NUL-separated so odd names arrive as they are rather than C-quoted. */
+function unmerged(cwd: string): string[] {
+  return run('git', ['diff', '--name-only', '--diff-filter=U', '-z'], { cwd, allowFail: true }).stdout.split('\0').filter(Boolean);
+}
+
+const gitPathIn = (cwd: string, p: string): string => path.resolve(cwd, run('git', ['rev-parse', '--git-path', p], { cwd }).stdout.trim());
+
+/**
+ * A rebase continues only while its todo holds nothing but the picks `integrate` wrote: an `exec`
+ * line would run shell, so a session is never allowed `git rebase --continue` itself.
+ */
+function assertPlainTodo(cwd: string, id: string): void {
+  const todo = gitPathIn(cwd, 'rebase-merge/git-rebase-todo');
+  if (!exists(todo)) return;
+  const odd = readText(todo)
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('#') && !/^(pick|p)\s+[0-9a-f]{4,}\b/.test(l));
+  if (odd.length) throw new ForgeError(`the rebase todo for ${id} has lines integrate never writes (${JSON.stringify(odd[0].slice(0, 80))}); run \`git rebase --abort\``);
+}
+
+/** Commits the merge or continues the rebase. A non-interactive editor: the session has no TTY, and a human's GIT_EDITOR could block. */
+function advance(cwd: string, strategy: Strategy, id: string): ReturnType<typeof run> {
+  const env = { ...process.env, GIT_EDITOR: 'true' };
+  if (strategy === 'merge') return run('git', ['commit', '--no-edit'], { cwd, env, allowFail: true });
+  assertPlainTodo(cwd, id);
+  return run('git', ['rebase', '--continue'], { cwd, env, allowFail: true });
+}
+
+const advanceFailed = (strategy: Strategy, r: ReturnType<typeof run>): ForgeError =>
+  new ForgeError(`git ${strategy === 'rebase' ? 'rebase --continue' : 'commit --no-edit'} failed: ${(r.stderr || r.stdout).trim()}`);
+
+const sortedList = (paths: Iterable<string>): string[] => [...new Set(paths)].sort();
+
 /**
  * Brings the job branch up to date with base. On conflict it aborts cleanly and reports the
  * files, leaving the fix-now/defer/ask decision to the orchestrator and the repo's policy.
  * `keepConflicts` leaves the conflicted merge/rebase in place for the integrator instead, so it
  * never needs to start one itself (`git rebase` would allow `--exec`, so the daemon can't allow it).
+ * Conflicts on `worktrees.generated` paths are rebuilt rather than reported (lib/regenerate.ts):
+ * when they are all a stop has, Forge finishes it and carries on, pick after pick in a rebase.
  */
-export function integrate(
-  root: string,
-  config: Config,
-  id: string,
-  opts: { strategy?: 'merge' | 'rebase'; keepConflicts?: boolean } = {},
-):
-  | { ok: true; behind: number; strategy: 'merge' | 'rebase' | null; rewritten: boolean }
-  | { ok: false; behind: number; strategy: 'merge' | 'rebase'; conflicts: string[]; inProgress: boolean } {
+export function integrate(root: string, config: Config, id: string, opts: { strategy?: Strategy; keepConflicts?: boolean } = {}): IntegrateResult {
   const job = loadJob(root, id);
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree`);
   const cwd = job.worktree;
@@ -369,57 +410,110 @@ export function integrate(
     logEvent(root, id, 'integrated', { behind: 0 });
     return { ok: true, behind: 0, strategy: null, rewritten: false };
   }
-  const strategy = opts.strategy ?? (job.pr?.state === 'OPEN' ? config.pr.updateStrategy : 'rebase');
-  const attempt = strategy === 'rebase' ? run('git', ['rebase', upstream], { cwd, allowFail: true }) : run('git', ['merge', '--no-edit', upstream], { cwd, allowFail: true });
-  if (!attempt.ok) {
-    const conflicts = run('git', ['diff', '--name-only', '--diff-filter=U'], { cwd, allowFail: true }).stdout.split('\n').filter(Boolean);
-    if (!opts.keepConflicts) run('git', [strategy === 'rebase' ? 'rebase' : 'merge', '--abort'], { cwd, allowFail: true });
-    logEvent(root, id, 'integrate-conflicts', { strategy, conflicts, behind });
-    return { ok: false, behind, strategy, conflicts, inProgress: Boolean(opts.keepConflicts) };
+  const strategy: Strategy = opts.strategy ?? (job.pr?.state === 'OPEN' ? config.pr.updateStrategy : 'rebase');
+  let attempt = strategy === 'rebase' ? run('git', ['rebase', upstream], { cwd, allowFail: true }) : run('git', ['merge', '--no-edit', upstream], { cwd, allowFail: true });
+  const keep = Boolean(opts.keepConflicts);
+  const abort = () => run('git', [strategy, '--abort'], { cwd, allowFail: true });
+  const gen = generatedConfig(config);
+  // Generated paths this run rebuilt and committed (or, kept, staged for --continue to rebuild).
+  const regenerated = new Set<string>();
+  const stopped = (conflicts: string[], extra: { regenerated?: string[]; regenerateError?: string }) => {
+    if (!keep) abort();
+    logEvent(root, id, 'integrate-conflicts', { strategy, conflicts, behind, ...extra });
+    return { ok: false as const, behind, strategy, conflicts, inProgress: keep, ...extra };
+  };
+  for (let first = true; !attempt.ok; first = false) {
+    const conflicts = unmerged(cwd);
+    if (!conflicts.length && !first) {
+      if (!keep) abort();
+      throw advanceFailed(strategy, attempt);
+    }
+    const part = gen ? partitionConflicts(cwd, conflicts, gen.globs) : { generated: [], other: conflicts };
+    if (!part.generated.length) return stopped(conflicts, keep && regenerated.size ? { regenerated: sortedList(regenerated) } : {});
+    // Can't regenerate: today's behaviour, with every unmerged path listed and the reason.
+    const fallback = (regenerateError: string) => {
+      const r = stopped(conflicts, { regenerateError });
+      cleanGenerated(cwd, gen!.globs);
+      return r;
+    };
+    const problem = regenerateProblem(root, config, job, gen!);
+    if (problem) return fallback(problem);
+    if (part.other.length) {
+      // Mixed: only the real conflicts go to the integrator. Kept, the generated ones are staged
+      // from the base side but not built, since the sources may still hold conflict markers.
+      if (!keep) return stopped(part.other, { regenerated: sortedList(part.generated) });
+      try {
+        takeBaseSide(cwd, strategy, part.generated, { stage: true });
+      } catch (e) {
+        return fallback((e as Error).message);
+      }
+      return stopped(part.other, { regenerated: sortedList([...regenerated, ...part.generated]) });
+    }
+    let error: string | null;
+    try {
+      takeBaseSide(cwd, strategy, part.generated, { stage: false });
+      error = rebuild(root, config, job, gen!);
+    } catch (e) {
+      error = (e as Error).message;
+    }
+    if (error !== null) return fallback(error);
+    for (const p of part.generated) regenerated.add(p);
+    try {
+      attempt = advance(cwd, strategy, id);
+    } catch (e) {
+      if (!keep) abort();
+      throw e;
+    }
   }
-  logEvent(root, id, 'integrated', { behind, strategy });
-  return { ok: true, behind, strategy, rewritten: strategy === 'rebase' };
+  const extra = regenerated.size ? { regenerated: sortedList(regenerated) } : {};
+  logEvent(root, id, 'integrated', { behind, strategy, ...extra });
+  return { ok: true, behind, strategy, rewritten: strategy === 'rebase', ...extra };
 }
 
 /**
  * Finishes a merge or rebase `integrate --keep-conflicts` left in place, once the integrator has
- * staged its resolutions. A rebase continues only while its todo holds nothing but the picks
- * `integrate` wrote: an `exec` line would run shell, so the session is never allowed
- * `git rebase --continue` itself. A later commit that conflicts again comes back as conflicts.
+ * staged its resolutions. Generated paths still unmerged are taken from the base side; once nothing
+ * is unmerged, staged generated changes are rebuilt before the commit. A later rebase pick that
+ * stops on generated paths only is rebuilt too; one with real conflicts comes back as conflicts.
  */
-export function integrateContinue(
-  root: string,
-  id: string,
-): { ok: false; strategy: 'merge' | 'rebase'; conflicts: string[]; inProgress: true } | { ok: true; strategy: 'merge' | 'rebase'; rewritten: boolean } {
+export function integrateContinue(root: string, config: Config, id: string): IntegrateContinueResult {
   const job = loadJob(root, id);
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree`);
   const cwd = job.worktree;
-  const gitPath = (p: string) => path.resolve(cwd, run('git', ['rev-parse', '--git-path', p], { cwd }).stdout.trim());
-  const rebasing = exists(gitPath('rebase-merge')) || exists(gitPath('rebase-apply'));
+  const rebasing = exists(gitPathIn(cwd, 'rebase-merge')) || exists(gitPathIn(cwd, 'rebase-apply'));
   const merging = !rebasing && run('git', ['rev-parse', '-q', '--verify', 'MERGE_HEAD'], { cwd, allowFail: true }).ok;
   if (!rebasing && !merging) throw new ForgeError(`no merge or rebase is in progress for ${id}`);
-  const strategy = rebasing ? 'rebase' : 'merge';
-  const unmerged = () => run('git', ['diff', '--name-only', '--diff-filter=U'], { cwd, allowFail: true }).stdout.split('\n').filter(Boolean);
-  let conflicts = unmerged();
-  if (conflicts.length) return { ok: false, strategy, conflicts, inProgress: true };
-  const todo = gitPath('rebase-merge/git-rebase-todo');
-  if (rebasing && exists(todo)) {
-    const odd = readText(todo)
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l && !l.startsWith('#') && !/^(pick|p)\s+[0-9a-f]{4,}\b/.test(l));
-    if (odd.length) throw new ForgeError(`the rebase todo for ${id} has lines integrate never writes (${JSON.stringify(odd[0].slice(0, 80))}); run \`git rebase --abort\``);
+  const strategy: Strategy = rebasing ? 'rebase' : 'merge';
+  const gen = generatedConfig(config);
+  // Without a usable config and command, generated paths are ordinary conflicts, as before (integrate reported why).
+  const usable = gen && !('error' in gen) && commandTemplate(config, job, gen.command) ? gen : null;
+  const regenerated = new Set<string>();
+  const extra = () => (regenerated.size ? { regenerated: sortedList(regenerated) } : {});
+  for (;;) {
+    const conflicts = unmerged(cwd);
+    if (conflicts.length) {
+      const part = usable ? partitionConflicts(cwd, conflicts, usable.globs) : { generated: [], other: conflicts };
+      if (part.generated.length) {
+        takeBaseSide(cwd, strategy, part.generated, { stage: true });
+        for (const p of part.generated) regenerated.add(p);
+      }
+      if (part.other.length) return { ok: false, strategy, conflicts: part.other, inProgress: true, ...extra() };
+    }
+    if (usable) {
+      const staged = run('git', ['diff', '--cached', '--name-only', '--no-renames', '-z', 'HEAD'], { cwd }).stdout;
+      const changed = generatedPaths(cwd, staged, usable.globs);
+      if (changed.length) {
+        const regenerateError = rebuild(root, config, job, usable);
+        if (regenerateError !== null) return { ok: false, strategy, conflicts: [], inProgress: true, regenerateError };
+        for (const p of changed) regenerated.add(p);
+      }
+    }
+    const attempt = advance(cwd, strategy, id);
+    if (attempt.ok) break;
+    if (!unmerged(cwd).length) throw advanceFailed(strategy, attempt);
   }
-  // A non-interactive editor: the session has no TTY, and a human's GIT_EDITOR could block.
-  const env = { ...process.env, GIT_EDITOR: 'true' };
-  const attempt = rebasing ? run('git', ['rebase', '--continue'], { cwd, env, allowFail: true }) : run('git', ['commit', '--no-edit'], { cwd, env, allowFail: true });
-  if (!attempt.ok) {
-    conflicts = unmerged();
-    if (conflicts.length) return { ok: false, strategy, conflicts, inProgress: true };
-    throw new ForgeError(`git ${rebasing ? 'rebase --continue' : 'commit --no-edit'} failed: ${(attempt.stderr || attempt.stdout).trim()}`);
-  }
-  logEvent(root, id, 'integrated', { strategy });
-  return { ok: true, strategy, rewritten: strategy === 'rebase' };
+  logEvent(root, id, 'integrated', { strategy, ...extra() });
+  return { ok: true, strategy, rewritten: strategy === 'rebase', ...extra() };
 }
 
 // Merge states in which GitHub itself holds a PR back (required checks or reviews, or an

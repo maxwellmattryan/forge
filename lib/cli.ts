@@ -161,7 +161,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
     case 'integrate': {
       needInit();
       const id = req(sub, 'job id');
-      const r = flags.continue ? pr.integrateContinue(root, id) : pr.integrate(root, config, id, { strategy: flags.strategy, keepConflicts: Boolean(flags['keep-conflicts']) });
+      const r = flags.continue ? pr.integrateContinue(root, config, id) : pr.integrate(root, config, id, { strategy: flags.strategy, keepConflicts: Boolean(flags['keep-conflicts']) });
       return { data: r, exitCode: r.ok ? 0 : 1 };
     }
     case 'pr': {
