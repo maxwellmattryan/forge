@@ -136,7 +136,7 @@
         onclose();
         toast(createdMessage(res.id, res.daemon));
         await refresh();
-        openDrawer(res.id, null, 'thread');
+        openDrawer(res.id);
       } else {
         const built = buildRequest(r.input);
         if ('error' in built) throw new Error(built.error);
