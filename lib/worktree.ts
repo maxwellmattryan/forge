@@ -12,7 +12,7 @@ import { listJobs, isActive, loadJob, logEvent, setJob, touchJob, updateJob, job
 import { exists, resolveFrom } from './paths.ts';
 import { CONFIG_SCHEMA_VERSION } from './schema.ts';
 import type { Config, Job, ServiceConfig, VerifyRun } from './types.ts';
-import { ForgeError, assertSafeRef, fill, now, readJson, run, tail, withLock, writeJsonAtomic } from './util.ts';
+import { ForgeError, assertSafeRef, fill, now, readJson, run, shellArgs, tail, withLock, writeJsonAtomic } from './util.ts';
 
 /** What `forge worktree create` returns: createWorktree. */
 export type CreateWorktreeResult =
@@ -248,9 +248,22 @@ function checkRefs(job: Job): void {
   assertSafeRef(job.base, 'job.base');
 }
 
+// `{args}` is empty here: only `forge run … -- <args>` fills it (fillCommand), so verify, setup,
+// background servers and regenerate never take arguments that could narrow what they run.
 function vars(root: string, job: Job, dir: string, port: number | null): Record<string, string | number> {
   checkRefs(job);
-  return { job: job.id, port: port ?? '', worktree: dir, root, branch: job.branch!, base: job.base! };
+  return { job: job.id, port: port ?? '', worktree: dir, root, branch: job.branch!, base: job.base!, args: '' };
+}
+
+/**
+ * Fills a command template. Extra arguments are quoted one by one (shellArgs) and go where the
+ * template says `{args}`, or after the whole line when it doesn't. fill() makes a single pass, so
+ * an argument's text is never filled again.
+ */
+function fillCommand(template: string, v: Record<string, string | number>, args: string[]): string {
+  if (!args.length) return fill(template, v);
+  const quoted = shellArgs(args);
+  return template.includes('{args}') ? fill(template, { ...v, args: quoted }) : `${fill(template, v)} ${quoted}`;
 }
 
 // The daemon's trust check guards the session's own `forge` calls; a configured command that
@@ -338,10 +351,11 @@ function jobService(config: Config, job: Job): ServiceConfig | null {
   return job.services.length === 1 ? config.services.find((s) => s.name === job.services[0]) ?? null : null;
 }
 
-/** `forge run`'s options. */
+/** `forge run`'s options. `args` only ever comes from `forge run <job> <name> -- <args>`. */
 export interface RunOptions {
   tail?: number;
   label?: string;
+  args?: string[];
 }
 
 /** A command ready to run: the filled line, where it runs, and its environment. */
@@ -352,14 +366,15 @@ interface PreparedCommand {
 }
 
 /** Everything before the command starts, shared by the sync and async runners so both log alike. */
-function prepareCommand(root: string, config: Config, id: string, name: string): PreparedCommand {
+function prepareCommand(root: string, config: Config, id: string, name: string, opts: RunOptions): PreparedCommand {
   const job = loadJob(root, id);
   const service = jobService(config, job);
   const template = commandTemplate(config, job, name);
   if (!template) throw new ForgeError(`no "${name}" command configured (commands.${name} in .forge/config.yml)`);
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
   const cwd = service?.path ? path.join(job.worktree, service.path) : job.worktree;
-  const cmd = fill(template, vars(root, job, job.worktree, job.port));
+  // Before touchJob: refused arguments leave no trace, not even a heartbeat.
+  const cmd = fillCommand(template, vars(root, job, job.worktree, job.port), opts.args ?? []);
   // Agents run commands all through a build; each one proves the session is alive.
   touchJob(root, id);
   return { cmd, cwd, env: envFor(job, job.worktree, job.port) };
@@ -381,14 +396,14 @@ function recordCommand(root: string, id: string, name: string, p: PreparedComman
  * a tail comes back, so agents spend context on failures rather than on passing build noise.
  */
 export function runCommand(root: string, config: Config, id: string, name: string, opts: RunOptions = {}): CommandResult {
-  const p = prepareCommand(root, config, id, name);
+  const p = prepareCommand(root, config, id, name, opts);
   const started = Date.now();
   return recordCommand(root, id, name, p, shell(p.cmd, p.cwd, p.env), started, opts);
 }
 
 /** runCommand without blocking the event loop, so verify can run a group's steps side by side. */
 export async function runCommandAsync(root: string, config: Config, id: string, name: string, opts: RunOptions = {}): Promise<CommandResult> {
-  const p = prepareCommand(root, config, id, name);
+  const p = prepareCommand(root, config, id, name, opts);
   const started = Date.now();
   const res = await shellAsync(p.cmd, p.cwd, p.env);
   return recordCommand(root, id, name, p, res, started, opts);

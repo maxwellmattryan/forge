@@ -55,11 +55,12 @@ export const CORE: HelpGroup[] = [
     commands: [
       {
         command: 'run',
-        args: '<id> <command> [--background] [--tail N]',
+        args: '<id> <command> [--background] [--tail N] [-- <args…>]',
         summary: 'run commands.<command> in the job\'s worktree, logging its output to the job dir and printing the tail',
         flags: [
           ['--background', 'start it detached (dev servers); stop it with forge stop'],
           ['--tail N', 'print the last N lines (default 40)'],
+          ['-- <args…>', 'quoted arguments, placed at {args} in the template or appended'],
         ],
         exits: [[1, 'the command failed, is not configured, or the job has no worktree']],
       },

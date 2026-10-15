@@ -1,0 +1,29 @@
+// `forge run <job> <command> [--tail N] [-- <args…>]` and `forge run <job> <command> --background`.
+import type { Config, Dispatched } from '../types.ts';
+import { ForgeError } from '../util.ts';
+import * as wt from '../worktree.ts';
+import { num, parseArgs, req } from './args.ts';
+
+const AFTER_DASHES = 'forge run takes extra arguments only after --: forge run <job> <command> -- <args…>';
+
+/**
+ * Everything after the first `--` goes to the command as its own quoted words (flags included),
+ * and nothing before it does. Every refusal comes before the command runs, so it leaves no log.
+ */
+export async function runCmd(root: string, config: Config, argv: string[]): Promise<Dispatched> {
+  const dashes = argv.indexOf('--');
+  const args = dashes < 0 ? [] : argv.slice(dashes + 1);
+  const { pos, flags } = parseArgs(dashes < 0 ? argv : argv.slice(0, dashes));
+  const id = req(pos[1], 'job id');
+  const name = req(pos[2], 'command name');
+  // A word after --background is parsed as its value, so it is an extra argument too.
+  if (pos.length > 3 || (flags.background !== undefined && flags.background !== true)) throw new ForgeError(AFTER_DASHES);
+  const tail = num(flags.tail, '--tail', { integer: true }) ?? 40;
+  if (flags.background) {
+    // A reused server could not take them anyway: it is already running with its own.
+    if (args.length) throw new ForgeError('forge run --background takes no extra arguments');
+    return { data: await wt.startBackground(root, config, id, name), exitCode: 0 };
+  }
+  const r = wt.runCommand(root, config, id, name, { tail, args });
+  return { data: r, exitCode: r.ok ? 0 : 1 };
+}
