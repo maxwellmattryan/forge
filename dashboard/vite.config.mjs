@@ -19,8 +19,8 @@ export default defineConfig({
     manifest: 'manifest.json',
     sourcemap: false,
     modulePreload: { polyfill: false },
-    // The paper texture is inlined as a data: URI so the server never has to serve SVG (its
-    // allowlist rejects it); every other asset keeps Vite's default size rule.
+    // Any SVG a stylesheet references is inlined as a data: URI, so the server never has to serve
+    // SVG (its allowlist rejects it); every other asset keeps Vite's default size rule.
     assetsInlineLimit: (file) => (file.endsWith('.svg') ? true : undefined),
   },
 });

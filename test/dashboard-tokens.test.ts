@@ -530,7 +530,9 @@ function effective(css: string, theme: string): Map<string, string> {
 const sameExtra = (a: string, b: string) => sameValue(a, b) || (a.trim() !== '' && !Number.isNaN(Number(a)) && Number(a) === Number(b));
 
 const DRAFTING_EXTRAS = ['--paper-opacity', '--paper-blend', '--fall'];
-const PAPER_OPACITY: Record<string, number> = { cyanotype: 0.18, vellum: 0.55, nightprint: 0.1 };
+// The film grain: multiply on vellum, soft-light on the dark themes, each dark theme fainter than vellum.
+const PAPER_OPACITY: Record<string, number> = { cyanotype: 0.08, vellum: 0.1, nightprint: 0.07 };
+const PAPER_BLEND: Record<string, string> = { cyanotype: 'soft-light', vellum: 'multiply', nightprint: 'soft-light' };
 
 test("each theme's tokens and extras win the cascade", () => {
   const sample = ':root{--a:1;--p:.18}:root,[data-theme="x"]{--a:2}[data-theme=y]{--a:3;--p:.5}[data-theme=x] .b{--a:9}@layer l{:root{--a:8}}';
@@ -552,8 +554,14 @@ test("each theme's tokens and extras win the cascade", () => {
       want.set(k, extras.get(k) ?? '');
     }
     for (const [name, value] of want) assert.ok(sameExtra(value, got.get(name) ?? ''), `${theme} › ${name}: design ${value}, effective ${got.get(name)}`);
-    assert.equal(Number(got.get('--paper-opacity')), PAPER_OPACITY[theme], `${theme} › the paper fibre's opacity`);
+    const opacity = Number(got.get('--paper-opacity'));
+    assert.equal(opacity, PAPER_OPACITY[theme], `${theme} › the grain's opacity`);
+    assert.ok(opacity > 0 && opacity <= 0.2, `${theme} › the grain's opacity ${opacity} is in (0, 0.2]`);
+    assert.equal(got.get('--paper-blend'), PAPER_BLEND[theme], `${theme} › the grain's blend`);
   }
+  const opacityOf = (theme: string) => Number(effective(css, theme).get('--paper-opacity'));
+  for (const dark of ['cyanotype', 'nightprint']) assert.ok(opacityOf(dark) < opacityOf('vellum'), `${dark}'s grain (${opacityOf(dark)}) is fainter than vellum's (${opacityOf('vellum')})`);
+  assert.equal(Number(scope(design, SCOPES[3]).get('--paper-opacity')), PAPER_OPACITY.cyanotype, 'design/tokens.css :root carries the cyanotype default');
 });
 
 /** Every rule at any depth whose selector names `[data-theme=<id>]`: [normalised selector, body]. */
@@ -605,12 +613,23 @@ test('tokens.json themes equal THEMES and every token value matches tokens.css',
   }
 });
 
-// Vellum is a near-white paper, not a cream one: its ground's channels stay within 10 of each other.
-test('vellum bg is near-neutral', () => {
-  const spread = ([r, g, b]: Rgba) => Math.max(r, g, b) - Math.min(r, g, b);
-  assert.equal(spread([241, 236, 223, 1]), 18, 'self-check: the old cream ground');
+// Vellum is warm drafting paper (the near-white values of 330f358 read as a white page): red over green over
+// blue with a visible spread, and the same four ground values wherever the tokens are written.
+const VELLUM_GROUND: Record<string, string> = { '--bg': '#f1ecdf', '--bg-deep': '#e6e0d0', '--panel': '#fbf8f1', '--chrome': '#fffdf8' };
+test('vellum bg is warm paper', () => {
+  const warm = ([r, g, b]: Rgba) => r >= g && g >= b && Math.max(r, g, b) - Math.min(r, g, b) >= 12;
+  assert.ok(warm([241, 236, 223, 1]), 'self-check: the warm ground');
+  assert.ok(!warm([241, 239, 233, 1]), 'self-check: the near-white ground is not warm');
+  assert.ok(!warm([223, 236, 241, 1]), 'self-check: a cool ground is not warm');
+  const json = JSON.parse(fs.readFileSync(path.join(ROOT, 'design', 'tokens.json'), 'utf8'));
+  const sources: [string, Map<string, string>][] = [
+    ['design/tokens.css', scope(fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8'), SCOPES[1])],
+    ['dashboard/style.css', scope(fs.readFileSync(path.join(ROOT, 'dashboard', 'style.css'), 'utf8'), SCOPES[1])],
+    ['design/tokens.json', new Map(json.color.tokens.map((x: { name: string; value: Record<string, string> }) => [`--${x.name}`, x.value.vellum]))],
+  ];
+  for (const [where, vars] of sources) for (const [k, v] of Object.entries(VELLUM_GROUND)) assert.equal(vars.get(k)?.toLowerCase(), v, `${where} vellum ${k}`);
   const bg = themeColors().vellum('bg');
-  assert.ok(spread(bg) <= 10, `vellum --bg spreads ${spread(bg)} across its channels`);
+  assert.ok(warm(bg), `vellum --bg (${bg.slice(0, 3).join(', ')}) is warm paper`);
 });
 
 // On a dark ground the grid is drawn in light lines: each level stands off bg, major more than minor. The

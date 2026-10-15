@@ -147,7 +147,7 @@
     </header>
     <div id="view" class="mx-auto max-w-[1400px] px-4 md:px-8 pt-4 pb-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-6))]">
       {#if !S.data}
-        {#if S.error}<Banner msg={S.error} />{:else}<div class="text-muted text-sm">{$t('common.loading')}</div>{/if}
+        {#if S.error}<Banner msg={S.error} />{:else}<div class="sheet w-fit px-3 py-1.5 text-sm text-muted">{$t('common.loading')}</div>{/if}
       {:else}
         {#if S.error}<Banner msg={S.error} />{/if}
         {#if !S.data.initialized}<Banner msg={$t('app.noConfig')} />{/if}

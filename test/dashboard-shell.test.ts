@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ancestry, endOf, tags, type Placed } from './svelte-markup.ts';
+import { ancestry, endOf, placements, tags, type Placed } from './svelte-markup.ts';
 import { TONE_CLASS } from '../dashboard/src/lib/util.ts';
 import { THEME_CHOICES } from '../dashboard/src/lib/theme.ts';
 import { LOG_KEY } from '../dashboard/src/lib/daemon-log.ts';
@@ -351,7 +351,7 @@ test('the ground is the only patterned surface', () => {
     const lists = rel.endsWith('.svelte') ? fileClassLists(rel) : tsClassLists(read(rel));
     for (const cls of lists.flat()) {
       assert.notEqual(base(cls), 'bg-bg', `${rel} fills with bg-bg: an overlay is panel, the ground is bg`);
-      assert.ok(!['ground', 'hatch', 'hatch-dense', 'crosshatch'].includes(base(cls)), `${rel} uses ${cls}: the grid, the fibre and the sketch are the only patterns`);
+      assert.ok(!['ground', 'hatch', 'hatch-dense', 'crosshatch'].includes(base(cls)), `${rel} uses ${cls}: the grid, the grain and the sketch are the only patterns`);
       if (rel !== 'App.svelte') assert.notEqual(base(cls), 'falloff', `${rel} uses falloff`);
       assert.doesNotMatch(base(cls), /^bg-.+\/.+$/, `${rel} fills with ${cls}, a see-through tint`);
     }
@@ -478,7 +478,7 @@ test('Pipeline board is four grouped columns', () => {
 test('Inbox lists dependency parks apart, with Resume', () => {
   const file = 'views/Inbox.svelte';
   const text = read(file);
-  assert.match(text, /<h2 class="h section mt-8 mb-3">\{\$t\('inbox\.parks'\)\}<\/h2>/);
+  assert.match(text, /<h2 class="sheet h section w-fit max-w-full px-3 py-1\.5 mt-8 mb-3">\{\$t\('inbox\.parks'\)\}<\/h2>/);
   const parks = text.slice(text.indexOf("$t('inbox.parks')"));
   const block = parks.slice(0, parks.indexOf('{/if}'));
   assert.match(block, /<div class="sheet ticks"><span class="tk"><\/span><div class="overflow-x-auto">\s*<table class="tbl">/, 'a sheet ticks table');
@@ -546,6 +546,60 @@ test('no filled element nests in a patterned one', () => {
   for (const rel of tsFiles()) {
     for (const list of tsClassLists(read(rel))) assert.ok(!isCarrier(list.map(base)), `${rel} builds a pattern carrier (${list.join(' ')})`);
   }
+});
+
+// Text never sits on the grid: the grid and grain show only on bare ground between surfaces, so every word, value,
+// caller snippet and component the shell or a view puts on the page has a surface around it. A component this test
+// scans itself (GROUND, or a view) is checked inside its own file instead.
+const GROUND = ['PageHeader', 'Empty', 'Banner', 'StatusBar', 'Popover', 'JobCard', 'JobsTable', 'InboxCard', 'CommandTrigger', 'Drawer', 'Settings', 'CommandBar', 'Toast'];
+const isSurface = (c: string[]) => (c.includes('sheet') && !c.includes('dashed')) || ['plain', 'solid', 'chrome', 'btn', 'chip', 'input'].some((x) => c.includes(x));
+
+/** What renders on the bare ground in one component's markup; `checked` are the components scanned on their own. */
+function onGround(file: string, text: string, checked: Set<string>): string[] {
+  const out: string[] = [];
+  const all = placements(file, text);
+  const surfaced = (ancestors: Placed[]) => ancestors.some((a) => isSurface(classesOf(a)) || checked.has(a.name));
+  // A file's own snippet lands where it is rendered: its content passes when every render of it is on a surface.
+  const covered = (name: string, seen = new Set<string>()): boolean => {
+    if (seen.has(name)) return false;
+    seen.add(name);
+    const uses = all.filter((u) => u.kind === 'use' && u.what === name);
+    return uses.length > 0 && uses.every((u) => surfaced(u.ancestors) || (u.snippet !== undefined && covered(u.snippet, seen)));
+  };
+  for (const p of all) {
+    if (p.kind === 'use' || (p.kind === 'component' && checked.has(p.what))) continue;
+    if (surfaced(p.ancestors) || (p.snippet !== undefined && covered(p.snippet))) continue;
+    const what = p.kind === 'component' ? `<${p.what}>` : p.kind === 'text' ? JSON.stringify(p.what.slice(0, 40)) : `{${p.what.slice(0, 40)}}`;
+    out.push(`${file}: ${what} sits on the grid; give it a surface, or add the component to GROUND`);
+  }
+  return out;
+}
+
+test('text never sits on the bare ground', () => {
+  const ok = new Set(['Empty', 'PageHeader']);
+  const bad = (markup: string) => onGround('x', markup, ok).length;
+  // Rejected: text in a bare div or a dashed (transparent) sheet, an expression, a caller's snippet, an unchecked component.
+  assert.equal(bad('<div class="label">Loading</div>'), 1, 'text in a bare div');
+  assert.equal(bad('<section class="sheet dashed"><span class="label">Queued</span></section>'), 1, 'text in a sheet dashed');
+  assert.equal(bad('<p class="text-muted">{$t("a")} <code>{x}</code></p>'), 2, 'text and an expression on the ground');
+  assert.equal(bad('<div class="flex">{@render children()}</div>'), 1, 'a caller snippet outside a sheet');
+  assert.equal(bad('<div>{@html md(x)}</div>'), 1, 'raw html on the ground');
+  assert.equal(bad('<div class="mt-2"><Unknown /></div>'), 1, 'an unchecked component on the ground');
+  // Accepted: the same inside a sheet, plain, solid, chrome or a filled control, inside or as a checked component.
+  assert.equal(bad('<div class="sheet ticks"><span class="tk"></span><div class="label">Loading {x}</div>{@render children()}<Unknown /></div>'), 0, 'inside a sheet');
+  assert.equal(bad('<header class="plain flex"><span>Queued</span></header><div class="solid">a</div><aside class="chrome">b</aside>'), 0, 'inside plain, solid and chrome');
+  assert.equal(bad('<button class="btn sm">Run</button><span class="chip ok">{v}</span><select class="input"><option>a</option></select>'), 0, 'filled controls');
+  assert.equal(bad('<Empty>Nothing yet {x}</Empty><PageHeader title="a">{#snippet sub()}{s}{/snippet}</PageHeader>'), 0, 'checked components and their snippets');
+  assert.equal(bad('{#snippet kpi(a)}<div class="sheet">{a}</div>{/snippet}<div class="grid">{@render kpi(1)}</div>{#if x}{@const y = 1}{/if}'), 0, 'block tags, @const and a local snippet render place nothing themselves');
+  assert.equal(bad('{#snippet row(a)}<span>{a}</span>{/snippet}'), 1, "an unrendered local snippet is checked where it is written");
+  assert.equal(bad('{#snippet row(a)}<span>{a}</span>{/snippet}<div class="solid">{@render row(1)}</div><p class="plain">{@render row(2)}</p>'), 0, "a local snippet rendered only on surfaces passes");
+  assert.equal(bad('{#snippet row(a)}<span>{a}</span>{/snippet}<div class="solid">{@render row(1)}</div><div>{@render row(2)}</div>'), 1, "a local snippet rendered once on the ground fails");
+
+  const views = fs.readdirSync(path.join(SRC, 'views')).filter((f) => f.endsWith('.svelte'));
+  const checked = new Set([...GROUND, ...views.map((f) => f.replace(/\.svelte$/, ''))]);
+  const files = ['App.svelte', ...views.map((f) => `views/${f}`), ...GROUND.map((c) => `components/${c}.svelte`)];
+  for (const rel of files) assert.deepEqual(onGround(rel, read(rel), checked), [], `${rel} keeps its text on a surface`);
+  for (const doc of ['MIGRATION.md', 'README.md']) assert.ok(fs.readFileSync(path.join(ROOT, 'design', doc), 'utf8').includes('Text never sits on the grid'), `design/${doc} states the rule`);
 });
 
 /** Every file under dashboard/src, relative to it. */
