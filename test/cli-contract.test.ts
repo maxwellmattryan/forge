@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { ConfigSetError } from '../lib/config-fields.ts';
 import { DEFAULT_CODE, ERROR_CODES, ForgeError, run } from '../lib/util.ts';
-import { GROUPS, findHelp, toCliError } from '../lib/commands/help.ts';
+import { GROUPS, README_END, README_START, findHelp, readmeTable, syncReadme, toCliError } from '../lib/commands/help.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const BIN = path.join(ROOT, 'bin', 'forge');
@@ -413,4 +413,133 @@ test('help covers every routed command', () => {
   }
   assert.deepEqual(findHelp(['job', 'step'])?.command?.command, 'job step');
   assert.equal(findHelp(['nosuch']), null);
+});
+
+const read = (f: string) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+
+/** A `## heading` section of a markdown file, up to the next `## `. */
+function section(text: string, heading: string): string {
+  const start = text.indexOf(`\n${heading}\n`);
+  assert.ok(start >= 0, `${heading} exists`);
+  const end = text.indexOf('\n## ', start + heading.length + 1);
+  return text.slice(start, end < 0 ? undefined : end);
+}
+
+test('README CLI table is generated from the help tables', () => {
+  const readme = read('README.md');
+  const start = readme.indexOf(README_START);
+  const end = readme.indexOf(README_END);
+  assert.ok(start >= 0 && end > start, 'README has the generated region');
+  const region = readme.slice(start + README_START.length + 1, end).replace(/\n$/, '');
+  assert.equal(region, readmeTable());
+  assert.equal(syncReadme(readme), readme, 'npm run docs:commands would change nothing');
+
+  const rows = region.split('\n').slice(2);
+  assert.equal(rows.length, GROUPS.flatMap((g) => g.commands).filter((c) => c.readme).length);
+  assert.ok(rows.length >= 11);
+  for (const row of rows) {
+    // Cells are separated by ` | `; a pipe inside a cell is written `\|`, never with a space before it.
+    const cells = row.slice(2, -2).split(' | ').map((c) => c.replace(/\\\|/g, '|'));
+    assert.equal(cells.length, 2, row);
+    const usage = cells[0].replace(/^`|`$/g, '');
+    const summary = cells[1].replace(/ \(see \[[^\]]+\]\([^)]+\)\)$/, '');
+    const words = usage.split(' ').slice(1, 3);
+    const help = helpCli('help', ...words);
+    assert.equal(help.status, 0, usage);
+    assert.ok(help.stdout.includes(usage), `forge help ${words.join(' ')} shows ${usage}`);
+    assert.ok(help.stdout.includes(summary), `forge help ${words.join(' ')} shows its summary`);
+  }
+  // A README without the markers is refused rather than silently left alone.
+  assert.throws(() => syncReadme('# no markers\n'), /no <!-- forge:commands:start/);
+});
+
+test('docs/CLI.md matches the error code table', () => {
+  const doc = read('docs/CLI.md');
+  const rows = (heading: string) => [...section(doc, heading).matchAll(/^\| `?([a-z_]+)`? \| (\d) \|/gm)].map((m) => [m[1], Number(m[2])] as const);
+  assert.deepEqual(
+    rows('## Error codes').sort(([a], [b]) => a.localeCompare(b)),
+    Object.entries(ERROR_CODES).sort(([a], [b]) => a.localeCompare(b)),
+  );
+  const exits = rows('## Exit codes');
+  assert.deepEqual(exits, [['ok', 0], ['failed', 1], ['usage', 2], ['owned', 3], ['blocked', 4], ['external', 5]]);
+  for (const [name, n] of exits) if (n > 0) assert.equal(DEFAULT_CODE[n as 1 | 2 | 3 | 4 | 5], name);
+  for (const h of ['## Output', '## `--json`', '## Help', '## Environment variables', '## Stability']) section(doc, h);
+});
+
+test('every FORGE_ variable is documented', () => {
+  const files: string[] = [path.join(ROOT, 'bin', 'forge')];
+  for (const dir of ['lib', 'hooks']) for (const f of fs.readdirSync(path.join(ROOT, dir), { recursive: true })) {
+    const full = path.join(ROOT, dir, String(f));
+    if (fs.statSync(full).isFile()) files.push(full);
+  }
+  const names = (text: string) => new Set([...text.matchAll(/\bFORGE_[A-Z][A-Z0-9_]*/g)].map((m) => m[0].replace(/_+$/, '')));
+  const used = new Set<string>();
+  for (const f of files) for (const n of names(fs.readFileSync(f, 'utf8'))) used.add(n);
+  for (const n of ['FORGE_ROOT', 'FORGE_DEBUG', 'FORGE_DAEMON']) assert.ok(used.has(n), `the scan finds ${n}`);
+  assert.ok(!used.has('FORGE_TOKEN'), 'the __FORGE_TOKEN__ placeholder is not a variable');
+
+  const env = section(read('docs/CLI.md'), '## Environment variables');
+  const documented = new Set([...env.matchAll(/`(FORGE_[A-Z][A-Z0-9_]*)`/g)].map((m) => m[1].replace(/_+$/, '')));
+  for (const n of used) assert.ok(documented.has(n), `${n} is read or set in lib/, hooks/ or bin/ but not documented in docs/CLI.md`);
+  for (const n of names(env)) assert.ok(used.has(n), `docs/CLI.md documents ${n}, which no code uses`);
+  for (const n of ['GH_HOST', 'SHELL', 'PORT', 'ANTHROPIC_API_KEY', 'GIT_CONFIG_COUNT']) assert.ok(env.includes(`\`${n}\``), n);
+});
+
+/**
+ * Sorted dotted key paths, arrays collapsed to `[]` over the union of their elements' keys. A
+ * data-keyed map (keys are reviewer names, roles, …) is recorded as its own path only.
+ */
+function keyPaths(value: unknown, maps: string[] = []): string[] {
+  const out = new Set<string>();
+  const walk = (v: unknown, at: string) => {
+    if (maps.includes(at)) return;
+    if (Array.isArray(v)) for (const x of v) walk(x, `${at}[]`);
+    else if (v && typeof v === 'object') {
+      for (const [k, x] of Object.entries(v)) {
+        const p = at ? `${at}.${k}` : k;
+        out.add(p);
+        walk(x, p);
+      }
+    }
+  };
+  walk(value, '');
+  return [...out].sort();
+}
+
+test('CLI JSON keys are stable', POSIX, () => {
+  assert.deepEqual(keyPaths([{ a: 1, b: { c: [{ d: 1 }, { e: 2 }] } }, { f: null }], []), ['[].a', '[].b', '[].b.c', '[].b.c[].d', '[].b.c[].e', '[].f']);
+  assert.deepEqual(keyPaths({ m: { anything: { x: 1 } } }, ['m']), ['m']);
+
+  const s = scratch();
+  try {
+    s.init();
+    const id = s.json(['job', 'new', '--title', 'Key snapshot', '--ref', 'key-snapshot', '--session', 'S']).id;
+    s.json(['worktree', 'create', id]);
+    const verify = s.json(['verify', id]);
+    assert.equal(verify.ok, true);
+    // Renaming or dropping one of these keys is a breaking change (docs/CLI.md "Stability").
+    assert.deepEqual(keyPaths(s.json(['job', 'list'])), ['[].id', '[].owner', '[].pr', '[].round', '[].stage', '[].state', '[].title', '[].waitingOn']);
+    assert.deepEqual(keyPaths(s.json(['job', 'show', id]), ['lastVerdicts']), [
+      'base', 'branch', 'decision', 'estCostUsd', 'id', 'kind', 'lastVerdicts', 'maxRounds', 'noIssue', 'owner', 'port', 'pr', 'progress', 'progress.done', 'progress.total',
+      'reason', 'reviewers', 'round', 'source', 'source.ref', 'source.tracker', 'source.url', 'stage', 'state', 'title', 'tokens', 'verified', 'verified.attempt',
+      'verified.ok', 'verified.round', 'verified.sha', 'verify', 'waitingOn', 'worktree',
+    ]);
+    assert.deepEqual(keyPaths(s.json(['job', 'step', id])), ['action', 'command', 'id', 'rule', 'shell', 'why']);
+    assert.deepEqual(keyPaths(s.json(['status', '--json'])), ['[].id', '[].pr', '[].round', '[].session', '[].stage', '[].state', '[].tasks', '[].tasks.done', '[].tasks.total', '[].waitingOn']);
+    assert.deepEqual(keyPaths(verify), [
+      'attempt', 'file', 'integrity', 'integrity.base', 'integrity.blocking', 'integrity.configEdits', 'integrity.deletedTests', 'integrity.findings', 'integrity.mode', 'integrity.more',
+      'integrity.ok', 'integrity.renamedTests', 'integrity.skipMarkers', 'integrity.testCount', 'integrity.testCount.after', 'integrity.testCount.before', 'integrity.testCount.delta',
+      'ok', 'round', 'sha', 'steps', 'steps[].cmd', 'steps[].durationMs', 'steps[].exit', 'steps[].log', 'steps[].name', 'steps[].ok', 'steps[].skipped',
+    ]);
+    assert.deepEqual(keyPaths(s.json(['stats', '--json']), ['waitingOn', 'cost.byRole', 'cost.byModel', 'reviewers']), [
+      'cost', 'cost.avgCostPerJobUsd', 'cost.avgTokensPerJob', 'cost.byModel', 'cost.byRole', 'cost.estCostUsd', 'cost.reportingCoverage', 'cost.reportingCoverage.agentRuns',
+      'cost.reportingCoverage.exact', 'cost.reportingCoverage.withUsage', 'cost.totalTokens', 'counts', 'counts.active', 'counts.cancelled', 'counts.done', 'counts.failed',
+      'counts.total', 'counts.waiting', 'generatedAt', 'quality', 'quality.avgRounds', 'quality.escalationRate', 'quality.firstPassReviewRate', 'quality.humanDeltaCoverage',
+      'quality.humanDeltaCoverage.measured', 'quality.humanDeltaCoverage.merged', 'quality.humanDeltaRate', 'quality.humanFeedbackOnPrRate', 'quality.humanReworks',
+      'quality.medianHumanDeltaLines', 'quality.specFirstApprovalRate', 'quality.verifyFirstPassRate', 'reviewers', 'since', 'speed', 'speed.medianMinutesToDone',
+      'speed.medianMinutesToPr', 'waitingOn',
+    ]);
+  } finally {
+    s.cleanup();
+  }
 });
