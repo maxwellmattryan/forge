@@ -30,7 +30,7 @@
   <Empty>{$t('inbox.empty')}</Empty>
 {/if}
 {#if groups.prs.length}
-  <h2 class="h section mt-8 mb-3">{$t('inbox.prs')}</h2>
+  <h2 class="sheet h section w-fit max-w-full px-3 py-1.5 mt-8 mb-3">{$t('inbox.prs')}</h2>
   <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
     <table class="tbl">
       <tbody>
@@ -48,7 +48,7 @@
   </div></div>
 {/if}
 {#if groups.parks.length}
-  <h2 class="h section mt-8 mb-3">{$t('inbox.parks')}</h2>
+  <h2 class="sheet h section w-fit max-w-full px-3 py-1.5 mt-8 mb-3">{$t('inbox.parks')}</h2>
   <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
     <table class="tbl">
       <tbody>
@@ -64,7 +64,7 @@
   </div></div>
 {/if}
 {#if reqs.length}
-  <h2 class="h section mt-8 mb-3">{$t('inbox.queued')}</h2>
+  <h2 class="sheet h section w-fit max-w-full px-3 py-1.5 mt-8 mb-3">{$t('inbox.queued')}</h2>
   <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
     <table class="tbl">
       <tbody>

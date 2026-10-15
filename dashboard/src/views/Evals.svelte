@@ -33,7 +33,7 @@
   {#snippet right()}<button class="btn primary" onclick={() => request(evalRunBody({ tags, tasks, label }))}>{$t('evals.run')}</button>{/snippet}
 </PageHeader>
 {#if !e}
-  <div class="text-muted text-sm">{$t('common.loading')}</div>
+  <div class="sheet w-fit px-3 py-1.5 text-sm text-muted">{$t('common.loading')}</div>
 {:else}
   <div class="sheet ticks p-4 mb-6 grid gap-3 md:grid-cols-4 items-end"><span class="tk"></span>
     <label class="flex flex-col gap-1 text-xs text-muted">{$t('evals.tags')}<input id="eval-tags" placeholder={$t('evals.tagsPlaceholder')} bind:value={tags} /></label>

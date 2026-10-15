@@ -17,7 +17,7 @@
 <PageHeader title={$t('agents.title')}>
   {#snippet sub()}{$t('agents.sub')}{/snippet}
 </PageHeader>
-<h2 class="h section mb-3">{$t('agents.running')}</h2>
+<h2 class="sheet h section w-fit max-w-full px-3 py-1.5 mb-3">{$t('agents.running')}</h2>
 {#if running.length}
   <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
     {#each running as a (`${a.job.id}/${a.role}`)}
@@ -27,7 +27,7 @@
 {:else}
   <Empty>{$t('agents.noRunning')}</Empty>
 {/if}
-<h2 class="h section mt-8 mb-3">{$t('agents.sessions')}</h2>
+<h2 class="sheet h section w-fit max-w-full px-3 py-1.5 mt-8 mb-3">{$t('agents.sessions')}</h2>
 {#if sessions.length}
   <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
     <table class="tbl">
@@ -48,7 +48,7 @@
   <Empty>{$t('agents.noSessions')}</Empty>
 {/if}
 {#if r}
-  <h2 class="h section mt-8 mb-3">{$t('agents.roster')}</h2>
+  <h2 class="sheet h section w-fit max-w-full px-3 py-1.5 mt-8 mb-3">{$t('agents.roster')}</h2>
   <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
     <table class="tbl">
       <thead><tr><th>{$t('agents.role')}</th><th>{$t('common.model')}</th><th>{$t('agents.promptHash')}</th><th>{$t('agents.addendum')}</th></tr></thead>
@@ -64,7 +64,7 @@
       </tbody>
     </table>
   </div></div>
-  <h2 class="h section mt-8 mb-3">{$t('agents.panel')}</h2>
+  <h2 class="sheet h section w-fit max-w-full px-3 py-1.5 mt-8 mb-3">{$t('agents.panel')}</h2>
   <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
     <table class="tbl">
       <thead><tr><th>{$t('common.lens')}</th><th>{$t('common.model')}</th><th>{$t('agents.runsWhen')}</th><th>{$t('agents.checklist')}</th><th>{$t('agents.hash')}</th></tr></thead>
@@ -81,5 +81,5 @@
       </tbody>
     </table>
   </div></div>
-  {#if r.learnings}<p class="text-xs text-muted mt-3">{$t('agents.learnings')} <code class="mono text-fg">{r.learnings}</code>.</p>{/if}
+  {#if r.learnings}<p class="sheet w-fit max-w-full px-3 py-1.5 text-xs text-muted mt-3">{$t('agents.learnings')} <code class="mono text-fg">{r.learnings}</code>.</p>{/if}
 {/if}

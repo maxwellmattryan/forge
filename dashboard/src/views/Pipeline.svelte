@@ -58,17 +58,17 @@
       {@const w = workingCount(c.jobs, data.daemons)}
       <!-- min-w-0: a long truncated title or chip must not widen its grid track. -->
       <section class="sheet dashed min-w-0 flex flex-col xl:max-h-[calc(100vh-180px)]">
-        <header class="flex items-center justify-between px-3 py-2 border-b border-dashed border-line"><span class="label text-fg">{groupLabel[c.id]}</span><span class="flex items-center gap-2">{#if w}<span class="label text-ink">{$t('live.columnWorking', { count: w })}</span>{/if}<span class="mono muted num text-[11px]">{c.jobs.length}</span></span></header>
+        <header class="plain flex items-center justify-between px-3 py-2 border-b border-dashed border-line"><span class="label text-fg">{groupLabel[c.id]}</span><span class="flex items-center gap-2">{#if w}<span class="label text-ink">{$t('live.columnWorking', { count: w })}</span>{/if}<span class="mono muted num text-[11px]">{c.jobs.length}</span></span></header>
         <!-- At least p-2.5: a redline card's outline sits 3px outside it and the scroller would clip it. -->
         <div class="flex flex-col gap-2.5 p-2.5 overflow-y-auto">
-          {#each c.jobs as j (j.id)}<JobCard job={j} />{:else}<div class="caption muted text-center py-3">—</div>{/each}
+          {#each c.jobs as j (j.id)}<JobCard job={j} />{:else}<div class="plain caption muted text-center py-3">—</div>{/each}
         </div>
       </section>
     {/each}
   </div>
   {#if done}
     <section class="sheet dashed mt-3">
-      <header class="flex items-center justify-between px-3 py-2 border-b border-dashed border-line"><span class="label text-fg">{groupLabel.done}</span><span class="mono muted num text-[11px]">{done.jobs.length}</span></header>
+      <header class="plain flex items-center justify-between px-3 py-2 border-b border-dashed border-line"><span class="label text-fg">{groupLabel.done}</span><span class="mono muted num text-[11px]">{done.jobs.length}</span></header>
       <div class="grid grid-cols-[repeat(auto-fill,minmax(236px,1fr))] gap-2.5 p-2.5">
         {#each done.jobs as j (j.id)}<JobCard job={j} />{/each}
       </div>

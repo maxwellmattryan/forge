@@ -216,3 +216,69 @@ export function ancestry(file: string, text: string): Placed[] {
   }
   return out;
 }
+
+/** `use` is a `{@render x()}` of the file's own snippet `x`: not a placement itself, but where `x`'s content lands. */
+export type Placement = { kind: 'text' | 'expr' | 'html' | 'render' | 'component' | 'use'; what: string; ancestors: Placed[]; snippet?: string };
+
+/**
+ * Everything a component's markup puts on screen, with the elements around it, nearest first: non-blank text runs,
+ * `{expr}`, `{@html …}`, `{@render x(…)}` of a snippet the file does not define itself (a caller's content), and
+ * component elements. Block tags (`{#if}`, `{:else}`, `{/each}`), `{@const}` and attributes are not placements.
+ * Scans like `ancestry()`. Content written inside the file's own `{#snippet x}` carries `snippet: 'x'`, and each
+ * `{@render x(…)}` of it is returned as a `use`, so a caller can judge that content where it is rendered too.
+ */
+export function placements(file: string, text: string): Placement[] {
+  const s = text.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '').replace(/<style\b[^>]*>[\s\S]*?<\/style>/g, '').replace(/<!--[\s\S]*?-->/g, '');
+  const own = new Set([...s.matchAll(/\{#snippet\s+([A-Za-z_$][\w$]*)/g)].map((m) => m[1]));
+  const out: Placement[] = [];
+  const stack: Placed[] = [];
+  const snippets: string[] = [];
+  const here = () => [...stack].reverse();
+  const push = (kind: Placement['kind'], what: string, ancestors = here()) => out.push({ kind, what, ancestors, ...(snippets.length ? { snippet: snippets[snippets.length - 1] } : {}) });
+  let run = '';
+  const flush = () => {
+    if (run.trim()) push('text', run.trim());
+    run = '';
+  };
+  for (let i = 0; i < s.length; ) {
+    if (s[i] === '{') {
+      flush();
+      const end = endOf(s, i);
+      if (end < 0) throw new Error(`${file}: cannot parse markup near ${JSON.stringify(s.slice(i, i + 60))}`);
+      const expr = s.slice(i + 1, end).trim();
+      i = end + 1;
+      const opened = /^#snippet\s+([A-Za-z_$][\w$]*)/.exec(expr);
+      if (opened) snippets.push(opened[1]);
+      else if (/^\/snippet\b/.test(expr)) snippets.pop();
+      if (/^[#:/]/.test(expr) || /^@(const|debug)\b/.test(expr)) continue;
+      if (expr.startsWith('@html')) push('html', expr);
+      else if (expr.startsWith('@render')) {
+        const name = /^@render\s+([A-Za-z_$][\w$]*)/.exec(expr)?.[1] ?? '';
+        if (own.has(name)) push('use', name);
+        else push('render', expr);
+      } else push('expr', expr);
+      continue;
+    }
+    const m = s[i] === '<' ? /^<(\/?)([A-Za-z][\w:.-]*)/.exec(s.slice(i, i + 80)) : null;
+    if (!m) {
+      run += s[i++];
+      continue;
+    }
+    flush();
+    const end = tagEnd(s, i);
+    if (end < 0) throw new Error(`${file}: cannot parse tag near ${JSON.stringify(s.slice(i, i + 60))}`);
+    const raw = s.slice(i, end);
+    i = end;
+    if (m[1]) {
+      const at = stack.map((e) => e.name).lastIndexOf(m[2]);
+      if (at < 0) throw new Error(`${file}: </${m[2]}> closes nothing`);
+      stack.length = at;
+      continue;
+    }
+    const el: Placed = { name: m[2], attrs: tags(file, raw)[0]?.attrs ?? [], ancestors: here() };
+    if (/^[A-Z]/.test(m[2])) push('component', m[2], el.ancestors);
+    if (!raw.endsWith('/>') && !VOID_ELEMENTS.has(m[2])) stack.push(el);
+  }
+  flush();
+  return out;
+}

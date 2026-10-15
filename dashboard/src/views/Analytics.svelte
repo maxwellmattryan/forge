@@ -42,7 +42,7 @@
   {#snippet right()}<select class="input" value={S.window} onchange={(e) => setWindow(e.currentTarget.value)}>{#each STATS_WINDOWS as [v, l] (v)}<option value={v}>{l}</option>{/each}</select>{/snippet}
 </PageHeader>
 {#if !s}
-  <div class="text-muted text-sm">{$t('common.loading')}</div>
+  <div class="sheet w-fit px-3 py-1.5 text-sm text-muted">{$t('common.loading')}</div>
 {:else}
   {@const q = s.quality}
   {@const cov = s.cost.reportingCoverage}
@@ -90,5 +90,5 @@
       </table>
     </div></div>
   {/if}
-  <p class="text-[11px] text-muted mt-3">{$t('analytics.footnote')}</p>
+  <p class="sheet w-fit max-w-full px-3 py-1.5 text-[11px] text-muted mt-3">{$t('analytics.footnote')}</p>
 {/if}
