@@ -7,8 +7,30 @@ import { paths } from '../paths.ts';
 import { INBOX_SCOPE, validJobId } from '../requests.ts';
 import { ForgeError, readJson } from '../util.ts';
 import { pidAlive } from '../worktree.ts';
+import { usageError } from './args.ts';
+import type { HelpGroup } from '../types.ts';
 
-const USAGE = 'usage: forge daemon status | forge daemon log <job>|--inbox [--lines N] [--follow]';
+const DAEMON: HelpGroup = {
+  name: 'daemon',
+  summary: "the dashboard's headless sessions, from the terminal",
+  commands: [
+    { command: 'daemon status', args: '', summary: "the daemon's sessions, from the terminal", readme: true },
+    {
+      command: 'daemon log',
+      args: '<job>|--inbox [--lines N] [--follow]',
+      summary: "a session's log, from the terminal",
+      flags: [
+        ['--inbox', "the inbox session's log instead of a job's"],
+        ['--lines N', 'the last N lines (default 100, at most 5000)'],
+        ['--follow', 'keep printing lines as they are written'],
+      ],
+      exits: [[1, 'an invalid job id, or no readable log']],
+      readme: true,
+    },
+  ],
+};
+
+export const HELP: HelpGroup[] = [DAEMON];
 const MAX_LINES = 5000;
 const FOLLOW_MS = 250;
 
@@ -41,7 +63,7 @@ export function escapeControls(line: string): string {
 export async function daemonCmd(root: string, sub: string | undefined, rest: string[], flags: Record<string, any>): Promise<DaemonStatusOut | string | undefined> {
   if (sub === 'status') return status(root);
   if (sub === 'log') return log(root, rest[0], flags);
-  throw new ForgeError(USAGE);
+  throw usageError(DAEMON);
 }
 
 function str(v: unknown): string | null {
@@ -83,11 +105,11 @@ async function log(root: string, job: string | undefined, flags: Record<string, 
   if (flags.inbox) scope = INBOX_SCOPE;
   else {
     // Refused before any path is built from it.
-    if (!validJobId(job)) throw new ForgeError(job === undefined ? USAGE : `invalid job id ${JSON.stringify(String(job).slice(0, 80))}`);
+    if (!validJobId(job)) throw job === undefined ? usageError(DAEMON, 'log') : new ForgeError(`invalid job id ${JSON.stringify(String(job).slice(0, 80))}`);
     scope = job;
   }
   const n = flags.lines === undefined ? 100 : Number(flags.lines);
-  if (!Number.isInteger(n) || n < 1 || n > MAX_LINES) throw new ForgeError(`--lines must be an integer from 1 to ${MAX_LINES}`);
+  if (!Number.isInteger(n) || n < 1 || n > MAX_LINES) throw new ForgeError(`--lines must be an integer from 1 to ${MAX_LINES}`, 'usage');
   const file = sessionFiles(root, scope).log;
   if (!flags.follow) {
     if (!fs.existsSync(file)) throw new ForgeError(`no session log for ${scope}`);

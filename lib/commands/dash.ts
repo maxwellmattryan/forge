@@ -10,7 +10,28 @@ import * as yaml from '../yaml.ts';
 import { pidAlive } from '../worktree.ts';
 import { out } from './args.ts';
 import type { RunningServer } from '../server.ts';
-import type { Config } from '../types.ts';
+import type { Config, HelpGroup } from '../types.ts';
+
+export const HELP: HelpGroup[] = [
+  {
+    name: 'dash',
+    summary: 'the live dashboard and its session pool',
+    commands: [
+      {
+        command: 'dash',
+        args: '[--background|--stop] [--port N]',
+        summary: 'start the dashboard in the foreground (prints its URL), or detached with --background; --stop stops it and its sessions',
+        flags: [
+          ['--background', 'start it detached and print {url, pid}'],
+          ['--stop', 'stop it and reap its sessions'],
+          ['--port N', 'the first port to try (default: dashboard.port, 7400)'],
+          ['--foreground', 'run in the foreground even when one is running'],
+        ],
+        exits: [[1, 'no free port near N']],
+      },
+    ],
+  },
+];
 
 /**
  * An ANTHROPIC_API_KEY in this shell would make headless sessions bill an API account instead of

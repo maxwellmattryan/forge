@@ -23,7 +23,7 @@ export class ConfigSetError extends ForgeError {
   // `declare` keeps this a type only: a plain field would become a runtime class field and show up in Object.keys.
   declare reason: ConfigSetReason;
   constructor(reason: ConfigSetReason, message: string) {
-    super(message, reason === 'uninitialized' ? 2 : 1);
+    super(message, reason === 'uninitialized' ? 'not_initialized' : 'failed');
     this.reason = reason;
   }
 }

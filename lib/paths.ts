@@ -10,7 +10,7 @@ import { ForgeError, run } from './util.ts';
 export function mainRoot(cwd: string = process.cwd()): string {
   if (process.env.FORGE_ROOT) return path.resolve(process.env.FORGE_ROOT);
   const common = run('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, allowFail: true });
-  if (!common.ok) throw new ForgeError('not inside a git repository (set FORGE_ROOT to override)');
+  if (!common.ok) throw new ForgeError('not inside a git repository (set FORGE_ROOT to override)', 'not_a_repo');
   const dir = common.stdout.trim();
   if (path.basename(dir) === '.git') return path.dirname(dir);
   const top = run('git', ['rev-parse', '--show-toplevel'], { cwd, allowFail: true });

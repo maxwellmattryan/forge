@@ -1,8 +1,6 @@
 #!/usr/bin/env node
-import { main } from '../lib/cli.ts';
+import { main, reportError } from '../lib/cli.ts';
 
-main(process.argv.slice(2)).catch((err) => {
-  process.stderr.write(`forge: ${err?.message ?? err}\n`);
-  if (process.env.FORGE_DEBUG && err?.stack) process.stderr.write(err.stack + '\n');
-  process.exit(err?.exitCode ?? 1);
-});
+const argv = process.argv.slice(2);
+// reportError prints the error (one JSON line on stdout under --json) and returns its exit code.
+main(argv).catch((err) => process.exit(reportError(err, argv)));

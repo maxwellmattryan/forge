@@ -128,7 +128,7 @@ test('SKILL.md is the loop', () => {
 
 test('docs mention job step', () => {
   const readme = read('README.md');
-  assert.ok(readme.includes('| `forge job step <id>` |'), 'README command table');
+  assert.ok(readme.includes('| `forge job step <id> [--session S]` |'), 'README command table');
   assert.match(section(readme, '## How it works'), /The CLI decides each step/);
   const arch = read('docs/ARCHITECTURE.md');
   assert.ok(section(arch, '## Why a CLI does the bookkeeping').includes('forge job step <id>'));
@@ -141,7 +141,7 @@ test('docs mention job step', () => {
   const s = scratch();
   try {
     const usage = s.raw('job');
-    assert.equal(usage.status, 1);
+    assert.equal(usage.status, 2);
     assert.match(usage.stderr, /usage: forge job [a-z|-]*\|step\b/);
     assert.match(s.raw('help').stdout, /forge job step <id>/);
   } finally {

@@ -2,12 +2,27 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
+/**
+ * The CLI's error codes and the exit each one fixes (docs/CLI.md "Error codes"). Scripts branch on
+ * these, so renaming or removing one is a breaking change.
+ */
+export const ERROR_CODES = { failed: 1, not_found: 1, internal: 1, usage: 2, unknown_command: 2, not_initialized: 2, not_a_repo: 2, config_invalid: 2, owned: 3, blocked: 4, external: 5 } as const;
+export type ErrorCode = keyof typeof ERROR_CODES;
+export type ExitCode = (typeof ERROR_CODES)[ErrorCode];
+/** The code a bare exit number means, so `new ForgeError(msg, 3)` written before codes existed keeps working. */
+export const DEFAULT_CODE: Record<ExitCode, ErrorCode> = { 1: 'failed', 2: 'usage', 3: 'owned', 4: 'blocked', 5: 'external' };
+
 export class ForgeError extends Error {
-  // `declare` keeps this a type only: a plain field would become a runtime class field and show up in Object.keys.
-  declare exitCode: number;
-  constructor(message: string, code: number = 1) {
+  // `declare` keeps these types only: a plain field would become a runtime class field and show up in Object.keys.
+  declare code: ErrorCode;
+  declare exitCode: ExitCode;
+  /** A next command to run, shown under `--json`; null when the message says it all. */
+  declare hint: string | null;
+  constructor(message: string, code: ErrorCode | ExitCode = 'failed', hint: string | null = null) {
     super(message);
-    this.exitCode = code;
+    this.code = typeof code === 'number' ? (DEFAULT_CODE[code] ?? 'failed') : code;
+    this.exitCode = ERROR_CODES[this.code];
+    this.hint = hint;
   }
 }
 
@@ -43,11 +58,11 @@ export function run(
   });
   if (res.error) {
     if (opts.allowFail) return { ok: false, stdout: '', stderr: String(res.error.message), status: null };
-    throw new ForgeError(`${cmd} failed to start: ${res.error.message}`);
+    throw new ForgeError(`${cmd} failed to start: ${res.error.message}`, 'external');
   }
   const out = { ok: res.status === 0, stdout: res.stdout ?? '', stderr: res.stderr ?? '', status: res.status };
   if (!out.ok && !opts.allowFail) {
-    throw new ForgeError(`${cmd} ${args.join(' ')} exited ${res.status}: ${(out.stderr || out.stdout).trim()}`);
+    throw new ForgeError(`${cmd} ${args.join(' ')} exited ${res.status}: ${(out.stderr || out.stdout).trim()}`, 'external');
   }
   return out;
 }
@@ -201,7 +216,7 @@ export function coerce(v: string, key = 'value'): any {
       const suggestion = bare
         ? JSON.stringify(bare[1].split(',').map((s) => s.trim()).filter(Boolean))
         : v.startsWith('[') ? '["a","b"]' : '{"k":"v"}';
-      throw new ForgeError(`--field ${key}: ${JSON.stringify(v.slice(0, 80))} is not valid JSON; quote it for the shell, e.g. --field '${key}=${suggestion}'`);
+      throw new ForgeError(`--field ${key}: ${JSON.stringify(v.slice(0, 80))} is not valid JSON; quote it for the shell, e.g. --field '${key}=${suggestion}'`, 'usage');
     }
   }
   return v;

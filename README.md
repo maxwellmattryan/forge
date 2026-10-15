@@ -80,15 +80,26 @@ The skill can be invoked as `/forge` or, fully qualified, `/forge:forge`.
 | `/forge next [n]` · `/forge issue <ref>` | take work: `next` first resumes a queued job nobody drives, else starts the next ready tracker item |
 | `/forge continue <job \| #pr \| ref> [note]` | resume a job or PR: sync, integrate, address review feedback or CI |
 | `/forge approve <job>` · `revise <job> <note>` · `answer <job> <text>` · `rework <job> <note>` · `cancel <job>` | human decisions |
-| `/forge status` · `sync` · `dash` · `doctor` · `requests` | operate |
+| `/forge status` · `sync` · `dash` · `doctor` · `requests` · `update` | operate |
 | `/forge retro` · `/forge eval …` | improve and measure |
-| `forge job step <id>` | the job's next action (`spawn` with a ready agent brief, `run`, `wait`, `procedure` or `done`); read-only, the same state always gives the same answer, except that `--session <owner>` refreshes that session's claim heartbeat |
+
+The `forge` CLI underneath is also for scripts, CI and other agent runtimes: `forge help <command>` prints a command's flags and exit codes, and [docs/CLI.md](docs/CLI.md) covers `--json`, exit and error codes, environment variables and what stays stable. The commands worth knowing by hand:
+
+<!-- forge:commands:start (generated from lib/commands/*.ts by npm run docs:commands; edit those tables) -->
+| Command | What it does |
+|---|---|
+| `forge job link <id> <ref>\|--create\|--none [--reason R]\|--suggest` | link a job to an issue, create one, or record that it needs none (see [Linking jobs to issues](docs/TRACKERS.md#linking-jobs-to-issues)) |
+| `forge job step <id> [--session S]` | the job's next action (`spawn` with a ready agent brief, `run`, `wait`, `procedure` or `done`); read-only, the same state always gives the same answer, except that `--session <owner>` refreshes that session's claim heartbeat |
 | `forge job advance <id> --session S [--max N]` | runs step's `run` actions in-process (at most N, default 20) and returns the next `spawn`, `wait`, `procedure` or `done` with `ran`, one line per command it ran; refuses (exit 3) a job session S does not hold, and stops at the first failed command (exit 1) |
-| `forge git commit <job> (--message T \| --message-file F) [-- paths]` · `forge git add <job> -- paths` | commit or stage in the job's worktree, on its branch, from any cwd (how agents commit, in a daemon session too); refuses git options, paths outside the worktree and AI attribution |
-| `forge daemon status` · `forge daemon log <job>\|--inbox [--lines N] [--follow]` | the daemon's sessions and a session's log, from the terminal |
-| `forge job link <job> <ref>\|--create\|--none` · `forge tracker search <query>` | link a job to an issue, create one, or record that it needs none; search the tracker (see [Linking jobs to issues](docs/TRACKERS.md#linking-jobs-to-issues)) |
-| `forge update [--check] [--keep-dash]` · `/forge update` | update this Forge install (plugin or clone) and restart this repo's dashboard on the new code (see [Updating](#updating)) |
-| `forge config get <key>` · `forge config set <key> <value>` | read the effective config, or change one editable key in `.forge/config.yml`, keeping its comments (see [Changing settings](docs/CONFIG.md#changing-settings)) |
+| `forge git add <id> -- <path>...` | stage paths in the job's worktree, from any cwd; refuses git options and paths outside the worktree |
+| `forge git commit <id> (--message T \| --message-file F) [-- <path>...]` | commit in the job's worktree, on its branch, from any cwd (how agents commit, in a daemon session too); refuses git options, paths outside the worktree and AI attribution |
+| `forge tracker search <query> [--limit N] [--job <id>]` | search the tracker (see [Linking jobs to issues](docs/TRACKERS.md#linking-jobs-to-issues)) |
+| `forge daemon status` | the daemon's sessions, from the terminal |
+| `forge daemon log <job>\|--inbox [--lines N] [--follow]` | a session's log, from the terminal |
+| `forge config get [<key>]` | read the effective config: one dotted key (strings raw, null when absent), or all of it (see [Changing settings](docs/CONFIG.md#changing-settings)) |
+| `forge config set <key> <value>` | change one editable key in `.forge/config.yml`, keeping its comments (see [Changing settings](docs/CONFIG.md#changing-settings)) |
+| `forge update [--check] [--keep-dash]` | update this Forge install (plugin or clone) and restart this repo's dashboard on the new code (see [Updating](README.md#updating)) |
+<!-- forge:commands:end -->
 
 ## How it works
 
@@ -100,7 +111,7 @@ The skill can be invoked as `/forge` or, fully qualified, `/forge:forge`.
 - **1 job = 1 PR = 1 issue.** With a tracker in use, a job that didn't start from an issue gets one at spec approval: the same answer that approves the spec links one of the candidates Forge found, approves a new issue, or records that it needs none. A spec approved without one, or a job with no spec gate (`specApproval: never`), waits for that choice before build (see [Linking jobs to issues](docs/TRACKERS.md#linking-jobs-to-issues)).
 - **State** lives in `.forge/jobs/<id>/` (gitignored) in the main checkout, shared by every worktree and session: `job.json`, an append-only `events.jsonl`, and the agents' markdown files.
 
-Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CONFIG.md](docs/CONFIG.md) · [docs/TRACKERS.md](docs/TRACKERS.md) · [docs/IMPROVEMENT.md](docs/IMPROVEMENT.md) · [docs/PROTOCOL.md](docs/PROTOCOL.md) (running Forge on other agent runtimes)
+Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CLI.md](docs/CLI.md) (the CLI's contract: `--json`, exit codes, environment variables) · [docs/CONFIG.md](docs/CONFIG.md) · [docs/TRACKERS.md](docs/TRACKERS.md) · [docs/IMPROVEMENT.md](docs/IMPROVEMENT.md) · [docs/PROTOCOL.md](docs/PROTOCOL.md) (running Forge on other agent runtimes)
 
 ## Dashboard
 

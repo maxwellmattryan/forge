@@ -141,11 +141,11 @@ function step(display: string, cmd: string, args: string[], env: NodeJS.ProcessE
   // leaves status null but no such message.
   if (r.status === null && /ENOENT/.test(r.stderr)) {
     if (cmd === 'claude') {
-      throw new ForgeError(`claude is not on PATH; in Claude Code, run \`/plugin marketplace update ${info.marketplace}\` then \`/plugin update ${info.plugin}\``);
+      throw new ForgeError(`claude is not on PATH; in Claude Code, run \`/plugin marketplace update ${info.marketplace}\` then \`/plugin update ${info.plugin}\``, 'external');
     }
-    throw new ForgeError(`"${display}" could not start: ${r.stderr.trim()}`);
+    throw new ForgeError(`"${display}" could not start: ${r.stderr.trim()}`, 'external');
   }
-  if (!r.ok) throw new ForgeError(`"${display}" failed (exit ${r.status ?? 'by signal'}): ${tail(r.stderr.trim() || r.stdout, 20)}`);
+  if (!r.ok) throw new ForgeError(`"${display}" failed (exit ${r.status ?? 'by signal'}): ${tail(r.stderr.trim() || r.stdout, 20)}`, 'external');
 }
 
 /** Where Claude Code put the plugin after `claude plugin update`: the user-scope entry wins. */

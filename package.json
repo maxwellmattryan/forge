@@ -26,7 +26,8 @@
     "test": "node --test \"test/*.test.ts\"",
     "build:dashboard": "vite build --config dashboard/vite.config.mjs && node dashboard/build-stamp.mjs",
     "check:dashboard": "svelte-check --tsconfig dashboard/tsconfig.json --fail-on-warnings",
-    "typecheck": "tsc -p tsconfig.json && tsc -p test/tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json && tsc -p test/tsconfig.json",
+    "docs:commands": "node scripts/docs-commands.ts"
   },
   "repository": {
     "type": "git",
