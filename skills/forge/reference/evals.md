@@ -12,6 +12,8 @@ Each task lives in `.forge/evals/<name>/`: a `task.yml` with the request, a base
 - **Hand-written**: `forge eval new <name> --title "…" --body-file request.md`, then put hidden test files under `check/files/` (copied into the worktree before the check runs) or a `check/tests.patch`, plus `check.command` if it differs from `commands.test`.
 - **Rubric** (repos without tests, or for quality): add `rubric.md`. The judge agent scores it 0-5.
 
+Grading a `check/tests.patch`: before the patch is applied, the candidate's versions of the files it touches are replaced by the base versions, or deleted when the base has none, so a builder's own copy of a hidden test or golden never turns the grade into a merge conflict. Every other file the candidate wrote stays, including its other tests, which still run. This covers source files too if a hand-written patch touches them. A patch that does not apply to its own base, or a base the clone lacks, fails the check with the reason in `check.reason`.
+
 Aim for 5-15 tasks with tags (`replay`, `ui`, `bugfix`, `refactor`, …) so subsets can run cheaply.
 
 ## Run
@@ -27,6 +29,7 @@ Run up to `runtime.maxParallelJobs` tasks at once.
 ## Read results
 ```bash
 forge eval runs
+forge eval report <run>          # every task's result; check.replaced lists the candidate files the hidden patch replaced
 forge eval compare <runA> <runB>
 ```
 Each run is stamped with the Forge version and a `configHash` (config + reviewer checklists + notes), so a difference can be traced to what changed. Treat small task counts carefully: a single task flipping is noise. When a change looks promising, run the same tasks again before believing it. The dashboard's Evals view shows all of this.
