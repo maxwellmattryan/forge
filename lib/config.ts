@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PLUGIN_ROOT, paths, exists, resolveFrom } from './paths.ts';
 import { CONFIG_SCHEMA_VERSION, DAEMON_AUTH, migrateConfig } from './schema.ts';
-import type { Config, LoadedConfig } from './types.ts';
+import type { Config, LoadedConfig, VerifyEntry } from './types.ts';
 import { ForgeError, deepMerge, isClaudeExecutable, readText, splitWords } from './util.ts';
 import * as yaml from './yaml.ts';
 
@@ -248,7 +248,7 @@ export function validateConfig(c: any, root: string): string[] {
   if (!Array.isArray(e2ePaths) || e2ePaths.some((p: any) => typeof p !== 'string' || !p.trim()))
     problems.push(`verifyE2e.paths must be a list of non-empty strings (got ${JSON.stringify(e2ePaths)})`);
   problems.push(...generatedProblems(c));
-  for (const v of c.verify ?? []) if (!(v in c.commands)) problems.push(`verify step "${v}" is not a key in commands`);
+  problems.push(...verifyProblems(c));
   if (!Number.isInteger(c.pipeline.maxRounds) || c.pipeline.maxRounds < 1) problems.push('pipeline.maxRounds must be a positive integer');
   for (const [k, v] of Object.entries(c.pipeline.budget ?? {})) {
     if (v === null) continue;
@@ -257,6 +257,54 @@ export function validateConfig(c: any, root: string): string[] {
   }
   problems.push(...daemonProblems(c, root));
   return problems;
+}
+
+/**
+ * Why `verify` can't be run as written: not a list, an entry that is neither a step name nor a
+ * non-empty list of step names (a nested list included), or a step listed twice. A name with no
+ * command is not a shape problem: verify reports that step skipped.
+ */
+export function verifyShapeProblems(verify: unknown): string[] {
+  if (!Array.isArray(verify)) return [`verify must be a list of step names or lists of step names (got ${JSON.stringify(verify)})`];
+  const isName = (n: unknown): n is string => typeof n === 'string' && n.trim() !== '';
+  const problems: string[] = [];
+  const seen = new Set<string>();
+  const twice = new Set<string>();
+  verify.forEach((entry: unknown, i) => {
+    const names = isName(entry) ? [entry] : Array.isArray(entry) && entry.length && entry.every(isName) ? entry : null;
+    if (!names) {
+      problems.push(`verify entry ${i + 1} must be a step name or a non-empty list of step names (got ${JSON.stringify(entry)})`);
+      return;
+    }
+    for (const n of names) {
+      if (seen.has(n) && !twice.has(n)) {
+        twice.add(n);
+        problems.push(`verify step "${n}" is listed more than once`);
+      }
+      seen.add(n);
+    }
+  });
+  return problems;
+}
+
+/** Shape problems, then every step name (inside groups too) that is not a key in `commands`. */
+export function verifyProblems(c: any): string[] {
+  const commands = c.commands && typeof c.commands === 'object' ? c.commands : {};
+  const unknown = [...new Set(verifySteps(c.verify))].filter((n) => !Object.hasOwn(commands, n));
+  return [...verifyShapeProblems(c.verify), ...unknown.map((n) => `verify step "${n}" is not a key in commands`)];
+}
+
+/** `verify` as groups run in order; a plain step name is a group of one. Throws on the first shape problem. */
+export function verifyGroups(verify: unknown): string[][] {
+  const [problem] = verifyShapeProblems(verify);
+  if (problem) throw new ForgeError(`verify: ${problem}`);
+  return (verify as VerifyEntry[]).map((e) => (typeof e === 'string' ? [e] : [...e]));
+}
+
+/** Every step name in `verify`, groups flattened, ignoring anything malformed: for "is X listed" checks. */
+export function verifySteps(verify: unknown): string[] {
+  if (!Array.isArray(verify)) return [];
+  return verify.flatMap((e: unknown) => (typeof e === 'string' ? [e] : Array.isArray(e) ? e.filter((n): n is string => typeof n === 'string') : []));
 }
 
 /**

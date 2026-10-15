@@ -119,6 +119,25 @@ test('a same-named candidate test file is replaced by the hidden version', () =>
   }
 });
 
+test('grade fills {args} in the check command with nothing', () => {
+  const s = scratch();
+  try {
+    const patch = hiddenPatch(s.dir, { 'test/args.test.txt': 'hidden\n' });
+    // No command of its own: grading falls back to commands.test, which only `forge run -- <args>` may fill.
+    addTask(s.dir, 'args', { base: s.base, patch, command: undefined });
+    const { args } = start(s, ['args']);
+    candidate(args.wt, { 'feature.txt': 'x\n' });
+    const config = s.config();
+    config.commands.test = 'test -z "{args}" && echo "args=[{args}]"';
+    const r = gradeJob(s.dir, config, args.job);
+    assert.equal(r.check.ran, true);
+    assert.equal(r.check.pass, true, r.check.tail);
+    assert.match(r.check.tail, /^args=\[\]$/m);
+  } finally {
+    s.cleanup();
+  }
+});
+
 test('an edited golden is graded on the hidden golden', () => {
   const s = scratch({ 'test/golden/out.txt': 'v1\n', 'test/golden/other.txt': 'o1\n' });
   try {

@@ -1,6 +1,6 @@
 # Forge configuration. Every key is documented in docs/CONFIG.md of the Forge plugin.
 # Re-run `/forge init` to change answers interactively, or edit this file directly.
-schemaVersion: 2
+schemaVersion: 3
 project:
   name: Forge
   description: "Claude Code plugin that runs a software factory: jobs in worktrees, agent roster, PR/tracker sync, dashboard, evals and retros. The repo is also its own plugin marketplace."
@@ -30,7 +30,7 @@ worktrees:
 commands:
   setup: npm ci
   build: npm run build:dashboard && test -z "$(git status --porcelain -- dashboard/dist)"
-  test: npm run test
+  test: set -- {args}; [ $# -gt 0 ] || set -- 'test/*.test.ts'; node --test "$@"
   lint: for f in $(find lib lib/commands lib/trackers dashboard -maxdepth 1 -name '*.mjs') bin/forge; do node --check "$f" || exit 1; done && claude plugin validate . --strict
   format: null
   typecheck: npm run check:dashboard && npm run typecheck
@@ -39,9 +39,7 @@ commands:
   dist: npm run build:dashboard
 verify:
   - build
-  - lint
-  - typecheck
-  - test
+  - [lint, typecheck, test]
 verifyE2e:
   when: ui
   paths:

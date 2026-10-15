@@ -48,13 +48,29 @@ test('package.json: Node >= 22.18, typecheck and test scripts', () => {
   const pkg = readJson('package.json');
   assert.deepEqual(pkg.engines, { node: '>=22.18' });
   assert.equal(pkg.scripts.test, 'node --test "test/*.test.ts"');
-  assert.equal(pkg.scripts.typecheck, 'tsc -p tsconfig.json && tsc -p test/tsconfig.json');
+  assert.equal(
+    pkg.scripts.typecheck,
+    'tsc -p tsconfig.json --incremental --tsBuildInfoFile node_modules/.cache/forge/tsc-engine.tsbuildinfo && tsc -p test/tsconfig.json --incremental --tsBuildInfoFile node_modules/.cache/forge/tsc-test.tsbuildinfo',
+  );
   assert.equal(pkg.devDependencies['@types/node'], '22.18.13');
   assert.equal(pkg.devDependencies.typescript, '6.0.3');
   assert.equal(pkg.dependencies, undefined);
   const lock = readJson('package-lock.json');
   assert.equal(lock.packages['node_modules/@types/node']?.version, '22.18.13');
   assert.deepEqual(lock.packages[''].engines, pkg.engines);
+});
+
+// The build info and svelte-check's cache live in the checkout, so verify's worktree-clean gate
+// would fail on them if git saw them.
+test('incremental typecheck caches stay out of git', () => {
+  const pkg = readJson('package.json');
+  const infos = [...pkg.scripts.typecheck.matchAll(/--tsBuildInfoFile (\S+)/g)].map((m) => m[1]);
+  assert.deepEqual(infos, ['node_modules/.cache/forge/tsc-engine.tsbuildinfo', 'node_modules/.cache/forge/tsc-test.tsbuildinfo']);
+  for (const f of infos) assert.ok(f.startsWith('node_modules/'), f);
+  for (const f of ['dashboard/.svelte-check/manifest.json', ...infos]) {
+    const r = spawnSync('git', ['check-ignore', '-q', '--', f], { cwd: ROOT });
+    assert.equal(r.status, 0, `${f} is ignored`);
+  }
 });
 
 test('foundation modules are TypeScript and lib/types.ts is type-only', () => {

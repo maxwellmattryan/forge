@@ -272,6 +272,18 @@ export function isClaudeExecutable(word: string): boolean {
   return path.isAbsolute(word) && /[\\/]claude(?:\.exe)?$/.test(word);
 }
 
+/**
+ * `forge run`'s extra arguments as shell words, each in single quotes. A quote, backslash or control
+ * character is refused rather than escaped: without them a single-quoted word is literal in sh,
+ * bash, zsh and fish alike (fish reads \' and \\ inside them), whatever $SHELL is.
+ */
+export function shellArgs(args: string[]): string {
+  args.forEach((a, i) => {
+    if (/['\\\x00-\x1f\x7f]/.test(a)) throw new ForgeError(`forge run: argument ${i + 1} contains a quote, backslash or control character (got ${JSON.stringify(a)})`);
+  });
+  return args.map((a) => `'${a}'`).join(' ');
+}
+
 export function fill(template: string, vars: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
 }

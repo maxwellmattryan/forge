@@ -3,15 +3,16 @@ import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { enforceBudget } from './budget.ts';
-import { loadConfig, worktreeRoot } from './config.ts';
+import { loadConfig, verifyGroups, worktreeRoot } from './config.ts';
 import { e2ePlan } from './e2e.ts';
 import { stackSource } from './deps.ts';
 import { blockingLines, compactIntegrity, hiddenChanges, integrityError, renderIntegrity, testIntegrity } from './integrity.ts';
 import type { CompactIntegrity, IntegrityReport } from './integrity.ts';
 import { listJobs, isActive, loadJob, logEvent, setJob, touchJob, updateJob, jobDir } from './jobs.ts';
 import { exists, resolveFrom } from './paths.ts';
+import { CONFIG_SCHEMA_VERSION } from './schema.ts';
 import type { Config, Job, ServiceConfig, VerifyRun } from './types.ts';
-import { ForgeError, assertSafeRef, fill, now, readJson, run, tail, withLock, writeJsonAtomic } from './util.ts';
+import { ForgeError, assertSafeRef, fill, now, readJson, run, shellArgs, tail, withLock, writeJsonAtomic } from './util.ts';
 
 /** What `forge worktree create` returns: createWorktree. */
 export type CreateWorktreeResult =
@@ -247,9 +248,54 @@ function checkRefs(job: Job): void {
   assertSafeRef(job.base, 'job.base');
 }
 
+// `{args}` is empty here: only `forge run … -- <args>` fills it (fillCommand), so verify, setup,
+// background servers and regenerate never take arguments that could narrow what they run.
 function vars(root: string, job: Job, dir: string, port: number | null): Record<string, string | number> {
   checkRefs(job);
-  return { job: job.id, port: port ?? '', worktree: dir, root, branch: job.branch!, base: job.base! };
+  return { job: job.id, port: port ?? '', worktree: dir, root, branch: job.branch!, base: job.base!, args: '' };
+}
+
+/**
+ * Fills a command template. Arguments are opt-in: only a template that says `{args}` takes them,
+ * so a configured command touching outside systems can't be steered with flags a session picks.
+ * They are quoted one by one (shellArgs), and fill() makes a single pass, so an argument's text is
+ * never filled again. A template whose `{args}` the shell would not read as plain words is refused:
+ * one not standing as its own word (`\{args}`, `x{args}`), one inside quotes (`" {args} "`, where
+ * `$(…)` expands), and any template with a heredoc or a quoting form where `\'` doesn't close the quote.
+ */
+function fillCommand(name: string, template: string, v: Record<string, string | number>, args: string[]): string {
+  if (!args.length) return fill(template, v);
+  if (!template.includes('{args}')) throw new ForgeError(`forge run: commands.${name} takes no arguments; put {args} in the template where they go`);
+  if (/<<|\$'|\\'/.test(template))
+    throw new ForgeError(`forge run: commands.${name} has a heredoc (<<) or a $'…' or \\' quote, where the arguments would not stay literal; take it out of the template to pass arguments`);
+  if (!placeholdersArePlainWords(template))
+    throw new ForgeError(`forge run: commands.${name} puts {args} inside quotes or another word, where the arguments would not stay literal; write {args} unquoted, as its own word`);
+  return fill(template, { ...v, args: shellArgs(args) });
+}
+
+/**
+ * Whether every `{args}` stands as a whole unquoted word: after the start, a blank, a newline or
+ * `(`, before the end, a blank, a newline or `;` `&` `|` `)`, and outside '…' and "…". The quote
+ * scan is kept beside the whole-word rule because a placeholder with blanks on both sides can still
+ * sit inside "…" (`echo " {args} "`); a backslash escapes the next character outside single quotes.
+ */
+function placeholdersArePlainWords(template: string): boolean {
+  for (const m of template.matchAll(/\{args\}/g)) {
+    const before = m.index === 0 ? '' : template[m.index - 1];
+    const after = template[m.index + m[0].length] ?? '';
+    if (!/^[ \t\n(]?$/.test(before) || !/^[ \t\n;&|)]?$/.test(after)) return false;
+  }
+  // Every `{args}` is now preceded by a blank, `(` or the start, never a backslash, so the escape
+  // skip below can't step over one.
+  let quote: string | null = null;
+  for (let i = 0; i < template.length; i++) {
+    const c = template[i];
+    if (quote !== null && template.startsWith('{args}', i)) return false;
+    if (c === '\\' && quote !== "'") i++;
+    else if (quote === null && (c === "'" || c === '"')) quote = c;
+    else if (quote !== null && c === quote) quote = null;
+  }
+  return true;
 }
 
 // The daemon's trust check guards the session's own `forge` calls; a configured command that
@@ -263,9 +309,67 @@ export function envFor(job: Job, dir: string, port: number | null, base: NodeJS.
   return Object.assign(env, { FORGE_JOB: job.id, FORGE_WORKTREE: dir, PORT: port ? String(port) : '', FORGE_PORT: port ? String(port) : '' });
 }
 
-function shell(cmd: string, cwd: string, env: NodeJS.ProcessEnv): { ok: boolean; status: number | null; output: string } {
+interface ShellResult {
+  ok: boolean;
+  status: number | null;
+  output: string;
+}
+
+const joinOutput = (stdout: string, stderr: string): string => `${stdout}${stderr ? `\n${stderr}` : ''}`;
+
+function shell(cmd: string, cwd: string, env: NodeJS.ProcessEnv): ShellResult {
   const res = run(process.env.SHELL || '/bin/sh', ['-lc', cmd], { cwd, env, allowFail: true });
-  return { ok: res.ok, status: res.status, output: `${res.stdout}${res.stderr ? `\n${res.stderr}` : ''}` };
+  return { ok: res.ok, status: res.status, output: joinOutput(res.stdout, res.stderr) };
+}
+
+/** run()'s spawnSync limit per stream, kept for the async path. */
+const MAX_OUTPUT = 64 * 1024 * 1024;
+
+/**
+ * shell() without blocking, so verify can run a group's steps at once. Past MAX_OUTPUT on either
+ * stream the child is killed and the step fails, as spawnSync's ENOBUFS does; a spawn error is a
+ * failure with no exit code.
+ */
+function shellAsync(cmd: string, cwd: string, env: NodeJS.ProcessEnv): Promise<ShellResult> {
+  const sh = process.env.SHELL || '/bin/sh';
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (r: ShellResult) => {
+      if (settled) return;
+      settled = true;
+      resolve(r);
+    };
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(sh, ['-lc', cmd], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (e) {
+      return finish({ ok: false, status: null, output: joinOutput('', (e as Error).message) });
+    }
+    const chunks: Record<'stdout' | 'stderr', Buffer[]> = { stdout: [], stderr: [] };
+    const sizes = { stdout: 0, stderr: 0 };
+    let overflow: string | null = null;
+    for (const k of ['stdout', 'stderr'] as const) {
+      child[k]!.on('data', (chunk: Buffer) => {
+        if (overflow) return;
+        sizes[k] += chunk.length;
+        if (sizes[k] <= MAX_OUTPUT) return void chunks[k].push(chunk);
+        overflow = `spawn ${sh} ENOBUFS: ${k} passed ${MAX_OUTPUT / 1024 / 1024} MiB, so the command was stopped`;
+        chunks.stdout = [];
+        chunks.stderr = [];
+        child.kill('SIGTERM');
+        // A grandchild holding the pipes open would otherwise delay close until it exits.
+        child.stdout!.destroy();
+        child.stderr!.destroy();
+      });
+    }
+    child.on('error', (e) => finish({ ok: false, status: null, output: joinOutput('', e.message) }));
+    child.on('close', (code) => {
+      if (overflow) return finish({ ok: false, status: null, output: joinOutput('', overflow) });
+      const stdout = Buffer.concat(chunks.stdout).toString('utf8');
+      const stderr = Buffer.concat(chunks.stderr).toString('utf8');
+      finish({ ok: code === 0, status: code, output: joinOutput(stdout, stderr) });
+    });
+  });
 }
 
 /**
@@ -279,29 +383,62 @@ function jobService(config: Config, job: Job): ServiceConfig | null {
   return job.services.length === 1 ? config.services.find((s) => s.name === job.services[0]) ?? null : null;
 }
 
-/**
- * Runs a configured command inside the job's worktree. Full output goes to a log file and only
- * a tail comes back, so agents spend context on failures rather than on passing build noise.
- */
-export function runCommand(root: string, config: Config, id: string, name: string, opts: { tail?: number; label?: string } = {}): CommandResult {
+/** `forge run`'s options. `args` only ever comes from `forge run <job> <name> -- <args>`. */
+export interface RunOptions {
+  tail?: number;
+  label?: string;
+  args?: string[];
+}
+
+/** A command ready to run: the filled line, where it runs, and its environment. */
+interface PreparedCommand {
+  cmd: string;
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+}
+
+/** Everything before the command starts, shared by the sync and async runners so both log alike. */
+function prepareCommand(root: string, config: Config, id: string, name: string, opts: RunOptions): PreparedCommand {
   const job = loadJob(root, id);
   const service = jobService(config, job);
   const template = commandTemplate(config, job, name);
   if (!template) throw new ForgeError(`no "${name}" command configured (commands.${name} in .forge/config.yml)`);
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
   const cwd = service?.path ? path.join(job.worktree, service.path) : job.worktree;
-  const cmd = fill(template, vars(root, job, job.worktree, job.port));
+  // Before touchJob: refused arguments leave no trace, not even a heartbeat.
+  const cmd = fillCommand(name, template, vars(root, job, job.worktree, job.port), opts.args ?? []);
   // Agents run commands all through a build; each one proves the session is alive.
   touchJob(root, id);
-  const started = Date.now();
-  const res = shell(cmd, cwd, envFor(job, job.worktree, job.port));
+  return { cmd, cwd, env: envFor(job, job.worktree, job.port) };
+}
+
+/** Everything after: the log file, the `command` event and the result with its tail. */
+function recordCommand(root: string, id: string, name: string, p: PreparedCommand, res: ShellResult, started: number, opts: RunOptions): CommandResult {
   const logDir = path.join(jobDir(root, id), 'logs');
   fs.mkdirSync(logDir, { recursive: true });
   const logFile = path.join(logDir, `${opts.label ?? name}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
-  fs.writeFileSync(logFile, `$ ${cmd}\n(cwd ${cwd})\n\n${res.output}\n\n[exit ${res.status}]\n`);
-  const result = { name, cmd, ok: res.ok, exit: res.status, durationMs: Date.now() - started, log: path.relative(jobDir(root, id), logFile), tail: tail(res.output, opts.tail ?? 40) };
+  fs.writeFileSync(logFile, `$ ${p.cmd}\n(cwd ${p.cwd})\n\n${res.output}\n\n[exit ${res.status}]\n`);
+  const result = { name, cmd: p.cmd, ok: res.ok, exit: res.status, durationMs: Date.now() - started, log: path.relative(jobDir(root, id), logFile), tail: tail(res.output, opts.tail ?? 40) };
   logEvent(root, id, 'command', { name, ok: res.ok, exit: res.status, durationMs: result.durationMs });
   return result;
+}
+
+/**
+ * Runs a configured command inside the job's worktree. Full output goes to a log file and only
+ * a tail comes back, so agents spend context on failures rather than on passing build noise.
+ */
+export function runCommand(root: string, config: Config, id: string, name: string, opts: RunOptions = {}): CommandResult {
+  const p = prepareCommand(root, config, id, name, opts);
+  const started = Date.now();
+  return recordCommand(root, id, name, p, shell(p.cmd, p.cwd, p.env), started, opts);
+}
+
+/** runCommand without blocking the event loop, so verify can run a group's steps side by side. */
+export async function runCommandAsync(root: string, config: Config, id: string, name: string, opts: RunOptions = {}): Promise<CommandResult> {
+  const p = prepareCommand(root, config, id, name, opts);
+  const started = Date.now();
+  const res = await shellAsync(p.cmd, p.cwd, p.env);
+  return recordCommand(root, id, name, p, res, started, opts);
 }
 
 /**
@@ -309,8 +446,16 @@ export function runCommand(root: string, config: Config, id: string, name: strin
  * otherwise cost a full round of reviewer agents. Every run is evidence bound to the commit
  * it checked: it records the HEAD sha and keeps earlier attempts instead of overwriting them.
  * Uncommitted changes fail the gate first, because reviewers and the PR only ever see commits.
+ * A `verify` entry that is a list runs its steps at the same time; the next entry waits for all of
+ * them, and none runs after a group with a failure. Results stay in config order whatever finishes
+ * first, so `failure` is the first failing step as configured, not the first to fail.
  */
-export function verify(root: string, config: Config, id: string): VerifyResult {
+export async function verify(root: string, config: Config, id: string): Promise<VerifyResult> {
+  // Both refusals come before the clean check, so a config this Forge can't read records nothing:
+  // guessing at it could pass a gate whose steps never ran.
+  if (config.schemaVersion > CONFIG_SCHEMA_VERSION)
+    throw new ForgeError(`config schemaVersion ${config.schemaVersion} is newer than this Forge (${CONFIG_SCHEMA_VERSION}); update Forge before running verify`);
+  const groups = verifyGroups(config.verify);
   const job = loadJob(root, id);
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
   const sha = run('git', ['rev-parse', 'HEAD'], { cwd: job.worktree }).stdout.trim();
@@ -332,14 +477,17 @@ export function verify(root: string, config: Config, id: string): VerifyResult {
   if (dirty) {
     results.push({ name: 'worktree-clean', ok: false, exit: null, tail: dirty });
   } else {
-    for (const step of config.verify ?? []) {
-      if (!config.commands[step]) {
-        results.push({ name: step, ok: true, skipped: true });
-        continue;
-      }
-      const r = runCommand(root, config, id, step, { label: `verify-${step}` });
-      results.push(r);
-      if (!r.ok) break;
+    for (const group of groups) {
+      // A failing step never stops its siblings: each finishes and keeps its own log. One that
+      // throws is reported only once the others have settled, so none writes after verify returns.
+      const settled = await Promise.allSettled(
+        group.map((step): Promise<VerifyStep> => (config.commands[step] ? runCommandAsync(root, config, id, step, { label: `verify-${step}` }) : Promise.resolve({ name: step, ok: true, skipped: true }))),
+      );
+      const thrown = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
+      if (thrown) throw thrown.reason;
+      const ran = settled.map((s) => (s as PromiseFulfilledResult<VerifyStep>).value);
+      results.push(...ran);
+      if (ran.some((r) => !r.ok)) break;
     }
     if (results.every((r) => r.ok)) {
       const plan = e2ePlan(config, job, commandTemplate(config, job, 'e2e'));

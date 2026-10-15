@@ -27,6 +27,7 @@ import { helpCmd, usage } from './commands/help.ts';
 import { initWrite, migrate } from './commands/init.ts';
 import { jobCmd } from './commands/job.ts';
 import { requestsCmd } from './commands/requests.ts';
+import { runCmd } from './commands/run.ts';
 import { statsText, statusRows, statusTable } from './commands/status.ts';
 import { nextCmd, syncAll, trackerCmd } from './commands/tracker.ts';
 import { updateCmd } from './commands/update.ts';
@@ -122,20 +123,14 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       if (sub === 'prune') return ok(run('git', ['worktree', 'prune', '-v'], { cwd: root }).stderr.trim() || 'nothing to prune');
       throw usage('worktree');
     }
-    case 'run': {
+    case 'run':
       needInit();
-      const id = req(sub, 'job id');
-      const name = req(rest[0], 'command name');
-      const tail = num(flags.tail, '--tail', { integer: true }) ?? 40;
-      if (flags.background) return ok(await wt.startBackground(root, config, id, name));
-      const r = wt.runCommand(root, config, id, name, { tail });
-      return { data: r, exitCode: r.ok ? 0 : 1 };
-    }
+      return runCmd(root, config, argv);
     case 'stop':
       return ok({ stopped: wt.stopBackground(root, req(sub, 'job id')) });
     case 'verify': {
       needInit();
-      const r = wt.verify(root, config, req(sub, 'job id'));
+      const r = await wt.verify(root, config, req(sub, 'job id'));
       return { data: r, exitCode: r.ok ? 0 : 1 };
     }
     case 'integrate': {
