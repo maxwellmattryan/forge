@@ -38,6 +38,9 @@ const atDecide = (more: Partial<Job> = {}): Partial<Job> => job({ stage: 'decide
 /** A job in integrate that entered the stage at minute 30. */
 const entered = ev('transition', 30, { from: { stage: 'decide', state: 'running', waitingOn: null }, to: { stage: 'integrate', state: 'running', waitingOn: null } });
 const atIntegrate = (more: Partial<Job> = {}): Partial<Job> => job({ stage: 'integrate', round: 1, reviewers: ['code'], verdicts: { 1: { code: 'PASS' } }, verifyRuns: [vr(1, 10, true)], ...more });
+/** forge sync moved a PR job back to integrate at minute 30, after an earlier episode integrated and pushed. */
+const routed = [ev('integrated', 5, { behind: 0 }), ev('pr-updated', 11), ev('transition', 30, { from: { stage: 'pr', state: 'waiting', waitingOn: 'pr-review' }, to: { stage: 'integrate', state: 'running', waitingOn: null } })];
+const routedMerged = [...routed, ev('integrated', 31, { behind: 2, strategy: 'merge' })];
 const conflicts = ev('integrate-conflicts', 31, { strategy: 'rebase', conflicts: ['a.ts', '`x`'], behind: 2 });
 
 const rows: Row[] = [
@@ -406,6 +409,13 @@ const rows: Row[] = [
   { name: 'PR4 merges an eligible PR', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11)] }, want: run('pr', 'merge', 'j') },
   { name: 'PR5 once a merge was tried, the PR waits', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11), ev('pr-merge-refused', 12)] }, want: { action: 'run', rule: 'PR5' } },
   { name: 'PR5 waits on PR review', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('pr-updated', 11)] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review') },
+
+  // ---- A PR job forge sync moved to integrate: the earlier episode's integrated and pr-updated don't count
+  { name: 'sync-routed: IG1 integrates despite an earlier episode', fx: { job: atIntegrate(), events: routed }, want: run('integrate', 'j') },
+  { name: 'sync-routed: IG2 verifies the merged base', fx: { job: atIntegrate(), events: routedMerged }, want: run('verify', 'j') },
+  { name: 'sync-routed: IG3 back to pr once verified', fx: { job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 32, true)] }), events: routedMerged }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running') },
+  { name: 'sync-routed: PR3 pushes the update', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true), vr(1, 32, true)] }), events: routedMerged }, want: run('pr', 'open', 'j') },
+  { name: 'sync-routed: PR5 waits on review again', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true), vr(1, 32, true)] }), events: [...routedMerged, ev('pr-updated', 33)] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review') },
 
   // ---- Fallback
   { name: 'X1 a state no rule covers is parked', fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped, verdicts: { round: verdicts({ code: 'PENDING', tests: 'PASS' }) } }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'step found no rule for stage review') },
