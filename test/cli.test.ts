@@ -515,7 +515,7 @@ describe('the CLI end to end', { concurrency: 4 }, () => {
     const jobDir = path.join(repo.dir, '.forge', 'jobs', id);
     const snapshot = () => ['job.json', 'events.jsonl'].map((f) => (fs.existsSync(path.join(jobDir, f)) ? fs.readFileSync(path.join(jobDir, f), 'utf8') : null));
     /** Runs a command that must fail with exit `exit` and one `forge:` line matching `pattern`, and write nothing. */
-    const refuses = async (args, pattern) => {
+    const refuses = async (args, pattern, exit = 1) => {
       const before = snapshot();
       const r = await cli(...args);
       assert.equal(r.status, exit, `${args.join(' ')}: ${r.stdout}${r.stderr}`);
