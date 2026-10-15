@@ -21,11 +21,32 @@ const CLI_PINNED = /^npm install -g (@anthropic-ai\/claude-code@\d+\.\d+\.\d+)$/
 const USES_LINE = /^\s*(?:-\s+)?uses:/;
 const PINNED_LINE = /^\s*(?:-\s+)?uses:\s+[\w.-]+\/[\w.-]+(?:\/[\w./-]+)?@[0-9a-f]{40} # v\d+\.\d+\.\d+\s*$/;
 const PINNED_REF = /^[\w.-]+\/[\w.-]+(?:\/[\w./-]+)?@[0-9a-f]{40}$/;
-// `|| true`, `|| :` and `set +e` turn a failing command into a passing step.
+// `|| true`, `|| :`, `|| exit 0` and `set +e` turn a failing command into a passing step.
 const MASKS: [RegExp, string][] = [
   [/\|\|\s*(?:true|:)(?![\w-])/, '|| true / || :'],
+  [/\|\|\s*exit\s+0\b/, '|| exit 0'],
   [/\bset\s+\+\w*e/, 'set +e'],
 ];
+// Writing these from a step reaches every later step: `NODE_OPTIONS=--test-only` makes `node --test` pass a failing suite.
+const ENV_REACH = /\b(?:GITHUB_ENV|GITHUB_PATH|BASH_ENV|NODE_OPTIONS)\b/;
+
+// Allowlists rather than deny-lists: a key, action or expression the workflow does not use today fails here, so adding
+// one means editing this test too, in the same reviewed diff.
+const WORKFLOW_KEYS = ['name', 'on', 'permissions', 'concurrency', 'defaults', 'jobs'];
+const JOBS = ['audit', 'verify'];
+const JOB_KEYS = ['name', 'runs-on', 'timeout-minutes', 'strategy', 'steps'];
+const STEP_KEYS = ['name', 'uses', 'with', 'run', 'env', 'continue-on-error'];
+const ACTIONS = ['actions/checkout', 'actions/setup-node'];
+const SETUP_NODE_WITH = ['node-version', 'node-version-file', 'package-manager-cache'];
+const VALIDATE_ENV = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' };
+const EXPRESSIONS = [
+  '${{ matrix.os }}',
+  '${{ matrix.node }}',
+  '${{ github.workflow }}',
+  '${{ github.event.pull_request.number || github.sha }}',
+];
+const SECRETS = /\bsecrets\b/i;
+const TOKEN = /\bgithub\s*(?:\.|\[\s*['"])token\b|toJSON\(\s*github\s*\)/i;
 
 type Step = Record<string, any>;
 type Job = Record<string, any>;
@@ -35,6 +56,8 @@ const stepsOf = (job: Job | undefined): Step[] => (Array.isArray(job?.steps) ? j
 const runOf = (step: Step): string | null => (typeof step?.run === 'string' ? step.run : null);
 const usesAction = (step: Step, action: string) => typeof step?.uses === 'string' && step.uses.startsWith(`${action}@`);
 const label = (job: string, step: Step) => `${job} › ${step?.name ?? step?.uses ?? step?.run}`;
+const isMap = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
+const extraKeys = (v: unknown, allowed: string[]) => (isMap(v) ? Object.keys(v).filter((k) => !allowed.includes(k)) : []);
 
 // ---------- pure checkers: each returns the problems it finds, [] when the workflow is sound ----------
 
@@ -46,7 +69,10 @@ function triggerProblems(wf: any, text: string): string[] {
   } else {
     const events = Object.keys(on).sort();
     if (!isDeepStrictEqual(events, ['pull_request', 'push'])) out.push(`\`on\` must be exactly pull_request and push, got ${events.join(', ')}`);
-    if (!isDeepStrictEqual(on.push?.branches, ['main'])) out.push('push.branches must be exactly [main]');
+    // A filter (branches, paths, paths-ignore, types) quietly stops the gate running on some PRs.
+    if (!(on.pull_request === null || (isMap(on.pull_request) && !Object.keys(on.pull_request).length)))
+      out.push('pull_request must have no filters');
+    if (!isDeepStrictEqual(on.push, { branches: ['main'] })) out.push('push must be exactly branches: [main], with no other filter');
   }
   // Both hand fork code a write token and secrets.
   for (const word of ['pull_request_target', 'workflow_run']) if (text.includes(word)) out.push(`the workflow must not mention ${word}`);
@@ -58,6 +84,12 @@ function permissionProblems(wf: any, text: string): string[] {
   if (!isDeepStrictEqual(wf?.permissions, { contents: 'read' })) out.push('top-level permissions must be exactly { contents: read }');
   for (const [id, job] of jobsOf(wf)) if (job && typeof job === 'object' && 'permissions' in job) out.push(`job ${id} must not set permissions`);
   for (const word of ['secrets.', 'github.token']) if (text.includes(word)) out.push(`the workflow must not reference ${word}`);
+  // Index and toJSON forms reach the same values: secrets['X'], toJSON(secrets), github['token'], toJSON(github).
+  if (SECRETS.test(text)) out.push('the workflow must not reference the secrets context');
+  if (TOKEN.test(text)) out.push('the workflow must not reference the github token');
+  for (let i = text.indexOf('${{'); i !== -1; i = text.indexOf('${{', i + 3)) {
+    if (!EXPRESSIONS.some((e) => text.startsWith(e, i))) out.push(`expression not on the allowlist: ${text.slice(i, i + 80).split('\n')[0]}`);
+  }
   return out;
 }
 
@@ -81,31 +113,36 @@ function pinProblems(text: string): string[] {
 
 function hardeningProblems(wf: any): string[] {
   const out: string[] = [];
+  for (const k of extraKeys(wf, WORKFLOW_KEYS)) out.push(`the workflow must not set ${k}`);
   // GitHub runs `shell: bash` as `bash --noprofile --norc -eo pipefail`; without -e a `for` loop reports only its last command.
-  if (wf?.defaults?.run?.shell !== 'bash') out.push('defaults.run.shell must be bash');
+  if (!isDeepStrictEqual(wf?.defaults, { run: { shell: 'bash' } })) out.push('defaults must be exactly run.shell: bash');
+  const ids = jobsOf(wf).map(([id]) => id).sort();
+  if (!isDeepStrictEqual(ids, JOBS)) out.push(`jobs must be exactly ${JOBS.join(', ')}, got ${ids.join(', ')}`);
   for (const [id, job] of jobsOf(wf)) {
-    if (!job || typeof job !== 'object') continue;
-    if ('continue-on-error' in job) out.push(`job ${id} must not set continue-on-error`);
-    if ('if' in job) out.push(`job ${id} must not set if`);
-    if ('defaults' in job) out.push(`job ${id} must not override defaults`);
+    if (!isMap(job)) continue;
+    for (const k of extraKeys(job, JOB_KEYS)) out.push(`job ${id} must not set ${k}`);
+    const actions = stepsOf(job).filter((s) => isMap(s) && 'uses' in s).map((s) => String(s.uses).split('@')[0]);
+    if (!isDeepStrictEqual(actions, ACTIONS)) out.push(`job ${id} must use exactly ${ACTIONS.join(' then ')}, got ${actions.join(', ') || 'none'}`);
     for (const step of stepsOf(job)) {
       const at = label(id, step);
-      if (usesAction(step, 'actions/checkout') && step.with?.['persist-credentials'] !== false)
-        out.push(`${at}: checkout must set persist-credentials: false`);
+      for (const k of extraKeys(step, STEP_KEYS)) out.push(`${at}: must not set ${k}`);
+      if (usesAction(step, 'actions/checkout') && !isDeepStrictEqual(step.with, { 'persist-credentials': false }))
+        out.push(`${at}: checkout must set exactly persist-credentials: false`);
       if (usesAction(step, 'actions/setup-node')) {
         if (step.with?.['package-manager-cache'] !== false) out.push(`${at}: setup-node must set package-manager-cache: false`);
-        if (step.with && 'cache' in step.with) out.push(`${at}: setup-node must not cache`);
+        for (const k of extraKeys(step.with, SETUP_NODE_WITH)) out.push(`${at}: setup-node must not set ${k}`);
       }
       if ('continue-on-error' in step && runOf(step) !== 'npm audit') out.push(`${at}: only the report-only npm audit may set continue-on-error`);
-      if ('if' in step) out.push(`${at}: must not set if`);
-      if ('shell' in step) out.push(`${at}: must not override the shell`);
       const run = runOf(step);
       if (run !== null) {
         for (const [re, what] of MASKS) if (re.test(run)) out.push(`${at}: run must not mask a failure with ${what}`);
         if (run.includes('${{')) out.push(`${at}: run must not interpolate an expression`);
+        if (ENV_REACH.test(run)) out.push(`${at}: run must not set the environment of later steps`);
       }
-      const env = step.env && typeof step.env === 'object' ? step.env : {};
-      for (const [k, v] of Object.entries(env)) if (String(v).includes('${{')) out.push(`${at}: env ${k} must not interpolate an expression`);
+      if ('env' in step) {
+        if (run !== VALIDATE || !isDeepStrictEqual(step.env, VALIDATE_ENV)) out.push(`${at}: only Validate plugin may set env, and only ${JSON.stringify(VALIDATE_ENV)}`);
+        for (const [k, v] of Object.entries(isMap(step.env) ? step.env : {})) if (String(v).includes('${{')) out.push(`${at}: env ${k} must not interpolate an expression`);
+      }
     }
   }
   return out;
@@ -229,6 +266,16 @@ test('workflow triggers on pull_request and pushes to main only', () => {
   assertFlags(triggerProblems(WF, `${TEXT}\n# on workflow_run\n`), 'text containing workflow_run');
   assertFlags(triggerProblems(mutate((wf) => { wf.on.push.branches = ['main', 'dev']; }), TEXT), 'push to a second branch');
   assertFlags(triggerProblems(mutate((wf) => { delete wf.on.push; }), TEXT), 'no push trigger');
+  // Filters that stop the gate running on some or all PRs, or on main.
+  const prFilter = (filter: string) => {
+    const t = TEXT.replace('on:\n  pull_request:\n', `on:\n  pull_request:\n    ${filter}\n`);
+    assert.notEqual(t, TEXT);
+    return triggerProblems(parse(t), t);
+  };
+  assertFlags(prFilter("paths-ignore: ['**']"), 'pull_request paths-ignore');
+  assertFlags(prFilter('branches: [nothing]'), 'pull_request branches');
+  assertFlags(prFilter('types: [closed]'), 'pull_request types');
+  assertFlags(triggerProblems(mutate((wf) => { wf.on.push['paths-ignore'] = ['**']; }), TEXT), 'push paths-ignore');
 });
 
 test('verify matrix covers Node 22.18.0 and Node 24 on Ubuntu and macOS', () => {
@@ -377,6 +424,13 @@ test('the token is read-only and no secret is referenced', () => {
   assert.notEqual(withSecret, TEXT);
   assertFlags(permissionProblems(parse(withSecret), withSecret), 'a ${{ secrets.NPM_TOKEN }} reference');
   assertFlags(permissionProblems(WF, TEXT.replace('persist-credentials: false', 'token: ${{ github.token }}')), 'a github.token reference');
+  // The same values reached through index and toJSON forms, each in a workflow-level env.
+  for (const expr of ["${{ secrets['NPM_TOKEN'] }}", '${{ toJSON(secrets) }}', "${{ github['token'] }}", '${{ toJSON(github) }}']) {
+    const t = TEXT.replace('\npermissions:\n', `\nenv:\n  LEAK: ${expr}\n\npermissions:\n`);
+    assert.notEqual(t, TEXT);
+    assertFlags(permissionProblems(parse(t), t), expr);
+  }
+  assertFlags(permissionProblems(WF, TEXT.replace('${{ matrix.node }}\n', '${{ github.event.pull_request.title }}\n')), 'an expression off the allowlist');
 });
 
 test('every action is pinned to a full commit SHA with its version comment', () => {
@@ -415,6 +469,39 @@ test('checkout keeps no credentials, nothing is cached, and no step can mask a f
   assertFlags(hardeningProblems(mutate((wf) => { delete wf.defaults; })), 'defaults unset');
   assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Syntax-check JavaScript entry points').shell = 'bash {0}'; })), 'a step dropping -e with its own shell');
   assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.if = false; })), 'a job that never runs');
+  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Install dependencies').run = 'npm ci || exit 0'; })), 'npm ci || exit 0');
+
+  // `NODE_OPTIONS=--test-only` makes `node --test` exit 0 on a failing suite, from any env scope.
+  const testOnly = { NODE_OPTIONS: '--test-only' };
+  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Run tests').env = testOnly; })), 'NODE_OPTIONS on the Run tests step');
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.env = testOnly; })), 'NODE_OPTIONS on the verify job');
+  assertFlags(hardeningProblems(mutate((wf) => { wf.env = testOnly; })), 'NODE_OPTIONS on the workflow');
+  assertFlags(hardeningProblems(mutate((wf) => { Object.assign(stepNamed(wf, 'verify', 'Validate plugin').env, testOnly); })), 'an extra env on Validate plugin');
+  assertFlags(hardeningProblems(mutate((wf) => {
+    const step = stepNamed(wf, 'verify', 'Check dashboard/dist is committed');
+    step.run = `echo "NODE_OPTIONS=--test-only" >> "$GITHUB_ENV"\n${step.run}`;
+  })), 'a run writing GITHUB_ENV');
+
+  // Any action other than checkout then setup-node runs code the gate never sees, however well it is pinned.
+  const extraAction = { name: 'Cache', uses: `actions/cache@${'a'.repeat(40)}` };
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.steps.splice(2, 0, extraAction); })), 'an extra SHA-pinned action in verify');
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.audit.steps.push(extraAction); })), 'an extra SHA-pinned action in audit');
+  assertFlags(hardeningProblems(mutate((wf) => {
+    const steps = wf.jobs.verify.steps;
+    [steps[0], steps[1]] = [steps[1], steps[0]];
+  })), 'setup-node before checkout');
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.steps.shift(); })), 'no checkout');
+
+  // Keys outside the allowlists.
+  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Run tests')['working-directory'] = 'docs'; })), 'a step working-directory');
+  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Run tests')['timeout-minutes'] = 1; })), 'a step timeout');
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.container = 'node:22'; })), 'a job container');
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.extra = { 'runs-on': 'ubuntu-latest', steps: [] }; })), 'an extra job');
+  assertFlags(hardeningProblems(mutate((wf) => { wf.defaults.run['working-directory'] = 'docs'; })), 'a default working-directory');
+  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Check out').with.ref = 'main'; })), 'a checkout ref');
+  assertFlags(hardeningProblems(mutate((wf) => {
+    stepNamed(wf, 'verify', 'Set up Node ${{ matrix.node }}').with['registry-url'] = 'https://registry.npmjs.org';
+  })), 'a setup-node registry-url');
 });
 
 test('.nvmrc, the engines floor and the matrix floor agree', () => {
