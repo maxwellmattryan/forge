@@ -146,7 +146,7 @@ const THEME_SCRIPT = `<script>
         const saved = localStorage.getItem('forge.theme');
         const light = matchMedia('(prefers-color-scheme: light)').matches;
         document.documentElement.dataset.theme =
-          saved === 'cyanotype' || saved === 'dark' ? 'cyanotype' : saved === 'vellum' || saved === 'light' ? 'vellum' : light ? 'vellum' : 'cyanotype';
+          saved === 'cyanotype' || saved === 'dark' ? 'cyanotype' : saved === 'vellum' || saved === 'light' ? 'vellum' : saved === 'nightprint' ? 'nightprint' : light ? 'vellum' : 'nightprint';
         document.documentElement.dataset.grid = localStorage.getItem('forge.grid') === 'off' ? 'off' : 'on';
         document.documentElement.dataset.paper = localStorage.getItem('forge.paper') === 'off' ? 'off' : 'on';
       } catch {}

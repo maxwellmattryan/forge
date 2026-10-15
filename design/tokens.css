@@ -1,4 +1,4 @@
-/* Forge — generated from tokens.json (design/tokens.json). Themes: cyanotype, vellum; the first is the default. */
+/* Forge — generated from tokens.json (design/tokens.json). Themes: cyanotype, vellum, nightprint; the first is the default. */
 
 :root, [data-theme="cyanotype"] {
   --bg: #15427a;
@@ -56,6 +56,35 @@
   --shadow-dialog: 8px 8px 0 0 rgba(31,78,140,0.12);
   --shadow-drawer: -8px 0 0 0 rgba(31,78,140,0.1);
   --shadow-chrome: 8px 0 0 0 rgba(31,78,140,0.1);
+}
+
+[data-theme="nightprint"] {
+  --bg: #122038;
+  --bg-deep: #0b1628;
+  --panel: #0a1424;
+  --raised: rgba(160,195,255,0.07);
+  --chrome: #060d18;
+  --sketch-line: rgba(170,200,240,0.12);
+  --line: rgba(170,200,240,0.36);
+  --line-soft: rgba(170,200,240,0.18);
+  --line-strong: #c8dbf4;
+  --grid-minor: rgba(140,180,235,0.07);
+  --grid-major: rgba(140,180,235,0.14);
+  --fg: #dbe7f6;
+  --muted: #93a9c6;
+  --dim: #5e7593;
+  --ink: #cfe0f7;
+  --on-ink: #0a1424;
+  --redline: #ff9f8f;
+  --highlight: #f2cf5b;
+  --ok: #6fd3a8;
+  --warn: #f2cf5b;
+  --bad: #ff9f8f;
+  --info: #8cc8f5;
+  --shadow-primary: 3px 3px 0 0 rgba(170,200,240,0.18);
+  --shadow-dialog: 8px 8px 0 0 rgba(170,200,240,0.06);
+  --shadow-drawer: -8px 0 0 0 rgba(170,200,240,0.05);
+  --shadow-chrome: 8px 0 0 0 rgba(170,200,240,0.05);
 }
 
 :root {

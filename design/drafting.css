@@ -1,6 +1,7 @@
-/* Forge — Drafting. Reference stylesheet: reads every colour, font, shadow and pitch from tokens.css; declares only textures and drawing rules. Three levels: the ground (grid + paper fibre), opaque sheets and overlays (panel), the chrome sidebar; the only patterns are the grid, the fibre and the hover sketch. Port these into dashboard/style.css as @utility classes (see MIGRATION.md). */
-:root { --paper: url(textures/paper.svg); --paper-opacity: .18; --paper-blend: soft-light; --fall: rgba(0,0,0,.28); }
-[data-theme="vellum"] { --paper-opacity: .55; --paper-blend: multiply; --fall: rgba(60,40,0,.10); }
+/* Forge — Drafting. Reference stylesheet: reads every colour, font, shadow and pitch from tokens.css; declares only textures and drawing rules. Three themes: cyanotype (the default), vellum and nightprint. Three levels: the ground (grid + paper fibre), opaque sheets and overlays (panel), the chrome sidebar; the only patterns are the grid, the fibre and the hover sketch. Port these into dashboard/style.css as @utility classes (see MIGRATION.md). */
+:root { --paper: url(textures/paper.svg); --paper-opacity: .18; --paper-blend: soft-light; --fall: rgba(0,0,0,.28); color-scheme: dark; }
+[data-theme="vellum"] { --paper-opacity: .55; --paper-blend: multiply; --fall: rgba(60,40,0,.10); color-scheme: light; }
+[data-theme="nightprint"] { --paper-opacity: .10; --paper-blend: soft-light; --fall: rgba(0,0,0,.45); color-scheme: dark; }
 
 html { background: var(--bg); color: var(--fg); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; scrollbar-gutter: stable; }
 body { margin: 0; font-size: 14px; line-height: 20px; }

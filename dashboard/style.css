@@ -1,5 +1,5 @@
 /* The Drafting design system (design/ is the drawing: tokens.css, drafting.css, components/*). Tokens
-   are CSS variables in two themes; the reference rules are ported as @utility classes of the same
+   are CSS variables in three themes; the reference rules are ported as @utility classes of the same
    names so they can be @apply'd. */
 @import "tailwindcss" source(none);
 @source "./index.html";
@@ -57,71 +57,8 @@
 }
 
 /* ---------- tokens: copied verbatim from design/tokens.css ---------- */
-:root, [data-theme="cyanotype"] {
-  --bg: #15427a;
-  --bg-deep: #0e3263;
-  --panel: #103867;
-  --raised: rgba(255,255,255,0.09);
-  --chrome: #0b2b57;
-  --sketch-line: rgba(226,238,255,0.14);
-  --line: rgba(226,238,255,0.55);
-  --line-soft: rgba(226,238,255,0.28);
-  --line-strong: #eef5ff;
-  --grid-minor: rgba(255,255,255,0.06);
-  --grid-major: rgba(255,255,255,0.13);
-  --fg: #f3f8ff;
-  --muted: #b2cbec;
-  --dim: #7f9fc9;
-  --ink: #ffffff;
-  --on-ink: #15427a;
-  --redline: #ffb5a8;
-  --highlight: #ffd861;
-  --ok: #86e3bd;
-  --warn: #ffd861;
-  --bad: #ffb5a8;
-  --info: #9ad6ff;
-  --shadow-primary: 3px 3px 0 0 rgba(226,238,255,0.28);
-  --shadow-dialog: 8px 8px 0 0 rgba(255,255,255,0.08);
-  --shadow-drawer: -8px 0 0 0 rgba(255,255,255,0.06);
-  --shadow-chrome: 8px 0 0 0 rgba(255,255,255,0.06);
-  /* drafting extras (design/drafting.css) */
-  --paper-blend: soft-light;
-  --fall: rgba(0,0,0,.28);
-}
-
-[data-theme="vellum"] {
-  --bg: #f1ecdf;
-  --bg-deep: #e6e0d0;
-  --panel: #fbf8f1;
-  --raised: rgba(31,78,140,0.08);
-  --chrome: #fffdf8;
-  --sketch-line: rgba(31,78,140,0.14);
-  --line: rgba(31,78,140,0.6);
-  --line-soft: rgba(31,78,140,0.3);
-  --line-strong: #1f4e8c;
-  --grid-minor: rgba(31,78,140,0.08);
-  --grid-major: rgba(31,78,140,0.16);
-  --fg: #14355f;
-  --muted: #4a6184;
-  --dim: #8597b3;
-  --ink: #1f4e8c;
-  --on-ink: #f6f2e8;
-  --redline: #b02817;
-  --highlight: #e8b400;
-  --ok: #1a6e50;
-  --warn: #7d5a00;
-  --bad: #b02817;
-  --info: #2b5f9b;
-  --shadow-primary: 3px 3px 0 0 rgba(31,78,140,0.3);
-  --shadow-dialog: 8px 8px 0 0 rgba(31,78,140,0.12);
-  --shadow-drawer: -8px 0 0 0 rgba(31,78,140,0.1);
-  --shadow-chrome: 8px 0 0 0 rgba(31,78,140,0.1);
-  /* drafting extras (design/drafting.css) */
-  --paper-opacity: .55;
-  --paper-blend: multiply;
-  --fall: rgba(60,40,0,.10);
-}
-
+/* The scalar block comes first so the theme blocks after it win the cascade: vellum and nightprint set
+   their own --paper-opacity, which would lose to the :root default if this block came later. */
 :root {
   --space-0\.5: 2px;
   --space-1: 4px;
@@ -157,6 +94,107 @@
   --font-head: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
   --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+:root, [data-theme="cyanotype"] {
+  --bg: #15427a;
+  --bg-deep: #0e3263;
+  --panel: #103867;
+  --raised: rgba(255,255,255,0.09);
+  --chrome: #0b2b57;
+  --sketch-line: rgba(226,238,255,0.14);
+  --line: rgba(226,238,255,0.55);
+  --line-soft: rgba(226,238,255,0.28);
+  --line-strong: #eef5ff;
+  --grid-minor: rgba(255,255,255,0.06);
+  --grid-major: rgba(255,255,255,0.13);
+  --fg: #f3f8ff;
+  --muted: #b2cbec;
+  --dim: #7f9fc9;
+  --ink: #ffffff;
+  --on-ink: #15427a;
+  --redline: #ffb5a8;
+  --highlight: #ffd861;
+  --ok: #86e3bd;
+  --warn: #ffd861;
+  --bad: #ffb5a8;
+  --info: #9ad6ff;
+  --shadow-primary: 3px 3px 0 0 rgba(226,238,255,0.28);
+  --shadow-dialog: 8px 8px 0 0 rgba(255,255,255,0.08);
+  --shadow-drawer: -8px 0 0 0 rgba(255,255,255,0.06);
+  --shadow-chrome: 8px 0 0 0 rgba(255,255,255,0.06);
+  /* drafting extras (design/drafting.css) */
+  --paper-blend: soft-light;
+  --fall: rgba(0,0,0,.28);
+  color-scheme: dark;
+}
+
+[data-theme="vellum"] {
+  --bg: #f1ecdf;
+  --bg-deep: #e6e0d0;
+  --panel: #fbf8f1;
+  --raised: rgba(31,78,140,0.08);
+  --chrome: #fffdf8;
+  --sketch-line: rgba(31,78,140,0.14);
+  --line: rgba(31,78,140,0.6);
+  --line-soft: rgba(31,78,140,0.3);
+  --line-strong: #1f4e8c;
+  --grid-minor: rgba(31,78,140,0.08);
+  --grid-major: rgba(31,78,140,0.16);
+  --fg: #14355f;
+  --muted: #4a6184;
+  --dim: #8597b3;
+  --ink: #1f4e8c;
+  --on-ink: #f6f2e8;
+  --redline: #b02817;
+  --highlight: #e8b400;
+  --ok: #1a6e50;
+  --warn: #7d5a00;
+  --bad: #b02817;
+  --info: #2b5f9b;
+  --shadow-primary: 3px 3px 0 0 rgba(31,78,140,0.3);
+  --shadow-dialog: 8px 8px 0 0 rgba(31,78,140,0.12);
+  --shadow-drawer: -8px 0 0 0 rgba(31,78,140,0.1);
+  --shadow-chrome: 8px 0 0 0 rgba(31,78,140,0.1);
+  /* drafting extras (design/drafting.css) */
+  --paper-opacity: .55;
+  --paper-blend: multiply;
+  --fall: rgba(60,40,0,.10);
+  color-scheme: light;
+}
+
+[data-theme="nightprint"] {
+  --bg: #122038;
+  --bg-deep: #0b1628;
+  --panel: #0a1424;
+  --raised: rgba(160,195,255,0.07);
+  --chrome: #060d18;
+  --sketch-line: rgba(170,200,240,0.12);
+  --line: rgba(170,200,240,0.36);
+  --line-soft: rgba(170,200,240,0.18);
+  --line-strong: #c8dbf4;
+  --grid-minor: rgba(140,180,235,0.07);
+  --grid-major: rgba(140,180,235,0.14);
+  --fg: #dbe7f6;
+  --muted: #93a9c6;
+  --dim: #5e7593;
+  --ink: #cfe0f7;
+  --on-ink: #0a1424;
+  --redline: #ff9f8f;
+  --highlight: #f2cf5b;
+  --ok: #6fd3a8;
+  --warn: #f2cf5b;
+  --bad: #ff9f8f;
+  --info: #8cc8f5;
+  --shadow-primary: 3px 3px 0 0 rgba(170,200,240,0.18);
+  --shadow-dialog: 8px 8px 0 0 rgba(170,200,240,0.06);
+  --shadow-drawer: -8px 0 0 0 rgba(170,200,240,0.05);
+  --shadow-chrome: 8px 0 0 0 rgba(170,200,240,0.05);
+  /* drafting extras (design/drafting.css) */
+  --paper-opacity: .10;
+  --paper-blend: soft-light;
+  --fall: rgba(0,0,0,.45);
+  color-scheme: dark;
 }
 
 /* The hover sketch's strength: registered so it transitions (a plain custom property would snap), and not

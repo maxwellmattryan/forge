@@ -3,31 +3,36 @@
 // Touches `document` and `matchMedia` only inside functions so tests can import it under Node.
 import { pref } from './prefs.ts';
 
-export const THEMES = ['cyanotype', 'vellum'] as const;
+export const THEMES = ['cyanotype', 'vellum', 'nightprint'] as const;
 export type Theme = (typeof THEMES)[number];
 
-/** What Settings › General offers: the two themes, or follow the OS. */
-export const THEME_CHOICES = ['cyanotype', 'vellum', 'system'] as const;
+/** What Settings › General offers: the three themes, or follow the OS. */
+export const THEME_CHOICES = [...THEMES, 'system'] as const;
 export type ThemeChoice = (typeof THEME_CHOICES)[number];
 
 const LIGHT_QUERY = '(prefers-color-scheme: light)';
 
+/** What System shows on a dark OS (a light OS gets vellum). */
+export const SYSTEM_DARK: Theme = 'nightprint';
+
 /**
  * The theme to show for a saved `forge.theme` value. The legacy ids from before the Drafting
  * themes still work (`dark` → cyanotype, `light` → vellum); anything else counts as unset and
- * falls back to the OS preference. index.html's inline script duplicates this mapping because it
+ * follows the OS: light → vellum, dark → nightprint. index.html's inline script duplicates this mapping because it
  * runs before the bundle; test/dashboard-theme.test.ts keeps the two in step.
  */
 export function normalizeTheme(saved: string | null | undefined, prefersLight: boolean): Theme {
   if (saved === 'cyanotype' || saved === 'dark') return 'cyanotype';
   if (saved === 'vellum' || saved === 'light') return 'vellum';
-  return prefersLight ? 'vellum' : 'cyanotype';
+  if (saved === 'nightprint') return 'nightprint';
+  return prefersLight ? 'vellum' : SYSTEM_DARK;
 }
 
 /** The choice a saved value stands for: an unset or unknown value already follows the OS, so it shows as System. */
 export function themeChoice(saved: string | null | undefined): ThemeChoice {
   if (saved === 'cyanotype' || saved === 'dark') return 'cyanotype';
   if (saved === 'vellum' || saved === 'light') return 'vellum';
+  if (saved === 'nightprint') return 'nightprint';
   return 'system';
 }
 
@@ -39,7 +44,11 @@ export function prefersLight(): boolean {
   }
 }
 
-export const currentTheme = (): Theme => normalizeTheme(document.documentElement.dataset.theme ?? null, false);
+/** The theme on <html>; a missing or unknown attribute is what the CSS shows then, the `:root` default. */
+export function currentTheme(): Theme {
+  const v = document.documentElement.dataset.theme;
+  return (THEMES as readonly string[]).includes(v ?? '') ? (v as Theme) : 'cyanotype';
+}
 
 export function setTheme(t: Theme): void {
   document.documentElement.dataset.theme = t;
