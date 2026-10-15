@@ -28,11 +28,13 @@ const log = (/** @type {any} */ rec) => {
   if (env.FAKE_CLAUDE_LOG) fs.appendFileSync(env.FAKE_CLAUDE_LOG, JSON.stringify({ pid: process.pid, ...rec }) + '\n');
 };
 const scope = env.FORGE_DAEMON_SCOPE ?? null;
+// Before the start record: a test that sees the record may signal at once, and a SIGTERM that
+// arrived before the handler would kill a child that is supposed to ignore it.
+if (env.FAKE_CLAUDE_IGNORE_TERM) process.on('SIGTERM', () => {});
 log({ argv, scope });
 
 const resume = flag('--resume');
 const session = resume ?? flag('--session-id') ?? 'no-session';
-if (env.FAKE_CLAUDE_IGNORE_TERM) process.on('SIGTERM', () => {});
 // Exits use exitCode, never process.exit(): stdout to a pipe is asynchronous on macOS, so an
 // explicit exit could drop the last line.
 if (env.FAKE_CLAUDE_EXIT_SCOPE) {
