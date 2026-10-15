@@ -300,3 +300,25 @@ test("dev:claude launches the checkout's plugin with its bin first", POSIX, asyn
     for (const d of [tmp, stubDir, empty]) fs.rmSync(d, { recursive: true, force: true });
   }
 });
+
+test('docs describe the local dev flow', () => {
+  const read = (f: string) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  const section = (text: string, heading: string) => {
+    const start = text.indexOf(heading);
+    assert.ok(start >= 0, `${heading} exists`);
+    const next = text.indexOf('\n## ', start + heading.length);
+    return text.slice(start, next < 0 ? undefined : next);
+  };
+  const contributing = section(read('CONTRIBUTING.md'), '## Running Forge from a checkout');
+  for (const s of ['npm run dev', 'npm run dev:claude', 'FORGE_ROOT=', 'npm --prefix', 'forge dash --stop', 'run your local source']) assert.ok(contributing.includes(s), `CONTRIBUTING.md: ${s}`);
+  const readme = read('README.md');
+  assert.match(readme.split('\n').find((l) => l.startsWith('- [Contributing](CONTRIBUTING.md)')) ?? '', /npm run dev/);
+  const arch = read('docs/ARCHITECTURE.md');
+  assert.ok(section(arch, '## Dashboard security').includes('--dev'));
+  assert.ok(section(arch, '## Layers').includes('plugin-path.ts'));
+  assert.ok(read('docs/CLI.md').includes('`CLAUDE_ENV_FILE`'));
+  assert.match(read('docs/CONFIG.md').split('\n').find((l) => l.startsWith('- **`enabled`**')) ?? '', /forge dash --dev/);
+  const agents = read('AGENTS.md');
+  assert.match(agents.split('\n').find((l) => l.startsWith('- **Dashboard:**')) ?? '', /npm run dev/);
+  assert.ok(section(agents, '## Layout').includes('plugin-path'));
+});

@@ -154,7 +154,7 @@ Opting out: `aiAttribution: allow` in a repo's `.forge/config.yml`, or `FORGE_AI
 ## Project
 
 - [Security policy](SECURITY.md): report vulnerabilities privately. Fixes go to the latest minor release ([supported versions](SECURITY.md#supported-versions)).
-- [Contributing](CONTRIBUTING.md): development setup, the verify list and pull-request conventions.
+- [Contributing](CONTRIBUTING.md): development setup and the local dev flow (`npm run dev`, `npm run dev:claude`), the verify list and pull-request conventions.
 - [Code of Conduct](CODE_OF_CONDUCT.md): Contributor Covenant 2.1.
 
 ## License
