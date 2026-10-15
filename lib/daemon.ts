@@ -14,9 +14,10 @@ import { TRUST_ENV, daemonProblems, defaults, loadConfig as defaultLoadConfig, t
 import { RUNNING_AGENT_MAX_MS, loadJob, markAgentsLost } from './jobs.ts';
 import { PLUGIN_ROOT, paths } from './paths.ts';
 import { INBOX_SCOPE, SCOPE_ENV, validJobId, validScope } from './requests.ts';
+import { EFFORTS } from './schema.ts';
 import { isClaudeExecutable, now, run, sleepSync, splitWords, writeJsonAtomic } from './util.ts';
 import { pidAlive } from './worktree.ts';
-import type { Config, DaemonAuth, DaemonPermissionMode, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, ForgeRequest, JobAgent, PermissionDecision } from './types.ts';
+import type { Config, DaemonAuth, DaemonPermissionMode, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, Effort, EffortSource, ForgeRequest, JobAgent, PermissionDecision } from './types.ts';
 
 /** What a session reports to its pool: a log line as it is written, or its new state after a change. */
 export type SessionEvent = { kind: 'line'; scope: string; offset: number; line: string } | { kind: 'state'; scope: string; state: DaemonSessionState };
@@ -103,6 +104,8 @@ export interface SessionContext {
   permissionMode(scope: string): DaemonPermissionMode | null;
   /** claude refused a switch to `mode`; `live` is the mode it still reports. */
   permissionModeRefused(scope: string, mode: DaemonPermissionMode, live: string | null): void;
+  /** The --effort a spawn of `scope` gets under config `c` (resolveEffort); null level passes none. */
+  effort(scope: string, c: Config): { level: Effort | null; source: EffortSource };
 }
 
 /** What the supervisor records about each child it spawned. */
@@ -227,6 +230,20 @@ export function withPermissionMode(argv: string[], mode: DaemonPermissionMode): 
     else out.push(argv[i]);
   }
   return [...out, '--permission-mode', mode];
+}
+
+/**
+ * argv with every --effort dropped and `effort` appended, so the job's or runtime.effort's level is
+ * the one claude reads rather than one daemon.command already passes.
+ */
+export function withEffort(argv: string[], effort: Effort): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (i > 0 && argv[i] === '--effort') i++;
+    else if (i > 0 && argv[i].startsWith('--effort=')) continue;
+    else out.push(argv[i]);
+  }
+  return [...out, '--effort', effort];
 }
 
 /**
@@ -412,7 +429,7 @@ export function parseTemplate(template: string): string[] {
  */
 export function buildArgv(
   template: string,
-  vars: { pluginRoot: string; session: { id: string; resume: boolean }; allowedTools: string[]; permissionMode?: DaemonPermissionMode | null },
+  vars: { pluginRoot: string; session: { id: string; resume: boolean }; allowedTools: string[]; permissionMode?: DaemonPermissionMode | null; effort?: Effort | null },
 ): string[] {
   const tools = (vars.allowedTools ?? []).join(',');
   let argv = parseTemplate(template).flatMap((tok) => {
@@ -420,6 +437,8 @@ export function buildArgv(
     return [tok.replaceAll('{pluginRoot}', vars.pluginRoot).replaceAll('{allowedTools}', tools)];
   });
   if (vars.permissionMode) argv = withPermissionMode(argv, vars.permissionMode);
+  // Checked again here, not only by resolveEffort: anything outside the fixed list never becomes a word of argv.
+  if (vars.effort && (EFFORTS as readonly unknown[]).includes(vars.effort)) argv = withEffort(argv, vars.effort);
   return [...argv, '--disallowedTools', DENY_TOOLS.join(','), ...PROMPT_TOOL];
 }
 
@@ -762,6 +781,8 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   let liveMode: string | null = null;
   /** Mode switches sent to the current child and not yet answered, by request id, each with its confirmation deadline. */
   const modeRequests = new Map<string, { mode: DaemonPermissionMode; timer: NodeJS.Timeout }>();
+  /** The --effort the current child was spawned with (null: none passed). A later change waits for the next spawn. */
+  let spawnEffort: Effort | null = null;
 
   // Never recreate a repo that was deleted under a running supervisor (or a test's temp repo).
   const persist = () => {
@@ -821,6 +842,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       permissions: [...prompts.values()].map((p) => p.prompt),
       permissionMode: child ? liveMode : null,
       kept,
+      effort: child ? spawnEffort : null,
     };
   }
 
@@ -1106,8 +1128,10 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     if (!resume) info = { ...withSessionId(info, crypto.randomUUID()), resumable: false };
     let argv;
     const launchMode = ctx.permissionMode(scope);
+    // From the config bytes just hashed (never a second read) and the job.json read now, so a change made since the last spawn applies.
+    const effort = ctx.effort(scope, c);
     try {
-      argv = buildArgv(c.daemon.command, { pluginRoot: PLUGIN_ROOT, session: { id: info.sessionId, resume }, allowedTools: c.daemon.allowedTools, permissionMode: launchMode });
+      argv = buildArgv(c.daemon.command, { pluginRoot: PLUGIN_ROOT, session: { id: info.sessionId, resume }, allowedTools: c.daemon.allowedTools, permissionMode: launchMode, effort: effort.level });
     } catch (e) {
       ctx.fatal(`cannot start daemon: ${(e as Error).message}`);
       return false;
@@ -1126,12 +1150,14 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     status = 'idle';
     waiting = false;
     liveMode = launchMode ?? commandPermissionMode(c.daemon.command);
+    spawnEffort = effort.level;
     clearModeRequests();
     const meta: ChildMeta = { resume, stdout: false, init: false, result: false, asked: false, committed: [] };
     proc._forge = meta;
     info = { ...info, pid: proc.pid ?? null, serverPid: process.pid, argv0: argv[0], startedAt: now(), spawnSessionId: info.sessionId };
     persist();
     logEvent('spawn', { pid: proc.pid ?? null, sessionId: info.sessionId, resume, ...(reason ? { reason } : {}) });
+    logEvent('effort', { level: effort.level ?? 'inherit', source: effort.source });
     const keys = apiKeyVars(o.env);
     if (keys.length) logEvent('auth', { auth: c.daemon.auth, vars: keys, passed: c.daemon.auth === 'api-key' });
 

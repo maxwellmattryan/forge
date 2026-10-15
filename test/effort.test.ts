@@ -257,3 +257,16 @@ test('a daemon session cannot set effort', () => {
     s.cleanup();
   }
 });
+
+test('agent frontmatter leaves effort to the session', () => {
+  const dir = path.join(ROOT, 'agents');
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.md'));
+  assert.ok(files.length >= 9, 'every role has a prompt');
+  for (const f of files) {
+    const text = fs.readFileSync(path.join(dir, f), 'utf8');
+    const front = /^---\n([\s\S]*?)\n---\n/.exec(text);
+    assert.ok(front, `${f} has frontmatter`);
+    // An agent-level effort would override the job's for every run of that role.
+    assert.ok(!/^\s*effort\s*:/m.test(front[1]), `${f} sets no effort`);
+  }
+});

@@ -29,7 +29,7 @@ export const FOLLOW_SLACK = 24;
 /** Whether a scrolled pane is within `slack` px of its bottom; content shorter than the pane always is. */
 export const atBottom = (scrollHeight: number, scrollTop: number, clientHeight: number, slack = FOLLOW_SLACK): boolean => scrollHeight - scrollTop - clientHeight <= slack;
 const SUMMARY_CHARS = 120;
-const SUPERVISOR_KEYS = ['message', 'pid', 'sessionId', 'requests', 'held', 'jobs', 'code', 'signal', 'reason', 'state', 'maxConcurrent', 'bytes', 'from', 'to', 'tool', 'decision', 'mode', 'roles'];
+const SUPERVISOR_KEYS = ['message', 'pid', 'sessionId', 'requests', 'held', 'jobs', 'code', 'signal', 'reason', 'state', 'maxConcurrent', 'bytes', 'from', 'to', 'tool', 'decision', 'mode', 'roles', 'level', 'source'];
 const AGENT_TOOLS = new Set(['Agent', 'Task']);
 /**
  * claude's bookkeeping lines, dropped: a thinking-token meter, the skill catalog (several KiB per

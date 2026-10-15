@@ -777,6 +777,8 @@ export interface DaemonSessionState {
   permissionMode: string | null;
   /** A running agent of the job this session drives keeps it from slot eviction and idle stop; null otherwise and while none runs. */
   kept: 'agents' | null;
+  /** The --effort Forge passed the running child; null while none runs or when it passed none. */
+  effort: Effort | null;
 }
 
 /**

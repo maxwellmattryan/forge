@@ -820,7 +820,7 @@ test('POST /api/daemon starts and stops one session', async () => {
 test('/api/state exposes the session pool', async () => {
   const repo = tempRepo();
   const keys = ['enabled', 'wanted', 'maxConcurrent', 'live', 'lastError', 'inbox', 'jobs', 'permissionMode', 'permissionModes', 'clients'];
-  const sessionKeys = ['scope', 'wanted', 'running', 'status', 'sessionId', 'pid', 'lastTurnAt', 'lastResultAt', 'turns', 'failures', 'held', 'waiting', 'lastError', 'permissions', 'permissionMode', 'kept'];
+  const sessionKeys = ['scope', 'wanted', 'running', 'status', 'sessionId', 'pid', 'lastTurnAt', 'lastResultAt', 'turns', 'failures', 'held', 'waiting', 'lastError', 'permissions', 'permissionMode', 'kept', 'effort'];
   const kitOff = fakeChildren();
   let srv = await startServer(repo.dir, { port: 0, daemon: kitOff.opts });
   try {

@@ -476,7 +476,7 @@ function about(): AboutResponse {
 
 /** A session's state before the pool exists (never visible once the server is listening). */
 function offSessionState(_root: string, scope: string): DaemonSessionState {
-  return { scope, wanted: false, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, failures: 0, held: null, waiting: false, lastError: null, permissions: [], permissionMode: null, kept: null };
+  return { scope, wanted: false, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, failures: 0, held: null, waiting: false, lastError: null, permissions: [], permissionMode: null, kept: null, effort: null };
 }
 
 /** The pool block before a pool exists (never visible once the server is listening). */

@@ -346,3 +346,12 @@ test('a mode switch shows as the supervisor’s events with the mode; claude’s
   assert.equal(item(set).text, 'permission-mode mode=auto');
   assert.equal(item(failed).tone, 'bad');
 });
+
+test('the effort a session started with shows as a supervisor line', () => {
+  const [high, inherit] = entries([sup('effort', { level: 'high', source: 'job' }), sup('effort', { level: 'inherit', source: 'none' })]).map(parseEntry);
+  const item = (p: any) => p[0].item;
+  assert.equal(item(high).kind, 'supervisor');
+  assert.equal(item(high).text, 'effort level=high source=job');
+  assert.equal(item(high).tone, 'muted');
+  assert.equal(item(inherit).text, 'effort level=inherit source=none');
+});
