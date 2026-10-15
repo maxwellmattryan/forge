@@ -13,9 +13,10 @@
 
 <p align="center">
   <a href="https://github.com/maxwellmattryan/forge/blob/main/CHANGELOG.md"><img alt="version" src="https://img.shields.io/github/package-json/v/maxwellmattryan/forge?color=F97316&label=version"></a>
+  <a href="https://github.com/maxwellmattryan/forge/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/maxwellmattryan/forge/ci.yml?branch=main&label=ci"></a>
   <a href="#install"><img alt="Claude Code plugin" src="https://img.shields.io/badge/Claude%20Code-plugin-EA580C"></a>
   <img alt="zero dependencies" src="https://img.shields.io/badge/dependencies-zero-C2410C">
-  <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A520-9A3412">
+  <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A522.18-9A3412">
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-7C2D12"></a>
 </p>
 
