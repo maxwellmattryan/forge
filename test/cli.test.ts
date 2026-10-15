@@ -616,7 +616,7 @@ describe('the CLI end to end', { concurrency: 4 }, () => {
       ];
       for (const args of cmds) {
         const r = await cli(...args);
-        assert.equal(r.status, exit, `${args.join(' ')}: ${r.stdout}${r.stderr}`);
+        assert.equal(r.status, 1, `${args.join(' ')}: ${r.stdout}${r.stderr}`);
         assert.match(r.stderr, /no job "nope"/, args.join(' '));
         assert.equal(fs.existsSync(ghost), false, `${args.join(' ')} left no .forge/jobs/nope`);
       }
