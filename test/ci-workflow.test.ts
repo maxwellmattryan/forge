@@ -8,6 +8,7 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { spawnSync } from 'node:child_process';
 import { parse } from '../lib/yaml.ts';
+import { planWindowsRun } from '../scripts/windows-tests.ts';
 import { tempRepo } from './helpers.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -33,7 +34,7 @@ const ENV_REACH = /\b(?:GITHUB_ENV|GITHUB_PATH|BASH_ENV|NODE_OPTIONS)\b/;
 // Allowlists rather than deny-lists: a key, action or expression the workflow does not use today fails here, so adding
 // one means editing this test too, in the same reviewed diff.
 const WORKFLOW_KEYS = ['name', 'on', 'permissions', 'concurrency', 'defaults', 'jobs'];
-const JOBS = ['audit', 'verify'];
+const JOBS = ['audit', 'verify', 'windows'];
 const JOB_KEYS = ['name', 'runs-on', 'timeout-minutes', 'strategy', 'steps'];
 const STEP_KEYS = ['name', 'uses', 'with', 'run', 'env', 'continue-on-error'];
 const ACTIONS = ['actions/checkout', 'actions/setup-node'];
@@ -45,9 +46,18 @@ const SHARDED_TEST_CMD = 'node --test --test-shard="$TEST_SHARD" "test/*.test.ts
 const TEST_ENV = { TEST_SHARD: '${{ matrix.shard }}' };
 // The only steps that may set env, each to exactly this map.
 const STEP_ENVS: Record<string, Record<string, string>> = { [VALIDATE]: VALIDATE_ENV, [SHARDED_TEST_CMD]: TEST_ENV };
+// The Windows leg: no matrix, one Node, and exactly these runs. Its test step's one env key, WINDOWS_SKIP, is free text,
+// so it is validated (planWindowsRun, as the script does) rather than pinned.
+const WINDOWS_CMD = 'node scripts/windows-tests.ts';
+const WINDOWS_RUNS = ['npm ci', 'npm run typecheck', WINDOWS_CMD];
+const TEST_FILES = fs.readdirSync(path.join(ROOT, 'test')).filter((f) => f.endsWith('.test.ts')).sort().map((f) => `test/${f}`);
 // Values pinned exactly, not just by key: each is free text a one-line edit could use to drop coverage or mask a failure.
 // Branch protection, once set, requires checks by these names, so a rename would leave a required check waiting forever.
-const JOB_NAMES: Record<string, string> = { verify: 'verify (${{ matrix.os }}, node ${{ matrix.node }}, shard ${{ matrix.shard }})', audit: 'audit' };
+const JOB_NAMES: Record<string, string> = {
+  verify: 'verify (${{ matrix.os }}, node ${{ matrix.node }}, shard ${{ matrix.shard }})',
+  audit: 'audit',
+  windows: 'windows (node 22.18.0)',
+};
 // An `exclude` or `include` under the matrix silently drops or swaps a cell.
 const STRATEGIES: Record<string, unknown> = {
   verify: { 'fail-fast': false, matrix: { os: ['ubuntu-latest', 'macos-latest'], node: ['22.18.0', '24.x'], shard: ['1/2', '2/2'] } },
@@ -55,6 +65,7 @@ const STRATEGIES: Record<string, unknown> = {
 const SETUP_NODE_WITH: Record<string, unknown> = {
   verify: { 'node-version': '${{ matrix.node }}', 'package-manager-cache': false },
   audit: { 'node-version-file': '.nvmrc', 'package-manager-cache': false },
+  windows: { 'node-version': '22.18.0', 'package-manager-cache': false },
 };
 // An extra step before the blocking audit could swap the lockfile it reads.
 const AUDIT_RUNS = ['npm audit --omit=dev', 'npm audit'];
@@ -93,6 +104,15 @@ const isMap = (v: unknown): v is Record<string, any> => !!v && typeof v === 'obj
 const extraKeys = (v: unknown, allowed: string[]) => (isMap(v) ? Object.keys(v).filter((k) => !allowed.includes(k)) : []);
 
 // ---------- pure checkers: each returns the problems it finds, [] when the workflow is sound ----------
+
+/** The Windows test step's env: exactly WINDOWS_SKIP, a literal list the script would accept. */
+function windowsEnvProblems(env: unknown, at: string): string[] {
+  if (!isMap(env) || !isDeepStrictEqual(Object.keys(env), ['WINDOWS_SKIP'])) return [`${at}: env must be exactly WINDOWS_SKIP`];
+  const skip = env.WINDOWS_SKIP;
+  if (typeof skip !== 'string') return [`${at}: WINDOWS_SKIP must be a literal block`];
+  if (skip.includes('${{')) return [`${at}: env WINDOWS_SKIP must not interpolate an expression`];
+  return planWindowsRun(skip, TEST_FILES).problems.map((p) => `${at}: WINDOWS_SKIP ${p}`);
+}
 
 function triggerProblems(wf: any, text: string): string[] {
   const out: string[] = [];
@@ -161,6 +181,13 @@ function hardeningProblems(wf: any): string[] {
       const runs = stepsOf(job).map(runOf).filter((r) => r !== null);
       if (!isDeepStrictEqual(runs, AUDIT_RUNS)) out.push(`job audit must run exactly ${AUDIT_RUNS.join(', then ')}`);
     }
+    if (id === 'windows') {
+      const runs = stepsOf(job).map(runOf).filter((r) => r !== null);
+      if (!isDeepStrictEqual(runs, WINDOWS_RUNS)) out.push(`job windows must run exactly ${WINDOWS_RUNS.join(', then ')}`);
+      if (job['runs-on'] !== 'windows-latest') out.push('job windows must run on windows-latest');
+      if (typeof job['timeout-minutes'] !== 'number') out.push('job windows must set timeout-minutes');
+      if (stepsOf(job).some((st) => runOf(st)?.trim() === WINDOWS_CMD && !('env' in st))) out.push('job windows must pass WINDOWS_SKIP to its test step');
+    }
     const actions = stepsOf(job).filter((s) => isMap(s) && 'uses' in s).map((s) => String(s.uses).split('@')[0]);
     if (!isDeepStrictEqual(actions, ACTIONS)) out.push(`job ${id} must use exactly ${ACTIONS.join(' then ')}, got ${actions.join(', ') || 'none'}`);
     for (const step of stepsOf(job)) {
@@ -180,11 +207,13 @@ function hardeningProblems(wf: any): string[] {
         if (ENV_REACH.test(run)) out.push(`${at}: run must not set the environment of later steps`);
         if (run.includes(STALE_CMD) && run.trim() !== STALE_SCRIPT) out.push(`${at}: the stale-dist script must be exactly the reviewed one`);
       }
-      if ('env' in step) {
+      if ('env' in step && id === 'windows' && run?.trim() === WINDOWS_CMD) {
+        out.push(...windowsEnvProblems(step.env, at));
+      } else if ('env' in step) {
         const allowed = run !== null && Object.hasOwn(STEP_ENVS, run.trim()) ? STEP_ENVS[run.trim()] : undefined;
         // Each allowed map is pinned exactly; TEST_SHARD's expression is a matrix value the workflow fixes itself.
         if (!allowed || !isDeepStrictEqual(step.env, allowed)) {
-          out.push(`${at}: only Validate plugin and the sharded Run tests may set env, each only to its pinned map`);
+          out.push(`${at}: only Validate plugin, the sharded Run tests and the Windows test step may set env, each only to its allowed map`);
           for (const [k, v] of Object.entries(isMap(step.env) ? step.env : {})) if (String(v).includes('${{')) out.push(`${at}: env ${k} must not interpolate an expression`);
         }
       }
@@ -658,6 +687,8 @@ test('AGENTS.md says CI runs the verify list and names the pinned CLI version', 
   const verify = section('## Verify before claiming it works');
   assert.ok(verify.includes('.github/workflows/ci.yml'));
   assert.ok(verify.includes('test/ci-workflow.test.ts'));
+  // The Windows leg sits outside the list, and the paragraph says what it runs and how its skips are held.
+  for (const s of ['windows-latest', 'WINDOWS_SKIP', 'windows (node 22.18.0)', 'scripts/windows-tests.ts', 'npm run typecheck']) assert.ok(verify.includes(s), s);
   const pkg = cliPackage(WF);
   assert.ok(pkg, 'the workflow pins the CLI');
   assert.ok(verify.includes(pkg), `the verify section names ${pkg}`);
@@ -665,4 +696,136 @@ test('AGENTS.md says CI runs the verify list and names the pinned CLI version', 
 
   assert.match(section('## Layout'), /^- `\.github\/workflows\/ci\.yml`: /m);
   assert.match(section('## Where a change goes'), /^\| CI \| `\.github\/workflows\/ci\.yml` \| .*`test\/ci-workflow\.test\.ts` \|$/m);
+});
+
+// ---------- the Windows leg ----------
+
+const windowsStep = (wf: any): Step => stepNamed(wf, 'windows', 'Run the tests that pass on Windows');
+const skipText = (wf: any): string => windowsStep(wf).env.WINDOWS_SKIP;
+const withSkip = (text: string) => mutate((wf) => { windowsStep(wf).env.WINDOWS_SKIP = text; });
+
+test('the Windows leg runs typecheck and the skip-filtered tests and nothing else', () => {
+  const win = WF.jobs.windows;
+  assert.equal(win.name, 'windows (node 22.18.0)');
+  assert.equal(win['runs-on'], 'windows-latest');
+  assert.equal(typeof win['timeout-minutes'], 'number');
+  assert.ok(!('strategy' in win), 'no matrix');
+  const steps = stepsOf(win);
+  assert.ok(usesAction(steps[0], 'actions/checkout'));
+  assert.deepEqual(steps[0].with, { 'persist-credentials': false });
+  assert.ok(usesAction(steps[1], 'actions/setup-node'));
+  assert.deepEqual(steps[1].with, { 'node-version': '22.18.0', 'package-manager-cache': false });
+  assert.deepEqual(steps.map(runOf).filter((r) => r !== null), WINDOWS_RUNS);
+  assert.deepEqual(Object.keys(windowsStep(WF).env), ['WINDOWS_SKIP']);
+  assert.deepEqual(steps.filter((st) => 'env' in st).length, 1, 'only the test step sets env');
+  assert.deepEqual(hardeningProblems(WF), []);
+  assert.deepEqual(verifyListProblems(AGENTS, WF), [], 'the verify list is the verify job alone');
+
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.windows.name = 'windows'; })), 'windows renamed');
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.windows.strategy = { matrix: { node: ['22.18.0', '24.x'] } }; })), 'a matrix on windows');
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.windows.steps.push({ name: 'Extra', run: 'npm run extra' }); })), 'an extra run step');
+  assertFlags(hardeningProblems(mutate((wf) => {
+    wf.jobs.windows.steps.splice(4, 0, { name: 'Empty the tests', run: 'for t in test/*.test.ts; do : > "$t"; done' });
+  })), 'a run step before the tests');
+  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'windows', 'Set up Node 22.18.0').with['node-version'] = '24.x'; })), 'node changed');
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.windows['runs-on'] = 'ubuntu-latest'; })), 'off windows-latest');
+  assertFlags(hardeningProblems(mutate((wf) => { delete wf.jobs.windows['timeout-minutes']; })), 'no timeout');
+  assertFlags(hardeningProblems(mutate((wf) => { windowsStep(wf).run = 'node --test "test/*.test.ts"'; })), 'the script swapped for a plain run');
+  assertFlags(hardeningProblems(mutate((wf) => { windowsStep(wf).run = `${WINDOWS_CMD} || true`; })), 'a masked test step');
+  assertFlags(hardeningProblems(mutate((wf) => { windowsStep(wf)['continue-on-error'] = true; })), 'continue-on-error on the test step');
+  assertFlags(hardeningProblems(mutate((wf) => { delete stepNamed(wf, 'windows', 'Check out').with['persist-credentials']; })), 'credentials kept');
+  assertFlags(hardeningProblems(mutate((wf) => { delete windowsStep(wf).env; })), 'no WINDOWS_SKIP at all');
+  // NODE_OPTIONS=--test-only or a second key would change what runs; GITHUB_ENV would reach the test step from another.
+  assertFlags(hardeningProblems(mutate((wf) => { windowsStep(wf).env.NODE_OPTIONS = '--test-only'; })), 'NODE_OPTIONS beside WINDOWS_SKIP');
+  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'windows', 'Install dependencies').env = { WINDOWS_SKIP: 'test/a.test.ts: x' }; })), 'env on another windows step');
+  assertFlags(hardeningProblems(mutate((wf) => {
+    stepNamed(wf, 'windows', 'Install dependencies').run = 'echo "WINDOWS_SKIP=test/cli.test.ts: x" >> "$GITHUB_ENV"\nnpm ci';
+  })), 'a run writing GITHUB_ENV');
+  assertFlags(hardeningProblems(mutate((wf) => { windowsStep(wf).env.WINDOWS_SKIP = '${{ github.event.pull_request.title }}'; })), 'WINDOWS_SKIP from an expression');
+  const expr = TEXT.replace('            test/daemon.test.ts:', '            ${{ github.event.pull_request.body }}\n            test/daemon.test.ts:');
+  assert.notEqual(expr, TEXT);
+  assertFlags(permissionProblems(parse(expr), expr), 'an expression inside WINDOWS_SKIP (text)');
+  // WINDOWS_SKIP belongs to the Windows step alone.
+  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Run tests').env.WINDOWS_SKIP = skipText(WF); })), 'WINDOWS_SKIP on verify');
+});
+
+test('every Windows skip names an existing test file and its reason', () => {
+  const text = skipText(WF);
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const plan = planWindowsRun(text, TEST_FILES);
+  assert.deepEqual(plan.problems, []);
+  assert.equal(plan.skipped.length, lines.length, 'every line is one skip');
+  for (const [file, reason] of plan.skipped) {
+    assert.ok(fs.existsSync(path.join(ROOT, file)), file);
+    assert.ok(reason.trim().length > 0, file);
+  }
+  assert.ok(plan.run.length > 0);
+  assert.equal(plan.run.length + plan.skipped.length, TEST_FILES.length);
+
+  const [first] = plan.skipped;
+  const mutations: [string, string][] = [
+    ['a line with no reason', `${text}test/acs.test.ts\n`],
+    ['a line ending in a bare colon', `${text}test/acs.test.ts:\n`],
+    ['a whitespace reason', `${text}test/acs.test.ts:    \t\n`],
+    ['a missing file', `${text}test/no-such-file.test.ts: gone\n`],
+    ['a glob', `${text}test/*.test.ts: everything\n`],
+    ['a directory', `${text}test/: everything\n`],
+    ['a nested path', `${text}test/fixtures/a.test.ts: nested\n`],
+    ['a path outside test/', `${text}lib/cli.test.ts: elsewhere\n`],
+    ['a file that is not a .test.ts', `${text}test/helpers.ts: not a test\n`],
+    ['a duplicate', `${text}${first[0]}: ${first[1]} again\n`],
+    ['a list that skips every file', TEST_FILES.map((f) => `${f}: all of them`).join('\n')],
+  ];
+  for (const [what, mutated] of mutations) {
+    assertFlags(planWindowsRun(mutated, TEST_FILES).problems, what);
+    assertFlags(hardeningProblems(withSkip(mutated)), `${what} (in the workflow)`);
+  }
+  // Blank lines and surrounding whitespace are not entries.
+  assert.deepEqual(planWindowsRun(`\n  ${first[0]}: ${first[1]}  \n\n`, TEST_FILES).skipped, [[first[0], first[1]]]);
+  assert.deepEqual(planWindowsRun('', TEST_FILES).run, TEST_FILES);
+  // A hostile line costs linear time.
+  const started = Date.now();
+  assertFlags(planWindowsRun(`test/${'a'.repeat(10_000)}.test.ts${': '.repeat(5_000)}`, TEST_FILES).problems, 'a 10k-character line');
+  assert.ok(Date.now() - started < 1000);
+});
+
+test('windows-tests.ts fails closed and propagates the test exit code', POSIX, () => {
+  const script = path.join(ROOT, 'scripts', 'windows-tests.ts');
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-windows-tests-')));
+  const marker = path.join(dir, 'ran');
+  try {
+    fs.mkdirSync(path.join(dir, 'test'));
+    fs.writeFileSync(
+      path.join(dir, 'test', 'pass.test.ts'),
+      `import test from 'node:test';\nimport fs from 'node:fs';\ntest('passes', () => { fs.writeFileSync(${JSON.stringify(marker)}, 'x'); });\n`,
+    );
+    fs.writeFileSync(path.join(dir, 'test', 'fail.test.ts'), `import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('fails', () => { assert.fail('red'); });\n`);
+    const env = { ...process.env };
+    delete env.NODE_TEST_CONTEXT;
+    const runWith = (skip: string | undefined) => {
+      fs.rmSync(marker, { force: true });
+      const e = { ...env };
+      if (skip === undefined) delete e.WINDOWS_SKIP;
+      else e.WINDOWS_SKIP = skip;
+      const r = spawnSync(process.execPath, [script], { cwd: dir, env: e, encoding: 'utf8' });
+      return { ...r, ran: fs.existsSync(marker) };
+    };
+
+    for (const bad of ['test/fail.test.ts', 'test/fail.test.ts:   ', 'test/*.test.ts: all', 'test/: all', 'test/gone.test.ts: x', 'test/fail.test.ts: a\ntest/fail.test.ts: b', 'test/fail.test.ts: a\ntest/pass.test.ts: b']) {
+      const r = runWith(bad);
+      assert.equal(r.status, 1, bad);
+      assert.match(r.stderr, /WINDOWS_SKIP is invalid; no tests ran/, bad);
+      assert.equal(r.ran, false, `nothing ran for ${JSON.stringify(bad)}`);
+    }
+
+    const red = runWith(undefined);
+    assert.notEqual(red.status, 0, 'a failing file fails the run');
+    assert.equal(red.ran, true);
+    const green = runWith('test/fail.test.ts: fails on purpose');
+    assert.equal(green.status, 0, green.stdout + green.stderr);
+    assert.equal(green.ran, true);
+    assert.match(green.stdout, /^skip test\/fail\.test\.ts: fails on purpose$/m);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
