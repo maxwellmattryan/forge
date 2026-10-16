@@ -30,6 +30,7 @@ import { agentTranscript, cachedActivity, claudeProjectsDir, openTranscript, own
 import type { TranscriptHit } from './transcripts.ts';
 import { redactContext, redactText } from './redact.ts';
 import { getPath, readJson, readText } from './util.ts';
+import { versionInfo } from './version.ts';
 import { zip } from './zip.ts';
 import type {
   AboutResponse,
@@ -57,6 +58,7 @@ import type {
   PostJobResponse,
   PostRequestResponse,
   TranscriptPage,
+  VersionInfo,
 } from './types.ts';
 
 /** startServer's options. `distDir` is a test seam like `sseMaxAgeMs`. */
@@ -135,6 +137,9 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
   const notBuilt = opts.dev ? DEV_NOT_BUILT : NOT_BUILT;
   const previewGitHub = createPreviewer({ run: opts.ghRun ?? ghRunner(root) });
   const projects = opts.projectsDir ?? claudeProjectsDir();
+  // Once per server: finding the commit can spawn git, and /api/about takes no token. The running
+  // code's commit can't change under a live server (`forge update` restarts the dashboard).
+  const provenance = versionInfo(PLUGIN_ROOT);
   let backlogCache: { at: number; data: BacklogResponse } | null = null;
   /** Open event streams and the session each one follows; MAX_SSE_CLIENTS counts them all. */
   const clients = new Map<http.ServerResponse, string>();
@@ -176,7 +181,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         return json(res, backlogCache.data);
       }
       if (req.method === 'GET' && p === '/api/config') return json(res, configResponse(root, Boolean(pool?.state().wanted)));
-      if (req.method === 'GET' && p === '/api/about') return json(res, about());
+      if (req.method === 'GET' && p === '/api/about') return json(res, about(provenance));
       if (req.method === 'GET' && p === '/api/doctor') {
         // It spawns git and gh, so it takes the token like a POST.
         if (guardToken(req, res, token)) return;
@@ -690,8 +695,11 @@ function configResponse(root: string, daemonWanted: boolean): ConfigResponse {
   return { initialized, path: '.forge/config.yml', fields: FIELDS, values, problems: initialized ? validateConfig(config, root) : [], writable: lockedBy === null, lockedBy };
 }
 
-/** Read per request: both files are tiny, and a plugin update under a running dash shows up. */
-function about(): AboutResponse {
+/**
+ * The two files are read per request: both are tiny, and a plugin update under a running dash shows
+ * up. The commit comes from `provenance`, computed once at start, so this route never spawns.
+ */
+function about({ commit, installedAs }: Pick<VersionInfo, 'commit' | 'installedAs'>): AboutResponse {
   const plugin = readJson(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'), {});
   const pricing = readJson(path.join(PLUGIN_ROOT, 'lib', 'pricing.json'), {});
   const link = plugin.homepage ?? plugin.repository;
@@ -704,6 +712,8 @@ function about(): AboutResponse {
     pricingAsOf: typeof pricing.asOf === 'string' ? pricing.asOf : null,
     node: process.versions.node,
     links: { repo, docs: repo ? `${repo.replace(/\/$/, '')}/tree/main/docs` : null },
+    commit,
+    installedAs,
   };
 }
 

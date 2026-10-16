@@ -27,7 +27,7 @@ forge doctor     # once per session, and after a failure
 forge sync       # PRs and trackers; cleans merged worktrees
 forge requests   # inbox requests: reference/requests.md, before new work
 ```
-No `.forge/config.yml` (exit 2) → **init** (`reference/init.md`) unless the user asked otherwise.
+No `.forge/config.yml` (exit 2) → **init** (`reference/init.md`) unless told otherwise.
 Report `sync` results, a line each: merges, PR feedback, conflicts, finished umbrellas, `unblocked: true`/`integrating` (`/forge continue <id>`), `retargeted`. For each `mergeDeferred: true`, run `forge pr merge <id>`.
 
 ## Commands (route on the first word)
@@ -42,7 +42,7 @@ Report `sync` results, a line each: merges, PR feedback, conflicts, finished umb
 | `sync` | the sync above; report |
 | `dash` | `forge dash --background`; give the URL |
 | `init`, `retro`, `eval …`, `requests` | `reference/init.md`, `retro.md`, `evals.md`, `requests.md` |
-| `doctor` | `forge doctor`; explain failures with fixes; bug report: `forge doctor --bundle`, human checks its manifest |
+| `doctor` | `forge doctor`; explain failures and warnings with fixes; bug report: `forge doctor --bundle`, human checks its manifest |
 | `update` | `forge update` only; report `from → to`, each `warnings` and `next` entry, or the error. |
 
 ## Run a job

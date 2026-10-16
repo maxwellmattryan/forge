@@ -61,6 +61,8 @@ Forge's engine is TypeScript that Node runs directly, and Node does not strip ty
 
 Run `forge update` in a terminal or `/forge update` in Claude Code. It updates the install that is running. For a plugin install it runs `claude plugin marketplace update <marketplace>` and then `claude plugin update forge@<marketplace>`. For a clone it runs `git pull --ff-only`, and refuses when the checkout has uncommitted changes, a detached HEAD or no upstream. It prints the old and new versions, restarts the current repo's running dashboard on the new code, and lists what still needs a restart: a new Claude Code session for a plugin install, and dashboards in other repos. `forge update --check` only shows what it would run. `--keep-dash` leaves this repo's dashboard alone. Nothing is built or installed, because `dashboard/dist/` is committed and Forge has no runtime dependencies.
 
+Each release is a `v<x.y.z>` tag and a GitHub Release with its CHANGELOG notes and a source archive plus its `.sha256`. `forge version --json` prints the running version and commit. To pin a version, clone its tag (`git clone --branch v<x.y.z>`) or extract its archive and load it with `claude --plugin-dir`; to roll back, check out an older tag. [docs/RELEASES.md](docs/RELEASES.md) has the versioning and support policy and the details.
+
 ## Start
 
 ```

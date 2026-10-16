@@ -150,7 +150,14 @@ export const CORE: HelpGroup[] = [
   {
     name: 'version',
     summary: "this install's version",
-    commands: [{ command: 'version', args: '', summary: 'print {version}' }],
+    commands: [
+      {
+        command: 'version',
+        args: '[--json]',
+        summary: 'print {version}; --json adds commit, installedAs and node',
+        flags: [['--json', "print {version, commit, installedAs, node}: commit from a release archive's COMMIT file, the plugin install record or git, else null"]],
+      },
+    ],
   },
   {
     name: 'help',
@@ -239,7 +246,8 @@ export function renderCommand(c: CommandHelp): string {
     c.summary,
     '',
     'Flags:',
-    columns([...(c.flags ?? []), ...GLOBAL_FLAGS], 24),
+    // A command's own entry for a global flag (version's --json) replaces the generic line.
+    columns([...(c.flags ?? []), ...GLOBAL_FLAGS.filter(([g]) => !c.flags?.some(([f]) => f === g))], 24),
     '',
     'Exit codes:',
     ...[...exits].sort(([a], [b]) => a - b).map(([code, when]) => `  ${code}  ${when}`),

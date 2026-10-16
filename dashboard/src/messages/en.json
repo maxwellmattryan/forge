@@ -514,7 +514,12 @@
         "one": "{count} check failed",
         "other": "{count} checks failed"
       },
+      "warnings": {
+        "one": "{count} warning",
+        "other": "{count} warnings"
+      },
       "ok": "OK",
+      "warn": "Warning",
       "fail": "Failed",
       "again": "Run again",
       "copy": "Copy report",
@@ -529,6 +534,13 @@
     },
     "about": {
       "version": "Forge version",
+      "commit": "Commit",
+      "installedAs": "Installed as",
+      "install": {
+        "plugin": "Claude Code plugin",
+        "clone": "Git clone",
+        "unknown": "Unknown"
+      },
       "pluginRoot": "Plugin root",
       "api": "API version",
       "schemas": "Schema versions",
