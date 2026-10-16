@@ -480,6 +480,16 @@ export function eventDetail(e: JobEvent, fmt: { tokens: (n: number | null | unde
   return plain(JSON.stringify(Object.fromEntries(Object.entries(e).filter(([k]) => !['v', 'ts', 'type'].includes(k)))).slice(0, 240));
 }
 
+/** A `human` event the foreman recorded: the timeline labels it so a reader can tell it from a person's decision. */
+export const isForemanEvent = (e: Partial<JobEvent> | null | undefined): boolean => e?.type === 'human' && e.actor === 'foreman';
+
+/** A waiting job's gate owner badge: the foreman deciding it, or a human owning it; null for no owner (or an older server). */
+export function gateOwnerBadge(owner: unknown): { foreman: boolean; tone: 'live' | 'you' } | null {
+  if (owner === 'foreman') return { foreman: true, tone: 'live' };
+  if (owner === 'human') return { foreman: false, tone: 'you' };
+  return null;
+}
+
 /** Rounds of the drawer's verify/verdict matrix and the reviewer columns, or null when there is nothing to show. */
 export function verdictMatrix(j: Partial<Job>): { rounds: number[]; reviewers: string[] } | null {
   const verdicts = j.verdicts ?? {};

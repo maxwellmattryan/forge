@@ -23,7 +23,7 @@
   import { screenshotsPanel } from '../lib/screenshots.ts';
   import { threadItems, threadMarks, threadOpening, unreadCount } from '../lib/thread.ts';
   import { ago, dur, num, tokensShort, usd } from '../lib/util.ts';
-  import { eventDetail, verdictMatrix } from '../lib/view.ts';
+  import { eventDetail, isForemanEvent, verdictMatrix } from '../lib/view.ts';
   import { scopeVerbs } from '../lib/command.ts';
   import { S, closeDrawer, loadFile, setDrawerTab } from '../lib/app.svelte.ts';
   import { ticker } from '../lib/clock.svelte.ts';
@@ -127,7 +127,7 @@
           <ul>
             {#each events as e, i (i)}
               {@const x = eventDetail(e, { tokens: tokensShort, dur })}
-              <li class="flex gap-3 py-1.5 border-b border-line text-xs">{#if i < fresh}<span class="dot spark size-1.5 shrink-0 self-center" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="text-muted whitespace-nowrap w-16 shrink-0">{ago(e.ts, ticker.now)}</span><span class="font-mono text-gleam shrink-0 w-28 truncate">{e.type}</span><span class="min-w-0 break-words">{x.pre}{#if x.bold !== null}<b>{x.bold}</b>{/if}{x.post}</span></li>
+              <li class="flex gap-3 py-1.5 border-b border-line text-xs">{#if i < fresh}<span class="dot spark size-1.5 shrink-0 self-center" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="text-muted whitespace-nowrap w-16 shrink-0">{ago(e.ts, ticker.now)}</span><span class="font-mono text-gleam shrink-0 w-28 truncate">{e.type}</span><span class="min-w-0 break-words">{#if isForemanEvent(e)}<span class="chip sm live mr-1.5">{$t('drawer.foreman')}</span>{/if}{x.pre}{#if x.bold !== null}<b>{x.bold}</b>{/if}{x.post}</span></li>
             {/each}
           </ul>
         {:else if shown.tab === 'details'}

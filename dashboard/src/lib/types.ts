@@ -6,6 +6,8 @@
 export const API_VERSION = 18;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
+/** lib/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */
+export const OFFICE_SCOPE = '_office';
 
 /** lib/schema.ts STAGES, in pipeline order. */
 export const STAGES = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', 'review', 'integrate', 'decide', 'pr', 'done'] as const;

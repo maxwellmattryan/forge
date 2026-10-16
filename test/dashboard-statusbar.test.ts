@@ -17,10 +17,24 @@ const on = (b: BarModel) => {
   return b.daemon as Extract<DaemonIndicator, { off: false }>;
 };
 
+test('barModel: the office shows only while foreman.enabled', () => {
+  assert.equal(barModel(pool(), { pending: false }).office, null, 'an older server sends no foreman flag');
+  assert.equal(barModel(pool({ foreman: false, office: session({ scope: '_office', running: true, status: 'busy' }) }), { pending: false }).office, null);
+  assert.equal(barModel(null, { pending: false }).office, null, 'the daemon off: no office either');
+  const office = session({ scope: '_office', running: true, status: 'busy', sessionId: 'o' });
+  const b = barModel(pool({ foreman: true, office }), { pending: false });
+  assert.deepEqual([b.office?.label, b.office?.tone], ['busy', 'live']);
+  assert.deepEqual([on(b).pill.label, on(b).active], ['busy', true], 'a busy office counts for the pool pill and the live dot');
+  assert.equal(on(b).live, 0, 'but never for live/cap');
+  const asking = barModel(pool({ foreman: true, office: { ...office, status: 'idle', permissions: [prompt('o1')] } }), { pending: false });
+  assert.equal(asking.prompts, 1, "the office's prompts count pool-wide");
+  assert.equal(asking.office?.label, 'needs permission');
+});
+
 test('barModel: daemon, inbox, held, waiting and prompt attention', () => {
   // A null pool: the daemon is off, nothing else shows.
   const none = barModel(null, { pending: false });
-  assert.deepEqual(none, { daemon: { off: true, active: false }, inbox: null, prompts: 0, held: 0, waiting: 0, attention: false });
+  assert.deepEqual(none, { daemon: { off: true, active: false }, inbox: null, office: null, prompts: 0, held: 0, waiting: 0, attention: false });
 
   // Disabled, not wanted, nothing running: off as well.
   const disabled = barModel(pool({ enabled: false, wanted: false }), { pending: false });
@@ -150,7 +164,7 @@ test('connectionState: connecting, live, offline, outdated', () => {
 });
 
 test('togglePopover keeps one popover open', () => {
-  assert.deepEqual([...POPOVERS], ['daemon', 'inbox', 'model', 'connection']);
+  assert.deepEqual([...POPOVERS], ['daemon', 'inbox', 'office', 'model', 'connection']);
   assert.equal(togglePopover(null, 'model'), 'model', 'a click opens');
   assert.equal(togglePopover('model', 'model'), null, 'the same indicator closes it');
   assert.equal(togglePopover('model', 'daemon'), 'daemon', 'another indicator switches');

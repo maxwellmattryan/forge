@@ -105,6 +105,12 @@
       },
       "noPrompts": "No tool calls are waiting for permission."
     },
+    "office": {
+      "title": "Office session",
+      "name": "Office",
+      "pill": "Office {label}",
+      "about": "The foreman: it decides parked gates through assistant sub-agents, records each verdict, and hands the job back. Reserved topics and gates it does not decide stay with you."
+    },
     "held": {
       "word": "held",
       "rest": ": budget"
@@ -154,6 +160,7 @@
     "line": "{state} · {ago}",
     "columnWorking": "{count} working",
     "inbox": "inbox",
+    "office": "office",
     "none": "No session is working",
     "new": "new"
   },
@@ -217,7 +224,8 @@
     "threadUnread": {
       "one": "{count} new",
       "other": "{count} new"
-    }
+    },
+    "foreman": "foreman"
   },
   "inbox": {
     "title": "Needs you",
@@ -234,6 +242,12 @@
     "queued": "Queued requests",
     "handling": "handling ({session})",
     "queuedStatus": "queued"
+  },
+  "gate": {
+    "foreman": "Foreman deciding",
+    "human": "Human-owned",
+    "foremanTitle": "The foreman decides this gate through an assistant sub-agent",
+    "humanTitle": "This gate stays with a human: a reserved topic, or a gate the foreman does not decide"
   },
   "pipeline": {
     "title": "Pipeline",
@@ -530,11 +544,14 @@
     },
     "startInbox": "Start inbox",
     "stopInbox": "Stop inbox",
+    "startOffice": "Start office",
+    "stopOffice": "Stop office",
     "startJob": "Start this job's session",
     "stopJob": "Stop this job's session",
     "startHint": "Re-enables this session; it starts on its next request",
     "emptyEnabled": "No session log for this job yet. Its session starts with the job's next request.",
     "emptyInboxEnabled": "No inbox session log yet. It starts with the next request that has no job.",
+    "emptyOffice": "No office session log yet. With foreman.enabled and the daemon on, the office session starts when a job parks at a gate the foreman decides.",
     "modeLabel": "Permissions",
     "modeFailed": "Changing the permission mode failed: {error}",
     "modeSwitching": "The session still reports {mode}; the switch applies once claude confirms it.",

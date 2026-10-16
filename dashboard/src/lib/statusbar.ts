@@ -110,6 +110,8 @@ export interface BarModel {
   daemon: DaemonIndicator;
   /** Null exactly when the daemon is off: the Inbox indicator is not rendered. */
   inbox: Pill | null;
+  /** Null unless the daemon is on and foreman.enabled: the Office indicator is not rendered. */
+  office: Pill | null;
   /** Pending permission prompts across the whole pool. */
   prompts: number;
   held: number;
@@ -126,6 +128,7 @@ export function barModel(pool: PoolInput, opts: { pending: boolean }): BarModel 
   return {
     daemon: m ? { off: false, pill: m.pill, live: m.live, cap: m.cap, active: activeSessions(pool).count > 0 } : { off: true, active: false },
     inbox: m ? (attention ? { ...m.inbox, tone: 'warn' } : m.inbox) : null,
+    office: m ? m.office : null,
     prompts,
     held: m ? m.held.length : 0,
     waiting: m ? m.waiting.length : 0,

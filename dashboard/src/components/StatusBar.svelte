@@ -1,5 +1,5 @@
-<!-- The status bar: one slim fixed row at the bottom of every view. Left, the daemon, the inbox and (md and up) holds and
-     waits; then the facts strip (FORGE version · API · SESSIONS live dot and count · SHEET); right, the model and the
+<!-- The status bar: one slim fixed row at the bottom of every view. Left, the daemon, the inbox, the office (only while
+     foreman.enabled) and (md and up) holds and waits; then the facts strip (FORGE version · API · SESSIONS live dot and count · SHEET); right, the model and the
      connection. It holds no text field: "New job or command" lives in the sidebar. Each indicator opens one popover, a
      sibling after the bar: a fixed element with a z-index is its own stacking context, so a popover inside the bar could
      never rise above the drawer.
@@ -19,13 +19,14 @@
   import ConnectionPanel from './statusbar/ConnectionPanel.svelte';
   import DaemonPanel from './statusbar/DaemonPanel.svelte';
   import InboxPanel from './statusbar/InboxPanel.svelte';
+  import OfficePanel from './statusbar/OfficePanel.svelte';
   import ModelPanel from './statusbar/ModelPanel.svelte';
   import { API_VERSION } from '../lib/types.ts';
   import type { DaemonPoolState } from '../lib/types.ts';
   import { mergePoolState, poolModel, postDaemon } from '../lib/daemon.ts';
   import { FACTS_MAX, barModel, connectionState, factsHidden, modelSummary, promptAnnouncement, summaryText } from '../lib/statusbar.ts';
   import { activeSessions } from '../lib/live.ts';
-  import { INBOX_SCOPE } from '../lib/types.ts';
+  import { INBOX_SCOPE, OFFICE_SCOPE } from '../lib/types.ts';
   import { VIEWS, viewIndex, type ViewId } from '../lib/view.ts';
   import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
   import { closePopover, focusInPopover, keepFocus, openPopover, popover, reanchor } from '../lib/popover.svelte.ts';
@@ -41,8 +42,8 @@
   const models = $derived(modelSummary(S.data?.config?.models));
   const conn = $derived(connectionState({ online: S.online, apiVersion: S.data?.apiVersion, clientApi: API_VERSION }));
   const active = $derived(activeSessions(S.data?.daemons));
-  // One active session per line, the inbox by name.
-  const activeTitle = $derived(active.count ? active.ids.map((id) => (id === INBOX_SCOPE ? $t('live.inbox') : id)).join('\n') : $t('live.none'));
+  // One active session per line, the inbox and the office by name.
+  const activeTitle = $derived(active.count ? active.ids.map((id) => (id === INBOX_SCOPE ? $t('live.inbox') : id === OFFICE_SCOPE ? $t('live.office') : id)).join('\n') : $t('live.none'));
   // The same map Nav.svelte builds, for the SHEET fact.
   const viewLabels = $derived<Record<ViewId, string>>({
     pipeline: $t('nav.pipeline'),
@@ -54,9 +55,9 @@
   });
 
   /**
-   * How much text each part hides, lowest value first. Left: 1 the "Daemon" and "Inbox" words, 2 the reasons of held and
-   * waiting, 3 held and waiting (the Daemon indicator takes them: its title, its name and a warn glyph), 4 the inbox's state
-   * (its toned glyph and the prompt count stay), 5 the daemon's state (its toned glyph, the live dot and live/cap stay),
+   * How much text each part hides, lowest value first. Left: 1 the "Daemon", "Inbox" and "Office" words, 2 the reasons of held and
+   * waiting, 3 held and waiting (the Daemon indicator takes them: its title, its name and a warn glyph), 4 the inbox's and the office's state
+   * (their toned glyphs and the prompt count stay), 5 the daemon's state (its toned glyph, the live dot and live/cap stay),
    * 6 "prompts" after the count, 7 the count, 8 live/cap. Right: 1 the provider and the effort, 2 the model label, 3 the
    * connection's word while it is Live or Connecting, and "needed" after "Update", 4 the rest of the connection's word.
    * Facts, before either cluster: 1 SHEET, 2 API, 3 the SESSIONS word, 4 the FORGE word (lib/statusbar.ts factsHidden).
@@ -96,6 +97,7 @@
       ? $t('statusbar.daemon.off')
       : [`${$t('daemon.pill', { label: bar.daemon.pill.label })} · ${$t('daemon.live', { live: bar.daemon.live, cap: bar.daemon.cap })}`, ...(holdsOut ? [holdText] : [])].join(' · '),
     inbox: bar.inbox ? [$t('daemon.inbox', { label: bar.inbox.label }), ...(bar.prompts ? [$t('statusbar.inbox.prompts', { count: bar.prompts })] : [])].join(' · ') : '',
+    office: bar.office ? $t('statusbar.office.pill', { label: bar.office.label }) : '',
     model: `${$t('statusbar.model.name')} · ${modelText}`,
     connection: `${$t('statusbar.conn.title')} · ${connWord}`,
   });
@@ -243,6 +245,12 @@
             {#if bar.prompts}<span class="num text-warn"><span class={left >= 7 ? 'sr-only' : left >= 6 ? '' : 'md:hidden'} aria-hidden="true">{bar.prompts}</span><span class="max-md:sr-only {left >= 6 ? 'sr-only' : ''}">{$t('statusbar.inbox.prompts', { count: bar.prompts })}</span></span>{/if}
           </button>
         {/if}
+        {#if bar.office}
+          <button class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="office" title={phone || left >= 1 ? titles.office : undefined} aria-haspopup="dialog" aria-expanded={expanded('office')} aria-controls={controls('office')} onclick={(e) => openPopover('office', e.currentTarget)}>
+            <span class="inline-flex {TONE_TEXT[bar.office.tone]}"><Icon name="review" /></span>
+            <span class="max-md:sr-only {left >= 4 ? 'sr-only' : ''} {TONE_TEXT[bar.office.tone]}"><span class={left >= 1 ? 'sr-only' : ''}>{$t('statusbar.office.name')}{' '}</span>{bar.office.label}</span>
+          </button>
+        {/if}
         {#if bar.held}
           <button class="btn sm ghost max-md:hidden {left >= 3 ? 'hidden!' : ''}" data-popover="daemon" title={left >= 2 ? $t('daemon.held', { count: bar.held }) : undefined} aria-haspopup="dialog" aria-expanded={expanded('daemon')} aria-controls={controls('daemon')} onclick={(e) => openPopover('daemon', e.currentTarget)}><span class="text-warn">{$t('statusbar.held.word')}<span class={left >= 2 ? 'sr-only' : ''}>{$t('statusbar.held.rest')}</span>{' '}({bar.held})</span></button>
         {/if}
@@ -294,13 +302,14 @@
   {#key open}
     <Popover
       id={open}
-      title={open === 'daemon' ? $t('statusbar.daemon.title') : open === 'inbox' ? $t('statusbar.inbox.title') : open === 'model' ? $t('statusbar.model.title') : $t('statusbar.conn.title')}
+      title={open === 'daemon' ? $t('statusbar.daemon.title') : open === 'inbox' ? $t('statusbar.inbox.title') : open === 'office' ? $t('statusbar.office.title') : open === 'model' ? $t('statusbar.model.title') : $t('statusbar.conn.title')}
       anchor={popover.anchor}
       align={open === 'model' || open === 'connection' ? 'end' : 'start'}
-      wide={open === 'daemon' || open === 'inbox'}
+      wide={open === 'daemon' || open === 'inbox' || open === 'office'}
     >
       {#if open === 'daemon'}<DaemonPanel {model} {pending} {act} />
       {:else if open === 'inbox'}{#if model}<InboxPanel inbox={model.inbox} />{/if}
+      {:else if open === 'office'}{#if model?.office}<OfficePanel office={model.office} />{/if}
       {:else if open === 'model'}<ModelPanel />
       {:else}<ConnectionPanel status={conn.state} />{/if}
     </Popover>
