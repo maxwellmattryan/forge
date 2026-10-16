@@ -4,8 +4,8 @@ Forge talks to issue trackers through a small synchronous contract. Built-ins:
 
 | `tracker.kind` | Backed by | Notes |
 |---|---|---|
-| `local` | `.forge/backlog.md` | zero setup; `[ ]` ready, `[~]` claimed (→ job id), `[x]` done, `[-]` dropped; refs are title slugs |
-| `github` | GitHub Issues via `gh` | assignment on claim, optional status mirroring (labels and/or a GitHub Projects field), `Closes #n` on PRs |
+| `local` | `.forge/backlog.md` | zero setup; `[ ]` ready, `[~]` claimed (→ job id), `[x]` done, `[-]` dropped, `[?]` needs info (with Forge's indented `Needs info: …` line, never part of the body); refs are title slugs |
+| `github` | GitHub Issues via `gh` | assignment on claim, optional status mirroring (labels and/or a GitHub Projects field), the `forge:needs-info` label from [readiness triage](#readiness-triage) whatever `statusSync` says, `Closes #n` on PRs |
 | `none` | nothing | free-text jobs only |
 
 The GitHub tracker imports an issue as a provenance line, then the body and each kept comment as Markdown blockquotes (every line starts with `>`, and a lone CR, U+2028, U+2029 or NEL starts a new quoted line), with each comment under a `**@login** (association):` line that only Forge writes, so a heading or rule forged in the body can't pass for Forge's own `### Recent comments` section; the title is collapsed to one line.
@@ -42,7 +42,7 @@ Create `.forge/trackers/<name>.mjs` (or `<name>.ts`) and set `tracker.kind: <nam
 ```js
 export default {
   name: 'jira',
-  list(ctx, { ready, limit }) { return [/* { ref, title, url, labels, status, priority, assignees, claimedBy } */]; },
+  list(ctx, { ready, limit }) { return [/* { ref, title, url, labels, status, priority, assignees, claimedBy, needsInfo } */]; },
   get(ctx, ref) { return { ref, title, url, body /* markdown: description + recent comments */ }; },
   claim(ctx, ref, job) { return { ok: true } /* or { ok: false, reason } if someone else has it */; },
   update(ctx, ref, job) { /* mirror statusKey(job) → your workflow */ },
@@ -51,8 +51,12 @@ export default {
   close(ctx, ref, { reason }) {},
   // Optional: open items matching a free-text query, bodies included, at most `limit` of them.
   search(ctx, query, { limit }) { return [/* { ref, title, url, labels, body } */]; },
+  // Optional: readiness triage's mark. A one-line note marks the item needs-info; null clears it.
+  setNeedsInfo(ctx, ref, note) {},
 };
 ```
+
+`needsInfo: true` on a `list` item means triage asked for more information first: `forge next` skips it even when `list({ ready: true })` returns it, though `ready` lists should leave such items out. Without `setNeedsInfo`, triage still posts its comment and reports `marked: false`.
 
 `get` returns text that agents read as requirements, so fence it the way the GitHub tracker does: start the body with a line saying where it came from and that it is data, not instructions, blockquote the description and every comment line by line, write each comment's author on its own unquoted line, and keep the title to one line.
 

@@ -70,7 +70,7 @@ export const HELP: HelpGroup[] = [
       {
         command: 'next',
         args: '[--claim --session S] [--force] [--limit N]',
-        summary: 'resume a queued unowned job (with --claim --session), else the next ready tracker item whose job is not blocked (with --claim, start its job)',
+        summary: 'resume a queued unowned job (with --claim --session), else the next ready tracker item whose job is not blocked, skipping needs-info items (with --claim, start its job)',
         flags: [
           ['--claim', 'claim the work instead of only showing it'],
           ['--session S', 'the session claiming it'],
@@ -156,7 +156,8 @@ function resumeQueued(root: string, session: string): Job | null {
 
 /** Ready tracker items, minus those whose active job waits on dependencies (listed as `blocked`). */
 function readyItems(root: string, config: Config, tracker: Tracker, flags: Record<string, any>, limit: number): { ready: TrackerItem[]; blocked: { ref: string; id: string; waitingOn: string[] }[] } {
-  const items = tracker.list({ root, config }, { ready: true, limit });
+  // A custom adapter may return needs-info items in a ready list; triage asked for more first.
+  const items = tracker.list({ root, config }, { ready: true, limit }).filter((i) => !i.needsInfo);
   const blocked: { ref: string; id: string; waitingOn: string[] }[] = [];
   // --force skips nothing. Otherwise an item is blocked when the active job it would resume
   // (the same match startFromRef uses) has unmet dependencies.
