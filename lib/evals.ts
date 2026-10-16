@@ -7,14 +7,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { DEFAULT_TEST_PATTERN } from './integrity.ts';
-import { createJob, loadJob, logEvent, setJob, jobDir } from './jobs.ts';
+import { applyOverlay } from './eval-overlay.ts';
+import { aggregateTasks, delta, jobTiming, stageStats, stat, taskPass, TASK_METRICS } from './eval-stats.ts';
+import { createJob, loadJob, logEvent, readEvents, setJob, jobDir } from './jobs.ts';
 import { paths, exists, PLUGIN_ROOT } from './paths.ts';
 import { createWorktree } from './worktree.ts';
 import { ForgeError, assertSafeRef, fill, now, readJson, readText, run, slugify, tail, withLock, writeJsonAtomic } from './util.ts';
 import { repoSlug } from './pr.ts';
 import { firstVerifyRun } from './stats.ts';
 import * as yaml from './yaml.ts';
-import type { Config, EvalCompare, EvalResult, EvalRun, EvalSummary, EvalTask, Job } from './types.ts';
+import type { Config, EvalCompare, EvalCompareSide, EvalDelta, EvalOverlay, EvalResult, EvalRun, EvalSummary, EvalTask, EvalTaskMetric, Job } from './types.ts';
 
 /** An eval task as loadTask reads it: the served EvalTask plus its directory and request text. */
 export type LoadedTask = EvalTask & { dir: string; request: string };
@@ -58,6 +60,63 @@ export function loadTask(root: string, name: string): LoadedTask {
 
 export function forgeVersion(): string {
   return readJson(path.join(PLUGIN_ROOT, 'package.json'), { version: '0.0.0' }).version;
+}
+
+/** The plugin files that shape what agents do and how the pipeline drives them. */
+const PLUGIN_DIRS: { dir: string; recursive: boolean; md: boolean }[] = [
+  { dir: 'agents', recursive: false, md: true },
+  { dir: 'reviewers', recursive: false, md: true },
+  { dir: 'skills/forge', recursive: true, md: false },
+];
+const PLUGIN_FILES = ['lib/step.ts', 'lib/brief.ts'];
+
+/** A regular file's bytes, or null: a link or FIFO swapped in since the listing is not read. */
+function regularFile(file: string): Buffer | null {
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOFOLLOW ?? 0));
+    return fs.fstatSync(fd).isFile() ? fs.readFileSync(fd) : null;
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+/**
+ * A content hash of the plugin's prompts, checklists, skill, step and brief, so two dev builds
+ * with the same version string tell apart. Regular files only (no symlinks); the plugin's own path
+ * is never part of it, since run records can be committed and it would leak a home directory.
+ */
+export function pluginHash(pluginRoot: string = PLUGIN_ROOT): string {
+  const rels: string[] = [];
+  const list = (rel: string, recursive: boolean, md: boolean) => {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(path.join(pluginRoot, rel), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const r = `${rel}/${e.name}`;
+      if (e.isFile() && (!md || e.name.endsWith('.md'))) rels.push(r);
+      else if (e.isDirectory() && recursive) list(r, recursive, md);
+    }
+  };
+  for (const d of PLUGIN_DIRS) list(d.dir, d.recursive, d.md);
+  for (const f of PLUGIN_FILES) {
+    try {
+      if (fs.lstatSync(path.join(pluginRoot, f)).isFile()) rels.push(f);
+    } catch {}
+  }
+  const h = crypto.createHash('sha256');
+  // Framed like trustDigest, so no two file sets hash alike by moving bytes between names.
+  for (const rel of rels.sort()) {
+    const data = regularFile(path.join(pluginRoot, rel));
+    if (data === null) continue;
+    h.update(`${rel}\0${data.byteLength}\0`).update(data);
+  }
+  return h.digest('hex').slice(0, 10);
 }
 
 /**
@@ -134,37 +193,55 @@ function splitDiff(diff: string, testRe: RegExp): { tests: string; rest: string 
   return { tests: tests.join(''), rest: rest.join('') };
 }
 
-/** The record has no summary yet: listRuns computes it until the run is done. */
-export function startRun(root: string, config: Config, opts: { tasks?: string[]; tags?: string[]; label?: string }): Omit<EvalRun, 'summary'> {
+/**
+ * The record has no summary yet: listRuns computes it until the run is done. The command layer has
+ * already checked `repeat` and the overlay.
+ */
+export function startRun(
+  root: string,
+  config: Config,
+  opts: { tasks?: string[]; tags?: string[]; label?: string; repeat?: number; overlay?: EvalOverlay },
+): Omit<EvalRun, 'summary'> {
   let tasks = listTasks(root);
   if (opts.tasks?.length) tasks = tasks.filter((t) => opts.tasks?.includes(t.name));
   if (opts.tags?.length) tasks = tasks.filter((t) => t.tags.some((g) => opts.tags?.includes(g)));
   if (!tasks.length) throw new ForgeError('no eval tasks selected (add some under .forge/evals/ or run `forge eval mine --pr <n>`)');
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '-');
   const runId = `${stamp}${opts.label ? `-${slugify(opts.label, 3)}` : ''}`;
+  const overlay = opts.overlay ?? {};
+  const repeat = opts.repeat ?? 1;
+  // An empty overlay returns `config` itself, so a plain run hashes as it always did.
+  const cfg = applyOverlay(config, overlay);
   const record: Omit<EvalRun, 'summary'> = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: runId,
     label: opts.label ?? null,
     forgeVersion: forgeVersion(),
-    configHash: configHash(root, config),
-    models: config.runtime.models,
+    configHash: configHash(root, cfg),
+    pluginHash: pluginHash(),
+    overlay,
+    repeat,
+    models: cfg.runtime.models,
     startedAt: now(),
     finishedAt: null,
     status: 'running',
     tasks: [],
   };
   for (const t of tasks) {
-    const job = createJob(root, config, {
-      title: `[eval] ${t.title}`,
-      body: t.request,
-      kind: 'eval',
-      slug: `eval-${t.name}`,
-      branch: `forge-eval/${runId}/${t.name}`,
-    });
-    setJob(root, job.id, { fields: { eval: { run: runId, task: t.name } } });
-    const wt = createWorktree(root, config, job.id, { from: t.base ?? undefined, sparseExclude: ['.forge/evals'], isolate: true });
-    record.tasks.push({ task: t.name, job: job.id, worktreeOk: wt.ok !== false, result: null });
+    for (let i = 1; i <= repeat; i++) {
+      // One repeat keeps the names runs have always had.
+      const name = repeat === 1 ? t.name : `${t.name}-r${i}`;
+      const job = createJob(root, cfg, {
+        title: `[eval] ${t.title}`,
+        body: t.request,
+        kind: 'eval',
+        slug: `eval-${name}`,
+        branch: `forge-eval/${runId}/${name}`,
+      });
+      setJob(root, job.id, { fields: { eval: { run: runId, task: t.name, repeat: i, overlay } } });
+      const wt = createWorktree(root, cfg, job.id, { from: t.base ?? undefined, sparseExclude: ['.forge/evals'], isolate: true });
+      record.tasks.push({ task: t.name, job: job.id, worktreeOk: wt.ok !== false, result: null, repeat: i });
+    }
   }
   writeJsonAtomic(path.join(runsDir(root), `${runId}.json`), record);
   return record;
@@ -292,6 +369,7 @@ export function gradeJob(root: string, config: Config, jobId: string): EvalResul
   const judgeText = readText(path.join(jobDir(root, jobId), 'eval-judge.md'));
   const score = judgeText.match(/^\s*SCORE:\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+)/im);
   const rounds = Object.keys(job.verdicts).map(Number);
+  const endMs = Date.now();
   const result: EvalResult = {
     check,
     judge: score ? { score: Number(score[1]), outOf: Number(score[2]) } : null,
@@ -301,8 +379,9 @@ export function gradeJob(root: string, config: Config, jobId: string): EvalResul
     verifyFirstPass: firstVerifyRun(job),
     tokens: job.usage.totalTokens,
     estCostUsd: job.usage.estCostUsd,
-    minutes: job.createdAt ? Math.round((Date.now() - Date.parse(job.createdAt)) / 600) / 100 : null,
+    minutes: job.createdAt ? Math.round((endMs - Date.parse(job.createdAt)) / 600) / 100 : null,
     gradedAt: now(),
+    ...jobTiming(readEvents(root, jobId), job.createdAt, endMs, job.stage),
   };
   const runFile = path.join(runsDir(root), `${meta.run}.json`);
   withLock(path.join(paths(root).locks, `eval-${meta.run}`), () => {
@@ -322,26 +401,53 @@ export function gradeJob(root: string, config: Config, jobId: string): EvalResul
   return result;
 }
 
+type Averaged = Exclude<keyof EvalSummary, 'tasks' | 'graded'>;
+
+/** Each summary average's value for one result; null leaves the result out of that average. */
+const SUMMARY: Record<Averaged, (r: EvalResult) => number | null> = {
+  checkPassRate: (r) => (r.check?.ran ? (r.check.pass ? 1 : 0) : null),
+  avgJudgeScore: (r) => (r.judge ? r.judge.score / r.judge.outOf : null),
+  firstPassRate: (r) => (r.firstPass === null || r.firstPass === undefined ? null : r.firstPass ? 1 : 0),
+  avgRounds: (r) => r.rounds,
+  escalationRate: (r) => (r.decision ? (r.decision === 'ESCALATE' ? 1 : 0) : null),
+  avgTokens: (r) => r.tokens,
+  avgCostUsd: (r) => r.estCostUsd,
+  avgMinutes: (r) => r.minutes,
+  avgAgentMinutes: (r) => r.agentMinutes ?? null,
+  avgOrchestratorMinutes: (r) => r.orchestratorMinutes ?? null,
+  avgReviewerRuns: (r) => r.reviewerRuns ?? null,
+};
+
+// filter(Boolean) drops the ungraded tasks' null results.
+const gradedResults = (rec: Pick<EvalRun, 'tasks'>): EvalResult[] => (rec.tasks ?? []).map((t) => t.result).filter(Boolean) as EvalResult[];
+const values = (rs: EvalResult[], f: (r: EvalResult) => number | null): number[] => rs.map(f).filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
+
+/** Every graded job counts once, so each repeat weighs the same as a task run once. */
 export function summarize(rec: Pick<EvalRun, 'tasks'>): EvalSummary {
-  // filter(Boolean) drops the ungraded tasks' null results.
-  const rs = rec.tasks.map((t) => t.result).filter(Boolean) as EvalResult[];
-  const avg = (f: (r: EvalResult) => number | null) => {
-    const xs = rs.map(f).filter((x) => typeof x === 'number');
-    return xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 1000) / 1000 : null;
-  };
-  const checked = rs.filter((r) => r.check?.ran);
+  const rs = gradedResults(rec);
+  const avg = (k: Averaged) => stat(values(rs, SUMMARY[k])).mean;
   return {
-    tasks: rec.tasks.length,
+    tasks: (rec.tasks ?? []).length,
     graded: rs.length,
-    checkPassRate: checked.length ? Math.round((checked.filter((r) => r.check.pass).length / checked.length) * 1000) / 1000 : null,
-    avgJudgeScore: avg((r) => (r.judge ? r.judge.score / r.judge.outOf : null)),
-    firstPassRate: avg((r) => (r.firstPass === null ? null : r.firstPass ? 1 : 0)),
-    avgRounds: avg((r) => r.rounds),
-    escalationRate: avg((r) => (r.decision ? (r.decision === 'ESCALATE' ? 1 : 0) : null)),
-    avgTokens: avg((r) => r.tokens),
-    avgCostUsd: avg((r) => r.estCostUsd),
-    avgMinutes: avg((r) => r.minutes),
+    checkPassRate: avg('checkPassRate'),
+    avgJudgeScore: avg('avgJudgeScore'),
+    firstPassRate: avg('firstPassRate'),
+    avgRounds: avg('avgRounds'),
+    escalationRate: avg('escalationRate'),
+    avgTokens: avg('avgTokens'),
+    avgCostUsd: avg('avgCostUsd'),
+    avgMinutes: avg('avgMinutes'),
+    avgAgentMinutes: avg('avgAgentMinutes'),
+    avgOrchestratorMinutes: avg('avgOrchestratorMinutes'),
+    avgReviewerRuns: avg('avgReviewerRuns'),
   };
+}
+
+/** How many graded results stand behind each summary key. */
+export function summaryCounts(rec: Pick<EvalRun, 'tasks'>): Record<keyof EvalSummary, number> {
+  const rs = gradedResults(rec);
+  const counts = Object.fromEntries((Object.keys(SUMMARY) as Averaged[]).map((k) => [k, values(rs, SUMMARY[k]).length])) as Record<Averaged, number>;
+  return { tasks: rs.length, graded: rs.length, ...counts };
 }
 
 export function listRuns(root: string): EvalRun[] {
@@ -351,8 +457,19 @@ export function listRuns(root: string): EvalRun[] {
     .readdirSync(dir)
     .filter((f) => f.endsWith('.json'))
     .map((f) => {
+      // The run file is JSON on disk, possibly from before repeats, overlays and pluginHash.
       const r = readJson(path.join(dir, f));
-      return { ...r, summary: r.summary ?? summarize(r) };
+      const tasks = Array.isArray(r.tasks) ? r.tasks : [];
+      return {
+        ...r,
+        tasks,
+        repeat: r.repeat ?? 1,
+        overlay: r.overlay ?? {},
+        pluginHash: r.pluginHash ?? null,
+        // Recomputed, so a run finished before a summary key existed shows it as null.
+        summary: summarize({ tasks }),
+        perTask: aggregateTasks(tasks),
+      };
     })
     .sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
 }
@@ -362,18 +479,43 @@ export function compareRuns(root: string, a: string, b: string): EvalCompare {
   const ra = runs.find((r) => r.id === a);
   const rb = runs.find((r) => r.id === b);
   if (!ra || !rb) throw new ForgeError(`unknown run ${!ra ? a : b}`);
-  const delta: Record<string, any> = {};
-  // A summary has exactly EvalSummary's keys.
-  for (const k of Object.keys(ra.summary) as (keyof EvalSummary)[]) {
-    const x = ra.summary[k];
-    const y = rb.summary[k];
-    delta[k] = { a: x, b: y, change: typeof x === 'number' && typeof y === 'number' ? Math.round((y - x) * 1000) / 1000 : null };
-  }
-  const perTask = ra.tasks.map((t) => {
-    const other = rb.tasks.find((u) => u.task === t.task);
-    return { task: t.task, a: t.result?.check?.pass ?? null, b: other?.result?.check?.pass ?? null };
+  const ca = summaryCounts(ra);
+  const cb = summaryCounts(rb);
+  const pair = (x: number | null, y: number | null, na: number, nb: number): EvalDelta => ({
+    a: x,
+    b: y,
+    change: typeof x === 'number' && typeof y === 'number' ? Math.round((y - x) * 1000) / 1000 : null,
+    na,
+    nb,
   });
-  return { a: { id: ra.id, configHash: ra.configHash, forgeVersion: ra.forgeVersion }, b: { id: rb.id, configHash: rb.configHash, forgeVersion: rb.forgeVersion }, delta, perTask };
+  // A summary has exactly EvalSummary's keys.
+  const summaryDelta = Object.fromEntries((Object.keys(ra.summary) as (keyof EvalSummary)[]).map((k) => [k, pair(ra.summary[k], rb.summary[k], ca[k], cb[k])])) as EvalCompare['delta'];
+  const sa = stageStats(gradedResults(ra));
+  const sb = stageStats(gradedResults(rb));
+  const stages = Object.fromEntries([...new Set([...Object.keys(sa), ...Object.keys(sb)])].map((k) => [k, delta(sa[k] ?? null, sb[k] ?? null)]));
+  const aggA = aggregateTasks(ra.tasks);
+  const aggB = aggregateTasks(rb.tasks);
+  const names = [...new Set([...aggA, ...aggB].map((t) => t.task))];
+  const perTask = names.map((task) => {
+    const x = aggA.find((t) => t.task === task) ?? null;
+    const y = aggB.find((t) => t.task === task) ?? null;
+    return {
+      task,
+      a: taskPass(ra.tasks.filter((t) => t.task === task)),
+      b: taskPass(rb.tasks.filter((t) => t.task === task)),
+      stats: { a: x, b: y },
+      delta: Object.fromEntries(TASK_METRICS.map((m) => [m, delta(x?.metrics[m] ?? null, y?.metrics[m] ?? null)])) as Record<EvalTaskMetric, EvalDelta>,
+    };
+  });
+  const side = (r: EvalRun): EvalCompareSide => ({
+    id: r.id,
+    configHash: r.configHash,
+    forgeVersion: r.forgeVersion,
+    pluginHash: r.pluginHash ?? null,
+    overlay: r.overlay ?? {},
+    repeat: r.repeat ?? 1,
+  });
+  return { a: side(ra), b: side(rb), delta: summaryDelta, stages, perTask };
 }
 
 export function createTask(root: string, name: string, title: string, request: string): { dir: string } {
