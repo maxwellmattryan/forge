@@ -754,6 +754,18 @@ export interface InstallInfo {
   reason?: string;
 }
 
+/** How `forge version --json` names the install: InstallKind with `git` read as a clone. */
+export type InstalledAs = 'plugin' | 'clone' | 'unknown';
+
+/** `forge version --json`: versionInfo in lib/version.ts. */
+export interface VersionInfo {
+  version: string;
+  /** 40 lowercase hex, or null when no source could say. */
+  commit: string | null;
+  installedAs: InstalledAs;
+  node: string;
+}
+
 /** What `forge update --check` prints: updateForge in lib/update.ts. */
 export interface UpdateCheck {
   kind: InstallKind;

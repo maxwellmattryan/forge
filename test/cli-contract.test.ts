@@ -563,6 +563,7 @@ test('CLI JSON keys are stable', POSIX, () => {
       'quality.medianHumanDeltaLines', 'quality.specFirstApprovalRate', 'quality.verifyFirstPassRate', 'reviewers', 'since', 'speed', 'speed.medianMinutesToDone',
       'speed.medianMinutesToPr', 'waitingOn',
     ]);
+    assert.deepEqual(keyPaths(s.json(['version', '--json'])), ['commit', 'installedAs', 'node', 'version']);
   } finally {
     s.cleanup();
   }
