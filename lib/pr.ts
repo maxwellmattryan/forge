@@ -523,7 +523,7 @@ export function integrate(root: string, config: Config, id: string, opts: { stra
     logEvent(root, id, 'integrated', { behind: 0 });
     return { ok: true, behind: 0, strategy: null, rewritten: false };
   }
-  const strategy: Strategy = opts.strategy ?? (job.pr?.state === 'OPEN' ? config.pr.updateStrategy : 'rebase');
+  const strategy: Strategy = opts.strategy ?? config.pr.updateStrategy;
   let attempt = strategy === 'rebase' ? run('git', ['rebase', upstream], { cwd, allowFail: true }) : run('git', ['merge', '--no-edit', upstream], { cwd, allowFail: true });
   const keep = Boolean(opts.keepConflicts);
   const abort = () => run('git', [strategy, '--abort'], { cwd, allowFail: true });

@@ -138,7 +138,7 @@ pr:
   labels: []
   reviewers: []              # GitHub handles/teams to request
   conflicts: ask             # ask | fix | defer (see "Open PRs")
-  updateStrategy: merge      # merge | rebase: how forge integrate updates a branch with an open PR (before a PR: rebase)
+  updateStrategy: merge      # merge | rebase: how forge integrate brings a branch up to date with its base
 
 merge:
   auto: false                # let Forge merge approved PRs (waits for CI, even without branch protection; see README)
@@ -214,7 +214,7 @@ daemon:                      # opt-in headless sessions supervised by `forge das
 `forge sync` (and `forge pr sync <id>`) re-reads every open PR. A job parked on `pr-review` or `conflicts` whose PR has moved under it is handled by these keys:
 
 - **`pr.conflicts`** decides a PR that conflicts with its base. `ask` (the default) waits on `conflicts` until you `/forge approve` it. `fix` has `forge sync` move the job to `integrate` itself, where the integrator resolves the conflicts, re-verifies and runs the integration review. `defer` leaves the job on `pr-review` with a note.
-- **`pr.updateStrategy`** is how a branch with an open PR is updated (`merge` by default, so nothing is force-pushed). A PR that is only behind its base needs no conflict decision, so `forge sync` moves it to `integrate` under every `pr.conflicts` policy, including the default `ask`, and `forge integrate` updates it with this strategy.
+- **`pr.updateStrategy`** is how `forge integrate` brings a branch up to date with its base, before a PR and after one is open (`merge` by default, so nothing is force-pushed). A PR that is only behind its base needs no conflict decision, so `forge sync` moves it to `integrate` under every `pr.conflicts` policy, including the default `ask`, and `forge integrate` updates it with this strategy. `merge` resolves conflicts once per integration, never rewrites pushed commits and never force-pushes. `rebase` gives a linear history, but it replays each job commit, can raise conflicts at each one, and rewrites the branch. `--strategy` on `forge integrate` overrides it for one run.
 
 Both routes have the same guards. The job is not claimed by a live session (the test `forge next` uses, judged inside the job lock), the PR head is the commit Forge pushed (a human push is left alone), and each head is routed once, so a failed integration doesn't loop. Sync never claims the job: with `daemon.enabled` it queues a `resume` for the job's session, and otherwise `forge sync` lists the job under `integrating` for `/forge continue <id>`. `forge pr merge` syncs without routing.
 

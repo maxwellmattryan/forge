@@ -466,6 +466,45 @@ describe('the CLI end to end', { concurrency: 4 }, () => {
     }
   });
 
+  /** A job with no PR whose branch and base both moved, integrated with the configured default. */
+  async function integrateDefault(answersExtra) {
+    const repo = tempRepo();
+    const f = async (...args) => JSON.parse(await cliOut(repo.dir, args, { GIT_EDITOR: 'true' }));
+    const wtRoot = path.join(repo.dir, '..', `${path.basename(repo.dir)}.wt`);
+    const answers = path.join(repo.dir, '..', `answers-default-${path.basename(repo.dir)}.json`);
+    try {
+      fs.writeFileSync(answers, JSON.stringify({ commands: { test: 'true' }, worktrees: { root: `../${path.basename(repo.dir)}.wt` }, ...answersExtra }));
+      assert.equal((await f('init', 'write', '--answers', answers)).ok, true);
+      commitAll(repo.dir, 'forge');
+      await f('tracker', 'create', '--title', 'Behind');
+      const id = (await f('next', '--claim', '--session', 's1')).id;
+      const wt = (await f('worktree', 'create', id)).path;
+      fs.writeFileSync(path.join(wt, 'ours.txt'), 'ours\n');
+      commitAll(wt, 'ours');
+      fs.writeFileSync(path.join(repo.dir, 'theirs.txt'), 'theirs\n');
+      commitAll(repo.dir, 'theirs');
+      const out = await f('integrate', id);
+      const parents = execFileSync('git', ['rev-list', '--parents', '-n', '1', 'HEAD'], { cwd: wt, encoding: 'utf8' }).trim().split(' ').length - 1;
+      return { out, parents };
+    } finally {
+      fs.rmSync(answers, { force: true });
+      fs.rmSync(wtRoot, { recursive: true, force: true });
+      repo.cleanup();
+    }
+  }
+
+  test('integrate merges by default before a PR exists', async () => {
+    const { out, parents } = await integrateDefault({});
+    assert.deepEqual([out.ok, out.behind, out.strategy, out.rewritten], [true, 1, 'merge', false]);
+    assert.equal(parents, 2, 'HEAD is a merge commit');
+  });
+
+  test('integrate rebases under pr.updateStrategy: rebase', async () => {
+    const { out, parents } = await integrateDefault({ pr: { updateStrategy: 'rebase' } });
+    assert.deepEqual([out.ok, out.behind, out.strategy, out.rewritten], [true, 1, 'rebase', true]);
+    assert.equal(parents, 1, 'the job commit was replayed onto base');
+  });
+
   test('forge git: read-only history without --output or configured programs', async () => {
     const repo = tempRepo();
     const f = (...args) => forgeAsync(repo.dir, ['git', ...args]);
