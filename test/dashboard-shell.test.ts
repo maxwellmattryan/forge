@@ -1450,3 +1450,21 @@ test('no doc or source names the removed bar or the old palette triggers', () =>
   assert.deepEqual(hits, []);
   assert.match(read('messages/en.json'), /"locked": "[^"]*status bar[^"]*"/, 'settings.locked names the status bar');
 });
+
+// smithy/README.md › Voice: counts sit after their label in parentheses, in muted tabular numerals ("Active (3)",
+// "Timeline (14)"); a count that stands alone at the right of a row (a nav badge, a chip) needs none.
+test('counts read Label (N) in tabs and segments', () => {
+  const pipeline = read('views/Pipeline.svelte');
+  assert.ok(pipeline.includes(`{filterLabel[f]} <span class="num {on ? '' : 'muted'}">({counts[f]})</span>`), 'the Pipeline filters read Active (3)');
+  const drawer = read('components/Drawer.svelte');
+  assert.ok(drawer.includes(`{$t('drawer.timeline')} <span class="muted num">({d.events.length})</span>`), 'the Timeline tab reads Timeline (14)');
+  // Every count inside a tab or a segment button is parenthesised.
+  for (const [rel, text] of [['views/Pipeline.svelte', pipeline], ['components/Drawer.svelte', drawer]] as const) {
+    for (const m of markupOf(rel).matchAll(/<button\b[^>]*class="(?:tab|btn)\b[\s\S]*?<\/button>/g))
+      assert.doesNotMatch(m[0], /<span class="[^"]*\bnum\b[^"]*">\{[^}]*\}<\/span>/, `${rel}: a bare count in ${m[0].slice(0, 60)}`);
+    assert.ok(text.length > 0);
+  }
+  // Right-aligned badges stay bare.
+  const nav = read('components/Nav.svelte');
+  assert.ok(nav.includes(`<span class="chip you">{n}</span>`) && nav.includes(`<span class="mono num {on ? '' : 'muted'}">{n}</span>`), 'nav badges stay bare');
+});

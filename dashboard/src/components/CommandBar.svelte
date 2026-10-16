@@ -195,8 +195,9 @@
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop; Escape closes the dialog from the keyboard) -->
 <div class="fixed inset-0 z-45 flex items-start justify-center scrim md:p-6 md:pt-[12vh]" onmousedown={backdropDown} onclick={backdrop}>
   <div bind:this={dialog} role="dialog" aria-modal="true" aria-label={$t('command.title')} tabindex="-1" class="plate solid flex flex-col w-full min-w-0 max-h-[85vh] shadow-(--shadow-overlay) md:max-w-[672px]" onkeydown={trap}>
-    <!-- flex-wrap with a 10rem input basis: on a phone the scope chip and its remove button take the first line, so the input keeps room to type. -->
-    <div class="flex flex-wrap items-center gap-x-2 border-b border-line px-3">
+    <!-- One recessed field holding the glyph, the scope chip and a seamless input. flex-wrap with a 10rem input basis: on a
+         phone the scope chip and its remove button take the first line, so the input keeps room to type. -->
+    <div class="input cmd-field flex-wrap gap-x-2">
       <Icon name="command" class="shrink-0 text-muted" />
       {#if scoped}
         <!-- The chip is the combobox's description; removing the scope is its own labelled button, so the description reads the job. -->
@@ -218,7 +219,7 @@
         autocomplete="off"
         spellcheck="false"
         placeholder={$t('command.placeholder')}
-        class="grow basis-40 min-w-0 border-0! px-1.5! py-3! text-[15px] focus:-outline-offset-2!"
+        class="grow basis-40 min-w-0 border-0! bg-transparent! shadow-none! outline-none! min-h-0! px-0.5! py-3! text-[15px]"
         onkeydown={inputKey}
         oninput={() => (error = null)}
       />
@@ -231,7 +232,7 @@
           id={optionId(i)}
           role="option"
           aria-selected={i === active}
-          class="flex items-center gap-3 px-3 py-2 text-sm cursor-pointer {i === active ? 'bg-raised text-fg shadow-[inset_3px_0_0_var(--gleam)]' : 'text-muted'}"
+          class="flex items-center gap-3 px-3 py-2 text-sm cursor-pointer {i === active ? 'bg-raised text-fg shadow-[inset_var(--bar-rule)_0_0_0_var(--gleam)]' : 'text-muted'}"
           onmousemove={() => (active = i)}
           onclick={() => activate(o)}
         >

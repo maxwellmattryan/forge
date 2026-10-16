@@ -611,6 +611,7 @@
   gap: 10px;
   padding: 0 12px;
   min-height: 48px;
+  margin: 12px 12px 6px;
   & input { appearance: none; background: transparent; border: 0; box-shadow: none; outline: none; flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 15px; color: var(--fg); padding: 12px 0; min-height: 0; }
   & input::placeholder { color: var(--dim); }
   &:focus-within { border-color: var(--gleam); outline: 2px solid var(--line-strong); outline-offset: 2px; }

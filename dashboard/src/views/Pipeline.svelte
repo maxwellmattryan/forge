@@ -39,8 +39,9 @@
 <PageHeader title={$t('pipeline.title')}>
   {#snippet sub()}{$t('pipeline.active', { count: counts.active })} · {$t('pipeline.base')} <code class="font-mono">{data.config.base}</code> · {$t('pipeline.tracker', { tracker: data.config.tracker })}{/snippet}
   {#snippet right()}
-    <div class="seg">
-      {#each FILTERS as f (f)}{@const on = S.filter === f}<button class="btn {on ? 'sel' : ''}" aria-pressed={on} onclick={() => setFilter(f)}>{filterLabel[f]} <span class="num {on ? '' : 'muted'}">{counts[f]}</span></button>{/each}
+    <!-- Wraps on a phone: the riveted header clips what overflows it. -->
+    <div class="seg flex-wrap gap-y-1">
+      {#each FILTERS as f (f)}{@const on = S.filter === f}<button class="btn {on ? 'sel' : ''}" aria-pressed={on} onclick={() => setFilter(f)}>{filterLabel[f]} <span class="num {on ? '' : 'muted'}">({counts[f]})</span></button>{/each}
     </div>
     <div class="seg">
       {#each LAYOUTS as l (l)}{@const on = S.layout === l}<button class="btn {on ? 'sel' : ''}" aria-pressed={on} onclick={() => setLayout(l)}><Icon name={l} />{layoutLabel[l]}</button>{/each}
