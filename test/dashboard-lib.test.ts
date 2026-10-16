@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { esc, num, usd, ago, pct, tokensShort, dur, clock } from '../dashboard/src/lib/util.ts';
 import { md, inline, safeUrl } from '../dashboard/src/lib/markdown.ts';
 import { STAGE_LABEL, WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
+import { readiness } from '../dashboard/src/lib/backlog.ts';
 import { bundleFilename } from '../dashboard/src/lib/diagnostics.ts';
 import * as types from '../dashboard/src/lib/types.ts';
 import * as schema from '../lib/schema.ts';
@@ -153,6 +154,17 @@ test('clock: a local HH:MM:SS, or nothing for a missing or unparseable time', ()
   assert.equal(clock(null), '');
   assert.equal(clock(''), '');
   assert.equal(clock('yesterday'), '');
+});
+
+test('backlog readiness', () => {
+  const at = '2026-10-16T00:00:00.000Z';
+  assert.equal(readiness({ needsInfo: true }), 'needs-info');
+  assert.equal(readiness({ needsInfo: true, triage: { ready: true, missing: [], at } }), 'needs-info', 'the mark wins over the cache');
+  assert.equal(readiness({ needsInfo: true, triage: { ready: false, missing: ['scope'], at } }), 'needs-info');
+  assert.equal(readiness({ needsInfo: false, triage: { ready: true, missing: [], at } }), 'ready');
+  assert.equal(readiness({ triage: { ready: true, missing: [], at } }), 'ready');
+  assert.equal(readiness({ needsInfo: false, triage: { ready: false, missing: ['outcome'], at } }), 'untriaged', 'a human cleared the mark');
+  assert.equal(readiness({}), 'untriaged');
 });
 
 test('bundleFilename', () => {

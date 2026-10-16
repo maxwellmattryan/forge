@@ -121,9 +121,9 @@ test('SKILL.md is the loop', () => {
     assert.ok(fs.existsSync(path.join(ROOT, 'skills', 'forge', 'reference', ref)), `reference/${ref} exists`);
     assert.ok(skill.includes(`reference/${ref}`), `SKILL.md names reference/${ref}`);
   }
-  // The frontmatter is pinned: name, description and argument-hint (approve takes an issue link).
+  // The frontmatter is pinned: name, description and argument-hint (approve takes an issue link; triage takes a limit).
   assert.match(skill, /^---\nname: forge\ndescription: Run Forge, a software factory\./);
-  assert.match(skill, /\nargument-hint: "<feature> \| next \[n\] \| issue <ref> \| continue <job\|#pr> \| approve <job> \[<ref>\|new\|none\] \[note\] \| revise\|answer\|rework\|cancel <job> \[note\] \| status \| sync \| dash \| init \| retro \| eval … \| requests \| doctor \| update"\n---\n/);
+  assert.match(skill, /\nargument-hint: "<feature> \| next \[n\] \| triage \[n\] \| issue <ref> \| continue <job\|#pr> \| approve <job> \[<ref>\|new\|none\] \[note\] \| revise\|answer\|rework\|cancel <job> \[note\] \| status \| sync \| dash \| init \| retro \| eval … \| requests \| doctor \| update"\n---\n/);
 });
 
 test('docs mention job step', () => {

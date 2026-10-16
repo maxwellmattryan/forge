@@ -1768,6 +1768,40 @@ test('POST /api/jobs/:id/effort sets a job\'s effort, guarded like every POST', 
   }
 });
 
+test('backlog carries readiness from the triage cache', async () => {
+  const repo = tempRepo();
+  const forge = path.join(repo.dir, '.forge');
+  fs.mkdirSync(path.join(forge, 'runtime'), { recursive: true });
+  fs.writeFileSync(path.join(forge, 'backlog.md'), '# Backlog\n\n- [?] Vague\n  Needs info: a clear outcome\n- [ ] Clear\n- [ ] Untriaged\n');
+  fs.writeFileSync(
+    path.join(forge, 'runtime', 'triage.json'),
+    JSON.stringify({
+      items: {
+        'local:vague': { hash: '0123456789abcdef', ready: false, missing: ['outcome', 'bogus'], duplicateOf: null, noted: ['outcome'], at: '2026-10-16T00:00:00.000Z' },
+        'local:clear': { hash: 'fedcba9876543210', ready: true, missing: [], duplicateOf: null, noted: null, at: '2026-10-16T00:00:01.000Z' },
+        'local:untriaged': { hash: 'not-a-hash', ready: true, missing: [], at: 'x' },
+        'github:clear': { hash: '0000000000000000', ready: false, missing: ['scope'], duplicateOf: null, noted: null, at: 'x' },
+      },
+    }),
+  );
+  const { server, url } = await startServer(repo.dir, { port: 0 });
+  const port = Number(new URL(url).port);
+  try {
+    const r = await get(port, '/api/backlog');
+    assert.equal(r.status, 200);
+    const items = JSON.parse(r.body.toString('utf8')).items;
+    const by = Object.fromEntries(items.map((i: any) => [i.ref, i]));
+    assert.equal(by.vague.needsInfo, true);
+    assert.deepEqual(by.vague.triage, { ready: false, missing: ['outcome'], at: '2026-10-16T00:00:00.000Z' });
+    assert.equal(by.clear.needsInfo, false);
+    assert.deepEqual(by.clear.triage, { ready: true, missing: [], at: '2026-10-16T00:00:01.000Z' });
+    assert.ok(!('triage' in by.untriaged), 'a malformed entry is no entry');
+  } finally {
+    server.close();
+    repo.cleanup();
+  }
+});
+
 test('state carries protectedPaths', async () => {
   const repo = tempRepo();
   fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });

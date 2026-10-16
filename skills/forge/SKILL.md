@@ -1,7 +1,7 @@
 ---
 name: forge
 description: Run Forge, a software factory. Turns features, bugs and backlog items into reviewed pull requests via a team of agents, each job in its own git worktree, with PR/tracker sync, a live dashboard, evals and self-improving retros. Use for "/forge <feature>", "/forge next", approving/reworking Forge jobs, Forge status, or setting Forge up in a repo.
-argument-hint: "<feature> | next [n] | issue <ref> | continue <job|#pr> | approve <job> [<ref>|new|none] [note] | revise|answer|rework|cancel <job> [note] | status | sync | dash | init | retro | eval … | requests | doctor | update"
+argument-hint: "<feature> | next [n] | triage [n] | issue <ref> | continue <job|#pr> | approve <job> [<ref>|new|none] [note] | revise|answer|rework|cancel <job> [note] | status | sync | dash | init | retro | eval … | requests | doctor | update"
 ---
 
 # Forge: orchestrator
@@ -17,7 +17,7 @@ Procedures: `${CLAUDE_PLUGIN_ROOT}/skills/forge/reference/`; docs: `${CLAUDE_PLU
 1. **The CLI is the only writer of state and the only decider of the next step.** Never hand-edit `job.json`, `events.jsonl`, the backlog or tracker labels, or pick a stage yourself: ask `forge job step <id>`.
 2. **Context economy.** Read CLI JSON and agents' one-line replies, not code, diffs, reviews, logs or specs. Give agents the `brief` step returns, never file contents.
 3. **Worktree isolation.** Builders and integrators work only in the job's worktree; only the CLI touches the main checkout (`.forge/`).
-4. **Stop at human gates.** Report the `tell`, work on other jobs; never guess past one. With `foreman.enabled`, the CLI turns gates into `gate` requests.
+4. **Stop at human gates.** Report the `tell`, work on others; never guess past one. With `foreman.enabled`, the CLI turns gates into `gate` requests.
 5. **No AI attribution** in commits, PRs, issues or comments: no co-author trailers, "Generated with" footers or session links.
 6. **Be honest in the record.** `forge job note` anything that failed or was skipped.
 
@@ -27,21 +27,21 @@ forge doctor     # once per session, and after a failure
 forge sync       # PRs and trackers; cleans merged worktrees
 forge requests   # inbox requests: reference/requests.md, before new work
 ```
-No `.forge/config.yml` (exit 2) → **init** (`reference/init.md`) unless told otherwise.
-Report `sync` results, a line each: merges, PR feedback, conflicts, finished umbrellas, `unblocked: true`/`integrating` (`/forge continue <id>`), `retargeted`. For each `mergeDeferred: true`, run `forge pr merge <id>`.
+No `.forge/config.yml` (exit 2) → **init** unless told otherwise.
+Report `sync`, a line each: merges, PR feedback, conflicts, finished umbrellas, `unblocked: true`/`integrating` (`/forge continue <id>`), `retargeted`. For each `mergeDeferred: true`, run `forge pr merge <id>`.
 
 ## Commands (route on the first word)
 | Arguments | Do |
 |---|---|
-| *(empty)* or `status` | `forge status`; summarise what runs, waits on the human and comes next; offer `forge dash`. |
+| *(empty)* or `status` | `forge status`; summarise what runs, waits and comes next; offer `forge dash`. |
 | `<free text>` | `forge job new --title "<short title>" --body "<the full request>" --session ${CLAUDE_SESSION_ID}`, then **Run a job**. |
-| `next [n]` | Up to `n` (default 1, max `runtime.maxParallelJobs`) times `forge next --claim --session ${CLAUDE_SESSION_ID}` (a queued job nobody drives, `resumed: true`, else a tracker item), then run them in parallel. |
+| `next [n]` | `triage`, then up to `n` (default 1, max `runtime.maxParallelJobs`) times `forge next --claim --session ${CLAUDE_SESSION_ID}` (a queued job nobody drives, `resumed: true`, else a tracker item), then run them in parallel. |
 | `issue <ref>` | `forge job from-ref <ref> --session ${CLAUDE_SESSION_ID}` (planned as one job), then **Run a job**. |
 | `continue <job \| #pr \| ref> [note]` | `reference/pr-lifecycle.md` |
 | `approve <job> [<ref>\|new\|none] [note]`, `revise`, `answer`, `rework`, `cancel <job> [note]` | `reference/commands.md`, then **Run a job** |
 | `sync` | the sync above; report |
 | `dash` | `forge dash --background`; give the URL |
-| `init`, `retro`, `eval …`, `requests` | `reference/init.md`, `retro.md`, `evals.md`, `requests.md` |
+| `init`, `retro`, `eval …`, `requests`, `triage` | `reference/init.md`, `retro.md`, `evals.md`, `requests.md`, `triage.md` |
 | `doctor` | `forge doctor`; explain failures and warnings with fixes; bug report: `forge doctor --bundle`, human checks its manifest |
 | `update` | `forge update` only; report `from → to`, each `warnings` and `next` entry, or the error. |
 
@@ -60,7 +60,7 @@ Then loop: `forge job advance <id> --session ${CLAUDE_SESSION_ID}` (Bash timeout
 After `pr` or `done`, `forge retro due`; if `due: true`, tell the human once that `/forge retro` proposes improvements (never run unasked).
 
 ## Parallel jobs
-Drive up to `runtime.maxParallelJobs` jobs at once (a daemon job session, only its own), advancing each as agents report.
+Drive up to `runtime.maxParallelJobs` jobs at once (a daemon job session, only its own).
 
 ## Reporting style
 One line per job event: its id and, when blocked, the exact unblock command. Link the dashboard; no tables.
