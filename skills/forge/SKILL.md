@@ -27,7 +27,7 @@ forge doctor     # once per session, and after a failure
 forge sync       # PRs and trackers; cleans merged worktrees
 forge requests   # inbox requests: reference/requests.md, before new work
 ```
-No `.forge/config.yml` (exit 2) → **init** (`reference/init.md`) unless the user asked otherwise.
+No `.forge/config.yml` (exit 2) → **init** unless the user asked otherwise.
 Report `sync` results, a line each: merges, PR feedback, conflicts, finished umbrellas, `unblocked: true`/`integrating` (`/forge continue <id>`), `retargeted`. For each `mergeDeferred: true`, run `forge pr merge <id>`.
 
 ## Commands (route on the first word)
@@ -35,14 +35,13 @@ Report `sync` results, a line each: merges, PR feedback, conflicts, finished umb
 |---|---|
 | *(empty)* or `status` | `forge status`; summarise what runs, waits on the human and comes next; offer `forge dash`. |
 | `<free text>` | `forge job new --title "<short title>" --body "<the full request>" --session ${CLAUDE_SESSION_ID}`, then **Run a job**. |
-| `next [n]` | First `reference/triage.md` with `--limit 10`, then up to `n` (default 1, max `runtime.maxParallelJobs`) times `forge next --claim --session ${CLAUDE_SESSION_ID}` (a queued job nobody drives, `resumed: true`, else a tracker item), then run them in parallel. |
-| `triage [n]` | `reference/triage.md` (default n 10) |
+| `next [n]` | `triage`, then up to `n` (default 1) times `forge next --claim --session ${CLAUDE_SESSION_ID}` (a queued job nobody drives, `resumed: true`, else a tracker item), then run them in parallel. |
 | `issue <ref>` | `forge job from-ref <ref> --session ${CLAUDE_SESSION_ID}` (planned as one job), then **Run a job**. |
 | `continue <job \| #pr \| ref> [note]` | `reference/pr-lifecycle.md` |
 | `approve <job> [<ref>\|new\|none] [note]`, `revise`, `answer`, `rework`, `cancel <job> [note]` | `reference/commands.md`, then **Run a job** |
 | `sync` | the sync above; report |
 | `dash` | `forge dash --background`; give the URL |
-| `init`, `retro`, `eval …`, `requests` | `reference/init.md`, `retro.md`, `evals.md`, `requests.md` |
+| `init`, `retro`, `eval …`, `requests`, `triage` | `reference/init.md`, `retro.md`, `evals.md`, `requests.md`, `triage.md` |
 | `doctor` | `forge doctor`; explain failures with fixes |
 | `update` | `forge update` only; report `from → to`, each `warnings` and `next` entry, or the error. |
 
