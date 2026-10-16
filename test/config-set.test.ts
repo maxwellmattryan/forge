@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
-import { TRUST_ENV, defaults, trustDigest } from '../lib/config.ts';
+import { TRUST_ENV, defaults, trustDigest, validateConfig } from '../lib/config.ts';
 import { FIELDS } from '../lib/config-fields.ts';
 import { COMPLEXITIES, EFFORT_ROLES, EFFORTS } from '../lib/schema.ts';
 import { setConfigValue } from '../lib/config-set.ts';
@@ -166,6 +166,33 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     }
   });
 
+  test('pr.integrationReview defaults to code-only, validates and is settable', async () => {
+    assert.equal(defaults().pr.integrationReview, 'code-only');
+    const s = scratch();
+    try {
+      for (const v of ['always', 'code-only'] as const) {
+        const c = defaults();
+        c.pr.integrationReview = v;
+        assert.deepEqual(validateConfig(c, s.repo.dir).filter((p) => p.startsWith('pr.integrationReview')), [], v);
+      }
+      const bad: any = defaults();
+      bad.pr.integrationReview = 'sometimes';
+      assert.ok(validateConfig(bad, s.repo.dir).some((p) => p.startsWith('pr.integrationReview must be one of always | code-only')), 'sometimes is reported');
+      const set = await s.forge('config', 'set', 'pr.integrationReview', 'always');
+      assert.equal(set.code, 0, set.err);
+      assert.equal(JSON.parse(set.out).value, 'always');
+      assert.equal((await s.forge('config', 'get', 'pr.integrationReview')).out, 'always');
+      const before = s.read();
+      const r = await s.forge('config', 'set', 'pr.integrationReview', 'maybe');
+      assert.equal(r.code, 1);
+      assert.match(r.err, /pr\.integrationReview/);
+      assert.equal(s.read(), before, 'maybe leaves the file byte-identical');
+      assert.throws(() => setConfigValue(s.repo.dir, 'pr.integrationReview', 'maybe'), (e: any) => e.reason === 'invalid');
+    } finally {
+      s.repo.cleanup();
+    }
+  });
+
   test('set rejects non-editable and unknown keys', async () => {
     const s = scratch();
     try {
@@ -246,7 +273,8 @@ describe('forge config set and get', { concurrency: 4 }, () => {
       assert.ok(docs.includes(`${seg}:`), `${seg}: is documented in docs/CONFIG.md`);
       assert.equal(f.editable, f.lockedReason === null, `${f.key}: locked fields say why`);
       if (!f.editable) continue;
-      assert.match(f.key, /^(pipeline|review|runtime|tracker|dashboard|daemon)\./, `${f.key} is in an editable section`);
+      // pr.integrationReview only chooses between reviewing and skipping a docs-only conflict review; the rest of pr.* stays locked.
+      assert.match(f.key, /^((pipeline|review|runtime|tracker|dashboard|daemon)\.|pr\.integrationReview$)/, `${f.key} is in an editable section`);
       for (const p of forbidden) assert.ok(!f.key.startsWith(p), `${f.key} must not be editable (${p})`);
     }
     assert.ok(FIELDS.some((f) => f.key === 'runtime.models.builder' && f.editable));

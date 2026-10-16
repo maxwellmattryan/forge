@@ -37,6 +37,7 @@ export interface FixtureOpts {
   verdicts?: Partial<StepInput['verdicts']>;
   runtime?: string[];
   evalTask?: StepInput['evalTask'];
+  integrationTouched?: StepInput['integrationTouched'];
   /** Extra existing paths (dirs such as review/round-1). */
   present?: string[];
 }
@@ -97,5 +98,6 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     events: o.events ?? [],
     evalTask: o.evalTask ?? null,
     checklists: Object.fromEntries(config.review.panel.map((p) => [p.name, path.join(PLUGIN_ROOT, 'reviewers', `${p.name}.md`)])),
+    integrationTouched: o.integrationTouched ?? null,
   };
 }
