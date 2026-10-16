@@ -7,10 +7,10 @@ import { resolveEffort, trustDigest } from './config.ts';
 import { PERMISSION_MODES, TRUST_CHANGED, UUID, commandPermissionMode, createSession, otherOwner, readInfo, reapOrphans, sessionFiles, sessionOptions } from './daemon.ts';
 import type { DaemonOptions, Session, SessionContext, SessionEvent } from './daemon.ts';
 import { configForJob } from './eval-overlay.ts';
-import { loadJob } from './jobs.ts';
+import { loadJob, logHumanEvent } from './jobs.ts';
 import { daemonPlatformProblem } from './platform.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, listRequests, requestScope, validScope } from './requests.ts';
-import type { Config, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, ForgeRequest, Job, PermissionDecision } from './types.ts';
+import type { Config, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, EventActor, ForgeRequest, Job, PermissionDecision } from './types.ts';
 
 /** The pool's own state: state() below. The server adds `clients` to make a DaemonPoolState. */
 export type PoolState = Omit<DaemonPoolState, 'clients'>;
@@ -22,10 +22,10 @@ export interface DaemonPool {
   /** Re-enables one session inside a wanted pool; `error` when the pool isn't wanted. */
   startSession(scope: string): { error: string | null };
   stopSession(scope: string): Promise<PoolState>;
-  /** Answers one session's permission prompt; false when there is no such prompt. */
-  answerPermission(scope: string, id: string, decision: PermissionDecision): boolean;
-  /** Puts one session in a permission mode: now if its child runs, else from its next spawn. */
-  setPermissionMode(scope: string, mode: DaemonPermissionMode): { error: string | null };
+  /** Answers one session's permission prompt as `actor`; false when there is no such prompt. */
+  answerPermission(scope: string, id: string, decision: PermissionDecision, actor: EventActor): boolean;
+  /** Puts one session in a permission mode as `actor`: now if its child runs, else from its next spawn. */
+  setPermissionMode(scope: string, mode: DaemonPermissionMode, actor: EventActor): { error: string | null };
   poke(): void;
   state(): PoolState;
   sessionState(scope: string): DaemonSessionState;
@@ -66,6 +66,16 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
   const pollMs = opts.pollMs ?? 2000;
   const platform = opts.platform ?? process.platform;
   reapOrphans(root, { graceMs: o.graceMs });
+
+  // A person's answer in a job's session also lands on that job's own trail (forge job audit).
+  function jobAudit(scope: string, type: string, data: Record<string, unknown>, actor: EventActor): void {
+    if (scope === INBOX_SCOPE || scope === OFFICE_SCOPE) return;
+    try {
+      logHumanEvent(root, scope, type, data, actor);
+    } catch {
+      // The job vanished since the request was validated; the daemon log line still records it.
+    }
+  }
 
   let enabled = false;
   let maxConcurrent = 1;
@@ -367,17 +377,21 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
       await s.kill('stop', false, 'human');
       return state();
     },
-    answerPermission(scope, id, decision) {
-      return sessions.get(scope)?.answerPermission(id, decision) ?? false;
+    answerPermission(scope, id, decision, actor) {
+      const tool = sessions.get(scope)?.answerPermission(id, decision, actor) ?? null;
+      if (tool === null) return false;
+      jobAudit(scope, 'daemon-permission', { tool, decision }, actor);
+      return true;
     },
-    setPermissionMode(scope, mode) {
+    setPermissionMode(scope, mode, actor) {
       if (!validScope(scope)) return { error: 'invalid scope' };
       if (!PERMISSION_MODES.includes(mode)) return { error: `mode must be one of ${PERMISSION_MODES.join(', ')}` };
       if (closed) return { error: 'the dashboard is shutting down' };
       if (mode === baseMode) modes.delete(scope);
       else modes.set(scope, mode);
       const s = sessions.get(scope);
-      s?.logEvent('permission-mode-set', { mode });
+      s?.logEvent('permission-mode-set', { mode, actor });
+      jobAudit(scope, 'daemon-mode', { mode }, actor);
       // A running child switches now; claude confirms with a status event, which updates its state.
       s?.setPermissionMode(mode);
       return { error: null };

@@ -108,6 +108,7 @@ Read by Forge:
 | `NODE_DISABLE_COMPILE_CACHE` | any non-empty value turns the start-up cache off |
 | `FORGE_DEBUG` | any non-empty value prints an error's stack trace on stderr, with or without `--json` |
 | `FORGE_AI_ATTRIBUTION` | `allow` turns the no-AI-attribution policy off for the hook, `forge git commit`, `forge pr open` and the GitHub tracker |
+| `FORGE_ACTOR` | the login human-action events record (`actor: { login, source: "env" }`), ahead of `gh`, `git config user.email` and the OS user; ignored inside daemon sessions, which record the dashboard's OS user. Sanitised to `[A-Za-z0-9 ._@+-]`, at most 100 characters, and unauthenticated (ARCHITECTURE.md "Audit trail") |
 | `GH_HOST` | a GitHub Enterprise host whose issue URLs count as the configured repo's, besides github.com |
 | `SHELL` | the shell configured commands run in (`$SHELL -lc`; `/bin/sh` when unset): `forge run`, `forge verify`, worktree setup and eval checks |
 | `PATH` | where git, gh, claude and node are found |
@@ -139,10 +140,24 @@ Set by Forge for configured commands (`forge run`, `forge verify`, worktree setu
 
 ## Foreman decisions
 
-`forge job human <id> <action> [--actor human|foreman]` records who decided. Without `--actor` the event says `actor: "human"`. `--actor foreman` is accepted only from the office daemon session (`FORGE_DAEMON_SCOPE=_office`), which in turn must pass it, and only after the authority checks in docs/ARCHITECTURE.md "Foreman": the job waits on a gate class in `foreman.decides`, the action belongs to that class, `--note` is given and no reserved pattern matches (nor a latest security verdict other than `PASS`), a pr-feedback `rework` has a queued gate request for the PR's current head, and there is no `--link` or `--reason`. A refusal exits 1 and writes nothing.
+`forge job human <id> <action> [--actor human|foreman]` records who decided. Without `--actor` the event's `actor` is the resolved person, `{ "login": "<login>"|null, "source": "env"|"gh"|"git"|"os"|"dashboard"|"unknown" }` (ARCHITECTURE.md "Audit trail"); with `--actor foreman` it is `{ "login": null, "source": "foreman" }`. Events written before event schema v2 said `"human"` or `"foreman"`, and read as source `unknown` and `foreman`. `--actor foreman` is accepted only from the office daemon session (`FORGE_DAEMON_SCOPE=_office`), which in turn must pass it, and only after the authority checks in docs/ARCHITECTURE.md "Foreman": the job waits on a gate class in `foreman.decides`, the action belongs to that class, `--note` is given and no reserved pattern matches (nor a latest security verdict other than `PASS`), a pr-feedback `rework` has a queued gate request for the PR's current head, and there is no `--link` or `--reason`. A refusal exits 1 and writes nothing.
 
 `forge job assist <id> --gate <class>` is read-only and returns `{gate, stale, reserved, model, effort, subagent, brief}`: the `forge:assistant` spawn for that gate, with a brief of paths only. `stale: true` means the job no longer waits on that gate, and `reserved` is re-checked at call time. An unknown `--gate` exits 1, and so does a daemon session other than the office. `forge requests add gate` always exits 1: only `forge job set` and `forge pr sync` write gate requests.
 
+## Audit trail
+
+`forge job audit <id> [--json|--csv]` prints the job's audit rows in time order (ARCHITECTURE.md "Audit trail" says which events carry an actor). JSON, the default:
+
+```
+{ "id", "title", "pr": { "number": n|null, "mergeMethod": s|null, "merged": bool },
+  "rows": [ { "ts", "job", "actor": { "login", "source" }|null, "action", "note": s|null, "detail": s|null } ] }
+```
+
+A row is an event with an actor (`action` is the `human` event's action, else the event type), a gate transition (`gate:<waitingOn>` into a wait, `gate-cleared:<waitingOn>` out of one, with the reason as `note`), `pr-opened`, or `pr-merged` / `pr-auto-merge`. `detail` is a one-line summary per type: budget keys, the PR number and merge method, the linked ref, the permission tool and decision, the mode, a config key's change. An unknown job exits 1.
+
+`forge audit --since <date> [--until <date>] [--csv]` prints the same rows for every job and for the repo-level log (`.forge/runtime/audit.jsonl`, where `job` is null), with `since <= ts < until`, sorted by time then job id: `{ "since", "until", "rows" }`. A date is `YYYY-MM-DD` (UTC midnight) or a full ISO timestamp with its zone, and `--until` defaults to now. A missing or invalid date, or `--until` not after `--since`, exits 2 (`usage`).
+
+`--csv` prints RFC 4180 CSV with the header `ts,job,actor,source,action,note,detail,pr,merge_method` and CRLF line ends. A field containing `,`, `"`, CR or LF is quoted with `"` doubled, and a cell starting with `=`, `+`, `-`, `@`, TAB or CR gets a leading `'` so a spreadsheet reads it as text. `--json` and `--csv` together exit 2.
 ## Support bundle
 
 `forge doctor --bundle [<job>] [--out <dir>] [--include-text]` writes `forge-support-<YYYY-MM-DD>.zip` (local date; `-2`, `-3`… when that name exists, never overwriting a file) to `--out` (default: the current directory, which must exist), mode `0600`. Settings › Diagnostics › **Download support bundle** in `forge dash` builds the same zip for every active job, never with text. The job can also come first: `forge doctor <job> --bundle`. Without a job, the bundle covers every active job and adds the inbox and office session logs. It works in a repo without `.forge/config.yml` (the config is then the defaults).

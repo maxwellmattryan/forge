@@ -10,7 +10,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { policyProblems } from './policy-check.ts';
 import { PINNED_GIT_CONFIG } from './integrity.ts';
-import { jobDir, loadJob, logEvent, updateJob } from './jobs.ts';
+import { isForemanActor, jobDir, loadJob, logEvent, updateJob } from './jobs.ts';
 import { globToRegExp, inSpec, resolveBase } from './scope.ts';
 import type { Config, Job, JobEvent, ProtectedHit, ProtectedPaths, ProtectedRule } from './types.ts';
 import { ForgeError, now, run, writeTextAtomic } from './util.ts';
@@ -360,7 +360,7 @@ export function protectedApproved(flag: ProtectedPaths | null | undefined, event
   if (!flag || !Array.isArray(flag.hits) || !flag.hits.length) return true;
   const at = typeof flag.at === 'string' ? flag.at : '';
   return events.some((e, i) => {
-    if (e.type !== 'human' || e.action !== 'approve' || e.actor === 'foreman' || typeof e.ts !== 'string' || !(e.ts > at)) return false;
+    if (e.type !== 'human' || e.action !== 'approve' || isForemanActor(e) || typeof e.ts !== 'string' || !(e.ts > at)) return false;
     const park = events.slice(0, i).findLast((t) => t.type === 'transition');
     const to = (park?.to ?? {}) as { state?: string; waitingOn?: string | null };
     return to.state === 'waiting' && to.waitingOn === 'human' && typeof park?.reason === 'string' && park.reason.startsWith('protected paths');

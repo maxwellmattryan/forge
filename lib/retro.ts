@@ -2,7 +2,7 @@
 // context on judgement rather than on trawling job folders.
 import fs from 'node:fs';
 import path from 'node:path';
-import { listJobs, readEvents, jobDir } from './jobs.ts';
+import { isForemanActor, listJobs, readEvents, jobDir } from './jobs.ts';
 import { listRuns } from './evals.ts';
 import { jobFindings } from './findings.ts';
 import { expiredLearnings, metricValue, readExperiments, readLearnings, verdict } from './learnings.ts';
@@ -88,7 +88,7 @@ export function prepareRetro(
     const events = readEvents(root, j.id);
     const lines: string[] = [];
     for (const e of events) {
-      if (e.type === 'human') lines.push(`- ${e.actor === 'foreman' ? 'foreman' : 'human'} **${e.action}**${e.note ? `: ${String(e.note).slice(0, 400)}` : ''}`);
+      if (e.type === 'human') lines.push(`- ${isForemanActor(e) ? 'foreman' : 'human'} **${e.action}**${e.note ? `: ${String(e.note).slice(0, 400)}` : ''}`);
       if (e.type === 'command' && !e.ok && /^verify-/.test(e.name ?? '')) lines.push(`- verify step failed: ${e.name}`);
       if (e.type === 'integrate-conflicts') lines.push(`- merge conflicts in: ${((e.conflicts ?? []) as string[]).join(', ')}`); // the event lists the conflicted paths
     }

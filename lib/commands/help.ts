@@ -6,6 +6,7 @@ import { forgeVersion } from '../evals.ts';
 import { PLUGIN_ROOT } from '../paths.ts';
 import { ERROR_CODES, ForgeError } from '../util.ts';
 import { jsonFlag, out, parseArgs, usageError } from './args.ts';
+import { HELP as AUDIT } from './audit.ts';
 import { HELP as CONFIG } from './config.ts';
 import { HELP as DAEMON } from './daemon.ts';
 import { HELP as DASH } from './dash.ts';
@@ -167,8 +168,8 @@ export const CORE: HelpGroup[] = [
   },
 ];
 
-const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...REQUESTS, ...DAEMON, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
-const ORDER = ['status', 'next', 'job', 'worktree', 'run', 'stop', 'verify', 'verifiers', 'secrets', 'integrate', 'git', 'pr', 'sync', 'tracker', 'stats', 'roster', 'retro', 'eval', 'requests', 'daemon', 'init', 'migrate', 'config', 'doctor', 'dash', 'version', 'update', 'help'];
+const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...AUDIT, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...REQUESTS, ...DAEMON, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
+const ORDER = ['status', 'next', 'job', 'worktree', 'run', 'stop', 'verify', 'verifiers', 'secrets', 'integrate', 'git', 'pr', 'sync', 'tracker', 'stats', 'audit', 'roster', 'retro', 'eval', 'requests', 'daemon', 'init', 'migrate', 'config', 'doctor', 'dash', 'version', 'update', 'help'];
 
 /** Every command group, in the order the overview lists them. */
 export const GROUPS: HelpGroup[] = ORDER.map((name) => {

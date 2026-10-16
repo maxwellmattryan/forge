@@ -5,9 +5,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { issueLinkStatus, normalizeRef, queryTerms, scoreItems, searchTerms } from './issue-link.ts';
 import type { IssueLinkStatus, ScoredItem } from './issue-link.ts';
-import { isActive, jobDir, listJobs, loadJob, logEvent, requestBody, updateJob } from './jobs.ts';
+import { isActive, jobDir, listJobs, loadJob, logEvent, logHumanEvent, requestBody, updateJob } from './jobs.ts';
 import { ForgeError, fenced, now, writeJsonAtomic } from './util.ts';
-import type { Config, Job, JobSource, Tracker } from './types.ts';
+import type { Config, EventActor, Job, JobSource, Tracker } from './types.ts';
 
 /** The fallback for adapters without search(): never more than this many items are scored. */
 const FALLBACK_LIST = 200;
@@ -107,7 +107,7 @@ export function writeCandidates(root: string, id: string, result: SearchResult, 
 }
 
 /** `forge job link <id> <ref>`: link an existing issue and claim it for the job. */
-export function linkJob(root: string, config: Config, tracker: Tracker, id: string, rawRef: string): { id: string; source: JobSource } {
+export function linkJob(root: string, config: Config, tracker: Tracker, id: string, rawRef: string, actor?: EventActor): { id: string; source: JobSource } {
   if (config.tracker.kind === 'none') throw new ForgeError('tracker.kind is "none": there is no issue to link (record the decision with --none)');
   const ref = normalizeRef(rawRef);
   if (!ref) throw new ForgeError(`invalid ref ${JSON.stringify(String(rawRef).slice(0, 100))}`);
@@ -128,7 +128,7 @@ export function linkJob(root: string, config: Config, tracker: Tracker, id: stri
     j.source = source;
     j.noIssue = null;
   });
-  logEvent(root, job.id, 'linked', { ...source });
+  logHumanEvent(root, job.id, 'linked', { ...source }, actor);
   return { id: job.id, source };
 }
 
@@ -138,24 +138,24 @@ export function issueBody(root: string, id: string): string {
 }
 
 /** `forge job link <id> --create`: a new issue titled after the job, then linked like any other. */
-export function createAndLink(root: string, config: Config, tracker: Tracker, id: string): { id: string; source: JobSource; created: true } {
+export function createAndLink(root: string, config: Config, tracker: Tracker, id: string, actor?: EventActor): { id: string; source: JobSource; created: true } {
   if (config.tracker.kind === 'none') throw new ForgeError('tracker.kind is "none": there is nothing to create an issue in (record the decision with --none)');
   const job = loadJob(root, id);
   if (job.source?.ref) throw new ForgeError(`job ${id} is already linked to ${job.source.ref}`);
   // Title and body go to the adapter as values (GitHub: argv element and stdin), never through a shell.
   const created = tracker.create({ root, config }, { title: job.title, body: issueBody(root, id) });
-  return { ...linkJob(root, config, tracker, id, String(created.ref)), created: true };
+  return { ...linkJob(root, config, tracker, id, String(created.ref), actor), created: true };
 }
 
 /** `forge job link <id> --none`: the human's decision that this job needs no issue. */
-export function markNoIssue(root: string, id: string, reason: string | null): { id: string; noIssue: NonNullable<Job['noIssue']> } {
+export function markNoIssue(root: string, id: string, reason: string | null, actor?: EventActor): { id: string; noIssue: NonNullable<Job['noIssue']> } {
   const job = loadJob(root, id);
   if (job.source?.ref) throw new ForgeError(`job ${id} is already linked to ${job.source.ref}`);
   const noIssue = { reason: reason && reason.trim() ? reason.trim().slice(0, 500) : null, at: now() };
   updateJob(root, id, (j) => {
     j.noIssue = noIssue;
   });
-  logEvent(root, id, 'issue-link', { none: true, reason: noIssue.reason });
+  logHumanEvent(root, id, 'issue-link', { none: true, reason: noIssue.reason }, actor);
   return { id, noIssue };
 }
 

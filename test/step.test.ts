@@ -757,6 +757,8 @@ const rows: Row[] = [
   { name: 'protected paths: PP1 an approve after at, at a protected park, gives DC9', fx: { job: atDecide({ protectedPaths: FLAG() }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22), ...ppPark(23, 25)] }, want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'DC9' } },
   { name: 'PP1 an approve before at does not count', fx: { job: atDecide({ protectedPaths: FLAG(30) }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22), ...ppPark(23, 25)] }, want: { rule: 'PP1' } },
   { name: "PP1 the foreman's approve does not count", fx: { job: atDecide({ protectedPaths: FLAG() }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22), ...ppPark(23, 25, { actor: 'foreman' })] }, want: { rule: 'PP1' } },
+  { name: 'PP1 a v2 foreman actor does not count', fx: { job: atDecide({ protectedPaths: FLAG() }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22), ...ppPark(23, 25, { actor: { login: null, source: 'foreman' } })] }, want: { rule: 'PP1' } },
+  { name: "protected paths: PP1 a v2 person's approve gives DC9", fx: { job: atDecide({ protectedPaths: FLAG() }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22), ...ppPark(23, 25, { actor: { login: 'alice', source: 'gh' } })] }, want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'DC9' } },
   {
     name: 'PP1 an approve at an escalation park does not count',
     fx: {

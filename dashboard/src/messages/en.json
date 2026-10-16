@@ -260,7 +260,9 @@
       "other": "{count} new"
     },
     "agentsTab": "Agents",
-    "foreman": "foreman"
+    "foreman": "foreman",
+    "by": "by {login}",
+    "actorSource": "recorded from {source}"
   },
   "needs": {
     "urgent": "Decisions only you can make",
@@ -280,7 +282,9 @@
     "queuedStatus": "queued",
     "protectedPaths": "Protected paths",
     "protectedMore": "+{count} more",
-    "protectedDiff": "View diff"
+    "protectedDiff": "View diff",
+    "lastActed": "Last acted: {who} · {ago}",
+    "foreman": "Foreman"
   },
   "gate": {
     "foreman": "Foreman deciding",

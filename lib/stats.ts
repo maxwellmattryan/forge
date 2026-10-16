@@ -2,7 +2,7 @@
 // what makes them comparable across every repo Forge runs in and gives the retro loop
 // something stable to improve against.
 import { jobFindings } from './findings.ts';
-import { listJobs, readEvents } from './jobs.ts';
+import { isForemanActor, listJobs, readEvents } from './jobs.ts';
 import type { Job, JobEvent, ReviewerStats, Stats, UsageRow, VerifierStats } from './types.ts';
 
 const median = (xs: number[]): number | null => {
@@ -133,9 +133,9 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
       if (e.usage && (e.usage.totalTokens || e.usage.input || e.usage.output)) agentRunsWithUsage++;
       if (e.usage?.exact) exactRuns++;
     }
-    // An event without `actor` predates the field and was a person's.
-    const foreman = events.filter((e) => e.type === 'human' && e.actor === 'foreman');
-    const human = events.filter((e) => e.type === 'human' && e.actor !== 'foreman');
+    // An event without a foreman actor was a person's (v1 events without one read as `unknown`).
+    const foreman = events.filter((e) => e.type === 'human' && isForemanActor(e));
+    const human = events.filter((e) => e.type === 'human' && !isForemanActor(e));
     humanRework += human.filter((e) => e.action === 'rework').length;
     foremanDecisions += foreman.length;
     foremanRework += foreman.filter((e) => e.action === 'rework').length;

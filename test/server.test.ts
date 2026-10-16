@@ -14,7 +14,7 @@ import { DEV_DIST_DIR } from '../lib/paths.ts';
 import { TURN_LINE } from '../lib/daemon.ts';
 import * as yaml from '../lib/yaml.ts';
 import { API_VERSION as DASH_API_VERSION } from '../dashboard/src/lib/types.ts';
-import { API_VERSION } from '../lib/schema.ts';
+import { API_VERSION, sanitizeLogin } from '../lib/schema.ts';
 
 /** @param {number} port @param {Record<string,string>} headers @param {string} [method] @param {string} [body] */
 function call(port, headers, method = 'GET', body?: any) {
@@ -1007,7 +1007,7 @@ test('/api/state exposes the session pool', async () => {
     .map((f) => fs.readFileSync(path.join(src, f), 'utf8'))
     .join('\n');
   assert.ok(app.includes('/api/requests'), 'read the dashboard sources');
-  assert.equal(DASH_API_VERSION, 21, 'the dashboard reads API_VERSION from src/lib/types.ts');
+  assert.equal(DASH_API_VERSION, 22, 'the dashboard reads API_VERSION from src/lib/types.ts');
   assert.doesNotMatch(app, /launcher|launched/);
 });
 
@@ -1173,7 +1173,7 @@ test('GET /api/about reports versions', async () => {
     assert.equal(r.status, 200);
     const a = JSON.parse(r.text);
     assert.equal(a.forgeVersion, JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version);
-    assert.equal(a.apiVersion, 21);
+    assert.equal(a.apiVersion, 22);
     assert.equal(a.pluginRoot, PLUGIN_ROOT);
     assert.deepEqual(a.schemaVersions, { config: schema.CONFIG_SCHEMA_VERSION, job: schema.JOB_SCHEMA_VERSION, event: schema.EVENT_SCHEMA_VERSION });
     assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'pricing.json'), 'utf8')).asOf);
@@ -1431,7 +1431,7 @@ test('state exposes office session and gateOwner', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 21);
+    assert.equal(st.apiVersion, 22);
     assert.equal(st.daemons.foreman, true);
     assert.equal(st.daemons.office.scope, '_office');
     assert.equal(st.daemons.office.running, false);
@@ -1531,7 +1531,7 @@ test('owner status in /api/state and job detail', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 21);
+    assert.equal(st.apiVersion, 22);
     const byId = Object.fromEntries(st.jobs.map((j) => [j.id, j.ownerStatus]));
     assert.deepEqual(Object.fromEntries(Object.entries(byId).map(([k, v]: [string, any]) => [k, v.status])), { 'j-none': 'none', 'j-live': 'live', 'j-agent': 'live', 'j-stale': 'stale', 'j-dead': 'live' }, 'the time rule only: never dead');
     assert.deepEqual(byId['j-none'], { status: 'none', session: null, since: null, heartbeat: null, agentRunning: false, reason: null, jobSession: false });
@@ -1679,7 +1679,7 @@ test('/api/state and job detail carry effort', async () => {
   try {
     const port = Number(new URL(srv.url).port);
     const s = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(s.apiVersion, 21);
+    assert.equal(s.apiVersion, 22);
     assert.equal(s.config.effort, 'medium');
     const row = (id) => s.jobs.find((j) => j.id === id);
     assert.equal(row(plain).effort, null, 'a v3 job reads as inherit');
@@ -1823,6 +1823,78 @@ test('state carries protectedPaths', async () => {
     assert.deepEqual(byId, { 'j-flag': flag, 'j-old': null });
     const detail = JSON.parse((await get(port, '/api/jobs/j-flag')).body.toString('utf8'));
     assert.deepEqual(detail.job.protectedPaths, flag);
+  } finally {
+    await close();
+    repo.cleanup();
+  }
+});
+
+/** What a dashboard action records: the OS user running `forge dash`. */
+const DASH_ACTOR = { login: sanitizeLogin(os.userInfo().username) || null, source: 'dashboard' };
+const jobEvents = (dir: string, id: string) => fs.readFileSync(path.join(dir, '.forge', 'jobs', id, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+
+test('mode switch on a job scope writes daemon-mode', async () => {
+  const repo = tempRepo();
+  writeConfig(repo.dir, { enabled: true, command: 'claude {session} --permission-mode dontAsk' });
+  const jobA = seedJob(repo.dir, 'job-a');
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const port = Number(new URL(url).port);
+  try {
+    const token = await tokenOf(port);
+    const good = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (p: string, body: unknown) => hit(port, { method: 'POST', path: p, headers: good, body: JSON.stringify(body) });
+    assert.equal((await post('/api/daemon/mode', { scope: jobA, mode: 'auto' })).status, 200);
+    assert.deepEqual(jobEvents(repo.dir, jobA).filter((e) => e.type === 'daemon-mode').map((e) => [e.mode, e.actor]), [['auto', DASH_ACTOR]]);
+    assert.equal((await post('/api/daemon/mode', { scope: '_inbox', mode: 'auto' })).status, 200);
+    assert.equal(jobEvents(repo.dir, jobA).filter((e) => e.type === 'daemon-mode').length, 1, 'the inbox writes to no job');
+
+    // A config change from the dashboard lands in the repo audit log as the dashboard's person.
+    writeConfig(repo.dir, { enabled: false });
+  } finally {
+    await close();
+  }
+  const srv = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const p2 = Number(new URL(srv.url).port);
+  try {
+    const headers = { 'x-forge-token': await tokenOf(p2), origin: `http://127.0.0.1:${p2}`, 'content-type': 'application/json' };
+    const r = await hit(p2, { method: 'POST', path: '/api/config', headers, body: JSON.stringify({ key: 'runtime.effort', value: 'high' }) });
+    assert.equal(r.status, 200, r.text);
+    const audit = fs.readFileSync(path.join(repo.dir, '.forge', 'runtime', 'audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    assert.deepEqual(audit.map((e) => [e.type, e.key, e.value, e.actor]), [['config-set', 'runtime.effort', 'high', DASH_ACTOR]]);
+  } finally {
+    await srv.close();
+    repo.cleanup();
+  }
+});
+
+test('state carries lastHuman', async () => {
+  const repo = tempRepo();
+  writeConfig(repo.dir, { enabled: false });
+  const acted = seedJob(repo.dir, 'j-acted');
+  const legacy = seedJob(repo.dir, 'j-legacy');
+  const quiet = seedJob(repo.dir, 'j-quiet');
+  const lines = (id: string, events: Record<string, unknown>[]) => fs.writeFileSync(path.join(repo.dir, '.forge', 'jobs', id, 'events.jsonl'), events.map((e) => JSON.stringify(e) + '\n').join(''));
+  lines(acted, [
+    { v: 2, ts: '2026-03-01T00:00:00.000Z', type: 'human', action: 'approve', actor: { login: '<b>al</b>', source: 'gh' } },
+    { v: 2, ts: '2026-03-01T00:00:01.000Z', type: 'budget-ack', keys: ['usd'], actor: { login: 'bob', source: 'env' } },
+    { v: 2, ts: '2026-03-01T00:00:02.000Z', type: 'agent-end', role: 'builder' },
+  ]);
+  lines(legacy, [{ v: 1, ts: '2026-03-01T00:00:00.000Z', type: 'human', action: 'rework', actor: 'foreman' }]);
+  lines(quiet, [{ v: 2, ts: '2026-03-01T00:00:00.000Z', type: 'claimed', session: 's' }]);
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const port = Number(new URL(url).port);
+  try {
+    const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
+    assert.equal(st.apiVersion, 22);
+    const by = Object.fromEntries(st.jobs.map((j) => [j.id, j.lastHuman]));
+    assert.deepEqual(by, {
+      [acted]: { ts: '2026-03-01T00:00:01.000Z', type: 'budget-ack', action: null, actor: { login: 'bob', source: 'env' } },
+      [legacy]: { ts: '2026-03-01T00:00:00.000Z', type: 'human', action: 'rework', actor: { login: null, source: 'foreman' } },
+      [quiet]: null,
+    });
+    assert.deepEqual(st.jobs.find((j) => j.id === legacy).lastEvent.actor, { login: null, source: 'foreman' }, 'events reach the dashboard normalised');
+    const detail = JSON.parse((await get(port, `/api/jobs/${acted}`)).body.toString('utf8'));
+    assert.deepEqual(detail.events[0].actor, { login: 'balb', source: 'gh' }, 'a login is sanitised on read');
   } finally {
     await close();
     repo.cleanup();

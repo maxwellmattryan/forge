@@ -2,16 +2,22 @@
 // shapes in memory (and `forge migrate` rewrites them on disk), so a plugin update never
 // strands jobs or configs written by an older version. A file from a *newer* plugin is
 // refused rather than guessed at.
-import type { Job, LoadedJob } from './types.ts';
+import type { EventActor, Job, JobEvent, LoadedJob } from './types.ts';
 
 export const CONFIG_SCHEMA_VERSION = 6;
 export const JOB_SCHEMA_VERSION = 10;
-export const EVENT_SCHEMA_VERSION = 1;
+export const EVENT_SCHEMA_VERSION = 2;
 /**
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 21;
+export const API_VERSION = 22;
+
+/**
+ * Where an event's `actor` came from: lib/actor.ts resolves env, gh, git, os and dashboard; the
+ * foreman's decisions say `foreman`; anything Forge cannot vouch for reads as `unknown`.
+ */
+export const ACTOR_SOURCES = ['env', 'gh', 'git', 'os', 'dashboard', 'foreman', 'unknown'] as const;
 
 export const STAGES = [
   'backlog',
@@ -219,4 +225,63 @@ export function normalizeJob(raw: any): LoadedJob {
 export function serializeJob(job: LoadedJob): Job {
   const { _unsupported, ...rest } = job;
   return { ...rest, schemaVersion: JOB_SCHEMA_VERSION };
+}
+
+/**
+ * A login as Forge stores and prints it: only `[A-Za-z0-9 ._@+-]`, single spaces, at most 100
+ * characters. It runs on every candidate and on every value read back, because a login ends up in
+ * PR bodies, tracker comments and CSV, and the environment, the cache and events.jsonl are all
+ * writable by whoever runs the repo. An empty result means "no login".
+ */
+export function sanitizeLogin(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  return raw.replace(/[^A-Za-z0-9 ._@+-]/g, '').replace(/ +/g, ' ').trim().slice(0, 100).trim();
+}
+
+const isActorSource = (v: unknown): v is EventActor['source'] => (ACTOR_SOURCES as readonly unknown[]).includes(v);
+
+/**
+ * Any stored actor as the v2 object. The legacy strings keep their v1 meaning whatever the event's
+ * version says: `"foreman"` stays the foreman's, so a foreman decision can never read as a person's (protected paths).
+ */
+export function normalizeActor(raw: unknown): EventActor {
+  if (raw === 'foreman') return { login: null, source: 'foreman' };
+  if (raw === 'human') return { login: null, source: 'unknown' };
+  if (typeof raw === 'string') return { login: sanitizeLogin(raw) || null, source: 'unknown' };
+  if (!raw || typeof raw !== 'object') return { login: null, source: 'unknown' };
+  const a = raw as { login?: unknown; source?: unknown };
+  // Whatever its login says, a foreman entry stays the foreman's: a malformed one must not fall to
+  // `unknown`, which protected paths would count as a person's approval.
+  if (a.source === 'foreman') return { login: null, source: 'foreman' };
+  const login = typeof a.login === 'string' ? sanitizeLogin(a.login) || null : null;
+  const valid = (typeof a.login === 'string' || a.login === null) && isActorSource(a.source);
+  return { login, source: valid ? (a.source as EventActor['source']) : 'unknown' };
+}
+
+/** Event migrations keyed by the version they upgrade *from*. Applied on read; files stay as written. */
+const EVENT_MIGRATIONS: Record<number, (e: any) => any> = {
+  // v2 makes `actor` an object `{ login, source }`. A v1 `human` event recorded only "human" or
+  // "foreman" (or nothing, before the field existed); other v1 events had no actor at all.
+  1: (e) => {
+    if (e.type !== 'human') return e;
+    if (e.actor === 'foreman') return { ...e, actor: { login: null, source: 'foreman' } };
+    if (e.actor === undefined || e.actor === 'human') return { ...e, actor: { login: null, source: 'unknown' } };
+    return e;
+  },
+};
+
+/**
+ * One parsed events.jsonl line in the current shape, or null when it is not an event at all. A
+ * line from a newer Forge is kept as written except that its actor is still sanitised.
+ */
+export function normalizeEvent(raw: unknown): JobEvent | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  let e: any = raw;
+  const from = typeof e.v === 'number' ? e.v : 1;
+  if (from <= EVENT_SCHEMA_VERSION) {
+    for (let v = Math.max(1, from); v < EVENT_SCHEMA_VERSION; v++) e = EVENT_MIGRATIONS[v](e);
+    e = { ...e, v: EVENT_SCHEMA_VERSION };
+  }
+  if (e.actor !== undefined) e = { ...e, actor: normalizeActor(e.actor) };
+  return e as JobEvent;
 }

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import readline from 'node:readline/promises';
 import { paths, PLUGIN_ROOT } from '../paths.ts';
+import { currentActor } from '../actor.ts';
 import { setConfigValue } from '../config-set.ts';
 import { apiKeyVars, reapOrphans } from '../daemon.ts';
 import { daemonPlatformProblem } from '../platform.ts';
@@ -65,7 +66,7 @@ async function settleDaemonAuth(root: string, config: Config): Promise<{ note?: 
     rl.close();
   }
   const auth = /^y(es)?$/i.test(answer.trim()) ? 'api-key' : 'subscription';
-  setConfigValue(root, 'daemon.auth', auth);
+  setConfigValue(root, 'daemon.auth', auth, () => currentActor(root));
   config.daemon.auth = auth;
   return { note: `daemon.auth: ${auth} written to .forge/config.yml` };
 }

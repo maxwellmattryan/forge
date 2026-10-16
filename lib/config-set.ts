@@ -3,8 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig, validateConfig } from './config.ts';
 import { ConfigSetError, fieldFor, validateFieldValue } from './config-fields.ts';
+import { logRepoEvent } from './jobs.ts';
 import { exists, paths } from './paths.ts';
-import type { ConfigValue, PostConfigResponse } from './types.ts';
+import type { ConfigValue, EventActor, PostConfigResponse } from './types.ts';
 import { getPath, withLock, writeTextAtomic } from './util.ts';
 import * as yaml from './yaml.ts';
 
@@ -20,8 +21,10 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stri
  * shared write path of `forge config set` and POST /api/config: `value` is already typed.
  * Refuses (and leaves the file untouched) an unknown or read-only key, an invalid value, a
  * layout setIn can't edit safely, and a result with problems validateConfig didn't report before.
+ * A change is recorded in the repo audit log with `actor()`, which is called only then, so an
+ * unchanged value never resolves who asked.
  */
-export function setConfigValue(root: string, key: string, value: ConfigValue): PostConfigResponse {
+export function setConfigValue(root: string, key: string, value: ConfigValue, actor: () => EventActor): PostConfigResponse {
   const p = paths(root);
   const field = fieldFor(key);
   const invalid = validateFieldValue(field, value);
@@ -52,6 +55,7 @@ export function setConfigValue(root: string, key: string, value: ConfigValue): P
     const added = validateConfig(after, root).filter((x) => !had.has(x));
     if (added.length) throw new ConfigSetError('invalid', `${key}: the config would be invalid: ${added.join('; ')}`);
     writeTextAtomic(p.config, next);
+    logRepoEvent(root, 'config-set', { key, previous: previous ?? null, value, changed: true, actor: actor() });
     return { ok: true, key, value, previous, changed: true };
   });
 }
