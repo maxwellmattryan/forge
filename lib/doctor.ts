@@ -3,17 +3,53 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { validateConfig, worktreeRoot } from './config.ts';
 import { apiKeyVars } from './daemon.ts';
+import { deprecationChecks } from './deprecations.ts';
 import { isActive, listJobs } from './jobs.ts';
+import { notifyChecks } from './notify.ts';
 import { paths, exists } from './paths.ts';
+import { dirBytes } from './retention.ts';
 import { SUPPORT_URL, hostInfo, platformTier, posixShell, tierDetail, versionAtLeast } from './platform.ts';
 import type { HostInfo } from './platform.ts';
 import type { Config, DoctorCheck, DoctorReport } from './types.ts';
-import { hasBinary, run } from './util.ts';
+import { hasBinary, readText, run } from './util.ts';
+import { latestReleaseCheck } from './version.ts';
 
 /** package.json `engines`: Node 22.18 is the first with type stripping on by default. */
 export function nodeSupported(version: string): boolean {
   const [major, minor] = version.split('.').map(Number);
   return major > 22 || (major === 22 && minor >= 18);
+}
+
+/** Past this, one of .forge/jobs, .forge/archive or .forge/runtime is worth pruning: 500 MiB. */
+export const STORAGE_WARN_BYTES = 524_288_000;
+
+/** `139.2 MB`: binary units, one decimal past bytes. */
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(1)} ${units[i]}`;
+}
+
+/**
+ * The `storage` check: the size of each of .forge/jobs, .forge/archive and .forge/runtime, measured
+ * with lstat and never through a link (a missing one is 0). Always ok; a warning past `warnBytes`.
+ */
+export function storageCheck(root: string, warnBytes = STORAGE_WARN_BYTES): DoctorCheck {
+  const p = paths(root);
+  const sizes: [string, number][] = [
+    ['jobs', dirBytes(p.jobs)],
+    ['archive', dirBytes(p.archive)],
+    ['runtime', dirBytes(p.runtime)],
+  ];
+  const warn = sizes.some(([, n]) => n > warnBytes);
+  const detail = sizes.map(([k, n]) => `${k} ${formatBytes(n)}`).join(' · ') + (warn ? '; run forge job prune --older-than 30 --dry-run' : '');
+  return { name: 'storage', ok: true, detail, ...(warn ? { warn: true } : {}) };
 }
 
 /** The repo root and worktrees root that sit on the Windows filesystem (/mnt/…) under WSL2. */
@@ -58,6 +94,7 @@ export async function doctor(root: string, config: Config, initialized: boolean,
   if (initialized) {
     const problems = validateConfig(config, root);
     add('config valid', !problems.length, problems.join('; '));
+    checks.push(...deprecationChecks(readText(paths(root).config)));
   }
   const keys = apiKeyVars(process.env);
   if (initialized && config.daemon.enabled && keys.length) {
@@ -86,5 +123,11 @@ export async function doctor(root: string, config: Config, initialized: boolean,
   }
   const unsupported = listJobs(root).filter((j) => j._unsupported);
   if (unsupported.length) add('job schema', false, `${unsupported.length} job(s) from a newer Forge`);
+  checks.push(storageCheck(root));
+  if (initialized) checks.push(...(await notifyChecks(config)));
+  // Last, and bounded: the only network call, and left out entirely when it cannot tell.
+  const release = latestReleaseCheck();
+  if (release) checks.push(release);
+  // Warnings are ok: true, so they never fail the report.
   return { ok: checks.every((c) => c.ok), checks };
 }

@@ -21,6 +21,7 @@ import type {
   Roster,
   Stats,
 } from './types.ts';
+import { bundleFilename } from './diagnostics.ts';
 import { pref } from './prefs.ts';
 import { toast } from './toast.svelte.ts';
 import { VIEWS, buildRequest, pickDrawerFile, queuedMessage, statsQuery } from './view.ts';
@@ -244,6 +245,16 @@ export const postConfig = (key: string, value: ConfigValue): Promise<PostConfigR
 
 /** Takes the token: the server runs git and gh for it. */
 export const fetchDoctor = (): Promise<DoctorResponse> => jsonFetch<DoctorResponse>('/api/doctor', { headers: { 'x-forge-token': forgeToken() } });
+
+/**
+ * The support bundle as a blob and the name to save it under. Takes the token in a header, never in
+ * the URL: the server runs git and gh and reads job logs for it.
+ */
+export async function fetchBundle(): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch('/api/doctor/bundle', { headers: { 'x-forge-token': forgeToken() } });
+  if (!res.ok) throw new Error(errorText(await res.text()) || res.statusText);
+  return { blob: await res.blob(), filename: bundleFilename(res.headers.get('content-disposition')) };
+}
 
 /** Takes the token: the server runs gh for it, on the login's rate limit. */
 export const fetchGitHubPreview = (url: string): Promise<GitHubPreviewResponse> =>

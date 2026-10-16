@@ -3,7 +3,8 @@
      leaves it (lib/popover.ts decides where focus goes). Tab moves through it as if it sat right after its indicator.
      It holds no live region: StatusBar has the one. The chat size (the Foreman's thread) has a fixed height, and its content
      fills the body instead of growing it, so the session log inside is the one scroller and its follow-to-bottom keeps
-     working (the body scrolls only when the room is too short for the log's own header). -->
+     working (the body scrolls only when the room is too short for the log's own header). Every other size is capped at
+     40rem (or the room above the bar, when that is less) and scrolls inside, so none comes near full screen on a desktop. -->
 <script lang="ts">
   import { onMount, type Snippet } from 'svelte';
   import CloseButton from './CloseButton.svelte';
@@ -109,7 +110,7 @@
   role="dialog"
   aria-labelledby="popover-{id}-title"
   tabindex="-1"
-  class="plate solid fixed z-42 flex flex-col bottom-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-2))] max-h-[calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom)_-_2rem)] shadow-(--shadow-overlay) {chat ? 'h-[min(48rem,calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom)_-_2rem))]' : ''}"
+  class="plate solid fixed z-42 flex flex-col bottom-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-2))] shadow-(--shadow-overlay) {chat ? 'max-h-[calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom)_-_2rem)]' : 'max-h-[min(40rem,calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom)_-_2rem))]'} {chat ? 'h-[min(48rem,calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom)_-_2rem))]' : ''}"
   style="left: {place.left}px; width: {place.width}px"
   onfocusout={focusOut}
   onkeydown={key}

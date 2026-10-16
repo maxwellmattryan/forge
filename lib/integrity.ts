@@ -311,7 +311,7 @@ const C_ESCAPES: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 1
  * A `---`/`+++` header path: git appends a tab after names with spaces and C-quotes names with
  * control characters, quotes or backslashes (octal escapes are UTF-8 bytes).
  */
-function unquote(p: string): string {
+export function unquote(p: string): string {
   p = p.replace(/\t$/, '');
   if (p.length < 2 || !p.startsWith('"') || !p.endsWith('"')) return p;
   const src = Buffer.from(p.slice(1, -1), 'utf8');

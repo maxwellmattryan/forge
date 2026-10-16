@@ -51,7 +51,7 @@ export function statsText(s: Stats): string {
   const pct = (x: number | null) => (x === null ? '—' : `${Math.round(x * 100)}%`);
   const q = s.quality;
   const lines = [
-    `jobs ${s.counts.total} (active ${s.counts.active}, done ${s.counts.done}, waiting ${s.counts.waiting}, cancelled ${s.counts.cancelled})`,
+    `jobs ${s.counts.total}${s.counts.archived ? ` (${s.counts.archived} archived)` : ''} (active ${s.counts.active}, done ${s.counts.done}, waiting ${s.counts.waiting}, cancelled ${s.counts.cancelled})`,
     `first-pass review ${pct(q.firstPassReviewRate)} · avg rounds ${q.avgRounds ?? '—'} · verify first-pass ${pct(q.verifyFirstPassRate)} · recurring findings ${q.recurringFindings}`,
     `escalations ${pct(q.escalationRate)} · PRs with human feedback ${pct(q.humanFeedbackOnPrRate)} · human reworks ${q.humanReworks} · spec approved first try ${pct(q.specFirstApprovalRate)}`,
     `human delta after push ${pct(q.humanDeltaRate ?? null)} · median ${q.medianHumanDeltaLines ?? '—'} lines · measured ${q.humanDeltaCoverage?.measured ?? 0}/${q.humanDeltaCoverage?.merged ?? 0}`,
@@ -60,5 +60,8 @@ export function statsText(s: Stats): string {
   ];
   const rv = Object.entries(s.reviewers);
   if (rv.length) lines.push('reviewers: ' + rv.map(([k, v]) => `${k} ${pct(v.changeRate)} changes, ${pct(v.disputeRate)} disputed`).join(' · '));
+  // An older stats.json (or /api/stats) has no verifiers.
+  const vf = Object.entries(s.verifiers ?? {});
+  if (vf.length) lines.push('verifiers: ' + vf.map(([k, v]) => `${k} ${pct(v.hitRate)} hit over ${v.runs} runs, ${v.blocks} blocked`).join(' · '));
   return lines.join('\n');
 }

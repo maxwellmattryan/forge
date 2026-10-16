@@ -2,12 +2,14 @@
 # test/ci-workflow.test.ts fails when the two drift, so edit both together. The windows job is a
 # regression guard outside that list: native Windows is unsupported (docs/SUPPORT.md), and the job
 # only keeps the cheap fixes that let the CLI run there from breaking again.
+# release.yml calls this whole workflow (workflow_call) before it tags a release (docs/RELEASES.md).
 name: CI
 
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
@@ -93,6 +95,24 @@ jobs:
         continue-on-error: true
         run: npm audit
 
+  release-check:
+    name: release check
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Check release metadata
+        run: npm run release:check
+
   windows:
     name: windows (node 22.18.0)
     runs-on: windows-latest
@@ -129,6 +149,7 @@ jobs:
             test/step-e2e.test.ts: runs command templates through sh
             test/verify-e2e.test.ts: runs command templates through sh
             test/verify-groups.test.ts: runs command templates through sh
+            test/verifiers-cli.test.ts: runs command templates through sh
             test/foreman.test.ts: runs sh stubs and hooks it writes
             test/git-commit.test.ts: runs sh stubs and hooks it writes
             test/daemon-cli.test.ts: relies on FIFOs
@@ -148,6 +169,10 @@ jobs:
             test/platform.test.ts: the WSL /mnt/ check resolves POSIX paths, which become drive paths on Windows
             test/secrets.test.ts: a symlinked allowlist is read as a plain file (2 entries where 0 are expected)
             test/secrets-gates.test.ts: forge git commit exits with code failed instead of secret_found
+            test/bundle.test.ts: redaction misses the 8.3 short temp path (C:\Users\RUNNER~1\...), and the trap test cannot create its symlink, FIFO and ANSI-named files
+            test/protected-paths.test.ts: forge git add and commit exit with code failed instead of protected_path
+            test/server-bundle.test.ts: its loopback HTTP requests fail with read ECONNRESET
             test/update.test.ts: updateForge refuses on native Windows in the tests that inject no platform
             test/usage-import.test.ts: agent end --import finds no transcript under the fake HOME, so usage is null
+            test/notify-triggers.test.ts: spawns a detached forge notify send child that holds the temp repo open
         run: node scripts/windows-tests.ts

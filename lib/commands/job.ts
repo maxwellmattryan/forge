@@ -8,7 +8,7 @@ import { budgetCmd, enforceBudget } from '../budget.ts';
 import { OFFICE_REFUSAL, daemonClaimOpts, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
 import { OFFICE_JOB_COMMANDS, checkForemanDecision, checkOfficeSetFor, gateClass, inOffice, isGateClass, maybeEnqueueGate, reservedFor } from '../foreman.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
-import { agentOutputMissing, attachAgent, claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
+import { agentOutputMissing, attachAgent, claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
 import { logSecrets, scanAgentOutputs } from '../secrets.ts';
 import { normalizeRef } from '../issue-link.ts';
 import { exists } from '../paths.ts';
@@ -25,7 +25,10 @@ import { modelFor, resolveEffort } from '../config.ts';
 import { ForgeError, coerce, getPath, run } from '../util.ts';
 import { bodyFrom, list, num, oneOf, req, requireJob, str, usageError } from './args.ts';
 import { mirrorToTracker, startFromRef } from './tracker.ts';
-import type { AgentUsage, Config, Effort, HelpGroup, HumanActor, Job } from '../types.ts';
+import { archiveJob, archiveOlder, prune } from '../retention.ts';
+import type { AgentUsage, ArchiveResult, Config, Effort, HelpGroup, Job } from '../types.ts';
+import { FOREMAN_ACTOR, currentActor } from '../actor.ts';
+import { jobAudit, toCsv } from '../audit.ts';
 
 const NO_JOB: [1, string] = [1, 'no such job'];
 const BODY: [string, string][] = [
@@ -179,6 +182,42 @@ const JOB: HelpGroup = {
       exits: [[1, 'no such job, or an unknown budget key or bad value']],
     },
     {
+      command: 'job audit',
+      args: '<id> [--json|--csv]',
+      summary: "the job's audit trail: who did each human action (best effort, unauthenticated), its gate transitions, and its PR opening and merge, in time order",
+      flags: [
+        ['--json', 'the rows as JSON (the default)'],
+        ['--csv', 'the rows as RFC 4180 CSV with CRLF line ends, formula-like cells prefixed with \''],
+      ],
+      exits: [NO_JOB],
+      docs: ['Audit trail', 'docs/ARCHITECTURE.md#audit-trail'],
+      readme: true,
+    },
+    {
+      command: 'job archive',
+      args: '<id>|--done --older-than D',
+      summary: 'archive a finished job into .forge/archive/<id>.json (its job.json, events and a summary) and delete its job folder; with --done --older-than D, every finished job at least D days old. Stats, audit and retro still read archived jobs',
+      flags: [
+        ['--done', 'every finished job old enough, instead of one id'],
+        ['--older-than D', 'with --done: days since the job finished (an integer, 0 or more)'],
+      ],
+      exits: [[1, 'not eligible, or a daemon session']],
+      docs: ['Retention', 'docs/ARCHITECTURE.md#retention'],
+      readme: true,
+    },
+    {
+      command: 'job prune',
+      args: '--older-than D [--dry-run]',
+      summary: 'archive every eligible finished job at least D days old and delete stale daemon session logs; --dry-run lists what it would free and writes nothing',
+      flags: [
+        ['--older-than D', 'days since the job finished or the log was last written (an integer, 0 or more)'],
+        ['--dry-run', 'list the jobs, refusals and logs with their sizes; change nothing'],
+      ],
+      exits: [[1, 'not eligible, or a daemon session']],
+      docs: ['Retention', 'docs/ARCHITECTURE.md#retention'],
+      readme: true,
+    },
+    {
       command: 'job verdicts',
       args: '<id> [--round N|integration] [--reviewers a,b] [--malformed changes] [--compact]',
       summary: "read a round's review files and record their verdicts once all are in",
@@ -253,6 +292,13 @@ const refuseEffortInDaemon = () => {
   if (process.env.FORGE_DAEMON === '1') throw new ForgeError(EFFORT_DAEMON_REFUSAL);
 };
 
+// Archive and prune delete job folders and session logs: a session misled by tracker text must not
+// wipe the evidence. The retention policy itself still runs from forge sync, since a human set it.
+const refuseRetentionInDaemon = (sub: string) => {
+  const s = daemonScope(process.env);
+  if ('problem' in s || s.daemon) throw new ForgeError(`forge job ${sub} deletes job folders and session logs, which a daemon session may not do; run it from your own terminal`, 1, 'run it from your own terminal');
+};
+
 // `forge stats` and `forge job step` read these from `human` events, so an invented action is refused.
 const HUMAN_ACTIONS = ['approve-spec', 'revise-spec', 'approve-split', 'revise-split', 'approve', 'rework', 'answer'] as const;
 
@@ -276,6 +322,8 @@ const LOCKED_FIELDS: Record<string, string> = {
   schemaVersion: 'forge migrate',
   usage: 'forge job agent',
   effort: 'forge job effort',
+  // A cleared flag would skip the PP1 park; pr open recomputes it anyway.
+  protectedPaths: 'forge git add|commit, forge verify or forge pr open',
   eval: 'forge eval start',
 };
 
@@ -400,7 +448,10 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     case 'claim': {
       const jobId = requireJob(root, id).id;
       refuseInOffice(`it never claims ${jobId}`);
-      const { job, overridden } = claimRespectingDeps(root, jobId, req(str(flags.session, '--session'), '--session'), Boolean(flags.force), daemonClaimOpts(root, jobId));
+      const force = Boolean(flags.force);
+      // Only a forced takeover is a person's decision; a plain claim is the pipeline's own.
+      const opts = { ...daemonClaimOpts(root, jobId), ...(force ? { actor: currentActor(root) } : {}) };
+      const { job, overridden } = claimRespectingDeps(root, jobId, req(str(flags.session, '--session'), '--session'), force, opts);
       return { id: job.id, owner: job.owner, ...(overridden.length ? { dependenciesOverridden: overridden } : {}) };
     }
     case 'release': {
@@ -416,11 +467,11 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       const jobId = job.id;
       const action = oneOf(rest[1], HUMAN_ACTIONS, 'action');
       const note = str(flags.note, '--note');
-      const actor: HumanActor = flags.actor === undefined ? 'human' : oneOf(str(flags.actor, '--actor'), ['human', 'foreman'] as const, 'actor');
+      const who = flags.actor === undefined ? 'human' : oneOf(str(flags.actor, '--actor'), ['human', 'foreman'] as const, 'actor');
       // The office session records only foreman decisions, and only it may: provenance is the
       // daemon scope, so a job session misled by request text can't pass off a decision as the foreman's.
-      if (inOffice() && actor !== 'foreman') throw new ForgeError('the office session records decisions only with --actor foreman', 1);
-      if (actor === 'foreman') checkForemanDecision(root, config, job, action, note, { link: flags.link, reason: flags.reason });
+      if (inOffice() && who !== 'foreman') throw new ForgeError('the office session records decisions only with --actor foreman', 1);
+      if (who === 'foreman') checkForemanDecision(root, config, job, action, note, { link: flags.link, reason: flags.reason });
       // Every check runs before any write, so a refused --link leaves job.json and events untouched.
       const link = flags.link;
       if (link !== undefined && (typeof link !== 'string' || !link.trim())) throw new ForgeError('--link needs <ref>, new or none');
@@ -433,10 +484,12 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       if (action === 'revise-split') setJob(root, jobId, { fields: { splitMode: 'never' } });
       // The link goes first: if it throws, no approval is recorded and the job keeps waiting.
       let linked: unknown;
-      if (link === 'none') linked = markNoIssue(root, jobId, reason ?? null);
-      else if (link === 'new') linked = createAndLink(root, config, await loadTracker(root, config), jobId);
-      else if (typeof link === 'string') linked = linkJob(root, config, await loadTracker(root, config), jobId, link);
-      logEvent(root, jobId, 'human', { action, note: note ?? (rest.slice(2).join(' ') || null), actor });
+      // Resolved after every check, so a refused call never spawns gh to find out who asked.
+      const actor = who === 'foreman' ? FOREMAN_ACTOR : currentActor(root);
+      if (link === 'none') linked = markNoIssue(root, jobId, reason ?? null, actor);
+      else if (link === 'new') linked = createAndLink(root, config, await loadTracker(root, config), jobId, actor);
+      else if (typeof link === 'string') linked = linkJob(root, config, await loadTracker(root, config), jobId, link, actor);
+      logHumanEvent(root, jobId, 'human', { action, note: note ?? (rest.slice(2).join(' ') || null) }, actor);
       return { ok: true, ...(link !== undefined ? { link: linked } : {}) };
     }
     case 'assist':
@@ -561,6 +614,26 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         logEvent(root, jobId, 'decision', d);
       }
       return d;
+    }
+    case 'audit': {
+      if (flags.json && flags.csv) throw usageError(JOB, 'audit');
+      // jobAudit reads an archived job's record once its job dir is gone.
+      const a = jobAudit(root, req(id, 'job id'));
+      return flags.csv ? toCsv(a.rows, () => a.pr) : a;
+    }
+    case 'archive': {
+      refuseRetentionInDaemon('archive');
+      if (flags.done !== undefined || flags['older-than'] !== undefined) {
+        if (id !== undefined || flags.done !== true || flags['older-than'] === undefined) throw usageError(JOB, 'archive');
+        return archiveOlder(root, num(flags['older-than'], '--older-than', { integer: true })!, 'cli');
+      }
+      if (rest.length !== 1) throw usageError(JOB, 'archive');
+      return { archived: [archiveJob(root, req(id, 'job id'), 'cli')], refused: [] } satisfies ArchiveResult;
+    }
+    case 'prune': {
+      refuseRetentionInDaemon('prune');
+      if (rest.length || flags['older-than'] === undefined) throw usageError(JOB, 'prune');
+      return prune(root, num(flags['older-than'], '--older-than', { integer: true })!, { dryRun: flags['dry-run'] === true });
     }
     case 'budget':
       return budgetCmd(root, config, req(id, 'job id'), { set: list(flags.set), ack: Boolean(flags.ack) });

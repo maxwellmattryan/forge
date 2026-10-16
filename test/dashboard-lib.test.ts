@@ -9,6 +9,9 @@ import { fileURLToPath } from 'node:url';
 import { esc, num, usd, ago, pct, tokensShort, dur, clock } from '../dashboard/src/lib/util.ts';
 import { md, inline, safeUrl } from '../dashboard/src/lib/markdown.ts';
 import { STAGE_LABEL, WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
+import { readiness } from '../dashboard/src/lib/backlog.ts';
+import { bundleFilename } from '../dashboard/src/lib/diagnostics.ts';
+import { jobsSummary } from '../dashboard/src/lib/view.ts';
 import * as types from '../dashboard/src/lib/types.ts';
 import * as schema from '../lib/schema.ts';
 
@@ -152,4 +155,32 @@ test('clock: a local HH:MM:SS, or nothing for a missing or unparseable time', ()
   assert.equal(clock(null), '');
   assert.equal(clock(''), '');
   assert.equal(clock('yesterday'), '');
+});
+
+test('backlog readiness', () => {
+  const at = '2026-10-16T00:00:00.000Z';
+  assert.equal(readiness({ needsInfo: true }), 'needs-info');
+  assert.equal(readiness({ needsInfo: true, triage: { ready: true, missing: [], at } }), 'needs-info', 'the mark wins over the cache');
+  assert.equal(readiness({ needsInfo: true, triage: { ready: false, missing: ['scope'], at } }), 'needs-info');
+  assert.equal(readiness({ needsInfo: false, triage: { ready: true, missing: [], at } }), 'ready');
+  assert.equal(readiness({ triage: { ready: true, missing: [], at } }), 'ready');
+  assert.equal(readiness({ needsInfo: false, triage: { ready: false, missing: ['outcome'], at } }), 'untriaged', 'a human cleared the mark');
+  assert.equal(readiness({}), 'untriaged');
+});
+
+test('bundleFilename', () => {
+  assert.equal(bundleFilename('attachment; filename="forge-support-2026-10-16.zip"'), 'forge-support-2026-10-16.zip');
+  assert.equal(bundleFilename('attachment; filename=forge-support-2026-10-16-2.zip'), 'forge-support-2026-10-16-2.zip');
+  for (const bad of [null, '', 'attachment', 'attachment; filename=""', 'attachment; filename="../x.zip"', 'attachment; filename="a/b.zip"', 'attachment; filename="a\\b.zip"', 'attachment; filename="..zip"']) {
+    assert.equal(bundleFilename(bad), 'forge-support.zip', String(bad));
+  }
+});
+
+test('jobsSummary', () => {
+  const en = JSON.parse(read('dashboard/src/messages/en.json'));
+  assert.deepEqual(jobsSummary({ active: 2, done: 5, cancelled: 1, archived: 0 }), { key: 'analytics.jobsSub', params: { active: 2, done: 5, cancelled: 1 } });
+  assert.deepEqual(jobsSummary({ active: 2, done: 5, cancelled: 1 }), { key: 'analytics.jobsSub', params: { active: 2, done: 5, cancelled: 1 } }, 'an older /api/stats without archived');
+  assert.deepEqual(jobsSummary({ active: 2, done: 5, cancelled: 1, archived: 3 }), { key: 'analytics.jobsSubArchived', params: { active: 2, done: 5, cancelled: 1, archived: 3 } });
+  assert.equal(en.analytics.jobsSubArchived, '{active} active · {done} done · {cancelled} cancelled · {archived} archived');
+  assert.match(read('dashboard/src/views/Analytics.svelte'), /jobsSummary\(s\.counts\)/);
 });

@@ -4,13 +4,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, trustDigest, validateConfig } from '../lib/config.ts';
-import { FIELDS } from '../lib/config-fields.ts';
+import { CONFIG_DISCLOSURE, FIELDS, disclosureOf, redactedConfig } from '../lib/config-fields.ts';
 import { COMPLEXITIES, EFFORT_ROLES, EFFORTS } from '../lib/schema.ts';
 import { setConfigValue } from '../lib/config-set.ts';
+import { applyOverlay, overlayProblems } from '../lib/eval-overlay.ts';
 import { getPath } from '../lib/util.ts';
 import { setIn } from '../lib/yaml.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
+const ACTOR = () => ({ login: 'lib-caller', source: 'env' }) as const;
 const FIXTURE = fs.readFileSync(path.join(import.meta.dirname, 'fixtures', 'config-commented.yml'), 'utf8');
 
 /** A scratch repo with the commented fixture as its config (or none). */
@@ -116,7 +118,7 @@ describe('forge config set and get', { concurrency: 4 }, () => {
       assert.ok(at > lines.indexOf('runtime:') && at < lines.indexOf('tracker:'), 'written under runtime:');
       assert.equal(lines.length, FIXTURE.split('\n').length + 1, 'one line added');
       assert.ok(s.read().includes('  diversity: false          # warn on shared model families\n'), 'comments kept');
-      for (const level of EFFORTS) assert.equal(setConfigValue(s.repo.dir, 'runtime.effort', level).value, level);
+      for (const level of EFFORTS) assert.equal(setConfigValue(s.repo.dir, 'runtime.effort', level, ACTOR).value, level);
       const cleared = await s.forge('config', 'set', 'runtime.effort', 'null');
       assert.equal(cleared.code, 0, cleared.err);
       assert.equal(JSON.parse(cleared.out).value, null);
@@ -127,7 +129,7 @@ describe('forge config set and get', { concurrency: 4 }, () => {
       assert.ok(r.err.includes('runtime.effort must be one of low | medium | high | xhigh | max, or null (got "ultra")'), r.err);
       assert.equal(s.read(), before, 'ultra leaves the file byte-identical');
       for (const bad of ['--add-dir=/', 'High', 'high --add-dir /', 3, true, ['high']]) {
-        assert.throws(() => setConfigValue(s.repo.dir, 'runtime.effort', bad as any), (e: any) => e.reason === 'invalid' && e.message.startsWith('runtime.effort must be one of'), String(bad));
+        assert.throws(() => setConfigValue(s.repo.dir, 'runtime.effort', bad as any, ACTOR), (e: any) => e.reason === 'invalid' && e.message.startsWith('runtime.effort must be one of'), String(bad));
         assert.equal(s.read(), before, `${bad} leaves the file byte-identical`);
       }
     } finally {
@@ -187,7 +189,31 @@ describe('forge config set and get', { concurrency: 4 }, () => {
       assert.equal(r.code, 1);
       assert.match(r.err, /pr\.integrationReview/);
       assert.equal(s.read(), before, 'maybe leaves the file byte-identical');
-      assert.throws(() => setConfigValue(s.repo.dir, 'pr.integrationReview', 'maybe'), (e: any) => e.reason === 'invalid');
+      assert.throws(() => setConfigValue(s.repo.dir, 'pr.integrationReview', 'maybe', ACTOR), (e: any) => e.reason === 'invalid');
+    } finally {
+      s.repo.cleanup();
+    }
+  });
+
+  test('config set records the actor', async () => {
+    const s = scratch();
+    const audit = path.join(s.repo.dir, '.forge', 'runtime', 'audit.jsonl');
+    const lines = () => (fs.existsSync(audit) ? fs.readFileSync(audit, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+    try {
+      const set = await s.cli({ FORGE_ACTOR: 'alice' }, 'config', 'set', 'runtime.effort', 'high');
+      assert.equal(set.code, 0, set.err);
+      const [first] = lines();
+      assert.deepEqual({ ...first, ts: undefined }, { v: 2, ts: undefined, type: 'config-set', key: 'runtime.effort', previous: null, value: 'high', changed: true, actor: { login: 'alice', source: 'env' } });
+      const same = await s.cli({ FORGE_ACTOR: 'alice' }, 'config', 'set', 'runtime.effort', 'high');
+      assert.equal(same.code, 0, same.err);
+      assert.equal(lines().length, 1, 'an unchanged value appends nothing');
+      let asked = 0;
+      setConfigValue(s.repo.dir, 'runtime.effort', 'high', () => (asked++, ACTOR()));
+      assert.equal(asked, 0, 'an unchanged value never resolves the actor');
+      // The server passes dashboardActor; its route is covered in server.test.ts.
+      setConfigValue(s.repo.dir, 'runtime.effort', 'low', () => ({ login: 'dash', source: 'dashboard' }));
+      assert.deepEqual(lines().at(-1).actor, { login: 'dash', source: 'dashboard' });
+      assert.equal(lines().at(-1).previous, 'high');
     } finally {
       s.repo.cleanup();
     }
@@ -229,9 +255,33 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     const s = scratch();
     try {
       for (const [key, value] of [['worktrees.generated', ['dist/**']], ['worktrees.generatedBy', 'test']] as const) {
-        assert.throws(() => setConfigValue(s.repo.dir, key, value as any), (e: any) => e.reason === 'locked', key);
+        assert.throws(() => setConfigValue(s.repo.dir, key, value as any, ACTOR), (e: any) => e.reason === 'locked', key);
         assert.equal(s.read(), FIXTURE, `${key}: file unchanged`);
       }
+    } finally {
+      s.repo.cleanup();
+    }
+  });
+
+  test('policy.protectedPaths is locked', async () => {
+    const f = FIELDS.find((x) => x.key === 'policy.protectedPaths');
+    assert.ok(f, 'policy.protectedPaths is in the schema');
+    assert.deepEqual(
+      { section: f.section, type: f.type, editable: f.editable, lockedReason: f.lockedReason, default: f.default },
+      { section: 'pipeline', type: 'object', editable: false, lockedReason: 'names what Forge refuses to write', default: defaults().policy.protectedPaths },
+    );
+    const docs = fs.readFileSync(path.join(ROOT, 'docs', 'CONFIG.md'), 'utf8');
+    assert.ok(docs.includes('protectedPaths:') && docs.includes('## Protected paths'), 'docs/CONFIG.md documents policy.protectedPaths');
+    assert.ok(docs.includes('Paths are code, judgement calls are prose'), 'docs/CONFIG.md states the split');
+    const arch = fs.readFileSync(path.join(ROOT, 'docs', 'ARCHITECTURE.md'), 'utf8');
+    const untrusted = arch.slice(arch.indexOf('Untrusted input'));
+    assert.ok(untrusted.includes('policy.protectedPaths'), 'ARCHITECTURE.md "Untrusted input" names the policy');
+    const s = scratch();
+    try {
+      const r = await s.forge('config', 'set', 'policy.protectedPaths', '[]');
+      assert.notEqual(r.code, 0);
+      assert.match(r.err, /policy\.protectedPaths is not editable with forge config set \(names what Forge refuses to write\)/);
+      assert.equal(s.read(), FIXTURE, 'the file is untouched');
     } finally {
       s.repo.cleanup();
     }
@@ -256,13 +306,41 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     }
   });
 
+  test('notify keys are locked', async () => {
+    for (const [key, reason] of [['notify.webhooks', 'names a URL Forge posts to'], ['notify.command', 'runs a program']]) {
+      const f = FIELDS.find((x) => x.key === key);
+      assert.ok(f, `${key} is in the schema`);
+      assert.equal(f.section, 'pipeline', key);
+      assert.equal(f.editable, false, key);
+      assert.equal(f.lockedReason, reason, key);
+    }
+    assert.equal(disclosureOf('notify'), 'plain');
+    assert.equal(disclosureOf('notify.webhooks'), 'url');
+    assert.equal(disclosureOf('notify.command'), 'command');
+    const c = defaults();
+    c.notify = { webhooks: [{ url: 'https://hooks.example.com/services/T0/B0/SECRETPATH' }], command: './page.sh {title}' };
+    const red = JSON.stringify(redactedConfig(c));
+    assert.ok(!red.includes('SECRETPATH') && !red.includes('hooks.example.com') && !red.includes('page.sh'), 'a support bundle hides both');
+    const s = scratch();
+    try {
+      for (const [key, value] of [['notify.command', 'x'], ['notify.webhooks', '[]']]) {
+        const r = await s.forge('config', 'set', key, value);
+        assert.equal(r.code, 1, key);
+        assert.match(r.err, new RegExp(`${key.replace('.', '\\.')} is not editable`), key);
+      }
+      assert.equal(s.read(), FIXTURE, 'the file is untouched');
+    } finally {
+      s.repo.cleanup();
+    }
+  });
+
   test('field schema is an allowlist over documented keys', async () => {
     const docs = fs.readFileSync(path.join(ROOT, 'docs', 'CONFIG.md'), 'utf8');
     const base = defaults();
     const forbidden = [
       'commands.', 'worktrees.', 'verify', 'git.', 'merge.', 'approver.', 'aiAttribution', 'infra.', 'resources', 'services', 'usage.', 'evals.',
       'review.panel', 'tracker.kind', 'tracker.local.', 'tracker.github.repo', 'tracker.github.comments', 'tracker.github.project.',
-      'daemon.command', 'daemon.allowedTools', 'daemon.enabled', 'daemon.maxConcurrent',
+      'daemon.command', 'daemon.allowedTools', 'daemon.enabled', 'daemon.maxConcurrent', 'notify.',
     ];
     assert.equal(new Set(FIELDS.map((f) => f.key)).size, FIELDS.length, 'keys are unique');
     for (const f of FIELDS) {
@@ -274,7 +352,8 @@ describe('forge config set and get', { concurrency: 4 }, () => {
       assert.equal(f.editable, f.lockedReason === null, `${f.key}: locked fields say why`);
       if (!f.editable) continue;
       // pr.integrationReview only chooses between reviewing and skipping a docs-only conflict review; the rest of pr.* stays locked.
-      assert.match(f.key, /^((pipeline|review|runtime|tracker|dashboard|daemon)\.|pr\.integrationReview$)/, `${f.key} is in an editable section`);
+      // retention.logMaxBytes only moves when a log rotates (1 MiB floor); jobsDays and logsDays delete files and stay locked.
+      assert.match(f.key, /^((pipeline|review|runtime|tracker|dashboard|daemon)\.|pr\.integrationReview$|retention\.logMaxBytes$)/, `${f.key} is in an editable section`);
       for (const p of forbidden) assert.ok(!f.key.startsWith(p), `${f.key} must not be editable (${p})`);
     }
     assert.ok(FIELDS.some((f) => f.key === 'runtime.models.builder' && f.editable));
@@ -388,5 +467,104 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     } finally {
       s.repo.cleanup();
     }
+  });
+});
+
+test('runtime.models.verifier defaults to haiku', () => {
+  const base = defaults();
+  assert.equal(base.runtime.models.verifier, 'haiku');
+  const f = FIELDS.find((x) => x.key === 'runtime.models.verifier');
+  assert.ok(f?.editable, 'an editable field');
+  assert.equal(f.label, 'Verifier model');
+  assert.ok(!(EFFORT_ROLES as readonly string[]).includes('verifier'), 'no runtime.efforts.verifier: an older Forge would reject it');
+  assert.ok(fs.readFileSync(path.join(ROOT, 'docs', 'CONFIG.md'), 'utf8').includes('    verifier: haiku'));
+  const repo = tempRepo();
+  try {
+    assert.deepEqual(overlayProblems(repo.dir, base, { 'runtime.models.verifier': 'sonnet' }), [], 'an eval overlay may set it');
+    assert.equal(applyOverlay(base, { 'runtime.models.verifier': 'sonnet' }).runtime.models.verifier, 'sonnet');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+/** Every leaf key of an object: recursion stops at arrays, empty objects and scalars. */
+function leafKeys(obj: Record<string, unknown>, prefix = ''): string[] {
+  return Object.entries(obj).flatMap(([k, v]) => {
+    const key = prefix ? `${prefix}.${k}` : k;
+    return v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length ? leafKeys(v as Record<string, unknown>, key) : [key];
+  });
+}
+
+describe('config disclosure', { concurrency: 4 }, () => {
+  test('every config key has a disclosure class', () => {
+    const missing = leafKeys(defaults() as unknown as Record<string, unknown>).filter((k) => disclosureOf(k) === null);
+    assert.deepEqual(missing, []);
+    // The longest prefix wins.
+    assert.equal(disclosureOf('worktrees.cleanup'), 'plain');
+    assert.equal(disclosureOf('worktrees.setup'), 'command');
+    assert.equal(disclosureOf('tracker.github.project.statusField'), 'plain');
+    assert.equal(disclosureOf('tracker.github.project.owner'), 'text');
+    assert.equal(disclosureOf('no-such-key'), null);
+    for (const cls of Object.values(CONFIG_DISCLOSURE)) assert.ok(['plain', 'url', 'command', 'path', 'token', 'text'].includes(cls));
+  });
+
+  test('commands, paths, URLs and identities are not plain', () => {
+    const expected: Record<string, string> = {
+      'commands.test': 'command',
+      'commands.build': 'command',
+      'worktrees.setup': 'command',
+      'daemon.command': 'command',
+      'daemon.allowedTools': 'command',
+      services: 'command',
+      'infra.allowed': 'command',
+      'project.instructions': 'path',
+      'project.notes': 'path',
+      'worktrees.root': 'path',
+      'worktrees.copy': 'path',
+      'worktrees.cargo.targetDir': 'path',
+      'worktrees.generated': 'path',
+      'verifyE2e.paths': 'path',
+      'tracker.local.path': 'path',
+      'tracker.github.project.config': 'path',
+      'review.panel': 'path',
+      'tracker.github.repo': 'url',
+      resources: 'url',
+      'project.name': 'text',
+      'project.description': 'text',
+      'tracker.github.ready.assignee': 'text',
+      'tracker.github.project.owner': 'text',
+      'pr.reviewers': 'text',
+      'approver.alwaysEscalate': 'text',
+      'infra.notes': 'text',
+      'foreman.reserved': 'text',
+    };
+    for (const [key, cls] of Object.entries(expected)) assert.equal(disclosureOf(key), cls, key);
+  });
+
+  test('redactedConfig hides non-plain and unknown values', () => {
+    const c = defaults();
+    c.commands.test = 'npm test -- --token x';
+    c.daemon.command = 'claude -p';
+    c.worktrees.setup = ['npm ci', 'make'];
+    c.tracker.github.repo = 'someone/private';
+    c.pr.reviewers = ['alice', 'bob'];
+    c.project.name = '';
+    c.worktrees.copy = [];
+    c.tracker.github.project.statusMap = {};
+    (c as any).mystery = { anything: 'here' };
+    const r = redactedConfig(c) as any;
+    assert.equal(r.commands, '<redacted>');
+    assert.equal(r.daemon.command, '<redacted>');
+    assert.deepEqual(r.worktrees.setup, ['<redacted>', '<redacted>']);
+    assert.equal(r.tracker.github.repo, '<redacted>');
+    assert.deepEqual(r.pr.reviewers, ['<redacted>', '<redacted>']);
+    assert.equal(r.mystery, '<redacted>');
+    assert.equal(r.project.name, '');
+    assert.equal(r.project.description, null);
+    assert.deepEqual(r.worktrees.copy, []);
+    assert.deepEqual(r.tracker.github.project.statusMap, {});
+    assert.equal(r.pipeline.maxRounds, c.pipeline.maxRounds);
+    assert.equal(r.git.base, 'main');
+    assert.deepEqual(r.daemon.enabled, c.daemon.enabled);
   });
 });

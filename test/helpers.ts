@@ -16,6 +16,10 @@ export function scratchGitConfig(git) {
   git('config', 'tag.gpgsign', 'false');
   // Git for Windows defaults to autocrlf=true, which rewrites what tests commit and compare byte for byte.
   git('config', 'core.autocrlf', 'false');
+  // A detached `git maintenance run --auto` after a commit rewrites .git/objects while repoTemplate
+  // copies the directory, and the copy fails with ENOENT.
+  git('config', 'maintenance.auto', 'false');
+  git('config', 'gc.auto', '0');
 }
 
 // Every test file that touches git imports this module, so pinning git's config here covers the
@@ -30,6 +34,9 @@ for (const k of Object.keys(process.env)) if (/^FORGE_DAEMON(_|$)|^GIT_CONFIG_(C
 // Transcript lookups follow Claude Code's own CLAUDE_CONFIG_DIR; tests that fake a HOME must not
 // read the developer's real one instead. Tests that need it set it themselves.
 delete process.env.CLAUDE_CONFIG_DIR;
+// Every human action resolves who did it, and without this the CLI would ask the developer's real
+// gh. Tests of the fallbacks drop it in their own child env.
+process.env.FORGE_ACTOR = 'forge-test';
 // Forge runs configured commands as `$SHELL -lc`. A login profile (nvm, for one) can cost a second
 // per command and reorder PATH, and no test needs one, so commands run in the same shell without -l.
 const NO_LOGIN_SHELL = path.resolve(import.meta.dirname, 'fixtures', 'bin', 'no-login-shell');

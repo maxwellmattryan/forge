@@ -5,11 +5,13 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { daemonProblems, loadConfig, resolveEffort, validateConfig } from './config.ts';
 import { ConfigSetError, FIELDS } from './config-fields.ts';
+import { dashboardActor } from './actor.ts';
 import { setConfigValue } from './config-set.ts';
 import { PERMISSION_MODES, UUID, logBaseOf, readInfo, readLogPage, sessionFiles } from './daemon.ts';
 import type { DaemonOptions } from './daemon.ts';
 import { createPool } from './daemon-pool.ts';
 import type { DaemonPool, PoolState } from './daemon-pool.ts';
+import { buildBundle, bundleFileName } from './bundle.ts';
 import { doctor } from './doctor.ts';
 import { createPreviewer, ghRunner, parseGitHubUrl } from './github-preview.ts';
 import type { GhRunner } from './github-preview.ts';
@@ -24,10 +26,14 @@ import { INBOX_SCOPE, OFFICE_SCOPE, enqueue, listRequests, validJobId, validScop
 import { gateOwner } from './foreman.ts';
 import { loadTracker } from './trackers/index.ts';
 import { roster } from './roster.ts';
+import { readTriageCache } from './triage.ts';
 import { deriveTitle, normalizeTitle } from './title.ts';
 import { agentTranscript, cachedActivity, claudeProjectsDir, openTranscript, ownerTranscript } from './transcripts.ts';
 import type { TranscriptHit } from './transcripts.ts';
+import { redactContext, redactText } from './redact.ts';
 import { getPath, readJson, readText } from './util.ts';
+import { versionInfo } from './version.ts';
+import { zip } from './zip.ts';
 import type {
   AboutResponse,
   AgentActivity,
@@ -46,6 +52,7 @@ import type {
   JobDetail,
   JobEvent,
   JobSource,
+  LastHuman,
   LoadedJob,
   PermissionDecision,
   PostConfigResponse,
@@ -54,6 +61,7 @@ import type {
   PostJobResponse,
   PostRequestResponse,
   TranscriptPage,
+  VersionInfo,
 } from './types.ts';
 
 /** startServer's options. `distDir` is a test seam like `sseMaxAgeMs`. */
@@ -132,6 +140,9 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
   const notBuilt = opts.dev ? DEV_NOT_BUILT : NOT_BUILT;
   const previewGitHub = createPreviewer({ run: opts.ghRun ?? ghRunner(root) });
   const projects = opts.projectsDir ?? claudeProjectsDir();
+  // Once per server: finding the commit can spawn git, and /api/about takes no token. The running
+  // code's commit can't change under a live server (`forge update` restarts the dashboard).
+  const provenance = versionInfo(PLUGIN_ROOT);
   let backlogCache: { at: number; data: BacklogResponse } | null = null;
   /** Open event streams and the session each one follows; MAX_SSE_CLIENTS counts them all. */
   const clients = new Map<http.ServerResponse, string>();
@@ -170,16 +181,24 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
             backlogCache = { at: Date.now(), data: { tracker: config.tracker.kind, items: [], error: (e as Error).message } };
           }
         }
-        return json(res, backlogCache.data);
+        // Read per request, unlike the item list: a triage run shows on the next load, not a minute later.
+        const triage = readTriageCache(root);
+        const { tracker } = backlogCache.data;
+        const items = backlogCache.data.items.map((item) => {
+          const e = triage[`${tracker}:${item.ref}`];
+          return e ? { ...item, triage: { ready: e.ready, missing: e.missing, at: e.at } } : item;
+        });
+        return json(res, { ...backlogCache.data, items } satisfies BacklogResponse);
       }
       if (req.method === 'GET' && p === '/api/config') return json(res, configResponse(root, Boolean(pool?.state().wanted)));
-      if (req.method === 'GET' && p === '/api/about') return json(res, about());
+      if (req.method === 'GET' && p === '/api/about') return json(res, about(provenance));
       if (req.method === 'GET' && p === '/api/doctor') {
         // It spawns git and gh, so it takes the token like a POST.
         if (guardToken(req, res, token)) return;
         const { config, initialized } = loadConfig(root);
         return json(res, { ...(await doctor(root, config, initialized)), at: new Date().toISOString() } satisfies DoctorResponse);
       }
+      if (req.method === 'GET' && p === '/api/doctor/bundle') return supportBundle(req, res, url);
       if (req.method === 'GET' && p === '/api/github/preview') {
         // It spawns gh and spends the login's GitHub rate limit, so it takes the token like a POST.
         if (guardToken(req, res, token)) return;
@@ -250,7 +269,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         // A change would trip the daemon's trust check mid-turn, and only a human may restart it.
         if (pool?.state().wanted) return jsonStatus(res, 409, { error: DAEMON_LOCK });
         try {
-          const r = setConfigValue(root, body.key, body.value);
+          const r = setConfigValue(root, body.key, body.value, dashboardActor);
           if (r.changed) backlogCache = null;
           return json(res, r satisfies PostConfigResponse);
         } catch (e) {
@@ -271,7 +290,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (typeof obj.id !== 'string' || !UUID.test(obj.id)) return jsonStatus(res, 400, { error: 'id must be a permission prompt id' });
         if (!PERMISSION_DECISIONS.includes(obj.decision)) return jsonStatus(res, 400, { error: `decision must be one of ${PERMISSION_DECISIONS.join(', ')}` });
         // Only the decision travels on: what the session gets back is built from claude's own request.
-        if (!pool?.answerPermission(obj.scope, obj.id, obj.decision)) return jsonStatus(res, 404, { error: 'that permission prompt is gone: already answered, or its session stopped' });
+        if (!pool?.answerPermission(obj.scope, obj.id, obj.decision, dashboardActor())) return jsonStatus(res, 404, { error: 'that permission prompt is gone: already answered, or its session stopped' });
         return json(res, poolState());
       }
       if (req.method === 'POST' && p === '/api/daemon/mode') {
@@ -287,7 +306,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (obj.scope !== INBOX_SCOPE && obj.scope !== OFFICE_SCOPE && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
         if (!PERMISSION_MODES.includes(obj.mode)) return jsonStatus(res, 400, { error: `mode must be one of ${PERMISSION_MODES.join(', ')}` });
         // Only a value from that fixed list travels on, to the supervisor's memory and the session's stdin.
-        const r = pool?.setPermissionMode(obj.scope, obj.mode) ?? { error: 'the daemon pool is not ready' };
+        const r = pool?.setPermissionMode(obj.scope, obj.mode, dashboardActor()) ?? { error: 'the daemon pool is not ready' };
         if (r.error) return jsonStatus(res, 409, { error: r.error });
         return json(res, poolState() satisfies PostDaemonModeResponse);
       }
@@ -510,9 +529,44 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
   }
 
   /**
-   * GET /api/daemons/log: a page of one session's log, read backwards from `before`. The scope is
-   * validated before any path is built, the file must resolve inside the daemons dir, and it is
-   * read through one non-blocking descriptor checked to be a regular file.
+   * One session log file opened for reading: 'missing' when it does not exist, 'refused' when it
+   * (or the daemons dir) resolves outside the real daemons dir or is not a regular file. Read
+   * through one non-blocking descriptor checked to be a regular file; the caller closes it.
+   */
+  function openConfinedLog(dirPath: string, file: string): { fd: number; size: number } | 'missing' | 'refused' {
+    let real: string;
+    let dir: string;
+    try {
+      dir = fs.realpathSync(dirPath);
+      real = fs.realpathSync(file);
+    } catch (e) {
+      return (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'refused';
+    }
+    // The daemons dir itself must be where it should be: a symlinked .forge/runtime or daemons
+    // dir would otherwise move the confinement root somewhere else.
+    const expected = path.join(fs.realpathSync(root), path.relative(root, dirPath));
+    if (dir !== expected || !real.startsWith(dir + path.sep)) return 'refused';
+    let fd: number | undefined;
+    try {
+      // O_NONBLOCK: a FIFO planted as the log must not hang the server; fstat rejects it.
+      // `real` is fully resolved, so O_NOFOLLOW only refuses a link swapped in since the check.
+      fd = fs.openSync(real, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOFOLLOW ?? 0));
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile()) {
+        fs.closeSync(fd);
+        return 'refused';
+      }
+      return { fd, size: stat.size };
+    } catch {
+      if (fd !== undefined) fs.closeSync(fd);
+      return 'refused';
+    }
+  }
+
+  /**
+   * GET /api/daemons/log: a page of one session's log, read backwards from `before`, through the
+   * rotated `<scope>.log.1` once paging reaches the start of `<scope>.log` (offsets below logBase).
+   * The scope is validated before any path is built, and each file is opened by openConfinedLog.
    */
   function sessionLog(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
     if (readGuard(req, res)) return;
@@ -523,32 +577,70 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     if (before !== null && !(Number.isSafeInteger(before) && before >= 0)) return jsonStatus(res, 400, { error: 'before must be a log offset' });
     const f = sessionFiles(root, scope);
     const empty: DaemonLogPage = { scope, lines: [], start: 0, end: 0, more: false };
-    let real: string;
-    let dir: string;
+    const opened: number[] = [];
+    const open = (file: string) => {
+      const r = openConfinedLog(f.dir, file);
+      if (typeof r !== 'string') opened.push(r.fd);
+      return r;
+    };
     try {
-      dir = fs.realpathSync(f.dir);
-      real = fs.realpathSync(f.log);
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return json(res, empty);
-      return jsonStatus(res, 404, { error: 'no session log' });
-    }
-    // The daemons dir itself must be where it should be: a symlinked .forge/runtime or daemons
-    // dir would otherwise move the confinement root somewhere else.
-    const expected = path.join(fs.realpathSync(root), path.relative(root, f.dir));
-    if (dir !== expected || !real.startsWith(dir + path.sep)) return jsonStatus(res, 404, { error: 'no session log' });
-    let fd: number | undefined;
-    try {
-      // O_NONBLOCK: a FIFO planted as the log must not hang the server; fstat rejects it.
-      // `real` is fully resolved, so O_NOFOLLOW only refuses a link swapped in since the check.
-      fd = fs.openSync(real, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOFOLLOW ?? 0));
-      const stat = fs.fstatSync(fd);
-      if (!stat.isFile()) return jsonStatus(res, 404, { error: 'no session log' });
-      const page = readLogPage(fd, stat.size, logBaseOf(readInfo(f.info)), { before });
+      const logBase = logBaseOf(readInfo(f.info));
+      if (before !== null && before <= logBase) {
+        // Everything before logBase is in the previous generation, which starts at logBase - its size.
+        const prev = open(`${f.log}.1`);
+        if (prev === 'missing') return json(res, empty);
+        if (prev === 'refused') return jsonStatus(res, 404, { error: 'no session log' });
+        const page = readLogPage(prev.fd, prev.size, Math.max(0, logBase - prev.size), { before });
+        return json(res, { scope, ...page } satisfies DaemonLogPage);
+      }
+      const cur = open(f.log);
+      if (cur === 'refused') return jsonStatus(res, 404, { error: 'no session log' });
+      const page = cur === 'missing' ? { lines: [], start: logBase, end: logBase, more: false } : readLogPage(cur.fd, cur.size, logBase, { before });
+      if (page.start === logBase && !page.more) {
+        // A refused .log.1 (a link or a FIFO) is never read: paging just ends at .log.
+        const prev = open(`${f.log}.1`);
+        if (typeof prev !== 'string' && prev.size > 0) page.more = true;
+        else if (cur === 'missing') return json(res, empty);
+      }
       return json(res, { scope, ...page } satisfies DaemonLogPage);
     } catch {
       return jsonStatus(res, 404, { error: 'no session log' });
     } finally {
-      if (fd !== undefined) fs.closeSync(fd);
+      for (const fd of opened) fs.closeSync(fd);
+    }
+  }
+
+  /**
+   * GET /api/doctor/bundle: the support bundle `forge doctor --bundle` writes, as a download. It
+   * spawns git and gh and reads job logs, so it takes the token header (never a query parameter)
+   * on top of the read guard. The job id is validated before any path is built, and the dashboard
+   * never gets agent text: any other parameter, include-text among them, is ignored.
+   */
+  async function supportBundle(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
+    if (readGuard(req, res) || guardToken(req, res, token)) return;
+    const job = url.searchParams.get('job');
+    if (job !== null && !validJobId(job)) return jsonStatus(res, 400, { error: 'job must be a job id' });
+    if (job !== null && !exists(path.join(jobDir(root, job), 'job.json'))) return jsonStatus(res, 404, { error: 'no such job' });
+    const { config, initialized } = loadConfig(root);
+    try {
+      const date = new Date();
+      const { entries } = await buildBundle(root, config, initialized, { job: job ?? undefined, includeText: false });
+      const body = zip(entries, date);
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="${bundleFileName(date)}"`,
+        'Content-Length': body.length,
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+        'Cross-Origin-Resource-Policy': 'same-origin',
+      });
+      res.end(body);
+    } catch (e) {
+      let message = 'could not build the support bundle';
+      try {
+        message = redactText((e as Error).message, redactContext(root, config)).text;
+      } catch {}
+      jsonStatus(res, 500, { error: message });
     }
   }
 
@@ -645,15 +737,36 @@ const PERMISSION_DECISIONS: readonly PermissionDecision[] = ['allow', 'session',
 const DAEMON_LOCK = 'stop the daemon first: any change to .forge/config.yml stops it, and only a human may start it again';
 const CONFIG_STATUS: Record<ConfigSetError['reason'], number> = { unknown: 400, invalid: 400, locked: 403, uninitialized: 409, 'unsupported-yaml': 409 };
 
+/** A webhook's path and query are its secret (a Slack URL is a bearer token), so the dashboard gets scheme and host. */
+function maskWebhooks(hooks: unknown): unknown {
+  if (!Array.isArray(hooks)) return hooks;
+  return hooks.map((h) => {
+    // A malformed entry may be a bare URL string, so it is masked whole.
+    if (!h || typeof h !== 'object' || Array.isArray(h)) return '<invalid>';
+    let url = '<invalid>';
+    try {
+      const u = new URL(String((h as { url?: unknown }).url));
+      url = `${u.protocol}//${u.host}/…`;
+    } catch {}
+    return { ...h, url };
+  });
+}
+
 function configResponse(root: string, daemonWanted: boolean): ConfigResponse {
   const { config, initialized } = loadConfig(root);
   const values = Object.fromEntries(FIELDS.map((f) => [f.key, getPath(config, f.key) ?? null]));
+  values['notify.webhooks'] = maskWebhooks(values['notify.webhooks']);
+  // A command can embed a webhook URL or an auth header; the field is locked, so the dashboard never needs its text.
+  if (values['notify.command'] !== null) values['notify.command'] = '<set>';
   const lockedBy = !initialized ? 'uninitialized' : daemonWanted ? 'daemon' : null;
   return { initialized, path: '.forge/config.yml', fields: FIELDS, values, problems: initialized ? validateConfig(config, root) : [], writable: lockedBy === null, lockedBy };
 }
 
-/** Read per request: both files are tiny, and a plugin update under a running dash shows up. */
-function about(): AboutResponse {
+/**
+ * The two files are read per request: both are tiny, and a plugin update under a running dash shows
+ * up. The commit comes from `provenance`, computed once at start, so this route never spawns.
+ */
+function about({ commit, installedAs }: Pick<VersionInfo, 'commit' | 'installedAs'>): AboutResponse {
   const plugin = readJson(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'), {});
   const pricing = readJson(path.join(PLUGIN_ROOT, 'lib', 'pricing.json'), {});
   const link = plugin.homepage ?? plugin.repository;
@@ -666,6 +779,8 @@ function about(): AboutResponse {
     pricingAsOf: typeof pricing.asOf === 'string' ? pricing.asOf : null,
     node: process.versions.node,
     links: { repo, docs: repo ? `${repo.replace(/\/$/, '')}/tree/main/docs` : null },
+    commit,
+    installedAs,
   };
 }
 
@@ -770,7 +885,7 @@ function state(root: string, daemons: DaemonPoolState, projects: string): ApiSta
     const events = readEvents(root, j.id);
     const last = events[events.length - 1] ?? null;
     // The time rule only, so polling never spawns `ps`; the job detail adds the daemon proofs.
-    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: ownerStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests) };
+    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: ownerStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events) };
   });
   return {
     apiVersion: API_VERSION,
@@ -793,6 +908,12 @@ function state(root: string, daemons: DaemonPoolState, projects: string): ApiSta
     requests: requests.filter((r) => r.status === 'pending' || r.status === 'in-progress'),
     now: new Date().toISOString(),
   };
+}
+
+/** Who last acted on a job: its last event with an actor (already normalised by readEvents). */
+function lastHuman(events: JobEvent[]): LastHuman | null {
+  const e = events.findLast((x) => x.actor);
+  return e?.actor ? { ts: e.ts, type: e.type, action: typeof e.action === 'string' ? e.action : null, actor: e.actor } : null;
 }
 
 const startMs = (s: string | null | undefined): number => (s ? Date.parse(s) : NaN);

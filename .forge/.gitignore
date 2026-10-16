@@ -3,3 +3,5 @@
 jobs/
 locks/
 runtime/
+# Archive records of finished jobs (forge job archive / prune); each holds a job's events.
+archive/

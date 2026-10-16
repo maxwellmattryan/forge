@@ -1,9 +1,9 @@
-// Shapes of the forge dash HTTP API for API_VERSION 19. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 21. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
 
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 19;
+export const API_VERSION = 22;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 /** lib/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */
@@ -104,8 +104,13 @@ export interface JobOwner {
 /** Why a daemon owner provably let go of a job: ownerYield in lib/daemon-owner.ts. */
 export type YieldReason = 'moved-on' | 'not-running' | 'inbox-handoff';
 
-/** Who recorded a `human` event: a person, or the foreman. */
-export type HumanActor = 'human' | 'foreman';
+/** Where an event's actor came from: ACTOR_SOURCES in lib/schema.ts. */
+export type ActorSource = 'env' | 'gh' | 'git' | 'os' | 'dashboard' | 'foreman' | 'unknown';
+/** Who did a human action; `login` is null for the foreman and when nothing resolved. */
+export interface EventActor {
+  login: string | null;
+  source: ActorSource;
+}
 /** Who owns a waiting job's gate: gateOwner in lib/foreman.ts; null when the job waits on nothing or the foreman is off. */
 export type GateOwner = 'foreman' | 'human' | null;
 
@@ -203,7 +208,7 @@ export interface VerifyRun {
   ok: boolean;
   at: string | null;
   file: string;
-  /** The name of the step that failed (`test`, `integrity`, …), null on a pass. */
+  /** The name of the step that failed (`test`, `integrity`, `secrets`, `protected`, …), null on a pass. */
   failure?: string | null;
 }
 
@@ -258,6 +263,28 @@ export interface Job {
   effort: Effort | null;
   /** The spec's `Complexity:` header, recorded at SP3; picks runtime.effortByComplexity. */
   complexity: Complexity | null;
+  /** Escalate paths the branch changes, recorded by the CLI only: recordProtected in lib/protected.ts. */
+  protectedPaths: ProtectedPaths | null;
+}
+
+/** A changed path an escalate rule matched; `rule` is 1-based and `blob` is null for a deletion. */
+export interface ProtectedHit {
+  path: string;
+  rule: number;
+  glob: string;
+  reason: string;
+  blob: string | null;
+}
+
+/** job.protectedPaths: the escalate paths that need a human approval given after `at`. */
+export interface ProtectedPaths {
+  hits: ProtectedHit[];
+  more: number;
+  at: string;
+  gate: 'add' | 'commit' | 'verify' | 'pr';
+  head: string | null;
+  /** sha256 over every (path, blob) of the set, `more` included; absent on a flag from before it. */
+  digest?: string;
 }
 
 /** tasks.md checkbox counts: progress in lib/jobs.ts. */
@@ -306,8 +333,8 @@ export interface JobEvent {
   text?: string;
   action?: string;
   note?: string | null;
-  /** On `human` events: who decided. Absent on older events, which read as `human`. */
-  actor?: HumanActor;
+  /** On human-action events (lib/actor.ts): who acted, best effort and unauthenticated. */
+  actor?: EventActor;
   [key: string]: unknown;
 }
 
@@ -462,7 +489,15 @@ export interface TranscriptPage {
   more: boolean;
 }
 
-export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner };
+/** The last event that carries an actor: who last acted on a job (lastHuman in lib/server.ts). */
+export interface LastHuman {
+  ts: string;
+  type: string;
+  action: string | null;
+  actor: EventActor;
+}
+
+export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null };
 
 /** Request types the inbox accepts: REQUEST_TYPES in lib/requests.ts. */
 export type RequestType = 'next' | 'run' | 'approve' | 'revise-spec' | 'rework' | 'answer' | 'cancel' | 'resume' | 'sync' | 'eval-run' | 'retro' | 'gate';
@@ -553,11 +588,26 @@ export interface ReviewerStats {
   recurring: number;
 }
 
+/** One verifier's record: computeStats in lib/stats.ts, from `verifiers` record events. */
+export interface VerifierStats {
+  /** Records whose results name it. */
+  runs: number;
+  /** Answers `no`. */
+  fails: number;
+  /** Answers `none`: no valid answer from the verifier model. */
+  unanswered: number;
+  /** `no` or `none` in block mode. */
+  blocks: number;
+  /** fails / runs; null at 0 runs. */
+  hitRate: number | null;
+}
+
 /** GET /api/stats: computeStats in lib/stats.ts. */
 export interface Stats {
   generatedAt: string;
   since: string | null;
-  counts: { total: number; active: number; done: number; cancelled: number; failed: number; waiting: number };
+  /** `archived`: how many of `total` were read from .forge/archive/ (lib/archive.ts). */
+  counts: { total: number; active: number; done: number; cancelled: number; failed: number; waiting: number; archived: number };
   waitingOn: Record<string, number>;
   quality: {
     firstPassReviewRate: number | null;
@@ -588,6 +638,7 @@ export interface Stats {
     byModel: Record<string, UsageRow>;
   };
   reviewers: Record<string, ReviewerStats>;
+  verifiers: Record<string, VerifierStats>;
 }
 
 /** An eval task as served: loadTask in lib/evals.ts minus `dir` and `request`. */
@@ -779,6 +830,8 @@ export interface DoctorCheck {
   name: string;
   ok: boolean;
   detail: string;
+  /** ok, but worth a look; never set with ok: false. */
+  warn?: boolean;
 }
 
 /** What `forge doctor` prints: doctor in lib/doctor.ts. */
@@ -790,6 +843,9 @@ export interface DoctorReport {
 /** GET /api/doctor: doctor in lib/doctor.ts, plus when it ran. */
 export type DoctorResponse = DoctorReport & { at: string };
 
+/** How `forge version --json` names the install: versionInfo in lib/version.ts. */
+export type InstalledAs = 'plugin' | 'clone' | 'unknown';
+
 /** GET /api/about: about in lib/server.ts. */
 export interface AboutResponse {
   forgeVersion: string;
@@ -799,6 +855,9 @@ export interface AboutResponse {
   pricingAsOf: string | null;
   node: string;
   links: { repo: string | null; docs: string | null };
+  /** versionInfo(PLUGIN_ROOT) in lib/version.ts: 40 lowercase hex, or null. */
+  commit: string | null;
+  installedAs: InstalledAs;
 }
 
 /** A CI rollup on a GitHub preview: GitHub's statusCheckRollup, folded to three outcomes; null when nothing ran. */
@@ -912,12 +971,29 @@ export interface TrackerItem {
   priority?: string | null;
   assignees?: string[];
   claimedBy?: string | null;
+  /** Marked needs-info by readiness triage (local `[?]`, GitHub `<prefix>needs-info`): ready lists leave it out. */
+  needsInfo?: boolean;
+}
+
+/** A readiness rubric key a triage verdict can name: TRIAGE_MISSING in lib/triage.ts. */
+export type TriageMissing = 'outcome' | 'acceptance' | 'scope' | 'duplicate';
+
+/** The last triage verdict for an item, from the triage cache (lib/triage.ts). */
+export interface TriageInfo {
+  ready: boolean;
+  missing: TriageMissing[];
+  at: string;
+}
+
+/** A /api/backlog item: the tracker's item plus its last triage verdict, when there is one. */
+export interface BacklogItem extends TrackerItem {
+  triage?: TriageInfo;
 }
 
 /** GET /api/backlog: the handler in lib/server.ts over the tracker's list(). */
 export interface BacklogResponse {
   tracker: string;
-  items: TrackerItem[];
+  items: BacklogItem[];
   error?: string;
 }
 

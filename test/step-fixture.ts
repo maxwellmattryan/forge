@@ -38,6 +38,8 @@ export interface FixtureOpts {
   runtime?: string[];
   evalTask?: StepInput['evalTask'];
   integrationTouched?: StepInput['integrationTouched'];
+  /** `.forge/verifiers/*.md` entries in the main checkout; 0 by default. */
+  verifiers?: number;
   /** Extra existing paths (dirs such as review/round-1). */
   present?: string[];
 }
@@ -99,5 +101,6 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     evalTask: o.evalTask ?? null,
     checklists: Object.fromEntries(config.review.panel.map((p) => [p.name, path.join(PLUGIN_ROOT, 'reviewers', `${p.name}.md`)])),
     integrationTouched: o.integrationTouched ?? null,
+    verifiers: o.verifiers ?? 0,
   };
 }

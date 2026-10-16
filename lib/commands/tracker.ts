@@ -4,9 +4,11 @@ import { DEP_REASON, claimRespectingDeps, refreshDependencyWait, retargetPlan, u
 import { createJob, isActive, listJobs, loadJob, logEvent, readEvents, setJob, claimJob } from '../jobs.ts';
 import * as pr from '../pr.ts';
 import { listRequests } from '../requests.ts';
+import { applyRetention } from '../retention.ts';
 import { searchTerms } from '../issue-link.ts';
 import { clampLimit, publicHits, searchTracker } from '../tracker-link.ts';
 import { loadTracker } from '../trackers/index.ts';
+import { DEFAULT_LIMIT, MAX_LIMIT, applyTriage, prepareTriage } from '../triage.ts';
 import { ForgeError } from '../util.ts';
 import * as wt from '../worktree.ts';
 import { bodyFrom, list, num, req, str, usageError } from './args.ts';
@@ -59,6 +61,19 @@ const TRACKER: HelpGroup = {
       exits: TRACKER_EXITS,
     },
     { command: 'tracker close', args: '<ref> [--reason R]', summary: 'close an item', flags: [['--reason R', 'why, where the tracker records one']], exits: TRACKER_EXITS },
+    {
+      command: 'tracker triage',
+      args: '[--limit N] [--all] | --apply <batch>',
+      summary: 'readiness triage: write a batch of ready and needs-info items for the forge:triage agent, then apply its verdicts (a templated comment and the needs-info mark, or the mark cleared)',
+      flags: [
+        ['--limit N', `at most N ready and N needs-info items (default ${DEFAULT_LIMIT}, at most ${MAX_LIMIT})`],
+        ['--all', 'also judge items unchanged since their last triage'],
+        ['--apply <batch>', "apply the batch's verdicts.json"],
+      ],
+      exits: TRACKER_EXITS,
+      docs: ['Readiness triage', 'docs/TRACKERS.md#readiness-triage'],
+      readme: true,
+    },
   ],
 };
 
@@ -70,7 +85,7 @@ export const HELP: HelpGroup[] = [
       {
         command: 'next',
         args: '[--claim --session S] [--force] [--limit N]',
-        summary: 'resume a queued unowned job (with --claim --session), else the next ready tracker item whose job is not blocked (with --claim, start its job)',
+        summary: 'resume a queued unowned job (with --claim --session), else the next ready tracker item whose job is not blocked, skipping needs-info items (with --claim, start its job)',
         flags: [
           ['--claim', 'claim the work instead of only showing it'],
           ['--session S', 'the session claiming it'],
@@ -118,6 +133,14 @@ export async function trackerCmd(root: string, config: Config, sub: string | und
     case 'close':
       tracker.close(ctx, req(rest[0], 'ref'), { reason: flags.reason });
       return { ok: true };
+    case 'triage': {
+      if (flags.apply !== undefined) {
+        if (flags.all !== undefined) throw new ForgeError('--all and --apply are separate calls', 'usage');
+        return applyTriage(root, config, tracker, req(str(flags.apply, '--apply'), '--apply <batch>'));
+      }
+      const limit = num(flags.limit, '--limit', { integer: true });
+      return prepareTriage(root, config, tracker, { limit: Math.min(MAX_LIMIT, Math.max(1, limit ?? DEFAULT_LIMIT)), all: Boolean(flags.all) });
+    }
     case 'search': {
       let query = rest.join(' ').trim();
       if (!query && typeof flags.job === 'string') query = searchTerms(loadJob(root, flags.job).title).join(' ');
@@ -156,7 +179,8 @@ function resumeQueued(root: string, session: string): Job | null {
 
 /** Ready tracker items, minus those whose active job waits on dependencies (listed as `blocked`). */
 function readyItems(root: string, config: Config, tracker: Tracker, flags: Record<string, any>, limit: number): { ready: TrackerItem[]; blocked: { ref: string; id: string; waitingOn: string[] }[] } {
-  const items = tracker.list({ root, config }, { ready: true, limit });
+  // A custom adapter may return needs-info items in a ready list; triage asked for more first.
+  const items = tracker.list({ root, config }, { ready: true, limit }).filter((i) => !i.needsInfo);
   const blocked: { ref: string; id: string; waitingOn: string[] }[] = [];
   // --force skips nothing. Otherwise an item is blocked when the active job it would resume
   // (the same match startFromRef uses) has unmet dependencies.
@@ -238,6 +262,28 @@ export async function mirrorToTracker(root: string, config: Config, job: Job): P
   }
 }
 
+/**
+ * Once, when sync first sees the merge: names on the issue the person who approved the job's
+ * escalation. The event it logs stops a second post; a failure is logged and never fails the sync.
+ */
+async function commentApproval(root: string, config: Config, job: Job): Promise<void> {
+  if (!job.source?.ref || job.kind === 'eval' || job.source.tracker !== config.tracker.kind) return;
+  const events = readEvents(root, job.id);
+  if (events.some((e) => e.type === 'tracker-approval-comment')) return;
+  const approval = pr.escalationApproval(events);
+  if (!approval) return;
+  const merged = events.findLast((e) => e.type === 'pr-merged');
+  const method = typeof merged?.method === 'string' ? merged.method : config.merge.method;
+  const number = job.pr?.number;
+  try {
+    const tracker = await loadTracker(root, config);
+    tracker.comment({ root, config }, String(job.source.ref), `Merged in #${number} (${method}). Escalation approved by ${pr.approvedBy(approval)}.`);
+    logEvent(root, job.id, 'tracker-approval-comment', { ref: String(job.source.ref), pr: number ?? null });
+  } catch (e) {
+    logEvent(root, job.id, 'tracker-error', { error: (e as Error).message.slice(0, 300) });
+  }
+}
+
 const MERGE_EVENTS = new Set(['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed']);
 
 /** A deferred merge has no GitHub-side queue, so sync surfaces it for the orchestrator to retry. */
@@ -249,7 +295,10 @@ function lastMergeEvent(root: string, id: string): string | null {
  * `forge sync`: PRs and trackers for every job, then stacked-branch retargets, dependency waits and
  * umbrella jobs. `integrating` lists the jobs this sync moved to integrate.
  */
-export async function syncAll(root: string, config: Config): Promise<{ synced: number; results: Record<string, unknown>[]; requests: number; integrating: string[] }> {
+export async function syncAll(
+  root: string,
+  config: Config,
+): Promise<{ synced: number; results: Record<string, unknown>[]; requests: number; integrating: string[]; retention?: { archived: string[]; logs: string[] } }> {
   const results: Record<string, unknown>[] = [];
   const integrating: string[] = [];
   for (const job of listJobs(root).filter((j) => j.kind !== 'eval')) {
@@ -261,6 +310,7 @@ export async function syncAll(root: string, config: Config): Promise<{ synced: n
       if (r.integrate) integrating.push(job.id);
       const after = loadJob(root, job.id);
       await mirrorToTracker(root, config, after);
+      if (r.pr?.state === 'MERGED' && before.state !== 'MERGED') await commentApproval(root, config, after);
       let cleaned = false;
       if (after.state === 'done' && config.worktrees.cleanup === 'on-merge' && after.worktree) {
         try {
@@ -316,6 +366,8 @@ export async function syncAll(root: string, config: Config): Promise<{ synced: n
       results.push({ id: job.id, umbrellaDone: true });
     }
   }
+  // The human's retention policy runs in any session, daemon ones included: they set it, not a request.
+  const retention = applyRetention(root, config, 'policy');
   // Counted last, so it includes the resumes sync queued for the jobs it routed.
-  return { synced: results.length, results, requests: listRequests(root, { status: 'pending' }).length, integrating };
+  return { synced: results.length, results, requests: listRequests(root, { status: 'pending' }).length, integrating, ...(retention ? { retention } : {}) };
 }

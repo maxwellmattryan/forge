@@ -30,6 +30,7 @@ Show the human a 5-8 line summary: stack/kinds, base branch, tracker candidates 
 ## 4. Ask (batch 3: only what's still unknown)
 - Untracked files to copy into worktrees (`suggestions["worktrees.copy"]`, e.g. gitignored CLAUDE.md files and `.env`). Confirm. Never copy secrets the human doesn't want duplicated.
 - Committed build output (only when `suggestions["worktrees.generated"]` is non-empty): confirm the globs as `worktrees.generated`, so `forge integrate` rebuilds them on conflict instead of calling the integrator. Then ask whether `commands.build` is safe to run in the middle of a merge (it must not fail just because its output differs from git, as a `git status` check would). If not, add a regenerate-only command (e.g. `commands.dist`) and set `worktrees.generatedBy` to its name.
+- Protected paths: show `suggestions["policy.protectedPaths"]` as a table (paths, escalate or refuse, reason). It is the default policy with the lockfile rule narrowed to this repo's ecosystems. The CLI refuses `refuse` paths and parks `escalate` paths on a human before a PR ships (docs/CONFIG.md "Protected paths"). Confirm or edit, then write the list as `policy.protectedPaths` in the answers.
 - Rust repos: share one Cargo target dir across worktrees? "Yes, separate shared dir (Recommended)" · "Yes, reuse the main checkout's target/" · "No".
 - Monorepo / multiple services: confirm `services` (name, path, per-service commands).
 - Repo-specific reviewers: for each `repoAgents` entry that is a review/audit agent (e.g. a realtime-safety checker), offer a lens. Create `.forge/reviewers/<name>.md` whose checklist says to follow that agent's instructions file, and add it to the panel.
@@ -45,7 +46,7 @@ forge init write --answers <file>      # merges into an existing config; --force
 forge config validate
 forge doctor
 ```
-Relay any `warnings` from `forge init write`. Fix anything `validate`/`doctor` reports (e.g. `gh auth refresh -s project` for Projects sync. Tell the human, don't run auth commands yourself).
+Relay any `warnings` from `forge init write`. Fix anything `validate`/`doctor` reports (e.g. `gh auth refresh -s project` for GitHub Projects sync. Tell the human, don't run auth commands yourself).
 
 ## 6. Hand over
 Tell the human: the files written; to commit `.forge/` (it's designed to be committed, while runtime state is gitignored inside it); `forge dash --background` for the dashboard; and how to start (`/forge <feature>`, `/forge next`). If instruction files lacked commands, suggest adding them.

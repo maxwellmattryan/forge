@@ -96,6 +96,7 @@ describe('forge job link', { concurrency: 4 }, () => {
       assert.deepEqual(loadJob(s.root, id).source, { tracker: 'local', ref: 'reading-time-badge', url: null });
       assert.match(s.backlog(), new RegExp(`- \\[~\\] Reading time badge → ${id}`));
       assert.deepEqual(readEvents(s.root, id).filter((e) => e.type === 'linked').map((e: any) => e.ref), ['reading-time-badge']);
+      assert.deepEqual(readEvents(s.root, id).find((e) => e.type === 'linked')!.actor, { login: 'forge-test', source: 'env' }, 'the link records who made it');
 
       const before = s.raw(id);
       const again = await s.cli('job', 'link', id, 'reading-time-badge');

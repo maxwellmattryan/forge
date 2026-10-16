@@ -1,14 +1,17 @@
 <!-- The Daemon popover's body. First the Foreman row: the supervisor above this pool, a button that opens the Foreman
      popover (StatusBar's openForeman anchors it on the bar's Foreman indicator), in both branches. Below it, under a
      divider, the pool pill, live/cap and default permissions, the pool error, pool Start/Stop, then one row per session:
-     the Inbox, then each job session in status order. A job row opens
-     that job's pane on the Log tab. The rows say held and waiting themselves, so no chips repeat them; the Inbox log lives
-     in the Inbox popover. StatusBar owns the pool state and act(), so the indicator and this panel agree. Session errors
+     the Inbox session, then each job session in status order, and under them the Inbox session log toggle (remembered
+     under LOG_KEY). A job row opens that job's pane on the Log tab. The rows say held and waiting themselves, so no chips
+     repeat them; permission prompts are answered in the Needs-you popover. StatusBar owns the pool state and act(), so the indicator and this panel agree. Session errors
      and job titles are untrusted and render as text. -->
 <script lang="ts">
   import Icon from '../Icon.svelte';
+  import SessionLog from '../SessionLog.svelte';
   import { TONE_CLASS } from '../../lib/util.ts';
   import { START_HINT, daemonRows, type Pill, type PoolModel } from '../../lib/daemon.ts';
+  import { LOG_KEY } from '../../lib/daemon-log.ts';
+  import { INBOX_SCOPE } from '../../lib/types.ts';
   import type { ForemanIndicator } from '../../lib/statusbar.ts';
   import { S, openDrawer } from '../../lib/app.svelte.ts';
   import { closePopover } from '../../lib/popover.svelte.ts';
@@ -22,6 +25,21 @@
   /** A mode's name, own keys only, so a mode from the server never reads Object.prototype. */
   const named = (mode: string): string => (Object.hasOwn(modeName, mode) ? modeName[mode] : mode);
   const rows = $derived(model ? daemonRows(model, S.data?.jobs ?? []) : []);
+
+  const readOpen = (): boolean => {
+    try {
+      return localStorage.getItem(LOG_KEY) === '1';
+    } catch {
+      return false;
+    }
+  };
+  let inboxOpen = $state(readOpen());
+  function toggleInbox(): void {
+    inboxOpen = !inboxOpen;
+    try {
+      localStorage.setItem(LOG_KEY, inboxOpen ? '1' : '0');
+    } catch {}
+  }
 
   function openJob(id: string): void {
     closePopover('navigate');
@@ -78,6 +96,10 @@
         </li>
       {/each}
     </ul>
+    <div class="border-t border-line pt-3">
+      <button class="btn sm" aria-expanded={inboxOpen ? 'true' : 'false'} onclick={toggleInbox}><Icon name="inbox" />{$t('statusbar.daemon.inboxLog')}</button>
+      {#if inboxOpen}<div class="mt-3 border-t border-line pt-3"><SessionLog scope={INBOX_SCOPE} compact /></div>{/if}
+    </div>
   </div>
 {:else}
   <div class="flex flex-col gap-3">

@@ -128,7 +128,7 @@ export function configHash(root: string, config: Config): string {
   const h = crypto.createHash('sha256');
   h.update(JSON.stringify(config));
   const p = paths(root);
-  for (const dir of [p.reviewers, p.notes]) {
+  for (const dir of [p.reviewers, p.notes, p.verifiers]) {
     if (!exists(dir)) continue;
     for (const f of fs.readdirSync(dir).sort()) h.update(f).update(readText(path.join(dir, f)));
   }

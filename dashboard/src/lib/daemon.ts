@@ -136,7 +136,7 @@ export type DaemonRow =
   | { kind: 'job'; id: string; title: string | null; pill: Pill; mode: DaemonPermissionMode | null };
 
 /**
- * The Daemon popover's session rows: the Inbox first, then one per job session in the model's status order. The Foreman
+ * The Daemon popover's session rows: the Inbox session first, then one per job session in the model's status order. The Foreman
  * supervises the pool and leads the popover in its own row, never among these. A title comes from `jobs` (the /api/state
  * list); it is untrusted text.
  */
