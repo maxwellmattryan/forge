@@ -8,7 +8,7 @@ Read `waitingOn` from `forge job show <job>`, then:
 | Waiting on | Record | Resume with |
 |---|---|---|
 | `spec-approval` | `forge job human <job> approve-spec [--link …] --note "…"` (`--link` only when the job's reason is `spec ready, issue unlinked` and a link was given; see below) | `forge job set <job> --state running` (step builds, or parks on `issue-link` while the job has no issue) |
-| `escalation` or `rounds-exhausted` | `forge job human <job> approve --note "…"` | `forge job set <job> --stage integrate --state running`, or `--stage pr` when the job's stage is already `integrate` |
+| `escalation` or `rounds-exhausted` | `forge job human <job> approve --note "…"` | `forge job set <job> --stage integrate --state running`, or `--stage decide` when the job's stage is already `integrate` |
 | `infra` | `forge job human <job> approve --note "…"` | `forge job set <job> --stage integrate --state running` |
 | `conflicts` | `forge job human <job> approve --note "…"` | `forge job set <job> --stage integrate --state running` (the integrator fixes them) |
 | `budget` | `forge job budget <job> --ack` (or `--set k=v` when the note names limits, e.g. `usd=20`), then `forge job human <job> approve --note "…"` | if `stillExceeded` is empty, `forge job set <job> --state running`; otherwise report it and leave the job waiting |

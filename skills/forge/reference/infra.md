@@ -27,7 +27,7 @@ Requires: <access/roles the human needs>
 ## Rollback
 - <how to undo>
 ```
-**Before-merge** steps: after an `APPROVE`, step sees the runbook's `When: before merge` line and parks the job on `infra` (`--reason "runbook: steps before merge"`); its `tell` names the runbook path. The human runs `/forge continue <id>` or `/forge approve <id>` (or presses "Steps done" in the dashboard) to resume at Integrate.
+**Before-merge** steps: after an `APPROVE`, step sees the runbook's `When: before merge` line and parks the job on `infra` (`--reason "runbook: steps before merge"`); its `tell` names the runbook path. The human runs `/forge continue <id>` or `/forge approve <id>` (or presses "Steps done" in the dashboard) to resume at Integrate, which opens the PR at once when the branch is still up to date.
 **After-merge** steps: proceed to the PR. The PR body (`pr.md`) links the runbook, and the final report repeats it.
 
 ## Work in other repos or teams

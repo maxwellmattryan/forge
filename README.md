@@ -23,11 +23,11 @@
 ⚒️ **Forge** is a lightweight, self-improving **software factory** for AI coding agents. You hand it a feature, a bug or a backlog item. A team of agents plans it, specs it, builds it in its own git worktree, reviews it through the lenses your repo cares about, and opens a pull request, or stops and asks you when only a human can decide.
 
 ```
-request ─► plan ─► spec ─► [design] ─► spec gate ─► build ─► verify ─► review panel ─► decide ─► integrate ─► PR
-                                          (you)        ▲        │          │ CHANGES       │ESCALATE      │
-                                                       └────────┴──────────┘               ▼              ▼
-                                                                                         (you)    sync: merged / feedback /
-                                                                                                  conflicts / CI → continue
+request ─► plan ─► spec ─► [design] ─► spec gate ─► build ─► verify ─► review panel ─► integrate ─► decide ─► PR
+                                          (you)        ▲        │          │ CHANGES                  │ESCALATE   │
+                                                       └────────┴──────────┘                          ▼           ▼
+                                                                                                    (you)  sync: merged / feedback /
+                                                                                                           conflicts / CI → continue
 ```
 
 It ships as a **Claude Code plugin** (an orchestrator skill + 9 agents + a zero-dependency Node CLI + a live dashboard) and works in any repository: each repo only carries a small `.forge/` folder.
