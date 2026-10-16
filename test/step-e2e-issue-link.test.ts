@@ -32,7 +32,7 @@ describe('a job driven by step alone through the issue-link gates', { concurrenc
       await s.f('job', 'set', id, '--state', 'running');
       last = await drive(s, id, steps);
       assert.equal(last.action, 'done', JSON.stringify(last));
-      assert.deepEqual(stagesOf(s.root, id), ['backlog', 'spec', 'build', 'verify', 'review', 'decide', 'integrate', 'pr', 'done']);
+      assert.deepEqual(stagesOf(s.root, id), ['backlog', 'spec', 'build', 'verify', 'review', 'integrate', 'decide', 'pr', 'done']);
       assert.deepEqual(waitsOf(s.root, id), ['spec-approval']);
       assertAgents(s.root, id);
       assert.ok(steps.n < 60, `${steps.n} steps`);
@@ -61,7 +61,7 @@ describe('a job driven by step alone through the issue-link gates', { concurrenc
       await s.f('job', 'set', id, '--state', 'running');
       last = await drive(s, id, steps);
       assert.equal(last.action, 'done', JSON.stringify(last));
-      assert.deepEqual(stagesOf(s.root, id), ['backlog', 'spec', 'build', 'verify', 'review', 'decide', 'integrate', 'pr', 'done']);
+      assert.deepEqual(stagesOf(s.root, id), ['backlog', 'spec', 'build', 'verify', 'review', 'integrate', 'decide', 'pr', 'done']);
       assert.deepEqual(waitsOf(s.root, id), ['spec-approval', 'issue-link']);
       assertAgents(s.root, id);
     } finally {

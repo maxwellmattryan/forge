@@ -254,6 +254,45 @@ describe('secret gates', { concurrency: 4 }, () => {
     }
   });
 
+  test('verify scans a merge resolution that a later commit removed, not the base side', async () => {
+    const s = await scratch();
+    try {
+      const base = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: s.repo.dir, encoding: 'utf8' }).trim();
+      const merge = (wt: string) => {
+        try {
+          execFileSync('git', ['-c', 'user.email=t@e.st', '-c', 'user.name=T', 'merge', '--no-edit', '-q', base], { cwd: wt, stdio: 'pipe' });
+        } catch {
+          // Conflicted: the caller resolves and commits.
+        }
+      };
+      // A clean merge of a base that carries a key: the key is the base's, not the job's.
+      const j = await s.job({ 'f.txt': 'a\nours\nc\n' });
+      write(s.repo.dir, 'base.txt', `old ${token.aws('merge-base')}\n`);
+      write(s.repo.dir, 'f.txt', 'a\ntheirs\nc\n');
+      commitAll(s.repo.dir, 'base side');
+      const clean = await s.job({ 'g.txt': 'fine\n' });
+      merge(clean.wt);
+      let r = await s.verify(clean.id);
+      assert.equal(r.status, 0, JSON.stringify(r.out.failure));
+      assert.equal(r.out.secrets.count, 0);
+
+      // A conflict resolved with a key, then removed: only the merge commit ever held it.
+      const key = token.slack('resolution');
+      merge(j.wt);
+      write(j.wt, 'f.txt', `a\nslack ${key}\nc\n`);
+      commitAll(j.wt, 'resolve');
+      write(j.wt, 'f.txt', 'a\nboth\nc\n');
+      commitAll(j.wt, 'remove it');
+      r = await s.verify(j.id);
+      assert.equal(r.status, 1);
+      assert.equal(r.out.failure.name, 'secrets');
+      assert.ok(r.out.secrets.findings.some((f: any) => f.kind === 'slack-token' && f.path === 'f.txt'), JSON.stringify(r.out.secrets.findings));
+      assert.ok(!s.trail(j.dir).includes(key));
+    } finally {
+      s.cleanup();
+    }
+  });
+
   test('repo config cannot re-encode commit messages past the scan', async () => {
     const s = await scratch();
     try {

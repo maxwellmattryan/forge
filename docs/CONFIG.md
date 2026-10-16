@@ -141,7 +141,7 @@ pr:
   labels: []
   reviewers: []              # GitHub handles/teams to request
   conflicts: ask             # ask | fix | defer (see "Open PRs")
-  updateStrategy: merge      # merge | rebase: how forge integrate updates a branch with an open PR (before a PR: rebase)
+  updateStrategy: merge      # merge | rebase: how forge integrate brings a branch up to date with its base
 
 merge:
   auto: false                # let Forge merge approved PRs (waits for CI, even without branch protection; see README)
@@ -218,7 +218,7 @@ daemon:                      # opt-in headless sessions supervised by `forge das
 `forge sync` (and `forge pr sync <id>`) re-reads every open PR. A job parked on `pr-review` or `conflicts` whose PR has moved under it is handled by these keys:
 
 - **`pr.conflicts`** decides a PR that conflicts with its base. `ask` (the default) waits on `conflicts` until you `/forge approve` it. `fix` has `forge sync` move the job to `integrate` itself, where the integrator resolves the conflicts, re-verifies and runs the integration review. `defer` leaves the job on `pr-review` with a note.
-- **`pr.updateStrategy`** is how a branch with an open PR is updated (`merge` by default, so nothing is force-pushed). A PR that is only behind its base needs no conflict decision, so `forge sync` moves it to `integrate` under every `pr.conflicts` policy, including the default `ask`, and `forge integrate` updates it with this strategy.
+- **`pr.updateStrategy`** is how `forge integrate` brings a branch up to date with its base, before a PR and after one is open (`merge` by default, so nothing is force-pushed). A PR that is only behind its base needs no conflict decision, so `forge sync` moves it to `integrate` under every `pr.conflicts` policy, including the default `ask`, and `forge integrate` updates it with this strategy. `merge` resolves conflicts once per integration, never rewrites pushed commits and never force-pushes. `rebase` gives a linear history, but it replays each job commit, can raise conflicts at each one, and rewrites the branch. `--strategy` on `forge integrate` overrides it for one run.
 
 Both routes have the same guards. The job is not claimed by a live session (the test `forge next` uses, judged inside the job lock), the PR head is the commit Forge pushed (a human push is left alone), and each head is routed once, so a failed integration doesn't loop. Sync never claims the job: with `daemon.enabled` it queues a `resume` for the job's session, and otherwise `forge sync` lists the job under `integrating` for `/forge continue <id>`. `forge pr merge` syncs without routing.
 
@@ -283,7 +283,7 @@ Forge refuses to publish a likely credential, and the check lives in its own cod
 
 | Gate | What it scans | On a finding |
 |---|---|---|
-| `forge verify` | a `secrets` step before the first configured group, clean worktree or not: every non-merge commit in `merge-base..HEAD` on its own (a key added and deleted later is still found), the net diff (what a merge brought in), every commit message, and the staged changes | `block`: the step fails, no configured group runs, the integrity report is still computed. `warn`: the step passes with a reason |
+| `forge verify` | a `secrets` step before the first configured group, clean worktree or not: every non-merge commit in `merge-base..HEAD` on its own (a key added and deleted later is still found), each merge commit's own changes (`git show --remerge-diff`: a conflict resolution, which no ordinary commit holds), the net diff (what a merge brought in), every commit message, and the staged changes | `block`: the step fails, no configured group runs, the integrity report is still computed. `warn`: the step passes with a reason |
 | `forge git commit` | the message, before anything is staged; then the staged diff against HEAD | the message: always refused. Staged content: refused under `block` (the index stays staged), committed under `warn` with `secrets: <n>` in the result |
 | `forge pr open` | the PR title and body exactly as Forge would send them, before any `gh` call or push, even when the PR exists; then the commit range (commits, messages, net diff) of the HEAD it pushes, verified or not (`--force` skips verify, and a HEAD verified by a Forge without the scanner was never scanned), after fetching the base from the remote's push URL into its remote-tracking ref | the text: always refused. The range: refused under `block`, and so is a base fetch that fails |
 | tracker writes | `comment` bodies and `create` titles and bodies, in every adapter (`forge tracker comment\|create`, `forge job link --create`, `job human … --link new`, the split procedure); a custom adapter's `update`/`claim` also have the job's title and reason scanned | always refused |

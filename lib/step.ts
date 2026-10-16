@@ -28,7 +28,7 @@ export const RULES = [
   'B1', 'B2', 'B3', 'B4', 'B5',
   'V1', 'V2', 'V3',
   'RV1', 'RV2', 'RV3', 'RV4', 'RV5', 'RV6', 'RV7', 'RV8',
-  'DC1', 'DC2', 'DC3', 'DC4', 'DC5', 'DC6', 'DC7', 'DC8', 'DC9',
+  'DC1', 'DC2', 'DC3', 'DC4', 'DC5', 'DC6', 'DC7', 'DC8', 'DC9', 'DC10',
   'IG1', 'IG2', 'IG3', 'IG4', 'IG5', 'IG6', 'IG7', 'IG8', 'IG9', 'IG10',
   'PR1', 'PR2', 'PR3', 'PR4', 'PR5',
   // A secret scan stopped the job: park on `human` (SC1, SC3), or scan again once a human approved (SC2).
@@ -269,6 +269,51 @@ function stageSince(x: StepInput): string | null {
   return t?.ts ?? null;
 }
 
+const isPrRework = (x: StepInput) => x.job.pr?.state === 'OPEN';
+
+const stageOf = (side: unknown) => (side as { stage?: string; state?: string; waitingOn?: string | null } | null) ?? {};
+
+/** When the job last left review for another stage, or null for a job whose transitions predate the log. */
+function reviewedAt(x: StepInput): string | null {
+  return lastEvent(x, (e) => e.type === 'transition' && stageOf(e.from).stage === 'review' && stageOf(e.to).stage !== 'review')?.ts ?? null;
+}
+
+/** A gate (any waiting or blocked state) was entered after `ts`. */
+const waitedSince = (x: StepInput, ts: string) =>
+  x.events.some((e) => e.type === 'transition' && after(e.ts, ts) && ['waiting', 'blocked'].includes(String(stageOf(e.to).state)));
+
+/**
+ * The human `approve` events that answered one of the gates in `on`: the job was parked there (in
+ * `stage`, when given) when the human approved. An approve answers the gate it was given at, so a
+ * budget acknowledgement never clears an escalation or a runbook.
+ */
+function gateApprovals(x: StepInput, on: readonly WaitingOn[], stage?: string): JobEvent[] {
+  return x.events.filter((e, i) => {
+    if (e.type !== 'human' || e.action !== 'approve') return false;
+    const park = stageOf(x.events.slice(0, i).findLast((t) => t.type === 'transition')?.to);
+    return park.state === 'waiting' && on.includes(park.waitingOn as WaitingOn) && (!stage || park.stage === stage);
+  });
+}
+
+/** Gates whose human approve means "ship it": an escalation, exhausted rounds, an infra runbook. */
+const SHIP_GATES: readonly WaitingOn[] = ['escalation', 'rounds-exhausted', 'infra'];
+
+/**
+ * Someone already said ship it since the last review: the approver (a non-ESCALATE `decision`), or
+ * a human `approve` at a ship gate that sent the job into this integrate episode, such as one
+ * clearing a rounds-exhausted or approver escalation. An approve inside the episode (IG4 `ask`)
+ * only lets the integrator fix conflicts.
+ */
+function approvedSinceReview(x: StepInput): boolean {
+  const reviewed = reviewedAt(x);
+  if (x.events.some((e) => e.type === 'decision' && e.decision !== 'ESCALATE' && after(e.ts, reviewed))) return true;
+  const since = stageSince(x);
+  return gateApprovals(x, SHIP_GATES).some((e) => after(e.ts, reviewed) && !after(e.ts, since));
+}
+
+/** Where an up-to-date branch goes: the approver judges it first, unless it was approved already or its PR is open. */
+const afterIntegration = (x: StepInput) => (isPrRework(x) || approvedSinceReview(x) ? 'pr' : 'decide');
+
 const splitMode = (x: StepInput) => x.job.splitMode ?? x.config.pipeline.split;
 
 function planningNeeded(x: StepInput): boolean {
@@ -277,8 +322,6 @@ function planningNeeded(x: StepInput): boolean {
   if (mode === 'never') return false;
   return x.request.length > PLAN_AUTO_CHARS || x.request.listLines >= PLAN_AUTO_LINES;
 }
-
-const isPrRework = (x: StepInput) => x.job.pr?.state === 'OPEN';
 
 // ---------- action builders ----------
 
@@ -381,7 +424,7 @@ function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: boolean; 
     // The fix pass: an integration review of this episode's resolution asked for changes.
     const review = lastEvent(x, (e) => e.type === 'integration-review');
     ctx.integration = { conflicts: conflictFiles, regenerated, fix: Boolean(review && review.outcome === 'CHANGES' && after(review.ts, conflicts?.ts)) };
-    ctx.strategy = j.pr?.state === 'OPEN' ? x.config.pr.updateStrategy : 'rebase';
+    ctx.strategy = x.config.pr.updateStrategy;
   }
   const model = modelOf(x.config, role);
   const a = agent(x, role);
@@ -805,12 +848,18 @@ function review(x: StepInput): StepAction {
   }
   if (x.runtime.length) return run(x, 'RV7', ['stop', j.id], 'the review is over: stop the dev server');
   const recorded = j.verdicts[String(j.round)];
-  if (Object.values(recorded).every((r) => r === 'PASS')) return isPrRework(x) ? toStage(x, 'RV8', 'pr', 'the PR rework passed review') : toStage(x, 'RV8', 'decide', 'every lens passed');
+  if (Object.values(recorded).every((r) => r === 'PASS')) {
+    if (isPrRework(x)) return toStage(x, 'RV8', 'pr', 'the PR rework passed review');
+    // Evals never integrate: base drift would skew their scores.
+    if (j.kind === 'eval') return toStage(x, 'RV8', 'decide', 'every lens passed');
+    return toStage(x, 'RV8', 'integrate', 'every lens passed: bring the branch up to date');
+  }
   return toStage(x, 'RV8', 'build', 'a lens asked for changes: next round');
 }
 
 function decideStage(x: StepInput): StepAction {
   const j = x.job;
+  if (j.kind !== 'eval' && isPrRework(x)) return toStage(x, 'DC10', 'pr', 'the PR is open: nothing to decide');
   const ap = agent(x, 'approver');
   if (!startedIn(ap, j.round) || !ended(ap)) return spawn(x, 'DC1', 'approver');
   const m = missingOutput(x, 'approver');
@@ -824,17 +873,29 @@ function decideStage(x: StepInput): StepAction {
     if (!lastEvent(x, (e) => e.type === 'eval-graded')) return run(x, 'DC5', ['eval', 'grade', j.id], 'grade the eval task');
     return toStage(x, 'DC6', 'done', 'the eval task is graded');
   }
-  if (!x.decision.decision) return park(x, 'DC3', 'escalation', 'decision.md has no APPROVE/ESCALATE line');
-  if (x.decision.decision === 'ESCALATE') return park(x, 'DC7', 'escalation', 'approver escalated: see decision.md');
-  if (x.runbookBeforeMerge) return park(x, 'DC8', 'infra', 'runbook: steps before merge');
+  // A human approve given at this gate after the approver ended cleared it, so a job sent back here
+  // (an integrate-stage escalation) isn't parked again on the same stale ESCALATE or runbook. Only
+  // an approve at that gate counts: acknowledging a budget stop clears neither.
+  const cleared = (on: WaitingOn) => gateApprovals(x, [on], 'decide').some((e) => after(e.ts, ap.endedAt));
+  if (!x.decision.decision && !cleared('escalation')) return park(x, 'DC3', 'escalation', 'decision.md has no APPROVE/ESCALATE line');
+  if (x.decision.decision === 'ESCALATE' && !cleared('escalation')) return park(x, 'DC7', 'escalation', 'approver escalated: see decision.md');
+  if (x.runbookBeforeMerge && !cleared('infra')) return park(x, 'DC8', 'infra', 'runbook: steps before merge');
+  // No loop: after integrate → decide with no wait since, this goes to pr. After a wait (or for an
+  // older job that never integrated since review), integrate's IG3/IG5/IG10 reach pr, because the
+  // decision or approval now counts there.
+  const left = lastEvent(x, (e) => e.type === 'transition' && stageOf(e.from).stage === 'integrate' && stageOf(e.to).stage === 'decide');
+  if (left && after(left.ts, reviewedAt(x)) && !waitedSince(x, left.ts)) return toStage(x, 'DC9', 'pr', 'approved on an up-to-date branch');
   return toStage(x, 'DC9', 'integrate', 'approved: bring the branch up to date');
 }
 
 function integrate(x: StepInput): StepAction {
   const j = x.job;
-  // A job set to integrate before transitions were logged has no entry event; anchor on the
-  // decision that sent it here (or the last passing verify), so an earlier episode's events don't count.
-  const since = stageSince(x) ?? lastEvent(x, (e) => e.type === 'decision')?.ts ?? j.verifyRuns.filter((r) => r.ok).at(-1)?.at ?? null;
+  // A job set to integrate before transitions were logged has no entry event; anchor on the later of
+  // the decision that sent it here and the round's first passing verify, so an earlier episode's
+  // events don't count while this episode's integration (and the verify after it) still do.
+  const decided = lastEvent(x, (e) => e.type === 'decision')?.ts ?? null;
+  const verified = j.verifyRuns.find((r) => r.round === j.round && r.ok)?.at ?? null;
+  const since = stageSince(x) ?? (after(decided, verified) ? decided : verified);
   // The first integrate event since the job entered this stage is step's own `forge integrate`;
   // later ones are the integrator's `--keep-conflicts` and `--continue`.
   const first = x.events.find((e) => (e.type === 'integrated' || e.type === 'integrate-conflicts') && after(e.ts, since));
@@ -846,13 +907,17 @@ function integrate(x: StepInput): StepAction {
       if (!runs.length) return run(x, 'IG2', ['verify', j.id], 'the integration brought in new commits');
       if (!runs.at(-1)!.ok) return toStage(x, 'IG2', 'build', 'verify failed after integrating the base');
     }
-    return toStage(x, 'IG3', 'pr', 'the branch is up to date');
+    const next = afterIntegration(x);
+    return toStage(x, 'IG3', next, next === 'pr' ? 'the branch is up to date: open the PR' : 'the branch is up to date: the approver decides');
   }
   const policy = x.config.pr.conflicts;
   const files = Array.isArray(first.conflicts) ? first.conflicts.length : 0;
   const approved = after(human(x, 'approve')?.ts, first.ts);
   if (policy === 'ask' && !approved) return set(x, 'IG4', { state: 'waiting', waitingOn: 'conflicts', reason: `conflicts with base: ${files} files` }, 'a human decides how to resolve conflicts');
-  if (policy === 'defer') return toStage(x, 'IG5', 'pr', 'conflicts deferred by pr.conflicts', { note: 'conflicts with base deferred' });
+  if (policy === 'defer') {
+    const next = afterIntegration(x);
+    return toStage(x, 'IG5', next, next === 'pr' ? 'conflicts deferred by pr.conflicts: open the PR' : 'conflicts deferred by pr.conflicts: the approver decides', { note: 'conflicts with base deferred' });
+  }
   const integrator = agent(x, 'integrator');
   const runs = x.events.filter((e) => e.type === 'agent-start' && e.role === 'integrator' && after(e.ts, first.ts)).length;
   if (!integrator || !after(integrator.startedAt, first.ts)) return spawn(x, 'IG6', 'integrator');
@@ -874,7 +939,10 @@ function integrate(x: StepInput): StepAction {
     }
     return run(x, 'IG9', ['job', 'verdicts', j.id, '--round', 'integration', '--compact'], 'record the integration review');
   }
-  if (fresh.outcome === 'PASS') return toStage(x, 'IG10', 'pr', 'the integration review passed');
+  if (fresh.outcome === 'PASS') {
+    const next = afterIntegration(x);
+    return toStage(x, 'IG10', next, next === 'pr' ? 'the integration review passed: open the PR' : 'the integration review passed: the approver decides');
+  }
   if (runs === 1) return spawn(x, 'IG10', 'integrator', { resume: true });
   return park(x, 'IG10', 'escalation', 'integration review: CHANGES');
 }
