@@ -777,6 +777,32 @@
   & .r { text-align: right; }
 }
 
+/* ---------- graph: the Project view's SVG (views/Project.svelte) ----------
+   Bands are a faint step off the plate's panel; nodes are panel boxes with the strong seam, a component square-cut
+   and a backing service rounded. A selected job's touched components take gleam (a gleam seam on a gleam wash) and
+   its consumers a thinner gleam seam on a fainter wash; everything else dims. Never ember: ember means waiting on
+   you. A build edge is a solid line and a runtime edge is dashed, both arrowed at the dependency. */
+@utility graph-band {
+  & rect { fill: color-mix(in srgb, var(--panel), var(--fg) 4%); stroke: var(--line-soft); stroke-width: 1; }
+  & text { fill: var(--muted); font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em; }
+}
+@utility graph-node {
+  & rect { fill: var(--panel); stroke: var(--line-strong); stroke-width: 1; }
+  & .name { fill: var(--fg); font-family: var(--font-sans); font-size: 13px; font-weight: 500; }
+  & .kind { fill: var(--muted); font-family: var(--font-mono); font-size: 10px; letter-spacing: .10em; text-transform: uppercase; }
+}
+@utility graph-touched {
+  & rect { fill: color-mix(in srgb, var(--panel), var(--gleam) 30%); stroke: var(--gleam); stroke-width: 2.5; }
+}
+@utility graph-consumer {
+  & rect { fill: color-mix(in srgb, var(--panel), var(--gleam) 10%); stroke: var(--gleam); stroke-width: 1.5; }
+}
+@utility graph-dim { opacity: .35; }
+@utility graph-edge { fill: none; stroke: var(--line-strong); stroke-width: 1.25; }
+@utility graph-edge-runtime { stroke-dasharray: 5 4; }
+@utility graph-edge-lit { stroke: var(--gleam); stroke-width: 2; }
+@utility graph-arrow { fill: var(--line-strong); &.lit { fill: var(--gleam); } }
+
 /* ---------- facts: the status bar's stamped row (version, API, sessions, sheet) ---------- */
 @utility facts {
   display: flex;

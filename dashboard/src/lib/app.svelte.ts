@@ -19,6 +19,7 @@ import type {
   PostJobBody,
   PostJobResponse,
   PostRequestResponse,
+  ProjectResponse,
   Roster,
   Stats,
 } from './types.ts';
@@ -80,6 +81,7 @@ class AppState {
   stats = $state.raw<Stats | null>(null);
   evals = $state.raw<EvalsResponse | null>(null);
   roster = $state.raw<Roster | null>(null);
+  project = $state.raw<ProjectResponse | null>(null);
   backlog = $state.raw<BacklogView | null>(null);
   compare = new CompareState();
   drawer = new DrawerState();
@@ -134,6 +136,7 @@ export async function loadView(): Promise<void> {
     if (S.view === 'analytics') S.stats = await api<Stats>(`/api/stats${statsQuery(S.window, Date.now())}`);
     if (S.view === 'evals') S.evals = await api<EvalsResponse>('/api/evals');
     if (S.view === 'agents') S.roster = await api<Roster>('/api/roster');
+    if (S.view === 'project') S.project = await api<ProjectResponse>('/api/project');
     if (S.view === 'backlog') S.backlog = await api<BacklogResponse>('/api/backlog');
   } catch (e) {
     toast(message(e), true);

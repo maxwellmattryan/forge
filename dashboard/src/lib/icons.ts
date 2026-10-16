@@ -23,6 +23,8 @@ export const ICONS = {
   dashboard: [{ el: 'rect', x: '3', y: '3', width: '8', height: '8', rx: '1' }, { el: 'rect', x: '13', y: '3', width: '8', height: '5', rx: '1' }, { el: 'rect', x: '13', y: '11', width: '8', height: '10', rx: '1' }, { el: 'rect', x: '3', y: '14', width: '8', height: '7', rx: '1' }],
   diagnostics: [{ el: 'path', d: 'M2 12h4l2.5-7 4 14 2.5-7h7' }],
   evals: [{ el: 'path', d: 'M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3' }, { el: 'path', d: 'M7.5 15h9' }],
+  // Three nodes and two links: a dependency graph.
+  graph: [{ el: 'circle', cx: '6', cy: '6', r: '2.5' }, { el: 'circle', cx: '18', cy: '12', r: '2.5' }, { el: 'circle', cx: '6', cy: '18', r: '2.5' }, { el: 'path', d: 'M8.3 7.1l7.4 3.8M8.3 16.9l7.4-3.8' }],
   github: [{ el: 'path', d: 'M10 20v-2.5c-3.5 0-5.5-2-5.5-5.5 0-1.3.4-2.4 1.1-3.3-.2-1-.1-2.2.4-3.2 1.2 0 2.4.6 3.3 1.4a10 10 0 0 1 5.4 0c.9-.8 2.1-1.4 3.3-1.4.5 1 .6 2.2.4 3.2.7.9 1.1 2 1.1 3.3 0 3.5-2 5.5-5.5 5.5V20M10 18.5c-2.5.5-3.5-.5-4.5-2' }],
   // A rank insignia: two chevrons, the supervisor above the pool.
   foreman: [{ el: 'path', d: 'M5 11l7-5 7 5' }, { el: 'path', d: 'M5 17l7-5 7 5' }],

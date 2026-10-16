@@ -20,6 +20,7 @@ export const VIEWS = [
   { id: 'agents', icon: 'agents' },
   { id: 'analytics', icon: 'analytics' },
   { id: 'evals', icon: 'evals' },
+  { id: 'project', icon: 'graph' },
 ] as const;
 export type ViewId = (typeof VIEWS)[number]['id'];
 

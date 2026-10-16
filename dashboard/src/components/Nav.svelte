@@ -13,6 +13,7 @@
     agents: $t('nav.agents'),
     analytics: $t('nav.analytics'),
     evals: $t('nav.evals'),
+    project: $t('nav.project'),
   });
   const badge = (id: string): number => (id === 'pipeline' ? counts.active : 0);
 </script>
