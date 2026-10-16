@@ -69,6 +69,18 @@ describe('start-up cache', { concurrency: 4 }, () => {
     }
   });
 
+  // Beside the code it caches, so a sandbox that can write the temp dir but not the plugin can't plant a module.
+  test('defaults to .cache in the plugin root, ignored by git', POSIX, async () => {
+    const r = await forge({});
+    assert.equal(r.stderr, '');
+    assert.equal(r.stdout, await expected());
+    const cache = path.join(ROOT, '.cache');
+    assert.equal(fs.readFileSync(path.join(cache, '.gitignore'), 'utf8'), '*\n');
+    assert.equal(fs.existsSync(stripDir(cache)), STRIPS);
+    const status = await new Promise<string>((resolve) => execFile('git', ['status', '--porcelain', '--ignored=no', '--', '.cache'], { cwd: ROOT, encoding: 'utf8' }, (_e, out) => resolve(out)));
+    assert.equal(status, '');
+  });
+
   test('a cached module is what runs', STRIP, async () => {
     const dir = scratch();
     try {
