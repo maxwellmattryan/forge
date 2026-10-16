@@ -308,7 +308,37 @@ const rows: Row[] = [
       assert.ok(a.brief.includes('Lens: code') && a.brief.includes(`Scope: ${path.join(JOB_DIR, 'scope.md')}`) && a.brief.includes('Checklist: '));
     },
   },
-  { name: 'RV4 spawns the next lens while one runs', fx: { job: inReview({ 'reviewer:code': ag(1, 12) }), events: scoped }, want: { action: 'spawn', role: 'reviewer:tests' } },
+  { name: 'RV4 spawns the next lens while one runs', fx: { job: inReview({ 'reviewer:code': ag(1, 12) }), events: scoped }, want: { action: 'spawn', role: 'reviewer:tests' }, check: (a) => assert.ok(!Object.hasOwn(a, 'spawns')) },
+  {
+    name: 'RV4 batches every unstarted lens of a 4-lens panel',
+    fx: { job: inReview({}, { reviewers: ['code', 'tests', 'security', 'docs'] }), events: scoped },
+    want: { action: 'spawn', role: 'reviewer:code', lens: 'code', parallel: true },
+    check: (a) => {
+      assert.deepEqual(a.spawns.map((s: any) => s.lens), ['tests', 'security', 'docs']);
+      for (const s of a.spawns) {
+        const output = path.join(JOB_DIR, 'review', 'round-1', `${s.lens}.md`);
+        assert.equal(s.action, 'spawn');
+        assert.equal(s.rule, 'RV4');
+        assert.equal(s.parallel, true);
+        assert.equal(s.role, `reviewer:${s.lens}`);
+        assert.equal(s.output, output);
+        assert.equal(typeof s.model, 'string');
+        assert.ok(Object.hasOwn(s, 'effort'));
+        assert.deepEqual(s.start, ['job', 'agent', 'j', 'start', '--role', `reviewer:${s.lens}`, '--model', s.model, '--output', output]);
+        assert.equal(s.startShell, shellLine(s.start));
+        assert.ok(s.brief.includes(`Lens: ${s.lens}`));
+        assert.ok(!Object.hasOwn(s, 'spawns'));
+      }
+      assert.equal(a.spawns.find((s: any) => s.lens === 'security').model, 'opus');
+      assert.deepEqual(Object.keys(a).at(-1), 'spawns');
+    },
+  },
+  {
+    name: 'RV4 batches only the lenses not yet started',
+    fx: { job: inReview({ 'reviewer:code': ag(1, 12), 'reviewer:tests': ag(1, 12) }, { reviewers: ['code', 'tests', 'security', 'docs'] }), events: scoped },
+    want: { action: 'spawn', role: 'reviewer:security' },
+    check: (a) => assert.deepEqual(a.spawns.map((s: any) => s.role), ['reviewer:docs']),
+  },
   { name: 'RV4 a panel model wins', fx: { job: inReview({}, { reviewers: ['security'] }), events: scoped }, want: { action: 'spawn', role: 'reviewer:security', model: 'opus' } },
   { name: 'RV4 a UI lens gets the dev server', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:code': ag(1, 12, 13) }, { reviewers: ['code', 'ui'] }), events: scoped, runtime: ['dev'] }, want: { action: 'spawn', role: 'reviewer:ui' }, check: (a) => assert.ok(a.brief.includes('Dev server: http://localhost:4100')) },
   { name: 'G5 waits once every lens has started', fx: { job: inReview({ 'reviewer:code': ag(1, 12), 'reviewer:tests': ag(1, 12, 13) }), events: scoped }, want: { action: 'wait', waitingOn: 'agents', running: ['reviewer:code'] } },
@@ -511,6 +541,7 @@ function assertSafe(a: StepAction, name: string) {
   }
   if (a.action === 'run') assert.equal(a.shell, shellLine(a.command));
   if (a.action === 'spawn') assert.equal(a.startShell, shellLine(a.start));
+  if (a.action === 'spawn') for (const s of a.spawns ?? []) assertSafe(s, `${name} › ${s.role}`);
 }
 
 for (const row of rows) {
@@ -543,6 +574,19 @@ test('spec-writer template declares Complexity', () => {
   assert.ok(rubric >= 0, 'a rubric follows the template');
   const lines = after.slice(rubric).findIndex((l) => !l.trim());
   assert.ok(lines > 0 && lines <= 4, `rubric is at most 4 lines (${lines})`);
+});
+
+test('retry and integration spawns never batch', () => {
+  let checked = 0;
+  for (const row of rows) {
+    const a = step(fixture(row.fx));
+    if (a.action !== 'spawn') continue;
+    const integration = row.fx.job?.stage === 'integrate' && a.role.startsWith('reviewer:');
+    if (a.rule !== 'M1' && a.rule !== 'RV5' && !integration) continue;
+    assert.ok(!Object.hasOwn(a, 'spawns'), `${row.name}: ${a.rule} ${a.role} carries spawns`);
+    checked++;
+  }
+  assert.ok(checked >= 5, `only ${checked} retry or integration spawns checked`);
 });
 
 test('every rule has a row', () => {

@@ -555,7 +555,7 @@ function decide(x: StepInput): StepAction {
     const on: WaitingOn = j.state === 'blocked' ? 'external' : (j.waitingOn ?? 'external');
     return wait(x, 'G4', on, gateTell(x, on));
   }
-  if (runningRoles(x).length && !(j.stage === 'review' && (nextLens(x) || retryLens(x)))) return wait(x, 'G5', 'agents');
+  if (runningRoles(x).length && !(j.stage === 'review' && (nextLenses(x).length || retryLens(x)))) return wait(x, 'G5', 'agents');
   const blocked = blockedRole(x);
   if (blocked) return spawn(x, 'L1', blocked);
 
@@ -738,10 +738,10 @@ function verify(x: StepInput): StepAction {
   return toStage(x, 'V3', 'build', 'verify failed: back to the builder');
 }
 
-/** RV4: the first lens of this round whose reviewer has not started yet; none once the round's verdicts are recorded. */
-function nextLens(x: StepInput): string | null {
-  if (x.job.verdicts[String(x.job.round)]) return null;
-  return roundLenses(x.job, x.config).find((l) => !startedIn(agent(x, `reviewer:${l}`), x.job.round)) ?? null;
+/** RV4: every lens of this round whose reviewer has not started yet, in panel order; none once the round's verdicts are recorded. */
+function nextLenses(x: StepInput): string[] {
+  if (x.job.verdicts[String(x.job.round)]) return [];
+  return roundLenses(x.job, x.config).filter((l) => !startedIn(agent(x, `reviewer:${l}`), x.job.round));
 }
 
 /** M1 in the review stage: the first lens of this round whose reviewer ended without its review and has not had its retry; none once the round's verdicts are recorded. */
@@ -765,8 +765,13 @@ function review(x: StepInput): StepAction {
   // again here would alternate with that stop forever. Retries before then still get the app.
   const recordedVerdicts = Boolean(j.verdicts[String(j.round)]);
   if (!recordedVerdicts && lenses.some((l) => UI_LENSES.includes(l)) && x.config.commands.dev && !x.runtime.includes('dev')) return run(x, 'RV3', ['run', j.id, 'dev', '--background'], 'UI lenses review the running app');
-  const next = nextLens(x);
-  if (next) return spawn(x, 'RV4', `reviewer:${next}`);
+  // The whole remaining panel in one action so the orchestrator launches it in one message. Each
+  // lens is still recorded by its own `agent start`, so a re-step never lists a started lens.
+  const [first, ...rest] = nextLenses(x);
+  if (first) {
+    const a = spawn(x, 'RV4', `reviewer:${first}`);
+    return rest.length ? { ...a, spawns: rest.map((l) => spawn(x, 'RV4', `reviewer:${l}`)) } : a;
+  }
   // Retries go out back to back like first spawns, even while other reviewers run (G5 lets them through).
   const retry = retryLens(x);
   if (retry) return missingOutput(x, `reviewer:${retry}`)!;

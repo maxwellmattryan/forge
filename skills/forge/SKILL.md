@@ -23,9 +23,9 @@ Procedures: `${CLAUDE_PLUGIN_ROOT}/skills/forge/reference/`; docs: `${CLAUDE_PLU
 
 ## Every invocation (except `update`) starts with
 ```bash
-forge doctor     # first run in a session, or after a failure
+forge doctor     # once per session, and after a failure
 forge sync       # PRs and trackers; cleans merged worktrees
-forge requests   # dashboard/inbox requests: reference/requests.md, before new work
+forge requests   # inbox requests: reference/requests.md, before new work
 ```
 No `.forge/config.yml` (exit 2) → **init** (`reference/init.md`) unless the user asked otherwise.
 Report `sync` results, a line each: merges, PR feedback, conflicts, finished umbrellas, `unblocked: true`/`integrating` (`/forge continue <id>`), `retargeted`. For each `mergeDeferred: true`, run `forge pr merge <id>`.
@@ -46,21 +46,21 @@ Report `sync` results, a line each: merges, PR feedback, conflicts, finished umb
 | `update` | `forge update` only; report `from → to`, each `warnings` and `next` entry, or the error. |
 
 ## Run a job
-Claim it: `forge job claim <id> --session ${CLAUDE_SESSION_ID}`. Exit 3: another live session owns it: tell the human, stop. Exit 4: it waits on dependencies; report, move on (`--force` only when the human asks to stack it on an unmerged dependency).
+Claim it: `forge job claim <id> --session ${CLAUDE_SESSION_ID}`. Exit 3: another live session owns it: tell the human, stop. Exit 4: it waits on dependencies; report, move on (`--force` only if the human asks to stack it on an unmerged dependency).
 
 Then loop: `forge job advance <id> --session ${CLAUDE_SESSION_ID}` (Bash timeout 600000), report each `tell` in `ran`, act on `action`, advance again.
-- `spawn`: run `startShell`. Spawn `agent` as `subagent_type` with `brief` as the prompt, `model` unless `inherit` and `effort` unless null (when `resume` names an agent alive in this session, SendMessage it the brief). On completion: `forge job agent <id> end --role <role> --agent-id <agentId> --import --tokens <total_tokens> --tool-uses <tool_uses> --duration-ms <duration_ms> --summary "<first line of its reply>"`. With `parallel: true`, spawn it in the background and advance at once.
-- `failed: true`: `forge job step <id>`; on the same `rule` and `command`, `forge job note` the `error`, report, stop; else advance again. `capped: true`: note, report, stop. Exit 3: as for the claim.
-- `wait` on `agents`: record each with `agent end` as it notifies; one this session did not spawn (after a restart) ends with `--status lost`.
+- `spawn`: run `startShell`. Spawn `agent` as `subagent_type` with `brief` as the prompt, `model` unless `inherit` and `effort` unless null (if `resume` names a live agent, SendMessage it the brief). On completion: `forge job agent <id> end --role <role> --agent-id <agentId> --import --tokens <total_tokens> --tool-uses <tool_uses> --duration-ms <duration_ms> --summary "<first line of its reply>"`. With `parallel: true`, spawn it in the background and advance at once. With `spawns`, run every entry's `startShell` in one Bash call, then spawn all in one message of background Agent calls.
+- `failed: true`: `forge job step <id>`; same `rule` and `command`: `forge job note` the `error`, report, stop; else advance again. `capped: true`: note, report, stop. Exit 3: as for the claim.
+- `wait` on `agents`: record each with `agent end` as it notifies; one not spawned by this session ends with `--status lost`.
 - `wait` on a gate: report `tell` (for `input`, also `questions.md`) and stop driving it.
-- `procedure`: load `reference` (`reference/split.md`, `retro.md`, `pr-lifecycle.md`) and follow it, then advance.
+- `procedure`: follow `reference` (`reference/split.md`, `retro.md`, `pr-lifecycle.md`), then advance.
 - `done`: report any `tell` and stop.
 - `secret_found` outside advance: `forge job set <id> --state waiting --waiting-on human --reason "secret scan blocked <command>"`, report, stop; never retry or reword.
 
-After `pr` or `done`, `forge retro due`; if `due: true`, tell the human once that `/forge retro` proposes improvements (never run it unasked).
+After `pr` or `done`, `forge retro due`; if `due: true`, tell the human once that `/forge retro` proposes improvements (never run unasked).
 
 ## Parallel jobs
-Drive up to `runtime.maxParallelJobs` jobs at once (a daemon job session drives only its own), advancing each as notifications arrive. `forge job step` is every job's state; keep no table.
+Drive up to `runtime.maxParallelJobs` jobs at once (a daemon job session, only its own), advancing each as notifications arrive. Keep no table.
 
 ## Reporting style
-One short line per job event: the job id and, when blocked, the exact unblock command. Link the dashboard, don't paste tables.
+One short line per job event: the job id and, when blocked, the exact unblock command. Link the dashboard; no tables.
