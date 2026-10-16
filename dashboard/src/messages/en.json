@@ -302,7 +302,13 @@
     "whenRelevant": "when relevant",
     "missing": "missing",
     "learnings": "Every agent also reads",
-    "effortDefault": "Default effort for jobs:"
+    "effortDefault": "Default effort for jobs:",
+    "effort": "Effort",
+    "effortFrom": {
+      "panel": "panel entry",
+      "role": "role setting",
+      "config": "default"
+    }
   },
   "analytics": {
     "title": "Analytics",

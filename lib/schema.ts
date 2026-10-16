@@ -4,14 +4,14 @@
 // refused rather than guessed at.
 import type { Job, LoadedJob } from './types.ts';
 
-export const CONFIG_SCHEMA_VERSION = 3;
-export const JOB_SCHEMA_VERSION = 8;
+export const CONFIG_SCHEMA_VERSION = 4;
+export const JOB_SCHEMA_VERSION = 9;
 export const EVENT_SCHEMA_VERSION = 1;
 /**
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 17;
+export const API_VERSION = 18;
 
 export const STAGES = [
   'backlog',
@@ -21,8 +21,8 @@ export const STAGES = [
   'build',
   'verify',
   'review',
-  'decide',
   'integrate',
+  'decide',
   'pr',
   'done',
 ] as const;
@@ -56,6 +56,12 @@ export const DAEMON_AUTH = ['subscription', 'api-key'] as const;
 /** Reasoning effort levels: runtime.effort and job.effort, passed to claude as --effort and to agents. */
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 
+/** A spec's judged difficulty (its `Complexity:` header), which runtime.effortByComplexity maps to a level. */
+export const COMPLEXITIES = ['low', 'medium', 'high'] as const;
+
+/** The roles runtime.efforts sets, in runtime.models order. No orchestrator: sessions take runtime.effort. */
+export const EFFORT_ROLES = ['planner', 'spec-writer', 'designer', 'builder', 'reviewer', 'approver', 'integrator', 'retro', 'judge'] as const;
+
 /** Config migrations keyed by the version they upgrade *from*. */
 const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // v2 replaces the per-request `dashboard.launcher` shell template with the supervised `daemon:`
@@ -71,6 +77,10 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // v3 lets a `verify` entry be a list of steps that run at the same time. Every v2 list is a valid v3
   // list, so nothing changes; the bump is what lets this and later Forges refuse a config they cannot read.
   2: (c) => c,
+  // v4 adds runtime.efforts, runtime.effortByComplexity and a review.panel entry's `effort`, all
+  // defaulting to unset, so no v3 config changes; the bump lets older Forges refuse a config whose
+  // effort they would ignore.
+  3: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
@@ -108,6 +118,8 @@ const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
   // waits on it, so nothing changes; the bump makes an older Forge refuse a job parked on a gate it
   // can't explain.
   7: (j) => j,
+  // v9 adds the spec's judged complexity, recorded when the spec is. A v8 job never had one.
+  8: (j) => ({ ...j, complexity: j.complexity ?? null }),
 };
 
 function failedVerifiesByRound(runs: any[]): Record<string, number> {
@@ -183,6 +195,7 @@ export function normalizeJob(raw: any): LoadedJob {
     splitMode: job.splitMode ?? null,
     // A hand- or session-edited value outside the fixed list must never reach a daemon's argv.
     effort: (EFFORTS as readonly unknown[]).includes(job.effort) ? job.effort : null,
+    complexity: (COMPLEXITIES as readonly unknown[]).includes(job.complexity) ? job.complexity : null,
   };
 }
 

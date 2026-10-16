@@ -143,7 +143,7 @@ export const BOARD_GROUPS = [
   { id: 'queued', stages: ['backlog'] },
   { id: 'plan', stages: ['plan', 'spec', 'design'] },
   { id: 'build', stages: ['build', 'verify', 'review'] },
-  { id: 'ship', stages: ['decide', 'integrate', 'pr'] },
+  { id: 'ship', stages: ['integrate', 'decide', 'pr'] },
   { id: 'done', stages: ['done'] },
 ] as const;
 export type BoardGroupId = (typeof BOARD_GROUPS)[number]['id'];

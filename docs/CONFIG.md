@@ -5,7 +5,7 @@
 Command templates may use `{port}`, `{job}`, `{worktree}`, `{root}`, `{branch}`, `{base}` and `{args}`. `{args}` holds the extra arguments of `forge run <job> <name> -- <args…>`, each already in single quotes, and arguments go only where a template has it: `forge run` refuses arguments for a template without `{args}`, so a command takes none unless you opt in. Write `{args}` unquoted, as a whole word: after the start, a space, a tab, a newline or `(`, and before the end, a space, a tab, a newline, `;`, `&`, `|` or `)`. Arguments for a template where it sits inside `'…'` or `"…"` or touches another word (`x{args}`, `\{args}`) are refused, and so are arguments for any template containing a heredoc (`<<`), `$'` or `\'`, where the quoting would not hold. The arguments become words of whatever command surrounds `{args}`, so `exec {args}`, `env {args}` or `time {args}` runs the first one as a program. An argument containing a quote, backslash or control character is refused too. Every refusal comes before anything runs. Only `forge run` has arguments: `forge verify`, worktree setup, `forge run --background`, `forge integrate`'s rebuild and `forge eval grade` fill `{args}` with nothing. The other placeholders are filled in unquoted, so `{job}`, `{branch}` and `{base}` are checked first: each must start with a letter or digit and use only `A-Z a-z 0-9 . _ / -` (at most 200 characters), and an unsafe value stops the command before it runs, with an error naming the field. Commands also get `PORT`, `FORGE_PORT`, `FORGE_JOB` and `FORGE_WORKTREE` in their environment, and never the daemon session's `FORGE_DAEMON*` variables, so a command that calls `forge` behaves the same under the daemon as for a human.
 
 ```yaml
-schemaVersion: 3
+schemaVersion: 4
 
 project:
   name: null                 # display name
@@ -61,6 +61,17 @@ runtime:
   maxParallelJobs: 3
   diversity: false           # warn when the approver or a lens shares the builder's model family (never blocks)
   effort: null               # low | medium | high | xhigh | max: the default reasoning effort for jobs (null: Claude Code's own setting); see "Effort"
+  efforts:                   # per role; null falls through to effortByComplexity, then effort
+    planner: null
+    spec-writer: null
+    designer: null
+    builder: null
+    reviewer: null           # default for lenses without their own effort
+    approver: null
+    integrator: null
+    retro: null
+    judge: null
+  effortByComplexity: { low: null, medium: null, high: null }   # by the spec's Complexity: header, for roles without their own
   models:                    # per role; aliases (opus, sonnet, haiku, fable) or full model ids
     orchestrator: inherit
     planner: opus
@@ -120,7 +131,11 @@ review:
     - { name: code, always: true }
     - { name: tests, always: true }
     - { name: security, model: opus, when: "input handling, auth, secrets, network, dependencies, file or process access" }
+  #   - { name: security, model: opus, effort: high }   # optional per-lens effort (see "Effort")
+  #   - { name: design, when: "user-visible UI changes" }
   #   - { name: realtime, checklist: .forge/reviewers/realtime.md, when: "audio thread code" }
+  #   needsApp: true|false     # start commands.dev before the round and give this lens the URL;
+                             # defaults to true for ui, ux, accessibility and design
   onPrFeedback: changed      # changed | full | none (which lenses re-run after PR feedback; changed = the always: true lenses)
 
 approver:
@@ -138,7 +153,7 @@ pr:
   labels: []
   reviewers: []              # GitHub handles/teams to request
   conflicts: ask             # ask | fix | defer (see "Open PRs")
-  updateStrategy: merge      # merge | rebase: how forge integrate updates a branch with an open PR (before a PR: rebase)
+  updateStrategy: merge      # merge | rebase: how forge integrate brings a branch up to date with its base
 
 merge:
   auto: false                # let Forge merge approved PRs (waits for CI, even without branch protection; see README)
@@ -191,7 +206,7 @@ daemon:                      # opt-in headless sessions supervised by `forge das
 
 **Values** follow the key's type: `true`/`false`; a decimal number; `null` for keys that allow it; text as written; and lists as `[a, b]` or a JSON array (`'["a","b"]'`, `[]`). Values are checked against the key's range or options, text may not contain control or invisible formatting characters (bidi overrides, zero-width characters) or exceed 200 characters, `review.blockOn` must keep both `blocker` and `major` (adding `minor` or `nit` is allowed), `daemon.idleStopMinutes` must be greater than 0 (or `null`), and `tracker.github.labels.prefix` must be at least 2 characters ending in `:`, `/` or `-`, because Forge removes every issue label that starts with it. The result must also pass `forge config validate`, though problems the file already had never block an unrelated change.
 
-**Editable keys**: `pipeline.plan`, `split`, `specApproval`, `design`, `maxRounds` and every `pipeline.budget.*`; `review.blockOn` and `review.onPrFeedback`; `runtime.models.<role>`, `runtime.maxParallelJobs`, `runtime.diversity` and `runtime.effort`; `tracker.github.ready.*`, `tracker.github.claim.assign`, `tracker.github.statusSync` and `tracker.github.labels.prefix`; `dashboard.port` (used by the next `forge dash`); and `daemon.idleStopMinutes` and `daemon.auth`. The rule: a key is editable only when it can't name a command, file, module, tool or repository Forge runs, loads or writes to, and can't loosen a security or attribution policy. Everything else (`commands.*`, `worktrees.*`, `verify*`, `git.*`, `merge.*`, `approver.*`, `aiAttribution`, `infra.*`, `review.panel`, `tracker.kind`, `tracker.github.repo`/`comments`/`project.*`, `daemon.enabled`/`command`/`allowedTools`/`maxConcurrent`, …) is refused with `<key> is not editable with forge config set (<why>); edit .forge/config.yml by hand`, and the dashboard shows it read-only. `lib/config-fields.ts` is the allowlist.
+**Editable keys**: `pipeline.plan`, `split`, `specApproval`, `design`, `maxRounds` and every `pipeline.budget.*`; `review.blockOn` and `review.onPrFeedback`; `runtime.models.<role>`, `runtime.maxParallelJobs`, `runtime.diversity`, `runtime.effort`, `runtime.efforts.<role>` and `runtime.effortByComplexity.*`; `tracker.github.ready.*`, `tracker.github.claim.assign`, `tracker.github.statusSync` and `tracker.github.labels.prefix`; `dashboard.port` (used by the next `forge dash`); and `daemon.idleStopMinutes` and `daemon.auth`. The rule: a key is editable only when it can't name a command, file, module, tool or repository Forge runs, loads or writes to, and can't loosen a security or attribution policy. Everything else (`commands.*`, `worktrees.*`, `verify*`, `git.*`, `merge.*`, `approver.*`, `aiAttribution`, `infra.*`, `review.panel`, `tracker.kind`, `tracker.github.repo`/`comments`/`project.*`, `daemon.enabled`/`command`/`allowedTools`/`maxConcurrent`, …) is refused with `<key> is not editable with forge config set (<why>); edit .forge/config.yml by hand`, and the dashboard shows it read-only. `lib/config-fields.ts` is the allowlist.
 
 **Errors** exit 1 and leave the file byte-identical: an unknown key, a read-only key, an invalid value, or a layout the edit can't change without dropping a comment (a block map or `|` block, a list of maps, a list with comments between or on its items, a key inside a flow map). A repo without `.forge/config.yml` exits 2; `/forge init` creates it.
 
@@ -207,6 +222,7 @@ daemon:                      # opt-in headless sessions supervised by `forge das
 
 - **`pipeline.plan: auto`** runs the planner when the request body (`request.md` without its title) is longer than 600 characters, or has 3 or more lines that start with a list marker (`-`, `*`, `1.`) or a `#` heading. `always` always plans and `never` never does.
 - **`review.panel`** is picked once the spec is written: every `always: true` lens, plus the spec's `Suggested reviewers:` that are in the panel, plus each lens whose `when` names a path (a token with a `/` or a file extension, such as `lib/server.ts` or `dashboard/src/**`) that one of the spec's Approach paths falls under. A `when` written only in prose is left to the spec-writer's suggestion. Names that aren't plain lowercase lens names are dropped.
+- **`review.panel[].needsApp`** says whether a lens reviews the running app. When a lens in the round needs it and `commands.dev` is set, Forge starts the dev server before the reviewers spawn and puts `Dev server: http://localhost:<port>` in that lens's brief. Absent, it defaults to `true` for `ui`, `ux`, `accessibility` and `design` and `false` for every other name; an explicit value wins for any name (`needsApp: false` keeps a `ui` lens off the app, `needsApp: true` puts a custom lens such as `visual-qa` on it). Anything but `true` or `false` is a config problem. A lens recorded on a job but no longer in the panel gets the name default.
 - **`review.onPrFeedback`** picks the lenses for a rework round on an open PR: `full` re-runs the job's whole recorded panel, `none` skips review and goes straight to `forge pr open`, and `changed` (the default) re-runs the `always: true` lenses. `changed` can't look at which files the round touched, because step decides from recorded state, not the diff.
 
 ## Open PRs
@@ -214,7 +230,7 @@ daemon:                      # opt-in headless sessions supervised by `forge das
 `forge sync` (and `forge pr sync <id>`) re-reads every open PR. A job parked on `pr-review` or `conflicts` whose PR has moved under it is handled by these keys:
 
 - **`pr.conflicts`** decides a PR that conflicts with its base. `ask` (the default) waits on `conflicts` until you `/forge approve` it. `fix` has `forge sync` move the job to `integrate` itself, where the integrator resolves the conflicts, re-verifies and runs the integration review. `defer` leaves the job on `pr-review` with a note.
-- **`pr.updateStrategy`** is how a branch with an open PR is updated (`merge` by default, so nothing is force-pushed). A PR that is only behind its base needs no conflict decision, so `forge sync` moves it to `integrate` under every `pr.conflicts` policy, including the default `ask`, and `forge integrate` updates it with this strategy.
+- **`pr.updateStrategy`** is how `forge integrate` brings a branch up to date with its base, before a PR and after one is open (`merge` by default, so nothing is force-pushed). A PR that is only behind its base needs no conflict decision, so `forge sync` moves it to `integrate` under every `pr.conflicts` policy, including the default `ask`, and `forge integrate` updates it with this strategy. `merge` resolves conflicts once per integration, never rewrites pushed commits and never force-pushes. `rebase` gives a linear history, but it replays each job commit, can raise conflicts at each one, and rewrites the branch. `--strategy` on `forge integrate` overrides it for one run.
 
 Both routes have the same guards. The job is not claimed by a live session (the test `forge next` uses, judged inside the job lock), the PR head is the commit Forge pushed (a human push is left alone), and each head is routed once, so a failed integration doesn't loop. Sync never claims the job: with `daemon.enabled` it queues a `resume` for the job's session, and otherwise `forge sync` lists the job under `integrating` for `/forge continue <id>`. `forge pr merge` syncs without routing.
 
@@ -232,15 +248,29 @@ Any profile can add `runtime.diversity: true`. Expect warnings by design where a
 
 ## Effort
 
-Reasoning effort is how much the model thinks before it answers: `low`, `medium`, `high`, `xhigh` or `max`. Higher levels cost more tokens and time. Forge sets it per job:
+Reasoning effort is how much the model thinks before it answers: `low`, `medium`, `high`, `xhigh` or `max`. Higher levels cost more tokens and time. Forge sets it per job, per role and per spec complexity:
 
-- **Precedence.** A job's own effort (`forge job new … --effort <level>`, `forge job effort <id> <level>`, or the drawer's **Effort** select) wins. Without one, `runtime.effort` applies. When neither is set, Forge passes nothing: `daemon.command`'s own `--effort` applies if it has one, and otherwise Claude Code's own setting does. `forge job effort <id> --inherit` clears a job's level. A value outside the five levels counts as unset wherever it is read, and `forge config validate`, `forge doctor` and every daemon start refuse an invalid `runtime.effort`.
-- **Daemon sessions** start with `--effort <level>` on their `claude -p` command line, replacing any `--effort` in `daemon.command`. The inbox session uses `runtime.effort`. Each session's log records the level it started with and where it came from (`job`, `config` or `none`).
-- **Agents.** `forge job step` puts the effective level on every `spawn` action, and every brief has an `Effort:` line, so the orchestrator, yours or a daemon's, passes it to each agent it starts. The `forge:*` agents set no effort of their own, so without one they inherit their session's.
+- **Precedence.** For an agent of role R in job J, the level is the first valid value of:
+
+  | # | Layer | Source |
+  |---|---|---|
+  | 1 | J's own effort (`forge job new … --effort <level>`, `forge job effort <id> <level>`, or the drawer's **Effort** select) | `job` |
+  | 2 | reviewers only: the lens's `review.panel` entry `effort` | `panel` |
+  | 3 | `runtime.efforts.<role>` (`reviewer` for every lens) | `role` |
+  | 4 | `runtime.effortByComplexity[<J's complexity>]` | `complexity` |
+  | 5 | `runtime.effort` | `config` |
+  | 6 | nothing: Forge passes no effort | `none` |
+
+  With nothing set, `daemon.command`'s own `--effort` applies if it has one, and otherwise Claude Code's own setting does. `forge job effort <id> --inherit` clears a job's level. A value outside the five levels counts as unset at every layer and resolution falls through to the next, and `forge config validate`, `forge doctor` and every daemon start refuse an invalid `runtime.effort`. `forge config validate` and `forge doctor` also report a `runtime.efforts` or `runtime.effortByComplexity` that isn't a map, an unknown key in either, a level outside the five, and an invalid panel `effort`; those never stop a daemon start, because they never reach a session's command line.
+- **Rework bump.** A builder on a rework round (`round` 2 or later) runs one level above what it resolved to (`low` → `medium` → `high` → `xhigh` → `max`; `max` stays `max`), unless the level is the job's own effort or nothing. Round 1, including a verify-fail retry inside it, is never bumped, and no other role is.
+- **Complexity.** The spec writer adds a `Complexity: low | medium | high` header under `Size:`, judged as difficulty, not volume. When the spec is recorded, a valid value (any case) becomes the job's `complexity`; a spec without a valid one clears a complexity an earlier spec set. `forge job set <id> --field complexity=<low|medium|high|null>` sets it by hand and refuses anything else. It only picks among levels a human configured in `runtime.effortByComplexity`.
+- **Daemon sessions** start with `--effort <level>` on their `claude -p` command line, replacing any `--effort` in `daemon.command`. A session runs the orchestrator, not a role, so only layers 1, 5 and 6 apply: per-role, panel and complexity levels never reach a session. The inbox session uses `runtime.effort`. Each session's log records the level it started with and where it came from (`job`, `config` or `none`).
+- **Agents.** `forge job step` puts each spawn's own level (resolved for its role) on every `spawn` action, and every brief has an `Effort:` line, so the orchestrator, yours or a daemon's, passes it to each agent it starts. The `forge:*` agents set no effort of their own, so without one they inherit their session's.
 - **Changing it.** A job's new effort applies to the agents started after the change at once, and to a running daemon session the next time it starts (after an idle stop, a restart, or a slot handover). Forge never stops a session to apply it. Changing `runtime.effort` while the daemon runs is a config change, so the trust check stops the daemon, as for any edit of this file; a job's effort lives in its `job.json` and stops nothing.
-- **In the dashboard**, a job's Log tab has an **Effort** select beside Permissions (Inherit shows what it resolves to), a job whose own level differs from `runtime.effort` shows a chip such as "Extra high effort" on its card, in its drawer and on the Agents page, and Settings → Agents edits `runtime.effort`. While a job's session runs at another level than the one now set, a note says it applies to new agents now and to the session when it restarts.
+- **In the dashboard**, a job's Log tab has an **Effort** select beside Permissions (Inherit shows what it resolves to), a job whose own level differs from `runtime.effort` shows a chip such as "Extra high effort" on its card, in its drawer and on the Agents page, Settings → Agents edits `runtime.effort`, each `runtime.efforts.<role>` and each `runtime.effortByComplexity.*`, and the Agents page's roster and review panel tables show each role's and lens's level with where it comes from (panel entry, role setting or default), before any job's own effort or complexity. While a job's session runs at another level than the one now set, a note says it applies to new agents now and to the session when it restarts.
 - **A daemon session may not change effort**: `forge job effort` and `forge job new --effort` refuse under `FORGE_DAEMON=1`, and `forge job set --field effort=…` is always refused. Set it from the dashboard or your own session.
 - Needs a Claude Code with `--effort` (checked on 2.1.299).
+- **Migration** (config `schemaVersion` 3 → 4): nothing changes. v4 adds `runtime.efforts`, `runtime.effortByComplexity` and a panel entry's `effort`, all unset by default; the bump lets older Forges refuse a config whose effort levels they would ignore. Job `schemaVersion` 9 adds `complexity` (null for older jobs).
 
 ## Verify groups
 
@@ -279,7 +309,7 @@ Forge refuses to publish a likely credential, and the check lives in its own cod
 
 | Gate | What it scans | On a finding |
 |---|---|---|
-| `forge verify` | a `secrets` step before the first configured group, clean worktree or not: every non-merge commit in `merge-base..HEAD` on its own (a key added and deleted later is still found), the net diff (what a merge brought in), every commit message, and the staged changes | `block`: the step fails, no configured group runs, the integrity report is still computed. `warn`: the step passes with a reason |
+| `forge verify` | a `secrets` step before the first configured group, clean worktree or not: every non-merge commit in `merge-base..HEAD` on its own (a key added and deleted later is still found), each merge commit's own changes (`git show --remerge-diff`: a conflict resolution, which no ordinary commit holds), the net diff (what a merge brought in), every commit message, and the staged changes | `block`: the step fails, no configured group runs, the integrity report is still computed. `warn`: the step passes with a reason |
 | `forge git commit` | the message, before anything is staged; then the staged diff against HEAD | the message: always refused. Staged content: refused under `block` (the index stays staged), committed under `warn` with `secrets: <n>` in the result |
 | `forge pr open` | the PR title and body exactly as Forge would send them, before any `gh` call or push, even when the PR exists; then the commit range (commits, messages, net diff) of the HEAD it pushes, verified or not (`--force` skips verify, and a HEAD verified by a Forge without the scanner was never scanned), after fetching the base from the remote's push URL into its remote-tracking ref | the text: always refused. The range: refused under `block`, and so is a base fetch that fails |
 | tracker writes | `comment` bodies and `create` titles and bodies, in every adapter (`forge tracker comment\|create`, `forge job link --create`, `job human … --link new`, the split procedure); a custom adapter's `update`/`claim` also have the job's title and reason scanned | always refused |

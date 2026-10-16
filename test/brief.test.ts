@@ -77,7 +77,7 @@ test('briefs carry paths, never contents', () => {
     });
 
     const seen: string[] = [];
-    const stages: Stage[] = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', 'review', 'decide', 'integrate', 'pr'];
+    const stages: Stage[] = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', 'review', 'integrate', 'decide', 'pr'];
     for (const stage of stages) {
       updateJob(root, job.id, (j) => {
         j.stage = stage;
@@ -111,6 +111,9 @@ test('every brief names the effective effort right after Output', () => {
   assert.equal(at(brief(fixture({ config: (c) => (c.runtime.effort = 'medium') }), 'reviewer:code', { lens: 'code' })), 'Effort: medium', 'else runtime.effort');
   assert.equal(at(brief(fixture(), 'approver')), 'Effort: inherit', 'nothing set');
   assert.equal(at(brief(fixture({ job: { effort: '--add-dir=/' as any } }), 'approver')), 'Effort: inherit', 'a tampered value never reaches a brief');
+  const perRole = fixture({ config: (c) => ((c.runtime.effort = 'high'), (c.runtime.efforts.reviewer = 'medium')) });
+  assert.equal(at(brief(perRole, 'reviewer:code', { lens: 'code' })), 'Effort: medium', 'runtime.efforts.reviewer over runtime.effort');
+  assert.equal(at(brief(perRole, 'approver')), 'Effort: high', 'a role without its own level takes runtime.effort');
 });
 
 test('planner brief carries the split mode', () => {
@@ -140,12 +143,52 @@ test('designer brief carries the mode', () => {
 });
 
 test('builder brief lists rework inputs and the infra policy', () => {
-  const f = fixture({ files: ['spec', 'tasks', 'feedback'], job: { round: 2 }, config: (c) => ((c.infra.mode = 'plan-only'), (c.infra.allowed = ['terraform plan'])) });
-  const b = brief(f, 'builder', { rework: ['review', 'feedback'] });
-  has(b, 'Rework: review, feedback');
-  has(b, 'Infra: mode plan-only · allowed ["terraform plan"]');
-  assert.ok(b.includes(path.join(JOB_DIR, 'feedback.md')));
+  const code = path.join(JOB_DIR, 'review', 'round-1', 'code.md');
+  const f = fixture({ files: ['spec', 'design', 'tasks', 'build', 'feedback'], present: [code], job: { round: 2 }, config: (c) => ((c.infra.mode = 'plan-only'), (c.infra.allowed = ['terraform plan'])) });
+  const b = brief(f, 'builder', { rework: ['review', 'feedback'], reworkReviews: [code] });
+  const lines = b.split('\n');
+  has(b, `Inputs: ${[code, path.join(JOB_DIR, 'feedback.md'), path.join(JOB_DIR, 'tasks.md'), path.join(JOB_DIR, 'build.md')].join(', ')}`);
+  for (const p of lines[6].slice('Inputs: '.length).split(', ')) assert.ok(path.isAbsolute(p));
+  const at = lines.indexOf('Rework: review, feedback');
+  assert.ok(at > 0);
+  assert.equal(lines[at + 1], 'Rework scope: address only the findings in the inputs above and change nothing they do not name; append "## Round 2" to build.md with Findings addressed and the full AC table.');
+  assert.equal(lines[at + 2], `Reference: ${path.join(JOB_DIR, 'spec.md')}, ${path.join(JOB_DIR, 'design.md')}`);
+  assert.equal(lines[at + 3], 'Infra: mode plan-only · allowed ["terraform plan"]');
+  assert.ok(!lines[6].includes(path.join(JOB_DIR, 'spec.md')));
   assert.ok(!brief(f, 'builder').includes('Rework:'));
+  // No reference file present: the line is left out.
+  assert.ok(!brief(fixture({ files: ['tasks'] }), 'builder', { rework: ['verify'] }).includes('Reference:'));
+});
+
+test('builder brief for an answer only keeps the full inputs', () => {
+  const f = fixture({ files: ['spec', 'tasks', 'questions'], job: { round: 2 } });
+  const b = brief(f, 'builder', { rework: ['answer'] });
+  has(b, `Inputs: ${path.join(JOB_DIR, 'spec.md')}, ${path.join(JOB_DIR, 'tasks.md')}, ${path.join(JOB_DIR, 'questions.md')}`);
+  has(b, 'Rework: answer');
+  assert.ok(!b.includes('Rework scope:') && !b.includes('Reference:'));
+});
+
+test("loadStepInput lists only the previous round's non-PASS review files as present", () => {
+  const repo = tempRepo();
+  try {
+    const root = repo.dir;
+    const config = defaults();
+    const job = createJob(root, config, { title: 'Rework', body: 'x' });
+    const dir = jobDir(root, job.id);
+    fs.mkdirSync(path.join(dir, 'review', 'round-1'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'review', 'round-1', 'code.md'), 'VERDICT: CHANGES\n');
+    fs.writeFileSync(path.join(dir, 'review', 'round-1', 'tests.md'), 'VERDICT: PASS\n');
+    updateJob(root, job.id, (j) => {
+      j.round = 2;
+      j.stage = 'build';
+      j.verdicts = { 1: { code: 'CHANGES', tests: 'PASS' } };
+    });
+    const input = loadStepInput(root, config, job.id);
+    assert.ok(input.present.includes(path.join(dir, 'review', 'round-1', 'code.md')));
+    assert.ok(!input.present.includes(path.join(dir, 'review', 'round-1', 'tests.md')));
+  } finally {
+    repo.cleanup();
+  }
 });
 
 test('reviewer brief carries lens, checklist, scope and the dev server for UI lenses', () => {

@@ -1,7 +1,7 @@
 // Agent briefs for `forge job step`: paths and config-derived lines only, never file contents, so
 // text an agent wrote (after reading tracker or PR text) is never re-injected into another prompt.
 import path from 'node:path';
-import { resolveEffort, reviewerChecklist } from './config.ts';
+import { lensNeedsApp, resolveEffort, reviewerChecklist } from './config.ts';
 import { jobDir, reviewDir } from './jobs.ts';
 import { paths, exists } from './paths.ts';
 import type { Config, Job, StepInput } from './types.ts';
@@ -71,14 +71,14 @@ export interface RoleContext {
   mode?: 'mockup' | 'reference';
   /** questions.md has a human answer the agent should read. */
   answered?: boolean;
-  /** Builder rework inputs, in the order the `Rework:` line lists them. */
+  /** Builder rework inputs, in the order the `Rework:` line lists them. Any but `answer` makes the brief findings-first: those inputs plus tasks and build, the spec only as `Reference:`. */
   rework?: ('review' | 'verify' | 'pr-feedback' | 'feedback' | 'answer')[];
+  /** Absolute paths of the previous round's non-PASS review files. */
+  reworkReviews?: string[];
   /** The integration: conflicted files from the integrate-conflicts event, the generated ones Forge rebuilds, and whether this is the fix pass. */
   integration?: { conflicts: string[]; regenerated?: string[]; fix?: boolean };
   strategy?: string;
 }
-
-const UI_LENSES = ['ui', 'ux', 'accessibility'];
 
 /** The inputs, outputs and extra lines each role gets: the brief half of Approach in issue #68. */
 export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {}): BriefSpec {
@@ -105,6 +105,25 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
       return out(ctx.mode === 'mockup' ? [p('design'), p('mockup')] : [p('design')], [p('request'), p('spec')], [`Mode: ${ctx.mode ?? 'reference'}`]);
     case 'builder': {
       const rework = ctx.rework ?? [];
+      if (rework.some((r) => r !== 'answer')) {
+        // Findings first: a fresh rework builder reads what to fix, and consults the spec only where a finding points.
+        const inputs = [
+          ...(rework.includes('review') ? (ctx.reworkReviews ?? []) : []),
+          ...(rework.includes('verify') ? [p('verify')] : []),
+          ...(rework.includes('pr-feedback') ? [p('prFeedback')] : []),
+          ...(rework.includes('feedback') ? [p('feedback')] : []),
+          ...(rework.includes('answer') ? [p('questions')] : []),
+          p('tasks'),
+          p('build'),
+        ];
+        const reference = [p('spec'), p('design'), p('mockup')].filter((f) => input.present.includes(f));
+        return out([p('tasks'), p('build')], inputs, [
+          `Rework: ${rework.join(', ')}`,
+          `Rework scope: address only the findings in the inputs above and change nothing they do not name; append "## Round ${j.round}" to build.md with Findings addressed and the full AC table.`,
+          ...(reference.length ? [`Reference: ${reference.join(', ')}`] : []),
+          infra,
+        ]);
+      }
       const inputs = [p('spec'), p('design'), p('mockup'), p('tasks')];
       if (rework.includes('review') && input.paths.previousReviewDir) inputs.push(p('previousReviewDir'));
       if (rework.includes('verify')) inputs.push(p('verify'));
@@ -116,7 +135,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
     case 'reviewer': {
       const lens = ctx.lens ?? role.slice('reviewer:'.length);
       const extra = [`Lens: ${lens}`, `Checklist: ${input.checklists[lens] ?? 'none'}`, `Scope: ${p('scope')}`];
-      if (UI_LENSES.includes(lens) && c.commands.dev) extra.push(`Dev server: http://localhost:${j.port ?? c.ports.base}`);
+      if (lensNeedsApp(c, lens) && c.commands.dev) extra.push(`Dev server: http://localhost:${j.port ?? c.ports.base}`);
       if (ctx.integration) {
         // JSON, so a conflicted file name can't start a line of its own in the brief.
         extra.push(`Integration review: conflicted files ${JSON.stringify(ctx.integration.conflicts)}`);
@@ -127,7 +146,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
     case 'approver':
       return out(
         [p('decision'), p('prBody')],
-        [p('spec'), p('build'), p('reviewDir'), p('verify'), p('runbook')],
+        [p('spec'), p('build'), p('reviewDir'), p('verify'), p('integrationReview'), p('runbook')],
         [
           `Acceptance criteria (forge job acs): ${JSON.stringify(input.acs)}`,
           `Always escalate: ${JSON.stringify(c.approver.alwaysEscalate ?? [])}`,
@@ -141,7 +160,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
         [p('build')],
         [p('spec'), p('build'), ...(ctx.integration?.fix ? [p('integrationReview')] : []), ...(ctx.answered ? [p('questions')] : [])],
         [
-          `Strategy: ${ctx.strategy ?? 'rebase'}`,
+          `Strategy: ${ctx.strategy ?? 'merge'}`,
           `Conflicts: ${JSON.stringify(ctx.integration?.conflicts ?? [])}`,
           // JSON for the same reason as Conflicts: a file name must not start a line of the brief.
           ...(ctx.integration?.regenerated?.length ? [`Regenerated: ${JSON.stringify(ctx.integration.regenerated)} (Forge rebuilds these at --continue; don't hand-merge them)`] : []),
@@ -168,7 +187,7 @@ export function renderBrief(input: StepInput, spec: BriefSpec): string {
     `Job paths (JSON): ${JSON.stringify(input.paths)}`,
     `Inputs: ${present.length ? present.join(', ') : 'none'}`,
     `Output: ${spec.outputs.join(', ')}`,
-    `Effort: ${resolveEffort(input.config, input.job).level ?? 'inherit'}`,
+    `Effort: ${resolveEffort(input.config, input.job, spec.lens ? `${spec.role}:${spec.lens}` : spec.role).level ?? 'inherit'}`,
     ...spec.extra,
     ...(spec.retry ? [spec.retry] : []),
     UNTRUSTED_LINE,

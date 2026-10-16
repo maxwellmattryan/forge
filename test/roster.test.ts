@@ -92,3 +92,30 @@ test('init write warns; validate rejects non-boolean diversity', () => {
     repo.cleanup();
   }
 });
+
+test("roster reports each role's and lens's effort and source", () => {
+  const repo = tempRepo();
+  try {
+    const cfg = defaults();
+    let r = roster(repo.dir, cfg);
+    for (const a of r.agents) assert.deepEqual([a.effort, a.effortSource], [null, 'none'], a.role);
+    for (const l of r.reviewers) assert.deepEqual([l.effort, l.effortSource], [null, 'none'], l.name);
+    cfg.runtime.effort = 'medium';
+    cfg.runtime.efforts.builder = 'high';
+    cfg.runtime.effortByComplexity.high = 'max';
+    (cfg.review.panel.find((p) => p.name === 'security') as any).effort = 'xhigh';
+    r = roster(repo.dir, cfg);
+    const agent = (role: string) => r.agents.find((a) => a.role === role)!;
+    const lens = (name: string) => r.reviewers.find((l) => l.name === name)!;
+    assert.deepEqual([agent('builder').effort, agent('builder').effortSource], ['high', 'role']);
+    assert.deepEqual([agent('planner').effort, agent('planner').effortSource], ['medium', 'config'], 'no job, so no complexity');
+    assert.deepEqual([lens('security').effort, lens('security').effortSource], ['xhigh', 'panel']);
+    assert.deepEqual([lens('code').effort, lens('code').effortSource], ['medium', 'config']);
+    cfg.runtime.efforts.reviewer = 'low';
+    r = roster(repo.dir, cfg);
+    assert.deepEqual([lens('code').effort, lens('code').effortSource], ['low', 'role']);
+    assert.deepEqual([lens('security').effort, lens('security').effortSource], ['xhigh', 'panel']);
+  } finally {
+    repo.cleanup();
+  }
+});

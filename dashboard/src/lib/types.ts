@@ -1,14 +1,14 @@
-// Shapes of the forge dash HTTP API for API_VERSION 17. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 18. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
 
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 17;
+export const API_VERSION = 18;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 
 /** lib/schema.ts STAGES, in pipeline order. */
-export const STAGES = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', 'review', 'decide', 'integrate', 'pr', 'done'] as const;
+export const STAGES = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', 'review', 'integrate', 'decide', 'pr', 'done'] as const;
 
 /** lib/schema.ts STATES. */
 export const STATES = ['queued', 'running', 'waiting', 'blocked', 'failed', 'cancelled', 'done'] as const;
@@ -29,6 +29,10 @@ export type WaitingOn = (typeof WAITING_ON)[number];
 export type BudgetKey = 'tokens' | 'usd' | 'minutes' | 'changedLines' | 'verifyRetries';
 /** A reasoning effort level: EFFORTS in lib/schema.ts. */
 export type Effort = (typeof EFFORTS)[number];
+/** Where a resolved effort came from: resolveEffort in lib/config.ts. */
+export type EffortSource = 'job' | 'panel' | 'role' | 'complexity' | 'config' | 'none';
+/** A spec's judged difficulty: COMPLEXITIES in lib/schema.ts. */
+export type Complexity = 'low' | 'medium' | 'high';
 
 // ---------- job data ----------
 
@@ -245,6 +249,8 @@ export interface Job {
   splitMode: 'never' | null;
   /** The human's reasoning effort for this job (`forge job effort`); null inherits runtime.effort. */
   effort: Effort | null;
+  /** The spec's `Complexity:` header, recorded at SP3; picks runtime.effortByComplexity. */
+  complexity: Complexity | null;
 }
 
 /** tasks.md checkbox counts: progress in lib/jobs.ts. */
@@ -789,8 +795,8 @@ export type RequestsResponse = ForgeRequest[];
 
 /** GET /api/roster: roster in lib/roster.ts. */
 export interface Roster {
-  agents: { role: string; description: string; model: string; promptHash: string; addendum: string | null }[];
-  reviewers: { name: string; model: string; always: boolean; when: string | null; checklist: string | null; checklistHash: string | null }[];
+  agents: { role: string; description: string; model: string; promptHash: string; addendum: string | null; effort: Effort | null; effortSource: EffortSource }[];
+  reviewers: { name: string; model: string; always: boolean; when: string | null; checklist: string | null; checklistHash: string | null; effort: Effort | null; effortSource: EffortSource }[];
   learnings: string | null;
   diversity: { enabled: boolean; builder: string; overlap: { role: string; model: string }[] };
   warnings: string[];
