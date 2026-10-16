@@ -1,7 +1,10 @@
 // dashboard/src/lib/drawer.ts: the job drawer's tab order, default, keyboard moves and tab-switch scroll.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BOARD_MIN, DEFAULT_DRAWER_TAB, DRAWER_TABS, PANE_DEFAULT, PANE_MIN, clampPaneWidth, moveDrawerTab, paneKey, paneMax, paneMode, tabScrollTop, type DrawerTab } from '../dashboard/src/lib/drawer.ts';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { DEFAULT_DRAWER_TAB, DRAWER_TABS, PANE_DEFAULT, PANE_GUTTER, PANE_MIN, clampPaneWidth, moveDrawerTab, paneKey, paneMax, tabScrollTop, type DrawerTab } from '../dashboard/src/lib/drawer.ts';
 
 test('drawer tabs: order and default', () => {
   assert.deepEqual(DRAWER_TABS, ['thread', 'log', 'agents', 'files', 'timeline', 'details']);
@@ -45,38 +48,39 @@ test('tabScrollTop lands a new tab under the stuck strip', () => {
   assert.equal(tabScrollTop(50, -5), 0, 'a negative head clamps to 0');
 });
 
-test('pane width clamps, steps and picks its mode', () => {
-  assert.deepEqual([PANE_MIN, BOARD_MIN, PANE_DEFAULT], [360, 320, 640]);
-  // Mode: split from md up once the main column holds both minimums (680px), else full.
-  assert.equal(paneMode(680, true), 'split', 'exactly PANE_MIN + BOARD_MIN');
-  assert.equal(paneMode(679, true), 'full', 'one px short');
-  assert.equal(paneMode(1204, true), 'split');
-  assert.equal(paneMode(1204, false), 'full', 'below md always full');
-  assert.equal(paneMode(0, true), 'full', 'not measured yet');
-  // Clamp: [PANE_MIN, available - BOARD_MIN], whole px; a bad stored value takes the default.
-  assert.equal(paneMax(1204), 884);
-  assert.equal(paneMax(600), PANE_MIN, 'never under the minimum');
+test('pane width clamps to the viewport and steps', () => {
+  assert.deepEqual([PANE_MIN, PANE_DEFAULT, PANE_GUTTER], [360, 640, 236]);
+  // Clamp: [PANE_MIN, viewport - PANE_GUTTER], whole px; a bad stored value takes the default.
+  assert.equal(paneMax(1204), 968);
+  assert.equal(paneMax(500), 360, 'never under the minimum');
   assert.equal(clampPaneWidth(640, 1204), 640);
   assert.equal(clampPaneWidth(100, 1204), 360, 'up to the minimum');
-  assert.equal(clampPaneWidth(2000, 1204), 884, 'down to the maximum');
-  assert.equal(clampPaneWidth(884, 1204), 884, 'the maximum itself');
+  assert.equal(clampPaneWidth(2000, 1204), 968, 'down to the maximum');
+  assert.equal(clampPaneWidth(968, 1204), 968, 'the maximum itself');
   assert.equal(clampPaneWidth(360, 1204), 360, 'the minimum itself');
   assert.equal(clampPaneWidth(500.6, 1204), 501, 'whole px');
   assert.equal(clampPaneWidth(Number.NaN, 1204), 640, 'NaN takes the default');
   assert.equal(clampPaneWidth(Number('wide'), 1204), 640);
   assert.equal(clampPaneWidth(2000, Infinity), 2000, 'unmeasured: only the minimum applies');
-  assert.equal(clampPaneWidth(640, 800), 480, 'a narrow column re-clamps the stored width');
-  // Keys: Left widens, Right narrows, by 16 or 64 with Shift; Home and End go to the ends; all clamped.
+  assert.equal(clampPaneWidth(640, 800), 564, 'a narrow window re-clamps the stored width');
+  // Keys: Left widens (the separator is the left edge), Right narrows, Shift steps 64.
   assert.equal(paneKey(640, 'ArrowLeft', false, 1204), 656);
   assert.equal(paneKey(640, 'ArrowLeft', true, 1204), 704);
   assert.equal(paneKey(640, 'ArrowRight', false, 1204), 624);
   assert.equal(paneKey(640, 'ArrowRight', true, 1204), 576);
-  assert.equal(paneKey(880, 'ArrowLeft', false, 1204), 884, 'Left stops at the maximum');
-  assert.equal(paneKey(884, 'ArrowLeft', true, 1204), 884);
+  assert.equal(paneKey(960, 'ArrowLeft', false, 1204), 968, 'Left stops at the maximum');
+  assert.equal(paneKey(968, 'ArrowLeft', true, 1204), 968);
   assert.equal(paneKey(370, 'ArrowRight', false, 1204), 360, 'Right stops at the minimum');
   assert.equal(paneKey(360, 'ArrowRight', true, 1204), 360);
   assert.equal(paneKey(640, 'Home', false, 1204), 360);
-  assert.equal(paneKey(640, 'End', false, 1204), 884);
+  assert.equal(paneKey(640, 'End', false, 1204), 968);
   assert.equal(paneKey(640, 'Home', true, 1204), 360, 'Shift does not change Home');
   for (const key of ['ArrowUp', 'ArrowDown', 'Enter', ' ', 'Tab', 'Escape', 'a']) assert.equal(paneKey(640, key, false, 1204), null, JSON.stringify(key));
+});
+
+test('PANE_GUTTER mirrors --size-sidebar, so the drawer never covers the sidebar', () => {
+  const css = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dashboard', 'style.css'), 'utf8');
+  const m = css.match(/--size-sidebar:\s*(\d+)px;/);
+  assert.ok(m, '--size-sidebar is a px value in style.css');
+  assert.equal(PANE_GUTTER, Number(m[1]));
 });

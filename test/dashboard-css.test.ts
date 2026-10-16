@@ -103,8 +103,8 @@ test('palette scrim and stable scrollbar gutter', () => {
   const bar = root('CommandBar.svelte');
   assert.ok(bar.includes('scrim') && !bar.includes('backdrop'), `the palette's root uses scrim (${bar.join(' ')})`);
   assert.match(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', 'Settings.svelte'), 'utf8'), /class="[^"]*\bbackdrop\b/, 'Settings.svelte keeps backdrop');
-  // The job pane sits beside the view with nothing dimming it.
-  assert.doesNotMatch(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', 'Drawer.svelte'), 'utf8'), /\bbackdrop\b/, 'Drawer.svelte has no backdrop');
+  // The job drawer slides in over a backdrop that dims the page behind it.
+  assert.match(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', 'Drawer.svelte'), 'utf8'), /<div id="drawer-backdrop" class="[^"]*\bbackdrop\b/, 'Drawer.svelte dims with backdrop');
 });
 
 /** Every file under dashboard/src that holds markup or builds class strings. */
