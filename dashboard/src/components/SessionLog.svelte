@@ -69,7 +69,7 @@
   $effect(() => pref.set('sessionFilters', JSON.stringify(filters)));
 
   // The stream sees a new or answered prompt before the poll does, and PermissionPrompts (the drawer's dock, the
-  // Inbox popover) reads the poll: re-poll once per prompt-id set the poll doesn't have yet. Not $state: nothing renders it.
+  // Needs-you popover) reads the poll: re-poll once per prompt-id set the poll doesn't have yet. Not $state: nothing renders it.
   let promptsAsked: string | null = null;
 
   // untrack: the log belongs to the scope (or transcript) it was created for; Drawer keys this component by both.

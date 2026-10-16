@@ -1,4 +1,4 @@
-<!-- A gate's note and request buttons, shared by the Needs-you card, the Inbox park table and the drawer's action dock.
+<!-- A gate's note and request buttons, shared by the Needs-you card, the Needs-you park list and the drawer's action dock.
      An issue-link gate adds its link, create and no-issue buttons (IssueLinkActions), which use the note as the reason.
      So does a spec gate whose job has no issue yet (specLinkPending): there each of those buttons also approves the spec,
      and they replace the plain Approve spec. -->

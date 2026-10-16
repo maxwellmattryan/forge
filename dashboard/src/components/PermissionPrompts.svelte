@@ -1,5 +1,5 @@
-<!-- Tool calls daemon sessions are waiting on a human to allow: the whole pool's in the status bar's Inbox popover, one job's in its
-     Thread. The tool input, the agent's description and paths are session output, i.e. untrusted, and render as text.
+<!-- Tool calls daemon sessions are waiting on a human to allow: the whole pool's in the status bar's Needs-you popover, one job's in
+     its Thread. The tool input, the agent's description and paths are session output, i.e. untrusted, and render as text.
      Only the decision is posted; the server builds what the session receives from claude's own request. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
