@@ -832,6 +832,23 @@ export function worktreeRoot(root: string, config: Config): string {
   return resolveFrom(root, config.worktrees.root.replace('{repo}', path.basename(root)));
 }
 
+/**
+ * Whether `wt` is, as a string, the worktree path Forge computes for job `id`: `<worktreesRoot>/<id>`
+ * as configured (what `forge worktree create` stores) or under the root's resolved path (a root
+ * reached through a symlink). job.json's `worktree` is agent-writable, so anything else, even a value
+ * that resolves to the same directory, is not trusted where a shell or an editor would read it.
+ */
+export function isOwnWorktreePath(root: string, config: Config, id: string, wt: unknown): boolean {
+  if (typeof wt !== 'string' || !wt) return false;
+  const configured = worktreeRoot(root, config);
+  if (wt === path.join(configured, id)) return true;
+  try {
+    return wt === path.join(fs.realpathSync(configured), id);
+  } catch {
+    return false;
+  }
+}
+
 export function stringifyConfig(config: Config): string {
   const header =
     '# Forge configuration. Every key is documented in docs/CONFIG.md of the Forge plugin.\n' +

@@ -3,7 +3,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { enforceBudget } from './budget.ts';
-import { loadConfig, verifyGroups, worktreeRoot } from './config.ts';
+import { isOwnWorktreePath, loadConfig, verifyGroups, worktreeRoot } from './config.ts';
 import { e2ePlan } from './e2e.ts';
 import { configForJob } from './eval-overlay.ts';
 import { stackSource } from './deps.ts';
@@ -109,7 +109,7 @@ export function createWorktree(
   logEvent(root, id, 'worktree', { path: dir, port });
   const setupLog: { cmd: string; ok: boolean; tail: string }[] = [];
   for (const cmd of config.worktrees.setup ?? []) {
-    const res = shell(fill(cmd, vars(root, job, dir, port)), dir, envFor(job, dir, port));
+    const res = shell(fill(cmd, vars(root, config, job, dir, port, cmd)), dir, envFor(job, dir, port));
     setupLog.push({ cmd, ok: res.ok, tail: tail(res.output, 15) });
     if (!res.ok) {
       logEvent(root, id, 'worktree-setup-failed', { cmd });
@@ -255,20 +255,19 @@ function checkRefs(job: Job): void {
   assertSafeRef(job.base, 'job.base');
 }
 
-// `{worktree}` is filled unquoted, and job.json's `worktree` is agent-writable: refuse a value that
-// is not a normalised absolute path or that holds characters a shell would act on.
-function assertSafeWorktree(dir: string): void {
-  // A backslash is a separator on Windows, so it is refused only elsewhere.
-  const meta = process.platform === 'win32' ? /[\0\n\r$`;|&<>()'"*?]/ : /[\0\n\r$`;|&<>()\\'"*?]/;
-  if (path.isAbsolute(dir) && path.resolve(dir) === dir && !meta.test(dir)) return;
-  throw new ForgeError(`job.worktree ${JSON.stringify(dir).slice(0, 120)} is not a safe worktree path: it must be a normalised absolute path with no shell metacharacters`);
+// `{worktree}` is filled unquoted, and job.json's `worktree` is agent-writable: it is trusted only
+// when it is literally the path Forge computes for the job, whatever characters the repo path holds.
+// Checked only for a template that uses it, so other commands run whatever the stored value is.
+function assertOwnWorktree(root: string, config: Config, job: Job, dir: string, template: string): void {
+  if (!template.includes('{worktree}') || isOwnWorktreePath(root, config, job.id, dir)) return;
+  throw new ForgeError(`job.worktree ${JSON.stringify(dir).slice(0, 120)} is not this job's worktree: {worktree} is filled only with ${JSON.stringify(path.join(worktreeRoot(root, config), job.id)).slice(0, 120)}`);
 }
 
 // `{args}` is empty here: only `forge run … -- <args>` fills it (fillCommand), so verify, setup,
 // background servers and regenerate never take arguments that could narrow what they run.
-function vars(root: string, job: Job, dir: string, port: number | null): Record<string, string | number> {
+function vars(root: string, config: Config, job: Job, dir: string, port: number | null, template: string): Record<string, string | number> {
   checkRefs(job);
-  assertSafeWorktree(dir);
+  assertOwnWorktree(root, config, job, dir, template);
   return { job: job.id, port: port ?? '', worktree: dir, root, branch: job.branch!, base: job.base!, args: '' };
 }
 
@@ -424,7 +423,7 @@ function prepareCommand(root: string, config: Config, id: string, name: string, 
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
   const cwd = service?.path ? path.join(job.worktree, service.path) : job.worktree;
   // Before touchJob: refused arguments leave no trace, not even a heartbeat.
-  const cmd = fillCommand(name, template, vars(root, job, job.worktree, job.port), opts.args ?? []);
+  const cmd = fillCommand(name, template, vars(root, config, job, job.worktree, job.port, template), opts.args ?? []);
   // Agents run commands all through a build; each one proves the session is alive.
   touchJob(root, id);
   return { cmd, cwd, env: envFor(job, job.worktree, job.port) };
@@ -639,7 +638,7 @@ export async function startBackground(
     if (prev && pidAlive(prev.pid)) return { pid: prev.pid, log: path.resolve(dir, String(prev.log ?? `logs/${name}.log`)), reused: true };
     // Filled before the log is opened, so a refused value leaves nothing behind.
     // Checked above; the narrowing does not reach into this callback.
-    const cmd = fill(template, vars(root, job, job.worktree!, job.port));
+    const cmd = fill(template, vars(root, config, job, job.worktree!, job.port, template));
     const sh = posixShell();
     const logFile = path.join(dir, 'logs', `${name}.log`);
     fs.mkdirSync(path.dirname(logFile), { recursive: true });

@@ -4,7 +4,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { worktreeRoot } from './config.ts';
+import { isOwnWorktreePath, worktreeRoot } from './config.ts';
 import type { Config, Job } from './types.ts';
 import { ForgeError, splitWords } from './util.ts';
 
@@ -39,9 +39,9 @@ export function containedWorktree(root: string, config: Config, job: Pick<Job, '
   const real = realDir(wt);
   const base = realDir(configured);
   if (real === null || base === null) return null;
-  // The stored string itself must be `<root>/<id>` (as configured or resolved): a value that only
-  // resolves there, like `<root>/<id>/$(cmd)/..`, would reach startBackground's `{worktree}` raw.
-  if (wt !== path.join(configured, job.id) && wt !== path.join(base, job.id)) return null;
+  // The stored string itself must be `<root>/<id>`: a value that only resolves there, like
+  // `<root>/<id>/$(cmd)/..`, would reach startBackground's `{worktree}` raw.
+  if (!isOwnWorktreePath(root, config, job.id, wt)) return null;
   // Compared with the root's resolved path plus the id, so `<root>/<id>` itself can't be a link out.
   return real === path.join(base, job.id) ? real : null;
 }
