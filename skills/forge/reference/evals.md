@@ -32,4 +32,10 @@ forge eval runs
 forge eval report <run>          # every task's result; check.replaced lists the candidate files the hidden patch replaced
 forge eval compare <runA> <runB>
 ```
-Each run is stamped with the Forge version and a `configHash` (config + reviewer checklists + notes), so a difference can be traced to what changed. Treat small task counts carefully: a single task flipping is noise. When a change looks promising, run the same tasks again before believing it. The dashboard's Evals view shows all of this.
+Each run is stamped with the Forge version, a `pluginHash` (the plugin's agent prompts, checklists, skill, `lib/step.ts` and `lib/brief.ts`) and a `configHash` (config + reviewer checklists + notes), so a difference can be traced to what changed. Treat small task counts carefully: a single task flipping is noise. When a change looks promising, run the same tasks again before believing it. The dashboard's Evals view shows all of this.
+
+## A/B runs
+- `--repeat N` (1–10) makes N eval jobs per task, so a run costs tasks × N jobs: confirm that with the human. Read each delta's `na`/`nb` and the per-task `n`, mean, min and max (`eval report` → `perTask`) before believing a difference.
+- `--set key=value` (repeatable) runs the variant without touching `.forge/config.yml`: `runtime.models.<role>`, `runtime.effort(s)`, `runtime.effortByComplexity.*`, `pipeline.*`, `review.panel` or `verify`. Anything else is refused, the overlay is in `configHash`, and a daemon session may not pass `--set`. Example: one run on main, one with `--set runtime.models.builder=sonnet`, then `forge eval compare`.
+- Graded results add `stages` (minutes per stage), `agentMinutes`, `orchestratorMinutes` and `reviewerRuns`, and `eval compare` has a `stages` delta.
+- Trap: under `claude --plugin-dir <checkout>` with the installed plugin still enabled, the `forge` on PATH is the installed one, so agents run the checkout's prompts while `pluginHash` and `forgeVersion` describe the installed plugin. Disable the installed plugin, or put the checkout's `bin/` first on PATH, before an A/B run.
