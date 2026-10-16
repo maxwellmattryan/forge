@@ -104,8 +104,13 @@ export interface JobOwner {
 /** Why a daemon owner provably let go of a job: ownerYield in lib/daemon-owner.ts. */
 export type YieldReason = 'moved-on' | 'not-running' | 'inbox-handoff';
 
-/** Who recorded a `human` event: a person, or the foreman. */
-export type HumanActor = 'human' | 'foreman';
+/** Where an event's actor came from: ACTOR_SOURCES in lib/schema.ts. */
+export type ActorSource = 'env' | 'gh' | 'git' | 'os' | 'dashboard' | 'foreman' | 'unknown';
+/** Who did a human action; `login` is null for the foreman and when nothing resolved. */
+export interface EventActor {
+  login: string | null;
+  source: ActorSource;
+}
 /** Who owns a waiting job's gate: gateOwner in lib/foreman.ts; null when the job waits on nothing or the foreman is off. */
 export type GateOwner = 'foreman' | 'human' | null;
 
@@ -328,8 +333,8 @@ export interface JobEvent {
   text?: string;
   action?: string;
   note?: string | null;
-  /** On `human` events: who decided. Absent on older events, which read as `human`. */
-  actor?: HumanActor;
+  /** On human-action events (lib/actor.ts): who acted, best effort and unauthenticated. */
+  actor?: EventActor;
   [key: string]: unknown;
 }
 

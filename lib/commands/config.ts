@@ -1,6 +1,7 @@
 // `forge config show|get|set|validate`: read the effective config, and write one editable key.
 import { validateConfig } from '../config.ts';
 import { fieldFor, parseCliValue } from '../config-fields.ts';
+import { currentActor } from '../actor.ts';
 import { NEED_INIT, setConfigValue } from '../config-set.ts';
 import type { Config, HelpGroup } from '../types.ts';
 import { ForgeError, getPath } from '../util.ts';
@@ -39,7 +40,7 @@ export function configCmd(root: string, config: Config, initialized: boolean, su
     if (!initialized) throw new ForgeError(NEED_INIT, 'not_initialized', '/forge init');
     const key = req(rest[0], 'config key');
     if (rest[1] === undefined) throw usageError(CONFIG, 'set');
-    return out(setConfigValue(root, key, parseCliValue(fieldFor(key), rest[1])), flags);
+    return out(setConfigValue(root, key, parseCliValue(fieldFor(key), rest[1]), () => currentActor(root)), flags);
   }
   if (sub === 'validate') {
     const problems = validateConfig(config, root);

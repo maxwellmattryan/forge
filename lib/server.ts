@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { daemonProblems, loadConfig, resolveEffort, validateConfig } from './config.ts';
 import { ConfigSetError, FIELDS } from './config-fields.ts';
+import { dashboardActor } from './actor.ts';
 import { setConfigValue } from './config-set.ts';
 import { PERMISSION_MODES, UUID, logBaseOf, readInfo, readLogPage, sessionFiles } from './daemon.ts';
 import type { DaemonOptions } from './daemon.ts';
@@ -255,7 +256,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         // A change would trip the daemon's trust check mid-turn, and only a human may restart it.
         if (pool?.state().wanted) return jsonStatus(res, 409, { error: DAEMON_LOCK });
         try {
-          const r = setConfigValue(root, body.key, body.value);
+          const r = setConfigValue(root, body.key, body.value, dashboardActor);
           if (r.changed) backlogCache = null;
           return json(res, r satisfies PostConfigResponse);
         } catch (e) {
@@ -276,7 +277,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (typeof obj.id !== 'string' || !UUID.test(obj.id)) return jsonStatus(res, 400, { error: 'id must be a permission prompt id' });
         if (!PERMISSION_DECISIONS.includes(obj.decision)) return jsonStatus(res, 400, { error: `decision must be one of ${PERMISSION_DECISIONS.join(', ')}` });
         // Only the decision travels on: what the session gets back is built from claude's own request.
-        if (!pool?.answerPermission(obj.scope, obj.id, obj.decision)) return jsonStatus(res, 404, { error: 'that permission prompt is gone: already answered, or its session stopped' });
+        if (!pool?.answerPermission(obj.scope, obj.id, obj.decision, dashboardActor())) return jsonStatus(res, 404, { error: 'that permission prompt is gone: already answered, or its session stopped' });
         return json(res, poolState());
       }
       if (req.method === 'POST' && p === '/api/daemon/mode') {
@@ -292,7 +293,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (obj.scope !== INBOX_SCOPE && obj.scope !== OFFICE_SCOPE && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
         if (!PERMISSION_MODES.includes(obj.mode)) return jsonStatus(res, 400, { error: `mode must be one of ${PERMISSION_MODES.join(', ')}` });
         // Only a value from that fixed list travels on, to the supervisor's memory and the session's stdin.
-        const r = pool?.setPermissionMode(obj.scope, obj.mode) ?? { error: 'the daemon pool is not ready' };
+        const r = pool?.setPermissionMode(obj.scope, obj.mode, dashboardActor()) ?? { error: 'the daemon pool is not ready' };
         if (r.error) return jsonStatus(res, 409, { error: r.error });
         return json(res, poolState() satisfies PostDaemonModeResponse);
       }

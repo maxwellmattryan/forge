@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ownerStatusWithProof } from './daemon-owner.ts';
+import { currentActor } from './actor.ts';
 import { loadJob, logEvent, readEvents, setJob, jobDir } from './jobs.ts';
 import { checkBranch, historyEnv, logEscalated, policyRules, protectedApproved, refusalText } from './protected.ts';
 import { enqueuePrFeedbackGate, maybeEnqueueGate } from './foreman.ts';
@@ -778,18 +779,21 @@ export function mergePr(root: string, config: Config, id: string, opts: { now?: 
   if (action === 'auto') args.push('--auto');
   // Pin the commit whose checks were just read, so a push after the sync cannot ride along.
   if (synced?.headOid) args.push('--match-head-commit', synced.headOid);
+  // --now is a person's call, so every event it writes says who; without it the approver's
+  // auto-merge is not a human action and records no actor.
+  const by = now ? { actor: currentActor(root) } : {};
   // Logged before the call so a human override is on record even if the merge then fails.
-  if (now) logEvent(root, id, 'pr-merge-bypass', { number, checks });
+  if (now) logEvent(root, id, 'pr-merge-bypass', { number, checks, ...by });
   const res = run('gh', args, { cwd: root, allowFail: true });
   if (!res.ok) {
     const error = (res.stderr || res.stdout).trim();
-    logEvent(root, id, 'pr-merge-failed', { number, error });
+    logEvent(root, id, 'pr-merge-failed', { number, error, ...by });
     return { merged: false, autoMerge: false, action: 'failed', checks, error };
   }
   if (action === 'auto') {
-    logEvent(root, id, 'pr-auto-merge', { number, checks });
+    logEvent(root, id, 'pr-auto-merge', { number, checks, ...by });
     return { merged: false, autoMerge: true, action: 'auto', checks };
   }
-  logEvent(root, id, 'pr-merged', { number, method: config.merge.method, checks, bypass: now && checks !== 'passing' });
+  logEvent(root, id, 'pr-merged', { number, method: config.merge.method, checks, bypass: now && checks !== 'passing', ...by });
   return { merged: true, autoMerge: false, action: 'merged', checks };
 }

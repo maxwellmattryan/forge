@@ -37,6 +37,8 @@ export type Checks = [
   Expect<Equal<engine.Progress, dash.Progress>>,
   Expect<Equal<engine.TransitionSide, dash.TransitionSide>>,
   Expect<Equal<engine.AgentUsage, dash.AgentUsage>>,
+  Expect<Equal<engine.ActorSource, dash.ActorSource>>,
+  Expect<Equal<engine.EventActor, dash.EventActor>>,
   Expect<Equal<engine.JobEvent, dash.JobEvent>>,
   Expect<Equal<engine.PipelineConfig, dash.PipelineConfig>>,
   Expect<Equal<engine.DaemonStatus, dash.DaemonStatus>>,

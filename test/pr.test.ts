@@ -208,6 +208,7 @@ test('mergePr: one merge call chosen by CI state, never a fallback', { skip: pro
 
     id = scenario({ checks: 'none' });
     assert.equal(mergePr(root, h.config, id).action, 'merged', 'no checks and no workflows: nothing to wait for');
+    assert.equal(readEvents(root, id).find((e) => e.type === 'pr-merged').actor, undefined, "a merge without --now is the approver's, not a person's");
     const wf = path.join(root, '.github', 'workflows');
     fs.mkdirSync(wf, { recursive: true });
     fs.writeFileSync(path.join(wf, 'ci.yml'), 'on: push\n');
@@ -228,6 +229,10 @@ test('mergePr: one merge call chosen by CI state, never a fallback', { skip: pro
     assert.equal(ev.find((e) => e.type === 'pr-merged').bypass, true);
     const types = ev.map((e) => e.type);
     assert.ok(types.indexOf('pr-merge-bypass') < types.indexOf('pr-merged'), 'override logged before the merge');
+    // --now is a person's call: the bypass and its merge say who made it.
+    const TEST_ACTOR = { login: 'forge-test', source: 'env' };
+    assert.deepEqual(bypassEv.actor, TEST_ACTOR);
+    assert.deepEqual(ev.find((e) => e.type === 'pr-merged').actor, TEST_ACTOR);
 
     id = scenario({ checks: 'passing' });
     mergePr(root, h.config, id, { now: true });

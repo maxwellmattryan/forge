@@ -488,7 +488,7 @@ export function eventDetail(e: JobEvent, fmt: { tokens: (n: number | null | unde
 }
 
 /** A `human` event the foreman recorded: the timeline labels it so a reader can tell it from a person's decision. */
-export const isForemanEvent = (e: Partial<JobEvent> | null | undefined): boolean => e?.type === 'human' && e.actor === 'foreman';
+export const isForemanEvent = (e: Partial<JobEvent> | null | undefined): boolean => e?.type === 'human' && e.actor?.source === 'foreman';
 
 /** A waiting job's gate owner badge: the foreman deciding it, or a human owning it; null for no owner (or an older server). */
 export function gateOwnerBadge(owner: unknown): { foreman: boolean; tone: 'live' | 'you' } | null {

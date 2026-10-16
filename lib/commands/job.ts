@@ -8,7 +8,7 @@ import { budgetCmd, enforceBudget } from '../budget.ts';
 import { OFFICE_REFUSAL, daemonClaimOpts, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
 import { OFFICE_JOB_COMMANDS, checkForemanDecision, checkOfficeSetFor, gateClass, inOffice, isGateClass, maybeEnqueueGate, reservedFor } from '../foreman.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
-import { agentOutputMissing, attachAgent, claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
+import { agentOutputMissing, attachAgent, claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
 import { logSecrets, scanAgentOutputs } from '../secrets.ts';
 import { normalizeRef } from '../issue-link.ts';
 import { exists } from '../paths.ts';
@@ -25,7 +25,8 @@ import { modelFor, resolveEffort } from '../config.ts';
 import { ForgeError, coerce, getPath, run } from '../util.ts';
 import { bodyFrom, list, num, oneOf, req, requireJob, str, usageError } from './args.ts';
 import { mirrorToTracker, startFromRef } from './tracker.ts';
-import type { AgentUsage, Config, Effort, HelpGroup, HumanActor, Job } from '../types.ts';
+import type { AgentUsage, Config, Effort, HelpGroup, Job } from '../types.ts';
+import { FOREMAN_ACTOR, currentActor } from '../actor.ts';
 
 const NO_JOB: [1, string] = [1, 'no such job'];
 const BODY: [string, string][] = [
@@ -402,7 +403,10 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     case 'claim': {
       const jobId = requireJob(root, id).id;
       refuseInOffice(`it never claims ${jobId}`);
-      const { job, overridden } = claimRespectingDeps(root, jobId, req(str(flags.session, '--session'), '--session'), Boolean(flags.force), daemonClaimOpts(root, jobId));
+      const force = Boolean(flags.force);
+      // Only a forced takeover is a person's decision; a plain claim is the pipeline's own.
+      const opts = { ...daemonClaimOpts(root, jobId), ...(force ? { actor: currentActor(root) } : {}) };
+      const { job, overridden } = claimRespectingDeps(root, jobId, req(str(flags.session, '--session'), '--session'), force, opts);
       return { id: job.id, owner: job.owner, ...(overridden.length ? { dependenciesOverridden: overridden } : {}) };
     }
     case 'release': {
@@ -418,11 +422,11 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       const jobId = job.id;
       const action = oneOf(rest[1], HUMAN_ACTIONS, 'action');
       const note = str(flags.note, '--note');
-      const actor: HumanActor = flags.actor === undefined ? 'human' : oneOf(str(flags.actor, '--actor'), ['human', 'foreman'] as const, 'actor');
+      const who = flags.actor === undefined ? 'human' : oneOf(str(flags.actor, '--actor'), ['human', 'foreman'] as const, 'actor');
       // The office session records only foreman decisions, and only it may: provenance is the
       // daemon scope, so a job session misled by request text can't pass off a decision as the foreman's.
-      if (inOffice() && actor !== 'foreman') throw new ForgeError('the office session records decisions only with --actor foreman', 1);
-      if (actor === 'foreman') checkForemanDecision(root, config, job, action, note, { link: flags.link, reason: flags.reason });
+      if (inOffice() && who !== 'foreman') throw new ForgeError('the office session records decisions only with --actor foreman', 1);
+      if (who === 'foreman') checkForemanDecision(root, config, job, action, note, { link: flags.link, reason: flags.reason });
       // Every check runs before any write, so a refused --link leaves job.json and events untouched.
       const link = flags.link;
       if (link !== undefined && (typeof link !== 'string' || !link.trim())) throw new ForgeError('--link needs <ref>, new or none');
@@ -435,10 +439,12 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       if (action === 'revise-split') setJob(root, jobId, { fields: { splitMode: 'never' } });
       // The link goes first: if it throws, no approval is recorded and the job keeps waiting.
       let linked: unknown;
-      if (link === 'none') linked = markNoIssue(root, jobId, reason ?? null);
-      else if (link === 'new') linked = createAndLink(root, config, await loadTracker(root, config), jobId);
-      else if (typeof link === 'string') linked = linkJob(root, config, await loadTracker(root, config), jobId, link);
-      logEvent(root, jobId, 'human', { action, note: note ?? (rest.slice(2).join(' ') || null), actor });
+      // Resolved after every check, so a refused call never spawns gh to find out who asked.
+      const actor = who === 'foreman' ? FOREMAN_ACTOR : currentActor(root);
+      if (link === 'none') linked = markNoIssue(root, jobId, reason ?? null, actor);
+      else if (link === 'new') linked = createAndLink(root, config, await loadTracker(root, config), jobId, actor);
+      else if (typeof link === 'string') linked = linkJob(root, config, await loadTracker(root, config), jobId, link, actor);
+      logHumanEvent(root, jobId, 'human', { action, note: note ?? (rest.slice(2).join(' ') || null) }, actor);
       return { ok: true, ...(link !== undefined ? { link: linked } : {}) };
     }
     case 'assist':

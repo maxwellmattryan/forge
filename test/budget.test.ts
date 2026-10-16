@@ -255,6 +255,10 @@ test('AC6/AC7/AC13: changed lines and verify retries through the CLI', () => {
 
     // AC13: the ack holds for round 1 only.
     assert.deepEqual(f('job', 'budget', id, '--ack').acked, ['verifyRetries']);
+    // Both are a person's calls, so both record who made them.
+    const TEST_ACTOR = { login: 'forge-test', source: 'env' };
+    const stamped = readEvents(repo.dir, id).filter((e) => e.type === 'budget-set' || e.type === 'budget-ack');
+    assert.deepEqual(stamped.map((e) => [e.type, e.actor]), [['budget-set', TEST_ACTOR], ['budget-set', TEST_ACTOR], ['budget-ack', TEST_ACTOR]]);
     f('job', 'set', id, '--state', 'running');
     assert.ok(!('budget' in failingVerify(id)), 'acked: one more full set of retries this round');
     assert.equal(f('job', 'round', id).round, 2);

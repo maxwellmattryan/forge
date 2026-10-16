@@ -2,8 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { paths, exists } from './paths.ts';
-import { EFFORTS, STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, normalizeJob, serializeJob } from './schema.ts';
-import type { AgentUsage, Config, Effort, Job, JobAgent, JobChange, JobOwner, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
+import { currentActor } from './actor.ts';
+import { EFFORTS, STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, normalizeEvent, normalizeJob, serializeJob } from './schema.ts';
+import type { AgentUsage, Config, Effort, EventActor, Job, JobAgent, JobChange, JobOwner, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
 import { estimateCost } from './usage.ts';
 import { ForgeError, assertSafeRef, now, readJson, readText, setPath, slugify, shortId, withLock, writeJsonAtomic } from './util.ts';
 
@@ -88,19 +89,51 @@ export function logEvent(root: string, id: string, type: string, data: Record<st
   fs.appendFileSync(path.join(jobDir(root, id), 'events.jsonl'), line + '\n');
 }
 
-export function readEvents(root: string, id: string): JobEvent[] {
-  return readText(path.join(jobDir(root, id), 'events.jsonl'))
+/** The repo-level audit log: human actions with no job, such as `forge config set`. Gitignored with runtime/. */
+export const repoAuditFile = (root: string): string => path.join(paths(root).runtime, 'audit.jsonl');
+
+/** Appends one event-shaped line to the repo-level audit log. */
+export function logRepoEvent(root: string, type: string, data: Record<string, any> = {}): void {
+  const file = repoAuditFile(root);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, JSON.stringify({ v: EVENT_SCHEMA_VERSION, ts: now(), type, ...data }) + '\n');
+}
+
+/**
+ * A human action's event: logEvent plus who did it. The actor defaults to this process's
+ * (lib/actor.ts), resolved only now, so paths that write no human event never call gh or git.
+ */
+export function logHumanEvent(root: string, id: string, type: string, data: Record<string, any> = {}, actor: EventActor = currentActor(root)): void {
+  logEvent(root, id, type, { ...data, actor });
+}
+
+/** Parses JSONL event lines into the current event shape, dropping lines that are not events. */
+export function parseEventLines(text: string): JobEvent[] {
+  return text
     .split('\n')
     .filter(Boolean)
     .map((l) => {
       try {
-        return JSON.parse(l);
+        return normalizeEvent(JSON.parse(l));
       } catch {
         return null;
       }
     })
-    .filter(Boolean);
+    .filter((e): e is JobEvent => e !== null);
 }
+
+export function readEvents(root: string, id: string): JobEvent[] {
+  return parseEventLines(readText(path.join(jobDir(root, id), 'events.jsonl')));
+}
+
+/**
+ * Whether an event was the foreman's. Accepts the raw legacy string too, so an unmigrated event
+ * passed in memory can never count as a person's decision (protected paths, stats, retro).
+ */
+export const isForemanActor = (e: { actor?: unknown } | null | undefined): boolean => {
+  const a = e?.actor as { source?: unknown } | string | undefined;
+  return a === 'foreman' || (typeof a === 'object' && a !== null && a.source === 'foreman');
+};
 
 const isEffort = (v: unknown): v is Effort => (EFFORTS as readonly unknown[]).includes(v);
 const effortError = (v: unknown) => `unknown effort ${JSON.stringify(v)} (${EFFORTS.join(', ')})`;
@@ -267,6 +300,8 @@ export function setJob(
 /** How claimJob learns that a live-looking owner has let go (lib/daemon-owner.ts): a reason, or null. */
 export interface ClaimOpts {
   yields?: (owner: JobOwner) => string | null;
+  /** Set only for a human's `--force` takeover, which the `claimed` event then records. */
+  actor?: EventActor;
 }
 
 /**
@@ -287,7 +322,7 @@ export function claimJob(root: string, id: string, session: string, force = fals
     j.owner = { session, host: os.hostname(), since: o?.session === session ? o.since : now(), heartbeat: now() };
     if (!o || o.session !== session) j.runs.push({ session, startedAt: now() });
   });
-  logEvent(root, id, 'claimed', { session });
+  logEvent(root, id, 'claimed', { session, ...(opts.actor ? { actor: opts.actor } : {}) });
   const y = yielded as { from: string; reason: string } | null;
   if (y) logEvent(root, id, 'note', { text: `took over from session ${y.from}: ${y.reason}` });
   return job;

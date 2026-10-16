@@ -24,6 +24,8 @@ const FAKE = path.resolve(import.meta.dirname, 'fixtures', 'fake-claude.mjs');
 const FAKE_BIN = path.resolve(import.meta.dirname, 'fixtures', 'bin', 'claude');
 const FAKE_COMMAND = `"${FAKE_BIN}" --plugin-dir {pluginRoot} {session} --allowedTools {allowedTools}`;
 const INBOX = INBOX_SCOPE;
+/** The actor the server passes for a dashboard answer. */
+const DASH = { login: 'dash-user', source: 'dashboard' } as const;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const settle = () => new Promise((r) => setImmediate(r));
 
@@ -220,8 +222,8 @@ test('permission prompts wait for a human, and only the decision crosses to the 
     assert.equal(d.state().inbox.status, 'idle', 'a prompt changes no status by itself');
     assert.equal(responses(c).length, 0, 'nothing is answered without a human');
 
-    assert.equal(d.answerPermission(INBOX, p.id, 'session'), true);
-    assert.equal(d.answerPermission(INBOX, p.id, 'allow'), false, 'a prompt is answered once');
+    assert.equal(d.answerPermission(INBOX, p.id, 'session', DASH), true);
+    assert.equal(d.answerPermission(INBOX, p.id, 'allow', DASH), false, 'a prompt is answered once');
     assert.deepEqual(prompts(), []);
     assert.deepEqual(responses(c)[0], {
       subtype: 'success',
@@ -239,15 +241,15 @@ test('permission prompts wait for a human, and only the decision crosses to the 
 
     ask(c, 'req-2');
     await waitFor(() => prompts().length === 1, 2000, 'a second prompt');
-    assert.equal(d.answerPermission(INBOX, prompts()[0].id, 'allow'), true);
+    assert.equal(d.answerPermission(INBOX, prompts()[0].id, 'allow', DASH), true);
     assert.deepEqual(responses(c)[1].response, { behavior: 'allow', updatedInput: { command: 'cp a b', description: 'copy' } }, 'allow once adds no rules');
 
     ask(c, 'req-3');
     await waitFor(() => prompts().length === 1, 2000, 'a third prompt');
-    assert.equal(d.answerPermission(INBOX, prompts()[0].id, 'deny'), true);
+    assert.equal(d.answerPermission(INBOX, prompts()[0].id, 'deny', DASH), true);
     assert.deepEqual(responses(c)[2].response, { behavior: 'deny', message: PERMISSION_DENIED });
 
-    assert.equal(d.answerPermission('some-job', crypto.randomUUID(), 'allow'), false, 'an unknown scope or id answers nothing');
+    assert.equal(d.answerPermission('some-job', crypto.randomUUID(), 'allow', DASH), false, 'an unknown scope or id answers nothing');
 
     ask(c, 'req-4');
     await waitFor(() => prompts().length === 1, 2000, 'a prompt to cancel');
@@ -265,12 +267,44 @@ test('permission prompts wait for a human, and only the decision crosses to the 
     c.exit(1, null);
     await waitFor(() => !d.state().inbox.running, 2000, 'the exit');
     assert.deepEqual(prompts(), [], "a dead child's prompts go away");
-    assert.equal(d.answerPermission(INBOX, id, 'allow'), false);
+    assert.equal(d.answerPermission(INBOX, id, 'allow', DASH), false);
 
     await logged(repo.dir, INBOX, 'permission-cancelled');
     const decisions = eventsIn(logOf(repo.dir), 'permission').map((e) => e.decision);
     assert.deepEqual(decisions, ['session', 'allow', 'deny'], 'every answer is logged');
     assert.equal(eventsIn(logOf(repo.dir), 'permission-asked').length, 5);
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('permission answers record the dashboard actor', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit);
+  try {
+    const job = createJob(repo.dir, defaults(), { title: 'Job P' }).id;
+    enqueue(repo.dir, null, { type: 'resume', job, from: 'dashboard' });
+    d.start();
+    await waitFor(() => kit.of(job).length === 1, 2000, "the job's session");
+    const c = kit.last(job);
+    c.line({ type: 'control_request', request_id: 'req-1', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'ls' } } });
+    await waitFor(() => d.sessionState(job).permissions.length === 1, 2000, 'a prompt');
+    assert.equal(d.answerPermission(job, d.sessionState(job).permissions[0].id, 'allow', DASH), true);
+    await logged(repo.dir, job, 'permission');
+    assert.deepEqual(eventsIn(logOf(repo.dir, job), 'permission').at(-1).actor, DASH, 'the daemon log line says who answered');
+    const answered = readEvents(repo.dir, job).filter((e) => e.type === 'daemon-permission');
+    assert.deepEqual(answered.map((e) => [e.tool, e.decision, e.actor]), [['Bash', 'allow', DASH]], 'the job keeps its own record');
+
+    assert.deepEqual(d.setPermissionMode(job, 'auto', DASH), { error: null });
+    await logged(repo.dir, job, 'permission-mode-set');
+    assert.deepEqual(eventsIn(logOf(repo.dir, job), 'permission-mode-set').at(-1).actor, DASH);
+    assert.deepEqual(readEvents(repo.dir, job).filter((e) => e.type === 'daemon-mode').map((e) => [e.mode, e.actor]), [['auto', DASH]]);
+
+    // The inbox and the office have no job to record on: only their log lines carry the actor.
+    d.setPermissionMode(INBOX, 'auto', DASH);
+    assert.equal(readEvents(repo.dir, job).filter((e) => e.type === 'daemon-mode').length, 1);
   } finally {
     await d.close();
     repo.cleanup();
@@ -288,6 +322,9 @@ test('permission prompts past the cap are denied without asking', async () => {
     await waitFor(() => c.written.includes('"r20"'), 2000, 'the 21st answered');
     assert.equal(d.state().inbox.permissions.length, 20);
     assert.ok(c.written.includes(JSON.stringify(PERMISSION_DENIED)), 'the overflow is denied');
+    await logged(repo.dir, INBOX, 'permission');
+    const auto = eventsIn(logOf(repo.dir), 'permission').find((e) => e.reason === 'too-many');
+    assert.ok(auto && !('actor' in auto), 'the automatic deny is not a human action and records no actor');
   } finally {
     await d.close();
     repo.cleanup();
@@ -392,7 +429,7 @@ test('a human switches one session’s permission mode: live while it runs, at i
     await waitFor(() => d.state().inbox.permissionMode === 'default', 2000, 'the init mode');
 
     // Live: the running child is asked, and only claude's own report changes what the session says it runs in.
-    assert.deepEqual(d.setPermissionMode(INBOX, 'auto'), { error: null });
+    assert.deepEqual(d.setPermissionMode(INBOX, 'auto', DASH), { error: null });
     assert.deepEqual(d.state().permissionModes, { [INBOX]: 'auto' });
     const [req] = modeRequests(inbox);
     assert.equal(req.type, 'control_request');
@@ -405,14 +442,14 @@ test('a human switches one session’s permission mode: live while it runs, at i
     await logged(repo.dir, INBOX, 'permission-mode');
 
     // Back to daemon.command's mode: nothing is held for the scope any more.
-    assert.deepEqual(d.setPermissionMode(INBOX, 'default'), { error: null });
+    assert.deepEqual(d.setPermissionMode(INBOX, 'default', DASH), { error: null });
     assert.deepEqual(d.state().permissionModes, {});
     assert.equal(modeRequests(inbox).length, 2);
 
     // claude refuses a switch: the choice falls back to what the session still reports.
     inbox.line({ type: 'system', subtype: 'status', status: null, permissionMode: 'dontAsk' });
     await waitFor(() => d.state().inbox.permissionMode === 'dontAsk', 2000, 'a reported mode');
-    d.setPermissionMode(INBOX, 'auto');
+    d.setPermissionMode(INBOX, 'auto', DASH);
     const refused = modeRequests(inbox)[2];
     inbox.line({ type: 'control_response', response: { subtype: 'error', request_id: refused.request_id, error: 'auto mode is unavailable' } });
     await waitFor(() => d.state().permissionModes[INBOX] === 'dontAsk', 2000, 'the fallback');
@@ -424,7 +461,7 @@ test('a human switches one session’s permission mode: live while it runs, at i
     assert.equal(d.state().permissionModes[INBOX], 'dontAsk');
 
     // Before its session exists: held, then passed on the spawn's argv, which carries one --permission-mode.
-    assert.deepEqual(d.setPermissionMode(job, 'auto'), { error: null });
+    assert.deepEqual(d.setPermissionMode(job, 'auto', DASH), { error: null });
     assert.equal(kit.of(job).length, 0);
     enqueue(repo.dir, null, { type: 'resume', job, from: 'dashboard' });
     d.poke();
@@ -436,7 +473,7 @@ test('a human switches one session’s permission mode: live while it runs, at i
     assert.equal(d.sessionState(job).permissionMode, 'auto', 'before its first init, the mode it was launched in');
     // A narrowing switch claude refuses, even before it reported any mode, stops the session rather than leave it in auto.
     const launched = kit.last(job);
-    d.setPermissionMode(job, 'default');
+    d.setPermissionMode(job, 'default', DASH);
     const early = modeRequests(launched)[0];
     launched.line({ type: 'control_response', response: { subtype: 'error', request_id: early.request_id, error: 'busy' } });
     await waitFor(() => launched.exited, 2000, 'the stop');
@@ -449,9 +486,9 @@ test('a human switches one session’s permission mode: live while it runs, at i
     assert.equal(kit.last(job).args[kit.last(job).args.indexOf('--permission-mode') + 1], 'default', 'it starts in the chosen mode');
 
     // Refusals, and a dead child reports no mode.
-    assert.match(d.setPermissionMode(INBOX, 'bypassPermissions' as any).error ?? '', /mode must be one of default, auto, dontAsk/);
-    assert.match(d.setPermissionMode(INBOX, 'acceptEdits' as any).error ?? '', /mode must be one of/);
-    assert.equal(d.setPermissionMode('../x', 'auto').error, 'invalid scope');
+    assert.match(d.setPermissionMode(INBOX, 'bypassPermissions' as any, DASH).error ?? '', /mode must be one of default, auto, dontAsk/);
+    assert.match(d.setPermissionMode(INBOX, 'acceptEdits' as any, DASH).error ?? '', /mode must be one of/);
+    assert.equal(d.setPermissionMode('../x', 'auto', DASH).error, 'invalid scope');
     inbox.exit(0, null);
     await waitFor(() => !d.state().inbox.running, 2000, 'the exit');
     assert.equal(d.state().inbox.permissionMode, null);
@@ -1231,12 +1268,12 @@ test('a switch claude never confirms: a narrowing one stops the session, a widen
   try {
     d.start();
     const first = kit.last(INBOX);
-    d.setPermissionMode(INBOX, 'auto');
+    d.setPermissionMode(INBOX, 'auto', DASH);
     await waitFor(() => d.state().permissionModes[INBOX] === undefined, 2000, 'the widening fallback');
     assert.equal(first.exited, false, 'a widening that never happened needs no stop');
     first.line({ type: 'system', subtype: 'status', status: null, permissionMode: 'auto' });
     await waitFor(() => d.state().inbox.permissionMode === 'auto', 2000, 'auto reported');
-    d.setPermissionMode(INBOX, 'dontAsk');
+    d.setPermissionMode(INBOX, 'dontAsk', DASH);
     await waitFor(() => first.exited, 2000, 'the narrowing stop');
     assert.deepEqual(d.state().permissionModes, { [INBOX]: 'dontAsk' });
     await logged(repo.dir, INBOX, 'error');
@@ -1265,11 +1302,11 @@ test('a real child switches permission mode live, and a refused narrowing stops 
     d.start();
     await waitFor(() => d.state().inbox.permissionMode === 'default', 5000, 'init to report manual as default');
     assert.equal(d.state().permissionMode, 'default');
-    assert.deepEqual(d.setPermissionMode(INBOX, 'auto'), { error: null });
+    assert.deepEqual(d.setPermissionMode(INBOX, 'auto', DASH), { error: null });
     await waitFor(() => d.state().inbox.permissionMode === 'auto', 5000, 'the live switch');
     await logged(repo.dir, INBOX, 'permission-mode');
     const pid = d.state().inbox.pid;
-    d.setPermissionMode(INBOX, 'dontAsk');
+    d.setPermissionMode(INBOX, 'dontAsk', DASH);
     await waitFor(() => !d.state().inbox.running, 5000, 'the stop after a refused narrowing');
     assert.equal(alive(pid), false);
     assert.deepEqual(d.state().permissionModes, { [INBOX]: 'dontAsk' });

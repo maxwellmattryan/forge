@@ -2,7 +2,7 @@
 // this file never runs. The dashboard's src/lib/types.ts carries a copy of the API shapes, kept
 // equal by test/types-parity.ts, until the dashboard imports this file. Unions that have a runtime
 // list are derived from that list, never retyped.
-import type { BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
+import type { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import type { REQUEST_TYPES } from './requests.ts';
 import type { AcCoverage } from './acs.ts';
 import type { SECRET_KINDS } from './secrets.ts';
@@ -454,8 +454,8 @@ export interface JobEvent {
   text?: string;
   action?: string;
   note?: string | null;
-  /** On `human` events: who decided. Absent on older events, which read as `human`. */
-  actor?: HumanActor;
+  /** On human-action events (lib/actor.ts): who acted, best effort and unauthenticated. */
+  actor?: EventActor;
   [key: string]: unknown;
 }
 
@@ -698,8 +698,13 @@ export interface Config {
 export type GateClass = (typeof OFFICE_GATES)[number];
 /** foreman.ship: FOREMAN_SHIP in lib/schema.ts. */
 export type ForemanShip = (typeof FOREMAN_SHIP)[number];
-/** Who recorded a `human` event: a person, or the foreman (`forge job human --actor foreman`). */
-export type HumanActor = 'human' | 'foreman';
+/** Where an event's actor came from: ACTOR_SOURCES in lib/schema.ts. */
+export type ActorSource = (typeof ACTOR_SOURCES)[number];
+/** Who did a human action (lib/actor.ts); `login` is null for the foreman and when nothing resolved. */
+export interface EventActor {
+  login: string | null;
+  source: ActorSource;
+}
 /** Who owns a waiting job's gate: gateOwner in lib/foreman.ts; null when the job waits on nothing. */
 export type GateOwner = 'foreman' | 'human' | null;
 

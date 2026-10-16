@@ -597,13 +597,14 @@ test('cardModel: slots and null rules', () => {
 });
 
 test('foreman event line and gate owner badge', () => {
-  assert.equal(V.isForemanEvent({ type: 'human', action: 'approve-spec', actor: 'foreman' }), true);
-  assert.equal(V.isForemanEvent({ type: 'human', action: 'approve-spec', actor: 'human' }), false);
+  assert.equal(V.isForemanEvent({ type: 'human', action: 'approve-spec', actor: { login: null, source: 'foreman' } }), true);
+  assert.equal(V.isForemanEvent({ type: 'human', action: 'approve-spec', actor: { login: 'alice', source: 'gh' } }), false);
+  assert.equal(V.isForemanEvent({ type: 'human', action: 'approve-spec', actor: { login: null, source: 'unknown' } }), false, 'a v1 human event reads as unknown, not foreman');
   assert.equal(V.isForemanEvent({ type: 'human', action: 'approve-spec' }), false, 'an older event without actor is a human one');
-  assert.equal(V.isForemanEvent({ type: 'note', actor: 'foreman' } as any), false);
+  assert.equal(V.isForemanEvent({ type: 'note', actor: { login: null, source: 'foreman' } }), false);
   assert.equal(V.isForemanEvent(null), false);
   // The line itself is unchanged: the label is a chip beside it.
-  assert.deepEqual(V.eventDetail({ v: 1, ts: 't', type: 'human', action: 'rework', note: 'fix it', actor: 'foreman' }, { tokens: tokensShort, dur }), { pre: '', bold: 'rework', post: ' · fix it' });
+  assert.deepEqual(V.eventDetail({ v: 1, ts: 't', type: 'human', action: 'rework', note: 'fix it', actor: { login: null, source: 'foreman' } }, { tokens: tokensShort, dur }), { pre: '', bold: 'rework', post: ' · fix it' });
   assert.deepEqual(V.gateOwnerBadge('foreman'), { foreman: true, tone: 'live' });
   assert.deepEqual(V.gateOwnerBadge('human'), { foreman: false, tone: 'you' });
   for (const none of [null, undefined, 'robot', 1]) assert.equal(V.gateOwnerBadge(none), null, String(none));

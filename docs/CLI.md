@@ -108,6 +108,7 @@ Read by Forge:
 | `NODE_DISABLE_COMPILE_CACHE` | any non-empty value turns the start-up cache off |
 | `FORGE_DEBUG` | any non-empty value prints an error's stack trace on stderr, with or without `--json` |
 | `FORGE_AI_ATTRIBUTION` | `allow` turns the no-AI-attribution policy off for the hook, `forge git commit`, `forge pr open` and the GitHub tracker |
+| `FORGE_ACTOR` | the login human-action events record (`actor: { login, source: "env" }`), ahead of `gh`, `git config user.email` and the OS user; ignored inside daemon sessions, which record the dashboard's OS user. Sanitised to `[A-Za-z0-9 ._@+-]`, at most 100 characters, and unauthenticated (ARCHITECTURE.md "Audit trail") |
 | `GH_HOST` | a GitHub Enterprise host whose issue URLs count as the configured repo's, besides github.com |
 | `SHELL` | the shell configured commands run in (`$SHELL -lc`; `/bin/sh` when unset): `forge run`, `forge verify`, worktree setup and eval checks |
 | `PATH` | where git, gh, claude and node are found |
@@ -139,7 +140,7 @@ Set by Forge for configured commands (`forge run`, `forge verify`, worktree setu
 
 ## Foreman decisions
 
-`forge job human <id> <action> [--actor human|foreman]` records who decided. Without `--actor` the event says `actor: "human"`. `--actor foreman` is accepted only from the office daemon session (`FORGE_DAEMON_SCOPE=_office`), which in turn must pass it, and only after the authority checks in docs/ARCHITECTURE.md "Foreman": the job waits on a gate class in `foreman.decides`, the action belongs to that class, `--note` is given and no reserved pattern matches (nor a latest security verdict other than `PASS`), a pr-feedback `rework` has a queued gate request for the PR's current head, and there is no `--link` or `--reason`. A refusal exits 1 and writes nothing.
+`forge job human <id> <action> [--actor human|foreman]` records who decided. Without `--actor` the event's `actor` is the resolved person, `{ "login": "<login>"|null, "source": "env"|"gh"|"git"|"os"|"dashboard"|"unknown" }` (ARCHITECTURE.md "Audit trail"); with `--actor foreman` it is `{ "login": null, "source": "foreman" }`. Events written before event schema v2 said `"human"` or `"foreman"`, and read as source `unknown` and `foreman`. `--actor foreman` is accepted only from the office daemon session (`FORGE_DAEMON_SCOPE=_office`), which in turn must pass it, and only after the authority checks in docs/ARCHITECTURE.md "Foreman": the job waits on a gate class in `foreman.decides`, the action belongs to that class, `--note` is given and no reserved pattern matches (nor a latest security verdict other than `PASS`), a pr-feedback `rework` has a queued gate request for the PR's current head, and there is no `--link` or `--reason`. A refusal exits 1 and writes nothing.
 
 `forge job assist <id> --gate <class>` is read-only and returns `{gate, stale, reserved, model, effort, subagent, brief}`: the `forge:assistant` spawn for that gate, with a brief of paths only. `stale: true` means the job no longer waits on that gate, and `reserved` is re-checked at call time. An unknown `--gate` exits 1, and so does a daemon session other than the office. `forge requests add gate` always exits 1: only `forge job set` and `forge pr sync` write gate requests.
 

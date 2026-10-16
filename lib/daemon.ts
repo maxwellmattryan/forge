@@ -19,7 +19,7 @@ import { INBOX_SCOPE, SCOPE_ENV, enqueue, validJobId, validScope } from './reque
 import { EFFORTS } from './schema.ts';
 import { isClaudeExecutable, now, run, sleepSync, splitWords, writeJsonAtomic } from './util.ts';
 import { pidAlive } from './worktree.ts';
-import type { Config, DaemonAuth, DaemonPermissionMode, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, Effort, EffortSource, ForgeRequest, JobAgent, PermissionDecision } from './types.ts';
+import type { Config, DaemonAuth, DaemonPermissionMode, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, Effort, EffortSource, EventActor, ForgeRequest, JobAgent, PermissionDecision } from './types.ts';
 
 /** What a session reports to its pool: a log line as it is written, or its new state after a change. */
 export type SessionEvent = { kind: 'line'; scope: string; offset: number; line: string } | { kind: 'state'; scope: string; state: DaemonSessionState };
@@ -156,8 +156,8 @@ export interface Session {
   /** Returns whether a child is now running. */
   spawn(c: Config, reason?: string): boolean;
   writeTurn(ids: string[]): void;
-  /** Answers a pending permission prompt; false when there is none by that id (answered, or its child exited). */
-  answerPermission(id: string, decision: PermissionDecision): boolean;
+  /** Answers a pending permission prompt with who answered; returns its tool, or null when there is none by that id (answered, or its child exited). */
+  answerPermission(id: string, decision: PermissionDecision, actor?: EventActor): string | null;
   /** Asks the running child to switch permission mode; false when no child runs (the next spawn takes ctx.permissionMode). */
   setPermissionMode(mode: DaemonPermissionMode): boolean;
   kill(event: string, endStdin: boolean, reason?: string): Promise<void>;
@@ -1037,14 +1037,14 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     changed();
   }
 
-  function answerPermission(id: string, decision: PermissionDecision): boolean {
+  function answerPermission(id: string, decision: PermissionDecision, actor?: EventActor): string | null {
     const p = prompts.get(id);
-    if (!p || p.proc !== child) return false;
+    if (!p || p.proc !== child) return null;
     prompts.delete(id);
     writeControl(p.proc, permissionResponse(p.requestId, decision, p.input, p.grant));
-    logEvent('permission', { id, tool: p.prompt.tool, decision });
+    logEvent('permission', { id, tool: p.prompt.tool, decision, ...(actor ? { actor } : {}) });
     changed();
-    return true;
+    return p.prompt.tool;
   }
 
   function clearIdle() {

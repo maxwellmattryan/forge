@@ -11,6 +11,7 @@ import { getPath } from '../lib/util.ts';
 import { setIn } from '../lib/yaml.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
+const ACTOR = () => ({ login: 'lib-caller', source: 'env' }) as const;
 const FIXTURE = fs.readFileSync(path.join(import.meta.dirname, 'fixtures', 'config-commented.yml'), 'utf8');
 
 /** A scratch repo with the commented fixture as its config (or none). */
@@ -116,7 +117,7 @@ describe('forge config set and get', { concurrency: 4 }, () => {
       assert.ok(at > lines.indexOf('runtime:') && at < lines.indexOf('tracker:'), 'written under runtime:');
       assert.equal(lines.length, FIXTURE.split('\n').length + 1, 'one line added');
       assert.ok(s.read().includes('  diversity: false          # warn on shared model families\n'), 'comments kept');
-      for (const level of EFFORTS) assert.equal(setConfigValue(s.repo.dir, 'runtime.effort', level).value, level);
+      for (const level of EFFORTS) assert.equal(setConfigValue(s.repo.dir, 'runtime.effort', level, ACTOR).value, level);
       const cleared = await s.forge('config', 'set', 'runtime.effort', 'null');
       assert.equal(cleared.code, 0, cleared.err);
       assert.equal(JSON.parse(cleared.out).value, null);
@@ -127,7 +128,7 @@ describe('forge config set and get', { concurrency: 4 }, () => {
       assert.ok(r.err.includes('runtime.effort must be one of low | medium | high | xhigh | max, or null (got "ultra")'), r.err);
       assert.equal(s.read(), before, 'ultra leaves the file byte-identical');
       for (const bad of ['--add-dir=/', 'High', 'high --add-dir /', 3, true, ['high']]) {
-        assert.throws(() => setConfigValue(s.repo.dir, 'runtime.effort', bad as any), (e: any) => e.reason === 'invalid' && e.message.startsWith('runtime.effort must be one of'), String(bad));
+        assert.throws(() => setConfigValue(s.repo.dir, 'runtime.effort', bad as any, ACTOR), (e: any) => e.reason === 'invalid' && e.message.startsWith('runtime.effort must be one of'), String(bad));
         assert.equal(s.read(), before, `${bad} leaves the file byte-identical`);
       }
     } finally {
@@ -187,7 +188,31 @@ describe('forge config set and get', { concurrency: 4 }, () => {
       assert.equal(r.code, 1);
       assert.match(r.err, /pr\.integrationReview/);
       assert.equal(s.read(), before, 'maybe leaves the file byte-identical');
-      assert.throws(() => setConfigValue(s.repo.dir, 'pr.integrationReview', 'maybe'), (e: any) => e.reason === 'invalid');
+      assert.throws(() => setConfigValue(s.repo.dir, 'pr.integrationReview', 'maybe', ACTOR), (e: any) => e.reason === 'invalid');
+    } finally {
+      s.repo.cleanup();
+    }
+  });
+
+  test('config set records the actor', async () => {
+    const s = scratch();
+    const audit = path.join(s.repo.dir, '.forge', 'runtime', 'audit.jsonl');
+    const lines = () => (fs.existsSync(audit) ? fs.readFileSync(audit, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+    try {
+      const set = await s.cli({ FORGE_ACTOR: 'alice' }, 'config', 'set', 'runtime.effort', 'high');
+      assert.equal(set.code, 0, set.err);
+      const [first] = lines();
+      assert.deepEqual({ ...first, ts: undefined }, { v: 2, ts: undefined, type: 'config-set', key: 'runtime.effort', previous: null, value: 'high', changed: true, actor: { login: 'alice', source: 'env' } });
+      const same = await s.cli({ FORGE_ACTOR: 'alice' }, 'config', 'set', 'runtime.effort', 'high');
+      assert.equal(same.code, 0, same.err);
+      assert.equal(lines().length, 1, 'an unchanged value appends nothing');
+      let asked = 0;
+      setConfigValue(s.repo.dir, 'runtime.effort', 'high', () => (asked++, ACTOR()));
+      assert.equal(asked, 0, 'an unchanged value never resolves the actor');
+      // The server passes dashboardActor; its route is covered in server.test.ts.
+      setConfigValue(s.repo.dir, 'runtime.effort', 'low', () => ({ login: 'dash', source: 'dashboard' }));
+      assert.deepEqual(lines().at(-1).actor, { login: 'dash', source: 'dashboard' });
+      assert.equal(lines().at(-1).previous, 'high');
     } finally {
       s.repo.cleanup();
     }
@@ -229,7 +254,7 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     const s = scratch();
     try {
       for (const [key, value] of [['worktrees.generated', ['dist/**']], ['worktrees.generatedBy', 'test']] as const) {
-        assert.throws(() => setConfigValue(s.repo.dir, key, value as any), (e: any) => e.reason === 'locked', key);
+        assert.throws(() => setConfigValue(s.repo.dir, key, value as any, ACTOR), (e: any) => e.reason === 'locked', key);
         assert.equal(s.read(), FIXTURE, `${key}: file unchanged`);
       }
     } finally {
