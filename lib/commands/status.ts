@@ -60,5 +60,8 @@ export function statsText(s: Stats): string {
   ];
   const rv = Object.entries(s.reviewers);
   if (rv.length) lines.push('reviewers: ' + rv.map(([k, v]) => `${k} ${pct(v.changeRate)} changes, ${pct(v.disputeRate)} disputed`).join(' · '));
+  // An older stats.json (or /api/stats) has no verifiers.
+  const vf = Object.entries(s.verifiers ?? {});
+  if (vf.length) lines.push('verifiers: ' + vf.map(([k, v]) => `${k} ${pct(v.hitRate)} hit over ${v.runs} runs, ${v.blocks} blocked`).join(' · '));
   return lines.join('\n');
 }

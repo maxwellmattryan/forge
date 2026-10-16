@@ -5,9 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { scratchGitConfig, tempRepo } from './helpers.ts';
-import { loadConfig } from '../lib/config.ts';
+import { defaults, loadConfig } from '../lib/config.ts';
 import { loadJob } from '../lib/jobs.ts';
-import { gradeJob, startRun, summarize } from '../lib/evals.ts';
+import { configHash, gradeJob, startRun, summarize } from '../lib/evals.ts';
 import { evalCmd } from '../lib/commands/eval.ts';
 import * as yaml from '../lib/yaml.ts';
 
@@ -301,5 +301,22 @@ test('eval report carries replaced and old results still summarise', async () =>
     assert.equal(summarize(old).checkPassRate, 0.5);
   } finally {
     s.cleanup();
+  }
+});
+
+test('configHash covers verifiers', () => {
+  const repo = tempRepo();
+  try {
+    const cfg = defaults();
+    const before = configHash(repo.dir, cfg);
+    const dir = path.join(repo.dir, '.forge', 'verifiers');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'help-rows.md'), '---\npaths: [lib/**]\n---\nIs it fine?\n');
+    const added = configHash(repo.dir, cfg);
+    assert.notEqual(added, before);
+    fs.writeFileSync(path.join(dir, 'help-rows.md'), '---\npaths: [lib/**]\nmode: block\n---\nIs it fine?\n');
+    assert.notEqual(configHash(repo.dir, cfg), added);
+  } finally {
+    repo.cleanup();
   }
 });

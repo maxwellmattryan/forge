@@ -230,6 +230,13 @@
     "created": "Created",
     "updated": "Updated",
     "verify": "Verify",
+    "verifiers": "Verifiers",
+    "verifiersTitle": "{blocking} · {warnings}",
+    "verifiersBlocking": "{count} blocking",
+    "verifiersWarnings": {
+      "one": "{count} warning",
+      "other": "{count} warnings"
+    },
     "agent": "Agent",
     "output": "Output",
     "tools": "Tools",
@@ -324,7 +331,17 @@
     "status": "Status",
     "priority": "Priority",
     "claimedBy": "Claimed by",
-    "start": "Start"
+    "start": "Start",
+    "readiness": "Readiness",
+    "ready": "Ready",
+    "needsInfo": "Needs info",
+    "missingLabel": "Missing:",
+    "missing": {
+      "outcome": "clear outcome",
+      "acceptance": "acceptance criteria or repro",
+      "scope": "bounded scope",
+      "duplicate": "possible duplicate"
+    }
   },
   "agents": {
     "title": "Agents",
@@ -535,7 +552,12 @@
       "copy": "Copy report",
       "copied": "Report copied",
       "copyFailed": "Couldn't copy the report; select it and copy by hand",
-      "report": "Report"
+      "report": "Report",
+      "bundle": "Download support bundle",
+      "bundling": "Preparing bundle…",
+      "bundleHint": "A redacted zip of these checks, versions, config and active jobs' logs and events, for a bug report. Agent text and diffs stay out.",
+      "bundleSaved": "Support bundle downloaded",
+      "bundleFailed": "Could not build the support bundle"
     },
     "about": {
       "version": "Forge version",

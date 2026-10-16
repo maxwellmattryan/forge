@@ -21,6 +21,7 @@ import { generatedConfig } from './regenerate.ts';
 import { protectedApproved, protectedReason } from './protected.ts';
 import { approachPaths, inSpec, integrationTouched } from './scope.ts';
 import { AGENT_ID } from './transcripts.ts';
+import { verifierCount } from './verifiers.ts';
 import type { Config, Job, JobAgent, JobEvent, StepAction, StepDone, StepFile, StepInput, StepProcedure, StepRun, StepSpawn, StepVerdicts, StepWait, StepWaitingOn, VerifyRun, WaitingOn } from './types.ts';
 import { ForgeError, SAFE_REF, readJson, readText } from './util.ts';
 
@@ -32,6 +33,8 @@ export const RULES = [
   'D1', 'D2', 'D3',
   'B1', 'B2', 'B3', 'B4', 'B5',
   'V1', 'V2', 'V3',
+  // Verifiers between a passing verify and the panel: run, spawn the verifier agent, record its answers.
+  'VF1', 'VF2', 'VF3',
   'RV1', 'RV2', 'RV3', 'RV4', 'RV5', 'RV6', 'RV7', 'RV8',
   // Runs first in review, but IDs are stable, so it was appended rather than renumbering the rest.
   'RV9',
@@ -63,7 +66,7 @@ const SAFE_URL = /^https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9._/-]+$/;
 const STEP_EVENTS = new Set([
   'human', 'round', 'worktree', 'worktree-setup-failed', 'pr-find', 'pr-adopted', 'scope', 'panel', 'integrated', 'integrate-conflicts',
   'integration-review', 'decision', 'fields', 'pr-opened', 'pr-updated', 'pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
-  'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found',
+  'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found', 'verifiers',
   'protected-path',
 ]);
 const MERGE_EVENTS = ['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed'];
@@ -168,6 +171,8 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     evalTask,
     checklists: Object.fromEntries(names.map((n) => [n, reviewerChecklist(root, n, config.review.panel.find((p) => p.name === n)?.checklist)])),
     integrationTouched: loadIntegrationTouched(job, config, events),
+    // The main checkout's, never the worktree's: a branch can't switch the gate on or off.
+    verifiers: verifierCount(root),
   };
 }
 
@@ -424,6 +429,7 @@ function outputFor(x: StepInput, role: string): string | undefined {
     const lens = role.slice('reviewer:'.length);
     return x.job.stage === 'integrate' ? p(x, 'integrationReview') : path.join(x.jobDir, 'review', `round-${x.job.round}`, `${lens}.md`);
   }
+  if (role === 'verifier') return path.join(x.jobDir, 'verify', `round-${x.job.round}-verifier-answers.md`);
   const fixed: Record<string, string> = { planner: 'plan.md', 'spec-writer': 'spec.md', designer: 'design.md', approver: 'decision.md', judge: 'eval-judge.md' };
   return fixed[role] ? path.join(x.jobDir, fixed[role]) : undefined;
 }
@@ -437,7 +443,7 @@ function builderRework(x: StepInput): NonNullable<RoleContext['rework']> {
   const out: NonNullable<RoleContext['rework']> = [];
   const prev = j.verdicts[String(j.round - 1)];
   if (j.round > 1 && prev && Object.values(prev).some((v) => v !== 'PASS')) out.push('review');
-  if (lv && !lv.ok && after(lv.at, b?.endedAt)) out.push('verify');
+  if (lv && !lv.ok && after(lv.at, b?.endedAt)) out.push(lv.failure === 'verifiers' ? 'verifiers' : 'verify');
   if (isPrRework(x) && x.files.prFeedback) out.push('pr-feedback');
   if (x.files.feedback && (j.round > 1 || reworkEv)) out.push('feedback');
   if (x.files.questions && human(x, 'answer')) out.push('answer');
@@ -477,6 +483,10 @@ function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: boolean; 
     if (ctx.rework.includes('review')) ctx.reworkReviews = reworkReviewFiles(j, (x.paths.previousReviewDir as string | null) ?? null);
   }
   if (base === 'reviewer' && j.stage === 'integrate') ctx.integration = { conflicts: conflictFiles };
+  if (base === 'verifier') {
+    const sel = pendingVerifiers(x)?.selected;
+    ctx.verifiers = Array.isArray(sel) ? sel.length : 0;
+  }
   if (base === 'integrator') {
     // The fix pass: an integration review of this episode's resolution asked for changes.
     const review = lastEvent(x, (e) => e.type === 'integration-review');
@@ -639,6 +649,9 @@ function blockedRole(x: StepInput): string | null {
       break;
     case 'build':
       role = a('builder')?.round === j.round ? 'builder' : null;
+      break;
+    case 'verify':
+      role = pendingVerifiers(x) && after(a('verifier')?.startedAt, pendingVerifiers(x)!.ts) ? 'verifier' : null;
       break;
     case 'decide':
       role = latest(['approver', 'judge']);
@@ -872,10 +885,43 @@ function build(x: StepInput): StepAction {
   return stuck(x);
 }
 
+/** This round's latest `verifiers` event newer than the round's last verify run. */
+function latestVerifiers(x: StepInput): JobEvent | undefined {
+  const lv = lastVerify(x);
+  return lastEvent(x, (e) => e.type === 'verifiers' && e.round === x.job.round && after(e.ts, lv?.at));
+}
+
+/** The `run` event the verifier agent answers, while its answers are not recorded yet. */
+function pendingVerifiers(x: StepInput): JobEvent | null {
+  const e = latestVerifiers(x);
+  return e?.phase === 'run' ? e : null;
+}
+
+/**
+ * VF1–VF3, after a passing verify when the main checkout has verifiers: run them, have the
+ * verifier agent answer, then record the answers. A PASS record falls through to V2; a CHANGES
+ * record appended a failing verify run, so the caller never gets here for it.
+ */
+function verifierStep(x: StepInput): StepAction | null {
+  if (!x.verifiers) return null;
+  const j = x.job;
+  const e = latestVerifiers(x);
+  if (!e) return run(x, 'VF1', ['verifiers', 'run', j.id], 'check the verified diff against the verifiers');
+  if (e.phase !== 'run') return null;
+  const a = agent(x, 'verifier');
+  if (!a || !after(a.startedAt, e.ts)) return spawn(x, 'VF2', 'verifier');
+  if (ended(a) && outputMissing(x, 'verifier') && !a.retry) return spawn(x, 'VF2', 'verifier', { retry: true });
+  return run(x, 'VF3', ['verifiers', 'record', j.id], 'record the verifier answers');
+}
+
 function verify(x: StepInput): StepAction {
   const b = agent(x, 'builder');
   const lv = lastVerify(x);
   if (!lv || (b?.endedAt && !after(lv.at, b.endedAt))) return run(x, 'V1', ['verify', x.job.id], `verify the builder's round-${x.job.round} commits`);
+  if (lv.ok) {
+    const vf = verifierStep(x);
+    if (vf) return vf;
+  }
   if (lv.ok) return isPrRework(x) && x.config.review.onPrFeedback === 'none' ? toStage(x, 'V2', 'pr', 'verify passed; PR feedback skips review') : toStage(x, 'V2', 'review', 'verify passed');
   return toStage(x, 'V3', 'build', 'verify failed: back to the builder');
 }

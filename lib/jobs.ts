@@ -477,6 +477,7 @@ export function defaultAgentOutput(role: string, round: number | undefined): str
   if (role.startsWith('reviewer:')) return path.join('review', `round-${round ?? 0}`, `${role.slice('reviewer:'.length)}.md`);
   if (role === 'approver') return 'decision.md';
   if (role === 'spec-writer') return 'spec.md';
+  if (role === 'verifier') return path.join('verify', `round-${round ?? 0}-verifier-answers.md`);
   return null;
 }
 
@@ -554,6 +555,26 @@ export function parseReview(text: string): { declared: string | null; counts: Re
 }
 
 /**
+ * One review-format file's verdict under `blockOn`: the counting roundVerdicts applies to a lens's
+ * review, and verifiersRecord (lib/verifiers.ts) to the verifiers report, so both block alike.
+ */
+export function fileVerdict(
+  text: string,
+  blockOn: string[],
+  opts: { malformedAs?: 'changes' } = {},
+): { verdict: Verdict; declared: string | null; counts: Record<string, number>; blocking: number; coerced: boolean } {
+  const { declared, counts } = parseReview(text);
+  const blocking = blockOn.reduce((n, s) => n + (counts[s] ?? 0), 0);
+  let verdict: Verdict = blocking > 0 ? 'CHANGES' : 'PASS';
+  let coerced = false;
+  if (!declared && blocking === 0) {
+    verdict = opts.malformedAs === 'changes' ? 'CHANGES' : 'MALFORMED';
+    coerced = verdict === 'CHANGES';
+  } else if (declared === 'CHANGES' && blocking === 0 && Object.values(counts).every((c) => c === 0)) verdict = 'CHANGES';
+  return { verdict, declared, counts, blocking, coerced };
+}
+
+/**
  * The tagged findings decide the verdict, so a reviewer that writes PASS above a blocker
  * (or CHANGES over nothing but nits) cannot silently override the repo's blockOn policy.
  * A review with no verdict line is MALFORMED unless its tagged findings already force a
@@ -581,15 +602,7 @@ export function roundVerdicts(
       out[r] = ended(r) ? { verdict: 'MISSING', file: path.relative(jobDir(root, id), file), path: file } : { verdict: 'PENDING' };
       continue;
     }
-    const { declared, counts } = parseReview(readText(file));
-    const blocking = blockOn.reduce((n, s) => n + (counts[s] ?? 0), 0);
-    let verdict = blocking > 0 ? 'CHANGES' : 'PASS';
-    let coerced = false;
-    if (!declared && blocking === 0) {
-      verdict = opts.malformedAs === 'changes' ? 'CHANGES' : 'MALFORMED';
-      coerced = verdict === 'CHANGES';
-    } else if (declared === 'CHANGES' && blocking === 0 && Object.values(counts).every((c) => c === 0)) verdict = 'CHANGES';
-    out[r] = { verdict, declared, counts, blocking, coerced, file: path.relative(jobDir(root, id), file) };
+    out[r] = { ...fileVerdict(readText(file), blockOn, opts), file: path.relative(jobDir(root, id), file) };
   }
   const values = Object.values(out).map((v) => v.verdict);
   const complete = !values.includes('PENDING') && !values.includes('MISSING');

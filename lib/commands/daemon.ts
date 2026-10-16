@@ -2,7 +2,7 @@
 // so they work with or without a running `forge dash` and never talk to its server.
 import fs from 'node:fs';
 import path from 'node:path';
-import { openRead, readInfo, readLogPage, sessionAgents, sessionFiles, sessionRecords } from '../daemon.ts';
+import { openRead, readInfo, sessionAgents, sessionFiles, sessionRecords, tailLines } from '../daemon.ts';
 import { paths } from '../paths.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from '../requests.ts';
 import { ForgeError, readJson } from '../util.ts';
@@ -137,9 +137,7 @@ function openLog(file: string): number {
 function tail(file: string, n: number): { lines: string[]; end: number } {
   const fd = openLog(file);
   try {
-    const size = fs.fstatSync(fd).size;
-    const page = readLogPage(fd, size, 0, { maxLines: n, maxBytes: Infinity, lineCap: Infinity, scanBytes: 256 * 1024 * 1024 });
-    return { lines: page.lines.map((l) => l.line), end: page.end };
+    return tailLines(fd, n);
   } finally {
     fs.closeSync(fd);
   }

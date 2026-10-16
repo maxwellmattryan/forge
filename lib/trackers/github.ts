@@ -3,6 +3,8 @@
 //   statusSync: labels   → one "<prefix><status>" label at a time
 //   statusSync: project  → a GitHub Projects (v2) single-select field, e.g. "Status"
 //   statusSync: both
+// Readiness triage's "<prefix>needs-info" label is used whatever statusSync says: such an issue is
+// left out of ready lists, and a claim with label sync drops it like any other stale status label.
 // Project coordinates come from tracker.github.project or the repo's project-config file
 // (default .github/project-config.yml); projects need a token with the "project" scope.
 import fs from 'node:fs';
@@ -169,6 +171,9 @@ const toItem = (i: any): TrackerItem => ({
   claimedBy: null,
 });
 
+/** Readiness triage's label: `<prefix>needs-info`. */
+const needsLabel = (ctx: Pick<TrackerCtx, 'config'>): string => `${gcfg(ctx).labels.prefix}needs-info`;
+
 function myLogin(ctx: TrackerCtx): string {
   return gh(ctx, ['api', 'user', '-q', '.login']).stdout.trim();
 }
@@ -200,14 +205,16 @@ export default {
       }
     }
     const prefix = gcfg(ctx).labels.prefix;
+    const needs = needsLabel(ctx);
     for (const it of items) {
+      it.needsInfo = (it.labels ?? []).includes(needs);
       const job = activeLocalJob(ctx, it.ref);
       if (job) it.claimedBy = job.id;
-      else if ((it.labels ?? []).some((l: string) => l.startsWith(prefix) && l !== `${prefix}queued`)) it.claimedBy = 'forge (label)';
+      else if ((it.labels ?? []).some((l: string) => l.startsWith(prefix) && l !== `${prefix}queued` && l !== needs)) it.claimedBy = 'forge (label)';
     }
     if (opts.ready) {
       const exclude = new Set(ready.excludeLabels ?? []);
-      items = items.filter((it) => !it.claimedBy && !(it.labels ?? []).some((l: string) => exclude.has(l)));
+      items = items.filter((it) => !it.claimedBy && !it.needsInfo && !(it.labels ?? []).some((l: string) => exclude.has(l)));
       if (ready.projectStatus) items = items.filter((it) => it.status === ready.projectStatus);
     }
     return items;
@@ -240,6 +247,7 @@ export default {
     if (!r.ok) return null;
     const i = JSON.parse(r.stdout);
     const item = toItem(i);
+    item.needsInfo = (item.labels ?? []).includes(needsLabel(ctx));
     const trusted = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
     const everyone = gcfg(ctx).comments === 'all';
     const kept = (i.comments ?? []).filter((c: any) => everyone || trusted.has(c.authorAssociation));
@@ -314,6 +322,17 @@ export default {
     for (const l of item.labels ?? []) args.push('--label', l);
     const url = gh(ctx, args, body || ' ').stdout.trim().split('\n').pop() ?? '';
     return { ref: url.match(/\/issues\/(\d+)/)?.[1] ?? url, url };
+  },
+  setNeedsInfo(ctx, ref, note) {
+    // The note is the local backlog's; on GitHub the label is the mark and triage's comment the text.
+    const slug = repoSlug(ctx.root, ctx.config);
+    const label = needsLabel(ctx);
+    if (note === null) {
+      gh(ctx, ['issue', 'edit', ref, '-R', slug, '--remove-label', label]);
+      return;
+    }
+    run('gh', ['label', 'create', label, '-R', slug, '--color', 'D97706', '--description', 'Forge: needs more information', '--force'], { cwd: ctx.root, allowFail: true });
+    gh(ctx, ['issue', 'edit', ref, '-R', slug, '--add-label', label]);
   },
   close(ctx, ref, opts = {}) {
     const slug = repoSlug(ctx.root, ctx.config);

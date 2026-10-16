@@ -3,7 +3,7 @@
 // something stable to improve against.
 import { jobFindings } from './findings.ts';
 import { isForemanActor, listJobs, readEvents } from './jobs.ts';
-import type { Job, ReviewerStats, Stats, UsageRow } from './types.ts';
+import type { Job, JobEvent, ReviewerStats, Stats, UsageRow, VerifierStats } from './types.ts';
 
 const median = (xs: number[]): number | null => {
   if (!xs.length) return null;
@@ -24,6 +24,26 @@ export function firstVerifyRun(job: Pick<Job, 'verifyRuns' | 'verify'>): boolean
   return job.verify?.[1] ? job.verify[1] === 'PASS' : null;
 }
 
+/**
+ * Per-verifier counts from `verifiers` record events: how often each ran, said NO, gave no valid
+ * answer, and blocked. A verifier that never fires (hitRate 0 over many runs) is a retro candidate.
+ */
+export function addVerifierStats(into: Record<string, VerifierStats>, events: JobEvent[]): void {
+  for (const e of events) {
+    if (e.type !== 'verifiers' || e.phase !== 'record' || !Array.isArray(e.results)) continue;
+    for (const r of e.results as unknown[]) {
+      if (!r || typeof r !== 'object') continue;
+      const { name, mode, answer } = r as Record<string, unknown>;
+      if (typeof name !== 'string' || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(name)) continue;
+      const s = (into[name] ??= { runs: 0, fails: 0, unanswered: 0, blocks: 0, hitRate: null });
+      s.runs++;
+      if (answer === 'no') s.fails++;
+      else if (answer !== 'yes') s.unanswered++;
+      if (answer !== 'yes' && mode === 'block') s.blocks++;
+    }
+  }
+}
+
 export function computeStats(root: string, opts: { since?: string; includeEvals?: boolean; jobs?: Job[] } = {}): Stats {
   const since = opts.since ? Date.parse(opts.since) : 0;
   const jobs = (opts.jobs ?? listJobs(root)).filter((j) => (opts.includeEvals || j.kind !== 'eval') && Date.parse((j.createdAt ?? 0) as string) >= since);
@@ -35,6 +55,7 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
   const timeToPr: number[] = [];
   const cycle: number[] = [];
   const reviewers: Record<string, ReviewerStats> = {};
+  const verifiers: Record<string, VerifierStats> = {};
   const byRole: Record<string, UsageRow> = {};
   const byModel: Record<string, UsageRow> = {};
   let tokens = 0, cost = 0, agentRuns = 0, agentRunsWithUsage = 0, exactRuns = 0;
@@ -105,6 +126,7 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
       timeToPr.push((Date.parse(opened.ts) - created) / 60000);
     }
     if (events.some((e) => e.type === 'pr-synced' && e.newFeedback)) prWithHumanFeedback++;
+    addVerifierStats(verifiers, events);
     for (const e of events) {
       if (e.type !== 'agent-end') continue;
       agentRuns++;
@@ -142,6 +164,7 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
   // Disputes over answered findings, not raised ones: builders skip many nits and the last round's
   // findings are never answered, so a raised denominator would mostly measure whether a next round came.
   for (const s of Object.values(reviewers)) Object.assign(s, { changeRate: ratio(s.changes, s.reviews), disputeRate: ratio(s.disputes, s.fixed + s.disputes) });
+  for (const s of Object.values(verifiers)) s.hitRate = ratio(s.fails, s.runs);
   return {
     generatedAt: new Date().toISOString(),
     since: opts.since ?? null,
@@ -176,5 +199,6 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
       byModel,
     },
     reviewers,
+    verifiers,
   };
 }

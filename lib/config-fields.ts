@@ -3,9 +3,11 @@
 // editable only when it can't name a command, file, module, tool or repository that Forge runs,
 // loads or writes to, and can't loosen a security or attribution policy. Everything else is
 // read-only here and edited by hand in .forge/config.yml.
+// CONFIG_DISCLOSURE, at the end, is a separate map rather than a ConfigField property: it must
+// classify every key (commands.* and worktrees.setup are not settings), and /api/config stays as is.
 import { defaults } from './config.ts';
 import { COMPLEXITIES, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES } from './schema.ts';
-import type { ConfigField, ConfigFieldType, ConfigSection, ConfigValue } from './types.ts';
+import type { Config, ConfigField, ConfigFieldType, ConfigSection, ConfigValue } from './types.ts';
 import { ForgeError, getPath } from './util.ts';
 import * as yaml from './yaml.ts';
 
@@ -78,6 +80,7 @@ const MODEL_LABEL: Record<string, string> = {
   integrator: 'Integrator model',
   retro: 'Retro model',
   judge: 'Judge model',
+  verifier: 'Verifier model',
   assistant: 'Assistant model',
 };
 
@@ -283,4 +286,107 @@ export function parseCliValue(f: ConfigField, raw: string): ConfigValue {
     default:
       return raw;
   }
+}
+
+// ---------- disclosure: what a support bundle may show ----------
+
+/**
+ * How much a config value says about its owner: `plain` is shown in a support bundle, every other
+ * class is replaced. `token` has no keys yet; it exists so a credential-bearing key needs a decision.
+ */
+export type Disclosure = 'plain' | 'url' | 'command' | 'path' | 'token' | 'text';
+
+/** Keyed by dotted prefix; the longest matching prefix wins. Every key of defaults() must resolve. */
+export const CONFIG_DISCLOSURE: Record<string, Disclosure> = {
+  schemaVersion: 'plain',
+  project: 'plain',
+  'project.name': 'text',
+  'project.description': 'text',
+  'project.instructions': 'path',
+  'project.notes': 'path',
+  git: 'plain',
+  worktrees: 'plain',
+  'worktrees.root': 'path',
+  'worktrees.copy': 'path',
+  'worktrees.setup': 'command',
+  'worktrees.cargo.targetDir': 'path',
+  'worktrees.generated': 'path',
+  commands: 'command',
+  verify: 'plain',
+  verifyE2e: 'plain',
+  'verifyE2e.paths': 'path',
+  verifyIntegrity: 'plain',
+  verifySecrets: 'plain',
+  ports: 'plain',
+  runtime: 'plain',
+  tracker: 'plain',
+  'tracker.local.path': 'path',
+  'tracker.github.repo': 'url',
+  'tracker.github.ready.assignee': 'text',
+  'tracker.github.project.config': 'path',
+  'tracker.github.project.owner': 'text',
+  pipeline: 'plain',
+  review: 'plain',
+  'review.panel': 'path',
+  approver: 'plain',
+  'approver.alwaysEscalate': 'text',
+  // Globs and reasons are repo-specific prose, so a bundle counts them but doesn't print them.
+  'policy.protectedPaths': 'text',
+  pr: 'plain',
+  'pr.reviewers': 'text',
+  merge: 'plain',
+  aiAttribution: 'plain',
+  resources: 'url',
+  services: 'command',
+  infra: 'plain',
+  'infra.allowed': 'command',
+  'infra.notes': 'text',
+  usage: 'plain',
+  improve: 'plain',
+  evals: 'plain',
+  dashboard: 'plain',
+  daemon: 'plain',
+  'daemon.command': 'command',
+  'daemon.allowedTools': 'command',
+  foreman: 'plain',
+  'foreman.reserved': 'text',
+};
+
+/** The class of the longest CONFIG_DISCLOSURE prefix of `key`, or null when none covers it. */
+export function disclosureOf(key: string): Disclosure | null {
+  let best: string | null = null;
+  for (const p of Object.keys(CONFIG_DISCLOSURE)) {
+    if ((key === p || key.startsWith(p + '.')) && (best === null || p.length > best.length)) best = p;
+  }
+  return best === null ? null : CONFIG_DISCLOSURE[best];
+}
+
+const REDACTED = '<redacted>';
+
+const isEmpty = (v: unknown): boolean =>
+  v === null || v === undefined || v === '' || (Array.isArray(v) && !v.length) || (typeof v === 'object' && !Array.isArray(v) && !Object.keys(v as object).length);
+
+/** A hidden value keeps its shape where that says nothing: empties stay, a list keeps its length. */
+function hide(v: unknown): unknown {
+  if (isEmpty(v)) return v;
+  return Array.isArray(v) ? v.map(() => REDACTED) : REDACTED;
+}
+
+/**
+ * The config with every value that is not `plain` replaced, for a support bundle. A key defaults()
+ * doesn't have is hidden too, whatever its prefix says: an unknown key was never classified.
+ */
+export function redactedConfig(config: Config): Record<string, unknown> {
+  const walk = (v: unknown, key: string): unknown => {
+    if (!hasPath(base, key) || disclosureOf(key) !== 'plain') return hide(v);
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      const out: Record<string, unknown> = {};
+      for (const [k, x] of Object.entries(v)) out[k] = walk(x, `${key}.${k}`);
+      return out;
+    }
+    return v;
+  };
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(config)) out[k] = walk(v, k);
+  return out;
 }

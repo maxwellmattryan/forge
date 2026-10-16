@@ -561,7 +561,8 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   const dir = path.join(jobDir(root, id), 'verify');
   fs.mkdirSync(dir, { recursive: true });
   const latest = path.join(dir, `round-${job.round}.md`);
-  const previous = job.verifyRuns.filter((r) => r.round === job.round).pop();
+  // round-<n>.md is the last report verify wrote; a verifiers failure appends a run with its own file.
+  const previous = job.verifyRuns.filter((r) => r.round === job.round && r.failure !== 'verifiers').pop();
   if (previous && exists(latest)) fs.renameSync(latest, path.join(dir, `round-${job.round}-attempt-${previous.attempt}.md`));
   fs.writeFileSync(latest, lines.join('\n'));
   const rec: VerifyRun = { round: job.round, attempt, sha, ok, at: now(), file: path.relative(jobDir(root, id), latest), failure: results.find((r) => !r.ok)?.name ?? null };

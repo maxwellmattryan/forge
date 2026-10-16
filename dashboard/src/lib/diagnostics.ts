@@ -13,3 +13,16 @@ export function doctorReport(d: DoctorResponse, about: AboutResponse | null): st
   const lines = d.checks.map((c) => `[${mark(c)}] ${c.name}${c.detail ? `: ${c.detail}` : ''}`);
   return [head, ...lines, `Checked at ${d.at}`].join('\n');
 }
+
+export const BUNDLE_FALLBACK = 'forge-support.zip';
+
+/**
+ * The file name a support bundle download saves as: the `filename` of its Content-Disposition, or
+ * forge-support.zip when there is none or it could name a path (a `/`, `\` or `..`).
+ */
+export function bundleFilename(header: string | null): string {
+  const m = /filename="([^"]*)"|filename=([^;\s]+)/i.exec(header ?? '');
+  const name = (m?.[1] ?? m?.[2] ?? '').trim();
+  if (!name || /[/\\]/.test(name) || name.includes('..')) return BUNDLE_FALLBACK;
+  return name;
+}

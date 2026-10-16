@@ -289,6 +289,10 @@ test('issue forms are well formed and the bug form asks for forge doctor and for
   assert.equal(version?.type, 'input');
   assert.equal(version.validations?.required, true);
   assert.match(version.attributes.label, /forge version/);
+  const bundle = field(bug, 'bundle');
+  assert.equal(bundle?.type, 'textarea');
+  assert.equal(bundle.validations?.required, false, 'the support bundle is optional');
+  assert.match(bundle.attributes.description, /forge doctor --bundle/);
   assert.ok(
     bug.body.some((el: any) => el.type === 'markdown' && el.attributes.value.includes('(https://github.com/maxwellmattryan/forge/blob/main/SECURITY.md)')),
     'a markdown note sends security reports to SECURITY.md',
@@ -308,6 +312,7 @@ test('issue forms are well formed and the bug form asks for forge doctor and for
     'steps:textarea:required',
     'expected:textarea:required',
     'doctor:textarea:required',
+    'bundle:textarea:optional',
     'version:input:required',
     'install:dropdown:required',
     'environment:input:optional',
