@@ -26,7 +26,7 @@ import { toast } from './toast.svelte.ts';
 import { VIEWS, buildRequest, pickDrawerFile, queuedMessage, statsQuery } from './view.ts';
 import { addFlashes, changedJobs } from './live.ts';
 import { threadItems, threadMarks, threadOpening } from './thread.ts';
-import { DEFAULT_DRAWER_TAB, type DrawerTab } from './drawer.ts';
+import { DEFAULT_DRAWER_TAB, PANE_DEFAULT, clampPaneWidth, type DrawerTab, type PaneMode } from './drawer.ts';
 import type { RequestBody, RequestInput, ViewId } from './view.ts';
 
 /** The backlog, or the error a forced refresh hit (that reply has no tracker). */
@@ -53,6 +53,17 @@ class DrawerState {
   threadAtOpen = $state.raw<string[] | null>(null);
 }
 
+/** The job pane's layout. App measures the main column and the md breakpoint; the separator sets the width. */
+class PaneState {
+  /** The viewer's width (pref `paneWidth`), clamped to the main column wherever it is used. */
+  width = $state(clampPaneWidth(Number(pref.get('paneWidth', String(PANE_DEFAULT))), Infinity));
+  mode = $state<PaneMode>('split');
+  /** The main column's width, px; 0 until App measures it. */
+  available = $state(0);
+  /** At md and up. */
+  md = $state(true);
+}
+
 class AppState {
   data = $state.raw<ApiState | null>(null);
   dataKey = '';
@@ -72,6 +83,7 @@ class AppState {
   compare = new CompareState();
   drawer = new DrawerState();
   drawerView = $state.raw<DrawerView>(null);
+  pane = new PaneState();
   /** Job id → when its card's change flash ends (epoch ms). */
   flashes = $state.raw<Record<string, number>>({});
   /** Job id → the Thread marks last shown, for the tab's unread count. In memory, so it lasts the page's lifetime. */

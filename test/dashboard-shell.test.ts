@@ -369,7 +369,8 @@ test('checkboxes are drawn and the theme seg keeps its radiogroup', () => {
       assert.ok(cls && classTokens(cls).includes('check'), `${rel}: a checkbox without the check class (${cls ?? 'no class'})`);
     }
   }
-  assert.ok(boxes >= 7, `checked ${boxes} checkboxes`);
+  // Six since Settings › General lost the `,` shortcut checkbox (Cmd/Ctrl+, cannot be turned off).
+  assert.ok(boxes >= 6, `checked ${boxes} checkboxes`);
 
   const rel = 'components/settings/GeneralTab.svelte';
   const general = read(rel);
@@ -752,7 +753,7 @@ function fnBody(text: string, fn: string): string {
 
 test('drawer defaults to the Thread tab and resets it on close', () => {
   const state = read('lib/app.svelte.ts');
-  assert.match(state, /import \{ DEFAULT_DRAWER_TAB, type DrawerTab \} from '\.\/drawer\.ts';/);
+  assert.match(state, /import \{ DEFAULT_DRAWER_TAB, PANE_DEFAULT, clampPaneWidth, type DrawerTab, type PaneMode \} from '\.\/drawer\.ts';/);
   assert.match(state, /\n {2}tab = \$state<DrawerTab>\(DEFAULT_DRAWER_TAB\);/, 'DrawerState.tab starts at the default');
   assert.match(state, /export type DrawerView = \{[^}]*\btab: DrawerTab \}/, "the view's tab is a DrawerTab");
   assert.match(state, /export async function openDrawer\(id: string, file: string \| null = null, tab: DrawerTab = DEFAULT_DRAWER_TAB\): Promise<void> \{/);

@@ -1,6 +1,7 @@
 // The settings modal's keyboard and focus rules, as plain functions node:test can pin.
 import type { ConfigSection } from './types.ts';
 import type { IconName } from './icons.ts';
+import { isMac } from './command.ts';
 
 /** The tab rail, in order; config tabs name the ConfigSection their fields come from. */
 export const SETTINGS_TABS = [
@@ -27,28 +28,33 @@ export interface SettingsKeyInput {
   ctrlKey: boolean;
   metaKey: boolean;
   altKey: boolean;
-  /** The focused element's tag name. */
-  targetTag: string;
-  /** The focused element is contenteditable. */
-  editable: boolean;
   open: boolean;
-  /** The `,` shortcut is on (pref `settingsShortcut`); a character-key shortcut must be possible to turn off. */
-  shortcut?: boolean;
+  /** Apple platforms take Cmd+, (the system's own settings key), the rest Ctrl+,. */
+  mac: boolean;
+  /** The palette is open: it owns the keyboard. */
+  palette?: boolean;
   /** A held key's auto-repeat. */
   repeat?: boolean;
   /** Part of an IME composition. */
   composing?: boolean;
 }
 
-const FIELD_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
-
-/** `open` for a bare `,` outside form fields while closed, `close` for Escape while open, else null. */
+/**
+ * `open` for Cmd+, (mac) or Ctrl+, (elsewhere) while Settings and the palette are closed, `close` for Escape while open,
+ * else null. A modified key types nothing, so it opens from inside a form field too; a bare `,` never does.
+ */
 export function settingsKey(e: SettingsKeyInput): 'open' | 'close' | null {
   if (e.open) return e.key === 'Escape' ? 'close' : null;
-  if (e.key !== ',' || e.ctrlKey || e.metaKey || e.altKey || e.shortcut === false || e.repeat || e.composing) return null;
-  if (FIELD_TAGS.has(e.targetTag.toUpperCase()) || e.editable) return null;
-  return 'open';
+  if (e.key !== ',' || e.palette || e.altKey || e.repeat || e.composing) return null;
+  const chord = e.mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+  return chord ? 'open' : null;
 }
+
+/** The Settings shortcut as the sidebar and Settings › General show it. */
+export const settingsShortcutLabel = (platform: string): string => (isMac(platform) ? '⌘,' : 'Ctrl ,');
+
+/** The Settings shortcut for `aria-keyshortcuts`. */
+export const settingsKeyShortcuts = (platform: string): string => (isMac(platform) ? 'Meta+,' : 'Control+,');
 
 /** The tab an arrow, Home or End key moves to from `current` (wrapping), or null for other keys. */
 export function moveTab(current: SettingsTabId, key: string): SettingsTabId | null {

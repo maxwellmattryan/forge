@@ -22,19 +22,21 @@
   import type { ViewId } from './lib/view.ts';
   import { inlineInputAction, type InlineInputEvent } from './lib/statusbar.ts';
   import { t } from './lib/locale.ts';
-  import { settingsKey } from './lib/settings.ts';
-  import { commandKey, shellEscape, shortcutAction, shortcutLabel } from './lib/command.ts';
+  import { settingsKey, settingsKeyShortcuts, settingsShortcutLabel } from './lib/settings.ts';
+  import { commandKey, isMac, shellEscape, shortcutAction, shortcutLabel } from './lib/command.ts';
   import { closePalette, openPalette, palette } from './lib/palette.svelte.ts';
   import { closePopover, popover } from './lib/popover.svelte.ts';
   import { closeCard, ghCard } from './lib/github-card.svelte.ts';
-  import { pref } from './lib/prefs.ts';
 
   let settingsOpen = $state(false);
   let settings = $state<ReturnType<typeof Settings>>();
   let command = $state<ReturnType<typeof CommandBar>>();
   // Focus goes back here when Settings closes (the palette keeps its own, in palette.svelte.ts).
   let settingsOpener: HTMLElement | null = null;
-  const shortcut = shortcutLabel(typeof navigator === 'undefined' ? '' : navigator.platform);
+  const platform = typeof navigator === 'undefined' ? '' : navigator.platform;
+  const shortcut = shortcutLabel(platform);
+  const mac = isMac(platform);
+  const settingsShortcut = settingsShortcutLabel(platform);
   // The same map Nav.svelte builds, for the sidebar's stamp line.
   const labels = $derived<Record<ViewId, string>>({
     pipeline: $t('nav.pipeline'),
@@ -49,6 +51,17 @@
   // Settings or the palette taking over closes a popover and leaves focus to that dialog.
   $effect(() => {
     if (settingsOpen || palette.open) untrack(() => closePopover('external'));
+  });
+
+  // The toast and the job pane follow the md breakpoint.
+  $effect(() => {
+    const mq = matchMedia('(width >= 48rem)');
+    const set = (): void => {
+      S.pane.md = mq.matches;
+    };
+    set();
+    mq.addEventListener('change', set);
+    return () => mq.removeEventListener('change', set);
   });
 
   $effect(() => {
@@ -97,9 +110,7 @@
       } else if (layer === 'drawer') closeDrawer();
       return;
     }
-    if (palette.open) return;
-    const target = e.target instanceof HTMLElement ? e.target : null;
-    const action = settingsKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, targetTag: target?.tagName ?? '', editable: target?.isContentEditable ?? false, open: settingsOpen, shortcut: pref.get('settingsShortcut', 'on') !== 'off', repeat: e.repeat, composing: e.isComposing });
+    const action = settingsKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, open: settingsOpen, mac, palette: palette.open, repeat: e.repeat, composing: e.isComposing });
     if (action === 'open') {
       e.preventDefault();
       openSettings();
@@ -168,7 +179,7 @@
     </span>
     <nav id="nav" class="navlist"><Nav /></nav>
     <div class="mt-auto flex flex-col gap-2 pt-3">
-      <div class="navlist"><button id="settings-open" aria-haspopup="dialog" aria-keyshortcuts="," onclick={openSettings}><span class="lbl"><Icon name="settings" />{$t('settings.open')}</span><kbd class="mono muted text-[10px] normal-case" aria-hidden="true">,</kbd></button></div>
+      <div class="navlist"><button id="settings-open" aria-haspopup="dialog" aria-keyshortcuts={settingsKeyShortcuts(platform)} onclick={openSettings}><span class="lbl"><Icon name="settings" />{$t('settings.open')}</span><kbd class="mono muted text-[10px] normal-case" aria-hidden="true">{settingsShortcut}</kbd></button></div>
     </div>
   </aside>
   <main class="falloff flex-1 min-w-0">

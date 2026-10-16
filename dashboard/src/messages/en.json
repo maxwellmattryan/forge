@@ -436,9 +436,7 @@
       "languageKeyboard": "Language and keyboard",
       "grain": "Grain",
       "grainHint": "Film grain on the ground and plates",
-      "hint": "Press , to open settings.",
-      "shortcut": "Open settings with the , key",
-      "hintOff": "The , shortcut is off. Use the Settings button."
+      "hint": "Press {key} to open settings."
     },
     "field": {
       "default": "Default: {value}",
