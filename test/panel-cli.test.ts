@@ -5,8 +5,9 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { execFileSync } from 'node:child_process';
-import { evalScratch, forgeAsync, repoTemplate } from './helpers.ts';
+import { evalTaskYml, forgeAsync, repoTemplate, scratchGitConfig } from './helpers.ts';
 import { jobDir, loadJob, readEvents } from '../lib/jobs.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
@@ -66,6 +67,32 @@ async function setup(o: { spec?: string; base?: Record<string, string> } = {}) {
 }
 
 const events = (root: string, id: string, type: string) => readEvents(root, id).filter((e) => e.type === type);
+
+/**
+ * evalScratch's repo (Forge initialised, eval task `t` committed), built in place rather than
+ * copied from a shared template: every commit starts a detached `git maintenance run --auto`, which
+ * can add and remove files under .git/objects while a copy walks it (ENOENT on a CI runner). Auto
+ * maintenance is off before the first commit, so nothing writes to the repo behind the test.
+ */
+function evalRepo() {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-test-')));
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' });
+  git('init', '-q', '-b', 'main');
+  git('config', 'maintenance.auto', 'false');
+  scratchGitConfig(git);
+  const answers = path.join(dir, '.answers.json');
+  fs.writeFileSync(answers, JSON.stringify({ commands: { build: 'true', test: 'true', lint: 'true' }, worktrees: { root: '../{repo}.wt' } }));
+  execFileSync(process.execPath, [BIN, 'init', 'write', '--answers', answers], { cwd: dir, env: { ...process.env, FORGE_ROOT: dir }, stdio: 'pipe' });
+  fs.rmSync(answers);
+  write(dir, '.forge/evals/t/check/files/t.txt', 't\n');
+  write(dir, '.forge/evals/t/task.yml', evalTaskYml('t'));
+  commitAll(dir, 'forge and eval task');
+  const cleanup = () => {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(`${dir}.wt`, { recursive: true, force: true });
+  };
+  return { dir, cleanup };
+}
 
 describe('forge job panel', { concurrency: 4 }, () => {
   test('forge job panel adds a lens whose paths the diff touches and leaves it out otherwise', async () => {
@@ -235,7 +262,7 @@ describe('forge job panel', { concurrency: 4 }, () => {
   });
 
   test("forge job panel applies an eval job's overlay", async () => {
-    const s = evalScratch();
+    const s = evalRepo();
     try {
       const overlay = 'review.panel=[{name: code, always: true}, {name: security, paths: ["t.txt"]}, {name: docs, paths: ["*.md"]}]';
       const started = await forgeAsync(s.dir, ['eval', 'start', '--tasks', 't', '--set', overlay]);
