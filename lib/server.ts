@@ -25,6 +25,7 @@ import { loadTracker } from './trackers/index.ts';
 import { roster } from './roster.ts';
 import { deriveTitle, normalizeTitle } from './title.ts';
 import { agentTranscript, cachedActivity, claudeProjectsDir, openTranscript, ownerTranscript } from './transcripts.ts';
+import type { TranscriptHit } from './transcripts.ts';
 import { getPath, readJson, readText } from './util.ts';
 import type {
   AboutResponse,
@@ -381,7 +382,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
    * key of job.agents, and without it the owner must be an interactive session. No query value is
    * ever used as a path or a path segment. Null for anything else, which the routes answer with 404.
    */
-  function locateTranscript(id: string, url: URL): { path: string; source: 'agent' | 'owner'; role: string | null } | null {
+  function locateTranscript(id: string, url: URL): { hit: TranscriptHit; source: 'agent' | 'owner'; role: string | null } | null {
     if (!validJobId(id) || !exists(path.join(jobDir(root, id), 'job.json'))) return null;
     let job: LoadedJob;
     try {
@@ -393,10 +394,10 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       const role = url.searchParams.get('agent') ?? '';
       if (!Object.hasOwn(job.agents, role)) return null;
       const hit = agentTranscript(root, job, role, { projects });
-      return hit ? { path: hit.path, source: 'agent', role } : null;
+      return hit ? { hit, source: 'agent', role } : null;
     }
     const hit = interactiveOwner(root, job, projects);
-    return hit ? { path: hit.path, source: 'owner', role: null } : null;
+    return hit ? { hit, source: 'owner', role: null } : null;
   }
 
   /**
@@ -410,7 +411,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     const before = rawBefore === null || rawBefore === '' ? null : Number(rawBefore);
     if (before !== null && !(Number.isSafeInteger(before) && before >= 0)) return jsonStatus(res, 400, { error: 'before must be a transcript offset' });
     const found = locateTranscript(id, url);
-    const t = found ? openTranscript(found.path, projects) : null;
+    const t = found ? openTranscript(found.hit, projects) : null;
     if (!found || !t) return jsonStatus(res, 404, { error: NO_TRANSCRIPT });
     try {
       const page = readLogPage(t.fd, t.size, 0, { before });
@@ -434,7 +435,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     if (!tokenMatches(url.searchParams.get('token'), token)) return send(res, 403, 'text/plain', 'bad token');
     if (clients.size >= MAX_SSE_CLIENTS) return send(res, 503, 'text/plain', 'too many event streams');
     const found = locateTranscript(id, url);
-    const t = found ? openTranscript(found.path, projects) : null;
+    const t = found ? openTranscript(found.hit, projects) : null;
     if (!found || !t) return jsonStatus(res, 404, { error: NO_TRANSCRIPT });
     const fd = t.fd;
     res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
@@ -802,7 +803,7 @@ function jobActivity(root: string, job: LoadedJob, projects: string, at = Date.n
   for (const [role, a] of Object.entries(job.agents ?? {})) {
     if (a?.status !== 'running' || !(at - startMs(a.startedAt) < RUNNING_AGENT_MAX_MS)) continue;
     const hit = agentTranscript(root, job, role, { projects });
-    out.push({ role, model: a.model ?? null, startedAt: a.startedAt ?? null, last: hit ? cachedActivity(hit.path, projects, { worktree: job.worktree, root }) : null });
+    out.push({ role, model: a.model ?? null, startedAt: a.startedAt ?? null, last: hit ? cachedActivity(hit, projects, { worktree: job.worktree, root }) : null });
   }
   return out.sort(newestFirst);
 }
@@ -832,11 +833,11 @@ function roundAgents(root: string, job: LoadedJob, events: JobEvent[], projects:
 }
 
 /** The owner's transcript when the owner is an interactive session: in no daemon session record. */
-function interactiveOwner(root: string, job: LoadedJob, projects: string): { path: string; session: string } | null {
+function interactiveOwner(root: string, job: LoadedJob, projects: string): (TranscriptHit & { session: string }) | null {
   const sid = job.owner?.session;
   if (typeof sid !== 'string' || !UUID.test(sid) || daemonSessionIds(root).includes(sid)) return null;
   const hit = ownerTranscript(root, job, { projects });
-  return hit ? { path: hit.path, session: sid } : null;
+  return hit ? { ...hit, session: sid } : null;
 }
 
 /** The SSE token from a query parameter, compared in constant time. */

@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { loadConfig, worktreeRoot } from './config.ts';
 import { UUID } from './daemon.ts';
 import type { Job, TranscriptActivity } from './types.ts';
 
@@ -19,11 +20,19 @@ const CACHE_MAX = 64;
 const TARGET_KEYS = ['file_path', 'notebook_path', 'path', 'pattern', 'command', 'url', 'query', 'description', 'skill'];
 const PATH_KEYS = new Set(['file_path', 'notebook_path', 'path']);
 
-type JobRefs = Pick<Job, 'owner' | 'runs' | 'agents' | 'worktree'>;
+type JobRefs = Pick<Job, 'id' | 'owner' | 'runs' | 'agents' | 'worktree'>;
+
+/** A located transcript: its resolved path and the project dir (`<projects>/<slug>`) it was confined to. */
+export interface TranscriptHit {
+  path: string;
+  dir: string;
+}
 
 export interface TranscriptOpts {
   /** The projects dir; defaults to claudeProjectsDir(). */
   projects?: string;
+  /** The worktrees dir; defaults to worktrees.root from the repo's config. */
+  worktrees?: string;
 }
 
 /** Where Claude Code keeps transcripts: `$CLAUDE_CONFIG_DIR/projects`, else `~/.claude/projects`. */
@@ -37,13 +46,46 @@ export function projectSlug(p: string): string {
   return p.replace(/[^A-Za-z0-9]/g, '-');
 }
 
-/** The project dirs this repo's sessions write to: the slugs of root, its realpath and the job's worktree. */
-export function transcriptProjectDirs(root: string, job: Pick<Job, 'worktree'> | null, projects = claudeProjectsDir()): string[] {
+/** The repo's worktrees dir (worktrees.root), or null when the config can't be read. */
+export function worktreesDir(root: string): string | null {
+  try {
+    return worktreeRoot(root, loadConfig(root).config);
+  } catch {
+    return null;
+  }
+}
+
+/** `child` is under `parent`, both as written and after resolving whichever of them exist. */
+function under(parent: string, child: string): boolean {
+  const inside = (a: string, b: string) => {
+    const rel = path.relative(a, b);
+    return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+  };
+  return inside(path.resolve(parent), path.resolve(child)) && inside(realOrSelf(parent), realOrSelf(child));
+}
+
+/**
+ * The job's worktree when it is this repo's: exactly `<worktrees>/<id>` or under the worktrees dir.
+ * job.json is agent-writable, so a worktree pointing at another repo would otherwise add that repo's
+ * project dir to the lookup.
+ */
+function ownWorktree(root: string, job: Pick<Job, 'id' | 'worktree'>, worktrees: string | null | undefined): string | null {
+  const wt = job.worktree;
+  if (typeof wt !== 'string' || !wt || !path.isAbsolute(wt)) return null;
+  const dir = worktrees === undefined ? worktreesDir(root) : worktrees;
+  if (!dir) return null;
+  if (path.resolve(wt) === path.join(path.resolve(dir), job.id) || under(dir, wt)) return wt;
+  return null;
+}
+
+/** The project dirs this repo's sessions write to: the slugs of root, its realpath and the job's own worktree. */
+export function transcriptProjectDirs(root: string, job: Pick<Job, 'id' | 'worktree'> | null, projects = claudeProjectsDir(), worktrees?: string | null): string[] {
   const cwds = [root];
   try {
     cwds.push(fs.realpathSync(root));
   } catch {}
-  if (job && typeof job.worktree === 'string' && job.worktree) cwds.push(job.worktree);
+  const wt = job ? ownWorktree(root, job, worktrees) : null;
+  if (wt) cwds.push(wt);
   return [...new Set(cwds.map((c) => path.join(projects, projectSlug(c))))];
 }
 
@@ -54,17 +96,31 @@ function jobSessions(job: JobRefs): string[] {
   return [...new Set(ids)];
 }
 
-/**
- * The resolved path of `<dir>/<...segments>` when dir is exactly `<real projects>/<slug>` (not a
- * symlink to elsewhere), the file resolves inside it, and it is a regular file. Null otherwise.
- */
-function confined(projectsReal: string, dir: string, segments: string[]): string | null {
+const SLUG = /^[A-Za-z0-9-]+$/;
+
+/** The resolved project dir when `dir` is a slug dir that resolves to exactly `<real projects>/<slug>`, else null. */
+function realSlugDir(projectsReal: string, dir: string): string | null {
   try {
+    const slug = path.basename(dir);
+    if (!SLUG.test(slug)) return null;
     const dirReal = fs.realpathSync(dir);
-    if (dirReal !== path.join(projectsReal, path.basename(dir))) return null;
+    return dirReal === path.join(projectsReal, slug) ? dirReal : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `<dir>/<...segments>` resolved, when dir is exactly `<real projects>/<slug>` (not a symlink to
+ * elsewhere), the file resolves inside it, and it is a regular file. Null otherwise.
+ */
+function confined(projectsReal: string, dir: string, segments: string[]): TranscriptHit | null {
+  try {
+    const dirReal = realSlugDir(projectsReal, dir);
+    if (!dirReal) return null;
     const real = fs.realpathSync(path.join(dir, ...segments));
     if (!real.startsWith(dirReal + path.sep)) return null;
-    return fs.statSync(real).isFile() ? real : null;
+    return fs.statSync(real).isFile() ? { path: real, dir: dirReal } : null;
   } catch {
     return null;
   }
@@ -79,53 +135,56 @@ function realProjects(projects: string): string | null {
 }
 
 /** The transcript of agent `agentId` under one of this job's sessions, or null. */
-export function agentTranscriptById(root: string, job: JobRefs, agentId: unknown, opts: TranscriptOpts = {}): { path: string } | null {
+export function agentTranscriptById(root: string, job: JobRefs, agentId: unknown, opts: TranscriptOpts = {}): TranscriptHit | null {
   if (typeof agentId !== 'string' || !AGENT_ID.test(agentId)) return null;
   const projects = opts.projects ?? claudeProjectsDir();
   const projectsReal = realProjects(projects);
   if (!projectsReal) return null;
   const sessions = jobSessions(job);
-  for (const dir of transcriptProjectDirs(root, job, projects)) {
+  for (const dir of transcriptProjectDirs(root, job, projects, opts.worktrees)) {
     for (const s of sessions) {
       const hit = confined(projectsReal, dir, [s, 'subagents', `agent-${agentId}.jsonl`]);
-      if (hit) return { path: hit };
+      if (hit) return hit;
     }
   }
   return null;
 }
 
 /** The transcript of the agent recorded for `role`, or null (no such role, no valid id, no file). */
-export function agentTranscript(root: string, job: JobRefs, role: string, opts: TranscriptOpts = {}): { path: string } | null {
+export function agentTranscript(root: string, job: JobRefs, role: string, opts: TranscriptOpts = {}): TranscriptHit | null {
   const agents = job.agents ?? {};
   if (!Object.hasOwn(agents, role)) return null;
   return agentTranscriptById(root, job, agents[role]?.agentId, opts);
 }
 
 /** The transcript of the job's owner session, or null. */
-export function ownerTranscript(root: string, job: JobRefs, opts: TranscriptOpts = {}): { path: string } | null {
+export function ownerTranscript(root: string, job: JobRefs, opts: TranscriptOpts = {}): TranscriptHit | null {
   const sid = job.owner?.session;
   if (typeof sid !== 'string' || !UUID.test(sid)) return null;
   const projects = opts.projects ?? claudeProjectsDir();
   const projectsReal = realProjects(projects);
   if (!projectsReal) return null;
-  for (const dir of transcriptProjectDirs(root, job, projects)) {
+  for (const dir of transcriptProjectDirs(root, job, projects, opts.worktrees)) {
     const hit = confined(projectsReal, dir, [`${sid}.jsonl`]);
-    if (hit) return { path: hit };
+    if (hit) return hit;
   }
   return null;
 }
 
 /**
- * A descriptor for a transcript that resolves inside `projects` and is a regular file, or null.
- * O_NONBLOCK so a planted FIFO can't hang the server (fstat rejects it); the path is resolved
- * first, so O_NOFOLLOW only refuses a link swapped in since. The caller closes the descriptor.
+ * A descriptor for a located transcript, or null. Checked again at open: the hit's project dir must
+ * still resolve to exactly `<real projects>/<slug>`, and the file's realpath must sit inside that
+ * slug dir, not merely anywhere under the projects dir. O_NONBLOCK so a planted FIFO can't hang the
+ * server (fstat rejects it); the path is resolved first, so O_NOFOLLOW only refuses a link swapped
+ * in since. The caller closes the descriptor.
  */
-export function openTranscript(file: string, projects = claudeProjectsDir()): { fd: number; size: number; mtimeMs: number; path: string } | null {
+export function openTranscript(hit: TranscriptHit, projects = claudeProjectsDir()): { fd: number; size: number; mtimeMs: number; path: string } | null {
   let fd: number | undefined;
   try {
-    const base = fs.realpathSync(projects);
-    const real = fs.realpathSync(file);
-    if (!real.startsWith(base + path.sep)) return null;
+    const dir = realSlugDir(fs.realpathSync(projects), hit.dir);
+    if (!dir) return null;
+    const real = fs.realpathSync(hit.path);
+    if (!real.startsWith(dir + path.sep)) return null;
     fd = fs.openSync(real, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOFOLLOW ?? 0));
     const st = fs.fstatSync(fd);
     if (!st.isFile()) {
@@ -213,8 +272,8 @@ export function lastActivity(fd: number, size: number, opts: { worktree?: string
 const activityCache = new Map<string, TranscriptActivity | null>();
 
 /** lastActivity for a located transcript, cached by file, size and mtime; null when it can't be opened. */
-export function cachedActivity(file: string, projects: string, opts: { worktree?: string | null; root?: string | null } = {}): TranscriptActivity | null {
-  const t = openTranscript(file, projects);
+export function cachedActivity(hit: TranscriptHit, projects: string, opts: { worktree?: string | null; root?: string | null } = {}): TranscriptActivity | null {
+  const t = openTranscript(hit, projects);
   if (!t) return null;
   try {
     const key = `${t.path}|${t.size}|${t.mtimeMs}|${opts.worktree ?? ''}|${opts.root ?? ''}`;

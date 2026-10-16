@@ -3,6 +3,7 @@ import path from 'node:path';
 import { readJson } from './util.ts';
 import { PLUGIN_ROOT } from './paths.ts';
 import { agentTranscriptById, claudeProjectsDir, openTranscript } from './transcripts.ts';
+import type { TranscriptHit } from './transcripts.ts';
 import type { AgentUsage, Job } from './types.ts';
 
 /** One model's prices in USD per million tokens: an entry of lib/pricing.json's `models`. */
@@ -90,25 +91,29 @@ export function estimateCost(
  */
 export function importClaudeCodeTranscript(
   agentId: string,
-  opts: { projectsDir?: string; since?: string | null; root?: string; job?: Pick<Job, 'owner' | 'runs' | 'agents' | 'worktree'> } = {},
+  opts: { projectsDir?: string; since?: string | null; root?: string; job?: Pick<Job, 'id' | 'owner' | 'runs' | 'agents' | 'worktree'> } = {},
 ): TranscriptUsage | null {
   const projects = opts.projectsDir ?? claudeProjectsDir();
-  const file = (opts.root && opts.job ? readTranscript(agentTranscriptById(opts.root, opts.job, agentId, { projects })?.path, projects) : null) ?? readTranscript(findTranscript(projects, `agent-${agentId}.jsonl`), null);
+  const hit = opts.root && opts.job ? agentTranscriptById(opts.root, opts.job, agentId, { projects }) : null;
+  const file = (hit ? readConfined(hit, projects) : null) ?? readScanned(findTranscript(projects, `agent-${agentId}.jsonl`));
   if (!file) return null;
   return summarise(file.text, file.path, opts.since);
 }
 
-/** A transcript's path and text; confined under `projects` (openTranscript) when it is given. */
-function readTranscript(file: string | null | undefined, projects: string | null): { path: string; text: string } | null {
-  if (!file) return null;
-  if (projects === null) return { path: file, text: fs.readFileSync(file, 'utf8') };
-  const t = openTranscript(file, projects);
+/** A located transcript's path and text, read through openTranscript's confined descriptor. */
+function readConfined(hit: TranscriptHit, projects: string): { path: string; text: string } | null {
+  const t = openTranscript(hit, projects);
   if (!t) return null;
   try {
-    return { path: file, text: fs.readFileSync(t.fd, 'utf8') };
+    return { path: hit.path, text: fs.readFileSync(t.fd, 'utf8') };
   } finally {
     fs.closeSync(t.fd);
   }
+}
+
+/** The fallback scan's hit, read as before. */
+function readScanned(file: string | null): { path: string; text: string } | null {
+  return file ? { path: file, text: fs.readFileSync(file, 'utf8') } : null;
 }
 
 function summarise(text: string, file: string, sinceAt: string | null | undefined): TranscriptUsage {

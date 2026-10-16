@@ -104,7 +104,7 @@ test('imports via session lookup', () => {
     for (const d of [own, decoy]) fs.mkdirSync(d, { recursive: true });
     fs.writeFileSync(path.join(own, `agent-${AGENT}.jsonl`), round1);
     fs.writeFileSync(path.join(decoy, `agent-${AGENT}.jsonl`), round1 + round2);
-    const job = { owner: { session, host: 'h', since: round1End, heartbeat: round1End }, runs: [], agents: {}, worktree: null };
+    const job = { id: 'resumed', owner: { session, host: 'h', since: round1End, heartbeat: round1End }, runs: [], agents: {}, worktree: null };
     const viaSession = importClaudeCodeTranscript(AGENT, { projectsDir, root, job })!;
     assert.equal(viaSession.transcript, fs.realpathSync(path.join(own, `agent-${AGENT}.jsonl`)));
     assert.equal(viaSession.through, round1End);

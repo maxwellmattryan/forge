@@ -21,6 +21,7 @@ function scratch() {
 }
 
 const job = (over: Record<string, any> = {}) => ({
+  id: '153-job',
   owner: { session: OWNER, host: 'h', since: '2026-10-15T00:00:00.000Z', heartbeat: '2026-10-15T00:00:00.000Z' },
   runs: [{ session: OLD, startedAt: '2026-10-14T00:00:00.000Z' }, { session: OWNER, startedAt: '2026-10-15T00:00:00.000Z' }],
   agents: { 'reviewer:code': { runs: 1, status: 'running', agentId: 'abc123' }, builder: { runs: 1, status: 'done', agentId: 'old999' } } as Record<string, any>,
@@ -43,12 +44,39 @@ describe('transcripts', { concurrency: 4 }, () => {
       assert.equal(projectSlug('/Users/a.b/c_d e'), '-Users-a-b-c-d-e');
       assert.equal(claudeProjectsDir({ CLAUDE_CONFIG_DIR: '/cfg' }), path.resolve('/cfg', 'projects'));
       assert.equal(claudeProjectsDir({}), path.join(os.homedir(), '.claude', 'projects'));
-      const wt = '/tmp/x.worktrees/153-job';
-      const dirs = transcriptProjectDirs(s.root, { worktree: wt }, s.projects);
-      const expected = [...new Set([s.root, fs.realpathSync(s.root), wt].map((p) => path.join(s.projects, projectSlug(p))))];
-      assert.deepEqual(dirs, expected);
+      const own = [...new Set([s.root, fs.realpathSync(s.root)].map((p) => path.join(s.projects, projectSlug(p))))];
+      // The default worktrees dir (../{repo}.worktrees) is read from the repo's config.
+      const wt = path.join(s.base, 'repo.worktrees', '153-job');
+      const dirs = transcriptProjectDirs(s.root, { id: '153-job', worktree: wt }, s.projects);
+      assert.deepEqual(dirs, [...own, path.join(s.projects, projectSlug(wt))]);
       for (const d of dirs) assert.equal(path.dirname(d), s.projects);
-      assert.deepEqual(transcriptProjectDirs(s.root, { worktree: null }, s.projects), [...new Set([s.root, fs.realpathSync(s.root)].map((p) => path.join(s.projects, projectSlug(p))))]);
+      assert.deepEqual(transcriptProjectDirs(s.root, { id: '153-job', worktree: null }, s.projects), own);
+      // Another job's dir under the worktrees dir still counts; an explicit worktrees dir is honoured.
+      assert.equal(transcriptProjectDirs(s.root, { id: '153-job', worktree: path.join(s.base, 'repo.worktrees', 'other') }, s.projects).length, own.length + 1);
+      assert.deepEqual(transcriptProjectDirs(s.root, { id: '153-job', worktree: '/srv/wt/153-job' }, s.projects, '/srv/wt'), [...own, path.join(s.projects, projectSlug('/srv/wt/153-job'))]);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test("a forged worktree adds no other repo's project dir", () => {
+    const s = scratch();
+    try {
+      const own = [...new Set([s.root, fs.realpathSync(s.root)].map((p) => path.join(s.projects, projectSlug(p))))];
+      // job.json is agent-writable: a worktree naming another repo (or its worktrees, or a traversal out of ours) is ignored.
+      const other = path.join(s.base, 'other-repo');
+      for (const forged of [other, path.join(other, 'lib'), path.join(s.base, 'other-repo.worktrees', '153-job'), path.join(s.base, 'repo.worktrees', '..', 'other-repo'), path.join(s.base, 'repo.worktrees'), 'relative/wt', s.root])
+        assert.deepEqual(transcriptProjectDirs(s.root, { id: '153-job', worktree: forged }, s.projects), own, forged);
+      // A worktrees dir symlinked into another repo resolves outside: refused too.
+      fs.mkdirSync(path.join(s.base, 'repo.worktrees'), { recursive: true });
+      fs.mkdirSync(other, { recursive: true });
+      fs.symlinkSync(other, path.join(s.base, 'repo.worktrees', 'sneaky'));
+      assert.deepEqual(transcriptProjectDirs(s.root, { id: '153-job', worktree: path.join(s.base, 'repo.worktrees', 'sneaky') }, s.projects), own);
+      // And the lookup never reaches that repo's transcripts.
+      write(path.join(s.projects, projectSlug(other), OWNER, 'subagents', 'agent-abc123.jsonl'));
+      write(path.join(s.projects, projectSlug(other), `${OWNER}.jsonl`));
+      assert.equal(agentTranscript(s.root, job({ worktree: other }), 'reviewer:code', { projects: s.projects }), null);
+      assert.equal(ownerTranscript(s.root, job({ worktree: other }), { projects: s.projects }), null);
     } finally {
       s.cleanup();
     }
@@ -67,7 +95,7 @@ describe('transcripts', { concurrency: 4 }, () => {
       assert.equal(agentTranscript(s.root, j, 'reviewer:none', { projects: s.projects }), null);
       assert.equal(agentTranscript(s.root, j, '__proto__', { projects: s.projects }), null);
       // The worktree's slug is tried too.
-      const wt = path.join(s.base, 'wt');
+      const wt = path.join(s.base, 'repo.worktrees', '153-job');
       const inWt = write(path.join(s.projects, projectSlug(wt), OWNER, 'subagents', 'agent-wt1.jsonl'));
       const j2 = job({ worktree: wt, agents: { builder: { runs: 1, status: 'running', agentId: 'wt1' } } });
       assert.equal(agentTranscript(s.root, j2, 'builder', { projects: s.projects })?.path, fs.realpathSync(inWt));
@@ -126,10 +154,43 @@ describe('transcripts', { concurrency: 4 }, () => {
       // A FIFO and a directory in place of the file.
       execFileSync('mkfifo', [path.join(s.slugDir, OWNER, 'subagents', 'agent-fifo1.jsonl')]);
       assert.equal(agentTranscript(s.root, job({ agents: { r: { runs: 1, agentId: 'fifo1' } } }), 'r', opts), null);
-      assert.equal(openTranscript(path.join(s.slugDir, OWNER, 'subagents', 'agent-fifo1.jsonl'), s.projects), null, 'opening a FIFO does not hang');
+      assert.equal(openTranscript({ path: path.join(s.slugDir, OWNER, 'subagents', 'agent-fifo1.jsonl'), dir: s.slugDir }, s.projects), null, 'opening a FIFO does not hang');
       fs.mkdirSync(path.join(s.slugDir, OWNER, 'subagents', 'agent-dir1.jsonl'));
       assert.equal(agentTranscript(s.root, job({ agents: { r: { runs: 1, agentId: 'dir1' } } }), 'r', opts), null);
-      assert.equal(openTranscript(outside, s.projects), null, 'openTranscript confines to the projects dir');
+      assert.equal(openTranscript({ path: outside, dir: s.slugDir }, s.projects), null, 'openTranscript confines to the projects dir');
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test("openTranscript confines to the hit's slug dir", () => {
+    const s = scratch();
+    try {
+      const mine = write(path.join(s.slugDir, OWNER, 'subagents', 'agent-abc123.jsonl'));
+      const otherDir = path.join(s.projects, '-other-repo');
+      const theirs = write(path.join(otherDir, OWNER, 'subagents', 'agent-abc123.jsonl'));
+      const ok = openTranscript({ path: mine, dir: s.slugDir }, s.projects);
+      assert.ok(ok);
+      fs.closeSync(ok.fd);
+      // Inside the projects dir but in another slug dir: refused.
+      assert.equal(openTranscript({ path: theirs, dir: s.slugDir }, s.projects), null);
+      // A link in our slug dir to another project's file: refused.
+      const link = path.join(s.slugDir, OWNER, 'subagents', 'agent-link9.jsonl');
+      fs.symlinkSync(theirs, link);
+      assert.equal(openTranscript({ path: link, dir: s.slugDir }, s.projects), null);
+      // A dir that isn't a slug directly under the projects dir: refused, even when the file is inside it.
+      assert.equal(openTranscript({ path: mine, dir: path.join(s.slugDir, OWNER) }, s.projects), null);
+      assert.equal(openTranscript({ path: theirs, dir: s.projects }, s.projects), null);
+      // A slug dir swapped for a symlink after the lookup: refused at open.
+      const s2 = scratch();
+      try {
+        const f = write(path.join(s2.base, 'elsewhere', 'x.jsonl'));
+        fs.symlinkSync(path.join(s2.base, 'elsewhere'), s2.slugDir);
+        assert.equal(openTranscript({ path: path.join(s2.slugDir, 'x.jsonl'), dir: s2.slugDir }, s2.projects), null);
+        assert.ok(fs.existsSync(f));
+      } finally {
+        s2.cleanup();
+      }
     } finally {
       s.cleanup();
     }
@@ -141,7 +202,7 @@ describe('transcripts', { concurrency: 4 }, () => {
       const wt = '/work/repo.worktrees/153';
       const summarise = (body: string, opts: { worktree?: string; root?: string } = {}) => {
         const f = write(path.join(s.slugDir, 'x.jsonl'), body);
-        const t = openTranscript(f, s.projects)!;
+        const t = openTranscript({ path: f, dir: s.slugDir }, s.projects)!;
         try {
           return lastActivity(t.fd, t.size, opts);
         } finally {
@@ -173,16 +234,16 @@ describe('transcripts', { concurrency: 4 }, () => {
       fs.writeFileSync(big, filler.repeat(Math.ceil((5.5 * 1024 * 1024) / filler.length)) + read + '\n');
       assert.ok(fs.statSync(big).size > 5 * 1024 * 1024);
       const t0 = performance.now();
-      const t = openTranscript(big, s.projects)!;
+      const t = openTranscript({ path: big, dir: s.slugDir }, s.projects)!;
       const got = lastActivity(t.fd, t.size, { worktree: wt });
       fs.closeSync(t.fd);
       const ms = performance.now() - t0;
       assert.equal(got?.text, 'Read lib/server.ts');
       assert.ok(ms < 50, `took ${ms} ms`);
       // The cached form gives the same answer and refuses a file outside the projects dir.
-      assert.equal(cachedActivity(big, s.projects, { worktree: wt })?.text, 'Read lib/server.ts');
-      assert.equal(cachedActivity(big, s.projects, { worktree: wt })?.text, 'Read lib/server.ts');
-      assert.equal(cachedActivity(write(path.join(s.base, 'out.jsonl'), read), s.projects), null);
+      assert.equal(cachedActivity({ path: big, dir: s.slugDir }, s.projects, { worktree: wt })?.text, 'Read lib/server.ts');
+      assert.equal(cachedActivity({ path: big, dir: s.slugDir }, s.projects, { worktree: wt })?.text, 'Read lib/server.ts');
+      assert.equal(cachedActivity({ path: write(path.join(s.base, 'out.jsonl'), read), dir: s.slugDir }, s.projects), null);
     } finally {
       s.cleanup();
     }
