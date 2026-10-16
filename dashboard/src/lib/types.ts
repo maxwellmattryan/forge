@@ -552,7 +552,7 @@ export interface RepoBudgetStatus {
   day: string;
   month: string;
   onExceeded: RepoBudgetMode;
-  /** USD rounded to 4dp. */
+  /** USD to 4 decimal places. */
   spent: { dayUsd: number; monthUsd: number; monthTokens: number };
   configured: Record<RepoBudgetKey, number | null>;
   acks: { day: number; month: number };

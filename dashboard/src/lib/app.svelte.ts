@@ -14,6 +14,7 @@ import type {
   GitHubPreviewResponse,
   JobDetail,
   PostConfigBody,
+  PostBudgetAckResponse,
   PostConfigResponse,
   PostJobBody,
   PostJobResponse,
@@ -207,6 +208,9 @@ export async function request(body: RequestBody): Promise<void> {
     toast(`Request failed: ${message(e)}`, true);
   }
 }
+
+/** POST /api/budget/ack: a human acknowledges the current, exceeded month or day. Throws the server's `error` text. */
+export const postBudgetAck = (period: string): Promise<PostBudgetAckResponse> => jsonFetch<PostBudgetAckResponse>('/api/budget/ack', postInit({ period }));
 
 /** POST /api/jobs: a new job from free text. Throws the server's `error` text. */
 export const createJob = (body: PostJobBody): Promise<PostJobResponse> => jsonFetch<PostJobResponse>('/api/jobs', postInit(body));

@@ -557,7 +557,7 @@ test('no filled element nests in a patterned one', () => {
 // Text never sits on the grain: the grain shows only on bare ground between surfaces, so every word, value,
 // caller snippet and component the shell or a view puts on the page has a surface around it. A component this test
 // scans itself (GROUND, or a view) is checked inside its own file instead.
-const GROUND = ['PageHeader', 'Empty', 'Banner', 'StatusBar', 'Popover', 'JobCard', 'JobsTable', 'InboxCard', 'CommandTrigger', 'Drawer', 'Settings', 'CommandBar', 'Toast', 'GitHubCard', 'NeedsPanel'];
+const GROUND = ['PageHeader', 'Empty', 'Banner', 'StatusBar', 'Popover', 'JobCard', 'JobsTable', 'InboxCard', 'CommandTrigger', 'Drawer', 'Settings', 'CommandBar', 'Toast', 'GitHubCard', 'NeedsPanel', 'PeriodMeter'];
 /** A GROUND component's file: components/, or components/statusbar/ for a popover body. */
 const groundFile = (c: string) => (fs.existsSync(path.join(SRC, 'components', `${c}.svelte`)) ? `components/${c}.svelte` : `components/statusbar/${c}.svelte`);
 // A plate is a surface; an open plate is a container the grain shows through (AGENTS.md › Text never sits on the grain).

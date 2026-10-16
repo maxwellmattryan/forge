@@ -23,6 +23,7 @@
   import NeedsPanel from './statusbar/NeedsPanel.svelte';
   import ForemanPanel from './statusbar/ForemanPanel.svelte';
   import ModelPanel from './statusbar/ModelPanel.svelte';
+  import SpendChip from './SpendChip.svelte';
   import { API_VERSION } from '../lib/types.ts';
   import type { DaemonPoolState } from '../lib/types.ts';
   import { mergePoolState, poolModel, postDaemon } from '../lib/daemon.ts';
@@ -283,6 +284,8 @@
           <span class="sr-only">{' '}{$t('statusbar.daemon.sessions')}{', '}{bar.daemon.off ? $t('statusbar.daemon.off') : bar.daemon.pill.label}</span>
           {#if holdsOut}<span class="sr-only">{', '}{holdText}</span>{/if}
         </button>
+        <!-- The month's spend: md and up, and the first thing to go (with held and waiting) when the cluster runs short. -->
+        {#if S.data.budget}<SpendChip budget={S.data.budget} extra="max-md:hidden {left >= 3 ? 'hidden!' : ''}" />{/if}
         {#if bar.inbox}
           <button class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="inbox" title={phone || left >= 1 ? titles.inbox : undefined} aria-haspopup="dialog" aria-expanded={expanded('inbox')} aria-controls={controls('inbox')} onclick={(e) => openPopover('inbox', e.currentTarget)}>
             <span class="inline-flex {TONE_TEXT[bar.inbox.tone]}"><Icon name="inbox" /></span>

@@ -53,10 +53,10 @@ const running = (s: unknown) => obj(s).running === true;
 export const asking = (s: unknown): boolean => running(s) && Array.isArray(obj(s).permissions) && obj(s).permissions.length > 0;
 
 /** Status labels in the order the Daemon popover lists job chips. */
-const ORDER = ['needs permission', 'busy', 'agents running', 'failing', 'idle', 'stopping', 'waiting for slot', 'held: budget', 'error', 'stopped', 'standby', 'no session'];
+const ORDER = ['needs permission', 'busy', 'agents running', 'failing', 'idle', 'stopping', 'waiting for slot', 'held: repo budget', 'held: budget', 'error', 'stopped', 'standby', 'no session'];
 
 /**
- * One session's status chip: needs permission (a tool call waits on a human), busy, stopping, waiting for slot, held: budget,
+ * One session's status chip: needs permission (a tool call waits on a human), busy, stopping, waiting for slot, held: repo budget, held: budget,
  * failing (alive, but its last turn failed) or error, agents running (idle, but its job's agents keep it), idle, stopped, standby or no session.
  */
 export function sessionPill(session: SessionInput): Pill {
@@ -68,6 +68,7 @@ export function sessionPill(session: SessionInput): Pill {
   else if (s.status === 'busy') [label, tone] = ['busy', 'live'];
   else if (s.status === 'stopping') [label, tone] = ['stopping', 'warn'];
   else if (s.waiting) [label, tone] = ['waiting for slot', 'warn'];
+  else if (s.held === 'repo-budget') [label, tone] = ['held: repo budget', 'warn'];
   else if (s.held) [label, tone] = ['held: budget', 'warn'];
   else if (s.lastError) [label, tone] = s.status === 'idle' ? ['failing', 'bad'] : ['error', 'bad'];
   else if (s.kept === 'agents' && s.status === 'idle') [label, tone] = ['agents running', 'live'];

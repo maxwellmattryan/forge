@@ -9,6 +9,7 @@ import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
+import { budgetRepo } from './repo-budget-fixture.ts';
 import { broadcast, distAllowlist, distDirFor, startServer } from '../lib/server.ts';
 import { DEV_DIST_DIR } from '../lib/paths.ts';
 import { TURN_LINE } from '../lib/daemon.ts';
@@ -1980,5 +1981,75 @@ test('state carries lastHuman', async () => {
   } finally {
     await close();
     repo.cleanup();
+  }
+});
+
+test('state carries repo budget', async () => {
+  const s = budgetRepo({ usdPerMonth: 10 }, 12);
+  const runtime = path.join(s.root, '.forge', 'runtime');
+  fs.rmSync(runtime, { recursive: true, force: true });
+  const { url, close } = await startServer(s.root, { port: 0, daemon: fakeChildren().opts });
+  const port = Number(new URL(url).port);
+  try {
+    const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
+    assert.equal(st.apiVersion, 23);
+    assert.equal(st.budget.month, new Date().toISOString().slice(0, 7));
+    assert.deepEqual(st.budget.spent, { dayUsd: 12, monthUsd: 12, monthTokens: 12 });
+    assert.deepEqual(st.budget.exceeded, ['usdPerMonth']);
+    assert.equal(st.budget.held, true);
+    assert.equal(st.budget.reason, 'repo budget: $12.00 of $10.00 this month');
+    const written = fs.existsSync(runtime) ? fs.readdirSync(runtime, { recursive: true }).filter((f) => !String(f).startsWith('daemons')) : [];
+    assert.deepEqual(written, [], 'the GET writes no file under .forge/runtime/');
+  } finally {
+    await close();
+    s.cleanup();
+  }
+});
+
+test('budget ack endpoint guards', async () => {
+  const s = budgetRepo({ usdPerMonth: 10, usdPerDay: 1000 }, 12);
+  const { url, close } = await startServer(s.root, { port: 0, daemon: fakeChildren().opts });
+  const port = Number(new URL(url).port);
+  const auditFile = path.join(s.root, '.forge', 'runtime', 'audit.jsonl');
+  const acks = () => (fs.existsSync(auditFile) ? fs.readFileSync(auditFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+  try {
+    const good = { 'x-forge-token': await tokenOf(port), origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (body, headers: any = good) => hit(port, { method: 'POST', path: '/api/budget/ack', headers, body: typeof body === 'string' ? body : JSON.stringify(body) });
+    const month = new Date().toISOString().slice(0, 7);
+    const today = new Date().toISOString().slice(0, 10);
+    const d = new Date();
+    const past = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+    const { origin: _o, ...noOrigin } = good;
+    const refusals: [number, unknown, any?][] = [
+      [403, { period: month }, { ...good, 'x-forge-token': 'wrong' }],
+      [403, { period: month }, noOrigin],
+      [403, { period: month }, { ...good, origin: 'http://evil.example' }],
+      [415, { period: month }, { ...good, 'content-type': 'text/plain' }],
+      [400, '{not json'],
+      [400, {}],
+      [400, { period: 202610 }],
+      [400, { period: '2026-13' }],
+      [400, { period: past }],
+      [409, { period: today }],
+    ];
+    for (const [status, body, headers] of refusals) assert.equal((await post(body, headers)).status, status, JSON.stringify(body));
+    assert.deepEqual(acks(), [], 'no refusal wrote an ack');
+    const within = await post({ period: today });
+    assert.match(JSON.parse(within.text).error, /nothing to acknowledge/);
+
+    const ok = await post({ period: month });
+    assert.equal(ok.status, 200, ok.text);
+    const st = JSON.parse(ok.text);
+    assert.equal(st.caps.usdPerMonth, 20);
+    assert.equal(st.held, false);
+    const [ack] = acks();
+    assert.equal(ack.type, 'repo-budget-ack');
+    assert.equal(ack.period, month);
+    assert.equal(ack.actor.source, 'dashboard');
+    const state = JSON.parse((await hit(port, { path: '/api/state' })).text);
+    assert.equal(state.budget.held, false, 'the next poll sees the ack at once');
+  } finally {
+    await close();
+    s.cleanup();
   }
 });
