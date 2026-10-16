@@ -177,6 +177,41 @@
   --shadow-glow: 0 0 6px 0 rgba(68,88,110,0.35);
 }
 
+[data-theme="temper"] {
+  --bg: #14161e;
+  --bg-deep: #0a0b10;
+  --panel: #1d2030;
+  --raised: rgba(190,200,240,0.08);
+  --chrome: #0d0e14;
+  --sheen: rgba(143,176,245,0.12);
+  --line: rgba(200,205,240,0.16);
+  --line-soft: rgba(200,205,240,0.09);
+  --line-strong: #8e92ad;
+  --edge-light: rgba(220,225,250,0.08);
+  --edge-dark: rgba(0,0,0,0.5);
+  --fg: #ecedf5;
+  --muted: #aeb1c6;
+  --dim: #707489;
+  --gleam: #8fb0f5;
+  --gleam-hot: #c9d8fc;
+  --gleam-deep: #3d4f86;
+  --on-gleam: #0b1022;
+  --ember: #ff7b2e;
+  --on-ember: #1c0f05;
+  --spark: #e8c66a;
+  --on-spark: #1c1405;
+  --ok: #6fcfb4;
+  --warn: #e6c25c;
+  --bad: #f590a8;
+  --info: #a99be0;
+  --shadow-bevel: inset 0 1px 0 0 rgba(220,225,250,0.08), inset 0 -1px 0 0 rgba(0,0,0,0.5);
+  --shadow-primary: 0 2px 0 0 #3d4f86;
+  --shadow-overlay: 0 1px 0 0 rgba(0,0,0,0.6), 0 16px 40px 0 rgba(0,0,0,0.6);
+  --shadow-drawer: -16px 0 40px 0 rgba(0,0,0,0.5);
+  --shadow-chrome: 8px 0 24px 0 rgba(0,0,0,0.35);
+  --shadow-glow: 0 0 8px 0 rgba(143,176,245,0.55);
+}
+
 /* smithy extras (the top of smithy/smithy.css): the brushed gleam fills, the grain and the falloff. */
 :root {
   --gleam-fill: linear-gradient(165deg, color-mix(in srgb, var(--gleam), white 9%) 0%, var(--gleam) 42%, color-mix(in srgb, var(--gleam), var(--gleam-deep) 22%) 100%);

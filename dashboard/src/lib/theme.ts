@@ -3,28 +3,29 @@
 // Touches `document` and `matchMedia` only inside functions so tests can import it under Node.
 import { pref } from './prefs.ts';
 
-export const THEMES = ['forge', 'ash'] as const;
+export const THEMES = ['forge', 'ash', 'temper'] as const;
 export type Theme = (typeof THEMES)[number];
 
-/** What Settings › General offers: the two themes, or follow the OS. */
+/** What Settings › General offers: the three themes, or follow the OS. */
 export const THEME_CHOICES = [...THEMES, 'system'] as const;
 export type ThemeChoice = (typeof THEME_CHOICES)[number];
 
 const LIGHT_QUERY = '(prefers-color-scheme: light)';
 
-/** What System shows on a dark OS (a light OS gets ash). */
+/** What System shows on a dark OS (a light OS gets ash). System never picks temper: it is only ever chosen. */
 export const SYSTEM_DARK: Theme = 'forge';
 
 /**
  * The theme to show for a saved `forge.theme` value. The ids of earlier looks still work: the Drafting
- * `cyanotype` and `nightprint` and the older `dark` load as forge, `vellum` and `light` as ash; anything else
- * counts as unset and follows the OS: light → ash, dark → forge. The saved value itself is never rewritten.
+ * `cyanotype` and `nightprint` and the older `dark` load as forge, `vellum` and `light` as ash, and `temper` is temper; anything else
+ * (`Temper` in the wrong case included) counts as unset and follows the OS: light → ash, dark → forge. The saved value itself is never rewritten.
  * index.html's inline script duplicates this mapping because it runs before the bundle;
  * test/dashboard-theme.test.ts keeps the two in step.
  */
 export function normalizeTheme(saved: string | null | undefined, prefersLight: boolean): Theme {
   if (saved === 'forge' || saved === 'cyanotype' || saved === 'dark' || saved === 'nightprint') return 'forge';
   if (saved === 'ash' || saved === 'vellum' || saved === 'light') return 'ash';
+  if (saved === 'temper') return 'temper';
   return prefersLight ? 'ash' : SYSTEM_DARK;
 }
 
@@ -32,6 +33,7 @@ export function normalizeTheme(saved: string | null | undefined, prefersLight: b
 export function themeChoice(saved: string | null | undefined): ThemeChoice {
   if (saved === 'forge' || saved === 'cyanotype' || saved === 'dark' || saved === 'nightprint') return 'forge';
   if (saved === 'ash' || saved === 'vellum' || saved === 'light') return 'ash';
+  if (saved === 'temper') return 'temper';
   return 'system';
 }
 

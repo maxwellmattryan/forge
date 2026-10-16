@@ -1,5 +1,5 @@
 // The Smithy tokens: smithy/tokens.css is the drawing, the built dashboard CSS must carry every variable of it in the
-// same scope with the same value, and the text colours must stay readable in both themes (forge, ash).
+// same scope with the same value, and the text colours must stay readable in every theme (forge, ash, temper).
 // Reads files only; a small regex-based declaration reader stands in for a CSS parser.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -103,17 +103,19 @@ function sameValue(a: string, b: string): boolean {
   });
 }
 
-const SCOPES = [':root, [data-theme="forge"]', '[data-theme="ash"]', ':root'];
+const SCOPES = [':root, [data-theme="forge"]', '[data-theme="ash"]', '[data-theme="temper"]', ':root'];
+const ROOT_SCOPE = SCOPES[3];
 // smithy/smithy.css declares these on top of tokens.css: the brushed gleam fills, the grain and the falloff (ash
-// overrides four of them). They ride in the same scopes in the build.
+// overrides four of them; temper overrides none, so it takes the dark :root ones). They ride in the same scopes in the build.
 const SMITHY_EXTRAS = ['--gleam-fill', '--gleam-fill-hot', '--gleam-fill-bar', '--gleam-spec', '--grain-opacity', '--grain-blend', '--fall', '--hammer', '--grain'];
 const EXTRAS: Record<string, string[]> = {
   [SCOPES[0]]: [],
   [SCOPES[1]]: ['--gleam-spec', '--grain-opacity', '--grain-blend', '--fall'],
-  [SCOPES[2]]: SMITHY_EXTRAS,
+  [SCOPES[2]]: [],
+  [ROOT_SCOPE]: SMITHY_EXTRAS,
 };
 /** Each theme's own token block in smithy/tokens.css (the scalar `:root` block is shared). */
-const THEME_SCOPE: Record<string, string> = { forge: SCOPES[0], ash: SCOPES[1] };
+const THEME_SCOPE: Record<string, string> = { forge: SCOPES[0], ash: SCOPES[1], temper: SCOPES[2] };
 const SMITHY = path.join(ROOT, 'smithy');
 const tokensCss = () => fs.readFileSync(path.join(SMITHY, 'tokens.css'), 'utf8');
 
@@ -202,12 +204,12 @@ const mix = (a: Rgba, p: number, b: Rgba): Rgba => [a[0] * p + b[0] * (1 - p), a
 
 // Text is fg or muted; gleam (links, the live chip), ember (needs you) and the status hues carry words too. dim is for
 // placeholders and stamp-line keys only (smithy/README.md › Colour) and is the one documented exception. spark is only
-// ever a fill under on-spark. Forge's hovered link is gleam-hot; Ash keeps gleam there.
+// ever a fill under on-spark. In the dark themes (Forge, Temper) a hovered link is gleam-hot; Ash keeps gleam there.
 const TEXT = ['fg', 'muted', 'gleam', 'ember', 'ok', 'warn', 'bad', 'info'];
-const TEXT_BY_THEME: Record<string, string[]> = { forge: [...TEXT, 'gleam-hot'], ash: TEXT };
+const TEXT_BY_THEME: Record<string, string[]> = { forge: [...TEXT, 'gleam-hot'], ash: TEXT, temper: [...TEXT, 'gleam-hot'] };
 const DIM_FLOOR = 3.0;
 
-/** The two theme scopes of smithy/tokens.css, as a colour reader per theme. */
+/** The theme scopes of smithy/tokens.css, as a colour reader per theme. */
 function themeColors(): Record<string, (k: string) => Rgba> {
   const design = tokensCss();
   const out: Record<string, (k: string) => Rgba> = {};
@@ -222,8 +224,8 @@ function themeColors(): Record<string, (k: string) => Rgba> {
   return out;
 }
 
-test('text tokens meet 4.5:1 except the documented exceptions', () => {
-  assert.deepEqual(Object.keys(themeColors()), ['forge', 'ash']);
+test('text tokens meet 4.5:1 except the documented exceptions', (t) => {
+  assert.deepEqual(Object.keys(themeColors()), [...THEMES]);
   for (const [theme, color] of Object.entries(themeColors())) {
     for (const k of ['bg', 'panel', 'chrome']) assert.equal(color(k)[3], 1, `${theme} --${k} is opaque`);
     for (const k of TEXT_BY_THEME[theme]) {
@@ -235,6 +237,7 @@ test('text tokens meet 4.5:1 except the documented exceptions', () => {
     // dim: placeholders and stamp keys only, below 4.5:1 by design, never under 3:1 on the ground.
     const dim = contrast(color('dim'), color('bg'));
     assert.ok(dim >= DIM_FLOOR && dim < 4.5, `${theme} --dim on --bg is ${dim.toFixed(2)}:1, the documented exception`);
+    t.diagnostic(`${theme} dim on bg: ${dim.toFixed(2)}:1`);
     for (const [on, fill] of [['on-gleam', 'gleam'], ['on-spark', 'spark'], ['on-ember', 'ember']]) {
       const ratio = contrast(color(on), color(fill));
       assert.ok(ratio >= 4.5, `${theme} --${on} on --${fill} is ${ratio.toFixed(2)}:1`);
@@ -491,7 +494,7 @@ test('no fill is see-through: alpha only on the ground, the rivets and the allow
 // The sidebar and the phone header are opaque --chrome (App.svelte), the anvil; the active nav item lays --raised over
 // it, and the Needs-you tag tints the chrome under it with ember.
 test('chrome sidebar keeps text at 4.5:1', () => {
-  assert.deepEqual(Object.keys(themeColors()), ['forge', 'ash'], 'the sidebar is measured in every theme');
+  assert.deepEqual(Object.keys(themeColors()), [...THEMES], 'the sidebar is measured in every theme');
   for (const [theme, color] of Object.entries(themeColors())) {
     const chrome = color('chrome');
     const active = over(color('raised'), chrome);
@@ -522,7 +525,7 @@ test('chrome sidebar keeps text at 4.5:1', () => {
   assert.ok(contrast(ash('gleam'), ash('bg')) >= 4.5);
 });
 
-// ---------- the two themes: cascade, color-scheme, and the overrides ash takes ----------
+// ---------- the three themes: cascade, color-scheme, and the overrides ash takes ----------
 
 /**
  * The custom properties a theme resolves to through the cascade: the unlayered top-level blocks in
@@ -559,7 +562,7 @@ function effective(css: string, theme: string): Map<string, string> {
 
 /** An extra as written in smithy.css and as the build minifies it (`.10` becomes `.1`, rgba becomes hex). */
 const sameExtra = (a: string, b: string) => sameValue(a, b) || (a.trim() !== '' && !Number.isNaN(Number(a)) && Number(a) === Number(b));
-const GRAIN_BLEND: Record<string, string> = { forge: 'soft-light', ash: 'multiply' };
+const GRAIN_BLEND: Record<string, string> = { forge: 'soft-light', ash: 'multiply', temper: 'soft-light' };
 
 test("each theme's tokens and extras win the cascade", () => {
   const sample = ':root{--a:1;--p:.18}:root,[data-theme="x"]{--a:2}[data-theme=y]{--a:3;--p:.5}[data-theme=x] .b{--a:9}@layer l{:root{--a:8}}';
@@ -573,7 +576,7 @@ test("each theme's tokens and extras win the cascade", () => {
   const css = builtCss();
   for (const theme of THEMES) {
     const got = effective(css, theme);
-    const want = new Map([...scope(design, SCOPES[2]), ...scope(design, THEME_SCOPE[theme])]);
+    const want = new Map([...scope(design, ROOT_SCOPE), ...scope(design, THEME_SCOPE[theme])]);
     // The smithy.css extras as smithy.css resolves them for this theme. The grain URIs are compared in dashboard-css.test.ts.
     const extras = effective(smithy, theme);
     for (const k of [...SMITHY_EXTRAS.filter((x) => !['--hammer', '--grain', '--gleam-fill', '--gleam-fill-hot', '--gleam-fill-bar'].includes(x)), 'color-scheme']) {
@@ -597,18 +600,22 @@ function themeRules(css: string, id: string): [string, string][] {
   return out;
 }
 
-// Native UI (scrollbars, an open <select>, autofill) follows the theme: forge is dark, ash is light. Ash overrides only
-// its token blocks, the hovered link, and the two scrims.
+// Native UI (scrollbars, an open <select>, autofill) follows the theme: forge and temper are dark, ash is light. Ash
+// overrides only its token blocks, the hovered link, and the two scrims; temper only its token block, so the dark
+// defaults (the backdrop, the scrim, a gleam-hot hovered link) apply to it as they do to forge.
 const ASH_RULES = ['[data-theme=ash]', '[data-theme=ash]', '[data-theme=ash]a:hover', '[data-theme=ash].backdrop', '[data-theme=ash].scrim'];
 
-test('forge is dark and ash is light', () => {
+test('forge and temper are dark, ash is light', () => {
   const sample = '@layer a,b;@layer b{[data-theme="x"] .m{c:1}}[data-theme=x]{color-scheme:dark;--a:1}.y{c:2}';
   assert.deepEqual(themeRules(sample, 'x'), [['[data-theme=x].m', 'c:1'], ['[data-theme=x]', 'color-scheme:dark;--a:1']], 'self-check: nested and top-level rules');
   const css = builtCss();
   assert.equal(effective(css, 'forge').get('color-scheme'), 'dark', 'forge (and :root) is dark');
   assert.equal(effective(css, 'ash').get('color-scheme'), 'light', 'ash is light');
+  assert.equal(effective(css, 'temper').get('color-scheme'), 'dark', 'temper is dark');
   assert.deepEqual(themeRules(css, 'forge').map(([sel]) => sel), [':root,[data-theme=forge]'], 'only the token block names forge: it is the :root default');
   assert.deepEqual(themeRules(css, 'ash').map(([sel]) => sel).sort(), [...ASH_RULES].sort(), 'ash keeps exactly its overrides');
+  const temper = themeRules(css, 'temper').map(([sel]) => sel);
+  assert.ok(temper.length > 0 && temper.every((sel) => sel === '[data-theme=temper]'), `temper names only its top-level token blocks, no descendant overrides (${temper.join(' ')})`);
 });
 
 // smithy/tokens.json is the source tokens.css is generated from: the same themes as the dashboard offers, one value per
@@ -687,14 +694,43 @@ test('ash metal is cool: no brown lines, shadows or scrims, a steel gleam', () =
 });
 
 // A plate reads as a separate piece of metal on the ground (smithy/README.md › Colour: at least 1.11:1), and the solid
-// focus ring (line-strong) stays visible on every surface it can land on, in both themes.
-test('a plate stands at least 1.11:1 off the ground', () => {
+// focus ring (line-strong) stays at least 5.1:1 on every surface it can land on, in every theme.
+test('a plate stands at least 1.11:1 off the ground', (t) => {
   for (const [theme, color] of Object.entries(themeColors())) {
     const step = contrast(color('panel'), color('bg'));
     assert.ok(step >= 1.11, `${theme} a plate stands ${step.toFixed(3)}:1 off the ground`);
     for (const s of ['bg', 'panel', 'chrome']) {
       const ratio = contrast(color('line-strong'), color(s));
-      assert.ok(ratio >= 5, `${theme} the focus ring (--line-strong) on --${s} is ${ratio.toFixed(2)}:1`);
+      assert.ok(ratio >= 5.1, `${theme} the focus ring (--line-strong) on --${s} is ${ratio.toFixed(2)}:1`);
+    }
+    const ring = Math.min(...['bg', 'panel', 'chrome'].map((s) => contrast(color('line-strong'), color(s))));
+    t.diagnostic(`${theme} plate off ground ${step.toFixed(3)}:1; focus ring at least ${ring.toFixed(2)}:1`);
+  }
+});
+
+// Ember is the one signal for "waits on a person", in every theme: warn, bad and spark stand at least 12° of hue off it,
+// and the cool hues (gleam, gleam-hot, ok, info) at least 60°. Temper's heat colours never reach its ground: bg,
+// bg-deep, panel and chrome are gunmetal or oxidised steel, blue never under red.
+test('ember is the one warm signal in every theme', () => {
+  assert.equal(Math.round(hueDistance([255, 0, 0, 1], [255, 0, 0, 1])), 0, 'self-check: same hue');
+  assert.equal(Math.round(hueDistance([255, 0, 20, 1], [255, 20, 0, 1])), 9, 'self-check: across 0°');
+  assert.equal(Math.round(hueDistance([255, 0, 0, 1], [0, 255, 255, 1])), 180, 'self-check: opposite');
+  assert.equal(Math.round(hsl([0, 0, 255, 1]).hue), 240, 'self-check: blue');
+  for (const [theme, color] of Object.entries(themeColors())) {
+    const ember = color('ember');
+    for (const [k, floor] of [['warn', 12], ['bad', 12], ['spark', 12], ['gleam', 60], ['gleam-hot', 60], ['ok', 60], ['info', 60]] as const) {
+      const d = hueDistance(color(k), ember);
+      assert.ok(d >= floor, `${theme} --${k} is ${d.toFixed(1)}° of hue off --ember (at least ${floor}°)`);
     }
   }
+  const temper = themeColors().temper;
+  for (const k of ['bg', 'bg-deep', 'panel', 'chrome']) {
+    const [r, , b] = temper(k);
+    assert.ok(b >= r, `temper --${k} is not warm (blue ${b} under red ${r})`);
+  }
+});
+
+test('smithy/README.md documents the three themes', () => {
+  const readme = fs.readFileSync(path.join(SMITHY, 'README.md'), 'utf8');
+  for (const s of ['Three themes', 'Temper']) assert.ok(readme.includes(s), `smithy/README.md says ${s}`);
 });

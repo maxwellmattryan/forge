@@ -1,6 +1,7 @@
 /* Forge — Smithy. The reference stylesheet: every colour, font, shadow and size comes from tokens.css
-   (generated from tokens.json); this file declares only the drawing rules. Two themes: forge (the
-   default, a smithy at night in gunmetal and steel) and ash (daylight). Three surfaces: the ground (gunmetal, grained), plates
+   (generated from tokens.json); this file declares only the drawing rules. Three themes: forge (the
+   default, a smithy at night in gunmetal and steel), ash (polished aluminium in daylight) and temper (the same smithy
+   in the heat colours of tempered steel; dark, so it takes the :root extras and overrides nothing here). Three surfaces: the ground (gunmetal, grained), plates
    (panel: forged, bevelled, opaque, dusted with the same fine grain as the ground, cut at two corners like sheet iron) and the chrome (the anvil: sidebar and status bar).
    Corners are cut, not rounded: `corner-shape: bevel` turns each border-radius into a straight chisel cut; where it is
    unsupported the same radii fall back to a soft corner. Heat means
