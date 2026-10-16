@@ -11,6 +11,7 @@ import { blockingLines, compactIntegrity, hiddenChanges, integrityError, renderI
 import type { CompactIntegrity, IntegrityReport } from './integrity.ts';
 import { listJobs, isActive, loadJob, logEvent, setJob, touchJob, updateJob, jobDir } from './jobs.ts';
 import { exists, resolveFrom } from './paths.ts';
+import { posixShell } from './platform.ts';
 import { CONFIG_SCHEMA_VERSION } from './schema.ts';
 import { logSecrets, renderSecrets, scanBranch, secretMode, secretsOk, secretsTail, compactSecrets } from './secrets.ts';
 import type { CompactSecrets, Config, Job, ServiceConfig, VerifyRun } from './types.ts';
@@ -321,7 +322,7 @@ interface ShellResult {
 const joinOutput = (stdout: string, stderr: string): string => `${stdout}${stderr ? `\n${stderr}` : ''}`;
 
 function shell(cmd: string, cwd: string, env: NodeJS.ProcessEnv): ShellResult {
-  const res = run(process.env.SHELL || '/bin/sh', ['-lc', cmd], { cwd, env, allowFail: true });
+  const res = run(posixShell(), ['-lc', cmd], { cwd, env, allowFail: true });
   return { ok: res.ok, status: res.status, output: joinOutput(res.stdout, res.stderr) };
 }
 
@@ -334,7 +335,8 @@ const MAX_OUTPUT = 64 * 1024 * 1024;
  * failure with no exit code.
  */
 function shellAsync(cmd: string, cwd: string, env: NodeJS.ProcessEnv): Promise<ShellResult> {
-  const sh = process.env.SHELL || '/bin/sh';
+  // Outside the Promise, so a refused shell throws here as it does in shell().
+  const sh = posixShell();
   return new Promise((resolve) => {
     let settled = false;
     const finish = (r: ShellResult) => {
@@ -606,10 +608,11 @@ export async function startBackground(
     // Filled before the log is opened, so a refused value leaves nothing behind.
     // Checked above; the narrowing does not reach into this callback.
     const cmd = fill(template, vars(root, job, job.worktree!, job.port));
+    const sh = posixShell();
     const logFile = path.join(dir, 'logs', `${name}.log`);
     fs.mkdirSync(path.dirname(logFile), { recursive: true });
     const fd = fs.openSync(logFile, 'a');
-    const child = spawn(process.env.SHELL || '/bin/sh', ['-lc', cmd], {
+    const child = spawn(sh, ['-lc', cmd], {
       cwd: job.worktree!,
       env: envFor(job, job.worktree!, job.port),
       detached: true,

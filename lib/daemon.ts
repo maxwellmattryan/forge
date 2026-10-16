@@ -8,6 +8,7 @@ import { spawn as nodeSpawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { effectiveLimits, exceededKeys, measureBudget } from './budget.ts';
 import { configForJob } from './eval-overlay.ts';
@@ -51,6 +52,8 @@ export interface DaemonOptions {
   slotGraceMs?: number;
   /** How long an idle job session may sit with agents marked running and no background task left before it gets a resume. */
   missedEndMs?: number;
+  /** The host platform; the pool refuses to start on native Windows (lib/platform.ts). */
+  platform?: NodeJS.Platform;
 }
 
 /** DaemonOptions with every default filled in. */
@@ -393,7 +396,8 @@ export function parseRateLimit(info: unknown): RateLimitInfo | null {
  * Drivers that only .git/config or ~/.gitconfig can define (filter, diff, merge) are left alone.
  */
 export const GIT_PINS = Object.freeze([
-  ['core.hooksPath', '/dev/null'],
+  // The null device on every platform (\\.\nul on Windows), never a directory a hook could live in.
+  ['core.hooksPath', os.devNull],
   ['core.fsmonitor', 'false'],
 ]);
 

@@ -8,6 +8,7 @@ import { PERMISSION_MODES, TRUST_CHANGED, UUID, commandPermissionMode, createSes
 import type { DaemonOptions, Session, SessionContext, SessionEvent } from './daemon.ts';
 import { configForJob } from './eval-overlay.ts';
 import { loadJob } from './jobs.ts';
+import { daemonPlatformProblem } from './platform.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, listRequests, requestScope, validScope } from './requests.ts';
 import type { Config, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, ForgeRequest, Job, PermissionDecision } from './types.ts';
 
@@ -63,6 +64,7 @@ export function offState(root: string, scope: string): DaemonSessionState {
 export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
   const o = sessionOptions(opts);
   const pollMs = opts.pollMs ?? 2000;
+  const platform = opts.platform ?? process.platform;
   reapOrphans(root, { graceMs: o.graceMs });
 
   let enabled = false;
@@ -311,6 +313,13 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
   return {
     start(reason = 'start') {
       if (closed) return state();
+      // Sessions need POSIX process groups and ps; refusing here covers every caller (boot, the API, a later start).
+      const refused = daemonPlatformProblem(platform);
+      if (refused) {
+        wanted = false;
+        lastError = refused;
+        return state();
+      }
       // Before reading config, so a change in between fails the spawn's comparison instead of being blessed.
       const snapshot = trustDigest(root);
       config();
