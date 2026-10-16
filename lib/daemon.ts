@@ -1702,6 +1702,18 @@ export function readLogPage(
   return { lines, start: logBase + cursor, end, more: cursor > 0 && lines.length > 0 };
 }
 
+/**
+ * The last `n` complete lines behind an open descriptor, raw, and the byte position just after them.
+ * Callers open the file themselves (openRead), so a path is never reopened between check and read.
+ * `maxBytes` stops a page early (at least one line still comes back); a line over `lineCap` bytes
+ * comes back as a forge-truncated marker.
+ */
+export function tailLines(fd: number, n: number, opts: { maxBytes?: number; lineCap?: number } = {}): { lines: string[]; end: number } {
+  const size = fs.fstatSync(fd).size;
+  const page = readLogPage(fd, size, 0, { maxLines: n, maxBytes: opts.maxBytes ?? Infinity, lineCap: opts.lineCap ?? Infinity, scanBytes: 256 * 1024 * 1024 });
+  return { lines: page.lines.map((l) => l.line), end: page.end };
+}
+
 export function capLine(line: string): string {
   const bytes = Buffer.byteLength(line);
   if (bytes <= RING_LINE_BYTES) return line;

@@ -11,6 +11,8 @@
   const a = $derived(session.about);
   const repo = $derived(safeUrl(a?.links.repo));
   const docs = $derived(safeUrl(a?.links.docs));
+  // Literal keys only: test/dashboard-i18n.test.ts rejects a key built from the value.
+  const installedAs = $derived(a?.installedAs === 'plugin' ? $t('settings.about.install.plugin') : a?.installedAs === 'clone' ? $t('settings.about.install.clone') : $t('settings.about.install.unknown'));
 
   onMount(() => {
     session.loadAbout();
@@ -31,6 +33,8 @@
     <div class="plate px-4">
       <dl>
         {@render fact($t('settings.about.version'), a.forgeVersion)}
+        {@render fact($t('settings.about.commit'), a.commit ?? '—', true)}
+        {@render fact($t('settings.about.installedAs'), installedAs)}
         {@render fact($t('settings.about.pluginRoot'), a.pluginRoot, true)}
         {@render fact($t('settings.about.api'), a.apiVersion)}
         {@render fact($t('settings.about.schemas'), $t('settings.about.schemaValues', { config: a.schemaVersions.config, job: a.schemaVersions.job, event: a.schemaVersions.event }))}

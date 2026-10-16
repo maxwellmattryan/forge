@@ -140,18 +140,18 @@ test('a v2 config reads as v3 and grouped verify round-trips', () => {
   const env = { ...process.env, FORGE_ROOT: repo.dir };
   const answers = writeAnswers(repo.dir, { verify: ['build', ['lint', 'test'], 'e2e'] });
   try {
-    assert.equal(CONFIG_SCHEMA_VERSION, 5);
+    assert.equal(CONFIG_SCHEMA_VERSION, 6);
     for (const v of [1, 2]) {
       fs.writeFileSync(cfg, `schemaVersion: ${v}\nverify:\n  - build\n  - lint\n`);
       const loaded = loadConfig(repo.dir);
-      assert.equal(loaded.config.schemaVersion, 5, `v${v}`);
+      assert.equal(loaded.config.schemaVersion, 6, `v${v}`);
       assert.deepEqual(loaded.config.verify, ['build', 'lint'], `v${v}: verify unchanged`);
       assert.equal(loaded.migratedFrom, v);
     }
     const m = spawnSync(process.execPath, [BIN, 'migrate'], { cwd: repo.dir, encoding: 'utf8', env });
     assert.equal(m.status, 0, m.stderr);
     assert.deepEqual(JSON.parse(m.stdout).changed, ['.forge/config.yml']);
-    assert.match(fs.readFileSync(cfg, 'utf8'), /^schemaVersion: 5$/m);
+    assert.match(fs.readFileSync(cfg, 'utf8'), /^schemaVersion: 6$/m);
     assert.deepEqual(loadConfig(repo.dir).config.verify, ['build', 'lint']);
 
     fs.rmSync(cfg);
@@ -159,7 +159,7 @@ test('a v2 config reads as v3 and grouped verify round-trips', () => {
     assert.equal(w.status, 0, w.stderr);
     const loaded = loadConfig(repo.dir);
     assert.deepEqual(loaded.config.verify, ['build', ['lint', 'test'], 'e2e']);
-    assert.equal(loaded.config.schemaVersion, 5);
+    assert.equal(loaded.config.schemaVersion, 6);
     assert.equal(loaded.migratedFrom, undefined);
   } finally {
     fs.rmSync(answers, { force: true });
@@ -183,7 +183,7 @@ test('steps in a group run at the same time, after the steps before it', () => {
   const r = x.verify(j.id);
   assert.equal(r.status, 0, `${r.stderr} ${JSON.stringify(r.out)}`);
   assert.equal(r.out.ok, true);
-  assert.deepEqual(r.out.steps.map((st: any) => [st.name, st.ok]), [['secrets', true], ['build', true], ['a', true], ['b', true], ['c', true], ['d', true]]);
+  assert.deepEqual(r.out.steps.map((st: any) => [st.name, st.ok]), [['secrets', true], ['protected', true], ['build', true], ['a', true], ['b', true], ['c', true], ['d', true]]);
   const cmds = x.commands(j.id);
   assert.equal(cmds[0], 'build', 'build finished first');
   assert.deepEqual(cmds.slice(1, 4).sort(), ['a', 'b', 'c']);
@@ -207,7 +207,7 @@ test('a failing group finishes its siblings, reports the first failure in config
   assert.equal(r.status, 1);
   assert.equal(r.out.ok, false);
   assert.equal(r.out.failure.name, 'a', 'the first failure in config order, not the first to finish');
-  assert.deepEqual(r.out.steps.map((st: any) => [st.name, st.ok]), [['secrets', true], ['a', false], ['b', true], ['c', false]]);
+  assert.deepEqual(r.out.steps.map((st: any) => [st.name, st.ok]), [['secrets', true], ['protected', true], ['a', false], ['b', true], ['c', false]]);
   const cmds = x.commands(j.id);
   assert.deepEqual([...cmds].sort(), ['a', 'b', 'c'], 'one command event per group step, none for d');
   assert.ok(cmds.indexOf('c') < cmds.indexOf('a'), `c finished before a: ${cmds}`);
@@ -229,9 +229,9 @@ test('round-N.md and steps keep config order whatever finishes first', () => {
   const r = x.verify(j.id);
   assert.equal(r.status, 0, `${r.stderr} ${JSON.stringify(r.out)}`);
   assert.deepEqual(x.commands(j.id), ['c', 'b', 'a'], 'they finished in reverse config order');
-  assert.deepEqual(r.out.steps.map((st: any) => st.name), ['secrets', 'a', 'b', 'c']);
+  assert.deepEqual(r.out.steps.map((st: any) => st.name), ['secrets', 'protected', 'a', 'b', 'c']);
   const md = x.roundMd(j.dir);
-  assert.deepEqual([...md.matchAll(/^## (\w+): /gm)].map((m) => m[1]).filter((n) => n !== 'integrity' && n !== 'secrets'), ['a', 'b', 'c']);
+  assert.deepEqual([...md.matchAll(/^## (\w+): /gm)].map((m) => m[1]).filter((n) => n !== 'integrity' && n !== 'secrets' && n !== 'protected'), ['a', 'b', 'c']);
   for (const name of ['a', 'b', 'c']) assert.match(md, new RegExp(`^## ${name}: ok\\n\\n\`node rv\\.mjs [^\`]+ ${name}\\b[^\`]*\` · log: \`logs/verify-${name}-`, 'm'));
 });
 
@@ -241,12 +241,12 @@ test('an unset command in a group is skipped in place', () => {
   const j = x.job('Skipped');
   const r = x.verify(j.id);
   assert.equal(r.status, 0, `${r.stderr} ${JSON.stringify(r.out)}`);
-  assert.deepEqual(r.out.steps.map((st: any) => [st.name, st.ok, st.skipped ?? false]), [['secrets', true, false], ['x', true, false], ['skipme', true, true], ['y', true, false]]);
-  assert.deepEqual(r.out.steps[2], { name: 'skipme', ok: true, skipped: true });
+  assert.deepEqual(r.out.steps.map((st: any) => [st.name, st.ok, st.skipped ?? false]), [['secrets', true, false], ['protected', true, false], ['x', true, false], ['skipme', true, true], ['y', true, false]]);
+  assert.deepEqual(r.out.steps[3], { name: 'skipme', ok: true, skipped: true });
   assert.deepEqual(x.commands(j.id).sort(), ['x', 'y']);
   const md = x.roundMd(j.dir);
   assert.deepEqual(
-    [...md.matchAll(/^## (\w+): (.*)$/gm)].map((m) => [m[1], m[2]]).filter(([n]) => n !== 'integrity' && n !== 'secrets'),
+    [...md.matchAll(/^## (\w+): (.*)$/gm)].map((m) => [m[1], m[2]]).filter(([n]) => n !== 'integrity' && n !== 'secrets' && n !== 'protected'),
     [['x', 'ok'], ['skipme', 'skipped (no command configured)'], ['y', 'ok']],
   );
 });
@@ -261,14 +261,14 @@ test('a group step past the 64 MiB output cap, or one that cannot start, fails w
   assert.equal(r.out.failure.name, 'big');
   assert.equal(r.out.failure.exit, null);
   assert.match(r.out.failure.tail, /ENOBUFS: stdout passed 64 MiB, so the command was stopped/);
-  assert.equal(r.out.steps[2].ok, true, 'the sibling still finished');
+  assert.equal(r.out.steps[3].ok, true, 'the sibling still finished');
   assert.match(x.roundMd(j.dir), /^## big: FAILED \(exit null\)$/m);
 
   x.configure({ commands: { a: 'true', b: 'true' }, verify: [['a', 'b']] });
   const k = x.job('No shell');
   const gone = x.verify(k.id, { SHELL: path.join(x.root, 'no-such-shell') });
   assert.equal(gone.status, 1);
-  assert.deepEqual(gone.out.steps.map((st: any) => [st.name, st.ok, st.exit]), [['secrets', true, null], ['a', false, null], ['b', false, null]]);
+  assert.deepEqual(gone.out.steps.map((st: any) => [st.name, st.ok, st.exit]), [['secrets', true, null], ['protected', true, null], ['a', false, null], ['b', false, null]]);
   assert.match(gone.out.failure.tail, /ENOENT/);
 });
 
@@ -278,7 +278,7 @@ test('e2e listed inside a group is not run again', () => {
   const j = x.job('E2E in a group');
   const r = x.verify(j.id);
   assert.equal(r.status, 0, `${r.stderr} ${JSON.stringify(r.out)}`);
-  assert.deepEqual(r.out.steps.map((st: any) => st.name), ['secrets', 'test', 'e2e']);
+  assert.deepEqual(r.out.steps.map((st: any) => st.name), ['secrets', 'protected', 'test', 'e2e']);
   assert.equal(r.out.steps[2].reason, undefined, 'a group step, not the appended verifyE2e step');
   assert.equal(x.logs(j.dir).filter((l) => l.startsWith('verify-e2e-')).length, 1);
   assert.deepEqual(x.commands(j.id).sort(), ['e2e', 'test']);
@@ -292,7 +292,7 @@ test('verify refuses a newer config and a malformed verify list without running 
   const withVerify = (lines: string) => good.replace(/^verify:\n(?: {2}- .*\n)+/m, `verify:\n${lines}`);
   assert.notEqual(withVerify('  - [test]\n'), good, 'the fixture has a verify block to replace');
   const cases: [string, string][] = [
-    [good.replace(/^schemaVersion: 5$/m, 'schemaVersion: 6'), 'forge: config schemaVersion 6 is newer than this Forge (5); update Forge before running verify'],
+    [good.replace(/^schemaVersion: 6$/m, 'schemaVersion: 7'), 'forge: config schemaVersion 7 is newer than this Forge (6); update Forge before running verify'],
     [withVerify('  - []\n'), 'forge: verify: verify entry 1 must be a step name or a non-empty list of step names (got [])'],
     [withVerify('  - test\n  - [test]\n'), 'forge: verify: verify step "test" is listed more than once'],
   ];
@@ -323,7 +323,7 @@ test('verify refuses a newer config and a malformed verify list without running 
 
 test("this repo's config groups lint, typecheck and test after build", () => {
   const { config } = loadConfig(ROOT);
-  assert.equal(config.schemaVersion, 5);
+  assert.equal(config.schemaVersion, 6);
   assert.deepEqual(config.verify, ['build', ['lint', 'typecheck', 'test']]);
   assert.deepEqual(validateConfig(config, ROOT).filter((p) => p.startsWith('verify')), []);
   // Named files when `forge run <job> test -- <files>` passes them, the whole suite otherwise; the

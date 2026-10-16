@@ -6,8 +6,6 @@ import { daemonTrust, loadConfig } from './config.ts';
 import { refuseInOffice, refuseInboxDrive } from './daemon-owner.ts';
 import { NEED_INIT } from './config-set.ts';
 import { detect } from './detect.ts';
-import { doctor } from './doctor.ts';
-import { forgeVersion } from './evals.ts';
 import { loadJob } from './jobs.ts';
 import { mainRoot } from './paths.ts';
 import * as pr from './pr.ts';
@@ -21,6 +19,7 @@ import { num, out, parseArgs, req, requireJob, withoutJson } from './commands/ar
 import { configCmd } from './commands/config.ts';
 import { daemonCmd } from './commands/daemon.ts';
 import { dash } from './commands/dash.ts';
+import { doctorCmd } from './commands/doctor.ts';
 import { evalCmd } from './commands/eval.ts';
 import { gitRead, gitWrite } from './commands/git.ts';
 import { helpCmd, usage } from './commands/help.ts';
@@ -33,6 +32,7 @@ import { verifiersCmd } from './commands/verifiers.ts';
 import { statsText, statusRows, statusTable } from './commands/status.ts';
 import { nextCmd, syncAll, trackerCmd } from './commands/tracker.ts';
 import { updateCmd } from './commands/update.ts';
+import { versionCmd } from './commands/version.ts';
 import type { CliContext, Dispatched } from './types.ts';
 
 export { reportError } from './commands/help.ts';
@@ -52,7 +52,7 @@ export async function main(argv: string[]): Promise<void> {
     return;
   }
   const [cmd] = pos;
-  if (cmd === 'version') return out({ version: forgeVersion() }, flags);
+  if (cmd === 'version') return versionCmd(flags);
   if (cmd === 'update') return updateCmd(flags);
 
   const root = mainRoot();
@@ -102,7 +102,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       configCmd(root, config, initialized, sub, rest, flags);
       return printed;
     case 'doctor':
-      return { data: await doctor(root, config, initialized), exitCode: 0, pretty: true };
+      return doctorCmd(ctx, pos.slice(1), flags);
     case 'status':
       needInit();
       return ok(flags.json ? statusRows(root, Boolean(flags.all)) : statusTable(root, Boolean(flags.all)));

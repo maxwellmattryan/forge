@@ -10,6 +10,7 @@ import { PERMISSION_MODES, UUID, logBaseOf, readInfo, readLogPage, sessionFiles 
 import type { DaemonOptions } from './daemon.ts';
 import { createPool } from './daemon-pool.ts';
 import type { DaemonPool, PoolState } from './daemon-pool.ts';
+import { buildBundle, bundleFileName } from './bundle.ts';
 import { doctor } from './doctor.ts';
 import { createPreviewer, ghRunner, parseGitHubUrl } from './github-preview.ts';
 import type { GhRunner } from './github-preview.ts';
@@ -27,7 +28,10 @@ import { roster } from './roster.ts';
 import { deriveTitle, normalizeTitle } from './title.ts';
 import { agentTranscript, cachedActivity, claudeProjectsDir, openTranscript, ownerTranscript } from './transcripts.ts';
 import type { TranscriptHit } from './transcripts.ts';
+import { redactContext, redactText } from './redact.ts';
 import { getPath, readJson, readText } from './util.ts';
+import { versionInfo } from './version.ts';
+import { zip } from './zip.ts';
 import type {
   AboutResponse,
   AgentActivity,
@@ -54,6 +58,7 @@ import type {
   PostJobResponse,
   PostRequestResponse,
   TranscriptPage,
+  VersionInfo,
 } from './types.ts';
 
 /** startServer's options. `distDir` is a test seam like `sseMaxAgeMs`. */
@@ -132,6 +137,9 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
   const notBuilt = opts.dev ? DEV_NOT_BUILT : NOT_BUILT;
   const previewGitHub = createPreviewer({ run: opts.ghRun ?? ghRunner(root) });
   const projects = opts.projectsDir ?? claudeProjectsDir();
+  // Once per server: finding the commit can spawn git, and /api/about takes no token. The running
+  // code's commit can't change under a live server (`forge update` restarts the dashboard).
+  const provenance = versionInfo(PLUGIN_ROOT);
   let backlogCache: { at: number; data: BacklogResponse } | null = null;
   /** Open event streams and the session each one follows; MAX_SSE_CLIENTS counts them all. */
   const clients = new Map<http.ServerResponse, string>();
@@ -173,13 +181,14 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         return json(res, backlogCache.data);
       }
       if (req.method === 'GET' && p === '/api/config') return json(res, configResponse(root, Boolean(pool?.state().wanted)));
-      if (req.method === 'GET' && p === '/api/about') return json(res, about());
+      if (req.method === 'GET' && p === '/api/about') return json(res, about(provenance));
       if (req.method === 'GET' && p === '/api/doctor') {
         // It spawns git and gh, so it takes the token like a POST.
         if (guardToken(req, res, token)) return;
         const { config, initialized } = loadConfig(root);
         return json(res, { ...(await doctor(root, config, initialized)), at: new Date().toISOString() } satisfies DoctorResponse);
       }
+      if (req.method === 'GET' && p === '/api/doctor/bundle') return supportBundle(req, res, url);
       if (req.method === 'GET' && p === '/api/github/preview') {
         // It spawns gh and spends the login's GitHub rate limit, so it takes the token like a POST.
         if (guardToken(req, res, token)) return;
@@ -552,6 +561,40 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     }
   }
 
+  /**
+   * GET /api/doctor/bundle: the support bundle `forge doctor --bundle` writes, as a download. It
+   * spawns git and gh and reads job logs, so it takes the token header (never a query parameter)
+   * on top of the read guard. The job id is validated before any path is built, and the dashboard
+   * never gets agent text: any other parameter, include-text among them, is ignored.
+   */
+  async function supportBundle(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
+    if (readGuard(req, res) || guardToken(req, res, token)) return;
+    const job = url.searchParams.get('job');
+    if (job !== null && !validJobId(job)) return jsonStatus(res, 400, { error: 'job must be a job id' });
+    if (job !== null && !exists(path.join(jobDir(root, job), 'job.json'))) return jsonStatus(res, 404, { error: 'no such job' });
+    const { config, initialized } = loadConfig(root);
+    try {
+      const date = new Date();
+      const { entries } = await buildBundle(root, config, initialized, { job: job ?? undefined, includeText: false });
+      const body = zip(entries, date);
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="${bundleFileName(date)}"`,
+        'Content-Length': body.length,
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+        'Cross-Origin-Resource-Policy': 'same-origin',
+      });
+      res.end(body);
+    } catch (e) {
+      let message = 'could not build the support bundle';
+      try {
+        message = redactText((e as Error).message, redactContext(root, config)).text;
+      } catch {}
+      jsonStatus(res, 500, { error: message });
+    }
+  }
+
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(opts.port ?? 7400, host, () => {
@@ -652,8 +695,11 @@ function configResponse(root: string, daemonWanted: boolean): ConfigResponse {
   return { initialized, path: '.forge/config.yml', fields: FIELDS, values, problems: initialized ? validateConfig(config, root) : [], writable: lockedBy === null, lockedBy };
 }
 
-/** Read per request: both files are tiny, and a plugin update under a running dash shows up. */
-function about(): AboutResponse {
+/**
+ * The two files are read per request: both are tiny, and a plugin update under a running dash shows
+ * up. The commit comes from `provenance`, computed once at start, so this route never spawns.
+ */
+function about({ commit, installedAs }: Pick<VersionInfo, 'commit' | 'installedAs'>): AboutResponse {
   const plugin = readJson(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'), {});
   const pricing = readJson(path.join(PLUGIN_ROOT, 'lib', 'pricing.json'), {});
   const link = plugin.homepage ?? plugin.repository;
@@ -666,6 +712,8 @@ function about(): AboutResponse {
     pricingAsOf: typeof pricing.asOf === 'string' ? pricing.asOf : null,
     node: process.versions.node,
     links: { repo, docs: repo ? `${repo.replace(/\/$/, '')}/tree/main/docs` : null },
+    commit,
+    installedAs,
   };
 }
 

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, trustDigest, validateConfig } from '../lib/config.ts';
-import { FIELDS } from '../lib/config-fields.ts';
+import { CONFIG_DISCLOSURE, FIELDS, disclosureOf, redactedConfig } from '../lib/config-fields.ts';
 import { COMPLEXITIES, EFFORT_ROLES, EFFORTS } from '../lib/schema.ts';
 import { setConfigValue } from '../lib/config-set.ts';
 import { applyOverlay, overlayProblems } from '../lib/eval-overlay.ts';
@@ -238,6 +238,30 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     }
   });
 
+  test('policy.protectedPaths is locked', async () => {
+    const f = FIELDS.find((x) => x.key === 'policy.protectedPaths');
+    assert.ok(f, 'policy.protectedPaths is in the schema');
+    assert.deepEqual(
+      { section: f.section, type: f.type, editable: f.editable, lockedReason: f.lockedReason, default: f.default },
+      { section: 'pipeline', type: 'object', editable: false, lockedReason: 'names what Forge refuses to write', default: defaults().policy.protectedPaths },
+    );
+    const docs = fs.readFileSync(path.join(ROOT, 'docs', 'CONFIG.md'), 'utf8');
+    assert.ok(docs.includes('protectedPaths:') && docs.includes('## Protected paths'), 'docs/CONFIG.md documents policy.protectedPaths');
+    assert.ok(docs.includes('Paths are code, judgement calls are prose'), 'docs/CONFIG.md states the split');
+    const arch = fs.readFileSync(path.join(ROOT, 'docs', 'ARCHITECTURE.md'), 'utf8');
+    const untrusted = arch.slice(arch.indexOf('Untrusted input'));
+    assert.ok(untrusted.includes('policy.protectedPaths'), 'ARCHITECTURE.md "Untrusted input" names the policy');
+    const s = scratch();
+    try {
+      const r = await s.forge('config', 'set', 'policy.protectedPaths', '[]');
+      assert.notEqual(r.code, 0);
+      assert.match(r.err, /policy\.protectedPaths is not editable with forge config set \(names what Forge refuses to write\)/);
+      assert.equal(s.read(), FIXTURE, 'the file is untouched');
+    } finally {
+      s.repo.cleanup();
+    }
+  });
+
   test('verifySecrets is shown and locked', async () => {
     const f = FIELDS.find((x) => x.key === 'verifySecrets');
     assert.ok(f, 'verifySecrets is in the schema');
@@ -407,4 +431,86 @@ test('runtime.models.verifier defaults to haiku', () => {
   } finally {
     repo.cleanup();
   }
+});
+
+/** Every leaf key of an object: recursion stops at arrays, empty objects and scalars. */
+function leafKeys(obj: Record<string, unknown>, prefix = ''): string[] {
+  return Object.entries(obj).flatMap(([k, v]) => {
+    const key = prefix ? `${prefix}.${k}` : k;
+    return v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length ? leafKeys(v as Record<string, unknown>, key) : [key];
+  });
+}
+
+describe('config disclosure', { concurrency: 4 }, () => {
+  test('every config key has a disclosure class', () => {
+    const missing = leafKeys(defaults() as unknown as Record<string, unknown>).filter((k) => disclosureOf(k) === null);
+    assert.deepEqual(missing, []);
+    // The longest prefix wins.
+    assert.equal(disclosureOf('worktrees.cleanup'), 'plain');
+    assert.equal(disclosureOf('worktrees.setup'), 'command');
+    assert.equal(disclosureOf('tracker.github.project.statusField'), 'plain');
+    assert.equal(disclosureOf('tracker.github.project.owner'), 'text');
+    assert.equal(disclosureOf('no-such-key'), null);
+    for (const cls of Object.values(CONFIG_DISCLOSURE)) assert.ok(['plain', 'url', 'command', 'path', 'token', 'text'].includes(cls));
+  });
+
+  test('commands, paths, URLs and identities are not plain', () => {
+    const expected: Record<string, string> = {
+      'commands.test': 'command',
+      'commands.build': 'command',
+      'worktrees.setup': 'command',
+      'daemon.command': 'command',
+      'daemon.allowedTools': 'command',
+      services: 'command',
+      'infra.allowed': 'command',
+      'project.instructions': 'path',
+      'project.notes': 'path',
+      'worktrees.root': 'path',
+      'worktrees.copy': 'path',
+      'worktrees.cargo.targetDir': 'path',
+      'worktrees.generated': 'path',
+      'verifyE2e.paths': 'path',
+      'tracker.local.path': 'path',
+      'tracker.github.project.config': 'path',
+      'review.panel': 'path',
+      'tracker.github.repo': 'url',
+      resources: 'url',
+      'project.name': 'text',
+      'project.description': 'text',
+      'tracker.github.ready.assignee': 'text',
+      'tracker.github.project.owner': 'text',
+      'pr.reviewers': 'text',
+      'approver.alwaysEscalate': 'text',
+      'infra.notes': 'text',
+      'foreman.reserved': 'text',
+    };
+    for (const [key, cls] of Object.entries(expected)) assert.equal(disclosureOf(key), cls, key);
+  });
+
+  test('redactedConfig hides non-plain and unknown values', () => {
+    const c = defaults();
+    c.commands.test = 'npm test -- --token x';
+    c.daemon.command = 'claude -p';
+    c.worktrees.setup = ['npm ci', 'make'];
+    c.tracker.github.repo = 'someone/private';
+    c.pr.reviewers = ['alice', 'bob'];
+    c.project.name = '';
+    c.worktrees.copy = [];
+    c.tracker.github.project.statusMap = {};
+    (c as any).mystery = { anything: 'here' };
+    const r = redactedConfig(c) as any;
+    assert.equal(r.commands, '<redacted>');
+    assert.equal(r.daemon.command, '<redacted>');
+    assert.deepEqual(r.worktrees.setup, ['<redacted>', '<redacted>']);
+    assert.equal(r.tracker.github.repo, '<redacted>');
+    assert.deepEqual(r.pr.reviewers, ['<redacted>', '<redacted>']);
+    assert.equal(r.mystery, '<redacted>');
+    assert.equal(r.project.name, '');
+    assert.equal(r.project.description, null);
+    assert.deepEqual(r.worktrees.copy, []);
+    assert.deepEqual(r.tracker.github.project.statusMap, {});
+    assert.equal(r.pipeline.maxRounds, c.pipeline.maxRounds);
+    assert.equal(r.git.base, 'main');
+    assert.deepEqual(r.daemon.enabled, c.daemon.enabled);
+  });
 });

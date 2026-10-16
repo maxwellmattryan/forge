@@ -16,6 +16,10 @@ export function scratchGitConfig(git) {
   git('config', 'tag.gpgsign', 'false');
   // Git for Windows defaults to autocrlf=true, which rewrites what tests commit and compare byte for byte.
   git('config', 'core.autocrlf', 'false');
+  // A detached `git maintenance run --auto` after a commit rewrites .git/objects while repoTemplate
+  // copies the directory, and the copy fails with ENOENT.
+  git('config', 'maintenance.auto', 'false');
+  git('config', 'gc.auto', '0');
 }
 
 // Every test file that touches git imports this module, so pinning git's config here covers the

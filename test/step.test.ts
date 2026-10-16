@@ -92,6 +92,21 @@ const runbookSentBack = sendBack(reenteredFrom(unparkedFrom(gated('APPROVE', 'in
 const budgetAck = (decision: string) => [reviewed, ev('integrated', 31, { behind: 0 }), tr(33, { stage: 'integrate' }, { stage: 'decide' }), tr(35, { stage: 'decide' }, { stage: 'decide', state: 'waiting', waitingOn: 'budget' }), ev('human', 40, { action: 'approve' }), tr(41, { stage: 'decide', state: 'waiting', waitingOn: 'budget' }, { stage: 'decide' }), ev('decision', 42, { decision })];
 const decidedLate = (more: Partial<Job> = {}) => atDecide({ agents: { approver: ag(1, 34, 35) }, ...more });
 
+/** A protected-paths flag recorded at minute `at` over `paths` (escalate, rule 4). */
+const FLAG = (at = 15, paths = ['package-lock.json'], more = 0): Job['protectedPaths'] => ({
+  hits: paths.map((p) => ({ path: p, rule: 4, glob: 'package-lock.json', reason: 'dependency lockfile', blob: 'b'.repeat(40) })),
+  more,
+  at: t(at),
+  gate: 'commit',
+  head: null,
+});
+/** PP1 parked the job at minute `parkAt`, a human approved at `approveAt`, and it ran again a minute later. */
+const ppPark = (parkAt: number, approveAt: number, human: Record<string, unknown> = {}) => [
+  ev('transition', parkAt, { from: { stage: 'decide', state: 'running', waitingOn: null }, to: { stage: 'decide', state: 'waiting', waitingOn: 'human' }, reason: 'protected paths: package-lock.json' }),
+  ev('human', approveAt, { action: 'approve', ...human }),
+  tr(approveAt + 1, { stage: 'decide', state: 'waiting', waitingOn: 'human' }, { stage: 'decide' }),
+];
+
 const rows: Row[] = [
   // ---- Global
   { name: 'G1 a done job is done', fx: { job: job({ stage: 'done', state: 'done' }) }, want: { action: 'done', state: 'done' } },
@@ -736,6 +751,44 @@ const rows: Row[] = [
   { name: 'PR1 pr.enabled false finishes on the branch', fx: { config: (c) => (c.pr.enabled = false), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }) }, want: { ...run('job', 'set', 'j', '--stage', 'done', '--state', 'done'), tell: 'j finished on branch forge/j' } },
   { name: 'PR2 an unverified HEAD is verified first', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, false)] }) }, want: run('verify', 'j') },
   { name: 'PR3 opens the PR', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }) }, want: run('pr', 'open', 'j') },
+
+  // ---- Protected paths (PP1, PP2)
+  { name: 'PP1 decide with APPROVE and an unapproved flag parks on a human', fx: { job: atDecide({ protectedPaths: FLAG() }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'protected paths: package-lock.json'), rule: 'PP1' } },
+  { name: 'protected paths: PP1 an approve after at, at a protected park, gives DC9', fx: { job: atDecide({ protectedPaths: FLAG() }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22), ...ppPark(23, 25)] }, want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'DC9' } },
+  { name: 'PP1 an approve before at does not count', fx: { job: atDecide({ protectedPaths: FLAG(30) }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22), ...ppPark(23, 25)] }, want: { rule: 'PP1' } },
+  { name: "PP1 the foreman's approve does not count", fx: { job: atDecide({ protectedPaths: FLAG() }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22), ...ppPark(23, 25, { actor: 'foreman' })] }, want: { rule: 'PP1' } },
+  {
+    name: 'PP1 an approve at an escalation park does not count',
+    fx: {
+      job: atDecide({ protectedPaths: FLAG() }),
+      decision: { decision: 'ESCALATE' },
+      events: [ev('decision', 22, { decision: 'ESCALATE' }), tr(23, { stage: 'decide' }, { stage: 'decide', state: 'waiting', waitingOn: 'escalation' }), ev('human', 25, { action: 'approve' }), tr(26, { stage: 'decide', state: 'waiting', waitingOn: 'escalation' }, { stage: 'decide' })],
+    },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'protected paths: package-lock.json'), rule: 'PP1' },
+  },
+  { name: 'protected paths: PP1 no flag gives DC9', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)] }, want: { rule: 'DC9' } },
+  { name: 'protected paths: PP1 an eval job does not park', fx: { job: job({ kind: 'eval', stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], protectedPaths: FLAG() }) }, want: { ...run('pr', 'open', 'j'), rule: 'PR3' } },
+  {
+    name: 'PP1 a path outside the safe class is counted, never printed',
+    fx: { job: atDecide({ protectedPaths: FLAG(15, ['package-lock.json', "x'$(touch y)/yarn.lock", '-rf/yarn.lock', 'a b/Cargo.lock'], 2) }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)] },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'protected paths: package-lock.json, +5 more'), rule: 'PP1' },
+  },
+  { name: 'PP1 a flag raised at the pr stage parks', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], protectedPaths: FLAG(12, ['Dockerfile']) }), events: [ev('pr-opened', 11)] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'protected paths: Dockerfile'), rule: 'PP1' } },
+  { name: 'protected paths: PP1 an approved flag at the pr stage goes on', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], protectedPaths: FLAG(5) }), events: [...ppPark(6, 7), ev('pr-opened', 11)] }, want: { rule: 'PR5' } },
+  {
+    name: 'G4 a protected park names the diff',
+    fx: { job: job({ stage: 'decide', state: 'waiting', waitingOn: 'human', reason: 'protected paths: package-lock.json' }) },
+    want: { action: 'wait', waitingOn: 'human', tell: `j changed protected paths (protected paths: package-lock.json). Diff: ${path.join(JOB_DIR, 'protected.diff')}. /forge approve j once a human has reviewed them, or /forge rework j <note>` },
+  },
+  { name: 'PP2 a verify that failed on protected paths goes back to build', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, false, 'protected')], agents: { builder: ag(1, 5, 6) } }) }, want: { ...run('job', 'set', 'j', '--stage', 'build', '--state', 'running'), rule: 'PP2' } },
+  { name: 'protected paths: PP2 a builder that ran since hands back to PR2', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, false, 'protected')], agents: { builder: ag(1, 11, 12) } }) }, want: { ...run('verify', 'j'), rule: 'PR2' } },
+  { name: 'PP2 a refusal at pr open newer than the last verify goes back to build', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('pr-opened', 9), ev('protected-path', 12, { gate: 'pr', action: 'refuse', blocked: true })] }, want: { ...run('job', 'set', 'j', '--stage', 'build', '--state', 'running'), rule: 'PP2' } },
+  { name: 'protected paths: PP2 a refusal older than the last verify does not count', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 14, true)] }), events: [ev('protected-path', 12, { gate: 'pr', action: 'refuse', blocked: true })] }, want: { rule: 'PR3' } },
+  {
+    name: 'protected paths: PR4 never auto-merges protected paths',
+    fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], protectedPaths: FLAG(5) }), decision: { decision: 'APPROVE', autoMerge: true }, events: [...ppPark(6, 7), ev('pr-opened', 11)] },
+    want: { action: 'run', rule: 'PR5' },
+  },
 
   // ---- Secret scan (SC1–SC3) and the human gate
   { name: 'SC1 parks a verify the secret scan blocked', fx: { job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 10, false, 'secrets')], agents: { builder: ag(1, 5, 6) } }) }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'secret scan blocked verify round 1'), rule: 'SC1' } },

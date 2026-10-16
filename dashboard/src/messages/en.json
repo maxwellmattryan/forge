@@ -38,7 +38,10 @@
     "runningAgents": {
       "one": "{count} agent",
       "other": "{count} agents"
-    }
+    },
+    "protected": "Protected",
+    "protectedTitle": "Protected paths: {reasons}",
+    "protectedDrawer": "Protected · {reasons}"
   },
   "table": {
     "stage": "Stage",
@@ -274,7 +277,10 @@
     "addressFeedback": "Address feedback",
     "queued": "Queued requests",
     "handling": "handling ({session})",
-    "queuedStatus": "queued"
+    "queuedStatus": "queued",
+    "protectedPaths": "Protected paths",
+    "protectedMore": "+{count} more",
+    "protectedDiff": "View diff"
   },
   "gate": {
     "foreman": "Foreman deciding",
@@ -521,16 +527,33 @@
         "one": "{count} check failed",
         "other": "{count} checks failed"
       },
+      "warnings": {
+        "one": "{count} warning",
+        "other": "{count} warnings"
+      },
       "ok": "OK",
+      "warn": "Warning",
       "fail": "Failed",
       "again": "Run again",
       "copy": "Copy report",
       "copied": "Report copied",
       "copyFailed": "Couldn't copy the report; select it and copy by hand",
-      "report": "Report"
+      "report": "Report",
+      "bundle": "Download support bundle",
+      "bundling": "Preparing bundle…",
+      "bundleHint": "A redacted zip of these checks, versions, config and active jobs' logs and events, for a bug report. Agent text and diffs stay out.",
+      "bundleSaved": "Support bundle downloaded",
+      "bundleFailed": "Could not build the support bundle"
     },
     "about": {
       "version": "Forge version",
+      "commit": "Commit",
+      "installedAs": "Installed as",
+      "install": {
+        "plugin": "Claude Code plugin",
+        "clone": "Git clone",
+        "unknown": "Unknown"
+      },
       "pluginRoot": "Plugin root",
       "api": "API version",
       "schemas": "Schema versions",

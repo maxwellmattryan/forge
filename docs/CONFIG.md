@@ -214,6 +214,16 @@ foreman:                     # opt-in: an office daemon session decides gates th
              payment, payments, PII, crypto, cryptography, encryption]
                              # whole-phrase, case-insensitive: a match keeps the gate with a human
   ship: propose              # propose | merge: merge counts as merge.auto for PRs the approver marks eligible
+
+policy:                      # enforced by the CLI, not a prompt (see "Protected paths" below)
+  protectedPaths:            # [] turns it off; a config without `policy` gets these
+    - { paths: [.github/workflows/**, .gitlab-ci.yml, Jenkinsfile, .circleci/**], action: escalate, reason: CI/CD configuration }
+    - { paths: [Dockerfile*, "**/*.tf"], action: escalate, reason: infrastructure }
+    - { paths: ["**/migrations/**"], action: escalate, reason: database migrations }
+    - { paths: [package-lock.json, yarn.lock, pnpm-lock.yaml, Cargo.lock], action: escalate, reason: dependency lockfile }
+    - { paths: ["**/.env*"], action: escalate, reason: environment files can hold credentials }
+    - { paths: ["**/*.pem"], action: refuse, reason: private keys and certificates are never committed by Forge }
+    - { paths: [.forge/config.yml, .forge/secrets-allow.txt, .forge/trackers/**], action: refuse, reason: "Forge's own policy changes only by a human on the base branch" }
 ```
 
 ## Changing settings
@@ -364,6 +374,29 @@ A path glob never allows text: commit messages, the PR title and body, tracker t
 
 **Residual risks.** A secret split across strings or lines, or encoded (base64 of a token, compressed or binary formats), is found only if the entropy check happens to catch it. An evil merge whose content a later commit deletes is not seen. The sha256 of a short `password=` value can be guessed offline from its fingerprint. A key in a UTF-16 file (NUL-interleaved text) gets only the provider patterns, which can't match it. A file the branch routes through `filter=lfs` is scanned as its pointer, while a push outside Forge uploads the real content. Verify compares against the base's remote-tracking ref as the checkout has it, which the job's worktree can move with `git update-ref`. `forge pr open` first fetches the base into that ref from the remote's push URL, the repository it then pushes to; under `block` it refuses to open the PR when that fetch fails, and under `warn` it scans against the ref as it is. So under `block` the range it pushes is scanned against the base the push target reports at that moment; a push target that lies about its own base branch is out of reach. Regex false positives happen; the allowlist handles them. Forge does not revoke or rotate a leaked credential.
 
+## Protected paths
+
+Paths are code, judgement calls are prose. `approver.alwaysEscalate` is prose a model reads after the build; `policy.protectedPaths` is the part that can be said as paths, and the CLI enforces it when a change is staged or committed, re-checks it over the whole branch before anything is pushed, and records each decision as a `protected-path` event. `approver.alwaysEscalate` stays as the backstop for what paths can't express.
+
+**Rules.** Each rule is `{ paths: [glob, …], action: escalate | refuse, reason: "<text>" }`, numbered from 1 in list order. Messages name a rule as `rule <n> (<glob that matched>): <reason>`. When a path matches both actions, `refuse` wins; within one action, the first matching rule is named. The defaults are the list above. `policy.protectedPaths: []` turns the policy off. The policy is read from the main checkout's `.forge/config.yml` only, never from the job's worktree, and `.forge/config.yml` itself is a refuse default. It is read-only in the dashboard and `forge config set` (`names what Forge refuses to write`).
+
+**Matching** is `forge job scope`'s: an exact path, a directory prefix, `**` crossing directories, `*` and `?` within one segment, and a slash-free glob or bare name matched against the basename too (`package-lock.json` matches `web/package-lock.json`). Paths and globs are lowercased first, so `.GitHub/Workflows/ci.yml` matches `.github/workflows/**`. A path counts when its content, mode or existence differs between the comparison point (the merge-base of the base with HEAD, or with `MERGE_HEAD` while a merge is in progress, so the base's own changes never count) and the result being checked. A rename counts as a delete of the old path and an add of the new one, and both are matched. A symlink or submodule also matches when its target does, or when its path is a leading directory of a rule's glob (a symlink named `.github`). A symlink whose target can't be read, or is longer than 4 KiB, is refused (`link target could not be checked`).
+
+**Where it is enforced.**
+
+| Gate | refuse | escalate |
+|---|---|---|
+| `forge git add\|commit` | previews the index the call would produce (a temp copy, removed after) and exits 1 with `protected_path`, writing nothing, when a path the call changes differs from the comparison point. Putting a path back to its comparison-point content is allowed, so a refusal verify reports stays fixable | goes ahead, records the job's flag and prints `protected: <n>` |
+| `forge verify` | a `protected` step right after `secrets` fails (`failure: protected`), and no configured command runs | the step passes with `<n> protected paths need a human` and records the flag |
+| `forge pr open` | exits 1 with `protected_path` before any `gh` call or push, `--force` included | recomputes the set (it never trusts the stored flag) and exits 1 with `protected_path` until a human approved it |
+| `forge pr merge` | exits 1 with `protected_path` when the PR's head is not the commit `forge pr open` last checked and pushed (someone pushed since), unless a human passes `--now` | the same |
+
+**Approval.** The flag (`job.protectedPaths`, written by the CLI only; `forge job set` refuses it) holds the escalate paths with their blob ids (up to 200, the rest counted, with a digest over all of them) and `at`, which moves only when a path or its content is new; past 200 paths, any change to the set moves it. `forge job step` parks the job on `waitingOn: human` with the reason `protected paths: <paths>` (rule PP1) in `decide`, even after an `APPROVE`, and in `pr`, and never auto-merges it (PR4). While the policy has rules, `forge pr merge` merges only the PR head `forge pr open` checked and pushed, and defers instead of queueing GitHub auto-merge. Only a human `approve` given at that park after `at` counts: a foreman decision, an approve at another gate, or one older than the last content change doesn't. The approver's brief names the paths, and `protected.diff` in the job dir holds the patch of every one of them (capped at 1 MiB). A refusal at verify or pr open sends the job back to build (PP2).
+
+**An invalid policy fails closed:** `forge git add|commit` and `forge pr open` exit 2 with `config_invalid`, and verify's `protected` step fails. Valid means `policy` is a map, `protectedPaths` a list, each entry a map whose `paths` is a non-empty list of relative globs (no `..` segment, not starting with `-`, `!` or `:`), `action` is `escalate` or `refuse`, and `reason` is 1 to 200 characters with no newline. `forge config validate` lists each problem.
+
+**Migration** (config `schemaVersion` 5 → 6, job `schemaVersion` 9 → 10): nothing changes on disk. A config without `policy` gets the defaults, so after upgrading, a branch that changes a lockfile parks on a human and one that changes `.forge/config.yml` is refused; write an explicit `policy:` block on the base branch to change that.
+
 ## Daemon
 
 With `daemon.enabled: true`, `forge dash` supervises headless orchestrator sessions, so requests queued from the dashboard get handled without a Claude Code window open: one **inbox** session for requests without a job (`next`, `run`, `sync`, `retro`, `eval-run`), which only does intake and hands each new job off, and one session **per job**, started when that job has work. Whenever a session's pending requests change and it is idle, it gets one fixed turn, `/forge requests`, on stdin; the session claims and handles them exactly as yours would, seeing only its own scope's requests. Each session fails, idles and logs on its own. They spend tokens unattended, under the permissions `allowedTools` grants, so the daemon is off by default.
@@ -401,6 +434,12 @@ With `foreman.enabled: true` and `daemon.enabled: true`, `forge dash` runs one m
 All four keys are read-only in the settings: edit them by hand.
 
 - **Migration** (config `schemaVersion` 4 → 5): nothing changes. v5 adds `foreman.*` (off by default), `runtime.models.assistant` and `runtime.efforts.assistant`; the bump lets older Forges refuse a config whose foreman policy they would ignore. docs/ARCHITECTURE.md "Foreman" covers routing and the authority checks.
+
+## Deprecated keys
+
+A key on its way out is listed in `DEPRECATED_CONFIG_KEYS` in `lib/deprecations.ts` with the release that deprecated it, the release that removes it (at least one minor later) and what to use instead. While it is set in `.forge/config.yml`, `forge doctor` and Settings › Diagnostics show a warning row, `deprecated config key <key>`, that never fails the report. The policy is in [RELEASES.md](RELEASES.md#deprecation). Each deprecated key is listed below as `` `<key>` ``, and `test/version.test.ts` checks the list against the registry.
+
+None today.
 
 ## Repo-layer files
 

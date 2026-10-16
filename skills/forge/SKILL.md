@@ -1,6 +1,6 @@
 ---
 name: forge
-description: Run Forge, a software factory. Turns features, bugs and backlog items into reviewed pull requests via a team of agents (planner, spec writer, designer, builder, reviewers, approver), each job in its own git worktree, with PR/tracker sync, a live dashboard, evals and self-improving retros. Use for "/forge <feature>", "/forge next", approving/reworking Forge jobs, Forge status, or setting Forge up in a repo.
+description: Run Forge, a software factory. Turns features, bugs and backlog items into reviewed pull requests via a team of agents, each job in its own git worktree, with PR/tracker sync, a live dashboard, evals and self-improving retros. Use for "/forge <feature>", "/forge next", approving/reworking Forge jobs, Forge status, or setting Forge up in a repo.
 argument-hint: "<feature> | next [n] | issue <ref> | continue <job|#pr> | approve <job> [<ref>|new|none] [note] | revise|answer|rework|cancel <job> [note] | status | sync | dash | init | retro | eval … | requests | doctor | update"
 ---
 
@@ -27,7 +27,7 @@ forge doctor   # once per session, and after a failure
 forge sync     # PRs and trackers; cleans merged worktrees
 forge requests # inbox requests: reference/requests.md, before new work
 ```
-No `.forge/config.yml` (exit 2) → **init** (`reference/init.md`) unless the user asked otherwise.
+No `.forge/config.yml` (exit 2) → **init** (`reference/init.md`) unless told otherwise.
 Report `sync` results, a line each: merges, PR feedback, conflicts, finished umbrellas, `unblocked: true`/`integrating` (`/forge continue <id>`), `retargeted`. For each `mergeDeferred: true`, run `forge pr merge <id>`.
 
 ## Commands (route on the first word)
@@ -42,14 +42,14 @@ Report `sync` results, a line each: merges, PR feedback, conflicts, finished umb
 | `sync` | the sync above; report |
 | `dash` | `forge dash --background`; give the URL |
 | `init`, `retro`, `eval …`, `requests` | `reference/init.md`, `retro.md`, `evals.md`, `requests.md` |
-| `doctor` | `forge doctor`; explain failures with fixes |
+| `doctor` | `forge doctor`; explain failures and warnings with fixes; bug report: `forge doctor --bundle`, human checks its manifest |
 | `update` | `forge update` only; report `from → to`, each `warnings` and `next` entry, or the error. |
 
 ## Run a job
 Claim it: `forge job claim <id> --session ${CLAUDE_SESSION_ID}`. Exit 3: another live session owns it: tell the human, stop. Exit 4: dependencies pending; report, move on (`--force` only if the human asks).
 
 Then loop: `forge job advance <id> --session ${CLAUDE_SESSION_ID}` (Bash timeout 600000), report each `tell` in `ran`, act on `action`, advance again.
-- `spawn` (`verifier`: yes/no checks): run `startShell`. Spawn `agent` as `subagent_type` with `brief` as the prompt, `model` unless `inherit` and `effort` unless null (if `resume` names a live agent, SendMessage it the brief). At the first of its report or notification: `forge job agent <id> end --role <role> --agent-id <agentId> --import [--tokens <total_tokens> --tool-uses <tool_uses> --duration-ms <duration_ms>] --summary "<first line of its reply>"`. With `parallel: true`, spawn it in the background and advance at once. With `spawns`, run all `startShell`s in one Bash call, then spawn all in one message of background Agent calls. Then `forge job agent <id> attach --role <role> --agent-id <agentId>` for each, in one Bash call.
+- `spawn` (`verifier`: yes/no): run `startShell`. Spawn `agent` as `subagent_type` with `brief` as the prompt, `model` unless `inherit` and `effort` unless null (if `resume` names a live agent, SendMessage it the brief). At the first of its report or notification: `forge job agent <id> end --role <role> --agent-id <agentId> --import [--tokens <total_tokens> --tool-uses <tool_uses> --duration-ms <duration_ms>] --summary "<first line of its reply>"`. With `parallel: true`, spawn it in the background and advance at once. With `spawns`, run all `startShell`s in one Bash call, then spawn all in one message of background Agent calls. Then `forge job agent <id> attach --role <role> --agent-id <agentId>` for each, in one Bash call.
 - `failed: true`: `forge job step <id>`; same `rule` and `command`: `forge job note` the `error`, report, stop; else advance again. `capped: true`: note, report, stop. Exit 3: as for the claim.
 - `wait` on `agents`: end each as above; one not spawned by this session ends with `--status lost`.
 - `wait` on a gate: report `tell` (for `input`, also `questions.md`) and stop driving it.

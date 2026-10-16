@@ -18,6 +18,7 @@ import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts 
 import { PLUGIN_ROOT, exists } from './paths.ts';
 import { COMPLEXITIES } from './schema.ts';
 import { generatedConfig } from './regenerate.ts';
+import { protectedApproved, protectedReason } from './protected.ts';
 import { approachPaths, inSpec, integrationTouched } from './scope.ts';
 import { AGENT_ID } from './transcripts.ts';
 import { verifierCount } from './verifiers.ts';
@@ -42,6 +43,9 @@ export const RULES = [
   'PR1', 'PR2', 'PR3', 'PR4', 'PR5',
   // A secret scan stopped the job: park on `human` (SC1, SC3), or scan again once a human approved (SC2).
   'SC1', 'SC2', 'SC3',
+  // Protected paths: park on `human` until a human approves the current content (PP1), or send a
+  // refused path back to build (PP2).
+  'PP1', 'PP2',
   // No rule matched: a state step can't advance, parked visibly instead of looping.
   'X1',
 ] as const;
@@ -63,6 +67,7 @@ const STEP_EVENTS = new Set([
   'human', 'round', 'worktree', 'worktree-setup-failed', 'pr-find', 'pr-adopted', 'scope', 'panel', 'integrated', 'integrate-conflicts',
   'integration-review', 'decision', 'fields', 'pr-opened', 'pr-updated', 'pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
   'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found', 'verifiers',
+  'protected-path',
 ]);
 const MERGE_EVENTS = ['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed'];
 
@@ -602,6 +607,8 @@ export function gateTell(x: StepInput, waitingOn: WaitingOn): string {
     case 'pr-review':
       return prReviewTell(x);
     case 'human':
+      if (reason.startsWith('protected paths'))
+        return `${id} changed protected paths (${reason}). Diff: ${path.join(x.jobDir, 'protected.diff')}. /forge approve ${id} once a human has reviewed them, or /forge rework ${id} <note>`;
       if (reason.startsWith('secret scan'))
         return `${id} stopped on a possible secret (${reason}). Masked findings and fingerprints: forge secrets scan ${id}. Remove the value (rewrite the branch if it was committed) or add its fingerprint to .forge/secrets-allow.txt in the main checkout, then /forge approve ${id} to scan again, or /forge rework ${id} <note>`;
       return `${id} needs a human: ${reason}. /forge approve ${id} once it is resolved, or /forge rework ${id} <note>`;
@@ -688,6 +695,8 @@ function decide(x: StepInput): StepAction {
 
   const secret = secretGate(x);
   if (secret) return secret;
+  const guarded = protectedGate(x);
+  if (guarded) return guarded;
 
   switch (j.stage) {
     case 'backlog':
@@ -736,6 +745,30 @@ function secretGate(x: StepInput): StepAction | null {
     if (refused && after(refused.ts, opened?.ts) && after(refused.ts, last?.at) && !after(human(x, 'approve')?.ts, refused.ts)) return stop('SC3', 'secret scan blocked pr open');
   }
   return null;
+}
+
+/** PP1: the job changes escalate paths no human approved since their current content was recorded. */
+function protectedPark(x: StepInput): StepAction | null {
+  const flag = x.job.protectedPaths;
+  if (!flag?.hits?.length || x.job.kind === 'eval' || protectedApproved(flag, x.events)) return null;
+  return park(x, 'PP1', 'human', protectedReason(flag));
+}
+
+/**
+ * PP2 then PP1 in the pr stage. A path the policy refuses is on the branch (verify failed on it, or
+ * pr open refused it since the last open and verify): back to build, so PR2 and PR3 can't loop on
+ * it. Then a flag raised after decide (by pr open, say) parks the job like PP1 in decide.
+ */
+function protectedGate(x: StepInput): StepAction | null {
+  const j = x.job;
+  if (j.stage !== 'pr') return null;
+  const last = j.verifyRuns.at(-1);
+  const back = () => toStage(x, 'PP2', 'build', 'a path the protected-paths policy refuses is on the branch');
+  if (last && !last.ok && last.failure === 'protected' && !after(agent(x, 'builder')?.endedAt, last.at)) return back();
+  const refused = lastEvent(x, (e) => e.type === 'protected-path' && e.gate === 'pr' && e.action === 'refuse');
+  const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated');
+  if (refused && after(refused.ts, opened?.ts) && after(refused.ts, last?.at)) return back();
+  return protectedPark(x);
 }
 
 function stuck(x: StepInput): StepRun {
@@ -990,6 +1023,9 @@ function decideStage(x: StepInput): StepAction {
   if (!x.decision.decision && !cleared('escalation')) return park(x, 'DC3', 'escalation', 'decision.md has no APPROVE/ESCALATE line');
   if (x.decision.decision === 'ESCALATE' && !cleared('escalation')) return park(x, 'DC7', 'escalation', 'approver escalated: see decision.md');
   if (x.runbookBeforeMerge && !cleared('infra')) return park(x, 'DC8', 'infra', 'runbook: steps before merge');
+  // An APPROVE, or a cleared escalation, still waits for a human on protected paths.
+  const guarded = protectedPark(x);
+  if (guarded) return guarded;
   // No loop: after integrate → decide with no wait since, this goes to pr. After a wait (or for an
   // older job that never integrated since review), integrate's IG3/IG5/IG10 reach pr, because the
   // decision or approval now counts there.
@@ -1112,6 +1148,6 @@ function pr(x: StepInput): StepAction {
   if (!last?.ok) return run(x, 'PR2', ['verify', j.id], 'pr open needs a verified HEAD');
   const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated');
   if (!after(opened?.ts, last.at)) return run(x, 'PR3', ['pr', 'open', j.id], 'push and open or update the PR');
-  if (x.decision.autoMerge && autoMerge(x.config) && !lastEvent(x, (e) => MERGE_EVENTS.includes(e.type) && after(e.ts, opened!.ts))) return run(x, 'PR4', ['pr', 'merge', j.id], 'the approver marked it auto-merge eligible');
+  if (x.decision.autoMerge && autoMerge(x.config) && !j.protectedPaths?.hits?.length && !lastEvent(x, (e) => MERGE_EVENTS.includes(e.type) && after(e.ts, opened!.ts))) return run(x, 'PR4', ['pr', 'merge', j.id], 'the approver marked it auto-merge eligible');
   return set(x, 'PR5', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review' }, 'the PR waits on human review');
 }

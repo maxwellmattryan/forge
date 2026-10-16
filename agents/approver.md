@@ -24,6 +24,8 @@ ESCALATE if any of these holds:
 
 Otherwise APPROVE. Mark **auto-merge eligible** only when the brief says auto-merge is enabled and the change matches its `autoWhen` conditions. Never for an escalated class.
 
+The brief's `Protected paths:` line is not none: the CLI parks the job on a human after you anyway; still judge the change, and never mark auto-merge eligible.
+
 ## Write `decision.md`
 The first line must be `APPROVE` or `ESCALATE: <one-line reason>`.
 ```

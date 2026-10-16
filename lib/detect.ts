@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { defaults } from './config.ts';
 import { exists } from './paths.ts';
+import type { ProtectedRule } from './types.ts';
 import { hasBinary, readText, run } from './util.ts';
 import * as yaml from './yaml.ts';
 
@@ -55,6 +56,21 @@ export function generatedDirs(tracked: string[]): string[] {
     else if (parts.length >= 3 && OUTPUT_DIRS.has(parts[1])) out.add(`${parts[0]}/${parts[1]}/**`);
   }
   return [...out].sort();
+}
+
+/** Lockfiles per ecosystem marker, for the protected-paths suggestion's lockfile rule. */
+const LOCKFILES: [string, string[]][] = [
+  ['package.json', ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']],
+  ['Cargo.toml', ['Cargo.lock']],
+  ['go.mod', ['go.sum']],
+  ['pyproject.toml', ['poetry.lock', 'uv.lock']],
+  ['Gemfile', ['Gemfile.lock']],
+];
+
+/** The default policy with the lockfile rule narrowed to the detected ecosystems, or dropped when none is. */
+export function protectedPathsFor(root: string): ProtectedRule[] {
+  const locks = LOCKFILES.filter(([marker]) => has(root, marker)).flatMap(([, files]) => files);
+  return defaults().policy.protectedPaths.flatMap((r) => (r.reason !== 'dependency lockfile' ? [r] : locks.length ? [{ ...r, paths: locks }] : []));
 }
 
 export function detect(root: string): Detection {
@@ -218,6 +234,7 @@ export function detect(root: string): Detection {
       'review.panelPaths': panelPaths,
       'pipeline.design': ui.length ? (figma.length ? 'reference' : 'none') : 'none',
       'infra.mode': infraFiles.length ? 'plan-only' : 'human',
+      'policy.protectedPaths': protectedPathsFor(root),
     },
   };
 }

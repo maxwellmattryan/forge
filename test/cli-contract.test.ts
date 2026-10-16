@@ -460,6 +460,15 @@ test('README CLI table is generated from the help tables', () => {
   assert.throws(() => syncReadme('# no markers\n'), /no <!-- forge:commands:start/);
 });
 
+test('protected_path exits 1', () => {
+  assert.equal(ERROR_CODES.protected_path, 1);
+  const e = new ForgeError('x', 'protected_path');
+  assert.equal(e.exitCode, 1);
+  assert.equal(e.code, 'protected_path');
+  const cli = fs.readFileSync(path.join(ROOT, 'docs', 'CLI.md'), 'utf8');
+  assert.ok(cli.includes('| `protected_path` | 1 |'), 'docs/CLI.md documents protected_path');
+});
+
 test('the secret scanner has its error code, help and README row', () => {
   assert.equal(ERROR_CODES.secret_found, 1);
   assert.equal(new ForgeError('x', 'secret_found').exitCode, 1);
@@ -553,7 +562,7 @@ test('CLI JSON keys are stable', POSIX, () => {
     assert.deepEqual(keyPaths(verify), [
       'attempt', 'file', 'integrity', 'integrity.base', 'integrity.blocking', 'integrity.configEdits', 'integrity.deletedTests', 'integrity.findings', 'integrity.mode', 'integrity.more',
       'integrity.ok', 'integrity.renamedTests', 'integrity.skipMarkers', 'integrity.testCount', 'integrity.testCount.after', 'integrity.testCount.before', 'integrity.testCount.delta',
-      'ok', 'round', 'secrets', 'secrets.allowed', 'secrets.count', 'secrets.findings', 'secrets.mode', 'secrets.more', 'secrets.ok', 'sha', 'steps', 'steps[].cmd', 'steps[].durationMs', 'steps[].exit', 'steps[].log', 'steps[].name', 'steps[].ok', 'steps[].skipped',
+      'ok', 'protected', 'protected.escalated', 'protected.more', 'protected.ok', 'protected.refused', 'round', 'secrets', 'secrets.allowed', 'secrets.count', 'secrets.findings', 'secrets.mode', 'secrets.more', 'secrets.ok', 'sha', 'steps', 'steps[].cmd', 'steps[].durationMs', 'steps[].exit', 'steps[].log', 'steps[].name', 'steps[].ok', 'steps[].skipped',
     ]);
     assert.deepEqual(keyPaths(s.json(['stats', '--json']), ['waitingOn', 'cost.byRole', 'cost.byModel', 'reviewers', 'verifiers']), [
       'cost', 'cost.avgCostPerJobUsd', 'cost.avgTokensPerJob', 'cost.byModel', 'cost.byRole', 'cost.estCostUsd', 'cost.reportingCoverage', 'cost.reportingCoverage.agentRuns',
@@ -563,6 +572,7 @@ test('CLI JSON keys are stable', POSIX, () => {
       'quality.medianHumanDeltaLines', 'quality.recurringFindings', 'quality.specFirstApprovalRate', 'quality.verifyFirstPassRate', 'reviewers', 'since', 'speed', 'speed.medianMinutesToDone',
       'speed.medianMinutesToPr', 'verifiers', 'waitingOn',
     ]);
+    assert.deepEqual(keyPaths(s.json(['version', '--json'])), ['commit', 'installedAs', 'node', 'version']);
   } finally {
     s.cleanup();
   }

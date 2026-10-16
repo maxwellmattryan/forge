@@ -33,6 +33,24 @@ With `--json`:
 - **Streams that stay text**: `forge dash` in the foreground (its banner line), `forge daemon log --follow` (its lines) and `forge git diff|log|show|range-diff` (git's output). An error in any of them is still reported as the JSON error line.
 - **`forge git`**: a `--json` before `--` is Forge's flag and never reaches git, so `forge git log --json --output=x` is refused like `forge git log --output=x`. `forge git add|commit` accept it and print their result. `forge git <sub> --help` prints Forge's help and never starts git.
 
+## `forge version --json`
+
+`forge version` prints `{"version"}`, the running install's `package.json` version. With `--json` it prints which build that is:
+
+```json
+{"version":"0.17.1","commit":"3957e67…","installedAs":"plugin","node":"22.18.0"}
+```
+
+- `installedAs` is `plugin` (a Claude Code plugin install), `clone` (a git checkout that is its own toplevel: `npm link` or `--plugin-dir`) or `unknown` (anything else, such as an extracted release archive).
+- `commit` is 40 lowercase hex characters or `null`. The first valid source wins:
+  1. The `COMMIT` file at the plugin root, when it is a regular file of at most 64 bytes holding exactly one sha and an optional newline. The repo commits the placeholder `$Format:%H$`, which `git archive` replaces (`.gitattributes` `export-subst`), so release archives and GitHub's source archives carry their commit while clones and plugin caches fall through.
+  2. For a plugin install, `gitCommitSha` of the matching entry (same `installPath`) in Claude Code's `installed_plugins.json`.
+  3. For an install that is its own git toplevel, `git rev-parse HEAD`.
+  4. Otherwise `null`.
+- `node` is the Node version running the CLI.
+
+Like `forge version`, it needs no repo and no `.forge/`. The commit is self-reported: the audit anchors are the release tag and the archive's `.sha256` ([RELEASES.md](RELEASES.md#provenance-and-pinning)).
+
 ## Exit codes
 
 | Code | Exit | Meaning |
@@ -59,6 +77,7 @@ Every error carries one of these codes, and the code fixes the exit.
 | `not_found` | 1 | no such job or request |
 | `internal` | 1 | not a Forge error: a bug or an unexpected Node error (rerun with `FORGE_DEBUG=1` for the stack) |
 | `secret_found` | 1 | the secret scanner found a likely credential in what Forge was about to commit or send (a commit, the PR title or body, a tracker write); the message shows it masked, with its fingerprint |
+| `protected_path` | 1 | a path the `policy.protectedPaths` policy refuses is in what `forge git add\|commit` would stage or commit, `forge pr open` found a refused path or escalate paths no human approved, or `forge pr merge` found a PR head `forge pr open` never checked (docs/CONFIG.md "Protected paths") |
 | `usage` | 2 | the default for exit 2: the call could not be parsed; the hint names the help to read |
 | `unknown_command` | 2 | the first word is not a command |
 | `not_initialized` | 2 | the repo has no `.forge/config.yml`; run `/forge init` |
@@ -124,6 +143,37 @@ Set by Forge for configured commands (`forge run`, `forge verify`, worktree setu
 
 `forge job assist <id> --gate <class>` is read-only and returns `{gate, stale, reserved, model, effort, subagent, brief}`: the `forge:assistant` spawn for that gate, with a brief of paths only. `stale: true` means the job no longer waits on that gate, and `reserved` is re-checked at call time. An unknown `--gate` exits 1, and so does a daemon session other than the office. `forge requests add gate` always exits 1: only `forge job set` and `forge pr sync` write gate requests.
 
+## Support bundle
+
+`forge doctor --bundle [<job>] [--out <dir>] [--include-text]` writes `forge-support-<YYYY-MM-DD>.zip` (local date; `-2`, `-3`… when that name exists, never overwriting a file) to `--out` (default: the current directory, which must exist), mode `0600`. Settings › Diagnostics › **Download support bundle** in `forge dash` builds the same zip for every active job, never with text. The job can also come first: `forge doctor <job> --bundle`. Without a job, the bundle covers every active job and adds the inbox and office session logs. It works in a repo without `.forge/config.yml` (the config is then the defaults).
+
+Before writing, stderr lists every entry with its size, any file it skipped and why, and the redaction counts. stdout is `{file, bytes, entries: [{name, bytes}], skipped: [{name, reason}], redactions: {secrets, paths, emails, logins}, includeText, jobs}`. It exits 0 once the file is written, even when doctor's checks fail, and 1 for an invalid or unknown job, a missing or non-directory `--out`, a write failure, or a daemon session (`FORGE_DAEMON=1`): the bundle is a human's report, not a pipeline step.
+
+| Entry | Content |
+|---|---|
+| `manifest.json` | `{createdAt, forgeVersion, includeText, jobs, entries, skipped, redactions}` |
+| `doctor.json` | what `forge doctor` prints |
+| `versions.json` | `{forge, node, git, gh, glab, os}`; a missing tool is `null` |
+| `config.json` | the effective config, with every value that names a command, path, URL or person, and every key Forge doesn't know, replaced by `<redacted>` (`CONFIG_DISCLOSURE` in `lib/config-fields.ts`) |
+| `daemon/inbox.log`, `daemon/office.log` | without a job: the last 500 lines of the inbox and office session logs |
+| `jobs/<id>/job.json`, `events.jsonl`, `step.json` | the job, every event, and what `forge job step` decides now |
+| `jobs/<id>/verify/round-<n>.md` | the last 200 lines of the newest verify round |
+| `jobs/<id>/logs/verify-<step>-<ts>.log` | the last 200 lines of the newest verify log per step, at most 20 |
+| `jobs/<id>/daemon.log` | the last 500 lines of the job's daemon session log |
+| `jobs/<id>/text/<path>.md`, `jobs/<id>/diff.patch` | with `--include-text` only: the job dir's markdown (not `verify/`) and the branch's net diff from its merge base |
+
+Each entry keeps at most its last 2 MiB. Files are read without following symlinks or blocking on FIFOs, and only from inside the job dir or the runtime dir; anything else is listed under `skipped`. A file or directory name in the job dir made of anything but letters, digits, `.`, `_` and `-` (or `..`) is skipped as `<unsafe name>`, never shown raw, so no name can carry a terminal escape or a path out of the zip.
+
+**Agent text stays out by default.** In `job.json`, `events.jsonl` and `step.json`, the string values of `title`, `reason`, `summary`, `note`, `text`, `body`, `brief`, `prompt`, `message`, `output`, `comment`, `description` and `report` become `<omitted: n chars>` (`error` stays). Daemon log lines are reduced to a skeleton: their structure, numbers and the strings of id, type, name and state keys stay, and every other string (prompts, replies, tool input and output) becomes `<omitted: n chars>`. `--include-text` keeps all of it, still redacted.
+
+**Redaction**, over every entry and entry name, in this order:
+1. likely secrets (the secret scanner's provider patterns and entropy check, with no allowlist) become `<secret:kind>`;
+2. the repo root becomes `<repo>`, the worktrees root (`worktrees.root`) `<worktrees>` and the home directory `~`;
+3. email addresses become `<email>`;
+4. known identities (git `user.name`, the OS user, the machine's host name and its first label, the owners of the github.com and gitlab.com remotes, and `tracker.github.repo`'s owner, `tracker.github.project.owner`, `tracker.github.ready.assignee` and `pr.reviewers`) become `<login>`, as do the owner in any `github.com/<owner>` or `gitlab.com/<owner>` and any `@mention`.
+
+Redaction is pattern-based and best-effort: a secret no pattern knows, or a login Forge doesn't know written as a plain word, can survive. Read the manifest stderr prints, and open the zip, before you attach it to a public issue.
+
 ## Stability
 
-Forge follows semver for this contract. Any release may add commands, flags, JSON fields, error codes and environment variables. Renaming or removing a JSON field, an error code or an exit number is a breaking change: it ships only in a release whose version says so (a new major version, or a new minor version while Forge is below 1.0) and is called out in [CHANGELOG.md](../CHANGELOG.md). Message and hint text, and the order of JSON keys, are not covered: match on `code` and `exit`, never on `message`. `test/cli-contract.test.ts` pins the JSON keys of `forge job list|show|step`, `forge status --json`, `forge verify` and `forge stats --json`, so an accidental rename fails the build.
+Forge follows semver for this contract. Any release may add commands, flags, JSON fields, error codes and environment variables. Renaming or removing a JSON field, an error code or an exit number is a breaking change: it ships only in a release whose version says so (a new major version, or a new minor version while Forge is below 1.0) and is called out in [CHANGELOG.md](../CHANGELOG.md). Message and hint text, and the order of JSON keys, are not covered: match on `code` and `exit`, never on `message`. `test/cli-contract.test.ts` pins the JSON keys of `forge job list|show|step`, `forge status --json`, `forge verify`, `forge stats --json` and `forge version --json` (`version`, `commit`, `installedAs`, `node`), so an accidental rename fails the build.

@@ -77,7 +77,7 @@ describe('verify runs e2e', { concurrency: 4 }, () => {
       assert.equal(e2e.ok, true);
       assert.ok(!e2e.skipped);
       assert.ok(e2e.reason.startsWith('UI paths changed: web/app.css'), e2e.reason);
-      assert.deepEqual(r.out.steps.map((x) => x.name), ['secrets', 'test', 'e2e']);
+      assert.deepEqual(r.out.steps.map((x) => x.name), ['secrets', 'protected', 'test', 'e2e']);
       const md = s.roundMd(ui.dir);
       assert.ok(md.startsWith('VERIFY: PASS'));
       assert.match(md, /## e2e: ok/);
@@ -166,7 +166,8 @@ describe('verify runs e2e', { concurrency: 4 }, () => {
 
       // An unresolvable base also stops the secret scan, which fails verify under the default
       // `block`; under `warn` it passes with an error, so the e2e decision is still reached.
-      await s.configure({ verifySecrets: 'warn' });
+      // The protected-paths check reads it too and fails closed, so the policy is off here.
+      await s.configure({ verifySecrets: 'warn', policy: { protectedPaths: [] } });
       const lib = await s.job(['lib/x.mjs']);
       setJob(s.repo.dir, lib.id, { fields: { base: 'no-such-branch' } });
       const b = await s.verify(lib.id);

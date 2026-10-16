@@ -192,7 +192,7 @@ export interface VerifyRun {
   ok: boolean;
   at: string | null;
   file: string;
-  /** The name of the step that failed (`test`, `integrity`, …), null on a pass. */
+  /** The name of the step that failed (`test`, `integrity`, `secrets`, `protected`, …), null on a pass. */
   failure?: string | null;
 }
 
@@ -247,6 +247,35 @@ export interface Job {
   effort: Effort | null;
   /** The spec's `Complexity:` header, recorded at SP3; picks runtime.effortByComplexity. */
   complexity: Complexity | null;
+  /** Escalate paths the branch changes, recorded by the CLI only: recordProtected in lib/protected.ts. */
+  protectedPaths: ProtectedPaths | null;
+}
+
+/** One `policy.protectedPaths` rule: docs/CONFIG.md "Protected paths". */
+export interface ProtectedRule {
+  paths: string[];
+  action: 'escalate' | 'refuse';
+  reason: string;
+}
+
+/** A changed path an escalate rule matched; `rule` is 1-based and `blob` is null for a deletion. */
+export interface ProtectedHit {
+  path: string;
+  rule: number;
+  glob: string;
+  reason: string;
+  blob: string | null;
+}
+
+/** job.protectedPaths: the escalate paths that need a human approval given after `at`. */
+export interface ProtectedPaths {
+  hits: ProtectedHit[];
+  more: number;
+  at: string;
+  gate: 'add' | 'commit' | 'verify' | 'pr';
+  head: string | null;
+  /** sha256 over every (path, blob) of the set, `more` included; absent on a flag from before it. */
+  digest?: string;
 }
 
 /** tasks.md checkbox counts: progress in lib/jobs.ts. */
@@ -718,6 +747,8 @@ export interface Config {
     reserved: string[];
     ship: ForemanShip;
   };
+  /** Paths the CLI refuses to write or escalates to a human: docs/CONFIG.md "Protected paths". */
+  policy: { protectedPaths: ProtectedRule[] };
 }
 
 /** A gate class the foreman may decide: OFFICE_GATES in lib/schema.ts. */
@@ -786,12 +817,58 @@ export interface DoctorCheck {
   name: string;
   ok: boolean;
   detail: string;
+  /** ok, but worth a look; never set with ok: false. */
+  warn?: boolean;
 }
 
 /** What `forge doctor` prints: doctor in lib/doctor.ts. */
 export interface DoctorReport {
   ok: boolean;
   checks: DoctorCheck[];
+}
+
+// ---------- forge doctor --bundle ----------
+
+/** How many spans of each class lib/redact.ts replaced. */
+export interface RedactCounts {
+  secrets: number;
+  paths: number;
+  emails: number;
+  logins: number;
+}
+
+/** One zip entry and its uncompressed size. */
+export interface BundleEntry {
+  name: string;
+  bytes: number;
+}
+
+/** A file the bundle left out instead of reading: a symlink, a FIFO, one outside its dir, or unreadable. */
+export interface BundleSkip {
+  name: string;
+  reason: string;
+}
+
+/** The support bundle's manifest.json: buildBundle in lib/bundle.ts. Names are already redacted. */
+export interface BundleManifest {
+  createdAt: string;
+  forgeVersion: string;
+  includeText: boolean;
+  jobs: string[];
+  entries: BundleEntry[];
+  skipped: BundleSkip[];
+  redactions: RedactCounts;
+}
+
+/** `forge doctor --bundle`'s stdout. */
+export interface BundleResult {
+  file: string;
+  bytes: number;
+  entries: BundleEntry[];
+  skipped: BundleSkip[];
+  redactions: RedactCounts;
+  includeText: boolean;
+  jobs: string[];
 }
 
 // ---------- forge update ----------
@@ -811,6 +888,18 @@ export interface InstallInfo {
   pluginsDir?: string;
   /** Why a path that looked like a plugin install was not trusted. */
   reason?: string;
+}
+
+/** How `forge version --json` names the install: InstallKind with `git` read as a clone. */
+export type InstalledAs = 'plugin' | 'clone' | 'unknown';
+
+/** `forge version --json`: versionInfo in lib/version.ts. */
+export interface VersionInfo {
+  version: string;
+  /** 40 lowercase hex, or null when no source could say. */
+  commit: string | null;
+  installedAs: InstalledAs;
+  node: string;
 }
 
 /** What `forge update --check` prints: updateForge in lib/update.ts. */
@@ -1371,6 +1460,9 @@ export interface AboutResponse {
   pricingAsOf: string | null;
   node: string;
   links: { repo: string | null; docs: string | null };
+  /** versionInfo(PLUGIN_ROOT) in lib/version.ts: 40 lowercase hex, or null. */
+  commit: string | null;
+  installedAs: InstalledAs;
 }
 
 /** A CI rollup on a GitHub preview: GitHub's statusCheckRollup, folded to three outcomes; null when nothing ran. */
