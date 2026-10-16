@@ -22,3 +22,12 @@ export function protectedSummary(job: Pick<Job, 'protectedPaths'>): ProtectedSum
   const rows = flag.hits.slice(0, PROTECTED_ROWS).map((h) => ({ path: h.path, reason: h.reason }));
   return { reasons, rows, more: flag.hits.length - rows.length + (Number(flag.more) || 0) };
 }
+
+/**
+ * Whether the Needs-you card shows the job's park reason. A protected park's reason (step rule PP1)
+ * names a few of the paths the card's list shows in full, so with that list it is left out.
+ */
+export function showParkReason(job: Pick<Job, 'reason' | 'protectedPaths'>): boolean {
+  if (!job.reason) return false;
+  return !(protectedSummary(job) && job.reason.startsWith('protected paths'));
+}

@@ -278,6 +278,8 @@ export interface ProtectedPaths {
   at: string;
   gate: 'add' | 'commit' | 'verify' | 'pr';
   head: string | null;
+  /** sha256 over every (path, blob) of the set, `more` included; absent on a flag from before it. */
+  digest?: string;
 }
 
 /** tasks.md checkbox counts: progress in lib/jobs.ts. */

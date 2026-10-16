@@ -2,7 +2,7 @@
 // drawer chip and the Needs-you list show.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PROTECTED_ROWS, protectedSummary } from '../dashboard/src/lib/protected.ts';
+import { PROTECTED_ROWS, protectedSummary, showParkReason } from '../dashboard/src/lib/protected.ts';
 import type { ProtectedHit, ProtectedPaths } from '../dashboard/src/lib/types.ts';
 
 const hit = (path: string, rule: number, reason: string): ProtectedHit => ({ path, rule, glob: path, reason, blob: null });
@@ -33,4 +33,12 @@ test('protectedSummary', () => {
   // Paths are data: returned as they are, for the components to render as escaped text.
   const odd = protectedSummary({ protectedPaths: flag([hit('<img src=x onerror=alert(1)>.yml', 1, 'CI/CD configuration')]) })!;
   assert.equal(odd.rows[0].path, '<img src=x onerror=alert(1)>.yml');
+});
+
+test('showParkReason drops a protected park reason the path list repeats', () => {
+  const f = flag([hit('package-lock.json', 4, 'dependency lockfile')]);
+  assert.equal(showParkReason({ reason: 'protected paths: package-lock.json', protectedPaths: f }), false);
+  assert.equal(showParkReason({ reason: 'protected paths: package-lock.json', protectedPaths: null }), true, 'no list: the reason stays');
+  assert.equal(showParkReason({ reason: 'escalated: risky change', protectedPaths: f }), true, 'another park keeps its reason');
+  assert.equal(showParkReason({ reason: null, protectedPaths: f }), false);
 });
