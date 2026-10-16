@@ -93,7 +93,7 @@ The `forge` CLI underneath is also for scripts, CI and other agent runtimes: `fo
 <!-- forge:commands:start (generated from lib/commands/*.ts by npm run docs:commands; edit those tables) -->
 | Command | What it does |
 |---|---|
-| `forge job link <id> <ref>\|--create\|--none [--reason R]\|--suggest` | link a job to an issue, create one, or record that it needs none (see [Linking jobs to issues](docs/TRACKERS.md#linking-jobs-to-issues)) |
+| `forge job link <id> <ref>…\|--remove <ref>\|--create\|--none [--reason R]\|--suggest` | add issues to a job (this repo's are checked and claimed, other repos' only recorded), remove them, create one, or record that it needs none (see [Linking jobs to issues](docs/TRACKERS.md#linking-jobs-to-issues)) |
 | `forge job effort <id> low\|medium\|high\|xhigh\|max \| --inherit` | set a job's reasoning effort (forge job new --effort sets it at creation), or clear it so the job inherits runtime.effort; daemon sessions start with --effort and every agent gets it (see [Effort](docs/CONFIG.md#effort)) |
 | `forge job audit <id> [--json\|--csv]` | the job's audit trail: who did each human action (best effort, unauthenticated), its gate transitions, and its PR opening and merge, in time order (see [Audit trail](docs/ARCHITECTURE.md#audit-trail)) |
 | `forge job archive <id>\|--done --older-than D` | archive a finished job into .forge/archive/<id>.json (its job.json, events and a summary) and delete its job folder; with --done --older-than D, every finished job at least D days old. Stats, audit and retro still read archived jobs (see [Retention](docs/ARCHITECTURE.md#retention)) |

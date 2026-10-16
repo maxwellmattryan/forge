@@ -12,7 +12,7 @@ export type Checks = [
   Expect<Equal<engine.JobState, dash.JobState>>,
   Expect<Equal<engine.WaitingOn, dash.WaitingOn>>,
   Expect<Equal<engine.BudgetKey, dash.BudgetKey>>,
-  Expect<Equal<engine.JobSource, dash.JobSource>>,
+  Expect<Equal<engine.JobIssue, dash.JobIssue>>,
   Expect<Equal<engine.PrChecks, dash.PrChecks>>,
   Expect<Equal<engine.HumanDelta, dash.HumanDelta>>,
   Expect<Equal<engine.JobPr, dash.JobPr>>,

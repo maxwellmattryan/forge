@@ -69,8 +69,8 @@ export interface ThreadOpening {
 }
 
 /**
- * The opening message from GET /api/jobs/:id. It trusts `requestFromTracker`, never `job.source`:
- * `forge job link` and `--create` give a job a source while request.md still holds your own words.
+ * The opening message from GET /api/jobs/:id. It trusts `requestFromTracker`, never `job.issues`:
+ * `forge job link` and `--create` add issues while request.md still holds your own words.
  */
 export function threadOpening(d: Pick<JobDetail, 'request' | 'requestFromTracker'> & { job: Pick<Job, 'createdAt'> }): ThreadOpening {
   return { text: d.request ?? null, at: d.job.createdAt ?? null, tracker: d.requestFromTracker === true };
@@ -214,9 +214,15 @@ export interface Candidate {
   url: string | null;
 }
 
-/** A typed ref without its `#`, or null when it isn't one the server accepts. */
+/** lib/issue-ref.ts QUALIFIED, duplicated for the same reason: `owner/repo#12`, `group/sub/project#12`. */
+const SEG = '[A-Za-z0-9][A-Za-z0-9._-]{0,99}';
+const QUALIFIED = new RegExp(`^${SEG}(?:/${SEG}){1,4}#[1-9][0-9]{0,9}$`);
+
+/** A typed ref (a leading `#` dropped unless it is qualified), or null when it isn't one the server accepts. */
 export function cleanRef(raw: string): string | null {
-  const ref = raw.trim().replace(/^#/, '');
+  const typed = raw.trim();
+  if (typed.length <= 200 && QUALIFIED.test(typed) && !typed.includes('..')) return typed;
+  const ref = typed.replace(/^#/, '');
   return REF.test(ref) ? ref : null;
 }
 

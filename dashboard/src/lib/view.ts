@@ -73,15 +73,32 @@ export function agentsSummary(roles: string[]): AgentsSummary | null {
   return { kind: reviewers ? 'reviewers' : 'agents', count: roles.length, title };
 }
 
+/** Whether any of a job's issues names an item: a url-only entry never counts as linked. */
+export const hasLinkedIssue = (issues: unknown): boolean => Array.isArray(issues) && issues.some((i) => Boolean(i && typeof i === 'object' && (i as { ref?: unknown }).ref));
+
 /**
- * The card's tracker ref: `#n` for a numeric ref, a non-numeric ref the id doesn't start with as-is (`ENG-4`), else
- * null. A local slug ref whose id is `<slug>-<suffix>` would only print a near-copy of the id.
+ * An issue as a short label: `#12` for a bare number, `repo#12` for `owner/repo#12` (the dashboard
+ * knows no repo slug, so a qualified ref keeps its last segment), any other ref as it is.
+ */
+export function issueLabel(ref: unknown): string | null {
+  const r = s(ref);
+  if (!r) return null;
+  if (/^\d+$/.test(r)) return `#${r}`;
+  const q = /(?:^|\/)([^/#]+)#(\d+)$/.exec(r);
+  return q && r.includes('/') ? `${q[1]}#${q[2]}` : r;
+}
+
+/**
+ * The card's tracker ref: the primary issue's label, plus ` +N` when more issues have refs. Null
+ * for a local slug ref the id starts with, whose label would only print a near-copy of the id.
  */
 export function cardRef(job: JobLike): string | null {
-  const ref = s(job.source?.ref);
-  if (/^\d+$/.test(ref)) return `#${ref}`;
-  if (ref && !s(job.id).startsWith(ref)) return ref;
-  return null;
+  const refs = (Array.isArray(job.issues) ? job.issues : []).map((i) => s(i?.ref)).filter(Boolean);
+  const first = refs[0];
+  if (!first) return null;
+  const label = issueLabel(first);
+  if (!label || (!/^\d+$/.test(first) && !first.includes('/') && s(job.id).startsWith(first))) return null;
+  return refs.length > 1 ? `${label} +${refs.length - 1}` : label;
 }
 
 /** lib/deps.ts DEP_REASON; test/dashboard-view.test.ts pins the two equal. */
@@ -270,9 +287,9 @@ export function inboxDoc(kind: InboxKind, job: JobLike): string | null {
 /** SP5's reason in lib/step.ts for a job with no issue yet: its spec gate also picks the issue. */
 export const UNLINKED_SPEC_REASON = 'spec ready, issue unlinked';
 
-/** A spec gate that still needs an issue: the chooser stands in for the plain Approve. Re-checks source and noIssue, so a job linked while it waits gets the plain card. */
-export const specLinkPending = (j: Pick<JobLike, 'state' | 'waitingOn' | 'reason' | 'source' | 'noIssue'>): boolean =>
-  j.state === 'waiting' && j.waitingOn === 'spec-approval' && j.reason === UNLINKED_SPEC_REASON && !j.source?.ref && !j.noIssue;
+/** A spec gate that still needs an issue: the chooser stands in for the plain Approve. Re-checks issues and noIssue, so a job linked while it waits gets the plain card. */
+export const specLinkPending = (j: Pick<JobLike, 'state' | 'waitingOn' | 'reason' | 'issues' | 'noIssue'>): boolean =>
+  j.state === 'waiting' && j.waitingOn === 'spec-approval' && j.reason === UNLINKED_SPEC_REASON && !hasLinkedIssue(j.issues) && !j.noIssue;
 
 export function notePlaceholder(kind: InboxKind, opts: { linkPending?: boolean } = {}): string {
   // On an unlinked spec gate the note is also the "no issue needed" reason.

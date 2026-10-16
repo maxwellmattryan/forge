@@ -7,6 +7,8 @@ import { listRequests } from '../requests.ts';
 import { checkRepoBudget, isRepoHold, repoBudgetBlock } from '../repo-budget.ts';
 import { applyRetention } from '../retention.ts';
 import { searchTerms } from '../issue-link.ts';
+import { checkIssueRef, linkedIssues, nativeRef, nativeRefs, parseIssueRef, primaryIssue, sameIssue } from '../issue-ref.ts';
+import { localRepoSlug } from '../repo-slug.ts';
 import { clampLimit, publicHits, searchTracker } from '../tracker-link.ts';
 import { loadTracker } from '../trackers/index.ts';
 import { DEFAULT_LIMIT, MAX_LIMIT, applyTriage, prepareTriage } from '../triage.ts';
@@ -185,10 +187,11 @@ function readyItems(root: string, config: Config, tracker: Tracker, flags: Recor
   const blocked: { ref: string; id: string; waitingOn: string[] }[] = [];
   // --force skips nothing. Otherwise an item is blocked when the active job it would resume
   // (the same match startFromRef uses) has unmet dependencies.
-  const active = flags.force ? [] : listJobs(root).filter((j) => isActive(j) && j.source);
+  const slug = localRepoSlug(root, config);
+  const active = flags.force ? [] : listJobs(root).filter((j) => isActive(j) && j.issues.length);
   const ready = items.filter((i) => {
-    // active holds only jobs with a source, and unmet is empty unless a job was found.
-    const job = active.find((j) => String(j.source!.ref) === String(i.ref));
+    // unmet is empty unless a job was found.
+    const job = active.find((j) => nativeRefs(j, config.tracker.kind, slug).includes(String(i.ref)));
     const unmet = job ? unmetDependencies(root, job) : [];
     if (unmet.length) blocked.push({ ref: i.ref, id: job!.id, waitingOn: unmet.map((u) => u.id) });
     return !unmet.length;
@@ -223,7 +226,7 @@ export async function nextCmd(root: string, config: Config, flags: Record<string
     } catch (e) {
       logEvent(root, resumed.id, 'tracker-error', { error: (e as Error).message.slice(0, 300) });
     }
-    return { id: resumed.id, ref: resumed.source?.ref ?? null, title: resumed.title, branch: resumed.branch, stage: resumed.stage, state: resumed.state, resumed: true, ...(blocked.length ? { blocked } : {}), ...warn };
+    return { id: resumed.id, ref: primaryIssue(resumed)?.ref ?? null, title: resumed.title, branch: resumed.branch, stage: resumed.stage, state: resumed.state, resumed: true, ...(blocked.length ? { blocked } : {}), ...warn };
   }
   const tracker = await loadTracker(root, config);
   const { ready, blocked } = readyItems(root, config, tracker, flags, limit);
@@ -247,12 +250,22 @@ export async function startFromRef(
 ): Promise<{ id: string; existing: true; stage: Job['stage']; state: Job['state'] } | { id: string; ref: string; title: string; branch: Job['branch'] }> {
   const session = str(flags.session, '--session');
   const ctx = { root, config };
-  const item = tracker.get(ctx, ref);
-  if (!item) throw new ForgeError(`no ${tracker.name} item "${ref}"`);
+  const kind = config.tracker.kind;
+  const slug = localRepoSlug(root, config);
+  const checked = checkIssueRef(ref, { tracker: kind, slug });
+  if ('error' in checked) throw new ForgeError(checked.error);
+  // Only this repo's issues: a foreign one would be read, claimed and closed in a repo Forge doesn't own.
+  const native = nativeRef({ tracker: kind, ref: checked.ref }, kind, slug);
+  if (native === null) throw new ForgeError(`from-ref takes an issue in ${slug ?? 'this repo'}`);
+  const item = tracker.get(ctx, native);
+  if (!item) throw new ForgeError(`no ${tracker.name} item "${native}"`);
+  const itemRef = String(item.ref);
   // An existing job keeps its own split mode: from-ref only names the mode of the job it creates.
-  const existing = listJobs(root).find((j) => isActive(j) && j.source && String(j.source.ref) === String(ref));
+  const existing = listJobs(root).find((j) => isActive(j) && nativeRefs(j, kind, slug).includes(itemRef));
   if (existing) return { id: existing.id, existing: true, stage: existing.stage, state: existing.state };
-  const job = createJob(root, config, { title: item.title, ref: item.ref, url: item.url ?? undefined, tracker: tracker.name, body: item.body ?? '', splitMode: opts.splitMode });
+  const stored = kind === 'github' ? (parseIssueRef(itemRef, { tracker: kind, slug }) ?? itemRef) : itemRef;
+  const issues = [{ tracker: kind, ref: stored, url: typeof item.url === 'string' ? item.url : null }];
+  const job = createJob(root, config, { title: item.title, issues, body: item.body ?? '', splitMode: opts.splitMode });
   const claim = tracker.claim(ctx, item.ref, job);
   if (!claim.ok) {
     setJob(root, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` });
@@ -262,12 +275,24 @@ export async function startFromRef(
   return { id: job.id, ref: item.ref, title: item.title, branch: job.branch };
 }
 
-/** Best-effort: tracker hiccups must never block the pipeline. */
+/**
+ * Best-effort: tracker hiccups must never block the pipeline. Each of this repo's issues is
+ * updated; a finished job leaves alone an issue another active job still carries, so one sharer
+ * finishing never marks the shared issue done.
+ */
 export async function mirrorToTracker(root: string, config: Config, job: Job): Promise<void> {
-  if (!job.source?.ref || job.kind === 'eval' || job.source.tracker !== config.tracker.kind) return;
+  if (job.kind === 'eval') return;
+  const kind = config.tracker.kind;
+  const slug = localRepoSlug(root, config);
+  let issues = linkedIssues(job).filter((i) => nativeRef(i, kind, slug) !== null);
+  if (!issues.length) return;
+  if (job.state === 'done' || job.state === 'cancelled') {
+    const others = listJobs(root).filter((j) => j.id !== job.id && isActive(j));
+    issues = issues.filter((i) => !others.some((o) => o.issues.some((x) => sameIssue(x, i, slug))));
+  }
   try {
     const tracker = await loadTracker(root, config);
-    tracker.update({ root, config }, String(job.source.ref), job);
+    for (const i of issues) tracker.update({ root, config }, nativeRef(i, kind, slug)!, job);
   } catch (e) {
     logEvent(root, job.id, 'tracker-error', { error: (e as Error).message.slice(0, 300) });
   }
@@ -277,8 +302,10 @@ export async function mirrorToTracker(root: string, config: Config, job: Job): P
  * Once, when sync first sees the merge: names on the issue the person who approved the job's
  * escalation. The event it logs stops a second post; a failure is logged and never fails the sync.
  */
-async function commentApproval(root: string, config: Config, job: Job): Promise<void> {
-  if (!job.source?.ref || job.kind === 'eval' || job.source.tracker !== config.tracker.kind) return;
+export async function commentApproval(root: string, config: Config, job: Job): Promise<void> {
+  if (job.kind === 'eval') return;
+  const refs = nativeRefs(job, config.tracker.kind, localRepoSlug(root, config));
+  if (!refs.length) return;
   const events = readEvents(root, job.id);
   if (events.some((e) => e.type === 'tracker-approval-comment')) return;
   const approval = pr.escalationApproval(events);
@@ -288,8 +315,9 @@ async function commentApproval(root: string, config: Config, job: Job): Promise<
   const number = job.pr?.number;
   try {
     const tracker = await loadTracker(root, config);
-    tracker.comment({ root, config }, String(job.source.ref), `Merged in #${number} (${method}). Escalation approved by ${pr.approvedBy(approval)}.`);
-    logEvent(root, job.id, 'tracker-approval-comment', { ref: String(job.source.ref), pr: number ?? null });
+    // One event for the set: a retry after a partial failure re-posts rather than skipping an issue.
+    for (const ref of refs) tracker.comment({ root, config }, ref, `Merged in #${number} (${method}). Escalation approved by ${pr.approvedBy(approval)}.`);
+    logEvent(root, job.id, 'tracker-approval-comment', { refs, pr: number ?? null });
   } catch (e) {
     logEvent(root, job.id, 'tracker-error', { error: (e as Error).message.slice(0, 300) });
   }

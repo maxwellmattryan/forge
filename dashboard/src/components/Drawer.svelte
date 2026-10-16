@@ -47,8 +47,6 @@
   const shown = $derived(view && 'detail' in view ? view : null);
   const job = $derived(shown?.detail.job);
   const prUrl = $derived(safeUrl(job?.pr?.url));
-  const srcUrl = $derived(safeUrl(job?.source?.url));
-  const srcGitHub = $derived(srcUrl?.startsWith('https://github.com/') ?? false);
   // Only a job with a verifiers record gets the column. The detail's events are the last 400
   // (lib/server.ts), so on a very long job an early round's cell can read — though it ran.
   const verifierResults = $derived(shown ? verifierRounds(shown.detail.events) : {});
@@ -240,7 +238,7 @@
           <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
             {@render fact($t('drawer.branch'), j.branch ?? '—', 'branch')}{@render fact($t('drawer.base'), j.base ?? '—', 'branch')}{@render fact($t('drawer.port'), j.port ?? '—')}{@render fact($t('drawer.worktree'), j.worktree ?? '—')}
             <div><div class="label">{$t('drawer.pr')}</div><div class="mono text-[13px] break-all selectable">{#if prUrl}<a class="text-gleam" href={prUrl} target="_blank" rel="noopener"><Icon name="pull-request" class="sm mr-1 inline-block align-[-2px]" />#{j.pr?.number}</a>{:else}—{/if}</div></div>
-            <div><div class="label">{$t('drawer.source')}</div><div class="mono text-[13px] break-all selectable">{#if srcUrl}<a class="text-gleam" href={srcUrl} target="_blank" rel="noopener">{#if srcGitHub}<Icon name="github" class="sm mr-1 inline-block align-[-2px]" />{/if}{j.source?.ref ?? $t('drawer.link')}</a>{:else}{j.source?.ref ?? '—'}{/if}</div></div>
+            <div><div class="label">{$t('drawer.issues')}</div><div class="mono text-[13px] break-all selectable flex flex-wrap gap-x-2">{#each j.issues ?? [] as issue, n (n)}{@const issueUrl = safeUrl(issue.url)}{#if issueUrl}<a class="text-gleam" href={issueUrl} target="_blank" rel="noopener">{#if issueUrl.startsWith('https://github.com/')}<Icon name="github" class="sm mr-1 inline-block align-[-2px]" />{/if}{issue.ref ?? $t('drawer.link')}</a>{:else}<span>{issue.ref ?? '—'}</span>{/if}{:else}—{/each}</div></div>
             {@render fact($t('drawer.session'), j.owner?.session ?? '—')}{@render fact($t('drawer.created'), ago(j.createdAt, ticker.now))}{@render fact($t('drawer.updated'), ago(j.updatedAt, ticker.now))}
           </div>
           <DepSection job={j} />

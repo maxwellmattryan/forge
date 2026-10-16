@@ -72,10 +72,10 @@ test('reads a schema v3 job as current, with noIssue', () => {
 test('issueLinkStatus covers every case', () => {
   const local = { tracker: { kind: 'local' } } as any;
   const none = { tracker: { kind: 'none' } } as any;
-  const job = (over: Record<string, unknown> = {}) => ({ source: null, noIssue: null, kind: 'feature', parent: null, ...over }) as any;
-  assert.equal(issueLinkStatus(job({ source: { tracker: 'local', ref: 'x', url: null } }), none), 'no-tracker', 'no tracker wins over everything');
-  assert.equal(issueLinkStatus(job({ source: { tracker: 'local', ref: 'x', url: null }, noIssue: { reason: null, at: 'now' } }), local), 'linked');
-  assert.equal(issueLinkStatus(job({ source: { tracker: 'local', ref: null, url: 'u' } }), local), 'missing', 'a source without a ref is not a link');
+  const job = (over: Record<string, unknown> = {}) => ({ issues: [], noIssue: null, kind: 'feature', parent: null, ...over }) as any;
+  assert.equal(issueLinkStatus(job({ issues: [{ tracker: 'local', ref: 'x', url: null }] }), none), 'no-tracker', 'no tracker wins over everything');
+  assert.equal(issueLinkStatus(job({ issues: [{ tracker: 'local', ref: 'x', url: null }], noIssue: { reason: null, at: 'now' } }), local), 'linked');
+  assert.equal(issueLinkStatus(job({ issues: [{ tracker: 'local', ref: null, url: 'u' }] }), local), 'missing', 'an issue without a ref is not a link');
   assert.equal(issueLinkStatus(job({ noIssue: { reason: 'tiny', at: 'now' }, kind: 'eval' }), local), 'none');
   assert.equal(issueLinkStatus(job({ kind: 'eval' }), local), 'exempt');
   assert.equal(issueLinkStatus(job({ kind: 'retro' }), local), 'exempt');
@@ -92,8 +92,8 @@ describe('forge job link', { concurrency: 4 }, () => {
       const id = await s.newJob('Show reading time');
       const linked = await s.cli('job', 'link', id, '#reading-time-badge');
       assert.equal(linked.status, 0, linked.stderr);
-      assert.deepEqual(linked.json, { id, source: { tracker: 'local', ref: 'reading-time-badge', url: null } });
-      assert.deepEqual(loadJob(s.root, id).source, { tracker: 'local', ref: 'reading-time-badge', url: null });
+      assert.deepEqual(linked.json, { id, issues: [{ tracker: 'local', ref: 'reading-time-badge', url: null }], added: ['reading-time-badge'], removed: [] });
+      assert.deepEqual(loadJob(s.root, id).issues, [{ tracker: 'local', ref: 'reading-time-badge', url: null }]);
       assert.match(s.backlog(), new RegExp(`- \\[~\\] Reading time badge → ${id}`));
       assert.deepEqual(readEvents(s.root, id).filter((e) => e.type === 'linked').map((e: any) => e.ref), ['reading-time-badge']);
       assert.deepEqual(readEvents(s.root, id).find((e) => e.type === 'linked')!.actor, { login: 'forge-test', source: 'env' }, 'the link records who made it');
@@ -101,26 +101,25 @@ describe('forge job link', { concurrency: 4 }, () => {
       const before = s.raw(id);
       const again = await s.cli('job', 'link', id, 'reading-time-badge');
       assert.equal(again.status, 0);
-      assert.deepEqual(again.json, linked.json, 'the same ref again is a no-op');
+      assert.deepEqual(again.json, { ...linked.json, added: [] }, 'the same ref again is a no-op');
       assert.equal(s.raw(id), before);
       assert.equal(readEvents(s.root, id).filter((e) => e.type === 'linked').length, 1);
 
       const other = await s.cli('job', 'link', id, 'dark-mode-toggle');
-      assert.notEqual(other.status, 0);
-      assert.match(other.stderr, /already linked to reading-time-badge/);
-      assert.equal(s.raw(id), before, 'a different ref leaves job.json unchanged');
+      assert.equal(other.status, 0, 'a job may carry several issues');
+      assert.deepEqual(other.json.issues.map((i: any) => i.ref), ['reading-time-badge', 'dark-mode-toggle']);
 
       const second = await s.newJob('Another thing');
       const before2 = s.raw(second);
       const unknown = await s.cli('job', 'link', second, 'no-such-item');
       assert.equal(unknown.status, 1);
       assert.match(unknown.stderr, /no local item "no-such-item"/);
-      const taken = await s.cli('job', 'link', second, 'reading-time-badge');
-      assert.equal(taken.status, 1);
-      assert.match(taken.stderr, new RegExp(`active job ${id}`));
       const bad = await s.cli('job', 'link', second, '../etc');
       assert.notEqual(bad.status, 0);
       assert.equal(s.raw(second), before2, 'every refusal leaves job.json unchanged');
+      const taken = await s.cli('job', 'link', second, 'reading-time-badge');
+      assert.equal(taken.status, 0, taken.stderr);
+      assert.deepEqual(taken.json.sharedWith, [id], 'an issue on another active job is shared, not refused');
 
       const usage = await s.cli('job', 'link', second, 'dark-mode-toggle', '--none');
       assert.notEqual(usage.status, 0, 'exactly one mode');
@@ -147,13 +146,13 @@ describe('forge job link', { concurrency: 4 }, () => {
       const id = await s.newJob('Export to CSV', '--body', 'Users want a CSV export.\n\nWith headers.');
       const r = await s.cli('job', 'link', id, '--create');
       assert.equal(r.status, 0, r.stderr);
-      assert.deepEqual(r.json, { id, source: { tracker: 'local', ref: 'export-to-csv', url: null }, created: true });
+      assert.deepEqual(r.json, { id, issues: [{ tracker: 'local', ref: 'export-to-csv', url: null }], added: ['export-to-csv'], removed: [], created: true });
       const text = s.backlog();
       assert.match(text, new RegExp(`- \\[~\\] Export to CSV → ${id}\\n  Users want a CSV export\\.\\n  With headers\\.`));
       assert.ok(!text.includes('# Export to CSV'), 'the request title line is not part of the body');
 
       const again = await s.cli('job', 'link', id, '--create');
-      assert.notEqual(again.status, 0, 'a linked job gets no second issue');
+      assert.equal(again.status, 0, '--create is not refused on a linked job');
 
       const waived = await s.newJob('Bump a typo');
       const none = await s.cli('job', 'link', waived, '--none', '--reason', 'too small for an issue');
@@ -490,11 +489,11 @@ test('custom adapter fallback is capped', () => {
 
 test('pr open reports unlinked only when missing', () => {
   const local = { tracker: { kind: 'local' } } as any;
-  const base = { source: null, noIssue: null, kind: 'feature', parent: null } as any;
+  const base = { issues: [], noIssue: null, kind: 'feature', parent: null } as any;
   assert.deepEqual(prLinkNote(base, local), { unlinked: true });
   assert.deepEqual(prLinkNote({ ...base, noIssue: { reason: null, at: 'now' } }, local), {});
   assert.deepEqual(prLinkNote({ ...base, kind: 'eval' }, local), {});
-  assert.deepEqual(prLinkNote({ ...base, source: { tracker: 'local', ref: '3', url: null } }, local), {});
+  assert.deepEqual(prLinkNote({ ...base, issues: [{ tracker: 'local', ref: '3', url: null }] }, local), {});
   assert.deepEqual(prLinkNote(base, { tracker: { kind: 'none' } } as any), {});
   // openPr spreads the note into its result.
   const src = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'lib', 'pr.ts'), 'utf8');
@@ -509,8 +508,8 @@ describe('forge job human --link', { concurrency: 4 }, () => {
       const linked = await s.newJob('Show reading time');
       const r = await s.cli('job', 'human', linked, 'approve-spec', '--link', '#reading-time-badge', '--note', 'looks good');
       assert.equal(r.status, 0, r.stderr);
-      assert.deepEqual(r.json, { ok: true, link: { id: linked, source: { tracker: 'local', ref: 'reading-time-badge', url: null } } });
-      assert.equal(loadJob(s.root, linked).source?.ref, 'reading-time-badge');
+      assert.deepEqual(r.json, { ok: true, link: { id: linked, issues: [{ tracker: 'local', ref: 'reading-time-badge', url: null }], added: ['reading-time-badge'], removed: [] } });
+      assert.equal(loadJob(s.root, linked).issues[0]?.ref, 'reading-time-badge');
       assert.match(s.backlog(), new RegExp(`- \\[~\\] Reading time badge → ${linked}`), 'the item is claimed');
       const evs = readEvents(s.root, linked);
       const li = evs.findIndex((e) => e.type === 'linked');
@@ -521,7 +520,7 @@ describe('forge job human --link', { concurrency: 4 }, () => {
       const created = await s.newJob('Export to CSV');
       const c = await s.cli('job', 'human', created, 'approve-spec', '--link', 'new');
       assert.equal(c.status, 0, c.stderr);
-      assert.deepEqual(c.json, { ok: true, link: { id: created, source: { tracker: 'local', ref: 'export-to-csv', url: null }, created: true } });
+      assert.deepEqual(c.json, { ok: true, link: { id: created, issues: [{ tracker: 'local', ref: 'export-to-csv', url: null }], added: ['export-to-csv'], removed: [], created: true } });
       assert.equal(humans(created)[0].action, 'approve-spec');
 
       const waived = await s.newJob('Bump a typo');
@@ -537,7 +536,7 @@ describe('forge job human --link', { concurrency: 4 }, () => {
       const gate = await s.newJob('Dark mode');
       const a = await s.cli('job', 'human', gate, 'approve', '--link', 'dark-mode-toggle', '--note', 'that one');
       assert.equal(a.status, 0, a.stderr);
-      assert.deepEqual(a.json, { ok: true, link: { id: gate, source: { tracker: 'local', ref: 'dark-mode-toggle', url: null } } });
+      assert.deepEqual(a.json, { ok: true, link: { id: gate, issues: [{ tracker: 'local', ref: 'dark-mode-toggle', url: null }], added: ['dark-mode-toggle'], removed: [] } });
       assert.deepEqual([humans(gate)[0].action, humans(gate)[0].note], ['approve', 'that one']);
       const gate2 = await s.newJob('Another one');
       const a2 = await s.cli('job', 'human', gate2, 'approve', '--link', 'new');
@@ -551,7 +550,7 @@ describe('forge job human --link', { concurrency: 4 }, () => {
       // Without --link the output is unchanged.
       const plain = await s.newJob('Plain approval');
       assert.deepEqual((await s.cli('job', 'human', plain, 'approve-spec')).json, { ok: true });
-      assert.equal(loadJob(s.root, plain).source, null);
+      assert.deepEqual(loadJob(s.root, plain).issues, []);
     } finally {
       s.repo.cleanup();
     }
@@ -560,14 +559,11 @@ describe('forge job human --link', { concurrency: 4 }, () => {
   test('job human --link refuses and records nothing', async () => {
     const s = await setup('local', '# Backlog\n\n- [ ] Reading time badge\n');
     try {
-      const holder = await s.newJob('Holder');
-      assert.equal((await s.cli('job', 'link', holder, 'reading-time-badge')).status, 0);
       const id = await s.newJob('Refused');
       const before = s.raw(id);
       const humans = () => readEvents(s.root, id).filter((e) => e.type === 'human').length;
       const refusals: [string[], RegExp][] = [
         [['approve-spec', '--link', 'no-such-item'], /no local item "no-such-item"/],
-        [['approve-spec', '--link', 'reading-time-badge'], new RegExp(`active job ${holder}`)],
         [['approve', '--link', '../x'], /invalid ref/],
         [['approve-spec', '--link', '-x'], /invalid ref/],
         [['approve-spec', '--link=--create'], /invalid ref/],

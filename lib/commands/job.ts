@@ -10,14 +10,16 @@ import { OFFICE_JOB_COMMANDS, checkForemanDecision, checkOfficeSetFor, gateClass
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
 import { agentOutputMissing, attachAgent, claimJob, createJob, ownerStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
 import { logSecrets, scanAgentOutputs } from '../secrets.ts';
-import { normalizeRef } from '../issue-link.ts';
+import { issueLinkStatus } from '../issue-link.ts';
+import { checkIssueRef, issueUrl } from '../issue-ref.ts';
+import { githubHost, localRepoSlug } from '../repo-slug.ts';
 import { exists } from '../paths.ts';
 import { COMPLEXITIES, EFFORTS, OFFICE_GATES } from '../schema.ts';
 import { daemonScope } from '../requests.ts';
 import { jobPanel } from '../panel.ts';
 import { jobScope } from '../scope.ts';
 import { loadStepInput, step } from '../step.ts';
-import { createAndLink, linkJob, markNoIssue, suggestLink } from '../tracker-link.ts';
+import { createAndLink, linkJob, markNoIssue, suggestLink, unlinkJob } from '../tracker-link.ts';
 import { loadTracker } from '../trackers/index.ts';
 import { AGENT_ID } from '../transcripts.ts';
 import { importClaudeCodeTranscript } from '../usage.ts';
@@ -26,7 +28,7 @@ import { ForgeError, coerce, getPath, run } from '../util.ts';
 import { bodyFrom, list, num, oneOf, req, requireJob, str, usageError } from './args.ts';
 import { mirrorToTracker, startFromRef } from './tracker.ts';
 import { archiveJob, archiveOlder, prune } from '../retention.ts';
-import type { AgentUsage, ArchiveResult, Config, Effort, HelpGroup, Job } from '../types.ts';
+import type { AgentUsage, ArchiveResult, Config, Effort, HelpGroup, Job, JobIssue } from '../types.ts';
 import { FOREMAN_ACTOR, currentActor } from '../actor.ts';
 import { jobAudit, toCsv } from '../audit.ts';
 import { checkRepoBudget, isRepoHold, parkForRepoBudget, repoBudgetBlock, repoBudgetExempt } from '../repo-budget.ts';
@@ -50,9 +52,12 @@ const JOB: HelpGroup = {
         ['--title T', 'the title (required)'],
         ...BODY,
         ['--session S', 'claim the new job for session S'],
-        ['--ref R', 'the tracker ref it came from'],
-        ['--url U', "the tracker item's URL"],
-        ['--tracker T', 'the tracker kind of --ref (default: tracker.kind)'],
+        ['--issue R', 'an issue to record, in order, the first one primary: #12, owner/repo#12, KEY-123 or a backlog ref (repeatable, or comma-separated; no tracker call)'],
+        ['--ref R', 'the one tracker ref it came from (not with --issue)'],
+        ['--url U', "the tracker item's URL, with --ref"],
+        ['--tracker T', 'the tracker kind of --ref or --issue (default: tracker.kind)'],
+        ['--no-issue', 'record that the job needs no issue (not with --issue or --ref)'],
+        ['--reason R', 'why, with --no-issue'],
         ['--kind K', 'feature, bug, …'],
         ['--slug S', 'the words its id starts with (default: from the title)'],
         ['--branch B', 'the branch to push to (default: git.branchPrefix + id)'],
@@ -61,15 +66,15 @@ const JOB: HelpGroup = {
         ['--effort E', "the job's reasoning effort: low, medium, high, xhigh or max (default: inherit runtime.effort)"],
         ['--force', 'start it past an exceeded repo budget (budget:), logged as a budget-override; a human only'],
       ],
-      exits: [[1, 'an unsafe --branch, or --effort or --force from a daemon session']],
+      exits: [[1, 'an unsafe --branch or ref, --no-issue with tracker.kind none, or --effort or --force from a daemon session']],
     },
     {
       command: 'job from-ref',
       args: '<ref> [--session S]',
-      summary: 'start (or find) the job for a tracker item, planned as one job, and claim the item for it',
+      summary: "start (or find) the job for a tracker item (#12, 12 or this repo's owner/repo#12), planned as one job, and claim the item for it",
       flags: [['--session S', 'claim the job for session S']],
       exits: [
-        [1, 'no such tracker item'],
+        [1, "no such tracker item, or an issue outside this repo"],
         [3, 'the tracker claim was lost to another job'],
         [4, 'the repo budget holds new work'],
         [5, 'gh failed (GitHub tracker)'],
@@ -77,16 +82,17 @@ const JOB: HelpGroup = {
     },
     {
       command: 'job link',
-      args: '<id> <ref>|--create|--none [--reason R]|--suggest',
-      summary: 'link a job to an issue, create one, or record that it needs none',
+      args: '<id> <ref>…|--remove <ref>|--create|--none [--reason R]|--suggest',
+      summary: "add issues to a job (this repo's are checked and claimed, other repos' only recorded), remove them, create one, or record that it needs none",
       flags: [
-        ['--create', 'create an issue from the job and link it'],
+        ['--remove R', 'remove an issue from the job; the tracker claim stays (repeatable, or comma-separated)'],
+        ['--create', 'create an issue from the job and add it'],
         ['--none', 'record that the job needs no issue'],
         ['--reason R', 'why, with --none'],
         ['--suggest', 'list issues that look like this job, linking nothing'],
       ],
       exits: [
-        [1, 'no such job or item, the job or item is already linked, or tracker.kind is none'],
+        [1, 'no such job or item, an invalid ref, a ref the job does not carry, --none on a linked job, or tracker.kind is none'],
         [3, 'the tracker claim was lost to another job'],
         [5, 'gh failed (GitHub tracker)'],
       ],
@@ -329,6 +335,9 @@ const LOCKED_FIELDS: Record<string, string> = {
   owner: 'forge job claim|release',
   runs: 'forge job claim|release',
   source: 'forge job link',
+  issues: 'forge job link',
+  // A waiver set by hand would let a job past the issue-link wait with nobody having decided it.
+  noIssue: 'forge job link --none',
   pr: 'forge pr find|open|sync',
   schemaVersion: 'forge migrate',
   usage: 'forge job agent',
@@ -346,6 +355,34 @@ const OWNED_KINDS: Record<string, string> = {
   eval: 'forge eval start',
 };
 
+/**
+ * `forge job new`'s issue flags as createJob's list, checked before anything is written. Refs are
+ * recorded as given, with no tracker call or claim (from-ref and link make those).
+ */
+function newJobIssues(root: string, config: Config, flags: Record<string, any>): { issues: JobIssue[]; noIssue: { reason: string | null } | null } {
+  const typed = list(flags.issue);
+  const ref = str(flags.ref, '--ref');
+  const url = str(flags.url, '--url');
+  const wantsNone = flags['no-issue'] === true;
+  const reason = str(flags.reason, '--reason');
+  if ((ref !== undefined || url !== undefined) && (typed.length || flags.issue !== undefined)) throw usageError(JOB, 'new');
+  if (wantsNone && (typed.length || ref !== undefined || flags.issue !== undefined)) throw usageError(JOB, 'new');
+  if (reason !== undefined && !wantsNone) throw usageError(JOB, 'new');
+  if (wantsNone && config.tracker.kind === 'none') throw new ForgeError('tracker.kind is "none": no issue is needed, so there is nothing to waive (drop --no-issue)');
+  const tracker = str(flags.tracker, '--tracker') ?? config.tracker.kind;
+  const slug = tracker === 'github' ? localRepoSlug(root, config) : null;
+  const parse = (raw: string): string => {
+    const r = checkIssueRef(raw, { tracker, slug });
+    if ('error' in r) throw new ForgeError(r.error);
+    return r.ref;
+  };
+  const issues: JobIssue[] = ref !== undefined || url !== undefined ? [{ tracker, ref: ref === undefined ? null : parse(ref), url: url ?? null }] : typed.map((raw) => {
+    const r = parse(raw);
+    return { tracker, ref: r, url: tracker === 'github' ? issueUrl(r, githubHost()) : null };
+  });
+  return { issues, noIssue: wantsNone ? { reason: reason ?? null } : null };
+}
+
 // setPath walks these into Object.prototype.
 const PROTO_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -358,6 +395,8 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     case 'new': {
       // Read before createJob, so a bare --session fails instead of claiming as session "true".
       const session = str(flags.session, '--session');
+      // Every issue check runs before createJob, so a refused flag leaves no job dir.
+      const { issues, noIssue } = newJobIssues(root, config, flags);
       let effort: Effort | undefined;
       if (flags.effort !== undefined) {
         refuseEffortInDaemon();
@@ -369,9 +408,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       const status = checkRepoBudget(root, config);
       const job = createJob(root, config, {
         title: req(flags.title, '--title'),
-        ref: flags.ref,
-        url: flags.url,
-        tracker: flags.tracker,
+        issues,
         body: bodyFrom(flags),
         parent: flags.parent,
         branch: flags.branch,
@@ -380,7 +417,8 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         services: list(flags.services),
         effort,
       });
-      const created = { id: job.id, branch: job.branch, dir: path.relative(root, jobDir(root, job.id)) };
+      const waived = noIssue ? markNoIssue(root, job.id, noIssue.reason).noIssue : null;
+      const created = { id: job.id, branch: job.branch, dir: path.relative(root, jobDir(root, job.id)), issueLink: issueLinkStatus({ ...job, noIssue: waived }, config) };
       if (force) logHumanEvent(root, job.id, 'budget-override', { day: status.day, month: status.month, spent: status.spent, caps: status.caps });
       const limited = Boolean(status.reason) && !force && job.kind !== 'retro';
       // Still created, so the human's request is kept, but parked and unclaimed until the budget allows it.
@@ -396,13 +434,15 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     }
     case 'link': {
       const jobId = req(id, 'job id');
-      const ref = rest[1];
-      const modes = [ref !== undefined, flags.create === true, flags.none === true, flags.suggest === true].filter(Boolean).length;
-      if (modes !== 1) throw usageError(JOB, 'link');
+      const refs = rest.slice(1);
+      const removes = list(flags.remove);
+      const modes = [refs.length > 0, flags.remove !== undefined, flags.create === true, flags.none === true, flags.suggest === true].filter(Boolean).length;
+      if (modes !== 1 || (flags.remove !== undefined && !removes.length)) throw usageError(JOB, 'link');
       if (flags.suggest) return suggestLink(root, config, jobId, () => loadTracker(root, config));
       if (flags.none) return markNoIssue(root, jobId, typeof flags.reason === 'string' ? flags.reason : null);
+      if (removes.length) return unlinkJob(root, config, jobId, removes);
       const tracker = await loadTracker(root, config);
-      return flags.create ? createAndLink(root, config, tracker, jobId) : linkJob(root, config, tracker, jobId, ref!);
+      return flags.create ? createAndLink(root, config, tracker, jobId) : linkJob(root, config, tracker, jobId, refs);
     }
     case 'from-ref': {
       const ref = req(id, 'tracker ref');
@@ -526,7 +566,10 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       if (link !== undefined && (typeof link !== 'string' || !link.trim())) throw new ForgeError('--link needs <ref>, new or none');
       if (link !== undefined && action !== 'approve-spec' && action !== 'approve') throw new ForgeError('--link is only for approve and approve-spec');
       // Re-validated here, not only in the orchestrator: the value can come from request or dashboard text.
-      if (typeof link === 'string' && link !== 'new' && link !== 'none' && !normalizeRef(link)) throw new ForgeError(`invalid ref ${JSON.stringify(link.slice(0, 100))}`);
+      if (typeof link === 'string' && link !== 'new' && link !== 'none') {
+        const checked = checkIssueRef(link, { tracker: config.tracker.kind, slug: localRepoSlug(root, config) });
+        if ('error' in checked) throw new ForgeError(checked.error);
+      }
       const reason = str(flags.reason, '--reason');
       if (reason !== undefined && link !== 'none') throw new ForgeError('--reason is only for --link none');
       // A rejected split re-plans as one job; recorded before the event so step never sees one without the other.
@@ -537,7 +580,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       const actor = who === 'foreman' ? FOREMAN_ACTOR : currentActor(root);
       if (link === 'none') linked = markNoIssue(root, jobId, reason ?? null, actor);
       else if (link === 'new') linked = createAndLink(root, config, await loadTracker(root, config), jobId, actor);
-      else if (typeof link === 'string') linked = linkJob(root, config, await loadTracker(root, config), jobId, link, actor);
+      else if (typeof link === 'string') linked = linkJob(root, config, await loadTracker(root, config), jobId, [link], actor);
       logHumanEvent(root, jobId, 'human', { action, note: note ?? (rest.slice(2).join(' ') || null) }, actor);
       return { ok: true, ...(link !== undefined ? { link: linked } : {}) };
     }
@@ -769,7 +812,7 @@ export function compactJob(root: string, job: Job): Record<string, unknown> {
     worktree: job.worktree,
     port: job.port,
     pr: job.pr ? { number: job.pr.number, url: job.pr.url, state: job.pr.state, checks: job.pr.checks?.state, behindBy: job.pr.behindBy, conflicts: job.pr.conflicts, unresolvedThreads: job.pr.unresolvedThreads } : null,
-    source: job.source,
+    issues: job.issues,
     noIssue: job.noIssue,
     effort: job.effort,
     owner: job.owner?.session ?? null,

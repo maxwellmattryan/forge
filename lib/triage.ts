@@ -7,13 +7,15 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { REF, scoreItems, searchTerms } from './issue-link.ts';
+import { nativeRefs } from './issue-ref.ts';
+import { localRepoSlug } from './repo-slug.ts';
 import { isActive, listJobs } from './jobs.ts';
 import { paths } from './paths.ts';
 import { repoSlug } from './pr.ts';
 import { roster } from './roster.ts';
 import { UNTRUSTED_LINE, oneLine } from './tracker-link.ts';
 import { ForgeError, fenced, now, run, withLock, writeJsonAtomic, writeTextAtomic } from './util.ts';
-import type { Config, Effort, Tracker, TrackerCtx, TrackerItem, TriageMissing } from './types.ts';
+import type { Config, Effort, Job, Tracker, TrackerCtx, TrackerItem, TriageMissing } from './types.ts';
 
 export const TRIAGE_MISSING = ['outcome', 'acceptance', 'scope', 'duplicate'] as const satisfies readonly TriageMissing[];
 export const BATCH_RE = /^\d{8}T\d{6}Z-[a-z0-9]{4}$/;
@@ -155,7 +157,8 @@ export function noteLine(missing: readonly TriageMissing[], dupLabel: string | n
 function claimed(root: string, config: Config, tracker: Tracker, item: TrackerItem): boolean {
   if (item.claimedBy) return true;
   if (['in-progress', 'done', 'dropped', 'CLOSED'].includes(String(item.status ?? ''))) return true;
-  if (listJobs(root).some((j) => isActive(j) && j.source?.tracker === tracker.name && String(j.source.ref) === item.ref)) return true;
+  const slug = localRepoSlug(root, config);
+  if (listJobs(root).some((j) => isActive(j) && nativeRefs(j, tracker.name, slug).includes(String(item.ref)))) return true;
   if (tracker.name === 'github') {
     const prefix = config.tracker.github.labels.prefix;
     return (item.labels ?? []).some((l) => l.startsWith(prefix) && l !== `${prefix}queued` && l !== `${prefix}needs-info`);
@@ -186,10 +189,11 @@ function openPrs(root: string, config: Config): { prs: 'ok' | 'unavailable' | 'o
 }
 
 /** Where a duplicate candidate may be cited on a (possibly public) tracker: never by a local job id there. */
-function jobLabel(tracker: Tracker, job: { id: string; source?: { tracker?: string; ref?: unknown } | null }): string {
-  const ref = String(job.source?.ref ?? '');
-  if (job.source?.tracker === tracker.name && /^\d{1,9}$/.test(ref)) return `#${ref}`;
-  if (job.source?.tracker === tracker.name && tracker.name === 'local' && LOCAL_JOB_LABEL.test(`job ${job.id}`)) return `job ${job.id}`;
+function jobLabel(tracker: Tracker, job: Pick<Job, 'id' | 'issues'>, slug: string | null): string {
+  const refs = nativeRefs(job, tracker.name, slug);
+  const num = refs.find((r) => /^\d{1,9}$/.test(r));
+  if (num) return `#${num}`;
+  if (refs.length && tracker.name === 'local' && LOCAL_JOB_LABEL.test(`job ${job.id}`)) return `job ${job.id}`;
   return 'an active Forge job';
 }
 
@@ -243,6 +247,7 @@ export function prepareTriage(root: string, config: Config, tracker: Tracker, op
   if (!pending.length) return { batch: null, pending: 0, items: [], skipped };
 
   const jobs = listJobs(root).filter((j) => isActive(j) && j.kind !== 'eval' && !j.children?.length);
+  const slug = localRepoSlug(root, config);
   const pr = openPrs(root, config);
   const batch = batchId();
   const dir = path.join(triageDir(root), batch);
@@ -252,7 +257,7 @@ export function prepareTriage(root: string, config: Config, tracker: Tracker, op
   pending.forEach(({ item, hash, needsInfo }, n) => {
     const terms = searchTerms(item.title);
     const jobHits = scoreItems(
-      jobs.filter((j) => !(j.source?.tracker === tracker.name && String(j.source?.ref) === item.ref)).map((j) => ({ ref: `job:${j.id}`, title: j.title, label: jobLabel(tracker, j) })),
+      jobs.filter((j) => !nativeRefs(j, tracker.name, slug).includes(String(item.ref))).map((j) => ({ ref: `job:${j.id}`, title: j.title, label: jobLabel(tracker, j, slug) })),
       terms,
     );
     const prHits = scoreItems(pr.list.map((p) => ({ ref: `pr:${p.number}`, title: p.title, label: `PR #${p.number}` })), terms);
@@ -355,11 +360,11 @@ function readBatch(dir: string): BatchItem[] {
  * How a duplicate candidate is cited, derived from its id and Forge's own job records: the label
  * items.json carries is agent-writable, so it never reaches a comment.
  */
-function candidateLabel(root: string, tracker: Tracker, id: string): string {
+function candidateLabel(root: string, config: Config, tracker: Tracker, id: string): string {
   const pr = /^pr:(\d{1,9})$/.exec(id);
   if (pr) return `PR #${pr[1]}`;
   const job = listJobs(root).find((j) => `job:${j.id}` === id);
-  return job ? jobLabel(tracker, job) : 'an active Forge job';
+  return job ? jobLabel(tracker, job, localRepoSlug(root, config)) : 'an active Forge job';
 }
 
 /** `forge tracker triage --apply <batch>`: validated verdicts in, templated tracker writes out. */
@@ -395,7 +400,7 @@ export function applyTriage(root: string, config: Config, tracker: Tracker, batc
           continue;
         }
         const dupId = typeof v.duplicateOf === 'string' ? bi.candidates.find((c) => c === v.duplicateOf) ?? null : null;
-        const dup = dupId ? { id: dupId, label: candidateLabel(root, tracker, dupId) } : null;
+        const dup = dupId ? { id: dupId, label: candidateLabel(root, config, tracker, dupId) } : null;
         const missing = missingSet(v.missing).filter((k) => k !== 'duplicate' || dup);
         const key = cacheKey(tracker, bi.ref);
         const prev = cache[key];
