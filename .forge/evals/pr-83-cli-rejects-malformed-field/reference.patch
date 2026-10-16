@@ -1,0 +1,441 @@
+diff --git a/lib/cli.ts b/lib/cli.ts
+index 5a3947c..e5de4c2 100644
+--- a/lib/cli.ts
++++ b/lib/cli.ts
+@@ -17,7 +17,7 @@ import { roster } from './roster.ts';
+ import { computeStats } from './stats.ts';
+ import { ForgeError, readJson, run } from './util.ts';
+ import * as wt from './worktree.ts';
+-import { out, parseArgs, req } from './commands/args.ts';
++import { num, out, parseArgs, req, requireJob } from './commands/args.ts';
+ import { configCmd } from './commands/config.ts';
+ import { daemonCmd } from './commands/daemon.ts';
+ import { dash } from './commands/dash.ts';
+@@ -122,8 +122,9 @@ export async function main(argv: string[]): Promise<void> {
+       needInit();
+       const id = req(sub, 'job id');
+       const name = req(rest[0], 'command name');
++      const tail = num(flags.tail, '--tail', { integer: true }) ?? 40;
+       if (flags.background) return out(await wt.startBackground(root, config, id, name), flags);
+-      const r = wt.runCommand(root, config, id, name, { tail: Number(flags.tail ?? 40) });
++      const r = wt.runCommand(root, config, id, name, { tail });
+       out(r, flags);
+       if (!r.ok) process.exitCode = 1;
+       return;
+@@ -176,7 +177,7 @@ export async function main(argv: string[]): Promise<void> {
+     case 'retro': {
+       needInit();
+       if (sub === 'due') return out(retroDue(root, config), flags);
+-      if (sub === 'prepare') return out(prepareRetro(root, config, req(rest[0], 'retro job id'), { since: flags.since }), flags);
++      if (sub === 'prepare') return out(prepareRetro(root, config, requireJob(root, rest[0]).id, { since: flags.since }), flags);
+       throw new ForgeError('usage: forge retro due | forge retro prepare <job> [--since DATE]');
+     }
+     case 'eval':
+diff --git a/lib/commands/args.ts b/lib/commands/args.ts
+index 1ceb752..099e8a3 100644
+--- a/lib/commands/args.ts
++++ b/lib/commands/args.ts
+@@ -1,6 +1,8 @@
+ // Argument parsing and output helpers shared by every command module.
+ import fs from 'node:fs';
++import { loadJob } from '../jobs.ts';
+ import { ForgeError } from '../util.ts';
++import type { LoadedJob } from '../types.ts';
+ 
+ export function parseArgs(argv: string[]): { pos: string[]; flags: Record<string, any> } {
+   const pos: string[] = [];
+@@ -40,3 +42,35 @@ export function req(v: any, what: string): string {
+   if (v === undefined || v === null || v === '' || v === true) throw new ForgeError(`missing ${what}`);
+   return String(v);
+ }
++
++/**
++ * A string flag. A bare `--flag` (its value swallowed because it started with --) or `--flag=`
++ * would otherwise be stored as `true` or "", and a repeated flag as an array.
++ */
++export function str(v: unknown, flag: string): string | undefined {
++  if (v === undefined) return undefined;
++  if (v === true || v === '') throw new ForgeError(`missing value for ${flag} (write ${flag}=<value> if the value starts with --)`);
++  if (Array.isArray(v)) throw new ForgeError(`${flag} given more than once`);
++  return String(v);
++}
++
++/** A count flag: Number() alone turns "abc" into NaN and lets negatives through into job state. */
++export function num(v: unknown, flag: string, opts: { integer?: boolean } = {}): number | undefined {
++  if (v === undefined) return undefined;
++  if (v === true || v === '') throw new ForgeError(`missing value for ${flag}`);
++  const n = Array.isArray(v) ? NaN : Number(v);
++  if (!Number.isFinite(n) || n < 0 || (opts.integer && !Number.isInteger(n))) throw new ForgeError(`${flag} must be a non-negative ${opts.integer ? 'integer' : 'number'} (got ${JSON.stringify(String(v))})`);
++  return n;
++}
++
++/** A closed set of words, so an invented value fails instead of being logged as if it meant something. */
++export function oneOf<T extends string>(v: unknown, allowed: readonly T[], what: string): T {
++  const s = req(v, `${what} (${allowed.join('|')})`);
++  if (!(allowed as readonly string[]).includes(s)) throw new ForgeError(`unknown ${what} ${JSON.stringify(s)} (${allowed.join(', ')})`);
++  return s as T;
++}
++
++/** Checked before any write: updateJob's lock would otherwise create a ghost job directory. */
++export function requireJob(root: string, id: unknown): LoadedJob {
++  return loadJob(root, req(id, 'job id'));
++}
+diff --git a/lib/commands/job.ts b/lib/commands/job.ts
+index dd6201e..9967cc4 100644
+--- a/lib/commands/job.ts
++++ b/lib/commands/job.ts
+@@ -14,17 +14,25 @@ import { createAndLink, linkJob, markNoIssue, suggestLink } from '../tracker-lin
+ import { loadTracker } from '../trackers/index.ts';
+ import { importClaudeCodeTranscript } from '../usage.ts';
+ import { ForgeError, coerce, getPath, run } from '../util.ts';
+-import { bodyFrom, list, req } from './args.ts';
++import { bodyFrom, list, num, oneOf, req, requireJob, str } from './args.ts';
+ import { mirrorToTracker, startFromRef } from './tracker.ts';
+ import type { AgentUsage, Config, Job } from '../types.ts';
+ 
+ const LINK_USAGE = 'usage: forge job link <id> <ref> | --create | --none [--reason R] | --suggest';
+ 
++// `forge stats` and `forge job step` read these from `human` events, so an invented action is refused.
++const HUMAN_ACTIONS = ['approve-spec', 'revise-spec', 'approve-split', 'revise-split', 'approve', 'rework', 'answer'] as const;
++
++// List fields `step`, the briefs and the dashboard iterate; each maps to the example its error shows.
++const ARRAY_FIELDS: Record<string, string> = { reviewers: '["code","tests"]', services: '["api"]', dependsOn: '["<job id>"]', children: '["<job id>"]' };
++
+ /** The result is printed as JSON. */
+ export async function jobCmd(root: string, config: Config, sub: string | undefined, rest: string[], flags: Record<string, any>): Promise<unknown> {
+   const id = rest[0];
+   switch (sub) {
+     case 'new': {
++      // Read before createJob, so a bare --session fails instead of claiming as session "true".
++      const session = str(flags.session, '--session');
+       const job = createJob(root, config, {
+         title: req(flags.title, '--title'),
+         ref: flags.ref,
+@@ -38,7 +46,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
+         services: list(flags.services),
+       });
+       // A split child starts unowned: the session claims each child only when it runs it.
+-      if (flags.session && !flags.parent) claimJob(root, job.id, String(flags.session), false, daemonClaimOpts(root, job.id));
++      if (session && !flags.parent) claimJob(root, job.id, session, false, daemonClaimOpts(root, job.id));
+       return { id: job.id, branch: job.branch, dir: path.relative(root, jobDir(root, job.id)) };
+     }
+     case 'link': {
+@@ -67,20 +75,27 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
+     case 'get':
+       return getPath(loadJob(root, req(id, 'job id')), rest[1] ?? '') ?? null;
+     case 'set': {
++      const jobId = requireJob(root, id).id;
++      const note = str(flags.note, '--note');
+       const fields: Record<string, any> = {};
+       for (const kv of flags.field === undefined || flags.field === true ? [] : ([] as unknown[]).concat(flags.field).map(String)) {
+         const eq = kv.indexOf('=');
+         if (eq < 1) throw new ForgeError(`--field expects key=value, got "${kv}"`);
+-        fields[kv.slice(0, eq)] = coerce(kv.slice(eq + 1));
++        const key = kv.slice(0, eq);
++        fields[key] = coerce(kv.slice(eq + 1), key);
++      }
++      for (const [key, example] of Object.entries(ARRAY_FIELDS)) {
++        const v = fields[key];
++        if (key in fields && !(Array.isArray(v) && v.every((x) => typeof x === 'string'))) throw new ForgeError(`--field ${key} must be a JSON array of strings, e.g. --field '${key}=${example}'`);
+       }
+       // Checked before anything is written, so a bad list leaves job.json untouched.
+-      if ('dependsOn' in fields) fields.dependsOn = validateDependsOn(root, req(id, 'job id'), fields.dependsOn);
+-      let job = setJob(root, req(id, 'job id'), {
++      if ('dependsOn' in fields) fields.dependsOn = validateDependsOn(root, jobId, fields.dependsOn);
++      let job = setJob(root, jobId, {
+         stage: flags.stage,
+         state: flags.state,
+         waitingOn: flags['waiting-on'] === undefined ? undefined : flags['waiting-on'] === 'none' ? null : flags['waiting-on'],
+         reason: flags.reason,
+-        note: flags.note,
++        note,
+         fields,
+       });
+       if ('dependsOn' in fields) {
+@@ -91,30 +106,39 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
+       return { id: job.id, stage: job.stage, state: job.state, waitingOn: job.waitingOn };
+     }
+     case 'claim': {
+-      const jobId = req(id, 'job id');
+-      const { job, overridden } = claimRespectingDeps(root, jobId, req(flags.session, '--session'), Boolean(flags.force), daemonClaimOpts(root, jobId));
++      const jobId = requireJob(root, id).id;
++      const { job, overridden } = claimRespectingDeps(root, jobId, req(str(flags.session, '--session'), '--session'), Boolean(flags.force), daemonClaimOpts(root, jobId));
+       return { id: job.id, owner: job.owner, ...(overridden.length ? { dependenciesOverridden: overridden } : {}) };
+     }
+-    case 'release':
+-      releaseJob(root, req(id, 'job id'));
+-      return { id, released: true };
++    case 'release': {
++      const jobId = requireJob(root, id).id;
++      releaseJob(root, jobId);
++      return { id: jobId, released: true };
++    }
+     case 'note':
+-      logEvent(root, req(id, 'job id'), 'note', { text: rest.slice(1).join(' ') || bodyFrom(flags) });
++      logEvent(root, requireJob(root, id).id, 'note', { text: rest.slice(1).join(' ') || bodyFrom(flags) });
+       return { ok: true };
+     case 'human': {
+-      const action = req(rest[1], 'action (approve-spec|revise-spec|approve-split|revise-split|approve|rework|answer|reject)');
+-      const jobId = req(id, 'job id');
++      const jobId = requireJob(root, id).id;
++      const action = oneOf(rest[1], HUMAN_ACTIONS, 'action');
++      const note = str(flags.note, '--note');
+       // A rejected split re-plans as one job; recorded before the event so step never sees one without the other.
+       if (action === 'revise-split') setJob(root, jobId, { fields: { splitMode: 'never' } });
+-      logEvent(root, jobId, 'human', { action, note: flags.note ?? (rest.slice(2).join(' ') || null) });
++      logEvent(root, jobId, 'human', { action, note: note ?? (rest.slice(2).join(' ') || null) });
+       return { ok: true };
+     }
+     case 'agent': {
++      const jobId = requireJob(root, id).id;
+       const phase = req(rest[1], 'start|end');
+       if (!['start', 'end'].includes(phase)) throw new ForgeError('phase must be start or end');
+-      // `end` stays allowed, so a stray start can still be closed.
+-      if (phase === 'start') refuseInboxDrive(req(id, 'job id'));
+       const role = req(flags.role, '--role');
++      // Validated before anything is written, so a bad count leaves job.json and its usage untouched.
++      const summary = str(flags.summary, '--summary');
++      const tokens = num(flags.tokens, '--tokens');
++      const toolUses = num(flags['tool-uses'], '--tool-uses');
++      const durationMs = num(flags['duration-ms'], '--duration-ms');
++      // `end` stays allowed, so a stray start can still be closed.
++      if (phase === 'start') refuseInboxDrive(jobId);
+       let usage: (AgentUsage & { transcript?: string; through?: string | null }) | undefined;
+       let since: string | null = null;
+       let output: string | null = null;
+@@ -122,30 +146,29 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
+       if (phase === 'start' && flags.output !== undefined) {
+         if (typeof flags.output !== 'string' || !flags.output) throw new ForgeError('--output needs a path');
+         // Resolved and checked before anything is written, so a refused path leaves no trace.
+-        output = resolveAgentOutput(root, loadJob(root, req(id, 'job id')).id, flags.output);
+-        fs.mkdirSync(path.dirname(path.join(jobDir(root, String(id)), output)), { recursive: true });
++        output = resolveAgentOutput(root, jobId, flags.output);
++        fs.mkdirSync(path.dirname(path.join(jobDir(root, jobId), output)), { recursive: true });
+       }
+       if (phase === 'end') {
+-        const before = loadJob(root, req(id, 'job id'));
+-        outputMissing = agentOutputMissing(root, before.id, role, before.agents[role], typeof flags.summary === 'string' ? flags.summary : undefined);
++        const before = loadJob(root, jobId);
++        outputMissing = agentOutputMissing(root, before.id, role, before.agents[role], summary);
+         if (flags.import && flags['agent-id']) {
+-          since = importCursor(loadJob(root, req(id, 'job id')), String(flags['agent-id']));
++          since = importCursor(before, String(flags['agent-id']));
+           usage = importClaudeCodeTranscript(String(flags['agent-id']), { since }) ?? undefined;
+         }
+-        if (!usage && (flags.tokens || flags['tool-uses'] || flags['duration-ms']))
+-          usage = { totalTokens: Number(flags.tokens ?? 0), toolUses: Number(flags['tool-uses'] ?? 0), durationMs: Number(flags['duration-ms'] ?? 0) };
+-        if (usage && !usage.toolUses && flags['tool-uses']) usage.toolUses = Number(flags['tool-uses']);
++        if (!usage && (tokens !== undefined || toolUses !== undefined || durationMs !== undefined)) usage = { totalTokens: tokens ?? 0, toolUses: toolUses ?? 0, durationMs: durationMs ?? 0 };
++        if (usage && !usage.toolUses && toolUses) usage.toolUses = toolUses;
+       }
+       const job = recordAgent(
+         root,
+-        req(id, 'job id'),
++        jobId,
+         {
+           role,
+           phase: phase as 'start' | 'end',
+           model: flags.model ?? usage?.model ?? undefined,
+           agentId: flags['agent-id'],
+           status: flags.status,
+-          summary: flags.summary,
++          summary,
+           // The transcript's path and cursor are set to undefined, so the usage job.json records is
+           // only token counts; the cursor goes to the agent record instead.
+           usage: usage ? ({ ...usage, transcript: undefined, through: undefined } as AgentUsage) : undefined,
+@@ -205,17 +228,18 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
+       return { ...v, sha };
+     }
+     case 'decision': {
+-      const d = parseDecision(root, req(id, 'job id'));
++      const jobId = requireJob(root, id).id;
++      const d = parseDecision(root, jobId);
+       if (d.decision) {
+-        setJob(root, id, { fields: { decision: d.decision } });
+-        logEvent(root, id, 'decision', d);
++        setJob(root, jobId, { fields: { decision: d.decision } });
++        logEvent(root, jobId, 'decision', d);
+       }
+       return d;
+     }
+     case 'budget':
+       return budgetCmd(root, config, req(id, 'job id'), { set: list(flags.set), ack: Boolean(flags.ack) });
+     case 'progress':
+-      return progress(root, req(id, 'job id'));
++      return progress(root, requireJob(root, id).id);
+     case 'paths':
+       return jobPaths(root, config, loadJob(root, req(id, 'job id')));
+     case 'scope':
+@@ -225,7 +249,8 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
+     case 'step': {
+       const jobId = loadJob(root, req(id, 'job id')).id;
+       // The loop's heartbeat: only the owner's own step refreshes its claim, and nothing else changes.
+-      if (typeof flags.session === 'string') touchJob(root, jobId, flags.session);
++      const session = str(flags.session, '--session');
++      if (session !== undefined) touchJob(root, jobId, session);
+       return step(loadStepInput(root, config, jobId));
+     }
+     default:
+diff --git a/lib/commands/requests.ts b/lib/commands/requests.ts
+index 6bfc089..4423104 100644
+--- a/lib/commands/requests.ts
++++ b/lib/commands/requests.ts
+@@ -7,7 +7,7 @@ import { releaseJob } from '../jobs.ts';
+ import { exists, paths } from '../paths.ts';
+ import { INBOX_SCOPE, ackRequest, claimRequest, daemonScope, enqueue, listRequests, requestScope, validJobId } from '../requests.ts';
+ import { ForgeError } from '../util.ts';
+-import { req } from './args.ts';
++import { req, str } from './args.ts';
+ import type { Config, ForgeRequest } from '../types.ts';
+ 
+ const USAGE = 'usage: forge requests [list [--all]|scope|add TYPE [--job ID] [--text T] [--intake run|next|new] [--session S]|claim ID --session S|ack ID]';
+@@ -44,6 +44,9 @@ export function requestsCmd(
+   }
+   if (sub === 'add') {
+     const type = req(rest[0], 'type');
++    // Read before enqueue, so a bare --job or --session queues nothing.
++    const jobFlag = str(flags.job, '--job');
++    const session = str(flags.session, '--session') ?? null;
+     const args: Record<string, string> = {};
+     if (flags.intake !== undefined) {
+       if (type !== 'resume') throw new ForgeError('--intake is only for resume requests');
+@@ -56,13 +59,12 @@ export function requestsCmd(
+     // human decision for another job's session.
+     const s = scoped();
+     if (s.daemon && type !== 'resume') throw new ForgeError(`a daemon session queues only resume hand-offs (got ${JSON.stringify(type)}); a session following the skill hands off only resume`);
+-    const rec = enqueue(root, config, { type, job: flags.job, text: flags.text, args, from: s.daemon ? `daemon:${s.scope}` : 'cli' });
++    const rec = enqueue(root, config, { type, job: jobFlag, text: flags.text, args, from: s.daemon ? `daemon:${s.scope}` : 'cli' });
+     if (type !== 'resume') return rec;
+     // A hand-off lets go of the claim, so the job's session can take it without --force: when the
+     // caller names itself as the owner, or the inbox hands off a job one of its sessions claimed.
+     const job = rec.job;
+     if (!validJobId(job) || !exists(path.join(paths(root).jobs, job, 'job.json'))) return { ...rec, released: false };
+-    const session = typeof flags.session === 'string' && flags.session ? flags.session : null;
+     const inbox = s.daemon && s.scope === INBOX_SCOPE ? inboxSessionIds(root) : [];
+     const released = releaseJob(root, job, (o) => Boolean(o && ((session !== null && o.session === session) || inbox.includes(o.session))));
+     return { ...rec, released };
+@@ -78,7 +80,7 @@ export function requestsCmd(
+       const where = requestScope(root, rec);
+       if (where !== s.scope) throw new ForgeError(`request ${id} belongs to scope ${where}, not this session's scope ${s.scope}`, 1);
+     }
+-    if (sub === 'claim') return claimRequest(root, id, req(flags.session, '--session'), Boolean(flags.force));
++    if (sub === 'claim') return claimRequest(root, id, req(str(flags.session, '--session'), '--session'), Boolean(flags.force));
+     return ackRequest(root, id, { status: flags.status ?? 'done', result: flags.result });
+   }
+   throw new ForgeError(USAGE);
+diff --git a/lib/commands/tracker.ts b/lib/commands/tracker.ts
+index 1618926..6f38fd5 100644
+--- a/lib/commands/tracker.ts
++++ b/lib/commands/tracker.ts
+@@ -9,7 +9,7 @@ import { clampLimit, publicHits, searchTracker } from '../tracker-link.ts';
+ import { loadTracker } from '../trackers/index.ts';
+ import { ForgeError } from '../util.ts';
+ import * as wt from '../worktree.ts';
+-import { bodyFrom, list, req } from './args.ts';
++import { bodyFrom, list, num, req, str } from './args.ts';
+ import type { Config, Job, JobPr, Tracker, TrackerItem } from '../types.ts';
+ 
+ /** The result is printed as JSON. */
+@@ -17,8 +17,11 @@ export async function trackerCmd(root: string, config: Config, sub: string | und
+   const tracker = await loadTracker(root, config);
+   const ctx = { root, config };
+   switch (sub) {
+-    case 'list':
+-      return tracker.list(ctx, { ready: Boolean(flags.ready), limit: flags.limit ? Number(flags.limit) : undefined }).map(({ body: _b, ...i }) => i);
++    case 'list': {
++      // 0 keeps meaning no limit.
++      const limit = num(flags.limit, '--limit', { integer: true });
++      return tracker.list(ctx, { ready: Boolean(flags.ready), limit: limit || undefined }).map(({ body: _b, ...i }) => i);
++    }
+     case 'get':
+       return tracker.get(ctx, req(rest[0], 'ref'));
+     case 'claim':
+@@ -71,8 +74,8 @@ function resumeQueued(root: string, session: string): Job | null {
+ }
+ 
+ /** Ready tracker items, minus those whose active job waits on dependencies (listed as `blocked`). */
+-function readyItems(root: string, config: Config, tracker: Tracker, flags: Record<string, any>): { ready: TrackerItem[]; blocked: { ref: string; id: string; waitingOn: string[] }[] } {
+-  const items = tracker.list({ root, config }, { ready: true, limit: Number(flags.limit ?? 20) });
++function readyItems(root: string, config: Config, tracker: Tracker, flags: Record<string, any>, limit: number): { ready: TrackerItem[]; blocked: { ref: string; id: string; waitingOn: string[] }[] } {
++  const items = tracker.list({ root, config }, { ready: true, limit });
+   const blocked: { ref: string; id: string; waitingOn: string[] }[] = [];
+   // --force skips nothing. Otherwise an item is blocked when the active job it would resume
+   // (the same match startFromRef uses) has unmet dependencies.
+@@ -91,21 +94,25 @@ function readyItems(root: string, config: Config, tracker: Tracker, flags: Recor
+ export async function nextCmd(root: string, config: Config, flags: Record<string, any>): Promise<unknown> {
+   // A session asking for work first resumes a queued job nobody drives, before it creates one.
+   // --force never applies here: it would take a live owner's job or a blocked one.
+-  const session = flags.claim && typeof flags.session === 'string' && flags.session ? flags.session : null;
++  // Validated before resumeQueued claims anything: a bad --limit after a claim would only reach the
++  // tracker-error catch below.
++  const limit = num(flags.limit, '--limit', { integer: true }) ?? 20;
++  const sessionFlag = str(flags.session, '--session');
++  const session = flags.claim && sessionFlag ? sessionFlag : null;
+   const resumed = session ? resumeQueued(root, session) : null;
+   if (resumed) {
+     let blocked: { ref: string; id: string; waitingOn: string[] }[] = [];
+     // The job is already claimed, so a tracker hiccup only costs the `blocked` report; it is
+     // recorded on the job, as mirrorToTracker records its own.
+     try {
+-      blocked = readyItems(root, config, await loadTracker(root, config), flags).blocked;
++      blocked = readyItems(root, config, await loadTracker(root, config), flags, limit).blocked;
+     } catch (e) {
+       logEvent(root, resumed.id, 'tracker-error', { error: (e as Error).message.slice(0, 300) });
+     }
+     return { id: resumed.id, ref: resumed.source?.ref ?? null, title: resumed.title, branch: resumed.branch, stage: resumed.stage, state: resumed.state, resumed: true, ...(blocked.length ? { blocked } : {}) };
+   }
+   const tracker = await loadTracker(root, config);
+-  const { ready, blocked } = readyItems(root, config, tracker, flags);
++  const { ready, blocked } = readyItems(root, config, tracker, flags, limit);
+   const extra = blocked.length ? { blocked } : {};
+   const item = ready[0];
+   if (!item) return { item: null, ...extra };
+@@ -122,6 +129,7 @@ export async function startFromRef(
+   flags: Record<string, any>,
+   opts: { splitMode?: 'never' } = {},
+ ): Promise<{ id: string; existing: true; stage: Job['stage']; state: Job['state'] } | { id: string; ref: string; title: string; branch: Job['branch'] }> {
++  const session = str(flags.session, '--session');
+   const ctx = { root, config };
+   const item = tracker.get(ctx, ref);
+   if (!item) throw new ForgeError(`no ${tracker.name} item "${ref}"`);
+@@ -134,7 +142,7 @@ export async function startFromRef(
+     setJob(root, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` });
+     throw new ForgeError(`could not claim ${ref}: ${claim.reason}`, 3);
+   }
+-  if (flags.session) claimJob(root, job.id, String(flags.session), false, daemonClaimOpts(root, job.id));
++  if (session) claimJob(root, job.id, session, false, daemonClaimOpts(root, job.id));
+   return { id: job.id, ref: item.ref, title: item.title, branch: job.branch };
+ }
+ 
+diff --git a/lib/util.ts b/lib/util.ts
+index 96711b0..4ea5069 100644
+--- a/lib/util.ts
++++ b/lib/util.ts
+@@ -170,8 +170,12 @@ export function setPath(obj: any, dotted: string, value: any): void {
+   o[keys[keys.length - 1]] = value;
+ }
+ 
+-/** Interprets CLI values so `--field round=2` stores a number, not "2". */
+-export function coerce(v: string): any {
++/**
++ * Interprets CLI values so `--field round=2` stores a number, not "2". A `[`/`{` value that is not
++ * JSON is almost always one whose quotes the shell stripped, so it fails rather than being stored
++ * as a string that crashes `forge job step` later.
++ */
++export function coerce(v: string, key = 'value'): any {
+   if (v === 'true') return true;
+   if (v === 'false') return false;
+   if (v === 'null') return null;
+@@ -180,7 +184,11 @@ export function coerce(v: string): any {
+     try {
+       return JSON.parse(v);
+     } catch {
+-      return v;
++      const bare = /^\[([^"\[\]{}]*)\]$/.exec(v);
++      const suggestion = bare
++        ? JSON.stringify(bare[1].split(',').map((s) => s.trim()).filter(Boolean))
++        : v.startsWith('[') ? '["a","b"]' : '{"k":"v"}';
++      throw new ForgeError(`--field ${key}: ${JSON.stringify(v.slice(0, 80))} is not valid JSON; quote it for the shell, e.g. --field '${key}=${suggestion}'`);
+     }
+   }
+   return v;

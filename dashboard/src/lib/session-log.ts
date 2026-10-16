@@ -179,7 +179,7 @@ function supervisorText(ev: Record<string, any>): string {
 
 function supervisorTone(event: string): string {
   if (['error', 'resume-failed', 'line-truncated'].includes(event)) return 'bad';
-  if (['held', 'waiting', 'permission-asked', 'agents-lost'].includes(event)) return 'warn';
+  if (['held', 'waiting', 'permission-asked', 'agents-lost', 'missed-agent-end'].includes(event)) return 'warn';
   return 'muted';
 }
 

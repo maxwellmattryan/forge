@@ -1,0 +1,49 @@
+title: Dashboard markdown autolink never rewrites generated HTML; mockup iframe gets a no-network CSP
+request: |
+  Dashboard markdown autolink never rewrites generated HTML; mockup iframe gets a no-network CSP
+
+
+  ## Why
+
+  The dashboard renders untrusted text: `request.md` carries the GitHub issue body, `pr-feedback.md` carries any GitHub user's PR comments, and agent-written files are produced by a builder that may have read hostile repo content. Two holes in how that text is rendered and served were found in a security pass (docs/ARCHITECTURE.md "Dashboard security" is the posture to preserve):
+
+  1. **`inline()` in `dashboard/src/lib/markdown.ts` autolinks over its own generated HTML.** It first turns `[label](url)` into `<a href="…">`, then runs the bare-URL autolink regex over that output. A link whose URL contains `(https://…` is wrapped a second time inside the first anchor's `href`, so the renderer's own closing quote ends the outer `href` early and the attacker-controlled URL text becomes attribute names of the outer tag. Verified with the real renderer:
+
+     ```
+     md('see [x](https://a.example/p?q=(https://b.example/z)')
+     => <p>see <a href="https://a.example/p?q=(<a href="https://b.example/z"" target="_blank" rel="noopener noreferrer">https://b.example/z"</a> target="_blank" rel="noopener noreferrer">x</a></p>
+     ```
+
+     `esc()` runs first, so a raw quote or `<` cannot be injected and this did not reach script execution in my probe, but the invariant "autolinking never rewrites generated HTML" is the only thing standing between a crafted PR comment and the dashboard origin, which holds the token. Fix the structure, not the symptom.
+
+  2. **`/api/jobs/:id/raw` serves agent-written HTML (mockups) with `Content-Security-Policy: sandbox allow-scripts` only** (`lib/server.ts`, the `/raw` branch). The sandbox blocks same-origin access, but nothing stops the mockup from making network requests, so a misled designer agent that read a repo `.env` could write it into `mockup.html` and it leaves the machine the moment a human opens the Files tab. It also breaks the "dashboard loads no external assets" rule for mockups.
+
+  ## What to build
+
+  - In `inline()`, tokenise the text into segments first (code spans, explicit `[label](url)` links, bare URLs, plain text) and render each segment once, so no regex ever runs over HTML the function already emitted. Keep `safeUrl`, the `target`/`rel` attributes, the `**`/`*`/`_` emphasis and the severity chips exactly as they behave today for ordinary input. Do not add a markdown library or any `innerHTML`.
+  - In `lib/server.ts` on the `/raw` route, send `Content-Security-Policy: sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:` (or the tightest equivalent that still lets a self-contained mockup with inline script, inline style and data: images render). Document the header in docs/ARCHITECTURE.md "Dashboard security" next to the existing `/raw` sandbox note.
+  - Rebuild `dashboard/dist/` in the same commit (`npm run build:dashboard`).
+
+  No schema or `API_VERSION` change. No new dependency. No visual or layout change to the dashboard (the Drafting restyle jobs are in flight; touch only `markdown.ts`, its test, `server.ts`, its test and the doc).
+
+  ## Acceptance criteria
+
+  - `md('see [x](https://a.example/p?q=(https://b.example/z)')` renders exactly one `<a>` whose `href` is the escaped full URL and whose text is `x`, with no nested anchor; a test in `test/dashboard-lib.test.ts` (or a new `test/dashboard-markdown.test.ts`) asserts this and also asserts the output contains no `<a` inside an attribute value for a set of hostile inputs including `[x](https://a/(https://b/"onmouseover="alert(1))`, `https://a/x(https://b/y)`, and a 10k-character line of `(https://` repeats (no catastrophic backtracking: the test must finish in under a second).
+  - Existing renderer behaviour is unchanged: the current markdown tests pass without modification, and `**bold**`, `*em*`, `_em_`, `` `code` `` with a URL inside, `[blocker]` chips and a plain `https://` URL followed by `)` all render as before.
+  - A `test/server.test.ts` case requests `/raw` for a job file and asserts the `Content-Security-Policy` header contains `sandbox allow-scripts`, `default-src 'none'` and no `connect-src`.
+  - `npm run build:dashboard && git status --porcelain -- dashboard/dist` prints nothing, `npm run check:dashboard`, `npm run typecheck`, `node --test "test/*.test.ts"` and `claude plugin validate . --strict` pass.
+  - The job drawer still renders `request.md` and a mockup (`mockup.html` in the sandboxed iframe) correctly in both themes; include a screenshot proof in build.md if `verifyE2e` runs.
+
+  ## Interface
+
+  Keep `md` and `inline` exported from `dashboard/src/lib/markdown.ts`. The `/raw` route must send exactly this header value: `sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:` (tests compare the string).
+base: cf0f9baf8f81d9c199fd9d2c6d24d983e5f5de3f
+tags:
+  - replay
+check:
+  patch: check/tests.patch
+  command: null
+source:
+  pr: 86
+  url: https://github.com/maxwellmattryan/forge/pull/86
+  mergeCommit: bde69e1c0d606386377829328b71d04c805cf6ec

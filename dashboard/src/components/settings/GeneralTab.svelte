@@ -3,10 +3,11 @@
   import { CATALOGS, locale, setLocale, t } from '../../lib/locale.ts';
   import { THEME_CHOICES, chooseTheme, currentGrain, setGrain, themeChoice, type ThemeChoice } from '../../lib/theme.ts';
   import { pref } from '../../lib/prefs.ts';
+  import { settingsShortcutLabel } from '../../lib/settings.ts';
 
   let choice = $state<ThemeChoice>(themeChoice(pref.get('theme', '')));
   let grain = $state(currentGrain());
-  let shortcut = $state(pref.get('settingsShortcut', 'on') !== 'off');
+  const key = settingsShortcutLabel(typeof navigator === 'undefined' ? '' : navigator.platform);
   const codes = Object.keys(CATALOGS);
   const labels = $derived<Record<ThemeChoice, string>>({ forge: $t('settings.general.forge'), ash: $t('settings.general.ash'), temper: $t('settings.general.temper'), system: $t('settings.general.system') });
 
@@ -43,10 +44,7 @@
       <select id="settings-locale" class="self-start justify-self-start" value={$locale} onchange={(e) => setLocale(e.currentTarget.value)}>
         {#each codes as code (code)}<option value={code} lang={code}>{languageName(code)}</option>{/each}
       </select>
-      <div class="sm:col-span-2 flex flex-col gap-1">
-        <label class="field text-sm"><input type="checkbox" class="check" checked={shortcut} onchange={(e) => { shortcut = e.currentTarget.checked; pref.set('settingsShortcut', shortcut ? 'on' : 'off'); }} />{$t('settings.general.shortcut')}</label>
-        <p class="caption muted">{shortcut ? $t('settings.general.hint') : $t('settings.general.hintOff')}</p>
-      </div>
+      <p class="sm:col-span-2 caption muted">{$t('settings.general.hint', { key })}</p>
     </div>
   </section>
 </div>

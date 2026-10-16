@@ -8,4 +8,4 @@
   const model = $derived(prChipModel(pr));
 </script>
 
-{#if model}<Chip tone={model.tone} text={model.text} />{/if}
+{#if model}<Chip tone={model.tone} text={model.text} icon="pull-request" />{/if}

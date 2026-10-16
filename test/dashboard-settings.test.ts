@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { SOURCE_LOCALE, pickLocale, translate } from '../dashboard/src/lib/i18n.ts';
-import { SETTINGS_TABS, moveTab, settingsKey, wrapFocus } from '../dashboard/src/lib/settings.ts';
+import { SETTINGS_TABS, moveTab, settingsKey, settingsKeyShortcuts, settingsShortcutLabel, wrapFocus } from '../dashboard/src/lib/settings.ts';
+import { isMac } from '../dashboard/src/lib/command.ts';
 import { changedKeys, draftOf, fieldsFor, formatValue, invalidKeys, parseDraft } from '../dashboard/src/lib/config-form.ts';
 import { doctorReport, failedCount } from '../dashboard/src/lib/diagnostics.ts';
 import { FIELDS } from '../lib/config-fields.ts';
@@ -37,23 +38,52 @@ test('i18n translate and pickLocale', () => {
   assert.equal(pickLocale(null, ['ja'], ['en', 'de']), 'en', 'else en');
 });
 
-test('settings keyboard, tab and focus helpers', () => {
-  const k = (o: Partial<Parameters<typeof settingsKey>[0]>) => settingsKey({ key: ',', ctrlKey: false, metaKey: false, altKey: false, targetTag: 'BODY', editable: false, open: false, ...o });
-  assert.equal(k({}), 'open');
-  assert.equal(k({ targetTag: 'button' }), 'open', 'a focused button is not a field');
-  for (const mod of ['ctrlKey', 'metaKey', 'altKey']) assert.equal(k({ [mod]: true }), null, mod);
-  for (const tag of ['INPUT', 'textarea', 'SELECT']) assert.equal(k({ targetTag: tag }), null, tag);
-  assert.equal(k({ editable: true }), null, 'contenteditable');
-  assert.equal(k({ open: true }), null, 'already open');
+test('settings opens on Cmd+, or Ctrl+, only', () => {
+  const k = (o: Partial<Parameters<typeof settingsKey>[0]>) => settingsKey({ key: ',', ctrlKey: false, metaKey: false, altKey: false, open: false, mac: true, ...o });
+  // mac: Cmd+, alone.
+  assert.equal(k({ metaKey: true }), 'open', 'Cmd+, on mac');
+  assert.equal(k({}), null, 'a bare , does nothing');
+  assert.equal(k({ ctrlKey: true }), null, "Ctrl+, is not mac's shortcut");
+  assert.equal(k({ metaKey: true, ctrlKey: true }), null, 'Cmd+Ctrl+,');
+  assert.equal(k({ metaKey: true, altKey: true }), null, 'with Alt');
+  // Elsewhere: Ctrl+, alone.
+  assert.equal(k({ mac: false, ctrlKey: true }), 'open', 'Ctrl+, elsewhere');
+  assert.equal(k({ mac: false }), null, 'a bare , does nothing');
+  assert.equal(k({ mac: false, metaKey: true }), null, 'Meta+, is not the shortcut off mac');
+  assert.equal(k({ mac: false, ctrlKey: true, altKey: true }), null, 'with Alt (AltGr)');
+  assert.equal(k({ mac: false, ctrlKey: true, metaKey: true }), null, 'Ctrl+Meta+,');
+  // Never on repeat, while composing, or while Settings or the palette is open; Escape still closes.
+  assert.equal(k({ metaKey: true, repeat: true }), null, 'auto-repeat');
+  assert.equal(k({ metaKey: true, composing: true }), null, 'IME composition');
+  assert.equal(k({ metaKey: true, open: true }), null, 'already open');
+  assert.equal(k({ metaKey: true, palette: true }), null, 'the palette owns the keyboard');
   assert.equal(k({ key: 'Escape', open: true }), 'close');
-  assert.equal(k({ key: 'Escape' }), null, 'Escape while closed is the drawer\'s');
-  assert.equal(k({ key: 'a' }), null);
-  assert.equal(k({ shortcut: false }), null, 'the shortcut can be turned off');
-  assert.equal(k({ shortcut: true }), 'open');
-  assert.equal(k({ repeat: true }), null, 'auto-repeat');
-  assert.equal(k({ composing: true }), null, 'IME composition');
-  assert.equal(k({ key: 'Escape', open: true, shortcut: false }), 'close', 'Escape still closes');
+  assert.equal(k({ key: 'Escape' }), null, "Escape while closed is the drawer's");
+  assert.equal(k({ key: 'a', metaKey: true }), null);
+  // A modified key types nothing, so it opens from a form field too (the input has no say).
+  assert.equal(settingsKey({ key: ',', ctrlKey: true, metaKey: false, altKey: false, open: false, mac: false, targetTag: 'INPUT' } as Parameters<typeof settingsKey>[0]), 'open', 'inside an INPUT');
+  assert.equal(settingsKey({ key: ',', ctrlKey: false, metaKey: true, altKey: false, open: false, mac: true, targetTag: 'TEXTAREA' } as Parameters<typeof settingsKey>[0]), 'open', 'inside a TEXTAREA');
 
+  assert.equal(settingsShortcutLabel('MacIntel'), '⌘,');
+  assert.equal(settingsShortcutLabel('iPad'), '⌘,');
+  assert.equal(settingsShortcutLabel('Win32'), 'Ctrl ,');
+  assert.equal(settingsKeyShortcuts('MacIntel'), 'Meta+,');
+  assert.equal(settingsKeyShortcuts('Linux x86_64'), 'Control+,');
+  assert.equal(isMac('iPhone'), true);
+  assert.equal(isMac(''), false);
+
+  // The checkbox and its pref are gone: one caption names the shortcut, and the sidebar button announces it.
+  const general = fs.readFileSync(path.join(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'settings', 'GeneralTab.svelte'), 'utf8');
+  assert.doesNotMatch(general, /'settingsShortcut'|settings\.general\.(shortcut|hintOff)/, 'no settingsShortcut checkbox');
+  assert.equal(general.match(/type="checkbox"/g)?.length, 1, 'Grain is the only checkbox');
+  assert.match(general, /\$t\('settings\.general\.hint', \{ key \}\)/);
+  const app = fs.readFileSync(path.join(import.meta.dirname, '..', 'dashboard', 'src', 'App.svelte'), 'utf8');
+  assert.match(app, /id="settings-open"[^>]*aria-keyshortcuts=\{settingsKeyShortcuts\(platform\)\}/);
+  assert.match(app, /aria-hidden="true">\{settingsShortcut\}<\/kbd>/);
+  assert.doesNotMatch(app, /settingsShortcut'|pref\.get\('settingsShortcut'/, 'the old pref is ignored');
+});
+
+test('settings tab and focus helpers', () => {
   assert.deepEqual(SETTINGS_TABS.map((x) => x.id), ['general', 'pipeline', 'review', 'agents', 'tracker', 'dashboard', 'daemon', 'diagnostics', 'about']);
   assert.equal(moveTab('general', 'ArrowDown'), 'pipeline');
   assert.equal(moveTab('general', 'ArrowRight'), 'pipeline');

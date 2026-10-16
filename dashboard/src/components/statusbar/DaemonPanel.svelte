@@ -1,13 +1,12 @@
-<!-- The Daemon popover's body: the pool pill, live/cap and default permissions, the pool error, pool Start/Stop, holds and
-     waits, one chip per job session, and the Inbox log toggle. StatusBar owns the pool state and act(), so the indicator
-     and this panel agree. Session errors and titles are untrusted and render as text. -->
+<!-- The Daemon popover's body: the pool pill, live/cap and default permissions, the pool error, pool Start/Stop, then one row
+     per session: the Inbox, the Foreman (while foreman is on), then each job session in status order. A job row opens
+     that job's pane on the Log tab. The rows say held and waiting themselves, so no chips repeat them; the Inbox log lives
+     in the Inbox popover. StatusBar owns the pool state and act(), so the indicator and this panel agree. Session errors
+     and job titles are untrusted and render as text. -->
 <script lang="ts">
   import Icon from '../Icon.svelte';
-  import SessionLog from '../SessionLog.svelte';
   import { TONE_CLASS } from '../../lib/util.ts';
-  import { INBOX_SCOPE } from '../../lib/types.ts';
-  import { START_HINT, type PoolModel } from '../../lib/daemon.ts';
-  import { LOG_KEY } from '../../lib/daemon-log.ts';
+  import { START_HINT, daemonRows, type Pill, type PoolModel } from '../../lib/daemon.ts';
   import { S, openDrawer } from '../../lib/app.svelte.ts';
   import { closePopover } from '../../lib/popover.svelte.ts';
   import { t } from '../../lib/locale.ts';
@@ -19,27 +18,15 @@
   const poolMode = $derived(S.data?.daemons?.permissionMode || 'default');
   /** A mode's name, own keys only, so a mode from the server never reads Object.prototype. */
   const named = (mode: string): string => (Object.hasOwn(modeName, mode) ? modeName[mode] : mode);
-
-  const readOpen = (): boolean => {
-    try {
-      return localStorage.getItem(LOG_KEY) === '1';
-    } catch {
-      return false;
-    }
-  };
-  let inboxOpen = $state(readOpen());
-  function toggleInbox(): void {
-    inboxOpen = !inboxOpen;
-    try {
-      localStorage.setItem(LOG_KEY, inboxOpen ? '1' : '0');
-    } catch {}
-  }
+  const rows = $derived(model ? daemonRows(model, S.data?.jobs ?? []) : []);
 
   function openJob(id: string): void {
     closePopover('navigate');
     openDrawer(id, null, 'log');
   }
 </script>
+
+{#snippet pill(p: Pill)}<span class="chip sm shrink-0 {TONE_CLASS[p.tone]}" title={p.title}>{p.label}</span>{/snippet}
 
 {#if model}
   <div class="flex flex-col gap-3" aria-busy={pending}>
@@ -53,22 +40,27 @@
     <div class="flex flex-wrap items-center gap-2">
       <button class="btn sm" disabled={!model.canStart} title={model.startHint} aria-label={$t('daemon.startAll')} onclick={() => act('start')}><Icon name="play" />{$t('daemon.start')}</button>
       <button class="btn sm" disabled={!model.canStop} aria-label={$t('daemon.stopAll')} onclick={() => act('stop')}><Icon name="stop" />{$t('daemon.stop')}</button>
-      {#if model.held.length}<span class="chip sm {TONE_CLASS.warn}" title={model.held.join('\n')}>{$t('daemon.held', { count: model.held.length })}</span>{/if}
-      {#if model.waiting.length}<span class="chip sm {TONE_CLASS.warn}" title={model.waiting.join('\n')}>{$t('daemon.waiting', { count: model.waiting.length })}</span>{/if}
-      {#if model.kept.length}<span class="chip sm {TONE_CLASS.live}" title={model.kept.join('\n')}>{$t('daemon.kept', { count: model.kept.length })}</span>{/if}
     </div>
-    {#if model.jobs.length}
-      <div class="flex flex-col gap-1.5">
-        <h3 class="label">{$t('statusbar.daemon.jobs')}</h3>
-        <div class="flex flex-wrap items-center gap-2">
-          {#each model.jobs as j (j.id)}<button class="chip sm cursor-pointer max-w-full {TONE_CLASS[j.pill.tone]}" title={[j.id, j.pill.title, ...(j.mode ? [$t('daemon.modeTitle', { mode: named(j.mode) })] : [])].join('\n')} onclick={() => openJob(j.id)}><span class="truncate font-mono">{j.label}</span> · {j.pill.label}{#if j.mode} · {named(j.mode)}{/if}</button>{/each}
-        </div>
-      </div>
-    {/if}
-    <div class="border-t border-line pt-3">
-      <button class="btn sm" aria-expanded={inboxOpen ? 'true' : 'false'} onclick={toggleInbox}><Icon name="inbox" />{$t('statusbar.daemon.inboxLog')}</button>
-      {#if inboxOpen}<div class="mt-3 border-t border-line pt-3"><SessionLog scope={INBOX_SCOPE} compact /></div>{/if}
-    </div>
+    <ul class="flex flex-col gap-1 border-t border-line pt-3" aria-label={$t('daemon.rows.label')}>
+      {#each rows as r (r.kind === 'job' ? `job:${r.id}` : r.kind)}
+        <li>
+          {#if r.kind === 'job'}
+            <button class="plain clickable flex w-full min-w-0 items-center gap-3 border border-line-soft px-2 py-1.5 text-left" title={[r.id, r.pill.title, ...(r.mode ? [$t('daemon.modeTitle', { mode: named(r.mode) })] : [])].join('\n')} onclick={() => openJob(r.id)}>
+              <span class="flex min-w-0 flex-1 flex-col"><span class="truncate text-sm">{r.title ?? r.id}</span><span class="mono muted truncate">{r.id}{#if r.mode} · {named(r.mode)}{/if}</span></span>
+              {@render pill(r.pill)}
+            </button>
+          {:else}
+            <div class="plain flex min-w-0 items-center gap-3 border border-transparent px-2 py-1.5">
+              <span class="flex min-w-0 flex-1 flex-col">
+                <span class="flex items-center gap-2 text-sm">{r.kind === 'inbox' ? $t('daemon.rows.inbox') : $t('daemon.rows.foreman')}{#if r.kind === 'foreman'}<span class="chip live">{$t('daemon.rows.foremanTag')}</span>{/if}</span>
+                <span class="caption muted">{r.kind === 'inbox' ? $t('daemon.rows.inboxAbout') : $t('daemon.rows.foremanAbout')}</span>
+              </span>
+              {@render pill(r.pill)}
+            </div>
+          {/if}
+        </li>
+      {/each}
+    </ul>
   </div>
 {:else}
   <div class="flex flex-col gap-3">

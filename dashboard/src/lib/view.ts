@@ -13,7 +13,6 @@ const s = (v: unknown): string => String(v ?? '');
 // Labels come from messages/en.json (nav.<id>), through Nav.svelte.
 export const VIEWS = [
   { id: 'pipeline', icon: 'pipeline' },
-  { id: 'inbox', icon: 'inbox' },
   { id: 'backlog', icon: 'backlog' },
   { id: 'agents', icon: 'agents' },
   { id: 'analytics', icon: 'analytics' },
@@ -214,6 +213,8 @@ export interface CardModel {
   round: { round: number; max: number | null } | null;
   progress: Progress | null;
   lenses: { name: string; verdict: string | null }[] | null;
+  /** The job is running: its stepper's current step carries the live halo. */
+  running: boolean;
 }
 
 /** Everything a card's slots show, so JobCard reads no raw job state. */
@@ -228,6 +229,7 @@ export function cardModel(j: JobLike): CardModel {
     round: round > 0 ? { round, max: j.maxRounds ?? null } : null,
     progress: j.progress && progressWidth(j.progress) !== null ? j.progress : null,
     lenses: j.reviewers?.length ? j.reviewers.map((name) => ({ name, verdict: verdicts?.[name] ?? null })) : null,
+    running: j.state === 'running',
   };
 }
 

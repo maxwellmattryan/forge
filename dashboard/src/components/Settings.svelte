@@ -131,7 +131,7 @@
       <CloseButton label={$t('settings.close')} onclick={requestClose} />
     </div>
     <div class="flex flex-col md:flex-row flex-1 min-h-0">
-      <div role="tablist" tabindex="-1" aria-label={$t('settings.sections')} aria-orientation={wide ? 'vertical' : 'horizontal'} class="navlist {wide ? '' : 'row'} shrink-0 overflow-x-auto md:overflow-y-auto md:w-(--size-settings-rail) border-b md:border-b-0 md:border-r border-line p-2" onkeydown={railKey}>
+      <div role="tablist" tabindex="-1" aria-label={$t('settings.sections')} aria-orientation={wide ? 'vertical' : 'horizontal'} class="navlist {wide ? '' : 'row'} shrink-0 overflow-x-auto md:overflow-y-auto overscroll-contain md:w-(--size-settings-rail) border-b md:border-b-0 md:border-r border-line p-2" onkeydown={railKey}>
         {#each SETTINGS_TABS as item (item.id)}
           <button
             role="tab"
@@ -145,7 +145,7 @@
           >
         {/each}
       </div>
-      <div bind:this={panel} role="tabpanel" id="settings-panel-{tab}" aria-labelledby="settings-tab-{tab}" tabindex="0" class="flex-1 min-h-0 min-w-0 overflow-y-auto focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-line-strong focus-visible:-outline-offset-2">
+      <div bind:this={panel} role="tabpanel" id="settings-panel-{tab}" aria-labelledby="settings-tab-{tab}" tabindex="0" class="flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-line-strong focus-visible:-outline-offset-2">
         <div class="label callout px-4 pt-4 md:px-6" aria-hidden="true">{labels[tab]}</div>
         {#if tab === 'general'}<GeneralTab />
         {:else if tab === 'diagnostics'}<DiagnosticsTab {session} />

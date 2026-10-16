@@ -1,11 +1,11 @@
-<!-- The status bar: one slim fixed row at the bottom of every view. Left, the daemon, the inbox, the office (only while
-     foreman.enabled) and (md and up) holds and waits; then the facts strip (FORGE version · API · SESSIONS live dot and count · SHEET); right, the model and the
+<!-- The status bar: one slim fixed row at the bottom of every view. Left, Needs you (a bell and the count of decisions
+     waiting), the daemon, the inbox, the office (only while foreman.enabled) and (md and up) holds and waits; then the facts strip (FORGE version · API · SESSIONS live dot and count · SHEET); right, the model and the
      connection. It holds no text field: "New job or command" lives in the sidebar. Each indicator opens one popover, a
      sibling after the bar: a fixed element with a z-index is its own stacking context, so a popover inside the bar could
-     never rise above the drawer.
-     Stacking, from the back: sidebar z-10, drawer backdrop z-30, this bar z-35, drawer z-40, popovers z-42, Settings and
-     the palette z-45, toast z-50. At md and up the bar spans the content column only, so the sidebar keeps its full
-     height, and the drawer ends at the bar's top edge. Session errors, titles and model strings are untrusted and render
+     never rise above a full job pane.
+     Stacking, from the back: sidebar z-10, this bar z-35, a full job pane z-40 (inside main's isolated context), popovers
+     z-42, Settings and the palette z-45, toast z-50. At md and up the bar spans the content column only, so the sidebar
+     keeps its full height, and the job pane always ends at the bar's top edge. Session errors, titles and model strings are untrusted and render
      as text.
      The facts strip takes what the clusters leave (basis 0) and drops facts from the right as it runs short (see
      factsHidden). Each cluster holds its indicators in a max-content row; when the row is wider than the cluster, the next
@@ -19,6 +19,7 @@
   import ConnectionPanel from './statusbar/ConnectionPanel.svelte';
   import DaemonPanel from './statusbar/DaemonPanel.svelte';
   import InboxPanel from './statusbar/InboxPanel.svelte';
+  import NeedsPanel from './statusbar/NeedsPanel.svelte';
   import OfficePanel from './statusbar/OfficePanel.svelte';
   import ModelPanel from './statusbar/ModelPanel.svelte';
   import { API_VERSION } from '../lib/types.ts';
@@ -27,7 +28,7 @@
   import { FACTS_MAX, barModel, connectionState, factsHidden, modelSummary, promptAnnouncement, summaryText } from '../lib/statusbar.ts';
   import { activeSessions } from '../lib/live.ts';
   import { INBOX_SCOPE, OFFICE_SCOPE } from '../lib/types.ts';
-  import { VIEWS, viewIndex, type ViewId } from '../lib/view.ts';
+  import { VIEWS, inboxGroups, viewIndex, type ViewId } from '../lib/view.ts';
   import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
   import { closePopover, focusInPopover, keepFocus, openPopover, popover, reanchor } from '../lib/popover.svelte.ts';
   import type { PopoverId } from '../lib/popover.ts';
@@ -42,12 +43,13 @@
   const models = $derived(modelSummary(S.data?.config?.models));
   const conn = $derived(connectionState({ online: S.online, apiVersion: S.data?.apiVersion, clientApi: API_VERSION }));
   const active = $derived(activeSessions(S.data?.daemons));
+  // The Needs-you badge: the decisions waiting on a person (the popover's first section).
+  const needs = $derived(inboxGroups(S.data?.jobs ?? []).urgent.length);
   // One active session per line, the inbox and the office by name.
   const activeTitle = $derived(active.count ? active.ids.map((id) => (id === INBOX_SCOPE ? $t('live.inbox') : id === OFFICE_SCOPE ? $t('live.office') : id)).join('\n') : $t('live.none'));
   // The same map Nav.svelte builds, for the SHEET fact.
   const viewLabels = $derived<Record<ViewId, string>>({
     pipeline: $t('nav.pipeline'),
-    inbox: $t('nav.inbox'),
     backlog: $t('nav.backlog'),
     agents: $t('nav.agents'),
     analytics: $t('nav.analytics'),
@@ -214,6 +216,17 @@
     });
   });
 
+  // `#/inbox` (the old Needs-you page) opens the Needs-you popover once the data and its button are in.
+  let needsButton = $state<HTMLButtonElement>();
+  $effect(() => {
+    if (!S.openNeeds || !S.data || !needsButton) return;
+    const anchor = needsButton;
+    untrack(() => {
+      S.openNeeds = false;
+      if (popover.open !== 'needs') openPopover('needs', anchor);
+    });
+  });
+
   const expanded = (id: PopoverId): boolean => popover.open === id;
   const controls = (id: PopoverId): string | undefined => (popover.open === id ? `popover-${id}` : undefined);
 </script>
@@ -227,6 +240,12 @@
   <div bind:this={leftBox} class="flex min-w-0 items-center overflow-x-clip px-1">
     <div bind:this={leftRow} class="flex w-max items-center gap-0.5 md:gap-1">
       {#if S.data}
+        <!-- Its words are always sr-only (the bell and the count speak), so it adds no fit level. -->
+        <button bind:this={needsButton} class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="needs" title={$t('statusbar.needs.name')} aria-haspopup="dialog" aria-expanded={expanded('needs')} aria-controls={controls('needs')} onclick={(e) => openPopover('needs', e.currentTarget)}>
+          <span class="inline-flex {needs > 0 ? 'text-fg' : 'text-muted'}"><Icon name="bell" /></span>
+          {#if needs > 0}<span class="chip you num" aria-hidden="true">{needs}</span>{/if}
+          <span class="sr-only">{$t('statusbar.needs.name')}{#if needs > 0}{', '}{$t('statusbar.needs.count', { count: needs })}{/if}</span>
+        </button>
         <button class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="daemon" title={phone || left >= 1 || holdsOut ? titles.daemon : undefined} aria-haspopup="dialog" aria-expanded={expanded('daemon')} aria-controls={controls('daemon')} onclick={(e) => openPopover('daemon', e.currentTarget)}>
           <span class="inline-flex {left >= 5 || holdsOut ? '' : 'md:hidden'} {TONE_TEXT[daemonTone]}"><Icon name="daemon" /></span>
           <LiveDot on={bar.daemon.active} />
@@ -268,7 +287,7 @@
     <span class="sep max-md:hidden! {hid.api ? 'hidden!' : ''}" aria-hidden="true"></span>
     <span class="max-md:sr-only {hid.api ? 'sr-only' : ''}"><span class="k">{$t('statusbar.facts.api')}</span>{S.data ? S.data.apiVersion : '—'}</span>
     <span class="sep" aria-hidden="true"></span>
-    <span id="footer-sessions" title={activeTitle}><span class="k max-md:sr-only {hid.sessionsWord ? 'sr-only' : ''}">{$t('statusbar.facts.sessions')}</span><LiveDot on={active.count > 0} /><span class="num">{$t('statusbar.facts.sessionsValue', { count: active.count })}</span></span>
+    <span id="footer-sessions" title={activeTitle}><span class="k max-md:sr-only {hid.sessionsWord ? 'sr-only' : ''}">{$t('statusbar.facts.sessions')}</span><LiveDot on={active.count > 0} /><span class="num max-md:sr-only">{$t('statusbar.facts.sessionsValue', { count: active.count })}</span><span class="num md:hidden" aria-hidden="true">{active.count}</span></span>
     <span class="sep max-md:hidden! {hid.sheet ? 'hidden!' : ''}" aria-hidden="true"></span>
     <span class="max-md:sr-only {hid.sheet ? 'sr-only' : ''}"><span class="k">{$t('statusbar.facts.sheet')}</span>{$t('statusbar.facts.sheetValue', { view: viewLabels[S.view], index: viewIndex(S.view), total: VIEWS.length })}</span>
   </div>
@@ -302,12 +321,13 @@
   {#key open}
     <Popover
       id={open}
-      title={open === 'daemon' ? $t('statusbar.daemon.title') : open === 'inbox' ? $t('statusbar.inbox.title') : open === 'office' ? $t('statusbar.office.title') : open === 'model' ? $t('statusbar.model.title') : $t('statusbar.conn.title')}
+      title={open === 'needs' ? $t('statusbar.needs.title') : open === 'daemon' ? $t('statusbar.daemon.title') : open === 'inbox' ? $t('statusbar.inbox.title') : open === 'office' ? $t('statusbar.office.title') : open === 'model' ? $t('statusbar.model.title') : $t('statusbar.conn.title')}
       anchor={popover.anchor}
       align={open === 'model' || open === 'connection' ? 'end' : 'start'}
-      wide={open === 'daemon' || open === 'inbox' || open === 'office'}
+      size={open === 'needs' ? 'large' : open === 'daemon' || open === 'inbox' || open === 'office' ? 'wide' : 'normal'}
     >
-      {#if open === 'daemon'}<DaemonPanel {model} {pending} {act} />
+      {#if open === 'needs'}{#if S.data}<NeedsPanel data={S.data} />{/if}
+      {:else if open === 'daemon'}<DaemonPanel {model} {pending} {act} />
       {:else if open === 'inbox'}{#if model}<InboxPanel inbox={model.inbox} />{/if}
       {:else if open === 'office'}{#if model?.office}<OfficePanel office={model.office} />{/if}
       {:else if open === 'model'}<ModelPanel />
