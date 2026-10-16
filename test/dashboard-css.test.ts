@@ -94,10 +94,10 @@ test('palette scrim and stable scrollbar gutter', () => {
   const source = styleCss();
   const scrim = /@utility scrim\s*\{([\s\S]*?)\n\}/.exec(source)?.[1] ?? '';
   assert.match(scrim, /^\s*background: rgba\(5,7,10,\.35\);/, 'forge scrim is .35');
-  assert.match(scrim, /\[data-theme="ash"\] & \{ background: rgba\(40,28,18,\.2\); \}/, 'ash scrim is .2');
+  assert.match(scrim, /\[data-theme="ash"\] & \{ background: rgba\(20,24,30,\.2\); \}/, 'ash scrim is .2');
   const css = builtCss();
   assert.match(ruleFor(css, '.scrim'), /background:(rgba\(5,7,10,\.35\)|#05070a59)/);
-  assert.match(ruleFor(css, '[data-theme=ash] .scrim'), /background:(rgba\(40,28,18,\.2\)|#281c1233)/);
+  assert.match(ruleFor(css, '[data-theme=ash] .scrim'), /background:(rgba\(20,24,30,\.2\)|#14181e33)/);
   assert.match(ruleFor(css, 'html'), /scrollbar-gutter:stable/, 'the built html rule keeps a stable gutter');
   const root = (rel: string) => /class="([^"]*)"/.exec(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', rel), 'utf8').replace(/<script\b[\s\S]*?<\/script>|<!--[\s\S]*?-->/g, ''))?.[1].split(/\s+/) ?? [];
   const bar = root('CommandBar.svelte');

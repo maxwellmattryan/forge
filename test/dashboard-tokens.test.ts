@@ -1,5 +1,5 @@
 // The Smithy tokens: the token blocks of dashboard/style.css are the source, the built dashboard CSS must carry every
-// variable of them in the same scope with the same value, and the text colours must stay readable in both themes (forge, ash).
+// variable of them in the same scope with the same value, and the text colours must stay readable in every theme (forge, ash, temper).
 // Reads files only; a small regex-based declaration reader stands in for a CSS parser.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -113,17 +113,19 @@ function sameValue(a: string, b: string): boolean {
   });
 }
 
-const SCOPES = [':root, [data-theme="forge"]', '[data-theme="ash"]', ':root'];
+const SCOPES = [':root, [data-theme="forge"]', '[data-theme="ash"]', '[data-theme="temper"]', ':root'];
+const ROOT_SCOPE = SCOPES[3];
 // style.css declares these after the tokens: the brushed gleam fills, the grain and the falloff (ash overrides four of
-// them). They ride in the same scopes in the build.
+// them; temper overrides none, so it takes the dark :root ones). They ride in the same scopes in the build.
 const SMITHY_EXTRAS = ['--gleam-fill', '--gleam-fill-hot', '--gleam-fill-bar', '--gleam-spec', '--grain-opacity', '--grain-blend', '--fall', '--hammer', '--grain'];
 const EXTRAS: Record<string, string[]> = {
   [SCOPES[0]]: [],
   [SCOPES[1]]: ['--gleam-spec', '--grain-opacity', '--grain-blend', '--fall'],
-  [SCOPES[2]]: SMITHY_EXTRAS,
+  [SCOPES[2]]: [],
+  [ROOT_SCOPE]: SMITHY_EXTRAS,
 };
 /** Each theme's own token block in style.css (the scalar `:root` block is shared). */
-const THEME_SCOPE: Record<string, string> = { forge: SCOPES[0], ash: SCOPES[1] };
+const THEME_SCOPE: Record<string, string> = { forge: SCOPES[0], ash: SCOPES[1], temper: SCOPES[2] };
 const STYLE = path.join(ROOT, 'dashboard', 'style.css');
 /** A section of style.css, from its `/* ---------- <name>` marker to the next marker. */
 function styleSection(name: string): string {
@@ -205,6 +207,24 @@ const contrast = (a: Rgba, b: Rgba) => {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
 };
+/** HSL hue (degrees) and saturation (0–1) of an sRGB colour. */
+function hsl([r, g, b]: Rgba): { hue: number; sat: number } {
+  const [x, y, z] = [r / 255, g / 255, b / 255];
+  const max = Math.max(x, y, z);
+  const min = Math.min(x, y, z);
+  const d = max - min;
+  const light = (max + min) / 2;
+  const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * light - 1));
+  let hue = 0;
+  if (d !== 0) hue = max === x ? 60 * (((y - z) / d) % 6) : max === y ? 60 * ((z - x) / d + 2) : 60 * ((x - y) / d + 4);
+  return { hue: (hue + 360) % 360, sat };
+}
+const saturation = (c: Rgba) => hsl(c).sat;
+/** The circular distance between two hues, 0–180°. */
+const hueDistance = (a: Rgba, b: Rgba) => {
+  const d = Math.abs(hsl(a).hue - hsl(b).hue);
+  return Math.min(d, 360 - d);
+};
 const over = ([r, g, b, a]: Rgba, [R, G, B]: Rgba): Rgba => [r * a + R * (1 - a), g * a + G * (1 - a), b * a + B * (1 - a), 1];
 /** Channel-wise sRGB interpolation, what `color-mix(in srgb, a p, b)` computes for opaque colours. */
 const mix = (a: Rgba, p: number, b: Rgba): Rgba => [a[0] * p + b[0] * (1 - p), a[1] * p + b[1] * (1 - p), a[2] * p + b[2] * (1 - p), 1];
@@ -213,10 +233,10 @@ const mix = (a: Rgba, p: number, b: Rgba): Rgba => [a[0] * p + b[0] * (1 - p), a
 // placeholders and stamp-line keys only and is the one documented exception. spark is only
 // ever a fill under on-spark. Forge's hovered link is gleam-hot; Ash keeps gleam there.
 const TEXT = ['fg', 'muted', 'gleam', 'ember', 'ok', 'warn', 'bad', 'info'];
-const TEXT_BY_THEME: Record<string, string[]> = { forge: [...TEXT, 'gleam-hot'], ash: TEXT };
+const TEXT_BY_THEME: Record<string, string[]> = { forge: [...TEXT, 'gleam-hot'], ash: TEXT, temper: [...TEXT, 'gleam-hot'] };
 const DIM_FLOOR = 3.0;
 
-/** The two theme scopes of the style.css tokens, as a colour reader per theme. */
+/** The theme scopes of the style.css tokens, as a colour reader per theme. */
 function themeColors(): Record<string, (k: string) => Rgba> {
   const design = tokensCss();
   const out: Record<string, (k: string) => Rgba> = {};
@@ -231,8 +251,8 @@ function themeColors(): Record<string, (k: string) => Rgba> {
   return out;
 }
 
-test('text tokens meet 4.5:1 except the documented exceptions', () => {
-  assert.deepEqual(Object.keys(themeColors()), ['forge', 'ash']);
+test('text tokens meet 4.5:1 except the documented exceptions', (t) => {
+  assert.deepEqual(Object.keys(themeColors()), [...THEMES]);
   for (const [theme, color] of Object.entries(themeColors())) {
     for (const k of ['bg', 'panel', 'chrome']) assert.equal(color(k)[3], 1, `${theme} --${k} is opaque`);
     for (const k of TEXT_BY_THEME[theme]) {
@@ -244,6 +264,7 @@ test('text tokens meet 4.5:1 except the documented exceptions', () => {
     // dim: placeholders and stamp keys only, below 4.5:1 by design, never under 3:1 on the ground.
     const dim = contrast(color('dim'), color('bg'));
     assert.ok(dim >= DIM_FLOOR && dim < 4.5, `${theme} --dim on --bg is ${dim.toFixed(2)}:1, the documented exception`);
+    t.diagnostic(`${theme} dim on bg: ${dim.toFixed(2)}:1`);
     for (const [on, fill] of [['on-gleam', 'gleam'], ['on-spark', 'spark'], ['on-ember', 'ember']]) {
       const ratio = contrast(color(on), color(fill));
       assert.ok(ratio >= 4.5, `${theme} --${on} on --${fill} is ${ratio.toFixed(2)}:1`);
@@ -502,7 +523,7 @@ test('no fill is see-through: alpha only on the ground, the rivets and the allow
 // The sidebar and the phone header are opaque --chrome (App.svelte), the anvil; the active nav item lays --raised over
 // it, and the Needs-you tag tints the chrome under it with ember.
 test('chrome sidebar keeps text at 4.5:1', () => {
-  assert.deepEqual(Object.keys(themeColors()), ['forge', 'ash'], 'the sidebar is measured in every theme');
+  assert.deepEqual(Object.keys(themeColors()), [...THEMES], 'the sidebar is measured in every theme');
   for (const [theme, color] of Object.entries(themeColors())) {
     const chrome = color('chrome');
     const active = over(color('raised'), chrome);
@@ -534,7 +555,7 @@ test('chrome sidebar keeps text at 4.5:1', () => {
   assert.ok(contrast(ash('gleam'), ash('bg')) >= 4.5);
 });
 
-// ---------- the two themes: cascade, color-scheme, and the overrides ash takes ----------
+// ---------- the three themes: cascade, color-scheme, and the overrides ash takes ----------
 
 /**
  * The custom properties a theme resolves to through the cascade: the unlayered top-level blocks in
@@ -571,7 +592,7 @@ function effective(css: string, theme: string): Map<string, string> {
 
 /** An extra as written in style.css and as the build minifies it (`.10` becomes `.1`, rgba becomes hex). */
 const sameExtra = (a: string, b: string) => sameValue(a, b) || (a.trim() !== '' && !Number.isNaN(Number(a)) && Number(a) === Number(b));
-const GRAIN_BLEND: Record<string, string> = { forge: 'soft-light', ash: 'multiply' };
+const GRAIN_BLEND: Record<string, string> = { forge: 'soft-light', ash: 'multiply', temper: 'soft-light' };
 
 test("each theme's tokens and extras win the cascade", () => {
   const sample = ':root{--a:1;--p:.18}:root,[data-theme="x"]{--a:2}[data-theme=y]{--a:3;--p:.5}[data-theme=x] .b{--a:9}@layer l{:root{--a:8}}';
@@ -585,7 +606,7 @@ test("each theme's tokens and extras win the cascade", () => {
   const css = builtCss();
   for (const theme of THEMES) {
     const got = effective(css, theme);
-    const want = new Map([...scope(design, SCOPES[2]), ...scope(design, THEME_SCOPE[theme])]);
+    const want = new Map([...scope(design, ROOT_SCOPE), ...scope(design, THEME_SCOPE[theme])]);
     // The extras as the source resolves them for this theme. The grain URIs are compared in dashboard-css.test.ts.
     const extras = effective(extrasSrc, theme);
     for (const k of [...SMITHY_EXTRAS.filter((x) => !['--hammer', '--grain', '--gleam-fill', '--gleam-fill-hot', '--gleam-fill-bar'].includes(x)), 'color-scheme']) {
@@ -618,43 +639,110 @@ function themeRules(css: string, id: string): [string, string][] {
   return out;
 }
 
-// Native UI (scrollbars, an open <select>, autofill) follows the theme: forge is dark, ash is light. Ash overrides only
-// its token blocks, the hovered link, and the two scrims.
+// Native UI (scrollbars, an open <select>, autofill) follows the theme: forge and temper are dark, ash is light. Ash
+// overrides only its token blocks, the hovered link, and the two scrims; temper only its token block, so the dark
+// defaults (the backdrop, the scrim, a gleam-hot hovered link) apply to it as they do to forge.
 const ASH_RULES = ['[data-theme=ash]', '[data-theme=ash]', '[data-theme=ash]a:hover', '[data-theme=ash].backdrop', '[data-theme=ash].scrim'];
 
-test('forge is dark and ash is light', () => {
+test('forge and temper are dark, ash is light', () => {
   const sample = '@layer a,b;@layer b{[data-theme="x"] .m{c:1}}[data-theme=x]{color-scheme:dark;--a:1}.y{c:2}';
   assert.deepEqual(themeRules(sample, 'x'), [['[data-theme=x].m', 'c:1'], ['[data-theme=x]', 'color-scheme:dark;--a:1']], 'self-check: nested and top-level rules');
   const css = builtCss();
   assert.equal(effective(css, 'forge').get('color-scheme'), 'dark', 'forge (and :root) is dark');
   assert.equal(effective(css, 'ash').get('color-scheme'), 'light', 'ash is light');
+  assert.equal(effective(css, 'temper').get('color-scheme'), 'dark', 'temper is dark');
   // The build splits a token block around each color-mix token's @supports, so a selector can repeat: compare the set.
   const uniq = (xs: string[]) => [...new Set(xs)].sort();
   assert.deepEqual(uniq(themeRules(css, 'forge').map(([sel]) => sel)), [':root,[data-theme=forge]'], 'only the token block names forge: it is the :root default');
   assert.deepEqual(uniq(themeRules(css, 'ash').map(([sel]) => sel)), uniq(ASH_RULES), 'ash keeps exactly its overrides');
+  const temper = themeRules(css, 'temper').map(([sel]) => sel);
+  assert.ok(temper.length > 0 && temper.every((sel) => sel === '[data-theme=temper]'), `temper names only its top-level token blocks, no descendant overrides (${temper.join(' ')})`);
 });
 
-// Ash is cooled ash, warm rather than a white page: red over green over blue, with these four ground values.
-const ASH_GROUND: Record<string, string> = { '--bg': '#ebe7e0', '--bg-deep': '#ddd7cd', '--panel': '#f6f3ee', '--chrome': '#fbf9f6' };
-test('ash bg is warm', () => {
-  const warm = ([r, g, b]: Rgba) => r >= g && g >= b && r - b >= 8;
-  assert.ok(warm([235, 231, 224, 1]), 'self-check: the warm ground');
-  assert.ok(!warm([241, 240, 238, 1]), 'self-check: a near-white ground is not warm');
-  assert.ok(!warm([224, 231, 235, 1]), 'self-check: a cool ground is not warm');
+// Ash is polished aluminium in daylight: a neutral-to-cool grey (blue never under red, the channels within 12 of each
+// other), still a light ground, with these four ground values in style.css.
+const ASH_GROUND: Record<string, string> = { '--bg': '#e4e7eb', '--bg-deep': '#d6dadf', '--panel': '#f2f4f6', '--chrome': '#f9fafb' };
+const coolGrey = ([r, g, b]: Rgba) => b >= r && Math.max(r, g, b) - Math.min(r, g, b) <= 12;
+test('ash bg is cool grey', () => {
+  assert.ok(coolGrey([228, 231, 235, 1]), 'self-check: the cool ground');
+  assert.ok(coolGrey([240, 240, 240, 1]), 'self-check: a neutral grey counts');
+  assert.ok(!coolGrey([235, 231, 224, 1]), 'self-check: the old warm ground is not cool');
+  assert.ok(!coolGrey([200, 220, 240, 1]), 'self-check: a tinted blue is not grey');
   const vars = scope(tokensCss(), SCOPES[1]);
   for (const [k, v] of Object.entries(ASH_GROUND)) assert.equal(vars.get(k)?.toLowerCase(), v, `style.css ash ${k}`);
-  for (const k of ['bg', 'bg-deep']) assert.ok(warm(themeColors().ash(k)), `ash --${k} is warm`);
+  for (const k of ['bg', 'bg-deep', 'panel', 'chrome']) assert.ok(coolGrey(themeColors().ash(k)), `ash --${k} is a neutral-to-cool grey`);
+  const bg = luminance(themeColors().ash('bg'));
+  assert.ok(bg > 0.6, `ash --bg is light (relative luminance ${bg.toFixed(3)})`);
 });
 
-// A plate reads as a separate piece of metal on the ground (at least 1.11:1), and the solid
-// focus ring (line-strong) stays visible on every surface it can land on, in both themes.
-test('a plate stands at least 1.11:1 off the ground', () => {
+// No warm brown is left in Ash's metal: its washes, seams, edges, shadows, falloff and scrims are cool or neutral
+// (blue never under red), and its gleam is a desaturated steel rather than blueprint blue.
+const ASH_METAL = ['raised', 'line', 'line-soft', 'line-strong', 'edge-light', 'edge-dark', 'shadow-bevel', 'shadow-primary', 'shadow-overlay', 'shadow-drawer', 'shadow-chrome', 'shadow-glow'];
+test('ash metal is cool: no brown lines, shadows or scrims, a steel gleam', () => {
+  const colorsIn = (v: string): Rgba[] => [...v.matchAll(COLOR)].map((m) => parseColor(m[0]) ?? [NaN, NaN, NaN, NaN]);
+  const cool = ([r, , b]: Rgba) => b >= r;
+  assert.deepEqual(colorsIn('0 1px 0 0 rgba(60,40,20,0.12), 0 2px #223850'), [[60, 40, 20, 0.12], [34, 56, 80, 1]], 'self-check: colours in a shadow');
+  assert.ok(!cool([60, 40, 20, 1]) && cool([30, 38, 50, 1]), 'self-check: brown is warm, slate is cool');
+  assert.ok(saturation([59, 92, 128, 1]) > 0.3 && saturation([68, 88, 110, 1]) <= 0.3, 'self-check: blueprint blue is saturated, steel is not');
+  const ash = scope(tokensCss(), SCOPES[1]);
+  for (const k of ASH_METAL) {
+    const v = ash.get(`--${k}`) ?? '';
+    const colors = colorsIn(v);
+    assert.ok(colors.length > 0, `ash --${k} has a colour`);
+    for (const c of colors) assert.ok(cool(c), `ash --${k} (${v}) carries a warm colour`);
+  }
+  const style = fs.readFileSync(STYLE, 'utf8');
+  const css = builtCss();
+  const literals: [string, string][] = [
+    ['style.css --fall', effective(extrasCss(), 'ash').get('--fall') ?? ''],
+    ['built --fall', effective(css, 'ash').get('--fall') ?? ''],
+    ['style.css .backdrop', /\[data-theme="ash"\] & \{([^}]*)\}/.exec(/@utility backdrop\s*\{([\s\S]*?)\n\}/.exec(style)?.[1] ?? '')?.[1] ?? ''],
+    ['style.css .scrim', /\[data-theme="ash"\] & \{([^}]*)\}/.exec(/@utility scrim\s*\{([\s\S]*?)\n\}/.exec(style)?.[1] ?? '')?.[1] ?? ''],
+    ['built .backdrop', ruleFor(css, '[data-theme=ash] .backdrop')],
+    ['built .scrim', ruleFor(css, '[data-theme=ash] .scrim')],
+  ];
+  for (const [where, v] of literals) {
+    const colors = colorsIn(v);
+    assert.ok(colors.length > 0, `ash ${where} has a colour (${v})`);
+    for (const c of colors) assert.ok(cool(c), `ash ${where} (${v}) carries a warm colour`);
+  }
+  const gleam = saturation(themeColors().ash('gleam'));
+  assert.ok(gleam <= 0.3, `ash --gleam is a desaturated steel (HSL saturation ${gleam.toFixed(2)})`);
+});
+
+// A plate reads as a separate piece of metal on the ground (at least 1.11:1), and the solid focus ring (line-strong)
+// stays at least 5.1:1 on every surface it can land on, in every theme.
+test('a plate stands at least 1.11:1 off the ground', (t) => {
   for (const [theme, color] of Object.entries(themeColors())) {
     const step = contrast(color('panel'), color('bg'));
     assert.ok(step >= 1.11, `${theme} a plate stands ${step.toFixed(3)}:1 off the ground`);
     for (const s of ['bg', 'panel', 'chrome']) {
       const ratio = contrast(color('line-strong'), color(s));
-      assert.ok(ratio >= 5, `${theme} the focus ring (--line-strong) on --${s} is ${ratio.toFixed(2)}:1`);
+      assert.ok(ratio >= 5.1, `${theme} the focus ring (--line-strong) on --${s} is ${ratio.toFixed(2)}:1`);
     }
+    const ring = Math.min(...['bg', 'panel', 'chrome'].map((s) => contrast(color('line-strong'), color(s))));
+    t.diagnostic(`${theme} plate off ground ${step.toFixed(3)}:1; focus ring at least ${ring.toFixed(2)}:1`);
+  }
+});
+
+// Ember is the one signal for "waits on a person", in every theme: warn, bad and spark stand at least 12° of hue off it,
+// and the cool hues (gleam, gleam-hot, ok, info) at least 60°. Temper's heat colours never reach its ground: bg,
+// bg-deep, panel and chrome are gunmetal or oxidised steel, blue never under red.
+test('ember is the one warm signal in every theme', () => {
+  assert.equal(Math.round(hueDistance([255, 0, 0, 1], [255, 0, 0, 1])), 0, 'self-check: same hue');
+  assert.equal(Math.round(hueDistance([255, 0, 20, 1], [255, 20, 0, 1])), 9, 'self-check: across 0°');
+  assert.equal(Math.round(hueDistance([255, 0, 0, 1], [0, 255, 255, 1])), 180, 'self-check: opposite');
+  assert.equal(Math.round(hsl([0, 0, 255, 1]).hue), 240, 'self-check: blue');
+  for (const [theme, color] of Object.entries(themeColors())) {
+    const ember = color('ember');
+    for (const [k, floor] of [['warn', 12], ['bad', 12], ['spark', 12], ['gleam', 60], ['gleam-hot', 60], ['ok', 60], ['info', 60]] as const) {
+      const d = hueDistance(color(k), ember);
+      assert.ok(d >= floor, `${theme} --${k} is ${d.toFixed(1)}° of hue off --ember (at least ${floor}°)`);
+    }
+  }
+  const temper = themeColors().temper;
+  for (const k of ['bg', 'bg-deep', 'panel', 'chrome']) {
+    const [r, , b] = temper(k);
+    assert.ok(b >= r, `temper --${k} is not warm (blue ${b} under red ${r})`);
   }
 });

@@ -384,8 +384,8 @@ test('checkboxes are drawn and the theme seg keeps its radiogroup', () => {
   assert.equal(radios.length, 1, 'one radio, repeated over THEME_CHOICES');
   assert.equal(unquote(radios[0].attrs.find((a) => a.name === 'name')?.value), 'settings-theme', "Settings.svelte's focus trap groups radios by name");
   assert.match(general, /\{#each THEME_CHOICES as c \(c\)\}/);
-  assert.equal(THEME_CHOICES.length, 3, 'two themes and System');
-  assert.deepEqual([...THEME_CHOICES], ['forge', 'ash', 'system']);
+  assert.equal(THEME_CHOICES.length, 4, 'three themes and System');
+  assert.deepEqual([...THEME_CHOICES], ['forge', 'ash', 'temper', 'system']);
   for (const c of THEME_CHOICES) assert.match(general, new RegExp(`${c}: \\$t\\('settings\\.general\\.${c}'\\)`), `the ${c} choice has a label`);
   // One Grain row replaces Grid and Paper. The theme and the grain go through lib/theme.ts, which owns <html>'s attributes and their prefs.
   assert.match(general, /<div id="settings-grain-label">\{\$t\('settings\.general\.grain'\)\}<\/div>/);
@@ -609,7 +609,7 @@ test('text never sits on the bare ground', () => {
   for (const rel of files) assert.deepEqual(onGround(rel, read(rel), checked), [], `${rel} keeps its text on a surface`);
   const agents = fs.readFileSync(path.join(ROOT, 'AGENTS.md'), 'utf8');
   assert.ok(agents.includes('**Text never sits on the grain.**') && agents.includes('a `plate` (not `plate open`'), 'AGENTS.md states the rule with plate and plate open');
-  for (const s of ['`dashboard/style.css`', 'Check the forge and ash themes', 'Grain']) assert.ok(agents.includes(s), `AGENTS.md names ${s}`);
+  for (const s of ['`dashboard/style.css`', 'Check the forge, ash and temper themes', 'Grain']) assert.ok(agents.includes(s), `AGENTS.md names ${s}`);
 });
 
 /** Every file under dashboard/src, relative to it. */

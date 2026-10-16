@@ -9,7 +9,7 @@
   let grain = $state(currentGrain());
   const key = settingsShortcutLabel(typeof navigator === 'undefined' ? '' : navigator.platform);
   const codes = Object.keys(CATALOGS);
-  const labels = $derived<Record<ThemeChoice, string>>({ forge: $t('settings.general.forge'), ash: $t('settings.general.ash'), system: $t('settings.general.system') });
+  const labels = $derived<Record<ThemeChoice, string>>({ forge: $t('settings.general.forge'), ash: $t('settings.general.ash'), temper: $t('settings.general.temper'), system: $t('settings.general.system') });
 
   function languageName(code: string): string {
     try {
