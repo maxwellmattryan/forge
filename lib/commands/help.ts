@@ -13,6 +13,7 @@ import { HELP as DAEMON } from './daemon.ts';
 import { HELP as DASH } from './dash.ts';
 import { HELP as DOCTOR } from './doctor.ts';
 import { HELP as EVAL } from './eval.ts';
+import { HELP as FOCUS } from './focus.ts';
 import { HELP as GIT } from './git.ts';
 import { HELP as INIT } from './init.ts';
 import { HELP as JOB } from './job.ts';
@@ -170,8 +171,8 @@ export const CORE: HelpGroup[] = [
   },
 ];
 
-const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...REQUESTS, ...DAEMON, ...NOTIFY, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
-const ORDER = ['status', 'next', 'job', 'worktree', 'run', 'stop', 'verify', 'verifiers', 'secrets', 'integrate', 'git', 'pr', 'sync', 'tracker', 'stats', 'budget', 'audit', 'roster', 'retro', 'eval', 'requests', 'daemon', 'notify', 'init', 'migrate', 'config', 'doctor', 'dash', 'version', 'update', 'help'];
+const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...FOCUS, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...REQUESTS, ...DAEMON, ...NOTIFY, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
+const ORDER = ['status', 'next', 'job', 'worktree', 'run', 'stop', 'focus', 'verify', 'verifiers', 'secrets', 'integrate', 'git', 'pr', 'sync', 'tracker', 'stats', 'budget', 'audit', 'roster', 'retro', 'eval', 'requests', 'daemon', 'notify', 'init', 'migrate', 'config', 'doctor', 'dash', 'version', 'update', 'help'];
 
 /** Every command group, in the order the overview lists them. */
 export const GROUPS: HelpGroup[] = ORDER.map((name) => {

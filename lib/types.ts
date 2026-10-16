@@ -1283,7 +1283,7 @@ export interface LastHuman {
   actor: EventActor;
 }
 
-export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null };
+export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null; endpoints: Endpoint[] };
 
 /** GET /api/state: state() in lib/server.ts. */
 export interface ApiState {
@@ -1304,6 +1304,8 @@ export interface ApiState {
   daemons: DaemonPoolState;
   jobs: StateJob[];
   requests: ForgeRequest[];
+  /** The focused job (forge focus), or null when none is focused or it is gone or finished. */
+  focus: FocusFact | null;
   /** Repo spend against the day and month caps. */
   budget: RepoBudgetStatus;
   now: string;
@@ -1804,6 +1806,50 @@ export interface PostJobEffortResponse {
   effort: Effort | null;
   previous: Effort | null;
   changed: boolean;
+}
+
+/** A focused job, as `forge focus` and /api/state report it: resolveFocus in lib/focus.ts. */
+export interface FocusFact {
+  id: string;
+  title: string;
+  since: string;
+}
+
+/** One way to reach a job's running service: endpointsFor in lib/server.ts. Only `dev` for now. */
+export interface Endpoint {
+  name: 'dev';
+  url: string;
+  port: number;
+  live: boolean;
+}
+
+/** POST /api/focus body: a job id to focus, or null to clear. */
+export interface PostFocusBody {
+  job: string | null;
+}
+
+/** `forge focus <id>|--clear` and POST /api/focus reply: focusJob in lib/focus-actions.ts. */
+export interface FocusResponse {
+  focus: FocusFact | null;
+  previous: string | null;
+}
+
+/** POST /api/jobs/:id/run body: `dev` is the only command the dashboard may start. */
+export interface PostRunBody {
+  command: 'dev';
+}
+
+/** POST /api/jobs/:id/run reply: startBackground in lib/worktree.ts, without the pid and log path. */
+export interface PostRunResponse {
+  reused: boolean;
+  listening: boolean | null;
+  port: number | null;
+}
+
+/** POST /api/jobs/:id/editor reply: the editor command that was started. */
+export interface PostEditorResponse {
+  ok: true;
+  editor: string;
 }
 
 /**

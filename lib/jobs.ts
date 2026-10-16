@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { paths, exists } from './paths.ts';
 import { currentActor } from './actor.ts';
+import { clearFocusIf } from './focus.ts';
 import { EFFORTS, STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, cleanIssues, normalizeEvent, normalizeJob, serializeJob } from './schema.ts';
 import { idPrefix } from './issue-ref.ts';
 import { localRepoSlug } from './repo-slug.ts';
@@ -304,6 +305,8 @@ export function setJob(
   if (c.fields && Object.keys(c.fields).length) logEvent(root, id, 'fields', { fields: c.fields });
   if (c.note) logEvent(root, id, 'note', { text: c.note });
   if (released) logEvent(root, id, 'released');
+  // A finished job lets go of focus. No actor: whatever finished it, this is not a human's focus action.
+  if (b.state !== job.state && !isActive(job) && clearFocusIf(root, job.id)) logEvent(root, job.id, 'unfocus', { reason: 'finished' });
   return job;
 }
 

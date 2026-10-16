@@ -1,9 +1,9 @@
-// Shapes of the forge dash HTTP API for API_VERSION 21. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 24. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
 
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 24;
+export const API_VERSION = 25;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 /** lib/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */
@@ -502,7 +502,7 @@ export interface LastHuman {
   actor: EventActor;
 }
 
-export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null };
+export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null; endpoints: Endpoint[] };
 
 /** Request types the inbox accepts: REQUEST_TYPES in lib/requests.ts. */
 export type RequestType = 'next' | 'run' | 'approve' | 'revise-spec' | 'rework' | 'answer' | 'cancel' | 'resume' | 'sync' | 'eval-run' | 'retro' | 'gate';
@@ -541,6 +541,8 @@ export interface ApiState {
   daemons: DaemonPoolState;
   jobs: StateJob[];
   requests: ForgeRequest[];
+  /** The focused job (forge focus), or null when none is focused or it is gone or finished. */
+  focus: FocusFact | null;
   /** Repo spend against the day and month caps. */
   budget: RepoBudgetStatus;
   now: string;
@@ -1122,6 +1124,50 @@ export interface PostJobEffortResponse {
   effort: Effort | null;
   previous: Effort | null;
   changed: boolean;
+}
+
+/** A focused job, as `forge focus` and /api/state report it: resolveFocus in lib/focus.ts. */
+export interface FocusFact {
+  id: string;
+  title: string;
+  since: string;
+}
+
+/** One way to reach a job's running service: endpointsFor in lib/server.ts. Only `dev` for now. */
+export interface Endpoint {
+  name: 'dev';
+  url: string;
+  port: number;
+  live: boolean;
+}
+
+/** POST /api/focus body: a job id to focus, or null to clear. */
+export interface PostFocusBody {
+  job: string | null;
+}
+
+/** `forge focus <id>|--clear` and POST /api/focus reply: focusJob in lib/focus-actions.ts. */
+export interface FocusResponse {
+  focus: FocusFact | null;
+  previous: string | null;
+}
+
+/** POST /api/jobs/:id/run body: `dev` is the only command the dashboard may start. */
+export interface PostRunBody {
+  command: 'dev';
+}
+
+/** POST /api/jobs/:id/run reply: startBackground in lib/worktree.ts, without the pid and log path. */
+export interface PostRunResponse {
+  reused: boolean;
+  listening: boolean | null;
+  port: number | null;
+}
+
+/** POST /api/jobs/:id/editor reply: the editor command that was started. */
+export interface PostEditorResponse {
+  ok: true;
+  editor: string;
 }
 
 /**

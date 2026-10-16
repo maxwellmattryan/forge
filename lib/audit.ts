@@ -61,6 +61,12 @@ function detail(e: JobEvent): string | null {
     case 'archived':
       d = str(e.trigger);
       break;
+    case 'focus':
+      d = str(e.from);
+      break;
+    case 'unfocus':
+      d = str(e.reason);
+      break;
     case 'config-set':
       d = `${String(e.key)}: ${JSON.stringify(e.previous ?? null)} -> ${JSON.stringify(e.value ?? null)}`;
       break;

@@ -1,6 +1,6 @@
 <!-- The status bar: one slim fixed row at the bottom of every view. Left, the Foreman (always: the supervisor above the
      pool, accented, on or off), Needs you (an icon-only bell and the count of decisions and permission prompts waiting), the
-     daemon (a plain `Daemon live/cap` count) and (md and up) holds and waits; then the facts strip (FORGE version · API · SESSIONS live dot and count · SHEET); right, the model and the
+     daemon (a plain `Daemon live/cap` count) and (md and up) holds and waits; then the facts strip (FOCUS job id while a job is focused, a button to its drawer · FORGE version · API · SESSIONS live dot and count · SHEET); right, the model and the
      connection. It holds no text field: "New job or command" lives in the sidebar. Each indicator opens one popover, a
      sibling after the bar: a fixed element with a z-index is its own stacking context, so a popover inside the bar could
      never rise above a full job pane.
@@ -30,7 +30,8 @@
   import { activeSessions } from '../lib/live.ts';
   import { INBOX_SCOPE, OFFICE_SCOPE } from '../lib/types.ts';
   import { VIEWS, inboxGroups, viewIndex, type ViewId } from '../lib/view.ts';
-  import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
+  import { S, forgeToken, openDrawer, refresh } from '../lib/app.svelte.ts';
+  import { focusFact } from '../lib/focus.ts';
   import { closePopover, focusInPopover, keepFocus, openPopover, popover, reanchor } from '../lib/popover.svelte.ts';
   import type { PopoverId } from '../lib/popover.ts';
   import { toast } from '../lib/toast.svelte.ts';
@@ -44,6 +45,9 @@
   const models = $derived(modelSummary(S.data?.config?.models));
   const conn = $derived(connectionState({ online: S.online, apiVersion: S.data?.apiVersion, clientApi: API_VERSION }));
   const active = $derived(activeSessions(S.data?.daemons));
+  // The job being QA-ed by hand (forge focus), when it is still in the list and active; nothing renders otherwise.
+  const focus = $derived(focusFact(S.data));
+  const focusTitle = $derived(focus ? $t('statusbar.focus.title', { id: focus.id, title: focus.title }) : undefined);
   // The Needs-you badge: the decisions waiting on a person plus every pending permission prompt in the pool (the
   // popover's first two sections).
   const needs = $derived(inboxGroups(S.data?.jobs ?? []).urgent.length);
@@ -65,7 +69,7 @@
    * (its glyph shows), 5 the "Foreman" word (its glyph, live dot and prompt count stay): the supervisor keeps its name
    * longest. The Needs-you bell is icon-only at every width, so it adds no level. Right: 1 the provider and the effort, 2 the model label, 3 the
    * connection's word while it is Live or Connecting, and "needed" after "Update", 4 the rest of the connection's word.
-   * Facts, before either cluster: 1 SHEET, 2 API, 3 the SESSIONS word, 4 the FORGE word (lib/statusbar.ts factsHidden).
+   * Facts, before either cluster: 1 SHEET, 2 API, 3 the SESSIONS word, 4 the FORGE word, 5 the FOCUS word (lib/statusbar.ts factsHidden).
    */
   let left = $state(0);
   let right = $state(0);
@@ -302,9 +306,11 @@
   </div>
 
   <!-- The facts: what the clusters leave, never wrapped. Each dropped fact goes sr-only, so the strip still reads whole.
-       Below md only the version and the sessions dot and count stay. -->
+       Below md only the version and the sessions dot and count stay, and while a job is focused its glyph takes the
+       version's place. -->
   <div bind:this={factsBox} class="facts flex-1 basis-0">
-    <span id="footer-version"><span class="k max-md:sr-only {hid.forgeWord ? 'sr-only' : ''}">{$t('statusbar.facts.forge')}</span>{S.data ? $t('statusbar.facts.version', { version: S.data.forgeVersion }) : '—'}</span>
+    {#if focus}<button id="footer-focus" class="inline-flex shrink-0 items-center gap-[5px] cursor-pointer hover:text-gleam focus-visible:-outline-offset-2 max-md:min-w-11 max-md:justify-center" title={focusTitle} onclick={() => openDrawer(focus.id)}><span class="inline-flex md:hidden text-gleam" aria-hidden="true"><Icon name="review" /></span><span class="k max-md:sr-only {hid.focusWord ? 'sr-only' : ''}">{$t('statusbar.facts.focus')}</span><span class="max-md:sr-only max-w-[24ch] truncate">{focus.id}</span><span class="sr-only">{', '}{focus.title}</span></button><span class="sep max-md:hidden!" aria-hidden="true"></span>{/if}
+    <span id="footer-version"><span class="k max-md:sr-only {hid.forgeWord ? 'sr-only' : ''}">{$t('statusbar.facts.forge')}</span><span class={focus ? 'max-md:sr-only' : ''}>{S.data ? $t('statusbar.facts.version', { version: S.data.forgeVersion }) : '—'}</span></span>
     <span class="sep max-md:hidden! {hid.api ? 'hidden!' : ''}" aria-hidden="true"></span>
     <span class="max-md:sr-only {hid.api ? 'sr-only' : ''}"><span class="k">{$t('statusbar.facts.api')}</span>{S.data ? S.data.apiVersion : '—'}</span>
     <span class="sep" aria-hidden="true"></span>
