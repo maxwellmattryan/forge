@@ -5,7 +5,11 @@ import { listArchived } from './archive.ts';
 import { jobFindings } from './findings.ts';
 import type { JobFindings } from './findings.ts';
 import { isForemanActor, listJobs, readEvents } from './jobs.ts';
-import type { Job, JobEvent, ReviewerStats, Stats, UsageRow, VerifierStats } from './types.ts';
+import { csvCell, parseAuditDate } from './audit.ts';
+import { LEDGER_BY, ledgerRows, spendLedger } from './spend.ts';
+import type { LedgerBy } from './spend.ts';
+import type { Config, Job, JobEvent, ReviewerStats, Stats, UsageRow, VerifierStats } from './types.ts';
+import { ForgeError } from './util.ts';
 
 /** One job stats reads: live (its files on disk) or archived (its record), with the same accessors. */
 interface StatsSource {
@@ -220,4 +224,27 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
     reviewers,
     verifiers,
   };
+}
+
+const CSV_TOTALS = ['runs', 'tokens', 'input', 'output', 'cache_read', 'cache_write', 'usd'] as const;
+
+/**
+ * `forge stats --csv`: the spend ledger (lib/spend.ts) by job, role, model or day, for finance. Every
+ * job counts, evals and retros included, so the totals match `forge budget`.
+ */
+export function statsCsv(root: string, config: Config, flags: Record<string, unknown>): string {
+  const usage = (why: string) => new ForgeError(`${why}; usage: forge stats --csv [--since DATE] [--by job|role|model|day]`, 'usage', 'forge help stats');
+  if (!flags.csv) throw usage('--by needs --csv');
+  if (flags.json) throw usage('--csv and --json are exclusive');
+  const raw = flags.by === undefined ? 'job' : flags.by;
+  if (typeof raw !== 'string' || !(LEDGER_BY as readonly string[]).includes(raw)) throw usage(`--by must be one of ${LEDGER_BY.join(', ')} (got ${JSON.stringify(String(raw)).slice(0, 40)})`);
+  const by = raw as LedgerBy;
+  const since = flags.since === undefined ? null : parseAuditDate(flags.since, '--since');
+  const rows = ledgerRows(spendLedger(root, config, { since }), { by });
+  const lines = [[...(by === 'job' ? ['job', 'kind', 'title'] : [by]), ...CSV_TOTALS].join(',')];
+  for (const r of rows) {
+    const t = r.totals;
+    lines.push([...r.key, t.runs, t.tokens, t.input, t.output, t.cacheRead, t.cacheWrite, t.usd.toFixed(4)].map(csvCell).join(','));
+  }
+  return lines.join('\r\n') + '\r\n';
 }

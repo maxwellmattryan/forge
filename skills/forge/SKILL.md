@@ -35,7 +35,7 @@ Report `sync`, a line each: merges, PR feedback, conflicts, finished umbrellas, 
 |---|---|
 | *(empty)* or `status` | `forge status`; summarise what runs, waits and comes next; offer `forge dash`. |
 | `<free text>` | `forge job new --title "<short title>" --body "<the full request>" --session ${CLAUDE_SESSION_ID}`, then **Run a job**. |
-| `next [n]` | `triage`, then up to `n` (default 1, max `runtime.maxParallelJobs`) times `forge next --claim --session ${CLAUDE_SESSION_ID}` (a queued job nobody drives, `resumed: true`, else a tracker item), then run them in parallel. |
+| `next [n]` | `triage`, then up to `n` (default 1, max `runtime.maxParallelJobs`) times `forge next --claim --session ${CLAUDE_SESSION_ID}` (a queued job nobody drives, `resumed: true`, else a tracker item), then run them in parallel. A `held: true` result means the repo budget holds new work: report its `repoBudget.reason` and stop. |
 | `issue <ref>` | `forge job from-ref <ref> --session ${CLAUDE_SESSION_ID}` (planned as one job), then **Run a job**. |
 | `continue <job \| #pr \| ref> [note]` | `reference/pr-lifecycle.md` |
 | `approve <job> [<ref>\|new\|none] [note]`, `revise`, `answer`, `rework`, `cancel <job> [note]` | `reference/commands.md`, then **Run a job** |
@@ -46,7 +46,7 @@ Report `sync`, a line each: merges, PR feedback, conflicts, finished umbrellas, 
 | `update` | `forge update` only; report `from → to`, each `warnings` and `next` entry, or the error. |
 
 ## Run a job
-Claim it: `forge job claim <id> --session ${CLAUDE_SESSION_ID}`. Exit 3: another live session owns it: tell the human, stop. Exit 4: dependencies pending; report, move on (`--force` only if the human asks).
+Claim it: `forge job claim <id> --session ${CLAUDE_SESSION_ID}`. Exit 3: another live session owns it: tell the human, stop. Exit 4: dependencies pending, or the repo budget holds new work (the message starts `repo budget:`); report the message, move on (`--force` only if the human asks, and never for the repo budget: a human runs `forge budget ack`).
 
 Then loop: `forge job advance <id> --session ${CLAUDE_SESSION_ID}` (Bash timeout 600000), report each `tell` in `ran`, act on `action`, advance again.
 - `spawn` (`verifier`: yes/no): run `startShell`. Spawn `agent` as `subagent_type` with `brief` as the prompt, `model` unless `inherit` and `effort` unless null (if `resume` names a live agent, SendMessage it the brief). At the first of its report or notification: `forge job agent <id> end --role <role> --agent-id <agentId> --import [--tokens <total_tokens> --tool-uses <tool_uses> --duration-ms <duration_ms>] --summary "<first line of its reply>"`. With `parallel: true`, spawn it in the background and advance at once. With `spawns`, run all `startShell`s in one Bash call, then spawn all in one message of background Agent calls. Then `forge job agent <id> attach --role <role> --agent-id <agentId>` for each, in one Bash call.

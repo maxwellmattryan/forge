@@ -11,6 +11,7 @@ Read `waitingOn` from `forge job show <job>`, then:
 | `escalation` or `rounds-exhausted` | `forge job human <job> approve --note "…"` | `forge job set <job> --stage integrate --state running`, or `--stage decide` when the job's stage is already `integrate` |
 | `infra` | `forge job human <job> approve --note "…"` | `forge job set <job> --stage integrate --state running` |
 | `conflicts` | `forge job human <job> approve --note "…"` | `forge job set <job> --stage integrate --state running` (the integrator fixes them) |
+| `budget` with a reason starting `repo budget:` | nothing: approving never lifts the repo cap. Report that a human runs `forge budget ack --period <period>` with the current UTC month (YYYY-MM), or the day (YYYY-MM-DD) when the reason says today, or raises `budget.*` | leave the job waiting; release queues it again |
 | `budget` | `forge job budget <job> --ack` (or `--set k=v` when the note names limits, e.g. `usd=20`), then `forge job human <job> approve --note "…"` | if `stillExceeded` is empty, `forge job set <job> --state running`; otherwise report it and leave the job waiting |
 | `split-approval` | `forge job human <job> approve-split --note "…"` | `reference/split.md` against the existing `plan.md`, then run the unblocked children |
 | `issue-link` | `forge job human <job> approve --link <link> --note "…"` (below) | `forge job set <job> --state running` |

@@ -8,7 +8,7 @@ import { budgetCmd, enforceBudget } from '../budget.ts';
 import { OFFICE_REFUSAL, daemonClaimOpts, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
 import { OFFICE_JOB_COMMANDS, checkForemanDecision, checkOfficeSetFor, gateClass, inOffice, isGateClass, maybeEnqueueGate, reservedFor } from '../foreman.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
-import { agentOutputMissing, attachAgent, claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
+import { agentOutputMissing, attachAgent, claimJob, createJob, ownerStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
 import { logSecrets, scanAgentOutputs } from '../secrets.ts';
 import { normalizeRef } from '../issue-link.ts';
 import { exists } from '../paths.ts';
@@ -29,6 +29,7 @@ import { archiveJob, archiveOlder, prune } from '../retention.ts';
 import type { AgentUsage, ArchiveResult, Config, Effort, HelpGroup, Job } from '../types.ts';
 import { FOREMAN_ACTOR, currentActor } from '../actor.ts';
 import { jobAudit, toCsv } from '../audit.ts';
+import { checkRepoBudget, isRepoHold, parkForRepoBudget, repoBudgetBlock, repoBudgetExempt } from '../repo-budget.ts';
 
 const NO_JOB: [1, string] = [1, 'no such job'];
 const BODY: [string, string][] = [
@@ -58,8 +59,9 @@ const JOB: HelpGroup = {
         ['--parent ID', 'the umbrella job this one was split from'],
         ['--services a,b', 'the services it touches'],
         ['--effort E', "the job's reasoning effort: low, medium, high, xhigh or max (default: inherit runtime.effort)"],
+        ['--force', 'start it past an exceeded repo budget (budget:), logged as a budget-override; a human only'],
       ],
-      exits: [[1, 'an unsafe --branch, or --effort from a daemon session']],
+      exits: [[1, 'an unsafe --branch, or --effort or --force from a daemon session']],
     },
     {
       command: 'job from-ref',
@@ -69,6 +71,7 @@ const JOB: HelpGroup = {
       exits: [
         [1, 'no such tracker item'],
         [3, 'the tracker claim was lost to another job'],
+        [4, 'the repo budget holds new work'],
         [5, 'gh failed (GitHub tracker)'],
       ],
     },
@@ -124,7 +127,7 @@ const JOB: HelpGroup = {
         ['--session S', 'the claiming session (required)'],
         ['--force', 'take it from a live owner, or claim it with dependencies not done'],
       ],
-      exits: [[1, 'no such job, or the office daemon session ran it'], [3, 'another live session holds the job'], [4, 'its dependencies are not done']],
+      exits: [[1, 'no such job, or the office daemon session ran it'], [3, 'another live session holds the job'], [4, 'dependencies pending, or the repo budget holds new work']],
     },
     { command: 'job release', args: '<id>', summary: "drop the job's owner", exits: [NO_JOB] },
     { command: 'job note', args: '<id> [text] [--body B | --body-file F]', summary: 'log a note event', flags: BODY, exits: [NO_JOB] },
@@ -292,6 +295,14 @@ const refuseEffortInDaemon = () => {
   if (process.env.FORGE_DAEMON === '1') throw new ForgeError(EFFORT_DAEMON_REFUSAL);
 };
 
+// The repo budget caps unattended spend: a session misled by tracker or PR text must not force work past it.
+const FORCE_DAEMON_REFUSAL = 'forge job new --force starts work past the repo budget, which a daemon session may not do; a human runs it in their own session';
+const refuseForceInDaemon = () => {
+  if (process.env.FORGE_DAEMON === '1') throw new ForgeError(FORCE_DAEMON_REFUSAL);
+};
+
+const TERMINAL_STATES = ['done', 'cancelled', 'failed'];
+
 // Archive and prune delete job folders and session logs: a session misled by tracker text must not
 // wipe the evidence. The retention policy itself still runs from forge sync, since a human set it.
 const refuseRetentionInDaemon = (sub: string) => {
@@ -352,6 +363,10 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         refuseEffortInDaemon();
         effort = oneOf(str(flags.effort, '--effort'), EFFORTS, 'effort');
       }
+      const force = flags.force !== undefined && flags.force !== false;
+      if (force) refuseForceInDaemon();
+      // Checked before the job exists, so release never frees the job being created.
+      const status = checkRepoBudget(root, config);
       const job = createJob(root, config, {
         title: req(flags.title, '--title'),
         ref: flags.ref,
@@ -365,9 +380,19 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         services: list(flags.services),
         effort,
       });
+      const created = { id: job.id, branch: job.branch, dir: path.relative(root, jobDir(root, job.id)) };
+      if (force) logHumanEvent(root, job.id, 'budget-override', { day: status.day, month: status.month, spent: status.spent, caps: status.caps });
+      const limited = Boolean(status.reason) && !force && job.kind !== 'retro';
+      // Still created, so the human's request is kept, but parked and unclaimed until the budget allows it.
+      if (limited && status.held) {
+        parkForRepoBudget(root, job.id, status);
+        return { ...created, repoBudget: repoBudgetBlock(status) };
+      }
       // A split child starts unowned: the session claims each child only when it runs it.
       if (session && !flags.parent) claimJob(root, job.id, session, false, daemonClaimOpts(root, job.id));
-      return { id: job.id, branch: job.branch, dir: path.relative(root, jobDir(root, job.id)) };
+      if (!limited) return created;
+      logEvent(root, job.id, 'repo-budget-warn', { reason: status.reason });
+      return { ...created, repoBudget: repoBudgetBlock(status) };
     }
     case 'link': {
       const jobId = req(id, 'job id');
@@ -380,9 +405,16 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       return flags.create ? createAndLink(root, config, tracker, jobId) : linkJob(root, config, tracker, jobId, ref!);
     }
     case 'from-ref': {
+      const ref = req(id, 'tracker ref');
+      // A human named the item, so a hold is an error rather than an empty result.
+      const status = checkRepoBudget(root, config);
+      if (status.held) throw new ForgeError(status.reason!, 'blocked', 'forge budget');
       const tracker = await loadTracker(root, config);
       // An issue the human picked is planned as one job, whatever pipeline.split says.
-      return startFromRef(root, config, tracker, req(id, 'tracker ref'), flags, { splitMode: 'never' });
+      const r = await startFromRef(root, config, tracker, ref, flags, { splitMode: 'never' });
+      if (!status.reason || 'existing' in r) return r;
+      logEvent(root, r.id, 'repo-budget-warn', { reason: status.reason });
+      return { ...r, repoBudget: repoBudgetBlock(status) };
     }
     case 'list': {
       const jobs = listJobs(root).filter((j) => (flags.all ? true : isActive(j)));
@@ -449,10 +481,27 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       const jobId = requireJob(root, id).id;
       refuseInOffice(`it never claims ${jobId}`);
       const force = Boolean(flags.force);
+      const session = req(str(flags.session, '--session'), '--session');
+      const status = checkRepoBudget(root, config);
+      let budgetNote: { held: boolean; reason: string | null } | null = null;
+      if (status.reason) {
+        const cur = loadJob(root, jobId);
+        const own = ownerStatus(cur);
+        const agentRunning = Object.values(cur.agents ?? {}).some((a) => a?.status === 'running');
+        const foreignOwner = own.status === 'live' && own.session !== session;
+        const limited = !repoBudgetExempt(root, cur, status) && !TERMINAL_STATES.includes(cur.state) && !agentRunning && !foreignOwner;
+        // A running agent finishes its step, a foreign owner gets its exit 3, and another gate's wait is kept.
+        if (limited && status.held && (cur.state !== 'waiting' || isRepoHold(cur))) {
+          parkForRepoBudget(root, jobId, status);
+          throw new ForgeError(status.reason, 'blocked', 'forge budget');
+        }
+        if ((limited && cur.state !== 'waiting') || agentRunning) budgetNote = repoBudgetBlock(status);
+      }
       // Only a forced takeover is a person's decision; a plain claim is the pipeline's own.
       const opts = { ...daemonClaimOpts(root, jobId), ...(force ? { actor: currentActor(root) } : {}) };
-      const { job, overridden } = claimRespectingDeps(root, jobId, req(str(flags.session, '--session'), '--session'), force, opts);
-      return { id: job.id, owner: job.owner, ...(overridden.length ? { dependenciesOverridden: overridden } : {}) };
+      const { job, overridden } = claimRespectingDeps(root, jobId, session, force, opts);
+      if (budgetNote && !budgetNote.held) logEvent(root, job.id, 'repo-budget-warn', { reason: budgetNote.reason });
+      return { id: job.id, owner: job.owner, ...(overridden.length ? { dependenciesOverridden: overridden } : {}), ...(budgetNote ? { repoBudget: budgetNote } : {}) };
     }
     case 'release': {
       const jobId = requireJob(root, id).id;
