@@ -5,11 +5,13 @@ import { spawn } from 'node:child_process';
 import { enforceBudget } from './budget.ts';
 import { loadConfig, verifyGroups, worktreeRoot } from './config.ts';
 import { e2ePlan } from './e2e.ts';
+import { configForJob } from './eval-overlay.ts';
 import { stackSource } from './deps.ts';
 import { blockingLines, compactIntegrity, hiddenChanges, integrityError, renderIntegrity, testIntegrity } from './integrity.ts';
 import type { CompactIntegrity, IntegrityReport } from './integrity.ts';
 import { listJobs, isActive, loadJob, logEvent, setJob, touchJob, updateJob, jobDir } from './jobs.ts';
 import { exists, resolveFrom } from './paths.ts';
+import { posixShell } from './platform.ts';
 import { CONFIG_SCHEMA_VERSION } from './schema.ts';
 import { checkBranch, compactProtected, renderProtected } from './protected.ts';
 import type { BranchCheck, CompactProtected } from './protected.ts';
@@ -323,7 +325,7 @@ interface ShellResult {
 const joinOutput = (stdout: string, stderr: string): string => `${stdout}${stderr ? `\n${stderr}` : ''}`;
 
 function shell(cmd: string, cwd: string, env: NodeJS.ProcessEnv): ShellResult {
-  const res = run(process.env.SHELL || '/bin/sh', ['-lc', cmd], { cwd, env, allowFail: true });
+  const res = run(posixShell(), ['-lc', cmd], { cwd, env, allowFail: true });
   return { ok: res.ok, status: res.status, output: joinOutput(res.stdout, res.stderr) };
 }
 
@@ -336,7 +338,8 @@ const MAX_OUTPUT = 64 * 1024 * 1024;
  * failure with no exit code.
  */
 function shellAsync(cmd: string, cwd: string, env: NodeJS.ProcessEnv): Promise<ShellResult> {
-  const sh = process.env.SHELL || '/bin/sh';
+  // Outside the Promise, so a refused shell throws here as it does in shell().
+  const sh = posixShell();
   return new Promise((resolve) => {
     let settled = false;
     const finish = (r: ShellResult) => {
@@ -456,13 +459,15 @@ export async function runCommandAsync(root: string, config: Config, id: string, 
  * them, and none runs after a group with a failure. Results stay in config order whatever finishes
  * first, so `failure` is the first failing step as configured, not the first to fail.
  */
-export async function verify(root: string, config: Config, id: string): Promise<VerifyResult> {
-  // Both refusals come before the clean check, so a config this Forge can't read records nothing:
+export async function verify(root: string, base: Config, id: string): Promise<VerifyResult> {
+  // Every refusal comes before the clean check, so a config this Forge can't read records nothing:
   // guessing at it could pass a gate whose steps never ran.
-  if (config.schemaVersion > CONFIG_SCHEMA_VERSION)
-    throw new ForgeError(`config schemaVersion ${config.schemaVersion} is newer than this Forge (${CONFIG_SCHEMA_VERSION}); update Forge before running verify`);
-  const groups = verifyGroups(config.verify);
+  if (base.schemaVersion > CONFIG_SCHEMA_VERSION)
+    throw new ForgeError(`config schemaVersion ${base.schemaVersion} is newer than this Forge (${CONFIG_SCHEMA_VERSION}); update Forge before running verify`);
   const job = loadJob(root, id);
+  // An eval job's overlay picks its steps, e2e and budget; an invalid one throws here.
+  const config = configForJob(root, base, job);
+  const groups = verifyGroups(config.verify);
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
   const sha = run('git', ['rev-parse', 'HEAD'], { cwd: job.worktree }).stdout.trim();
   // fsmonitor, untracked-file and submodule settings are repo config the worktree can write, and each can hide changes.
@@ -568,7 +573,8 @@ export async function verify(root: string, config: Config, id: string): Promise<
   });
   logEvent(root, id, 'verify', rec);
   logSecrets(root, id, 'verify', secrets, { blocked: mode === 'block', round: job.round });
-  const budget = enforceBudget(root, config, id, 'verify');
+  // enforceBudget applies the job's overlay itself.
+  const budget = enforceBudget(root, base, id, 'verify');
   return {
     ok,
     round: job.round,
@@ -623,10 +629,11 @@ export async function startBackground(
     // Filled before the log is opened, so a refused value leaves nothing behind.
     // Checked above; the narrowing does not reach into this callback.
     const cmd = fill(template, vars(root, job, job.worktree!, job.port));
+    const sh = posixShell();
     const logFile = path.join(dir, 'logs', `${name}.log`);
     fs.mkdirSync(path.dirname(logFile), { recursive: true });
     const fd = fs.openSync(logFile, 'a');
-    const child = spawn(process.env.SHELL || '/bin/sh', ['-lc', cmd], {
+    const child = spawn(sh, ['-lc', cmd], {
       cwd: job.worktree!,
       env: envFor(job, job.worktree!, job.port),
       detached: true,

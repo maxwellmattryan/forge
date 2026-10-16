@@ -1,9 +1,12 @@
 // `forge doctor` and GET /api/doctor: is this machine and repo ready for Forge?
+import fs from 'node:fs';
 import path from 'node:path';
-import { validateConfig } from './config.ts';
+import { validateConfig, worktreeRoot } from './config.ts';
 import { apiKeyVars } from './daemon.ts';
 import { isActive, listJobs } from './jobs.ts';
 import { paths, exists } from './paths.ts';
+import { SUPPORT_URL, hostInfo, platformTier, posixShell, tierDetail, versionAtLeast } from './platform.ts';
+import type { HostInfo } from './platform.ts';
 import type { Config, DoctorCheck, DoctorReport } from './types.ts';
 import { hasBinary, run } from './util.ts';
 
@@ -13,12 +16,42 @@ export function nodeSupported(version: string): boolean {
   return major > 22 || (major === 22 && minor >= 18);
 }
 
-export async function doctor(root: string, config: Config, initialized: boolean): Promise<DoctorReport> {
+/** The repo root and worktrees root that sit on the Windows filesystem (/mnt/…) under WSL2. */
+function onWindowsFs(root: string, config: Config): string[] {
+  let real = root;
+  try {
+    real = fs.realpathSync(root);
+  } catch {
+    // A root that can't be resolved is still judged by its own path.
+  }
+  const posix = (p: string) => p.replaceAll('\\', '/');
+  return [...new Set([real, worktreeRoot(root, config)].map(posix))].filter((p) => p.startsWith('/mnt/'));
+}
+
+export async function doctor(root: string, config: Config, initialized: boolean, host: HostInfo = hostInfo()): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [];
   const add = (name: string, ok: boolean, detail = '') => checks.push({ name, ok, detail });
+  // First, so the verdict is the first thing doctor prints.
+  const tier = platformTier(host);
+  add('platform', tier !== 'unsupported', tierDetail(host));
+  if (tier === 'supported-with-notes') {
+    const bad = onWindowsFs(root, config);
+    add(
+      'repo on the Linux filesystem (WSL2)',
+      !bad.length,
+      bad.length ? `${bad.join(', ')} under /mnt/ (the Windows filesystem): clone the repo under your Linux home (e.g. ~/src) and keep worktrees.root there too: ${SUPPORT_URL}` : 'ok',
+    );
+  }
+  if (host.platform === 'win32') {
+    try {
+      add('POSIX sh (command templates)', true, posixShell({ platform: host.platform }));
+    } catch (e) {
+      add('POSIX sh (command templates)', false, (e as Error).message);
+    }
+  }
   add('node >= 22.18', nodeSupported(process.versions.node), process.versions.node);
   const gitV = run('git', ['--version'], { allowFail: true });
-  add('git', gitV.ok, gitV.stdout.trim());
+  add('git >= 2.38', gitV.ok && versionAtLeast(gitV.stdout, [2, 38]), gitV.ok ? gitV.stdout.trim() : 'git not found');
   const sparse = run('git', ['sparse-checkout', '-h'], { allowFail: true });
   add('git sparse-checkout (evals)', sparse.status === 129 || sparse.ok, '');
   add('config present', initialized, initialized ? path.relative(root, paths(root).config) : 'run /forge init');
@@ -35,6 +68,10 @@ export async function doctor(root: string, config: Config, initialized: boolean)
   if (needsGh) {
     const auth = hasBinary('gh') ? run('gh', ['auth', 'status'], { allowFail: true }) : null;
     add('gh installed + authenticated', Boolean(auth?.ok), auth ? (auth.ok ? 'ok' : (auth.stderr || auth.stdout).trim().split('\n')[0]) : 'gh not found');
+    if (auth) {
+      const ghV = run('gh', ['--version'], { allowFail: true });
+      add('gh >= 2.40', ghV.ok && versionAtLeast(ghV.stdout, [2, 40]), ghV.stdout.trim().split('\n')[0] || ghV.stderr.trim());
+    }
     if (auth?.ok && ['project', 'both'].includes(config.tracker.github.statusSync)) {
       const scopes = `${auth.stdout}${auth.stderr}`;
       add('gh token has "project" scope', /project/.test(scopes), 'run: gh auth refresh -s project');

@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { jobAcs } from '../acs.ts';
+import { jobFindings } from '../findings.ts';
 import { assistantBrief, jobPathMap } from '../brief.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
 import { OFFICE_REFUSAL, daemonClaimOpts, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
@@ -202,6 +203,12 @@ const JOB: HelpGroup = {
     },
     { command: 'job acs', args: '<id>', summary: "the spec's acceptance criteria and their proof in build.md", exits: [NO_JOB] },
     {
+      command: 'job findings',
+      args: '<id>',
+      summary: 'review findings per round and lens: raised, fixed, disputed and recurring (same lens and path in consecutive rounds)',
+      exits: [NO_JOB],
+    },
+    {
       command: 'job step',
       args: '<id> [--session S]',
       summary: "the job's next action (`spawn` with a ready agent brief, `run`, `wait`, `procedure` or `done`); read-only, the same state always gives the same answer, except that `--session <owner>` refreshes that session's claim heartbeat",
@@ -261,6 +268,7 @@ const LOCKED_FIELDS: Record<string, string> = {
   effort: 'forge job effort',
   // A cleared flag would skip the PP1 park; pr open recomputes it anyway.
   protectedPaths: 'forge git add|commit, forge verify or forge pr open',
+  eval: 'forge eval start',
 };
 
 // setPath walks these into Object.prototype.
@@ -547,6 +555,10 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       return jobScope(root, config, req(id, 'job id'));
     case 'acs':
       return jobAcs(root, req(id, 'job id'));
+    case 'findings': {
+      const jobId = requireJob(root, id).id;
+      return { id: jobId, ...jobFindings(root, jobId) };
+    }
     case 'step': {
       const jobId = loadJob(root, req(id, 'job id')).id;
       // The loop's heartbeat: only the owner's own step refreshes its claim, and nothing else changes.

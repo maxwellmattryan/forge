@@ -37,7 +37,12 @@ if (dir && typeof registerHooks === 'function' && typeof stripTypeScriptTypes ==
         fs.mkdirSync(dir, { recursive: true });
         const tmp = `${file}.${process.pid}.tmp`;
         fs.writeFileSync(tmp, source);
-        fs.renameSync(tmp, file);
+        try {
+          fs.renameSync(tmp, file);
+        } catch {
+          // Windows refuses to replace a file another process has open; this start has its source anyway.
+          fs.rmSync(tmp, { force: true });
+        }
       }
       return { format: 'module', source, shortCircuit: true };
     },

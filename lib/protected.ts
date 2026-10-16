@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { globProblem } from './config.ts';
+import { policyProblems } from './policy-check.ts';
 import { PINNED_GIT_CONFIG } from './integrity.ts';
 import { jobDir, loadJob, logEvent, updateJob } from './jobs.ts';
 import { globToRegExp, inSpec, resolveBase } from './scope.ts';
@@ -48,7 +48,6 @@ export const MAX_HITS = 200;
 export const LIST_LIMIT = 20;
 /** protected.diff is capped here, with a note, so a lockfile rewrite can't fill the job dir. */
 export const DIFF_CAP = 1024 * 1024;
-const REASON_MAX = 200;
 const LINK_MAX = 4096;
 /** Bytes of paths per `git diff` call when writing protected.diff, so argv stays bounded. */
 const ARGV_CHUNK = 64 * 1024;
@@ -62,28 +61,7 @@ const isMap = (v: unknown): v is Record<string, unknown> => v !== null && typeof
 
 // ---------- the policy ----------
 
-/** Every problem with `policy`, for validateConfig; an empty list means the policy is usable. */
-export function policyProblems(c: any): string[] {
-  const pol = c?.policy;
-  if (pol === undefined) return [];
-  if (!isMap(pol)) return [`policy must be a map (got ${JSON.stringify(pol)})`];
-  const list = pol.protectedPaths;
-  if (!Array.isArray(list)) return [`policy.protectedPaths must be a list of rules (got ${JSON.stringify(list)})`];
-  const problems: string[] = [];
-  list.forEach((r: unknown, i) => {
-    const key = `policy.protectedPaths rule ${i + 1}`;
-    if (!isMap(r)) return problems.push(`${key} must be a map with paths, action and reason (got ${JSON.stringify(r)})`);
-    if (!Array.isArray(r.paths) || !r.paths.length) problems.push(`${key}: paths must be a non-empty list of globs (got ${JSON.stringify(r.paths)})`);
-    else for (const g of r.paths) {
-      const p = globProblem(g, `${key}: paths`);
-      if (p) problems.push(p);
-    }
-    if (r.action !== 'escalate' && r.action !== 'refuse') problems.push(`${key}: action must be one of escalate | refuse (got ${JSON.stringify(r.action)})`);
-    if (typeof r.reason !== 'string' || !r.reason.length || r.reason.length > REASON_MAX || /[\r\n]/.test(r.reason))
-      problems.push(`${key}: reason must be a string of 1 to ${REASON_MAX} characters with no newline (got ${JSON.stringify(r.reason)?.slice(0, 80)})`);
-  });
-  return problems;
-}
+export { policyProblems };
 
 /** The rules to enforce. An invalid policy fails closed: every gate refuses until a human fixes it. */
 export function policyRules(config: Config): ProtectedRule[] {
