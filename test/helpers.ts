@@ -39,6 +39,14 @@ if (process.env.SHELL !== NO_LOGIN_SHELL) {
 // The cache sits in this checkout's ignored node_modules/.cache, not a shared temp dir another user
 // could fill first: its entries are code this process runs.
 process.env.NODE_COMPILE_CACHE ??= path.resolve(import.meta.dirname, '..', 'node_modules', '.cache', 'forge', 'compile-cache');
+// Node 22's compile cache skips TypeScript, so there every start strips lib/ again: 150 ms against
+// 40 ms (newer Node gains less, about a quarter). The hook keeps stripped modules on disk;
+// NODE_OPTIONS carries it into every node the suite starts (the CLI, and anything the CLI starts).
+const STRIP_HOOK = path.resolve(import.meta.dirname, 'fixtures', 'strip-cache.mjs');
+if (!process.env.FORGE_TEST_STRIP_CACHE) {
+  process.env.FORGE_TEST_STRIP_CACHE = path.resolve(import.meta.dirname, '..', 'node_modules', '.cache', 'forge', 'strip-cache');
+  process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS ?? ''} --import=${JSON.stringify(STRIP_HOOK)}`.trim();
+}
 
 /** A throwaway git repo with one commit; FORGE_ROOT pins the CLI's main checkout to it. */
 export function tempRepo() {
