@@ -3,7 +3,7 @@
 
 import { TABBABLE } from './settings.ts';
 
-export const POPOVERS = ['daemon', 'inbox', 'model', 'connection'] as const;
+export const POPOVERS = ['daemon', 'inbox', 'office', 'model', 'connection'] as const;
 /**
  * What a press can focus: whether a press outside a popover landed on something that takes focus itself (a select, the
  * view's heading, a summary), so focus stays there rather than going back to the indicator. Wider than TABBABLE.

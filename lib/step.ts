@@ -10,7 +10,7 @@ import path from 'node:path';
 import { acCoverage } from './acs.ts';
 import { jobPathMap, renderBrief, roleBrief } from './brief.ts';
 import type { RoleContext } from './brief.ts';
-import { lensNeedsApp, resolveEffort, reviewerChecklist } from './config.ts';
+import { autoMerge, lensNeedsApp, resolveEffort, reviewerChecklist } from './config.ts';
 import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
 import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
@@ -713,6 +713,8 @@ function plan(x: StepInput): StepAction {
   if (g) return g;
   if (x.plan.verdict === 'SPLIT') {
     if (splitMode(x) === 'auto') return procedure(x, 'P2', 'split.md', 'PLAN: SPLIT under pipeline.split auto');
+    // An approved split (a human's or the foreman's) sends the job back to plan/running: create the jobs.
+    if (after(human(x, 'approve-split')?.ts, planner.endedAt)) return procedure(x, 'P2', 'split.md', 'PLAN: SPLIT approved');
     return set(x, 'P3', { stage: 'plan', state: 'waiting', waitingOn: 'split-approval', reason: `planner proposes ${x.plan.jobs} jobs` }, 'a human decides the split');
   }
   if (x.plan.verdict === 'SINGLE') return toStage(x, 'P4', 'spec', 'one job: write the spec', { tell: x.plan.recommendSplit ? `${j.id} plan recommends splitting: ${p(x, 'plan')}` : undefined });
@@ -1020,6 +1022,6 @@ function pr(x: StepInput): StepAction {
   if (!last?.ok) return run(x, 'PR2', ['verify', j.id], 'pr open needs a verified HEAD');
   const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated');
   if (!after(opened?.ts, last.at)) return run(x, 'PR3', ['pr', 'open', j.id], 'push and open or update the PR');
-  if (x.decision.autoMerge && x.config.merge.auto && !lastEvent(x, (e) => MERGE_EVENTS.includes(e.type) && after(e.ts, opened!.ts))) return run(x, 'PR4', ['pr', 'merge', j.id], 'the approver marked it auto-merge eligible');
+  if (x.decision.autoMerge && autoMerge(x.config) && !lastEvent(x, (e) => MERGE_EVENTS.includes(e.type) && after(e.ts, opened!.ts))) return run(x, 'PR4', ['pr', 'merge', j.id], 'the approver marked it auto-merge eligible');
   return set(x, 'PR5', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review' }, 'the PR waits on human review');
 }

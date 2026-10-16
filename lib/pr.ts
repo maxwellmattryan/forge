@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ownerStatusWithProof } from './daemon-owner.ts';
 import { loadJob, logEvent, setJob, jobDir } from './jobs.ts';
+import { enqueuePrFeedbackGate, maybeEnqueueGate } from './foreman.ts';
 import { prLinkNote } from './issue-link.ts';
 import { exists } from './paths.ts';
 import { enqueue, listRequests } from './requests.ts';
@@ -385,6 +386,12 @@ export function syncPr(root: string, config: Config, id: string, opts: { route?:
   // title, branch or body reaches a daemon session through it.
   if (integrate && config.daemon?.enabled === true && !listRequests(root, { status: 'pending' }).some((r) => r.type === 'resume' && r.job === id))
     enqueue(root, config, { type: 'resume', job: id, text: 'forge sync moved this job to integrate', from: 'sync' });
+  // The foreman's gates: a park on conflicts, or feedback on a PR waiting for review. Never from mergePr.
+  if (route) {
+    const after = loadJob(root, id);
+    maybeEnqueueGate(root, config, job, after);
+    enqueuePrFeedbackGate(root, config, after, trustedFeedback(feedback));
+  }
   return integrate ? { id, pr: synced, integrate: true } : { id, pr: synced };
 }
 
@@ -421,12 +428,26 @@ function fetchFeedback(root: string, slug: string, num: number): PrFeedback {
     { owner, name, num },
   );
   const pr = data?.repository?.pullRequest ?? {};
-  const human = (c: any) => !String(c.author?.login ?? '').endsWith('[bot]') && !String(c.body ?? '').includes(MARKER);
   return {
     threads: (pr.reviewThreads?.nodes ?? []).filter((t: any) => !t.isResolved && t.comments.nodes.some(human)),
     reviews: (pr.reviews?.nodes ?? []).filter((r: any) => human(r) && (r.body?.trim() || r.state === 'CHANGES_REQUESTED')),
     comments: (pr.comments?.nodes ?? []).filter(human),
   };
+}
+
+/** A person's comment or review, not a bot's or Forge's own (which carries MARKER). */
+const human = (c: any): boolean => !String(c.author?.login ?? '').endsWith('[bot]') && !String(c.body ?? '').includes(MARKER);
+/** Written by someone with write access to the repo: only that may start an unattended foreman rework. */
+const trusted = (c: any): boolean => human(c) && TRUSTED_ASSOCIATIONS.has(c?.authorAssociation);
+
+/**
+ * Unresolved threads with a trusted comment plus trusted CHANGES_REQUESTED reviews. The pr-feedback gate
+ * counts only these (and failing checks): a stranger's comment on a public repo stays a human's call.
+ */
+export function trustedFeedback(fb: Pick<PrFeedback, 'threads' | 'reviews'>): number {
+  const threads = fb.threads.filter((t: any) => (t?.comments?.nodes ?? []).some(trusted)).length;
+  const reviews = fb.reviews.filter((r: any) => r?.state === 'CHANGES_REQUESTED' && trusted(r)).length;
+  return threads + reviews;
 }
 
 // pr is gh's PR JSON: raw input.

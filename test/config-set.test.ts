@@ -137,7 +137,7 @@ describe('forge config set and get', { concurrency: 4 }, () => {
 
   test('per-role and complexity efforts are editable', async () => {
     const keys = [...EFFORT_ROLES.map((r) => `runtime.efforts.${r}`), ...COMPLEXITIES.map((k) => `runtime.effortByComplexity.${k}`)];
-    assert.equal(keys.length, 12);
+    assert.equal(keys.length, 13);
     for (const key of keys) {
       const f = FIELDS.find((x) => x.key === key);
       assert.ok(f, `${key} is in the schema`);

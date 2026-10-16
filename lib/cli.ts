@@ -3,7 +3,7 @@
 // Output is compact JSON (or a terse table for `status`) to keep orchestrator context small.
 // Command groups live in lib/commands/; this file only routes.
 import { daemonTrust, loadConfig } from './config.ts';
-import { refuseInboxDrive } from './daemon-owner.ts';
+import { refuseInOffice, refuseInboxDrive } from './daemon-owner.ts';
 import { NEED_INIT } from './config-set.ts';
 import { detect } from './detect.ts';
 import { doctor } from './doctor.ts';
@@ -152,6 +152,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       if (sub === 'merge') {
         // Strictly `true`: `--now <id>` would make parseArgs swallow the id as the flag's value,
         // and that mistake must not silently bypass CI.
+        refuseInOffice('the foreman never merges; foreman.ship merge only feeds the approver and step PR4');
         const r = pr.mergePr(root, config, id, { now: flags.now === true });
         return { data: r, exitCode: r.action === 'refused' || r.action === 'failed' ? 1 : 0 };
       }

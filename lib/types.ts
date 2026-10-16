@@ -2,7 +2,7 @@
 // this file never runs. The dashboard's src/lib/types.ts carries a copy of the API shapes, kept
 // equal by test/types-parity.ts, until the dashboard imports this file. Unions that have a runtime
 // list are derived from that list, never retyped.
-import type { BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
+import type { BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import type { REQUEST_TYPES } from './requests.ts';
 import type { AcCoverage } from './acs.ts';
 import type { SECRET_KINDS } from './secrets.ts';
@@ -425,6 +425,8 @@ export interface JobEvent {
   text?: string;
   action?: string;
   note?: string | null;
+  /** On `human` events: who decided. Absent on older events, which read as `human`. */
+  actor?: HumanActor;
   [key: string]: unknown;
 }
 
@@ -650,7 +652,23 @@ export interface Config {
     idleStopMinutes: number | null;
     auth: DaemonAuth;
   };
+  /** The office session's authority: docs/CONFIG.md "Foreman". */
+  foreman: {
+    enabled: boolean;
+    decides: GateClass[];
+    reserved: string[];
+    ship: ForemanShip;
+  };
 }
+
+/** A gate class the foreman may decide: OFFICE_GATES in lib/schema.ts. */
+export type GateClass = (typeof OFFICE_GATES)[number];
+/** foreman.ship: FOREMAN_SHIP in lib/schema.ts. */
+export type ForemanShip = (typeof FOREMAN_SHIP)[number];
+/** Who recorded a `human` event: a person, or the foreman (`forge job human --actor foreman`). */
+export type HumanActor = 'human' | 'foreman';
+/** Who owns a waiting job's gate: gateOwner in lib/foreman.ts; null when the job waits on nothing. */
+export type GateOwner = 'foreman' | 'human' | null;
 
 /** Which credential a daemon session runs on: the Claude login (subscription) or an API key from the environment. */
 export type DaemonAuth = (typeof DAEMON_AUTH)[number];
@@ -915,6 +933,10 @@ export interface DaemonPoolState {
   live: number;
   lastError: string | null;
   inbox: DaemonSessionState;
+  /** The foreman's office session (scope `_office`), never counted against maxConcurrent. */
+  office: DaemonSessionState;
+  /** foreman.enabled, from the latest read of config.yml: the dashboard shows the office only then. */
+  foreman: boolean;
   /** Job sessions worth showing: running, stopping, waiting, held, failed or stopped by a human. */
   jobs: Record<string, DaemonSessionState>;
   /** The permission mode daemon.command starts sessions in (`manual` reads as `default`). */
@@ -979,7 +1001,7 @@ export interface TranscriptPage {
 }
 
 /** A job row in /api/state: state() in lib/server.ts. */
-export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[] };
+export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner };
 
 /** GET /api/state: state() in lib/server.ts. */
 export interface ApiState {
@@ -1057,7 +1079,11 @@ export interface Stats {
     humanDeltaRate: number | null;
     medianHumanDeltaLines: number | null;
     humanDeltaCoverage: { merged: number; measured: number };
+    /** Reworks a person asked for (`human` events without actor foreman). */
     humanReworks: number;
+    /** Every `human` event the foreman recorded. */
+    foremanDecisions: number;
+    foremanReworks: number;
     specFirstApprovalRate: number | null;
   };
   speed: { medianMinutesToPr: number | null; medianMinutesToDone: number | null };

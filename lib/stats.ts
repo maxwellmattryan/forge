@@ -28,7 +28,7 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
   const jobs = (opts.jobs ?? listJobs(root)).filter((j) => (opts.includeEvals || j.kind !== 'eval') && Date.parse((j.createdAt ?? 0) as string) >= since);
   const counts = { total: jobs.length, active: 0, done: 0, cancelled: 0, failed: 0, waiting: 0 };
   let reviewed = 0, firstPass = 0, roundsSum = 0, decided = 0, escalated = 0, verified = 0, verifyFirstPass = 0;
-  let withPr = 0, prWithHumanFeedback = 0, humanRework = 0, specJobs = 0, specFirstTry = 0;
+  let withPr = 0, prWithHumanFeedback = 0, humanRework = 0, foremanDecisions = 0, foremanRework = 0, specJobs = 0, specFirstTry = 0;
   let merged = 0, deltaMeasured = 0, deltaNonEmpty = 0;
   const deltaLines: number[] = [];
   const timeToPr: number[] = [];
@@ -99,11 +99,17 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
       if (e.usage && (e.usage.totalTokens || e.usage.input || e.usage.output)) agentRunsWithUsage++;
       if (e.usage?.exact) exactRuns++;
     }
-    const human = events.filter((e) => e.type === 'human');
+    // An event without `actor` predates the field and was a person's.
+    const foreman = events.filter((e) => e.type === 'human' && e.actor === 'foreman');
+    const human = events.filter((e) => e.type === 'human' && e.actor !== 'foreman');
     humanRework += human.filter((e) => e.action === 'rework').length;
-    if (human.some((e) => e.action === 'approve-spec')) {
+    foremanDecisions += foreman.length;
+    foremanRework += foreman.filter((e) => e.action === 'rework').length;
+    // Spec approval counts whoever decided: it measures the spec, not the decider.
+    const decisions = [...human, ...foreman];
+    if (decisions.some((e) => e.action === 'approve-spec')) {
       specJobs++;
-      if (!human.some((e) => e.action === 'revise-spec')) specFirstTry++;
+      if (!decisions.some((e) => e.action === 'revise-spec')) specFirstTry++;
     }
     if (j.state === 'done' && j.finishedAt) cycle.push((Date.parse(j.finishedAt) - created) / 60000);
     tokens += j.usage?.totalTokens ?? 0;
@@ -137,6 +143,8 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
       medianHumanDeltaLines: median(deltaLines),
       humanDeltaCoverage: { merged, measured: deltaMeasured },
       humanReworks: humanRework,
+      foremanDecisions,
+      foremanReworks: foremanRework,
       specFirstApprovalRate: ratio(specFirstTry, specJobs),
     },
     speed: {

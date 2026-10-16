@@ -126,6 +126,37 @@ describe('the request inbox', { concurrency: 4 }, () => {
     }
   });
 
+  test('office scope sees only gate requests', async () => {
+    const repo = tempRepo();
+    const root = repo.dir;
+    const cli = cliIn(root);
+    try {
+      const a = createJob(root, defaults(), { title: 'Job A' }).id;
+      const gate = enqueue(root, null, { type: 'gate', job: a, args: { gate: 'spec-approval', reserved: null }, from: 'forge' });
+      const resume = enqueue(root, null, { type: 'resume', job: a, from: 'dashboard' });
+      const next = enqueue(root, null, { type: 'next', from: 'dashboard' });
+      assert.throws(() => enqueue(root, null, { type: 'gate', job: '../x', from: 'forge' }), /gate request needs a valid job/);
+      assert.throws(() => enqueue(root, null, { type: 'gate', from: 'forge' }), /gate request needs a valid job/);
+      const office = { FORGE_DAEMON: '1', [TRUST_ENV]: trustDigest(root), FORGE_DAEMON_SCOPE: '_office' };
+      assert.deepEqual((await cli(office, 'requests', 'scope')).json(), { daemon: true, scope: 'office', job: null });
+      assert.deepEqual((await cli(office, 'requests')).json().map((r) => r.id), [gate.id], 'only gate requests');
+      assert.deepEqual((await cli({ ...office, FORGE_DAEMON_SCOPE: a }, 'requests')).json().map((r) => r.id), [resume.id], "the job's session never sees its gate");
+      assert.deepEqual((await cli({ ...office, FORGE_DAEMON_SCOPE: '_inbox' }, 'requests')).json().map((r) => r.id), [next.id]);
+      for (const id of [resume.id, next.id]) {
+        for (const sub of ['claim', 'ack']) {
+          const r = await cli(office, 'requests', sub, id, '--session', 'office');
+          assert.equal(r.code, 1, `${sub} ${id}`);
+          assert.match(r.out, /belongs to scope/);
+        }
+      }
+      assert.equal((await cli(office, 'requests', 'claim', gate.id, '--session', 'office')).json().status, 'in-progress');
+      assert.equal((await cli(office, 'requests', 'ack', gate.id, '--status', 'done', '--result', 'approve: fine')).json().status, 'done');
+      assert.equal(listRequests(root).find((r) => r.id === resume.id).status, 'pending');
+    } finally {
+      repo.cleanup();
+    }
+  });
+
   test('requests scope, --intake and daemon provenance', async () => {
     const repo = tempRepo();
     const root = repo.dir;

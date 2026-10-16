@@ -4,7 +4,7 @@
 // loads or writes to, and can't loosen a security or attribution policy. Everything else is
 // read-only here and edited by hand in .forge/config.yml.
 import { defaults } from './config.ts';
-import { COMPLEXITIES, EFFORT_ROLES, EFFORTS } from './schema.ts';
+import { COMPLEXITIES, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES } from './schema.ts';
 import type { ConfigField, ConfigFieldType, ConfigSection, ConfigValue } from './types.ts';
 import { ForgeError, getPath } from './util.ts';
 import * as yaml from './yaml.ts';
@@ -78,6 +78,7 @@ const MODEL_LABEL: Record<string, string> = {
   integrator: 'Integrator model',
   retro: 'Retro model',
   judge: 'Judge model',
+  assistant: 'Assistant model',
 };
 
 const EFFORT_LABEL: Record<(typeof EFFORT_ROLES)[number], string> = {
@@ -90,6 +91,7 @@ const EFFORT_LABEL: Record<(typeof EFFORT_ROLES)[number], string> = {
   integrator: 'Integrator effort',
   retro: 'Retro effort',
   judge: 'Judge effort',
+  assistant: 'Assistant effort',
 };
 
 export const FIELDS: ConfigField[] = [
@@ -156,6 +158,11 @@ export const FIELDS: ConfigField[] = [
   field('daemon.maxConcurrent', 'daemon', 'Max concurrent', 'Job sessions the daemon runs at once, besides the inbox.', { type: 'integer', min: 1, max: 16, locked: 'caps unattended job sessions' }),
   field('daemon.auth', 'daemon', 'Billing', 'What daemon sessions run on: your Claude login (subscription), or an ANTHROPIC_API_KEY exported where forge dash starts (api-key). Subscription drops the key from their environment.', { type: 'enum', options: ['subscription', 'api-key'] }),
   field('daemon.idleStopMinutes', 'daemon', 'Idle stop (minutes)', 'Stop an idle session after this long; new work resumes it. Empty means never.', { type: 'number', min: 0, minExclusive: true, nullable: true }),
+  // Locked: each one widens or narrows what an unattended session decides for a human.
+  field('foreman.enabled', 'daemon', 'Foreman', 'The office session decides gates through assistant sub-agents, unattended.', { type: 'boolean', locked: 'turns on unattended gate decisions' }),
+  field('foreman.decides', 'daemon', 'Foreman decides', 'The gate classes the foreman may decide; the rest stay with a human.', { type: 'list', options: [...OFFICE_GATES], locked: 'widens what the foreman may decide' }),
+  field('foreman.reserved', 'daemon', 'Reserved topics', 'Whole-phrase patterns that keep a gate with a human when the reason, decision or note mentions them.', { type: 'list', locked: 'narrows what stays with a human' }),
+  field('foreman.ship', 'daemon', 'Foreman ship', 'propose leaves merging as it is; merge counts as merge.auto for PRs the approver marks eligible.', { type: 'enum', options: [...FOREMAN_SHIP], locked: "lets the foreman's pipeline merge" }),
 ];
 
 function hasPath(obj: any, key: string): boolean {
