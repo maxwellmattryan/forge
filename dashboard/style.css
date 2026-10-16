@@ -1,5 +1,5 @@
 /* The Smithy design system (smithy/ is the drawing: tokens.css, smithy.css, components/*). Tokens are CSS
-   variables in two themes, forge and ash; the reference rules in smithy/smithy.css are ported as @utility
+   variables in three themes, forge, ash and temper; the reference rules in smithy/smithy.css are ported as @utility
    classes of the same names so they can be @apply'd. */
 @import "tailwindcss" source(none);
 @source "./index.html";
@@ -178,38 +178,38 @@
 }
 
 [data-theme="temper"] {
-  --bg: #14161e;
-  --bg-deep: #0a0b10;
-  --panel: #1d2030;
-  --raised: rgba(190,200,240,0.08);
-  --chrome: #0d0e14;
-  --sheen: rgba(143,176,245,0.12);
-  --line: rgba(200,205,240,0.16);
-  --line-soft: rgba(200,205,240,0.09);
-  --line-strong: #8e92ad;
-  --edge-light: rgba(220,225,250,0.08);
-  --edge-dark: rgba(0,0,0,0.5);
-  --fg: #ecedf5;
-  --muted: #aeb1c6;
-  --dim: #707489;
-  --gleam: #8fb0f5;
-  --gleam-hot: #c9d8fc;
-  --gleam-deep: #3d4f86;
-  --on-gleam: #0b1022;
+  --bg: #161634;
+  --bg-deep: #0b0b1f;
+  --panel: #1f2049;
+  --raised: rgba(200,195,255,0.08);
+  --chrome: #0e0e26;
+  --sheen: rgba(95,211,218,0.12);
+  --line: rgba(190,185,255,0.18);
+  --line-soft: rgba(190,185,255,0.10);
+  --line-strong: #a3a1d4;
+  --edge-light: rgba(220,215,255,0.10);
+  --edge-dark: rgba(2,0,16,0.55);
+  --fg: #eeedfc;
+  --muted: #b6b4dc;
+  --dim: #74729f;
+  --gleam: #5fd3da;
+  --gleam-hot: #b5f1f3;
+  --gleam-deep: #1f6f78;
+  --on-gleam: #04181b;
   --ember: #ff7b2e;
   --on-ember: #1c0f05;
-  --spark: #e8c66a;
+  --spark: #f0cc66;
   --on-spark: #1c1405;
-  --ok: #6fcfb4;
-  --warn: #e6c25c;
-  --bad: #f590a8;
-  --info: #a99be0;
-  --shadow-bevel: inset 0 1px 0 0 rgba(220,225,250,0.08), inset 0 -1px 0 0 rgba(0,0,0,0.5);
-  --shadow-primary: 0 2px 0 0 #3d4f86;
-  --shadow-overlay: 0 1px 0 0 rgba(0,0,0,0.6), 0 16px 40px 0 rgba(0,0,0,0.6);
-  --shadow-drawer: -16px 0 40px 0 rgba(0,0,0,0.5);
-  --shadow-chrome: 8px 0 24px 0 rgba(0,0,0,0.35);
-  --shadow-glow: 0 0 8px 0 rgba(143,176,245,0.55);
+  --ok: #93dc84;
+  --warn: #ecc65a;
+  --bad: #ff8fb0;
+  --info: #b9a2f7;
+  --shadow-bevel: inset 0 1px 0 0 rgba(220,215,255,0.10), inset 0 -1px 0 0 rgba(2,0,16,0.55);
+  --shadow-primary: 0 2px 0 0 #1f6f78;
+  --shadow-overlay: 0 1px 0 0 rgba(2,0,16,0.6), 0 16px 40px 0 rgba(2,0,16,0.6);
+  --shadow-drawer: -16px 0 40px 0 rgba(2,0,16,0.5);
+  --shadow-chrome: 8px 0 24px 0 rgba(2,0,16,0.35);
+  --shadow-glow: 0 0 8px 0 rgba(95,211,218,0.55);
 }
 
 /* smithy extras (the top of smithy/smithy.css): the brushed gleam fills, the grain and the falloff. */
