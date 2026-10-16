@@ -153,6 +153,8 @@ describe('transcripts', { concurrency: 4 }, () => {
       // A tool result after the call doesn't hide it.
       assert.equal(summarise(`${read}\n{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"x"}]}}\n`, { worktree: wt })?.text, 'Read lib/server.ts');
       assert.equal(summarise(assistant([{ type: 'tool_use', name: 'Bash', input: { command: 'npm test\n--more' } }]))?.text, 'Bash npm test');
+      // A root given unresolved (macOS /var → /private/var) still shortens the resolved path the session logged.
+      assert.equal(summarise(assistant([{ type: 'tool_use', name: 'Edit', input: { file_path: path.join(fs.realpathSync(s.root), 'lib', 'a.ts') } }]), { root: s.root })?.text, 'Edit lib/a.ts');
       assert.equal(summarise(assistant([{ type: 'tool_use', name: 'Grep', input: { pattern: 'foo', path: '/x' } }]))?.text, 'Grep /x');
       const text = summarise(`${read}\n${assistant([{ type: 'text', text: '\n  All   checks\tpass.  \nSecond line' }])}\n`);
       assert.deepEqual(text, { kind: 'text', text: 'All checks pass.', at: '2026-10-15T10:00:00.000Z' });

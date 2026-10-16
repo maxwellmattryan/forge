@@ -25,7 +25,8 @@
   <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
     {#each running as a (`${a.job.id}/${a.role}`)}
       {@const effort = effortChip(a.job.effort, defaultEffort)}
-      <button class="plate clickable p-3 text-left" onclick={() => openDrawer(a.job.id)}><div class="flex items-center justify-between gap-2"><span class="font-medium">{a.role}</span><span class="flex flex-wrap justify-end gap-1"><span class="chip gleam">{a.model ?? $t('agents.modelUnknown')}</span><EffortChip level={effort} /></span></div><div class="text-sm text-muted mt-1 line-clamp-1">{a.job.title}</div><div class="text-[11px] text-muted mt-1">{$t('agents.runningMeta', { round: a.round ?? '—', started: ago(a.startedAt) })}</div></button>
+      {@const last = a.job.activity?.find((x) => x.role === a.role)?.last?.text ?? null}
+      <button class="plate clickable p-3 text-left" onclick={() => openDrawer(a.job.id)}><div class="flex items-center justify-between gap-2"><span class="font-medium">{a.role}</span><span class="flex flex-wrap justify-end gap-1"><span class="chip gleam">{a.model ?? $t('agents.modelUnknown')}</span><EffortChip level={effort} /></span></div><div class="text-sm text-muted mt-1 line-clamp-1">{a.job.title}</div><div class="text-[11px] text-muted mt-1">{$t('agents.runningMeta', { round: a.round ?? '—', started: ago(a.startedAt) })}</div>{#if last}<div class="mono text-[11px] mt-1 truncate" title={last}>{last}</div>{/if}</button>
     {/each}
   </div>
 {:else}

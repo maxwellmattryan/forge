@@ -142,6 +142,14 @@ export function openTranscript(file: string, projects = claudeProjectsDir()): { 
 const collapse = (s: string): string => s.replace(/\s+/g, ' ').trim();
 const capText = (s: string): string => (s.length > ACTIVITY_CHARS ? `${s.slice(0, ACTIVITY_CHARS - 1)}…` : s);
 
+function realOrSelf(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
 /** A path shown relative to the worktree or root it sits under. */
 function relativeTo(p: string, bases: string[]): string {
   for (const b of bases) if (b && p.startsWith(b + path.sep)) return p.slice(b.length + 1);
@@ -173,7 +181,9 @@ export function lastActivity(fd: number, size: number, opts: { worktree?: string
   const lines = buf.subarray(0, read).toString('utf8').split('\n');
   // A tail that starts mid-file starts mid-line.
   if (size > len) lines.shift();
-  const bases = [opts.worktree, opts.root].filter((b): b is string => typeof b === 'string' && b.length > 0);
+  // Sessions log resolved paths (/private/tmp on macOS), so each base is tried as given and resolved.
+  const given = [opts.worktree, opts.root].filter((b): b is string => typeof b === 'string' && b.length > 0);
+  const bases = [...new Set(given.flatMap((b) => [b, realOrSelf(b)]))];
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
     if (!line.trim()) continue;

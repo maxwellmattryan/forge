@@ -765,7 +765,12 @@ test('drawer defaults to the Thread tab and resets it on close', () => {
 test('the Log tab holds the session feed alone', () => {
   const drawer = read('components/Drawer.svelte');
   assert.equal(drawer.match(/<SessionLog\b/g)?.length, 1, 'Drawer renders the session log once');
-  assert.ok(drawer.includes('{#key j.id}<SessionLog scope={j.id} active={open} />{/key}'), 'keyed by job id, closed with the drawer');
+  assert.ok(drawer.includes('{#key logKey}<SessionLog scope={j.id} active={open} transcript={ownerLog} />{/key}'), 'keyed by job id (and owner transcript), closed with the drawer');
+  assert.match(drawer, /const logKey = \$derived\(ownerLog && job \? `\$\{job\.id\}:owner` : \(job\?\.id \?\? ''\)\);/, 'the key changes only with the job or the owner transcript, never with a poll');
+  // The Agents tab's per-agent transcripts live in AgentsTab, mounted only on that tab.
+  const agentsTab = openBlocksAt(drawer, '<AgentsTab');
+  assert.deepEqual(agentsTab.flatMap((b) => b.filter((h) => /shown\.tab/.test(h))).at(-1), ":else if shown.tab === 'agents'");
+  assert.equal(read('components/AgentsTab.svelte').match(/<SessionLog\b/g)?.length, 1, 'AgentsTab renders one transcript log');
   assert.match(drawer, /import SessionLog from '\.\/SessionLog\.svelte';/);
   const blocks = openBlocksAt(drawer, '<SessionLog');
   const tabbed = blocks.flatMap((b) => b.filter((h) => /shown\.tab/.test(h)).map((h) => ({ h, last: h === b.at(-1) })));
@@ -852,7 +857,7 @@ test('the drawer header is compact and Details holds the rest', () => {
   assert.ok(headHtml.includes('{#if scopeVerbs(j).length}<CommandTrigger job={j.id} />{/if}'), 'the title row keeps Command for this job');
   assert.ok(headHtml.includes(`<CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} />`), 'and the close button');
   const rows = walked.filter((e) => e.parents.at(-1) === head);
-  assert.deepEqual(rows.map((e) => e.name), ['div', 'div', 'div'], 'the title row, the summary row, the reason line');
+  assert.deepEqual(rows.map((e) => e.name), ['div', 'div', 'div', 'AgentActivity'], 'the title row, the summary row, the reason line, the running agents');
   const summary = rows[1];
   assert.ok(has(summary, 'flex', 'flex-wrap', 'items-center', 'gap-1.5'), 'one wrapping summary row');
   const inSummary = walked.filter((e) => e.parents.includes(summary)).map((e) => e.name);
@@ -881,7 +886,7 @@ test('the drawer header is compact and Details holds the rest', () => {
 
   // The tab chain is exhaustive with explicit branches.
   const chain = openBlocksAt(markup, '{@html screenshotsPanel(').find((b) => b[0] === "#if shown.tab === 'thread'");
-  assert.deepEqual(chain, ["#if shown.tab === 'thread'", ":else if shown.tab === 'log'", ":else if shown.tab === 'files'", ":else if shown.tab === 'timeline'", ":else if shown.tab === 'details'"]);
+  assert.deepEqual(chain, ["#if shown.tab === 'thread'", ":else if shown.tab === 'log'", ":else if shown.tab === 'agents'", ":else if shown.tab === 'files'", ":else if shown.tab === 'timeline'", ":else if shown.tab === 'details'"]);
 
   // AC11: no scroll hacks.
   for (const s of ['scrollIntoView', 'setTimeout', 'scrolledFor', 'tabStrip']) assert.ok(!text.includes(s), `Drawer has no ${s}`);
