@@ -162,6 +162,9 @@ test('mergePr: one merge call chosen by CI state, never a fallback', { skip: pro
   const h = ghHarness();
   // Each PR here is the head forge pr open pushed and checked for protected paths.
   const scenario: typeof h.scenario = (o = {}) => h.scenario({ pushedSha: 'abc123', ...o });
+  // --auto is only queued without a protected-paths policy (see the test after this one).
+  const open = structuredClone(h.config);
+  open.policy.protectedPaths = [];
   try {
     const root = h.repo.dir;
 
@@ -171,7 +174,7 @@ test('mergePr: one merge call chosen by CI state, never a fallback', { skip: pro
     assert.ok(h.events(id).includes('pr-synced'), 'syncs before deciding');
 
     id = scenario({ checks: 'pending', mergeState: 'BLOCKED' });
-    assert.equal(mergePr(root, h.config, id).action, 'auto');
+    assert.equal(mergePr(root, open, id).action, 'auto');
     assert.deepEqual(h.merges(), ['pr merge 7 -R o/r --squash --auto --match-head-commit abc123']);
     assert.ok(h.events(id).includes('pr-auto-merge'));
 
@@ -182,7 +185,7 @@ test('mergePr: one merge call chosen by CI state, never a fallback', { skip: pro
     assert.ok(h.events(id).includes('pr-merge-deferred'));
 
     id = scenario({ checks: 'pending', mergeState: 'BLOCKED', fail: true });
-    const failed = mergePr(root, h.config, id);
+    const failed = mergePr(root, open, id);
     assert.equal(failed.action, 'failed');
     assert.match(failed.error, /auto-merge is not allowed/);
     assert.equal(h.merges().length, 1, 'a failed --auto never falls back to a direct merge');
@@ -209,7 +212,7 @@ test('mergePr: one merge call chosen by CI state, never a fallback', { skip: pro
     fs.mkdirSync(wf, { recursive: true });
     fs.writeFileSync(path.join(wf, 'ci.yml'), 'on: push\n');
     id = scenario({ checks: 'none', mergeState: 'BLOCKED' });
-    assert.equal(mergePr(root, h.config, id).action, 'auto', 'workflows exist but have not reported yet');
+    assert.equal(mergePr(root, open, id).action, 'auto', 'workflows exist but have not reported yet');
     id = scenario({ checks: 'none', mergeState: 'CLEAN' });
     assert.equal(mergePr(root, h.config, id).action, 'deferred', 'unregistered workflows on an unprotected repo');
     assert.deepEqual(h.merges(), []);
@@ -238,6 +241,23 @@ test('mergePr: one merge call chosen by CI state, never a fallback', { skip: pro
     id = scenario({ state: 'CLOSED' });
     assert.throws(() => mergePr(root, h.config, id), /PR #7 is closed; reopen it before merging/);
     assert.deepEqual(h.merges(), []);
+  } finally {
+    h.done();
+  }
+});
+
+test('mergePr never queues --auto under a protected-paths policy', { skip: process.platform === 'win32' }, () => {
+  const h = ghHarness();
+  try {
+    const root = h.repo.dir;
+    let id = h.scenario({ checks: 'pending', mergeState: 'BLOCKED', pushedSha: 'abc123' });
+    assert.deepEqual(mergePr(root, h.config, id), { merged: false, autoMerge: false, action: 'deferred', checks: 'pending', mergeState: 'BLOCKED' });
+    assert.deepEqual(h.merges(), [], 'GitHub never gets a queued merge it could land on a later head');
+    assert.equal(readEvents(root, id).find((e) => e.type === 'pr-merge-deferred')?.reason, 'protected');
+    // Once CI passes, the retry merges directly, pinned to the head pr open checked.
+    id = h.scenario({ checks: 'passing', pushedSha: 'abc123' });
+    assert.equal(mergePr(root, h.config, id).action, 'merged');
+    assert.deepEqual(h.merges(), ['pr merge 7 -R o/r --squash --match-head-commit abc123']);
   } finally {
     h.done();
   }

@@ -595,4 +595,71 @@ describe('verify and pr open', { concurrency: 4 }, () => {
       fs.rmSync(bare, { recursive: true, force: true });
     }
   });
+
+  test('pr open pushes the commit it checked, never a later HEAD', { skip: process.platform === 'win32' }, async () => {
+    const s = scratch();
+    const bin = path.join(s.repo.dir, '..', `racebin-${path.basename(s.repo.dir)}`);
+    const bare = path.join(s.repo.dir, '..', `raceremote-${path.basename(s.repo.dir)}.git`);
+    try {
+      fs.mkdirSync(bin);
+      // gh reports an open PR for the branch, so pr open records pushedSha and returns.
+      fs.writeFileSync(
+        path.join(bin, 'gh'),
+        `#!/bin/sh\ncase "$1 $2" in\n  "repo view") echo o/r ;;\n  "pr list") printf '[{"number":7,"url":"https://github.com/o/r/pull/7","state":"OPEN","isDraft":false,"isCrossRepository":false,"headRefName":"%s","baseRefName":"main"}]' "$RACE_BRANCH" ;;\nesac\n`,
+        { mode: 0o755 },
+      );
+      // A stand-in git: the first \`rev-list --count\` (after every check) commits a refuse path in the
+      // worktree, as a stale session or a leftover background process could.
+      const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+      fs.writeFileSync(
+        path.join(bin, 'git'),
+        `#!/bin/sh\nif [ -n "$RACE_WT" ] && [ "$1" = rev-list ] && [ "$2" = --count ] && [ ! -e "$RACE_MARK" ]; then\n  : > "$RACE_MARK"\n  echo "# raced" >> "$RACE_WT/.forge/config.yml"\n  "${real}" -C "$RACE_WT" -c user.email=t@e.st -c user.name=T commit -qam raced\nfi\nexec "${real}" "$@"\n`,
+        { mode: 0o755 },
+      );
+      execFileSync('git', ['init', '-q', '--bare', bare]);
+      git(s.repo.dir, 'remote', 'add', 'origin', bare);
+      git(s.repo.dir, 'push', '-q', 'origin', 'main');
+      const remoteSha = (branch: string) => execFileSync('git', ['ls-remote', bare, `refs/heads/${branch}`], { encoding: 'utf8' }).split('\t')[0] || null;
+      const jobJson = (dir: string) => JSON.parse(fs.readFileSync(path.join(dir, 'job.json'), 'utf8'));
+      const race = (j: { wt: string; dir: string }) => ({ PATH: `${bin}:${process.env.PATH}`, RACE_WT: j.wt, RACE_MARK: path.join(j.dir, 'race.mark'), RACE_BRANCH: jobJson(j.dir).branch });
+
+      // (a) No scrub: the checked HEAD is pushed and recorded, the raced commit stays local.
+      const j = await s.job();
+      write(j.wt, 'src/a.ts', 'export const a = 1;\n');
+      commitAll(j.wt, 'feat: a');
+      assert.equal((await s.json(['verify', j.id])).status, 0);
+      const checked = git(j.wt, 'rev-parse', 'HEAD');
+      let r = await s.json(['pr', 'open', j.id], race(j));
+      assert.equal(r.status, 0, `${r.stderr}${JSON.stringify(r.out)}`);
+      assert.notEqual(git(j.wt, 'rev-parse', 'HEAD'), checked, 'the race commit landed');
+      assert.equal(remoteSha(jobJson(j.dir).branch), checked, 'the remote got the checked commit');
+      assert.equal(jobJson(j.dir).pr.pushedSha, checked, 'pushedSha is the checked commit');
+
+      // (b) A scrub starts from the checked commit, and a moved branch stops it before the push.
+      const k = await s.job();
+      const branch = jobJson(k.dir).branch;
+      write(k.wt, 'src/b.ts', 'export const b = 1;\n');
+      commitAll(k.wt, 'feat: b\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>');
+      assert.equal((await s.json(['verify', k.id])).status, 0);
+      const kChecked = git(k.wt, 'rev-parse', 'HEAD');
+      r = await s.json(['pr', 'open', k.id], race(k));
+      assert.equal(r.status, 1, JSON.stringify(r.out));
+      assert.match(r.err.message, /moved off .* nothing was pushed/);
+      assert.equal(remoteSha(branch), null, 'nothing was pushed');
+
+      // (c) Without the race the scrubbed commit is pushed: its tree is the checked one.
+      git(k.wt, 'reset', '-q', '--hard', kChecked);
+      r = await s.json(['pr', 'open', k.id], { ...race(k), RACE_WT: '' });
+      assert.equal(r.status, 0, `${r.stderr}${JSON.stringify(r.out)}`);
+      const pushed = jobJson(k.dir).pr.pushedSha;
+      assert.equal(remoteSha(branch), pushed);
+      assert.notEqual(pushed, kChecked, 'the message was scrubbed');
+      assert.equal(git(k.wt, 'rev-parse', `${pushed}^{tree}`), git(k.wt, 'rev-parse', `${kChecked}^{tree}`));
+      assert.equal(git(k.wt, 'rev-parse', 'HEAD'), pushed, 'the branch follows the scrub');
+    } finally {
+      s.cleanup();
+      fs.rmSync(bin, { recursive: true, force: true });
+      fs.rmSync(bare, { recursive: true, force: true });
+    }
+  });
 });
