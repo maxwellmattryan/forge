@@ -11,6 +11,7 @@ import { acCoverage } from './acs.ts';
 import { jobPathMap, renderBrief, roleBrief } from './brief.ts';
 import type { RoleContext } from './brief.ts';
 import { autoMerge, lensNeedsApp, resolveEffort, reviewerChecklist } from './config.ts';
+import { configForJob } from './eval-overlay.ts';
 import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
 import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
@@ -84,8 +85,10 @@ export function listLineCount(body: string): number {
 }
 
 /** Every read step needs, and nothing else: no directory is created and no file or event is written. */
-export function loadStepInput(root: string, config: Config, id: string): StepInput {
+export function loadStepInput(root: string, base: Config, id: string): StepInput {
   const job = loadJob(root, id);
+  // An eval job's overlay applies to everything below: lenses, panel, models, effort and briefs.
+  const config = configForJob(root, base, job);
   const dir = jobDir(root, job.id);
   const at = (name: string) => path.join(dir, name);
   const read = (name: string) => (exists(at(name)) ? readText(at(name)) : null);

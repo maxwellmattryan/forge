@@ -1,6 +1,7 @@
 // Per-job budgets. Limits come from config at every check (so raising `pipeline.budget` raises
 // it for every job) with per-job overrides on top. Checkpoints park an over-budget job at
 // waiting:budget; only a human raises or acknowledges it, and the orchestrator resumes it.
+import { configForJob } from './eval-overlay.ts';
 import { loadJob, logEvent, setJob, updateJob } from './jobs.ts';
 import { exists } from './paths.ts';
 import { BUDGET_KEYS } from './schema.ts';
@@ -85,7 +86,7 @@ export function enforceBudget(
 ): { stopped: true; reason: string; exceeded: BudgetExceeded[] } | null {
   const job = loadJob(root, id);
   const used = measureBudget(job);
-  const exceeded = exceededKeys(effectiveLimits(config, job), used, job.budget.ack, job.round);
+  const exceeded = exceededKeys(effectiveLimits(configForJob(root, config, job), job), used, job.budget.ack, job.round);
   let state = job.state;
   let waitingOn = job.waitingOn;
   updateJob(root, id, (j) => {
@@ -140,7 +141,7 @@ export function budgetCmd(
     for (const [key, value] of sets) logEvent(root, id, 'budget-set', { key, value: value === undefined ? 'default' : value });
   }
   const job = loadJob(root, id);
-  const limits = effectiveLimits(config, job);
+  const limits = effectiveLimits(configForJob(root, config, job), job);
   const used = measureBudget(job);
   const exceeded = exceededKeys(limits, used, job.budget.ack, job.round);
   const acked = opts.ack ? exceeded.map((e) => e.key) : [];

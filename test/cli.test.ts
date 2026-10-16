@@ -627,6 +627,8 @@ describe('the CLI end to end', { concurrency: 4 }, () => {
         ['runs=[]', 'runs', 'forge job claim|release'],
         ['source=null', 'source', 'forge job link'],
         ['usage={}', 'usage', 'forge job agent'],
+        ['eval={}', 'eval', 'forge eval start'],
+        ['eval.overlay.verify=["test"]', 'eval', 'forge eval start'],
       ];
       for (const [kv, key, hint] of cases) {
         const r = await refuses(['job', 'set', id, '--field', kv], new RegExp(`^forge: --field ${key} is not settable; use `));

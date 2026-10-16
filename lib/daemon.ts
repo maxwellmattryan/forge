@@ -10,6 +10,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { effectiveLimits, exceededKeys, measureBudget } from './budget.ts';
+import { configForJob } from './eval-overlay.ts';
 import { TRUST_ENV, daemonProblems, defaults, loadConfig as defaultLoadConfig, trackerSymlinks, trustDigest } from './config.ts';
 import { RUNNING_AGENT_MAX_MS, loadJob, markAgentsLost } from './jobs.ts';
 import { PLUGIN_ROOT, paths } from './paths.ts';
@@ -466,7 +467,13 @@ export function heldByBudget(root: string, config: Config, rec: { type: string; 
     return false;
   }
   if (job.state !== 'waiting' || job.waitingOn !== 'budget') return false;
-  return exceededKeys(effectiveLimits(config, job), measureBudget(job), job.budget.ack, job.round).length > 0;
+  let limitsConfig = config;
+  try {
+    limitsConfig = configForJob(root, config, job);
+  } catch {
+    // A tampered overlay must not crash the supervisor; step and verify already refuse that job.
+  }
+  return exceededKeys(effectiveLimits(limitsConfig, job), measureBudget(job), job.budget.ack, job.round).length > 0;
 }
 
 /** What a job session's agents say about keeping it: sessionAgents. */
