@@ -9,6 +9,7 @@ import { jsonFlag, out, parseArgs, usageError } from './args.ts';
 import { HELP as CONFIG } from './config.ts';
 import { HELP as DAEMON } from './daemon.ts';
 import { HELP as DASH } from './dash.ts';
+import { HELP as DOCTOR } from './doctor.ts';
 import { HELP as EVAL } from './eval.ts';
 import { HELP as GIT } from './git.ts';
 import { HELP as INIT } from './init.ts';
@@ -147,11 +148,6 @@ export const CORE: HelpGroup[] = [
     ],
   },
   {
-    name: 'doctor',
-    summary: 'check this repo and machine for Forge',
-    commands: [{ command: 'doctor', args: '', summary: 'check this repo and machine for Forge (tools, config, job files) and print what is wrong, indented' }],
-  },
-  {
     name: 'version',
     summary: "this install's version",
     commands: [
@@ -170,7 +166,7 @@ export const CORE: HelpGroup[] = [
   },
 ];
 
-const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...SECRETS, ...GIT, ...EVAL, ...REQUESTS, ...DAEMON, ...INIT, ...CONFIG, ...DASH, ...UPDATE];
+const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...SECRETS, ...GIT, ...EVAL, ...REQUESTS, ...DAEMON, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
 const ORDER = ['status', 'next', 'job', 'worktree', 'run', 'stop', 'verify', 'secrets', 'integrate', 'git', 'pr', 'sync', 'tracker', 'stats', 'roster', 'retro', 'eval', 'requests', 'daemon', 'init', 'migrate', 'config', 'doctor', 'dash', 'version', 'update', 'help'];
 
 /** Every command group, in the order the overview lists them. */

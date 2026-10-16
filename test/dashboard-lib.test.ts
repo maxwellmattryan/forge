@@ -10,6 +10,7 @@ import { esc, num, usd, ago, pct, tokensShort, dur, clock } from '../dashboard/s
 import { md, inline, safeUrl } from '../dashboard/src/lib/markdown.ts';
 import { STAGE_LABEL, WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
 import { readiness } from '../dashboard/src/lib/backlog.ts';
+import { bundleFilename } from '../dashboard/src/lib/diagnostics.ts';
 import * as types from '../dashboard/src/lib/types.ts';
 import * as schema from '../lib/schema.ts';
 
@@ -164,4 +165,12 @@ test('backlog readiness', () => {
   assert.equal(readiness({ triage: { ready: true, missing: [], at } }), 'ready');
   assert.equal(readiness({ needsInfo: false, triage: { ready: false, missing: ['outcome'], at } }), 'untriaged', 'a human cleared the mark');
   assert.equal(readiness({}), 'untriaged');
+});
+
+test('bundleFilename', () => {
+  assert.equal(bundleFilename('attachment; filename="forge-support-2026-10-16.zip"'), 'forge-support-2026-10-16.zip');
+  assert.equal(bundleFilename('attachment; filename=forge-support-2026-10-16-2.zip'), 'forge-support-2026-10-16-2.zip');
+  for (const bad of [null, '', 'attachment', 'attachment; filename=""', 'attachment; filename="../x.zip"', 'attachment; filename="a/b.zip"', 'attachment; filename="a\\b.zip"', 'attachment; filename="..zip"']) {
+    assert.equal(bundleFilename(bad), 'forge-support.zip', String(bad));
+  }
 });
