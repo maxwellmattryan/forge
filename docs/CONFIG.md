@@ -120,7 +120,10 @@ review:
     - { name: code, always: true }
     - { name: tests, always: true }
     - { name: security, model: opus, when: "input handling, auth, secrets, network, dependencies, file or process access" }
+  #   - { name: design, when: "user-visible UI changes" }
   #   - { name: realtime, checklist: .forge/reviewers/realtime.md, when: "audio thread code" }
+  #   needsApp: true|false     # start commands.dev before the round and give this lens the URL;
+                             # defaults to true for ui, ux, accessibility and design
   onPrFeedback: changed      # changed | full | none (which lenses re-run after PR feedback; changed = the always: true lenses)
 
 approver:
@@ -207,6 +210,7 @@ daemon:                      # opt-in headless sessions supervised by `forge das
 
 - **`pipeline.plan: auto`** runs the planner when the request body (`request.md` without its title) is longer than 600 characters, or has 3 or more lines that start with a list marker (`-`, `*`, `1.`) or a `#` heading. `always` always plans and `never` never does.
 - **`review.panel`** is picked once the spec is written: every `always: true` lens, plus the spec's `Suggested reviewers:` that are in the panel, plus each lens whose `when` names a path (a token with a `/` or a file extension, such as `lib/server.ts` or `dashboard/src/**`) that one of the spec's Approach paths falls under. A `when` written only in prose is left to the spec-writer's suggestion. Names that aren't plain lowercase lens names are dropped.
+- **`review.panel[].needsApp`** says whether a lens reviews the running app. When a lens in the round needs it and `commands.dev` is set, Forge starts the dev server before the reviewers spawn and puts `Dev server: http://localhost:<port>` in that lens's brief. Absent, it defaults to `true` for `ui`, `ux`, `accessibility` and `design` and `false` for every other name; an explicit value wins for any name (`needsApp: false` keeps a `ui` lens off the app, `needsApp: true` puts a custom lens such as `visual-qa` on it). Anything but `true` or `false` is a config problem. A lens recorded on a job but no longer in the panel gets the name default.
 - **`review.onPrFeedback`** picks the lenses for a rework round on an open PR: `full` re-runs the job's whole recorded panel, `none` skips review and goes straight to `forge pr open`, and `changed` (the default) re-runs the `always: true` lenses. `changed` can't look at which files the round touched, because step decides from recorded state, not the diff.
 
 ## Open PRs

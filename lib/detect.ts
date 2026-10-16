@@ -170,7 +170,7 @@ export function detect(root: string): Detection {
   const workflows = has(root, '.github/workflows') ? fs.readdirSync(path.join(root, '.github/workflows')) : [];
 
   const reviewers: string[] = ['code', 'tests'];
-  if (ui.length) reviewers.push('ui', 'ux', 'accessibility');
+  if (ui.length) reviewers.push('design');
   if (pkg || has(root, 'go.mod') || has(root, 'pyproject.toml') || infraFiles.length) reviewers.push('security');
   if (kinds.includes('realtime-audio') || kinds.includes('audio-plugin') || kinds.includes('embedded')) reviewers.push('performance', 'realtime');
   if (infraFiles.length) reviewers.push('infra');

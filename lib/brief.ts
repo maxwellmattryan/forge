@@ -1,7 +1,7 @@
 // Agent briefs for `forge job step`: paths and config-derived lines only, never file contents, so
 // text an agent wrote (after reading tracker or PR text) is never re-injected into another prompt.
 import path from 'node:path';
-import { resolveEffort, reviewerChecklist } from './config.ts';
+import { lensNeedsApp, resolveEffort, reviewerChecklist } from './config.ts';
 import { jobDir, reviewDir } from './jobs.ts';
 import { paths, exists } from './paths.ts';
 import type { Config, Job, StepInput } from './types.ts';
@@ -78,8 +78,6 @@ export interface RoleContext {
   strategy?: string;
 }
 
-const UI_LENSES = ['ui', 'ux', 'accessibility'];
-
 /** The inputs, outputs and extra lines each role gets: the brief half of Approach in issue #68. */
 export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {}): BriefSpec {
   const j = input.job;
@@ -116,7 +114,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
     case 'reviewer': {
       const lens = ctx.lens ?? role.slice('reviewer:'.length);
       const extra = [`Lens: ${lens}`, `Checklist: ${input.checklists[lens] ?? 'none'}`, `Scope: ${p('scope')}`];
-      if (UI_LENSES.includes(lens) && c.commands.dev) extra.push(`Dev server: http://localhost:${j.port ?? c.ports.base}`);
+      if (lensNeedsApp(c, lens) && c.commands.dev) extra.push(`Dev server: http://localhost:${j.port ?? c.ports.base}`);
       if (ctx.integration) {
         // JSON, so a conflicted file name can't start a line of its own in the brief.
         extra.push(`Integration review: conflicted files ${JSON.stringify(ctx.integration.conflicts)}`);

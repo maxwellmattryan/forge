@@ -319,6 +319,9 @@ const rows: Row[] = [
   { name: 'RV1 no lens this round goes to pr', fx: { config: (c) => (c.review.onPrFeedback = 'none'), job: inReview({}, { pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }) }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running') },
   { name: 'RV2 writes the scope report first', fx: { job: inReview(), events: [ev('scope', 3, { round: 1 })] }, want: run('job', 'scope', 'j') },
   { name: 'RV3 starts the dev server for UI lenses', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({}, { reviewers: ['code', 'ui'] }), events: scoped }, want: run('run', 'j', 'dev', '--background') },
+  { name: 'RV3 starts the dev server for the design lens', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({}, { reviewers: ['code', 'design'] }), events: scoped }, want: run('run', 'j', 'dev', '--background') },
+  { name: 'RV3 starts the dev server for a custom needsApp lens', fx: { config: (c) => { c.commands.dev = 'npm run dev'; c.review.panel.push({ name: 'visual-qa', needsApp: true, checklist: 'reviewers/ui.md' }); }, job: inReview({}, { reviewers: ['code', 'visual-qa'] }), events: scoped }, want: run('run', 'j', 'dev', '--background') },
+  { name: 'RV4 a ui lens with needsApp false skips RV3',fx: { config: (c) => { c.commands.dev = 'npm run dev'; c.review.panel.push({ name: 'ui', needsApp: false }); }, job: inReview({}, { reviewers: ['code', 'ui'] }), events: scoped }, want: { action: 'spawn', role: 'reviewer:code' } },
   {
     name: 'RV4 spawns the first lens in parallel',
     fx: { job: inReview(), events: scoped },
@@ -361,6 +364,8 @@ const rows: Row[] = [
   },
   { name: 'RV4 a panel model wins', fx: { job: inReview({}, { reviewers: ['security'] }), events: scoped }, want: { action: 'spawn', role: 'reviewer:security', model: 'opus' } },
   { name: 'RV4 a UI lens gets the dev server', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:code': ag(1, 12, 13) }, { reviewers: ['code', 'ui'] }), events: scoped, runtime: ['dev'] }, want: { action: 'spawn', role: 'reviewer:ui' }, check: (a) => assert.ok(a.brief.includes('Dev server: http://localhost:4100')) },
+  { name: 'RV4 the design lens gets the dev server', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:code': ag(1, 12, 13) }, { reviewers: ['code', 'design'] }), events: scoped, runtime: ['dev'] }, want: { action: 'spawn', role: 'reviewer:design' }, check: (a) => assert.ok(a.brief.includes('Dev server: http://localhost:4100')) },
+  { name: 'RV4 a needsApp false lens gets no dev server', fx: { config: (c) => { c.commands.dev = 'npm run dev'; c.review.panel.push({ name: 'ui', needsApp: false }); }, job: inReview({ 'reviewer:code': ag(1, 12, 13) }, { reviewers: ['code', 'ui'] }), events: scoped }, want: { action: 'spawn', role: 'reviewer:ui' }, check: (a) => assert.ok(!a.brief.includes('Dev server:')) },
   { name: 'G5 waits once every lens has started', fx: { job: inReview({ 'reviewer:code': ag(1, 12), 'reviewer:tests': ag(1, 12, 13) }), events: scoped }, want: { action: 'wait', waitingOn: 'agents', running: ['reviewer:code'] } },
   {
     name: 'RV5 a malformed review gets one retry',
