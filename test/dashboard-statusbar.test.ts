@@ -276,10 +276,12 @@ test('facts strip order and drop order', () => {
   const order = [
     at('<span class="k max-md:sr-only {hid.forgeWord ? \'sr-only\' : \'\'}">{$t(\'statusbar.facts.forge\')}</span>'),
     at('<span class="max-md:sr-only {hid.api ? \'sr-only\' : \'\'}"><span class="k">{$t(\'statusbar.facts.api\')}</span>'),
-    at('<span class="k max-md:sr-only {hid.sessionsWord ? \'sr-only\' : \'\'}">{$t(\'statusbar.facts.sessions\')}</span><LiveDot on={active.count > 0} /><span class="num">'),
+    at('<span class="k max-md:sr-only {hid.sessionsWord ? \'sr-only\' : \'\'}">{$t(\'statusbar.facts.sessions\')}</span><LiveDot on={active.count > 0} /><span class="num max-md:sr-only">'),
     at('<span class="max-md:sr-only {hid.sheet ? \'sr-only\' : \'\'}"><span class="k">{$t(\'statusbar.facts.sheet\')}</span>'),
   ];
   assert.deepEqual([...order].sort((a, b) => a - b), order, 'FORGE, API, SESSIONS, SHEET, left to right');
+  // Below md the count stands alone (the Needs-you bell took the room); the whole value stays for screen readers.
+  assert.ok(bar.includes(`<span class="num md:hidden" aria-hidden="true">{active.count}</span>`), 'the bare count below md');
   assert.ok(at('<div bind:this={leftBox}') < at('<div bind:this={factsBox} class="facts'), 'between the left cluster');
   assert.ok(at('<div bind:this={factsBox} class="facts') < at('<div bind:this={rightBox}'), 'and the right one');
   assert.match(bar, /<span id="footer-version"><span class="k[^"]*"/, 'the version pair keeps its id');

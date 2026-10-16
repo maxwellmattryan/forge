@@ -288,7 +288,7 @@ test('the action dock sits outside the drawer tabs', () => {
   const aside = tags('components/Drawer.svelte', drawer).find((t) => t.name === 'aside' && t.attrs.some((a) => a.name === 'id' && a.value === '"drawer"'));
   assert.ok(aside, 'the drawer aside');
   const cls = classTokens(aside.attrs.find((a) => a.name === 'class')?.value ?? '');
-  for (const c of ['flex', 'flex-col', 'h-dvh']) assert.ok(cls.includes(c), `the aside has ${c}`);
+  for (const c of ['flex', 'flex-col', 'h-[calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom))]']) assert.ok(cls.includes(c), `the aside has ${c}`);
   for (const c of ['h-full', 'overflow-y-auto']) assert.ok(!cls.includes(c), `the aside has no ${c}: the body scrolls, not the drawer`);
   assert.doesNotMatch(drawer, /resumeModel\(/, 'Resume moved to the dock');
   assert.doesNotMatch(drawer, /type: 'resume'/);
@@ -457,8 +457,10 @@ test('StageStepper is shared by the card and the table', () => {
 
 test('Pipeline board is four grouped columns', () => {
   const text = read('views/Pipeline.svelte');
-  for (const gone of ['overflow-x-auto', 'w-(--size-board-column)']) assert.ok(!text.includes(gone), `no ${gone}`);
-  for (const want of ['grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-3', 'xl:max-h-[calc(100vh-180px)]', 'grid-cols-[repeat(auto-fill,minmax(236px,1fr))]', 'boardColumns('])
+  for (const gone of ['overflow-x-auto', 'w-(--size-board-column)', 'lg:grid-cols', 'xl:grid-cols', 'xl:max-h']) assert.ok(!text.includes(gone), `no ${gone}`);
+  assert.match(read('App.svelte'), /<div id="view" class="@container /, '#view is the container');
+  // Container queries on #view (App.svelte's @container), not the viewport: a split pane gives fewer, wider columns.
+  for (const want of ['grid grid-cols-1 @min-[44rem]:grid-cols-2 @min-[60rem]:grid-cols-4 gap-3', '@min-[60rem]:max-h-[calc(100vh-180px)]', 'grid-cols-[repeat(auto-fill,minmax(236px,1fr))]', 'boardColumns('])
     assert.ok(text.includes(want), `has ${want}`);
   for (const id of ['queued', 'plan', 'build', 'ship', 'done']) assert.ok(text.includes(`$t('pipeline.group.${id}')`), `uses pipeline.group.${id}`);
   const all = [...tsFiles(), ...svelteFiles()].map((f) => [f, read(f)]);
@@ -807,7 +809,7 @@ function drawerParts() {
 test('drawer tabs are an ARIA tablist', () => {
   const text = read('components/Drawer.svelte');
   const { body, head, strip, panel, tabs } = drawerParts();
-  assert.match(text, /import \{ DRAWER_TABS, moveDrawerTab, tabScrollTop, type DrawerTab \} from '\.\.\/lib\/drawer\.ts';/);
+  assert.match(text, /import \{ DRAWER_TABS, PANE_DEFAULT, PANE_MIN, clampPaneWidth, moveDrawerTab, paneKey, paneMax, tabScrollTop, type DrawerTab \} from '\.\.\/lib\/drawer\.ts';/);
   assert.doesNotMatch(text, /const TABS\b/, 'no local tab list');
   assert.ok(text.includes('{#each DRAWER_TABS as tab (tab)}'), 'the strip iterates DRAWER_TABS');
 
@@ -1309,20 +1311,21 @@ test('the view, the toast and the drawer clear the status bar', () => {
   for (const c of ['bottom-24', 'md:bottom-4']) assert.ok(!toast.classes.includes(c), `#toast drops ${c}`);
   assert.ok(toast.classes.includes('z-50'), 'the toast stays z-50');
 
-  // md and up the drawer ends at the bar's top edge; below md it keeps the full height and covers the bar.
+  // At every width the pane ends at the bar's top edge: split, 100dvh less the bar and the inset; full, its bottom is
+  // the bar's top. Full mode is fixed at z-40 inside main; there is no backdrop.
   const drawer = elements('components/Drawer.svelte');
   const aside = drawer.find((e) => e.name === 'aside' && attrOf(e, 'id') === 'drawer');
   assert.ok(aside, 'aside#drawer');
-  assert.ok(aside.classes.includes('h-dvh'), 'the drawer keeps h-dvh');
-  assert.ok(aside.classes.includes('md:h-[calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom))]'), 'md and up it is 100dvh less the bar and the inset');
-  assert.ok(aside.classes.includes('z-40'), 'the drawer stays z-40');
-  const backdrop = drawer.find((e) => attrOf(e, 'id') === 'drawer-backdrop');
-  assert.ok(backdrop?.classes.includes('z-30'), 'the backdrop stays z-30');
+  assert.ok(aside.classes.includes('h-[calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom))]'), 'split: 100dvh less the bar and the inset');
+  assert.ok(aside.classes.includes('bottom-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom))]'), 'full: it stops at the bar');
+  assert.ok(aside.classes.includes('z-40'), 'a full pane is z-40');
+  assert.ok(!aside.classes.includes('h-dvh'), 'it never covers the bar');
+  assert.equal(drawer.find((e) => attrOf(e, 'id') === 'drawer-backdrop'), undefined, 'no backdrop');
   const footer = elements('components/StatusBar.svelte').find((e) => e.name === 'footer');
   assert.ok(footer?.classes.includes('z-35'), 'the bar sits between them');
   const readme = fs.readFileSync(path.join(ROOT, 'smithy', 'README.md'), 'utf8');
   const shell = readme.split('\n').find((l) => l.startsWith('- The shell is'));
-  assert.ok(shell?.includes('sidebar z-10, drawer backdrop z-30, status bar z-35, drawer z-40, popovers z-42, Settings and the palette z-45, toast z-50'), 'smithy/README.md lists the z-order');
+  assert.ok(shell?.includes('sidebar z-10, status bar z-35, a full job pane z-40, popovers z-42, Settings and the palette z-45, toast z-50'), 'smithy/README.md lists the z-order');
   assert.ok(shell.includes('size-statusbar') && !/FAB/.test(shell), 'and names the token, not the FAB');
 });
 
@@ -1576,4 +1579,81 @@ test('the Daemon popover lists sessions, the Inbox popover holds its log', () =>
   assert.match(read('lib/daemon-log.ts'), /Inbox popover's Inbox log/, "LOG_KEY's comment names its new home");
   // The Held and Waiting buttons still open the Daemon popover.
   assert.equal((read('components/StatusBar.svelte').match(/data-popover="daemon"/g) ?? []).length, 3, 'Daemon, Held and Waiting');
+});
+
+test('the job pane sits beside the view with a resizable separator', () => {
+  // Inside main, after #view, in the row that holds them; the old wrapper after main is gone.
+  const app = elements('App.svelte');
+  const pane = app.find((e) => e.name === 'Drawer');
+  assert.ok(pane && pane.parents.some((p) => p.name === 'main'), 'the pane renders inside <main>');
+  const row = pane.parents.at(-1)!;
+  assert.ok(has(row, 'flex', 'items-start', 'min-w-0'), 'in a flex row');
+  const appText = markupOf('App.svelte');
+  assert.ok(appText.indexOf('id="view"') < appText.indexOf('<Drawer />'), 'after #view');
+  assert.equal(appText.match(/<Drawer\b/g)?.length, 1, 'once');
+  assert.match(read('App.svelte'), /S\.pane\.mode = paneMode\(available, S\.pane\.md\);/, 'App measures main and picks the mode');
+  assert.match(read('App.svelte'), /S\.pane\.width = clampPaneWidth\(S\.pane\.width, available\)/, 'a resize re-clamps the width');
+  // No backdrop, never fixed at md and up in split mode, invisible when closed.
+  const drawer = read('components/Drawer.svelte');
+  assert.doesNotMatch(drawer, /drawer-backdrop|\bbackdrop\b/);
+  const aside = elements('components/Drawer.svelte').find((e) => e.name === 'aside' && attrOf(e, 'id') === 'drawer')!;
+  assert.match(attrOf(aside, 'class'), /\{split \? 'sticky top-0 shrink-0 self-start h-\[calc\(100dvh_-_var\(--size-statusbar\)_-_env\(safe-area-inset-bottom\)\)\]' : 'fixed /, 'split is sticky; only full is fixed');
+  assert.ok(!aside.classes.some((c) => /^md:fixed$/.test(c)), 'no md:fixed');
+  assert.match(attrOf(aside, 'class'), /\{open \? '' : 'invisible'\}/, 'closed, it is invisible');
+  assert.match(attrOf(aside, 'class'), /transition-\[width,visibility\]/, 'its width animates (a CSS transition)');
+  assert.equal(attrOf(aside, 'style'), '{split ? `width: ${open ? width : 0}px` : undefined}', 'closed, it takes no space');
+  // The separator: a focusable ARIA window splitter.
+  const sep = elements('components/Drawer.svelte').find((e) => attrOf(e, 'role') === 'separator')!;
+  assert.ok(sep, 'a separator');
+  for (const [k, v] of [['aria-orientation', 'vertical'], ['aria-controls', 'drawer'], ['aria-valuemin', '{PANE_MIN}'], ['aria-valuemax', '{paneMax(available)}'], ['aria-valuenow', '{width}'], ['aria-label', "{$t('drawer.resize')}"], ['tabindex', '0'], ['onpointerdown', '{dragStart}'], ['onpointermove', '{dragMove}'], ['onpointerup', '{dragEnd}'], ['onlostpointercapture', '{dragEnd}'], ['onkeydown', '{sepKey}'], ['ondblclick', '{sepReset}']])
+    assert.equal(attrOf(sep, k), v, `the separator's ${k}`);
+  for (const c of ['w-2', 'cursor-col-resize']) assert.ok(sep.classes.includes(c), `the separator has ${c}`);
+  assert.match(drawer, /<span class="absolute inset-y-0 left-0 border-l /, 'a 1px visible rule');
+  assert.match(drawer, /e\.currentTarget\.setPointerCapture\(e\.pointerId\)/, 'a drag captures the pointer');
+  assert.match(drawer, /S\.pane\.width = clampPaneWidth\(drag\.w \+ \(drag\.x - e\.clientX\), available\)/, 'and resizes live');
+  assert.match(drawer, /const save = \(\): void => pref\.set\('paneWidth', String\(S\.pane\.width\)\);/, 'the width is saved per viewer');
+  assert.match(drawer, /const next = paneKey\(width, e\.key, e\.shiftKey, available\);/);
+  assert.match(drawer, /S\.pane\.width = clampPaneWidth\(PANE_DEFAULT, available\);/, 'double-click restores the default');
+  assert.match(read('lib/app.svelte.ts'), /width = \$state\(clampPaneWidth\(Number\(pref\.get\('paneWidth', String\(PANE_DEFAULT\)\)\), Infinity\)\);/, 'the width starts from the pref');
+  // A board click no longer closes the pane: only Escape and the close button do.
+  assert.equal(drawer.match(/onclick=\{closeDrawer\}/g)?.length, 1, 'one close route in the pane: its close button');
+  assert.match(drawer, /<CloseButton size="sm" label=\{\$t\('drawer\.close'\)\} onclick=\{closeDrawer\} \/>/);
+});
+
+test('the job pane reads at body size', () => {
+  const thread = read('components/ThreadPanel.svelte');
+  assert.doesNotMatch(thread, /prose compact/, 'no compact prose in the Thread');
+  assert.match(thread, /<div class="prose break-words">\{@html md\(m\.text\)\}<\/div>/, 'bodies are prose');
+  assert.match(thread, /<div class="prose break-words">\{@html md\(m\.result\)\}<\/div>/, 'Forge replies are prose');
+  const drawer = read('components/Drawer.svelte');
+  assert.match(drawer, /<li class="flex gap-3 py-1\.5 border-b border-line text-sm">/, 'Timeline rows are text-sm');
+  assert.match(drawer, /class="block w-full text-left truncate px-2 py-1 text-sm font-mono /, 'the Files list is text-sm');
+  const timeline = drawer.slice(drawer.indexOf("shown.tab === 'timeline'"), drawer.indexOf("shown.tab === 'details'"));
+  const files = drawer.slice(drawer.indexOf("shown.tab === 'files'"), drawer.indexOf("shown.tab === 'timeline'"));
+  assert.doesNotMatch(timeline + files, /text-xs/, 'no text-xs in the Timeline or the Files tab');
+  assert.equal(files.match(/<pre class="selectable text-\[13px\] font-mono /g)?.length, 2, 'the Files viewer is 13px');
+  assert.doesNotMatch(files, /text-\[12px\]/);
+  assert.match(drawer, /<div class="mono text-\[13px\] break-all selectable">\{v\}<\/div>/, 'fact values are 13px mono');
+  assert.match(drawer, /<div class="mono text-\[13px\] muted selectable">\{j\.id\}<\/div>/, 'the id line is 13px mono');
+  const log = read('components/SessionLog.svelte');
+  assert.ok(log.includes("{compact ? 'text-[11px] leading-5' : 'text-[13px] leading-5'}"), 'the pane log is 13px, the compact one 11px');
+  assert.doesNotMatch(log, /text-\[9px\]/, 'labels are the 11px label');
+  assert.equal(log.match(/\{compact \? 'prose compact' : 'prose'\}/g)?.length, 3, 'agent text (short and long) and thinking are prose in the pane');
+  assert.match(log, /<div class="flex items-start gap-2 font-sans /, 'agent text is sans');
+});
+
+test('messages tint by sender', () => {
+  const thread = read('components/ThreadPanel.svelte');
+  const log = read('components/SessionLog.svelte');
+  for (const [rel, text] of [['ThreadPanel', thread], ['SessionLog', log]]) {
+    assert.match(text, /import \{ TINT, (logSender|threadSender) \} from '\.\.\/lib\/sender\.ts';/, `${rel} imports TINT`);
+    assert.doesNotMatch(text.replace(/<!--[\s\S]*?-->/g, ''), /['"\s]tint(?:\s|['"])/, `${rel} applies tints only through TINT`);
+  }
+  assert.match(thread, /<li class="plate p-3 flex flex-col gap-1\.5 \{TINT\[threadSender\(m\.from\)\]\}">/, 'a message tints by its sender');
+  assert.match(thread, /<li class="plate ember p-3 flex flex-col gap-1\.5 \{TINT\.forge\}">/, 'a secret note is Forge, on its ember plate');
+  assert.equal(thread.match(/\{TINT\.forge\} border-l border-line-strong px-2\.5 py-1\.5/g)?.length, 2, 'the Forge reply block, rendered or raw');
+  assert.ok(!thread.includes('font-medium text-fg'), 'sender names are font-semibold');
+  assert.match(log, /\{#snippet line\([^)]*\)\}\s*<div class="flex items-start gap-2 \{TINT\.cli\} px-1\.5 -mx-1\.5 py-0\.5">/, 'plumbing lines are cli');
+  assert.equal(log.match(/\{TINT\[logSender\(it\.kind\)\]\}/g)?.length, 4, 'text, thinking, tool and subagent tint by kind');
+  assert.match(log, /<h3 class="label sticky top-0 z-10 bg-panel/, 'the turn heading keeps bg-panel');
 });

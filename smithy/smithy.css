@@ -76,6 +76,10 @@ html[data-grain="off"] .ground::before, html[data-grain="off"] .ground.falloff::
   background-size: 4px 4px, 10px 10px, 10px 10px, 4px 4px, 10px 10px, 10px 10px, 4px 4px, 10px 10px, 10px 10px, 4px 4px, 10px 10px, 10px 10px;
   background-position: 8px 8px, 5px 5px, 5px 5px, calc(100% - 8px) 8px, calc(100% - 5px) 5px, calc(100% - 5px) 5px, 8px calc(100% - 8px), 5px calc(100% - 5px), 5px calc(100% - 5px), calc(100% - 8px) calc(100% - 8px), calc(100% - 5px) calc(100% - 5px), calc(100% - 5px) calc(100% - 5px); }
 .plate.riveted > .rv { display: none; } /* kept for markup that still carries the old rivet span */
+/* tint: who a message comes from, as a faint opaque wash of the panel (the sender name or log tag stays the cue). On a plate it beats the plate's fill (.tint.agent is two classes). */
+.tint.agent { background-color: var(--tint-agent); --surface: var(--tint-agent); }
+.tint.cli { background-color: var(--tint-cli); --surface: var(--tint-cli); }
+.tint.forge { background-color: var(--tint-forge); --surface: var(--tint-forge); }
 
 /* ---------- type ---------- */
 .h { font-family: var(--font-head); font-weight: 600; line-height: 1.15; }

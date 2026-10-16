@@ -134,6 +134,9 @@
   --warn: #f3c84a;
   --bad: #ff8f86;
   --info: #8fa2b8;
+  --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 8%);
+  --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
+  --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
   --shadow-bevel: inset 0 1px 0 0 rgba(220,232,250,0.08), inset 0 -1px 0 0 rgba(0,0,0,0.5);
   --shadow-primary: 0 2px 0 0 #4a6684;
   --shadow-overlay: 0 1px 0 0 rgba(0,0,0,0.6), 0 16px 40px 0 rgba(0,0,0,0.6);
@@ -169,6 +172,9 @@
   --warn: #6e4d00;
   --bad: #a52019;
   --info: #44546a;
+  --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 8%);
+  --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
+  --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
   --shadow-bevel: inset 0 1px 0 0 rgba(255,255,255,0.85), inset 0 -1px 0 0 rgba(60,40,20,0.14);
   --shadow-primary: 0 2px 0 0 #223850;
   --shadow-overlay: 0 1px 0 0 rgba(60,40,20,0.12), 0 16px 40px 0 rgba(60,40,20,0.22);
@@ -349,6 +355,14 @@
     background-size: 4px 4px, 10px 10px, 10px 10px, 4px 4px, 10px 10px, 10px 10px, 4px 4px, 10px 10px, 10px 10px, 4px 4px, 10px 10px, 10px 10px;
     background-position: 8px 8px, 5px 5px, 5px 5px, calc(100% - 8px) 8px, calc(100% - 5px) 5px, calc(100% - 5px) 5px, 8px calc(100% - 8px), 5px calc(100% - 5px), 5px calc(100% - 5px), calc(100% - 8px) calc(100% - 8px), calc(100% - 5px) calc(100% - 5px), calc(100% - 5px) calc(100% - 5px);
   }
+}
+/* tint: who a Thread message or a log line comes from (lib/sender.ts), as a faint opaque wash of the panel: agent (Claude)
+   cool, cli (the CLI and the supervisor) neutral, forge (Forge itself) warm. It sets --surface, so text on it is off the
+   grain; on a plate, `.tint.agent` (two classes) beats the plate's fill whatever the order. Never the only cue. */
+@utility tint {
+  &.agent { background-color: var(--tint-agent); --surface: var(--tint-agent); }
+  &.cli { background-color: var(--tint-cli); --surface: var(--tint-cli); }
+  &.forge { background-color: var(--tint-forge); --surface: var(--tint-forge); }
 }
 /* A clickable row (a table row): changes at once, washing with raised over its plate's panel. */
 @utility clickable {

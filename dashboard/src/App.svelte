@@ -1,5 +1,5 @@
-<!-- The dashboard shell: sidebar (with the "New job or command" input), phone nav, banners, the active view, the status
-     bar and its popovers, the drawer, the command palette, and the toast. -->
+<!-- The dashboard shell: sidebar (with the "New job or command" input), phone nav, banners, the active view and the job
+     pane beside it, the status bar and its popovers, the command palette, and the toast. -->
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
   import Banner from './components/Banner.svelte';
@@ -17,6 +17,7 @@
   import Analytics from './views/Analytics.svelte';
   import Evals from './views/Evals.svelte';
   import { S, closeDrawer, loadView, refresh, route } from './lib/app.svelte.ts';
+  import { clampPaneWidth, paneMode } from './lib/drawer.ts';
   import { startClock } from './lib/clock.svelte.ts';
   import type { ViewId } from './lib/view.ts';
   import { inlineInputAction, type InlineInputEvent } from './lib/statusbar.ts';
@@ -61,6 +62,24 @@
     mq.addEventListener('change', set);
     return () => mq.removeEventListener('change', set);
   });
+
+  // The pane sits beside the view when the main column holds both, else fills it; a resize re-clamps its width.
+  let mainEl = $state<HTMLElement>();
+  $effect(() => {
+    if (!mainEl) return;
+    const el = mainEl;
+    const ro = new ResizeObserver(() => {
+      S.pane.available = el.clientWidth;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+  $effect(() => {
+    const available = S.pane.available;
+    S.pane.mode = paneMode(available, S.pane.md);
+    if (available > 0) untrack(() => (S.pane.width = clampPaneWidth(S.pane.width, available)));
+  });
+  const split = $derived(S.pane.mode === 'split' && S.drawer.id !== null);
 
   $effect(() => {
     document.title = S.data?.repo?.name ? $t('app.titleRepo', { repo: S.data.repo.name }) : $t('app.title');
@@ -180,14 +199,17 @@
       <div class="navlist"><button id="settings-open" aria-haspopup="dialog" aria-keyshortcuts={settingsKeyShortcuts(platform)} onclick={openSettings}><span class="lbl"><Icon name="settings" />{$t('settings.open')}</span><kbd class="mono muted text-[10px] normal-case" aria-hidden="true">{settingsShortcut}</kbd></button></div>
     </div>
   </aside>
-  <main class="falloff flex-1 min-w-0">
+  <main bind:this={mainEl} class="falloff flex-1 min-w-0">
     <!-- The palette and settings buttons stay outside the scrolling nav, so they are always on screen. -->
     <header class="md:hidden flex items-center gap-1 border-b chrome border-line-strong pr-2">
       <div id="mobile-nav" class="navlist row flex-1 min-w-0 overflow-x-auto p-2"><Nav mobile /></div>
       <button id="mobile-command" class="btn touch shrink-0 px-2.5! normal-case tracking-normal" aria-haspopup="dialog" onclick={(e) => openPalette({ opener: e.currentTarget })}><Icon name="command" /><span class="max-sm:sr-only">{$t('command.open')}</span></button>
       <button id="settings-open-mobile" class="btn icon touch shrink-0" aria-label={$t('settings.open')} aria-haspopup="dialog" onclick={openSettings}><Icon name="settings" /></button>
     </header>
-    <div id="view" class="mx-auto max-w-[1400px] px-4 md:px-8 pt-4 pb-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-6))]">
+    <!-- The view and the job pane, side by side in split mode. The pane never covers the sidebar or the status bar, and
+         nothing dims the view: a card click switches the pane's job. #view is the board's container-query root. -->
+    <div class="flex items-start min-w-0">
+    <div id="view" class="@container flex-1 min-w-0 {split ? '' : 'mx-auto max-w-[1400px]'} px-4 md:px-8 pt-4 pb-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-6))]">
       {#if !S.data}
         {#if S.error}<Banner msg={S.error} />{:else}<div class="plate w-fit px-3 py-1.5 text-sm text-muted">{$t('common.loading')}</div>{/if}
       {:else}
@@ -200,12 +222,13 @@
         {:else}<Evals data={S.data} />{/if}
       {/if}
     </div>
+    <Drawer />
+    </div>
   </main>
   <!-- Outside main: main.falloff isolates, which would trap the bar's z-35 and its popovers' z-42 inside main's stacking
-       context, under the drawer's backdrop and the drawer. -->
+       context, under a full-mode pane. -->
   <StatusBar />
 </div>
-<div inert={settingsOpen || palette.open}><Drawer /></div>
 {#if settingsOpen}<Settings bind:this={settings} onclose={closeSettings} />{/if}
 {#if palette.open}<CommandBar bind:this={command} onclose={closePalette} />{/if}
 <Toast />

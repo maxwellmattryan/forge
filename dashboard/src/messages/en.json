@@ -204,6 +204,8 @@
     "label": "Your move"
   },
   "drawer": {
+    "label": "Job panel",
+    "resize": "Resize job panel",
     "close": "Close",
     "branch": "Branch",
     "base": "Base",

@@ -45,6 +45,16 @@ function topLevelVars(css: string): { selector: string; vars: Map<string, string
   return out;
 }
 
+/** The custom properties a `@supports (…) { <selector> { … } }` block sets for `selector`. */
+function supportsVars(css: string, selector: string): [string, string][] {
+  const out: [string, string][] = [];
+  for (const m of css.matchAll(/@supports[^{]*\{([^{}]*)\{([^{}]*)\}\s*\}/g)) {
+    if (normSelector(m[1]) !== normSelector(selector)) continue;
+    for (const d of m[2].matchAll(/(--[\w-]+)\s*:([^;]*)/g)) out.push([d[1], d[2].trim()]);
+  }
+  return out;
+}
+
 function scope(css: string, selector: string): Map<string, string> {
   const merged = new Map<string, string>();
   for (const b of topLevelVars(css)) if (b.selector === normSelector(selector)) for (const [k, v] of b.vars) merged.set(k, v);
@@ -142,6 +152,14 @@ test('built CSS carries every design token in every theme', () => {
     for (const [name, value] of want) {
       count++;
       assert.ok(got.has(name), `${sel} › ${name} is missing from the built CSS`);
+      // A color-mix token (the sender tints) builds as its first colour, then the mix inside @supports: browsers without
+      // color-mix keep the plain panel.
+      const mix = /^color-mix\(in srgb,\s*(var\(--[\w-]+\)),/.exec(value);
+      if (mix) {
+        assert.ok(sameValue(mix[1], got.get(name) ?? ''), `${sel} › ${name}: the fallback is ${mix[1]}, built ${got.get(name)}`);
+        assert.ok(supportsVars(css, sel).some(([k, v]) => k === name && sameValue(value, v)), `${sel} › ${name}: the mix ${value} is built under @supports`);
+        continue;
+      }
       assert.ok(sameValue(value, got.get(name) ?? ''), `${sel} › ${name}: smithy ${value}, built ${got.get(name)}`);
     }
     // lightningcss adds --lightningcss-light/-dark beside every color-scheme, for its light-dark() fallback.
@@ -401,7 +419,9 @@ test('filled elements are opaque', () => {
   }
   const surfaces = [...css.matchAll(/(?<=[{;])\s*--surface\s*:([^;{}]*)/g)].map((m) => m[1].trim());
   assert.ok(surfaces.length >= 4, `checked ${surfaces.length} --surface declarations`);
-  for (const s of surfaces) assert.ok(['var(--bg)', 'var(--panel)', 'var(--chrome)'].includes(s), `--surface:${s} is not an opaque surface`);
+  // The sender tints are opaque mixes of the panel (checked below), so a control on one fills with them.
+  for (const s of surfaces) assert.ok(['var(--bg)', 'var(--panel)', 'var(--chrome)', 'var(--tint-agent)', 'var(--tint-cli)', 'var(--tint-forge)'].includes(s), `--surface:${s} is not an opaque surface`);
+  for (const t of ['agent', 'cli', 'forge']) for (const theme of themes.slice(0, 2)) assert.ok(opaque(theme.get(`--tint-${t}`) ?? '', themes, built), `--tint-${t} is opaque`);
   assert.ok(!themes.some((t) => t.has('--surface')), '--surface is never a token');
 });
 
@@ -563,7 +583,16 @@ test("each theme's tokens and extras win the cascade", () => {
       assert.ok(extras.has(k), `smithy/smithy.css gives ${theme} a ${k}`);
       want.set(k, extras.get(k) ?? '');
     }
-    for (const [name, value] of want) assert.ok(sameExtra(value, got.get(name) ?? ''), `${theme} › ${name}: smithy ${value}, effective ${got.get(name)}`);
+    for (const [name, value] of want) {
+      // A color-mix token (the sender tints) is its first colour outside @supports and the mix inside it.
+      const mix = /^color-mix\(in srgb,\s*(var\(--[\w-]+\)),/.exec(value);
+      if (mix) {
+        assert.ok(sameValue(mix[1], got.get(name) ?? ''), `${theme} › ${name}: fallback ${mix[1]}, effective ${got.get(name)}`);
+        assert.ok(supportsVars(css, THEME_SCOPE[theme]).some(([k, v]) => k === name && sameValue(value, v)), `${theme} › ${name}: the mix applies under @supports`);
+        continue;
+      }
+      assert.ok(sameExtra(value, got.get(name) ?? ''), `${theme} › ${name}: smithy ${value}, effective ${got.get(name)}`);
+    }
     const opacity = Number(got.get('--grain-opacity'));
     assert.ok(opacity > 0 && opacity <= 0.1, `${theme} › the grain's opacity ${opacity} is faint`);
     assert.equal(got.get('--grain-blend'), GRAIN_BLEND[theme], `${theme} › the grain's blend`);
@@ -590,8 +619,10 @@ test('forge is dark and ash is light', () => {
   const css = builtCss();
   assert.equal(effective(css, 'forge').get('color-scheme'), 'dark', 'forge (and :root) is dark');
   assert.equal(effective(css, 'ash').get('color-scheme'), 'light', 'ash is light');
-  assert.deepEqual(themeRules(css, 'forge').map(([sel]) => sel), [':root,[data-theme=forge]'], 'only the token block names forge: it is the :root default');
-  assert.deepEqual(themeRules(css, 'ash').map(([sel]) => sel).sort(), [...ASH_RULES].sort(), 'ash keeps exactly its overrides');
+  // The build splits a token block around each color-mix token's @supports, so a selector can repeat: compare the set.
+  const uniq = (xs: string[]) => [...new Set(xs)].sort();
+  assert.deepEqual(uniq(themeRules(css, 'forge').map(([sel]) => sel)), [':root,[data-theme=forge]'], 'only the token block names forge: it is the :root default');
+  assert.deepEqual(uniq(themeRules(css, 'ash').map(([sel]) => sel)), uniq(ASH_RULES), 'ash keeps exactly its overrides');
 });
 
 // smithy/tokens.json is the source tokens.css is generated from: the same themes as the dashboard offers, one value per

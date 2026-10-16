@@ -128,7 +128,9 @@ test('palette scrim and stable scrollbar gutter', () => {
   const root = (rel: string) => /class="([^"]*)"/.exec(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', rel), 'utf8').replace(/<script\b[\s\S]*?<\/script>|<!--[\s\S]*?-->/g, ''))?.[1].split(/\s+/) ?? [];
   const bar = root('CommandBar.svelte');
   assert.ok(bar.includes('scrim') && !bar.includes('backdrop'), `the palette's root uses scrim (${bar.join(' ')})`);
-  for (const rel of ['Settings.svelte', 'Drawer.svelte']) assert.match(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', rel), 'utf8'), /class="[^"]*\bbackdrop\b/, `${rel} keeps backdrop`);
+  assert.match(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', 'Settings.svelte'), 'utf8'), /class="[^"]*\bbackdrop\b/, 'Settings.svelte keeps backdrop');
+  // The job pane sits beside the view with nothing dimming it.
+  assert.doesNotMatch(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', 'Drawer.svelte'), 'utf8'), /\bbackdrop\b/, 'Drawer.svelte has no backdrop');
 });
 
 /** Every file under dashboard/src that holds markup or builds class strings. */
@@ -759,4 +761,46 @@ test('Run Next sits flush with the segment buttons', () => {
   assert.doesNotMatch(flush, /--shadow-primary/, 'no outer drop below the box');
   assert.ok(smithyCss().includes('.btn.primary.flush { box-shadow: inset 0 -2px 0 0 var(--gleam-deep), var(--gleam-spec); }'), 'smithy/smithy.css draws .flush');
   assert.match(fs.readFileSync(path.join(DASHBOARD, 'src', 'views', 'Pipeline.svelte'), 'utf8'), /class="btn primary flush"/, 'Run Next uses it');
+});
+
+test('sender tints are opaque tokens with readable text', () => {
+  const tokens = fs.readFileSync(path.join(SMITHY, 'tokens.css'), 'utf8');
+  const block = (sel: string) => tokens.slice(tokens.indexOf(sel + ' {'), tokens.indexOf('}', tokens.indexOf(sel + ' {')));
+  const hex = (b: string, name: string): number[] => {
+    const v = new RegExp(`--${name}: (#[0-9a-f]{6});`).exec(b)?.[1];
+    assert.ok(v, `--${name} is a hex colour`);
+    return [1, 3, 5].map((i) => parseInt(v.slice(i, i + 2), 16));
+  };
+  const lin = (c: number) => ((c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const lum = (c: number[]) => 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
+  const contrast = (a: number[], b: number[]) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
+  const TINTS = { agent: ['gleam', 8], cli: ['fg', 5], forge: ['ember', 7] } as const;
+  for (const [theme, sel] of [['forge', ':root, [data-theme="forge"]'], ['ash', '[data-theme="ash"]']] as const) {
+    const b = block(sel);
+    const panel = hex(b, 'panel');
+    for (const [name, [color, pct]] of Object.entries(TINTS)) {
+      // Opaque: a mix of two opaque colours, the panel first (the fallback where color-mix is unsupported).
+      assert.ok(b.includes(`--tint-${name}: color-mix(in srgb, var(--panel), var(--${color}) ${pct}%);`), `${theme} --tint-${name} mixes ${pct}% ${color} into panel`);
+      const c = hex(b, color);
+      const mixed = panel.map((p, i) => Math.round(p + (c[i] - p) * (pct / 100)));
+      for (const text of ['fg', 'muted']) {
+        const ratio = contrast(hex(b, text), mixed);
+        assert.ok(ratio >= 4.5, `${theme}: --${text} on --tint-${name} is ${ratio.toFixed(2)}:1`);
+      }
+      assert.ok(contrast(mixed, panel) > 1.01, `${theme}: --tint-${name} is visibly off the panel`);
+    }
+  }
+  const css = builtCss();
+  for (const name of Object.keys(TINTS)) {
+    const rule = ruleFor(css, `.tint.${name}`);
+    assert.match(rule, new RegExp(`background-color:var\\(--tint-${name}\\)`), `.tint.${name} fills with its token`);
+    assert.match(rule, new RegExp(`--surface:var\\(--tint-${name}\\)`), `.tint.${name} is a surface`);
+    assert.ok(smithyCss().includes(`.tint.${name} { background-color: var(--tint-${name}); --surface: var(--tint-${name}); }`), `smithy/smithy.css mirrors .tint.${name}`);
+  }
+  assert.match(styleCss(), /@utility tint \{/);
+  const json = JSON.parse(fs.readFileSync(path.join(SMITHY, 'tokens.json'), 'utf8'));
+  for (const name of Object.keys(TINTS)) {
+    const t = json.color.tokens.find((x: { name: string }) => x.name === `tint-${name}`);
+    assert.ok(t && t.value.forge && t.value.ash && t.usage, `tokens.json has tint-${name} with both themes and a usage`);
+  }
 });

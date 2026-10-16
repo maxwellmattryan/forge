@@ -20,6 +20,7 @@
   import { atBottom, buildSessionView, readFilters } from '../lib/session-log.ts';
   import type { Entry, Filters, Item } from '../lib/session-log.ts';
   import { createSessionLog } from '../lib/daemon-log.ts';
+  import { TINT, logSender } from '../lib/sender.ts';
   import type { SessionLogUrls } from '../lib/daemon-log.ts';
   import { promptRefreshKey } from '../lib/permissions.ts';
   import { PERMISSION_MODES, mergeSessionState, postDaemon, postDaemonMode, sessionControls, sessionMode, sessionPill } from '../lib/daemon.ts';
@@ -159,16 +160,16 @@
 <svelte:document onvisibilitychange={() => log.visibilityChanged()} />
 
 {#snippet when(at: string | null)}
-  <time datetime={at ?? undefined} title={at ?? undefined} class="inline-block w-[8ch] shrink-0 text-muted tabular-nums">{clock(at)}</time>
+  <time datetime={at ?? undefined} title={at ?? undefined} class="inline-block w-[8ch] shrink-0 font-mono text-muted tabular-nums">{clock(at)}</time>
 {/snippet}
 
 {#snippet line(at: string | null, tone: string | null, tag: string, text: string)}
-  <div class="flex items-start gap-2">{@render when(at)}{#if tone && TONE_CLASS[tone]}<Chip {tone} text={tag} extra="shrink-0" />{:else}<span class="chip muted shrink-0">{tag}</span>{/if}<span class="min-w-0 whitespace-pre-wrap break-words">{text}</span></div>
+  <div class="flex items-start gap-2 {TINT.cli} px-1.5 -mx-1.5 py-0.5">{@render when(at)}{#if tone && TONE_CLASS[tone]}<Chip {tone} text={tag} extra="shrink-0" />{:else}<span class="chip muted shrink-0">{tag}</span>{/if}<span class="min-w-0 whitespace-pre-wrap break-words">{text}</span></div>
 {/snippet}
 
 {#snippet result(r: NonNullable<Extract<Item, { kind: 'tool' }>['result']>)}
   <div class="mt-1">
-    <div class="label text-[9px]">{$t('session.result')}</div>
+    <div class="label">{$t('session.result')}</div>
     <pre class="whitespace-pre-wrap break-words border border-line-soft p-2 {r.isError ? 'text-bad' : ''}">{r.preview}</pre>
     {#if r.more}<details class="mt-1"><summary class="cursor-pointer text-muted">{$t('session.fullResult')}</summary><pre class="whitespace-pre-wrap break-words border border-line-soft p-2 {r.isError ? 'text-bad' : ''}">{r.full}</pre></details>{/if}
   </div>
@@ -177,18 +178,18 @@
 {#snippet item(it: Item)}
   {#if it.kind === 'text'}
     {@const prose = renderable(it.text, mdView.session)}
-    <div class="flex items-start gap-2">{@render when(it.at)}{#if it.long}<details class="min-w-0"><summary class="cursor-pointer whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text.slice(0, 200)}…</summary>{#if prose}<div class="prose compact break-words">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words">{it.text}</div>{/if}</details>{:else if prose}<div class="prose compact min-w-0 break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{@html md(it.text)}</div>{:else}<div class="min-w-0 whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text}</div>{/if}</div>
+    <div class="flex items-start gap-2 font-sans {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5">{@render when(it.at)}{#if it.long}<details class="min-w-0"><summary class="cursor-pointer whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text.slice(0, 200)}…</summary>{#if prose}<div class="{compact ? 'prose compact' : 'prose'} break-words">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words">{it.text}</div>{/if}</details>{:else if prose}<div class="{compact ? 'prose compact' : 'prose'} min-w-0 break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{@html md(it.text)}</div>{:else}<div class="min-w-0 whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text}</div>{/if}</div>
   {:else if it.kind === 'thinking'}
-    <details class="text-muted"><summary class="cursor-pointer">{@render when(it.at)}{$t('session.thinkingItem')}</summary>{#if renderable(it.text, mdView.session)}<div class="prose compact break-words">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words">{it.text}</div>{/if}</details>
+    <details class="text-muted {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5"><summary class="cursor-pointer">{@render when(it.at)}{$t('session.thinkingItem')}</summary>{#if renderable(it.text, mdView.session)}<div class="{compact ? 'prose compact' : 'prose'} font-sans break-words">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words">{it.text}</div>{/if}</details>
   {:else if it.kind === 'tool'}
-    <details class="border px-2 py-1 {it.tone === 'bad' ? 'border-bad' : 'border-line-soft'}">
+    <details class="border px-2 py-1 {TINT[logSender(it.kind)]} {it.tone === 'bad' ? 'border-bad' : 'border-line-soft'}">
       <summary class="cursor-pointer break-all">{@render when(it.at)}<span class="text-gleam">→ {it.name}</span> <span class="text-muted">{it.summary}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
-      <div class="label mt-1 text-[9px]">{$t('session.input')}</div>
+      <div class="label mt-1">{$t('session.input')}</div>
       <pre class="whitespace-pre-wrap break-words border border-line-soft p-2">{it.input}</pre>
       {#if it.result}{@render result(it.result)}{/if}
     </details>
   {:else if it.kind === 'subagent'}
-    <details class="border border-info px-2 py-1">
+    <details class="border border-info px-2 py-1 {TINT[logSender(it.kind)]}">
       <summary class="cursor-pointer break-all">{@render when(it.at)}<Chip tone={it.known ? 'info' : 'muted'} text={it.role} /> <span>{it.description}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.hidden} <span class="text-muted">{$t('session.hiddenLines', { count: it.hidden })}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
       {#if it.prompt}
         <details class="mt-1">
@@ -199,7 +200,7 @@
       {#if it.items.length}<div class="mt-1 flex flex-col gap-1 border-l border-info/40 pl-2">{#each it.items as child, i (i)}{@render item(child)}{/each}</div>{/if}
       {#if it.result}
         {#if renderable(it.result.full, mdView.session)}
-          <div class="mt-1"><div class="label text-[9px]">{$t('session.result')}</div><div class="prose compact break-words border border-line-soft p-2 {it.result.isError ? 'text-bad' : ''}">{@html md(it.result.full)}</div></div>
+          <div class="mt-1"><div class="label">{$t('session.result')}</div><div class="prose compact break-words border border-line-soft p-2 {it.result.isError ? 'text-bad' : ''}">{@html md(it.result.full)}</div></div>
         {:else}{@render result(it.result)}{/if}
       {/if}
     </details>
@@ -269,7 +270,7 @@
   {/if}
   {#if entries.length}
     <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrollable region must be reachable from the keyboard) -->
-    <div bind:this={pane} onscroll={onScroll} role="log" aria-live="off" aria-label={$t('session.label')} tabindex="0" class="plate flat mono selectable px-2.5 pb-2.5 text-[11px] leading-5 {compact ? 'max-h-72' : 'max-h-[70vh]'} overflow-y-auto overscroll-contain">
+    <div bind:this={pane} onscroll={onScroll} role="log" aria-live="off" aria-label={$t('session.label')} tabindex="0" class="plate flat mono selectable px-2.5 pb-2.5 {compact ? 'text-[11px] leading-5' : 'text-[13px] leading-5'} {compact ? 'max-h-72' : 'max-h-[70vh]'} overflow-y-auto overscroll-contain">
       {#if !view.turns.length}<div class="text-muted">{$t('session.noMatch')}</div>{/if}
       {#each view.turns as g (g.offset)}
         <section class="mb-2">

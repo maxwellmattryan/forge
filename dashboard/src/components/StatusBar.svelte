@@ -1,11 +1,11 @@
-<!-- The status bar: one slim fixed row at the bottom of every view. Left, the daemon, the inbox, the office (only while
-     foreman.enabled) and (md and up) holds and waits; then the facts strip (FORGE version · API · SESSIONS live dot and count · SHEET); right, the model and the
+<!-- The status bar: one slim fixed row at the bottom of every view. Left, Needs you (a bell and the count of decisions
+     waiting), the daemon, the inbox, the office (only while foreman.enabled) and (md and up) holds and waits; then the facts strip (FORGE version · API · SESSIONS live dot and count · SHEET); right, the model and the
      connection. It holds no text field: "New job or command" lives in the sidebar. Each indicator opens one popover, a
      sibling after the bar: a fixed element with a z-index is its own stacking context, so a popover inside the bar could
-     never rise above the drawer.
-     Stacking, from the back: sidebar z-10, drawer backdrop z-30, this bar z-35, drawer z-40, popovers z-42, Settings and
-     the palette z-45, toast z-50. At md and up the bar spans the content column only, so the sidebar keeps its full
-     height, and the drawer ends at the bar's top edge. Session errors, titles and model strings are untrusted and render
+     never rise above a full job pane.
+     Stacking, from the back: sidebar z-10, this bar z-35, a full job pane z-40 (inside main's isolated context), popovers
+     z-42, Settings and the palette z-45, toast z-50. At md and up the bar spans the content column only, so the sidebar
+     keeps its full height, and the job pane always ends at the bar's top edge. Session errors, titles and model strings are untrusted and render
      as text.
      The facts strip takes what the clusters leave (basis 0) and drops facts from the right as it runs short (see
      factsHidden). Each cluster holds its indicators in a max-content row; when the row is wider than the cluster, the next
@@ -287,7 +287,7 @@
     <span class="sep max-md:hidden! {hid.api ? 'hidden!' : ''}" aria-hidden="true"></span>
     <span class="max-md:sr-only {hid.api ? 'sr-only' : ''}"><span class="k">{$t('statusbar.facts.api')}</span>{S.data ? S.data.apiVersion : '—'}</span>
     <span class="sep" aria-hidden="true"></span>
-    <span id="footer-sessions" title={activeTitle}><span class="k max-md:sr-only {hid.sessionsWord ? 'sr-only' : ''}">{$t('statusbar.facts.sessions')}</span><LiveDot on={active.count > 0} /><span class="num">{$t('statusbar.facts.sessionsValue', { count: active.count })}</span></span>
+    <span id="footer-sessions" title={activeTitle}><span class="k max-md:sr-only {hid.sessionsWord ? 'sr-only' : ''}">{$t('statusbar.facts.sessions')}</span><LiveDot on={active.count > 0} /><span class="num max-md:sr-only">{$t('statusbar.facts.sessionsValue', { count: active.count })}</span><span class="num md:hidden" aria-hidden="true">{active.count}</span></span>
     <span class="sep max-md:hidden! {hid.sheet ? 'hidden!' : ''}" aria-hidden="true"></span>
     <span class="max-md:sr-only {hid.sheet ? 'sr-only' : ''}"><span class="k">{$t('statusbar.facts.sheet')}</span>{$t('statusbar.facts.sheetValue', { view: viewLabels[S.view], index: viewIndex(S.view), total: VIEWS.length })}</span>
   </div>

@@ -12,6 +12,7 @@
   import { ago } from '../lib/util.ts';
   import { ticker } from '../lib/clock.svelte.ts';
   import { secretLine, threadItems, threadMark, type ThreadAction, type ThreadFrom, type ThreadOpening, type ThreadSecret, type ThreadStatus } from '../lib/thread.ts';
+  import { TINT, threadSender } from '../lib/sender.ts';
   import type { ForgeRequest, Job, JobEvent } from '../lib/types.ts';
   import { t } from '../lib/locale.ts';
 
@@ -92,9 +93,9 @@
       <ol class="flex flex-col gap-2">
         {#each items as m (m.id)}
           {#if m.secret}
-            <li class="plate ember p-3 flex flex-col gap-1.5">
+            <li class="plate ember p-3 flex flex-col gap-1.5 {TINT.forge}">
               <div class="caption flex flex-wrap items-center gap-x-2 gap-y-1">
-                {#if seenAtOpen && !seenAtOpen.has(threadMark(m))}<span class="dot spark size-1.5 shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="font-medium text-fg">{who.forge}</span><span class="text-fg">{secretText(m.secret)}</span>{#if m.at}<span class="text-muted">{ago(m.at, ticker.now)}</span>{/if}<span class="flex-1"></span>{#if m.secret.blocked}<Chip tone="you" text={$t('thread.secret.blocked')} />{:else}<Chip tone="warn" text={$t('thread.secret.noted')} />{/if}
+                {#if seenAtOpen && !seenAtOpen.has(threadMark(m))}<span class="dot spark size-1.5 shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="font-semibold text-fg">{who.forge}</span><span class="text-fg">{secretText(m.secret)}</span>{#if m.at}<span class="text-muted">{ago(m.at, ticker.now)}</span>{/if}<span class="flex-1"></span>{#if m.secret.blocked}<Chip tone="you" text={$t('thread.secret.blocked')} />{:else}<Chip tone="warn" text={$t('thread.secret.noted')} />{/if}
               </div>
               {#if m.secret.findings.length}
                 <ul class="flex flex-col gap-0.5" aria-label={$t('thread.secret.findings')}>
@@ -104,18 +105,18 @@
               {#if m.secret.more > 0}<p class="text-sm text-muted">{$t('thread.secret.more', { count: m.secret.more })}</p>{/if}
             </li>
           {:else}
-          <li class="plate p-3 flex flex-col gap-1.5">
+          <li class="plate p-3 flex flex-col gap-1.5 {TINT[threadSender(m.from)]}">
             <div class="caption flex flex-wrap items-center gap-x-2 gap-y-1">
-              {#if seenAtOpen && !seenAtOpen.has(threadMark(m))}<span class="dot spark size-1.5 shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="font-medium text-fg">{who[m.from]}</span><span class="text-fg">{actionText(m.action)}</span>{#if m.at}<span class="text-muted">{ago(m.at, ticker.now)}</span>{/if}<span class="flex-1"></span>{#if m.status}<Chip tone={TONE[m.status]} text={statusText[m.status]} />{/if}
+              {#if seenAtOpen && !seenAtOpen.has(threadMark(m))}<span class="dot spark size-1.5 shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="font-semibold text-fg">{who[m.from]}</span><span class="text-fg">{actionText(m.action)}</span>{#if m.at}<span class="text-muted">{ago(m.at, ticker.now)}</span>{/if}<span class="flex-1"></span>{#if m.status}<Chip tone={TONE[m.status]} text={statusText[m.status]} />{/if}
             </div>
             {#if m.text}
-              {#if renderable(m.text, mdView.thread)}<div class="prose compact break-words">{@html md(m.text)}</div>{:else}<p class="selectable text-sm whitespace-pre-wrap break-words">{m.text}</p>{/if}
+              {#if renderable(m.text, mdView.thread)}<div class="prose break-words">{@html md(m.text)}</div>{:else}<p class="selectable text-sm whitespace-pre-wrap break-words">{m.text}</p>{/if}
             {/if}
             {#if m.result}
               {#if renderable(m.result, mdView.thread)}
-                <div class="border-l border-line-strong pl-2.5 text-muted"><div class="text-xs font-medium text-fg">{who.forge}</div><div class="prose compact break-words">{@html md(m.result)}</div></div>
+                <div class="{TINT.forge} border-l border-line-strong px-2.5 py-1.5 text-muted"><div class="text-sm font-semibold text-fg">{who.forge}</div><div class="prose break-words">{@html md(m.result)}</div></div>
               {:else}
-                <div class="selectable border-l border-line-strong pl-2.5 text-sm text-muted whitespace-pre-wrap break-words"><span class="text-xs font-medium text-fg">{who.forge}</span> {m.result}</div>
+                <div class="selectable {TINT.forge} border-l border-line-strong px-2.5 py-1.5 text-sm text-muted whitespace-pre-wrap break-words"><span class="font-semibold text-fg">{who.forge}</span> {m.result}</div>
               {/if}
             {/if}
           </li>
