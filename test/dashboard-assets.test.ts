@@ -108,7 +108,7 @@ test('vendored fonts are the Smithy families and nothing loads cross-origin', as
   for (const pkg of PACKAGES) assert.match(readme, new RegExp(`\\| \`${pkg.replace(/[/@-]/g, (x) => '\\' + x)}\` \\| 5\\.3\\.0 \\| \`sha512-[A-Za-z0-9+/=]{80,}\` \\|`), `fonts/README.md records ${pkg}, its version and its integrity`);
   const style = fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8');
   for (const file of FONT_FILES.filter((x) => x.endsWith('.woff2'))) assert.ok(style.includes(`src: url(./fonts/${file}) format("woff2");`), `style.css declares ${file} with @font-face`);
-  // Neither the sources nor the build name a font host; the smithy/ previews may (they are design references).
+  // Neither the sources nor the build name a font host.
   const sources = [path.join(DASHBOARD, 'index.html'), path.join(DASHBOARD, 'style.css'), ...listFiles(path.join(DASHBOARD, 'src')).map((f) => path.join(DASHBOARD, 'src', f)), ...listFiles(DIST).map((f) => path.join(DIST, f))];
   for (const file of sources) {
     const text = fs.readFileSync(file).toString('latin1');

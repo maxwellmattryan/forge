@@ -1,5 +1,5 @@
-// The Smithy tokens: smithy/tokens.css is the drawing, the built dashboard CSS must carry every variable of it in the
-// same scope with the same value, and the text colours must stay readable in both themes (forge, ash).
+// The Smithy tokens: the token blocks of dashboard/style.css are the source, the built dashboard CSS must carry every
+// variable of them in the same scope with the same value, and the text colours must stay readable in both themes (forge, ash).
 // Reads files only; a small regex-based declaration reader stands in for a CSS parser.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -104,18 +104,27 @@ function sameValue(a: string, b: string): boolean {
 }
 
 const SCOPES = [':root, [data-theme="forge"]', '[data-theme="ash"]', ':root'];
-// smithy/smithy.css declares these on top of tokens.css: the brushed gleam fills, the grain and the falloff (ash
-// overrides four of them). They ride in the same scopes in the build.
+// style.css declares these after the tokens: the brushed gleam fills, the grain and the falloff (ash overrides four of
+// them). They ride in the same scopes in the build.
 const SMITHY_EXTRAS = ['--gleam-fill', '--gleam-fill-hot', '--gleam-fill-bar', '--gleam-spec', '--grain-opacity', '--grain-blend', '--fall', '--hammer', '--grain'];
 const EXTRAS: Record<string, string[]> = {
   [SCOPES[0]]: [],
   [SCOPES[1]]: ['--gleam-spec', '--grain-opacity', '--grain-blend', '--fall'],
   [SCOPES[2]]: SMITHY_EXTRAS,
 };
-/** Each theme's own token block in smithy/tokens.css (the scalar `:root` block is shared). */
+/** Each theme's own token block in style.css (the scalar `:root` block is shared). */
 const THEME_SCOPE: Record<string, string> = { forge: SCOPES[0], ash: SCOPES[1] };
-const SMITHY = path.join(ROOT, 'smithy');
-const tokensCss = () => fs.readFileSync(path.join(SMITHY, 'tokens.css'), 'utf8');
+const STYLE = path.join(ROOT, 'dashboard', 'style.css');
+/** A section of style.css, from its `/* ---------- <name>` marker to the next marker. */
+function styleSection(name: string): string {
+  const text = fs.readFileSync(STYLE, 'utf8');
+  const start = text.indexOf(`/* ---------- ${name}`);
+  assert.ok(start >= 0, `style.css has a ${name} section`);
+  const end = text.indexOf('/* ----------', start + 1);
+  return text.slice(start, end < 0 ? undefined : end);
+}
+const tokensCss = () => styleSection('tokens');
+const extrasCss = () => styleSection('extras');
 
 test('the token value reader normalises the way the build rewrites values', () => {
   assert.ok(sameValue('rgba(255,255,255,0.035)', '#ffffff09'));
@@ -138,15 +147,15 @@ test('built CSS carries every design token in every theme', () => {
   for (const sel of SCOPES) {
     const want = scope(design, sel);
     const got = scope(css, sel);
-    assert.ok(want.size > 0, `smithy/tokens.css has a ${sel} block`);
+    assert.ok(want.size > 0, `style.css tokens have a ${sel} block`);
     for (const [name, value] of want) {
       count++;
       assert.ok(got.has(name), `${sel} › ${name} is missing from the built CSS`);
-      assert.ok(sameValue(value, got.get(name) ?? ''), `${sel} › ${name}: smithy ${value}, built ${got.get(name)}`);
+      assert.ok(sameValue(value, got.get(name) ?? ''), `${sel} › ${name}: source ${value}, built ${got.get(name)}`);
     }
     // lightningcss adds --lightningcss-light/-dark beside every color-scheme, for its light-dark() fallback.
     const extra = [...got.keys()].filter((k) => !want.has(k) && !k.startsWith('--lightningcss-')).sort();
-    assert.deepEqual(extra, [...EXTRAS[sel]].sort(), `${sel}: only the smithy.css extras are added`);
+    assert.deepEqual(extra, [...EXTRAS[sel]].sort(), `${sel}: only the extras are added`);
   }
   assert.ok(count >= 90, `checked ${count} tokens`);
   for (const m of css.matchAll(/(--(?:[\w-]|\\.)+)\s*:([^;}]*)/g)) {
@@ -183,13 +192,13 @@ const over = ([r, g, b, a]: Rgba, [R, G, B]: Rgba): Rgba => [r * a + R * (1 - a)
 const mix = (a: Rgba, p: number, b: Rgba): Rgba => [a[0] * p + b[0] * (1 - p), a[1] * p + b[1] * (1 - p), a[2] * p + b[2] * (1 - p), 1];
 
 // Text is fg or muted; gleam (links, the live chip), ember (needs you) and the status hues carry words too. dim is for
-// placeholders and stamp-line keys only (smithy/README.md › Colour) and is the one documented exception. spark is only
+// placeholders and stamp-line keys only and is the one documented exception. spark is only
 // ever a fill under on-spark. Forge's hovered link is gleam-hot; Ash keeps gleam there.
 const TEXT = ['fg', 'muted', 'gleam', 'ember', 'ok', 'warn', 'bad', 'info'];
 const TEXT_BY_THEME: Record<string, string[]> = { forge: [...TEXT, 'gleam-hot'], ash: TEXT };
 const DIM_FLOOR = 3.0;
 
-/** The two theme scopes of smithy/tokens.css, as a colour reader per theme. */
+/** The two theme scopes of the style.css tokens, as a colour reader per theme. */
 function themeColors(): Record<string, (k: string) => Rgba> {
   const design = tokensCss();
   const out: Record<string, (k: string) => Rgba> = {};
@@ -248,7 +257,7 @@ test('plates, chrome and sheen keep text at 4.5:1', (t) => {
         if (ratio < lowest[0]) [lowest[0], lowest[1]] = [ratio, `--${k} on ${s}`];
       }
     }
-    // For smithy/README.md › Colour: the fg ladder and the weakest pair.
+    // The fg ladder and the weakest pair, for the record.
     const ladder = [color('bg'), panel, chrome].map((s) => contrast(color('fg'), s).toFixed(2));
     t.diagnostic(`${theme} fg on bg → panel → chrome: ${ladder.join(' → ')}; lowest ${lowest[1]} ${lowest[0].toFixed(2)}:1`);
   }
@@ -539,7 +548,7 @@ function effective(css: string, theme: string): Map<string, string> {
   return out;
 }
 
-/** An extra as written in smithy.css and as the build minifies it (`.10` becomes `.1`, rgba becomes hex). */
+/** An extra as written in style.css and as the build minifies it (`.10` becomes `.1`, rgba becomes hex). */
 const sameExtra = (a: string, b: string) => sameValue(a, b) || (a.trim() !== '' && !Number.isNaN(Number(a)) && Number(a) === Number(b));
 const GRAIN_BLEND: Record<string, string> = { forge: 'soft-light', ash: 'multiply' };
 
@@ -551,18 +560,18 @@ test("each theme's tokens and extras win the cascade", () => {
   assert.ok(sameExtra('.10', '.1') && !sameExtra('.10', '.18') && !sameExtra('', '0'), 'self-check: numeric extras');
 
   const design = tokensCss();
-  const smithy = fs.readFileSync(path.join(SMITHY, 'smithy.css'), 'utf8');
+  const extrasSrc = extrasCss();
   const css = builtCss();
   for (const theme of THEMES) {
     const got = effective(css, theme);
     const want = new Map([...scope(design, SCOPES[2]), ...scope(design, THEME_SCOPE[theme])]);
-    // The smithy.css extras as smithy.css resolves them for this theme. The grain URIs are compared in dashboard-css.test.ts.
-    const extras = effective(smithy, theme);
+    // The extras as the source resolves them for this theme. The grain URIs are compared in dashboard-css.test.ts.
+    const extras = effective(extrasSrc, theme);
     for (const k of [...SMITHY_EXTRAS.filter((x) => !['--hammer', '--grain', '--gleam-fill', '--gleam-fill-hot', '--gleam-fill-bar'].includes(x)), 'color-scheme']) {
-      assert.ok(extras.has(k), `smithy/smithy.css gives ${theme} a ${k}`);
+      assert.ok(extras.has(k), `style.css extras give ${theme} a ${k}`);
       want.set(k, extras.get(k) ?? '');
     }
-    for (const [name, value] of want) assert.ok(sameExtra(value, got.get(name) ?? ''), `${theme} › ${name}: smithy ${value}, effective ${got.get(name)}`);
+    for (const [name, value] of want) assert.ok(sameExtra(value, got.get(name) ?? ''), `${theme} › ${name}: source ${value}, effective ${got.get(name)}`);
     const opacity = Number(got.get('--grain-opacity'));
     assert.ok(opacity > 0 && opacity <= 0.1, `${theme} › the grain's opacity ${opacity} is faint`);
     assert.equal(got.get('--grain-blend'), GRAIN_BLEND[theme], `${theme} › the grain's blend`);
@@ -593,43 +602,19 @@ test('forge is dark and ash is light', () => {
   assert.deepEqual(themeRules(css, 'ash').map(([sel]) => sel).sort(), [...ASH_RULES].sort(), 'ash keeps exactly its overrides');
 });
 
-// smithy/tokens.json is the source tokens.css is generated from: the same themes as the dashboard offers, one value per
-// theme on every colour and shadow, and the same value as the CSS.
-test('tokens.json themes equal THEMES and every token value matches tokens.css', () => {
-  const json = JSON.parse(fs.readFileSync(path.join(SMITHY, 'tokens.json'), 'utf8'));
-  const design = tokensCss();
-  assert.deepEqual(json.color.themes.map((x: { id: string }) => x.id), [...THEMES], 'tokens.json themes are THEMES, in order');
-  const tokens: { name: string; value: Record<string, string> }[] = [...json.color.tokens, ...json.shadow.tokens];
-  assert.ok(tokens.length >= 30, `checked ${tokens.length} themed tokens`);
-  for (const theme of THEMES) {
-    const vars = scope(design, THEME_SCOPE[theme]);
-    assert.deepEqual([...vars.keys()].sort(), tokens.map((x) => `--${x.name}`).sort(), `${theme}: tokens.css and tokens.json name the same tokens`);
-    for (const { name, value } of tokens) {
-      assert.deepEqual(Object.keys(value).sort(), [...THEMES].sort(), `${name} has exactly one value per theme`);
-      assert.ok(sameValue(value[theme], vars.get(`--${name}`) ?? ''), `${theme} › ${name}: tokens.json ${value[theme]}, tokens.css ${vars.get(`--${name}`)}`);
-    }
-  }
-});
-
-// Ash is cooled ash, warm rather than a white page: red over green over blue, and the same four ground values wherever
-// the tokens are written.
+// Ash is cooled ash, warm rather than a white page: red over green over blue, with these four ground values.
 const ASH_GROUND: Record<string, string> = { '--bg': '#ebe7e0', '--bg-deep': '#ddd7cd', '--panel': '#f6f3ee', '--chrome': '#fbf9f6' };
 test('ash bg is warm', () => {
   const warm = ([r, g, b]: Rgba) => r >= g && g >= b && r - b >= 8;
   assert.ok(warm([235, 231, 224, 1]), 'self-check: the warm ground');
   assert.ok(!warm([241, 240, 238, 1]), 'self-check: a near-white ground is not warm');
   assert.ok(!warm([224, 231, 235, 1]), 'self-check: a cool ground is not warm');
-  const json = JSON.parse(fs.readFileSync(path.join(SMITHY, 'tokens.json'), 'utf8'));
-  const sources: [string, Map<string, string>][] = [
-    ['smithy/tokens.css', scope(tokensCss(), SCOPES[1])],
-    ['dashboard/style.css', scope(fs.readFileSync(path.join(ROOT, 'dashboard', 'style.css'), 'utf8'), SCOPES[1])],
-    ['smithy/tokens.json', new Map(json.color.tokens.map((x: { name: string; value: Record<string, string> }) => [`--${x.name}`, x.value.ash]))],
-  ];
-  for (const [where, vars] of sources) for (const [k, v] of Object.entries(ASH_GROUND)) assert.equal(vars.get(k)?.toLowerCase(), v, `${where} ash ${k}`);
+  const vars = scope(tokensCss(), SCOPES[1]);
+  for (const [k, v] of Object.entries(ASH_GROUND)) assert.equal(vars.get(k)?.toLowerCase(), v, `style.css ash ${k}`);
   for (const k of ['bg', 'bg-deep']) assert.ok(warm(themeColors().ash(k)), `ash --${k} is warm`);
 });
 
-// A plate reads as a separate piece of metal on the ground (smithy/README.md › Colour: at least 1.11:1), and the solid
+// A plate reads as a separate piece of metal on the ground (at least 1.11:1), and the solid
 // focus ring (line-strong) stays visible on every surface it can land on, in both themes.
 test('a plate stands at least 1.11:1 off the ground', () => {
   for (const [theme, color] of Object.entries(themeColors())) {
