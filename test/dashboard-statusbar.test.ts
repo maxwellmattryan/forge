@@ -50,22 +50,21 @@ test('barModel: the foreman indicator is always built, on or off', () => {
   assert.ok(none.foreman.on && none.foreman.pill.label === 'no session');
 });
 
-test('barModel: daemon, inbox, held, waiting and prompt attention', () => {
-  // A null pool: the daemon is off, nothing else shows.
+test('barModel: daemon, foreman, held, waiting and prompts', () => {
+  // A null pool: the daemon is off, nothing else shows. No inbox and no attention field: the bell counts prompts.
   const none = barModel(null, { pending: false });
-  assert.deepEqual(none, { daemon: { off: true, active: false, cap: 0 }, inbox: null, foreman: { on: false }, prompts: 0, held: 0, waiting: 0, attention: false });
+  assert.deepEqual(none, { daemon: { off: true, active: false, cap: 0 }, foreman: { on: false }, prompts: 0, held: 0, waiting: 0 });
 
   // Disabled, not wanted, nothing running: off as well.
   const disabled = barModel(pool({ enabled: false, wanted: false }), { pending: false });
   assert.deepEqual(disabled.daemon, { off: true, active: false, cap: 3 }, 'off, the bar still shows Daemon 0/<maxConcurrent>');
-  assert.equal(disabled.inbox, null);
+  assert.ok(!('inbox' in disabled) && !('attention' in disabled));
 
   // Standby: enabled and wanted, nothing running yet.
   const standby = barModel(pool(), { pending: false });
   assert.deepEqual([on(standby).pill.label, on(standby).pill.tone], ['standby', 'muted']);
   assert.deepEqual([on(standby).live, on(standby).cap, on(standby).active], [0, 3, false]);
-  assert.deepEqual([standby.inbox?.label, standby.inbox?.tone], ['no session', 'muted']);
-  assert.equal(standby.attention, false);
+  assert.equal(standby.prompts, 0);
 
   // Busy: a working session lights the live dot.
   const busy = barModel(pool({ live: 1, jobs: { a: session({ scope: 'a', running: true, status: 'busy' }) } }), { pending: false });
@@ -73,7 +72,7 @@ test('barModel: daemon, inbox, held, waiting and prompt attention', () => {
   const idle = barModel(pool({ live: 1, jobs: { a: session({ scope: 'a', running: true, status: 'idle' }) } }), { pending: false });
   assert.equal(on(idle).active, false, 'an idle session does not pulse');
 
-  // Needs permission: a prompt on a job session turns the inbox warn and counts pool-wide.
+  // Needs permission: a prompt on a job session counts pool-wide.
   const asking = pool({
     live: 2,
     inbox: session({ scope: '_inbox', running: true, status: 'idle', sessionId: 'x' }),
@@ -82,10 +81,7 @@ test('barModel: daemon, inbox, held, waiting and prompt attention', () => {
   const ask = barModel(asking, { pending: false });
   assert.deepEqual([on(ask).pill.label, on(ask).pill.tone, on(ask).active], ['needs permission', 'warn', true]);
   assert.equal(ask.prompts, 2);
-  assert.equal(ask.attention, true);
-  assert.equal(ask.inbox?.label, 'idle', "the inbox keeps its own label");
-  assert.equal(ask.inbox?.tone, 'warn', 'but takes the warn tone while a prompt waits anywhere');
-  assert.equal(barModel(pool({ inbox: session({ scope: '_inbox', running: true, status: 'idle', sessionId: 'x' }) }), { pending: false }).inbox?.tone, 'ok', 'and keeps its own tone without one');
+  assert.deepEqual(Object.keys(ask).sort(), ['daemon', 'foreman', 'held', 'prompts', 'waiting']);
 
   // Held and waiting counts.
   const held = barModel(pool({ jobs: { a: session({ scope: 'a', held: 'budget' }), b: session({ scope: 'b', held: 'budget' }) } }), { pending: false });
@@ -183,7 +179,7 @@ test('connectionState: connecting, live, offline, outdated', () => {
 });
 
 test('togglePopover keeps one popover open', () => {
-  assert.deepEqual([...POPOVERS], ['foreman', 'needs', 'daemon', 'inbox', 'model', 'connection']);
+  assert.deepEqual([...POPOVERS], ['foreman', 'needs', 'daemon', 'model', 'connection']);
   assert.equal(togglePopover(null, 'model'), 'model', 'a click opens');
   assert.equal(togglePopover('model', 'model'), null, 'the same indicator closes it');
   assert.equal(togglePopover('model', 'daemon'), 'daemon', 'another indicator switches');
@@ -222,21 +218,21 @@ test('placePopover anchors to the trigger and stays on screen', () => {
   assert.deepEqual(placePopover({ triggerLeft: 0, triggerRight: 40, viewport: 320, width: 400, align: 'start', narrow: true, gutter: 8 }), { left: 8, width: 304 });
 });
 
-test('placePopover clamps the large popover', () => {
-  assert.deepEqual(POPOVER_WIDTH, { normal: 400, wide: 560, large: 880, chat: 760 });
-  const large = POPOVER_WIDTH.large;
+test('placePopover clamps the wide popover (Needs you, Daemon)', () => {
+  assert.deepEqual(POPOVER_WIDTH, { normal: 400, wide: 560, chat: 760 });
+  const wide = POPOVER_WIDTH.wide;
   // Room for it: anchored to the Needs-you button at the bar's left.
-  assert.deepEqual(placePopover({ triggerLeft: 244, triggerRight: 280, viewport: 1440, width: large, align: 'start', narrow: false }), { left: 244, width: 880 });
+  assert.deepEqual(placePopover({ triggerLeft: 244, triggerRight: 280, viewport: 1440, width: wide, align: 'start', narrow: false }), { left: 244, width: 560 });
   // Anchored too far right: it slides left to stay 16px inside.
-  assert.deepEqual(placePopover({ triggerLeft: 700, triggerRight: 740, viewport: 1280, width: large, align: 'start', narrow: false }), { left: 1280 - 16 - 880, width: 880 });
-  // A viewport narrower than 880 + 32: the popover shrinks to the room.
-  assert.deepEqual(placePopover({ triggerLeft: 244, triggerRight: 280, viewport: 800, width: large, align: 'start', narrow: false }), { left: 16, width: 768 });
+  assert.deepEqual(placePopover({ triggerLeft: 900, triggerRight: 940, viewport: 1280, width: wide, align: 'start', narrow: false }), { left: 1280 - 16 - 560, width: 560 });
+  // A viewport narrower than 560 + 32: the popover shrinks to the room.
+  assert.deepEqual(placePopover({ triggerLeft: 244, triggerRight: 280, viewport: 560, width: wide, align: 'start', narrow: false }), { left: 16, width: 528 });
   // Below md it spans the viewport less the gutters, like the others.
-  assert.deepEqual(placePopover({ triggerLeft: 0, triggerRight: 44, viewport: 375, width: large, align: 'start', narrow: true }), { left: 16, width: 343 });
+  assert.deepEqual(placePopover({ triggerLeft: 0, triggerRight: 44, viewport: 375, width: wide, align: 'start', narrow: true }), { left: 16, width: 343 });
   const pop = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'Popover.svelte'), 'utf8');
   assert.match(pop, /size = 'normal'/, 'Popover takes a size, normal by default');
   assert.match(pop, /width: POPOVER_WIDTH\[size\]/);
-  assert.match(fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'StatusBar.svelte'), 'utf8'), /open === 'needs' \? 'large' :/, 'Needs you is large');
+  assert.match(fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'StatusBar.svelte'), 'utf8'), /open === 'needs' \? 'wide' :/, 'Needs you is wide');
 });
 
 test('placePopover clamps the chat popover', () => {

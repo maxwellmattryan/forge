@@ -751,6 +751,20 @@
   &.active { color: var(--fg); border-bottom-color: var(--gleam); background-color: var(--surface, var(--bg)); }
 }
 
+/* ---------- row lists ---------- */
+/* The Needs-you popover's PR, park and queued lists: rows on a flat plate, split by hairlines, so nothing scrolls
+   sideways the way a table does. Each row stacks the title, its facts and its actions, all wrapping. */
+@utility needs-list {
+  & > li + li { border-top: 1px solid var(--line); }
+}
+@utility needs-row {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--spacing) * 2);
+  min-width: 0;
+  padding: calc(var(--spacing) * 3);
+}
+
 /* ---------- tables ---------- */
 @utility tbl {
   width: 100%;

@@ -46,7 +46,7 @@ forge init write --answers <file>      # merges into an existing config; --force
 forge config validate
 forge doctor
 ```
-Relay any `warnings` from `forge init write`. Fix anything `validate`/`doctor` reports (e.g. `gh auth refresh -s project` for Projects sync. Tell the human, don't run auth commands yourself).
+Relay any `warnings` from `forge init write`. Fix anything `validate`/`doctor` reports (e.g. `gh auth refresh -s project` for GitHub Projects sync. Tell the human, don't run auth commands yourself).
 
 ## 6. Hand over
 Tell the human: the files written; to commit `.forge/` (it's designed to be committed, while runtime state is gitignored inside it); `forge dash --background` for the dashboard; and how to start (`/forge <feature>`, `/forge next`). If instruction files lacked commands, suggest adding them.

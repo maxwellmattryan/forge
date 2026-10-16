@@ -65,7 +65,6 @@
   },
   "daemon": {
     "pill": "Daemon {label}",
-    "inbox": "Inbox {label}",
     "live": "{live}/{cap} job sessions",
     "held": "held: budget ({count})",
     "waiting": "waiting for slot ({count})",
@@ -77,7 +76,7 @@
     "modeTitle": "Permission mode: {mode}",
     "rows": {
       "label": "Sessions",
-      "inbox": "Inbox",
+      "inbox": "Inbox session",
       "inboxAbout": "Handles requests without a job",
       "foremanRow": "Foreman",
       "foremanRowAbout": "Supervises this pool"
@@ -109,16 +108,7 @@
       "sessions": "job sessions",
       "disabled": "The daemon is off. Set daemon.enabled: true in .forge/config.yml, then start it here.",
       "mode": "Default permissions: {mode}",
-      "inboxLog": "Inbox log"
-    },
-    "inbox": {
-      "title": "Inbox session",
-      "name": "Inbox",
-      "prompts": {
-        "one": "{count} prompt",
-        "other": "{count} prompts"
-      },
-      "noPrompts": "No tool calls are waiting for permission."
+      "inboxLog": "Inbox session log"
     },
     "foreman": {
       "name": "Foreman",
@@ -184,7 +174,7 @@
     "idle": "idle",
     "line": "{state} · {ago}",
     "columnWorking": "{count} working",
-    "inbox": "inbox",
+    "inbox": "inbox session",
     "office": "office",
     "none": "No session is working",
     "new": "new"
@@ -195,7 +185,7 @@
       "other": "{count} tool calls waiting for permission"
     },
     "chip": "needs permission",
-    "inbox": "Inbox",
+    "inbox": "Inbox session",
     "asks": "The session asks to use {tool}",
     "asksSubagent": "A subagent asks to use {tool}",
     "agentSays": "The agent says:",
@@ -266,7 +256,8 @@
   },
   "needs": {
     "urgent": "Decisions only you can make",
-    "empty": "Nothing needs you right now"
+    "empty": "Nothing needs you right now",
+    "noDecisions": "No decisions waiting"
   },
   "inbox": {
     "read": "Read {doc} →",
@@ -612,8 +603,8 @@
       "one": "({count} line hidden)",
       "other": "({count} lines hidden)"
     },
-    "startInbox": "Start inbox",
-    "stopInbox": "Stop inbox",
+    "startInbox": "Start inbox session",
+    "stopInbox": "Stop inbox session",
     "startOffice": "Start office",
     "stopOffice": "Stop office",
     "startJob": "Start this job's session",
