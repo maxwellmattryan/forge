@@ -1,5 +1,7 @@
-<!-- The Daemon popover's body: the pool pill, live/cap and default permissions, the pool error, pool Start/Stop, then one row
-     per session: the Inbox, the Foreman (while foreman is on), then each job session in status order. A job row opens
+<!-- The Daemon popover's body. First the Foreman row: the supervisor above this pool, a button that opens the Foreman
+     popover (StatusBar's openForeman anchors it on the bar's Foreman indicator), in both branches. Below it, under a
+     divider, the pool pill, live/cap and default permissions, the pool error, pool Start/Stop, then one row per session:
+     the Inbox, then each job session in status order. A job row opens
      that job's pane on the Log tab. The rows say held and waiting themselves, so no chips repeat them; the Inbox log lives
      in the Inbox popover. StatusBar owns the pool state and act(), so the indicator and this panel agree. Session errors
      and job titles are untrusted and render as text. -->
@@ -7,11 +9,12 @@
   import Icon from '../Icon.svelte';
   import { TONE_CLASS } from '../../lib/util.ts';
   import { START_HINT, daemonRows, type Pill, type PoolModel } from '../../lib/daemon.ts';
+  import type { ForemanIndicator } from '../../lib/statusbar.ts';
   import { S, openDrawer } from '../../lib/app.svelte.ts';
   import { closePopover } from '../../lib/popover.svelte.ts';
   import { t } from '../../lib/locale.ts';
 
-  let { model, pending, act }: { model: PoolModel | null; pending: boolean; act: (action: 'start' | 'stop') => void } = $props();
+  let { model, pending, act, foreman, openForeman }: { model: PoolModel | null; pending: boolean; act: (action: 'start' | 'stop') => void; foreman: ForemanIndicator; openForeman: () => void } = $props();
 
   const modeName = $derived<Record<string, string>>({ default: $t('session.modes.default'), auto: $t('session.modes.auto'), dontAsk: $t('session.modes.dontAsk') });
   // The pool's own mode (daemon.command's), named as the session log's selector names it; another mode shows as written.
@@ -28,8 +31,22 @@
 
 {#snippet pill(p: Pill)}<span class="chip sm shrink-0 {TONE_CLASS[p.tone]}" title={p.title}>{p.label}</span>{/snippet}
 
+{#snippet foremanRow()}
+  <button class="plain foreman clickable flex w-full min-w-0 items-center gap-3 border px-2 py-1.5 text-left {foreman.on ? '' : 'off'}" onclick={openForeman}>
+    <Icon name="foreman" />
+    {#if foreman.on}
+      <span class="flex min-w-0 flex-1 flex-col"><span class="truncate text-sm">{$t('daemon.rows.foremanRow')}</span><span class="caption muted truncate">{$t('daemon.rows.foremanRowAbout')}</span></span>
+      {@render pill(foreman.pill)}
+    {:else}
+      <span class="min-w-0 flex-1 truncate text-sm">{$t('statusbar.foreman.off')}</span>
+    {/if}
+  </button>
+{/snippet}
+
 {#if model}
   <div class="flex flex-col gap-3" aria-busy={pending}>
+    {@render foremanRow()}
+    <div class="border-t border-line"></div>
     <!-- gap-x-3 keeps the two facts apart without a separator that a wrap would leave dangling. -->
     <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
       <span class="chip sm {TONE_CLASS[model.pill.tone]}" title={model.pill.title}>{$t('daemon.pill', { label: model.pill.label })}</span>
@@ -52,8 +69,8 @@
           {:else}
             <div class="plain flex min-w-0 items-center gap-3 border border-transparent px-2 py-1.5">
               <span class="flex min-w-0 flex-1 flex-col">
-                <span class="flex items-center gap-2 text-sm">{r.kind === 'inbox' ? $t('daemon.rows.inbox') : $t('daemon.rows.foreman')}{#if r.kind === 'foreman'}<span class="chip live">{$t('daemon.rows.foremanTag')}</span>{/if}</span>
-                <span class="caption muted">{r.kind === 'inbox' ? $t('daemon.rows.inboxAbout') : $t('daemon.rows.foremanAbout')}</span>
+                <span class="text-sm">{$t('daemon.rows.inbox')}</span>
+                <span class="caption muted">{$t('daemon.rows.inboxAbout')}</span>
               </span>
               {@render pill(r.pill)}
             </div>
@@ -64,6 +81,8 @@
   </div>
 {:else}
   <div class="flex flex-col gap-3">
+    {@render foremanRow()}
+    <div class="border-t border-line"></div>
     <p class="text-sm text-muted">{$t('statusbar.daemon.disabled')}</p>
     <div><button class="btn sm" disabled title={START_HINT} aria-label={$t('daemon.startAll')}><Icon name="play" />{$t('daemon.start')}</button></div>
   </div>

@@ -24,6 +24,8 @@ export const ICONS = {
   diagnostics: [{ el: 'path', d: 'M2 12h4l2.5-7 4 14 2.5-7h7' }],
   evals: [{ el: 'path', d: 'M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3' }, { el: 'path', d: 'M7.5 15h9' }],
   github: [{ el: 'path', d: 'M10 20v-2.5c-3.5 0-5.5-2-5.5-5.5 0-1.3.4-2.4 1.1-3.3-.2-1-.1-2.2.4-3.2 1.2 0 2.4.6 3.3 1.4a10 10 0 0 1 5.4 0c.9-.8 2.1-1.4 3.3-1.4.5 1 .6 2.2.4 3.2.7.9 1.1 2 1.1 3.3 0 3.5-2 5.5-5.5 5.5V20M10 18.5c-2.5.5-3.5-.5-4.5-2' }],
+  // A rank insignia: two chevrons, the supervisor above the pool.
+  foreman: [{ el: 'path', d: 'M5 11l7-5 7 5' }, { el: 'path', d: 'M5 17l7-5 7 5' }],
   general: [{ el: 'path', d: 'M4 7h16M4 12h16M4 17h16' }, { el: 'circle', cx: '15', cy: '7', r: '2', fill: 'ground' }, { el: 'circle', cx: '9', cy: '12', r: '2', fill: 'ground' }, { el: 'circle', cx: '13', cy: '17', r: '2', fill: 'ground' }],
   inbox: [{ el: 'path', d: 'M4 13l2-7h12l2 7v7H4z' }, { el: 'path', d: 'M4 13h5l1.5 3h3L15 13h5' }],
   pipeline: [{ el: 'path', d: 'M4 20v-9M10 20V4M16 20v-6M3 20h18' }],

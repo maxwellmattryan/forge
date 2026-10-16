@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sessionPill } from '../dashboard/src/lib/daemon.ts';
 import { FACTS_DROP, FACTS_MAX, ROLE_ORDER, barModel, factsHidden, type BarModel, type DaemonIndicator, connectionState, inlineInputAction, modelLabel, modelSummary, promptAnnouncement, reviewerRows, roleRows, summaryText } from '../dashboard/src/lib/statusbar.ts';
 import { FOCUSABLE, POPOVERS, POPOVER_WIDTH, TAB_STOPS, dismissal, placePopover, togglePopover, type DismissReason } from '../dashboard/src/lib/popover.ts';
 import { TABBABLE } from '../dashboard/src/lib/settings.ts';
@@ -17,28 +18,46 @@ const on = (b: BarModel) => {
   return b.daemon as Extract<DaemonIndicator, { off: false }>;
 };
 
-test('barModel: the office shows only while foreman.enabled', () => {
-  assert.equal(barModel(pool(), { pending: false }).office, null, 'an older server sends no foreman flag');
-  assert.equal(barModel(pool({ foreman: false, office: session({ scope: '_office', running: true, status: 'busy' }) }), { pending: false }).office, null);
-  assert.equal(barModel(null, { pending: false }).office, null, 'the daemon off: no office either');
+test('barModel: the foreman indicator is always built, on or off', () => {
+  // Off: an older server sends no flag, foreman.enabled is false, or there is no pool at all.
+  assert.deepEqual(barModel(pool(), { pending: false }).foreman, { on: false }, 'an older server sends no foreman flag');
+  assert.deepEqual(barModel(pool({ foreman: false, office: session({ scope: '_office', running: true, status: 'busy' }) }), { pending: false }).foreman, { on: false });
+  assert.deepEqual(barModel(null, { pending: false }).foreman, { on: false }, 'no pool: the Foreman shows as off');
+  assert.ok(!('office' in barModel(pool(), { pending: false })), 'the bar no longer has an Office indicator');
+
+  // On: the office pill, the live dot while busy, and the office's own prompt count.
   const office = session({ scope: '_office', running: true, status: 'busy', sessionId: 'o' });
   const b = barModel(pool({ foreman: true, office }), { pending: false });
-  assert.deepEqual([b.office?.label, b.office?.tone], ['busy', 'live']);
+  assert.deepEqual(b.foreman, { on: true, daemon: true, pill: sessionPill(office), active: true, prompts: 0 });
   assert.deepEqual([on(b).pill.label, on(b).active], ['busy', true], 'a busy office counts for the pool pill and the live dot');
   assert.equal(on(b).live, 0, 'but never for live/cap');
-  const asking = barModel(pool({ foreman: true, office: { ...office, status: 'idle', permissions: [prompt('o1')] } }), { pending: false });
-  assert.equal(asking.prompts, 1, "the office's prompts count pool-wide");
-  assert.equal(asking.office?.label, 'needs permission');
+  const idle = barModel(pool({ foreman: true, office: { ...office, status: 'idle' } }), { pending: false });
+  assert.equal(idle.foreman.on && idle.foreman.active, false, 'an idle office does not pulse');
+  const asking = barModel(pool({ foreman: true, office: { ...office, status: 'idle', permissions: [prompt('o1'), prompt('o2')] }, jobs: { a: session({ scope: 'a', running: true, permissions: [prompt('j1')] }) } }), { pending: false });
+  assert.equal(asking.prompts, 3, "the office's prompts count pool-wide");
+  assert.ok(asking.foreman.on);
+  assert.equal(asking.foreman.prompts, 2, 'the Foreman counts only its own prompts');
+  assert.equal(asking.foreman.pill.label, 'needs permission');
+
+  // On with the daemon off: still on, with daemon false.
+  const parked = barModel(pool({ foreman: true, enabled: false, wanted: false, office: session({ scope: '_office' }) }), { pending: false });
+  assert.equal(parked.daemon.off, true);
+  assert.ok(parked.foreman.on);
+  assert.equal(parked.foreman.daemon, false, 'poolModel is null: the daemon is off');
+  assert.equal(parked.foreman.active, false);
+  // A missing office session reads as no session.
+  const none = barModel(pool({ foreman: true, office: undefined }), { pending: false });
+  assert.ok(none.foreman.on && none.foreman.pill.label === 'no session');
 });
 
 test('barModel: daemon, inbox, held, waiting and prompt attention', () => {
   // A null pool: the daemon is off, nothing else shows.
   const none = barModel(null, { pending: false });
-  assert.deepEqual(none, { daemon: { off: true, active: false }, inbox: null, office: null, prompts: 0, held: 0, waiting: 0, attention: false });
+  assert.deepEqual(none, { daemon: { off: true, active: false, cap: 0 }, inbox: null, foreman: { on: false }, prompts: 0, held: 0, waiting: 0, attention: false });
 
   // Disabled, not wanted, nothing running: off as well.
   const disabled = barModel(pool({ enabled: false, wanted: false }), { pending: false });
-  assert.equal(disabled.daemon.off, true);
+  assert.deepEqual(disabled.daemon, { off: true, active: false, cap: 3 }, 'off, the bar still shows Daemon 0/<maxConcurrent>');
   assert.equal(disabled.inbox, null);
 
   // Standby: enabled and wanted, nothing running yet.
@@ -164,7 +183,7 @@ test('connectionState: connecting, live, offline, outdated', () => {
 });
 
 test('togglePopover keeps one popover open', () => {
-  assert.deepEqual([...POPOVERS], ['needs', 'daemon', 'inbox', 'office', 'model', 'connection']);
+  assert.deepEqual([...POPOVERS], ['foreman', 'needs', 'daemon', 'inbox', 'model', 'connection']);
   assert.equal(togglePopover(null, 'model'), 'model', 'a click opens');
   assert.equal(togglePopover('model', 'model'), null, 'the same indicator closes it');
   assert.equal(togglePopover('model', 'daemon'), 'daemon', 'another indicator switches');
@@ -204,7 +223,7 @@ test('placePopover anchors to the trigger and stays on screen', () => {
 });
 
 test('placePopover clamps the large popover', () => {
-  assert.deepEqual(POPOVER_WIDTH, { normal: 400, wide: 560, large: 880 });
+  assert.deepEqual(POPOVER_WIDTH, { normal: 400, wide: 560, large: 880, chat: 760 });
   const large = POPOVER_WIDTH.large;
   // Room for it: anchored to the Needs-you button at the bar's left.
   assert.deepEqual(placePopover({ triggerLeft: 244, triggerRight: 280, viewport: 1440, width: large, align: 'start', narrow: false }), { left: 244, width: 880 });
@@ -217,7 +236,26 @@ test('placePopover clamps the large popover', () => {
   const pop = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'Popover.svelte'), 'utf8');
   assert.match(pop, /size = 'normal'/, 'Popover takes a size, normal by default');
   assert.match(pop, /width: POPOVER_WIDTH\[size\]/);
-  assert.match(fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'StatusBar.svelte'), 'utf8'), /size=\{open === 'needs' \? 'large' :/, 'Needs you is large');
+  assert.match(fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'StatusBar.svelte'), 'utf8'), /open === 'needs' \? 'large' :/, 'Needs you is large');
+});
+
+test('placePopover clamps the chat popover', () => {
+  const chat = POPOVER_WIDTH.chat;
+  assert.equal(chat, 760);
+  // Room for it: anchored to the Foreman button, the bar's first indicator.
+  assert.deepEqual(placePopover({ triggerLeft: 232, triggerRight: 340, viewport: 1440, width: chat, align: 'start', narrow: false }), { left: 232, width: 760 });
+  // Anchored too far right: it slides left to stay 16px inside.
+  assert.deepEqual(placePopover({ triggerLeft: 500, triggerRight: 600, viewport: 1024, width: chat, align: 'start', narrow: false }), { left: 1024 - 16 - 760, width: 760 });
+  // A viewport narrower than 760 + 32 at md: it shrinks to the viewport less the gutters.
+  assert.deepEqual(placePopover({ triggerLeft: 232, triggerRight: 340, viewport: 780, width: chat, align: 'start', narrow: false }), { left: 16, width: 748 });
+  // Below md it spans the viewport less 32px.
+  assert.deepEqual(placePopover({ triggerLeft: 0, triggerRight: 44, viewport: 375, width: chat, align: 'start', narrow: true }), { left: 16, width: 343 });
+  const pop = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'Popover.svelte'), 'utf8');
+  assert.match(pop, /chat \? 'h-\[min\(48rem,calc\(100dvh_-_var\(--size-statusbar\)_-_env\(safe-area-inset-bottom\)_-_2rem\)\)\]' : ''/, 'a chat popover has a fixed height: its max-height formula, capped at 48rem');
+  assert.match(pop, /class=\{chat \? 'flex min-h-0 flex-1 flex-col' : undefined\}/, 'its content fills the body instead of growing it');
+  const bar = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'StatusBar.svelte'), 'utf8');
+  assert.match(bar, /size=\{open === 'foreman' \? \(bar\.foreman\.on \? 'chat' : 'wide'\) :/, "the Foreman popover is chat-sized while there is a thread to show; off, its explanation needs no chat height");
+  assert.match(bar, /accent=\{open === 'foreman' \? 'foreman' : undefined\}/, 'and carries the Foreman accent');
 });
 
 test('inlineInputAction opens the palette on typed, composed or pasted text, and on Enter or ArrowDown when empty', () => {

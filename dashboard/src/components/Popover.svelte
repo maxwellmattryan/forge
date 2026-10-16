@@ -1,7 +1,9 @@
 <!-- A status bar popover: a non-modal dialog that sits --space-2 above the bar, anchored to its indicator at md and up and
      spanning the viewport less 16px on phones. It takes focus when it opens, and closes on a press outside or when focus
      leaves it (lib/popover.ts decides where focus goes). Tab moves through it as if it sat right after its indicator.
-     It holds no live region: StatusBar has the one. -->
+     It holds no live region: StatusBar has the one. The chat size (the Foreman's thread) has a fixed height, and its content
+     fills the body instead of growing it, so the session log inside is the one scroller and its follow-to-bottom keeps
+     working (the body scrolls only when the room is too short for the log's own header). -->
 <script lang="ts">
   import { onMount, type Snippet } from 'svelte';
   import CloseButton from './CloseButton.svelte';
@@ -9,7 +11,8 @@
   import { closePopover, keepFocus } from '../lib/popover.svelte.ts';
   import { t } from '../lib/locale.ts';
 
-  let { id, title, anchor, align, size = 'normal', children }: { id: PopoverId; title: string; anchor: HTMLElement; align: 'start' | 'end'; size?: PopoverSize; children: Snippet } = $props();
+  let { id, title, anchor, align, size = 'normal', accent, children }: { id: PopoverId; title: string; anchor: HTMLElement; align: 'start' | 'end'; size?: PopoverSize; accent?: 'foreman'; children: Snippet } = $props();
+  const chat = $derived(size === 'chat');
 
   let el = $state<HTMLDivElement>();
   let body = $state<HTMLDivElement>();
@@ -106,12 +109,12 @@
   role="dialog"
   aria-labelledby="popover-{id}-title"
   tabindex="-1"
-  class="plate solid fixed z-42 flex flex-col bottom-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-2))] max-h-[calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom)_-_2rem)] shadow-(--shadow-overlay)"
+  class="plate solid fixed z-42 flex flex-col bottom-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-2))] max-h-[calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom)_-_2rem)] shadow-(--shadow-overlay) {chat ? 'h-[min(48rem,calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom)_-_2rem))]' : ''}"
   style="left: {place.left}px; width: {place.width}px"
   onfocusout={focusOut}
   onkeydown={key}
 >
-  <div class="flex shrink-0 items-center justify-between gap-3 border-b border-line py-1.5 pr-1.5 pl-4">
+  <div class="flex shrink-0 items-center justify-between gap-3 border-b py-1.5 pr-1.5 pl-4 {accent === 'foreman' ? 'foreman shadow-[inset_var(--bar-rule)_0_0_0_var(--gleam)]' : 'border-line'}">
     <h2 id="popover-{id}-title" class="h section min-w-0 truncate">{title}</h2>
     <CloseButton size="sm" label={$t('statusbar.close')} onclick={() => closePopover('close')} />
   </div>
@@ -121,8 +124,8 @@
     role={scrollable ? 'region' : undefined}
     aria-labelledby={scrollable ? `popover-${id}-title` : undefined}
     tabindex={scrollable ? 0 : undefined}
-    class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 focus-visible:-outline-offset-2"
+    class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 focus-visible:-outline-offset-2 {chat ? 'flex flex-col' : ''}"
   >
-    <div bind:this={content}>{@render children()}</div>
+    <div bind:this={content} class={chat ? 'flex min-h-0 flex-1 flex-col' : undefined}>{@render children()}</div>
   </div>
 </div>

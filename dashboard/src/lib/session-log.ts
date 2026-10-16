@@ -444,6 +444,22 @@ export function buildSessionView(entries: readonly Entry[], filters: Filters = D
 }
 
 /**
+ * The model on the newest session `init` line in the entries, or null when none names one. A subagent's init line (one
+ * with a parent call) reports the subagent's model, not the session's, so it is skipped. Read through parseEntry, the
+ * parser buildSessionView uses; the model is session output, rendered as text.
+ */
+export function latestInitModel(entries: readonly Entry[]): string | null {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const parsed = parseEntry(entries[i]);
+    for (let j = parsed.length - 1; j >= 0; j--) {
+      const p = parsed[j];
+      if (p.kind === 'item' && p.parent === null && p.item.kind === 'init' && p.item.model) return p.item.model;
+    }
+  }
+  return null;
+}
+
+/**
  * Inserts a line into an offset-sorted buffer. Returns false for a duplicate offset or one older
  * than the loaded window (Load older fetches those).
  */

@@ -1,7 +1,7 @@
 // dashboard/src/lib/session-log.ts: a session's raw stream-json lines into turns, items and subagent groups.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_FILTERS, LONG_TEXT, MAX_ENTRIES, PREVIEW_CHARS, buildSessionView, mergeEntry, parseEntry, readFilters, taskText, toolSummary } from '../dashboard/src/lib/session-log.ts';
+import { DEFAULT_FILTERS, LONG_TEXT, MAX_ENTRIES, PREVIEW_CHARS, buildSessionView, latestInitModel, mergeEntry, parseEntry, readFilters, taskText, toolSummary } from '../dashboard/src/lib/session-log.ts';
 
 const XSS = '<script>alert(1)</script><img src=x onerror=alert(2)>';
 
@@ -368,4 +368,17 @@ test('drops transcript bookkeeping lines', () => {
   assert.equal(first.kind === 'item' && first.item.kind === 'text' && first.item.text, `Review the diff ${XSS}`, 'the subagent prompt stays text, unescaped for md()');
   const view = buildSessionView(entries([...noise, meta, prompt]));
   assert.equal(view.turns.flatMap((t) => t.items).length, 1);
+});
+
+test("latestInitModel returns the newest init line's model", () => {
+  const init = (model: unknown, extra = {}) => ({ type: 'system', subtype: 'init', session_id: 's', model, ...extra });
+  assert.equal(latestInitModel([]), null, 'no lines');
+  assert.equal(latestInitModel(entries([sup('spawn'), assistant([{ type: 'text', text: 'hi' }])])), null, 'no init line');
+  assert.equal(latestInitModel(FIXTURE), 'claude-opus-5-5');
+  const respawned = entries([init('claude-sonnet-4-5'), sup('turn', { requests: 1 }), assistant([{ type: 'text', text: 'ok' }]), sup('spawn'), init('claude-opus-5-5'), assistant([{ type: 'text', text: 'again' }])]);
+  assert.equal(latestInitModel(respawned), 'claude-opus-5-5', 'the newest init wins after a respawn');
+  // A subagent's init reports the subagent's model, not the session's.
+  assert.equal(latestInitModel(entries([init('claude-opus-5-5'), init('claude-haiku-4-5', { parent_tool_use_id: 't_agent' })])), 'claude-opus-5-5');
+  assert.equal(latestInitModel(entries([init(''), 'not json'])), null, 'an init with no model names none');
+  assert.equal(latestInitModel(entries([init(XSS)])), XSS, 'session output passes through as data; SessionLog renders it as text');
 });

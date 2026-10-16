@@ -214,7 +214,7 @@ test('postDaemonMode posts the scope and mode with the token', async () => {
   await assert.rejects(postDaemonMode('job-a', 'auto', 'tok', failing), /mode must be one of/);
 });
 
-test('daemonRows lists inbox, foreman, then jobs', () => {
+test('daemonRows lists inbox, then jobs', () => {
   const p = pool({
     jobs: {
       'b-job': session({ status: 'idle', running: true }),
@@ -238,10 +238,9 @@ test('daemonRows lists inbox, foreman, then jobs', () => {
   const ghost = off.find((r) => r.kind === 'job' && r.id === 'ghost');
   assert.ok(ghost && ghost.kind === 'job' && ghost.title === null, 'an unknown id has a null title');
   assert.equal(ghost.pill.label, 'held: budget', 'the row says held itself');
-  // Foreman on: the Foreman row comes second, with the office pill.
+  // Foreman on: still no Foreman row. It supervises the pool and leads the popover in its own row, never among the sessions.
   const on = rows({ foreman: true, office: session({ scope: '_office', status: 'idle', running: true }) });
-  assert.deepEqual(on.map((r) => (r.kind === 'job' ? r.id : r.kind)), ['inbox', 'foreman', 'a-job', 'b-job', 'ghost']);
-  assert.equal(on[1].pill.label, 'idle');
+  assert.deepEqual(on.map((r) => (r.kind === 'job' ? r.id : r.kind)), ['inbox', 'a-job', 'b-job', 'ghost']);
   // A job list without titles, or an empty pool, still lists the Inbox.
   assert.deepEqual(daemonRows(poolModel(pool(), { pending: false })!, []).map((r) => r.kind), ['inbox']);
   const untitled = daemonRows(poolModel(p, { pending: false })!, [{ id: 'a-job' }]);
