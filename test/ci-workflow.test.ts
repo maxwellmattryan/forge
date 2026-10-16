@@ -33,8 +33,12 @@ const ENV_REACH = /\b(?:GITHUB_ENV|GITHUB_PATH|BASH_ENV|NODE_OPTIONS)\b/;
 // Allowlists rather than deny-lists: a key, action or expression the workflow does not use today fails here, so adding
 // one means editing this test too, in the same reviewed diff.
 const WORKFLOW_KEYS = ['name', 'on', 'permissions', 'concurrency', 'defaults', 'jobs'];
-const JOBS = ['audit', 'verify'];
-const JOB_KEYS = ['name', 'runs-on', 'timeout-minutes', 'strategy', 'steps'];
+const JOBS = ['audit', 'release-check', 'verify'];
+const JOB_KEYS = ['name', 'needs', 'runs-on', 'timeout-minutes', 'strategy', 'steps'];
+// Only the release check waits, and only on verify: it adds nothing when the suite is red.
+const NEEDS: Record<string, string> = { 'release-check': 'verify' };
+// release.yml calls this workflow whole; inputs or secrets on the call would let a caller reshape the gate.
+const TRIGGERS = ['pull_request', 'push', 'workflow_call'];
 const STEP_KEYS = ['name', 'uses', 'with', 'run', 'env', 'continue-on-error'];
 const ACTIONS = ['actions/checkout', 'actions/setup-node'];
 const VALIDATE_ENV = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' };
@@ -47,7 +51,7 @@ const TEST_ENV = { TEST_SHARD: '${{ matrix.shard }}' };
 const STEP_ENVS: Record<string, Record<string, string>> = { [VALIDATE]: VALIDATE_ENV, [SHARDED_TEST_CMD]: TEST_ENV };
 // Values pinned exactly, not just by key: each is free text a one-line edit could use to drop coverage or mask a failure.
 // Branch protection, once set, requires checks by these names, so a rename would leave a required check waiting forever.
-const JOB_NAMES: Record<string, string> = { verify: 'verify (${{ matrix.os }}, node ${{ matrix.node }}, shard ${{ matrix.shard }})', audit: 'audit' };
+const JOB_NAMES: Record<string, string> = { verify: 'verify (${{ matrix.os }}, node ${{ matrix.node }}, shard ${{ matrix.shard }})', audit: 'audit', 'release-check': 'release check' };
 // An `exclude` or `include` under the matrix silently drops or swaps a cell.
 const STRATEGIES: Record<string, unknown> = {
   verify: { 'fail-fast': false, matrix: { os: ['ubuntu-latest', 'macos-latest'], node: ['22.18.0', '24.x'], shard: ['1/2', '2/2'] } },
@@ -55,9 +59,12 @@ const STRATEGIES: Record<string, unknown> = {
 const SETUP_NODE_WITH: Record<string, unknown> = {
   verify: { 'node-version': '${{ matrix.node }}', 'package-manager-cache': false },
   audit: { 'node-version-file': '.nvmrc', 'package-manager-cache': false },
+  'release-check': { 'node-version-file': '.nvmrc', 'package-manager-cache': false },
 };
 // An extra step before the blocking audit could swap the lockfile it reads.
 const AUDIT_RUNS = ['npm audit --omit=dev', 'npm audit'];
+// Built-ins only, so no `npm ci` first: nothing from the registry runs before it.
+const RELEASE_CHECK_RUNS = ['npm run release:check'];
 // The one free-form script in the gate. AC3 maps it to its git command, so anything else in it (emptying the test files,
 // checking out old sources) would pass the list check; hold it to this exact text instead.
 const STALE_SCRIPT = [
@@ -101,7 +108,9 @@ function triggerProblems(wf: any, text: string): string[] {
     out.push('`on` must be a map of events');
   } else {
     const events = Object.keys(on).sort();
-    if (!isDeepStrictEqual(events, ['pull_request', 'push'])) out.push(`\`on\` must be exactly pull_request and push, got ${events.join(', ')}`);
+    if (!isDeepStrictEqual(events, TRIGGERS)) out.push(`\`on\` must be exactly ${TRIGGERS.join(', ')}, got ${events.join(', ')}`);
+    if (!(on.workflow_call === null || (isMap(on.workflow_call) && !Object.keys(on.workflow_call).length)))
+      out.push('workflow_call must take no inputs, secrets or outputs');
     // A filter (branches, paths, paths-ignore, types) quietly stops the gate running on some PRs.
     if (!(on.pull_request === null || (isMap(on.pull_request) && !Object.keys(on.pull_request).length)))
       out.push('pull_request must have no filters');
@@ -155,11 +164,16 @@ function hardeningProblems(wf: any): string[] {
     if (!isMap(job)) continue;
     for (const k of extraKeys(job, JOB_KEYS)) out.push(`job ${id} must not set ${k}`);
     if (id in JOB_NAMES && job.name !== JOB_NAMES[id]) out.push(`job ${id} must be named exactly ${JOB_NAMES[id]}`);
+    if (!isDeepStrictEqual(job.needs, NEEDS[id])) out.push(id in NEEDS ? `job ${id} must set exactly needs: ${NEEDS[id]}` : `job ${id} must not set needs`);
     if (!isDeepStrictEqual(job.strategy, STRATEGIES[id]))
       out.push(id in STRATEGIES ? `job ${id} strategy must be exactly ${JSON.stringify(STRATEGIES[id])}` : `job ${id} must not set strategy`);
     if (id === 'audit') {
       const runs = stepsOf(job).map(runOf).filter((r) => r !== null);
       if (!isDeepStrictEqual(runs, AUDIT_RUNS)) out.push(`job audit must run exactly ${AUDIT_RUNS.join(', then ')}`);
+    }
+    if (id === 'release-check') {
+      const runs = stepsOf(job).map(runOf).filter((r) => r !== null);
+      if (!isDeepStrictEqual(runs, RELEASE_CHECK_RUNS)) out.push(`job release-check must run exactly ${RELEASE_CHECK_RUNS.join(', then ')}`);
     }
     const actions = stepsOf(job).filter((s) => isMap(s) && 'uses' in s).map((s) => String(s.uses).split('@')[0]);
     if (!isDeepStrictEqual(actions, ACTIONS)) out.push(`job ${id} must use exactly ${ACTIONS.join(' then ')}, got ${actions.join(', ') || 'none'}`);
@@ -315,6 +329,11 @@ test('workflow triggers on pull_request and pushes to main only', () => {
   assertFlags(triggerProblems(WF, `${TEXT}\n# on workflow_run\n`), 'text containing workflow_run');
   assertFlags(triggerProblems(mutate((wf) => { wf.on.push.branches = ['main', 'dev']; }), TEXT), 'push to a second branch');
   assertFlags(triggerProblems(mutate((wf) => { delete wf.on.push; }), TEXT), 'no push trigger');
+  assert.equal(WF.on.workflow_call, null, 'release.yml can call it, with nothing passed in');
+  assertFlags(triggerProblems(mutate((wf) => { wf.on.workflow_call = { inputs: { ref: { type: 'string' } } }; }), TEXT), 'workflow_call with inputs');
+  assertFlags(triggerProblems(mutate((wf) => { wf.on.workflow_call = { secrets: { NPM: { required: false } } }; }), TEXT), 'workflow_call with secrets');
+  assertFlags(triggerProblems(mutate((wf) => { delete wf.on.workflow_call; }), TEXT), 'no workflow_call');
+  assertFlags(triggerProblems(mutate((wf) => { wf.on.workflow_dispatch = null; }), TEXT), 'a workflow_dispatch trigger');
   // Filters that stop the gate running on some or all PRs, or on main.
   const prFilter = (filter: string) => {
     const t = TEXT.replace('on:\n  pull_request:\n', `on:\n  pull_request:\n    ${filter}\n`);
@@ -514,6 +533,28 @@ test('the audit job blocks on runtime advisories and only reports devDependency 
   })), 'an extra run before the blocking audit');
   assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'audit', 'Audit runtime dependencies').run = 'npm audit --omit=dev --audit-level=critical'; })), 'a weakened runtime audit');
   assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.audit.name = 'verify (ubuntu-latest, node 22.18.0)'; })), 'audit renamed to a verify check name');
+});
+
+test('the release check job runs after verify, with built-ins only', () => {
+  const job = WF.jobs['release-check'];
+  assert.equal(job.name, 'release check');
+  assert.equal(job.needs, 'verify');
+  assert.equal(job['runs-on'], 'ubuntu-latest');
+  assert.equal(typeof job['timeout-minutes'], 'number');
+  assert.deepEqual(stepsOf(job).map((s) => s.uses?.split('@')[0] ?? s.run), ['actions/checkout', 'actions/setup-node', 'npm run release:check']);
+  assert.deepEqual(JSON.parse(read('package.json')).scripts['release:check'], 'node scripts/release-check.ts');
+  assert.deepEqual(hardeningProblems(WF), []);
+
+  for (const other of ['verify', 'audit']) assertFlags(hardeningProblems(mutate((wf) => { wf.jobs[other].needs = 'release-check'; })), `needs on ${other}`);
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs['release-check'].steps.push({ name: 'Extra', run: 'npm ci' }); })), 'a second run step in release-check');
+  assertFlags(hardeningProblems(mutate((wf) => {
+    wf.jobs['release-check'].steps.splice(2, 0, { name: 'Install dependencies', run: 'npm ci' });
+  })), 'npm ci before the release check');
+  assertFlags(hardeningProblems(mutate((wf) => { delete wf.jobs['release-check'].needs; })), 'release-check without needs');
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs['release-check'].needs = 'audit'; })), 'release-check needing audit');
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs['release-check'].name = 'release'; })), 'release check renamed');
+  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'release-check', 'Check release metadata').run = 'npm run release:check || true'; })), 'a masked release check');
+  assertFlags(hardeningProblems(mutate((wf) => { delete stepNamed(wf, 'release-check', 'Check out').with['persist-credentials']; })), 'release-check checkout keeping credentials');
 });
 
 test('a new push to a PR cancels its previous run and pushes to main never cancel', () => {

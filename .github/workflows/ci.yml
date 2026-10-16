@@ -1,11 +1,13 @@
 # Forge's own gate: the "Verify before claiming it works" list in AGENTS.md, in the same order.
 # test/ci-workflow.test.ts fails when the two drift, so edit both together.
+# release.yml calls this whole workflow (workflow_call) before it tags a release (docs/RELEASES.md).
 name: CI
 
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
@@ -90,3 +92,21 @@ jobs:
       - name: Audit devDependencies (report only)
         continue-on-error: true
         run: npm audit
+
+  release-check:
+    name: release check
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Check release metadata
+        run: npm run release:check
