@@ -134,6 +134,18 @@ Set by Forge for configured commands (`forge run`, `forge verify`, worktree setu
 | `FORGE_WORKTREE` | the job's worktree |
 | `FORGE_PORT`, `PORT` | the job's port, empty when it has none |
 
+Set by Forge for `notify.command` (docs/CONFIG.md "Notifications"), whose `{placeholders}` become quoted references to them; empty for a null field:
+
+| Variable | Effect |
+|---|---|
+| `FORGE_NOTIFY_EVENT` | the event (`gate`, `pr-opened`, …) |
+| `FORGE_NOTIFY_JOB` | the job id |
+| `FORGE_NOTIFY_TITLE` | the sanitised job title (control characters replaced, at most 200 characters) |
+| `FORGE_NOTIFY_URL` | the job's `https://` PR URL |
+| `FORGE_NOTIFY_STAGE` | the job's stage |
+| `FORGE_NOTIFY_REASON` | the fixed reason text |
+| `FORGE_NOTIFY_DASHBOARD_URL` | the dashboard's pipeline page |
+
 ## Agent ids
 
 `forge job agent <id> attach --role R --agent-id A` records the runtime's id of an agent that is already `running` (the orchestrator runs it right after a background spawn), so `forge dash` can follow that agent's transcript while it works. It changes nothing else: `runs`, `startedAt` and `status` stay, and no event is logged. It prints `{ "role", "status", "agentId" }`, exits 1 when the role isn't running, and exits 2 (`usage`) without writing anything when `A` doesn't match `^[A-Za-z0-9_-]{1,100}$`, since the id becomes part of a transcript's file name.

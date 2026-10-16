@@ -182,6 +182,8 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
 
   /** Config is repo-wide, so a trust change or a config refusal stops every session. */
   function poolStop(message: string, reason: string): void {
+    // Every session reports the trust change, so only the first stop of a running pool announces it.
+    const announce = reason === 'trust' && wanted && !closed;
     wanted = false;
     inboxEager = false;
     lastError = message;
@@ -190,6 +192,10 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
       s.setWaiting(false);
     }
     for (const s of sessions.values()) void s.kill('stop', false, reason);
+    if (announce)
+      try {
+        o.notify(root, ['daemon-stopped'], { job: null, reason: 'trust' });
+      } catch {}
   }
 
   function onResult(scope: string): void {
