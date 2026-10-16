@@ -71,8 +71,10 @@ export interface RoleContext {
   mode?: 'mockup' | 'reference';
   /** questions.md has a human answer the agent should read. */
   answered?: boolean;
-  /** Builder rework inputs, in the order the `Rework:` line lists them. */
+  /** Builder rework inputs, in the order the `Rework:` line lists them. Any but `answer` makes the brief findings-first: those inputs plus tasks and build, the spec only as `Reference:`. */
   rework?: ('review' | 'verify' | 'pr-feedback' | 'feedback' | 'answer')[];
+  /** Absolute paths of the previous round's non-PASS review files. */
+  reworkReviews?: string[];
   /** The integration: conflicted files from the integrate-conflicts event, the generated ones Forge rebuilds, and whether this is the fix pass. */
   integration?: { conflicts: string[]; regenerated?: string[]; fix?: boolean };
   strategy?: string;
@@ -103,6 +105,25 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
       return out(ctx.mode === 'mockup' ? [p('design'), p('mockup')] : [p('design')], [p('request'), p('spec')], [`Mode: ${ctx.mode ?? 'reference'}`]);
     case 'builder': {
       const rework = ctx.rework ?? [];
+      if (rework.some((r) => r !== 'answer')) {
+        // Findings first: a fresh rework builder reads what to fix, and consults the spec only where a finding points.
+        const inputs = [
+          ...(rework.includes('review') ? (ctx.reworkReviews ?? []) : []),
+          ...(rework.includes('verify') ? [p('verify')] : []),
+          ...(rework.includes('pr-feedback') ? [p('prFeedback')] : []),
+          ...(rework.includes('feedback') ? [p('feedback')] : []),
+          ...(rework.includes('answer') ? [p('questions')] : []),
+          p('tasks'),
+          p('build'),
+        ];
+        const reference = [p('spec'), p('design'), p('mockup')].filter((f) => input.present.includes(f));
+        return out([p('tasks'), p('build')], inputs, [
+          `Rework: ${rework.join(', ')}`,
+          `Rework scope: address only the findings in the inputs above and change nothing they do not name; append "## Round ${j.round}" to build.md with Findings addressed and the full AC table.`,
+          ...(reference.length ? [`Reference: ${reference.join(', ')}`] : []),
+          infra,
+        ]);
+      }
       const inputs = [p('spec'), p('design'), p('mockup'), p('tasks')];
       if (rework.includes('review') && input.paths.previousReviewDir) inputs.push(p('previousReviewDir'));
       if (rework.includes('verify')) inputs.push(p('verify'));
