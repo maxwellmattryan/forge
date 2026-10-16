@@ -467,7 +467,7 @@ describe('the CLI end to end', { concurrency: 4 }, () => {
   });
 
   /** A job with no PR whose branch and base both moved, integrated with the configured default. */
-  async function integrateDefault(answersExtra) {
+  async function integrateDefault(answersExtra, probe = async (_run, _id, _wt) => {}) {
     const repo = tempRepo();
     const f = async (...args) => JSON.parse(await cliOut(repo.dir, args, { GIT_EDITOR: 'true' }));
     const wtRoot = path.join(repo.dir, '..', `${path.basename(repo.dir)}.wt`);
@@ -483,6 +483,13 @@ describe('the CLI end to end', { concurrency: 4 }, () => {
       commitAll(wt, 'ours');
       fs.writeFileSync(path.join(repo.dir, 'theirs.txt'), 'theirs\n');
       commitAll(repo.dir, 'theirs');
+      await probe(async (...args) => {
+        try {
+          return { status: 0, out: await cliOut(repo.dir, args, { GIT_EDITOR: 'true' }) };
+        } catch (e) {
+          return { status: e.status, out: String(e.stdout ?? '') + String(e.stderr ?? '') };
+        }
+      }, id, wt);
       const out = await f('integrate', id);
       const parents = execFileSync('git', ['rev-list', '--parents', '-n', '1', 'HEAD'], { cwd: wt, encoding: 'utf8' }).trim().split(' ').length - 1;
       return { out, parents };
@@ -494,7 +501,16 @@ describe('the CLI end to end', { concurrency: 4 }, () => {
   }
 
   test('integrate merges by default before a PR exists', async () => {
-    const { out, parents } = await integrateDefault({});
+    const { out, parents } = await integrateDefault({}, async (run, id, wt) => {
+      // --strategy names the git subcommand integrate aborts with, so anything else is refused up front.
+      const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8' });
+      for (const bad of ['stash', '-c', 'foo']) {
+        const r = await run('integrate', id, '--strategy', bad);
+        assert.equal(r.status, 2, `${bad}: ${r.out}`);
+        assert.match(r.out, /--strategy must be merge or rebase/);
+      }
+      assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: wt, encoding: 'utf8' }), head, 'nothing was merged');
+    });
     assert.deepEqual([out.ok, out.behind, out.strategy, out.rewritten], [true, 1, 'merge', false]);
     assert.equal(parents, 2, 'HEAD is a merge commit');
   });

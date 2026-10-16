@@ -509,6 +509,8 @@ const sortedList = (paths: Iterable<string>): string[] => [...new Set(paths)].so
  * when they are all a stop has, Forge finishes it and carries on, pick after pick in a rebase.
  */
 export function integrate(root: string, config: Config, id: string, opts: { strategy?: Strategy; keepConflicts?: boolean } = {}): IntegrateResult {
+  // `--strategy` names a git subcommand (`git <strategy> --abort`), so only the two known ones pass.
+  if (opts.strategy !== undefined && opts.strategy !== 'merge' && opts.strategy !== 'rebase') throw new ForgeError(`--strategy must be merge or rebase, not ${JSON.stringify(String(opts.strategy).slice(0, 40))}`, 'usage');
   const job = loadJob(root, id);
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree`);
   const cwd = job.worktree;
