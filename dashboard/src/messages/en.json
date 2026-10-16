@@ -893,6 +893,8 @@
     "noHeldJobs": "No job is parked yet; new work waits until the cap allows it.",
     "acknowledge": "Acknowledge {period}",
     "ackHelp": "Grants one more period of budget and releases the held jobs whose own budget is fine.",
+    "cardPointer": "Held by the repo budget: acknowledge it in Repo budget above, or cancel the job.",
+    "valueText": "{spent} of {cap}",
     "acked": "Acknowledged {period}",
     "ackFailed": "Acknowledge failed: {error}"
   }

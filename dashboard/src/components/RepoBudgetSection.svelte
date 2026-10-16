@@ -44,8 +44,8 @@
     </div>
     {#if period}
       <div class="flex flex-wrap items-center gap-3">
-        <button class="btn sm" disabled={busy} onclick={() => ack(period)}>{$t('budget.acknowledge', { period })}</button>
-        <span class="caption muted">{$t('budget.ackHelp')}</span>
+        <button class="btn sm" disabled={busy} aria-describedby="repo-ack-help" onclick={() => ack(period)}>{$t('budget.acknowledge', { period })}</button>
+        <span id="repo-ack-help" class="caption muted">{$t('budget.ackHelp')}</span>
       </div>
     {/if}
   </div>

@@ -24,7 +24,7 @@
       <span class="muted">{m.cap === null ? $t('budget.unlimited') : $t('budget.ofCap', { cap: money(m.cap) })}</span>
     </div>
     {#if m.percent !== null}
-      <div class="track" role="meter" aria-label={$t('budget.meterLabel')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={m.percent}><div class="fill {TONE_MOD[m.tone]}" style="width:{m.percent}%"></div></div>
+      <div class="track" role="meter" aria-label={$t('budget.meterLabel')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={m.percent} aria-valuetext={$t('budget.valueText', { spent: spentMoney(m.spent), cap: money(m.cap) })}><div class="fill {TONE_MOD[m.tone]}" style="width:{m.percent}%"></div></div>
     {/if}
     <div class="caption muted flex flex-wrap gap-x-4 gap-y-1">
       {#if m.remaining !== null}<span class="num">{$t('budget.remaining', { amount: money(m.remaining) })}</span>{/if}
@@ -35,7 +35,7 @@
       <span class="label text-[10px]">{$t('budget.today')}</span>
       <span class="num">{d.cap === null ? $t('budget.todayUncapped', { spent: spentMoney(d.spent) }) : $t('budget.todayOf', { spent: spentMoney(d.spent), cap: money(d.cap) })}</span>
       {#if d.percent !== null}
-        <div class="track flex-1 min-w-24 max-w-64" role="meter" aria-label={$t('budget.dayLabel')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={d.percent}><div class="fill {TONE_MOD[d.tone]}" style="width:{d.percent}%"></div></div>
+        <div class="track flex-1 min-w-24 max-w-64" role="meter" aria-label={$t('budget.dayLabel')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={d.percent} aria-valuetext={$t('budget.valueText', { spent: spentMoney(d.spent), cap: money(d.cap) })}><div class="fill {TONE_MOD[d.tone]}" style="width:{d.percent}%"></div></div>
       {/if}
     </div>
   </section>

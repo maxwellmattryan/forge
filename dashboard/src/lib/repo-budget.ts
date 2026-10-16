@@ -80,6 +80,6 @@ export function ackPeriod(b: RepoBudgetStatus): string | null {
 export const showRepoSection = (b: RepoBudgetStatus | null | undefined): boolean => Boolean(b && (b.held || b.heldJobs.length));
 
 /** A job parked by the repo budget rather than its own: the reason prefix the CLI writes. */
-export function isRepoHold(job: Pick<Job, 'state' | 'waitingOn' | 'reason'> | null | undefined): boolean {
+export function isRepoHold(job: Partial<Pick<Job, 'state' | 'waitingOn' | 'reason'>> | null | undefined): boolean {
   return Boolean(job && job.state === 'waiting' && job.waitingOn === 'budget' && String(job.reason ?? '').startsWith('repo budget:'));
 }

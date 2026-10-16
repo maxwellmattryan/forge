@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ackPeriod, chipModel, dayMeter, isRepoHold, meterFraction, meterTone, money, monthMeter, showRepoSection } from '../dashboard/src/lib/repo-budget.ts';
 import { sessionPill } from '../dashboard/src/lib/daemon.ts';
+import { inboxActions, inboxDoc, inboxKind, showsNote, stateText } from '../dashboard/src/lib/view.ts';
+import { readFileSync } from 'node:fs';
 import type { RepoBudgetStatus } from '../dashboard/src/lib/types.ts';
 
 const status = (over: Partial<RepoBudgetStatus> = {}): RepoBudgetStatus => ({
@@ -63,4 +65,29 @@ test('isRepoHold and the daemon label', () => {
   assert.equal(isRepoHold(null), false);
   assert.equal(sessionPill({ held: 'repo-budget' } as any).label, 'held: repo budget');
   assert.equal(sessionPill({ held: 'budget' } as any).label, 'held: budget');
+});
+
+test('a repo-held card offers only Cancel, with its own chip label', () => {
+  const repo = { state: 'waiting', waitingOn: 'budget', reason: 'repo budget: $103.20 of $100 this month' } as const;
+  const own = { state: 'waiting', waitingOn: 'budget', reason: 'budget exceeded: usd 2/1' } as const;
+  assert.equal(inboxKind(repo), 'repo-budget');
+  assert.deepEqual(inboxActions(inboxKind(repo)), [{ label: 'Cancel job', type: 'cancel', primary: false, needsNote: false }], 'no Approve: approving lifts no repo cap');
+  assert.equal(showsNote(inboxKind(repo)), false, 'no new-limits note');
+  assert.equal(inboxDoc(inboxKind(repo), repo), null);
+  assert.equal(stateText(repo), 'Repo budget');
+  // A job's own budget stop is unchanged.
+  assert.equal(inboxKind(own), 'budget');
+  assert.deepEqual(inboxActions(inboxKind(own)).map((a) => a.label), ['Approve & continue', 'Cancel job']);
+  assert.equal(showsNote(inboxKind(own)), true);
+  assert.equal(stateText(own), 'Budget exceeded');
+  // The card points at the section that lifts the hold.
+  const card = readFileSync(new URL('../dashboard/src/components/InboxCard.svelte', import.meta.url), 'utf8');
+  assert.match(card, /\{#if kind === 'repo-budget'\}<div class="text-\[13px\]">\{\$t\('budget\.cardPointer'\)\}<\/div>\{\/if\}/);
+});
+
+test('Acknowledge and the meters tell assistive tech what they mean', () => {
+  const read = (f: string) => readFileSync(new URL(`../dashboard/src/components/${f}`, import.meta.url), 'utf8');
+  assert.match(read('RepoBudgetSection.svelte'), /aria-describedby="repo-ack-help"[^>]*>[^<]*<\/button>\s*<span id="repo-ack-help"/);
+  const meter = read('PeriodMeter.svelte');
+  assert.equal(meter.match(/aria-valuetext=\{\$t\('budget\.valueText'/g)?.length, 2, 'month and day meters');
 });

@@ -18,3 +18,5 @@ export const WAIT_LABEL: Record<WaitingOn, string> = {
 };
 /** A dependency park's state chip: an external wait the engine set itself, so it needs no human. */
 export const PARK_LABEL = 'Dependencies';
+/** A budget wait the repo cap set (isRepoHold), not the job's own limits. */
+export const REPO_HOLD_LABEL = 'Repo budget';

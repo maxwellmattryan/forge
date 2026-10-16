@@ -4,7 +4,6 @@
   import JobActions from './JobActions.svelte';
   import StateChip from './StateChip.svelte';
   import { budgetPanel } from '../lib/budget.ts';
-  import { isRepoHold } from '../lib/repo-budget.ts';
   import { protectedSummary, showParkReason } from '../lib/protected.ts';
   import { gateOwnerBadge, inboxDoc, inboxKind, lastActed } from '../lib/view.ts';
   import { TONE_CLASS, ago } from '../lib/util.ts';
@@ -33,8 +32,9 @@
       <button class="btn sm self-start" onclick={() => openDrawer(j.id, 'protected.diff', 'files')}>{$t('inbox.protectedDiff')}</button>
     </div>
   {/if}
-  <!-- A repo hold's reason (shown above) says it all: the per-job panel would show limits that aren't what holds it. -->
-  {#if kind === 'budget' && !isRepoHold(j)}{@html budgetPanel(j, S.data?.config?.pipeline?.budget, { compact: true })}{/if}
+  <!-- A repo hold (kind repo-budget) skips the per-job panel, whose limits aren't what holds it, and points at the section that lifts it. -->
+  {#if kind === 'budget'}{@html budgetPanel(j, S.data?.config?.pipeline?.budget, { compact: true })}{/if}
+  {#if kind === 'repo-budget'}<div class="text-[13px]">{$t('budget.cardPointer')}</div>{/if}
   {#if doc}<button class="text-gleam underline underline-offset-2 text-[13px] self-start" onclick={() => openDrawer(j.id, doc, 'files')}>{$t('inbox.read', { doc })}</button>{/if}
   <JobActions job={j} noteId="note-{j.id}" />
 </div>
