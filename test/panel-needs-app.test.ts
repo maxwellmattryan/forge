@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { tempRepo } from './helpers.ts';
-import { defaults, lensNeedsApp, validateConfig } from '../lib/config.ts';
+import { defaults, lensNeedsApp, reviewerChecklist, validateConfig } from '../lib/config.ts';
+import { PLUGIN_ROOT } from '../lib/paths.ts';
 
 const needsAppProblems = (problems: string[]) => problems.filter((p) => p.includes('needsApp'));
 
@@ -17,6 +20,29 @@ test('needsApp must be a boolean', () => {
       ok.review.panel.push(needsApp === undefined ? { name: 'ui' } : { name: 'ui', needsApp });
       assert.deepEqual(needsAppProblems(validateConfig(ok, repo.dir)), [], `needsApp ${needsApp}`);
     }
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('the design lens has a plugin checklist', () => {
+  const file = path.join(PLUGIN_ROOT, 'reviewers', 'design.md');
+  const text = fs.readFileSync(file, 'utf8');
+  for (const heading of ['## Visual', '## Flow and copy', '## Accessibility (WCAG 2.2 AA)']) assert.ok(text.includes(heading), heading);
+  assert.match(text, /\*\*Focus:\*\*/);
+  assert.match(text, /forge run <job> dev --background/);
+  assert.match(text, /`design-<what>\.png`/);
+  assert.match(text, /^Severity guide:/m);
+  // Repo-neutral: nothing from this repo's own dashboard or design system.
+  for (const local of ['dashboard/', 'design/drafting.css', 'en.json']) assert.ok(!text.includes(local), local);
+
+  const repo = tempRepo();
+  try {
+    assert.equal(fs.existsSync(path.join(repo.dir, '.forge', 'reviewers')), false);
+    const cfg = defaults();
+    cfg.review.panel.push({ name: 'design' });
+    assert.deepEqual(validateConfig(cfg, repo.dir).filter((p) => p.includes('design')), []);
+    assert.equal(reviewerChecklist(repo.dir, 'design'), file);
   } finally {
     repo.cleanup();
   }
