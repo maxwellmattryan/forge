@@ -1,6 +1,6 @@
-// A job's Thread in the drawer: its requests as a conversation, and the issue-link gate's
-// candidates. Plain functions, so node:test can pin them.
-import type { ForgeRequest, Job, JobDetail } from './types.ts';
+// A job's Thread in the drawer: its requests as a conversation, the secret scanner's notes, and the
+// issue-link gate's candidates. Plain functions, so node:test can pin them.
+import type { ForgeRequest, Job, JobDetail, JobEvent } from './types.ts';
 
 /** Who said it: you (the dashboard), the CLI, a Forge daemon session hand-off, or the tracker the job came from. */
 export type ThreadFrom = 'you' | 'cli' | 'forge' | 'tracker';
@@ -21,7 +21,30 @@ export type ThreadAction =
   | { kind: 'link-none' }
   | { kind: 'next'; n: number }
   | { kind: 'run'; ref: string }
-  | { kind: 'verb'; verb: 'approve' | 'revise' | 'rework' | 'answer' | 'cancel' | 'sync' | 'eval' | 'retro' };
+  | { kind: 'verb'; verb: 'approve' | 'revise' | 'rework' | 'answer' | 'cancel' | 'sync' | 'eval' | 'retro' }
+  | { kind: 'secret' };
+
+/** Where the scanner ran (lib/secrets.ts logSecrets); an unknown gate is `other`. */
+export type SecretGate = 'verify' | 'commit' | 'pr' | 'agent-end' | 'other';
+
+/** One masked finding of a `secret-found` event: never the value, only its masked excerpt and fingerprint. */
+export interface SecretLine {
+  kind: string;
+  path: string;
+  line: number | null;
+  excerpt: string;
+  fingerprint: string | null;
+}
+
+/** A `secret-found` event as the Thread shows it. */
+export interface ThreadSecret {
+  gate: SecretGate;
+  role: string | null;
+  blocked: boolean;
+  count: number;
+  findings: SecretLine[];
+  more: number;
+}
 
 export interface ThreadItem {
   id: string;
@@ -33,6 +56,8 @@ export interface ThreadItem {
   at: string | null;
   /** The session's ack `result`: its reply. */
   result: string | null;
+  /** A note from the secret scanner; null for requests. */
+  secret: ThreadSecret | null;
 }
 
 /** The job's own request (request.md), shown as the conversation's first message. */
@@ -84,10 +109,10 @@ export function threadAction(r: Pick<ForgeRequest, 'type' | 'args' | 'from'>): T
   return { kind: 'verb', verb: VERB[r.type] ?? 'approve' };
 }
 
-/** The conversation, oldest first: the job's request, then its requests (ids start with their creation time). */
-export function threadItems(requests: ForgeRequest[] | null | undefined, opening: ThreadOpening | null = null): ThreadItem[] {
+/** The conversation, oldest first: the job's request, then its requests (ids start with their creation time), with the secret scanner's notes merged in by time. */
+export function threadItems(requests: ForgeRequest[] | null | undefined, opening: ThreadOpening | null = null, events: JobEvent[] | null | undefined = []): ThreadItem[] {
   const out: ThreadItem[] = [];
-  if (opening?.text) out.push({ id: 'request', from: opening.tracker ? 'tracker' : 'you', action: { kind: opening.tracker ? 'imported' : 'request' }, text: opening.text, status: null, at: opening.at, result: null });
+  if (opening?.text) out.push({ id: 'request', from: opening.tracker ? 'tracker' : 'you', action: { kind: opening.tracker ? 'imported' : 'request' }, text: opening.text, status: null, at: opening.at, result: null, secret: null });
   const rest = (requests ?? [])
     .filter((r) => r && typeof r.id === 'string')
     .slice()
@@ -101,9 +126,67 @@ export function threadItems(requests: ForgeRequest[] | null | undefined, opening
         status: STATUS[r.status] ?? 'queued',
         at: r.createdAt,
         result: typeof r.result === 'string' && r.result ? r.result : null,
+        secret: null,
       }),
     );
-  return [...out, ...rest];
+  // Merged by time; on a tie the request comes first.
+  const merged = [...out, ...rest];
+  for (const note of secretItems(events)) {
+    const at = note.at ?? '';
+    const i = merged.findIndex((m) => (m.at ?? '') > at);
+    merged.splice(i < 0 ? merged.length : i, 0, note);
+  }
+  return merged;
+}
+
+const GATES: Record<string, SecretGate> = { verify: 'verify', commit: 'commit', pr: 'pr', 'agent-end': 'agent-end' };
+const KIND = /^[a-z0-9-]{1,40}$/;
+const ROLE = /^[a-z0-9:-]{1,60}$/;
+const FINGERPRINT = /^sha256:[0-9a-f]{64}$/;
+const MAX_PATH = 500;
+const MAX_EXCERPT = 24;
+const MAX_FINDINGS = 10;
+const count = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : null);
+
+/**
+ * `secret-found` events as Forge's notes, read defensively: events.jsonl is a file in the job dir, so a
+ * finding with a bad kind, a non-string path or an over-long excerpt is dropped, and at most 10 are kept.
+ */
+export function secretItems(events: JobEvent[] | null | undefined): ThreadItem[] {
+  const out: ThreadItem[] = [];
+  (events ?? []).forEach((e, index) => {
+    if (!e || e.type !== 'secret-found' || typeof e.ts !== 'string') return;
+    const findings: SecretLine[] = [];
+    for (const raw of Array.isArray(e.findings) ? e.findings : []) {
+      if (findings.length === MAX_FINDINGS) break;
+      if (!raw || typeof raw !== 'object') continue;
+      const f = raw as Record<string, unknown>;
+      if (typeof f.kind !== 'string' || !KIND.test(f.kind) || typeof f.path !== 'string' || typeof f.excerpt !== 'string' || f.excerpt.length > MAX_EXCERPT) continue;
+      findings.push({
+        kind: f.kind,
+        path: f.path.length > MAX_PATH ? `${f.path.slice(0, MAX_PATH - 1)}…` : f.path,
+        line: typeof f.line === 'number' && Number.isInteger(f.line) && f.line > 0 ? f.line : null,
+        excerpt: f.excerpt,
+        fingerprint: typeof f.fingerprint === 'string' && FINGERPRINT.test(f.fingerprint) ? f.fingerprint : null,
+      });
+    }
+    const secret: ThreadSecret = {
+      gate: GATES[String(e.gate)] ?? 'other',
+      role: typeof e.role === 'string' && ROLE.test(e.role) ? e.role : null,
+      blocked: e.blocked === true,
+      count: Math.max(count(e.count) ?? 0, findings.length),
+      findings,
+      more: count(e.more) ?? 0,
+    };
+    out.push({ id: `secret:${e.ts}:${index}`, from: 'forge', action: { kind: 'secret' }, text: null, status: null, at: e.ts, result: null, secret });
+  });
+  return out.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+}
+
+/** One finding as a line of plain text: `kind · path:line · excerpt · sha256:<first 12 hex>`. */
+export function secretLine(f: SecretLine): string {
+  const place = f.line === null ? f.path : `${f.path}:${f.line}`;
+  return [f.kind, place, f.excerpt, ...(f.fingerprint ? [f.fingerprint.slice(0, 'sha256:'.length + 12)] : [])].join(' · ');
 }
 
 /** What a reader has seen of one message: it changes when the message's status changes or its result arrives. */

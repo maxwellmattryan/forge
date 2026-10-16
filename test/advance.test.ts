@@ -155,6 +155,31 @@ test('advance stops at the first failed run and prints no command output', POSIX
   }
 });
 
+test('advance returns the whole review panel without starting it', POSIX, () => {
+  const s = scratch();
+  try {
+    const { id } = s.f('job', 'new', '--title', 'Panel', '--session', 'S');
+    s.f('worktree', 'create', id);
+    // RV2's `job scope` reads the spec.
+    fs.writeFileSync(path.join(jobDir(s.root, id), 'spec.md'), '# Panel\n\n## Acceptance criteria\n- [ ] AC1: works\n');
+    s.f('job', 'round', id);
+    s.f('job', 'set', id, '--stage', 'review', '--state', 'running', '--field', 'reviewers=["code","tests","security","docs"]');
+    const r = s.raw('job', 'advance', id, '--session', 'S');
+    assert.equal(r.status, 0, r.stderr + r.stdout);
+    const a = oneJsonLine(r.stdout);
+    assert.equal(a.action, 'spawn');
+    assert.equal(a.rule, 'RV4');
+    assert.equal(a.role, 'reviewer:code');
+    assert.deepEqual(a.spawns.map((e: any) => e.role), ['reviewer:tests', 'reviewer:security', 'reviewer:docs']);
+    for (const e of a.spawns) assert.deepEqual(e.start.slice(0, 4), ['job', 'agent', id, 'start']);
+    assertRanShape(a.ran);
+    assert.ok(!a.ran.some((e: any) => e.command[0] === 'job' && e.command[1] === 'agent'), 'advance starts no agent');
+    assert.deepEqual(Object.keys(loadJob(s.root, id).agents).filter((k) => k.startsWith('reviewer:')), []);
+  } finally {
+    s.cleanup();
+  }
+});
+
 test('summarize keeps one short line and drops tails', () => {
   assert.equal(summarize(null), 'none');
   assert.equal(summarize(undefined), 'none');

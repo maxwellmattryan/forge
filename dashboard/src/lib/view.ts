@@ -5,7 +5,7 @@ import { PARK_LABEL, STAGE_LABEL, WAIT_LABEL } from './labels.ts';
 
 /** job.json can be hand-edited, so helpers read fields defensively despite the types. */
 type JobLike = Partial<Job> & { progress?: Progress };
-type Tone = 'ok' | 'bad' | 'warn' | 'info' | 'muted' | 'live' | 'rev';
+export type Tone = 'ok' | 'bad' | 'warn' | 'info' | 'muted' | 'live' | 'rev';
 
 const obj = (v: unknown): Record<string, any> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : {});
 const s = (v: unknown): string => String(v ?? '');
@@ -276,7 +276,7 @@ export function notePlaceholder(kind: InboxKind, opts: { linkPending?: boolean }
         : 'Optional note for the agents…';
 }
 
-export const showsNote = (kind: InboxKind): boolean => ['spec-approval', 'split-approval', 'issue-link', 'input', 'escalation', 'rounds-exhausted', 'budget'].includes(s(kind));
+export const showsNote = (kind: InboxKind): boolean => ['spec-approval', 'split-approval', 'issue-link', 'input', 'escalation', 'rounds-exhausted', 'budget', 'human'].includes(s(kind));
 
 export interface InboxAction {
   label: string;
@@ -302,7 +302,9 @@ export function inboxActions(kind: InboxKind, opts: { linkPending?: boolean } = 
       return [act('Cancel job', 'cancel')];
     case 'input':
       return [act('Send answer', 'answer', true, true)];
+    // A CLI check (the secret scan) stopped the job: Approve means "I cleared it, check again", never "ship it anyway".
     case 'escalation':
+    case 'human':
       return [act('Approve', 'approve', true), act('Rework', 'rework', false, true), act('Cancel job', 'cancel')];
     case 'rounds-exhausted':
       return [act('Another round', 'rework', false, true), act('Accept as is', 'approve'), act('Cancel job', 'cancel')];

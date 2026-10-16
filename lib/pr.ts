@@ -9,6 +9,7 @@ import { attributionForbidden, scrubBranch, stripAttribution } from './attributi
 import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from './delta.ts';
 import type { Config, HumanDelta, Job, JobChange, JobPr, PrChecks } from './types.ts';
 import { ForgeError, SAFE_REF, hasBinary, now, readText, run } from './util.ts';
+import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretMode, textUnit } from './secrets.ts';
 import { cleanGenerated, generatedConfig, generatedPaths, partitionConflicts, rebuild, regenerateProblem, takeBaseSide } from './regenerate.ts';
 import type { Strategy } from './regenerate.ts';
 import { commandTemplate, verifiedHead } from './worktree.ts';
@@ -134,6 +135,18 @@ export function openPr(
     if (!opts.force) throw new ForgeError(`HEAD ${evidence.head.slice(0, 12)} of ${id} is not verified (${last}); run: forge verify ${id}, or pass --force`);
     logEvent(root, id, 'pr-unverified', { head: evidence.head, last: evidence.last });
   }
+  // Before any gh call or push, and even for a PR that already exists: the scan is the last point
+  // where nothing has left the machine yet.
+  const text = prText(root, config, job, opts.title);
+  refuseSecrets(root, config, [textUnit('(pr title)', text.title), textUnit('(pr body)', text.body)], { what: 'the PR title or body', id, gate: 'pr' });
+  // The commits are scanned here too, verified or not: this is the real exit, a HEAD verified by a
+  // Forge without the scanner was never scanned, and --force skips verify altogether.
+  const mode = secretMode(config);
+  refreshBase(job, config, mode);
+  const scan = scanBranch(root, config, job, { staged: false, head: evidence.head });
+  logSecrets(root, id, 'pr', scan, { blocked: mode === 'block' });
+  if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of ${id}'s commits could not finish (${scan.error}); forge pr open won't push an unscanned branch`, 'secret_found', `forge secrets scan ${id}`);
+  if (mode === 'block' && scan.findings.length) throw new ForgeError(refusalMessage(`the commits of ${id}`, scan.findings), 'secret_found', `forge secrets scan ${id}`);
   const slug = repoSlug(root, config);
   const ahead = run('git', ['rev-list', '--count', `${config.git.remote}/${job.base}..HEAD`], { cwd: job.worktree, allowFail: true });
   if (ahead.ok && ahead.stdout.trim() === '0') throw new ForgeError(`branch ${job.branch} has no commits ahead of ${job.base}`);
@@ -158,8 +171,8 @@ export function openPr(
     return { number: existing.number, url: existing.url, created: false, ...prLinkNote(job, config) };
   }
   const bodyFile = path.join(jobDir(root, id), 'pr-body.md');
-  fs.writeFileSync(bodyFile, prBody(root, config, job));
-  const args = ['pr', 'create', '-R', slug, '--base', job.base!, '--head', job.branch!, '--title', opts.title ?? job.title, '--body-file', bodyFile];
+  fs.writeFileSync(bodyFile, text.body);
+  const args = ['pr', 'create', '-R', slug, '--base', job.base!, '--head', job.branch!, '--title', text.title, '--body-file', bodyFile];
   if (opts.draft ?? config.pr.draft) args.push('--draft');
   for (const l of config.pr.labels ?? []) args.push('--label', l);
   for (const r of config.pr.reviewers ?? []) args.push('--reviewer', r);
@@ -194,11 +207,43 @@ export function retargetPr(
   return { from, to: base, pr: number };
 }
 
+/**
+ * Re-reads the base branch from the repository `forge pr open` pushes to, into its remote-tracking
+ * ref, so a ref moved from the worktree (`git update-ref`) can't shrink the range the scan reads. The
+ * fetch goes to the push URL: repo config can split `url` from `pushurl`, and a fetch from anywhere
+ * else would vouch for a base the push never meets. Under `block` a fetch that fails refuses the
+ * open (the push needs the network anyway); under `warn` the scan runs against the ref as it is.
+ */
+function refreshBase(job: Job, config: Config, mode: 'block' | 'warn'): void {
+  const fail = (why: string) => {
+    if (mode === 'block') throw new ForgeError(`can't refresh base ${job.base} from the push remote before the secret scan (${why}); forge pr open won't push a range it can't scan against the real base`, 'external');
+  };
+  const remote = config.git.remote;
+  if (!SAFE_REF.test(String(job.base)) || !SAFE_REF.test(String(remote))) return fail('unsafe base or remote name');
+  // Callers check the worktree first.
+  const cwd = job.worktree!;
+  const url = run('git', ['remote', 'get-url', '--push', remote], { cwd, allowFail: true });
+  const pushUrl = url.stdout.trim().split('\n')[0] ?? '';
+  // A leading - would read as an option; the push would use the same value, so nothing is lost.
+  if (!url.ok || !pushUrl || pushUrl.startsWith('-')) return fail(`no usable push URL for ${remote}`);
+  const fetched = run('git', ['-c', 'protocol.ext.allow=never', 'fetch', '--quiet', '--no-tags', '--no-write-fetch-head', '--', pushUrl, `+refs/heads/${job.base}:refs/remotes/${remote}/${job.base}`], { cwd, allowFail: true });
+  // Only the exit status: git's stderr can quote the URL, and a URL can carry credentials.
+  if (!fetched.ok) fail(`git fetch from ${remote}'s push URL exited ${fetched.status}`);
+}
+
 export function pushBranch(job: Job, config: Config, opts: { force?: boolean } = {}): void {
   const args = ['push', '-u', config.git.remote, `HEAD:refs/heads/${job.branch}`];
   if (opts.force) args.splice(1, 0, '--force-with-lease');
   // Callers check the worktree first.
   run('git', args, { cwd: job.worktree! });
+}
+
+/**
+ * The PR title and body exactly as `forge pr open` sends them, so the secret scan (and
+ * `forge secrets scan`) reads the same text gh would receive.
+ */
+export function prText(root: string, config: Config, job: Job, title?: string): { title: string; body: string } {
+  return { title: title ?? job.title, body: prBody(root, config, job) };
 }
 
 function prBody(root: string, config: Config, job: Job): string {

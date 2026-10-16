@@ -14,6 +14,7 @@ Read `waitingOn` from `forge job show <job>`, then:
 | `budget` | `forge job budget <job> --ack` (or `--set k=v` when the note names limits, e.g. `usd=20`), then `forge job human <job> approve --note "…"` | if `stillExceeded` is empty, `forge job set <job> --state running`; otherwise report it and leave the job waiting |
 | `split-approval` | `forge job human <job> approve-split --note "…"` | `reference/split.md` against the existing `plan.md`, then run the unblocked children |
 | `issue-link` | `forge job human <job> approve --link <link> --note "…"` (below) | `forge job set <job> --state running` |
+| `human` | `forge job human <job> approve --note "…"` | `forge job set <job> --state running` (step re-runs the check, which parks the job again if the value is still there) |
 
 An escalation before build (plan or spec stage) is better answered with `revise`.
 

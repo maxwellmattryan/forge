@@ -183,7 +183,7 @@ export const HOLD_TYPES: string[] = ['resume', 'rework', 'answer', 'revise-spec'
  * unaffected) and lets deny beat allow. This stops the Edit/Write route only; trustDigest is the
  * check that also covers writes made through Bash (docs/ARCHITECTURE.md "Daemon security").
  */
-export const DENY_TOOLS = Object.freeze(['Edit(.forge/config.yml)', 'Edit(.forge/trackers/**)']);
+export const DENY_TOOLS = Object.freeze(['Edit(.forge/config.yml)', 'Edit(.forge/trackers/**)', 'Edit(.forge/secrets-allow.txt)']);
 
 /**
  * Appended to every daemon command: claude sends each permission check it would otherwise ask a

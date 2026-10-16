@@ -14,6 +14,7 @@ export const WAIT_LABEL: Record<WaitingOn, string> = {
   'pr-review': 'PR review',
   external: 'External dependency',
   budget: 'Budget exceeded',
+  human: 'Human check',
 };
 /** A dependency park's state chip: an external wait the engine set itself, so it needs no human. */
 export const PARK_LABEL = 'Dependencies';

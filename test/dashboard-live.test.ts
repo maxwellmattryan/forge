@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { activeSessions, addFlashes, changedJobs, freshCount, sessionActivity, startTicker, workingCount } from '../dashboard/src/lib/live.ts';
-import { threadMarks, unreadCount, type ThreadItem } from '../dashboard/src/lib/thread.ts';
+import { threadItems, threadMarks, unreadCount, type ThreadItem } from '../dashboard/src/lib/thread.ts';
 
 /** A fake document and timers: `fire` runs every live interval once, `show`/`hide` flip visibility and dispatch the event. */
 function fakeEnv(visible = true) {
@@ -168,7 +168,7 @@ test('addFlashes expires after 3 s', () => {
   assert.deepEqual(addFlashes({}, ['q'], 0, 500), { q: 500 }, 'ms is configurable');
 });
 
-const item = (id: string, status: ThreadItem['status'], result: string | null = null): ThreadItem => ({ id, from: 'you', action: { kind: 'request' }, text: null, status, at: null, result });
+const item = (id: string, status: ThreadItem['status'], result: string | null = null): ThreadItem => ({ id, from: 'you', action: { kind: 'request' }, text: null, status, at: null, result, secret: null });
 
 test('unreadCount: new request, new result, status change, null seen', () => {
   const seenItems = [item('request', null), item('r1', 'queued'), item('r2', 'handling')];
@@ -179,6 +179,11 @@ test('unreadCount: new request, new result, status change, null seen', () => {
   assert.equal(unreadCount(threadMarks([seenItems[0], seenItems[1], item('r2', 'handling', 'on it')]), seen), 1, 'a new result on a seen item');
   assert.equal(unreadCount(threadMarks([seenItems[0], item('r1', 'handling'), seenItems[2]]), seen), 1, 'a status change on a seen item');
   assert.equal(unreadCount(threadMarks([seenItems[0], item('r1', 'done', 'merged'), seenItems[2]]), seen), 1, 'a status change and a result together count 1');
+  // A secret-found event is one new note; reading the Thread again changes nothing.
+  const events: any = [{ v: 1, ts: '2026-10-13T00:00:09Z', type: 'secret-found', gate: 'verify', blocked: true, count: 1, findings: [] }];
+  const withNote = threadItems([], null, events);
+  assert.equal(unreadCount(threadMarks([...seenItems, ...withNote]), seen), 1, 'a new secret note');
+  assert.equal(unreadCount(threadMarks([...seenItems, ...threadItems([], null, events)]), threadMarks([...seenItems, ...withNote])), 0, 'the same note again');
 });
 
 test('freshCount', () => {

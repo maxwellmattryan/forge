@@ -44,7 +44,7 @@
   const activity = $derived(job ? sessionActivity(S.data?.daemons?.jobs?.[job.id], shown?.detail.events.at(-1)?.ts) : null);
   // Timeline rows are newest first, so the first `fresh` arrived after the drawer opened.
   const fresh = $derived(shown ? freshCount(shown.detail.events.length, S.drawer.eventsAtOpen) : 0);
-  const unread = $derived(shown && job ? unreadCount(threadMarks(threadItems(shown.detail.requests ?? [], threadOpening(shown.detail))), S.threadSeen[job.id] ?? null) : 0);
+  const unread = $derived(shown && job ? unreadCount(threadMarks(threadItems(shown.detail.requests ?? [], threadOpening(shown.detail), shown.detail.events ?? [])), S.threadSeen[job.id] ?? null) : 0);
   let body = $state<HTMLDivElement>();
   let head = $state<HTMLDivElement>();
   // Closing the drawer, or opening another job from inside it, starts the next view at the top. A 2 s poll keeps the
@@ -93,7 +93,7 @@
       <div role="tablist" tabindex="-1" aria-label={$t('drawer.tabs')} class="tabs sticky top-0 z-20 solid px-5 md:px-6 overflow-x-auto overflow-y-hidden" onkeydown={stripKey}>{#each DRAWER_TABS as tab (tab)}<button role="tab" id="drawer-tab-{tab}" aria-selected={shown.tab === tab} aria-controls="drawer-panel-{tab}" tabindex={shown.tab === tab ? 0 : -1} class="tab shrink-0 whitespace-nowrap focus-visible:-outline-offset-2 {shown.tab === tab ? 'active' : ''}" onclick={() => selectTab(tab)}>{#if tab === 'thread'}{$t('drawer.threadTab')}{#if unread > 0}<span class="chip hl ml-1.5">{$t('drawer.threadUnread', { count: unread })}</span>{/if}{:else if tab === 'log'}{$t('drawer.logTab')}{#if activity?.kind === 'working'}<span class="inline-flex ml-1.5 align-middle"><LiveDot on={true} /></span><span class="sr-only">{$t('live.working')}</span>{/if}{:else if tab === 'files'}{$t('drawer.files')}{:else if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted">{d.events.length}</span>{:else if tab === 'details'}{$t('drawer.detailsTab')}{/if}</button>{/each}</div>
       <div role="tabpanel" id="drawer-panel-{shown.tab}" aria-labelledby="drawer-tab-{shown.tab}" tabindex="0" class="p-5 md:p-6 flex flex-col gap-5 focus-visible:outline-1 focus-visible:outline-dashed focus-visible:outline-line-strong focus-visible:-outline-offset-2">
         {#if shown.tab === 'thread'}
-          <ThreadPanel job={j} requests={d.requests ?? []} opening={threadOpening(d)} baseline={S.drawer.threadAtOpen} />
+          <ThreadPanel job={j} requests={d.requests ?? []} opening={threadOpening(d)} events={d.events ?? []} baseline={S.drawer.threadAtOpen} />
         {:else if shown.tab === 'log'}
           <!-- Keyed by job id only, so the drawer's 2 s refresh never re-creates the log or its stream; `active` closes the
                stream as soon as the drawer closes, though its last view stays while it slides out. -->

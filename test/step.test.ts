@@ -306,7 +306,37 @@ const rows: Row[] = [
       assert.ok(a.brief.includes('Lens: code') && a.brief.includes(`Scope: ${path.join(JOB_DIR, 'scope.md')}`) && a.brief.includes('Checklist: '));
     },
   },
-  { name: 'RV4 spawns the next lens while one runs', fx: { job: inReview({ 'reviewer:code': ag(1, 12) }), events: scoped }, want: { action: 'spawn', role: 'reviewer:tests' } },
+  { name: 'RV4 spawns the next lens while one runs', fx: { job: inReview({ 'reviewer:code': ag(1, 12) }), events: scoped }, want: { action: 'spawn', role: 'reviewer:tests' }, check: (a) => assert.ok(!Object.hasOwn(a, 'spawns')) },
+  {
+    name: 'RV4 batches every unstarted lens of a 4-lens panel',
+    fx: { job: inReview({}, { reviewers: ['code', 'tests', 'security', 'docs'] }), events: scoped },
+    want: { action: 'spawn', role: 'reviewer:code', lens: 'code', parallel: true },
+    check: (a) => {
+      assert.deepEqual(a.spawns.map((s: any) => s.lens), ['tests', 'security', 'docs']);
+      for (const s of a.spawns) {
+        const output = path.join(JOB_DIR, 'review', 'round-1', `${s.lens}.md`);
+        assert.equal(s.action, 'spawn');
+        assert.equal(s.rule, 'RV4');
+        assert.equal(s.parallel, true);
+        assert.equal(s.role, `reviewer:${s.lens}`);
+        assert.equal(s.output, output);
+        assert.equal(typeof s.model, 'string');
+        assert.ok(Object.hasOwn(s, 'effort'));
+        assert.deepEqual(s.start, ['job', 'agent', 'j', 'start', '--role', `reviewer:${s.lens}`, '--model', s.model, '--output', output]);
+        assert.equal(s.startShell, shellLine(s.start));
+        assert.ok(s.brief.includes(`Lens: ${s.lens}`));
+        assert.ok(!Object.hasOwn(s, 'spawns'));
+      }
+      assert.equal(a.spawns.find((s: any) => s.lens === 'security').model, 'opus');
+      assert.deepEqual(Object.keys(a).at(-1), 'spawns');
+    },
+  },
+  {
+    name: 'RV4 batches only the lenses not yet started',
+    fx: { job: inReview({ 'reviewer:code': ag(1, 12), 'reviewer:tests': ag(1, 12) }, { reviewers: ['code', 'tests', 'security', 'docs'] }), events: scoped },
+    want: { action: 'spawn', role: 'reviewer:security' },
+    check: (a) => assert.deepEqual(a.spawns.map((s: any) => s.role), ['reviewer:docs']),
+  },
   { name: 'RV4 a panel model wins', fx: { job: inReview({}, { reviewers: ['security'] }), events: scoped }, want: { action: 'spawn', role: 'reviewer:security', model: 'opus' } },
   { name: 'RV4 a UI lens gets the dev server', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:code': ag(1, 12, 13) }, { reviewers: ['code', 'ui'] }), events: scoped, runtime: ['dev'] }, want: { action: 'spawn', role: 'reviewer:ui' }, check: (a) => assert.ok(a.brief.includes('Dev server: http://localhost:4100')) },
   { name: 'RV4 the design lens gets the dev server', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:code': ag(1, 12, 13) }, { reviewers: ['code', 'design'] }), events: scoped, runtime: ['dev'] }, want: { action: 'spawn', role: 'reviewer:design' }, check: (a) => assert.ok(a.brief.includes('Dev server: http://localhost:4100')) },
@@ -423,6 +453,27 @@ const rows: Row[] = [
   { name: 'PR1 pr.enabled false finishes on the branch', fx: { config: (c) => (c.pr.enabled = false), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }) }, want: { ...run('job', 'set', 'j', '--stage', 'done', '--state', 'done'), tell: 'j finished on branch forge/j' } },
   { name: 'PR2 an unverified HEAD is verified first', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, false)] }) }, want: run('verify', 'j') },
   { name: 'PR3 opens the PR', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }) }, want: run('pr', 'open', 'j') },
+
+  // ---- Secret scan (SC1–SC3) and the human gate
+  { name: 'SC1 parks a verify the secret scan blocked', fx: { job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 10, false, 'secrets')], agents: { builder: ag(1, 5, 6) } }) }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'secret scan blocked verify round 1'), rule: 'SC1' } },
+  { name: 'SC1 parks in integrate', fx: { job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 40, false, 'secrets')] }), events: [entered, ev('integrated', 31, { behind: 2 })] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'secret scan blocked verify round 1'), rule: 'SC1' } },
+  { name: 'SC1 parks in pr', fx: { job: job({ stage: 'pr', round: 2, verifyRuns: [vr(2, 10, false, 'secrets')] }) }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'secret scan blocked verify round 2'), rule: 'SC1' } },
+  { name: 'SC1 fails an eval job instead', fx: { job: job({ kind: 'eval', stage: 'verify', round: 1, verifyRuns: [vr(1, 10, false, 'secrets')], agents: { builder: ag(1, 5, 6) } }) }, want: { ...run('job', 'set', 'j', '--state', 'failed', '--reason', 'eval: secret scan blocked verify round 1'), rule: 'SC1' } },
+  { name: 'SC1 holds after a rework note that is not an approve', fx: { job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 10, false, 'secrets')], agents: { builder: ag(1, 5, 6) } }), events: [ev('human', 12, { action: 'note' })] }, want: { rule: 'SC1' } },
+  { name: 'V1 re-verifies when the builder ended after a secret block', fx: { job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 4, false, 'secrets')], agents: { builder: ag(1, 5, 6) } }) }, want: { ...run('verify', 'j'), rule: 'V1' } },
+  { name: 'SC2 scans again after a newer approve', fx: { job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 10, false, 'secrets')], agents: { builder: ag(1, 5, 6) } }), events: [ev('human', 12, { action: 'approve' })] }, want: { ...run('verify', 'j'), rule: 'SC2' } },
+  { name: 'SC1 an approve older than the failing run does not count', fx: { job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 10, false, 'secrets')], agents: { builder: ag(1, 5, 6) } }), events: [ev('human', 8, { action: 'approve' })] }, want: { rule: 'SC1' } },
+  { name: 'SC3 parks after pr open was refused', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('secret-found', 12, { gate: 'pr', blocked: true, count: 1 })] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'secret scan blocked pr open'), rule: 'SC3' } },
+  { name: 'SC3 fails an eval job instead', fx: { job: job({ kind: 'eval', stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('secret-found', 12, { gate: 'pr', blocked: true })] }, want: { ...run('job', 'set', 'j', '--state', 'failed', '--reason', 'eval: secret scan blocked pr open'), rule: 'SC3' } },
+  { name: 'PR3 opens again once a human approved the SC3 park', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('secret-found', 12, { gate: 'pr', blocked: true }), ev('human', 14, { action: 'approve' })] }, want: { ...run('pr', 'open', 'j'), rule: 'PR3' } },
+  { name: 'PR3 a refusal older than the last verify does not park', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('secret-found', 8, { gate: 'pr', blocked: true })] }, want: { ...run('pr', 'open', 'j'), rule: 'PR3' } },
+  { name: 'PR3 a commit-gate event is not a pr refusal', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('secret-found', 12, { gate: 'commit', blocked: true })] }, want: { ...run('pr', 'open', 'j'), rule: 'PR3' } },
+  {
+    name: 'G4 human tells how to clear a secret scan',
+    fx: { job: job({ stage: 'verify', state: 'waiting', waitingOn: 'human', reason: 'secret scan blocked verify round 1' }) },
+    want: { action: 'wait', waitingOn: 'human', tell: 'j stopped on a possible secret (secret scan blocked verify round 1). Masked findings and fingerprints: forge secrets scan j. Remove the value (rewrite the branch if it was committed) or add its fingerprint to .forge/secrets-allow.txt in the main checkout, then /forge approve j to scan again, or /forge rework j <note>' },
+  },
+  { name: 'G4 human with another reason gets the generic tell', fx: { job: job({ stage: 'build', state: 'waiting', waitingOn: 'human', reason: 'protected path edited' }) }, want: { action: 'wait', waitingOn: 'human', tell: 'j needs a human: protected path edited. /forge approve j once it is resolved, or /forge rework j <note>' } },
   { name: 'PR4 merges an eligible PR', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11)] }, want: run('pr', 'merge', 'j') },
   { name: 'PR5 once a merge was tried, the PR waits', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11), ev('pr-merge-refused', 12)] }, want: { action: 'run', rule: 'PR5' } },
   { name: 'PR5 waits on PR review', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('pr-updated', 11)] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review') },
@@ -459,6 +510,7 @@ function assertSafe(a: StepAction, name: string) {
   }
   if (a.action === 'run') assert.equal(a.shell, shellLine(a.command));
   if (a.action === 'spawn') assert.equal(a.startShell, shellLine(a.start));
+  if (a.action === 'spawn') for (const s of a.spawns ?? []) assertSafe(s, `${name} › ${s.role}`);
 }
 
 for (const row of rows) {
@@ -476,6 +528,19 @@ test('every spawn carries an effort key', () => {
   const spawns = rows.map((row) => step(fixture(row.fx))).filter((a) => a.action === 'spawn');
   assert.ok(spawns.length > 20);
   for (const a of spawns) assert.ok(Object.hasOwn(a, 'effort'), `${a.rule} ${(a as any).role}`);
+});
+
+test('retry and integration spawns never batch', () => {
+  let checked = 0;
+  for (const row of rows) {
+    const a = step(fixture(row.fx));
+    if (a.action !== 'spawn') continue;
+    const integration = row.fx.job?.stage === 'integrate' && a.role.startsWith('reviewer:');
+    if (a.rule !== 'M1' && a.rule !== 'RV5' && !integration) continue;
+    assert.ok(!Object.hasOwn(a, 'spawns'), `${row.name}: ${a.rule} ${a.role} carries spawns`);
+    checked++;
+  }
+  assert.ok(checked >= 5, `only ${checked} retry or integration spawns checked`);
 });
 
 test('every rule has a row', () => {

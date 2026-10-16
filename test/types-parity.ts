@@ -84,4 +84,12 @@ export type Checks = [
   Expect<Equal<engine.DoctorReport, dash.DoctorReport>>,
   Expect<Equal<engine.DoctorResponse, dash.DoctorResponse>>,
   Expect<Equal<engine.AboutResponse, dash.AboutResponse>>,
+  Expect<Equal<engine.GitHubChecks, dash.GitHubChecks>>,
+  Expect<Equal<engine.GitHubRepoPreview, dash.GitHubRepoPreview>>,
+  Expect<Equal<engine.GitHubPullPreview, dash.GitHubPullPreview>>,
+  Expect<Equal<engine.GitHubIssuePreview, dash.GitHubIssuePreview>>,
+  Expect<Equal<engine.GitHubCommitPreview, dash.GitHubCommitPreview>>,
+  Expect<Equal<engine.GitHubPreview, dash.GitHubPreview>>,
+  Expect<Equal<engine.GitHubPreviewError, dash.GitHubPreviewError>>,
+  Expect<Equal<engine.GitHubPreviewResponse, dash.GitHubPreviewResponse>>,
 ];

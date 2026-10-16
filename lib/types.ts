@@ -5,6 +5,7 @@
 import type { BUDGET_KEYS, DAEMON_AUTH, EFFORTS, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import type { REQUEST_TYPES } from './requests.ts';
 import type { AcCoverage } from './acs.ts';
+import type { SECRET_KINDS } from './secrets.ts';
 
 // ---------- enumerations ----------
 
@@ -22,6 +23,8 @@ export type Severity = (typeof SEVERITIES)[number];
 export type Effort = (typeof EFFORTS)[number];
 /** Where a resolved effort came from: resolveEffort in lib/config.ts. */
 export type EffortSource = 'job' | 'config' | 'none';
+/** What the secret scanner reports: SECRET_KINDS in lib/secrets.ts. */
+export type SecretKind = (typeof SECRET_KINDS)[number];
 
 // ---------- job data ----------
 
@@ -277,6 +280,8 @@ export interface StepSpawn extends StepBase {
   brief: string;
   /** The Agent tool's `effort`: the job's effective level (resolveEffort), or null to pass none. */
   effort: Effort | null;
+  /** RV4 only: the round's other unstarted lenses, each a complete spawn; launch them with this one. */
+  spawns?: StepSpawn[];
 }
 
 /** Run one forge command: `command` is argv after `forge`, `shell` the same as one quoted line. */
@@ -412,6 +417,68 @@ export interface JobEvent {
   [key: string]: unknown;
 }
 
+// ---------- secret scanning (lib/secrets.ts) ----------
+
+/** Text the scanner reads: a run of added lines, a whole file, or text Forge is about to send. */
+export interface TextUnit {
+  /** A repo path, a job-dir path, or a label in parentheses such as `(pr body)`. */
+  path: string;
+  /** The line `text` starts on. */
+  line: number;
+  text: string;
+  /** Repository content: path globs in the allowlist apply, and so does the entropy check. */
+  file: boolean;
+  /** 12-char sha, `staged`, or null. */
+  commit: string | null;
+  /** Overrides the entropy check, which otherwise follows `file` (agent output is text, but checked). */
+  entropy?: boolean;
+}
+
+/** One likely credential. Never holds the value: `excerpt` is masked and `fingerprint` is its sha256. */
+export interface SecretFinding {
+  kind: SecretKind;
+  path: string;
+  line: number;
+  excerpt: string;
+  /** `sha256:` + 64 hex of the full value. */
+  fingerprint: string;
+  commit: string | null;
+  /** `.forge/secrets-allow.txt:<line>`, on an allowed finding. */
+  allowedBy?: string;
+}
+
+/** `.forge/secrets-allow.txt` in the main checkout: loadAllowlist. */
+export interface SecretAllowlist {
+  file: string;
+  present: boolean;
+  entries: number;
+  problems: string[];
+  globs: { glob: string; line: number }[];
+  prints: Map<string, number>;
+}
+
+/** A scan's result: scanBranch, scanPaths, scanAgentOutputs. `error` means it did not finish. */
+export interface SecretScan {
+  findings: SecretFinding[];
+  allowed: SecretFinding[];
+  scanned: { commits: number; files: number; texts: number; skipped: number };
+  allowlist: SecretAllowlist;
+  base: string | null;
+  mergeBase: string | null;
+  error?: string;
+}
+
+/** The `secrets` key of verify's JSON: compactSecrets. */
+export interface CompactSecrets {
+  mode: 'block' | 'warn';
+  ok: boolean;
+  count: number;
+  allowed: number;
+  findings: { kind: SecretKind; path: string; line: number }[];
+  more: number;
+  error?: string;
+}
+
 // ---------- config ----------
 
 /** One review lens: an entry of review.panel in defaults() (lib/config.ts). */
@@ -489,6 +556,7 @@ export interface Config {
     paths: string[];
   };
   verifyIntegrity: 'warn' | 'block';
+  verifySecrets: 'block' | 'warn';
   ports: { base: number; span: number };
   runtime: {
     provider: string;
@@ -1042,6 +1110,90 @@ export interface AboutResponse {
   node: string;
   links: { repo: string | null; docs: string | null };
 }
+
+/** A CI rollup on a GitHub preview: GitHub's statusCheckRollup, folded to three outcomes; null when nothing ran. */
+export type GitHubChecks = 'success' | 'failure' | 'pending' | null;
+
+/** A repository's hover preview. Strings are GitHub text: render them as text. */
+export interface GitHubRepoPreview {
+  kind: 'repo';
+  repo: string;
+  url: string;
+  description: string | null;
+  private: boolean;
+  archived: boolean;
+  fork: boolean;
+  stars: number;
+  forks: number;
+  language: string | null;
+  defaultBranch: string | null;
+  openIssues: number;
+  openPulls: number;
+  license: string | null;
+  pushedAt: string | null;
+}
+
+/** A pull request's hover preview. `excerpt` is the start of the body as plain text. */
+export interface GitHubPullPreview {
+  kind: 'pull';
+  repo: string;
+  number: number;
+  url: string;
+  title: string;
+  state: 'open' | 'draft' | 'merged' | 'closed';
+  author: string | null;
+  createdAt: string;
+  updatedAt: string;
+  base: string;
+  head: string;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  comments: number;
+  review: 'approved' | 'changes_requested' | 'review_required' | null;
+  checks: GitHubChecks;
+  labels: string[];
+  excerpt: string;
+}
+
+/** An issue's hover preview. A closed issue keeps why it closed: completed (`closed`), not planned or a duplicate. */
+export interface GitHubIssuePreview {
+  kind: 'issue';
+  repo: string;
+  number: number;
+  url: string;
+  title: string;
+  state: 'open' | 'closed' | 'not_planned' | 'duplicate';
+  author: string | null;
+  createdAt: string;
+  updatedAt: string;
+  comments: number;
+  labels: string[];
+  assignees: string[];
+  excerpt: string;
+}
+
+/** A commit's hover preview. */
+export interface GitHubCommitPreview {
+  kind: 'commit';
+  repo: string;
+  sha: string;
+  url: string;
+  headline: string;
+  author: string | null;
+  committedAt: string;
+  additions: number;
+  deletions: number;
+  checks: GitHubChecks;
+}
+
+export type GitHubPreview = GitHubRepoPreview | GitHubPullPreview | GitHubIssuePreview | GitHubCommitPreview;
+
+/** Why a preview could not be fetched: no `gh` on PATH, GitHub has no such page (or no access), or anything else. */
+export type GitHubPreviewError = 'gh_missing' | 'not_found' | 'failed';
+
+/** GET /api/github/preview?url=: previewGitHub in lib/github-preview.ts. A URL it can't preview is a 400 ApiError. */
+export type GitHubPreviewResponse = { preview: GitHubPreview } | { error: GitHubPreviewError; message: string };
 
 /** GET /api/requests: listRequests in lib/requests.ts. */
 export type RequestsResponse = ForgeRequest[];
