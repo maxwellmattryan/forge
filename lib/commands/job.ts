@@ -6,7 +6,7 @@ import { jobPathMap } from '../brief.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
 import { daemonClaimOpts, refuseInboxDrive } from '../daemon-owner.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
-import { agentOutputMissing, claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
+import { agentOutputMissing, attachAgent, claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
 import { logSecrets, scanAgentOutputs } from '../secrets.ts';
 import { normalizeRef } from '../issue-link.ts';
 import { exists } from '../paths.ts';
@@ -15,6 +15,7 @@ import { jobScope } from '../scope.ts';
 import { loadStepInput, step } from '../step.ts';
 import { createAndLink, linkJob, markNoIssue, suggestLink } from '../tracker-link.ts';
 import { loadTracker } from '../trackers/index.ts';
+import { AGENT_ID } from '../transcripts.ts';
 import { importClaudeCodeTranscript } from '../usage.ts';
 import { ForgeError, coerce, getPath, run } from '../util.ts';
 import { bodyFrom, list, num, oneOf, req, requireJob, str, usageError } from './args.ts';
@@ -136,12 +137,12 @@ const JOB: HelpGroup = {
     },
     {
       command: 'job agent',
-      args: '<id> start|end --role R [options]',
-      summary: 'record an agent starting or ending, with its usage; end also scans what the agent wrote for likely secrets (a secret-found event and secrets: <n>, never a refusal)',
+      args: '<id> start|end|attach --role R [options]',
+      summary: "record an agent starting or ending, with its usage; end also scans what the agent wrote for likely secrets (a secret-found event and secrets: <n>, never a refusal); attach records a running agent's --agent-id so the dashboard can follow its transcript",
       flags: [
         ['--role R', 'the role, e.g. builder or reviewer:code (required)'],
         ['--model M', 'the model it ran on'],
-        ['--agent-id A', "the runtime's id for the agent"],
+        ['--agent-id A', "the runtime's id for the agent (required with attach)"],
         ['--status S', 'how it ended'],
         ['--summary S', 'its one-line reply'],
         ['--output P', 'with start: the file it must write, inside the job dir'],
@@ -151,7 +152,7 @@ const JOB: HelpGroup = {
         ['--duration-ms N', 'with end: wall time'],
         ['--import', "with end and --agent-id: read usage from the agent's Claude Code transcript"],
       ],
-      exits: [[1, 'no such job, an --output outside the job dir, or the inbox session starting an agent']],
+      exits: [[1, 'no such job, an --output outside the job dir, the inbox session starting an agent, or attach on a role that is not running']],
     },
     { command: 'job round', args: '<id>', summary: 'start the next review round, unless the budget is spent', exits: [NO_JOB] },
     {
@@ -385,9 +386,16 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     }
     case 'agent': {
       const jobId = requireJob(root, id).id;
-      const phase = req(rest[1], 'start|end');
-      if (!['start', 'end'].includes(phase)) throw new ForgeError('phase must be start or end', 'usage');
+      const phase = req(rest[1], 'start|end|attach');
+      if (!['start', 'end', 'attach'].includes(phase)) throw new ForgeError('phase must be start, end or attach', 'usage');
       const role = req(flags.role, '--role');
+      if (phase === 'attach') {
+        const agentId = flags['agent-id'];
+        // Checked before anything is written: the id becomes a transcript file name.
+        if (typeof agentId !== 'string' || !AGENT_ID.test(agentId)) throw new ForgeError('--agent-id must match [A-Za-z0-9_-]{1,100}', 'usage');
+        const a = attachAgent(root, jobId, role, agentId).agents[role];
+        return { role, status: a.status, agentId: a.agentId };
+      }
       // Validated before anything is written, so a bad count leaves job.json and its usage untouched.
       const summary = str(flags.summary, '--summary');
       const tokens = num(flags.tokens, '--tokens');

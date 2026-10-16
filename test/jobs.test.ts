@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tempRepo } from './helpers.ts';
+import { forgeAsync, tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
 import { claimJob, createJob, loadJob, readEvents, roundVerdicts, setJob, recordAgent, progress, parseDecision, touchJob, jobDir } from '../lib/jobs.ts';
 import { computeStats } from '../lib/stats.ts';
@@ -184,6 +184,47 @@ test('setJob derive decides from the locked job', () => {
 
     const plain = setJob(root, job.id, { reason: 'static only', fields: { 'pr.number': 10 }, derive: () => null });
     assert.deepEqual([plain.stage, plain.state, plain.waitingOn, plain.reason, plain.pr?.number], ['pr', 'waiting', 'conflicts', 'static only', 10], 'a null result applies the static change');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('agent attach records the id on a running role', async () => {
+  const repo = tempRepo();
+  try {
+    const root = repo.dir;
+    const config = defaults();
+    const cli = (...args: string[]) => forgeAsync(root, args);
+    const answers = path.join(root, '.answers.json');
+    fs.writeFileSync(answers, '{}');
+    assert.equal((await cli('init', 'write', '--answers', answers)).status, 0);
+    const job = createJob(root, config, { title: 'Attach' });
+    const off = await cli('job', 'agent', job.id, 'attach', '--role', 'reviewer:code', '--agent-id', 'abc123');
+    assert.equal(off.status, 1, 'a role that never started');
+    recordAgent(root, job.id, { role: 'reviewer:code', phase: 'start', model: 'opus' }, config);
+    const before = loadJob(root, job.id).agents['reviewer:code'];
+    const events = readEvents(root, job.id).length;
+    const ok = await cli('job', 'agent', job.id, 'attach', '--role', 'reviewer:code', '--agent-id', 'abc123');
+    assert.equal(ok.status, 0, ok.stderr);
+    assert.deepEqual(JSON.parse(ok.stdout), { role: 'reviewer:code', status: 'running', agentId: 'abc123' });
+    const after = loadJob(root, job.id).agents['reviewer:code'];
+    assert.equal(after.agentId, 'abc123');
+    assert.deepEqual({ runs: after.runs, startedAt: after.startedAt, status: after.status }, { runs: before.runs, startedAt: before.startedAt, status: before.status });
+    assert.equal(readEvents(root, job.id).length, events, 'attach logs no event');
+
+    const file = path.join(jobDir(root, job.id), 'job.json');
+    const raw = fs.readFileSync(file, 'utf8');
+    for (const bad of ['../x', 'a/b', '']) {
+      const r = await cli('job', 'agent', job.id, 'attach', '--role', 'reviewer:code', '--agent-id', bad);
+      assert.equal(r.status, 2, bad);
+      assert.match(r.stderr, /--agent-id/);
+    }
+    assert.equal((await cli('job', 'agent', job.id, 'attach', '--role', 'reviewer:code')).status, 2, 'no --agent-id');
+    assert.equal(fs.readFileSync(file, 'utf8'), raw, 'a refused id writes nothing');
+
+    recordAgent(root, job.id, { role: 'reviewer:code', phase: 'end' }, config);
+    assert.equal((await cli('job', 'agent', job.id, 'attach', '--role', 'reviewer:code', '--agent-id', 'def456')).status, 1, 'an ended role');
+    assert.equal((await cli('job', 'agent', job.id, 'attach', '--role', '__proto__', '--agent-id', 'def456')).status, 1);
   } finally {
     repo.cleanup();
   }

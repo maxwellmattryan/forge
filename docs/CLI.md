@@ -92,6 +92,7 @@ Read by Forge:
 | `PATH` | where git, gh, claude and node are found |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` | `forge dash` leaves them out of daemon sessions' environment unless `daemon.auth: api-key` |
 | `GIT_CONFIG_COUNT` | daemon sessions append their git pins after the entries already counted |
+| `CLAUDE_CONFIG_DIR` | Claude Code's own config dir: transcripts are read from `$CLAUDE_CONFIG_DIR/projects`, else `~/.claude/projects`, by `forge job agent … end --import` and the dashboard's agent activity and transcript views |
 | `CLAUDE_ENV_FILE` | set by Claude Code for SessionStart hooks; the plugin's hook appends a line that puts this plugin's `bin/` first on PATH for the session's Bash commands; nothing happens when it is unset |
 | `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_COMMON_DIR` | cleared before `forge git add\|commit` (with `GIT_OBJECT_DIRECTORY` and `GIT_NAMESPACE`) and eval checkouts run git, so an inherited one can't point git at another repository |
 
@@ -110,6 +111,10 @@ Set by Forge for configured commands (`forge run`, `forge verify`, worktree setu
 | `FORGE_JOB` | the job id |
 | `FORGE_WORKTREE` | the job's worktree |
 | `FORGE_PORT`, `PORT` | the job's port, empty when it has none |
+
+## Agent ids
+
+`forge job agent <id> attach --role R --agent-id A` records the runtime's id of an agent that is already `running` (the orchestrator runs it right after a background spawn), so `forge dash` can follow that agent's transcript while it works. It changes nothing else: `runs`, `startedAt` and `status` stay, and no event is logged. It prints `{ "role", "status", "agentId" }`, exits 1 when the role isn't running, and exits 2 (`usage`) without writing anything when `A` doesn't match `^[A-Za-z0-9_-]{1,100}$`, since the id becomes part of a transcript's file name.
 
 ## Stability
 
