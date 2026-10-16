@@ -893,6 +893,10 @@ export interface Roster {
   agents: { role: string; description: string; model: string; promptHash: string; addendum: string | null; effort: Effort | null; effortSource: EffortSource }[];
   reviewers: { name: string; model: string; always: boolean; when: string | null; checklist: string | null; checklistHash: string | null; effort: Effort | null; effortSource: EffortSource }[];
   learnings: string | null;
+  /** Entries in learnings.md; 0 when it is missing. */
+  learningCount: number;
+  /** The earliest valid review-by among all learnings, expired ones included. */
+  oldestReviewBy: string | null;
   diversity: { enabled: boolean; builder: string; overlap: { role: string; model: string }[] };
   warnings: string[];
 }

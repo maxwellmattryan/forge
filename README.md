@@ -47,7 +47,7 @@ In Claude Code:
 /plugin marketplace add maxwellmattryan/forge
 /plugin install forge@forge
 ```
-Requirements: Node ≥ 22.18, git ≥ 2.38, and the GitHub CLI (`gh`) for PR and GitHub-tracker features.
+Requirements: Node ≥ 22.18, git ≥ 2.38, and the GitHub CLI (`gh` ≥ 2.40) for PR and GitHub-tracker features. Supported platforms: [docs/SUPPORT.md](docs/SUPPORT.md).
 On Node older than 22.18 the CLI fails at import and the attribution hook cannot load: it exits 1, which Claude Code does not treat as a block, so `aiAttribution: forbid` is not enforced.
 
 The CLI also works on its own (for other agent runtimes, scripts or CI):

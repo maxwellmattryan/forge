@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { execFile, spawn as nodeSpawn, spawnSync } from 'node:child_process';
@@ -1405,7 +1406,7 @@ test('sessionEnv pins git hooks and fsmonitor off, after any config the caller e
   assert.equal(env.GIT_EDITOR, 'true', 'git merge|rebase --continue never waits on an editor');
   assert.equal(env.GIT_CONFIG_COUNT, String(GIT_PINS.length));
   assert.deepEqual(GIT_PINS.map((_, i) => [env[`GIT_CONFIG_KEY_${i}`], env[`GIT_CONFIG_VALUE_${i}`]]), [
-    ['core.hooksPath', '/dev/null'],
+    ['core.hooksPath', os.devNull],
     ['core.fsmonitor', 'false'],
   ]);
   const kept = sessionEnv({ GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'safe.directory', GIT_CONFIG_VALUE_0: '*' });

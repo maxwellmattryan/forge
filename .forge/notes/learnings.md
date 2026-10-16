@@ -7,7 +7,8 @@ entries that stop paying for themselves; this file is read on every agent run, s
 costs tokens on every job.
 
 Format:
-- **<rule>** — why, evidence: <job ids>. (added YYYY-MM-DD)
+- **<rule>** — why, evidence: <job ids>. (added YYYY-MM-DD · experiment: <id> · review-by: YYYY-MM-DD)
+`experiment:` names an entry in experiments.md; `review-by:` is when the retro checks that its metric moved.
 -->
 
 - **Only one in-flight job may bump a version constant in `lib/schema.ts`** — two branches that both migrate from the same version merge into a broken migration table even when git reports no conflict; if your spec needs a bump and another open PR already has one, say so in `questions.md` and reply NEEDS-INPUT. Evidence: wave planning for issues #1–#23. (added 2026-10-12)

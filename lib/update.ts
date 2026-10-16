@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { mainRoot, paths, PLUGIN_ROOT } from './paths.ts';
+import { WINDOWS_UPDATE_REFUSAL } from './platform.ts';
 import { ForgeError, readJson, run, tail } from './util.ts';
 import { pidAlive } from './worktree.ts';
 import type { InstallInfo, UpdateCheck, UpdateDashboard, UpdateResult } from './types.ts';
@@ -234,6 +235,8 @@ export interface UpdateOptions {
   env?: NodeJS.ProcessEnv;
   check?: boolean;
   keepDash?: boolean;
+  /** The host platform; native Windows is refused (docs/SUPPORT.md). */
+  platform?: NodeJS.Platform;
 }
 
 export async function updateForge(opts: UpdateOptions = {}): Promise<UpdateCheck | UpdateResult> {
@@ -241,6 +244,8 @@ export async function updateForge(opts: UpdateOptions = {}): Promise<UpdateCheck
   // Before detection or any subprocess: an unattended session must not swap the code it and the
   // dash run on for whatever the marketplace or upstream holds right now.
   if (env.FORGE_DAEMON === '1') throw new ForgeError(DAEMON_REFUSAL);
+  // Also before detection or any subprocess: docs/SUPPORT.md refuses updates on native Windows.
+  if ((opts.platform ?? process.platform) === 'win32') throw new ForgeError(WINDOWS_UPDATE_REFUSAL);
   const cwd = opts.cwd ?? process.cwd();
   const info = detectInstall(opts.root ?? PLUGIN_ROOT, env);
   const warnings: string[] = [];
