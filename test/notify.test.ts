@@ -7,7 +7,7 @@ import { closedPort, hookServer } from './notify-server.ts';
 import { defaults } from '../lib/config.ts';
 import { createJob, readEvents, setJob } from '../lib/jobs.ts';
 import { notifyProblems, validWebhooks } from '../lib/notify-config.ts';
-import { REASONS, buildPayload, contextFor, deliver, slackPayload, transitionEvents } from '../lib/notify.ts';
+import { REASONS, buildPayload, cleanText, contextFor, deliver, notifyLogFile, slackPayload, transitionEvents } from '../lib/notify.ts';
 import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 
 const DASH = 'http://127.0.0.1:7400/#/pipeline';
@@ -122,6 +122,37 @@ describe('notify config and payloads', { concurrency: 4 }, () => {
     assert.deepEqual(withPr.blocks.at(-1).elements[0], { type: 'button', text: { type: 'plain_text', text: 'Open PR', emoji: false }, url: 'https://github.com/o/r/pull/9' });
     const notHttps: any = slackPayload(buildPayload('gate', { job: '42-x', title: 't', stage: 'spec', prUrl: 'http://x/pull/1', reason: 'input' }, DASH));
     assert.ok(!notHttps.blocks.some((b: any) => b.type === 'actions'), 'no button without an https PR url');
+  });
+
+  test('the PR url must be a pull or merge request url', () => {
+    const at = (prUrl: string | null) => buildPayload('pr-opened', { job: '42-x', title: 't', stage: 'pr', prUrl, reason: 'pr-opened' }, DASH).url;
+    for (const ok of ['https://github.com/o/r/pull/3', 'https://ghe.corp.example/org/repo.name/pull/12', 'https://gitlab.com/g/r/-/merge_requests/5', 'https://gitlab.example/g/sub/r/-/merge_requests/9']) assert.equal(at(ok), ok, ok);
+    for (const bad of [
+      'https://evil.example/login',
+      'https://github.com/o/r/issues/3',
+      'https://github.com/o/r/pull/3/files',
+      'https://github.com/o/r/pull/0',
+      'https://github.com/o/pull/3',
+      'https://github.com/o/r/pull/3?next=https://evil.example',
+      'https://github.com/o/r/pull/3#x',
+      'https://a:b@github.com/o/r/pull/3',
+      'https://gitlab.com/r/-/merge_requests/5',
+      'http://github.com/o/r/pull/3',
+      'javascript:alert(1)//github.com/o/r/pull/3',
+      'not a url',
+      null,
+    ]) assert.equal(at(bad), null, String(bad));
+    const button = (prUrl: string) => (slackPayload(buildPayload('gate', { job: '42-x', title: 't', stage: 'pr', prUrl, reason: 'input' }, DASH)) as any).blocks.some((b: any) => b.type === 'actions');
+    assert.equal(button('https://evil.example/o/r/x/3'), false, 'no Open PR button for another https url');
+    assert.equal(button('https://github.com/o/r/pull/3'), true);
+  });
+
+  test('titles lose bidi controls', () => {
+    const marks = '\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069';
+    assert.equal(cleanText(`safe${marks} txt.exe`, 200), 'safe txt.exe');
+    const p = buildPayload('gate', { job: '42-x', title: `\u202eabc\u2066d\u2069`, stage: 'spec', prUrl: null, reason: 'input' }, DASH);
+    assert.equal(p.title, 'abcd');
+    assert.ok(!/[\u202a-\u202e\u2066-\u2069]/.test(JSON.stringify(slackPayload(p))));
   });
 
   test('transitions pick their events', () => {
@@ -266,6 +297,28 @@ describe('notify delivery', { concurrency: 4 }, () => {
       const got = Object.fromEntries(s.server.hits.map((h) => [h.path, JSON.parse(h.body).event]));
       assert.deepEqual(got, { '/both': 'budget-exceeded', '/gate': 'gate', '/all': 'budget-exceeded' });
       assert.equal(s.server.hits.length, 3);
+    } finally {
+      await s.done();
+    }
+  });
+  test('the repo notify log never follows a planted symlink', { skip: process.platform === 'win32' }, async () => {
+    const s = await setup();
+    try {
+      const file = notifyLogFile(s.repo.dir);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const target = path.join(s.repo.dir, 'outside.txt');
+      fs.writeFileSync(target, 'untouched\n');
+      fs.symlinkSync(target, file);
+      const r = await deliver(s.repo.dir, s.config, ['daemon-stopped'], contextFor(s.repo.dir, null, 'trust'), fast);
+      assert.equal(r[0].ok, true, 'delivery still succeeds');
+      assert.equal(fs.readFileSync(target, 'utf8'), 'untouched\n', 'the link target is never appended to');
+      assert.ok(fs.lstatSync(file).isSymbolicLink());
+      // A regular file is appended to as before.
+      fs.unlinkSync(file);
+      await deliver(s.repo.dir, s.config, ['daemon-stopped'], contextFor(s.repo.dir, null, 'trust'), fast);
+      await deliver(s.repo.dir, s.config, ['daemon-stopped'], contextFor(s.repo.dir, null, 'trust'), fast);
+      const lines = fs.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+      assert.deepEqual(lines.map((l) => [l.type, l.event, l.host]), Array(2).fill(['notified', 'daemon-stopped', `127.0.0.1:${s.server.port}`]));
     } finally {
       await s.done();
     }

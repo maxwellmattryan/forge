@@ -1105,7 +1105,7 @@ test('POST /api/config is token, origin and JSON guarded', async () => {
   }
 });
 
-test('api/config masks notify webhook urls', async () => {
+test('api/config masks notify webhook urls and the command', async () => {
   const repo = tempRepo();
   fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
   const hooks = [{ url: 'https://hooks.slack.com/services/T0/B0/SECRETPATH?x=SECRETQUERY', events: ['gate'], format: 'slack' }, { url: 'not a url SECRETPATH' }, 'https://bare.example/SECRETPATH'];
@@ -1118,6 +1118,8 @@ test('api/config masks notify webhook urls', async () => {
     assert.deepEqual(c.values['notify.webhooks'], [{ url: 'https://hooks.slack.com/…', events: ['gate'], format: 'slack' }, { url: '<invalid>' }, '<invalid>']);
     const f = c.fields.find((x) => x.key === 'notify.webhooks');
     assert.deepEqual([f.editable, f.lockedReason], [false, 'names a URL Forge posts to']);
+    assert.equal(c.values['notify.command'], '<set>', 'the command text never reaches the dashboard');
+    assert.ok(!r.text.includes('page.sh'));
   } finally {
     await srv.close();
     repo.cleanup();

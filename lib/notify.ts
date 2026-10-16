@@ -12,6 +12,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig } from './config.ts';
+import { openAppend } from './daemon.ts';
 import { jobDir, loadJob, logEvent } from './jobs.ts';
 import { commandProblem, notifyConfigured, validCommand, validWebhooks, webhookHost, webhookProblem } from './notify-config.ts';
 import { PLUGIN_ROOT, exists, paths } from './paths.ts';
@@ -100,9 +101,13 @@ export interface NotifyContext {
 const TITLE_MAX = 200;
 const HEADER_MAX = 150;
 
-/** Control characters become spaces, then trimmed and cut to `max` code points, ending in … when cut. */
+/**
+ * Control characters become spaces and bidi controls are dropped (a hostile title can't reorder how
+ * it displays), then trimmed and cut to `max` code points, ending in … when cut.
+ */
 export function cleanText(text: unknown, max: number): string {
-  const chars = Array.from(String(text ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').trim());
+  const plain = String(text ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/[\u202a-\u202e\u2066-\u2069]/g, '');
+  const chars = Array.from(plain.trim());
   return chars.length > max ? chars.slice(0, max - 1).join('').trimEnd() + '…' : chars.join('');
 }
 
@@ -121,6 +126,24 @@ export function dashboardUrl(root: string, config: Pick<Config, 'dashboard'>): s
   return `http://127.0.0.1:${Number.isInteger(port) && port > 0 && port < 65536 ? port : 7400}/#/pipeline`;
 }
 
+const SEGMENT = '[A-Za-z0-9_.-]+';
+const PR_PATHS = [new RegExp(`^/${SEGMENT}/${SEGMENT}/pull/[1-9][0-9]*$`), new RegExp(`^(?:/${SEGMENT}){2,}/-/merge_requests/[1-9][0-9]*$`)];
+
+/**
+ * The PR url only when it is a GitHub pull request or GitLab merge request URL, else null. job.json is
+ * agent-writable, so any other https value could put a link of an agent's choosing into a team channel.
+ */
+export function prLink(url: unknown): string | null {
+  if (typeof url !== 'string') return null;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:' || u.username || u.password || u.search || u.hash) return null;
+    return PR_PATHS.some((re) => re.test(u.pathname)) ? `${u.origin}${u.pathname}` : null;
+  } catch {
+    return null;
+  }
+}
+
 export function buildPayload(event: NotifyEvent, ctx: NotifyContext, dashboard: string, at = new Date().toISOString()): NotifyPayload {
   return {
     event,
@@ -128,7 +151,7 @@ export function buildPayload(event: NotifyEvent, ctx: NotifyContext, dashboard: 
     title: ctx.title === null ? null : cleanText(ctx.title, TITLE_MAX),
     stage: ctx.stage,
     reason: REASONS[ctx.reason],
-    url: typeof ctx.prUrl === 'string' && ctx.prUrl.startsWith('https://') ? ctx.prUrl : null,
+    url: prLink(ctx.prUrl),
     dashboardUrl: dashboard,
     at,
   };
@@ -329,7 +352,13 @@ function record(root: string, job: string | null, r: TargetResult): void {
     if (!exists(paths(root).dir)) return;
     const file = notifyLogFile(root);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.appendFileSync(file, JSON.stringify({ v: EVENT_SCHEMA_VERSION, ts: new Date().toISOString(), type, ...data }) + '\n');
+    // The runtime dir is agent-writable: a planted symlink or FIFO is refused, never followed.
+    const fd = openAppend(file);
+    try {
+      fs.writeSync(fd, JSON.stringify({ v: EVENT_SCHEMA_VERSION, ts: new Date().toISOString(), type, ...data }) + '\n');
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch {}
 }
 

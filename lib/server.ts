@@ -756,6 +756,8 @@ function configResponse(root: string, daemonWanted: boolean): ConfigResponse {
   const { config, initialized } = loadConfig(root);
   const values = Object.fromEntries(FIELDS.map((f) => [f.key, getPath(config, f.key) ?? null]));
   values['notify.webhooks'] = maskWebhooks(values['notify.webhooks']);
+  // A command can embed a webhook URL or an auth header; the field is locked, so the dashboard never needs its text.
+  if (values['notify.command'] !== null) values['notify.command'] = '<set>';
   const lockedBy = !initialized ? 'uninitialized' : daemonWanted ? 'daemon' : null;
   return { initialized, path: '.forge/config.yml', fields: FIELDS, values, problems: initialized ? validateConfig(config, root) : [], writable: lockedBy === null, lockedBy };
 }
