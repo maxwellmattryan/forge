@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, trustDigest, validateConfig } from '../lib/config.ts';
-import { FIELDS } from '../lib/config-fields.ts';
+import { CONFIG_DISCLOSURE, FIELDS, disclosureOf, redactedConfig } from '../lib/config-fields.ts';
 import { COMPLEXITIES, EFFORT_ROLES, EFFORTS } from '../lib/schema.ts';
 import { setConfigValue } from '../lib/config-set.ts';
 import { getPath } from '../lib/util.ts';
@@ -388,5 +388,87 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     } finally {
       s.repo.cleanup();
     }
+  });
+});
+
+/** Every leaf key of an object: recursion stops at arrays, empty objects and scalars. */
+function leafKeys(obj: Record<string, unknown>, prefix = ''): string[] {
+  return Object.entries(obj).flatMap(([k, v]) => {
+    const key = prefix ? `${prefix}.${k}` : k;
+    return v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length ? leafKeys(v as Record<string, unknown>, key) : [key];
+  });
+}
+
+describe('config disclosure', { concurrency: 4 }, () => {
+  test('every config key has a disclosure class', () => {
+    const missing = leafKeys(defaults() as unknown as Record<string, unknown>).filter((k) => disclosureOf(k) === null);
+    assert.deepEqual(missing, []);
+    // The longest prefix wins.
+    assert.equal(disclosureOf('worktrees.cleanup'), 'plain');
+    assert.equal(disclosureOf('worktrees.setup'), 'command');
+    assert.equal(disclosureOf('tracker.github.project.statusField'), 'plain');
+    assert.equal(disclosureOf('tracker.github.project.owner'), 'text');
+    assert.equal(disclosureOf('no-such-key'), null);
+    for (const cls of Object.values(CONFIG_DISCLOSURE)) assert.ok(['plain', 'url', 'command', 'path', 'token', 'text'].includes(cls));
+  });
+
+  test('commands, paths, URLs and identities are not plain', () => {
+    const expected: Record<string, string> = {
+      'commands.test': 'command',
+      'commands.build': 'command',
+      'worktrees.setup': 'command',
+      'daemon.command': 'command',
+      'daemon.allowedTools': 'command',
+      services: 'command',
+      'infra.allowed': 'command',
+      'project.instructions': 'path',
+      'project.notes': 'path',
+      'worktrees.root': 'path',
+      'worktrees.copy': 'path',
+      'worktrees.cargo.targetDir': 'path',
+      'worktrees.generated': 'path',
+      'verifyE2e.paths': 'path',
+      'tracker.local.path': 'path',
+      'tracker.github.project.config': 'path',
+      'review.panel': 'path',
+      'tracker.github.repo': 'url',
+      resources: 'url',
+      'project.name': 'text',
+      'project.description': 'text',
+      'tracker.github.ready.assignee': 'text',
+      'tracker.github.project.owner': 'text',
+      'pr.reviewers': 'text',
+      'approver.alwaysEscalate': 'text',
+      'infra.notes': 'text',
+      'foreman.reserved': 'text',
+    };
+    for (const [key, cls] of Object.entries(expected)) assert.equal(disclosureOf(key), cls, key);
+  });
+
+  test('redactedConfig hides non-plain and unknown values', () => {
+    const c = defaults();
+    c.commands.test = 'npm test -- --token x';
+    c.daemon.command = 'claude -p';
+    c.worktrees.setup = ['npm ci', 'make'];
+    c.tracker.github.repo = 'someone/private';
+    c.pr.reviewers = ['alice', 'bob'];
+    c.project.name = '';
+    c.worktrees.copy = [];
+    c.tracker.github.project.statusMap = {};
+    (c as any).mystery = { anything: 'here' };
+    const r = redactedConfig(c) as any;
+    assert.equal(r.commands, '<redacted>');
+    assert.equal(r.daemon.command, '<redacted>');
+    assert.deepEqual(r.worktrees.setup, ['<redacted>', '<redacted>']);
+    assert.equal(r.tracker.github.repo, '<redacted>');
+    assert.deepEqual(r.pr.reviewers, ['<redacted>', '<redacted>']);
+    assert.equal(r.mystery, '<redacted>');
+    assert.equal(r.project.name, '');
+    assert.equal(r.project.description, null);
+    assert.deepEqual(r.worktrees.copy, []);
+    assert.deepEqual(r.tracker.github.project.statusMap, {});
+    assert.equal(r.pipeline.maxRounds, c.pipeline.maxRounds);
+    assert.equal(r.git.base, 'main');
+    assert.deepEqual(r.daemon.enabled, c.daemon.enabled);
   });
 });
