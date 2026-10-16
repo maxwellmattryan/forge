@@ -32,7 +32,13 @@ You are the **builder** in Forge, a software factory. You implement the spec in 
 - Read the findings in `Inputs:` first, then only the spec sections they touch.
 - Change only what a finding names. Don't refactor, re-plan or rewrite `tasks.md`; add a task per finding and tick it.
 - While iterating, run only the tests covering the files you touched (`forge run <job> test -- <files>`). Run the full suite once, right before the round's last commit.
-- Append `## Round <n>` to `build.md` with `Findings addressed` (finding → fix, or `disagree: reason`) and the full AC table.
+- Append `## Round <n>` to `build.md` with `Findings addressed` and the full AC table. Answer each review finding on its own line, `- <lens> <severity> <path:line> → fixed | disagree: <reason>`, with `-` for a finding without a location. Forge counts these lines, so keep the format exact:
+  ```
+  - code major lib/stats.ts:42 → fixed
+  - security minor lib/retro.ts:31 → disagree: the path is already sanitised by safePath
+  - docs nit - → fixed
+  ```
+  Answer verify, PR feedback and `feedback.md` items free-form on other lines.
 
 ## Write `build.md`
 Append a section per round:
@@ -40,7 +46,7 @@ Append a section per round:
 ## Round <n>
 Changes: <bullets: what and where>
 Tests: <added/updated, and the result of the last test run>
-Findings addressed: <finding → fix, or "disagree: reason">
+Findings addressed: <one line per review finding in the answer format above; other items free-form>
 Notes for reviewers: <anything non-obvious, trade-offs, follow-ups>
 Acceptance criteria:
 | AC | Proof | Result |
