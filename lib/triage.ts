@@ -401,13 +401,15 @@ export function applyTriage(root: string, config: Config, tracker: Tracker, batc
         const prev = cache[key];
         let noted = prev?.noted ?? null;
         if (missing.length) {
+          // Mark before commenting: a failed mark then throws before anything public is posted, and the
+          // retry posts the comment once. Commenting first would repeat it on every retry.
+          const marked = typeof tracker.setNeedsInfo === 'function';
+          if (marked) tracker.setNeedsInfo!(ctx, bi.ref, noteLine(missing, dup?.label ?? null));
           let commented = false;
           if (tracker.name !== 'local' && !sameSet(missing, prev?.noted ?? null)) {
             tracker.comment(ctx, bi.ref, commentBody(missing, dup?.label ?? null, prefix));
             commented = true;
           }
-          const marked = typeof tracker.setNeedsInfo === 'function';
-          if (marked) tracker.setNeedsInfo!(ctx, bi.ref, noteLine(missing, dup?.label ?? null));
           if (commented || tracker.name === 'local') noted = missing;
           results.push({ ref: bi.ref, ready: false, missing, commented, marked });
         } else {

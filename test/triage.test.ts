@@ -30,6 +30,7 @@ if (a === 'issue' && b === 'list') out(state.issues.map(view));
 else if (a === 'issue' && b === 'view') { const i = issue(args[2]); if (!i) process.exit(1); out(view(i)); }
 else if (a === 'issue' && b === 'comment') { issue(args[2]).comments.push(stdin); save(); }
 else if (a === 'issue' && b === 'edit') {
+  if (state.editFail) { process.stderr.write('label write failed'); process.exit(1); }
   const i = issue(args[2]);
   for (let k = 3; k < args.length; k++) {
     if (args[k] === '--add-label' && !i.labels.includes(args[k + 1])) i.labels.push(args[k + 1]);
@@ -367,6 +368,34 @@ describe('readiness triage', { concurrency: 4, skip }, () => {
       assert.ok(close > at && lines.slice(close).every((l) => l !== '## Item 99: ref b'));
       assert.equal(lines.filter((l) => /^## Item \d+: ref /.test(l) && !inside.includes(l)).length, 2);
       assert.ok(md.includes('a'.repeat(7000)) && !md.includes('a'.repeat(8001)), 'bodies are capped at 8,000 characters');
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('a failed label write never repeats the public comment', async () => {
+    const s = setup('github', { issues: [NO_AC] });
+    try {
+      const p = await s.cli('tracker', 'triage');
+      s.verdicts(p.json.batch, [{ ref: '1', missing: ['acceptance'], duplicateOf: null }]);
+      const apply = () => s.cli('tracker', 'triage', '--apply', p.json.batch);
+
+      s.setGh((st) => (st.editFail = true));
+      const failed = await apply();
+      assert.equal(failed.status, 0, failed.stderr);
+      assert.match(failed.json.results[0].error, /label write failed/);
+      assert.equal(s.comments().length, 0, 'nothing public is posted while the mark fails');
+      assert.deepEqual(s.cache(), {}, 'the failed item stays pending');
+
+      s.setGh((st) => (st.editFail = false));
+      const retried = await apply();
+      assert.deepEqual(retried.json.results, [{ ref: '1', ready: false, missing: ['acceptance'], commented: true, marked: true }]);
+      assert.equal(s.comments().length, 1);
+      assert.deepEqual(s.ghState().issues[0].labels, ['forge:needs-info']);
+
+      const again = await s.triage(() => [{ ref: '1', missing: ['acceptance'], duplicateOf: null }], '--all');
+      assert.deepEqual(again.results, [{ ref: '1', ready: false, missing: ['acceptance'], commented: false, marked: true }]);
+      assert.equal(s.comments().length, 1, 'no second comment');
     } finally {
       s.cleanup();
     }
