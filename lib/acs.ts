@@ -9,7 +9,7 @@ const FENCE = /^\s*(```|~~~)/;
 // Linear on purpose: spec.md and build.md carry agent- and tracker-authored text, and a lazy group
 // between optional runs (`(.*?)\s*#*\s*$`) backtracks cubically on a long run of spaces.
 // Callers only match the start of the heading text, so closing `#`s needn't be stripped.
-const HEADING = /^(#{1,6})\s+(.*)$/;
+export const HEADING = /^(#{1,6})\s+(.*)$/;
 const SEPARATOR = /^\s*(?:\|\s*)?:?-{2,}/;
 const ID = /^AC[- ]?(\d+)(?!\d)/i;
 const NO_PROOF = new Set(['', '-', '—', 'none', 'n/a', 'tbd']);
@@ -40,7 +40,7 @@ export interface AcCoverage {
  * Lines outside code fences, with fence markers and fenced content blanked, so an example spec or
  * table quoted in a fence can't open or close a section.
  */
-function unfenced(text: string): (string | null)[] {
+export function unfenced(text: string): (string | null)[] {
   let fenced = false;
   return text.split(/\r?\n/).map((line) => {
     if (FENCE.test(line)) {

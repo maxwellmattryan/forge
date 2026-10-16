@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.17.1
+
+- **Dashboard: the job pane is an overlay drawer again.** The side-by-side split view from 0.17.0 is reverted: the job opens in a drawer that slides in from the right over a backdrop, and the view underneath keeps its centred width. The draggable left edge stays, and its width is still one pref per browser, shared by every job. The drawer is clamped so it never covers the sidebar or runs off-screen, it is full width on a phone, and a backdrop click or Escape closes it and returns focus to the card that opened it. Toasts sit to the left of the drawer.
+- **Dashboard: a Foreman indicator in the status bar.** The office session gets its own accented indicator, first in the bar, with a live dot and a count of its pending permission prompts. It opens a chat-sized popover with the Foreman's live thread, its permission prompts and its model and effort. With the Foreman off, the popover explains how to turn it on with `foreman.enabled: true` in `.forge/config.yml`. The Daemon indicator becomes a plain `Daemon n/cap` pool count, and the Daemon popover lists the Foreman first instead of among the job sessions.
+- Dashboard: the running step in a job's stage stepper has its own motion, a ring that draws itself closed and unwinds, so it no longer borrows the live dot's ping. Under reduced motion the ring stays still and closed.
+- Dashboard themes (shipped in 0.17.0, missing from its notes): Ash is retuned from warm paper to cool aluminium greys, and a third theme, **Temper**, adds dark indigo steel with a peacock gleam. Settings › General › Theme offers Forge, Ash, Temper and System, and System still resolves only to Forge or Ash.
+- Versions: no changes to `API_VERSION`, the job schema or the config schema.
+
 ## 0.17.0
 
 These notes cover everything since 0.16.0, including what 0.16.1 shipped without notes.
