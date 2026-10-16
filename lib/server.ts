@@ -529,9 +529,44 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
   }
 
   /**
-   * GET /api/daemons/log: a page of one session's log, read backwards from `before`. The scope is
-   * validated before any path is built, the file must resolve inside the daemons dir, and it is
-   * read through one non-blocking descriptor checked to be a regular file.
+   * One session log file opened for reading: 'missing' when it does not exist, 'refused' when it
+   * (or the daemons dir) resolves outside the real daemons dir or is not a regular file. Read
+   * through one non-blocking descriptor checked to be a regular file; the caller closes it.
+   */
+  function openConfinedLog(dirPath: string, file: string): { fd: number; size: number } | 'missing' | 'refused' {
+    let real: string;
+    let dir: string;
+    try {
+      dir = fs.realpathSync(dirPath);
+      real = fs.realpathSync(file);
+    } catch (e) {
+      return (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'refused';
+    }
+    // The daemons dir itself must be where it should be: a symlinked .forge/runtime or daemons
+    // dir would otherwise move the confinement root somewhere else.
+    const expected = path.join(fs.realpathSync(root), path.relative(root, dirPath));
+    if (dir !== expected || !real.startsWith(dir + path.sep)) return 'refused';
+    let fd: number | undefined;
+    try {
+      // O_NONBLOCK: a FIFO planted as the log must not hang the server; fstat rejects it.
+      // `real` is fully resolved, so O_NOFOLLOW only refuses a link swapped in since the check.
+      fd = fs.openSync(real, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOFOLLOW ?? 0));
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile()) {
+        fs.closeSync(fd);
+        return 'refused';
+      }
+      return { fd, size: stat.size };
+    } catch {
+      if (fd !== undefined) fs.closeSync(fd);
+      return 'refused';
+    }
+  }
+
+  /**
+   * GET /api/daemons/log: a page of one session's log, read backwards from `before`, through the
+   * rotated `<scope>.log.1` once paging reaches the start of `<scope>.log` (offsets below logBase).
+   * The scope is validated before any path is built, and each file is opened by openConfinedLog.
    */
   function sessionLog(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
     if (readGuard(req, res)) return;
@@ -542,32 +577,36 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     if (before !== null && !(Number.isSafeInteger(before) && before >= 0)) return jsonStatus(res, 400, { error: 'before must be a log offset' });
     const f = sessionFiles(root, scope);
     const empty: DaemonLogPage = { scope, lines: [], start: 0, end: 0, more: false };
-    let real: string;
-    let dir: string;
+    const opened: number[] = [];
+    const open = (file: string) => {
+      const r = openConfinedLog(f.dir, file);
+      if (typeof r !== 'string') opened.push(r.fd);
+      return r;
+    };
     try {
-      dir = fs.realpathSync(f.dir);
-      real = fs.realpathSync(f.log);
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return json(res, empty);
-      return jsonStatus(res, 404, { error: 'no session log' });
-    }
-    // The daemons dir itself must be where it should be: a symlinked .forge/runtime or daemons
-    // dir would otherwise move the confinement root somewhere else.
-    const expected = path.join(fs.realpathSync(root), path.relative(root, f.dir));
-    if (dir !== expected || !real.startsWith(dir + path.sep)) return jsonStatus(res, 404, { error: 'no session log' });
-    let fd: number | undefined;
-    try {
-      // O_NONBLOCK: a FIFO planted as the log must not hang the server; fstat rejects it.
-      // `real` is fully resolved, so O_NOFOLLOW only refuses a link swapped in since the check.
-      fd = fs.openSync(real, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOFOLLOW ?? 0));
-      const stat = fs.fstatSync(fd);
-      if (!stat.isFile()) return jsonStatus(res, 404, { error: 'no session log' });
-      const page = readLogPage(fd, stat.size, logBaseOf(readInfo(f.info)), { before });
+      const logBase = logBaseOf(readInfo(f.info));
+      if (before !== null && before <= logBase) {
+        // Everything before logBase is in the previous generation, which starts at logBase - its size.
+        const prev = open(`${f.log}.1`);
+        if (prev === 'missing') return json(res, empty);
+        if (prev === 'refused') return jsonStatus(res, 404, { error: 'no session log' });
+        const page = readLogPage(prev.fd, prev.size, Math.max(0, logBase - prev.size), { before });
+        return json(res, { scope, ...page } satisfies DaemonLogPage);
+      }
+      const cur = open(f.log);
+      if (cur === 'refused') return jsonStatus(res, 404, { error: 'no session log' });
+      const page = cur === 'missing' ? { lines: [], start: logBase, end: logBase, more: false } : readLogPage(cur.fd, cur.size, logBase, { before });
+      if (page.start === logBase && !page.more) {
+        // A refused .log.1 (a link or a FIFO) is never read: paging just ends at .log.
+        const prev = open(`${f.log}.1`);
+        if (typeof prev !== 'string' && prev.size > 0) page.more = true;
+        else if (cur === 'missing') return json(res, empty);
+      }
       return json(res, { scope, ...page } satisfies DaemonLogPage);
     } catch {
       return jsonStatus(res, 404, { error: 'no session log' });
     } finally {
-      if (fd !== undefined) fs.closeSync(fd);
+      for (const fd of opened) fs.closeSync(fd);
     }
   }
 
@@ -698,9 +737,27 @@ const PERMISSION_DECISIONS: readonly PermissionDecision[] = ['allow', 'session',
 const DAEMON_LOCK = 'stop the daemon first: any change to .forge/config.yml stops it, and only a human may start it again';
 const CONFIG_STATUS: Record<ConfigSetError['reason'], number> = { unknown: 400, invalid: 400, locked: 403, uninitialized: 409, 'unsupported-yaml': 409 };
 
+/** A webhook's path and query are its secret (a Slack URL is a bearer token), so the dashboard gets scheme and host. */
+function maskWebhooks(hooks: unknown): unknown {
+  if (!Array.isArray(hooks)) return hooks;
+  return hooks.map((h) => {
+    // A malformed entry may be a bare URL string, so it is masked whole.
+    if (!h || typeof h !== 'object' || Array.isArray(h)) return '<invalid>';
+    let url = '<invalid>';
+    try {
+      const u = new URL(String((h as { url?: unknown }).url));
+      url = `${u.protocol}//${u.host}/…`;
+    } catch {}
+    return { ...h, url };
+  });
+}
+
 function configResponse(root: string, daemonWanted: boolean): ConfigResponse {
   const { config, initialized } = loadConfig(root);
   const values = Object.fromEntries(FIELDS.map((f) => [f.key, getPath(config, f.key) ?? null]));
+  values['notify.webhooks'] = maskWebhooks(values['notify.webhooks']);
+  // A command can embed a webhook URL or an auth header; the field is locked, so the dashboard never needs its text.
+  if (values['notify.command'] !== null) values['notify.command'] = '<set>';
   const lockedBy = !initialized ? 'uninitialized' : daemonWanted ? 'daemon' : null;
   return { initialized, path: '.forge/config.yml', fields: FIELDS, values, problems: initialized ? validateConfig(config, root) : [], writable: lockedBy === null, lockedBy };
 }

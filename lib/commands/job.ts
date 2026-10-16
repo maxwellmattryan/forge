@@ -25,7 +25,8 @@ import { modelFor, resolveEffort } from '../config.ts';
 import { ForgeError, coerce, getPath, run } from '../util.ts';
 import { bodyFrom, list, num, oneOf, req, requireJob, str, usageError } from './args.ts';
 import { mirrorToTracker, startFromRef } from './tracker.ts';
-import type { AgentUsage, Config, Effort, HelpGroup, Job } from '../types.ts';
+import { archiveJob, archiveOlder, prune } from '../retention.ts';
+import type { AgentUsage, ArchiveResult, Config, Effort, HelpGroup, Job } from '../types.ts';
 import { FOREMAN_ACTOR, currentActor } from '../actor.ts';
 import { jobAudit, toCsv } from '../audit.ts';
 
@@ -193,6 +194,30 @@ const JOB: HelpGroup = {
       readme: true,
     },
     {
+      command: 'job archive',
+      args: '<id>|--done --older-than D',
+      summary: 'archive a finished job into .forge/archive/<id>.json (its job.json, events and a summary) and delete its job folder; with --done --older-than D, every finished job at least D days old. Stats, audit and retro still read archived jobs',
+      flags: [
+        ['--done', 'every finished job old enough, instead of one id'],
+        ['--older-than D', 'with --done: days since the job finished (an integer, 0 or more)'],
+      ],
+      exits: [[1, 'not eligible, or a daemon session']],
+      docs: ['Retention', 'docs/ARCHITECTURE.md#retention'],
+      readme: true,
+    },
+    {
+      command: 'job prune',
+      args: '--older-than D [--dry-run]',
+      summary: 'archive every eligible finished job at least D days old and delete stale daemon session logs; --dry-run lists what it would free and writes nothing',
+      flags: [
+        ['--older-than D', 'days since the job finished or the log was last written (an integer, 0 or more)'],
+        ['--dry-run', 'list the jobs, refusals and logs with their sizes; change nothing'],
+      ],
+      exits: [[1, 'not eligible, or a daemon session']],
+      docs: ['Retention', 'docs/ARCHITECTURE.md#retention'],
+      readme: true,
+    },
+    {
       command: 'job verdicts',
       args: '<id> [--round N|integration] [--reviewers a,b] [--malformed changes] [--compact]',
       summary: "read a round's review files and record their verdicts once all are in",
@@ -265,6 +290,13 @@ const EFFORT_DAEMON_REFUSAL =
   "forge job effort sets how hard a job's sessions and agents think, which a daemon session may not change; a human sets it from the dashboard or their own session";
 const refuseEffortInDaemon = () => {
   if (process.env.FORGE_DAEMON === '1') throw new ForgeError(EFFORT_DAEMON_REFUSAL);
+};
+
+// Archive and prune delete job folders and session logs: a session misled by tracker text must not
+// wipe the evidence. The retention policy itself still runs from forge sync, since a human set it.
+const refuseRetentionInDaemon = (sub: string) => {
+  const s = daemonScope(process.env);
+  if ('problem' in s || s.daemon) throw new ForgeError(`forge job ${sub} deletes job folders and session logs, which a daemon session may not do; run it from your own terminal`, 1, 'run it from your own terminal');
 };
 
 // `forge stats` and `forge job step` read these from `human` events, so an invented action is refused.
@@ -585,8 +617,23 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     }
     case 'audit': {
       if (flags.json && flags.csv) throw usageError(JOB, 'audit');
-      const a = jobAudit(root, requireJob(root, id).id);
+      // jobAudit reads an archived job's record once its job dir is gone.
+      const a = jobAudit(root, req(id, 'job id'));
       return flags.csv ? toCsv(a.rows, () => a.pr) : a;
+    }
+    case 'archive': {
+      refuseRetentionInDaemon('archive');
+      if (flags.done !== undefined || flags['older-than'] !== undefined) {
+        if (id !== undefined || flags.done !== true || flags['older-than'] === undefined) throw usageError(JOB, 'archive');
+        return archiveOlder(root, num(flags['older-than'], '--older-than', { integer: true })!, 'cli');
+      }
+      if (rest.length !== 1) throw usageError(JOB, 'archive');
+      return { archived: [archiveJob(root, req(id, 'job id'), 'cli')], refused: [] } satisfies ArchiveResult;
+    }
+    case 'prune': {
+      refuseRetentionInDaemon('prune');
+      if (rest.length || flags['older-than'] === undefined) throw usageError(JOB, 'prune');
+      return prune(root, num(flags['older-than'], '--older-than', { integer: true })!, { dryRun: flags['dry-run'] === true });
     }
     case 'budget':
       return budgetCmd(root, config, req(id, 'job id'), { set: list(flags.set), ack: Boolean(flags.ack) });

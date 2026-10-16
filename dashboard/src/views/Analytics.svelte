@@ -3,7 +3,7 @@
   import PageHeader from '../components/PageHeader.svelte';
   import { dur, num, pct, tokensShort, usd } from '../lib/util.ts';
   import type { ApiState, UsageRow } from '../lib/types.ts';
-  import { STATS_WINDOWS, jobMs, topJobsByUsage, usageBars } from '../lib/view.ts';
+  import { STATS_WINDOWS, jobMs, jobsSummary, topJobsByUsage, usageBars } from '../lib/view.ts';
   import { S, openDrawer, setWindow } from '../lib/app.svelte.ts';
   import { t } from '../lib/locale.ts';
 
@@ -47,8 +47,13 @@
   {@const q = s.quality}
   {@const cov = s.cost.reportingCoverage}
   {@const deltaCov = q.humanDeltaCoverage ?? { merged: 0, measured: 0 }}
+  {@const js = jobsSummary(s.counts)}
   <div class="grid gap-3 grid-cols-2 lg:grid-cols-3">
-    {@render kpi($t('analytics.jobs'), num(s.counts.total), $t('analytics.jobsSub', { active: s.counts.active, done: s.counts.done, cancelled: s.counts.cancelled }))}
+    {#if js.key === 'analytics.jobsSubArchived'}
+      {@render kpi($t('analytics.jobs'), num(s.counts.total), $t('analytics.jobsSubArchived', js.params))}
+    {:else}
+      {@render kpi($t('analytics.jobs'), num(s.counts.total), $t('analytics.jobsSub', js.params))}
+    {/if}
     {@render kpi($t('analytics.firstPass'), pct(q.firstPassReviewRate), $t('analytics.firstPassSub', { rounds: q.avgRounds ?? '—' }))}
     {@render kpi($t('analytics.escalation'), pct(q.escalationRate), $t('analytics.escalationSub', { count: q.humanReworks }))}
     {@render kpi($t('analytics.prFeedback'), pct(q.humanFeedbackOnPrRate), $t('analytics.prFeedbackSub'))}

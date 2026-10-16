@@ -2,10 +2,11 @@
 // this file never runs. The dashboard's src/lib/types.ts carries a copy of the API shapes, kept
 // equal by test/types-parity.ts, until the dashboard imports this file. Unions that have a runtime
 // list are derived from that list, never retyped.
-import type { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
+import type { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS, OFFICE_GATES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import type { REQUEST_TYPES } from './requests.ts';
 import type { AcCoverage } from './acs.ts';
 import type { SECRET_KINDS } from './secrets.ts';
+import type { JobFindings } from './findings.ts';
 
 // ---------- enumerations ----------
 
@@ -749,6 +750,21 @@ export interface Config {
   };
   /** Paths the CLI refuses to write or escalates to a human: docs/CONFIG.md "Protected paths". */
   policy: { protectedPaths: ProtectedRule[] };
+  /** What Forge deletes and when; null keeps forever: docs/CONFIG.md "Retention". */
+  retention: { jobsDays: number | null; logsDays: number | null; logMaxBytes: number | null };
+  /** Where Forge pushes gate, PR, failure and budget notifications: docs/CONFIG.md "Notifications". */
+  notify: { webhooks: NotifyWebhook[]; command: string | null };
+}
+
+/** A notify event: NOTIFY_EVENTS in lib/schema.ts. */
+export type NotifyEvent = (typeof NOTIFY_EVENTS)[number];
+/** notify.webhooks[].format: NOTIFY_FORMATS in lib/schema.ts. */
+export type NotifyFormat = (typeof NOTIFY_FORMATS)[number];
+/** One notify.webhooks entry; `events` omitted subscribes to every event, `format` defaults to json. */
+export interface NotifyWebhook {
+  url: string;
+  events?: NotifyEvent[];
+  format?: NotifyFormat;
 }
 
 /** A gate class the foreman may decide: OFFICE_GATES in lib/schema.ts. */
@@ -1288,7 +1304,8 @@ export interface VerifierStats {
 export interface Stats {
   generatedAt: string;
   since: string | null;
-  counts: { total: number; active: number; done: number; cancelled: number; failed: number; waiting: number };
+  /** `archived`: how many of `total` were read from .forge/archive/ (lib/archive.ts). */
+  counts: { total: number; active: number; done: number; cancelled: number; failed: number; waiting: number; archived: number };
   waitingOn: Record<string, number>;
   quality: {
     firstPassReviewRate: number | null;
@@ -1795,4 +1812,59 @@ export interface HelpGroup {
   name: string;
   summary: string;
   commands: CommandHelp[];
+}
+
+/** What archived a job: `forge job archive`, `forge job prune`, or the retention policy (lib/retention.ts). */
+export type RetentionTrigger = 'cli' | 'prune' | 'policy';
+
+/** The facts an archive record keeps beside the raw job and events, so readers need no job dir. */
+export interface ArchiveSummary {
+  title: string;
+  kind: string;
+  state: string;
+  createdAt: string | null;
+  finishedAt: string | null;
+  rounds: number;
+  pr: { number: number | null; state: string | null; url: string | null } | null;
+  verdicts: Job['verdicts'];
+  usage: { totalTokens: number; estCostUsd: number };
+  /** jobFindings, read before the job dir (its review files and build.md) was deleted. */
+  findings: JobFindings;
+  bytesFreed: number;
+}
+
+/** `.forge/archive/<id>.json` as written. */
+export interface ArchiveRecord {
+  archiveVersion: number;
+  id: string;
+  archivedAt: string;
+  trigger: RetentionTrigger;
+  job: Job;
+  events: JobEvent[];
+  summary: ArchiveSummary;
+}
+
+/** An archive record as readers see it: the job normalised, events in the current shape. */
+export interface ArchivedJob {
+  id: string;
+  archivedAt: string;
+  trigger: RetentionTrigger;
+  job: LoadedJob;
+  events: JobEvent[];
+  summary: ArchiveSummary;
+}
+
+/** `forge job archive` output. */
+export interface ArchiveResult {
+  archived: { id: string; file: string; bytes: number }[];
+  refused: { id: string; reason: string }[];
+}
+
+/** `forge job prune` output; `file` is relative to the repo root. */
+export interface PruneResult {
+  dryRun: boolean;
+  jobs: { id: string; bytes: number }[];
+  refused: { id: string; reason: string }[];
+  logs: { scope: string; file: string; bytes: number }[];
+  freedBytes: number;
 }

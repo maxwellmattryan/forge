@@ -96,6 +96,8 @@ The `forge` CLI underneath is also for scripts, CI and other agent runtimes: `fo
 | `forge job link <id> <ref>\|--create\|--none [--reason R]\|--suggest` | link a job to an issue, create one, or record that it needs none (see [Linking jobs to issues](docs/TRACKERS.md#linking-jobs-to-issues)) |
 | `forge job effort <id> low\|medium\|high\|xhigh\|max \| --inherit` | set a job's reasoning effort (forge job new --effort sets it at creation), or clear it so the job inherits runtime.effort; daemon sessions start with --effort and every agent gets it (see [Effort](docs/CONFIG.md#effort)) |
 | `forge job audit <id> [--json\|--csv]` | the job's audit trail: who did each human action (best effort, unauthenticated), its gate transitions, and its PR opening and merge, in time order (see [Audit trail](docs/ARCHITECTURE.md#audit-trail)) |
+| `forge job archive <id>\|--done --older-than D` | archive a finished job into .forge/archive/<id>.json (its job.json, events and a summary) and delete its job folder; with --done --older-than D, every finished job at least D days old. Stats, audit and retro still read archived jobs (see [Retention](docs/ARCHITECTURE.md#retention)) |
+| `forge job prune --older-than D [--dry-run]` | archive every eligible finished job at least D days old and delete stale daemon session logs; --dry-run lists what it would free and writes nothing (see [Retention](docs/ARCHITECTURE.md#retention)) |
 | `forge job step <id> [--session S]` | the job's next action (`spawn` with a ready agent brief, `run`, `wait`, `procedure` or `done`); read-only, the same state always gives the same answer, except that `--session <owner>` refreshes that session's claim heartbeat |
 | `forge job advance <id> --session S [--max N]` | runs step's `run` actions in-process (at most N, default 20) and returns the next `spawn`, `wait`, `procedure` or `done` with `ran`, one line per command it ran; refuses (exit 3) a job session S does not hold, and stops at the first failed command (exit 1) |
 | `forge verifiers list` | the main checkout's .forge/verifiers/*.md that will run, and the problems that keep the others from running (see [Verifiers](docs/VERIFIERS.md)) |
@@ -109,6 +111,7 @@ The `forge` CLI underneath is also for scripts, CI and other agent runtimes: `fo
 | `forge audit --since <date> [--until <date>] [--json\|--csv]` | every job's audit rows (forge job audit) and the repo-level ones such as config set (job null), with since <= ts < until, sorted by time then job; dates are YYYY-MM-DD (UTC midnight) or full ISO timestamps, and until defaults to now (see [Audit trail](docs/ARCHITECTURE.md#audit-trail)) |
 | `forge daemon status` | the daemon's sessions, from the terminal |
 | `forge daemon log <job>\|--inbox\|--office [--lines N] [--follow]` | a session's log, from the terminal |
+| `forge notify test [--event <name>]` | send one sample notification (job null, title "Forge test notification") to every valid notify.webhooks entry regardless of its events, and run notify.command if set; prints {event, results: [{target, host, format, ok, status, error, attempts}]} and records nothing (see [Notifications](docs/CONFIG.md#notifications)) |
 | `forge config get [<key>]` | read the effective config: one dotted key (strings raw, null when absent), or all of it (see [Changing settings](docs/CONFIG.md#changing-settings)) |
 | `forge config set <key> <value>` | change one editable key in `.forge/config.yml`, keeping its comments (see [Changing settings](docs/CONFIG.md#changing-settings)) |
 | `forge doctor [<job>] [--bundle] [--out <dir>] [--include-text]` | check this repo and machine for Forge (tools, config, job files) and print what is wrong, indented; --bundle writes a redacted support bundle for a bug report (see [Support bundle](docs/CLI.md#support-bundle)) |
@@ -153,6 +156,21 @@ The dashboard is a Svelte 5 + TypeScript single-page app. Its built output (`das
 Each running agent shows on its job's card, in the drawer header and on the Agents page as one live line: its role, model, how long it has run and the last thing its Claude Code transcript shows (a tool call or a line of text), beside the owning session's liveness. The drawer's **Agents** tab lists the round's agents with their status, duration and tokens, and follows the chosen one's transcript live; a job driven from an interactive session (not the daemon) shows that session's transcript, read-only, in its Log tab. Transcripts are read from `$CLAUDE_CONFIG_DIR/projects`, else `~/.claude/projects`, and only for this repo's own sessions.
 
 Buttons don't run agents directly. They queue requests, and an orchestrator session drains them: your own (`/forge requests`), so permissions and spend stay with you, or, with `daemon.enabled: true`, a headless Claude Code session that `forge dash` supervises and nudges whenever new requests arrive. With the daemon, each job gets its own headless session (up to `daemon.maxConcurrent` at once), and a small inbox session takes requests that have no job yet, so one job's crash never stalls another and each job has a log of its own. The daemon spends tokens unattended, limited to the tools in `daemon.allowedTools`. When an agent needs anything else, its session pauses and the call shows in the status bar's Needs-you popover and in the job drawer's dock with Allow once, Allow for this session and Deny, so you grant it from the dashboard instead of editing config. Each session's log also has a **Permissions** selector (Ask, Auto, Refuse) that switches that one session's Claude Code permission mode, live, until `forge dash` restarts; see [Daemon](docs/CONFIG.md#daemon). A job's log also has an **Effort** selector (Inherit, Low to Max) that sets the job's reasoning effort, for its agents at once and its session from its next start, whether or not the daemon runs; a job whose effort differs from `runtime.effort` shows it as a chip on its card; see [Effort](docs/CONFIG.md#effort). When it is in use, the status bar's **Daemon** indicator summarises the pool (with `foreman.enabled`, the **Foreman** indicator before it opens the office session's live thread), and its popover holds the rest: its status, `live/cap` job sessions, Start and Stop, a row per session with its state (held on budget, waiting for a slot, kept by running agents and so on) that opens a job's log, and the inbox session's live log (the **Inbox session log** toggle, in the Daemon popover). Every pending permission prompt is answered in the **Needs you** popover. `forge daemon status` and `forge daemon log <job> --follow` show the same from a terminal.
+
+## Notifications
+
+Gates wait on you, so Forge can tell you. Add `notify:` to `.forge/config.yml` and it posts a small, fixed-shape message to your Slack (or any JSON webhook) and runs your own command when a job needs a human, a PR opens or merges, a job fails, the daemon stops on its own, a budget is exceeded or a secret is found:
+
+```yaml
+notify:
+  webhooks:
+    - url: https://hooks.slack.com/services/T000/B000/XXXX
+      events: [gate, pr-opened, job-failed]   # omitted = every event
+      format: slack                           # json (default) | slack
+  command: ./scripts/page.sh {event} {job} {title} {url}
+```
+
+Delivery runs in a detached process and never blocks the pipeline. The message carries only fixed reason text and the job's sanitised title, never request, review or agent text, and only a webhook's host is ever logged. `forge notify test` sends a sample. See [Notifications](docs/CONFIG.md#notifications).
 
 ## Authorship
 

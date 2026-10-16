@@ -5,6 +5,7 @@ import { paths, exists } from './paths.ts';
 import { currentActor } from './actor.ts';
 import { EFFORTS, STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, normalizeEvent, normalizeJob, serializeJob } from './schema.ts';
 import type { AgentUsage, Config, Effort, EventActor, Job, JobAgent, JobChange, JobOwner, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
+import { queueNotify, transitionEvents } from './notify.ts';
 import { estimateCost } from './usage.ts';
 import { ForgeError, assertSafeRef, now, readJson, readText, setPath, slugify, shortId, withLock, writeJsonAtomic } from './util.ts';
 
@@ -289,8 +290,13 @@ export function setJob(
     }
   });
   const b = before as any;
-  if (b.stage !== job.stage || b.state !== job.state || b.waitingOn !== job.waitingOn)
-    logEvent(root, id, 'transition', { from: b, to: { stage: job.stage, state: job.state, waitingOn: job.waitingOn }, reason: c.reason ?? undefined });
+  if (b.stage !== job.stage || b.state !== job.state || b.waitingOn !== job.waitingOn) {
+    const to = { stage: job.stage, state: job.state, waitingOn: job.waitingOn };
+    logEvent(root, id, 'transition', { from: b, to, reason: c.reason ?? undefined });
+    // Once per state change: a repeated set with the same state and waitingOn logs no transition.
+    const n = transitionEvents(b, to, job);
+    if (n) queueNotify(root, n.events, { job: job.id, reason: n.reason });
+  }
   if (c.fields && Object.keys(c.fields).length) logEvent(root, id, 'fields', { fields: c.fields });
   if (c.note) logEvent(root, id, 'note', { text: c.note });
   if (released) logEvent(root, id, 'released');

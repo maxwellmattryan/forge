@@ -6,6 +6,7 @@ import { isForemanActor, loadJob, logEvent, readEvents, setJob, jobDir } from '.
 import { checkBranch, historyEnv, logEscalated, policyRules, protectedApproved, refusalText } from './protected.ts';
 import { enqueuePrFeedbackGate, maybeEnqueueGate } from './foreman.ts';
 import { prLinkNote } from './issue-link.ts';
+import { queueNotify } from './notify.ts';
 import { exists } from './paths.ts';
 import { enqueue, listRequests } from './requests.ts';
 import { attributionForbidden, scrubBranch, stripAttribution } from './attribution.ts';
@@ -191,6 +192,7 @@ export function openPr(
   const number = Number(url.match(/\/pull\/(\d+)/)?.[1]);
   setJob(root, id, { fields: { pr: { number, url, state: 'OPEN', isDraft: Boolean(opts.draft ?? config.pr.draft), openedAt: now(), lastSyncedAt: now(), pushedSha } } });
   logEvent(root, id, 'pr-opened', { number, url });
+  queueNotify(root, ['pr-opened'], { job: job.id, reason: 'pr-opened' });
   return { number, url, created: true, ...prLinkNote(job, config) };
 }
 

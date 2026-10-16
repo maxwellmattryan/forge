@@ -1,9 +1,19 @@
 // Forge metrics. They describe Forge's behaviour, not the codebase's quality, which is
 // what makes them comparable across every repo Forge runs in and gives the retro loop
 // something stable to improve against.
+import { listArchived } from './archive.ts';
 import { jobFindings } from './findings.ts';
+import type { JobFindings } from './findings.ts';
 import { isForemanActor, listJobs, readEvents } from './jobs.ts';
 import type { Job, JobEvent, ReviewerStats, Stats, UsageRow, VerifierStats } from './types.ts';
+
+/** One job stats reads: live (its files on disk) or archived (its record), with the same accessors. */
+interface StatsSource {
+  job: Job;
+  events: () => JobEvent[];
+  findings: () => JobFindings;
+  archived: boolean;
+}
 
 const median = (xs: number[]): number | null => {
   if (!xs.length) return null;
@@ -46,8 +56,16 @@ export function addVerifierStats(into: Record<string, VerifierStats>, events: Jo
 
 export function computeStats(root: string, opts: { since?: string; includeEvals?: boolean; jobs?: Job[] } = {}): Stats {
   const since = opts.since ? Date.parse(opts.since) : 0;
-  const jobs = (opts.jobs ?? listJobs(root)).filter((j) => (opts.includeEvals || j.kind !== 'eval') && Date.parse((j.createdAt ?? 0) as string) >= since);
-  const counts = { total: jobs.length, active: 0, done: 0, cancelled: 0, failed: 0, waiting: 0 };
+  const all: StatsSource[] = (opts.jobs ?? listJobs(root)).map((job) => ({ job, events: () => readEvents(root, job.id), findings: () => jobFindings(root, job.id), archived: false }));
+  // Jobs passed in are the whole population (tests, evals): no archives join them.
+  if (!opts.jobs) {
+    for (const a of listArchived(root)) all.push({ job: a.job, events: () => a.events, findings: () => a.summary.findings, archived: true });
+    // listJobs' order, so sums of rounded values come out the same after a job moves to the archive.
+    all.sort((a, b) => String(b.job.updatedAt).localeCompare(String(a.job.updatedAt)));
+  }
+  const sources = all.filter(({ job: j }) => (opts.includeEvals || j.kind !== 'eval') && Date.parse((j.createdAt ?? 0) as string) >= since);
+  const jobs = sources.map((s) => s.job);
+  const counts = { total: jobs.length, active: 0, done: 0, cancelled: 0, failed: 0, waiting: 0, archived: sources.filter((s) => s.archived).length };
   let reviewed = 0, firstPass = 0, roundsSum = 0, decided = 0, escalated = 0, verified = 0, verifyFirstPass = 0;
   let withPr = 0, prWithHumanFeedback = 0, humanRework = 0, foremanDecisions = 0, foremanRework = 0, specJobs = 0, specFirstTry = 0;
   let merged = 0, deltaMeasured = 0, deltaNonEmpty = 0, recurringFindings = 0;
@@ -61,7 +79,8 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
   let tokens = 0, cost = 0, agentRuns = 0, agentRunsWithUsage = 0, exactRuns = 0;
   const waitingOn: Record<string, number> = {};
 
-  for (const j of jobs) {
+  for (const src of sources) {
+    const j = src.job;
     if (j.state === 'done') counts.done++;
     else if (j.state === 'cancelled') counts.cancelled++;
     else if (j.state === 'failed') counts.failed++;
@@ -86,7 +105,7 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
         }
       }
       // Only lenses with verdicts in the window: an answer line naming `verify` or `pr` is no reviewer.
-      const f = jobFindings(root, j.id);
+      const f = src.findings();
       recurringFindings += f.totals.recurring;
       for (const [lens, c] of Object.entries(f.byLens)) {
         const s = reviewers[lens];
@@ -117,7 +136,7 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
       decided++;
       if (j.decision === 'ESCALATE') escalated++;
     }
-    const events = readEvents(root, j.id);
+    const events = src.events();
     // createJob always sets createdAt.
     const created = Date.parse(j.createdAt!);
     const opened = events.find((e) => e.type === 'pr-opened');

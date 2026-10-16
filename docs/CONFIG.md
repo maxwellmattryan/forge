@@ -224,6 +224,15 @@ policy:                      # enforced by the CLI, not a prompt (see "Protected
     - { paths: ["**/.env*"], action: escalate, reason: environment files can hold credentials }
     - { paths: ["**/*.pem"], action: refuse, reason: private keys and certificates are never committed by Forge }
     - { paths: [.forge/config.yml, .forge/secrets-allow.txt, .forge/trackers/**], action: refuse, reason: "Forge's own policy changes only by a human on the base branch" }
+
+retention:                   # what Forge deletes and when; null keeps forever (see "Retention" below)
+  jobsDays: null             # 1-3650: forge sync and forge dash archive finished jobs this many days old
+  logsDays: null             # 1-3650: ...and delete daemon session logs this old whose session isn't running
+  logMaxBytes: null          # 1048576-1073741824: rotate a session log to <scope>.log.1 as soon as it reaches this size
+
+notify:                      # push notifications on gates, PRs, failures and budget stops (see "Notifications" below)
+  webhooks: []               # each: { url: https://…, events: [gate, pr-opened, …] (omitted = all), format: json | slack }
+  command: null              # e.g. ./scripts/page.sh {event} {job} {title} {url}; placeholders read env vars, never values
 ```
 
 ## Changing settings
@@ -232,7 +241,7 @@ policy:                      # enforced by the CLI, not a prompt (see "Protected
 
 **Values** follow the key's type: `true`/`false`; a decimal number; `null` for keys that allow it; text as written; and lists as `[a, b]` or a JSON array (`'["a","b"]'`, `[]`). Values are checked against the key's range or options, text may not contain control or invisible formatting characters (bidi overrides, zero-width characters) or exceed 200 characters, `review.blockOn` must keep both `blocker` and `major` (adding `minor` or `nit` is allowed), `daemon.idleStopMinutes` must be greater than 0 (or `null`), and `tracker.github.labels.prefix` must be at least 2 characters ending in `:`, `/` or `-`, because Forge removes every issue label that starts with it. The result must also pass `forge config validate`, though problems the file already had never block an unrelated change.
 
-**Editable keys**: `pipeline.plan`, `split`, `specApproval`, `design`, `maxRounds` and every `pipeline.budget.*`; `review.blockOn` and `review.onPrFeedback`; `pr.integrationReview`; `runtime.models.<role>`, `runtime.maxParallelJobs`, `runtime.diversity`, `runtime.effort`, `runtime.efforts.<role>` and `runtime.effortByComplexity.*` (the assistant's model and effort included); `tracker.github.ready.*`, `tracker.github.claim.assign`, `tracker.github.statusSync` and `tracker.github.labels.prefix`; `dashboard.port` (used by the next `forge dash`); and `daemon.idleStopMinutes` and `daemon.auth`. The rule: a key is editable only when it can't name a command, file, module, tool or repository Forge runs, loads or writes to, and can't loosen a security or attribution policy. Everything else (`commands.*`, `worktrees.*`, `verify*`, `git.*`, `merge.*`, `approver.*`, `aiAttribution`, `infra.*`, `review.panel`, `tracker.kind`, `tracker.github.repo`/`comments`/`project.*`, `daemon.enabled`/`command`/`allowedTools`/`maxConcurrent`, `foreman.*`, …) is refused with `<key> is not editable with forge config set (<why>); edit .forge/config.yml by hand`, and the dashboard shows it read-only. `lib/config-fields.ts` is the allowlist.
+**Editable keys**: `pipeline.plan`, `split`, `specApproval`, `design`, `maxRounds` and every `pipeline.budget.*`; `review.blockOn` and `review.onPrFeedback`; `pr.integrationReview`; `runtime.models.<role>`, `runtime.maxParallelJobs`, `runtime.diversity`, `runtime.effort`, `runtime.efforts.<role>` and `runtime.effortByComplexity.*` (the assistant's model and effort included); `tracker.github.ready.*`, `tracker.github.claim.assign`, `tracker.github.statusSync` and `tracker.github.labels.prefix`; `dashboard.port` (used by the next `forge dash`); `daemon.idleStopMinutes` and `daemon.auth`; and `retention.logMaxBytes`. The rule: a key is editable only when it can't name a command, file, module, tool or repository Forge runs, loads or writes to, and can't loosen a security or attribution policy. Everything else (`commands.*`, `worktrees.*`, `verify*`, `git.*`, `merge.*`, `approver.*`, `aiAttribution`, `infra.*`, `review.panel`, `tracker.kind`, `tracker.github.repo`/`comments`/`project.*`, `daemon.enabled`/`command`/`allowedTools`/`maxConcurrent`, `foreman.*`, `retention.jobsDays`/`logsDays` (they delete files), `notify.webhooks` (names a URL Forge posts to), `notify.command` (runs a program), …) is refused with `<key> is not editable with forge config set (<why>); edit .forge/config.yml by hand`, and the dashboard shows it read-only. `lib/config-fields.ts` is the allowlist.
 
 **Errors** exit 1 and leave the file byte-identical: an unknown key, a read-only key, an invalid value, or a layout the edit can't change without dropping a comment (a block map or `|` block, a list of maps, a list with comments between or on its items, a key inside a flow map). A repo without `.forge/config.yml` exits 2; `/forge init` creates it.
 
@@ -420,7 +429,66 @@ With `daemon.enabled: true`, `forge dash` supervises headless orchestrator sessi
 - **Budget hold.** `pipeline.budget` limits are per job, so a budget stop is pending per request: a `resume`, `rework`, `answer` or `revise-spec` request whose job is at `waiting: budget` and still over a limit sends no turn. Once you raise or acknowledge the budget (`forge job budget <id> --set … | --ack`), the next tick sends it. `approve` is never held (approving a budget-parked job is the acknowledgement), nor are `cancel` and requests without a job.
 - **Migration from `dashboard.launcher`** (config `schemaVersion` 1 → 2): a non-empty launcher moves to `daemon.command` (an existing `daemon.command` wins) and `dashboard.launcher` is removed; `enabled` is never set, so upgrading never turns the daemon on. A launcher was a shell template with `{prompt}`, run once per request; `forge config validate` and `forge doctor` reject a `{prompt}` command until you rewrite it in the form above (usually: take the default `command` and add your flags), because the daemon sends its turn on stdin and never through a shell. A launcher that ran some other agent CLI cannot be migrated: the daemon supervises only Claude Code's stream-json mode. The migration happens in memory on every read; `forge migrate` writes it to disk.
 
-Files (gitignored, under `.forge/runtime/daemons/`): `<scope>.json` (session id, the last 20 ids it replaced in `pastSessionIds`, pids, the log's base offset; `forge job claim` reads these to let a daemon owner that provably let go yield without `--force`) and `<scope>.log` (every stdout event plus `forge-daemon`/`forge-stderr` lines; rotated to `<scope>.log.1` past 20 MiB), where the scope is `_inbox` or a job id. The session learns its scope only from `FORGE_DAEMON_SCOPE` in its environment. A `daemon.json` / `daemon.log` left by an older Forge is reaped and then ignored; you may delete it. `forge daemon status` lists the sessions and `forge daemon log <job>|--inbox [--lines N] [--follow]` prints one's log. docs/ARCHITECTURE.md "Daemon" covers the lifecycle and "Daemon security" the threat model.
+Files (gitignored, under `.forge/runtime/daemons/`): `<scope>.json` (session id, the last 20 ids it replaced in `pastSessionIds`, pids, the log's base offset; `forge job claim` reads these to let a daemon owner that provably let go yield without `--force`) and `<scope>.log` (every stdout event plus `forge-daemon`/`forge-stderr` lines; rotated to `<scope>.log.1` past 20 MiB at spawn, or at `retention.logMaxBytes` as soon as it is reached; one older generation is kept, and the dashboard pages back into it), where the scope is `_inbox` or a job id. The session learns its scope only from `FORGE_DAEMON_SCOPE` in its environment. A `daemon.json` / `daemon.log` left by an older Forge is reaped and then ignored; you may delete it. `forge daemon status` lists the sessions and `forge daemon log <job>|--inbox [--lines N] [--follow]` prints one's log. docs/ARCHITECTURE.md "Daemon" covers the lifecycle and "Daemon security" the threat model.
+
+## Retention
+
+`.forge/jobs/` and `.forge/runtime/` only grow until something removes them. Retention is off by default: every key is `null`, which keeps everything forever. docs/ARCHITECTURE.md "Retention" covers the archive format and the threat model.
+
+- **`retention.jobsDays`** (null, or an integer from 1 to 3650): `forge sync` and `forge dash` startup archive every eligible finished job whose `finishedAt` (else `updatedAt`) is at least this many days old. Archiving writes `.forge/archive/<id>.json` (the job.json as stored, every event, ending with an `archived` event that names the actor, and a summary) and deletes the job's folder: its agents' markdown, reviews, verify reports, logs and screenshots. A job is skipped while it is active, an eval job, owned by a live session, has a running daemon session, has an open PR, still has a worktree (`forge worktree remove <id>` first), or is named in an unfinished job's `dependsOn` or `children`. Read-only in Settings (`deletes job files`).
+- **`retention.logsDays`** (null, or an integer from 1 to 3650): the same runs delete `<scope>.log` and `<scope>.log.1` under `.forge/runtime/daemons/` when the newer of the two is at least this old, the session record names no live process, and the scope is not an active job; a job scope with no job folder left loses its `<scope>.json` too. Read-only in Settings (`deletes session logs`).
+- **`retention.logMaxBytes`** (null, or an integer from 1048576 (1 MiB) to 1073741824 (1 GiB)): the supervisor rotates a session log to `<scope>.log.1` as soon as it reaches this size, mid-session, replacing the older `.log.1`. Null keeps today's rule: rotate only at spawn, past 20 MiB. Editable in Settings; it takes effect at the session's next spawn.
+
+Archived jobs leave the board, the Done filter, `forge status`, `forge job list --all` and `/api/state`, but `forge stats`, `/api/stats` (which counts them in `counts.archived`), `forge audit`, `forge job audit <id>`, `forge retro due` and the dependency check still read them. Every archived job and deleted log adds one JSON line to `.forge/runtime/retention.log`. `forge job archive <id>|--done --older-than D` and `forge job prune --older-than D [--dry-run]` do the same by hand (and are refused in daemon sessions); `forge doctor` warns when `.forge/jobs`, `.forge/archive` or `.forge/runtime` passes 500 MiB.
+
+**Migration** (config `schemaVersion` 6 → 7): nothing changes. v7 adds `retention`, whose defaults keep everything; the bump lets older Forges refuse a config whose retention policy they would ignore. A repo upgraded from an older Forge gets `.forge/archive/.gitignore` (`*`) on its first archive, so records are never committed.
+
+## Notifications
+
+Forge pushes a small, fixed-shape message to your webhooks and command when a job needs a human, a PR opens or merges, a job fails, the daemon stops on its own, a budget is exceeded or a secret is found. With `webhooks: []` and `command: null` (the defaults) it does nothing: no child process, no network, no events.
+
+```yaml
+notify:
+  webhooks:
+    - url: https://hooks.slack.com/services/T000/B000/XXXX
+      events: [gate, pr-opened, job-failed]   # omitted = every event
+      format: slack                           # json (default) | slack
+  command: null                               # e.g. ./scripts/page.sh {event} {job} {title} {url}
+```
+
+- **`webhooks`**: a list of maps with `url` (required), `events` (a non-empty list; omitted subscribes to every event) and `format` (`json` or `slack`). `url` must be `https:`, without a username or password; plain `http:` is accepted only for `127.0.0.1`, `localhost` and `[::1]`, for local testing. An invalid entry is skipped by delivery and reported by `forge config validate` and `forge doctor`, named by its index and host, never its path or query. Teams, pagers and other services take the `json` format through their own webhook adapters.
+- **`command`**: null, or a shell command run once per notification (with the first event) through the POSIX shell (`sh -c`) in the repo root, stdio ignored, killed after 30 s. Its `{placeholders}` (`{event}`, `{job}`, `{title}`, `{url}`, `{stage}`, `{reason}`, `{dashboardUrl}`; any other is a validation problem) are replaced by quoted references to environment variables, never by the values: `{title}` becomes `"$FORGE_NOTIFY_TITLE"`, likewise `FORGE_NOTIFY_EVENT`, `FORGE_NOTIFY_JOB`, `FORGE_NOTIFY_URL`, `FORGE_NOTIFY_STAGE`, `FORGE_NOTIFY_REASON` and `FORGE_NOTIFY_DASHBOARD_URL` (empty for null). So a title like `$(touch pwned)` reaches the script as text. Write placeholders unquoted; Forge adds the double quotes.
+- Both keys are read-only in Settings and refused by `forge config set`, and `.forge/config.yml` is a protected path, so an agent cannot add a target.
+
+**Events** (each fires once per state change; eval jobs never notify):
+
+| Event | Fires when | Reason |
+|---|---|---|
+| `gate` | a job enters `waiting` on `spec-approval`, `split-approval`, `issue-link`, `input`, `escalation`, `infra`, `conflicts`, `rounds-exhausted`, `budget` or `human`, from another state or another `waitingOn` (`pr-review` and `external` are not gates) | the `waitingOn` value |
+| `budget-exceeded` | the same transition with `waitingOn: budget` | `budget` |
+| `job-failed` | a job enters `failed` | `failed` |
+| `pr-opened` | `forge pr open` creates a new PR (not an update or adoption) | `pr-opened` |
+| `pr-merged` | a job with a PR number enters `done` | `pr-merged` |
+| `secret-found` | the secret scan logs a finding on a job | `secret-found` |
+| `daemon-stopped` | the supervisor stops on its own: a trust change (`trust`, no job), or a session's failed turns or starts (`failed-turns`, `failed-starts`) | that code |
+
+A budget transition carries `[budget-exceeded, gate]`: each webhook gets at most one message, the first of those it subscribes to, and the command runs once with `budget-exceeded`.
+
+**Payload** (`format: json`), exactly these keys:
+
+```json
+{ "event": "gate", "job": "42-add-login", "title": "Add login", "stage": "spec", "reason": "Spec is waiting for approval", "url": null, "dashboardUrl": "http://127.0.0.1:7400/#/pipeline", "at": "2026-10-16T09:00:00.000Z" }
+```
+
+`reason` is a fixed English string chosen by the reason code, never the job's reason, notes, request, reviews, PR text or agent output. `title` is the job title with control characters replaced by spaces and bidi controls (U+202A–U+202E, U+2066–U+2069) removed, trimmed and cut to 200 characters (ending in `…`); it is the only free text. `url` is the job's PR URL when it has the shape of a pull or merge request, `https://<host>/<owner>/<repo>/pull/<n>` or `https://<host>/<group>/…/<project>/-/merge_requests/<n>` with no credentials, query or fragment, else null (job.json is agent-writable, so no other link reaches the channel). `job`, `title` and `stage` are null for a daemon stop with no job. `dashboardUrl` is the running dashboard's loopback URL (else `http://127.0.0.1:<dashboard.port>`) plus `/#/pipeline`.
+
+**Payload** (`format: slack`): Block Kit with every variable string in `plain_text`, so a title cannot mention `@channel` or add links: a `header` (`<label>: <title>`, cut to 150 characters), a `section` with the reason, a `context` with `<job> · <stage> · <dashboardUrl>`, and an "Open PR" button when `url` is set. The fallback `text` is `Forge <label>: <title>` with `&`, `<` and `>` escaped. Labels: Needs you, PR opened, PR merged, Job failed, Daemon stopped, Budget exceeded, Secret found.
+
+**Delivery** never runs in the command that changed state: it spawns a detached `forge notify send`, so a slow endpoint never stalls `forge job set`, `forge pr open` or the daemon, and a delivery failure never changes job state. A webhook gets a `POST` (`content-type: application/json`, redirects refused, 5 s timeout); a network error, timeout, 429 or 5xx is retried once after 1 s. A command's exit 0 is success and it is not retried. Each target's outcome is one event on the job (`.forge/runtime/notify.jsonl` for a daemon stop with no job): `notified { event, target, host, format, status, attempts }` or `notify-failed { event, target, host, error, status, code, attempts }`, with `error` one of `timeout`, `network`, `http`, `redirect`, `invalid`, `exit`, `spawn`. Only the webhook's host is ever recorded; no event, log line or doctor detail contains its path, query or the command text, and `/api/config` shows webhook URLs as `<scheme>//<host>/…` and a set command as `<set>`. `.forge/runtime/notify.jsonl` is appended through a descriptor that refuses a symlink or other non-regular file.
+
+`forge notify test [--event <name>]` sends a sample (job null, title "Forge test notification") to every valid webhook regardless of its `events`, runs the command if set, prints each target's result and exits 1 when one fails or nothing is configured. `forge doctor` adds a `notify webhook <n> (<host>)` check per webhook (a best-effort `HEAD`; unreachable and plain-http entries are warnings) and a `notify command` check that never runs the command.
+
+**Migration** (config `schemaVersion` 7 → 8): nothing changes. v8 adds `notify`, empty by default; the bump lets older Forges refuse a config whose notifications they would ignore.
 
 ## Foreman
 

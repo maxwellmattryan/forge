@@ -374,6 +374,7 @@
     "noUsage": "No usage recorded yet.",
     "jobs": "Jobs",
     "jobsSub": "{active} active · {done} done · {cancelled} cancelled",
+    "jobsSubArchived": "{active} active · {done} done · {cancelled} cancelled · {archived} archived",
     "firstPass": "First-pass review",
     "firstPassSub": "avg {rounds} rounds",
     "escalation": "Escalation rate",

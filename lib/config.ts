@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PLUGIN_ROOT, paths, exists, resolveFrom } from './paths.ts';
+import { notifyProblems } from './notify-config.ts';
 import { globProblem, policyProblems } from './policy-check.ts';
 import { COMPLEXITIES, CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES, migrateConfig } from './schema.ts';
 import type { Config, Effort, EffortRole, EffortSource, LoadedConfig, VerifyEntry } from './types.ts';
@@ -222,7 +223,42 @@ export function defaults(): Config {
         { paths: ['.forge/config.yml', '.forge/secrets-allow.txt', '.forge/trackers/**'], action: 'refuse', reason: "Forge's own policy changes only by a human on the base branch" },
       ],
     },
+    // Off by default: nothing is archived, deleted or rotated mid-session until a human sets a key;
+    // docs/CONFIG.md "Retention".
+    retention: {
+      jobsDays: null,
+      logsDays: null,
+      logMaxBytes: null,
+    },
+    // Off by default: with no webhook and no command Forge spawns nothing and sends nothing;
+    // docs/CONFIG.md "Notifications".
+    notify: {
+      webhooks: [],
+      command: null,
+    },
   };
+}
+
+/** retention.jobsDays and retention.logsDays: 1 day to 10 years. */
+export const RETENTION_DAYS = { min: 1, max: 3650 } as const;
+/** retention.logMaxBytes: 1 MiB to 1 GiB. */
+export const LOG_MAX_BYTES = { min: 1_048_576, max: 1_073_741_824 } as const;
+
+/** retention.*: each key null or an integer in its range. */
+export function retentionProblems(c: any): string[] {
+  const r = c.retention;
+  if (r === undefined) return [];
+  if (r === null || typeof r !== 'object' || Array.isArray(r)) return [`retention must be a map (got ${JSON.stringify(r)})`];
+  const problems: string[] = [];
+  const check = (key: string, range: { min: number; max: number }) => {
+    const v = r[key];
+    if (v === null || v === undefined) return;
+    if (!Number.isInteger(v) || v < range.min || v > range.max) problems.push(`retention.${key} must be null or an integer from ${range.min} to ${range.max} (got ${JSON.stringify(v)})`);
+  };
+  check('jobsDays', RETENTION_DAYS);
+  check('logsDays', RETENTION_DAYS);
+  check('logMaxBytes', LOG_MAX_BYTES);
+  return problems;
 }
 
 /** foreman.reserved's default: topics that always stay with a human. */
@@ -335,6 +371,8 @@ export function validateConfig(c: any, root: string): string[] {
   problems.push(...daemonProblems(c, root));
   problems.push(...foremanProblems(c));
   problems.push(...policyProblems(c));
+  problems.push(...retentionProblems(c));
+  problems.push(...notifyProblems(c));
   return problems;
 }
 

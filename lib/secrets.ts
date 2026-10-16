@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PINNED_DIFF_OPTS, PINNED_GIT_CONFIG, parseDiffLines } from './integrity.ts';
 import { defaultAgentOutput, jobDir, logEvent } from './jobs.ts';
+import { queueNotify } from './notify.ts';
 import { inSpec, realHistoryEnv, resolveBase } from './scope.ts';
 import type { CompactSecrets, Config, Job, SecretAllowlist, SecretFinding, SecretKind, SecretScan, TextUnit } from './types.ts';
 import { ForgeError, run } from './util.ts';
@@ -577,6 +578,8 @@ export function logSecrets(root: string, id: string, gate: string, scan: Pick<Se
     ...(extra.round !== undefined ? { round: extra.round } : {}),
     ...(extra.role !== undefined ? { role: extra.role } : {}),
   });
+  // The reason code only: findings, paths and fingerprints never leave the machine.
+  queueNotify(root, ['secret-found'], { job: id, reason: 'secret-found' });
 }
 
 /** Paths come from the builder's commits: control characters are escaped so they can't start a line. */

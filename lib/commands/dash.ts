@@ -140,6 +140,16 @@ export async function dash(root: string, config: Config, flags: Record<string, a
   }
   if (note.note) process.stderr.write(`${note.note}\n`);
   if (note.daemonRefused) process.stderr.write(`${note.daemonRefused}\n`);
+  // Before the server (and its sessions) start, so no live session holds a log it would delete. A
+  // dev dashboard points at a scratch repo and deletes nothing; a failure never stops the server.
+  if (!flags.dev) {
+    try {
+      const { applyRetention } = await import('../retention.ts');
+      applyRetention(root, config, 'policy');
+    } catch (e) {
+      process.stderr.write(`retention: ${(e as Error).message}\n`);
+    }
+  }
   const { startServer } = await import('../server.ts');
   let res: RunningServer | undefined;
   for (let p = port; p < port + 20; p++) {

@@ -134,6 +134,18 @@ Set by Forge for configured commands (`forge run`, `forge verify`, worktree setu
 | `FORGE_WORKTREE` | the job's worktree |
 | `FORGE_PORT`, `PORT` | the job's port, empty when it has none |
 
+Set by Forge for `notify.command` (docs/CONFIG.md "Notifications"), whose `{placeholders}` become quoted references to them; empty for a null field:
+
+| Variable | Effect |
+|---|---|
+| `FORGE_NOTIFY_EVENT` | the event (`gate`, `pr-opened`, …) |
+| `FORGE_NOTIFY_JOB` | the job id |
+| `FORGE_NOTIFY_TITLE` | the sanitised job title (control characters replaced, at most 200 characters) |
+| `FORGE_NOTIFY_URL` | the job's `https://` PR URL |
+| `FORGE_NOTIFY_STAGE` | the job's stage |
+| `FORGE_NOTIFY_REASON` | the fixed reason text |
+| `FORGE_NOTIFY_DASHBOARD_URL` | the dashboard's pipeline page |
+
 ## Agent ids
 
 `forge job agent <id> attach --role R --agent-id A` records the runtime's id of an agent that is already `running` (the orchestrator runs it right after a background spawn), so `forge dash` can follow that agent's transcript while it works. It changes nothing else: `runs`, `startedAt` and `status` stay, and no event is logged. It prints `{ "role", "status", "agentId" }`, exits 1 when the role isn't running, and exits 2 (`usage`) without writing anything when `A` doesn't match `^[A-Za-z0-9_-]{1,100}$`, since the id becomes part of a transcript's file name.
@@ -154,6 +166,8 @@ Set by Forge for configured commands (`forge run`, `forge verify`, worktree setu
 ```
 
 A row is an event with an actor (`action` is the `human` event's action, else the event type), a gate transition (`gate:<waitingOn>` into a wait, `gate-cleared:<waitingOn>` out of one, with the reason as `note`), `pr-opened`, or `pr-merged` / `pr-auto-merge`. `detail` is a one-line summary per type: budget keys, the PR number and merge method, the linked ref, the permission tool and decision, the mode, a config key's change. An unknown job exits 1.
+
+Archived jobs (`forge job archive`, `forge job prune`, `retention.jobsDays`) are included: their rows come from `.forge/archive/<id>.json`, plus an `archived` row (detail: the trigger) per job, and `forge job audit <id>` accepts an archived id.
 
 `forge audit --since <date> [--until <date>] [--csv]` prints the same rows for every job and for the repo-level log (`.forge/runtime/audit.jsonl`, where `job` is null), with `since <= ts < until`, sorted by time then job id: `{ "since", "until", "rows" }`. A date is `YYYY-MM-DD` (UTC midnight) or a full ISO timestamp with its zone, and `--until` defaults to now. A missing or invalid date, or `--until` not after `--since`, exits 2 (`usage`).
 

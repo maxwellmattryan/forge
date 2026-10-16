@@ -4,9 +4,11 @@
 // refused rather than guessed at.
 import type { EventActor, Job, JobEvent, LoadedJob } from './types.ts';
 
-export const CONFIG_SCHEMA_VERSION = 6;
+export const CONFIG_SCHEMA_VERSION = 8;
 export const JOB_SCHEMA_VERSION = 10;
 export const EVENT_SCHEMA_VERSION = 2;
+/** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
+export const ARCHIVE_SCHEMA_VERSION = 1;
 /**
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
@@ -59,6 +61,15 @@ export const SEVERITIES = ['blocker', 'major', 'minor', 'nit'] as const;
 /** daemon.auth: the credential a daemon session runs on. */
 export const DAEMON_AUTH = ['subscription', 'api-key'] as const;
 
+/** notify.webhooks[].events: what Forge can notify about, most specific first where two overlap. */
+export const NOTIFY_EVENTS = ['gate', 'pr-opened', 'pr-merged', 'job-failed', 'daemon-stopped', 'budget-exceeded', 'secret-found'] as const;
+
+/** notify.webhooks[].format: the body Forge posts. */
+export const NOTIFY_FORMATS = ['json', 'slack'] as const;
+
+/** The waitingOn values that are human gates; pr-review and external wait on someone outside Forge. */
+export const NOTIFY_GATES = ['spec-approval', 'split-approval', 'issue-link', 'input', 'escalation', 'infra', 'conflicts', 'rounds-exhausted', 'budget', 'human'] as const;
+
 /** Reasoning effort levels: runtime.effort and job.effort, passed to claude as --effort and to agents. */
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 
@@ -99,6 +110,12 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // v6 adds policy.protectedPaths; defaults fill it, so no v5 config changes; the bump lets older
   // Forges refuse a config whose policy they would ignore.
   5: (c) => c,
+  // v7 adds retention, whose defaults keep everything, so no v6 config changes; the bump lets older
+  // Forges refuse a config whose retention policy they would ignore.
+  6: (c) => c,
+  // v8 adds notify, empty by default, so no v7 config changes; the bump lets older Forges refuse a
+  // config whose notifications they would ignore.
+  7: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {

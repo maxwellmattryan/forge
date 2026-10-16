@@ -29,6 +29,8 @@ export interface ForgePaths {
   dir: string;
   config: string;
   jobs: string;
+  /** Archive records of finished jobs (lib/archive.ts); gitignored like jobs/. */
+  archive: string;
   locks: string;
   runtime: string;
   backlog: string;
@@ -48,6 +50,7 @@ export function paths(root: string): ForgePaths {
     dir,
     config: path.join(dir, 'config.yml'),
     jobs: path.join(dir, 'jobs'),
+    archive: path.join(dir, 'archive'),
     locks: path.join(dir, 'locks'),
     runtime: path.join(dir, 'runtime'),
     backlog: path.join(dir, 'backlog.md'),

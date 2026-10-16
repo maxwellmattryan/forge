@@ -6,9 +6,10 @@ import type { HelpGroup, LoadedJob } from '../types.ts';
 
 /**
  * Flags that take no value, so `forge --json job list` doesn't read `job` as the value of --json,
- * `forge doctor --include-text <job>` doesn't read the job as the flag's, and `forge job audit --csv <id>` keeps its id.
+ * `forge doctor --include-text <job>` doesn't read the job as the flag's, `forge job audit --csv <id>` keeps its id,
+ * and `forge job archive --done <id>` is refused as a usage error instead of reading the id as --done's value.
  */
-const BOOLEAN_FLAGS = new Set(['json', 'help', 'pretty', 'include-text', 'csv']);
+const BOOLEAN_FLAGS = new Set(['json', 'help', 'pretty', 'include-text', 'csv', 'done', 'dry-run']);
 
 export function parseArgs(argv: string[]): { pos: string[]; flags: Record<string, any> } {
   const pos: string[] = [];

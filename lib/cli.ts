@@ -26,6 +26,7 @@ import { gitRead, gitWrite } from './commands/git.ts';
 import { helpCmd, usage } from './commands/help.ts';
 import { initWrite, migrate } from './commands/init.ts';
 import { jobCmd } from './commands/job.ts';
+import { notifyCmd } from './commands/notify.ts';
 import { requestsCmd } from './commands/requests.ts';
 import { runCmd } from './commands/run.ts';
 import { secretsCmd } from './commands/secrets.ts';
@@ -190,6 +191,9 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       return ok(await evalCmd(root, config, sub, rest, flags));
     case 'requests':
       return ok(requestsCmd(root, config, sub, rest, flags));
+    case 'notify':
+      needInit();
+      return notifyCmd(ctx, sub, rest, flags);
     case 'migrate':
       return ok(migrate(root));
     case 'daemon': {

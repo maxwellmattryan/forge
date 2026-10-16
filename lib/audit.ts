@@ -1,6 +1,7 @@
 // The audit trail export: who did what to a job, and when its gates opened and closed.
 // `forge job audit` reads one job, `forge audit` every job plus the repo-level log. Rows are
 // derived from events.jsonl on read; nothing here writes.
+import { hasLiveJob, listArchived, readArchived } from './archive.ts';
 import { listJobs, loadJob, parseEventLines, readEvents, repoAuditFile } from './jobs.ts';
 import type { AuditRow, JobAudit, JobEvent, LoadedJob, RepoAudit, TransitionSide } from './types.ts';
 import { ForgeError, readText, safeText } from './util.ts';
@@ -51,6 +52,9 @@ function detail(e: JobEvent): string | null {
     case 'daemon-mode':
       d = str(e.mode);
       break;
+    case 'archived':
+      d = str(e.trigger);
+      break;
     case 'config-set':
       d = `${String(e.key)}: ${JSON.stringify(e.previous ?? null)} -> ${JSON.stringify(e.value ?? null)}`;
       break;
@@ -92,19 +96,20 @@ function prOf(job: LoadedJob, events: JobEvent[]): JobAudit['pr'] {
   };
 }
 
-/** `forge job audit <id>`: one job's rows in time order. */
+/** `forge job audit <id>`: one job's rows in time order, from its archive record once it has no live dir. */
 export function jobAudit(root: string, id: string): JobAudit {
+  if (!hasLiveJob(root, id)) {
+    const a = readArchived(root, id);
+    if (a) return { id: a.id, title: a.job.title, pr: prOf(a.job, a.events), rows: rowsOf(a.events, a.id) };
+  }
   const job = loadJob(root, id);
   const events = readEvents(root, job.id);
   return { id: job.id, title: job.title, pr: prOf(job, events), rows: rowsOf(events, job.id) };
 }
 
-/**
- * The jobs `forge audit` reads. Today the live ones only; the retention job extends this one seam
- * to archived jobs, so nothing else needs to know where a job's events live.
- */
+/** The jobs `forge audit` reads: the live ones, then archived ones (listArchived skips an id that is still live). */
 export function auditJobIds(root: string): string[] {
-  return listJobs(root).map((j) => j.id);
+  return [...new Set([...listJobs(root).map((j) => j.id), ...listArchived(root).map((a) => a.id)])];
 }
 
 /** Rows from .forge/runtime/audit.jsonl: human actions with no job, such as `forge config set`. */
