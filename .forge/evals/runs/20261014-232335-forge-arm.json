@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "id": "20261014-232335-forge-arm",
+  "label": "forge-arm",
+  "forgeVersion": "0.14.0",
+  "configHash": "245dbc66f2",
+  "models": {
+    "orchestrator": "inherit",
+    "planner": "opus",
+    "spec-writer": "opus",
+    "designer": "sonnet",
+    "builder": "opus",
+    "reviewer": "sonnet",
+    "approver": "opus",
+    "integrator": "sonnet",
+    "retro": "opus",
+    "judge": "opus"
+  },
+  "startedAt": "2026-10-14T23:23:35.834Z",
+  "finishedAt": "2026-10-15T00:41:21.988Z",
+  "status": "done",
+  "tasks": [
+    {
+      "task": "pr-79-tests-fail-under-a",
+      "job": "eval-pr-79-tests-fail-under-n5yf",
+      "worktreeOk": true,
+      "result": {
+        "check": {
+          "ran": true,
+          "pass": false,
+          "tail": "Performing three-way merge...\nApplied patch to 'test/command-env.test.ts' with conflicts.\nU test/command-env.test.ts",
+          "reason": "hidden check did not apply cleanly"
+        },
+        "judge": {
+          "score": 5,
+          "outOf": 5
+        },
+        "decision": "ESCALATE",
+        "rounds": 1,
+        "firstPass": true,
+        "verifyFirstPass": false,
+        "tokens": 8312721,
+        "estCostUsd": 4.6938,
+        "minutes": 77.77,
+        "gradedAt": "2026-10-15T00:41:21.986Z"
+      }
+    },
+    {
+      "task": "pr-83-cli-rejects-malformed-field",
+      "job": "eval-pr-83-cli-rejects-malformed-i80a",
+      "worktreeOk": true,
+      "result": {
+        "check": {
+          "ran": true,
+          "pass": false,
+          "tail": "Performing three-way merge...\nApplied patch to 'test/args.test.ts' with conflicts.\nApplied patch to 'test/cli.test.ts' with conflicts.\nU test/args.test.ts\nU test/cli.test.ts",
+          "reason": "hidden check did not apply cleanly"
+        },
+        "judge": {
+          "score": 4,
+          "outOf": 5
+        },
+        "decision": "APPROVE",
+        "rounds": 2,
+        "firstPass": false,
+        "verifyFirstPass": true,
+        "tokens": 11058026,
+        "estCostUsd": 6.1324,
+        "minutes": 61.41,
+        "gradedAt": "2026-10-15T00:25:04.308Z"
+      }
+    },
+    {
+      "task": "pr-86-dashboard-markdown-autolink-never",
+      "job": "eval-pr-86-dashboard-markdown-autolink-idg6",
+      "worktreeOk": true,
+      "result": {
+        "check": {
+          "ran": true,
+          "pass": false,
+          "tail": "Performing three-way merge...\nApplied patch to 'test/dashboard-markdown.test.ts' with conflicts.\nApplied patch to 'test/server.test.ts' with conflicts.\nU test/dashboard-markdown.test.ts\nU test/server.test.ts",
+          "reason": "hidden check did not apply cleanly"
+        },
+        "judge": {
+          "score": 5,
+          "outOf": 5
+        },
+        "decision": "APPROVE",
+        "rounds": 1,
+        "firstPass": true,
+        "verifyFirstPass": true,
+        "tokens": 7773917,
+        "estCostUsd": 5.3648,
+        "minutes": 75.01,
+        "gradedAt": "2026-10-15T00:38:43.929Z"
+      }
+    },
+    {
+      "task": "pr-98-dashboard-token-counts-b",
+      "job": "eval-pr-98-dashboard-token-counts-0tq2",
+      "worktreeOk": true,
+      "result": {
+        "check": {
+          "ran": true,
+          "pass": true,
+          "tail": "  duration_ms: 33.268917\n  type: 'test'\n  ...\n# Subtest: round-trips stringify output\nok 618 - round-trips stringify output\n  ---\n  duration_ms: 31.991375\n  type: 'test'\n  ...\n# Subtest: fails loudly outside the subset\nok 619 - fails loudly outside the subset\n  ---\n  duration_ms: 0.260292\n  type: 'test'\n  ...\n# Subtest: setIn edits one value in place and refuses what it cannot keep\nok 620 - setIn edits one value in place and refuses what it cannot keep\n  ---\n  duration_ms: 316.953375\n  type: 'test'\n  ...\n1..620\n# tests 620\n# suites 0\n# pass 620\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 125017.421333"
+        },
+        "judge": {
+          "score": 5,
+          "outOf": 5
+        },
+        "decision": "APPROVE",
+        "rounds": 1,
+        "firstPass": true,
+        "verifyFirstPass": true,
+        "tokens": 3141262,
+        "estCostUsd": 2.2976,
+        "minutes": 68.43,
+        "gradedAt": "2026-10-15T00:32:12.889Z"
+      }
+    }
+  ],
+  "summary": {
+    "tasks": 4,
+    "graded": 4,
+    "checkPassRate": 0.25,
+    "avgJudgeScore": 0.95,
+    "firstPassRate": 0.75,
+    "avgRounds": 1.25,
+    "escalationRate": 0.25,
+    "avgTokens": 7571481.5,
+    "avgCostUsd": 4.622,
+    "avgMinutes": 70.655
+  }
+}

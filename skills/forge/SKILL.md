@@ -49,9 +49,9 @@ Report `sync` results, a line each: merges, PR feedback, conflicts, finished umb
 Claim it: `forge job claim <id> --session ${CLAUDE_SESSION_ID}`. Exit 3: another live session owns it: tell the human, stop. Exit 4: dependencies pending; report, move on (`--force` only if the human asks).
 
 Then loop: `forge job advance <id> --session ${CLAUDE_SESSION_ID}` (Bash timeout 600000), report each `tell` in `ran`, act on `action`, advance again.
-- `spawn`: run `startShell`. Spawn `agent` as `subagent_type` with `brief` as the prompt, `model` unless `inherit` and `effort` unless null (if `resume` names a live agent, SendMessage it the brief). On completion: `forge job agent <id> end --role <role> --agent-id <agentId> --import --tokens <total_tokens> --tool-uses <tool_uses> --duration-ms <duration_ms> --summary "<first line of its reply>"`. With `parallel: true`, spawn it in the background and advance at once. With `spawns`, run all `startShell`s in one Bash call, then spawn all in one message of background Agent calls. Then `forge job agent <id> attach --role <role> --agent-id <agentId>` for each, in one Bash call.
+- `spawn`: run `startShell`. Spawn `agent` as `subagent_type` with `brief` as the prompt, `model` unless `inherit` and `effort` unless null (if `resume` names a live agent, SendMessage it the brief). At the first of its report or notification: `forge job agent <id> end --role <role> --agent-id <agentId> --import [--tokens <total_tokens> --tool-uses <tool_uses> --duration-ms <duration_ms>] --summary "<first line of its reply>"`. With `parallel: true`, spawn it in the background and advance at once. With `spawns`, run all `startShell`s in one Bash call, then spawn all in one message of background Agent calls. Then `forge job agent <id> attach --role <role> --agent-id <agentId>` for each, in one Bash call.
 - `failed: true`: `forge job step <id>`; same `rule` and `command`: `forge job note` the `error`, report, stop; else advance again. `capped: true`: note, report, stop. Exit 3: as for the claim.
-- `wait` on `agents`: record each with `agent end` as it notifies; one not spawned by this session ends with `--status lost`.
+- `wait` on `agents`: end each as above; one not spawned by this session ends with `--status lost`.
 - `wait` on a gate: report `tell` (for `input`, also `questions.md`) and stop driving it.
 - `procedure`: follow `reference` (e.g. `reference/split.md`), then advance.
 - `done`: report any `tell` and stop.
@@ -60,7 +60,7 @@ Then loop: `forge job advance <id> --session ${CLAUDE_SESSION_ID}` (Bash timeout
 After `pr` or `done`, `forge retro due`; if `due: true`, tell the human once that `/forge retro` proposes improvements (never run unasked).
 
 ## Parallel jobs
-Drive up to `runtime.maxParallelJobs` jobs at once (a daemon job session, only its own), advancing each as notifications arrive.
+Drive up to `runtime.maxParallelJobs` jobs at once (a daemon job session, only its own), advancing each as agents report.
 
 ## Reporting style
 One line per job event: its id and, when blocked, the exact unblock command. Link the dashboard; no tables.

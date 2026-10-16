@@ -249,7 +249,7 @@ test("a popover's own Tab handling stops on summaries and selects, never on tabi
   assert.ok(!/(^|, )\[tabindex\](,|$)/.test(TAB_STOPS), 'no bare [tabindex]: tabindex="-1" is not a Tab stop');
 });
 
-// The facts strip (smithy/components/StatusBar/README.md): FORGE v… · API n · SESSIONS ● N active · SHEET View · i of total,
+// The facts strip: FORGE v… · API n · SESSIONS ● N active · SHEET View · i of total,
 // dropping from the right as the room runs out: SHEET, then API, then the SESSIONS word, then the FORGE word.
 test('facts strip order and drop order', () => {
   assert.deepEqual([...FACTS_DROP], ['sheet', 'api', 'sessionsWord', 'forgeWord']);

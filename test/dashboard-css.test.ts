@@ -1,6 +1,5 @@
-// The Smithy utility set (smithy/smithy.css) ported into dashboard/style.css as @utility classes, the Drafting class
-// names gone, and the drawing rules: plates cut at two corners and clipped to them, the grain on its own layer, sheen
-// on hover, token shadows.
+// The Smithy utility set, declared in dashboard/style.css as @utility classes, the Drafting class names gone, and the
+// drawing rules: plates cut at two corners and clipped to them, the grain on its own layer, sheen on hover, token shadows.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -10,8 +9,6 @@ import { builtCss } from './built-css.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DASHBOARD = path.join(ROOT, 'dashboard');
-const SMITHY = path.join(ROOT, 'smithy');
-const smithyCss = () => fs.readFileSync(path.join(SMITHY, 'smithy.css'), 'utf8');
 const styleCss = () => fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8');
 
 const UTILITIES = (
@@ -42,35 +39,19 @@ function ruleFor(css: string, selector: string): string {
 /** A class selector that ends there: `.h` matches `.h{` or `.h.card`, never `.h-4` or `.hatch`. */
 const hasClass = (css: string, name: string) => new RegExp(`(?<!\\\\)\\.${escapeRe(name)}(?![\\w\\\\-])`).test(css);
 
-/** The class names smithy/smithy.css draws: every `.name` in a selector, comments dropped. */
-function smithyClasses(): Set<string> {
-  const text = smithyCss().replace(/\/\*[\s\S]*?\*\//g, '');
-  const out = new Set<string>();
-  for (const m of text.matchAll(/([^{}]*)\{/g)) for (const c of m[1].matchAll(/\.([a-z][\w-]*)/g)) out.add(c[1]);
-  return out;
-}
-
-test('every smithy utility is ported', () => {
+test('every smithy utility is declared and built', () => {
   const source = styleCss();
   const css = builtCss();
   for (const name of UTILITIES) {
     assert.match(source, new RegExp(`@utility ${escapeRe(name)}\\s*\\{`), `style.css declares @utility ${name}`);
     assert.ok(hasClass(css, name), `the built CSS has a .${name} rule`);
   }
-  // Every class smithy.css draws is a utility or a modifier inside one; the type styles of tokens.css and the layout
-  // helpers stay Tailwind's (a custom `grow` would emit next to flex-grow).
-  const drawn = smithyClasses();
-  assert.ok(drawn.has('plate') && drawn.has('riveted') && drawn.has('facts'), `smithy.css is read (${drawn.size} classes)`);
+  // The layout helpers stay Tailwind's (a custom `grow` would emit next to flex-grow).
   const LAYOUT = ['row', 'wrap', 'col', 'grow'];
   for (const name of LAYOUT) assert.doesNotMatch(source, new RegExp(`@utility ${name}\\s*\\{`), `${name} is not ported`);
-  // `rv` is the old rivet span smithy.css hides; nothing renders it.
-  const missing = [...drawn].filter((c) => !LAYOUT.includes(c) && c !== 'rv' && !hasClass(css, c));
-  assert.deepEqual(missing, [], 'every smithy class the dashboard can use is in the build');
   for (const sel of MODIFIERS) assert.ok(css.includes(sel), `the built CSS has ${sel}`);
-  // A .navlist.row item keeps its natural width (the column rule sets width: 100%), in the build and in the drawing.
+  // A .navlist.row item keeps its natural width (the column rule sets width: 100%).
   assert.match(ruleFor(css, '.navlist.row a'), /width:auto/);
-  assert.ok(smithyCss().includes('.navlist.row a, .navlist.row button { width: auto;'), 'smithy/smithy.css has the .navlist.row item rule');
-  assert.ok(smithyCss().includes('.prose.compact {'), 'smithy/smithy.css has the .prose.compact rules');
   assert.ok(!hasClass('.hatch{}.h-4{}', 'h') && hasClass('.h.card{}', 'h') && hasClass('.x .h{', 'h'), 'the class matcher');
   // A plate sets only its background colour, never the shorthand, so nothing composed with it paints past its cut.
   const plate = ruleFor(css, '.plate');
@@ -97,9 +78,6 @@ test('plates clip and keep the grain on ::after', () => {
     if (sels.length) assert.doesNotMatch(m[2], /background-image|(^|;)background:/, `${sels.join(',')} paints a background image on the plate`);
   }
   for (const sel of ['.plate.flat:after', '.plate.open:after', '.plate.cold:after']) assert.match(ruleFor(css, sel), /display:none/, `${sel}: no grain`);
-  const smithy = smithyCss();
-  assert.ok(smithy.includes('.plate::after { content: ""; position: absolute; inset: 0; border-radius: inherit; corner-shape: inherit; background-image: var(--hammer);'), 'smithy/smithy.css draws the same layer');
-  assert.match(/^\.plate \{([^}]*)\}/m.exec(smithy)?.[1] ?? '', /overflow: clip;/, 'and clips the plate');
 });
 
 test('button plates and controls set appearance: none', () => {
@@ -121,10 +99,6 @@ test('palette scrim and stable scrollbar gutter', () => {
   assert.match(ruleFor(css, '.scrim'), /background:(rgba\(5,7,10,\.35\)|#05070a59)/);
   assert.match(ruleFor(css, '[data-theme=ash] .scrim'), /background:(rgba\(40,28,18,\.2\)|#281c1233)/);
   assert.match(ruleFor(css, 'html'), /scrollbar-gutter:stable/, 'the built html rule keeps a stable gutter');
-  const smithy = smithyCss();
-  assert.match(/^html \{([^}]*)\}/m.exec(smithy)?.[1] ?? '', /scrollbar-gutter: stable;/, 'smithy/smithy.css html has it too');
-  assert.ok(smithy.includes('.scrim { background: rgba(5,7,10,.35); }'), 'smithy/smithy.css .scrim');
-  assert.ok(smithy.includes('[data-theme="ash"] .scrim { background: rgba(40,28,18,.2); }'), 'smithy/smithy.css ash .scrim');
   const root = (rel: string) => /class="([^"]*)"/.exec(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', rel), 'utf8').replace(/<script\b[\s\S]*?<\/script>|<!--[\s\S]*?-->/g, ''))?.[1].split(/\s+/) ?? [];
   const bar = root('CommandBar.svelte');
   assert.ok(bar.includes('scrim') && !bar.includes('backdrop'), `the palette's root uses scrim (${bar.join(' ')})`);
@@ -152,7 +126,7 @@ function classTokensOf(text: string): string[] {
   return out.filter(Boolean);
 }
 
-// The Drafting vocabulary (smithy/MIGRATION.md §2): each name has a Smithy replacement and none is left in a source.
+// The Drafting vocabulary: each name has a Smithy replacement and none is left in a source.
 const DRAFTING_CLASSES = ['sheet', 'ticks', 'tk', 'dashed', 'redline', 'tblock', 'dim-line', 'sketch', 'hatch', 'nav'];
 const DRAFTING_PAIRS: [string, string][] = [['chip', 'rev'], ['chip', 'ink'], ['chip', 'hl'], ['dot', 'ink'], ['dot', 'red'], ['dot', 'hl']];
 
@@ -213,7 +187,7 @@ function splitTop(value: string, sep: RegExp): string[] {
 }
 
 // Corners resolve to the radius tokens (0, the 2px chamfer, the 5px nick, the 10px cut, a dot) or a small literal
-// chamfer smithy.css writes (the 1px callout tick, the 3px track, the 4px check); `inherit` passes the plate's cut to its grain layer.
+// chamfer style.css writes (the 1px callout tick, the 3px track, the 4px check); `inherit` passes the plate's cut to its grain layer.
 const ROUND_OK = /^(0|0px|1px|2px|3px|4px|5px|10px|50%|9999px|inherit|calc\(infinity\s*\*\s*1px\)|3\.40282e\+?38px|var\(--radius-(0|1|nick|cut|dot)\))$/;
 // The shadows that may blur: the overlay, drawer and chrome shadows and the gleam's glow. Everything else is hard.
 const BLURRED_TOKENS = ['--shadow-overlay', '--shadow-drawer', '--shadow-chrome', '--shadow-glow'];
@@ -284,9 +258,6 @@ test('grain off hides the ground and plate grain', () => {
   assert.doesNotMatch(css, /data-grain=on/);
   for (const [where, text] of [['the built CSS', css], ['dashboard/style.css', styleCss()], ['dashboard/index.html', fs.readFileSync(path.join(DASHBOARD, 'index.html'), 'utf8')], ...srcFiles().map((f) => [path.relative(ROOT, f), fs.readFileSync(f, 'utf8')])])
     assert.doesNotMatch(text, /data-(grid|paper)\b|dataset\.(grid|paper)\b/, `${where} names data-grid or data-paper`);
-  const smithy = smithyCss();
-  assert.ok(smithy.includes('html[data-grain="off"] .ground::before'), 'smithy/smithy.css drops the ground grain');
-  assert.ok(smithy.includes('html[data-grain="off"] .plate::after { display: none; }'), 'smithy/smithy.css drops the plate grain');
 });
 
 /** One declaration's value in a rule body, or undefined. */
@@ -295,8 +266,8 @@ const decl = (body: string, prop: string) => new RegExp(`(?:^|;)\\s*${escapeRe(p
 const grainUri = (text: string, name: string) => new RegExp(`${escapeRe(name)}\\s*:\\s*url\\(\\s*"(data:image\\/svg\\+xml[^"]*)"\\s*\\)`).exec(text)?.[1];
 
 // The grain sits on a fixed layer the size of the viewport, drawn once (no tile, so no seam), and never moves:
-// no animation, no transition, no scroll. smithy/smithy.css draws the same grain at the same size.
-test('the grain is fixed, static and mirrored in smithy/', () => {
+// no animation, no transition, no scroll.
+test('the grain is fixed and static', () => {
   assert.equal(decl('a:1;background-size:100% 100%', 'background-size'), '100% 100%', 'self-check: decl');
   assert.equal(grainUri('x{--grain:url("data:image/svg+xml,%3Csvg%3E")}', '--grain'), 'data:image/svg+xml,%3Csvg%3E', 'self-check: grainUri');
 
@@ -313,12 +284,8 @@ test('the grain is fixed, static and mirrored in smithy/', () => {
     const uri = grainUri(styleCss(), name);
     assert.ok(uri, `dashboard/style.css writes ${name} inline`);
     assert.equal(grainUri(css, name), uri, `the build keeps ${name} as written`);
-    assert.equal(grainUri(smithyCss(), name), uri, `smithy/smithy.css declares the same ${name}`);
     assert.doesNotMatch(decodeURIComponent(uri), /<svg[^>]*\s(width|height|viewBox)=/, `${name}: the SVG has no size of its own, so 100% 100% never stretches it`);
   }
-  const before = smithyCss().slice(smithyCss().indexOf('.ground::before {')).split('\n')[0];
-  assert.ok(before.includes('background-image: var(--grain); background-repeat: no-repeat; background-size: 100% 100%;'), 'smithy/smithy.css mirrors the sizing');
-  assert.doesNotMatch(before, /animation|transition/, 'smithy/smithy.css never animates the grain');
 });
 
 /** The body of the first `@media` block whose prelude matches, braces balanced. */
@@ -344,10 +311,6 @@ test('reduced motion disables transitions and animations', () => {
   assert.match(rule, /animation:none!important/);
   // Unlayered, so the !important beats every utility's transition (the drawer's slide included).
   assert.ok(builtCss().lastIndexOf('@media(prefers-reduced-motion:reduce)') > builtCss().indexOf('.transition'), 'the block comes after the utilities');
-  assert.ok(
-    smithyCss().includes('@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }'),
-    'smithy/smithy.css has the same block',
-  );
 });
 
 /** Every `@media` block whose prelude matches (Tailwind's `hover:` variants emit their own): the bodies joined, and the CSS without them. */
@@ -407,13 +370,6 @@ test('hover is sheen, with no registered property', () => {
   assert.match(ruleFor(hover, '.chip:is(button):hover'), /^border-color:currentColor$/i);
   for (const m of css.matchAll(/animation(-name)?:([^;}]*)/g)) assert.doesNotMatch(m[2], /sketch|sheen/, 'hover is a transition, never an animation');
   assert.equal(css.match(/prefers-reduced-motion\s*:\s*reduce/g)?.length, 1, 'one reduced-motion block covers every transition (the live halo is the separate no-preference query)');
-  const smithy = smithyCss();
-  for (const line of [
-    '@media (hover: hover) { .btn:hover { border-color: var(--gleam); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--gleam) 12%); } .btn:hover .muted { color: inherit; } }',
-    '.tab:hover, .tab.hover { color: var(--fg); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--gleam) 10%); }',
-    '@media (hover: hover) { button.chip:hover { border-color: currentColor; } }',
-  ])
-    assert.ok(smithy.includes(line), `smithy/smithy.css draws ${line}`);
 });
 
 /** Every `selector { body }` whose selector list has the `plate` class, at any nesting (@media, @supports). */
@@ -490,9 +446,6 @@ test('surfaces are opaque and open plates are see-through', () => {
   assert.match(open, /--surface:var\(--bg\)/, 'what sits in it fills with bg');
   assert.match(open, /border-color:var\(--line-soft\)/);
   assert.match(ruleFor(css, '.plate.cold'), /border-style:dashed/, 'the empty state is a dashed plate');
-  const smithy = smithyCss();
-  for (const line of ['.solid { background-color: var(--panel); --surface: var(--panel); }', '.plain { background-color: var(--panel); --surface: var(--panel); }', '.plate.solid { background-color: var(--panel); }', '.plate.cold { border-style: dashed; box-shadow: none; }'])
-    assert.ok(smithy.includes(line), `smithy/smithy.css has ${line}`);
 });
 
 test('every control has the solid focus ring', () => {
@@ -509,14 +462,6 @@ test('every control has the solid focus ring', () => {
   for (const sel of ['.btn:focus-visible', '.navlist a:focus-visible', '.clickable:focus-visible', '.plate.clickable:focus-visible', '.input:focus', '.cmd-field:focus-within']) assert.match(ruleFor(css, sel), RING, sel);
   assert.doesNotMatch(css, /:focus(-visible)?\{[^}]*box-shadow/, 'no glow on focus');
   assert.doesNotMatch(css, /outline:1px dashed/, 'the Drafting dashed ring is gone');
-  const smithy = smithyCss();
-  for (const line of [
-    ':focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }',
-    '.check:disabled { opacity: .4; border-style: dashed; cursor: not-allowed; }',
-    '.check.on::after, .check:checked::after {',
-    '.seg label:has(input:focus-visible) { outline: 2px solid var(--line-strong); outline-offset: 2px; z-index: 1; }',
-  ])
-    assert.ok(smithy.includes(line), `smithy/smithy.css mirrors ${line}`);
 });
 
 test('phone targets are 44px', () => {
@@ -546,19 +491,13 @@ test('phone targets are 44px', () => {
 test('the YOU chip is the same rectangle as every chip', () => {
   const css = builtCss();
   const built = ruleFor(css, '.chip.you');
-  const drawn = /^\.chip\.you \{([^}]*)\}/m.exec(smithyCss())?.[1] ?? /\.chip\.you \{([^}]*)\}/.exec(smithyCss())?.[1] ?? '';
-  assert.ok(drawn, 'smithy/smithy.css draws .chip.you');
-  for (const [where, rule] of [['the built CSS', built], ['smithy/smithy.css', drawn]]) {
-    assert.match(rule, /color:\s*var\(--ember\)/, `${where}: .chip.you is ember`);
-    assert.match(rule, /border-color:\s*var\(--ember\)/, `${where}: with an ember seam`);
-    assert.doesNotMatch(rule, /border-radius|corner-shape/, `${where}: .chip.you keeps the chip's nicked corners`);
-    assert.doesNotMatch(rule, /(^|[;\s])padding/, `${where}: .chip.you keeps the chip padding`);
-  }
+  assert.match(built, /color:\s*var\(--ember\)/, '.chip.you is ember');
+  assert.match(built, /border-color:\s*var\(--ember\)/, 'with an ember seam');
+  assert.doesNotMatch(built, /border-radius|corner-shape/, ".chip.you keeps the chip's nicked corners");
+  assert.doesNotMatch(built, /(^|[;\s])padding/, '.chip.you keeps the chip padding');
   // The tint is 10%, like every tone: 12% puts ash's ember under 4.5:1 on the ground (dashboard-tokens.test.ts).
   assert.match(built, /var\(--ember\)\s*10%/);
   for (const [where, text] of [
-    ['smithy/tokens.css', fs.readFileSync(path.join(SMITHY, 'tokens.css'), 'utf8')],
-    ['smithy/tokens.json', fs.readFileSync(path.join(SMITHY, 'tokens.json'), 'utf8')],
     ['dashboard/style.css', styleCss()],
     ['the built CSS', css],
   ])
@@ -569,10 +508,6 @@ test('the YOU chip is the same rectangle as every chip', () => {
 const CONTROL_TOKENS: [string, string][] = [['control-xs', '20px'], ['control-sm', '28px'], ['control-md', '32px'], ['control-lg', '40px']];
 /** The scalar `:root {` block of a source stylesheet (the theme blocks start `:root, [data-theme…`). */
 const scalarRoot = (text: string) => /^:root \{([^}]*)\}/m.exec(text)?.[1] ?? '';
-/** A one-line rule body in smithy/smithy.css, by its exact selector at the start of a line. */
-const drawn = (selector: string) => new RegExp(`^${escapeRe(selector)} \\{([^}]*)\\}`, 'm').exec(smithyCss())?.[1] ?? '';
-/** The scalar tokens of smithy/tokens.json (spacing, sizes, controls, strokes). */
-const scalarTokens = (): { name: string; value: string; usage: string }[] => JSON.parse(fs.readFileSync(path.join(SMITHY, 'tokens.json'), 'utf8')).spacing.tokens;
 /** The vertical padding each declaration sets: the first value of `padding`, `padding-block`, `padding-top` and `padding-bottom`. */
 function verticalPadding(rule: string): string[] {
   const out: string[] = [];
@@ -581,27 +516,19 @@ function verticalPadding(rule: string): string[] {
 }
 const MIN_MD = /(\(\s*width\s*>=\s*48rem\s*\)|\(min-width:48rem\))/;
 
-test('control heights are tokens in the drawing, the source and the build', () => {
-  const tokensCss = scalarRoot(fs.readFileSync(path.join(SMITHY, 'tokens.css'), 'utf8'));
+test('control heights are tokens in the source and the build', () => {
   const source = scalarRoot(styleCss());
-  const sizes = scalarTokens();
   const built = ruleFor(builtCss(), ':root');
-  assert.ok(tokensCss.includes('--size-dialog') && source.includes('--size-dialog'), 'the scalar :root blocks are read');
+  assert.ok(source.includes('--size-dialog'), 'the scalar :root block is read');
   for (const [name, value] of CONTROL_TOKENS) {
-    assert.ok(tokensCss.includes(`--${name}: ${value};`), `smithy/tokens.css :root declares --${name}: ${value}`);
     assert.ok(source.includes(`--${name}: ${value};`), `dashboard/style.css :root declares --${name}: ${value}`);
     assert.ok(built.includes(`--${name}:${value}`), `the built :root carries --${name}:${value}`);
-    const entry = sizes.find((t) => t.name === name);
-    assert.equal(entry?.value, value, `smithy/tokens.json has ${name} = ${value}`);
-    assert.ok(entry?.usage?.trim(), `smithy/tokens.json ${name} has a usage`);
   }
 });
 
-test('the status bar height is a token in the drawing, the source and the build', () => {
-  const tokensCss = scalarRoot(fs.readFileSync(path.join(SMITHY, 'tokens.css'), 'utf8'));
+test('the status bar height is a token in the source and the build', () => {
   const source = scalarRoot(styleCss());
-  assert.ok(tokensCss.includes('--size-dialog') && source.includes('--size-dialog'), 'the scalar :root blocks are read');
-  assert.ok(tokensCss.includes('--size-statusbar: 30px;'), 'smithy/tokens.css :root declares --size-statusbar: 30px');
+  assert.ok(source.includes('--size-dialog'), 'the scalar :root block is read');
   assert.ok(source.includes('--size-statusbar: 30px;'), 'dashboard/style.css :root declares --size-statusbar: 30px');
   const css = builtCss();
   const { outside } = mediaSplit(css, /[^{]*/);
@@ -609,9 +536,6 @@ test('the status bar height is a token in the drawing, the source and the build'
   // Below md the bar holds 44px targets, so it grows to --space-11 there; everything that clears it reads the token.
   const phone = mediaBody(css, /(\(\s*width\s*<\s*48rem\s*\)|not all and \((min-width:|width>=)48rem\))/);
   assert.match(ruleFor(phone, ':root'), /--size-statusbar:var\(--space-11\)/, 'below md the bar is 44px tall');
-  const entry = scalarTokens().find((t) => t.name === 'size-statusbar');
-  assert.equal(entry?.value, '30px', 'smithy/tokens.json has size-statusbar = 30px');
-  assert.ok(entry?.usage?.trim(), 'with a usage');
 });
 
 test('focus scrolls clear of the status bar, and an open indicator keeps its edge', () => {
@@ -619,7 +543,6 @@ test('focus scrolls clear of the status bar, and an open indicator keeps its edg
   // WCAG 2.4.11: the bar is fixed over the viewport's bottom, so focus and scroll-into-view stop above it.
   assert.match(ruleFor(css, 'html'), /scroll-padding-bottom:calc\(var\(--size-statusbar\) \+ env\(safe-area-inset-bottom\) \+ var\(--space-2\)\)/, 'html pads its scroll by the bar, the inset and a gap');
   assert.match(ruleFor(css, '.btn.ghost[aria-expanded=true]'), /border-color:var\(--line-strong\)/, 'the built CSS draws an open indicator with the strong edge');
-  assert.ok(smithyCss().includes('.btn.ghost[aria-expanded="true"] { border-color: var(--line-strong);'), 'smithy/smithy.css draws it too');
   assert.ok(css.indexOf('.btn.ghost[aria-expanded=true]') > css.indexOf('.btn.ghost:hover'), 'after the ghost hover, so hovering an open indicator keeps it');
 });
 
@@ -660,18 +583,6 @@ test('every control variant resolves to one control height', () => {
   }
   const source = styleCss();
   assert.match(source, /@media \(width >= 48rem\) \{\n\s*input\.sm:not\(\[type=checkbox\], \[type=radio\]\), select\.sm \{/, 'style.css keeps native sm inside the md block');
-
-  // The drawing.
-  const D: [string, RegExp][] = [
-    ['.btn', /height: var\(--control-md\); padding: 0 12px;/],
-    ['.btn.sm', /height: var\(--control-sm\); padding: 0 9px;/],
-    ['.chip', /min-height: var\(--control-xs\);/],
-    ['.chip.sm', /min-height: var\(--control-sm\);/],
-    ['.input', /min-height: var\(--control-md\); padding: calc\(\(var\(--control-md\) - 20px\) \/ 2\) 10px;/],
-    ['.input.sm', /min-height: var\(--control-sm\); padding-block: calc\(\(var\(--control-sm\) - 20px\) \/ 2\);/],
-    ['.tab', /height: var\(--control-lg\);.*padding: 0 14px;/],
-  ];
-  for (const [sel, want] of D) assert.match(drawn(sel), want, `smithy/smithy.css ${sel}`);
 });
 
 test("icon buttons are square at their text siblings' height", () => {
@@ -684,8 +595,6 @@ test("icon buttons are square at their text siblings' height", () => {
   assert.match(sm, /(^|;)width:var\(--control-sm\)/);
   assert.match(sm, /(^|;)padding:0(;|$)/, "beats .btn.sm's horizontal padding");
   assert.match(ruleFor(css, '.btn'), /align-items:center/, 'the icon is centred vertically');
-  assert.match(drawn('.btn.icon'), /width: var\(--control-md\); padding: 0; justify-content: center;/);
-  assert.match(drawn('.btn.sm.icon'), /width: var\(--control-sm\); padding: 0;/);
 });
 
 test('the ghost close keeps the sheen and a light border', () => {
@@ -698,24 +607,6 @@ test('the ghost close keeps the sheen and a light border', () => {
   const ghosts = [...css.matchAll(/([^{}]*)\{([^{}]*)\}/g)].filter((m) => hasClass(m[1], 'ghost'));
   assert.ok(ghosts.length >= 3, `found ${ghosts.length} ghost rules`);
   for (const [, sel, body] of ghosts.filter(([, s]) => !/aria-expanded/.test(s))) assert.doesNotMatch(body, /background/, `${sel.trim()} leaves the fill (and the sheen) to btn`);
-  const smithy = smithyCss();
-  for (const line of ['.btn.ghost { border-color: transparent; box-shadow: none; }', '@media (hover: hover) { .btn.ghost:hover { border-color: var(--line); } }', '.btn.ghost.hover { border-color: var(--line); }'])
-    assert.ok(smithy.includes(line), `smithy/smithy.css has ${line}`);
-});
-
-test('the control sizes are documented in the tokens and drawn in the previews', () => {
-  const sizes = scalarTokens();
-  const usage = (name: string) => sizes.find((t) => t.name === name)?.usage ?? '';
-  assert.match(usage('control-xs'), /chip/i, 'xs is the chip');
-  assert.match(usage('control-sm'), /small button, input or chip/i, 'sm is the small control');
-  assert.match(usage('control-md'), /button and input/i, 'md is the standard control');
-  assert.match(usage('control-lg'), /tab/i, 'lg is the tab');
-  // The previews draw the close as the same quiet control the dashboard renders (CloseButton.svelte: btn icon ghost).
-  const preview = (name: string) => fs.readFileSync(path.join(SMITHY, 'components', name, 'preview.html'), 'utf8');
-  for (const name of ['Button', 'Drawer', 'SettingsDialog']) assert.match(preview(name), /<button class="btn icon ghost" aria-label="Close">/, `${name} preview draws btn icon ghost`);
-  assert.match(preview('CommandBar'), /<button class="btn icon sm ghost" aria-label="Remove the job scope">/, 'CommandBar preview: the clear-scope close is sm ghost beside chip sm');
-  assert.match(preview('CommandBar'), /class="chip gleam sm"/);
-  assert.match(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', 'CloseButton.svelte'), 'utf8'), /class="btn icon ghost /);
 });
 
 test('chrome is unselectable, content opts back in', () => {
@@ -733,8 +624,6 @@ test('chrome is unselectable, content opts back in', () => {
   assert.match(selectable, /(^|;)user-select:text/);
   assert.match(selectable, /cursor:text/);
   assert.match(styleCss(), /@utility selectable \{ user-select: text; cursor: text; \}/);
-  assert.ok(smithyCss().includes('.selectable { user-select: text; cursor: text; }'), 'smithy/smithy.css declares .selectable');
-  assert.ok(smithyCss().includes('html { user-select: none; cursor: default; overscroll-behavior: none; }'), 'smithy/smithy.css draws the unselectable chrome');
   // The copy-worthy spots carry it.
   const src = (rel: string) => fs.readFileSync(path.join(DASHBOARD, 'src', 'components', rel), 'utf8');
   assert.match(src('SessionLog.svelte'), /role="log"[^>]*class="[^"]*\bselectable\b/, 'the session log');
@@ -750,7 +639,6 @@ test('no elastic overscroll', () => {
   assert.match(ruleFor(css, 'html'), /overscroll-behavior:none/, 'html does not bounce');
   assert.match(ruleFor(css, 'body'), /overscroll-behavior:none/, 'body does not bounce');
   assert.doesNotMatch(ruleFor(css, 'html') + ruleFor(css, 'body'), /overflow-x:hidden/, 'the page never hides sideways overflow');
-  assert.ok(smithyCss().includes('body { overscroll-behavior: none; }'), 'smithy/smithy.css mirrors it');
   assert.ok(hasClass(css, 'overscroll-contain'), 'the scrollers utility is built');
 });
 
@@ -759,12 +647,11 @@ test('Run Next sits flush with the segment buttons', () => {
   const flush = ruleFor(css, '.btn.primary.flush');
   assert.match(flush, /box-shadow:inset 0 -2px 0 0 var\(--gleam-deep\),var\(--gleam-spec\)/, 'the drop moves inside the box');
   assert.doesNotMatch(flush, /--shadow-primary/, 'no outer drop below the box');
-  assert.ok(smithyCss().includes('.btn.primary.flush { box-shadow: inset 0 -2px 0 0 var(--gleam-deep), var(--gleam-spec); }'), 'smithy/smithy.css draws .flush');
   assert.match(fs.readFileSync(path.join(DASHBOARD, 'src', 'views', 'Pipeline.svelte'), 'utf8'), /class="btn primary flush"/, 'Run Next uses it');
 });
 
 test('sender tints are opaque tokens with readable text', () => {
-  const tokens = fs.readFileSync(path.join(SMITHY, 'tokens.css'), 'utf8');
+  const tokens = styleCss();
   const block = (sel: string) => tokens.slice(tokens.indexOf(sel + ' {'), tokens.indexOf('}', tokens.indexOf(sel + ' {')));
   const hex = (b: string, name: string): number[] => {
     const v = new RegExp(`--${name}: (#[0-9a-f]{6});`).exec(b)?.[1];
@@ -795,12 +682,6 @@ test('sender tints are opaque tokens with readable text', () => {
     const rule = ruleFor(css, `.tint.${name}`);
     assert.match(rule, new RegExp(`background-color:var\\(--tint-${name}\\)`), `.tint.${name} fills with its token`);
     assert.match(rule, new RegExp(`--surface:var\\(--tint-${name}\\)`), `.tint.${name} is a surface`);
-    assert.ok(smithyCss().includes(`.tint.${name} { background-color: var(--tint-${name}); --surface: var(--tint-${name}); }`), `smithy/smithy.css mirrors .tint.${name}`);
   }
   assert.match(styleCss(), /@utility tint \{/);
-  const json = JSON.parse(fs.readFileSync(path.join(SMITHY, 'tokens.json'), 'utf8'));
-  for (const name of Object.keys(TINTS)) {
-    const t = json.color.tokens.find((x: { name: string }) => x.name === `tint-${name}`);
-    assert.ok(t && t.value.forge && t.value.ash && t.usage, `tokens.json has tint-${name} with both themes and a usage`);
-  }
 });

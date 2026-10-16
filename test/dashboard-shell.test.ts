@@ -1,4 +1,4 @@
-// The Smithy shell and job surfaces (smithy/components/*): every source keeps to the token corners and shadows and
+// The Smithy shell and job surfaces: every source keeps to the token corners and shadows and
 // uses none of the pre-Smithy class names, the job surfaces use the Smithy markup, and segments and nav links expose their selected state. Reads source files only, like dashboard-svelte.test.ts.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -558,7 +558,7 @@ test('no filled element nests in a patterned one', () => {
 const GROUND = ['PageHeader', 'Empty', 'Banner', 'StatusBar', 'Popover', 'JobCard', 'JobsTable', 'InboxCard', 'CommandTrigger', 'Drawer', 'Settings', 'CommandBar', 'Toast', 'GitHubCard', 'NeedsPanel'];
 /** A GROUND component's file: components/, or components/statusbar/ for a popover body. */
 const groundFile = (c: string) => (fs.existsSync(path.join(SRC, 'components', `${c}.svelte`)) ? `components/${c}.svelte` : `components/statusbar/${c}.svelte`);
-// A plate is a surface; an open plate is a container the grain shows through (smithy/README.md › Shape and surfaces).
+// A plate is a surface; an open plate is a container the grain shows through (AGENTS.md › Text never sits on the grain).
 const isSurface = (c: string[]) => (c.includes('plate') && !c.includes('open')) || ['plain', 'solid', 'chrome', 'btn', 'chip', 'input'].some((x) => c.includes(x));
 
 /** What renders on the bare ground in one component's markup; `checked` are the components scanned on their own. */
@@ -607,10 +607,9 @@ test('text never sits on the bare ground', () => {
   const checked = new Set([...GROUND, ...views.map((f) => f.replace(/\.svelte$/, ''))]);
   const files = ['App.svelte', ...views.map((f) => `views/${f}`), ...GROUND.map(groundFile)];
   for (const rel of files) assert.deepEqual(onGround(rel, read(rel), checked), [], `${rel} keeps its text on a surface`);
-  assert.ok(fs.readFileSync(path.join(ROOT, 'smithy', 'README.md'), 'utf8').includes('Text never sits on the grain'), 'smithy/README.md states the rule');
   const agents = fs.readFileSync(path.join(ROOT, 'AGENTS.md'), 'utf8');
   assert.ok(agents.includes('**Text never sits on the grain.**') && agents.includes('a `plate` (not `plate open`'), 'AGENTS.md states the rule with plate and plate open');
-  for (const s of ['`smithy/smithy.css`', 'Check the forge and ash themes', 'Grain']) assert.ok(agents.includes(s), `AGENTS.md names ${s}`);
+  for (const s of ['`dashboard/style.css`', 'Check the forge and ash themes', 'Grain']) assert.ok(agents.includes(s), `AGENTS.md names ${s}`);
 });
 
 /** Every file under dashboard/src, relative to it. */
@@ -649,22 +648,6 @@ test('no custom keyframes or animate utilities in dashboard sources', () => {
     assert.doesNotMatch(text, /--animate-/, `${f} sets no --animate- variable`);
     assert.doesNotMatch(text, /@utility\s+animate-/, `${f} declares no animate utility`);
   }
-});
-
-test('design docs name the live halo', () => {
-  const DESIGN = path.join(ROOT, 'smithy');
-  const readme = fs.readFileSync(path.join(DESIGN, 'README.md'), 'utf8');
-  const section = (name: string) => {
-    const start = readme.indexOf(`\n## ${name}\n`);
-    assert.ok(start >= 0, `smithy/README.md has § ${name}`);
-    const end = readme.indexOf('\n## ', start + 1);
-    return readme.slice(start, end < 0 ? undefined : end);
-  };
-  assert.ok(section('States').includes('one looping `animate-ping` halo in `gleam-hot` on the live dot marks an active session; it is the only looping motion and it is off under reduced motion'), '§ States names the live halo');
-  assert.ok(section('Motion').includes("the live dot's halo: the only looping motion, off under reduced motion"), '§ Motion names the live halo');
-  for (const f of ['README.md', 'preview.html']) assert.ok(fs.existsSync(path.join(DESIGN, 'components', 'LiveDot', f)), `smithy/components/LiveDot/${f} exists`);
-  const index = fs.readFileSync(path.join(DESIGN, 'index.html'), 'utf8');
-  assert.ok(index.includes('href="components/LiveDot/preview.html"'), 'smithy/index.html links the LiveDot preview');
 });
 
 test('ticking times read the shared clock and stay out of live regions', () => {
@@ -1327,10 +1310,6 @@ test('the view, the toast and the drawer clear the status bar', () => {
   assert.equal(drawer.find((e) => attrOf(e, 'id') === 'drawer-backdrop'), undefined, 'no backdrop');
   const footer = elements('components/StatusBar.svelte').find((e) => e.name === 'footer');
   assert.ok(footer?.classes.includes('z-35'), 'the bar sits between them');
-  const readme = fs.readFileSync(path.join(ROOT, 'smithy', 'README.md'), 'utf8');
-  const shell = readme.split('\n').find((l) => l.startsWith('- The shell is'));
-  assert.ok(shell?.includes('sidebar z-10, status bar z-35, a full job pane z-40, popovers z-42, Settings and the palette z-45, toast z-50'), 'smithy/README.md lists the z-order');
-  assert.ok(shell.includes('size-statusbar') && !/FAB/.test(shell), 'and names the token, not the FAB');
 });
 
 test('the daemon popover keeps every daemon bar control', () => {
@@ -1374,20 +1353,6 @@ test('the model popover is read-only', () => {
   assert.match(panel, /onMount\(\(\) => \{[\s\S]*?loadRoster\(\)/, 'fetched each time it opens');
   for (const key of ['loading', 'failed', 'noReviewers']) assert.ok(panel.includes(`$t('statusbar.model.${key}'`), `the ${key} state`);
   assert.match(read('lib/app.svelte.ts'), /export async function loadRoster\(\): Promise<void> \{\s*S\.roster = await api<Roster>\('\/api\/roster'\);/, 'GET /api/roster, the error left to the caller');
-});
-
-test('docs name the status bar', () => {
-  const COMPONENTS = path.join(ROOT, 'smithy', 'components');
-  for (const f of ['README.md', 'preview.html']) assert.ok(fs.existsSync(path.join(COMPONENTS, 'StatusBar', f)), `smithy/components/StatusBar/${f} exists`);
-  assert.ok(!fs.existsSync(path.join(COMPONENTS, 'DaemonBar')), 'smithy/components/DaemonBar does not exist');
-  const index = fs.readFileSync(path.join(ROOT, 'smithy', 'index.html'), 'utf8');
-  assert.ok(index.includes('href="components/StatusBar/preview.html"'), 'smithy/index.html links the StatusBar preview');
-  assert.doesNotMatch(index, /DaemonBar/, 'and no DaemonBar');
-  const readme = fs.readFileSync(path.join(COMPONENTS, 'StatusBar', 'README.md'), 'utf8');
-  assert.match(readme, /When the room runs out, the facts drop from the right: SHEET first, then API, then the SESSIONS word \(the dot and count stay\), then the FORGE word; below md only the version and the sessions dot with its count remain\./, 'the drop order');
-  assert.match(readme, /There is no input in the bar/, 'and no field');
-  // smithy/ is the drawing; the Drafting design/ folder is gone.
-  assert.ok(!fs.existsSync(path.join(ROOT, 'design')), 'design/ is gone');
 });
 
 test('status bar labels are whole or sr-only, never cut', () => {
@@ -1469,7 +1434,7 @@ test('popovers close on every route the spec lists', () => {
 
 test('no doc or source names the removed bar or the old palette triggers', () => {
   const STALE = /daemon bar|DaemonBar|\bFAB\b|phone button|dashed .*header/i;
-  const roots = ['README.md', 'docs', path.join('smithy', 'README.md'), path.join('smithy', 'components'), path.join('dashboard', 'src'), 'skills'];
+  const roots = ['README.md', 'docs', path.join('dashboard', 'src'), 'skills'];
   const files = roots.flatMap((r) => {
     const abs = path.join(ROOT, r);
     if (fs.statSync(abs).isFile()) return [abs];
@@ -1494,9 +1459,10 @@ test('no doc or source names the removed bar or the old palette triggers', () =>
     .filter((f) => path.relative(ROOT, f) !== path.join('dashboard', 'src', 'lib', 'theme.ts'))
     .flatMap((f) => fs.readFileSync(f, 'utf8').split('\n').map((l, i) => [f, i + 1, l] as const).filter(([, , l]) => DRAFTING.test(l)).map(([f, n]) => `${path.relative(ROOT, f)}:${n}`));
   assert.deepEqual(stale, [], 'no doc or source names the Drafting look');
+  assert.ok(!fs.existsSync(path.join(ROOT, 'design')), 'design/ is gone');
 });
 
-// smithy/README.md › Voice: counts sit after their label in parentheses, in muted tabular numerals ("Active (3)",
+// Voice: counts sit after their label in parentheses, in muted tabular numerals ("Active (3)",
 // "Timeline (14)"); a count that stands alone at the right of a row (a nav badge, a chip) needs none.
 test('counts read Label (N) in tabs and segments', () => {
   const pipeline = read('views/Pipeline.svelte');
