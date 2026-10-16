@@ -13,6 +13,8 @@ const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 export function scratchGitConfig(git) {
   git('config', 'commit.gpgsign', 'false');
   git('config', 'tag.gpgsign', 'false');
+  // Git for Windows defaults to autocrlf=true, which rewrites what tests commit and compare byte for byte.
+  git('config', 'core.autocrlf', 'false');
 }
 
 // Every test file that touches git imports this module, so pinning git's config here covers the

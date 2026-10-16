@@ -266,3 +266,68 @@ test('forge dash notes the daemon refusal on native Windows only', async () => {
     repo.cleanup();
   }
 });
+
+test('posixShell resolves sh per platform', () => {
+  // Off Windows: $SHELL, else /bin/sh, exactly as before.
+  assert.equal(posixShell({ platform: 'darwin', env: { SHELL: '/bin/zsh' } }), '/bin/zsh');
+  assert.equal(posixShell({ platform: 'linux', env: {} }), '/bin/sh');
+  assert.equal(posixShell({ platform: 'linux', env: { SHELL: '' } }), '/bin/sh');
+  assert.equal(posixShell(), process.platform === 'win32' ? posixShell({ platform: 'win32' }) : process.env.SHELL || '/bin/sh');
+
+  // On Windows $SHELL (an MSYS path under Git Bash) is ignored.
+  const calls: string[] = [];
+  const where = (found: string | null) => (cmd: string) => {
+    calls.push(cmd);
+    return found;
+  };
+  const never = () => assert.fail('exists is not consulted when where finds sh');
+  const env = { SHELL: '/usr/bin/bash', ProgramFiles: 'D:\\Apps' };
+  assert.equal(posixShell({ platform: 'win32', env, where: where('C:\\Program Files\\Git\\usr\\bin\\sh.exe'), exists: never }), 'C:\\Program Files\\Git\\usr\\bin\\sh.exe');
+  assert.deepEqual(calls, ['sh']);
+
+  // Not on PATH: Git for Windows' own location under %ProgramFiles%.
+  const seen: string[] = [];
+  const bundled = posixShell({ platform: 'win32', env, where: where(null), exists: (p) => (seen.push(p), true) });
+  assert.equal(bundled, 'D:\\Apps\\Git\\bin\\sh.exe');
+  assert.deepEqual(seen, ['D:\\Apps\\Git\\bin\\sh.exe']);
+  assert.equal(posixShell({ platform: 'win32', env: {}, where: where(null), exists: () => true }), 'C:\\Program Files\\Git\\bin\\sh.exe');
+
+  // Neither: a ForgeError that says why and where to read more.
+  assert.throws(
+    () => posixShell({ platform: 'win32', env, where: where(null), exists: () => false }),
+    (e: unknown) => {
+      assert.ok(e instanceof ForgeError);
+      assert.equal(e.exitCode, 1);
+      assert.match(e.message, /POSIX sh/);
+      assert.match(e.message, /Git for Windows \(Git Bash\)/);
+      assert.match(e.message, /WSL2/);
+      assert.ok(e.message.includes(SUPPORT_URL));
+      return true;
+    },
+  );
+
+  // Every template site goes through the resolver.
+  for (const f of ['lib/worktree.ts', 'lib/evals.ts']) assert.doesNotMatch(read(f), /SHELL \|\| '\/bin\/sh'/, f);
+  assert.equal(read('lib/worktree.ts').match(/posixShell\(\)/g)?.length, 3, 'shell(), shellAsync() and forge run --background');
+  assert.equal(read('lib/evals.ts').match(/posixShell\(\)/g)?.length, 1, 'eval grading');
+});
+
+test('scratch repos never convert line endings', () => {
+  assert.match(read('test/fixtures/gitconfig'), /^\[core\]\n\tautocrlf = false$/m);
+  assert.match(read('.gitattributes'), /^\* text=auto eol=lf$/m);
+  const repo = tempRepo();
+  try {
+    assert.equal(String(repo.git('config', '--local', 'core.autocrlf')).trim(), 'false');
+    // A CRLF file goes in and comes back out byte for byte.
+    const file = path.join(repo.dir, 'crlf.txt');
+    fs.writeFileSync(file, 'a\r\nb\r\n');
+    repo.git('add', 'crlf.txt');
+    repo.git('commit', '-qm', 'crlf');
+    assert.equal(String(repo.git('cat-file', '-p', 'HEAD:crlf.txt')), 'a\r\nb\r\n');
+    fs.rmSync(file);
+    repo.git('checkout', '--', 'crlf.txt');
+    assert.equal(fs.readFileSync(file, 'utf8'), 'a\r\nb\r\n');
+  } finally {
+    repo.cleanup();
+  }
+});

@@ -68,6 +68,9 @@ export function versionAtLeast(text: string, [major, minor]: [number, number]): 
   return a > major || (a === major && b >= minor);
 }
 
+/** What templates run under off Windows when $SHELL is unset. */
+const DEFAULT_SH = '/bin/sh';
+
 export interface PosixShellOptions {
   platform?: NodeJS.Platform;
   env?: NodeJS.ProcessEnv;
@@ -99,7 +102,7 @@ function defaultWhere(cmd: string): string | null {
 export function posixShell(opts: PosixShellOptions = {}): string {
   const platform = opts.platform ?? process.platform;
   const env = opts.env ?? process.env;
-  if (platform !== 'win32') return env.SHELL || '/bin/sh';
+  if (platform !== 'win32') return env.SHELL || DEFAULT_SH;
   const found = (opts.where ?? defaultWhere)('sh');
   if (found) return found;
   const bundled = path.win32.join(env.ProgramFiles || 'C:\\Program Files', 'Git', 'bin', 'sh.exe');

@@ -3,6 +3,8 @@
 [user]
 	name = Test
 	email = test@example.com
+[core]
+	autocrlf = false
 [commit]
 	gpgsign = false
 [tag]

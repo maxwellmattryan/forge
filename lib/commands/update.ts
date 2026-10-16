@@ -17,7 +17,7 @@ export const HELP: HelpGroup[] = [
           ['--keep-dash', "don't restart the dashboard"],
         ],
         exits: [
-          [1, 'the install is unknown or blocked (a clone with local changes, no upstream, a detached HEAD), or a daemon session asked'],
+          [1, 'the install is unknown or blocked (a clone with local changes, no upstream, a detached HEAD), a daemon session asked, or it runs on native Windows'],
           [5, 'a step it ran (claude or git) failed'],
         ],
         docs: ['Updating', 'README.md#updating'],
