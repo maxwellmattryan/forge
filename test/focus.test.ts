@@ -247,7 +247,8 @@ describe('forge focus', { concurrency: 4 }, () => {
   });
 });
 
-test('switching focus starts and stops nothing', { timeout: 60_000 }, async () => {
+// The stub dev server is `sleep 30` through sh, and the liveness check signals a process group: both POSIX.
+test('switching focus starts and stops nothing', { timeout: 60_000, skip: process.platform === 'win32' && 'POSIX shell dev server and process groups' }, async () => {
   const s = scratch();
   const pids: number[] = [];
   const alive = (pid: number) => {

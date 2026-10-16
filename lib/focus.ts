@@ -29,9 +29,13 @@ const focusLock = (root: string): string => path.join(paths(root).locks, 'focus'
 export function readSmallJson(file: string): Record<string, unknown> | null {
   let fd: number | undefined;
   try {
+    // Windows has no O_NOFOLLOW, so lstat refuses a link or FIFO before the open, and the
+    // descriptor must still be that same file (no swap in between).
+    const link = fs.lstatSync(file);
+    if (!link.isFile()) return null;
     fd = fs.openSync(file, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK);
     const st = fs.fstatSync(fd);
-    if (!st.isFile() || st.size > MAX_RECORD) return null;
+    if (!st.isFile() || st.size > MAX_RECORD || st.dev !== link.dev || st.ino !== link.ino) return null;
     const v = JSON.parse(fs.readFileSync(fd, 'utf8'));
     return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
   } catch {

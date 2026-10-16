@@ -249,7 +249,8 @@ test('POST run reuses a live dev server', { timeout: 60_000 }, async () => {
   }
 });
 
-test('POST editor spawns a fixed argv at the contained worktree only', { timeout: 60_000 }, async () => {
+// The stub editor is a #!/bin/sh script, which Windows cannot spawn without a shell.
+test('POST editor spawns a fixed argv at the contained worktree only', { timeout: 60_000, skip: process.platform === 'win32' && 'POSIX shell stub editor' }, async () => {
   const s = await scratch();
   try {
     const a = await s.job('Alpha');
@@ -274,11 +275,6 @@ test('POST editor spawns a fixed argv at the contained worktree only', { timeout
     assert.deepEqual(editorArgv(process.env), ['code'], 'blank means code');
     delete process.env.FORGE_EDITOR;
     assert.deepEqual(editorArgv(process.env), ['code'], 'unset means code');
-
-    process.env.FORGE_EDITOR = 'no-such-editor-forge-test';
-    const missing = await s.post(`/api/jobs/${a}/editor`, {});
-    assert.equal(missing.status, 409);
-    assert.equal(JSON.parse(missing.text).error, 'no editor "no-such-editor-forge-test" found: set FORGE_EDITOR to your editor\'s command');
 
     process.env.FORGE_EDITOR = 'stub-editor';
     assert.equal((await s.post('/api/jobs/no-such-job/editor', {})).status, 404);
@@ -312,6 +308,21 @@ test('POST editor spawns a fixed argv at the contained worktree only', { timeout
     fs.symlinkSync(os.tmpdir(), wtA.path);
     assert.equal((await s.post(`/api/jobs/${a}/editor`, {})).status, 409, '<root>/<id> is a link out');
     assert.equal(recordedArgv(), null);
+  } finally {
+    delete process.env.FORGE_EDITOR;
+    await s.cleanup();
+  }
+});
+
+test('POST editor answers 409 when the editor is not found', { timeout: 60_000 }, async () => {
+  const s = await scratch();
+  try {
+    const a = await s.job('Alpha');
+    await s.f('worktree', 'create', a);
+    process.env.FORGE_EDITOR = 'no-such-editor-forge-test';
+    const missing = await s.post(`/api/jobs/${a}/editor`, {});
+    assert.equal(missing.status, 409);
+    assert.equal(JSON.parse(missing.text).error, 'no editor "no-such-editor-forge-test" found: set FORGE_EDITOR to your editor\'s command');
   } finally {
     delete process.env.FORGE_EDITOR;
     await s.cleanup();
