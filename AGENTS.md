@@ -1,6 +1,6 @@
 # Working on Forge itself
 
-This repo is **Forge**: a Claude Code plugin that is also its own marketplace. This guide is for changing Forge. To *use* it in another repo, run `/forge` there. Read `README.md` first; for depth see `docs/ARCHITECTURE.md` (layers, versioning, concurrency, security) and `docs/CONFIG.md` (every config key).
+This repo is **Forge**: a Claude Code plugin that is also its own marketplace. This guide is for changing Forge. To *use* it in another repo, run `/forge` there. Read `README.md` first; for depth see `docs/ARCHITECTURE.md` (layers, versioning, concurrency, security), `docs/CONFIG.md` (every config key) and [`docs/GLOSSARY.md`](docs/GLOSSARY.md) (the words docs, prompts and dashboard copy use).
 
 ## Layout
 - `bin/forge`: CLI entry (also on PATH while the plugin is enabled); it turns on the start-up cache, then imports `lib/cli.ts`
@@ -43,6 +43,7 @@ Each dashboard page is one component in `dashboard/src/views/`. Put shared piece
 - **Never add AI attribution** to commits, PRs, issues or comments in this repo either. The hook in `hooks/` enforces it while the plugin is enabled.
 - **Preserve the security posture** (ARCHITECTURE.md "Untrusted input" and "Dashboard security"): never adopt fork PRs; the server answers loopback Hosts only; POSTs need the token, a matching Origin and JSON; tracker and PR text is fenced as data, and agents are told so. Anything new that ingests outside text follows the same pattern.
 - Comments explain why, not what.
+- **Use the glossary's words.** New docs, prompts and dashboard copy use the terms in `docs/GLOSSARY.md`; a new term goes there first.
 - Keep `README.md`, `docs/*.md` and `skills/forge/**` in sync with CLI behaviour.
 
 ## Verify before claiming it works
@@ -60,7 +61,7 @@ claude plugin validate . --strict
 - **Never point the CLI at a real repo's `.forge/` while developing.** Use a scratch git repo in a temp dir, or set `FORGE_ROOT=<scratch>` (as `test/helpers.ts` does). Delete scratch repos *and* their `<repo>.worktrees` siblings afterwards.
 - **Dashboard:** in a scratch repo, seed a job or two (`forge job new`, `forge job set`), then run `FORGE_ROOT=<scratch> npm run dev` from this checkout: it serves your sources and rebuilds on save (reload to see an edit; one Ctrl-C stops it). Open it in a browser. Check the forge, ash and temper themes, a phone-width viewport, the job drawer, and that markdown containing `<script>` / `<img onerror>` renders escaped. Finally run `npm run build:dashboard` and commit `dist/` with the sources (`forge dash` serves `dashboard/dist/`, not the sources).
 - **The plugin inside Claude Code:** `claude --plugin-dir <this checkout>` loads it without installing. `claude plugin details forge` shows the component inventory and projected token cost, which is useful when trimming prompts.
-- **GitHub code paths** (`pr.ts`, `trackers/github.ts`): read-only checks against real repos are fine. Anything that writes (PRs, labels, Project fields, comments, issues) goes only to a throwaway repo the maintainer approves.
+- **GitHub code paths** (`pr.ts`, `trackers/github.ts`): read-only checks against real repos are fine. Anything that writes (PRs, labels, GitHub Project fields, comments, issues) goes only to a throwaway repo the maintainer approves.
 
 ## Gotchas already paid for
 - **Tailwind v4**: `@apply` accepts only built-in utilities or classes declared with `@utility`; plain `.class {}` rules can't be `@apply`'d. Tailwind only sees the `@source` files in `dashboard/style.css`: build class names from whole literals, never `bg-${tone}`; no `class:` directives, and no `<style>` blocks in components. Upgrading means bumping the exact devDependency versions and rebuilding.

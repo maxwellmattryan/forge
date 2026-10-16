@@ -129,7 +129,7 @@ The `forge` CLI underneath is also for scripts, CI and other agent runtimes: `fo
 - **State** lives in `.forge/jobs/<id>/` (gitignored) in the main checkout, shared by every worktree and session: `job.json`, an append-only `events.jsonl`, and the agents' markdown files.
 - **Every human action says who.** Approvals, budget acks, links, forced claims, `--now` merges, config changes and dashboard permission answers record a best-effort, unauthenticated `actor` (`FORGE_ACTOR`, else `gh`, `git` or the OS user); `forge job audit <id>` and `forge audit --since <date>` export the trail as JSON or CSV (see [Audit trail](docs/ARCHITECTURE.md#audit-trail)).
 
-Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CLI.md](docs/CLI.md) (the CLI's contract: `--json`, exit codes, environment variables) · [docs/CONFIG.md](docs/CONFIG.md) · [docs/TRACKERS.md](docs/TRACKERS.md) · [docs/VERIFIERS.md](docs/VERIFIERS.md) · [docs/IMPROVEMENT.md](docs/IMPROVEMENT.md) · [docs/PROTOCOL.md](docs/PROTOCOL.md) (running Forge on other agent runtimes)
+Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/GLOSSARY.md](docs/GLOSSARY.md) (the words Forge uses) · [docs/CLI.md](docs/CLI.md) (the CLI's contract: `--json`, exit codes, environment variables) · [docs/CONFIG.md](docs/CONFIG.md) · [docs/TRACKERS.md](docs/TRACKERS.md) · [docs/VERIFIERS.md](docs/VERIFIERS.md) · [docs/IMPROVEMENT.md](docs/IMPROVEMENT.md) · [docs/PROTOCOL.md](docs/PROTOCOL.md) (running Forge on other agent runtimes)
 
 ## Dashboard
 
