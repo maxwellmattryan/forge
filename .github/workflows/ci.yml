@@ -139,6 +139,7 @@ jobs:
             test/step.test.ts: forge job step refuses the job's backslash paths as unsafe arguments
             test/step-cli.test.ts: forge job step refuses the job's backslash paths as unsafe arguments
             test/step-e2e-issue-link.test.ts: forge job step refuses the job's backslash paths as unsafe arguments
+            test/eval-overlay.test.ts: forge job step refuses the job's backslash paths as unsafe arguments
             test/config-daemon.test.ts: the migration names .forge\config.yml where the test expects .forge/config.yml
             test/dashboard-shell.test.ts: compares component paths with / and gets \ on Windows
             test/server-transcripts.test.ts: tool activity reads Read lib\server.ts where the test expects lib/server.ts
