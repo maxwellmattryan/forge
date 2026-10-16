@@ -575,6 +575,20 @@ export interface ReviewerStats {
   recurring: number;
 }
 
+/** One verifier's record: computeStats in lib/stats.ts, from `verifiers` record events. */
+export interface VerifierStats {
+  /** Records whose results name it. */
+  runs: number;
+  /** Answers `no`. */
+  fails: number;
+  /** Answers `none`: no valid answer from the verifier model. */
+  unanswered: number;
+  /** `no` or `none` in block mode. */
+  blocks: number;
+  /** fails / runs; null at 0 runs. */
+  hitRate: number | null;
+}
+
 /** GET /api/stats: computeStats in lib/stats.ts. */
 export interface Stats {
   generatedAt: string;
@@ -610,6 +624,7 @@ export interface Stats {
     byModel: Record<string, UsageRow>;
   };
   reviewers: Record<string, ReviewerStats>;
+  verifiers: Record<string, VerifierStats>;
 }
 
 /** An eval task as served: loadTask in lib/evals.ts minus `dir` and `request`. */

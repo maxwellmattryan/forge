@@ -7,6 +7,7 @@ import { TRUST_ENV, defaults, trustDigest, validateConfig } from '../lib/config.
 import { CONFIG_DISCLOSURE, FIELDS, disclosureOf, redactedConfig } from '../lib/config-fields.ts';
 import { COMPLEXITIES, EFFORT_ROLES, EFFORTS } from '../lib/schema.ts';
 import { setConfigValue } from '../lib/config-set.ts';
+import { applyOverlay, overlayProblems } from '../lib/eval-overlay.ts';
 import { getPath } from '../lib/util.ts';
 import { setIn } from '../lib/yaml.ts';
 
@@ -413,6 +414,23 @@ describe('forge config set and get', { concurrency: 4 }, () => {
       s.repo.cleanup();
     }
   });
+});
+
+test('runtime.models.verifier defaults to haiku', () => {
+  const base = defaults();
+  assert.equal(base.runtime.models.verifier, 'haiku');
+  const f = FIELDS.find((x) => x.key === 'runtime.models.verifier');
+  assert.ok(f?.editable, 'an editable field');
+  assert.equal(f.label, 'Verifier model');
+  assert.ok(!(EFFORT_ROLES as readonly string[]).includes('verifier'), 'no runtime.efforts.verifier: an older Forge would reject it');
+  assert.ok(fs.readFileSync(path.join(ROOT, 'docs', 'CONFIG.md'), 'utf8').includes('    verifier: haiku'));
+  const repo = tempRepo();
+  try {
+    assert.deepEqual(overlayProblems(repo.dir, base, { 'runtime.models.verifier': 'sonnet' }), [], 'an eval overlay may set it');
+    assert.equal(applyOverlay(base, { 'runtime.models.verifier': 'sonnet' }).runtime.models.verifier, 'sonnet');
+  } finally {
+    repo.cleanup();
+  }
 });
 
 /** Every leaf key of an object: recursion stops at arrays, empty objects and scalars. */

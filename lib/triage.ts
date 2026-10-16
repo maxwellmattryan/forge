@@ -11,8 +11,8 @@ import { isActive, listJobs } from './jobs.ts';
 import { paths } from './paths.ts';
 import { repoSlug } from './pr.ts';
 import { roster } from './roster.ts';
-import { UNTRUSTED_LINE, fenced, oneLine } from './tracker-link.ts';
-import { ForgeError, now, run, withLock, writeJsonAtomic, writeTextAtomic } from './util.ts';
+import { UNTRUSTED_LINE, oneLine } from './tracker-link.ts';
+import { ForgeError, fenced, now, run, withLock, writeJsonAtomic, writeTextAtomic } from './util.ts';
 import type { Config, Effort, Tracker, TrackerCtx, TrackerItem, TriageMissing } from './types.ts';
 
 export const TRIAGE_MISSING = ['outcome', 'acceptance', 'scope', 'duplicate'] as const satisfies readonly TriageMissing[];

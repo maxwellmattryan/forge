@@ -230,6 +230,13 @@
     "created": "Created",
     "updated": "Updated",
     "verify": "Verify",
+    "verifiers": "Verifiers",
+    "verifiersTitle": "{blocking} · {warnings}",
+    "verifiersBlocking": "{count} blocking",
+    "verifiersWarnings": {
+      "one": "{count} warning",
+      "other": "{count} warnings"
+    },
     "agent": "Agent",
     "output": "Output",
     "tools": "Tools",

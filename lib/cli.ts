@@ -28,6 +28,7 @@ import { jobCmd } from './commands/job.ts';
 import { requestsCmd } from './commands/requests.ts';
 import { runCmd } from './commands/run.ts';
 import { secretsCmd } from './commands/secrets.ts';
+import { verifiersCmd } from './commands/verifiers.ts';
 import { statsText, statusRows, statusTable } from './commands/status.ts';
 import { nextCmd, syncAll, trackerCmd } from './commands/tracker.ts';
 import { updateCmd } from './commands/update.ts';
@@ -137,6 +138,10 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
     case 'secrets':
       needInit();
       return secretsCmd(ctx, sub, rest, flags);
+    case 'verifiers':
+      // list reads only .forge/verifiers/, so it needs no initialised repo or job.
+      if (sub !== 'list') needInit();
+      return verifiersCmd(ctx, sub, rest);
     case 'integrate': {
       needInit();
       const id = req(sub, 'job id');

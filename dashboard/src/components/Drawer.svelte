@@ -33,7 +33,7 @@
   import { screenshotsPanel } from '../lib/screenshots.ts';
   import { threadItems, threadMarks, threadOpening, unreadCount } from '../lib/thread.ts';
   import { ago, dur, num, tokensShort, usd } from '../lib/util.ts';
-  import { eventDetail, isForemanEvent, verdictMatrix } from '../lib/view.ts';
+  import { eventDetail, isForemanEvent, verdictMatrix, verifierRounds, verifierTone } from '../lib/view.ts';
   import { scopeVerbs } from '../lib/command.ts';
   import { S, closeDrawer, loadFile, setDrawerTab } from '../lib/app.svelte.ts';
   import { ticker } from '../lib/clock.svelte.ts';
@@ -49,7 +49,11 @@
   const prUrl = $derived(safeUrl(job?.pr?.url));
   const srcUrl = $derived(safeUrl(job?.source?.url));
   const srcGitHub = $derived(srcUrl?.startsWith('https://github.com/') ?? false);
-  const matrix = $derived(job ? verdictMatrix(job) : null);
+  // Only a job with a verifiers record gets the column. The detail's events are the last 400
+  // (lib/server.ts), so on a very long job an early round's cell can read — though it ran.
+  const verifierResults = $derived(shown ? verifierRounds(shown.detail.events) : {});
+  const hasVerifiers = $derived(Object.keys(verifierResults).length > 0);
+  const matrix = $derived(job ? verdictMatrix(job, verifierResults) : null);
   const effort = $derived(job ? effortChip(job.effort, S.data?.config?.effort) : null);
   const prot = $derived(job ? protectedSummary(job) : null);
   const usageRows = $derived(Object.entries(job?.usage?.byRole ?? {}));
@@ -242,13 +246,15 @@
           {#if matrix}
             <div class="plate flat"><div class="overflow-x-auto">
               <table class="tbl">
-                <thead><tr><th>{$t('table.round')}</th><th>{$t('drawer.verify')}</th>{#each matrix.reviewers as r (r)}<th>{r}</th>{/each}</tr></thead>
+                <thead><tr><th>{$t('table.round')}</th><th>{$t('drawer.verify')}</th>{#if hasVerifiers}<th>{$t('drawer.verifiers')}</th>{/if}{#each matrix.reviewers as r (r)}<th>{r}</th>{/each}</tr></thead>
                 <tbody>
                   {#each matrix.rounds as r (r)}
                     {@const verify = j.verify?.[r]}
+                    {@const vf = verifierResults[r]}
+                    {@const vfText = vf ? $t('drawer.verifiersTitle', { blocking: $t('drawer.verifiersBlocking', { count: vf.blocking }), warnings: $t('drawer.verifiersWarnings', { count: vf.warned }) }) : undefined}
                     <tr>
                       <td class="num">{r}</td>
-                      <td>{#if verify}<Chip tone={verify === 'PASS' ? 'ok' : 'bad'} text={verify} />{:else}—{/if}</td>{#each matrix.reviewers as name (name)}{@const v = j.verdicts?.[r]?.[name]}<td>{#if v}<Chip tone={v === 'PASS' ? 'ok' : 'bad'} text={v} />{:else}—{/if}</td>{/each}
+                      <td>{#if verify}<Chip tone={verify === 'PASS' ? 'ok' : 'bad'} text={verify} />{:else}—{/if}</td>{#if hasVerifiers}<td class="whitespace-nowrap" title={vfText}>{#if vf}<Chip tone={verifierTone(vf)} text={vf.outcome} />{#if vf.warned > 0}<span class="muted num ml-1" aria-hidden="true">{$t('drawer.verifiersWarnings', { count: vf.warned })}</span>{/if}<span class="sr-only">{vfText}</span>{:else}—{/if}</td>{/if}{#each matrix.reviewers as name (name)}{@const v = j.verdicts?.[r]?.[name]}<td>{#if v}<Chip tone={v === 'PASS' ? 'ok' : 'bad'} text={v} />{:else}—{/if}</td>{/each}
                     </tr>
                   {/each}
                 </tbody>
