@@ -1814,7 +1814,7 @@ test("only fresh agents of the job's own session keep it", async () => {
     for (const id of [other, stale, unowned]) assert.equal(keptWhenIdle.get(id), null, `${id} reported kept: null`);
     // sessionAgents itself: the inbox, an invalid id, a missing job and no session id own nothing.
     const sid = crypto.randomUUID();
-    const none = { running: [], keeps: false, lastEndAt: null };
+    const none = { running: [], keeps: false, lastEndAt: null, keeping: [] };
     assert.deepEqual(sessionAgents(repo.dir, INBOX, sid), none);
     assert.deepEqual(sessionAgents(repo.dir, '../etc', sid), none);
     assert.deepEqual(sessionAgents(repo.dir, 'no-such-job', sid), none);
