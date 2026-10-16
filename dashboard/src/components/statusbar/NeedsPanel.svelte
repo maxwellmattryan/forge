@@ -1,5 +1,5 @@
-<!-- The Needs-you popover's body (the page it replaced): decisions only a human can make, PRs awaiting review, jobs parked on
-     their dependencies (listed apart: they resume by themselves, but a human may unblock one), and queued requests.
+<!-- The Needs-you popover's body (the page it replaced): every pending permission prompt in the pool, answered right here,
+     then decisions only a human can make, PRs awaiting review, jobs parked on their dependencies (listed apart: they resume by themselves, but a human may unblock one), and queued requests.
      Opening a job opens its pane, and StatusBar closes the popover. Titles, reasons and request text are untrusted and
      render as text; the PR link goes through safeUrl. -->
 <script lang="ts">
@@ -7,26 +7,39 @@
   import Icon from '../Icon.svelte';
   import InboxCard from '../InboxCard.svelte';
   import JobActions from '../JobActions.svelte';
+  import PermissionPrompts from '../PermissionPrompts.svelte';
   import PrChip from '../PrChip.svelte';
   import { safeUrl } from '../../lib/markdown.ts';
   import { ago } from '../../lib/util.ts';
   import type { ApiState } from '../../lib/types.ts';
   import { cardRef, inboxGroups } from '../../lib/view.ts';
-  import { openDrawer, req } from '../../lib/app.svelte.ts';
+  import { pendingPrompts } from '../../lib/permissions.ts';
+  import { S, openDrawer, req } from '../../lib/app.svelte.ts';
   import { ticker } from '../../lib/clock.svelte.ts';
+  import { keepFocus } from '../../lib/popover.svelte.ts';
   import { t } from '../../lib/locale.ts';
 
   let { data }: { data: ApiState } = $props();
   const groups = $derived(inboxGroups(data.jobs));
   const reqs = $derived(data.requests ?? []);
+  // The same source PermissionPrompts reads, so the section renders exactly when it lists something.
+  const prompts = $derived(pendingPrompts(S.data?.daemons ?? null).length);
+  // An answered prompt unmounts with its buttons: focus back on the popover, not the body.
+  $effect(() => {
+    void prompts;
+    keepFocus();
+  });
 </script>
 
 <!-- plain: the popover's own surface, so the panel keeps its text off the grain wherever it renders. -->
 <div class="plain flex flex-col gap-5">
+  {#if prompts}<PermissionPrompts />{/if}
   <section class="flex flex-col gap-3" aria-labelledby="needs-urgent">
     <h3 id="needs-urgent" class="label">{$t('needs.urgent')}</h3>
     {#if groups.urgent.length}
       {#each groups.urgent as j (j.id)}<InboxCard job={j} />{/each}
+    {:else if prompts}
+      <p class="text-sm text-muted">{$t('needs.noDecisions')}</p>
     {:else}
       <p class="text-sm text-muted">{$t('needs.empty')}</p>
     {/if}

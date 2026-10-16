@@ -1,4 +1,4 @@
-// The status bar's pure half: its Foreman, daemon and inbox indicators, the facts strip's drop order, the model label, the
+// The status bar's pure half: its Foreman and daemon indicators, the facts strip's drop order, the model label, the
 // connection state, the prompt announcement, and the rule of the sidebar's "New job or command" input. No DOM and no svelte import, so node:test can pin them.
 // Model strings come from config.yml and the roster, session state from session output: all plain strings, rendered as text.
 import { obj, poolModel, sessionPill } from './daemon.ts';
@@ -103,7 +103,7 @@ export function connectionState({ online, apiVersion, clientApi }: { online: boo
   return { state: 'live', tone: 'ok' };
 }
 
-// ---------- daemon and inbox ----------
+// ---------- daemon and foreman ----------
 
 /** Off, the bar still shows `Daemon 0/<cap>`: cap is daemon.maxConcurrent, 0 when the server sends none. */
 export type DaemonIndicator = { off: true; active: false; cap: number } | { off: false; pill: Pill; live: number; cap: number; active: boolean };
@@ -113,23 +113,18 @@ export type ForemanIndicator = { on: false } | { on: true; daemon: boolean; pill
 
 export interface BarModel {
   daemon: DaemonIndicator;
-  /** Null exactly when the daemon is off: the Inbox indicator is not rendered. */
-  inbox: Pill | null;
   /** On exactly while foreman.enabled; an older server that sends no flag reads as off. */
   foreman: ForemanIndicator;
-  /** Pending permission prompts across the whole pool. */
+  /** Pending permission prompts across the whole pool, the office's included: the Needs-you badge counts them. */
   prompts: number;
   held: number;
   waiting: number;
-  /** A prompt waits somewhere: the Inbox indicator takes the warn tone and the count. */
-  attention: boolean;
 }
 
 /** The left cluster, built only from poolModel, activeSessions and pendingPrompts, so the bar and the board agree. */
 export function barModel(pool: PoolInput, opts: { pending: boolean }): BarModel {
   const m = poolModel(pool, opts);
   const prompts = pendingPrompts(pool ?? null).length;
-  const attention = prompts > 0;
   const p = obj(pool);
   const office = p.office ?? null;
   const foreman: ForemanIndicator =
@@ -138,12 +133,10 @@ export function barModel(pool: PoolInput, opts: { pending: boolean }): BarModel 
       : { on: false };
   return {
     daemon: m ? { off: false, pill: m.pill, live: m.live, cap: m.cap, active: activeSessions(pool).count > 0 } : { off: true, active: false, cap: Number(p.maxConcurrent) || 0 },
-    inbox: m ? (attention ? { ...m.inbox, tone: 'warn' } : m.inbox) : null,
     foreman,
     prompts,
     held: m ? m.held.length : 0,
     waiting: m ? m.waiting.length : 0,
-    attention,
   };
 }
 

@@ -1188,14 +1188,13 @@ test('status bar: one fixed footer in the inert shell, outside main', () => {
   // 30px tall from md up: the token, plus the inset.
   assert.ok(fs.readFileSync(path.join(ROOT, 'dashboard', 'style.css'), 'utf8').includes('--size-statusbar: 30px;'), 'the bar is 30px');
   // AC6: three live dots, the Foreman's (on while the office works and the daemon runs), the daemon indicator's (on
-  // exactly when a session works) and the facts' SESSIONS dot; Inbox only with the daemon on; holds and waits from md up.
+  // exactly when a session works) and the facts' SESSIONS dot; no Inbox indicator at all; holds and waits from md up.
   const markup = markupOf('components/StatusBar.svelte');
   const dots = bar.filter((e) => e.name === 'LiveDot');
   assert.deepEqual(dots.map((d) => attrOf(d, 'on')), ['{bar.foreman.daemon && bar.foreman.active}', '{bar.daemon.active}', '{active.count > 0}'], "the Foreman's dot, the daemon's dot and the sessions dot");
   for (const d of dots) assert.ok(d.parents.includes(footer));
-  const inbox = ifBody(markup, 'bar.inbox');
-  assert.ok(inbox?.includes("openPopover('inbox'"), 'the Inbox indicator renders inside {#if bar.inbox}');
-  assert.equal(markup.match(/openPopover\('inbox'/g)?.length, 1);
+  assert.equal(ifBody(markup, 'bar.inbox'), null, 'no {#if bar.inbox}');
+  assert.doesNotMatch(markup, /openPopover\('inbox'|data-popover="inbox"/, 'no Inbox indicator, whether the daemon is on or off');
   for (const [cond, msg] of [['bar.held', 'daemon.held'], ['bar.waiting', 'daemon.waiting']]) {
     const body = ifBody(markup, cond);
     assert.ok(body, `{#if ${cond}}`);
@@ -1251,7 +1250,7 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
 
   // Every indicator is a labelled button that opens a dialog and says whether it is open.
   const indicators = bar.filter((e) => e.name === 'button' && /openPopover\(/.test(attrOf(e, 'onclick')));
-  assert.equal(indicators.length, 8, 'foreman, needs, daemon, inbox, held, waiting, model, connection');
+  assert.equal(indicators.length, 7, 'foreman, needs, daemon, held, waiting, model, connection');
   for (const b of indicators) {
     assert.ok(b.parents.includes(footer), 'inside the bar');
     assert.equal(attrOf(b, 'aria-haspopup'), 'dialog');
@@ -1259,18 +1258,18 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
     assert.ok(attrOf(b, 'aria-controls'), 'aria-controls while open');
     // Needs you's words are always sr-only, and the Daemon's state never shows, so their tooltips always show; the Foreman's
     // whenever it is on (its state word is never visible); the others only while part of their text is hidden.
-    if (attrOf(b, 'data-popover') === 'needs') assert.equal(attrOf(b, 'title'), "{$t('statusbar.needs.name')}");
+    if (attrOf(b, 'data-popover') === 'needs') assert.equal(attrOf(b, 'title'), '{titles.needs}');
     else if (attrOf(b, 'data-popover') === 'daemon' && attrOf(b, 'onclick') === "{(e) => openPopover('daemon', e.currentTarget)}" && !b.classes.includes('max-md:hidden')) assert.equal(attrOf(b, 'title'), '{titles.daemon}');
-    else if (attrOf(b, 'data-popover') === 'foreman') assert.equal(attrOf(b, 'title'), '{bar.foreman.on || phone || left >= 8 ? titles.foreman : undefined}');
+    else if (attrOf(b, 'data-popover') === 'foreman') assert.equal(attrOf(b, 'title'), '{bar.foreman.on || phone || left >= 5 ? titles.foreman : undefined}');
     else assert.match(attrOf(b, 'title'), /\? .* : undefined\}$/, 'a tooltip with the full label only while part of the text is hidden');
     assert.ok(!b.attrs.some((a) => a.name === 'aria-label'), 'no aria-label: the name comes from the content, sr-only parts included');
     assert.ok(!b.classes.includes('truncate') && !b.classes.includes('min-w-0'), 'labels are whole or hidden, never cut');
-    assert.ok(/^(foreman|needs|daemon|inbox|model|connection)$/.test(attrOf(b, 'data-popover')), 'data-popover names the popover it opens');
+    assert.ok(/^(foreman|needs|daemon|model|connection)$/.test(attrOf(b, 'data-popover')), 'data-popover names the popover it opens');
     // Below md every visible indicator is a 44x44 target with its ring drawn inside the 44px bar.
     if (!b.classes.includes('max-md:hidden')) for (const c of ['max-md:min-w-11', 'max-md:focus-visible:-outline-offset-2']) assert.ok(b.classes.includes(c), `the ${attrOf(b, 'data-popover')} indicator has ${c}`);
   }
-  assert.equal(indicators.filter((b) => !b.classes.includes('max-md:hidden')).length, 6, 'foreman, needs, daemon, inbox, model and connection show below md');
-  assert.deepEqual(indicators.map((b) => /openPopover\('(\w+)'/.exec(attrOf(b, 'onclick'))?.[1]), ['foreman', 'needs', 'daemon', 'inbox', 'daemon', 'daemon', 'model', 'connection'], 'in tab order');
+  assert.equal(indicators.filter((b) => !b.classes.includes('max-md:hidden')).length, 5, 'foreman, needs, daemon, model and connection show below md');
+  assert.deepEqual(indicators.map((b) => /openPopover\('(\w+)'/.exec(attrOf(b, 'onclick'))?.[1]), ['foreman', 'needs', 'daemon', 'daemon', 'daemon', 'model', 'connection'], 'in tab order');
   // The Foreman: always rendered once the state loads, accented rather than ghost.
   const foremanButton = indicators[0];
   assert.ok(has(foremanButton, 'btn', 'sm', 'foreman') && !foremanButton.classes.includes('ghost'), `the Foreman carries the foreman accent, not ghost (${foremanButton.classes.join(' ')})`);
@@ -1286,7 +1285,7 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
     assert.doesNotMatch(text, /aria-live/, `${rel} has no aria-live`);
     assert.doesNotMatch(text, /role="status"/, `${rel} has no role="status"`);
   }
-  assert.equal(fs.readdirSync(path.join(SRC, 'components', 'statusbar')).sort().join(' '), 'ConnectionPanel.svelte DaemonPanel.svelte ForemanPanel.svelte InboxPanel.svelte ModelPanel.svelte NeedsPanel.svelte');
+  assert.equal(fs.readdirSync(path.join(SRC, 'components', 'statusbar')).sort().join(' '), 'ConnectionPanel.svelte DaemonPanel.svelte ForemanPanel.svelte ModelPanel.svelte NeedsPanel.svelte');
 
   // AC8: one polite live region, always in the DOM, fed by promptAnnouncement and the permission heading.
   const live = bar.filter((e) => e.attrs.some((a) => a.name === 'aria-live'));
@@ -1299,13 +1298,18 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
   assert.match(script2, /const say = promptAnnouncement\(lastPrompts, next\);/);
   assert.match(script2, /\$t\('permission\.heading', \{ count: say \}\)/);
 
-  // AC8: the Inbox popover lists every prompt in the pool, its pill, and the empty line.
-  const inbox = elements('components/statusbar/InboxPanel.svelte');
-  const prompts = inbox.filter((e) => e.name === 'PermissionPrompts');
+  // AC8: the Needs-you popover lists every prompt in the pool first, only while one is pending, then the decisions.
+  const needs = elements('components/statusbar/NeedsPanel.svelte');
+  const prompts = needs.filter((e) => e.name === 'PermissionPrompts');
   assert.equal(prompts.length, 1);
   assert.equal(prompts[0].attrs.length, 0, '<PermissionPrompts /> takes no scope: the whole pool');
-  assert.ok(inbox.some((e) => has(e, 'chip', 'sm')), 'the inbox pill');
-  assert.match(read('components/statusbar/InboxPanel.svelte'), /\$t\('statusbar\.inbox\.noPrompts'\)/, 'the empty line');
+  const needsMarkup = markupOf('components/statusbar/NeedsPanel.svelte');
+  assert.ok(ifBody(needsMarkup, 'prompts')?.includes('<PermissionPrompts />'), 'inside {#if prompts}');
+  assert.ok(needsMarkup.indexOf('<PermissionPrompts') < needsMarkup.indexOf('id="needs-urgent"'), 'before the decisions');
+  const needsText = read('components/statusbar/NeedsPanel.svelte');
+  assert.match(needsText, /const prompts = \$derived\(pendingPrompts\(S\.data\?\.daemons \?\? null\)\.length\);/, 'the same source PermissionPrompts reads');
+  assert.match(needsText, /\{#if groups\.urgent\.length\}[\s\S]*?\{:else if prompts\}\s*<p class="text-sm text-muted">\{\$t\('needs\.noDecisions'\)\}<\/p>\s*\{:else\}\s*<p class="text-sm text-muted">\{\$t\('needs\.empty'\)\}<\/p>/, 'Nothing needs you only with no decisions and no prompts; No decisions waiting with prompts alone');
+  assert.equal(fs.existsSync(path.join(SRC, 'components', 'statusbar', 'InboxPanel.svelte')), false, 'the Inbox popover is gone');
 });
 
 test('the view, the toast and the drawer clear the status bar', () => {
@@ -1341,20 +1345,20 @@ test('the daemon popover keeps every daemon bar control', () => {
   assert.match(bar, /<DaemonPanel \{model\} \{pending\} \{act\} foreman=\{bar\.foreman\} \{openForeman\} \/>/);
   const panel = read('components/statusbar/DaemonPanel.svelte');
   for (const [rel, text] of [['StatusBar', bar], ['DaemonPanel', panel]]) assert.doesNotMatch(text, /\bfetch\(/, `${rel} calls no fetch(`);
-  // The Inbox log left for the Inbox popover, with its saved state.
-  assert.doesNotMatch(panel, /LOG_KEY|<SessionLog\b|toggleInbox/, 'no Inbox log here');
-  const inboxPanel = read('components/statusbar/InboxPanel.svelte');
-  assert.match(inboxPanel, /import \{ LOG_KEY \} from '\.\.\/\.\.\/lib\/daemon-log\.ts';/);
+  // The Inbox session log lives here, under the session list, with its saved state.
+  assert.match(panel, /import \{ LOG_KEY \} from '\.\.\/\.\.\/lib\/daemon-log\.ts';/);
   assert.equal(LOG_KEY, 'forge.daemonLog', 'the toggle keeps its saved state');
-  assert.match(inboxPanel, /localStorage\.getItem\(LOG_KEY\) === '1'/);
-  assert.match(inboxPanel, /localStorage\.setItem\(LOG_KEY, inboxOpen \? '1' : '0'\)/);
-  const inboxMarkup = markupOf('components/statusbar/InboxPanel.svelte');
-  assert.equal(inboxMarkup.match(/<SessionLog\b/g)?.length, 1);
-  assert.ok(ifBody(inboxMarkup, 'inboxOpen')?.includes('<SessionLog scope={INBOX_SCOPE} compact />'), 'the inbox log renders only while the toggle is on');
-  assert.ok(inboxMarkup.indexOf('<PermissionPrompts') < inboxMarkup.indexOf('toggleInbox'), 'under the permission prompts');
-  const toggle = elements('components/statusbar/InboxPanel.svelte').find((e) => attrOf(e, 'onclick') === '{toggleInbox}');
-  assert.ok(toggle && has(toggle, 'btn', 'sm') && attrOf(toggle, 'aria-expanded'), 'the Inbox log toggle is a btn sm with aria-expanded');
+  assert.match(panel, /localStorage\.getItem\(LOG_KEY\) === '1'/);
+  assert.match(panel, /localStorage\.setItem\(LOG_KEY, inboxOpen \? '1' : '0'\)/);
   const markup = markupOf('components/statusbar/DaemonPanel.svelte');
+  assert.equal(markup.match(/<SessionLog\b/g)?.length, 1);
+  assert.ok(ifBody(markup, 'inboxOpen')?.includes('<SessionLog scope={INBOX_SCOPE} compact />'), 'the inbox session log renders only while the toggle is on');
+  const on = ifBody(markup, 'model') ?? '';
+  assert.ok(on.slice(0, on.lastIndexOf('{:else}')).includes('toggleInbox'), 'only while the daemon is on (the {#if model} branch)');
+  assert.ok(!on.slice(on.lastIndexOf('{:else}')).includes('toggleInbox'), 'the daemon-off branch is unchanged');
+  assert.ok(markup.indexOf('</ul>') < markup.indexOf('toggleInbox'), 'after the session list');
+  const toggle = elements('components/statusbar/DaemonPanel.svelte').find((e) => attrOf(e, 'onclick') === '{toggleInbox}');
+  assert.ok(toggle && has(toggle, 'btn', 'sm') && attrOf(toggle, 'aria-expanded'), 'the Inbox session log toggle is a btn sm with aria-expanded');
   for (const icon of ['play', 'stop']) assert.ok(panel.includes(`<Icon name="${icon}" />`), `the ${icon} icon`);
   assert.match(panel, /disabled=\{!model\.canStart\} title=\{model\.startHint\} aria-label=\{\$t\('daemon\.startAll'\)\}/, 'Start follows canStart and carries the config hint');
   assert.match(panel, /disabled=\{!model\.canStop\} aria-label=\{\$t\('daemon\.stopAll'\)\}/);
@@ -1399,18 +1403,14 @@ test('status bar labels are whole or sr-only, never cut', () => {
   const markup = markupOf('components/StatusBar.svelte');
   for (const [cut, what] of [
     [`<span class={left >= 1 ? 'sr-only' : ''}>{$t('statusbar.daemon.title')}`, 'level 1: the "Daemon" word'],
-    [`<span class={left >= 1 ? 'sr-only' : ''}>{$t('statusbar.inbox.name')}`, 'level 1: the "Inbox" word'],
     [`{$t('statusbar.held.word')}<span class={left >= 2 ? 'sr-only' : ''}>{$t('statusbar.held.rest')}</span>`, 'level 2: why a job is held'],
     [`{$t('statusbar.waiting.word')}<span class={left >= 2 ? 'sr-only' : ''}>{$t('statusbar.waiting.rest')}</span>`, 'level 2: what a job waits for'],
     [`<button class="btn sm ghost max-md:hidden {left >= 3 ? 'hidden!' : ''}"`, 'level 3: held and waiting'],
     [`{#if holdsOut}<span class="sr-only">{', '}{holdText}</span>{/if}`, 'level 3: the Daemon indicator names them'],
-    [`<span class="inline-flex {left >= 7 || holdsOut ? '' : 'md:hidden'} {TONE_TEXT[daemonTone]}"><Icon name="daemon" /></span>`, 'and shows its glyph (warn while they are out of sight), as it does from level 7'],
-    [`<span class="max-md:sr-only {left >= 4 ? 'sr-only' : ''} {TONE_TEXT[bar.inbox.tone]}">`, "level 4: the inbox's state"],
-    [`<span class="max-md:sr-only {left >= 5 ? 'sr-only' : ''}">{$t('statusbar.inbox.prompts'`, 'level 5: "prompts" after the count'],
-    [`<span class={left >= 6 ? 'sr-only' : left >= 5 ? '' : 'md:hidden'} aria-hidden="true">{bar.prompts}</span>`, 'level 6: the count'],
-    [`<span class="max-md:sr-only {left >= 7 ? 'sr-only' : ''} {bar.daemon.off ? 'text-muted' : ''}">`, "level 7: the Daemon's live/cap"],
-    [`<span class="max-md:sr-only {left >= 8 ? 'sr-only' : ''}">{$t('statusbar.foreman.name')}</span>`, 'level 8: the "Foreman" word'],
-    [`<span class="max-md:sr-only {left >= 8 ? 'sr-only' : ''}">{$t('statusbar.foreman.off')}</span>`, 'level 8: "Foreman off" too'],
+    [`<span class="inline-flex {left >= 4 || holdsOut ? '' : 'md:hidden'} {TONE_TEXT[daemonTone]}"><Icon name="daemon" /></span>`, 'and shows its glyph (warn while they are out of sight), as it does from level 4'],
+    [`<span class="max-md:sr-only {left >= 4 ? 'sr-only' : ''} {bar.daemon.off ? 'text-muted' : ''}">`, "level 4: the Daemon's live/cap"],
+    [`<span class="max-md:sr-only {left >= 5 ? 'sr-only' : ''}">{$t('statusbar.foreman.name')}</span>`, 'level 5: the "Foreman" word'],
+    [`<span class="max-md:sr-only {left >= 5 ? 'sr-only' : ''}">{$t('statusbar.foreman.off')}</span>`, 'level 5: "Foreman off" too'],
     [`<span class={right >= 1 ? 'sr-only' : ''}>{models.provider}`, 'right level 1: the provider'],
     [`<span class="max-md:sr-only {right >= 2 ? 'sr-only' : ''}">`, 'right level 2: the model label'],
     [`<span class="{connQuiet ? 'max-md:sr-only' : ''} {(connQuiet && right >= 3) || right >= 4 ? 'sr-only' : ''} {TONE_TEXT[conn.tone]}">{connWord}</span>`, 'right level 3: Live or Connecting; level 4: the rest'],
@@ -1437,7 +1437,7 @@ test('popovers close on every route the spec lists', () => {
   assert.match(state, /if \(reason === 'gone'\) \{\s*if \(inside\) tick\(\)\.then\(\(\) => heading\(\)\?\.focus\(\)\);/, 'gone: focus inside goes to the heading');
   assert.match(state, /export function reanchor\(trigger: HTMLElement\): void/);
   assert.match(state, /document\.activeElement === document\.body\)\) document\.getElementById\(`popover-\$\{popover\.open\}`\)\?\.focus\(\);/, 'keepFocus puts focus back on the open dialog');
-  assert.match(read('components/statusbar/InboxPanel.svelte'), /void prompts;\s*keepFocus\(\);/, 'an answered prompt keeps focus in the popover');
+  assert.match(read('components/statusbar/NeedsPanel.svelte'), /void prompts;\s*keepFocus\(\);/, 'an answered prompt keeps focus in the popover');
   assert.match(read('components/statusbar/DaemonPanel.svelte'), /closePopover\('navigate'\);\s*openDrawer\(id, null, 'log'\);/, 'a job chip');
 
   // AC11: the poll feeds Connection, and Retry now polls again without disabling itself.
@@ -1498,7 +1498,7 @@ test('counts read Label (N) in tabs and segments', () => {
   // Right-aligned badges stay bare.
   const nav = read('components/Nav.svelte');
   assert.ok(nav.includes(`<span class="mono num {on ? '' : 'muted'}">{n}</span>`), 'nav badges stay bare');
-  assert.ok(read('components/StatusBar.svelte').includes(`<span class="chip you num" aria-hidden="true">{needs}</span>`), 'the Needs-you badge too');
+  assert.ok(read('components/StatusBar.svelte').includes(`<span class="chip you num" aria-hidden="true">{needsTotal}</span>`), 'the Needs-you badge too');
 });
 
 test('scrollers contain their overscroll', () => {
@@ -1521,6 +1521,13 @@ test('Needs you is a status-bar popover, not a page', () => {
   assert.equal(en.nav.inbox, undefined, 'no nav.inbox key');
   assert.equal(en.inbox.title, undefined, 'no inbox.title');
   assert.equal(en.inbox.sub, undefined, 'no inbox.sub');
+  // One place for what needs you: no catalogue value names a separate "Inbox".
+  assert.equal(en.statusbar.inbox, undefined, 'no statusbar.inbox keys');
+  assert.equal(en.daemon.inbox, undefined, 'no daemon.inbox key');
+  const leaves = (o: any, at = ''): [string, string][] => Object.entries(o).flatMap(([k, v]) => (typeof v === 'object' && v ? leaves(v, `${at}${k}.`) : [[`${at}${k}`, String(v)] as [string, string]]));
+  assert.deepEqual(leaves(en).filter(([, v]) => v === 'Inbox').map(([k]) => k), [], 'no message is exactly "Inbox"');
+  for (const [k, v] of [['daemon.rows.inbox', 'Inbox session'], ['statusbar.daemon.inboxLog', 'Inbox session log'], ['permission.inbox', 'Inbox session'], ['live.inbox', 'inbox session'], ['session.startInbox', 'Start inbox session'], ['session.stopInbox', 'Stop inbox session'], ['needs.noDecisions', 'No decisions waiting']])
+    assert.equal(k.split('.').reduce((o: any, p) => o?.[p], en), v, k);
   // The old link shows the Pipeline, rewrites the hash and asks for the popover.
   const route = fnBody(read('lib/app.svelte.ts'), 'export function route(');
   assert.match(route, /if \(v === 'inbox'\) \{\s*history\.replaceState\(null, '', '#\/pipeline'\);\s*S\.openNeeds = true;\s*\}/);
@@ -1532,12 +1539,20 @@ test('Needs you is a status-bar popover, not a page', () => {
   assert.equal(attrOf(first!, 'data-popover'), 'needs', 'Needs you comes right after the Foreman');
   for (const [k, v] of [['aria-haspopup', 'dialog'], ['aria-expanded', "{expanded('needs')}"], ['aria-controls', "{controls('needs')}"]]) assert.equal(attrOf(first!, k), v, `the button's ${k}`);
   const text = read('components/StatusBar.svelte');
-  assert.match(text, /const needs = \$derived\(inboxGroups\(S\.data\?\.jobs \?\? \[\]\)\.urgent\.length\);/, 'the count is the urgent list');
+  assert.match(text, /const needs = \$derived\(inboxGroups\(S\.data\?\.jobs \?\? \[\]\)\.urgent\.length\);/, 'decisions are the urgent list');
+  assert.match(text, /const needsTotal = \$derived\(needs \+ bar\.prompts\);/, 'the badge adds every pending permission prompt in the pool');
   assert.ok(bar.some((e) => e.name === 'Icon' && attrOf(e, 'name') === 'bell' && e.parents.includes(first!)), 'the bell icon');
-  assert.match(text, /\{#if needs > 0\}<span class="chip you num" aria-hidden="true">\{needs\}<\/span>\{\/if\}/, 'a you chip only above 0');
-  assert.match(text, /'text-fg' : 'text-muted'/, 'the bell is muted at 0');
-  assert.match(text, /<span class="sr-only">\{\$t\('statusbar\.needs\.name'\)\}\{#if needs > 0\}\{', '\}\{\$t\('statusbar\.needs\.count', \{ count: needs \}\)\}\{\/if\}<\/span>/, 'its name is Needs you plus the count');
-  // It opens the large popover holding the page's sections, and #/inbox opens it once.
+  assert.match(text, /\{#if needsTotal > 0\}<span class="chip you num" aria-hidden="true">\{needsTotal\}<\/span>\{\/if\}/, 'a you chip only above 0');
+  assert.match(text, /<span class="inline-flex \{needsTotal > 0 \? 'text-fg' : 'text-muted'\}"><Icon name="bell" \/><\/span>/, 'the bell is muted at 0');
+  assert.match(text, /<span class="sr-only">\{\$t\('statusbar\.needs\.name'\)\}\{#if needs > 0\}\{', '\}\{\$t\('statusbar\.needs\.count', \{ count: needs \}\)\}\{\/if\}\{#if bar\.prompts > 0\}\{', '\}\{\$t\('permission\.heading', \{ count: bar\.prompts \}\)\}\{\/if\}<\/span>/, 'its name is Needs you plus the decisions, then the prompts');
+  // Icon-only at every width: every text node in it is sr-only or the aria-hidden badge.
+  const nm = markupOf('components/StatusBar.svelte');
+  const nAt = nm.indexOf('data-popover="needs"');
+  const nButton = nm.slice(nm.indexOf('<span', nAt), nm.indexOf('</button>', nAt));
+  const nVisible = nButton.replace(/<span class="sr-only">[\s\S]*?<\/span>/g, '').replace(/<span class="chip you num" aria-hidden="true">\{needsTotal\}<\/span>/g, '');
+  assert.doesNotMatch(nVisible.replace(/\{[^{}]*\}/g, '').replace(/<[^>]*>/g, ''), /\S/, `no visible text in the bell (${nVisible})`);
+  assert.match(text, /needs: \[\s*\$t\('statusbar\.needs\.name'\),\s*\.\.\.\(needs > 0 \? \[\$t\('statusbar\.needs\.count', \{ count: needs \}\)\] : \[\]\),\s*\.\.\.\(bar\.prompts > 0 \? \[\$t\('permission\.heading', \{ count: bar\.prompts \}\)\] : \[\]\),\s*\]\.join\(' · '\),/, 'its title is the same text, joined by ·');
+  // It opens the wide popover holding the page's sections, and #/inbox opens it once.
   assert.match(text, /\{:else if open === 'needs'\}\{#if S\.data\}<NeedsPanel data=\{S\.data\} \/>\{\/if\}/);
   assert.match(text, /if \(!S\.openNeeds \|\| !S\.data \|\| !needsButton\) return;[\s\S]*?S\.openNeeds = false;\s*if \(popover\.open !== 'needs'\) openPopover\('needs', anchor\);/, '#/inbox opens it anchored to its button');
   const panel = read('components/statusbar/NeedsPanel.svelte');
@@ -1548,7 +1563,7 @@ test('Needs you is a status-bar popover, not a page', () => {
   assert.match(panel, /const u = safeUrl\(j\.pr\?\.url\)/);
 });
 
-test('the Daemon popover lists sessions, the Inbox popover holds its log', () => {
+test('the Daemon popover lists sessions and holds the Inbox session log', () => {
   const panel = read('components/statusbar/DaemonPanel.svelte');
   assert.match(panel, /const rows = \$derived\(model \? daemonRows\(model, S\.data\?\.jobs \?\? \[\]\) : \[\]\);/, 'rows come from daemonRows');
   const els = elements('components/statusbar/DaemonPanel.svelte');
@@ -1563,11 +1578,10 @@ test('the Daemon popover lists sessions, the Inbox popover holds its log', () =>
   assert.ok(inert, 'the Inbox row is not interactive');
   assert.ok(has(inert, 'border-transparent'), 'and draw no edge');
   assert.equal((panel.match(/\{@render pill\(r\.pill\)\}/g) ?? []).length, 2, 'every row ends with its session pill');
-  assert.doesNotMatch(panel, /<SessionLog|LOG_KEY|daemon\.(held|waiting|kept)/, 'no log, no held, waiting or kept chips');
+  assert.doesNotMatch(panel, /daemon\.(held|waiting|kept)/, 'no held, waiting or kept chips');
   assert.doesNotMatch(panel, /\{@html/);
-  const inbox = read('components/statusbar/InboxPanel.svelte');
-  assert.match(inbox, /<SessionLog scope=\{INBOX_SCOPE\} compact \/>/, 'the Inbox popover holds the Inbox log');
-  assert.match(read('lib/daemon-log.ts'), /Inbox popover's Inbox log/, "LOG_KEY's comment names its new home");
+  assert.equal((panel.match(/<SessionLog scope=\{INBOX_SCOPE\} compact \/>/g) ?? []).length, 1, 'the Daemon popover holds the Inbox session log, once');
+  assert.match(read('lib/daemon-log.ts'), /Daemon popover's Inbox session log/, "LOG_KEY's comment names its new home");
   // The Held and Waiting buttons still open the Daemon popover.
   assert.equal((read('components/StatusBar.svelte').match(/data-popover="daemon"/g) ?? []).length, 3, 'Daemon, Held and Waiting');
 });
@@ -1590,7 +1604,7 @@ test('status bar: the Daemon indicator shows only its name and live/cap', () => 
   assert.ok(button.includes(`<span class="sr-only">{' '}{$t('statusbar.daemon.sessions')}{', '}{bar.daemon.off ? $t('statusbar.daemon.off') : bar.daemon.pill.label}</span>`), 'the state in the sr-only text');
   const script = read('components/StatusBar.svelte');
   assert.match(script, /daemon: \[\s*bar\.daemon\.off \? \$t\('statusbar\.daemon\.off'\) : \$t\('daemon\.pill', \{ label: bar\.daemon\.pill\.label \}\),/, 'and in the title');
-  assert.match(script, /const LEFT_MAX = 8;/);
+  assert.match(script, /const LEFT_MAX = 5;/);
 });
 
 test('the Foreman popover reuses SessionLog and PermissionPrompts and writes no config', () => {
@@ -1622,9 +1636,9 @@ test("SessionLog: fill layout and the office's read-only model and effort", () =
   assert.match(text, /fill = false \}: \{[^}]*fill\?: boolean \}/, 'fill is an opt-in prop');
   assert.ok(text.includes(`<div class="flex flex-col gap-2 {fill ? 'min-h-0 flex-1' : ''}">`), 'the root grows into its container');
   assert.ok(text.includes(`{fill ? 'min-h-0 flex-1' : compact ? 'max-h-72' : 'max-h-[70vh]'}`), 'the log pane fills instead of capping its height');
-  // The drawer's Log tab and the Inbox popover never pass fill, so their layout is unchanged.
+  // The drawer's Log tab and the Daemon popover's Inbox session log never pass fill, so their layout is unchanged.
   assert.ok(!/<SessionLog\b[^>]*\bfill\b/.test(read('components/Drawer.svelte')), 'the drawer passes no fill');
-  assert.ok(!/<SessionLog\b[^>]*\bfill\b/.test(read('components/statusbar/InboxPanel.svelte')), 'nor the Inbox popover');
+  assert.ok(!/<SessionLog\b[^>]*\bfill\b/.test(read('components/statusbar/DaemonPanel.svelte')), 'nor the Daemon popover');
   const markup = markupOf('components/SessionLog.svelte');
   const facts = ifBody(markup, 'scope === OFFICE_SCOPE');
   assert.ok(facts, "{#if scope === OFFICE_SCOPE}: the office's facts");
