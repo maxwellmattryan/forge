@@ -47,7 +47,7 @@ export function assertSafeRef(value: unknown, field: string): string {
 export function run(
   cmd: string,
   args: string[],
-  opts: { cwd?: string; input?: string; allowFail?: boolean; env?: NodeJS.ProcessEnv } = {},
+  opts: { cwd?: string; input?: string; allowFail?: boolean; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {},
 ): { ok: boolean; stdout: string; stderr: string; status: number | null } {
   const res = spawnSync(cmd, args, {
     cwd: opts.cwd,
@@ -55,6 +55,8 @@ export function run(
     env: opts.env ?? process.env,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
+    // A timeout kills the child and sets res.error (ETIMEDOUT), so it takes the spawn-error path below.
+    timeout: opts.timeoutMs,
   });
   if (res.error) {
     if (opts.allowFail) return { ok: false, stdout: '', stderr: String(res.error.message), status: null };

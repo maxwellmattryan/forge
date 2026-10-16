@@ -1007,7 +1007,7 @@ test('/api/state exposes the session pool', async () => {
     .map((f) => fs.readFileSync(path.join(src, f), 'utf8'))
     .join('\n');
   assert.ok(app.includes('/api/requests'), 'read the dashboard sources');
-  assert.equal(DASH_API_VERSION, 20, 'the dashboard reads API_VERSION from src/lib/types.ts');
+  assert.equal(DASH_API_VERSION, 21, 'the dashboard reads API_VERSION from src/lib/types.ts');
   assert.doesNotMatch(app, /launcher|launched/);
 });
 
@@ -1149,7 +1149,8 @@ test('GET /api/doctor runs forge doctor behind the token', async () => {
     assert.deepEqual(Object.keys(d), ['ok', 'checks', 'at']);
     assert.equal(typeof d.ok, 'boolean');
     assert.ok(!Number.isNaN(Date.parse(d.at)));
-    for (const c of d.checks) assert.deepEqual(Object.keys(c), ['name', 'ok', 'detail']);
+    // `warn` is optional: the release row has it once a newer Forge is out.
+    for (const c of d.checks) assert.deepEqual(Object.keys(c).filter((k) => k !== 'warn'), ['name', 'ok', 'detail']);
     const names = d.checks.map((c) => c.name);
     assert.ok(names.includes('config present') && names.includes('node >= 22.18'), names.join(', '));
     const cli = JSON.parse(execFileSync(process.execPath, [path.resolve(import.meta.dirname, '..', 'bin', 'forge'), 'doctor'], { encoding: 'utf8', env: { ...process.env, FORGE_ROOT: repo.dir } }));
@@ -1163,6 +1164,7 @@ test('GET /api/doctor runs forge doctor behind the token', async () => {
 test('GET /api/about reports versions', async () => {
   const schema = await import('../lib/schema.ts');
   const { PLUGIN_ROOT } = await import('../lib/paths.ts');
+  const { versionInfo } = await import('../lib/version.ts');
   const root = path.resolve(import.meta.dirname, '..');
   const repo = tempRepo();
   const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
@@ -1177,8 +1179,38 @@ test('GET /api/about reports versions', async () => {
     assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'pricing.json'), 'utf8')).asOf);
     assert.equal(a.node, process.versions.node);
     assert.deepEqual(a.links, { repo: 'https://github.com/maxwellmattryan/forge', docs: 'https://github.com/maxwellmattryan/forge/tree/main/docs' });
+    const v = versionInfo(PLUGIN_ROOT);
+    assert.equal(a.commit, v.commit);
+    assert.equal(a.installedAs, v.installedAs);
+    assert.ok(a.commit === null || /^[0-9a-f]{40}$/.test(a.commit));
   } finally {
     await close();
+    repo.cleanup();
+  }
+});
+
+test('GET /api/about spawns nothing per request', async () => {
+  // /api/about takes no token, so a cross-site page can hit it: the commit is found once at start.
+  const repo = tempRepo();
+  const stubs = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-about-'));
+  const log = path.join(stubs, 'calls.log');
+  for (const cmd of ['git', 'gh']) {
+    fs.writeFileSync(path.join(stubs, cmd), `#!/bin/sh\necho "${cmd} $*" >> "${log}"\nexit 1\n`, { mode: 0o755 });
+  }
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const pathBefore = process.env.PATH;
+  process.env.PATH = `${stubs}${path.delimiter}${pathBefore}`;
+  try {
+    const port = Number(new URL(url).port);
+    const first = JSON.parse((await hit(port, { path: '/api/about' })).text);
+    const second = JSON.parse((await hit(port, { path: '/api/about' })).text);
+    assert.equal(fs.existsSync(log), false, fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '');
+    assert.equal(second.commit, first.commit);
+    assert.equal(second.installedAs, first.installedAs);
+  } finally {
+    process.env.PATH = pathBefore;
+    await close();
+    fs.rmSync(stubs, { recursive: true, force: true });
     repo.cleanup();
   }
 });

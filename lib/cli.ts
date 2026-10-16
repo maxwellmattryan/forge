@@ -7,7 +7,6 @@ import { refuseInOffice, refuseInboxDrive } from './daemon-owner.ts';
 import { NEED_INIT } from './config-set.ts';
 import { detect } from './detect.ts';
 import { doctor } from './doctor.ts';
-import { forgeVersion } from './evals.ts';
 import { loadJob } from './jobs.ts';
 import { mainRoot } from './paths.ts';
 import * as pr from './pr.ts';
@@ -32,6 +31,7 @@ import { secretsCmd } from './commands/secrets.ts';
 import { statsText, statusRows, statusTable } from './commands/status.ts';
 import { nextCmd, syncAll, trackerCmd } from './commands/tracker.ts';
 import { updateCmd } from './commands/update.ts';
+import { versionCmd } from './commands/version.ts';
 import type { CliContext, Dispatched } from './types.ts';
 
 export { reportError } from './commands/help.ts';
@@ -51,7 +51,7 @@ export async function main(argv: string[]): Promise<void> {
     return;
   }
   const [cmd] = pos;
-  if (cmd === 'version') return out({ version: forgeVersion() }, flags);
+  if (cmd === 'version') return versionCmd(flags);
   if (cmd === 'update') return updateCmd(flags);
 
   const root = mainRoot();
