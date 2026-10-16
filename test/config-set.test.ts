@@ -5,7 +5,7 @@ import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, trustDigest } from '../lib/config.ts';
 import { FIELDS } from '../lib/config-fields.ts';
-import { EFFORTS } from '../lib/schema.ts';
+import { COMPLEXITIES, EFFORT_ROLES, EFFORTS } from '../lib/schema.ts';
 import { setConfigValue } from '../lib/config-set.ts';
 import { getPath } from '../lib/util.ts';
 import { setIn } from '../lib/yaml.ts';
@@ -130,6 +130,37 @@ describe('forge config set and get', { concurrency: 4 }, () => {
         assert.throws(() => setConfigValue(s.repo.dir, 'runtime.effort', bad as any), (e: any) => e.reason === 'invalid' && e.message.startsWith('runtime.effort must be one of'), String(bad));
         assert.equal(s.read(), before, `${bad} leaves the file byte-identical`);
       }
+    } finally {
+      s.repo.cleanup();
+    }
+  });
+
+  test('per-role and complexity efforts are editable', async () => {
+    const keys = [...EFFORT_ROLES.map((r) => `runtime.efforts.${r}`), ...COMPLEXITIES.map((k) => `runtime.effortByComplexity.${k}`)];
+    assert.equal(keys.length, 12);
+    for (const key of keys) {
+      const f = FIELDS.find((x) => x.key === key);
+      assert.ok(f, `${key} is in the schema`);
+      assert.deepEqual([f.section, f.type, f.options, f.nullable, f.editable, f.default], ['agents', 'enum', [...EFFORTS], true, true, null], key);
+    }
+    assert.equal(FIELDS.find((x) => x.key === 'runtime.efforts.reviewer')?.label, 'Reviewer effort');
+    assert.equal(FIELDS.find((x) => x.key === 'runtime.effortByComplexity.high')?.label, 'Effort for high complexity');
+    const s = scratch();
+    try {
+      const role = await s.forge('config', 'set', 'runtime.efforts.reviewer', 'medium');
+      assert.equal(role.code, 0, role.err);
+      assert.equal(JSON.parse(role.out).value, 'medium');
+      const byComplexity = await s.forge('config', 'set', 'runtime.effortByComplexity.high', 'xhigh');
+      assert.equal(byComplexity.code, 0, byComplexity.err);
+      const got = await s.forge('config', 'get', 'runtime.effortByComplexity.high');
+      assert.equal(got.out, 'xhigh');
+      assert.equal((await s.forge('config', 'get', 'runtime.efforts.reviewer')).out, 'medium');
+      const before = s.read();
+      const r = await s.forge('config', 'set', 'runtime.efforts.reviewer', 'ultra');
+      assert.equal(r.code, 1);
+      assert.ok(r.err.includes('runtime.efforts.reviewer must be one of low | medium | high | xhigh | max, or null (got "ultra")'), r.err);
+      assert.equal(s.read(), before, 'ultra leaves the file byte-identical');
+      assert.equal((await s.forge('config', 'set', 'runtime.efforts.orchestrator', 'high')).code, 1, 'no orchestrator key');
     } finally {
       s.repo.cleanup();
     }

@@ -87,7 +87,7 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     worktreeExists: o.worktree !== false,
     request: { length: 40, listLines: 0, ...o.request },
     plan: { verdict: null, jobs: 0, recommendSplit: false, ...o.plan },
-    spec: { size: null, needsDesign: false, services: [], suggested: [], approachPaths: [], ...o.spec },
+    spec: { size: null, complexity: null, needsDesign: false, services: [], suggested: [], approachPaths: [], ...o.spec },
     designDeltas: o.designDeltas ?? false,
     decision: { decision: null, autoMerge: false, ...o.decision },
     runbookBeforeMerge: o.runbookBeforeMerge ?? false,

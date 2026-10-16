@@ -111,6 +111,9 @@ test('every brief names the effective effort right after Output', () => {
   assert.equal(at(brief(fixture({ config: (c) => (c.runtime.effort = 'medium') }), 'reviewer:code', { lens: 'code' })), 'Effort: medium', 'else runtime.effort');
   assert.equal(at(brief(fixture(), 'approver')), 'Effort: inherit', 'nothing set');
   assert.equal(at(brief(fixture({ job: { effort: '--add-dir=/' as any } }), 'approver')), 'Effort: inherit', 'a tampered value never reaches a brief');
+  const perRole = fixture({ config: (c) => ((c.runtime.effort = 'high'), (c.runtime.efforts.reviewer = 'medium')) });
+  assert.equal(at(brief(perRole, 'reviewer:code', { lens: 'code' })), 'Effort: medium', 'runtime.efforts.reviewer over runtime.effort');
+  assert.equal(at(brief(perRole, 'approver')), 'Effort: high', 'a role without its own level takes runtime.effort');
 });
 
 test('planner brief carries the split mode', () => {

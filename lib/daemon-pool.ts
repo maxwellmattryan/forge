@@ -112,6 +112,8 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
       else modes.delete(scope);
     },
     // Read at every spawn and never pushed to a running session: a change applies at its next spawn.
+    // No role: a session runs the orchestrator, so per-role, panel and complexity levels never
+    // reach its argv; only job.effort and runtime.effort do.
     effort: (scope, c) => resolveEffort(c, scope === INBOX_SCOPE ? null : jobOrNull(scope)),
   };
 

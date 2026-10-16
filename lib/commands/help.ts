@@ -130,7 +130,7 @@ export const CORE: HelpGroup[] = [
   {
     name: 'roster',
     summary: 'the agent roster',
-    commands: [{ command: 'roster', args: '', summary: "each role's agent prompt, model and prompt hash" }],
+    commands: [{ command: 'roster', args: '', summary: "each role's agent prompt, model, effort and prompt hash" }],
   },
   {
     name: 'retro',

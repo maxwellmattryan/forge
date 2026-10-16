@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PLUGIN_ROOT, paths, exists, resolveFrom } from './paths.ts';
-import { CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORTS, migrateConfig } from './schema.ts';
-import type { Config, Effort, EffortSource, LoadedConfig, VerifyEntry } from './types.ts';
+import { COMPLEXITIES, CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, migrateConfig } from './schema.ts';
+import type { Config, Effort, EffortRole, EffortSource, LoadedConfig, VerifyEntry } from './types.ts';
 import { ForgeError, deepMerge, isClaudeExecutable, readText, splitWords } from './util.ts';
 import * as yaml from './yaml.ts';
 
@@ -61,6 +61,9 @@ export function defaults(): Config {
       diversity: false,
       // null passes no --effort, so Claude Code's own setting applies; a job's effort overrides it.
       effort: null,
+      // Per role (null falls through to effortByComplexity, then effort); a job's effort beats both.
+      efforts: Object.fromEntries(EFFORT_ROLES.map((r) => [r, null])) as Record<EffortRole, Effort | null>,
+      effortByComplexity: { low: null, medium: null, high: null },
       models: {
         orchestrator: 'inherit',
         planner: 'opus',
@@ -259,6 +262,7 @@ export function validateConfig(c: any, root: string): string[] {
     problems.push(`verifyE2e.paths must be a list of non-empty strings (got ${JSON.stringify(e2ePaths)})`);
   problems.push(...generatedProblems(c));
   problems.push(...verifyProblems(c));
+  problems.push(...effortProblems(c));
   if (!Number.isInteger(c.pipeline.maxRounds) || c.pipeline.maxRounds < 1) problems.push('pipeline.maxRounds must be a positive integer');
   for (const [k, v] of Object.entries(c.pipeline.budget ?? {})) {
     if (v === null) continue;
@@ -328,6 +332,33 @@ export function globProblem(g: unknown): string | null {
   if (/^[-!:]/.test(g)) return `worktrees.generated entry ${JSON.stringify(g)} must not start with -, ! or :`;
   if (g.split(/[\\/]/).includes('..')) return `worktrees.generated entry ${JSON.stringify(g)} must not contain a .. segment`;
   return null;
+}
+
+/**
+ * runtime.efforts, runtime.effortByComplexity and a panel entry's `effort`. Not daemonProblems:
+ * none of them reaches a session's argv (sessions resolve with no role), and resolveEffort treats
+ * an invalid value as unset anyway.
+ */
+export function effortProblems(c: any): string[] {
+  const problems: string[] = [];
+  const levels = `${EFFORTS.join(' | ')}, or null`;
+  const isMap = (v: unknown) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  const map = (key: string, keys: readonly string[], unknownKey: (k: string) => string) => {
+    const m = c.runtime?.[key];
+    if (m === undefined || m === null) return;
+    if (!isMap(m)) return problems.push(`runtime.${key} must be a map (got ${JSON.stringify(m)})`);
+    for (const [k, v] of Object.entries(m)) {
+      if (!keys.includes(k)) problems.push(unknownKey(k));
+      else if (v !== null && !validEffort(v)) problems.push(`runtime.${key}.${k} must be one of ${levels} (got ${JSON.stringify(v)})`);
+    }
+  };
+  map('efforts', EFFORT_ROLES, (k) => `runtime.efforts.${k} is not a role (${EFFORT_ROLES.join(' | ')})`);
+  map('effortByComplexity', COMPLEXITIES, (k) => `runtime.effortByComplexity.${k} must be ${COMPLEXITIES.slice(0, -1).join(', ')} or ${COMPLEXITIES.at(-1)}`);
+  for (const r of Array.isArray(c.review?.panel) ? c.review.panel : []) {
+    if (!isMap(r) || r.effort === undefined || r.effort === null || validEffort(r.effort)) continue;
+    problems.push(`review.panel entry ${JSON.stringify(String(r.name ?? ''))}: effort must be one of ${levels} (got ${JSON.stringify(r.effort)})`);
+  }
+  return problems;
 }
 
 /** `worktrees.generated` and `generatedBy`: each glob usable, and a configured command to rebuild them. */
@@ -603,15 +634,49 @@ export function validEffort(v: unknown): Effort | null {
   return (EFFORTS as readonly unknown[]).includes(v) ? (v as Effort) : null;
 }
 
+/** One level above `level` in EFFORTS order; max stays max. */
+export function bumpEffort(level: Effort): Effort {
+  return EFFORTS[Math.min(EFFORTS.indexOf(level) + 1, EFFORTS.length - 1)];
+}
+
 /**
- * The one place a job's effort and runtime.effort combine: the daemon's argv, `forge job step`,
- * the brief and /api/state all call it, so they can never disagree. A null level passes nothing.
+ * The one place effort levels combine: the daemon's argv, `forge job step`, the brief, the roster
+ * and /api/state all call it, so they can never disagree. A null level passes nothing.
+ * First valid of: job.effort, the lens's panel `effort` (reviewers), runtime.efforts.<base role>,
+ * runtime.effortByComplexity[job.complexity], runtime.effort. With no `role` (a daemon session runs
+ * the orchestrator) only the job and runtime.effort layers apply. A builder on a rework round
+ * (round >= 2) gets one level more unless the human set the job's own effort.
  */
-export function resolveEffort(config: Config, job?: { effort?: unknown } | null): { level: Effort | null; source: EffortSource } {
+export function resolveEffort(
+  config: Config,
+  job?: { effort?: unknown; complexity?: unknown; round?: unknown } | null,
+  role?: string | null,
+): { level: Effort | null; source: EffortSource; rework?: true } {
   const own = validEffort(job?.effort);
   if (own) return { level: own, source: 'job' };
-  const fallback = validEffort(config.runtime?.effort);
-  return fallback ? { level: fallback, source: 'config' } : { level: null, source: 'none' };
+  let found: { level: Effort | null; source: EffortSource } | null = null;
+  const base = role ? role.split(':')[0] : null;
+  if (role && base) {
+    const runtime: Partial<Config['runtime']> = config.runtime ?? {};
+    const lens = base === 'reviewer' && role.startsWith('reviewer:') ? role.slice('reviewer:'.length) : null;
+    const panel = lens && Array.isArray(config.review?.panel) ? config.review.panel.find((p) => p?.name === lens) : undefined;
+    const fromPanel = validEffort(panel?.effort);
+    const efforts: Record<string, unknown> | undefined = runtime.efforts;
+    const fromRole = efforts && typeof efforts === 'object' && Object.hasOwn(efforts, base) ? validEffort(efforts[base]) : null;
+    const complexity = (COMPLEXITIES as readonly unknown[]).includes(job?.complexity) ? (job!.complexity as string) : null;
+    const byComplexity: Record<string, unknown> | undefined = runtime.effortByComplexity;
+    const fromComplexity = complexity && byComplexity && typeof byComplexity === 'object' ? validEffort(byComplexity[complexity]) : null;
+    if (fromPanel) found = { level: fromPanel, source: 'panel' };
+    else if (fromRole) found = { level: fromRole, source: 'role' };
+    else if (fromComplexity) found = { level: fromComplexity, source: 'complexity' };
+  }
+  if (!found) {
+    const fallback = validEffort(config.runtime?.effort);
+    found = fallback ? { level: fallback, source: 'config' } : { level: null, source: 'none' };
+  }
+  const round = job?.round;
+  if (base === 'builder' && found.level && typeof round === 'number' && round >= 2) return { level: bumpEffort(found.level), source: found.source, rework: true };
+  return found;
 }
 
 export function worktreeRoot(root: string, config: Config): string {

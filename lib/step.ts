@@ -15,6 +15,7 @@ import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
 import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
 import { PLUGIN_ROOT, exists } from './paths.ts';
+import { COMPLEXITIES } from './schema.ts';
 import { approachPaths, inSpec } from './scope.ts';
 import type { Config, Job, JobAgent, JobEvent, StepAction, StepDone, StepFile, StepInput, StepProcedure, StepRun, StepSpawn, StepVerdicts, StepWait, StepWaitingOn, VerifyRun, WaitingOn } from './types.ts';
 import { ForgeError, SAFE_REF, readJson, readText } from './util.ts';
@@ -176,6 +177,7 @@ export function parseSpecHeader(text: string): Omit<StepInput['spec'], 'approach
   const items = (v: string | null) => (!v || v === '-' ? [] : v.split(',').map((s) => s.trim()).filter((s) => s && s !== '-'));
   return {
     size: value('Size'),
+    complexity: value('Complexity')?.toLowerCase() ?? null,
     needsDesign: /^yes\b/i.test(value('Needs design') ?? ''),
     services: items(value('Services')),
     suggested: items(value('Suggested reviewers')),
@@ -448,7 +450,7 @@ function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: boolean; 
     startShell: shellLine(start),
     brief: renderBrief(x, roleBrief(x, role, ctx)),
     // Always present, so the orchestrator can tell "pass none" from an older Forge that never said.
-    effort: resolveEffort(x.config, x.job).level,
+    effort: resolveEffort(x.config, x.job, role).level,
   };
 }
 
@@ -726,6 +728,10 @@ function spec(x: StepInput): StepAction {
   if (!after(panelEv?.ts, authored)) {
     const fields = [`reviewers=${JSON.stringify(selectPanel(x))}`];
     if (x.spec.size && /^[SML]$/.test(x.spec.size)) fields.push(`size=${x.spec.size}`);
+    const complexity = (COMPLEXITIES as readonly (string | null)[]).includes(x.spec.complexity) ? x.spec.complexity : null;
+    // A revised spec without the line must not keep a stale level-picking value.
+    if (complexity) fields.push(`complexity=${complexity}`);
+    else if (j.complexity != null) fields.push('complexity=null');
     const services = x.spec.services.filter((s) => SAFE_REF.test(s) && c.services.some((cs) => cs.name === s));
     if (services.length) fields.push(`services=${JSON.stringify(services)}`);
     return set(x, 'SP3', { fields }, 'record the review panel the spec implies');

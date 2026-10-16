@@ -187,7 +187,7 @@ export function renderBrief(input: StepInput, spec: BriefSpec): string {
     `Job paths (JSON): ${JSON.stringify(input.paths)}`,
     `Inputs: ${present.length ? present.join(', ') : 'none'}`,
     `Output: ${spec.outputs.join(', ')}`,
-    `Effort: ${resolveEffort(input.config, input.job).level ?? 'inherit'}`,
+    `Effort: ${resolveEffort(input.config, input.job, spec.lens ? `${spec.role}:${spec.lens}` : spec.role).level ?? 'inherit'}`,
     ...spec.extra,
     ...(spec.retry ? [spec.retry] : []),
     UNTRUSTED_LINE,

@@ -4,7 +4,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { modelFor, reviewerChecklist } from './config.ts';
+import { modelFor, resolveEffort, reviewerChecklist } from './config.ts';
 import { paths, exists, PLUGIN_ROOT } from './paths.ts';
 import type { Config, PanelEntry, Roster } from './types.ts';
 import { readText } from './util.ts';
@@ -34,16 +34,21 @@ export function roster(root: string, config: Config): Roster {
       const { meta, body } = frontmatter(readText(path.join(agentsDir, f)));
       const addendumFile = path.join(p.notes, `${role}.md`);
       const addendum = readText(addendumFile);
+      // No job: what a spawn gets before a job's own effort or complexity applies.
+      const effort = resolveEffort(config, null, role);
       return {
         role,
         description: meta.description ?? '',
         model: config.runtime.models[role] ?? meta.model ?? 'inherit',
         promptHash: hash(body, addendum, learnings),
         addendum: exists(addendumFile) ? path.relative(root, addendumFile) : null,
+        effort: effort.level,
+        effortSource: effort.source,
       };
     });
   const reviewers = (config.review.panel ?? []).map((r: PanelEntry) => {
     const file = reviewerChecklist(root, r.name, r.checklist);
+    const effort = resolveEffort(config, null, `reviewer:${r.name}`);
     return {
       name: r.name,
       model: r.model ?? modelFor(config, 'reviewer'),
@@ -51,6 +56,8 @@ export function roster(root: string, config: Config): Roster {
       when: r.when ?? null,
       checklist: file ? (file.startsWith(root) ? path.relative(root, file) : `plugin:reviewers/${path.basename(file)}`) : null,
       checklistHash: file ? hash(readText(file)) : null,
+      effort: effort.level,
+      effortSource: effort.source,
     };
   });
   const { enabled, builder, overlap, warnings } = modelOverlap(config);
