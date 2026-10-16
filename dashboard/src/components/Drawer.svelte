@@ -14,6 +14,7 @@
   import Chip from './Chip.svelte';
   import DepSection from './DepSection.svelte';
   import EffortChip from './EffortChip.svelte';
+  import EnvironmentSection from './EnvironmentSection.svelte';
   import LiveDot from './LiveDot.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
   import PrChip from './PrChip.svelte';
@@ -237,6 +238,7 @@
         {:else if shown.tab === 'details'}
           {#if j.reason}<div><div class="label">{$t('drawer.reason')}</div><div class="text-sm break-words">{j.reason}</div></div>{/if}
           <ProgressBar progress={j.progress} />
+          <EnvironmentSection job={j} />
           <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
             {@render fact($t('drawer.branch'), j.branch ?? '—', 'branch')}{@render fact($t('drawer.base'), j.base ?? '—', 'branch')}{@render fact($t('drawer.port'), j.port ?? '—')}{@render fact($t('drawer.worktree'), j.worktree ?? '—')}
             <div><div class="label">{$t('drawer.pr')}</div><div class="mono text-[13px] break-all selectable">{#if prUrl}<a class="text-gleam" href={prUrl} target="_blank" rel="noopener"><Icon name="pull-request" class="sm mr-1 inline-block align-[-2px]" />#{j.pr?.number}</a>{:else}—{/if}</div></div>

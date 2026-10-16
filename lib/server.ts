@@ -13,10 +13,13 @@ import { createPool } from './daemon-pool.ts';
 import type { DaemonPool, PoolState } from './daemon-pool.ts';
 import { buildBundle, bundleFileName } from './bundle.ts';
 import { doctor } from './doctor.ts';
+import { containedWorktree, editorArgv, openEditor } from './editor.ts';
+import { readSmallJson } from './focus.ts';
+import { InactiveJobError, currentFocus, focusJob } from './focus-actions.ts';
 import { createPreviewer, ghRunner, parseGitHubUrl } from './github-preview.ts';
 import type { GhRunner } from './github-preview.ts';
 import { daemonSessionIds, jobSessionEnv, ownerStatusWithProof } from './daemon-owner.ts';
-import { RUNNING_AGENT_MAX_MS, createJob, listJobs, loadJob, ownerStatus, progress, readEvents, jobDir, requestBody, setJobEffort } from './jobs.ts';
+import { RUNNING_AGENT_MAX_MS, createJob, isActive, listJobs, loadJob, ownerStatus, progress, readEvents, jobDir, requestBody, setJobEffort } from './jobs.ts';
 import { normalizeRef } from './issue-link.ts';
 import { paths, exists, DEV_DIST_DIR, PLUGIN_ROOT } from './paths.ts';
 import { API_VERSION, CONFIG_SCHEMA_VERSION, EFFORTS, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from './schema.ts';
@@ -32,8 +35,9 @@ import { deriveTitle, normalizeTitle } from './title.ts';
 import { agentTranscript, cachedActivity, claudeProjectsDir, openTranscript, ownerTranscript } from './transcripts.ts';
 import type { TranscriptHit } from './transcripts.ts';
 import { redactContext, redactText } from './redact.ts';
-import { getPath, readJson, readText } from './util.ts';
+import { ForgeError, getPath, readJson, readText } from './util.ts';
 import { versionInfo } from './version.ts';
+import { pidAlive, startBackground } from './worktree.ts';
 import { zip } from './zip.ts';
 import type {
   AboutResponse,
@@ -42,12 +46,15 @@ import type {
   ApiError,
   ApiState,
   BacklogResponse,
+  Config,
   ConfigResponse,
   DaemonLogPage,
   DaemonPoolState,
   DaemonSessionState,
   DoctorResponse,
+  Endpoint,
   EvalsResponse,
+  FocusResponse,
   GitHubPreviewResponse,
   ForgeTruncatedLine,
   JobDetail,
@@ -59,9 +66,11 @@ import type {
   PostBudgetAckResponse,
   PostConfigResponse,
   PostDaemonModeResponse,
+  PostEditorResponse,
   PostJobEffortResponse,
   PostJobResponse,
   PostRequestResponse,
+  PostRunResponse,
   RepoBudgetStatus,
   TranscriptPage,
   VersionInfo,
@@ -390,12 +399,79 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         // No DAEMON_LOCK: job.json is outside the trust digest, and a running session picks the level up at its next spawn.
         return json(res, setJobEffort(root, id, effort as PostJobEffortResponse['effort'], 'dashboard') satisfies PostJobEffortResponse);
       }
+      if (req.method === 'POST' && p === '/api/focus') {
+        if (guardPost(req, res, token)) return;
+        const parsed = await readJsonBody(req);
+        if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
+        const body = parsed.body;
+        const raw = isObject(body) && Object.hasOwn(body, 'job') ? body.job : undefined;
+        const job = typeof raw === 'string' ? raw : null;
+        if (raw !== null && job === null) return jsonStatus(res, 400, { error: 'body must be {"job": "<id>"} or {"job": null}' });
+        if (job !== null && !validJobId(job)) return jsonStatus(res, 400, { error: 'invalid job id' });
+        if (job !== null && !exists(path.join(jobDir(root, job), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${job}` });
+        try {
+          return json(res, focusJob(root, job, 'dashboard', dashboardActor()) satisfies FocusResponse);
+        } catch (e) {
+          if (e instanceof InactiveJobError) return jsonStatus(res, 409, { error: e.message });
+          if (e instanceof ForgeError && (e.code === 'not_found' || e.code === 'usage')) return jsonStatus(res, e.code === 'not_found' ? 404 : 400, { error: e.message });
+          throw e;
+        }
+      }
+      const jm = p.match(/^\/api\/jobs\/([^/]+)\/(run|editor)$/);
+      if (req.method === 'POST' && jm) {
+        if (guardPost(req, res, token)) return;
+        const parsed = await readJsonBody(req);
+        if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
+        const id = jm[1];
+        if (!validJobId(id) || !exists(path.join(jobDir(root, id), 'job.json'))) return jsonStatus(res, 404, { error: validJobId(id) ? `no job ${id}` : 'no such job' });
+        if (!isObject(parsed.body)) return jsonStatus(res, 400, { error: 'body must be a JSON object' });
+        const job = loadJob(root, id);
+        const { config } = loadConfig(root);
+        return jm[2] === 'run' ? runDev(res, config, job, parsed.body) : editor(res, config, job);
+      }
       send(res, 404, 'text/plain', 'not found');
     } catch (e) {
       if (res.headersSent) return void res.end();
       send(res, 500, 'application/json', JSON.stringify({ error: (e as Error).message } satisfies ApiError));
     }
   });
+
+  /**
+   * Starts the job's dev command, or reports the live one: the only command the dashboard may run,
+   * and only in the job's own worktree (containedWorktree), since job.json is agent-writable.
+   */
+  async function runDev(res: http.ServerResponse, config: Config, job: LoadedJob, body: Record<string, unknown>): Promise<void> {
+    if (body.command !== 'dev') return jsonStatus(res, 400, { error: 'command must be "dev"' });
+    if (!isActive(job)) return jsonStatus(res, 409, { error: `job ${job.id} is ${job.state}; only an active job's dev server can be started` });
+    if (!job.worktree || !containedWorktree(root, config, job)) return jsonStatus(res, 409, { error: `job ${job.id} has no worktree inside the worktrees root` });
+    try {
+      const r = await startBackground(root, config, job.id, 'dev');
+      return json(res, { reused: r.reused, listening: r.listening, port: r.port } satisfies PostRunResponse);
+    } catch (e) {
+      if (e instanceof ForgeError) return jsonStatus(res, 409, { error: e.message });
+      throw e;
+    }
+  }
+
+  /** Opens the job's contained worktree in FORGE_EDITOR (default `code`): a fixed argv, no shell. */
+  async function editor(res: http.ServerResponse, config: Config, job: LoadedJob): Promise<void> {
+    const dir = containedWorktree(root, config, job);
+    if (!dir) return jsonStatus(res, 409, { error: `job ${job.id} has no worktree inside the worktrees root` });
+    let argv: string[];
+    try {
+      argv = editorArgv(process.env);
+    } catch (e) {
+      return jsonStatus(res, 409, { error: (e as Error).message });
+    }
+    try {
+      await openEditor(argv, dir);
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      const error = code === 'ENOENT' ? `no editor "${argv[0]}" found: set FORGE_EDITOR to your editor's command` : `cannot start editor "${argv[0]}": ${(e as Error).message}`;
+      return jsonStatus(res, 409, { error });
+    }
+    return json(res, { ok: true, editor: argv[0] } satisfies PostEditorResponse);
+  }
 
   /**
    * Server-sent events for one session: its state, then its buffered log lines, then live ones,
@@ -918,7 +994,7 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
     const events = readEvents(root, j.id);
     const last = events[events.length - 1] ?? null;
     // The time rule only, so polling never spawns `ps`; the job detail adds the daemon proofs.
-    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: ownerStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events) };
+    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: ownerStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events), endpoints: endpointsFor(root, config, j) };
   });
   return {
     apiVersion: API_VERSION,
@@ -939,9 +1015,28 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
     daemons: { ...daemons, enabled: config.daemon?.enabled === true, foreman: config.foreman?.enabled === true, maxConcurrent: validCap(config.daemon?.maxConcurrent) ?? daemons.maxConcurrent },
     jobs,
     requests: requests.filter((r) => r.status === 'pending' || r.status === 'in-progress'),
+    focus: currentFocus(root),
     budget,
     now: new Date().toISOString(),
   };
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * A job's dev endpoint: an active job with a worktree, a valid port and a dev command configured.
+ * `live` reads runtime.json without following a link or blocking on a FIFO (the job dir is
+ * agent-writable) and only signals 0, so polling opens no socket and spawns nothing.
+ */
+function endpointsFor(root: string, config: Config, j: LoadedJob): Endpoint[] {
+  const dev = config.commands?.dev;
+  const port = j.port;
+  if (!isActive(j) || !j.worktree || typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535 || typeof dev !== 'string' || !dev.trim()) return [];
+  const rec = readSmallJson(path.join(jobDir(root, j.id), 'runtime.json'))?.dev;
+  const pid = isObject(rec) ? rec.pid : undefined;
+  // pid 1 would make pidAlive signal -1 (every process this user may signal) and always read live.
+  const live = typeof pid === 'number' && pid > 1 && pidAlive(pid);
+  return [{ name: 'dev', url: `http://localhost:${port}/`, port, live }];
 }
 
 /** Who last acted on a job: its last event with an actor (already normalised by readEvents). */

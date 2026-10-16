@@ -18,21 +18,39 @@ function cli(dir: string, ...args: string[]) {
   return { status: r.status, stdout: r.stdout.trim(), stderr: r.stderr.trim() };
 }
 
-/** A scratch repo with `forge init write` run on `answers`; worktrees go to a `<repo>.wt` sibling. */
-function initRepo(answers: Record<string, unknown>) {
+/**
+ * A scratch repo with `forge init write` run on `answers`; worktrees go to a `<repo>.wt` sibling.
+ * `name` moves the repo into a fresh directory under that name first, so its path, and the
+ * worktree paths Forge computes from it, hold whatever characters the name does.
+ */
+function initRepo(answers: Record<string, unknown>, name?: string) {
   const repo = tempRepo();
+  let dir = repo.dir;
+  let cleanup = () => {
+    repo.cleanup();
+    fs.rmSync(`${repo.dir}.wt`, { recursive: true, force: true });
+  };
+  if (name) {
+    const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-test-')));
+    dir = path.join(parent, name);
+    fs.renameSync(repo.dir, dir);
+    cleanup = () => fs.rmSync(parent, { recursive: true, force: true });
+  }
   const file = path.join(fs.realpathSync(os.tmpdir()), `forge-safe-ref-${path.basename(repo.dir)}.json`);
-  fs.writeFileSync(file, JSON.stringify({ worktrees: { root: `../${path.basename(repo.dir)}.wt` }, ...answers }));
-  const r = cli(repo.dir, 'init', 'write', '--answers', file);
+  fs.writeFileSync(file, JSON.stringify({ worktrees: { root: '../{repo}.wt' }, ...answers }));
+  const r = cli(dir, 'init', 'write', '--answers', file);
   fs.rmSync(file, { force: true });
   assert.equal(r.status, 0, r.stderr);
-  return {
-    ...repo,
-    cleanup: () => {
-      repo.cleanup();
-      fs.rmSync(`${repo.dir}.wt`, { recursive: true, force: true });
-    },
-  };
+  return { dir, cleanup };
+}
+
+/** Claims a new job and creates its worktree; returns the id and the stored worktree path. */
+function claimWithWorktree(dir: string, title: string) {
+  assert.equal(cli(dir, 'tracker', 'create', '--title', title).status, 0);
+  const { id } = JSON.parse(cli(dir, 'next', '--claim', '--session', 's1').stdout);
+  const wt = cli(dir, 'worktree', 'create', id);
+  assert.equal(wt.status, 0, wt.stderr);
+  return { id, wt: loadJob(dir, id).worktree! };
 }
 
 test('assertSafeRef accepts plain branch names and refuses shell metacharacters', () => {
@@ -83,6 +101,69 @@ test('forge run never fills a template with an unsafe branch', { skip: process.p
     await new Promise((r) => setTimeout(r, 300));
     gone();
     assert.ok(!readEvents(repo.dir, id).some((e) => e.type === 'background-start'));
+  } finally {
+    repo.cleanup();
+  }
+});
+
+// Refused before anything runs, so no shell is needed and the test runs on Windows too.
+test('forge run fills {worktree} only with the path Forge computed for the job', async () => {
+  const repo = initRepo({ commands: { test: 'echo hi > {worktree}/out.txt' } });
+  try {
+    const { id, wt: dir } = claimWithWorktree(repo.dir, 'Pwn');
+    const sneaky = path.join(dir, '$(touch pwned)');
+    fs.mkdirSync(sneaky);
+    const other = path.join(path.dirname(dir), 'other-job');
+    fs.mkdirSync(other);
+    for (const worktree of [`${sneaky}/..`, sneaky, `${dir}/.`, `${dir} --extra`, other]) {
+      setJob(repo.dir, id, { fields: { worktree } });
+      for (const extra of [[], ['--background']]) {
+        const r = cli(repo.dir, 'run', id, 'test', ...extra);
+        assert.notEqual(r.status, 0, `${worktree} ${extra}`);
+        assert.equal(r.stderr.split('\n').length, 1, r.stderr);
+        assert.match(r.stderr, /job\.worktree .* is not this job's worktree/);
+      }
+    }
+    await new Promise((r) => setTimeout(r, 300));
+    for (const d of [dir, repo.dir]) for (const f of ['pwned', 'out.txt']) assert.equal(fs.existsSync(path.join(d, f)), false, path.join(d, f));
+    assert.ok(!readEvents(repo.dir, id).some((e) => e.type === 'background-start'));
+  } finally {
+    repo.cleanup();
+  }
+});
+
+// POSIX only: it runs command templates through sh, like test/cli.test.ts in CI's WINDOWS_SKIP.
+test('a repo path with ( & and spaces runs commands, with and without {worktree}', { skip: process.platform === 'win32' }, async () => {
+  const repo = initRepo(
+    {
+      commands: { test: 'echo plain > out.txt', lint: 'echo filled > "{worktree}/filled.txt"', dev: 'echo bg > "{worktree}/bg.txt"' },
+      worktrees: { root: '../{repo}.wt', setup: ['echo setup > "{worktree}/setup.txt"'] },
+    },
+    'My App (v2) & R&D',
+  );
+  try {
+    const { id, wt } = claimWithWorktree(repo.dir, 'Odd path');
+    assert.ok(wt.includes('My App (v2) & R&D.wt'), wt);
+    // createWorktree's own setup fills {worktree} with the path it just computed.
+    assert.equal(fs.readFileSync(path.join(wt, 'setup.txt'), 'utf8'), 'setup\n');
+    for (const [name, file, text] of [['test', 'out.txt', 'plain'], ['lint', 'filled.txt', 'filled']]) {
+      const r = cli(repo.dir, 'run', id, name);
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(fs.readFileSync(path.join(wt, file), 'utf8'), `${text}\n`);
+    }
+    const bg = cli(repo.dir, 'run', id, 'dev', '--background');
+    assert.equal(bg.status, 0, bg.stderr);
+    const deadline = Date.now() + 5000;
+    while (!fs.existsSync(path.join(wt, 'bg.txt')) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+    assert.equal(fs.readFileSync(path.join(wt, 'bg.txt'), 'utf8'), 'bg\n');
+
+    // A command without {worktree} runs whatever the stored value is; one with it is refused.
+    setJob(repo.dir, id, { fields: { worktree: `${wt} --extra` } });
+    fs.mkdirSync(`${wt} --extra`);
+    assert.equal(cli(repo.dir, 'run', id, 'test').status, 0);
+    const refused = cli(repo.dir, 'run', id, 'lint');
+    assert.notEqual(refused.status, 0);
+    assert.match(refused.stderr, /is not this job's worktree/);
   } finally {
     repo.cleanup();
   }

@@ -23,6 +23,7 @@ import { daemonCmd } from './commands/daemon.ts';
 import { dash } from './commands/dash.ts';
 import { doctorCmd } from './commands/doctor.ts';
 import { evalCmd } from './commands/eval.ts';
+import { focusCmd } from './commands/focus.ts';
 import { gitRead, gitWrite } from './commands/git.ts';
 import { helpCmd, usage } from './commands/help.ts';
 import { initWrite, migrate } from './commands/init.ts';
@@ -133,6 +134,9 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       return runCmd(root, config, argv);
     case 'stop':
       return ok({ stopped: wt.stopBackground(root, req(sub, 'job id')) });
+    case 'focus':
+      needInit();
+      return ok(focusCmd(root, pos.slice(1), flags));
     case 'verify': {
       needInit();
       const r = await wt.verify(root, config, req(sub, 'job id'));
