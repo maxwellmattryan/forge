@@ -48,7 +48,8 @@
   const prUrl = $derived(safeUrl(job?.pr?.url));
   const srcUrl = $derived(safeUrl(job?.source?.url));
   const srcGitHub = $derived(srcUrl?.startsWith('https://github.com/') ?? false);
-  // Only a job with a verifiers record gets the column.
+  // Only a job with a verifiers record gets the column. The detail's events are the last 400
+  // (lib/server.ts), so on a very long job an early round's cell can read — though it ran.
   const verifierResults = $derived(shown ? verifierRounds(shown.detail.events) : {});
   const hasVerifiers = $derived(Object.keys(verifierResults).length > 0);
   const matrix = $derived(job ? verdictMatrix(job, verifierResults) : null);
@@ -248,9 +249,10 @@
                   {#each matrix.rounds as r (r)}
                     {@const verify = j.verify?.[r]}
                     {@const vf = verifierResults[r]}
+                    {@const vfText = vf ? $t('drawer.verifiersTitle', { blocking: $t('drawer.verifiersBlocking', { count: vf.blocking }), warnings: $t('drawer.verifiersWarnings', { count: vf.warned }) }) : undefined}
                     <tr>
                       <td class="num">{r}</td>
-                      <td>{#if verify}<Chip tone={verify === 'PASS' ? 'ok' : 'bad'} text={verify} />{:else}—{/if}</td>{#if hasVerifiers}<td title={vf ? $t('drawer.verifiersTitle', { blocking: vf.blocking, warned: vf.warned }) : undefined}>{#if vf}<Chip tone={verifierTone(vf)} text={vf.outcome} />{:else}—{/if}</td>{/if}{#each matrix.reviewers as name (name)}{@const v = j.verdicts?.[r]?.[name]}<td>{#if v}<Chip tone={v === 'PASS' ? 'ok' : 'bad'} text={v} />{:else}—{/if}</td>{/each}
+                      <td>{#if verify}<Chip tone={verify === 'PASS' ? 'ok' : 'bad'} text={verify} />{:else}—{/if}</td>{#if hasVerifiers}<td class="whitespace-nowrap" title={vfText}>{#if vf}<Chip tone={verifierTone(vf)} text={vf.outcome} />{#if vf.warned > 0}<span class="muted num ml-1" aria-hidden="true">{$t('drawer.verifiersWarnings', { count: vf.warned })}</span>{/if}<span class="sr-only">{vfText}</span>{:else}—{/if}</td>{/if}{#each matrix.reviewers as name (name)}{@const v = j.verdicts?.[r]?.[name]}<td>{#if v}<Chip tone={v === 'PASS' ? 'ok' : 'bad'} text={v} />{:else}—{/if}</td>{/each}
                     </tr>
                   {/each}
                 </tbody>
