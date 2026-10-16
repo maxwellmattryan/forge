@@ -78,7 +78,7 @@ claude plugin validate . --strict
 - **Plugin runtime**: `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_SESSION_ID}` are substituted in skill/agent *markdown*, not exported to the shell. Claude Code appends `bin/` to the end of PATH; the SessionStart hook puts it first for every Bash command. Plugin agents are invoked as `forge:<role>`.
 - **CLI output**: string results print raw (e.g. `forge worktree path`), everything else prints compact JSON.
 - **`--field` values** are not comma-split, because JSON arrays contain commas. Other list flags are.
-- **Local tracker refs** are title slugs, and the job id for a non-numeric ref is the ref itself. Numeric (GitHub) refs become `<n>-<slug>`.
+- **Issue refs** live in `job.issues` (`lib/issue-ref.ts`): GitHub refs are stored qualified (`owner/repo#12`), local refs are title slugs, custom refs are the adapter's own. Only `nativeRef` output reaches a tracker call. Job ids: this repo's GitHub issue gives `<n>-<slug>`, a foreign `owner/repo#n` gives `repo-<n>-<slug>`, any other ref is the ref itself slugified.
 - **Worktrees live outside the repo** on purpose: a nested worktree inside a Cargo workspace breaks Cargo, and bundlers and watchers pick up the copies. Don't "simplify" this to an in-repo `.worktrees/`.
 
 ## Publishing

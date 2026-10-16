@@ -54,7 +54,7 @@ async function scratch() {
     if (r.status !== 0) throw new Error(`forge ${args.join(' ')} exited ${r.status}: ${r.stderr}${r.stdout}`);
     return JSON.parse(r.stdout);
   };
-  const job = async (title: string) => (await f('job', 'new', '--title', title, '--ref', title.toLowerCase())).id as string;
+  const job = async (title: string) => (await f('job', 'new', '--title', title, '--ref', title.toLowerCase().replace(/ /g, '-'))).id as string;
   const jobFile = (id: string) => path.join(root, '.forge', 'jobs', id, 'job.json');
   const patchJob = (id: string, patch: Record<string, unknown>) => fs.writeFileSync(jobFile(id), JSON.stringify({ ...JSON.parse(fs.readFileSync(jobFile(id), 'utf8')), ...patch }));
   const events = (id: string) =>

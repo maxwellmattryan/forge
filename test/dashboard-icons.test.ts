@@ -127,12 +127,12 @@ test('git icons mark branches, PRs and the tracker', () => {
   assert.match(pipeline, /<Icon name="branch" \/>\{\$t\('pipeline\.base'\)\}/, 'branch before the base');
   assert.match(pipeline, /<Icon name=\{data\.config\.tracker === 'github' \? 'github' : 'tracker'\} \/>\{\$t\('pipeline\.tracker'/, 'github or tracker before the tracker');
   assert.match(readSrc('views/Backlog.svelte'), /<Icon name=\{S\.data\?\.config\?\.tracker === 'github' \? 'github' : 'tracker'\} \/><b>\{b\.tracker\}<\/b>/);
-  // The job pane: Branch and Base, the PR link, and a GitHub Source link.
+  // The job pane: Branch and Base, the PR link, and a GitHub link per issue.
   const drawer = readSrc('components/Drawer.svelte');
   assert.match(drawer, /fact\(\$t\('drawer\.branch'\), j\.branch \?\? '—', 'branch'\)\}\{@render fact\(\$t\('drawer\.base'\), j\.base \?\? '—', 'branch'\)/);
   assert.match(drawer, /href=\{prUrl\}[^>]*><Icon name="pull-request" /);
-  assert.match(drawer, /const srcGitHub = \$derived\(srcUrl\?\.startsWith\('https:\/\/github\.com\/'\) \?\? false\);/, 'github only for a safeUrl on github.com');
-  assert.match(drawer, /\{#if srcGitHub\}<Icon name="github" /);
+  assert.match(drawer, /\{@const issueUrl = safeUrl\(issue\.url\)\}/, 'each issue url goes through safeUrl');
+  assert.match(drawer, /\{#if issueUrl\.startsWith\('https:\/\/github\.com\/'\)\}<Icon name="github" /, 'github only for a safeUrl on github.com');
   // Needs you: the Open PR button and the bell.
   assert.match(readSrc('components/statusbar/NeedsPanel.svelte'), /<a class="btn sm" href=\{u\}[^>]*><Icon name="pull-request" \/>\{\$t\('inbox\.openPr'\)\}<\/a>/);
   assert.match(readSrc('components/StatusBar.svelte'), /<Icon name="bell" \/>/);

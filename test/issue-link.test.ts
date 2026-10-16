@@ -649,7 +649,7 @@ describe('forge job human --link', { concurrency: 4 }, () => {
     assert.ok(skillMd.includes('| `approve <job> [<ref>\\|new\\|none] [note]`, `revise`'), 'SKILL.md commands row');
     assert.ok(skillMd.includes('approve <job> [<ref>|new|none] [note]'), 'SKILL.md argument-hint');
     const split = fs.readFileSync(path.join(ref, 'split.md'), 'utf8');
-    assert.ok(split.includes('`forge tracker create --title … --body … --parent <ref>` when the parent job has a `source.ref`, otherwise the same without `--parent`'), 'split.md --parent is conditional');
+    assert.ok(split.includes('`forge tracker create --title … --body … --parent <ref>` when the parent job has an issue in `issues` (the ref of the first one), otherwise the same without `--parent`'), 'split.md --parent is conditional');
     // `unlinked` is reported, never acted on: step's pr-review tell carries it.
     const waiting = step(fixture({ config: (c) => (c.tracker.kind = 'local'), job: { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', pr: { number: 1, url: 'https://github.com/o/r/pull/1', state: 'OPEN', isDraft: false, lastSyncedAt: 'now' } } }));
     assert.ok(waiting.action === 'wait' && waiting.tell?.includes('j has no linked issue: `forge job link j <ref>` or `--none`'));
