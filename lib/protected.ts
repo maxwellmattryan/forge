@@ -342,3 +342,74 @@ export function protectedReason(flag: ProtectedPaths): string {
   const rest = total - shown.length;
   return `protected paths: ${[...shown, ...(rest > 0 ? [`+${rest} more`] : [])].join(', ')}`;
 }
+
+// ---------- the branch check (verify and pr open) ----------
+
+/** What verify and pr open found over the whole branch; `error` when it could not be computed. */
+export interface BranchCheck extends ProtectedCheck {
+  flag: ProtectedPaths | null;
+  error: string | null;
+}
+
+/** verify's JSON key: at most 10 paths of each kind. */
+export interface CompactProtected {
+  ok: boolean;
+  refused: string[];
+  escalated: string[];
+  more: number;
+  error?: string;
+}
+
+/**
+ * The committed diff from the comparison point (bound to `head`) to `head`, checked against the
+ * policy, with the flag recorded and a refusal logged. Recomputed from git every time: the stored
+ * flag is never trusted. An invalid policy throws config_invalid; anything else that stops the
+ * check comes back as `error`, never as a clean result.
+ */
+export function checkBranch(root: string, config: Config, job: Pick<Job, 'id' | 'worktree' | 'base'>, head: string, gate: 'verify' | 'pr'): BranchCheck {
+  const rules = policyRules(config);
+  const empty: BranchCheck = { refused: [], escalated: [], flag: null, error: null };
+  // The policy is off: nothing to compare, and a flag from before it was turned off is cleared.
+  if (!rules.length) return { ...empty, flag: recordProtected(root, job.id, gate, [], head, null) };
+  try {
+    if (!job.worktree) throw new ForgeError(`job ${job.id} has no worktree`);
+    if (!FULL_SHA.test(head)) throw new ForgeError(`${JSON.stringify(head.slice(0, 80))} is not a commit id`);
+    const cwd = fs.realpathSync(job.worktree);
+    const env = historyEnv();
+    const m = resolveBase(cwd, config, job, head).mergeBase;
+    if (!FULL_SHA.test(m)) throw new ForgeError(`merge-base ${JSON.stringify(m.slice(0, 80))} is not a commit id`);
+    const found = checkProtected(diffEntries(cwd, m, head, env), rules, blobReader(cwd, env), cwd);
+    const flag = recordProtected(root, job.id, gate, found.escalated, head, { cwd, from: m, to: head, env });
+    if (found.refused.length) logRefused(root, job.id, gate, found.refused, { head });
+    return { ...found, flag, error: null };
+  } catch (e) {
+    return { ...empty, error: (e as Error).message };
+  }
+}
+
+export function compactProtected(c: Pick<BranchCheck, 'refused' | 'escalated' | 'error'>): CompactProtected {
+  const n = 10;
+  return {
+    ok: !c.error && !c.refused.length,
+    refused: c.refused.slice(0, n).map((h) => h.path),
+    escalated: c.escalated.slice(0, n).map((h) => h.path),
+    more: Math.max(0, c.refused.length - n) + Math.max(0, c.escalated.length - n),
+    ...(c.error ? { error: c.error } : {}),
+  };
+}
+
+/** verify/round-N.md's `## protected` section. Paths come from the branch: control characters are escaped and backticks can't close the span. */
+export function renderProtected(c: Pick<BranchCheck, 'refused' | 'escalated' | 'error'>): string {
+  const ok = !c.error && !c.refused.length;
+  const line = (h: ProtectedHit) => `- \`${clean(h.path).replace(/`/g, "'")}\`: rule ${h.rule} (${clean(h.glob)}): ${clean(h.reason)}`;
+  const list = (hits: ProtectedHit[]) => {
+    const shown = hits.slice(0, MAX_HITS).map(line);
+    if (hits.length > MAX_HITS) shown.push(`- … and ${hits.length - MAX_HITS} more`);
+    return shown.length ? shown : ['- none'];
+  };
+  const out = [`## protected: ${ok ? 'ok' : 'FAILED'}`, ''];
+  if (c.error) out.push(`The check could not run, so it does not pass: ${clean(c.error)}`, '');
+  out.push(`Refused (${c.refused.length}): the branch must put these back to their merge-base content`, ...list(c.refused), '');
+  out.push(`Escalated (${c.escalated.length}): a human approves these before the job ships`, ...list(c.escalated), '');
+  return out.join('\n');
+}

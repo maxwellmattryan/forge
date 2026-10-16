@@ -191,7 +191,9 @@ describe('the CLI end to end', { concurrency: 4 }, () => {
       fs.writeFileSync(path.join(repo.dir, 'test', 'b.test.mjs'), "test('three', () => {});\n");
       fs.writeFileSync(path.join(repo.dir, 'package.json'), JSON.stringify({ name: 'x', scripts: { test: 'node --test' } }, null, 2));
       commitAll(repo.dir, 'tests');
-      await f('init', 'write', '--answers', answer({ commands: { test: 'true' }, verify: ['test'], worktrees: { root: `../${path.basename(repo.dir)}.wt` } }));
+      // The branch commits .forge/config.yml to show integrity reports it; the protected-paths policy
+      // would refuse that first, so it is off here.
+      await f('init', 'write', '--answers', answer({ commands: { test: 'true' }, verify: ['test'], worktrees: { root: `../${path.basename(repo.dir)}.wt` }, policy: { protectedPaths: [] } }));
 
       // AC8: the default, and only warn | block are accepted.
       const cfgFile = path.join(repo.dir, '.forge', 'config.yml');

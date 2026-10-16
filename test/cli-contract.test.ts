@@ -562,7 +562,7 @@ test('CLI JSON keys are stable', POSIX, () => {
     assert.deepEqual(keyPaths(verify), [
       'attempt', 'file', 'integrity', 'integrity.base', 'integrity.blocking', 'integrity.configEdits', 'integrity.deletedTests', 'integrity.findings', 'integrity.mode', 'integrity.more',
       'integrity.ok', 'integrity.renamedTests', 'integrity.skipMarkers', 'integrity.testCount', 'integrity.testCount.after', 'integrity.testCount.before', 'integrity.testCount.delta',
-      'ok', 'round', 'secrets', 'secrets.allowed', 'secrets.count', 'secrets.findings', 'secrets.mode', 'secrets.more', 'secrets.ok', 'sha', 'steps', 'steps[].cmd', 'steps[].durationMs', 'steps[].exit', 'steps[].log', 'steps[].name', 'steps[].ok', 'steps[].skipped',
+      'ok', 'protected', 'protected.escalated', 'protected.more', 'protected.ok', 'protected.refused', 'round', 'secrets', 'secrets.allowed', 'secrets.count', 'secrets.findings', 'secrets.mode', 'secrets.more', 'secrets.ok', 'sha', 'steps', 'steps[].cmd', 'steps[].durationMs', 'steps[].exit', 'steps[].log', 'steps[].name', 'steps[].ok', 'steps[].skipped',
     ]);
     assert.deepEqual(keyPaths(s.json(['stats', '--json']), ['waitingOn', 'cost.byRole', 'cost.byModel', 'reviewers']), [
       'cost', 'cost.avgCostPerJobUsd', 'cost.avgTokensPerJob', 'cost.byModel', 'cost.byRole', 'cost.estCostUsd', 'cost.reportingCoverage', 'cost.reportingCoverage.agentRuns',

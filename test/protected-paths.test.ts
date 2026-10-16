@@ -417,3 +417,131 @@ describe('forge git add and commit', { concurrency: 4 }, () => {
     }
   });
 });
+
+describe('verify and pr open', { concurrency: 4 }, () => {
+  test('verify refuses a path committed outside forge git', async () => {
+    const s = scratch();
+    const mark = path.join(s.repo.dir, '..', `mark-${path.basename(s.repo.dir)}`);
+    try {
+      const j = await s.job();
+      fs.appendFileSync(path.join(j.wt, '.forge/config.yml'), '# loosened on the branch\n');
+      commitAll(j.wt, 'plain git');
+      const r = await s.json(['verify', j.id], { FORGE_TEST_MARK: mark });
+      assert.equal(r.status, 1, r.stderr);
+      assert.equal(r.out.ok, false);
+      assert.equal(r.out.failure.name, 'protected');
+      assert.deepEqual(r.out.protected, { ok: false, refused: ['.forge/config.yml'], escalated: [], more: 0 });
+      assert.equal(fs.existsSync(mark), false, 'no configured command ran');
+      assert.ok(!r.out.steps.some((st: any) => st.name === 'test'), 'the test step is not listed as run');
+      const md = fs.readFileSync(path.join(j.dir, 'verify', 'round-1.md'), 'utf8');
+      assert.match(md, /^## protected: FAILED$/m);
+      assert.ok(md.includes(`- \`.forge/config.yml\`: rule 7 (.forge/config.yml): ${CONFIG_REASON}`), md);
+      const job = JSON.parse(fs.readFileSync(path.join(j.dir, 'job.json'), 'utf8'));
+      assert.equal(job.verifyRuns.at(-1).failure, 'protected');
+      const ev = s.events(j.dir).filter((e) => e.type === 'protected-path');
+      assert.deepEqual(ev.map((e) => [e.gate, e.action, e.blocked]), [['verify', 'refuse', true]]);
+    } finally {
+      s.cleanup();
+      fs.rmSync(mark, { force: true });
+    }
+  });
+
+  test('verify flags an escalate path committed outside forge git', async () => {
+    const s = scratch();
+    const mark = path.join(s.repo.dir, '..', `mark-${path.basename(s.repo.dir)}`);
+    try {
+      const j = await s.job();
+      write(j.wt, 'Dockerfile', 'FROM scratch\n');
+      commitAll(j.wt, 'plain git');
+      const r = await s.json(['verify', j.id], { FORGE_TEST_MARK: mark });
+      assert.equal(r.status, 0, `${r.stderr}${JSON.stringify(r.out)}`);
+      assert.equal(r.out.ok, true);
+      assert.deepEqual(r.out.protected, { ok: true, refused: [], escalated: ['Dockerfile'], more: 0 });
+      assert.equal(r.out.steps.find((st: any) => st.name === 'protected').reason, '1 protected paths need a human');
+      assert.equal(fs.existsSync(mark), true, 'the configured command ran');
+      const flag = s.flag(j.dir);
+      assert.deepEqual([flag.gate, flag.head, flag.hits[0].path, flag.hits[0].rule], ['verify', git(j.wt, 'rev-parse', 'HEAD'), 'Dockerfile', 2]);
+      assert.match(fs.readFileSync(path.join(j.dir, 'verify', 'round-1.md'), 'utf8'), /^## protected: ok$/m);
+      assert.match(fs.readFileSync(path.join(j.dir, 'protected.diff'), 'utf8'), /^\+FROM scratch$/m);
+    } finally {
+      s.cleanup();
+      fs.rmSync(mark, { force: true });
+    }
+  });
+
+  test('pr open re-checks the full diff', async () => {
+    const s = scratch();
+    const bin = path.join(s.repo.dir, '..', `fakebin-${path.basename(s.repo.dir)}`);
+    const bare = path.join(s.repo.dir, '..', `remote-${path.basename(s.repo.dir)}.git`);
+    try {
+      fs.mkdirSync(bin);
+      const ghLog = path.join(bin, 'gh.log');
+      fs.writeFileSync(ghLog, '');
+      fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\necho "$*" >> "${ghLog}"\nexit 1\n`, { mode: 0o755 });
+      execFileSync('git', ['init', '-q', '--bare', bare]);
+      git(s.repo.dir, 'remote', 'add', 'origin', bare);
+      git(s.repo.dir, 'push', '-q', 'origin', 'main');
+      const env = { PATH: `${bin}:${process.env.PATH}` };
+      const pushed = () => execFileSync('git', ['ls-remote', '--heads', bare], { encoding: 'utf8' }).includes('forge/');
+      const gh = () => fs.readFileSync(ghLog, 'utf8');
+
+      // (a) An escalate path committed by plain git on a verified HEAD: refused before gh, flag at the pr gate.
+      const j = await s.job();
+      write(j.wt, 'Dockerfile', 'FROM scratch\n');
+      commitAll(j.wt, 'plain git');
+      assert.equal((await s.json(['verify', j.id])).status, 0);
+      const before = s.flag(j.dir);
+      let r = await s.json(['pr', 'open', j.id], env);
+      assert.equal(r.status, 1, r.stderr);
+      assert.equal(r.err.code, 'protected_path');
+      assert.equal(r.err.message, `protected paths need a human approval: 1 paths; /forge approve ${j.id}`);
+      assert.equal(gh(), '', 'gh was never called');
+      assert.equal(pushed(), false, 'nothing was pushed');
+      assert.equal(s.flag(j.dir).gate, 'pr');
+      assert.equal(s.flag(j.dir).at, before.at, 'the same content keeps at');
+
+      // (b) A human approve at the PP1 park lets it through to gh.
+      await s.f('job', 'set', j.id, '--state', 'waiting', '--waiting-on', 'human', '--reason', 'protected paths: Dockerfile');
+      await s.f('job', 'human', j.id, 'approve');
+      await s.f('job', 'set', j.id, '--state', 'running');
+      r = await s.json(['pr', 'open', j.id], env);
+      assert.notEqual(r.err?.code, 'protected_path', JSON.stringify(r.out));
+      assert.notEqual(gh(), '', 'gh was called');
+
+      // (e) A hand-cleared flag changes nothing: the set is recomputed and at moves.
+      fs.writeFileSync(ghLog, '');
+      const file = path.join(j.dir, 'job.json');
+      fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), protectedPaths: null }));
+      r = await s.json(['pr', 'open', j.id], env);
+      assert.equal(r.err?.code, 'protected_path', JSON.stringify(r.out));
+      assert.equal(gh(), '');
+
+      // (c) A refuse path on a HEAD marked verified (by a Forge without the policy, say) exits before gh.
+      const k = await s.job();
+      fs.appendFileSync(path.join(k.wt, '.forge/config.yml'), '# loosened\n');
+      commitAll(k.wt, 'plain git');
+      const head = git(k.wt, 'rev-parse', 'HEAD');
+      const kfile = path.join(k.dir, 'job.json');
+      const kjob = JSON.parse(fs.readFileSync(kfile, 'utf8'));
+      kjob.verifyRuns.push({ round: 1, attempt: 1, sha: head, ok: true, at: new Date().toISOString(), file: 'verify/round-1.md', failure: null });
+      fs.writeFileSync(kfile, JSON.stringify(kjob));
+      r = await s.json(['pr', 'open', k.id], env);
+      assert.equal(r.err?.code, 'protected_path', JSON.stringify(r.out));
+      assert.match(r.err.message, /^forge pr open refuses protected paths:\n {2}\.forge\/config\.yml: rule 7/);
+      assert.equal(gh(), '');
+      assert.deepEqual(s.events(k.dir).filter((e) => e.type === 'protected-path').map((e) => [e.gate, e.action, e.blocked]), [['pr', 'refuse', true]]);
+
+      // (d) --force on an unverified HEAD does not skip it.
+      write(k.wt, 'src/b.ts', 'export const b = 2;\n');
+      commitAll(k.wt, 'one more');
+      r = await s.json(['pr', 'open', k.id, '--force'], env);
+      assert.equal(r.err?.code, 'protected_path', JSON.stringify(r.out));
+      assert.equal(gh(), '');
+      assert.equal(pushed(), false, 'nothing was pushed');
+    } finally {
+      s.cleanup();
+      fs.rmSync(bin, { recursive: true, force: true });
+      fs.rmSync(bare, { recursive: true, force: true });
+    }
+  });
+});

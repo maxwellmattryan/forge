@@ -11,6 +11,8 @@ import type { CompactIntegrity, IntegrityReport } from './integrity.ts';
 import { listJobs, isActive, loadJob, logEvent, setJob, touchJob, updateJob, jobDir } from './jobs.ts';
 import { exists, resolveFrom } from './paths.ts';
 import { CONFIG_SCHEMA_VERSION } from './schema.ts';
+import { checkBranch, compactProtected, renderProtected } from './protected.ts';
+import type { BranchCheck, CompactProtected } from './protected.ts';
 import { logSecrets, renderSecrets, scanBranch, secretMode, secretsOk, secretsTail, compactSecrets } from './secrets.ts';
 import type { CompactSecrets, Config, Job, ServiceConfig, VerifyRun } from './types.ts';
 import { ForgeError, assertSafeRef, fill, now, readJson, run, shellArgs, tail, withLock, writeJsonAtomic } from './util.ts';
@@ -31,7 +33,7 @@ export interface CommandResult {
   tail: string;
 }
 
-/** One verify step: a command's result, a skipped step, or a gate verify adds itself (worktree-clean, secrets, integrity). */
+/** One verify step: a command's result, a skipped step, or a gate verify adds itself (worktree-clean, secrets, protected, integrity). */
 export interface VerifyStep {
   name: string;
   ok: boolean;
@@ -55,6 +57,7 @@ export interface VerifyResult {
   failure: VerifyStep | undefined;
   integrity: CompactIntegrity | null;
   secrets: CompactSecrets;
+  protected: CompactProtected;
   budget?: NonNullable<ReturnType<typeof enforceBudget>>;
 }
 
@@ -490,8 +493,21 @@ export async function verify(root: string, config: Config, id: string): Promise<
   else if (secrets.error) secretsStep.reason = `scan incomplete (verifySecrets: warn): ${secrets.error}`;
   else if (n) secretsStep.reason = `${n} possible secret${n === 1 ? '' : 's'} (verifySecrets: warn)`;
   results.push(secretsStep);
+  // Right after the secret scan, over the committed diff bound to `sha`: a path the policy refuses
+  // stops every configured step, and one that can't be checked never reads as clean.
+  const protStarted = Date.now();
+  let prot: Pick<BranchCheck, 'refused' | 'escalated' | 'error'>;
+  try {
+    prot = checkBranch(root, config, job, sha, 'verify');
+  } catch (e) {
+    prot = { refused: [], escalated: [], error: (e as Error).message };
+  }
+  const protectedStep: VerifyStep = { name: 'protected', ok: !prot.error && !prot.refused.length, exit: null, durationMs: Date.now() - protStarted };
+  if (!protectedStep.ok) protectedStep.tail = prot.error ?? prot.refused.slice(0, 20).map((h) => `${h.path}: rule ${h.rule} (${h.glob}): ${h.reason}`).join('\n');
+  else if (prot.escalated.length) protectedStep.reason = `${prot.escalated.length} protected paths need a human`;
+  results.push(protectedStep);
   if (!dirty) {
-    for (const group of secretsStep.ok ? groups : []) {
+    for (const group of secretsStep.ok && protectedStep.ok ? groups : []) {
       // A failing step never stops its siblings: each finishes and keeps its own log. One that
       // throws is reported only once the others have settled, so none writes after verify returns.
       const settled = await Promise.allSettled(
@@ -524,6 +540,10 @@ export async function verify(root: string, config: Config, id: string): Promise<
     if (r.name === 'integrity') continue;
     if (r.name === 'secrets') {
       lines.push(renderSecrets(secrets, mode));
+      continue;
+    }
+    if (r.name === 'protected') {
+      lines.push(renderProtected(prot));
       continue;
     }
     lines.push(`## ${r.name}: ${r.skipped ? `skipped (${r.reason ?? 'no command configured'})` : r.ok ? 'ok' : `FAILED (exit ${r.exit})`}`);
@@ -559,6 +579,7 @@ export async function verify(root: string, config: Config, id: string): Promise<
     failure: results.find((r) => !r.ok),
     integrity: integrity ? compactIntegrity(integrity) : null,
     secrets: compactSecrets(secrets, mode),
+    protected: compactProtected(prot),
     ...(budget ? { budget } : {}),
   };
 }

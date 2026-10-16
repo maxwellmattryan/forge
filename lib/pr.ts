@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ownerStatusWithProof } from './daemon-owner.ts';
-import { loadJob, logEvent, setJob, jobDir } from './jobs.ts';
+import { loadJob, logEvent, readEvents, setJob, jobDir } from './jobs.ts';
+import { checkBranch, logEscalated, protectedApproved, refusalText } from './protected.ts';
 import { enqueuePrFeedbackGate, maybeEnqueueGate } from './foreman.ts';
 import { prLinkNote } from './issue-link.ts';
 import { exists } from './paths.ts';
@@ -148,6 +149,7 @@ export function openPr(
   logSecrets(root, id, 'pr', scan, { blocked: mode === 'block' });
   if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of ${id}'s commits could not finish (${scan.error}); forge pr open won't push an unscanned branch`, 'secret_found', `forge secrets scan ${id}`);
   if (mode === 'block' && scan.findings.length) throw new ForgeError(refusalMessage(`the commits of ${id}`, scan.findings), 'secret_found', `forge secrets scan ${id}`);
+  refuseProtected(root, config, job, evidence.head);
   const slug = repoSlug(root, config);
   const ahead = run('git', ['rev-list', '--count', `${config.git.remote}/${job.base}..HEAD`], { cwd: job.worktree, allowFail: true });
   if (ahead.ok && ahead.stdout.trim() === '0') throw new ForgeError(`branch ${job.branch} has no commits ahead of ${job.base}`);
@@ -182,6 +184,22 @@ export function openPr(
   setJob(root, id, { fields: { pr: { number, url, state: 'OPEN', isDraft: Boolean(opts.draft ?? config.pr.draft), openedAt: now(), lastSyncedAt: now(), pushedSha } } });
   logEvent(root, id, 'pr-opened', { number, url });
   return { number, url, created: true, ...prLinkNote(job, config) };
+}
+
+/**
+ * The protected-paths re-check before anything leaves the machine, `--force` or not. The set is
+ * recomputed from the branch (a hand-cleared job.json flag changes nothing), a refuse path stops the
+ * open, and escalate paths stop it until a human approved their current content at a PP1 park.
+ */
+function refuseProtected(root: string, config: Config, job: Job, head: string): void {
+  const id = job.id;
+  const c = checkBranch(root, config, job, head, 'pr');
+  if (c.error) throw new ForgeError(`can't check ${id}'s protected paths (${c.error}); forge pr open won't push a branch it can't check`, 'protected_path');
+  if (c.refused.length) throw new ForgeError(refusalText('forge pr open', c.refused), 'protected_path');
+  if (c.escalated.length && !protectedApproved(c.flag, readEvents(root, id))) {
+    logEscalated(root, id, 'pr', c.escalated, head, true);
+    throw new ForgeError(`protected paths need a human approval: ${c.escalated.length} paths; /forge approve ${id}`, 'protected_path');
+  }
 }
 
 /**
