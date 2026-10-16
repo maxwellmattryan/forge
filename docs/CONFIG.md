@@ -5,7 +5,7 @@
 Command templates may use `{port}`, `{job}`, `{worktree}`, `{root}`, `{branch}`, `{base}` and `{args}`. `{args}` holds the extra arguments of `forge run <job> <name> -- <args…>`, each already in single quotes, and arguments go only where a template has it: `forge run` refuses arguments for a template without `{args}`, so a command takes none unless you opt in. Write `{args}` unquoted, as a whole word: after the start, a space, a tab, a newline or `(`, and before the end, a space, a tab, a newline, `;`, `&`, `|` or `)`. Arguments for a template where it sits inside `'…'` or `"…"` or touches another word (`x{args}`, `\{args}`) are refused, and so are arguments for any template containing a heredoc (`<<`), `$'` or `\'`, where the quoting would not hold. The arguments become words of whatever command surrounds `{args}`, so `exec {args}`, `env {args}` or `time {args}` runs the first one as a program. An argument containing a quote, backslash or control character is refused too. Every refusal comes before anything runs. Only `forge run` has arguments: `forge verify`, worktree setup, `forge run --background`, `forge integrate`'s rebuild and `forge eval grade` fill `{args}` with nothing. The other placeholders are filled in unquoted, so `{job}`, `{branch}` and `{base}` are checked first: each must start with a letter or digit and use only `A-Z a-z 0-9 . _ / -` (at most 200 characters), and an unsafe value stops the command before it runs, with an error naming the field. Commands also get `PORT`, `FORGE_PORT`, `FORGE_JOB` and `FORGE_WORKTREE` in their environment, and never the daemon session's `FORGE_DAEMON*` variables, so a command that calls `forge` behaves the same under the daemon as for a human.
 
 ```yaml
-schemaVersion: 3
+schemaVersion: 4
 
 project:
   name: null                 # display name
@@ -61,6 +61,17 @@ runtime:
   maxParallelJobs: 3
   diversity: false           # warn when the approver or a lens shares the builder's model family (never blocks)
   effort: null               # low | medium | high | xhigh | max: the default reasoning effort for jobs (null: Claude Code's own setting); see "Effort"
+  efforts:                   # per role; null falls through to effortByComplexity, then effort
+    planner: null
+    spec-writer: null
+    designer: null
+    builder: null
+    reviewer: null           # default for lenses without their own effort
+    approver: null
+    integrator: null
+    retro: null
+    judge: null
+  effortByComplexity: { low: null, medium: null, high: null }   # by the spec's Complexity: header, for roles without their own
   models:                    # per role; aliases (opus, sonnet, haiku, fable) or full model ids
     orchestrator: inherit
     planner: opus
@@ -120,6 +131,7 @@ review:
     - { name: code, always: true }
     - { name: tests, always: true }
     - { name: security, model: opus, when: "input handling, auth, secrets, network, dependencies, file or process access" }
+  #   - { name: security, model: opus, effort: high }   # optional per-lens effort (see "Effort")
   #   - { name: realtime, checklist: .forge/reviewers/realtime.md, when: "audio thread code" }
   onPrFeedback: changed      # changed | full | none (which lenses re-run after PR feedback; changed = the always: true lenses)
 
@@ -191,7 +203,7 @@ daemon:                      # opt-in headless sessions supervised by `forge das
 
 **Values** follow the key's type: `true`/`false`; a decimal number; `null` for keys that allow it; text as written; and lists as `[a, b]` or a JSON array (`'["a","b"]'`, `[]`). Values are checked against the key's range or options, text may not contain control or invisible formatting characters (bidi overrides, zero-width characters) or exceed 200 characters, `review.blockOn` must keep both `blocker` and `major` (adding `minor` or `nit` is allowed), `daemon.idleStopMinutes` must be greater than 0 (or `null`), and `tracker.github.labels.prefix` must be at least 2 characters ending in `:`, `/` or `-`, because Forge removes every issue label that starts with it. The result must also pass `forge config validate`, though problems the file already had never block an unrelated change.
 
-**Editable keys**: `pipeline.plan`, `split`, `specApproval`, `design`, `maxRounds` and every `pipeline.budget.*`; `review.blockOn` and `review.onPrFeedback`; `runtime.models.<role>`, `runtime.maxParallelJobs`, `runtime.diversity` and `runtime.effort`; `tracker.github.ready.*`, `tracker.github.claim.assign`, `tracker.github.statusSync` and `tracker.github.labels.prefix`; `dashboard.port` (used by the next `forge dash`); and `daemon.idleStopMinutes` and `daemon.auth`. The rule: a key is editable only when it can't name a command, file, module, tool or repository Forge runs, loads or writes to, and can't loosen a security or attribution policy. Everything else (`commands.*`, `worktrees.*`, `verify*`, `git.*`, `merge.*`, `approver.*`, `aiAttribution`, `infra.*`, `review.panel`, `tracker.kind`, `tracker.github.repo`/`comments`/`project.*`, `daemon.enabled`/`command`/`allowedTools`/`maxConcurrent`, …) is refused with `<key> is not editable with forge config set (<why>); edit .forge/config.yml by hand`, and the dashboard shows it read-only. `lib/config-fields.ts` is the allowlist.
+**Editable keys**: `pipeline.plan`, `split`, `specApproval`, `design`, `maxRounds` and every `pipeline.budget.*`; `review.blockOn` and `review.onPrFeedback`; `runtime.models.<role>`, `runtime.maxParallelJobs`, `runtime.diversity`, `runtime.effort`, `runtime.efforts.<role>` and `runtime.effortByComplexity.*`; `tracker.github.ready.*`, `tracker.github.claim.assign`, `tracker.github.statusSync` and `tracker.github.labels.prefix`; `dashboard.port` (used by the next `forge dash`); and `daemon.idleStopMinutes` and `daemon.auth`. The rule: a key is editable only when it can't name a command, file, module, tool or repository Forge runs, loads or writes to, and can't loosen a security or attribution policy. Everything else (`commands.*`, `worktrees.*`, `verify*`, `git.*`, `merge.*`, `approver.*`, `aiAttribution`, `infra.*`, `review.panel`, `tracker.kind`, `tracker.github.repo`/`comments`/`project.*`, `daemon.enabled`/`command`/`allowedTools`/`maxConcurrent`, …) is refused with `<key> is not editable with forge config set (<why>); edit .forge/config.yml by hand`, and the dashboard shows it read-only. `lib/config-fields.ts` is the allowlist.
 
 **Errors** exit 1 and leave the file byte-identical: an unknown key, a read-only key, an invalid value, or a layout the edit can't change without dropping a comment (a block map or `|` block, a list of maps, a list with comments between or on its items, a key inside a flow map). A repo without `.forge/config.yml` exits 2; `/forge init` creates it.
 
@@ -232,15 +244,29 @@ Any profile can add `runtime.diversity: true`. Expect warnings by design where a
 
 ## Effort
 
-Reasoning effort is how much the model thinks before it answers: `low`, `medium`, `high`, `xhigh` or `max`. Higher levels cost more tokens and time. Forge sets it per job:
+Reasoning effort is how much the model thinks before it answers: `low`, `medium`, `high`, `xhigh` or `max`. Higher levels cost more tokens and time. Forge sets it per job, per role and per spec complexity:
 
-- **Precedence.** A job's own effort (`forge job new … --effort <level>`, `forge job effort <id> <level>`, or the drawer's **Effort** select) wins. Without one, `runtime.effort` applies. When neither is set, Forge passes nothing: `daemon.command`'s own `--effort` applies if it has one, and otherwise Claude Code's own setting does. `forge job effort <id> --inherit` clears a job's level. A value outside the five levels counts as unset wherever it is read, and `forge config validate`, `forge doctor` and every daemon start refuse an invalid `runtime.effort`.
-- **Daemon sessions** start with `--effort <level>` on their `claude -p` command line, replacing any `--effort` in `daemon.command`. The inbox session uses `runtime.effort`. Each session's log records the level it started with and where it came from (`job`, `config` or `none`).
-- **Agents.** `forge job step` puts the effective level on every `spawn` action, and every brief has an `Effort:` line, so the orchestrator, yours or a daemon's, passes it to each agent it starts. The `forge:*` agents set no effort of their own, so without one they inherit their session's.
+- **Precedence.** For an agent of role R in job J, the level is the first valid value of:
+
+  | # | Layer | Source |
+  |---|---|---|
+  | 1 | J's own effort (`forge job new … --effort <level>`, `forge job effort <id> <level>`, or the drawer's **Effort** select) | `job` |
+  | 2 | reviewers only: the lens's `review.panel` entry `effort` | `panel` |
+  | 3 | `runtime.efforts.<role>` (`reviewer` for every lens) | `role` |
+  | 4 | `runtime.effortByComplexity[<J's complexity>]` | `complexity` |
+  | 5 | `runtime.effort` | `config` |
+  | 6 | nothing: Forge passes no effort | `none` |
+
+  With nothing set, `daemon.command`'s own `--effort` applies if it has one, and otherwise Claude Code's own setting does. `forge job effort <id> --inherit` clears a job's level. A value outside the five levels counts as unset at every layer and resolution falls through to the next, and `forge config validate`, `forge doctor` and every daemon start refuse an invalid `runtime.effort`. `forge config validate` and `forge doctor` also report a `runtime.efforts` or `runtime.effortByComplexity` that isn't a map, an unknown key in either, a level outside the five, and an invalid panel `effort`; those never stop a daemon start, because they never reach a session's command line.
+- **Rework bump.** A builder on a rework round (`round` 2 or later) runs one level above what it resolved to (`low` → `medium` → `high` → `xhigh` → `max`; `max` stays `max`), unless the level is the job's own effort or nothing. Round 1, including a verify-fail retry inside it, is never bumped, and no other role is.
+- **Complexity.** The spec writer adds a `Complexity: low | medium | high` header under `Size:`, judged as difficulty, not volume. When the spec is recorded, a valid value (any case) becomes the job's `complexity`; a spec without a valid one clears a complexity an earlier spec set. `forge job set <id> --field complexity=<low|medium|high|null>` sets it by hand and refuses anything else. It only picks among levels a human configured in `runtime.effortByComplexity`.
+- **Daemon sessions** start with `--effort <level>` on their `claude -p` command line, replacing any `--effort` in `daemon.command`. A session runs the orchestrator, not a role, so only layers 1, 5 and 6 apply: per-role, panel and complexity levels never reach a session. The inbox session uses `runtime.effort`. Each session's log records the level it started with and where it came from (`job`, `config` or `none`).
+- **Agents.** `forge job step` puts each spawn's own level (resolved for its role) on every `spawn` action, and every brief has an `Effort:` line, so the orchestrator, yours or a daemon's, passes it to each agent it starts. The `forge:*` agents set no effort of their own, so without one they inherit their session's.
 - **Changing it.** A job's new effort applies to the agents started after the change at once, and to a running daemon session the next time it starts (after an idle stop, a restart, or a slot handover). Forge never stops a session to apply it. Changing `runtime.effort` while the daemon runs is a config change, so the trust check stops the daemon, as for any edit of this file; a job's effort lives in its `job.json` and stops nothing.
-- **In the dashboard**, a job's Log tab has an **Effort** select beside Permissions (Inherit shows what it resolves to), a job whose own level differs from `runtime.effort` shows a chip such as "Extra high effort" on its card, in its drawer and on the Agents page, and Settings → Agents edits `runtime.effort`. While a job's session runs at another level than the one now set, a note says it applies to new agents now and to the session when it restarts.
+- **In the dashboard**, a job's Log tab has an **Effort** select beside Permissions (Inherit shows what it resolves to), a job whose own level differs from `runtime.effort` shows a chip such as "Extra high effort" on its card, in its drawer and on the Agents page, Settings → Agents edits `runtime.effort`, each `runtime.efforts.<role>` and each `runtime.effortByComplexity.*`, and the Agents page's roster and review panel tables show each role's and lens's level with where it comes from (panel entry, role setting or default), before any job's own effort or complexity. While a job's session runs at another level than the one now set, a note says it applies to new agents now and to the session when it restarts.
 - **A daemon session may not change effort**: `forge job effort` and `forge job new --effort` refuse under `FORGE_DAEMON=1`, and `forge job set --field effort=…` is always refused. Set it from the dashboard or your own session.
 - Needs a Claude Code with `--effort` (checked on 2.1.299).
+- **Migration** (config `schemaVersion` 3 → 4): nothing changes. v4 adds `runtime.efforts`, `runtime.effortByComplexity` and a panel entry's `effort`, all unset by default; the bump lets older Forges refuse a config whose effort levels they would ignore. Job `schemaVersion` 9 adds `complexity` (null for older jobs).
 
 ## Verify groups
 

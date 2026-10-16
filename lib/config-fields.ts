@@ -4,7 +4,7 @@
 // loads or writes to, and can't loosen a security or attribution policy. Everything else is
 // read-only here and edited by hand in .forge/config.yml.
 import { defaults } from './config.ts';
-import { EFFORTS } from './schema.ts';
+import { COMPLEXITIES, EFFORT_ROLES, EFFORTS } from './schema.ts';
 import type { ConfigField, ConfigFieldType, ConfigSection, ConfigValue } from './types.ts';
 import { ForgeError, getPath } from './util.ts';
 import * as yaml from './yaml.ts';
@@ -80,6 +80,18 @@ const MODEL_LABEL: Record<string, string> = {
   judge: 'Judge model',
 };
 
+const EFFORT_LABEL: Record<(typeof EFFORT_ROLES)[number], string> = {
+  planner: 'Planner effort',
+  'spec-writer': 'Spec writer effort',
+  designer: 'Designer effort',
+  builder: 'Builder effort',
+  reviewer: 'Reviewer effort',
+  approver: 'Approver effort',
+  integrator: 'Integrator effort',
+  retro: 'Retro effort',
+  judge: 'Judge effort',
+};
+
 export const FIELDS: ConfigField[] = [
   field('pipeline.plan', 'pipeline', 'Plan', 'Whether a request goes through the planner first.', { type: 'enum', options: ['auto', 'always', 'never'] }),
   field('pipeline.split', 'pipeline', 'Split', 'What a plan that proposes several jobs does: ask parks it for approval, auto creates the jobs, never keeps one job.', { type: 'enum', options: ['ask', 'auto', 'never'] }),
@@ -107,6 +119,13 @@ export const FIELDS: ConfigField[] = [
   field('runtime.diversity', 'agents', 'Model diversity', "Warn (never block) when the approver or a lens shares the builder's model family.", { type: 'boolean' }),
   // Editable: it changes how much the model thinks, never what it may do.
   field('runtime.effort', 'agents', 'Effort', "How much the model thinks: low, medium, high, xhigh or max. Daemon sessions get --effort and the orchestrator passes it to each agent; a job's own effort overrides it. Empty leaves it to Claude Code's own setting.", { type: 'enum', options: [...EFFORTS], nullable: true }),
+  // Editable like runtime.effort: they change how much the model thinks, never what it may do.
+  ...EFFORT_ROLES.map((role) =>
+    field(`runtime.efforts.${role}`, 'agents', EFFORT_LABEL[role], "Effort for this role's agents; overrides the complexity mapping and the default effort, not a job's own. Empty falls through.", { type: 'enum', options: [...EFFORTS], nullable: true }),
+  ),
+  ...COMPLEXITIES.map((k) =>
+    field(`runtime.effortByComplexity.${k}`, 'agents', `Effort for ${k} complexity`, `Effort for agents of a job whose spec says Complexity: ${k}, when the role has no effort of its own. Empty falls through.`, { type: 'enum', options: [...EFFORTS], nullable: true }),
+  ),
   field('runtime.provider', 'agents', 'Provider', 'Informational; the roster is provider-neutral markdown.', { type: 'string', locked: 'informational' }),
   field('runtime.host', 'agents', 'Host', 'The agent host Forge runs in.', { type: 'string', locked: 'informational' }),
 
