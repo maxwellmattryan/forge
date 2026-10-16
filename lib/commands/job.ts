@@ -10,7 +10,7 @@ import { agentOutputMissing, claimJob, createJob, ensureReviewDir, importCursor,
 import { logSecrets, scanAgentOutputs } from '../secrets.ts';
 import { normalizeRef } from '../issue-link.ts';
 import { exists } from '../paths.ts';
-import { EFFORTS } from '../schema.ts';
+import { COMPLEXITIES, EFFORTS } from '../schema.ts';
 import { jobScope } from '../scope.ts';
 import { loadStepInput, step } from '../step.ts';
 import { createAndLink, linkJob, markNoIssue, suggestLink } from '../tracker-link.ts';
@@ -331,6 +331,10 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         const v = fields[key];
         if (key in fields && !(Array.isArray(v) && v.every((x) => typeof x === 'string'))) throw new ForgeError(`--field ${key} must be a JSON array of strings, e.g. --field '${key}=${example}'`);
       }
+      // complexity picks among levels a human configured, so only the three values (or none) are accepted.
+      for (const key of Object.keys(fields))
+        if (key.split('.')[0] === 'complexity' && (key !== 'complexity' || !(fields[key] === null || (COMPLEXITIES as readonly unknown[]).includes(fields[key]))))
+          throw new ForgeError('--field complexity must be low, medium or high, or null');
       // Checked before anything is written, so a bad list leaves job.json untouched.
       if ('dependsOn' in fields) fields.dependsOn = validateDependsOn(root, jobId, fields.dependsOn);
       let job = setJob(root, jobId, {

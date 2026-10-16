@@ -6,11 +6,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { EFFORT_CASES } from './effort-cases.ts';
-import { TRUST_ENV, daemonProblems, defaults, loadConfig, resolveEffort, trustDigest, validEffort } from '../lib/config.ts';
+import { EFFORT_CASES, INVALID_EFFORTS, ROLE_EFFORT_CASES } from './effort-cases.ts';
+import { TRUST_ENV, daemonProblems, defaults, loadConfig, resolveEffort, trustDigest, validEffort, validateConfig } from '../lib/config.ts';
 import { doctor } from '../lib/doctor.ts';
 import { createJob, jobDir, loadJob } from '../lib/jobs.ts';
-import { EFFORTS, JOB_SCHEMA_VERSION, normalizeJob } from '../lib/schema.ts';
+import { CONFIG_SCHEMA_VERSION, EFFORTS, EFFORT_ROLES, JOB_SCHEMA_VERSION, normalizeJob } from '../lib/schema.ts';
 import { setIn } from '../lib/yaml.ts';
 import { EFFORTS as DASH_EFFORTS } from '../dashboard/src/lib/types.ts';
 
@@ -63,7 +63,7 @@ test('effort levels, default and resolution', () => {
 test('reads a v6 job', () => {
   const s = scratch();
   try {
-    assert.equal(JOB_SCHEMA_VERSION, 8);
+    assert.equal(JOB_SCHEMA_VERSION, 9);
     const job = createJob(s.root, defaults(), { title: 'Old v6' });
     const file = path.join(jobDir(s.root, job.id), 'job.json');
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -71,20 +71,20 @@ test('reads a v6 job', () => {
     raw.schemaVersion = 6;
     fs.writeFileSync(file, JSON.stringify(raw));
     const loaded = loadJob(s.root, job.id);
-    assert.equal(loaded.schemaVersion, 8);
+    assert.equal(loaded.schemaVersion, 9);
     assert.equal(loaded.effort, null);
     assert.equal(normalizeJob({ id: 'x', schemaVersion: 6 }).effort, null);
     assert.equal(normalizeJob({ id: 'x', schemaVersion: 6, effort: 'low' }).effort, 'low', 'a v6 job that somehow has a valid level keeps it');
-    assert.equal(normalizeJob({ id: 'x', schemaVersion: 9 })._unsupported, true);
+    assert.equal(normalizeJob({ id: 'x', schemaVersion: 10 })._unsupported, true);
     // v7 → v8 only adds the `human` gate: a v7 job loads unchanged.
     const v7 = normalizeJob({ id: 'x', schemaVersion: 7, effort: 'high', state: 'waiting', waitingOn: 'escalation', reason: 'r' });
-    assert.equal(v7.schemaVersion, 8);
+    assert.equal(v7.schemaVersion, 9);
     assert.deepEqual([v7.effort, v7.state, v7.waitingOn, v7.reason, v7._unsupported], ['high', 'waiting', 'escalation', 'r', undefined]);
 
     const migrated = s.f('migrate');
     assert.ok(migrated.changed.includes(path.relative(s.root, file)));
     const rewritten = JSON.parse(fs.readFileSync(file, 'utf8'));
-    assert.equal(rewritten.schemaVersion, 8);
+    assert.equal(rewritten.schemaVersion, 9);
     assert.equal(rewritten.effort, null);
 
     for (const bad of ['ultra', '--dangerously-skip-permissions', 5, 'high --add-dir /', { level: 'high' }]) {
@@ -273,5 +273,169 @@ test('agent frontmatter leaves effort to the session', () => {
     assert.ok(front, `${f} has frontmatter`);
     // An agent-level effort would override the job's for every run of that role.
     assert.ok(!/^\s*effort\s*:/m.test(front[1]), `${f} sets no effort`);
+  }
+});
+
+/** defaults() with a role case's runtime and panel effort applied. */
+function roleConfig(c: { runtime?: Record<string, any>; panel?: unknown }) {
+  const config = defaults();
+  const { efforts, effortByComplexity, ...rest } = c.runtime ?? {};
+  Object.assign(config.runtime, rest);
+  Object.assign(config.runtime.efforts, efforts ?? {});
+  Object.assign(config.runtime.effortByComplexity, effortByComplexity ?? {});
+  if (c.panel !== undefined) (config.review.panel.find((p) => p.name === 'security') as any).effort = c.panel;
+  return config;
+}
+
+test('per-role, panel and complexity precedence', () => {
+  assert.deepEqual(Object.keys(defaults().runtime.efforts), [...EFFORT_ROLES]);
+  assert.ok(Object.values(defaults().runtime.efforts).every((v) => v === null));
+  assert.deepEqual(defaults().runtime.effortByComplexity, { low: null, medium: null, high: null });
+  for (const c of ROLE_EFFORT_CASES) {
+    const want = { level: c.level, source: c.source, ...(c.rework ? { rework: c.rework } : {}) };
+    assert.deepEqual(resolveEffort(roleConfig(c), c.job ?? null, c.role), want, c.name);
+  }
+  // AC2: a panel entry's effort beats runtime.efforts.reviewer for that lens only.
+  const config = roleConfig({ runtime: { efforts: { reviewer: 'medium' } }, panel: 'high' });
+  assert.deepEqual(resolveEffort(config, null, 'reviewer:security'), { level: 'high', source: 'panel' });
+  for (const lens of ['code', 'tests', 'docs']) assert.deepEqual(resolveEffort(config, null, `reviewer:${lens}`), { level: 'medium', source: 'role' }, lens);
+  // AC3
+  const builder = roleConfig({ runtime: { effort: 'medium', effortByComplexity: { high: 'xhigh' } } });
+  assert.deepEqual(resolveEffort(builder, { complexity: 'high' }, 'builder'), { level: 'xhigh', source: 'complexity' });
+  builder.runtime.efforts.builder = 'low';
+  assert.deepEqual(resolveEffort(builder, { complexity: 'high' }, 'builder'), { level: 'low', source: 'role' });
+});
+
+test('invalid values at each layer fall through', () => {
+  for (const bad of INVALID_EFFORTS) {
+    const label = JSON.stringify(bad);
+    const full = { effort: 'low', efforts: { reviewer: 'medium' }, effortByComplexity: { high: 'high' } };
+    // job → panel
+    assert.deepEqual(resolveEffort(roleConfig({ runtime: full, panel: 'xhigh' }), { effort: bad, complexity: 'high' }, 'reviewer:security'), { level: 'xhigh', source: 'panel' }, `job ${label}`);
+    // panel → role
+    assert.deepEqual(resolveEffort(roleConfig({ runtime: full, panel: bad }), { complexity: 'high' }, 'reviewer:security'), { level: 'medium', source: 'role' }, `panel ${label}`);
+    // role → complexity
+    assert.deepEqual(resolveEffort(roleConfig({ runtime: { ...full, efforts: { reviewer: bad } } }), { complexity: 'high' }, 'reviewer:code'), { level: 'high', source: 'complexity' }, `role ${label}`);
+    // complexity → config, for a bad mapped level and a bad job complexity
+    assert.deepEqual(resolveEffort(roleConfig({ runtime: { ...full, efforts: {}, effortByComplexity: { high: bad } } }), { complexity: 'high' }, 'reviewer:code'), { level: 'low', source: 'config' }, `complexity level ${label}`);
+    assert.deepEqual(resolveEffort(roleConfig({ runtime: { ...full, efforts: {} } }), { complexity: bad }, 'reviewer:code'), { level: 'low', source: 'config' }, `job complexity ${label}`);
+    // config → none
+    assert.deepEqual(resolveEffort(roleConfig({ runtime: { effort: bad } }), { complexity: 'high' }, 'reviewer:code'), { level: null, source: 'none' }, `config ${label}`);
+  }
+  // A role named like an inherited property never reads one.
+  assert.deepEqual(resolveEffort(defaults(), null, 'constructor'), { level: null, source: 'none' });
+  assert.deepEqual(resolveEffort(defaults(), { complexity: 'toString' }, 'builder'), { level: null, source: 'none' });
+});
+
+test('rework bumps the builder one level', () => {
+  const config = roleConfig({ runtime: { efforts: { builder: 'high', reviewer: 'high' } } });
+  assert.deepEqual(resolveEffort(config, { round: 2 }, 'builder'), { level: 'xhigh', source: 'role', rework: true });
+  assert.deepEqual(resolveEffort(config, { round: 1 }, 'builder'), { level: 'high', source: 'role' });
+  assert.equal('rework' in resolveEffort(config, { round: 1 }, 'builder'), false);
+  assert.deepEqual(resolveEffort(config, { round: 2 }, 'reviewer:code'), { level: 'high', source: 'role' }, 'reviewers are never bumped');
+  config.runtime.efforts.builder = 'max';
+  assert.deepEqual(resolveEffort(config, { round: 3 }, 'builder'), { level: 'max', source: 'role', rework: true }, 'max stays max');
+  assert.deepEqual(resolveEffort(config, { round: 3, effort: 'high' }, 'builder'), { level: 'high', source: 'job' }, "a human's job effort is never bumped");
+  assert.deepEqual(resolveEffort(defaults(), { round: 2 }, 'builder'), { level: null, source: 'none' }, 'a null level stays null');
+  const fallback = roleConfig({ runtime: { effort: 'low' } });
+  assert.deepEqual(resolveEffort(fallback, { round: 2 }, 'builder'), { level: 'medium', source: 'config', rework: true });
+  assert.deepEqual(resolveEffort(fallback, { round: 2 }), { level: 'low', source: 'config' }, 'a session (no role) is never bumped');
+});
+
+test('reads a v8 job', () => {
+  const s = scratch();
+  try {
+    const job = createJob(s.root, defaults(), { title: 'Old v8' });
+    const file = path.join(jobDir(s.root, job.id), 'job.json');
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    delete raw.complexity;
+    raw.schemaVersion = 8;
+    fs.writeFileSync(file, JSON.stringify(raw));
+    const loaded = loadJob(s.root, job.id);
+    assert.equal(loaded.schemaVersion, 9);
+    assert.equal(loaded.complexity, null);
+    assert.equal(normalizeJob({ id: 'x', schemaVersion: 8, complexity: 'extreme' }).complexity, null);
+    assert.equal(normalizeJob({ id: 'x', schemaVersion: 9, complexity: 'extreme' }).complexity, null);
+    assert.equal(normalizeJob({ id: 'x', schemaVersion: 9, complexity: 'medium' }).complexity, 'medium');
+    const migrated = s.f('migrate');
+    assert.ok(migrated.changed.includes(path.relative(s.root, file)));
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).complexity, null);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('reads a v3 config', () => {
+  const s = scratch();
+  try {
+    assert.equal(CONFIG_SCHEMA_VERSION, 4);
+    fs.writeFileSync(s.configFile, fs.readFileSync(s.configFile, 'utf8').replace(/^schemaVersion: \d+$/m, 'schemaVersion: 3'));
+    const loaded = loadConfig(s.root);
+    assert.equal(loaded.migratedFrom, 3);
+    assert.equal(loaded.config.schemaVersion, 4);
+    assert.deepEqual(Object.keys(loaded.config.runtime.efforts), [...EFFORT_ROLES]);
+    assert.ok(Object.values(loaded.config.runtime.efforts).every((v) => v === null));
+    assert.deepEqual(loaded.config.runtime.effortByComplexity, { low: null, medium: null, high: null });
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('invalid per-role, panel and complexity efforts are reported by validate', () => {
+  const s = scratch();
+  try {
+    let text = fs.readFileSync(s.configFile, 'utf8');
+    text = setIn(text, ['runtime', 'efforts', 'reviewer'], 'ultra');
+    text = setIn(text, ['runtime', 'efforts', 'builder'], 'max');
+    text = setIn(text, ['runtime', 'effortByComplexity', 'high'], 3);
+    fs.writeFileSync(s.configFile, text);
+    const { config } = loadConfig(s.root);
+    (config.runtime.efforts as any).orchestrator = 'high';
+    (config.runtime.effortByComplexity as any).extreme = 'high';
+    (config.review.panel[0] as any).effort = 'high --add-dir /';
+    const problems = validateConfig(config, s.root);
+    const levels = 'low | medium | high | xhigh | max, or null';
+    for (const want of [
+      `runtime.efforts.reviewer must be one of ${levels} (got "ultra")`,
+      `runtime.efforts.orchestrator is not a role (${EFFORT_ROLES.join(' | ')})`,
+      'runtime.effortByComplexity.extreme must be low, medium or high',
+      `runtime.effortByComplexity.high must be one of ${levels} (got 3)`,
+      `review.panel entry "${config.review.panel[0].name}": effort must be one of ${levels} (got "high --add-dir /")`,
+    ])
+      assert.ok(problems.includes(want), `${want}\n${problems.join('\n')}`);
+    assert.equal(problems.some((p) => p.includes('runtime.efforts.builder')), false);
+    (config.runtime as any).efforts = 'high';
+    (config.runtime as any).effortByComplexity = ['high'];
+    const shapes = validateConfig(config, s.root);
+    assert.ok(shapes.includes('runtime.efforts must be a map (got "high")'), shapes.join('\n'));
+    assert.ok(shapes.includes('runtime.effortByComplexity must be a map (got ["high"])'), shapes.join('\n'));
+    // None reaches a session's argv, so none stops a daemon start.
+    assert.deepEqual(daemonProblems(config, s.root).filter((p) => /effort/.test(p)), []);
+    const r = s.raw({}, 'config', 'validate');
+    assert.equal(r.status, 1);
+    assert.ok(JSON.parse(r.stdout).problems.includes(`runtime.efforts.reviewer must be one of ${levels} (got "ultra")`), r.stdout);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('set --field complexity accepts only the three levels', () => {
+  const s = scratch();
+  try {
+    const { id } = s.f('job', 'new', '--title', 'Complex');
+    const dir = jobDir(s.root, id);
+    const before = snapshot(dir);
+    for (const field of ['complexity=bogus', 'complexity=HIGH', 'complexity=3', 'complexity.x=low', 'complexity=["low"]']) {
+      const r = s.raw({}, 'job', 'set', id, '--field', field);
+      assert.notEqual(r.status, 0, field);
+      assert.ok(r.stderr.includes('--field complexity must be low, medium or high, or null'), `${field}: ${r.stderr}`);
+    }
+    assert.deepEqual(snapshot(dir), before, 'a refusal writes nothing');
+    s.f('job', 'set', id, '--field', 'complexity=medium');
+    assert.equal(loadJob(s.root, id).complexity, 'medium');
+    s.f('job', 'set', id, '--field', 'complexity=null');
+    assert.equal(loadJob(s.root, id).complexity, null);
+  } finally {
+    s.cleanup();
   }
 });

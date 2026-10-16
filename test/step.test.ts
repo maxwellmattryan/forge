@@ -3,6 +3,7 @@
 // checked for shell safety ("emitted commands are shell-safe").
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { RULES, hasSpecDeltas, listLineCount, parsePlan, parseSpecHeader, roundLenses, selectPanel, shellLine, step } from '../lib/step.ts';
 import type { Config, Job, StepAction, VerifyRun } from '../lib/types.ts';
@@ -194,6 +195,10 @@ const rows: Row[] = [
   },
   { name: 'SP3 panel ignores a size that is not S, M or L', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { size: 'XL;rm' } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]') },
   { name: 'SP3 panel for a retro job is code and docs', fx: { files: ['spec'], job: job({ kind: 'retro', stage: 'spec', agents: { retro: ag(0, 1, 2) } }), spec: { suggested: ['security'] } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","docs"]') },
+  { name: 'SP3 records the spec\'s complexity', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { complexity: 'high' } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]', '--field', 'complexity=high') },
+  { name: 'SP3 without a Complexity header records none', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }) }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]') },
+  { name: 'SP3 clears a stale complexity', fx: { job: job({ stage: 'spec', complexity: 'low', agents: SPEC_DONE }) }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]', '--field', 'complexity=null') },
+  { name: 'SP3 ignores an invalid complexity', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { complexity: 'extreme' } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]') },
   { name: 'SP3 panel is re-recorded after a new spec', fx: { job: job({ stage: 'spec', agents: { 'spec-writer': ag(0, 4, 5) } }), events: [PANEL_SET] }, want: { action: 'run', rule: 'SP3' } },
   { name: 'SP4 a spec that needs design', fx: { config: (c) => (c.pipeline.design = 'reference'), job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET], spec: { needsDesign: true } }, want: run('job', 'set', 'j', '--stage', 'design', '--state', 'running') },
   { name: 'SP5 the spec gate under always', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET] }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready') },
@@ -461,6 +466,37 @@ const rows: Row[] = [
   { name: "spawn carries the job's effort", fx: { config: (c) => (c.runtime.effort = 'medium'), files: ['spec'], job: job({ stage: 'build', round: 1, effort: 'high', agents: { builder: ag(1, 5, 6, { status: 'lost' }) } }), events: [ev('round', 4)] }, want: { action: 'spawn', role: 'builder', effort: 'high' }, check: (a) => assert.ok(a.brief.split('\n').includes('Effort: high')) },
   { name: 'spawn inherits runtime.effort', fx: { config: (c) => (c.runtime.effort = 'medium'), job: atDecide({ agents: { approver: ag(1, 20, 21, { status: 'failed' }) } }) }, want: { action: 'spawn', role: 'approver', effort: 'medium' } },
   { name: 'spawn effort is null when nothing is set', fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: true, output: 'review/round-1/code.md' }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped }, want: { action: 'spawn', role: 'reviewer:code', effort: null }, check: (a) => assert.ok(a.brief.split('\n').includes('Effort: inherit')) },
+  {
+    name: 'RV4 reviewer spawn takes runtime.efforts.reviewer over runtime.effort',
+    fx: { config: (c) => ((c.runtime.effort = 'high'), (c.runtime.efforts.reviewer = 'medium')), job: inReview(), events: scoped },
+    want: { action: 'spawn', role: 'reviewer:code', effort: 'medium' },
+    check: (a) => assert.ok(a.brief.split('\n').includes('Effort: medium')),
+  },
+  {
+    name: 'job.effort overrides a per-role effort',
+    fx: { config: (c) => ((c.runtime.effort = 'high'), (c.runtime.efforts.reviewer = 'medium')), job: inReview({}, { effort: 'xhigh' }), events: scoped },
+    want: { action: 'spawn', role: 'reviewer:code', effort: 'xhigh' },
+    check: (a) => assert.ok(a.brief.split('\n').includes('Effort: xhigh')),
+  },
+  {
+    name: 'a panel effort reaches its lens brief',
+    fx: { config: (c) => ((c.runtime.efforts.reviewer = 'low'), ((c.review.panel.find((p) => p.name === 'security') as any).effort = 'max')), job: inReview({}, { reviewers: ['security'] }), events: scoped },
+    want: { action: 'spawn', role: 'reviewer:security', effort: 'max' },
+    check: (a) => assert.ok(a.brief.split('\n').includes('Effort: max')),
+  },
+  {
+    name: 'builder round 2 spawn is one level above round 1',
+    fx: { config: (c) => (c.runtime.efforts.builder = 'high'), files: ['spec'], job: job({ stage: 'build', round: 2, verdicts: { 1: { code: 'CHANGES' } }, agents: { builder: ag(1, 5, 6) } }), events: [ev('round', 7)] },
+    want: { action: 'spawn', role: 'builder', effort: 'xhigh' },
+    check: (a) => {
+      assert.ok(a.brief.split('\n').includes('Effort: xhigh'));
+      const r1 = step(fixture({ config: (c) => (c.runtime.efforts.builder = 'high'), files: ['spec', 'tasks'], job: job({ stage: 'build', round: 1 }), events: [ev('round', 4)] })) as any;
+      assert.equal(r1.effort, 'high', 'round 1');
+      // A verify-fail retry inside round 1 is not a rework round.
+      const retry = step(fixture({ config: (c) => (c.runtime.efforts.builder = 'high'), present: [path.join(JOB_DIR, 'verify', 'round-1.md')], job: job({ stage: 'build', round: 1, verifyRuns: [vr(1, 10, false)], agents: { builder: ag(1, 5, 6) } }), events: [ev('round', 4)] })) as any;
+      assert.equal(retry.effort, 'high', 'verify retry in round 1');
+    },
+  },
   { name: 'hostile: an agent id is not passed as resume', fx: { job: job({ stage: 'build', round: 2, verdicts: { 1: { code: 'CHANGES' } }, agents: { builder: ag(1, 5, 6, { agentId: 'x; rm -rf' }) } }), events: [ev('round', 7)] }, want: { action: 'spawn', role: 'builder' }, check: (a) => assert.equal(a.resume, undefined) },
 ];
 
@@ -492,6 +528,21 @@ test('every spawn carries an effort key', () => {
   const spawns = rows.map((row) => step(fixture(row.fx))).filter((a) => a.action === 'spawn');
   assert.ok(spawns.length > 20);
   for (const a of spawns) assert.ok(Object.hasOwn(a, 'effort'), `${a.rule} ${(a as any).role}`);
+});
+
+test('spec-writer template declares Complexity', () => {
+  const text = readFileSync(path.join(import.meta.dirname, '..', 'agents', 'spec-writer.md'), 'utf8');
+  const fenced = /```\n(# <title>[\s\S]*?)\n```/.exec(text);
+  assert.ok(fenced, 'the template is fenced');
+  const header = parseSpecHeader(fenced[1]);
+  assert.ok(Object.hasOwn(header, 'complexity'));
+  assert.equal(header.complexity, 'low | medium | high');
+  assert.match(fenced[1], /^Size: .*\nComplexity: low \| medium \| high$/m, 'under Size:');
+  const after = text.slice(fenced.index + fenced[0].length).split('\n');
+  const rubric = after.findIndex((l) => /^Complexity is difficulty/.test(l));
+  assert.ok(rubric >= 0, 'a rubric follows the template');
+  const lines = after.slice(rubric).findIndex((l) => !l.trim());
+  assert.ok(lines > 0 && lines <= 4, `rubric is at most 4 lines (${lines})`);
 });
 
 test('every rule has a row', () => {
@@ -566,7 +617,9 @@ test('loadStepInput parsers read plan, spec header and design deltas', () => {
   assert.deepEqual(parsePlan('PLAN: SINGLE\n## External\n- Recommend splitting: (a) x (b) y\n'), { verdict: 'SINGLE', jobs: 0, recommendSplit: true });
   assert.deepEqual(parsePlan('# no plan line\n'), { verdict: null, jobs: 0, recommendSplit: false });
   const header = parseSpecHeader('# T\n\nSize: L\nServices: -\nNeeds design: yes\nSuggested reviewers: code, tests, UI , evil;rm\n\n## Goal\nSize: S\n');
-  assert.deepEqual(header, { size: 'L', needsDesign: true, services: [], suggested: ['code', 'tests', 'UI', 'evil;rm'] });
+  assert.deepEqual(header, { size: 'L', complexity: null, needsDesign: true, services: [], suggested: ['code', 'tests', 'UI', 'evil;rm'] });
+  assert.equal(parseSpecHeader('Size: M\nComplexity: High\n').complexity, 'high', 'stored lowercase');
+  assert.equal(parseSpecHeader('Size: M\nComplexity: extreme\n').complexity, 'extreme', 'SP3 decides validity');
   assert.deepEqual(parseSpecHeader('Services: api, web\n').services, ['api', 'web']);
   assert.equal(hasSpecDeltas('## Spec deltas\n"None"\n## Open questions\nx\n'), false);
   assert.equal(hasSpecDeltas('## Spec deltas\n- None.\n'), false);

@@ -2512,6 +2512,33 @@ test("each session spawns with its job's effective effort", async () => {
   }
 });
 
+test('a job session ignores per-role and complexity efforts and logs its source', async () => {
+  const repo = tempRepo();
+  const kit = fakeKit();
+  const cfg = effortCfg('medium');
+  cfg.runtime.efforts.builder = 'max';
+  cfg.runtime.effortByComplexity.high = 'xhigh';
+  const d = kitPool(repo.dir, kit, cfg);
+  try {
+    const a = createJob(repo.dir, defaults(), { title: 'Complex A' }).id;
+    const b = createJob(repo.dir, defaults(), { title: 'Complex B', effort: 'low' }).id;
+    for (const id of [a, b]) updateJob(repo.dir, id, (j) => void (j.complexity = 'high'));
+    await enqueueInOrder(repo.dir, [{ type: 'resume', job: a }, { type: 'resume', job: b }]);
+    d.start();
+    await settle();
+    assert.equal(flagValue(kit.last(a).args, '--effort'), 'medium');
+    assert.equal(flagValue(kit.last(b).args, '--effort'), 'low');
+    for (const [scope, level, source] of [[a, 'medium', 'config'], [b, 'low', 'job']]) {
+      await logged(repo.dir, scope, 'effort');
+      const e = eventsIn(logOf(repo.dir, scope), 'effort').at(-1);
+      assert.deepEqual([e.level, e.source], [level, source], scope);
+    }
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
 test('an effort change applies at the next spawn and stops nothing', async () => {
   const repo = tempRepo();
   const kit = fakeKit();

@@ -2,7 +2,7 @@
 // this file never runs. The dashboard's src/lib/types.ts carries a copy of the API shapes, kept
 // equal by test/types-parity.ts, until the dashboard imports this file. Unions that have a runtime
 // list are derived from that list, never retyped.
-import type { BUDGET_KEYS, DAEMON_AUTH, EFFORTS, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
+import type { BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import type { REQUEST_TYPES } from './requests.ts';
 import type { AcCoverage } from './acs.ts';
 import type { SECRET_KINDS } from './secrets.ts';
@@ -22,7 +22,11 @@ export type Severity = (typeof SEVERITIES)[number];
 /** A reasoning effort level: EFFORTS in lib/schema.ts. */
 export type Effort = (typeof EFFORTS)[number];
 /** Where a resolved effort came from: resolveEffort in lib/config.ts. */
-export type EffortSource = 'job' | 'config' | 'none';
+export type EffortSource = 'job' | 'panel' | 'role' | 'complexity' | 'config' | 'none';
+/** A spec's judged difficulty: COMPLEXITIES in lib/schema.ts. */
+export type Complexity = (typeof COMPLEXITIES)[number];
+/** A role with its own runtime.efforts entry: EFFORT_ROLES in lib/schema.ts. */
+export type EffortRole = (typeof EFFORT_ROLES)[number];
 /** What the secret scanner reports: SECRET_KINDS in lib/secrets.ts. */
 export type SecretKind = (typeof SECRET_KINDS)[number];
 
@@ -241,6 +245,8 @@ export interface Job {
   splitMode: 'never' | null;
   /** The human's reasoning effort for this job (`forge job effort`); null inherits runtime.effort. */
   effort: Effort | null;
+  /** The spec's `Complexity:` header, recorded at SP3; picks runtime.effortByComplexity. */
+  complexity: Complexity | null;
 }
 
 /** tasks.md checkbox counts: progress in lib/jobs.ts. */
@@ -341,7 +347,7 @@ export interface StepInput {
   request: { length: number; listLines: number };
   plan: { verdict: 'SINGLE' | 'SPLIT' | null; jobs: number; recommendSplit: boolean };
   /** spec.md's header lines and Approach paths; suggested names and services are raw, step filters them. */
-  spec: { size: string | null; needsDesign: boolean; services: string[]; suggested: string[]; approachPaths: string[] };
+  spec: { size: string | null; complexity: string | null; needsDesign: boolean; services: string[]; suggested: string[]; approachPaths: string[] };
   /** design.md's `## Spec deltas` section is non-empty and not None. */
   designDeltas: boolean;
   decision: { decision: string | null; autoMerge: boolean };
@@ -486,6 +492,8 @@ export interface PanelEntry {
   model?: string;
   when?: string;
   checklist?: string;
+  /** This lens's reasoning effort; beats runtime.efforts.reviewer, not a job's own. */
+  effort?: Effort | null;
 }
 
 /** Something agents should know exists: an entry of `resources` (docs/CONFIG.md). */
@@ -561,6 +569,10 @@ export interface Config {
     diversity: boolean;
     /** The default reasoning effort for jobs; null leaves it to Claude Code's own setting. */
     effort: Effort | null;
+    /** Per-role effort; null falls through to effortByComplexity, then effort. */
+    efforts: Record<EffortRole, Effort | null>;
+    /** Effort by the spec's complexity, for a role with no effort of its own. */
+    effortByComplexity: Record<Complexity, Effort | null>;
     models: Record<string, string>;
   };
   tracker: {
@@ -1196,8 +1208,8 @@ export type RequestsResponse = ForgeRequest[];
 
 /** GET /api/roster: roster in lib/roster.ts. */
 export interface Roster {
-  agents: { role: string; description: string; model: string; promptHash: string; addendum: string | null }[];
-  reviewers: { name: string; model: string; always: boolean; when: string | null; checklist: string | null; checklistHash: string | null }[];
+  agents: { role: string; description: string; model: string; promptHash: string; addendum: string | null; effort: Effort | null; effortSource: EffortSource }[];
+  reviewers: { name: string; model: string; always: boolean; when: string | null; checklist: string | null; checklistHash: string | null; effort: Effort | null; effortSource: EffortSource }[];
   learnings: string | null;
   diversity: { enabled: boolean; builder: string; overlap: { role: string; model: string }[] };
   warnings: string[];
