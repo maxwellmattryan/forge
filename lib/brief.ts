@@ -81,6 +81,15 @@ export interface RoleContext {
 }
 
 /** The inputs, outputs and extra lines each role gets: the brief half of Approach in issue #68. */
+/** The approver's `Protected paths:` line. JSON, so a path can't start a line of the brief. */
+export function protectedLine(job: Pick<Job, 'protectedPaths'>): string {
+  const flag = job.protectedPaths;
+  if (!flag?.hits?.length) return 'Protected paths: none';
+  const shown = flag.hits.slice(0, 20).map((h) => h.path);
+  const more = flag.hits.length - shown.length + (Number(flag.more) || 0);
+  return `Protected paths: ${JSON.stringify(shown)}${more > 0 ? ` (+${more} more)` : ''}: a human must approve after you whatever you decide; never mark auto-merge eligible`;
+}
+
 export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {}): BriefSpec {
   const j = input.job;
   const c = input.config;
@@ -151,6 +160,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
           `Acceptance criteria (forge job acs): ${JSON.stringify(input.acs)}`,
           `Always escalate: ${JSON.stringify(c.approver.alwaysEscalate ?? [])}`,
           `Merge: auto ${autoMerge(c)} · autoWhen ${JSON.stringify(c.merge.autoWhen ?? [])}`,
+          protectedLine(j),
           infra,
           `Scope: ${p('scope')}`,
         ],

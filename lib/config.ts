@@ -2,9 +2,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PLUGIN_ROOT, paths, exists, resolveFrom } from './paths.ts';
+import { globProblem, policyProblems } from './policy-check.ts';
 import { COMPLEXITIES, CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES, migrateConfig } from './schema.ts';
 import type { Config, Effort, EffortRole, EffortSource, LoadedConfig, VerifyEntry } from './types.ts';
 import { ForgeError, deepMerge, isClaudeExecutable, readText, splitWords } from './util.ts';
+export { globProblem };
 import * as yaml from './yaml.ts';
 
 /** Every key Forge reads, with its default. docs/CONFIG.md documents each one. */
@@ -206,6 +208,18 @@ export function defaults(): Config {
       reserved: [...DEFAULT_RESERVED],
       ship: 'propose',
     },
+    // Enforced by the CLI at forge git add|commit, verify and pr open; docs/CONFIG.md "Protected paths".
+    policy: {
+      protectedPaths: [
+        { paths: ['.github/workflows/**', '.gitlab-ci.yml', 'Jenkinsfile', '.circleci/**'], action: 'escalate', reason: 'CI/CD configuration' },
+        { paths: ['Dockerfile*', '**/*.tf'], action: 'escalate', reason: 'infrastructure' },
+        { paths: ['**/migrations/**'], action: 'escalate', reason: 'database migrations' },
+        { paths: ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'Cargo.lock'], action: 'escalate', reason: 'dependency lockfile' },
+        { paths: ['**/.env*'], action: 'escalate', reason: 'environment files can hold credentials' },
+        { paths: ['**/*.pem'], action: 'refuse', reason: 'private keys and certificates are never committed by Forge' },
+        { paths: ['.forge/config.yml', '.forge/secrets-allow.txt', '.forge/trackers/**'], action: 'refuse', reason: "Forge's own policy changes only by a human on the base branch" },
+      ],
+    },
   };
 }
 
@@ -318,6 +332,7 @@ export function validateConfig(c: any, root: string): string[] {
   }
   problems.push(...daemonProblems(c, root));
   problems.push(...foremanProblems(c));
+  problems.push(...policyProblems(c));
   return problems;
 }
 
@@ -384,19 +399,6 @@ export function verifyGroups(verify: unknown): string[][] {
 export function verifySteps(verify: unknown): string[] {
   if (!Array.isArray(verify)) return [];
   return verify.flatMap((e: unknown) => (typeof e === 'string' ? [e] : Array.isArray(e) ? e.filter((n): n is string => typeof n === 'string') : []));
-}
-
-/**
- * Why a `worktrees.generated` entry can't be used, or null. The entries become git pathspecs and
- * file-system paths mid-merge, so anything that could read as an option, pathspec magic (`:`),
- * an exclusion (`!`) or a way out of the worktree is refused.
- */
-export function globProblem(g: unknown, key = 'worktrees.generated'): string | null {
-  if (typeof g !== 'string' || !g.trim()) return `${key} entries must be non-empty strings (got ${JSON.stringify(g)})`;
-  if (g.startsWith('/') || path.isAbsolute(g)) return `${key} entry ${JSON.stringify(g)} must be relative to the repo`;
-  if (/^[-!:]/.test(g)) return `${key} entry ${JSON.stringify(g)} must not start with -, ! or :`;
-  if (g.split(/[\\/]/).includes('..')) return `${key} entry ${JSON.stringify(g)} must not contain a .. segment`;
-  return null;
 }
 
 /**

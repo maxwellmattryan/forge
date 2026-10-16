@@ -159,3 +159,25 @@ test('init write keeps panel paths', () => {
     fs.rmSync(answers, { force: true });
   }
 });
+
+test('suggests protected paths from the stack', () => {
+  const suggest = (files: Record<string, string>) => {
+    const repo = tempRepo();
+    try {
+      for (const [rel, text] of Object.entries(files)) fs.writeFileSync(path.join(repo.dir, rel), text);
+      return detect(repo.dir).suggestions['policy.protectedPaths'] as { paths: string[]; action: string; reason: string }[];
+    } finally {
+      repo.cleanup();
+    }
+  };
+  const rules = suggest({ 'package.json': pkg({}), 'Cargo.toml': '[package]\nname = "x"\n' });
+  const locks = rules.find((r) => r.reason === 'dependency lockfile');
+  assert.deepEqual(locks, { paths: ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'Cargo.lock'], action: 'escalate', reason: 'dependency lockfile' });
+  assert.equal(rules.length, defaults().policy.protectedPaths.length, 'every other default rule stays');
+  assert.deepEqual(rules.filter((r) => r !== locks), defaults().policy.protectedPaths.filter((r) => r.reason !== 'dependency lockfile'));
+  assert.deepEqual(suggest({ 'go.mod': 'module x\n', Gemfile: '' }).find((r) => r.reason === 'dependency lockfile')?.paths, ['go.sum', 'Gemfile.lock']);
+  assert.deepEqual(suggest({ 'pyproject.toml': '' }).find((r) => r.reason === 'dependency lockfile')?.paths, ['poetry.lock', 'uv.lock']);
+  const none = suggest({ 'README.txt': 'x' });
+  assert.equal(none.find((r) => r.reason === 'dependency lockfile'), undefined, 'no ecosystem: no lockfile rule');
+  assert.equal(none.length, defaults().policy.protectedPaths.length - 1);
+});

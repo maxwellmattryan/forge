@@ -120,7 +120,7 @@ test('forge job scope: CLI end to end', () => {
     for (const rel of ['lib/a.mjs', 'docs/x.md', 'lib/b.mjs']) write(wt, rel);
     commitAll(wt, 'job work');
     let r = f('job', 'scope', job.id);
-    assert.deepEqual(Object.keys(r), ['id', 'base', 'mergeBase', 'head', 'dirty', 'approach', 'specPaths', 'changed', 'inSpec', 'outOfSpec', 'more', 'file']);
+    assert.deepEqual(Object.keys(r), ['id', 'base', 'mergeBase', 'head', 'dirty', 'approach', 'specPaths', 'changed', 'inSpec', 'outOfSpec', 'more', 'protected', 'protectedMore', 'file']);
     assert.equal(r.base, 'main');
     assert.match(r.mergeBase, /^[0-9a-f]{40}$/);
     assert.match(r.head, /^[0-9a-f]{40}$/);
@@ -165,6 +165,40 @@ test('forge job scope: CLI end to end', () => {
   } finally {
     repo.cleanup();
     fs.rmSync(wtRoot, { recursive: true, force: true });
+    fs.rmSync(answers, { force: true });
+  }
+});
+
+test('scope lists protected paths', () => {
+  const repo = tempRepo();
+  const answers = path.join(repo.dir, '..', `answers-pp-${path.basename(repo.dir)}.json`);
+  const f = (...args) => {
+    const out = execFileSync(process.execPath, [BIN, ...args], { cwd: repo.dir, encoding: 'utf8', env: { ...process.env, FORGE_ROOT: repo.dir } });
+    try {
+      return JSON.parse(out);
+    } catch {
+      return out.trim();
+    }
+  };
+  try {
+    fs.writeFileSync(answers, JSON.stringify({ commands: { test: 'true' }, worktrees: { root: `../${path.basename(repo.dir)}.wt` } }));
+    f('init', 'write', '--answers', answers);
+    write(repo.dir, 'package-lock.json', '{}\n');
+    commitAll(repo.dir, 'forge init');
+    const job = f('job', 'new', '--title', 'Scope protected');
+    const wt = f('worktree', 'create', job.id).path;
+    fs.writeFileSync(path.join(repo.dir, job.dir, 'spec.md'), '# Spec\n## Approach\n- `src/a.ts`\n');
+    write(wt, 'package-lock.json', '{"v":2}\n');
+    write(wt, 'src/a.ts');
+    commitAll(wt, 'job work');
+    const r = f('job', 'scope', job.id);
+    assert.deepEqual(r.protected, [{ path: 'package-lock.json', action: 'escalate', reason: 'dependency lockfile' }]);
+    assert.equal(r.protectedMore, 0);
+    const md = fs.readFileSync(path.join(repo.dir, r.file), 'utf8');
+    assert.match(md, /^## Protected \(1\)\n- `package-lock\.json`: escalate \(dependency lockfile\)\n## Out of spec/m);
+  } finally {
+    repo.cleanup();
+    fs.rmSync(path.join(repo.dir, '..', `${path.basename(repo.dir)}.wt`), { recursive: true, force: true });
     fs.rmSync(answers, { force: true });
   }
 });

@@ -30,6 +30,8 @@ export type Checks = [
   Expect<Equal<engine.VerifyRun, dash.VerifyRun>>,
   Expect<Equal<engine.Verdict, dash.Verdict>>,
   Expect<Equal<engine.Job, dash.Job>>,
+  Expect<Equal<engine.ProtectedHit, dash.ProtectedHit>>,
+  Expect<Equal<engine.ProtectedPaths, dash.ProtectedPaths>>,
   Expect<Equal<engine.EffortSource, dash.EffortSource>>,
   Expect<Equal<engine.Complexity, dash.Complexity>>,
   Expect<Equal<engine.Progress, dash.Progress>>,

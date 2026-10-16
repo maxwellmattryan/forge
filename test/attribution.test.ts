@@ -66,7 +66,46 @@ test('scrubBranch rewrites only offending commit messages', () => {
     assert.doesNotMatch(log, /Co-Authored-By/i);
     assert.match(log, /fix: b mentions Claude Code by name/);
     assert.equal(execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { cwd: repo.dir, encoding: 'utf8' }).trim(), tree, 'content unchanged');
+    assert.equal(res.sha, execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo.dir, encoding: 'utf8' }).trim(), 'the branch moved to the sha it returns');
     assert.equal(scrubBranch(repo.dir, base).rewritten, 0);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('scrubBranch rewrites from the commit it is given and never folds in a later one', () => {
+  const repo = tempRepo();
+  const git = (...a: string[]) => execFileSync('git', a, { cwd: repo.dir, encoding: 'utf8' }).trim();
+  try {
+    const base = git('rev-parse', 'HEAD');
+    fs.writeFileSync(path.join(repo.dir, 'a.txt'), 'a');
+    repo.git('add', '-A');
+    repo.git('commit', '-qm', 'feat: a\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>');
+    fs.writeFileSync(path.join(repo.dir, 'b.txt'), 'b');
+    repo.git('add', '-A');
+    repo.git('commit', '-qm', 'fix: b');
+    const checked = git('rev-parse', 'HEAD');
+    const trees = [git('rev-parse', 'HEAD~1^{tree}'), git('rev-parse', 'HEAD^{tree}')];
+    const people = git('log', '--format=%an %ae %ad|%cn %ce %cd', `${base}..HEAD`);
+
+    // A commit lands after the check: the branch is not moved and nothing is returned to push.
+    fs.writeFileSync(path.join(repo.dir, 'late.txt'), 'late');
+    repo.git('add', '-A');
+    repo.git('commit', '-qm', 'late');
+    const late = git('rev-parse', 'HEAD');
+    assert.throws(() => scrubBranch(repo.dir, base, checked), /moved off .* nothing was pushed/);
+    assert.equal(git('rev-parse', 'HEAD'), late, 'the branch is left alone');
+
+    // Back on the checked commit: every tree, author and committer is the checked one.
+    repo.git('reset', '-q', '--hard', checked);
+    const res = scrubBranch(repo.dir, base, checked);
+    assert.equal(res.rewritten, 1);
+    assert.equal(git('rev-parse', 'HEAD'), res.sha);
+    assert.deepEqual([git('rev-parse', `${res.sha}~1^{tree}`), git('rev-parse', `${res.sha}^{tree}`)], trees);
+    assert.equal(git('log', '--format=%an %ae %ad|%cn %ce %cd', `${base}..HEAD`), people);
+    assert.equal(git('rev-list', '--count', `${base}..HEAD`), '2');
+    assert.doesNotMatch(git('log', '--format=%B', `${base}..HEAD`), /Co-Authored-By/i);
+    assert.equal(git('status', '--porcelain'), '', 'the worktree is untouched');
   } finally {
     repo.cleanup();
   }
