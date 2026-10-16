@@ -2,24 +2,27 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { jobAcs } from '../acs.ts';
-import { jobPathMap } from '../brief.ts';
+import { assistantBrief, jobPathMap } from '../brief.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
-import { daemonClaimOpts, refuseInboxDrive } from '../daemon-owner.ts';
+import { daemonClaimOpts, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
+import { checkForemanDecision, gateClass, inOffice, isGateClass, maybeEnqueueGate, reservedFor } from '../foreman.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
 import { agentOutputMissing, claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
 import { logSecrets, scanAgentOutputs } from '../secrets.ts';
 import { normalizeRef } from '../issue-link.ts';
 import { exists } from '../paths.ts';
-import { COMPLEXITIES, EFFORTS } from '../schema.ts';
+import { COMPLEXITIES, EFFORTS, OFFICE_GATES } from '../schema.ts';
+import { daemonScope } from '../requests.ts';
 import { jobScope } from '../scope.ts';
 import { loadStepInput, step } from '../step.ts';
 import { createAndLink, linkJob, markNoIssue, suggestLink } from '../tracker-link.ts';
 import { loadTracker } from '../trackers/index.ts';
 import { importClaudeCodeTranscript } from '../usage.ts';
+import { modelFor, resolveEffort } from '../config.ts';
 import { ForgeError, coerce, getPath, run } from '../util.ts';
 import { bodyFrom, list, num, oneOf, req, requireJob, str, usageError } from './args.ts';
 import { mirrorToTracker, startFromRef } from './tracker.ts';
-import type { AgentUsage, Config, Effort, HelpGroup, Job } from '../types.ts';
+import type { AgentUsage, Config, Effort, HelpGroup, HumanActor, Job } from '../types.ts';
 
 const NO_JOB: [1, string] = [1, 'no such job'];
 const BODY: [string, string][] = [
@@ -115,24 +118,32 @@ const JOB: HelpGroup = {
         ['--session S', 'the claiming session (required)'],
         ['--force', 'take it from a live owner, or claim it with dependencies not done'],
       ],
-      exits: [NO_JOB, [3, 'another live session holds the job'], [4, 'its dependencies are not done']],
+      exits: [[1, 'no such job, or the office daemon session ran it'], [3, 'another live session holds the job'], [4, 'its dependencies are not done']],
     },
     { command: 'job release', args: '<id>', summary: "drop the job's owner", exits: [NO_JOB] },
     { command: 'job note', args: '<id> [text] [--body B | --body-file F]', summary: 'log a note event', flags: BODY, exits: [NO_JOB] },
     {
       command: 'job human',
-      args: '<id> <action> [--note N] [--link <ref>|new|none] [--reason R]',
+      args: '<id> <action> [--note N] [--link <ref>|new|none] [--reason R] [--actor human|foreman]',
       summary: 'record a human decision: approve-spec, revise-spec, approve-split, revise-split, approve, rework or answer',
       flags: [
         ['--note N', 'the human\'s note'],
         ['--link <ref>|new|none', 'with approve or approve-spec: link an issue, create one, or record that none is needed'],
         ['--reason R', 'why, with --link none'],
+        ['--actor human|foreman', 'who decided (default human); foreman only from the office daemon session, which must pass it'],
       ],
       exits: [
-        [1, 'no such job, or a --link that cannot be made'],
+        [1, 'no such job, a --link that cannot be made, or a foreman decision the authority checks refuse'],
         [3, 'the tracker claim was lost to another job'],
         [5, 'gh failed (GitHub tracker)'],
       ],
+    },
+    {
+      command: 'job assist',
+      args: '<id> --gate G',
+      summary: "the office session's forge:assistant spawn for a gate: model, effort and a brief of paths only; stale when the job no longer waits there. Read-only",
+      flags: [['--gate G', `the gate class: ${OFFICE_GATES.join(', ')}`]],
+      exits: [[1, 'no such job, an unknown gate, or a daemon session other than the office']],
     },
     {
       command: 'job agent',
@@ -151,7 +162,7 @@ const JOB: HelpGroup = {
         ['--duration-ms N', 'with end: wall time'],
         ['--import', "with end and --agent-id: read usage from the agent's Claude Code transcript"],
       ],
-      exits: [[1, 'no such job, an --output outside the job dir, or the inbox session starting an agent']],
+      exits: [[1, 'no such job, an --output outside the job dir, or the inbox or office session starting an agent']],
     },
     { command: 'job round', args: '<id>', summary: 'start the next review round, unless the budget is spent', exits: [NO_JOB] },
     {
@@ -337,6 +348,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
           throw new ForgeError('--field complexity must be low, medium or high, or null');
       // Checked before anything is written, so a bad list leaves job.json untouched.
       if ('dependsOn' in fields) fields.dependsOn = validateDependsOn(root, jobId, fields.dependsOn);
+      const before = loadJob(root, jobId);
       let job = setJob(root, jobId, {
         stage: flags.stage,
         state: flags.state,
@@ -349,11 +361,13 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         refreshDependencyWait(root, job.id);
         job = loadJob(root, job.id);
       }
+      const gate = maybeEnqueueGate(root, config, before, job);
       await mirrorToTracker(root, config, job);
-      return { id: job.id, stage: job.stage, state: job.state, waitingOn: job.waitingOn };
+      return { id: job.id, stage: job.stage, state: job.state, waitingOn: job.waitingOn, ...(gate ? { gateRequest: gate.id } : {}) };
     }
     case 'claim': {
       const jobId = requireJob(root, id).id;
+      refuseInOffice(`it never claims ${jobId}`);
       const { job, overridden } = claimRespectingDeps(root, jobId, req(str(flags.session, '--session'), '--session'), Boolean(flags.force), daemonClaimOpts(root, jobId));
       return { id: job.id, owner: job.owner, ...(overridden.length ? { dependenciesOverridden: overridden } : {}) };
     }
@@ -366,9 +380,15 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       logEvent(root, requireJob(root, id).id, 'note', { text: rest.slice(1).join(' ') || bodyFrom(flags) });
       return { ok: true };
     case 'human': {
-      const jobId = requireJob(root, id).id;
+      const job = requireJob(root, id);
+      const jobId = job.id;
       const action = oneOf(rest[1], HUMAN_ACTIONS, 'action');
       const note = str(flags.note, '--note');
+      const actor: HumanActor = flags.actor === undefined ? 'human' : oneOf(str(flags.actor, '--actor'), ['human', 'foreman'] as const, 'actor');
+      // The office session records only foreman decisions, and only it may: provenance is the
+      // daemon scope, so a job session misled by request text can't pass off a decision as the foreman's.
+      if (inOffice() && actor !== 'foreman') throw new ForgeError('the office session records decisions only with --actor foreman', 1);
+      if (actor === 'foreman') checkForemanDecision(root, config, job, action, note, { link: flags.link, reason: flags.reason });
       // Every check runs before any write, so a refused --link leaves job.json and events untouched.
       const link = flags.link;
       if (link !== undefined && (typeof link !== 'string' || !link.trim())) throw new ForgeError('--link needs <ref>, new or none');
@@ -384,9 +404,11 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       if (link === 'none') linked = markNoIssue(root, jobId, reason ?? null);
       else if (link === 'new') linked = createAndLink(root, config, await loadTracker(root, config), jobId);
       else if (typeof link === 'string') linked = linkJob(root, config, await loadTracker(root, config), jobId, link);
-      logEvent(root, jobId, 'human', { action, note: note ?? (rest.slice(2).join(' ') || null) });
+      logEvent(root, jobId, 'human', { action, note: note ?? (rest.slice(2).join(' ') || null), actor });
       return { ok: true, ...(link !== undefined ? { link: linked } : {}) };
     }
+    case 'assist':
+      return assist(root, config, requireJob(root, id), flags.gate);
     case 'agent': {
       const jobId = requireJob(root, id).id;
       const phase = req(rest[1], 'start|end');
@@ -521,6 +543,30 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     default:
       throw usageError(JOB);
   }
+}
+
+/**
+ * `forge job assist`: what the office session spawns for one gate. Read-only. `stale` when the job
+ * no longer waits on that gate (someone acted meanwhile); `reserved` is re-checked now, not taken
+ * from the request.
+ */
+function assist(root: string, config: Config, job: Job, rawGate: unknown) {
+  const s = daemonScope();
+  if ('problem' in s) throw new ForgeError(s.problem);
+  if (s.daemon && !inOffice()) throw new ForgeError('forge job assist is for the office session (or a human outside the daemon)', 1);
+  const gate = str(rawGate, '--gate');
+  if (!isGateClass(gate)) throw new ForgeError(`--gate must be one of ${OFFICE_GATES.join(', ')} (got ${JSON.stringify(String(gate ?? '').slice(0, 40))})`, 1);
+  const stale = gateClass(job) !== gate;
+  const reserved = stale ? null : reservedFor(root, config, job, gate);
+  return {
+    gate,
+    stale,
+    reserved,
+    model: modelFor(config, 'assistant'),
+    effort: resolveEffort(config, job, 'assistant').level,
+    subagent: 'forge:assistant',
+    brief: assistantBrief(root, config, job, gate, config.foreman?.reserved),
+  };
 }
 
 /**

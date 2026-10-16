@@ -1,5 +1,5 @@
 // The session pool `forge dash` supervises when `daemon.enabled`: one inbox session for requests
-// with no job, plus up to `daemon.maxConcurrent` job sessions, each spawned on demand for the job
+// with no job, an office session for gate requests when `foreman.enabled`, plus up to `daemon.maxConcurrent` job sessions, each spawned on demand for the job
 // its requests name. Sessions fail, hold and stop on their own (lib/daemon.ts); the pool owns what
 // is repo-wide: the trust snapshot, routing, the cap and the stops config changes force.
 // docs/ARCHITECTURE.md "Daemon" describes the rules.
@@ -7,7 +7,7 @@ import { resolveEffort, trustDigest } from './config.ts';
 import { PERMISSION_MODES, TRUST_CHANGED, UUID, commandPermissionMode, createSession, otherOwner, readInfo, reapOrphans, sessionFiles, sessionOptions } from './daemon.ts';
 import type { DaemonOptions, Session, SessionContext, SessionEvent } from './daemon.ts';
 import { loadJob } from './jobs.ts';
-import { INBOX_SCOPE, listRequests, requestScope, validScope } from './requests.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, listRequests, requestScope, validScope } from './requests.ts';
 import type { Config, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, ForgeRequest, Job, PermissionDecision } from './types.ts';
 
 /** The pool's own state: state() below. The server adds `clients` to make a DaemonPoolState. */
@@ -66,6 +66,7 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
 
   let enabled = false;
   let maxConcurrent = 1;
+  let foreman = false;
   let wanted = false;
   let lastError: string | null = null;
   /** trustDigest taken when a human (dashboard or `forge dash`) last started the pool. */
@@ -114,7 +115,7 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
     // Read at every spawn and never pushed to a running session: a change applies at its next spawn.
     // No role: a session runs the orchestrator, so per-role, panel and complexity levels never
     // reach its argv; only job.effort and runtime.effort do.
-    effort: (scope, c) => resolveEffort(c, scope === INBOX_SCOPE ? null : jobOrNull(scope)),
+    effort: (scope, c) => resolveEffort(c, scope === INBOX_SCOPE || scope === OFFICE_SCOPE ? null : jobOrNull(scope)),
   };
 
   /** The job a session drives, or null when it is missing or unreadable: its effort then falls back to the config's. */
@@ -135,11 +136,15 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
     return s;
   }
   const inbox = session(INBOX_SCOPE);
-  const jobSessions = () => [...sessions.values()].filter((s) => s.scope !== INBOX_SCOPE);
+  const office = session(OFFICE_SCOPE);
+  /** Neither the inbox nor the office is a job session: they are never counted against the cap. */
+  const shared = (scope: string) => scope === INBOX_SCOPE || scope === OFFICE_SCOPE;
+  const jobSessions = () => [...sessions.values()].filter((s) => !shared(s.scope));
 
   function config(): Config {
     const { config: c } = o.readConfig(root);
     enabled = c.daemon?.enabled === true;
+    foreman = c.foreman?.enabled === true;
     const m = c.daemon?.maxConcurrent;
     // An out-of-range value is a daemonProblems refusal at spawn; until then count it as 1.
     maxConcurrent = Number.isInteger(m) && m >= 1 && m <= 16 ? m : 1;
@@ -163,7 +168,7 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
   }
 
   function onResult(scope: string): void {
-    if (scope !== INBOX_SCOPE && !closed) {
+    if (!shared(scope) && !closed) {
       let state: string | null = null;
       try {
         state = loadJob(root, scope).state;
@@ -200,6 +205,11 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
       const waiters: { s: Session; eligible: string[]; oldest: string }[] = [];
       for (const s of [...sessions.values()]) {
         if (!wanted) return;
+        // Gate requests wait, unturned, while the foreman is off: they stay for a human.
+        if (s.scope === OFFICE_SCOPE && !foreman) {
+          s.setWaiting(false);
+          continue;
+        }
         const routed = groups.get(s.scope) ?? [];
         const { eligible, fresh } = s.route(c, routed);
         if (!fresh || !s.wanted) {
@@ -208,10 +218,10 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
         }
         if (s.status === 'busy' || s.status === 'stopping') continue;
         if (s.running) s.writeTurn(eligible);
-        else if (s.scope === INBOX_SCOPE) {
-          // The inbox is never counted against the cap.
+        else if (shared(s.scope)) {
+          // The inbox and the office are never counted against the cap, and the office is never eager.
           if (s.spawn(c, 'work')) {
-            inboxEager = false;
+            if (s.scope === INBOX_SCOPE) inboxEager = false;
             s.writeTurn(eligible);
           }
         } else waiters.push({ s, eligible, oldest: routed[0].id });
@@ -258,7 +268,7 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
    */
   function prune(groups: Map<string, ForgeRequest[]>): void {
     for (const [scope, s] of sessions) {
-      if (scope === INBOX_SCOPE || groups.has(scope) || s.running || s.status !== 'off' || s.waiting || s.held || s.lastError || !s.wanted) continue;
+      if (shared(scope) || groups.has(scope) || s.running || s.status !== 'off' || s.waiting || s.held || s.lastError || !s.wanted) continue;
       sessions.delete(scope);
       void s.close();
     }
@@ -277,6 +287,8 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
       live: jobSessions().filter((s) => s.running).length,
       lastError,
       inbox: inbox.state(),
+      office: office.state(),
+      foreman,
       jobs,
       permissionMode: baseMode,
       permissionModes: Object.fromEntries([...modes].sort(([a], [b]) => (a < b ? -1 : 1))),

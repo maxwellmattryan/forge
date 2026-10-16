@@ -13,7 +13,7 @@ import { budgetCmd } from '../lib/budget.ts';
 import { createJob, jobDir, loadJob, markAgentsLost, readEvents, recordAgent, setJob, setJobEffort, updateJob } from '../lib/jobs.ts';
 import { loadStepInput, step } from '../lib/step.ts';
 import { PLUGIN_ROOT } from '../lib/paths.ts';
-import { INBOX_SCOPE, SCOPE_ENV, ackRequest, claimRequest, enqueue, listRequests, requestScope, validScope } from '../lib/requests.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, ackRequest, claimRequest, enqueue, listRequests, requestScope, validScope } from '../lib/requests.ts';
 import { DENY_TOOLS, GIT_PINS, PERMISSION_DENIED, PROMPT_TOOL, TRUST_CHANGED, TURN, TURN_LINE, apiKeyVars, buildArgv, heldByBudget, parseTemplate, reapOrphans, sessionEnv, PROMPT_INPUT_CHARS, sessionGrant, PERMISSION_MODES, commandPermissionMode, modeReach, withPermissionMode, withEffort, sessionAgents, sessionOptions, LOST_SUMMARY } from '../lib/daemon.ts';
 import { createPool } from '../lib/daemon-pool.ts';
 
@@ -1483,6 +1483,50 @@ test('routes job requests to per-job sessions and job-less ones to the inbox', a
   } finally {
     await d.close();
     repo.cleanup();
+  }
+});
+
+test('gate requests spawn the office session', async () => {
+  for (const foreman of [true, false]) {
+    const repo = tempRepo();
+    const kit = fakeKit();
+    const cfg: any = config({ maxConcurrent: 1 });
+    cfg.foreman.enabled = foreman;
+    const d = kitPool(repo.dir, kit, cfg);
+    try {
+      const a = createJob(repo.dir, defaults(), { title: 'Job A' }).id;
+      const b = createJob(repo.dir, defaults(), { title: 'Job B' }).id;
+      d.start();
+      await settle();
+      const before = kit.children.length;
+      // A job session holds the one slot, then a gate arrives for another job.
+      enqueue(repo.dir, null, { type: 'resume', job: a, from: 'dashboard' });
+      enqueue(repo.dir, null, { type: 'gate', job: b, args: { gate: 'spec-approval', reserved: null }, from: 'forge' });
+      d.poke();
+      await settle();
+      const office = kit.of(OFFICE_SCOPE);
+      if (!foreman) {
+        assert.equal(office.length, 0, 'foreman off: no office spawn');
+        assert.equal(d.state().foreman, false);
+        assert.equal(d.state().office.running, false);
+        continue;
+      }
+      assert.equal(office.length, 1, 'the office spawned within the tick');
+      assert.equal(office[0].opts.env[SCOPE_ENV], OFFICE_SCOPE, 'FORGE_DAEMON_SCOPE=_office');
+      assert.equal(turnsIn(office[0]), 1, 'and got its turn');
+      assert.equal(office[0].written, TURN_LINE);
+      assert.equal(kit.children.length, before + 2, 'the job session and the office');
+      const st = d.state();
+      assert.equal(st.live, 1, 'the office is not counted against maxConcurrent');
+      assert.equal(st.foreman, true);
+      assert.equal(st.office.scope, OFFICE_SCOPE);
+      assert.equal(st.office.status, 'busy');
+      assert.equal(OFFICE_SCOPE in st.jobs, false);
+      assert.equal(kit.of(b).length, 0, 'a gate never spawns the job it names');
+    } finally {
+      await d.close();
+      repo.cleanup();
+    }
   }
 });
 

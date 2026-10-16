@@ -1,9 +1,9 @@
-// Shapes of the forge dash HTTP API for API_VERSION 17. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 18. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
 
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 17;
+export const API_VERSION = 18;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 
@@ -101,6 +101,11 @@ export interface JobOwner {
 
 /** Why a daemon owner provably let go of a job: ownerYield in lib/daemon-owner.ts. */
 export type YieldReason = 'moved-on' | 'not-running' | 'inbox-handoff';
+
+/** Who recorded a `human` event: a person, or the foreman. */
+export type HumanActor = 'human' | 'foreman';
+/** Who owns a waiting job's gate: gateOwner in lib/foreman.ts; null when the job waits on nothing or the foreman is off. */
+export type GateOwner = 'foreman' | 'human' | null;
 
 /** `dead` only in the job detail, which adds the daemon-record proof; /api/state gives the rest. */
 export type OwnerStatusKind = 'none' | 'live' | 'stale' | 'dead';
@@ -299,6 +304,8 @@ export interface JobEvent {
   text?: string;
   action?: string;
   note?: string | null;
+  /** On `human` events: who decided. Absent on older events, which read as `human`. */
+  actor?: HumanActor;
   [key: string]: unknown;
 }
 
@@ -385,6 +392,10 @@ export interface DaemonPoolState {
   live: number;
   lastError: string | null;
   inbox: DaemonSessionState;
+  /** The foreman's office session (scope `_office`), never counted against maxConcurrent. */
+  office: DaemonSessionState;
+  /** foreman.enabled: the dashboard shows the office only then. */
+  foreman: boolean;
   /** Job sessions worth showing: running, stopping, waiting, held, failed or stopped by a human. */
   jobs: Record<string, DaemonSessionState>;
   /** The permission mode daemon.command starts sessions in (`manual` reads as `default`). */
@@ -407,10 +418,10 @@ export interface DaemonLogPage {
 }
 
 /** A job row in /api/state: state() in lib/server.ts. */
-export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus };
+export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; gateOwner: GateOwner };
 
 /** Request types the inbox accepts: REQUEST_TYPES in lib/requests.ts. */
-export type RequestType = 'next' | 'run' | 'approve' | 'revise-spec' | 'rework' | 'answer' | 'cancel' | 'resume' | 'sync' | 'eval-run' | 'retro';
+export type RequestType = 'next' | 'run' | 'approve' | 'revise-spec' | 'rework' | 'answer' | 'cancel' | 'resume' | 'sync' | 'eval-run' | 'retro' | 'gate';
 
 /** A queued request: enqueue, claimRequest and ackRequest in lib/requests.ts. */
 export interface ForgeRequest {
@@ -499,7 +510,11 @@ export interface Stats {
     humanDeltaRate: number | null;
     medianHumanDeltaLines: number | null;
     humanDeltaCoverage: { merged: number; measured: number };
+    /** Reworks a person asked for (`human` events without actor foreman). */
     humanReworks: number;
+    /** Every `human` event the foreman recorded. */
+    foremanDecisions: number;
+    foremanReworks: number;
     specFirstApprovalRate: number | null;
   };
   speed: { medianMinutesToPr: number | null; medianMinutesToDone: number | null };

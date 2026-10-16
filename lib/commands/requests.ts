@@ -5,7 +5,7 @@ import path from 'node:path';
 import { inboxSessionIds } from '../daemon-owner.ts';
 import { releaseJob } from '../jobs.ts';
 import { exists, paths } from '../paths.ts';
-import { INBOX_SCOPE, ackRequest, claimRequest, daemonScope, enqueue, listRequests, requestScope, validJobId } from '../requests.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, ackRequest, claimRequest, daemonScope, enqueue, listRequests, requestScope, validJobId } from '../requests.ts';
 import { ForgeError } from '../util.ts';
 import { req, str, usageError } from './args.ts';
 import type { Config, ForgeRequest, HelpGroup } from '../types.ts';
@@ -21,7 +21,7 @@ const REQUESTS: HelpGroup = {
       flags: [['--all', 'include handled requests']],
       exits: [[1, "a daemon session's scope is invalid"]],
     },
-    { command: 'requests scope', args: '', summary: 'which session this is: not a daemon, the inbox, or one job', exits: [[1, "a daemon session's scope is invalid"]] },
+    { command: 'requests scope', args: '', summary: 'which session this is: not a daemon, the inbox, the office, or one job', exits: [[1, "a daemon session's scope is invalid"]] },
     {
       command: 'requests add',
       args: '<type> [--job ID] [--text T] [--intake run|next|new] [--session S]',
@@ -32,7 +32,7 @@ const REQUESTS: HelpGroup = {
         ['--intake run|next|new', 'with resume: how the job starts'],
         ['--session S', 'with resume: the session handing the job off'],
       ],
-      exits: [[1, 'a daemon session queued anything but resume, or its scope is invalid']],
+      exits: [[1, 'a gate request (only the CLI writes those), a daemon session queued anything but resume, or its scope is invalid']],
     },
     {
       command: 'requests claim',
@@ -65,7 +65,7 @@ export const HELP: HelpGroup[] = [REQUESTS];
 /** What `forge requests scope` prints: which session this is, so the orchestrator knows its role. */
 export interface ScopeInfo {
   daemon: boolean;
-  scope: 'inbox' | 'job' | null;
+  scope: 'inbox' | 'office' | 'job' | null;
   job: string | null;
 }
 
@@ -90,10 +90,14 @@ export function requestsCmd(
   if (sub === 'scope') {
     const s = scoped();
     if (!s.daemon) return { daemon: false, scope: null, job: null };
-    return s.scope === INBOX_SCOPE ? { daemon: true, scope: 'inbox', job: null } : { daemon: true, scope: 'job', job: s.scope };
+    if (s.scope === INBOX_SCOPE) return { daemon: true, scope: 'inbox', job: null };
+    if (s.scope === OFFICE_SCOPE) return { daemon: true, scope: 'office', job: null };
+    return { daemon: true, scope: 'job', job: s.scope };
   }
   if (sub === 'add') {
     const type = req(rest[0], 'type');
+    // Gate requests carry the reserved check's result, so only the CLI's park and sync paths write them.
+    if (type === 'gate') throw new ForgeError('gate requests are written only by forge job set and forge pr sync, never queued by hand', 1);
     // Read before enqueue, so a bare --job or --session queues nothing.
     const jobFlag = str(flags.job, '--job');
     const session = str(flags.session, '--session') ?? null;

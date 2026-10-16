@@ -34,7 +34,7 @@ export const CORE: HelpGroup[] = [
         command: 'worktree create',
         args: '<id>',
         summary: "create the job's worktree and branch (stacked on its one unmerged dependency, if any) and run worktrees.setup there",
-        exits: [[1, 'no such job, an unsafe branch name, or no free port'], GIT_FAILED],
+        exits: [[1, 'no such job, an unsafe branch name, no free port, or the inbox or office daemon session ran it'], GIT_FAILED],
       },
       {
         command: 'worktree remove',
@@ -123,7 +123,7 @@ export const CORE: HelpGroup[] = [
         args: '<id> [--now]',
         summary: 'merge once CI passes, or queue auto-merge, or defer; --now is a human override that bypasses CI',
         flags: [['--now', 'merge without waiting for CI (logged as pr-merge-bypass)']],
-        exits: [[1, 'the merge was refused or failed (the result says why), or the job has no PR'], GH_FAILED],
+        exits: [[1, 'the merge was refused or failed (the result says why), the job has no PR, or the office daemon session ran it'], GH_FAILED],
       },
     ],
   },

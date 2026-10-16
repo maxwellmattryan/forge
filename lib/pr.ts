@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ownerStatusWithProof } from './daemon-owner.ts';
 import { loadJob, logEvent, setJob, jobDir } from './jobs.ts';
+import { enqueuePrFeedbackGate, maybeEnqueueGate } from './foreman.ts';
 import { prLinkNote } from './issue-link.ts';
 import { exists } from './paths.ts';
 import { enqueue, listRequests } from './requests.ts';
@@ -385,6 +386,12 @@ export function syncPr(root: string, config: Config, id: string, opts: { route?:
   // title, branch or body reaches a daemon session through it.
   if (integrate && config.daemon?.enabled === true && !listRequests(root, { status: 'pending' }).some((r) => r.type === 'resume' && r.job === id))
     enqueue(root, config, { type: 'resume', job: id, text: 'forge sync moved this job to integrate', from: 'sync' });
+  // The foreman's gates: a park on conflicts, or feedback on a PR waiting for review. Never from mergePr.
+  if (route) {
+    const after = loadJob(root, id);
+    maybeEnqueueGate(root, config, job, after);
+    enqueuePrFeedbackGate(root, config, after);
+  }
   return integrate ? { id, pr: synced, integrate: true } : { id, pr: synced };
 }
 

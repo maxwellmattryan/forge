@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { openRead, readInfo, readLogPage, sessionAgents, sessionFiles, sessionRecords } from '../daemon.ts';
 import { paths } from '../paths.ts';
-import { INBOX_SCOPE, validJobId } from '../requests.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from '../requests.ts';
 import { ForgeError, readJson } from '../util.ts';
 import { pidAlive } from '../worktree.ts';
 import { usageError } from './args.ts';
@@ -17,10 +17,11 @@ const DAEMON: HelpGroup = {
     { command: 'daemon status', args: '', summary: "the daemon's sessions, from the terminal", readme: true },
     {
       command: 'daemon log',
-      args: '<job>|--inbox [--lines N] [--follow]',
+      args: '<job>|--inbox|--office [--lines N] [--follow]',
       summary: "a session's log, from the terminal",
       flags: [
         ['--inbox', "the inbox session's log instead of a job's"],
+        ['--office', "the foreman's office session's log instead of a job's"],
         ['--lines N', 'the last N lines (default 100, at most 5000)'],
         ['--follow', 'keep printing lines as they are written'],
       ],
@@ -73,8 +74,9 @@ function str(v: unknown): string | null {
 function status(root: string): DaemonStatusOut {
   const dash = readJson(path.join(paths(root).runtime, 'dashboard.json'), null);
   const dashboard = dash && Number.isInteger(dash.pid) ? { pid: dash.pid, url: str(dash.url), alive: pidAlive(dash.pid) } : null;
-  // _inbox sorts before every job id ('_' > 'Z' in code points, so it is placed first explicitly).
-  const records = sessionRecords(root).sort((a, b) => (a.scope === INBOX_SCOPE ? -1 : b.scope === INBOX_SCOPE ? 1 : a.scope < b.scope ? -1 : 1));
+  // _inbox, then _office, before every job id ('_' > 'Z' in code points, so they are placed first explicitly).
+  const rank = (s: string) => (s === INBOX_SCOPE ? 0 : s === OFFICE_SCOPE ? 1 : 2);
+  const records = sessionRecords(root).sort((a, b) => rank(a.scope) - rank(b.scope) || (a.scope < b.scope ? -1 : a.scope > b.scope ? 1 : 0));
   const sessions = records.map((r) => {
     const info = readInfo(r.info);
     const pid = Number.isInteger(info.pid) ? info.pid : null;
@@ -83,10 +85,11 @@ function status(root: string): DaemonStatusOut {
       logBytes = fs.statSync(r.log).size;
     } catch {}
     const alive = pid !== null && pidAlive(pid);
-    const owned = alive && r.scope !== INBOX_SCOPE ? sessionAgents(root, r.scope, str(info.sessionId)) : null;
+    const shared = r.scope === INBOX_SCOPE || r.scope === OFFICE_SCOPE;
+    const owned = alive && !shared ? sessionAgents(root, r.scope, str(info.sessionId)) : null;
     return {
       scope: r.scope,
-      job: r.scope === INBOX_SCOPE ? null : r.scope,
+      job: shared ? null : r.scope,
       pid,
       alive,
       sessionId: str(info.sessionId),
@@ -102,7 +105,9 @@ function status(root: string): DaemonStatusOut {
 
 async function log(root: string, job: string | undefined, flags: Record<string, any>): Promise<string | undefined> {
   let scope: string;
+  if (flags.inbox && flags.office) throw usageError(DAEMON, 'log');
   if (flags.inbox) scope = INBOX_SCOPE;
+  else if (flags.office) scope = OFFICE_SCOPE;
   else {
     // Refused before any path is built from it.
     if (!validJobId(job)) throw job === undefined ? usageError(DAEMON, 'log') : new ForgeError(`invalid job id ${JSON.stringify(String(job).slice(0, 80))}`);

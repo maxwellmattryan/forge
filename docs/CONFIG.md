@@ -71,6 +71,7 @@ runtime:
     integrator: null
     retro: null
     judge: null
+    assistant: null          # the foreman's gate assistant
   effortByComplexity: { low: null, medium: null, high: null }   # by the spec's Complexity: header, for roles without their own
   models:                    # per role; aliases (opus, sonnet, haiku, fable) or full model ids
     orchestrator: inherit
@@ -83,6 +84,7 @@ runtime:
     integrator: sonnet
     retro: opus
     judge: opus
+    assistant: sonnet        # the foreman's gate assistant (see "Foreman")
 
 tracker:
   kind: local                # local | github | none | <name of .forge/trackers/<name>.mjs or .ts>
@@ -198,6 +200,15 @@ daemon:                      # opt-in headless sessions supervised by `forge das
   maxConcurrent: 3           # job sessions at once (1-16), besides the inbox
   idleStopMinutes: 30        # stop an idle session after this long (null: never); new work resumes it
   auth: subscription         # what sessions run on: your Claude login, or api-key for an ANTHROPIC_API_KEY in forge dash's shell
+
+foreman:                     # opt-in: an office daemon session decides gates through assistant sub-agents (see "Foreman" below)
+  enabled: false             # true (with daemon.enabled): parked gates become `gate` requests for the `_office` session
+  decides: [spec-approval, split-approval, escalation, rounds-exhausted, conflicts, pr-feedback]
+                             # the gate classes it may decide; a class left out stays a plain human gate
+  reserved: [credential, credentials, secret, secrets, token, tokens, password, auth, authentication, authorization,
+             oauth, permission, permissions, security, CI, CI/CD, workflow, workflows, GitHub Actions]
+                             # whole-phrase, case-insensitive: a match keeps the gate with a human
+  ship: propose              # propose | merge: merge counts as merge.auto for PRs the approver marks eligible
 ```
 
 ## Changing settings
@@ -206,7 +217,7 @@ daemon:                      # opt-in headless sessions supervised by `forge das
 
 **Values** follow the key's type: `true`/`false`; a decimal number; `null` for keys that allow it; text as written; and lists as `[a, b]` or a JSON array (`'["a","b"]'`, `[]`). Values are checked against the key's range or options, text may not contain control or invisible formatting characters (bidi overrides, zero-width characters) or exceed 200 characters, `review.blockOn` must keep both `blocker` and `major` (adding `minor` or `nit` is allowed), `daemon.idleStopMinutes` must be greater than 0 (or `null`), and `tracker.github.labels.prefix` must be at least 2 characters ending in `:`, `/` or `-`, because Forge removes every issue label that starts with it. The result must also pass `forge config validate`, though problems the file already had never block an unrelated change.
 
-**Editable keys**: `pipeline.plan`, `split`, `specApproval`, `design`, `maxRounds` and every `pipeline.budget.*`; `review.blockOn` and `review.onPrFeedback`; `runtime.models.<role>`, `runtime.maxParallelJobs`, `runtime.diversity`, `runtime.effort`, `runtime.efforts.<role>` and `runtime.effortByComplexity.*`; `tracker.github.ready.*`, `tracker.github.claim.assign`, `tracker.github.statusSync` and `tracker.github.labels.prefix`; `dashboard.port` (used by the next `forge dash`); and `daemon.idleStopMinutes` and `daemon.auth`. The rule: a key is editable only when it can't name a command, file, module, tool or repository Forge runs, loads or writes to, and can't loosen a security or attribution policy. Everything else (`commands.*`, `worktrees.*`, `verify*`, `git.*`, `merge.*`, `approver.*`, `aiAttribution`, `infra.*`, `review.panel`, `tracker.kind`, `tracker.github.repo`/`comments`/`project.*`, `daemon.enabled`/`command`/`allowedTools`/`maxConcurrent`, …) is refused with `<key> is not editable with forge config set (<why>); edit .forge/config.yml by hand`, and the dashboard shows it read-only. `lib/config-fields.ts` is the allowlist.
+**Editable keys**: `pipeline.plan`, `split`, `specApproval`, `design`, `maxRounds` and every `pipeline.budget.*`; `review.blockOn` and `review.onPrFeedback`; `runtime.models.<role>`, `runtime.maxParallelJobs`, `runtime.diversity`, `runtime.effort`, `runtime.efforts.<role>` and `runtime.effortByComplexity.*` (the assistant's model and effort included); `tracker.github.ready.*`, `tracker.github.claim.assign`, `tracker.github.statusSync` and `tracker.github.labels.prefix`; `dashboard.port` (used by the next `forge dash`); and `daemon.idleStopMinutes` and `daemon.auth`. The rule: a key is editable only when it can't name a command, file, module, tool or repository Forge runs, loads or writes to, and can't loosen a security or attribution policy. Everything else (`commands.*`, `worktrees.*`, `verify*`, `git.*`, `merge.*`, `approver.*`, `aiAttribution`, `infra.*`, `review.panel`, `tracker.kind`, `tracker.github.repo`/`comments`/`project.*`, `daemon.enabled`/`command`/`allowedTools`/`maxConcurrent`, `foreman.*`, …) is refused with `<key> is not editable with forge config set (<why>); edit .forge/config.yml by hand`, and the dashboard shows it read-only. `lib/config-fields.ts` is the allowlist.
 
 **Errors** exit 1 and leave the file byte-identical: an unknown key, a read-only key, an invalid value, or a layout the edit can't change without dropping a comment (a block map or `|` block, a list of maps, a list with comments between or on its items, a key inside a flow map). A repo without `.forge/config.yml` exits 2; `/forge init` creates it.
 
@@ -367,6 +378,17 @@ With `daemon.enabled: true`, `forge dash` supervises headless orchestrator sessi
 - **Migration from `dashboard.launcher`** (config `schemaVersion` 1 → 2): a non-empty launcher moves to `daemon.command` (an existing `daemon.command` wins) and `dashboard.launcher` is removed; `enabled` is never set, so upgrading never turns the daemon on. A launcher was a shell template with `{prompt}`, run once per request; `forge config validate` and `forge doctor` reject a `{prompt}` command until you rewrite it in the form above (usually: take the default `command` and add your flags), because the daemon sends its turn on stdin and never through a shell. A launcher that ran some other agent CLI cannot be migrated: the daemon supervises only Claude Code's stream-json mode. The migration happens in memory on every read; `forge migrate` writes it to disk.
 
 Files (gitignored, under `.forge/runtime/daemons/`): `<scope>.json` (session id, the last 20 ids it replaced in `pastSessionIds`, pids, the log's base offset; `forge job claim` reads these to let a daemon owner that provably let go yield without `--force`) and `<scope>.log` (every stdout event plus `forge-daemon`/`forge-stderr` lines; rotated to `<scope>.log.1` past 20 MiB), where the scope is `_inbox` or a job id. The session learns its scope only from `FORGE_DAEMON_SCOPE` in its environment. A `daemon.json` / `daemon.log` left by an older Forge is reaped and then ignored; you may delete it. `forge daemon status` lists the sessions and `forge daemon log <job>|--inbox [--lines N] [--follow]` prints one's log. docs/ARCHITECTURE.md "Daemon" covers the lifecycle and "Daemon security" the threat model.
+
+## Foreman
+
+With `foreman.enabled: true` and `daemon.enabled: true`, `forge dash` runs one more supervised session, the **office** (scope `_office`), beside the inbox. It never counts against `daemon.maxConcurrent`, and it shares the pool's trust check, deny rules, budget holds and failure handling. When `forge job set` parks a job on a gate whose class is in `decides`, the CLI queues a `gate` request; `forge pr sync` does the same for a job waiting on `pr-review` with changes requested, unresolved threads or failing checks (`pr-feedback`, once per PR head). The office session hands each one to a `forge:assistant` sub-agent (model `runtime.models.assistant`, effort `runtime.efforts.assistant`) that reads the job's files, then records the verdict with `forge job human … --actor foreman` and queues a `resume` for the job's session. It never reads a job file itself.
+
+- **`enabled`** (default `false`): nothing changes while it is off. No `gate` request is written, no office session runs, and the dashboard shows no office indicator.
+- **`decides`**: the classes it may decide, from `spec-approval`, `split-approval`, `escalation`, `rounds-exhausted`, `conflicts` and `pr-feedback`. `input`, `issue-link`, `infra`, `budget`, `human` and `external` are never foreman gates. An unknown entry is reported by `forge config validate` / `forge doctor` and ignored at run time.
+- **`reserved`**: patterns matched as whole phrases, case-insensitively, against the job's reason, the `## Why` and `## For the human` sections of `decision.md` (escalation and rounds-exhausted) and the foreman's own note. A match leaves the gate with a human, and the CLI refuses the foreman's decision even if the request said otherwise. A value that isn't a list of non-empty strings fails closed: every gate stays with a human until it is fixed.
+- **`ship`** (`propose` or `merge`): `merge` (with `enabled`) counts as `merge.auto: true` in the approver's brief and in step rule PR4, so a PR the approver marks `Auto-merge eligible: yes` under `merge.autoWhen` is merged, and `forge pr merge` still enforces CI. The office session itself can never run `forge pr merge`.
+
+All four keys are read-only in the settings: edit them by hand. docs/ARCHITECTURE.md "Foreman" covers routing and the authority checks.
 
 ## Repo-layer files
 
