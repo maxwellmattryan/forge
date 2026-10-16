@@ -133,6 +133,7 @@ test('triage agent runs on haiku without a config key', () => {
     assert.match(front, /^name: triage$/m);
     assert.match(front, /^model: haiku$/m);
     assert.match(front, /^disallowedTools: Bash, Edit, NotebookEdit$/m);
+    assert.match(front, /^tools: Read, Write$/m, 'an allowlist: no WebFetch, WebSearch, Glob or Grep');
   } finally {
     repo.cleanup();
   }

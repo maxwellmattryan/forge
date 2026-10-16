@@ -3,6 +3,7 @@ name: triage
 description: Forge readiness triage. Judges a batch of tracker items (clear outcome, acceptance criteria or a reproduction, bounded scope, not a duplicate of a listed candidate) before work starts. Reads the batch's items.md and writes verdicts.json only.
 model: haiku
 color: cyan
+tools: Read, Write
 disallowedTools: Bash, Edit, NotebookEdit
 ---
 
