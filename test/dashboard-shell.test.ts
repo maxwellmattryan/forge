@@ -168,6 +168,17 @@ test('job surfaces use the Smithy markup', () => {
   // InboxCard: everything in the Inbox waits on a person, so its root is always an ember plate.
   const inbox = elements('components/InboxCard.svelte');
   assert.ok(has(inbox[0], 'plate', 'ember'), `InboxCard's root is plate ember (${inbox[0].classes.join(' ')})`);
+  // The title takes the width: it grows from 16rem, so the chips drop a line before it wraps word by word.
+  const title = inbox.find((e) => e.name === 'button' && attrOf(e, 'onclick') === '{() => openDrawer(j.id)}');
+  const wrapper = title?.parents.at(-1);
+  assert.ok(wrapper && has(wrapper, 'min-w-0', 'flex-[1_1_16rem]'), `the title wrapper grows (${wrapper?.classes.join(' ')})`);
+  assert.ok(title && has(title, 'break-words'), 'the title wraps by word');
+  const header = wrapper?.parents.at(-1);
+  assert.ok(header && has(header, 'flex', 'flex-wrap', 'items-start', 'gap-2'), `the header wraps (${header?.classes.join(' ')})`);
+  const idLine = inbox.find((e) => attrOf(e, 'title') === '{j.id}');
+  assert.ok(idLine && has(idLine, 'truncate'), 'the id line truncates, with the full id in its title');
+  const chips = inbox.find((e) => e.name === 'div' && e.parents.at(-1) === header && e !== wrapper);
+  assert.ok(chips && has(chips, 'flex', 'flex-wrap'), 'the chips group wraps');
 
   // The empty state is a cold plate; the brand and every page header are riveted plaques, and nothing else is.
   assert.ok(has(elements('components/Empty.svelte')[0], 'plate', 'cold'), 'Empty is plate cold');
@@ -487,12 +498,42 @@ test('Needs you lists dependency parks apart, with Resume', () => {
   assert.match(text, /<h3 id="needs-parks" class="label">\{\$t\('inbox\.parks'\)\}<\/h3>/, 'a label heading, not a page header');
   const parks = text.slice(text.indexOf("$t('inbox.parks')"));
   const block = parks.slice(0, parks.indexOf('{/if}'));
-  assert.match(block, /<div class="plate flat"><div class="overflow-x-auto">\s*<table class="tbl">/, 'a flat plate around the table');
+  assert.match(block, /<ul class="plate flat needs-list">/, 'a row list on a flat plate, not a table');
   assert.match(block, /\{#each groups\.parks as j \(j\.id\)\}/);
   assert.match(block, /<DepChips job=\{j\} \/>/);
   assert.match(block, /<JobActions job=\{j\} noteId="park-\{j\.id\}" \/>/);
   assert.match(text, /\{#if groups\.urgent\.length\}/, 'the empty state still keys on the urgent list');
   assert.match(read('lib/dock.ts'), /const actionable = needsHuman\(job\) \|\| isDependencyPark\(job\) \|\|/, "the drawer's dock keeps the gate's actions for parks");
+});
+
+test('Needs-you rows never scroll sideways', () => {
+  const file = 'components/statusbar/NeedsPanel.svelte';
+  const text = read(file);
+  for (const banned of ['<table', 'tbl', 'overflow-x-auto']) assert.ok(!text.includes(banned), `NeedsPanel has no ${banned}`);
+  const els = elements(file);
+  const lists = els.filter((e) => e.name === 'ul');
+  assert.equal(lists.length, 3, 'the PR, park and queued lists');
+  for (const ul of lists) assert.ok(has(ul, 'plate', 'flat', 'needs-list'), `a flat plate row list (${ul.classes.join(' ')})`);
+  const rows = els.filter((e) => e.name === 'li');
+  assert.equal(rows.length, 3);
+  for (const li of rows) assert.ok(li.classes.includes('needs-row') && lists.includes(li.parents.at(-1)!), 'each row is a needs-row li in its ul');
+  const css = fs.readFileSync(path.join(ROOT, 'dashboard', 'style.css'), 'utf8');
+  assert.match(css, /@utility needs-list \{\s*& > li \+ li \{ border-top: 1px solid var\(--line\); \}/, 'rows split by token hairlines');
+  assert.match(css, /@utility needs-row \{[^}]*flex-direction: column;[^}]*min-width: 0;/, 'a row stacks its parts and may shrink');
+  // Titles take the full row and wrap by word.
+  const titles = els.filter((e) => e.name === 'button' && attrOf(e, 'onclick') === '{() => openDrawer(j.id)}');
+  assert.equal(titles.length, 2, 'the PR and park titles');
+  for (const b of titles) assert.ok(has(b, 'block', 'w-full', 'break-words'), `a full-width title that wraps by word (${b.classes.join(' ')})`);
+  // Actions sit on their own wrapping line under the title, never beside it.
+  const actions = els.find((e) => e.name === 'JobActions');
+  const parkLine = actions?.parents.at(-1);
+  assert.ok(parkLine && has(parkLine, 'flex', 'flex-wrap') && parkLine.parents.at(-1)?.name === 'li', `the park actions wrap on their own line (${parkLine?.classes.join(' ')})`);
+  const prOpen = els.find((e) => e.name === 'a' && e.classes.includes('btn'));
+  const prLine = prOpen?.parents.at(-1);
+  assert.ok(prLine && has(prLine, 'flex', 'flex-wrap') && prLine.parents.at(-1)?.name === 'li', 'the PR buttons wrap on their own line');
+  assert.ok(!titles.some((b) => b.parents.includes(parkLine!) || b.parents.includes(prLine!)), 'no title shares the actions line');
+  // The park's ref line truncates, with the full ref in its title.
+  assert.match(text, /<div class="mono muted text-\[11px\] truncate" title=\{ref\}>\{ref\}<\/div>/);
 });
 
 // Two backgrounds never conflict: a filled element (chip, button, progress, any bg-*) never shows a pattern through
@@ -1218,6 +1259,8 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
   for (const c of ['plate', 'solid', 'fixed', 'z-42']) assert.ok(dialog.classes.includes(c), `the popover has ${c}`);
   assert.ok(dialog.classes.some((c) => c.startsWith('bottom-') && c.includes('var(--size-statusbar)') && c.includes('env(safe-area-inset-bottom)') && c.includes('var(--space-2)')), 'it sits --space-2 above the bar');
   assert.ok(dialog.classes.some((c) => c.startsWith('max-h-') && c.includes('100dvh') && c.includes('var(--size-statusbar)')), 'it scrolls inside the room above the bar');
+  assert.ok(dialog.classes.some((c) => c.startsWith('max-h-[min(40rem,') && c.includes('100dvh') && c.includes('var(--size-statusbar)')), 'a non-chat popover is capped at 40rem');
+  assert.match(read('components/Popover.svelte'), /\{chat \? 'max-h-\[calc\(100dvh[^']*\]' : 'max-h-\[min\(40rem,calc\(100dvh[^']*\]'\}/, 'the cap applies only when not chat, as one whole-literal ternary');
   const heading = pop.find((e) => e.name === 'h2');
   assert.equal(attrOf(heading!, 'id'), 'popover-{id}-title');
   const close = pop.filter((e) => e.name === 'CloseButton');
