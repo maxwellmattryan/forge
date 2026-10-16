@@ -599,6 +599,9 @@ test('text never sits on the bare ground', () => {
   const files = ['App.svelte', ...views.map((f) => `views/${f}`), ...GROUND.map((c) => `components/${c}.svelte`)];
   for (const rel of files) assert.deepEqual(onGround(rel, read(rel), checked), [], `${rel} keeps its text on a surface`);
   assert.ok(fs.readFileSync(path.join(ROOT, 'smithy', 'README.md'), 'utf8').includes('Text never sits on the grain'), 'smithy/README.md states the rule');
+  const agents = fs.readFileSync(path.join(ROOT, 'AGENTS.md'), 'utf8');
+  assert.ok(agents.includes('**Text never sits on the grain.**') && agents.includes('a `plate` (not `plate open`'), 'AGENTS.md states the rule with plate and plate open');
+  for (const s of ['`smithy/smithy.css`', 'Check the forge and ash themes', 'Grain']) assert.ok(agents.includes(s), `AGENTS.md names ${s}`);
 });
 
 /** Every file under dashboard/src, relative to it. */
@@ -1358,6 +1361,8 @@ test('docs name the status bar', () => {
   const readme = fs.readFileSync(path.join(COMPONENTS, 'StatusBar', 'README.md'), 'utf8');
   assert.match(readme, /When the room runs out, the facts drop from the right: SHEET first, then API, then the SESSIONS word \(the dot and count stay\), then the FORGE word; below md only the version and the sessions dot with its count remain\./, 'the drop order');
   assert.match(readme, /There is no input in the bar/, 'and no field');
+  // smithy/ is the drawing; the Drafting design/ folder is gone.
+  assert.ok(!fs.existsSync(path.join(ROOT, 'design')), 'design/ is gone');
 });
 
 test('status bar labels are whole or sr-only, never cut', () => {
@@ -1439,7 +1444,7 @@ test('popovers close on every route the spec lists', () => {
 
 test('no doc or source names the removed bar or the old palette triggers', () => {
   const STALE = /daemon bar|DaemonBar|\bFAB\b|phone button|dashed .*header/i;
-  const roots = ['README.md', 'docs', path.join('design', 'README.md'), path.join('design', 'components'), path.join('dashboard', 'src'), 'skills'];
+  const roots = ['README.md', 'docs', path.join('smithy', 'README.md'), path.join('smithy', 'components'), path.join('dashboard', 'src'), 'skills'];
   const files = roots.flatMap((r) => {
     const abs = path.join(ROOT, r);
     if (fs.statSync(abs).isFile()) return [abs];
@@ -1449,6 +1454,21 @@ test('no doc or source names the removed bar or the old palette triggers', () =>
   const hits = files.flatMap((f) => fs.readFileSync(f, 'utf8').split('\n').map((l, i) => [f, i + 1, l] as const).filter(([, , l]) => STALE.test(l)).map(([f, n]) => `${path.relative(ROOT, f)}:${n}`));
   assert.deepEqual(hits, []);
   assert.match(read('messages/en.json'), /"locked": "[^"]*status bar[^"]*"/, 'settings.locked names the status bar');
+
+  // Nor the Drafting look: its name, its themes, its title block or the design/ folder. lib/theme.ts keeps the old theme
+  // ids on purpose: it maps a value saved by an earlier version onto forge or ash.
+  const DRAFTING = /\bDrafting\b|cyanotype|vellum|nightprint|title block|tblock|(?<![\w./-])design\/|Text never sits on the grid/i;
+  const docs = ['README.md', 'AGENTS.md', 'docs', path.join('dashboard', 'src'), 'skills', 'agents', 'reviewers', 'templates'].flatMap((r) => {
+    const abs = path.join(ROOT, r);
+    if (!fs.existsSync(abs)) return [];
+    if (fs.statSync(abs).isFile()) return [abs];
+    return (fs.readdirSync(abs, { recursive: true, withFileTypes: true }) as fs.Dirent[]).filter((e) => e.isFile()).map((e) => path.join(e.parentPath, e.name));
+  });
+  assert.ok(DRAFTING.test('the Drafting look') && DRAFTING.test('see design/README.md') && !DRAFTING.test('https://www.figma.com/design/x'), 'self-check: the Drafting matcher');
+  const stale = docs
+    .filter((f) => path.relative(ROOT, f) !== path.join('dashboard', 'src', 'lib', 'theme.ts'))
+    .flatMap((f) => fs.readFileSync(f, 'utf8').split('\n').map((l, i) => [f, i + 1, l] as const).filter(([, , l]) => DRAFTING.test(l)).map(([f, n]) => `${path.relative(ROOT, f)}:${n}`));
+  assert.deepEqual(stale, [], 'no doc or source names the Drafting look');
 });
 
 // smithy/README.md › Voice: counts sit after their label in parentheses, in muted tabular numerals ("Active (3)",
