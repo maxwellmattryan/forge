@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 
@@ -13,6 +14,8 @@ const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 export function scratchGitConfig(git) {
   git('config', 'commit.gpgsign', 'false');
   git('config', 'tag.gpgsign', 'false');
+  // Git for Windows defaults to autocrlf=true, which rewrites what tests commit and compare byte for byte.
+  git('config', 'core.autocrlf', 'false');
 }
 
 // Every test file that touches git imports this module, so pinning git's config here covers the
@@ -45,7 +48,8 @@ process.env.NODE_COMPILE_CACHE ??= path.resolve(import.meta.dirname, '..', 'node
 const STRIP_HOOK = path.resolve(import.meta.dirname, 'fixtures', 'strip-cache.mjs');
 if (!process.env.FORGE_TEST_STRIP_CACHE) {
   process.env.FORGE_TEST_STRIP_CACHE = path.resolve(import.meta.dirname, '..', 'node_modules', '.cache', 'forge', 'strip-cache');
-  process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS ?? ''} --import=${JSON.stringify(STRIP_HOOK)}`.trim();
+  // A file: URL, because --import reads a bare Windows path (C:\...) as a URL with scheme c:.
+  process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS ?? ''} --import=${JSON.stringify(pathToFileURL(STRIP_HOOK).href)}`.trim();
 }
 
 /** A throwaway git repo with one commit; FORGE_ROOT pins the CLI's main checkout to it. */

@@ -11,6 +11,7 @@ import { applyOverlay } from './eval-overlay.ts';
 import { aggregateTasks, delta, jobTiming, stageStats, stat, taskPass, TASK_METRICS } from './eval-stats.ts';
 import { createJob, loadJob, logEvent, readEvents, setJob, jobDir } from './jobs.ts';
 import { paths, exists, PLUGIN_ROOT } from './paths.ts';
+import { posixShell } from './platform.ts';
 import { createWorktree } from './worktree.ts';
 import { ForgeError, assertSafeRef, fill, now, readJson, readText, run, slugify, tail, withLock, writeJsonAtomic } from './util.ts';
 import { repoSlug } from './pr.ts';
@@ -355,7 +356,7 @@ export function gradeJob(root: string, config: Config, jobId: string): EvalResul
     }
     if (task.check.files) fs.cpSync(path.join(task.dir, task.check.files), wt, { recursive: true });
     if (applied && cmd) {
-      const res = run(process.env.SHELL || '/bin/sh', ['-lc', fill(cmd, { job: jobId, port: job.port ?? '', worktree: wt, args: '' })], { cwd: wt, allowFail: true });
+      const res = run(posixShell(), ['-lc', fill(cmd, { job: jobId, port: job.port ?? '', worktree: wt, args: '' })], { cwd: wt, allowFail: true });
       check.ran = true;
       check.pass = res.ok;
       check.tail = tail(`${res.stdout}\n${res.stderr}`, 30);
