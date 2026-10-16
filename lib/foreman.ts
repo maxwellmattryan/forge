@@ -5,11 +5,11 @@
 // docs/ARCHITECTURE.md "Foreman".
 import fs from 'node:fs';
 import path from 'node:path';
-import { jobDir } from './jobs.ts';
+import { jobDir, readEvents } from './jobs.ts';
 import { OFFICE_SCOPE, daemonScope, enqueue, listRequests } from './requests.ts';
 import { OFFICE_GATES } from './schema.ts';
 import { ForgeError } from './util.ts';
-import type { Config, ForgeRequest, GateClass, GateOwner, Job } from './types.ts';
+import type { Config, ForgeRequest, GateClass, GateOwner, Job, JobEvent } from './types.ts';
 
 export { OFFICE_GATES } from './schema.ts';
 
@@ -114,17 +114,40 @@ export function reservedTexts(root: string, job: Pick<Job, 'id' | 'reason'>, gat
   return texts;
 }
 
-/** reservedMatch over reservedTexts (and extra texts such as the note), with an unreadable decision.md reserved. */
-export function reservedFor(root: string, config: Config, job: Pick<Job, 'id' | 'reason'>, gate: GateClass | null, extra: (string | null | undefined)[] = []): string | null {
+/** What reservedFor returns when the latest round's security review asked for changes. */
+export const SECURITY_CHANGES = '(security review: CHANGES)';
+
+/** The verdict of the security lens in the latest round that has one, or null. */
+export function latestSecurityVerdict(job: Pick<Job, 'verdicts'>): string | null {
+  const rounds = Object.keys(job.verdicts ?? {})
+    .map(Number)
+    .filter((n) => Number.isInteger(n))
+    .sort((a, b) => b - a);
+  for (const n of rounds) {
+    const v = (job.verdicts as Record<string, Record<string, unknown>>)[String(n)]?.security;
+    if (typeof v === 'string') return v;
+  }
+  return null;
+}
+
+/**
+ * reservedMatch over reservedTexts (and extra texts such as the note), with an unreadable decision.md
+ * reserved. A security review that still asks for changes keeps any gate with a human, whatever the
+ * texts say: security posture is never the foreman's call.
+ */
+export function reservedFor(root: string, config: Config, job: Pick<Job, 'id' | 'reason' | 'verdicts'>, gate: GateClass | null, extra: (string | null | undefined)[] = []): string | null {
+  if (latestSecurityVerdict(job) === 'CHANGES') return SECURITY_CHANGES;
   const texts = reservedTexts(root, job, gate);
   if (texts.includes(INVALID_RESERVED_TEXT)) return '(unreadable decision.md)';
   return reservedMatch(config, [...texts, ...extra]);
 }
 
-/** A PR with feedback the foreman may act on: changes requested, unresolved threads or failing checks. */
-export function prHasFeedback(job: Pick<Job, 'pr'>): boolean {
-  const pr = job.pr;
-  return Boolean(pr && ((pr.changesRequested ?? 0) > 0 || (pr.unresolvedThreads ?? 0) > 0 || pr.checks?.state === 'failing'));
+/**
+ * A PR with feedback the foreman may act on: trusted feedback (threads or change requests from someone
+ * with write access, counted by trustedFeedback in lib/pr.ts) or failing checks.
+ */
+export function prHasFeedback(job: Pick<Job, 'pr'>, trusted: number): boolean {
+  return trusted > 0 || job.pr?.checks?.state === 'failing';
 }
 
 const isGateRequest = (r: ForgeRequest, job: string, gate: GateClass) => r.type === 'gate' && r.job === job && r.args?.gate === gate;
@@ -138,9 +161,10 @@ export function gateOwner(root: string, config: Config, job: Job, requests: Forg
   if (!foremanEnabled(config) || job.state !== 'waiting') return null;
   const gate = gateClass(job);
   if (!gate || !decides(config).includes(gate)) return 'human';
-  if (gate === 'pr-feedback' && !prHasFeedback(job)) return 'human';
   if (reservedFor(root, config, job, gate)) return 'human';
   const latest = requests.filter((r) => isGateRequest(r, job.id, gate) && (gate !== 'pr-feedback' || r.args?.key === job.pr?.headOid)).at(-1);
+  // pr-feedback is the foreman's only once sync queued a gate for this head (trusted feedback or failing checks).
+  if (gate === 'pr-feedback' && !latest) return 'human';
   return latest?.status === 'rejected' ? 'human' : 'foreman';
 }
 
@@ -164,9 +188,9 @@ export function maybeEnqueueGate(root: string, config: Config, before: Pick<Job,
  * Called by `forge pr sync` (never by `forge pr merge`): a job waiting on pr-review with feedback
  * queues one pr-feedback gate per PR head, counting requests in any status, so a new push re-arms it.
  */
-export function enqueuePrFeedbackGate(root: string, config: Config, job: Job): ForgeRequest | null {
+export function enqueuePrFeedbackGate(root: string, config: Config, job: Job, trusted: number): ForgeRequest | null {
   if (!foremanEnabled(config) || !decides(config).includes('pr-feedback')) return null;
-  if (gateClass(job) !== 'pr-feedback' || !prHasFeedback(job)) return null;
+  if (gateClass(job) !== 'pr-feedback' || !prHasFeedback(job, trusted)) return null;
   const key = job.pr?.headOid;
   if (typeof key !== 'string' || !SHA.test(key)) return null;
   if (listRequests(root).some((r) => isGateRequest(r, job.id, 'pr-feedback') && r.args?.key === key)) return null;
@@ -208,4 +232,51 @@ export function checkForemanDecision(
   const reserved = reservedFor(root, config, job, gate, [note]);
   if (reserved) refuse(`reserved (${reserved}): left for a human`);
   return gate!;
+}
+
+/**
+ * The stages a `forge job set --state running` may move a job to right after each foreman action: the
+ * second column of the gate table in skills/forge/reference/foreman.md. undefined: the stage stays.
+ */
+export const SET_AFTER: Record<string, readonly (string | undefined)[]> = {
+  'approve-spec': [undefined, 'spec'],
+  'revise-spec': ['spec'],
+  'approve-split': ['plan'],
+  'revise-split': ['plan'],
+  approve: ['integrate', 'decide'],
+  rework: ['build'],
+};
+
+/** Only these `forge job` subcommands run in the office session: it reads, decides and notes, nothing more. */
+export const OFFICE_JOB_COMMANDS: readonly string[] = ['assist', 'human', 'set', 'note', 'show', 'get', 'list', 'step'];
+
+/**
+ * In the office, `forge job set` only carries out a foreman decision: the job still waits, its latest
+ * `human` event is the foreman's and came after the job parked, and the change is that action's
+ * `--state running` (with its stage) and nothing else. So a misled foreman or assistant can't move a job
+ * off a gate the CLI refused it, or that a human owns. Throws ForgeError (exit 1) before any write.
+ */
+export function checkOfficeSet(
+  job: Pick<Job, 'id' | 'state'>,
+  events: JobEvent[],
+  change: { stage?: unknown; state?: unknown; waitingOn?: unknown; reason?: unknown; fields?: Record<string, unknown> },
+): void {
+  const refuse = (why: string): never => {
+    throw new ForgeError(`the office session may only carry out a recorded foreman decision with forge job set: ${why}`, 1);
+  };
+  if (change.fields && Object.keys(change.fields).length) refuse('no --field');
+  if (change.waitingOn !== undefined || change.reason !== undefined) refuse('no --waiting-on or --reason');
+  if (job.state !== 'waiting') refuse(`job ${job.id} is not waiting on a gate`);
+  if (change.state !== 'running') refuse('only --state running');
+  const decision = [...events].reverse().find((e) => e.type === 'human');
+  const park = [...events].reverse().find((e) => e.type === 'transition' && (e.to as { state?: unknown } | null)?.state === 'waiting');
+  if (!decision || decision.actor !== 'foreman' || !park || decision.ts < park.ts) refuse(`no foreman decision recorded for ${job.id}'s current gate`);
+  const allowed = SET_AFTER[String(decision!.action)] ?? [];
+  const stage = change.stage === undefined ? undefined : String(change.stage);
+  if (!allowed.includes(stage)) refuse(`${decision!.action} moves the job to ${allowed.map((x) => x ?? 'its current stage').join(' or ')}, not ${stage ?? 'its current stage'}`);
+}
+
+/** checkOfficeSet with the job's events read from disk. */
+export function checkOfficeSetFor(root: string, job: Pick<Job, 'id' | 'state'>, change: Parameters<typeof checkOfficeSet>[2]): void {
+  checkOfficeSet(job, readEvents(root, job.id), change);
 }

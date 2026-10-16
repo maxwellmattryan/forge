@@ -229,6 +229,12 @@ export const DEFAULT_RESERVED = [
   'workflow',
   'workflows',
   'GitHub Actions',
+  'payment',
+  'payments',
+  'PII',
+  'crypto',
+  'cryptography',
+  'encryption',
 ] as const;
 
 /** foreman.ship merge (with the foreman on) counts as merge.auto, for the approver brief and step PR4 only. */

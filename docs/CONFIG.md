@@ -5,7 +5,7 @@
 Command templates may use `{port}`, `{job}`, `{worktree}`, `{root}`, `{branch}`, `{base}` and `{args}`. `{args}` holds the extra arguments of `forge run <job> <name> -- <args…>`, each already in single quotes, and arguments go only where a template has it: `forge run` refuses arguments for a template without `{args}`, so a command takes none unless you opt in. Write `{args}` unquoted, as a whole word: after the start, a space, a tab, a newline or `(`, and before the end, a space, a tab, a newline, `;`, `&`, `|` or `)`. Arguments for a template where it sits inside `'…'` or `"…"` or touches another word (`x{args}`, `\{args}`) are refused, and so are arguments for any template containing a heredoc (`<<`), `$'` or `\'`, where the quoting would not hold. The arguments become words of whatever command surrounds `{args}`, so `exec {args}`, `env {args}` or `time {args}` runs the first one as a program. An argument containing a quote, backslash or control character is refused too. Every refusal comes before anything runs. Only `forge run` has arguments: `forge verify`, worktree setup, `forge run --background`, `forge integrate`'s rebuild and `forge eval grade` fill `{args}` with nothing. The other placeholders are filled in unquoted, so `{job}`, `{branch}` and `{base}` are checked first: each must start with a letter or digit and use only `A-Z a-z 0-9 . _ / -` (at most 200 characters), and an unsafe value stops the command before it runs, with an error naming the field. Commands also get `PORT`, `FORGE_PORT`, `FORGE_JOB` and `FORGE_WORKTREE` in their environment, and never the daemon session's `FORGE_DAEMON*` variables, so a command that calls `forge` behaves the same under the daemon as for a human.
 
 ```yaml
-schemaVersion: 4
+schemaVersion: 5
 
 project:
   name: null                 # display name
@@ -206,7 +206,8 @@ foreman:                     # opt-in: an office daemon session decides gates th
   decides: [spec-approval, split-approval, escalation, rounds-exhausted, conflicts, pr-feedback]
                              # the gate classes it may decide; a class left out stays a plain human gate
   reserved: [credential, credentials, secret, secrets, token, tokens, password, auth, authentication, authorization,
-             oauth, permission, permissions, security, CI, CI/CD, workflow, workflows, GitHub Actions]
+             oauth, permission, permissions, security, CI, CI/CD, workflow, workflows, GitHub Actions,
+             payment, payments, PII, crypto, cryptography, encryption]
                              # whole-phrase, case-insensitive: a match keeps the gate with a human
   ship: propose              # propose | merge: merge counts as merge.auto for PRs the approver marks eligible
 ```
@@ -381,14 +382,16 @@ Files (gitignored, under `.forge/runtime/daemons/`): `<scope>.json` (session id,
 
 ## Foreman
 
-With `foreman.enabled: true` and `daemon.enabled: true`, `forge dash` runs one more supervised session, the **office** (scope `_office`), beside the inbox. It never counts against `daemon.maxConcurrent`, and it shares the pool's trust check, deny rules, budget holds and failure handling. When `forge job set` parks a job on a gate whose class is in `decides`, the CLI queues a `gate` request; `forge pr sync` does the same for a job waiting on `pr-review` with changes requested, unresolved threads or failing checks (`pr-feedback`, once per PR head). The office session hands each one to a `forge:assistant` sub-agent (model `runtime.models.assistant`, effort `runtime.efforts.assistant`) that reads the job's files, then records the verdict with `forge job human … --actor foreman` and queues a `resume` for the job's session. It never reads a job file itself.
+With `foreman.enabled: true` and `daemon.enabled: true`, `forge dash` runs one more supervised session, the **office** (scope `_office`), beside the inbox. It never counts against `daemon.maxConcurrent`, and it shares the pool's trust check, deny rules, budget holds and failure handling. When `forge job set` parks a job on a gate whose class is in `decides`, the CLI queues a `gate` request; `forge pr sync` does the same for a job waiting on `pr-review` with failing checks, or with changes requested or unresolved threads from someone with write access to the repo (`pr-feedback`, once per PR head; feedback only from others stays with a human). The office session hands each one to a `forge:assistant` sub-agent (model `runtime.models.assistant`, effort `runtime.efforts.assistant`) that reads the job's files, then records the verdict with `forge job human … --actor foreman` and queues a `resume` for the job's session. It never reads a job file itself.
 
 - **`enabled`** (default `false`): nothing changes while it is off. No `gate` request is written, no office session runs, and the dashboard shows no office indicator.
 - **`decides`**: the classes it may decide, from `spec-approval`, `split-approval`, `escalation`, `rounds-exhausted`, `conflicts` and `pr-feedback`. `input`, `issue-link`, `infra`, `budget`, `human` and `external` are never foreman gates. An unknown entry is reported by `forge config validate` / `forge doctor` and ignored at run time.
-- **`reserved`**: patterns matched as whole phrases, case-insensitively, against the job's reason, the `## Why` and `## For the human` sections of `decision.md` (escalation and rounds-exhausted) and the foreman's own note. A match leaves the gate with a human, and the CLI refuses the foreman's decision even if the request said otherwise. A value that isn't a list of non-empty strings fails closed: every gate stays with a human until it is fixed.
+- **`reserved`**: patterns matched as whole phrases, case-insensitively, against the job's reason, the `## Why` and `## For the human` sections of `decision.md` (escalation and rounds-exhausted) and the foreman's own note. A match leaves the gate with a human, and the CLI refuses the foreman's decision even if the request said otherwise. So does a security review whose latest verdict is still `CHANGES`, whatever the texts say. A value that isn't a list of non-empty strings fails closed: every gate stays with a human until it is fixed.
 - **`ship`** (`propose` or `merge`): `merge` (with `enabled`) counts as `merge.auto: true` in the approver's brief and in step rule PR4, so a PR the approver marks `Auto-merge eligible: yes` under `merge.autoWhen` is merged, and `forge pr merge` still enforces CI. The office session itself can never run `forge pr merge`.
 
-All four keys are read-only in the settings: edit them by hand. docs/ARCHITECTURE.md "Foreman" covers routing and the authority checks.
+All four keys are read-only in the settings: edit them by hand.
+
+- **Migration** (config `schemaVersion` 4 → 5): nothing changes. v5 adds `foreman.*` (off by default), `runtime.models.assistant` and `runtime.efforts.assistant`; the bump lets older Forges refuse a config whose foreman policy they would ignore. docs/ARCHITECTURE.md "Foreman" covers routing and the authority checks.
 
 ## Repo-layer files
 

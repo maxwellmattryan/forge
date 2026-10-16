@@ -9,9 +9,9 @@ import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
 import { TRUST_ENV, autoMerge, defaults, loadConfig, trustDigest, validateConfig } from '../lib/config.ts';
 import { FIELDS } from '../lib/config-fields.ts';
-import { INVALID_RESERVED, gateOwner, reservedMatch } from '../lib/foreman.ts';
+import { INVALID_RESERVED, SECURITY_CHANGES, gateOwner, latestSecurityVerdict, reservedMatch } from '../lib/foreman.ts';
 import { createJob, jobDir, loadJob, logEvent, readEvents, setJob } from '../lib/jobs.ts';
-import { syncPr } from '../lib/pr.ts';
+import { syncPr, trustedFeedback } from '../lib/pr.ts';
 import { OFFICE_SCOPE, listRequests, requestScope } from '../lib/requests.ts';
 import { CONFIG_SCHEMA_VERSION, EFFORT_ROLES, OFFICE_GATES, migrateConfig } from '../lib/schema.ts';
 import { computeStats } from '../lib/stats.ts';
@@ -133,6 +133,13 @@ test('reserved patterns match whole phrases, case-insensitively, and fail closed
     x.foreman.reserved = bad;
     assert.equal(reservedMatch(x, ['nothing here']), INVALID_RESERVED, JSON.stringify(bad));
   }
+});
+
+test('trusted feedback counts only people with write access', () => {
+  const c = (assoc: string, extra: Record<string, unknown> = {}) => ({ author: { login: 'u' }, authorAssociation: assoc, body: 'b', ...extra });
+  assert.equal(trustedFeedback({ threads: [{ comments: { nodes: [c('NONE'), c('CONTRIBUTOR')] } }], reviews: [{ state: 'CHANGES_REQUESTED', ...c('FIRST_TIMER') }] }), 0);
+  assert.equal(trustedFeedback({ threads: [{ comments: { nodes: [c('NONE'), c('MEMBER')] } }], reviews: [{ state: 'CHANGES_REQUESTED', ...c('OWNER') }, { state: 'COMMENTED', ...c('OWNER') }] }), 2);
+  assert.equal(trustedFeedback({ threads: [{ comments: { nodes: [c('OWNER', { author: { login: 'ci[bot]' } }), c('OWNER', { body: '<!-- forge --> mine' })] } }], reviews: [] }), 0, "bots and Forge's own comments never count");
 });
 
 test('approver brief reflects ship merge', () => {
@@ -346,6 +353,64 @@ describe('foreman CLI', { concurrency: 4 }, () => {
     }
   });
 
+  test('office job set carries out only a recorded foreman decision', async () => {
+    const s = scratch();
+    try {
+      const refused = async (id: string, args: string[], why: RegExp, label: string) => {
+        const before = s.snapshot(id);
+        const r = await s.cli(OFFICE_SCOPE, 'job', ...args);
+        assert.equal(r.code, 1, `${label}: ${r.out}`);
+        assert.match(r.out, why, label);
+        assert.equal(s.snapshot(id), before, `${label}: nothing written`);
+      };
+      const id = s.job('Set', WAIT_SPEC);
+      await refused(id, ['set', id, '--state', 'running'], /no foreman decision recorded/, 'no decision');
+      logEvent(s.root, id, 'human', { action: 'approve-spec', note: 'a person', actor: 'human' });
+      await refused(id, ['set', id, '--state', 'running'], /no foreman decision recorded/, "a human's decision is not the foreman's");
+      assert.equal((await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'approve-spec', '--actor', 'foreman', '--note', 'ok')).code, 0);
+      await refused(id, ['set', id, '--stage', 'build', '--state', 'running'], /approve-spec moves the job to/, 'a stage outside the table');
+      await refused(id, ['set', id, '--state', 'running', '--field', 'complexity=low'], /no --field/, '--field');
+      await refused(id, ['set', id, '--state', 'running', '--reason', 'x'], /no --waiting-on or --reason/, '--reason');
+      await refused(id, ['set', id, '--state', 'done'], /only --state running/, 'another state');
+      const ok = await s.cli(OFFICE_SCOPE, 'job', 'set', id, '--state', 'running');
+      assert.equal(ok.code, 0, ok.out);
+      await refused(id, ['set', id, '--stage', 'build', '--state', 'running'], /is not waiting on a gate/, 'once carried out, nothing more');
+      // A decision from before the current park doesn't count.
+      const old = s.job('Old', { stage: 'build', state: 'running' });
+      logEvent(s.root, old, 'human', { action: 'rework', note: 'x', actor: 'foreman' });
+      await new Promise((r) => setTimeout(r, 5));
+      setJob(s.root, old, { state: 'waiting', waitingOn: 'escalation', reason: 'again' });
+      await refused(old, ['set', old, '--stage', 'build', '--state', 'running'], /no foreman decision recorded/, 'a decision older than the park');
+      // Outside the allowlist, job subcommands are refused in the office.
+      for (const args of [['release', id], ['round', id], ['link', id, '--none'], ['effort', id, 'low'], ['verdicts', id], ['decision', id], ['paths', id]])
+        await refused(id, args, /the office session decides gates and does not drive jobs/, args[0]);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('a security review asking for changes keeps every gate with a human', async () => {
+    const s = scratch();
+    try {
+      const id = s.job('Sec', { stage: 'build', state: 'running', fields: { verdicts: { 1: { code: 'PASS', security: 'CHANGES' }, 2: { code: 'CHANGES' } } } });
+      const r = await s.cli(undefined, 'job', 'set', id, '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 3 exceeds maxRounds 2');
+      assert.equal(r.code, 0, r.out);
+      assert.equal(s.gates(id)[0].args.reserved, SECURITY_CHANGES);
+      assert.equal(gateOwner(s.root, s.config(), loadJob(s.root, id)), 'human');
+      const before = s.snapshot(id);
+      const refused = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'approve', '--actor', 'foreman', '--note', 'cosmetic');
+      assert.equal(refused.code, 1, refused.out);
+      assert.match(refused.out, /security review: CHANGES/);
+      assert.equal(s.snapshot(id), before);
+      assert.equal((await s.cli(undefined, 'job', 'assist', id, '--gate', 'rounds-exhausted')).json().reserved, SECURITY_CHANGES);
+      // A later round whose security review passed clears it.
+      assert.equal(latestSecurityVerdict({ verdicts: { 1: { security: 'CHANGES' }, 3: { security: 'PASS' } } } as any), 'PASS');
+      assert.equal(latestSecurityVerdict({ verdicts: {} } as any), null);
+    } finally {
+      s.cleanup();
+    }
+  });
+
   test('office scope cannot drive, claim or merge', async () => {
     const s = scratch();
     try {
@@ -386,12 +451,12 @@ test('pr feedback enqueues one gate per head', { skip: process.platform === 'win
 case "$1 $2" in
   "pr view") printf '{"number":7,"url":"https://github.com/o/r/pull/7","state":"OPEN","isDraft":false,"headRefOid":"%s","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"CHANGES_REQUESTED","statusCheckRollup":[],"mergedAt":null,"closedAt":null,"headRefName":"forge/x","baseRefName":"main"}' "$FAKE_HEAD_OID" ;;
   "repo view") echo o/r ;;
-  "api graphql") echo '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"state":"CHANGES_REQUESTED","body":"please fix","author":{"login":"alice"},"authorAssociation":"OWNER","submittedAt":"2026-10-15T00:00:00Z","url":"u"}]}}}}}' ;;
+  "api graphql") printf '{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[{"state":"CHANGES_REQUESTED","body":"please fix","author":{"login":"alice"},"authorAssociation":"%s","submittedAt":"2026-10-15T00:00:00Z","url":"u"}]},"reviewThreads":{"nodes":[{"isResolved":false,"isOutdated":false,"path":"a.ts","line":1,"comments":{"nodes":[{"author":{"login":"bob"},"authorAssociation":"%s","body":"nit","createdAt":"t","url":"u"}]}}]}}}}}' "\${FAKE_ASSOC:-OWNER}" "\${FAKE_ASSOC:-OWNER}" ;;
 esac
 `,
     { mode: 0o755 },
   );
-  const saved = { PATH: process.env.PATH, FAKE_HEAD_OID: process.env.FAKE_HEAD_OID };
+  const saved = { PATH: process.env.PATH, FAKE_HEAD_OID: process.env.FAKE_HEAD_OID, FAKE_ASSOC: process.env.FAKE_ASSOC };
   process.env.PATH = `${bin}${path.delimiter}${saved.PATH}`;
   try {
     const config = s.config();
@@ -413,10 +478,26 @@ esac
     process.env.FAKE_HEAD_OID = 'c'.repeat(40);
     syncPr(s.root, off, id);
     assert.equal(s.gates(id).length, 2, 'pr-feedback missing from decides writes nothing');
+    // Feedback only from people without write access never arms the gate, and the gate stays a human's.
+    const outsider = s.job('Outsider', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', fields: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } } });
+    process.env.FAKE_ASSOC = 'NONE';
+    process.env.FAKE_HEAD_OID = 'd'.repeat(40);
+    syncPr(s.root, config, outsider);
+    const job = loadJob(s.root, outsider);
+    assert.equal(job.pr?.changesRequested, 1, 'the review is still recorded');
+    assert.deepEqual(s.gates(outsider), [], "a stranger's review starts nothing unattended");
+    assert.equal(gateOwner(s.root, config, job), 'human');
+    process.env.FAKE_ASSOC = 'COLLABORATOR';
+    process.env.FAKE_HEAD_OID = 'e'.repeat(40);
+    syncPr(s.root, config, outsider);
+    assert.equal(s.gates(outsider).length, 1, 'a collaborator arms it');
+    assert.equal(gateOwner(s.root, config, loadJob(s.root, outsider)), 'foreman');
   } finally {
     process.env.PATH = saved.PATH;
-    if (saved.FAKE_HEAD_OID === undefined) delete process.env.FAKE_HEAD_OID;
-    else process.env.FAKE_HEAD_OID = saved.FAKE_HEAD_OID;
+    for (const k of ['FAKE_HEAD_OID', 'FAKE_ASSOC'] as const) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
     fs.rmSync(bin, { recursive: true, force: true });
     s.cleanup();
   }
@@ -427,7 +508,7 @@ test('assistant prompt has every gate section and the contract', () => {
   const front = text.split('---')[1];
   assert.match(front, /^name: assistant$/m);
   assert.match(front, /^model: sonnet$/m);
-  assert.match(front, /^disallowedTools: Edit, NotebookEdit$/m);
+  assert.match(front, /^disallowedTools: Bash, Edit, NotebookEdit$/m, 'no Bash: injected text reaches the CLI only through the one-line verdict');
   for (const g of OFFICE_GATES) assert.match(text, new RegExp(`^## ${g}$`, 'm'), g);
   const untrusted = fs.readFileSync(path.join(ROOT, 'agents', 'builder.md'), 'utf8').split('\n').find((l) => l.startsWith('**Untrusted input.**'));
   assert.ok(untrusted && text.includes(untrusted), 'the untrusted-input paragraph, verbatim');

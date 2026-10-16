@@ -4,8 +4,8 @@ import path from 'node:path';
 import { jobAcs } from '../acs.ts';
 import { assistantBrief, jobPathMap } from '../brief.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
-import { daemonClaimOpts, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
-import { checkForemanDecision, gateClass, inOffice, isGateClass, maybeEnqueueGate, reservedFor } from '../foreman.ts';
+import { OFFICE_REFUSAL, daemonClaimOpts, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
+import { OFFICE_JOB_COMMANDS, checkForemanDecision, checkOfficeSetFor, gateClass, inOffice, isGateClass, maybeEnqueueGate, reservedFor } from '../foreman.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
 import { agentOutputMissing, claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
 import { logSecrets, scanAgentOutputs } from '../secrets.ts';
@@ -266,6 +266,8 @@ const PROTO_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 /** The result is printed as JSON. */
 export async function jobCmd(root: string, config: Config, sub: string | undefined, rest: string[], flags: Record<string, any>): Promise<unknown> {
   const id = rest[0];
+  // The office decides gates and does nothing else: an allowlist, so a new subcommand starts out refused there.
+  if (inOffice() && !OFFICE_JOB_COMMANDS.includes(String(sub))) throw new ForgeError(`${OFFICE_REFUSAL}; forge job ${String(sub).slice(0, 40)} is not available in the office session`, 1);
   switch (sub) {
     case 'new': {
       // Read before createJob, so a bare --session fails instead of claiming as session "true".
@@ -347,12 +349,14 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         if (key.split('.')[0] === 'complexity' && (key !== 'complexity' || !(fields[key] === null || (COMPLEXITIES as readonly unknown[]).includes(fields[key]))))
           throw new ForgeError('--field complexity must be low, medium or high, or null');
       // Checked before anything is written, so a bad list leaves job.json untouched.
-      if ('dependsOn' in fields) fields.dependsOn = validateDependsOn(root, jobId, fields.dependsOn);
       const before = loadJob(root, jobId);
+      const waitingOn = flags['waiting-on'] === undefined ? undefined : flags['waiting-on'] === 'none' ? null : flags['waiting-on'];
+      if (inOffice()) checkOfficeSetFor(root, before, { stage: flags.stage, state: flags.state, waitingOn, reason: flags.reason, fields });
+      if ('dependsOn' in fields) fields.dependsOn = validateDependsOn(root, jobId, fields.dependsOn);
       let job = setJob(root, jobId, {
         stage: flags.stage,
         state: flags.state,
-        waitingOn: flags['waiting-on'] === undefined ? undefined : flags['waiting-on'] === 'none' ? null : flags['waiting-on'],
+        waitingOn,
         reason: flags.reason,
         note,
         fields,
