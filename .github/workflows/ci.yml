@@ -174,4 +174,5 @@ jobs:
             test/server-bundle.test.ts: its loopback HTTP requests fail with read ECONNRESET
             test/update.test.ts: updateForge refuses on native Windows in the tests that inject no platform
             test/usage-import.test.ts: agent end --import finds no transcript under the fake HOME, so usage is null
+            test/notify-triggers.test.ts: spawns a detached forge notify send child that holds the temp repo open
         run: node scripts/windows-tests.ts
