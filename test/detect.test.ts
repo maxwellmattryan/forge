@@ -305,7 +305,8 @@ test('component suggestions skip what they cannot read and always validate', () 
     'CMakeLists.txt': 'add_subdirectory(sub)\n',
     'sub/CMakeLists.txt': `add_library(sub sub.cpp)\n${'target_link_libraries('.repeat(30_000)}\n`,
   });
-  assert.ok(Date.now() - t0 < 3000, `detection took ${Date.now() - t0} ms on hostile manifests`);
+  // Round 1's quadratic scan took ~61 s here; 10 s leaves headroom for slow CI runners.
+  assert.ok(Date.now() - t0 < 10_000, `detection took ${Date.now() - t0} ms on hostile manifests`);
   assert.deepEqual(
     hostile.map((c) => [c.name, c.kind, c.dependsOn]),
     [

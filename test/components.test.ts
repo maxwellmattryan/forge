@@ -51,7 +51,7 @@ describe('components migration', { concurrency: 4 }, () => {
       assert.equal('services' in defaults(), false);
       const m = await forgeAsync(repo.dir, ['migrate']);
       assert.equal(m.status, 0, m.stderr);
-      assert.deepEqual(JSON.parse(m.stdout).changed, ['.forge/config.yml']);
+      assert.deepEqual(JSON.parse(m.stdout).changed, [path.join('.forge', 'config.yml')]);
       const text = fs.readFileSync(cfg, 'utf8');
       assert.match(text, /^schemaVersion: 10$/m);
       assert.match(text, /^components:$/m);
@@ -128,7 +128,8 @@ describe('components in run and verify', { concurrency: 4 }, () => {
       let r = await x.run(one.id, 'test');
       assert.equal(r.cwd, apiDir);
       assert.match(r.log, /API-TEST/);
-      assert.ok(r.log.includes(`\n${fs.realpathSync(apiDir)}\n`), r.log);
+      // `pwd` prints the MSYS form (/tmp/…) under Git Bash on Windows, so match its trailing segments.
+      assert.match(r.log.replaceAll('\\', '/'), /^[^\n(]*\/svc\/api\r?$/m, r.log);
       r = await x.run(one.id, 'lint');
       assert.equal(r.cwd, apiDir, 'a fallback command still runs from the component');
       assert.match(r.log, /TOP-LINT/);
