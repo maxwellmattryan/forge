@@ -141,7 +141,7 @@
 <svelte:window onhashchange={route} onkeydown={onKey} />
 
 <div class="flex min-h-screen" inert={settingsOpen || palette.open}>
-  <aside id="sidebar" class="hidden md:flex w-(--size-sidebar) shrink-0 flex-col gap-1 border-r chrome z-10 border-line-strong shadow-(--shadow-chrome) px-3 py-4 sticky top-0 h-screen overflow-y-auto">
+  <aside id="sidebar" class="hidden md:flex w-(--size-sidebar) shrink-0 flex-col gap-1 border-r chrome z-10 border-line-strong shadow-(--shadow-chrome) px-3 py-4 sticky top-0 h-screen overflow-y-auto overscroll-contain">
     <div class="plate riveted flex items-center gap-3 py-3 pr-3 pl-3.5 mb-1.5"><img src="/forge.png" alt="" class="mark shrink-0" /><div class="min-w-0"><div class="h sheet-title">{$t('app.brand')}</div><div class="label mt-0.5">{$t('app.tagline')}</div></div></div>
     <div class="stamp-line wide mx-0.5 mt-0.5 mb-2">{$t('app.view', { view: viewLabel })}</div>
     <div class="label flex min-w-0 items-baseline gap-2 px-2.5 pb-2.5"><span class="shrink-0">{$t('app.repo')}</span><span id="repo-name" class="mono truncate font-normal normal-case tracking-normal text-fg">{S.data?.repo?.name ?? ''}</span></div>

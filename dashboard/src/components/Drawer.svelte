@@ -77,7 +77,7 @@
 </script>
 
 {#snippet fact(k: string, v: unknown)}
-  <div><div class="label">{k}</div><div class="mono break-all">{v}</div></div>
+  <div><div class="label">{k}</div><div class="mono break-all selectable">{v}</div></div>
 {/snippet}
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop, as on main; Escape closes the drawer from the keyboard) -->
@@ -87,13 +87,13 @@
      md it keeps the full height and covers the bar (z-40 over z-35), so the dock is never obstructed. -->
 <aside id="drawer" class="fixed right-0 top-0 h-dvh md:h-[calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom))] flex flex-col w-full max-w-(--size-drawer-max) solid border-l border-line z-40 {open ? 'shadow-(--shadow-drawer)' : 'translate-x-full'} transition-transform">
   {#if view && 'error' in view}
-    <div class="min-h-0 flex-1 overflow-y-auto p-6"><Banner msg={view.error} /></div>
+    <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6"><Banner msg={view.error} /></div>
   {:else if shown && job}
     {@const d = shown.detail}
     {@const j = job}
-    <div bind:this={body} class="min-h-0 flex-1 overflow-y-auto">
+    <div bind:this={body} class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       <div bind:this={head} class="p-5 md:p-6 pb-3 md:pb-4 flex flex-col gap-2">
-        <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="h sheet-title">{j.title}</h2><div class="mono muted">{j.id}</div></div><div class="flex shrink-0 items-center gap-2">{#if scopeVerbs(j).length}<CommandTrigger job={j.id} />{/if}<CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div></div>
+        <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="h sheet-title">{j.title}</h2><div class="mono muted selectable">{j.id}</div></div><div class="flex shrink-0 items-center gap-2">{#if scopeVerbs(j).length}<CommandTrigger job={j.id} />{/if}<CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div></div>
         <div class="flex flex-wrap items-center gap-1.5"><span class="chip gleam">{STAGE_LABEL[j.stage] ?? j.stage}</span><StateChip job={j} />{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}<EffortChip level={effort} />{#if activity}<SessionActivity {activity} extra="caption" />{/if}</div>
         {#if j.reason}<div class="text-sm text-muted truncate" title={j.reason}>{j.reason}</div>{/if}
         {#if running.length || j.ownerStatus?.status !== 'none'}<AgentActivity activity={running} owner={j.ownerStatus} expandable={true} />{/if}
@@ -124,10 +124,10 @@
                   {#if mdView.files === 'rendered'}
                     <div class="prose">{@html md(content.text)}</div>
                   {:else}
-                    <pre class="text-[12px] font-mono whitespace-pre-wrap break-words bg-raised p-3">{content.text}</pre>
+                    <pre class="selectable text-[12px] font-mono whitespace-pre-wrap break-words bg-raised p-3">{content.text}</pre>
                   {/if}
                 {:else}
-                  <pre class="text-[12px] font-mono whitespace-pre-wrap break-words bg-raised p-3">{content.text}</pre>
+                  <pre class="selectable text-[12px] font-mono whitespace-pre-wrap break-words bg-raised p-3">{content.text}</pre>
                 {/if}
               {:else}
                 <div class="text-sm text-muted">{$t('drawer.noFiles')}</div>
@@ -146,8 +146,8 @@
           <ProgressBar progress={j.progress} />
           <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
             {@render fact($t('drawer.branch'), j.branch ?? '—')}{@render fact($t('drawer.base'), j.base ?? '—')}{@render fact($t('drawer.port'), j.port ?? '—')}{@render fact($t('drawer.worktree'), j.worktree ?? '—')}
-            <div><div class="label">{$t('drawer.pr')}</div><div class="mono break-all">{#if prUrl}<a class="text-gleam" href={prUrl} target="_blank" rel="noopener">#{j.pr?.number}</a>{:else}—{/if}</div></div>
-            <div><div class="label">{$t('drawer.source')}</div><div class="mono break-all">{#if srcUrl}<a class="text-gleam" href={srcUrl} target="_blank" rel="noopener">{j.source?.ref ?? $t('drawer.link')}</a>{:else}{j.source?.ref ?? '—'}{/if}</div></div>
+            <div><div class="label">{$t('drawer.pr')}</div><div class="mono break-all selectable">{#if prUrl}<a class="text-gleam" href={prUrl} target="_blank" rel="noopener">#{j.pr?.number}</a>{:else}—{/if}</div></div>
+            <div><div class="label">{$t('drawer.source')}</div><div class="mono break-all selectable">{#if srcUrl}<a class="text-gleam" href={srcUrl} target="_blank" rel="noopener">{j.source?.ref ?? $t('drawer.link')}</a>{:else}{j.source?.ref ?? '—'}{/if}</div></div>
             {@render fact($t('drawer.session'), j.owner?.session ?? '—')}{@render fact($t('drawer.created'), ago(j.createdAt, ticker.now))}{@render fact($t('drawer.updated'), ago(j.updatedAt, ticker.now))}
           </div>
           <DepSection job={j} />

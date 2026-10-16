@@ -226,7 +226,7 @@
       <CloseButton class="md:hidden" label={$t('command.close')} onclick={onclose} />
     </div>
     <!-- svelte-ignore a11y_click_events_have_key_events (options are chosen from the keyboard through the combobox: arrows, Tab and Enter) -->
-    <ul id="command-list" role="listbox" aria-label={$t('command.suggestions')} class="flex-1 min-h-0 overflow-y-auto p-1.5 {options.length ? '' : 'hidden'}">
+    <ul id="command-list" role="listbox" aria-label={$t('command.suggestions')} class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-1.5 {options.length ? '' : 'hidden'}">
       {#each options as o, i (i)}
         <li
           id={optionId(i)}

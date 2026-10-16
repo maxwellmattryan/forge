@@ -19,6 +19,13 @@
 
 html { background: var(--bg); color: var(--fg); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; scrollbar-gutter: stable; }
 body { margin: 0; font-size: 14px; line-height: 20px; }
+/* The chrome is an app, not a document: no I-beam and no drag-selection over buttons, chips, labels and cards, and no elastic bounce. Fields and the copy-worthy text opt back in (and .selectable for the rest). */
+html { user-select: none; cursor: default; overscroll-behavior: none; }
+body { overscroll-behavior: none; }
+input, textarea, select, [contenteditable]:not([contenteditable="false"]), pre, code, .prose { user-select: text; }
+input, textarea, select, [contenteditable]:not([contenteditable="false"]) { cursor: auto; }
+pre, code, .prose { cursor: text; }
+a[href] { cursor: pointer; }
 *, *::before, *::after { box-sizing: border-box; }
 ::selection { background: var(--spark); color: var(--on-spark); }
 a { color: var(--gleam); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, var(--gleam) 50%, transparent); }
@@ -78,6 +85,7 @@ html[data-grain="off"] .ground::before, html[data-grain="off"] .ground.falloff::
 .callout::before { content: ""; width: 14px; height: 2px; background: var(--gleam); flex: none; border-radius: 1px; }
 .mono { font-family: var(--font-mono); font-size: 12px; line-height: 18px; }
 .num { font-variant-numeric: tabular-nums; }
+.selectable { user-select: text; cursor: text; } /* copy-worthy text in the unselectable chrome: log lines, ids, branches, paths */
 .muted { color: var(--muted); } .dimmed { color: var(--dim); }
 .caption { font-size: 12px; line-height: 16px; }
 /* the stamp line: facts struck under a title, between two short rules */
@@ -100,6 +108,11 @@ html[data-grain="off"] .ground::before, html[data-grain="off"] .ground.falloff::
 .btn.primary:hover, .btn.primary.hover { background: var(--gleam-fill-hot); border-color: var(--gleam-hot); box-shadow: var(--gleam-spec), var(--shadow-primary), var(--shadow-glow); }
 .btn.primary:active, .btn.primary.active { box-shadow: var(--gleam-spec); transform: translateY(2px); background: var(--gleam-fill); }
 .btn.primary[disabled] { background: var(--surface, var(--bg)); color: var(--fg); border-color: var(--line-strong); box-shadow: none; transform: none; }
+/* .flush: a primary in a row of segment buttons. Its 2px drop moves inside the box, as .sel's cooled edge, so its edges line up with theirs. */
+.btn.primary.flush { box-shadow: inset 0 -2px 0 0 var(--gleam-deep), var(--gleam-spec); }
+.btn.primary.flush:hover, .btn.primary.flush.hover { box-shadow: inset 0 -2px 0 0 var(--gleam-deep), var(--gleam-spec), var(--shadow-glow); }
+.btn.primary.flush:active, .btn.primary.flush.active { box-shadow: var(--gleam-spec); transform: translateY(1px); }
+.btn.primary.flush[disabled] { box-shadow: none; transform: none; }
 .btn.sm { font-size: 11px; height: var(--control-sm); padding: 0 9px; }
 .btn.icon { width: var(--control-md); padding: 0; justify-content: center; }
 .btn.sm.icon { width: var(--control-sm); padding: 0; }

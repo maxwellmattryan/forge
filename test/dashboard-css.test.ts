@@ -599,16 +599,16 @@ test('the status bar height is a token in the drawing, the source and the build'
   const tokensCss = scalarRoot(fs.readFileSync(path.join(SMITHY, 'tokens.css'), 'utf8'));
   const source = scalarRoot(styleCss());
   assert.ok(tokensCss.includes('--size-dialog') && source.includes('--size-dialog'), 'the scalar :root blocks are read');
-  assert.ok(tokensCss.includes('--size-statusbar: 36px;'), 'smithy/tokens.css :root declares --size-statusbar: 36px');
-  assert.ok(source.includes('--size-statusbar: 36px;'), 'dashboard/style.css :root declares --size-statusbar: 36px');
+  assert.ok(tokensCss.includes('--size-statusbar: 30px;'), 'smithy/tokens.css :root declares --size-statusbar: 30px');
+  assert.ok(source.includes('--size-statusbar: 30px;'), 'dashboard/style.css :root declares --size-statusbar: 30px');
   const css = builtCss();
   const { outside } = mediaSplit(css, /[^{]*/);
-  assert.ok(ruleFor(outside, ':root').includes('--size-statusbar:36px'), 'the built :root carries --size-statusbar:36px');
+  assert.ok(ruleFor(outside, ':root').includes('--size-statusbar:30px'), 'the built :root carries --size-statusbar:30px');
   // Below md the bar holds 44px targets, so it grows to --space-11 there; everything that clears it reads the token.
   const phone = mediaBody(css, /(\(\s*width\s*<\s*48rem\s*\)|not all and \((min-width:|width>=)48rem\))/);
   assert.match(ruleFor(phone, ':root'), /--size-statusbar:var\(--space-11\)/, 'below md the bar is 44px tall');
   const entry = scalarTokens().find((t) => t.name === 'size-statusbar');
-  assert.equal(entry?.value, '36px', 'smithy/tokens.json has size-statusbar = 36px');
+  assert.equal(entry?.value, '30px', 'smithy/tokens.json has size-statusbar = 30px');
   assert.ok(entry?.usage?.trim(), 'with a usage');
 });
 
@@ -714,4 +714,49 @@ test('the control sizes are documented in the tokens and drawn in the previews',
   assert.match(preview('CommandBar'), /<button class="btn icon sm ghost" aria-label="Remove the job scope">/, 'CommandBar preview: the clear-scope close is sm ghost beside chip sm');
   assert.match(preview('CommandBar'), /class="chip gleam sm"/);
   assert.match(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', 'CloseButton.svelte'), 'utf8'), /class="btn icon ghost /);
+});
+
+test('chrome is unselectable, content opts back in', () => {
+  const css = builtCss();
+  const html = ruleFor(css, 'html');
+  assert.match(html, /(^|;)user-select:none/, 'html is unselectable');
+  assert.match(html, /-webkit-user-select:none/, 'with the Safari prefix');
+  assert.match(html, /(^|;)cursor:default/, 'and shows the arrow');
+  for (const sel of ['input', 'textarea', 'select', '[contenteditable]:not([contenteditable=false])', 'pre', 'code', '.prose']) {
+    assert.match(ruleFor(css, sel), /(^|;)user-select:text/, `${sel} is selectable again`);
+  }
+  for (const sel of ['pre', 'code', '.prose']) assert.match(ruleFor(css, sel), /(^|;)cursor:text/, `${sel} shows the I-beam`);
+  assert.match(ruleFor(css, 'a[href]'), /cursor:pointer/, 'links keep the pointer');
+  const selectable = ruleFor(css, '.selectable');
+  assert.match(selectable, /(^|;)user-select:text/);
+  assert.match(selectable, /cursor:text/);
+  assert.match(styleCss(), /@utility selectable \{ user-select: text; cursor: text; \}/);
+  assert.ok(smithyCss().includes('.selectable { user-select: text; cursor: text; }'), 'smithy/smithy.css declares .selectable');
+  assert.ok(smithyCss().includes('html { user-select: none; cursor: default; overscroll-behavior: none; }'), 'smithy/smithy.css draws the unselectable chrome');
+  // The copy-worthy spots carry it.
+  const src = (rel: string) => fs.readFileSync(path.join(DASHBOARD, 'src', 'components', rel), 'utf8');
+  assert.match(src('SessionLog.svelte'), /role="log"[^>]*class="[^"]*\bselectable\b/, 'the session log');
+  const drawer = src('Drawer.svelte');
+  assert.match(drawer, /<pre class="selectable /, "the Files tab's text");
+  assert.match(drawer, /<div class="mono [^"]*selectable[^"]*">\{j\.id\}<\/div>/, 'the id line');
+  assert.match(drawer, /\{#snippet fact[\s\S]*?<div class="mono [^"]*\bselectable\b[^"]*">\{v\}/, 'the fact values');
+  assert.match(src('ThreadPanel.svelte'), /<p class="selectable [^"]*">\{m\.text\}<\/p>/, "the Thread's bodies");
+});
+
+test('no elastic overscroll', () => {
+  const css = builtCss();
+  assert.match(ruleFor(css, 'html'), /overscroll-behavior:none/, 'html does not bounce');
+  assert.match(ruleFor(css, 'body'), /overscroll-behavior:none/, 'body does not bounce');
+  assert.doesNotMatch(ruleFor(css, 'html') + ruleFor(css, 'body'), /overflow-x:hidden/, 'the page never hides sideways overflow');
+  assert.ok(smithyCss().includes('body { overscroll-behavior: none; }'), 'smithy/smithy.css mirrors it');
+  assert.ok(hasClass(css, 'overscroll-contain'), 'the scrollers utility is built');
+});
+
+test('Run Next sits flush with the segment buttons', () => {
+  const css = builtCss();
+  const flush = ruleFor(css, '.btn.primary.flush');
+  assert.match(flush, /box-shadow:inset 0 -2px 0 0 var\(--gleam-deep\),var\(--gleam-spec\)/, 'the drop moves inside the box');
+  assert.doesNotMatch(flush, /--shadow-primary/, 'no outer drop below the box');
+  assert.ok(smithyCss().includes('.btn.primary.flush { box-shadow: inset 0 -2px 0 0 var(--gleam-deep), var(--gleam-spec); }'), 'smithy/smithy.css draws .flush');
+  assert.match(fs.readFileSync(path.join(DASHBOARD, 'src', 'views', 'Pipeline.svelte'), 'utf8'), /class="btn primary flush"/, 'Run Next uses it');
 });

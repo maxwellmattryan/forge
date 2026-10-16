@@ -121,7 +121,7 @@
     role={scrollable ? 'region' : undefined}
     aria-labelledby={scrollable ? `popover-${id}-title` : undefined}
     tabindex={scrollable ? 0 : undefined}
-    class="min-h-0 flex-1 overflow-y-auto p-4 focus-visible:-outline-offset-2"
+    class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 focus-visible:-outline-offset-2"
   >
     <div bind:this={content}>{@render children()}</div>
   </div>

@@ -269,7 +269,7 @@
   {/if}
   {#if entries.length}
     <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrollable region must be reachable from the keyboard) -->
-    <div bind:this={pane} onscroll={onScroll} role="log" aria-live="off" aria-label={$t('session.label')} tabindex="0" class="plate flat mono px-2.5 pb-2.5 text-[11px] leading-5 {compact ? 'max-h-72' : 'max-h-[70vh]'} overflow-y-auto">
+    <div bind:this={pane} onscroll={onScroll} role="log" aria-live="off" aria-label={$t('session.label')} tabindex="0" class="plate flat mono selectable px-2.5 pb-2.5 text-[11px] leading-5 {compact ? 'max-h-72' : 'max-h-[70vh]'} overflow-y-auto overscroll-contain">
       {#if !view.turns.length}<div class="text-muted">{$t('session.noMatch')}</div>{/if}
       {#each view.turns as g (g.offset)}
         <section class="mb-2">

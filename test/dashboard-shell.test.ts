@@ -1181,8 +1181,8 @@ test('status bar: one fixed footer in the inert shell, outside main', () => {
   assert.ok(footer.classes.some((c) => c.startsWith('pb-') && c.includes('env(safe-area-inset-bottom)')), 'its bottom padding is the safe-area inset');
   assert.ok(footer.classes.some((c) => c.startsWith('h-') && c.includes('var(--size-statusbar)') && c.includes('env(safe-area-inset-bottom)')), 'its height is the token plus the inset');
 
-  // 36px tall from md up: the token, plus the inset.
-  assert.ok(fs.readFileSync(path.join(ROOT, 'dashboard', 'style.css'), 'utf8').includes('--size-statusbar: 36px;'), 'the bar is 36px');
+  // 30px tall from md up: the token, plus the inset.
+  assert.ok(fs.readFileSync(path.join(ROOT, 'dashboard', 'style.css'), 'utf8').includes('--size-statusbar: 30px;'), 'the bar is 30px');
   // AC6: two live dots, the daemon indicator's (on exactly when a session works) and the facts' SESSIONS dot; Inbox only
   // with the daemon on; holds and waits from md up.
   const markup = markupOf('components/StatusBar.svelte');
@@ -1494,4 +1494,16 @@ test('counts read Label (N) in tabs and segments', () => {
   // Right-aligned badges stay bare.
   const nav = read('components/Nav.svelte');
   assert.ok(nav.includes(`<span class="chip you">{n}</span>`) && nav.includes(`<span class="mono num {on ? '' : 'muted'}">{n}</span>`), 'nav badges stay bare');
+});
+
+test('scrollers contain their overscroll', () => {
+  const has = (rel: string, re: RegExp, what: string) => assert.match(read(rel), re, what);
+  has('App.svelte', /id="sidebar" class="[^"]*\boverscroll-contain\b/, 'the sidebar');
+  has('components/Drawer.svelte', /bind:this=\{body\} class="[^"]*\boverscroll-contain\b/, 'the job pane body');
+  has('components/Popover.svelte', /class="min-h-0 flex-1 overflow-y-auto overscroll-contain\b/, 'the popover body');
+  has('views/Pipeline.svelte', /class="flex flex-col gap-2\.5 p-2\.5 overflow-y-auto overscroll-contain"/, 'the board column scrollers');
+  has('components/CommandBar.svelte', /id="command-list"[^>]*class="[^"]*\boverscroll-contain\b/, 'the palette list');
+  const settings = read('components/Settings.svelte');
+  assert.match(settings, /role="tablist"[^>]*class="[^"]*\boverscroll-contain\b/, 'the Settings rail');
+  assert.match(settings, /role="tabpanel"[^>]*class="[^"]*\boverscroll-contain\b/, 'the Settings pane');
 });
