@@ -90,7 +90,7 @@ export function componentProblems(c: any): string[] {
       else if (!isNonEmptyString(dep[keys[0]])) problems.push(`${at}.dependsOn[${j}].${keys[0]} must be a non-empty string (got ${show(dep[keys[0]])})`);
       // A self edge is a cycle when it is a build edge (buildCycles reports it), and unknown otherwise.
       else if (keys[0] === 'component' && (dep.component === e.name ? dep.type !== 'build' : !counts.has(dep.component)))
-        problems.push(`${at}.dependsOn[${j}] names unknown component "${dep.component}"`);
+        problems.push(`${at}.dependsOn[${j}] names unknown component ${show(dep.component)}`);
       if (isMap(d) && !(DEPENDENCY_TYPES as readonly unknown[]).includes(dep.type)) problems.push(`${at}.dependsOn[${j}].type must be one of ${DEPENDENCY_TYPES.join(' | ')} (got ${show(dep.type)})`);
     });
   });

@@ -6,7 +6,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { defaults, loadConfig, panelPathsProblems, validateConfig } from '../lib/config.ts';
 import { detect } from '../lib/detect.ts';
-import { detectComponents } from '../lib/detect-components.ts';
+import { MAX_MANIFEST_BYTES, detectComponents } from '../lib/detect-components.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 
@@ -287,16 +287,39 @@ test('component suggestions skip what they cannot read and always validate', () 
   );
   assert.deepEqual(componentsWith({ 'package.json': pkg({}) }), []);
   assert.deepEqual(componentsWith({}), []);
-  // A name is sanitised to SAFE_REF; a hostile 10k-character manifest line parses in linear time.
+  // A name is sanitised to SAFE_REF, and a hostile 10k-character manifest line doesn't stall detection.
   const long = 'x'.repeat(10_000);
-  const t0 = Date.now();
   const odd = componentsWith({
     'Cargo.toml': `[workspace]\nmembers = ["_we ird;dir"]\n`,
     '_we ird;dir/Cargo.toml': `[dependencies]\n${'a = {'.repeat(2000)}\n${long}= {${' '.repeat(10_000)}\n`,
-    'CMakeLists.txt': `${'target_link_libraries('.repeat(500)}\n${'add_subdirectory( '.repeat(500)}\n`,
   });
-  assert.ok(Date.now() - t0 < 5000, 'no catastrophic backtracking');
   assert.deepEqual(odd.map((c) => c.name), ['we-ird-dir']);
+  // Hostile input where each pattern runs: unclosed `target_link_libraries(` calls in a subproject's
+  // CMakeLists.txt, and a long blank-line run in a member Cargo.toml's [dependencies], which the tauri
+  // and [[bin]] checks scan. Both stay under the size cap, and a quadratic scan of either takes seconds.
+  const t0 = Date.now();
+  const hostile = componentsWith({
+    'Cargo.toml': `[workspace]\nmembers = ["crates/lib"]\n`,
+    'crates/lib/Cargo.toml': `[package]\nname = "lib"\n[dependencies]\n${'\n'.repeat(200_000)}`,
+    'crates/lib/src/lib.rs': '',
+    'CMakeLists.txt': 'add_subdirectory(sub)\n',
+    'sub/CMakeLists.txt': `add_library(sub sub.cpp)\n${'target_link_libraries('.repeat(30_000)}\n`,
+  });
+  assert.ok(Date.now() - t0 < 3000, `detection took ${Date.now() - t0} ms on hostile manifests`);
+  assert.deepEqual(
+    hostile.map((c) => [c.name, c.kind, c.dependsOn]),
+    [
+      ['lib', 'library', []],
+      ['sub', 'library', []],
+    ],
+  );
+  // A member manifest over the size cap is skipped, not read.
+  const big = componentsWith({
+    'package.json': pkg({ workspaces: ['big', 'small'] }),
+    'big/package.json': pkg({ name: 'big' }) + ' '.repeat(MAX_MANIFEST_BYTES),
+    'small/package.json': pkg({ name: 'small' }),
+  });
+  assert.deepEqual(big.map((c) => c.name), ['small']);
   // Read only from the repo: a member reached through a symlink out of it is skipped.
   const repo = tempRepo();
   const outside = fs.mkdtempSync(path.join(path.dirname(repo.dir), 'forge-outside-'));

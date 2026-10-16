@@ -17,14 +17,18 @@ export interface ComponentDetectInput {
 
 const isMap = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 
-/** A repo file's text, or null when it is missing, not a plain file (a FIFO would block), or resolves outside `root`. */
+/** Manifests are small; a larger file is skipped so a hostile one can't make detection slow. */
+export const MAX_MANIFEST_BYTES = 1024 * 1024;
+
+/** A repo file's text, or null when it is missing, not a plain file (a FIFO would block), over `MAX_MANIFEST_BYTES`, or resolves outside `root`. */
 export function readRepoFile(root: string, rel: string): string | null {
   const abs = path.join(root, rel);
   try {
     const real = fs.realpathSync(abs);
     const top = fs.realpathSync(root);
     if (real !== top && !real.startsWith(top + path.sep)) return null;
-    if (!fs.lstatSync(abs).isFile()) return null;
+    const stat = fs.lstatSync(abs);
+    if (!stat.isFile() || stat.size > MAX_MANIFEST_BYTES) return null;
     return fs.readFileSync(abs, 'utf8');
   } catch {
     return null;
@@ -152,8 +156,8 @@ function cargoComponents(root: string, input: ComponentDetectInput): Found[] {
     if (toml === null) return [];
     const deps = inlineDeps(tomlSections(toml, (h) => /^(dev-|build-)?dependencies$/.test(h)));
     const isFile = (rel: string) => readRepoFile(root, `${dir}/${rel}`) !== null;
-    const hasTauri = deps.some((d) => d.name === 'tauri') || /^\s*tauri\s*=/m.test(tomlSections(toml, (h) => h === 'dependencies').join('\n'));
-    const kind: ComponentKind = hasTauri ? 'app' : isFile('src/lib.rs') && !isFile('src/main.rs') && !/^\s*\[\[bin\]\]/m.test(toml) ? 'library' : 'service';
+    const hasTauri = deps.some((d) => d.name === 'tauri') || /^[ \t]*tauri[ \t]*=/m.test(tomlSections(toml, (h) => h === 'dependencies').join('\n'));
+    const kind: ComponentKind = hasTauri ? 'app' : isFile('src/lib.rs') && !isFile('src/main.rs') && !/^[ \t]*\[\[bin\]\]/m.test(toml) ? 'library' : 'service';
     const edges = new Set<string>();
     for (const d of deps) {
       const target = d.path ? repoDir(dir, d.path) : d.workspace ? shared.get(d.name) ?? null : null;
@@ -161,6 +165,23 @@ function cargoComponents(root: string, input: ComponentDetectInput): Found[] {
     }
     return [{ path: dir, kind, commands: { build: 'cargo build', test: 'cargo test', lint: 'cargo clippy -- -D warnings' }, deps: edges }];
   });
+}
+
+/**
+ * The argument text of each `target_link_libraries(…)` call, which may span lines. One forward scan:
+ * a regex over the whole file rescans to the end for every unclosed call, which is quadratic.
+ */
+function linkArgs(text: string): string[] {
+  const out: string[] = [];
+  const call = /target_link_libraries\(/gi;
+  for (let m = call.exec(text); m; m = call.exec(text)) {
+    const close = text.indexOf(')', call.lastIndex);
+    // No `)` after this call means none after any later one either.
+    if (close === -1) break;
+    out.push(text.slice(call.lastIndex, close));
+    call.lastIndex = close + 1;
+  }
+  return out;
 }
 
 function cmakeComponents(root: string): Found[] {
@@ -175,8 +196,8 @@ function cmakeComponents(root: string): Found[] {
   for (const s of subs) for (const l of s.libs) if (!libOwner.has(l)) libOwner.set(l, s.dir);
   return subs.map((s) => {
     const edges = new Set<string>();
-    for (const m of s.text.matchAll(/target_link_libraries\(([^)]*)\)/gi)) {
-      for (const word of m[1].trim().split(/\s+/).slice(1)) {
+    for (const args of linkArgs(s.text)) {
+      for (const word of args.trim().split(/\s+/).slice(1)) {
         const owner = libOwner.get(word);
         if (!/^(PUBLIC|PRIVATE|INTERFACE)$/.test(word) && owner && owner !== s.dir) edges.add(owner);
       }
