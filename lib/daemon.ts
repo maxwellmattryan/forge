@@ -789,6 +789,10 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   let sink: LogSink | null = null;
   /** Offset of the next line: logBase plus its byte position in <scope>.log. */
   let pos = info.logBase;
+  /** retention.logMaxBytes as of the last spawn: rotate mid-session at this size. null rotates only at spawn. */
+  let rotateAt: number | null = null;
+  /** Resumes stdout paused on a full sink; a rotation ends that sink, which then never drains. */
+  let resumeStdout: (() => void) | null = null;
   const ring: { offset: number; line: string }[] = [];
   let idleTimer: NodeJS.Timeout | null = null;
   /** When the idle timer was last armed (spawn or result), in ms. */
@@ -847,6 +851,8 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     ring.push({ offset, line: capLine(line) });
     if (ring.length > RING_SIZE) ring.shift();
     ctx.emit({ kind: 'line', scope, offset, line });
+    // The ended sink flushes what it holds, so the caller has nothing to wait for.
+    if (rotateAt !== null && pos - info.logBase >= rotateAt && rotate(rotateAt)) return true;
     return ok;
   }
 
@@ -1123,16 +1129,21 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     changed();
   }
 
-  function rotate() {
+  /**
+   * Moves <scope>.log over <scope>.log.1 once it holds at least `limit` bytes (one older generation
+   * is kept), and advances logBase by its size so offsets keep growing. Returns whether it rotated.
+   */
+  function rotate(limit: number): boolean {
     let size: number;
     try {
       size = fs.statSync(f.log).size;
     } catch {
-      return;
+      return false;
     }
-    // An open sink may still hold writes the file doesn't show yet; offsets must count them.
+    // An open sink may still hold writes the file doesn't show yet; offsets must count them. Those
+    // writes land in .log.1: the open descriptor follows the renamed file.
     if (sink) size = Math.max(size, pos - info.logBase);
-    if (size <= o.rotateBytes) return;
+    if (size < limit) return false;
     if (sink) {
       sink.end?.();
       sink = null;
@@ -1140,11 +1151,17 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     try {
       fs.renameSync(f.log, `${f.log}.1`);
     } catch {
-      return;
+      return false;
     }
     info = { ...info, logBase: info.logBase + size };
     pos = info.logBase;
     persist();
+    if (resumeStdout) {
+      const resume = resumeStdout;
+      resumeStdout = null;
+      resume();
+    }
+    return true;
   }
 
   function spawnChild(c: Config, reason?: string): boolean {
@@ -1185,7 +1202,10 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       ctx.fatal(problem);
       return false;
     }
-    rotate();
+    const max = c.retention?.logMaxBytes;
+    rotateAt = Number.isSafeInteger(max) && (max as number) > 0 ? (max as number) : null;
+    // Without a limit, today's rule: past rotateBytes, and only here.
+    rotate(rotateAt ?? o.rotateBytes + 1);
     // The record is a local file anyone with repo access can edit; only a uuid may follow --resume.
     const resume = Boolean(info.resumable && typeof info.sessionId === 'string' && UUID.test(info.sessionId));
     if (!resume) info = { ...withSessionId(info, crypto.randomUUID()), resumable: false };
@@ -1279,7 +1299,12 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       proc.stdout.pause();
       // write() returned false, so the sink is a real stream (the stand-in never does), and stdout was
       // checked just above, where the callback can't see the narrowing.
-      logSink().once!('drain', () => proc.stdout!.resume());
+      const resume = () => {
+        if (resumeStdout === resume) resumeStdout = null;
+        proc.stdout!.resume();
+      };
+      resumeStdout = resume;
+      logSink().once!('drain', resume);
     }
     if (child !== proc) return;
     if (!meta.stdout) {

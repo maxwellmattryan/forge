@@ -720,6 +720,67 @@ test('session log history is paged and confined', async () => {
   }
 });
 
+test('session log history reads the rotated generation', async () => {
+  const repo = tempRepo();
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-outside-')));
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const port = Number(new URL(url).port);
+  const dir = path.join(repo.dir, '.forge', 'runtime', 'daemons');
+  const page = async (q) => {
+    const r = await hit(port, { path: `/api/daemons/log?${q}` });
+    return { status: r.status, body: r.status === 200 ? JSON.parse(r.text) : null, text: r.text };
+  };
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const older = Array.from({ length: 1500 }, (_, i) => JSON.stringify({ type: 'old', i }));
+    const newer = Array.from({ length: 30 }, (_, i) => JSON.stringify({ type: 'new', i }));
+    const text1 = older.join('\n') + '\n';
+    const start1 = 3000;
+    const logBase = start1 + Buffer.byteLength(text1);
+    fs.writeFileSync(path.join(dir, 'job-r.log.1'), text1);
+    fs.writeFileSync(path.join(dir, 'job-r.log'), newer.join('\n') + '\n');
+    fs.writeFileSync(path.join(dir, 'job-r.json'), JSON.stringify({ logBase }));
+    const offsets = [];
+    let at = start1;
+    for (const l of [...older, ...newer]) {
+      offsets.push(at);
+      at += Buffer.byteLength(l) + 1;
+    }
+    let cur = (await page('session=job-r')).body;
+    assert.equal(cur.start, logBase, 'the first page reaches the start of .log');
+    assert.equal(cur.more, true, 'a non-empty .log.1 means more');
+    const all = [...cur.lines];
+    let guard = 0;
+    while (cur.more && guard++ < 20) {
+      cur = (await page(`session=job-r&before=${cur.start}`)).body;
+      all.unshift(...cur.lines);
+    }
+    assert.equal(cur.more, false, 'no more at the start of .log.1');
+    assert.equal(cur.start, start1);
+    assert.deepEqual(all.map((l) => l.line), [...older, ...newer], 'every line once, in order');
+    assert.deepEqual(all.map((l) => l.offset), offsets, 'continuous offsets across the generations');
+    // A symlinked or FIFO .log.1 is never read: paging ends at .log, and asking below logBase is a 404.
+    fs.writeFileSync(path.join(outside, 'secret.log'), '{"type":"secret","token":"hunter2"}\n');
+    const planted: [string, () => void][] = [['job-s', () => fs.symlinkSync(path.join(outside, 'secret.log'), path.join(dir, 'job-s.log.1'))]];
+    if (process.platform !== 'win32') planted.push(['job-f', () => assert.equal(spawnSync('mkfifo', [path.join(dir, 'job-f.log.1')]).status, 0)]);
+    for (const [scope, plant] of planted) {
+      fs.writeFileSync(path.join(dir, `${scope}.log`), '{"type":"now"}\n');
+      fs.writeFileSync(path.join(dir, `${scope}.json`), JSON.stringify({ logBase: 500 }));
+      plant();
+      const first = await page(`session=${scope}`);
+      assert.equal(first.status, 200);
+      assert.deepEqual([first.body.start, first.body.more], [500, false], `${scope}: paging ends at .log`);
+      const below = await page(`session=${scope}&before=500`);
+      assert.equal(below.status, 404, scope);
+      assert.ok(!below.text.includes('hunter2') && !first.text.includes('hunter2'));
+    }
+  } finally {
+    await close();
+    repo.cleanup();
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test('a FIFO planted as a session record never hangs the server', { skip: process.platform === 'win32' && 'POSIX-only' }, async () => {
   const repo = tempRepo();
   const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
