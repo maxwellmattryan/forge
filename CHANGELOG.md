@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.1
+
+- Interim release to exercise `forge update`. It carries everything merged since 0.16.0; the full notes come with 0.17.0.
+
 ## 0.16.0
 
 - **Breaking CLI contract:** exit codes are now classes: 0 ok, 1 failed, 2 usage, 3 owned, 4 blocked, 5 external. Usage errors exit 2 instead of 1, and git, gh and claude failures exit 5 instead of 1. Every error carries a code from a closed set, and under `--json` errors print as one JSON line on stdout and string results are JSON-encoded. `forge help <command>` is generated from each command's help table, and the new `docs/CLI.md` documents the exit classes, error codes, environment variables and stable JSON field names. Scripts that check for exit 1 need updating.
