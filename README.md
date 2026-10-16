@@ -24,8 +24,8 @@
 
 ```
 request ─► plan ─► spec ─► [design] ─► spec gate ─► build ─► verify ─► review panel ─► integrate ─► decide ─► PR
-                                          (you)        ▲        │          │ CHANGES                  │ESCALATE   │
-                                                       └────────┴──────────┘                          ▼           ▼
+                                          (you)        ▲        │          │ CHANGES                  │ESCALATE│
+                                                       └────────┴──────────┘                          ▼        ▼
                                                                                                     (you)  sync: merged / feedback /
                                                                                                            conflicts / CI → continue
 ```

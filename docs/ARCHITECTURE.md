@@ -59,7 +59,7 @@ Job schema v8 (API version 16) adds `waitingOn: human`: a CLI check stopped the 
 `stage` is where the job is in the pipeline:
 `backlog → plan → spec → design → build → verify → review → integrate → decide → pr → done`
 
-Integrate runs before decide, so the approver judges the branch as it will merge, and an approved job opens its PR at once. After any gate wait (an escalation, an infra runbook, a budget stop), step runs `forge integrate` again before the PR, and does more work (verify, the integrator, the integration review) only when it reports `behind > 0`. Older jobs found in `decide` with no integration since their review integrate before `pr`.
+Integrate runs before decide, so the approver judges the branch as it will merge, and an approved job opens its PR at once. After any gate wait (an escalation, an infra runbook, a budget stop), step runs `forge integrate` again before the PR, and does more work (verify, the integrator, the integration review) only when it reports `behind > 0`. Older jobs found in `decide` with no integration since their review integrate before `pr`. Eval jobs never integrate: review sends them straight to `decide`.
 
 `state` is what is happening there:
 `queued | running | waiting | blocked | failed | cancelled | done`
