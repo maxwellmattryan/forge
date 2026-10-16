@@ -8,7 +8,7 @@ export const API_VERSION = 16;
 export const INBOX_SCOPE = '_inbox';
 
 /** lib/schema.ts STAGES, in pipeline order. */
-export const STAGES = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', 'review', 'decide', 'integrate', 'pr', 'done'] as const;
+export const STAGES = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', 'review', 'integrate', 'decide', 'pr', 'done'] as const;
 
 /** lib/schema.ts STATES. */
 export const STATES = ['queued', 'running', 'waiting', 'blocked', 'failed', 'cancelled', 'done'] as const;
