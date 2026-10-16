@@ -35,11 +35,22 @@ Eval jobs get a standalone shallow clone that holds only the task's base commit,
 
 ## 3. Retros (`/forge retro`)
 
-The retro agent reads the metrics (per-lens dispute rates and recurring findings among them), a digest of human interventions, the human delta after Forge's last push and each job's recurring findings as oscillation signals (`forge retro prepare`), and the experiment ledger. It then:
+The retro agent reads the metrics (per-lens dispute rates and recurring findings among them), a digest of human interventions, the human delta after Forge's last push and each job's recurring findings as oscillation signals, learnings past their review-by, with their experiment's baseline and current value (`forge retro prepare`), and the experiment ledger. It then:
 1. evaluates earlier experiments against their baselines (kept, reverted, or inconclusive)
-2. finds patterns (not anecdotes) across jobs
-3. proposes at most five small edits to `.forge/notes/learnings.md`, role addenda, reviewer checklists or config, each with evidence, a target metric and a baseline
+2. retires expired learnings whose metric did not move
+3. finds patterns (not anecdotes) across jobs
+4. proposes at most five small edits to `.forge/notes/learnings.md`, role addenda, reviewer checklists or config, each with evidence, a target metric and a baseline
 
 Its proposals become a normal Forge job that always waits for spec approval and ships as a PR. Merged changes are logged in `.forge/notes/experiments.md`. Generic lessons are flagged as candidates for upstreaming into the plugin.
+
+**Learnings expire.** `learnings.md` is read on every agent run, so each entry names the experiment that justifies it and a date to check it by:
+```
+- **<rule>** — why, evidence: <job ids>. (added YYYY-MM-DD · experiment: <id> · review-by: YYYY-MM-DD)
+```
+The id points at a ledger line in `experiments.md`, whose metric is a dotted `stats.json` path:
+```
+- <date> · id <slug> · <change> · metric <name> (<up|down>) · baseline <value> · evidence <job ids> · status <open|kept|reverted|inconclusive>
+```
+Once a learning's review-by is today or earlier, `forge retro prepare` lists it in `signals.md` under `## Learnings past review-by` with the baseline, the metric's current value and a verdict, and the retro proposes deleting it unless the metric improved. Entries without the new fields never expire. `forge roster` reports `learningCount` and `oldestReviewBy`.
 
 The loop: **metrics → retro → PR (experiment + baseline) → evals and live metrics → next retro keeps or reverts.**

@@ -1111,6 +1111,26 @@ export interface Stats {
   reviewers: Record<string, ReviewerStats>;
 }
 
+/** One entry of `.forge/notes/learnings.md`: parseLearnings in lib/learnings.ts. Dates are valid or null. */
+export interface LearningEntry {
+  /** Unsanitised; callers pass it through safeText before writing it anywhere. */
+  rule: string;
+  experiment: string | null;
+  reviewBy: string | null;
+  added: string | null;
+}
+
+/** One line of `.forge/notes/experiments.md`: parseExperiments in lib/learnings.ts. */
+export interface ExperimentEntry {
+  id: string | null;
+  date: string | null;
+  change: string;
+  metric: string | null;
+  direction: 'up' | 'down' | null;
+  baseline: number | null;
+  status: string | null;
+}
+
 /** An eval task as served: loadTask in lib/evals.ts minus `dir` and `request`. */
 export interface EvalTask {
   name: string;
@@ -1371,6 +1391,10 @@ export interface Roster {
   agents: { role: string; description: string; model: string; promptHash: string; addendum: string | null; effort: Effort | null; effortSource: EffortSource }[];
   reviewers: { name: string; model: string; always: boolean; when: string | null; checklist: string | null; checklistHash: string | null; effort: Effort | null; effortSource: EffortSource }[];
   learnings: string | null;
+  /** Entries in learnings.md; 0 when it is missing. */
+  learningCount: number;
+  /** The earliest valid review-by among all learnings, expired ones included. */
+  oldestReviewBy: string | null;
   diversity: { enabled: boolean; builder: string; overlap: { role: string; model: string }[] };
   warnings: string[];
 }
