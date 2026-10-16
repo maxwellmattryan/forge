@@ -126,6 +126,26 @@ export function realHistoryEnv(): NodeJS.ProcessEnv {
   return { ...process.env, GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: path.join(os.devNull, 'forge-no-grafts') };
 }
 
+const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+
+/**
+ * The paths whose content at `sha` differs from git's own merge of `head` and `upstream`: what a
+ * conflict resolution, and every commit after it, changed beyond the automatic merge. Conflicted
+ * files differ too, since the automatic merge leaves markers in them. Null when it can't be
+ * computed, so the caller keeps the integration review.
+ */
+export function integrationTouched(cwd: string, head: string, upstream: string, sha: string): string[] | null {
+  if (![head, upstream, sha].every((s) => FULL_SHA.test(s))) return null;
+  const env = realHistoryEnv();
+  // Exit 1 means the merge has conflicts; the tree (with markers) is still written.
+  const merged = run('git', ['merge-tree', '--write-tree', '--no-messages', head, upstream], { cwd, env, allowFail: true });
+  if (merged.status !== 0 && merged.status !== 1) return null;
+  const tree = merged.stdout.split('\n')[0].trim();
+  if (!FULL_SHA.test(tree)) return null;
+  const diff = run('git', ['diff', '--name-only', '--no-renames', '-z', tree, sha, '--'], { cwd, env, allowFail: true });
+  return diff.ok ? diff.stdout.split('\0').filter(Boolean) : null;
+}
+
 /**
  * The ref a job branch is compared against: `<remote>/<base>` when it resolves, else the local base.
  * Shared by `forge job scope` and verify's integrity report so both read the same diff.

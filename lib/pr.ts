@@ -526,6 +526,8 @@ export function integrate(root: string, config: Config, id: string, opts: { stra
     return { ok: true, behind: 0, strategy: null, rewritten: false };
   }
   const strategy: Strategy = opts.strategy ?? config.pr.updateStrategy;
+  // The two sides, so step can later tell what the resolution changed beyond git's own merge of them.
+  const sides = { head: run('git', ['rev-parse', 'HEAD'], { cwd }).stdout.trim(), upstream: run('git', ['rev-parse', `${upstream}^{commit}`], { cwd }).stdout.trim() };
   let attempt = strategy === 'rebase' ? run('git', ['rebase', upstream], { cwd, allowFail: true }) : run('git', ['merge', '--no-edit', upstream], { cwd, allowFail: true });
   const keep = Boolean(opts.keepConflicts);
   const abort = () => run('git', [strategy, '--abort'], { cwd, allowFail: true });
@@ -534,7 +536,7 @@ export function integrate(root: string, config: Config, id: string, opts: { stra
   const regenerated = new Set<string>();
   const stopped = (conflicts: string[], extra: { regenerated?: string[]; regenerateError?: string }) => {
     if (!keep) abort();
-    logEvent(root, id, 'integrate-conflicts', { strategy, conflicts, behind, ...extra });
+    logEvent(root, id, 'integrate-conflicts', { strategy, conflicts, behind, ...extra, ...sides });
     return { ok: false as const, behind, strategy, conflicts, inProgress: keep, ...extra };
   };
   for (let first = true; !attempt.ok; first = false) {

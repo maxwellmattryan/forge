@@ -266,6 +266,7 @@ describe('integrate regenerates generated paths', { concurrency: 4 }, () => {
       assert.equal(f.git('rev-parse', 'HEAD'), head);
       const ev = f.events().filter((e) => e.type === 'integrate-conflicts').at(-1);
       assert.deepEqual([ev.conflicts, ev.regenerated], [['README.md'], regenerated]);
+      assert.deepEqual([ev.head, ev.upstream], [head.trim(), f.git('rev-parse', 'main').trim()], 'the event names both sides for the integration review skip');
       assert.equal(genRuns(f), before, 'nothing is built while sources may hold conflict markers');
 
       r = await f.forge(['integrate', f.id, '--strategy', 'merge', '--keep-conflicts']);

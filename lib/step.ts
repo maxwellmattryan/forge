@@ -17,7 +17,7 @@ import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts 
 import { PLUGIN_ROOT, exists } from './paths.ts';
 import { COMPLEXITIES } from './schema.ts';
 import { generatedConfig } from './regenerate.ts';
-import { approachPaths, inSpec } from './scope.ts';
+import { approachPaths, inSpec, integrationTouched } from './scope.ts';
 import { AGENT_ID } from './transcripts.ts';
 import type { Config, Job, JobAgent, JobEvent, StepAction, StepDone, StepFile, StepInput, StepProcedure, StepRun, StepSpawn, StepVerdicts, StepWait, StepWaitingOn, VerifyRun, WaitingOn } from './types.ts';
 import { ForgeError, SAFE_REF, readJson, readText } from './util.ts';
@@ -131,6 +131,7 @@ export function loadStepInput(root: string, config: Config, id: string): StepInp
     } catch {}
   }
   const names = [...new Set([...config.review.panel.map((p) => p.name), ...job.reviewers])];
+  const events = readEvents(root, job.id).filter((e) => STEP_EVENTS.has(e.type));
   return {
     job,
     config,
@@ -153,10 +154,20 @@ export function loadStepInput(root: string, config: Config, id: string): StepInp
     },
     acs: acCoverage(read('spec.md'), read('build.md')),
     runtime,
-    events: readEvents(root, job.id).filter((e) => STEP_EVENTS.has(e.type)),
+    events,
     evalTask,
     checklists: Object.fromEntries(names.map((n) => [n, reviewerChecklist(root, n, config.review.panel.find((p) => p.name === n)?.checklist)])),
+    integrationTouched: loadIntegrationTouched(job, config, events),
   };
+}
+
+/** Only when a skip is possible: integrate, code-only, the last verify passed, and the last conflicts event names both sides. */
+export function loadIntegrationTouched(job: Job, config: Config, events: JobEvent[]): StepInput['integrationTouched'] {
+  if (job.stage !== 'integrate' || config.pr.integrationReview !== 'code-only' || !job.worktree || !exists(job.worktree)) return null;
+  const last = job.verifyRuns.at(-1);
+  const ev = events.findLast((e) => e.type === 'integrate-conflicts');
+  if (!last?.ok || !last.sha || !ev || typeof ev.head !== 'string' || typeof ev.upstream !== 'string') return null;
+  return { head: ev.head, upstream: ev.upstream, sha: last.sha, files: integrationTouched(job.worktree, ev.head, ev.upstream, last.sha) };
 }
 
 export function parsePlan(text: string): StepInput['plan'] {
@@ -901,7 +912,7 @@ const SAFE_CONFLICT = (p: unknown): p is string =>
 const isDocs = (p: string) => p.toLowerCase().endsWith('.md') || p.startsWith('docs/');
 
 /**
- * How many files this episode's conflicts touched when every one is docs or generated and
+ * How many files this episode's conflicts and resolution touched when every one is docs or generated and
  * `pr.integrationReview: code-only` lets the integration review be skipped; 0 keeps the review.
  */
 export function integrationReviewSkippable(x: StepInput, first: JobEvent): number {
@@ -919,8 +930,15 @@ export function integrationReviewSkippable(x: StepInput, first: JobEvent): numbe
       for (const p of list) into.add(p);
     }
   }
-  const all = new Set([...conflicted, ...regenerated]);
-  if (!all.size) return 0;
+  if (!conflicted.size && !regenerated.size) return 0;
+  // Conflict names are only where git stopped; the integrator may change any file while resolving or
+  // after. What it actually changed must be known, for the sides this episode merged and the sha the
+  // passing verify checked, or the review stays.
+  const touched = x.integrationTouched;
+  const verified = x.job.verifyRuns.at(-1);
+  if (!touched || !Array.isArray(touched.files) || touched.head !== first.head || touched.upstream !== first.upstream || !verified?.ok || touched.sha !== verified.sha) return 0;
+  if (!touched.files.every(SAFE_CONFLICT)) return 0;
+  const all = new Set([...conflicted, ...regenerated, ...touched.files]);
   const globs = generatedConfig(x.config)?.globs ?? [];
   const skippable = (p: string) => regenerated.has(p) || isDocs(p) || (globs.length > 0 && inSpec(p, globs));
   return [...all].every(skippable) ? all.size : 0;

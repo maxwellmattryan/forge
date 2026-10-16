@@ -363,6 +363,11 @@ export interface StepInput {
   evalTask: { rubric: string | null; reference: string | null } | null;
   /** Checklist path per panel lens and selected reviewer. */
   checklists: Record<string, string | null>;
+  /**
+   * In integrate: what the last conflict episode's resolution changed at the last verified sha
+   * (lib/scope.ts integrationTouched), keyed by the sides that event recorded; null when unknown.
+   */
+  integrationTouched: { head: string; upstream: string; sha: string; files: string[] | null } | null;
 }
 
 /** The job files StepInput.files records. */
