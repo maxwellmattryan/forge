@@ -131,6 +131,16 @@ review:
         - bin/forge
         - package.json
         - package-lock.json
+        - .github/workflows/**
+        - lib/step.ts
+        - lib/scope.ts
+        - lib/panel.ts
+        - lib/integrity.ts
+        - lib/commands/job.ts
+        - lib/foreman.ts
+        - lib/eval-overlay.ts
+        - lib/worktree.ts
+        - dashboard/src/lib/markdown.ts
     - name: docs
       when: "the diff adds, removes or renames a CLI command, flag or JSON output field, a config key or an /api shape, or changes orchestrator behaviour in skills/forge/**"
       paths:
