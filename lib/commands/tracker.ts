@@ -4,6 +4,7 @@ import { DEP_REASON, claimRespectingDeps, refreshDependencyWait, retargetPlan, u
 import { createJob, isActive, listJobs, loadJob, logEvent, readEvents, setJob, claimJob } from '../jobs.ts';
 import * as pr from '../pr.ts';
 import { listRequests } from '../requests.ts';
+import { applyRetention } from '../retention.ts';
 import { searchTerms } from '../issue-link.ts';
 import { clampLimit, publicHits, searchTracker } from '../tracker-link.ts';
 import { loadTracker } from '../trackers/index.ts';
@@ -294,7 +295,10 @@ function lastMergeEvent(root: string, id: string): string | null {
  * `forge sync`: PRs and trackers for every job, then stacked-branch retargets, dependency waits and
  * umbrella jobs. `integrating` lists the jobs this sync moved to integrate.
  */
-export async function syncAll(root: string, config: Config): Promise<{ synced: number; results: Record<string, unknown>[]; requests: number; integrating: string[] }> {
+export async function syncAll(
+  root: string,
+  config: Config,
+): Promise<{ synced: number; results: Record<string, unknown>[]; requests: number; integrating: string[]; retention?: { archived: string[]; logs: string[] } }> {
   const results: Record<string, unknown>[] = [];
   const integrating: string[] = [];
   for (const job of listJobs(root).filter((j) => j.kind !== 'eval')) {
@@ -362,6 +366,8 @@ export async function syncAll(root: string, config: Config): Promise<{ synced: n
       results.push({ id: job.id, umbrellaDone: true });
     }
   }
+  // The human's retention policy runs in any session, daemon ones included: they set it, not a request.
+  const retention = applyRetention(root, config, 'policy');
   // Counted last, so it includes the resumes sync queued for the jobs it routed.
-  return { synced: results.length, results, requests: listRequests(root, { status: 'pending' }).length, integrating };
+  return { synced: results.length, results, requests: listRequests(root, { status: 'pending' }).length, integrating, ...(retention ? { retention } : {}) };
 }
