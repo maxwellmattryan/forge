@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { defaults } from './config.ts';
+import { cargoMembers as membersOf, detectComponents, npmWorkspaces } from './detect-components.ts';
 import { exists } from './paths.ts';
 import type { ProtectedRule } from './types.ts';
 import { hasBinary, readText, run } from './util.ts';
@@ -44,6 +45,9 @@ function readJsonSafe(root: string, rel: string): any {
     return null;
   }
 }
+
+/** Dependencies that make a package a UI: the root's `stack.ui`, and an `app` component. */
+const UI_PACKAGES = ['svelte', '@sveltejs/kit', 'react', 'next', 'vue', 'nuxt', 'solid-js', '@angular/core', 'astro', 'tauri', '@tauri-apps/api'];
 
 const OUTPUT_DIRS = new Set(['dist', 'build', 'out']);
 
@@ -148,7 +152,7 @@ export function detect(root: string): Detection {
   }
   for (const t of ['build', 'test', 'lint', 'format']) if (!commands[t] && makeTargets.includes(t)) commands[t] = `make ${t}`;
 
-  const ui = ['svelte', '@sveltejs/kit', 'react', 'next', 'vue', 'nuxt', 'solid-js', '@angular/core', 'astro', 'tauri', '@tauri-apps/api'].filter((d) => d in deps);
+  const ui = UI_PACKAGES.filter((d) => d in deps);
   const kinds: string[] = [];
   if (ui.length) kinds.push('web-ui');
   if (cargo) kinds.push('rust');
@@ -160,8 +164,8 @@ export function detect(root: string): Detection {
   if (/no_std|cortex-m|embassy|stm32/i.test(cargo)) kinds.push('embedded');
   if (/\b(bbx_dsp|cpal|rodio|dasp|fundsp)\b/.test(cargo)) kinds.push('realtime-audio');
 
-  const workspaces: string[] = pkg?.workspaces ? [].concat(pkg.workspaces.packages ?? pkg.workspaces) : [];
-  const cargoMembers = cargo.match(/members\s*=\s*\[([\s\S]*?)\]/)?.[1]?.match(/"([^"]+)"/g)?.map((m) => m.slice(1, -1)) ?? [];
+  const workspaces = npmWorkspaces(pkg);
+  const cargoMembers = membersOf(cargo);
   const monorepo = workspaces.length > 1 || cargoMembers.length > 1;
 
   const infraFiles = ['Dockerfile', 'docker-compose.yml', 'compose.yaml', 'wrangler.toml', 'wrangler.jsonc', 'fly.toml', 'vercel.json', 'netlify.toml', 'serverless.yml', 'app.yaml', 'Pulumi.yaml'].filter((f) => has(root, f));
@@ -235,6 +239,7 @@ export function detect(root: string): Detection {
       'pipeline.design': ui.length ? (figma.length ? 'reference' : 'none') : 'none',
       'infra.mode': infraFiles.length ? 'plan-only' : 'human',
       'policy.protectedPaths': protectedPathsFor(root),
+      components: detectComponents(root, { pm, ui: UI_PACKAGES, pkg, cargo }),
     },
   };
 }
