@@ -49,10 +49,10 @@ export const TONE_CLASS: Record<string, string> = {
   bad: 'bad',
   warn: 'warn',
   info: 'info',
-  ink: 'ink',
+  gleam: 'gleam',
   muted: 'muted',
   live: 'live',
-  rev: 'rev',
+  you: 'you',
 };
 export const toneChip = (tone: string, text: unknown): string => `<span class="chip ${TONE_CLASS[tone]}">${esc(text)}</span>`;
 /** fetch that throws the response text (or status text) on a non-2xx and parses JSON bodies. */

@@ -59,10 +59,10 @@ test('chips: state, verdict and PR tones and text', () => {
   for (const state of STATES)
     for (const waitingOn of state === 'waiting' ? WAITING_ON : [null]) {
       const j: any = { state, waitingOn };
-      const want = state === 'waiting' ? (waitingOn === 'pr-review' ? 'info' : 'rev') : TONE[state];
+      const want = state === 'waiting' ? (waitingOn === 'pr-review' ? 'info' : 'you') : TONE[state];
       const got = V.stateTone(j);
       assert.equal(got, want, `${state}/${waitingOn}`);
-      assert.equal(got === 'rev', V.needsHuman(j), `${state}/${waitingOn}: rev exactly when a human is needed`);
+      assert.equal(got === 'you', V.needsHuman(j), `${state}/${waitingOn}: you exactly when a human is needed`);
       assert.notEqual(got, 'accent');
       checked++;
     }
@@ -470,7 +470,7 @@ test('board: groups, columns and the snapshot fixture', () => {
 
 test('stageSteps: one row per stage plus needs-you, failed, blocked, cancelled and unknown', () => {
   const render = (j: any) => {
-    const chars = V.stageSteps(j).map((x) => (x.status === 'past' ? 'p' : x.status === 'future' ? 'f' : x.tone === 'red' ? 'R' : 'I'));
+    const chars = V.stageSteps(j).map((x) => (x.status === 'past' ? 'p' : x.status === 'future' ? 'f' : x.tone === 'ember' ? 'R' : 'I'));
     return [0, 3, 6].map((i) => chars.slice(i, i + 3).join('')).join(' ');
   };
   const rows: [any, string][] = [
@@ -498,7 +498,7 @@ test('stageSteps: one row per stage plus needs-you, failed, blocked, cancelled a
     const steps = V.stageSteps(j);
     assert.equal(steps.length, 9);
     assert.deepEqual(steps.map((x) => x.stage), V.STEPPER_STAGES);
-    assert.ok(steps.every((x) => x.status === 'current' || x.tone === 'ink'), 'only the current step can be red');
+    assert.ok(steps.every((x) => x.status === 'current' || x.tone === 'gleam'), 'only the current step can be ember');
   }
   const pos = (j: any) => V.stepPosition(V.stageSteps(j));
   assert.equal(pos({ stage: 'backlog', state: 'queued' }), 0);
@@ -522,7 +522,7 @@ test('dependency parks are not human gates', () => {
     { state: 'waiting', waitingOn: 'input', reason: `${DEP_REASON}a (build/running)` },
   ] as any[]) {
     assert.equal(V.isDependencyPark(other), false, JSON.stringify(other));
-    assert.equal(V.stateTone(other), 'rev', JSON.stringify(other));
+    assert.equal(V.stateTone(other), 'you', JSON.stringify(other));
     assert.equal(V.needsHuman(other), true, JSON.stringify(other));
   }
   assert.equal(V.isDependencyPark({ state: 'queued', waitingOn: 'external', reason: `${DEP_REASON}a` } as any), false, 'only a waiting job is parked');

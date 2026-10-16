@@ -39,8 +39,9 @@
 <PageHeader title={$t('pipeline.title')}>
   {#snippet sub()}{$t('pipeline.active', { count: counts.active })} · {$t('pipeline.base')} <code class="font-mono">{data.config.base}</code> · {$t('pipeline.tracker', { tracker: data.config.tracker })}{/snippet}
   {#snippet right()}
-    <div class="seg">
-      {#each FILTERS as f (f)}{@const on = S.filter === f}<button class="btn {on ? 'sel' : ''}" aria-pressed={on} onclick={() => setFilter(f)}>{filterLabel[f]} <span class="num {on ? '' : 'muted'}">{counts[f]}</span></button>{/each}
+    <!-- Wraps on a phone: the riveted header clips what overflows it. -->
+    <div class="seg flex-wrap gap-y-1">
+      {#each FILTERS as f (f)}{@const on = S.filter === f}<button class="btn {on ? 'sel' : ''}" aria-pressed={on} onclick={() => setFilter(f)}>{filterLabel[f]} <span class="num {on ? '' : 'muted'}">({counts[f]})</span></button>{/each}
     </div>
     <div class="seg">
       {#each LAYOUTS as l (l)}{@const on = S.layout === l}<button class="btn {on ? 'sel' : ''}" aria-pressed={on} onclick={() => setLayout(l)}><Icon name={l} />{layoutLabel[l]}</button>{/each}
@@ -57,9 +58,9 @@
     {#each open as c (c.id)}
       {@const w = workingCount(c.jobs, data.daemons)}
       <!-- min-w-0: a long truncated title or chip must not widen its grid track. -->
-      <section class="sheet dashed min-w-0 flex flex-col xl:max-h-[calc(100vh-180px)]">
-        <header class="plain flex items-center justify-between px-3 py-2 border-b border-line border-dashed"><span class="label text-fg">{groupLabel[c.id]}</span><span class="flex items-center gap-2">{#if w}<span class="label text-ink">{$t('live.columnWorking', { count: w })}</span>{/if}<span class="mono muted num text-[11px]">{c.jobs.length}</span></span></header>
-        <!-- At least p-2.5: a redline card's outline sits 3px outside it and the scroller would clip it. -->
+      <section class="plate open min-w-0 flex flex-col xl:max-h-[calc(100vh-180px)]">
+        <header class="plain flex items-center justify-between px-3 py-2 border-b border-line border-dashed"><span class="label text-fg">{groupLabel[c.id]}</span><span class="flex items-center gap-2">{#if w}<span class="label text-gleam">{$t('live.columnWorking', { count: w })}</span>{/if}<span class="mono muted num text-[11px]">{c.jobs.length}</span></span></header>
+        <!-- p-2.5: room for a card's focus ring, which the scroller would otherwise clip. -->
         <div class="flex flex-col gap-2.5 p-2.5 overflow-y-auto">
           {#each c.jobs as j (j.id)}<JobCard job={j} />{:else}<div class="plain caption muted text-center py-3">—</div>{/each}
         </div>
@@ -67,7 +68,7 @@
     {/each}
   </div>
   {#if done}
-    <section class="sheet dashed mt-3">
+    <section class="plate open mt-3">
       <header class="plain flex items-center justify-between px-3 py-2 border-b border-line border-dashed"><span class="label text-fg">{groupLabel.done}</span><span class="mono muted num text-[11px]">{done.jobs.length}</span></header>
       <div class="grid grid-cols-[repeat(auto-fill,minmax(236px,1fr))] gap-2.5 p-2.5">
         {#each done.jobs as j (j.id)}<JobCard job={j} />{/each}

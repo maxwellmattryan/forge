@@ -38,9 +38,9 @@
     <ul class="flex flex-col gap-1.5" aria-label={$t('issueLink.candidates')}>
       {#each candidates as c (c.ref)}
         {@const href = safeUrl(c.url)}
-        <li class="sheet flex items-center gap-2 px-3 py-2 text-sm min-w-0">
+        <li class="plate flex items-center gap-2 px-3 py-2 text-sm min-w-0">
           <span class="font-mono text-muted shrink-0 max-w-[40%] truncate">{c.ref}</span>
-          {#if href}<a class="min-w-0 flex-1 truncate text-ink" {href} target="_blank" rel="noopener noreferrer" title={c.title}>{c.title}</a>{:else}<span class="min-w-0 flex-1 truncate" title={c.title}>{c.title}</span>{/if}
+          {#if href}<a class="min-w-0 flex-1 truncate text-gleam" {href} target="_blank" rel="noopener noreferrer" title={c.title}>{c.title}</a>{:else}<span class="min-w-0 flex-1 truncate" title={c.title}>{c.title}</span>{/if}
           <button class="btn sm shrink-0" aria-label={approving ? $t('issueLink.approveLinkRef', { ref: c.ref }) : $t('issueLink.linkRef', { ref: c.ref })} onclick={() => link(c.ref)}>{approving ? $t('issueLink.approveLink') : $t('issueLink.link')}</button>
         </li>
       {/each}

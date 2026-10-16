@@ -5,18 +5,7 @@
     "brand": "Forge",
     "tagline": "software factory",
     "repo": "repo",
-    "dwg": "DWG · {view}",
-    "tblock": {
-      "drawnBy": "DRAWN BY",
-      "drawnByValue": "forge",
-      "sessions": "SESSIONS",
-      "sessionsValue": "{count} active",
-      "rev": "REV",
-      "revValue": "v{version}",
-      "api": "API",
-      "sheet": "SHEET",
-      "sheetValue": "{view} · {index} of {total}"
-    },
+    "view": "{view}",
     "noConfig": "This repo has no .forge/config.yml yet. Run /forge init."
   },
   "common": {
@@ -29,7 +18,7 @@
     "lens": "Lens",
     "job": "Job",
     "rounds": "Rounds",
-    "rev": "REV",
+    "you": "YOU",
     "dismiss": "Dismiss"
   },
   "nav": {
@@ -89,9 +78,14 @@
   "statusbar": {
     "label": "Status",
     "close": "Close",
-    "command": {
-      "word": "New job",
-      "rest": " or command"
+    "facts": {
+      "forge": "FORGE",
+      "version": "v{version}",
+      "api": "API",
+      "sessions": "SESSIONS",
+      "sessionsValue": "{count} active",
+      "sheet": "SHEET",
+      "sheetValue": "{view} · {index} of {total}"
     },
     "daemon": {
       "title": "Daemon",
@@ -399,7 +393,6 @@
   "settings": {
     "open": "Settings",
     "title": "Settings",
-    "sheet": "Sheet S-01",
     "close": "Close settings",
     "discard": "Discard unsaved changes?",
     "loading": "Loading settings…",
@@ -421,16 +414,13 @@
     "general": {
       "language": "Language",
       "theme": "Theme",
-      "cyanotype": "Cyanotype",
-      "vellum": "Vellum",
-      "nightprint": "Nightprint",
+      "forge": "Forge",
+      "ash": "Ash",
       "system": "System",
       "appearance": "Appearance",
       "languageKeyboard": "Language and keyboard",
-      "grid": "Grid",
-      "gridHint": "Draw the 8px grid on the ground",
-      "paper": "Paper",
-      "paperHint": "Paper grain and exposure falloff",
+      "grain": "Grain",
+      "grainHint": "Film grain on the ground and plates",
       "hint": "Press , to open settings.",
       "shortcut": "Open settings with the , key",
       "hintOff": "The , shortcut is off. Use the Settings button."

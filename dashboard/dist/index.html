@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="cyanotype">
+<html lang="en" data-theme="forge">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -11,13 +11,13 @@
         const saved = localStorage.getItem('forge.theme');
         const light = matchMedia('(prefers-color-scheme: light)').matches;
         document.documentElement.dataset.theme =
-          saved === 'cyanotype' || saved === 'dark' ? 'cyanotype' : saved === 'vellum' || saved === 'light' ? 'vellum' : saved === 'nightprint' ? 'nightprint' : light ? 'vellum' : 'nightprint';
-        document.documentElement.dataset.grid = localStorage.getItem('forge.grid') === 'off' ? 'off' : 'on';
-        document.documentElement.dataset.paper = localStorage.getItem('forge.paper') === 'off' ? 'off' : 'on';
+          saved === 'forge' || saved === 'cyanotype' || saved === 'dark' || saved === 'nightprint' ? 'forge' : saved === 'ash' || saved === 'vellum' || saved === 'light' ? 'ash' : light ? 'ash' : 'forge';
+        const grain = localStorage.getItem('forge.grain');
+        document.documentElement.dataset.grain = (grain === null ? localStorage.getItem('forge.paper') : grain) === 'off' ? 'off' : 'on';
       } catch {}
     </script>
-    <script type="module" crossorigin src="/assets/index-7bMTGhNB.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-Cyk78-Er.css">
+    <script type="module" crossorigin src="/assets/index-BkgyFgrf.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BrrxJfba.css">
   </head>
   <body class="ground min-h-screen"></body>
 </html>

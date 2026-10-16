@@ -109,5 +109,5 @@ export function budgetPanel(job: JobInput, configBudget: BudgetLimits | null | u
   const checked = Object.keys(lc).length
     ? `checked ${Number.isFinite(Date.parse(lc.at)) ? ago(lc.at) : '—'} · ${lc.checkpoint ?? '—'}`
     : 'not checked yet';
-  return `<div class="sheet ticks p-4 flex flex-col gap-2"><span class="tk"></span><div class="flex flex-wrap items-center justify-between gap-2"><h3 class="h section">Budget</h3><span class="label">${esc(checked)}</span></div>${rows}</div>`;
+  return `<div class="plate p-4 flex flex-col gap-2"><div class="flex flex-wrap items-center justify-between gap-2"><h3 class="h section">Budget</h3><span class="label">${esc(checked)}</span></div>${rows}</div>`;
 }

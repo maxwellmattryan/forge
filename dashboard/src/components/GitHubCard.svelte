@@ -109,12 +109,11 @@
     bind:offsetHeight={height}
     id={CARD_ID}
     role="tooltip"
-    class="sheet ticks solid fixed z-55 flex flex-col gap-2 p-3 text-sm shadow-(--shadow-dialog)"
+    class="plate solid fixed z-55 flex flex-col gap-2 p-3 text-sm shadow-(--shadow-overlay)"
     style="top: {place.top}px; left: {place.left}px; width: {place.width}px"
     onpointerenter={holdCard}
     onpointerleave={(e) => e.pointerType === 'mouse' && card && pointerLeft(card, e.relatedTarget instanceof Node ? e.relatedTarget : null, card)}
   >
-    <span class="tk"></span>
     <div class="flex min-w-0 items-center gap-2">
       <span class="label min-w-0 flex-1 truncate">{KIND[kind]} · {repo}</span>
       {#if preview && tone && 'state' in preview}<Chip {tone} text={STATE[preview.state]} extra="shrink-0" />{:else if preview?.kind === 'repo' && preview.archived}<Chip tone="warn" text={$t('github.repo.archived')} extra="shrink-0" />{/if}
@@ -125,7 +124,7 @@
     {:else if !preview}
       <p class="muted">{$t('common.loading')}</p>
     {:else if preview.kind === 'pull' || preview.kind === 'issue'}
-      <a class="h card text-ink line-clamp-2 break-words hover:underline" {href} target="_blank" rel="noopener noreferrer" tabindex="-1">{preview.title} <span class="mono muted font-normal">#{preview.number}</span></a>
+      <a class="h card text-gleam line-clamp-2 break-words hover:underline" {href} target="_blank" rel="noopener noreferrer" tabindex="-1">{preview.title} <span class="mono muted font-normal">#{preview.number}</span></a>
       {#if preview.excerpt}<p class="muted line-clamp-3 break-words">{preview.excerpt}</p>{/if}
       {#if preview.kind === 'pull'}<div class="mono muted truncate" title="{preview.base} ← {preview.head}">{preview.base} ← {preview.head}</div>{/if}
       {#if (preview.kind === 'pull' && (preview.checks || preview.review)) || preview.labels.length}
@@ -142,7 +141,7 @@
         {#if preview.kind === 'issue' && preview.assignees.length}<span>{$t('github.facts.assigned', { names: preview.assignees.join(', ') })}</span>{/if}
       </div>
     {:else if preview.kind === 'repo'}
-      <a class="h card text-ink truncate hover:underline" {href} target="_blank" rel="noopener noreferrer" tabindex="-1">{preview.repo}</a>
+      <a class="h card text-gleam truncate hover:underline" {href} target="_blank" rel="noopener noreferrer" tabindex="-1">{preview.repo}</a>
       {#if preview.description}<p class="muted line-clamp-3 break-words">{preview.description}</p>{/if}
       {#if preview.private || preview.fork || preview.language || preview.license}
         <div class="flex flex-wrap gap-1.5">
@@ -160,7 +159,7 @@
         {#if preview.pushedAt}<span>{$t('github.facts.pushed', { ago: ago(preview.pushedAt, ticker.now) })}</span>{/if}
       </div>
     {:else}
-      <a class="h card text-ink line-clamp-2 break-words hover:underline" {href} target="_blank" rel="noopener noreferrer" tabindex="-1">{preview.headline}</a>
+      <a class="h card text-gleam line-clamp-2 break-words hover:underline" {href} target="_blank" rel="noopener noreferrer" tabindex="-1">{preview.headline}</a>
       {#if preview.checks}<div class="flex flex-wrap gap-1.5"><Chip tone={checksTone(preview.checks)} text={CHECKS[preview.checks]} /></div>{/if}
       <div class="caption muted flex flex-wrap gap-x-3 gap-y-0.5">
         <span class="mono">{preview.sha.slice(0, 7)}</span>

@@ -1,7 +1,10 @@
 // The status bar's pure half (dashboard/src/lib/statusbar.ts) and the popover rules (dashboard/src/lib/popover.ts).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ROLE_ORDER, barModel, type BarModel, type DaemonIndicator, connectionState, inlineInputAction, modelLabel, modelSummary, promptAnnouncement, reviewerRows, roleRows, summaryText } from '../dashboard/src/lib/statusbar.ts';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { FACTS_DROP, FACTS_MAX, ROLE_ORDER, barModel, factsHidden, type BarModel, type DaemonIndicator, connectionState, inlineInputAction, modelLabel, modelSummary, promptAnnouncement, reviewerRows, roleRows, summaryText } from '../dashboard/src/lib/statusbar.ts';
 import { FOCUSABLE, POPOVERS, TAB_STOPS, dismissal, placePopover, togglePopover, type DismissReason } from '../dashboard/src/lib/popover.ts';
 import { TABBABLE } from '../dashboard/src/lib/settings.ts';
 
@@ -213,4 +216,43 @@ test("a popover's own Tab handling stops on summaries and selects, never on tabi
   assert.ok(TAB_STOPS.startsWith(`${TABBABLE}, `), 'every palette Tab stop');
   for (const sel of ['select:not([disabled])', 'summary', '[contenteditable]']) assert.ok(TAB_STOPS.includes(sel), `and ${sel}`);
   assert.ok(!/(^|, )\[tabindex\](,|$)/.test(TAB_STOPS), 'no bare [tabindex]: tabindex="-1" is not a Tab stop');
+});
+
+// The facts strip (smithy/components/StatusBar/README.md): FORGE v… · API n · SESSIONS ● N active · SHEET View · i of total,
+// dropping from the right as the room runs out: SHEET, then API, then the SESSIONS word, then the FORGE word.
+test('facts strip order and drop order', () => {
+  assert.deepEqual([...FACTS_DROP], ['sheet', 'api', 'sessionsWord', 'forgeWord']);
+  assert.equal(FACTS_MAX, 4);
+  const none = { sheet: false, api: false, sessionsWord: false, forgeWord: false };
+  assert.deepEqual(factsHidden(0), none, 'level 0: every fact shows');
+  assert.deepEqual(factsHidden(1), { ...none, sheet: true });
+  assert.deepEqual(factsHidden(2), { ...none, sheet: true, api: true });
+  assert.deepEqual(factsHidden(3), { sheet: true, api: true, sessionsWord: true, forgeWord: false });
+  assert.deepEqual(factsHidden(4), { sheet: true, api: true, sessionsWord: true, forgeWord: true });
+  assert.deepEqual(factsHidden(9), factsHidden(4), 'past the last level nothing more drops: the version and the sessions dot stay');
+  assert.deepEqual(factsHidden(-1), none);
+  assert.deepEqual(factsHidden(Number.NaN), none, 'a bad level hides nothing');
+
+  // The markup: the pairs in order, each dropped one sr-only (its separator hidden), and below md only the version and
+  // the sessions dot and count.
+  const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const bar = fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'components', 'StatusBar.svelte'), 'utf8').replace(/<script\b[\s\S]*?<\/script>|<!--[\s\S]*?-->/g, '');
+  const at = (s: string) => {
+    const i = bar.indexOf(s);
+    assert.ok(i > 0, `StatusBar.svelte has ${s}`);
+    return i;
+  };
+  const order = [
+    at('<span class="k max-md:sr-only {hid.forgeWord ? \'sr-only\' : \'\'}">{$t(\'statusbar.facts.forge\')}</span>'),
+    at('<span class="max-md:sr-only {hid.api ? \'sr-only\' : \'\'}"><span class="k">{$t(\'statusbar.facts.api\')}</span>'),
+    at('<span class="k max-md:sr-only {hid.sessionsWord ? \'sr-only\' : \'\'}">{$t(\'statusbar.facts.sessions\')}</span><LiveDot on={active.count > 0} /><span class="num">'),
+    at('<span class="max-md:sr-only {hid.sheet ? \'sr-only\' : \'\'}"><span class="k">{$t(\'statusbar.facts.sheet\')}</span>'),
+  ];
+  assert.deepEqual([...order].sort((a, b) => a - b), order, 'FORGE, API, SESSIONS, SHEET, left to right');
+  assert.ok(at('<div bind:this={leftBox}') < at('<div bind:this={factsBox} class="facts'), 'between the left cluster');
+  assert.ok(at('<div bind:this={factsBox} class="facts') < at('<div bind:this={rightBox}'), 'and the right one');
+  assert.match(bar, /<span id="footer-version"><span class="k[^"]*"/, 'the version pair keeps its id');
+  assert.match(bar, /<span id="footer-sessions" title=\{activeTitle\}>/, 'the sessions pair keeps its id and the active-sessions title');
+  assert.match(bar, /\$t\('statusbar\.facts\.sheetValue', \{ view: viewLabels\[S\.view\], index: viewIndex\(S\.view\), total: VIEWS\.length \}\)/, 'SHEET View · i of total');
+  for (const k of ['api', 'sheet']) assert.ok(bar.includes(`<span class="sep max-md:hidden! {hid.${k} ? \'hidden!\' : \'\'}" aria-hidden="true"></span>`), `the tick before ${k} goes with it`);
 });

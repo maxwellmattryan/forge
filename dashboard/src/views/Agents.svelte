@@ -27,20 +27,20 @@
 <PageHeader title={$t('agents.title')}>
   {#snippet sub()}{$t('agents.sub')}{/snippet}
 </PageHeader>
-<h2 class="sheet h section w-fit max-w-full px-3 py-1.5 mb-3">{$t('agents.running')}</h2>
+<h2 class="plate h section w-fit max-w-full px-3 py-1.5 mb-3">{$t('agents.running')}</h2>
 {#if running.length}
   <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
     {#each running as a (`${a.job.id}/${a.role}`)}
       {@const effort = effortChip(a.job.effort, defaultEffort)}
-      <button class="sheet ticks clickable p-3 text-left" onclick={() => openDrawer(a.job.id)}><span class="tk"></span><div class="flex items-center justify-between gap-2"><span class="font-medium">{a.role}</span><span class="flex flex-wrap justify-end gap-1"><span class="chip ink">{a.model ?? $t('agents.modelUnknown')}</span><EffortChip level={effort} /></span></div><div class="text-sm text-muted mt-1 line-clamp-1">{a.job.title}</div><div class="text-[11px] text-muted mt-1">{$t('agents.runningMeta', { round: a.round ?? '—', started: ago(a.startedAt) })}</div></button>
+      <button class="plate clickable p-3 text-left" onclick={() => openDrawer(a.job.id)}><div class="flex items-center justify-between gap-2"><span class="font-medium">{a.role}</span><span class="flex flex-wrap justify-end gap-1"><span class="chip gleam">{a.model ?? $t('agents.modelUnknown')}</span><EffortChip level={effort} /></span></div><div class="text-sm text-muted mt-1 line-clamp-1">{a.job.title}</div><div class="text-[11px] text-muted mt-1">{$t('agents.runningMeta', { round: a.round ?? '—', started: ago(a.startedAt) })}</div></button>
     {/each}
   </div>
 {:else}
   <Empty>{$t('agents.noRunning')}</Empty>
 {/if}
-<h2 class="sheet h section w-fit max-w-full px-3 py-1.5 mt-8 mb-3">{$t('agents.sessions')}</h2>
+<h2 class="plate h section w-fit max-w-full px-3 py-1.5 mt-8 mb-3">{$t('agents.sessions')}</h2>
 {#if sessions.length}
-  <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
+  <div class="plate flat"><div class="overflow-x-auto">
     <table class="tbl">
       <thead><tr><th>{$t('agents.session')}</th><th>{$t('agents.host')}</th><th>{$t('agents.jobs')}</th><th>{$t('agents.lastSeen')}</th></tr></thead>
       <tbody>
@@ -48,7 +48,7 @@
           <tr>
             <td class="font-mono text-xs"><span class="dot {s.live ? 'ok' : 'hollow'} mr-1.5"></span>{s.session}</td>
             <td>{s.host ?? '—'}</td>
-            <td>{#each s.jobs as j (j.id)}<button class="hover:text-ink mr-2" onclick={() => openDrawer(j.id)}>{j.id}</button>{/each}</td>
+            <td>{#each s.jobs as j (j.id)}<button class="hover:text-gleam mr-2" onclick={() => openDrawer(j.id)}>{j.id}</button>{/each}</td>
             <td class="text-muted">{ago(s.heartbeat)}</td>
           </tr>
         {/each}
@@ -59,9 +59,9 @@
   <Empty>{$t('agents.noSessions')}</Empty>
 {/if}
 {#if r}
-  <h2 class="sheet h section w-fit max-w-full px-3 py-1.5 mt-8 mb-3">{$t('agents.roster')}</h2>
+  <h2 class="plate h section w-fit max-w-full px-3 py-1.5 mt-8 mb-3">{$t('agents.roster')}</h2>
   <p class="plain w-fit max-w-full flex flex-wrap items-center gap-1.5 px-3 py-1.5 text-xs text-muted mb-3">{$t('agents.effortDefault')}{#if defaultEffort}<EffortChip level={defaultEffort} />{:else}<span>{$t('effort.claude')}</span>{/if}</p>
-  <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
+  <div class="plate flat"><div class="overflow-x-auto">
     <table class="tbl">
       <thead><tr><th>{$t('agents.role')}</th><th>{$t('common.model')}</th><th>{$t('agents.effort')}</th><th>{$t('agents.promptHash')}</th><th>{$t('agents.addendum')}</th></tr></thead>
       <tbody>
@@ -77,8 +77,8 @@
       </tbody>
     </table>
   </div></div>
-  <h2 class="sheet h section w-fit max-w-full px-3 py-1.5 mt-8 mb-3">{$t('agents.panel')}</h2>
-  <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
+  <h2 class="plate h section w-fit max-w-full px-3 py-1.5 mt-8 mb-3">{$t('agents.panel')}</h2>
+  <div class="plate flat"><div class="overflow-x-auto">
     <table class="tbl">
       <thead><tr><th>{$t('common.lens')}</th><th>{$t('common.model')}</th><th>{$t('agents.effort')}</th><th>{$t('agents.runsWhen')}</th><th>{$t('agents.checklist')}</th><th>{$t('agents.hash')}</th></tr></thead>
       <tbody>
@@ -95,5 +95,5 @@
       </tbody>
     </table>
   </div></div>
-  {#if r.learnings}<p class="sheet w-fit max-w-full px-3 py-1.5 text-xs text-muted mt-3">{$t('agents.learnings')} <code class="mono text-fg">{r.learnings}</code>.</p>{/if}
+  {#if r.learnings}<p class="plate w-fit max-w-full px-3 py-1.5 text-xs text-muted mt-3">{$t('agents.learnings')} <code class="mono text-fg">{r.learnings}</code>.</p>{/if}
 {/if}

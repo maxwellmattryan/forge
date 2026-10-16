@@ -18,5 +18,5 @@
 {/snippet}
 
 {#if deps.length || blocks.length}
-  <div class="sheet ticks p-4 flex flex-col gap-2.5"><span class="tk"></span><h3 class="h section">{$t('deps.title')}</h3>{@render row($t('deps.dependsOn'), deps)}{@render row($t('deps.blocks'), blocks)}</div>
+  <div class="plate p-4 flex flex-col gap-2.5"><h3 class="h section">{$t('deps.title')}</h3>{@render row($t('deps.dependsOn'), deps)}{@render row($t('deps.blocks'), blocks)}</div>
 {/if}

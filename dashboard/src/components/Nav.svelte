@@ -24,6 +24,6 @@
   {@const on = S.view === v.id}
   <a href="#/{v.id}" class={on ? 'active' : ''} aria-current={on ? 'page' : undefined}
     ><span class="lbl">{#if !mobile}<Icon name={v.icon} />{/if}{labels[v.id]}</span>
-    {#if n}{#if v.id === 'inbox'}<span class="chip rev">{n}</span>{:else}<span class="mono num {on ? '' : 'muted'}">{n}</span>{/if}{/if}</a
+    {#if n}{#if v.id === 'inbox'}<span class="chip you">{n}</span>{:else}<span class="mono num {on ? '' : 'muted'}">{n}</span>{/if}{/if}</a
   >
 {/each}

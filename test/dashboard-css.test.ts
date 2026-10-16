@@ -1,5 +1,6 @@
-// The Drafting utility set (design/drafting.css) ported into dashboard/style.css as @utility
-// classes, the old class names gone, and the drawing rules: square corners, hard shadows.
+// The Smithy utility set (smithy/smithy.css) ported into dashboard/style.css as @utility classes, the Drafting class
+// names gone, and the drawing rules: plates cut at two corners and clipped to them, the grain on its own layer, sheen
+// on hover, token shadows.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -9,21 +10,24 @@ import { builtCss } from './built-css.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DASHBOARD = path.join(ROOT, 'dashboard');
+const SMITHY = path.join(ROOT, 'smithy');
+const smithyCss = () => fs.readFileSync(path.join(SMITHY, 'smithy.css'), 'utf8');
+const styleCss = () => fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8');
 
 const UTILITIES = (
-  'ground falloff plain chrome sketch sheet ticks redline dashed solid clickable h label callout mono num muted dimmed caption ' +
-  'dim-line prose btn seg chip nav input check radio field track fill tabs tab tbl tblock kpi ic dot backdrop scrim mark'
+  'ground falloff plain solid chrome plate clickable h label callout mono num muted dimmed caption stamp-line prose btn seg chip ' +
+  'navlist input check radio field cmd-field track fill tabs tab tbl facts kpi ic dot halo backdrop scrim mark'
 ).split(' ');
 // Compound selectors as the build writes them (minified, attribute quotes dropped).
 const MODIFIERS = [
-  '.sheet.clickable', '.sheet.hover', '.sheet.redline', '.sheet.dashed', '.sheet.solid', '.ticks>.tk', '.ticks:before', '.ticks>.tk:after',
-  '.h.display', '.h.page', '.h.sheet-title', '.h.section', '.h.card', '.callout:before', '.dim-line .end', '.prose h1', '.prose h3', '.prose pre code', '.prose.compact',
+  '.plate:after', '.plate.flat:after', '.plate.open', '.plate.cold', '.plate.ember', '.plate.riveted', '.plate.riveted:before', '.plate.clickable', '.plate.hover', '.plate.solid',
+  '.h.display', '.h.page', '.h.sheet-title', '.h.section', '.h.card', '.callout:before', '.stamp-line:before', '.stamp-line.wide:before', '.prose h1', '.prose h3', '.prose pre code', '.prose.compact',
   '.btn.primary', '.btn.sel', '.btn.sm', '.btn.icon', '.btn.sm.icon', '.btn.ghost', '.btn.touch', '.btn.active', '.btn.focus', '.btn.disabled', '.btn[disabled]', '.btn .ic', '.seg .btn',
-  '.chip.ok', '.chip.bad', '.chip.warn', '.chip.info', '.chip.ink', '.chip.muted', '.chip.live', '.chip.rev', '.chip.hl', '.chip.sm', '.chip:is(button)',
-  '.nav a', '.nav button', '.nav a.active', '.nav .lbl', '.nav.row', '.nav.row a', '.nav.row button',
-  '.input:focus', '.input.sm', '.input:is(textarea)', '.input:is(select)', '.check.on:after', '.radio.on:after', '.fill.ok', '.fill.warn', '.fill.bad',
-  '.tab.active', '.tbl th', '.tbl tr.clickable', '.tbl .r', '.tblock>div.wide', '.tblock .k', '.kpi .v', '.ic .cx',
-  '.dot.ok', '.dot.ink', '.dot.hl', '.dot.red', '.dot.hollow', '[data-theme=vellum] .backdrop', '[data-theme=vellum] .scrim', '[data-theme=vellum] .mark', '.ground:before', '.falloff:after',
+  '.chip.ok', '.chip.bad', '.chip.warn', '.chip.info', '.chip.gleam', '.chip.muted', '.chip.live', '.chip.you', '.chip.spark', '.chip.sm', '.chip:is(button)',
+  '.navlist a', '.navlist button', '.navlist a.active', '.navlist .lbl', '.navlist.row', '.navlist.row a', '.navlist.row button',
+  '.input:focus', '.input.sm', '.input:is(textarea)', '.input:is(select)', '.check:checked:after', '.radio.on:after', '.cmd-field input', '.cmd-field:focus-within', '.fill.ok', '.fill.warn', '.fill.bad',
+  '.tab.active', '.tbl th', '.tbl tr.clickable', '.tbl .r', '.facts .k', '.facts .sep', '.kpi .v',
+  '.dot.ok', '.dot.gleam', '.dot.spark', '.dot.ember', '.dot.hollow', '.dot.plain', '[data-theme=ash] .backdrop', '[data-theme=ash] .scrim', '.ground:before', '.falloff:after',
 ];
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -38,70 +42,152 @@ function ruleFor(css: string, selector: string): string {
 /** A class selector that ends there: `.h` matches `.h{` or `.h.card`, never `.h-4` or `.hatch`. */
 const hasClass = (css: string, name: string) => new RegExp(`(?<!\\\\)\\.${escapeRe(name)}(?![\\w\\\\-])`).test(css);
 
-test('every drafting utility is ported', () => {
-  const source = fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8');
+/** The class names smithy/smithy.css draws: every `.name` in a selector, comments dropped. */
+function smithyClasses(): Set<string> {
+  const text = smithyCss().replace(/\/\*[\s\S]*?\*\//g, '');
+  const out = new Set<string>();
+  for (const m of text.matchAll(/([^{}]*)\{/g)) for (const c of m[1].matchAll(/\.([a-z][\w-]*)/g)) out.add(c[1]);
+  return out;
+}
+
+test('every smithy utility is ported', () => {
+  const source = styleCss();
   const css = builtCss();
   for (const name of UTILITIES) {
     assert.match(source, new RegExp(`@utility ${escapeRe(name)}\\s*\\{`), `style.css declares @utility ${name}`);
     assert.ok(hasClass(css, name), `the built CSS has a .${name} rule`);
   }
-  // The layout helpers stay Tailwind's: a custom `grow` would emit next to flex-grow.
-  for (const name of ['row', 'wrap', 'col', 'grow']) assert.doesNotMatch(source, new RegExp(`@utility ${name}\\s*\\{`), `${name} is not ported`);
+  // Every class smithy.css draws is a utility or a modifier inside one; the type styles of tokens.css and the layout
+  // helpers stay Tailwind's (a custom `grow` would emit next to flex-grow).
+  const drawn = smithyClasses();
+  assert.ok(drawn.has('plate') && drawn.has('riveted') && drawn.has('facts'), `smithy.css is read (${drawn.size} classes)`);
+  const LAYOUT = ['row', 'wrap', 'col', 'grow'];
+  for (const name of LAYOUT) assert.doesNotMatch(source, new RegExp(`@utility ${name}\\s*\\{`), `${name} is not ported`);
+  // `rv` is the old rivet span smithy.css hides; nothing renders it.
+  const missing = [...drawn].filter((c) => !LAYOUT.includes(c) && c !== 'rv' && !hasClass(css, c));
+  assert.deepEqual(missing, [], 'every smithy class the dashboard can use is in the build');
   for (const sel of MODIFIERS) assert.ok(css.includes(sel), `the built CSS has ${sel}`);
-  // A .nav.row item keeps its natural width (the column rule sets width: 100%), in the build and in the drawing.
-  assert.match(ruleFor(css, '.nav.row a'), /width:auto/);
-  assert.ok(fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8').includes('.nav.row a, .nav.row button { width: auto;'), 'design/drafting.css has the .nav.row item rule');
-  assert.ok(fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8').includes('.prose.compact {'), 'design/drafting.css has the .prose.compact rules');
+  // A .navlist.row item keeps its natural width (the column rule sets width: 100%), in the build and in the drawing.
+  assert.match(ruleFor(css, '.navlist.row a'), /width:auto/);
+  assert.ok(smithyCss().includes('.navlist.row a, .navlist.row button { width: auto;'), 'smithy/smithy.css has the .navlist.row item rule');
+  assert.ok(smithyCss().includes('.prose.compact {'), 'smithy/smithy.css has the .prose.compact rules');
   assert.ok(!hasClass('.hatch{}.h-4{}', 'h') && hasClass('.h.card{}', 'h') && hasClass('.x .h{', 'h'), 'the class matcher');
-  // A sheet sets only its background colour, never the shorthand, so a class composed with it keeps its own background-image.
-  const sheet = ruleFor(css, '.sheet');
-  assert.match(sheet, /background-color:var\(--panel\)/);
-  assert.doesNotMatch(sheet, /(^|[;{])background:/, 'no background shorthand on .sheet');
-  const drafting = fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8');
-  const sheetRule = /^\.sheet \{([^}]*)\}/m.exec(drafting)?.[1] ?? '';
-  assert.match(sheetRule, /background-color: var\(--panel\)/, 'design/drafting.css .sheet sets background-color');
-  assert.doesNotMatch(sheetRule, /(^|;)\s*background:/, 'design/drafting.css .sheet has no background shorthand');
+  // A plate sets only its background colour, never the shorthand, so nothing composed with it paints past its cut.
+  const plate = ruleFor(css, '.plate');
+  assert.match(plate, /background-color:var\(--panel\)/);
+  assert.doesNotMatch(plate, /(^|[;{])background(-image)?:/, 'no background shorthand or image on .plate');
+});
+
+test('plates clip and keep the grain on ::after', () => {
+  const css = builtCss();
+  const plate = ruleFor(css, '.plate');
+  assert.match(plate, /overflow:clip/, 'a plate clips its overflow to its cut shape');
+  assert.match(plate, /corner-shape:bevel/, 'the cut is a chisel line');
+  assert.match(plate, /border-radius:var\(--radius-cut\)\s*var\(--radius-1\)\s*var\(--radius-cut\)\s*var\(--radius-1\)/, 'cut at top-left and bottom-right');
+  assert.match(plate, /isolation:isolate/, 'the grain layer stays behind the content');
+  const grain = ruleFor(css, '.plate:after');
+  assert.match(grain, /background-image:var\(--hammer\)/, 'the grain is a layer of its own');
+  assert.match(grain, /border-radius:inherit/);
+  assert.match(grain, /corner-shape:inherit/);
+  assert.match(grain, /z-index:-1/);
+  assert.match(grain, /pointer-events:none/);
+  // Nothing puts a background image on a plate itself, at any depth (a hovered or ember plate included).
+  for (const m of css.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
+    const sels = splitTop(m[1], /,/).filter((s) => /\.plate(?![\w-])/.test(s) && !/:(after|before)/.test(s));
+    if (sels.length) assert.doesNotMatch(m[2], /background-image|(^|;)background:/, `${sels.join(',')} paints a background image on the plate`);
+  }
+  for (const sel of ['.plate.flat:after', '.plate.open:after', '.plate.cold:after']) assert.match(ruleFor(css, sel), /display:none/, `${sel}: no grain`);
+  const smithy = smithyCss();
+  assert.ok(smithy.includes('.plate::after { content: ""; position: absolute; inset: 0; border-radius: inherit; corner-shape: inherit; background-image: var(--hammer);'), 'smithy/smithy.css draws the same layer');
+  assert.match(/^\.plate \{([^}]*)\}/m.exec(smithy)?.[1] ?? '', /overflow: clip;/, 'and clips the plate');
+});
+
+test('button plates and controls set appearance: none', () => {
+  const css = builtCss();
+  for (const sel of ['.plate', '.btn', '.tab', '.chip', '.navlist a', '.navlist button', '.check', '.cmd-field input']) assert.match(ruleFor(css, sel), /appearance:none/, `${sel} sets appearance: none`);
+  // The sources render plates, buttons, tabs and chips as <button>s, and every one carries one of those classes.
+  const src = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? src(path.join(dir, e.name)) : e.name.endsWith('.svelte') ? [path.join(dir, e.name)] : []));
+  let plates = 0;
+  for (const f of src(path.join(DASHBOARD, 'src'))) for (const m of fs.readFileSync(f, 'utf8').matchAll(/<button\b[^>]*class="[^"]*\bplate\b/g)) plates += m ? 1 : 0;
+  assert.ok(plates >= 2, `found ${plates} button plates (job cards, the Agents cards)`);
 });
 
 test('palette scrim and stable scrollbar gutter', () => {
-  const source = fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8');
+  const source = styleCss();
   const scrim = /@utility scrim\s*\{([\s\S]*?)\n\}/.exec(source)?.[1] ?? '';
-  assert.match(scrim, /^\s*background: rgba\(8,28,58,\.3\);/, 'cyanotype scrim is .3');
-  assert.match(scrim, /\[data-theme="vellum"\] & \{ background: rgba\(20,53,95,\.2\); \}/, 'vellum scrim is .2');
+  assert.match(scrim, /^\s*background: rgba\(5,7,10,\.35\);/, 'forge scrim is .35');
+  assert.match(scrim, /\[data-theme="ash"\] & \{ background: rgba\(40,28,18,\.2\); \}/, 'ash scrim is .2');
   const css = builtCss();
-  assert.match(ruleFor(css, '.scrim'), /background:(rgba\(8,28,58,\.3\)|#081c3a4d)/);
-  assert.match(ruleFor(css, '[data-theme=vellum] .scrim'), /background:(rgba\(20,53,95,\.2\)|#14355f33)/);
+  assert.match(ruleFor(css, '.scrim'), /background:(rgba\(5,7,10,\.35\)|#05070a59)/);
+  assert.match(ruleFor(css, '[data-theme=ash] .scrim'), /background:(rgba\(40,28,18,\.2\)|#281c1233)/);
   assert.match(ruleFor(css, 'html'), /scrollbar-gutter:stable/, 'the built html rule keeps a stable gutter');
-  const drafting = fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8');
-  assert.match(/^html \{([^}]*)\}/m.exec(drafting)?.[1] ?? '', /scrollbar-gutter: stable;/, 'design/drafting.css html has it too');
-  assert.ok(drafting.includes('.scrim { background: rgba(8,28,58,.3); }'), 'design/drafting.css .scrim');
-  assert.ok(drafting.includes('[data-theme="vellum"] .scrim { background: rgba(20,53,95,.2); }'), 'design/drafting.css vellum .scrim');
+  const smithy = smithyCss();
+  assert.match(/^html \{([^}]*)\}/m.exec(smithy)?.[1] ?? '', /scrollbar-gutter: stable;/, 'smithy/smithy.css html has it too');
+  assert.ok(smithy.includes('.scrim { background: rgba(5,7,10,.35); }'), 'smithy/smithy.css .scrim');
+  assert.ok(smithy.includes('[data-theme="ash"] .scrim { background: rgba(40,28,18,.2); }'), 'smithy/smithy.css ash .scrim');
   const root = (rel: string) => /class="([^"]*)"/.exec(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', rel), 'utf8').replace(/<script\b[\s\S]*?<\/script>|<!--[\s\S]*?-->/g, ''))?.[1].split(/\s+/) ?? [];
   const bar = root('CommandBar.svelte');
   assert.ok(bar.includes('scrim') && !bar.includes('backdrop'), `the palette's root uses scrim (${bar.join(' ')})`);
   for (const rel of ['Settings.svelte', 'Drawer.svelte']) assert.match(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', rel), 'utf8'), /class="[^"]*\bbackdrop\b/, `${rel} keeps backdrop`);
 });
 
+/** Every file under dashboard/src that holds markup or builds class strings. */
+const srcFiles = (dir = path.join(DASHBOARD, 'src')): string[] =>
+  fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? srcFiles(path.join(dir, e.name)) : /\.(svelte|ts)$/.test(e.name) ? [path.join(dir, e.name)] : []));
+
+/** The class tokens a file can apply: the static part of every `class=` value and every quoted literal inside one, plus
+ *  the whole literals of TS maps (TONE_CLASS, DOT, CONN_DOT) and class strings built in TS. */
+function classTokensOf(text: string): string[] {
+  const out: string[] = [];
+  const s = text.replace(/<!--[\s\S]*?-->/g, '');
+  for (const m of s.matchAll(/class=("([^"]*)"|\{([^}]*)\})/g)) {
+    const v = m[2] ?? m[3] ?? '';
+    const literals = [...v.matchAll(/'([^']*)'|`([^`]*)`/g)].map((x) => x[1] ?? x[2]);
+    const statics = m[2] !== undefined ? v.replace(/\{[^}]*\}/g, ' ') : '';
+    out.push(...statics.split(/\s+/), ...literals.flatMap((l) => l.split(/\s+/)));
+  }
+  for (const m of s.matchAll(/:\s*'([a-z][\w\s:.-]*)'/g)) out.push(...m[1].split(/\s+/));
+  return out.filter(Boolean);
+}
+
+// The Drafting vocabulary (smithy/MIGRATION.md §2): each name has a Smithy replacement and none is left in a source.
+const DRAFTING_CLASSES = ['sheet', 'ticks', 'tk', 'dashed', 'redline', 'tblock', 'dim-line', 'sketch', 'hatch', 'nav'];
+const DRAFTING_PAIRS: [string, string][] = [['chip', 'rev'], ['chip', 'ink'], ['chip', 'hl'], ['dot', 'ink'], ['dot', 'red'], ['dot', 'hl']];
+
 test('old class names are gone', () => {
-  const source = fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8');
+  const source = styleCss();
   const css = builtCss();
-  const OLD = ['card', 'btn-primary', 'nav-item', 'kpi-label', 'kpi-value', 'prose-md', 'ember-bar', 'brand-rule'];
+  const OLD = ['card', 'btn-primary', 'nav-item', 'kpi-label', 'kpi-value', 'prose-md', 'ember-bar', 'brand-rule', ...DRAFTING_CLASSES];
   for (const name of OLD) assert.doesNotMatch(source, new RegExp(`@utility ${escapeRe(name)}\\s*\\{`), `style.css declares no @utility ${name}`);
   assert.ok(!source.includes('alias: removed in job 4'), 'no alias comments are left');
   const inline = /@source inline\("([^"]*)"\)/.exec(source)?.[1].split(/\s+/) ?? [];
-  assert.ok(inline.includes('sheet'), 'the @source inline list is read');
+  assert.ok(inline.includes('plate'), 'the @source inline list is read');
   assert.deepEqual(inline.filter((n) => OLD.includes(n)), [], 'no old names in @source inline');
-  for (const name of [...OLD.slice(1), 'text-accent']) assert.ok(!hasClass(css, name), `the built CSS has no .${name} rule`);
-  // `.card` survives only as the Drafting title style, `.h.card`.
+  for (const name of [...OLD.slice(1), 'text-accent', 'text-ink', 'bg-ink', 'text-redline', 'bg-highlight']) assert.ok(!hasClass(css, name), `the built CSS has no .${name} rule`);
+  for (const [a, b] of DRAFTING_PAIRS) assert.ok(!css.includes(`.${a}.${b}`), `the built CSS has no .${a}.${b}`);
+  assert.doesNotMatch(css, /@property --sketch/, 'the sketch property is gone');
+  // `.card` survives only as the title style, `.h.card`.
   const cards = [...css.matchAll(/[^{}]*\{/g)].flatMap((m) => m[0].slice(0, -1).split(',')).filter((sel) => hasClass(sel, 'card'));
   assert.ok(cards.length > 0 && cards.every((sel) => sel.trim() === '.h.card'), `.card appears only as .h.card (${cards.join(' | ')})`);
-  for (const v of ['--accent', '--on-accent', '--color-accent', '--color-on-accent']) {
+  for (const v of ['--accent', '--on-accent', '--color-accent', '--color-on-accent', '--color-ink', '--color-redline', '--color-highlight']) {
     assert.ok(!new RegExp(`${escapeRe(v)}(?![\\w-])`).test(source), `style.css has no ${v}`);
     assert.ok(!new RegExp(`${escapeRe(v)}(?![\\w-])`).test(css), `the built CSS has no ${v}`);
   }
-  // kpi is the reference rule now: the sheet outline comes from `sheet ticks kpi` markup.
+  // kpi is the reference rule: the plate comes from `plate kpi` markup.
   assert.doesNotMatch(ruleFor(css, '.kpi'), /border|background/);
-  for (const gone of ['--ember-hot', '--color-ember-hot', 'Inter', 'JetBrains Mono']) assert.ok(!css.includes(gone), `${gone} is gone`);
+  for (const gone of ['--ember-hot', '--color-ember-hot', 'Inter', 'JetBrains Mono', 'Space Grotesk', 'IBM Plex']) assert.ok(!css.includes(gone), `${gone} is gone`);
+
+  // No source applies a Drafting class: `dashed` survives only as Tailwind's border-dashed, `nav` only as the element.
+  assert.deepEqual(classTokensOf(`<a class="sheet {x ? 'redline' : ''}"><b class={on ? 'dot hl' : 'dot'}>`), ['sheet', 'redline', 'dot', 'hl', 'dot', 'dot'], 'self-check: the class reader');
+  const files = [...srcFiles(), path.join(DASHBOARD, 'index.html')];
+  assert.ok(files.length > 60, `checked ${files.length} files`);
+  for (const f of files) {
+    const tokens = classTokensOf(fs.readFileSync(f, 'utf8'));
+    const rel = path.relative(ROOT, f);
+    for (const name of DRAFTING_CLASSES) assert.ok(!tokens.includes(name), `${rel} applies the Drafting class ${name}`);
+    const text = fs.readFileSync(f, 'utf8');
+    for (const [a, b] of DRAFTING_PAIRS) assert.doesNotMatch(text, new RegExp(`(?<![\\w-])${a} ${b}(?![\\w-])`), `${rel} applies ${a} ${b}`);
+  }
 });
 
 /** name: value pairs of every declaration in the stylesheet, at any depth. */
@@ -124,7 +210,11 @@ function splitTop(value: string, sep: RegExp): string[] {
   return out;
 }
 
-const ROUND_OK = /^(0|0px|50%|9999px|calc\(infinity\s*\*\s*1px\)|3\.40282e\+?38px|var\(--radius-dot\))$/;
+// Corners resolve to the radius tokens (0, the 2px chamfer, the 5px nick, the 10px cut, a dot) or a small literal
+// chamfer smithy.css writes (the 1px callout tick, the 3px track, the 4px check); `inherit` passes the plate's cut to its grain layer.
+const ROUND_OK = /^(0|0px|1px|2px|3px|4px|5px|10px|50%|9999px|inherit|calc\(infinity\s*\*\s*1px\)|3\.40282e\+?38px|var\(--radius-(0|1|nick|cut|dot)\))$/;
+// The shadows that may blur: the overlay, drawer and chrome shadows and the gleam's glow. Everything else is hard.
+const BLURRED_TOKENS = ['--shadow-overlay', '--shadow-drawer', '--shadow-chrome', '--shadow-glow'];
 
 /** Shadow parts that blur; a part that is only a var() is checked where that variable is declared. */
 function blurred(value: string): string[] {
@@ -139,7 +229,7 @@ function blurred(value: string): string[] {
   return bad;
 }
 
-test('no rounded corners or blurred shadows', () => {
+test('corners are the token cuts and only the token shadows blur', () => {
   const css = builtCss();
   const decls = declarations(css);
   const vars = new Map<string, string[]>();
@@ -154,74 +244,79 @@ test('no rounded corners or blurred shadows', () => {
   let radii = 0;
   for (const [k, v] of decls) {
     if (!/^border(-[a-z]+)*-radius$/.test(k)) continue;
-    for (const one of splitTop(v, /\s/).flatMap(resolve)) {
+    for (const one of splitTop(v.replace(/\)(?=[^\s,)])/g, ') '), /\s/).flatMap(resolve)) {
       radii++;
       assert.match(one, ROUND_OK, `${k}: ${v} resolves to ${one}`);
     }
   }
-  assert.ok(radii >= 8, `checked ${radii} radii`);
+  assert.ok(radii >= 20, `checked ${radii} radii`);
+  // Every Tailwind rounded-* is the 2px chamfer and every shadow-* the overlay, so a stray utility can never round a
+  // corner or cast a soft shadow of its own (Tailwind emits them only once a source uses one).
+  const source = styleCss();
+  for (const k of ['xs', 'sm', 'md', 'lg', 'xl', '2xl', '3xl', '4xl']) assert.ok(source.includes(`--radius-${k}: var(--radius-1);`), `--radius-${k} is the chamfer`);
+  for (const k of ['2xs', 'xs', 'sm', 'md', 'lg', 'xl', '2xl']) assert.ok(source.includes(`--shadow-${k}: var(--shadow-overlay);`), `--shadow-${k} is the overlay shadow`);
   let shadows = 0;
   for (const [k, v] of decls) {
     if (!(k === 'box-shadow' || /^--tw-(inset-|ring-|inset-ring-|ring-offset-)?shadow$/.test(k) || /^--shadow-/.test(k))) continue;
     shadows++;
+    if (BLURRED_TOKENS.includes(k)) continue;
     assert.deepEqual(blurred(v), [], `${k}: ${v} has a blur radius`);
   }
   assert.ok(shadows >= 8, `checked ${shadows} shadows`);
   assert.deepEqual(blurred('0 10px 15px -3px rgb(0 0 0/.1)'), ['0 10px 15px -3px rgb(0 0 0/.1)'], 'the blur check');
   assert.deepEqual(blurred('var(--tw-ring-inset,)0 0 0 calc(1px + var(--x))var(--c,currentcolor)'), []);
 
-  const src = (dir: string): string[] =>
-    fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? src(path.join(dir, e.name)) : /\.(svelte|ts)$/.test(e.name) ? [path.join(dir, e.name)] : []));
-  for (const f of src(path.join(DASHBOARD, 'src'))) {
+  for (const f of srcFiles()) {
     const text = fs.readFileSync(f, 'utf8');
     assert.doesNotMatch(text, /(?<![\w-])rounded(?![\w-])/, `${path.relative(ROOT, f)} uses a bare rounded class (Tailwind's literal .25rem)`);
   }
 });
 
-const draftingCss = () => fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8');
-
-test('appearance prefs turn the grid and paper off', () => {
+test('grain off hides the ground and plate grain', () => {
   const css = builtCss();
-  assert.match(ruleFor(css, 'html[data-grid=off] .ground'), /background-image:none/);
-  assert.match(ruleFor(css, 'html[data-paper=off] .ground:before'), /display:none/);
-  assert.match(ruleFor(css, 'html[data-paper=off] .falloff:after'), /display:none/);
-  // On by default: nothing hides them unless the attribute says off.
-  assert.doesNotMatch(css, /data-(grid|paper)=on/);
-  const drafting = draftingCss();
-  assert.ok(drafting.includes('html[data-grid="off"] .ground { background-image: none; }'), 'design/drafting.css drops the grid');
-  assert.ok(drafting.includes('html[data-paper="off"] .ground::before, html[data-paper="off"] .ground.falloff::after { display: none; }'), 'design/drafting.css drops the fibre and the falloff');
+  assert.match(ruleFor(css, 'html[data-grain=off] .ground:before'), /display:none/);
+  assert.match(ruleFor(css, 'html[data-grain=off] .plate:after'), /display:none/);
+  // The corner falloff is shade, not texture: it stays.
+  assert.doesNotMatch(css, /html\[data-grain=off\] \.(falloff|ground\.falloff):after/, 'the falloff stays with the grain off');
+  // On by default: nothing hides the grain unless the attribute says off, and the Drafting attributes are gone.
+  assert.doesNotMatch(css, /data-grain=on/);
+  for (const [where, text] of [['the built CSS', css], ['dashboard/style.css', styleCss()], ['dashboard/index.html', fs.readFileSync(path.join(DASHBOARD, 'index.html'), 'utf8')], ...srcFiles().map((f) => [path.relative(ROOT, f), fs.readFileSync(f, 'utf8')])])
+    assert.doesNotMatch(text, /data-(grid|paper)\b|dataset\.(grid|paper)\b/, `${where} names data-grid or data-paper`);
+  const smithy = smithyCss();
+  assert.ok(smithy.includes('html[data-grain="off"] .ground::before'), 'smithy/smithy.css drops the ground grain');
+  assert.ok(smithy.includes('html[data-grain="off"] .plate::after { display: none; }'), 'smithy/smithy.css drops the plate grain');
 });
 
 /** One declaration's value in a rule body, or undefined. */
 const decl = (body: string, prop: string) => new RegExp(`(?:^|;)\\s*${escapeRe(prop)}\\s*:\\s*([^;]*)`).exec(body)?.[1].trim();
-/** The quoted inline SVG in a stylesheet: the first `url("data:image/svg+xml…")`. */
-const grainUri = (text: string) => /url\(\s*"(data:image\/svg\+xml[^"]*)"\s*\)/.exec(text)?.[1];
+/** The quoted inline SVG a custom property holds: the first `--name: url("data:image/svg+xml…")`. */
+const grainUri = (text: string, name: string) => new RegExp(`${escapeRe(name)}\\s*:\\s*url\\(\\s*"(data:image\\/svg\\+xml[^"]*)"\\s*\\)`).exec(text)?.[1];
 
 // The grain sits on a fixed layer the size of the viewport, drawn once (no tile, so no seam), and never moves:
-// no animation, no transition, no scroll. design/drafting.css draws the same grain at the same size.
-test('the grain is fixed, static and mirrored in design/', () => {
+// no animation, no transition, no scroll. smithy/smithy.css draws the same grain at the same size.
+test('the grain is fixed, static and mirrored in smithy/', () => {
   assert.equal(decl('a:1;background-size:100% 100%', 'background-size'), '100% 100%', 'self-check: decl');
-  assert.equal(grainUri('x{--paper:url("data:image/svg+xml,%3Csvg%3E")}'), 'data:image/svg+xml,%3Csvg%3E', 'self-check: grainUri');
+  assert.equal(grainUri('x{--grain:url("data:image/svg+xml,%3Csvg%3E")}', '--grain'), 'data:image/svg+xml,%3Csvg%3E', 'self-check: grainUri');
 
-  const rule = ruleFor(builtCss(), '.ground:before');
+  const css = builtCss();
+  const rule = ruleFor(css, '.ground:before');
   assert.equal(decl(rule, 'position'), 'fixed', 'the grain is fixed to the viewport');
-  assert.equal(decl(rule, 'opacity'), 'var(--paper-opacity)');
-  assert.equal(decl(rule, 'mix-blend-mode'), 'var(--paper-blend)');
+  assert.equal(decl(rule, 'background-image'), 'var(--grain)');
+  assert.equal(decl(rule, 'opacity'), 'var(--grain-opacity)');
+  assert.equal(decl(rule, 'mix-blend-mode'), 'var(--grain-blend)');
   assert.doesNotMatch(rule, /(^|;)\s*(animation|transition)[\w-]*\s*:/, 'the grain never animates');
   assert.equal(decl(rule, 'background-repeat'), 'no-repeat', 'the grain is drawn once');
   assert.equal(decl(rule, 'background-size'), '100% 100%', 'the grain is the size of the layer');
-  assert.doesNotMatch(decodeURIComponent(grainUri(rule) ?? ''), /<svg[^>]*\s(width|height|viewBox)=/, 'the SVG has no size of its own, so 100% 100% never stretches it');
-
-  const style = fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8');
-  const drafting = draftingCss();
-  const uri = grainUri(style);
-  assert.ok(uri, 'dashboard/style.css writes the grain inline');
-  assert.equal(grainUri(rule), uri, 'the build keeps the grain as written');
-  assert.ok(drafting.includes(`--paper: url("${uri}");`), 'design/drafting.css declares the same grain in --paper');
-  const before = drafting.slice(drafting.indexOf('.ground::before {')).split('\n')[0];
-  assert.ok(before.includes('background-image: var(--paper);'), 'design/drafting.css draws --paper on the ground layer');
-  assert.ok(before.includes('background-repeat: no-repeat; background-size: 100% 100%;'), 'design/drafting.css mirrors the sizing');
-  assert.doesNotMatch(before, /animation|transition/, 'design/drafting.css never animates the grain');
+  for (const name of ['--grain', '--hammer']) {
+    const uri = grainUri(styleCss(), name);
+    assert.ok(uri, `dashboard/style.css writes ${name} inline`);
+    assert.equal(grainUri(css, name), uri, `the build keeps ${name} as written`);
+    assert.equal(grainUri(smithyCss(), name), uri, `smithy/smithy.css declares the same ${name}`);
+    assert.doesNotMatch(decodeURIComponent(uri), /<svg[^>]*\s(width|height|viewBox)=/, `${name}: the SVG has no size of its own, so 100% 100% never stretches it`);
+  }
+  const before = smithyCss().slice(smithyCss().indexOf('.ground::before {')).split('\n')[0];
+  assert.ok(before.includes('background-image: var(--grain); background-repeat: no-repeat; background-size: 100% 100%;'), 'smithy/smithy.css mirrors the sizing');
+  assert.doesNotMatch(before, /animation|transition/, 'smithy/smithy.css never animates the grain');
 });
 
 /** The body of the first `@media` block whose prelude matches, braces balanced. */
@@ -248,8 +343,8 @@ test('reduced motion disables transitions and animations', () => {
   // Unlayered, so the !important beats every utility's transition (the drawer's slide included).
   assert.ok(builtCss().lastIndexOf('@media(prefers-reduced-motion:reduce)') > builtCss().indexOf('.transition'), 'the block comes after the utilities');
   assert.ok(
-    draftingCss().includes('@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }'),
-    'design/drafting.css has the same block',
+    smithyCss().includes('@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }'),
+    'smithy/smithy.css has the same block',
   );
 });
 
@@ -276,147 +371,102 @@ function mediaSplit(css: string, prelude: RegExp): { inside: string; outside: st
 }
 const HOVER_MEDIA = /\(\s*hover\s*:\s*hover\s*\)/;
 
-// The sketch, as the build writes it. `transparent` leads the mix: Tailwind's color-mix fallback keeps the
-// first colour, so a browser without color-mix draws no sketch rather than a full-strength one.
-const SKETCH_IMAGE = 'background-image:repeating-linear-gradient(45deg,color-mix(in srgb,transparent,var(--sketch-line)var(--sketch))0 1px,transparent 1px var(--hatch-pitch))';
-const SKETCH_AT_REST = 'background-position:calc(-1*var(--hatch-pitch))0';
-const SKETCH_ON = /--sketch:100%;background-position:0 0(;|$)/;
-const SKETCHED = ['.btn', '.nav a', '.tab', '.chip:is(button)'];
-/** The hover rule of each sketched control, and its `.hover` twin for the previews (chips have none). */
-const HOVER: Record<string, [string, string | null]> = {
+// Sheen: a hovered control's seam turns gleam and its own opaque fill takes a 10–12% gleam tint. Only where the pointer can
+// hover, so a tap leaves nothing behind; the `.hover` twin is for the previews.
+const SHEENED: Record<string, [string, string]> = {
   '.btn': ['.btn:hover', '.btn.hover'],
-  '.nav a': ['.nav a:hover', '.nav a.hover'],
+  '.navlist a': ['.navlist a:hover', '.navlist a.hover'],
   '.tab': ['.tab:hover', '.tab.hover'],
-  '.chip:is(button)': ['.chip:is(button):hover', null],
 };
+const SHEEN = /background-color:color-mix\(in srgb,var\(--surface,var\(--bg\)\),var\(--gleam\)1[02]%\)/;
 
-test('the sketch hover is one registered property', () => {
+test('hover is sheen, with no registered property', () => {
   const css = builtCss();
-  const property = /@property --sketch\{([^}]*)\}/.exec(css)?.[1];
-  assert.equal(property, 'syntax:"<percentage>";inherits:false;initial-value:0%', 'the built CSS registers --sketch, not inherited');
-  const sketch = ruleFor(css, '.sketch');
-  assert.ok(sketch.includes(SKETCH_IMAGE), `.sketch draws var(--sketch-line) at var(--sketch) (${sketch})`);
-  assert.ok(sketch.includes(SKETCH_AT_REST), '.sketch starts one pitch off');
-
+  assert.doesNotMatch(css, /@property --(sketch|sheen)\b/, 'no registered property drives the hover');
+  assert.doesNotMatch(css, /--sketch|repeating-linear-gradient\(45deg/, 'no sketch and no hatch');
   const { inside: hover, outside: ungated } = mediaSplit(css, HOVER_MEDIA);
   const split = mediaSplit('.a{x:1}@media (hover:hover){.b:hover{y:2}}.c{z:3}', HOVER_MEDIA);
   assert.deepEqual([split.inside, split.outside], ['.b:hover{y:2}', '.a{x:1}.c{z:3}'], 'self-check: the media splitter');
-  for (const sel of ['.sketch', ...SKETCHED]) {
-    const rest = ruleFor(css, sel);
-    assert.ok(rest.includes(SKETCH_IMAGE), `${sel} declares the sketch at rest`);
-    assert.ok(rest.includes(SKETCH_AT_REST), `${sel} starts the sketch one pitch off`);
-    assert.match(rest, /transition:--sketch \.16s ease-out,background-position \.16s ease-out/, `${sel} transitions the registered --sketch`);
-    const [on, twin] = HOVER[sel] ?? ['.sketch:hover', '.sketch.hover'];
-    assert.match(ruleFor(hover, on), SKETCH_ON, `${on} sketches, inside @media (hover:hover)`);
-    if (twin) assert.match(ruleFor(css, twin), SKETCH_ON, `${twin} sketches (previews)`);
-    // Ungated, a tap on a touch screen would leave the lines on.
-    assert.doesNotMatch(ruleFor(ungated, on), /--sketch:/, `${on} sets --sketch only inside @media (hover:hover)`);
+  for (const [sel, [on, twin]] of Object.entries(SHEENED)) {
+    assert.match(ruleFor(hover, on), SHEEN, `${on} takes the sheen, inside @media (hover:hover)`);
+    assert.match(ruleFor(css, twin), SHEEN, `${twin} takes the sheen (previews)`);
+    assert.doesNotMatch(ruleFor(ungated, on), /color-mix\(in srgb,var\(--surface,var\(--bg\)\),var\(--gleam\)/, `${on} sheens only inside @media (hover:hover)`);
+    assert.doesNotMatch(ruleFor(css, sel), /background-image/, `${sel} draws no image at rest`);
   }
-  assert.match(ruleFor(hover, '.sheet.clickable:hover'), /background-color:var\(--panel\)/, 'a hovered card keeps its panel');
-  assert.match(ruleFor(css, '.sheet.hover'), /background-color:var\(--panel\)/);
+  assert.match(ruleFor(hover, '.btn:hover'), /border-color:var\(--gleam\)/, 'the seam turns gleam');
   assert.match(ruleFor(hover, '.btn:hover .muted'), /color:inherit/, 'muted text in a hovered button takes its fg');
   assert.match(ruleFor(css, '.btn.hover .muted'), /color:inherit/);
-  // Selected, primary, pressed and disabled buttons, the active nav item and the active tab drop the image.
-  for (const sel of ['.btn.sel', '.btn.primary', '.btn:active']) assert.match(ruleFor(css, sel), /background:var\(--ink\)/, `${sel} resets the background`);
-  for (const sel of ['.btn[disabled]', '.nav a.active', '.tab.active']) assert.match(ruleFor(css, sel), /background-image:none/, `${sel} drops the sketch`);
-
-  for (const m of css.matchAll(/animation(-name)?:([^;}]*)/g)) assert.doesNotMatch(m[2], /sketch/, 'the sketch is a transition, not an animation');
-  assert.doesNotMatch(css, /@keyframes[^{]*sketch/);
-  assert.equal(css.match(/prefers-reduced-motion\s*:\s*reduce/g)?.length, 1, 'one reduced-motion block covers the sketch (the live halo is the separate no-preference query)');
-
-  const drafting = draftingCss();
-  const S = 'background-image: repeating-linear-gradient(45deg, color-mix(in srgb, transparent, var(--sketch-line) var(--sketch)) 0 1px, transparent 1px var(--hatch-pitch)); background-position: calc(-1 * var(--hatch-pitch)) 0;';
-  const H = '--sketch: 100%; background-position: 0 0;';
+  // Selected, primary, pressed and disabled buttons, the active nav item and the active tab never take the sheen tint.
+  for (const sel of ['.btn.sel', '.btn.primary', '.btn.primary:active']) assert.match(ruleFor(css, sel), /background:var\(--gleam-fill\)/, `${sel} is the brushed gleam`);
+  assert.match(ruleFor(hover, '.btn.primary:hover'), /background:var\(--gleam-fill-hot\)/, 'a hovered primary goes gleam-hot');
+  assert.match(ruleFor(hover, '.btn.primary:hover'), /var\(--shadow-glow\)/, 'and glows');
+  for (const sel of ['.navlist a.active', '.tab.active']) assert.doesNotMatch(ruleFor(css, sel), SHEEN, `${sel} takes no sheen`);
+  // A button chip only lights its seam: a chip inside a hovered control stays plain.
+  assert.match(ruleFor(hover, '.chip:is(button):hover'), /^border-color:currentColor$/i);
+  for (const m of css.matchAll(/animation(-name)?:([^;}]*)/g)) assert.doesNotMatch(m[2], /sketch|sheen/, 'hover is a transition, never an animation');
+  assert.equal(css.match(/prefers-reduced-motion\s*:\s*reduce/g)?.length, 1, 'one reduced-motion block covers every transition (the live halo is the separate no-preference query)');
+  const smithy = smithyCss();
   for (const line of [
-    '@property --sketch { syntax: "<percentage>"; inherits: false; initial-value: 0%; }',
-    `.sketch { ${S} transition: --sketch .16s ease-out, background-position .16s ease-out, border-color .12s ease, color .12s ease; }`,
-    `@media (hover: hover) { .sketch:hover { ${H} } }`,
-    `.sketch.hover { ${H} }`,
-    '.chrome { background-color: var(--chrome); --surface: var(--chrome); }',
-    '.sheet.clickable { cursor: pointer; }',
-    '@media (hover: hover) { .sheet.clickable:hover { border-color: var(--line-strong); background-color: var(--panel); } }',
-    '.sheet.hover { border-color: var(--line-strong); background-color: var(--panel); }',
-    `@media (hover: hover) { .btn:hover { ${H} } .btn:hover .muted { color: inherit; } }`,
-    `.btn.hover { ${H} }`,
-    `@media (hover: hover) { button.chip:hover { ${H} } }`,
-    `@media (hover: hover) { .nav a:hover, .nav button:hover { ${H} } }`,
-    `.nav a.hover { ${H} }`,
-    `@media (hover: hover) { .tab:hover { ${H} } }`,
-    `.tab.hover { ${H} }`,
+    '@media (hover: hover) { .btn:hover { border-color: var(--gleam); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--gleam) 12%); } .btn:hover .muted { color: inherit; } }',
+    '.tab:hover, .tab.hover { color: var(--fg); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--gleam) 10%); }',
+    '@media (hover: hover) { button.chip:hover { border-color: currentColor; } }',
   ])
-    assert.ok(drafting.includes(line), `design/drafting.css mirrors ${line}`);
-  for (const sel of ['.btn {', 'button.chip {', '.nav a, .nav button {', '.tab {']) {
-    const rule = drafting.slice(drafting.indexOf(sel)).split('\n')[0];
-    assert.ok(rule.includes(S) && rule.includes('transition: --sketch .16s ease-out'), `design/drafting.css ${sel} declares the sketch at rest`);
-  }
+    assert.ok(smithy.includes(line), `smithy/smithy.css draws ${line}`);
 });
 
-/** Every `selector { body }` whose selector list has the `sheet` class, at any nesting (@media, @supports). */
-const sheetRules = (css: string) =>
-  [...css.matchAll(/([^{}]*)\{([^{}]*)\}/g)].filter((m) => m[1].split(',').some((s) => hasClass(s, 'sheet'))).map((m) => [m[1].trim(), m[2]] as const);
+/** Every `selector { body }` whose selector list has the `plate` class, at any nesting (@media, @supports). */
+const plateRules = (css: string) =>
+  [...css.matchAll(/([^{}]*)\{([^{}]*)\}/g)].filter((m) => m[1].split(',').some((s) => hasClass(s, 'plate'))).map((m) => [m[1].trim(), m[2]] as const);
 
-// A card is the dashboard's most-hovered surface: its outline strengthens at once, nothing fills or fades.
-test('a card hovers at once, without a sketch', () => {
+// A card is the dashboard's most-hovered surface: its seam hardens to line-strong at once, nothing fills, fades or glows.
+test('a card hovers at once, with no sheen', () => {
   const css = builtCss();
   const { inside: hover, outside: ungated } = mediaSplit(css, HOVER_MEDIA);
-  const sheets = sheetRules(css);
-  assert.ok(sheets.length >= 8, `the built CSS has the sheet rules (${sheets.length})`);
-  for (const [sel, body] of sheets) assert.doesNotMatch(body, /--sketch|transition/, `${sel} sets no --sketch and no transition`);
-  assert.deepEqual(sheetRules('.sheet-title{transition:x}.x .sheet.y{a:b}@supports (c:d){.sheet.clickable{e:f}}').map(([s]) => s), ['.x .sheet.y', '.sheet.clickable'], 'self-check: the sheet rule finder');
+  const plates = plateRules(css);
+  assert.ok(plates.length >= 10, `the built CSS has the plate rules (${plates.length})`);
+  for (const [sel, body] of plates) assert.doesNotMatch(body, /transition|--gleam\)1[02]%/, `${sel} sets no transition and no sheen`);
+  assert.deepEqual(plateRules('.plate-title{transition:x}.x .plate.y{a:b}@supports (c:d){.plate.clickable{e:f}}').map(([s]) => s), ['.x .plate.y', '.plate.clickable'], 'self-check: the plate rule finder');
 
-  // ruleFor joins every copy of the selector, so this covers Tailwind's color-mix @supports fallback too.
-  const card = ruleFor(css, '.sheet.clickable');
+  const card = ruleFor(css, '.plate.clickable');
   assert.match(card, /cursor:pointer/);
-  assert.doesNotMatch(card, /background-image|background-position|transition/, `.sheet.clickable draws nothing at rest (${card})`);
-  for (const [sel, body] of [['.sheet.clickable:hover', ruleFor(hover, '.sheet.clickable:hover')], ['.sheet.hover', ruleFor(css, '.sheet.hover')]]) {
-    assert.match(body, /border-color:var\(--line-strong\)/, `${sel} strengthens the outline`);
+  assert.doesNotMatch(card, /background-image|transition/, `.plate.clickable draws nothing at rest (${card})`);
+  for (const [sel, body] of [['.plate.clickable:hover', ruleFor(hover, '.plate.clickable:hover')], ['.plate.hover', ruleFor(css, '.plate.hover')]]) {
+    assert.match(body, /border-color:var\(--line-strong\)/, `${sel} hardens the seam`);
     assert.match(body, /background-color:var\(--panel\)/, `${sel} keeps its panel`);
-    assert.doesNotMatch(body, /--sketch|background-image|background-position/, `${sel} draws no sketch (${body})`);
+    assert.doesNotMatch(body, /box-shadow|background-image/, `${sel} neither glows nor draws (${body})`);
   }
-  assert.equal(ruleFor(ungated, '.sheet.clickable:hover'), '', '.sheet.clickable:hover only inside @media (hover:hover)');
+  assert.equal(ruleFor(ungated, '.plate.clickable:hover'), '', '.plate.clickable:hover only inside @media (hover:hover)');
+  // A card waiting on you keeps its ember seam and bar when hovered.
+  assert.match(ruleFor(hover, '.plate.ember.clickable:hover'), /border-color:var\(--ember\)/);
+  assert.match(ruleFor(css, '.plate.ember'), /box-shadow:inset var\(--bar-rule\)0 0 0 var\(--ember\),var\(--shadow-bevel\)/, 'an ember plate has its 3px bar');
 
-  // The utility a card and a table row share: once .sheet.clickable stops declaring its own, it would inherit this fade.
+  // The utility a table row uses: it changes at once and washes with raised.
   const clickable = ruleFor(css, '.clickable');
   assert.match(clickable, /cursor:pointer/);
   assert.doesNotMatch(clickable, /transition/, `.clickable changes at once (${clickable})`);
   const washed = ruleFor(css, '.clickable:hover');
   assert.match(washed, /background-color:var\(--raised\)/, 'a clickable row still washes with raised');
   assert.match(washed, /border-color:var\(--line-strong\)/);
-
-  const drafting = draftingCss();
-  const card3 = [
-    '.sheet.clickable { cursor: pointer; }',
-    '@media (hover: hover) { .sheet.clickable:hover { border-color: var(--line-strong); background-color: var(--panel); } }',
-    '.sheet.hover { border-color: var(--line-strong); background-color: var(--panel); }',
-  ].join('\n');
-  assert.ok(drafting.includes(card3), 'design/drafting.css draws the card hover as three lines, in order');
-  const drawn = sheetRules(drafting.replace(/\/\*[\s\S]*?\*\//g, ''));
-  assert.ok(drawn.length >= 8, `design/drafting.css has the sheet rules (${drawn.length})`);
-  for (const [sel, body] of drawn) assert.doesNotMatch(body, /--sketch|transition/, `design/drafting.css ${sel} mentions no --sketch and no transition`);
 });
 
-test('grid and paper live only on the ground', () => {
+test('the grain lives only on the ground and plates', () => {
   const css = builtCss();
-  let grids = 0;
   let urls = 0;
   for (const m of css.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
     const [selector, body] = [m[1].trim(), m[2]];
-    if (/var\(--grid-(minor|major)\)/.test(body)) {
-      grids++;
-      assert.ok(splitTop(selector, /,/).every((s) => hasClass(s, 'ground')), `${selector} draws the grid off the ground`);
-    }
     if (body.includes('url(') && !selector.startsWith('@font-face')) {
       urls++;
-      assert.equal(selector, '.ground:before', `${selector} carries a texture off the ground`);
+      assert.equal(selector, ':root', `${selector} carries a texture outside the :root grain tokens`);
     }
+    if (/var\(--grain\)/.test(body) && !/^--grain/.test(body)) assert.equal(selector, '.ground:before', `${selector} draws the ground grain`);
+    if (/var\(--hammer\)/.test(body)) assert.equal(selector, '.plate:after', `${selector} draws the plate grain`);
   }
-  assert.ok(grids >= 1 && urls === 1, `the grid (${grids} rules) and the paper (${urls}) are on the ground`);
+  assert.equal(urls, 1, 'one :root block holds the two grain URIs');
   const sources: [string, string][] = [
     ['the built CSS', css],
-    ['dashboard/style.css', fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8')],
-    ['design/drafting.css', draftingCss()],
+    ['dashboard/style.css', styleCss()],
   ];
-  for (const name of ['hatch', 'hatch-dense', 'crosshatch']) {
+  for (const name of ['hatch', 'hatch-dense', 'crosshatch', 'sketch', 'ticks']) {
     for (const [where, text] of sources) {
       const rules = [...text.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{};]*)\{/g)].map((x) => x[1]);
       assert.ok(!rules.some((sel) => hasClass(sel, name) || new RegExp(`@utility ${name}\\s*$`).test(sel.trim())), `${where} has no .${name} rule`);
@@ -424,51 +474,56 @@ test('grid and paper live only on the ground', () => {
   }
 });
 
-test('surfaces are opaque and dashed strips nothing', () => {
+test('surfaces are opaque and open plates are see-through', () => {
   const css = builtCss();
-  assert.doesNotMatch(ruleFor(css, '.dashed'), /background/, '.dashed sets only the border, so the ⌘K btn dashed keeps its sketch');
-  for (const sel of ['.solid', '.plain', '.sheet.solid', '.chrome']) {
+  for (const sel of ['.solid', '.plain', '.plate', '.plate.solid', '.chrome']) {
     const rule = ruleFor(css, sel);
     assert.match(rule, /background-color:var\(--(panel|chrome)\)/, `${sel} fills with an opaque token`);
     assert.doesNotMatch(rule, /(^|;)background:/, `${sel} uses background-color, never the shorthand`);
   }
-  for (const sel of ['.solid', '.plain', '.sheet.solid', '.tab.active']) assert.match(ruleFor(css, sel), /background-color:var\(--panel\)/, `${sel} is panel`);
+  for (const sel of ['.solid', '.plain', '.plate', '.plate.solid']) assert.match(ruleFor(css, sel), /background-color:var\(--panel\)/, `${sel} is panel`);
   assert.match(ruleFor(css, 'select option'), /background:var\(--panel\)/, 'the open list is panel');
-  assert.match(ruleFor(css, '.sheet.dashed'), /background-color:#0000|background-color:transparent/, 'a board column stays a container drawn on the ground');
-  const drafting = draftingCss();
-  for (const line of ['.solid { background-color: var(--panel); --surface: var(--panel); }', '.plain { background-color: var(--panel); --surface: var(--panel); }', '.sheet.solid { background-color: var(--panel); }', '.dashed { border-style: dashed; }'])
-    assert.ok(drafting.includes(line), `design/drafting.css has ${line}`);
+  const open = ruleFor(css, '.plate.open');
+  assert.match(open, /background-color:#0000|background-color:transparent/, 'a board column stays a container drawn on the ground');
+  assert.match(open, /--surface:var\(--bg\)/, 'what sits in it fills with bg');
+  assert.match(open, /border-color:var\(--line-soft\)/);
+  assert.match(ruleFor(css, '.plate.cold'), /border-style:dashed/, 'the empty state is a dashed plate');
+  const smithy = smithyCss();
+  for (const line of ['.solid { background-color: var(--panel); --surface: var(--panel); }', '.plain { background-color: var(--panel); --surface: var(--panel); }', '.plate.solid { background-color: var(--panel); }', '.plate.cold { border-style: dashed; box-shadow: none; }'])
+    assert.ok(smithy.includes(line), `smithy/smithy.css has ${line}`);
 });
 
-test('every control has the drafting focus ring', () => {
+test('every control has the solid focus ring', () => {
   const css = builtCss();
-  assert.match(ruleFor(css, ':focus-visible'), /outline:1px dashed var\(--line-strong\)/, 'a base ring for every focusable element');
+  const RING = /outline:2px solid var\(--line-strong\)/;
+  assert.match(ruleFor(css, ':focus-visible'), RING, 'a base ring for every focusable element');
   const check = ruleFor(css, '.check');
   assert.match(check, /appearance:none/, 'the checkbox is drawn, not the OS one');
-  assert.match(ruleFor(css, '.check:checked:after'), /background:var\(--ink\)/, 'a checked box fills with ink');
+  assert.match(ruleFor(css, '.check:checked'), /background:var\(--gleam-fill\)/, 'a checked box is brushed gleam');
+  assert.match(ruleFor(css, '.check:checked:after'), /border:solid var\(--on-gleam\)/, 'with an on-gleam tick');
   assert.match(ruleFor(css, '.check:disabled'), /border-style:dashed/);
-  assert.match(ruleFor(css, 'input[type=checkbox]:focus-visible'), /outline:1px dashed var\(--line-strong\)/, 'a drawn checkbox keeps the ring');
-  assert.match(ruleFor(css, '.seg label:has(input:focus-visible)'), /outline:1px dashed var\(--line-strong\)/, 'a radio seg rings the focused label');
-  for (const sel of ['.btn:focus-visible', '.nav a:focus-visible', '.clickable:focus-visible']) assert.match(ruleFor(css, sel), /outline:1px dashed var\(--line-strong\)/, sel);
+  assert.match(ruleFor(css, 'input[type=checkbox]:focus-visible'), RING, 'a drawn checkbox keeps the ring');
+  assert.match(ruleFor(css, '.seg label:has(input:focus-visible)'), RING, 'a radio seg rings the focused label');
+  for (const sel of ['.btn:focus-visible', '.navlist a:focus-visible', '.clickable:focus-visible', '.plate.clickable:focus-visible', '.input:focus', '.cmd-field:focus-within']) assert.match(ruleFor(css, sel), RING, sel);
   assert.doesNotMatch(css, /:focus(-visible)?\{[^}]*box-shadow/, 'no glow on focus');
-  const drafting = draftingCss();
+  assert.doesNotMatch(css, /outline:1px dashed/, 'the Drafting dashed ring is gone');
+  const smithy = smithyCss();
   for (const line of [
-    ':focus-visible { outline: 1px dashed var(--line-strong); outline-offset: 2px; }',
-    'appearance: none; margin: 0; background-color: var(--surface, var(--bg)); cursor: pointer; vertical-align: middle; }',
+    ':focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }',
     '.check:disabled { opacity: .4; border-style: dashed; cursor: not-allowed; }',
     '.check.on::after, .check:checked::after {',
-    '.seg label:has(input:focus-visible) { outline: 1px dashed var(--line-strong); outline-offset: 3px; z-index: 1; }',
+    '.seg label:has(input:focus-visible) { outline: 2px solid var(--line-strong); outline-offset: 2px; z-index: 1; }',
   ])
-    assert.ok(drafting.includes(line), `design/drafting.css mirrors ${line}`);
+    assert.ok(smithy.includes(line), `smithy/smithy.css mirrors ${line}`);
 });
 
 test('phone targets are 44px', () => {
   // `width < 48rem` is built as `not all and (min-width:48rem)` or `not all and (width>=48rem)`; accept any.
   const body = mediaBody(builtCss(), /(\(\s*width\s*<\s*48rem\s*\)|not all and \((min-width:|width>=)48rem\))/);
-  const TARGETS = ['button:not(.chip)', 'a.btn', '.nav a', '[role=tab]', '[role=option]', 'summary', 'select', 'input:not([type=checkbox],[type=radio])', 'label:has(>input[type=checkbox])', 'label:has(>input[type=radio])'];
+  const TARGETS = ['button:not(.chip)', 'a.btn', '.navlist a', '[role=tab]', '[role=option]', 'summary', 'select', 'input:not([type=checkbox],[type=radio])', 'label:has(>input[type=checkbox])', 'label:has(>input[type=radio])'];
   // Split on top-level commas only: `input:not([type=checkbox],[type=radio])` holds one.
   const tall = [...body.matchAll(/([^{}]*)\{([^{}]*)\}/g)].filter((m) => /min-height:44px/.test(m[2])).flatMap((m) => splitTop(m[1], /,/));
-  for (const sel of TARGETS) assert.ok(tall.includes(sel), `${sel} is 44px tall on phones (${tall.join(" | ")})`);
+  for (const sel of TARGETS) assert.ok(tall.includes(sel), `${sel} is 44px tall on phones (${tall.join(' | ')})`);
   assert.match(ruleFor(body, '.btn.icon'), /min-width:44px/, 'icon buttons are 44px wide too');
   assert.match(ruleFor(body, '.chip:is(button)'), /position:relative/);
   const hit = ruleFor(body, '.chip:is(button):after');
@@ -486,32 +541,36 @@ test('phone targets are 44px', () => {
   assert.match(box, /position:absolute/);
 });
 
-test('the REV chip is the same rectangle as every chip', () => {
+test('the YOU chip is the same rectangle as every chip', () => {
   const css = builtCss();
-  const drafting = fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8');
-  const built = ruleFor(css, '.chip.rev');
-  const drawn = /^\.chip\.rev \{([^}]*)\}/m.exec(drafting)?.[1] ?? '';
-  for (const [where, rule] of [['the built CSS', built], ['design/drafting.css', drawn]]) {
-    assert.match(rule, /color:\s*var\(--redline\)/, `${where}: .chip.rev is redline`);
-    assert.doesNotMatch(rule, /border-radius/, `${where}: .chip.rev has square corners`);
-    assert.doesNotMatch(rule, /(^|[;\s])padding/, `${where}: .chip.rev keeps the chip padding`);
+  const built = ruleFor(css, '.chip.you');
+  const drawn = /^\.chip\.you \{([^}]*)\}/m.exec(smithyCss())?.[1] ?? /\.chip\.you \{([^}]*)\}/.exec(smithyCss())?.[1] ?? '';
+  assert.ok(drawn, 'smithy/smithy.css draws .chip.you');
+  for (const [where, rule] of [['the built CSS', built], ['smithy/smithy.css', drawn]]) {
+    assert.match(rule, /color:\s*var\(--ember\)/, `${where}: .chip.you is ember`);
+    assert.match(rule, /border-color:\s*var\(--ember\)/, `${where}: with an ember seam`);
+    assert.doesNotMatch(rule, /border-radius|corner-shape/, `${where}: .chip.you keeps the chip's nicked corners`);
+    assert.doesNotMatch(rule, /(^|[;\s])padding/, `${where}: .chip.you keeps the chip padding`);
   }
+  // The tint is 10%, like every tone: 12% puts ash's ember under 4.5:1 on the ground (dashboard-tokens.test.ts).
+  assert.match(built, /var\(--ember\)\s*10%/);
   for (const [where, text] of [
-    ['design/tokens.css', fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8')],
-    ['design/tokens.json', fs.readFileSync(path.join(ROOT, 'design', 'tokens.json'), 'utf8')],
-    ['dashboard/style.css', fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8')],
+    ['smithy/tokens.css', fs.readFileSync(path.join(SMITHY, 'tokens.css'), 'utf8')],
+    ['smithy/tokens.json', fs.readFileSync(path.join(SMITHY, 'tokens.json'), 'utf8')],
+    ['dashboard/style.css', styleCss()],
     ['the built CSS', css],
   ])
     assert.ok(!text.includes('radius-tag'), `${where} has no radius-tag`);
-  assert.ok(!ROUND_OK.test('10px') && !ROUND_OK.test('var(--radius-tag)'), 'no rounded-tag exception is left');
 });
 
-// ---------- control sizing: four height tokens, one per variant (design/MIGRATION.md "Control sizing") ----------
+// ---------- control sizing: four height tokens, one per variant ----------
 const CONTROL_TOKENS: [string, string][] = [['control-xs', '20px'], ['control-sm', '28px'], ['control-md', '32px'], ['control-lg', '40px']];
 /** The scalar `:root {` block of a source stylesheet (the theme blocks start `:root, [data-theme…`). */
 const scalarRoot = (text: string) => /^:root \{([^}]*)\}/m.exec(text)?.[1] ?? '';
-/** A one-line rule body in design/drafting.css, by its exact selector at the start of a line. */
-const drawn = (selector: string) => new RegExp(`^${escapeRe(selector)} \\{([^}]*)\\}`, 'm').exec(draftingCss())?.[1] ?? '';
+/** A one-line rule body in smithy/smithy.css, by its exact selector at the start of a line. */
+const drawn = (selector: string) => new RegExp(`^${escapeRe(selector)} \\{([^}]*)\\}`, 'm').exec(smithyCss())?.[1] ?? '';
+/** The scalar tokens of smithy/tokens.json (spacing, sizes, controls, strokes). */
+const scalarTokens = (): { name: string; value: string; usage: string }[] => JSON.parse(fs.readFileSync(path.join(SMITHY, 'tokens.json'), 'utf8')).spacing.tokens;
 /** The vertical padding each declaration sets: the first value of `padding`, `padding-block`, `padding-top` and `padding-bottom`. */
 function verticalPadding(rule: string): string[] {
   const out: string[] = [];
@@ -521,32 +580,35 @@ function verticalPadding(rule: string): string[] {
 const MIN_MD = /(\(\s*width\s*>=\s*48rem\s*\)|\(min-width:48rem\))/;
 
 test('control heights are tokens in the drawing, the source and the build', () => {
-  const tokensCss = scalarRoot(fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8'));
-  const source = scalarRoot(fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8'));
-  const json = JSON.parse(fs.readFileSync(path.join(ROOT, 'design', 'tokens.json'), 'utf8'));
-  const sizes: { name: string; value: string; usage: string }[] = json.size.tokens;
+  const tokensCss = scalarRoot(fs.readFileSync(path.join(SMITHY, 'tokens.css'), 'utf8'));
+  const source = scalarRoot(styleCss());
+  const sizes = scalarTokens();
   const built = ruleFor(builtCss(), ':root');
   assert.ok(tokensCss.includes('--size-dialog') && source.includes('--size-dialog'), 'the scalar :root blocks are read');
   for (const [name, value] of CONTROL_TOKENS) {
-    assert.ok(tokensCss.includes(`--${name}: ${value};`), `design/tokens.css :root declares --${name}: ${value}`);
+    assert.ok(tokensCss.includes(`--${name}: ${value};`), `smithy/tokens.css :root declares --${name}: ${value}`);
     assert.ok(source.includes(`--${name}: ${value};`), `dashboard/style.css :root declares --${name}: ${value}`);
     assert.ok(built.includes(`--${name}:${value}`), `the built :root carries --${name}:${value}`);
     const entry = sizes.find((t) => t.name === name);
-    assert.equal(entry?.value, value, `design/tokens.json size.tokens has ${name} = ${value}`);
-    assert.ok(entry?.usage?.trim(), `design/tokens.json ${name} has a usage`);
+    assert.equal(entry?.value, value, `smithy/tokens.json has ${name} = ${value}`);
+    assert.ok(entry?.usage?.trim(), `smithy/tokens.json ${name} has a usage`);
   }
 });
 
 test('the status bar height is a token in the drawing, the source and the build', () => {
-  const tokensCss = scalarRoot(fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8'));
-  const source = scalarRoot(fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8'));
-  const sizes: { name: string; value: string; usage: string }[] = JSON.parse(fs.readFileSync(path.join(ROOT, 'design', 'tokens.json'), 'utf8')).size.tokens;
+  const tokensCss = scalarRoot(fs.readFileSync(path.join(SMITHY, 'tokens.css'), 'utf8'));
+  const source = scalarRoot(styleCss());
   assert.ok(tokensCss.includes('--size-dialog') && source.includes('--size-dialog'), 'the scalar :root blocks are read');
-  assert.ok(tokensCss.includes('--size-statusbar: 48px;'), 'design/tokens.css :root declares --size-statusbar: 48px');
-  assert.ok(source.includes('--size-statusbar: 48px;'), 'dashboard/style.css :root declares --size-statusbar: 48px');
-  assert.ok(ruleFor(builtCss(), ':root').includes('--size-statusbar:48px'), 'the built :root carries --size-statusbar:48px');
-  const entry = sizes.find((t) => t.name === 'size-statusbar');
-  assert.equal(entry?.value, '48px', 'design/tokens.json size.tokens has size-statusbar = 48px');
+  assert.ok(tokensCss.includes('--size-statusbar: 36px;'), 'smithy/tokens.css :root declares --size-statusbar: 36px');
+  assert.ok(source.includes('--size-statusbar: 36px;'), 'dashboard/style.css :root declares --size-statusbar: 36px');
+  const css = builtCss();
+  const { outside } = mediaSplit(css, /[^{]*/);
+  assert.ok(ruleFor(outside, ':root').includes('--size-statusbar:36px'), 'the built :root carries --size-statusbar:36px');
+  // Below md the bar holds 44px targets, so it grows to --space-11 there; everything that clears it reads the token.
+  const phone = mediaBody(css, /(\(\s*width\s*<\s*48rem\s*\)|not all and \((min-width:|width>=)48rem\))/);
+  assert.match(ruleFor(phone, ':root'), /--size-statusbar:var\(--space-11\)/, 'below md the bar is 44px tall');
+  const entry = scalarTokens().find((t) => t.name === 'size-statusbar');
+  assert.equal(entry?.value, '36px', 'smithy/tokens.json has size-statusbar = 36px');
   assert.ok(entry?.usage?.trim(), 'with a usage');
 });
 
@@ -554,9 +616,8 @@ test('focus scrolls clear of the status bar, and an open indicator keeps its edg
   const css = builtCss();
   // WCAG 2.4.11: the bar is fixed over the viewport's bottom, so focus and scroll-into-view stop above it.
   assert.match(ruleFor(css, 'html'), /scroll-padding-bottom:calc\(var\(--size-statusbar\) \+ env\(safe-area-inset-bottom\) \+ var\(--space-2\)\)/, 'html pads its scroll by the bar, the inset and a gap');
-  const drafting = draftingCss();
   assert.match(ruleFor(css, '.btn.ghost[aria-expanded=true]'), /border-color:var\(--line-strong\)/, 'the built CSS draws an open indicator with the strong edge');
-  assert.ok(drafting.includes('.btn.ghost[aria-expanded="true"] { border-color: var(--line-strong); }'), 'design/drafting.css mirrors it');
+  assert.ok(smithyCss().includes('.btn.ghost[aria-expanded="true"] { border-color: var(--line-strong);'), 'smithy/smithy.css draws it too');
   assert.ok(css.indexOf('.btn.ghost[aria-expanded=true]') > css.indexOf('.btn.ghost:hover'), 'after the ghost hover, so hovering an open indicator keeps it');
 });
 
@@ -595,7 +656,7 @@ test('every control variant resolves to one control height', () => {
     assert.ok(verticalPadding(ruleFor(md, sel)).every((v) => v.startsWith('calc((var(--control-sm)')), `${sel} pads with a calc() of --control-sm`);
     assert.doesNotMatch(ruleFor(outside, sel), /min-height/, `${sel} sets no height outside the md block`);
   }
-  const source = fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8');
+  const source = styleCss();
   assert.match(source, /@media \(width >= 48rem\) \{\n\s*input\.sm:not\(\[type=checkbox\], \[type=radio\]\), select\.sm \{/, 'style.css keeps native sm inside the md block');
 
   // The drawing.
@@ -608,10 +669,10 @@ test('every control variant resolves to one control height', () => {
     ['.input.sm', /min-height: var\(--control-sm\); padding-block: calc\(\(var\(--control-sm\) - 20px\) \/ 2\);/],
     ['.tab', /height: var\(--control-lg\);.*padding: 0 14px;/],
   ];
-  for (const [sel, want] of D) assert.match(drawn(sel), want, `design/drafting.css ${sel}`);
+  for (const [sel, want] of D) assert.match(drawn(sel), want, `smithy/smithy.css ${sel}`);
 });
 
-test('icon buttons are square at their text siblings\' height', () => {
+test("icon buttons are square at their text siblings' height", () => {
   const css = builtCss();
   const icon = ruleFor(css, '.btn.icon');
   assert.match(icon, /(^|;)width:var\(--control-md\)/);
@@ -619,39 +680,38 @@ test('icon buttons are square at their text siblings\' height', () => {
   assert.match(icon, /justify-content:center/);
   const sm = ruleFor(css, '.btn.sm.icon');
   assert.match(sm, /(^|;)width:var\(--control-sm\)/);
-  assert.match(sm, /(^|;)padding:0(;|$)/, 'beats .btn.sm\'s horizontal padding');
+  assert.match(sm, /(^|;)padding:0(;|$)/, "beats .btn.sm's horizontal padding");
   assert.match(ruleFor(css, '.btn'), /align-items:center/, 'the icon is centred vertically');
   assert.match(drawn('.btn.icon'), /width: var\(--control-md\); padding: 0; justify-content: center;/);
   assert.match(drawn('.btn.sm.icon'), /width: var\(--control-sm\); padding: 0;/);
 });
 
-test('the ghost close keeps the sketch and a light border', () => {
+test('the ghost close keeps the sheen and a light border', () => {
   const css = builtCss();
   const { inside: hover } = mediaSplit(css, HOVER_MEDIA);
   assert.match(ruleFor(css, '.btn.ghost'), /border-color:(transparent|#0000)/, 'no border at rest');
+  assert.match(ruleFor(css, '.btn.ghost'), /box-shadow:none/, 'and no bevel');
   assert.match(ruleFor(hover, '.btn.ghost:hover'), /border-color:var\(--line\)/, 'hover draws --line, inside @media (hover:hover)');
   assert.match(ruleFor(css, '.btn.ghost.hover'), /border-color:var\(--line\)/);
   const ghosts = [...css.matchAll(/([^{}]*)\{([^{}]*)\}/g)].filter((m) => hasClass(m[1], 'ghost'));
   assert.ok(ghosts.length >= 3, `found ${ghosts.length} ghost rules`);
-  for (const [, sel, body] of ghosts) assert.doesNotMatch(body, /background-image:none|(^|;)background:/, `${sel.trim()} leaves the background (and the sketch) to btn`);
-  const drafting = draftingCss();
-  for (const line of ['.btn.ghost { border-color: transparent; }', '@media (hover: hover) { .btn.ghost:hover { border-color: var(--line); } }', '.btn.ghost.hover { border-color: var(--line); }'])
-    assert.ok(drafting.includes(line), `design/drafting.css has ${line}`);
+  for (const [, sel, body] of ghosts.filter(([, s]) => !/aria-expanded/.test(s))) assert.doesNotMatch(body, /background/, `${sel.trim()} leaves the fill (and the sheen) to btn`);
+  const smithy = smithyCss();
+  for (const line of ['.btn.ghost { border-color: transparent; box-shadow: none; }', '@media (hover: hover) { .btn.ghost:hover { border-color: var(--line); } }', '.btn.ghost.hover { border-color: var(--line); }'])
+    assert.ok(smithy.includes(line), `smithy/smithy.css has ${line}`);
 });
 
-test('the control sizing rule is documented', () => {
-  const doc = fs.readFileSync(path.join(ROOT, 'design', 'MIGRATION.md'), 'utf8');
-  const at = doc.indexOf('\n## Control sizing\n');
-  assert.ok(at >= 0, 'design/MIGRATION.md has a ## Control sizing section');
-  const section = doc.slice(at + 1).split(/\n## /)[0];
-  for (const [name, value] of CONTROL_TOKENS) assert.ok(section.includes(`\`--${name}\` | ${value}`), `it names --${name} (${value})`);
-  for (const v of ['`btn sm`', '`btn sm icon`', '`chip sm`', '`input sm`', '`btn`', '`btn primary`', '`btn icon`', '`chip`', '`tab`']) assert.ok(section.includes(v), `it names the variant ${v}`);
-  assert.match(section, /sm or md/i, 'when to use sm vs md');
-  assert.match(section, /44px/, 'the phone rule');
-  assert.match(section, /`CloseButton\.svelte` renders `btn icon ghost`/, 'the ghost close control');
-  // The previews draw the close as the same quiet control.
-  const preview = (name: string) => fs.readFileSync(path.join(ROOT, 'design', 'components', name, 'preview.html'), 'utf8');
+test('the control sizes are documented in the tokens and drawn in the previews', () => {
+  const sizes = scalarTokens();
+  const usage = (name: string) => sizes.find((t) => t.name === name)?.usage ?? '';
+  assert.match(usage('control-xs'), /chip/i, 'xs is the chip');
+  assert.match(usage('control-sm'), /small button, input or chip/i, 'sm is the small control');
+  assert.match(usage('control-md'), /button and input/i, 'md is the standard control');
+  assert.match(usage('control-lg'), /tab/i, 'lg is the tab');
+  // The previews draw the close as the same quiet control the dashboard renders (CloseButton.svelte: btn icon ghost).
+  const preview = (name: string) => fs.readFileSync(path.join(SMITHY, 'components', name, 'preview.html'), 'utf8');
   for (const name of ['Button', 'Drawer', 'SettingsDialog']) assert.match(preview(name), /<button class="btn icon ghost" aria-label="Close">/, `${name} preview draws btn icon ghost`);
   assert.match(preview('CommandBar'), /<button class="btn icon sm ghost" aria-label="Remove the job scope">/, 'CommandBar preview: the clear-scope close is sm ghost beside chip sm');
-  assert.match(preview('CommandBar'), /class="chip ink sm"/);
+  assert.match(preview('CommandBar'), /class="chip gleam sm"/);
+  assert.match(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', 'CloseButton.svelte'), 'utf8'), /class="btn icon ghost /);
 });

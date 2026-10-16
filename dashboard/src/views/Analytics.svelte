@@ -13,12 +13,12 @@
 </script>
 
 {#snippet kpi(label: string, value: string, sub = '')}
-  <div class="sheet ticks kpi"><span class="tk"></span><div class="label">{label}</div><div class="v">{value}</div>{#if sub}<div class="caption muted">{sub}</div>{/if}</div>
+  <div class="plate kpi"><div class="label">{label}</div><div class="v">{value}</div>{#if sub}<div class="caption muted">{sub}</div>{/if}</div>
 {/snippet}
 
 {#snippet usageTable(title: string, rows: Record<string, UsageRow>)}
   {@const bars = usageBars(rows)}
-  <div class="sheet ticks"><span class="tk"></span><div class="label callout px-3 pt-3">{title}</div><div class="overflow-x-auto">
+  <div class="plate flat"><div class="label callout px-3 pt-3">{title}</div><div class="overflow-x-auto">
     <table class="tbl">
       <thead><tr><th>{$t('analytics.name')}</th><th>{$t('common.runs')}</th><th class="w-1/3">{$t('common.tokens')}</th><th class="r">{$t('common.estCost')}</th></tr></thead>
       <tbody>
@@ -42,7 +42,7 @@
   {#snippet right()}<select class="input" value={S.window} onchange={(e) => setWindow(e.currentTarget.value)}>{#each STATS_WINDOWS as [v, l] (v)}<option value={v}>{l}</option>{/each}</select>{/snippet}
 </PageHeader>
 {#if !s}
-  <div class="sheet w-fit px-3 py-1.5 text-sm text-muted">{$t('common.loading')}</div>
+  <div class="plate w-fit px-3 py-1.5 text-sm text-muted">{$t('common.loading')}</div>
 {:else}
   {@const q = s.quality}
   {@const cov = s.cost.reportingCoverage}
@@ -59,7 +59,7 @@
     {@render kpi($t('analytics.cost'), usd(s.cost.estCostUsd), $t('analytics.costSub', { cost: usd(s.cost.avgCostPerJobUsd), withUsage: cov.withUsage, agentRuns: cov.agentRuns, exact: cov.exact }))}
   </div>
   <div class="grid gap-3 lg:grid-cols-2 mt-6">{@render usageTable($t('analytics.byRole'), s.cost.byRole)}{@render usageTable($t('analytics.byModel'), s.cost.byModel)}</div>
-  <div class="sheet ticks mt-6"><span class="tk"></span><div class="label callout px-3 pt-3">{$t('analytics.lenses')}</div><div class="overflow-x-auto">
+  <div class="plate flat mt-6"><div class="label callout px-3 pt-3">{$t('analytics.lenses')}</div><div class="overflow-x-auto">
     <table class="tbl">
       <thead><tr><th>{$t('common.lens')}</th><th>{$t('analytics.reviews')}</th><th>{$t('analytics.askedChanges')}</th></tr></thead>
       <tbody>
@@ -72,7 +72,7 @@
     </table>
   </div></div>
   {#if jobs.length}
-    <div class="sheet ticks mt-6"><span class="tk"></span><div class="label callout px-3 pt-3">{$t('analytics.byUsage')}</div><div class="overflow-x-auto">
+    <div class="plate flat mt-6"><div class="label callout px-3 pt-3">{$t('analytics.byUsage')}</div><div class="overflow-x-auto">
       <table class="tbl">
         <thead><tr><th>{$t('common.job')}</th><th>{$t('common.rounds')}</th><th>{$t('analytics.duration')}</th><th class="r">{$t('common.tokens')}</th><th class="r">{$t('common.estCost')}</th><th>{$t('analytics.usageSource')}</th></tr></thead>
         <tbody>
@@ -90,5 +90,5 @@
       </table>
     </div></div>
   {/if}
-  <p class="sheet w-fit max-w-full px-3 py-1.5 text-[11px] text-muted mt-3">{$t('analytics.footnote')}</p>
+  <p class="plate w-fit max-w-full px-3 py-1.5 text-[11px] text-muted mt-3">{$t('analytics.footnote')}</p>
 {/if}
