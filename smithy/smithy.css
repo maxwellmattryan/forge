@@ -15,7 +15,7 @@
   --gleam-spec: inset 0 1px 0 0 rgba(255,255,255,.28);
   color-scheme: dark; --grain-opacity: .07; --grain-blend: soft-light; --fall: rgba(2,4,8,.55); --hammer: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='h' x='0' y='0' width='100%25' height='100%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch' seed='7'/%3E%3CfeColorMatrix values='.33 .33 .33 0 0 .33 .33 .33 0 0 .33 .33 .33 0 0 0 0 0 0 1'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='6' intercept='-2.1'/%3E%3CfeFuncG type='linear' slope='6' intercept='-2.1'/%3E%3CfeFuncB type='linear' slope='6' intercept='-2.1'/%3E%3CfeFuncA type='linear' slope='.07'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23h)'/%3E%3C/svg%3E");
   --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g' x='0' y='0' width='100%25' height='100%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch' seed='11'/%3E%3CfeColorMatrix values='.33 .33 .33 0 0 .33 .33 .33 0 0 .33 .33 .33 0 0 0 0 0 0 1'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='5' intercept='-1.8'/%3E%3CfeFuncG type='linear' slope='5' intercept='-1.8'/%3E%3CfeFuncB type='linear' slope='5' intercept='-1.8'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E"); }
-[data-theme="ash"] { --gleam-spec: inset 0 1px 0 0 rgba(255,255,255,.22); color-scheme: light; --grain-opacity: .07; --grain-blend: multiply; --fall: rgba(60,40,20,.10); }
+[data-theme="ash"] { --gleam-spec: inset 0 1px 0 0 rgba(255,255,255,.22); color-scheme: light; --grain-opacity: .07; --grain-blend: multiply; --fall: rgba(20,28,40,.10); }
 
 html { background: var(--bg); color: var(--fg); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; scrollbar-gutter: stable; }
 body { margin: 0; font-size: 14px; line-height: 20px; }
@@ -197,8 +197,8 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 .halo { position: absolute; inset: 0; opacity: .75; background: var(--gleam-hot); animation: ping 1.2s cubic-bezier(0,0,.2,1) infinite; }
 @keyframes ping { 75%, 100% { transform: scale(2.2); opacity: 0; } }
 .backdrop { background: rgba(5,7,10,.72); }
-[data-theme="ash"] .backdrop { background: rgba(40,28,18,.45); }
+[data-theme="ash"] .backdrop { background: rgba(20,24,30,.45); }
 .scrim { background: rgba(5,7,10,.35); } /* the command bar's lighter backdrop: what is behind it stays readable */
-[data-theme="ash"] .scrim { background: rgba(40,28,18,.2); }
+[data-theme="ash"] .scrim { background: rgba(20,24,30,.2); }
 .mark { width: 36px; height: 36px; } /* the anvil, as shipped: a raster with its own light grey tile */
 .row { display: flex; align-items: center; gap: 8px; } .wrap { flex-wrap: wrap; } .col { display: flex; flex-direction: column; } .grow { flex: 1; min-width: 0; }

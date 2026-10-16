@@ -178,6 +178,24 @@ const contrast = (a: Rgba, b: Rgba) => {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
 };
+/** HSL hue (degrees) and saturation (0–1) of an sRGB colour. */
+function hsl([r, g, b]: Rgba): { hue: number; sat: number } {
+  const [x, y, z] = [r / 255, g / 255, b / 255];
+  const max = Math.max(x, y, z);
+  const min = Math.min(x, y, z);
+  const d = max - min;
+  const light = (max + min) / 2;
+  const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * light - 1));
+  let hue = 0;
+  if (d !== 0) hue = max === x ? 60 * (((y - z) / d) % 6) : max === y ? 60 * ((z - x) / d + 2) : 60 * ((x - y) / d + 4);
+  return { hue: (hue + 360) % 360, sat };
+}
+const saturation = (c: Rgba) => hsl(c).sat;
+/** The circular distance between two hues, 0–180°. */
+const hueDistance = (a: Rgba, b: Rgba) => {
+  const d = Math.abs(hsl(a).hue - hsl(b).hue);
+  return Math.min(d, 360 - d);
+};
 const over = ([r, g, b, a]: Rgba, [R, G, B]: Rgba): Rgba => [r * a + R * (1 - a), g * a + G * (1 - a), b * a + B * (1 - a), 1];
 /** Channel-wise sRGB interpolation, what `color-mix(in srgb, a p, b)` computes for opaque colours. */
 const mix = (a: Rgba, p: number, b: Rgba): Rgba => [a[0] * p + b[0] * (1 - p), a[1] * p + b[1] * (1 - p), a[2] * p + b[2] * (1 - p), 1];
@@ -611,14 +629,15 @@ test('tokens.json themes equal THEMES and every token value matches tokens.css',
   }
 });
 
-// Ash is cooled ash, warm rather than a white page: red over green over blue, and the same four ground values wherever
-// the tokens are written.
-const ASH_GROUND: Record<string, string> = { '--bg': '#ebe7e0', '--bg-deep': '#ddd7cd', '--panel': '#f6f3ee', '--chrome': '#fbf9f6' };
-test('ash bg is warm', () => {
-  const warm = ([r, g, b]: Rgba) => r >= g && g >= b && r - b >= 8;
-  assert.ok(warm([235, 231, 224, 1]), 'self-check: the warm ground');
-  assert.ok(!warm([241, 240, 238, 1]), 'self-check: a near-white ground is not warm');
-  assert.ok(!warm([224, 231, 235, 1]), 'self-check: a cool ground is not warm');
+// Ash is polished aluminium in daylight: a neutral-to-cool grey (blue never under red, the channels within 12 of each
+// other), still a light ground, and the same four ground values wherever the tokens are written.
+const ASH_GROUND: Record<string, string> = { '--bg': '#e4e7eb', '--bg-deep': '#d6dadf', '--panel': '#f2f4f6', '--chrome': '#f9fafb' };
+const coolGrey = ([r, g, b]: Rgba) => b >= r && Math.max(r, g, b) - Math.min(r, g, b) <= 12;
+test('ash bg is cool grey', () => {
+  assert.ok(coolGrey([228, 231, 235, 1]), 'self-check: the cool ground');
+  assert.ok(coolGrey([240, 240, 240, 1]), 'self-check: a neutral grey counts');
+  assert.ok(!coolGrey([235, 231, 224, 1]), 'self-check: the old warm ground is not cool');
+  assert.ok(!coolGrey([200, 220, 240, 1]), 'self-check: a tinted blue is not grey');
   const json = JSON.parse(fs.readFileSync(path.join(SMITHY, 'tokens.json'), 'utf8'));
   const sources: [string, Map<string, string>][] = [
     ['smithy/tokens.css', scope(tokensCss(), SCOPES[1])],
@@ -626,7 +645,45 @@ test('ash bg is warm', () => {
     ['smithy/tokens.json', new Map(json.color.tokens.map((x: { name: string; value: Record<string, string> }) => [`--${x.name}`, x.value.ash]))],
   ];
   for (const [where, vars] of sources) for (const [k, v] of Object.entries(ASH_GROUND)) assert.equal(vars.get(k)?.toLowerCase(), v, `${where} ash ${k}`);
-  for (const k of ['bg', 'bg-deep']) assert.ok(warm(themeColors().ash(k)), `ash --${k} is warm`);
+  for (const k of ['bg', 'bg-deep', 'panel', 'chrome']) assert.ok(coolGrey(themeColors().ash(k)), `ash --${k} is a neutral-to-cool grey`);
+  const bg = luminance(themeColors().ash('bg'));
+  assert.ok(bg > 0.6, `ash --bg is light (relative luminance ${bg.toFixed(3)})`);
+});
+
+// No warm brown is left in Ash's metal: its washes, seams, edges, shadows, falloff and scrims are cool or neutral
+// (blue never under red), and its gleam is a desaturated steel rather than blueprint blue.
+const ASH_METAL = ['raised', 'line', 'line-soft', 'line-strong', 'edge-light', 'edge-dark', 'shadow-bevel', 'shadow-primary', 'shadow-overlay', 'shadow-drawer', 'shadow-chrome', 'shadow-glow'];
+test('ash metal is cool: no brown lines, shadows or scrims, a steel gleam', () => {
+  const colorsIn = (v: string): Rgba[] => [...v.matchAll(COLOR)].map((m) => parseColor(m[0]) ?? [NaN, NaN, NaN, NaN]);
+  const cool = ([r, , b]: Rgba) => b >= r;
+  assert.deepEqual(colorsIn('0 1px 0 0 rgba(60,40,20,0.12), 0 2px #223850'), [[60, 40, 20, 0.12], [34, 56, 80, 1]], 'self-check: colours in a shadow');
+  assert.ok(!cool([60, 40, 20, 1]) && cool([30, 38, 50, 1]), 'self-check: brown is warm, slate is cool');
+  assert.ok(saturation([59, 92, 128, 1]) > 0.3 && saturation([68, 88, 110, 1]) <= 0.3, 'self-check: blueprint blue is saturated, steel is not');
+  const ash = scope(tokensCss(), SCOPES[1]);
+  for (const k of ASH_METAL) {
+    const v = ash.get(`--${k}`) ?? '';
+    const colors = colorsIn(v);
+    assert.ok(colors.length > 0, `ash --${k} has a colour`);
+    for (const c of colors) assert.ok(cool(c), `ash --${k} (${v}) carries a warm colour`);
+  }
+  const smithy = fs.readFileSync(path.join(SMITHY, 'smithy.css'), 'utf8');
+  const fall = effective(smithy, 'ash').get('--fall') ?? '';
+  const css = builtCss();
+  const literals: [string, string][] = [
+    ['smithy.css --fall', fall],
+    ['built --fall', effective(css, 'ash').get('--fall') ?? ''],
+    ['smithy.css .backdrop', /\[data-theme="ash"\] \.backdrop \{([^}]*)\}/.exec(smithy)?.[1] ?? ''],
+    ['smithy.css .scrim', /\[data-theme="ash"\] \.scrim \{([^}]*)\}/.exec(smithy)?.[1] ?? ''],
+    ['built .backdrop', ruleFor(css, '[data-theme=ash] .backdrop')],
+    ['built .scrim', ruleFor(css, '[data-theme=ash] .scrim')],
+  ];
+  for (const [where, v] of literals) {
+    const colors = colorsIn(v);
+    assert.ok(colors.length > 0, `ash ${where} has a colour (${v})`);
+    for (const c of colors) assert.ok(cool(c), `ash ${where} (${v}) carries a warm colour`);
+  }
+  const gleam = saturation(themeColors().ash('gleam'));
+  assert.ok(gleam <= 0.3, `ash --gleam is a desaturated steel (HSL saturation ${gleam.toFixed(2)})`);
 });
 
 // A plate reads as a separate piece of metal on the ground (smithy/README.md › Colour: at least 1.11:1), and the solid

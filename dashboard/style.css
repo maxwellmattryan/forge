@@ -143,24 +143,24 @@
 }
 
 [data-theme="ash"] {
-  --bg: #ebe7e0;
-  --bg-deep: #ddd7cd;
-  --panel: #f6f3ee;
-  --raised: rgba(60,40,20,0.07);
-  --chrome: #fbf9f6;
-  --sheen: rgba(59,92,128,0.10);
-  --line: rgba(60,40,20,0.24);
-  --line-soft: rgba(60,40,20,0.12);
-  --line-strong: #6a5e52;
+  --bg: #e4e7eb;
+  --bg-deep: #d6dadf;
+  --panel: #f2f4f6;
+  --raised: rgba(30,38,50,0.07);
+  --chrome: #f9fafb;
+  --sheen: rgba(68,88,110,0.10);
+  --line: rgba(30,38,50,0.24);
+  --line-soft: rgba(30,38,50,0.12);
+  --line-strong: #535b66;
   --edge-light: rgba(255,255,255,0.85);
-  --edge-dark: rgba(60,40,20,0.14);
-  --fg: #1d1813;
-  --muted: #5d534a;
-  --dim: #8c8276;
-  --gleam: #3b5c80;
-  --gleam-hot: #4e739b;
-  --gleam-deep: #223850;
-  --on-gleam: #f3f8fd;
+  --edge-dark: rgba(30,38,50,0.14);
+  --fg: #16191d;
+  --muted: #4c535d;
+  --dim: #7a818b;
+  --gleam: #44586e;
+  --gleam-hot: #5a6f86;
+  --gleam-deep: #2a3746;
+  --on-gleam: #f4f7fa;
   --ember: #a8380a;
   --on-ember: #fff6ef;
   --spark: #f3c53c;
@@ -169,12 +169,12 @@
   --warn: #6e4d00;
   --bad: #a52019;
   --info: #44546a;
-  --shadow-bevel: inset 0 1px 0 0 rgba(255,255,255,0.85), inset 0 -1px 0 0 rgba(60,40,20,0.14);
-  --shadow-primary: 0 2px 0 0 #223850;
-  --shadow-overlay: 0 1px 0 0 rgba(60,40,20,0.12), 0 16px 40px 0 rgba(60,40,20,0.22);
-  --shadow-drawer: -16px 0 40px 0 rgba(60,40,20,0.2);
-  --shadow-chrome: 8px 0 24px 0 rgba(60,40,20,0.12);
-  --shadow-glow: 0 0 6px 0 rgba(59,92,128,0.35);
+  --shadow-bevel: inset 0 1px 0 0 rgba(255,255,255,0.85), inset 0 -1px 0 0 rgba(30,38,50,0.14);
+  --shadow-primary: 0 2px 0 0 #2a3746;
+  --shadow-overlay: 0 1px 0 0 rgba(30,38,50,0.12), 0 16px 40px 0 rgba(20,28,40,0.22);
+  --shadow-drawer: -16px 0 40px 0 rgba(20,28,40,0.2);
+  --shadow-chrome: 8px 0 24px 0 rgba(20,28,40,0.12);
+  --shadow-glow: 0 0 6px 0 rgba(68,88,110,0.35);
 }
 
 /* smithy extras (the top of smithy/smithy.css): the brushed gleam fills, the grain and the falloff. */
@@ -195,7 +195,7 @@
   color-scheme: light;
   --grain-opacity: .07;
   --grain-blend: multiply;
-  --fall: rgba(60,40,20,.10);
+  --fall: rgba(20,28,40,.10);
 }
 
 /* ---------- fonts: vendored Latin subsets (dashboard/fonts/README.md), never linked ---------- */
@@ -735,12 +735,12 @@
 @utility halo { position: absolute; inset: 0; opacity: .75; background: var(--gleam-hot); }
 @utility backdrop {
   background: rgba(5,7,10,.72);
-  [data-theme="ash"] & { background: rgba(40,28,18,.45); }
+  [data-theme="ash"] & { background: rgba(20,24,30,.45); }
 }
 /* The palette's lighter backdrop: the page or drawer behind it stays readable. */
 @utility scrim {
   background: rgba(5,7,10,.35);
-  [data-theme="ash"] & { background: rgba(40,28,18,.2); }
+  [data-theme="ash"] & { background: rgba(20,24,30,.2); }
 }
 /* The anvil, as shipped: a raster with its own light grey tile. */
 @utility mark { width: 36px; height: 36px; }
