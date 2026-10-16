@@ -1189,6 +1189,32 @@ test('GET /api/about reports versions', async () => {
   }
 });
 
+test('GET /api/about spawns nothing per request', async () => {
+  // /api/about takes no token, so a cross-site page can hit it: the commit is found once at start.
+  const repo = tempRepo();
+  const stubs = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-about-'));
+  const log = path.join(stubs, 'calls.log');
+  for (const cmd of ['git', 'gh']) {
+    fs.writeFileSync(path.join(stubs, cmd), `#!/bin/sh\necho "${cmd} $*" >> "${log}"\nexit 1\n`, { mode: 0o755 });
+  }
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const pathBefore = process.env.PATH;
+  process.env.PATH = `${stubs}${path.delimiter}${pathBefore}`;
+  try {
+    const port = Number(new URL(url).port);
+    const first = JSON.parse((await hit(port, { path: '/api/about' })).text);
+    const second = JSON.parse((await hit(port, { path: '/api/about' })).text);
+    assert.equal(fs.existsSync(log), false, fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '');
+    assert.equal(second.commit, first.commit);
+    assert.equal(second.installedAs, first.installedAs);
+  } finally {
+    process.env.PATH = pathBefore;
+    await close();
+    fs.rmSync(stubs, { recursive: true, force: true });
+    repo.cleanup();
+  }
+});
+
 // ---- New jobs from the dashboard: POST /api/jobs, request args, a job's requests.
 
 const postJson = async (port, path, body, headers: Record<string, string> = {}) => {
