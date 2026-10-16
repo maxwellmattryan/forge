@@ -1090,9 +1090,10 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       const a = agents();
       const key = a.keeping.join(',');
       if (!a.keeps || key === nudged) return;
-      nudged = key;
       try {
         const rec = enqueue(root, null, { type: 'resume', job: scope, text: MISSED_END_TEXT, from: 'daemon:supervisor' });
+        // Only after it queued: a failed enqueue leaves the set eligible for the next idle result.
+        nudged = key;
         logEvent('missed-agent-end', { roles: a.running, request: rec.id });
       } catch (e) {
         return void logEvent('error', { message: `queueing a resume for a missed agent end: ${(e as Error).message}` });
