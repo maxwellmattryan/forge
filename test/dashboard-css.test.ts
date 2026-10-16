@@ -661,21 +661,27 @@ test('sender tints are opaque tokens with readable text', () => {
   const lin = (c: number) => ((c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
   const lum = (c: number[]) => 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
   const contrast = (a: number[], b: number[]) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
-  const TINTS = { agent: ['gleam', 8], cli: ['fg', 5], forge: ['ember', 7] } as const;
+  const TINTS = { agent: ['gleam', 15], cli: ['fg', 5], forge: ['ember', 7] } as const;
   for (const [theme, sel] of [['forge', ':root, [data-theme="forge"]'], ['ash', '[data-theme="ash"]']] as const) {
     const b = block(sel);
     const panel = hex(b, 'panel');
+    const mixes: Record<string, number[]> = {};
     for (const [name, [color, pct]] of Object.entries(TINTS)) {
       // Opaque: a mix of two opaque colours, the panel first (the fallback where color-mix is unsupported).
       assert.ok(b.includes(`--tint-${name}: color-mix(in srgb, var(--panel), var(--${color}) ${pct}%);`), `${theme} --tint-${name} mixes ${pct}% ${color} into panel`);
       const c = hex(b, color);
       const mixed = panel.map((p, i) => Math.round(p + (c[i] - p) * (pct / 100)));
+      mixes[name] = mixed;
       for (const text of ['fg', 'muted']) {
         const ratio = contrast(hex(b, text), mixed);
         assert.ok(ratio >= 4.5, `${theme}: --${text} on --tint-${name} is ${ratio.toFixed(2)}:1`);
       }
       assert.ok(contrast(mixed, panel) > 1.01, `${theme}: --tint-${name} is visibly off the panel`);
     }
+    // The agent and cli rows must read apart at a glance: agent cool, cli neutral.
+    const { agent, cli } = mixes;
+    assert.ok(Math.max(...agent.map((v, i) => Math.abs(v - cli[i]))) >= 10, `${theme}: --tint-agent ${agent} and --tint-cli ${cli} differ by 10 or more in a channel`);
+    assert.ok(agent[2] - agent[0] > cli[2] - cli[0], `${theme}: --tint-agent is cooler than --tint-cli`);
   }
   const css = builtCss();
   for (const name of Object.keys(TINTS)) {

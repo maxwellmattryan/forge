@@ -68,9 +68,12 @@
   $effect(() => {
     if (!mainEl) return;
     const el = mainEl;
-    const ro = new ResizeObserver(() => {
+    const measure = (): void => {
       S.pane.available = el.clientWidth;
-    });
+    };
+    // Measured now as well: a job opened before the observer's first callback would otherwise flash a full pane.
+    measure();
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
   });
@@ -80,6 +83,19 @@
     if (available > 0) untrack(() => (S.pane.width = clampPaneWidth(S.pane.width, available)));
   });
   const split = $derived(S.pane.mode === 'split' && S.drawer.id !== null);
+  // A full pane covers the view (and the phone header): both leave the tab order, the pane takes focus (Drawer), and
+  // closing it hands focus back to the control that opened it (WCAG 2.4.11). Pre-effect, so the opener is read before
+  // inert lands on it.
+  const covered = $derived(S.pane.mode === 'full' && S.drawer.id !== null);
+  $effect.pre(() => {
+    if (!covered) return;
+    const active = untrack(() => document.activeElement);
+    const opener = active instanceof HTMLElement && active !== document.body ? active : null;
+    return () => {
+      // Read after the flush: the cleanup can run before the close lands, and a pane that only went split stays open.
+      if (opener) tick().then(() => S.drawer.id === null && opener.isConnected && opener.focus());
+    };
+  });
 
   $effect(() => {
     document.title = S.data?.repo?.name ? $t('app.titleRepo', { repo: S.data.repo.name }) : $t('app.title');
@@ -201,7 +217,7 @@
   </aside>
   <main bind:this={mainEl} class="falloff flex-1 min-w-0">
     <!-- The palette and settings buttons stay outside the scrolling nav, so they are always on screen. -->
-    <header class="md:hidden flex items-center gap-1 border-b chrome border-line-strong pr-2">
+    <header class="md:hidden flex items-center gap-1 border-b chrome border-line-strong pr-2" inert={covered}>
       <div id="mobile-nav" class="navlist row flex-1 min-w-0 overflow-x-auto p-2"><Nav mobile /></div>
       <button id="mobile-command" class="btn touch shrink-0 px-2.5! normal-case tracking-normal" aria-haspopup="dialog" onclick={(e) => openPalette({ opener: e.currentTarget })}><Icon name="command" /><span class="max-sm:sr-only">{$t('command.open')}</span></button>
       <button id="settings-open-mobile" class="btn icon touch shrink-0" aria-label={$t('settings.open')} aria-haspopup="dialog" onclick={openSettings}><Icon name="settings" /></button>
@@ -209,7 +225,7 @@
     <!-- The view and the job pane, side by side in split mode. The pane never covers the sidebar or the status bar, and
          nothing dims the view: a card click switches the pane's job. #view is the board's container-query root. -->
     <div class="flex items-start min-w-0">
-    <div id="view" class="@container flex-1 min-w-0 {split ? '' : 'mx-auto max-w-[1400px]'} px-4 md:px-8 pt-4 pb-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-6))]">
+    <div id="view" class="@container flex-1 min-w-0 {split ? '' : 'mx-auto max-w-[1400px]'} px-4 md:px-8 pt-4 pb-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-6))]" inert={covered}>
       {#if !S.data}
         {#if S.error}<Banner msg={S.error} />{:else}<div class="plate w-fit px-3 py-1.5 text-sm text-muted">{$t('common.loading')}</div>{/if}
       {:else}

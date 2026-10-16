@@ -1534,6 +1534,7 @@ test('the Daemon popover lists sessions, the Inbox popover holds its log', () =>
   const els = elements('components/statusbar/DaemonPanel.svelte');
   const jobRow = els.find((e) => e.name === 'button' && attrOf(e, 'onclick') === '{() => openJob(r.id)}');
   assert.ok(jobRow && has(jobRow, 'plain', 'clickable'), 'a job row is a button on a plain surface');
+  assert.ok(has(jobRow, 'border-line-soft') && !has(jobRow, 'border-transparent'), 'and shows its edge at rest, so it reads as clickable before hover');
   assert.match(panel, /<span class="truncate text-sm">\{r\.title \?\? r\.id\}<\/span><span class="mono muted truncate">\{r\.id\}/, 'its title (or id) and its mono id, as text');
   assert.match(panel, /\$t\('daemon\.rows\.inbox'\)/);
   assert.match(panel, /\$t\('daemon\.rows\.inboxAbout'\)/);
@@ -1541,6 +1542,7 @@ test('the Daemon popover lists sessions, the Inbox popover holds its log', () =>
   assert.match(panel, /\$t\('daemon\.rows\.foremanAbout'\)/);
   const inert = els.find((e) => e.name === 'div' && has(e, 'plain') && !attrOf(e, 'onclick'));
   assert.ok(inert, 'the Inbox and Foreman rows are not interactive');
+  assert.ok(has(inert, 'border-transparent'), 'and draw no edge');
   assert.equal((panel.match(/\{@render pill\(r\.pill\)\}/g) ?? []).length, 2, 'every row ends with its session pill');
   assert.doesNotMatch(panel, /<SessionLog|LOG_KEY|daemon\.(held|waiting|kept)/, 'no log, no held, waiting or kept chips');
   assert.doesNotMatch(panel, /\{@html/);
@@ -1590,6 +1592,23 @@ test('the job pane sits beside the view with a resizable separator', () => {
   assert.match(drawer, /<CloseButton size="sm" label=\{\$t\('drawer\.close'\)\} onclick=\{closeDrawer\} \/>/);
 });
 
+test('a full pane takes focus and takes the covered view out of the tab order', () => {
+  const app = read('App.svelte');
+  assert.match(app, /const covered = \$derived\(S\.pane\.mode === 'full' && S\.drawer\.id !== null\);/);
+  const els = elements('App.svelte');
+  const view = els.find((e) => attrOf(e, 'id') === 'view');
+  assert.equal(view && attrOf(view, 'inert'), '{covered}', '#view is inert under a full pane');
+  const header = els.find((e) => e.name === 'header');
+  assert.equal(header && attrOf(header, 'inert'), '{covered}', 'and so is the phone header it covers');
+  assert.match(app, /\$effect\.pre\(\(\) => \{\s*if \(!covered\) return;\s*const active = untrack\(\(\) => document\.activeElement\);/, 'the opener is read before inert lands');
+  assert.match(app, /if \(opener\) tick\(\)\.then\(\(\) => S\.drawer\.id === null && opener\.isConnected && opener\.focus\(\)\);/, 'closing hands focus back');
+  // The main column is measured before the observer's first callback, so an early open never flashes a full pane.
+  assert.match(app, /measure\(\);\s*const ro = new ResizeObserver\(measure\);/);
+  const drawer = read('components/Drawer.svelte');
+  assert.match(drawer, /<h2 bind:this=\{title\} tabindex="-1" class="h sheet-title">\{j\.title\}<\/h2>/, 'the title can take focus');
+  assert.match(drawer, /if \(split \|\| !open \|\| !title \|\| !pane\) return;[\s\S]*?if \(!untrack\(\(\) => el\.contains\(document\.activeElement\)\)\) title\.focus\(\);/, 'a full pane focuses it unless focus is already inside');
+});
+
 test('the job pane reads at body size', () => {
   const thread = read('components/ThreadPanel.svelte');
   assert.doesNotMatch(thread, /prose compact/, 'no compact prose in the Thread');
@@ -1609,7 +1628,8 @@ test('the job pane reads at body size', () => {
   assert.ok(log.includes("{compact ? 'text-[11px] leading-5' : 'text-[13px] leading-5'}"), 'the pane log is 13px, the compact one 11px');
   assert.doesNotMatch(log, /text-\[9px\]/, 'labels are the 11px label');
   assert.equal(log.match(/\{compact \? 'prose compact' : 'prose'\}/g)?.length, 3, 'agent text (short and long) and thinking are prose in the pane');
-  assert.match(log, /<div class="flex items-start gap-2 font-sans /, 'agent text is sans');
+  assert.match(log, /<div class="flex items-baseline gap-2 font-sans /, 'agent text is sans, its time on the first line baseline');
+  assert.ok(log.includes("{:else if prose}<div class=\"{compact ? 'prose compact' : 'prose'} min-w-0 break-words [&>:first-child]:mt-0 [&>:last-child]:mb-0 "), 'the prose starts on the line of the time');
 });
 
 test('messages tint by sender', () => {
@@ -1625,6 +1645,7 @@ test('messages tint by sender', () => {
   assert.ok(!thread.includes('font-medium text-fg'), 'sender names are font-semibold');
   assert.match(log, /\{#snippet line\([^)]*\)\}\s*<div class="flex items-start gap-2 \{TINT\.cli\} px-1\.5 -mx-1\.5 py-0\.5">/, 'plumbing lines are cli');
   assert.equal(log.match(/\{TINT\[logSender\(it\.kind\)\]\}/g)?.length, 4, 'text, thinking, tool and subagent tint by kind');
+  assert.equal(log.match(/px-1\.5 -mx-1\.5/g)?.length, 5, 'every tinted row, the tool and subagent boxes too, shares one edge');
   assert.match(log, /<h3 class="label sticky top-0 z-10 bg-panel/, 'the turn heading keeps bg-panel');
 });
 

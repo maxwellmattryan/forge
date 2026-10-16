@@ -133,7 +133,7 @@
   --warn: #f3c84a;
   --bad: #ff8f86;
   --info: #8fa2b8;
-  --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 8%);
+  --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
   --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
   --shadow-bevel: inset 0 1px 0 0 rgba(220,232,250,0.08), inset 0 -1px 0 0 rgba(0,0,0,0.5);
@@ -171,7 +171,7 @@
   --warn: #6e4d00;
   --bad: #a52019;
   --info: #44546a;
-  --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 8%);
+  --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
   --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
   --shadow-bevel: inset 0 1px 0 0 rgba(255,255,255,0.85), inset 0 -1px 0 0 rgba(60,40,20,0.14);

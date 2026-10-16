@@ -45,7 +45,7 @@
       {#each rows as r (r.kind === 'job' ? `job:${r.id}` : r.kind)}
         <li>
           {#if r.kind === 'job'}
-            <button class="plain clickable flex w-full min-w-0 items-center gap-3 border border-transparent px-2 py-1.5 text-left" title={[r.id, r.pill.title, ...(r.mode ? [$t('daemon.modeTitle', { mode: named(r.mode) })] : [])].join('\n')} onclick={() => openJob(r.id)}>
+            <button class="plain clickable flex w-full min-w-0 items-center gap-3 border border-line-soft px-2 py-1.5 text-left" title={[r.id, r.pill.title, ...(r.mode ? [$t('daemon.modeTitle', { mode: named(r.mode) })] : [])].join('\n')} onclick={() => openJob(r.id)}>
               <span class="flex min-w-0 flex-1 flex-col"><span class="truncate text-sm">{r.title ?? r.id}</span><span class="mono muted truncate">{r.id}{#if r.mode} · {named(r.mode)}{/if}</span></span>
               {@render pill(r.pill)}
             </button>

@@ -4,6 +4,7 @@
      separator on its left edge. full: it fills the main column, top of the viewport to the top of the status bar. And
      nothing dims the view: it stays visible and clickable. Closed, it takes no space and is invisible, so out of the tab order. -->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import ActionDock from './ActionDock.svelte';
   import AgentActivity from './AgentActivity.svelte';
   import AgentsTab from './AgentsTab.svelte';
@@ -93,6 +94,8 @@
     // The separator is the pane's left edge: moving left widens the pane.
     if (drag) S.pane.width = clampPaneWidth(drag.w + (drag.x - e.clientX), available);
   }
+  // Both pointerup and lostpointercapture end a drag (capture can be lost without a pointerup); the second call finds
+  // drag null and returns, so the width is saved once.
   function dragEnd(): void {
     if (!drag) return;
     drag = null;
@@ -111,6 +114,16 @@
     save();
   }
 
+  // Full mode covers the view, which App makes inert: focus moves to the job title once it renders, unless it is already
+  // in the pane. App hands it back to the opener on close.
+  let pane = $state<HTMLElement>();
+  let title = $state<HTMLHeadingElement>();
+  $effect(() => {
+    if (split || !open || !title || !pane) return;
+    const el = pane;
+    if (!untrack(() => el.contains(document.activeElement))) title.focus();
+  });
+
   function stripKey(e: KeyboardEvent): void {
     if (!shown) return;
     const next = moveDrawerTab(shown.tab, e.key);
@@ -128,6 +141,7 @@
      status bar's top edge, so the bar stays visible and clickable and the dock sits wholly above it. Opening animates the
      width from 0 (the reduced-motion block turns it off), and visibility follows at the end of a close. -->
 <aside
+  bind:this={pane}
   id="drawer"
   aria-label={$t('drawer.label')}
   class="solid flex flex-col overflow-hidden {split ? 'sticky top-0 shrink-0 self-start h-[calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom))]' : 'fixed top-0 right-0 left-0 md:left-(--size-sidebar) bottom-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom))] z-40 w-auto shadow-(--shadow-drawer)'} {split && !dragging ? 'transition-[width,visibility]' : ''} {open ? '' : 'invisible'}"
@@ -161,7 +175,7 @@
     {@const j = job}
     <div bind:this={body} class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       <div bind:this={head} class="p-5 md:p-6 pb-3 md:pb-4 flex flex-col gap-2">
-        <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="h sheet-title">{j.title}</h2><div class="mono text-[13px] muted selectable">{j.id}</div></div><div class="flex shrink-0 items-center gap-2">{#if scopeVerbs(j).length}<CommandTrigger job={j.id} />{/if}<CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div></div>
+        <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 bind:this={title} tabindex="-1" class="h sheet-title">{j.title}</h2><div class="mono text-[13px] muted selectable">{j.id}</div></div><div class="flex shrink-0 items-center gap-2">{#if scopeVerbs(j).length}<CommandTrigger job={j.id} />{/if}<CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div></div>
         <div class="flex flex-wrap items-center gap-1.5"><span class="chip gleam">{STAGE_LABEL[j.stage] ?? j.stage}</span><StateChip job={j} />{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}<EffortChip level={effort} />{#if activity}<SessionActivity {activity} extra="caption" />{/if}</div>
         {#if j.reason}<div class="text-sm text-muted truncate" title={j.reason}>{j.reason}</div>{/if}
         {#if running.length || j.ownerStatus?.status !== 'none'}<AgentActivity activity={running} owner={j.ownerStatus} expandable={true} />{/if}
