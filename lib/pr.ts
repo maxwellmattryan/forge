@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ownerStatusWithProof } from './daemon-owner.ts';
 import { loadJob, logEvent, readEvents, setJob, jobDir } from './jobs.ts';
-import { checkBranch, logEscalated, protectedApproved, refusalText } from './protected.ts';
+import { checkBranch, logEscalated, policyRules, protectedApproved, refusalText } from './protected.ts';
 import { enqueuePrFeedbackGate, maybeEnqueueGate } from './foreman.ts';
 import { prLinkNote } from './issue-link.ts';
 import { exists } from './paths.ts';
@@ -738,6 +738,17 @@ export function mergePr(root: string, config: Config, id: string, opts: { now?: 
   if (synced?.state === 'MERGED') return { merged: true, action: 'already-merged', checks };
   if (synced?.state === 'CLOSED') throw new ForgeError(`PR #${number} is closed; reopen it before merging`);
   const now = opts.now === true;
+  // forge pr open checked protected paths on the head it pushed. A head pushed since, by plain git
+  // or a stale session, was never checked, so only a human's --now merges it unless pr open runs again.
+  const head = synced?.headOid ?? null;
+  const pushed = loadJob(root, id).pr?.pushedSha ?? null;
+  if (!now && policyRules(config).length && (head === null || head !== pushed)) {
+    logEvent(root, id, 'pr-merge-refused', { number, checks, head, pushedSha: pushed, reason: 'protected' });
+    throw new ForgeError(
+      `PR #${number}'s head ${String(head ?? 'unknown').slice(0, 12)} is not the commit forge pr open checked for protected paths (${String(pushed ?? 'none').slice(0, 12)}); run: forge pr open ${id}, or merge with --now`,
+      'protected_path',
+    );
+  }
   const hasWorkflows = checks === 'none' ? hasCiWorkflows(root, `${config.git.remote}/${job.base}`) : false;
   const mergeState = synced?.mergeState ?? null;
   const action = mergeAction(checks, { hasWorkflows, now, mergeState });

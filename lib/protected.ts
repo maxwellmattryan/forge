@@ -3,6 +3,7 @@
 // over the whole branch at `forge verify` and `forge pr open`, and `forge job step` parks a job whose
 // escalate paths no human approved (PP1). docs/CONFIG.md "Protected paths" has the user-facing rules.
 // No imports from worktree.ts or evals.ts: worktree.ts imports this module.
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -49,6 +50,8 @@ export const LIST_LIMIT = 20;
 export const DIFF_CAP = 1024 * 1024;
 const REASON_MAX = 200;
 const LINK_MAX = 4096;
+/** Bytes of paths per `git diff` call when writing protected.diff, so argv stays bounded. */
+const ARGV_CHUNK = 64 * 1024;
 const LINK_MODES = new Set(['120000', '160000']);
 const NULL_SHA = /^0+$/;
 const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
@@ -130,13 +133,19 @@ function leadsInto(dir: string, glob: string): boolean {
 }
 
 /**
- * A link's target, resolved against the link's directory, as a repo-relative path; null when it
- * leaves the repo or can't be read. `readBlob` returns the blob's bytes (at most 4 KiB).
+ * A link whose target can't be read, or is longer than any real link, matches this: refused, since
+ * an unread target could point anywhere, `.forge/config.yml` included. Rule 0 is no configured rule.
  */
-function linkTarget(entryPath: string, blob: string | null, cwd: string | null, readBlob: (sha: string) => string | null): string | null {
-  if (!blob || !FULL_SHA.test(blob)) return null;
+export const UNCHECKED_LINK: PolicyMatch = { rule: 0, glob: '', action: 'refuse', reason: 'link target could not be checked' };
+
+/**
+ * A link's target, resolved against the link's directory, as a repo-relative path; null when it
+ * leaves the repo, false when it can't be read. `readBlob` returns the blob's bytes (at most 4 KiB).
+ */
+function linkTarget(entryPath: string, blob: string | null, cwd: string | null, readBlob: (sha: string) => string | null): string | null | false {
+  if (!blob || !FULL_SHA.test(blob)) return false;
   let target = readBlob(blob);
-  if (target === null || !target || target.length > LINK_MAX) return null;
+  if (target === null || !target || target.length > LINK_MAX) return false;
   if (path.posix.isAbsolute(target)) {
     if (!cwd || !target.startsWith(`${cwd}/`)) return null;
     target = target.slice(cwd.length + 1);
@@ -161,7 +170,8 @@ export function matchEntry(entry: DiffEntry, rules: ProtectedRule[], readBlob: (
     best = better(best, matchWith(rules, (g) => leadsInto(p, g)));
     if (mode === '120000') {
       const target = linkTarget(entry.path, blob, cwd, readBlob);
-      if (target === null) continue;
+      if (target === false) best = better(best, UNCHECKED_LINK);
+      if (target === null || target === false) continue;
       const t = target.toLowerCase();
       best = better(best, better(matchPolicy(target, rules), matchWith(rules, (g) => leadsInto(t, g))));
     }
@@ -241,7 +251,12 @@ export function checkProtected(entries: DiffEntry[], rules: ProtectedRule[], rea
 
 /** `<path>: rule <n> (<glob>): <reason>`, with control characters escaped so a path can't start a line. */
 export function hitLine(h: Pick<ProtectedHit, 'path' | 'rule' | 'glob' | 'reason'>): string {
-  return `${clean(h.path)}: rule ${h.rule} (${clean(h.glob)}): ${clean(h.reason)}`;
+  return `${clean(h.path)}: ${ruleText(h)}`;
+}
+
+/** `rule <n> (<glob>): <reason>`, or the bare reason for UNCHECKED_LINK, which no configured rule names. */
+function ruleText(h: Pick<ProtectedHit, 'rule' | 'glob' | 'reason'>): string {
+  return h.rule ? `rule ${h.rule} (${clean(h.glob)}): ${clean(h.reason)}` : clean(h.reason);
 }
 
 export const clean = (s: string): string => String(s).replace(/[\x00-\x1f\x7f\u2028\u2029]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
@@ -276,26 +291,64 @@ export interface DiffSource {
   env: NodeJS.ProcessEnv;
 }
 
-function writeDiff(file: string, hits: ProtectedHit[], src: DiffSource): void {
+/** Paths split so no `git diff` call's argv passes ARGV_CHUNK bytes. */
+function chunks(paths: string[]): string[][] {
+  const out: string[][] = [];
+  let cur: string[] = [];
+  let size = 0;
+  for (const p of paths) {
+    if (cur.length && size + Buffer.byteLength(p) + 1 > ARGV_CHUNK) {
+      out.push(cur);
+      cur = [];
+      size = 0;
+    }
+    cur.push(p);
+    size += Buffer.byteLength(p) + 1;
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+
+/** The patch of every S path (git diff has no --pathspec-from-file, so in chunks), capped at DIFF_CAP. */
+function writeDiff(file: string, s: ProtectedHit[], src: DiffSource): void {
   const range = src.to === 'index' ? ['--cached', src.from] : [src.from, src.to];
-  const r = spawnSync('git', ['--literal-pathspecs', ...PINNED_GIT_CONFIG, 'diff', ...PATCH_OPTS, ...range, '--', ...hits.map((h) => h.path)], {
-    cwd: src.cwd,
-    env: src.env,
-    encoding: 'buffer',
-    maxBuffer: DIFF_CAP * 2,
-  });
-  const out = Buffer.isBuffer(r.stdout) ? r.stdout : Buffer.alloc(0);
-  let text: string;
-  if (r.status !== 0 && !out.length) text = `# forge could not produce the diff of the protected paths (git exited ${r.status ?? 'abnormally'})\n`;
-  else if (out.length > DIFF_CAP || r.error) text = `${out.subarray(0, DIFF_CAP).toString('utf8')}\n# truncated: the diff is larger than ${DIFF_CAP} bytes; read the rest in the worktree\n`;
-  else text = out.toString('utf8');
-  writeTextAtomic(file, text);
+  const parts: Buffer[] = [];
+  let size = 0;
+  let note = '';
+  for (const group of chunks(s.map((h) => h.path))) {
+    const r = spawnSync('git', ['--literal-pathspecs', ...PINNED_GIT_CONFIG, 'diff', ...PATCH_OPTS, ...range, '--', ...group], {
+      cwd: src.cwd,
+      env: src.env,
+      encoding: 'buffer',
+      maxBuffer: DIFF_CAP * 2,
+    });
+    const out = Buffer.isBuffer(r.stdout) ? r.stdout : Buffer.alloc(0);
+    if (r.status !== 0 && !out.length) {
+      note = `# forge could not produce the diff of the protected paths (git exited ${r.status ?? 'abnormally'})\n`;
+      break;
+    }
+    parts.push(out);
+    size += out.length;
+    if (size > DIFF_CAP || r.error) {
+      note = `\n# truncated: the diff is larger than ${DIFF_CAP} bytes; read the rest in the worktree\n`;
+      break;
+    }
+  }
+  writeTextAtomic(file, `${Buffer.concat(parts).subarray(0, DIFF_CAP).toString('utf8')}${note}`);
+}
+
+/** sha256 over every (path, blob) of S, so a change past the stored MAX_HITS still moves `at`. */
+export function protectedDigest(s: Pick<ProtectedHit, 'path' | 'blob'>[]): string {
+  const h = createHash('sha256');
+  for (const k of s.map((x) => `${x.path}\0${x.blob ?? ''}\0`).sort()) h.update(k);
+  return h.digest('hex');
 }
 
 /**
  * Records the escalate set S a gate found. An empty S clears the flag and protected.diff. Otherwise
  * `at` moves only when S holds a (path, blob) the previous hits didn't, or `more` grew, so a human
- * approval stays bound to the exact content it saw. Only the CLI calls this.
+ * approval stays bound to the exact content it saw. Past MAX_HITS the stored hits can't show that,
+ * so there `at` also moves whenever the digest of the whole of S changes. Only the CLI calls this.
  */
 export function recordProtected(root: string, id: string, gate: ProtectedGate, s: ProtectedHit[], head: string | null, diff: DiffSource | null): ProtectedPaths | null {
   const file = path.join(jobDir(root, id), 'protected.diff');
@@ -306,16 +359,17 @@ export function recordProtected(root: string, id: string, gate: ProtectedGate, s
   }
   const hits = s.slice(0, MAX_HITS);
   const more = Math.max(0, s.length - MAX_HITS);
+  const digest = protectedDigest(s);
   let flag: ProtectedPaths | null = null;
   updateJob(root, id, (j) => {
     const prev = j.protectedPaths;
     const key = (h: Pick<ProtectedHit, 'path' | 'blob'>) => `${h.path}\0${h.blob ?? ''}`;
     const known = new Set((prev?.hits ?? []).map(key));
-    const fresh = !prev || !prev.at || hits.some((h) => !known.has(key(h))) || more > (Number(prev.more) || 0);
-    flag = { hits, more, at: fresh ? now() : prev.at, gate, head };
+    const fresh = !prev || !prev.at || hits.some((h) => !known.has(key(h))) || more > (Number(prev.more) || 0) || (more > 0 && prev.digest !== digest);
+    flag = { hits, more, at: fresh ? now() : prev.at, gate, head, digest };
     j.protectedPaths = flag;
   });
-  if (diff) writeDiff(file, hits, diff);
+  if (diff) writeDiff(file, s, diff);
   return flag;
 }
 
@@ -401,7 +455,7 @@ export function compactProtected(c: Pick<BranchCheck, 'refused' | 'escalated' | 
 /** verify/round-N.md's `## protected` section. Paths come from the branch: control characters are escaped and backticks can't close the span. */
 export function renderProtected(c: Pick<BranchCheck, 'refused' | 'escalated' | 'error'>): string {
   const ok = !c.error && !c.refused.length;
-  const line = (h: ProtectedHit) => `- \`${clean(h.path).replace(/`/g, "'")}\`: rule ${h.rule} (${clean(h.glob)}): ${clean(h.reason)}`;
+  const line = (h: ProtectedHit) => `- \`${clean(h.path).replace(/`/g, "'")}\`: ${ruleText(h)}`;
   const list = (hits: ProtectedHit[]) => {
     const shown = hits.slice(0, MAX_HITS).map(line);
     if (hits.length > MAX_HITS) shown.push(`- … and ${hits.length - MAX_HITS} more`);

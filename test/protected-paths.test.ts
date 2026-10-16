@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
-import { matchPolicy, policyProblems, policyRules } from '../lib/protected.ts';
+import { hitLine, matchEntry, matchPolicy, policyProblems, policyRules, UNCHECKED_LINK } from '../lib/protected.ts';
 import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate, tempRepo } from './helpers.ts';
@@ -113,6 +113,21 @@ describe('the policy', () => {
       { paths: ['a/b'], action: 'escalate' as const, reason: 'second' },
     ];
     assert.equal(matchPolicy('a/b', twice)?.reason, 'first');
+  });
+
+  test('a link target that cannot be checked is refused', () => {
+    const rules = defaults().policy.protectedPaths;
+    const link = (newMode: string) => ({ path: 'lnk', status: 'A', oldMode: '000000', newMode, oldBlob: null, newBlob: 'a'.repeat(40) });
+    // Unreadable, or longer than any real link (plain git stores a 120000 blob of any size).
+    assert.deepEqual(matchEntry(link('120000'), rules, () => null), UNCHECKED_LINK);
+    assert.deepEqual(matchEntry(link('120000'), rules, () => `${'./'.repeat(2100)}.forge/config.yml`), UNCHECKED_LINK);
+    assert.equal(hitLine({ path: 'lnk', ...UNCHECKED_LINK }), 'lnk: link target could not be checked');
+    // A readable target is matched as before: outside the repo or unprotected is no hit, a protected one names its rule.
+    assert.equal(matchEntry(link('120000'), rules, () => '../outside'), null);
+    assert.equal(matchEntry(link('120000'), rules, () => 'src/app.ts'), null);
+    assert.equal(matchEntry(link('120000'), rules, () => '.forge/config.yml')?.rule, 7);
+    // A regular file's blob is never read as a target.
+    assert.equal(matchEntry(link('100644'), rules, () => null), null);
   });
 });
 
@@ -276,6 +291,42 @@ describe('forge git add and commit', { concurrency: 4 }, () => {
       const third = s.flag(j.dir);
       assert.ok(third.at > first.at, 'new content moves at');
       assert.equal(third.hits[0].blob, git(j.wt, 'rev-parse', 'HEAD:.github/workflows/ci.yml'));
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('the flag covers escalate paths past the stored 200', async () => {
+    const s = scratch();
+    try {
+      const j = await s.job();
+      // 200 paths that sort before the one that matters, so it falls past the stored hits.
+      for (let i = 0; i < 200; i++) write(j.wt, `.a/migrations/${String(i).padStart(3, '0')}.sql`, `-- ${i}\n`);
+      write(j.wt, '.github/workflows/x.yml', 'on: push\n');
+      const c1 = await s.json(['git', 'commit', j.id, '--message', 'many migrations']);
+      assert.equal(c1.status, 0, c1.stderr);
+      assert.equal(c1.out.protected, 201);
+      const first = s.flag(j.dir);
+      assert.deepEqual([first.hits.length, first.more], [200, 1]);
+      assert.ok(!first.hits.some((h: any) => h.path === '.github/workflows/x.yml'), 'the workflow is past the stored hits');
+      assert.match(first.digest, /^[0-9a-f]{64}$/);
+      const diff = fs.readFileSync(path.join(j.dir, 'protected.diff'), 'utf8');
+      assert.match(diff, /^diff --git a\/\.github\/workflows\/x\.yml b\/\.github\/workflows\/x\.yml$/m, 'protected.diff holds every path, not only the stored ones');
+      assert.match(diff, /^diff --git a\/\.a\/migrations\/000\.sql /m);
+      // A change elsewhere keeps at; new content in the path past the cap moves it.
+      write(j.wt, 'notes.txt', 'more notes\n');
+      const c2 = await s.json(['git', 'commit', j.id, '--message', 'notes']);
+      assert.equal(c2.status, 0, c2.stderr);
+      const second = s.flag(j.dir);
+      assert.equal(second.at, first.at, 'the same set keeps at');
+      assert.equal(second.digest, first.digest);
+      write(j.wt, '.github/workflows/x.yml', 'on: [push, pull_request]\n');
+      const c3 = await s.json(['git', 'commit', j.id, '--message', 'workflow']);
+      assert.equal(c3.status, 0, c3.stderr);
+      const third = s.flag(j.dir);
+      assert.equal(third.more, 1);
+      assert.notEqual(third.digest, first.digest);
+      assert.ok(third.at > first.at, 'new content past the stored hits moves at');
     } finally {
       s.cleanup();
     }

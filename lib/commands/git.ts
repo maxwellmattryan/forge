@@ -143,11 +143,47 @@ interface ProtectedPreview {
   escalated: ProtectedHit[];
   own: ProtectedHit[];
   m: string;
+  /** The real index, and the checked preview that installPreview puts in its place. */
+  index: string;
+  tmp: string;
+}
+
+function dropPreview(tmp: string): void {
+  fs.rmSync(tmp, { force: true });
+  fs.rmSync(`${tmp}.lock`, { force: true });
+}
+
+/**
+ * Makes the checked preview the real index, through git's own lock file, instead of running `add`
+ * again: a second `add` would read the worktree again, and a write in between could stage content
+ * the check never saw. The preview's mtime goes with it, so git's racy-entry check is unchanged.
+ */
+function installPreview(p: ProtectedPreview, cwd: string): void {
+  const lock = `${p.index}.lock`;
+  try {
+    try {
+      fs.copyFileSync(p.tmp, lock, fs.constants.COPYFILE_EXCL);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new ForgeError(`${lock} exists: another git process is using the index in ${cwd}; run the command again once it ends`);
+      throw e;
+    }
+    try {
+      const st = fs.statSync(p.tmp);
+      fs.utimesSync(lock, st.atime, st.mtime);
+      fs.renameSync(lock, p.index);
+    } catch (e) {
+      fs.rmSync(lock, { force: true });
+      throw e;
+    }
+  } finally {
+    dropPreview(p.tmp);
+  }
 }
 
 /**
  * Previews the index `git add -A -- <paths>` would produce, in a temp copy of the index inside the
- * job dir (removed in a finally), and checks it against the policy before anything is written. C is
+ * job dir (removed on a throw, else installed or dropped by the caller), and checks it against the
+ * policy before anything is written. C is
  * what differs between HEAD and the preview (this call's commit), D what differs from the comparison
  * point M (the branch). A refuse path is refused only when it is in both, so putting a path back to
  * its M content, or leaving a path the call doesn't touch, stays possible. Null with the policy off.
@@ -178,10 +214,10 @@ function protectedPreview(config: Config, job: Job, cwd: string, dir: string, ge
     const denv = historyEnv(penv);
     const c = new Set(diffEntries(cwd, 'HEAD', 'index', denv).map((e) => e.path));
     const found = checkProtected(diffEntries(cwd, m, 'index', denv), rules, blobReader(cwd, denv), cwd);
-    return { refused: found.refused.filter((h) => c.has(h.path)), escalated: found.escalated, own: found.escalated.filter((h) => c.has(h.path)), m };
-  } finally {
-    fs.rmSync(tmp, { force: true });
-    fs.rmSync(`${tmp}.lock`, { force: true });
+    return { refused: found.refused.filter((h) => c.has(h.path)), escalated: found.escalated, own: found.escalated.filter((h) => c.has(h.path)), m, index, tmp };
+  } catch (e) {
+    dropPreview(tmp);
+    throw e;
   }
 }
 
@@ -215,11 +251,14 @@ export function gitWrite(
   const guard = (): ProtectedPreview | null => {
     const p = protectedPreview(config, job, cwd, dir, genv, paths);
     if (p?.refused.length) {
+      dropPreview(p.tmp);
       logRefused(root, job.id, sub, p.refused);
       throw new ForgeError(refusalText(`forge git ${sub}`, p.refused), 'protected_path');
     }
     return p;
   };
+  /** Stages exactly what guard checked; a plain add with the policy off. */
+  const stage = (p: ProtectedPreview | null) => (p ? installPreview(p, cwd) : void add(paths));
   const record = (p: ProtectedPreview | null, head: string | null): { protected?: number } => {
     if (!p) return {};
     recordProtected(root, job.id, sub, p.escalated, head, { cwd, from: p.m, to: head ?? 'index', env: historyEnv(genv) });
@@ -231,7 +270,7 @@ export function gitWrite(
     if (opts.message !== null || opts.messageFile !== null) throw new ForgeError('forge git add takes only -- and paths');
     if (!paths.length) throw new ForgeError('forge git add needs at least one path after --');
     const p = guard();
-    add(paths);
+    stage(p);
     return { id, staged: opts.paths, ...record(p, null) };
   }
 
@@ -266,7 +305,7 @@ export function gitWrite(
   refuseSecrets(root, config, [textUnit('(commit message)', message)], { what: 'the commit message', id, gate: 'commit' });
 
   const p = guard();
-  add(paths);
+  stage(p);
   if (git(['diff', '--cached', '--quiet'], { allowFail: true }).ok) throw new ForgeError(`nothing to commit in ${cwd}`);
   // A builder can't rewrite history through forge git, so this is the last point where it can still
   // take a key out. The index stays staged on a refusal, for the builder to fix.
