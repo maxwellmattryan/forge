@@ -24,6 +24,9 @@ process.env.GIT_CONFIG_NOSYSTEM = '1';
 // the session's markers and git pins; the CLI it spawns would then apply daemon rules to scratch
 // repos. Tests that exercise daemon mode set these themselves.
 for (const k of Object.keys(process.env)) if (/^FORGE_DAEMON(_|$)|^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/.test(k)) delete process.env[k];
+// Transcript lookups follow Claude Code's own CLAUDE_CONFIG_DIR; tests that fake a HOME must not
+// read the developer's real one instead. Tests that need it set it themselves.
+delete process.env.CLAUDE_CONFIG_DIR;
 // Forge runs configured commands as `$SHELL -lc`. A login profile (nvm, for one) can cost a second
 // per command and reorder PATH, and no test needs one, so commands run in the same shell without -l.
 const NO_LOGIN_SHELL = path.resolve(import.meta.dirname, 'fixtures', 'bin', 'no-login-shell');

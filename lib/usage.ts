@@ -1,9 +1,9 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { readJson } from './util.ts';
 import { PLUGIN_ROOT } from './paths.ts';
-import type { AgentUsage } from './types.ts';
+import { agentTranscriptById, claudeProjectsDir, openTranscript } from './transcripts.ts';
+import type { AgentUsage, Job } from './types.ts';
 
 /** One model's prices in USD per million tokens: an entry of lib/pricing.json's `models`. */
 export interface ModelRate {
@@ -84,20 +84,43 @@ export function estimateCost(
  * A resumed agent (SendMessage) appends to the same file, so `since` (the previous import's
  * `through`) skips every line at or before it: each import counts, and times, only the new span.
  * A line without a timestamp belongs to the span of the timestamped line before it.
+ * Given the job and root, the transcript is looked up under the job's sessions in this repo's project
+ * dirs first (lib/transcripts.ts); the scan of every project dir stays as the fallback for an agent
+ * whose parent session isn't recorded.
  */
-export function importClaudeCodeTranscript(agentId: string, opts: { projectsDir?: string; since?: string | null } = {}): TranscriptUsage | null {
-  const projects = opts.projectsDir ?? path.join(os.homedir(), '.claude', 'projects');
-  const file = findTranscript(projects, `agent-${agentId}.jsonl`);
+export function importClaudeCodeTranscript(
+  agentId: string,
+  opts: { projectsDir?: string; since?: string | null; root?: string; job?: Pick<Job, 'owner' | 'runs' | 'agents' | 'worktree'> } = {},
+): TranscriptUsage | null {
+  const projects = opts.projectsDir ?? claudeProjectsDir();
+  const file = (opts.root && opts.job ? readTranscript(agentTranscriptById(opts.root, opts.job, agentId, { projects })?.path, projects) : null) ?? readTranscript(findTranscript(projects, `agent-${agentId}.jsonl`), null);
   if (!file) return null;
+  return summarise(file.text, file.path, opts.since);
+}
+
+/** A transcript's path and text; confined under `projects` (openTranscript) when it is given. */
+function readTranscript(file: string | null | undefined, projects: string | null): { path: string; text: string } | null {
+  if (!file) return null;
+  if (projects === null) return { path: file, text: fs.readFileSync(file, 'utf8') };
+  const t = openTranscript(file, projects);
+  if (!t) return null;
+  try {
+    return { path: file, text: fs.readFileSync(t.fd, 'utf8') };
+  } finally {
+    fs.closeSync(t.fd);
+  }
+}
+
+function summarise(text: string, file: string, sinceAt: string | null | undefined): TranscriptUsage {
   // usage is a transcript line's raw usage object.
   const byMessage = new Map<string, { usage: any; model: string | null; chars: number }>();
   const toolIds = new Set<string>();
-  const since = opts.since ? Date.parse(opts.since) : NaN;
+  const since = sinceAt ? Date.parse(sinceAt) : NaN;
   let skipping = !Number.isNaN(since);
   let firstTs: string | null = null;
   let lastTs: string | null = null;
-  let through: string | null = opts.since ?? null;
-  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+  let through: string | null = sinceAt ?? null;
+  for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let o: any;
     try {

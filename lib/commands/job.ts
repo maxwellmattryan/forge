@@ -415,7 +415,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         secrets = scan.findings.length;
         if (flags.import && flags['agent-id']) {
           since = importCursor(before, String(flags['agent-id']));
-          usage = importClaudeCodeTranscript(String(flags['agent-id']), { since }) ?? undefined;
+          usage = importClaudeCodeTranscript(String(flags['agent-id']), { since, root, job: before }) ?? undefined;
         }
         if (!usage && (tokens !== undefined || toolUses !== undefined || durationMs !== undefined)) usage = { totalTokens: tokens ?? 0, toolUses: toolUses ?? 0, durationMs: durationMs ?? 0 };
         if (usage && !usage.toolUses && toolUses) usage.toolUses = toolUses;

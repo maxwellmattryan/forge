@@ -916,6 +916,48 @@ export interface DaemonLogPage {
   more: boolean;
 }
 
+/** What a transcript's agent did last: lastActivity in lib/transcripts.ts. Plain text, at most 160 characters. */
+export interface TranscriptActivity {
+  kind: 'tool' | 'text';
+  text: string;
+  at: string | null;
+}
+
+/** One running agent of a job in /api/state: state() in lib/server.ts. `last` is null when no transcript is found. */
+export interface AgentActivity {
+  role: string;
+  model: string | null;
+  startedAt: string | null;
+  last: TranscriptActivity | null;
+}
+
+/** One agent of the job's current round (or still running) in the job detail: jobDetail() in lib/server.ts. */
+export interface AgentRow {
+  role: string;
+  status: string | null;
+  model: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  /** endedAt − startedAt; null while running or when either is unknown. */
+  durationMs: number | null;
+  /** usage.totalTokens of this run's agent-end event, else null. */
+  tokens: number | null;
+  /** Its transcript was found. */
+  transcript: boolean;
+}
+
+/** GET /api/jobs/:id/transcript: a page of an agent's or the interactive owner's transcript, read backwards. */
+export interface TranscriptPage {
+  job: string;
+  source: 'agent' | 'owner';
+  /** The agent's role; null for the owner. */
+  role: string | null;
+  lines: { offset: number; line: string }[];
+  start: number;
+  end: number;
+  more: boolean;
+}
+
 /** A job row in /api/state: state() in lib/server.ts. */
 export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus };
 
