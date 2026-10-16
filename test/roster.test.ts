@@ -138,3 +138,38 @@ test('triage agent runs on haiku without a config key', () => {
     repo.cleanup();
   }
 });
+
+test('roster reports learning count and oldest review-by', () => {
+  const repo = tempRepo();
+  try {
+    const cfg = defaults();
+    // A missing file: no learnings, no date, and no path.
+    let r = roster(repo.dir, cfg);
+    assert.deepEqual([r.learningCount, r.oldestReviewBy, r.learnings], [0, null, null]);
+
+    const notes = path.join(repo.dir, '.forge', 'notes');
+    fs.mkdirSync(notes, { recursive: true });
+    const file = path.join(notes, 'learnings.md');
+    const header = ['# Forge learnings', '', '<!--', 'Format:', '- **<rule>** — why. (added YYYY-MM-DD · experiment: <id> · review-by: 2000-01-01)', '-->', ''];
+    fs.writeFileSync(file, [...header, '- **Old** (added 2026-10-12)', '- **Bad date** (review-by: 2026-02-30)', ''].join('\n'));
+    r = roster(repo.dir, cfg);
+    assert.deepEqual([r.learningCount, r.oldestReviewBy], [2, null], 'no valid review-by');
+
+    fs.writeFileSync(
+      file,
+      [
+        ...header,
+        '- **Old** (added 2026-10-12)',
+        '- **Later** (added 2026-10-14 · experiment: a · review-by: 2026-12-01)',
+        '- **Expired** (added 2026-09-01 · experiment: b',
+        '  · review-by: 2026-10-01)',
+        '- **Malformed** (review-by: 2026-13-45)',
+        '',
+      ].join('\n'),
+    );
+    r = roster(repo.dir, cfg);
+    assert.deepEqual([r.learningCount, r.oldestReviewBy, r.learnings], [4, '2026-10-01', path.join('.forge', 'notes', 'learnings.md')]);
+  } finally {
+    repo.cleanup();
+  }
+});
