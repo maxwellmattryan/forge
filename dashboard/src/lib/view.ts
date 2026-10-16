@@ -213,7 +213,7 @@ export interface CardModel {
   round: { round: number; max: number | null } | null;
   progress: Progress | null;
   lenses: { name: string; verdict: string | null }[] | null;
-  /** The job is running: its stepper's current step carries the live halo. */
+  /** The job is running: its stepper's current step carries the draw-on ring. */
   running: boolean;
 }
 
