@@ -6,9 +6,11 @@ import { forgeVersion } from '../evals.ts';
 import { PLUGIN_ROOT } from '../paths.ts';
 import { ERROR_CODES, ForgeError } from '../util.ts';
 import { jsonFlag, out, parseArgs, usageError } from './args.ts';
+import { HELP as AUDIT } from './audit.ts';
 import { HELP as CONFIG } from './config.ts';
 import { HELP as DAEMON } from './daemon.ts';
 import { HELP as DASH } from './dash.ts';
+import { HELP as DOCTOR } from './doctor.ts';
 import { HELP as EVAL } from './eval.ts';
 import { HELP as GIT } from './git.ts';
 import { HELP as INIT } from './init.ts';
@@ -18,6 +20,7 @@ import { HELP as SECRETS } from './secrets.ts';
 import { HELP as STATUS } from './status.ts';
 import { HELP as TRACKER } from './tracker.ts';
 import { HELP as UPDATE } from './update.ts';
+import { HELP as VERIFIERS } from './verifiers.ts';
 import type { CliError, CommandHelp, HelpGroup } from '../types.ts';
 
 const NO_JOB: [1, string] = [1, 'no such job'];
@@ -122,15 +125,15 @@ export const CORE: HelpGroup[] = [
         command: 'pr merge',
         args: '<id> [--now]',
         summary: 'merge once CI passes, or queue auto-merge, or defer; --now is a human override that bypasses CI',
-        flags: [['--now', 'merge without waiting for CI (logged as pr-merge-bypass)']],
-        exits: [[1, 'the merge was refused or failed (the result says why), the job has no PR, or the office daemon session ran it'], GH_FAILED],
+        flags: [['--now', 'merge without waiting for CI, or a head forge pr open did not check (logged as pr-merge-bypass)']],
+        exits: [[1, 'the merge was refused or failed (the result says why), the job has no PR, the office daemon session ran it, or protected paths apply and the PR head is not the one forge pr open checked (code protected_path; --now overrides)'], GH_FAILED],
       },
     ],
   },
   {
     name: 'roster',
     summary: 'the agent roster',
-    commands: [{ command: 'roster', args: '', summary: "each role's agent prompt, model, effort and prompt hash" }],
+    commands: [{ command: 'roster', args: '', summary: "each role's agent prompt, model, effort and prompt hash, plus the learning count and oldest review-by" }],
   },
   {
     name: 'retro',
@@ -140,21 +143,23 @@ export const CORE: HelpGroup[] = [
       {
         command: 'retro prepare',
         args: '<job> [--since DATE]',
-        summary: "gather metrics, human interventions and review history into the retro job's dir",
+        summary: "gather metrics, human interventions and review history into the retro job's dir, including learnings past their review-by",
         flags: [['--since DATE', 'only jobs since DATE (default: since the last retro)']],
         exits: [NO_JOB],
       },
     ],
   },
   {
-    name: 'doctor',
-    summary: 'check this repo and machine for Forge',
-    commands: [{ command: 'doctor', args: '', summary: 'check this repo and machine for Forge (tools, config, job files) and print what is wrong, indented' }],
-  },
-  {
     name: 'version',
     summary: "this install's version",
-    commands: [{ command: 'version', args: '', summary: 'print {version}' }],
+    commands: [
+      {
+        command: 'version',
+        args: '[--json]',
+        summary: 'print {version}; --json adds commit, installedAs and node',
+        flags: [['--json', "print {version, commit, installedAs, node}: commit from a release archive's COMMIT file, the plugin install record or git, else null"]],
+      },
+    ],
   },
   {
     name: 'help',
@@ -163,8 +168,8 @@ export const CORE: HelpGroup[] = [
   },
 ];
 
-const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...SECRETS, ...GIT, ...EVAL, ...REQUESTS, ...DAEMON, ...INIT, ...CONFIG, ...DASH, ...UPDATE];
-const ORDER = ['status', 'next', 'job', 'worktree', 'run', 'stop', 'verify', 'secrets', 'integrate', 'git', 'pr', 'sync', 'tracker', 'stats', 'roster', 'retro', 'eval', 'requests', 'daemon', 'init', 'migrate', 'config', 'doctor', 'dash', 'version', 'update', 'help'];
+const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...AUDIT, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...REQUESTS, ...DAEMON, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
+const ORDER = ['status', 'next', 'job', 'worktree', 'run', 'stop', 'verify', 'verifiers', 'secrets', 'integrate', 'git', 'pr', 'sync', 'tracker', 'stats', 'audit', 'roster', 'retro', 'eval', 'requests', 'daemon', 'init', 'migrate', 'config', 'doctor', 'dash', 'version', 'update', 'help'];
 
 /** Every command group, in the order the overview lists them. */
 export const GROUPS: HelpGroup[] = ORDER.map((name) => {
@@ -243,7 +248,8 @@ export function renderCommand(c: CommandHelp): string {
     c.summary,
     '',
     'Flags:',
-    columns([...(c.flags ?? []), ...GLOBAL_FLAGS], 24),
+    // A command's own entry for a global flag (version's --json) replaces the generic line.
+    columns([...(c.flags ?? []), ...GLOBAL_FLAGS.filter(([g]) => !c.flags?.some(([f]) => f === g))], 24),
     '',
     'Exit codes:',
     ...[...exits].sort(([a], [b]) => a - b).map(([code, when]) => `  ${code}  ${when}`),

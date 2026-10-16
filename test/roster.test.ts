@@ -119,3 +119,79 @@ test("roster reports each role's and lens's effort and source", () => {
     repo.cleanup();
   }
 });
+
+test('triage agent runs on haiku without a config key', () => {
+  const repo = tempRepo();
+  try {
+    const cfg = defaults();
+    assert.equal(cfg.runtime.models.triage, undefined, 'no config key');
+    const row = roster(repo.dir, cfg).agents.find((a) => a.role === 'triage');
+    assert.ok(row);
+    assert.equal(row.model, 'haiku');
+    const text = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'agents', 'triage.md'), 'utf8');
+    const front = text.match(/^---\n([\s\S]*?)\n---\n/)![1];
+    assert.match(front, /^name: triage$/m);
+    assert.match(front, /^model: haiku$/m);
+    assert.match(front, /^disallowedTools: Bash, Edit, NotebookEdit$/m);
+    assert.match(front, /^tools: Read, Write$/m, 'an allowlist: no WebFetch, WebSearch, Glob or Grep');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('roster reports learning count and oldest review-by', () => {
+  const repo = tempRepo();
+  try {
+    const cfg = defaults();
+    // A missing file: no learnings, no date, and no path.
+    let r = roster(repo.dir, cfg);
+    assert.deepEqual([r.learningCount, r.oldestReviewBy, r.learnings], [0, null, null]);
+
+    const notes = path.join(repo.dir, '.forge', 'notes');
+    fs.mkdirSync(notes, { recursive: true });
+    const file = path.join(notes, 'learnings.md');
+    const header = ['# Forge learnings', '', '<!--', 'Format:', '- **<rule>** — why. (added YYYY-MM-DD · experiment: <id> · review-by: 2000-01-01)', '-->', ''];
+    fs.writeFileSync(file, [...header, '- **Old** (added 2026-10-12)', '- **Bad date** (review-by: 2026-02-30)', ''].join('\n'));
+    r = roster(repo.dir, cfg);
+    assert.deepEqual([r.learningCount, r.oldestReviewBy], [2, null], 'no valid review-by');
+
+    fs.writeFileSync(
+      file,
+      [
+        ...header,
+        '- **Old** (added 2026-10-12)',
+        '- **Later** (added 2026-10-14 · experiment: a · review-by: 2026-12-01)',
+        '- **Expired** (added 2026-09-01 · experiment: b',
+        '  · review-by: 2026-10-01)',
+        '- **Malformed** (review-by: 2026-13-45)',
+        '',
+      ].join('\n'),
+    );
+    r = roster(repo.dir, cfg);
+    assert.deepEqual([r.learningCount, r.oldestReviewBy, r.learnings], [4, '2026-10-01', path.join('.forge', 'notes', 'learnings.md')]);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('verifier prompt hash covers .forge/verifiers', () => {
+  const repo = tempRepo();
+  try {
+    const cfg = defaults();
+    const hashes = () => Object.fromEntries(roster(repo.dir, cfg).agents.map((a) => [a.role, a.promptHash]));
+    const before = hashes();
+    assert.ok(before.verifier, 'the verifier agent is on the roster');
+    assert.equal(roster(repo.dir, cfg).agents.find((a) => a.role === 'verifier')!.model, 'haiku');
+    const dir = path.join(repo.dir, '.forge', 'verifiers');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'help-rows.md'), '---\npaths: [lib/**]\n---\nIs it fine?\n');
+    const added = hashes();
+    assert.notEqual(added.verifier, before.verifier);
+    fs.writeFileSync(path.join(dir, 'help-rows.md'), '---\npaths: [lib/**]\nmode: block\n---\nIs it fine?\n');
+    const edited = hashes();
+    assert.notEqual(edited.verifier, added.verifier);
+    for (const role of Object.keys(before)) if (role !== 'verifier') assert.equal(edited[role], before[role], `${role} is unchanged`);
+  } finally {
+    repo.cleanup();
+  }
+});

@@ -960,10 +960,11 @@ test('drawer entry points pick their tab', () => {
   assert.deepEqual(calls.filter((c) => /'thread'/.test(c.args)), [], "no caller asks for 'thread': it is the default");
   const tabbed = calls.filter((c) => /'(log|files|timeline|details)'/.test(c.args)).map((c) => `${c.f}: openDrawer(${c.args})`).sort();
   assert.deepEqual(tabbed, [
+    "components/InboxCard.svelte: openDrawer(j.id, 'protected.diff', 'files')",
     "components/InboxCard.svelte: openDrawer(j.id, doc, 'files')",
     "components/PermissionPrompts.svelte: openDrawer(s, null, 'log')",
     "components/statusbar/DaemonPanel.svelte: openDrawer(id, null, 'log')",
-  ], 'only the session entry points open on Log, and Read {doc} on Files');
+  ], 'only the session entry points open on Log, and Read {doc} and View diff on Files');
   assert.ok(read('components/CommandBar.svelte').includes('openDrawer(res.id);'), 'a new job opens on the default tab');
 });
 

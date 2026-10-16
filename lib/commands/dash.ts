@@ -3,8 +3,10 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import readline from 'node:readline/promises';
 import { paths, PLUGIN_ROOT } from '../paths.ts';
+import { currentActor } from '../actor.ts';
 import { setConfigValue } from '../config-set.ts';
 import { apiKeyVars, reapOrphans } from '../daemon.ts';
+import { daemonPlatformProblem } from '../platform.ts';
 import { ForgeError, getPath, readJson, readText, sleepSync, writeJsonAtomic } from '../util.ts';
 import * as yaml from '../yaml.ts';
 import { pidAlive } from '../worktree.ts';
@@ -64,9 +66,27 @@ async function settleDaemonAuth(root: string, config: Config): Promise<{ note?: 
     rl.close();
   }
   const auth = /^y(es)?$/i.test(answer.trim()) ? 'api-key' : 'subscription';
-  setConfigValue(root, 'daemon.auth', auth);
+  setConfigValue(root, 'daemon.auth', auth, () => currentActor(root));
   config.daemon.auth = auth;
   return { note: `daemon.auth: ${auth} written to .forge/config.yml` };
+}
+
+/**
+ * Why the daemon a `forge dash` would boot won't start here, or null. Only when it would boot: a
+ * dev dashboard or a repo without the daemon has nothing to refuse.
+ */
+export function daemonPlatformNote(config: Config, flags: Record<string, any>, platform: NodeJS.Platform = process.platform): string | null {
+  if (flags.dev || !config.daemon.enabled) return null;
+  return daemonPlatformProblem(platform);
+}
+
+/** What `forge dash` says before it serves: the billing note, or the platform refusal that skips the billing question. */
+export async function dashNotes(root: string, config: Config, flags: Record<string, any>, platform: NodeJS.Platform = process.platform): Promise<{ note?: string; daemonRefused?: string }> {
+  // The pool refuses to start on native Windows; the dashboard still serves, and says why up front.
+  const refused = daemonPlatformNote(config, flags, platform);
+  if (refused) return { daemonRefused: refused };
+  // A dev dashboard never boots the daemon, so it has no billing question to ask or config to write.
+  return flags.dev ? {} : settleDaemonAuth(root, config);
 }
 
 export async function dash(root: string, config: Config, flags: Record<string, any>): Promise<void> {
@@ -103,8 +123,7 @@ export async function dash(root: string, config: Config, flags: Record<string, a
   }
   if (alive && !flags.foreground) return out({ url: current.url, pid: current.pid, running: true }, flags);
   const port = Number(flags.port ?? config.dashboard.port ?? 7400);
-  // A dev dashboard never boots the daemon, so it has no billing question to ask or config to write.
-  const note = flags.dev ? {} : await settleDaemonAuth(root, config);
+  const note = await dashNotes(root, config, flags);
   if (flags.background) {
     const child = spawn(process.execPath, [path.join(PLUGIN_ROOT, 'bin', 'forge'), 'dash', '--foreground', '--port', String(port), ...(flags.dev ? ['--dev'] : [])], {
       cwd: root,
@@ -120,6 +139,7 @@ export async function dash(root: string, config: Config, flags: Record<string, a
     return out({ url: `http://127.0.0.1:${port}`, pid: child.pid, started: true, unconfirmed: true, ...note }, flags);
   }
   if (note.note) process.stderr.write(`${note.note}\n`);
+  if (note.daemonRefused) process.stderr.write(`${note.daemonRefused}\n`);
   const { startServer } = await import('../server.ts');
   let res: RunningServer | undefined;
   for (let p = port; p < port + 20; p++) {

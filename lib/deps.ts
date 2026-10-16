@@ -118,7 +118,7 @@ export function claimRespectingDeps(root: string, id: string, session: string, f
   const claimed = claimJob(root, id, session, force, opts);
   if (unmet.length) {
     const ids = unmet.map((u) => u.id);
-    logEvent(root, id, 'dependencies-overridden', { unmet: ids });
+    logEvent(root, id, 'dependencies-overridden', { unmet: ids, ...(opts.actor ? { actor: opts.actor } : {}) });
     return { job: claimed, overridden: ids };
   }
   return { job: refreshDependencyWait(root, id).released ? loadJob(root, id) : claimed, overridden: [] };

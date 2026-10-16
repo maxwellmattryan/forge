@@ -8,8 +8,10 @@ import { spawn as nodeSpawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { effectiveLimits, exceededKeys, measureBudget } from './budget.ts';
+import { configForJob } from './eval-overlay.ts';
 import { TRUST_ENV, daemonProblems, defaults, loadConfig as defaultLoadConfig, trackerSymlinks, trustDigest } from './config.ts';
 import { RUNNING_AGENT_MAX_MS, loadJob, markAgentsLost } from './jobs.ts';
 import { PLUGIN_ROOT, paths } from './paths.ts';
@@ -17,7 +19,7 @@ import { INBOX_SCOPE, SCOPE_ENV, enqueue, validJobId, validScope } from './reque
 import { EFFORTS } from './schema.ts';
 import { isClaudeExecutable, now, run, sleepSync, splitWords, writeJsonAtomic } from './util.ts';
 import { pidAlive } from './worktree.ts';
-import type { Config, DaemonAuth, DaemonPermissionMode, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, Effort, EffortSource, ForgeRequest, JobAgent, PermissionDecision } from './types.ts';
+import type { Config, DaemonAuth, DaemonPermissionMode, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, Effort, EffortSource, EventActor, ForgeRequest, JobAgent, PermissionDecision } from './types.ts';
 
 /** What a session reports to its pool: a log line as it is written, or its new state after a change. */
 export type SessionEvent = { kind: 'line'; scope: string; offset: number; line: string } | { kind: 'state'; scope: string; state: DaemonSessionState };
@@ -50,6 +52,8 @@ export interface DaemonOptions {
   slotGraceMs?: number;
   /** How long an idle job session may sit with agents marked running and no background task left before it gets a resume. */
   missedEndMs?: number;
+  /** The host platform; the pool refuses to start on native Windows (lib/platform.ts). */
+  platform?: NodeJS.Platform;
 }
 
 /** DaemonOptions with every default filled in. */
@@ -96,7 +100,7 @@ export interface SessionContext {
   trusted(): string | null;
   poolWanted(): boolean;
   config(): Config;
-  /** .forge/config.yml or .forge/trackers/ changed: the pool stops every session. */
+  /** .forge/config.yml, .forge/trackers/ or .forge/verifiers/ changed: the pool stops every session. */
   untrusted(): void;
   /** A repo-wide refusal (config, daemon.enabled, tracker symlinks): the pool stops every session. */
   fatal(message: string): void;
@@ -152,8 +156,8 @@ export interface Session {
   /** Returns whether a child is now running. */
   spawn(c: Config, reason?: string): boolean;
   writeTurn(ids: string[]): void;
-  /** Answers a pending permission prompt; false when there is none by that id (answered, or its child exited). */
-  answerPermission(id: string, decision: PermissionDecision): boolean;
+  /** Answers a pending permission prompt with who answered; returns its tool, or null when there is none by that id (answered, or its child exited). */
+  answerPermission(id: string, decision: PermissionDecision, actor?: EventActor): string | null;
   /** Asks the running child to switch permission mode; false when no child runs (the next spawn takes ctx.permissionMode). */
   setPermissionMode(mode: DaemonPermissionMode): boolean;
   kill(event: string, endStdin: boolean, reason?: string): Promise<void>;
@@ -190,7 +194,7 @@ export const HOLD_TYPES: string[] = ['resume', 'rework', 'answer', 'revise-spec'
  * unaffected) and lets deny beat allow. This stops the Edit/Write route only; trustDigest is the
  * check that also covers writes made through Bash (docs/ARCHITECTURE.md "Daemon security").
  */
-export const DENY_TOOLS = Object.freeze(['Edit(.forge/config.yml)', 'Edit(.forge/trackers/**)', 'Edit(.forge/secrets-allow.txt)']);
+export const DENY_TOOLS = Object.freeze(['Edit(.forge/config.yml)', 'Edit(.forge/trackers/**)', 'Edit(.forge/secrets-allow.txt)', 'Edit(.forge/verifiers/**)']);
 
 /**
  * Appended to every daemon command: claude sends each permission check it would otherwise ask a
@@ -345,7 +349,7 @@ export function permissionResponse(requestId: string, decision: PermissionDecisi
 
 /** Why the supervisor stopped: shown in the dashboard, so it speaks to the human. */
 export const TRUST_CHANGED =
-  'daemon stopped: .forge/config.yml or .forge/trackers/ changed while it was running. The session can write files in this checkout, so only a human may approve that change: review `git diff .forge/`, then start the daemon again.';
+  'daemon stopped: .forge/config.yml, .forge/trackers/ or .forge/verifiers/ changed while it was running. The session can write files in this checkout, so only a human may approve that change: review `git diff .forge/`, then start the daemon again.';
 
 /** The summary an agent gets when its session's child exits under it. */
 export const LOST_SUMMARY = 'lost: its daemon session ended';
@@ -392,7 +396,8 @@ export function parseRateLimit(info: unknown): RateLimitInfo | null {
  * Drivers that only .git/config or ~/.gitconfig can define (filter, diff, merge) are left alone.
  */
 export const GIT_PINS = Object.freeze([
-  ['core.hooksPath', '/dev/null'],
+  // The null device on every platform (\\.\nul on Windows), never a directory a hook could live in.
+  ['core.hooksPath', os.devNull],
   ['core.fsmonitor', 'false'],
 ]);
 
@@ -466,7 +471,13 @@ export function heldByBudget(root: string, config: Config, rec: { type: string; 
     return false;
   }
   if (job.state !== 'waiting' || job.waitingOn !== 'budget') return false;
-  return exceededKeys(effectiveLimits(config, job), measureBudget(job), job.budget.ack, job.round).length > 0;
+  let limitsConfig = config;
+  try {
+    limitsConfig = configForJob(root, config, job);
+  } catch {
+    // A tampered overlay must not crash the supervisor; step and verify already refuse that job.
+  }
+  return exceededKeys(effectiveLimits(limitsConfig, job), measureBudget(job), job.budget.ack, job.round).length > 0;
 }
 
 /** What a job session's agents say about keeping it: sessionAgents. */
@@ -1026,14 +1037,14 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     changed();
   }
 
-  function answerPermission(id: string, decision: PermissionDecision): boolean {
+  function answerPermission(id: string, decision: PermissionDecision, actor?: EventActor): string | null {
     const p = prompts.get(id);
-    if (!p || p.proc !== child) return false;
+    if (!p || p.proc !== child) return null;
     prompts.delete(id);
     writeControl(p.proc, permissionResponse(p.requestId, decision, p.input, p.grant));
-    logEvent('permission', { id, tool: p.prompt.tool, decision });
+    logEvent('permission', { id, tool: p.prompt.tool, decision, ...(actor ? { actor } : {}) });
     changed();
-    return true;
+    return p.prompt.tool;
   }
 
   function clearIdle() {
@@ -1689,6 +1700,18 @@ export function readLogPage(
     cursor = lineStart;
   }
   return { lines, start: logBase + cursor, end, more: cursor > 0 && lines.length > 0 };
+}
+
+/**
+ * The last `n` complete lines behind an open descriptor, raw, and the byte position just after them.
+ * Callers open the file themselves (openRead), so a path is never reopened between check and read.
+ * `maxBytes` stops a page early (at least one line still comes back); a line over `lineCap` bytes
+ * comes back as a forge-truncated marker.
+ */
+export function tailLines(fd: number, n: number, opts: { maxBytes?: number; lineCap?: number } = {}): { lines: string[]; end: number } {
+  const size = fs.fstatSync(fd).size;
+  const page = readLogPage(fd, size, 0, { maxLines: n, maxBytes: opts.maxBytes ?? Infinity, lineCap: opts.lineCap ?? Infinity, scanBytes: 256 * 1024 * 1024 });
+  return { lines: page.lines.map((l) => l.line), end: page.end };
 }
 
 export function capLine(line: string): string {

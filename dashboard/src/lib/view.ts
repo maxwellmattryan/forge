@@ -1,7 +1,9 @@
 // The dashboard's view logic, ported as-is from the pre-Svelte app.js so node:test can pin it: components hold only markup.
 // Plain functions and constants, no DOM access.
-import type { EvalCompare, Job, JobEvent, JobPr, OwnerStatus, Progress, RequestType, Stage, StateJob, WaitingOn } from './types.ts';
+import type { EvalCompare, Job, JobEvent, JobPr, LastHuman, OwnerStatus, Progress, RequestType, Stage, StateJob, WaitingOn } from './types.ts';
 import { PARK_LABEL, STAGE_LABEL, WAIT_LABEL } from './labels.ts';
+import { protectedSummary } from './protected.ts';
+import type { ProtectedSummary } from './protected.ts';
 
 /** job.json can be hand-edited, so helpers read fields defensively despite the types. */
 type JobLike = Partial<Job> & { progress?: Progress };
@@ -215,6 +217,8 @@ export interface CardModel {
   lenses: { name: string; verdict: string | null }[] | null;
   /** The job is running: its stepper's current step carries the draw-on ring. */
   running: boolean;
+  /** Protected paths the branch changes: the state slot's Protected chip. */
+  protected: ProtectedSummary | null;
 }
 
 /** Everything a card's slots show, so JobCard reads no raw job state. */
@@ -230,6 +234,7 @@ export function cardModel(j: JobLike): CardModel {
     progress: j.progress && progressWidth(j.progress) !== null ? j.progress : null,
     lenses: j.reviewers?.length ? j.reviewers.map((name) => ({ name, verdict: verdicts?.[name] ?? null })) : null,
     running: j.state === 'running',
+    protected: protectedSummary({ protectedPaths: j.protectedPaths ?? null }),
   };
 }
 
@@ -479,11 +484,31 @@ export function eventDetail(e: JobEvent, fmt: { tokens: (n: number | null | unde
   if (e.type === 'command') return plain(`${s(e.name)} ${e.ok ? '✓' : `✗ exit ${s(e.exit)}`} · ${fmt.dur(e.durationMs)}`);
   if (e.type === 'note') return plain(s(e.text));
   if (e.type === 'human') return { pre: '', bold: s(e.action), post: e.note ? ` · ${s(e.note)}` : '' };
-  return plain(JSON.stringify(Object.fromEntries(Object.entries(e).filter(([k]) => !['v', 'ts', 'type'].includes(k)))).slice(0, 240));
+  // The actor has its own "by …" on the row, so the raw fallback leaves it out.
+  return plain(JSON.stringify(Object.fromEntries(Object.entries(e).filter(([k]) => !['v', 'ts', 'type', 'actor'].includes(k)))).slice(0, 240));
 }
 
 /** A `human` event the foreman recorded: the timeline labels it so a reader can tell it from a person's decision. */
-export const isForemanEvent = (e: Partial<JobEvent> | null | undefined): boolean => e?.type === 'human' && e.actor === 'foreman';
+export const isForemanEvent = (e: Partial<JobEvent> | null | undefined): boolean => e?.type === 'human' && e.actor?.source === 'foreman';
+
+/**
+ * The "by {login}" a timeline row shows for a person's action: the login (or `unknown` when none
+ * resolved) and its source for the tooltip. Null for the foreman, whose rows carry their own chip,
+ * and for events without an actor.
+ */
+export function actorLabel(e: Partial<JobEvent> | null | undefined): { login: string; source: string } | null {
+  const a = e?.actor;
+  if (!a || typeof a !== 'object' || a.source === 'foreman') return null;
+  return { login: typeof a.login === 'string' && a.login ? a.login : 'unknown', source: String(a.source) };
+}
+
+/** The Needs-you card's "Last acted" line, from /api/state's lastHuman; null when nobody has acted. */
+export function lastActed(job: { lastHuman?: LastHuman | null } | null | undefined): { who: string; foreman: boolean; ts: string } | null {
+  const h = job?.lastHuman;
+  if (!h || !h.actor || typeof h.ts !== 'string') return null;
+  const foreman = h.actor.source === 'foreman';
+  return { who: foreman ? 'foreman' : h.actor.login || 'unknown', foreman, ts: h.ts };
+}
 
 /** A waiting job's gate owner badge: the foreman deciding it, or a human owning it; null for no owner (or an older server). */
 export function gateOwnerBadge(owner: unknown): { foreman: boolean; tone: 'live' | 'you' } | null {
@@ -493,11 +518,39 @@ export function gateOwnerBadge(owner: unknown): { foreman: boolean; tone: 'live'
 }
 
 /** Rounds of the drawer's verify/verdict matrix and the reviewer columns, or null when there is nothing to show. */
-export function verdictMatrix(j: Partial<Job>): { rounds: number[]; reviewers: string[] } | null {
+export function verdictMatrix(j: Partial<Job>, verifiers: Record<number, VerifierRound> = {}): { rounds: number[]; reviewers: string[] } | null {
   const verdicts = j.verdicts ?? {};
   const verify = j.verify ?? {};
   const rounds = Object.keys(verdicts).map(Number).sort((a, b) => a - b);
-  if (!rounds.length && !Object.keys(verify).length) return null;
+  if (!rounds.length && !Object.keys(verify).length && !Object.keys(verifiers).length) return null;
   const reviewers = [...new Set([...(j.reviewers ?? []), ...rounds.flatMap((r) => Object.keys(verdicts[r] ?? {}))])];
-  return { rounds: [...new Set([...rounds, ...Object.keys(verify).map(Number)])].sort((a, b) => a - b), reviewers };
+  return { rounds: [...new Set([...rounds, ...Object.keys(verify).map(Number), ...Object.keys(verifiers).map(Number)])].sort((a, b) => a - b), reviewers };
+}
+
+/** A round's verifiers result for the drawer's matrix: its latest `verifiers` record event. */
+export interface VerifierRound {
+  outcome: 'PASS' | 'CHANGES';
+  blocking: number;
+  warned: number;
+}
+
+const count = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : null);
+
+/** Each round's latest well-formed `verifiers` record; `run` events and malformed records are skipped. Empty: no column. */
+export function verifierRounds(events: readonly JobEvent[] | null | undefined): Record<number, VerifierRound> {
+  const out: Record<number, VerifierRound> = {};
+  for (const e of events ?? []) {
+    if (!e || e.type !== 'verifiers' || e.phase !== 'record') continue;
+    const round = count(e.round);
+    const blocking = count(e.blocking);
+    const warned = count(e.warned);
+    if (round === null || round < 1 || blocking === null || warned === null || (e.outcome !== 'PASS' && e.outcome !== 'CHANGES')) continue;
+    out[round] = { outcome: e.outcome, blocking, warned };
+  }
+  return out;
+}
+
+/** The chip tone for a round's verifiers: bad for CHANGES, warn for a PASS with warnings, ok otherwise. */
+export function verifierTone(v: VerifierRound): Tone {
+  return v.outcome === 'CHANGES' ? 'bad' : v.warned > 0 ? 'warn' : 'ok';
 }

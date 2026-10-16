@@ -144,7 +144,7 @@ describe('secret gates', { concurrency: 4 }, () => {
       assert.equal(r.status, 1, r.stderr);
       assert.equal(r.out.failure.name, 'secrets');
       assert.deepEqual(r.out.secrets, { mode: 'block', ok: false, count: 1, allowed: 0, findings: [{ kind: 'aws-access-key', path: 'cfg/app.cfg', line: 3 }], more: 0 });
-      assert.deepEqual(r.out.steps.map((x: any) => x.name), ['secrets'], 'no configured step ran');
+      assert.deepEqual(r.out.steps.map((x: any) => x.name), ['secrets', 'protected'], 'no configured step ran');
       assert.ok(r.out.integrity && r.out.integrity.mode, 'the integrity report is still computed');
       assert.match(r.out.failure.tail, /^aws-access-key cfg\/app\.cfg:3 AKIA…[A-Z0-9?]{2} sha256:[0-9a-f]{12}…$/);
       assert.ok(!fs.existsSync(path.join(j.dir, 'logs')) || !fs.readdirSync(path.join(j.dir, 'logs')).some((x) => x.startsWith('verify-test')), 'the test command never ran');
@@ -160,13 +160,16 @@ describe('secret gates', { concurrency: 4 }, () => {
       assert.equal(r.status, 1);
       assert.equal(r.out.secrets.count, 1);
       assert.equal(r.out.secrets.allowed, 0);
+      // The branch's own allowlist is also a path the protected-paths policy refuses: take it out again.
+      fs.rmSync(path.join(j.wt, '.forge/secrets-allow.txt'));
+      commitAll(j.wt, 'drop the branch allowlist');
 
       s.allow(['# known test key', fingerprint(key)]);
       r = await s.verify(j.id);
       assert.equal(r.status, 0, JSON.stringify(r.out.failure));
       assert.equal(r.out.secrets.count, 0);
       assert.equal(r.out.secrets.allowed, 1);
-      assert.deepEqual(r.out.steps.map((x: any) => x.name), ['secrets', 'test']);
+      assert.deepEqual(r.out.steps.map((x: any) => x.name), ['secrets', 'protected', 'test']);
       const ok = fs.readFileSync(path.join(j.dir, 'verify', 'round-1.md'), 'utf8');
       assert.ok(ok.includes('## secrets: ok') && ok.includes('allowed by .forge/secrets-allow.txt:2'), ok);
       assert.ok(!s.trail(j.dir).includes(key), 'the planted value appears nowhere');
@@ -188,7 +191,7 @@ describe('secret gates', { concurrency: 4 }, () => {
       assert.equal(r.out.secrets.ok, true);
       assert.equal(r.out.secrets.count, 1);
       assert.equal(r.out.secrets.mode, 'warn');
-      assert.deepEqual(r.out.steps.map((x: any) => x.name), ['secrets', 'test']);
+      assert.deepEqual(r.out.steps.map((x: any) => x.name), ['secrets', 'protected', 'test']);
       assert.ok(fs.readFileSync(path.join(j.dir, 'verify', 'round-1.md'), 'utf8').includes('## secrets: WARN (1 finding)'));
       const ev = s.events(j.dir).filter((e) => e.type === 'secret-found');
       assert.equal(ev.length, 1);
@@ -245,7 +248,7 @@ describe('secret gates', { concurrency: 4 }, () => {
       r = await s.verify(clean.id);
       assert.equal(r.status, 1);
       assert.equal(r.out.failure.name, 'worktree-clean');
-      assert.deepEqual(r.out.steps.map((x: any) => x.name), ['worktree-clean', 'secrets']);
+      assert.deepEqual(r.out.steps.map((x: any) => x.name), ['worktree-clean', 'secrets', 'protected']);
       const md = fs.readFileSync(path.join(clean.dir, 'verify', 'round-1.md'), 'utf8');
       assert.ok(md.includes('## secrets: FAILED (1 finding)') && md.includes('gitlab-token  c.txt:1  staged  glpa…'), md);
       for (const [dir, k] of [[gone.dir, k1], [msg.dir, k2], [nul.dir, k3], [clean.dir, k4]]) assert.ok(!s.trail(dir).includes(k));

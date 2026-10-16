@@ -11,14 +11,17 @@ import { acCoverage } from './acs.ts';
 import { jobPathMap, renderBrief, roleBrief } from './brief.ts';
 import type { RoleContext } from './brief.ts';
 import { autoMerge, lensNeedsApp, resolveEffort, reviewerChecklist } from './config.ts';
+import { configForJob } from './eval-overlay.ts';
 import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
 import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
 import { PLUGIN_ROOT, exists } from './paths.ts';
 import { COMPLEXITIES } from './schema.ts';
 import { generatedConfig } from './regenerate.ts';
+import { protectedApproved, protectedReason } from './protected.ts';
 import { approachPaths, inSpec, integrationTouched } from './scope.ts';
 import { AGENT_ID } from './transcripts.ts';
+import { verifierCount } from './verifiers.ts';
 import type { Config, Job, JobAgent, JobEvent, StepAction, StepDone, StepFile, StepInput, StepProcedure, StepRun, StepSpawn, StepVerdicts, StepWait, StepWaitingOn, VerifyRun, WaitingOn } from './types.ts';
 import { ForgeError, SAFE_REF, readJson, readText } from './util.ts';
 
@@ -30,12 +33,19 @@ export const RULES = [
   'D1', 'D2', 'D3',
   'B1', 'B2', 'B3', 'B4', 'B5',
   'V1', 'V2', 'V3',
+  // Verifiers between a passing verify and the panel: run, spawn the verifier agent, record its answers.
+  'VF1', 'VF2', 'VF3',
   'RV1', 'RV2', 'RV3', 'RV4', 'RV5', 'RV6', 'RV7', 'RV8',
+  // Runs first in review, but IDs are stable, so it was appended rather than renumbering the rest.
+  'RV9',
   'DC1', 'DC2', 'DC3', 'DC4', 'DC5', 'DC6', 'DC7', 'DC8', 'DC9', 'DC10',
   'IG1', 'IG2', 'IG3', 'IG4', 'IG5', 'IG6', 'IG7', 'IG8', 'IG9', 'IG10', 'IG11',
   'PR1', 'PR2', 'PR3', 'PR4', 'PR5',
   // A secret scan stopped the job: park on `human` (SC1, SC3), or scan again once a human approved (SC2).
   'SC1', 'SC2', 'SC3',
+  // Protected paths: park on `human` until a human approves the current content (PP1), or send a
+  // refused path back to build (PP2).
+  'PP1', 'PP2',
   // No rule matched: a state step can't advance, parked visibly instead of looping.
   'X1',
 ] as const;
@@ -54,9 +64,10 @@ const SAFE_URL = /^https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9._/-]+$/;
 
 /** Events loadStepInput keeps; everything else in events.jsonl is noise to step. */
 const STEP_EVENTS = new Set([
-  'human', 'round', 'worktree', 'worktree-setup-failed', 'pr-find', 'pr-adopted', 'scope', 'integrated', 'integrate-conflicts',
+  'human', 'round', 'worktree', 'worktree-setup-failed', 'pr-find', 'pr-adopted', 'scope', 'panel', 'integrated', 'integrate-conflicts',
   'integration-review', 'decision', 'fields', 'pr-opened', 'pr-updated', 'pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
-  'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found',
+  'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found', 'verifiers',
+  'protected-path',
 ]);
 const MERGE_EVENTS = ['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed'];
 
@@ -84,8 +95,10 @@ export function listLineCount(body: string): number {
 }
 
 /** Every read step needs, and nothing else: no directory is created and no file or event is written. */
-export function loadStepInput(root: string, config: Config, id: string): StepInput {
+export function loadStepInput(root: string, base: Config, id: string): StepInput {
   const job = loadJob(root, id);
+  // An eval job's overlay applies to everything below: lenses, panel, models, effort and briefs.
+  const config = configForJob(root, base, job);
   const dir = jobDir(root, job.id);
   const at = (name: string) => path.join(dir, name);
   const read = (name: string) => (exists(at(name)) ? readText(at(name)) : null);
@@ -158,6 +171,8 @@ export function loadStepInput(root: string, config: Config, id: string): StepInp
     evalTask,
     checklists: Object.fromEntries(names.map((n) => [n, reviewerChecklist(root, n, config.review.panel.find((p) => p.name === n)?.checklist)])),
     integrationTouched: loadIntegrationTouched(job, config, events),
+    // The main checkout's, never the worktree's: a branch can't switch the gate on or off.
+    verifiers: verifierCount(root),
   };
 }
 
@@ -215,7 +230,8 @@ const alwaysLenses = (config: Config) => config.review.panel.filter((p) => p.alw
 
 /**
  * The lenses this round reviews. A PR rework (`pr.state` OPEN) follows `review.onPrFeedback`:
- * `changed` means the always-on lenses, because what changed needs the diff and step stays pure.
+ * `changed` still means the always-on lenses, and `full` reads the panel that RV9's
+ * `forge job panel` recomputes from the diff. Step stays pure: the diff is read by that command.
  */
 export function roundLenses(job: Pick<Job, 'reviewers' | 'pr'>, config: Config): string[] {
   // job.reviewers is settable with --field, so a name that isn't a plain lens is dropped, never quoted.
@@ -233,19 +249,51 @@ export function whenTokens(when: string | undefined): string[] {
     .filter((t) => t && (t.includes('/') || /\.[A-Za-z0-9]{1,8}$/.test(t)));
 }
 
-/** SP3: always lenses, the suggested ones in the panel, and the ones whose `when` paths the Approach names, in panel order. */
-export function selectPanel(x: Pick<StepInput, 'job' | 'config' | 'spec'>): string[] {
-  if (x.job.kind === 'retro') return ['code', 'docs'];
+/** A review panel and why each lens is on it: `forge job panel`'s result, and SP3's lenses. */
+export interface PanelChoice {
+  lenses: string[];
+  reasons: Record<string, string[]>;
+}
+
+/**
+ * The review panel from recorded inputs, in panel order: `always` lenses, the spec's suggestions
+ * that are in the panel, lenses whose `when` paths or `paths` cover an Approach path, lenses whose
+ * `paths` match a changed file (skipped when `changed` is null, at spec time), then `carried`
+ * lenses, which can only add, so a lens never drops within a build loop. A lens gets every reason
+ * that applies, in that order. Names that aren't plain lens names are dropped wherever they come from.
+ */
+export function choosePanel(x: { kind: Job['kind']; config: Config; suggested: string[]; approachPaths: string[]; changed: string[] | null; carried: string[] }): PanelChoice {
+  if (x.kind === 'retro') return { lenses: ['code', 'docs'], reasons: { code: ['retro'], docs: ['retro'] } };
   const panel = x.config.review.panel.filter((p) => LENS_NAME.test(p.name));
   const names = panel.map((p) => p.name);
-  const suggested = new Set(x.spec.suggested.filter((n) => LENS_NAME.test(n) && names.includes(n)));
-  return panel
-    .filter((p) => {
-      if (p.always || suggested.has(p.name)) return true;
-      const tokens = whenTokens(p.when);
-      return tokens.length > 0 && x.spec.approachPaths.some((ap) => inSpec(ap, tokens));
-    })
-    .map((p) => p.name);
+  const suggested = new Set(x.suggested.filter((n) => LENS_NAME.test(n) && names.includes(n)));
+  const carried = [...new Set(x.carried.filter((n) => typeof n === 'string' && LENS_NAME.test(n)))];
+  // A Map, not an object: a digits-only lens name would sort first among an object's keys.
+  const chosen = new Map<string, string[]>();
+  for (const p of panel) {
+    if (chosen.has(p.name)) continue;
+    const why: string[] = [];
+    if (p.always) why.push('always');
+    if (suggested.has(p.name)) why.push('suggested');
+    const globs = Array.isArray(p.paths) ? p.paths.filter((g): g is string => typeof g === 'string' && g !== '') : [];
+    const tokens = [...whenTokens(p.when), ...globs];
+    const covered = tokens.length ? x.approachPaths.find((ap) => inSpec(ap, tokens)) : undefined;
+    if (covered !== undefined) why.push(`approach ${covered}`);
+    for (const g of x.changed ? globs : []) {
+      const hits = (x.changed ?? []).filter((f) => inSpec(f, [g]));
+      if (hits.length) why.push(`paths ${g}: ${hits[0]}${hits.length > 1 ? ` (+${hits.length - 1} more)` : ''}`);
+    }
+    if (carried.includes(p.name)) why.push('carried');
+    if (why.length) chosen.set(p.name, why);
+  }
+  for (const n of carried) if (!names.includes(n)) chosen.set(n, ['carried']);
+  return { lenses: [...chosen.keys()], reasons: Object.fromEntries(chosen) };
+}
+
+/** SP3: always lenses, the suggested ones in the panel, and the ones whose `when` paths or `paths` the Approach names, in panel order. */
+export function selectPanel(x: Pick<StepInput, 'job' | 'config' | 'spec'>): string[] {
+  // Never carries: a revised spec re-records the panel from scratch.
+  return choosePanel({ kind: x.job.kind, config: x.config, suggested: x.spec.suggested, approachPaths: x.spec.approachPaths, changed: null, carried: [] }).lenses;
 }
 
 function modelOf(config: Config, role: string): string {
@@ -381,6 +429,7 @@ function outputFor(x: StepInput, role: string): string | undefined {
     const lens = role.slice('reviewer:'.length);
     return x.job.stage === 'integrate' ? p(x, 'integrationReview') : path.join(x.jobDir, 'review', `round-${x.job.round}`, `${lens}.md`);
   }
+  if (role === 'verifier') return path.join(x.jobDir, 'verify', `round-${x.job.round}-verifier-answers.md`);
   const fixed: Record<string, string> = { planner: 'plan.md', 'spec-writer': 'spec.md', designer: 'design.md', approver: 'decision.md', judge: 'eval-judge.md' };
   return fixed[role] ? path.join(x.jobDir, fixed[role]) : undefined;
 }
@@ -394,7 +443,7 @@ function builderRework(x: StepInput): NonNullable<RoleContext['rework']> {
   const out: NonNullable<RoleContext['rework']> = [];
   const prev = j.verdicts[String(j.round - 1)];
   if (j.round > 1 && prev && Object.values(prev).some((v) => v !== 'PASS')) out.push('review');
-  if (lv && !lv.ok && after(lv.at, b?.endedAt)) out.push('verify');
+  if (lv && !lv.ok && after(lv.at, b?.endedAt)) out.push(lv.failure === 'verifiers' ? 'verifiers' : 'verify');
   if (isPrRework(x) && x.files.prFeedback) out.push('pr-feedback');
   if (x.files.feedback && (j.round > 1 || reworkEv)) out.push('feedback');
   if (x.files.questions && human(x, 'answer')) out.push('answer');
@@ -434,6 +483,10 @@ function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: boolean; 
     if (ctx.rework.includes('review')) ctx.reworkReviews = reworkReviewFiles(j, (x.paths.previousReviewDir as string | null) ?? null);
   }
   if (base === 'reviewer' && j.stage === 'integrate') ctx.integration = { conflicts: conflictFiles };
+  if (base === 'verifier') {
+    const sel = pendingVerifiers(x)?.selected;
+    ctx.verifiers = Array.isArray(sel) ? sel.length : 0;
+  }
   if (base === 'integrator') {
     // The fix pass: an integration review of this episode's resolution asked for changes.
     const review = lastEvent(x, (e) => e.type === 'integration-review');
@@ -554,6 +607,8 @@ export function gateTell(x: StepInput, waitingOn: WaitingOn): string {
     case 'pr-review':
       return prReviewTell(x);
     case 'human':
+      if (reason.startsWith('protected paths'))
+        return `${id} changed protected paths (${reason}). Diff: ${path.join(x.jobDir, 'protected.diff')}. /forge approve ${id} once a human has reviewed them, or /forge rework ${id} <note>`;
       if (reason.startsWith('secret scan'))
         return `${id} stopped on a possible secret (${reason}). Masked findings and fingerprints: forge secrets scan ${id}. Remove the value (rewrite the branch if it was committed) or add its fingerprint to .forge/secrets-allow.txt in the main checkout, then /forge approve ${id} to scan again, or /forge rework ${id} <note>`;
       return `${id} needs a human: ${reason}. /forge approve ${id} once it is resolved, or /forge rework ${id} <note>`;
@@ -594,6 +649,9 @@ function blockedRole(x: StepInput): string | null {
       break;
     case 'build':
       role = a('builder')?.round === j.round ? 'builder' : null;
+      break;
+    case 'verify':
+      role = pendingVerifiers(x) && after(a('verifier')?.startedAt, pendingVerifiers(x)!.ts) ? 'verifier' : null;
       break;
     case 'decide':
       role = latest(['approver', 'judge']);
@@ -637,6 +695,8 @@ function decide(x: StepInput): StepAction {
 
   const secret = secretGate(x);
   if (secret) return secret;
+  const guarded = protectedGate(x);
+  if (guarded) return guarded;
 
   switch (j.stage) {
     case 'backlog':
@@ -685,6 +745,30 @@ function secretGate(x: StepInput): StepAction | null {
     if (refused && after(refused.ts, opened?.ts) && after(refused.ts, last?.at) && !after(human(x, 'approve')?.ts, refused.ts)) return stop('SC3', 'secret scan blocked pr open');
   }
   return null;
+}
+
+/** PP1: the job changes escalate paths no human approved since their current content was recorded. */
+function protectedPark(x: StepInput): StepAction | null {
+  const flag = x.job.protectedPaths;
+  if (!flag?.hits?.length || x.job.kind === 'eval' || protectedApproved(flag, x.events)) return null;
+  return park(x, 'PP1', 'human', protectedReason(flag));
+}
+
+/**
+ * PP2 then PP1 in the pr stage. A path the policy refuses is on the branch (verify failed on it, or
+ * pr open refused it since the last open and verify): back to build, so PR2 and PR3 can't loop on
+ * it. Then a flag raised after decide (by pr open, say) parks the job like PP1 in decide.
+ */
+function protectedGate(x: StepInput): StepAction | null {
+  const j = x.job;
+  if (j.stage !== 'pr') return null;
+  const last = j.verifyRuns.at(-1);
+  const back = () => toStage(x, 'PP2', 'build', 'a path the protected-paths policy refuses is on the branch');
+  if (last && !last.ok && last.failure === 'protected' && !after(agent(x, 'builder')?.endedAt, last.at)) return back();
+  const refused = lastEvent(x, (e) => e.type === 'protected-path' && e.gate === 'pr' && e.action === 'refuse');
+  const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated');
+  if (refused && after(refused.ts, opened?.ts) && after(refused.ts, last?.at)) return back();
+  return protectedPark(x);
 }
 
 function stuck(x: StepInput): StepRun {
@@ -801,10 +885,43 @@ function build(x: StepInput): StepAction {
   return stuck(x);
 }
 
+/** This round's latest `verifiers` event newer than the round's last verify run. */
+function latestVerifiers(x: StepInput): JobEvent | undefined {
+  const lv = lastVerify(x);
+  return lastEvent(x, (e) => e.type === 'verifiers' && e.round === x.job.round && after(e.ts, lv?.at));
+}
+
+/** The `run` event the verifier agent answers, while its answers are not recorded yet. */
+function pendingVerifiers(x: StepInput): JobEvent | null {
+  const e = latestVerifiers(x);
+  return e?.phase === 'run' ? e : null;
+}
+
+/**
+ * VF1–VF3, after a passing verify when the main checkout has verifiers: run them, have the
+ * verifier agent answer, then record the answers. A PASS record falls through to V2; a CHANGES
+ * record appended a failing verify run, so the caller never gets here for it.
+ */
+function verifierStep(x: StepInput): StepAction | null {
+  if (!x.verifiers) return null;
+  const j = x.job;
+  const e = latestVerifiers(x);
+  if (!e) return run(x, 'VF1', ['verifiers', 'run', j.id], 'check the verified diff against the verifiers');
+  if (e.phase !== 'run') return null;
+  const a = agent(x, 'verifier');
+  if (!a || !after(a.startedAt, e.ts)) return spawn(x, 'VF2', 'verifier');
+  if (ended(a) && outputMissing(x, 'verifier') && !a.retry) return spawn(x, 'VF2', 'verifier', { retry: true });
+  return run(x, 'VF3', ['verifiers', 'record', j.id], 'record the verifier answers');
+}
+
 function verify(x: StepInput): StepAction {
   const b = agent(x, 'builder');
   const lv = lastVerify(x);
   if (!lv || (b?.endedAt && !after(lv.at, b.endedAt))) return run(x, 'V1', ['verify', x.job.id], `verify the builder's round-${x.job.round} commits`);
+  if (lv.ok) {
+    const vf = verifierStep(x);
+    if (vf) return vf;
+  }
   if (lv.ok) return isPrRework(x) && x.config.review.onPrFeedback === 'none' ? toStage(x, 'V2', 'pr', 'verify passed; PR feedback skips review') : toStage(x, 'V2', 'review', 'verify passed');
   return toStage(x, 'V3', 'build', 'verify failed: back to the builder');
 }
@@ -828,9 +945,15 @@ function retryLens(x: StepInput): string | null {
 
 function review(x: StepInput): StepAction {
   const j = x.job;
+  const lv = lastVerify(x);
+  // Once per round, after verify and before any reviewer starts, so the panel matches the diff the
+  // reviewers read. A PR rework under `changed` or `none` keeps its always-only or skip rule.
+  const prSkip = isPrRework(x) && x.config.review.onPrFeedback !== 'full';
+  const panelled = x.events.some((e) => e.type === 'panel' && e.round === j.round && after(e.ts, lv?.at));
+  const reviewing = Object.keys(j.agents).some((k) => k.startsWith('reviewer:') && startedIn(j.agents[k], j.round));
+  if (!prSkip && !panelled && !reviewing && !j.verdicts[String(j.round)]) return run(x, 'RV9', ['job', 'panel', j.id], "pick this round's lenses from the diff");
   const lenses = roundLenses(j, x.config);
   if (!lenses.length) return toStage(x, 'RV1', 'pr', 'no lens reviews this round');
-  const lv = lastVerify(x);
   if (!x.events.some((e) => e.type === 'scope' && e.round === j.round && after(e.ts, lv?.at))) return run(x, 'RV2', ['job', 'scope', j.id], 'reviewers read the scope report');
   // Only until the round's verdicts are recorded: after that RV7 stops the server, and starting it
   // again here would alternate with that stop forever. Retries before then still get the app.
@@ -900,6 +1023,9 @@ function decideStage(x: StepInput): StepAction {
   if (!x.decision.decision && !cleared('escalation')) return park(x, 'DC3', 'escalation', 'decision.md has no APPROVE/ESCALATE line');
   if (x.decision.decision === 'ESCALATE' && !cleared('escalation')) return park(x, 'DC7', 'escalation', 'approver escalated: see decision.md');
   if (x.runbookBeforeMerge && !cleared('infra')) return park(x, 'DC8', 'infra', 'runbook: steps before merge');
+  // An APPROVE, or a cleared escalation, still waits for a human on protected paths.
+  const guarded = protectedPark(x);
+  if (guarded) return guarded;
   // No loop: after integrate → decide with no wait since, this goes to pr. After a wait (or for an
   // older job that never integrated since review), integrate's IG3/IG5/IG10 reach pr, because the
   // decision or approval now counts there.
@@ -1022,6 +1148,6 @@ function pr(x: StepInput): StepAction {
   if (!last?.ok) return run(x, 'PR2', ['verify', j.id], 'pr open needs a verified HEAD');
   const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated');
   if (!after(opened?.ts, last.at)) return run(x, 'PR3', ['pr', 'open', j.id], 'push and open or update the PR');
-  if (x.decision.autoMerge && autoMerge(x.config) && !lastEvent(x, (e) => MERGE_EVENTS.includes(e.type) && after(e.ts, opened!.ts))) return run(x, 'PR4', ['pr', 'merge', j.id], 'the approver marked it auto-merge eligible');
+  if (x.decision.autoMerge && autoMerge(x.config) && !j.protectedPaths?.hits?.length && !lastEvent(x, (e) => MERGE_EVENTS.includes(e.type) && after(e.ts, opened!.ts))) return run(x, 'PR4', ['pr', 'merge', j.id], 'the approver marked it auto-merge eligible');
   return set(x, 'PR5', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review' }, 'the PR waits on human review');
 }

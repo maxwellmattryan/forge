@@ -5,12 +5,16 @@ import { spawn } from 'node:child_process';
 import { enforceBudget } from './budget.ts';
 import { loadConfig, verifyGroups, worktreeRoot } from './config.ts';
 import { e2ePlan } from './e2e.ts';
+import { configForJob } from './eval-overlay.ts';
 import { stackSource } from './deps.ts';
 import { blockingLines, compactIntegrity, hiddenChanges, integrityError, renderIntegrity, testIntegrity } from './integrity.ts';
 import type { CompactIntegrity, IntegrityReport } from './integrity.ts';
 import { listJobs, isActive, loadJob, logEvent, setJob, touchJob, updateJob, jobDir } from './jobs.ts';
 import { exists, resolveFrom } from './paths.ts';
+import { posixShell } from './platform.ts';
 import { CONFIG_SCHEMA_VERSION } from './schema.ts';
+import { checkBranch, compactProtected, renderProtected } from './protected.ts';
+import type { BranchCheck, CompactProtected } from './protected.ts';
 import { logSecrets, renderSecrets, scanBranch, secretMode, secretsOk, secretsTail, compactSecrets } from './secrets.ts';
 import type { CompactSecrets, Config, Job, ServiceConfig, VerifyRun } from './types.ts';
 import { ForgeError, assertSafeRef, fill, now, readJson, run, shellArgs, tail, withLock, writeJsonAtomic } from './util.ts';
@@ -31,7 +35,7 @@ export interface CommandResult {
   tail: string;
 }
 
-/** One verify step: a command's result, a skipped step, or a gate verify adds itself (worktree-clean, secrets, integrity). */
+/** One verify step: a command's result, a skipped step, or a gate verify adds itself (worktree-clean, secrets, protected, integrity). */
 export interface VerifyStep {
   name: string;
   ok: boolean;
@@ -55,6 +59,7 @@ export interface VerifyResult {
   failure: VerifyStep | undefined;
   integrity: CompactIntegrity | null;
   secrets: CompactSecrets;
+  protected: CompactProtected;
   budget?: NonNullable<ReturnType<typeof enforceBudget>>;
 }
 
@@ -320,7 +325,7 @@ interface ShellResult {
 const joinOutput = (stdout: string, stderr: string): string => `${stdout}${stderr ? `\n${stderr}` : ''}`;
 
 function shell(cmd: string, cwd: string, env: NodeJS.ProcessEnv): ShellResult {
-  const res = run(process.env.SHELL || '/bin/sh', ['-lc', cmd], { cwd, env, allowFail: true });
+  const res = run(posixShell(), ['-lc', cmd], { cwd, env, allowFail: true });
   return { ok: res.ok, status: res.status, output: joinOutput(res.stdout, res.stderr) };
 }
 
@@ -333,7 +338,8 @@ const MAX_OUTPUT = 64 * 1024 * 1024;
  * failure with no exit code.
  */
 function shellAsync(cmd: string, cwd: string, env: NodeJS.ProcessEnv): Promise<ShellResult> {
-  const sh = process.env.SHELL || '/bin/sh';
+  // Outside the Promise, so a refused shell throws here as it does in shell().
+  const sh = posixShell();
   return new Promise((resolve) => {
     let settled = false;
     const finish = (r: ShellResult) => {
@@ -453,13 +459,15 @@ export async function runCommandAsync(root: string, config: Config, id: string, 
  * them, and none runs after a group with a failure. Results stay in config order whatever finishes
  * first, so `failure` is the first failing step as configured, not the first to fail.
  */
-export async function verify(root: string, config: Config, id: string): Promise<VerifyResult> {
-  // Both refusals come before the clean check, so a config this Forge can't read records nothing:
+export async function verify(root: string, base: Config, id: string): Promise<VerifyResult> {
+  // Every refusal comes before the clean check, so a config this Forge can't read records nothing:
   // guessing at it could pass a gate whose steps never ran.
-  if (config.schemaVersion > CONFIG_SCHEMA_VERSION)
-    throw new ForgeError(`config schemaVersion ${config.schemaVersion} is newer than this Forge (${CONFIG_SCHEMA_VERSION}); update Forge before running verify`);
-  const groups = verifyGroups(config.verify);
+  if (base.schemaVersion > CONFIG_SCHEMA_VERSION)
+    throw new ForgeError(`config schemaVersion ${base.schemaVersion} is newer than this Forge (${CONFIG_SCHEMA_VERSION}); update Forge before running verify`);
   const job = loadJob(root, id);
+  // An eval job's overlay picks its steps, e2e and budget; an invalid one throws here.
+  const config = configForJob(root, base, job);
+  const groups = verifyGroups(config.verify);
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
   const sha = run('git', ['rev-parse', 'HEAD'], { cwd: job.worktree }).stdout.trim();
   // fsmonitor, untracked-file and submodule settings are repo config the worktree can write, and each can hide changes.
@@ -490,8 +498,21 @@ export async function verify(root: string, config: Config, id: string): Promise<
   else if (secrets.error) secretsStep.reason = `scan incomplete (verifySecrets: warn): ${secrets.error}`;
   else if (n) secretsStep.reason = `${n} possible secret${n === 1 ? '' : 's'} (verifySecrets: warn)`;
   results.push(secretsStep);
+  // Right after the secret scan, over the committed diff bound to `sha`: a path the policy refuses
+  // stops every configured step, and one that can't be checked never reads as clean.
+  const protStarted = Date.now();
+  let prot: Pick<BranchCheck, 'refused' | 'escalated' | 'error'>;
+  try {
+    prot = checkBranch(root, config, job, sha, 'verify');
+  } catch (e) {
+    prot = { refused: [], escalated: [], error: (e as Error).message };
+  }
+  const protectedStep: VerifyStep = { name: 'protected', ok: !prot.error && !prot.refused.length, exit: null, durationMs: Date.now() - protStarted };
+  if (!protectedStep.ok) protectedStep.tail = prot.error ?? prot.refused.slice(0, 20).map((h) => `${h.path}: rule ${h.rule} (${h.glob}): ${h.reason}`).join('\n');
+  else if (prot.escalated.length) protectedStep.reason = `${prot.escalated.length} protected paths need a human`;
+  results.push(protectedStep);
   if (!dirty) {
-    for (const group of secretsStep.ok ? groups : []) {
+    for (const group of secretsStep.ok && protectedStep.ok ? groups : []) {
       // A failing step never stops its siblings: each finishes and keeps its own log. One that
       // throws is reported only once the others have settled, so none writes after verify returns.
       const settled = await Promise.allSettled(
@@ -526,6 +547,10 @@ export async function verify(root: string, config: Config, id: string): Promise<
       lines.push(renderSecrets(secrets, mode));
       continue;
     }
+    if (r.name === 'protected') {
+      lines.push(renderProtected(prot));
+      continue;
+    }
     lines.push(`## ${r.name}: ${r.skipped ? `skipped (${r.reason ?? 'no command configured'})` : r.ok ? 'ok' : `FAILED (exit ${r.exit})`}`);
     if ('cmd' in r) lines.push('', '`' + r.cmd + '` · log: `' + r.log + '`');
     if (r.reason && !r.skipped) lines.push('', `Trigger: ${r.reason}`);
@@ -536,7 +561,8 @@ export async function verify(root: string, config: Config, id: string): Promise<
   const dir = path.join(jobDir(root, id), 'verify');
   fs.mkdirSync(dir, { recursive: true });
   const latest = path.join(dir, `round-${job.round}.md`);
-  const previous = job.verifyRuns.filter((r) => r.round === job.round).pop();
+  // round-<n>.md is the last report verify wrote; a verifiers failure appends a run with its own file.
+  const previous = job.verifyRuns.filter((r) => r.round === job.round && r.failure !== 'verifiers').pop();
   if (previous && exists(latest)) fs.renameSync(latest, path.join(dir, `round-${job.round}-attempt-${previous.attempt}.md`));
   fs.writeFileSync(latest, lines.join('\n'));
   const rec: VerifyRun = { round: job.round, attempt, sha, ok, at: now(), file: path.relative(jobDir(root, id), latest), failure: results.find((r) => !r.ok)?.name ?? null };
@@ -548,7 +574,8 @@ export async function verify(root: string, config: Config, id: string): Promise<
   });
   logEvent(root, id, 'verify', rec);
   logSecrets(root, id, 'verify', secrets, { blocked: mode === 'block', round: job.round });
-  const budget = enforceBudget(root, config, id, 'verify');
+  // enforceBudget applies the job's overlay itself.
+  const budget = enforceBudget(root, base, id, 'verify');
   return {
     ok,
     round: job.round,
@@ -559,6 +586,7 @@ export async function verify(root: string, config: Config, id: string): Promise<
     failure: results.find((r) => !r.ok),
     integrity: integrity ? compactIntegrity(integrity) : null,
     secrets: compactSecrets(secrets, mode),
+    protected: compactProtected(prot),
     ...(budget ? { budget } : {}),
   };
 }
@@ -602,10 +630,11 @@ export async function startBackground(
     // Filled before the log is opened, so a refused value leaves nothing behind.
     // Checked above; the narrowing does not reach into this callback.
     const cmd = fill(template, vars(root, job, job.worktree!, job.port));
+    const sh = posixShell();
     const logFile = path.join(dir, 'logs', `${name}.log`);
     fs.mkdirSync(path.dirname(logFile), { recursive: true });
     const fd = fs.openSync(logFile, 'a');
-    const child = spawn(process.env.SHELL || '/bin/sh', ['-lc', cmd], {
+    const child = spawn(sh, ['-lc', cmd], {
       cwd: job.worktree!,
       env: envFor(job, job.worktree!, job.port),
       detached: true,

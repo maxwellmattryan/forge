@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { modelFor, resolveEffort, reviewerChecklist } from './config.ts';
+import { learningSummary } from './learnings.ts';
 import { paths, exists, PLUGIN_ROOT } from './paths.ts';
 import type { Config, PanelEntry, Roster } from './types.ts';
 import { readText } from './util.ts';
@@ -21,6 +22,29 @@ function frontmatter(text: string): { meta: Record<string, string>; body: string
 }
 
 const hash = (...parts: string[]): string => crypto.createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 12);
+
+/**
+ * The main checkout's `.forge/verifiers/*.md`, sorted by name and framed by name and length: they
+ * are the verifier agent's real instructions, so editing one changes its prompt hash.
+ */
+export function verifierDigest(root: string): string {
+  const dir = paths(root).verifiers;
+  let names: string[] = [];
+  try {
+    names = fs.readdirSync(dir).filter((n) => n.endsWith('.md'));
+  } catch {}
+  names.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const h = crypto.createHash('sha256');
+  for (const n of names) {
+    let body = '';
+    try {
+      // lstat: a symlinked verifier never runs, so only its name counts.
+      if (fs.lstatSync(path.join(dir, n)).isFile()) body = fs.readFileSync(path.join(dir, n), 'utf8');
+    } catch {}
+    h.update(`${n}\0${Buffer.byteLength(body)}\0`).update(body);
+  }
+  return h.digest('hex');
+}
 
 export function roster(root: string, config: Config): Roster {
   const p = paths(root);
@@ -40,7 +64,7 @@ export function roster(root: string, config: Config): Roster {
         role,
         description: meta.description ?? '',
         model: config.runtime.models[role] ?? meta.model ?? 'inherit',
-        promptHash: hash(body, addendum, learnings),
+        promptHash: role === 'verifier' ? hash(body, addendum, learnings, verifierDigest(root)) : hash(body, addendum, learnings),
         addendum: exists(addendumFile) ? path.relative(root, addendumFile) : null,
         effort: effort.level,
         effortSource: effort.source,
@@ -61,10 +85,13 @@ export function roster(root: string, config: Config): Roster {
     };
   });
   const { enabled, builder, overlap, warnings } = modelOverlap(config);
+  const summary = learningSummary(learnings);
   return {
     agents,
     reviewers,
     learnings: learnings ? path.relative(root, path.join(p.notes, 'learnings.md')) : null,
+    learningCount: summary.count,
+    oldestReviewBy: summary.oldestReviewBy,
     diversity: { enabled, builder, overlap },
     warnings,
   };

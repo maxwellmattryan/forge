@@ -5,7 +5,7 @@
 // docs/ARCHITECTURE.md "Foreman".
 import fs from 'node:fs';
 import path from 'node:path';
-import { jobDir, readEvents } from './jobs.ts';
+import { isForemanActor, jobDir, readEvents } from './jobs.ts';
 import { OFFICE_SCOPE, daemonScope, enqueue, listRequests } from './requests.ts';
 import { OFFICE_GATES } from './schema.ts';
 import { ForgeError } from './util.ts';
@@ -286,7 +286,7 @@ export function checkOfficeSet(
   if (change.state !== 'running') refuse('only --state running');
   const decision = [...events].reverse().find((e) => e.type === 'human');
   const park = [...events].reverse().find((e) => e.type === 'transition' && (e.to as { state?: unknown } | null)?.state === 'waiting');
-  if (!decision || decision.actor !== 'foreman' || !park || decision.ts < park.ts) refuse(`no foreman decision recorded for ${job.id}'s current gate`);
+  if (!decision || !isForemanActor(decision) || !park || decision.ts < park.ts) refuse(`no foreman decision recorded for ${job.id}'s current gate`);
   const allowed = SET_AFTER[String(decision!.action)] ?? [];
   const stage = change.stage === undefined ? undefined : String(change.stage);
   if (!allowed.includes(stage)) refuse(`${decision!.action} moves the job to ${allowed.map((x) => x ?? 'its current stage').join(' or ')}, not ${stage ?? 'its current stage'}`);

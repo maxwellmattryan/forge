@@ -6,8 +6,6 @@ import { daemonTrust, loadConfig } from './config.ts';
 import { refuseInOffice, refuseInboxDrive } from './daemon-owner.ts';
 import { NEED_INIT } from './config-set.ts';
 import { detect } from './detect.ts';
-import { doctor } from './doctor.ts';
-import { forgeVersion } from './evals.ts';
 import { loadJob } from './jobs.ts';
 import { mainRoot } from './paths.ts';
 import * as pr from './pr.ts';
@@ -17,10 +15,12 @@ import { computeStats } from './stats.ts';
 import { ForgeError, readJson, run } from './util.ts';
 import * as wt from './worktree.ts';
 import { advanceCmd } from './commands/advance.ts';
+import { auditCmd } from './commands/audit.ts';
 import { num, out, parseArgs, req, requireJob, withoutJson } from './commands/args.ts';
 import { configCmd } from './commands/config.ts';
 import { daemonCmd } from './commands/daemon.ts';
 import { dash } from './commands/dash.ts';
+import { doctorCmd } from './commands/doctor.ts';
 import { evalCmd } from './commands/eval.ts';
 import { gitRead, gitWrite } from './commands/git.ts';
 import { helpCmd, usage } from './commands/help.ts';
@@ -29,9 +29,11 @@ import { jobCmd } from './commands/job.ts';
 import { requestsCmd } from './commands/requests.ts';
 import { runCmd } from './commands/run.ts';
 import { secretsCmd } from './commands/secrets.ts';
+import { verifiersCmd } from './commands/verifiers.ts';
 import { statsText, statusRows, statusTable } from './commands/status.ts';
 import { nextCmd, syncAll, trackerCmd } from './commands/tracker.ts';
 import { updateCmd } from './commands/update.ts';
+import { versionCmd } from './commands/version.ts';
 import type { CliContext, Dispatched } from './types.ts';
 
 export { reportError } from './commands/help.ts';
@@ -51,7 +53,7 @@ export async function main(argv: string[]): Promise<void> {
     return;
   }
   const [cmd] = pos;
-  if (cmd === 'version') return out({ version: forgeVersion() }, flags);
+  if (cmd === 'version') return versionCmd(flags);
   if (cmd === 'update') return updateCmd(flags);
 
   const root = mainRoot();
@@ -101,7 +103,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       configCmd(root, config, initialized, sub, rest, flags);
       return printed;
     case 'doctor':
-      return { data: await doctor(root, config, initialized), exitCode: 0, pretty: true };
+      return doctorCmd(ctx, pos.slice(1), flags);
     case 'status':
       needInit();
       return ok(flags.json ? statusRows(root, Boolean(flags.all)) : statusTable(root, Boolean(flags.all)));
@@ -137,6 +139,10 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
     case 'secrets':
       needInit();
       return secretsCmd(ctx, sub, rest, flags);
+    case 'verifiers':
+      // list reads only .forge/verifiers/, so it needs no initialised repo or job.
+      if (sub !== 'list') needInit();
+      return verifiersCmd(ctx, sub, rest);
     case 'integrate': {
       needInit();
       const id = req(sub, 'job id');
@@ -168,6 +174,9 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       const s = computeStats(root, { since: flags.since, includeEvals: Boolean(flags['include-evals']) });
       return ok(flags.json ? s : statsText(s));
     }
+    case 'audit':
+      needInit();
+      return ok(auditCmd(root, pos.slice(1), flags));
     case 'roster':
       return ok(roster(root, config));
     case 'retro': {

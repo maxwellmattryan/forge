@@ -62,12 +62,12 @@ function scratch(edit: (c: any) => void = () => {}) {
 
 const WAIT_SPEC = { stage: 'spec' as const, state: 'waiting' as const, waitingOn: 'spec-approval' as const, reason: 'spec ready' };
 
-test('config v4 migrates to v5 with foreman defaults off', () => {
-  assert.equal(CONFIG_SCHEMA_VERSION, 5);
+test('config v4 migrates to v6 with foreman defaults off', () => {
+  assert.equal(CONFIG_SCHEMA_VERSION, 6);
   const v4 = { schemaVersion: 4, git: { base: 'trunk' }, runtime: { models: { builder: 'sonnet' } } };
   const { config, from } = migrateConfig(structuredClone(v4));
   assert.equal(from, 4);
-  assert.deepEqual(config, { ...v4, schemaVersion: 5 }, 'nothing but schemaVersion changes');
+  assert.deepEqual(config, { ...v4, schemaVersion: 6 }, 'nothing but schemaVersion changes');
   const d = defaults();
   assert.deepEqual(d.foreman, { enabled: false, decides: [...OFFICE_GATES], reserved: d.foreman.reserved, ship: 'propose' });
   assert.deepEqual(OFFICE_GATES, ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback']);
@@ -103,14 +103,24 @@ test('stats separate foreman decisions from human reworks', () => {
   const s = scratch();
   try {
     const id = s.job('Stats');
-    logEvent(s.root, id, 'human', { action: 'rework', note: 'old event, no actor' });
-    logEvent(s.root, id, 'human', { action: 'rework', note: 'a person', actor: 'human' });
-    logEvent(s.root, id, 'human', { action: 'rework', note: 'the foreman', actor: 'foreman' });
-    logEvent(s.root, id, 'human', { action: 'approve-spec', note: 'the foreman', actor: 'foreman' });
-    const q = computeStats(s.root).quality;
+    // A v1 events file as an older Forge wrote it: string actors, or none at all.
+    const v1 = [
+      { v: 1, ts: '2026-01-01T00:00:00Z', type: 'human', action: 'rework', note: 'old event, no actor' },
+      { v: 1, ts: '2026-01-01T00:00:01Z', type: 'human', action: 'rework', note: 'a person', actor: 'human' },
+      { v: 1, ts: '2026-01-01T00:00:02Z', type: 'human', action: 'rework', note: 'the foreman', actor: 'foreman' },
+      { v: 1, ts: '2026-01-01T00:00:03Z', type: 'human', action: 'approve-spec', note: 'the foreman', actor: 'foreman' },
+    ];
+    fs.appendFileSync(path.join(jobDir(s.root, id), 'events.jsonl'), v1.map((e) => JSON.stringify(e) + '\n').join(''));
+    let q = computeStats(s.root).quality;
     assert.equal(q.humanReworks, 2);
     assert.equal(q.foremanDecisions, 2);
     assert.equal(q.foremanReworks, 1);
+    // And the v2 shapes beside them.
+    logEvent(s.root, id, 'human', { action: 'rework', actor: { login: null, source: 'foreman' } });
+    logEvent(s.root, id, 'human', { action: 'rework', actor: { login: 'alice', source: 'gh' } });
+    q = computeStats(s.root).quality;
+    assert.equal(q.humanReworks, 3);
+    assert.equal(q.foremanReworks, 2);
     assert.equal(q.specFirstApprovalRate, 1, 'spec approval counts whoever approved');
   } finally {
     s.cleanup();
@@ -159,12 +169,14 @@ describe('foreman CLI', { concurrency: 4 }, () => {
       assert.equal(r.code, 0, r.out);
       const ev = readEvents(s.root, id).filter((e) => e.type === 'human');
       assert.equal(ev.length, 1);
-      assert.equal(ev[0].actor, 'human');
+      assert.deepEqual(ev[0].actor, { login: 'forge-test', source: 'env' });
+      assert.equal(ev[0].v, 2);
       assert.equal(ev[0].note, 'x');
       const bad = await s.cli(undefined, 'job', 'human', id, 'rework', '--actor', 'robot');
       assert.notEqual(bad.code, 0);
-      logEvent(s.root, id, 'human', { action: 'rework' });
+      fs.appendFileSync(path.join(jobDir(s.root, id), 'events.jsonl'), JSON.stringify({ v: 1, ts: new Date().toISOString(), type: 'human', action: 'rework' }) + '\n');
       assert.equal(computeStats(s.root).quality.humanReworks, 2, 'an event without actor reads as human');
+      assert.deepEqual(readEvents(s.root, id).at(-1)!.actor, { login: null, source: 'unknown' });
     } finally {
       s.cleanup();
     }
@@ -297,7 +309,7 @@ describe('foreman CLI', { concurrency: 4 }, () => {
       const r = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'approve-spec', '--actor', 'foreman', '--note', 'ok');
       assert.equal(r.code, 0, r.out);
       const ev = readEvents(s.root, id).filter((e) => e.type === 'human');
-      assert.deepEqual(ev.map((e) => [e.action, e.actor, e.note]), [['approve-spec', 'foreman', 'ok']]);
+      assert.deepEqual(ev.map((e) => [e.action, e.actor, e.note]), [['approve-spec', { login: null, source: 'foreman' }, 'ok']]);
       const h = await s.cli(OFFICE_SCOPE, 'requests', 'add', 'resume', '--job', id);
       assert.equal(h.code, 0, h.out);
       assert.equal(h.json().from, 'daemon:_office');
@@ -434,7 +446,7 @@ describe('foreman CLI', { concurrency: 4 }, () => {
       enqueue(s.root, null, { type: 'gate', job: id, args: { gate: 'pr-feedback', key: head, reserved: null }, from: 'forge' });
       const ok = await rework();
       assert.equal(ok.code, 0, ok.out);
-      assert.deepEqual(readEvents(s.root, id).filter((e) => e.type === 'human').map((e) => [e.action, e.actor]), [['rework', 'foreman']]);
+      assert.deepEqual(readEvents(s.root, id).filter((e) => e.type === 'human').map((e) => [e.action, e.actor]), [['rework', { login: null, source: 'foreman' }]]);
     } finally {
       s.cleanup();
     }

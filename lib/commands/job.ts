@@ -2,17 +2,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { jobAcs } from '../acs.ts';
+import { jobFindings } from '../findings.ts';
 import { assistantBrief, jobPathMap } from '../brief.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
 import { OFFICE_REFUSAL, daemonClaimOpts, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
 import { OFFICE_JOB_COMMANDS, checkForemanDecision, checkOfficeSetFor, gateClass, inOffice, isGateClass, maybeEnqueueGate, reservedFor } from '../foreman.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
-import { agentOutputMissing, attachAgent, claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
+import { agentOutputMissing, attachAgent, claimJob, createJob, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
 import { logSecrets, scanAgentOutputs } from '../secrets.ts';
 import { normalizeRef } from '../issue-link.ts';
 import { exists } from '../paths.ts';
 import { COMPLEXITIES, EFFORTS, OFFICE_GATES } from '../schema.ts';
 import { daemonScope } from '../requests.ts';
+import { jobPanel } from '../panel.ts';
 import { jobScope } from '../scope.ts';
 import { loadStepInput, step } from '../step.ts';
 import { createAndLink, linkJob, markNoIssue, suggestLink } from '../tracker-link.ts';
@@ -23,7 +25,9 @@ import { modelFor, resolveEffort } from '../config.ts';
 import { ForgeError, coerce, getPath, run } from '../util.ts';
 import { bodyFrom, list, num, oneOf, req, requireJob, str, usageError } from './args.ts';
 import { mirrorToTracker, startFromRef } from './tracker.ts';
-import type { AgentUsage, Config, Effort, HelpGroup, HumanActor, Job } from '../types.ts';
+import type { AgentUsage, Config, Effort, HelpGroup, Job } from '../types.ts';
+import { FOREMAN_ACTOR, currentActor } from '../actor.ts';
+import { jobAudit, toCsv } from '../audit.ts';
 
 const NO_JOB: [1, string] = [1, 'no such job'];
 const BODY: [string, string][] = [
@@ -177,6 +181,18 @@ const JOB: HelpGroup = {
       exits: [[1, 'no such job, or an unknown budget key or bad value']],
     },
     {
+      command: 'job audit',
+      args: '<id> [--json|--csv]',
+      summary: "the job's audit trail: who did each human action (best effort, unauthenticated), its gate transitions, and its PR opening and merge, in time order",
+      flags: [
+        ['--json', 'the rows as JSON (the default)'],
+        ['--csv', 'the rows as RFC 4180 CSV with CRLF line ends, formula-like cells prefixed with \''],
+      ],
+      exits: [NO_JOB],
+      docs: ['Audit trail', 'docs/ARCHITECTURE.md#audit-trail'],
+      readme: true,
+    },
+    {
       command: 'job verdicts',
       args: '<id> [--round N|integration] [--reviewers a,b] [--malformed changes] [--compact]',
       summary: "read a round's review files and record their verdicts once all are in",
@@ -200,7 +216,22 @@ const JOB: HelpGroup = {
         [5, 'git failed'],
       ],
     },
+    {
+      command: 'job panel',
+      args: '<id>',
+      summary: "this round's review lenses: always, the spec's suggestions and the panel's paths matched against the branch diff, with a reason per lens",
+      exits: [
+        [1, 'no such job, no worktree or no spec.md'],
+        [5, 'git failed'],
+      ],
+    },
     { command: 'job acs', args: '<id>', summary: "the spec's acceptance criteria and their proof in build.md", exits: [NO_JOB] },
+    {
+      command: 'job findings',
+      args: '<id>',
+      summary: 'review findings per round and lens: raised, fixed, disputed and recurring (same lens and path in consecutive rounds)',
+      exits: [NO_JOB],
+    },
     {
       command: 'job step',
       args: '<id> [--session S]',
@@ -259,6 +290,17 @@ const LOCKED_FIELDS: Record<string, string> = {
   schemaVersion: 'forge migrate',
   usage: 'forge job agent',
   effort: 'forge job effort',
+  // A cleared flag would skip the PP1 park; pr open recomputes it anyway.
+  protectedPaths: 'forge git add|commit, forge verify or forge pr open',
+  eval: 'forge eval start',
+};
+
+// Kinds step routes differently: a retro job's review panel is fixed at code and docs, and an eval
+// job skips the PR and the escalation gate. A session set to `retro` mid-build would have RV9 drop
+// the lenses its diff selected, so only the command that creates each kind writes it.
+const OWNED_KINDS: Record<string, string> = {
+  retro: 'forge job new --kind retro',
+  eval: 'forge eval start',
 };
 
 // setPath walks these into Object.prototype.
@@ -349,6 +391,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       for (const key of Object.keys(fields))
         if (key.split('.')[0] === 'complexity' && (key !== 'complexity' || !(fields[key] === null || (COMPLEXITIES as readonly unknown[]).includes(fields[key]))))
           throw new ForgeError('--field complexity must be low, medium or high, or null');
+      if ('kind' in fields && Object.hasOwn(OWNED_KINDS, String(fields.kind))) throw new ForgeError(`--field kind=${fields.kind} is not settable; use ${OWNED_KINDS[String(fields.kind)]}`);
       // Checked before anything is written, so a bad list leaves job.json untouched.
       const before = loadJob(root, jobId);
       const waitingOn = flags['waiting-on'] === undefined ? undefined : flags['waiting-on'] === 'none' ? null : flags['waiting-on'];
@@ -373,7 +416,10 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     case 'claim': {
       const jobId = requireJob(root, id).id;
       refuseInOffice(`it never claims ${jobId}`);
-      const { job, overridden } = claimRespectingDeps(root, jobId, req(str(flags.session, '--session'), '--session'), Boolean(flags.force), daemonClaimOpts(root, jobId));
+      const force = Boolean(flags.force);
+      // Only a forced takeover is a person's decision; a plain claim is the pipeline's own.
+      const opts = { ...daemonClaimOpts(root, jobId), ...(force ? { actor: currentActor(root) } : {}) };
+      const { job, overridden } = claimRespectingDeps(root, jobId, req(str(flags.session, '--session'), '--session'), force, opts);
       return { id: job.id, owner: job.owner, ...(overridden.length ? { dependenciesOverridden: overridden } : {}) };
     }
     case 'release': {
@@ -389,11 +435,11 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       const jobId = job.id;
       const action = oneOf(rest[1], HUMAN_ACTIONS, 'action');
       const note = str(flags.note, '--note');
-      const actor: HumanActor = flags.actor === undefined ? 'human' : oneOf(str(flags.actor, '--actor'), ['human', 'foreman'] as const, 'actor');
+      const who = flags.actor === undefined ? 'human' : oneOf(str(flags.actor, '--actor'), ['human', 'foreman'] as const, 'actor');
       // The office session records only foreman decisions, and only it may: provenance is the
       // daemon scope, so a job session misled by request text can't pass off a decision as the foreman's.
-      if (inOffice() && actor !== 'foreman') throw new ForgeError('the office session records decisions only with --actor foreman', 1);
-      if (actor === 'foreman') checkForemanDecision(root, config, job, action, note, { link: flags.link, reason: flags.reason });
+      if (inOffice() && who !== 'foreman') throw new ForgeError('the office session records decisions only with --actor foreman', 1);
+      if (who === 'foreman') checkForemanDecision(root, config, job, action, note, { link: flags.link, reason: flags.reason });
       // Every check runs before any write, so a refused --link leaves job.json and events untouched.
       const link = flags.link;
       if (link !== undefined && (typeof link !== 'string' || !link.trim())) throw new ForgeError('--link needs <ref>, new or none');
@@ -406,10 +452,12 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       if (action === 'revise-split') setJob(root, jobId, { fields: { splitMode: 'never' } });
       // The link goes first: if it throws, no approval is recorded and the job keeps waiting.
       let linked: unknown;
-      if (link === 'none') linked = markNoIssue(root, jobId, reason ?? null);
-      else if (link === 'new') linked = createAndLink(root, config, await loadTracker(root, config), jobId);
-      else if (typeof link === 'string') linked = linkJob(root, config, await loadTracker(root, config), jobId, link);
-      logEvent(root, jobId, 'human', { action, note: note ?? (rest.slice(2).join(' ') || null), actor });
+      // Resolved after every check, so a refused call never spawns gh to find out who asked.
+      const actor = who === 'foreman' ? FOREMAN_ACTOR : currentActor(root);
+      if (link === 'none') linked = markNoIssue(root, jobId, reason ?? null, actor);
+      else if (link === 'new') linked = createAndLink(root, config, await loadTracker(root, config), jobId, actor);
+      else if (typeof link === 'string') linked = linkJob(root, config, await loadTracker(root, config), jobId, link, actor);
+      logHumanEvent(root, jobId, 'human', { action, note: note ?? (rest.slice(2).join(' ') || null) }, actor);
       return { ok: true, ...(link !== undefined ? { link: linked } : {}) };
     }
     case 'assist':
@@ -535,6 +583,11 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       }
       return d;
     }
+    case 'audit': {
+      if (flags.json && flags.csv) throw usageError(JOB, 'audit');
+      const a = jobAudit(root, requireJob(root, id).id);
+      return flags.csv ? toCsv(a.rows, () => a.pr) : a;
+    }
     case 'budget':
       return budgetCmd(root, config, req(id, 'job id'), { set: list(flags.set), ack: Boolean(flags.ack) });
     case 'progress':
@@ -543,8 +596,14 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       return jobPaths(root, config, loadJob(root, req(id, 'job id')));
     case 'scope':
       return jobScope(root, config, req(id, 'job id'));
+    case 'panel':
+      return jobPanel(root, config, req(id, 'job id'));
     case 'acs':
       return jobAcs(root, req(id, 'job id'));
+    case 'findings': {
+      const jobId = requireJob(root, id).id;
+      return { id: jobId, ...jobFindings(root, jobId) };
+    }
     case 'step': {
       const jobId = loadJob(root, req(id, 'job id')).id;
       // The loop's heartbeat: only the owner's own step refreshes its claim, and nothing else changes.

@@ -2,9 +2,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PLUGIN_ROOT, paths, exists, resolveFrom } from './paths.ts';
+import { globProblem, policyProblems } from './policy-check.ts';
 import { COMPLEXITIES, CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES, migrateConfig } from './schema.ts';
 import type { Config, Effort, EffortRole, EffortSource, LoadedConfig, VerifyEntry } from './types.ts';
 import { ForgeError, deepMerge, isClaudeExecutable, readText, splitWords } from './util.ts';
+export { globProblem };
 import * as yaml from './yaml.ts';
 
 /** Every key Forge reads, with its default. docs/CONFIG.md documents each one. */
@@ -75,6 +77,8 @@ export function defaults(): Config {
         integrator: 'sonnet',
         retro: 'opus',
         judge: 'opus',
+        // A cheap yes/no answer per verifier; not in EFFORT_ROLES, so it takes runtime.effort.
+        verifier: 'haiku',
         assistant: 'sonnet',
       },
     },
@@ -206,6 +210,18 @@ export function defaults(): Config {
       reserved: [...DEFAULT_RESERVED],
       ship: 'propose',
     },
+    // Enforced by the CLI at forge git add|commit, verify and pr open; docs/CONFIG.md "Protected paths".
+    policy: {
+      protectedPaths: [
+        { paths: ['.github/workflows/**', '.gitlab-ci.yml', 'Jenkinsfile', '.circleci/**'], action: 'escalate', reason: 'CI/CD configuration' },
+        { paths: ['Dockerfile*', '**/*.tf'], action: 'escalate', reason: 'infrastructure' },
+        { paths: ['**/migrations/**'], action: 'escalate', reason: 'database migrations' },
+        { paths: ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'Cargo.lock'], action: 'escalate', reason: 'dependency lockfile' },
+        { paths: ['**/.env*'], action: 'escalate', reason: 'environment files can hold credentials' },
+        { paths: ['**/*.pem'], action: 'refuse', reason: 'private keys and certificates are never committed by Forge' },
+        { paths: ['.forge/config.yml', '.forge/secrets-allow.txt', '.forge/trackers/**'], action: 'refuse', reason: "Forge's own policy changes only by a human on the base branch" },
+      ],
+    },
   };
 }
 
@@ -301,6 +317,7 @@ export function validateConfig(c: any, root: string): string[] {
       problems.push(`reviewer "${r.name}" has no checklist (looked in .forge/reviewers/ and the plugin's reviewers/)`);
     if (r.needsApp !== undefined && typeof r.needsApp !== 'boolean')
       problems.push(`review.panel "${r.name}".needsApp must be true or false (got ${JSON.stringify(r.needsApp)})`);
+    if (r.paths !== undefined) problems.push(...panelPathsProblems(r.name, r.paths));
   }
   oneOf('verifyE2e.when', c.verifyE2e?.when, ['ui', 'always', 'never']);
   const e2ePaths = c.verifyE2e?.paths;
@@ -317,6 +334,7 @@ export function validateConfig(c: any, root: string): string[] {
   }
   problems.push(...daemonProblems(c, root));
   problems.push(...foremanProblems(c));
+  problems.push(...policyProblems(c));
   return problems;
 }
 
@@ -386,16 +404,13 @@ export function verifySteps(verify: unknown): string[] {
 }
 
 /**
- * Why a `worktrees.generated` entry can't be used, or null. The entries become git pathspecs and
- * file-system paths mid-merge, so anything that could read as an option, pathspec magic (`:`),
- * an exclusion (`!`) or a way out of the worktree is refused.
+ * A panel entry's `paths`: the same rules as `worktrees.generated`, so a glob can't read as an
+ * option, pathspec magic or an exclusion, or point outside the repo. Each message names the lens.
  */
-export function globProblem(g: unknown): string | null {
-  if (typeof g !== 'string' || !g.trim()) return `worktrees.generated entries must be non-empty strings (got ${JSON.stringify(g)})`;
-  if (g.startsWith('/') || path.isAbsolute(g)) return `worktrees.generated entry ${JSON.stringify(g)} must be relative to the repo`;
-  if (/^[-!:]/.test(g)) return `worktrees.generated entry ${JSON.stringify(g)} must not start with -, ! or :`;
-  if (g.split(/[\\/]/).includes('..')) return `worktrees.generated entry ${JSON.stringify(g)} must not contain a .. segment`;
-  return null;
+export function panelPathsProblems(name: string, paths: unknown): string[] {
+  const key = `review.panel ${JSON.stringify(String(name))}.paths`;
+  if (!Array.isArray(paths)) return [`${key} must be a list of paths or globs (got ${JSON.stringify(paths)})`];
+  return paths.map((g) => globProblem(g, key)).filter((p): p is string => p !== null);
 }
 
 /**
@@ -430,7 +445,7 @@ export function generatedProblems(c: any): string[] {
   const gen = c.worktrees?.generated;
   if (gen === undefined) return [];
   if (!Array.isArray(gen)) return [`worktrees.generated must be a list of paths or globs (got ${JSON.stringify(gen)})`];
-  const problems = gen.map(globProblem).filter((p): p is string => p !== null);
+  const problems = gen.map((g: unknown) => globProblem(g)).filter((p): p is string => p !== null);
   const by = c.worktrees?.generatedBy;
   if (gen.length && (typeof by !== 'string' || !Object.hasOwn(c.commands ?? {}, by) || c.commands[by] == null))
     problems.push(`worktrees.generatedBy must name a configured command (commands.${typeof by === 'string' ? by : '<name>'} is not set)`);
@@ -496,7 +511,8 @@ export const TRUST_ENV = 'FORGE_DAEMON_TRUST';
  * Fingerprint of what decides the code `forge` runs from the main checkout: the checkout's
  * realpath, `.forge/config.yml` (commands run through a shell; daemon.* starts sessions), the
  * secret scanner's allowlist `.forge/secrets-allow.txt` (a session that could edit it could allow
- * its own leak) and the custom tracker modules imported from `.forge/trackers/`. An unreadable entry hashes as a
+ * its own leak), the custom tracker modules imported from `.forge/trackers/` and the verifiers in
+ * `.forge/verifiers/`, which gate the pipeline. An unreadable entry hashes as a
  * marker rather than throwing, so a tampered file can't turn the check into a crash.
  * `configBytes` is config.yml as already read (null: absent).
  */
@@ -519,13 +535,16 @@ export function trustDigest(root: string, configBytes?: Buffer | null): string {
   if (configBytes === undefined) file('config', p.config);
   else add('config', configBytes ?? '!ENOENT');
   file('secrets-allow', path.join(p.dir, 'secrets-allow.txt'));
-  for (const { rel, link, dir } of walk(p.trackers)) {
-    const f = path.join(p.trackers, rel);
-    if (link) {
-      try {
-        add(`link ${rel}`, fs.readlinkSync(f));
-      } catch {}
-    } else if (!dir) file(`trackers/${rel}`, f);
+  // Verifiers gate the pipeline: a session that could weaken a block verifier could pass its own work.
+  for (const [label, base] of [['trackers', p.trackers], ['verifiers', p.verifiers]] as const) {
+    for (const { rel, link, dir } of walk(base)) {
+      const f = path.join(base, rel);
+      if (link) {
+        try {
+          add(`link ${label === 'trackers' ? '' : 'verifiers/'}${rel}`, fs.readlinkSync(f));
+        } catch {}
+      } else if (!dir) file(`${label}/${rel}`, f);
+    }
   }
   return h.digest('hex');
 }
@@ -584,7 +603,7 @@ export function daemonTrust(root: string, env: NodeJS.ProcessEnv = process.env):
   }
   if (trustDigest(root, bytes) !== want)
     return refuse(
-      '.forge/config.yml, .forge/secrets-allow.txt or .forge/trackers/ changed since a human started the daemon (or this is another checkout). Only a human may change what Forge executes: stop here and leave the change for them to review.',
+      '.forge/config.yml, .forge/secrets-allow.txt, .forge/trackers/ or .forge/verifiers/ changed since a human started the daemon (or this is another checkout). Only a human may change what Forge executes: stop here and leave the change for them to review.',
     );
   return { problem: null, configText: bytes === null ? null : bytes.toString('utf8') };
 }

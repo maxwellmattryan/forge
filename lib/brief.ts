@@ -26,6 +26,9 @@ export function jobPathMap(root: string, config: Config, job: Job): Record<strin
     tasks: path.join(dir, 'tasks.md'),
     build: path.join(dir, 'build.md'),
     verify: path.join(dir, 'verify', `round-${job.round}.md`),
+    verifiers: path.join(dir, 'verify', `round-${job.round}-verifiers.md`),
+    verifierInput: path.join(dir, 'verify', `round-${job.round}-verifiers-input.md`),
+    verifierAnswers: path.join(dir, 'verify', `round-${job.round}-verifier-answers.md`),
     scope: path.join(dir, 'scope.md'),
     screenshots: path.join(dir, 'screenshots'),
     reviewDir: reviewDir(root, job.id, round),
@@ -72,15 +75,26 @@ export interface RoleContext {
   /** questions.md has a human answer the agent should read. */
   answered?: boolean;
   /** Builder rework inputs, in the order the `Rework:` line lists them. Any but `answer` makes the brief findings-first: those inputs plus tasks and build, the spec only as `Reference:`. */
-  rework?: ('review' | 'verify' | 'pr-feedback' | 'feedback' | 'answer')[];
+  rework?: ('review' | 'verify' | 'verifiers' | 'pr-feedback' | 'feedback' | 'answer')[];
   /** Absolute paths of the previous round's non-PASS review files. */
   reworkReviews?: string[];
   /** The integration: conflicted files from the integrate-conflicts event, the generated ones Forge rebuilds, and whether this is the fix pass. */
   integration?: { conflicts: string[]; regenerated?: string[]; fix?: boolean };
   strategy?: string;
+  /** The verifier agent: how many verifiers the pending run selected. */
+  verifiers?: number;
 }
 
 /** The inputs, outputs and extra lines each role gets: the brief half of Approach in issue #68. */
+/** The approver's `Protected paths:` line. JSON, so a path can't start a line of the brief. */
+export function protectedLine(job: Pick<Job, 'protectedPaths'>): string {
+  const flag = job.protectedPaths;
+  if (!flag?.hits?.length) return 'Protected paths: none';
+  const shown = flag.hits.slice(0, 20).map((h) => h.path);
+  const more = flag.hits.length - shown.length + (Number(flag.more) || 0);
+  return `Protected paths: ${JSON.stringify(shown)}${more > 0 ? ` (+${more} more)` : ''}: a human must approve after you whatever you decide; never mark auto-merge eligible`;
+}
+
 export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {}): BriefSpec {
   const j = input.job;
   const c = input.config;
@@ -110,6 +124,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
         const inputs = [
           ...(rework.includes('review') ? (ctx.reworkReviews ?? []) : []),
           ...(rework.includes('verify') ? [p('verify')] : []),
+          ...(rework.includes('verifiers') ? [p('verifiers')] : []),
           ...(rework.includes('pr-feedback') ? [p('prFeedback')] : []),
           ...(rework.includes('feedback') ? [p('feedback')] : []),
           ...(rework.includes('answer') ? [p('questions')] : []),
@@ -127,6 +142,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
       const inputs = [p('spec'), p('design'), p('mockup'), p('tasks')];
       if (rework.includes('review') && input.paths.previousReviewDir) inputs.push(p('previousReviewDir'));
       if (rework.includes('verify')) inputs.push(p('verify'));
+      if (rework.includes('verifiers')) inputs.push(p('verifiers'));
       if (rework.includes('pr-feedback')) inputs.push(p('prFeedback'));
       if (rework.includes('feedback')) inputs.push(p('feedback'));
       if (rework.includes('answer')) inputs.push(p('questions'));
@@ -141,16 +157,18 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
         extra.push(`Integration review: conflicted files ${JSON.stringify(ctx.integration.conflicts)}`);
         extra.push(`Diff: use the Before/Merge shas in build.md's ## Integration block, as in ${path.join(input.pluginRoot, 'skills', 'forge', 'reference', 'pr-lifecycle.md')}`);
       }
-      return out([path.join(p('reviewDir'), `${lens}.md`)], [p('spec'), p('design'), p('build')], extra);
+      // The verifiers report, when this round has one, so its warnings reach the panel.
+      return out([path.join(p('reviewDir'), `${lens}.md`)], [p('spec'), p('design'), p('build'), p('verifiers')], extra);
     }
     case 'approver':
       return out(
         [p('decision'), p('prBody')],
-        [p('spec'), p('build'), p('reviewDir'), p('verify'), p('integrationReview'), p('runbook')],
+        [p('spec'), p('build'), p('reviewDir'), p('verify'), p('verifiers'), p('integrationReview'), p('runbook')],
         [
           `Acceptance criteria (forge job acs): ${JSON.stringify(input.acs)}`,
           `Always escalate: ${JSON.stringify(c.approver.alwaysEscalate ?? [])}`,
           `Merge: auto ${autoMerge(c)} · autoWhen ${JSON.stringify(c.merge.autoWhen ?? [])}`,
+          protectedLine(j),
           infra,
           `Scope: ${p('scope')}`,
         ],
@@ -167,6 +185,9 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
           ...(ctx.integration?.fix ? [`Integration review: ${p('integrationReview')}`] : []),
         ],
       );
+    case 'verifier':
+      // Paths and a count only: the verifier and diff text stay in the input file, fenced as data.
+      return out([p('verifierAnswers')], [p('verifierInput')], [`Verifiers: ${ctx.verifiers ?? 0} selected`]);
     case 'judge':
       return out([path.join(p('jobDir'), 'eval-judge.md')], [p('request'), p('spec'), p('build')], [`Eval task: ${path.join(input.root, '.forge', 'evals', j.eval?.task ?? '')}`]);
     default:

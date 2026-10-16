@@ -1,21 +1,24 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ownerStatusWithProof } from './daemon-owner.ts';
-import { loadJob, logEvent, setJob, jobDir } from './jobs.ts';
+import { currentActor } from './actor.ts';
+import { isForemanActor, loadJob, logEvent, readEvents, setJob, jobDir } from './jobs.ts';
+import { checkBranch, historyEnv, logEscalated, policyRules, protectedApproved, refusalText } from './protected.ts';
 import { enqueuePrFeedbackGate, maybeEnqueueGate } from './foreman.ts';
 import { prLinkNote } from './issue-link.ts';
 import { exists } from './paths.ts';
 import { enqueue, listRequests } from './requests.ts';
 import { attributionForbidden, scrubBranch, stripAttribution } from './attribution.ts';
 import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from './delta.ts';
-import type { Config, HumanDelta, Job, JobChange, JobPr, PrChecks } from './types.ts';
-import { ForgeError, SAFE_REF, hasBinary, now, readText, run } from './util.ts';
+import type { ActorSource, Config, HumanDelta, Job, JobChange, JobEvent, JobPr, PrChecks } from './types.ts';
+import { ForgeError, SAFE_REF, hasBinary, now, readText, run, safeText } from './util.ts';
 import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretMode, textUnit } from './secrets.ts';
 import { cleanGenerated, generatedConfig, generatedPaths, partitionConflicts, rebuild, regenerateProblem, takeBaseSide } from './regenerate.ts';
 import type { Strategy } from './regenerate.ts';
 import { commandTemplate, verifiedHead } from './worktree.ts';
 
 const MARKER = '<!-- forge -->';
+const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 
 /** Human feedback on a PR, as GitHub's GraphQL returns it (raw input): fetchFeedback. */
 interface PrFeedback {
@@ -148,23 +151,30 @@ export function openPr(
   logSecrets(root, id, 'pr', scan, { blocked: mode === 'block' });
   if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of ${id}'s commits could not finish (${scan.error}); forge pr open won't push an unscanned branch`, 'secret_found', `forge secrets scan ${id}`);
   if (mode === 'block' && scan.findings.length) throw new ForgeError(refusalMessage(`the commits of ${id}`, scan.findings), 'secret_found', `forge secrets scan ${id}`);
+  refuseProtected(root, config, job, evidence.head);
+  // From here on only the checked commit is used, never HEAD: a commit made in the worktree after
+  // the checks (a stale session, a process the builder left behind) must not ride along.
+  const checked = evidence.head;
+  if (!FULL_SHA.test(checked)) throw new ForgeError(`HEAD of ${id} is not a commit id`);
   const slug = repoSlug(root, config);
-  const ahead = run('git', ['rev-list', '--count', `${config.git.remote}/${job.base}..HEAD`], { cwd: job.worktree, allowFail: true });
+  const ahead = run('git', ['rev-list', '--count', `${config.git.remote}/${job.base}..${checked}`, '--'], { cwd: job.worktree, allowFail: true });
   if (ahead.ok && ahead.stdout.trim() === '0') throw new ForgeError(`branch ${job.branch} has no commits ahead of ${job.base}`);
   let rewritten = false;
+  let pushedSha = checked;
   if (attributionForbidden(config)) {
     const remoteBase = `${config.git.remote}/${job.base}`;
     // createJob always sets base and branch; so below.
     const base = run('git', ['rev-parse', '--verify', '--quiet', remoteBase], { cwd: job.worktree, allowFail: true }).ok ? remoteBase : job.base!;
-    const scrub = scrubBranch(job.worktree, base);
+    // Rewrites messages only, from the checked commit: every tree stays the one that was checked.
+    const scrub = scrubBranch(job.worktree, base, checked, historyEnv());
     if (scrub.rewritten) {
       rewritten = true;
-      logEvent(root, id, 'attribution-scrubbed', scrub);
+      pushedSha = scrub.sha;
+      logEvent(root, id, 'attribution-scrubbed', { rewritten: scrub.rewritten, commits: scrub.commits });
     }
   }
-  pushBranch(job, config, { force: rewritten });
-  // Read after the push so it is the post-scrub sha GitHub has; the human delta starts here.
-  const pushedSha = run('git', ['rev-parse', 'HEAD'], { cwd: job.worktree }).stdout.trim();
+  // The exact sha GitHub gets, so the merge-time head pin compares against what was checked.
+  pushBranch(job, config, pushedSha, { force: rewritten });
   const existing = findPr(root, config, id);
   if (existing && existing.state === 'OPEN') {
     setJob(root, id, { fields: { 'pr.pushedSha': pushedSha } });
@@ -182,6 +192,22 @@ export function openPr(
   setJob(root, id, { fields: { pr: { number, url, state: 'OPEN', isDraft: Boolean(opts.draft ?? config.pr.draft), openedAt: now(), lastSyncedAt: now(), pushedSha } } });
   logEvent(root, id, 'pr-opened', { number, url });
   return { number, url, created: true, ...prLinkNote(job, config) };
+}
+
+/**
+ * The protected-paths re-check before anything leaves the machine, `--force` or not. The set is
+ * recomputed from the branch (a hand-cleared job.json flag changes nothing), a refuse path stops the
+ * open, and escalate paths stop it until a human approved their current content at a PP1 park.
+ */
+function refuseProtected(root: string, config: Config, job: Job, head: string): void {
+  const id = job.id;
+  const c = checkBranch(root, config, job, head, 'pr');
+  if (c.error) throw new ForgeError(`can't check ${id}'s protected paths (${c.error}); forge pr open won't push a branch it can't check`, 'protected_path');
+  if (c.refused.length) throw new ForgeError(refusalText('forge pr open', c.refused), 'protected_path');
+  if (c.escalated.length && !protectedApproved(c.flag, readEvents(root, id))) {
+    logEscalated(root, id, 'pr', c.escalated, head, true);
+    throw new ForgeError(`protected paths need a human approval: ${c.escalated.length} paths; /forge approve ${id}`, 'protected_path');
+  }
 }
 
 /**
@@ -232,8 +258,9 @@ function refreshBase(job: Job, config: Config, mode: 'block' | 'warn'): void {
   if (!fetched.ok) fail(`git fetch from ${remote}'s push URL exited ${fetched.status}`);
 }
 
-export function pushBranch(job: Job, config: Config, opts: { force?: boolean } = {}): void {
-  const args = ['push', '-u', config.git.remote, `HEAD:refs/heads/${job.branch}`];
+export function pushBranch(job: Job, config: Config, sha: string, opts: { force?: boolean } = {}): void {
+  if (!FULL_SHA.test(sha)) throw new ForgeError(`refusing to push ${JSON.stringify(String(sha).slice(0, 80))}: not a commit id`);
+  const args = ['push', '-u', config.git.remote, `${sha}:refs/heads/${job.branch}`];
   if (opts.force) args.splice(1, 0, '--force-with-lease');
   // Callers check the worktree first.
   run('git', args, { cwd: job.worktree! });
@@ -247,10 +274,56 @@ export function prText(root: string, config: Config, job: Job, title?: string): 
   return { title: title ?? job.title, body: prBody(root, config, job) };
 }
 
+/** A person's approval of the job's latest escalation: escalationApproval. */
+export interface EscalationApproval {
+  reason: string;
+  login: string | null;
+  source: ActorSource;
+  ts: string;
+}
+
+/**
+ * The approval the PR body and the merge comment name: the first `approve` after the job's latest
+ * park on `escalation`, when a person (not the foreman) gave it. Null otherwise.
+ */
+export function escalationApproval(events: JobEvent[]): EscalationApproval | null {
+  const park = events.findLastIndex((e) => e.type === 'transition' && (e.to as { state?: unknown; waitingOn?: unknown } | null)?.state === 'waiting' && (e.to as { waitingOn?: unknown }).waitingOn === 'escalation');
+  if (park < 0) return null;
+  const approve = events.slice(park + 1).find((e) => e.type === 'human' && e.action === 'approve');
+  if (!approve || isForemanActor(approve) || typeof approve.ts !== 'string') return null;
+  const actor = approve.actor && typeof approve.actor === 'object' ? approve.actor : { login: null, source: 'unknown' as const };
+  // One line: breaks become spaces before safeText drops the remaining control characters and backticks.
+  const oneLine = String(events[park].reason ?? '').replace(/[\r\n\t\u2028\u2029]+/g, ' ');
+  const reason = safeText(oneLine, 200).replace(/ {2,}/g, ' ').trim().replace(/[.\s]+$/, '') || 'no reason recorded';
+  return { reason, login: actor.login, source: actor.source, ts: approve.ts };
+}
+
+/**
+ * Sources whose login may be published. A `gh` login is already public on GitHub and `FORGE_ACTOR`
+ * is a name someone chose to record; `dashboard`, `os` and `git` are a local account name or a raw
+ * email address, which a public PR or issue must never carry.
+ */
+const PUBLIC_LOGIN_SOURCES: readonly ActorSource[] = ['gh', 'env'];
+
+/**
+ * `` `<login>` (<source>) on <YYYY-MM-DD> `` for a public source, else `a person (<source>) on <YYYY-MM-DD>`.
+ * The login sits in a code span, so it can never mention anyone or carry markdown.
+ */
+export function approvedBy(a: EscalationApproval): string {
+  const date = a.ts.slice(0, 10);
+  const login = (a.login ?? '').replace(/`/g, '');
+  if (!login || !PUBLIC_LOGIN_SOURCES.includes(a.source)) return `a person (${a.source}) on ${date}`;
+  return `\`${login}\` (${a.source}) on ${date}`;
+}
+
 function prBody(root: string, config: Config, job: Job): string {
   const dir = jobDir(root, job.id);
   const custom = readText(path.join(dir, 'pr.md')).trim();
   const parts = [custom || `## Summary\n\n${firstParagraph(readText(path.join(dir, 'spec.md'))) || job.title}`];
+  const approval = escalationApproval(readEvents(root, job.id));
+  // The reason was written by an agent that read untrusted text, so it goes in a code span: no
+  // mention, link, image or HTML in it renders on a public PR (safeText already removed backticks).
+  if (approval) parts.push(`## Decision\n\nEscalated: \`${approval.reason}\`. Approved by ${approvedBy(approval)}.`);
   if (job.source?.tracker === 'github' && job.source.ref && config.pr.closeIssue) parts.push(`Closes #${job.source.ref}`);
   else if (job.source?.url) parts.push(`Source: ${job.source.url}`);
   parts.push(MARKER);
@@ -720,11 +793,27 @@ export function mergePr(root: string, config: Config, id: string, opts: { now?: 
   if (synced?.state === 'MERGED') return { merged: true, action: 'already-merged', checks };
   if (synced?.state === 'CLOSED') throw new ForgeError(`PR #${number} is closed; reopen it before merging`);
   const now = opts.now === true;
+  // forge pr open checked protected paths on the head it pushed. A head pushed since, by plain git
+  // or a stale session, was never checked, so only a human's --now merges it unless pr open runs again.
+  const head = synced?.headOid ?? null;
+  const pushed = loadJob(root, id).pr?.pushedSha ?? null;
+  if (!now && policyRules(config).length && (head === null || head !== pushed)) {
+    logEvent(root, id, 'pr-merge-refused', { number, checks, head, pushedSha: pushed, reason: 'protected' });
+    throw new ForgeError(
+      `PR #${number}'s head ${String(head ?? 'unknown').slice(0, 12)} is not the commit forge pr open checked for protected paths (${String(pushed ?? 'none').slice(0, 12)}); run: forge pr open ${id}, or merge with --now`,
+      'protected_path',
+    );
+  }
   const hasWorkflows = checks === 'none' ? hasCiWorkflows(root, `${config.git.remote}/${job.base}`) : false;
   const mergeState = synced?.mergeState ?? null;
-  const action = mergeAction(checks, { hasWorkflows, now, mergeState });
+  const decided = mergeAction(checks, { hasWorkflows, now, mergeState });
+  // Once --auto is queued, GitHub merges on its own, and whether it still holds
+  // --match-head-commit then is not documented. Under a protected-paths policy Forge waits instead,
+  // so the merge that lands goes through the head check above (sync surfaces it for retry).
+  const held = decided === 'auto' && policyRules(config).length > 0;
+  const action = held ? 'defer' : decided;
   if (action === 'defer') {
-    logEvent(root, id, 'pr-merge-deferred', { number, checks, mergeState });
+    logEvent(root, id, 'pr-merge-deferred', { number, checks, mergeState, ...(held ? { reason: 'protected' } : {}) });
     return { merged: false, autoMerge: false, action: 'deferred', checks, mergeState };
   }
   if (action === 'refuse') {
@@ -736,18 +825,21 @@ export function mergePr(root: string, config: Config, id: string, opts: { now?: 
   if (action === 'auto') args.push('--auto');
   // Pin the commit whose checks were just read, so a push after the sync cannot ride along.
   if (synced?.headOid) args.push('--match-head-commit', synced.headOid);
+  // --now is a person's call, so every event it writes says who; without it the approver's
+  // auto-merge is not a human action and records no actor.
+  const by = now ? { actor: currentActor(root) } : {};
   // Logged before the call so a human override is on record even if the merge then fails.
-  if (now) logEvent(root, id, 'pr-merge-bypass', { number, checks });
+  if (now) logEvent(root, id, 'pr-merge-bypass', { number, checks, ...by });
   const res = run('gh', args, { cwd: root, allowFail: true });
   if (!res.ok) {
     const error = (res.stderr || res.stdout).trim();
-    logEvent(root, id, 'pr-merge-failed', { number, error });
+    logEvent(root, id, 'pr-merge-failed', { number, error, ...by });
     return { merged: false, autoMerge: false, action: 'failed', checks, error };
   }
   if (action === 'auto') {
-    logEvent(root, id, 'pr-auto-merge', { number, checks });
+    logEvent(root, id, 'pr-auto-merge', { number, checks, ...by });
     return { merged: false, autoMerge: true, action: 'auto', checks };
   }
-  logEvent(root, id, 'pr-merged', { number, method: config.merge.method, checks, bypass: now && checks !== 'passing' });
+  logEvent(root, id, 'pr-merged', { number, method: config.merge.method, checks, bypass: now && checks !== 'passing', ...by });
   return { merged: true, autoMerge: false, action: 'merged', checks };
 }

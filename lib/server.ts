@@ -5,11 +5,13 @@ import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { daemonProblems, loadConfig, resolveEffort, validateConfig } from './config.ts';
 import { ConfigSetError, FIELDS } from './config-fields.ts';
+import { dashboardActor } from './actor.ts';
 import { setConfigValue } from './config-set.ts';
 import { PERMISSION_MODES, UUID, logBaseOf, readInfo, readLogPage, sessionFiles } from './daemon.ts';
 import type { DaemonOptions } from './daemon.ts';
 import { createPool } from './daemon-pool.ts';
 import type { DaemonPool, PoolState } from './daemon-pool.ts';
+import { buildBundle, bundleFileName } from './bundle.ts';
 import { doctor } from './doctor.ts';
 import { createPreviewer, ghRunner, parseGitHubUrl } from './github-preview.ts';
 import type { GhRunner } from './github-preview.ts';
@@ -24,10 +26,14 @@ import { INBOX_SCOPE, OFFICE_SCOPE, enqueue, listRequests, validJobId, validScop
 import { gateOwner } from './foreman.ts';
 import { loadTracker } from './trackers/index.ts';
 import { roster } from './roster.ts';
+import { readTriageCache } from './triage.ts';
 import { deriveTitle, normalizeTitle } from './title.ts';
 import { agentTranscript, cachedActivity, claudeProjectsDir, openTranscript, ownerTranscript } from './transcripts.ts';
 import type { TranscriptHit } from './transcripts.ts';
+import { redactContext, redactText } from './redact.ts';
 import { getPath, readJson, readText } from './util.ts';
+import { versionInfo } from './version.ts';
+import { zip } from './zip.ts';
 import type {
   AboutResponse,
   AgentActivity,
@@ -46,6 +52,7 @@ import type {
   JobDetail,
   JobEvent,
   JobSource,
+  LastHuman,
   LoadedJob,
   PermissionDecision,
   PostConfigResponse,
@@ -54,6 +61,7 @@ import type {
   PostJobResponse,
   PostRequestResponse,
   TranscriptPage,
+  VersionInfo,
 } from './types.ts';
 
 /** startServer's options. `distDir` is a test seam like `sseMaxAgeMs`. */
@@ -132,6 +140,9 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
   const notBuilt = opts.dev ? DEV_NOT_BUILT : NOT_BUILT;
   const previewGitHub = createPreviewer({ run: opts.ghRun ?? ghRunner(root) });
   const projects = opts.projectsDir ?? claudeProjectsDir();
+  // Once per server: finding the commit can spawn git, and /api/about takes no token. The running
+  // code's commit can't change under a live server (`forge update` restarts the dashboard).
+  const provenance = versionInfo(PLUGIN_ROOT);
   let backlogCache: { at: number; data: BacklogResponse } | null = null;
   /** Open event streams and the session each one follows; MAX_SSE_CLIENTS counts them all. */
   const clients = new Map<http.ServerResponse, string>();
@@ -170,16 +181,24 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
             backlogCache = { at: Date.now(), data: { tracker: config.tracker.kind, items: [], error: (e as Error).message } };
           }
         }
-        return json(res, backlogCache.data);
+        // Read per request, unlike the item list: a triage run shows on the next load, not a minute later.
+        const triage = readTriageCache(root);
+        const { tracker } = backlogCache.data;
+        const items = backlogCache.data.items.map((item) => {
+          const e = triage[`${tracker}:${item.ref}`];
+          return e ? { ...item, triage: { ready: e.ready, missing: e.missing, at: e.at } } : item;
+        });
+        return json(res, { ...backlogCache.data, items } satisfies BacklogResponse);
       }
       if (req.method === 'GET' && p === '/api/config') return json(res, configResponse(root, Boolean(pool?.state().wanted)));
-      if (req.method === 'GET' && p === '/api/about') return json(res, about());
+      if (req.method === 'GET' && p === '/api/about') return json(res, about(provenance));
       if (req.method === 'GET' && p === '/api/doctor') {
         // It spawns git and gh, so it takes the token like a POST.
         if (guardToken(req, res, token)) return;
         const { config, initialized } = loadConfig(root);
         return json(res, { ...(await doctor(root, config, initialized)), at: new Date().toISOString() } satisfies DoctorResponse);
       }
+      if (req.method === 'GET' && p === '/api/doctor/bundle') return supportBundle(req, res, url);
       if (req.method === 'GET' && p === '/api/github/preview') {
         // It spawns gh and spends the login's GitHub rate limit, so it takes the token like a POST.
         if (guardToken(req, res, token)) return;
@@ -250,7 +269,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         // A change would trip the daemon's trust check mid-turn, and only a human may restart it.
         if (pool?.state().wanted) return jsonStatus(res, 409, { error: DAEMON_LOCK });
         try {
-          const r = setConfigValue(root, body.key, body.value);
+          const r = setConfigValue(root, body.key, body.value, dashboardActor);
           if (r.changed) backlogCache = null;
           return json(res, r satisfies PostConfigResponse);
         } catch (e) {
@@ -271,7 +290,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (typeof obj.id !== 'string' || !UUID.test(obj.id)) return jsonStatus(res, 400, { error: 'id must be a permission prompt id' });
         if (!PERMISSION_DECISIONS.includes(obj.decision)) return jsonStatus(res, 400, { error: `decision must be one of ${PERMISSION_DECISIONS.join(', ')}` });
         // Only the decision travels on: what the session gets back is built from claude's own request.
-        if (!pool?.answerPermission(obj.scope, obj.id, obj.decision)) return jsonStatus(res, 404, { error: 'that permission prompt is gone: already answered, or its session stopped' });
+        if (!pool?.answerPermission(obj.scope, obj.id, obj.decision, dashboardActor())) return jsonStatus(res, 404, { error: 'that permission prompt is gone: already answered, or its session stopped' });
         return json(res, poolState());
       }
       if (req.method === 'POST' && p === '/api/daemon/mode') {
@@ -287,7 +306,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (obj.scope !== INBOX_SCOPE && obj.scope !== OFFICE_SCOPE && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
         if (!PERMISSION_MODES.includes(obj.mode)) return jsonStatus(res, 400, { error: `mode must be one of ${PERMISSION_MODES.join(', ')}` });
         // Only a value from that fixed list travels on, to the supervisor's memory and the session's stdin.
-        const r = pool?.setPermissionMode(obj.scope, obj.mode) ?? { error: 'the daemon pool is not ready' };
+        const r = pool?.setPermissionMode(obj.scope, obj.mode, dashboardActor()) ?? { error: 'the daemon pool is not ready' };
         if (r.error) return jsonStatus(res, 409, { error: r.error });
         return json(res, poolState() satisfies PostDaemonModeResponse);
       }
@@ -552,6 +571,40 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     }
   }
 
+  /**
+   * GET /api/doctor/bundle: the support bundle `forge doctor --bundle` writes, as a download. It
+   * spawns git and gh and reads job logs, so it takes the token header (never a query parameter)
+   * on top of the read guard. The job id is validated before any path is built, and the dashboard
+   * never gets agent text: any other parameter, include-text among them, is ignored.
+   */
+  async function supportBundle(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
+    if (readGuard(req, res) || guardToken(req, res, token)) return;
+    const job = url.searchParams.get('job');
+    if (job !== null && !validJobId(job)) return jsonStatus(res, 400, { error: 'job must be a job id' });
+    if (job !== null && !exists(path.join(jobDir(root, job), 'job.json'))) return jsonStatus(res, 404, { error: 'no such job' });
+    const { config, initialized } = loadConfig(root);
+    try {
+      const date = new Date();
+      const { entries } = await buildBundle(root, config, initialized, { job: job ?? undefined, includeText: false });
+      const body = zip(entries, date);
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="${bundleFileName(date)}"`,
+        'Content-Length': body.length,
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+        'Cross-Origin-Resource-Policy': 'same-origin',
+      });
+      res.end(body);
+    } catch (e) {
+      let message = 'could not build the support bundle';
+      try {
+        message = redactText((e as Error).message, redactContext(root, config)).text;
+      } catch {}
+      jsonStatus(res, 500, { error: message });
+    }
+  }
+
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(opts.port ?? 7400, host, () => {
@@ -652,8 +705,11 @@ function configResponse(root: string, daemonWanted: boolean): ConfigResponse {
   return { initialized, path: '.forge/config.yml', fields: FIELDS, values, problems: initialized ? validateConfig(config, root) : [], writable: lockedBy === null, lockedBy };
 }
 
-/** Read per request: both files are tiny, and a plugin update under a running dash shows up. */
-function about(): AboutResponse {
+/**
+ * The two files are read per request: both are tiny, and a plugin update under a running dash shows
+ * up. The commit comes from `provenance`, computed once at start, so this route never spawns.
+ */
+function about({ commit, installedAs }: Pick<VersionInfo, 'commit' | 'installedAs'>): AboutResponse {
   const plugin = readJson(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'), {});
   const pricing = readJson(path.join(PLUGIN_ROOT, 'lib', 'pricing.json'), {});
   const link = plugin.homepage ?? plugin.repository;
@@ -666,6 +722,8 @@ function about(): AboutResponse {
     pricingAsOf: typeof pricing.asOf === 'string' ? pricing.asOf : null,
     node: process.versions.node,
     links: { repo, docs: repo ? `${repo.replace(/\/$/, '')}/tree/main/docs` : null },
+    commit,
+    installedAs,
   };
 }
 
@@ -770,7 +828,7 @@ function state(root: string, daemons: DaemonPoolState, projects: string): ApiSta
     const events = readEvents(root, j.id);
     const last = events[events.length - 1] ?? null;
     // The time rule only, so polling never spawns `ps`; the job detail adds the daemon proofs.
-    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: ownerStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests) };
+    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: ownerStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events) };
   });
   return {
     apiVersion: API_VERSION,
@@ -793,6 +851,12 @@ function state(root: string, daemons: DaemonPoolState, projects: string): ApiSta
     requests: requests.filter((r) => r.status === 'pending' || r.status === 'in-progress'),
     now: new Date().toISOString(),
   };
+}
+
+/** Who last acted on a job: its last event with an actor (already normalised by readEvents). */
+function lastHuman(events: JobEvent[]): LastHuman | null {
+  const e = events.findLast((x) => x.actor);
+  return e?.actor ? { ts: e.ts, type: e.type, action: typeof e.action === 'string' ? e.action : null, actor: e.actor } : null;
 }
 
 const startMs = (s: string | null | undefined): number => (s ? Date.parse(s) : NaN);

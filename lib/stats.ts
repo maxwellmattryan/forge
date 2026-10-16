@@ -1,8 +1,9 @@
 // Forge metrics. They describe Forge's behaviour, not the codebase's quality, which is
 // what makes them comparable across every repo Forge runs in and gives the retro loop
 // something stable to improve against.
-import { listJobs, readEvents } from './jobs.ts';
-import type { Job, ReviewerStats, Stats, UsageRow } from './types.ts';
+import { jobFindings } from './findings.ts';
+import { isForemanActor, listJobs, readEvents } from './jobs.ts';
+import type { Job, JobEvent, ReviewerStats, Stats, UsageRow, VerifierStats } from './types.ts';
 
 const median = (xs: number[]): number | null => {
   if (!xs.length) return null;
@@ -23,17 +24,38 @@ export function firstVerifyRun(job: Pick<Job, 'verifyRuns' | 'verify'>): boolean
   return job.verify?.[1] ? job.verify[1] === 'PASS' : null;
 }
 
+/**
+ * Per-verifier counts from `verifiers` record events: how often each ran, said NO, gave no valid
+ * answer, and blocked. A verifier that never fires (hitRate 0 over many runs) is a retro candidate.
+ */
+export function addVerifierStats(into: Record<string, VerifierStats>, events: JobEvent[]): void {
+  for (const e of events) {
+    if (e.type !== 'verifiers' || e.phase !== 'record' || !Array.isArray(e.results)) continue;
+    for (const r of e.results as unknown[]) {
+      if (!r || typeof r !== 'object') continue;
+      const { name, mode, answer } = r as Record<string, unknown>;
+      if (typeof name !== 'string' || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(name)) continue;
+      const s = (into[name] ??= { runs: 0, fails: 0, unanswered: 0, blocks: 0, hitRate: null });
+      s.runs++;
+      if (answer === 'no') s.fails++;
+      else if (answer !== 'yes') s.unanswered++;
+      if (answer !== 'yes' && mode === 'block') s.blocks++;
+    }
+  }
+}
+
 export function computeStats(root: string, opts: { since?: string; includeEvals?: boolean; jobs?: Job[] } = {}): Stats {
   const since = opts.since ? Date.parse(opts.since) : 0;
   const jobs = (opts.jobs ?? listJobs(root)).filter((j) => (opts.includeEvals || j.kind !== 'eval') && Date.parse((j.createdAt ?? 0) as string) >= since);
   const counts = { total: jobs.length, active: 0, done: 0, cancelled: 0, failed: 0, waiting: 0 };
   let reviewed = 0, firstPass = 0, roundsSum = 0, decided = 0, escalated = 0, verified = 0, verifyFirstPass = 0;
   let withPr = 0, prWithHumanFeedback = 0, humanRework = 0, foremanDecisions = 0, foremanRework = 0, specJobs = 0, specFirstTry = 0;
-  let merged = 0, deltaMeasured = 0, deltaNonEmpty = 0;
+  let merged = 0, deltaMeasured = 0, deltaNonEmpty = 0, recurringFindings = 0;
   const deltaLines: number[] = [];
   const timeToPr: number[] = [];
   const cycle: number[] = [];
   const reviewers: Record<string, ReviewerStats> = {};
+  const verifiers: Record<string, VerifierStats> = {};
   const byRole: Record<string, UsageRow> = {};
   const byModel: Record<string, UsageRow> = {};
   let tokens = 0, cost = 0, agentRuns = 0, agentRunsWithUsage = 0, exactRuns = 0;
@@ -57,11 +79,22 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
       if (first && Object.values(first).every((v) => v === 'PASS')) firstPass++;
       for (const r of rounds) {
         for (const [name, v] of Object.entries(j.verdicts[r] ?? {})) {
-          // changeRate is filled in for every lens after the loop.
-          const s = (reviewers[name] ??= { reviews: 0, changes: 0, blockers: 0 } as ReviewerStats);
+          // changeRate and disputeRate are filled in for every lens after the loop.
+          const s = (reviewers[name] ??= { reviews: 0, changes: 0, blockers: 0, findings: 0, fixed: 0, disputes: 0, recurring: 0 } as ReviewerStats);
           s.reviews++;
           if (v === 'CHANGES') s.changes++;
         }
+      }
+      // Only lenses with verdicts in the window: an answer line naming `verify` or `pr` is no reviewer.
+      const f = jobFindings(root, j.id);
+      recurringFindings += f.totals.recurring;
+      for (const [lens, c] of Object.entries(f.byLens)) {
+        const s = reviewers[lens];
+        if (!s) continue;
+        s.findings += c.raised;
+        s.fixed += c.fixed;
+        s.disputes += c.disputed;
+        s.recurring += c.recurring;
       }
     }
     const firstVerify = firstVerifyRun(j);
@@ -93,15 +126,16 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
       timeToPr.push((Date.parse(opened.ts) - created) / 60000);
     }
     if (events.some((e) => e.type === 'pr-synced' && e.newFeedback)) prWithHumanFeedback++;
+    addVerifierStats(verifiers, events);
     for (const e of events) {
       if (e.type !== 'agent-end') continue;
       agentRuns++;
       if (e.usage && (e.usage.totalTokens || e.usage.input || e.usage.output)) agentRunsWithUsage++;
       if (e.usage?.exact) exactRuns++;
     }
-    // An event without `actor` predates the field and was a person's.
-    const foreman = events.filter((e) => e.type === 'human' && e.actor === 'foreman');
-    const human = events.filter((e) => e.type === 'human' && e.actor !== 'foreman');
+    // An event without a foreman actor was a person's (v1 events without one read as `unknown`).
+    const foreman = events.filter((e) => e.type === 'human' && isForemanActor(e));
+    const human = events.filter((e) => e.type === 'human' && !isForemanActor(e));
     humanRework += human.filter((e) => e.action === 'rework').length;
     foremanDecisions += foreman.length;
     foremanRework += foreman.filter((e) => e.action === 'rework').length;
@@ -127,7 +161,10 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
       b.runs += v.runs;
     }
   }
-  for (const s of Object.values(reviewers)) Object.assign(s, { changeRate: ratio(s.changes, s.reviews) });
+  // Disputes over answered findings, not raised ones: builders skip many nits and the last round's
+  // findings are never answered, so a raised denominator would mostly measure whether a next round came.
+  for (const s of Object.values(reviewers)) Object.assign(s, { changeRate: ratio(s.changes, s.reviews), disputeRate: ratio(s.disputes, s.fixed + s.disputes) });
+  for (const s of Object.values(verifiers)) s.hitRate = ratio(s.fails, s.runs);
   return {
     generatedAt: new Date().toISOString(),
     since: opts.since ?? null,
@@ -146,6 +183,7 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
       foremanDecisions,
       foremanReworks: foremanRework,
       specFirstApprovalRate: ratio(specFirstTry, specJobs),
+      recurringFindings,
     },
     speed: {
       medianMinutesToPr: median(timeToPr) === null ? null : r2(median(timeToPr) as number),
@@ -161,5 +199,6 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
       byModel,
     },
     reviewers,
+    verifiers,
   };
 }

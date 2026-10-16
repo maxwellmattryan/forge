@@ -38,7 +38,10 @@
     "runningAgents": {
       "one": "{count} agent",
       "other": "{count} agents"
-    }
+    },
+    "protected": "Protected",
+    "protectedTitle": "Protected paths: {reasons}",
+    "protectedDrawer": "Protected · {reasons}"
   },
   "table": {
     "stage": "Stage",
@@ -217,6 +220,13 @@
     "created": "Created",
     "updated": "Updated",
     "verify": "Verify",
+    "verifiers": "Verifiers",
+    "verifiersTitle": "{blocking} · {warnings}",
+    "verifiersBlocking": "{count} blocking",
+    "verifiersWarnings": {
+      "one": "{count} warning",
+      "other": "{count} warnings"
+    },
     "agent": "Agent",
     "output": "Output",
     "tools": "Tools",
@@ -240,7 +250,9 @@
       "other": "{count} new"
     },
     "agentsTab": "Agents",
-    "foreman": "foreman"
+    "foreman": "foreman",
+    "by": "by {login}",
+    "actorSource": "recorded from {source}"
   },
   "needs": {
     "urgent": "Decisions only you can make",
@@ -258,7 +270,12 @@
     "addressFeedback": "Address feedback",
     "queued": "Queued requests",
     "handling": "handling ({session})",
-    "queuedStatus": "queued"
+    "queuedStatus": "queued",
+    "protectedPaths": "Protected paths",
+    "protectedMore": "+{count} more",
+    "protectedDiff": "View diff",
+    "lastActed": "Last acted: {who} · {ago}",
+    "foreman": "Foreman"
   },
   "gate": {
     "foreman": "Foreman deciding",
@@ -305,7 +322,17 @@
     "status": "Status",
     "priority": "Priority",
     "claimedBy": "Claimed by",
-    "start": "Start"
+    "start": "Start",
+    "readiness": "Readiness",
+    "ready": "Ready",
+    "needsInfo": "Needs info",
+    "missingLabel": "Missing:",
+    "missing": {
+      "outcome": "clear outcome",
+      "acceptance": "acceptance criteria or repro",
+      "scope": "bounded scope",
+      "duplicate": "possible duplicate"
+    }
   },
   "agents": {
     "title": "Agents",
@@ -505,16 +532,33 @@
         "one": "{count} check failed",
         "other": "{count} checks failed"
       },
+      "warnings": {
+        "one": "{count} warning",
+        "other": "{count} warnings"
+      },
       "ok": "OK",
+      "warn": "Warning",
       "fail": "Failed",
       "again": "Run again",
       "copy": "Copy report",
       "copied": "Report copied",
       "copyFailed": "Couldn't copy the report; select it and copy by hand",
-      "report": "Report"
+      "report": "Report",
+      "bundle": "Download support bundle",
+      "bundling": "Preparing bundle…",
+      "bundleHint": "A redacted zip of these checks, versions, config and active jobs' logs and events, for a bug report. Agent text and diffs stay out.",
+      "bundleSaved": "Support bundle downloaded",
+      "bundleFailed": "Could not build the support bundle"
     },
     "about": {
       "version": "Forge version",
+      "commit": "Commit",
+      "installedAs": "Installed as",
+      "install": {
+        "plugin": "Claude Code plugin",
+        "clone": "Git clone",
+        "unknown": "Unknown"
+      },
       "pluginRoot": "Plugin root",
       "api": "API version",
       "schemas": "Schema versions",

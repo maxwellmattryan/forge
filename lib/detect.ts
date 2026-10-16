@@ -2,7 +2,9 @@
 // questions. Everything here is a suggestion; the human confirms during the interview.
 import fs from 'node:fs';
 import path from 'node:path';
+import { defaults } from './config.ts';
 import { exists } from './paths.ts';
+import type { ProtectedRule } from './types.ts';
 import { hasBinary, readText, run } from './util.ts';
 import * as yaml from './yaml.ts';
 
@@ -54,6 +56,21 @@ export function generatedDirs(tracked: string[]): string[] {
     else if (parts.length >= 3 && OUTPUT_DIRS.has(parts[1])) out.add(`${parts[0]}/${parts[1]}/**`);
   }
   return [...out].sort();
+}
+
+/** Lockfiles per ecosystem marker, for the protected-paths suggestion's lockfile rule. */
+const LOCKFILES: [string, string[]][] = [
+  ['package.json', ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']],
+  ['Cargo.toml', ['Cargo.lock']],
+  ['go.mod', ['go.sum']],
+  ['pyproject.toml', ['poetry.lock', 'uv.lock']],
+  ['Gemfile', ['Gemfile.lock']],
+];
+
+/** The default policy with the lockfile rule narrowed to the detected ecosystems, or dropped when none is. */
+export function protectedPathsFor(root: string): ProtectedRule[] {
+  const locks = LOCKFILES.filter(([marker]) => has(root, marker)).flatMap(([, files]) => files);
+  return defaults().policy.protectedPaths.flatMap((r) => (r.reason !== 'dependency lockfile' ? [r] : locks.length ? [{ ...r, paths: locks }] : []));
 }
 
 export function detect(root: string): Detection {
@@ -148,9 +165,17 @@ export function detect(root: string): Detection {
   const monorepo = workspaces.length > 1 || cargoMembers.length > 1;
 
   const infraFiles = ['Dockerfile', 'docker-compose.yml', 'compose.yaml', 'wrangler.toml', 'wrangler.jsonc', 'fly.toml', 'vercel.json', 'netlify.toml', 'serverless.yml', 'app.yaml', 'Pulumi.yaml'].filter((f) => has(root, f));
+  // The globs behind infraFiles' display labels, for a panel lens's `paths`.
+  const infraPaths = [...infraFiles];
   const tracked = git(['ls-files', '-z']).stdout.split('\0');
-  if (tracked.some((f) => f.endsWith('.tf'))) infraFiles.push('*.tf (terraform)');
-  if (tracked.some((f) => /(^|\/)(k8s|kubernetes|helm|charts)\//.test(f))) infraFiles.push('kubernetes manifests');
+  if (tracked.some((f) => f.endsWith('.tf'))) {
+    infraFiles.push('*.tf (terraform)');
+    infraPaths.push('*.tf');
+  }
+  if (tracked.some((f) => /(^|\/)(k8s|kubernetes|helm|charts)\//.test(f))) {
+    infraFiles.push('kubernetes manifests');
+    infraPaths.push('**/k8s/**', '**/kubernetes/**', '**/helm/**', '**/charts/**');
+  }
   const generated = commands.build ? generatedDirs(tracked) : [];
   const cloudClis = ['gcloud', 'aws', 'az', 'kubectl', 'terraform', 'wrangler', 'flyctl', 'vercel', 'pulumi'].filter(hasBinary);
 
@@ -176,6 +201,15 @@ export function detect(root: string): Detection {
   if (infraFiles.length) reviewers.push('infra');
   if (pkg?.main || pkg?.exports || /\[lib\]/.test(cargo) || (cargo && !/\[\[bin\]\]/.test(cargo) && has(root, 'src/lib.rs'))) reviewers.push('api');
   reviewers.push('docs');
+  const manifests = ['package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lock', 'bun.lockb', 'go.mod', 'go.sum', 'Cargo.toml', 'Cargo.lock', 'pyproject.toml', 'requirements.txt', 'uv.lock'].filter((f) => has(root, f));
+  const lensPaths: Record<string, string[]> = {
+    design: defaults().verifyE2e.paths,
+    security: [...manifests, ...infraPaths],
+    infra: infraPaths,
+    docs: ['*.md', 'docs/**'],
+  };
+  // Only suggested lenses that aren't always-on and have something to match.
+  const panelPaths = Object.fromEntries(reviewers.filter((r) => lensPaths[r]?.length).map((r) => [r, lensPaths[r]]));
 
   return {
     repo: { name: path.basename(root), remoteUrl, github: ghSlug, branches, suggestedBase: base, originHead },
@@ -197,8 +231,10 @@ export function detect(root: string): Detection {
       'tracker.kind': ghSlug ? 'github' : 'local',
       'tracker.github.statusSync': project?.number ? 'project' : 'none',
       'review.panel': reviewers,
+      'review.panelPaths': panelPaths,
       'pipeline.design': ui.length ? (figma.length ? 'reference' : 'none') : 'none',
       'infra.mode': infraFiles.length ? 'plan-only' : 'human',
+      'policy.protectedPaths': protectedPathsFor(root),
     },
   };
 }

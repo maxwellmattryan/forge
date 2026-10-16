@@ -6,7 +6,7 @@ import path from 'node:path';
  * The CLI's error codes and the exit each one fixes (docs/CLI.md "Error codes"). Scripts branch on
  * these, so renaming or removing one is a breaking change.
  */
-export const ERROR_CODES = { failed: 1, not_found: 1, internal: 1, secret_found: 1, usage: 2, unknown_command: 2, not_initialized: 2, not_a_repo: 2, config_invalid: 2, owned: 3, blocked: 4, external: 5 } as const;
+export const ERROR_CODES = { failed: 1, not_found: 1, internal: 1, secret_found: 1, protected_path: 1, usage: 2, unknown_command: 2, not_initialized: 2, not_a_repo: 2, config_invalid: 2, owned: 3, blocked: 4, external: 5 } as const;
 export type ErrorCode = keyof typeof ERROR_CODES;
 export type ExitCode = (typeof ERROR_CODES)[ErrorCode];
 /** The code a bare exit number means, so `new ForgeError(msg, 3)` written before codes existed keeps working. */
@@ -47,7 +47,7 @@ export function assertSafeRef(value: unknown, field: string): string {
 export function run(
   cmd: string,
   args: string[],
-  opts: { cwd?: string; input?: string; allowFail?: boolean; env?: NodeJS.ProcessEnv } = {},
+  opts: { cwd?: string; input?: string; allowFail?: boolean; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {},
 ): { ok: boolean; stdout: string; stderr: string; status: number | null } {
   const res = spawnSync(cmd, args, {
     cwd: opts.cwd,
@@ -55,6 +55,8 @@ export function run(
     env: opts.env ?? process.env,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
+    // A timeout kills the child and sets res.error (ETIMEDOUT), so it takes the spawn-error path below.
+    timeout: opts.timeoutMs,
   });
   if (res.error) {
     if (opts.allowFail) return { ok: false, stdout: '', stderr: String(res.error.message), status: null };
@@ -100,6 +102,14 @@ export function writeTextAtomic(file: string, text: string): void {
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(tmp, text);
   fs.renameSync(tmp, file);
+}
+
+/**
+ * Text that came from outside Forge, made safe for one markdown line: control characters,
+ * Unicode line separators and backticks go, so it can't break out of its line or a code span.
+ */
+export function safeText(s: string, max = 200): string {
+  return String(s).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029`]/g, '').slice(0, max);
 }
 
 export function readText(file: string, fallback = ''): string {
@@ -286,6 +296,13 @@ export function shellArgs(args: string[]): string {
 
 export function fill(template: string, vars: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
+}
+
+/** A fence longer than any backtick run inside the text, at least three, so the text can't close it. */
+export function fenced(text: string, lang = 'text'): string {
+  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((r) => r.length));
+  const fence = '`'.repeat(Math.max(3, longest + 1));
+  return `${fence}${lang}\n${text}\n${fence}`;
 }
 
 export function tail(text: string, n: number): string {

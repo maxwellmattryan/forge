@@ -5,6 +5,7 @@ import path from 'node:path';
 import { loadJob, jobDir, logEvent } from './jobs.ts';
 import { exists } from './paths.ts';
 import type { Config, Job } from './types.ts';
+import { matchPolicy, policyRules } from './protected.ts';
 import { ForgeError, now, run } from './util.ts';
 
 const LIST_LIMIT = 20;
@@ -22,6 +23,11 @@ export interface ScopeReport {
   inSpec: number;
   outOfSpec: string[];
   more: number;
+  /** Changed files the protected-paths policy names (at most 20), and how many more. */
+  protected: { path: string; action: 'escalate' | 'refuse'; reason: string }[];
+  protectedMore: number;
+  /** Set instead when the policy is invalid; scope itself never fails on it. */
+  protectedError?: string;
   file: string;
 }
 
@@ -88,7 +94,7 @@ export function approachPaths(specText: string): string[] {
 }
 
 /** `**` crosses directories, `*` and `?` do not; anchored to the whole string. */
-function globToRegExp(glob: string): RegExp {
+export function globToRegExp(glob: string): RegExp {
   const body = glob
     .split('**/')
     .map((part) =>
@@ -172,6 +178,18 @@ export function resolveBase(cwd: string, config: Config, job: Pick<Job, 'base'>,
 }
 
 /**
+ * The files the committed history changed since `mergeBase`, as git stores their paths, sorted.
+ * Every option that could hide or reshape a path is pinned, because the worktree's config is
+ * builder-writable: `-z` keeps non-ASCII paths raw under core.quotePath, `--no-renames` keeps a
+ * renamed file's old path, `--no-relative` ignores diff.relative, `--no-ext-diff` skips external
+ * drivers, and realHistoryEnv ignores replace objects and grafts.
+ */
+export function committedChanges(cwd: string, mergeBase: string): string[] {
+  const out = run('git', ['diff', '--name-only', '-z', '--no-renames', '--no-relative', '--no-ext-diff', mergeBase, 'HEAD', '--'], { cwd, env: realHistoryEnv() }).stdout;
+  return out.split('\0').filter(Boolean).sort();
+}
+
+/**
  * Compares the committed diff since the merge-base with the spec's Approach paths and writes scope.md.
  * No job.json change; one `scope` event, so `forge job step` knows this round's scope is current.
  */
@@ -185,16 +203,27 @@ export function jobScope(root: string, config: Config, id: string): ScopeReport 
   const { baseRef, mergeBase } = resolveBase(cwd, config, job);
   const head = git(cwd, ['rev-parse', 'HEAD']);
   const dirty = git(cwd, ['status', '--porcelain']) !== '';
-  const changedFiles = git(cwd, ['diff', '--name-only', '--no-renames', mergeBase, 'HEAD']).split('\n').filter(Boolean).sort();
+  const changedFiles = committedChanges(cwd, mergeBase);
 
   const specText = fs.readFileSync(specFile, 'utf8');
   const approach = approachSection(specText) !== null;
   const tokens = approachPaths(specText);
   const inside = changedFiles.filter((f) => inSpec(f, tokens));
   const outside = changedFiles.filter((f) => !inSpec(f, tokens));
+  let prot: { path: string; action: 'escalate' | 'refuse'; reason: string }[] = [];
+  let protectedError: string | undefined;
+  try {
+    const rules = policyRules(config);
+    prot = changedFiles.flatMap((f) => {
+      const m = matchPolicy(f, rules);
+      return m ? [{ path: f, action: m.action, reason: m.reason }] : [];
+    });
+  } catch (e) {
+    protectedError = (e as Error).message;
+  }
 
   const file = path.join(dir, 'scope.md');
-  fs.writeFileSync(file, renderScope({ baseRef, mergeBase, head, dirty, approach, tokens, inside, outside, changed: changedFiles.length }));
+  fs.writeFileSync(file, renderScope({ baseRef, mergeBase, head, dirty, approach, tokens, inside, outside, changed: changedFiles.length, prot, protectedError }));
   logEvent(root, job.id, 'scope', { round: job.round, head });
   return {
     id: job.id,
@@ -208,11 +237,26 @@ export function jobScope(root: string, config: Config, id: string): ScopeReport 
     inSpec: inside.length,
     outOfSpec: outside.slice(0, LIST_LIMIT),
     more: Math.max(0, outside.length - LIST_LIMIT),
+    protected: prot.slice(0, LIST_LIMIT),
+    protectedMore: Math.max(0, prot.length - LIST_LIMIT),
+    ...(protectedError ? { protectedError } : {}),
     file: path.relative(root, file),
   };
 }
 
-function renderScope(s: { baseRef: string; mergeBase: string; head: string; dirty: boolean; approach: boolean; tokens: string[]; inside: string[]; outside: string[]; changed: number }): string {
+function renderScope(s: {
+  baseRef: string;
+  mergeBase: string;
+  head: string;
+  dirty: boolean;
+  approach: boolean;
+  tokens: string[];
+  inside: string[];
+  outside: string[];
+  changed: number;
+  prot: { path: string; action: string; reason: string }[];
+  protectedError?: string;
+}): string {
   const list = (xs: string[]) => (xs.length ? xs.map((x) => `- \`${x}\``) : ['- none']);
   return [
     `SCOPE: ${s.outside.length} of ${s.changed} changed files outside spec Approach`,
@@ -221,6 +265,8 @@ function renderScope(s: { baseRef: string; mergeBase: string; head: string; dirt
     ...(s.approach ? [] : ['> spec.md has no Approach section: every changed file counts as out of scope.']),
     ...(s.dirty ? ['> Worktree has uncommitted changes; they are not included.'] : []),
     '',
+    `## Protected (${s.prot.length})`,
+    ...(s.protectedError ? [`- the policy is invalid: ${s.protectedError.replace(/[\x00-\x1f\x7f]/g, ' ')}`] : s.prot.length ? s.prot.map((p) => `- \`${p.path}\`: ${p.action} (${p.reason})`) : ['- none']),
     `## Out of spec (${s.outside.length})`,
     ...list(s.outside),
     `## In spec (${s.inside.length})`,

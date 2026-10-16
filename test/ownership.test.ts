@@ -338,7 +338,7 @@ describe('claims and ownership', { concurrency: 4 }, () => {
         ['unmet dependencies', (q) => s.plant(q, (j) => (j.dependsOn = [blocker]))],
         ['a pending resume request', (q) => s.f('requests', 'add', 'resume', '--job', q)],
         ['an in-progress resume request', async (q) => s.f('requests', 'claim', (await s.f('requests', 'add', 'resume', '--job', q)).id, '--session', 'H')],
-        ['kind eval', (q) => s.f('job', 'set', q, '--field', 'kind=eval')],
+        ['kind eval', (q) => s.plant(q, (j) => (j.kind = 'eval'))],
         ['children', (q) => s.plant(q, (j) => (j.children = ['some-child']))],
       ];
       for (const [n, [what, setup]] of cases.entries()) {

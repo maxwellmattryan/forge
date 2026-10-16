@@ -1,7 +1,8 @@
 // Per-job budgets. Limits come from config at every check (so raising `pipeline.budget` raises
 // it for every job) with per-job overrides on top. Checkpoints park an over-budget job at
 // waiting:budget; only a human raises or acknowledges it, and the orchestrator resumes it.
-import { loadJob, logEvent, setJob, updateJob } from './jobs.ts';
+import { configForJob } from './eval-overlay.ts';
+import { loadJob, logEvent, logHumanEvent, setJob, updateJob } from './jobs.ts';
 import { exists } from './paths.ts';
 import { BUDGET_KEYS } from './schema.ts';
 import type { BudgetKey, BudgetLimits, BudgetUsed, Config, Job, JobBudget } from './types.ts';
@@ -85,7 +86,7 @@ export function enforceBudget(
 ): { stopped: true; reason: string; exceeded: BudgetExceeded[] } | null {
   const job = loadJob(root, id);
   const used = measureBudget(job);
-  const exceeded = exceededKeys(effectiveLimits(config, job), used, job.budget.ack, job.round);
+  const exceeded = exceededKeys(effectiveLimits(configForJob(root, config, job), job), used, job.budget.ack, job.round);
   let state = job.state;
   let waitingOn = job.waitingOn;
   updateJob(root, id, (j) => {
@@ -137,10 +138,10 @@ export function budgetCmd(
         else j.budget.limits[k] = v;
       }
     });
-    for (const [key, value] of sets) logEvent(root, id, 'budget-set', { key, value: value === undefined ? 'default' : value });
+    for (const [key, value] of sets) logHumanEvent(root, id, 'budget-set', { key, value: value === undefined ? 'default' : value });
   }
   const job = loadJob(root, id);
-  const limits = effectiveLimits(config, job);
+  const limits = effectiveLimits(configForJob(root, config, job), job);
   const used = measureBudget(job);
   const exceeded = exceededKeys(limits, used, job.budget.ack, job.round);
   const acked = opts.ack ? exceeded.map((e) => e.key) : [];
@@ -148,7 +149,7 @@ export function budgetCmd(
     for (const e of opts.ack ? exceeded : []) j.budget.ack[e.key] = { used: e.used, round: j.round };
     j.budget.lastCheck = { at: now(), checkpoint: 'budget', used };
   });
-  if (acked.length) logEvent(root, id, 'budget-ack', { keys: acked, used: Object.fromEntries(exceeded.map((e) => [e.key, e.used])) });
+  if (acked.length) logHumanEvent(root, id, 'budget-ack', { keys: acked, used: Object.fromEntries(exceeded.map((e) => [e.key, e.used])) });
   const still = exceededKeys(limits, used, saved.budget.ack, saved.round).map((e) => e.key);
   return { id: saved.id, limits, used, exceeded: exceeded.map((e) => e.key), ack: saved.budget.ack, acked, stillExceeded: still };
 }

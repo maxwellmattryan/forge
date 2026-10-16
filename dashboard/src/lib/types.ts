@@ -1,9 +1,9 @@
-// Shapes of the forge dash HTTP API for API_VERSION 19. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 21. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
 
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 19;
+export const API_VERSION = 22;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 /** lib/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */
@@ -104,8 +104,13 @@ export interface JobOwner {
 /** Why a daemon owner provably let go of a job: ownerYield in lib/daemon-owner.ts. */
 export type YieldReason = 'moved-on' | 'not-running' | 'inbox-handoff';
 
-/** Who recorded a `human` event: a person, or the foreman. */
-export type HumanActor = 'human' | 'foreman';
+/** Where an event's actor came from: ACTOR_SOURCES in lib/schema.ts. */
+export type ActorSource = 'env' | 'gh' | 'git' | 'os' | 'dashboard' | 'foreman' | 'unknown';
+/** Who did a human action; `login` is null for the foreman and when nothing resolved. */
+export interface EventActor {
+  login: string | null;
+  source: ActorSource;
+}
 /** Who owns a waiting job's gate: gateOwner in lib/foreman.ts; null when the job waits on nothing or the foreman is off. */
 export type GateOwner = 'foreman' | 'human' | null;
 
@@ -203,7 +208,7 @@ export interface VerifyRun {
   ok: boolean;
   at: string | null;
   file: string;
-  /** The name of the step that failed (`test`, `integrity`, …), null on a pass. */
+  /** The name of the step that failed (`test`, `integrity`, `secrets`, `protected`, …), null on a pass. */
   failure?: string | null;
 }
 
@@ -251,13 +256,35 @@ export interface Job {
   createdAt: string | null;
   updatedAt: string | null;
   finishedAt: string | null;
-  eval: { run: string; task: string } | null;
+  eval: { run: string; task: string; repeat?: number; overlay?: EvalOverlay } | null;
   /** `never` when the planner must not split this job (from-ref, revise-split); null follows pipeline.split. */
   splitMode: 'never' | null;
   /** The human's reasoning effort for this job (`forge job effort`); null inherits runtime.effort. */
   effort: Effort | null;
   /** The spec's `Complexity:` header, recorded at SP3; picks runtime.effortByComplexity. */
   complexity: Complexity | null;
+  /** Escalate paths the branch changes, recorded by the CLI only: recordProtected in lib/protected.ts. */
+  protectedPaths: ProtectedPaths | null;
+}
+
+/** A changed path an escalate rule matched; `rule` is 1-based and `blob` is null for a deletion. */
+export interface ProtectedHit {
+  path: string;
+  rule: number;
+  glob: string;
+  reason: string;
+  blob: string | null;
+}
+
+/** job.protectedPaths: the escalate paths that need a human approval given after `at`. */
+export interface ProtectedPaths {
+  hits: ProtectedHit[];
+  more: number;
+  at: string;
+  gate: 'add' | 'commit' | 'verify' | 'pr';
+  head: string | null;
+  /** sha256 over every (path, blob) of the set, `more` included; absent on a flag from before it. */
+  digest?: string;
 }
 
 /** tasks.md checkbox counts: progress in lib/jobs.ts. */
@@ -306,8 +333,8 @@ export interface JobEvent {
   text?: string;
   action?: string;
   note?: string | null;
-  /** On `human` events: who decided. Absent on older events, which read as `human`. */
-  actor?: HumanActor;
+  /** On human-action events (lib/actor.ts): who acted, best effort and unauthenticated. */
+  actor?: EventActor;
   [key: string]: unknown;
 }
 
@@ -462,7 +489,15 @@ export interface TranscriptPage {
   more: boolean;
 }
 
-export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner };
+/** The last event that carries an actor: who last acted on a job (lastHuman in lib/server.ts). */
+export interface LastHuman {
+  ts: string;
+  type: string;
+  action: string | null;
+  actor: EventActor;
+}
+
+export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null };
 
 /** Request types the inbox accepts: REQUEST_TYPES in lib/requests.ts. */
 export type RequestType = 'next' | 'run' | 'approve' | 'revise-spec' | 'rework' | 'answer' | 'cancel' | 'resume' | 'sync' | 'eval-run' | 'retro' | 'gate';
@@ -541,6 +576,30 @@ export interface ReviewerStats {
   changes: number;
   blockers: number;
   changeRate: number | null;
+  /** Tagged findings the lens raised in its review files. */
+  findings: number;
+  /** Builder answers `→ fixed` to this lens's findings. */
+  fixed: number;
+  /** Builder answers `→ disagree:` to this lens's findings. */
+  disputes: number;
+  /** disputes / (fixed + disputes); null when the builder answered none. */
+  disputeRate: number | null;
+  /** (lens, path) pairs this lens raised in two consecutive rounds of one job. */
+  recurring: number;
+}
+
+/** One verifier's record: computeStats in lib/stats.ts, from `verifiers` record events. */
+export interface VerifierStats {
+  /** Records whose results name it. */
+  runs: number;
+  /** Answers `no`. */
+  fails: number;
+  /** Answers `none`: no valid answer from the verifier model. */
+  unanswered: number;
+  /** `no` or `none` in block mode. */
+  blocks: number;
+  /** fails / runs; null at 0 runs. */
+  hitRate: number | null;
 }
 
 /** GET /api/stats: computeStats in lib/stats.ts. */
@@ -564,6 +623,8 @@ export interface Stats {
     foremanDecisions: number;
     foremanReworks: number;
     specFirstApprovalRate: number | null;
+    /** Recurring (lens, path) review findings across every job in the window. */
+    recurringFindings: number;
   };
   speed: { medianMinutesToPr: number | null; medianMinutesToDone: number | null };
   cost: {
@@ -576,6 +637,7 @@ export interface Stats {
     byModel: Record<string, UsageRow>;
   };
   reviewers: Record<string, ReviewerStats>;
+  verifiers: Record<string, VerifierStats>;
 }
 
 /** An eval task as served: loadTask in lib/evals.ts minus `dir` and `request`. */
@@ -609,6 +671,13 @@ export interface EvalResult {
   estCostUsd: number;
   minutes: number | null;
   gradedAt: string;
+  /** Minutes per stage the job entered: jobTiming in lib/eval-stats.ts. Absent on results graded before it. */
+  stages?: Partial<Record<Stage, number>>;
+  /** Agent-run time, summed across parallel agents. */
+  agentMinutes?: number | null;
+  /** Wall time when no agent was running. */
+  orchestratorMinutes?: number | null;
+  reviewerRuns?: number;
 }
 
 /** Aggregates over a run's graded tasks: summarize in lib/evals.ts. */
@@ -623,6 +692,41 @@ export interface EvalSummary {
   avgTokens: number | null;
   avgCostUsd: number | null;
   avgMinutes: number | null;
+  avgAgentMinutes: number | null;
+  avgOrchestratorMinutes: number | null;
+  avgReviewerRuns: number | null;
+}
+
+/** A per-run config overlay: dotted config keys to typed values, parseOverlay in lib/eval-overlay.ts. */
+export type EvalOverlay = Record<string, unknown>;
+
+/** A sample's size and spread: stat in lib/eval-stats.ts. */
+export interface EvalStat {
+  n: number;
+  mean: number | null;
+  min: number | null;
+  max: number | null;
+}
+
+/** Two means and the sample count behind each: delta in lib/eval-stats.ts. */
+export interface EvalDelta {
+  a: number | null;
+  b: number | null;
+  change: number | null;
+  na: number;
+  nb: number;
+}
+
+/** The per-task metrics: TASK_METRICS in lib/eval-stats.ts. */
+export type EvalTaskMetric = 'checkPass' | 'judgeScore' | 'firstPass' | 'rounds' | 'tokens' | 'costUsd' | 'minutes' | 'agentMinutes' | 'orchestratorMinutes' | 'reviewerRuns';
+
+/** One task's repeats in a run: aggregateTasks in lib/eval-stats.ts. */
+export interface EvalTaskAggregate {
+  task: string;
+  runs: number;
+  graded: number;
+  metrics: Record<EvalTaskMetric, EvalStat>;
+  stages: Record<string, EvalStat>;
 }
 
 /** An eval run record: startRun and gradeJob in lib/evals.ts, with summary filled by listRuns. */
@@ -632,12 +736,18 @@ export interface EvalRun {
   label: string | null;
   forgeVersion: string;
   configHash: string;
+  /** The plugin's prompt and pipeline hash: pluginHash in lib/evals.ts. Null on records before it. */
+  pluginHash?: string | null;
+  overlay?: EvalOverlay;
+  repeat?: number;
   models: Record<string, string>;
   startedAt: string;
   finishedAt: string | null;
   status: 'running' | 'done';
-  tasks: { task: string; job: string; worktreeOk: boolean; result: EvalResult | null }[];
+  tasks: { task: string; job: string; worktreeOk: boolean; result: EvalResult | null; repeat?: number }[];
   summary: EvalSummary;
+  /** Filled by listRuns. */
+  perTask?: EvalTaskAggregate[];
 }
 
 /** GET /api/evals: the handler in lib/server.ts over listTasks/listRuns in lib/evals.ts. */
@@ -648,10 +758,28 @@ export interface EvalsResponse {
 
 /** GET /api/evals/compare: compareRuns in lib/evals.ts. */
 export interface EvalCompare {
-  a: { id: string; configHash: string; forgeVersion: string };
-  b: { id: string; configHash: string; forgeVersion: string };
-  delta: Record<keyof EvalSummary, { a: number | null; b: number | null; change: number | null }>;
-  perTask: { task: string; a: boolean | null; b: boolean | null }[];
+  a: EvalCompareSide;
+  b: EvalCompareSide;
+  delta: Record<keyof EvalSummary, EvalDelta>;
+  /** Mean minutes per stage over the graded jobs that entered it. */
+  stages: Record<string, EvalDelta>;
+  perTask: {
+    task: string;
+    a: boolean | null;
+    b: boolean | null;
+    stats: { a: EvalTaskAggregate | null; b: EvalTaskAggregate | null };
+    delta: Record<EvalTaskMetric, EvalDelta>;
+  }[];
+}
+
+/** One run's stamps in a comparison. */
+export interface EvalCompareSide {
+  id: string;
+  configHash: string;
+  forgeVersion: string;
+  pluginHash: string | null;
+  overlay: EvalOverlay;
+  repeat: number;
 }
 
 /** A value `forge config set` and POST /api/config can write. */
@@ -701,6 +829,8 @@ export interface DoctorCheck {
   name: string;
   ok: boolean;
   detail: string;
+  /** ok, but worth a look; never set with ok: false. */
+  warn?: boolean;
 }
 
 /** What `forge doctor` prints: doctor in lib/doctor.ts. */
@@ -712,6 +842,9 @@ export interface DoctorReport {
 /** GET /api/doctor: doctor in lib/doctor.ts, plus when it ran. */
 export type DoctorResponse = DoctorReport & { at: string };
 
+/** How `forge version --json` names the install: versionInfo in lib/version.ts. */
+export type InstalledAs = 'plugin' | 'clone' | 'unknown';
+
 /** GET /api/about: about in lib/server.ts. */
 export interface AboutResponse {
   forgeVersion: string;
@@ -721,6 +854,9 @@ export interface AboutResponse {
   pricingAsOf: string | null;
   node: string;
   links: { repo: string | null; docs: string | null };
+  /** versionInfo(PLUGIN_ROOT) in lib/version.ts: 40 lowercase hex, or null. */
+  commit: string | null;
+  installedAs: InstalledAs;
 }
 
 /** A CI rollup on a GitHub preview: GitHub's statusCheckRollup, folded to three outcomes; null when nothing ran. */
@@ -815,6 +951,10 @@ export interface Roster {
   agents: { role: string; description: string; model: string; promptHash: string; addendum: string | null; effort: Effort | null; effortSource: EffortSource }[];
   reviewers: { name: string; model: string; always: boolean; when: string | null; checklist: string | null; checklistHash: string | null; effort: Effort | null; effortSource: EffortSource }[];
   learnings: string | null;
+  /** Entries in learnings.md; 0 when it is missing. */
+  learningCount: number;
+  /** The earliest valid review-by among all learnings, expired ones included. */
+  oldestReviewBy: string | null;
   diversity: { enabled: boolean; builder: string; overlap: { role: string; model: string }[] };
   warnings: string[];
 }
@@ -830,12 +970,29 @@ export interface TrackerItem {
   priority?: string | null;
   assignees?: string[];
   claimedBy?: string | null;
+  /** Marked needs-info by readiness triage (local `[?]`, GitHub `<prefix>needs-info`): ready lists leave it out. */
+  needsInfo?: boolean;
+}
+
+/** A readiness rubric key a triage verdict can name: TRIAGE_MISSING in lib/triage.ts. */
+export type TriageMissing = 'outcome' | 'acceptance' | 'scope' | 'duplicate';
+
+/** The last triage verdict for an item, from the triage cache (lib/triage.ts). */
+export interface TriageInfo {
+  ready: boolean;
+  missing: TriageMissing[];
+  at: string;
+}
+
+/** A /api/backlog item: the tracker's item plus its last triage verdict, when there is one. */
+export interface BacklogItem extends TrackerItem {
+  triage?: TriageInfo;
 }
 
 /** GET /api/backlog: the handler in lib/server.ts over the tracker's list(). */
 export interface BacklogResponse {
   tracker: string;
-  items: TrackerItem[];
+  items: BacklogItem[];
   error?: string;
 }
 

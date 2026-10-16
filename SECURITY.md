@@ -24,7 +24,7 @@ The fix ships as a patch release with a GitHub Security Advisory, and a CVE when
 
 ## Supported versions
 
-Only the latest minor release line (the newest `x.y`; see [CHANGELOG.md](CHANGELOG.md)) receives security fixes, as patch releases. Older lines get no backports, so upgrade with `forge update` to pick up a fix.
+Only the latest minor release line (the newest `x.y`; see [CHANGELOG.md](CHANGELOG.md)) receives security fixes, as patch releases. Older lines get no backports, so upgrade with `forge update` to pick up a fix. [docs/RELEASES.md](docs/RELEASES.md) has the versioning, support and deprecation policy and how to verify a release.
 
 | Release line | Security fixes |
 |---|---|

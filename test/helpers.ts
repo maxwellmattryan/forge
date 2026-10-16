@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 
@@ -13,6 +14,12 @@ const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 export function scratchGitConfig(git) {
   git('config', 'commit.gpgsign', 'false');
   git('config', 'tag.gpgsign', 'false');
+  // Git for Windows defaults to autocrlf=true, which rewrites what tests commit and compare byte for byte.
+  git('config', 'core.autocrlf', 'false');
+  // A detached `git maintenance run --auto` after a commit rewrites .git/objects while repoTemplate
+  // copies the directory, and the copy fails with ENOENT.
+  git('config', 'maintenance.auto', 'false');
+  git('config', 'gc.auto', '0');
 }
 
 // Every test file that touches git imports this module, so pinning git's config here covers the
@@ -27,6 +34,9 @@ for (const k of Object.keys(process.env)) if (/^FORGE_DAEMON(_|$)|^GIT_CONFIG_(C
 // Transcript lookups follow Claude Code's own CLAUDE_CONFIG_DIR; tests that fake a HOME must not
 // read the developer's real one instead. Tests that need it set it themselves.
 delete process.env.CLAUDE_CONFIG_DIR;
+// Every human action resolves who did it, and without this the CLI would ask the developer's real
+// gh. Tests of the fallbacks drop it in their own child env.
+process.env.FORGE_ACTOR = 'forge-test';
 // Forge runs configured commands as `$SHELL -lc`. A login profile (nvm, for one) can cost a second
 // per command and reorder PATH, and no test needs one, so commands run in the same shell without -l.
 const NO_LOGIN_SHELL = path.resolve(import.meta.dirname, 'fixtures', 'bin', 'no-login-shell');
@@ -45,7 +55,8 @@ process.env.NODE_COMPILE_CACHE ??= path.resolve(import.meta.dirname, '..', 'node
 const STRIP_HOOK = path.resolve(import.meta.dirname, 'fixtures', 'strip-cache.mjs');
 if (!process.env.FORGE_TEST_STRIP_CACHE) {
   process.env.FORGE_TEST_STRIP_CACHE = path.resolve(import.meta.dirname, '..', 'node_modules', '.cache', 'forge', 'strip-cache');
-  process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS ?? ''} --import=${JSON.stringify(STRIP_HOOK)}`.trim();
+  // A file: URL, because --import reads a bare Windows path (C:\...) as a URL with scheme c:.
+  process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS ?? ''} --import=${JSON.stringify(pathToFileURL(STRIP_HOOK).href)}`.trim();
 }
 
 /** A throwaway git repo with one commit; FORGE_ROOT pins the CLI's main checkout to it. */
@@ -117,4 +128,40 @@ export async function waitFor<T>(predicate: () => T | Promise<T>, { timeoutMs = 
     if (Date.now() >= deadline) throw new Error(`waitFor: ${what} still false after ${timeoutMs} ms`);
     await new Promise((r) => setTimeout(r, intervalMs));
   }
+}
+
+/** The task.yml of a hidden check that copies `check/files/` in and runs `command`. */
+export function evalTaskYml(name: string, command = 'true'): string {
+  return [`title: ${name}`, `request: Do ${name}`, 'base: null', 'tags: []', 'check:', '  files: check/files', `  command: ${JSON.stringify(command)}`, ''].join('\n');
+}
+
+const evalRepo = repoTemplate((dir) => {
+  const answers = path.join(dir, '.answers.json');
+  fs.writeFileSync(answers, JSON.stringify({ commands: { build: 'true', test: 'true', lint: 'true' }, worktrees: { root: '../{repo}.wt' } }));
+  execFileSync(process.execPath, [BIN, 'init', 'write', '--answers', answers], { cwd: dir, env: { ...process.env, FORGE_ROOT: dir }, stdio: 'pipe' });
+  fs.rmSync(answers);
+  for (const name of ['t', 'u']) {
+    const tdir = path.join(dir, '.forge', 'evals', name);
+    fs.mkdirSync(path.join(tdir, 'check', 'files'), { recursive: true });
+    fs.writeFileSync(path.join(tdir, 'check', 'files', `${name}.txt`), `${name}\n`);
+    fs.writeFileSync(path.join(tdir, 'task.yml'), evalTaskYml(name));
+  }
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'pipe' });
+  execFileSync('git', ['commit', '-qm', 'forge and eval tasks'], { cwd: dir, stdio: 'pipe' });
+});
+
+/**
+ * A scratch repo with Forge initialised (build, test and lint all `true`) and two committed eval
+ * tasks, `t` and `u`. Its eval clones live in the `<dir>.wt` sibling, which cleanup removes too.
+ */
+export function evalScratch(): { dir: string; git: (...args: string[]) => Buffer; cleanup: () => void } {
+  const r = evalRepo();
+  return {
+    dir: r.dir,
+    git: r.git,
+    cleanup: () => {
+      r.cleanup();
+      fs.rmSync(`${r.dir}.wt`, { recursive: true, force: true });
+    },
+  };
 }

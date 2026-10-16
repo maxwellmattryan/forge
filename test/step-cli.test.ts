@@ -121,9 +121,9 @@ test('SKILL.md is the loop', () => {
     assert.ok(fs.existsSync(path.join(ROOT, 'skills', 'forge', 'reference', ref)), `reference/${ref} exists`);
     assert.ok(skill.includes(`reference/${ref}`), `SKILL.md names reference/${ref}`);
   }
-  // The frontmatter is pinned: name, description and argument-hint (approve takes an issue link).
+  // The frontmatter is pinned: name, description and argument-hint (approve takes an issue link; triage takes a limit).
   assert.match(skill, /^---\nname: forge\ndescription: Run Forge, a software factory\./);
-  assert.match(skill, /\nargument-hint: "<feature> \| next \[n\] \| issue <ref> \| continue <job\|#pr> \| approve <job> \[<ref>\|new\|none\] \[note\] \| revise\|answer\|rework\|cancel <job> \[note\] \| status \| sync \| dash \| init \| retro \| eval … \| requests \| doctor \| update"\n---\n/);
+  assert.match(skill, /\nargument-hint: "<feature> \| next \[n\] \| triage \[n\] \| issue <ref> \| continue <job\|#pr> \| approve <job> \[<ref>\|new\|none\] \[note\] \| revise\|answer\|rework\|cancel <job> \[note\] \| status \| sync \| dash \| init \| retro \| eval … \| requests \| doctor \| update"\n---\n/);
 });
 
 test('docs mention job step', () => {
@@ -150,7 +150,8 @@ test('docs mention job step', () => {
 });
 
 test('missing review: retry once then escalate', () => {
-  const s = scratch({ commands: { build: 'true', test: 'true', lint: 'true' } });
+  // One always lens, so RV9's panel leaves the round with code alone.
+  const s = scratch({ commands: { build: 'true', test: 'true', lint: 'true' }, review: { panel: [{ name: 'code', always: true }] } });
   try {
     const { id } = s.f('job', 'new', '--title', 'Missing review');
     s.f('worktree', 'create', id);
@@ -161,6 +162,9 @@ test('missing review: retry once then escalate', () => {
     const exec = (argv: string[]) => s.f(...argv);
 
     let a = step();
+    assert.deepEqual([a.action, a.rule, a.command], ['run', 'RV9', ['job', 'panel', id]]);
+    exec(a.command);
+    a = step();
     assert.deepEqual([a.action, a.rule, a.command], ['run', 'RV2', ['job', 'scope', id]]);
     exec(a.command);
     a = step();

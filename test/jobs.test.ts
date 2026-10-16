@@ -6,7 +6,7 @@ import { forgeAsync, tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
 import { claimJob, createJob, loadJob, readEvents, roundVerdicts, setJob, recordAgent, progress, parseDecision, touchJob, jobDir } from '../lib/jobs.ts';
 import { computeStats } from '../lib/stats.ts';
-import { JOB_SCHEMA_VERSION } from '../lib/schema.ts';
+import { EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION, normalizeEvent, normalizeJob } from '../lib/schema.ts';
 import { sleepSync } from '../lib/util.ts';
 
 test('job lifecycle: ids, transitions, claims, usage, verdict policy', () => {
@@ -135,6 +135,73 @@ test('reads a schema v1 job and migrates its verify results', () => {
       'old per-round results become attempt 1 with no sha',
     );
     assert.equal(loaded.verify[1], 'FAIL', 'the compatible field survives');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('reads v1 events into the v2 actor shape', () => {
+  assert.equal(EVENT_SCHEMA_VERSION, 2);
+  const FOREMAN = { login: null, source: 'foreman' };
+  const UNKNOWN = { login: null, source: 'unknown' };
+  const v1 = { v: 1, ts: 't', type: 'human', action: 'approve' };
+  assert.deepEqual(normalizeEvent({ ...v1, actor: 'foreman' }), { ...v1, v: 2, actor: FOREMAN });
+  assert.deepEqual(normalizeEvent({ ...v1, actor: 'human' }), { ...v1, v: 2, actor: UNKNOWN });
+  assert.deepEqual(normalizeEvent(v1), { ...v1, v: 2, actor: UNKNOWN }, 'a v1 human event without actor');
+  const { v: _, ...unversioned } = v1;
+  assert.deepEqual(normalizeEvent({ ...unversioned, actor: 'foreman' }), { ...v1, v: 2, actor: FOREMAN }, 'no v reads as v1');
+  // Other v1 events are kept and get no actor.
+  assert.deepEqual(normalizeEvent({ v: 1, ts: 't', type: 'claimed', session: 's' }), { v: 2, ts: 't', type: 'claimed', session: 's' });
+  // A malformed actor on any version reads as unknown, keeping a sanitised login.
+  for (const [actor, want] of [
+    [{ login: 'al<ice>', source: 'root' }, { login: 'alice', source: 'unknown' }],
+    [{ login: 7, source: 'gh' }, UNKNOWN],
+    [{ source: 'env' }, UNKNOWN],
+    [['x'], UNKNOWN],
+    [42, UNKNOWN],
+    [{ login: '`@bob`\n', source: 'gh' }, { login: '@bob', source: 'gh' }],
+  ] as const)
+    assert.deepEqual(normalizeEvent({ v: 2, ts: 't', type: 'budget-ack', actor })!.actor, want, JSON.stringify(actor));
+  // A foreman source stays the foreman's whatever its login, so a malformed one never reads as a person's.
+  for (const login of [undefined, 7, 'mallory', { x: 1 }])
+    assert.deepEqual(normalizeEvent({ v: 2, ts: 't', type: 'human', actor: { login, source: 'foreman' } })!.actor, FOREMAN, String(login));
+  // A raw legacy "foreman" on a v2 line is still the foreman's, never a person's.
+  assert.deepEqual(normalizeEvent({ v: 2, ts: 't', type: 'human', actor: 'foreman' })!.actor, FOREMAN);
+  // A newer Forge's event passes through, except that its actor is sanitised.
+  assert.deepEqual(normalizeEvent({ v: 3, ts: 't', type: 'future', extra: { a: 1 } }), { v: 3, ts: 't', type: 'future', extra: { a: 1 } });
+  assert.deepEqual(normalizeEvent({ v: 3, ts: 't', type: 'future', actor: { login: 'a$b', source: 'sso' } })!.actor, { login: 'ab', source: 'unknown' });
+  for (const junk of [null, 'x', 3, []]) assert.equal(normalizeEvent(junk), null);
+
+  // Through the reader: unparseable lines are still dropped.
+  const repo = tempRepo();
+  try {
+    const id = createJob(repo.dir, defaults(), { title: 'Events' }).id;
+    fs.appendFileSync(path.join(jobDir(repo.dir, id), 'events.jsonl'), ['{"v":1,"ts":"t","type":"human","action":"rework","actor":"foreman"}', '{not json', '"a string"', ''].join('\n'));
+    const ev = readEvents(repo.dir, id);
+    assert.deepEqual(ev.at(-1), { v: 2, ts: 't', type: 'human', action: 'rework', actor: FOREMAN });
+    assert.ok(ev.every((e) => e.v === 2 && typeof e.type === 'string'));
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('v9 job gains protectedPaths null', () => {
+  const repo = tempRepo();
+  try {
+    assert.equal(JOB_SCHEMA_VERSION, 10);
+    const job = createJob(repo.dir, defaults(), { title: 'Old v9' });
+    const file = path.join(jobDir(repo.dir, job.id), 'job.json');
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    delete raw.protectedPaths;
+    fs.writeFileSync(file, JSON.stringify({ ...raw, schemaVersion: 9 }));
+    const loaded = loadJob(repo.dir, job.id);
+    assert.equal(loaded.schemaVersion, 10);
+    assert.equal(loaded.protectedPaths, null);
+    assert.equal(normalizeJob({ id: 'x', schemaVersion: 10 }).protectedPaths, null);
+    // Tolerant: a hand-edited value without a hits list reads as no flag.
+    for (const bad of ['yes', 1, { hits: 'x' }, []]) assert.equal(normalizeJob({ id: 'x', schemaVersion: 10, protectedPaths: bad }).protectedPaths, null, JSON.stringify(bad));
+    const flag = { hits: [{ path: 'a', rule: 4, glob: 'a', reason: 'r', blob: null }], more: 0, at: '2026-10-01T00:00:00.000Z', gate: 'commit', head: null };
+    assert.deepEqual(normalizeJob({ id: 'x', schemaVersion: 10, protectedPaths: flag }).protectedPaths, flag);
   } finally {
     repo.cleanup();
   }

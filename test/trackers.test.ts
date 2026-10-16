@@ -169,3 +169,124 @@ test('tracker writes refuse a likely secret', async () => {
     repo.cleanup();
   }
 });
+
+test('local backlog: [?] needs-info mark and note line', () => {
+  const repo = tempRepo();
+  try {
+    const config = defaults();
+    const ctx = { root: repo.dir, config };
+    const file = path.join(repo.dir, '.forge', 'backlog.md');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      '# Backlog\n\n- [?] Vague thing\n  some words\n  Needs info: a clear outcome\n- [ ] Clear thing\n  line one\n  line two\n- [~] Taken thing → job-1\n- [x] Done thing\n- [-] Dropped thing\n',
+    );
+    const read = () => fs.readFileSync(file, 'utf8');
+    const vague = local.get(ctx, 'vague-thing')!;
+    assert.equal(vague.status, 'needs-info');
+    assert.equal(vague.needsInfo, true);
+    assert.equal(vague.body, 'some words', 'the note line is never part of the body');
+    assert.equal(local.get(ctx, 'clear-thing')!.needsInfo, false);
+    assert.deepEqual(local.list(ctx, { ready: true }).map((i) => i.ref), ['clear-thing']);
+    assert.deepEqual(local.search!(ctx, 'vague', { limit: 5 }).map((i) => i.ref), ['vague-thing'], 'search includes needs-info items');
+
+    // Set: the mark becomes [?] and one note line goes right after the body, keeping it contiguous.
+    local.setNeedsInfo!(ctx, 'clear-thing', 'acceptance criteria or a reproduction');
+    assert.match(read(), /- \[\?\] Clear thing\n {2}line one\n {2}line two\n {2}Needs info: acceptance criteria or a reproduction\n- \[~\] Taken thing/);
+    assert.equal(local.get(ctx, 'clear-thing')!.body, 'line one\nline two');
+    // Replace: still a single note line.
+    local.setNeedsInfo!(ctx, 'clear-thing', 'a bounded scope');
+    assert.equal(read().match(/Needs info:/g)!.length, 2);
+    assert.match(read(), /line two\n {2}Needs info: a bounded scope\n- \[~\]/);
+    // Clear: the line goes and [?] turns back into [ ].
+    local.setNeedsInfo!(ctx, 'clear-thing', null);
+    assert.match(read(), /- \[ \] Clear thing\n {2}line one\n {2}line two\n- \[~\] Taken thing/);
+    local.setNeedsInfo!(ctx, 'vague-thing', null);
+    assert.match(read(), /- \[ \] Vague thing\n {2}some words\n- \[ \] Clear thing/);
+    assert.ok(!read().includes('Needs info:'));
+
+    // Never touches [~], [x] or [-].
+    const before = read();
+    for (const ref of ['taken-thing', 'done-thing', 'dropped-thing']) {
+      local.setNeedsInfo!(ctx, ref, 'a clear outcome');
+      local.setNeedsInfo!(ctx, ref, null);
+    }
+    assert.equal(read(), before);
+
+    // A [?] item is still claimable on purpose.
+    local.setNeedsInfo!(ctx, 'vague-thing', 'a clear outcome');
+    const job = createJob(repo.dir, config, { title: 'Vague thing', ref: 'vague-thing' });
+    assert.deepEqual(local.claim(ctx, 'vague-thing', job), { ok: true });
+    assert.equal(local.get(ctx, 'vague-thing')!.status, 'in-progress');
+    assert.equal(local.get(ctx, 'vague-thing')!.body, 'some words');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+// A stand-in `gh`: each call's argv goes to the log one element per line, then a separator.
+const FAKE_GH = `#!/bin/sh
+for a in "$@"; do printf '%s\\n' "$a" >> "$FAKE_GH_LOG"; done
+echo '--' >> "$FAKE_GH_LOG"
+case "$1 $2" in
+  "issue list") cat "$FAKE_GH_ISSUES" ;;
+  "issue view") cat "$FAKE_GH_ISSUE" ;;
+esac
+`;
+
+test('github: needs-info label', { skip: process.platform === 'win32' }, async () => {
+  const repo = tempRepo();
+  const bin = path.join(repo.dir, '..', `fakebin-${path.basename(repo.dir)}`);
+  const saved = { ...process.env };
+  try {
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'gh'), FAKE_GH, { mode: 0o755 });
+    const log = path.join(bin, 'calls.log');
+    const issues = path.join(bin, 'issues.json');
+    const issue = path.join(bin, 'issue.json');
+    fs.writeFileSync(log, '');
+    fs.writeFileSync(
+      issues,
+      JSON.stringify([
+        { number: 1, title: 'Vague', url: 'https://github.com/o/r/issues/1', labels: [{ name: 'forge:needs-info' }], assignees: [] },
+        { number: 2, title: 'Clear', url: 'https://github.com/o/r/issues/2', labels: [], assignees: [] },
+        { number: 3, title: 'Running', url: 'https://github.com/o/r/issues/3', labels: [{ name: 'forge:in-progress' }], assignees: [] },
+      ]),
+    );
+    fs.writeFileSync(issue, JSON.stringify({ number: 1, title: 'Vague', body: 'b', url: 'https://github.com/o/r/issues/1', labels: [{ name: 'forge:needs-info' }, { name: 'bug' }], assignees: [], comments: [], state: 'OPEN', author: { login: 'a' } }));
+    Object.assign(process.env, { PATH: `${bin}${path.delimiter}${saved.PATH}`, FAKE_GH_LOG: log, FAKE_GH_ISSUES: issues, FAKE_GH_ISSUE: issue });
+    const config = defaults();
+    config.tracker.kind = 'github';
+    config.tracker.github.repo = 'o/r';
+    const ctx = { root: repo.dir, config };
+    const gh = await loadTracker(repo.dir, config);
+    const all = gh.list(ctx, {});
+    assert.deepEqual(all.map((i) => [i.ref, i.needsInfo, i.claimedBy]), [['1', true, null], ['2', false, null], ['3', false, 'forge (label)']], 'needs-info is not a claim');
+    assert.deepEqual(gh.list(ctx, { ready: true }).map((i) => i.ref), ['2']);
+    assert.equal(gh.get(ctx, '1')!.needsInfo, true);
+
+    const calls = () => fs.readFileSync(log, 'utf8').split('--\n').filter(Boolean).map((c) => c.split('\n').filter(Boolean));
+    fs.writeFileSync(log, '');
+    gh.setNeedsInfo!(ctx, '2', 'acceptance criteria or a reproduction');
+    assert.deepEqual(calls(), [
+      ['label', 'create', 'forge:needs-info', '-R', 'o/r', '--color', 'D97706', '--description', 'Forge: needs more information', '--force'],
+      ['issue', 'edit', '2', '-R', 'o/r', '--add-label', 'forge:needs-info'],
+    ]);
+    assert.ok(!calls().flat().some((a) => a.includes('acceptance')), 'the note never reaches gh');
+    fs.writeFileSync(log, '');
+    gh.setNeedsInfo!(ctx, '1', null);
+    assert.deepEqual(calls(), [['issue', 'edit', '1', '-R', 'o/r', '--remove-label', 'forge:needs-info']]);
+
+    // A claim with label sync drops it like any other stale prefix label.
+    config.tracker.github.statusSync = 'labels';
+    fs.writeFileSync(log, '');
+    gh.update(ctx, '1', { state: 'running', stage: 'build' } as any);
+    const edit = calls().find((c) => c[0] === 'issue' && c[1] === 'edit')!;
+    assert.deepEqual(edit, ['issue', 'edit', '1', '-R', 'o/r', '--add-label', 'forge:in-progress', '--remove-label', 'forge:needs-info']);
+  } finally {
+    for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+    Object.assign(process.env, saved);
+    fs.rmSync(bin, { recursive: true, force: true });
+    repo.cleanup();
+  }
+});

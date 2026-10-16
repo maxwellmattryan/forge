@@ -35,6 +35,8 @@ export interface ForgePaths {
   notes: string;
   reviewers: string;
   trackers: string;
+  /** Repo-local verifiers: read from the main checkout only. */
+  verifiers: string;
   job: (id: string) => string;
 }
 
@@ -52,6 +54,7 @@ export function paths(root: string): ForgePaths {
     notes: path.join(dir, 'notes'),
     reviewers: path.join(dir, 'reviewers'),
     trackers: path.join(dir, 'trackers'),
+    verifiers: path.join(dir, 'verifiers'),
     job: (id: string) => path.join(dir, 'jobs', id),
   };
 }

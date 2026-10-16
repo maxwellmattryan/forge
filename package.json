@@ -1,6 +1,6 @@
 {
   "name": "@maxwellmattryan/forge",
-  "version": "0.17.0",
+  "version": "0.17.1",
   "description": "Forge: a lightweight, self-improving software factory for AI coding agents: orchestrator, agent roster, worktrees, PR sync, trackers, evals and a live dashboard.",
   "type": "module",
   "license": "MIT",
@@ -29,7 +29,8 @@
     "typecheck": "tsc -p tsconfig.json --incremental --tsBuildInfoFile node_modules/.cache/forge/tsc-engine.tsbuildinfo && tsc -p test/tsconfig.json --incremental --tsBuildInfoFile node_modules/.cache/forge/tsc-test.tsbuildinfo",
     "docs:commands": "node scripts/docs-commands.ts",
     "dev": "node scripts/dev.ts",
-    "dev:claude": "node scripts/dev-claude.ts"
+    "dev:claude": "node scripts/dev-claude.ts",
+    "release:check": "node scripts/release-check.ts"
   },
   "repository": {
     "type": "git",
