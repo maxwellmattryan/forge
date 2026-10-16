@@ -104,3 +104,20 @@ test('the daemon trust digest pins .ts adapters', () => {
     repo.cleanup();
   }
 });
+
+test('next skips needs-info items from a custom adapter', () => {
+  const repo = tempRepo();
+  try {
+    writeTracker(
+      repo.dir,
+      'acme.mjs',
+      `export default { name: 'acme', list: () => [{ ref: 'A-1', title: 'Vague', needsInfo: true }, { ref: 'A-2', title: 'Clear' }], get: () => null, claim: () => ({ ok: true }), update() {}, comment() {}, create: () => ({ ref: 'A-3' }), close() {} };\n`,
+    );
+    initWithTracker(repo.dir, 'acme');
+    const r = JSON.parse(forge(repo.dir, 'next'));
+    assert.equal(r.item.ref, 'A-2');
+    assert.equal(r.more, 0);
+  } finally {
+    repo.cleanup();
+  }
+});

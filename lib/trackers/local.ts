@@ -4,8 +4,12 @@
 //     Users want a theme switch in settings.
 //   - [~] Reading time on posts → 3f-reading-time-k2j9
 //   - [x] 404 page
+//   - [?] Faster search
+//     Needs info: acceptance criteria or a reproduction
 //
-// "[ ]" is ready, "[~]" is claimed by a job, "[x]" is done, "[-]" is dropped.
+// "[ ]" is ready, "[~]" is claimed by a job, "[x]" is done, "[-]" is dropped, and "[?]" needs info
+// (readiness triage, lib/triage.ts). Triage writes one indented `Needs info: …` line under such an
+// item; that line is Forge's, never part of the item's body.
 // An item's ref is the slug of its title, so refs survive reordering.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,7 +18,7 @@ import { paths, resolveFrom, exists } from '../paths.ts';
 import { ForgeError, slugify, withLock } from '../util.ts';
 import type { Tracker, TrackerCtx, TrackerItem } from '../types.ts';
 
-const ITEM_RE = /^([-*])\s+\[([ xX~\-])\]\s+(.*?)(?:\s+→\s+(\S+))?\s*$/;
+const ITEM_RE = /^([-*])\s+\[([ xX~?\-])\]\s+(.*?)(?:\s+→\s+(\S+))?\s*$/;
 
 /** A parsed backlog line: its checkbox mark, the job it points at and its indented description. */
 interface BacklogEntry {
@@ -51,7 +55,11 @@ function parse(text: string): BacklogDoc {
   return { lines, items };
 }
 
-const statusOf = (mark: string): string => ({ ' ': 'ready', '~': 'in-progress', x: 'done', '-': 'dropped' } as Record<string, string>)[mark] ?? 'ready';
+const statusOf = (mark: string): string => ({ ' ': 'ready', '~': 'in-progress', x: 'done', '-': 'dropped', '?': 'needs-info' } as Record<string, string>)[mark] ?? 'ready';
+
+/** Triage's note line, as parse() keeps it (trimmed). */
+const NOTE = 'Needs info: ';
+const isNote = (l: string): boolean => l.startsWith(NOTE);
 
 function edit<T>(ctx: TrackerCtx, fn: (doc: BacklogDoc) => T): T {
   const f = file(ctx);
@@ -66,11 +74,12 @@ function edit<T>(ctx: TrackerCtx, fn: (doc: BacklogDoc) => T): T {
 const toItem = (item: BacklogEntry): TrackerItem => ({
   ref: item.ref,
   title: item.title,
-  body: item.body.join('\n'),
+  body: item.body.filter((l) => !isNote(l)).join('\n'),
   status: statusOf(item.mark),
   claimedBy: item.job,
   url: null,
   labels: [],
+  needsInfo: item.mark === '?',
 });
 
 function find(doc: BacklogDoc, ref: string): BacklogEntry {
@@ -95,7 +104,7 @@ export default {
   search(ctx, query, opts) {
     const f = file(ctx);
     if (!exists(f)) return [];
-    const open = parse(fs.readFileSync(f, 'utf8')).items.map(toItem).filter((i) => i.status === 'ready' || i.status === 'in-progress');
+    const open = parse(fs.readFileSync(f, 'utf8')).items.map(toItem).filter((i) => i.status === 'ready' || i.status === 'in-progress' || i.status === 'needs-info');
     return scoreItems(open, queryTerms(query)).slice(0, opts.limit);
   },
   get(ctx, ref) {
@@ -123,6 +132,24 @@ export default {
     });
   },
   comment() {},
+  setNeedsInfo(ctx, ref, note) {
+    edit(ctx, (doc) => {
+      const it = find(doc, ref);
+      // Claimed, done and dropped items are someone's decision: triage never touches them.
+      if (it.mark !== ' ' && it.mark !== '?') return;
+      const k = it.body.findIndex(isNote);
+      const at = it.line + 1 + (k < 0 ? it.body.length : k);
+      if (note === null) {
+        if (k >= 0) doc.lines.splice(at, 1);
+        rewrite(doc, it, ' ', it.job);
+        return;
+      }
+      const line = `  ${NOTE}${String(note).replace(/[\x00-\x1f\x7f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300)}`;
+      if (k >= 0) doc.lines[at] = line;
+      else doc.lines.splice(at, 0, line);
+      rewrite(doc, it, '?', it.job);
+    });
+  },
   create(ctx, item) {
     return edit(ctx, (doc) => {
       const ref = slugify(item.title, 8);

@@ -327,7 +327,17 @@
     "status": "Status",
     "priority": "Priority",
     "claimedBy": "Claimed by",
-    "start": "Start"
+    "start": "Start",
+    "readiness": "Readiness",
+    "ready": "Ready",
+    "needsInfo": "Needs info",
+    "missingLabel": "Missing:",
+    "missing": {
+      "outcome": "clear outcome",
+      "acceptance": "acceptance criteria or repro",
+      "scope": "bounded scope",
+      "duplicate": "possible duplicate"
+    }
   },
   "agents": {
     "title": "Agents",

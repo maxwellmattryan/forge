@@ -957,12 +957,29 @@ export interface TrackerItem {
   priority?: string | null;
   assignees?: string[];
   claimedBy?: string | null;
+  /** Marked needs-info by readiness triage (local `[?]`, GitHub `<prefix>needs-info`): ready lists leave it out. */
+  needsInfo?: boolean;
+}
+
+/** A readiness rubric key a triage verdict can name: TRIAGE_MISSING in lib/triage.ts. */
+export type TriageMissing = 'outcome' | 'acceptance' | 'scope' | 'duplicate';
+
+/** The last triage verdict for an item, from the triage cache (lib/triage.ts). */
+export interface TriageInfo {
+  ready: boolean;
+  missing: TriageMissing[];
+  at: string;
+}
+
+/** A /api/backlog item: the tracker's item plus its last triage verdict, when there is one. */
+export interface BacklogItem extends TrackerItem {
+  triage?: TriageInfo;
 }
 
 /** GET /api/backlog: the handler in lib/server.ts over the tracker's list(). */
 export interface BacklogResponse {
   tracker: string;
-  items: TrackerItem[];
+  items: BacklogItem[];
   error?: string;
 }
 
