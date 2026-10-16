@@ -315,6 +315,7 @@ export function validateConfig(c: any, root: string): string[] {
       problems.push(`reviewer "${r.name}" has no checklist (looked in .forge/reviewers/ and the plugin's reviewers/)`);
     if (r.needsApp !== undefined && typeof r.needsApp !== 'boolean')
       problems.push(`review.panel "${r.name}".needsApp must be true or false (got ${JSON.stringify(r.needsApp)})`);
+    if (r.paths !== undefined) problems.push(...panelPathsProblems(r.name, r.paths));
   }
   oneOf('verifyE2e.when', c.verifyE2e?.when, ['ui', 'always', 'never']);
   const e2ePaths = c.verifyE2e?.paths;
@@ -398,6 +399,16 @@ export function verifyGroups(verify: unknown): string[][] {
 export function verifySteps(verify: unknown): string[] {
   if (!Array.isArray(verify)) return [];
   return verify.flatMap((e: unknown) => (typeof e === 'string' ? [e] : Array.isArray(e) ? e.filter((n): n is string => typeof n === 'string') : []));
+}
+
+/**
+ * A panel entry's `paths`: the same rules as `worktrees.generated`, so a glob can't read as an
+ * option, pathspec magic or an exclusion, or point outside the repo. Each message names the lens.
+ */
+export function panelPathsProblems(name: string, paths: unknown): string[] {
+  const key = `review.panel ${JSON.stringify(String(name))}.paths`;
+  if (!Array.isArray(paths)) return [`${key} must be a list of paths or globs (got ${JSON.stringify(paths)})`];
+  return paths.map((g) => globProblem(g, key)).filter((p): p is string => p !== null);
 }
 
 /**

@@ -28,10 +28,11 @@ const SPEC_TELL = `j spec ready: ${path.join(JOB_DIR, 'spec.md')}. /forge approv
 const LINK_TELL = `j needs an issue: candidates in ${path.join(JOB_DIR, 'issue-candidates.md')} (untrusted). /forge approve j <ref> | new | none [reason]`;
 const PANEL_SET = ev('fields', 3, { fields: { reviewers: ['code', 'tests'] } });
 
-/** A job in review, round 1: builder done, verify passed, scope written. */
+/** A job in review, round 1: builder done, verify passed, panel and scope written. */
 const inReview = (agents: Job['agents'] = {}, more: Partial<Job> = {}): Partial<Job> =>
   job({ stage: 'review', round: 1, reviewers: ['code', 'tests'], verifyRuns: [vr(1, 10, true)], agents: { builder: ag(1, 5, 9), ...agents }, ...more });
-const scoped = [ev('round', 4, { round: 1 }), ev('scope', 11, { round: 1 })];
+const panelled = ev('panel', 11, { round: 1 });
+const scoped = [ev('round', 4, { round: 1 }), panelled, ev('scope', 11, { round: 1 })];
 
 /** A job at decide, round 1, approver done at minute 21. */
 const atDecide = (more: Partial<Job> = {}): Partial<Job> => job({ stage: 'decide', round: 1, reviewers: ['code'], verdicts: { 1: { code: 'PASS' } }, agents: { approver: ag(1, 20, 21) }, ...more });
@@ -246,6 +247,21 @@ const rows: Row[] = [
     want: run('job', 'set', 'j', '--field', 'reviewers=["ui","code","security"]'),
   },
   {
+    name: 'SP3 panel adds lenses whose paths the Approach names',
+    fx: {
+      config: (c) =>
+        (c.review.panel = [
+          { name: 'code', always: true },
+          { name: 'design', when: 'user-visible UI changes', paths: ['dashboard/src/**', '*.svelte'] },
+          { name: 'security', when: 'anything that runs shell commands', paths: ['lib/server.ts'] },
+          { name: 'docs', when: 'docs', paths: ['docs/**'] },
+        ]),
+      job: job({ stage: 'spec', agents: SPEC_DONE }),
+      spec: { approachPaths: ['ui/Widget.svelte', 'lib/server.ts'] },
+    },
+    want: run('job', 'set', 'j', '--field', 'reviewers=["code","design","security"]'),
+  },
+  {
     name: 'SP3 panel records size and known services only',
     fx: { config: (c) => (c.services = [{ name: 'api', path: 'api' }]), job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { size: 'L', services: ['api', 'evil;x', 'web'] } },
     want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]', '--field', 'size=L', '--field', 'services=["api"]'),
@@ -420,7 +436,12 @@ const rows: Row[] = [
 
   // ---- Review
   { name: 'RV1 no lens this round goes to pr', fx: { config: (c) => (c.review.onPrFeedback = 'none'), job: inReview({}, { pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }) }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running') },
-  { name: 'RV2 writes the scope report first', fx: { job: inReview(), events: [ev('scope', 3, { round: 1 })] }, want: run('job', 'scope', 'j') },
+  { name: 'RV2 writes the scope report first', fx: { job: inReview(), events: [panelled, ev('scope', 3, { round: 1 })] }, want: run('job', 'scope', 'j') },
+  { name: 'RV9 picks the panel before anything else in review', fx: { job: inReview(), events: [ev('round', 4, { round: 1 })] }, want: { ...run('job', 'panel', 'j'), rule: 'RV9', shell: 'forge job panel j' } },
+  { name: 'RV9 runs again when the panel predates the last verify', fx: { job: inReview(), events: [ev('panel', 8, { round: 1 }), ev('scope', 11, { round: 1 })] }, want: { ...run('job', 'panel', 'j'), rule: 'RV9' } },
+  { name: 'RV9 runs again when the panel is of another round', fx: { job: inReview(), events: [ev('panel', 11, { round: 0 }), ev('scope', 11, { round: 1 })] }, want: { ...run('job', 'panel', 'j'), rule: 'RV9' } },
+  { name: 'RV9 a reviewer of an earlier round does not count', fx: { job: inReview({ 'reviewer:code': ag(0, 2, 3) }), events: [ev('scope', 11, { round: 1 })] }, want: { ...run('job', 'panel', 'j'), rule: 'RV9' } },
+  { name: 'RV9 runs on a PR rework under full', fx: { config: (c) => (c.review.onPrFeedback = 'full'), job: inReview({}, { pr: OPEN_PR }), events: [ev('scope', 11, { round: 1 })] }, want: { ...run('job', 'panel', 'j'), rule: 'RV9' } },
   { name: 'RV3 starts the dev server for UI lenses', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({}, { reviewers: ['code', 'ui'] }), events: scoped }, want: run('run', 'j', 'dev', '--background') },
   { name: 'RV3 starts the dev server for the design lens', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({}, { reviewers: ['code', 'design'] }), events: scoped }, want: run('run', 'j', 'dev', '--background') },
   { name: 'RV3 starts the dev server for a custom needsApp lens', fx: { config: (c) => { c.commands.dev = 'npm run dev'; c.review.panel.push({ name: 'visual-qa', needsApp: true, checklist: 'reviewers/ui.md' }); }, job: inReview({}, { reviewers: ['code', 'visual-qa'] }), events: scoped }, want: run('run', 'j', 'dev', '--background') },
@@ -833,6 +854,24 @@ for (const row of rows) {
     if ((RULES as readonly string[]).includes(prefix)) assert.equal(a.rule, prefix, `${row.name}: decided by ${a.rule}`);
     for (const [k, v] of Object.entries(row.want)) assert.deepEqual(a[k], v, `${row.name}: ${k}`);
     row.check?.(a);
+    assertSafe(a, row.name);
+  });
+}
+
+// RV9's negative cases: another rule decides, so they can't be `rows` (whose name prefix is the deciding rule).
+const rv9Skips: Row[] = [
+  { name: 'RV9 a current panel moves on to RV2', fx: { job: inReview(), events: [panelled] }, want: { ...run('job', 'scope', 'j'), rule: 'RV2' } },
+  { name: 'RV9 skipped once a reviewer of this round has started', fx: { job: inReview({ 'reviewer:code': ag(1, 12) }), events: [ev('scope', 11, { round: 1 })] }, want: { action: 'spawn', rule: 'RV4', role: 'reviewer:tests' } },
+  { name: 'RV9 skipped once the verdicts are recorded', fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } } }), events: [ev('scope', 11, { round: 1 })] }, want: { rule: 'RV8' } },
+  { name: 'RV9 skipped on a PR rework under changed', fx: { job: inReview({}, { pr: OPEN_PR }), events: [ev('scope', 11, { round: 1 })] }, want: { action: 'spawn', rule: 'RV4', role: 'reviewer:code' } },
+  { name: 'RV9 skipped on a PR rework under none', fx: { config: (c) => (c.review.onPrFeedback = 'none'), job: inReview({}, { pr: OPEN_PR }) }, want: { rule: 'RV1' } },
+];
+
+for (const row of rv9Skips) {
+  test(row.name, () => {
+    const a = step(fixture(row.fx)) as any;
+    assert.notEqual(a.rule, 'RV9', row.name);
+    for (const [k, v] of Object.entries(row.want)) assert.deepEqual(a[k], v, `${row.name}: ${k}`);
     assertSafe(a, row.name);
   });
 }

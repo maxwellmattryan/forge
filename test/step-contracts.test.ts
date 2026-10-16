@@ -243,3 +243,29 @@ test('recorded inputs for step', () => {
     v.cleanup();
   }
 });
+
+test('job panel records the event step reads', () => {
+  const s = scratch({ commands: { test: 'true' }, verify: ['test'] });
+  try {
+    const { id } = s.f('job', 'new', '--title', 'Panel event');
+    const wt = s.f('worktree', 'create', id).path;
+    s.f('job', 'round', id);
+    fs.writeFileSync(path.join(jobDir(s.root, id), 'spec.md'), '# Spec\n\nSuggested reviewers: security\n\n## Approach\n- `ok.txt`\n');
+    fs.writeFileSync(path.join(wt, 'ok.txt'), 'x');
+    commitAll(wt, 'ok');
+    assert.equal(s.raw('verify', id).status, 0);
+    s.f('job', 'set', id, '--stage', 'review', '--state', 'running');
+    let a = s.f('job', 'step', id);
+    assert.deepEqual([a.rule, a.command], ['RV9', ['job', 'panel', id]]);
+    const panel = s.f(...a.command);
+    const ev = readEvents(s.root, id).filter((e) => e.type === 'panel').at(-1)!;
+    assert.deepEqual({ round: ev.round, head: ev.head, lenses: ev.lenses }, { round: 1, head: panel.head, lenses: ['code', 'tests', 'security'] });
+    a = s.f('job', 'step', id);
+    assert.deepEqual([a.rule, a.command], ['RV2', ['job', 'scope', id]]);
+    // A later verify makes the panel stale again.
+    assert.equal(s.raw('verify', id).status, 0);
+    assert.equal(s.f('job', 'step', id).rule, 'RV9');
+  } finally {
+    s.cleanup();
+  }
+});

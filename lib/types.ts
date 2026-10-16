@@ -534,6 +534,8 @@ export interface PanelEntry {
   effort?: Effort | null;
   /** Whether the lens reviews the running app (commands.dev); absent means the name default in lensNeedsApp. */
   needsApp?: boolean;
+  /** Globs matched against the job's committed diff by `forge job panel`: a match adds the lens for the round. */
+  paths?: string[];
 }
 
 /** Something agents should know exists: an entry of `resources` (docs/CONFIG.md). */
