@@ -62,6 +62,7 @@ runtime:
   host: claude-code
   maxParallelJobs: 2
   diversity: false
+  effort: medium
   models:
     orchestrator: inherit
     planner: opus
@@ -115,30 +116,24 @@ review:
   panel:
     - name: code
       always: true
-    - name: tests
-      always: true
+      checklist: .forge/reviewers/code.md
     - name: security
       model: opus
       when: lib/server.ts, lib/pr.ts, lib/trackers/*, hooks/*, anything that ingests tracker/PR/web text, runs shell commands, or touches the dashboard's Host/Origin/token checks
     - name: docs
       when: "the diff adds, removes or renames a CLI command, flag or JSON output field, a config key or an /api shape, or changes orchestrator behaviour in skills/forge/**"
-    - name: ui
-      when: "user-visible dashboard changes: dashboard/src/**, dashboard/style.css, dashboard/index.html (check light and dark themes and a phone-width viewport)"
-    - name: accessibility
-      when: "dashboard/src/**, dashboard/style.css, dashboard/index.html: keyboard, focus, contrast, ARIA"
-    - name: ux
-      when: "dashboard flows, copy, empty and error states: dashboard/src/**"
+    - name: design
+      model: opus
+      checklist: .forge/reviewers/design.md
+      when: "user-visible dashboard changes: dashboard/src/**, dashboard/style.css, dashboard/index.html, design/** (themes, phone width, flows, copy, keyboard, contrast)"
   onPrFeedback: changed
 approver:
   alwaysEscalate:
     - changes to CI/CD, deploy, release or infrastructure config
-    - database or data migrations
-    - new or upgraded dependencies (the repo has zero runtime dependencies by rule)
+    - a new runtime dependency (the repo has zero runtime dependencies by rule; exact-pinned devDependencies are fine)
     - public API or protocol breaking changes
     - anything touching credentials, auth or permissions
-    - shape changes to job.json, events or config without a schema version bump and migration in lib/schema.ts
     - changes to the dashboard security posture in lib/server.ts (loopback Host check, token, Origin, JSON-only POSTs)
-    - version bumps in package.json or .claude-plugin/plugin.json
 pr:
   enabled: true
   draft: false
@@ -177,7 +172,7 @@ dashboard:
   port: 7400
 daemon:
   enabled: true
-  command: claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode default --allowedTools {allowedTools}
+  command: claude -p --model sonnet --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode default --allowedTools {allowedTools}
   allowedTools:
     - Agent
     - Skill

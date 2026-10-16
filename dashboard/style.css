@@ -1,6 +1,5 @@
-/* The Smithy design system (smithy/ is the drawing: tokens.css, smithy.css, components/*). Tokens are CSS
-   variables in two themes, forge and ash; the reference rules in smithy/smithy.css are ported as @utility
-   classes of the same names so they can be @apply'd. */
+/* The Smithy design system. This file is its source: tokens are CSS variables in two themes, forge and ash, and
+   its rules are @utility classes so they can be @apply'd. */
 @import "tailwindcss" source(none);
 @source "./index.html";
 @source "./src/**/*.ts";
@@ -64,8 +63,8 @@
   --shadow-2xl: var(--shadow-overlay);
 }
 
-/* ---------- tokens: copied verbatim from smithy/tokens.css ---------- */
-/* The scalar block comes first; the two theme blocks follow, then the smithy.css extras, ash's last so its
+/* ---------- tokens ---------- */
+/* The scalar block comes first; the two theme blocks follow, then the extras, ash's last so its
    overrides win over the shared :root defaults (equal specificity, so source order decides). */
 :root {
   --space-0\.5: 2px;
@@ -177,7 +176,7 @@
   --shadow-glow: 0 0 6px 0 rgba(59,92,128,0.35);
 }
 
-/* smithy extras (the top of smithy/smithy.css): the brushed gleam fills, the grain and the falloff. */
+/* ---------- extras: the brushed gleam fills, the grain and the falloff ---------- */
 :root {
   --gleam-fill: linear-gradient(165deg, color-mix(in srgb, var(--gleam), white 9%) 0%, var(--gleam) 42%, color-mix(in srgb, var(--gleam), var(--gleam-deep) 22%) 100%);
   --gleam-fill-hot: linear-gradient(165deg, color-mix(in srgb, var(--gleam-hot), white 10%) 0%, var(--gleam-hot) 45%, color-mix(in srgb, var(--gleam-hot), var(--gleam-deep) 18%) 100%);
@@ -207,7 +206,7 @@
 @font-face { font-family: "DM Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url(./fonts/DMMono-400.woff2) format("woff2"); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
 @font-face { font-family: "DM Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url(./fonts/DMMono-500.woff2) format("woff2"); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
 
-/* ---------- base (the top of smithy.css; preflight already zeroes margins and box-sizing) ---------- */
+/* ---------- base (preflight already zeroes margins and box-sizing) ---------- */
 @layer base {
   /* A stable gutter: locking body scroll under the palette or a dialog does not shift the page sideways. */
   html { background: var(--bg); color: var(--fg); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; scrollbar-gutter: stable; }
