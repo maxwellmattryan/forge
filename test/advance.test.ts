@@ -160,7 +160,7 @@ test('advance returns the whole review panel without starting it', POSIX, () => 
   try {
     const { id } = s.f('job', 'new', '--title', 'Panel', '--session', 'S');
     s.f('worktree', 'create', id);
-    // RV2's `job scope` reads the spec.
+    // RV9's `job panel` and RV2's `job scope` read the spec.
     fs.writeFileSync(path.join(jobDir(s.root, id), 'spec.md'), '# Panel\n\n## Acceptance criteria\n- [ ] AC1: works\n');
     s.f('job', 'round', id);
     s.f('job', 'set', id, '--stage', 'review', '--state', 'running', '--field', 'reviewers=["code","tests","security","docs"]');
@@ -173,6 +173,8 @@ test('advance returns the whole review panel without starting it', POSIX, () => 
     assert.deepEqual(a.spawns.map((e: any) => e.role), ['reviewer:tests', 'reviewer:security', 'reviewer:docs']);
     for (const e of a.spawns) assert.deepEqual(e.start.slice(0, 4), ['job', 'agent', id, 'start']);
     assertRanShape(a.ran);
+    // RV9 ran inline and kept the recorded panel, in panel order then carried.
+    assert.ok(a.ran.some((e: any) => e.rule === 'RV9' && e.command.join(' ') === `job panel ${id}` && e.ok), JSON.stringify(a.ran));
     assert.ok(!a.ran.some((e: any) => e.command[0] === 'job' && e.command[1] === 'agent'), 'advance starts no agent');
     assert.deepEqual(Object.keys(loadJob(s.root, id).agents).filter((k) => k.startsWith('reviewer:')), []);
   } finally {

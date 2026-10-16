@@ -172,6 +172,18 @@ export function resolveBase(cwd: string, config: Config, job: Pick<Job, 'base'>,
 }
 
 /**
+ * The files the committed history changed since `mergeBase`, as git stores their paths, sorted.
+ * Every option that could hide or reshape a path is pinned, because the worktree's config is
+ * builder-writable: `-z` keeps non-ASCII paths raw under core.quotePath, `--no-renames` keeps a
+ * renamed file's old path, `--no-relative` ignores diff.relative, `--no-ext-diff` skips external
+ * drivers, and realHistoryEnv ignores replace objects and grafts.
+ */
+export function committedChanges(cwd: string, mergeBase: string): string[] {
+  const out = run('git', ['diff', '--name-only', '-z', '--no-renames', '--no-relative', '--no-ext-diff', mergeBase, 'HEAD', '--'], { cwd, env: realHistoryEnv() }).stdout;
+  return out.split('\0').filter(Boolean).sort();
+}
+
+/**
  * Compares the committed diff since the merge-base with the spec's Approach paths and writes scope.md.
  * No job.json change; one `scope` event, so `forge job step` knows this round's scope is current.
  */
@@ -185,7 +197,7 @@ export function jobScope(root: string, config: Config, id: string): ScopeReport 
   const { baseRef, mergeBase } = resolveBase(cwd, config, job);
   const head = git(cwd, ['rev-parse', 'HEAD']);
   const dirty = git(cwd, ['status', '--porcelain']) !== '';
-  const changedFiles = git(cwd, ['diff', '--name-only', '--no-renames', mergeBase, 'HEAD']).split('\n').filter(Boolean).sort();
+  const changedFiles = committedChanges(cwd, mergeBase);
 
   const specText = fs.readFileSync(specFile, 'utf8');
   const approach = approachSection(specText) !== null;

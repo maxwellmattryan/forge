@@ -23,7 +23,7 @@ export function generatedConfig(config: Config): GeneratedConfig | null {
   if (raw == null || (Array.isArray(raw) && !raw.length)) return null;
   if (!Array.isArray(raw)) return { error: `worktrees.generated must be a list (got ${JSON.stringify(raw)})`, globs: [] };
   const globs = raw.filter((g): g is string => globProblem(g) === null);
-  const bad = raw.map(globProblem).find((p) => p !== null);
+  const bad = raw.map((g) => globProblem(g)).find((p) => p !== null);
   if (bad) return { error: bad, globs };
   const command = config.worktrees.generatedBy;
   if (typeof command !== 'string' || !command) return { error: 'worktrees.generatedBy is not set', globs };

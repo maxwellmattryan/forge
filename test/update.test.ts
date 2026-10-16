@@ -5,7 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { detectInstall, updateForge } from '../lib/update.ts';
+import { DAEMON_REFUSAL, detectInstall, updateForge } from '../lib/update.ts';
+import { SUPPORT_URL, WINDOWS_UPDATE_REFUSAL } from '../lib/platform.ts';
+import { ForgeError } from '../lib/util.ts';
 
 const REPO = path.resolve(import.meta.dirname, '..');
 const BIN = path.join(REPO, 'bin', 'forge');
@@ -146,6 +148,37 @@ test('AC2: refuses in a daemon session', POSIX, async () => {
     await assert.rejects(updateForge({ root, cwd: s.dir, env }), /daemon session/);
     await assert.rejects(updateForge({ root, cwd: s.dir, env, check: true }), /daemon session/);
     assert.deepEqual(stub.calls(), []);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('forge update is refused on native Windows', async () => {
+  const s = scratch();
+  try {
+    // No git or claude on PATH: a refusal that ran detection or any subprocess would fail differently.
+    const env = { PATH: path.join(s.dir, 'empty-bin') };
+    for (const check of [false, true]) {
+      await assert.rejects(updateForge({ root: s.dir, cwd: s.dir, env, check, platform: 'win32' }), (e: unknown) => {
+        assert.ok(e instanceof ForgeError, String(e));
+        assert.equal(e.message, WINDOWS_UPDATE_REFUSAL);
+        assert.ok(e.message.includes(SUPPORT_URL));
+        assert.equal(e.code, 'failed');
+        assert.equal(e.exitCode, 1);
+        return true;
+      }, `check: ${check}`);
+    }
+    // The daemon refusal still comes first.
+    await assert.rejects(updateForge({ root: s.dir, cwd: s.dir, env: { ...env, FORGE_DAEMON: '1' }, platform: 'win32' }), (e: unknown) => {
+      assert.equal((e as Error).message, DAEMON_REFUSAL);
+      return true;
+    });
+    // Off Windows the same call gets past the refusal to detection.
+    const other = await updateForge({ root: s.dir, cwd: s.dir, env, check: true, platform: 'linux' }).then(
+      () => null,
+      (e: Error) => e.message,
+    );
+    assert.notEqual(other, WINDOWS_UPDATE_REFUSAL);
   } finally {
     s.cleanup();
   }
@@ -452,6 +485,9 @@ test('AC12: help lists update', () => {
     const r = cli(['help'], { cwd: s.dir });
     assert.equal(r.status, 0);
     assert.match(r.stdout, /forge update \[--check\] \[--keep-dash\]/);
+    const update = cli(['help', 'update'], { cwd: s.dir });
+    assert.equal(update.status, 0);
+    assert.match(update.stdout, /native Windows/, 'exit 1 covers native Windows');
   } finally {
     s.cleanup();
   }

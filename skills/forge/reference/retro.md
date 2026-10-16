@@ -6,7 +6,7 @@ Forge improves its **repo-local layer**: `.forge/notes/learnings.md`, per-role a
 ```bash
 forge retro due                                  # how many jobs since the last retro
 forge job new --title "Forge retro <YYYY-MM-DD>" --kind retro --session ${CLAUDE_SESSION_ID}
-forge retro prepare <id>                         # writes stats.json + signals.md into the job dir
+forge retro prepare <id>                         # writes stats.json + signals.md (incl. learnings past review-by) into the job dir
 forge worktree create <id>
 ```
 When `forge job step` sent you here for an existing retro job, skip the `forge job new` line; if its retro agent already ended without a `spec.md`, go straight to the cancel below.

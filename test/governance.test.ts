@@ -318,6 +318,10 @@ test('issue forms are well formed and the bug form asks for forge doctor and for
     'environment:input:optional',
   ]);
   assert.deepEqual(field(bug, 'install').attributes.options, ['Claude Code plugin', 'CLI from a clone']);
+  assert.ok(
+    field(bug, 'environment').attributes.description.includes('(https://github.com/maxwellmattryan/forge/blob/main/docs/SUPPORT.md)'),
+    'the environment field links the support matrix',
+  );
   assert.deepEqual(fields(feature), ['problem:textarea:required', 'proposal:textarea:required', 'alternatives:textarea:optional', 'area:dropdown:optional']);
   assert.deepEqual(field(feature, 'area').attributes.options, [
     'CLI',

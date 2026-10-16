@@ -62,4 +62,4 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Your OS, Node version and Claude Code version.
+      description: Your OS (and whether it is WSL2), Node, git and gh versions, and Claude Code version. Check your platform's tier in [SUPPORT.md](https://github.com/maxwellmattryan/forge/blob/main/docs/SUPPORT.md) first.

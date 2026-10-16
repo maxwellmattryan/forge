@@ -11,7 +11,7 @@ import type { Config, ConfigField, ConfigFieldType, ConfigSection, ConfigValue }
 import { ForgeError, getPath } from './util.ts';
 import * as yaml from './yaml.ts';
 
-const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]*$/;
+export const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]*$/;
 const LABEL_PREFIX_RE = /^.+[:/-]$/;
 const MODEL_SUGGESTIONS = ['inherit', 'opus', 'sonnet', 'haiku', 'fable'];
 const SEVERITIES = ['blocker', 'major', 'minor', 'nit'];
@@ -202,7 +202,8 @@ export function ruleFor(f: ConfigField): string {
   return f.nullable ? `${rule}, or null` : rule;
 }
 
-function stringProblem(f: ConfigField, s: string, what: string): string | null {
+/** Why a short config string is unsafe to show or pass on, or null. `f.key` picks the extra rules some keys have. */
+export function stringProblem(f: Pick<ConfigField, 'key'>, s: string, what: string): string | null {
   // C0, DEL, C1, and format characters (bidi overrides, zero-width) plus the line and paragraph
   // separators, which can reorder or hide text in the diff a human reviews.
   if (/[\u0000-\u001f\u007f-\u009f\p{Cf}\u2028\u2029]/u.test(s)) return `${what} must not contain control or invisible formatting characters`;

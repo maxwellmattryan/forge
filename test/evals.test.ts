@@ -281,6 +281,15 @@ test('eval report carries replaced and old results still summarise', async () =>
   try {
     const report: any = await evalCmd(s.dir, s.config(), 'report', [same.run], {});
     assert.deepEqual(report.tasks[0].result.check.replaced, ['test/feature.test.txt']);
+    // Timing: the job never left its first stage and ran no agent.
+    const graded = report.tasks[0].result;
+    assert.deepEqual(Object.keys(graded.stages), ['backlog']);
+    assert.equal(typeof graded.stages.backlog, 'number');
+    assert.equal(graded.agentMinutes, 0);
+    assert.equal(typeof graded.orchestratorMinutes, 'number');
+    assert.equal(graded.reviewerRuns, 0);
+    assert.deepEqual(report.perTask.map((p) => [p.task, p.runs, p.graded]), [['same', 1, 1]]);
+    assert.equal(report.summary.avgReviewerRuns, 0);
 
     const result = (check) => ({ check, judge: null, decision: null, rounds: 0, firstPass: null, verifyFirstPass: null, tokens: 0, estCostUsd: 0, minutes: null, gradedAt: 'x' });
     const old = {
