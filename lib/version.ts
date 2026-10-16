@@ -5,7 +5,7 @@ import path from 'node:path';
 import { PLUGIN_ROOT } from './paths.ts';
 import { detectInstall } from './update.ts';
 import { readJson, run } from './util.ts';
-import type { InstallInfo, InstalledAs, VersionInfo } from './types.ts';
+import type { DoctorCheck, InstallInfo, InstalledAs, VersionInfo } from './types.ts';
 
 /** At the plugin root; `git archive` stamps it through `.gitattributes` `export-subst`. */
 export const COMMIT_FILE = 'COMMIT';
@@ -84,4 +84,79 @@ export function versionInfo(root: string = PLUGIN_ROOT, env: NodeJS.ProcessEnv =
   const info = detectInstall(root, env);
   const commit = readCommitFile(info.root) ?? pluginCommit(info) ?? gitCommit(info, env);
   return { version: info.version, commit, installedAs: INSTALLED_AS[info.kind], node: process.versions.node };
+}
+
+// No leading `-` in either part: the value becomes argv for `gh`, and a leading dash would read as a flag.
+const REPO_SLUG = /^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9._][A-Za-z0-9._-]*$/;
+const GITHUB_URL = /^https:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/;
+const SEMVER = /^v?(\d+)\.(\d+)\.(\d+)$/;
+
+function githubSlug(url: unknown): string | null {
+  if (typeof url !== 'string') return null;
+  const m = GITHUB_URL.exec(url);
+  return m ? `${m[1]}/${m[2]}` : null;
+}
+
+/**
+ * The GitHub `owner/repo` this install's releases come from: the marketplace Claude Code installed
+ * it from, else the install's own plugin.json. Both files are writable by anything that can write
+ * `~/.claude` or the checkout, so a candidate that is not a plain slug is dropped, never passed on.
+ */
+export function releaseRepo(root: string, info: InstallInfo): string | null {
+  let candidate: string | null = null;
+  try {
+    if (info.kind === 'plugin' && info.pluginsDir && info.marketplace) {
+      const source = readJson(path.join(info.pluginsDir, 'known_marketplaces.json'), {})?.[info.marketplace]?.source;
+      if (source?.source === 'github') candidate = typeof source.repo === 'string' ? source.repo : null;
+    }
+    if (candidate === null) {
+      const plugin = readJson(path.join(root, '.claude-plugin', 'plugin.json'), {});
+      const repository = typeof plugin?.repository === 'string' ? plugin.repository : plugin?.repository?.url;
+      candidate = githubSlug(repository) ?? githubSlug(plugin?.homepage);
+    }
+  } catch {
+    return null;
+  }
+  return candidate !== null && REPO_SLUG.test(candidate) ? candidate : null;
+}
+
+function semver(v: unknown): [number, number, number] | null {
+  const m = typeof v === 'string' ? SEMVER.exec(v) : null;
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+}
+
+function compare(a: readonly number[], b: readonly number[]): number {
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1;
+  return 0;
+}
+
+/**
+ * `forge doctor`'s release row: is a newer Forge out? Null, so the row is left out, whenever it
+ * cannot tell: no repo, no `gh`, no login, offline, no release yet, a timeout or odd output.
+ */
+export function latestReleaseCheck(opts: { root?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {}): DoctorCheck | null {
+  try {
+    const env = opts.env ?? process.env;
+    const info = detectInstall(opts.root ?? PLUGIN_ROOT, env);
+    const running = semver(info.version);
+    if (!running || info.version.startsWith('v')) return null;
+    const repo = releaseRepo(info.root, info);
+    if (!repo) return null;
+    const r = run('gh', ['release', 'view', '--repo', repo, '--json', 'tagName'], {
+      allowFail: true,
+      timeoutMs: opts.timeoutMs ?? 5000,
+      env: { ...env, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1' },
+    });
+    if (!r.ok) return null;
+    const tag = JSON.parse(r.stdout)?.tagName;
+    const latest = semver(tag);
+    if (!latest) return null;
+    const v = info.version;
+    const order = compare(running, latest);
+    if (order < 0) return { name: 'forge release', ok: true, warn: true, detail: `${v} is behind the latest release ${tag}: run forge update` };
+    if (order === 0) return { name: 'forge release', ok: true, detail: `${v} is the latest release` };
+    return { name: 'forge release', ok: true, detail: `${v} is newer than the latest release ${tag}` };
+  } catch {
+    return null;
+  }
 }

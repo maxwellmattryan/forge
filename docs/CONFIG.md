@@ -395,6 +395,12 @@ All four keys are read-only in the settings: edit them by hand.
 
 - **Migration** (config `schemaVersion` 4 → 5): nothing changes. v5 adds `foreman.*` (off by default), `runtime.models.assistant` and `runtime.efforts.assistant`; the bump lets older Forges refuse a config whose foreman policy they would ignore. docs/ARCHITECTURE.md "Foreman" covers routing and the authority checks.
 
+## Deprecated keys
+
+A key on its way out is listed in `DEPRECATED_CONFIG_KEYS` in `lib/deprecations.ts` with the release that deprecated it, the release that removes it (at least one minor later) and what to use instead. While it is set in `.forge/config.yml`, `forge doctor` and Settings › Diagnostics show a warning row, `deprecated config key <key>`, that never fails the report. The policy is in [RELEASES.md](RELEASES.md#deprecation). Each deprecated key is listed below as `` `<key>` ``, and `test/version.test.ts` checks the list against the registry.
+
+None today.
+
 ## Repo-layer files
 
 | Path | Purpose |

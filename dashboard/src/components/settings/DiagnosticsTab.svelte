@@ -49,7 +49,7 @@
 <div class="p-4 md:p-6 flex flex-col gap-4">
   <div bind:this={summary} tabindex="-1" aria-live="polite" class="text-sm outline-none">
     {#if session.doctorRunning}<span class="text-muted">{$t('settings.diagnostics.running')}</span>
-    {:else if d}<span class="font-medium {failed ? 'text-bad' : 'text-ok'}">{failed ? $t('settings.diagnostics.failed', { count: failed }) : $t('settings.diagnostics.passed')}</span>{#if warned}<span class="text-warn"> · {$t('settings.diagnostics.warnings', { count: warned })}</span>{/if}{/if}
+    {:else if d}<span class="font-medium {failed ? 'text-bad' : 'text-ok'}">{failed ? $t('settings.diagnostics.failed', { count: failed }) : $t('settings.diagnostics.passed')}</span>{#if warned}<span class="text-warn">{' · '}{$t('settings.diagnostics.warnings', { count: warned })}</span>{/if}{/if}
   </div>
   {#if session.doctorError && !session.doctorRunning}<Banner msg={session.doctorError} />{/if}
   {#if d}

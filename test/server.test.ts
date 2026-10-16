@@ -1149,7 +1149,8 @@ test('GET /api/doctor runs forge doctor behind the token', async () => {
     assert.deepEqual(Object.keys(d), ['ok', 'checks', 'at']);
     assert.equal(typeof d.ok, 'boolean');
     assert.ok(!Number.isNaN(Date.parse(d.at)));
-    for (const c of d.checks) assert.deepEqual(Object.keys(c), ['name', 'ok', 'detail']);
+    // `warn` is optional: the release row has it once a newer Forge is out.
+    for (const c of d.checks) assert.deepEqual(Object.keys(c).filter((k) => k !== 'warn'), ['name', 'ok', 'detail']);
     const names = d.checks.map((c) => c.name);
     assert.ok(names.includes('config present') && names.includes('node >= 22.18'), names.join(', '));
     const cli = JSON.parse(execFileSync(process.execPath, [path.resolve(import.meta.dirname, '..', 'bin', 'forge'), 'doctor'], { encoding: 'utf8', env: { ...process.env, FORGE_ROOT: repo.dir } }));
