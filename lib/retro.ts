@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isForemanActor, listJobs, readEvents, jobDir } from './jobs.ts';
+import { listArchived } from './archive.ts';
 import { listRuns } from './evals.ts';
 import { jobFindings } from './findings.ts';
 import { expiredLearnings, metricValue, readExperiments, readLearnings, verdict } from './learnings.ts';
@@ -11,8 +12,11 @@ import { computeStats } from './stats.ts';
 import type { Config, ExperimentEntry, HumanDelta, LearningEntry, LoadedJob, Stats } from './types.ts';
 import { readText, safeText, writeJsonAtomic } from './util.ts';
 
+/** Live and archived jobs: the retro cadence counts jobs that retention has since archived. */
+const allJobs = (root: string): LoadedJob[] => [...listJobs(root), ...listArchived(root).map((a) => a.job)];
+
 export function lastRetro(root: string): LoadedJob | null {
-  return listJobs(root)
+  return allJobs(root)
     .filter((j) => j.kind === 'retro')
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0] ?? null;
 }
@@ -20,7 +24,7 @@ export function lastRetro(root: string): LoadedJob | null {
 export function retroDue(root: string, config: Config): { due: boolean; finishedSinceLast: number; every: number; lastRetro: string | null } {
   const last = lastRetro(root);
   const since = last?.createdAt ?? null;
-  const finished = listJobs(root).filter(
+  const finished = allJobs(root).filter(
     (j) => !['eval', 'retro'].includes(j.kind) && ['done', 'cancelled'].includes(j.state) && (!since || String(j.finishedAt ?? j.updatedAt) > since),
   ).length;
   return { due: finished >= (config.improve?.retroEvery ?? 10), finishedSinceLast: finished, every: config.improve?.retroEvery ?? 10, lastRetro: last?.id ?? null };

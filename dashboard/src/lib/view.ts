@@ -407,6 +407,19 @@ export function statsQuery(window: string, now: number): string {
   return since ? `?since=${encodeURIComponent(since)}` : '';
 }
 
+/**
+ * The Analytics "Jobs" KPI sub-line: which message and its params. The archived count shows only
+ * once retention has archived something; an older /api/stats without it reads as 0.
+ */
+export function jobsSummary(counts: { active: number; done: number; cancelled: number; archived?: number }): {
+  key: 'analytics.jobsSub' | 'analytics.jobsSubArchived';
+  params: Record<string, number>;
+} {
+  const params: Record<string, number> = { active: counts.active, done: counts.done, cancelled: counts.cancelled };
+  const archived = Number(counts.archived) || 0;
+  return archived > 0 ? { key: 'analytics.jobsSubArchived', params: { ...params, archived } } : { key: 'analytics.jobsSub', params };
+}
+
 export const STATS_WINDOWS = [
   ['7', 'Last 7 days'],
   ['30', 'Last 30 days'],

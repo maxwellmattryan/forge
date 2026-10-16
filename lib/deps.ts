@@ -1,7 +1,8 @@
 // Dependencies between jobs (`job.dependsOn`): validation, parking, claim refusal, stacked
-// branches and retargeting. Imports only jobs/paths/util: worktree.ts imports this module,
-// and pr.ts imports worktree.ts, so anything more would be a cycle.
+// branches and retargeting. Imports only jobs/paths/util and archive.ts (which imports no more):
+// worktree.ts imports this module, and pr.ts imports worktree.ts, so anything more would be a cycle.
 import path from 'node:path';
+import { readArchived } from './archive.ts';
 import { claimJob, isActive, jobDir, listJobs, loadJob, logEvent, setJob } from './jobs.ts';
 import type { ClaimOpts } from './jobs.ts';
 import { exists } from './paths.ts';
@@ -20,11 +21,12 @@ export interface UnmetDependency {
 /** Hand-edited job.json can hold anything; only string ids count. */
 const depIds = (job: Job): string[] => (Array.isArray(job?.dependsOn) ? job.dependsOn.filter((d: unknown) => typeof d === 'string' && d) : []);
 
+/** The live job, else its archive record's job (an archived dependency counts with its archived state). */
 function tryLoad(root: string, id: string): LoadedJob | null {
   try {
     return loadJob(root, id);
   } catch {
-    return null;
+    return readArchived(root, id)?.job ?? null;
   }
 }
 

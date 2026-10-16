@@ -1090,6 +1090,80 @@ test('AC14: log, truncation, rotation and stdout backpressure', async () => {
   }
 });
 
+test('rotates at retention.logMaxBytes mid-session', async () => {
+  const repo = tempRepo();
+  const logFile = path.join(daemonsDir(repo.dir), `${INBOX}.log`);
+  const cfg = config();
+  cfg.retention.logMaxBytes = 600;
+  const kit = fakeKit();
+  const d = kitPool(repo.dir, kit, cfg);
+  const lines = [];
+  d.subscribe((e) => e.kind === 'line' && lines.push(e));
+  const size = (f) => (fs.existsSync(f) ? fs.statSync(f).size : 0);
+  /** Every logged line must sit at its offset in .log.1 (below logBase) or .log (from logBase). */
+  const checkOffsets = (from) => {
+    const base = infoOf(repo.dir).logBase;
+    const cur = fs.readFileSync(logFile);
+    const prev = fs.existsSync(`${logFile}.1`) ? fs.readFileSync(`${logFile}.1`) : Buffer.alloc(0);
+    for (const l of lines.slice(from)) {
+      const [buf, at] = l.offset >= base ? [cur, l.offset - base] : [prev, l.offset - (base - prev.length)];
+      assert.equal(buf.subarray(at).toString('utf8').split('\n')[0], l.line, `line at ${l.offset}`);
+    }
+  };
+  try {
+    d.start();
+    const c = kit.children[0];
+    const pad = 'y'.repeat(150);
+    let n = 0;
+    const end = () => lines.at(-1).offset + Buffer.byteLength(lines.at(-1).line) + 1;
+    /** One line, waited for until it is on disk: in .log, or (just rotated) wholly in .log.1. */
+    const writeOne = async () => {
+      const i = n++;
+      c.line({ type: 'assistant', timestamp: 't', n: i, pad });
+      await waitFor(() => lines.some((l) => l.line.includes(`"n":${i},`)), 2000, `line ${i}`);
+      await waitFor(() => size(logFile) + infoOf(repo.dir).logBase === end(), 2000, `line ${i} flushed`);
+    };
+    while (!fs.existsSync(`${logFile}.1`) && n < 20) await writeOne();
+    const firstBase = infoOf(repo.dir).logBase;
+    assert.ok(firstBase >= 600 && firstBase < 600 + 250, `rotated as soon as it reached 600 bytes (${firstBase})`);
+    await waitFor(() => size(`${logFile}.1`) === firstBase, 2000, 'the rotated file holds every byte counted');
+    for (let i = 1; i < lines.length; i++) assert.equal(lines[i].offset, lines[i - 1].offset + Buffer.byteLength(lines[i - 1].line) + 1, 'continuous offsets');
+    await writeOne();
+    checkOffsets(0);
+    // A second rotation replaces .log.1 with the generation after it.
+    const before = lines.length;
+    while (infoOf(repo.dir).logBase === firstBase && n < 40) await writeOne();
+    const secondBase = infoOf(repo.dir).logBase;
+    assert.ok(secondBase - firstBase >= 600, 'the second generation reached the limit too');
+    await waitFor(() => size(`${logFile}.1`) === secondBase - firstBase, 2000, 'the second generation in .log.1');
+    assert.ok(!fs.readFileSync(`${logFile}.1`, 'utf8').includes('"n":0,'), 'the oldest generation is gone');
+    for (let i = before; i < lines.length; i++) assert.equal(lines[i].offset, lines[i - 1].offset + Buffer.byteLength(lines[i - 1].line) + 1);
+    await writeOne();
+    checkOffsets(lines.findIndex((l) => l.offset >= firstBase));
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+
+  // Without retention.logMaxBytes nothing rotates mid-session.
+  const repo2 = tempRepo();
+  const kit2 = fakeKit();
+  const d2 = kitPool(repo2.dir, kit2, config());
+  const seen = [];
+  d2.subscribe((e) => e.kind === 'line' && seen.push(e));
+  try {
+    d2.start();
+    const c = kit2.children[0];
+    for (let i = 0; i < 20; i++) c.line({ type: 'assistant', timestamp: 't', i, pad: 'z'.repeat(150) });
+    await waitFor(() => seen.some((l) => l.line.includes('"i":19,')), 2000, 'the last line');
+    assert.equal(fs.existsSync(path.join(daemonsDir(repo2.dir), `${INBOX}.log.1`)), false);
+    assert.equal(infoOf(repo2.dir).logBase, 0);
+  } finally {
+    await d2.close();
+    repo2.cleanup();
+  }
+});
+
 test('AC13: reapOrphans never signals a process it cannot prove is its claude child', { skip: process.platform === 'win32' && 'POSIX-only' }, async () => {
   const repo = tempRepo();
   const file = path.join(daemonsDir(repo.dir), `${INBOX}.json`);
