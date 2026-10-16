@@ -84,6 +84,11 @@ async function setup(opts: { sseMaxAgeMs?: number; agentTail?: string } = {}) {
   claimJob(root, job.id, OWNER);
   recordAgent(root, job.id, { role: 'builder', phase: 'start', model: 'sonnet' }, config);
   recordAgent(root, job.id, { role: 'builder', phase: 'end', usage: { totalTokens: 1234, toolUses: 3, durationMs: 1000 } }, config);
+  // Backdated, so the builder's start can't share a millisecond with the reviewer's and tie the newest-first order.
+  updateJob(root, job.id, (j) => {
+    j.agents.builder.startedAt = new Date(Date.now() - 60_000).toISOString();
+    j.agents.builder.endedAt = new Date(Date.now() - 30_000).toISOString();
+  });
   recordAgent(root, job.id, { role: 'reviewer:security', phase: 'start', model: 'opus' }, config);
   attachAgent(root, job.id, 'reviewer:security', 'abc123');
   const agentFile = path.join(slugDir, OWNER, 'subagents', 'agent-abc123.jsonl');
