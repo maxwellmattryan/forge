@@ -5,10 +5,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
+import { createPool } from '../lib/daemon-pool.ts';
 import { doctor } from '../lib/doctor.ts';
-import { SUPPORT_URL, platformTier, posixShell, versionAtLeast } from '../lib/platform.ts';
+import { SUPPORT_URL, WINDOWS_DAEMON_REFUSAL, daemonPlatformProblem, platformTier, posixShell, versionAtLeast } from '../lib/platform.ts';
+import { daemonPlatformNote, dashNotes } from '../lib/commands/dash.ts';
 import type { HostInfo } from '../lib/platform.ts';
 import { ForgeError } from '../lib/util.ts';
 
@@ -181,6 +185,84 @@ test('versionAtLeast and the git/gh minimums', POSIX, async () => {
   } finally {
     process.env.PATH = PATH;
     fs.rmSync(bin, { recursive: true, force: true });
+    repo.cleanup();
+  }
+});
+
+test('the pool refuses to start on native Windows', async () => {
+  const repo = tempRepo();
+  let spawned = 0;
+  const spawn: any = () => {
+    spawned++;
+    const c: any = new EventEmitter();
+    Object.assign(c, { pid: 4_100_000 + spawned, stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough() });
+    return c;
+  };
+  const killTree = (c: any) =>
+    setImmediate(() => {
+      c.stdout.end();
+      c.stderr.end();
+      c.emit('exit', null, 'SIGTERM');
+      c.emit('close', null, 'SIGTERM');
+    });
+  const cfg = defaults();
+  cfg.daemon.enabled = true;
+  const pool = (platform: NodeJS.Platform) => createPool(repo.dir, { platform, spawn, killTree, loadConfig: () => ({ config: cfg }), pollMs: 3_600_000, graceMs: 100 });
+  const win = pool('win32');
+  try {
+    const state = win.start('boot');
+    assert.equal(state.lastError, WINDOWS_DAEMON_REFUSAL);
+    assert.equal(state.wanted, false);
+    assert.equal(spawned, 0, 'nothing is spawned');
+    // Every later start (the dashboard's Start button) is refused the same way.
+    assert.equal(win.start('start').lastError, WINDOWS_DAEMON_REFUSAL);
+    assert.deepEqual(win.startSession('inbox'), { error: 'start the daemon first' });
+    assert.equal(spawned, 0);
+  } finally {
+    await win.close();
+  }
+  const mac = pool('darwin');
+  try {
+    const state = mac.start('boot');
+    assert.equal(state.lastError, null);
+    assert.equal(state.wanted, true);
+    assert.equal(spawned, 1, 'the inbox session starts');
+  } finally {
+    await mac.close();
+    repo.cleanup();
+  }
+  assert.equal(daemonPlatformProblem('win32'), WINDOWS_DAEMON_REFUSAL);
+  assert.ok(WINDOWS_DAEMON_REFUSAL.endsWith(SUPPORT_URL));
+  for (const p of ['darwin', 'linux', 'freebsd'] as const) assert.equal(daemonPlatformProblem(p), null, p);
+});
+
+test('forge dash notes the daemon refusal on native Windows only', async () => {
+  const on = defaults();
+  on.daemon.enabled = true;
+  const off = defaults();
+  off.daemon.enabled = false;
+  assert.equal(daemonPlatformNote(on, {}, 'win32'), WINDOWS_DAEMON_REFUSAL);
+  assert.equal(daemonPlatformNote(on, { background: true }, 'win32'), WINDOWS_DAEMON_REFUSAL);
+  assert.equal(daemonPlatformNote(on, { dev: true }, 'win32'), null, 'a dev dashboard boots no daemon');
+  assert.equal(daemonPlatformNote(off, {}, 'win32'), null, 'nothing to refuse without the daemon');
+  for (const p of ['darwin', 'linux'] as const) assert.equal(daemonPlatformNote(on, {}, p), null, p);
+
+  // An API key in the shell and no daemon.auth in config.yml: off Windows that asks the billing question
+  // (here, non-interactively, a note); on Windows nothing asks it, because no session will run.
+  const repo = tempRepo();
+  const key = process.env.ANTHROPIC_API_KEY;
+  try {
+    fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
+    fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), 'daemon:\n  enabled: true\n');
+    process.env.ANTHROPIC_API_KEY = ['sk', 'test', 'placeholder'].join('-');
+    const mac = await dashNotes(repo.dir, on, {}, 'darwin');
+    assert.equal(mac.daemonRefused, undefined);
+    assert.match(mac.note ?? '', /daemon sessions run on your Claude login/);
+    assert.deepEqual(await dashNotes(repo.dir, on, {}, 'win32'), { daemonRefused: WINDOWS_DAEMON_REFUSAL }, 'the billing question is skipped');
+    assert.deepEqual(await dashNotes(repo.dir, on, { dev: true }, 'win32'), {});
+  } finally {
+    if (key === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = key;
     repo.cleanup();
   }
 });

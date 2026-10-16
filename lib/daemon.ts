@@ -50,6 +50,8 @@ export interface DaemonOptions {
   slotGraceMs?: number;
   /** How long an idle job session may sit with agents marked running and no background task left before it gets a resume. */
   missedEndMs?: number;
+  /** The host platform; the pool refuses to start on native Windows (lib/platform.ts). */
+  platform?: NodeJS.Platform;
 }
 
 /** DaemonOptions with every default filled in. */
