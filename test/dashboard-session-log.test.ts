@@ -355,3 +355,16 @@ test('the effort a session started with shows as a supervisor line', () => {
   assert.equal(item(high).tone, 'muted');
   assert.equal(item(inherit).text, 'effort level=inherit source=none');
 });
+
+test('drops transcript bookkeeping lines', () => {
+  const noise = ['file-history-snapshot', 'queue-operation', 'summary', 'progress', 'attachment', 'last-prompt'].map((type) => ({ type, snapshot: { x: 1 }, timestamp: '2026-10-15T10:00:00.000Z' }));
+  const meta = { type: 'user', isMeta: true, message: { role: 'user', content: '<command-name>/clear</command-name>' } };
+  const prompt = { type: 'user', isSidechain: true, message: { role: 'user', content: `Review the diff ${XSS}` }, timestamp: '2026-10-15T10:00:01.000Z' };
+  for (const e of entries([...noise, meta])) assert.deepEqual(parseEntry(e), [], e.line);
+  const [first] = parseEntry(entries([prompt])[0]);
+  assert.equal(first.kind, 'item');
+  assert.equal(first.kind === 'item' && first.item.kind, 'text');
+  assert.equal(first.kind === 'item' && first.item.kind === 'text' && first.item.text, `Review the diff ${XSS}`, 'the subagent prompt stays text, unescaped for md()');
+  const view = buildSessionView(entries([...noise, meta, prompt]));
+  assert.equal(view.turns.flatMap((t) => t.items).length, 1);
+});

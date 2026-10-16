@@ -9,6 +9,7 @@ import { defaults } from '../lib/config.ts';
 import { createJob, jobDir, loadJob } from '../lib/jobs.ts';
 import { JOB_SCHEMA_VERSION } from '../lib/schema.ts';
 import { importClaudeCodeTranscript } from '../lib/usage.ts';
+import { projectSlug } from '../lib/transcripts.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const FIXTURE = path.resolve(import.meta.dirname, 'fixtures', 'transcript-resumed.jsonl');
@@ -87,6 +88,32 @@ test('forge job agent end --import records only the resumed round', () => {
   } finally {
     repo.cleanup();
     fs.rmSync(home.home, { recursive: true, force: true });
+  }
+});
+
+test('imports via session lookup', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-home-'));
+  try {
+    const projectsDir = path.join(home, 'projects');
+    const root = path.join(home, 'repo');
+    fs.mkdirSync(root);
+    const session = '11111111-2222-4333-8444-555555555555';
+    const own = path.join(projectsDir, projectSlug(fs.realpathSync(root)), session, 'subagents');
+    // A same-named transcript in another project dir that a scan would find first.
+    const decoy = path.join(projectsDir, '-aaa-other', session, 'subagents');
+    for (const d of [own, decoy]) fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(own, `agent-${AGENT}.jsonl`), round1);
+    fs.writeFileSync(path.join(decoy, `agent-${AGENT}.jsonl`), round1 + round2);
+    const job = { id: 'resumed', owner: { session, host: 'h', since: round1End, heartbeat: round1End }, runs: [], agents: {}, worktree: null };
+    const viaSession = importClaudeCodeTranscript(AGENT, { projectsDir, root, job })!;
+    assert.equal(viaSession.transcript, fs.realpathSync(path.join(own, `agent-${AGENT}.jsonl`)));
+    assert.equal(viaSession.through, round1End);
+    // Without the job, or when the session lookup misses, the old scan still finds it.
+    assert.equal(importClaudeCodeTranscript(AGENT, { projectsDir })!.transcript, path.join(decoy, `agent-${AGENT}.jsonl`));
+    const elsewhere = { ...job, owner: { ...job.owner, session: '99999999-2222-4333-8444-555555555555' } };
+    assert.equal(importClaudeCodeTranscript(AGENT, { projectsDir, root, job: elsewhere })!.transcript, path.join(decoy, `agent-${AGENT}.jsonl`));
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
   }
 });
 

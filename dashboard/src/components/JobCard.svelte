@@ -11,6 +11,7 @@
   import EffortChip from './EffortChip.svelte';
   import StageStepper from './StageStepper.svelte';
   import SessionActivity from './SessionActivity.svelte';
+  import AgentActivity from './AgentActivity.svelte';
   import { budgetChip } from '../lib/budget.ts';
   import { effortChip } from '../lib/effort.ts';
   import { ago, tokensShort } from '../lib/util.ts';
@@ -23,7 +24,9 @@
 
   let { job: j }: { job: StateJob } = $props();
   const m = $derived(cardModel(j));
-  const agents = $derived(agentsSummary(runningRoles(j)));
+  // An older server sends no activity: the role summary in the footer stands in for the activity line.
+  const agents = $derived(j.activity ? null : agentsSummary(runningRoles(j)));
+  const agentsLive = $derived(j.activity?.length ? j.activity : null);
   const act = $derived(sessionActivity(S.data?.daemons?.jobs?.[j.id], j.lastEvent?.ts));
   const flashing = $derived((S.flashes[j.id] ?? 0) > ticker.now);
   const effort = $derived(effortChip(j.effort, S.data?.config?.effort));
@@ -32,7 +35,7 @@
 <button class="plate clickable {needsHuman(j) ? 'ember' : ''} w-full text-left p-3 pb-2.5 flex flex-col gap-2" onclick={() => openDrawer(j.id)}>
   <span data-slot="title" class="h card line-clamp-2">{j.title}</span>
   <span data-slot="ref" class="mono muted text-[11px] truncate" title={m.refTitle}>{m.ref}</span>
-  <div data-slot="state" class="flex flex-wrap items-center gap-1.5"><StateChip job={j} /><PrChip pr={j.pr} />{@html budgetChip(j, S.data?.config?.pipeline?.budget)}<EffortChip level={effort} /><DepChips job={j} /></div>
+  <div data-slot="state" class="flex flex-wrap items-center gap-1.5"><StateChip job={j} /><PrChip pr={j.pr} />{@html budgetChip(j, S.data?.config?.pipeline?.budget)}<EffortChip level={effort} />{#if agentsLive}<div class="basis-full min-w-0"><AgentActivity activity={agentsLive} owner={j.ownerStatus} /></div>{/if}<DepChips job={j} /></div>
   <!-- Wraps: on a narrow card the stage and round drop under the stepper rather than truncating the round away. -->
   <div data-slot="stage" class="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0"><StageStepper steps={m.steps} stage={m.stage} /><span class="label text-[10px] truncate min-w-0 max-w-full">{m.stage}{#if m.round}{' · '}{$t('job.round', m.round)}{/if}</span></div>
   {#if m.progress}<div data-slot="progress"><ProgressBar progress={m.progress} /></div>{/if}

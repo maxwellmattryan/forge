@@ -17,6 +17,7 @@ import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts 
 import { PLUGIN_ROOT, exists } from './paths.ts';
 import { COMPLEXITIES } from './schema.ts';
 import { approachPaths, inSpec } from './scope.ts';
+import { AGENT_ID } from './transcripts.ts';
 import type { Config, Job, JobAgent, JobEvent, StepAction, StepDone, StepFile, StepInput, StepProcedure, StepRun, StepSpawn, StepVerdicts, StepWait, StepWaitingOn, VerifyRun, WaitingOn } from './types.ts';
 import { ForgeError, SAFE_REF, readJson, readText } from './util.ts';
 
@@ -48,7 +49,6 @@ const LENS_NAME = /^[a-z0-9][a-z0-9-]*$/;
 const NEEDS_INPUT = /\bNEEDS-INPUT\b/i;
 const SAFE_ELEMENT = /^[A-Za-z0-9 ._:/@=,+\-[\]"]*$/;
 const BARE_ELEMENT = /^[A-Za-z0-9._:/@=,+-]+$/;
-const AGENT_ID = /^[A-Za-z0-9_-]{1,100}$/;
 const SAFE_URL = /^https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9._/-]+$/;
 
 /** Events loadStepInput keeps; everything else in events.jsonl is noise to step. */

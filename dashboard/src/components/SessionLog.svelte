@@ -1,7 +1,8 @@
 <!-- One session's structured log (a job's, or the inbox's in the status bar's Daemon popover): status and Start/Stop, filters, and turns with
      tool calls and subagents, followed live. Every log string is untrusted session output: text and thinking bodies and a
      subagent's prompt and result render only through the escape-first md() (as text in Raw or above 20k characters); tool
-     input, tool results and every other line render as text. -->
+     input, tool results and every other line render as text. With `transcript`, it follows a job's Claude Code transcript
+     instead (an agent's, or an interactive owner's): read-only, with no status, Start/Stop, mode or effort controls. -->
 <script lang="ts">
   import { onDestroy, tick, untrack } from 'svelte';
   import Banner from './Banner.svelte';
@@ -19,6 +20,7 @@
   import { atBottom, buildSessionView, readFilters } from '../lib/session-log.ts';
   import type { Entry, Filters, Item } from '../lib/session-log.ts';
   import { createSessionLog } from '../lib/daemon-log.ts';
+  import type { SessionLogUrls } from '../lib/daemon-log.ts';
   import { promptRefreshKey } from '../lib/permissions.ts';
   import { PERMISSION_MODES, mergeSessionState, postDaemon, postDaemonMode, sessionControls, sessionMode, sessionPill } from '../lib/daemon.ts';
   import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
@@ -26,7 +28,20 @@
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
 
-  let { scope, compact = false, active = true }: { scope: string; compact?: boolean; active?: boolean } = $props();
+  /** A transcript to follow in place of the daemon session: the job, the agent's role (null for the owner) and the banner text. */
+  type Transcript = { job: string; agent: string | null; label: string };
+  let { scope, compact = false, active = true, transcript = null }: { scope: string; compact?: boolean; active?: boolean; transcript?: Transcript | null } = $props();
+
+  /** The transcript routes: the page takes the token as a header, the stream (EventSource sends none) as a query parameter. */
+  function transcriptUrls(tr: Transcript): SessionLogUrls {
+    const base = `/api/jobs/${encodeURIComponent(tr.job)}/transcript`;
+    const who: Record<string, string> = tr.agent === null ? {} : { agent: tr.agent };
+    return {
+      events: `${base}/events?${new URLSearchParams({ ...who, token: forgeToken() })}`,
+      page: (before) => `${base}?${new URLSearchParams({ ...who, ...(before === undefined ? {} : { before: String(before) }) })}`,
+      headers: { 'x-forge-token': forgeToken() },
+    };
+  }
 
   // The stream's state frames are freshest; the 2 s /api/state poll covers the rest.
   let live = $state<Partial<DaemonSessionState> | null>(null);
@@ -50,11 +65,13 @@
   // Inbox popover) reads the poll: re-poll once per prompt-id set the poll doesn't have yet. Not $state: nothing renders it.
   let promptsAsked: string | null = null;
 
-  // untrack: the log belongs to the scope it was created for; Drawer keys this component by job id.
+  // untrack: the log belongs to the scope (or transcript) it was created for; Drawer keys this component by both.
   const log = untrack(() =>
     createSessionLog({
       scope,
+      urls: transcript ? transcriptUrls(transcript) : undefined,
       onState: (st) => {
+        if (transcript) return;
         live = mergeSessionState(live, st);
         const key = promptRefreshKey(st, polled, promptsAsked);
         if (key !== null) {
@@ -200,6 +217,11 @@
 {/snippet}
 
 <div class="flex flex-col gap-2">
+  {#if transcript}
+  <div class="flex flex-wrap items-center gap-2">
+    <span role="note" class="plain min-w-0 break-all px-2 py-1 text-xs text-muted">{transcript.label}</span>
+  </div>
+  {:else}
   <div class="flex flex-wrap items-center gap-2">
     <span role="status" class="chip sm {TONE_CLASS[pill.tone]}" title={pill.title}>{pill.label}</span>
     <span class="text-xs text-muted">{$t('session.turns', { count: view.totals.turns })}</span>
@@ -224,6 +246,7 @@
   {#if session?.lastError}<div role="status" class="text-xs text-bad break-words">{session.lastError}</div>{/if}
   {#if mode.live !== null}<div role="status" class="text-xs text-muted">{$t('session.modeSwitching', { mode: modeName[mode.live] ?? mode.live })}</div>{/if}
   {#if mode.chosen === 'auto'}<div class="text-xs text-warn">{$t('session.modes.autoWarning')}</div>{/if}
+  {/if}
   <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
     <input class="input sm min-w-0 flex-1 basis-40" type="search" placeholder={$t('session.filter')} aria-label={$t('session.filter')} bind:value={filters.text} />
     <label class="field"><input type="checkbox" class="check" bind:checked={filters.tools} />{$t('session.tools')}</label>
@@ -239,7 +262,7 @@
     <div class="text-sm text-muted">{$t('session.loading')}</div>
   {:else if !entries.length}
     {@const enabled = S.data?.daemons?.enabled === true}
-    <Empty>{#if scope === INBOX_SCOPE}{enabled ? $t('session.emptyInboxEnabled') : $t('session.emptyInbox')}{:else}{enabled ? $t('session.emptyEnabled') : $t('session.empty')}{/if}</Empty>
+    <Empty>{#if transcript}{$t('session.transcriptEmpty')}{:else if scope === INBOX_SCOPE}{enabled ? $t('session.emptyInboxEnabled') : $t('session.emptyInbox')}{:else}{enabled ? $t('session.emptyEnabled') : $t('session.empty')}{/if}</Empty>
   {/if}
   {#if entries.length}
     <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrollable region must be reachable from the keyboard) -->

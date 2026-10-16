@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { DEFAULT_DRAWER_TAB, DRAWER_TABS, moveDrawerTab, tabScrollTop, type DrawerTab } from '../dashboard/src/lib/drawer.ts';
 
 test('drawer tabs: order and default', () => {
-  assert.deepEqual(DRAWER_TABS, ['thread', 'log', 'files', 'timeline', 'details']);
+  assert.deepEqual(DRAWER_TABS, ['thread', 'log', 'agents', 'files', 'timeline', 'details']);
   assert.equal(DEFAULT_DRAWER_TAB, 'thread');
   assert.ok(DRAWER_TABS.includes(DEFAULT_DRAWER_TAB));
   const tab: DrawerTab = 'details';
@@ -13,10 +13,12 @@ test('drawer tabs: order and default', () => {
 
 test('moveDrawerTab wraps and handles Home/End', () => {
   assert.equal(moveDrawerTab('thread', 'ArrowRight'), 'log');
-  assert.equal(moveDrawerTab('log', 'ArrowRight'), 'files');
+  assert.equal(moveDrawerTab('log', 'ArrowRight'), 'agents');
+  assert.equal(moveDrawerTab('agents', 'ArrowRight'), 'files');
   assert.equal(moveDrawerTab('timeline', 'ArrowRight'), 'details');
   assert.equal(moveDrawerTab('details', 'ArrowRight'), 'thread', 'Right wraps from the last tab to the first');
-  assert.equal(moveDrawerTab('files', 'ArrowLeft'), 'log');
+  assert.equal(moveDrawerTab('files', 'ArrowLeft'), 'agents');
+  assert.equal(moveDrawerTab('agents', 'ArrowLeft'), 'log');
   assert.equal(moveDrawerTab('log', 'ArrowLeft'), 'thread');
   assert.equal(moveDrawerTab('thread', 'ArrowLeft'), 'details', 'Left wraps from the first tab to the last');
   for (const from of DRAWER_TABS) {

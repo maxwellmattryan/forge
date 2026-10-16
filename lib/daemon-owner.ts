@@ -28,6 +28,15 @@ export function inboxSessionIds(root: string): string[] {
   return [...new Set(uuids([info.sessionId, ...pastIds(info)]))];
 }
 
+/** Every id, current or past, of every session record: the sessions `forge dash` ran, as opposed to interactive ones. */
+export function daemonSessionIds(root: string): string[] {
+  const ids = sessionRecords(root).flatMap((r) => {
+    const info = readInfo(r.info);
+    return uuids([info.sessionId, ...pastIds(info)]);
+  });
+  return [...new Set(ids)];
+}
+
 /**
  * Why `owner` yields `jobId` to the caller, or null when it doesn't. In order: the inbox yields to
  * the job's own daemon session (it never drives a job); a recorded session whose child isn't

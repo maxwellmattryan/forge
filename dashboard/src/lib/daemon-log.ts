@@ -29,6 +29,17 @@ export interface SessionLogOptions {
   connect?: (url: string) => LogSource;
   fetchPage?: (scope: string, before?: number) => Promise<DaemonLogPage>;
   visible?: () => boolean;
+  /**
+   * Other endpoints in place of the session's /api/events and /api/daemons/log: a job's Claude Code transcript
+   * (the drawer's Agents tab, an interactive owner's Log tab). `headers` go with each page fetch.
+   */
+  urls?: SessionLogUrls;
+}
+
+export interface SessionLogUrls {
+  events: string;
+  page: (before?: number) => string;
+  headers?: Record<string, string>;
 }
 
 export interface SessionLog {
@@ -48,7 +59,12 @@ export const eventsUrl = (scope: string): string => `/api/events?session=${encod
 
 async function defaultFetchPage(scope: string, before?: number): Promise<DaemonLogPage> {
   const q = `session=${encodeURIComponent(scope)}${before === undefined ? '' : `&before=${before}`}`;
-  const res = await fetch(`/api/daemons/log?${q}`);
+  return fetchPage(`/api/daemons/log?${q}`);
+}
+
+/** A log page from `url`; the transcript pages share DaemonLogPage's lines, start, end and more. */
+async function fetchPage(url: string, headers?: Record<string, string>): Promise<DaemonLogPage> {
+  const res = await fetch(url, headers ? { headers } : undefined);
   const text = await res.text();
   let body: unknown = null;
   try {
@@ -63,7 +79,7 @@ async function defaultFetchPage(scope: string, before?: number): Promise<DaemonL
 
 const toEntry = (l: { offset: unknown; line: unknown }): Entry => ({ offset: Number(l.offset), line: String(l.line) });
 
-export function createSessionLog({ scope, onState, onChange, connect, fetchPage, visible }: SessionLogOptions): SessionLog {
+export function createSessionLog({ scope, onState, onChange, connect, fetchPage: customPage, visible, urls }: SessionLogOptions): SessionLog {
   // Defaults resolve on use, so importing this module touches no DOM.
   const isVisible = (): boolean => {
     if (visible) return visible();
@@ -74,7 +90,8 @@ export function createSessionLog({ scope, onState, onChange, connect, fetchPage,
     }
   };
   const dial = connect ?? ((u: string): LogSource => new EventSource(u));
-  const page = fetchPage ?? defaultFetchPage;
+  const page = customPage ?? (urls ? (_scope: string, before?: number) => fetchPage(urls.page(before), urls.headers) : defaultFetchPage);
+  const streamUrl = urls ? urls.events : eventsUrl(scope);
 
   let closed = false;
   let shown = false;
@@ -122,7 +139,7 @@ export function createSessionLog({ scope, onState, onChange, connect, fetchPage,
 
   function connectStream(myGen: number): void {
     if (es || myGen !== gen) return;
-    const src = dial(eventsUrl(scope));
+    const src = dial(streamUrl);
     es = src;
     let opens = 0;
     src.addEventListener('open', () => {

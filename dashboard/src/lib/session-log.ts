@@ -37,6 +37,12 @@ const AGENT_TOOLS = new Set(['Agent', 'Task']);
  * has the outcome) and the Agent heartbeat (task_progress has the elapsed time).
  */
 const NOISE = new Set(['thinking_tokens', 'commands_changed', 'background_tasks_changed', 'hook_started', 'hook_progress']);
+/**
+ * Claude Code transcript bookkeeping (the on-disk transcripts the drawer's Agents tab and an interactive owner's log read),
+ * dropped rather than dumped as JSON: file snapshots, queue operations, summaries, progress, attachments and the last
+ * prompt. `user` lines flagged isMeta (injected context) are dropped too.
+ */
+export const TRANSCRIPT_NOISE = new Set(['file-history-snapshot', 'queue-operation', 'summary', 'progress', 'attachment', 'last-prompt']);
 
 export interface ToolResult {
   isError: boolean;
@@ -210,6 +216,7 @@ function parseLine(offset: number, line: string): Parsed[] {
   } catch {
     return [item({ kind: 'raw', offset, at: null, tone: 'muted', text: line })];
   }
+  if (TRANSCRIPT_NOISE.has(ev.type) || (ev.type === 'user' && ev.isMeta === true)) return [];
   const parent = typeof ev.parent_tool_use_id === 'string' && ev.parent_tool_use_id ? ev.parent_tool_use_id : null;
   const at = typeof ev.timestamp === 'string' ? ev.timestamp : typeof ev.at === 'string' ? ev.at : null;
   switch (ev.type) {
