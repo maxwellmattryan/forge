@@ -4,14 +4,14 @@
 // refused rather than guessed at.
 import type { Job, LoadedJob } from './types.ts';
 
-export const CONFIG_SCHEMA_VERSION = 5;
-export const JOB_SCHEMA_VERSION = 9;
+export const CONFIG_SCHEMA_VERSION = 6;
+export const JOB_SCHEMA_VERSION = 10;
 export const EVENT_SCHEMA_VERSION = 1;
 /**
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 20;
+export const API_VERSION = 21;
 
 export const STAGES = [
   'backlog',
@@ -90,6 +90,9 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // v5 adds the foreman block (off by default) and the assistant's model and effort, so no v4 config
   // changes; the bump lets older Forges refuse a config whose foreman policy they would ignore.
   4: (c) => c,
+  // v6 adds policy.protectedPaths; defaults fill it, so no v5 config changes; the bump lets older
+  // Forges refuse a config whose policy they would ignore.
+  5: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
@@ -129,6 +132,8 @@ const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
   7: (j) => j,
   // v9 adds the spec's judged complexity, recorded when the spec is. A v8 job never had one.
   8: (j) => ({ ...j, complexity: j.complexity ?? null }),
+  // v10 adds the protected-paths flag the CLI records. A v9 job has none; pr open recomputes anyway.
+  9: (j) => ({ ...j, protectedPaths: j.protectedPaths ?? null }),
 };
 
 function failedVerifiesByRound(runs: any[]): Record<string, number> {
@@ -205,6 +210,9 @@ export function normalizeJob(raw: any): LoadedJob {
     // A hand- or session-edited value outside the fixed list must never reach a daemon's argv.
     effort: (EFFORTS as readonly unknown[]).includes(job.effort) ? job.effort : null,
     complexity: (COMPLEXITIES as readonly unknown[]).includes(job.complexity) ? job.complexity : null,
+    // Tolerant: anything but an object with a hits list reads as no flag. Safe, because verify and
+    // pr open recompute the set from git rather than trusting this.
+    protectedPaths: job.protectedPaths && typeof job.protectedPaths === 'object' && Array.isArray(job.protectedPaths.hits) ? job.protectedPaths : null,
   };
 }
 

@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ownerStatusWithProof } from './daemon-owner.ts';
-import { loadJob, logEvent, setJob, jobDir } from './jobs.ts';
+import { loadJob, logEvent, readEvents, setJob, jobDir } from './jobs.ts';
+import { checkBranch, historyEnv, logEscalated, policyRules, protectedApproved, refusalText } from './protected.ts';
 import { enqueuePrFeedbackGate, maybeEnqueueGate } from './foreman.ts';
 import { prLinkNote } from './issue-link.ts';
 import { exists } from './paths.ts';
@@ -16,6 +17,7 @@ import type { Strategy } from './regenerate.ts';
 import { commandTemplate, verifiedHead } from './worktree.ts';
 
 const MARKER = '<!-- forge -->';
+const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 
 /** Human feedback on a PR, as GitHub's GraphQL returns it (raw input): fetchFeedback. */
 interface PrFeedback {
@@ -148,23 +150,30 @@ export function openPr(
   logSecrets(root, id, 'pr', scan, { blocked: mode === 'block' });
   if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of ${id}'s commits could not finish (${scan.error}); forge pr open won't push an unscanned branch`, 'secret_found', `forge secrets scan ${id}`);
   if (mode === 'block' && scan.findings.length) throw new ForgeError(refusalMessage(`the commits of ${id}`, scan.findings), 'secret_found', `forge secrets scan ${id}`);
+  refuseProtected(root, config, job, evidence.head);
+  // From here on only the checked commit is used, never HEAD: a commit made in the worktree after
+  // the checks (a stale session, a process the builder left behind) must not ride along.
+  const checked = evidence.head;
+  if (!FULL_SHA.test(checked)) throw new ForgeError(`HEAD of ${id} is not a commit id`);
   const slug = repoSlug(root, config);
-  const ahead = run('git', ['rev-list', '--count', `${config.git.remote}/${job.base}..HEAD`], { cwd: job.worktree, allowFail: true });
+  const ahead = run('git', ['rev-list', '--count', `${config.git.remote}/${job.base}..${checked}`, '--'], { cwd: job.worktree, allowFail: true });
   if (ahead.ok && ahead.stdout.trim() === '0') throw new ForgeError(`branch ${job.branch} has no commits ahead of ${job.base}`);
   let rewritten = false;
+  let pushedSha = checked;
   if (attributionForbidden(config)) {
     const remoteBase = `${config.git.remote}/${job.base}`;
     // createJob always sets base and branch; so below.
     const base = run('git', ['rev-parse', '--verify', '--quiet', remoteBase], { cwd: job.worktree, allowFail: true }).ok ? remoteBase : job.base!;
-    const scrub = scrubBranch(job.worktree, base);
+    // Rewrites messages only, from the checked commit: every tree stays the one that was checked.
+    const scrub = scrubBranch(job.worktree, base, checked, historyEnv());
     if (scrub.rewritten) {
       rewritten = true;
-      logEvent(root, id, 'attribution-scrubbed', scrub);
+      pushedSha = scrub.sha;
+      logEvent(root, id, 'attribution-scrubbed', { rewritten: scrub.rewritten, commits: scrub.commits });
     }
   }
-  pushBranch(job, config, { force: rewritten });
-  // Read after the push so it is the post-scrub sha GitHub has; the human delta starts here.
-  const pushedSha = run('git', ['rev-parse', 'HEAD'], { cwd: job.worktree }).stdout.trim();
+  // The exact sha GitHub gets, so the merge-time head pin compares against what was checked.
+  pushBranch(job, config, pushedSha, { force: rewritten });
   const existing = findPr(root, config, id);
   if (existing && existing.state === 'OPEN') {
     setJob(root, id, { fields: { 'pr.pushedSha': pushedSha } });
@@ -182,6 +191,22 @@ export function openPr(
   setJob(root, id, { fields: { pr: { number, url, state: 'OPEN', isDraft: Boolean(opts.draft ?? config.pr.draft), openedAt: now(), lastSyncedAt: now(), pushedSha } } });
   logEvent(root, id, 'pr-opened', { number, url });
   return { number, url, created: true, ...prLinkNote(job, config) };
+}
+
+/**
+ * The protected-paths re-check before anything leaves the machine, `--force` or not. The set is
+ * recomputed from the branch (a hand-cleared job.json flag changes nothing), a refuse path stops the
+ * open, and escalate paths stop it until a human approved their current content at a PP1 park.
+ */
+function refuseProtected(root: string, config: Config, job: Job, head: string): void {
+  const id = job.id;
+  const c = checkBranch(root, config, job, head, 'pr');
+  if (c.error) throw new ForgeError(`can't check ${id}'s protected paths (${c.error}); forge pr open won't push a branch it can't check`, 'protected_path');
+  if (c.refused.length) throw new ForgeError(refusalText('forge pr open', c.refused), 'protected_path');
+  if (c.escalated.length && !protectedApproved(c.flag, readEvents(root, id))) {
+    logEscalated(root, id, 'pr', c.escalated, head, true);
+    throw new ForgeError(`protected paths need a human approval: ${c.escalated.length} paths; /forge approve ${id}`, 'protected_path');
+  }
 }
 
 /**
@@ -232,8 +257,9 @@ function refreshBase(job: Job, config: Config, mode: 'block' | 'warn'): void {
   if (!fetched.ok) fail(`git fetch from ${remote}'s push URL exited ${fetched.status}`);
 }
 
-export function pushBranch(job: Job, config: Config, opts: { force?: boolean } = {}): void {
-  const args = ['push', '-u', config.git.remote, `HEAD:refs/heads/${job.branch}`];
+export function pushBranch(job: Job, config: Config, sha: string, opts: { force?: boolean } = {}): void {
+  if (!FULL_SHA.test(sha)) throw new ForgeError(`refusing to push ${JSON.stringify(String(sha).slice(0, 80))}: not a commit id`);
+  const args = ['push', '-u', config.git.remote, `${sha}:refs/heads/${job.branch}`];
   if (opts.force) args.splice(1, 0, '--force-with-lease');
   // Callers check the worktree first.
   run('git', args, { cwd: job.worktree! });
@@ -720,11 +746,27 @@ export function mergePr(root: string, config: Config, id: string, opts: { now?: 
   if (synced?.state === 'MERGED') return { merged: true, action: 'already-merged', checks };
   if (synced?.state === 'CLOSED') throw new ForgeError(`PR #${number} is closed; reopen it before merging`);
   const now = opts.now === true;
+  // forge pr open checked protected paths on the head it pushed. A head pushed since, by plain git
+  // or a stale session, was never checked, so only a human's --now merges it unless pr open runs again.
+  const head = synced?.headOid ?? null;
+  const pushed = loadJob(root, id).pr?.pushedSha ?? null;
+  if (!now && policyRules(config).length && (head === null || head !== pushed)) {
+    logEvent(root, id, 'pr-merge-refused', { number, checks, head, pushedSha: pushed, reason: 'protected' });
+    throw new ForgeError(
+      `PR #${number}'s head ${String(head ?? 'unknown').slice(0, 12)} is not the commit forge pr open checked for protected paths (${String(pushed ?? 'none').slice(0, 12)}); run: forge pr open ${id}, or merge with --now`,
+      'protected_path',
+    );
+  }
   const hasWorkflows = checks === 'none' ? hasCiWorkflows(root, `${config.git.remote}/${job.base}`) : false;
   const mergeState = synced?.mergeState ?? null;
-  const action = mergeAction(checks, { hasWorkflows, now, mergeState });
+  const decided = mergeAction(checks, { hasWorkflows, now, mergeState });
+  // Once --auto is queued, GitHub merges on its own, and whether it still holds
+  // --match-head-commit then is not documented. Under a protected-paths policy Forge waits instead,
+  // so the merge that lands goes through the head check above (sync surfaces it for retry).
+  const held = decided === 'auto' && policyRules(config).length > 0;
+  const action = held ? 'defer' : decided;
   if (action === 'defer') {
-    logEvent(root, id, 'pr-merge-deferred', { number, checks, mergeState });
+    logEvent(root, id, 'pr-merge-deferred', { number, checks, mergeState, ...(held ? { reason: 'protected' } : {}) });
     return { merged: false, autoMerge: false, action: 'deferred', checks, mergeState };
   }
   if (action === 'refuse') {

@@ -1007,7 +1007,7 @@ test('/api/state exposes the session pool', async () => {
     .map((f) => fs.readFileSync(path.join(src, f), 'utf8'))
     .join('\n');
   assert.ok(app.includes('/api/requests'), 'read the dashboard sources');
-  assert.equal(DASH_API_VERSION, 20, 'the dashboard reads API_VERSION from src/lib/types.ts');
+  assert.equal(DASH_API_VERSION, 21, 'the dashboard reads API_VERSION from src/lib/types.ts');
   assert.doesNotMatch(app, /launcher|launched/);
 });
 
@@ -1173,7 +1173,7 @@ test('GET /api/about reports versions', async () => {
     assert.equal(r.status, 200);
     const a = JSON.parse(r.text);
     assert.equal(a.forgeVersion, JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version);
-    assert.equal(a.apiVersion, 20);
+    assert.equal(a.apiVersion, 21);
     assert.equal(a.pluginRoot, PLUGIN_ROOT);
     assert.deepEqual(a.schemaVersions, { config: schema.CONFIG_SCHEMA_VERSION, job: schema.JOB_SCHEMA_VERSION, event: schema.EVENT_SCHEMA_VERSION });
     assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'pricing.json'), 'utf8')).asOf);
@@ -1431,7 +1431,7 @@ test('state exposes office session and gateOwner', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 20);
+    assert.equal(st.apiVersion, 21);
     assert.equal(st.daemons.foreman, true);
     assert.equal(st.daemons.office.scope, '_office');
     assert.equal(st.daemons.office.running, false);
@@ -1531,7 +1531,7 @@ test('owner status in /api/state and job detail', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 20);
+    assert.equal(st.apiVersion, 21);
     const byId = Object.fromEntries(st.jobs.map((j) => [j.id, j.ownerStatus]));
     assert.deepEqual(Object.fromEntries(Object.entries(byId).map(([k, v]: [string, any]) => [k, v.status])), { 'j-none': 'none', 'j-live': 'live', 'j-agent': 'live', 'j-stale': 'stale', 'j-dead': 'live' }, 'the time rule only: never dead');
     assert.deepEqual(byId['j-none'], { status: 'none', session: null, since: null, heartbeat: null, agentRunning: false, reason: null, jobSession: false });
@@ -1679,7 +1679,7 @@ test('/api/state and job detail carry effort', async () => {
   try {
     const port = Number(new URL(srv.url).port);
     const s = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(s.apiVersion, 20);
+    assert.equal(s.apiVersion, 21);
     assert.equal(s.config.effort, 'medium');
     const row = (id) => s.jobs.find((j) => j.id === id);
     assert.equal(row(plain).effort, null, 'a v3 job reads as inherit');
@@ -1764,6 +1764,33 @@ test('POST /api/jobs/:id/effort sets a job\'s effort, guarded like every POST', 
     assert.equal(kit.children.length, 1, 'nothing was spawned or stopped');
   } finally {
     await srv.close();
+    repo.cleanup();
+  }
+});
+
+test('state carries protectedPaths', async () => {
+  const repo = tempRepo();
+  fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
+  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 6 }));
+  const now = new Date().toISOString();
+  const flag = { hits: [{ path: '<img src=x onerror=alert(1)>.yml', rule: 1, glob: '.github/workflows/**', reason: 'CI/CD configuration', blob: 'a'.repeat(40) }], more: 0, at: now, gate: 'commit', head: 'b'.repeat(40) };
+  const seed = (id: string, extra: Record<string, unknown>) => {
+    const d = path.join(repo.dir, '.forge', 'jobs', id);
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, 'job.json'), JSON.stringify({ schemaVersion: 10, id, title: id, stage: 'decide', state: 'running', createdAt: now, updatedAt: now, ...extra }));
+  };
+  seed('j-flag', { protectedPaths: flag });
+  seed('j-old', { schemaVersion: 9 });
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const port = Number(new URL(url).port);
+  try {
+    const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
+    const byId = Object.fromEntries(st.jobs.map((j) => [j.id, j.protectedPaths]));
+    assert.deepEqual(byId, { 'j-flag': flag, 'j-old': null });
+    const detail = JSON.parse((await get(port, '/api/jobs/j-flag')).body.toString('utf8'));
+    assert.deepEqual(detail.job.protectedPaths, flag);
+  } finally {
+    await close();
     repo.cleanup();
   }
 });
