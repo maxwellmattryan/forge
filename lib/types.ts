@@ -38,8 +38,12 @@ export type SecretKind = (typeof SECRET_KINDS)[number];
 
 // ---------- job data ----------
 
-/** Tracker origin of a job: createJob in lib/jobs.ts. */
-export interface JobSource {
+/**
+ * One of a job's issues: lib/issue-ref.ts. `tracker` is the tracker kind; `ref` is `owner/repo#12`
+ * for GitHub (a bare number only in legacy jobs), the slug for the local backlog, or a custom
+ * adapter's own ref. A null ref keeps a url-only entry, which never counts as linked.
+ */
+export interface JobIssue {
   tracker: string;
   ref: string | null;
   url: string | null;
@@ -212,8 +216,9 @@ export interface Job {
   title: string;
   kind: string;
   size: string | null;
-  source: JobSource | null;
-  /** The human's override for the issue link: `forge job link --none` in lib/tracker-link.ts. */
+  /** The job's issues, primary first; one issue may sit on several jobs: lib/tracker-link.ts. */
+  issues: JobIssue[];
+  /** The human's decision that the job needs no issue, cleared by linking one: `forge job link --none` in lib/tracker-link.ts. */
   noIssue: { reason: string | null; at: string } | null;
   parent: string | null;
   children: string[];

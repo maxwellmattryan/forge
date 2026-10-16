@@ -1069,7 +1069,7 @@ test('/api/state exposes the session pool', async () => {
     .map((f) => fs.readFileSync(path.join(src, f), 'utf8'))
     .join('\n');
   assert.ok(app.includes('/api/requests'), 'read the dashboard sources');
-  assert.equal(DASH_API_VERSION, 25, 'the dashboard reads API_VERSION from src/lib/types.ts');
+  assert.equal(DASH_API_VERSION, 26, 'the dashboard reads API_VERSION from src/lib/types.ts');
   assert.doesNotMatch(app, /launcher|launched/);
 });
 
@@ -1256,7 +1256,7 @@ test('GET /api/about reports versions', async () => {
     assert.equal(r.status, 200);
     const a = JSON.parse(r.text);
     assert.equal(a.forgeVersion, JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version);
-    assert.equal(a.apiVersion, 25);
+    assert.equal(a.apiVersion, 26);
     assert.equal(a.pluginRoot, PLUGIN_ROOT);
     assert.deepEqual(a.schemaVersions, { config: schema.CONFIG_SCHEMA_VERSION, job: schema.JOB_SCHEMA_VERSION, event: schema.EVENT_SCHEMA_VERSION });
     assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'pricing.json'), 'utf8')).asOf);
@@ -1514,7 +1514,7 @@ test('state exposes office session and gateOwner', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 25);
+    assert.equal(st.apiVersion, 26);
     assert.equal(st.daemons.foreman, true);
     assert.equal(st.daemons.office.scope, '_office');
     assert.equal(st.daemons.office.running, false);
@@ -1561,13 +1561,14 @@ test('job detail lists the job\'s requests', async () => {
     const other = JSON.parse((await hit(port, { path: `/api/jobs/${b}` })).text);
     assert.equal(other.request, `${'w'.repeat(2000)}…`, 'the request without its title, trimmed and capped');
     assert.equal(detail.requestFromTracker, false, 'no created event: not tracker text');
-    // Created from the bar, then linked at the gate: job.source is set, but only the created event's source counts.
+    // Created from the bar, then linked at the gate: the job has issues, but only the created event's count.
     const event = (type, data) => JSON.stringify({ v: 1, ts: new Date().toISOString(), type, ...data }) + '\n';
     const jobJson = path.join(repo.dir, '.forge', 'jobs', b, 'job.json');
     fs.writeFileSync(jobJson, JSON.stringify({ ...JSON.parse(fs.readFileSync(jobJson, 'utf8')), source: { tracker: 'local', ref: 'reading-list', url: null } }));
     fs.writeFileSync(path.join(repo.dir, '.forge', 'jobs', b, 'events.jsonl'), event('created', { title: b, source: null, origin: 'dashboard' }) + event('linked', { tracker: 'local', ref: 'reading-list', url: null }));
     const linked = JSON.parse((await hit(port, { path: `/api/jobs/${b}` })).text);
-    assert.equal(linked.job.source.ref, 'reading-list');
+    assert.equal(linked.job.issues[0].ref, 'reading-list', 'a stray source in a current job.json is folded into issues');
+    assert.ok(!('source' in linked.job));
     assert.equal(linked.requestFromTracker, false, 'linked later: the request is still the user\'s words');
     fs.writeFileSync(path.join(repo.dir, '.forge', 'jobs', a, 'events.jsonl'), event('created', { title: a, source: { tracker: 'local', ref: 'reading-list', url: null } }));
     assert.equal(JSON.parse((await hit(port, { path: `/api/jobs/${a}` })).text).requestFromTracker, true, 'from-ref: the created event has the ref');
@@ -1614,7 +1615,7 @@ test('owner status in /api/state and job detail', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 25);
+    assert.equal(st.apiVersion, 26);
     const byId = Object.fromEntries(st.jobs.map((j) => [j.id, j.ownerStatus]));
     assert.deepEqual(Object.fromEntries(Object.entries(byId).map(([k, v]: [string, any]) => [k, v.status])), { 'j-none': 'none', 'j-live': 'live', 'j-agent': 'live', 'j-stale': 'stale', 'j-dead': 'live' }, 'the time rule only: never dead');
     assert.deepEqual(byId['j-none'], { status: 'none', session: null, since: null, heartbeat: null, agentRunning: false, reason: null, jobSession: false });
@@ -1762,7 +1763,7 @@ test('/api/state and job detail carry effort', async () => {
   try {
     const port = Number(new URL(srv.url).port);
     const s = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(s.apiVersion, 25);
+    assert.equal(s.apiVersion, 26);
     assert.equal(s.config.effort, 'medium');
     const row = (id) => s.jobs.find((j) => j.id === id);
     assert.equal(row(plain).effort, null, 'a v3 job reads as inherit');
@@ -1968,7 +1969,7 @@ test('state carries lastHuman', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 25);
+    assert.equal(st.apiVersion, 26);
     const by = Object.fromEntries(st.jobs.map((j) => [j.id, j.lastHuman]));
     assert.deepEqual(by, {
       [acted]: { ts: '2026-03-01T00:00:01.000Z', type: 'budget-ack', action: null, actor: { login: 'bob', source: 'env' } },
@@ -1992,7 +1993,7 @@ test('state carries repo budget', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 25);
+    assert.equal(st.apiVersion, 26);
     assert.equal(st.budget.month, new Date().toISOString().slice(0, 7));
     assert.deepEqual(st.budget.spent, { dayUsd: 12, monthUsd: 12, monthTokens: 12 });
     assert.deepEqual(st.budget.exceeded, ['usdPerMonth']);
@@ -2051,5 +2052,36 @@ test('budget ack endpoint guards', async () => {
   } finally {
     await close();
     s.cleanup();
+  }
+});
+
+test('job detail serves issues', async () => {
+  const repo = tempRepo();
+  const old = seedJob(repo.dir, 'job-old');
+  const oldFile = path.join(repo.dir, '.forge', 'jobs', old, 'job.json');
+  fs.writeFileSync(oldFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(oldFile, 'utf8')), source: { tracker: 'github', ref: '12', url: 'https://github.com/o/r/issues/12' } }));
+  const now = seedJob(repo.dir, 'job-now');
+  const nowDir = path.join(repo.dir, '.forge', 'jobs', now);
+  const issues = [{ tracker: 'github', ref: 'o/r#5', url: 'https://github.com/o/r/issues/5' }, { tracker: 'github', ref: 'x/y#9', url: null }];
+  fs.writeFileSync(path.join(nowDir, 'job.json'), JSON.stringify({ ...JSON.parse(fs.readFileSync(path.join(nowDir, 'job.json'), 'utf8')), schemaVersion: 11, issues }));
+  const event = (type, data) => JSON.stringify({ v: 1, ts: new Date().toISOString(), type, ...data }) + '\n';
+  fs.writeFileSync(path.join(nowDir, 'events.jsonl'), event('created', { title: now, issues }));
+  const srv = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  try {
+    const port = Number(new URL(srv.url).port);
+    const s = JSON.parse((await hit(port, { path: '/api/state' })).text);
+    const row = (id) => s.jobs.find((j) => j.id === id);
+    assert.deepEqual(row(old).issues, [{ tracker: 'github', ref: 'o/r#12', url: 'https://github.com/o/r/issues/12' }], 'an old source is served as issues');
+    assert.deepEqual(row(now).issues, issues);
+    for (const id of [old, now]) assert.ok(!('source' in row(id)), `${id} has no source in /api/state`);
+    const detail = JSON.parse((await hit(port, { path: `/api/jobs/${now}` })).text);
+    assert.deepEqual(detail.job.issues, issues);
+    assert.ok(!('source' in detail.job));
+    assert.equal(detail.requestFromTracker, true, 'a created event with an issue ref');
+    fs.writeFileSync(path.join(nowDir, 'events.jsonl'), event('created', { title: now, issues: [{ tracker: 'local', ref: null, url: 'https://x' }] }));
+    assert.equal(JSON.parse((await hit(port, { path: `/api/jobs/${now}` })).text).requestFromTracker, false, 'a url-only issue is not tracker text');
+  } finally {
+    await srv.close();
+    repo.cleanup();
   }
 });

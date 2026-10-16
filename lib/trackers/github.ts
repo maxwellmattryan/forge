@@ -16,6 +16,8 @@ import { repoSlug } from '../pr.ts';
 import { listJobs, isActive } from '../jobs.ts';
 import { statusKey, STATUS_KEYS } from './status.ts';
 import { queryTerms } from '../issue-link.ts';
+import { nativeRef } from '../issue-ref.ts';
+import { localRepoSlug } from '../repo-slug.ts';
 import { attributionForbidden, stripAttribution } from '../attribution.ts';
 import type { LoadedJob, Tracker, TrackerCtx, TrackerItem } from '../types.ts';
 
@@ -179,7 +181,8 @@ function myLogin(ctx: TrackerCtx): string {
 }
 
 function activeLocalJob(ctx: TrackerCtx, ref: string): LoadedJob | null {
-  return listJobs(ctx.root).find((j) => isActive(j) && j.source?.tracker === 'github' && String(j.source.ref) === String(ref)) ?? null;
+  const slug = localRepoSlug(ctx.root, ctx.config);
+  return listJobs(ctx.root).find((j) => isActive(j) && j.issues.some((i) => nativeRef(i, 'github', slug) === String(ref))) ?? null;
 }
 
 export default {

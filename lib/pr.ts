@@ -2,10 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ownerStatusWithProof } from './daemon-owner.ts';
 import { currentActor } from './actor.ts';
-import { isForemanActor, loadJob, logEvent, readEvents, setJob, jobDir } from './jobs.ts';
+import { isActive, isForemanActor, listJobs, loadJob, logEvent, readEvents, setJob, jobDir } from './jobs.ts';
 import { checkBranch, historyEnv, logEscalated, policyRules, protectedApproved, refusalText } from './protected.ts';
 import { enqueuePrFeedbackGate, maybeEnqueueGate } from './foreman.ts';
 import { prLinkNote } from './issue-link.ts';
+import { isSafeUrl, linkedIssues, nativeRef, sameIssue } from './issue-ref.ts';
+import { localRepoSlug } from './repo-slug.ts';
 import { queueNotify } from './notify.ts';
 import { exists } from './paths.ts';
 import { enqueue, listRequests } from './requests.ts';
@@ -77,12 +79,16 @@ export function findPr(root: string, config: Config, id: string): any {
   const byBranch = JSON.parse(gh(root, ['pr', 'list', '-R', slug, '--head', job.branch!, '--state', 'all', '--json', PR_FIELDS, '--limit', '5']).stdout);
   const sameRepo = byBranch.filter((p: any) => !p.isCrossRepository);
   let pr = sameRepo.find((p: any) => p.state === 'OPEN') ?? sameRepo[0] ?? null;
-  if (!pr && job.source?.tracker === 'github' && /^\d+$/.test(String(job.source.ref))) {
+  // The primary issue of this repo: a foreign issue's closing PRs live in a repo Forge doesn't adopt from.
+  const issueNum = linkedIssues(job)
+    .map((i) => nativeRef(i, 'github', slug))
+    .find((r) => r !== null && /^\d+$/.test(r));
+  if (!pr && issueNum) {
     const [owner, name] = slug.split('/');
     const data = graphql(
       root,
       `query($owner:String!,$name:String!,$num:Int!){repository(owner:$owner,name:$name){issue(number:$num){closedByPullRequestsReferences(first:10,includeClosedPrs:true){nodes{number state headRefName isCrossRepository authorAssociation}}}}}`,
-      { owner, name, num: Number(job.source.ref) },
+      { owner, name, num: Number(issueNum) },
     );
     const nodes = (data?.repository?.issue?.closedByPullRequestsReferences?.nodes ?? []).filter(
       (n: any) => !n.isCrossRepository && TRUSTED_ASSOCIATIONS.has(n.authorAssociation),
@@ -326,11 +332,33 @@ function prBody(root: string, config: Config, job: Job): string {
   // The reason was written by an agent that read untrusted text, so it goes in a code span: no
   // mention, link, image or HTML in it renders on a public PR (safeText already removed backticks).
   if (approval) parts.push(`## Decision\n\nEscalated: \`${approval.reason}\`. Approved by ${approvedBy(approval)}.`);
-  if (job.source?.tracker === 'github' && job.source.ref && config.pr.closeIssue) parts.push(`Closes #${job.source.ref}`);
-  else if (job.source?.url) parts.push(`Source: ${job.source.url}`);
+  const issueLines = issueReferences(root, config, job);
+  if (issueLines.length) parts.push(issueLines.join('\n'));
   parts.push(MARKER);
   const body = parts.join('\n\n') + '\n';
   return attributionForbidden(config) ? stripAttribution(body) : body;
+}
+
+/**
+ * One line per issue: `Closes #N` for this repo's GitHub issues, `Closes owner/repo#N` for another
+ * repo's, `Refs` instead when another active job carries the issue (its PR must not close it under
+ * that job) or pr.closeIssue is off, and `Source: <url>` for any other issue with a url. The refs come
+ * from normalised job.json, so they match the stored grammar and carry no markdown.
+ */
+export function issueReferences(root: string, config: Config, job: Job): string[] {
+  const issues = Array.isArray(job.issues) ? job.issues : [];
+  if (!issues.length) return [];
+  const slug = localRepoSlug(root, config);
+  const others = listJobs(root).filter((j) => j.id !== job.id && isActive(j));
+  const lines: string[] = [];
+  for (const i of issues) {
+    if (i.tracker === 'github' && i.ref) {
+      const native = nativeRef(i, 'github', slug);
+      const shared = others.some((o) => o.issues.some((x) => sameIssue(x, i, slug)));
+      lines.push(`${config.pr.closeIssue && !shared ? 'Closes' : 'Refs'} ${native ? `#${native}` : i.ref}`);
+    } else if (isSafeUrl(i.url)) lines.push(`Source: ${i.url}`);
+  }
+  return lines;
 }
 
 function firstParagraph(md: string): string {

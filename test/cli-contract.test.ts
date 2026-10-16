@@ -553,8 +553,8 @@ test('CLI JSON keys are stable', POSIX, () => {
     // Renaming or dropping one of these keys is a breaking change (docs/CLI.md "Stability").
     assert.deepEqual(keyPaths(s.json(['job', 'list'])), ['[].effort', '[].id', '[].owner', '[].pr', '[].round', '[].stage', '[].state', '[].title', '[].waitingOn']);
     assert.deepEqual(keyPaths(s.json(['job', 'show', id]), ['lastVerdicts']), [
-      'base', 'branch', 'decision', 'effort', 'estCostUsd', 'id', 'kind', 'lastVerdicts', 'maxRounds', 'noIssue', 'owner', 'port', 'pr', 'progress', 'progress.done', 'progress.total',
-      'reason', 'reviewers', 'round', 'source', 'source.ref', 'source.tracker', 'source.url', 'stage', 'state', 'title', 'tokens', 'verified', 'verified.attempt',
+      'base', 'branch', 'decision', 'effort', 'estCostUsd', 'id', 'issues', 'issues[].ref', 'issues[].tracker', 'issues[].url', 'kind', 'lastVerdicts', 'maxRounds', 'noIssue', 'owner', 'port', 'pr', 'progress', 'progress.done', 'progress.total',
+      'reason', 'reviewers', 'round', 'stage', 'state', 'title', 'tokens', 'verified', 'verified.attempt',
       'verified.ok', 'verified.round', 'verified.sha', 'verify', 'waitingOn', 'worktree',
     ]);
     assert.deepEqual(keyPaths(s.json(['job', 'step', id])), ['action', 'command', 'id', 'rule', 'shell', 'why']);

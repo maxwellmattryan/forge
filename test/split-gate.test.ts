@@ -51,11 +51,11 @@ test('split-approval is a waiting reason jobs can park on and leave', () => {
     const answers = path.join(root, '.answers.json');
     fs.writeFileSync(answers, JSON.stringify({ tracker: { kind: 'local' }, pr: { enabled: false } }));
     f('init', 'write', '--answers', answers);
-    const a = createJob(root, defaults(), { title: 'Big request', ref: 'big-request' });
+    const a = createJob(root, defaults(), { title: 'Big request', issues: [{ tracker: 'local', ref: 'big-request', url: null }] });
     setJob(root, a.id, { stage: 'plan', state: 'waiting', waitingOn: 'split-approval' });
     assert.equal(loadJob(root, a.id).waitingOn, 'split-approval');
 
-    const b = createJob(root, defaults(), { title: 'Other request', ref: 'other-request' });
+    const b = createJob(root, defaults(), { title: 'Other request', issues: [{ tracker: 'local', ref: 'other-request', url: null }] });
     f('job', 'set', b.id, '--stage', 'plan', '--state', 'waiting', '--waiting-on', 'split-approval', '--reason', 'planner proposes 2 jobs');
     const job = loadJob(root, b.id);
     assert.equal(job.stage, 'plan');

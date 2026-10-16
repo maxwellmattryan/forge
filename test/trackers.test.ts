@@ -25,7 +25,7 @@ test('local backlog: create, list, claim, update, close', () => {
     assert.deepEqual(ready.map((i) => i.ref), ['first-thing', 'second-thing']);
     assert.equal(local.get(ctx, 'first-thing').body, 'with a description');
 
-    const job = createJob(repo.dir, config, { title: 'First thing', ref: 'first-thing' });
+    const job = createJob(repo.dir, config, { title: 'First thing', issues: [{ tracker: 'local', ref: 'first-thing', url: null }] });
     assert.deepEqual(local.claim(ctx, 'first-thing', job), { ok: true });
     assert.equal(local.claim(ctx, 'first-thing', { id: 'someone-else' } as any).ok, false);
     ready = local.list(ctx, { ready: true });
@@ -215,7 +215,7 @@ test('local backlog: [?] needs-info mark and note line', () => {
 
     // A [?] item is still claimable on purpose.
     local.setNeedsInfo!(ctx, 'vague-thing', 'a clear outcome');
-    const job = createJob(repo.dir, config, { title: 'Vague thing', ref: 'vague-thing' });
+    const job = createJob(repo.dir, config, { title: 'Vague thing', issues: [{ tracker: 'local', ref: 'vague-thing', url: null }] });
     assert.deepEqual(local.claim(ctx, 'vague-thing', job), { ok: true });
     assert.equal(local.get(ctx, 'vague-thing')!.status, 'in-progress');
     assert.equal(local.get(ctx, 'vague-thing')!.body, 'some words');
@@ -287,6 +287,48 @@ test('github: needs-info label', { skip: process.platform === 'win32' }, async (
     for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
     Object.assign(process.env, saved);
     fs.rmSync(bin, { recursive: true, force: true });
+    repo.cleanup();
+  }
+});
+
+test('mirror and approval comment act on each native issue', async () => {
+  const repo = tempRepo();
+  try {
+    const { commentApproval, mirrorToTracker } = await import('../lib/commands/tracker.ts');
+    const { logEvent, loadJob } = await import('../lib/jobs.ts');
+    const calls: string[] = [];
+    (globalThis as any).__issueRefsCalls = calls;
+    fs.mkdirSync(path.join(repo.dir, '.forge', 'trackers'), { recursive: true });
+    fs.writeFileSync(
+      path.join(repo.dir, '.forge', 'trackers', 'acme.mjs'),
+      `const log = (s) => globalThis.__issueRefsCalls.push(s);
+export default { name: 'acme', list: () => [], get: () => null, claim: () => ({ ok: true }), update(_c, ref, job) { log('update ' + ref + ' ' + job.state); }, comment(_c, ref) { log('comment ' + ref); }, create: () => ({ ref: 'A-9' }), close() {} };
+`,
+    );
+    const config = defaults();
+    config.tracker.kind = 'acme';
+    const acme = (ref: string) => ({ tracker: 'acme', ref, url: null });
+    const a = createJob(repo.dir, config, { title: 'Sharer A', issues: [acme('A-1'), acme('A-2'), { tracker: 'github', ref: 'o/r#3', url: null }] });
+    createJob(repo.dir, config, { title: 'Sharer B', issues: [acme('A-2')] });
+    setJob(repo.dir, a.id, { stage: 'build', state: 'running' });
+    await mirrorToTracker(repo.dir, config, loadJob(repo.dir, a.id));
+    assert.deepEqual(calls.splice(0), ['update A-1 running', 'update A-2 running'], 'each native issue, never another kind');
+    setJob(repo.dir, a.id, { stage: 'done', state: 'done' });
+    await mirrorToTracker(repo.dir, config, loadJob(repo.dir, a.id));
+    assert.deepEqual(calls.splice(0), ['update A-1 done'], 'a finished job leaves a shared issue alone');
+
+    setJob(repo.dir, a.id, { fields: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'MERGED' } } });
+    logEvent(repo.dir, a.id, 'transition', { from: { stage: 'decide', state: 'running', waitingOn: null }, to: { stage: 'decide', state: 'waiting', waitingOn: 'escalation' }, reason: 'auth change' });
+    logEvent(repo.dir, a.id, 'human', { action: 'approve', note: 'ok', actor: { login: 'alice', source: 'env' } });
+    logEvent(repo.dir, a.id, 'transition', { from: { stage: 'decide', state: 'waiting', waitingOn: 'escalation' }, to: { stage: 'integrate', state: 'running', waitingOn: null } });
+    await commentApproval(repo.dir, config, loadJob(repo.dir, a.id));
+    await commentApproval(repo.dir, config, loadJob(repo.dir, a.id));
+    assert.deepEqual(calls.splice(0), ['comment A-1', 'comment A-2'], 'each native issue, once');
+    const { readEvents } = await import('../lib/jobs.ts');
+    const ev = readEvents(repo.dir, a.id).filter((e) => e.type === 'tracker-approval-comment') as any[];
+    assert.deepEqual(ev.map((e) => [e.refs, e.pr]), [[['A-1', 'A-2'], 7]]);
+  } finally {
+    delete (globalThis as any).__issueRefsCalls;
     repo.cleanup();
   }
 });

@@ -34,7 +34,7 @@ function scratch() {
     assert.notEqual(r.status, 0, `forge ${args.join(' ')} should fail: ${r.stdout}`);
     return { status: r.status, ...JSON.parse(r.stdout).error };
   };
-  const job = async (title: string) => (await f('job', 'new', '--title', title, '--ref', title.toLowerCase())).id as string;
+  const job = async (title: string) => (await f('job', 'new', '--title', title, '--ref', title.toLowerCase().replace(/ /g, '-'))).id as string;
   const focusFile = path.join(repo.dir, '.forge', 'runtime', 'focus.json');
   const events = (id: string) =>
     fs

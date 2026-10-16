@@ -1,10 +1,10 @@
-// 1 job = 1 PR = 1 issue: the pure half. It has no runtime imports, because lib/pr.ts and
-// lib/server.ts import it while lib/trackers/github.ts imports lib/pr.ts; the operations that touch
-// trackers and job state live in lib/tracker-link.ts.
+// A job's issue link: the pure half. Its only runtime import is the equally pure lib/issue-ref.ts,
+// because lib/pr.ts and lib/server.ts import it while lib/trackers/github.ts imports lib/pr.ts; the
+// operations that touch trackers and job state live in lib/tracker-link.ts.
+import { REF, linkedIssues } from './issue-ref.ts';
 import type { Config, Job, TrackerItem } from './types.ts';
 
-/** A tracker ref as `forge job link` and the dashboard accept it (after a leading `#` is stripped). */
-export const REF = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+export { REF };
 
 /** Where a job stands on the issue rule; only `missing` asks a human for anything. */
 export type IssueLinkStatus = 'no-tracker' | 'linked' | 'none' | 'exempt' | 'missing';
@@ -12,9 +12,9 @@ export type IssueLinkStatus = 'no-tracker' | 'linked' | 'none' | 'exempt' | 'mis
 /** A tracker item with its search score, best first: scoreItems. */
 export type ScoredItem = TrackerItem & { score: number };
 
-export function issueLinkStatus(job: Pick<Job, 'source' | 'noIssue' | 'kind' | 'parent'>, config: Pick<Config, 'tracker'>): IssueLinkStatus {
+export function issueLinkStatus(job: Pick<Job, 'issues' | 'noIssue' | 'kind' | 'parent'>, config: Pick<Config, 'tracker'>): IssueLinkStatus {
   if (config.tracker.kind === 'none') return 'no-tracker';
-  if (job.source?.ref) return 'linked';
+  if (linkedIssues(job).length) return 'linked';
   if (job.noIssue) return 'none';
   // Split children get the parent's sub-issue when they are created.
   if (job.kind === 'eval' || job.kind === 'retro' || job.parent) return 'exempt';
@@ -74,6 +74,6 @@ export function scoreItems<T extends TrackerItem>(items: T[], terms: string[]): 
 }
 
 /** What `forge pr open` adds to its result: a nudge only while the job still lacks an issue. */
-export function prLinkNote(job: Pick<Job, 'source' | 'noIssue' | 'kind' | 'parent'>, config: Pick<Config, 'tracker'>): { unlinked?: true } {
+export function prLinkNote(job: Pick<Job, 'issues' | 'noIssue' | 'kind' | 'parent'>, config: Pick<Config, 'tracker'>): { unlinked?: true } {
   return issueLinkStatus(job, config) === 'missing' ? { unlinked: true } : {};
 }

@@ -20,7 +20,7 @@ import { createPreviewer, ghRunner, parseGitHubUrl } from './github-preview.ts';
 import type { GhRunner } from './github-preview.ts';
 import { daemonSessionIds, jobSessionEnv, ownerStatusWithProof } from './daemon-owner.ts';
 import { RUNNING_AGENT_MAX_MS, createJob, isActive, listJobs, loadJob, ownerStatus, progress, readEvents, jobDir, requestBody, setJobEffort } from './jobs.ts';
-import { normalizeRef } from './issue-link.ts';
+import { parseIssueRef } from './issue-ref.ts';
 import { paths, exists, DEV_DIST_DIR, PLUGIN_ROOT } from './paths.ts';
 import { API_VERSION, CONFIG_SCHEMA_VERSION, EFFORTS, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from './schema.ts';
 import { computeStats } from './stats.ts';
@@ -61,7 +61,6 @@ import type {
   ForgeTruncatedLine,
   JobDetail,
   JobEvent,
-  JobSource,
   LastHuman,
   LoadedJob,
   PermissionDecision,
@@ -272,7 +271,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         const body: Record<string, any> = parsed.body && typeof parsed.body === 'object' && !Array.isArray(parsed.body) ? parsed.body : {};
         // Only the CLI's park and sync paths write gate requests: they carry the reserved check's result.
         if (body.type === 'gate') return jsonStatus(res, 400, { error: 'gate requests are written only by forge job set and forge pr sync' });
-        const problem = requestArgsProblem(body);
+        const problem = requestArgsProblem(body, loadConfig(root).config.tracker.kind);
         if (problem) return jsonStatus(res, 400, { error: problem });
         const held = resumeHeld(root, body);
         if (held) return jsonStatus(res, 409, { error: held });
@@ -829,14 +828,16 @@ function resumeHeld(root: string, body: Record<string, any>): string | null {
 }
 
 /** POST /api/requests: the args a request type may carry beyond what enqueue checks. Null when fine. */
-function requestArgsProblem(body: Record<string, any>): string | null {
+function requestArgsProblem(body: Record<string, any>, trackerKind: string): string | null {
   const args = body.args;
+  // Syntax only, with no slug, so `#12` passes as it is; the CLI qualifies and checks it again.
+  const isRef = (v: unknown) => parseIssueRef(v, { tracker: trackerKind, slug: null }) !== null;
   // The inbox session puts a run's ref on `forge job from-ref <ref>`, so it is checked here, not only in the bar.
-  if (body.type === 'run' && !normalizeRef(args?.ref)) return 'args.ref must be an issue ref';
+  if (body.type === 'run' && !isRef(args?.ref)) return 'args.ref must be an issue ref';
   if (!args || typeof args !== 'object' || Array.isArray(args)) return null;
   if (Object.prototype.hasOwnProperty.call(args, 'link')) {
     if (body.type !== 'approve') return 'args.link is only for approve requests';
-    if (args.link !== 'new' && args.link !== 'none' && !normalizeRef(args.link)) return 'args.link must be "new", "none" or an issue ref';
+    if (args.link !== 'new' && args.link !== 'none' && !isRef(args.link)) return 'args.link must be "new", "none" or an issue ref';
   }
   if (Object.prototype.hasOwnProperty.call(args, 'n')) {
     if (body.type !== 'next') return 'args.n is only for next requests';
@@ -1131,8 +1132,12 @@ function jobDetail(root: string, id: string, projects: string): JobDetail {
   };
   files.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, undefined, { numeric: true }));
   const events = readEvents(root, id);
-  // `forge job link` and `--create` set job.source later, so only the source at creation says request.md is tracker text.
-  const createdSource = events.find((e) => e.type === 'created')?.source as Partial<JobSource> | null | undefined;
+  // `forge job link` and `--create` add issues later, so only the issues at creation say request.md
+  // is tracker text. A job created before v11 logged a `source` instead.
+  const created = events.find((e) => e.type === 'created');
+  const createdIssues = Array.isArray(created?.issues) ? (created.issues as unknown[]) : [];
+  const createdSource = created?.source as { ref?: unknown } | null | undefined;
+  const fromTracker = createdIssues.some((i) => Boolean(i && typeof i === 'object' && (i as { ref?: unknown }).ref)) || Boolean(createdSource?.ref);
   return {
     job: { ...job, progress: progress(root, id), ownerStatus: ownerStatusWithProof(root, job, { env: jobSessionEnv(job.id) }) },
     events: events.slice(-400),
@@ -1140,7 +1145,7 @@ function jobDetail(root: string, id: string, projects: string): JobDetail {
     screenshots: listScreenshots(dir),
     requests: listRequests(root).filter((r) => r.job === id).slice(-MAX_JOB_REQUESTS),
     request: requestExcerpt(root, id),
-    requestFromTracker: Boolean(createdSource?.ref),
+    requestFromTracker: fromTracker,
     agents: roundAgents(root, job, events, projects),
     ownerTranscript: ((o) => (o ? { session: o.session } : null))(interactiveOwner(root, job, projects)),
   };

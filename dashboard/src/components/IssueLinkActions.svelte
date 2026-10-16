@@ -50,7 +50,7 @@
   {/if}
   <div class="flex flex-wrap items-center gap-2">
     <label for={refId} class="text-xs text-muted">{$t('issueLink.otherRef')}</label>
-    <input id={refId} type="text" class="w-40" autocomplete="off" placeholder={$t('issueLink.otherPlaceholder')} bind:value={other} />
+    <input id={refId} type="text" class="min-w-0 max-w-full grow basis-80" autocomplete="off" placeholder={$t('issueLink.otherPlaceholder')} bind:value={other} />
     <button class="btn" disabled={!otherRef} onclick={() => otherRef && link(otherRef)}>{approving ? $t('issueLink.approveLink') : $t('issueLink.link')}</button>
   </div>
   <div class="flex flex-wrap gap-2">

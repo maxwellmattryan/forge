@@ -3,12 +3,13 @@
 // strands jobs or configs written by an older version. A file from a *newer* plugin is
 // refused rather than guessed at.
 import { servicesToComponents } from './components.ts';
-import type { EventActor, Job, JobEvent, LoadedJob } from './types.ts';
+import { isSafeUrl, isStoredRef, sameIssue } from './issue-ref.ts';
+import type { EventActor, Job, JobEvent, JobIssue, LoadedJob } from './types.ts';
 
 export { COMPONENT_KINDS, DEPENDENCY_TYPES } from './components.ts';
 
 export const CONFIG_SCHEMA_VERSION = 10;
-export const JOB_SCHEMA_VERSION = 10;
+export const JOB_SCHEMA_VERSION = 11;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
 export const ARCHIVE_SCHEMA_VERSION = 1;
@@ -16,7 +17,7 @@ export const ARCHIVE_SCHEMA_VERSION = 1;
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 25;
+export const API_VERSION = 26;
 
 /**
  * Where an event's `actor` came from: lib/actor.ts resolves env, gh, git, os and dashboard; the
@@ -173,7 +174,62 @@ const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
   8: (j) => ({ ...j, complexity: j.complexity ?? null }),
   // v10 adds the protected-paths flag the CLI records. A v9 job has none; pr open recomputes anyway.
   9: (j) => ({ ...j, protectedPaths: j.protectedPaths ?? null }),
+  // v11 gives a job a list of issues instead of one `source`, so a job can carry issues from several
+  // repos and an issue can sit on several jobs. A GitHub source whose url names its repo is
+  // qualified (`owner/repo#12`); one without stays a bare number, which still reads as this repo.
+  10: (j) => {
+    const { source, ...rest } = j;
+    return { ...rest, issues: j.issues ?? sourceToIssues(source) };
+  },
 };
+
+const MAX_TRACKER = 40;
+const MAX_URL = 2000;
+const ISSUE_URL = /^https:\/\/[A-Za-z0-9.-]{1,253}(?::\d{1,5})?\/([A-Za-z0-9][A-Za-z0-9._-]{0,99})\/([A-Za-z0-9][A-Za-z0-9._-]{0,99})\/issues\/(\d{1,10})$/;
+
+/** A v10 `source` as the v11 list: one entry, or none for a null source. */
+export function sourceToIssues(source: unknown): unknown[] {
+  if (!source || typeof source !== 'object') return [];
+  const s = source as { tracker?: unknown; ref?: unknown; url?: unknown };
+  let ref = typeof s.ref === 'number' ? String(s.ref) : s.ref ?? null;
+  const url = s.url ?? null;
+  if (s.tracker === 'github' && typeof ref === 'string' && /^\d+$/.test(ref) && typeof url === 'string') {
+    const m = ISSUE_URL.exec(url);
+    if (m && m[3] === ref && !m[1].includes('..') && !m[2].includes('..')) ref = `${m[1]}/${m[2]}#${ref}`;
+  }
+  // `forge job new --ref` stored refs unchecked before v11, so an old ref may fail the grammar
+  // (`ends done`). Dropping it would unlink the job and park it again at the issue-link gate, so it
+  // is kept in the nearest form the grammar accepts.
+  if (typeof ref === 'string' && typeof s.tracker === 'string' && !isStoredRef(ref, s.tracker)) ref = legacyRef(ref, s.tracker);
+  return [{ tracker: s.tracker, ref, url }];
+}
+
+function legacyRef(raw: string, tracker: string): string | null {
+  const ref = raw.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/\.{2,}/g, '.').replace(/^[^A-Za-z0-9]+/, '').slice(0, 100).replace(/[-.]+$/, '');
+  return isStoredRef(ref, tracker) ? ref : null;
+}
+
+/**
+ * A stored issue list, every entry checked: hand edits and older Forges write job.json, and refs
+ * reach PR bodies and the dashboard. A malformed entry or a duplicate is dropped; nothing throws.
+ */
+export function cleanIssues(raw: unknown): JobIssue[] {
+  if (!Array.isArray(raw)) return [];
+  const out: JobIssue[] = [];
+  for (const e of raw) {
+    if (!e || typeof e !== 'object' || Array.isArray(e)) continue;
+    const { tracker, ref, url } = e as Record<string, unknown>;
+    if (typeof tracker !== 'string' || !tracker || tracker.length > MAX_TRACKER) continue;
+    if (ref != null && !isStoredRef(ref, tracker)) continue;
+    if (url != null && (typeof url !== 'string' || url.length > MAX_URL)) continue;
+    // The url is written raw into the PR body, so a newline in it could append markdown there.
+    const issue: JobIssue = { tracker, ref: (ref as string | null | undefined) ?? null, url: isSafeUrl(url) ? url : null };
+    if (!issue.ref && !issue.url) continue;
+    const dup = out.some((o) => (issue.ref ? sameIssue(o, issue) : !o.ref && o.url === issue.url));
+    if (!dup) out.push(issue);
+  }
+  return out;
+}
 
 function failedVerifiesByRound(runs: any[]): Record<string, number> {
   const out: Record<string, number> = {};
@@ -208,14 +264,17 @@ export function normalizeJob(raw: any): LoadedJob {
     job = JOB_MIGRATIONS[v](job);
     v++;
   }
+  // A current-version file may still carry `source` (a hand edit, or a write that raced the
+  // upgrade): folded the same way, then dropped, so no reader can see both.
+  const { source: legacySource, ...rest } = job;
   return {
-    ...job,
+    ...rest,
     schemaVersion: JOB_SCHEMA_VERSION,
     id: job.id,
     title: job.title ?? job.id,
     kind: job.kind ?? 'feature',
     size: job.size ?? null,
-    source: job.source ?? null,
+    issues: cleanIssues(job.issues ?? (legacySource !== undefined ? sourceToIssues(legacySource) : [])),
     noIssue: job.noIssue ?? null,
     parent: job.parent ?? null,
     children: job.children ?? [],

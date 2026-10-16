@@ -8,7 +8,7 @@
   import { req } from '../lib/app.svelte.ts';
   import type { Job } from '../lib/types.ts';
 
-  let { job: j, noteId }: { job: Pick<Job, 'id' | 'state' | 'waitingOn' | 'reason' | 'source' | 'noIssue'>; noteId: string } = $props();
+  let { job: j, noteId }: { job: Pick<Job, 'id' | 'state' | 'waitingOn' | 'reason' | 'issues' | 'noIssue'>; noteId: string } = $props();
   const kind = $derived(inboxKind(j));
   const pending = $derived(specLinkPending(j));
   const placeholder = $derived(notePlaceholder(kind, { linkPending: pending }));

@@ -111,7 +111,7 @@ test('roundVerdicts: an integration review is MISSING only for a reviewer starte
   try {
     const root = repo.dir;
     const config = defaults();
-    const job = createJob(root, config, { title: 'Integration missing', ref: 'integ-missing' });
+    const job = createJob(root, config, { title: 'Integration missing', issues: [{ tracker: 'local', ref: 'integ-missing', url: null }] });
     const integ = () => roundVerdicts(root, job.id, 'integration', ['code'], ['blocker', 'major']);
     recordAgent(root, job.id, { role: 'reviewer:code', phase: 'start' }, config);
     recordAgent(root, job.id, { role: 'reviewer:code', phase: 'end' }, config);
