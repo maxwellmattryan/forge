@@ -1,9 +1,9 @@
-// Shapes of the forge dash HTTP API for API_VERSION 18. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 19. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
 
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 18;
+export const API_VERSION = 19;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 /** lib/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */
@@ -420,7 +420,49 @@ export interface DaemonLogPage {
 }
 
 /** A job row in /api/state: state() in lib/server.ts. */
-export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; gateOwner: GateOwner };
+/** What a transcript's agent did last. Plain text, at most 160 characters. */
+export interface TranscriptActivity {
+  kind: 'tool' | 'text';
+  text: string;
+  at: string | null;
+}
+
+/** One running agent of a job in /api/state. `last` is null when no transcript is found. */
+export interface AgentActivity {
+  role: string;
+  model: string | null;
+  startedAt: string | null;
+  last: TranscriptActivity | null;
+}
+
+/** One agent of the job's current round (or still running) in the job detail. */
+export interface AgentRow {
+  role: string;
+  status: string | null;
+  model: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  /** endedAt − startedAt; null while running or when either is unknown. */
+  durationMs: number | null;
+  /** usage.totalTokens of this run's agent-end event, else null. */
+  tokens: number | null;
+  /** Its transcript was found. */
+  transcript: boolean;
+}
+
+/** GET /api/jobs/:id/transcript: a page of an agent's or the interactive owner's transcript, read backwards. */
+export interface TranscriptPage {
+  job: string;
+  source: 'agent' | 'owner';
+  /** The agent's role; null for the owner. */
+  role: string | null;
+  lines: { offset: number; line: string }[];
+  start: number;
+  end: number;
+  more: boolean;
+}
+
+export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner };
 
 /** Request types the inbox accepts: REQUEST_TYPES in lib/requests.ts. */
 export type RequestType = 'next' | 'run' | 'approve' | 'revise-spec' | 'rework' | 'answer' | 'cancel' | 'resume' | 'sync' | 'eval-run' | 'retro' | 'gate';
@@ -474,6 +516,10 @@ export interface JobDetail {
   request: string | null;
   /** The job's `created` event has a ref (from-ref), so `request` is the issue's text. A later `job link` doesn't count. */
   requestFromTracker: boolean;
+  /** The current round's agent records plus any still running, newest start first. */
+  agents: AgentRow[];
+  /** The owner is an interactive (non-daemon) session whose transcript exists; null otherwise. */
+  ownerTranscript: { session: string } | null;
 }
 
 /**

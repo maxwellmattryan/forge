@@ -225,6 +225,7 @@
       "one": "{count} new",
       "other": "{count} new"
     },
+    "agentsTab": "Agents",
     "foreman": "foreman"
   },
   "inbox": {
@@ -563,7 +564,9 @@
       "autoHint": "Claude Code approves routine calls itself and asks you only about risky ones. Lasts until forge dash restarts",
       "dontAskHint": "Tool calls outside daemon.allowedTools are refused without asking",
       "autoWarning": "Auto mode: this unattended session approves most tool calls without you. Switch back to Ask when you are done watching it."
-    }
+    },
+    "interactive": "Interactive session {session} · read-only",
+    "transcriptEmpty": "No transcript lines yet."
   },
   "command": {
     "open": "New job or command",
@@ -777,5 +780,23 @@
     "session": "Show session log as",
     "rendered": "Rendered",
     "raw": "Raw"
+  },
+  "activity": {
+    "label": "Running agents",
+    "running": "running {elapsed}",
+    "more": "+{count} more",
+    "runningCount": {
+      "one": "{count} running",
+      "other": "{count} running"
+    },
+    "owner": "owner {status} · {age}"
+  },
+  "agentsTab": {
+    "role": "Role",
+    "status": "Status",
+    "duration": "Duration",
+    "empty": "No agents in this round yet",
+    "noTranscript": "No transcript for this agent",
+    "transcript": "{role} transcript · read-only"
   }
 }

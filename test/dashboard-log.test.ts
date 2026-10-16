@@ -210,3 +210,45 @@ test('CLOSED is final until the tab is reopened; CONNECTING changes nothing; sta
   assert.deepEqual(h.offsets(), [1], 'a dropped source no longer feeds the buffer');
   h.log.dispose();
 });
+
+test('custom transcript urls', async () => {
+  const sources: FakeSource[] = [];
+  const calls: { url: string; init: any }[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string, init?: any) => {
+    calls.push({ url, init });
+    return new Response(JSON.stringify(pageOf([5, 9], true)), { status: 200 });
+  }) as any;
+  try {
+    const log = createSessionLog({
+      scope: 'job-a',
+      onChange: () => {},
+      connect: (url) => {
+        const s = new FakeSource(url);
+        sources.push(s);
+        return s;
+      },
+      visible: () => true,
+      urls: { events: '/api/jobs/job-a/transcript/events?agent=builder&token=t0', page: (before) => `/api/jobs/job-a/transcript?agent=builder${before === undefined ? '' : `&before=${before}`}`, headers: { 'x-forge-token': 't0' } },
+    });
+    log.sync(true);
+    await tick();
+    await tick();
+    assert.deepEqual(calls.map((c) => c.url), ['/api/jobs/job-a/transcript?agent=builder']);
+    assert.deepEqual(calls[0].init, { headers: { 'x-forge-token': 't0' } });
+    assert.equal(sources.length, 1);
+    assert.equal(sources[0].url, '/api/jobs/job-a/transcript/events?agent=builder&token=t0');
+    assert.deepEqual(log.entries.map((e) => e.offset), [5, 9]);
+    await log.loadOlder();
+    assert.equal(calls[1].url, '/api/jobs/job-a/transcript?agent=builder&before=5');
+    log.dispose();
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  // Without urls, the daemon endpoints stay.
+  const h = harness({ pages: [pageOf([1])] });
+  h.log.sync(true);
+  await tick();
+  assert.equal(h.sources[0].url, eventsUrl('job-a'));
+  h.log.dispose();
+});

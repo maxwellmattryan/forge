@@ -13,8 +13,8 @@ import type { DaemonPool, PoolState } from './daemon-pool.ts';
 import { doctor } from './doctor.ts';
 import { createPreviewer, ghRunner, parseGitHubUrl } from './github-preview.ts';
 import type { GhRunner } from './github-preview.ts';
-import { jobSessionEnv, ownerStatusWithProof } from './daemon-owner.ts';
-import { createJob, listJobs, loadJob, ownerStatus, progress, readEvents, jobDir, requestBody, setJobEffort } from './jobs.ts';
+import { daemonSessionIds, jobSessionEnv, ownerStatusWithProof } from './daemon-owner.ts';
+import { RUNNING_AGENT_MAX_MS, createJob, listJobs, loadJob, ownerStatus, progress, readEvents, jobDir, requestBody, setJobEffort } from './jobs.ts';
 import { normalizeRef } from './issue-link.ts';
 import { paths, exists, DEV_DIST_DIR, PLUGIN_ROOT } from './paths.ts';
 import { API_VERSION, CONFIG_SCHEMA_VERSION, EFFORTS, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from './schema.ts';
@@ -25,9 +25,13 @@ import { gateOwner } from './foreman.ts';
 import { loadTracker } from './trackers/index.ts';
 import { roster } from './roster.ts';
 import { deriveTitle, normalizeTitle } from './title.ts';
+import { agentTranscript, cachedActivity, claudeProjectsDir, openTranscript, ownerTranscript } from './transcripts.ts';
+import type { TranscriptHit } from './transcripts.ts';
 import { getPath, readJson, readText } from './util.ts';
 import type {
   AboutResponse,
+  AgentActivity,
+  AgentRow,
   ApiError,
   ApiState,
   BacklogResponse,
@@ -40,6 +44,7 @@ import type {
   GitHubPreviewResponse,
   ForgeTruncatedLine,
   JobDetail,
+  JobEvent,
   JobSource,
   LoadedJob,
   PermissionDecision,
@@ -48,6 +53,7 @@ import type {
   PostJobEffortResponse,
   PostJobResponse,
   PostRequestResponse,
+  TranscriptPage,
 } from './types.ts';
 
 /** startServer's options. `distDir` is a test seam like `sseMaxAgeMs`. */
@@ -65,6 +71,8 @@ export interface ServerOptions {
   dev?: boolean;
   /** Test seam: what runs gh for GitHub previews. */
   ghRun?: GhRunner;
+  /** Test seam: Claude Code's projects dir (claudeProjectsDir() by default). */
+  projectsDir?: string;
 }
 
 /** A listening dashboard server: what startServer resolves to. */
@@ -94,6 +102,12 @@ const SSE_PING_MS = 15_000;
 // Streams are recycled (EventSource reconnects with Last-Event-ID), so an idle tab can't hold one
 // of the few slots forever.
 const SSE_MAX_AGE_MS = 5 * 60_000;
+/** A transcript stream starts with at most this much of the file's end. */
+const TRANSCRIPT_TAIL_BYTES = 64 * 1024;
+/** How much of a transcript one poll (or a Last-Event-ID resume) reads at most. */
+const TRANSCRIPT_READ_BYTES = 1024 * 1024;
+const TRANSCRIPT_POLL_MS = 1000;
+const NO_TRANSCRIPT = 'no transcript';
 const DIST_DIR = path.join(PLUGIN_ROOT, 'dashboard', 'dist');
 const NOT_BUILT = 'dashboard is not built: run npm run build:dashboard';
 const DEV_NOT_BUILT = 'dashboard dev build is not ready: npm run dev is still building it; reload in a moment';
@@ -117,6 +131,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
   const distDir = distDirFor(opts);
   const notBuilt = opts.dev ? DEV_NOT_BUILT : NOT_BUILT;
   const previewGitHub = createPreviewer({ run: opts.ghRun ?? ghRunner(root) });
+  const projects = opts.projectsDir ?? claudeProjectsDir();
   let backlogCache: { at: number; data: BacklogResponse } | null = null;
   /** Open event streams and the session each one follows; MAX_SSE_CLIENTS counts them all. */
   const clients = new Map<http.ServerResponse, string>();
@@ -137,7 +152,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         return hit ? immutable(res, hit) : send(res, 404, 'text/plain', 'not found');
       }
       if (req.method === 'GET' && p === '/forge.png') return sendFile(res, path.join(PLUGIN_ROOT, 'assets', 'forge.png'), 'image/png');
-      if (req.method === 'GET' && p === '/api/state') return json(res, state(root, poolState()));
+      if (req.method === 'GET' && p === '/api/state') return json(res, state(root, poolState(), projects));
       if (req.method === 'GET' && p === '/api/events') return events(req, res, url);
       if (req.method === 'GET' && p === '/api/daemons/log') return sessionLog(req, res, url);
       if (req.method === 'GET' && p === '/api/stats') return json(res, computeStats(root, { since: url.searchParams.get('since') ?? undefined }));
@@ -187,11 +202,13 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         pool?.poke();
         return json(res, { id: job.id, title: job.title, branch: job.branch, request, daemon: Boolean(pool?.state().wanted) } satisfies PostJobResponse);
       }
-      const m = p.match(/^\/api\/jobs\/([A-Za-z0-9._-]+)(\/file|\/raw)?$/);
+      const m = p.match(/^\/api\/jobs\/([A-Za-z0-9._-]+)(\/file|\/raw|\/transcript|\/transcript\/events)?$/);
       if (req.method === 'GET' && m) {
         const id = m[1];
         // The detail's owner proof can spawn `ps`, so other sites may not trigger it (as for the log routes).
-        if (!m[2]) return readGuard(req, res) ? undefined : json(res, jobDetail(root, id));
+        if (!m[2]) return readGuard(req, res) ? undefined : json(res, jobDetail(root, id, projects));
+        if (m[2] === '/transcript') return transcriptPage(req, res, id, url);
+        if (m[2] === '/transcript/events') return transcriptEvents(req, res, id, url);
         const rel = url.searchParams.get('path') ?? '';
         const file = safeJoin(jobDir(root, id), rel);
         if (file && m[2] === '/file' && IMAGE_TYPES[path.extname(file).toLowerCase()]) return sendImage(res, jobDir(root, id), file);
@@ -354,10 +371,142 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       clearTimeout(recycle);
       clients.delete(res);
     });
-    if (!ping) {
-      ping = setInterval(() => broadcast(clients, ': ping\n\n'), opts.ssePingMs ?? SSE_PING_MS);
-      ping.unref();
+    startPing();
+  }
+
+  function startPing(): void {
+    if (ping) return;
+    ping = setInterval(() => broadcast(clients, ': ping\n\n'), opts.ssePingMs ?? SSE_PING_MS);
+    ping.unref();
+  }
+
+  /**
+   * The transcript a transcript route asked for, located from job state only: `agent` must be an own
+   * key of job.agents, and without it the owner must be an interactive session. No query value is
+   * ever used as a path or a path segment. Null for anything else, which the routes answer with 404.
+   */
+  function locateTranscript(id: string, url: URL): { hit: TranscriptHit; source: 'agent' | 'owner'; role: string | null } | null {
+    if (!validJobId(id) || !exists(path.join(jobDir(root, id), 'job.json'))) return null;
+    let job: LoadedJob;
+    try {
+      job = loadJob(root, id);
+    } catch {
+      return null;
     }
+    if (url.searchParams.has('agent')) {
+      const role = url.searchParams.get('agent') ?? '';
+      if (!Object.hasOwn(job.agents, role)) return null;
+      const hit = agentTranscript(root, job, role, { projects });
+      return hit ? { hit, source: 'agent', role } : null;
+    }
+    const hit = interactiveOwner(root, job, projects);
+    return hit ? { hit, source: 'owner', role: null } : null;
+  }
+
+  /**
+   * GET /api/jobs/<id>/transcript: a page of an agent's (or the interactive owner's) Claude Code
+   * transcript, read backwards from `before` like /api/daemons/log. Transcripts can hold anything
+   * a session read, so it takes the token like a POST as well as the read checks.
+   */
+  function transcriptPage(req: http.IncomingMessage, res: http.ServerResponse, id: string, url: URL): void {
+    if (readGuard(req, res) || guardToken(req, res, token)) return;
+    const rawBefore = url.searchParams.get('before');
+    const before = rawBefore === null || rawBefore === '' ? null : Number(rawBefore);
+    if (before !== null && !(Number.isSafeInteger(before) && before >= 0)) return jsonStatus(res, 400, { error: 'before must be a transcript offset' });
+    const found = locateTranscript(id, url);
+    const t = found ? openTranscript(found.hit, projects) : null;
+    if (!found || !t) return jsonStatus(res, 404, { error: NO_TRANSCRIPT });
+    try {
+      const page = readLogPage(t.fd, t.size, 0, { before });
+      return json(res, { job: id, source: found.source, role: found.role, ...page } satisfies TranscriptPage);
+    } catch {
+      return jsonStatus(res, 404, { error: NO_TRANSCRIPT });
+    } finally {
+      fs.closeSync(t.fd);
+    }
+  }
+
+  /**
+   * GET /api/jobs/<id>/transcript/events: the transcript's last ≤64 KiB of complete lines (or what
+   * follows Last-Event-ID), then each line appended later. EventSource can't send headers, so the
+   * token comes as a query parameter, compared in constant time. One descriptor, opened through
+   * openTranscript, is held for the stream's life, so a symlink swapped in later can't redirect it.
+   * The stream's scope contains `:`, which no session scope can, so pool frames never reach it.
+   */
+  function transcriptEvents(req: http.IncomingMessage, res: http.ServerResponse, id: string, url: URL): void {
+    if (readGuard(req, res)) return;
+    if (!tokenMatches(url.searchParams.get('token'), token)) return send(res, 403, 'text/plain', 'bad token');
+    if (clients.size >= MAX_SSE_CLIENTS) return send(res, 503, 'text/plain', 'too many event streams');
+    const found = locateTranscript(id, url);
+    const t = found ? openTranscript(found.hit, projects) : null;
+    if (!found || !t) return jsonStatus(res, 404, { error: NO_TRANSCRIPT });
+    const fd = t.fd;
+    res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+    res.write('retry: 3000\n\n');
+    clients.set(res, `transcript:${id}:${found.role ?? 'owner'}`);
+    const last = Number(req.headers['last-event-id']);
+    const resume = req.headers['last-event-id'] !== undefined && Number.isSafeInteger(last) && last >= 0 && last < t.size && t.size - last <= TRANSCRIPT_READ_BYTES;
+    // From Last-Event-ID, the line at that offset is the one the client has: skip it.
+    let pos = resume ? last : Math.max(0, t.size - TRANSCRIPT_TAIL_BYTES);
+    let skipPartial = resume || pos > 0;
+    if (pos > 0 && !resume) pos -= 1;
+    let size = t.size;
+    let closed = false;
+    const pump = (): void => {
+      if (closed) return;
+      try {
+        const now = fs.fstatSync(fd).size;
+        if (now < size) {
+          // Truncated or rewritten: start over.
+          pos = 0;
+          skipPartial = false;
+        }
+        size = now;
+        while (pos < size) {
+          const len = Math.min(size - pos, TRANSCRIPT_READ_BYTES);
+          const buf = Buffer.alloc(len);
+          const n = fs.readSync(fd, buf, 0, len, pos);
+          if (n <= 0) break;
+          const chunk = buf.subarray(0, n);
+          const lastNl = chunk.lastIndexOf(0x0a);
+          if (lastNl === -1) {
+            // No complete line yet: wait for it, unless one line is over the read cap.
+            if (n < TRANSCRIPT_READ_BYTES) break;
+            if (!skipPartial) res.write(lineFrame(pos, JSON.stringify({ type: 'forge-truncated', originalType: null, bytes: n } satisfies ForgeTruncatedLine)));
+            skipPartial = true;
+            pos += n;
+            continue;
+          }
+          let at = 0;
+          while (at <= lastNl) {
+            const nl = chunk.indexOf(0x0a, at);
+            if (skipPartial) skipPartial = false;
+            else {
+              const line = chunk.subarray(at, nl).toString('utf8');
+              if (line.trim()) res.write(lineFrame(pos + at, line));
+            }
+            at = nl + 1;
+          }
+          pos += lastNl + 1;
+          if (res.writableLength > SSE_SLOW_CLIENT_BYTES) return void res.end();
+        }
+      } catch {
+        res.end();
+      }
+    };
+    pump();
+    const poll = setInterval(pump, TRANSCRIPT_POLL_MS);
+    poll.unref();
+    const recycle = setTimeout(() => res.end(), opts.sseMaxAgeMs ?? SSE_MAX_AGE_MS);
+    recycle.unref();
+    res.on('close', () => {
+      closed = true;
+      clearInterval(poll);
+      clearTimeout(recycle);
+      clients.delete(res);
+      fs.closeSync(fd);
+    });
+    startPing();
   }
 
   /**
@@ -614,14 +763,14 @@ function isLoopbackHost(host: string | undefined): boolean {
   return name === '127.0.0.1' || name === 'localhost' || name === '[::1]';
 }
 
-function state(root: string, daemons: DaemonPoolState): ApiState {
+function state(root: string, daemons: DaemonPoolState, projects: string): ApiState {
   const { config, initialized } = loadConfig(root);
   const requests = listRequests(root);
   const jobs = listJobs(root).map((j) => {
     const events = readEvents(root, j.id);
     const last = events[events.length - 1] ?? null;
     // The time rule only, so polling never spawns `ps`; the job detail adds the daemon proofs.
-    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: ownerStatus(j), gateOwner: gateOwner(root, config, j, requests) };
+    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: ownerStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests) };
   });
   return {
     apiVersion: API_VERSION,
@@ -646,11 +795,68 @@ function state(root: string, daemons: DaemonPoolState): ApiState {
   };
 }
 
+const startMs = (s: string | null | undefined): number => (s ? Date.parse(s) : NaN);
+const newestFirst = (a: { startedAt?: string | null }, b: { startedAt?: string | null }): number => (startMs(b.startedAt) || 0) - (startMs(a.startedAt) || 0);
+
+/**
+ * One line per running agent (under ownerStatus's 2 h ceiling), newest first, each with what its
+ * transcript says it did last. The tail read is bounded and cached, so the 2 s poll stays cheap.
+ */
+function jobActivity(root: string, job: LoadedJob, projects: string, at = Date.now()): AgentActivity[] {
+  const out: AgentActivity[] = [];
+  for (const [role, a] of Object.entries(job.agents ?? {})) {
+    if (a?.status !== 'running' || !(at - startMs(a.startedAt) < RUNNING_AGENT_MAX_MS)) continue;
+    const hit = agentTranscript(root, job, role, { projects });
+    out.push({ role, model: a.model ?? null, startedAt: a.startedAt ?? null, last: hit ? cachedActivity(hit, projects, { worktree: job.worktree, root }) : null });
+  }
+  return out.sort(newestFirst);
+}
+
+/** The current round's agent records plus any still running, newest first, with each run's tokens from its agent-end event. */
+function roundAgents(root: string, job: LoadedJob, events: JobEvent[], projects: string): AgentRow[] {
+  const rows: AgentRow[] = [];
+  for (const [role, a] of Object.entries(job.agents ?? {})) {
+    if (!a || (a.round !== job.round && a.status !== 'running')) continue;
+    const started = startMs(a.startedAt);
+    const running = a.status === 'running';
+    const end = running ? undefined : events.findLast((e) => e.type === 'agent-end' && e.role === role && !(Date.parse(e.ts) < started));
+    const tokens = end?.usage?.totalTokens;
+    const ended = startMs(a.endedAt);
+    rows.push({
+      role,
+      status: a.status ?? null,
+      model: a.model ?? null,
+      startedAt: a.startedAt ?? null,
+      endedAt: a.endedAt ?? null,
+      durationMs: !running && Number.isFinite(started) && Number.isFinite(ended) ? Math.max(0, ended - started) : null,
+      tokens: typeof tokens === 'number' && Number.isFinite(tokens) ? tokens : null,
+      transcript: agentTranscript(root, job, role, { projects }) !== null,
+    });
+  }
+  return rows.sort(newestFirst);
+}
+
+/** The owner's transcript when the owner is an interactive session: in no daemon session record. */
+function interactiveOwner(root: string, job: LoadedJob, projects: string): (TranscriptHit & { session: string }) | null {
+  const sid = job.owner?.session;
+  if (typeof sid !== 'string' || !UUID.test(sid) || daemonSessionIds(root).includes(sid)) return null;
+  const hit = ownerTranscript(root, job, { projects });
+  return hit ? { ...hit, session: sid } : null;
+}
+
+/** The SSE token from a query parameter, compared in constant time. */
+function tokenMatches(given: string | null, token: string): boolean {
+  if (typeof given !== 'string') return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(token);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 function validCap(n: unknown): number | null {
   return typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 16 ? n : null;
 }
 
-function jobDetail(root: string, id: string): JobDetail {
+function jobDetail(root: string, id: string, projects: string): JobDetail {
   const job = loadJob(root, id);
   const dir = jobDir(root, id);
   const files: string[] = [];
@@ -681,6 +887,8 @@ function jobDetail(root: string, id: string): JobDetail {
     requests: listRequests(root).filter((r) => r.job === id).slice(-MAX_JOB_REQUESTS),
     request: requestExcerpt(root, id),
     requestFromTracker: Boolean(createdSource?.ref),
+    agents: roundAgents(root, job, events, projects),
+    ownerTranscript: ((o) => (o ? { session: o.session } : null))(interactiveOwner(root, job, projects)),
   };
 }
 

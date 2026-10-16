@@ -1,6 +1,8 @@
 <!-- The job drawer and its backdrop. It renders the drawerView snapshot, so it changes only where the old renderDrawer() ran. -->
 <script lang="ts">
   import ActionDock from './ActionDock.svelte';
+  import AgentActivity from './AgentActivity.svelte';
+  import AgentsTab from './AgentsTab.svelte';
   import CloseButton from './CloseButton.svelte';
   import CommandTrigger from './CommandTrigger.svelte';
   import Banner from './Banner.svelte';
@@ -45,6 +47,12 @@
   // Timeline rows are newest first, so the first `fresh` arrived after the drawer opened.
   const fresh = $derived(shown ? freshCount(shown.detail.events.length, S.drawer.eventsAtOpen) : 0);
   const unread = $derived(shown && job ? unreadCount(threadMarks(threadItems(shown.detail.requests ?? [], threadOpening(shown.detail), shown.detail.events ?? [])), S.threadSeen[job.id] ?? null) : 0);
+  // The live activity comes with /api/state (polled every 2 s); the detail carries the round's agents.
+  const stateJob = $derived(job ? (S.data?.jobs?.find((x) => x.id === job.id) ?? null) : null);
+  const running = $derived(stateJob?.activity ?? []);
+  // An interactive owner's transcript takes the Log tab's place of the (absent) daemon session's log.
+  const ownerLog = $derived(job && shown?.detail.ownerTranscript ? { job: job.id, agent: null, label: $t('session.interactive', { session: shown.detail.ownerTranscript.session.slice(0, 8) }) } : null);
+  const logKey = $derived(ownerLog && job ? `${job.id}:owner` : (job?.id ?? ''));
   let body = $state<HTMLDivElement>();
   let head = $state<HTMLDivElement>();
   // Closing the drawer, or opening another job from inside it, starts the next view at the top. A 2 s poll keeps the
@@ -88,16 +96,19 @@
         <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="h sheet-title">{j.title}</h2><div class="mono muted">{j.id}</div></div><div class="flex shrink-0 items-center gap-2">{#if scopeVerbs(j).length}<CommandTrigger job={j.id} />{/if}<CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div></div>
         <div class="flex flex-wrap items-center gap-1.5"><span class="chip gleam">{STAGE_LABEL[j.stage] ?? j.stage}</span><StateChip job={j} />{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}<EffortChip level={effort} />{#if activity}<SessionActivity {activity} extra="caption" />{/if}</div>
         {#if j.reason}<div class="text-sm text-muted truncate" title={j.reason}>{j.reason}</div>{/if}
+        {#if running.length || j.ownerStatus?.status !== 'none'}<AgentActivity activity={running} owner={j.ownerStatus} expandable={true} />{/if}
       </div>
       <!-- Sticky and opaque, so no tab's content scrolls over it; it scrolls sideways when the tabs outgrow a phone. -->
-      <div role="tablist" tabindex="-1" aria-label={$t('drawer.tabs')} class="tabs sticky top-0 z-20 solid px-5 md:px-6 overflow-x-auto overflow-y-hidden" onkeydown={stripKey}>{#each DRAWER_TABS as tab (tab)}<button role="tab" id="drawer-tab-{tab}" aria-selected={shown.tab === tab} aria-controls="drawer-panel-{tab}" tabindex={shown.tab === tab ? 0 : -1} class="tab shrink-0 whitespace-nowrap focus-visible:-outline-offset-2 {shown.tab === tab ? 'active' : ''}" onclick={() => selectTab(tab)}>{#if tab === 'thread'}{$t('drawer.threadTab')}{#if unread > 0}<span class="chip spark ml-1.5">{$t('drawer.threadUnread', { count: unread })}</span>{/if}{:else if tab === 'log'}{$t('drawer.logTab')}{#if activity?.kind === 'working'}<span class="inline-flex ml-1.5 align-middle"><LiveDot on={true} /></span><span class="sr-only">{$t('live.working')}</span>{/if}{:else if tab === 'files'}{$t('drawer.files')}{:else if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted num">({d.events.length})</span>{:else if tab === 'details'}{$t('drawer.detailsTab')}{/if}</button>{/each}</div>
+      <div role="tablist" tabindex="-1" aria-label={$t('drawer.tabs')} class="tabs sticky top-0 z-20 solid px-5 md:px-6 overflow-x-auto overflow-y-hidden" onkeydown={stripKey}>{#each DRAWER_TABS as tab (tab)}<button role="tab" id="drawer-tab-{tab}" aria-selected={shown.tab === tab} aria-controls="drawer-panel-{tab}" tabindex={shown.tab === tab ? 0 : -1} class="tab shrink-0 whitespace-nowrap focus-visible:-outline-offset-2 {shown.tab === tab ? 'active' : ''}" onclick={() => selectTab(tab)}>{#if tab === 'thread'}{$t('drawer.threadTab')}{#if unread > 0}<span class="chip spark ml-1.5">{$t('drawer.threadUnread', { count: unread })}</span>{/if}{:else if tab === 'log'}{$t('drawer.logTab')}{#if activity?.kind === 'working'}<span class="inline-flex ml-1.5 align-middle"><LiveDot on={true} /></span><span class="sr-only">{$t('live.working')}</span>{/if}{:else if tab === 'agents'}{$t('drawer.agentsTab')}{#if running.length}<span class="muted num ml-1">({running.length})</span>{/if}{:else if tab === 'files'}{$t('drawer.files')}{:else if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted num">({d.events.length})</span>{:else if tab === 'details'}{$t('drawer.detailsTab')}{/if}</button>{/each}</div>
       <div role="tabpanel" id="drawer-panel-{shown.tab}" aria-labelledby="drawer-tab-{shown.tab}" tabindex="0" class="p-5 md:p-6 flex flex-col gap-5 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-line-strong focus-visible:-outline-offset-2">
         {#if shown.tab === 'thread'}
           <ThreadPanel job={j} requests={d.requests ?? []} opening={threadOpening(d)} events={d.events ?? []} baseline={S.drawer.threadAtOpen} />
         {:else if shown.tab === 'log'}
-          <!-- Keyed by job id only, so the drawer's 2 s refresh never re-creates the log or its stream; `active` closes the
-               stream as soon as the drawer closes, though its last view stays while it slides out. -->
-          {#key j.id}<SessionLog scope={j.id} active={open} />{/key}
+          <!-- Keyed by job id (and owner transcript), so the drawer's 2 s refresh never re-creates the log or its stream; `active`
+               closes the stream as soon as the drawer closes, though its last view stays while it slides out. -->
+          {#key logKey}<SessionLog scope={j.id} active={open} transcript={ownerLog} />{/key}
+        {:else if shown.tab === 'agents'}
+          {#key j.id}<AgentsTab job={j.id} detail={d} active={open} />{/key}
         {:else if shown.tab === 'files'}
           {@const file = shown.file}
           {@const content = shown.content}

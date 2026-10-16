@@ -16,10 +16,10 @@ Procedures: `${CLAUDE_PLUGIN_ROOT}/skills/forge/reference/`; docs: `${CLAUDE_PLU
 ## Ground rules
 1. **The CLI is the only writer of state and the only decider of the next step.** Never hand-edit `job.json`, `events.jsonl`, the backlog or tracker labels, or pick a stage yourself: ask `forge job step <id>`.
 2. **Context economy.** Read CLI JSON and agents' one-line replies, not code, diffs, reviews, logs or specs. Give agents the `brief` step returns, never file contents.
-3. **Worktree isolation.** Builders and integrators work only in the job's worktree; nothing touches the main checkout except `.forge/` through the CLI.
-4. **Stop at human gates.** Report the `tell`, work on other jobs; never guess past a gate. With `foreman.enabled`, the CLI turns gates into `gate` requests for the office session.
-5. **No AI attribution.** The human authors every commit, PR, issue and comment: no AI co-author trailers, "Generated with" footers or session links.
-6. **Be honest in the record.** If something failed or was skipped, `forge job note` it.
+3. **Worktree isolation.** Builders and integrators work only in the job's worktree; only the CLI touches the main checkout (`.forge/`).
+4. **Stop at human gates.** Report the `tell`, work on other jobs; never guess past one. With `foreman.enabled`, the CLI turns gates into `gate` requests.
+5. **No AI attribution** in commits, PRs, issues or comments: no co-author trailers, "Generated with" footers or session links.
+6. **Be honest in the record.** `forge job note` anything that failed or was skipped.
 
 ## Every invocation (except `update`) starts with
 ```bash
@@ -33,23 +33,23 @@ Report `sync` results, a line each: merges, PR feedback, conflicts, finished umb
 ## Commands (route on the first word)
 | Arguments | Do |
 |---|---|
-| *(empty)* or `status` | `forge status`; summarise what runs, what waits on the human and what's next; offer `forge dash`. |
+| *(empty)* or `status` | `forge status`; summarise what runs, waits on the human and comes next; offer `forge dash`. |
 | `<free text>` | `forge job new --title "<short title>" --body "<the full request>" --session ${CLAUDE_SESSION_ID}`, then **Run a job**. |
 | `next [n]` | Up to `n` (default 1, max `runtime.maxParallelJobs`) times `forge next --claim --session ${CLAUDE_SESSION_ID}` (a queued job nobody drives, `resumed: true`, else a tracker item), then run them in parallel. |
 | `issue <ref>` | `forge job from-ref <ref> --session ${CLAUDE_SESSION_ID}` (planned as one job), then **Run a job**. |
 | `continue <job \| #pr \| ref> [note]` | `reference/pr-lifecycle.md` |
 | `approve <job> [<ref>\|new\|none] [note]`, `revise`, `answer`, `rework`, `cancel <job> [note]` | `reference/commands.md`, then **Run a job** |
 | `sync` | the sync above; report |
-| `dash` | `forge dash --background` and give the URL |
+| `dash` | `forge dash --background`; give the URL |
 | `init`, `retro`, `eval …`, `requests` | `reference/init.md`, `retro.md`, `evals.md`, `requests.md` |
 | `doctor` | `forge doctor`; explain failures with fixes |
 | `update` | `forge update` only; report `from → to`, each `warnings` and `next` entry, or the error. |
 
 ## Run a job
-Claim it: `forge job claim <id> --session ${CLAUDE_SESSION_ID}`. Exit 3: another live session owns it: tell the human, stop. Exit 4: it waits on dependencies; report, move on (`--force` only if the human asks to stack it).
+Claim it: `forge job claim <id> --session ${CLAUDE_SESSION_ID}`. Exit 3: another live session owns it: tell the human, stop. Exit 4: dependencies pending; report, move on (`--force` only if the human asks).
 
 Then loop: `forge job advance <id> --session ${CLAUDE_SESSION_ID}` (Bash timeout 600000), report each `tell` in `ran`, act on `action`, advance again.
-- `spawn`: run `startShell`. Spawn `agent` as `subagent_type` with `brief` as the prompt, `model` unless `inherit` and `effort` unless null (if `resume` names a live agent, SendMessage it the brief). On completion: `forge job agent <id> end --role <role> --agent-id <agentId> --import --tokens <total_tokens> --tool-uses <tool_uses> --duration-ms <duration_ms> --summary "<first line of its reply>"`. With `parallel: true`, spawn it in the background and advance at once. With `spawns`, run every entry's `startShell` in one Bash call, then spawn all in one message of background Agent calls.
+- `spawn`: run `startShell`. Spawn `agent` as `subagent_type` with `brief` as the prompt, `model` unless `inherit` and `effort` unless null (if `resume` names a live agent, SendMessage it the brief). On completion: `forge job agent <id> end --role <role> --agent-id <agentId> --import --tokens <total_tokens> --tool-uses <tool_uses> --duration-ms <duration_ms> --summary "<first line of its reply>"`. With `parallel: true`, spawn it in the background and advance at once. With `spawns`, run all `startShell`s in one Bash call, then spawn all in one message of background Agent calls. Then `forge job agent <id> attach --role <role> --agent-id <agentId>` for each, in one Bash call.
 - `failed: true`: `forge job step <id>`; same `rule` and `command`: `forge job note` the `error`, report, stop; else advance again. `capped: true`: note, report, stop. Exit 3: as for the claim.
 - `wait` on `agents`: record each with `agent end` as it notifies; one not spawned by this session ends with `--status lost`.
 - `wait` on a gate: report `tell` (for `input`, also `questions.md`) and stop driving it.
@@ -63,4 +63,4 @@ After `pr` or `done`, `forge retro due`; if `due: true`, tell the human once tha
 Drive up to `runtime.maxParallelJobs` jobs at once (a daemon job session, only its own), advancing each as notifications arrive.
 
 ## Reporting style
-One line per job event: its id and, if blocked, the exact unblock command. Link the dashboard; no tables.
+One line per job event: its id and, when blocked, the exact unblock command. Link the dashboard; no tables.

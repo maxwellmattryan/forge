@@ -371,6 +371,19 @@ export function recordAgent(
 }
 
 /**
+ * Records the runtime's agent id on a role that is running (`forge job agent <id> attach`), so its
+ * transcript can be followed while it runs. Leaves runs, startedAt and status alone and logs no
+ * event: the id is bookkeeping, not a pipeline step. The caller validates the id.
+ */
+export function attachAgent(root: string, id: string, role: string, agentId: string): LoadedJob {
+  return updateJob(root, id, (j) => {
+    const a = Object.hasOwn(j.agents, role) ? j.agents[role] : undefined;
+    if (a?.status !== 'running') throw new ForgeError(`agent ${role} is not running on ${id}`, 1);
+    a.agentId = agentId;
+  });
+}
+
+/**
  * Ends each role still marked running with status `lost`, as `forge job agent <id> end --role
  * <role> --status lost` would, minus the transcript import and budget check: a lost agent carries
  * no usage. Each role is re-read first, so one another writer ended meanwhile keeps its status, and
