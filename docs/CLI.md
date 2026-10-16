@@ -155,6 +155,8 @@ Set by Forge for configured commands (`forge run`, `forge verify`, worktree setu
 
 A row is an event with an actor (`action` is the `human` event's action, else the event type), a gate transition (`gate:<waitingOn>` into a wait, `gate-cleared:<waitingOn>` out of one, with the reason as `note`), `pr-opened`, or `pr-merged` / `pr-auto-merge`. `detail` is a one-line summary per type: budget keys, the PR number and merge method, the linked ref, the permission tool and decision, the mode, a config key's change. An unknown job exits 1.
 
+Archived jobs (`forge job archive`, `forge job prune`, `retention.jobsDays`) are included: their rows come from `.forge/archive/<id>.json`, plus an `archived` row (detail: the trigger) per job, and `forge job audit <id>` accepts an archived id.
+
 `forge audit --since <date> [--until <date>] [--csv]` prints the same rows for every job and for the repo-level log (`.forge/runtime/audit.jsonl`, where `job` is null), with `since <= ts < until`, sorted by time then job id: `{ "since", "until", "rows" }`. A date is `YYYY-MM-DD` (UTC midnight) or a full ISO timestamp with its zone, and `--until` defaults to now. A missing or invalid date, or `--until` not after `--since`, exits 2 (`usage`).
 
 `--csv` prints RFC 4180 CSV with the header `ts,job,actor,source,action,note,detail,pr,merge_method` and CRLF line ends. A field containing `,`, `"`, CR or LF is quoted with `"` doubled, and a cell starting with `=`, `+`, `-`, `@`, TAB or CR gets a leading `'` so a spreadsheet reads it as text. `--json` and `--csv` together exit 2.
