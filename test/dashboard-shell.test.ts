@@ -1319,7 +1319,12 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
   assert.ok(has(foremanButton, 'btn', 'sm', 'foreman') && !foremanButton.classes.includes('ghost'), `the Foreman carries the foreman accent, not ghost (${foremanButton.classes.join(' ')})`);
   assert.deepEqual(openBlocksAt(read('components/StatusBar.svelte'), 'data-popover="foreman"'), [['#if S.data']], 'it sits outside every {#if} but {#if S.data}');
   assert.ok(bar.some((e) => e.name === 'Icon' && attrOf(e, 'name') === 'foreman' && e.parents.includes(foremanButton)), 'with the foreman icon');
-  for (const b of bar.filter((e) => e.name === 'button' && e.parents.includes(footer))) assert.equal(attrOf(b, 'aria-haspopup'), 'dialog', 'every bar button opens a dialog');
+  // The one exception is the focus fact, which opens the focused job's drawer (a panel, not a popover).
+  for (const b of bar.filter((e) => e.name === 'button' && e.parents.includes(footer) && attrOf(e, 'id') !== 'footer-focus')) assert.equal(attrOf(b, 'aria-haspopup'), 'dialog', 'every bar button opens a dialog');
+  const focusFact = bar.filter((e) => e.name === 'button' && attrOf(e, 'id') === 'footer-focus');
+  assert.equal(focusFact.length, 1, 'the focus fact is a button');
+  assert.equal(attrOf(focusFact[0], 'onclick'), '{() => openDrawer(focus.id)}', 'it opens the focused job');
+  assert.equal(attrOf(focusFact[0], 'aria-haspopup'), '', 'and claims no popup');
   const script2 = read('components/StatusBar.svelte');
   assert.match(script2, /popover\.open === id \? `popover-\$\{id\}` : undefined/, 'aria-controls names the popover only while it is open');
 

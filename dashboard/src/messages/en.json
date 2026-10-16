@@ -63,6 +63,21 @@
     "dependsOn": "Depends on",
     "blocks": "Blocks"
   },
+  "environment": {
+    "title": "Environment",
+    "focus": "Focus",
+    "unfocus": "Unfocus",
+    "editor": "Open in editor",
+    "editorNone": "This job has no worktree yet",
+    "editorOpened": "Opening the worktree in {editor}",
+    "run": "Run",
+    "runStarted": "Dev server started",
+    "runReused": "Dev server already running",
+    "open": "Open",
+    "live": "running",
+    "stopped": "not running",
+    "none": "No endpoint yet: the job needs a worktree and a port, and a dev command in commands.dev"
+  },
   "daemon": {
     "pill": "Daemon {label}",
     "live": "{live}/{cap} job sessions",
@@ -100,7 +115,8 @@
       "sessions": "SESSIONS",
       "sessionsValue": "{count} active",
       "sheet": "SHEET",
-      "sheetValue": "{view} · {index} of {total}"
+      "sheetValue": "{view} · {index} of {total}",
+      "focus": "FOCUS"
     },
     "daemon": {
       "title": "Daemon",
@@ -165,6 +181,9 @@
       "last": "Last update {ago}",
       "never": "No update yet",
       "retry": "Retry now"
+    },
+    "focus": {
+      "title": "Focus · {id} · {title}"
     }
   },
   "live": {
