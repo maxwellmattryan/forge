@@ -10,7 +10,7 @@ This repo is **Forge**: a Claude Code plugin that is also its own marketplace. T
 - `skills/forge/`: the orchestrator (`SKILL.md`) and on-demand procedures (`reference/`)
 - `agents/`: one prompt per role · `reviewers/`: lens checklists · `templates/`: files `init` seeds into `.forge/`
 - `docs/`: user docs · `test/`: `node:test` suites
-- `scripts/`: dev-only TypeScript run through npm, type-checked with the engine (`docs-commands.ts` is `npm run docs:commands`, `dev.ts` is `npm run dev`, `dev-claude.ts` is `npm run dev:claude`, and `windows-tests.ts` is CI's Windows leg)
+- `scripts/`: dev-only TypeScript run through npm, type-checked with the engine (`docs-commands.ts` is `npm run docs:commands`, `dev.ts` is `npm run dev`, `dev-claude.ts` is `npm run dev:claude`, and `windows-tests.ts` is CI's Windows leg, with its skip rule in `windows-plan.ts`)
 - `.github/workflows/ci.yml`: CI, the verify list below on every PR and push to `main`
 
 ## Where a change goes

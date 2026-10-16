@@ -8,7 +8,7 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { spawnSync } from 'node:child_process';
 import { parse } from '../lib/yaml.ts';
-import { planWindowsRun } from '../scripts/windows-tests.ts';
+import { planWindowsRun } from '../scripts/windows-plan.ts';
 import { tempRepo } from './helpers.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -802,12 +802,12 @@ test('windows-tests.ts fails closed and propagates the test exit code', POSIX, (
     fs.writeFileSync(path.join(dir, 'test', 'fail.test.ts'), `import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('fails', () => { assert.fail('red'); });\n`);
     const env = { ...process.env };
     delete env.NODE_TEST_CONTEXT;
-    const runWith = (skip: string | undefined) => {
+    const runWith = (skip: string | undefined, entry = script) => {
       fs.rmSync(marker, { force: true });
       const e = { ...env };
       if (skip === undefined) delete e.WINDOWS_SKIP;
       else e.WINDOWS_SKIP = skip;
-      const r = spawnSync(process.execPath, [script], { cwd: dir, env: e, encoding: 'utf8' });
+      const r = spawnSync(process.execPath, [entry], { cwd: dir, env: e, encoding: 'utf8' });
       return { ...r, ran: fs.existsSync(marker) };
     };
 
@@ -825,6 +825,17 @@ test('windows-tests.ts fails closed and propagates the test exit code', POSIX, (
     assert.equal(green.status, 0, green.stdout + green.stderr);
     assert.equal(green.ran, true);
     assert.match(green.stdout, /^skip test\/fail\.test\.ts: fails on purpose$/m);
+
+    // Started through a symlink (argv[1] differs from the module's realpath), it still runs and still
+    // fails closed: an entry-point guard here once made this exit 0 having run nothing.
+    fs.symlinkSync(path.dirname(script), path.join(dir, 'scripts'));
+    const linked = path.join(dir, 'scripts', 'windows-tests.ts');
+    const invalid = runWith('test/nope.test.ts: gone', linked);
+    assert.equal(invalid.status, 1, invalid.stdout + invalid.stderr);
+    assert.match(invalid.stderr, /WINDOWS_SKIP is invalid; no tests ran/);
+    const linkedRed = runWith(undefined, linked);
+    assert.notEqual(linkedRed.status, 0, 'a failing file fails the run through a symlink');
+    assert.equal(linkedRed.ran, true);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
