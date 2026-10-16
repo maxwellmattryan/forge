@@ -24,6 +24,7 @@ import { INBOX_SCOPE, OFFICE_SCOPE, enqueue, listRequests, validJobId, validScop
 import { gateOwner } from './foreman.ts';
 import { loadTracker } from './trackers/index.ts';
 import { roster } from './roster.ts';
+import { readTriageCache } from './triage.ts';
 import { deriveTitle, normalizeTitle } from './title.ts';
 import { agentTranscript, cachedActivity, claudeProjectsDir, openTranscript, ownerTranscript } from './transcripts.ts';
 import type { TranscriptHit } from './transcripts.ts';
@@ -170,7 +171,14 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
             backlogCache = { at: Date.now(), data: { tracker: config.tracker.kind, items: [], error: (e as Error).message } };
           }
         }
-        return json(res, backlogCache.data);
+        // Read per request, unlike the item list: a triage run shows on the next load, not a minute later.
+        const triage = readTriageCache(root);
+        const { tracker } = backlogCache.data;
+        const items = backlogCache.data.items.map((item) => {
+          const e = triage[`${tracker}:${item.ref}`];
+          return e ? { ...item, triage: { ready: e.ready, missing: e.missing, at: e.at } } : item;
+        });
+        return json(res, { ...backlogCache.data, items } satisfies BacklogResponse);
       }
       if (req.method === 'GET' && p === '/api/config') return json(res, configResponse(root, Boolean(pool?.state().wanted)));
       if (req.method === 'GET' && p === '/api/about') return json(res, about());
