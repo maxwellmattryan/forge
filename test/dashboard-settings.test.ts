@@ -198,6 +198,26 @@ test('doctor report text', () => {
   assert.equal(failedCount(doctor), 1);
 });
 
+test('diagnostics downloads the support bundle with the token header', () => {
+  const dash = path.resolve(import.meta.dirname, '..', 'dashboard', 'src');
+  const tab = fs.readFileSync(path.join(dash, 'components', 'settings', 'DiagnosticsTab.svelte'), 'utf8');
+  const app = fs.readFileSync(path.join(dash, 'lib', 'app.svelte.ts'), 'utf8');
+  const fetchBundle = app.slice(app.indexOf('export async function fetchBundle'), app.indexOf('\n}\n', app.indexOf('export async function fetchBundle')));
+  assert.match(fetchBundle, /fetch\('\/api\/doctor\/bundle', \{ headers: \{ 'x-forge-token': forgeToken\(\) \} \}\)/, 'the token goes in a header');
+  assert.doesNotMatch(fetchBundle, /token=|\?/, 'never in the URL');
+  assert.match(fetchBundle, /bundleFilename\(res\.headers\.get\('content-disposition'\)\)/);
+  assert.match(tab, /fetchBundle\(\)/);
+  assert.match(tab, /URL\.createObjectURL\(blob\)/);
+  assert.match(tab, /URL\.revokeObjectURL\(href\)/);
+  assert.match(tab, /a\.download = filename/);
+  assert.match(tab, /disabled=\{bundling\}/);
+  const keys = [...tab.matchAll(/\$t\('(settings\.diagnostics\.bundle[A-Za-z]*|settings\.diagnostics\.bundling)'\)/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(keys)].sort(), ['settings.diagnostics.bundle', 'settings.diagnostics.bundleFailed', 'settings.diagnostics.bundleHint', 'settings.diagnostics.bundleSaved', 'settings.diagnostics.bundling']);
+  for (const k of keys) assert.ok(inEn(k), k);
+  assert.equal(EN.settings.diagnostics.bundle, 'Download support bundle');
+  assert.equal(EN.settings.diagnostics.bundling, 'Preparing bundle…');
+});
+
 test('an option list renders one control, never a textarea too', () => {
   const src = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'settings', 'ConfigFieldRow.svelte'), 'utf8');
   const options = src.indexOf("{:else if f.type === 'list' && f.options}");

@@ -32,10 +32,17 @@ body:
     id: doctor
     attributes:
       label: "`forge doctor` output"
-      description: Run `forge doctor` in the affected repo. Before you paste it, remove hostnames, home paths, tokens, private repo names, and job or issue names.
+      description: Run `forge doctor` in the affected repo. Before you paste it, remove hostnames, home paths, tokens, private repo names, and job or issue names. The support bundle below redacts paths, logins, emails and likely secrets for you.
       render: text
     validations:
       required: true
+  - type: textarea
+    id: bundle
+    attributes:
+      label: Support bundle (optional)
+      description: Run `forge doctor --bundle [<job>]` in the affected repo, or use Settings › Diagnostics › Download support bundle in `forge dash`. Check the manifest it prints (or open the zip), then drag the zip in here.
+    validations:
+      required: false
   - type: input
     id: version
     attributes:

@@ -154,6 +154,20 @@ function listContained(base: string, rel: string): fs.Dirent[] | { skip: string 
   }
 }
 
+/**
+ * Whether a dir under the repo resolves to exactly its own path under the repo's realpath, so no
+ * link on the way (the dir, .forge/jobs, .forge/runtime) points elsewhere; null when it is absent.
+ */
+function wellPlaced(root: string, dir: string): boolean | null {
+  try {
+    const st = fs.lstatSync(dir);
+    if (!st.isDirectory()) return false;
+    return fs.realpathSync(dir) === path.join(fs.realpathSync(root), path.relative(root, dir));
+  } catch (e) {
+    return openFailure(e) === null ? null : false;
+  }
+}
+
 const firstLine = (s: string): string => s.trim().split('\n')[0] ?? '';
 
 function versions(): Record<string, string | null> {
@@ -229,7 +243,7 @@ function markdownFiles(dir: string, skipped: BundleSkip[], prefix: string): stri
 }
 
 /** One job's raw entries. */
-function jobEntries(root: string, config: Config, id: string, includeText: boolean, skipped: BundleSkip[]): Raw[] {
+function jobEntries(root: string, config: Config, id: string, includeText: boolean, skipped: BundleSkip[], daemons: string | null): Raw[] {
   const out: Raw[] = [];
   const dir = jobDir(root, id);
   const pre = `jobs/${id}`;
@@ -277,7 +291,7 @@ function jobEntries(root: string, config: Config, id: string, includeText: boole
     }
   }
 
-  const daemon = tailContained(daemonsDir(root), `${id}.log`, DAEMON_LINES);
+  const daemon = daemons ? tailContained(daemons, `${id}.log`, DAEMON_LINES) : null;
   if (Array.isArray(daemon)) out.push({ name: `${pre}/daemon.log`, text: daemonText(daemon, includeText) });
   else if (daemon) skipped.push({ name: `${pre}/daemon.log`, reason: daemon.skip });
 
@@ -326,24 +340,30 @@ export async function buildBundle(
     { name: 'versions.json', text: pretty(versions()) },
     { name: 'config.json', text: pretty(redactedConfig(config)) },
   ];
-  if (opts.job === undefined) {
+  // Every read is contained in its base dir, so the base itself must sit where it should: a linked
+  // .forge/runtime or job dir would move the confinement somewhere else.
+  const daemonsBase = daemonsDir(root);
+  const daemonsOk = wellPlaced(root, daemonsBase);
+  if (daemonsOk === false) skipped.push({ name: 'daemon', reason: 'symlink' });
+  const daemons = daemonsOk ? daemonsBase : null;
+  if (opts.job === undefined && daemons) {
     for (const [scope, name] of [[INBOX_SCOPE, 'inbox'], [OFFICE_SCOPE, 'office']] as const) {
-      const r = tailContained(daemonsDir(root), `${scope}.log`, DAEMON_LINES);
+      const r = tailContained(daemons, `${scope}.log`, DAEMON_LINES);
       if (Array.isArray(r)) raw.push({ name: `daemon/${name}.log`, text: daemonText(r, includeText) });
       else if (r) skipped.push({ name: `daemon/${name}.log`, reason: r.skip });
     }
   }
   for (const id of ids) {
-    // A linked job dir would carry every read below out of .forge/jobs.
-    let st: fs.Stats | null = null;
-    try {
-      st = fs.lstatSync(jobDir(root, id));
-    } catch {}
-    if (!st?.isDirectory()) {
-      skipped.push({ name: `jobs/${id}`, reason: st?.isSymbolicLink() ? 'symlink' : 'not a directory' });
+    const dir = jobDir(root, id);
+    if (!wellPlaced(root, dir)) {
+      let link = false;
+      try {
+        link = fs.lstatSync(dir).isSymbolicLink();
+      } catch {}
+      skipped.push({ name: `jobs/${id}`, reason: link ? 'symlink' : 'outside the job dir' });
       continue;
     }
-    raw.push(...jobEntries(root, config, id, includeText, skipped));
+    raw.push(...jobEntries(root, config, id, includeText, skipped, daemons));
   }
 
   const redactions: RedactCounts = { secrets: 0, paths: 0, emails: 0, logins: 0 };

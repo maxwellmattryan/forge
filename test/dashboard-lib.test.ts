@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { esc, num, usd, ago, pct, tokensShort, dur, clock } from '../dashboard/src/lib/util.ts';
 import { md, inline, safeUrl } from '../dashboard/src/lib/markdown.ts';
 import { STAGE_LABEL, WAIT_LABEL } from '../dashboard/src/lib/labels.ts';
+import { bundleFilename } from '../dashboard/src/lib/diagnostics.ts';
 import * as types from '../dashboard/src/lib/types.ts';
 import * as schema from '../lib/schema.ts';
 
@@ -152,4 +153,12 @@ test('clock: a local HH:MM:SS, or nothing for a missing or unparseable time', ()
   assert.equal(clock(null), '');
   assert.equal(clock(''), '');
   assert.equal(clock('yesterday'), '');
+});
+
+test('bundleFilename', () => {
+  assert.equal(bundleFilename('attachment; filename="forge-support-2026-10-16.zip"'), 'forge-support-2026-10-16.zip');
+  assert.equal(bundleFilename('attachment; filename=forge-support-2026-10-16-2.zip'), 'forge-support-2026-10-16-2.zip');
+  for (const bad of [null, '', 'attachment', 'attachment; filename=""', 'attachment; filename="../x.zip"', 'attachment; filename="a/b.zip"', 'attachment; filename="a\\b.zip"', 'attachment; filename="..zip"']) {
+    assert.equal(bundleFilename(bad), 'forge-support.zip', String(bad));
+  }
 });

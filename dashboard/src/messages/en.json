@@ -520,7 +520,12 @@
       "copy": "Copy report",
       "copied": "Report copied",
       "copyFailed": "Couldn't copy the report; select it and copy by hand",
-      "report": "Report"
+      "report": "Report",
+      "bundle": "Download support bundle",
+      "bundling": "Preparing bundle…",
+      "bundleHint": "A redacted zip of these checks, versions, config and active jobs' logs and events, for a bug report. Agent text and diffs stay out.",
+      "bundleSaved": "Support bundle downloaded",
+      "bundleFailed": "Could not build the support bundle"
     },
     "about": {
       "version": "Forge version",

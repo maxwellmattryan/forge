@@ -1,8 +1,9 @@
-<!-- Settings › Diagnostics: forge doctor's checks through GET /api/doctor, and a plain-text report to copy. -->
+<!-- Settings › Diagnostics: forge doctor's checks through GET /api/doctor, a plain-text report to copy, and the redacted support bundle (GET /api/doctor/bundle). -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import Banner from '../Banner.svelte';
   import Chip from '../Chip.svelte';
+  import { fetchBundle } from '../../lib/app.svelte.ts';
   import { doctorReport, failedCount } from '../../lib/diagnostics.ts';
   import { t } from '../../lib/locale.ts';
   import type { SettingsSession } from '../../lib/settings-session.svelte.ts';
@@ -15,6 +16,7 @@
   let fallback = $state<string | null>(null);
   let box = $state<HTMLTextAreaElement>();
   let summary = $state<HTMLDivElement>();
+  let bundling = $state(false);
 
   /** Run again is disabled while it runs, which drops focus; the summary takes it back. */
   async function again(): Promise<void> {
@@ -27,6 +29,28 @@
     if (!session.doctorAsked) session.runDoctor();
     session.loadAbout();
   });
+
+  /** Saves the zip through a temporary object URL; the token went in a header, never in this URL. */
+  async function download(): Promise<void> {
+    bundling = true;
+    let href: string | null = null;
+    try {
+      const { blob, filename } = await fetchBundle();
+      href = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = filename;
+      document.body.append(a);
+      a.click();
+      a.remove();
+      toast($t('settings.diagnostics.bundleSaved'));
+    } catch {
+      toast($t('settings.diagnostics.bundleFailed'), true);
+    } finally {
+      if (href) URL.revokeObjectURL(href);
+      bundling = false;
+    }
+  }
 
   async function copy(): Promise<void> {
     if (!d) return;
@@ -63,9 +87,13 @@
       </ul>
     </div>
   {/if}
-  <div class="flex flex-wrap gap-2">
-    <button class="btn" disabled={session.doctorRunning} onclick={again}>{$t('settings.diagnostics.again')}</button>
-    <button class="btn" disabled={!d || session.doctorRunning} onclick={copy}>{$t('settings.diagnostics.copy')}</button>
+  <div class="flex flex-col gap-2">
+    <div class="flex flex-wrap gap-2">
+      <button class="btn" disabled={session.doctorRunning} onclick={again}>{$t('settings.diagnostics.again')}</button>
+      <button class="btn" disabled={!d || session.doctorRunning} onclick={copy}>{$t('settings.diagnostics.copy')}</button>
+      <button class="btn" disabled={bundling} onclick={download}>{bundling ? $t('settings.diagnostics.bundling') : $t('settings.diagnostics.bundle')}</button>
+    </div>
+    <p class="text-[11px] muted">{$t('settings.diagnostics.bundleHint')}</p>
   </div>
   {#if fallback !== null}
     <label class="label flex flex-col gap-1">{$t('settings.diagnostics.report')}<textarea bind:this={box} readonly rows="8" class="input w-full normal-case tracking-normal" value={fallback}></textarea></label>
