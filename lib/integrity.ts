@@ -175,7 +175,7 @@ export function packageJsonDetail(beforeText: string | null, afterText: string |
  * Script files the configured commands run, so editing `scripts/test.sh` shows up as a test-config
  * edit. Only the program each command segment runs is taken, never its arguments or lint targets.
  */
-export function commandSources(config: Pick<Config, 'commands' | 'services'>): string[] {
+export function commandSources(config: Pick<Config, 'commands' | 'components'>): string[] {
   const out = new Set<string>();
   // Commands come from YAML, so a value need not be a string.
   const scan = (cmds: Record<string, unknown> | undefined, prefix: string) => {
@@ -193,7 +193,7 @@ export function commandSources(config: Pick<Config, 'commands' | 'services'>): s
     }
   };
   scan(config.commands, '');
-  for (const s of config.services ?? []) if (s?.commands) scan(s.commands, s.path ? `${String(s.path).replace(/\/+$/, '')}/` : '');
+  for (const s of config.components ?? []) if (s?.commands) scan(s.commands, s.path ? `${String(s.path).replace(/\/+$/, '')}/` : '');
   return [...out];
 }
 
@@ -400,7 +400,7 @@ export function parseDiffLines(raw: string): Map<string, FileLines> {
  * since the commands would run on files the report never saw. Forge's own eval checkouts
  * sparse-exclude `.forge/evals/`, and the standard git-lfs filter is trusted.
  */
-export function hiddenChanges(cwd: string, config: Pick<Config, 'commands' | 'services' | 'evals'>): string[] {
+export function hiddenChanges(cwd: string, config: Pick<Config, 'commands' | 'components' | 'evals'>): string[] {
   const git = (args: string[], input?: string) => run('git', args, { cwd, input }).stdout;
   const out: string[] = [];
   const files: string[] = [];

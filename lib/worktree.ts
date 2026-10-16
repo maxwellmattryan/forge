@@ -16,7 +16,7 @@ import { CONFIG_SCHEMA_VERSION } from './schema.ts';
 import { checkBranch, compactProtected, renderProtected } from './protected.ts';
 import type { BranchCheck, CompactProtected } from './protected.ts';
 import { logSecrets, renderSecrets, scanBranch, secretMode, secretsOk, secretsTail, compactSecrets } from './secrets.ts';
-import type { CompactSecrets, Config, Job, ServiceConfig, VerifyRun } from './types.ts';
+import type { CompactSecrets, ComponentConfig, Config, Job, VerifyRun } from './types.ts';
 import { ForgeError, assertSafeRef, fill, now, readJson, run, shellArgs, tail, withLock, writeJsonAtomic } from './util.ts';
 
 /** What `forge worktree create` returns: createWorktree. */
@@ -387,8 +387,8 @@ export function commandTemplate(config: Config, job: Job, name: string): string 
   return jobService(config, job)?.commands?.[name] ?? config.commands[name] ?? null;
 }
 
-function jobService(config: Config, job: Job): ServiceConfig | null {
-  return job.services.length === 1 ? config.services.find((s) => s.name === job.services[0]) ?? null : null;
+function jobService(config: Config, job: Job): ComponentConfig | null {
+  return job.services.length === 1 ? config.components.find((s) => s.name === job.services[0]) ?? null : null;
 }
 
 /** `forge run`'s options. `args` only ever comes from `forge run <job> <name> -- <args>`. */

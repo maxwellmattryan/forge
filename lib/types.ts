@@ -4,6 +4,7 @@
 // list are derived from that list, never retyped.
 import type { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS, OFFICE_GATES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import type { REQUEST_TYPES } from './requests.ts';
+import type { COMPONENT_KINDS, DEPENDENCY_TYPES } from './components.ts';
 import type { AcCoverage } from './acs.ts';
 import type { SECRET_KINDS } from './secrets.ts';
 import type { JobFindings } from './findings.ts';
@@ -605,12 +606,27 @@ export interface ResourceConfig {
   use?: string;
 }
 
-/** One service of a monorepo: an entry of `services` (docs/CONFIG.md). */
-export interface ServiceConfig {
+export type ComponentKind = (typeof COMPONENT_KINDS)[number];
+export type DependencyType = (typeof DEPENDENCY_TYPES)[number];
+
+/** One edge of a component's `dependsOn`: exactly one of `component` or `backing` is set. */
+export interface ComponentDependency {
+  component?: string;
+  backing?: string;
+  type: DependencyType;
+}
+
+/** One part of a repo: an entry of `components` (docs/CONFIG.md "Components"). */
+export interface ComponentConfig {
   name: string;
+  /** null or absent: the root repo. */
+  repo?: string | null;
   path: string;
+  kind: ComponentKind;
   commands?: Record<string, string | null>;
+  dependsOn?: ComponentDependency[];
   owners?: string[];
+  notes?: string | null;
 }
 
 /** What `forge run <job> <name>` executes: defaults().commands in lib/config.ts. */
@@ -719,7 +735,7 @@ export interface Config {
   };
   aiAttribution: 'forbid' | 'allow';
   resources: ResourceConfig[];
-  services: ServiceConfig[];
+  components: ComponentConfig[];
   infra: {
     mode: 'human' | 'plan-only' | 'agent';
     allowed: string[];

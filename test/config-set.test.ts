@@ -338,7 +338,7 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     const docs = fs.readFileSync(path.join(ROOT, 'docs', 'CONFIG.md'), 'utf8');
     const base = defaults();
     const forbidden = [
-      'commands.', 'worktrees.', 'verify', 'git.', 'merge.', 'approver.', 'aiAttribution', 'infra.', 'resources', 'services', 'usage.', 'evals.',
+      'commands.', 'worktrees.', 'verify', 'git.', 'merge.', 'approver.', 'aiAttribution', 'infra.', 'resources', 'components', 'usage.', 'evals.',
       'review.panel', 'tracker.kind', 'tracker.local.', 'tracker.github.repo', 'tracker.github.comments', 'tracker.github.project.',
       'daemon.command', 'daemon.allowedTools', 'daemon.enabled', 'daemon.maxConcurrent', 'notify.',
     ];
@@ -515,7 +515,7 @@ describe('config disclosure', { concurrency: 4 }, () => {
       'worktrees.setup': 'command',
       'daemon.command': 'command',
       'daemon.allowedTools': 'command',
-      services: 'command',
+      components: 'command',
       'infra.allowed': 'command',
       'project.instructions': 'path',
       'project.notes': 'path',

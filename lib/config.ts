@@ -146,7 +146,7 @@ export function defaults(): Config {
     },
     aiAttribution: 'forbid',
     resources: [],
-    services: [],
+    components: [],
     infra: {
       mode: 'human',
       allowed: [],

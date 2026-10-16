@@ -79,7 +79,7 @@ test('packageJsonDetail: scripts and runner keys only', () => {
 });
 
 test('commandSources: script files the commands run, never their arguments', () => {
-  const cfg = (commands, services = []) => ({ commands, services });
+  const cfg = (commands, components = []) => ({ commands, components });
   assert.deepEqual(commandSources(cfg({ test: './scripts/test.sh && npm test' })), ['scripts/test.sh']);
   assert.deepEqual(commandSources(cfg({ ci: 'FOO=1 node scripts/ci.mjs --x' })), ['scripts/ci.mjs']);
   assert.deepEqual(commandSources(cfg({ test: 'python -u tools/run.py | tee out.log' })), ['tools/run.py']);
@@ -88,7 +88,7 @@ test('commandSources: script files the commands run, never their arguments', () 
     [],
     "Forge's own commands name no script files",
   );
-  assert.deepEqual(commandSources(cfg({}, [{ name: 'api', path: 'services/api', commands: { test: 'bash ./run-tests.sh', dev: 'go run .' } }])), ['services/api/run-tests.sh']);
+  assert.deepEqual(commandSources(cfg({}, [{ name: 'api', path: 'services/api', kind: 'service', commands: { test: 'bash ./run-tests.sh', dev: 'go run .' } }])), ['services/api/run-tests.sh']);
 });
 
 test('isConfigPath: CI anchored at the root, build and runner config anywhere', () => {

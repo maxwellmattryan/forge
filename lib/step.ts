@@ -830,7 +830,7 @@ function spec(x: StepInput): StepAction {
     // A revised spec without the line must not keep a stale level-picking value.
     if (complexity) fields.push(`complexity=${complexity}`);
     else if (j.complexity != null) fields.push('complexity=null');
-    const services = x.spec.services.filter((s) => SAFE_REF.test(s) && c.services.some((cs) => cs.name === s));
+    const services = x.spec.services.filter((s) => SAFE_REF.test(s) && c.components.some((cs) => cs.name === s));
     if (services.length) fields.push(`services=${JSON.stringify(services)}`);
     return set(x, 'SP3', { fields }, 'record the review panel the spec implies');
   }
