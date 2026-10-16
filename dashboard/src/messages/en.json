@@ -23,7 +23,6 @@
   },
   "nav": {
     "pipeline": "Pipeline",
-    "inbox": "Needs you",
     "backlog": "Backlog",
     "agents": "Agents",
     "analytics": "Analytics",
@@ -78,6 +77,14 @@
   "statusbar": {
     "label": "Status",
     "close": "Close",
+    "needs": {
+      "name": "Needs you",
+      "title": "Needs you",
+      "count": {
+        "one": "{count} decision waiting",
+        "other": "{count} decisions waiting"
+      }
+    },
     "facts": {
       "forge": "FORGE",
       "version": "v{version}",
@@ -228,11 +235,12 @@
     "agentsTab": "Agents",
     "foreman": "foreman"
   },
+  "needs": {
+    "urgent": "Decisions only you can make",
+    "empty": "Nothing needs you right now"
+  },
   "inbox": {
-    "title": "Needs you",
-    "sub": "Decisions only a human can make. Actions are queued for your orchestrator session.",
     "read": "Read {doc} →",
-    "empty": "Nothing is waiting on you.",
     "prs": "Open PRs awaiting review",
     "parks": "Waiting on dependencies",
     "threads": "{count} unresolved thread(s)",

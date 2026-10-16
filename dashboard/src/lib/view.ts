@@ -13,7 +13,6 @@ const s = (v: unknown): string => String(v ?? '');
 // Labels come from messages/en.json (nav.<id>), through Nav.svelte.
 export const VIEWS = [
   { id: 'pipeline', icon: 'pipeline' },
-  { id: 'inbox', icon: 'inbox' },
   { id: 'backlog', icon: 'backlog' },
   { id: 'agents', icon: 'agents' },
   { id: 'analytics', icon: 'analytics' },

@@ -125,7 +125,6 @@ test('pipeline: filters, counts, board columns and nav badges', () => {
   assert.deepEqual(V.boardColumns([]).map((c) => c.id), ['queued', 'plan', 'build', 'ship']);
   assert.deepEqual(V.boardColumns(JOBS).map((c) => [c.id, c.jobs.map((j) => j.id)]), [['queued', ['i']], ['plan', ['b']], ['build', ['c', 'd', 'a', 'g']], ['ship', ['p']], ['done', ['e', 'f', 'h']]]);
   assert.deepEqual(V.navCounts(JOBS), { active: 7, needs: 2 }, 'pr-review waits are not "needs you"');
-  assert.deepEqual(V.VIEWS.map((v) => v.id), ['pipeline', 'inbox', 'backlog', 'agents', 'analytics', 'evals']);
   const now = Date.parse('2026-10-12T12:00:00Z');
   const owned: any = [
     { owner: { session: 's1', heartbeat: '2026-10-12T11:45:00Z', since: '2026-10-12T10:00:00Z' } },
@@ -139,11 +138,14 @@ test('pipeline: filters, counts, board columns and nav badges', () => {
   assert.deepEqual(V.runningAgents([{ id: 'j', agents: { builder: { status: 'running', model: 'opus' }, x: { status: 'done' } } }] as any).map((a) => [a.job.id, a.role, a.model]), [['j', 'builder', 'opus']]);
 });
 
-test("viewIndex: each view's position in the sidebar order", () => {
-  assert.equal(V.VIEWS.length, 6);
+test('views list five pages', () => {
+  // Needs you is a status-bar popover now, not a page.
+  assert.deepEqual(V.VIEWS.map((v) => v.id), ['pipeline', 'backlog', 'agents', 'analytics', 'evals']);
+  assert.equal(V.VIEWS.length, 5);
   assert.equal(V.viewIndex('pipeline'), 1);
-  assert.equal(V.viewIndex('inbox'), 2);
-  assert.equal(V.viewIndex('evals'), 6);
+  assert.equal(V.viewIndex('backlog'), 2);
+  assert.equal(V.viewIndex('evals'), 5);
+  assert.equal(V.viewIndex('inbox'), 1, 'the old Needs-you id reads as the first view');
   assert.equal(V.viewIndex('nope'), 1, 'an unknown id reads as the first view');
   V.VIEWS.forEach((v, i) => assert.equal(V.viewIndex(v.id), i + 1, v.id));
 });

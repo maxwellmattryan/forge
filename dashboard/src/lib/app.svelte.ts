@@ -84,6 +84,8 @@ class AppState {
   drawer = new DrawerState();
   drawerView = $state.raw<DrawerView>(null);
   pane = new PaneState();
+  /** `#/inbox` was opened: StatusBar opens the Needs-you popover once its button renders, then clears this. */
+  openNeeds = $state(false);
   /** Job id → when its card's change flash ends (epoch ms). */
   flashes = $state.raw<Record<string, number>>({});
   /** Job id → the Thread marks last shown, for the tab's unread count. In memory, so it lasts the page's lifetime. */
@@ -144,6 +146,11 @@ export async function loadRoster(): Promise<void> {
 
 export function route(): void {
   const v = location.hash.replace(/^#\/?/, '') || 'pipeline';
+  // Needs you was a page: its old link shows the Pipeline and opens the Needs-you popover (StatusBar does, once it renders).
+  if (v === 'inbox') {
+    history.replaceState(null, '', '#/pipeline');
+    S.openNeeds = true;
+  }
   S.view = VIEWS.find((x) => x.id === v)?.id ?? 'pipeline';
   loadView();
 }

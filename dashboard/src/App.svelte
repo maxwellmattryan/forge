@@ -12,7 +12,6 @@
   import StatusBar from './components/StatusBar.svelte';
   import Toast from './components/Toast.svelte';
   import Pipeline from './views/Pipeline.svelte';
-  import Inbox from './views/Inbox.svelte';
   import Backlog from './views/Backlog.svelte';
   import Agents from './views/Agents.svelte';
   import Analytics from './views/Analytics.svelte';
@@ -40,7 +39,6 @@
   // The same map Nav.svelte builds, for the sidebar's stamp line.
   const labels = $derived<Record<ViewId, string>>({
     pipeline: $t('nav.pipeline'),
-    inbox: $t('nav.inbox'),
     backlog: $t('nav.backlog'),
     agents: $t('nav.agents'),
     analytics: $t('nav.analytics'),
@@ -196,7 +194,6 @@
         {#if S.error}<Banner msg={S.error} />{/if}
         {#if !S.data.initialized}<Banner msg={$t('app.noConfig')} />{/if}
         {#if S.view === 'pipeline'}<Pipeline data={S.data} />
-        {:else if S.view === 'inbox'}<Inbox data={S.data} />
         {:else if S.view === 'backlog'}<Backlog />
         {:else if S.view === 'agents'}<Agents data={S.data} />
         {:else if S.view === 'analytics'}<Analytics data={S.data} />

@@ -75,7 +75,7 @@ const svelteFiles = () =>
 
 test('ICONS matches smithy/assets/Icons file for file', () => {
   const names = fs.readdirSync(ICON_DIR).filter((f) => f.endsWith('.svg')).map((f) => f.slice(0, -4)).sort();
-  assert.equal(names.length, 23);
+  assert.equal(names.length, 27);
   assert.deepEqual(Object.keys(ICONS).sort(), names);
   for (const name of names) {
     const expected = parseIconFile(name, fs.readFileSync(path.join(ICON_DIR, `${name}.svg`), 'utf8'));

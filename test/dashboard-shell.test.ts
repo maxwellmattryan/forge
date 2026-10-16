@@ -473,10 +473,10 @@ test('Pipeline board is four grouped columns', () => {
   assert.equal(text.split("$t('live.columnWorking'").length - 1, 1, 'one working count, in the open columns');
 });
 
-test('Inbox lists dependency parks apart, with Resume', () => {
-  const file = 'views/Inbox.svelte';
+test('Needs you lists dependency parks apart, with Resume', () => {
+  const file = 'components/statusbar/NeedsPanel.svelte';
   const text = read(file);
-  assert.match(text, /<h2 class="plate h section w-fit max-w-full px-3 py-1\.5 mt-8 mb-3">\{\$t\('inbox\.parks'\)\}<\/h2>/);
+  assert.match(text, /<h3 id="needs-parks" class="label">\{\$t\('inbox\.parks'\)\}<\/h3>/, 'a label heading, not a page header');
   const parks = text.slice(text.indexOf("$t('inbox.parks')"));
   const block = parks.slice(0, parks.indexOf('{/if}'));
   assert.match(block, /<div class="plate flat"><div class="overflow-x-auto">\s*<table class="tbl">/, 'a flat plate around the table');
@@ -549,7 +549,9 @@ test('no filled element nests in a patterned one', () => {
 // Text never sits on the grain: the grain shows only on bare ground between surfaces, so every word, value,
 // caller snippet and component the shell or a view puts on the page has a surface around it. A component this test
 // scans itself (GROUND, or a view) is checked inside its own file instead.
-const GROUND = ['PageHeader', 'Empty', 'Banner', 'StatusBar', 'Popover', 'JobCard', 'JobsTable', 'InboxCard', 'CommandTrigger', 'Drawer', 'Settings', 'CommandBar', 'Toast', 'GitHubCard'];
+const GROUND = ['PageHeader', 'Empty', 'Banner', 'StatusBar', 'Popover', 'JobCard', 'JobsTable', 'InboxCard', 'CommandTrigger', 'Drawer', 'Settings', 'CommandBar', 'Toast', 'GitHubCard', 'NeedsPanel'];
+/** A GROUND component's file: components/, or components/statusbar/ for a popover body. */
+const groundFile = (c: string) => (fs.existsSync(path.join(SRC, 'components', `${c}.svelte`)) ? `components/${c}.svelte` : `components/statusbar/${c}.svelte`);
 // A plate is a surface; an open plate is a container the grain shows through (smithy/README.md › Shape and surfaces).
 const isSurface = (c: string[]) => (c.includes('plate') && !c.includes('open')) || ['plain', 'solid', 'chrome', 'btn', 'chip', 'input'].some((x) => c.includes(x));
 
@@ -597,7 +599,7 @@ test('text never sits on the bare ground', () => {
 
   const views = fs.readdirSync(path.join(SRC, 'views')).filter((f) => f.endsWith('.svelte'));
   const checked = new Set([...GROUND, ...views.map((f) => f.replace(/\.svelte$/, ''))]);
-  const files = ['App.svelte', ...views.map((f) => `views/${f}`), ...GROUND.map((c) => `components/${c}.svelte`)];
+  const files = ['App.svelte', ...views.map((f) => `views/${f}`), ...GROUND.map(groundFile)];
   for (const rel of files) assert.deepEqual(onGround(rel, read(rel), checked), [], `${rel} keeps its text on a surface`);
   assert.ok(fs.readFileSync(path.join(ROOT, 'smithy', 'README.md'), 'utf8').includes('Text never sits on the grain'), 'smithy/README.md states the rule');
   const agents = fs.readFileSync(path.join(ROOT, 'AGENTS.md'), 'utf8');
@@ -963,7 +965,7 @@ test('command input: in the sidebar at md and up, a 44px strip button below md, 
   const h1 = elements('components/PageHeader.svelte').find((e) => e.name === 'h1');
   assert.equal(attrOf(h1!, 'tabindex'), '-1', 'the heading is the focus fallback');
   const views = fs.readdirSync(path.join(SRC, 'views')).filter((f) => f.endsWith('.svelte'));
-  assert.equal(views.length, 6);
+  assert.equal(views.length, 5);
   for (const v of views) assert.equal(read(`views/${v}`).match(/<PageHeader\b/g)?.length, 1, `${v} renders one PageHeader`);
 
   // md and up: the sidebar input, the one element that announces the shortcut.
@@ -1118,8 +1120,8 @@ test('controls in one row share one size', () => {
   const other = elements('components/IssueLinkActions.svelte').find((e) => e.name === 'button' && attrOf(e, 'disabled') === '{!otherRef}');
   assert.ok(other && other.classes.includes('btn') && !other.classes.includes('sm'), `the other-ref button is btn (${other?.classes.join(' ')})`);
 
-  // The Inbox PR row: two md buttons in a gap-2 flex, not a literal space.
-  const inbox = elements('views/Inbox.svelte');
+  // The Needs-you PR row: two sm buttons in a gap-2 flex, not a literal space.
+  const inbox = elements('components/statusbar/NeedsPanel.svelte');
   const open = inbox.find((e) => e.name === 'a' && e.classes.includes('btn'));
   const cell = open?.parents.at(-1);
   assert.ok(cell && cell.name === 'div' && has(cell, 'flex', 'gap-2'), `the PR-row buttons share a gap-2 flex (${cell?.classes.join(' ')})`);
@@ -1248,21 +1250,23 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
 
   // Every indicator is a labelled button that opens a dialog and says whether it is open.
   const indicators = bar.filter((e) => e.name === 'button' && /openPopover\(/.test(attrOf(e, 'onclick')));
-  assert.equal(indicators.length, 7, 'daemon, inbox, office, held, waiting, model, connection');
+  assert.equal(indicators.length, 8, 'needs, daemon, inbox, office, held, waiting, model, connection');
   for (const b of indicators) {
     assert.ok(b.parents.includes(footer), 'inside the bar');
     assert.equal(attrOf(b, 'aria-haspopup'), 'dialog');
     assert.ok(attrOf(b, 'aria-expanded'), 'aria-expanded');
     assert.ok(attrOf(b, 'aria-controls'), 'aria-controls while open');
-    assert.match(attrOf(b, 'title'), /\? .* : undefined\}$/, 'a tooltip with the full label only while part of the text is hidden');
+    // Needs you's words are always sr-only, so its tooltip always shows; the others only while part of their text is hidden.
+    if (attrOf(b, 'data-popover') === 'needs') assert.equal(attrOf(b, 'title'), "{$t('statusbar.needs.name')}");
+    else assert.match(attrOf(b, 'title'), /\? .* : undefined\}$/, 'a tooltip with the full label only while part of the text is hidden');
     assert.ok(!b.attrs.some((a) => a.name === 'aria-label'), 'no aria-label: the name comes from the content, sr-only parts included');
     assert.ok(!b.classes.includes('truncate') && !b.classes.includes('min-w-0'), 'labels are whole or hidden, never cut');
-    assert.ok(/^(daemon|inbox|office|model|connection)$/.test(attrOf(b, 'data-popover')), 'data-popover names the popover it opens');
+    assert.ok(/^(needs|daemon|inbox|office|model|connection)$/.test(attrOf(b, 'data-popover')), 'data-popover names the popover it opens');
     // Below md every visible indicator is a 44x44 target with its ring drawn inside the 44px bar.
     if (!b.classes.includes('max-md:hidden')) for (const c of ['max-md:min-w-11', 'max-md:focus-visible:-outline-offset-2']) assert.ok(b.classes.includes(c), `the ${attrOf(b, 'data-popover')} indicator has ${c}`);
   }
-  assert.equal(indicators.filter((b) => !b.classes.includes('max-md:hidden')).length, 5, 'daemon, inbox, office, model and connection show below md');
-  assert.deepEqual(indicators.map((b) => /openPopover\('(\w+)'/.exec(attrOf(b, 'onclick'))?.[1]), ['daemon', 'inbox', 'office', 'daemon', 'daemon', 'model', 'connection'], 'in tab order');
+  assert.equal(indicators.filter((b) => !b.classes.includes('max-md:hidden')).length, 6, 'needs, daemon, inbox, office, model and connection show below md');
+  assert.deepEqual(indicators.map((b) => /openPopover\('(\w+)'/.exec(attrOf(b, 'onclick'))?.[1]), ['needs', 'daemon', 'inbox', 'office', 'daemon', 'daemon', 'model', 'connection'], 'in tab order');
   for (const b of bar.filter((e) => e.name === 'button' && e.parents.includes(footer))) assert.equal(attrOf(b, 'aria-haspopup'), 'dialog', 'every bar button opens a dialog');
   const script2 = read('components/StatusBar.svelte');
   assert.match(script2, /popover\.open === id \? `popover-\$\{id\}` : undefined/, 'aria-controls names the popover only while it is open');
@@ -1273,7 +1277,7 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
     assert.doesNotMatch(text, /aria-live/, `${rel} has no aria-live`);
     assert.doesNotMatch(text, /role="status"/, `${rel} has no role="status"`);
   }
-  assert.equal(fs.readdirSync(path.join(SRC, 'components', 'statusbar')).sort().join(' '), 'ConnectionPanel.svelte DaemonPanel.svelte InboxPanel.svelte ModelPanel.svelte OfficePanel.svelte');
+  assert.equal(fs.readdirSync(path.join(SRC, 'components', 'statusbar')).sort().join(' '), 'ConnectionPanel.svelte DaemonPanel.svelte InboxPanel.svelte ModelPanel.svelte NeedsPanel.svelte OfficePanel.svelte');
 
   // AC8: one polite live region, always in the DOM, fed by promptAnnouncement and the permission heading.
   const live = bar.filter((e) => e.attrs.some((a) => a.name === 'aria-live'));
@@ -1494,7 +1498,8 @@ test('counts read Label (N) in tabs and segments', () => {
   }
   // Right-aligned badges stay bare.
   const nav = read('components/Nav.svelte');
-  assert.ok(nav.includes(`<span class="chip you">{n}</span>`) && nav.includes(`<span class="mono num {on ? '' : 'muted'}">{n}</span>`), 'nav badges stay bare');
+  assert.ok(nav.includes(`<span class="mono num {on ? '' : 'muted'}">{n}</span>`), 'nav badges stay bare');
+  assert.ok(read('components/StatusBar.svelte').includes(`<span class="chip you num" aria-hidden="true">{needs}</span>`), 'the Needs-you badge too');
 });
 
 test('scrollers contain their overscroll', () => {
@@ -1507,4 +1512,39 @@ test('scrollers contain their overscroll', () => {
   const settings = read('components/Settings.svelte');
   assert.match(settings, /role="tablist"[^>]*class="[^"]*\boverscroll-contain\b/, 'the Settings rail');
   assert.match(settings, /role="tabpanel"[^>]*class="[^"]*\boverscroll-contain\b/, 'the Settings pane');
+});
+
+test('Needs you is a status-bar popover, not a page', () => {
+  // The page is gone: no view file, nav entry, route or catalog key.
+  assert.ok(!fs.existsSync(path.join(SRC, 'views', 'Inbox.svelte')), 'views/Inbox.svelte is gone');
+  for (const rel of ['App.svelte', 'components/Nav.svelte', 'components/StatusBar.svelte']) assert.doesNotMatch(read(rel), /nav\.inbox|views\/Inbox|S\.view === 'inbox'/, `${rel} has no Needs-you page`);
+  const en = JSON.parse(read('messages/en.json'));
+  assert.equal(en.nav.inbox, undefined, 'no nav.inbox key');
+  assert.equal(en.inbox.title, undefined, 'no inbox.title');
+  assert.equal(en.inbox.sub, undefined, 'no inbox.sub');
+  // The old link shows the Pipeline, rewrites the hash and asks for the popover.
+  const route = fnBody(read('lib/app.svelte.ts'), 'export function route(');
+  assert.match(route, /if \(v === 'inbox'\) \{\s*history\.replaceState\(null, '', '#\/pipeline'\);\s*S\.openNeeds = true;\s*\}/);
+  assert.match(route, /S\.view = VIEWS\.find\(\(x\) => x\.id === v\)\?\.id \?\? 'pipeline';/, 'and falls through to the Pipeline');
+
+  // The first indicator in the left cluster: a bell, with a you-chip count only above 0.
+  const bar = elements('components/StatusBar.svelte');
+  const first = bar.find((e) => e.name === 'button' && /openPopover\(/.test(attrOf(e, 'onclick')));
+  assert.equal(attrOf(first!, 'data-popover'), 'needs', 'Needs you comes first');
+  for (const [k, v] of [['aria-haspopup', 'dialog'], ['aria-expanded', "{expanded('needs')}"], ['aria-controls', "{controls('needs')}"]]) assert.equal(attrOf(first!, k), v, `the button's ${k}`);
+  const text = read('components/StatusBar.svelte');
+  assert.match(text, /const needs = \$derived\(inboxGroups\(S\.data\?\.jobs \?\? \[\]\)\.urgent\.length\);/, 'the count is the urgent list');
+  assert.ok(bar.some((e) => e.name === 'Icon' && attrOf(e, 'name') === 'bell' && e.parents.includes(first!)), 'the bell icon');
+  assert.match(text, /\{#if needs > 0\}<span class="chip you num" aria-hidden="true">\{needs\}<\/span>\{\/if\}/, 'a you chip only above 0');
+  assert.match(text, /'text-fg' : 'text-muted'/, 'the bell is muted at 0');
+  assert.match(text, /<span class="sr-only">\{\$t\('statusbar\.needs\.name'\)\}\{#if needs > 0\}\{', '\}\{\$t\('statusbar\.needs\.count', \{ count: needs \}\)\}\{\/if\}<\/span>/, 'its name is Needs you plus the count');
+  // It opens the large popover holding the page's sections, and #/inbox opens it once.
+  assert.match(text, /\{#if open === 'needs'\}\{#if S\.data\}<NeedsPanel data=\{S\.data\} \/>\{\/if\}/);
+  assert.match(text, /if \(!S\.openNeeds \|\| !S\.data \|\| !needsButton\) return;[\s\S]*?S\.openNeeds = false;\s*if \(popover\.open !== 'needs'\) openPopover\('needs', anchor\);/, '#/inbox opens it anchored to its button');
+  const panel = read('components/statusbar/NeedsPanel.svelte');
+  for (const c of ['<InboxCard job={j} />', '<PrChip pr={j.pr} />', '<DepChips job={j} />', '<JobActions job={j} noteId="park-{j.id}" />', '{#each reqs as r (r.id)}', "$t('needs.empty')", "$t('inbox.openPr')", "$t('inbox.addressFeedback')"]) assert.ok(panel.includes(c), `NeedsPanel renders ${c}`);
+  assert.equal(panel.match(/<h3 id="needs-[a-z]+" class="label">/g)?.length, 4, 'four h3.label headings');
+  assert.doesNotMatch(panel, /PageHeader|<h2|\{@html/, 'no page header and no raw html');
+  assert.match(panel, /href=\{u\}/, 'the PR link is the safeUrl');
+  assert.match(panel, /const u = safeUrl\(j\.pr\?\.url\)/);
 });
