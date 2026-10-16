@@ -1,5 +1,5 @@
-// The status bar's pure half: its daemon and inbox indicators, the model label, the connection state, the prompt
-// announcement and the inline command input's rule. No DOM and no svelte import, so node:test can pin them.
+// The status bar's pure half: its daemon and inbox indicators, the facts strip's drop order, the model label, the
+// connection state, the prompt announcement, and the rule of the sidebar's "New job or command" input. No DOM and no svelte import, so node:test can pin them.
 // Model strings come from config.yml and the roster, session state from session output: all plain strings, rendered as text.
 import { obj, poolModel } from './daemon.ts';
 import type { Pill, PoolInput } from './daemon.ts';
@@ -136,7 +136,21 @@ export function barModel(pool: PoolInput, opts: { pending: boolean }): BarModel 
 /** What the bar's live region says: the new count, only when it rose to a non-zero value; silence when it fell or held. */
 export const promptAnnouncement = (prev: number, next: number): number | null => (next > prev && next > 0 ? next : null);
 
-// ---------- the inline command input ----------
+// ---------- the facts strip ----------
+
+/** What the facts strip drops as it runs short, first to last: the whole SHEET pair, the whole API pair, the SESSIONS
+ *  word (the live dot and its count stay), the FORGE word (the version stays). */
+export const FACTS_DROP = ['sheet', 'api', 'sessionsWord', 'forgeWord'] as const;
+export type FactsPart = (typeof FACTS_DROP)[number];
+export const FACTS_MAX = FACTS_DROP.length;
+
+/** Which facts a fit level hides: level n hides the first n of FACTS_DROP. */
+export function factsHidden(level: number): Record<FactsPart, boolean> {
+  const n = Math.max(0, Math.min(Math.floor(level), FACTS_MAX));
+  return { sheet: n >= 1, api: n >= 2, sessionsWord: n >= 3, forgeWord: n >= 4 };
+}
+
+// ---------- the sidebar's command input ----------
 
 export interface InlineInputEvent {
   type: 'input' | 'compositionend' | 'keydown';

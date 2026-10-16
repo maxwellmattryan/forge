@@ -1,14 +1,16 @@
-<!-- The status bar: one fixed row at the bottom of every view. Left, the daemon, the inbox and (md and up) holds and waits;
-     centre, the "New job or command" input (a button below md); right, the model and the connection. Each indicator opens
-     one popover, a sibling after the bar: a fixed element with a z-index is its own stacking context, so a popover inside
-     the bar could never rise above the drawer.
+<!-- The status bar: one slim fixed row at the bottom of every view. Left, the daemon, the inbox and (md and up) holds and
+     waits; then the facts strip (FORGE version · API · SESSIONS live dot and count · SHEET); right, the model and the
+     connection. It holds no text field: "New job or command" lives in the sidebar. Each indicator opens one popover, a
+     sibling after the bar: a fixed element with a z-index is its own stacking context, so a popover inside the bar could
+     never rise above the drawer.
      Stacking, from the back: sidebar z-10, drawer backdrop z-30, this bar z-35, drawer z-40, popovers z-42, Settings and
      the palette z-45, toast z-50. At md and up the bar spans the content column only, so the sidebar keeps its full
-     height and its title block, and the drawer ends at the bar's top edge. Session errors, titles and model strings are
-     untrusted and render as text.
-     Each cluster holds its indicators in a max-content row. When the row is wider than the cluster, the next level of text
-     goes sr-only (see fit()), so a visible label is always whole, never cut to an ellipsis. Below md every indicator is a
-     glyph or a dot. -->
+     height, and the drawer ends at the bar's top edge. Session errors, titles and model strings are untrusted and render
+     as text.
+     The facts strip takes what the clusters leave (basis 0) and drops facts from the right as it runs short (see
+     factsHidden). Each cluster holds its indicators in a max-content row; when the row is wider than the cluster, the next
+     level of text goes sr-only (see fit()), so a visible label is always whole, never cut to an ellipsis. Below md every
+     indicator is a glyph or a dot. -->
 <script lang="ts">
   import { tick, untrack } from 'svelte';
   import Icon from './Icon.svelte';
@@ -21,12 +23,13 @@
   import { API_VERSION } from '../lib/types.ts';
   import type { DaemonPoolState } from '../lib/types.ts';
   import { mergePoolState, poolModel, postDaemon } from '../lib/daemon.ts';
-  import { barModel, connectionState, inlineInputAction, modelSummary, promptAnnouncement, summaryText, type InlineInputEvent } from '../lib/statusbar.ts';
-  import { shortcutLabel } from '../lib/command.ts';
+  import { FACTS_MAX, barModel, connectionState, factsHidden, modelSummary, promptAnnouncement, summaryText } from '../lib/statusbar.ts';
+  import { activeSessions } from '../lib/live.ts';
+  import { INBOX_SCOPE } from '../lib/types.ts';
+  import { VIEWS, viewIndex, type ViewId } from '../lib/view.ts';
   import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
   import { closePopover, focusInPopover, keepFocus, openPopover, popover, reanchor } from '../lib/popover.svelte.ts';
   import type { PopoverId } from '../lib/popover.ts';
-  import { openPalette } from '../lib/palette.svelte.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
 
@@ -37,7 +40,18 @@
   const bar = $derived(barModel(pool, { pending }));
   const models = $derived(modelSummary(S.data?.config?.models));
   const conn = $derived(connectionState({ online: S.online, apiVersion: S.data?.apiVersion, clientApi: API_VERSION }));
-  const shortcut = shortcutLabel(typeof navigator === 'undefined' ? '' : navigator.platform);
+  const active = $derived(activeSessions(S.data?.daemons));
+  // One active session per line, the inbox by name.
+  const activeTitle = $derived(active.count ? active.ids.map((id) => (id === INBOX_SCOPE ? $t('live.inbox') : id)).join('\n') : $t('live.none'));
+  // The same map Nav.svelte builds, for the SHEET fact.
+  const viewLabels = $derived<Record<ViewId, string>>({
+    pipeline: $t('nav.pipeline'),
+    inbox: $t('nav.inbox'),
+    backlog: $t('nav.backlog'),
+    agents: $t('nav.agents'),
+    analytics: $t('nav.analytics'),
+    evals: $t('nav.evals'),
+  });
 
   /**
    * How much text each part hides, lowest value first. Left: 1 the "Daemon" and "Inbox" words, 2 the reasons of held and
@@ -45,20 +59,20 @@
    * (its toned glyph and the prompt count stay), 5 the daemon's state (its toned glyph, the live dot and live/cap stay),
    * 6 "prompts" after the count, 7 the count, 8 live/cap. Right: 1 the provider and the effort, 2 the model label, 3 the
    * connection's word while it is Live or Connecting, and "needed" after "Update", 4 the rest of the connection's word.
-   * Centre, below md: 1 "or command", 2 "New job" (the glyph stays).
+   * Facts, before either cluster: 1 SHEET, 2 API, 3 the SESSIONS word, 4 the FORGE word (lib/statusbar.ts factsHidden).
    */
   let left = $state(0);
   let right = $state(0);
-  let mid = $state(0);
+  let facts = $state(0);
   let fits = $state(0);
   const LEFT_MAX = 8;
   const RIGHT_MAX = 4;
-  const MID_MAX = 2;
+  const hid = $derived(factsHidden(facts));
   let fitting = 0;
   let phone = $state(typeof matchMedia === 'function' ? !matchMedia('(width >= 48rem)').matches : false);
 
   /** Tone → text colour, whole literals so Tailwind sees them. */
-  const TONE_TEXT: Record<string, string> = { ok: 'text-ok', warn: 'text-warn', bad: 'text-bad', info: 'text-info', ink: 'text-ink', live: 'text-ink', muted: 'text-muted' };
+  const TONE_TEXT: Record<string, string> = { ok: 'text-ok', warn: 'text-warn', bad: 'text-bad', info: 'text-info', gleam: 'text-gleam', live: 'text-gleam', muted: 'text-muted' };
   /** Connection's static dot: only LiveDot pulses. */
   const CONN_DOT: Record<string, string> = { muted: 'dot hollow', ok: 'dot ok', warn: 'dot bg-warn', bad: 'dot bg-bad' };
 
@@ -128,7 +142,7 @@
   let leftRow = $state<HTMLDivElement>();
   let rightBox = $state<HTMLDivElement>();
   let rightRow = $state<HTMLDivElement>();
-  let cmdLabel = $state<HTMLSpanElement>();
+  let factsBox = $state<HTMLDivElement>();
 
   function overflows(box: HTMLElement | undefined, row: HTMLElement | undefined): boolean {
     if (!box || !row) return false;
@@ -136,32 +150,28 @@
     return row.getBoundingClientRect().width > box.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight) + 0.5;
   }
 
-  /** A shown label that its box cuts. */
+  /** A box whose content is wider than it (the facts strip clips its overflow). */
   const cut = (el: HTMLElement | undefined): boolean => Boolean(el && el.getClientRects().length > 0 && el.scrollWidth > el.clientWidth + 0.5);
 
-  /** From whole labels down, one level at a time, until each part fits. All in microtasks, so nothing flickers. */
+  /** From whole labels down, one level at a time, until each part fits: the facts first, then the clusters. All in
+   *  microtasks, so nothing flickers. */
   async function fit(): Promise<void> {
     const me = ++fitting;
     phone = !matchMedia('(width >= 48rem)').matches;
     left = 0;
     right = 0;
-    mid = 0;
+    facts = 0;
     await tick();
+    while (me === fitting && facts < FACTS_MAX && cut(factsBox)) {
+      facts++;
+      await tick();
+    }
     while (me === fitting && left < LEFT_MAX && overflows(leftBox, leftRow)) {
       left++;
       await tick();
     }
     while (me === fitting && right < RIGHT_MAX && overflows(rightBox, rightRow)) {
       right++;
-      await tick();
-    }
-    // On a phone the clusters keep their width and the palette button gives way: "needed" goes before its label does.
-    while (me === fitting && phone && right < 3 && cut(cmdLabel)) {
-      right++;
-      await tick();
-    }
-    while (me === fitting && mid < MID_MAX && cut(cmdLabel)) {
-      mid++;
       await tick();
     }
     if (me === fitting) fits++;
@@ -173,6 +183,8 @@
     void models;
     void conn.state;
     void S.data;
+    void S.view;
+    void active.count;
     void $t;
     untrack(() => fit());
   });
@@ -200,28 +212,6 @@
     });
   });
 
-  // ---------- the inline command input ----------
-  let input = $state<HTMLInputElement>();
-
-  function inline(e: Event & { currentTarget: HTMLInputElement }, type: InlineInputEvent['type']): void {
-    const el = e.currentTarget;
-    const composing = 'isComposing' in e && type !== 'compositionend' ? Boolean(e.isComposing) : false;
-    const key = e instanceof KeyboardEvent ? e.key : undefined;
-    if (inlineInputAction({ type, value: el.value, key, composing }) !== 'open') return;
-    if (type === 'keydown') e.preventDefault();
-    openPalette({ text: el.value, opener: el });
-    el.value = '';
-  }
-
-  /** For App's Cmd/Ctrl-K: whether the inline input shows (md and up) and has focus. */
-  export function commandState(): { visible: boolean; focused: boolean } {
-    return { visible: Boolean(input && input.getClientRects().length > 0), focused: Boolean(input && document.activeElement === input) };
-  }
-
-  export function focusCommand(): void {
-    input?.focus();
-  }
-
   const expanded = (id: PopoverId): boolean => popover.open === id;
   const controls = (id: PopoverId): string | undefined => (popover.open === id ? `popover-${id}` : undefined);
 </script>
@@ -230,7 +220,7 @@
   bind:this={footer}
   id="statusbar"
   aria-label={$t('statusbar.label')}
-  class="fixed bottom-0 right-0 left-0 md:left-(--size-sidebar) z-35 chrome border-t border-line-strong h-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex items-center gap-1 px-1 md:grid md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:gap-2 md:px-3"
+  class="fixed bottom-0 right-0 left-0 md:left-(--size-sidebar) z-35 chrome border-t border-line-strong h-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex items-center gap-1 px-1 md:gap-3.5 md:px-2"
 >
   <div bind:this={leftBox} class="flex min-w-0 items-center overflow-x-clip px-1">
     <div bind:this={leftRow} class="flex w-max items-center gap-0.5 md:gap-1">
@@ -263,33 +253,19 @@
     </div>
   </div>
 
-  <div class="flex min-w-0 flex-1 items-center justify-center md:flex-none">
-    <!-- Below md: one button fills the space between the clusters, never under 44px; its label sheds words to fit, never cut. -->
-    <button class="btn md:hidden min-w-11 flex-1 justify-center px-2! normal-case tracking-normal max-md:focus-visible:-outline-offset-2" aria-haspopup="dialog" onclick={(e) => openPalette({ opener: e.currentTarget })}><Icon name="command" /><span bind:this={cmdLabel} class="min-w-0 overflow-hidden whitespace-nowrap {mid >= 2 ? 'sr-only' : ''}">{$t('statusbar.command.word')}<span class={mid >= 1 ? 'sr-only' : ''}>{$t('statusbar.command.rest')}</span></span></button>
-    <!-- md and up: a real input; typing hands its text to the palette. The kbd is hidden because aria-keyshortcuts announces it,
-         and from lg up only, so the placeholder stays whole in the narrow md input. The placeholder is its only visible label,
-         so it takes muted (4.5:1 in every theme) rather than dim, and the strong edge. -->
-    <span class="relative max-md:hidden">
-      <input
-        bind:this={input}
-        id="statusbar-command"
-        type="text"
-        aria-label={$t('command.open')}
-        aria-haspopup="dialog"
-        aria-keyshortcuts="Meta+K Control+K"
-        autocomplete="off"
-        spellcheck="false"
-        placeholder={$t('command.open')}
-        class="max-md:hidden w-48 lg:w-64 xl:w-80 2xl:w-96 lg:pr-14! border-line-strong! placeholder:text-muted!"
-        oninput={(e) => inline(e, 'input')}
-        oncompositionend={(e) => inline(e, 'compositionend')}
-        onkeydown={(e) => inline(e, 'keydown')}
-      />
-      <kbd class="mono muted pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-[10px] max-lg:hidden" aria-hidden="true">{shortcut}</kbd>
-    </span>
+  <!-- The facts: what the clusters leave, never wrapped. Each dropped fact goes sr-only, so the strip still reads whole.
+       Below md only the version and the sessions dot and count stay. -->
+  <div bind:this={factsBox} class="facts flex-1 basis-0">
+    <span id="footer-version"><span class="k max-md:sr-only {hid.forgeWord ? 'sr-only' : ''}">{$t('statusbar.facts.forge')}</span>{S.data ? $t('statusbar.facts.version', { version: S.data.forgeVersion }) : '—'}</span>
+    <span class="sep max-md:hidden! {hid.api ? 'hidden!' : ''}" aria-hidden="true"></span>
+    <span class="max-md:sr-only {hid.api ? 'sr-only' : ''}"><span class="k">{$t('statusbar.facts.api')}</span>{S.data ? S.data.apiVersion : '—'}</span>
+    <span class="sep" aria-hidden="true"></span>
+    <span id="footer-sessions" title={activeTitle}><span class="k max-md:sr-only {hid.sessionsWord ? 'sr-only' : ''}">{$t('statusbar.facts.sessions')}</span><LiveDot on={active.count > 0} /><span class="num">{$t('statusbar.facts.sessionsValue', { count: active.count })}</span></span>
+    <span class="sep max-md:hidden! {hid.sheet ? 'hidden!' : ''}" aria-hidden="true"></span>
+    <span class="max-md:sr-only {hid.sheet ? 'sr-only' : ''}"><span class="k">{$t('statusbar.facts.sheet')}</span>{$t('statusbar.facts.sheetValue', { view: viewLabels[S.view], index: viewIndex(S.view), total: VIEWS.length })}</span>
   </div>
 
-  <div bind:this={rightBox} class="flex min-w-0 items-center justify-end overflow-x-clip px-1">
+  <div bind:this={rightBox} class="ml-auto flex min-w-0 items-center justify-end overflow-x-clip px-1">
     <div bind:this={rightRow} class="flex w-max items-center gap-0.5 md:gap-1">
       {#if S.data}
         <button class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="model" title={phone || right >= 1 ? titles.model : undefined} aria-haspopup="dialog" aria-expanded={expanded('model')} aria-controls={controls('model')} onclick={(e) => openPopover('model', e.currentTarget)}>

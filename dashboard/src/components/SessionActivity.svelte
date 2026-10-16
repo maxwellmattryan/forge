@@ -17,5 +17,5 @@
 {#if activity.kind === 'asking'}
   <span class="flex items-center gap-1.5 min-w-0 {extra}"><Chip tone="warn" text={stateText.asking} />{#if when}<span class="normal-case tracking-normal">· {when}</span>{/if}</span>
 {:else if activity.kind !== 'off'}
-  <span class="flex items-center gap-1.5 min-w-0 {activity.kind === 'working' ? 'text-ink' : ''} {extra}"><LiveDot on={activity.kind === 'working'} /><span class="truncate">{#if when}{$t('live.line', { state: stateText[activity.kind], ago: when })}{:else}{stateText[activity.kind]}{/if}</span></span>
+  <span class="flex items-center gap-1.5 min-w-0 {activity.kind === 'working' ? 'text-gleam' : ''} {extra}"><LiveDot on={activity.kind === 'working'} /><span class="truncate">{#if when}{$t('live.line', { state: stateText[activity.kind], ago: when })}{:else}{stateText[activity.kind]}{/if}</span></span>
 {/if}

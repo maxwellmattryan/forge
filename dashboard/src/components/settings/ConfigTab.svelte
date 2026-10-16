@@ -57,7 +57,7 @@
       <div bind:this={status} tabindex="-1" class="mr-auto min-w-0 text-xs outline-none" aria-live="polite">
         {#if changed.length || invalid.length}
         <!-- Each part is a flex item of the chip, so its gap spaces them. -->
-        <span class="chip rev sm max-w-full flex-wrap whitespace-normal"><span aria-hidden="true">{$t('common.rev')} ·</span><span>{$t('settings.save.unsaved', { count: changed.length })}</span>{#if invalid.length}<span>· {$t('settings.save.invalid', { count: invalid.length })}</span>{/if}</span>{:else}<span class="label">{$t('settings.save.unsaved', { count: 0 })}</span>{/if}
+        <span class="chip you sm max-w-full flex-wrap whitespace-normal"><span aria-hidden="true">{$t('common.you')} ·</span><span>{$t('settings.save.unsaved', { count: changed.length })}</span>{#if invalid.length}<span>· {$t('settings.save.invalid', { count: invalid.length })}</span>{/if}</span>{:else}<span class="label">{$t('settings.save.unsaved', { count: 0 })}</span>{/if}
         {#if problem}
           <button class="block text-left text-bad underline-offset-2 hover:underline break-words" onclick={() => goto(problem.key)}>{session.failedKey ? $t('settings.save.failedHere', { label: problem.label, error: session.saveErrors[problem.key] ?? '' }) : $t('settings.save.fixHere', { label: problem.label })}</button>
         {/if}

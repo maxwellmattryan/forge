@@ -1,15 +1,14 @@
 <!-- Settings › General: the dashboard's appearance, language and keyboard, kept per browser. -->
 <script lang="ts">
   import { CATALOGS, locale, setLocale, t } from '../../lib/locale.ts';
-  import { THEME_CHOICES, chooseTheme, currentDrawing, setDrawing, themeChoice, type ThemeChoice } from '../../lib/theme.ts';
+  import { THEME_CHOICES, chooseTheme, currentGrain, setGrain, themeChoice, type ThemeChoice } from '../../lib/theme.ts';
   import { pref } from '../../lib/prefs.ts';
 
   let choice = $state<ThemeChoice>(themeChoice(pref.get('theme', '')));
-  let grid = $state(currentDrawing('grid'));
-  let paper = $state(currentDrawing('paper'));
+  let grain = $state(currentGrain());
   let shortcut = $state(pref.get('settingsShortcut', 'on') !== 'off');
   const codes = Object.keys(CATALOGS);
-  const labels = $derived<Record<ThemeChoice, string>>({ cyanotype: $t('settings.general.cyanotype'), vellum: $t('settings.general.vellum'), nightprint: $t('settings.general.nightprint'), system: $t('settings.general.system') });
+  const labels = $derived<Record<ThemeChoice, string>>({ forge: $t('settings.general.forge'), ash: $t('settings.general.ash'), system: $t('settings.general.system') });
 
   function languageName(code: string): string {
     try {
@@ -33,10 +32,8 @@
       <div role="radiogroup" aria-labelledby="settings-theme-label" class="seg flex-wrap gap-y-2 self-start">
         {#each THEME_CHOICES as c (c)}<label class={choice === c ? 'btn sm sel' : 'btn sm'}><input type="radio" class="sr-only" name="settings-theme" value={c} checked={choice === c} onchange={() => pick(c)} />{labels[c]}</label>{/each}
       </div>
-      <div id="settings-grid-label">{$t('settings.general.grid')}</div>
-      <label class="field"><input type="checkbox" class="check" checked={grid} aria-labelledby="settings-grid-label" aria-describedby="settings-grid-hint" onchange={(e) => { grid = e.currentTarget.checked; setDrawing('grid', grid); }} /><span id="settings-grid-hint" class="muted">{$t('settings.general.gridHint')}</span></label>
-      <div id="settings-paper-label">{$t('settings.general.paper')}</div>
-      <label class="field"><input type="checkbox" class="check" checked={paper} aria-labelledby="settings-paper-label" aria-describedby="settings-paper-hint" onchange={(e) => { paper = e.currentTarget.checked; setDrawing('paper', paper); }} /><span id="settings-paper-hint" class="muted">{$t('settings.general.paperHint')}</span></label>
+      <div id="settings-grain-label">{$t('settings.general.grain')}</div>
+      <label class="field"><input type="checkbox" class="check" checked={grain} aria-labelledby="settings-grain-label" aria-describedby="settings-grain-hint" onchange={(e) => { grain = e.currentTarget.checked; setGrain(grain); }} /><span id="settings-grain-hint" class="muted">{$t('settings.general.grainHint')}</span></label>
     </div>
   </section>
   <section class="flex flex-col gap-3">

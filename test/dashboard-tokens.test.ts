@@ -1,6 +1,5 @@
-// The Drafting tokens: design/tokens.css is the drawing, the built dashboard CSS must carry every
-// variable of it in the same scope with the same value, and the text colours must stay readable in
-// all three themes (cyanotype, vellum, nightprint).
+// The Smithy tokens: smithy/tokens.css is the drawing, the built dashboard CSS must carry every variable of it in the
+// same scope with the same value, and the text colours must stay readable in both themes (forge, ash).
 // Reads files only; a small regex-based declaration reader stands in for a CSS parser.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -104,23 +103,27 @@ function sameValue(a: string, b: string): boolean {
   });
 }
 
-const SCOPES = [':root, [data-theme="cyanotype"]', '[data-theme="vellum"]', '[data-theme="nightprint"]', ':root'];
+const SCOPES = [':root, [data-theme="forge"]', '[data-theme="ash"]', ':root'];
+// smithy/smithy.css declares these on top of tokens.css: the brushed gleam fills, the grain and the falloff (ash
+// overrides four of them). They ride in the same scopes in the build.
+const SMITHY_EXTRAS = ['--gleam-fill', '--gleam-fill-hot', '--gleam-fill-bar', '--gleam-spec', '--grain-opacity', '--grain-blend', '--fall', '--hammer', '--grain'];
 const EXTRAS: Record<string, string[]> = {
-  [SCOPES[0]]: ['--paper-blend', '--fall'],
-  [SCOPES[1]]: ['--paper-opacity', '--paper-blend', '--fall'],
-  [SCOPES[2]]: ['--paper-opacity', '--paper-blend', '--fall'],
-  [SCOPES[3]]: [],
+  [SCOPES[0]]: [],
+  [SCOPES[1]]: ['--gleam-spec', '--grain-opacity', '--grain-blend', '--fall'],
+  [SCOPES[2]]: SMITHY_EXTRAS,
 };
-/** Each theme's own token block in design/tokens.css (the scalar `:root` block is shared). */
-const THEME_SCOPE: Record<string, string> = { cyanotype: SCOPES[0], vellum: SCOPES[1], nightprint: SCOPES[2] };
+/** Each theme's own token block in smithy/tokens.css (the scalar `:root` block is shared). */
+const THEME_SCOPE: Record<string, string> = { forge: SCOPES[0], ash: SCOPES[1] };
+const SMITHY = path.join(ROOT, 'smithy');
+const tokensCss = () => fs.readFileSync(path.join(SMITHY, 'tokens.css'), 'utf8');
 
 test('the token value reader normalises the way the build rewrites values', () => {
   assert.ok(sameValue('rgba(255,255,255,0.035)', '#ffffff09'));
   assert.ok(sameValue('#ffffff', '#fff'));
   assert.ok(sameValue('0.18', '.18'));
   assert.ok(sameValue('0px', '0'));
-  assert.ok(sameValue('"IBM Plex Sans", system-ui', 'IBM Plex Sans,system-ui'));
-  assert.ok(sameValue('3px 3px 0 0 rgba(226,238,255,0.28)', '3px 3px 0 0 #e2eeff47'));
+  assert.ok(sameValue('"Barlow", system-ui', 'Barlow,system-ui'));
+  assert.ok(sameValue('inset 0 1px 0 0 rgba(220,232,250,0.08)', 'inset 0 1px 0 0 #dce8fa14'));
   assert.ok(!sameValue('rgba(255,255,255,0.035)', '#ffffff0c'), 'alpha off by more than 1/255');
   assert.ok(!sameValue('#15427a', '#15427b'));
   assert.ok(!sameValue('8px', '9px'));
@@ -129,27 +132,40 @@ test('the token value reader normalises the way the build rewrites values', () =
 });
 
 test('built CSS carries every design token in every theme', () => {
-  const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
+  const design = tokensCss();
   const css = builtCss();
   let count = 0;
   for (const sel of SCOPES) {
     const want = scope(design, sel);
     const got = scope(css, sel);
-    assert.ok(want.size > 0, `design/tokens.css has a ${sel} block`);
+    assert.ok(want.size > 0, `smithy/tokens.css has a ${sel} block`);
     for (const [name, value] of want) {
       count++;
       assert.ok(got.has(name), `${sel} › ${name} is missing from the built CSS`);
-      assert.ok(sameValue(value, got.get(name) ?? ''), `${sel} › ${name}: design ${value}, built ${got.get(name)}`);
+      assert.ok(sameValue(value, got.get(name) ?? ''), `${sel} › ${name}: smithy ${value}, built ${got.get(name)}`);
     }
     // lightningcss adds --lightningcss-light/-dark beside every color-scheme, for its light-dark() fallback.
     const extra = [...got.keys()].filter((k) => !want.has(k) && !k.startsWith('--lightningcss-')).sort();
-    assert.deepEqual(extra, [...EXTRAS[sel]].sort(), `${sel}: only the drafting extras are added`);
+    assert.deepEqual(extra, [...EXTRAS[sel]].sort(), `${sel}: only the smithy.css extras are added`);
   }
-  assert.ok(count >= 100, `checked ${count} tokens`);
+  assert.ok(count >= 90, `checked ${count} tokens`);
   for (const m of css.matchAll(/(--(?:[\w-]|\\.)+)\s*:([^;}]*)/g)) {
     const name = m[1].replace(/[\\.]/g, (c) => '\\' + c);
     assert.doesNotMatch(m[2], new RegExp(`var\\(\\s*${name}\\s*[,)]`), `${m[1]} references itself`);
   }
+});
+
+// The Drafting palette and its theme ids are gone from every stylesheet the dashboard ships. (The JS bundle and
+// index.html still name the old theme ids: lib/theme.ts maps saved values from earlier versions onto forge and ash.)
+const DRAFTING = ['cyanotype', 'vellum', 'nightprint', '--ink', '--redline', '--highlight', '--sketch-line', '--grid-minor', '--grid-major', '--paper-opacity', '--hatch-pitch', '--tick', '--dash'];
+test('no Drafting token or theme id remains', () => {
+  const name = (n: string) => new RegExp(`${n.replace(/[-]/g, '\\-')}(?![\\w-])`);
+  assert.ok(name('--ink').test('var(--ink)') && !name('--ink').test('--inky') && !name('--tick').test('--ticker'), 'self-check: whole names only');
+  const dist = path.join(ROOT, 'dashboard', 'dist');
+  const stylesheets = (fs.readdirSync(dist, { recursive: true }) as string[]).filter((f) => f.endsWith('.css')).map((f) => path.join(dist, f));
+  assert.ok(stylesheets.length > 0, 'the build has a stylesheet');
+  const sources: [string, string][] = [['dashboard/style.css', fs.readFileSync(path.join(ROOT, 'dashboard', 'style.css'), 'utf8')], ...stylesheets.map((f) => [path.relative(ROOT, f), fs.readFileSync(f, 'utf8')] as [string, string])];
+  for (const [where, text] of sources) for (const n of DRAFTING) assert.doesNotMatch(text, name(n), `${where} names ${n}`);
 });
 
 // WCAG 2.x relative luminance and contrast ratio.
@@ -163,45 +179,19 @@ const contrast = (a: Rgba, b: Rgba) => {
   return (hi + 0.05) / (lo + 0.05);
 };
 const over = ([r, g, b, a]: Rgba, [R, G, B]: Rgba): Rgba => [r * a + R * (1 - a), g * a + G * (1 - a), b * a + B * (1 - a), 1];
+/** Channel-wise sRGB interpolation, what `color-mix(in srgb, a p, b)` computes for opaque colours. */
+const mix = (a: Rgba, p: number, b: Rgba): Rgba => [a[0] * p + b[0] * (1 - p), a[1] * p + b[1] * (1 - p), a[2] * p + b[2] * (1 - p), 1];
 
-// --dim is for placeholders and title-block keys only and fails 4.5:1 by design (design/README.md
-// › Colour). On vellum --highlight is only ever a fill under dark text, never text itself; the two dark
-// themes also use it as text (a hovered link).
-const TEXT = ['fg', 'muted', 'ink', 'redline', 'ok', 'warn', 'bad', 'info'];
-const TEXT_BY_THEME: Record<string, string[]> = { cyanotype: [...TEXT, 'highlight'], vellum: TEXT, nightprint: [...TEXT, 'highlight'] };
-// Empty in all three themes: job 4 lifted --redline/--bad and vellum --warn until every text token
-// cleared 4.5:1 on the translucent surfaces too. A new failure is a token to fix, not an entry here.
-const EXCEPTIONS: string[] = [];
+// Text is fg or muted; gleam (links, the live chip), ember (needs you) and the status hues carry words too. dim is for
+// placeholders and stamp-line keys only (smithy/README.md › Colour) and is the one documented exception. spark is only
+// ever a fill under on-spark. Forge's hovered link is gleam-hot; Ash keeps gleam there.
+const TEXT = ['fg', 'muted', 'gleam', 'ember', 'ok', 'warn', 'bad', 'info'];
+const TEXT_BY_THEME: Record<string, string[]> = { forge: [...TEXT, 'gleam-hot'], ash: TEXT };
+const DIM_FLOOR = 3.0;
 
-test('text tokens meet 4.5:1 except the documented exceptions', () => {
-  const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
-  const themes: Record<string, Map<string, string>> = Object.fromEntries(THEMES.map((th) => [th, scope(design, THEME_SCOPE[th])]));
-  assert.deepEqual(Object.keys(themes), ['cyanotype', 'vellum', 'nightprint']);
-  const failing: string[] = [];
-  for (const [theme, vars] of Object.entries(themes)) {
-    const color = (k: string): Rgba => {
-      const c = parseColor(vars.get(`--${k}`) ?? '');
-      assert.ok(c, `${theme} --${k} is a colour`);
-      return c;
-    };
-    const bg = color('bg');
-    const surfaces: Record<string, Rgba> = { bg, panel: over(color('panel'), bg), raised: over(color('raised'), bg) };
-    for (const k of TEXT_BY_THEME[theme]) {
-      const ratio = contrast(color(k), surfaces.bg);
-      assert.ok(ratio >= 4.5, `${theme} --${k} on --bg is ${ratio.toFixed(2)}:1`);
-      for (const s of ['panel', 'raised']) if (contrast(color(k), surfaces[s]) < 4.5) failing.push(`${theme} ${k}/${s}`);
-    }
-    const onInk = contrast(color('on-ink'), color('ink'));
-    assert.ok(onInk >= 4.5, `${theme} --on-ink on --ink is ${onInk.toFixed(2)}:1`);
-    const onHighlight = contrast(parseColor('#14355f') as Rgba, color('highlight'));
-    assert.ok(onHighlight >= 4.5, `${theme} #14355f on --highlight is ${onHighlight.toFixed(2)}:1`);
-  }
-  assert.deepEqual(failing.sort(), [...EXCEPTIONS].sort(), 'the exception list equals the measured failures');
-});
-
-/** The three theme scopes of design/tokens.css, as a colour reader per theme. */
+/** The two theme scopes of smithy/tokens.css, as a colour reader per theme. */
 function themeColors(): Record<string, (k: string) => Rgba> {
-  const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
+  const design = tokensCss();
   const out: Record<string, (k: string) => Rgba> = {};
   for (const theme of THEMES) {
     const vars = scope(design, THEME_SCOPE[theme]);
@@ -214,47 +204,54 @@ function themeColors(): Record<string, (k: string) => Rgba> {
   return out;
 }
 
-// Each level steps away from the ground toward the theme's highest-contrast colour: ground (bg + grid
-// + paper), sheets and overlays (panel), the sidebar (chrome). The sketch and the active wash are
-// translucent and land on those opaque fills, so text is measured on each combination.
-test('sheets, chrome and sketch keep text at 4.5:1', (t) => {
-  const lowest: Record<string, [number, string]> = {};
+test('text tokens meet 4.5:1 except the documented exceptions', () => {
+  assert.deepEqual(Object.keys(themeColors()), ['forge', 'ash']);
   for (const [theme, color] of Object.entries(themeColors())) {
-    for (const k of ['panel', 'chrome']) assert.equal(color(k)[3], 1, `${theme} --${k} is opaque`);
-    const bg = color('bg');
+    for (const k of ['bg', 'panel', 'chrome']) assert.equal(color(k)[3], 1, `${theme} --${k} is opaque`);
+    for (const k of TEXT_BY_THEME[theme]) {
+      for (const s of ['bg', 'panel', 'chrome']) {
+        const ratio = contrast(color(k), color(s));
+        assert.ok(ratio >= 4.5, `${theme} --${k} on --${s} is ${ratio.toFixed(2)}:1`);
+      }
+    }
+    // dim: placeholders and stamp keys only, below 4.5:1 by design, never under 3:1 on the ground.
+    const dim = contrast(color('dim'), color('bg'));
+    assert.ok(dim >= DIM_FLOOR && dim < 4.5, `${theme} --dim on --bg is ${dim.toFixed(2)}:1, the documented exception`);
+    for (const [on, fill] of [['on-gleam', 'gleam'], ['on-spark', 'spark'], ['on-ember', 'ember']]) {
+      const ratio = contrast(color(on), color(fill));
+      assert.ok(ratio >= 4.5, `${theme} --${on} on --${fill} is ${ratio.toFixed(2)}:1`);
+    }
+  }
+});
+
+// Each surface steps away from the ground: plates and overlays (panel), the anvil (chrome). raised and the sheen are
+// translucent and land on those opaque fills; a hovered control mixes 10–12% gleam into its own fill.
+test('plates, chrome and sheen keep text at 4.5:1', (t) => {
+  for (const [theme, color] of Object.entries(themeColors())) {
     const panel = color('panel');
     const chrome = color('chrome');
     const surfaces: Record<string, Rgba> = {
       panel,
       'panel+raised': over(color('raised'), panel),
-      'panel+sketch': over(color('sketch-line'), panel),
+      'panel+sheen': over(color('sheen'), panel),
+      'panel+hover': mix(color('gleam'), 0.12, panel),
       chrome,
       'chrome+raised': over(color('raised'), chrome),
-      'chrome+sketch': over(color('sketch-line'), chrome),
+      'chrome+sheen': over(color('sheen'), chrome),
+      'chrome+hover': mix(color('gleam'), 0.12, chrome),
     };
+    const lowest: [number, string] = [Infinity, ''];
     for (const [s, surface] of Object.entries(surfaces)) {
-      for (const k of TEXT_BY_THEME[theme]) {
+      for (const k of TEXT_BY_THEME[theme].filter((x) => x !== 'gleam-hot')) {
         const ratio = contrast(color(k), surface);
         assert.ok(ratio >= 4.5, `${theme} --${k} on ${s} is ${ratio.toFixed(2)}:1`);
-        const key = `${theme} ${s}`;
-        if (!lowest[key] || ratio < lowest[key][0]) lowest[key] = [ratio, k];
+        if (ratio < lowest[0]) [lowest[0], lowest[1]] = [ratio, `--${k} on ${s}`];
       }
     }
-    // A hovered control on the ground (board columns, page headers) draws the sketch over bg.
-    const onGround = contrast(color('fg'), over(color('sketch-line'), bg));
-    assert.ok(onGround >= 4.5, `${theme} --fg on bg + sketch is ${onGround.toFixed(2)}:1`);
-    const fg = color('fg');
-    const ladder = [bg, panel, chrome].map((s) => contrast(fg, s));
-    assert.ok(ladder[0] < ladder[1] && ladder[1] < ladder[2], `${theme} fg steps up from the ground: ${ladder.map((r) => r.toFixed(2)).join(' → ')}`);
-    const step = contrast(panel, bg);
-    assert.ok(step >= 1.1, `${theme} a sheet stands off the ground (${step.toFixed(3)}:1)`);
-    // For design/README.md › Colour: the ladder, the step, and the ground-level numbers the docs quote.
-    t.diagnostic(`${theme} fg ladder bg → panel → chrome: ${ladder.map((r) => r.toFixed(2)).join(' → ')}; sheet step ${step.toFixed(3)}:1`);
-    const raisedGround = over(color('raised'), bg);
-    const weakest = TEXT_BY_THEME[theme].map((k) => [contrast(color(k), raisedGround), k] as const).sort((x, y) => x[0] - y[0])[0];
-    t.diagnostic(`${theme} lowest bg+raised: --${weakest[1]} ${weakest[0].toFixed(2)}:1; --muted on bg+sketch ${contrast(color('muted'), over(color('sketch-line'), bg)).toFixed(2)}:1; --dim on bg ${contrast(color('dim'), bg).toFixed(2)}:1; --line-strong on bg ${contrast(color('line-strong'), bg).toFixed(2)}:1`);
+    // For smithy/README.md › Colour: the fg ladder and the weakest pair.
+    const ladder = [color('bg'), panel, chrome].map((s) => contrast(color('fg'), s).toFixed(2));
+    t.diagnostic(`${theme} fg on bg → panel → chrome: ${ladder.join(' → ')}; lowest ${lowest[1]} ${lowest[0].toFixed(2)}:1`);
   }
-  for (const [key, [ratio, k]] of Object.entries(lowest)) t.diagnostic(`lowest ${key}: --${k} ${ratio.toFixed(2)}:1`);
 });
 
 /** The bodies of every rule whose selector list names exactly `selector` (the build merges equal rules). */
@@ -264,38 +261,40 @@ function ruleFor(css: string, selector: string): string {
   return out.join(';');
 }
 
-/** Channel-wise sRGB interpolation, what `color-mix(in srgb, a p, b)` computes for opaque colours. */
-const mix = (a: Rgba, p: number, b: Rgba): Rgba => [a[0] * p + b[0] * (1 - p), a[1] * p + b[1] * (1 - p), a[2] * p + b[2] * (1 - p), 1];
-
 // The token each chip tone writes its text in (.chip.<tone> in dashboard/style.css).
-const CHIP_TOKEN: Record<string, string> = { ok: 'ok', bad: 'bad', warn: 'warn', info: 'info', ink: 'ink', muted: 'muted', live: 'ink', rev: 'redline' };
-// The live chip's fill as the build writes it. The surface leads: Tailwind's color-mix fallback keeps the first
-// colour, so a browser without color-mix gets a plain chip rather than ink text on an ink fill.
-const LIVE_FILL = 'background-color:color-mix(in srgb,var(--surface,var(--bg)),var(--ink)12%)';
+const CHIP_TOKEN: Record<string, string> = { ok: 'ok', bad: 'bad', warn: 'warn', info: 'info', gleam: 'gleam', muted: 'muted', live: 'gleam', you: 'ember' };
+/** The tint a chip mixes into its surface, as the build writes it: `color-mix(in srgb,var(--surface,var(--bg)),<colour> N%)`. */
+const TINT = /background-color:color-mix\(in srgb,var\(--surface,var\(--bg\)\),(currentColor|currentcolor|var\(--([\w-]+)\))\s*(\d+(?:\.\d+)?)%\)/;
 
 test('chip tones meet 4.5:1 on bg, panel and chrome', () => {
   assert.deepEqual(mix([255, 0, 100, 1], 0.5, [0, 255, 0, 1]), [127.5, 127.5, 50, 1], 'self-check: mix');
+  assert.deepEqual(TINT.exec('background-color:color-mix(in srgb,var(--surface,var(--bg)),var(--gleam) 14%)')?.slice(2, 4), ['gleam', '14'], 'self-check: the tint reader');
   const css = builtCss();
+  const base = TINT.exec(ruleFor(css, '.chip'));
+  assert.ok(base && /^current/i.test(base[1]), 'a chip tints its surface with its own colour');
   for (const tone of Object.keys(TONE_CLASS)) {
     const token = CHIP_TOKEN[tone];
     assert.ok(token, `TONE_CLASS.${tone} has a token mapping in this test`);
-    assert.match(ruleFor(css, `.chip.${TONE_CLASS[tone]}`), new RegExp(`color:var\\(--${token}\\)`), `.chip.${TONE_CLASS[tone]} colours its text with --${token}`);
+    const rule = ruleFor(css, `.chip.${TONE_CLASS[tone]}`);
+    assert.match(rule, new RegExp(`color:var\\(--${token}\\)`), `.chip.${TONE_CLASS[tone]} colours its text with --${token}`);
+    // muted is a dashed, untinted chip; the rest tint with their own colour (the base rule) or a named token.
+    const own = TINT.exec(rule);
+    const plain = tone === 'muted';
+    if (plain) assert.match(rule, /background-color:var\(--surface,var\(--bg\)\)/, 'the muted chip fills with its surface alone');
+    const pct = plain ? 0 : Number((own ?? base)[3]) / 100;
+    if (own?.[2]) assert.equal(own[2], token, `.chip.${tone} tints with --${token}`);
     for (const [theme, color] of Object.entries(themeColors())) {
-      // A chip fills with the surface it sits on; the live chip with 12% ink over that surface.
-      const fill = (s: Rgba) => (tone === 'live' ? mix(color('ink'), 0.12, s) : s);
-      const surfaces: Record<string, Rgba> = { bg: fill(color('bg')), panel: fill(color('panel')), chrome: fill(color('chrome')) };
-      // Button chips (the Daemon popover's job chips) sketch over their fill inside a sheet.
-      surfaces['panel+sketch'] = over(color('sketch-line'), fill(color('panel')));
-      for (const [k, surface] of Object.entries(surfaces)) {
-        const ratio = contrast(color(token), surface);
-        assert.ok(ratio >= 4.5, `${theme} chip ${tone} (--${token}) on ${k} is ${ratio.toFixed(2)}:1`);
+      for (const s of ['bg', 'panel', 'chrome']) {
+        const fill = mix(color(token), pct, color(s));
+        const ratio = contrast(color(token), fill);
+        assert.ok(ratio >= 4.5, `${theme} chip ${tone} (--${token} at ${pct * 100}%) on ${s} is ${ratio.toFixed(2)}:1`);
       }
     }
   }
-  const live = ruleFor(css, '.chip.live');
-  assert.ok(live.includes(LIVE_FILL), `.chip.live is an opaque ink tint of its surface (${live})`);
-  assert.doesNotMatch(live, /background-image|gradient/, 'the live chip has no hatch');
-  assert.match(ruleFor(css, '.chip'), /background-color:var\(--surface,var\(--bg\)\)/, 'a chip fills with its surface');
+  // The spark chip is the one solid chip: on-spark on spark.
+  assert.match(ruleFor(css, '.chip.spark'), /color:var\(--on-spark\)/);
+  assert.match(ruleFor(css, '.chip.spark'), /background:var\(--spark\)/);
+  for (const [theme, color] of Object.entries(themeColors())) assert.ok(contrast(color('on-spark'), color('spark')) >= 4.5, `${theme} the spark chip`);
 });
 
 // ---------- fills: what each background resolves to, measured on the built CSS ----------
@@ -335,14 +334,24 @@ function varValues(name: string, fallback: string | undefined, themes: Map<strin
   return [fallback];
 }
 
-/** Whether a background colour is opaque in every theme: an opaque token, the surface, or a mix of opaque colours. */
+/** A colour stop of a gradient or a mix with its position or percentage dropped. */
+const stopColor = (s: string) => s.replace(/(\s*-?\d+(\.\d+)?(%|px|deg)?)+$/, '').replace(/\)\d+(\.\d+)?%$/, ')').trim();
+
+/** Whether a background is opaque in every theme: an opaque token, the surface, a mix or a gradient of opaque colours.
+ *  currentColor counts: every chip tone that sets it is an opaque token. */
 function opaque(value: string, themes: Map<string, string>[], built: Map<string, string[]>): boolean {
   const v = value.trim();
-  if (v === 'var(--surface,var(--bg))') return true;
+  if (v === 'var(--surface,var(--bg))' || /^currentcolor$/i.test(v)) return true;
   const mixed = /^color-mix\((.*)\)$/.exec(v);
   if (mixed) {
     const [space, ...colors] = args(mixed[1]);
-    return space === 'in srgb' && colors.length === 2 && colors.every((c) => opaque(c.replace(/\s*\d+(\.\d+)?%$/, '').replace(/\)\d+(\.\d+)?%$/, ')'), themes, built));
+    return space === 'in srgb' && colors.length === 2 && colors.every((c) => opaque(stopColor(c), themes, built));
+  }
+  const gradient = /^(?:linear|radial)-gradient\((.*)\)$/.exec(v);
+  if (gradient) {
+    const parts = args(gradient[1]);
+    const stops = /^(-?\d|to |circle|ellipse|closest|farthest)/.test(parts[0]) ? parts.slice(1) : parts;
+    return stops.length > 0 && stops.every((s) => opaque(stopColor(s), themes, built));
   }
   const ref = VAR.exec(v);
   if (ref) return varValues(ref[1], ref[2], themes, built).every((x) => opaque(x, themes, built));
@@ -353,13 +362,10 @@ function opaque(value: string, themes: Map<string, string>[], built: Map<string,
 // The unlayered rule that draws every native field (its selector list holds a comma inside :not()).
 const NATIVE = 'input:not([type=checkbox],[type=radio]),textarea,select';
 const FILLED = [
-  '.chip', '.chip.live', '.chip.hl', '.btn', '.btn.sel', '.btn.primary', '.btn.primary[disabled]', '.btn:active', '.nav a', '.nav button', '.tab', '.tab.active',
-  '.input', '.check', '.radio', '.track', '.fill', '.fill.ok', '.fill.warn', '.fill.bad', NATIVE, 'select option', '.sheet', '.sheet.clickable:hover',
+  '.chip', '.chip.live', '.chip.you', '.chip.spark', '.chip.muted', '.btn', '.btn.sel', '.btn.primary', '.btn.primary[disabled]', '.btn:active', '.btn.hover', '.navlist a', '.navlist button', '.tab', '.tab.active', '.tab.hover',
+  '.input', '.check', '.check:checked', '.radio', '.track', '.fill', '.fill.ok', '.fill.warn', '.fill.bad', NATIVE, 'select option', '.plate', '.plate.hover',
   '.solid', '.plain', '.chrome',
 ];
-const SKETCH_VALUE = 'repeating-linear-gradient(45deg,color-mix(in srgb,transparent,var(--sketch-line)var(--sketch))0 1px,transparent 1px var(--hatch-pitch))';
-// Tailwind's fallback for browsers without color-mix: no sketch at all.
-const SKETCH_FALLBACK = 'repeating-linear-gradient(45deg,transparent 0 1px,transparent 1px var(--hatch-pitch))';
 const SELECT_ARROW = 'linear-gradient(45deg,transparent 50%,var(--fg)50%),linear-gradient(135deg,var(--fg)50%,transparent 50%)';
 
 /** The bodies of every rule whose selector list names `selector` or is exactly it. */
@@ -375,18 +381,19 @@ const backgrounds = (css: string, selector: string) =>
 
 test('filled elements are opaque', () => {
   const css = builtCss();
-  const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
-  const themes = SCOPES.map((sel) => scope(design, sel));
+  const themes = SCOPES.map((sel) => scope(tokensCss(), sel));
   const built = builtVars(css);
-  assert.ok(opaque('color-mix(in srgb,var(--surface,var(--bg)),var(--ink)12%)', themes, built), 'self-check: the live mix');
+  assert.ok(opaque('color-mix(in srgb,var(--surface,var(--bg)),var(--gleam)14%)', themes, built), 'self-check: the live mix');
+  assert.ok(opaque('linear-gradient(165deg,color-mix(in srgb,var(--gleam),white 9%)0%,var(--gleam)42%)', themes, built), 'self-check: a gradient of opaque stops');
   assert.ok(!opaque('#0000', themes, built) && !opaque('transparent', themes, built) && !opaque('var(--raised)', themes, built), 'self-check: see-through values');
-  assert.ok(!opaque('color-mix(in srgb,var(--ink) 12%,transparent)', themes, built), 'self-check: a mix with transparent');
+  assert.ok(!opaque('color-mix(in srgb,var(--gleam) 12%,transparent)', themes, built), 'self-check: a mix with transparent');
+  assert.ok(!opaque('linear-gradient(90deg,var(--gleam),var(--sheen))', themes, built), 'self-check: a gradient with a see-through stop');
   for (const sel of FILLED) {
     const decls = backgrounds(css, sel);
     assert.ok(decls.length > 0, `${sel} has a background`);
     for (const [prop, value] of decls) {
       if (prop === 'background-image') {
-        assert.ok(['none', SKETCH_VALUE, SKETCH_FALLBACK, SELECT_ARROW].includes(value), `${sel} draws ${value}: only the sketch and the select arrow`);
+        assert.ok(['none', SELECT_ARROW].includes(value), `${sel} draws ${value}: only the select arrow`);
         continue;
       }
       assert.ok(opaque(value, themes, built), `${sel} › ${prop}:${value} is see-through`);
@@ -401,18 +408,16 @@ test('filled elements are opaque', () => {
 // Every see-through fill in the built CSS, with why it is allowed. Nothing a person reads text on is here except
 // the raised wash, which only ever lands on a plain opaque fill.
 const ALPHA_ALLOWED: Record<string, string> = {
-  '.ground › --grid-major': 'the 64px grid, drawn only on the ground',
-  '.ground › --grid-minor': 'the 8px grid, drawn only on the ground',
-  '.falloff:after › --fall': 'the exposure falloff on the ground behind main',
-  '* › sketch gradient': 'the hover sketch, at var(--sketch) strength over the control’s own opaque fill',
+  '.falloff:after › --fall': 'the corner falloff on the ground behind main',
   '.backdrop › literal': 'the modal scrim under the drawer and dialogs',
-  '[data-theme=vellum] .backdrop › literal': 'the vellum modal scrim',
+  '[data-theme=ash] .backdrop › literal': 'the ash modal scrim',
   '.scrim › literal': 'the palette’s lighter modal scrim',
-  '[data-theme=vellum] .scrim › literal': 'the vellum palette scrim',
-  '.dim-line:before,.dim-line:after › --line': 'a 1px dimension rule, not a fill',
-  '.clickable:hover › --raised': 'a hovered table row over its sheet’s panel',
-  '.nav a.active,.nav button.active › --raised': 'the active nav item over chrome or panel; it never sketches',
+  '[data-theme=ash] .scrim › literal': 'the ash palette scrim',
+  '.facts .sep › --line': 'a 1px tick between two facts, not a fill',
+  '.clickable:hover › --raised': 'a hovered table row over its plate’s panel',
+  '.navlist a.active,.navlist button.active › --raised': 'the active nav item over chrome or panel',
   '.prose code › --raised': 'inline code in markdown, which renders only in the drawer and dialogs (panel)',
+  '.prose pre › --raised': 'a code block in markdown, on panel',
   '.bg-raised › --raised': 'the command bar’s active option and the drawer’s selected file and file view, all on panel',
 };
 
@@ -439,41 +444,36 @@ function alphaSources(value: string, themes: Map<string, string>[], built: Map<s
   return [...out];
 }
 
-test('no fill is see-through: alpha only on the ground, the sketch and the allowlist', () => {
+test('no fill is see-through: alpha only on the ground, the rivets and the allowlist', () => {
   const css = builtCss();
-  const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
-  const themes = SCOPES.map((sel) => scope(design, sel));
+  const themes = SCOPES.map((sel) => scope(tokensCss(), sel));
   const built = builtVars(css);
   assert.deepEqual(alphaSources('rgba(0,0,0,.5) #0000 var(--panel) var(--raised) rgb(0 0 0/.2)', themes, built).sort(), ['--raised', 'literal'], 'self-check: literal and token alpha');
-  assert.deepEqual(alphaSources('color-mix(in srgb,var(--ink) 12%,transparent)', themes, built), ['color-mix(…, transparent)'], 'self-check: a mix with transparent');
+  assert.deepEqual(alphaSources('color-mix(in srgb,var(--gleam) 12%,transparent)', themes, built), ['color-mix(…, transparent)'], 'self-check: a mix with transparent');
   assert.deepEqual(alphaSources('hsla(0,0%,0%,.3)', themes, built), ['literal'], 'self-check: hsla');
+  assert.deepEqual(alphaSources('transparent', themes, built), [], 'self-check: no fill');
   const measured = new Set<string>();
   let decls = 0;
   for (const m of css.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
     const selector = m[1].trim();
+    // The grain layers are textures, not fills: they are checked in dashboard-css.test.ts.
+    if (selector === '.ground:before' || selector === '.plate:after') continue;
     for (const d of m[2].matchAll(/(?:^|;)\s*(background(?:-color|-image)?)\s*:([^;]*)/g)) {
       decls++;
-      const value = d[2].trim();
-      if (value === SKETCH_VALUE) {
-        measured.add('* › sketch gradient');
-        continue;
-      }
-      for (const source of alphaSources(value, themes, built)) measured.add(`${selector} › ${source}`);
+      for (const source of alphaSources(d[2].trim(), themes, built)) measured.add(`${selector} › ${source}`);
     }
   }
   assert.ok(decls >= 60, `checked ${decls} background declarations`);
   assert.deepEqual([...measured].sort(), Object.keys(ALPHA_ALLOWED).sort(), 'the see-through fills equal the allowlist');
-  // The active nav item's raised wash is the one control state allowed (over chrome or panel, and it never sketches).
-  for (const key of Object.keys(ALPHA_ALLOWED).filter((k) => k !== '.nav a.active,.nav button.active › --raised'))
-    assert.doesNotMatch(key.split(' › ')[0], /\.(chip|btn|nav|tab|fill|track|toast)\b/, `${key}: no control is allowed to be see-through`);
+  // The active nav item's raised wash is the one control state allowed (over chrome or panel).
+  for (const key of Object.keys(ALPHA_ALLOWED).filter((k) => k !== '.navlist a.active,.navlist button.active › --raised'))
+    assert.doesNotMatch(key.split(' › ')[0], /\.(chip|btn|navlist|tab|fill|track|toast)\b/, `${key}: no control is allowed to be see-through`);
 });
 
-// The sidebar and the phone header are opaque --chrome (App.svelte), the furthest step from the ground; the
-// active nav item lays --raised over it, and the Inbox tag fills with the chrome under it.
+// The sidebar and the phone header are opaque --chrome (App.svelte), the anvil; the active nav item lays --raised over
+// it, and the Needs-you tag tints the chrome under it with ember.
 test('chrome sidebar keeps text at 4.5:1', () => {
-  const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
-  const themes: Record<string, Map<string, string>> = Object.fromEntries(THEMES.map((th) => [th, scope(design, THEME_SCOPE[th])]));
-  assert.deepEqual(Object.keys(themeColors()), ['cyanotype', 'vellum', 'nightprint'], 'the sidebar is measured in every theme');
+  assert.deepEqual(Object.keys(themeColors()), ['forge', 'ash'], 'the sidebar is measured in every theme');
   for (const [theme, color] of Object.entries(themeColors())) {
     const chrome = color('chrome');
     const active = over(color('raised'), chrome);
@@ -483,50 +483,65 @@ test('chrome sidebar keeps text at 4.5:1', () => {
       for (const [s, surface] of [['chrome', chrome], ['chrome+raised', active]] as const)
         assert.ok(at(k, surface) >= 4.5, `${theme} --${k} on ${s} is ${at(k, surface).toFixed(2)}:1`);
     }
-    assert.ok(at('redline', chrome) >= 4.5, `${theme} the Inbox tag is ${at('redline', chrome).toFixed(2)}:1`);
+    const tag = mix(color('ember'), 0.1, chrome);
+    assert.ok(at('ember', tag) >= 4.5, `${theme} the Needs-you tag is ${at('ember', tag).toFixed(2)}:1`);
   }
 
   const app = fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'App.svelte'), 'utf8');
-  assert.ok(/<aside id="sidebar" class="[^"]*\bchrome z-10 border-line-strong shadow-\(--shadow-chrome\)[^"]*"/.test(app), 'the sidebar is chrome, above main, with a hard right shadow');
+  assert.ok(/<aside id="sidebar" class="[^"]*\bchrome z-10 border-line-strong shadow-\(--shadow-chrome\)[^"]*"/.test(app), 'the sidebar is chrome, above main, with the chrome shadow');
   assert.ok(/<header class="[^"]*\bchrome border-line-strong[^"]*"/.test(app), 'the phone header is chrome');
   assert.ok(!app.includes('bg-black/'), 'no translucent shade is left');
   const nav = fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'components', 'Nav.svelte'), 'utf8');
   assert.match(nav, /<span class="mono num \{on \? '' : 'muted'\}">/);
-  assert.match(nav, /<span class="chip rev">/, 'the Inbox tag fills with the chrome under it, active or not');
-  assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'views', 'Pipeline.svelte'), 'utf8'), /opacity-70/, 'a selected filter count is full --on-ink');
+  assert.match(nav, /<span class="chip you">/, 'the Needs-you tag tints the chrome under it, active or not');
+  assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'views', 'Pipeline.svelte'), 'utf8'), /opacity-70/, 'a selected filter count is full --on-gleam');
 
-  // --highlight is about 1.6:1 on vellum paper, so a hovered link turns --fg there.
+  // gleam-hot is lighter than gleam, under 4.5:1 on ash's pale ground, so a hovered link keeps gleam there.
   const css = builtCss();
-  assert.match(ruleFor(css, '[data-theme=vellum] a:hover'), /color:var\(--fg\)/);
-  const vellum = themes.vellum;
-  const vbg = parseColor(vellum.get('--bg') ?? '') as Rgba;
-  assert.ok(contrast(parseColor(vellum.get('--highlight') ?? '') as Rgba, vbg) < 4.5, 'the measurement that motivates the rule');
-  assert.ok(contrast(parseColor(vellum.get('--fg') ?? '') as Rgba, vbg) >= 4.5);
+  assert.match(ruleFor(css, '[data-theme=ash] a:hover'), /color:var\(--gleam\)/);
+  const ash = themeColors().ash;
+  assert.ok(contrast(ash('gleam-hot'), ash('bg')) < 4.5, 'the measurement that motivates the rule');
+  assert.ok(contrast(ash('gleam'), ash('bg')) >= 4.5);
 });
 
-// ---------- the three themes: cascade, color-scheme, and the overrides each one takes ----------
+// ---------- the two themes: cascade, color-scheme, and the overrides ash takes ----------
 
 /**
  * The custom properties a theme resolves to through the cascade: the unlayered top-level blocks in
  * source order, each applying when its selector list names `:root` or `[data-theme=<id>]`, the last
- * declaration winning. Descendant rules (`[data-theme=x] .a`) never apply.
+ * declaration winning. Descendant rules (`[data-theme=x] .a`) never apply. color-scheme rides along.
  */
 function effective(css: string, theme: string): Map<string, string> {
   const out = new Map<string, string>();
-  for (const b of topLevelVars(css)) {
-    const parts = args(b.selector);
-    if (parts.includes(':root') || parts.includes(`[data-theme=${theme}]`)) for (const [k, v] of b.vars) out.set(k, v);
+  const text = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  let depth = 0;
+  let start = 0;
+  let head = '';
+  let bodyStart = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '{') {
+      if (depth === 0) {
+        head = text.slice(start, i).trim();
+        bodyStart = i + 1;
+      }
+      depth++;
+    } else if (c === '}') {
+      depth--;
+      if (depth === 0) {
+        const parts = args(normSelector(head));
+        if (!head.startsWith('@') && (parts.includes(':root') || parts.includes(`[data-theme=${theme}]`)))
+          for (const m of text.slice(bodyStart, i).matchAll(/((?:--(?:[\w-]|\\.)+)|color-scheme)\s*:([^;]*)/g)) out.set(m[1], m[2].trim());
+        start = i + 1;
+      }
+    } else if (c === ';' && depth === 0) start = i + 1;
   }
   return out;
 }
 
-/** A drafting extra as written in drafting.css and as the build minifies it (`.10` becomes `.1`). */
+/** An extra as written in smithy.css and as the build minifies it (`.10` becomes `.1`, rgba becomes hex). */
 const sameExtra = (a: string, b: string) => sameValue(a, b) || (a.trim() !== '' && !Number.isNaN(Number(a)) && Number(a) === Number(b));
-
-const DRAFTING_EXTRAS = ['--paper-opacity', '--paper-blend', '--fall'];
-// The film grain: multiply on vellum, soft-light on the dark themes, each dark theme fainter than vellum.
-const PAPER_OPACITY: Record<string, number> = { cyanotype: 0.08, vellum: 0.1, nightprint: 0.07 };
-const PAPER_BLEND: Record<string, string> = { cyanotype: 'soft-light', vellum: 'multiply', nightprint: 'soft-light' };
+const GRAIN_BLEND: Record<string, string> = { forge: 'soft-light', ash: 'multiply' };
 
 test("each theme's tokens and extras win the cascade", () => {
   const sample = ':root{--a:1;--p:.18}:root,[data-theme="x"]{--a:2}[data-theme=y]{--a:3;--p:.5}[data-theme=x] .b{--a:9}@layer l{:root{--a:8}}';
@@ -535,27 +550,23 @@ test("each theme's tokens and extras win the cascade", () => {
   assert.deepEqual(Object.fromEntries(effective('[data-theme=y]{--p:.5}:root{--p:.18}', 'y')), { '--p': '.18' }, 'self-check: a later :root block wins');
   assert.ok(sameExtra('.10', '.1') && !sameExtra('.10', '.18') && !sameExtra('', '0'), 'self-check: numeric extras');
 
-  const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
-  const drafting = fs.readFileSync(path.join(ROOT, 'design', 'drafting.css'), 'utf8');
+  const design = tokensCss();
+  const smithy = fs.readFileSync(path.join(SMITHY, 'smithy.css'), 'utf8');
   const css = builtCss();
   for (const theme of THEMES) {
     const got = effective(css, theme);
-    const want = new Map([...scope(design, SCOPES[3]), ...scope(design, THEME_SCOPE[theme])]);
-    // The drafting extras as design/drafting.css resolves them for this theme.
-    const extras = effective(drafting, theme);
-    for (const k of DRAFTING_EXTRAS) {
-      assert.ok(extras.has(k), `design/drafting.css gives ${theme} a ${k}`);
+    const want = new Map([...scope(design, SCOPES[2]), ...scope(design, THEME_SCOPE[theme])]);
+    // The smithy.css extras as smithy.css resolves them for this theme. The grain URIs are compared in dashboard-css.test.ts.
+    const extras = effective(smithy, theme);
+    for (const k of [...SMITHY_EXTRAS.filter((x) => !['--hammer', '--grain', '--gleam-fill', '--gleam-fill-hot', '--gleam-fill-bar'].includes(x)), 'color-scheme']) {
+      assert.ok(extras.has(k), `smithy/smithy.css gives ${theme} a ${k}`);
       want.set(k, extras.get(k) ?? '');
     }
-    for (const [name, value] of want) assert.ok(sameExtra(value, got.get(name) ?? ''), `${theme} › ${name}: design ${value}, effective ${got.get(name)}`);
-    const opacity = Number(got.get('--paper-opacity'));
-    assert.equal(opacity, PAPER_OPACITY[theme], `${theme} › the grain's opacity`);
-    assert.ok(opacity > 0 && opacity <= 0.2, `${theme} › the grain's opacity ${opacity} is in (0, 0.2]`);
-    assert.equal(got.get('--paper-blend'), PAPER_BLEND[theme], `${theme} › the grain's blend`);
+    for (const [name, value] of want) assert.ok(sameExtra(value, got.get(name) ?? ''), `${theme} › ${name}: smithy ${value}, effective ${got.get(name)}`);
+    const opacity = Number(got.get('--grain-opacity'));
+    assert.ok(opacity > 0 && opacity <= 0.1, `${theme} › the grain's opacity ${opacity} is faint`);
+    assert.equal(got.get('--grain-blend'), GRAIN_BLEND[theme], `${theme} › the grain's blend`);
   }
-  const opacityOf = (theme: string) => Number(effective(css, theme).get('--paper-opacity'));
-  for (const dark of ['cyanotype', 'nightprint']) assert.ok(opacityOf(dark) < opacityOf('vellum'), `${dark}'s grain (${opacityOf(dark)}) is fainter than vellum's (${opacityOf('vellum')})`);
-  assert.equal(Number(scope(design, SCOPES[3]).get('--paper-opacity')), PAPER_OPACITY.cyanotype, 'design/tokens.css :root carries the cyanotype default');
 });
 
 /** Every rule at any depth whose selector names `[data-theme=<id>]`: [normalised selector, body]. */
@@ -568,35 +579,28 @@ function themeRules(css: string, id: string): [string, string][] {
   return out;
 }
 
-const colorScheme = (body: string) => /(?:^|;)\s*color-scheme\s*:\s*([^;]*)/.exec(body)?.[1].trim();
+// Native UI (scrollbars, an open <select>, autofill) follows the theme: forge is dark, ash is light. Ash overrides only
+// its token blocks, the hovered link, and the two scrims.
+const ASH_RULES = ['[data-theme=ash]', '[data-theme=ash]', '[data-theme=ash]a:hover', '[data-theme=ash].backdrop', '[data-theme=ash].scrim'];
 
-// Native UI (scrollbars, an open <select>, autofill) follows the theme. Nightprint takes the dark defaults
-// (the cyanotype backdrop and scrim, the screen-blended mark, highlight on link hover); only vellum overrides.
-const COLOR_SCHEME: Record<string, string> = { cyanotype: 'dark', vellum: 'light', nightprint: 'dark' };
-const VELLUM_RULES = ['[data-theme=vellum]', '[data-theme=vellum]a:hover', '[data-theme=vellum].backdrop', '[data-theme=vellum].scrim', '[data-theme=vellum].mark'];
-
-test('themes declare color-scheme and nightprint takes the dark defaults', () => {
+test('forge is dark and ash is light', () => {
   const sample = '@layer a,b;@layer b{[data-theme="x"] .m{c:1}}[data-theme=x]{color-scheme:dark;--a:1}.y{c:2}';
   assert.deepEqual(themeRules(sample, 'x'), [['[data-theme=x].m', 'c:1'], ['[data-theme=x]', 'color-scheme:dark;--a:1']], 'self-check: nested and top-level rules');
-  assert.equal(colorScheme('--a:1;color-scheme: light'), 'light', 'self-check: color-scheme');
-
   const css = builtCss();
-  for (const theme of THEMES) {
-    const block = ruleFor(css, normSelector(THEME_SCOPE[theme]).split(',').pop() ?? '');
-    assert.equal(colorScheme(block), COLOR_SCHEME[theme], `${theme}'s token block declares color-scheme:${COLOR_SCHEME[theme]}`);
-  }
-  assert.deepEqual(themeRules(css, 'nightprint').map(([sel]) => sel), ['[data-theme=nightprint]'], 'only the token block names nightprint');
-  assert.deepEqual(themeRules(css, 'vellum').map(([sel]) => sel).sort(), [...VELLUM_RULES].sort(), 'vellum keeps exactly its four overrides');
+  assert.equal(effective(css, 'forge').get('color-scheme'), 'dark', 'forge (and :root) is dark');
+  assert.equal(effective(css, 'ash').get('color-scheme'), 'light', 'ash is light');
+  assert.deepEqual(themeRules(css, 'forge').map(([sel]) => sel), [':root,[data-theme=forge]'], 'only the token block names forge: it is the :root default');
+  assert.deepEqual(themeRules(css, 'ash').map(([sel]) => sel).sort(), [...ASH_RULES].sort(), 'ash keeps exactly its overrides');
 });
 
-// design/tokens.json is the source tokens.css is generated from: the same themes as the dashboard
-// offers, one value per theme on every colour and shadow, and the same value as the CSS.
+// smithy/tokens.json is the source tokens.css is generated from: the same themes as the dashboard offers, one value per
+// theme on every colour and shadow, and the same value as the CSS.
 test('tokens.json themes equal THEMES and every token value matches tokens.css', () => {
-  const json = JSON.parse(fs.readFileSync(path.join(ROOT, 'design', 'tokens.json'), 'utf8'));
-  const design = fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8');
+  const json = JSON.parse(fs.readFileSync(path.join(SMITHY, 'tokens.json'), 'utf8'));
+  const design = tokensCss();
   assert.deepEqual(json.color.themes.map((x: { id: string }) => x.id), [...THEMES], 'tokens.json themes are THEMES, in order');
   const tokens: { name: string; value: Record<string, string> }[] = [...json.color.tokens, ...json.shadow.tokens];
-  assert.ok(tokens.length >= 26, `checked ${tokens.length} themed tokens`);
+  assert.ok(tokens.length >= 30, `checked ${tokens.length} themed tokens`);
   for (const theme of THEMES) {
     const vars = scope(design, THEME_SCOPE[theme]);
     assert.deepEqual([...vars.keys()].sort(), tokens.map((x) => `--${x.name}`).sort(), `${theme}: tokens.css and tokens.json name the same tokens`);
@@ -607,45 +611,33 @@ test('tokens.json themes equal THEMES and every token value matches tokens.css',
   }
 });
 
-// Vellum is warm drafting paper (the near-white values of 330f358 read as a white page): red over green over
-// blue with a visible spread, and the same four ground values wherever the tokens are written.
-const VELLUM_GROUND: Record<string, string> = { '--bg': '#f1ecdf', '--bg-deep': '#e6e0d0', '--panel': '#fbf8f1', '--chrome': '#fffdf8' };
-test('vellum bg is warm paper', () => {
-  const warm = ([r, g, b]: Rgba) => r >= g && g >= b && Math.max(r, g, b) - Math.min(r, g, b) >= 12;
-  assert.ok(warm([241, 236, 223, 1]), 'self-check: the warm ground');
-  assert.ok(!warm([241, 239, 233, 1]), 'self-check: the near-white ground is not warm');
-  assert.ok(!warm([223, 236, 241, 1]), 'self-check: a cool ground is not warm');
-  const json = JSON.parse(fs.readFileSync(path.join(ROOT, 'design', 'tokens.json'), 'utf8'));
+// Ash is cooled ash, warm rather than a white page: red over green over blue, and the same four ground values wherever
+// the tokens are written.
+const ASH_GROUND: Record<string, string> = { '--bg': '#ebe7e0', '--bg-deep': '#ddd7cd', '--panel': '#f6f3ee', '--chrome': '#fbf9f6' };
+test('ash bg is warm', () => {
+  const warm = ([r, g, b]: Rgba) => r >= g && g >= b && r - b >= 8;
+  assert.ok(warm([235, 231, 224, 1]), 'self-check: the warm ground');
+  assert.ok(!warm([241, 240, 238, 1]), 'self-check: a near-white ground is not warm');
+  assert.ok(!warm([224, 231, 235, 1]), 'self-check: a cool ground is not warm');
+  const json = JSON.parse(fs.readFileSync(path.join(SMITHY, 'tokens.json'), 'utf8'));
   const sources: [string, Map<string, string>][] = [
-    ['design/tokens.css', scope(fs.readFileSync(path.join(ROOT, 'design', 'tokens.css'), 'utf8'), SCOPES[1])],
+    ['smithy/tokens.css', scope(tokensCss(), SCOPES[1])],
     ['dashboard/style.css', scope(fs.readFileSync(path.join(ROOT, 'dashboard', 'style.css'), 'utf8'), SCOPES[1])],
-    ['design/tokens.json', new Map(json.color.tokens.map((x: { name: string; value: Record<string, string> }) => [`--${x.name}`, x.value.vellum]))],
+    ['smithy/tokens.json', new Map(json.color.tokens.map((x: { name: string; value: Record<string, string> }) => [`--${x.name}`, x.value.ash]))],
   ];
-  for (const [where, vars] of sources) for (const [k, v] of Object.entries(VELLUM_GROUND)) assert.equal(vars.get(k)?.toLowerCase(), v, `${where} vellum ${k}`);
-  const bg = themeColors().vellum('bg');
-  assert.ok(warm(bg), `vellum --bg (${bg.slice(0, 3).join(', ')}) is warm paper`);
+  for (const [where, vars] of sources) for (const [k, v] of Object.entries(ASH_GROUND)) assert.equal(vars.get(k)?.toLowerCase(), v, `${where} ash ${k}`);
+  for (const k of ['bg', 'bg-deep']) assert.ok(warm(themeColors().ash(k)), `ash --${k} is warm`);
 });
 
-// On a dark ground the grid is drawn in light lines: each level stands off bg, major more than minor. The
-// dashed focus ring (line-strong) stays visible on every surface it can land on, in every theme.
-test('cyanotype grid is lighter than bg', () => {
-  const colors = themeColors();
-  for (const theme of ['cyanotype', 'nightprint']) {
-    const color = colors[theme];
-    const bg = color('bg');
-    const [minor, major] = (['grid-minor', 'grid-major'] as const).map((k) => {
-      const drawn = over(color(k), bg);
-      assert.ok(luminance(drawn) > luminance(bg), `${theme} --${k} is lighter than --bg`);
-      const ratio = contrast(drawn, bg);
-      assert.ok(ratio >= 1.1, `${theme} --${k} stands ${ratio.toFixed(3)}:1 off --bg`);
-      return ratio;
-    });
-    assert.ok(major > minor, `${theme} the major grid (${major.toFixed(3)}) stands further off than the minor (${minor.toFixed(3)})`);
-  }
-  for (const [theme, color] of Object.entries(colors)) {
+// A plate reads as a separate piece of metal on the ground (smithy/README.md › Colour: at least 1.11:1), and the solid
+// focus ring (line-strong) stays visible on every surface it can land on, in both themes.
+test('a plate stands at least 1.11:1 off the ground', () => {
+  for (const [theme, color] of Object.entries(themeColors())) {
+    const step = contrast(color('panel'), color('bg'));
+    assert.ok(step >= 1.11, `${theme} a plate stands ${step.toFixed(3)}:1 off the ground`);
     for (const s of ['bg', 'panel', 'chrome']) {
       const ratio = contrast(color('line-strong'), color(s));
-      assert.ok(ratio >= 3, `${theme} the focus ring (--line-strong) on --${s} is ${ratio.toFixed(2)}:1`);
+      assert.ok(ratio >= 5, `${theme} the focus ring (--line-strong) on --${s} is ${ratio.toFixed(2)}:1`);
     }
   }
 });

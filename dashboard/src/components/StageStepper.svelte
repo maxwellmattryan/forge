@@ -1,5 +1,5 @@
 <!-- A job's place in the pipeline: nine dots in three clusters (Plan, Build, Ship). Past steps are filled, future steps
-     hollow, and the current step is filled and outlined, in redline when the job needs a human, failed or is blocked.
+     hollow, and the current step is filled and outlined, in ember when the job needs a human, failed or is blocked.
      A screen reader hears one label, e.g. "Stage 5 of 9: Verify". -->
 <script lang="ts">
   import { stepPosition, type StageStep } from '../lib/view.ts';
@@ -9,10 +9,10 @@
   const clusters = $derived([0, 3, 6].map((i) => steps.slice(i, i + 3)));
   // Whole literals, so Tailwind sees every class.
   const DOT = {
-    past: 'dot ink',
+    past: 'dot gleam plain',
     future: 'dot hollow',
-    ink: 'dot ink outline outline-1 outline-offset-1 outline-ink',
-    red: 'dot red outline outline-1 outline-offset-1 outline-redline',
+    gleam: 'dot gleam plain outline outline-1 outline-offset-1 outline-gleam',
+    ember: 'dot ember outline outline-1 outline-offset-1 outline-ember',
   } as const;
   const dotClass = (x: StageStep): string => (x.status === 'current' ? DOT[x.tone] : DOT[x.status]);
 </script>

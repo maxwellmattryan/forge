@@ -52,8 +52,7 @@
   </div>
   {#if session.doctorError && !session.doctorRunning}<Banner msg={session.doctorError} />{/if}
   {#if d}
-    <div class="sheet ticks">
-      <span class="tk"></span>
+    <div class="plate">
       <ul class="divide-y divide-line">
         {#each d.checks as c, i (i)}
           <li class="flex items-start gap-3 px-3 py-2.5 text-sm min-w-0">

@@ -1,7 +1,7 @@
 <!-- A job's Thread in the drawer: its request and the requests about it with the session's replies. The gate's
      actions and the session's permission prompts live in the drawer's ActionDock, on every tab. Request text and
      results are untrusted: they render only through the escape-first md(), or as plain text in Raw (and above 20k
-     characters). The secret scanner's notes (secret-found events) are a redlined sheet whose masked findings are plain
+     characters). The secret scanner's notes (secret-found events) are an ember plate whose masked findings are plain
      text, never markdown. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
@@ -92,10 +92,9 @@
       <ol class="flex flex-col gap-2">
         {#each items as m (m.id)}
           {#if m.secret}
-            <li class="sheet ticks redline p-3 flex flex-col gap-1.5">
-              <span class="tk"></span>
+            <li class="plate ember p-3 flex flex-col gap-1.5">
               <div class="caption flex flex-wrap items-center gap-x-2 gap-y-1">
-                {#if seenAtOpen && !seenAtOpen.has(threadMark(m))}<span class="dot hl size-1.5 shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="font-medium text-fg">{who.forge}</span><span class="text-fg">{secretText(m.secret)}</span>{#if m.at}<span class="text-muted">{ago(m.at, ticker.now)}</span>{/if}<span class="flex-1"></span>{#if m.secret.blocked}<Chip tone="rev" text={$t('thread.secret.blocked')} />{:else}<Chip tone="warn" text={$t('thread.secret.noted')} />{/if}
+                {#if seenAtOpen && !seenAtOpen.has(threadMark(m))}<span class="dot spark size-1.5 shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="font-medium text-fg">{who.forge}</span><span class="text-fg">{secretText(m.secret)}</span>{#if m.at}<span class="text-muted">{ago(m.at, ticker.now)}</span>{/if}<span class="flex-1"></span>{#if m.secret.blocked}<Chip tone="you" text={$t('thread.secret.blocked')} />{:else}<Chip tone="warn" text={$t('thread.secret.noted')} />{/if}
               </div>
               {#if m.secret.findings.length}
                 <ul class="flex flex-col gap-0.5" aria-label={$t('thread.secret.findings')}>
@@ -105,10 +104,9 @@
               {#if m.secret.more > 0}<p class="text-sm text-muted">{$t('thread.secret.more', { count: m.secret.more })}</p>{/if}
             </li>
           {:else}
-          <li class="sheet ticks p-3 flex flex-col gap-1.5">
-            <span class="tk"></span>
+          <li class="plate p-3 flex flex-col gap-1.5">
             <div class="caption flex flex-wrap items-center gap-x-2 gap-y-1">
-              {#if seenAtOpen && !seenAtOpen.has(threadMark(m))}<span class="dot hl size-1.5 shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="font-medium text-fg">{who[m.from]}</span><span class="text-fg">{actionText(m.action)}</span>{#if m.at}<span class="text-muted">{ago(m.at, ticker.now)}</span>{/if}<span class="flex-1"></span>{#if m.status}<Chip tone={TONE[m.status]} text={statusText[m.status]} />{/if}
+              {#if seenAtOpen && !seenAtOpen.has(threadMark(m))}<span class="dot spark size-1.5 shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="font-medium text-fg">{who[m.from]}</span><span class="text-fg">{actionText(m.action)}</span>{#if m.at}<span class="text-muted">{ago(m.at, ticker.now)}</span>{/if}<span class="flex-1"></span>{#if m.status}<Chip tone={TONE[m.status]} text={statusText[m.status]} />{/if}
             </div>
             {#if m.text}
               {#if renderable(m.text, mdView.thread)}<div class="prose compact break-words">{@html md(m.text)}</div>{:else}<p class="text-sm whitespace-pre-wrap break-words">{m.text}</p>{/if}

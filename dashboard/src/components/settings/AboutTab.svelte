@@ -28,8 +28,7 @@
     <Banner msg={session.aboutError} />
     <button class="btn self-start" onclick={() => session.loadAbout()}>{$t('settings.retry')}</button>
   {:else if a}
-    <div class="sheet ticks px-4">
-      <span class="tk"></span>
+    <div class="plate px-4">
       <dl>
         {@render fact($t('settings.about.version'), a.forgeVersion)}
         {@render fact($t('settings.about.pluginRoot'), a.pluginRoot, true)}
