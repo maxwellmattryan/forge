@@ -155,17 +155,24 @@ const lineText = (text: string, offset: number): string => {
   return text.slice(start, end < 0 ? text.length : end);
 };
 
+/** One match before it becomes a finding: where it sits in the unit's text and what it holds. */
+interface Span {
+  kind: SecretKind;
+  value: string;
+  start: number;
+  end: number;
+  lineOffset: number;
+}
+
 /**
- * Findings in one unit. Spans already claimed by an earlier kind are skipped, so `sk-ant-` is only
- * ever `anthropic-key` and a provider match is never also `high-entropy`.
+ * Every match in one unit. Spans already claimed by an earlier kind are skipped, so `sk-ant-` is
+ * only ever `anthropic-key` and a provider match is never also `high-entropy`.
  */
-function scanUnit(unit: TextUnit, config: Pick<Config, 'worktrees'> | null): RawFinding[] {
-  const out: RawFinding[] = [];
-  const taken: [number, number][] = [];
-  const overlaps = (s: number, e: number) => taken.some(([a, b]) => s < b && a < e);
+function findSpans(unit: TextUnit, config: Pick<Config, 'worktrees'> | null): Span[] {
+  const out: Span[] = [];
+  const overlaps = (s: number, e: number) => out.some((t) => s < t.end && t.start < e);
   const add = (kind: SecretKind, value: string, start: number, end: number, lineOffset: number) => {
-    taken.push([start, end]);
-    out.push({ kind, path: unit.path, line: lineAt(unit, lineOffset), excerpt: mask(value), fingerprint: fingerprint(value), commit: unit.commit, file: unit.file });
+    out.push({ kind, value, start, end, lineOffset });
   };
   for (const p of PATTERNS) {
     for (const m of unit.text.matchAll(p.re)) {
@@ -197,6 +204,27 @@ function scanUnit(unit: TextUnit, config: Pick<Config, 'worktrees'> | null): Raw
     }
   }
   return out;
+}
+
+/** Findings in one unit: the spans, masked and fingerprinted. */
+function scanUnit(unit: TextUnit, config: Pick<Config, 'worktrees'> | null): RawFinding[] {
+  return findSpans(unit, config).map((s) => ({
+    kind: s.kind,
+    path: unit.path,
+    line: lineAt(unit, s.lineOffset),
+    excerpt: mask(s.value),
+    fingerprint: fingerprint(s.value),
+    commit: unit.commit,
+    file: unit.file,
+  }));
+}
+
+/**
+ * Where the scanner finds a likely credential in free text, provider patterns and the entropy check
+ * both on and no allowlist: the support bundle replaces these spans, it never decides to keep one.
+ */
+export function secretSpans(text: string, config: Pick<Config, 'worktrees'> | null): { kind: SecretKind; start: number; end: number }[] {
+  return findSpans({ ...textUnit('(bundle)', text), entropy: true }, config).map(({ kind, start, end }) => ({ kind, start, end }));
 }
 
 /** The entropy rule for one candidate value on its line. */

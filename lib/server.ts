@@ -10,6 +10,7 @@ import { PERMISSION_MODES, UUID, logBaseOf, readInfo, readLogPage, sessionFiles 
 import type { DaemonOptions } from './daemon.ts';
 import { createPool } from './daemon-pool.ts';
 import type { DaemonPool, PoolState } from './daemon-pool.ts';
+import { buildBundle, bundleFileName } from './bundle.ts';
 import { doctor } from './doctor.ts';
 import { createPreviewer, ghRunner, parseGitHubUrl } from './github-preview.ts';
 import type { GhRunner } from './github-preview.ts';
@@ -27,8 +28,10 @@ import { roster } from './roster.ts';
 import { deriveTitle, normalizeTitle } from './title.ts';
 import { agentTranscript, cachedActivity, claudeProjectsDir, openTranscript, ownerTranscript } from './transcripts.ts';
 import type { TranscriptHit } from './transcripts.ts';
+import { redactContext, redactText } from './redact.ts';
 import { getPath, readJson, readText } from './util.ts';
 import { versionInfo } from './version.ts';
+import { zip } from './zip.ts';
 import type {
   AboutResponse,
   AgentActivity,
@@ -185,6 +188,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         const { config, initialized } = loadConfig(root);
         return json(res, { ...(await doctor(root, config, initialized)), at: new Date().toISOString() } satisfies DoctorResponse);
       }
+      if (req.method === 'GET' && p === '/api/doctor/bundle') return supportBundle(req, res, url);
       if (req.method === 'GET' && p === '/api/github/preview') {
         // It spawns gh and spends the login's GitHub rate limit, so it takes the token like a POST.
         if (guardToken(req, res, token)) return;
@@ -554,6 +558,40 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       return jsonStatus(res, 404, { error: 'no session log' });
     } finally {
       if (fd !== undefined) fs.closeSync(fd);
+    }
+  }
+
+  /**
+   * GET /api/doctor/bundle: the support bundle `forge doctor --bundle` writes, as a download. It
+   * spawns git and gh and reads job logs, so it takes the token header (never a query parameter)
+   * on top of the read guard. The job id is validated before any path is built, and the dashboard
+   * never gets agent text: any other parameter, include-text among them, is ignored.
+   */
+  async function supportBundle(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
+    if (readGuard(req, res) || guardToken(req, res, token)) return;
+    const job = url.searchParams.get('job');
+    if (job !== null && !validJobId(job)) return jsonStatus(res, 400, { error: 'job must be a job id' });
+    if (job !== null && !exists(path.join(jobDir(root, job), 'job.json'))) return jsonStatus(res, 404, { error: 'no such job' });
+    const { config, initialized } = loadConfig(root);
+    try {
+      const date = new Date();
+      const { entries } = await buildBundle(root, config, initialized, { job: job ?? undefined, includeText: false });
+      const body = zip(entries, date);
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="${bundleFileName(date)}"`,
+        'Content-Length': body.length,
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+        'Cross-Origin-Resource-Policy': 'same-origin',
+      });
+      res.end(body);
+    } catch (e) {
+      let message = 'could not build the support bundle';
+      try {
+        message = redactText((e as Error).message, redactContext(root, config)).text;
+      } catch {}
+      jsonStatus(res, 500, { error: message });
     }
   }
 

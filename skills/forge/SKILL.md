@@ -1,6 +1,6 @@
 ---
 name: forge
-description: Run Forge, a software factory. Turns features, bugs and backlog items into reviewed pull requests via a team of agents (planner, spec writer, designer, builder, reviewers, approver), each job in its own git worktree, with PR/tracker sync, a live dashboard, evals and self-improving retros. Use for "/forge <feature>", "/forge next", approving/reworking Forge jobs, Forge status, or setting Forge up in a repo.
+description: Run Forge, a software factory. Turns features, bugs and backlog items into reviewed pull requests via a team of agents, each job in its own git worktree, with PR/tracker sync, a live dashboard, evals and self-improving retros. Use for "/forge <feature>", "/forge next", approving/reworking Forge jobs, Forge status, or setting Forge up in a repo.
 argument-hint: "<feature> | next [n] | issue <ref> | continue <job|#pr> | approve <job> [<ref>|new|none] [note] | revise|answer|rework|cancel <job> [note] | status | sync | dash | init | retro | eval … | requests | doctor | update"
 ---
 
@@ -42,7 +42,7 @@ Report `sync` results, a line each: merges, PR feedback, conflicts, finished umb
 | `sync` | the sync above; report |
 | `dash` | `forge dash --background`; give the URL |
 | `init`, `retro`, `eval …`, `requests` | `reference/init.md`, `retro.md`, `evals.md`, `requests.md` |
-| `doctor` | `forge doctor`; explain failures and warnings with fixes |
+| `doctor` | `forge doctor`; explain failures and warnings with fixes; bug report: `forge doctor --bundle`, human checks its manifest |
 | `update` | `forge update` only; report `from → to`, each `warnings` and `next` entry, or the error. |
 
 ## Run a job

@@ -168,7 +168,9 @@ jobs:
             test/platform.test.ts: the WSL /mnt/ check resolves POSIX paths, which become drive paths on Windows
             test/secrets.test.ts: a symlinked allowlist is read as a plain file (2 entries where 0 are expected)
             test/secrets-gates.test.ts: forge git commit exits with code failed instead of secret_found
+            test/bundle.test.ts: redaction misses the 8.3 short temp path (C:\Users\RUNNER~1\...), and the trap test cannot create its symlink, FIFO and ANSI-named files
             test/protected-paths.test.ts: forge git add and commit exit with code failed instead of protected_path
+            test/server-bundle.test.ts: its loopback HTTP requests fail with read ECONNRESET
             test/update.test.ts: updateForge refuses on native Windows in the tests that inject no platform
             test/usage-import.test.ts: agent end --import finds no transcript under the fake HOME, so usage is null
         run: node scripts/windows-tests.ts
