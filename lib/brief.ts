@@ -125,7 +125,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
     case 'approver':
       return out(
         [p('decision'), p('prBody')],
-        [p('spec'), p('build'), p('reviewDir'), p('verify'), p('runbook')],
+        [p('spec'), p('build'), p('reviewDir'), p('verify'), p('integrationReview'), p('runbook')],
         [
           `Acceptance criteria (forge job acs): ${JSON.stringify(input.acs)}`,
           `Always escalate: ${JSON.stringify(c.approver.alwaysEscalate ?? [])}`,
@@ -139,7 +139,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
         [p('build')],
         [p('spec'), p('build'), ...(ctx.integration?.fix ? [p('integrationReview')] : []), ...(ctx.answered ? [p('questions')] : [])],
         [
-          `Strategy: ${ctx.strategy ?? 'rebase'}`,
+          `Strategy: ${ctx.strategy ?? 'merge'}`,
           `Conflicts: ${JSON.stringify(ctx.integration?.conflicts ?? [])}`,
           // JSON for the same reason as Conflicts: a file name must not start a line of the brief.
           ...(ctx.integration?.regenerated?.length ? [`Regenerated: ${JSON.stringify(ctx.integration.regenerated)} (Forge rebuilds these at --continue; don't hand-merge them)`] : []),

@@ -77,7 +77,7 @@ test('briefs carry paths, never contents', () => {
     });
 
     const seen: string[] = [];
-    const stages: Stage[] = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', 'review', 'decide', 'integrate', 'pr'];
+    const stages: Stage[] = ['backlog', 'plan', 'spec', 'design', 'build', 'verify', 'review', 'integrate', 'decide', 'pr'];
     for (const stage of stages) {
       updateJob(root, job.id, (j) => {
         j.stage = stage;

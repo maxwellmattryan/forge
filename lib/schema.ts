@@ -21,8 +21,8 @@ export const STAGES = [
   'build',
   'verify',
   'review',
-  'decide',
   'integrate',
+  'decide',
   'pr',
   'done',
 ] as const;

@@ -93,7 +93,7 @@ export const CORE: HelpGroup[] = [
         args: '<id> [--strategy merge|rebase] [--keep-conflicts | --continue]',
         summary: "merge or rebase the job's base into its branch; conflicts are aborted unless --keep-conflicts leaves them for the integrator",
         flags: [
-          ['--strategy merge|rebase', 'how to integrate (default: pr.updateStrategy once a PR is open, else rebase)'],
+          ['--strategy merge|rebase', 'how to integrate (default: pr.updateStrategy, merge unless set to rebase)'],
           ['--keep-conflicts', 'leave conflicts in the worktree to resolve'],
           ['--continue', 'finish a merge or rebase once its conflicts are resolved'],
         ],
