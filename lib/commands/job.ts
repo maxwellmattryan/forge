@@ -11,7 +11,7 @@ import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '.
 import { agentOutputMissing, attachAgent, claimJob, createJob, ownerStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
 import { logSecrets, scanAgentOutputs } from '../secrets.ts';
 import { issueLinkStatus } from '../issue-link.ts';
-import { checkIssueRef, issueUrl } from '../issue-ref.ts';
+import { checkIssueRef, isSafeUrl, issueUrl } from '../issue-ref.ts';
 import { githubHost, localRepoSlug } from '../repo-slug.ts';
 import { exists } from '../paths.ts';
 import { COMPLEXITIES, EFFORTS, OFFICE_GATES } from '../schema.ts';
@@ -369,6 +369,7 @@ function newJobIssues(root: string, config: Config, flags: Record<string, any>):
   if (wantsNone && (typed.length || ref !== undefined || flags.issue !== undefined)) throw usageError(JOB, 'new');
   if (reason !== undefined && !wantsNone) throw usageError(JOB, 'new');
   if (wantsNone && config.tracker.kind === 'none') throw new ForgeError('tracker.kind is "none": no issue is needed, so there is nothing to waive (drop --no-issue)');
+  if (url !== undefined && !isSafeUrl(url)) throw new ForgeError(`invalid url ${JSON.stringify(String(url).slice(0, 100))}: expected http(s) with no whitespace`);
   const tracker = str(flags.tracker, '--tracker') ?? config.tracker.kind;
   const slug = tracker === 'github' ? localRepoSlug(root, config) : null;
   const parse = (raw: string): string => {

@@ -25,6 +25,11 @@ export interface IssueRefOpts {
   slug: string | null;
 }
 
+const SAFE_URL = /^https?:\/\/[^\s\x00-\x1f\x7f]+$/;
+
+/** An issue url that is safe to write into a PR body: http(s), one token, no whitespace or controls. */
+export const isSafeUrl = (url: unknown): url is string => typeof url === 'string' && url.length <= 2000 && SAFE_URL.test(url);
+
 const isQualified = (ref: string): boolean => QUALIFIED.test(ref) && !ref.includes('..');
 
 /** parseIssueRef with the reason a ref is refused, for the CLI's error. */

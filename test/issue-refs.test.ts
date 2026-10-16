@@ -12,6 +12,7 @@ import { createJob, jobDir, loadJob, readEvents } from '../lib/jobs.ts';
 import { JOB_SCHEMA_VERSION, normalizeJob, serializeJob } from '../lib/schema.ts';
 import { checkIssueRef, nativeRef, parseIssueRef } from '../lib/issue-ref.ts';
 import { localRepoSlug } from '../lib/repo-slug.ts';
+import { issueLinkStatus } from '../lib/issue-link.ts';
 import { startFromRef } from '../lib/commands/tracker.ts';
 import type { Tracker } from '../lib/types.ts';
 
@@ -137,6 +138,10 @@ test('v10 jobs migrate source to issues unchanged otherwise', () => {
       [null, { noIssue: { reason: 'tiny', at: '2026-10-01T00:00:00Z' } }, []],
       [{ tracker: 'github', ref: '7', url: null }, {}, [{ tracker: 'github', ref: '7', url: null }]],
       [{ tracker: 'github', ref: '7', url: 'https://github.com/acme/web/issues/8' }, {}, [{ tracker: 'github', ref: '7', url: 'https://github.com/acme/web/issues/8' }]],
+      // `forge job new --ref` stored these unchecked before v11; they stay linked in the nearest valid form.
+      [{ tracker: 'local', ref: 'ends done', url: null }, {}, [{ tracker: 'local', ref: 'ends-done', url: null }]],
+      [{ tracker: 'acme', ref: 'a:b', url: 'https://example.test/a' }, {}, [{ tracker: 'acme', ref: 'a-b', url: 'https://example.test/a' }]],
+      [{ tracker: 'local', ref: '  ', url: 'https://example.test/u' }, {}, [{ tracker: 'local', ref: null, url: 'https://example.test/u' }]],
     ];
     for (const [source, extra, issues] of cases) {
       const raw = v10(source, extra);
@@ -150,6 +155,7 @@ test('v10 jobs migrate source to issues unchanged otherwise', () => {
       const { source: _s, schemaVersion: _w, ...before } = raw;
       assert.deepEqual(rest, before, 'every other field is the v10 read');
       assert.ok(!('source' in serializeJob(job)));
+      if (source && (source as any).ref?.trim?.()) assert.equal(issueLinkStatus(job, { tracker: { kind: (source as any).tracker } } as any), 'linked', 'a linked v10 job stays linked');
     }
     // On disk, through loadJob.
     const file = path.join(jobDir(repo.dir, base.id), 'job.json');
@@ -181,9 +187,12 @@ test('normalizeJob keeps only well-formed issues', () => {
       { tracker: 'local', ref: 'b', url: null },
       { tracker: 'local', ref: 'b', url: 'https://dup' },
       { tracker: 'local', ref: null, url: 'https://only-url' },
+      { tracker: 'local', ref: 'c', url: 'https://x.test/1\nCloses evil/repo#1' },
+      { tracker: 'local', ref: 'd', url: 'javascript:alert(1)' },
+      { tracker: 'local', ref: null, url: 'https://x.test/2 ![a](b)' },
     ],
   });
-  assert.deepEqual(job.issues, [good, { tracker: 'local', ref: 'b', url: null }, { tracker: 'local', ref: null, url: 'https://only-url' }]);
+  assert.deepEqual(job.issues, [good, { tracker: 'local', ref: 'b', url: null }, { tracker: 'local', ref: null, url: 'https://only-url' }, { tracker: 'local', ref: 'c', url: null }, { tracker: 'local', ref: 'd', url: null }], 'an unsafe url is dropped, the ref kept');
   assert.deepEqual(normalizeJob({ id: 'y', schemaVersion: JOB_SCHEMA_VERSION, source: { tracker: 'local', ref: 'z', url: null } }).issues, [{ tracker: 'local', ref: 'z', url: null }], 'a stray source folds in');
   assert.ok(!('source' in normalizeJob({ id: 'y', schemaVersion: JOB_SCHEMA_VERSION, source: null })));
   for (const issues of [undefined, null, 'x', 42, {}, [undefined], [{ tracker: { a: 1 }, ref: [] }]]) assert.ok(Array.isArray(normalizeJob({ id: 'z', schemaVersion: JOB_SCHEMA_VERSION, issues }).issues));
@@ -312,6 +321,11 @@ esac
       const bad = await s.cli('job', 'new', '--title', 'Refused', '--issue', '../x');
       assert.equal(bad.status, 1);
       assert.match(bad.stderr, /invalid ref/);
+      for (const url of ['https://x.test/1\nCloses evil/repo#1', 'ftp://x.test/1', 'https://x.test/a b']) {
+        const r = await s.cli('job', 'new', '--title', 'Refused', '--ref', 'a', '--url', url);
+        assert.equal(r.status, 1, url);
+        assert.match(r.stderr, /invalid url/);
+      }
       assert.equal(s.jobDirs().length, dirs, 'no job dir for a refused call');
       const none = await n.cli('job', 'new', '--title', 'Untracked', '--no-issue');
       assert.equal(none.status, 1);

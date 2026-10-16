@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { issueLinkStatus, queryTerms, scoreItems, searchTerms } from './issue-link.ts';
-import { checkIssueRef, issueUrl, linkedIssues, nativeRef, sameIssue } from './issue-ref.ts';
+import { checkIssueRef, isSafeUrl, issueUrl, linkedIssues, nativeRef, sameIssue } from './issue-ref.ts';
 import { githubHost, localRepoSlug } from './repo-slug.ts';
 import type { IssueLinkStatus, ScoredItem } from './issue-link.ts';
 import { isActive, jobDir, listJobs, loadJob, logEvent, logHumanEvent, requestBody, updateJob } from './jobs.ts';
@@ -154,7 +154,7 @@ export function linkJob(root: string, config: Config, tracker: Tracker, id: stri
       if (!item) throw new ForgeError(`no ${tracker.name} item "${native}"`);
       // The adapter's ref is canonical (the local backlog's slug), but a GitHub ref stays qualified.
       if (config.tracker.kind !== 'github') issue.ref = String(item.ref);
-      issue.url = typeof item.url === 'string' ? item.url : null;
+      issue.url = isSafeUrl(item.url) ? item.url : null;
     }
     pending.push({ issue, native, shared: others.filter((j) => j.issues.some((i) => sameIssue(i, issue, slug))) });
   }

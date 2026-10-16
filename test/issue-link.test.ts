@@ -640,7 +640,7 @@ describe('forge job human --link', { concurrency: 4 }, () => {
     const row = (on: string) => approve.split('\n').find((l) => l.startsWith(`| \`${on}\``)) ?? '';
     for (const s of ['forge job human <job> approve-spec [--link …]', 'spec ready, issue unlinked', '`forge job set <job> --state running`']) assert.ok(row('spec-approval').includes(s), s);
     for (const s of ['forge job human <job> approve --link <link>', '`forge job set <job> --state running`']) assert.ok(row('issue-link').includes(s), s);
-    for (const s of ['args.link', '`--link <ref>`', '`--link new`', "`--link none --reason '<rest of the note>'`", '^#?[A-Za-z0-9][A-Za-z0-9._-]*$', '`new`, `none`, all digits or starts with `#`', 'the CLI records nothing when the link fails']) assert.ok(approve.includes(s), s);
+    for (const s of ['args.link', '`--link <ref>`', '`--link new`', "`--link none --reason '<rest of the note>'`", '^#?[A-Za-z0-9][A-Za-z0-9._-]*$', '`new`, `none`, all digits, starts with `#`, or is a qualified ref', '`owner/repo#12` or `group/sub/project#12`', 'the CLI records nothing when the link fails']) assert.ok(approve.includes(s), s);
     for (const s of ['--stage backlog', 'forge job link <job>']) assert.ok(!approve.includes(s), `${s} is gone from approve`);
     const requests = fs.readFileSync(path.join(ref, 'requests.md'), 'utf8');
     for (const s of ['`next` (args.n, default 1) → `next <n>`', '`args.intake: new`', 'Split mode: pipeline.split', 'or on a `spec-approval` job with `args.link` → the link rows of `approve`, using `args.link`']) assert.ok(requests.includes(s), s);

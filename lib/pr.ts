@@ -6,7 +6,7 @@ import { isActive, isForemanActor, listJobs, loadJob, logEvent, readEvents, setJ
 import { checkBranch, historyEnv, logEscalated, policyRules, protectedApproved, refusalText } from './protected.ts';
 import { enqueuePrFeedbackGate, maybeEnqueueGate } from './foreman.ts';
 import { prLinkNote } from './issue-link.ts';
-import { linkedIssues, nativeRef, sameIssue } from './issue-ref.ts';
+import { isSafeUrl, linkedIssues, nativeRef, sameIssue } from './issue-ref.ts';
 import { localRepoSlug } from './repo-slug.ts';
 import { queueNotify } from './notify.ts';
 import { exists } from './paths.ts';
@@ -356,7 +356,7 @@ export function issueReferences(root: string, config: Config, job: Job): string[
       const native = nativeRef(i, 'github', slug);
       const shared = others.some((o) => o.issues.some((x) => sameIssue(x, i, slug)));
       lines.push(`${config.pr.closeIssue && !shared ? 'Closes' : 'Refs'} ${native ? `#${native}` : i.ref}`);
-    } else if (i.url) lines.push(`Source: ${i.url}`);
+    } else if (isSafeUrl(i.url)) lines.push(`Source: ${i.url}`);
   }
   return lines;
 }

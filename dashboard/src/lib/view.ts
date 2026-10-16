@@ -89,16 +89,18 @@ export function issueLabel(ref: unknown): string | null {
 }
 
 /**
- * The card's tracker ref: the primary issue's label, plus ` +N` when more issues have refs. Null
- * for a local slug ref the id starts with, whose label would only print a near-copy of the id.
+ * The card's tracker ref: the primary issue's label, plus ` +N` when more issues have refs. The
+ * label is hidden for a local slug ref the id starts with, which would only print a near-copy of
+ * the id; the count stays, so a multi-issue job never looks like a single-issue one.
  */
 export function cardRef(job: JobLike): string | null {
   const refs = (Array.isArray(job.issues) ? job.issues : []).map((i) => s(i?.ref)).filter(Boolean);
   const first = refs[0];
   if (!first) return null;
+  const more = refs.length > 1 ? `+${refs.length - 1}` : '';
   const label = issueLabel(first);
-  if (!label || (!/^\d+$/.test(first) && !first.includes('/') && s(job.id).startsWith(first))) return null;
-  return refs.length > 1 ? `${label} +${refs.length - 1}` : label;
+  if (!label || (!/^\d+$/.test(first) && !first.includes('/') && s(job.id).startsWith(first))) return more || null;
+  return more ? `${label} ${more}` : label;
 }
 
 /** lib/deps.ts DEP_REASON; test/dashboard-view.test.ts pins the two equal. */

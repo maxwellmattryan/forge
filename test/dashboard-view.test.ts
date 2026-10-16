@@ -668,6 +668,7 @@ test('issue labels and link state', () => {
   assert.equal(V.cardRef({ id: '12-x', issues: [gh('o/repo#12'), gh('x/y#3')] } as any), 'repo#12 +1');
   assert.equal(V.cardRef({ id: '12-x', issues: [gh('o/repo#12'), gh(null)] } as any), 'repo#12', 'a ref-less issue is not counted');
   assert.equal(V.cardRef({ id: 'slug-ab12', issues: [{ tracker: 'local', ref: 'slug', url: null }] } as any), null, 'a local slug the id starts with');
+  assert.equal(V.cardRef({ id: 'slug-ab12', issues: [{ tracker: 'local', ref: 'slug', url: null }, { tracker: 'local', ref: 'other', url: null }, { tracker: 'local', ref: 'third', url: null }] } as any), '+2', 'the count stays when the label is hidden');
   assert.equal(V.cardRef({ id: 'x', issues: [gh(null)] } as any), null);
   assert.equal(V.issueLabel('group/sub/project#7'), 'project#7');
   assert.equal(V.issueLabel('KEY-1'), 'KEY-1');

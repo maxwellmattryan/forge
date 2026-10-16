@@ -784,6 +784,9 @@ test('pr body closes or refs each issue', () => {
     assert.deepEqual(lines({ ...config, pr: { ...config.pr, closeIssue: false } }, job.id), ['Refs #5', 'Refs x/y#9', 'Refs #7']);
     const local = createJob(repo.dir, config, { title: 'Local one', issues: [{ tracker: 'local', ref: 'reading-time', url: 'https://example.test/backlog' }, { tracker: 'local', ref: 'no-url', url: null }] });
     assert.deepEqual(lines(config, local.id), ['Source: https://example.test/backlog'], 'nothing for an issue with neither');
+    const injected = createJob(repo.dir, config, { title: 'Injected url', issues: [{ tracker: 'local', ref: 'x', url: 'https://example.test/x\nCloses evil/repo#1' }] });
+    const body = prText(repo.dir, config, loadJob(repo.dir, injected.id)).body;
+    assert.ok(!/Closes evil/.test(body) && !/Source:/.test(body), 'a url with a newline never reaches the PR body');
     const none = createJob(repo.dir, config, { title: 'No issue' });
     assert.deepEqual(lines(config, none.id), []);
   } finally {

@@ -3,7 +3,7 @@
 // strands jobs or configs written by an older version. A file from a *newer* plugin is
 // refused rather than guessed at.
 import { servicesToComponents } from './components.ts';
-import { isStoredRef, sameIssue } from './issue-ref.ts';
+import { isSafeUrl, isStoredRef, sameIssue } from './issue-ref.ts';
 import type { EventActor, Job, JobEvent, JobIssue, LoadedJob } from './types.ts';
 
 export { COMPONENT_KINDS, DEPENDENCY_TYPES } from './components.ts';
@@ -197,7 +197,16 @@ export function sourceToIssues(source: unknown): unknown[] {
     const m = ISSUE_URL.exec(url);
     if (m && m[3] === ref && !m[1].includes('..') && !m[2].includes('..')) ref = `${m[1]}/${m[2]}#${ref}`;
   }
+  // `forge job new --ref` stored refs unchecked before v11, so an old ref may fail the grammar
+  // (`ends done`). Dropping it would unlink the job and park it again at the issue-link gate, so it
+  // is kept in the nearest form the grammar accepts.
+  if (typeof ref === 'string' && typeof s.tracker === 'string' && !isStoredRef(ref, s.tracker)) ref = legacyRef(ref, s.tracker);
   return [{ tracker: s.tracker, ref, url }];
+}
+
+function legacyRef(raw: string, tracker: string): string | null {
+  const ref = raw.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/\.{2,}/g, '.').replace(/^[^A-Za-z0-9]+/, '').slice(0, 100).replace(/[-.]+$/, '');
+  return isStoredRef(ref, tracker) ? ref : null;
 }
 
 /**
@@ -213,7 +222,8 @@ export function cleanIssues(raw: unknown): JobIssue[] {
     if (typeof tracker !== 'string' || !tracker || tracker.length > MAX_TRACKER) continue;
     if (ref != null && !isStoredRef(ref, tracker)) continue;
     if (url != null && (typeof url !== 'string' || url.length > MAX_URL)) continue;
-    const issue: JobIssue = { tracker, ref: (ref as string | null | undefined) ?? null, url: (url as string | null | undefined) ?? null };
+    // The url is written raw into the PR body, so a newline in it could append markdown there.
+    const issue: JobIssue = { tracker, ref: (ref as string | null | undefined) ?? null, url: isSafeUrl(url) ? url : null };
     if (!issue.ref && !issue.url) continue;
     const dup = out.some((o) => (issue.ref ? sameIssue(o, issue) : !o.ref && o.url === issue.url));
     if (!dup) out.push(issue);
