@@ -5,7 +5,7 @@ import { PARK_LABEL, STAGE_LABEL, WAIT_LABEL } from './labels.ts';
 
 /** job.json can be hand-edited, so helpers read fields defensively despite the types. */
 type JobLike = Partial<Job> & { progress?: Progress };
-export type Tone = 'ok' | 'bad' | 'warn' | 'info' | 'muted' | 'live' | 'rev';
+export type Tone = 'ok' | 'bad' | 'warn' | 'info' | 'muted' | 'live' | 'you';
 
 const obj = (v: unknown): Record<string, any> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : {});
 const s = (v: unknown): string => String(v ?? '');
@@ -21,7 +21,7 @@ export const VIEWS = [
 ] as const;
 export type ViewId = (typeof VIEWS)[number]['id'];
 
-/** The view's 1-based position in the sidebar, for the title block's SHEET cell; unknown ids read as the first view. */
+/** The view's 1-based position in the sidebar, for the status bar's SHEET fact; unknown ids read as the first view. */
 export const viewIndex = (view: string): number => Math.max(0, VIEWS.findIndex((v) => v.id === view)) + 1;
 
 // ---------- chips and cards ----------
@@ -31,8 +31,8 @@ export function stateTone(job: JobLike): Tone {
   if (job.state === 'failed') return 'bad';
   if (job.state === 'cancelled') return 'muted';
   if (isDependencyPark(job)) return 'muted';
-  // Every other wait but pr-review needs a human (needsHuman), which the Drafting system marks in redline.
-  if (job.state === 'waiting') return job.waitingOn === 'pr-review' ? 'info' : 'rev';
+  // Every other wait but pr-review needs a human (needsHuman), which Smithy marks in ember.
+  if (job.state === 'waiting') return job.waitingOn === 'pr-review' ? 'info' : 'you';
   if (job.state === 'blocked') return 'bad';
   if (job.state === 'running') return 'live';
   return 'muted';
@@ -187,7 +187,7 @@ export function boardColumns<T extends JobLike>(jobs: T[]): { id: BoardGroupId; 
 export interface StageStep {
   stage: Stage;
   status: 'past' | 'current' | 'future';
-  tone: 'ink' | 'red';
+  tone: 'gleam' | 'ember';
 }
 
 /** The card's 9-dot stepper over STEPPER_STAGES. Only the current step can be red: when the job needs a human, failed or is blocked. */
@@ -196,7 +196,7 @@ export function stageSteps(j: JobLike): StageStep[] {
   const red = needsHuman(j) || j.state === 'failed' || j.state === 'blocked';
   return STEPPER_STAGES.map((stage, i) => {
     const status = at < 0 || i > at ? 'future' : i < at ? 'past' : 'current';
-    return { stage, status, tone: status === 'current' && red ? 'red' : 'ink' };
+    return { stage, status, tone: status === 'current' && red ? 'ember' : 'gleam' };
   });
 }
 

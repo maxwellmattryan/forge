@@ -1,6 +1,5 @@
-// The Drafting shell and job surfaces (design/jobs/03-shell.md, 04-job-surfaces.md): every source draws square
-// corners and hard-offset shadows and uses none of the pre-Drafting class names, the job surfaces use the Drafting
-// markup, and segments and nav links expose their selected state. Reads source files only, like dashboard-svelte.test.ts.
+// The Smithy shell and job surfaces (smithy/components/*): every source keeps to the token corners and shadows and
+// uses none of the pre-Smithy class names, the job surfaces use the Smithy markup, and segments and nav links expose their selected state. Reads source files only, like dashboard-svelte.test.ts.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -17,7 +16,7 @@ const read = (rel: string) => fs.readFileSync(path.join(SRC, rel), 'utf8');
 
 const ROUNDED = /^rounded(-(?!full\b)[\w[\]-]+)?$/;
 const BLURRED = /^shadow-(lg|2xl)$/;
-// Job 1's aliases, deleted in job 4. `card` alone is the old sheet alias; next to `h` it is the Drafting title style.
+// Job 1's aliases, deleted in job 4. `card` alone is the old sheet alias; next to `h` it is the title style.
 const OLD = new Set(['btn-primary', 'kpi-label', 'kpi-value', 'prose-md', 'ember-bar', 'brand-rule', 'nav-item']);
 const ACCENT = /^[\w-]+-(on-)?accent(\/\d+)?$/;
 /** Variant prefixes (`hover:`, `md:`) are stripped, so `hover:text-accent` is `text-accent`. */
@@ -81,27 +80,27 @@ function tsClassLists(text: string): string[][] {
 }
 
 test('dashboard sources use no old, rounded or blurred-shadow classes', () => {
-  // The matcher itself: the classes it must catch, and the Drafting ones it must let through.
+  // The matcher itself: the classes it must catch, and the Smithy ones it must let through.
   for (const bad of ['rounded', 'rounded-lg', 'md:rounded-xl', 'rounded-t-lg', 'rounded-[4px]', 'shadow-lg', 'shadow-2xl', 'md:shadow-2xl', 'btn-primary', 'hover:text-accent', 'bg-accent/15', 'text-on-accent', 'border-accent', 'kpi-value', 'nav-item', 'prose-md', 'card'])
     assert.ok(banned(bad), `${bad} is caught`);
-  for (const ok of ['rounded-full', 'shadow-(--shadow-dialog)', 'shadow-(--shadow-drawer)', 'shadow-[inset_3px_0_0_var(--ink)]', 'md:shadow-(--shadow-dialog)', 'border-line', 'text-ink', 'primary', 'kpi', 'prose', 'nav'])
+  for (const ok of ['rounded-full', 'shadow-(--shadow-overlay)', 'shadow-(--shadow-drawer)', 'shadow-[inset_var(--bar-rule)_0_0_0_var(--gleam)]', 'md:shadow-(--shadow-overlay)', 'border-line', 'text-gleam', 'primary', 'kpi', 'prose', 'navlist'])
     assert.ok(!banned(ok), `${ok} passes`);
-  assert.deepEqual(bannedIn(['h', 'card', 'line-clamp-2']), [], '`h card` is the Drafting title style');
+  assert.deepEqual(bannedIn(['h', 'card', 'line-clamp-2']), [], '`h card` is the title style');
   assert.deepEqual(bannedIn(['card', 'p-3']), ['card'], '`card` alone is the old alias');
   assert.deepEqual(classTokens(`"btn sm {on ? 'sel' : 'shadow-2xl'}"`), ['btn', 'sm', 'sel', 'shadow-2xl'], 'class tokens include those inside expressions');
   assert.deepEqual(classTokens(`{on ? 'active' : 'md:rounded-xl'}`), ['active', 'md:rounded-xl'], 'class={…} expressions are read too');
-  assert.deepEqual(tsClassLists('`<div class="sheet ${x ? `a` : "b"} card"><i class="h card">`'), [['sheet', 'card'], ['h', 'card']], 'TS class strings drop their interpolations');
+  assert.deepEqual(tsClassLists('`<div class="plate ${x ? `a` : "b"} card"><i class="h card">`'), [['plate', 'card'], ['h', 'card']], 'TS class strings drop their interpolations');
 
   const files = svelteFiles();
   assert.ok(files.length >= 35, `checked ${files.length} components`);
   for (const rel of files) {
     const lists = fileClassLists(rel);
-    assert.deepEqual(lists.flatMap(bannedIn), [], `${rel} uses only Drafting classes, square corners and hard shadows`);
+    assert.deepEqual(lists.flatMap(bannedIn), [], `${rel} uses only Smithy classes, token corners and token shadows`);
   }
   const ts = tsFiles();
   assert.ok(ts.some((f) => f.endsWith('.svelte.ts')), 'rune modules are read too');
-  for (const rel of ts) assert.deepEqual(tsClassLists(fs.readFileSync(path.join(SRC, rel), 'utf8')).flatMap(bannedIn), [], `${rel} builds only Drafting classes`);
-  for (const [tone, cls] of Object.entries(TONE_CLASS)) assert.deepEqual(bannedIn(cls.split(/\s+/)), [], `TONE_CLASS.${tone} is a Drafting chip modifier`);
+  for (const rel of ts) assert.deepEqual(tsClassLists(fs.readFileSync(path.join(SRC, rel), 'utf8')).flatMap(bannedIn), [], `${rel} builds only Smithy classes`);
+  for (const [tone, cls] of Object.entries(TONE_CLASS)) assert.deepEqual(bannedIn(cls.split(/\s+/)), [], `TONE_CLASS.${tone} is a Smithy chip modifier`);
 });
 
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
@@ -150,36 +149,34 @@ function elements(rel: string, text = read(rel)): El[] {
 
 const has = (el: El, ...names: string[]) => names.every((n) => el.classes.includes(n));
 
-test('job surfaces use the Drafting markup', () => {
-  const walked = elements('x.svelte', `<div class="sheet ticks"><span class="tk"></span>{#if a}<img src="x" /><input>{/if}<div class="overflow-x-auto"><table class="tbl"></table></div></div>`);
+test('job surfaces use the Smithy markup', () => {
+  const walked = elements('x.svelte', `<div class="plate"><span class="label"></span>{#if a}<img src="x" /><input>{/if}<div class="overflow-x-auto"><table class="tbl"></table></div></div>`);
   const table = walked.find((e) => e.name === 'table');
   assert.deepEqual(table?.parents.map((p) => p.name), ['div', 'div'], 'the walker tracks ancestors past void and self-closed elements');
   assert.equal(walked[0].first?.name, 'span');
 
-  // StateChip: a rev tone is the REV · <state> tag, with the prefix hidden from screen readers.
+  // StateChip: a you tone is the YOU · <state> tag, with the prefix hidden from screen readers.
   const chip = read('components/StateChip.svelte');
-  assert.match(chip, /\{#if tone === 'rev'\}<span class="chip rev"><span aria-hidden="true">\{\$t\('common\.rev'\)\} ·<\/span> \{stateText\(job\)\}<\/span>\{:else\}<Chip \{tone\}/);
+  assert.match(chip, /\{#if tone === 'you'\}<span class="chip you"><span aria-hidden="true">\{\$t\('common\.you'\)\} ·<\/span> \{stateText\(job\)\}<\/span>\{:else\}<Chip \{tone\}/);
 
-  // JobCard: a ticked, clickable sheet, redlined exactly when a human is needed.
+  // JobCard: a clickable plate, an ember plate exactly when a human is needed.
   const card = tags('components/JobCard.svelte', read('components/JobCard.svelte')).find((t) => t.name === 'button');
   const cardClass = card?.attrs.find((a) => a.name === 'class')?.value ?? '';
-  assert.match(cardClass, /^"sheet ticks clickable \{needsHuman\(j\) \? 'redline' : ''\} /);
+  assert.match(cardClass, /^"plate clickable \{needsHuman\(j\) \? 'ember' : ''\} /);
   assert.ok(!classTokens(cardClass).includes('card'), 'no card alias on the JobCard root');
 
-  // InboxCard: everything in the Inbox waits on a person, so its root is always redlined.
+  // InboxCard: everything in the Inbox waits on a person, so its root is always an ember plate.
   const inbox = elements('components/InboxCard.svelte');
-  assert.ok(has(inbox[0], 'sheet', 'ticks', 'redline'), `InboxCard's root is sheet ticks redline (${inbox[0].classes.join(' ')})`);
+  assert.ok(has(inbox[0], 'plate', 'ember'), `InboxCard's root is plate ember (${inbox[0].classes.join(' ')})`);
 
-  // Every ticks element starts with its .tk span, which draws the two bottom corners.
-  for (const rel of svelteFiles()) {
-    for (const el of elements(rel).filter((e) => e.classes.includes('ticks'))) {
-      assert.ok(el.first?.name === 'span' && el.first.classes.includes('tk'), `${rel}: <${el.name} class="${el.classes.join(' ')}"> has a .tk span as its first child`);
-    }
-  }
+  // The empty state is a cold plate; the brand and every page header are riveted plaques, and nothing else is.
+  assert.ok(has(elements('components/Empty.svelte')[0], 'plate', 'cold'), 'Empty is plate cold');
+  const riveted = svelteFiles().flatMap((rel) => elements(rel).filter((e) => e.classes.includes('riveted')).map(() => rel));
+  assert.deepEqual(riveted.sort(), ['App.svelte', 'components/PageHeader.svelte'], 'riveted: the sidebar brand and the page header only');
 
-  // Every .tbl sits in a ticked sheet. A component whose table has no sheet of its own (CompareTable) counts only
+  // Every .tbl sits in a plate. A component whose table has no plate of its own (CompareTable) counts only
   // when every place that renders it is inside one.
-  const inSheet = (el: El) => el.parents.some((p) => has(p, 'sheet', 'ticks'));
+  const inSheet = (el: El) => el.parents.some((p) => p.classes.includes('plate') && !p.classes.includes('open'));
   let tables = 0;
   for (const rel of svelteFiles()) {
     for (const el of elements(rel).filter((e) => e.name === 'table' && e.classes.includes('tbl'))) {
@@ -187,7 +184,7 @@ test('job surfaces use the Drafting markup', () => {
       if (inSheet(el)) continue;
       const name = path.basename(rel, '.svelte');
       const uses = svelteFiles().flatMap((f) => elements(f).filter((e) => e.name === name));
-      assert.ok(uses.length > 0 && uses.every(inSheet), `${rel}: its .tbl sits inside a sheet ticks element (directly or wherever <${name}> is rendered)`);
+      assert.ok(uses.length > 0 && uses.every(inSheet), `${rel}: its .tbl sits inside a plate (directly or wherever <${name}> is rendered)`);
     }
   }
   assert.ok(tables >= 14, `checked ${tables} tables`);
@@ -249,7 +246,7 @@ test("DepChips and the card's agents line truncate with a full-text title", () =
   const line = card.match(/\{#if agents\}<span class="([^"]*)" title=\{agents\.title\}>(.*?)<\/span><\/span>\{\/if\}/);
   assert.ok(line, 'one element with title={agents.title}');
   for (const c of ['min-w-0', 'max-w-full']) assert.ok(line[1].split(/\s+/).includes(c), `agents line has ${c}`);
-  assert.match(line[2], /^<span class="dot ink[^"]*"><\/span><span class="truncate">/, 'the dot, then a truncate text span');
+  assert.match(line[2], /^<span class="dot gleam plain[^"]*"><\/span><span class="truncate">/, 'the role dot (gleam, no glow), then a truncate text span');
   assert.match(line[2], /\{#if agents\.kind === 'role'\}\{agents\.role\}/);
   assert.match(line[2], /\$t\('job\.runningReviewers', \{ count: agents\.count \}\)/);
   assert.match(line[2], /\$t\('job\.runningAgents', \{ count: agents\.count \}\)/);
@@ -372,7 +369,7 @@ test('checkboxes are drawn and the theme seg keeps its radiogroup', () => {
       assert.ok(cls && classTokens(cls).includes('check'), `${rel}: a checkbox without the check class (${cls ?? 'no class'})`);
     }
   }
-  assert.ok(boxes >= 8, `checked ${boxes} checkboxes`);
+  assert.ok(boxes >= 7, `checked ${boxes} checkboxes`);
 
   const rel = 'components/settings/GeneralTab.svelte';
   const general = read(rel);
@@ -385,17 +382,19 @@ test('checkboxes are drawn and the theme seg keeps its radiogroup', () => {
   assert.equal(radios.length, 1, 'one radio, repeated over THEME_CHOICES');
   assert.equal(unquote(radios[0].attrs.find((a) => a.name === 'name')?.value), 'settings-theme', "Settings.svelte's focus trap groups radios by name");
   assert.match(general, /\{#each THEME_CHOICES as c \(c\)\}/);
-  assert.equal(THEME_CHOICES.length, 4, 'three themes and System');
-  assert.deepEqual([...THEME_CHOICES], ['cyanotype', 'vellum', 'nightprint', 'system']);
-  assert.match(general, /nightprint: \$t\('settings\.general\.nightprint'\)/, 'every choice has a label');
-  // The theme and the drawings go through lib/theme.ts, which owns <html>'s attributes and their prefs.
-  assert.match(general, /setDrawing\('grid', /);
-  assert.match(general, /setDrawing\('paper', /);
+  assert.equal(THEME_CHOICES.length, 3, 'two themes and System');
+  assert.deepEqual([...THEME_CHOICES], ['forge', 'ash', 'system']);
+  for (const c of THEME_CHOICES) assert.match(general, new RegExp(`${c}: \\$t\\('settings\\.general\\.${c}'\\)`), `the ${c} choice has a label`);
+  // One Grain row replaces Grid and Paper. The theme and the grain go through lib/theme.ts, which owns <html>'s attributes and their prefs.
+  assert.match(general, /<div id="settings-grain-label">\{\$t\('settings\.general\.grain'\)\}<\/div>/);
+  assert.match(general, /aria-labelledby="settings-grain-label" aria-describedby="settings-grain-hint"/);
+  assert.match(general, /setGrain\(grain\)/);
+  assert.doesNotMatch(general, /settings-(grid|paper)|setDrawing|general\.(grid|paper)/, 'no Grid or Paper rows');
   assert.match(general, /chooseTheme\(c\)/);
   for (const f of [...svelteFiles(), ...tsFiles()].filter((f) => f !== 'lib/theme.ts')) {
     const text = read(f);
-    assert.doesNotMatch(text, /data-(grid|paper)|dataset\.(grid|paper|theme)|dataset\[/, `${f} sets appearance attributes outside lib/theme.ts`);
-    assert.doesNotMatch(text, /pref\.set\('(grid|paper|theme)'/, `${f} writes an appearance pref outside lib/theme.ts`);
+    assert.doesNotMatch(text, /data-(grain|grid|paper)|dataset\.(grain|grid|paper|theme)|dataset\[/, `${f} sets appearance attributes outside lib/theme.ts`);
+    assert.doesNotMatch(text, /pref\.set\('(grain|grid|paper|theme)'/, `${f} writes an appearance pref outside lib/theme.ts`);
   }
 });
 
@@ -409,9 +408,7 @@ test('JobCard renders seven fixed slots from the card model', () => {
   const root = walked[0];
   assert.equal(root.name, 'button');
   const children = walked.filter((e) => e.parents.at(-1) === root);
-  assert.equal(children[0].name, 'span');
-  assert.ok(has(children[0], 'tk'), 'the .tk span comes first');
-  assert.deepEqual(children.slice(1).map((e) => attr(e, 'data-slot')), ['title', 'ref', 'state', 'stage', 'progress', 'lenses', 'footer']);
+  assert.deepEqual(children.map((e) => attr(e, 'data-slot')), ['title', 'ref', 'state', 'stage', 'progress', 'lenses', 'footer'], 'no corner span: the slots are the children');
 
   const markup = text.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '').replace(/<!--[\s\S]*?-->/g, '');
   const conds = [...markup.matchAll(/\{(?:#if|:else if)\s+([^}]*)\}/g)].map((x) => x[1]);
@@ -419,7 +416,7 @@ test('JobCard renders seven fixed slots from the card model', () => {
   for (const c of conds) assert.match(c, /^(m\.|agents)/, `{#if ${c}} reads the card model or the agents line`);
   for (const raw of ['j.state', 'j.stage', 'j.waitingOn', 'j.round']) assert.ok(!text.includes(raw), `JobCard reads no ${raw}`);
   assert.equal(text.split('needsHuman(').length - 1, 1, 'needsHuman( appears once');
-  assert.match(attr(root, 'class') ?? '', /\{needsHuman\(j\) \? 'redline' : ''\}/, 'in the root class');
+  assert.match(attr(root, 'class') ?? '', /\{needsHuman\(j\) \? 'ember' : ''\}/, 'in the root class');
   assert.match(text, /const m = \$derived\(cardModel\(j\)\)/);
   assert.match(text, /<DepChips job=\{j\} \/><\/div>/, 'the dependency chips close the state slot');
   assert.match(read('components/DepChips.svelte'), /<div class="basis-full min-w-0 flex flex-wrap gap-1">/, "and always start their own line, shrinking to the card's width");
@@ -431,9 +428,9 @@ test('JobCard renders seven fixed slots from the card model', () => {
   assert.equal(inFooter[0]?.name, 'SessionActivity', 'the footer renders <SessionActivity first');
   assert.match(text, /const act = \$derived\(sessionActivity\(S\.data\?\.daemons\?\.jobs\?\.\[j\.id\], j\.lastEvent\?\.ts\)\)/);
   assert.match(text, /const flashing = \$derived\(\(S\.flashes\[j\.id\] \?\? 0\) > ticker\.now\)/);
-  const flash = inFooter.find((e) => e.classes.includes('dot') && e.classes.includes('hl'));
+  const flash = inFooter.find((e) => e.classes.includes('dot') && e.classes.includes('spark'));
   assert.ok(flash, 'a flash dot in the footer');
-  assert.match(attr(flash, 'class') ?? '', /^\{flashing \? 'dot hl' : 'dot invisible'\}/, 'whole literals, so Tailwind sees both and the hidden dot keeps its space');
+  assert.match(attr(flash, 'class') ?? '', /^\{flashing \? 'dot spark' : 'dot invisible'\}/, 'whole literals, so Tailwind sees both and the hidden dot keeps its space');
   assert.equal(attr(flash, 'aria-hidden'), 'true');
 });
 
@@ -443,7 +440,7 @@ test('StageStepper is shared by the card and the table', () => {
   const root = elements(file)[0];
   assert.equal(attr(root, 'role'), 'img');
   assert.match(attr(root, 'aria-label') ?? '', /^\{\$t\('pipeline\.stepper', \{ n: stepPosition\(steps\), total: steps\.length, stage \}\)\}$/);
-  for (const cls of ["'dot ink'", "'dot hollow'", "'dot ink outline outline-1 outline-offset-1 outline-ink'", "'dot red outline outline-1 outline-offset-1 outline-redline'"])
+  for (const cls of ["'dot gleam plain'", "'dot hollow'", "'dot gleam plain outline outline-1 outline-offset-1 outline-gleam'", "'dot ember outline outline-1 outline-offset-1 outline-ember'"])
     assert.ok(text.includes(cls), `the dot class ${cls} is a whole literal`);
   assert.doesNotMatch(text, /\bas t\b|\(t\)|\bt =>/, 'no loop variable shadows the $t store');
   for (const f of ['components/JobCard.svelte', 'components/JobsTable.svelte']) assert.match(read(f), /<StageStepper steps=\{m\.steps\} stage=\{m\.stage\} \/>/, `${f} renders the stepper`);
@@ -469,7 +466,7 @@ test('Pipeline board is four grouped columns', () => {
   // Open columns count their working sessions; Done does not.
   assert.match(text, /\{#each open as c \(c\.id\)\}\s*\{@const w = workingCount\(c\.jobs, data\.daemons\)\}/);
   const openBlock = text.slice(text.indexOf('{#each open as c'), text.indexOf('{/each}', text.indexOf('{#each open as c')));
-  assert.match(openBlock, /\{#if w\}<span class="label text-ink">\{\$t\('live\.columnWorking', \{ count: w \}\)\}<\/span>\{\/if\}/, 'an open column header shows N working');
+  assert.match(openBlock, /\{#if w\}<span class="label text-gleam">\{\$t\('live\.columnWorking', \{ count: w \}\)\}<\/span>\{\/if\}/, 'an open column header shows N working');
   const doneBlock = text.slice(text.indexOf('{#if done}'));
   assert.ok(!doneBlock.includes('live.columnWorking') && !doneBlock.includes('workingCount('), "Done's header has no working count");
   assert.equal(text.split("$t('live.columnWorking'").length - 1, 1, 'one working count, in the open columns');
@@ -478,10 +475,10 @@ test('Pipeline board is four grouped columns', () => {
 test('Inbox lists dependency parks apart, with Resume', () => {
   const file = 'views/Inbox.svelte';
   const text = read(file);
-  assert.match(text, /<h2 class="sheet h section w-fit max-w-full px-3 py-1\.5 mt-8 mb-3">\{\$t\('inbox\.parks'\)\}<\/h2>/);
+  assert.match(text, /<h2 class="plate h section w-fit max-w-full px-3 py-1\.5 mt-8 mb-3">\{\$t\('inbox\.parks'\)\}<\/h2>/);
   const parks = text.slice(text.indexOf("$t('inbox.parks')"));
   const block = parks.slice(0, parks.indexOf('{/if}'));
-  assert.match(block, /<div class="sheet ticks"><span class="tk"><\/span><div class="overflow-x-auto">\s*<table class="tbl">/, 'a sheet ticks table');
+  assert.match(block, /<div class="plate flat"><div class="overflow-x-auto">\s*<table class="tbl">/, 'a flat plate around the table');
   assert.match(block, /\{#each groups\.parks as j \(j\.id\)\}/);
   assert.match(block, /<DepChips job=\{j\} \/>/);
   assert.match(block, /<JobActions job=\{j\} noteId="park-\{j\.id\}" \/>/);
@@ -490,11 +487,11 @@ test('Inbox lists dependency parks apart, with Resume', () => {
 });
 
 // Two backgrounds never conflict: a filled element (chip, button, progress, any bg-*) never shows a pattern through
-// or around it, patterns never stack, and a sketched control never sits in another one (two sketches at once).
+// or around it, patterns never stack, and a hover-lit control never sits in another one (sheen is never inherited).
 const CARRIERS = ['hatch', 'hatch-dense', 'crosshatch', 'sketch', 'ground'];
 const classesOf = (el: Placed) => classTokens(el.attrs.find((a) => a.name === 'class')?.value ?? '""').map(base);
 const isCarrier = (c: string[]) => c.some((x) => CARRIERS.includes(x));
-const isOpaque = (c: string[]) => (c.includes('sheet') && !c.includes('dashed')) || ['solid', 'plain', 'chrome', 'bg-panel'].some((x) => c.includes(x));
+const isOpaque = (c: string[]) => (c.includes('plate') && !c.includes('open')) || ['solid', 'plain', 'chrome', 'bg-panel'].some((x) => c.includes(x));
 const isFilled = (c: string[]) => ['chip', 'btn', 'fill', 'track'].some((x) => c.includes(x)) || c.some((x) => x.startsWith('bg-'));
 const isSketched = (el: Placed, c: string[]) => c.includes('btn') || c.includes('tab') || (el.name === 'button' && c.includes('chip'));
 
@@ -515,7 +512,7 @@ function conflicts(file: string, text: string): string[] {
       }
     }
     if (isCarrier(c) && el.ancestors.some((a) => isCarrier(classesOf(a)))) out.push(`${file}: ${what} draws a pattern inside a pattern`);
-    if (isSketched(el, c) && el.ancestors.some((a) => isSketched(a, classesOf(a)))) out.push(`${file}: ${what} sketches inside a sketched control`);
+    if (isSketched(el, c) && el.ancestors.some((a) => isSketched(a, classesOf(a)))) out.push(`${file}: ${what} is lit inside a lit control`);
   }
   return out;
 }
@@ -527,18 +524,18 @@ test('no filled element nests in a patterned one', () => {
   assert.deepEqual(span?.ancestors.map((a) => a.name), ['svelte:element', 'div']);
   assert.deepEqual(walked.map((e) => e.name), ['div', 'img', 'br', 'Comp', 'svelte:element', 'span']);
   assert.throws(() => ancestry('x.svelte', '<div></span></div>'), /closes nothing/);
-  // Each failure is caught, and an opaque sheet in between passes.
+  // Each failure is caught, and an opaque plate in between passes.
   assert.equal(conflicts('x', '<div class="hatch"><span class="chip ok"></span></div>').length, 1, 'a chip on a hatch');
   assert.equal(conflicts('x', '<div class="sketch p-2"><div><button class="btn sm"></button></div></div>').length, 1, 'a button on a sketch, two levels down');
   assert.equal(conflicts('x', '<div class="ground"><i class="bg-ink"></i></div>').length, 1, 'a bg-* fill on the ground class');
-  assert.deepEqual(conflicts('x', '<div class="hatch"><div class="sheet"><span class="chip"></span></div></div>'), [], 'an intervening sheet passes');
+  assert.deepEqual(conflicts('x', '<div class="hatch"><div class="plate"><span class="chip"></span></div></div>'), [], 'an intervening plate passes');
   assert.deepEqual(conflicts('x', '<div class="hatch"><div class="solid"><div class="track"><div class="fill"></div></div></div></div>'), [], 'an intervening solid passes');
-  assert.equal(conflicts('x', '<div class="hatch"><div class="sheet dashed"><span class="chip"></span></div></div>').length, 1, 'a dashed sheet is see-through');
-  assert.equal(conflicts('x', '<div class="sketch"><div class="sheet"><div class="crosshatch"></div></div></div>').length, 1, 'a pattern in a pattern');
+  assert.equal(conflicts('x', '<div class="ground"><div class="plate open"><span class="chip"></span></div></div>').length, 1, 'an open plate is see-through');
+  assert.equal(conflicts('x', '<div class="ground"><div class="plate"><div class="crosshatch"></div></div></div>').length, 1, 'a pattern in a pattern');
   assert.equal(conflicts('x', '<div class="tab"><span class="btn sm"></span></div>').length, 1, 'a button in a tab');
-  assert.deepEqual(conflicts('x', '<button class="sheet ticks clickable"><span class="tk"></span><span class="btn sm"></span></button>'), [], 'a card does not sketch, so a button in it is one sketch');
+  assert.deepEqual(conflicts('x', '<button class="plate clickable"><span class="btn sm"></span></button>'), [], 'a card takes no sheen, so a button in it is the one lit control');
   assert.equal(conflicts('x', '<div class="tab"><button class="chip ok"></button></div>').length, 1, 'a button chip in a tab');
-  assert.deepEqual(conflicts('x', '<button class="sheet clickable"><span class="chip live"></span></button>'), [], 'a span chip in a card is fine');
+  assert.deepEqual(conflicts('x', '<button class="plate clickable"><span class="chip live"></span></button>'), [], 'a span chip in a card is fine');
 
   const files = svelteFiles();
   assert.ok(files.length >= 35, `checked ${files.length} components`);
@@ -548,11 +545,12 @@ test('no filled element nests in a patterned one', () => {
   }
 });
 
-// Text never sits on the grid: the grid and grain show only on bare ground between surfaces, so every word, value,
+// Text never sits on the grain: the grain shows only on bare ground between surfaces, so every word, value,
 // caller snippet and component the shell or a view puts on the page has a surface around it. A component this test
 // scans itself (GROUND, or a view) is checked inside its own file instead.
 const GROUND = ['PageHeader', 'Empty', 'Banner', 'StatusBar', 'Popover', 'JobCard', 'JobsTable', 'InboxCard', 'CommandTrigger', 'Drawer', 'Settings', 'CommandBar', 'Toast', 'GitHubCard'];
-const isSurface = (c: string[]) => (c.includes('sheet') && !c.includes('dashed')) || ['plain', 'solid', 'chrome', 'btn', 'chip', 'input'].some((x) => c.includes(x));
+// A plate is a surface; an open plate is a container the grain shows through (smithy/README.md › Shape and surfaces).
+const isSurface = (c: string[]) => (c.includes('plate') && !c.includes('open')) || ['plain', 'solid', 'chrome', 'btn', 'chip', 'input'].some((x) => c.includes(x));
 
 /** What renders on the bare ground in one component's markup; `checked` are the components scanned on their own. */
 function onGround(file: string, text: string, checked: Set<string>): string[] {
@@ -578,19 +576,20 @@ function onGround(file: string, text: string, checked: Set<string>): string[] {
 test('text never sits on the bare ground', () => {
   const ok = new Set(['Empty', 'PageHeader']);
   const bad = (markup: string) => onGround('x', markup, ok).length;
-  // Rejected: text in a bare div or a dashed (transparent) sheet, an expression, a caller's snippet, an unchecked component.
+  // Rejected: text in a bare div or an open (transparent) plate, an expression, a caller's snippet, an unchecked component.
   assert.equal(bad('<div class="label">Loading</div>'), 1, 'text in a bare div');
-  assert.equal(bad('<section class="sheet dashed"><span class="label">Queued</span></section>'), 1, 'text in a sheet dashed');
+  assert.equal(bad('<section class="plate open"><span class="label">Queued</span></section>'), 1, 'text in a plate open');
   assert.equal(bad('<p class="text-muted">{$t("a")} <code>{x}</code></p>'), 2, 'text and an expression on the ground');
-  assert.equal(bad('<div class="flex">{@render children()}</div>'), 1, 'a caller snippet outside a sheet');
+  assert.equal(bad('<div class="flex">{@render children()}</div>'), 1, 'a caller snippet outside a plate');
   assert.equal(bad('<div>{@html md(x)}</div>'), 1, 'raw html on the ground');
   assert.equal(bad('<div class="mt-2"><Unknown /></div>'), 1, 'an unchecked component on the ground');
-  // Accepted: the same inside a sheet, plain, solid, chrome or a filled control, inside or as a checked component.
-  assert.equal(bad('<div class="sheet ticks"><span class="tk"></span><div class="label">Loading {x}</div>{@render children()}<Unknown /></div>'), 0, 'inside a sheet');
+  // Accepted: the same inside a plate, plain, solid, chrome or a filled control, inside or as a checked component.
+  assert.equal(bad('<div class="plate"><div class="label">Loading {x}</div>{@render children()}<Unknown /></div>'), 0, 'inside a plate');
+  assert.equal(bad('<section class="plate open"><header class="plain"><span class="label">Queued</span></header></section>'), 0, "an open plate's plain header row");
   assert.equal(bad('<header class="plain flex"><span>Queued</span></header><div class="solid">a</div><aside class="chrome">b</aside>'), 0, 'inside plain, solid and chrome');
   assert.equal(bad('<button class="btn sm">Run</button><span class="chip ok">{v}</span><select class="input"><option>a</option></select>'), 0, 'filled controls');
   assert.equal(bad('<Empty>Nothing yet {x}</Empty><PageHeader title="a">{#snippet sub()}{s}{/snippet}</PageHeader>'), 0, 'checked components and their snippets');
-  assert.equal(bad('{#snippet kpi(a)}<div class="sheet">{a}</div>{/snippet}<div class="grid">{@render kpi(1)}</div>{#if x}{@const y = 1}{/if}'), 0, 'block tags, @const and a local snippet render place nothing themselves');
+  assert.equal(bad('{#snippet kpi(a)}<div class="plate">{a}</div>{/snippet}<div class="grid">{@render kpi(1)}</div>{#if x}{@const y = 1}{/if}'), 0, 'block tags, @const and a local snippet render place nothing themselves');
   assert.equal(bad('{#snippet row(a)}<span>{a}</span>{/snippet}'), 1, "an unrendered local snippet is checked where it is written");
   assert.equal(bad('{#snippet row(a)}<span>{a}</span>{/snippet}<div class="solid">{@render row(1)}</div><p class="plain">{@render row(2)}</p>'), 0, "a local snippet rendered only on surfaces passes");
   assert.equal(bad('{#snippet row(a)}<span>{a}</span>{/snippet}<div class="solid">{@render row(1)}</div><div>{@render row(2)}</div>'), 1, "a local snippet rendered once on the ground fails");
@@ -599,7 +598,7 @@ test('text never sits on the bare ground', () => {
   const checked = new Set([...GROUND, ...views.map((f) => f.replace(/\.svelte$/, ''))]);
   const files = ['App.svelte', ...views.map((f) => `views/${f}`), ...GROUND.map((c) => `components/${c}.svelte`)];
   for (const rel of files) assert.deepEqual(onGround(rel, read(rel), checked), [], `${rel} keeps its text on a surface`);
-  for (const doc of ['MIGRATION.md', 'README.md']) assert.ok(fs.readFileSync(path.join(ROOT, 'design', doc), 'utf8').includes('Text never sits on the grid'), `design/${doc} states the rule`);
+  assert.ok(fs.readFileSync(path.join(ROOT, 'smithy', 'README.md'), 'utf8').includes('Text never sits on the grain'), 'smithy/README.md states the rule');
 });
 
 /** Every file under dashboard/src, relative to it. */
@@ -610,13 +609,13 @@ test('the live halo is the only animation and is motion-safe', () => {
   const uses = srcFiles().flatMap((f) => [...read(f).matchAll(animate)].map((m) => [f, m[0]]));
   assert.deepEqual(uses, [['components/LiveDot.svelte', 'motion-safe:animate-ping']], 'one animate-* token in dashboard/src: the motion-safe halo');
   const dot = read('components/LiveDot.svelte');
-  assert.match(dot, /<span class="dot ink absolute inset-0 opacity-75 motion-safe:animate-ping"><\/span><span class="dot ink relative"><\/span>/);
+  assert.match(dot, /<span class="dot gleam halo motion-safe:animate-ping"><\/span><span class="dot gleam relative"><\/span>/);
   assert.match(dot, /<span class="dot hollow shrink-0" aria-hidden="true"><\/span>/, 'off: a hollow dot');
   assert.match(dot, /<span class="relative inline-flex shrink-0" aria-hidden="true">/, 'on: the dot and halo are aria-hidden');
 
   assert.match(read('components/SessionActivity.svelte'), /<LiveDot on=\{activity\.kind === 'working'\} \/>/);
   for (const f of ['components/JobCard.svelte', 'components/Drawer.svelte']) assert.match(read(f), /<SessionActivity\b/, `${f} renders the live dot through SessionActivity`);
-  assert.match(read('App.svelte'), /<LiveDot\b/, 'App.svelte renders the live dot');
+  assert.match(read('components/StatusBar.svelte'), /<LiveDot\b/, 'the status bar renders the live dot');
 
   const css = fs
     .readdirSync(path.join(ROOT, 'dashboard', 'dist', 'assets'))
@@ -641,19 +640,19 @@ test('no custom keyframes or animate utilities in dashboard sources', () => {
 });
 
 test('design docs name the live halo', () => {
-  const DESIGN = path.join(ROOT, 'design');
+  const DESIGN = path.join(ROOT, 'smithy');
   const readme = fs.readFileSync(path.join(DESIGN, 'README.md'), 'utf8');
   const section = (name: string) => {
     const start = readme.indexOf(`\n## ${name}\n`);
-    assert.ok(start >= 0, `design/README.md has § ${name}`);
+    assert.ok(start >= 0, `smithy/README.md has § ${name}`);
     const end = readme.indexOf('\n## ', start + 1);
     return readme.slice(start, end < 0 ? undefined : end);
   };
-  const SENTENCE = 'one looping `animate-ping` halo on the live dot marks an active session; it is the only looping motion and it is off under reduced motion';
-  for (const name of ['States', 'Motion']) assert.ok(section(name).includes(SENTENCE), `§ ${name} names the live halo`);
-  for (const f of ['README.md', 'preview.html']) assert.ok(fs.existsSync(path.join(DESIGN, 'components', 'LiveDot', f)), `design/components/LiveDot/${f} exists`);
-  const index = fs.readFileSync(path.join(DESIGN, 'components', 'index.html'), 'utf8');
-  for (const href of ['LiveDot/preview.html', 'LiveDot/README.md']) assert.ok(index.includes(`href="${href}"`), `index.html links ${href}`);
+  assert.ok(section('States').includes('one looping `animate-ping` halo in `gleam-hot` on the live dot marks an active session; it is the only looping motion and it is off under reduced motion'), '§ States names the live halo');
+  assert.ok(section('Motion').includes("the live dot's halo: the only looping motion, off under reduced motion"), '§ Motion names the live halo');
+  for (const f of ['README.md', 'preview.html']) assert.ok(fs.existsSync(path.join(DESIGN, 'components', 'LiveDot', f)), `smithy/components/LiveDot/${f} exists`);
+  const index = fs.readFileSync(path.join(DESIGN, 'index.html'), 'utf8');
+  assert.ok(index.includes('href="components/LiveDot/preview.html"'), 'smithy/index.html links the LiveDot preview');
 });
 
 test('ticking times read the shared clock and stay out of live regions', () => {
@@ -677,27 +676,26 @@ test('ticking times read the shared clock and stay out of live regions', () => {
   assert.match(mount, /const stopClock = startClock\(\);[\s\S]*?return \(\) => \{\s*stopClock\(\);/, 'App.svelte starts the clock in onMount and stops it in the cleanup');
 });
 
-test('the sidebar and phone strip show the live session indicator', () => {
+test('the status bar facts show the live session indicator', () => {
   assert.doesNotMatch(read('lib/view.ts'), /export const activeSessions\b/, 'view.ts no longer exports activeSessions');
-  const app = read('App.svelte');
-  assert.match(app, /import \{ activeSessions \} from '\.\/lib\/live\.ts';/);
-  assert.doesNotMatch(app, /import \{[^}]*\bactiveSessions\b[^}]*\} from '\.\/lib\/view\.ts'/);
-  assert.match(app, /const active = \$derived\(activeSessions\(S\.data\?\.daemons\)\)/);
-  assert.match(app, /const activeTitle = \$derived\(active\.count \? active\.ids\.map\(\(id\) => \(id === INBOX_SCOPE \? \$t\('live\.inbox'\) : id\)\)\.join\('\\n'\) : \$t\('live\.none'\)\)/, 'the tooltip lists active ids, the inbox by name');
+  const bar = read('components/StatusBar.svelte');
+  assert.match(bar, /import \{ activeSessions \} from '\.\.\/lib\/live\.ts';/);
+  assert.match(bar, /const active = \$derived\(activeSessions\(S\.data\?\.daemons\)\)/);
+  assert.match(bar, /const activeTitle = \$derived\(active\.count \? active\.ids\.map\(\(id\) => \(id === INBOX_SCOPE \? \$t\('live\.inbox'\) : id\)\)\.join\('\\n'\) : \$t\('live\.none'\)\)/, 'the tooltip lists active ids, the inbox by name');
 
-  const walked = elements('App.svelte');
-  for (const id of ['footer-sessions', 'mobile-sessions']) {
-    const cell = walked.find((e) => attr(e, 'id') === id);
-    assert.ok(cell, `#${id}`);
-    assert.equal(attr(cell, 'title'), '{activeTitle}', `#${id} carries the active-session tooltip`);
-    const dots = walked.filter((e) => e.name === 'LiveDot' && e.parents.includes(cell));
-    assert.equal(dots.length, 1, `#${id} renders one <LiveDot`);
-    assert.equal(attr(dots[0], 'on'), '{active.count > 0}');
-    assert.ok(!walked.some((e) => e.parents.includes(cell) && e.attrs.some((a) => a.name === 'aria-live')), `#${id} is not a live region`);
-  }
-  assert.match(app, /\$t\('app\.tblock\.sessionsValue', \{ count: active\.count \}\)/);
-  const mobileAt = app.indexOf('id="mobile-sessions"');
-  assert.ok(app.indexOf('id="mobile-nav"') < mobileAt && mobileAt < app.indexOf('id="settings-open-mobile"'), 'the phone strip puts it between the nav and the settings button');
+  const walked = elements('components/StatusBar.svelte');
+  const cell = walked.find((e) => attr(e, 'id') === 'footer-sessions');
+  assert.ok(cell, '#footer-sessions');
+  assert.ok(cell.parents.some((p) => p.classes.includes('facts')), 'in the facts strip');
+  assert.equal(attr(cell, 'title'), '{activeTitle}', '#footer-sessions carries the active-session tooltip');
+  const dots = walked.filter((e) => e.name === 'LiveDot' && e.parents.includes(cell));
+  assert.equal(dots.length, 1, '#footer-sessions renders one <LiveDot');
+  assert.equal(attr(dots[0], 'on'), '{active.count > 0}');
+  assert.ok(!walked.some((e) => e.parents.includes(cell) && e.attrs.some((a) => a.name === 'aria-live')), '#footer-sessions is not a live region');
+  assert.match(bar, /\$t\('statusbar\.facts\.sessionsValue', \{ count: active\.count \}\)/);
+  // The phone strip has no sessions count of its own: the status bar's facts carry it at every width.
+  const app = read('App.svelte');
+  for (const gone of ['mobile-sessions', 'footer-sessions', 'footer-version', '<LiveDot']) assert.ok(!app.includes(gone), `App.svelte has no ${gone}`);
 
   assert.match(read('components/Nav.svelte'), /navCounts\(S\.data\?\.jobs \?\? \[\]\)/, 'the Needs-you badge reads the same jobs snapshot as the board');
 });
@@ -714,10 +712,10 @@ test('the drawer marks new rows and counts unread Thread changes', () => {
 
   assert.match(text, /const unread = \$derived\(shown && job \? unreadCount\(threadMarks\(threadItems\(/);
   assert.match(text, /S\.threadSeen\[job\.id\] \?\? null\)/);
-  assert.match(markup, /\{\$t\('drawer\.threadTab'\)\}\{#if unread > 0\}<span class="chip hl ml-1\.5">\{\$t\('drawer\.threadUnread', \{ count: unread \}\)\}<\/span>\{\/if\}/, 'the Thread tab shows chip hl N new');
+  assert.match(markup, /\{\$t\('drawer\.threadTab'\)\}\{#if unread > 0\}<span class="chip spark ml-1\.5">\{\$t\('drawer\.threadUnread', \{ count: unread \}\)\}<\/span>\{\/if\}/, 'the Thread tab shows chip spark N new');
 
   assert.match(text, /const fresh = \$derived\(shown \? freshCount\(shown\.detail\.events\.length, S\.drawer\.eventsAtOpen\) : 0\)/);
-  assert.match(markup, /\{#if i < fresh\}<span class="dot hl size-1\.5 shrink-0 self-center" aria-hidden="true"><\/span><span class="sr-only">\{\$t\('live\.new'\)\}<\/span>\{\/if\}/, 'fresh Timeline rows start with dot hl and a hidden "new"');
+  assert.match(markup, /\{#if i < fresh\}<span class="dot spark size-1\.5 shrink-0 self-center" aria-hidden="true"><\/span><span class="sr-only">\{\$t\('live\.new'\)\}<\/span>\{\/if\}/, 'fresh Timeline rows start with dot spark and a hidden "new"');
   assert.match(markup, /<ThreadPanel [^>]*baseline=\{S\.drawer\.threadAtOpen\}/);
   // The Log label carries the live dot and a hidden "working" exactly while the job's session works.
   const logLabel = /\{:else if tab === 'log'\}\{\$t\('drawer\.logTab'\)\}\{#if ([^}]*)\}(.*?)\{\/if\}/.exec(markup);
@@ -729,7 +727,7 @@ test('the drawer marks new rows and counts unread Thread changes', () => {
 
   const thread = read('components/ThreadPanel.svelte');
   assert.match(thread, /baseline = null \}: \{[^}]*baseline\?: string\[\] \| null \}/, 'ThreadPanel takes a baseline prop');
-  assert.match(thread, /\{#if seenAtOpen && !seenAtOpen\.has\(threadMark\(m\)\)\}<span class="dot hl size-1\.5 shrink-0" aria-hidden="true"><\/span><span class="sr-only">\{\$t\('live\.new'\)\}<\/span>\{\/if\}/, 'a message not in the baseline is marked new');
+  assert.match(thread, /\{#if seenAtOpen && !seenAtOpen\.has\(threadMark\(m\)\)\}<span class="dot spark size-1\.5 shrink-0" aria-hidden="true"><\/span><span class="sr-only">\{\$t\('live\.new'\)\}<\/span>\{\/if\}/, 'a message not in the baseline is marked new');
   assert.match(thread, /const seenAtOpen = \$derived\(baseline \? new Set\(baseline\) : null\)/, 'no baseline, no marks');
 
   // The baselines: set on a full load, reset on open and close; the Thread counts as read on first load and while shown.
@@ -856,7 +854,7 @@ test('the drawer header is compact and Details holds the rest', () => {
   assert.ok(has(summary, 'flex', 'flex-wrap', 'items-center', 'gap-1.5'), 'one wrapping summary row');
   const inSummary = walked.filter((e) => e.parents.includes(summary)).map((e) => e.name);
   for (const c of ['StateChip', 'Chip', 'PrChip', 'SessionActivity']) assert.ok(inSummary.includes(c), `the summary row holds <${c}>`);
-  assert.match(headHtml, /<span class="chip ink">\{STAGE_LABEL\[j\.stage\] \?\? j\.stage\}<\/span>/, 'the stage chip');
+  assert.match(headHtml, /<span class="chip gleam">\{STAGE_LABEL\[j\.stage\] \?\? j\.stage\}<\/span>/, 'the stage chip');
   assert.ok(headHtml.includes("{#if j.round}<Chip tone=\"muted\" text={$t('job.round'"), 'the round chip');
   assert.ok(headHtml.includes("{#if j.kind !== 'feature'}<Chip tone=\"info\" text={j.kind} />{/if}"), 'the kind chip');
   assert.ok(headHtml.includes('{#if j.reason}<div class="text-sm text-muted truncate" title={j.reason}>{j.reason}</div>{/if}'), 'the reason on one truncated line, in full in its title');
@@ -920,25 +918,37 @@ test('drawer entry points pick their tab', () => {
 /** An attribute's value with its quotes dropped (`"x"` → `x`; `{x}` stays as written). */
 const attrOf = (el: { attrs: { name?: string; value?: string }[] }, name: string) => unquote(el.attrs.find((a) => a.name === name)?.value);
 
-test('the sidebar is navigation only', () => {
+test('the sidebar holds the brand, stamp line, repo, command input, nav and settings', () => {
   const app = elements('App.svelte');
   const sidebar = app.find((e) => e.name === 'aside' && attrOf(e, 'id') === 'sidebar');
   assert.ok(sidebar, 'aside#sidebar');
+  const kids = app.filter((e) => e.parents.at(-1) === sidebar);
+  // In order: the riveted brand plaque, the view's stamp line, the repo, the command input, the nav, the Settings foot.
+  assert.ok(has(kids[0], 'plate', 'riveted'), `the brand is a riveted plaque (${kids[0].classes.join(' ')})`);
+  assert.ok(has(kids[1], 'stamp-line', 'wide'), `then a wide stamp line (${kids[1].classes.join(' ')})`);
+  assert.ok(app.some((e) => e.parents.includes(kids[2]) && attrOf(e, 'id') === 'repo-name'), 'then the repo');
+  assert.ok(app.some((e) => e.parents.includes(kids[3]) && attrOf(e, 'id') === 'sidebar-command'), 'then the command input');
+  assert.equal(attrOf(kids[4], 'id'), 'nav', 'then the nav');
+  assert.ok(has(kids[4], 'navlist'), 'a navlist');
+  assert.ok(app.some((e) => e.parents.includes(kids[5]) && attrOf(e, 'id') === 'settings-open'), 'and Settings at the foot');
+  assert.equal(kids.length, 6, 'nothing else');
+  const markup = markupOf('App.svelte');
+  assert.ok(markup.includes(`<div class="stamp-line wide mx-0.5 mt-0.5 mb-2">{$t('app.view', { view: viewLabel })}</div>`), 'the stamp line names the view, with no DWG prefix');
   const inside = app.filter((e) => e.parents.includes(sidebar));
-  assert.ok(inside.some((e) => e.name === 'nav' && attrOf(e, 'id') === 'nav'), 'the sidebar keeps the nav');
-  assert.ok(inside.some((e) => e.classes.includes('tblock')), 'and the title block');
+  assert.ok(!inside.some((e) => e.classes.includes('tblock') || e.classes.includes('dim-line')), 'no title block or dimension line');
   const popups = inside.filter((e) => e.attrs.some((a) => a.name === 'aria-haspopup'));
-  assert.deepEqual(popups.map((e) => attrOf(e, 'id')), ['settings-open'], 'only Settings opens a dialog from the sidebar');
+  assert.deepEqual(popups.map((e) => attrOf(e, 'id')), ['sidebar-command', 'settings-open'], 'the palette and Settings open from the sidebar');
   const phone = app.find((e) => e.name === 'header' && e.classes.includes('md:hidden'));
   assert.ok(phone, 'the phone strip');
-  const phoneButtons = app.filter((e) => e.name === 'button' && e.parents.includes(phone));
-  assert.deepEqual(phoneButtons.map((e) => attrOf(e, 'id')), ['settings-open-mobile'], 'the phone strip keeps only the settings button');
+  const phoneKids = app.filter((e) => e.parents.at(-1) === phone);
+  assert.deepEqual(phoneKids.map((e) => attrOf(e, 'id')), ['mobile-nav', 'mobile-command', 'settings-open-mobile'], 'the phone strip: the nav row, the palette button, the settings button');
+  assert.ok(has(phoneKids[0], 'navlist', 'row'), 'a navlist row');
   const all = (fs.readdirSync(SRC, { recursive: true, withFileTypes: true }) as fs.Dirent[]).filter((e) => e.isFile()).map((e) => path.relative(SRC, path.join(e.parentPath, e.name)));
   assert.ok(all.includes('App.svelte') && all.includes(path.join('messages', 'en.json')), `walked ${all.length} files`);
   for (const rel of all) assert.ok(!read(rel).includes('command-open'), `${rel} mentions no command-open button`);
 });
 
-test('command input: inline at md and up, a trigger below md, one shortcut, no header or FAB trigger', () => {
+test('command input: in the sidebar at md and up, a 44px strip button below md, one shortcut', () => {
   const header = read('components/PageHeader.svelte');
   assert.doesNotMatch(header, /CommandTrigger/, 'PageHeader renders no palette trigger');
   const h1 = elements('components/PageHeader.svelte').find((e) => e.name === 'h1');
@@ -947,36 +957,48 @@ test('command input: inline at md and up, a trigger below md, one shortcut, no h
   assert.equal(views.length, 6);
   for (const v of views) assert.equal(read(`views/${v}`).match(/<PageHeader\b/g)?.length, 1, `${v} renders one PageHeader`);
 
-  // md and up: the inline input, the one element that announces the shortcut.
+  // md and up: the sidebar input, the one element that announces the shortcut.
   const shortcut = svelteFiles().flatMap((rel) => elements(rel).filter((e) => attrOf(e, 'aria-keyshortcuts') === 'Meta+K Control+K').map((e) => ({ rel, e })));
   assert.equal(shortcut.length, 1, 'one element announces the palette shortcut');
-  assert.equal(shortcut[0].rel, 'components/StatusBar.svelte');
+  assert.equal(shortcut[0].rel, 'App.svelte');
   const input = shortcut[0].e;
   assert.equal(input.name, 'input');
-  assert.equal(attrOf(input, 'id'), 'statusbar-command');
+  assert.equal(attrOf(input, 'id'), 'sidebar-command');
+  assert.ok(input.parents.some((p) => attrOf(p, 'id') === 'sidebar'), 'inside the sidebar');
   assert.equal(attrOf(input, 'aria-label'), "{$t('command.open')}");
+  assert.equal(attrOf(input, 'placeholder'), "{$t('command.open')}");
   assert.equal(attrOf(input, 'aria-haspopup'), 'dialog');
-  assert.ok(input.classes.includes('max-md:hidden'), 'hidden below md');
-  const bar = read('components/StatusBar.svelte');
+  assert.ok(input.classes.includes('w-full'), 'full sidebar width');
+  // The placeholder is its only visible label: muted, not dim, and the strong edge; the hint sits inside it.
+  for (const c of ['placeholder:text-muted!', 'border-line-strong!']) assert.ok(input.classes.includes(c), `#sidebar-command has ${c}`);
+  const wrap = input.parents.at(-1);
+  const kbd = elements('App.svelte').find((e) => e.name === 'kbd' && e.parents.at(-1)?.classes.join(' ') === wrap?.classes.join(' ') && wrap?.classes.includes('relative'));
+  assert.ok(kbd && attrOf(kbd, 'aria-hidden') === 'true' && kbd.classes.includes('absolute'), 'the ⌘K hint is drawn inside the input, hidden from assistive tech');
+  const appSrc = read('App.svelte');
   for (const [ev, type] of [['oninput', 'input'], ['oncompositionend', 'compositionend'], ['onkeydown', 'keydown']]) assert.equal(attrOf(input, ev), `{(e) => inline(e, '${type}')}`, `${ev} goes through inline()`);
-  assert.match(bar, /if \(inlineInputAction\(\{ type, value: el\.value, key, composing \}\) !== 'open'\) return;/, 'inline() asks inlineInputAction');
-  assert.match(bar, /openPalette\(\{ text: el\.value, opener: el \}\);\s*el\.value = '';/, 'it hands its text to the palette and clears');
-  assert.match(bar, /export function commandState\(\): \{ visible: boolean; focused: boolean \}/);
-  assert.match(bar, /export function focusCommand\(\): void/);
+  assert.match(appSrc, /if \(inlineInputAction\(\{ type, value: el\.value, key, composing \}\) !== 'open'\) return;/, 'inline() asks inlineInputAction');
+  assert.match(appSrc, /openPalette\(\{ text: el\.value, opener: el \}\);\s*el\.value = '';/, 'it hands its text to the palette and clears');
+  assert.match(appSrc, /function commandState\(\): \{ visible: boolean; focused: boolean \}/);
 
-  // Below md: one button between the clusters.
-  const phone = elements('components/StatusBar.svelte').filter((e) => e.name === 'button' && e.classes.includes('md:hidden') && !/openPopover/.test(attrOf(e, 'onclick')));
+  // Below md: one 44px button in the phone strip.
+  const phone = elements('App.svelte').filter((e) => e.name === 'button' && attrOf(e, 'id') === 'mobile-command');
   assert.equal(phone.length, 1, 'one phone palette button');
+  assert.ok(has(phone[0], 'btn', 'touch'), 'a 44px btn');
   assert.equal(attrOf(phone[0], 'aria-haspopup'), 'dialog');
   assert.match(attrOf(phone[0], 'onclick'), /openPalette\(\{ opener: e\.currentTarget \}\)/);
-  assert.ok(phone[0].parents.some((p) => p.name === 'footer'), 'inside the bar');
+  assert.ok(phone[0].parents.some((p) => p.name === 'header' && p.classes.includes('md:hidden')), 'in the phone strip');
+  // The status bar holds no field and no palette button.
+  const bar = elements('components/StatusBar.svelte');
+  assert.ok(!bar.some((e) => e.name === 'input'), 'the status bar has no input');
+  assert.ok(!bar.some((e) => e.name === 'button' && /openPalette/.test(attrOf(e, 'onclick'))), 'nor a command button');
+  assert.doesNotMatch(read('components/StatusBar.svelte'), /statusbar-command|openPalette|commandState|focusCommand/);
 
   // App: no FAB, and Cmd/Ctrl-K follows shortcutAction.
   const app = read('App.svelte');
   assert.doesNotMatch(app, /CommandTrigger/, 'App imports no CommandTrigger: the FAB is gone');
-  assert.match(app, /<StatusBar bind:this=\{bar\} \/>/);
-  assert.match(app, /const action = shortcutAction\(\{ paletteOpen: palette\.open, inlineVisible: inline\.visible, inlineFocused: inline\.focused \}\);/);
-  assert.match(app, /if \(action === 'focus-palette'\) command\?\.focus\(\);\s*else if \(action === 'focus-inline'\) bar\?\.focusCommand\(\);\s*else openPalette\(\);/);
+  assert.match(app, /<StatusBar \/>/);
+  assert.match(app, /const inline = commandState\(\);\s*const action = shortcutAction\(\{ paletteOpen: palette\.open, inlineVisible: inline\.visible, inlineFocused: inline\.focused \}\);/);
+  assert.match(app, /if \(action === 'focus-palette'\) command\?\.focus\(\);\s*else if \(action === 'focus-inline'\) input\?\.focus\(\);\s*else openPalette\(\);/);
 
   // The drawer keeps Command for this job; CommandTrigger is that button alone.
   const trigger = read('components/CommandTrigger.svelte');
@@ -986,7 +1008,7 @@ test('command input: inline at md and up, a trigger below md, one shortcut, no h
   assert.equal(drawer.match(/<CommandTrigger\b/g)?.length, 1, 'the drawer header has one "Command for this job"');
   assert.ok(drawer.includes('{#if scopeVerbs(j).length}<CommandTrigger job={j.id} />{/if}'), 'only for a job with something to command');
 
-  // The palette starts from the bar's text, caret at the end.
+  // The palette starts from the sidebar input's text, caret at the end.
   const palette = read('lib/palette.svelte.ts');
   assert.match(palette, /text = \$state\(''\);/);
   assert.match(palette, /export function openPalette\(opts: \{ scope\?: string \| null; opener\?: HTMLElement \| null; text\?: string \} = \{\}\): void/);
@@ -1023,7 +1045,7 @@ test('one close control: drawer, dialogs and toast', () => {
   assert.deepEqual(bar.map((e) => attrOf(e, 'size') || 'md').sort(), ['md', 'sm'], 'the palette: an md phone close and an sm clear-scope');
   assert.ok(bar.some((e) => attrOf(e, 'class') === 'md:hidden'), 'the phone close hides from md up');
   const scope = elements('components/CommandBar.svelte').find((e) => attrOf(e, 'id') === 'command-scope');
-  assert.ok(scope && has(scope, 'chip', 'ink', 'sm'), 'the scope chip is sm, beside its sm clear button');
+  assert.ok(scope && has(scope, 'chip', 'gleam', 'sm'), 'the scope chip is sm, beside its sm clear button');
 
   for (const rel of svelteFiles().filter((f) => f !== 'components/CloseButton.svelte'))
     assert.doesNotMatch(read(rel), /<Icon name="close"/, `${rel} draws no close icon of its own`);
@@ -1094,7 +1116,7 @@ test('controls in one row share one size', () => {
 
   const dock = elements('components/ActionDock.svelte').find((e) => e.name === 'div' && e.first?.name === 'button' && e.first.classes.includes('primary'));
   assert.ok(dock && dock.classes.includes('gap-2') && !dock.classes.includes('gap-3'), 'the resume row uses gap-2');
-  const unsaved = elements('components/settings/ConfigTab.svelte').find((e) => has(e, 'chip', 'rev'));
+  const unsaved = elements('components/settings/ConfigTab.svelte').find((e) => has(e, 'chip', 'you'));
   assert.ok(unsaved?.classes.includes('sm'), 'the unsaved chip sits in the save row as chip sm');
   // The phone rule gives every button 44px; a btn needs no min-h-11 of its own.
   for (const rel of ['components/settings/AboutTab.svelte', 'components/settings/ConfigTab.svelte', 'components/settings/DiagnosticsTab.svelte'])
@@ -1149,12 +1171,14 @@ test('status bar: one fixed footer in the inert shell, outside main', () => {
   assert.ok(footer.classes.some((c) => c.startsWith('pb-') && c.includes('env(safe-area-inset-bottom)')), 'its bottom padding is the safe-area inset');
   assert.ok(footer.classes.some((c) => c.startsWith('h-') && c.includes('var(--size-statusbar)') && c.includes('env(safe-area-inset-bottom)')), 'its height is the token plus the inset');
 
-  // AC6: one live dot, on exactly when a session works; Inbox only with the daemon on; holds and waits from md up.
+  // 36px tall from md up: the token, plus the inset.
+  assert.ok(fs.readFileSync(path.join(ROOT, 'dashboard', 'style.css'), 'utf8').includes('--size-statusbar: 36px;'), 'the bar is 36px');
+  // AC6: two live dots, the daemon indicator's (on exactly when a session works) and the facts' SESSIONS dot; Inbox only
+  // with the daemon on; holds and waits from md up.
   const markup = markupOf('components/StatusBar.svelte');
   const dots = bar.filter((e) => e.name === 'LiveDot');
-  assert.equal(dots.length, 1, 'one LiveDot');
-  assert.equal(attrOf(dots[0], 'on'), '{bar.daemon.active}', 'bound to the model\'s active');
-  assert.ok(dots[0].parents.includes(footer));
+  assert.deepEqual(dots.map((d) => attrOf(d, 'on')), ['{bar.daemon.active}', '{active.count > 0}'], "the daemon's dot and the sessions dot");
+  for (const d of dots) assert.ok(d.parents.includes(footer));
   const inbox = ifBody(markup, 'bar.inbox');
   assert.ok(inbox?.includes("openPopover('inbox'"), 'the Inbox indicator renders inside {#if bar.inbox}');
   assert.equal(markup.match(/openPopover\('inbox'/g)?.length, 1);
@@ -1178,7 +1202,7 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
   assert.equal(attrOf(dialog, 'tabindex'), '-1', 'focusable, so its label is announced on open');
   assert.equal(attrOf(dialog, 'id'), 'popover-{id}');
   assert.ok(!dialog.attrs.some((a) => a.name === 'aria-modal'), 'non-modal');
-  for (const c of ['sheet', 'ticks', 'solid', 'fixed', 'z-42']) assert.ok(dialog.classes.includes(c), `the popover has ${c}`);
+  for (const c of ['plate', 'solid', 'fixed', 'z-42']) assert.ok(dialog.classes.includes(c), `the popover has ${c}`);
   assert.ok(dialog.classes.some((c) => c.startsWith('bottom-') && c.includes('var(--size-statusbar)') && c.includes('env(safe-area-inset-bottom)') && c.includes('var(--space-2)')), 'it sits --space-2 above the bar');
   assert.ok(dialog.classes.some((c) => c.startsWith('max-h-') && c.includes('100dvh') && c.includes('var(--size-statusbar)')), 'it scrolls inside the room above the bar');
   const heading = pop.find((e) => e.name === 'h2');
@@ -1223,7 +1247,7 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
     assert.ok(!b.attrs.some((a) => a.name === 'aria-label'), 'no aria-label: the name comes from the content, sr-only parts included');
     assert.ok(!b.classes.includes('truncate') && !b.classes.includes('min-w-0'), 'labels are whole or hidden, never cut');
     assert.ok(/^(daemon|inbox|model|connection)$/.test(attrOf(b, 'data-popover')), 'data-popover names the popover it opens');
-    // Below md every visible indicator is a 44x44 target with its ring drawn inside the 48px bar.
+    // Below md every visible indicator is a 44x44 target with its ring drawn inside the 44px bar.
     if (!b.classes.includes('max-md:hidden')) for (const c of ['max-md:min-w-11', 'max-md:focus-visible:-outline-offset-2']) assert.ok(b.classes.includes(c), `the ${attrOf(b, 'data-popover')} indicator has ${c}`);
   }
   assert.equal(indicators.filter((b) => !b.classes.includes('max-md:hidden')).length, 4, 'daemon, inbox, model and connection show below md');
@@ -1280,9 +1304,9 @@ test('the view, the toast and the drawer clear the status bar', () => {
   assert.ok(backdrop?.classes.includes('z-30'), 'the backdrop stays z-30');
   const footer = elements('components/StatusBar.svelte').find((e) => e.name === 'footer');
   assert.ok(footer?.classes.includes('z-35'), 'the bar sits between them');
-  const readme = fs.readFileSync(path.join(ROOT, 'design', 'README.md'), 'utf8');
+  const readme = fs.readFileSync(path.join(ROOT, 'smithy', 'README.md'), 'utf8');
   const shell = readme.split('\n').find((l) => l.startsWith('- The shell is'));
-  assert.ok(shell?.includes('sidebar z-10, drawer backdrop z-30, status bar z-35, drawer z-40, popovers z-42, Settings and the palette z-45, toast z-50'), 'design/README.md lists the z-order');
+  assert.ok(shell?.includes('sidebar z-10, drawer backdrop z-30, status bar z-35, drawer z-40, popovers z-42, Settings and the palette z-45, toast z-50'), 'smithy/README.md lists the z-order');
   assert.ok(shell.includes('size-statusbar') && !/FAB/.test(shell), 'and names the token, not the FAB');
 });
 
@@ -1325,18 +1349,15 @@ test('the model popover is read-only', () => {
 });
 
 test('docs name the status bar', () => {
-  const COMPONENTS = path.join(ROOT, 'design', 'components');
-  for (const f of ['README.md', 'preview.html']) assert.ok(fs.existsSync(path.join(COMPONENTS, 'StatusBar', f)), `design/components/StatusBar/${f} exists`);
-  assert.ok(!fs.existsSync(path.join(COMPONENTS, 'DaemonBar')), 'design/components/DaemonBar is gone');
-  const index = fs.readFileSync(path.join(COMPONENTS, 'index.html'), 'utf8');
-  for (const href of ['StatusBar/preview.html', 'StatusBar/README.md']) assert.ok(index.includes(`href="${href}"`), `index.html links ${href}`);
+  const COMPONENTS = path.join(ROOT, 'smithy', 'components');
+  for (const f of ['README.md', 'preview.html']) assert.ok(fs.existsSync(path.join(COMPONENTS, 'StatusBar', f)), `smithy/components/StatusBar/${f} exists`);
+  assert.ok(!fs.existsSync(path.join(COMPONENTS, 'DaemonBar')), 'smithy/components/DaemonBar does not exist');
+  const index = fs.readFileSync(path.join(ROOT, 'smithy', 'index.html'), 'utf8');
+  assert.ok(index.includes('href="components/StatusBar/preview.html"'), 'smithy/index.html links the StatusBar preview');
   assert.doesNotMatch(index, /DaemonBar/, 'and no DaemonBar');
-  const migration = fs.readFileSync(path.join(ROOT, 'design', 'MIGRATION.md'), 'utf8');
-  for (const rule of ['**sm or md.**', '**Chips are xs annotations**']) {
-    const line = migration.split('\n').find((l) => l.includes(rule));
-    assert.ok(line?.includes('status bar'), `MIGRATION.md's ${rule} rule names the status bar`);
-    assert.doesNotMatch(line, /daemon bar/i);
-  }
+  const readme = fs.readFileSync(path.join(COMPONENTS, 'StatusBar', 'README.md'), 'utf8');
+  assert.match(readme, /When the room runs out, the facts drop from the right: SHEET first, then API, then the SESSIONS word \(the dot and count stay\), then the FORGE word; below md only the version and the sessions dot with its count remain\./, 'the drop order');
+  assert.match(readme, /There is no input in the bar/, 'and no field');
 });
 
 test('status bar labels are whole or sr-only, never cut', () => {
@@ -1352,11 +1373,12 @@ test('status bar labels are whole or sr-only, never cut', () => {
   }
   assert.ok(!bar.some((e) => e.parents.some((p) => attrOf(p, 'bind:this') === '{leftRow}' || attrOf(p, 'bind:this') === '{rightRow}') && e.classes.includes('truncate')), 'no indicator text truncates');
   // The fit loop steps one level of text at a time to sr-only, from whole labels, until the row fits.
-  assert.match(script, /left = 0;\s*right = 0;\s*mid = 0;\s*await tick\(\);/, 'every fit starts from whole labels');
+  assert.match(script, /left = 0;\s*right = 0;\s*facts = 0;\s*await tick\(\);/, 'every fit starts from whole labels');
+  assert.match(script, /while \(me === fitting && facts < FACTS_MAX && cut\(factsBox\)\) \{\s*facts\+\+;\s*await tick\(\);/, 'the facts drop first, while the strip is cut');
+  assert.ok(script.indexOf('facts < FACTS_MAX') < script.indexOf('left < LEFT_MAX'), 'before either cluster sheds a word');
   assert.match(script, /while \(me === fitting && left < LEFT_MAX && overflows\(leftBox, leftRow\)\) \{\s*left\+\+;\s*await tick\(\);/);
   assert.match(script, /while \(me === fitting && right < RIGHT_MAX && overflows\(rightBox, rightRow\)\) \{\s*right\+\+;\s*await tick\(\);/);
-  assert.match(script, /while \(me === fitting && phone && right < 3 && cut\(cmdLabel\)\) \{\s*right\+\+;/, 'on a phone, "needed" goes before the palette button\'s label');
-  assert.match(script, /while \(me === fitting && mid < MID_MAX && cut\(cmdLabel\)\) \{\s*mid\+\+;\s*await tick\(\);/, 'then the phone button\'s label');
+  assert.doesNotMatch(script, /cmdLabel|MID_MAX|\bmid\b/, 'no palette button gives way: the bar has none');
   assert.match(script, /const ro = new ResizeObserver\(\(\) => fit\(\)\);\s*ro\.observe\(footer\);/, 'a resize refits');
   assert.match(script, /document\.fonts\?\.ready\.then\(\(\) => fit\(\)\)/, 'so does the fonts arriving');
   // The levels, in the order the text goes.
@@ -1378,14 +1400,13 @@ test('status bar labels are whole or sr-only, never cut', () => {
     [`<span class="max-md:sr-only {right >= 2 ? 'sr-only' : ''}">`, 'right level 2: the model label'],
     [`<span class="{connQuiet ? 'max-md:sr-only' : ''} {(connQuiet && right >= 3) || right >= 4 ? 'sr-only' : ''} {TONE_TEXT[conn.tone]}">{connWord}</span>`, 'right level 3: Live or Connecting; level 4: the rest'],
     [`<span class="text-warn {right >= 4 ? 'sr-only' : ''}">{$t('statusbar.conn.outdatedWord')}<span class={right >= 3 ? 'sr-only' : ''}>{$t('statusbar.conn.outdatedRest')}</span></span>`, 'right level 3: "needed" after "Update"'],
-    [`{$t('statusbar.command.word')}<span class={mid >= 1 ? 'sr-only' : ''}>{$t('statusbar.command.rest')}</span>`, 'centre level 1: "or command"'],
-    [`<span bind:this={cmdLabel} class="min-w-0 overflow-hidden whitespace-nowrap {mid >= 2 ? 'sr-only' : ''}">`, 'centre level 2: "New job"'],
   ])
     assert.ok(markup.includes(cut), what);
   assert.match(script, /const connQuiet = \$derived\(conn\.state === 'live' \|\| conn\.state === 'connecting'\);/, 'Offline and Update needed keep their word at every width');
-  // The input's placeholder is its only visible label: muted, not dim, and the strong edge.
-  const input = bar.find((e) => attrOf(e, 'id') === 'statusbar-command');
-  for (const c of ['placeholder:text-muted!', 'border-line-strong!']) assert.ok(input?.classes.includes(c), `#statusbar-command has ${c}`);
+  // The facts strip takes what the clusters leave (basis 0), so it gives way before they do; the right cluster sits at the edge.
+  const facts = bar.find((e) => attrOf(e, 'bind:this') === '{factsBox}');
+  assert.ok(facts && has(facts, 'facts', 'flex-1', 'basis-0'), `the facts strip fills the middle (${facts?.classes.join(' ')})`);
+  assert.ok(bar.find((e) => attrOf(e, 'bind:this') === '{rightBox}')?.classes.includes('ml-auto'), 'the right cluster is pushed right');
 });
 
 test('popovers close on every route the spec lists', () => {

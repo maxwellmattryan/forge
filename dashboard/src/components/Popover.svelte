@@ -106,12 +106,11 @@
   role="dialog"
   aria-labelledby="popover-{id}-title"
   tabindex="-1"
-  class="sheet ticks solid fixed z-42 flex flex-col bottom-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-2))] max-h-[calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom)_-_2rem)] shadow-(--shadow-dialog)"
+  class="plate solid fixed z-42 flex flex-col bottom-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-2))] max-h-[calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom)_-_2rem)] shadow-(--shadow-overlay)"
   style="left: {place.left}px; width: {place.width}px"
   onfocusout={focusOut}
   onkeydown={key}
 >
-  <span class="tk"></span>
   <div class="flex shrink-0 items-center justify-between gap-3 border-b border-line py-1.5 pr-1.5 pl-4">
     <h2 id="popover-{id}-title" class="h section min-w-0 truncate">{title}</h2>
     <CloseButton size="sm" label={$t('statusbar.close')} onclick={() => closePopover('close')} />

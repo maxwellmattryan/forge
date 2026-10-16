@@ -1,0 +1,3 @@
+A segmented control is a `.seg` strip of `.btn`s sharing their 1px seams, the selected one solid `gleam` (`.sel`) with its cooled bottom edge. Use it for a small set of exclusive choices: the board/table layout toggle (with icons), the pipeline filters (with counts in `muted` parentheses: *Active (3)*), the theme and density choices in settings. Two to five segments; the selected segment is the only hot thing in the row, and a strip never holds a primary button.
+
+Static rendition in the Smithy direction, hand-written from `design/components/SegmentedControl/preview.html` and `views/Pipeline.svelte`.

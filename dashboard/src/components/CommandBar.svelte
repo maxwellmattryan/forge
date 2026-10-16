@@ -194,14 +194,13 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop; Escape closes the dialog from the keyboard) -->
 <div class="fixed inset-0 z-45 flex items-start justify-center scrim md:p-6 md:pt-[12vh]" onmousedown={backdropDown} onclick={backdrop}>
-  <div bind:this={dialog} role="dialog" aria-modal="true" aria-label={$t('command.title')} tabindex="-1" class="sheet ticks solid flex flex-col w-full min-w-0 max-h-[85vh] shadow-(--shadow-dialog) md:max-w-[672px]" onkeydown={trap}>
-    <span class="tk"></span>
+  <div bind:this={dialog} role="dialog" aria-modal="true" aria-label={$t('command.title')} tabindex="-1" class="plate solid flex flex-col w-full min-w-0 max-h-[85vh] shadow-(--shadow-overlay) md:max-w-[672px]" onkeydown={trap}>
     <!-- flex-wrap with a 10rem input basis: on a phone the scope chip and its remove button take the first line, so the input keeps room to type. -->
     <div class="flex flex-wrap items-center gap-x-2 border-b border-line px-3">
       <Icon name="command" class="shrink-0 text-muted" />
       {#if scoped}
         <!-- The chip is the combobox's description; removing the scope is its own labelled button, so the description reads the job. -->
-        <span id="command-scope" class="chip ink sm min-w-0 max-w-[40%]" title={scoped.id}><span class="truncate">{$t('command.scope', { job: scoped.id })}</span></span>
+        <span id="command-scope" class="chip gleam sm min-w-0 max-w-[40%]" title={scoped.id}><span class="truncate">{$t('command.scope', { job: scoped.id })}</span></span>
         <CloseButton size="sm" label={$t('command.clearScope')} onclick={removeScope} />
       {/if}
       <input
@@ -232,14 +231,14 @@
           id={optionId(i)}
           role="option"
           aria-selected={i === active}
-          class="flex items-center gap-3 px-3 py-2 text-sm cursor-pointer {i === active ? 'bg-raised text-fg shadow-[inset_3px_0_0_var(--ink)]' : 'text-muted'}"
+          class="flex items-center gap-3 px-3 py-2 text-sm cursor-pointer {i === active ? 'bg-raised text-fg shadow-[inset_3px_0_0_var(--gleam)]' : 'text-muted'}"
           onmousemove={() => (active = i)}
           onclick={() => activate(o)}
         >
           {#if o.kind === 'run-job'}
-            <Icon name="command" class="shrink-0 text-ink" /><span class="font-medium text-fg shrink-0">{$t('command.start')}</span><span class="flex min-w-0 flex-col"><span class="truncate">{text.trim()}</span>{#if o.verbLike}<span class="text-xs text-muted">{$t('command.verbLike')}</span>{/if}{#if scoped}<span class="text-xs text-muted">{$t('command.newJobScoped', { job: scoped.id })}</span>{/if}</span>
+            <Icon name="command" class="shrink-0 text-gleam" /><span class="font-medium text-fg shrink-0">{$t('command.start')}</span><span class="flex min-w-0 flex-col"><span class="truncate">{text.trim()}</span>{#if o.verbLike}<span class="text-xs text-muted">{$t('command.verbLike')}</span>{/if}{#if scoped}<span class="text-xs text-muted">{$t('command.newJobScoped', { job: scoped.id })}</span>{/if}</span>
           {:else if o.kind === 'run-command'}
-            <Icon name="command" class="shrink-0 text-ink" /><span class="font-medium text-fg shrink-0">{$t('command.send')}</span><span class="truncate min-w-0 font-mono">{text.trim()}</span>
+            <Icon name="command" class="shrink-0 text-gleam" /><span class="font-medium text-fg shrink-0">{$t('command.send')}</span><span class="truncate min-w-0 font-mono">{text.trim()}</span>
           {:else if o.kind === 'verb'}
             <span class="font-mono text-fg shrink-0 w-16">{o.verb}</span><span class="truncate min-w-0">{hints[o.verb]}</span>
           {:else if o.kind === 'job'}
