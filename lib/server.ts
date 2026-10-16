@@ -28,6 +28,7 @@ import { deriveTitle, normalizeTitle } from './title.ts';
 import { agentTranscript, cachedActivity, claudeProjectsDir, openTranscript, ownerTranscript } from './transcripts.ts';
 import type { TranscriptHit } from './transcripts.ts';
 import { getPath, readJson, readText } from './util.ts';
+import { versionInfo } from './version.ts';
 import type {
   AboutResponse,
   AgentActivity,
@@ -658,6 +659,7 @@ function about(): AboutResponse {
   const pricing = readJson(path.join(PLUGIN_ROOT, 'lib', 'pricing.json'), {});
   const link = plugin.homepage ?? plugin.repository;
   const repo = typeof link === 'string' ? link : typeof link?.url === 'string' ? link.url : null;
+  const { commit, installedAs } = versionInfo(PLUGIN_ROOT);
   return {
     forgeVersion: forgeVersion(),
     apiVersion: API_VERSION,
@@ -666,6 +668,8 @@ function about(): AboutResponse {
     pricingAsOf: typeof pricing.asOf === 'string' ? pricing.asOf : null,
     node: process.versions.node,
     links: { repo, docs: repo ? `${repo.replace(/\/$/, '')}/tree/main/docs` : null },
+    commit,
+    installedAs,
   };
 }
 

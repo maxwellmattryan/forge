@@ -727,6 +727,8 @@ export interface DoctorCheck {
   name: string;
   ok: boolean;
   detail: string;
+  /** ok, but worth a look; never set with ok: false. */
+  warn?: boolean;
 }
 
 /** What `forge doctor` prints: doctor in lib/doctor.ts. */
@@ -1211,6 +1213,9 @@ export interface AboutResponse {
   pricingAsOf: string | null;
   node: string;
   links: { repo: string | null; docs: string | null };
+  /** versionInfo(PLUGIN_ROOT) in lib/version.ts: 40 lowercase hex, or null. */
+  commit: string | null;
+  installedAs: InstalledAs;
 }
 
 /** A CI rollup on a GitHub preview: GitHub's statusCheckRollup, folded to three outcomes; null when nothing ran. */

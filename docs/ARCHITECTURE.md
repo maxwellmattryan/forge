@@ -67,6 +67,8 @@ API version 18 adds each `/api/state` job's `activity` (what its running agents 
 
 Config schema v5 and API version 19 add the foreman: `foreman.*` (off by default), `runtime.models.assistant` and `runtime.efforts.assistant`, a `gate` request type routed to the `_office` scope, `/api/state` `daemons.office` and `daemons.foreman`, and a per-job `gateOwner`. A v4 config migrates unchanged. Job schema stays at v9: `human` events gain an optional `actor` (`human | foreman`), and an older event without it reads as `human`.
 
+API version 20 adds `/api/about` `commit` and `installedAs` and an optional `warn` on `/api/doctor` checks; job.json, config and events are unchanged.
+
 ## Updating
 
 `forge update` (`lib/update.ts`) updates the install that is running, its own `PLUGIN_ROOT` after realpath, never whichever `forge` comes first on `PATH`. It works outside a git repo and without `.forge/`, like `forge version`.
