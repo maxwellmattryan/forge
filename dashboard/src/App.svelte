@@ -1,5 +1,5 @@
-<!-- The dashboard shell: sidebar (with the "New job or command" input), phone nav, banners, the active view and the job
-     pane beside it, the status bar and its popovers, the command palette, and the toast. -->
+<!-- The dashboard shell: sidebar (with the "New job or command" input), phone nav, banners, the active view, the job
+     drawer over it, the status bar and its popovers, the command palette, and the toast. -->
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
   import Banner from './components/Banner.svelte';
@@ -17,7 +17,6 @@
   import Analytics from './views/Analytics.svelte';
   import Evals from './views/Evals.svelte';
   import { S, closeDrawer, loadView, refresh, route } from './lib/app.svelte.ts';
-  import { clampPaneWidth, paneMode } from './lib/drawer.ts';
   import { startClock } from './lib/clock.svelte.ts';
   import type { ViewId } from './lib/view.ts';
   import { inlineInputAction, type InlineInputEvent } from './lib/statusbar.ts';
@@ -52,7 +51,7 @@
     if (settingsOpen || palette.open) untrack(() => closePopover('external'));
   });
 
-  // The toast and the job pane follow the md breakpoint.
+  // The toast and the job drawer follow the md breakpoint; the drawer's width clamps to the window (bound below).
   $effect(() => {
     const mq = matchMedia('(width >= 48rem)');
     const set = (): void => {
@@ -63,38 +62,25 @@
     return () => mq.removeEventListener('change', set);
   });
 
-  // The pane sits beside the view when the main column holds both, else fills it; a resize re-clamps its width.
-  let mainEl = $state<HTMLElement>();
-  $effect(() => {
-    if (!mainEl) return;
-    const el = mainEl;
-    const measure = (): void => {
-      S.pane.available = el.clientWidth;
-    };
-    // Measured now as well: a job opened before the observer's first callback would otherwise flash a full pane.
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  });
-  $effect(() => {
-    const available = S.pane.available;
-    S.pane.mode = paneMode(available, S.pane.md);
-    if (available > 0) untrack(() => (S.pane.width = clampPaneWidth(S.pane.width, available)));
-  });
-  const split = $derived(S.pane.mode === 'split' && S.drawer.id !== null);
-  // A full pane covers the view (and the phone header): both leave the tab order, the pane takes focus (Drawer), and
-  // closing it hands focus back to the control that opened it (WCAG 2.4.11). Pre-effect, so the opener is read before
-  // inert lands on it.
-  const covered = $derived(S.pane.mode === 'full' && S.drawer.id !== null);
+  // An open drawer covers the view, the sidebar and the phone header: they leave the tab order, the drawer takes focus
+  // (Drawer), and closing it hands focus back to the control that opened it (WCAG 2.4.11). Pre-effect, so the opener is
+  // read before inert lands on it.
+  const covered = $derived(S.drawer.id !== null);
   $effect.pre(() => {
     if (!covered) return;
     const active = untrack(() => document.activeElement);
     const opener = active instanceof HTMLElement && active !== document.body ? active : null;
     return () => {
-      // Read after the flush: the cleanup can run before the close lands, and a pane that only went split stays open.
+      // Read after the flush: the cleanup can run before the close lands, and switching jobs keeps the drawer open.
       if (opener) tick().then(() => S.drawer.id === null && opener.isConnected && opener.focus());
     };
+  });
+
+  // The page under an open drawer does not scroll; html's scrollbar-gutter: stable keeps it from shifting.
+  $effect(() => {
+    if (!covered) return;
+    document.documentElement.classList.add('overflow-hidden');
+    return () => document.documentElement.classList.remove('overflow-hidden');
   });
 
   $effect(() => {
@@ -182,10 +168,10 @@
   });
 </script>
 
-<svelte:window onhashchange={route} onkeydown={onKey} />
+<svelte:window bind:innerWidth={S.pane.viewport} onhashchange={route} onkeydown={onKey} />
 
 <div class="flex min-h-screen" inert={settingsOpen || palette.open}>
-  <aside id="sidebar" class="hidden md:flex w-(--size-sidebar) shrink-0 flex-col gap-1 border-r chrome z-10 border-line-strong shadow-(--shadow-chrome) px-3 py-4 sticky top-0 h-screen overflow-y-auto overscroll-contain">
+  <aside id="sidebar" class="hidden md:flex w-(--size-sidebar) shrink-0 flex-col gap-1 border-r chrome z-10 border-line-strong shadow-(--shadow-chrome) px-3 py-4 sticky top-0 h-screen overflow-y-auto overscroll-contain" inert={covered}>
     <div class="plate riveted flex items-center gap-3 py-3 pr-3 pl-3.5 mb-1.5"><img src="/forge.png" alt="" class="mark shrink-0" /><div class="min-w-0"><div class="h sheet-title">{$t('app.brand')}</div><div class="label mt-0.5">{$t('app.tagline')}</div></div></div>
     <div class="stamp-line wide mx-0.5 mt-0.5 mb-2">{$t('app.view', { view: viewLabel })}</div>
     <div class="label flex min-w-0 items-baseline gap-2 px-2.5 pb-2.5"><span class="shrink-0">{$t('app.repo')}</span><span id="repo-name" class="mono truncate font-normal normal-case tracking-normal text-fg">{S.data?.repo?.name ?? ''}</span></div>
@@ -215,17 +201,16 @@
       <div class="navlist"><button id="settings-open" aria-haspopup="dialog" aria-keyshortcuts={settingsKeyShortcuts(platform)} onclick={openSettings}><span class="lbl"><Icon name="settings" />{$t('settings.open')}</span><kbd class="mono muted text-[10px] normal-case" aria-hidden="true">{settingsShortcut}</kbd></button></div>
     </div>
   </aside>
-  <main bind:this={mainEl} class="falloff flex-1 min-w-0">
+  <main class="falloff flex-1 min-w-0">
     <!-- The palette and settings buttons stay outside the scrolling nav, so they are always on screen. -->
     <header class="md:hidden flex items-center gap-1 border-b chrome border-line-strong pr-2" inert={covered}>
       <div id="mobile-nav" class="navlist row flex-1 min-w-0 overflow-x-auto p-2"><Nav mobile /></div>
       <button id="mobile-command" class="btn touch shrink-0 px-2.5! normal-case tracking-normal" aria-haspopup="dialog" onclick={(e) => openPalette({ opener: e.currentTarget })}><Icon name="command" /><span class="max-sm:sr-only">{$t('command.open')}</span></button>
       <button id="settings-open-mobile" class="btn icon touch shrink-0" aria-label={$t('settings.open')} aria-haspopup="dialog" onclick={openSettings}><Icon name="settings" /></button>
     </header>
-    <!-- The view and the job pane, side by side in split mode. The pane never covers the sidebar or the status bar, and
-         nothing dims the view: a card click switches the pane's job. #view is the board's container-query root. -->
-    <div class="flex items-start min-w-0">
-    <div id="view" class="@container flex-1 min-w-0 {split ? '' : 'mx-auto max-w-[1400px]'} px-4 md:px-8 pt-4 pb-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-6))]" inert={covered}>
+    <!-- The view keeps its centred width whether the drawer is open or not: the drawer overlays it. #view is the board's
+         container-query root. -->
+    <div id="view" class="@container mx-auto max-w-[1400px] px-4 md:px-8 pt-4 pb-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-6))]" inert={covered}>
       {#if !S.data}
         {#if S.error}<Banner msg={S.error} />{:else}<div class="plate w-fit px-3 py-1.5 text-sm text-muted">{$t('common.loading')}</div>{/if}
       {:else}
@@ -238,13 +223,13 @@
         {:else}<Evals data={S.data} />{/if}
       {/if}
     </div>
-    <Drawer />
-    </div>
   </main>
   <!-- Outside main: main.falloff isolates, which would trap the bar's z-35 and its popovers' z-42 inside main's stacking
-       context, under a full-mode pane. -->
+       context, under the drawer's backdrop and the drawer. -->
   <StatusBar />
 </div>
+<!-- Outside main as well: inside main.falloff's stacking context, the sidebar's z-10 would sit above the backdrop. -->
+<div inert={settingsOpen || palette.open}><Drawer /></div>
 {#if settingsOpen}<Settings bind:this={settings} onclose={closeSettings} />{/if}
 {#if palette.open}<CommandBar bind:this={command} onclose={closePalette} />{/if}
 <Toast />
