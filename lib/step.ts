@@ -35,6 +35,8 @@ export const RULES = [
   // Verifiers between a passing verify and the panel: run, spawn the verifier agent, record its answers.
   'VF1', 'VF2', 'VF3',
   'RV1', 'RV2', 'RV3', 'RV4', 'RV5', 'RV6', 'RV7', 'RV8',
+  // Runs first in review, but IDs are stable, so it was appended rather than renumbering the rest.
+  'RV9',
   'DC1', 'DC2', 'DC3', 'DC4', 'DC5', 'DC6', 'DC7', 'DC8', 'DC9', 'DC10',
   'IG1', 'IG2', 'IG3', 'IG4', 'IG5', 'IG6', 'IG7', 'IG8', 'IG9', 'IG10', 'IG11',
   'PR1', 'PR2', 'PR3', 'PR4', 'PR5',
@@ -58,7 +60,7 @@ const SAFE_URL = /^https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9._/-]+$/;
 
 /** Events loadStepInput keeps; everything else in events.jsonl is noise to step. */
 const STEP_EVENTS = new Set([
-  'human', 'round', 'worktree', 'worktree-setup-failed', 'pr-find', 'pr-adopted', 'scope', 'integrated', 'integrate-conflicts',
+  'human', 'round', 'worktree', 'worktree-setup-failed', 'pr-find', 'pr-adopted', 'scope', 'panel', 'integrated', 'integrate-conflicts',
   'integration-review', 'decision', 'fields', 'pr-opened', 'pr-updated', 'pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
   'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found', 'verifiers',
 ]);
@@ -223,7 +225,8 @@ const alwaysLenses = (config: Config) => config.review.panel.filter((p) => p.alw
 
 /**
  * The lenses this round reviews. A PR rework (`pr.state` OPEN) follows `review.onPrFeedback`:
- * `changed` means the always-on lenses, because what changed needs the diff and step stays pure.
+ * `changed` still means the always-on lenses, and `full` reads the panel that RV9's
+ * `forge job panel` recomputes from the diff. Step stays pure: the diff is read by that command.
  */
 export function roundLenses(job: Pick<Job, 'reviewers' | 'pr'>, config: Config): string[] {
   // job.reviewers is settable with --field, so a name that isn't a plain lens is dropped, never quoted.
@@ -241,19 +244,51 @@ export function whenTokens(when: string | undefined): string[] {
     .filter((t) => t && (t.includes('/') || /\.[A-Za-z0-9]{1,8}$/.test(t)));
 }
 
-/** SP3: always lenses, the suggested ones in the panel, and the ones whose `when` paths the Approach names, in panel order. */
-export function selectPanel(x: Pick<StepInput, 'job' | 'config' | 'spec'>): string[] {
-  if (x.job.kind === 'retro') return ['code', 'docs'];
+/** A review panel and why each lens is on it: `forge job panel`'s result, and SP3's lenses. */
+export interface PanelChoice {
+  lenses: string[];
+  reasons: Record<string, string[]>;
+}
+
+/**
+ * The review panel from recorded inputs, in panel order: `always` lenses, the spec's suggestions
+ * that are in the panel, lenses whose `when` paths or `paths` cover an Approach path, lenses whose
+ * `paths` match a changed file (skipped when `changed` is null, at spec time), then `carried`
+ * lenses, which can only add, so a lens never drops within a build loop. A lens gets every reason
+ * that applies, in that order. Names that aren't plain lens names are dropped wherever they come from.
+ */
+export function choosePanel(x: { kind: Job['kind']; config: Config; suggested: string[]; approachPaths: string[]; changed: string[] | null; carried: string[] }): PanelChoice {
+  if (x.kind === 'retro') return { lenses: ['code', 'docs'], reasons: { code: ['retro'], docs: ['retro'] } };
   const panel = x.config.review.panel.filter((p) => LENS_NAME.test(p.name));
   const names = panel.map((p) => p.name);
-  const suggested = new Set(x.spec.suggested.filter((n) => LENS_NAME.test(n) && names.includes(n)));
-  return panel
-    .filter((p) => {
-      if (p.always || suggested.has(p.name)) return true;
-      const tokens = whenTokens(p.when);
-      return tokens.length > 0 && x.spec.approachPaths.some((ap) => inSpec(ap, tokens));
-    })
-    .map((p) => p.name);
+  const suggested = new Set(x.suggested.filter((n) => LENS_NAME.test(n) && names.includes(n)));
+  const carried = [...new Set(x.carried.filter((n) => typeof n === 'string' && LENS_NAME.test(n)))];
+  // A Map, not an object: a digits-only lens name would sort first among an object's keys.
+  const chosen = new Map<string, string[]>();
+  for (const p of panel) {
+    if (chosen.has(p.name)) continue;
+    const why: string[] = [];
+    if (p.always) why.push('always');
+    if (suggested.has(p.name)) why.push('suggested');
+    const globs = Array.isArray(p.paths) ? p.paths.filter((g): g is string => typeof g === 'string' && g !== '') : [];
+    const tokens = [...whenTokens(p.when), ...globs];
+    const covered = tokens.length ? x.approachPaths.find((ap) => inSpec(ap, tokens)) : undefined;
+    if (covered !== undefined) why.push(`approach ${covered}`);
+    for (const g of x.changed ? globs : []) {
+      const hits = (x.changed ?? []).filter((f) => inSpec(f, [g]));
+      if (hits.length) why.push(`paths ${g}: ${hits[0]}${hits.length > 1 ? ` (+${hits.length - 1} more)` : ''}`);
+    }
+    if (carried.includes(p.name)) why.push('carried');
+    if (why.length) chosen.set(p.name, why);
+  }
+  for (const n of carried) if (!names.includes(n)) chosen.set(n, ['carried']);
+  return { lenses: [...chosen.keys()], reasons: Object.fromEntries(chosen) };
+}
+
+/** SP3: always lenses, the suggested ones in the panel, and the ones whose `when` paths or `paths` the Approach names, in panel order. */
+export function selectPanel(x: Pick<StepInput, 'job' | 'config' | 'spec'>): string[] {
+  // Never carries: a revised spec re-records the panel from scratch.
+  return choosePanel({ kind: x.job.kind, config: x.config, suggested: x.spec.suggested, approachPaths: x.spec.approachPaths, changed: null, carried: [] }).lenses;
 }
 
 function modelOf(config: Config, role: string): string {
@@ -877,9 +912,15 @@ function retryLens(x: StepInput): string | null {
 
 function review(x: StepInput): StepAction {
   const j = x.job;
+  const lv = lastVerify(x);
+  // Once per round, after verify and before any reviewer starts, so the panel matches the diff the
+  // reviewers read. A PR rework under `changed` or `none` keeps its always-only or skip rule.
+  const prSkip = isPrRework(x) && x.config.review.onPrFeedback !== 'full';
+  const panelled = x.events.some((e) => e.type === 'panel' && e.round === j.round && after(e.ts, lv?.at));
+  const reviewing = Object.keys(j.agents).some((k) => k.startsWith('reviewer:') && startedIn(j.agents[k], j.round));
+  if (!prSkip && !panelled && !reviewing && !j.verdicts[String(j.round)]) return run(x, 'RV9', ['job', 'panel', j.id], "pick this round's lenses from the diff");
   const lenses = roundLenses(j, x.config);
   if (!lenses.length) return toStage(x, 'RV1', 'pr', 'no lens reviews this round');
-  const lv = lastVerify(x);
   if (!x.events.some((e) => e.type === 'scope' && e.round === j.round && after(e.ts, lv?.at))) return run(x, 'RV2', ['job', 'scope', j.id], 'reviewers read the scope report');
   // Only until the round's verdicts are recorded: after that RV7 stops the server, and starting it
   // again here would alternate with that stop forever. Retries before then still get the app.

@@ -2,8 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
+import { defaults, loadConfig, panelPathsProblems } from '../lib/config.ts';
 import { detect } from '../lib/detect.ts';
+
+const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 
 /** A fresh repo with the given files; returns detect()'s commands and tools. @param {Record<string,string>} files */
 function detectWith(files) {
@@ -95,4 +99,63 @@ test('suggests the design lens for UI repos', () => {
 
   const plain = panel({ 'package.json': pkg({ dependencies: { express: '4.0.0' } }) });
   for (const lens of ['design', 'ui', 'ux', 'accessibility']) assert.ok(!plain.includes(lens), `${lens} in ${JSON.stringify(plain)}`);
+});
+
+test('suggests panel paths for the detected stack', () => {
+  const suggest = (files: Record<string, string>) => {
+    const repo = tempRepo();
+    try {
+      for (const [rel, text] of Object.entries(files)) {
+        fs.mkdirSync(path.dirname(path.join(repo.dir, rel)), { recursive: true });
+        fs.writeFileSync(path.join(repo.dir, rel), text);
+      }
+      repo.git('add', '-A');
+      repo.git('commit', '-qm', 'files');
+      const d = detect(repo.dir);
+      return { panel: d.suggestions['review.panel'] as string[], paths: d.suggestions['review.panelPaths'] as Record<string, string[]> };
+    } finally {
+      repo.cleanup();
+    }
+  };
+  const svelte = suggest({ 'package.json': pkg({ dependencies: { svelte: '5.0.0' } }), 'package-lock.json': '{}' });
+  assert.deepEqual(svelte.paths.design, defaults().verifyE2e.paths);
+  assert.ok(svelte.paths.design.includes('*.svelte'));
+  assert.deepEqual(svelte.paths.security, ['package.json', 'package-lock.json']);
+  assert.deepEqual(svelte.paths.docs, ['*.md', 'docs/**']);
+  assert.equal(svelte.paths.infra, undefined);
+  // Only suggested lenses that aren't always-on.
+  for (const lens of Object.keys(svelte.paths)) assert.ok(svelte.panel.includes(lens) && !['code', 'tests'].includes(lens), lens);
+
+  const infra = suggest({ 'go.mod': 'module x\n', 'go.sum': '', Dockerfile: 'FROM x\n', 'deploy/main.tf': '', 'deploy/k8s/app.yaml': '' });
+  assert.deepEqual(infra.paths.infra, ['Dockerfile', '*.tf', '**/k8s/**', '**/kubernetes/**', '**/helm/**', '**/charts/**']);
+  assert.deepEqual(infra.paths.security, ['go.mod', 'go.sum', 'Dockerfile', '*.tf', '**/k8s/**', '**/kubernetes/**', '**/helm/**', '**/charts/**']);
+  assert.equal(infra.paths.design, undefined);
+  // Every suggested glob passes the config check.
+  for (const [lens, globs] of Object.entries({ ...svelte.paths, ...infra.paths })) assert.deepEqual(panelPathsProblems(lens, globs), [], lens);
+});
+
+test('init write keeps panel paths', () => {
+  const repo = tempRepo();
+  const answers = path.join(path.dirname(repo.dir), `answers-${path.basename(repo.dir)}.json`);
+  try {
+    const panel = [
+      { name: 'code', always: true },
+      { name: 'security', when: 'dependencies and input handling', paths: ['package.json', 'lib/trackers/**', '*.tf'] },
+    ];
+    fs.writeFileSync(answers, JSON.stringify({ review: { panel } }));
+    const env = { ...process.env, FORGE_ROOT: repo.dir };
+    execFileSync(process.execPath, [BIN, 'init', 'write', '--answers', answers], { cwd: repo.dir, env, stdio: 'pipe' });
+    assert.deepEqual(loadConfig(repo.dir).config.review.panel, panel);
+    execFileSync(process.execPath, [BIN, 'config', 'validate'], { cwd: repo.dir, env, stdio: 'pipe' });
+
+    // A bad glob never reaches config.yml.
+    fs.writeFileSync(answers, JSON.stringify({ review: { panel: [{ name: 'code', always: true, paths: ['../x'] }] } }));
+    const r = spawnSync(process.execPath, [BIN, 'init', 'write', '--force', '--answers', answers], { cwd: repo.dir, env, encoding: 'utf8' });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /review\.panel "code"\.paths entry "\.\.\/x" must not contain a \.\. segment/);
+    assert.deepEqual(loadConfig(repo.dir).config.review.panel, panel);
+  } finally {
+    repo.cleanup();
+    fs.rmSync(answers, { force: true });
+  }
 });

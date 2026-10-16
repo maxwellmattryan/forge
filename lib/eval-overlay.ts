@@ -4,7 +4,7 @@
 // trust check. The overlay changes which verify steps run, budgets, models and the review panel, so
 // it is an allowlist checked when the run starts and again on every load: a hand-edited job.json
 // fails closed instead of running whatever it names.
-import { reviewerChecklist, validateConfig, verifyShapeProblems, verifySteps } from './config.ts';
+import { panelPathsProblems, reviewerChecklist, validateConfig, verifyShapeProblems, verifySteps } from './config.ts';
 import { FIELDS, MODEL_RE, parseCliValue, stringProblem, validateFieldValue } from './config-fields.ts';
 import { EFFORTS } from './schema.ts';
 import type { Config, EvalOverlay, Job } from './types.ts';
@@ -28,7 +28,7 @@ const FIELD_KEYS = FIELDS.filter(
 const ALLOWED = new Set([...FIELD_KEYS, ...LIST_KEYS]);
 
 const ALLOWLIST = 'runtime.models.<role> (not orchestrator), runtime.effort, runtime.efforts.<role>, runtime.effortByComplexity.<level>, pipeline.*, review.panel or verify';
-const PANEL_KEYS = new Set(['name', 'always', 'when', 'model', 'effort', 'needsApp']);
+const PANEL_KEYS = new Set(['name', 'always', 'when', 'model', 'effort', 'needsApp', 'paths']);
 // A lens name becomes a checklist file name, so it is one plain path segment.
 const LENS_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
@@ -93,6 +93,7 @@ function panelProblems(root: string, panel: unknown): string[] {
       problems.push(`${at}: model must be a model alias or id: letters, digits and . _ : - [ ] (got ${show(r.model)})`);
     if (r.effort !== undefined && r.effort !== null && !(EFFORTS as readonly unknown[]).includes(r.effort))
       problems.push(`${at}: effort must be one of ${EFFORTS.join(' | ')} (got ${show(r.effort)})`);
+    if (r.paths !== undefined) problems.push(...panelPathsProblems(typeof r.name === 'string' ? r.name : `entry ${i + 1}`, r.paths).map((p) => `${at}: ${p}`));
   });
   return problems;
 }

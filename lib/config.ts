@@ -303,6 +303,7 @@ export function validateConfig(c: any, root: string): string[] {
       problems.push(`reviewer "${r.name}" has no checklist (looked in .forge/reviewers/ and the plugin's reviewers/)`);
     if (r.needsApp !== undefined && typeof r.needsApp !== 'boolean')
       problems.push(`review.panel "${r.name}".needsApp must be true or false (got ${JSON.stringify(r.needsApp)})`);
+    if (r.paths !== undefined) problems.push(...panelPathsProblems(r.name, r.paths));
   }
   oneOf('verifyE2e.when', c.verifyE2e?.when, ['ui', 'always', 'never']);
   const e2ePaths = c.verifyE2e?.paths;
@@ -392,12 +393,22 @@ export function verifySteps(verify: unknown): string[] {
  * file-system paths mid-merge, so anything that could read as an option, pathspec magic (`:`),
  * an exclusion (`!`) or a way out of the worktree is refused.
  */
-export function globProblem(g: unknown): string | null {
-  if (typeof g !== 'string' || !g.trim()) return `worktrees.generated entries must be non-empty strings (got ${JSON.stringify(g)})`;
-  if (g.startsWith('/') || path.isAbsolute(g)) return `worktrees.generated entry ${JSON.stringify(g)} must be relative to the repo`;
-  if (/^[-!:]/.test(g)) return `worktrees.generated entry ${JSON.stringify(g)} must not start with -, ! or :`;
-  if (g.split(/[\\/]/).includes('..')) return `worktrees.generated entry ${JSON.stringify(g)} must not contain a .. segment`;
+export function globProblem(g: unknown, key = 'worktrees.generated'): string | null {
+  if (typeof g !== 'string' || !g.trim()) return `${key} entries must be non-empty strings (got ${JSON.stringify(g)})`;
+  if (g.startsWith('/') || path.isAbsolute(g)) return `${key} entry ${JSON.stringify(g)} must be relative to the repo`;
+  if (/^[-!:]/.test(g)) return `${key} entry ${JSON.stringify(g)} must not start with -, ! or :`;
+  if (g.split(/[\\/]/).includes('..')) return `${key} entry ${JSON.stringify(g)} must not contain a .. segment`;
   return null;
+}
+
+/**
+ * A panel entry's `paths`: the same rules as `worktrees.generated`, so a glob can't read as an
+ * option, pathspec magic or an exclusion, or point outside the repo. Each message names the lens.
+ */
+export function panelPathsProblems(name: string, paths: unknown): string[] {
+  const key = `review.panel ${JSON.stringify(String(name))}.paths`;
+  if (!Array.isArray(paths)) return [`${key} must be a list of paths or globs (got ${JSON.stringify(paths)})`];
+  return paths.map((g) => globProblem(g, key)).filter((p): p is string => p !== null);
 }
 
 /**
@@ -432,7 +443,7 @@ export function generatedProblems(c: any): string[] {
   const gen = c.worktrees?.generated;
   if (gen === undefined) return [];
   if (!Array.isArray(gen)) return [`worktrees.generated must be a list of paths or globs (got ${JSON.stringify(gen)})`];
-  const problems = gen.map(globProblem).filter((p): p is string => p !== null);
+  const problems = gen.map((g: unknown) => globProblem(g)).filter((p): p is string => p !== null);
   const by = c.worktrees?.generatedBy;
   if (gen.length && (typeof by !== 'string' || !Object.hasOwn(c.commands ?? {}, by) || c.commands[by] == null))
     problems.push(`worktrees.generatedBy must name a configured command (commands.${typeof by === 'string' ? by : '<name>'} is not set)`);
