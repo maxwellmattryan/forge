@@ -1822,6 +1822,16 @@ test("only fresh agents of the job's own session keep it", async () => {
     assert.deepEqual(sessionAgents(repo.dir, other, sid), none, 'another owner');
     assert.deepEqual(own.running, ['builder'], 'a stale agent is still running');
     assert.equal(own.keeps, false, 'but keeps nothing');
+    assert.deepEqual(own.keeping, []);
+    // Fresh agents of the session's own job keep it, listed as sorted role@startedAt runs.
+    const w1Session = d.sessionState(w1).sessionId;
+    ownBy(repo.dir, w1, w1Session);
+    agentStart(repo.dir, w1, 'reviewer:security');
+    agentStart(repo.dir, w1, 'builder');
+    const fresh = sessionAgents(repo.dir, w1, w1Session);
+    const started = loadJob(repo.dir, w1).agents;
+    assert.deepEqual(fresh.keeping, [`builder@${started.builder.startedAt}`, `reviewer:security@${started['reviewer:security'].startedAt}`]);
+    assert.equal(fresh.keeps, true);
     // Evicted, the stale session marked its own phantom lost; the others were never its to mark.
     assert.equal(loadJob(repo.dir, stale).agents.builder.status, 'lost');
     assert.equal(loadJob(repo.dir, other).agents.builder.status, 'running');
