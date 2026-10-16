@@ -17,7 +17,7 @@ import { fileVerdict, jobDir, loadJob, logEvent, readEvents, updateJob } from '.
 import { exists, paths } from './paths.ts';
 import { inSpec, realHistoryEnv, resolveBase } from './scope.ts';
 import type { Config, Job, JobEvent, Verifier, VerifierAnswer, VerifierProblem, VerifierSet, VerifiersRecord, VerifiersRun, VerifyRun } from './types.ts';
-import { ForgeError, fenced, now, readJson, run, writeJsonAtomic } from './util.ts';
+import { ForgeError, fenced, now, readJson, run, writeJsonAtomic, writeTextAtomic } from './util.ts';
 import * as yaml from './yaml.ts';
 
 export const VERIFIER_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -476,12 +476,12 @@ export function verifiersRun(root: string, base: Config, id: string): VerifiersR
   const rel = (p: string) => path.relative(root, at(p));
   if (!selected.length) {
     const r = renderReport({ round: job.round, sha: lv.sha, model: modelOf(config), at: now(), loaded: set.verifiers.length, results: [], problems: set.problems, blockOn: config.review.blockOn });
-    fs.writeFileSync(at(f.report), r.text);
+    writeTextAtomic(at(f.report), r.text);
     logEvent(root, job.id, 'verifiers', { phase: 'record', round: job.round, sha: lv.sha, attempt: lv.attempt, outcome: 'PASS', blocking: 0, warned: 0, results: [], file: f.report });
     return { id: job.id, round: job.round, sha: lv.sha, selected: [], problems: set.problems.length, truncated: false, outcome: 'PASS', file: rel(f.report) };
   }
   const input = renderInput({ id: job.id, round: job.round, sha: lv.sha, selected, hunks });
-  fs.writeFileSync(at(f.input), input.text);
+  writeTextAtomic(at(f.input), input.text);
   const truncated = Object.values(input.truncated).some(Boolean);
   writeJsonAtomic(at(f.run), {
     round: job.round,
@@ -521,7 +521,20 @@ export function verifiersRecord(root: string, base: Config, id: string): Verifie
   );
   const results: VerifierResult[] = selected.map((s) => ({ ...s, ...answers.get(s.verifier.name)! }));
   const r = renderReport({ round: job.round, sha: lv.sha, model: modelOf(config), at: now(), loaded: set.verifiers.length, results, problems: set.problems, blockOn: config.review.blockOn });
-  fs.writeFileSync(at(f.report), r.text);
+  writeTextAtomic(at(f.report), r.text);
+  // The failing verify run goes in before the record event: a crash between the two writes then
+  // leaves a failed verify (back to the builder), never a CHANGES record under a passing run (V2).
+  if (r.outcome === 'CHANGES') {
+    let rec: VerifyRun | null = null;
+    updateJob(root, job.id, (j) => {
+      const attempt = j.verifyRuns.filter((x) => x.round === job.round).length + 1;
+      rec = { round: job.round, attempt, sha: lv.sha, ok: false, at: now(), file: f.report, failure: 'verifiers' };
+      j.verifyRuns.push(rec);
+      j.verify[job.round] = 'FAIL';
+      j.verifyRetries[String(job.round)] = (j.verifyRetries[String(job.round)] ?? 0) + 1;
+    });
+    logEvent(root, job.id, 'verify', rec!);
+  }
   logEvent(root, job.id, 'verifiers', {
     phase: 'record',
     round: job.round,
@@ -536,15 +549,6 @@ export function verifiersRecord(root: string, base: Config, id: string): Verifie
   const failed = results.filter((x) => x.verifier.mode === 'block' && x.answer !== 'yes').map((x) => x.verifier.name);
   const out: VerifiersRecord = { id: job.id, round: job.round, outcome: r.outcome, blocking: r.blocking, warned: r.warned, failed, file: path.relative(root, at(f.report)) };
   if (r.outcome !== 'CHANGES') return out;
-  let rec: VerifyRun | null = null;
-  updateJob(root, job.id, (j) => {
-    const attempt = j.verifyRuns.filter((x) => x.round === job.round).length + 1;
-    rec = { round: job.round, attempt, sha: lv.sha, ok: false, at: now(), file: f.report, failure: 'verifiers' };
-    j.verifyRuns.push(rec);
-    j.verify[job.round] = 'FAIL';
-    j.verifyRetries[String(job.round)] = (j.verifyRetries[String(job.round)] ?? 0) + 1;
-  });
-  logEvent(root, job.id, 'verify', rec!);
   const budget = enforceBudget(root, base, job.id, 'verify');
   return budget ? { ...out, budget } : out;
 }

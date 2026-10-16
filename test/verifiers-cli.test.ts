@@ -245,6 +245,56 @@ describe('forge verifiers', { concurrency: 4 }, () => {
     }
   });
 
+  test('a CHANGES record logs the failing verify run first, so a crash between the writes fails closed', async () => {
+    const s = await scratch(BASE);
+    try {
+      s.verifiers({ 'help-rows.md': verifier('[lib/**]', 'mode: block\n') });
+      const j = await s.job(WORK);
+      await s.f('job', 'set', j.id, '--stage', 'verify', '--state', 'running');
+      await s.f('verifiers', 'run', j.id);
+      write(j.dir, 'verify/round-1-verifier-answers.md', '- help-rows: NO — lib/a.ts:2 bad\n');
+      assert.equal((await s.f('verifiers', 'record', j.id)).outcome, 'CHANGES');
+      const events = readEvents(s.root, j.id);
+      const failRun = events.findIndex((e) => e.type === 'verify' && e.failure === 'verifiers');
+      const record = events.findIndex((e) => e.type === 'verifiers' && e.phase === 'record');
+      assert.ok(failRun >= 0 && failRun < record, 'the verify event precedes the record event');
+      // Simulate a crash right after the failing run was appended: drop the record event.
+      const file = path.join(j.dir, 'events.jsonl');
+      const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
+      fs.writeFileSync(file, lines.filter((l) => !(JSON.parse(l).type === 'verifiers' && JSON.parse(l).phase === 'record')).join('\n') + '\n');
+      assert.equal((await s.f('job', 'step', j.id)).rule, 'V3', 'the job goes back to build, never to review');
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('input and report writes replace a planted symlink instead of following it', async () => {
+    const s = await scratch(BASE);
+    const outside = path.join(s.root, '..', `outside-${path.basename(s.root)}`);
+    try {
+      s.verifiers({ 'help-rows.md': verifier('[lib/**]', 'mode: block\n') });
+      const j = await s.job(WORK);
+      fs.mkdirSync(outside);
+      fs.mkdirSync(path.join(j.dir, 'verify'), { recursive: true });
+      for (const name of ['round-1-verifiers-input.md', 'round-1-verifiers.md']) {
+        fs.writeFileSync(path.join(outside, name), 'UNTOUCHED');
+        fs.symlinkSync(path.join(outside, name), path.join(j.dir, 'verify', name));
+      }
+      // run renames an existing report aside first; plant the report link again after it.
+      await s.f('verifiers', 'run', j.id);
+      fs.symlinkSync(path.join(outside, 'round-1-verifiers.md'), path.join(j.dir, 'verify', 'round-1-verifiers.md'));
+      write(j.dir, 'verify/round-1-verifier-answers.md', '- help-rows: YES\n');
+      await s.f('verifiers', 'record', j.id);
+      for (const name of ['round-1-verifiers-input.md', 'round-1-verifiers.md']) {
+        assert.equal(fs.readFileSync(path.join(outside, name), 'utf8'), 'UNTOUCHED', `${name} was not written through the link`);
+        assert.ok(!fs.lstatSync(path.join(j.dir, 'verify', name)).isSymbolicLink(), `${name} is a regular file now`);
+      }
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+      s.cleanup();
+    }
+  });
+
   test('stale answers never count', async () => {
     const s = await scratch(BASE);
     try {
