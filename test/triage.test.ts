@@ -7,6 +7,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
 import { UNTRUSTED_LINE } from '../lib/tracker-link.ts';
+import { readTriageCache } from '../lib/triage.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 const skip = process.platform === 'win32';
@@ -265,6 +266,17 @@ describe('readiness triage', { concurrency: 4, skip }, () => {
         assert.deepEqual(s.writes(), [], `${what}: nothing applied`);
         assert.deepEqual(s.cache(), {}, `${what}: nothing cached`);
       }
+      // items.json is agent-writable too: an oversized or symlinked one is refused the same way.
+      for (const [what, make] of refusals.filter(([w]) => w === 'over 256 KiB' || w === 'a symlink')) {
+        const batch = await prepare();
+        s.verdicts(batch, [{ ref: '1', missing: ['acceptance'] }]);
+        const file = path.join(s.batchDir(batch), 'items.json');
+        fs.rmSync(file);
+        make(file);
+        const r = await s.cli('tracker', 'triage', '--apply', batch, '--json');
+        assert.equal(r.status, 1, `items.json: ${what}`);
+        assert.deepEqual(s.writes(), [], `items.json ${what}: nothing applied`);
+      }
 
       const r = await s.triage(() => [
         { ref: '99', missing: ['outcome'], duplicateOf: null, note: 'SMUGGLED-99' },
@@ -281,6 +293,38 @@ describe('readiness triage', { concurrency: 4, skip }, () => {
       const body = s.comments()[0].stdin;
       assert.match(body, /\*\*Outcome\*\*[\s\S]*\*\*Acceptance criteria/);
       assert.ok(!body.includes('Not a duplicate'), 'a duplicateOf that is no candidate drops duplicate');
+
+      // A tampered items.json: candidate labels are never read back, only derived from the id.
+      const batch = await prepare();
+      const file = path.join(s.batchDir(batch), 'items.json');
+      const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+      for (const i of rec.items) i.candidates = [{ id: 'job:x', label: 'job www.x.example' }, { id: 'pr:8', label: 'PR #9 www.y.example' }];
+      fs.writeFileSync(file, JSON.stringify(rec));
+      s.verdicts(batch, [
+        { ref: '1', missing: ['duplicate'], duplicateOf: 'job:x' },
+        { ref: '2', missing: ['duplicate'], duplicateOf: 'pr:8' },
+      ]);
+      const tampered = await s.cli('tracker', 'triage', '--apply', batch);
+      assert.equal(tampered.status, 0, tampered.stderr);
+      const posted = Object.fromEntries(s.comments().slice(1).map((c) => [c.args[2], c.stdin]));
+      assert.match(posted['1'], /the same work as an active Forge job;/);
+      assert.match(posted['2'], /the same work as PR #8;/);
+      assert.ok(!JSON.stringify(s.calls()).includes('www.'), 'a label from items.json never reaches gh argv or stdin');
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('a __proto__ key in the cache stays an ordinary entry', () => {
+    const s = setup('local', { backlog: BACKLOG });
+    try {
+      const entry = { hash: '0123456789abcdef', ready: false, missing: ['outcome'], duplicateOf: null, noted: null, at: '2026-10-16T00:00:00.000Z' };
+      fs.mkdirSync(path.join(s.root, '.forge', 'runtime'), { recursive: true });
+      fs.writeFileSync(path.join(s.root, '.forge', 'runtime', 'triage.json'), `{"items":{"__proto__":${JSON.stringify(entry)}}}`);
+      const cache = readTriageCache(s.root);
+      assert.equal(Object.getPrototypeOf(cache), null);
+      assert.ok(Object.hasOwn(cache, '__proto__'));
+      assert.deepEqual(Object.keys(cache), ['__proto__']);
     } finally {
       s.cleanup();
     }

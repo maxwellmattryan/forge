@@ -22,6 +22,7 @@ export const MAX_LIMIT = 50;
 const KEEP_BATCHES = 5;
 const MAX_CACHE = 500;
 const MAX_VERDICTS = 256 * 1024;
+const MAX_ITEMS_FILE = 256 * 1024;
 const MAX_BODY = 8000;
 const MAX_TITLE = 200;
 const MAX_CANDIDATES = 3;
@@ -30,9 +31,7 @@ const MIN_DUP_SCORE = 4;
 
 const HASH_RE = /^[0-9a-f]{16}$/;
 const CANDIDATE_ID = /^(?:job:[A-Za-z0-9][A-Za-z0-9._-]{0,199}|pr:\d{1,9})$/;
-// Every label prepare writes, and nothing else: items.json sits where an agent could write, so a
-// label read back is checked before it can reach a tracker comment.
-const CANDIDATE_LABEL = /^(?:PR #\d{1,9}|#\d{1,9}|job [A-Za-z0-9][A-Za-z0-9._-]{0,199}|an active Forge job)$/;
+const LOCAL_JOB_LABEL = /^job [A-Za-z0-9][A-Za-z0-9._-]{0,199}$/;
 
 /** One cached verdict, keyed `<tracker>:<ref>`. `noted` is the missing set the last comment covered. */
 export interface TriageCacheEntry {
@@ -53,7 +52,7 @@ interface BatchItem {
   ref: string;
   hash: string;
   needsInfo: boolean;
-  candidates: Candidate[];
+  candidates: string[];
 }
 
 export type PrepareResult =
@@ -100,7 +99,8 @@ export function readTriageCache(root: string): Record<string, TriageCacheEntry> 
   } catch {
     return {};
   }
-  const out: Record<string, TriageCacheEntry> = {};
+  // runtime/triage.json is agent-writable: a `__proto__` key must stay an ordinary entry.
+  const out: Record<string, TriageCacheEntry> = Object.create(null);
   const items = raw && typeof raw === 'object' && raw.items && typeof raw.items === 'object' ? raw.items : {};
   for (const [key, e] of Object.entries<any>(items)) {
     if (!e || typeof e !== 'object' || typeof e.hash !== 'string' || !HASH_RE.test(e.hash) || typeof e.ready !== 'boolean' || typeof e.at !== 'string') continue;
@@ -189,7 +189,7 @@ function openPrs(root: string, config: Config): { prs: 'ok' | 'unavailable' | 'o
 function jobLabel(tracker: Tracker, job: { id: string; source?: { tracker?: string; ref?: unknown } | null }): string {
   const ref = String(job.source?.ref ?? '');
   if (job.source?.tracker === tracker.name && /^\d{1,9}$/.test(ref)) return `#${ref}`;
-  if (job.source?.tracker === tracker.name && tracker.name === 'local' && CANDIDATE_LABEL.test(`job ${job.id}`)) return `job ${job.id}`;
+  if (job.source?.tracker === tracker.name && tracker.name === 'local' && LOCAL_JOB_LABEL.test(`job ${job.id}`)) return `job ${job.id}`;
   return 'an active Forge job';
 }
 
@@ -248,7 +248,7 @@ export function prepareTriage(root: string, config: Config, tracker: Tracker, op
   const dir = path.join(triageDir(root), batch);
   fs.mkdirSync(dir, { recursive: true });
   const md: string[] = [UNTRUSTED_LINE, '', `# Triage batch ${batch}`, ''];
-  const recorded: BatchItem[] = [];
+  const recorded: (Omit<BatchItem, 'candidates'> & { candidates: Candidate[] })[] = [];
   pending.forEach(({ item, hash, needsInfo }, n) => {
     const terms = searchTerms(item.title);
     const jobHits = scoreItems(
@@ -268,7 +268,9 @@ export function prepareTriage(root: string, config: Config, tracker: Tracker, op
     md.push(`## Item ${n + 1}: ref ${item.ref}`, '', fenced(`${title}\n\n${body}`.trim()), '');
     if (hits.length) md.push('Duplicate candidates (id: title):', '', fenced(hits.map((h) => `${h.ref}: ${oneLine(h.title, MAX_TITLE)}`).join('\n')), '');
     else md.push('Duplicate candidates: none.', '');
-    recorded.push({ ref: item.ref, hash, needsInfo, candidates: hits.map((h) => ({ id: h.ref, label: h.label })) });
+    // The label is a record for humans: apply derives its own from the id, never from this file.
+    const candidates: Candidate[] = hits.map((h) => ({ id: h.ref, label: h.label }));
+    recorded.push({ ref: item.ref, hash, needsInfo, candidates });
   });
   const itemsMd = path.join(dir, 'items.md');
   writeTextAtomic(itemsMd, md.join('\n'));
@@ -288,39 +290,42 @@ export function prepareTriage(root: string, config: Config, tracker: Tracker, op
   };
 }
 
-/** verdicts.json through one O_NOFOLLOW descriptor: a regular file, at most MAX_VERDICTS bytes, valid JSON. */
-function readVerdicts(file: string): Map<string, { missing: unknown; duplicateOf: unknown }> {
+/** An agent-writable JSON file through one O_NOFOLLOW descriptor: a regular file, at most `cap` bytes, valid JSON. */
+function readCappedJson(file: string, cap: number): unknown {
   let st: fs.Stats;
   try {
     st = fs.lstatSync(file);
   } catch {
-    throw new ForgeError(`no verdicts at ${file}`, 'not_found');
+    throw new ForgeError(`no ${path.basename(file)} at ${file}`, 'not_found');
   }
   if (!st.isFile()) throw new ForgeError(`${file} is not a regular file`);
-  if (st.size > MAX_VERDICTS) throw new ForgeError(`${file} is over ${MAX_VERDICTS / 1024} KiB`);
+  if (st.size > cap) throw new ForgeError(`${file} is over ${cap / 1024} KiB`);
   const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
   let text: string;
   try {
     const fst = fs.fstatSync(fd);
     if (!fst.isFile()) throw new ForgeError(`${file} is not a regular file`);
-    const buf = Buffer.alloc(MAX_VERDICTS + 1);
+    const buf = Buffer.alloc(cap + 1);
     let len = 0;
     for (;;) {
       const n = fs.readSync(fd, buf, len, buf.length - len, null);
       if (!n) break;
       len += n;
-      if (len > MAX_VERDICTS) throw new ForgeError(`${file} is over ${MAX_VERDICTS / 1024} KiB`);
+      if (len > cap) throw new ForgeError(`${file} is over ${cap / 1024} KiB`);
     }
     text = buf.subarray(0, len).toString('utf8');
   } finally {
     fs.closeSync(fd);
   }
-  let raw: any;
   try {
-    raw = JSON.parse(text);
+    return JSON.parse(text);
   } catch {
     throw new ForgeError(`${file} is not valid JSON`);
   }
+}
+
+function readVerdicts(file: string): Map<string, { missing: unknown; duplicateOf: unknown }> {
+  const raw: any = readCappedJson(file, MAX_VERDICTS);
   if (!raw || typeof raw !== 'object' || !Array.isArray(raw.items)) throw new ForgeError(`${file} must hold {"items": [...]}`);
   const out = new Map<string, { missing: unknown; duplicateOf: unknown }>();
   for (const v of raw.items) {
@@ -333,22 +338,28 @@ function readVerdicts(file: string): Map<string, { missing: unknown; duplicateOf
 
 /** items.json, every field checked: it is the CLI's own record, but it sits where an agent can write. */
 function readBatch(dir: string): BatchItem[] {
-  let raw: any;
-  try {
-    raw = JSON.parse(fs.readFileSync(path.join(dir, 'items.json'), 'utf8'));
-  } catch {
-    throw new ForgeError(`triage batch ${path.basename(dir)} has no readable items.json`);
-  }
+  const raw: any = readCappedJson(path.join(dir, 'items.json'), MAX_ITEMS_FILE);
   const items: BatchItem[] = [];
   for (const i of Array.isArray(raw?.items) ? raw.items : []) {
     if (typeof i?.ref !== 'string' || !REF.test(i.ref) || typeof i.hash !== 'string' || !HASH_RE.test(i.hash)) continue;
     if (items.some((x) => x.ref === i.ref)) continue;
     const candidates = (Array.isArray(i.candidates) ? i.candidates : [])
-      .filter((c: any) => typeof c?.id === 'string' && CANDIDATE_ID.test(c.id) && typeof c.label === 'string' && CANDIDATE_LABEL.test(c.label))
-      .map((c: any) => ({ id: c.id as string, label: c.label as string }));
+      .filter((c: any) => typeof c?.id === 'string' && CANDIDATE_ID.test(c.id))
+      .map((c: any) => c.id as string);
     items.push({ ref: i.ref, hash: i.hash, needsInfo: i.needsInfo === true, candidates });
   }
   return items;
+}
+
+/**
+ * How a duplicate candidate is cited, derived from its id and Forge's own job records: the label
+ * items.json carries is agent-writable, so it never reaches a comment.
+ */
+function candidateLabel(root: string, tracker: Tracker, id: string): string {
+  const pr = /^pr:(\d{1,9})$/.exec(id);
+  if (pr) return `PR #${pr[1]}`;
+  const job = listJobs(root).find((j) => `job:${j.id}` === id);
+  return job ? jobLabel(tracker, job) : 'an active Forge job';
 }
 
 /** `forge tracker triage --apply <batch>`: validated verdicts in, templated tracker writes out. */
@@ -383,7 +394,8 @@ export function applyTriage(root: string, config: Config, tracker: Tracker, batc
           results.push({ ref: bi.ref, skipped: 'stale' });
           continue;
         }
-        const dup = typeof v.duplicateOf === 'string' ? bi.candidates.find((c) => c.id === v.duplicateOf) ?? null : null;
+        const dupId = typeof v.duplicateOf === 'string' ? bi.candidates.find((c) => c === v.duplicateOf) ?? null : null;
+        const dup = dupId ? { id: dupId, label: candidateLabel(root, tracker, dupId) } : null;
         const missing = missingSet(v.missing).filter((k) => k !== 'duplicate' || dup);
         const key = cacheKey(tracker, bi.ref);
         const prev = cache[key];
