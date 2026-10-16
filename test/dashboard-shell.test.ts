@@ -449,7 +449,8 @@ test('StageStepper is shared by the card and the table', () => {
   assert.match(read('components/JobCard.svelte'), /<StageStepper steps=\{m\.steps\} stage=\{m\.stage\} active=\{m\.running\} \/>/, 'the card lights a running job\'s step (cardModel: running is state === running)');
   assert.match(read('components/JobsTable.svelte'), /<StageStepper steps=\{m\.steps\} stage=\{m\.stage\} \/>/, 'the table renders the stepper still');
   assert.match(text, /let \{ steps, stage, active = false \}/, 'active defaults off');
-  assert.match(text, /\{#if active && x\.status === 'current' && x\.tone === 'gleam'\}<span class="relative inline-flex"><span class="dot gleam halo motion-safe:animate-ping"><\/span><span class="\{DOT\.gleam\} relative"><\/span><\/span>/, 'the halo rides the current step while active');
+  assert.match(text, /\{#if active && x\.status === 'current' && x\.tone === 'gleam'\}<span class="relative inline-flex"><span class="dot gleam plain"><\/span><svg class="trace" viewBox="0 0 12 12" aria-hidden="true" focusable="false"><circle class="motion-safe:trace-loop" cx="6" cy="6" r="5\.5" \/><\/svg><\/span>/, 'the draw-on ring rides the current step while active');
+  assert.doesNotMatch(text, /animate-ping|\bhalo\b/, 'the stepper borrows no live halo');
 
   const table = read('components/JobsTable.svelte');
   assert.ok(!table.includes('table.round'), 'no Round column');
@@ -616,10 +617,10 @@ test('text never sits on the bare ground', () => {
 /** Every file under dashboard/src, relative to it. */
 const srcFiles = () => [...tsFiles(), ...svelteFiles()];
 
-test('the live halo is the only animation and is motion-safe', () => {
+test("looping motion is the live halo and the stepper's trace, both motion-safe", () => {
   const animate = /(?<![\w-])(?:[\w-]+:)*animate-[\w-]+/g;
   const uses = srcFiles().flatMap((f) => [...read(f).matchAll(animate)].map((m) => [f, m[0]]));
-  assert.deepEqual(uses.sort(), [['components/LiveDot.svelte', 'motion-safe:animate-ping'], ['components/StageStepper.svelte', 'motion-safe:animate-ping']], 'the motion-safe halo, in LiveDot and on a running step, is the only animate-* token');
+  assert.deepEqual(uses.sort(), [['components/LiveDot.svelte', 'motion-safe:animate-ping']], "LiveDot's motion-safe halo is the only animate-* token");
   const dot = read('components/LiveDot.svelte');
   assert.match(dot, /<span class="dot gleam halo motion-safe:animate-ping"><\/span><span class="dot gleam relative"><\/span>/);
   assert.match(dot, /<span class="dot hollow shrink-0" aria-hidden="true"><\/span>/, 'off: a hollow dot');
@@ -639,13 +640,22 @@ test('the live halo is the only animation and is motion-safe', () => {
   const media = css.lastIndexOf('@media', at);
   assert.match(css.slice(media, at), /^@media\s*\(\s*prefers-reduced-motion\s*:\s*no-preference\s*\)\s*\{$/, 'inside a prefers-reduced-motion: no-preference block');
   assert.equal(css.split('.motion-safe\\:animate-ping{').length - 1, 1, 'and nowhere else');
+  const trace = css.indexOf('.motion-safe\\:trace-loop{');
+  assert.ok(trace > 0, "the built CSS has the stepper's trace");
+  // The trace shares the halo's block, so check the nearest @media is still open at the rule, not that it opens right before it.
+  const open = css.slice(css.lastIndexOf('@media', trace), trace);
+  assert.match(open, /^@media\s*\(\s*prefers-reduced-motion\s*:\s*no-preference\s*\)\s*\{/, 'the trace is inside a prefers-reduced-motion: no-preference block');
+  assert.equal(open.split('{').length - open.split('}').length, 1, 'and that block is still open at the trace rule');
+  assert.equal(css.split('.motion-safe\\:trace-loop{').length - 1, 1, 'the trace rule appears once');
 });
 
 test('no custom keyframes or animate utilities in dashboard sources', () => {
   const files = [['style.css', fs.readFileSync(path.join(ROOT, 'dashboard', 'style.css'), 'utf8')], ...srcFiles().map((f) => [f, read(f)])];
   assert.ok(files.length > 40, `checked ${files.length} files`);
+  const keyframes = files.flatMap(([f, text]) => [...text.matchAll(/@keyframes\s+([\w-]+)/g)].map((m) => [f, m[1]]));
+  assert.deepEqual(keyframes, [['style.css', 'trace-loop']], "the stepper's trace-loop in style.css is the only @keyframes");
+  assert.equal(files.reduce((n, [, text]) => n + (text.match(/@keyframes/g)?.length ?? 0), 0), 1, 'and @keyframes appears nowhere else');
   for (const [f, text] of files) {
-    assert.doesNotMatch(text, /@keyframes/, `${f} defines no @keyframes`);
     assert.doesNotMatch(text, /--animate-/, `${f} sets no --animate- variable`);
     assert.doesNotMatch(text, /@utility\s+animate-/, `${f} declares no animate utility`);
   }

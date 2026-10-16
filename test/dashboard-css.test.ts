@@ -369,7 +369,7 @@ test('hover is sheen, with no registered property', () => {
   // A button chip only lights its seam: a chip inside a hovered control stays plain.
   assert.match(ruleFor(hover, '.chip:is(button):hover'), /^border-color:currentColor$/i);
   for (const m of css.matchAll(/animation(-name)?:([^;}]*)/g)) assert.doesNotMatch(m[2], /sketch|sheen/, 'hover is a transition, never an animation');
-  assert.equal(css.match(/prefers-reduced-motion\s*:\s*reduce/g)?.length, 1, 'one reduced-motion block covers every transition (the live halo is the separate no-preference query)');
+  assert.equal(css.match(/prefers-reduced-motion\s*:\s*reduce/g)?.length, 1, "one reduced-motion block covers every transition (the live halo and the stepper's trace use the separate no-preference query)");
 });
 
 /** Every `selector { body }` whose selector list has the `plate` class, at any nesting (@media, @supports). */
