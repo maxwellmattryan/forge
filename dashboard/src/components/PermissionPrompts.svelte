@@ -31,7 +31,7 @@
 {#if prompts.length}
   <section class="flex flex-col gap-2" aria-label={$t('permission.heading', { count: prompts.length })}>
     {#each prompts as { scope: s, prompt: p } (p.id)}
-      <article class="sheet redline p-3 flex flex-col gap-2">
+      <article class="plate ember p-3 flex flex-col gap-2">
         <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
           <Chip tone="warn" text={$t('permission.chip')} />
           {#if scope === undefined}

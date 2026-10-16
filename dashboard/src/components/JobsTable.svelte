@@ -17,8 +17,8 @@
   const rows = $derived(sortByRank(jobs));
 </script>
 
-<!-- The scroller sits inside the sheet so it never clips the corner ticks. -->
-<div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
+<!-- The scroller sits inside the plate, so the plate's cut corners clip it. -->
+<div class="plate flat"><div class="overflow-x-auto">
   <table class="tbl">
     <thead><tr><th>{$t('common.job')}</th><th>{$t('table.stage')}</th><th>{$t('table.state')}</th><th>{$t('table.tasks')}</th><th>{$t('table.verdicts')}</th><th>{$t('table.pr')}</th><th class="r">{$t('common.tokens')}</th><th class="r">{$t('common.estCost')}</th><th>{$t('table.budget')}</th><th>{$t('table.updated')}</th></tr></thead>
     <tbody>
@@ -26,7 +26,7 @@
         {@const m = cardModel(j)}
         <tr class="clickable" onclick={() => openDrawer(j.id)}>
           <!-- stopPropagation: the row's own click would load the drawer a second time. -->
-          <td><button class="h card text-left hover:text-ink" onclick={(e) => { e.stopPropagation(); openDrawer(j.id); }}>{j.title}</button><div class="mono muted text-[11px] truncate" title={m.refTitle}>{m.ref}</div></td>
+          <td><button class="h card text-left hover:text-gleam" onclick={(e) => { e.stopPropagation(); openDrawer(j.id); }}>{j.title}</button><div class="mono muted text-[11px] truncate" title={m.refTitle}>{m.ref}</div></td>
           <td><div class="flex items-center gap-2"><StageStepper steps={m.steps} stage={m.stage} /><span class="whitespace-nowrap">{m.stage}{#if m.round}{' · '}{$t('job.round', m.round)}{/if}</span></div></td>
           <td><StateChip job={j} /></td>
           <td class="num">{j.progress?.total ? `${j.progress.done}/${j.progress.total}` : '—'}</td>

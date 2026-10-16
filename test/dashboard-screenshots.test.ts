@@ -14,7 +14,8 @@ test('escapes names and builds encoded URLs', () => {
   assert.ok(html.includes(`href="${url}"`), 'link uses the encoded URL');
   assert.ok(html.includes(`src="${url}"`), 'image uses the encoded URL');
   assert.ok(html.includes('alt="&quot;&gt;&lt;img src=x onerror=alert(1)&gt;.png"'), 'alt is the escaped name without screenshots/');
-  assert.match(html, /^<div class="sheet ticks p-4 flex flex-col gap-3"><span class="tk"><\/span>/);
+  assert.match(html, /^<div class="plate p-4 flex flex-col gap-3"><div /);
+  assert.match(html, /<a class="plate clickable block min-w-0 p-1"/, 'each tile is a clickable plate');
   assert.match(html, /<h3 class="h section">Screenshots<\/h3><span class="label">2<\/span>/);
   assert.equal((html.match(/target="_blank" rel="noopener"/g) ?? []).length, 2);
   assert.equal((html.match(/loading="lazy"/g) ?? []).length, 2);

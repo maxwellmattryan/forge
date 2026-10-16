@@ -1,4 +1,4 @@
-<!-- The settings modal: a labelled, focus-trapped dialog with a tab rail. A centred sheet at md and up, a full-screen sheet below. -->
+<!-- The settings modal: a labelled, focus-trapped dialog with a tab rail. A centred plate at md and up, a full-screen plate below. -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import CloseButton from './CloseButton.svelte';
@@ -125,14 +125,13 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop; Escape and the close button close the dialog from the keyboard) -->
 <div class="fixed inset-0 z-45 flex md:items-center md:justify-center md:p-6 backdrop" onmousedown={backdropDown} onclick={backdrop}>
-  <div bind:this={dialog} role="dialog" aria-modal="true" aria-labelledby="settings-title" tabindex="-1" class="sheet ticks solid flex flex-col w-full h-full min-w-0 md:h-[min(80vh,720px)] md:max-w-(--size-dialog) md:shadow-(--shadow-dialog)" onkeydown={trap}>
-    <span class="tk"></span>
+  <div bind:this={dialog} role="dialog" aria-modal="true" aria-labelledby="settings-title" tabindex="-1" class="plate solid flex flex-col w-full h-full min-w-0 md:h-[min(80vh,720px)] md:max-w-(--size-dialog) md:shadow-(--shadow-overlay)" onkeydown={trap}>
     <div class="flex items-center justify-between gap-3 border-b border-line px-4 py-2 md:px-5">
-      <div class="flex min-w-0 items-baseline gap-3.5"><h2 id="settings-title" class="h sheet-title">{$t('settings.title')}</h2><span class="label">{$t('settings.sheet')}</span></div>
+      <h2 id="settings-title" class="h sheet-title min-w-0">{$t('settings.title')}</h2>
       <CloseButton label={$t('settings.close')} onclick={requestClose} />
     </div>
     <div class="flex flex-col md:flex-row flex-1 min-h-0">
-      <div role="tablist" tabindex="-1" aria-label={$t('settings.sections')} aria-orientation={wide ? 'vertical' : 'horizontal'} class="nav {wide ? '' : 'row'} shrink-0 overflow-x-auto md:overflow-y-auto md:w-(--size-settings-rail) border-b md:border-b-0 md:border-r border-line p-2" onkeydown={railKey}>
+      <div role="tablist" tabindex="-1" aria-label={$t('settings.sections')} aria-orientation={wide ? 'vertical' : 'horizontal'} class="navlist {wide ? '' : 'row'} shrink-0 overflow-x-auto md:overflow-y-auto md:w-(--size-settings-rail) border-b md:border-b-0 md:border-r border-line p-2" onkeydown={railKey}>
         {#each SETTINGS_TABS as item (item.id)}
           <button
             role="tab"
@@ -142,11 +141,11 @@
             tabindex={tab === item.id ? 0 : -1}
             class="min-h-11 md:min-h-0 whitespace-nowrap {tab === item.id ? 'active' : ''}"
             onclick={() => select(item.id)}
-            ><span class="lbl"><Icon name={item.icon} />{labels[item.id]}</span>{#if marks[item.id] === 'error'}<span class="dot red" aria-hidden="true"></span><span class="sr-only">{$t('settings.tabs.hasError')}</span>{:else if marks[item.id] === 'changed'}<span class="dot hl" aria-hidden="true"></span><span class="sr-only">{$t('settings.tabs.hasChanges')}</span>{/if}</button
+            ><span class="lbl"><Icon name={item.icon} />{labels[item.id]}</span>{#if marks[item.id] === 'error'}<span class="dot ember" aria-hidden="true"></span><span class="sr-only">{$t('settings.tabs.hasError')}</span>{:else if marks[item.id] === 'changed'}<span class="dot spark" aria-hidden="true"></span><span class="sr-only">{$t('settings.tabs.hasChanges')}</span>{/if}</button
           >
         {/each}
       </div>
-      <div bind:this={panel} role="tabpanel" id="settings-panel-{tab}" aria-labelledby="settings-tab-{tab}" tabindex="0" class="flex-1 min-h-0 min-w-0 overflow-y-auto focus-visible:outline-1 focus-visible:outline-dashed focus-visible:outline-line-strong focus-visible:-outline-offset-2">
+      <div bind:this={panel} role="tabpanel" id="settings-panel-{tab}" aria-labelledby="settings-tab-{tab}" tabindex="0" class="flex-1 min-h-0 min-w-0 overflow-y-auto focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-line-strong focus-visible:-outline-offset-2">
         <div class="label callout px-4 pt-4 md:px-6" aria-hidden="true">{labels[tab]}</div>
         {#if tab === 'general'}<GeneralTab />
         {:else if tab === 'diagnostics'}<DiagnosticsTab {session} />

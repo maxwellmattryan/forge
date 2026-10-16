@@ -1,0 +1,123 @@
+/* Forge — generated from tokens.json */
+:root, [data-theme="forge"] {
+  --bg: #12161b;
+  --bg-deep: #090b0e;
+  --panel: #1b2128;
+  --raised: rgba(190,210,235,0.08);
+  --chrome: #0c0f13;
+  --sheen: rgba(166,205,242,0.12);
+  --line: rgba(200,216,236,0.16);
+  --line-soft: rgba(200,216,236,0.09);
+  --line-strong: #8c99a8;
+  --edge-light: rgba(220,232,250,0.08);
+  --edge-dark: rgba(0,0,0,0.5);
+  --fg: #e9eef5;
+  --muted: #a9b4c3;
+  --dim: #6f7a89;
+  --gleam: #a6cdf2;
+  --gleam-hot: #d9eafc;
+  --gleam-deep: #4a6684;
+  --on-gleam: #0b1420;
+  --ember: #ff7b2e;
+  --on-ember: #1c0f05;
+  --spark: #ffd25a;
+  --on-spark: #1c1405;
+  --ok: #7fd79b;
+  --warn: #f3c84a;
+  --bad: #ff8f86;
+  --info: #8fa2b8;
+  --shadow-bevel: inset 0 1px 0 0 rgba(220,232,250,0.08), inset 0 -1px 0 0 rgba(0,0,0,0.5);
+  --shadow-primary: 0 2px 0 0 #4a6684;
+  --shadow-overlay: 0 1px 0 0 rgba(0,0,0,0.6), 0 16px 40px 0 rgba(0,0,0,0.6);
+  --shadow-drawer: -16px 0 40px 0 rgba(0,0,0,0.5);
+  --shadow-chrome: 8px 0 24px 0 rgba(0,0,0,0.35);
+  --shadow-glow: 0 0 8px 0 rgba(166,205,242,0.55);
+}
+[data-theme="ash"] {
+  --bg: #ebe7e0;
+  --bg-deep: #ddd7cd;
+  --panel: #f6f3ee;
+  --raised: rgba(60,40,20,0.07);
+  --chrome: #fbf9f6;
+  --sheen: rgba(59,92,128,0.10);
+  --line: rgba(60,40,20,0.24);
+  --line-soft: rgba(60,40,20,0.12);
+  --line-strong: #6a5e52;
+  --edge-light: rgba(255,255,255,0.85);
+  --edge-dark: rgba(60,40,20,0.14);
+  --fg: #1d1813;
+  --muted: #5d534a;
+  --dim: #8c8276;
+  --gleam: #3b5c80;
+  --gleam-hot: #4e739b;
+  --gleam-deep: #223850;
+  --on-gleam: #f3f8fd;
+  --ember: #a8380a;
+  --on-ember: #fff6ef;
+  --spark: #f3c53c;
+  --on-spark: #1c1405;
+  --ok: #176536;
+  --warn: #6e4d00;
+  --bad: #a52019;
+  --info: #44546a;
+  --shadow-bevel: inset 0 1px 0 0 rgba(255,255,255,0.85), inset 0 -1px 0 0 rgba(60,40,20,0.14);
+  --shadow-primary: 0 2px 0 0 #223850;
+  --shadow-overlay: 0 1px 0 0 rgba(60,40,20,0.12), 0 16px 40px 0 rgba(60,40,20,0.22);
+  --shadow-drawer: -16px 0 40px 0 rgba(60,40,20,0.2);
+  --shadow-chrome: 8px 0 24px 0 rgba(60,40,20,0.12);
+  --shadow-glow: 0 0 6px 0 rgba(59,92,128,0.35);
+}
+:root {
+  --space-0\.5: 2px;
+  --space-1: 4px;
+  --space-1\.5: 6px;
+  --space-2: 8px;
+  --space-2\.5: 10px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-11: 44px;
+  --space-16: 64px;
+  --size-icon: 18px;
+  --size-mark: 36px;
+  --size-sidebar: 236px;
+  --size-settings-rail: 216px;
+  --size-board-column: 276px;
+  --size-content-max: 1400px;
+  --size-drawer-max: 768px;
+  --size-dialog: 960px;
+  --size-statusbar: 36px;
+  --control-xs: 20px;
+  --control-sm: 28px;
+  --control-md: 32px;
+  --control-lg: 40px;
+  --stroke-icon: 1.5px;
+  --stroke-line: 1px;
+  --bar-rule: 3px;
+  --radius-0: 0px;
+  --radius-1: 2px;
+  --radius-nick: 5px;
+  --radius-cut: 10px;
+  --radius-dot: 9999px;
+  --font-head: "Barlow Semi Condensed", "Barlow", "Arial Narrow", sans-serif;
+  --font-sans: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.display { font-family: var(--font-head); font-size: 64px; line-height: 60px; font-weight: 700; letter-spacing: 0.01em; }
+.page-title { font-family: var(--font-head); font-size: 32px; line-height: 36px; font-weight: 600; letter-spacing: 0; }
+.sheet-title { font-family: var(--font-head); font-size: 22px; line-height: 26px; font-weight: 600; letter-spacing: 0; }
+.section-title { font-family: var(--font-head); font-size: 16px; line-height: 20px; font-weight: 600; letter-spacing: 0; }
+.card-title { font-family: var(--font-head); font-size: 15px; line-height: 20px; font-weight: 600; letter-spacing: 0; }
+.body { font-family: var(--font-sans); font-size: 14px; line-height: 20px; font-weight: 400; }
+.body-prose { font-family: var(--font-sans); font-size: 14px; line-height: 24px; font-weight: 400; }
+.caption { font-family: var(--font-sans); font-size: 12px; line-height: 16px; font-weight: 400; }
+.nav { font-family: var(--font-mono); font-size: 13px; line-height: 16px; font-weight: 500; letter-spacing: 0.04em; }
+.control { font-family: var(--font-mono); font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.06em; }
+.label { font-family: var(--font-mono); font-size: 11px; line-height: 16px; font-weight: 500; letter-spacing: 0.10em; }
+.stamp { font-family: var(--font-mono); font-size: 10px; line-height: 14px; font-weight: 400; letter-spacing: 0.08em; }
+.mono { font-family: var(--font-mono); font-size: 12px; line-height: 18px; font-weight: 400; }
+.mono-log { font-family: var(--font-mono); font-size: 11px; line-height: 18px; font-weight: 400; }
+.kpi-value { font-family: var(--font-mono); font-size: 28px; line-height: 32px; font-weight: 500; }

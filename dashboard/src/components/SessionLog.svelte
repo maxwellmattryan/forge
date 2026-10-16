@@ -165,7 +165,7 @@
     <details class="text-muted"><summary class="cursor-pointer">{@render when(it.at)}{$t('session.thinkingItem')}</summary>{#if renderable(it.text, mdView.session)}<div class="prose compact break-words">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words">{it.text}</div>{/if}</details>
   {:else if it.kind === 'tool'}
     <details class="border px-2 py-1 {it.tone === 'bad' ? 'border-bad' : 'border-line-soft'}">
-      <summary class="cursor-pointer break-all">{@render when(it.at)}<span class="text-ink">→ {it.name}</span> <span class="text-muted">{it.summary}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
+      <summary class="cursor-pointer break-all">{@render when(it.at)}<span class="text-gleam">→ {it.name}</span> <span class="text-muted">{it.summary}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
       <div class="label mt-1 text-[9px]">{$t('session.input')}</div>
       <pre class="whitespace-pre-wrap break-words border border-line-soft p-2">{it.input}</pre>
       {#if it.result}{@render result(it.result)}{/if}
@@ -243,7 +243,7 @@
   {/if}
   {#if entries.length}
     <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrollable region must be reachable from the keyboard) -->
-    <div bind:this={pane} onscroll={onScroll} role="log" aria-live="off" aria-label={$t('session.label')} tabindex="0" class="sheet mono px-2.5 pb-2.5 text-[11px] leading-5 {compact ? 'max-h-72' : 'max-h-[70vh]'} overflow-y-auto">
+    <div bind:this={pane} onscroll={onScroll} role="log" aria-live="off" aria-label={$t('session.label')} tabindex="0" class="plate flat mono px-2.5 pb-2.5 text-[11px] leading-5 {compact ? 'max-h-72' : 'max-h-[70vh]'} overflow-y-auto">
       {#if !view.turns.length}<div class="text-muted">{$t('session.noMatch')}</div>{/if}
       {#each view.turns as g (g.offset)}
         <section class="mb-2">

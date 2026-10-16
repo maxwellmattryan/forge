@@ -135,9 +135,9 @@ const HEAD = `<head>
         const saved = localStorage.getItem('forge.theme');
         const light = matchMedia('(prefers-color-scheme: light)').matches;
         document.documentElement.dataset.theme =
-          saved === 'cyanotype' || saved === 'dark' ? 'cyanotype' : saved === 'vellum' || saved === 'light' ? 'vellum' : saved === 'nightprint' ? 'nightprint' : light ? 'vellum' : 'nightprint';
-        document.documentElement.dataset.grid = localStorage.getItem('forge.grid') === 'off' ? 'off' : 'on';
-        document.documentElement.dataset.paper = localStorage.getItem('forge.paper') === 'off' ? 'off' : 'on';
+          saved === 'forge' || saved === 'cyanotype' || saved === 'dark' || saved === 'nightprint' ? 'forge' : saved === 'ash' || saved === 'vellum' || saved === 'light' ? 'ash' : light ? 'ash' : 'forge';
+        const grain = localStorage.getItem('forge.grain');
+        document.documentElement.dataset.grain = (grain === null ? localStorage.getItem('forge.paper') : grain) === 'off' ? 'off' : 'on';
       } catch {}
     </script>
     <link rel="stylesheet" href="/style.css" />
@@ -330,15 +330,15 @@ test('the issue chooser shows on an issue-link gate and, approving, on a pending
   assert.match(chooser, /approving = false/);
 });
 
-test('ThreadPanel renders secret notes as text in a redline sheet', () => {
+test('ThreadPanel renders secret notes as text in an ember plate', () => {
   const panel = read('src/components/ThreadPanel.svelte');
   const start = panel.indexOf('{#if m.secret}');
-  // The branch ends where the request's own sheet starts.
-  const end = panel.indexOf('<li class="sheet ticks p-3', start);
+  // The branch ends where the request's own plate starts.
+  const end = panel.indexOf('<li class="plate p-3', start);
   assert.ok(start > 0 && end > start, 'ThreadPanel has a secret branch');
   const branch = panel.slice(start, end);
-  assert.match(branch, /<li class="sheet ticks redline p-3 flex flex-col gap-1\.5">/);
-  assert.match(branch, /<Chip tone="rev" text=\{\$t\('thread\.secret\.blocked'\)\} \/>/);
+  assert.match(branch, /<li class="plate ember p-3 flex flex-col gap-1\.5">/);
+  assert.match(branch, /<Chip tone="you" text=\{\$t\('thread\.secret\.blocked'\)\} \/>/);
   assert.match(branch, /<Chip tone="warn" text=\{\$t\('thread\.secret\.noted'\)\} \/>/);
   assert.match(branch, /\{secretLine\(f\)\}/);
   assert.ok(!branch.includes('{@html') && !branch.includes('md('), 'excerpts and paths never reach md()');
