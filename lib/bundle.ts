@@ -31,6 +31,13 @@ const MAX_TEXT_FILES = 200;
 const MAX_TEXT_DEPTH = 6;
 const SHA = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 const VERIFY_LOG = /^verify-(.+?)-(\d{4}-\d{2}-\d{2}T[0-9-]+Z|[^-]+)\.log$/;
+/** A file name an agent wrote that is safe for an entry name and a terminal: no separators, escapes or `..`. */
+const SAFE_NAME = /^[A-Za-z0-9._-]+$/;
+/** What the manifest shows for a name that failed SAFE_NAME: the raw name never reaches it. */
+const UNSAFE = '<unsafe name>';
+const UNSAFE_REASON = 'unsafe name';
+
+export const safeName = (name: string): boolean => SAFE_NAME.test(name) && name !== '.' && name !== '..';
 
 export interface BundleOptions {
   /** One job; without it, every active job and the inbox and office logs. */
@@ -232,6 +239,10 @@ function markdownFiles(dir: string, skipped: BundleSkip[], prefix: string): stri
     if (!list) return;
     if (!Array.isArray(list)) return void skipped.push({ name: `${prefix}/${rel}`, reason: list.skip });
     for (const d of list.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (!safeName(d.name)) {
+        if (d.isDirectory() || d.name.endsWith('.md')) skipped.push({ name: `${prefix}/${rel ? `${rel}/` : ''}${UNSAFE}`, reason: UNSAFE_REASON });
+        continue;
+      }
       const child = rel ? `${rel}/${d.name}` : d.name;
       if (d.isDirectory()) {
         if (!(rel === '' && d.name === 'verify') && depth < MAX_TEXT_DEPTH) walk(child, depth + 1);
@@ -283,6 +294,10 @@ function jobEntries(root: string, config: Config, id: string, includeText: boole
   else if (Array.isArray(logs)) {
     const byStep = new Map<string, string>();
     for (const name of logs.map((d) => d.name).sort().reverse()) {
+      if (!safeName(name)) {
+        if (name.startsWith('verify-')) skipped.push({ name: `${pre}/logs/${UNSAFE}`, reason: UNSAFE_REASON });
+        continue;
+      }
       const m = VERIFY_LOG.exec(name);
       if (m && !byStep.has(m[1])) byStep.set(m[1], name);
     }

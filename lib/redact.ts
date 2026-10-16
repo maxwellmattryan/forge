@@ -3,6 +3,7 @@
 // emails, then logins. Every replacement token is free of `"` and `\`, so JSON stays parseable.
 import fs from 'node:fs';
 import os from 'node:os';
+import { worktreeRoot } from './config.ts';
 import { secretSpans } from './secrets.ts';
 import type { Config, RedactCounts } from './types.ts';
 import { run } from './util.ts';
@@ -13,6 +14,8 @@ export interface RedactContext {
   /** Known logins and names, at least 3 characters, longest first. */
   identities: string[];
   config: Pick<Config, 'worktrees'> | null;
+  /** The configured worktrees root, which may sit outside both the repo and home. */
+  worktrees?: string | null;
 }
 
 const MIN_IDENTITY = 3;
@@ -23,7 +26,7 @@ const HOSTS = /(?:github|gitlab)\.com[/:]([A-Za-z0-9][A-Za-z0-9-]{0,38})(?![A-Za
 const EMAIL = /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?![A-Za-z])(?!:[A-Za-z0-9])/g;
 const MENTION = /(?<![A-Za-z0-9_.@/-])@[A-Za-z0-9][A-Za-z0-9-]{0,38}\b/g;
 /** Tokens this module writes: a later pass never rewrites one (an identity `repo` must not hit `<repo>`). */
-const TOKEN_SRC = String.raw`<(?:repo|email|login|redacted|secret:[a-z-]{1,32}|omitted: \d{1,12} chars)>`;
+const TOKEN_SRC = String.raw`<(?:repo|worktrees|email|login|redacted|secret:[a-z-]{1,32}|omitted: \d{1,12} chars)>`;
 
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\/-]/g, '\\$&');
 
@@ -40,7 +43,21 @@ function hostOwners(text: string): string[] {
   return [...text.matchAll(HOSTS)].map((m) => m[1]);
 }
 
-/** Everything that names this user or their org: git and OS user names, remote owners and the configured ones. */
+/** Host names that say nothing about the machine's owner. */
+const ANONYMOUS_HOSTS: ReadonlySet<string> = new Set(['localhost', 'localhost.localdomain']);
+
+/** The machine's host name and its first label: `claimJob` writes it into job.json, and it often carries the owner's name. */
+function hostNames(): string[] {
+  try {
+    const host = os.hostname().trim();
+    if (!host || ANONYMOUS_HOSTS.has(host.toLowerCase())) return [];
+    return [host, host.split('.')[0]];
+  } catch {
+    return [];
+  }
+}
+
+/** Everything that names this user, their org or their machine: git and OS user names, the host name, remote owners and the configured ones. */
 export function redactContext(root: string, config: Config | null, home = os.homedir()): RedactContext {
   const ids: string[] = [];
   const name = run('git', ['config', 'user.name'], { cwd: root, allowFail: true });
@@ -48,6 +65,7 @@ export function redactContext(root: string, config: Config | null, home = os.hom
   try {
     ids.push(os.userInfo().username);
   } catch {}
+  ids.push(...hostNames());
   const remotes = run('git', ['remote', '-v'], { cwd: root, allowFail: true });
   if (remotes.ok) ids.push(...hostOwners(remotes.stdout));
   const gh = config?.tracker?.github;
@@ -56,7 +74,11 @@ export function redactContext(root: string, config: Config | null, home = os.hom
   if (typeof gh?.ready?.assignee === 'string') ids.push(gh.ready.assignee.replace(/^@/, ''));
   if (Array.isArray(config?.pr?.reviewers)) ids.push(...config.pr.reviewers.filter((r): r is string => typeof r === 'string').map((r) => r.replace(/^@/, '')));
   const identities = [...new Set(ids.map((s) => s.trim()).filter((s) => s.length >= MIN_IDENTITY))].sort((a, b) => b.length - a.length);
-  return { root, home, identities, config: config ? { worktrees: config.worktrees } : null };
+  let worktrees: string | null = null;
+  try {
+    if (config) worktrees = worktreeRoot(root, config);
+  } catch {}
+  return { root, home, identities, config: config ? { worktrees: config.worktrees } : null, worktrees };
 }
 
 /** Replaces each match of `re` outside existing tokens; `re` must be global. */
@@ -87,7 +109,12 @@ export function redactText(text: string, ctx: RedactContext): { text: string; co
   for (const sp of spans) s = s.slice(0, sp.start) + `<secret:${sp.kind}>` + s.slice(sp.end);
   counts.secrets = spans.length;
 
-  for (const [p, token] of [...pathForms(ctx.root).map((x) => [x, '<repo>'] as const), ...pathForms(ctx.home).map((x) => [x, '~'] as const)]) {
+  // Longest first across all three: the worktrees root may sit inside the repo, or beside it as `<repo>.worktrees`.
+  const forms = [
+    ...pathForms(ctx.root).map((x) => [x, '<repo>'] as const),
+    ...(ctx.worktrees ? pathForms(ctx.worktrees).map((x) => [x, '<worktrees>'] as const) : []),
+  ].sort((a, b) => b[0].length - a[0].length);
+  for (const [p, token] of [...forms, ...pathForms(ctx.home).map((x) => [x, '~'] as const)]) {
     const r = replaceOutsideTokens(s, new RegExp(`${escapeRe(p)}(?![A-Za-z0-9_-])`, 'g'), () => token);
     s = r.text;
     counts.paths += r.n;

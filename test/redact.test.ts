@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
-import { daemonSkeleton, omitProse, redactText } from '../lib/redact.ts';
+import { defaults } from '../lib/config.ts';
+import { daemonSkeleton, omitProse, redactContext, redactText } from '../lib/redact.ts';
 import type { RedactContext } from '../lib/redact.ts';
 import { pem, token } from './secret-fixtures.ts';
 
@@ -27,6 +28,37 @@ describe('redactText', { concurrency: 4 }, () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test('a worktrees root outside the repo and home becomes <worktrees>', () => {
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-redact-')));
+    try {
+      const root = path.join(dir, 'repo');
+      fs.mkdirSync(root);
+      const config = defaults();
+      config.worktrees.root = '/Volumes/work/wt';
+      const c = redactContext(root, config, '/home/nobody');
+      assert.equal(c.worktrees, '/Volumes/work/wt');
+      const r = redactText(`wt /Volumes/work/wt/job-1 and /Volumes/work/wtx/y and ${root}/lib`, c);
+      assert.equal(r.text, 'wt <worktrees>/job-1 and /Volumes/work/wtx/y and <repo>/lib');
+      assert.equal(r.counts.paths, 2);
+      // The default sits beside the repo as `<repo>.worktrees`: the longer form wins.
+      const sibling = redactContext(root, defaults(), '/home/nobody');
+      assert.equal(redactText(`${root}.worktrees/job-1 ${root}/x`, sibling).text, '<worktrees>/job-1 <repo>/x');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("the machine's host name is an identity", () => {
+    const host = os.hostname();
+    const c = redactContext(os.tmpdir(), null, '/home/nobody');
+    if (/^localhost(\.localdomain)?$/i.test(host) || host.length < 3) return;
+    assert.ok(c.identities.includes(host), JSON.stringify(c.identities));
+    const label = host.split('.')[0];
+    if (label.length >= 3) assert.ok(c.identities.includes(label));
+    const r = redactText(`{"host":"${host}"} on ${label}`, c);
+    assert.ok(!r.text.toLowerCase().includes(label.toLowerCase()), r.text);
   });
 
   test('secrets: every provider kind is replaced and JSON stays valid', () => {

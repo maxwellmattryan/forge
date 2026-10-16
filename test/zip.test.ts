@@ -95,6 +95,14 @@ describe('zip', { concurrency: 4 }, () => {
     }
   });
 
+  test('refuses names that escape the extraction dir or carry control characters', () => {
+    const data = Buffer.from('x');
+    for (const name of ['a\\..\\..\\evil', '../evil', 'a/../../evil', '/etc/evil', 'a\x1b[31m.log', 'tab\there', 'del\x7f', '']) {
+      assert.throws(() => zip([{ name, data }]), /refusing a zip entry name/, JSON.stringify(name));
+    }
+    assert.doesNotThrow(() => zip([{ name: 'jobs/a-1/logs/verify-test-2026.log', data }, { name: 'jobs/<login>/..x/~', data }]));
+  });
+
   test('refuses what would need zip64', () => {
     const many = Array.from({ length: 65536 }, (_, i) => ({ name: `f${i}`, data: Buffer.alloc(0) }));
     assert.throws(() => zip(many), /zip64/);

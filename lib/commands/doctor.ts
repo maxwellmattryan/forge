@@ -42,13 +42,17 @@ export function humanSize(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MiB`;
 }
 
+/** A name without control characters: an escape sequence could rewrite the lines the user is told to read. */
+const printable = (s: string): string => s.replace(/[\u0000-\u001f\u007f-\u009f]/g, '?');
+
 /** The manifest lines stderr gets before the write. */
 export function manifestText(entries: BundleEntry[], r: Pick<BundleResult, 'skipped' | 'redactions' | 'includeText'>): string {
+  entries = entries.map((e) => ({ ...e, name: printable(e.name) }));
   const total = entries.reduce((n, e) => n + e.bytes, 0);
   const w = Math.max(...entries.map((e) => e.name.length));
   const lines = [`Support bundle: ${entries.length} files, ${humanSize(total)} before compression`];
   for (const e of entries) lines.push(`  ${e.name.padEnd(w + 2)}${humanSize(e.bytes).padStart(10)}`);
-  if (r.skipped.length) lines.push(`Skipped: ${r.skipped.map((s) => `${s.name} (${s.reason})`).join(', ')}`);
+  if (r.skipped.length) lines.push(`Skipped: ${r.skipped.map((s) => `${printable(s.name)} (${printable(s.reason)})`).join(', ')}`);
   const c = r.redactions;
   lines.push(`Redacted: ${c.secrets} secrets, ${c.paths} paths, ${c.emails} emails, ${c.logins} logins`);
   if (!r.includeText) lines.push('Agent text and diffs left out; --include-text adds them.');

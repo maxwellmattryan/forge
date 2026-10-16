@@ -29,6 +29,19 @@ export function dosDateTime(date: Date): { time: number; date: number } {
   };
 }
 
+/**
+ * Why a name can't be an entry, or null: no `\`, which some extractors treat as a separator, no
+ * control characters, and nothing that resolves outside the extraction dir.
+ */
+export function unsafeEntryName(name: string): string | null {
+  if (!name) return 'empty';
+  if (name.includes('\\')) return 'a backslash';
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(name)) return 'a control character';
+  if (name.startsWith('/')) return 'a leading /';
+  if (name.split('/').includes('..')) return 'a .. segment';
+  return null;
+}
+
 function tooBig(what: string): never {
   throw new ForgeError(`the support bundle is too large for a zip without zip64 (${what})`);
 }
@@ -41,6 +54,8 @@ export function zip(entries: ZipEntry[], date = new Date()): Buffer {
   const central: Buffer[] = [];
   let offset = 0;
   for (const e of entries) {
+    const unsafe = unsafeEntryName(e.name);
+    if (unsafe) throw new ForgeError(`refusing a zip entry name with ${unsafe}: ${JSON.stringify(e.name.slice(0, 80))}`);
     const name = Buffer.from(e.name, 'utf8');
     if (name.length > 0xffff) tooBig(`a ${name.length}-byte name`);
     if (e.data.length >= MAX_SIZE) tooBig(`${e.name} is ${e.data.length} bytes`);

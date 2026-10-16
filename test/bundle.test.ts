@@ -22,6 +22,8 @@ const SPEC_MARKER = 'SPEC-MARKER-7f3a';
 const REQUEST_MARKER = 'REQUEST-MARKER-91c2';
 const EVENT_MARKER = 'EVENT-PROSE-MARKER-55d1';
 const DAEMON_MARKER = 'DAEMON-PROSE-MARKER-0b6e';
+/** The machine's host name and its first label: claimJob writes it into job.json, and the test can't change it. */
+const HOSTS = ((h) => (/^localhost(\.localdomain)?$/i.test(h) ? [] : [h, h.split('.')[0]].filter((x) => x.length >= 3)))(os.hostname());
 
 /** Initialised once per file: a local tracker, PRs off, worktrees in `<repo>.wt`, and planted config. */
 const initialised = repoTemplate((dir) => {
@@ -75,6 +77,7 @@ function scratch() {
   const dir = jobDir(root, job.id);
   updateJob(root, job.id, (j) => {
     j.worktree = `${root}.wt/${job.id}`;
+    j.owner = { session: 's-1', host: os.hostname(), since: '2026-10-16T09:00:00.000Z', heartbeat: '2026-10-16T09:00:00.000Z' };
   });
   logEvent(root, job.id, 'probe', { detail: `${home}/.config/x`, who: EMAIL, by: `@${LOGIN}`, summary: EVENT_MARKER });
   fs.writeFileSync(path.join(dir, 'spec.md'), `# Spec\n${SPEC_MARKER}\nkey ${TOKEN}\nmail ${EMAIL}\n`);
@@ -148,7 +151,9 @@ describe('forge doctor --bundle', { concurrency: 4 }, () => {
       assert.equal(JSON.parse(m.get('doctor.json')!).ok, false, 'doctor fails on the missing upstream remote');
       assert.ok(res.redactions.secrets >= 1 && res.redactions.paths >= 1 && res.redactions.emails >= 1 && res.redactions.logins >= 1, JSON.stringify(res.redactions));
       assert.equal(fs.statSync(res.file).mode & 0o777, 0o600);
-      assertNoLeak(s, m);
+      assertNoLeak(s, m, HOSTS);
+      const host = JSON.parse(m.get(`jobs/${s.job.id}/job.json`)!).owner.host;
+      if (HOSTS.length) assert.match(host, /^(<login>|<secret:[a-z-]+>)$/);
     } finally {
       s.cleanup();
     }
@@ -262,16 +267,35 @@ describe('forge doctor --bundle', { concurrency: 4 }, () => {
       fs.writeFileSync(path.join(outside, 'verify-z-1.log'), 'TRAP-DIR-MARKER\n');
       fs.symlinkSync(path.join(outside, 'target.log'), path.join(s.dir, 'logs', 'verify-x-1.log'));
       execFileSync('mkfifo', [path.join(s.dir, 'logs', 'verify-y-1.log')]);
+      // Names an agent can pick: an escape sequence for the user's terminal, and backslash `..`
+      // segments that a Windows extractor would follow out of its folder.
+      fs.writeFileSync(path.join(s.dir, 'logs', 'verify-a\x1b[31mRED\x1b[2K-1.log'), 'TRAP-ESC-MARKER\n');
+      fs.writeFileSync(path.join(s.dir, 'logs', 'verify-..\\..\\..\\..\\evil-1.log'), 'TRAP-SLIP-MARKER\n');
+      fs.writeFileSync(path.join(s.dir, 'b\x1b[1A.md'), 'TRAP-MD-MARKER\n');
+      fs.mkdirSync(path.join(s.dir, '..\\up'));
+      fs.writeFileSync(path.join(s.dir, '..\\up', 'c.md'), 'TRAP-MDDIR-MARKER\n');
       const config = loadConfig(s.root).config;
       const second = createJob(s.root, config, { title: 'Linked logs' });
       fs.symlinkSync(outside, path.join(jobDir(s.root, second.id), 'logs'));
-      const { res, m } = await bundle(s, []);
+      const { r, res, m } = await bundle(s, []);
       const skipped = Object.fromEntries(res.skipped.map((x: any) => [x.name, x.reason]));
       assert.equal(skipped[`jobs/${s.job.id}/logs/verify-x-1.log`], 'symlink');
       assert.equal(skipped[`jobs/${s.job.id}/logs/verify-y-1.log`], 'not a regular file');
       assert.equal(skipped[`jobs/${second.id}/logs`], 'symlink');
       assert.deepEqual(JSON.parse(m.get('manifest.json')!).skipped, res.skipped);
-      for (const [name, text] of m) assert.ok(!text.includes('TRAP-LINK-MARKER') && !text.includes('TRAP-DIR-MARKER'), name);
+      assert.equal(skipped[`jobs/${s.job.id}/logs/<unsafe name>`], 'unsafe name');
+      assert.equal(res.skipped.filter((x: any) => x.reason === 'unsafe name').length, 2, 'one skip per planted log, never its raw name');
+      const traps = ['TRAP-LINK-MARKER', 'TRAP-DIR-MARKER', 'TRAP-ESC-MARKER', 'TRAP-SLIP-MARKER', 'TRAP-MD-MARKER', 'TRAP-MDDIR-MARKER'];
+      for (const [name, text] of m) assert.ok(!traps.some((t) => text.includes(t)), name);
+      const text = await bundle(s, [s.job.id, '--include-text']);
+      const textSkips = text.res.skipped.filter((x: any) => x.reason === 'unsafe name').map((x: any) => x.name).sort();
+      assert.deepEqual(textSkips, [`jobs/${s.job.id}/<unsafe name>`, `jobs/${s.job.id}/<unsafe name>`, `jobs/${s.job.id}/logs/<unsafe name>`, `jobs/${s.job.id}/logs/<unsafe name>`]);
+      assert.ok(text.m.has(`jobs/${s.job.id}/text/spec.md`), 'safe markdown still comes in');
+      for (const [name, body] of text.m) assert.ok(!traps.some((t) => body.includes(t)), name);
+      for (const run of [{ r, m }, text]) {
+        assert.ok(!/[\u0000-\u0009\u000b-\u001f\u007f]/.test(run.r.stderr), `stderr carries a control character: ${JSON.stringify(run.r.stderr)}`);
+        for (const name of run.m.keys()) assert.ok(/^[A-Za-z0-9._\/<>~-]+$/.test(name) && !name.split('/').includes('..'), `entry name ${JSON.stringify(name)}`);
+      }
     } finally {
       s.cleanup();
     }
