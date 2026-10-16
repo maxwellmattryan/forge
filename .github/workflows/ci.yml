@@ -20,7 +20,7 @@ defaults:
 
 jobs:
   verify:
-    name: verify (${{ matrix.os }}, node ${{ matrix.node }})
+    name: verify (${{ matrix.os }}, node ${{ matrix.node }}, shard ${{ matrix.shard }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -28,6 +28,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         node: ['22.18.0', '24.x']
+        # The suite is CPU-bound and a hosted runner has 3-4 cores, so each cell runs half the test
+        # files. Two, not more: an account runs at most five macOS jobs at once.
+        shard: ['1/2', '2/2']
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -56,7 +59,9 @@ jobs:
             exit 1
           fi
       - name: Run tests
-        run: node --test "test/*.test.ts"
+        env:
+          TEST_SHARD: ${{ matrix.shard }}
+        run: node --test --test-shard="$TEST_SHARD" "test/*.test.ts"
       - name: Syntax-check JavaScript entry points
         run: for f in bin/forge lib/trackers/status.mjs dashboard/*.mjs; do node --check "$f"; done
       - name: Install Claude Code CLI

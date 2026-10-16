@@ -38,12 +38,19 @@ const JOB_KEYS = ['name', 'runs-on', 'timeout-minutes', 'strategy', 'steps'];
 const STEP_KEYS = ['name', 'uses', 'with', 'run', 'env', 'continue-on-error'];
 const ACTIONS = ['actions/checkout', 'actions/setup-node'];
 const VALIDATE_ENV = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' };
+// Each verify cell runs one shard of the test files. The shard reaches the command through env, not
+// interpolated into run, and the strategy pin below holds the matrix to every shard of the split.
+const TEST_CMD = 'node --test "test/*.test.ts"';
+const SHARDED_TEST_CMD = 'node --test --test-shard="$TEST_SHARD" "test/*.test.ts"';
+const TEST_ENV = { TEST_SHARD: '${{ matrix.shard }}' };
+// The only steps that may set env, each to exactly this map.
+const STEP_ENVS: Record<string, Record<string, string>> = { [VALIDATE]: VALIDATE_ENV, [SHARDED_TEST_CMD]: TEST_ENV };
 // Values pinned exactly, not just by key: each is free text a one-line edit could use to drop coverage or mask a failure.
-// Branch protection requires checks by these names, so a rename would leave a required check waiting forever.
-const JOB_NAMES: Record<string, string> = { verify: 'verify (${{ matrix.os }}, node ${{ matrix.node }})', audit: 'audit' };
+// Branch protection, once set, requires checks by these names, so a rename would leave a required check waiting forever.
+const JOB_NAMES: Record<string, string> = { verify: 'verify (${{ matrix.os }}, node ${{ matrix.node }}, shard ${{ matrix.shard }})', audit: 'audit' };
 // An `exclude` or `include` under the matrix silently drops or swaps a cell.
 const STRATEGIES: Record<string, unknown> = {
-  verify: { 'fail-fast': false, matrix: { os: ['ubuntu-latest', 'macos-latest'], node: ['22.18.0', '24.x'] } },
+  verify: { 'fail-fast': false, matrix: { os: ['ubuntu-latest', 'macos-latest'], node: ['22.18.0', '24.x'], shard: ['1/2', '2/2'] } },
 };
 const SETUP_NODE_WITH: Record<string, unknown> = {
   verify: { 'node-version': '${{ matrix.node }}', 'package-manager-cache': false },
@@ -65,6 +72,7 @@ const STALE_SCRIPT = [
 const EXPRESSIONS = [
   '${{ matrix.os }}',
   '${{ matrix.node }}',
+  '${{ matrix.shard }}',
   '${{ github.workflow }}',
   '${{ github.event.pull_request.number || github.sha }}',
 ];
@@ -173,8 +181,12 @@ function hardeningProblems(wf: any): string[] {
         if (run.includes(STALE_CMD) && run.trim() !== STALE_SCRIPT) out.push(`${at}: the stale-dist script must be exactly the reviewed one`);
       }
       if ('env' in step) {
-        if (run !== VALIDATE || !isDeepStrictEqual(step.env, VALIDATE_ENV)) out.push(`${at}: only Validate plugin may set env, and only ${JSON.stringify(VALIDATE_ENV)}`);
-        for (const [k, v] of Object.entries(isMap(step.env) ? step.env : {})) if (String(v).includes('${{')) out.push(`${at}: env ${k} must not interpolate an expression`);
+        const allowed = run !== null && Object.hasOwn(STEP_ENVS, run.trim()) ? STEP_ENVS[run.trim()] : undefined;
+        // Each allowed map is pinned exactly; TEST_SHARD's expression is a matrix value the workflow fixes itself.
+        if (!allowed || !isDeepStrictEqual(step.env, allowed)) {
+          out.push(`${at}: only Validate plugin and the sharded Run tests may set env, each only to its pinned map`);
+          for (const [k, v] of Object.entries(isMap(step.env) ? step.env : {})) if (String(v).includes('${{')) out.push(`${at}: env ${k} must not interpolate an expression`);
+        }
       }
     }
   }
@@ -203,6 +215,7 @@ function ciVerifyCommands(wf: any): string[] {
     if (run === null) return [];
     if (run.includes(STALE_CMD)) return [STALE_CMD];
     if (CLI_INSTALL.test(run.trim())) return [];
+    if (run.trim() === SHARDED_TEST_CMD) return [TEST_CMD];
     return [run.trim()];
   });
 }
@@ -314,20 +327,25 @@ test('workflow triggers on pull_request and pushes to main only', () => {
   assertFlags(triggerProblems(mutate((wf) => { wf.on.push['paths-ignore'] = ['**']; }), TEXT), 'push paths-ignore');
 });
 
-test('verify matrix covers Node 22.18.0 and Node 24 on Ubuntu and macOS', () => {
+test('verify matrix covers Node 22.18.0 and Node 24 on Ubuntu and macOS, every test shard in each', () => {
   const verify = WF.jobs.verify;
   assert.equal(verify['runs-on'], '${{ matrix.os }}');
   assert.equal(verify.strategy['fail-fast'], false);
   assert.deepEqual(verify.strategy.matrix.os, ['ubuntu-latest', 'macos-latest']);
   assert.deepEqual(verify.strategy.matrix.node, ['22.18.0', '24.x']);
+  // k/N for every k: a missing shard would silently skip its share of the test files.
+  const shards: string[] = verify.strategy.matrix.shard;
+  assert.deepEqual(shards, shards.map((_, i) => `${i + 1}/${shards.length}`));
+  assert.equal(stepNamed(WF, 'verify', 'Run tests').run, SHARDED_TEST_CMD);
+  assert.deepEqual(stepNamed(WF, 'verify', 'Run tests').env, TEST_ENV);
   assert.equal(typeof verify['timeout-minutes'], 'number');
   const setup = stepsOf(verify).filter((s) => usesAction(s, 'actions/setup-node'));
   assert.equal(setup.length, 1);
   assert.equal(setup[0].with['node-version'], '${{ matrix.node }}');
   // One check per cell, under the names branch protection requires.
-  assert.equal(verify.name, 'verify (${{ matrix.os }}, node ${{ matrix.node }})');
+  assert.equal(verify.name, 'verify (${{ matrix.os }}, node ${{ matrix.node }}, shard ${{ matrix.shard }})');
   assert.deepEqual(Object.keys(verify.strategy), ['fail-fast', 'matrix']);
-  assert.deepEqual(Object.keys(verify.strategy.matrix), ['os', 'node']);
+  assert.deepEqual(Object.keys(verify.strategy.matrix), ['os', 'node', 'shard']);
 
   assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.strategy.matrix.exclude = [{ node: '22.18.0' }]; })), 'a matrix exclude dropping the floor');
   assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.strategy.matrix.exclude = [{ os: 'macos-latest' }]; })), 'a matrix exclude dropping macOS');
@@ -335,6 +353,10 @@ test('verify matrix covers Node 22.18.0 and Node 24 on Ubuntu and macOS', () => 
     wf.jobs.verify.strategy.matrix.include = [{ os: 'macos-latest', node: '24.x', extra: true }];
   })), 'a matrix include');
   assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.strategy['fail-fast'] = true; })), 'fail-fast: true');
+  assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.strategy.matrix.shard = ['1/2']; })), 'a shard dropped');
+  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Run tests').env.TEST_SHARD = '${{ github.event.pull_request.title }}'; })), 'TEST_SHARD from the PR title');
+  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'verify', 'Run tests').run = TEST_CMD; })), 'the shard env on an unsharded run');
+  assertFlags(verifyListProblems(AGENTS, mutate((wf) => { stepNamed(wf, 'verify', 'Run tests').run = 'node --test --test-shard="$TEST_SHARD" "test/a.test.ts"'; })), 'a sharded run over fewer files');
   assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.verify.name = 'build'; })), 'verify renamed');
   assertFlags(hardeningProblems(mutate((wf) => { wf.jobs.audit.strategy = { matrix: { os: ['ubuntu-latest'] } }; })), 'a strategy on audit');
   assertFlags(hardeningProblems(mutate((wf) => {
