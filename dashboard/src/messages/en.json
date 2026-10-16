@@ -881,5 +881,31 @@
     "empty": "No agents in this round yet",
     "noTranscript": "No transcript for this agent",
     "transcript": "{role} transcript · read-only"
+  },
+  "budget": {
+    "meterTitle": "Repo spend · {month}",
+    "meterLabel": "Month spend against the cap",
+    "holding": "Holding new work",
+    "warnOnly": "Over the cap · warn only",
+    "ofCap": "of {cap} this month",
+    "unlimited": "this month · no monthly cap, spend is unlimited",
+    "remaining": "{amount} left",
+    "projected": "Projected month-end {amount}",
+    "today": "Today",
+    "todayOf": "{spent} of {cap}",
+    "todayUncapped": "{spent} · no daily cap",
+    "dayLabel": "Today's spend against the daily cap",
+    "chipCapped": "{spent} / {cap}",
+    "chipUncapped": "{spent} this month",
+    "chipTitle": "Repo spend this month · open Analytics",
+    "section": "Repo budget",
+    "heldJobs": "Held jobs",
+    "noHeldJobs": "No job is parked yet; new work waits until the cap allows it.",
+    "acknowledge": "Acknowledge {period}",
+    "ackHelp": "Grants one more period of budget and releases the held jobs whose own budget is fine.",
+    "cardPointer": "Held by the repo budget: acknowledge it in Repo budget above, or cancel the job.",
+    "valueText": "{spent} of {cap}",
+    "acked": "Acknowledged {period}",
+    "ackFailed": "Acknowledge failed: {error}"
   }
 }

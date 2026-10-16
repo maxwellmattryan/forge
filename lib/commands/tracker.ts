@@ -4,6 +4,7 @@ import { DEP_REASON, claimRespectingDeps, refreshDependencyWait, retargetPlan, u
 import { createJob, isActive, listJobs, loadJob, logEvent, readEvents, setJob, claimJob } from '../jobs.ts';
 import * as pr from '../pr.ts';
 import { listRequests } from '../requests.ts';
+import { checkRepoBudget, isRepoHold, repoBudgetBlock } from '../repo-budget.ts';
 import { applyRetention } from '../retention.ts';
 import { searchTerms } from '../issue-link.ts';
 import { clampLimit, publicHits, searchTracker } from '../tracker-link.ts';
@@ -85,7 +86,7 @@ export const HELP: HelpGroup[] = [
       {
         command: 'next',
         args: '[--claim --session S] [--force] [--limit N]',
-        summary: 'resume a queued unowned job (with --claim --session), else the next ready tracker item whose job is not blocked, skipping needs-info items (with --claim, start its job)',
+        summary: 'resume a queued unowned job (with --claim --session), else the next ready tracker item whose job is not blocked, skipping needs-info items (with --claim, start its job); while the repo budget holds new work it starts nothing and prints {held: true, repoBudget}',
         flags: [
           ['--claim', 'claim the work instead of only showing it'],
           ['--session S', 'the session claiming it'],
@@ -204,8 +205,16 @@ export async function nextCmd(root: string, config: Config, flags: Record<string
   const limit = num(flags.limit, '--limit', { integer: true }) ?? 20;
   const sessionFlag = str(flags.session, '--session');
   const session = flags.claim && sessionFlag ? sessionFlag : null;
+  // Over the cap nothing starts: creating a job would claim a tracker item for work that can't run.
+  const status = checkRepoBudget(root, config);
+  if (status.held) return { held: true, repoBudget: repoBudgetBlock(status) };
+  const warn = status.reason ? { repoBudget: repoBudgetBlock(status) } : {};
+  const warned = (id: string) => {
+    if (status.reason) logEvent(root, id, 'repo-budget-warn', { reason: status.reason });
+  };
   const resumed = session ? resumeQueued(root, session) : null;
   if (resumed) {
+    warned(resumed.id);
     let blocked: { ref: string; id: string; waitingOn: string[] }[] = [];
     // The job is already claimed, so a tracker hiccup only costs the `blocked` report; it is
     // recorded on the job, as mirrorToTracker records its own.
@@ -214,15 +223,17 @@ export async function nextCmd(root: string, config: Config, flags: Record<string
     } catch (e) {
       logEvent(root, resumed.id, 'tracker-error', { error: (e as Error).message.slice(0, 300) });
     }
-    return { id: resumed.id, ref: resumed.source?.ref ?? null, title: resumed.title, branch: resumed.branch, stage: resumed.stage, state: resumed.state, resumed: true, ...(blocked.length ? { blocked } : {}) };
+    return { id: resumed.id, ref: resumed.source?.ref ?? null, title: resumed.title, branch: resumed.branch, stage: resumed.stage, state: resumed.state, resumed: true, ...(blocked.length ? { blocked } : {}), ...warn };
   }
   const tracker = await loadTracker(root, config);
   const { ready, blocked } = readyItems(root, config, tracker, flags, limit);
   const extra = blocked.length ? { blocked } : {};
   const item = ready[0];
-  if (!item) return { item: null, ...extra };
-  if (!flags.claim) return { item, more: ready.length - 1, ...extra };
-  return { ...(await startFromRef(root, config, tracker, item.ref, flags)), ...(session ? { resumed: false } : {}), ...extra };
+  if (!item) return { item: null, ...extra, ...warn };
+  if (!flags.claim) return { item, more: ready.length - 1, ...extra, ...warn };
+  const started = await startFromRef(root, config, tracker, item.ref, flags);
+  if (!('existing' in started)) warned(started.id);
+  return { ...started, ...(session ? { resumed: false } : {}), ...extra, ...warn };
 }
 
 /** Starts (or finds) the job for a tracker item and claims the item for it. */
@@ -365,6 +376,12 @@ export async function syncAll(
       setJob(root, job.id, { stage: 'done', state: 'done', reason: 'all child jobs finished' });
       results.push({ id: job.id, umbrellaDone: true });
     }
+  }
+  // A new UTC month (or a raised cap) frees repo budget holds here as well as at the next start.
+  const repoHeld = listJobs(root).filter((j) => isActive(j) && isRepoHold(j)).map((j) => j.id);
+  if (repoHeld.length) {
+    const still = new Set(checkRepoBudget(root, config).heldJobs);
+    for (const id of repoHeld) if (!still.has(id)) results.push({ id, repoBudgetReleased: true });
   }
   // The human's retention policy runs in any session, daemon ones included: they set it, not a request.
   const retention = applyRetention(root, config, 'policy');

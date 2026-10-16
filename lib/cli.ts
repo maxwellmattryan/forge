@@ -11,11 +11,12 @@ import { mainRoot } from './paths.ts';
 import * as pr from './pr.ts';
 import { prepareRetro, retroDue } from './retro.ts';
 import { roster } from './roster.ts';
-import { computeStats } from './stats.ts';
+import { computeStats, statsCsv } from './stats.ts';
 import { ForgeError, readJson, run } from './util.ts';
 import * as wt from './worktree.ts';
 import { advanceCmd } from './commands/advance.ts';
 import { auditCmd } from './commands/audit.ts';
+import { budgetCmd } from './commands/budget.ts';
 import { num, out, parseArgs, req, requireJob, withoutJson } from './commands/args.ts';
 import { configCmd } from './commands/config.ts';
 import { daemonCmd } from './commands/daemon.ts';
@@ -176,9 +177,13 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       needInit();
       return ok(await trackerCmd(root, config, sub, rest, flags));
     case 'stats': {
+      if (flags.csv || flags.by !== undefined) return ok(statsCsv(root, config, flags));
       const s = computeStats(root, { since: flags.since, includeEvals: Boolean(flags['include-evals']) });
       return ok(flags.json ? s : statsText(s));
     }
+    case 'budget':
+      needInit();
+      return ok(budgetCmd(root, config, sub, flags));
     case 'audit':
       needInit();
       return ok(auditCmd(root, pos.slice(1), flags));

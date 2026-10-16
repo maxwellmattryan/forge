@@ -22,6 +22,7 @@
   import NeedsPanel from './statusbar/NeedsPanel.svelte';
   import ForemanPanel from './statusbar/ForemanPanel.svelte';
   import ModelPanel from './statusbar/ModelPanel.svelte';
+  import SpendChip from './SpendChip.svelte';
   import { API_VERSION } from '../lib/types.ts';
   import type { DaemonPoolState } from '../lib/types.ts';
   import { mergePoolState, poolModel, postDaemon } from '../lib/daemon.ts';
@@ -292,6 +293,8 @@
           <span class="sr-only">{' '}{$t('statusbar.daemon.sessions')}{', '}{bar.daemon.off ? $t('statusbar.daemon.off') : bar.daemon.pill.label}</span>
           {#if holdsOut}<span class="sr-only">{', '}{holdText}</span>{/if}
         </button>
+        <!-- The month's spend: md and up, and the first thing to go (with held and waiting) when the cluster runs short. -->
+        {#if S.data.budget}<SpendChip budget={S.data.budget} extra="max-md:hidden {left >= 3 ? 'hidden!' : ''}" />{/if}
         {#if bar.held}
           <button class="btn sm ghost max-md:hidden {left >= 3 ? 'hidden!' : ''}" data-popover="daemon" title={left >= 2 ? $t('daemon.held', { count: bar.held }) : undefined} aria-haspopup="dialog" aria-expanded={expanded('daemon')} aria-controls={controls('daemon')} onclick={(e) => openPopover('daemon', e.currentTarget)}><span class="text-warn">{$t('statusbar.held.word')}<span class={left >= 2 ? 'sr-only' : ''}>{$t('statusbar.held.rest')}</span>{' '}({bar.held})</span></button>
         {/if}

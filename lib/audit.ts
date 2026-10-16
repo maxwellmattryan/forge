@@ -23,6 +23,12 @@ function detail(e: JobEvent): string | null {
     case 'budget-ack':
       d = join(e.keys);
       break;
+    case 'repo-budget-ack':
+      d = str(e.period);
+      break;
+    case 'budget-override':
+      d = str(e.month);
+      break;
     case 'linked':
       d = [str(e.tracker), str(e.ref)].filter(Boolean).join(':') || null;
       break;

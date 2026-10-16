@@ -120,6 +120,16 @@ const rows: Row[] = [
     want: { action: 'wait', waitingOn: 'pr-review', running: [], tell: 'j PR https://github.com/o/r/pull/7 waits on review\nj has no linked issue: `forge job link j <ref>` or `--none`' },
   },
   { name: 'G4 waiting on budget', fx: { job: job({ stage: 'build', state: 'waiting', waitingOn: 'budget', reason: 'usd 12 > 10' }) }, want: { action: 'wait', waitingOn: 'budget', tell: 'j over budget: usd 12 > 10. /forge approve j to acknowledge, or raise it: forge job budget j --set usd=…' } },
+  {
+    name: 'G4 a repo budget hold tells the ack of the current month, not the per-job budget',
+    fx: { job: job({ stage: 'build', state: 'waiting', waitingOn: 'budget', reason: 'repo budget: $103.20 of $100.00 this month' }) },
+    want: { action: 'wait', waitingOn: 'budget', tell: `j held by the repo budget (repo budget: $103.20 of $100.00 this month). A human runs forge budget ack --period ${new Date().toISOString().slice(0, 7)}, or raises budget.usdPerMonth in .forge/config.yml; the job resumes once the repo is under its cap` },
+  },
+  {
+    name: 'G4 a repo budget hold on the day cap tells the ack of the current day',
+    fx: { job: job({ stage: 'build', state: 'waiting', waitingOn: 'budget', reason: 'repo budget: $5.00 of $5.00 today' }) },
+    want: { action: 'wait', waitingOn: 'budget', tell: `j held by the repo budget (repo budget: $5.00 of $5.00 today). A human runs forge budget ack --period ${new Date().toISOString().slice(0, 10)}, or raises budget.usdPerDay in .forge/config.yml; the job resumes once the repo is under its cap` },
+  },
   { name: 'G4 blocked waits on external', fx: { job: job({ stage: 'build', state: 'blocked', reason: 'dependency' }) }, want: { action: 'wait', waitingOn: 'external', tell: 'j waits: dependency' } },
   { name: 'G4 an escalation names the decision', fx: { job: job({ stage: 'decide', state: 'waiting', waitingOn: 'escalation', reason: 'approver escalated: see decision.md' }) }, want: { action: 'wait', waitingOn: 'escalation', tell: `j escalated (approver escalated: see decision.md): see ${path.join(JOB_DIR, 'decision.md')}. /forge approve j or /forge rework j <note>` } },
   { name: 'G4 spec approval names the spec and mockup', fx: { files: ['spec', 'mockup'], job: job({ stage: 'spec', state: 'waiting', waitingOn: 'spec-approval' }) }, want: { action: 'wait', waitingOn: 'spec-approval', tell: `j spec ready: ${path.join(JOB_DIR, 'spec.md')} · mockup ${path.join(JOB_DIR, 'mockup.html')}. /forge approve j or /forge revise j <note>` } },

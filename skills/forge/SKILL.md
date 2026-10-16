@@ -46,7 +46,7 @@ Report `sync`, a line each: merges, PR feedback, conflicts, finished umbrellas, 
 | `update` | `forge update` only; report `from → to`, each `warnings` and `next` entry, or the error. |
 
 ## Run a job
-Claim it: `forge job claim <id> --session ${CLAUDE_SESSION_ID}`. Exit 3: another live session owns it: tell the human, stop. Exit 4: dependencies pending; report, move on (`--force` only if the human asks).
+Claim it: `forge job claim <id> --session ${CLAUDE_SESSION_ID}`. Exit 3: another live session owns it: tell the human, stop. Exit 4: blocked (dependencies, repo budget); report, move on (`--force` only if the human asks).
 
 Then loop: `forge job advance <id> --session ${CLAUDE_SESSION_ID}` (Bash timeout 600000), report each `tell` in `ran`, act on `action`, advance again.
 - `spawn` (`verifier`: yes/no): run `startShell`. Spawn `agent` as `subagent_type` with `brief` as the prompt, `model` unless `inherit` and `effort` unless null (if `resume` names a live agent, SendMessage it the brief). At the first of its report or notification: `forge job agent <id> end --role <role> --agent-id <agentId> --import [--tokens <total_tokens> --tool-uses <tool_uses> --duration-ms <duration_ms>] --summary "<first line of its reply>"`. With `parallel: true`, spawn it in the background and advance at once. With `spawns`, run all `startShell`s in one Bash call, then spawn all in one message of background Agent calls. Then `forge job agent <id> attach --role <role> --agent-id <agentId>` for each, in one Bash call.
