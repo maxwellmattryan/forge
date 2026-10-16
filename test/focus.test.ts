@@ -180,9 +180,13 @@ describe('forge focus', { concurrency: 4 }, () => {
       const good = JSON.stringify({ v: 1, job: a, since: '2026-01-01T00:00:00.000Z' });
       const target = path.join(s.root, 'elsewhere.json');
       fs.writeFileSync(target, good);
-      const plants: [string, () => void][] = [
+      // Windows has no FIFOs, and planting a symlink there needs a privilege CI runners lack.
+      const posixOnly: [string, () => void][] = [
         ['a symlink', () => fs.symlinkSync(target, s.focusFile)],
         ['a FIFO', () => assert.equal(spawnSync('mkfifo', [s.focusFile]).status, 0)],
+      ];
+      const plants: [string, () => void][] = [
+        ...(process.platform === 'win32' ? [] : posixOnly),
         ['a file over 64 KiB', () => fs.writeFileSync(s.focusFile, JSON.stringify({ v: 1, job: a, since: 'x', pad: 'x'.repeat(65 * 1024) }))],
         ['invalid JSON', () => fs.writeFileSync(s.focusFile, '{"job": ')],
         ['an invalid id', () => fs.writeFileSync(s.focusFile, JSON.stringify({ v: 1, job: '../../etc', since: 'x' }))],
@@ -192,15 +196,16 @@ describe('forge focus', { concurrency: 4 }, () => {
       for (const [what, plant] of plants) {
         fs.rmSync(s.focusFile, { force: true });
         plant();
-        const before = fs.lstatSync(s.focusFile);
+        const stat = () => (fs.existsSync(s.focusFile) ? fs.lstatSync(s.focusFile) : null);
+        const before = stat();
         const runtimeBefore = fs.readdirSync(runtime).sort();
         const locksBefore = fs.existsSync(locks) ? fs.readdirSync(locks).sort() : [];
         const r = await forgeAsync(s.root, ['focus']);
         assert.equal(r.status, 0, `${what}: ${r.stderr}`);
         assert.deepEqual(JSON.parse(r.stdout), { focus: null }, what);
-        const after = fs.lstatSync(s.focusFile);
-        assert.equal(after.mtimeMs, before.mtimeMs, `${what}: the read wrote nothing`);
-        assert.equal(after.ino, before.ino, what);
+        const after = stat();
+        assert.equal(after?.mtimeMs, before?.mtimeMs, `${what}: the read wrote nothing`);
+        assert.equal(after?.ino, before?.ino, what);
         assert.deepEqual(fs.readdirSync(runtime).sort(), runtimeBefore, `${what}: nothing written beside it`);
         assert.deepEqual(fs.existsSync(locks) ? fs.readdirSync(locks).sort() : [], locksBefore, `${what}: no lock taken`);
       }

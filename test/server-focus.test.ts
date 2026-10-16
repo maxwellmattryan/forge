@@ -11,6 +11,7 @@ import { spawnSync } from 'node:child_process';
 import { forgeAsync, repoTemplate, waitFor } from './helpers.ts';
 import { startServer } from '../lib/server.ts';
 import { editorArgv } from '../lib/editor.ts';
+import { pidAlive } from '../lib/worktree.ts';
 import { API_VERSION } from '../lib/schema.ts';
 import { API_VERSION as DASH_API_VERSION } from '../dashboard/src/lib/types.ts';
 
@@ -69,15 +70,21 @@ async function scratch() {
   const post = (p: string, body: unknown, headers: Record<string, string> = good) => hit(port, { method: 'POST', path: p, headers, body: typeof body === 'string' ? body : JSON.stringify(body) });
   const state = async () => JSON.parse((await hit(port, { path: '/api/state' })).text);
   const pids: number[] = [];
+  // Windows refuses to remove a directory a live process has as its cwd, so the dev server's
+  // whole tree is gone before the worktree is removed.
   const cleanup = async () => {
     for (const pid of pids) {
-      try {
-        process.kill(-pid, 'SIGKILL');
-      } catch {}
+      if (process.platform === 'win32') spawnSync('taskkill', ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore' });
+      for (const target of [-pid, pid]) {
+        try {
+          process.kill(target, 'SIGKILL');
+        } catch {}
+      }
     }
+    await waitFor(() => pids.every((pid) => !pidAlive(pid)), { timeoutMs: 10_000, what: 'the dev server exited' }).catch(() => {});
     await srv.close();
     repo.cleanup();
-    fs.rmSync(`${root}.wt`, { recursive: true, force: true });
+    fs.rmSync(`${root}.wt`, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   };
   return { root, f, job, jobFile, patchJob, events, port, post, state, pids, cleanup, wtRoot: `${root}.wt`, focusFile: path.join(root, '.forge', 'runtime', 'focus.json') };
 }
@@ -123,9 +130,12 @@ test('state exposes focus and endpoints', { timeout: 60_000 }, async () => {
     st = await s.state();
     assert.equal(row(badPort).endpoints[0].live, false, 'pid 1 is not a live dev server');
     fs.rmSync(rt);
-    assert.equal(spawnSync('mkfifo', [rt]).status, 0);
-    st = await s.state();
-    assert.equal(row(badPort).endpoints[0].live, false, 'a FIFO reads as not running');
+    // Windows has no FIFOs to plant.
+    if (process.platform !== 'win32') {
+      assert.equal(spawnSync('mkfifo', [rt]).status, 0);
+      st = await s.state();
+      assert.equal(row(badPort).endpoints[0].live, false, 'a FIFO reads as not running');
+    }
 
     const cfg = path.join(s.root, '.forge', 'config.yml');
     const text = fs.readFileSync(cfg, 'utf8');
