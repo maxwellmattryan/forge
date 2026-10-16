@@ -1062,6 +1062,8 @@ test('one close control: drawer, dialogs and toast', () => {
   assert.ok(dismiss && !dismiss.parents.includes(status[0]), 'Dismiss is not inside role="status"');
   assert.equal(attrOf(dismiss, 'label'), "{$t('common.dismiss')}");
   assert.equal(attrOf(dismiss, 'onclick'), '{dismissToast}');
+  // The toast plate clips to its cut corner, so Dismiss draws its focus ring inside itself.
+  assert.equal(attrOf(dismiss, 'class'), 'focus-visible:-outline-offset-2', 'Dismiss keeps its ring inside the plate');
   const markup = read('components/Toast.svelte').replace(/<script\b[\s\S]*?<\/script>|<!--[\s\S]*?-->/g, '');
   const live = markup.indexOf('role="status"');
   const before = markup.slice(0, live);
