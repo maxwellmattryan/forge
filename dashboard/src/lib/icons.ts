@@ -1,6 +1,5 @@
 // The Smithy icon set (24x24 viewBox, machined: 1.5px strokes, round caps and joins), rendered by components/Icon.svelte.
-// smithy/assets/Icons/*.svg is the source: each entry mirrors its file element for element. Geometry stays as the files'
-// attribute strings so test/dashboard-icons.test.ts can compare them exactly.
+// This file is the source of the set. Geometry is kept as SVG attribute strings.
 export type IconShape =
   | { readonly el: 'path'; readonly d: string }
   | { readonly el: 'circle'; readonly cx: string; readonly cy: string; readonly r: string; readonly fill?: 'current' | 'ground' }
