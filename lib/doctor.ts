@@ -5,6 +5,7 @@ import { validateConfig, worktreeRoot } from './config.ts';
 import { apiKeyVars } from './daemon.ts';
 import { deprecationChecks } from './deprecations.ts';
 import { isActive, listJobs } from './jobs.ts';
+import { notifyChecks } from './notify.ts';
 import { paths, exists } from './paths.ts';
 import { dirBytes } from './retention.ts';
 import { SUPPORT_URL, hostInfo, platformTier, posixShell, tierDetail, versionAtLeast } from './platform.ts';
@@ -123,6 +124,7 @@ export async function doctor(root: string, config: Config, initialized: boolean,
   const unsupported = listJobs(root).filter((j) => j._unsupported);
   if (unsupported.length) add('job schema', false, `${unsupported.length} job(s) from a newer Forge`);
   checks.push(storageCheck(root));
+  if (initialized) checks.push(...(await notifyChecks(config)));
   // Last, and bounded: the only network call, and left out entirely when it cannot tell.
   const release = latestReleaseCheck();
   if (release) checks.push(release);
