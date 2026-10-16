@@ -241,9 +241,14 @@ export function validateConfig(c: any, root: string): string[] {
   oneOf('verifyIntegrity', c.verifyIntegrity, ['warn', 'block']);
   if (!Array.isArray(c.review.panel) || !c.review.panel.length) problems.push('review.panel needs at least one reviewer');
   for (const r of c.review.panel ?? []) {
-    if (!r?.name) problems.push('every review.panel entry needs a name');
-    else if (!reviewerChecklist(root, r.name, r.checklist))
+    if (!r?.name) {
+      problems.push('every review.panel entry needs a name');
+      continue;
+    }
+    if (!reviewerChecklist(root, r.name, r.checklist))
       problems.push(`reviewer "${r.name}" has no checklist (looked in .forge/reviewers/ and the plugin's reviewers/)`);
+    if (r.needsApp !== undefined && typeof r.needsApp !== 'boolean')
+      problems.push(`review.panel "${r.name}".needsApp must be true or false (got ${JSON.stringify(r.needsApp)})`);
   }
   oneOf('verifyE2e.when', c.verifyE2e?.when, ['ui', 'always', 'never']);
   const e2ePaths = c.verifyE2e?.paths;
@@ -574,6 +579,14 @@ export function reviewerChecklist(root: string, name: string, explicit?: string)
   candidates.push(path.join(paths(root).reviewers, `${name}.md`));
   candidates.push(path.join(PLUGIN_ROOT, 'reviewers', `${name}.md`));
   return candidates.find(exists) ?? null;
+}
+
+const APP_LENSES = ['ui', 'ux', 'accessibility', 'design'];
+
+/** Whether a lens reviews the running app: the panel entry's needsApp, else the built-in name default. */
+export function lensNeedsApp(config: Config, lens: string): boolean {
+  const entry = (config.review.panel ?? []).find((r) => r?.name === lens);
+  return typeof entry?.needsApp === 'boolean' ? entry.needsApp : APP_LENSES.includes(lens);
 }
 
 export function modelFor(config: Config, role: string): string {

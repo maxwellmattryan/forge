@@ -421,6 +421,8 @@ export interface PanelEntry {
   model?: string;
   when?: string;
   checklist?: string;
+  /** Whether the lens reviews the running app (commands.dev); absent means the name default in lensNeedsApp. */
+  needsApp?: boolean;
 }
 
 /** Something agents should know exists: an entry of `resources` (docs/CONFIG.md). */

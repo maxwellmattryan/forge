@@ -10,7 +10,7 @@ import path from 'node:path';
 import { acCoverage } from './acs.ts';
 import { jobPathMap, renderBrief, roleBrief } from './brief.ts';
 import type { RoleContext } from './brief.ts';
-import { resolveEffort, reviewerChecklist } from './config.ts';
+import { lensNeedsApp, resolveEffort, reviewerChecklist } from './config.ts';
 import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
 import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
@@ -43,7 +43,6 @@ export const PLAN_AUTO_LINES = 3;
 
 const LENS_NAME = /^[a-z0-9][a-z0-9-]*$/;
 const NEEDS_INPUT = /\bNEEDS-INPUT\b/i;
-const UI_LENSES = ['ui', 'ux', 'accessibility'];
 const SAFE_ELEMENT = /^[A-Za-z0-9 ._:/@=,+\-[\]"]*$/;
 const BARE_ELEMENT = /^[A-Za-z0-9._:/@=,+-]+$/;
 const AGENT_ID = /^[A-Za-z0-9_-]{1,100}$/;
@@ -725,7 +724,7 @@ function review(x: StepInput): StepAction {
   // Only until the round's verdicts are recorded: after that RV7 stops the server, and starting it
   // again here would alternate with that stop forever. Retries before then still get the app.
   const recordedVerdicts = Boolean(j.verdicts[String(j.round)]);
-  if (!recordedVerdicts && lenses.some((l) => UI_LENSES.includes(l)) && x.config.commands.dev && !x.runtime.includes('dev')) return run(x, 'RV3', ['run', j.id, 'dev', '--background'], 'UI lenses review the running app');
+  if (!recordedVerdicts && lenses.some((l) => lensNeedsApp(x.config, l)) && x.config.commands.dev && !x.runtime.includes('dev')) return run(x, 'RV3', ['run', j.id, 'dev', '--background'], 'app-needing lenses review the running app');
   const next = nextLens(x);
   if (next) return spawn(x, 'RV4', `reviewer:${next}`);
   // Retries go out back to back like first spawns, even while other reviewers run (G5 lets them through).
