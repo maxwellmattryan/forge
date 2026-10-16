@@ -1,11 +1,12 @@
 <!-- A job's place in the pipeline: nine dots in three clusters (Plan, Build, Ship). Past steps are filled, future steps
      hollow, and the current step is filled and outlined, in ember when the job needs a human, failed or is blocked.
-     A screen reader hears one label, e.g. "Stage 5 of 9: Verify". -->
+     While the job is running (`active`), the current step carries the live dot's gleam halo ping (motion-safe, so a static
+     outlined dot under reduced motion). A screen reader hears one label, e.g. "Stage 5 of 9: Verify". -->
 <script lang="ts">
   import { stepPosition, type StageStep } from '../lib/view.ts';
   import { t } from '../lib/locale.ts';
 
-  let { steps, stage }: { steps: StageStep[]; stage: string } = $props();
+  let { steps, stage, active = false }: { steps: StageStep[]; stage: string; active?: boolean } = $props();
   const clusters = $derived([0, 3, 6].map((i) => steps.slice(i, i + 3)));
   // Whole literals, so Tailwind sees every class.
   const DOT = {
@@ -19,6 +20,6 @@
 
 <span role="img" class="flex items-center gap-2 shrink-0" aria-label={$t('pipeline.stepper', { n: stepPosition(steps), total: steps.length, stage })}>
   {#each clusters as cluster, ci (ci)}
-    <span class="flex items-center gap-1">{#each cluster as x (x.stage)}<span class={dotClass(x)}></span>{/each}</span>
+    <span class="flex items-center gap-1">{#each cluster as x (x.stage)}{#if active && x.status === 'current' && x.tone === 'gleam'}<span class="relative inline-flex"><span class="dot gleam halo motion-safe:animate-ping"></span><span class="{DOT.gleam} relative"></span></span>{:else}<span class={dotClass(x)}></span>{/if}{/each}</span>
   {/each}
 </span>

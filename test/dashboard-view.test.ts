@@ -125,7 +125,6 @@ test('pipeline: filters, counts, board columns and nav badges', () => {
   assert.deepEqual(V.boardColumns([]).map((c) => c.id), ['queued', 'plan', 'build', 'ship']);
   assert.deepEqual(V.boardColumns(JOBS).map((c) => [c.id, c.jobs.map((j) => j.id)]), [['queued', ['i']], ['plan', ['b']], ['build', ['c', 'd', 'a', 'g']], ['ship', ['p']], ['done', ['e', 'f', 'h']]]);
   assert.deepEqual(V.navCounts(JOBS), { active: 7, needs: 2 }, 'pr-review waits are not "needs you"');
-  assert.deepEqual(V.VIEWS.map((v) => v.id), ['pipeline', 'inbox', 'backlog', 'agents', 'analytics', 'evals']);
   const now = Date.parse('2026-10-12T12:00:00Z');
   const owned: any = [
     { owner: { session: 's1', heartbeat: '2026-10-12T11:45:00Z', since: '2026-10-12T10:00:00Z' } },
@@ -139,11 +138,14 @@ test('pipeline: filters, counts, board columns and nav badges', () => {
   assert.deepEqual(V.runningAgents([{ id: 'j', agents: { builder: { status: 'running', model: 'opus' }, x: { status: 'done' } } }] as any).map((a) => [a.job.id, a.role, a.model]), [['j', 'builder', 'opus']]);
 });
 
-test("viewIndex: each view's position in the sidebar order", () => {
-  assert.equal(V.VIEWS.length, 6);
+test('views list five pages', () => {
+  // Needs you is a status-bar popover now, not a page.
+  assert.deepEqual(V.VIEWS.map((v) => v.id), ['pipeline', 'backlog', 'agents', 'analytics', 'evals']);
+  assert.equal(V.VIEWS.length, 5);
   assert.equal(V.viewIndex('pipeline'), 1);
-  assert.equal(V.viewIndex('inbox'), 2);
-  assert.equal(V.viewIndex('evals'), 6);
+  assert.equal(V.viewIndex('backlog'), 2);
+  assert.equal(V.viewIndex('evals'), 5);
+  assert.equal(V.viewIndex('inbox'), 1, 'the old Needs-you id reads as the first view');
   assert.equal(V.viewIndex('nope'), 1, 'an unknown id reads as the first view');
   V.VIEWS.forEach((v, i) => assert.equal(V.viewIndex(v.id), i + 1, v.id));
 });
@@ -569,7 +571,7 @@ test('boardRank and sortByRank: rank, then newest, then id', () => {
 
 test('cardModel: slots and null rules', () => {
   const bare = V.cardModel({ id: 'slug-ab12', stage: 'backlog', state: 'queued', source: { ref: 'slug' }, round: 0 } as any);
-  assert.deepEqual(bare, { ref: 'slug-ab12', refTitle: 'slug-ab12', steps: V.stageSteps({ stage: 'backlog', state: 'queued' }), stage: 'Queued', round: null, progress: null, lenses: null });
+  assert.deepEqual(bare, { ref: 'slug-ab12', refTitle: 'slug-ab12', steps: V.stageSteps({ stage: 'backlog', state: 'queued' }), stage: 'Queued', round: null, progress: null, lenses: null, running: false });
   assert.equal(V.cardModel({ id: 'x', reviewers: [], progress: { done: 0, total: 0 } } as any).lenses, null, 'no reviewers, no lenses');
   assert.equal(V.cardModel({ id: 'x', progress: { done: 0, total: 0 } } as any).progress, null, 'no tasks, no bar');
 
@@ -584,6 +586,8 @@ test('cardModel: slots and null rules', () => {
   assert.deepEqual(full.progress, { done: 3, total: 5 });
   assert.deepEqual(full.lenses, [{ name: 'code', verdict: 'PASS' }, { name: 'ui', verdict: null }], "this round's verdicts only");
   assert.equal(V.stepPosition(full.steps), 5);
+  assert.equal(full.running, true, 'a running job lights its stepper');
+  for (const state of ['queued', 'waiting', 'failed', 'done']) assert.equal(V.cardModel({ id: 'x', state } as any).running, false, state);
 
   assert.deepEqual(V.cardModel({ id: 'x', round: 1 } as any).round, { round: 1, max: null }, 'a missing maxRounds');
   assert.equal(V.cardModel({ id: 'x', stage: 'mystery' } as any).stage, 'mystery', 'an unknown stage shows raw');

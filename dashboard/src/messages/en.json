@@ -23,7 +23,6 @@
   },
   "nav": {
     "pipeline": "Pipeline",
-    "inbox": "Needs you",
     "backlog": "Backlog",
     "agents": "Agents",
     "analytics": "Analytics",
@@ -67,17 +66,32 @@
     "live": "{live}/{cap} job sessions",
     "held": "held: budget ({count})",
     "waiting": "waiting for slot ({count})",
-    "kept": "agents running ({count})",
     "start": "Start",
     "stop": "Stop",
     "failed": "Daemon {action} failed: {error}",
     "startAll": "Start the daemon (all sessions)",
     "stopAll": "Stop the daemon (all sessions)",
-    "modeTitle": "Permission mode: {mode}"
+    "modeTitle": "Permission mode: {mode}",
+    "rows": {
+      "label": "Sessions",
+      "inbox": "Inbox",
+      "inboxAbout": "Handles requests without a job",
+      "foreman": "Foreman",
+      "foremanTag": "foreman",
+      "foremanAbout": "Decides parked gates"
+    }
   },
   "statusbar": {
     "label": "Status",
     "close": "Close",
+    "needs": {
+      "name": "Needs you",
+      "title": "Needs you",
+      "count": {
+        "one": "{count} decision waiting",
+        "other": "{count} decisions waiting"
+      }
+    },
     "facts": {
       "forge": "FORGE",
       "version": "v{version}",
@@ -93,7 +107,6 @@
       "sessions": "job sessions",
       "disabled": "The daemon is off. Set daemon.enabled: true in .forge/config.yml, then start it here.",
       "mode": "Default permissions: {mode}",
-      "jobs": "Job sessions",
       "inboxLog": "Inbox log"
     },
     "inbox": {
@@ -191,6 +204,8 @@
     "label": "Your move"
   },
   "drawer": {
+    "label": "Job panel",
+    "resize": "Resize job panel",
     "close": "Close",
     "branch": "Branch",
     "base": "Base",
@@ -228,11 +243,12 @@
     "agentsTab": "Agents",
     "foreman": "foreman"
   },
+  "needs": {
+    "urgent": "Decisions only you can make",
+    "empty": "Nothing needs you right now"
+  },
   "inbox": {
-    "title": "Needs you",
-    "sub": "Decisions only a human can make. Actions are queued for your orchestrator session.",
     "read": "Read {doc} →",
-    "empty": "Nothing is waiting on you.",
     "prs": "Open PRs awaiting review",
     "parks": "Waiting on dependencies",
     "threads": "{count} unresolved thread(s)",
@@ -436,9 +452,7 @@
       "languageKeyboard": "Language and keyboard",
       "grain": "Grain",
       "grainHint": "Film grain on the ground and plates",
-      "hint": "Press , to open settings.",
-      "shortcut": "Open settings with the , key",
-      "hintOff": "The , shortcut is off. Use the Settings button."
+      "hint": "Press {key} to open settings."
     },
     "field": {
       "default": "Default: {value}",

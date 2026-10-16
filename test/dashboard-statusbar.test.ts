@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FACTS_DROP, FACTS_MAX, ROLE_ORDER, barModel, factsHidden, type BarModel, type DaemonIndicator, connectionState, inlineInputAction, modelLabel, modelSummary, promptAnnouncement, reviewerRows, roleRows, summaryText } from '../dashboard/src/lib/statusbar.ts';
-import { FOCUSABLE, POPOVERS, TAB_STOPS, dismissal, placePopover, togglePopover, type DismissReason } from '../dashboard/src/lib/popover.ts';
+import { FOCUSABLE, POPOVERS, POPOVER_WIDTH, TAB_STOPS, dismissal, placePopover, togglePopover, type DismissReason } from '../dashboard/src/lib/popover.ts';
 import { TABBABLE } from '../dashboard/src/lib/settings.ts';
 
 const session = (o: any = {}): any => ({ scope: 'job', wanted: true, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, failures: 0, held: null, waiting: false, lastError: null, ...o });
@@ -164,7 +164,7 @@ test('connectionState: connecting, live, offline, outdated', () => {
 });
 
 test('togglePopover keeps one popover open', () => {
-  assert.deepEqual([...POPOVERS], ['daemon', 'inbox', 'office', 'model', 'connection']);
+  assert.deepEqual([...POPOVERS], ['needs', 'daemon', 'inbox', 'office', 'model', 'connection']);
   assert.equal(togglePopover(null, 'model'), 'model', 'a click opens');
   assert.equal(togglePopover('model', 'model'), null, 'the same indicator closes it');
   assert.equal(togglePopover('model', 'daemon'), 'daemon', 'another indicator switches');
@@ -201,6 +201,23 @@ test('placePopover anchors to the trigger and stays on screen', () => {
   // Below md: the viewport less 16px on each side.
   assert.deepEqual(placePopover({ triggerLeft: 300, triggerRight: 360, viewport: 375, width: 560, align: 'end', narrow: true }), { left: 16, width: 343 });
   assert.deepEqual(placePopover({ triggerLeft: 0, triggerRight: 40, viewport: 320, width: 400, align: 'start', narrow: true, gutter: 8 }), { left: 8, width: 304 });
+});
+
+test('placePopover clamps the large popover', () => {
+  assert.deepEqual(POPOVER_WIDTH, { normal: 400, wide: 560, large: 880 });
+  const large = POPOVER_WIDTH.large;
+  // Room for it: anchored to the Needs-you button at the bar's left.
+  assert.deepEqual(placePopover({ triggerLeft: 244, triggerRight: 280, viewport: 1440, width: large, align: 'start', narrow: false }), { left: 244, width: 880 });
+  // Anchored too far right: it slides left to stay 16px inside.
+  assert.deepEqual(placePopover({ triggerLeft: 700, triggerRight: 740, viewport: 1280, width: large, align: 'start', narrow: false }), { left: 1280 - 16 - 880, width: 880 });
+  // A viewport narrower than 880 + 32: the popover shrinks to the room.
+  assert.deepEqual(placePopover({ triggerLeft: 244, triggerRight: 280, viewport: 800, width: large, align: 'start', narrow: false }), { left: 16, width: 768 });
+  // Below md it spans the viewport less the gutters, like the others.
+  assert.deepEqual(placePopover({ triggerLeft: 0, triggerRight: 44, viewport: 375, width: large, align: 'start', narrow: true }), { left: 16, width: 343 });
+  const pop = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'Popover.svelte'), 'utf8');
+  assert.match(pop, /size = 'normal'/, 'Popover takes a size, normal by default');
+  assert.match(pop, /width: POPOVER_WIDTH\[size\]/);
+  assert.match(fs.readFileSync(path.resolve(import.meta.dirname, '..', 'dashboard', 'src', 'components', 'StatusBar.svelte'), 'utf8'), /size=\{open === 'needs' \? 'large' :/, 'Needs you is large');
 });
 
 test('inlineInputAction opens the palette on typed, composed or pasted text, and on Enter or ArrowDown when empty', () => {
@@ -259,10 +276,12 @@ test('facts strip order and drop order', () => {
   const order = [
     at('<span class="k max-md:sr-only {hid.forgeWord ? \'sr-only\' : \'\'}">{$t(\'statusbar.facts.forge\')}</span>'),
     at('<span class="max-md:sr-only {hid.api ? \'sr-only\' : \'\'}"><span class="k">{$t(\'statusbar.facts.api\')}</span>'),
-    at('<span class="k max-md:sr-only {hid.sessionsWord ? \'sr-only\' : \'\'}">{$t(\'statusbar.facts.sessions\')}</span><LiveDot on={active.count > 0} /><span class="num">'),
+    at('<span class="k max-md:sr-only {hid.sessionsWord ? \'sr-only\' : \'\'}">{$t(\'statusbar.facts.sessions\')}</span><LiveDot on={active.count > 0} /><span class="num max-md:sr-only">'),
     at('<span class="max-md:sr-only {hid.sheet ? \'sr-only\' : \'\'}"><span class="k">{$t(\'statusbar.facts.sheet\')}</span>'),
   ];
   assert.deepEqual([...order].sort((a, b) => a - b), order, 'FORGE, API, SESSIONS, SHEET, left to right');
+  // Below md the count stands alone (the Needs-you bell took the room); the whole value stays for screen readers.
+  assert.ok(bar.includes(`<span class="num md:hidden" aria-hidden="true">{active.count}</span>`), 'the bare count below md');
   assert.ok(at('<div bind:this={leftBox}') < at('<div bind:this={factsBox} class="facts'), 'between the left cluster');
   assert.ok(at('<div bind:this={factsBox} class="facts') < at('<div bind:this={rightBox}'), 'and the right one');
   assert.match(bar, /<span id="footer-version"><span class="k[^"]*"/, 'the version pair keeps its id');

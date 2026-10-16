@@ -119,9 +119,10 @@ function urlProblems(file, text) {
 const FILES = [
   'index.html', 'style.css', 'svelte.config.mjs', 'vite.config.mjs', 'tsconfig.json',
   'src/main.ts', 'src/App.svelte',
-  ...['Pipeline', 'Inbox', 'Backlog', 'Agents', 'Analytics', 'Evals'].map((v) => `src/views/${v}.svelte`),
+  ...['Pipeline', 'Backlog', 'Agents', 'Analytics', 'Evals'].map((v) => `src/views/${v}.svelte`),
+  'src/components/statusbar/NeedsPanel.svelte',
   ...['Nav', 'Icon', 'Chip', 'StateChip', 'VerdictChip', 'PrChip', 'ProgressBar', 'PageHeader', 'Banner', 'Empty', 'JobCard', 'JobsTable', 'InboxCard', 'CompareTable', 'DepChips', 'DepSection', 'Drawer', 'StatusBar', 'Popover', 'SessionLog', 'Toast'].map((c) => `src/components/${c}.svelte`),
-  ...['app.svelte', 'toast.svelte', 'view', 'daemon-log', 'session-log', 'prefs', 'icons', 'daemon', 'deps', 'util'].map((m) => `src/lib/${m}.ts`),
+  ...['app.svelte', 'toast.svelte', 'toast-place', 'sender', 'view', 'daemon-log', 'session-log', 'prefs', 'icons', 'daemon', 'deps', 'util'].map((m) => `src/lib/${m}.ts`),
 ];
 
 const HEAD = `<head>
@@ -337,7 +338,7 @@ test('ThreadPanel renders secret notes as text in an ember plate', () => {
   const end = panel.indexOf('<li class="plate p-3', start);
   assert.ok(start > 0 && end > start, 'ThreadPanel has a secret branch');
   const branch = panel.slice(start, end);
-  assert.match(branch, /<li class="plate ember p-3 flex flex-col gap-1\.5">/);
+  assert.match(branch, /<li class="plate ember p-3 flex flex-col gap-1\.5 \{TINT\.forge\}">/, 'an ember plate with the Forge tint');
   assert.match(branch, /<Chip tone="you" text=\{\$t\('thread\.secret\.blocked'\)\} \/>/);
   assert.match(branch, /<Chip tone="warn" text=\{\$t\('thread\.secret\.noted'\)\} \/>/);
   assert.match(branch, /\{secretLine\(f\)\}/);

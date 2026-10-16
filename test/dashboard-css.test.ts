@@ -102,7 +102,9 @@ test('palette scrim and stable scrollbar gutter', () => {
   const root = (rel: string) => /class="([^"]*)"/.exec(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', rel), 'utf8').replace(/<script\b[\s\S]*?<\/script>|<!--[\s\S]*?-->/g, ''))?.[1].split(/\s+/) ?? [];
   const bar = root('CommandBar.svelte');
   assert.ok(bar.includes('scrim') && !bar.includes('backdrop'), `the palette's root uses scrim (${bar.join(' ')})`);
-  for (const rel of ['Settings.svelte', 'Drawer.svelte']) assert.match(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', rel), 'utf8'), /class="[^"]*\bbackdrop\b/, `${rel} keeps backdrop`);
+  assert.match(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', 'Settings.svelte'), 'utf8'), /class="[^"]*\bbackdrop\b/, 'Settings.svelte keeps backdrop');
+  // The job pane sits beside the view with nothing dimming it.
+  assert.doesNotMatch(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', 'Drawer.svelte'), 'utf8'), /\bbackdrop\b/, 'Drawer.svelte has no backdrop');
 });
 
 /** Every file under dashboard/src that holds markup or builds class strings. */
@@ -527,10 +529,10 @@ test('control heights are tokens in the source and the build', () => {
 test('the status bar height is a token in the source and the build', () => {
   const source = scalarRoot(styleCss());
   assert.ok(source.includes('--size-dialog'), 'the scalar :root block is read');
-  assert.ok(source.includes('--size-statusbar: 36px;'), 'dashboard/style.css :root declares --size-statusbar: 36px');
+  assert.ok(source.includes('--size-statusbar: 30px;'), 'dashboard/style.css :root declares --size-statusbar: 30px');
   const css = builtCss();
   const { outside } = mediaSplit(css, /[^{]*/);
-  assert.ok(ruleFor(outside, ':root').includes('--size-statusbar:36px'), 'the built :root carries --size-statusbar:36px');
+  assert.ok(ruleFor(outside, ':root').includes('--size-statusbar:30px'), 'the built :root carries --size-statusbar:30px');
   // Below md the bar holds 44px targets, so it grows to --space-11 there; everything that clears it reads the token.
   const phone = mediaBody(css, /(\(\s*width\s*<\s*48rem\s*\)|not all and \((min-width:|width>=)48rem\))/);
   assert.match(ruleFor(phone, ':root'), /--size-statusbar:var\(--space-11\)/, 'below md the bar is 44px tall');
@@ -605,4 +607,87 @@ test('the ghost close keeps the sheen and a light border', () => {
   const ghosts = [...css.matchAll(/([^{}]*)\{([^{}]*)\}/g)].filter((m) => hasClass(m[1], 'ghost'));
   assert.ok(ghosts.length >= 3, `found ${ghosts.length} ghost rules`);
   for (const [, sel, body] of ghosts.filter(([, s]) => !/aria-expanded/.test(s))) assert.doesNotMatch(body, /background/, `${sel.trim()} leaves the fill (and the sheen) to btn`);
+});
+
+test('chrome is unselectable, content opts back in', () => {
+  const css = builtCss();
+  const html = ruleFor(css, 'html');
+  assert.match(html, /(^|;)user-select:none/, 'html is unselectable');
+  assert.match(html, /-webkit-user-select:none/, 'with the Safari prefix');
+  assert.match(html, /(^|;)cursor:default/, 'and shows the arrow');
+  for (const sel of ['input', 'textarea', 'select', '[contenteditable]:not([contenteditable=false])', 'pre', 'code', '.prose']) {
+    assert.match(ruleFor(css, sel), /(^|;)user-select:text/, `${sel} is selectable again`);
+  }
+  for (const sel of ['pre', 'code', '.prose']) assert.match(ruleFor(css, sel), /(^|;)cursor:text/, `${sel} shows the I-beam`);
+  assert.match(ruleFor(css, 'a[href]'), /cursor:pointer/, 'links keep the pointer');
+  const selectable = ruleFor(css, '.selectable');
+  assert.match(selectable, /(^|;)user-select:text/);
+  assert.match(selectable, /cursor:text/);
+  assert.match(styleCss(), /@utility selectable \{ user-select: text; cursor: text; \}/);
+  // The copy-worthy spots carry it.
+  const src = (rel: string) => fs.readFileSync(path.join(DASHBOARD, 'src', 'components', rel), 'utf8');
+  assert.match(src('SessionLog.svelte'), /role="log"[^>]*class="[^"]*\bselectable\b/, 'the session log');
+  const drawer = src('Drawer.svelte');
+  assert.match(drawer, /<pre class="selectable /, "the Files tab's text");
+  assert.match(drawer, /<div class="mono [^"]*selectable[^"]*">\{j\.id\}<\/div>/, 'the id line');
+  assert.match(drawer, /\{#snippet fact[\s\S]*?<div class="mono [^"]*\bselectable\b[^"]*">\{#if icon\}[\s\S]*?\{\/if\}\{v\}/, 'the fact values');
+  assert.match(src('ThreadPanel.svelte'), /<p class="selectable [^"]*">\{m\.text\}<\/p>/, "the Thread's bodies");
+});
+
+test('no elastic overscroll', () => {
+  const css = builtCss();
+  assert.match(ruleFor(css, 'html'), /overscroll-behavior:none/, 'html does not bounce');
+  assert.match(ruleFor(css, 'body'), /overscroll-behavior:none/, 'body does not bounce');
+  assert.doesNotMatch(ruleFor(css, 'html') + ruleFor(css, 'body'), /overflow-x:hidden/, 'the page never hides sideways overflow');
+  assert.ok(hasClass(css, 'overscroll-contain'), 'the scrollers utility is built');
+});
+
+test('Run Next sits flush with the segment buttons', () => {
+  const css = builtCss();
+  const flush = ruleFor(css, '.btn.primary.flush');
+  assert.match(flush, /box-shadow:inset 0 -2px 0 0 var\(--gleam-deep\),var\(--gleam-spec\)/, 'the drop moves inside the box');
+  assert.doesNotMatch(flush, /--shadow-primary/, 'no outer drop below the box');
+  assert.match(fs.readFileSync(path.join(DASHBOARD, 'src', 'views', 'Pipeline.svelte'), 'utf8'), /class="btn primary flush"/, 'Run Next uses it');
+});
+
+test('sender tints are opaque tokens with readable text', () => {
+  const tokens = styleCss();
+  const block = (sel: string) => tokens.slice(tokens.indexOf(sel + ' {'), tokens.indexOf('}', tokens.indexOf(sel + ' {')));
+  const hex = (b: string, name: string): number[] => {
+    const v = new RegExp(`--${name}: (#[0-9a-f]{6});`).exec(b)?.[1];
+    assert.ok(v, `--${name} is a hex colour`);
+    return [1, 3, 5].map((i) => parseInt(v.slice(i, i + 2), 16));
+  };
+  const lin = (c: number) => ((c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const lum = (c: number[]) => 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
+  const contrast = (a: number[], b: number[]) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
+  const TINTS = { agent: ['gleam', 15], cli: ['fg', 5], forge: ['ember', 7] } as const;
+  for (const [theme, sel] of [['forge', ':root, [data-theme="forge"]'], ['ash', '[data-theme="ash"]']] as const) {
+    const b = block(sel);
+    const panel = hex(b, 'panel');
+    const mixes: Record<string, number[]> = {};
+    for (const [name, [color, pct]] of Object.entries(TINTS)) {
+      // Opaque: a mix of two opaque colours, the panel first (the fallback where color-mix is unsupported).
+      assert.ok(b.includes(`--tint-${name}: color-mix(in srgb, var(--panel), var(--${color}) ${pct}%);`), `${theme} --tint-${name} mixes ${pct}% ${color} into panel`);
+      const c = hex(b, color);
+      const mixed = panel.map((p, i) => Math.round(p + (c[i] - p) * (pct / 100)));
+      mixes[name] = mixed;
+      for (const text of ['fg', 'muted']) {
+        const ratio = contrast(hex(b, text), mixed);
+        assert.ok(ratio >= 4.5, `${theme}: --${text} on --tint-${name} is ${ratio.toFixed(2)}:1`);
+      }
+      assert.ok(contrast(mixed, panel) > 1.01, `${theme}: --tint-${name} is visibly off the panel`);
+    }
+    // The agent and cli rows must read apart at a glance: agent cool, cli neutral.
+    const { agent, cli } = mixes;
+    assert.ok(Math.max(...agent.map((v, i) => Math.abs(v - cli[i]))) >= 10, `${theme}: --tint-agent ${agent} and --tint-cli ${cli} differ by 10 or more in a channel`);
+    assert.ok(agent[2] - agent[0] > cli[2] - cli[0], `${theme}: --tint-agent is cooler than --tint-cli`);
+  }
+  const css = builtCss();
+  for (const name of Object.keys(TINTS)) {
+    const rule = ruleFor(css, `.tint.${name}`);
+    assert.match(rule, new RegExp(`background-color:var\\(--tint-${name}\\)`), `.tint.${name} fills with its token`);
+    assert.match(rule, new RegExp(`--surface:var\\(--tint-${name}\\)`), `.tint.${name} is a surface`);
+  }
+  assert.match(styleCss(), /@utility tint \{/);
 });

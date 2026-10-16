@@ -88,7 +88,7 @@
   --size-content-max: 1400px;
   --size-drawer-max: 768px;
   --size-dialog: 960px;
-  --size-statusbar: 36px;
+  --size-statusbar: 30px;
   --control-xs: 20px;
   --control-sm: 28px;
   --control-md: 32px;
@@ -133,6 +133,9 @@
   --warn: #f3c84a;
   --bad: #ff8f86;
   --info: #8fa2b8;
+  --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
+  --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
+  --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
   --shadow-bevel: inset 0 1px 0 0 rgba(220,232,250,0.08), inset 0 -1px 0 0 rgba(0,0,0,0.5);
   --shadow-primary: 0 2px 0 0 #4a6684;
   --shadow-overlay: 0 1px 0 0 rgba(0,0,0,0.6), 0 16px 40px 0 rgba(0,0,0,0.6);
@@ -168,6 +171,9 @@
   --warn: #6e4d00;
   --bad: #a52019;
   --info: #44546a;
+  --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
+  --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
+  --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
   --shadow-bevel: inset 0 1px 0 0 rgba(255,255,255,0.85), inset 0 -1px 0 0 rgba(60,40,20,0.14);
   --shadow-primary: 0 2px 0 0 #223850;
   --shadow-overlay: 0 1px 0 0 rgba(60,40,20,0.12), 0 16px 40px 0 rgba(60,40,20,0.22);
@@ -211,6 +217,14 @@
   /* A stable gutter: locking body scroll under the palette or a dialog does not shift the page sideways. */
   html { background: var(--bg); color: var(--fg); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; scrollbar-gutter: stable; }
   body { font-family: var(--font-sans); font-size: 14px; line-height: 20px; }
+  /* The chrome is an app, not a document: no I-beam and no drag-selection over buttons, chips, labels and cards, and
+     no elastic bounce. Fields and the copy-worthy text opt back in (and `selectable` for the rest). */
+  html { user-select: none; cursor: default; overscroll-behavior: none; }
+  body { overscroll-behavior: none; }
+  input, textarea, select, [contenteditable]:not([contenteditable="false"]), pre, code, .prose { user-select: text; }
+  input, textarea, select, [contenteditable]:not([contenteditable="false"]) { cursor: auto; }
+  pre, code, .prose { cursor: text; }
+  a[href] { cursor: pointer; }
   h1, h2, h3, h4 { font-family: var(--font-head); letter-spacing: 0; }
   ::selection { background: var(--spark); color: var(--on-spark); }
   a { color: var(--gleam); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, var(--gleam) 50%, transparent); }
@@ -341,6 +355,14 @@
     background-position: 8px 8px, 5px 5px, 5px 5px, calc(100% - 8px) 8px, calc(100% - 5px) 5px, calc(100% - 5px) 5px, 8px calc(100% - 8px), 5px calc(100% - 5px), 5px calc(100% - 5px), calc(100% - 8px) calc(100% - 8px), calc(100% - 5px) calc(100% - 5px), calc(100% - 5px) calc(100% - 5px);
   }
 }
+/* tint: who a Thread message or a log line comes from (lib/sender.ts), as a faint opaque wash of the panel: agent (Claude)
+   cool, cli (the CLI and the supervisor) neutral, forge (Forge itself) warm. It sets --surface, so text on it is off the
+   grain; on a plate, `.tint.agent` (two classes) beats the plate's fill whatever the order. Never the only cue. */
+@utility tint {
+  &.agent { background-color: var(--tint-agent); --surface: var(--tint-agent); }
+  &.cli { background-color: var(--tint-cli); --surface: var(--tint-cli); }
+  &.forge { background-color: var(--tint-forge); --surface: var(--tint-forge); }
+}
 /* A clickable row (a table row): changes at once, washing with raised over its plate's panel. */
 @utility clickable {
   cursor: pointer;
@@ -370,6 +392,8 @@
 }
 @utility mono { font-family: var(--font-mono); font-size: 12px; line-height: 18px; }
 @utility num { font-variant-numeric: tabular-nums; }
+/* Copy-worthy text in the unselectable chrome: log lines, ids, branches, paths. */
+@utility selectable { user-select: text; cursor: text; }
 @utility muted { color: var(--muted); }
 @utility dimmed { color: var(--dim); }
 @utility caption { font-size: 12px; line-height: 16px; }
@@ -387,6 +411,8 @@
   white-space: nowrap;
   &::before, &::after { content: ""; width: 18px; height: 1px; background: var(--line-strong); flex: none; }
   &.wide::before, &.wide::after { flex: 1; width: auto; }
+  /* A mark before a fact (the base branch, the tracker), set in the line of the text. */
+  & .ic { width: 12px; height: 12px; display: inline-block; vertical-align: -2px; margin-right: 4px; }
 }
 /* prose: the reference rules plus h3, lists, links and tables for the drawer's markdown. */
 @utility prose {
@@ -457,6 +483,13 @@
   &.primary.hover { background: var(--gleam-fill-hot); border-color: var(--gleam-hot); box-shadow: var(--gleam-spec), var(--shadow-primary), var(--shadow-glow); }
   &.primary:active, &.primary.active { box-shadow: var(--gleam-spec); transform: translateY(2px); background: var(--gleam-fill); }
   &.primary[disabled] { background: var(--surface, var(--bg)); color: var(--fg); border-color: var(--line-strong); box-shadow: none; transform: none; }
+  /* .flush: a primary in a row of segment buttons (Run Next). Its 2px drop moves inside the box, as .sel's cooled
+     edge, so its visible top and bottom line up with theirs. */
+  &.primary.flush { box-shadow: inset 0 -2px 0 0 var(--gleam-deep), var(--gleam-spec); }
+  @media (hover: hover) { &.primary.flush:hover { box-shadow: inset 0 -2px 0 0 var(--gleam-deep), var(--gleam-spec), var(--shadow-glow); } }
+  &.primary.flush.hover { box-shadow: inset 0 -2px 0 0 var(--gleam-deep), var(--gleam-spec), var(--shadow-glow); }
+  &.primary.flush:active, &.primary.flush.active { box-shadow: var(--gleam-spec); transform: translateY(1px); }
+  &.primary.flush[disabled] { box-shadow: none; transform: none; }
   &.sm { font-size: 11px; height: var(--control-sm); padding: 0 9px; }
   &.icon { width: var(--control-md); padding: 0; justify-content: center; }
   &.sm.icon { width: var(--control-sm); padding: 0; }
@@ -520,6 +553,8 @@
   &.spark { color: var(--on-spark); background: var(--spark); border-color: var(--spark); }
   /* A chip in a row of sm controls (the status bar's Daemon popover, the palette's scope) takes their height. */
   &.sm { min-height: var(--control-sm); padding-inline: 9px; }
+  /* A glyph struck on the slug: the PR chip's pull-request mark. */
+  & .ic { width: 12px; height: 12px; }
   &:is(button) { cursor: pointer; transition: border-color .12s ease, background-color .12s ease; }
   @media (hover: hover) { &:is(button):hover { border-color: currentColor; } }
   &:is(button)[aria-expanded="true"] { outline: 2px solid currentColor; outline-offset: 1px; }
@@ -713,6 +748,8 @@
   stroke-linecap: round;
   stroke-linejoin: round;
   flex: none;
+  /* Inline in 13-14px text: the job pane's Branch, Base, PR and Source. */
+  &.sm { width: 14px; height: 14px; }
 }
 @utility dot {
   width: 8px;

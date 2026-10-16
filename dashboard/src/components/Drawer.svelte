@@ -1,5 +1,10 @@
-<!-- The job drawer and its backdrop. It renders the drawerView snapshot, so it changes only where the old renderDrawer() ran. -->
+<!-- The job pane (the drawer, in code): a column inside main, beside the view. It renders the drawerView snapshot, so it
+     changes only where the old renderDrawer() ran. split (md and up, when the main column holds PANE_MIN + BOARD_MIN): sticky
+     beside the view, as tall as the viewport less the status bar, its width the viewer's (pref paneWidth), resized by the
+     separator on its left edge. full: it fills the main column, top of the viewport to the top of the status bar. And
+     nothing dims the view: it stays visible and clickable. Closed, it takes no space and is invisible, so out of the tab order. -->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import ActionDock from './ActionDock.svelte';
   import AgentActivity from './AgentActivity.svelte';
   import AgentsTab from './AgentsTab.svelte';
@@ -17,6 +22,8 @@
   import SessionLog from './SessionLog.svelte';
   import StateChip from './StateChip.svelte';
   import ThreadPanel from './ThreadPanel.svelte';
+  import Icon from './Icon.svelte';
+  import type { IconName } from '../lib/icons.ts';
   import { budgetPanel } from '../lib/budget.ts';
   import { effortChip } from '../lib/effort.ts';
   import { STAGE_LABEL } from '../lib/labels.ts';
@@ -31,7 +38,8 @@
   import { ticker } from '../lib/clock.svelte.ts';
   import { freshCount, sessionActivity } from '../lib/live.ts';
   import { t } from '../lib/locale.ts';
-  import { DRAWER_TABS, moveDrawerTab, tabScrollTop, type DrawerTab } from '../lib/drawer.ts';
+  import { DRAWER_TABS, PANE_DEFAULT, PANE_MIN, clampPaneWidth, moveDrawerTab, paneKey, paneMax, tabScrollTop, type DrawerTab } from '../lib/drawer.ts';
+  import { pref } from '../lib/prefs.ts';
 
   const open = $derived(S.drawer.id !== null);
   const view = $derived(S.drawerView);
@@ -39,6 +47,7 @@
   const job = $derived(shown?.detail.job);
   const prUrl = $derived(safeUrl(job?.pr?.url));
   const srcUrl = $derived(safeUrl(job?.source?.url));
+  const srcGitHub = $derived(srcUrl?.startsWith('https://github.com/') ?? false);
   const matrix = $derived(job ? verdictMatrix(job) : null);
   const effort = $derived(job ? effortChip(job.effort, S.data?.config?.effort) : null);
   const usageRows = $derived(Object.entries(job?.usage?.byRole ?? {}));
@@ -67,6 +76,54 @@
     setDrawerTab(tab);
     if (focus) document.getElementById('drawer-tab-' + tab)?.focus();
   }
+  // ---------- the separator ----------
+  const split = $derived(S.pane.mode === 'split');
+  const available = $derived(S.pane.available || Infinity);
+  const width = $derived(clampPaneWidth(S.pane.width, available));
+  let drag: { x: number; w: number } | null = null;
+  let dragging = $state(false);
+  const save = (): void => pref.set('paneWidth', String(S.pane.width));
+  function dragStart(e: PointerEvent & { currentTarget: HTMLElement }): void {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    drag = { x: e.clientX, w: width };
+    dragging = true;
+  }
+  function dragMove(e: PointerEvent): void {
+    // The separator is the pane's left edge: moving left widens the pane.
+    if (drag) S.pane.width = clampPaneWidth(drag.w + (drag.x - e.clientX), available);
+  }
+  // Both pointerup and lostpointercapture end a drag (capture can be lost without a pointerup); the second call finds
+  // drag null and returns, so the width is saved once.
+  function dragEnd(): void {
+    if (!drag) return;
+    drag = null;
+    dragging = false;
+    save();
+  }
+  function sepKey(e: KeyboardEvent): void {
+    const next = paneKey(width, e.key, e.shiftKey, available);
+    if (next === null) return;
+    e.preventDefault();
+    S.pane.width = next;
+    save();
+  }
+  function sepReset(): void {
+    S.pane.width = clampPaneWidth(PANE_DEFAULT, available);
+    save();
+  }
+
+  // Full mode covers the view, which App makes inert: focus moves to the job title once it renders, unless it is already
+  // in the pane. App hands it back to the opener on close.
+  let pane = $state<HTMLElement>();
+  let title = $state<HTMLHeadingElement>();
+  $effect(() => {
+    if (split || !open || !title || !pane) return;
+    const el = pane;
+    if (!untrack(() => el.contains(document.activeElement))) title.focus();
+  });
+
   function stripKey(e: KeyboardEvent): void {
     if (!shown) return;
     const next = moveDrawerTab(shown.tab, e.key);
@@ -76,24 +133,49 @@
   }
 </script>
 
-{#snippet fact(k: string, v: unknown)}
-  <div><div class="label">{k}</div><div class="mono break-all">{v}</div></div>
+{#snippet fact(k: string, v: unknown, icon: IconName | null = null)}
+  <div><div class="label">{k}</div><div class="mono text-[13px] break-all selectable">{#if icon}<Icon name={icon} class="sm mr-1 inline-block align-[-2px] text-muted" />{/if}{v}</div></div>
 {/snippet}
 
-<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop, as on main; Escape closes the drawer from the keyboard) -->
-<div id="drawer-backdrop" class="fixed inset-0 backdrop {open ? '' : 'hidden'} z-30" onclick={closeDrawer}></div>
-<!-- A full-height column: the body scrolls, and the action dock under it stays put on every tab. At md and up it ends at
-     the status bar's top edge, so the bar stays visible and clickable beside it and the dock sits wholly above it; below
-     md it keeps the full height and covers the bar (z-40 over z-35), so the dock is never obstructed. -->
-<aside id="drawer" class="fixed right-0 top-0 h-dvh md:h-[calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom))] flex flex-col w-full max-w-(--size-drawer-max) solid border-l border-line z-40 {open ? 'shadow-(--shadow-drawer)' : 'translate-x-full'} transition-transform">
+<!-- A full-height column: the body scrolls, and the action dock under it stays put on every tab. It always ends at the
+     status bar's top edge, so the bar stays visible and clickable and the dock sits wholly above it. Opening animates the
+     width from 0 (the reduced-motion block turns it off), and visibility follows at the end of a close. -->
+<aside
+  bind:this={pane}
+  id="drawer"
+  aria-label={$t('drawer.label')}
+  class="solid flex flex-col overflow-hidden {split ? 'sticky top-0 shrink-0 self-start h-[calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom))]' : 'fixed top-0 right-0 left-0 md:left-(--size-sidebar) bottom-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom))] z-40 w-auto shadow-(--shadow-drawer)'} {split && !dragging ? 'transition-[width,visibility]' : ''} {open ? '' : 'invisible'}"
+  style={split ? `width: ${open ? width : 0}px` : undefined}
+>
+  {#if split && open}
+    <!-- An 8px hit area over the pane's left rule; the rule turns gleam while it is hovered, focused or dragged. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (a focusable separator with a value is a widget in ARIA: the window splitter pattern) -->
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-controls="drawer"
+      aria-label={$t('drawer.resize')}
+      aria-valuemin={PANE_MIN}
+      aria-valuemax={paneMax(available)}
+      aria-valuenow={width}
+      tabindex="0"
+      class="group absolute inset-y-0 left-0 z-30 w-2 cursor-col-resize touch-none focus-visible:-outline-offset-2"
+      onpointerdown={dragStart}
+      onpointermove={dragMove}
+      onpointerup={dragEnd}
+      onlostpointercapture={dragEnd}
+      onkeydown={sepKey}
+      ondblclick={sepReset}
+    ><span class="absolute inset-y-0 left-0 border-l {dragging ? 'border-gleam' : 'border-line group-hover:border-gleam group-focus-visible:border-gleam'}" aria-hidden="true"></span></div>
+  {/if}
   {#if view && 'error' in view}
-    <div class="min-h-0 flex-1 overflow-y-auto p-6"><Banner msg={view.error} /></div>
+    <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6"><Banner msg={view.error} /></div>
   {:else if shown && job}
     {@const d = shown.detail}
     {@const j = job}
-    <div bind:this={body} class="min-h-0 flex-1 overflow-y-auto">
+    <div bind:this={body} class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       <div bind:this={head} class="p-5 md:p-6 pb-3 md:pb-4 flex flex-col gap-2">
-        <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 class="h sheet-title">{j.title}</h2><div class="mono muted">{j.id}</div></div><div class="flex shrink-0 items-center gap-2">{#if scopeVerbs(j).length}<CommandTrigger job={j.id} />{/if}<CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div></div>
+        <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 bind:this={title} tabindex="-1" class="h sheet-title">{j.title}</h2><div class="mono text-[13px] muted selectable">{j.id}</div></div><div class="flex shrink-0 items-center gap-2">{#if scopeVerbs(j).length}<CommandTrigger job={j.id} />{/if}<CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div></div>
         <div class="flex flex-wrap items-center gap-1.5"><span class="chip gleam">{STAGE_LABEL[j.stage] ?? j.stage}</span><StateChip job={j} />{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}<EffortChip level={effort} />{#if activity}<SessionActivity {activity} extra="caption" />{/if}</div>
         {#if j.reason}<div class="text-sm text-muted truncate" title={j.reason}>{j.reason}</div>{/if}
         {#if running.length || j.ownerStatus?.status !== 'none'}<AgentActivity activity={running} owner={j.ownerStatus} expandable={true} />{/if}
@@ -113,7 +195,7 @@
           {@const file = shown.file}
           {@const content = shown.content}
           <div class="grid md:grid-cols-[180px_1fr] gap-4">
-            <div class="flex md:flex-col gap-0.5 overflow-x-auto md:overflow-visible">{#each d.files as f (f)}<button class="block w-full text-left truncate px-2 py-1 text-xs font-mono {file === f ? 'bg-raised text-fg' : 'text-muted hover:text-fg'}" onclick={() => loadFile(f)}>{f}</button>{/each}</div>
+            <div class="flex md:flex-col gap-0.5 overflow-x-auto md:overflow-visible">{#each d.files as f (f)}<button class="block w-full text-left truncate px-2 py-1 text-sm font-mono {file === f ? 'bg-raised text-fg' : 'text-muted hover:text-fg'}" onclick={() => loadFile(f)}>{f}</button>{/each}</div>
             <div class="min-w-0">
               {#if file && content}
                 {#if 'html' in content}
@@ -124,10 +206,10 @@
                   {#if mdView.files === 'rendered'}
                     <div class="prose">{@html md(content.text)}</div>
                   {:else}
-                    <pre class="text-[12px] font-mono whitespace-pre-wrap break-words bg-raised p-3">{content.text}</pre>
+                    <pre class="selectable text-[13px] font-mono whitespace-pre-wrap break-words bg-raised p-3">{content.text}</pre>
                   {/if}
                 {:else}
-                  <pre class="text-[12px] font-mono whitespace-pre-wrap break-words bg-raised p-3">{content.text}</pre>
+                  <pre class="selectable text-[13px] font-mono whitespace-pre-wrap break-words bg-raised p-3">{content.text}</pre>
                 {/if}
               {:else}
                 <div class="text-sm text-muted">{$t('drawer.noFiles')}</div>
@@ -138,16 +220,16 @@
           <ul>
             {#each events as e, i (i)}
               {@const x = eventDetail(e, { tokens: tokensShort, dur })}
-              <li class="flex gap-3 py-1.5 border-b border-line text-xs">{#if i < fresh}<span class="dot spark size-1.5 shrink-0 self-center" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="text-muted whitespace-nowrap w-16 shrink-0">{ago(e.ts, ticker.now)}</span><span class="font-mono text-gleam shrink-0 w-28 truncate">{e.type}</span><span class="min-w-0 break-words">{#if isForemanEvent(e)}<span class="chip sm live mr-1.5">{$t('drawer.foreman')}</span>{/if}{x.pre}{#if x.bold !== null}<b>{x.bold}</b>{/if}{x.post}</span></li>
+              <li class="flex gap-3 py-1.5 border-b border-line text-sm">{#if i < fresh}<span class="dot spark size-1.5 shrink-0 self-center" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="text-muted whitespace-nowrap w-16 shrink-0">{ago(e.ts, ticker.now)}</span><span class="font-mono text-gleam shrink-0 w-28 truncate">{e.type}</span><span class="min-w-0 break-words">{#if isForemanEvent(e)}<span class="chip sm live mr-1.5">{$t('drawer.foreman')}</span>{/if}{x.pre}{#if x.bold !== null}<b>{x.bold}</b>{/if}{x.post}</span></li>
             {/each}
           </ul>
         {:else if shown.tab === 'details'}
           {#if j.reason}<div><div class="label">{$t('drawer.reason')}</div><div class="text-sm break-words">{j.reason}</div></div>{/if}
           <ProgressBar progress={j.progress} />
           <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {@render fact($t('drawer.branch'), j.branch ?? '—')}{@render fact($t('drawer.base'), j.base ?? '—')}{@render fact($t('drawer.port'), j.port ?? '—')}{@render fact($t('drawer.worktree'), j.worktree ?? '—')}
-            <div><div class="label">{$t('drawer.pr')}</div><div class="mono break-all">{#if prUrl}<a class="text-gleam" href={prUrl} target="_blank" rel="noopener">#{j.pr?.number}</a>{:else}—{/if}</div></div>
-            <div><div class="label">{$t('drawer.source')}</div><div class="mono break-all">{#if srcUrl}<a class="text-gleam" href={srcUrl} target="_blank" rel="noopener">{j.source?.ref ?? $t('drawer.link')}</a>{:else}{j.source?.ref ?? '—'}{/if}</div></div>
+            {@render fact($t('drawer.branch'), j.branch ?? '—', 'branch')}{@render fact($t('drawer.base'), j.base ?? '—', 'branch')}{@render fact($t('drawer.port'), j.port ?? '—')}{@render fact($t('drawer.worktree'), j.worktree ?? '—')}
+            <div><div class="label">{$t('drawer.pr')}</div><div class="mono text-[13px] break-all selectable">{#if prUrl}<a class="text-gleam" href={prUrl} target="_blank" rel="noopener"><Icon name="pull-request" class="sm mr-1 inline-block align-[-2px]" />#{j.pr?.number}</a>{:else}—{/if}</div></div>
+            <div><div class="label">{$t('drawer.source')}</div><div class="mono text-[13px] break-all selectable">{#if srcUrl}<a class="text-gleam" href={srcUrl} target="_blank" rel="noopener">{#if srcGitHub}<Icon name="github" class="sm mr-1 inline-block align-[-2px]" />{/if}{j.source?.ref ?? $t('drawer.link')}</a>{:else}{j.source?.ref ?? '—'}{/if}</div></div>
             {@render fact($t('drawer.session'), j.owner?.session ?? '—')}{@render fact($t('drawer.created'), ago(j.createdAt, ticker.now))}{@render fact($t('drawer.updated'), ago(j.updatedAt, ticker.now))}
           </div>
           <DepSection job={j} />

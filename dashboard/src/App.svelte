@@ -1,5 +1,5 @@
-<!-- The dashboard shell: sidebar (with the "New job or command" input), phone nav, banners, the active view, the status
-     bar and its popovers, the drawer, the command palette, and the toast. -->
+<!-- The dashboard shell: sidebar (with the "New job or command" input), phone nav, banners, the active view and the job
+     pane beside it, the status bar and its popovers, the command palette, and the toast. -->
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
   import Banner from './components/Banner.svelte';
@@ -12,33 +12,34 @@
   import StatusBar from './components/StatusBar.svelte';
   import Toast from './components/Toast.svelte';
   import Pipeline from './views/Pipeline.svelte';
-  import Inbox from './views/Inbox.svelte';
   import Backlog from './views/Backlog.svelte';
   import Agents from './views/Agents.svelte';
   import Analytics from './views/Analytics.svelte';
   import Evals from './views/Evals.svelte';
   import { S, closeDrawer, loadView, refresh, route } from './lib/app.svelte.ts';
+  import { clampPaneWidth, paneMode } from './lib/drawer.ts';
   import { startClock } from './lib/clock.svelte.ts';
   import type { ViewId } from './lib/view.ts';
   import { inlineInputAction, type InlineInputEvent } from './lib/statusbar.ts';
   import { t } from './lib/locale.ts';
-  import { settingsKey } from './lib/settings.ts';
-  import { commandKey, shellEscape, shortcutAction, shortcutLabel } from './lib/command.ts';
+  import { settingsKey, settingsKeyShortcuts, settingsShortcutLabel } from './lib/settings.ts';
+  import { commandKey, isMac, shellEscape, shortcutAction, shortcutLabel } from './lib/command.ts';
   import { closePalette, openPalette, palette } from './lib/palette.svelte.ts';
   import { closePopover, popover } from './lib/popover.svelte.ts';
   import { closeCard, ghCard } from './lib/github-card.svelte.ts';
-  import { pref } from './lib/prefs.ts';
 
   let settingsOpen = $state(false);
   let settings = $state<ReturnType<typeof Settings>>();
   let command = $state<ReturnType<typeof CommandBar>>();
   // Focus goes back here when Settings closes (the palette keeps its own, in palette.svelte.ts).
   let settingsOpener: HTMLElement | null = null;
-  const shortcut = shortcutLabel(typeof navigator === 'undefined' ? '' : navigator.platform);
+  const platform = typeof navigator === 'undefined' ? '' : navigator.platform;
+  const shortcut = shortcutLabel(platform);
+  const mac = isMac(platform);
+  const settingsShortcut = settingsShortcutLabel(platform);
   // The same map Nav.svelte builds, for the sidebar's stamp line.
   const labels = $derived<Record<ViewId, string>>({
     pipeline: $t('nav.pipeline'),
-    inbox: $t('nav.inbox'),
     backlog: $t('nav.backlog'),
     agents: $t('nav.agents'),
     analytics: $t('nav.analytics'),
@@ -49,6 +50,51 @@
   // Settings or the palette taking over closes a popover and leaves focus to that dialog.
   $effect(() => {
     if (settingsOpen || palette.open) untrack(() => closePopover('external'));
+  });
+
+  // The toast and the job pane follow the md breakpoint.
+  $effect(() => {
+    const mq = matchMedia('(width >= 48rem)');
+    const set = (): void => {
+      S.pane.md = mq.matches;
+    };
+    set();
+    mq.addEventListener('change', set);
+    return () => mq.removeEventListener('change', set);
+  });
+
+  // The pane sits beside the view when the main column holds both, else fills it; a resize re-clamps its width.
+  let mainEl = $state<HTMLElement>();
+  $effect(() => {
+    if (!mainEl) return;
+    const el = mainEl;
+    const measure = (): void => {
+      S.pane.available = el.clientWidth;
+    };
+    // Measured now as well: a job opened before the observer's first callback would otherwise flash a full pane.
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+  $effect(() => {
+    const available = S.pane.available;
+    S.pane.mode = paneMode(available, S.pane.md);
+    if (available > 0) untrack(() => (S.pane.width = clampPaneWidth(S.pane.width, available)));
+  });
+  const split = $derived(S.pane.mode === 'split' && S.drawer.id !== null);
+  // A full pane covers the view (and the phone header): both leave the tab order, the pane takes focus (Drawer), and
+  // closing it hands focus back to the control that opened it (WCAG 2.4.11). Pre-effect, so the opener is read before
+  // inert lands on it.
+  const covered = $derived(S.pane.mode === 'full' && S.drawer.id !== null);
+  $effect.pre(() => {
+    if (!covered) return;
+    const active = untrack(() => document.activeElement);
+    const opener = active instanceof HTMLElement && active !== document.body ? active : null;
+    return () => {
+      // Read after the flush: the cleanup can run before the close lands, and a pane that only went split stays open.
+      if (opener) tick().then(() => S.drawer.id === null && opener.isConnected && opener.focus());
+    };
   });
 
   $effect(() => {
@@ -97,9 +143,7 @@
       } else if (layer === 'drawer') closeDrawer();
       return;
     }
-    if (palette.open) return;
-    const target = e.target instanceof HTMLElement ? e.target : null;
-    const action = settingsKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, targetTag: target?.tagName ?? '', editable: target?.isContentEditable ?? false, open: settingsOpen, shortcut: pref.get('settingsShortcut', 'on') !== 'off', repeat: e.repeat, composing: e.isComposing });
+    const action = settingsKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, open: settingsOpen, mac, palette: palette.open, repeat: e.repeat, composing: e.isComposing });
     if (action === 'open') {
       e.preventDefault();
       openSettings();
@@ -141,7 +185,7 @@
 <svelte:window onhashchange={route} onkeydown={onKey} />
 
 <div class="flex min-h-screen" inert={settingsOpen || palette.open}>
-  <aside id="sidebar" class="hidden md:flex w-(--size-sidebar) shrink-0 flex-col gap-1 border-r chrome z-10 border-line-strong shadow-(--shadow-chrome) px-3 py-4 sticky top-0 h-screen overflow-y-auto">
+  <aside id="sidebar" class="hidden md:flex w-(--size-sidebar) shrink-0 flex-col gap-1 border-r chrome z-10 border-line-strong shadow-(--shadow-chrome) px-3 py-4 sticky top-0 h-screen overflow-y-auto overscroll-contain">
     <div class="plate riveted flex items-center gap-3 py-3 pr-3 pl-3.5 mb-1.5"><img src="/forge.png" alt="" class="mark shrink-0" /><div class="min-w-0"><div class="h sheet-title">{$t('app.brand')}</div><div class="label mt-0.5">{$t('app.tagline')}</div></div></div>
     <div class="stamp-line wide mx-0.5 mt-0.5 mb-2">{$t('app.view', { view: viewLabel })}</div>
     <div class="label flex min-w-0 items-baseline gap-2 px-2.5 pb-2.5"><span class="shrink-0">{$t('app.repo')}</span><span id="repo-name" class="mono truncate font-normal normal-case tracking-normal text-fg">{S.data?.repo?.name ?? ''}</span></div>
@@ -168,36 +212,39 @@
     </span>
     <nav id="nav" class="navlist"><Nav /></nav>
     <div class="mt-auto flex flex-col gap-2 pt-3">
-      <div class="navlist"><button id="settings-open" aria-haspopup="dialog" aria-keyshortcuts="," onclick={openSettings}><span class="lbl"><Icon name="settings" />{$t('settings.open')}</span><kbd class="mono muted text-[10px] normal-case" aria-hidden="true">,</kbd></button></div>
+      <div class="navlist"><button id="settings-open" aria-haspopup="dialog" aria-keyshortcuts={settingsKeyShortcuts(platform)} onclick={openSettings}><span class="lbl"><Icon name="settings" />{$t('settings.open')}</span><kbd class="mono muted text-[10px] normal-case" aria-hidden="true">{settingsShortcut}</kbd></button></div>
     </div>
   </aside>
-  <main class="falloff flex-1 min-w-0">
+  <main bind:this={mainEl} class="falloff flex-1 min-w-0">
     <!-- The palette and settings buttons stay outside the scrolling nav, so they are always on screen. -->
-    <header class="md:hidden flex items-center gap-1 border-b chrome border-line-strong pr-2">
+    <header class="md:hidden flex items-center gap-1 border-b chrome border-line-strong pr-2" inert={covered}>
       <div id="mobile-nav" class="navlist row flex-1 min-w-0 overflow-x-auto p-2"><Nav mobile /></div>
       <button id="mobile-command" class="btn touch shrink-0 px-2.5! normal-case tracking-normal" aria-haspopup="dialog" onclick={(e) => openPalette({ opener: e.currentTarget })}><Icon name="command" /><span class="max-sm:sr-only">{$t('command.open')}</span></button>
       <button id="settings-open-mobile" class="btn icon touch shrink-0" aria-label={$t('settings.open')} aria-haspopup="dialog" onclick={openSettings}><Icon name="settings" /></button>
     </header>
-    <div id="view" class="mx-auto max-w-[1400px] px-4 md:px-8 pt-4 pb-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-6))]">
+    <!-- The view and the job pane, side by side in split mode. The pane never covers the sidebar or the status bar, and
+         nothing dims the view: a card click switches the pane's job. #view is the board's container-query root. -->
+    <div class="flex items-start min-w-0">
+    <div id="view" class="@container flex-1 min-w-0 {split ? '' : 'mx-auto max-w-[1400px]'} px-4 md:px-8 pt-4 pb-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-6))]" inert={covered}>
       {#if !S.data}
         {#if S.error}<Banner msg={S.error} />{:else}<div class="plate w-fit px-3 py-1.5 text-sm text-muted">{$t('common.loading')}</div>{/if}
       {:else}
         {#if S.error}<Banner msg={S.error} />{/if}
         {#if !S.data.initialized}<Banner msg={$t('app.noConfig')} />{/if}
         {#if S.view === 'pipeline'}<Pipeline data={S.data} />
-        {:else if S.view === 'inbox'}<Inbox data={S.data} />
         {:else if S.view === 'backlog'}<Backlog />
         {:else if S.view === 'agents'}<Agents data={S.data} />
         {:else if S.view === 'analytics'}<Analytics data={S.data} />
         {:else}<Evals data={S.data} />{/if}
       {/if}
     </div>
+    <Drawer />
+    </div>
   </main>
   <!-- Outside main: main.falloff isolates, which would trap the bar's z-35 and its popovers' z-42 inside main's stacking
-       context, under the drawer's backdrop and the drawer. -->
+       context, under a full-mode pane. -->
   <StatusBar />
 </div>
-<div inert={settingsOpen || palette.open}><Drawer /></div>
 {#if settingsOpen}<Settings bind:this={settings} onclose={closeSettings} />{/if}
 {#if palette.open}<CommandBar bind:this={command} onclose={closePalette} />{/if}
 <Toast />

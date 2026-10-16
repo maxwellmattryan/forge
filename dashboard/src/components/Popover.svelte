@@ -5,11 +5,11 @@
 <script lang="ts">
   import { onMount, type Snippet } from 'svelte';
   import CloseButton from './CloseButton.svelte';
-  import { FOCUSABLE, TAB_STOPS, placePopover, type PopoverId } from '../lib/popover.ts';
+  import { FOCUSABLE, POPOVER_WIDTH, TAB_STOPS, placePopover, type PopoverId, type PopoverSize } from '../lib/popover.ts';
   import { closePopover, keepFocus } from '../lib/popover.svelte.ts';
   import { t } from '../lib/locale.ts';
 
-  let { id, title, anchor, align, wide = false, children }: { id: PopoverId; title: string; anchor: HTMLElement; align: 'start' | 'end'; wide?: boolean; children: Snippet } = $props();
+  let { id, title, anchor, align, size = 'normal', children }: { id: PopoverId; title: string; anchor: HTMLElement; align: 'start' | 'end'; size?: PopoverSize; children: Snippet } = $props();
 
   let el = $state<HTMLDivElement>();
   let body = $state<HTMLDivElement>();
@@ -22,7 +22,7 @@
   // prop reads the popover state, so it is briefly null while a closing popover unmounts.
   const place = $derived.by(() => {
     const r = anchor ? anchor.getBoundingClientRect() : { left: 0, right: 0 };
-    return placePopover({ triggerLeft: r.left, triggerRight: r.right, viewport, width: wide ? 560 : 400, align, narrow });
+    return placePopover({ triggerLeft: r.left, triggerRight: r.right, viewport, width: POPOVER_WIDTH[size], align, narrow });
   });
 
   function measure(): void {
@@ -121,7 +121,7 @@
     role={scrollable ? 'region' : undefined}
     aria-labelledby={scrollable ? `popover-${id}-title` : undefined}
     tabindex={scrollable ? 0 : undefined}
-    class="min-h-0 flex-1 overflow-y-auto p-4 focus-visible:-outline-offset-2"
+    class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 focus-visible:-outline-offset-2"
   >
     <div bind:this={content}>{@render children()}</div>
   </div>

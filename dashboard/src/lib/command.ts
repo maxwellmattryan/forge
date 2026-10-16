@@ -249,8 +249,11 @@ export function shortcutAction(s: { paletteOpen: boolean; inlineVisible: boolean
   return 'open-palette';
 }
 
+/** Apple platforms (`navigator.platform`), whose shortcuts take Cmd rather than Ctrl. */
+export const isMac = (platform: string): boolean => /mac|iphone|ipad|ipod/i.test(platform);
+
 /** The shortcut hint: `⌘K` on Apple platforms, `Ctrl K` elsewhere. */
-export const shortcutLabel = (platform: string): string => (/mac|iphone|ipad|ipod/i.test(platform) ? '⌘K' : 'Ctrl K');
+export const shortcutLabel = (platform: string): string => (isMac(platform) ? '⌘K' : 'Ctrl K');
 
 /** Why a partial command has no options, for the visible line in place of the list; null when it has some. */
 export function emptyReason(p: Parsed, options: Suggestion[], backlogError: string | null | undefined, ctx: CommandCtx): 'noJobs' | 'noItems' | 'backlogLoading' | 'backlogFailed' | null {
