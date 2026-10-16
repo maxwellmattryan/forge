@@ -6,6 +6,7 @@
 import { resolveEffort, trustDigest } from './config.ts';
 import { PERMISSION_MODES, TRUST_CHANGED, UUID, commandPermissionMode, createSession, otherOwner, readInfo, reapOrphans, sessionFiles, sessionOptions } from './daemon.ts';
 import type { DaemonOptions, Session, SessionContext, SessionEvent } from './daemon.ts';
+import { configForJob } from './eval-overlay.ts';
 import { loadJob } from './jobs.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, listRequests, requestScope, validScope } from './requests.ts';
 import type { Config, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, ForgeRequest, Job, PermissionDecision } from './types.ts';
@@ -115,8 +116,20 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
     // Read at every spawn and never pushed to a running session: a change applies at its next spawn.
     // No role: a session runs the orchestrator, so per-role, panel and complexity levels never
     // reach its argv; only job.effort and runtime.effort do.
-    effort: (scope, c) => resolveEffort(c, scope === INBOX_SCOPE || scope === OFFICE_SCOPE ? null : jobOrNull(scope)),
+    effort: (scope, c) => {
+      const job = scope === INBOX_SCOPE || scope === OFFICE_SCOPE ? null : jobOrNull(scope);
+      return resolveEffort(job ? jobConfig(c, job) : c, job);
+    },
   };
+
+  /** An eval job's overlaid config; a tampered overlay falls back to the base, since step and verify refuse that job anyway. */
+  function jobConfig(c: Config, job: Job): Config {
+    try {
+      return configForJob(root, c, job);
+    } catch {
+      return c;
+    }
+  }
 
   /** The job a session drives, or null when it is missing or unreadable: its effort then falls back to the config's. */
   function jobOrNull(scope: string): Job | null {

@@ -118,3 +118,39 @@ export async function waitFor<T>(predicate: () => T | Promise<T>, { timeoutMs = 
     await new Promise((r) => setTimeout(r, intervalMs));
   }
 }
+
+/** The task.yml of a hidden check that copies `check/files/` in and runs `command`. */
+export function evalTaskYml(name: string, command = 'true'): string {
+  return [`title: ${name}`, `request: Do ${name}`, 'base: null', 'tags: []', 'check:', '  files: check/files', `  command: ${JSON.stringify(command)}`, ''].join('\n');
+}
+
+const evalRepo = repoTemplate((dir) => {
+  const answers = path.join(dir, '.answers.json');
+  fs.writeFileSync(answers, JSON.stringify({ commands: { build: 'true', test: 'true', lint: 'true' }, worktrees: { root: '../{repo}.wt' } }));
+  execFileSync(process.execPath, [BIN, 'init', 'write', '--answers', answers], { cwd: dir, env: { ...process.env, FORGE_ROOT: dir }, stdio: 'pipe' });
+  fs.rmSync(answers);
+  for (const name of ['t', 'u']) {
+    const tdir = path.join(dir, '.forge', 'evals', name);
+    fs.mkdirSync(path.join(tdir, 'check', 'files'), { recursive: true });
+    fs.writeFileSync(path.join(tdir, 'check', 'files', `${name}.txt`), `${name}\n`);
+    fs.writeFileSync(path.join(tdir, 'task.yml'), evalTaskYml(name));
+  }
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'pipe' });
+  execFileSync('git', ['commit', '-qm', 'forge and eval tasks'], { cwd: dir, stdio: 'pipe' });
+});
+
+/**
+ * A scratch repo with Forge initialised (build, test and lint all `true`) and two committed eval
+ * tasks, `t` and `u`. Its eval clones live in the `<dir>.wt` sibling, which cleanup removes too.
+ */
+export function evalScratch(): { dir: string; git: (...args: string[]) => Buffer; cleanup: () => void } {
+  const r = evalRepo();
+  return {
+    dir: r.dir,
+    git: r.git,
+    cleanup: () => {
+      r.cleanup();
+      fs.rmSync(`${r.dir}.wt`, { recursive: true, force: true });
+    },
+  };
+}

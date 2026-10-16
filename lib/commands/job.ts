@@ -266,6 +266,7 @@ const LOCKED_FIELDS: Record<string, string> = {
   schemaVersion: 'forge migrate',
   usage: 'forge job agent',
   effort: 'forge job effort',
+  eval: 'forge eval start',
 };
 
 // setPath walks these into Object.prototype.
