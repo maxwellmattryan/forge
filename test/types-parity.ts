@@ -53,6 +53,7 @@ export type Checks = [
   Expect<Equal<engine.JobFileText, dash.JobFileText>>,
   Expect<Equal<engine.UsageRow, dash.UsageRow>>,
   Expect<Equal<engine.ReviewerStats, dash.ReviewerStats>>,
+  Expect<Equal<engine.VerifierStats, dash.VerifierStats>>,
   Expect<Equal<engine.Stats, dash.Stats>>,
   Expect<Equal<engine.EvalTask, dash.EvalTask>>,
   Expect<Equal<engine.EvalResult, dash.EvalResult>>,

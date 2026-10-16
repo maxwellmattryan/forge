@@ -180,6 +180,37 @@ test('advance returns the whole review panel without starting it', POSIX, () => 
   }
 });
 
+test('advance runs verifiers inline and returns the verifier spawn', POSIX, () => {
+  const s = scratch({ commands: { test: 'true' }, verify: ['test'] });
+  try {
+    const { id } = s.f('job', 'new', '--title', 'Verifiers', '--session', 'S');
+    const wt = s.f('worktree', 'create', id).path;
+    fs.writeFileSync(path.join(wt, 'lib.ts'), 'export const x = 1;\n');
+    const git = (...args: string[]) => spawnSync('git', args, { cwd: wt, encoding: 'utf8' });
+    git('add', '-A');
+    git('-c', 'user.email=t@e.st', '-c', 'user.name=T', 'commit', '-qm', 'work');
+    s.f('job', 'round', id);
+    s.f('job', 'set', id, '--stage', 'verify', '--state', 'running');
+    fs.mkdirSync(path.join(s.root, '.forge', 'verifiers'), { recursive: true });
+    fs.writeFileSync(path.join(s.root, '.forge', 'verifiers', 'exports.md'), "---\npaths: ['*.ts']\nmode: block\n---\nDoes every new export have a test?\n");
+    const r = s.raw('job', 'advance', id, '--session', 'S');
+    assert.equal(r.status, 0, r.stderr + r.stdout);
+    const a = oneJsonLine(r.stdout);
+    assertRanShape(a.ran);
+    assert.deepEqual(a.ran.map((e: any) => e.command.slice(0, 2)), [['verify', id], ['verifiers', 'run']]);
+    assert.ok(a.ran.every((e: any) => e.ok));
+    assert.equal(a.action, 'spawn');
+    assert.equal(a.rule, 'VF2');
+    assert.equal(a.role, 'verifier');
+    assert.equal(a.model, 'haiku');
+    assert.equal(a.output, path.join(jobDir(s.root, id), 'verify', 'round-1-verifier-answers.md'));
+    assert.ok(a.brief.split('\n').includes(`Inputs: ${path.join(jobDir(s.root, id), 'verify', 'round-1-verifiers-input.md')}`));
+    assert.ok(a.brief.split('\n').includes('Verifiers: 1 selected'));
+  } finally {
+    s.cleanup();
+  }
+});
+
 test('summarize keeps one short line and drops tails', () => {
   assert.equal(summarize(null), 'none');
   assert.equal(summarize(undefined), 'none');

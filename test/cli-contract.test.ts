@@ -555,13 +555,13 @@ test('CLI JSON keys are stable', POSIX, () => {
       'integrity.ok', 'integrity.renamedTests', 'integrity.skipMarkers', 'integrity.testCount', 'integrity.testCount.after', 'integrity.testCount.before', 'integrity.testCount.delta',
       'ok', 'round', 'secrets', 'secrets.allowed', 'secrets.count', 'secrets.findings', 'secrets.mode', 'secrets.more', 'secrets.ok', 'sha', 'steps', 'steps[].cmd', 'steps[].durationMs', 'steps[].exit', 'steps[].log', 'steps[].name', 'steps[].ok', 'steps[].skipped',
     ]);
-    assert.deepEqual(keyPaths(s.json(['stats', '--json']), ['waitingOn', 'cost.byRole', 'cost.byModel', 'reviewers']), [
+    assert.deepEqual(keyPaths(s.json(['stats', '--json']), ['waitingOn', 'cost.byRole', 'cost.byModel', 'reviewers', 'verifiers']), [
       'cost', 'cost.avgCostPerJobUsd', 'cost.avgTokensPerJob', 'cost.byModel', 'cost.byRole', 'cost.estCostUsd', 'cost.reportingCoverage', 'cost.reportingCoverage.agentRuns',
       'cost.reportingCoverage.exact', 'cost.reportingCoverage.withUsage', 'cost.totalTokens', 'counts', 'counts.active', 'counts.cancelled', 'counts.done', 'counts.failed',
       'counts.total', 'counts.waiting', 'generatedAt', 'quality', 'quality.avgRounds', 'quality.escalationRate', 'quality.firstPassReviewRate', 'quality.foremanDecisions', 'quality.foremanReworks', 'quality.humanDeltaCoverage',
       'quality.humanDeltaCoverage.measured', 'quality.humanDeltaCoverage.merged', 'quality.humanDeltaRate', 'quality.humanFeedbackOnPrRate', 'quality.humanReworks',
       'quality.medianHumanDeltaLines', 'quality.recurringFindings', 'quality.specFirstApprovalRate', 'quality.verifyFirstPassRate', 'reviewers', 'since', 'speed', 'speed.medianMinutesToDone',
-      'speed.medianMinutesToPr', 'waitingOn',
+      'speed.medianMinutesToPr', 'verifiers', 'waitingOn',
     ]);
   } finally {
     s.cleanup();

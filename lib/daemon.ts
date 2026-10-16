@@ -100,7 +100,7 @@ export interface SessionContext {
   trusted(): string | null;
   poolWanted(): boolean;
   config(): Config;
-  /** .forge/config.yml or .forge/trackers/ changed: the pool stops every session. */
+  /** .forge/config.yml, .forge/trackers/ or .forge/verifiers/ changed: the pool stops every session. */
   untrusted(): void;
   /** A repo-wide refusal (config, daemon.enabled, tracker symlinks): the pool stops every session. */
   fatal(message: string): void;
@@ -194,7 +194,7 @@ export const HOLD_TYPES: string[] = ['resume', 'rework', 'answer', 'revise-spec'
  * unaffected) and lets deny beat allow. This stops the Edit/Write route only; trustDigest is the
  * check that also covers writes made through Bash (docs/ARCHITECTURE.md "Daemon security").
  */
-export const DENY_TOOLS = Object.freeze(['Edit(.forge/config.yml)', 'Edit(.forge/trackers/**)', 'Edit(.forge/secrets-allow.txt)']);
+export const DENY_TOOLS = Object.freeze(['Edit(.forge/config.yml)', 'Edit(.forge/trackers/**)', 'Edit(.forge/secrets-allow.txt)', 'Edit(.forge/verifiers/**)']);
 
 /**
  * Appended to every daemon command: claude sends each permission check it would otherwise ask a
@@ -349,7 +349,7 @@ export function permissionResponse(requestId: string, decision: PermissionDecisi
 
 /** Why the supervisor stopped: shown in the dashboard, so it speaks to the human. */
 export const TRUST_CHANGED =
-  'daemon stopped: .forge/config.yml or .forge/trackers/ changed while it was running. The session can write files in this checkout, so only a human may approve that change: review `git diff .forge/`, then start the daemon again.';
+  'daemon stopped: .forge/config.yml, .forge/trackers/ or .forge/verifiers/ changed while it was running. The session can write files in this checkout, so only a human may approve that change: review `git diff .forge/`, then start the daemon again.';
 
 /** The summary an agent gets when its session's child exits under it. */
 export const LOST_SUMMARY = 'lost: its daemon session ended';

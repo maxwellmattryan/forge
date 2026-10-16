@@ -18,6 +18,7 @@ import { HELP as SECRETS } from './secrets.ts';
 import { HELP as STATUS } from './status.ts';
 import { HELP as TRACKER } from './tracker.ts';
 import { HELP as UPDATE } from './update.ts';
+import { HELP as VERIFIERS } from './verifiers.ts';
 import type { CliError, CommandHelp, HelpGroup } from '../types.ts';
 
 const NO_JOB: [1, string] = [1, 'no such job'];
@@ -163,8 +164,8 @@ export const CORE: HelpGroup[] = [
   },
 ];
 
-const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...SECRETS, ...GIT, ...EVAL, ...REQUESTS, ...DAEMON, ...INIT, ...CONFIG, ...DASH, ...UPDATE];
-const ORDER = ['status', 'next', 'job', 'worktree', 'run', 'stop', 'verify', 'secrets', 'integrate', 'git', 'pr', 'sync', 'tracker', 'stats', 'roster', 'retro', 'eval', 'requests', 'daemon', 'init', 'migrate', 'config', 'doctor', 'dash', 'version', 'update', 'help'];
+const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...REQUESTS, ...DAEMON, ...INIT, ...CONFIG, ...DASH, ...UPDATE];
+const ORDER = ['status', 'next', 'job', 'worktree', 'run', 'stop', 'verify', 'verifiers', 'secrets', 'integrate', 'git', 'pr', 'sync', 'tracker', 'stats', 'roster', 'retro', 'eval', 'requests', 'daemon', 'init', 'migrate', 'config', 'doctor', 'dash', 'version', 'update', 'help'];
 
 /** Every command group, in the order the overview lists them. */
 export const GROUPS: HelpGroup[] = ORDER.map((name) => {

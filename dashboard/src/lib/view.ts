@@ -493,11 +493,39 @@ export function gateOwnerBadge(owner: unknown): { foreman: boolean; tone: 'live'
 }
 
 /** Rounds of the drawer's verify/verdict matrix and the reviewer columns, or null when there is nothing to show. */
-export function verdictMatrix(j: Partial<Job>): { rounds: number[]; reviewers: string[] } | null {
+export function verdictMatrix(j: Partial<Job>, verifiers: Record<number, VerifierRound> = {}): { rounds: number[]; reviewers: string[] } | null {
   const verdicts = j.verdicts ?? {};
   const verify = j.verify ?? {};
   const rounds = Object.keys(verdicts).map(Number).sort((a, b) => a - b);
-  if (!rounds.length && !Object.keys(verify).length) return null;
+  if (!rounds.length && !Object.keys(verify).length && !Object.keys(verifiers).length) return null;
   const reviewers = [...new Set([...(j.reviewers ?? []), ...rounds.flatMap((r) => Object.keys(verdicts[r] ?? {}))])];
-  return { rounds: [...new Set([...rounds, ...Object.keys(verify).map(Number)])].sort((a, b) => a - b), reviewers };
+  return { rounds: [...new Set([...rounds, ...Object.keys(verify).map(Number), ...Object.keys(verifiers).map(Number)])].sort((a, b) => a - b), reviewers };
+}
+
+/** A round's verifiers result for the drawer's matrix: its latest `verifiers` record event. */
+export interface VerifierRound {
+  outcome: 'PASS' | 'CHANGES';
+  blocking: number;
+  warned: number;
+}
+
+const count = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : null);
+
+/** Each round's latest well-formed `verifiers` record; `run` events and malformed records are skipped. Empty: no column. */
+export function verifierRounds(events: readonly JobEvent[] | null | undefined): Record<number, VerifierRound> {
+  const out: Record<number, VerifierRound> = {};
+  for (const e of events ?? []) {
+    if (!e || e.type !== 'verifiers' || e.phase !== 'record') continue;
+    const round = count(e.round);
+    const blocking = count(e.blocking);
+    const warned = count(e.warned);
+    if (round === null || round < 1 || blocking === null || warned === null || (e.outcome !== 'PASS' && e.outcome !== 'CHANGES')) continue;
+    out[round] = { outcome: e.outcome, blocking, warned };
+  }
+  return out;
+}
+
+/** The chip tone for a round's verifiers: bad for CHANGES, warn for a PASS with warnings, ok otherwise. */
+export function verifierTone(v: VerifierRound): Tone {
+  return v.outcome === 'CHANGES' ? 'bad' : v.warned > 0 ? 'warn' : 'ok';
 }

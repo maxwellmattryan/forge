@@ -296,6 +296,13 @@ export function fill(template: string, vars: Record<string, string | number>): s
   return template.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
 }
 
+/** A fence longer than any backtick run inside the text, at least three, so the text can't close it. */
+export function fenced(text: string, lang = 'text'): string {
+  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((r) => r.length));
+  const fence = '`'.repeat(Math.max(3, longest + 1));
+  return `${fence}${lang}\n${text}\n${fence}`;
+}
+
 export function tail(text: string, n: number): string {
   const lines = text.trimEnd().split('\n');
   return lines.slice(-n).join('\n');

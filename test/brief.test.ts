@@ -28,6 +28,8 @@ const ROLES: [string, RoleContext][] = [
   ['approver', {}],
   ['integrator', { strategy: 'merge', integration: { conflicts: ['a.ts'], fix: true }, answered: true }],
   ['judge', {}],
+  ['verifier', { verifiers: 2 }],
+  ['builder', { rework: ['verifiers'] }],
 ];
 
 function assertShape(brief: string, role: string) {
@@ -67,6 +69,9 @@ test('briefs carry paths, never contents', () => {
     write('review/round-1/code.md', `VERDICT: CHANGES ${s}\n- [blocker] ${s}\n`);
     write('review/round-1/ui.md', `${s}\n`);
     write('review/integration/code.md', `VERDICT: PASS ${s}\n`);
+    write('verify/round-1-verifiers-input.md', `## Verifier ${s}\n`);
+    write('verify/round-1-verifiers.md', `VERDICT: CHANGES\n- [major] - — ${s}\n`);
+    write('verify/round-1-verifier-answers.md', `- ${s}: NO\n`);
     const summary = `NEEDS-INPUT ${s}`;
     updateJob(root, job.id, (j) => {
       j.worktree = root;
@@ -233,4 +238,30 @@ test('judge brief names the eval task', () => {
 
 test('every role brief has the fixed shape', () => {
   for (const [role, ctx] of ROLES) assertShape(brief(fixture({ files: ['spec', 'request'] }), role, ctx), role);
+});
+
+test('verifier brief is paths only', () => {
+  const input = path.join(JOB_DIR, 'verify', 'round-1-verifiers-input.md');
+  const answers = path.join(JOB_DIR, 'verify', 'round-1-verifier-answers.md');
+  const f = fixture({ job: { round: 1, stage: 'verify' }, present: [input] });
+  const b = brief(f, 'verifier', { verifiers: 3 });
+  has(b, 'Role: verifier');
+  has(b, `Inputs: ${input}`);
+  has(b, `Output: ${answers}`);
+  has(b, 'Verifiers: 3 selected');
+  // Paths, ids, numbers and fixed text: no line beyond the shared ones and the count.
+  const extra = b.split('\n').filter((l) => !LABELS.some((label) => l.startsWith(label)) && !l.startsWith('Untrusted: ') && l !== REPLY_LINE);
+  assert.deepEqual(extra, ['Verifiers: 3 selected']);
+});
+
+test('reviewers and approver read the verifiers report', () => {
+  const report = path.join(JOB_DIR, 'verify', 'round-1-verifiers.md');
+  const inputs = (b: string) => b.split('\n').find((l) => l.startsWith('Inputs: '))!.slice('Inputs: '.length).split(', ');
+  const withReport = fixture({ job: { round: 1 }, files: ['spec', 'build'], present: [report] });
+  const without = fixture({ job: { round: 1 }, files: ['spec', 'build'] });
+  for (const role of ['reviewer:code', 'approver']) {
+    const ctx: RoleContext = role === 'approver' ? {} : { lens: 'code' };
+    assert.ok(inputs(brief(withReport, role, ctx)).includes(report), `${role} reads the report`);
+    assert.ok(!inputs(brief(without, role, ctx)).includes(report), `${role} without a report`);
+  }
 });

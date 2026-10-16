@@ -154,3 +154,25 @@ test('roster reports learning count and oldest review-by', () => {
     repo.cleanup();
   }
 });
+
+test('verifier prompt hash covers .forge/verifiers', () => {
+  const repo = tempRepo();
+  try {
+    const cfg = defaults();
+    const hashes = () => Object.fromEntries(roster(repo.dir, cfg).agents.map((a) => [a.role, a.promptHash]));
+    const before = hashes();
+    assert.ok(before.verifier, 'the verifier agent is on the roster');
+    assert.equal(roster(repo.dir, cfg).agents.find((a) => a.role === 'verifier')!.model, 'haiku');
+    const dir = path.join(repo.dir, '.forge', 'verifiers');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'help-rows.md'), '---\npaths: [lib/**]\n---\nIs it fine?\n');
+    const added = hashes();
+    assert.notEqual(added.verifier, before.verifier);
+    fs.writeFileSync(path.join(dir, 'help-rows.md'), '---\npaths: [lib/**]\nmode: block\n---\nIs it fine?\n');
+    const edited = hashes();
+    assert.notEqual(edited.verifier, added.verifier);
+    for (const role of Object.keys(before)) if (role !== 'verifier') assert.equal(edited[role], before[role], `${role} is unchanged`);
+  } finally {
+    repo.cleanup();
+  }
+});

@@ -78,6 +78,7 @@ const MODEL_LABEL: Record<string, string> = {
   integrator: 'Integrator model',
   retro: 'Retro model',
   judge: 'Judge model',
+  verifier: 'Verifier model',
   assistant: 'Assistant model',
 };
 

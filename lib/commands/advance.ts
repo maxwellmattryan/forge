@@ -12,7 +12,7 @@ import type { AdvanceRan, CliContext, Dispatch, Dispatched } from '../types.ts';
  * The command groups advance runs: every group lib/step.ts emits. Anything else (config writes,
  * commands that print for themselves, trackers, a nested advance) stays a separate call.
  */
-export const ADVANCE_GROUPS = ['job', 'worktree', 'pr', 'verify', 'integrate', 'run', 'stop', 'eval'] as const;
+export const ADVANCE_GROUPS = ['job', 'worktree', 'pr', 'verify', 'verifiers', 'integrate', 'run', 'stop', 'eval'] as const;
 
 export function runnableInProcess(argv: readonly string[]): boolean {
   return (ADVANCE_GROUPS as readonly string[]).includes(argv[0]) && !(argv[0] === 'job' && argv[1] === 'advance');

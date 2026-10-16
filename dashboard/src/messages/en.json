@@ -227,6 +227,8 @@
     "created": "Created",
     "updated": "Updated",
     "verify": "Verify",
+    "verifiers": "Verifiers",
+    "verifiersTitle": "{blocking} blocking · {warned} warnings",
     "agent": "Agent",
     "output": "Output",
     "tools": "Tools",

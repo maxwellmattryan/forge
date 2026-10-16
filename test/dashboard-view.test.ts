@@ -200,6 +200,32 @@ test('drawer: file selection and timeline details', () => {
   assert.equal(other.pre, JSON.stringify({ blob: '<'.repeat(300) }).slice(0, 240), 'sliced before escaping, so no entity is cut');
   assert.deepEqual(V.verdictMatrix({ verdicts: {}, verify: {} }), null);
   assert.deepEqual(V.verdictMatrix({ reviewers: ['code'], verdicts: { 2: { code: 'PASS', ui: 'CHANGES' }, 1: { code: 'CHANGES' } }, verify: { 3: 'FAIL' } }), { rounds: [1, 2, 3], reviewers: ['code', 'ui'] });
+  // A round with only a verifiers result still gets a row.
+  assert.deepEqual(V.verdictMatrix({ verdicts: {}, verify: {} }, { 4: { outcome: 'PASS', blocking: 0, warned: 1 } }), { rounds: [4], reviewers: [] });
+  assert.deepEqual(V.verdictMatrix({ reviewers: ['code'], verdicts: { 1: { code: 'PASS' } }, verify: { 1: 'PASS' } }, { 2: { outcome: 'CHANGES', blocking: 1, warned: 0 } }), { rounds: [1, 2], reviewers: ['code'] });
+});
+
+test('verifierRounds', () => {
+  const ev = (n: number, data: Record<string, unknown>) => ({ v: 1, ts: `2026-10-16T00:00:${String(n).padStart(2, '0')}.000Z`, type: 'verifiers', ...data });
+  const events: any[] = [
+    ev(1, { phase: 'run', round: 1, selected: ['a'] }),
+    ev(2, { phase: 'record', round: 1, outcome: 'CHANGES', blocking: 1, warned: 0, results: [] }),
+    ev(3, { phase: 'run', round: 1, selected: ['a'] }),
+    ev(4, { phase: 'record', round: 1, outcome: 'PASS', blocking: 0, warned: 2, results: [] }),
+    ev(5, { phase: 'record', round: 2, outcome: 'PASS', blocking: 0, warned: 0 }),
+    ev(6, { phase: 'record', round: 3, outcome: 'MAYBE', blocking: 0, warned: 0 }),
+    ev(7, { phase: 'record', round: '4', outcome: 'PASS', blocking: 0, warned: 0 }),
+    ev(8, { phase: 'record', round: 5, outcome: 'PASS', blocking: -1, warned: 0 }),
+    ev(9, { phase: 'record', round: 6, outcome: 'PASS', blocking: 0 }),
+    { v: 1, ts: 'x', type: 'verify', round: 7, outcome: 'PASS', blocking: 0, warned: 0, phase: 'record' },
+    null,
+  ];
+  assert.deepEqual(V.verifierRounds(events), { 1: { outcome: 'PASS', blocking: 0, warned: 2 }, 2: { outcome: 'PASS', blocking: 0, warned: 0 } });
+  assert.deepEqual(V.verifierRounds([]), {});
+  assert.deepEqual(V.verifierRounds(undefined), {});
+  assert.equal(V.verifierTone({ outcome: 'CHANGES', blocking: 1, warned: 3 }), 'bad');
+  assert.equal(V.verifierTone({ outcome: 'PASS', blocking: 0, warned: 3 }), 'warn');
+  assert.equal(V.verifierTone({ outcome: 'PASS', blocking: 0, warned: 0 }), 'ok');
 });
 
 test('analytics: stats query, usage bars and top jobs', () => {

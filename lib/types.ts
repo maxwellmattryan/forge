@@ -368,6 +368,8 @@ export interface StepInput {
    * (lib/scope.ts integrationTouched), keyed by the sides that event recorded; null when unknown.
    */
   integrationTouched: { head: string; upstream: string; sha: string; files: string[] | null } | null;
+  /** How many `.forge/verifiers/*.md` entries the main checkout has: 0 keeps the verify stage as it was. */
+  verifiers: number;
 }
 
 /** The job files StepInput.files records. */
@@ -468,6 +470,61 @@ export interface SecretAllowlist {
   problems: string[];
   globs: { glob: string; line: number }[];
   prints: Map<string, number>;
+}
+
+/** One valid `.forge/verifiers/<name>.md`: loadVerifiers in lib/verifiers.ts. */
+export interface Verifier {
+  name: string;
+  /** Globs matched with inSpec (lib/scope.ts). */
+  paths: string[];
+  severity: 'blocker' | 'major' | 'minor';
+  mode: 'warn' | 'block';
+  /** The body's first non-empty line, on one line: yes means the change is fine. */
+  question: string;
+  /** The whole trimmed body after the frontmatter. */
+  body: string;
+}
+
+/** A verifier file that never runs: loadVerifiers. */
+export interface VerifierProblem {
+  file: string;
+  problem: string;
+}
+
+/** What `forge verifiers list` prints (without the bodies): loadVerifiers. */
+export interface VerifierSet {
+  dir: string;
+  verifiers: Verifier[];
+  problems: VerifierProblem[];
+}
+
+/** What `forge verifiers run` returns: verifiersRun in lib/verifiers.ts. */
+export interface VerifiersRun {
+  id: string;
+  round: number;
+  sha: string;
+  selected: string[];
+  problems: number;
+  truncated: boolean;
+  /** PASS when nothing matched and the report is already written; null while the verifier agent has to answer. */
+  outcome: 'PASS' | null;
+  file: string;
+}
+
+/** A selected verifier's answer: parseAnswers in lib/verifiers.ts; `none` fails closed. */
+export type VerifierAnswer = 'yes' | 'no' | 'none';
+
+/** What `forge verifiers record` returns: verifiersRecord in lib/verifiers.ts. */
+export interface VerifiersRecord {
+  id: string;
+  round: number;
+  outcome: 'PASS' | 'CHANGES';
+  blocking: number;
+  warned: number;
+  /** Block-mode verifiers answered NO or not at all. */
+  failed: string[];
+  file: string;
+  budget?: { stopped: true; reason: string; exceeded: unknown[] };
 }
 
 /** A scan's result: scanBranch, scanPaths, scanAgentOutputs. `error` means it did not finish. */
@@ -1074,6 +1131,20 @@ export interface ReviewerStats {
   recurring: number;
 }
 
+/** One verifier's record: computeStats in lib/stats.ts, from `verifiers` record events. */
+export interface VerifierStats {
+  /** Records whose results name it. */
+  runs: number;
+  /** Answers `no`. */
+  fails: number;
+  /** Answers `none`: no valid answer from the verifier model. */
+  unanswered: number;
+  /** `no` or `none` in block mode. */
+  blocks: number;
+  /** fails / runs; null at 0 runs. */
+  hitRate: number | null;
+}
+
 /** GET /api/stats: computeStats in lib/stats.ts. */
 export interface Stats {
   generatedAt: string;
@@ -1109,6 +1180,7 @@ export interface Stats {
     byModel: Record<string, UsageRow>;
   };
   reviewers: Record<string, ReviewerStats>;
+  verifiers: Record<string, VerifierStats>;
 }
 
 /** One entry of `.forge/notes/learnings.md`: parseLearnings in lib/learnings.ts. Dates are valid or null. */

@@ -33,6 +33,13 @@ const inReview = (agents: Job['agents'] = {}, more: Partial<Job> = {}): Partial<
   job({ stage: 'review', round: 1, reviewers: ['code', 'tests'], verifyRuns: [vr(1, 10, true)], agents: { builder: ag(1, 5, 9), ...agents }, ...more });
 const scoped = [ev('round', 4, { round: 1 }), ev('scope', 11, { round: 1 })];
 
+/** Verifiers: the round's run event at minute 8, its files, and the failing verify run a CHANGES record appends at 12. */
+const VF_RUN = ev('verifiers', 8, { phase: 'run', round: 1, sha: 's', selected: ['help-rows', 'docs-links'], problems: 0, truncated: false });
+const VF_INPUT = path.join(JOB_DIR, 'verify', 'round-1-verifiers-input.md');
+const VF_ANSWERS = path.join(JOB_DIR, 'verify', 'round-1-verifier-answers.md');
+const VF_REPORT = path.join(JOB_DIR, 'verify', 'round-1-verifiers.md');
+const VF_FAIL: VerifyRun = { round: 1, attempt: 2, sha: 's', ok: false, at: t(12), file: 'verify/round-1-verifiers.md', failure: 'verifiers' };
+
 /** A job at decide, round 1, approver done at minute 21. */
 const atDecide = (more: Partial<Job> = {}): Partial<Job> => job({ stage: 'decide', round: 1, reviewers: ['code'], verdicts: { 1: { code: 'PASS' } }, agents: { approver: ag(1, 20, 21) }, ...more });
 
@@ -402,6 +409,41 @@ const rows: Row[] = [
   { name: 'V1 re-verifies after the builder fixed it', fx: { job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 4, false)], agents: { builder: ag(1, 5, 6) } }) }, want: run('verify', 'j') },
   { name: 'V2 a pass goes to review', fx: { job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 7, true)], agents: { builder: ag(1, 5, 6) } }) }, want: run('job', 'set', 'j', '--stage', 'review', '--state', 'running') },
   { name: 'V3 a failure goes back to build', fx: { job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 7, false)], agents: { builder: ag(1, 5, 6) } }) }, want: run('job', 'set', 'j', '--stage', 'build', '--state', 'running') },
+  // Verifiers (VF1–VF3): only when the main checkout has .forge/verifiers/*.md, between a passing verify and V2.
+  { name: 'VF1 runs the verifiers after a passing verify', fx: { verifiers: 2, job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 7, true)], agents: { builder: ag(1, 5, 6) } }) }, want: { ...run('verifiers', 'run', 'j'), shell: 'forge verifiers run j' } },
+  {
+    name: 'VF2 spawns the verifier on haiku with the answers as output',
+    fx: { verifiers: 2, present: [VF_INPUT], job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 7, true)], agents: { builder: ag(1, 5, 6) } }), events: [VF_RUN] },
+    want: { action: 'spawn', role: 'verifier', agent: 'forge:verifier', model: 'haiku', output: VF_ANSWERS },
+    check: (a) => {
+      const lines = a.brief.split('\n');
+      assert.ok(lines.includes(`Inputs: ${VF_INPUT}`), a.brief);
+      assert.ok(lines.includes(`Output: ${VF_ANSWERS}`));
+      assert.ok(lines.includes('Verifiers: 2 selected'));
+      assert.deepEqual(a.start, ['job', 'agent', 'j', 'start', '--role', 'verifier', '--model', 'haiku', '--output', VF_ANSWERS]);
+    },
+  },
+  {
+    name: 'VF2 retries a verifier that ended without answers',
+    fx: { verifiers: 2, job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 7, true)], agents: { builder: ag(1, 5, 6), verifier: ag(1, 9, 10, { outputMissing: true }) } }), events: [VF_RUN] },
+    want: { action: 'spawn', role: 'verifier', retry: true },
+  },
+  { name: 'VF3 records the answers', fx: { verifiers: 2, job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 7, true)], agents: { builder: ag(1, 5, 6), verifier: ag(1, 9, 10, { outputMissing: false }) } }), events: [VF_RUN] }, want: run('verifiers', 'record', 'j') },
+  { name: 'VF3 records after the retry wrote nothing either', fx: { verifiers: 2, job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 7, true)], agents: { builder: ag(1, 5, 6), verifier: ag(1, 9, 10, { outputMissing: true, retry: true }) } }), events: [VF_RUN] }, want: run('verifiers', 'record', 'j') },
+  { name: 'V2 after a verifiers pass', fx: { verifiers: 2, job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 7, true)], agents: { builder: ag(1, 5, 6), verifier: ag(1, 9, 10) } }), events: [VF_RUN, ev('verifiers', 11, { phase: 'record', round: 1, sha: 's', outcome: 'PASS', blocking: 0, warned: 1, results: [] })] }, want: run('job', 'set', 'j', '--stage', 'review', '--state', 'running') },
+  { name: 'V3 after a verifiers failure', fx: { verifiers: 2, job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 7, true), VF_FAIL], agents: { builder: ag(1, 5, 6), verifier: ag(1, 9, 10) } }), events: [VF_RUN, ev('verifiers', 11, { phase: 'record', round: 1, sha: 's', outcome: 'CHANGES' })] }, want: run('job', 'set', 'j', '--stage', 'build', '--state', 'running') },
+  {
+    name: 'B4 rework from verifiers',
+    fx: { verifiers: 2, files: ['spec', 'tasks', 'build'], present: [VF_REPORT, path.join(JOB_DIR, 'verify', 'round-1.md')], job: job({ stage: 'build', round: 1, verifyRuns: [vr(1, 7, true), VF_FAIL], agents: { builder: ag(1, 5, 6), verifier: ag(1, 9, 10) } }), events: [ev('round', 4)] },
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    check: (a) => {
+      const lines = a.brief.split('\n');
+      assert.ok(lines.includes('Rework: verifiers'), a.brief);
+      assert.ok(lines.includes(`Inputs: ${[VF_REPORT, path.join(JOB_DIR, 'tasks.md'), path.join(JOB_DIR, 'build.md')].join(', ')}`), a.brief);
+    },
+  },
+  { name: 'G5 waits on the verifier', fx: { verifiers: 2, job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 7, true)], agents: { builder: ag(1, 5, 6), verifier: ag(1, 9) } }), events: [VF_RUN] }, want: { action: 'wait', waitingOn: 'agents', running: ['verifier'] } },
+  { name: 'L1 respawns a lost verifier', fx: { verifiers: 2, job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 7, true)], agents: { builder: ag(1, 5, 6), verifier: ag(1, 9, 10, { status: 'lost' }) } }), events: [VF_RUN] }, want: { action: 'spawn', role: 'verifier' } },
 
   // ---- Review
   { name: 'RV1 no lens this round goes to pr', fx: { config: (c) => (c.review.onPrFeedback = 'none'), job: inReview({}, { pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }) }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running') },

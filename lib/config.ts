@@ -75,6 +75,8 @@ export function defaults(): Config {
         integrator: 'sonnet',
         retro: 'opus',
         judge: 'opus',
+        // A cheap yes/no answer per verifier; not in EFFORT_ROLES, so it takes runtime.effort.
+        verifier: 'haiku',
         assistant: 'sonnet',
       },
     },
@@ -496,7 +498,8 @@ export const TRUST_ENV = 'FORGE_DAEMON_TRUST';
  * Fingerprint of what decides the code `forge` runs from the main checkout: the checkout's
  * realpath, `.forge/config.yml` (commands run through a shell; daemon.* starts sessions), the
  * secret scanner's allowlist `.forge/secrets-allow.txt` (a session that could edit it could allow
- * its own leak) and the custom tracker modules imported from `.forge/trackers/`. An unreadable entry hashes as a
+ * its own leak), the custom tracker modules imported from `.forge/trackers/` and the verifiers in
+ * `.forge/verifiers/`, which gate the pipeline. An unreadable entry hashes as a
  * marker rather than throwing, so a tampered file can't turn the check into a crash.
  * `configBytes` is config.yml as already read (null: absent).
  */
@@ -519,13 +522,16 @@ export function trustDigest(root: string, configBytes?: Buffer | null): string {
   if (configBytes === undefined) file('config', p.config);
   else add('config', configBytes ?? '!ENOENT');
   file('secrets-allow', path.join(p.dir, 'secrets-allow.txt'));
-  for (const { rel, link, dir } of walk(p.trackers)) {
-    const f = path.join(p.trackers, rel);
-    if (link) {
-      try {
-        add(`link ${rel}`, fs.readlinkSync(f));
-      } catch {}
-    } else if (!dir) file(`trackers/${rel}`, f);
+  // Verifiers gate the pipeline: a session that could weaken a block verifier could pass its own work.
+  for (const [label, base] of [['trackers', p.trackers], ['verifiers', p.verifiers]] as const) {
+    for (const { rel, link, dir } of walk(base)) {
+      const f = path.join(base, rel);
+      if (link) {
+        try {
+          add(`link ${label === 'trackers' ? '' : 'verifiers/'}${rel}`, fs.readlinkSync(f));
+        } catch {}
+      } else if (!dir) file(`${label}/${rel}`, f);
+    }
   }
   return h.digest('hex');
 }
@@ -584,7 +590,7 @@ export function daemonTrust(root: string, env: NodeJS.ProcessEnv = process.env):
   }
   if (trustDigest(root, bytes) !== want)
     return refuse(
-      '.forge/config.yml, .forge/secrets-allow.txt or .forge/trackers/ changed since a human started the daemon (or this is another checkout). Only a human may change what Forge executes: stop here and leave the change for them to review.',
+      '.forge/config.yml, .forge/secrets-allow.txt, .forge/trackers/ or .forge/verifiers/ changed since a human started the daemon (or this is another checkout). Only a human may change what Forge executes: stop here and leave the change for them to review.',
     );
   return { problem: null, configText: bytes === null ? null : bytes.toString('utf8') };
 }
