@@ -3,7 +3,7 @@
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 22;
+export const API_VERSION = 23;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 /** lib/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */
@@ -366,7 +366,7 @@ export interface DaemonSessionState {
   lastResultAt: string | null;
   turns: number;
   failures: number;
-  held: 'budget' | null;
+  held: 'budget' | 'repo-budget' | null;
   /** Has fresh work but no free slot under daemon.maxConcurrent. */
   waiting: boolean;
   lastError: string | null;
@@ -536,8 +536,42 @@ export interface ApiState {
   daemons: DaemonPoolState;
   jobs: StateJob[];
   requests: ForgeRequest[];
+  /** Repo spend against the day and month caps. */
+  budget: RepoBudgetStatus;
   now: string;
 }
+
+/** A repo budget cap: REPO_BUDGET_KEYS in lib/schema.ts. */
+export type RepoBudgetKey = 'usdPerMonth' | 'tokensPerMonth' | 'usdPerDay';
+/** budget.onExceeded: REPO_BUDGET_MODES in lib/schema.ts. */
+export type RepoBudgetMode = 'hold' | 'warn';
+
+/** Repo spend against the caps: repoBudgetStatus in lib/repo-budget.ts (`forge budget`, /api/state.budget). */
+export interface RepoBudgetStatus {
+  /** Current UTC period ids: YYYY-MM-DD and YYYY-MM. */
+  day: string;
+  month: string;
+  onExceeded: RepoBudgetMode;
+  /** USD to 4 decimal places. */
+  spent: { dayUsd: number; monthUsd: number; monthTokens: number };
+  configured: Record<RepoBudgetKey, number | null>;
+  acks: { day: number; month: number };
+  /** Effective caps: configured x (1 + acks for the period). */
+  caps: Record<RepoBudgetKey, number | null>;
+  /** max(0, cap - spent); null when uncapped. */
+  remaining: Record<RepoBudgetKey, number | null>;
+  /** monthUsd / dayOfMonth x daysInMonth, 2dp. */
+  projectedMonthUsd: number;
+  exceeded: RepoBudgetKey[];
+  held: boolean;
+  /** `repo budget: …` when any key is exceeded, also under warn. */
+  reason: string | null;
+  /** Live jobs waiting on budget with a `repo budget:` reason. */
+  heldJobs: string[];
+}
+
+/** POST /api/budget/ack: the repo budget status after the acknowledgement. */
+export type PostBudgetAckResponse = RepoBudgetStatus;
 
 /** GET /api/jobs/:id: jobDetail in lib/server.ts. */
 export interface JobDetail {

@@ -14,12 +14,15 @@ export const HELP: HelpGroup[] = [
     commands: [
       {
         command: 'stats',
-        args: '[--since DATE] [--include-evals] [--json]',
+        args: '[--since DATE] [--include-evals] [--json] | --csv [--since DATE] [--by job|role|model|day]',
         summary: 'pipeline metrics: review and verify first-pass rates, per-lens change and dispute rates, recurring findings, escalations, time to PR, tokens and cost (a text summary, or the full object with --json)',
         flags: [
           ['--since DATE', 'only jobs created on or after DATE'],
-          ['--include-evals', 'count eval jobs too'],
+          ['--include-evals', 'count eval jobs too (--csv always counts every job)'],
+          ['--csv', 'spend as RFC 4180 CSV with CRLF line ends: key columns, then runs,tokens,input,output,cache_read,cache_write,usd; with it, --since keeps events at or after DATE'],
+          ['--by K', 'with --csv: one row per job (default, keyed job,kind,title), role, model or day'],
         ],
+        docs: ['Repo budget', 'docs/CLI.md#repo-budget'],
       },
     ],
   },

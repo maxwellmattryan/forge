@@ -9,6 +9,8 @@
   import JobActions from '../JobActions.svelte';
   import PermissionPrompts from '../PermissionPrompts.svelte';
   import PrChip from '../PrChip.svelte';
+  import RepoBudgetSection from '../RepoBudgetSection.svelte';
+  import { showRepoSection } from '../../lib/repo-budget.ts';
   import { safeUrl } from '../../lib/markdown.ts';
   import { ago } from '../../lib/util.ts';
   import type { ApiState } from '../../lib/types.ts';
@@ -34,6 +36,7 @@
 <!-- plain: the popover's own surface, so the panel keeps its text off the grain wherever it renders. -->
 <div class="plain flex flex-col gap-5">
   {#if prompts}<PermissionPrompts />{/if}
+  {#if showRepoSection(data.budget)}<RepoBudgetSection {data} />{/if}
   <section class="flex flex-col gap-3" aria-labelledby="needs-urgent">
     <h3 id="needs-urgent" class="label">{$t('needs.urgent')}</h3>
     {#if groups.urgent.length}

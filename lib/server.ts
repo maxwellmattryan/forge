@@ -21,6 +21,7 @@ import { normalizeRef } from './issue-link.ts';
 import { paths, exists, DEV_DIST_DIR, PLUGIN_ROOT } from './paths.ts';
 import { API_VERSION, CONFIG_SCHEMA_VERSION, EFFORTS, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from './schema.ts';
 import { computeStats } from './stats.ts';
+import { RepoBudgetAckError, ackRepoBudget, repoBudgetStatus, validPeriod } from './repo-budget.ts';
 import { listRuns, listTasks, compareRuns, forgeVersion } from './evals.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, enqueue, listRequests, validJobId, validScope } from './requests.ts';
 import { gateOwner } from './foreman.ts';
@@ -55,11 +56,13 @@ import type {
   LastHuman,
   LoadedJob,
   PermissionDecision,
+  PostBudgetAckResponse,
   PostConfigResponse,
   PostDaemonModeResponse,
   PostJobEffortResponse,
   PostJobResponse,
   PostRequestResponse,
+  RepoBudgetStatus,
   TranscriptPage,
   VersionInfo,
 } from './types.ts';
@@ -104,6 +107,8 @@ const MAX_SCREENSHOTS = 200;
 const MAX_JOB_REQUESTS = 50;
 const MAX_REQUEST_EXCERPT = 2000;
 const MAX_SSE_CLIENTS = 8;
+/** How long /api/state reuses the repo budget status. */
+const BUDGET_MEMO_MS = 5000;
 const SSE_SLOW_CLIENT_BYTES = 1024 * 1024;
 const SSE_MAX_LINE = 64 * 1024;
 const SSE_PING_MS = 15_000;
@@ -149,6 +154,13 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
   let pool: DaemonPool | null = null;
   let ping: NodeJS.Timeout | null = null;
   const poolState = (): DaemonPoolState => ({ ...(pool ? pool.state() : idlePoolState(root)), clients: clients.size });
+  // Polls come every few seconds and the ledger stats every job's events, so the status is reused for 5 s.
+  // write: false, so a GET never writes .forge/runtime/.
+  let budgetCache: { at: number; data: RepoBudgetStatus } | null = null;
+  const budget = (): RepoBudgetStatus => {
+    if (!budgetCache || Date.now() - budgetCache.at > BUDGET_MEMO_MS) budgetCache = { at: Date.now(), data: repoBudgetStatus(root, loadConfig(root).config, { write: false }) };
+    return budgetCache.data;
+  };
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -163,7 +175,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         return hit ? immutable(res, hit) : send(res, 404, 'text/plain', 'not found');
       }
       if (req.method === 'GET' && p === '/forge.png') return sendFile(res, path.join(PLUGIN_ROOT, 'assets', 'forge.png'), 'image/png');
-      if (req.method === 'GET' && p === '/api/state') return json(res, state(root, poolState(), projects));
+      if (req.method === 'GET' && p === '/api/state') return json(res, state(root, poolState(), projects, budget()));
       if (req.method === 'GET' && p === '/api/events') return events(req, res, url);
       if (req.method === 'GET' && p === '/api/daemons/log') return sessionLog(req, res, url);
       if (req.method === 'GET' && p === '/api/stats') return json(res, computeStats(root, { since: url.searchParams.get('since') ?? undefined }));
@@ -274,6 +286,27 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
           return json(res, r satisfies PostConfigResponse);
         } catch (e) {
           if (e instanceof ConfigSetError) return jsonStatus(res, CONFIG_STATUS[e.reason], { error: e.message });
+          throw e;
+        }
+      }
+      // Not blocked by the daemon lock: an ack is an audit line, never a config.yml change.
+      if (req.method === 'POST' && p === '/api/budget/ack') {
+        if (guardPost(req, res, token)) return;
+        let body: any;
+        try {
+          body = JSON.parse((await readBody(req)) || '{}');
+        } catch {
+          return jsonStatus(res, 400, { error: 'body is not JSON' });
+        }
+        const period = body && typeof body === 'object' && !Array.isArray(body) ? body.period : undefined;
+        if (!validPeriod(period)) return jsonStatus(res, 400, { error: 'period must be the current UTC month (YYYY-MM) or day (YYYY-MM-DD)' });
+        try {
+          const r = ackRepoBudget(root, loadConfig(root).config, period, null, dashboardActor());
+          budgetCache = { at: Date.now(), data: r.status };
+          pool?.poke();
+          return json(res, r.status satisfies PostBudgetAckResponse);
+        } catch (e) {
+          if (e instanceof RepoBudgetAckError) return jsonStatus(res, e.reason === 'within' ? 409 : 400, { error: e.message });
           throw e;
         }
       }
@@ -878,7 +911,7 @@ function isLoopbackHost(host: string | undefined): boolean {
   return name === '127.0.0.1' || name === 'localhost' || name === '[::1]';
 }
 
-function state(root: string, daemons: DaemonPoolState, projects: string): ApiState {
+function state(root: string, daemons: DaemonPoolState, projects: string, budget: RepoBudgetStatus): ApiState {
   const { config, initialized } = loadConfig(root);
   const requests = listRequests(root);
   const jobs = listJobs(root).map((j) => {
@@ -906,6 +939,7 @@ function state(root: string, daemons: DaemonPoolState, projects: string): ApiSta
     daemons: { ...daemons, enabled: config.daemon?.enabled === true, foreman: config.foreman?.enabled === true, maxConcurrent: validCap(config.daemon?.maxConcurrent) ?? daemons.maxConcurrent },
     jobs,
     requests: requests.filter((r) => r.status === 'pending' || r.status === 'in-progress'),
+    budget,
     now: new Date().toISOString(),
   };
 }

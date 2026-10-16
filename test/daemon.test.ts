@@ -11,6 +11,8 @@ import { promisify } from 'node:util';
 import { tempRepo, waitFor as waitUntil } from './helpers.ts';
 import { TRUST_ENV, defaults, resolveEffort, trustDigest } from '../lib/config.ts';
 import { budgetCmd } from '../lib/budget.ts';
+import { ackRepoBudget } from '../lib/repo-budget.ts';
+import { dollarConfig, spend } from './repo-budget-fixture.ts';
 import { createJob, jobDir, loadJob, markAgentsLost, readEvents, recordAgent, setJob, setJobEffort, updateJob } from '../lib/jobs.ts';
 import { loadStepInput, step } from '../lib/step.ts';
 import { PLUGIN_ROOT } from '../lib/paths.ts';
@@ -137,7 +139,7 @@ test('AC5: command template to argv', async () => {
     '{unknown}',
     '--x=/p/with space/forge',
     '--disallowedTools',
-    'Edit(.forge/config.yml),Edit(.forge/trackers/**),Edit(.forge/secrets-allow.txt),Edit(.forge/verifiers/**)',
+    'Edit(.forge/config.yml),Edit(.forge/trackers/**),Edit(.forge/secrets-allow.txt),Edit(.forge/verifiers/**),Edit(.forge/runtime/spend.json),Edit(.forge/runtime/audit.jsonl)',
     '--permission-prompt-tool',
     'stdio',
   ]);
@@ -2306,6 +2308,47 @@ test('budget hold is per job session', async () => {
     d.poke();
     await waitFor(() => kit.last(p2) && turnsIn(kit.last(p2)) === 1, 2000, 'the approve turn');
     assert.equal(d.sessionState(p2).held, null);
+  } finally {
+    await d.close();
+    repo.cleanup();
+  }
+});
+
+test('DENY_TOOLS covers the repo budget files', () => {
+  for (const rule of ['Edit(.forge/runtime/spend.json)', 'Edit(.forge/runtime/audit.jsonl)']) assert.ok(DENY_TOOLS.includes(rule), rule);
+});
+
+test('repo budget holds job sessions', async () => {
+  const repo = tempRepo();
+  const root = repo.dir;
+  const cfg = config();
+  cfg.usage.pricing = dollarConfig().usage.pricing;
+  cfg.budget.usdPerMonth = 5;
+  const kit = fakeKit();
+  const d = kitPool(root, kit, cfg);
+  try {
+    const spender = createJob(root, cfg, { title: 'Spender' });
+    setJob(root, spender.id, { stage: 'done', state: 'done' });
+    spend(root, spender.id, 5);
+    const a = createJob(root, cfg, { title: 'Held A' }).id;
+    const c = createJob(root, cfg, { title: 'Cancelled C' }).id;
+    await enqueueInOrder(root, [{ type: 'resume', job: a }, { type: 'cancel', job: c }, { type: 'next' }]);
+    d.start();
+    await settle();
+    assert.equal(kit.of(a).length, 0, 'a held resume gets no spawn and no turn');
+    assert.equal(d.sessionState(a).held, 'repo-budget');
+    assert.equal(d.state().jobs[a].held, 'repo-budget');
+    await waitFor(() => kit.last(c) && turnsIn(kit.last(c)) === 1, 2000, 'the cancel turn');
+    assert.equal(d.sessionState(c).held, null, 'cancel is never held');
+    await waitFor(() => kit.last(INBOX) && turnsIn(kit.last(INBOX)) >= 1, 2000, 'the inbox turn');
+    for (let i = 0; i < 3; i++) d.poke();
+
+    ackRepoBudget(root, cfg, new Date().toISOString().slice(0, 7), null, { login: 'me', source: 'env' });
+    d.poke();
+    await waitFor(() => kit.last(a) && turnsIn(kit.last(a)) === 1, 2000, 'the ack releases the resume on the next tick');
+    assert.equal(d.sessionState(a).held, null);
+    await waitFor(() => eventsIn(logOf(root, a), 'held').length >= 2, 2000, 'the log to flush');
+    assert.deepEqual(eventsIn(logOf(root, a), 'held').map((e) => e.held), ['repo-budget', null], 'held is logged only when it changes');
   } finally {
     await d.close();
     repo.cleanup();

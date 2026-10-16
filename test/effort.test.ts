@@ -368,11 +368,11 @@ test('reads a v8 job', () => {
 test('reads a v3 config', () => {
   const s = scratch();
   try {
-    assert.equal(CONFIG_SCHEMA_VERSION, 8);
+    assert.equal(CONFIG_SCHEMA_VERSION, 9);
     fs.writeFileSync(s.configFile, fs.readFileSync(s.configFile, 'utf8').replace(/^schemaVersion: \d+$/m, 'schemaVersion: 3'));
     const loaded = loadConfig(s.root);
     assert.equal(loaded.migratedFrom, 3);
-    assert.equal(loaded.config.schemaVersion, 8);
+    assert.equal(loaded.config.schemaVersion, 9);
     assert.deepEqual(Object.keys(loaded.config.runtime.efforts), [...EFFORT_ROLES]);
     assert.ok(Object.values(loaded.config.runtime.efforts).every((v) => v === null));
     assert.deepEqual(loaded.config.runtime.effortByComplexity, { low: null, medium: null, high: null });

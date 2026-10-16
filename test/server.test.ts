@@ -9,6 +9,7 @@ import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
+import { budgetRepo } from './repo-budget-fixture.ts';
 import { broadcast, distAllowlist, distDirFor, startServer } from '../lib/server.ts';
 import { DEV_DIST_DIR } from '../lib/paths.ts';
 import { TURN_LINE } from '../lib/daemon.ts';
@@ -1068,7 +1069,7 @@ test('/api/state exposes the session pool', async () => {
     .map((f) => fs.readFileSync(path.join(src, f), 'utf8'))
     .join('\n');
   assert.ok(app.includes('/api/requests'), 'read the dashboard sources');
-  assert.equal(DASH_API_VERSION, 22, 'the dashboard reads API_VERSION from src/lib/types.ts');
+  assert.equal(DASH_API_VERSION, 23, 'the dashboard reads API_VERSION from src/lib/types.ts');
   assert.doesNotMatch(app, /launcher|launched/);
 });
 
@@ -1255,7 +1256,7 @@ test('GET /api/about reports versions', async () => {
     assert.equal(r.status, 200);
     const a = JSON.parse(r.text);
     assert.equal(a.forgeVersion, JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version);
-    assert.equal(a.apiVersion, 22);
+    assert.equal(a.apiVersion, 23);
     assert.equal(a.pluginRoot, PLUGIN_ROOT);
     assert.deepEqual(a.schemaVersions, { config: schema.CONFIG_SCHEMA_VERSION, job: schema.JOB_SCHEMA_VERSION, event: schema.EVENT_SCHEMA_VERSION });
     assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'pricing.json'), 'utf8')).asOf);
@@ -1513,7 +1514,7 @@ test('state exposes office session and gateOwner', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 22);
+    assert.equal(st.apiVersion, 23);
     assert.equal(st.daemons.foreman, true);
     assert.equal(st.daemons.office.scope, '_office');
     assert.equal(st.daemons.office.running, false);
@@ -1613,7 +1614,7 @@ test('owner status in /api/state and job detail', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 22);
+    assert.equal(st.apiVersion, 23);
     const byId = Object.fromEntries(st.jobs.map((j) => [j.id, j.ownerStatus]));
     assert.deepEqual(Object.fromEntries(Object.entries(byId).map(([k, v]: [string, any]) => [k, v.status])), { 'j-none': 'none', 'j-live': 'live', 'j-agent': 'live', 'j-stale': 'stale', 'j-dead': 'live' }, 'the time rule only: never dead');
     assert.deepEqual(byId['j-none'], { status: 'none', session: null, since: null, heartbeat: null, agentRunning: false, reason: null, jobSession: false });
@@ -1761,7 +1762,7 @@ test('/api/state and job detail carry effort', async () => {
   try {
     const port = Number(new URL(srv.url).port);
     const s = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(s.apiVersion, 22);
+    assert.equal(s.apiVersion, 23);
     assert.equal(s.config.effort, 'medium');
     const row = (id) => s.jobs.find((j) => j.id === id);
     assert.equal(row(plain).effort, null, 'a v3 job reads as inherit');
@@ -1967,7 +1968,7 @@ test('state carries lastHuman', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 22);
+    assert.equal(st.apiVersion, 23);
     const by = Object.fromEntries(st.jobs.map((j) => [j.id, j.lastHuman]));
     assert.deepEqual(by, {
       [acted]: { ts: '2026-03-01T00:00:01.000Z', type: 'budget-ack', action: null, actor: { login: 'bob', source: 'env' } },
@@ -1980,5 +1981,75 @@ test('state carries lastHuman', async () => {
   } finally {
     await close();
     repo.cleanup();
+  }
+});
+
+test('state carries repo budget', async () => {
+  const s = budgetRepo({ usdPerMonth: 10 }, 12);
+  const runtime = path.join(s.root, '.forge', 'runtime');
+  fs.rmSync(runtime, { recursive: true, force: true });
+  const { url, close } = await startServer(s.root, { port: 0, daemon: fakeChildren().opts });
+  const port = Number(new URL(url).port);
+  try {
+    const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
+    assert.equal(st.apiVersion, 23);
+    assert.equal(st.budget.month, new Date().toISOString().slice(0, 7));
+    assert.deepEqual(st.budget.spent, { dayUsd: 12, monthUsd: 12, monthTokens: 12 });
+    assert.deepEqual(st.budget.exceeded, ['usdPerMonth']);
+    assert.equal(st.budget.held, true);
+    assert.equal(st.budget.reason, 'repo budget: $12.00 of $10.00 this month');
+    const written = fs.existsSync(runtime) ? fs.readdirSync(runtime, { recursive: true }).filter((f) => !String(f).startsWith('daemons')) : [];
+    assert.deepEqual(written, [], 'the GET writes no file under .forge/runtime/');
+  } finally {
+    await close();
+    s.cleanup();
+  }
+});
+
+test('budget ack endpoint guards', async () => {
+  const s = budgetRepo({ usdPerMonth: 10, usdPerDay: 1000 }, 12);
+  const { url, close } = await startServer(s.root, { port: 0, daemon: fakeChildren().opts });
+  const port = Number(new URL(url).port);
+  const auditFile = path.join(s.root, '.forge', 'runtime', 'audit.jsonl');
+  const acks = () => (fs.existsSync(auditFile) ? fs.readFileSync(auditFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+  try {
+    const good = { 'x-forge-token': await tokenOf(port), origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (body, headers: any = good) => hit(port, { method: 'POST', path: '/api/budget/ack', headers, body: typeof body === 'string' ? body : JSON.stringify(body) });
+    const month = new Date().toISOString().slice(0, 7);
+    const today = new Date().toISOString().slice(0, 10);
+    const d = new Date();
+    const past = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+    const { origin: _o, ...noOrigin } = good;
+    const refusals: [number, unknown, any?][] = [
+      [403, { period: month }, { ...good, 'x-forge-token': 'wrong' }],
+      [403, { period: month }, noOrigin],
+      [403, { period: month }, { ...good, origin: 'http://evil.example' }],
+      [415, { period: month }, { ...good, 'content-type': 'text/plain' }],
+      [400, '{not json'],
+      [400, {}],
+      [400, { period: 202610 }],
+      [400, { period: '2026-13' }],
+      [400, { period: past }],
+      [409, { period: today }],
+    ];
+    for (const [status, body, headers] of refusals) assert.equal((await post(body, headers)).status, status, JSON.stringify(body));
+    assert.deepEqual(acks(), [], 'no refusal wrote an ack');
+    const within = await post({ period: today });
+    assert.match(JSON.parse(within.text).error, /nothing to acknowledge/);
+
+    const ok = await post({ period: month });
+    assert.equal(ok.status, 200, ok.text);
+    const st = JSON.parse(ok.text);
+    assert.equal(st.caps.usdPerMonth, 20);
+    assert.equal(st.held, false);
+    const [ack] = acks();
+    assert.equal(ack.type, 'repo-budget-ack');
+    assert.equal(ack.period, month);
+    assert.equal(ack.actor.source, 'dashboard');
+    const state = JSON.parse((await hit(port, { path: '/api/state' })).text);
+    assert.equal(state.budget.held, false, 'the next poll sees the ack at once');
+  } finally {
+    await close();
+    s.cleanup();
   }
 });
