@@ -8,8 +8,10 @@ import { spawn as nodeSpawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { effectiveLimits, exceededKeys, measureBudget } from './budget.ts';
+import { configForJob } from './eval-overlay.ts';
 import { TRUST_ENV, daemonProblems, defaults, loadConfig as defaultLoadConfig, trackerSymlinks, trustDigest } from './config.ts';
 import { RUNNING_AGENT_MAX_MS, loadJob, markAgentsLost } from './jobs.ts';
 import { PLUGIN_ROOT, paths } from './paths.ts';
@@ -50,6 +52,8 @@ export interface DaemonOptions {
   slotGraceMs?: number;
   /** How long an idle job session may sit with agents marked running and no background task left before it gets a resume. */
   missedEndMs?: number;
+  /** The host platform; the pool refuses to start on native Windows (lib/platform.ts). */
+  platform?: NodeJS.Platform;
 }
 
 /** DaemonOptions with every default filled in. */
@@ -392,7 +396,8 @@ export function parseRateLimit(info: unknown): RateLimitInfo | null {
  * Drivers that only .git/config or ~/.gitconfig can define (filter, diff, merge) are left alone.
  */
 export const GIT_PINS = Object.freeze([
-  ['core.hooksPath', '/dev/null'],
+  // The null device on every platform (\\.\nul on Windows), never a directory a hook could live in.
+  ['core.hooksPath', os.devNull],
   ['core.fsmonitor', 'false'],
 ]);
 
@@ -466,7 +471,13 @@ export function heldByBudget(root: string, config: Config, rec: { type: string; 
     return false;
   }
   if (job.state !== 'waiting' || job.waitingOn !== 'budget') return false;
-  return exceededKeys(effectiveLimits(config, job), measureBudget(job), job.budget.ack, job.round).length > 0;
+  let limitsConfig = config;
+  try {
+    limitsConfig = configForJob(root, config, job);
+  } catch {
+    // A tampered overlay must not crash the supervisor; step and verify already refuse that job.
+  }
+  return exceededKeys(effectiveLimits(limitsConfig, job), measureBudget(job), job.budget.ack, job.round).length > 0;
 }
 
 /** What a job session's agents say about keeping it: sessionAgents. */

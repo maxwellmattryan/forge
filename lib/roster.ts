@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { modelFor, resolveEffort, reviewerChecklist } from './config.ts';
+import { learningSummary } from './learnings.ts';
 import { paths, exists, PLUGIN_ROOT } from './paths.ts';
 import type { Config, PanelEntry, Roster } from './types.ts';
 import { readText } from './util.ts';
@@ -61,10 +62,13 @@ export function roster(root: string, config: Config): Roster {
     };
   });
   const { enabled, builder, overlap, warnings } = modelOverlap(config);
+  const summary = learningSummary(learnings);
   return {
     agents,
     reviewers,
     learnings: learnings ? path.relative(root, path.join(p.notes, 'learnings.md')) : null,
+    learningCount: summary.count,
+    oldestReviewBy: summary.oldestReviewBy,
     diversity: { enabled, builder, overlap },
     warnings,
   };

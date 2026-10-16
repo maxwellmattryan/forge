@@ -5,10 +5,11 @@ import path from 'node:path';
 import { listJobs, readEvents, jobDir } from './jobs.ts';
 import { listRuns } from './evals.ts';
 import { jobFindings } from './findings.ts';
+import { expiredLearnings, metricValue, readExperiments, readLearnings, verdict } from './learnings.ts';
 import { paths, exists } from './paths.ts';
 import { computeStats } from './stats.ts';
-import type { Config, HumanDelta, LoadedJob } from './types.ts';
-import { readText, writeJsonAtomic } from './util.ts';
+import type { Config, ExperimentEntry, HumanDelta, LearningEntry, LoadedJob, Stats } from './types.ts';
+import { readText, safeText, writeJsonAtomic } from './util.ts';
 
 export function lastRetro(root: string): LoadedJob | null {
   return listJobs(root)
@@ -29,7 +30,7 @@ export function retroDue(root: string, config: Config): { due: boolean; finished
  * File paths come from commits by GitHub users, so they are data: control characters and Unicode
  * line separators go too, so no path can break out of its line or its code span.
  */
-const safePath = (p: string): string => String(p).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029`]/g, '').slice(0, 200);
+const safePath = (p: string): string => safeText(p);
 
 /** Only for a measured delta, which always has its counts. */
 function deltaLine(d: HumanDelta): string {
@@ -38,14 +39,31 @@ function deltaLine(d: HumanDelta): string {
   return `- human delta after Forge's last push: ${d.commits} commit(s), +${d.linesAdded}/-${d.linesDeleted} lines in: ${files}${more}`;
 }
 
+/** One learning past its review-by, with its experiment's baseline, current value and verdict. */
+function expiredLine(l: LearningEntry, ledger: Map<string, ExperimentEntry>, stats: Stats): string {
+  const parts = [`- ${safeText(l.rule.trim())}`, `review-by ${l.reviewBy}`];
+  const exp = l.experiment ? ledger.get(l.experiment) : undefined;
+  if (!l.experiment) parts.push('no experiment', 'unknown');
+  else if (!exp) parts.push(`experiment ${l.experiment} (unknown experiment)`, 'unknown');
+  else {
+    parts.push(`experiment ${l.experiment}`);
+    if (exp.metric) parts.push(`metric ${safeText(exp.metric)}${exp.direction ? ` (${exp.direction})` : ''}`);
+    parts.push(exp.baseline === null ? 'baseline unknown' : `baseline ${String(exp.baseline)}`);
+    const current = exp.metric ? metricValue(stats, exp.metric) : undefined;
+    parts.push(current === undefined ? 'current metric unavailable' : current === null ? 'current no data' : `current ${String(current)}`);
+    parts.push(verdict(exp.direction, exp.baseline, current));
+  }
+  return parts.join(' · ');
+}
+
 const head = (text: string, n: number): string => text.split('\n').slice(0, n).join('\n').trim();
 
 export function prepareRetro(
   root: string,
   config: Config,
   retroJobId: string,
-  opts: { since?: string } = {},
-): { stats: string; signals: string; experiments: string | null; jobsInWindow: number; since: string | null } {
+  opts: { since?: string; today?: string } = {},
+): { stats: string; signals: string; experiments: string | null; jobsInWindow: number; since: string | null; expiredLearnings: number } {
   const since = opts.since ?? lastRetro(root)?.createdAt ?? undefined;
   const stats = computeStats(root, { since });
   const dir = jobDir(root, retroJobId);
@@ -59,6 +77,12 @@ export function prepareRetro(
     `${jobs.length} job(s) in window.`,
     '',
   ];
+  const expired = expiredLearnings(readLearnings(root), opts.today ?? new Date().toISOString().slice(0, 10));
+  if (expired.length) {
+    const ledger = new Map<string, ExperimentEntry>();
+    for (const e of readExperiments(root)) if (e.id && !ledger.has(e.id)) ledger.set(e.id, e); // the first entry with an id wins
+    out.push('## Learnings past review-by', ...expired.map((l) => expiredLine(l, ledger, stats)), '');
+  }
   for (const j of jobs) {
     const jd = jobDir(root, j.id);
     const events = readEvents(root, j.id);
@@ -104,5 +128,6 @@ export function prepareRetro(
     experiments: exists(experiments) ? experiments : null,
     jobsInWindow: jobs.length,
     since: since ?? null,
+    expiredLearnings: expired.length,
   };
 }

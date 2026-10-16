@@ -240,7 +240,7 @@ export interface Job {
   createdAt: string | null;
   updatedAt: string | null;
   finishedAt: string | null;
-  eval: { run: string; task: string } | null;
+  eval: { run: string; task: string; repeat?: number; overlay?: EvalOverlay } | null;
   /** `never` when the planner must not split this job (from-ref, revise-split); null follows pipeline.split. */
   splitMode: 'never' | null;
   /** The human's reasoning effort for this job (`forge job effort`); null inherits runtime.effort. */
@@ -505,6 +505,8 @@ export interface PanelEntry {
   effort?: Effort | null;
   /** Whether the lens reviews the running app (commands.dev); absent means the name default in lensNeedsApp. */
   needsApp?: boolean;
+  /** Globs matched against the job's committed diff by `forge job panel`: a match adds the lens for the round. */
+  paths?: string[];
 }
 
 /** Something agents should know exists: an entry of `resources` (docs/CONFIG.md). */
@@ -1125,6 +1127,26 @@ export interface Stats {
   reviewers: Record<string, ReviewerStats>;
 }
 
+/** One entry of `.forge/notes/learnings.md`: parseLearnings in lib/learnings.ts. Dates are valid or null. */
+export interface LearningEntry {
+  /** Unsanitised; callers pass it through safeText before writing it anywhere. */
+  rule: string;
+  experiment: string | null;
+  reviewBy: string | null;
+  added: string | null;
+}
+
+/** One line of `.forge/notes/experiments.md`: parseExperiments in lib/learnings.ts. */
+export interface ExperimentEntry {
+  id: string | null;
+  date: string | null;
+  change: string;
+  metric: string | null;
+  direction: 'up' | 'down' | null;
+  baseline: number | null;
+  status: string | null;
+}
+
 /** An eval task as served: loadTask in lib/evals.ts minus `dir` and `request`. */
 export interface EvalTask {
   name: string;
@@ -1156,6 +1178,13 @@ export interface EvalResult {
   estCostUsd: number;
   minutes: number | null;
   gradedAt: string;
+  /** Minutes per stage the job entered: jobTiming in lib/eval-stats.ts. Absent on results graded before it. */
+  stages?: Partial<Record<Stage, number>>;
+  /** Agent-run time, summed across parallel agents. */
+  agentMinutes?: number | null;
+  /** Wall time when no agent was running. */
+  orchestratorMinutes?: number | null;
+  reviewerRuns?: number;
 }
 
 /** Aggregates over a run's graded tasks: summarize in lib/evals.ts. */
@@ -1170,6 +1199,41 @@ export interface EvalSummary {
   avgTokens: number | null;
   avgCostUsd: number | null;
   avgMinutes: number | null;
+  avgAgentMinutes: number | null;
+  avgOrchestratorMinutes: number | null;
+  avgReviewerRuns: number | null;
+}
+
+/** A per-run config overlay: dotted config keys to typed values, parseOverlay in lib/eval-overlay.ts. */
+export type EvalOverlay = Record<string, unknown>;
+
+/** A sample's size and spread: stat in lib/eval-stats.ts. */
+export interface EvalStat {
+  n: number;
+  mean: number | null;
+  min: number | null;
+  max: number | null;
+}
+
+/** Two means and the sample count behind each: delta in lib/eval-stats.ts. */
+export interface EvalDelta {
+  a: number | null;
+  b: number | null;
+  change: number | null;
+  na: number;
+  nb: number;
+}
+
+/** The per-task metrics: TASK_METRICS in lib/eval-stats.ts. */
+export type EvalTaskMetric = 'checkPass' | 'judgeScore' | 'firstPass' | 'rounds' | 'tokens' | 'costUsd' | 'minutes' | 'agentMinutes' | 'orchestratorMinutes' | 'reviewerRuns';
+
+/** One task's repeats in a run: aggregateTasks in lib/eval-stats.ts. */
+export interface EvalTaskAggregate {
+  task: string;
+  runs: number;
+  graded: number;
+  metrics: Record<EvalTaskMetric, EvalStat>;
+  stages: Record<string, EvalStat>;
 }
 
 /** An eval run record: startRun and gradeJob in lib/evals.ts, with summary filled by listRuns. */
@@ -1179,12 +1243,18 @@ export interface EvalRun {
   label: string | null;
   forgeVersion: string;
   configHash: string;
+  /** The plugin's prompt and pipeline hash: pluginHash in lib/evals.ts. Null on records before it. */
+  pluginHash?: string | null;
+  overlay?: EvalOverlay;
+  repeat?: number;
   models: Record<string, string>;
   startedAt: string;
   finishedAt: string | null;
   status: 'running' | 'done';
-  tasks: { task: string; job: string; worktreeOk: boolean; result: EvalResult | null }[];
+  tasks: { task: string; job: string; worktreeOk: boolean; result: EvalResult | null; repeat?: number }[];
   summary: EvalSummary;
+  /** Filled by listRuns. */
+  perTask?: EvalTaskAggregate[];
 }
 
 /** GET /api/evals: the handler in lib/server.ts over listTasks/listRuns in lib/evals.ts. */
@@ -1195,10 +1265,28 @@ export interface EvalsResponse {
 
 /** GET /api/evals/compare: compareRuns in lib/evals.ts. */
 export interface EvalCompare {
-  a: { id: string; configHash: string; forgeVersion: string };
-  b: { id: string; configHash: string; forgeVersion: string };
-  delta: Record<keyof EvalSummary, { a: number | null; b: number | null; change: number | null }>;
-  perTask: { task: string; a: boolean | null; b: boolean | null }[];
+  a: EvalCompareSide;
+  b: EvalCompareSide;
+  delta: Record<keyof EvalSummary, EvalDelta>;
+  /** Mean minutes per stage over the graded jobs that entered it. */
+  stages: Record<string, EvalDelta>;
+  perTask: {
+    task: string;
+    a: boolean | null;
+    b: boolean | null;
+    stats: { a: EvalTaskAggregate | null; b: EvalTaskAggregate | null };
+    delta: Record<EvalTaskMetric, EvalDelta>;
+  }[];
+}
+
+/** One run's stamps in a comparison. */
+export interface EvalCompareSide {
+  id: string;
+  configHash: string;
+  forgeVersion: string;
+  pluginHash: string | null;
+  overlay: EvalOverlay;
+  repeat: number;
 }
 
 /** GET /api/config: configResponse in lib/server.ts over FIELDS in lib/config-fields.ts. */
@@ -1322,6 +1410,10 @@ export interface Roster {
   agents: { role: string; description: string; model: string; promptHash: string; addendum: string | null; effort: Effort | null; effortSource: EffortSource }[];
   reviewers: { name: string; model: string; always: boolean; when: string | null; checklist: string | null; checklistHash: string | null; effort: Effort | null; effortSource: EffortSource }[];
   learnings: string | null;
+  /** Entries in learnings.md; 0 when it is missing. */
+  learningCount: number;
+  /** The earliest valid review-by among all learnings, expired ones included. */
+  oldestReviewBy: string | null;
   diversity: { enabled: boolean; builder: string; overlap: { role: string; model: string }[] };
   warnings: string[];
 }

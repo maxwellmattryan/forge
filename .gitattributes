@@ -1,3 +1,5 @@
+# LF in every checkout, Windows included: tests compare committed files byte for byte (dashboard/dist, fixtures).
+* text=auto eol=lf
 # git archive replaces the placeholder in COMMIT with the archived commit, so a release archive
 # knows which commit it is (docs/RELEASES.md "Provenance and pinning").
 COMMIT export-subst

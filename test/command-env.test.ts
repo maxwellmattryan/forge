@@ -39,7 +39,7 @@ test("command env keeps the daemon's git pins", () => {
     assert.equal(env[`GIT_CONFIG_VALUE_${i}`], base[`GIT_CONFIG_VALUE_${i}`]);
   }
   const pins = Array.from({ length: count }, (_, i) => `${env[`GIT_CONFIG_KEY_${i}`]}=${env[`GIT_CONFIG_VALUE_${i}`]}`);
-  assert.ok(pins.includes('core.hooksPath=/dev/null') && pins.includes('core.fsmonitor=false'));
+  assert.ok(pins.includes(`core.hooksPath=${os.devNull}`) && pins.includes('core.fsmonitor=false'));
   assert.equal(env.GIT_EDITOR, base.GIT_EDITOR);
   assert.equal(env.PATH, base.PATH);
 });

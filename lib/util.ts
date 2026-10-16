@@ -104,6 +104,14 @@ export function writeTextAtomic(file: string, text: string): void {
   fs.renameSync(tmp, file);
 }
 
+/**
+ * Text that came from outside Forge, made safe for one markdown line: control characters,
+ * Unicode line separators and backticks go, so it can't break out of its line or a code span.
+ */
+export function safeText(s: string, max = 200): string {
+  return String(s).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029`]/g, '').slice(0, max);
+}
+
 export function readText(file: string, fallback = ''): string {
   try {
     return fs.readFileSync(file, 'utf8');
