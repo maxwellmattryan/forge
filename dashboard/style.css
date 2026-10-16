@@ -412,6 +412,8 @@
   white-space: nowrap;
   &::before, &::after { content: ""; width: 18px; height: 1px; background: var(--line-strong); flex: none; }
   &.wide::before, &.wide::after { flex: 1; width: auto; }
+  /* A mark before a fact (the base branch, the tracker), set in the line of the text. */
+  & .ic { width: 12px; height: 12px; display: inline-block; vertical-align: -2px; margin-right: 4px; }
 }
 /* prose: the reference rules plus h3, lists, links and tables for the drawer's markdown. */
 @utility prose {
@@ -552,6 +554,8 @@
   &.spark { color: var(--on-spark); background: var(--spark); border-color: var(--spark); }
   /* A chip in a row of sm controls (the status bar's Daemon popover, the palette's scope) takes their height. */
   &.sm { min-height: var(--control-sm); padding-inline: 9px; }
+  /* A glyph struck on the slug: the PR chip's pull-request mark. */
+  & .ic { width: 12px; height: 12px; }
   &:is(button) { cursor: pointer; transition: border-color .12s ease, background-color .12s ease; }
   @media (hover: hover) { &:is(button):hover { border-color: currentColor; } }
   &:is(button)[aria-expanded="true"] { outline: 2px solid currentColor; outline-offset: 1px; }
@@ -745,6 +749,8 @@
   stroke-linecap: round;
   stroke-linejoin: round;
   flex: none;
+  /* Inline in 13-14px text: the job pane's Branch, Base, PR and Source. */
+  &.sm { width: 14px; height: 14px; }
 }
 @utility dot {
   width: 8px;

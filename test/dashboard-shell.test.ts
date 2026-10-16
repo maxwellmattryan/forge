@@ -245,7 +245,8 @@ test("DepChips and the card's agents line truncate with a full-text title", () =
   assert.match(card, /agentsSummary\(runningRoles\(j\)\)/);
   const line = card.match(/\{#if agents\}<span class="([^"]*)" title=\{agents\.title\}>(.*?)<\/span><\/span>\{\/if\}/);
   assert.ok(line, 'one element with title={agents.title}');
-  for (const c of ['min-w-0', 'max-w-full']) assert.ok(line[1].split(/\s+/).includes(c), `agents line has ${c}`);
+  // The footer is one line: the agents summary shrinks first (shrink-[2]) and truncates.
+  for (const c of ['min-w-0', 'shrink-[2]']) assert.ok(line[1].split(/\s+/).includes(c), `agents line has ${c}`);
   assert.match(line[2], /^<span class="dot gleam plain[^"]*"><\/span><span class="truncate">/, 'the role dot (gleam, no glow), then a truncate text span');
   assert.match(line[2], /\{#if agents\.kind === 'role'\}\{agents\.role\}/);
   assert.match(line[2], /\$t\('job\.runningReviewers', \{ count: agents\.count \}\)/);
@@ -444,7 +445,10 @@ test('StageStepper is shared by the card and the table', () => {
   for (const cls of ["'dot gleam plain'", "'dot hollow'", "'dot gleam plain outline outline-1 outline-offset-1 outline-gleam'", "'dot ember outline outline-1 outline-offset-1 outline-ember'"])
     assert.ok(text.includes(cls), `the dot class ${cls} is a whole literal`);
   assert.doesNotMatch(text, /\bas t\b|\(t\)|\bt =>/, 'no loop variable shadows the $t store');
-  for (const f of ['components/JobCard.svelte', 'components/JobsTable.svelte']) assert.match(read(f), /<StageStepper steps=\{m\.steps\} stage=\{m\.stage\} \/>/, `${f} renders the stepper`);
+  assert.match(read('components/JobCard.svelte'), /<StageStepper steps=\{m\.steps\} stage=\{m\.stage\} active=\{m\.running\} \/>/, 'the card lights a running job\'s step (cardModel: running is state === running)');
+  assert.match(read('components/JobsTable.svelte'), /<StageStepper steps=\{m\.steps\} stage=\{m\.stage\} \/>/, 'the table renders the stepper still');
+  assert.match(text, /let \{ steps, stage, active = false \}/, 'active defaults off');
+  assert.match(text, /\{#if active && x\.status === 'current' && x\.tone === 'gleam'\}<span class="relative inline-flex"><span class="dot gleam halo motion-safe:animate-ping"><\/span><span class="\{DOT\.gleam\} relative"><\/span><\/span>/, 'the halo rides the current step while active');
 
   const table = read('components/JobsTable.svelte');
   assert.ok(!table.includes('table.round'), 'no Round column');
@@ -615,7 +619,7 @@ const srcFiles = () => [...tsFiles(), ...svelteFiles()];
 test('the live halo is the only animation and is motion-safe', () => {
   const animate = /(?<![\w-])(?:[\w-]+:)*animate-[\w-]+/g;
   const uses = srcFiles().flatMap((f) => [...read(f).matchAll(animate)].map((m) => [f, m[0]]));
-  assert.deepEqual(uses, [['components/LiveDot.svelte', 'motion-safe:animate-ping']], 'one animate-* token in dashboard/src: the motion-safe halo');
+  assert.deepEqual(uses.sort(), [['components/LiveDot.svelte', 'motion-safe:animate-ping'], ['components/StageStepper.svelte', 'motion-safe:animate-ping']], 'the motion-safe halo, in LiveDot and on a running step, is the only animate-* token');
   const dot = read('components/LiveDot.svelte');
   assert.match(dot, /<span class="dot gleam halo motion-safe:animate-ping"><\/span><span class="dot gleam relative"><\/span>/);
   assert.match(dot, /<span class="dot hollow shrink-0" aria-hidden="true"><\/span>/, 'off: a hollow dot');
@@ -1633,7 +1637,7 @@ test('the job pane reads at body size', () => {
   assert.doesNotMatch(timeline + files, /text-xs/, 'no text-xs in the Timeline or the Files tab');
   assert.equal(files.match(/<pre class="selectable text-\[13px\] font-mono /g)?.length, 2, 'the Files viewer is 13px');
   assert.doesNotMatch(files, /text-\[12px\]/);
-  assert.match(drawer, /<div class="mono text-\[13px\] break-all selectable">\{v\}<\/div>/, 'fact values are 13px mono');
+  assert.match(drawer, /<div class="mono text-\[13px\] break-all selectable">\{#if icon\}[^\n]*?\{\/if\}\{v\}<\/div>/, 'fact values are 13px mono');
   assert.match(drawer, /<div class="mono text-\[13px\] muted selectable">\{j\.id\}<\/div>/, 'the id line is 13px mono');
   const log = read('components/SessionLog.svelte');
   assert.ok(log.includes("{compact ? 'text-[11px] leading-5' : 'text-[13px] leading-5'}"), 'the pane log is 13px, the compact one 11px');
@@ -1656,4 +1660,15 @@ test('messages tint by sender', () => {
   assert.match(log, /\{#snippet line\([^)]*\)\}\s*<div class="flex items-start gap-2 \{TINT\.cli\} px-1\.5 -mx-1\.5 py-0\.5">/, 'plumbing lines are cli');
   assert.equal(log.match(/\{TINT\[logSender\(it\.kind\)\]\}/g)?.length, 4, 'text, thinking, tool and subagent tint by kind');
   assert.match(log, /<h3 class="label sticky top-0 z-10 bg-panel/, 'the turn heading keeps bg-panel');
+});
+
+test('the card footer stays on one line', () => {
+  const footer = elements('components/JobCard.svelte').find((e) => attr(e, 'data-slot') === 'footer')!;
+  for (const c of ['flex', 'flex-nowrap', 'min-w-0', 'overflow-hidden']) assert.ok(footer.classes.includes(c), `the footer has ${c}`);
+  assert.ok(!footer.classes.some((c) => c.startsWith('flex-wrap') || c.startsWith('gap-y')), 'and never wraps');
+  const card = read('components/JobCard.svelte');
+  assert.match(card, /<SessionActivity activity=\{act\} extra="normal-case tracking-normal min-w-0 shrink" \/>/, 'the activity shrinks and truncates');
+  assert.match(card, /<span class="flex items-center gap-1\.5 text-gleam min-w-0 shrink-\[2\]" title=\{agents\.title\}>/, 'the agents summary shrinks first');
+  assert.match(card, /<span class="ml-auto shrink-0 whitespace-nowrap normal-case tracking-normal">/, 'the usage keeps its width at the right');
+  assert.match(read('components/SessionActivity.svelte'), /<span class="truncate">/, 'the activity text truncates');
 });

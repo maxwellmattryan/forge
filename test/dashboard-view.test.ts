@@ -571,7 +571,7 @@ test('boardRank and sortByRank: rank, then newest, then id', () => {
 
 test('cardModel: slots and null rules', () => {
   const bare = V.cardModel({ id: 'slug-ab12', stage: 'backlog', state: 'queued', source: { ref: 'slug' }, round: 0 } as any);
-  assert.deepEqual(bare, { ref: 'slug-ab12', refTitle: 'slug-ab12', steps: V.stageSteps({ stage: 'backlog', state: 'queued' }), stage: 'Queued', round: null, progress: null, lenses: null });
+  assert.deepEqual(bare, { ref: 'slug-ab12', refTitle: 'slug-ab12', steps: V.stageSteps({ stage: 'backlog', state: 'queued' }), stage: 'Queued', round: null, progress: null, lenses: null, running: false });
   assert.equal(V.cardModel({ id: 'x', reviewers: [], progress: { done: 0, total: 0 } } as any).lenses, null, 'no reviewers, no lenses');
   assert.equal(V.cardModel({ id: 'x', progress: { done: 0, total: 0 } } as any).progress, null, 'no tasks, no bar');
 
@@ -586,6 +586,8 @@ test('cardModel: slots and null rules', () => {
   assert.deepEqual(full.progress, { done: 3, total: 5 });
   assert.deepEqual(full.lenses, [{ name: 'code', verdict: 'PASS' }, { name: 'ui', verdict: null }], "this round's verdicts only");
   assert.equal(V.stepPosition(full.steps), 5);
+  assert.equal(full.running, true, 'a running job lights its stepper');
+  for (const state of ['queued', 'waiting', 'failed', 'done']) assert.equal(V.cardModel({ id: 'x', state } as any).running, false, state);
 
   assert.deepEqual(V.cardModel({ id: 'x', round: 1 } as any).round, { round: 1, max: null }, 'a missing maxRounds');
   assert.equal(V.cardModel({ id: 'x', stage: 'mystery' } as any).stage, 'mystery', 'an unknown stage shows raw');

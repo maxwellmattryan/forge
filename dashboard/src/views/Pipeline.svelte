@@ -37,7 +37,7 @@
 </script>
 
 <PageHeader title={$t('pipeline.title')}>
-  {#snippet sub()}{$t('pipeline.active', { count: counts.active })} · {$t('pipeline.base')} <code class="font-mono">{data.config.base}</code> · {$t('pipeline.tracker', { tracker: data.config.tracker })}{/snippet}
+  {#snippet sub()}{$t('pipeline.active', { count: counts.active })} · <Icon name="branch" />{$t('pipeline.base')} <code class="font-mono">{data.config.base}</code> · <Icon name={data.config.tracker === 'github' ? 'github' : 'tracker'} />{$t('pipeline.tracker', { tracker: data.config.tracker })}{/snippet}
   {#snippet right()}
     <!-- Wraps on a phone: the riveted header clips what overflows it. -->
     <div class="seg flex-wrap gap-y-1">

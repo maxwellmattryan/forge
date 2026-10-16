@@ -168,3 +168,33 @@ test('settings tabs, controls and call sites use the set', () => {
     assert.ok(text.includes('<Icon name="stop"'), `${file} has the stop icon`);
   }
 });
+
+test('git icons mark branches, PRs and the tracker', () => {
+  for (const name of ['branch', 'pull-request', 'github', 'bell']) assert.ok(name in ICONS, `${name} is in the set`);
+  const readme = fs.readFileSync(path.join(ICON_DIR, 'README.md'), 'utf8');
+  assert.match(readme, /^Twenty-seven machined icons/);
+  for (const name of ['branch', 'pull-request', 'github', 'bell']) assert.ok(readme.includes(`\`${name}\``), `the README names ${name} and its use`);
+  // A chip can carry an icon, sized to the slug.
+  const chip = readSrc('components/Chip.svelte');
+  assert.match(chip, /icon\?: IconName/);
+  assert.match(chip, /\{#if icon\}<Icon name=\{icon\} \/>\{\/if\}\{text\}/);
+  assert.match(readSrc('components/PrChip.svelte'), /<Chip tone=\{model\.tone\} text=\{model\.text\} icon="pull-request" \/>/, 'every PR chip');
+  const dist = path.join(ROOT, 'dashboard', 'dist', 'assets');
+  const css = fs.readdirSync(dist).filter((f) => f.endsWith('.css')).map((f) => fs.readFileSync(path.join(dist, f), 'utf8')).join('');
+  assert.match(css, /\.chip \.ic\{width:12px;height:12px\}/, '.chip .ic is 12px');
+  assert.ok(fs.readFileSync(path.join(ROOT, 'smithy', 'smithy.css'), 'utf8').includes('.chip .ic { width: 12px; height: 12px; }'), 'smithy/smithy.css draws it');
+  // The Pipeline header and the Backlog subtitle.
+  const pipeline = readSrc('views/Pipeline.svelte');
+  assert.match(pipeline, /<Icon name="branch" \/>\{\$t\('pipeline\.base'\)\}/, 'branch before the base');
+  assert.match(pipeline, /<Icon name=\{data\.config\.tracker === 'github' \? 'github' : 'tracker'\} \/>\{\$t\('pipeline\.tracker'/, 'github or tracker before the tracker');
+  assert.match(readSrc('views/Backlog.svelte'), /<Icon name=\{S\.data\?\.config\?\.tracker === 'github' \? 'github' : 'tracker'\} \/><b>\{b\.tracker\}<\/b>/);
+  // The job pane: Branch and Base, the PR link, and a GitHub Source link.
+  const drawer = readSrc('components/Drawer.svelte');
+  assert.match(drawer, /fact\(\$t\('drawer\.branch'\), j\.branch \?\? '—', 'branch'\)\}\{@render fact\(\$t\('drawer\.base'\), j\.base \?\? '—', 'branch'\)/);
+  assert.match(drawer, /href=\{prUrl\}[^>]*><Icon name="pull-request" /);
+  assert.match(drawer, /const srcGitHub = \$derived\(srcUrl\?\.startsWith\('https:\/\/github\.com\/'\) \?\? false\);/, 'github only for a safeUrl on github.com');
+  assert.match(drawer, /\{#if srcGitHub\}<Icon name="github" /);
+  // Needs you: the Open PR button and the bell.
+  assert.match(readSrc('components/statusbar/NeedsPanel.svelte'), /<a class="btn sm" href=\{u\}[^>]*><Icon name="pull-request" \/>\{\$t\('inbox\.openPr'\)\}<\/a>/);
+  assert.match(readSrc('components/StatusBar.svelte'), /<Icon name="bell" \/>/);
+});

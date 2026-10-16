@@ -96,6 +96,7 @@ html[data-grain="off"] .ground::before, html[data-grain="off"] .ground.falloff::
 .stamp-line { display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 10px; line-height: 14px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
 .stamp-line::before, .stamp-line::after { content: ""; width: 18px; height: 1px; background: var(--line-strong); flex: none; }
 .stamp-line.wide::before, .stamp-line.wide::after { flex: 1; width: auto; }
+.stamp-line .ic { width: 12px; height: 12px; display: inline-block; vertical-align: -2px; margin-right: 4px; } /* a mark before a fact: the branch, the tracker */
 .prose { font-size: 14px; line-height: 24px; } .prose h1 { font-family: var(--font-head); font-size: 22px; line-height: 26px; font-weight: 600; margin: 16px 0 8px; } .prose h2 { font-family: var(--font-head); font-size: 16px; line-height: 20px; font-weight: 600; margin: 16px 0 8px; } .prose p { margin: 8px 0; } .prose code { font-family: var(--font-mono); font-size: 12px; background: var(--raised); padding: 1px 4px; } .prose pre { font-family: var(--font-mono); font-size: 12px; line-height: 18px; border: 1px solid var(--line); corner-shape: bevel; border-radius: var(--radius-cut) 0 var(--radius-cut) 0; padding: 12px; overflow-x: auto; background: var(--raised); } .prose blockquote { border-left: 2px solid var(--gleam); padding-left: 12px; color: var(--muted); margin: 8px 0; }
 .prose.compact { font-size: 12px; line-height: 18px; } .prose.compact h1, .prose.compact h2, .prose.compact h3 { font-size: 13px; line-height: 18px; font-weight: 600; margin: 8px 0 4px; } .prose.compact p, .prose.compact ul, .prose.compact ol, .prose.compact pre, .prose.compact blockquote, .prose.compact table { margin: 4px 0; } .prose.compact pre { font-size: 11px; line-height: 16px; padding: 8px; } .prose.compact > :first-child { margin-top: 0; } .prose.compact > :last-child { margin-bottom: 0; }
 
@@ -138,6 +139,7 @@ html[data-grain="off"] .ground::before, html[data-grain="off"] .ground.falloff::
 .chip.you { color: var(--ember); border-color: var(--ember); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--ember) 12%); } /* a person is needed */
 .chip.spark { color: var(--on-spark); background: var(--spark); border-color: var(--spark); } /* unsaved, new, selected */
 .chip.sm { min-height: var(--control-sm); padding-inline: 9px; }
+.chip .ic { width: 12px; height: 12px; } /* a glyph struck on the slug: the PR chip's pull-request mark */
 button.chip { appearance: none; cursor: pointer; transition: border-color .12s ease, background-color .12s ease; }
 @media (hover: hover) { button.chip:hover { border-color: currentColor; } }
 button.chip[aria-expanded="true"] { outline: 2px solid currentColor; outline-offset: 1px; }
@@ -207,6 +209,7 @@ select.input { appearance: none; padding-right: 28px; background-image: linear-g
 
 /* ---------- misc ---------- */
 .ic { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.ic.sm { width: 14px; height: 14px; } /* inline in 13-14px text: the job pane's Branch, Base, PR and Source */
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
 .dot.ok { background: var(--ok); } .dot.gleam { background: radial-gradient(circle at 35% 30%, var(--gleam-hot) 0%, var(--gleam) 55%, var(--gleam-deep) 100%); box-shadow: var(--shadow-glow); } .dot.spark { background: var(--spark); } .dot.ember { background: var(--ember); } .dot.hollow { border: 1px solid var(--line-strong); }
 .dot.plain { box-shadow: none; } /* an gleam dot without the glow: the stepper's past steps, the agent role dot */

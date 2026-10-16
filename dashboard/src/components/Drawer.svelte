@@ -21,6 +21,8 @@
   import SessionLog from './SessionLog.svelte';
   import StateChip from './StateChip.svelte';
   import ThreadPanel from './ThreadPanel.svelte';
+  import Icon from './Icon.svelte';
+  import type { IconName } from '../lib/icons.ts';
   import { budgetPanel } from '../lib/budget.ts';
   import { effortChip } from '../lib/effort.ts';
   import { STAGE_LABEL } from '../lib/labels.ts';
@@ -44,6 +46,7 @@
   const job = $derived(shown?.detail.job);
   const prUrl = $derived(safeUrl(job?.pr?.url));
   const srcUrl = $derived(safeUrl(job?.source?.url));
+  const srcGitHub = $derived(srcUrl?.startsWith('https://github.com/') ?? false);
   const matrix = $derived(job ? verdictMatrix(job) : null);
   const effort = $derived(job ? effortChip(job.effort, S.data?.config?.effort) : null);
   const usageRows = $derived(Object.entries(job?.usage?.byRole ?? {}));
@@ -117,8 +120,8 @@
   }
 </script>
 
-{#snippet fact(k: string, v: unknown)}
-  <div><div class="label">{k}</div><div class="mono text-[13px] break-all selectable">{v}</div></div>
+{#snippet fact(k: string, v: unknown, icon: IconName | null = null)}
+  <div><div class="label">{k}</div><div class="mono text-[13px] break-all selectable">{#if icon}<Icon name={icon} class="sm mr-1 inline-block align-[-2px] text-muted" />{/if}{v}</div></div>
 {/snippet}
 
 <!-- A full-height column: the body scrolls, and the action dock under it stays put on every tab. It always ends at the
@@ -210,9 +213,9 @@
           {#if j.reason}<div><div class="label">{$t('drawer.reason')}</div><div class="text-sm break-words">{j.reason}</div></div>{/if}
           <ProgressBar progress={j.progress} />
           <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {@render fact($t('drawer.branch'), j.branch ?? '—')}{@render fact($t('drawer.base'), j.base ?? '—')}{@render fact($t('drawer.port'), j.port ?? '—')}{@render fact($t('drawer.worktree'), j.worktree ?? '—')}
-            <div><div class="label">{$t('drawer.pr')}</div><div class="mono text-[13px] break-all selectable">{#if prUrl}<a class="text-gleam" href={prUrl} target="_blank" rel="noopener">#{j.pr?.number}</a>{:else}—{/if}</div></div>
-            <div><div class="label">{$t('drawer.source')}</div><div class="mono text-[13px] break-all selectable">{#if srcUrl}<a class="text-gleam" href={srcUrl} target="_blank" rel="noopener">{j.source?.ref ?? $t('drawer.link')}</a>{:else}{j.source?.ref ?? '—'}{/if}</div></div>
+            {@render fact($t('drawer.branch'), j.branch ?? '—', 'branch')}{@render fact($t('drawer.base'), j.base ?? '—', 'branch')}{@render fact($t('drawer.port'), j.port ?? '—')}{@render fact($t('drawer.worktree'), j.worktree ?? '—')}
+            <div><div class="label">{$t('drawer.pr')}</div><div class="mono text-[13px] break-all selectable">{#if prUrl}<a class="text-gleam" href={prUrl} target="_blank" rel="noopener"><Icon name="pull-request" class="sm mr-1 inline-block align-[-2px]" />#{j.pr?.number}</a>{:else}—{/if}</div></div>
+            <div><div class="label">{$t('drawer.source')}</div><div class="mono text-[13px] break-all selectable">{#if srcUrl}<a class="text-gleam" href={srcUrl} target="_blank" rel="noopener">{#if srcGitHub}<Icon name="github" class="sm mr-1 inline-block align-[-2px]" />{/if}{j.source?.ref ?? $t('drawer.link')}</a>{:else}{j.source?.ref ?? '—'}{/if}</div></div>
             {@render fact($t('drawer.session'), j.owner?.session ?? '—')}{@render fact($t('drawer.created'), ago(j.createdAt, ticker.now))}{@render fact($t('drawer.updated'), ago(j.updatedAt, ticker.now))}
           </div>
           <DepSection job={j} />

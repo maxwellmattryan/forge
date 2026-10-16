@@ -37,13 +37,15 @@
   <span data-slot="ref" class="mono muted text-[11px] truncate" title={m.refTitle}>{m.ref}</span>
   <div data-slot="state" class="flex flex-wrap items-center gap-1.5"><StateChip job={j} /><PrChip pr={j.pr} />{@html budgetChip(j, S.data?.config?.pipeline?.budget)}<EffortChip level={effort} />{#if agentsLive}<div class="basis-full min-w-0"><AgentActivity activity={agentsLive} owner={j.ownerStatus} /></div>{/if}<DepChips job={j} /></div>
   <!-- Wraps: on a narrow card the stage and round drop under the stepper rather than truncating the round away. -->
-  <div data-slot="stage" class="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0"><StageStepper steps={m.steps} stage={m.stage} /><span class="label text-[10px] truncate min-w-0 max-w-full">{m.stage}{#if m.round}{' · '}{$t('job.round', m.round)}{/if}</span></div>
+  <div data-slot="stage" class="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0"><StageStepper steps={m.steps} stage={m.stage} active={m.running} /><span class="label text-[10px] truncate min-w-0 max-w-full">{m.stage}{#if m.round}{' · '}{$t('job.round', m.round)}{/if}</span></div>
   {#if m.progress}<div data-slot="progress"><ProgressBar progress={m.progress} /></div>{/if}
   {#if m.lenses}<div data-slot="lenses" class="flex flex-wrap gap-1">{#each m.lenses as l, i (i)}<VerdictChip name={l.name} verdict={l.verdict} />{/each}</div>{/if}
-  <div data-slot="footer" class="label flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px]">
-    <SessionActivity activity={act} extra="normal-case tracking-normal max-w-full" />
-    {#if agents}<span class="flex items-center gap-1.5 text-gleam min-w-0 max-w-full" title={agents.title}><span class="dot gleam plain size-1.5 shrink-0"></span><span class="truncate">{#if agents.kind === 'role'}{agents.role}{:else if agents.kind === 'reviewers'}{$t('job.runningReviewers', { count: agents.count })}{:else}{$t('job.runningAgents', { count: agents.count })}{/if}</span></span>{/if}
+  <!-- One line at every card width: the usage keeps its width at the right, the activity and the agents summary shrink
+       and truncate, the agents summary first. -->
+  <div data-slot="footer" class="label flex flex-nowrap min-w-0 overflow-hidden items-center gap-x-2.5 text-[10px]">
+    <SessionActivity activity={act} extra="normal-case tracking-normal min-w-0 shrink" />
+    {#if agents}<span class="flex items-center gap-1.5 text-gleam min-w-0 shrink-[2]" title={agents.title}><span class="dot gleam plain size-1.5 shrink-0"></span><span class="truncate">{#if agents.kind === 'role'}{agents.role}{:else if agents.kind === 'reviewers'}{$t('job.runningReviewers', { count: agents.count })}{:else}{$t('job.runningAgents', { count: agents.count })}{/if}</span></span>{/if}
     <!-- The flash dot's space is always reserved, so a change never shifts the card. -->
-    <span class="ml-auto normal-case tracking-normal"><span class="{flashing ? 'dot spark' : 'dot invisible'} size-1.5 mr-1.5 align-middle" aria-hidden="true"></span>{$t('job.usage', { tokens: tokensShort(j.usage?.totalTokens), ago: ago(j.updatedAt, ticker.now) })}</span>
+    <span class="ml-auto shrink-0 whitespace-nowrap normal-case tracking-normal"><span class="{flashing ? 'dot spark' : 'dot invisible'} size-1.5 mr-1.5 align-middle" aria-hidden="true"></span>{$t('job.usage', { tokens: tokensShort(j.usage?.totalTokens), ago: ago(j.updatedAt, ticker.now) })}</span>
   </div>
 </button>

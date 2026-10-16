@@ -741,7 +741,7 @@ test('chrome is unselectable, content opts back in', () => {
   const drawer = src('Drawer.svelte');
   assert.match(drawer, /<pre class="selectable /, "the Files tab's text");
   assert.match(drawer, /<div class="mono [^"]*selectable[^"]*">\{j\.id\}<\/div>/, 'the id line');
-  assert.match(drawer, /\{#snippet fact[\s\S]*?<div class="mono [^"]*\bselectable\b[^"]*">\{v\}/, 'the fact values');
+  assert.match(drawer, /\{#snippet fact[\s\S]*?<div class="mono [^"]*\bselectable\b[^"]*">\{#if icon\}[\s\S]*?\{\/if\}\{v\}/, 'the fact values');
   assert.match(src('ThreadPanel.svelte'), /<p class="selectable [^"]*">\{m\.text\}<\/p>/, "the Thread's bodies");
 });
 
