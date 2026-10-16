@@ -1,6 +1,87 @@
 #!/usr/bin/env node
-import { main, reportError } from '../lib/cli.ts';
+// Agents run `forge` hundreds of times a job, so start-up time is paid on every call. Uncached,
+// Node re-parses all of lib/ each start (about 140 ms); docs/ARCHITECTURE.md "Start-up cache" has
+// the measurements. Plain JS on purpose: anything in lib/ would load the type stripper first.
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import * as nodeModule from 'node:module';
+import os from 'node:os';
+import path from 'node:path';
+
+startupCache();
+const { main, reportError } = await import('../lib/cli.ts');
 
 const argv = process.argv.slice(2);
 // reportError prints the error (one JSON line on stdout under --json) and returns its exit code.
 main(argv).catch((err) => process.exit(reportError(err, argv)));
+
+function startupCache() {
+  if (process.env.NODE_DISABLE_COMPILE_CACHE) return;
+  const root = cacheRoot();
+  if (!root) return;
+  // V8's code cache: on Node 24+ it covers type-stripped modules too, which halves start-up there.
+  nodeModule.enableCompileCache?.(path.join(root, 'v8'));
+  // Node 22's code cache skips type-stripped modules, so every start loads the stripper and strips
+  // lib/ again. Keeping the stripped output cuts a start from about 140 ms to 40 ms there.
+  const { registerHooks, stripTypeScriptTypes } = nodeModule;
+  if (Number(process.versions.node.split('.')[0]) >= 24 || !registerHooks || !stripTypeScriptTypes) return;
+  const dir = path.join(root, 'strip', process.version);
+  const ours = new URL('..', import.meta.url).href;
+  registerHooks({
+    load(url, context, nextLoad) {
+      if (!url.startsWith(ours) || !url.endsWith('.ts')) return nextLoad(url, context);
+      const src = fs.readFileSync(new URL(url), 'utf8');
+      // Keyed by content, so an edited file or an updated plugin is never served stale.
+      const file = path.join(dir, `${createHash('sha256').update(src).digest('hex')}.js`);
+      try {
+        return { format: 'module', source: fs.readFileSync(file, 'utf8'), shortCircuit: true };
+      } catch {}
+      let source;
+      // The API is experimental and warns once on stderr, which agents would read as a fault.
+      const emitWarning = process.emitWarning;
+      process.emitWarning = () => {};
+      try {
+        source = stripTypeScriptTypes(src);
+      } catch {
+        // Let Node strip it and report a syntax error its usual way.
+        return nextLoad(url, context);
+      } finally {
+        process.emitWarning = emitWarning;
+      }
+      // Concurrent starts miss on the same files: write aside and rename, so no reader sees half a
+      // module. A read-only or sandboxed cache dir just means this start goes uncached.
+      const tmp = `${file}.${process.pid}.tmp`;
+      try {
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+        fs.writeFileSync(tmp, source, { mode: 0o600 });
+        fs.renameSync(tmp, file);
+      } catch {
+        fs.rmSync(tmp, { force: true });
+      }
+      return { format: 'module', source, shortCircuit: true };
+    },
+  });
+}
+
+/**
+ * Both caches hold code this process runs, so the directory must be one no other user could have
+ * created first or can swap out: a real directory we own that nobody else can write, in a parent
+ * that is ours or root's and either private or sticky (as /tmp is). Anything else runs uncached.
+ * The temp dir is per-user on macOS and Windows, and Claude Code's sandbox lets Bash write there.
+ */
+function cacheRoot() {
+  try {
+    const uid = process.getuid?.();
+    const root = path.resolve(process.env.FORGE_CACHE_DIR || path.join(os.tmpdir(), uid === undefined ? 'forge-cache' : `forge-cache-${uid}`));
+    fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+    if (uid === undefined) return root;
+    const self = fs.lstatSync(root);
+    if (!self.isDirectory() || self.uid !== uid || self.mode & 0o022) return null;
+    const parent = fs.statSync(path.dirname(root));
+    if (parent.uid !== uid && parent.uid !== 0) return null;
+    if (parent.mode & 0o022 && !(parent.mode & 0o1000)) return null;
+    return root;
+  } catch {
+    return null;
+  }
+}

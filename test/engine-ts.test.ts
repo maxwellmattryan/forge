@@ -133,7 +133,9 @@ test('surface modules and every test are TypeScript', async () => {
 
   const bin = fs.readFileSync(path.join(ROOT, 'bin', 'forge'), 'utf8');
   assert.match(bin, /^#!\/usr\/bin\/env node\n/);
-  assert.ok(bin.includes("from '../lib/cli.ts'"), 'bin/forge imports lib/cli.ts');
+  // A dynamic import, so the start-up cache's load hook is registered before lib/ loads.
+  assert.ok(bin.includes("await import('../lib/cli.ts')"), 'bin/forge imports lib/cli.ts');
+  assert.deepEqual(fs.readdirSync(path.join(ROOT, 'bin')), ['forge'], 'bin/forge is the only file in bin/');
 
   const shim = await import('../lib/trackers/status.mjs');
   const real = await import('../lib/trackers/status.ts');
