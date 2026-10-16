@@ -4,9 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { findPr, mergeAction, hasCiWorkflows, mergePr, syncPr, syncTransition } from '../lib/pr.ts';
+import { findPr, mergeAction, hasCiWorkflows, mergePr, prText, syncPr, syncTransition } from '../lib/pr.ts';
+import { stripAttribution } from '../lib/attribution.ts';
 import { defaults } from '../lib/config.ts';
-import { claimJob, createJob, loadJob, setJob, readEvents, updateJob } from '../lib/jobs.ts';
+import { claimJob, createJob, loadJob, logEvent, setJob, readEvents, updateJob } from '../lib/jobs.ts';
 import { listRequests } from '../lib/requests.ts';
 import { syncAll } from '../lib/commands/tracker.ts';
 import type { Job, JobPr } from '../lib/types.ts';
@@ -81,6 +82,7 @@ case "$1 $2" in
   "repo view") echo o/r ;;
   "api graphql") echo '{"data":{"repository":{"pullRequest":{}}}}' ;;
   "pr merge") if [ -n "$FAKE_MERGE_FAIL" ]; then echo "auto-merge is not allowed" >&2; exit 1; fi ;;
+  "issue comment") cat >> "$FAKE_GH_LOG.body" ;;
 esac
 `;
 
@@ -676,6 +678,75 @@ test('forge sync lists routed jobs under integrating', { skip: process.platform 
     const second = await syncAll(root, h.config);
     assert.deepEqual(second.integrating, [], 'a job already at integrate is not routed again');
     assert.equal(second.requests, 0);
+  } finally {
+    h.done();
+  }
+});
+
+/** Parks a job on escalation with `reason`, then records `approve` by `actor` (a v2 object, or a raw legacy string). */
+function escalateAndApprove(root: string, id: string, reason: string, actor: unknown) {
+  logEvent(root, id, 'transition', { from: { stage: 'decide', state: 'running', waitingOn: null }, to: { stage: 'decide', state: 'waiting', waitingOn: 'escalation' }, reason });
+  logEvent(root, id, 'human', { action: 'approve', note: 'ok', actor });
+  logEvent(root, id, 'transition', { from: { stage: 'decide', state: 'waiting', waitingOn: 'escalation' }, to: { stage: 'integrate', state: 'running', waitingOn: null } });
+}
+
+test('pr body names the approving human', () => {
+  const repo = tempRepo();
+  try {
+    const config = defaults();
+    const job = (title: string) => createJob(repo.dir, config, { title, url: 'https://example.test/issue/1' }).id;
+    const body = (id: string) => prText(repo.dir, config, loadJob(repo.dir, id)).body;
+    const today = new Date().toISOString().slice(0, 10);
+
+    const human = job('Escalated');
+    escalateAndApprove(repo.dir, human, 'touches auth: needs a human.\nsecond line', { login: '@team`x`', source: 'gh' });
+    const text = body(human);
+    const decision = `## Decision\n\nEscalated: touches auth: needs a human. second line. Approved by \`@teamx\` (gh) on ${today}.`;
+    assert.ok(text.includes(decision), text);
+    assert.ok(text.indexOf('## Decision') < text.indexOf('Source: '), 'before the Source line');
+    assert.equal(stripAttribution(text), text, 'nothing for the attribution scrub to change');
+
+    const nobody = job('Unknown approver');
+    escalateAndApprove(repo.dir, nobody, 'risky', { login: null, source: 'unknown' });
+    assert.ok(body(nobody).includes('Approved by `unknown` (unknown)'));
+
+    const foreman = job('Foreman approved');
+    escalateAndApprove(repo.dir, foreman, 'risky', { login: null, source: 'foreman' });
+    assert.ok(!body(foreman).includes('## Decision'), 'a foreman approval adds no section');
+    const legacy = job('Legacy foreman');
+    escalateAndApprove(repo.dir, legacy, 'risky', 'foreman');
+    assert.ok(!body(legacy).includes('## Decision'), 'nor does a legacy foreman string');
+
+    const plain = job('Never escalated');
+    logEvent(repo.dir, plain, 'human', { action: 'approve', actor: { login: 'alice', source: 'gh' } });
+    assert.ok(!body(plain).includes('## Decision'), 'an approve without an escalation adds none');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('sync comments the approver once on merge', { skip: process.platform === 'win32' }, async () => {
+  const h = ghHarness();
+  try {
+    const root = h.repo.dir;
+    h.config.tracker.kind = 'github';
+    const id = h.scenario({ state: 'MERGED' });
+    escalateAndApprove(root, id, 'auth change', { login: 'alice', source: 'env' });
+    const log = path.join(h.bin, 'calls.log');
+    const comments = () => fs.readFileSync(log, 'utf8').split('\n').filter((l) => l.startsWith('issue comment'));
+    const first = await syncAll(root, h.config);
+    assert.equal((first.results[0] as any).merged, true);
+    assert.deepEqual(comments(), [`issue comment ${loadJob(root, id).source!.ref} -R o/r --body-file -`]);
+    const today = new Date().toISOString().slice(0, 10);
+    assert.equal(fs.readFileSync(`${log}.body`, 'utf8'), `Merged in #7 (${h.config.merge.method}). Escalation approved by \`alice\` (env) on ${today}.\n\n<!-- forge -->`);
+    assert.equal(readEvents(root, id).filter((e) => e.type === 'tracker-approval-comment').length, 1);
+
+    // A later sync that sees the merge again posts nothing: the event is the guard.
+    setJob(root, id, { fields: { pr: { ...loadJob(root, id).pr!, state: 'OPEN' } } });
+    fs.writeFileSync(log, '');
+    await syncAll(root, h.config);
+    assert.deepEqual(comments(), []);
+    assert.equal(readEvents(root, id).filter((e) => e.type === 'tracker-approval-comment').length, 1);
   } finally {
     h.done();
   }

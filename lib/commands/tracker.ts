@@ -238,6 +238,28 @@ export async function mirrorToTracker(root: string, config: Config, job: Job): P
   }
 }
 
+/**
+ * Once, when sync first sees the merge: names on the issue the person who approved the job's
+ * escalation. The event it logs stops a second post; a failure is logged and never fails the sync.
+ */
+async function commentApproval(root: string, config: Config, job: Job): Promise<void> {
+  if (!job.source?.ref || job.kind === 'eval' || job.source.tracker !== config.tracker.kind) return;
+  const events = readEvents(root, job.id);
+  if (events.some((e) => e.type === 'tracker-approval-comment')) return;
+  const approval = pr.escalationApproval(events);
+  if (!approval) return;
+  const merged = events.findLast((e) => e.type === 'pr-merged');
+  const method = typeof merged?.method === 'string' ? merged.method : config.merge.method;
+  const number = job.pr?.number;
+  try {
+    const tracker = await loadTracker(root, config);
+    tracker.comment({ root, config }, String(job.source.ref), `Merged in #${number} (${method}). Escalation approved by ${pr.approvedBy(approval)}.`);
+    logEvent(root, job.id, 'tracker-approval-comment', { ref: String(job.source.ref), pr: number ?? null });
+  } catch (e) {
+    logEvent(root, job.id, 'tracker-error', { error: (e as Error).message.slice(0, 300) });
+  }
+}
+
 const MERGE_EVENTS = new Set(['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed']);
 
 /** A deferred merge has no GitHub-side queue, so sync surfaces it for the orchestrator to retry. */
@@ -261,6 +283,7 @@ export async function syncAll(root: string, config: Config): Promise<{ synced: n
       if (r.integrate) integrating.push(job.id);
       const after = loadJob(root, job.id);
       await mirrorToTracker(root, config, after);
+      if (r.pr?.state === 'MERGED' && before.state !== 'MERGED') await commentApproval(root, config, after);
       let cleaned = false;
       if (after.state === 'done' && config.worktrees.cleanup === 'on-merge' && after.worktree) {
         try {

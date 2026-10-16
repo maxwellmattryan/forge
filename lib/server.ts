@@ -48,6 +48,7 @@ import type {
   JobDetail,
   JobEvent,
   JobSource,
+  LastHuman,
   LoadedJob,
   PermissionDecision,
   PostConfigResponse,
@@ -781,7 +782,7 @@ function state(root: string, daemons: DaemonPoolState, projects: string): ApiSta
     const events = readEvents(root, j.id);
     const last = events[events.length - 1] ?? null;
     // The time rule only, so polling never spawns `ps`; the job detail adds the daemon proofs.
-    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: ownerStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests) };
+    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: ownerStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events) };
   });
   return {
     apiVersion: API_VERSION,
@@ -804,6 +805,12 @@ function state(root: string, daemons: DaemonPoolState, projects: string): ApiSta
     requests: requests.filter((r) => r.status === 'pending' || r.status === 'in-progress'),
     now: new Date().toISOString(),
   };
+}
+
+/** Who last acted on a job: its last event with an actor (already normalised by readEvents). */
+function lastHuman(events: JobEvent[]): LastHuman | null {
+  const e = events.findLast((x) => x.actor);
+  return e?.actor ? { ts: e.ts, type: e.type, action: typeof e.action === 'string' ? e.action : null, actor: e.actor } : null;
 }
 
 const startMs = (s: string | null | undefined): number => (s ? Date.parse(s) : NaN);

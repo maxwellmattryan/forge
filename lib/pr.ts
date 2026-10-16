@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ownerStatusWithProof } from './daemon-owner.ts';
 import { currentActor } from './actor.ts';
-import { loadJob, logEvent, readEvents, setJob, jobDir } from './jobs.ts';
+import { isForemanActor, loadJob, logEvent, readEvents, setJob, jobDir } from './jobs.ts';
 import { checkBranch, historyEnv, logEscalated, policyRules, protectedApproved, refusalText } from './protected.ts';
 import { enqueuePrFeedbackGate, maybeEnqueueGate } from './foreman.ts';
 import { prLinkNote } from './issue-link.ts';
@@ -10,8 +10,8 @@ import { exists } from './paths.ts';
 import { enqueue, listRequests } from './requests.ts';
 import { attributionForbidden, scrubBranch, stripAttribution } from './attribution.ts';
 import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from './delta.ts';
-import type { Config, HumanDelta, Job, JobChange, JobPr, PrChecks } from './types.ts';
-import { ForgeError, SAFE_REF, hasBinary, now, readText, run } from './util.ts';
+import type { ActorSource, Config, HumanDelta, Job, JobChange, JobEvent, JobPr, PrChecks } from './types.ts';
+import { ForgeError, SAFE_REF, hasBinary, now, readText, run, safeText } from './util.ts';
 import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretMode, textUnit } from './secrets.ts';
 import { cleanGenerated, generatedConfig, generatedPaths, partitionConflicts, rebuild, regenerateProblem, takeBaseSide } from './regenerate.ts';
 import type { Strategy } from './regenerate.ts';
@@ -274,10 +274,42 @@ export function prText(root: string, config: Config, job: Job, title?: string): 
   return { title: title ?? job.title, body: prBody(root, config, job) };
 }
 
+/** A person's approval of the job's latest escalation: escalationApproval. */
+export interface EscalationApproval {
+  reason: string;
+  login: string | null;
+  source: ActorSource;
+  ts: string;
+}
+
+/**
+ * The approval the PR body and the merge comment name: the first `approve` after the job's latest
+ * park on `escalation`, when a person (not the foreman) gave it. Null otherwise.
+ */
+export function escalationApproval(events: JobEvent[]): EscalationApproval | null {
+  const park = events.findLastIndex((e) => e.type === 'transition' && (e.to as { state?: unknown; waitingOn?: unknown } | null)?.state === 'waiting' && (e.to as { waitingOn?: unknown }).waitingOn === 'escalation');
+  if (park < 0) return null;
+  const approve = events.slice(park + 1).find((e) => e.type === 'human' && e.action === 'approve');
+  if (!approve || isForemanActor(approve) || typeof approve.ts !== 'string') return null;
+  const actor = approve.actor && typeof approve.actor === 'object' ? approve.actor : { login: null, source: 'unknown' as const };
+  // One line: breaks become spaces before safeText drops the remaining control characters and backticks.
+  const oneLine = String(events[park].reason ?? '').replace(/[\r\n\t\u2028\u2029]+/g, ' ');
+  const reason = safeText(oneLine, 200).replace(/ {2,}/g, ' ').trim().replace(/[.\s]+$/, '') || 'no reason recorded';
+  return { reason, login: actor.login, source: actor.source, ts: approve.ts };
+}
+
+/** `` `<login>` (<source>) on <YYYY-MM-DD> ``: the login in a code span, so it can never mention anyone or carry markdown. */
+export function approvedBy(a: EscalationApproval): string {
+  const login = (a.login ?? '').replace(/`/g, '') || 'unknown';
+  return `\`${login}\` (${a.source}) on ${a.ts.slice(0, 10)}`;
+}
+
 function prBody(root: string, config: Config, job: Job): string {
   const dir = jobDir(root, job.id);
   const custom = readText(path.join(dir, 'pr.md')).trim();
   const parts = [custom || `## Summary\n\n${firstParagraph(readText(path.join(dir, 'spec.md'))) || job.title}`];
+  const approval = escalationApproval(readEvents(root, job.id));
+  if (approval) parts.push(`## Decision\n\nEscalated: ${approval.reason}. Approved by ${approvedBy(approval)}.`);
   if (job.source?.tracker === 'github' && job.source.ref && config.pr.closeIssue) parts.push(`Closes #${job.source.ref}`);
   else if (job.source?.url) parts.push(`Source: ${job.source.url}`);
   parts.push(MARKER);

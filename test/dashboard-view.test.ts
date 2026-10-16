@@ -609,3 +609,26 @@ test('foreman event line and gate owner badge', () => {
   assert.deepEqual(V.gateOwnerBadge('human'), { foreman: false, tone: 'you' });
   for (const none of [null, undefined, 'robot', 1]) assert.equal(V.gateOwnerBadge(none), null, String(none));
 });
+
+test('actorLabel and lastActed', () => {
+  const ev = (actor: any, type = 'human') => ({ v: 2, ts: 't', type, action: 'approve', actor });
+  assert.deepEqual(V.actorLabel(ev({ login: 'alice', source: 'gh' })), { login: 'alice', source: 'gh' });
+  assert.deepEqual(V.actorLabel(ev({ login: null, source: 'unknown' })), { login: 'unknown', source: 'unknown' }, 'a null login reads as unknown');
+  assert.deepEqual(V.actorLabel(ev({ login: 'bob', source: 'env' }, 'budget-ack')), { login: 'bob', source: 'env' }, 'any event with an actor, not only human');
+  assert.equal(V.actorLabel(ev({ login: null, source: 'foreman' })), null, 'the foreman keeps its chip and shows no login');
+  assert.equal(V.actorLabel({ v: 2, ts: 't', type: 'agent-end' }), null);
+  assert.equal(V.actorLabel(null), null);
+  // Markup is returned as text; Svelte's {…} escapes it, and no {@html} renders an actor (dashboard-svelte.test.ts).
+  assert.equal(V.actorLabel(ev({ login: '<img src=x onerror=alert(1)>', source: 'env' }))!.login, '<img src=x onerror=alert(1)>');
+
+  assert.equal(V.lastActed({ lastHuman: null }), null);
+  assert.equal(V.lastActed({}), null, 'an older server without lastHuman');
+  assert.deepEqual(V.lastActed({ lastHuman: { ts: 't1', type: 'human', action: 'approve', actor: { login: 'alice', source: 'gh' } } }), { who: 'alice', foreman: false, ts: 't1' });
+  assert.deepEqual(V.lastActed({ lastHuman: { ts: 't2', type: 'human', action: 'rework', actor: { login: null, source: 'foreman' } } }), { who: 'foreman', foreman: true, ts: 't2' });
+  assert.deepEqual(V.lastActed({ lastHuman: { ts: 't3', type: 'budget-ack', action: null, actor: { login: null, source: 'unknown' } } }), { who: 'unknown', foreman: false, ts: 't3' });
+});
+
+test('the raw event line leaves the actor to its own label', () => {
+  const e = { v: 2, ts: 't', type: 'budget-set', key: 'usd', value: 5, actor: { login: 'bob', source: 'env' } } as const;
+  assert.equal(V.eventDetail(e, { tokens: tokensShort, dur }).pre, '{"key":"usd","value":5}');
+});

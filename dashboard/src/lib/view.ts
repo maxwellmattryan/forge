@@ -1,6 +1,6 @@
 // The dashboard's view logic, ported as-is from the pre-Svelte app.js so node:test can pin it: components hold only markup.
 // Plain functions and constants, no DOM access.
-import type { EvalCompare, Job, JobEvent, JobPr, OwnerStatus, Progress, RequestType, Stage, StateJob, WaitingOn } from './types.ts';
+import type { EvalCompare, Job, JobEvent, JobPr, LastHuman, OwnerStatus, Progress, RequestType, Stage, StateJob, WaitingOn } from './types.ts';
 import { PARK_LABEL, STAGE_LABEL, WAIT_LABEL } from './labels.ts';
 import { protectedSummary } from './protected.ts';
 import type { ProtectedSummary } from './protected.ts';
@@ -484,11 +484,31 @@ export function eventDetail(e: JobEvent, fmt: { tokens: (n: number | null | unde
   if (e.type === 'command') return plain(`${s(e.name)} ${e.ok ? '✓' : `✗ exit ${s(e.exit)}`} · ${fmt.dur(e.durationMs)}`);
   if (e.type === 'note') return plain(s(e.text));
   if (e.type === 'human') return { pre: '', bold: s(e.action), post: e.note ? ` · ${s(e.note)}` : '' };
-  return plain(JSON.stringify(Object.fromEntries(Object.entries(e).filter(([k]) => !['v', 'ts', 'type'].includes(k)))).slice(0, 240));
+  // The actor has its own "by …" on the row, so the raw fallback leaves it out.
+  return plain(JSON.stringify(Object.fromEntries(Object.entries(e).filter(([k]) => !['v', 'ts', 'type', 'actor'].includes(k)))).slice(0, 240));
 }
 
 /** A `human` event the foreman recorded: the timeline labels it so a reader can tell it from a person's decision. */
 export const isForemanEvent = (e: Partial<JobEvent> | null | undefined): boolean => e?.type === 'human' && e.actor?.source === 'foreman';
+
+/**
+ * The "by {login}" a timeline row shows for a person's action: the login (or `unknown` when none
+ * resolved) and its source for the tooltip. Null for the foreman, whose rows carry their own chip,
+ * and for events without an actor.
+ */
+export function actorLabel(e: Partial<JobEvent> | null | undefined): { login: string; source: string } | null {
+  const a = e?.actor;
+  if (!a || typeof a !== 'object' || a.source === 'foreman') return null;
+  return { login: typeof a.login === 'string' && a.login ? a.login : 'unknown', source: String(a.source) };
+}
+
+/** The Needs-you card's "Last acted" line, from /api/state's lastHuman; null when nobody has acted. */
+export function lastActed(job: { lastHuman?: LastHuman | null } | null | undefined): { who: string; foreman: boolean; ts: string } | null {
+  const h = job?.lastHuman;
+  if (!h || !h.actor || typeof h.ts !== 'string') return null;
+  const foreman = h.actor.source === 'foreman';
+  return { who: foreman ? 'foreman' : h.actor.login || 'unknown', foreman, ts: h.ts };
+}
 
 /** A waiting job's gate owner badge: the foreman deciding it, or a human owning it; null for no owner (or an older server). */
 export function gateOwnerBadge(owner: unknown): { foreman: boolean; tone: 'live' | 'you' } | null {

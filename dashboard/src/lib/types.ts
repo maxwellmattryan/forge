@@ -3,7 +3,7 @@
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 21;
+export const API_VERSION = 22;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 /** lib/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */
@@ -489,7 +489,15 @@ export interface TranscriptPage {
   more: boolean;
 }
 
-export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner };
+/** The last event that carries an actor: who last acted on a job (lastHuman in lib/server.ts). */
+export interface LastHuman {
+  ts: string;
+  type: string;
+  action: string | null;
+  actor: EventActor;
+}
+
+export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null };
 
 /** Request types the inbox accepts: REQUEST_TYPES in lib/requests.ts. */
 export type RequestType = 'next' | 'run' | 'approve' | 'revise-spec' | 'rework' | 'answer' | 'cancel' | 'resume' | 'sync' | 'eval-run' | 'retro' | 'gate';

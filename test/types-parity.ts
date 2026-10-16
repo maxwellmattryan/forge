@@ -49,6 +49,7 @@ export type Checks = [
   Expect<Equal<engine.AgentActivity, dash.AgentActivity>>,
   Expect<Equal<engine.AgentRow, dash.AgentRow>>,
   Expect<Equal<engine.TranscriptPage, dash.TranscriptPage>>,
+  Expect<Equal<engine.LastHuman, dash.LastHuman>>,
   Expect<Equal<engine.StateJob, dash.StateJob>>,
   Expect<Equal<engine.RequestType, dash.RequestType>>,
   Expect<Equal<engine.ForgeRequest, dash.ForgeRequest>>,

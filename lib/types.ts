@@ -1081,7 +1081,15 @@ export interface TranscriptPage {
 }
 
 /** A job row in /api/state: state() in lib/server.ts. */
-export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner };
+/** The last event that carries an actor: who last acted on a job (lastHuman in lib/server.ts). */
+export interface LastHuman {
+  ts: string;
+  type: string;
+  action: string | null;
+  actor: EventActor;
+}
+
+export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null };
 
 /** GET /api/state: state() in lib/server.ts. */
 export interface ApiState {
