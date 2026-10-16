@@ -30,7 +30,7 @@ export interface JobChip {
 export interface PoolModel {
   pill: Pill;
   inbox: Pill;
-  /** The office session's pill, or null while foreman.enabled is false: the status bar then shows no office. */
+  /** The office session's pill, or null while foreman.enabled is false. */
   office: Pill | null;
   live: number;
   cap: number;
@@ -133,18 +133,17 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
 /** One row of the Daemon popover: a session, its pill, and for a job its title (null when the job is unknown). */
 export type DaemonRow =
   | { kind: 'inbox'; pill: Pill }
-  | { kind: 'foreman'; pill: Pill }
   | { kind: 'job'; id: string; title: string | null; pill: Pill; mode: DaemonPermissionMode | null };
 
 /**
- * The Daemon popover's session rows: the Inbox first, the Foreman (the office session) only while foreman is on, then one
- * per job session in the model's status order. A title comes from `jobs` (the /api/state list); it is untrusted text.
+ * The Daemon popover's session rows: the Inbox first, then one per job session in the model's status order. The Foreman
+ * supervises the pool and leads the popover in its own row, never among these. A title comes from `jobs` (the /api/state
+ * list); it is untrusted text.
  */
 export function daemonRows(model: PoolModel, jobs: readonly { id: string; title?: string | null }[]): DaemonRow[] {
   const titles = new Map(jobs.map((j) => [j.id, typeof j.title === 'string' ? j.title : null]));
   return [
     { kind: 'inbox', pill: model.inbox },
-    ...(model.office ? [{ kind: 'foreman' as const, pill: model.office }] : []),
     ...model.jobs.map((j) => ({ kind: 'job' as const, id: j.id, title: titles.get(j.id) ?? null, pill: j.pill, mode: j.mode })),
   ];
 }

@@ -319,6 +319,20 @@
 @utility solid { background-color: var(--panel); --surface: var(--panel); }
 /* The anvil: the sidebar, the phone header and the status bar. Opaque, the furthest step from the ground. */
 @utility chrome { background-color: var(--chrome); --surface: var(--chrome); }
+/* foreman: the supervisor above the daemon pool (the status bar's Foreman indicator, its popover's header and tag, the
+   Daemon popover's Foreman row). Gleam text on a gleam tint behind a gleam seam, so it outranks the bar's ghost
+   indicators without taking a status tone. Gleam, not gleam-hot: gleam-hot sits too close to fg on the dark themes and
+   under 4.5:1 on ash's pale ground. .off: a dashed seam, muted text, no tint. The :is() raises it over the base btn, chip
+   and plain rules whatever order Tailwind emits them in. */
+@utility foreman {
+  color: var(--gleam);
+  border-color: color-mix(in srgb, var(--gleam) 55%, transparent);
+  background-color: color-mix(in srgb, var(--surface, var(--panel)), var(--gleam) 12%);
+  &:is(.btn, .chip, .plain) { color: var(--gleam); border-color: color-mix(in srgb, var(--gleam) 55%, transparent); background-color: color-mix(in srgb, var(--surface, var(--panel)), var(--gleam) 12%); }
+  &.btn[aria-expanded="true"] { border-color: var(--gleam); background-color: color-mix(in srgb, var(--surface, var(--panel)), var(--gleam) 20%); }
+  @media (hover: hover) { &.btn:hover, &.plain.clickable:hover { border-color: var(--gleam); background-color: color-mix(in srgb, var(--surface, var(--panel)), var(--gleam) 20%); } }
+  &.off, &.off:is(.btn, .chip, .plain) { color: var(--muted); border-style: dashed; border-color: var(--line-strong); background-color: var(--surface, var(--panel)); }
+}
 
 /* ---------- plate: a forged panel, bevelled top and bottom, cut at two corners ----------
    corner-shape: bevel turns each radius into a straight chisel cut; a browser without it shows a soft corner of

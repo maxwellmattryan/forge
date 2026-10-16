@@ -1,10 +1,11 @@
-// The status bar's pure half: its daemon and inbox indicators, the facts strip's drop order, the model label, the
+// The status bar's pure half: its Foreman, daemon and inbox indicators, the facts strip's drop order, the model label, the
 // connection state, the prompt announcement, and the rule of the sidebar's "New job or command" input. No DOM and no svelte import, so node:test can pin them.
 // Model strings come from config.yml and the roster, session state from session output: all plain strings, rendered as text.
-import { obj, poolModel } from './daemon.ts';
+import { obj, poolModel, sessionPill } from './daemon.ts';
 import type { Pill, PoolInput } from './daemon.ts';
 import { activeSessions } from './live.ts';
 import { pendingPrompts } from './permissions.ts';
+import { OFFICE_SCOPE } from './types.ts';
 import type { Roster } from './types.ts';
 
 // ---------- models ----------
@@ -104,14 +105,18 @@ export function connectionState({ online, apiVersion, clientApi }: { online: boo
 
 // ---------- daemon and inbox ----------
 
-export type DaemonIndicator = { off: true; active: false } | { off: false; pill: Pill; live: number; cap: number; active: boolean };
+/** Off, the bar still shows `Daemon 0/<cap>`: cap is daemon.maxConcurrent, 0 when the server sends none. */
+export type DaemonIndicator = { off: true; active: false; cap: number } | { off: false; pill: Pill; live: number; cap: number; active: boolean };
+
+/** The Foreman (the office session) supervises the pool, so the bar always shows it, even while it or the daemon is off. */
+export type ForemanIndicator = { on: false } | { on: true; daemon: boolean; pill: Pill; active: boolean; prompts: number };
 
 export interface BarModel {
   daemon: DaemonIndicator;
   /** Null exactly when the daemon is off: the Inbox indicator is not rendered. */
   inbox: Pill | null;
-  /** Null unless the daemon is on and foreman.enabled: the Office indicator is not rendered. */
-  office: Pill | null;
+  /** On exactly while foreman.enabled; an older server that sends no flag reads as off. */
+  foreman: ForemanIndicator;
   /** Pending permission prompts across the whole pool. */
   prompts: number;
   held: number;
@@ -125,10 +130,16 @@ export function barModel(pool: PoolInput, opts: { pending: boolean }): BarModel 
   const m = poolModel(pool, opts);
   const prompts = pendingPrompts(pool ?? null).length;
   const attention = prompts > 0;
+  const p = obj(pool);
+  const office = p.office ?? null;
+  const foreman: ForemanIndicator =
+    p.foreman === true
+      ? { on: true, daemon: m !== null, pill: sessionPill(office), active: obj(office).status === 'busy', prompts: pendingPrompts(pool ?? null, OFFICE_SCOPE).length }
+      : { on: false };
   return {
-    daemon: m ? { off: false, pill: m.pill, live: m.live, cap: m.cap, active: activeSessions(pool).count > 0 } : { off: true, active: false },
+    daemon: m ? { off: false, pill: m.pill, live: m.live, cap: m.cap, active: activeSessions(pool).count > 0 } : { off: true, active: false, cap: Number(p.maxConcurrent) || 0 },
     inbox: m ? (attention ? { ...m.inbox, tone: 'warn' } : m.inbox) : null,
-    office: m ? m.office : null,
+    foreman,
     prompts,
     held: m ? m.held.length : 0,
     waiting: m ? m.waiting.length : 0,

@@ -2,7 +2,10 @@
      tool calls and subagents, followed live. Every log string is untrusted session output: text and thinking bodies and a
      subagent's prompt and result render only through the escape-first md() (as text in Raw or above 20k characters); tool
      input, tool results and every other line render as text. With `transcript`, it follows a job's Claude Code transcript
-     instead (an agent's, or an interactive owner's): read-only, with no status, Start/Stop, mode or effort controls. -->
+     instead (an agent's, or an interactive owner's): read-only, with no status, Start/Stop, mode or effort controls.
+     With `fill` (the Foreman popover), it takes its container's remaining height and its log pane is the one scroller,
+     instead of capping the pane's height. The office's header also states its model (from the newest init line) and its
+     effort, both read-only: the daemon passes no --model, and the office's effort follows runtime.effort. -->
 <script lang="ts">
   import { onDestroy, tick, untrack } from 'svelte';
   import Banner from './Banner.svelte';
@@ -17,7 +20,10 @@
   import { TONE_CLASS, clock, usd } from '../lib/util.ts';
   import { INBOX_SCOPE, OFFICE_SCOPE } from '../lib/types.ts';
   import type { DaemonSessionState } from '../lib/types.ts';
-  import { atBottom, buildSessionView, readFilters } from '../lib/session-log.ts';
+  import { atBottom, buildSessionView, latestInitModel, readFilters } from '../lib/session-log.ts';
+  import { modelLabel } from '../lib/statusbar.ts';
+  import { EFFORTS } from '../lib/types.ts';
+  import type { Effort } from '../lib/types.ts';
   import type { Entry, Filters, Item } from '../lib/session-log.ts';
   import { createSessionLog } from '../lib/daemon-log.ts';
   import { TINT, logSender } from '../lib/sender.ts';
@@ -31,7 +37,7 @@
 
   /** A transcript to follow in place of the daemon session: the job, the agent's role (null for the owner) and the banner text. */
   type Transcript = { job: string; agent: string | null; label: string };
-  let { scope, compact = false, active = true, transcript = null }: { scope: string; compact?: boolean; active?: boolean; transcript?: Transcript | null } = $props();
+  let { scope, compact = false, active = true, transcript = null, fill = false }: { scope: string; compact?: boolean; active?: boolean; transcript?: Transcript | null; fill?: boolean } = $props();
 
   /** The transcript routes: the page takes the token as a header, the stream (EventSource sends none) as a query parameter. */
   function transcriptUrls(tr: Transcript): SessionLogUrls {
@@ -98,6 +104,20 @@
   let error = $state<string | null>(null);
   const view = $derived(buildSessionView(entries, filters, { partial: more }));
   let follow = $state(true);
+  const effortName = $derived<Record<Effort, string>>({ low: $t('effort.levels.low'), medium: $t('effort.levels.medium'), high: $t('effort.levels.high'), xhigh: $t('effort.levels.xhigh'), max: $t('effort.levels.max') });
+  const level = (v: unknown): Effort | null => EFFORTS.find((e) => e === v) ?? null;
+  // The office's facts. The model is session output (the init line), shown as text.
+  const officeModel = $derived.by(() => {
+    if (scope !== OFFICE_SCOPE) return '';
+    const raw = latestInitModel(entries);
+    return raw === null ? $t('session.modelUnknown') : (modelLabel(raw).label ?? raw);
+  });
+  const officeEffort = $derived.by(() => {
+    const spawned = level(session?.effort);
+    if (spawned !== null) return effortName[spawned];
+    const fallback = level(S.data?.config?.effort);
+    return fallback === null ? $t('effort.claude') : $t('effort.inherit', { level: effortName[fallback] });
+  });
   let pane = $state<HTMLDivElement>();
 
   $effect(() => {
@@ -217,7 +237,7 @@
   {/if}
 {/snippet}
 
-<div class="flex flex-col gap-2">
+<div class="flex flex-col gap-2 {fill ? 'min-h-0 flex-1' : ''}">
   {#if transcript}
   <div class="flex flex-wrap items-center gap-2">
     <span role="note" class="plain min-w-0 break-all px-2 py-1 text-xs text-muted">{transcript.label}</span>
@@ -227,6 +247,10 @@
     <span role="status" class="chip sm {TONE_CLASS[pill.tone]}" title={pill.title}>{pill.label}</span>
     <span class="text-xs text-muted">{$t('session.turns', { count: view.totals.turns })}</span>
     {#if view.totals.results}<span class="text-xs text-muted" title={$t('session.costTitle')}>{$t('session.cost', { cost: usd(view.totals.costUsd) })}</span>{/if}
+    {#if scope === OFFICE_SCOPE}
+      <span class="text-xs text-muted">{$t('session.model', { model: officeModel })}</span>
+      <span class="text-xs text-muted" title={$t('session.effortHint')}>{$t('session.effort', { effort: officeEffort })}</span>
+    {/if}
     <span class="flex-1"></span>
     <label class="flex items-center gap-1.5 text-xs text-muted" title={modeHint[picked ?? mode.chosen] ?? ''}>
       {$t('session.modeLabel')}
@@ -263,14 +287,14 @@
   {#if error !== null}
     <Banner msg={error} />
   {:else if loading && !entries.length}
-    <div class="text-sm text-muted">{$t('session.loading')}</div>
+    <div class="text-sm text-muted {fill ? 'min-h-0 flex-1' : ''}">{$t('session.loading')}</div>
   {:else if !entries.length}
     {@const enabled = S.data?.daemons?.enabled === true}
     <Empty>{#if transcript}{$t('session.transcriptEmpty')}{:else if scope === INBOX_SCOPE}{enabled ? $t('session.emptyInboxEnabled') : $t('session.emptyInbox')}{:else if scope === OFFICE_SCOPE}{$t('session.emptyOffice')}{:else}{enabled ? $t('session.emptyEnabled') : $t('session.empty')}{/if}</Empty>
   {/if}
   {#if entries.length}
     <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrollable region must be reachable from the keyboard) -->
-    <div bind:this={pane} onscroll={onScroll} role="log" aria-live="off" aria-label={$t('session.label')} tabindex="0" class="plate flat mono selectable px-2.5 pb-2.5 {compact ? 'text-[11px] leading-5' : 'text-[13px] leading-5'} {compact ? 'max-h-72' : 'max-h-[70vh]'} overflow-y-auto overscroll-contain">
+    <div bind:this={pane} onscroll={onScroll} role="log" aria-live="off" aria-label={$t('session.label')} tabindex="0" class="plate flat mono selectable px-2.5 pb-2.5 {compact ? 'text-[11px] leading-5' : 'text-[13px] leading-5'} {fill ? 'min-h-0 flex-1' : compact ? 'max-h-72' : 'max-h-[70vh]'} overflow-y-auto overscroll-contain">
       {#if !view.turns.length}<div class="text-muted">{$t('session.noMatch')}</div>{/if}
       {#each view.turns as g (g.offset)}
         <section class="mb-2">
