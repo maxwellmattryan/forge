@@ -1,9 +1,9 @@
 # Services, infrastructure and work outside the repo
 
-## Monorepos and multi-service repos
-`config.services` lists services: `{ name, path, commands: { build, test, dev, … }, owners, notes }`. The spec-writer names the services a job touches. Set them on the job (`forge job set <id> --field 'services=["api"]'`). When a job touches exactly one service, `forge run`/`forge verify` use that service's commands, run from its path. When it touches several, the top-level commands run, so make sure they cover everything.
+## Monorepos and multi-component repos
+`config.components` lists the repo's parts: `{ name, path, kind: library | service | app, commands: { build, test, dev, … }, dependsOn: [{ component | backing, type: build | runtime }], owners, notes }` (docs/CONFIG.md "Components"). The spec-writer names the components a job touches in the spec's `Services:` header. Set them on the job (`forge job set <id> --field 'services=["api"]'`). When a job touches exactly one component of this repo, `forge run`/`forge verify` use that component's commands, run from its path. When it touches several, the top-level commands run, so make sure they cover everything.
 
-A change that spans services should usually be split by the planner into per-service jobs with explicit ordering (e.g. backwards-compatible API first, then the client).
+A change that spans components should usually be split by the planner into per-component jobs with explicit ordering (e.g. backwards-compatible API first, then the client). A `build` dependency says which comes first.
 
 ## Infrastructure policy (`infra.mode`)
 | Mode | Agents may | Agents may not |

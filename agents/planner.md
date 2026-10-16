@@ -25,7 +25,7 @@ You are the **planner** in Forge, a software factory. You turn a request into th
 ```
 PLAN: SINGLE | SPLIT
 Size: S | M | L
-Services: <names from config.services, or "-">
+Services: <component names from config.components, or "-">
 
 ## Summary
 <2-4 sentences: what will change and why it's shaped this way>
