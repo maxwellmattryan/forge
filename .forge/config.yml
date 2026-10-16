@@ -120,12 +120,36 @@ review:
     - name: security
       model: opus
       when: lib/server.ts, lib/pr.ts, lib/trackers/*, hooks/*, anything that ingests tracker/PR/web text, runs shell commands, or touches the dashboard's Host/Origin/token checks
+      paths:
+        - lib/server.ts
+        - lib/pr.ts
+        - lib/trackers/**
+        - hooks/**
+        - lib/secrets.ts
+        - lib/daemon*.ts
+        - lib/requests.ts
+        - bin/forge
+        - package.json
+        - package-lock.json
     - name: docs
       when: "the diff adds, removes or renames a CLI command, flag or JSON output field, a config key or an /api shape, or changes orchestrator behaviour in skills/forge/**"
+      paths:
+        - README.md
+        - docs/**
+        - skills/forge/**
+        - lib/commands/**
+        - lib/schema.ts
+        - lib/config.ts
+        - lib/config-fields.ts
     - name: design
       model: opus
       checklist: .forge/reviewers/design.md
       when: "user-visible dashboard changes: dashboard/src/**, dashboard/style.css, dashboard/index.html, design/** (themes, phone width, flows, copy, keyboard, contrast)"
+      paths:
+        - dashboard/src/**
+        - dashboard/style.css
+        - dashboard/index.html
+        - design/**
   onPrFeedback: changed
 approver:
   alwaysEscalate:
