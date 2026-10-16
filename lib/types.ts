@@ -614,6 +614,7 @@ export interface Config {
     reviewers: string[];
     conflicts: 'ask' | 'fix' | 'defer';
     updateStrategy: 'merge' | 'rebase';
+    integrationReview: 'always' | 'code-only';
   };
   merge: {
     auto: boolean;

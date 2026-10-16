@@ -131,6 +131,7 @@ export function defaults(): Config {
       reviewers: [],
       conflicts: 'ask',
       updateStrategy: 'merge',
+      integrationReview: 'code-only',
     },
     merge: {
       auto: false,
@@ -237,6 +238,7 @@ export function validateConfig(c: any, root: string): string[] {
   oneOf('pipeline.design', c.pipeline.design, ['none', 'reference', 'mockup']);
   oneOf('pr.conflicts', c.pr.conflicts, ['ask', 'fix', 'defer']);
   oneOf('pr.updateStrategy', c.pr.updateStrategy, ['merge', 'rebase']);
+  oneOf('pr.integrationReview', c.pr.integrationReview, ['always', 'code-only']);
   oneOf('merge.method', c.merge.method, ['squash', 'merge', 'rebase']);
   oneOf('infra.mode', c.infra.mode, ['human', 'plan-only', 'agent']);
   oneOf('worktrees.cleanup', c.worktrees.cleanup, ['on-merge', 'manual']);

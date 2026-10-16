@@ -43,6 +43,15 @@ const atIntegrate = (more: Partial<Job> = {}): Partial<Job> => job({ stage: 'int
 const routed = [ev('integrated', 5, { behind: 0 }), ev('pr-updated', 11), ev('transition', 30, { from: { stage: 'pr', state: 'waiting', waitingOn: 'pr-review' }, to: { stage: 'integrate', state: 'running', waitingOn: null } })];
 const routedMerged = [...routed, ev('integrated', 31, { behind: 2, strategy: 'merge' })];
 const conflicts = ev('integrate-conflicts', 31, { strategy: 'rebase', conflicts: ['a.ts', '`x`'], behind: 2 });
+/** An integrate-conflicts event at minute 31 naming these conflicts. */
+const resolvedConflicts = (names: string[], more: Record<string, unknown> = {}) => ev('integrate-conflicts', 31, { strategy: 'merge', conflicts: names, behind: 1, ...more });
+const docsConflicts = resolvedConflicts(['README.md'], { regenerated: ['dashboard/dist/app.js'] });
+/** Conflicts under `fix`: the integrator resolved them (33–36) and verify passed at 37, so step reaches IG8. */
+const resolvedIntegration = (events: ReturnType<typeof ev>[], config: (c: Config) => unknown = () => {}): FixtureOpts => ({
+  config: (c) => ((c.pr.conflicts = 'fix'), config(c)),
+  job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 37, true)], agents: { integrator: ag(1, 33, 36) } }),
+  events: [...events, ev('agent-start', 33, { role: 'integrator' })],
+});
 const OPEN_PR: Job['pr'] = { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) };
 type Side = { stage: string; state?: string; waitingOn?: string | null };
 /** A transition event at minute n; a side's state defaults to running. */
@@ -588,6 +597,59 @@ const rows: Row[] = [
     fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 37, true)], agents: { integrator: ag(1, 33, 36), 'reviewer:code': ag(1, 38, 39, { outputMissing: false }) } }), events: [entered, conflicts, ev('agent-start', 33, { role: 'integrator' }), ev('integration-review', 40, { outcome: 'CHANGES' })] },
     want: { action: 'spawn', role: 'integrator', resume: 'a33' },
     check: (a) => assert.ok(a.brief.includes(`Integration review: ${path.join(JOB_DIR, 'review', 'integration', 'code.md')}`)),
+  },
+  { name: 'IG11 docs and regenerated conflicts skip the review and go to pr', fx: resolvedIntegration([ev('decision', 22), entered, docsConflicts]), want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running', '--note', 'integration review skipped: only docs or generated files conflicted, 2 files'), rule: 'IG11' } },
+  { name: 'IG11 skipped review before a decision goes to decide', fx: resolvedIntegration([reviewed, docsConflicts]), want: { ...run('job', 'set', 'j', '--stage', 'decide', '--state', 'running', '--note', 'integration review skipped: only docs or generated files conflicted, 2 files'), rule: 'IG11' } },
+  {
+    name: 'IG11 generated paths matched by worktrees.generated count as generated',
+    fx: resolvedIntegration([ev('decision', 22), entered, resolvedConflicts(['docs/guide.txt', 'dashboard/dist/x.js'])], (c) => (c.worktrees.generated = ['dashboard/dist/**'])),
+    want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running', '--note', 'integration review skipped: only docs or generated files conflicted, 2 files'), rule: 'IG11' },
+  },
+  { name: 'IG8 generated paths without a matching worktrees.generated keep the review', fx: resolvedIntegration([entered, resolvedConflicts(['docs/guide.txt', 'dashboard/dist/x.js'])]), want: { action: 'spawn', role: 'reviewer:code', rule: 'IG8' } },
+  { name: 'IG8 a code conflict keeps the integration review', fx: resolvedIntegration([entered, resolvedConflicts(['README.md', 'lib/cli.ts'])]), want: { action: 'spawn', role: 'reviewer:code', rule: 'IG8' } },
+  { name: 'IG11 a regenerated path counts as generated whatever its extension', fx: resolvedIntegration([ev('decision', 22), entered, resolvedConflicts(['CHANGELOG.md'], { regenerated: ['lib/gen.ts'] })]), want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running', '--note', 'integration review skipped: only docs or generated files conflicted, 2 files'), rule: 'IG11' } },
+  { name: 'IG8 pr.integrationReview always reviews docs-only conflicts', fx: resolvedIntegration([ev('decision', 22), entered, docsConflicts], (c) => (c.pr.integrationReview = 'always')), want: { action: 'spawn', role: 'reviewer:code', rule: 'IG8' } },
+  { name: 'IG8 an invalid pr.integrationReview reviews', fx: resolvedIntegration([ev('decision', 22), entered, docsConflicts], (c) => ((c.pr as any).integrationReview = 'sometimes')), want: { action: 'spawn', role: 'reviewer:code', rule: 'IG8' } },
+  { name: 'IG8 empty conflicts keep the review', fx: resolvedIntegration([entered, resolvedConflicts([])]), want: { action: 'spawn', role: 'reviewer:code', rule: 'IG8' } },
+  {
+    name: 'IG8 malformed conflicts keep the review',
+    fx: resolvedIntegration([entered, resolvedConflicts('README.md' as any)]),
+    want: { action: 'spawn', role: 'reviewer:code', rule: 'IG8' },
+    check: () => {
+      for (const bad of [{ conflicts: ['README.md'], regenerated: 'dist/x' }, { conflicts: ['README.md', 3] }, { conflicts: ['README.md', ''] }, { conflicts: null }]) {
+        const a: any = step(fixture(resolvedIntegration([entered, ev('integrate-conflicts', 31, { strategy: 'merge', behind: 1, ...bad })])));
+        assert.equal(a.rule, 'IG8', JSON.stringify(bad));
+      }
+    },
+  },
+  {
+    name: 'IG8 unsafe conflict names keep the review',
+    fx: resolvedIntegration([entered, resolvedConflicts(['../x.md'])]),
+    want: { action: 'spawn', role: 'reviewer:code', rule: 'IG8' },
+    check: () => {
+      for (const bad of ['/etc/x.md', 'docs/../lib/x.ts', 'a\nb.md', 'a\u0000.md', 'docs\\x.md']) {
+        const a: any = step(fixture(resolvedIntegration([entered, resolvedConflicts([bad])])));
+        assert.equal(a.rule, 'IG8', JSON.stringify(bad));
+      }
+    },
+  },
+  { name: 'IG8 a later rebase stop with code keeps the review', fx: resolvedIntegration([entered, resolvedConflicts(['README.md']), ev('integrate-conflicts', 34, { strategy: 'rebase', conflicts: ['lib/a.ts'], behind: 1 })]), want: { action: 'spawn', role: 'reviewer:code', rule: 'IG8' } },
+  {
+    // Named IG8, not IG11 as in the spec: the row's prefix must be the rule that decides it.
+    name: 'IG8 re-reviews: IG11 never skips once an integration review ran',
+    // The first review asked for changes; the integrator fixed it (41–45) and verify passed at 46.
+    fx: {
+      job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 37, true), vr(1, 46, true)], agents: { integrator: ag(1, 41, 45), 'reviewer:code': ag(1, 38, 39, { outputMissing: false }) } }),
+      events: [entered, docsConflicts, ev('agent-start', 33, { role: 'integrator' }), ev('agent-start', 38, { role: 'reviewer:code' }), ev('integration-review', 40, { outcome: 'CHANGES' }), ev('agent-start', 41, { role: 'integrator' })],
+      config: (c) => (c.pr.conflicts = 'fix'),
+    },
+    want: { action: 'spawn', role: 'reviewer:code', rule: 'IG8' },
+  },
+  {
+    name: 'IG11 hostile file names stay out of the note',
+    fx: resolvedIntegration([ev('decision', 22), entered, resolvedConflicts(["a'$(x).md", 'b"`y`.MD'])]),
+    want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running', '--note', 'integration review skipped: only docs or generated files conflicted, 2 files'), rule: 'IG11' },
+    check: (a) => assert.doesNotThrow(() => shellLine(a.command)),
   },
   { name: 'IG10 CHANGES after two integrator runs escalates', fx: { config: (c) => (c.pr.conflicts = 'fix'), job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 46, true)], agents: { integrator: ag(1, 41, 45), 'reviewer:code': ag(1, 47, 48, { outputMissing: false }) } }), events: [entered, conflicts, ev('agent-start', 33, { role: 'integrator' }), ev('integration-review', 40, { outcome: 'CHANGES' }), ev('agent-start', 41, { role: 'integrator' }), ev('integration-review', 49, { outcome: 'CHANGES' })] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'integration review: CHANGES') },
 

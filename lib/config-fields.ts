@@ -110,6 +110,7 @@ export const FIELDS: ConfigField[] = [
 
   field('review.blockOn', 'review', 'Block on', 'Severities that force another round. Blocker and major always do; add minor or nit to be stricter.', { type: 'list', options: SEVERITIES, required: ['blocker', 'major'] }),
   field('review.onPrFeedback', 'review', 'On PR feedback', 'Which lenses re-run after PR feedback.', { type: 'enum', options: ['changed', 'full', 'none'] }),
+  field('pr.integrationReview', 'review', 'Integration review', 'After a conflict fix: always review, or skip when only docs or generated files conflicted.', { type: 'enum', options: ['always', 'code-only'] }),
   field('review.panel', 'review', 'Panel', 'The review lenses: built-in names or .forge/reviewers/<name>.md.', { type: 'object', locked: 'lenses name checklist files and models' }),
 
   ...Object.keys(base.runtime.models).map((role) =>

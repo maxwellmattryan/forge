@@ -16,6 +16,7 @@ import { issueLinkStatus, prLinkNote } from './issue-link.ts';
 import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
 import { PLUGIN_ROOT, exists } from './paths.ts';
 import { COMPLEXITIES } from './schema.ts';
+import { generatedConfig } from './regenerate.ts';
 import { approachPaths, inSpec } from './scope.ts';
 import { AGENT_ID } from './transcripts.ts';
 import type { Config, Job, JobAgent, JobEvent, StepAction, StepDone, StepFile, StepInput, StepProcedure, StepRun, StepSpawn, StepVerdicts, StepWait, StepWaitingOn, VerifyRun, WaitingOn } from './types.ts';
@@ -31,7 +32,7 @@ export const RULES = [
   'V1', 'V2', 'V3',
   'RV1', 'RV2', 'RV3', 'RV4', 'RV5', 'RV6', 'RV7', 'RV8',
   'DC1', 'DC2', 'DC3', 'DC4', 'DC5', 'DC6', 'DC7', 'DC8', 'DC9', 'DC10',
-  'IG1', 'IG2', 'IG3', 'IG4', 'IG5', 'IG6', 'IG7', 'IG8', 'IG9', 'IG10',
+  'IG1', 'IG2', 'IG3', 'IG4', 'IG5', 'IG6', 'IG7', 'IG8', 'IG9', 'IG10', 'IG11',
   'PR1', 'PR2', 'PR3', 'PR4', 'PR5',
   // A secret scan stopped the job: park on `human` (SC1, SC3), or scan again once a human approved (SC2).
   'SC1', 'SC2', 'SC3',
@@ -894,6 +895,37 @@ function decideStage(x: StepInput): StepAction {
   return toStage(x, 'DC9', 'integrate', 'approved: bring the branch up to date');
 }
 
+// The builder, integrator or base branch names the conflicted files, so anything odd counts as code.
+const SAFE_CONFLICT = (p: unknown): p is string =>
+  typeof p === 'string' && p !== '' && !p.startsWith('/') && !p.includes('\\') && !/[\x00-\x1f\x7f]/.test(p) && !p.split('/').includes('..');
+const isDocs = (p: string) => p.toLowerCase().endsWith('.md') || p.startsWith('docs/');
+
+/**
+ * How many files this episode's conflicts touched when every one is docs or generated and
+ * `pr.integrationReview: code-only` lets the integration review be skipped; 0 keeps the review.
+ */
+export function integrationReviewSkippable(x: StepInput, first: JobEvent): number {
+  if (x.config.pr.integrationReview !== 'code-only') return 0;
+  // A review already ran this episode: its outcome governs.
+  if (x.events.some((e) => e.type === 'agent-start' && e.role === 'reviewer:code' && after(e.ts, first.ts))) return 0;
+  const events = x.events.filter((e) => e.type === 'integrate-conflicts' && (e === first || after(e.ts, first.ts)));
+  const conflicted = new Set<string>();
+  const regenerated = new Set<string>();
+  for (const e of events) {
+    for (const [key, into] of [['conflicts', conflicted], ['regenerated', regenerated]] as const) {
+      const list: unknown = e[key];
+      if (list === undefined) continue;
+      if (!Array.isArray(list) || !list.every(SAFE_CONFLICT)) return 0;
+      for (const p of list) into.add(p);
+    }
+  }
+  const all = new Set([...conflicted, ...regenerated]);
+  if (!all.size) return 0;
+  const globs = generatedConfig(x.config)?.globs ?? [];
+  const skippable = (p: string) => regenerated.has(p) || isDocs(p) || (globs.length > 0 && inSpec(p, globs));
+  return [...all].every(skippable) ? all.size : 0;
+}
+
 function integrate(x: StepInput): StepAction {
   const j = x.job;
   // A job set to integrate before transitions were logged has no entry event; anchor on the later of
@@ -933,7 +965,17 @@ function integrate(x: StepInput): StepAction {
   if (!checks.length) return run(x, 'IG7', ['verify', j.id], 'verify the conflict resolution');
   if (!checks.at(-1)!.ok) return park(x, 'IG7', 'escalation', 'integration: verify failed after conflict resolution');
   const reviewer = agent(x, 'reviewer:code');
-  if (!after(reviewer?.startedAt, integrator.endedAt)) return spawn(x, 'IG8', 'reviewer:code');
+  if (!after(reviewer?.startedAt, integrator.endedAt)) {
+    const skipped = integrationReviewSkippable(x, first);
+    if (skipped > 0) {
+      const next = afterIntegration(x);
+      // The note carries only a count: conflicted names are untrusted and never reach the command.
+      return toStage(x, 'IG11', next, next === 'pr' ? 'only docs or generated files conflicted: open the PR' : 'only docs or generated files conflicted: the approver decides', {
+        note: `integration review skipped: only docs or generated files conflicted, ${skipped} files`,
+      });
+    }
+    return spawn(x, 'IG8', 'reviewer:code');
+  }
   const m = missingOutput(x, 'reviewer:code');
   if (m) return m;
   const reviewEv = lastEvent(x, (e) => e.type === 'integration-review');
