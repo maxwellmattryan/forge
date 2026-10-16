@@ -602,8 +602,14 @@ export function gateTell(x: StepInput, waitingOn: WaitingOn): string {
       return `${id} waits on runbook steps before merge: ${p(x, 'runbook')}. /forge continue ${id} when done`;
     case 'conflicts':
       return `${id} conflicts with ${safe(j.base, SAFE_REF, 'its base branch')}. /forge approve ${id} to have the integrator fix them`;
-    case 'budget':
-      return `${id} over budget: ${reason}. /forge approve ${id} to acknowledge, or raise it: forge job budget ${id} --set usd=…`;
+    case 'budget': {
+      if (!reason.startsWith('repo budget:'))
+        return `${id} over budget: ${reason}. /forge approve ${id} to acknowledge, or raise it: forge job budget ${id} --set usd=…`;
+      // The repo cap is lifted by a human's ack of the period, never by approving or a per-job budget.
+      const at = new Date().toISOString();
+      const month = reason.includes('this month');
+      return `${id} held by the repo budget (${reason}). A human runs forge budget ack --period ${month ? at.slice(0, 7) : at.slice(0, 10)}, or raises budget.${month ? 'usdPerMonth' : 'usdPerDay'} in .forge/config.yml; the job resumes once the repo is under its cap`;
+    }
     case 'pr-review':
       return prReviewTell(x);
     case 'human':

@@ -1,7 +1,8 @@
 // The dashboard's view logic, ported as-is from the pre-Svelte app.js so node:test can pin it: components hold only markup.
 // Plain functions and constants, no DOM access.
 import type { EvalCompare, Job, JobEvent, JobPr, LastHuman, OwnerStatus, Progress, RequestType, Stage, StateJob, WaitingOn } from './types.ts';
-import { PARK_LABEL, STAGE_LABEL, WAIT_LABEL } from './labels.ts';
+import { PARK_LABEL, REPO_HOLD_LABEL, STAGE_LABEL, WAIT_LABEL } from './labels.ts';
+import { isRepoHold } from './repo-budget.ts';
 import { protectedSummary } from './protected.ts';
 import type { ProtectedSummary } from './protected.ts';
 
@@ -39,8 +40,9 @@ export function stateTone(job: JobLike): Tone {
   return 'muted';
 }
 
+// A repo hold reads apart from a job's own budget stop, so the two are told apart at a glance.
 export const stateText = (job: JobLike): string =>
-  isDependencyPark(job) ? PARK_LABEL : s(job.state === 'waiting' ? (WAIT_LABEL[job.waitingOn as WaitingOn] ?? job.waitingOn) : job.state);
+  isDependencyPark(job) ? PARK_LABEL : isRepoHold(job) ? REPO_HOLD_LABEL : s(job.state === 'waiting' ? (WAIT_LABEL[job.waitingOn as WaitingOn] ?? job.waitingOn) : job.state);
 
 export const verdictTone = (v: string | null | undefined): Tone => (v === 'PASS' ? 'ok' : v === 'CHANGES' ? 'bad' : v === 'MALFORMED' ? 'warn' : 'muted');
 
@@ -254,9 +256,10 @@ export function inboxGroups<T extends JobLike>(jobs: T[]): { urgent: T[]; prs: T
   };
 }
 
-export type InboxKind = WaitingOn | 'failed' | null | undefined;
+/** `repo-budget`: a budget wait the repo cap set. Approving it lifts nothing, so its card offers only Cancel and points at the Repo budget section. */
+export type InboxKind = WaitingOn | 'failed' | 'repo-budget' | null | undefined;
 
-export const inboxKind = (job: JobLike): InboxKind => (job.state === 'failed' ? 'failed' : job.waitingOn);
+export const inboxKind = (job: JobLike): InboxKind => (job.state === 'failed' ? 'failed' : isRepoHold(job) ? 'repo-budget' : job.waitingOn);
 
 /** The file the card links to ("Read … →"), or null. */
 export function inboxDoc(kind: InboxKind, job: JobLike): string | null {
@@ -317,6 +320,8 @@ export function inboxActions(kind: InboxKind, opts: { linkPending?: boolean } = 
       return [act('Another round', 'rework', false, true), act('Accept as is', 'approve'), act('Cancel job', 'cancel')];
     case 'budget':
       return [act('Approve & continue', 'approve', true, true), act('Cancel job', 'cancel')];
+    case 'repo-budget':
+      return [act('Cancel job', 'cancel')];
     case 'infra':
       return [act('Steps done, resume', 'resume', true)];
     case 'conflicts':
