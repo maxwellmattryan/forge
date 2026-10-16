@@ -130,7 +130,7 @@ export const CORE: HelpGroup[] = [
   {
     name: 'roster',
     summary: 'the agent roster',
-    commands: [{ command: 'roster', args: '', summary: "each role's agent prompt, model, effort and prompt hash" }],
+    commands: [{ command: 'roster', args: '', summary: "each role's agent prompt, model, effort and prompt hash, plus the learning count and oldest review-by" }],
   },
   {
     name: 'retro',
@@ -140,7 +140,7 @@ export const CORE: HelpGroup[] = [
       {
         command: 'retro prepare',
         args: '<job> [--since DATE]',
-        summary: "gather metrics, human interventions and review history into the retro job's dir",
+        summary: "gather metrics, human interventions and review history into the retro job's dir, including learnings past their review-by",
         flags: [['--since DATE', 'only jobs since DATE (default: since the last retro)']],
         exits: [NO_JOB],
       },
