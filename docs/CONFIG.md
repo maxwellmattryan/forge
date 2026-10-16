@@ -172,8 +172,10 @@ resources: []                # what agents should know exists, e.g.
 #  - { name: App designs, kind: figma, url: "https://www.figma.com/design/…", use: "source of truth for UI" }
 #  - { name: API docs, kind: docs, path: docs/api.md }
 
-services: []                 # monorepos / multi-service repos
-#  - { name: api, path: services/api, commands: { test: "go test ./...", dev: "go run . -port {port}" }, owners: ["@team-api"] }
+components: []               # the parts of a monorepo (see Components), e.g.
+#  - { name: proto, path: crates/proto, kind: library }
+#  - { name: api, path: services/api, kind: service, commands: { test: "go test ./...", dev: "go run . -port {port}" },
+#      dependsOn: [{ component: proto, type: build }, { backing: postgres, type: runtime }], owners: ["@team-api"] }
 
 infra:
   mode: human                # human | plan-only | agent
@@ -528,6 +530,31 @@ With `foreman.enabled: true` and `daemon.enabled: true`, `forge dash` runs one m
 All four keys are read-only in the settings: edit them by hand.
 
 - **Migration** (config `schemaVersion` 4 → 5): nothing changes. v5 adds `foreman.*` (off by default), `runtime.models.assistant` and `runtime.efforts.assistant`; the bump lets older Forges refuse a config whose foreman policy they would ignore. docs/ARCHITECTURE.md "Foreman" covers routing and the authority checks.
+
+## Components
+
+`components` lists the parts of a repo: libraries, services and apps, with their own commands and what they depend on. It is edited by hand (Settings shows it read-only), and `/forge init` proposes it from `forge init detect`'s `suggestions.components`. Each entry:
+
+```yaml
+components:
+  - name: core                  # required, unique; letters, digits and . _ / -, starting with a letter or digit
+    repo: null                  # optional; null or absent is this repo
+    path: crates/core           # required, relative, inside the repo; "." is the repo root
+    kind: library               # required: library | service | app
+    commands: { test: "cargo test" }   # optional, like the top-level commands
+    dependsOn:                  # optional, default []
+      - { component: proto, type: build }
+      - { backing: postgres, type: runtime }
+    owners: ["@team-core"]      # optional list of strings
+    notes: null                 # optional string
+```
+
+- **Selection.** A job's `services` field names the components it touches (the spec's `Services:` header fills it; step records only names that are configured components). When it names exactly one component of this repo, `forge run` and `forge verify` use that component's command, falling back to the top-level one, and run it from `<worktree>/<path>`. With none, several, an unknown name or a component whose `repo` is set, the top-level commands run from the worktree root. The verify integrity scan counts a component's script files under its path, and skips components whose `repo` is set.
+- **Dependencies.** Each `dependsOn` entry names exactly one of `component` (another entry's name) or `backing` (a backing service such as a database; only its shape is checked for now), and a `type`: `build` (needed to build or test this one) or `runtime` (needed only while it runs). Nothing acts on dependencies yet; the project graph and downstream verification will.
+- **Validation** (`forge config validate`, `forge doctor`, `forge init write`, Settings): `components` must be a list of maps; a `name` that is missing, unsafe or repeated, a `path` that is missing, empty, absolute (`/…`, `\…`, a drive letter) or has a `..` segment, and a `kind` outside the three are problems, as are a non-string `repo` or `notes`, `owners` that isn't a list of strings, and `commands` that isn't a map of strings or nulls. A `dependsOn` entry with neither or both targets, an empty target, a `type` other than `build | runtime`, or a `component` that names no component is a problem. A cycle of `build` edges is reported once with its path, e.g. `components: build dependency cycle a -> b -> c -> a` (a component naming itself as a build dependency is the cycle `a -> a`). Cycles that include a `runtime` edge are allowed.
+- **`repo`** is accepted for member repos to come; today it only keeps the component out of command selection and the integrity scan.
+
+**Migration** (config `schemaVersion` 9 → 10): `services` becomes `components`. Each service keeps its `name`, `path` (`.` when it had none), `commands`, `owners`, `notes` and any other keys, and gains `kind: service` and `dependsOn: []`, so every job runs the same commands from the same path as before. The migration happens in memory on every read; `forge migrate` writes it to disk. A config with no `schemaVersion` that still has `services` and no `components` is folded the same way. A v10 config that sets both is refused: `services was renamed to components in config schemaVersion 10; move its entries under components and delete services`.
 
 ## Deprecated keys
 

@@ -348,7 +348,7 @@ export const CONFIG_DISCLOSURE: Record<string, Disclosure> = {
   merge: 'plain',
   aiAttribution: 'plain',
   resources: 'url',
-  services: 'command',
+  components: 'command',
   infra: 'plain',
   'infra.allowed': 'command',
   'infra.notes': 'text',

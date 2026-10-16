@@ -40,11 +40,11 @@ describe('the policy', () => {
   });
 
   test('config v5 migrates to v7 unchanged', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 9);
+    assert.equal(CONFIG_SCHEMA_VERSION, 10);
     const v5 = { schemaVersion: 5, git: { base: 'trunk' }, approver: { alwaysEscalate: ['x'] } };
     const { config, from } = migrateConfig(structuredClone(v5));
     assert.equal(from, 5);
-    assert.deepEqual(config, { ...v5, schemaVersion: 9 }, 'nothing but schemaVersion changes');
+    assert.deepEqual(config, { ...v5, schemaVersion: 10 }, 'nothing but schemaVersion changes');
   });
 
   test('invalid policy shapes are reported', () => {

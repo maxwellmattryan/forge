@@ -17,7 +17,7 @@ export const HELP: HelpGroup[] = [
     name: 'init',
     summary: 'set Forge up in this repo (/forge init drives it)',
     commands: [
-      { command: 'init detect', args: '', summary: "the repo's stack, commands and services, as /forge init sees them" },
+      { command: 'init detect', args: '', summary: "the repo's stack, commands and components, as /forge init sees them" },
       {
         command: 'init write',
         args: '--answers FILE [--force]',

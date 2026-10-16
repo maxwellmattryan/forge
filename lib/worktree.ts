@@ -16,7 +16,8 @@ import { CONFIG_SCHEMA_VERSION } from './schema.ts';
 import { checkBranch, compactProtected, renderProtected } from './protected.ts';
 import type { BranchCheck, CompactProtected } from './protected.ts';
 import { logSecrets, renderSecrets, scanBranch, secretMode, secretsOk, secretsTail, compactSecrets } from './secrets.ts';
-import type { CompactSecrets, Config, Job, ServiceConfig, VerifyRun } from './types.ts';
+import { jobComponent } from './components.ts';
+import type { CompactSecrets, Config, Job, VerifyRun } from './types.ts';
 import { ForgeError, assertSafeRef, fill, now, readJson, run, shellArgs, tail, withLock, writeJsonAtomic } from './util.ts';
 
 /** What `forge worktree create` returns: createWorktree. */
@@ -381,14 +382,10 @@ function shellAsync(cmd: string, cwd: string, env: NodeJS.ProcessEnv): Promise<S
 }
 
 /**
- * A job touching exactly one service uses that service's command, else the top-level one.
+ * A job touching exactly one root-repo component uses that component's command, else the top-level one.
  */
 export function commandTemplate(config: Config, job: Job, name: string): string | null {
-  return jobService(config, job)?.commands?.[name] ?? config.commands[name] ?? null;
-}
-
-function jobService(config: Config, job: Job): ServiceConfig | null {
-  return job.services.length === 1 ? config.services.find((s) => s.name === job.services[0]) ?? null : null;
+  return jobComponent(config, job)?.commands?.[name] ?? config.commands[name] ?? null;
 }
 
 /** `forge run`'s options. `args` only ever comes from `forge run <job> <name> -- <args>`. */
@@ -408,11 +405,11 @@ interface PreparedCommand {
 /** Everything before the command starts, shared by the sync and async runners so both log alike. */
 function prepareCommand(root: string, config: Config, id: string, name: string, opts: RunOptions): PreparedCommand {
   const job = loadJob(root, id);
-  const service = jobService(config, job);
+  const component = jobComponent(config, job);
   const template = commandTemplate(config, job, name);
   if (!template) throw new ForgeError(`no "${name}" command configured (commands.${name} in .forge/config.yml)`);
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
-  const cwd = service?.path ? path.join(job.worktree, service.path) : job.worktree;
+  const cwd = component?.path ? path.join(job.worktree, component.path) : job.worktree;
   // Before touchJob: refused arguments leave no trace, not even a heartbeat.
   const cmd = fillCommand(name, template, vars(root, job, job.worktree, job.port), opts.args ?? []);
   // Agents run commands all through a build; each one proves the session is alive.

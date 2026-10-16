@@ -2,9 +2,12 @@
 // shapes in memory (and `forge migrate` rewrites them on disk), so a plugin update never
 // strands jobs or configs written by an older version. A file from a *newer* plugin is
 // refused rather than guessed at.
+import { servicesToComponents } from './components.ts';
 import type { EventActor, Job, JobEvent, LoadedJob } from './types.ts';
 
-export const CONFIG_SCHEMA_VERSION = 9;
+export { COMPONENT_KINDS, DEPENDENCY_TYPES } from './components.ts';
+
+export const CONFIG_SCHEMA_VERSION = 10;
 export const JOB_SCHEMA_VERSION = 10;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
@@ -125,6 +128,10 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // v9 adds the repo-wide budget block, unlimited by default, so no v8 config changes; the bump lets
   // older Forges refuse a config whose spend caps they would ignore.
   8: (c) => c,
+  // v10 replaces `services` with `components`, which add a kind and dependencies. A service was a
+  // part with its own commands, so each becomes a `service` component with no dependencies; its
+  // name, path and commands are unchanged, so `forge run` and `forge verify` pick the same command.
+  9: servicesToComponents,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
@@ -183,6 +190,8 @@ export function migrateConfig(raw: any): { config: any; from: number | undefined
     config = CONFIG_MIGRATIONS[v](config);
     v++;
   }
+  // An unversioned or hand-written config may still use the old key; fold it the same way.
+  if (from === CONFIG_SCHEMA_VERSION) config = servicesToComponents(config);
   config.schemaVersion = CONFIG_SCHEMA_VERSION;
   return { config, from: from === CONFIG_SCHEMA_VERSION ? undefined : from };
 }

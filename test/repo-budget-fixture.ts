@@ -32,7 +32,7 @@ export function budgetRepo(budget: Partial<RepoBudgetConfig>, spent = 0, extra: 
   Object.assign(config.budget, budget);
   Object.assign(config, extra);
   fs.mkdirSync(path.join(root, '.forge'), { recursive: true });
-  fs.writeFileSync(path.join(root, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 9, budget: config.budget, usage: { pricing: config.usage.pricing }, ...extra }));
+  fs.writeFileSync(path.join(root, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 10, budget: config.budget, usage: { pricing: config.usage.pricing }, ...extra }));
   const spender = createJob(root, config, { title: 'Spender' });
   setJob(root, spender.id, { stage: 'done', state: 'done' });
   if (spent) spend(root, spender.id, spent);

@@ -36,17 +36,17 @@ test('config defaults and validation', () => {
 });
 
 test('config v8 migrates to v9 unchanged', () => {
-  assert.equal(CONFIG_SCHEMA_VERSION, 9);
+  assert.equal(CONFIG_SCHEMA_VERSION, 10);
   const v8 = { schemaVersion: 8, git: { base: 'trunk' }, notify: { webhooks: [], command: null } };
   const { config, from } = migrateConfig(structuredClone(v8));
   assert.equal(from, 8);
-  assert.deepEqual(config, { ...v8, schemaVersion: 9 }, 'nothing but schemaVersion changes');
+  assert.deepEqual(config, { ...v8, schemaVersion: 10 }, 'nothing but schemaVersion changes');
   const repo = tempRepo();
   try {
     fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
     fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify(v8));
     const loaded = loadConfig(repo.dir);
-    assert.equal(loaded.config.schemaVersion, 9);
+    assert.equal(loaded.config.schemaVersion, 10);
     assert.deepEqual(loaded.config.budget, defaults().budget, 'a v8 config loads with the budget defaults');
   } finally {
     repo.cleanup();
@@ -71,7 +71,7 @@ describe('budget keys are settable', { concurrency: 4 }, () => {
     const repo = tempRepo();
     try {
       fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
-      fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), 'schemaVersion: 9\n');
+      fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), 'schemaVersion: 10\n');
       const ok = await forgeAsync(repo.dir, ['config', 'set', 'budget.usdPerMonth', '50']);
       assert.equal(ok.status, 0, ok.stderr);
       assert.equal(loadConfig(repo.dir).config.budget.usdPerMonth, 50);

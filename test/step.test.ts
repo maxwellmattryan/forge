@@ -280,7 +280,7 @@ const rows: Row[] = [
   },
   {
     name: 'SP3 panel records size and known services only',
-    fx: { config: (c) => (c.services = [{ name: 'api', path: 'api' }]), job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { size: 'L', services: ['api', 'evil;x', 'web'] } },
+    fx: { config: (c) => (c.components = [{ name: 'api', path: 'api', kind: 'service' }]), job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { size: 'L', services: ['api', 'evil;x', 'web'] } },
     want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]', '--field', 'size=L', '--field', 'services=["api"]'),
   },
   { name: 'SP3 panel ignores a size that is not S, M or L', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { size: 'XL;rm' } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]') },
