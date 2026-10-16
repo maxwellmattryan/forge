@@ -9,10 +9,10 @@ import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
 import { TRUST_ENV, autoMerge, defaults, loadConfig, trustDigest, validateConfig } from '../lib/config.ts';
 import { FIELDS } from '../lib/config-fields.ts';
-import { INVALID_RESERVED, SECURITY_CHANGES, gateOwner, latestSecurityVerdict, reservedMatch } from '../lib/foreman.ts';
+import { INVALID_RESERVED, SECURITY_CHANGES, SECURITY_UNCLEAR, gateOwner, latestSecurityVerdict, reservedFor, reservedMatch } from '../lib/foreman.ts';
 import { createJob, jobDir, loadJob, logEvent, readEvents, setJob } from '../lib/jobs.ts';
 import { syncPr, trustedFeedback } from '../lib/pr.ts';
-import { OFFICE_SCOPE, listRequests, requestScope } from '../lib/requests.ts';
+import { OFFICE_SCOPE, ackRequest, enqueue, listRequests, requestScope } from '../lib/requests.ts';
 import { CONFIG_SCHEMA_VERSION, EFFORT_ROLES, OFFICE_GATES, migrateConfig } from '../lib/schema.ts';
 import { computeStats } from '../lib/stats.ts';
 import { roleBrief } from '../lib/brief.ts';
@@ -406,6 +406,56 @@ describe('foreman CLI', { concurrency: 4 }, () => {
       // A later round whose security review passed clears it.
       assert.equal(latestSecurityVerdict({ verdicts: { 1: { security: 'CHANGES' }, 3: { security: 'PASS' } } } as any), 'PASS');
       assert.equal(latestSecurityVerdict({ verdicts: {} } as any), null);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('a foreman rework on pr-feedback needs a queued gate for the current head', async () => {
+    const s = scratch();
+    try {
+      const head = 'a'.repeat(40);
+      const pr = { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', headOid: head, checks: { state: 'failing', passing: 0, failing: 1, pending: 0 } };
+      const id = s.job('Feedback', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', fields: { pr } });
+      const rework = () => s.cli(OFFICE_SCOPE, 'job', 'human', id, 'rework', '--actor', 'foreman', '--note', 'fix the failing test');
+      const refused = async (label: string) => {
+        const before = s.snapshot(id);
+        const r = await rework();
+        assert.equal(r.code, 1, `${label}: ${r.out}`);
+        assert.match(r.out, /no queued pr-feedback gate request for .*current PR head/, label);
+        assert.equal(s.snapshot(id), before, `${label}: nothing written`);
+      };
+      await refused('no gate request at all');
+      enqueue(s.root, null, { type: 'gate', job: id, args: { gate: 'pr-feedback', key: 'b'.repeat(40), reserved: null }, from: 'forge' });
+      await refused('a gate for an older head');
+      const done = enqueue(s.root, null, { type: 'gate', job: id, args: { gate: 'pr-feedback', key: head, reserved: null }, from: 'forge' });
+      ackRequest(s.root, done.id, { status: 'done', result: 'no action: addressed' });
+      await refused('a gate for this head that was already handled');
+      enqueue(s.root, null, { type: 'gate', job: id, args: { gate: 'pr-feedback', key: head, reserved: null }, from: 'forge' });
+      const ok = await rework();
+      assert.equal(ok.code, 0, ok.out);
+      assert.deepEqual(readEvents(s.root, id).filter((e) => e.type === 'human').map((e) => [e.action, e.actor]), [['rework', 'foreman']]);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('a malformed security review keeps the gate with a human', async () => {
+    const s = scratch();
+    try {
+      const id = s.job('Malformed', { stage: 'build', state: 'running', fields: { verdicts: { 1: { code: 'PASS', security: 'MALFORMED' } } } });
+      assert.equal((await s.cli(undefined, 'job', 'set', id, '--state', 'waiting', '--waiting-on', 'rounds-exhausted', '--reason', 'round 2 exceeds maxRounds 1')).code, 0);
+      assert.equal(s.gates(id)[0].args.reserved, SECURITY_UNCLEAR);
+      assert.equal(gateOwner(s.root, s.config(), loadJob(s.root, id)), 'human');
+      const before = s.snapshot(id);
+      const r = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'approve', '--actor', 'foreman', '--note', 'cosmetic');
+      assert.equal(r.code, 1, r.out);
+      assert.match(r.out, /security review: not PASS/);
+      assert.equal(s.snapshot(id), before);
+      const at = (verdicts: unknown) => reservedFor(s.root, s.config(), { id, reason: 'x', verdicts } as any, 'escalation');
+      assert.equal(at({ 1: { security: 'PASS' } }), null);
+      assert.equal(at({ 1: { security: 'CHANGES' } }), SECURITY_CHANGES);
+      for (const v of ['MALFORMED', 'MISSING', 'weird']) assert.equal(at({ 1: { security: v } }), SECURITY_UNCLEAR, v);
     } finally {
       s.cleanup();
     }

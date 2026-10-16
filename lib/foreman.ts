@@ -116,6 +116,8 @@ export function reservedTexts(root: string, job: Pick<Job, 'id' | 'reason'>, gat
 
 /** What reservedFor returns when the latest round's security review asked for changes. */
 export const SECURITY_CHANGES = '(security review: CHANGES)';
+/** ...and when it is anything but PASS or CHANGES (MALFORMED, a value Forge doesn't know): fail closed. */
+export const SECURITY_UNCLEAR = '(security review: not PASS)';
 
 /** The verdict of the security lens in the latest round that has one, or null. */
 export function latestSecurityVerdict(job: Pick<Job, 'verdicts'>): string | null {
@@ -132,11 +134,14 @@ export function latestSecurityVerdict(job: Pick<Job, 'verdicts'>): string | null
 
 /**
  * reservedMatch over reservedTexts (and extra texts such as the note), with an unreadable decision.md
- * reserved. A security review that still asks for changes keeps any gate with a human, whatever the
- * texts say: security posture is never the foreman's call.
+ * reserved. A latest security review that isn't PASS (CHANGES, MALFORMED, anything else) keeps any gate
+ * with a human, whatever the texts say: security posture is never the foreman's call.
  */
 export function reservedFor(root: string, config: Config, job: Pick<Job, 'id' | 'reason' | 'verdicts'>, gate: GateClass | null, extra: (string | null | undefined)[] = []): string | null {
-  if (latestSecurityVerdict(job) === 'CHANGES') return SECURITY_CHANGES;
+  const security = latestSecurityVerdict(job);
+  if (security === 'CHANGES') return SECURITY_CHANGES;
+  // A security review Forge couldn't read (MALFORMED) is no proof the posture is fine.
+  if (security !== null && security !== 'PASS') return SECURITY_UNCLEAR;
   const texts = reservedTexts(root, job, gate);
   if (texts.includes(INVALID_RESERVED_TEXT)) return '(unreadable decision.md)';
   return reservedMatch(config, [...texts, ...extra]);
@@ -198,6 +203,13 @@ export function enqueuePrFeedbackGate(root: string, config: Config, job: Job, tr
   return enqueue(root, config, { type: 'gate', job: job.id, args: { gate: 'pr-feedback', key, reserved }, from: 'forge' });
 }
 
+/** A pending or in-progress pr-feedback gate request for the job's current PR head exists. */
+export function queuedPrFeedbackGate(root: string, job: Pick<Job, 'id' | 'pr'>, requests: ForgeRequest[] = listRequests(root)): boolean {
+  const head = job.pr?.headOid;
+  if (typeof head !== 'string' || !SHA.test(head)) return false;
+  return requests.some((r) => isGateRequest(r, job.id, 'pr-feedback') && r.args?.key === head && (r.status === 'pending' || r.status === 'in-progress'));
+}
+
 /** The daemon scope this call runs in is the office session. */
 export function inOffice(env: NodeJS.ProcessEnv = process.env): boolean {
   const s = daemonScope(env);
@@ -206,8 +218,9 @@ export function inOffice(env: NodeJS.ProcessEnv = process.env): boolean {
 
 /**
  * Every check on a foreman decision, before anything is written: the office scope, no --link or
- * --reason, a job waiting on a gate the foreman decides, an action that belongs to that gate, and
- * no reserved pattern in the reason, decision.md or the note. Throws ForgeError (exit 1).
+ * --reason, a job waiting on a gate the foreman decides, an action that belongs to that gate, for
+ * pr-feedback a queued gate request for the current PR head, and no reserved pattern in the reason,
+ * decision.md or the note. Throws ForgeError (exit 1).
  */
 export function checkForemanDecision(
   root: string,
@@ -229,6 +242,9 @@ export function checkForemanDecision(
   if (!foremanEnabled(config)) refuse('foreman.enabled is false');
   if (!decides(config).includes(gate!)) refuse(`${gate} is not in foreman.decides`);
   if (!ACTIONS_BY_GATE[gate!].includes(action)) refuse(`${action} is not a ${gate} action (${ACTIONS_BY_GATE[gate!].join(', ')})`);
+  // pr-feedback is the foreman's only once sync armed it for this head (trusted feedback or failing
+  // checks): a queued gate request keyed by the PR's current head sha must exist.
+  if (gate === 'pr-feedback' && !queuedPrFeedbackGate(root, job)) refuse(`no queued pr-feedback gate request for ${job.id}'s current PR head`);
   const reserved = reservedFor(root, config, job, gate, [note]);
   if (reserved) refuse(`reserved (${reserved}): left for a human`);
   return gate!;
