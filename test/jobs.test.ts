@@ -14,12 +14,12 @@ test('job lifecycle: ids, transitions, claims, usage, verdict policy', () => {
   try {
     const root = repo.dir;
     const config = defaults();
-    const a = createJob(root, config, { title: 'Add dark mode toggle', ref: '42' });
+    const a = createJob(root, config, { title: 'Add dark mode toggle', issues: [{ tracker: 'local', ref: '42', url: null }] });
     assert.equal(a.id, '42-add-dark-mode-toggle');
     assert.equal(a.branch, 'forge/42-add-dark-mode-toggle');
-    const b = createJob(root, config, { title: 'Add dark mode toggle', ref: '42' });
+    const b = createJob(root, config, { title: 'Add dark mode toggle', issues: [{ tracker: 'local', ref: '42', url: null }] });
     assert.equal(b.id, '42-add-dark-mode-toggle-2');
-    const c = createJob(root, config, { title: 'Reading time', ref: 'reading-time' });
+    const c = createJob(root, config, { title: 'Reading time', issues: [{ tracker: 'local', ref: 'reading-time', url: null }] });
     assert.equal(c.id, 'reading-time');
 
     assert.throws(() => setJob(root, a.id, { stage: 'nope' }), /unknown stage/);
@@ -188,14 +188,14 @@ test('reads v1 events into the v2 actor shape', () => {
 test('v9 job gains protectedPaths null', () => {
   const repo = tempRepo();
   try {
-    assert.equal(JOB_SCHEMA_VERSION, 10);
+    assert.equal(JOB_SCHEMA_VERSION, 11);
     const job = createJob(repo.dir, defaults(), { title: 'Old v9' });
     const file = path.join(jobDir(repo.dir, job.id), 'job.json');
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
     delete raw.protectedPaths;
     fs.writeFileSync(file, JSON.stringify({ ...raw, schemaVersion: 9 }));
     const loaded = loadJob(repo.dir, job.id);
-    assert.equal(loaded.schemaVersion, 10);
+    assert.equal(loaded.schemaVersion, 11);
     assert.equal(loaded.protectedPaths, null);
     assert.equal(normalizeJob({ id: 'x', schemaVersion: 10 }).protectedPaths, null);
     // Tolerant: a hand-edited value without a hits list reads as no flag.

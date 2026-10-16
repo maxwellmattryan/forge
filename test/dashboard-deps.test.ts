@@ -56,8 +56,8 @@ test('blockLinks and depHint match the old drawer section', () => {
 
 // An issue-linked job (GitHub #66), a local slug job (ref equal to its id) and a card depending on both plus a missing one.
 const linked: any = [
-  { id: '66-x', title: 'Drafting', source: { ref: '66' }, stage: 'done', state: 'done', dependsOn: [] },
-  { id: 'local-slug', title: 'Local', source: { ref: 'local-slug' }, stage: 'build', state: 'running', dependsOn: [] },
+  { id: '66-x', title: 'Drafting', issues: [{ tracker: 'github', ref: '66', url: null }], stage: 'done', state: 'done', dependsOn: [] },
+  { id: 'local-slug', title: 'Local', issues: [{ tracker: 'github', ref: 'local-slug', url: null }], stage: 'build', state: 'running', dependsOn: [] },
   { id: 'card', title: 'Card', stage: 'build', state: 'running', dependsOn: ['66-x', 'local-slug', 'gone'] },
 ];
 
@@ -72,7 +72,7 @@ test("depLinks and blockLinks carry the dependency's tracker ref", () => {
   );
   assert.deepEqual(depLinks(linked[2], linked)[0], { id: '66-x', title: 'Drafting', ref: '#66', stage: 'done', state: 'done', tone: 'ok' }, 'every other field is unchanged');
   assert.deepEqual(depLinks(linked[2], linked)[2], { id: 'gone', title: null, ref: null, stage: null, state: 'missing', tone: 'bad' });
-  const issueChild: any = { id: '70-kid', title: 'Kid', source: { ref: '70' }, stage: 'spec', state: 'queued', dependsOn: ['66-x'] };
+  const issueChild: any = { id: '70-kid', title: 'Kid', issues: [{ tracker: 'github', ref: '70', url: null }], stage: 'spec', state: 'queued', dependsOn: ['66-x'] };
   assert.deepEqual(blockLinks(linked[0], [...linked, issueChild]).map((l) => [l.id, l.ref]), [['card', null], ['70-kid', '#70']]);
   assert.deepEqual(blockLinks(linked[0], [...linked, issueChild])[1], { id: '70-kid', title: 'Kid', ref: '#70', stage: 'spec', state: 'queued', tone: 'warn' });
 });

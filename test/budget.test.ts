@@ -40,11 +40,11 @@ test('AC1/AC2/AC16: defaults, validation, waitingOn and versions', async () => {
   assert.equal(budgetProblems({ tokens: 'lots' }).length, 1);
   assert.deepEqual(budgetProblems({ tokens: null, usd: 2.5, verifyRetries: 0 }), []);
   assert.ok(WAITING_ON.includes('budget'));
-  assert.equal(JOB_SCHEMA_VERSION, 10);
-  assert.equal(API_VERSION, 24);
+  assert.equal(JOB_SCHEMA_VERSION, 11);
+  assert.equal(API_VERSION, 25);
   assert.equal(WAITING_ON.at(-1), 'human', 'v8 adds the human gate last');
   assert.deepEqual(BUDGET_KEYS, ['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries']);
-  assert.equal(DASH_API_VERSION, 24);
+  assert.equal(DASH_API_VERSION, 25);
   assert.equal(DASH_API_VERSION, API_VERSION);
   assert.equal(WAIT_LABEL.budget, 'Budget exceeded');
   assert.equal(WAIT_LABEL.human, 'Human check');

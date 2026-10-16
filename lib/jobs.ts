@@ -4,8 +4,10 @@ import path from 'node:path';
 import { paths, exists } from './paths.ts';
 import { currentActor } from './actor.ts';
 import { clearFocusIf } from './focus.ts';
-import { EFFORTS, STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, normalizeEvent, normalizeJob, serializeJob } from './schema.ts';
-import type { AgentUsage, Config, Effort, EventActor, Job, JobAgent, JobChange, JobOwner, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
+import { EFFORTS, STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, cleanIssues, normalizeEvent, normalizeJob, serializeJob } from './schema.ts';
+import { idPrefix } from './issue-ref.ts';
+import { localRepoSlug } from './repo-slug.ts';
+import type { AgentUsage, Config, Effort, EventActor, Job, JobAgent, JobIssue, JobChange, JobOwner, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
 import { queueNotify, transitionEvents } from './notify.ts';
 import { estimateCost } from './usage.ts';
 import { ForgeError, assertSafeRef, now, readJson, readText, setPath, slugify, shortId, withLock, writeJsonAtomic } from './util.ts';
@@ -143,7 +145,7 @@ const effortError = (v: unknown) => `unknown effort ${JSON.stringify(v)} (${EFFO
 export function createJob(
   root: string,
   config: Config,
-  opts: { title: string; ref?: string; url?: string; tracker?: string; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; services?: string[]; origin?: string; splitMode?: 'never' | null; effort?: Effort | null },
+  opts: { title: string; issues?: JobIssue[]; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; services?: string[]; origin?: string; splitMode?: 'never' | null; effort?: Effort | null },
 ): LoadedJob {
   if (!opts.title) throw new ForgeError('a job needs a title');
   if (opts.effort != null && !isEffort(opts.effort)) throw new ForgeError(effortError(opts.effort));
@@ -152,8 +154,10 @@ export function createJob(
   const p = paths(root);
   fs.mkdirSync(p.jobs, { recursive: true });
   const slug = opts.slug ? slugify(opts.slug) : slugify(opts.title, 5);
-  const ref = opts.ref ? String(opts.ref) : null;
-  const baseId = !ref ? `${slug}-${shortId()}` : /^\d+$/.test(ref) ? `${ref}-${slug}` : slugify(ref, 8);
+  const issues = cleanIssues(opts.issues ?? []);
+  // A foreign `owner/repo#12` must not take the `12-<slug>` id this repo's issue 12 would get.
+  const primary = issues.find((i) => i.ref) ?? null;
+  const baseId = idPrefix(primary, config.tracker.kind, primary ? localRepoSlug(root, config) : null, slug, slugify) ?? `${slug}-${shortId()}`;
   let id = baseId;
   for (let n = 2; ; n++) {
     try {
@@ -168,7 +172,7 @@ export function createJob(
     id,
     title: opts.title,
     kind: opts.kind ?? 'feature',
-    source: opts.ref || opts.url ? { tracker: opts.tracker ?? config.tracker.kind, ref: opts.ref ?? null, url: opts.url ?? null } : null,
+    issues,
     parent: opts.parent ?? null,
     services: opts.services ?? [],
     branch: opts.branch ?? `${config.git.branchPrefix}${id}`,
@@ -181,7 +185,7 @@ export function createJob(
   });
   writeJsonAtomic(path.join(p.job(id), 'job.json'), serializeJob(job));
   fs.writeFileSync(path.join(p.job(id), 'request.md'), `# ${opts.title}\n\n${opts.body?.trim() ?? ''}\n`);
-  logEvent(root, id, 'created', { title: opts.title, source: job.source, ...(opts.origin ? { origin: opts.origin } : {}), ...(job.effort ? { effort: job.effort } : {}) });
+  logEvent(root, id, 'created', { title: opts.title, issues: job.issues, ...(opts.origin ? { origin: opts.origin } : {}), ...(job.effort ? { effort: job.effort } : {}) });
   if (opts.parent) {
     updateJob(root, opts.parent, (parent) => {
       if (!parent.children.includes(id)) parent.children.push(id);

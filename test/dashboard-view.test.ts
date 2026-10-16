@@ -85,13 +85,13 @@ test('chips: state, verdict and PR tones and text', () => {
   assert.equal(V.progressWidth({ done: 1, total: 3 }), 33);
   assert.equal(V.progressWidth({ done: 0, total: 0 }), null);
   assert.equal(V.progressWidth(undefined), null);
-  assert.equal(V.cardRef({ id: '12-x', source: { ref: '12' } } as any), '#12');
-  assert.equal(V.cardRef({ id: 'my-job', source: { ref: 'ENG-4' } } as any), 'ENG-4');
-  assert.equal(V.cardRef({ id: 'slug', source: { ref: 'slug' } } as any), null);
-  assert.equal(V.cardRef({ id: 'x', source: null }), null);
-  assert.equal(V.cardRef({ id: 'job-x', source: { ref: '85' } } as any), '#85', 'a numeric ref is always #n');
-  assert.equal(V.cardRef({ id: '12', source: { ref: '12' } } as any), '#12');
-  assert.equal(V.cardRef({ id: 'slug-ab12', source: { ref: 'slug' } } as any), null, 'a local slug ref the id starts with');
+  assert.equal(V.cardRef({ id: '12-x', issues: [{ tracker: 'local', ref: '12', url: null }] } as any), '#12');
+  assert.equal(V.cardRef({ id: 'my-job', issues: [{ tracker: 'local', ref: 'ENG-4', url: null }] } as any), 'ENG-4');
+  assert.equal(V.cardRef({ id: 'slug', issues: [{ tracker: 'local', ref: 'slug', url: null }] } as any), null);
+  assert.equal(V.cardRef({ id: 'x', issues: [] }), null);
+  assert.equal(V.cardRef({ id: 'job-x', issues: [{ tracker: 'local', ref: '85', url: null }] } as any), '#85', 'a numeric ref is always #n');
+  assert.equal(V.cardRef({ id: '12', issues: [{ tracker: 'local', ref: '12', url: null }] } as any), '#12');
+  assert.equal(V.cardRef({ id: 'slug-ab12', issues: [{ tracker: 'local', ref: 'slug', url: null }] } as any), null, 'a local slug ref the id starts with');
   assert.deepEqual(V.runningRoles({ agents: { builder: { status: 'running' }, reviewer: { status: 'done' } } } as any), ['builder']);
 });
 
@@ -269,8 +269,8 @@ test('thread items', () => {
     ],
   );
   assert.deepEqual(threadItems([], { text: 'Imported body', at: null, tracker: true })[0].from, 'tracker');
-  // Typed in the bar, then linked or --create'd at the issue-link gate: it has a source, but the words are still yours.
-  const linkedLater = { job: { createdAt: '2026-10-13T00:00:00Z', source: { tracker: 'github', ref: '42', url: null } }, request: 'Add a reading-time badge', requestFromTracker: false };
+  // Typed in the bar, then linked or --create'd at the issue-link gate: it has issues, but the words are still yours.
+  const linkedLater = { job: { createdAt: '2026-10-13T00:00:00Z', issues: [{ tracker: 'github', ref: '42', url: null }] }, request: 'Add a reading-time badge', requestFromTracker: false };
   assert.deepEqual(
     threadItems([], threadOpening(linkedLater)).map((i) => [i.from, i.action, i.text, i.at]),
     [['you', { kind: 'request' }, 'Add a reading-time badge', '2026-10-13T00:00:00Z']],
@@ -382,6 +382,8 @@ test('issue-link candidates and actions', () => {
   for (const bad of ['', 'not json', 'null', '[]', '{"items": "no"}', '{"items": {}}']) assert.deepEqual(parseCandidates(bad), [], bad);
   assert.equal(cleanRef('#12'), '12');
   assert.equal(cleanRef(' reading-list '), 'reading-list');
+  assert.equal(cleanRef('o/r#12'), 'o/r#12', 'a qualified ref keeps its #');
+  assert.equal(cleanRef('a/../b#1'), null);
   assert.equal(cleanRef('../x'), null);
   assert.equal(cleanRef(''), null);
 
@@ -400,12 +402,12 @@ test('issue-link candidates and actions', () => {
 });
 
 test('spec-approval on an unlinked job: the chooser replaces Approve', () => {
-  const gate = { state: 'waiting', waitingOn: 'spec-approval', reason: 'spec ready, issue unlinked', source: null, noIssue: null } as const;
+  const gate = { state: 'waiting', waitingOn: 'spec-approval', reason: 'spec ready, issue unlinked', issues: [] as any[], noIssue: null } as const;
   assert.equal(V.UNLINKED_SPEC_REASON, 'spec ready, issue unlinked');
   assert.equal(V.specLinkPending(gate), true);
-  assert.equal(V.specLinkPending({ ...gate, source: undefined, noIssue: undefined }), true, 'fields missing from a hand-edited job.json');
+  assert.equal(V.specLinkPending({ ...gate, issues: undefined, noIssue: undefined }), true, 'fields missing from a hand-edited job.json');
   for (const [why, j] of [
-    ['linked while it waits', { ...gate, source: { tracker: 'local', ref: 'x', url: null } }],
+    ['linked while it waits', { ...gate, issues: [{ tracker: 'local', ref: 'x', url: null }] }],
     ['no issue needed', { ...gate, noIssue: { reason: null, at: 'now' } }],
     ['the plain reason', { ...gate, reason: 'spec ready' }],
     ['no reason', { ...gate, reason: null }],
@@ -462,7 +464,7 @@ const SNAPSHOT: any = [
   ['universal-command-palette-triggers-out-s3yj', 'backlog', 'waiting', 'external', 'dependencies not done: 67-drafting-restyle-5-5-appearance (build/running)', null, '2026-10-14T19:00:00Z'],
   ['66-drafting-restyle-4-5-job', 'done', 'done', null, null, '66', '2026-10-14T10:00:00Z'],
   ['23-split-lib-cli-mjs-into', 'plan', 'cancelled', null, null, '23', '2026-10-12T10:00:00Z'],
-].map(([id, stage, state, waitingOn, reason, ref, updatedAt]) => ({ id, kind: 'feature', stage, state, waitingOn, reason, source: ref ? { tracker: 'github', ref } : null, updatedAt }));
+].map(([id, stage, state, waitingOn, reason, ref, updatedAt]) => ({ id, kind: 'feature', stage, state, waitingOn, reason, issues: ref ? [{ tracker: 'github', ref, url: null }] : [], updatedAt }));
 
 const PARKS = ['alive-dashboard-live-session-indicators-q3ik', 'markdown-everywhere-in-the-dashboard-2l9s', 'surface-hierarchy-opaque-sheets-and-xki2', 'three-themes-whiter-vellum-true-rwun', 'universal-command-palette-triggers-out-s3yj'];
 
@@ -596,13 +598,13 @@ test('boardRank and sortByRank: rank, then newest, then id', () => {
 });
 
 test('cardModel: slots and null rules', () => {
-  const bare = V.cardModel({ id: 'slug-ab12', stage: 'backlog', state: 'queued', source: { ref: 'slug' }, round: 0 } as any);
+  const bare = V.cardModel({ id: 'slug-ab12', stage: 'backlog', state: 'queued', issues: [{ tracker: 'local', ref: 'slug', url: null }], round: 0 } as any);
   assert.deepEqual(bare, { ref: 'slug-ab12', refTitle: 'slug-ab12', steps: V.stageSteps({ stage: 'backlog', state: 'queued' }), stage: 'Queued', round: null, progress: null, lenses: null, running: false, protected: null });
   assert.equal(V.cardModel({ id: 'x', reviewers: [], progress: { done: 0, total: 0 } } as any).lenses, null, 'no reviewers, no lenses');
   assert.equal(V.cardModel({ id: 'x', progress: { done: 0, total: 0 } } as any).progress, null, 'no tasks, no bar');
 
   const full = V.cardModel({
-    id: '89-board', stage: 'verify', state: 'running', source: { ref: '89' }, round: 2, maxRounds: 3, progress: { done: 3, total: 5 },
+    id: '89-board', stage: 'verify', state: 'running', issues: [{ tracker: 'local', ref: '89', url: null }], round: 2, maxRounds: 3, progress: { done: 3, total: 5 },
     reviewers: ['code', 'ui'], verdicts: { 1: { code: 'CHANGES', ui: 'PASS' }, 2: { code: 'PASS' } },
   } as any);
   assert.equal(full.ref, '#89');
@@ -617,7 +619,7 @@ test('cardModel: slots and null rules', () => {
 
   assert.deepEqual(V.cardModel({ id: 'x', round: 1 } as any).round, { round: 1, max: null }, 'a missing maxRounds');
   assert.equal(V.cardModel({ id: 'x', stage: 'mystery' } as any).stage, 'mystery', 'an unknown stage shows raw');
-  assert.equal(V.cardModel({ id: 'my-job', source: { ref: 'ENG-4' } } as any).ref, 'ENG-4');
+  assert.equal(V.cardModel({ id: 'my-job', issues: [{ tracker: 'local', ref: 'ENG-4', url: null }] } as any).ref, 'ENG-4');
   const flag = { hits: [{ path: 'yarn.lock', rule: 4, glob: 'yarn.lock', reason: 'dependency lockfile', blob: null }], more: 0, at: 't', gate: 'commit', head: null };
   assert.deepEqual(V.cardModel({ id: 'x', protectedPaths: flag } as any).protected, { reasons: ['dependency lockfile'], rows: [{ path: 'yarn.lock', reason: 'dependency lockfile' }], more: 0 }, 'the Protected chip');
 });
@@ -657,4 +659,25 @@ test('actorLabel and lastActed', () => {
 test('the raw event line leaves the actor to its own label', () => {
   const e = { v: 2, ts: 't', type: 'budget-set', key: 'usd', value: 5, actor: { login: 'bob', source: 'env' } } as const;
   assert.equal(V.eventDetail(e, { tokens: tokensShort, dur }).pre, '{"key":"usd","value":5}');
+});
+
+test('issue labels and link state', () => {
+  const gh = (ref: string | null) => ({ tracker: 'github', ref, url: null });
+  assert.equal(V.cardRef({ id: '12-x', issues: [gh('12')] } as any), '#12');
+  assert.equal(V.cardRef({ id: '12-x', issues: [gh('o/repo#12')] } as any), 'repo#12');
+  assert.equal(V.cardRef({ id: '12-x', issues: [gh('o/repo#12'), gh('x/y#3')] } as any), 'repo#12 +1');
+  assert.equal(V.cardRef({ id: '12-x', issues: [gh('o/repo#12'), gh(null)] } as any), 'repo#12', 'a ref-less issue is not counted');
+  assert.equal(V.cardRef({ id: 'slug-ab12', issues: [{ tracker: 'local', ref: 'slug', url: null }] } as any), null, 'a local slug the id starts with');
+  assert.equal(V.cardRef({ id: 'slug-ab12', issues: [{ tracker: 'local', ref: 'slug', url: null }, { tracker: 'local', ref: 'other', url: null }, { tracker: 'local', ref: 'third', url: null }] } as any), '+2', 'the count stays when the label is hidden');
+  assert.equal(V.cardRef({ id: 'x', issues: [gh(null)] } as any), null);
+  assert.equal(V.issueLabel('group/sub/project#7'), 'project#7');
+  assert.equal(V.issueLabel('KEY-1'), 'KEY-1');
+  assert.equal(V.issueLabel(null), null);
+  assert.equal(V.hasLinkedIssue([]), false);
+  assert.equal(V.hasLinkedIssue([{ ref: null }]), false);
+  assert.equal(V.hasLinkedIssue(undefined), false);
+  assert.equal(V.hasLinkedIssue([{ ref: null }, { ref: 'o/r#1' }]), true);
+  const gate = { state: 'waiting', waitingOn: 'spec-approval', reason: 'spec ready, issue unlinked', noIssue: null } as const;
+  assert.equal(V.specLinkPending({ ...gate, issues: [gh(null)] } as any), true, 'specLinkPending uses hasLinkedIssue');
+  assert.equal(V.specLinkPending({ ...gate, issues: [gh('o/r#1')] } as any), false);
 });

@@ -57,7 +57,7 @@ describe('a job driven by step alone through the issue-link gates', { concurrenc
       assert.deepEqual([job.stage, job.reason], ['spec', 'link an issue before build']);
       assert.ok(!job.agents.builder, 'the builder never started');
       await s.f('job', 'human', id, 'approve', '--link', 'new');
-      assert.ok(loadJob(s.root, id).source?.ref, 'linked to the new issue');
+      assert.ok(loadJob(s.root, id).issues[0]?.ref, 'linked to the new issue');
       await s.f('job', 'set', id, '--state', 'running');
       last = await drive(s, id, steps);
       assert.equal(last.action, 'done', JSON.stringify(last));

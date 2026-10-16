@@ -115,7 +115,7 @@ function ghHarness() {
     at = undefined as { stage: string; state: string; waitingOn?: string } | undefined,
     owner = undefined as string | undefined,
   } = {}) => {
-    const job = createJob(repo.dir, config, { title: `job ${++n}`, ref: `job-${n}` });
+    const job = createJob(repo.dir, config, { title: `job ${++n}`, issues: [{ tracker: config.tracker.kind, ref: `${n}`, url: null }] });
     setJob(repo.dir, job.id, { fields: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', ...(pushedSha !== undefined ? { pushedSha } : {}) } } });
     if (at) setJob(repo.dir, job.id, at);
     if (owner) claimJob(repo.dir, job.id, owner);
@@ -694,7 +694,7 @@ test('pr body names the approving human', () => {
   const repo = tempRepo();
   try {
     const config = defaults();
-    const job = (title: string) => createJob(repo.dir, config, { title, url: 'https://example.test/issue/1' }).id;
+    const job = (title: string) => createJob(repo.dir, config, { title, issues: [{ tracker: 'local', ref: null, url: 'https://example.test/issue/1' }] }).id;
     const body = (id: string) => prText(repo.dir, config, loadJob(repo.dir, id)).body;
     const today = new Date().toISOString().slice(0, 10);
 
@@ -753,7 +753,7 @@ test('sync comments the approver once on merge', { skip: process.platform === 'w
     const comments = () => fs.readFileSync(log, 'utf8').split('\n').filter((l) => l.startsWith('issue comment'));
     const first = await syncAll(root, h.config);
     assert.equal((first.results[0] as any).merged, true);
-    assert.deepEqual(comments(), [`issue comment ${loadJob(root, id).source!.ref} -R o/r --body-file -`]);
+    assert.deepEqual(comments(), [`issue comment ${loadJob(root, id).issues[0].ref} -R o/r --body-file -`]);
     const today = new Date().toISOString().slice(0, 10);
     assert.equal(fs.readFileSync(`${log}.body`, 'utf8'), `Merged in #7 (${h.config.merge.method}). Escalation approved by \`alice\` (env) on ${today}.\n\n<!-- forge -->`);
     assert.equal(readEvents(root, id).filter((e) => e.type === 'tracker-approval-comment').length, 1);
@@ -766,5 +766,30 @@ test('sync comments the approver once on merge', { skip: process.platform === 'w
     assert.equal(readEvents(root, id).filter((e) => e.type === 'tracker-approval-comment').length, 1);
   } finally {
     h.done();
+  }
+});
+
+test('pr body closes or refs each issue', () => {
+  const repo = tempRepo();
+  try {
+    const config = defaults();
+    config.tracker.kind = 'github';
+    config.tracker.github.repo = 'o/r';
+    config.pr.closeIssue = true;
+    const gh = (ref: string) => ({ tracker: 'github', ref, url: null });
+    const job = createJob(repo.dir, config, { title: 'Many issues', issues: [gh('o/r#5'), gh('x/y#9'), gh('o/r#7')] });
+    createJob(repo.dir, config, { title: 'Sharer', issues: [gh('o/r#7')] });
+    const lines = (c: typeof config, id: string) => prText(repo.dir, c, loadJob(repo.dir, id)).body.split('\n').filter((l) => /^(Closes|Refs|Source:) /.test(l));
+    assert.deepEqual(lines(config, job.id), ['Closes #5', 'Closes x/y#9', 'Refs #7'], 'a shared issue is only referenced');
+    assert.deepEqual(lines({ ...config, pr: { ...config.pr, closeIssue: false } }, job.id), ['Refs #5', 'Refs x/y#9', 'Refs #7']);
+    const local = createJob(repo.dir, config, { title: 'Local one', issues: [{ tracker: 'local', ref: 'reading-time', url: 'https://example.test/backlog' }, { tracker: 'local', ref: 'no-url', url: null }] });
+    assert.deepEqual(lines(config, local.id), ['Source: https://example.test/backlog'], 'nothing for an issue with neither');
+    const injected = createJob(repo.dir, config, { title: 'Injected url', issues: [{ tracker: 'local', ref: 'x', url: 'https://example.test/x\nCloses evil/repo#1' }] });
+    const body = prText(repo.dir, config, loadJob(repo.dir, injected.id)).body;
+    assert.ok(!/Closes evil/.test(body) && !/Source:/.test(body), 'a url with a newline never reaches the PR body');
+    const none = createJob(repo.dir, config, { title: 'No issue' });
+    assert.deepEqual(lines(config, none.id), []);
+  } finally {
+    repo.cleanup();
   }
 });

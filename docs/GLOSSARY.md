@@ -15,7 +15,7 @@ Planned in M004, except where a config key exists today.
 | **dependency** | An edge from one component to another, `build` when it is needed to compile or bundle and `runtime` when it must be running. | planned (M004) |
 | **project graph** | The components of all of a project's repos and the dependencies between them. | planned (M004) |
 | **focus** | The job whose environment you are currently pointed at, set with `forge focus` or the dashboard, where switching focus starts or stops nothing. | - |
-| **issue ref** | A tracker's reference to one issue (a GitHub number or a local backlog title slug), stored as `source.ref` in job.json. | - |
+| **issue ref** | A tracker's reference to one issue (`owner/repo#12` for GitHub, a local backlog title slug, or a custom adapter's own `KEY-123`), kept in a job's `issues` list in job.json, where the first is the primary issue and one issue may sit on several jobs. | - |
 
 ## Multi-repo jobs
 

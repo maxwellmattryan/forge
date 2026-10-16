@@ -22,8 +22,14 @@ const vr = (round: number, at: number, ok: boolean, failure: string | null = ok 
 const job = (j: Partial<Job>): Partial<Job> => ({ state: 'running', ...j });
 const SPEC_DONE = { 'spec-writer': ag(0, 1, 2) };
 const LOCAL = (c: Config) => void (c.tracker.kind = 'local');
-const LINKED: Partial<Job> = { source: { tracker: 'local', ref: 'x', url: null } };
+const LINKED: Partial<Job> = { issues: [{ tracker: 'local', ref: 'x', url: null }] };
 const NO_ISSUE: Partial<Job> = { noIssue: { reason: null, at: t(0) } };
+// I1/SP5/SP7 read issues: none of these is linked.
+const UNLINKED: [string, Partial<Job>, ReturnType<typeof ev>[]][] = [
+  ['an empty issues list', { issues: [] }, []],
+  ['only a ref-less issue', { issues: [{ tracker: 'local', ref: null, url: 'https://example.test/1' }] }, []],
+  ['its last issue removed', { issues: [] }, [ev('unlinked', 1, { ref: 'x' })]],
+];
 const SPEC_TELL = `j spec ready: ${path.join(JOB_DIR, 'spec.md')}. /forge approve j or /forge revise j <note>`;
 const LINK_TELL = `j needs an issue: candidates in ${path.join(JOB_DIR, 'issue-candidates.md')} (untrusted). /forge approve j <ref> | new | none [reason]`;
 const PANEL_SET = ev('fields', 3, { fields: { reviewers: ['code', 'tests'] } });
@@ -204,6 +210,7 @@ const rows: Row[] = [
 
   // ---- Intake
   { name: 'I1 looks for issue candidates', fx: { config: (c) => (c.tracker.kind = 'local'), job: job({ stage: 'backlog', state: 'queued' }) }, want: run('job', 'link', 'j', '--suggest') },
+  ...UNLINKED.map(([why, j, events]) => ({ name: `I1 reads issues: ${why}`, fx: { config: LOCAL, job: job({ stage: 'backlog', state: 'queued', ...j }), events }, want: run('job', 'link', 'j', '--suggest') })),
   { name: 'G4 issue-link tell names the candidates as untrusted', fx: { job: job({ stage: 'backlog', state: 'waiting', waitingOn: 'issue-link' }) }, want: { action: 'wait', tell: `j needs an issue: candidates in ${path.join(JOB_DIR, 'issue-candidates.md')} (untrusted). /forge approve j <ref> | new | none [reason]` } },
   { name: 'I3 creates the worktree', fx: { worktree: false, job: job({ stage: 'backlog' }) }, want: run('worktree', 'create', 'j') },
   { name: 'I3 an unlinked job with candidates gets its worktree', fx: { config: LOCAL, files: ['issueCandidates'], worktree: false, job: job({ stage: 'backlog' }) }, want: run('worktree', 'create', 'j') },
@@ -298,6 +305,8 @@ const rows: Row[] = [
   { name: 'SP6 large lets an M spec through', fx: { config: (c) => (c.pipeline.specApproval = 'large'), job: job({ stage: 'spec', size: 'M', agents: SPEC_DONE }), events: [PANEL_SET] }, want: { action: 'run', rule: 'SP6' } },
   // ---- One human visit: the issue is chosen at the spec gate, or SP7 parks before build
   { name: "SP5 an unlinked job's gate says the issue is unlinked", fx: { config: LOCAL, job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET] }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready, issue unlinked') },
+  ...UNLINKED.map(([why, j, events]) => ({ name: `SP5 reads issues: ${why}`, fx: { config: LOCAL, job: job({ stage: 'spec', agents: SPEC_DONE, ...j }), events: [PANEL_SET, ...events] }, want: { ...run('job', 'set', 'j', '--stage', 'spec', '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready, issue unlinked'), rule: 'SP5' } })),
+  ...UNLINKED.map(([why, j, events]) => ({ name: `SP7 reads issues: ${why}`, fx: { config: (c: Config) => ((c.tracker.kind = 'local'), (c.pipeline.specApproval = 'never')), job: job({ stage: 'spec', agents: SPEC_DONE, ...j }), events: [PANEL_SET, ...events] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'issue-link', '--reason', 'link an issue before build'), rule: 'SP7' } })),
   { name: "SP5 a linked job's gate is unchanged", fx: { config: LOCAL, job: job({ stage: 'spec', agents: SPEC_DONE, ...LINKED }), events: [PANEL_SET] }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready') },
   { name: 'SP5 a job with no issue needed keeps the plain reason', fx: { config: LOCAL, job: job({ stage: 'spec', agents: SPEC_DONE, ...NO_ISSUE }), events: [PANEL_SET] }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready') },
   { name: 'SP5 a retro gate keeps the plain reason under a tracker', fx: { config: LOCAL, files: ['spec'], job: job({ kind: 'retro', stage: 'spec', agents: { retro: ag(0, 1, 2) } }), events: [PANEL_SET] }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready') },
