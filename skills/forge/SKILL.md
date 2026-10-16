@@ -42,7 +42,7 @@ Report `sync` results, a line each: merges, PR feedback, conflicts, finished umb
 | `sync` | the sync above; report |
 | `dash` | `forge dash --background`; give the URL |
 | `init`, `retro`, `eval …`, `requests` | `reference/init.md`, `retro.md`, `evals.md`, `requests.md` |
-| `doctor` | `forge doctor`; explain failures with fixes |
+| `doctor` | `forge doctor`; explain failures with fixes; to report a Forge bug, suggest `forge doctor --bundle` and tell the human to check the printed manifest |
 | `update` | `forge update` only; report `from → to`, each `warnings` and `next` entry, or the error. |
 
 ## Run a job
