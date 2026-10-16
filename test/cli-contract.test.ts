@@ -414,7 +414,7 @@ test('help covers every routed command', () => {
     s.init();
     const r = s.cli(['job', 'bogus']);
     assert.equal(r.status, 2);
-    assert.ok(r.stderr.includes('usage: forge job new|from-ref|link|list|show|get|set|effort|claim|release|note|human|assist|agent|round|budget|verdicts|decision|progress|paths|scope|acs|findings|step|advance; run `forge help job`'), r.stderr);
+    assert.ok(r.stderr.includes('usage: forge job new|from-ref|link|list|show|get|set|effort|claim|release|note|human|assist|agent|round|budget|verdicts|decision|progress|paths|scope|panel|acs|findings|step|advance; run `forge help job`'), r.stderr);
   } finally {
     s.cleanup();
   }
@@ -563,6 +563,7 @@ test('CLI JSON keys are stable', POSIX, () => {
       'quality.medianHumanDeltaLines', 'quality.recurringFindings', 'quality.specFirstApprovalRate', 'quality.verifyFirstPassRate', 'reviewers', 'since', 'speed', 'speed.medianMinutesToDone',
       'speed.medianMinutesToPr', 'waitingOn',
     ]);
+    assert.deepEqual(keyPaths(s.json(['version', '--json'])), ['commit', 'installedAs', 'node', 'version']);
   } finally {
     s.cleanup();
   }

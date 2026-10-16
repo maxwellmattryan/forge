@@ -1007,7 +1007,7 @@ test('/api/state exposes the session pool', async () => {
     .map((f) => fs.readFileSync(path.join(src, f), 'utf8'))
     .join('\n');
   assert.ok(app.includes('/api/requests'), 'read the dashboard sources');
-  assert.equal(DASH_API_VERSION, 19, 'the dashboard reads API_VERSION from src/lib/types.ts');
+  assert.equal(DASH_API_VERSION, 20, 'the dashboard reads API_VERSION from src/lib/types.ts');
   assert.doesNotMatch(app, /launcher|launched/);
 });
 
@@ -1149,7 +1149,8 @@ test('GET /api/doctor runs forge doctor behind the token', async () => {
     assert.deepEqual(Object.keys(d), ['ok', 'checks', 'at']);
     assert.equal(typeof d.ok, 'boolean');
     assert.ok(!Number.isNaN(Date.parse(d.at)));
-    for (const c of d.checks) assert.deepEqual(Object.keys(c), ['name', 'ok', 'detail']);
+    // `warn` is optional: the release row has it once a newer Forge is out.
+    for (const c of d.checks) assert.deepEqual(Object.keys(c).filter((k) => k !== 'warn'), ['name', 'ok', 'detail']);
     const names = d.checks.map((c) => c.name);
     assert.ok(names.includes('config present') && names.includes('node >= 22.18'), names.join(', '));
     const cli = JSON.parse(execFileSync(process.execPath, [path.resolve(import.meta.dirname, '..', 'bin', 'forge'), 'doctor'], { encoding: 'utf8', env: { ...process.env, FORGE_ROOT: repo.dir } }));
@@ -1163,6 +1164,7 @@ test('GET /api/doctor runs forge doctor behind the token', async () => {
 test('GET /api/about reports versions', async () => {
   const schema = await import('../lib/schema.ts');
   const { PLUGIN_ROOT } = await import('../lib/paths.ts');
+  const { versionInfo } = await import('../lib/version.ts');
   const root = path.resolve(import.meta.dirname, '..');
   const repo = tempRepo();
   const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
@@ -1171,14 +1173,44 @@ test('GET /api/about reports versions', async () => {
     assert.equal(r.status, 200);
     const a = JSON.parse(r.text);
     assert.equal(a.forgeVersion, JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version);
-    assert.equal(a.apiVersion, 19);
+    assert.equal(a.apiVersion, 20);
     assert.equal(a.pluginRoot, PLUGIN_ROOT);
     assert.deepEqual(a.schemaVersions, { config: schema.CONFIG_SCHEMA_VERSION, job: schema.JOB_SCHEMA_VERSION, event: schema.EVENT_SCHEMA_VERSION });
     assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'pricing.json'), 'utf8')).asOf);
     assert.equal(a.node, process.versions.node);
     assert.deepEqual(a.links, { repo: 'https://github.com/maxwellmattryan/forge', docs: 'https://github.com/maxwellmattryan/forge/tree/main/docs' });
+    const v = versionInfo(PLUGIN_ROOT);
+    assert.equal(a.commit, v.commit);
+    assert.equal(a.installedAs, v.installedAs);
+    assert.ok(a.commit === null || /^[0-9a-f]{40}$/.test(a.commit));
   } finally {
     await close();
+    repo.cleanup();
+  }
+});
+
+test('GET /api/about spawns nothing per request', async () => {
+  // /api/about takes no token, so a cross-site page can hit it: the commit is found once at start.
+  const repo = tempRepo();
+  const stubs = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-about-'));
+  const log = path.join(stubs, 'calls.log');
+  for (const cmd of ['git', 'gh']) {
+    fs.writeFileSync(path.join(stubs, cmd), `#!/bin/sh\necho "${cmd} $*" >> "${log}"\nexit 1\n`, { mode: 0o755 });
+  }
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const pathBefore = process.env.PATH;
+  process.env.PATH = `${stubs}${path.delimiter}${pathBefore}`;
+  try {
+    const port = Number(new URL(url).port);
+    const first = JSON.parse((await hit(port, { path: '/api/about' })).text);
+    const second = JSON.parse((await hit(port, { path: '/api/about' })).text);
+    assert.equal(fs.existsSync(log), false, fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '');
+    assert.equal(second.commit, first.commit);
+    assert.equal(second.installedAs, first.installedAs);
+  } finally {
+    process.env.PATH = pathBefore;
+    await close();
+    fs.rmSync(stubs, { recursive: true, force: true });
     repo.cleanup();
   }
 });
@@ -1399,7 +1431,7 @@ test('state exposes office session and gateOwner', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 19);
+    assert.equal(st.apiVersion, 20);
     assert.equal(st.daemons.foreman, true);
     assert.equal(st.daemons.office.scope, '_office');
     assert.equal(st.daemons.office.running, false);
@@ -1499,7 +1531,7 @@ test('owner status in /api/state and job detail', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 19);
+    assert.equal(st.apiVersion, 20);
     const byId = Object.fromEntries(st.jobs.map((j) => [j.id, j.ownerStatus]));
     assert.deepEqual(Object.fromEntries(Object.entries(byId).map(([k, v]: [string, any]) => [k, v.status])), { 'j-none': 'none', 'j-live': 'live', 'j-agent': 'live', 'j-stale': 'stale', 'j-dead': 'live' }, 'the time rule only: never dead');
     assert.deepEqual(byId['j-none'], { status: 'none', session: null, since: null, heartbeat: null, agentRunning: false, reason: null, jobSession: false });
@@ -1647,7 +1679,7 @@ test('/api/state and job detail carry effort', async () => {
   try {
     const port = Number(new URL(srv.url).port);
     const s = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(s.apiVersion, 19);
+    assert.equal(s.apiVersion, 20);
     assert.equal(s.config.effort, 'medium');
     const row = (id) => s.jobs.find((j) => j.id === id);
     assert.equal(row(plain).effort, null, 'a v3 job reads as inherit');

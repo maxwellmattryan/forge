@@ -150,7 +150,8 @@ test('docs mention job step', () => {
 });
 
 test('missing review: retry once then escalate', () => {
-  const s = scratch({ commands: { build: 'true', test: 'true', lint: 'true' } });
+  // One always lens, so RV9's panel leaves the round with code alone.
+  const s = scratch({ commands: { build: 'true', test: 'true', lint: 'true' }, review: { panel: [{ name: 'code', always: true }] } });
   try {
     const { id } = s.f('job', 'new', '--title', 'Missing review');
     s.f('worktree', 'create', id);
@@ -161,6 +162,9 @@ test('missing review: retry once then escalate', () => {
     const exec = (argv: string[]) => s.f(...argv);
 
     let a = step();
+    assert.deepEqual([a.action, a.rule, a.command], ['run', 'RV9', ['job', 'panel', id]]);
+    exec(a.command);
+    a = step();
     assert.deepEqual([a.action, a.rule, a.command], ['run', 'RV2', ['job', 'scope', id]]);
     exec(a.command);
     a = step();
