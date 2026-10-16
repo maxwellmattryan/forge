@@ -185,7 +185,7 @@ improve:
   retroEvery: 10             # suggest a retro after this many finished jobs
   maxLearnings: 30           # cap on .forge/notes/learnings.md entries
 
-evals:
+evals:                       # a run's variant is an overlay, never an edit here (see "Eval overlays" below)
   testPattern: null          # regex for test files: mining PRs into eval tasks, and verify's integrity report (null: a built-in default)
 
 dashboard:
@@ -316,6 +316,10 @@ Every `forge verify` on a clean worktree also reports what the committed diff si
 Under `warn` the report never changes the result; reviewers and the approver read it. Under `block`, a deleted test file or an added skip/focus marker fails verify (`failure.name: integrity`), and so does a report that cannot be computed (base not found, invalid pattern, or a base that already contains commits the job branch's reflog records as made on it). A deletion is sanctioned, listed as *named in spec* and never blocks, when a line of the spec's `## Approach` makes its exact path the object of delete, remove or drop (``- Delete `test/old.test.mjs` ``, ``- Remove the test files `a` and `b` ``); a move the runner may miss is sanctioned the same way by ``- Move `test/a.test.js` to `test/a.test.ts` `` (or rename … to/into …; a `to` ending in `/` keeps the file name). The path must end the clause: ``Remove `x` from the lint glob``, ``Drop `x` coverage of …`` or ``Remove the `x` case`` sanction nothing. A mere mention, any line with a negation (not, n't, never, keep, avoid, without, leave, cannot), a rename out of the pattern or a type change is never sanctioned. For any other legitimate skip or deletion, the human escape is `verifyIntegrity: warn`. The mode is always read from the main checkout's config, so a job that edits `.forge/config.yml` cannot switch it off.
 
 Verify's clean check also fails, in either mode, when the files on disk can differ from HEAD without `git status` showing it: assume-unchanged flags, a skip-worktree file that is still on disk, or one missing from disk that no sparse checkout leaves out (paths outside a cone-mode sparse checkout are fine; with non-cone or malformed patterns only files that are not tests or test config may be missing), or a clean/smudge filter that changes a test or test-config file on checkout (the standard git-lfs filter is trusted; Forge's eval checkouts sparse-exclude only `.forge/evals/`). If that check itself cannot run, the report becomes an integrity error (fails `block`, printed under `warn`). In the verify JSON, `integrity` is `null` when the worktree is unclean (no report is computed) and `{ "mode", "ok", "error" }` when the report cannot be computed.
+
+## Eval overlays
+
+`forge eval start --set <key>=<value>` (repeatable) runs one eval run under a variant of this file without writing it, so an A/B comparison needs no config edit and never trips the daemon's trust check. The keys allowed are `runtime.models.<role>` (every role but `orchestrator`, whose model no job session reads), `runtime.effort`, `runtime.efforts.<role>`, `runtime.effortByComplexity.<level>`, the `pipeline.*` settings (`plan`, `split`, `specApproval`, `design`, `maxRounds`, `budget.*`), `review.panel` (built-in or repo lens names; no `checklist` path) and `verify` (at least one step, each a key in `commands`). Every other key, `commands.*` included, is refused. Values are checked as `forge config set` checks them, and the overlaid config may add no `forge config validate` problem. The overlay is recorded on the run and on each eval job (`eval.overlay`, which `forge job set --field` can't write), checked again whenever a command loads that job, and applied only to that job's `job step`, `job advance`, `verify` and budgets. The run's `configHash` covers it; an empty overlay hashes as before. A daemon session may not pass `--set`.
 
 ## Secret scanning
 
