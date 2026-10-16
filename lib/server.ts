@@ -24,6 +24,7 @@ import { parseIssueRef } from './issue-ref.ts';
 import { paths, exists, DEV_DIST_DIR, PLUGIN_ROOT } from './paths.ts';
 import { API_VERSION, CONFIG_SCHEMA_VERSION, EFFORTS, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from './schema.ts';
 import { computeStats } from './stats.ts';
+import { projectGraph } from './project.ts';
 import { RepoBudgetAckError, ackRepoBudget, repoBudgetStatus, validPeriod } from './repo-budget.ts';
 import { listRuns, listTasks, compareRuns, forgeVersion } from './evals.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, enqueue, listRequests, validJobId, validScope } from './requests.ts';
@@ -54,6 +55,7 @@ import type {
   DoctorResponse,
   Endpoint,
   EvalsResponse,
+  ProjectResponse,
   FocusResponse,
   GitHubPreviewResponse,
   ForgeTruncatedLine,
@@ -191,6 +193,8 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       if (req.method === 'GET' && p === '/api/evals/compare') return json(res, compareRuns(root, url.searchParams.get('a') ?? '', url.searchParams.get('b') ?? ''));
       if (req.method === 'GET' && p === '/api/requests') return json(res, listRequests(root));
       if (req.method === 'GET' && p === '/api/roster') return json(res, roster(root, loadConfig(root).config));
+      // Read-only and a subset of /api/config (no commands, owners or notes), so it needs no token.
+      if (req.method === 'GET' && p === '/api/project') return json(res, projectGraph(loadConfig(root).config) satisfies ProjectResponse);
       if (req.method === 'GET' && p === '/api/backlog') {
         if (!backlogCache || Date.now() - backlogCache.at > 60_000 || url.searchParams.has('refresh')) {
           const { config } = loadConfig(root);

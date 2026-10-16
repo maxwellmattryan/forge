@@ -1694,6 +1694,32 @@ export type GitHubPreviewResponse = { preview: GitHubPreview } | { error: GitHub
 /** GET /api/requests: listRequests in lib/requests.ts. */
 export type RequestsResponse = ForgeRequest[];
 
+/** One component of GET /api/project: projectGraph in lib/project.ts. Never its commands, owners or notes. */
+export interface ProjectComponent {
+  name: string;
+  /** null: the root repo. */
+  repo: string | null;
+  kind: ComponentKind;
+  path: string;
+}
+
+/** One dependsOn edge of GET /api/project, from the dependent to its dependency. */
+export interface ProjectEdge {
+  from: string;
+  to: string;
+  target: 'component' | 'backing';
+  type: DependencyType;
+}
+
+/** GET /api/project: projectGraph in lib/project.ts, the config-derived graph only. */
+export interface ProjectResponse {
+  components: ProjectComponent[];
+  backing: string[];
+  edges: ProjectEdge[];
+  /** componentProblems(config).length: the graph keeps only the entries that are usable. */
+  problems: number;
+}
+
 /** GET /api/roster: roster in lib/roster.ts. */
 export interface Roster {
   agents: { role: string; description: string; model: string; promptHash: string; addendum: string | null; effort: Effort | null; effortSource: EffortSource }[];

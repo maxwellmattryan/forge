@@ -26,7 +26,8 @@
     "backlog": "Backlog",
     "agents": "Agents",
     "analytics": "Analytics",
-    "evals": "Evals"
+    "evals": "Evals",
+    "project": "Project"
   },
   "job": {
     "round": "round {round}/{max}",
@@ -467,6 +468,44 @@
     "none": "none",
     "judgeChip": "judge",
     "pr": "PR #{number}"
+  },
+  "project": {
+    "title": "Project",
+    "sub": "The configured components by repo, their backing services, and the build and runtime edges between them. Pick a job to see what it touches and what depends on that.",
+    "loading": "Loading the project graph…",
+    "empty": "No components are configured. The graph is drawn from components in .forge/config.yml (docs/CONFIG.md, “Components”).",
+    "job": "Highlight a job",
+    "noJob": "No job",
+    "noMatch": "This job names no configured components",
+    "problems": {
+      "one": "components has {count} problem. Run forge config validate.",
+      "other": "components has {count} problems. Run forge config validate."
+    },
+    "thisRepo": "This repo",
+    "backing": "Backing services",
+    "aria": "{components} components in {repos} repos, {backing} backing services",
+    "legend": {
+      "title": "Legend",
+      "build": "Build dependency",
+      "runtime": "Runtime dependency",
+      "touched": "Touched by the job",
+      "consumer": "Depends on what it touches"
+    },
+    "kind": {
+      "library": "Library",
+      "service": "Service",
+      "app": "App",
+      "backing": "Backing"
+    },
+    "table": {
+      "component": "Component",
+      "repo": "Repo",
+      "kind": "Kind",
+      "dependsOn": "Depends on",
+      "highlight": "Highlight",
+      "touched": "Touched",
+      "consumer": "Consumer"
+    }
   },
   "settings": {
     "open": "Settings",

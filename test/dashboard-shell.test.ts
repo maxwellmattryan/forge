@@ -1007,7 +1007,7 @@ test('command input: in the sidebar at md and up, a 44px strip button below md, 
   const h1 = elements('components/PageHeader.svelte').find((e) => e.name === 'h1');
   assert.equal(attrOf(h1!, 'tabindex'), '-1', 'the heading is the focus fallback');
   const views = fs.readdirSync(path.join(SRC, 'views')).filter((f) => f.endsWith('.svelte'));
-  assert.equal(views.length, 5);
+  assert.equal(views.length, 6);
   for (const v of views) assert.equal(read(`views/${v}`).match(/<PageHeader\b/g)?.length, 1, `${v} renders one PageHeader`);
 
   // md and up: the sidebar input, the one element that announces the shortcut.

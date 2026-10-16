@@ -16,6 +16,7 @@
   import Agents from './views/Agents.svelte';
   import Analytics from './views/Analytics.svelte';
   import Evals from './views/Evals.svelte';
+  import Project from './views/Project.svelte';
   import { S, closeDrawer, loadView, refresh, route } from './lib/app.svelte.ts';
   import { startClock } from './lib/clock.svelte.ts';
   import type { ViewId } from './lib/view.ts';
@@ -43,6 +44,7 @@
     agents: $t('nav.agents'),
     analytics: $t('nav.analytics'),
     evals: $t('nav.evals'),
+    project: $t('nav.project'),
   });
   const viewLabel = $derived(labels[S.view]);
 
@@ -158,7 +160,7 @@
     route();
     refresh();
     const poll = setInterval(() => document.visibilityState === 'visible' && refresh(), 2000);
-    const views = setInterval(() => document.visibilityState === 'visible' && ['analytics', 'evals', 'agents'].includes(S.view) && loadView(), 15000);
+    const views = setInterval(() => document.visibilityState === 'visible' && ['analytics', 'evals', 'agents', 'project'].includes(S.view) && loadView(), 15000);
     const stopClock = startClock();
     return () => {
       stopClock();
@@ -220,6 +222,7 @@
         {:else if S.view === 'backlog'}<Backlog />
         {:else if S.view === 'agents'}<Agents data={S.data} />
         {:else if S.view === 'analytics'}<Analytics data={S.data} />
+        {:else if S.view === 'project'}<Project data={S.data} />
         {:else}<Evals data={S.data} />{/if}
       {/if}
     </div>

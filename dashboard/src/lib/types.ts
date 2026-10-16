@@ -1,9 +1,9 @@
-// Shapes of the forge dash HTTP API for API_VERSION 24. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 26. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
 
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 25;
+export const API_VERSION = 26;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 /** lib/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */
@@ -987,6 +987,32 @@ export type GitHubPreviewResponse = { preview: GitHubPreview } | { error: GitHub
 
 /** GET /api/requests: listRequests in lib/requests.ts. */
 export type RequestsResponse = ForgeRequest[];
+
+/** One component of GET /api/project: projectGraph in lib/project.ts. Never its commands, owners or notes. */
+export interface ProjectComponent {
+  name: string;
+  /** null: the root repo. */
+  repo: string | null;
+  kind: 'library' | 'service' | 'app';
+  path: string;
+}
+
+/** One dependsOn edge of GET /api/project, from the dependent to its dependency. */
+export interface ProjectEdge {
+  from: string;
+  to: string;
+  target: 'component' | 'backing';
+  type: 'build' | 'runtime';
+}
+
+/** GET /api/project: projectGraph in lib/project.ts, the config-derived graph only. */
+export interface ProjectResponse {
+  components: ProjectComponent[];
+  backing: string[];
+  edges: ProjectEdge[];
+  /** componentProblems(config).length: the graph keeps only the entries that are usable. */
+  problems: number;
+}
 
 /** GET /api/roster: roster in lib/roster.ts. */
 export interface Roster {

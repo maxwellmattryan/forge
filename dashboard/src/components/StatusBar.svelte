@@ -61,6 +61,7 @@
     agents: $t('nav.agents'),
     analytics: $t('nav.analytics'),
     evals: $t('nav.evals'),
+    project: $t('nav.project'),
   });
 
   /**
