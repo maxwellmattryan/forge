@@ -17,12 +17,19 @@ describe('a job driven by step alone', { concurrency: 4 }, () => {
     try {
       const { id } = await s.f('job', 'new', '--title', 'Add a hello script', '--body', 'Add hello.sh that prints hi.');
       const steps = { n: 0 };
-      const last = await drive(s, id, steps);
+      const seen: any[] = [];
+      const last = await drive(s, id, steps, seen);
       assert.equal(last.action, 'done', JSON.stringify(last));
       assert.equal(last.state, 'done');
       assert.deepEqual(stagesOf(s.root, id), ['backlog', 'spec', 'build', 'verify', 'review', 'decide', 'integrate', 'pr', 'done']);
       assertAgents(s.root, id);
       assert.deepEqual(loadJob(s.root, id).reviewers, ['code', 'tests']);
+      // The review panel goes out as one batch, and each lens is started exactly once.
+      assert.equal(seen[0].role, 'reviewer:code');
+      assert.deepEqual(seen[0].spawns.map((e: any) => e.role), ['reviewer:tests']);
+      // This drive has one review round, so one start per lens in the whole log.
+      const starts = readEvents(s.root, id).filter((e: any) => e.type === 'agent-start' && String(e.role).startsWith('reviewer:')).map((e: any) => e.role);
+      assert.deepEqual(starts.sort(), ['reviewer:code', 'reviewer:tests']);
       assert.ok(steps.n < 60, `${steps.n} steps`);
     } finally {
       s.cleanup();
