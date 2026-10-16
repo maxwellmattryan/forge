@@ -5,7 +5,7 @@ import { PLUGIN_ROOT, paths, exists, resolveFrom } from './paths.ts';
 import { componentProblems } from './components.ts';
 import { notifyProblems } from './notify-config.ts';
 import { globProblem, policyProblems } from './policy-check.ts';
-import { COMPLEXITIES, CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES, migrateConfig } from './schema.ts';
+import { COMPLEXITIES, CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES, REPO_BUDGET_MODES, migrateConfig } from './schema.ts';
 import type { Config, Effort, EffortRole, EffortSource, LoadedConfig, VerifyEntry } from './types.ts';
 import { ForgeError, deepMerge, isClaudeExecutable, readText, splitWords } from './util.ts';
 export { globProblem };
@@ -237,7 +237,34 @@ export function defaults(): Config {
       webhooks: [],
       command: null,
     },
+    // Repo-wide spend caps per UTC day and month, unlimited by default; separate from the per-job
+    // pipeline.budget. docs/CONFIG.md "Repo budget".
+    budget: {
+      usdPerDay: null,
+      usdPerMonth: null,
+      tokensPerMonth: null,
+      onExceeded: 'hold',
+    },
   };
+}
+
+/** budget.*: USD caps null or a number >= 0, tokensPerMonth null or an integer >= 0, onExceeded hold|warn. */
+export function repoBudgetProblems(c: any): string[] {
+  const b = c.budget;
+  if (b === undefined) return [];
+  if (b === null || typeof b !== 'object' || Array.isArray(b)) return [`budget must be a map (got ${JSON.stringify(b)})`];
+  const problems: string[] = [];
+  for (const key of ['usdPerDay', 'usdPerMonth']) {
+    const v = b[key];
+    if (v === null || v === undefined) continue;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) problems.push(`budget.${key} must be null or a number >= 0 (got ${JSON.stringify(v)})`);
+  }
+  const t = b.tokensPerMonth;
+  if (t !== null && t !== undefined && (!Number.isInteger(t) || t < 0)) problems.push(`budget.tokensPerMonth must be null or an integer >= 0 (got ${JSON.stringify(t)})`);
+  if (b.onExceeded !== undefined && !(REPO_BUDGET_MODES as readonly unknown[]).includes(b.onExceeded)) {
+    problems.push(`budget.onExceeded must be one of ${REPO_BUDGET_MODES.join(', ')} (got ${JSON.stringify(b.onExceeded)})`);
+  }
+  return problems;
 }
 
 /** retention.jobsDays and retention.logsDays: 1 day to 10 years. */
@@ -375,6 +402,7 @@ export function validateConfig(c: any, root: string): string[] {
   problems.push(...retentionProblems(c));
   problems.push(...notifyProblems(c));
   problems.push(...componentProblems(c));
+  problems.push(...repoBudgetProblems(c));
   return problems;
 }
 

@@ -1,4 +1,4 @@
-// Components (config schemaVersion 9): `services` folds into `components`, run and verify pick the
+// Components (config schemaVersion 10): `services` folds into `components`, run and verify pick the
 // same commands as before, and validation rejects malformed components and build cycles.
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -18,10 +18,10 @@ const COMPONENT = { ...SERVICE, kind: 'service', dependsOn: [] };
 
 describe('components migration', { concurrency: 4 }, () => {
   test('migration maps services to service components', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 9);
-    const { config, from } = migrateConfig({ schemaVersion: 8, services: [structuredClone(SERVICE)] });
-    assert.equal(from, 8);
-    assert.deepEqual(config, { schemaVersion: 9, components: [COMPONENT] });
+    assert.equal(CONFIG_SCHEMA_VERSION, 10);
+    const { config, from } = migrateConfig({ schemaVersion: 9, services: [structuredClone(SERVICE)] });
+    assert.equal(from, 9);
+    assert.deepEqual(config, { schemaVersion: 10, components: [COMPONENT] });
     assert.equal('services' in config, false);
     assert.deepEqual(servicesToComponents({ services: [{ name: 'web' }, { name: 'x', path: '' }] }).components, [
       { name: 'web', path: '.', kind: 'service', dependsOn: [] },
@@ -53,7 +53,7 @@ describe('components migration', { concurrency: 4 }, () => {
       assert.equal(m.status, 0, m.stderr);
       assert.deepEqual(JSON.parse(m.stdout).changed, ['.forge/config.yml']);
       const text = fs.readFileSync(cfg, 'utf8');
-      assert.match(text, /^schemaVersion: 9$/m);
+      assert.match(text, /^schemaVersion: 10$/m);
       assert.match(text, /^components:$/m);
       assert.doesNotMatch(text, /^services:/m);
       assert.deepEqual(yaml.parse(text).components, [COMPONENT]);
@@ -108,7 +108,7 @@ function scratch(config: Record<string, unknown>) {
 
 // Prints which template ran and where; the log's `(cwd …)` line says where Forge started it.
 const V8 = {
-  schemaVersion: 8,
+  schemaVersion: 9,
   commands: { test: 'echo TOP-TEST && pwd', lint: 'echo TOP-LINT && pwd' },
   services: [{ name: 'api', path: 'svc/api', commands: { test: 'echo API-TEST && pwd' } }, { name: 'web', path: 'web' }],
 };
@@ -252,7 +252,7 @@ describe('components validation', { concurrency: 4 }, () => {
     try {
       const cfg = path.join(repo.dir, '.forge', 'config.yml');
       fs.mkdirSync(path.dirname(cfg), { recursive: true });
-      const write = (c: Record<string, unknown>) => fs.writeFileSync(cfg, yaml.stringify({ schemaVersion: 9, tracker: { kind: 'none' }, ...c }));
+      const write = (c: Record<string, unknown>) => fs.writeFileSync(cfg, yaml.stringify({ schemaVersion: 10, tracker: { kind: 'none' }, ...c }));
       write({ components: [lib('a', { dependsOn: [dep('b')] }), lib('b', { dependsOn: [dep('a')] })] });
       let r = await forgeAsync(repo.dir, ['config', 'validate']);
       assert.equal(r.status, 1, r.stdout);
@@ -260,7 +260,7 @@ describe('components validation', { concurrency: 4 }, () => {
       write({ services: [{ name: 'api', path: 'api' }], components: [lib('a')] });
       r = await forgeAsync(repo.dir, ['config', 'validate']);
       assert.equal(r.status, 1, r.stdout);
-      assert.match(r.stdout + r.stderr, /services was renamed to components in config schemaVersion 9; move its entries under components and delete services/);
+      assert.match(r.stdout + r.stderr, /services was renamed to components in config schemaVersion 10; move its entries under components and delete services/);
       write({ components: [lib('a')] });
       r = await forgeAsync(repo.dir, ['config', 'validate']);
       assert.equal(r.status, 0, r.stdout + r.stderr);

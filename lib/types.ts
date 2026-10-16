@@ -2,7 +2,7 @@
 // this file never runs. The dashboard's src/lib/types.ts carries a copy of the API shapes, kept
 // equal by test/types-parity.ts, until the dashboard imports this file. Unions that have a runtime
 // list are derived from that list, never retyped.
-import type { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS, OFFICE_GATES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
+import type { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import type { REQUEST_TYPES } from './requests.ts';
 import type { COMPONENT_KINDS, DEPENDENCY_TYPES } from './components.ts';
 import type { AcCoverage } from './acs.ts';
@@ -19,6 +19,10 @@ export type JobState = (typeof STATES)[number];
 export type WaitingOn = (typeof WAITING_ON)[number];
 /** lib/schema.ts BUDGET_KEYS. */
 export type BudgetKey = (typeof BUDGET_KEYS)[number];
+/** A repo budget cap: REPO_BUDGET_KEYS in lib/schema.ts. */
+export type RepoBudgetKey = (typeof REPO_BUDGET_KEYS)[number];
+/** budget.onExceeded: REPO_BUDGET_MODES in lib/schema.ts. */
+export type RepoBudgetMode = (typeof REPO_BUDGET_MODES)[number];
 /** A review finding's severity: SEVERITIES in lib/schema.ts. */
 export type Severity = (typeof SEVERITIES)[number];
 /** A reasoning effort level: EFFORTS in lib/schema.ts. */
@@ -770,6 +774,51 @@ export interface Config {
   retention: { jobsDays: number | null; logsDays: number | null; logMaxBytes: number | null };
   /** Where Forge pushes gate, PR, failure and budget notifications: docs/CONFIG.md "Notifications". */
   notify: { webhooks: NotifyWebhook[]; command: string | null };
+  /** Repo-wide spend caps per UTC day and month: docs/CONFIG.md "Repo budget". */
+  budget: RepoBudgetConfig;
+}
+
+/** config `budget:`; null means unlimited. */
+export interface RepoBudgetConfig {
+  usdPerDay: number | null;
+  usdPerMonth: number | null;
+  tokensPerMonth: number | null;
+  onExceeded: RepoBudgetMode;
+}
+
+/** One day, role and model's spend in the ledger: lib/spend.ts. */
+export interface SpendBucket {
+  runs: number;
+  tokens: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  usd: number;
+}
+
+/** Repo spend against the caps: repoBudgetStatus in lib/repo-budget.ts (`forge budget`, /api/state.budget). */
+export interface RepoBudgetStatus {
+  /** Current UTC period ids: YYYY-MM-DD and YYYY-MM. */
+  day: string;
+  month: string;
+  onExceeded: RepoBudgetMode;
+  /** USD to 4 decimal places. */
+  spent: { dayUsd: number; monthUsd: number; monthTokens: number };
+  configured: Record<RepoBudgetKey, number | null>;
+  acks: { day: number; month: number };
+  /** Effective caps: configured x (1 + acks for the period). */
+  caps: Record<RepoBudgetKey, number | null>;
+  /** max(0, cap - spent); null when uncapped. */
+  remaining: Record<RepoBudgetKey, number | null>;
+  /** monthUsd / dayOfMonth x daysInMonth, 2dp. */
+  projectedMonthUsd: number;
+  exceeded: RepoBudgetKey[];
+  held: boolean;
+  /** `repo budget: …` when any key is exceeded, also under warn. */
+  reason: string | null;
+  /** Live jobs waiting on budget with a `repo budget:` reason. */
+  heldJobs: string[];
 }
 
 /** A notify event: NOTIFY_EVENTS in lib/schema.ts. */
@@ -1098,7 +1147,7 @@ export interface DaemonSessionState {
   lastResultAt: string | null;
   turns: number;
   failures: number;
-  held: 'budget' | null;
+  held: 'budget' | 'repo-budget' | null;
   /** Has fresh work but no free slot under daemon.maxConcurrent. */
   waiting: boolean;
   lastError: string | null;
@@ -1250,8 +1299,13 @@ export interface ApiState {
   daemons: DaemonPoolState;
   jobs: StateJob[];
   requests: ForgeRequest[];
+  /** Repo spend against the day and month caps. */
+  budget: RepoBudgetStatus;
   now: string;
 }
+
+/** POST /api/budget/ack: the repo budget status after the acknowledgement. */
+export type PostBudgetAckResponse = RepoBudgetStatus;
 
 /** GET /api/jobs/:id: jobDetail in lib/server.ts. */
 export interface JobDetail {

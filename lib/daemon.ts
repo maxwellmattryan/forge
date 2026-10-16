@@ -18,10 +18,11 @@ import { queueNotify } from './notify.ts';
 import type { QueueNotify } from './notify.ts';
 import { PLUGIN_ROOT, paths } from './paths.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, enqueue, validJobId, validScope } from './requests.ts';
+import { repoBudgetExempt } from './repo-budget.ts';
 import { EFFORTS } from './schema.ts';
 import { isClaudeExecutable, now, run, sleepSync, splitWords, writeJsonAtomic } from './util.ts';
 import { pidAlive } from './worktree.ts';
-import type { Config, DaemonAuth, DaemonPermissionMode, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, Effort, EffortSource, EventActor, ForgeRequest, JobAgent, PermissionDecision } from './types.ts';
+import type { Config, RepoBudgetStatus, DaemonAuth, DaemonPermissionMode, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, Effort, EffortSource, EventActor, ForgeRequest, JobAgent, PermissionDecision } from './types.ts';
 
 /** What a session reports to its pool: a log line as it is written, or its new state after a change. */
 export type SessionEvent = { kind: 'line'; scope: string; offset: number; line: string } | { kind: 'state'; scope: string; state: DaemonSessionState };
@@ -147,7 +148,7 @@ export interface Session {
   readonly running: boolean;
   readonly status: DaemonStatus;
   readonly waiting: boolean;
-  readonly held: 'budget' | null;
+  readonly held: 'budget' | 'repo-budget' | null;
   readonly lastError: string | null;
   readonly lastResultAt: string | null;
   /** Cached: a running agent of the job it drives keeps it (refreshKept). */
@@ -157,8 +158,11 @@ export interface Session {
   /** Why it may not be evicted for a slot now: running agents, or a result or agent end under graceMs ago. */
   keptBy(graceMs: number, at?: number): 'agents' | 'grace' | null;
   state(): DaemonSessionState;
-  /** Applies this tick's pending requests for the scope: prunes, holds, and says whether any is fresh. */
-  route(c: Config, pending: ForgeRequest[]): { eligible: string[]; fresh: boolean };
+  /**
+   * Applies this tick's pending requests for the scope: prunes, holds, and says whether any is fresh.
+   * `repo` is the repo budget status, passed for job sessions only.
+   */
+  route(c: Config, pending: ForgeRequest[], repo?: RepoBudgetStatus | null): { eligible: string[]; fresh: boolean };
   /** Returns whether a child is now running. */
   spawn(c: Config, reason?: string): boolean;
   writeTurn(ids: string[]): void;
@@ -194,13 +198,27 @@ export const TURN_LINE = JSON.stringify(TURN) + '\n';
 export const HOLD_TYPES: string[] = ['resume', 'rework', 'answer', 'revise-spec'];
 
 /**
+ * Request types the repo budget holds. Approving is no acknowledgement of a repo cap (only
+ * `forge budget ack` is), so `approve` waits too; `cancel` never does.
+ */
+export const REPO_HOLD_TYPES: string[] = [...HOLD_TYPES, 'approve'];
+
+/**
  * Paths the session may never write, appended to every daemon command as --disallowedTools
  * whatever `daemon.command` says. Claude Code checks file writes against Edit(path) rules,
  * anchors relative paths at the session's cwd (the main checkout, so job worktrees are
  * unaffected) and lets deny beat allow. This stops the Edit/Write route only; trustDigest is the
  * check that also covers writes made through Bash (docs/ARCHITECTURE.md "Daemon security").
  */
-export const DENY_TOOLS = Object.freeze(['Edit(.forge/config.yml)', 'Edit(.forge/trackers/**)', 'Edit(.forge/secrets-allow.txt)', 'Edit(.forge/verifiers/**)']);
+export const DENY_TOOLS = Object.freeze([
+  'Edit(.forge/config.yml)',
+  'Edit(.forge/trackers/**)',
+  'Edit(.forge/secrets-allow.txt)',
+  'Edit(.forge/verifiers/**)',
+  // The repo budget's spend cache and the log its acknowledgements live in.
+  'Edit(.forge/runtime/spend.json)',
+  'Edit(.forge/runtime/audit.jsonl)',
+]);
 
 /**
  * Appended to every daemon command: claude sends each permission check it would otherwise ask a
@@ -484,6 +502,18 @@ export function heldByBudget(root: string, config: Config, rec: { type: string; 
     // A tampered overlay must not crash the supervisor; step and verify already refuse that job.
   }
   return exceededKeys(effectiveLimits(limitsConfig, job), measureBudget(job), job.budget.ack, job.round).length > 0;
+}
+
+/** A request is held while the repo budget holds new work and its job is not exempt (retro, or forced past the cap this month). */
+export function heldByRepoBudget(root: string, repo: RepoBudgetStatus | null | undefined, rec: { type: string; job: string | null }): boolean {
+  if (!repo?.held || !REPO_HOLD_TYPES.includes(rec?.type) || !validJobId(rec.job)) return false;
+  let job;
+  try {
+    job = loadJob(root, rec.job);
+  } catch {
+    return false;
+  }
+  return !repoBudgetExempt(root, job, repo);
 }
 
 /** What a job session's agents say about keeping it: sessionAgents. */
@@ -778,7 +808,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   let turns = 0;
   let lastResultAt: string | null = null;
   let lastError: string | null = null;
-  let held: 'budget' | null = null;
+  let held: 'budget' | 'repo-budget' | null = null;
   let waiting = false;
   let failures = 0;
   /** Request ids a working turn has already covered; pruned to ids still pending. */
@@ -1584,16 +1614,17 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     refreshKept,
     keptBy,
     state,
-    route(c, pending) {
+    route(c, pending, repo = null) {
       const ids = new Set(pending.map((r) => r.id));
       for (const id of committed) if (!ids.has(id)) committed.delete(id);
-      let isHeld = false;
+      // The repo budget reads first when both hold: it is the one a per-job ack can't clear.
+      let next: 'budget' | 'repo-budget' | null = null;
       const eligible: string[] = [];
       for (const r of pending) {
-        if (heldByBudget(root, c, r)) isHeld = true;
+        if (heldByRepoBudget(root, repo, r)) next = 'repo-budget';
+        else if (heldByBudget(root, c, r)) next ??= 'budget';
         else eligible.push(r.id);
       }
-      const next = isHeld ? 'budget' : null;
       if (next !== held) {
         held = next;
         logEvent('held', { held: next });

@@ -59,7 +59,7 @@ Like `forge version`, it needs no repo and no `.forge/`. The commit is self-repo
 | failed | 1 | the command ran and failed, or refused by policy: verify failed, a merge refused, a field only another command sets, a path outside the worktree, no such job |
 | usage | 2 | Forge could not parse the call: an unknown command or subcommand, a missing argument, a flag with no value or given twice, a value that is not a number, JSON or one of the listed words. Also a missing or unparseable `.forge/config.yml`, or not inside a git repository |
 | owned | 3 | the job or request is held by another live session, or a tracker claim was lost to another job |
-| blocked | 4 | the job's dependencies are not done |
+| blocked | 4 | the job's dependencies are not done, or the repo budget (`budget:`) holds new work: `forge job claim` parked the job, or `forge job from-ref` started nothing |
 | external | 5 | a tool Forge runs failed to start or exited non-zero: git, gh, claude |
 
 The exceptions:
@@ -84,7 +84,7 @@ Every error carries one of these codes, and the code fixes the exit.
 | `not_a_repo` | 2 | not inside a git repository, and `FORGE_ROOT` is unset |
 | `config_invalid` | 2 | `.forge/config.yml` cannot be parsed, or `forge init write` would write an invalid one |
 | `owned` | 3 | another live session holds the job or request, or a tracker claim was lost |
-| `blocked` | 4 | the job's dependencies are not done (`--force` claims anyway) |
+| `blocked` | 4 | the job's dependencies are not done (`--force` claims anyway), or the repo budget holds new work (the message is the `repo budget: …` reason; a human runs `forge budget ack`) |
 | `external` | 5 | git, gh or claude failed to start or exited non-zero |
 
 ## Help
@@ -172,6 +172,26 @@ Archived jobs (`forge job archive`, `forge job prune`, `retention.jobsDays`) are
 `forge audit --since <date> [--until <date>] [--csv]` prints the same rows for every job and for the repo-level log (`.forge/runtime/audit.jsonl`, where `job` is null), with `since <= ts < until`, sorted by time then job id: `{ "since", "until", "rows" }`. A date is `YYYY-MM-DD` (UTC midnight) or a full ISO timestamp with its zone, and `--until` defaults to now. A missing or invalid date, or `--until` not after `--since`, exits 2 (`usage`).
 
 `--csv` prints RFC 4180 CSV with the header `ts,job,actor,source,action,note,detail,pr,merge_method` and CRLF line ends. A field containing `,`, `"`, CR or LF is quoted with `"` doubled, and a cell starting with `=`, `+`, `-`, `@`, TAB or CR gets a leading `'` so a spreadsheet reads it as text. `--json` and `--csv` together exit 2.
+## Repo budget
+
+`forge budget` prints the repo's spend against `budget:` (docs/CONFIG.md "Repo budget") and frees repo-held jobs once nothing is exceeded:
+
+```
+{ "day": "YYYY-MM-DD", "month": "YYYY-MM", "onExceeded": "hold"|"warn",
+  "spent": { "dayUsd", "monthUsd", "monthTokens" },
+  "configured": { "usdPerMonth", "tokensPerMonth", "usdPerDay" },   // null = unlimited
+  "acks": { "day", "month" },
+  "caps": { … },          // configured × (1 + acks for the period)
+  "remaining": { … },     // max(0, cap − spent), null when uncapped
+  "projectedMonthUsd", "exceeded": [key…], "held": bool, "reason": s|null, "heldJobs": [id…] }
+```
+
+`forge budget ack --period <YYYY-MM|YYYY-MM-DD> [--note N]` grants one more period's cap and prints `{ "acked", "status" }`. The period must be the current UTC month (for `usdPerMonth` or `tokensPerMonth`) or day (`usdPerDay`), and exceeded; otherwise it exits 1 (`nothing to acknowledge: <period> is within its cap`). A missing or malformed period exits 2. A daemon session (`FORGE_DAEMON=1`) is refused with exit 1, as is `forge job new --force`. The ack is a `repo-budget-ack` line in `.forge/runtime/audit.jsonl`, so `forge audit` lists it.
+
+While the repo is held, `forge next` prints `{ "held": true, "repoBudget": { "held", "reason" } }` and exits 0, `forge job new` creates the job parked on `budget` (its result adds `repoBudget`), and `forge job claim` and `forge job from-ref` exit 4. Under `onExceeded: warn` they proceed and add `repoBudget` with `held: false`.
+
+`forge stats --csv [--since DATE] [--by job|role|model|day]` prints the same spend as RFC 4180 CSV with CRLF line ends: the key column(s) (`job,kind,title` for `--by job`, the default; else `role`, `model` or `day`), then `runs,tokens,input,output,cache_read,cache_write,usd` (`usd` with 4 decimals), sorted by key. `--since` (YYYY-MM-DD or a full ISO timestamp) keeps events at or after it. Every job counts, evals and retros included, so the totals match `forge budget`. Cells go through the same formula guard as `forge audit --csv`. `--csv` with `--json`, `--by` without `--csv`, or an unknown `--by` exits 2.
+
 ## Support bundle
 
 `forge doctor --bundle [<job>] [--out <dir>] [--include-text]` writes `forge-support-<YYYY-MM-DD>.zip` (local date; `-2`, `-3`… when that name exists, never overwriting a file) to `--out` (default: the current directory, which must exist), mode `0600`. Settings › Diagnostics › **Download support bundle** in `forge dash` builds the same zip for every active job, never with text. The job can also come first: `forge doctor <job> --bundle`. Without a job, the bundle covers every active job and adds the inbox and office session logs. It works in a repo without `.forge/config.yml` (the config is then the defaults).

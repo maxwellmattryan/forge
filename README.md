@@ -108,6 +108,7 @@ The `forge` CLI underneath is also for scripts, CI and other agent runtimes: `fo
 | `forge git commit <id> (--message T \| --message-file F) [-- <path>...]` | commit in the job's worktree, on its branch, from any cwd (how agents commit, in a daemon session too); refuses git options, paths outside the worktree, AI attribution, a protected path the policy refuses and a likely secret (in the message always; in the staged changes under verifySecrets: block); prints protected: <n> when the branch changes escalate paths |
 | `forge tracker search <query> [--limit N] [--job <id>]` | search the tracker (see [Linking jobs to issues](docs/TRACKERS.md#linking-jobs-to-issues)) |
 | `forge tracker triage [--limit N] [--all] \| --apply <batch>` | readiness triage: write a batch of ready and needs-info items for the forge:triage agent, then apply its verdicts (a templated comment and the needs-info mark, or the mark cleared) (see [Readiness triage](docs/TRACKERS.md#readiness-triage)) |
+| `forge budget` | repo spend this UTC day and month against budget.usdPerDay, usdPerMonth and tokensPerMonth: caps, remaining, projected month-end and held jobs; frees repo-held jobs once nothing is exceeded (see [Repo budget](docs/CONFIG.md#repo-budget)) |
 | `forge audit --since <date> [--until <date>] [--json\|--csv]` | every job's audit rows (forge job audit) and the repo-level ones such as config set (job null), with since <= ts < until, sorted by time then job; dates are YYYY-MM-DD (UTC midnight) or full ISO timestamps, and until defaults to now (see [Audit trail](docs/ARCHITECTURE.md#audit-trail)) |
 | `forge daemon status` | the daemon's sessions, from the terminal |
 | `forge daemon log <job>\|--inbox\|--office [--lines N] [--follow]` | a session's log, from the terminal |
@@ -129,7 +130,7 @@ The `forge` CLI underneath is also for scripts, CI and other agent runtimes: `fo
 - **State** lives in `.forge/jobs/<id>/` (gitignored) in the main checkout, shared by every worktree and session: `job.json`, an append-only `events.jsonl`, and the agents' markdown files.
 - **Every human action says who.** Approvals, budget acks, links, forced claims, `--now` merges, config changes and dashboard permission answers record a best-effort, unauthenticated `actor` (`FORGE_ACTOR`, else `gh`, `git` or the OS user); `forge job audit <id>` and `forge audit --since <date>` export the trail as JSON or CSV (see [Audit trail](docs/ARCHITECTURE.md#audit-trail)).
 
-Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CLI.md](docs/CLI.md) (the CLI's contract: `--json`, exit codes, environment variables) · [docs/CONFIG.md](docs/CONFIG.md) · [docs/TRACKERS.md](docs/TRACKERS.md) · [docs/VERIFIERS.md](docs/VERIFIERS.md) · [docs/IMPROVEMENT.md](docs/IMPROVEMENT.md) · [docs/PROTOCOL.md](docs/PROTOCOL.md) (running Forge on other agent runtimes)
+Read more: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/GLOSSARY.md](docs/GLOSSARY.md) (the words Forge uses) · [docs/CLI.md](docs/CLI.md) (the CLI's contract: `--json`, exit codes, environment variables) · [docs/CONFIG.md](docs/CONFIG.md) · [docs/TRACKERS.md](docs/TRACKERS.md) · [docs/VERIFIERS.md](docs/VERIFIERS.md) · [docs/IMPROVEMENT.md](docs/IMPROVEMENT.md) · [docs/PROTOCOL.md](docs/PROTOCOL.md) (running Forge on other agent runtimes)
 
 ## Dashboard
 

@@ -108,6 +108,10 @@ export const FIELDS: ConfigField[] = [
   budget('minutes', 'Minutes budget', 'Per-job limit on agent run time, never human waits.', 'number'),
   budget('changedLines', 'Changed lines budget', 'Per-job limit on committed lines added and deleted against the base branch.', 'integer'),
   budget('verifyRetries', 'Verify retries', 'Failed forge verify runs allowed per round beyond the first.', 'integer'),
+  field('budget.usdPerDay', 'pipeline', 'Repo cost per day (USD)', 'Repo-wide limit on estimated cost per UTC day, across every job. Reaching it holds new work (or warns). Empty means unlimited.', { type: 'number', min: 0, nullable: true }),
+  field('budget.usdPerMonth', 'pipeline', 'Repo cost per month (USD)', 'Repo-wide limit on estimated cost per UTC month, across every job. Reaching it holds new work (or warns). Empty means unlimited.', { type: 'number', min: 0, nullable: true }),
+  field('budget.tokensPerMonth', 'pipeline', 'Repo tokens per month', 'Repo-wide limit on total tokens per UTC month, across every job. Empty means unlimited.', { type: 'integer', min: 0, nullable: true }),
+  field('budget.onExceeded', 'pipeline', 'Over the repo budget', 'hold parks new and resumed jobs until a human acknowledges with forge budget ack or the period ends; warn only reports it.', { type: 'enum', options: ['hold', 'warn'] }),
   // Locked: warn would loosen a security gate, which the header rule keeps out of the settings.
   field('verifySecrets', 'pipeline', 'Secret scan', 'block fails verify, and refuses commits and pr open, on a likely credential; warn only reports it. Text Forge sends is always refused.', { type: 'enum', options: ['block', 'warn'], locked: 'loosens a security gate' }),
   field('worktrees.generated', 'pipeline', 'Generated files', 'Committed paths or globs a command regenerates; forge integrate rebuilds them when they conflict.', { type: 'list', locked: 'names paths a command regenerates' }),
@@ -361,6 +365,7 @@ export const CONFIG_DISCLOSURE: Record<string, Disclosure> = {
   notify: 'plain',
   'notify.webhooks': 'url',
   'notify.command': 'command',
+  budget: 'plain',
 };
 
 /** The class of the longest CONFIG_DISCLOSURE prefix of `key`, or null when none covers it. */

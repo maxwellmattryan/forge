@@ -3,14 +3,16 @@
 // its requests name. Sessions fail, hold and stop on their own (lib/daemon.ts); the pool owns what
 // is repo-wide: the trust snapshot, routing, the cap and the stops config changes force.
 // docs/ARCHITECTURE.md "Daemon" describes the rules.
+import fs from 'node:fs';
 import { resolveEffort, trustDigest } from './config.ts';
 import { PERMISSION_MODES, TRUST_CHANGED, UUID, commandPermissionMode, createSession, otherOwner, readInfo, reapOrphans, sessionFiles, sessionOptions } from './daemon.ts';
 import type { DaemonOptions, Session, SessionContext, SessionEvent } from './daemon.ts';
 import { configForJob } from './eval-overlay.ts';
-import { loadJob, logHumanEvent } from './jobs.ts';
+import { loadJob, logHumanEvent, repoAuditFile } from './jobs.ts';
+import { repoBudgetStatus } from './repo-budget.ts';
 import { daemonPlatformProblem } from './platform.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, listRequests, requestScope, validScope } from './requests.ts';
-import type { Config, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, EventActor, ForgeRequest, Job, PermissionDecision } from './types.ts';
+import type { Config, RepoBudgetStatus, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, EventActor, ForgeRequest, Job, PermissionDecision } from './types.ts';
 
 /** The pool's own state: state() below. The server adds `clients` to make a DaemonPoolState. */
 export type PoolState = Omit<DaemonPoolState, 'clients'>;
@@ -36,6 +38,8 @@ export interface DaemonPool {
 }
 
 const FINISHED = ['done', 'cancelled', 'failed'];
+/** How long a tick reuses the repo budget status. */
+const REPO_BUDGET_MEMO_MS = 10_000;
 
 /** A session the pool isn't running: what its record still says. */
 export function offState(root: string, scope: string): DaemonSessionState {
@@ -90,6 +94,28 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
   let inboxEager = false;
   let startReason = 'start';
   const sessions = new Map<string, Session>();
+  /**
+   * The repo budget status, reused for up to REPO_BUDGET_MEMO_MS: the ledger stats every job's events.
+   * An acknowledgement (the audit log grows) or a changed `budget:` block recomputes it at once.
+   */
+  let repoMemo: { at: number; key: string; status: RepoBudgetStatus | null } | null = null;
+  const repoBudget = (c: Config): RepoBudgetStatus | null => {
+    let size = 0;
+    try {
+      size = fs.statSync(repoAuditFile(root)).size;
+    } catch {}
+    const key = `${size}|${JSON.stringify(c.budget ?? null)}`;
+    if (repoMemo && repoMemo.key === key && Date.now() - repoMemo.at < REPO_BUDGET_MEMO_MS) return repoMemo.status;
+    let status: RepoBudgetStatus | null = null;
+    try {
+      // write: false: the pool writes no state, the spend cache included.
+      status = repoBudgetStatus(root, c, { write: false });
+    } catch {
+      // An unreadable ledger must not stop the supervisor; per-job budgets still hold.
+    }
+    repoMemo = { at: Date.now(), key, status };
+    return status;
+  };
   /**
    * Modes a human chose in the dashboard, by scope; only those that differ from daemon.command's.
    * In memory on purpose: a session can write files in the repo, runtime records included, so a
@@ -242,7 +268,8 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
           continue;
         }
         const routed = groups.get(s.scope) ?? [];
-        const { eligible, fresh } = s.route(c, routed);
+        // Never the inbox or the office: gate and job-less requests are not the repo budget's to hold.
+        const { eligible, fresh } = s.route(c, routed, shared(s.scope) || !routed.length ? null : repoBudget(c));
         if (!fresh || !s.wanted) {
           s.setWaiting(false);
           continue;

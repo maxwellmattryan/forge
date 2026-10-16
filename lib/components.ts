@@ -56,7 +56,7 @@ export function isInsidePath(p: unknown): p is string {
 export function componentProblems(c: any): string[] {
   const problems: string[] = [];
   if (c?.services !== undefined && c?.components !== undefined)
-    problems.push('services was renamed to components in config schemaVersion 9; move its entries under components and delete services');
+    problems.push('services was renamed to components in config schemaVersion 10; move its entries under components and delete services');
   const list = c?.components;
   if (list === undefined) return problems;
   if (!Array.isArray(list)) return [...problems, `components must be a list (got ${show(list)})`];

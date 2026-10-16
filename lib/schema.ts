@@ -7,7 +7,7 @@ import type { EventActor, Job, JobEvent, LoadedJob } from './types.ts';
 
 export { COMPONENT_KINDS, DEPENDENCY_TYPES } from './components.ts';
 
-export const CONFIG_SCHEMA_VERSION = 9;
+export const CONFIG_SCHEMA_VERSION = 10;
 export const JOB_SCHEMA_VERSION = 10;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
@@ -16,7 +16,7 @@ export const ARCHIVE_SCHEMA_VERSION = 1;
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 22;
+export const API_VERSION = 23;
 
 /**
  * Where an event's `actor` came from: lib/actor.ts resolves env, gh, git, os and dashboard; the
@@ -58,6 +58,12 @@ export const WAITING_ON = [
 
 /** Budget keys in the fixed order reasons and reports list them. */
 export const BUDGET_KEYS = ['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries'] as const;
+
+/** Repo budget caps (config `budget:`) in the order checks and reasons list them. */
+export const REPO_BUDGET_KEYS = ['usdPerMonth', 'tokensPerMonth', 'usdPerDay'] as const;
+
+/** budget.onExceeded: hold parks and refuses new work; warn only reports it. */
+export const REPO_BUDGET_MODES = ['hold', 'warn'] as const;
 
 export const SEVERITIES = ['blocker', 'major', 'minor', 'nit'] as const;
 
@@ -119,10 +125,13 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // v8 adds notify, empty by default, so no v7 config changes; the bump lets older Forges refuse a
   // config whose notifications they would ignore.
   7: (c) => c,
-  // v9 replaces `services` with `components`, which add a kind and dependencies. A service was a
+  // v9 adds the repo-wide budget block, unlimited by default, so no v8 config changes; the bump lets
+  // older Forges refuse a config whose spend caps they would ignore.
+  8: (c) => c,
+  // v10 replaces `services` with `components`, which add a kind and dependencies. A service was a
   // part with its own commands, so each becomes a `service` component with no dependencies; its
   // name, path and commands are unchanged, so `forge run` and `forge verify` pick the same command.
-  8: servicesToComponents,
+  9: servicesToComponents,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
