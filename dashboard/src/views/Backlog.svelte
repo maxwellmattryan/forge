@@ -21,18 +21,18 @@
   {#if !b.items?.length}
     <Empty>{$t('backlog.empty')}</Empty>
   {:else}
-    <div class="sheet ticks"><span class="tk"></span><div class="overflow-x-auto">
+    <div class="plate flat"><div class="overflow-x-auto">
       <table class="tbl">
         <thead><tr><th>{$t('backlog.ref')}</th><th>{$t('backlog.itemTitle')}</th><th>{$t('backlog.status')}</th><th>{$t('backlog.priority')}</th><th>{$t('backlog.claimedBy')}</th><th></th></tr></thead>
         <tbody>
           {#each b.items as i, n (n)}
             {@const u = safeUrl(i.url)}
             <tr>
-              <td class="font-mono text-xs">{#if u}<a href={u} target="_blank" rel="noopener" class="hover:text-ink">{hash(i.ref)}{i.ref}</a>{:else}{i.ref}{/if}</td>
+              <td class="font-mono text-xs">{#if u}<a href={u} target="_blank" rel="noopener" class="hover:text-gleam">{hash(i.ref)}{i.ref}</a>{:else}{i.ref}{/if}</td>
               <td>{i.title}<div class="flex flex-wrap gap-1 mt-1">{#each i.labels ?? [] as l, k (k)}<span class="chip muted">{l}</span>{/each}</div></td>
               <td>{i.status ?? '—'}</td>
               <td>{i.priority ?? '—'}</td>
-              <td class="text-muted">{#if i.claimedBy}{@const by = i.claimedBy}<button class="hover:text-ink" onclick={() => openDrawer(by)}>{by}</button>{:else}—{/if}</td>
+              <td class="text-muted">{#if i.claimedBy}{@const by = i.claimedBy}<button class="hover:text-gleam" onclick={() => openDrawer(by)}>{by}</button>{:else}—{/if}</td>
               <td class="r">{#if !i.claimedBy && !['done', 'dropped'].includes(i.status ?? '')}<button class="btn" onclick={() => req({ type: 'run', ref: i.ref })}>{$t('backlog.start')}</button>{/if}</td>
             </tr>
           {/each}

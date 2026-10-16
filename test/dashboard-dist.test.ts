@@ -143,15 +143,15 @@ test('build-stamp hashes notice source, lockfile and dist edits', () => {
   }
 });
 
-// The appearance bootstrap (theme, grid, paper) must run before the stylesheet so there is no flash of the wrong look.
+// The appearance bootstrap (theme, grain) must run before the stylesheet so there is no flash of the wrong look.
 const THEME_SCRIPT = `<script>
       try {
         const saved = localStorage.getItem('forge.theme');
         const light = matchMedia('(prefers-color-scheme: light)').matches;
         document.documentElement.dataset.theme =
-          saved === 'cyanotype' || saved === 'dark' ? 'cyanotype' : saved === 'vellum' || saved === 'light' ? 'vellum' : saved === 'nightprint' ? 'nightprint' : light ? 'vellum' : 'nightprint';
-        document.documentElement.dataset.grid = localStorage.getItem('forge.grid') === 'off' ? 'off' : 'on';
-        document.documentElement.dataset.paper = localStorage.getItem('forge.paper') === 'off' ? 'off' : 'on';
+          saved === 'forge' || saved === 'cyanotype' || saved === 'dark' || saved === 'nightprint' ? 'forge' : saved === 'ash' || saved === 'vellum' || saved === 'light' ? 'ash' : light ? 'ash' : 'forge';
+        const grain = localStorage.getItem('forge.grain');
+        document.documentElement.dataset.grain = (grain === null ? localStorage.getItem('forge.paper') : grain) === 'off' ? 'off' : 'on';
       } catch {}
     </script>`;
 
@@ -159,7 +159,7 @@ test('dist index keeps token meta and theme bootstrap, loads only local hashed a
   const html = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
   const named = manifestFiles();
   assert.ok(html.includes('<meta name="forge-token" content="__FORGE_TOKEN__" />'));
-  assert.match(html, /<html lang="en" data-theme="cyanotype">/);
+  assert.match(html, /<html lang="en" data-theme="forge">/);
   const theme = html.indexOf(THEME_SCRIPT);
   assert.ok(theme > 0, 'theme bootstrap is inline and unchanged');
   assert.ok(fs.readFileSync(path.join(DASHBOARD, 'index.html'), 'utf8').includes(THEME_SCRIPT), 'source keeps the same bootstrap');
@@ -177,7 +177,7 @@ test('dist index keeps token meta and theme bootstrap, loads only local hashed a
 
 // Applied only from JS expressions, or custom utilities/classes: the likeliest to be missed.
 const DYNAMIC_CLASSES =
-  'ok bad warn info ink muted live rev chip btn primary sel redline sheet ticks clickable dashed chrome sketch border-dashed track fill tbl kpi label callout prose dot hollow active bg-panel solid translate-x-full hidden text-fg hover:text-fg text-ok text-bad text-muted';
+  'ok bad warn info gleam muted live you spark chip btn primary sel ember plate open cold riveted flat clickable chrome border-dashed track fill tbl kpi label callout stamp-line facts halo prose dot hollow plain active bg-panel solid translate-x-full hidden text-fg hover:text-fg text-ok text-bad text-muted';
 
 test('compiled CSS covers dynamically applied and custom classes', () => {
   const css = [...manifestFiles()].filter((f) => f.endsWith('.css')).map((f) => fs.readFileSync(path.join(DIST, f), 'utf8')).join('\n');

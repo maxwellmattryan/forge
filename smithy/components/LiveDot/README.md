@@ -1,0 +1,7 @@
+The live dot marks a daemon session that is working right now: an 8px `gleam` dot (a small lit sphere of polished steel, not white) with `shadow-glow` and one `animate-ping` halo in `gleam-hot` behind it (`.halo` here, `motion-safe:animate-ping` in the dashboard), followed by *working · 4s ago* in `gleam`. Off, it is a hollow dot (`dot hollow`, a `line-strong` ring): an idle or waiting session (*idle · 2m ago*, *waiting*). A session waiting on a permission prompt is not a dot but the `warn` chip *needs permission*, then *· 4s ago* since its oldest prompt.
+
+Use it for daemon sessions only: first in a job card's footer, under the drawer's chip row, in the status bar's SESSIONS fact (and its phone form), and on the status bar's Daemon indicator, where it is on while any session is working or asking. An agent's role on a card keeps its plain `gleam` dot (`dot gleam plain`, no glow); the glow and the halo mean a live session, nothing else.
+
+The halo is the only looping motion in the dashboard. It is motion-safe: under `prefers-reduced-motion: reduce` it does not render and the dot is static, solid `gleam`. The dot and halo are `aria-hidden`; the words beside them carry the meaning, and the ticking time is never inside an `aria-live` region.
+
+Static rendition in the Smithy direction, hand-written from `design/components/LiveDot/preview.html` and `components/LiveDot.svelte, SessionActivity.svelte`.

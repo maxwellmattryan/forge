@@ -1,5 +1,5 @@
-<!-- A job's state, or its waiting reason, as a tone chip. A job that needs a human is the redline
-     `REV · <state>` tag; the prefix is aria-hidden so a screen reader hears the state alone. -->
+<!-- A job's state, or its waiting reason, as a tone chip. A job that needs a human is the ember
+     `YOU · <state>` tag; the prefix is aria-hidden so a screen reader hears the state alone. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
   import { stateText, stateTone } from '../lib/view.ts';
@@ -10,4 +10,4 @@
   const tone = $derived(stateTone(job));
 </script>
 
-{#if tone === 'rev'}<span class="chip rev"><span aria-hidden="true">{$t('common.rev')} ·</span> {stateText(job)}</span>{:else}<Chip {tone} text={stateText(job)} />{/if}
+{#if tone === 'you'}<span class="chip you"><span aria-hidden="true">{$t('common.you')} ·</span> {stateText(job)}</span>{:else}<Chip {tone} text={stateText(job)} />{/if}
