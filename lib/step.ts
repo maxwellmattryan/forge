@@ -107,6 +107,8 @@ export function loadStepInput(root: string, config: Config, id: string): StepInp
     evalJudge: exists(at('eval-judge.md')),
   };
   const present = Object.values(paths).filter((v): v is string => typeof v === 'string' && exists(v));
+  // The only I/O for the rework brief's review inputs, so step itself stays pure.
+  for (const f of reworkReviewFiles(job, (paths.previousReviewDir as string | null) ?? null)) if (exists(f)) present.push(f);
   const body = requestBody(root, job.id);
   const specText = read('spec.md') ?? '';
   const lenses = roundLenses(job, config);
@@ -343,6 +345,16 @@ function builderRework(x: StepInput): NonNullable<RoleContext['rework']> {
   return out;
 }
 
+/** The previous round's review files that asked for changes, sorted by lens; pure, so callers decide what exists. */
+export function reworkReviewFiles(job: Job, previousReviewDir: string | null): string[] {
+  if (job.round <= 1 || !previousReviewDir) return [];
+  const prev = job.verdicts[String(job.round - 1)] ?? {};
+  return Object.keys(prev)
+    .filter((lens) => LENS_NAME.test(lens) && prev[lens] !== 'PASS')
+    .sort()
+    .map((lens) => path.join(previousReviewDir, `${lens}.md`));
+}
+
 function lastConflicts(x: StepInput): JobEvent | undefined {
   return lastEvent(x, (e) => e.type === 'integrate-conflicts');
 }
@@ -361,7 +373,10 @@ function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: boolean; 
   if (base === 'planner') ctx.splitMode = splitMode(x);
   if (base === 'spec-writer') ctx.foldIn = j.stage === 'design';
   if (base === 'designer') ctx.mode = x.config.pipeline.design === 'mockup' && j.kind !== 'eval' ? 'mockup' : 'reference';
-  if (base === 'builder') ctx.rework = builderRework(x);
+  if (base === 'builder') {
+    ctx.rework = builderRework(x);
+    if (ctx.rework.includes('review')) ctx.reworkReviews = reworkReviewFiles(j, (x.paths.previousReviewDir as string | null) ?? null);
+  }
   if (base === 'reviewer' && j.stage === 'integrate') ctx.integration = { conflicts: conflictFiles };
   if (base === 'integrator') {
     // The fix pass: an integration review of this episode's resolution asked for changes.
@@ -719,7 +734,7 @@ function build(x: StepInput): StepAction {
   if (lv && prev && !lv.ok && !prev.ok && lv.failure === 'integrity' && prev.failure === 'integrity' && b?.endedAt && after(b.endedAt, prev.at) && !after(b.endedAt, lv.at)) {
     return park(x, 'B3', 'escalation', 'integrity: verify failed twice on test integrity');
   }
-  if (!startedIn(b, j.round) || (lv && !lv.ok && after(lv.at, b?.endedAt)) || after(rework?.ts, b?.startedAt)) return spawn(x, 'B4', 'builder', { resume: true });
+  if (!startedIn(b, j.round) || (lv && !lv.ok && after(lv.at, b?.endedAt)) || after(rework?.ts, b?.startedAt)) return spawn(x, 'B4', 'builder'); // Never resumed: a rework builder is expendable and its brief carries the findings, so it need not drag the last round's context along.
   if (endedIn(b, j.round)) return toStage(x, 'B5', 'verify', 'the builder committed this round');
   return stuck(x);
 }

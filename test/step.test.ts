@@ -256,31 +256,97 @@ const rows: Row[] = [
     want: { action: 'spawn', role: 'builder', agent: 'forge:builder', round: 1 },
     check: (a) => {
       assert.equal(a.output, undefined);
+      assert.equal(a.resume, undefined);
       assert.ok(!a.brief.includes('Rework:'));
+      assert.ok(!a.brief.includes('Rework scope:'));
+      assert.ok(!a.brief.includes('Reference:'));
       assert.ok(a.brief.includes('Infra: mode human · allowed []'));
-      assert.ok(a.brief.includes(`Inputs: ${path.join(JOB_DIR, 'spec.md')}, ${path.join(JOB_DIR, 'tasks.md')}`));
+      assert.equal(a.brief.split('\n').length, 12);
+      assert.ok(a.brief.split('\n').includes(`Inputs: ${path.join(JOB_DIR, 'spec.md')}, ${path.join(JOB_DIR, 'tasks.md')}`));
     },
   },
   {
-    name: 'B4 resumes the builder for a review rework',
-    fx: { files: ['spec', 'feedback'], present: [path.join(JOB_DIR, 'review', 'round-1')], job: job({ stage: 'build', round: 2, verdicts: { 1: { code: 'CHANGES' } }, agents: { builder: ag(1, 5, 6, { agentId: 'b1' }) } }), events: [ev('round', 7)] },
-    want: { action: 'spawn', role: 'builder', resume: 'b1' },
+    name: 'B4 a review rework spawns a fresh builder with a findings-first brief',
+    fx: {
+      files: ['spec', 'feedback', 'tasks', 'build'],
+      present: [path.join(JOB_DIR, 'review', 'round-1', 'code.md'), path.join(JOB_DIR, 'review', 'round-1', 'tests.md')],
+      job: job({ stage: 'build', round: 2, verdicts: { 1: { code: 'CHANGES', tests: 'PASS' } }, agents: { builder: ag(1, 5, 6, { agentId: 'b1' }) } }),
+      events: [ev('round', 7)],
+    },
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
     check: (a) => {
-      assert.ok(a.brief.includes('Rework: review, feedback'));
-      assert.ok(a.brief.includes(path.join(JOB_DIR, 'review', 'round-1')));
+      assert.equal(a.resume, undefined);
+      assert.ok(!('resume' in a));
+      const lines = a.brief.split('\n');
+      assert.ok(lines.includes(`Inputs: ${[path.join(JOB_DIR, 'review', 'round-1', 'code.md'), path.join(JOB_DIR, 'feedback.md'), path.join(JOB_DIR, 'tasks.md'), path.join(JOB_DIR, 'build.md')].join(', ')}`));
+      assert.ok(lines.includes('Rework: review, feedback'));
+      assert.ok(lines.some((l: string) => l.startsWith('Rework scope: ')));
+      assert.ok(lines.includes(`Reference: ${path.join(JOB_DIR, 'spec.md')}`));
     },
   },
   {
-    name: 'B4 a failing verify sends the builder back',
-    fx: { present: [path.join(JOB_DIR, 'verify', 'round-1.md')], job: job({ stage: 'build', round: 1, verifyRuns: [vr(1, 10, false)], agents: { builder: ag(1, 5, 6) } }), events: [ev('round', 4)] },
-    want: { action: 'spawn', role: 'builder', resume: 'a5' },
-    check: (a) => assert.ok(a.brief.includes('Rework: verify') && a.brief.includes(path.join(JOB_DIR, 'verify', 'round-1.md'))),
+    name: 'B4 a failing verify sends a fresh builder back',
+    fx: { files: ['spec', 'tasks', 'build'], present: [path.join(JOB_DIR, 'verify', 'round-1.md')], job: job({ stage: 'build', round: 1, verifyRuns: [vr(1, 10, false)], agents: { builder: ag(1, 5, 6) } }), events: [ev('round', 4)] },
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    check: (a) => {
+      assert.ok(!('resume' in a));
+      const lines = a.brief.split('\n');
+      assert.ok(lines.includes(`Inputs: ${[path.join(JOB_DIR, 'verify', 'round-1.md'), path.join(JOB_DIR, 'tasks.md'), path.join(JOB_DIR, 'build.md')].join(', ')}`));
+      assert.ok(lines.includes('Rework: verify'));
+      assert.ok(lines.some((l: string) => l.startsWith('Rework scope: ')));
+    },
   },
   {
     name: 'B4 a PR rework brings pr-feedback',
-    fx: { files: ['prFeedback'], job: job({ stage: 'build', round: 2, verdicts: { 1: { code: 'PASS' } }, pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) }, agents: { builder: ag(1, 5, 6) } }), events: [ev('round', 7)] },
-    want: { action: 'spawn', role: 'builder' },
-    check: (a) => assert.ok(a.brief.includes('Rework: pr-feedback') && a.brief.includes(path.join(JOB_DIR, 'pr-feedback.md'))),
+    fx: { files: ['spec', 'prFeedback'], job: job({ stage: 'build', round: 2, verdicts: { 1: { code: 'PASS' } }, pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) }, agents: { builder: ag(1, 5, 6) } }), events: [ev('round', 7)] },
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    check: (a) => {
+      assert.ok(!('resume' in a));
+      const inputs = a.brief.split('\n').find((l: string) => l.startsWith('Inputs: '));
+      assert.ok(inputs.includes(path.join(JOB_DIR, 'pr-feedback.md')));
+      assert.ok(!inputs.includes(path.join(JOB_DIR, 'spec.md')));
+      assert.ok(a.brief.includes('Rework: pr-feedback') && a.brief.includes('Rework scope: '));
+    },
+  },
+  {
+    name: 'N2 resumes a builder after an answer',
+    fx: { files: ['spec', 'questions'], job: job({ stage: 'build', round: 2, agents: { builder: ag(2, 8, 9, { summary: 'NEEDS-INPUT', agentId: 'b9' }) } }), events: [ev('round', 7), ev('human', 10, { action: 'answer', note: 'x' })] },
+    want: { action: 'spawn', rule: 'N2', role: 'builder', resume: 'b9' },
+    check: (a) => {
+      assert.ok(a.brief.includes(path.join(JOB_DIR, 'questions.md')));
+      assert.ok(a.brief.split('\n').includes('Rework: answer'));
+      assert.ok(!a.brief.includes('Rework scope:'));
+    },
+  },
+  {
+    name: 'B4 a rework after an answered question spawns fresh',
+    fx: {
+      files: ['spec', 'questions', 'feedback'],
+      job: job({ stage: 'build', round: 2, agents: { builder: ag(1, 5, 6, { summary: 'NEEDS-INPUT', agentId: 'b5' }) } }),
+      events: [ev('round', 4), ev('human', 7, { action: 'answer', note: 'x' }), ev('human', 8, { action: 'rework', note: 'y' }), ev('round', 9)],
+    },
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    check: (a) => {
+      assert.ok(!('resume' in a));
+      const lines = a.brief.split('\n');
+      assert.ok(lines.find((l: string) => l.startsWith('Rework: '))?.endsWith('answer'));
+      assert.ok(lines.find((l: string) => l.startsWith('Inputs: '))?.includes(path.join(JOB_DIR, 'questions.md')));
+    },
+  },
+  {
+    name: 'hostile: a malformed lens name is never a rework input',
+    fx: {
+      files: ['tasks'],
+      present: [path.join(JOB_DIR, 'review', 'round-1', '../x.md'), path.join(JOB_DIR, 'review', 'round-1', 'code.md')],
+      job: job({ stage: 'build', round: 2, verdicts: { 1: { '../x': 'CHANGES', code: 'CHANGES' } }, agents: { builder: ag(1, 5, 6) } }),
+      events: [ev('round', 7)],
+    },
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    check: (a) => {
+      const inputs = a.brief.split('\n').find((l: string) => l.startsWith('Inputs: '));
+      assert.equal(inputs, `Inputs: ${path.join(JOB_DIR, 'review', 'round-1', 'code.md')}, ${path.join(JOB_DIR, 'tasks.md')}`);
+      assert.ok(!a.brief.includes(path.join(JOB_DIR, 'review', 'x.md')));
+    },
   },
   { name: 'B5 the builder committed: verify', fx: { job: job({ stage: 'build', round: 1, agents: { builder: ag(1, 5, 6) } }), events: [ev('round', 4)] }, want: run('job', 'set', 'j', '--stage', 'verify', '--state', 'running') },
 
@@ -491,7 +557,12 @@ const rows: Row[] = [
   { name: "spawn carries the job's effort", fx: { config: (c) => (c.runtime.effort = 'medium'), files: ['spec'], job: job({ stage: 'build', round: 1, effort: 'high', agents: { builder: ag(1, 5, 6, { status: 'lost' }) } }), events: [ev('round', 4)] }, want: { action: 'spawn', role: 'builder', effort: 'high' }, check: (a) => assert.ok(a.brief.split('\n').includes('Effort: high')) },
   { name: 'spawn inherits runtime.effort', fx: { config: (c) => (c.runtime.effort = 'medium'), job: atDecide({ agents: { approver: ag(1, 20, 21, { status: 'failed' }) } }) }, want: { action: 'spawn', role: 'approver', effort: 'medium' } },
   { name: 'spawn effort is null when nothing is set', fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: true, output: 'review/round-1/code.md' }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped }, want: { action: 'spawn', role: 'reviewer:code', effort: null }, check: (a) => assert.ok(a.brief.split('\n').includes('Effort: inherit')) },
-  { name: 'hostile: an agent id is not passed as resume', fx: { job: job({ stage: 'build', round: 2, verdicts: { 1: { code: 'CHANGES' } }, agents: { builder: ag(1, 5, 6, { agentId: 'x; rm -rf' }) } }), events: [ev('round', 7)] }, want: { action: 'spawn', role: 'builder' }, check: (a) => assert.equal(a.resume, undefined) },
+  {
+    name: 'hostile: an agent id is not passed as resume',
+    fx: { files: ['questions'], job: job({ stage: 'build', round: 2, agents: { builder: ag(2, 8, 9, { summary: 'NEEDS-INPUT', agentId: 'x; rm -rf' }) } }), events: [ev('round', 7), ev('human', 10, { action: 'answer', note: 'x' })] },
+    want: { action: 'spawn', rule: 'N2', role: 'builder' },
+    check: (a) => assert.equal(a.resume, undefined),
+  },
 ];
 
 const SAFE = /^[A-Za-z0-9 ._:/@=,+\-[\]"]*$/;
