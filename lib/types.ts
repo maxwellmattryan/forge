@@ -735,6 +735,50 @@ export interface DoctorReport {
   checks: DoctorCheck[];
 }
 
+// ---------- forge doctor --bundle ----------
+
+/** How many spans of each class lib/redact.ts replaced. */
+export interface RedactCounts {
+  secrets: number;
+  paths: number;
+  emails: number;
+  logins: number;
+}
+
+/** One zip entry and its uncompressed size. */
+export interface BundleEntry {
+  name: string;
+  bytes: number;
+}
+
+/** A file the bundle left out instead of reading: a symlink, a FIFO, one outside its dir, or unreadable. */
+export interface BundleSkip {
+  name: string;
+  reason: string;
+}
+
+/** The support bundle's manifest.json: buildBundle in lib/bundle.ts. Names are already redacted. */
+export interface BundleManifest {
+  createdAt: string;
+  forgeVersion: string;
+  includeText: boolean;
+  jobs: string[];
+  entries: BundleEntry[];
+  skipped: BundleSkip[];
+  redactions: RedactCounts;
+}
+
+/** `forge doctor --bundle`'s stdout. */
+export interface BundleResult {
+  file: string;
+  bytes: number;
+  entries: BundleEntry[];
+  skipped: BundleSkip[];
+  redactions: RedactCounts;
+  includeText: boolean;
+  jobs: string[];
+}
+
 // ---------- forge update ----------
 
 /** How the running Forge was installed: detectInstall in lib/update.ts. */
