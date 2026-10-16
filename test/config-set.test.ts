@@ -237,6 +237,30 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     }
   });
 
+  test('policy.protectedPaths is locked', async () => {
+    const f = FIELDS.find((x) => x.key === 'policy.protectedPaths');
+    assert.ok(f, 'policy.protectedPaths is in the schema');
+    assert.deepEqual(
+      { section: f.section, type: f.type, editable: f.editable, lockedReason: f.lockedReason, default: f.default },
+      { section: 'pipeline', type: 'object', editable: false, lockedReason: 'names what Forge refuses to write', default: defaults().policy.protectedPaths },
+    );
+    const docs = fs.readFileSync(path.join(ROOT, 'docs', 'CONFIG.md'), 'utf8');
+    assert.ok(docs.includes('protectedPaths:') && docs.includes('## Protected paths'), 'docs/CONFIG.md documents policy.protectedPaths');
+    assert.ok(docs.includes('Paths are code, judgement calls are prose'), 'docs/CONFIG.md states the split');
+    const arch = fs.readFileSync(path.join(ROOT, 'docs', 'ARCHITECTURE.md'), 'utf8');
+    const untrusted = arch.slice(arch.indexOf('Untrusted input'));
+    assert.ok(untrusted.includes('policy.protectedPaths'), 'ARCHITECTURE.md "Untrusted input" names the policy');
+    const s = scratch();
+    try {
+      const r = await s.forge('config', 'set', 'policy.protectedPaths', '[]');
+      assert.notEqual(r.code, 0);
+      assert.match(r.err, /policy\.protectedPaths is not editable with forge config set \(names what Forge refuses to write\)/);
+      assert.equal(s.read(), FIXTURE, 'the file is untouched');
+    } finally {
+      s.repo.cleanup();
+    }
+  });
+
   test('verifySecrets is shown and locked', async () => {
     const f = FIELDS.find((x) => x.key === 'verifySecrets');
     assert.ok(f, 'verifySecrets is in the schema');

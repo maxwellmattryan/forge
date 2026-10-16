@@ -192,7 +192,7 @@ export interface VerifyRun {
   ok: boolean;
   at: string | null;
   file: string;
-  /** The name of the step that failed (`test`, `integrity`, …), null on a pass. */
+  /** The name of the step that failed (`test`, `integrity`, `secrets`, `protected`, …), null on a pass. */
   failure?: string | null;
 }
 
@@ -247,6 +247,33 @@ export interface Job {
   effort: Effort | null;
   /** The spec's `Complexity:` header, recorded at SP3; picks runtime.effortByComplexity. */
   complexity: Complexity | null;
+  /** Escalate paths the branch changes, recorded by the CLI only: recordProtected in lib/protected.ts. */
+  protectedPaths: ProtectedPaths | null;
+}
+
+/** One `policy.protectedPaths` rule: docs/CONFIG.md "Protected paths". */
+export interface ProtectedRule {
+  paths: string[];
+  action: 'escalate' | 'refuse';
+  reason: string;
+}
+
+/** A changed path an escalate rule matched; `rule` is 1-based and `blob` is null for a deletion. */
+export interface ProtectedHit {
+  path: string;
+  rule: number;
+  glob: string;
+  reason: string;
+  blob: string | null;
+}
+
+/** job.protectedPaths: the escalate paths that need a human approval given after `at`. */
+export interface ProtectedPaths {
+  hits: ProtectedHit[];
+  more: number;
+  at: string;
+  gate: 'add' | 'commit' | 'verify' | 'pr';
+  head: string | null;
 }
 
 /** tasks.md checkbox counts: progress in lib/jobs.ts. */
@@ -659,6 +686,8 @@ export interface Config {
     reserved: string[];
     ship: ForemanShip;
   };
+  /** Paths the CLI refuses to write or escalates to a human: docs/CONFIG.md "Protected paths". */
+  policy: { protectedPaths: ProtectedRule[] };
 }
 
 /** A gate class the foreman may decide: OFFICE_GATES in lib/schema.ts. */

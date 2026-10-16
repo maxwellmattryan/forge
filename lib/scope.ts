@@ -88,7 +88,7 @@ export function approachPaths(specText: string): string[] {
 }
 
 /** `**` crosses directories, `*` and `?` do not; anchored to the whole string. */
-function globToRegExp(glob: string): RegExp {
+export function globToRegExp(glob: string): RegExp {
   const body = glob
     .split('**/')
     .map((part) =>

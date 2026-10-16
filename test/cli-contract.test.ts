@@ -460,6 +460,15 @@ test('README CLI table is generated from the help tables', () => {
   assert.throws(() => syncReadme('# no markers\n'), /no <!-- forge:commands:start/);
 });
 
+test('protected_path exits 1', () => {
+  assert.equal(ERROR_CODES.protected_path, 1);
+  const e = new ForgeError('x', 'protected_path');
+  assert.equal(e.exitCode, 1);
+  assert.equal(e.code, 'protected_path');
+  const cli = fs.readFileSync(path.join(ROOT, 'docs', 'CLI.md'), 'utf8');
+  assert.ok(cli.includes('| `protected_path` | 1 |'), 'docs/CLI.md documents protected_path');
+});
+
 test('the secret scanner has its error code, help and README row', () => {
   assert.equal(ERROR_CODES.secret_found, 1);
   assert.equal(new ForgeError('x', 'secret_found').exitCode, 1);

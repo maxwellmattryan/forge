@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
 import { detect } from '../lib/detect.ts';
+import { defaults } from '../lib/config.ts';
 
 /** A fresh repo with the given files; returns detect()'s commands and tools. @param {Record<string,string>} files */
 function detectWith(files) {
@@ -95,4 +96,26 @@ test('suggests the design lens for UI repos', () => {
 
   const plain = panel({ 'package.json': pkg({ dependencies: { express: '4.0.0' } }) });
   for (const lens of ['design', 'ui', 'ux', 'accessibility']) assert.ok(!plain.includes(lens), `${lens} in ${JSON.stringify(plain)}`);
+});
+
+test('suggests protected paths from the stack', () => {
+  const suggest = (files: Record<string, string>) => {
+    const repo = tempRepo();
+    try {
+      for (const [rel, text] of Object.entries(files)) fs.writeFileSync(path.join(repo.dir, rel), text);
+      return detect(repo.dir).suggestions['policy.protectedPaths'] as { paths: string[]; action: string; reason: string }[];
+    } finally {
+      repo.cleanup();
+    }
+  };
+  const rules = suggest({ 'package.json': pkg({}), 'Cargo.toml': '[package]\nname = "x"\n' });
+  const locks = rules.find((r) => r.reason === 'dependency lockfile');
+  assert.deepEqual(locks, { paths: ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'Cargo.lock'], action: 'escalate', reason: 'dependency lockfile' });
+  assert.equal(rules.length, defaults().policy.protectedPaths.length, 'every other default rule stays');
+  assert.deepEqual(rules.filter((r) => r !== locks), defaults().policy.protectedPaths.filter((r) => r.reason !== 'dependency lockfile'));
+  assert.deepEqual(suggest({ 'go.mod': 'module x\n', Gemfile: '' }).find((r) => r.reason === 'dependency lockfile')?.paths, ['go.sum', 'Gemfile.lock']);
+  assert.deepEqual(suggest({ 'pyproject.toml': '' }).find((r) => r.reason === 'dependency lockfile')?.paths, ['poetry.lock', 'uv.lock']);
+  const none = suggest({ 'README.txt': 'x' });
+  assert.equal(none.find((r) => r.reason === 'dependency lockfile'), undefined, 'no ecosystem: no lockfile rule');
+  assert.equal(none.length, defaults().policy.protectedPaths.length - 1);
 });
