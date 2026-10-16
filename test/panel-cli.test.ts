@@ -200,6 +200,16 @@ describe('forge job panel', { concurrency: 4 }, () => {
       const r = await s.f('job', 'panel', s.id);
       assert.deepEqual(r.lenses, ['code', 'security', 'docs']);
       assert.deepEqual(loadJob(s.root, s.id).reviewers, ['code', 'security', 'docs']);
+      // A retro job's panel is fixed at code and docs, so turning this job into one would drop security.
+      for (const kind of ['retro', 'eval']) {
+        const refused = await s.raw('job', 'set', s.id, '--field', `kind=${kind}`);
+        assert.equal(refused.status, 1, refused.stdout);
+        assert.match(refused.stderr, new RegExp(`--field kind=${kind} is not settable; use `));
+      }
+      assert.equal(loadJob(s.root, s.id).kind, 'feature');
+      const again = await s.f('job', 'panel', s.id);
+      assert.deepEqual(again.lenses, ['code', 'security', 'docs']);
+      assert.deepEqual(loadJob(s.root, s.id).reviewers, ['code', 'security', 'docs']);
     } finally {
       s.cleanup();
     }

@@ -279,6 +279,14 @@ const LOCKED_FIELDS: Record<string, string> = {
   eval: 'forge eval start',
 };
 
+// Kinds step routes differently: a retro job's review panel is fixed at code and docs, and an eval
+// job skips the PR and the escalation gate. A session set to `retro` mid-build would have RV9 drop
+// the lenses its diff selected, so only the command that creates each kind writes it.
+const OWNED_KINDS: Record<string, string> = {
+  retro: 'forge job new --kind retro',
+  eval: 'forge eval start',
+};
+
 // setPath walks these into Object.prototype.
 const PROTO_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -367,6 +375,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       for (const key of Object.keys(fields))
         if (key.split('.')[0] === 'complexity' && (key !== 'complexity' || !(fields[key] === null || (COMPLEXITIES as readonly unknown[]).includes(fields[key]))))
           throw new ForgeError('--field complexity must be low, medium or high, or null');
+      if ('kind' in fields && Object.hasOwn(OWNED_KINDS, String(fields.kind))) throw new ForgeError(`--field kind=${fields.kind} is not settable; use ${OWNED_KINDS[String(fields.kind)]}`);
       // Checked before anything is written, so a bad list leaves job.json untouched.
       const before = loadJob(root, jobId);
       const waitingOn = flags['waiting-on'] === undefined ? undefined : flags['waiting-on'] === 'none' ? null : flags['waiting-on'];
