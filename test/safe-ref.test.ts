@@ -88,6 +88,31 @@ test('forge run never fills a template with an unsafe branch', { skip: process.p
   }
 });
 
+test('forge run never fills {worktree} with a path a shell would act on', { skip: process.platform === 'win32' }, async () => {
+  const repo = initRepo({ commands: { test: 'echo hi > {worktree}/out.txt' } });
+  try {
+    assert.equal(cli(repo.dir, 'tracker', 'create', '--title', 'Pwn').status, 0);
+    const { id } = JSON.parse(cli(repo.dir, 'next', '--claim', '--session', 's1').stdout);
+    assert.equal(cli(repo.dir, 'worktree', 'create', id).status, 0);
+    const dir = loadJob(repo.dir, id).worktree!;
+    const sneaky = path.join(dir, '$(touch pwned)');
+    fs.mkdirSync(sneaky);
+    for (const worktree of [`${sneaky}/..`, sneaky, `${dir}/.`]) {
+      setJob(repo.dir, id, { fields: { worktree } });
+      for (const extra of [[], ['--background']]) {
+        const r = cli(repo.dir, 'run', id, 'test', ...extra);
+        assert.notEqual(r.status, 0, `${worktree} ${extra}`);
+        assert.match(r.stderr, /job\.worktree .* is not a safe worktree path/);
+      }
+    }
+    await new Promise((r) => setTimeout(r, 300));
+    for (const d of [dir, repo.dir]) for (const f of ['pwned', 'out.txt']) assert.equal(fs.existsSync(path.join(d, f)), false, path.join(d, f));
+    assert.ok(!readEvents(repo.dir, id).some((e) => e.type === 'background-start'));
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test('createWorktree refuses unsafe refs before touching git', () => {
   const repo = tempRepo();
   const config = defaults();

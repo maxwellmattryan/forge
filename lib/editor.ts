@@ -35,9 +35,13 @@ const realDir = (p: string): string | null => {
 export function containedWorktree(root: string, config: Config, job: Pick<Job, 'id' | 'worktree'>): string | null {
   const wt = job.worktree;
   if (typeof wt !== 'string' || !wt || wt.includes('\0') || !path.isAbsolute(wt)) return null;
+  const configured = worktreeRoot(root, config);
   const real = realDir(wt);
-  const base = realDir(worktreeRoot(root, config));
+  const base = realDir(configured);
   if (real === null || base === null) return null;
+  // The stored string itself must be `<root>/<id>` (as configured or resolved): a value that only
+  // resolves there, like `<root>/<id>/$(cmd)/..`, would reach startBackground's `{worktree}` raw.
+  if (wt !== path.join(configured, job.id) && wt !== path.join(base, job.id)) return null;
   // Compared with the root's resolved path plus the id, so `<root>/<id>` itself can't be a link out.
   return real === path.join(base, job.id) ? real : null;
 }
@@ -46,6 +50,8 @@ export function containedWorktree(root: string, config: Config, job: Pick<Job, '
  * Starts the editor detached with the directory as its last argument, no shell, and resolves once
  * it has spawned. A missing binary rejects with the spawn error (code ENOENT).
  */
+// A swap of `<root>/<id>` for a link between containedWorktree and this spawn is accepted: the
+// window is a few synchronous lines, and the worst it buys is an editor opened on a directory.
 export function openEditor(argv: string[], dir: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(argv[0], [...argv.slice(1), dir], { shell: false, detached: true, stdio: 'ignore', cwd: dir });

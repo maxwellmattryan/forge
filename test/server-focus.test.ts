@@ -225,6 +225,18 @@ test('POST run reuses a live dev server', { timeout: 60_000 }, async () => {
     // A worktree field pointing elsewhere is refused before anything runs.
     s.patchJob(a, { worktree: os.tmpdir() });
     assert.equal((await s.post(`/api/jobs/${a}/run`, { command: 'dev' })).status, 409);
+    // One that only resolves to the job's own worktree is refused too: its raw text would fill {worktree}.
+    // The shell's cwd is the worktree, so a relative touch would land there.
+    const sneaky = path.join(wt.path, '$(touch pwned-run)');
+    fs.mkdirSync(sneaky, { recursive: true });
+    fs.mkdirSync(path.join(wt.path, 'x'));
+    for (const worktree of [`${wt.path}/x/..`, `${sneaky}/..`, `${wt.path}/.`]) {
+      s.patchJob(a, { worktree });
+      const res = await s.post(`/api/jobs/${a}/run`, { command: 'dev' });
+      assert.equal(res.status, 409, `${worktree}: ${res.text}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    for (const d of [wt.path, s.root]) assert.equal(fs.existsSync(path.join(d, 'pwned-run')), false, 'no shell ran');
 
     const cfg = path.join(s.root, '.forge', 'config.yml');
     fs.writeFileSync(cfg, fs.readFileSync(cfg, 'utf8').replace(/^ {2}dev: sleep 30$/m, '  dev: null'));
@@ -272,6 +284,9 @@ test('POST editor spawns a fixed argv at the contained worktree only', { timeout
     assert.equal((await s.post('/api/jobs/no-such-job/editor', {})).status, 404);
     assert.equal((await s.post(`/api/jobs/${a}/editor`, [])).status, 400);
     assert.equal((await s.post(`/api/jobs/${bare}/editor`, {})).status, 409, 'no worktree');
+    fs.mkdirSync(path.join(wtA.path, 'x'));
+    const sneaky = path.join(wtA.path, '$(touch pwned-editor)');
+    fs.mkdirSync(sneaky);
     const link = path.join(s.wtRoot, 'link-out');
     fs.symlinkSync(os.tmpdir(), link);
     const outside: [string, string][] = [
@@ -280,6 +295,8 @@ test('POST editor spawns a fixed argv at the contained worktree only', { timeout
       ['a symlink pointing out', link],
       ['a value starting with -', '-rf'],
       ['a relative path', path.relative(s.root, wtA.path)],
+      ['a path that only resolves to its own worktree', `${wtA.path}/x/..`],
+      ['a path through a $(…) directory', `${sneaky}/..`],
     ];
     for (const [what, worktree] of outside) {
       fs.rmSync(ARGV_FILE, { force: true });

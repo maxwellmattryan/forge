@@ -255,10 +255,20 @@ function checkRefs(job: Job): void {
   assertSafeRef(job.base, 'job.base');
 }
 
+// `{worktree}` is filled unquoted, and job.json's `worktree` is agent-writable: refuse a value that
+// is not a normalised absolute path or that holds characters a shell would act on.
+function assertSafeWorktree(dir: string): void {
+  // A backslash is a separator on Windows, so it is refused only elsewhere.
+  const meta = process.platform === 'win32' ? /[\0\n\r$`;|&<>()'"*?]/ : /[\0\n\r$`;|&<>()\\'"*?]/;
+  if (path.isAbsolute(dir) && path.resolve(dir) === dir && !meta.test(dir)) return;
+  throw new ForgeError(`job.worktree ${JSON.stringify(dir).slice(0, 120)} is not a safe worktree path: it must be a normalised absolute path with no shell metacharacters`);
+}
+
 // `{args}` is empty here: only `forge run … -- <args>` fills it (fillCommand), so verify, setup,
 // background servers and regenerate never take arguments that could narrow what they run.
 function vars(root: string, job: Job, dir: string, port: number | null): Record<string, string | number> {
   checkRefs(job);
+  assertSafeWorktree(dir);
   return { job: job.id, port: port ?? '', worktree: dir, root, branch: job.branch!, base: job.base!, args: '' };
 }
 
