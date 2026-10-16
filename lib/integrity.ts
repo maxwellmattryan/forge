@@ -193,7 +193,8 @@ export function commandSources(config: Pick<Config, 'commands' | 'components'>):
     }
   };
   scan(config.commands, '');
-  for (const s of config.components ?? []) if (s?.commands) scan(s.commands, s.path ? `${String(s.path).replace(/\/+$/, '')}/` : '');
+  // A component in another repo runs nothing in this worktree, so its scripts aren't this diff's.
+  for (const s of config.components ?? []) if (s?.commands && (s.repo === undefined || s.repo === null)) scan(s.commands, s.path ? `${String(s.path).replace(/\/+$/, '')}/` : '');
   return [...out];
 }
 

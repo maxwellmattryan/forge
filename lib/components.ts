@@ -2,6 +2,8 @@
 // The lists live here rather than in schema.ts because schema.ts runs servicesToComponents as a
 // migration while it loads; schema.ts re-exports them beside its other runtime lists.
 
+import type { ComponentConfig, Config, Job } from './types.ts';
+
 export const COMPONENT_KINDS = ['library', 'service', 'app'] as const;
 export const DEPENDENCY_TYPES = ['build', 'runtime'] as const;
 
@@ -22,4 +24,15 @@ export function servicesToComponents(c: any): any {
     return { ...s, path: p, kind: 'service', dependsOn: [] };
   });
   return { ...rest, components };
+}
+
+/**
+ * The component whose commands a job uses: the one root-repo component its `services` names when it
+ * names exactly one. A component in another repo has no checkout in the job's worktree, so it is
+ * never selected and the top-level commands run instead.
+ */
+export function jobComponent(config: Pick<Config, 'components'>, job: Pick<Job, 'services'>): ComponentConfig | null {
+  if (job.services.length !== 1) return null;
+  const c = (config.components ?? []).find((s) => s?.name === job.services[0]);
+  return c && (c.repo === undefined || c.repo === null) ? c : null;
 }
