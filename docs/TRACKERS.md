@@ -35,6 +35,27 @@ Jobs that never ask: `tracker.kind: none`, eval and retro jobs, and split childr
 
 `forge tracker search <query> [--limit n] [--job <id>]` is the bounded search behind it: at most `--limit` (default 5, at most 20) open items, ranked by how many search words appear in each title (2 points) and body (1 point), printed without bodies. Only plain words reach the tracker: tokens with search syntax (`is:`, `repo:`, `label:`, quotes, parentheses, `-` negation) are dropped, and GitHub results outside the configured repo are discarded.
 
+## Readiness triage
+
+`forge next` takes the top ready item as it is, so an unclear one would cost a plan round and a spec round before anyone asked a question. Triage judges ready items first, against four keys:
+
+- `outcome`: says what should be true when the work is done;
+- `acceptance`: has acceptance criteria, or for a bug the steps to reproduce with expected and actual behaviour;
+- `scope`: is one reviewable change;
+- `duplicate`: is not the same work as an active Forge job or an open PR.
+
+An item missing any of them becomes **needs-info**: on GitHub the `<prefix>needs-info` label (default `forge:needs-info`, whatever `statusSync` says) and one templated comment listing the missing pieces; in the local backlog the `[?]` mark and one `Needs info: …` line under it. Ready lists leave needs-info items out, so `forge next`, `forge tracker list --ready` and `/forge next` skip them. Starting one on purpose (`/forge issue <ref>`, the dashboard's Start) still works, and on GitHub a claim with label sync drops the label like any other stale status label.
+
+`/forge triage [n]` runs it, and `/forge next` (and the inbox's `next` request) runs it once with `--limit 10` first; a triage failure is reported and never blocks `next`. It is two CLI calls with the `forge:triage` agent (haiku) between them, because the CLI never calls a model:
+
+1. `forge tracker triage [--limit N] [--all]` reads up to N ready items (default 10, at most 50) and up to N unclaimed needs-info items, drops each one unchanged since its last triage (by a hash of its title and body), finds duplicate candidates among active jobs and open PRs (`prs: "off"` without PRs, `"unavailable"` when `gh pr list` fails), and writes a batch under `.forge/runtime/triage/<batch>/`: `items.md`, each item fenced as untrusted data, and `items.json`, the CLI's own record. It returns the batch id and the agent's `subagent`, `model`, `effort` and `brief`, or `pending: 0` when nothing changed.
+2. The agent reads `items.md` and writes `verdicts.json`: `{"items":[{"ref":"…","missing":[…],"duplicateOf":null}]}`.
+3. `forge tracker triage --apply <batch>` checks every verdict and acts on each item: a not-ready one gets the comment (only when its set of missing pieces differs from the one last commented on) and the mark; a ready one has its mark cleared. Items edited or claimed since prepare are skipped (`stale`, `claimed`) and tried again next time.
+
+Only Forge's fixed text reaches the tracker: refs outside the batch, unknown keys and a `duplicateOf` that is not one of the item's candidates are dropped, and a duplicate is cited as `PR #<n>`, as `#<n>` for a job from the same GitHub tracker, or as "an active Forge job", never by a local job id. `verdicts.json` must be a regular file under 256 KiB.
+
+Runs are idempotent. An unchanged item is never judged again; an edited one is, and gets a new comment only when what it is missing changed, or its mark cleared once it is ready. Removing the label or `[?]` by hand overrides triage until the item's text changes. The cache is `.forge/runtime/triage.json` (unversioned, at most 500 items). A custom adapter takes part by returning `needsInfo` from `list` and implementing the optional `setNeedsInfo`; without it, it still gets the comment.
+
 ## Writing an adapter (Jira, Linear, GitLab, …)
 
 Create `.forge/trackers/<name>.mjs` (or `<name>.ts`) and set `tracker.kind: <name>`. Default-export an object with these **synchronous** methods (shell out with `child_process.spawnSync` to a CLI, or `curl`, if the service has no sync SDK):

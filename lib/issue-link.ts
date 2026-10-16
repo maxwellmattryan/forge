@@ -59,7 +59,7 @@ export function queryTerms(query: string): string[] {
  * Each distinct term in the title scores 2 and in the body 1; items scoring 0 are dropped, and ties
  * keep the tracker's order (Array.prototype.sort is stable).
  */
-export function scoreItems(items: TrackerItem[], terms: string[]): ScoredItem[] {
+export function scoreItems<T extends TrackerItem>(items: T[], terms: string[]): (T & { score: number })[] {
   const distinct = [...new Set(terms.map((t) => t.toLowerCase()).filter(Boolean))];
   return items
     .map((item) => {

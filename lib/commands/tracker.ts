@@ -7,6 +7,7 @@ import { listRequests } from '../requests.ts';
 import { searchTerms } from '../issue-link.ts';
 import { clampLimit, publicHits, searchTracker } from '../tracker-link.ts';
 import { loadTracker } from '../trackers/index.ts';
+import { DEFAULT_LIMIT, MAX_LIMIT, applyTriage, prepareTriage } from '../triage.ts';
 import { ForgeError } from '../util.ts';
 import * as wt from '../worktree.ts';
 import { bodyFrom, list, num, req, str, usageError } from './args.ts';
@@ -59,6 +60,19 @@ const TRACKER: HelpGroup = {
       exits: TRACKER_EXITS,
     },
     { command: 'tracker close', args: '<ref> [--reason R]', summary: 'close an item', flags: [['--reason R', 'why, where the tracker records one']], exits: TRACKER_EXITS },
+    {
+      command: 'tracker triage',
+      args: '[--limit N] [--all] | --apply <batch>',
+      summary: 'readiness triage: write a batch of ready and needs-info items for the forge:triage agent, then apply its verdicts (a templated comment and the needs-info mark, or the mark cleared)',
+      flags: [
+        ['--limit N', `at most N ready and N needs-info items (default ${DEFAULT_LIMIT}, at most ${MAX_LIMIT})`],
+        ['--all', 'also judge items unchanged since their last triage'],
+        ['--apply <batch>', "apply the batch's verdicts.json"],
+      ],
+      exits: TRACKER_EXITS,
+      docs: ['Readiness triage', 'docs/TRACKERS.md#readiness-triage'],
+      readme: true,
+    },
   ],
 };
 
@@ -118,6 +132,14 @@ export async function trackerCmd(root: string, config: Config, sub: string | und
     case 'close':
       tracker.close(ctx, req(rest[0], 'ref'), { reason: flags.reason });
       return { ok: true };
+    case 'triage': {
+      if (flags.apply !== undefined) {
+        if (flags.all !== undefined) throw new ForgeError('--all and --apply are separate calls', 'usage');
+        return applyTriage(root, config, tracker, req(str(flags.apply, '--apply'), '--apply <batch>'));
+      }
+      const limit = num(flags.limit, '--limit', { integer: true });
+      return prepareTriage(root, config, tracker, { limit: Math.min(MAX_LIMIT, Math.max(1, limit ?? DEFAULT_LIMIT)), all: Boolean(flags.all) });
+    }
     case 'search': {
       let query = rest.join(' ').trim();
       if (!query && typeof flags.job === 'string') query = searchTerms(loadJob(root, flags.job).title).join(' ');

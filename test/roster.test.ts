@@ -119,3 +119,21 @@ test("roster reports each role's and lens's effort and source", () => {
     repo.cleanup();
   }
 });
+
+test('triage agent runs on haiku without a config key', () => {
+  const repo = tempRepo();
+  try {
+    const cfg = defaults();
+    assert.equal(cfg.runtime.models.triage, undefined, 'no config key');
+    const row = roster(repo.dir, cfg).agents.find((a) => a.role === 'triage');
+    assert.ok(row);
+    assert.equal(row.model, 'haiku');
+    const text = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'agents', 'triage.md'), 'utf8');
+    const front = text.match(/^---\n([\s\S]*?)\n---\n/)![1];
+    assert.match(front, /^name: triage$/m);
+    assert.match(front, /^model: haiku$/m);
+    assert.match(front, /^disallowedTools: Bash, Edit, NotebookEdit$/m);
+  } finally {
+    repo.cleanup();
+  }
+});
