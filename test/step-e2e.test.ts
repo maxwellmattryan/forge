@@ -21,7 +21,7 @@ describe('a job driven by step alone', { concurrency: 4 }, () => {
       const last = await drive(s, id, steps, seen);
       assert.equal(last.action, 'done', JSON.stringify(last));
       assert.equal(last.state, 'done');
-      assert.deepEqual(stagesOf(s.root, id), ['backlog', 'spec', 'build', 'verify', 'review', 'decide', 'integrate', 'pr', 'done']);
+      assert.deepEqual(stagesOf(s.root, id), ['backlog', 'spec', 'build', 'verify', 'review', 'integrate', 'decide', 'pr', 'done']);
       assertAgents(s.root, id);
       assert.deepEqual(loadJob(s.root, id).reviewers, ['code', 'tests']);
       // The review panel goes out as one batch, and each lens is started exactly once.
@@ -144,7 +144,7 @@ describe('a job driven by step alone', { concurrency: 4 }, () => {
       await s.f('job', 'set', id, '--state', 'running');
       last = await drive(s, id, steps);
       assert.equal(last.action, 'done', JSON.stringify(last));
-      assert.deepEqual(stagesOf(s.root, id), ['backlog', 'spec', 'build', 'verify', 'review', 'decide', 'integrate', 'pr', 'done']);
+      assert.deepEqual(stagesOf(s.root, id), ['backlog', 'spec', 'build', 'verify', 'review', 'integrate', 'decide', 'pr', 'done']);
       assertAgents(s.root, id);
       assert.ok(steps.n < 60, `${steps.n} steps`);
     } finally {

@@ -352,8 +352,10 @@ const LOG_PINS: readonly string[] = ['-c', 'i18n.logOutputEncoding=UTF-8'];
 
 /**
  * What a job's branch would publish, against `merge-base(base, HEAD)` as integrity computes it:
- * every non-merge commit on its own (a key added then deleted still counts), the net diff (what a
- * merge brought in), every commit message, and with `staged` the index. Never throws for git
+ * every non-merge commit on its own (a key added then deleted still counts), every merge commit's
+ * own changes (`--remerge-diff`: its conflict resolution and anything else it added beyond git's
+ * automatic merge, which a later commit may have removed again), the net diff (what a merge brought
+ * in), every commit message, and with `staged` the index. Never throws for git
  * trouble: the problem goes into `error`, and an unfinished scan never reads as clean. `head` (a
  * commit id) binds the scan to the commit the caller records as checked; HEAD otherwise.
  */
@@ -374,7 +376,8 @@ export function scanBranch(root: string, config: Config, job: Pick<Job, 'id' | '
     if (!SHA.test(mergeBase)) throw new ForgeError(`merge-base ${JSON.stringify(mergeBase.slice(0, 80))} is not a commit id`);
     const range = `${mergeBase}..${head}`;
     const shas = git(['rev-list', '--reverse', '--no-merges', range, '--']).split('\n').filter(Boolean);
-    if (shas.length > MAX_COMMITS) throw new ForgeError(`the branch has ${shas.length} commits since its base; the scanner reads at most ${MAX_COMMITS}`);
+    const merges = git(['rev-list', '--reverse', '--merges', range, '--']).split('\n').filter(Boolean);
+    if (shas.length + merges.length > MAX_COMMITS) throw new ForgeError(`the branch has ${shas.length + merges.length} commits since its base; the scanner reads at most ${MAX_COMMITS}`);
     const units: TextUnit[] = [];
     const files = new Set<string>();
     const addDiff = (out: string, commit: string | null) => {
@@ -385,6 +388,12 @@ export function scanBranch(root: string, config: Config, job: Pick<Job, 'id' | '
     for (const sha of shas) {
       if (!SHA.test(sha)) throw new ForgeError(`git rev-list printed ${JSON.stringify(sha.slice(0, 80))}, not a commit id`);
       addDiff(git([...PINNED_GIT_CONFIG, 'show', '--no-show-signature', '--format=', ...PINNED_DIFF_OPTS, '--text', '-U0', sha, '--']), sha.slice(0, 12));
+    }
+    // A merge's resolution lands in no ordinary commit; `--remerge-diff` (git ≥ 2.36) shows it
+    // against git's own automatic merge, so base-side content isn't rescanned as the job's.
+    for (const sha of merges) {
+      if (!SHA.test(sha)) throw new ForgeError(`git rev-list printed ${JSON.stringify(sha.slice(0, 80))}, not a commit id`);
+      addDiff(git([...PINNED_GIT_CONFIG, 'show', '--no-show-signature', '--format=', '--remerge-diff', ...PINNED_DIFF_OPTS, '--text', '-U0', sha, '--']), sha.slice(0, 12));
     }
     addDiff(git([...PINNED_GIT_CONFIG, 'diff', ...PINNED_DIFF_OPTS, '--text', '-U0', mergeBase, head, '--']), null);
     const log = git([...PINNED_GIT_CONFIG, ...LOG_PINS, 'log', '--encoding=UTF-8', '--no-show-signature', '--no-color', '--format=%x00%H%x00%B', range, '--']).split('\0');
@@ -398,7 +407,7 @@ export function scanBranch(root: string, config: Config, job: Pick<Job, 'id' | '
       scan.scanned.texts++;
     }
     if (opts.staged) addDiff(git([...PINNED_GIT_CONFIG, 'diff', '--cached', ...PINNED_DIFF_OPTS, '--text', '-U0', '--']), 'staged');
-    scan.scanned.commits = shas.length;
+    scan.scanned.commits = shas.length + merges.length;
     scan.scanned.files = files.size;
     raw.push(...scanUnits(units, { config }));
   } catch (e) {

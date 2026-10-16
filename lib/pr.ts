@@ -509,6 +509,8 @@ const sortedList = (paths: Iterable<string>): string[] => [...new Set(paths)].so
  * when they are all a stop has, Forge finishes it and carries on, pick after pick in a rebase.
  */
 export function integrate(root: string, config: Config, id: string, opts: { strategy?: Strategy; keepConflicts?: boolean } = {}): IntegrateResult {
+  // `--strategy` names a git subcommand (`git <strategy> --abort`), so only the two known ones pass.
+  if (opts.strategy !== undefined && opts.strategy !== 'merge' && opts.strategy !== 'rebase') throw new ForgeError(`--strategy must be merge or rebase, not ${JSON.stringify(String(opts.strategy).slice(0, 40))}`, 'usage');
   const job = loadJob(root, id);
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree`);
   const cwd = job.worktree;
@@ -523,7 +525,7 @@ export function integrate(root: string, config: Config, id: string, opts: { stra
     logEvent(root, id, 'integrated', { behind: 0 });
     return { ok: true, behind: 0, strategy: null, rewritten: false };
   }
-  const strategy: Strategy = opts.strategy ?? (job.pr?.state === 'OPEN' ? config.pr.updateStrategy : 'rebase');
+  const strategy: Strategy = opts.strategy ?? config.pr.updateStrategy;
   let attempt = strategy === 'rebase' ? run('git', ['rebase', upstream], { cwd, allowFail: true }) : run('git', ['merge', '--no-edit', upstream], { cwd, allowFail: true });
   const keep = Boolean(opts.keepConflicts);
   const abort = () => run('git', [strategy, '--abort'], { cwd, allowFail: true });
