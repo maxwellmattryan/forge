@@ -50,14 +50,22 @@ const tr = (n: number, from: Side, to: Side) => ev('transition', n, { from: { st
 const reviewed = tr(25, { stage: 'review' }, { stage: 'integrate' });
 /** The old order: review → decide at 15, the approver's decision at 22, then integrate at 30 (`entered`). */
 const legacy = [tr(15, { stage: 'review' }, { stage: 'decide' }), ev('decision', 22), entered];
-/** The new order up to an approver ESCALATE: integrated clean, decide at 33, decision at 36, parked at 37, a human approve at 40. */
-const escalated = [reviewed, ev('integrated', 31, { behind: 0 }), tr(33, { stage: 'integrate' }, { stage: 'decide' }), ev('decision', 36), tr(37, { stage: 'decide' }, { stage: 'decide', state: 'waiting', waitingOn: 'escalation' }), ev('human', 40, { action: 'approve' })];
+/** The new order up to a decide gate: integrated clean, decide at 33, the approver's decision at 36, parked on `gate` at 37, a human approve at 40. */
+const gated = (decision: string, gate: string) => [reviewed, ev('integrated', 31, { behind: 0 }), tr(33, { stage: 'integrate' }, { stage: 'decide' }), ev('decision', 36, { decision }), tr(37, { stage: 'decide' }, { stage: 'decide', state: 'waiting', waitingOn: gate }), ev('human', 40, { action: 'approve' })];
+const escalated = gated('ESCALATE', 'escalation');
 /** …then set running in decide again at 41. */
-const unparked = [...escalated, tr(41, { stage: 'decide', state: 'waiting', waitingOn: 'escalation' }, { stage: 'decide' })];
+const unparkedFrom = (events: ReturnType<typeof gated>, gate: string) => [...events, tr(41, { stage: 'decide', state: 'waiting', waitingOn: gate }, { stage: 'decide' })];
+const unparked = unparkedFrom(escalated, 'escalation');
 /** …then DC9 sent it to integrate at 42. */
-const reentered = [...unparked, tr(42, { stage: 'decide' }, { stage: 'integrate' })];
+const reenteredFrom = (events: ReturnType<typeof gated>) => [...events, tr(42, { stage: 'decide' }, { stage: 'integrate' })];
+const reentered = reenteredFrom(unparked);
 /** …an integrate-stage escalation at 50, cleared by a human at 52 and sent back to decide at 53. */
-const sentBack = [...reentered, tr(50, { stage: 'integrate' }, { stage: 'integrate', state: 'waiting', waitingOn: 'escalation' }), ev('human', 52, { action: 'approve' }), tr(53, { stage: 'integrate', state: 'waiting', waitingOn: 'escalation' }, { stage: 'decide' })];
+const sendBack = (events: ReturnType<typeof gated>) => [...events, tr(50, { stage: 'integrate' }, { stage: 'integrate', state: 'waiting', waitingOn: 'escalation' }), ev('human', 52, { action: 'approve' }), tr(53, { stage: 'integrate', state: 'waiting', waitingOn: 'escalation' }, { stage: 'decide' })];
+const sentBack = sendBack(reentered);
+/** The same path for an APPROVE whose before-merge runbook parked on `infra` at 37. */
+const runbookSentBack = sendBack(reenteredFrom(unparkedFrom(gated('APPROVE', 'infra'), 'infra')));
+/** The approver (34–35) ends and the agent-end budget check parks at 35; a budget acknowledgement at 40; the decision is recorded at 42. */
+const budgetAck = (decision: string) => [reviewed, ev('integrated', 31, { behind: 0 }), tr(33, { stage: 'integrate' }, { stage: 'decide' }), tr(35, { stage: 'decide' }, { stage: 'decide', state: 'waiting', waitingOn: 'budget' }), ev('human', 40, { action: 'approve' }), tr(41, { stage: 'decide', state: 'waiting', waitingOn: 'budget' }, { stage: 'decide' }), ev('decision', 42, { decision })];
 const decidedLate = (more: Partial<Job> = {}) => atDecide({ agents: { approver: ag(1, 34, 35) }, ...more });
 
 const rows: Row[] = [
@@ -415,7 +423,11 @@ const rows: Row[] = [
   { name: 'DC7 a parked escalation stays parked without a human approve', fx: { job: decidedLate(), decision: { decision: 'ESCALATE' }, events: escalated.slice(0, 5) }, want: { rule: 'DC7' } },
   { name: 'DC9 approved after an escalation wait re-integrates', fx: { job: decidedLate(), decision: { decision: 'ESCALATE' }, events: unparked }, want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'DC9' } },
   { name: 'cleared gate: DC7 a human-cleared escalation re-entering decide goes on to DC9', fx: { job: decidedLate(), decision: { decision: 'ESCALATE' }, events: sentBack }, want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running'), rule: 'DC9' } },
-  { name: 'cleared gate: DC8 a human-cleared runbook re-entering decide goes on to DC9', fx: { job: decidedLate(), decision: { decision: 'APPROVE' }, events: sentBack, runbookBeforeMerge: true }, want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running'), rule: 'DC9' } },
+  { name: 'cleared gate: DC8 a human-cleared runbook re-entering decide goes on to DC9', fx: { job: decidedLate(), decision: { decision: 'APPROVE' }, events: runbookSentBack, runbookBeforeMerge: true }, want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running'), rule: 'DC9' } },
+  { name: 'DC7 a budget acknowledgement after an ESCALATE still parks', fx: { job: decidedLate(), decision: { decision: 'ESCALATE' }, events: budgetAck('ESCALATE') }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'approver escalated: see decision.md') },
+  { name: 'DC8 a budget acknowledgement does not clear the runbook', fx: { job: decidedLate(), decision: { decision: 'APPROVE' }, events: budgetAck('APPROVE'), runbookBeforeMerge: true }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'infra', '--reason', 'runbook: steps before merge') },
+  { name: 'DC8 an escalation approve does not clear the runbook', fx: { job: decidedLate(), decision: { decision: 'APPROVE' }, events: sentBack, runbookBeforeMerge: true }, want: { rule: 'DC8' } },
+  { name: 'DC3 a budget acknowledgement does not clear a missing decision line', fx: { job: decidedLate(), events: budgetAck('APPROVE').slice(0, -1) }, want: { rule: 'DC3' } },
   { name: 'cleared gate: DC3 a human-cleared missing decision line goes on to DC9', fx: { job: decidedLate(), events: sentBack }, want: { rule: 'DC9' } },
   { name: 'DC10 an open PR in decide goes to pr', fx: { job: job({ stage: 'decide', round: 1, pr: OPEN_PR }) }, want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running'), rule: 'DC10' } },
   { name: 'DC5 an eval job with a PR record still grades, never DC10', fx: { job: atDecide({ kind: 'eval', eval: { run: 'r', task: 'hello' }, pr: OPEN_PR }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], evalTask: { rubric: null, reference: null } }, want: { rule: 'DC5' } },
@@ -440,6 +452,8 @@ const rows: Row[] = [
     fx: { job: atIntegrate(), events: [tr(25, { stage: 'review' }, { stage: 'build' }), tr(26, { stage: 'build' }, { stage: 'build', state: 'waiting', waitingOn: 'escalation' }), ev('human', 28, { action: 'approve' }), tr(30, { stage: 'build', state: 'waiting', waitingOn: 'escalation' }, { stage: 'integrate' }), ev('integrated', 31, { behind: 0 })] },
     want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running'), rule: 'IG3' },
   },
+  { name: 'IG3 a recorded ESCALATE alone is not an approval', fx: { job: atIntegrate(), events: [tr(15, { stage: 'review' }, { stage: 'decide' }), ev('decision', 22, { decision: 'ESCALATE' }), entered, ev('integrated', 31, { behind: 0 })] }, want: { ...run('job', 'set', 'j', '--stage', 'decide', '--state', 'running'), rule: 'IG3' } },
+  { name: 'IG3 a budget approve before integrate is not a ship approval', fx: { job: atIntegrate(), events: [tr(25, { stage: 'review' }, { stage: 'build' }), tr(26, { stage: 'build' }, { stage: 'build', state: 'waiting', waitingOn: 'budget' }), ev('human', 28, { action: 'approve' }), tr(30, { stage: 'build', state: 'waiting', waitingOn: 'budget' }, { stage: 'integrate' }), ev('integrated', 31, { behind: 0 })] }, want: { ...run('job', 'set', 'j', '--stage', 'decide', '--state', 'running'), rule: 'IG3' } },
   { name: 'IG3 a human approve before the review does not count', fx: { job: atIntegrate(), events: [ev('human', 20, { action: 'approve' }), reviewed, ev('integrated', 31, { behind: 0 })] }, want: { ...run('job', 'set', 'j', '--stage', 'decide', '--state', 'running'), rule: 'IG3' } },
   { name: 'IG3 without an entry transition counts an integration after the round\'s first passing verify', fx: { job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 32, true)] }), events: [ev('integrated', 5, { behind: 0 }), ev('integrated', 15, { behind: 2 })] }, want: { ...run('job', 'set', 'j', '--stage', 'decide', '--state', 'running'), rule: 'IG3' } },
   { name: 'IG3 verified after new commits: pr', fx: { job: atIntegrate({ verifyRuns: [vr(1, 10, true), vr(1, 32, true)] }), events: [ev('decision', 22), entered, ev('integrated', 31, { behind: 2 })] }, want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running'), rule: 'IG3' } },

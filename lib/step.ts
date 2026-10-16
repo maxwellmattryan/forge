@@ -270,7 +270,7 @@ function stageSince(x: StepInput): string | null {
 
 const isPrRework = (x: StepInput) => x.job.pr?.state === 'OPEN';
 
-const stageOf = (side: unknown) => (side as { stage?: string; state?: string } | null) ?? {};
+const stageOf = (side: unknown) => (side as { stage?: string; state?: string; waitingOn?: string | null } | null) ?? {};
 
 /** When the job last left review for another stage, or null for a job whose transitions predate the log. */
 function reviewedAt(x: StepInput): string | null {
@@ -282,15 +282,32 @@ const waitedSince = (x: StepInput, ts: string) =>
   x.events.some((e) => e.type === 'transition' && after(e.ts, ts) && ['waiting', 'blocked'].includes(String(stageOf(e.to).state)));
 
 /**
- * Someone already said ship it since the last review: the approver (a `decision`), or a human
- * `approve` that sent the job into this integrate episode, such as one clearing a rounds-exhausted
- * escalation. An approve inside the episode (IG4 `ask`) only lets the integrator fix conflicts.
+ * The human `approve` events that answered one of the gates in `on`: the job was parked there (in
+ * `stage`, when given) when the human approved. An approve answers the gate it was given at, so a
+ * budget acknowledgement never clears an escalation or a runbook.
+ */
+function gateApprovals(x: StepInput, on: readonly WaitingOn[], stage?: string): JobEvent[] {
+  return x.events.filter((e, i) => {
+    if (e.type !== 'human' || e.action !== 'approve') return false;
+    const park = stageOf(x.events.slice(0, i).findLast((t) => t.type === 'transition')?.to);
+    return park.state === 'waiting' && on.includes(park.waitingOn as WaitingOn) && (!stage || park.stage === stage);
+  });
+}
+
+/** Gates whose human approve means "ship it": an escalation, exhausted rounds, an infra runbook. */
+const SHIP_GATES: readonly WaitingOn[] = ['escalation', 'rounds-exhausted', 'infra'];
+
+/**
+ * Someone already said ship it since the last review: the approver (a non-ESCALATE `decision`), or
+ * a human `approve` at a ship gate that sent the job into this integrate episode, such as one
+ * clearing a rounds-exhausted or approver escalation. An approve inside the episode (IG4 `ask`)
+ * only lets the integrator fix conflicts.
  */
 function approvedSinceReview(x: StepInput): boolean {
   const reviewed = reviewedAt(x);
-  if (x.events.some((e) => e.type === 'decision' && after(e.ts, reviewed))) return true;
+  if (x.events.some((e) => e.type === 'decision' && e.decision !== 'ESCALATE' && after(e.ts, reviewed))) return true;
   const since = stageSince(x);
-  return x.events.some((e) => e.type === 'human' && e.action === 'approve' && after(e.ts, reviewed) && !after(e.ts, since));
+  return gateApprovals(x, SHIP_GATES).some((e) => after(e.ts, reviewed) && !after(e.ts, since));
 }
 
 /** Where an up-to-date branch goes: the approver judges it first, unless it was approved already or its PR is open. */
@@ -842,12 +859,13 @@ function decideStage(x: StepInput): StepAction {
     if (!lastEvent(x, (e) => e.type === 'eval-graded')) return run(x, 'DC5', ['eval', 'grade', j.id], 'grade the eval task');
     return toStage(x, 'DC6', 'done', 'the eval task is graded');
   }
-  // A human approve after the approver ended cleared its gate, so a job sent back here (an
-  // integrate-stage escalation) isn't parked again on the same stale ESCALATE or runbook.
-  const cleared = after(human(x, 'approve')?.ts, ap.endedAt);
-  if (!x.decision.decision && !cleared) return park(x, 'DC3', 'escalation', 'decision.md has no APPROVE/ESCALATE line');
-  if (x.decision.decision === 'ESCALATE' && !cleared) return park(x, 'DC7', 'escalation', 'approver escalated: see decision.md');
-  if (x.runbookBeforeMerge && !cleared) return park(x, 'DC8', 'infra', 'runbook: steps before merge');
+  // A human approve given at this gate after the approver ended cleared it, so a job sent back here
+  // (an integrate-stage escalation) isn't parked again on the same stale ESCALATE or runbook. Only
+  // an approve at that gate counts: acknowledging a budget stop clears neither.
+  const cleared = (on: WaitingOn) => gateApprovals(x, [on], 'decide').some((e) => after(e.ts, ap.endedAt));
+  if (!x.decision.decision && !cleared('escalation')) return park(x, 'DC3', 'escalation', 'decision.md has no APPROVE/ESCALATE line');
+  if (x.decision.decision === 'ESCALATE' && !cleared('escalation')) return park(x, 'DC7', 'escalation', 'approver escalated: see decision.md');
+  if (x.runbookBeforeMerge && !cleared('infra')) return park(x, 'DC8', 'infra', 'runbook: steps before merge');
   // No loop: after integrate → decide with no wait since, this goes to pr. After a wait (or for an
   // older job that never integrated since review), integrate's IG3/IG5/IG10 reach pr, because the
   // decision or approval now counts there.
