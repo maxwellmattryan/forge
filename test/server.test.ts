@@ -1105,6 +1105,25 @@ test('POST /api/config is token, origin and JSON guarded', async () => {
   }
 });
 
+test('api/config masks notify webhook urls', async () => {
+  const repo = tempRepo();
+  fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
+  const hooks = [{ url: 'https://hooks.slack.com/services/T0/B0/SECRETPATH?x=SECRETQUERY', events: ['gate'], format: 'slack' }, { url: 'not a url SECRETPATH' }, 'https://bare.example/SECRETPATH'];
+  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 8, daemon: { enabled: false }, notify: { webhooks: hooks, command: './page.sh {title}' } }));
+  const srv = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  try {
+    const r = await hit(Number(new URL(srv.url).port), { path: '/api/config' });
+    assert.ok(!r.text.includes('SECRETPATH') && !r.text.includes('SECRETQUERY'), 'no webhook path or query reaches the dashboard');
+    const c = JSON.parse(r.text);
+    assert.deepEqual(c.values['notify.webhooks'], [{ url: 'https://hooks.slack.com/…', events: ['gate'], format: 'slack' }, { url: '<invalid>' }, '<invalid>']);
+    const f = c.fields.find((x) => x.key === 'notify.webhooks');
+    assert.deepEqual([f.editable, f.lockedReason], [false, 'names a URL Forge posts to']);
+  } finally {
+    await srv.close();
+    repo.cleanup();
+  }
+});
+
 test('/api/config reads the schema and writes only editable keys', async () => {
   const { FIELDS } = await import('../lib/config-fields.ts');
   const bare = tempRepo();

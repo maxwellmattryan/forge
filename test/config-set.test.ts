@@ -306,13 +306,41 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     }
   });
 
+  test('notify keys are locked', async () => {
+    for (const [key, reason] of [['notify.webhooks', 'names a URL Forge posts to'], ['notify.command', 'runs a program']]) {
+      const f = FIELDS.find((x) => x.key === key);
+      assert.ok(f, `${key} is in the schema`);
+      assert.equal(f.section, 'pipeline', key);
+      assert.equal(f.editable, false, key);
+      assert.equal(f.lockedReason, reason, key);
+    }
+    assert.equal(disclosureOf('notify'), 'plain');
+    assert.equal(disclosureOf('notify.webhooks'), 'url');
+    assert.equal(disclosureOf('notify.command'), 'command');
+    const c = defaults();
+    c.notify = { webhooks: [{ url: 'https://hooks.example.com/services/T0/B0/SECRETPATH' }], command: './page.sh {title}' };
+    const red = JSON.stringify(redactedConfig(c));
+    assert.ok(!red.includes('SECRETPATH') && !red.includes('hooks.example.com') && !red.includes('page.sh'), 'a support bundle hides both');
+    const s = scratch();
+    try {
+      for (const [key, value] of [['notify.command', 'x'], ['notify.webhooks', '[]']]) {
+        const r = await s.forge('config', 'set', key, value);
+        assert.equal(r.code, 1, key);
+        assert.match(r.err, new RegExp(`${key.replace('.', '\\.')} is not editable`), key);
+      }
+      assert.equal(s.read(), FIXTURE, 'the file is untouched');
+    } finally {
+      s.repo.cleanup();
+    }
+  });
+
   test('field schema is an allowlist over documented keys', async () => {
     const docs = fs.readFileSync(path.join(ROOT, 'docs', 'CONFIG.md'), 'utf8');
     const base = defaults();
     const forbidden = [
       'commands.', 'worktrees.', 'verify', 'git.', 'merge.', 'approver.', 'aiAttribution', 'infra.', 'resources', 'services', 'usage.', 'evals.',
       'review.panel', 'tracker.kind', 'tracker.local.', 'tracker.github.repo', 'tracker.github.comments', 'tracker.github.project.',
-      'daemon.command', 'daemon.allowedTools', 'daemon.enabled', 'daemon.maxConcurrent',
+      'daemon.command', 'daemon.allowedTools', 'daemon.enabled', 'daemon.maxConcurrent', 'notify.',
     ];
     assert.equal(new Set(FIELDS.map((f) => f.key)).size, FIELDS.length, 'keys are unique');
     for (const f of FIELDS) {
