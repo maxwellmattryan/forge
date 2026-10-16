@@ -172,7 +172,7 @@ dashboard:
   port: 7400
 daemon:
   enabled: true
-  command: claude -p --model sonnet --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode auto --allowedTools {allowedTools}
+  command: claude -p --model sonnet --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode default --allowedTools {allowedTools}
   allowedTools:
     - Agent
     - Skill
