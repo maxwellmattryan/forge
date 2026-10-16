@@ -133,6 +133,8 @@ review:
     - { name: code, always: true }
     - { name: tests, always: true }
     - { name: security, model: opus, when: "input handling, auth, secrets, network, dependencies, file or process access" }
+  #   - { name: security, model: opus, when: "…", paths: [lib/server.ts, "lib/trackers/**", package.json] }
+  #                          # paths: globs matched against the branch diff each round (see "How step reads the pipeline keys")
   #   - { name: security, model: opus, effort: high }   # optional per-lens effort (see "Effort")
   #   - { name: design, when: "user-visible UI changes" }
   #   - { name: realtime, checklist: .forge/reviewers/realtime.md, when: "audio thread code" }

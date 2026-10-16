@@ -231,6 +231,21 @@ const rows: Row[] = [
     want: run('job', 'set', 'j', '--field', 'reviewers=["ui","code","security"]'),
   },
   {
+    name: 'SP3 panel adds lenses whose paths the Approach names',
+    fx: {
+      config: (c) =>
+        (c.review.panel = [
+          { name: 'code', always: true },
+          { name: 'design', when: 'user-visible UI changes', paths: ['dashboard/src/**', '*.svelte'] },
+          { name: 'security', when: 'anything that runs shell commands', paths: ['lib/server.ts'] },
+          { name: 'docs', when: 'docs', paths: ['docs/**'] },
+        ]),
+      job: job({ stage: 'spec', agents: SPEC_DONE }),
+      spec: { approachPaths: ['ui/Widget.svelte', 'lib/server.ts'] },
+    },
+    want: run('job', 'set', 'j', '--field', 'reviewers=["code","design","security"]'),
+  },
+  {
     name: 'SP3 panel records size and known services only',
     fx: { config: (c) => (c.services = [{ name: 'api', path: 'api' }]), job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { size: 'L', services: ['api', 'evil;x', 'web'] } },
     want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]', '--field', 'size=L', '--field', 'services=["api"]'),

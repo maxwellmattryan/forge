@@ -236,19 +236,51 @@ export function whenTokens(when: string | undefined): string[] {
     .filter((t) => t && (t.includes('/') || /\.[A-Za-z0-9]{1,8}$/.test(t)));
 }
 
-/** SP3: always lenses, the suggested ones in the panel, and the ones whose `when` paths the Approach names, in panel order. */
-export function selectPanel(x: Pick<StepInput, 'job' | 'config' | 'spec'>): string[] {
-  if (x.job.kind === 'retro') return ['code', 'docs'];
+/** A review panel and why each lens is on it: `forge job panel`'s result, and SP3's lenses. */
+export interface PanelChoice {
+  lenses: string[];
+  reasons: Record<string, string[]>;
+}
+
+/**
+ * The review panel from recorded inputs, in panel order: `always` lenses, the spec's suggestions
+ * that are in the panel, lenses whose `when` paths or `paths` cover an Approach path, lenses whose
+ * `paths` match a changed file (skipped when `changed` is null, at spec time), then `carried`
+ * lenses, which can only add, so a lens never drops within a build loop. A lens gets every reason
+ * that applies, in that order. Names that aren't plain lens names are dropped wherever they come from.
+ */
+export function choosePanel(x: { kind: Job['kind']; config: Config; suggested: string[]; approachPaths: string[]; changed: string[] | null; carried: string[] }): PanelChoice {
+  if (x.kind === 'retro') return { lenses: ['code', 'docs'], reasons: { code: ['retro'], docs: ['retro'] } };
   const panel = x.config.review.panel.filter((p) => LENS_NAME.test(p.name));
   const names = panel.map((p) => p.name);
-  const suggested = new Set(x.spec.suggested.filter((n) => LENS_NAME.test(n) && names.includes(n)));
-  return panel
-    .filter((p) => {
-      if (p.always || suggested.has(p.name)) return true;
-      const tokens = whenTokens(p.when);
-      return tokens.length > 0 && x.spec.approachPaths.some((ap) => inSpec(ap, tokens));
-    })
-    .map((p) => p.name);
+  const suggested = new Set(x.suggested.filter((n) => LENS_NAME.test(n) && names.includes(n)));
+  const carried = [...new Set(x.carried.filter((n) => typeof n === 'string' && LENS_NAME.test(n)))];
+  // A Map, not an object: a digits-only lens name would sort first among an object's keys.
+  const chosen = new Map<string, string[]>();
+  for (const p of panel) {
+    if (chosen.has(p.name)) continue;
+    const why: string[] = [];
+    if (p.always) why.push('always');
+    if (suggested.has(p.name)) why.push('suggested');
+    const globs = Array.isArray(p.paths) ? p.paths.filter((g): g is string => typeof g === 'string' && g !== '') : [];
+    const tokens = [...whenTokens(p.when), ...globs];
+    const covered = tokens.length ? x.approachPaths.find((ap) => inSpec(ap, tokens)) : undefined;
+    if (covered !== undefined) why.push(`approach ${covered}`);
+    for (const g of x.changed ? globs : []) {
+      const hits = (x.changed ?? []).filter((f) => inSpec(f, [g]));
+      if (hits.length) why.push(`paths ${g}: ${hits[0]}${hits.length > 1 ? ` (+${hits.length - 1} more)` : ''}`);
+    }
+    if (carried.includes(p.name)) why.push('carried');
+    if (why.length) chosen.set(p.name, why);
+  }
+  for (const n of carried) if (!names.includes(n)) chosen.set(n, ['carried']);
+  return { lenses: [...chosen.keys()], reasons: Object.fromEntries(chosen) };
+}
+
+/** SP3: always lenses, the suggested ones in the panel, and the ones whose `when` paths or `paths` the Approach names, in panel order. */
+export function selectPanel(x: Pick<StepInput, 'job' | 'config' | 'spec'>): string[] {
+  // Never carries: a revised spec re-records the panel from scratch.
+  return choosePanel({ kind: x.job.kind, config: x.config, suggested: x.spec.suggested, approachPaths: x.spec.approachPaths, changed: null, carried: [] }).lenses;
 }
 
 function modelOf(config: Config, role: string): string {

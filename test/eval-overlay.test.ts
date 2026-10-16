@@ -100,6 +100,37 @@ describe('eval overlays', { concurrency: 4 }, () => {
     }
   });
 
+  test('review.panel overlay accepts paths and refuses bad globs', async () => {
+    const s = evalScratch();
+    try {
+      const config = loadConfig(s.dir).config;
+      const panel = (paths: unknown) => ({ 'review.panel': [{ name: 'code', always: true }, { name: 'security', paths }] });
+      assert.deepEqual(overlayProblems(s.dir, config, panel(['lib/**', '*.ts'])), []);
+      for (const [paths, re] of [
+        ['lib/**', /review\.panel entry 2: review\.panel "security"\.paths must be a list/],
+        [[''], /review\.panel entry 2: review\.panel "security"\.paths entries must be non-empty strings/],
+        [['/etc'], /must be relative to the repo/],
+        [['-x'], /must not start with -, ! or :/],
+        [['!x'], /must not start with -, ! or :/],
+        [[':x'], /must not start with -, ! or :/],
+        [['a/../b'], /must not contain a \.\. segment/],
+      ] as [unknown, RegExp][]) {
+        const [p] = overlayProblems(s.dir, config, panel(paths));
+        assert.match(String(p), re, JSON.stringify(paths));
+      }
+
+      const refused = await forgeAsync(s.dir, ['eval', 'start', '--tasks', 't', '--set', 'review.panel=[{name: code, always: true}, {name: security, paths: [../x]}]']);
+      assert.equal(refused.status, 1, refused.stderr);
+      assert.match(refused.stderr, /review\.panel entry 2: review\.panel "security"\.paths entry "\.\.\/x" must not contain a \.\. segment/);
+      assertNothingCreated(s.dir, 'a bad glob creates nothing');
+
+      const ok = await start(s.dir, '--set', 'review.panel=[{name: code, always: true}, {name: security, paths: ["lib/**", "*.ts"]}]');
+      assert.deepEqual(ok.overlay['review.panel'], [{ name: 'code', always: true }, { name: 'security', paths: ['lib/**', '*.ts'] }]);
+    } finally {
+      s.cleanup();
+    }
+  });
+
   test('the overlay is recorded and hashed', async () => {
     const s = evalScratch();
     try {
