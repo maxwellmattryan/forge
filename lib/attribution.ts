@@ -1,9 +1,8 @@
 // AI-attribution policy. Forge's default is that nothing it produces (commits, PR bodies,
 // issues, comments, releases) credits an AI: the human who runs Forge is the author. Messages
 // may still *mention* AI tools; only signatures, trailers and "generated with" footers are removed.
-import { pathToFileURL } from 'node:url';
 import type { Config } from './types.ts';
-import { run } from './util.ts';
+import { ForgeError, run } from './util.ts';
 
 const AI = '(claude|anthropic|openai|chatgpt|gpt-?\\d|copilot|gemini|codex|cursor|devin|aider|windsurf|ai assistant|ai agent)';
 
@@ -44,30 +43,46 @@ export function attributionForbidden(config: Config | null | undefined): boolean
 }
 
 /**
- * Rewrites unpushed-or-owned commits between base and HEAD whose messages carry AI attribution.
- * Uses a non-interactive rebase whose exec step amends each commit's message in place, so
- * authorship, dates and content are untouched.
+ * Strips AI attribution from the messages of the commits between base and `head` without touching
+ * the worktree: each commit is rewritten from its raw object with its own tree, author and committer,
+ * so the content is exactly what the caller checked. The current branch moves to the rewritten tip
+ * only if it still points at `head`, so a commit made meanwhile is never folded into the result.
+ * Returns the sha to push. A rewritten commit loses its signature, which no longer matches.
  */
-export function scrubBranch(cwd: string, base: string): { rewritten: number; commits: string[] } {
-  const log = run('git', ['log', '--format=%H%x00%B%x1e', `${base}..HEAD`], { cwd, allowFail: true });
-  if (!log.ok) return { rewritten: 0, commits: [] };
-  const offending = log.stdout
-    .split('\x1e')
-    .map((r) => r.trim())
-    .filter(Boolean)
-    .map((r) => r.split('\0'))
-    .filter(([, body]) => hasAttribution(body))
-    .map(([sha]) => sha.slice(0, 10));
-  if (!offending.length) return { rewritten: 0, commits: [] };
-  const self = new URL(import.meta.url).pathname;
-  run('git', ['-c', 'sequence.editor=:', 'rebase', '--quiet', '--exec', `"${process.execPath}" "${self}" amend-head`, base], { cwd });
-  return { rewritten: offending.length, commits: offending };
+export function scrubBranch(cwd: string, base: string, head = 'HEAD', env: NodeJS.ProcessEnv = process.env): { rewritten: number; commits: string[]; sha: string } {
+  const tip = run('git', ['rev-parse', '--verify', '--quiet', `${head}^{commit}`], { cwd, env }).stdout.trim();
+  const list = run('git', ['rev-list', '--reverse', '--topo-order', '--parents', `${base}..${tip}`, '--'], { cwd, env, allowFail: true });
+  if (!list.ok) return { rewritten: 0, commits: [], sha: tip };
+  const map = new Map<string, string>();
+  const offending: string[] = [];
+  for (const line of list.stdout.split('\n').filter(Boolean)) {
+    const [sha, ...parents] = line.split(' ');
+    const raw = run('git', ['cat-file', 'commit', sha], { cwd, env }).stdout;
+    const cut = raw.indexOf('\n\n');
+    const headers = cut < 0 ? raw.replace(/\n$/, '') : raw.slice(0, cut);
+    const msg = cut < 0 ? '' : raw.slice(cut + 2);
+    const clean = stripAttribution(msg);
+    if (hasAttribution(msg)) offending.push(sha.slice(0, 10));
+    const reword = clean !== msg && Boolean(clean.trim());
+    if (!reword && !parents.some((p) => map.has(p))) continue;
+    const kept: string[] = [];
+    let signature = false;
+    for (const h of headers.split('\n')) {
+      // Continuation lines belong to the header above them.
+      if (h.startsWith(' ')) {
+        if (!signature) kept.push(h);
+        continue;
+      }
+      signature = /^gpgsig(-sha256)? /.test(h);
+      if (signature) continue;
+      kept.push(h.startsWith('parent ') ? `parent ${map.get(h.slice(7)) ?? h.slice(7)}` : h);
+    }
+    map.set(sha, run('git', ['hash-object', '-t', 'commit', '-w', '--stdin'], { cwd, env, input: `${kept.join('\n')}\n\n${reword ? clean : msg}` }).stdout.trim());
+  }
+  const sha = map.get(tip) ?? tip;
+  if (sha === tip) return { rewritten: 0, commits: [], sha };
+  const ref = run('git', ['symbolic-ref', '-q', 'HEAD'], { cwd, env, allowFail: true }).stdout.trim() || 'HEAD';
+  const moved = run('git', ['update-ref', '-m', 'forge: strip AI attribution', ref, sha, tip], { cwd, env, allowFail: true });
+  if (!moved.ok) throw new ForgeError(`${ref} moved off ${tip.slice(0, 12)} while its commit messages were scrubbed; nothing was pushed, run the command again`);
+  return { rewritten: offending.length, commits: offending, sha };
 }
-
-function amendHead(): void {
-  const msg = run('git', ['log', '-1', '--format=%B']).stdout;
-  const clean = stripAttribution(msg);
-  if (clean.trim() && clean !== msg) run('git', ['commit', '--amend', '--no-verify', '--allow-empty', '-F', '-'], { input: clean });
-}
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href && process.argv[2] === 'amend-head') amendHead();

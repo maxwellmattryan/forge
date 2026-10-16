@@ -276,6 +276,8 @@ const LOCKED_FIELDS: Record<string, string> = {
   schemaVersion: 'forge migrate',
   usage: 'forge job agent',
   effort: 'forge job effort',
+  // A cleared flag would skip the PP1 park; pr open recomputes it anyway.
+  protectedPaths: 'forge git add|commit, forge verify or forge pr open',
   eval: 'forge eval start',
 };
 

@@ -6,7 +6,7 @@ import { forgeAsync, tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
 import { claimJob, createJob, loadJob, readEvents, roundVerdicts, setJob, recordAgent, progress, parseDecision, touchJob, jobDir } from '../lib/jobs.ts';
 import { computeStats } from '../lib/stats.ts';
-import { JOB_SCHEMA_VERSION } from '../lib/schema.ts';
+import { JOB_SCHEMA_VERSION, normalizeJob } from '../lib/schema.ts';
 import { sleepSync } from '../lib/util.ts';
 
 test('job lifecycle: ids, transitions, claims, usage, verdict policy', () => {
@@ -135,6 +135,28 @@ test('reads a schema v1 job and migrates its verify results', () => {
       'old per-round results become attempt 1 with no sha',
     );
     assert.equal(loaded.verify[1], 'FAIL', 'the compatible field survives');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('v9 job gains protectedPaths null', () => {
+  const repo = tempRepo();
+  try {
+    assert.equal(JOB_SCHEMA_VERSION, 10);
+    const job = createJob(repo.dir, defaults(), { title: 'Old v9' });
+    const file = path.join(jobDir(repo.dir, job.id), 'job.json');
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    delete raw.protectedPaths;
+    fs.writeFileSync(file, JSON.stringify({ ...raw, schemaVersion: 9 }));
+    const loaded = loadJob(repo.dir, job.id);
+    assert.equal(loaded.schemaVersion, 10);
+    assert.equal(loaded.protectedPaths, null);
+    assert.equal(normalizeJob({ id: 'x', schemaVersion: 10 }).protectedPaths, null);
+    // Tolerant: a hand-edited value without a hits list reads as no flag.
+    for (const bad of ['yes', 1, { hits: 'x' }, []]) assert.equal(normalizeJob({ id: 'x', schemaVersion: 10, protectedPaths: bad }).protectedPaths, null, JSON.stringify(bad));
+    const flag = { hits: [{ path: 'a', rule: 4, glob: 'a', reason: 'r', blob: null }], more: 0, at: '2026-10-01T00:00:00.000Z', gate: 'commit', head: null };
+    assert.deepEqual(normalizeJob({ id: 'x', schemaVersion: 10, protectedPaths: flag }).protectedPaths, flag);
   } finally {
     repo.cleanup();
   }

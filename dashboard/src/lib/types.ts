@@ -1,9 +1,9 @@
-// Shapes of the forge dash HTTP API for API_VERSION 20. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 21. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
 
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 20;
+export const API_VERSION = 21;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 /** lib/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */
@@ -203,7 +203,7 @@ export interface VerifyRun {
   ok: boolean;
   at: string | null;
   file: string;
-  /** The name of the step that failed (`test`, `integrity`, …), null on a pass. */
+  /** The name of the step that failed (`test`, `integrity`, `secrets`, `protected`, …), null on a pass. */
   failure?: string | null;
 }
 
@@ -258,6 +258,28 @@ export interface Job {
   effort: Effort | null;
   /** The spec's `Complexity:` header, recorded at SP3; picks runtime.effortByComplexity. */
   complexity: Complexity | null;
+  /** Escalate paths the branch changes, recorded by the CLI only: recordProtected in lib/protected.ts. */
+  protectedPaths: ProtectedPaths | null;
+}
+
+/** A changed path an escalate rule matched; `rule` is 1-based and `blob` is null for a deletion. */
+export interface ProtectedHit {
+  path: string;
+  rule: number;
+  glob: string;
+  reason: string;
+  blob: string | null;
+}
+
+/** job.protectedPaths: the escalate paths that need a human approval given after `at`. */
+export interface ProtectedPaths {
+  hits: ProtectedHit[];
+  more: number;
+  at: string;
+  gate: 'add' | 'commit' | 'verify' | 'pr';
+  head: string | null;
+  /** sha256 over every (path, blob) of the set, `more` included; absent on a flag from before it. */
+  digest?: string;
 }
 
 /** tasks.md checkbox counts: progress in lib/jobs.ts. */

@@ -2,6 +2,8 @@
 // Plain functions and constants, no DOM access.
 import type { EvalCompare, Job, JobEvent, JobPr, OwnerStatus, Progress, RequestType, Stage, StateJob, WaitingOn } from './types.ts';
 import { PARK_LABEL, STAGE_LABEL, WAIT_LABEL } from './labels.ts';
+import { protectedSummary } from './protected.ts';
+import type { ProtectedSummary } from './protected.ts';
 
 /** job.json can be hand-edited, so helpers read fields defensively despite the types. */
 type JobLike = Partial<Job> & { progress?: Progress };
@@ -215,6 +217,8 @@ export interface CardModel {
   lenses: { name: string; verdict: string | null }[] | null;
   /** The job is running: its stepper's current step carries the draw-on ring. */
   running: boolean;
+  /** Protected paths the branch changes: the state slot's Protected chip. */
+  protected: ProtectedSummary | null;
 }
 
 /** Everything a card's slots show, so JobCard reads no raw job state. */
@@ -230,6 +234,7 @@ export function cardModel(j: JobLike): CardModel {
     progress: j.progress && progressWidth(j.progress) !== null ? j.progress : null,
     lenses: j.reviewers?.length ? j.reviewers.map((name) => ({ name, verdict: verdicts?.[name] ?? null })) : null,
     running: j.state === 'running',
+    protected: protectedSummary({ protectedPaths: j.protectedPaths ?? null }),
   };
 }
 

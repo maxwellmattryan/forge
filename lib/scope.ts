@@ -5,6 +5,7 @@ import path from 'node:path';
 import { loadJob, jobDir, logEvent } from './jobs.ts';
 import { exists } from './paths.ts';
 import type { Config, Job } from './types.ts';
+import { matchPolicy, policyRules } from './protected.ts';
 import { ForgeError, now, run } from './util.ts';
 
 const LIST_LIMIT = 20;
@@ -22,6 +23,11 @@ export interface ScopeReport {
   inSpec: number;
   outOfSpec: string[];
   more: number;
+  /** Changed files the protected-paths policy names (at most 20), and how many more. */
+  protected: { path: string; action: 'escalate' | 'refuse'; reason: string }[];
+  protectedMore: number;
+  /** Set instead when the policy is invalid; scope itself never fails on it. */
+  protectedError?: string;
   file: string;
 }
 
@@ -88,7 +94,7 @@ export function approachPaths(specText: string): string[] {
 }
 
 /** `**` crosses directories, `*` and `?` do not; anchored to the whole string. */
-function globToRegExp(glob: string): RegExp {
+export function globToRegExp(glob: string): RegExp {
   const body = glob
     .split('**/')
     .map((part) =>
@@ -204,9 +210,20 @@ export function jobScope(root: string, config: Config, id: string): ScopeReport 
   const tokens = approachPaths(specText);
   const inside = changedFiles.filter((f) => inSpec(f, tokens));
   const outside = changedFiles.filter((f) => !inSpec(f, tokens));
+  let prot: { path: string; action: 'escalate' | 'refuse'; reason: string }[] = [];
+  let protectedError: string | undefined;
+  try {
+    const rules = policyRules(config);
+    prot = changedFiles.flatMap((f) => {
+      const m = matchPolicy(f, rules);
+      return m ? [{ path: f, action: m.action, reason: m.reason }] : [];
+    });
+  } catch (e) {
+    protectedError = (e as Error).message;
+  }
 
   const file = path.join(dir, 'scope.md');
-  fs.writeFileSync(file, renderScope({ baseRef, mergeBase, head, dirty, approach, tokens, inside, outside, changed: changedFiles.length }));
+  fs.writeFileSync(file, renderScope({ baseRef, mergeBase, head, dirty, approach, tokens, inside, outside, changed: changedFiles.length, prot, protectedError }));
   logEvent(root, job.id, 'scope', { round: job.round, head });
   return {
     id: job.id,
@@ -220,11 +237,26 @@ export function jobScope(root: string, config: Config, id: string): ScopeReport 
     inSpec: inside.length,
     outOfSpec: outside.slice(0, LIST_LIMIT),
     more: Math.max(0, outside.length - LIST_LIMIT),
+    protected: prot.slice(0, LIST_LIMIT),
+    protectedMore: Math.max(0, prot.length - LIST_LIMIT),
+    ...(protectedError ? { protectedError } : {}),
     file: path.relative(root, file),
   };
 }
 
-function renderScope(s: { baseRef: string; mergeBase: string; head: string; dirty: boolean; approach: boolean; tokens: string[]; inside: string[]; outside: string[]; changed: number }): string {
+function renderScope(s: {
+  baseRef: string;
+  mergeBase: string;
+  head: string;
+  dirty: boolean;
+  approach: boolean;
+  tokens: string[];
+  inside: string[];
+  outside: string[];
+  changed: number;
+  prot: { path: string; action: string; reason: string }[];
+  protectedError?: string;
+}): string {
   const list = (xs: string[]) => (xs.length ? xs.map((x) => `- \`${x}\``) : ['- none']);
   return [
     `SCOPE: ${s.outside.length} of ${s.changed} changed files outside spec Approach`,
@@ -233,6 +265,8 @@ function renderScope(s: { baseRef: string; mergeBase: string; head: string; dirt
     ...(s.approach ? [] : ['> spec.md has no Approach section: every changed file counts as out of scope.']),
     ...(s.dirty ? ['> Worktree has uncommitted changes; they are not included.'] : []),
     '',
+    `## Protected (${s.prot.length})`,
+    ...(s.protectedError ? [`- the policy is invalid: ${s.protectedError.replace(/[\x00-\x1f\x7f]/g, ' ')}`] : s.prot.length ? s.prot.map((p) => `- \`${p.path}\`: ${p.action} (${p.reason})`) : ['- none']),
     `## Out of spec (${s.outside.length})`,
     ...list(s.outside),
     `## In spec (${s.inside.length})`,
