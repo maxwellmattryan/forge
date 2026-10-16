@@ -87,7 +87,8 @@ const EXPRESSIONS = [
   '${{ github.workflow }}',
   '${{ github.event.pull_request.number || github.sha }}',
 ];
-// These and the expression allowlist read the raw text, comments included, so a comment saying "no secrets" fails too.
+// These and the expression allowlist read the raw text, comments included, so a comment saying "no secrets" fails too
+// (WINDOWS_SKIP file names aside: see withoutSkipFileNames).
 // That is deliberate: it fails closed with a clear message, and the parser's view of the file never has to be trusted.
 const SECRETS = /\bsecrets\b/i;
 const TOKEN = /\bgithub\s*(?:\.|\[\s*['"])token\b|toJSON\(\s*github\s*\)/i;
@@ -132,13 +133,32 @@ function triggerProblems(wf: any, text: string): string[] {
   return out;
 }
 
+// The one exemption from the raw-text secrets check: a WINDOWS_SKIP entry's file name, so test/secrets.test.ts can
+// be listed. Only the leading `test/<name>.test.ts` of a line inside that block is dropped; its reason is still read.
+const SKIP_ENTRY_FILE = /^(\s+)test\/[A-Za-z0-9._-]+\.test\.ts(?=: )/;
+
+function withoutSkipFileNames(text: string): string {
+  const lines = text.split('\n');
+  let indent = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lead = line.length - line.trimStart().length;
+    if (indent >= 0 && line.trim() && lead <= indent) indent = -1;
+    if (indent >= 0) lines[i] = line.replace(SKIP_ENTRY_FILE, '$1');
+    else if (/^\s*WINDOWS_SKIP:\s*\|\s*$/.test(line)) indent = lead;
+  }
+  return lines.join('\n');
+}
+
 function permissionProblems(wf: any, text: string): string[] {
   const out: string[] = [];
   if (!isDeepStrictEqual(wf?.permissions, { contents: 'read' })) out.push('top-level permissions must be exactly { contents: read }');
   for (const [id, job] of jobsOf(wf)) if (job && typeof job === 'object' && 'permissions' in job) out.push(`job ${id} must not set permissions`);
-  for (const word of ['secrets.', 'github.token']) if (text.includes(word)) out.push(`the workflow must not reference ${word}`);
+  const scanned = withoutSkipFileNames(text);
+  if (scanned.includes('secrets.')) out.push('the workflow must not reference secrets.');
+  if (text.includes('github.token')) out.push('the workflow must not reference github.token');
   // Index and toJSON forms reach the same values: secrets['X'], toJSON(secrets), github['token'], toJSON(github).
-  if (SECRETS.test(text)) out.push('the workflow must not reference the secrets context');
+  if (SECRETS.test(scanned)) out.push('the workflow must not reference the secrets context');
   if (TOKEN.test(text)) out.push('the workflow must not reference the github token');
   for (let i = text.indexOf('${{'); i !== -1; i = text.indexOf('${{', i + 3)) {
     if (!EXPRESSIONS.some((e) => text.startsWith(e, i))) out.push(`expression not on the allowlist: ${text.slice(i, i + 80).split('\n')[0]}`);
@@ -565,6 +585,20 @@ test('the token is read-only and no secret is referenced', () => {
     assertFlags(permissionProblems(parse(t), t), expr);
   }
   assertFlags(permissionProblems(WF, TEXT.replace('${{ matrix.node }}\n', '${{ github.event.pull_request.title }}\n')), 'an expression off the allowlist');
+
+  // The word is allowed only as a WINDOWS_SKIP entry's file name, never in its reason or anywhere else.
+  assert.ok(TEXT.includes('            test/secrets.test.ts: '), 'the real list names test/secrets.test.ts');
+  const skipLine = '            test/daemon.test.ts: spawns';
+  const swap = (from: string, to: string) => {
+    const t = TEXT.replace(from, to);
+    assert.notEqual(t, TEXT, from);
+    return permissionProblems(parse(t), t);
+  };
+  assertFlags(swap(skipLine, '            test/daemon.test.ts: reads secrets and spawns'), 'the word in a skip reason');
+  assertFlags(swap(skipLine, '            secrets.NPM_TOKEN\n            test/daemon.test.ts: spawns'), 'a bare secrets. line inside WINDOWS_SKIP');
+  assertFlags(swap(skipLine, '            test/secrets.test.ts.x: y\n            test/daemon.test.ts: spawns'), 'a name that is not one test file');
+  assertFlags(swap('      - name: Typecheck engine and tests\n', '      # test/secrets.test.ts: x\n      - name: Typecheck engine and tests\n'), 'a file-name line outside WINDOWS_SKIP');
+  assertFlags(swap('          WINDOWS_SKIP: |\n', '          WINDOWS_SKIP: |\n            test/secrets.test.ts: x\n          NOTE: |\n            test/secrets.test.ts: x\n'), 'a file-name line in a later block');
 });
 
 test('every action is pinned to a full commit SHA with its version comment', () => {

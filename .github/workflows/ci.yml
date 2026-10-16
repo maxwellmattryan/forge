@@ -133,4 +133,20 @@ jobs:
             test/git-commit.test.ts: runs sh stubs and hooks it writes
             test/daemon-cli.test.ts: relies on FIFOs
             test/transcripts.test.ts: relies on FIFOs
+            test/daemon-missed-end.test.ts: the pool refuses to start on native Windows, so no fake session is spawned
+            test/brief.test.ts: forge job step refuses the job's backslash paths as unsafe arguments
+            test/split-gate.test.ts: forge job step refuses the job's backslash paths as unsafe arguments
+            test/step.test.ts: forge job step refuses the job's backslash paths as unsafe arguments
+            test/step-cli.test.ts: forge job step refuses the job's backslash paths as unsafe arguments
+            test/step-e2e-issue-link.test.ts: forge job step refuses the job's backslash paths as unsafe arguments
+            test/config-daemon.test.ts: the migration names .forge\config.yml where the test expects .forge/config.yml
+            test/dashboard-shell.test.ts: compares component paths with / and gets \ on Windows
+            test/server-transcripts.test.ts: tool activity reads Read lib\server.ts where the test expects lib/server.ts
+            test/delta.test.ts: writes a file name with a tab, which Windows forbids
+            test/integrity.test.ts: writes file names with control characters and backticks, which Windows forbids
+            test/platform.test.ts: the WSL /mnt/ check resolves POSIX paths, which become drive paths on Windows
+            test/secrets.test.ts: a symlinked allowlist is read as a plain file (2 entries where 0 are expected)
+            test/secrets-gates.test.ts: forge git commit exits with code failed instead of secret_found
+            test/update.test.ts: updateForge refuses on native Windows in the tests that inject no platform
+            test/usage-import.test.ts: agent end --import finds no transcript under the fake HOME, so usage is null
         run: node scripts/windows-tests.ts
