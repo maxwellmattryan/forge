@@ -11,7 +11,7 @@ import { tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
 import { createPool } from '../lib/daemon-pool.ts';
 import { doctor } from '../lib/doctor.ts';
-import { SUPPORT_URL, WINDOWS_DAEMON_REFUSAL, daemonPlatformProblem, platformTier, posixShell, versionAtLeast } from '../lib/platform.ts';
+import { SUPPORT_URL, WINDOWS_DAEMON_REFUSAL, daemonPlatformProblem, platformTier, posixShell, versionAtLeast, whereExe } from '../lib/platform.ts';
 import { daemonPlatformNote, dashNotes } from '../lib/commands/dash.ts';
 import type { HostInfo } from '../lib/platform.ts';
 import { ForgeError } from '../lib/util.ts';
@@ -284,6 +284,11 @@ test('posixShell resolves sh per platform', () => {
   const env = { SHELL: '/usr/bin/bash', ProgramFiles: 'D:\\Apps' };
   assert.equal(posixShell({ platform: 'win32', env, where: where('C:\\Program Files\\Git\\usr\\bin\\sh.exe'), exists: never }), 'C:\\Program Files\\Git\\usr\\bin\\sh.exe');
   assert.deepEqual(calls, ['sh']);
+
+  // where.exe itself is spawned by absolute path, so one planted in the repo never runs.
+  assert.equal(whereExe({ SystemRoot: 'D:\\WINDOWS' }), 'D:\\WINDOWS\\System32\\where.exe');
+  assert.equal(whereExe({}), 'C:\\Windows\\System32\\where.exe');
+  assert.ok(!/\bexecFileSync\('where'/.test(read('lib/platform.ts')), 'no bare where spawn');
 
   // Not on PATH: Git for Windows' own location under %ProgramFiles%.
   const seen: string[] = [];

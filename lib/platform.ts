@@ -80,13 +80,21 @@ export interface PosixShellOptions {
 }
 
 /**
+ * where.exe by absolute path: spawning a bare `where` would itself search the current directory
+ * first on Windows, and run a `where.exe` planted in the repo.
+ */
+export function whereExe(env: NodeJS.ProcessEnv = process.env): string {
+  return path.win32.join(env.SystemRoot || 'C:\\Windows', 'System32', 'where.exe');
+}
+
+/**
  * `where $PATH:sh` searches PATH only: plain `where sh` looks in the current directory first, which
  * would run a `sh.exe` planted in the repo. Only an absolute `.exe` counts, because spawn refuses a
  * .bat or .cmd without a shell.
  */
-function defaultWhere(cmd: string): string | null {
+function defaultWhere(cmd: string, env: NodeJS.ProcessEnv): string | null {
   try {
-    const out = execFileSync('where', [`$PATH:${cmd}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+    const out = execFileSync(whereExe(env), [`$PATH:${cmd}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
     return out.split(/\r?\n/).map((l) => l.trim()).find((l) => /\.exe$/i.test(l) && path.win32.isAbsolute(l)) ?? null;
   } catch {
     return null;
@@ -103,7 +111,7 @@ export function posixShell(opts: PosixShellOptions = {}): string {
   const platform = opts.platform ?? process.platform;
   const env = opts.env ?? process.env;
   if (platform !== 'win32') return env.SHELL || DEFAULT_SH;
-  const found = (opts.where ?? defaultWhere)('sh');
+  const found = opts.where ? opts.where('sh') : defaultWhere('sh', env);
   if (found) return found;
   const bundled = path.win32.join(env.ProgramFiles || 'C:\\Program Files', 'Git', 'bin', 'sh.exe');
   if ((opts.exists ?? fs.existsSync)(bundled)) return bundled;
