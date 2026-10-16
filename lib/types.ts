@@ -496,6 +496,8 @@ export interface PanelEntry {
   checklist?: string;
   /** This lens's reasoning effort; beats runtime.efforts.reviewer, not a job's own. */
   effort?: Effort | null;
+  /** Whether the lens reviews the running app (commands.dev); absent means the name default in lensNeedsApp. */
+  needsApp?: boolean;
 }
 
 /** Something agents should know exists: an entry of `resources` (docs/CONFIG.md). */
