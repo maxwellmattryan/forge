@@ -821,6 +821,16 @@
 /* The live dot's halo: a .dot.halo behind a .dot.gleam in a relative inline-flex span. Its loop is Tailwind's
    motion-safe:animate-ping in the markup, so reduced motion never starts it. */
 @utility halo { position: absolute; inset: 0; opacity: .75; background: var(--gleam-hot); }
+/* A running step's ring traces itself closed and unwinds; motion-safe in the markup and killed again by the global
+   reduce block, whose end state is the drawn ring. 34.56 is 2π·5.5 rounded up, so the dash closes without a seam
+   (a literal, because older Safari ignores pathLength for dashes on <circle>). inset -2px centres the 12px box on the
+   8px dot where the outline sat, and position absolute keeps it out of layout. */
+@utility trace {
+  position: absolute; inset: -2px; width: 12px; height: 12px; rotate: -90deg; pointer-events: none; overflow: visible;
+  & circle { fill: none; stroke: var(--gleam); stroke-width: 1; stroke-dasharray: 34.56; stroke-dashoffset: 0; }
+}
+@utility trace-loop { animation: trace-loop 1.5s ease-in-out infinite; }
+@keyframes trace-loop { from { stroke-dashoffset: 34.56; } 50% { stroke-dashoffset: 0; } to { stroke-dashoffset: -34.56; } }
 @utility backdrop {
   background: rgba(5,7,10,.72);
   [data-theme="ash"] & { background: rgba(20,24,30,.45); }

@@ -1,8 +1,8 @@
-<!-- The job pane (the drawer, in code): a column inside main, beside the view. It renders the drawerView snapshot, so it
-     changes only where the old renderDrawer() ran. split (md and up, when the main column holds PANE_MIN + BOARD_MIN): sticky
-     beside the view, as tall as the viewport less the status bar, its width the viewer's (pref paneWidth), resized by the
-     separator on its left edge. full: it fills the main column, top of the viewport to the top of the status bar. And
-     nothing dims the view: it stays visible and clickable. Closed, it takes no space and is invisible, so out of the tab order. -->
+<!-- The job drawer: it slides in from the right over a backdrop, from the viewport top to the status bar's top edge, and
+     the view keeps its centred width underneath. It renders the drawerView snapshot, so it changes only where the old
+     renderDrawer() ran. At md and up its width is the viewer's (pref paneWidth, one for every job), clamped so it never
+     covers the sidebar column, and the separator on its left edge resizes it; below md it is full width. The backdrop,
+     Escape or the close button closes it; closed, it is invisible, so out of the tab order. -->
 <script lang="ts">
   import { untrack } from 'svelte';
   import ActionDock from './ActionDock.svelte';
@@ -77,9 +77,8 @@
     if (focus) document.getElementById('drawer-tab-' + tab)?.focus();
   }
   // ---------- the separator ----------
-  const split = $derived(S.pane.mode === 'split');
-  const available = $derived(S.pane.available || Infinity);
-  const width = $derived(clampPaneWidth(S.pane.width, available));
+  // A saved width wider than the window shows clamped; the pref keeps it, so widening the window gives it back.
+  const width = $derived(clampPaneWidth(S.pane.width, S.pane.viewport));
   let drag: { x: number; w: number } | null = null;
   let dragging = $state(false);
   const save = (): void => pref.set('paneWidth', String(S.pane.width));
@@ -91,8 +90,8 @@
     dragging = true;
   }
   function dragMove(e: PointerEvent): void {
-    // The separator is the pane's left edge: moving left widens the pane.
-    if (drag) S.pane.width = clampPaneWidth(drag.w + (drag.x - e.clientX), available);
+    // The separator is the drawer's left edge: moving left widens it.
+    if (drag) S.pane.width = clampPaneWidth(drag.w + (drag.x - e.clientX), S.pane.viewport);
   }
   // Both pointerup and lostpointercapture end a drag (capture can be lost without a pointerup); the second call finds
   // drag null and returns, so the width is saved once.
@@ -103,23 +102,23 @@
     save();
   }
   function sepKey(e: KeyboardEvent): void {
-    const next = paneKey(width, e.key, e.shiftKey, available);
+    const next = paneKey(width, e.key, e.shiftKey, S.pane.viewport);
     if (next === null) return;
     e.preventDefault();
     S.pane.width = next;
     save();
   }
   function sepReset(): void {
-    S.pane.width = clampPaneWidth(PANE_DEFAULT, available);
+    S.pane.width = clampPaneWidth(PANE_DEFAULT, S.pane.viewport);
     save();
   }
 
-  // Full mode covers the view, which App makes inert: focus moves to the job title once it renders, unless it is already
-  // in the pane. App hands it back to the opener on close.
+  // The drawer covers the view, which App makes inert: focus moves to the job title once it renders, unless it is already
+  // in the drawer. App hands it back to the opener on close.
   let pane = $state<HTMLElement>();
   let title = $state<HTMLHeadingElement>();
   $effect(() => {
-    if (split || !open || !title || !pane) return;
+    if (!open || !title || !pane) return;
     const el = pane;
     if (!untrack(() => el.contains(document.activeElement))) title.focus();
   });
@@ -137,18 +136,23 @@
   <div><div class="label">{k}</div><div class="mono text-[13px] break-all selectable">{#if icon}<Icon name={icon} class="sm mr-1 inline-block align-[-2px] text-muted" />{/if}{v}</div></div>
 {/snippet}
 
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop, as on main; Escape closes the drawer from the keyboard) -->
+<div id="drawer-backdrop" class="fixed inset-0 backdrop {open ? '' : 'hidden'} z-30" onclick={closeDrawer}></div>
 <!-- A full-height column: the body scrolls, and the action dock under it stays put on every tab. It always ends at the
-     status bar's top edge, so the bar stays visible and clickable and the dock sits wholly above it. Opening animates the
-     width from 0 (the reduced-motion block turns it off), and visibility follows at the end of a close. -->
+     status bar's top edge, so the bar stays visible and clickable (z-35, over the backdrop and under the drawer) and the
+     dock sits wholly above it. Opening slides it in (the reduced-motion block turns that off). Only a close transitions
+     visibility, so it turns invisible at the end of the slide: on open it turns visible at once, as a transition would
+     hold it hidden for the first frame and the title could not take focus. A drag drops the transition, so the width
+     follows the pointer. -->
 <aside
   bind:this={pane}
   id="drawer"
   aria-label={$t('drawer.label')}
-  class="solid flex flex-col overflow-hidden {split ? 'sticky top-0 shrink-0 self-start h-[calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom))]' : 'fixed top-0 right-0 left-0 md:left-(--size-sidebar) bottom-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom))] z-40 w-auto shadow-(--shadow-drawer)'} {split && !dragging ? 'transition-[width,visibility]' : ''} {open ? '' : 'invisible'}"
-  style={split ? `width: ${open ? width : 0}px` : undefined}
+  class="fixed right-0 top-0 bottom-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom))] z-40 solid w-full flex flex-col overflow-hidden {open ? 'shadow-(--shadow-drawer)' : 'translate-x-full invisible'} {dragging ? '' : open ? 'transition-[translate]' : 'transition-[translate,visibility]'}"
+  style={S.pane.md ? `width: ${width}px` : undefined}
 >
-  {#if split && open}
-    <!-- An 8px hit area over the pane's left rule; the rule turns gleam while it is hovered, focused or dragged. -->
+  {#if S.pane.md && open}
+    <!-- An 8px hit area over the drawer's left rule; the rule turns gleam while it is hovered, focused or dragged. -->
     <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (a focusable separator with a value is a widget in ARIA: the window splitter pattern) -->
     <div
       role="separator"
@@ -156,7 +160,7 @@
       aria-controls="drawer"
       aria-label={$t('drawer.resize')}
       aria-valuemin={PANE_MIN}
-      aria-valuemax={paneMax(available)}
+      aria-valuemax={paneMax(S.pane.viewport)}
       aria-valuenow={width}
       tabindex="0"
       class="group absolute inset-y-0 left-0 z-30 w-2 cursor-col-resize touch-none focus-visible:-outline-offset-2"

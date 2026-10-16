@@ -1,16 +1,17 @@
 <!-- The toast; toast.svelte.ts drives it. The live region is always in the DOM, so screen readers announce each message as
      it appears, and it holds only the message: Dismiss sits beside it, outside, so the announcement stays the message alone.
      Pointer or focus inside holds the toast past its 4 s. Dismiss draws its ring inside itself: the plate clips to its cut corner, which would shave a ring drawn outside.
-     It never covers the board's controls, the job pane's dock or the status bar (lib/toast-place.ts): at md and up it sits
-     at the board's bottom right, left of a split pane; below md, or over a full pane, top-centre. -->
+     It never covers the board's controls, the job drawer's dock or the status bar (lib/toast-place.ts): at md and up it sits
+     at the bottom right, left of an open drawer and above its backdrop; below md, top-centre. -->
 <script lang="ts">
   import CloseButton from './CloseButton.svelte';
   import { toastState as toast, dismissToast, holdToast, releaseToast } from '../lib/toast.svelte.ts';
   import { toastPlacement } from '../lib/toast-place.ts';
   import { S } from '../lib/app.svelte.ts';
+  import { clampPaneWidth } from '../lib/drawer.ts';
   import { t } from '../lib/locale.ts';
 
-  const place = $derived(toastPlacement({ narrow: !S.pane.md, paneMode: S.pane.mode, paneOpen: S.drawer.id !== null, paneWidth: S.pane.width }));
+  const place = $derived(toastPlacement({ narrow: !S.pane.md, paneOpen: S.drawer.id !== null, paneWidth: clampPaneWidth(S.pane.width, S.pane.viewport) }));
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions (hover and focus only pause the auto-hide; Dismiss is the control) -->

@@ -103,8 +103,8 @@ test('palette scrim and stable scrollbar gutter', () => {
   const bar = root('CommandBar.svelte');
   assert.ok(bar.includes('scrim') && !bar.includes('backdrop'), `the palette's root uses scrim (${bar.join(' ')})`);
   assert.match(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', 'Settings.svelte'), 'utf8'), /class="[^"]*\bbackdrop\b/, 'Settings.svelte keeps backdrop');
-  // The job pane sits beside the view with nothing dimming it.
-  assert.doesNotMatch(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', 'Drawer.svelte'), 'utf8'), /\bbackdrop\b/, 'Drawer.svelte has no backdrop');
+  // The job drawer slides in over a backdrop that dims the page behind it.
+  assert.match(fs.readFileSync(path.join(DASHBOARD, 'src', 'components', 'Drawer.svelte'), 'utf8'), /<div id="drawer-backdrop" class="[^"]*\bbackdrop\b/, 'Drawer.svelte dims with backdrop');
 });
 
 /** Every file under dashboard/src that holds markup or builds class strings. */
@@ -369,7 +369,7 @@ test('hover is sheen, with no registered property', () => {
   // A button chip only lights its seam: a chip inside a hovered control stays plain.
   assert.match(ruleFor(hover, '.chip:is(button):hover'), /^border-color:currentColor$/i);
   for (const m of css.matchAll(/animation(-name)?:([^;}]*)/g)) assert.doesNotMatch(m[2], /sketch|sheen/, 'hover is a transition, never an animation');
-  assert.equal(css.match(/prefers-reduced-motion\s*:\s*reduce/g)?.length, 1, 'one reduced-motion block covers every transition (the live halo is the separate no-preference query)');
+  assert.equal(css.match(/prefers-reduced-motion\s*:\s*reduce/g)?.length, 1, "one reduced-motion block covers every transition (the live halo and the stepper's trace use the separate no-preference query)");
 });
 
 /** Every `selector { body }` whose selector list has the `plate` class, at any nesting (@media, @supports). */

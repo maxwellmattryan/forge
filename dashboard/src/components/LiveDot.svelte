@@ -1,7 +1,5 @@
 <!-- The live dot: a lit gleam sphere with a ping halo while a daemon session is working, a hollow dot otherwise. The halo
-     (here and on a running job's current step, StageStepper) is the dashboard's only looping motion and is motion-safe, so
-     under reduced motion the dot is static. Decorative:
-     the words next to it carry the meaning. -->
+     is motion-safe, so under reduced motion the dot is static. Decorative: the words next to it carry the meaning. -->
 <script lang="ts">
   let { on }: { on: boolean } = $props();
 </script>
