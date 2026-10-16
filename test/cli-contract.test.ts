@@ -319,7 +319,7 @@ test('help: overview, group, command', () => {
   }
   // The spec's /…\|acs\|[^\n]*\|step\|advance\b/ needs a word between acs and step, which the
   // job usage order (…|scope|acs|step|advance, AC9) never has; this is the satisfiable form.
-  assert.match(overview.stdout, /^  forge job new\|from-ref\|[^\n]*\|acs\|step\|advance\b/m);
+  assert.match(overview.stdout, /^  forge job new\|from-ref\|[^\n]*\|acs\|findings\|step\|advance\b/m);
   assert.ok(overview.stdout.includes('forge status [--all]'));
   assert.ok(overview.stdout.includes('--json'));
   assert.ok(overview.stdout.includes('docs/CLI.md'));
@@ -414,7 +414,7 @@ test('help covers every routed command', () => {
     s.init();
     const r = s.cli(['job', 'bogus']);
     assert.equal(r.status, 2);
-    assert.ok(r.stderr.includes('usage: forge job new|from-ref|link|list|show|get|set|effort|claim|release|note|human|assist|agent|round|budget|verdicts|decision|progress|paths|scope|acs|step|advance; run `forge help job`'), r.stderr);
+    assert.ok(r.stderr.includes('usage: forge job new|from-ref|link|list|show|get|set|effort|claim|release|note|human|assist|agent|round|budget|verdicts|decision|progress|paths|scope|acs|findings|step|advance; run `forge help job`'), r.stderr);
   } finally {
     s.cleanup();
   }
@@ -560,7 +560,7 @@ test('CLI JSON keys are stable', POSIX, () => {
       'cost.reportingCoverage.exact', 'cost.reportingCoverage.withUsage', 'cost.totalTokens', 'counts', 'counts.active', 'counts.cancelled', 'counts.done', 'counts.failed',
       'counts.total', 'counts.waiting', 'generatedAt', 'quality', 'quality.avgRounds', 'quality.escalationRate', 'quality.firstPassReviewRate', 'quality.foremanDecisions', 'quality.foremanReworks', 'quality.humanDeltaCoverage',
       'quality.humanDeltaCoverage.measured', 'quality.humanDeltaCoverage.merged', 'quality.humanDeltaRate', 'quality.humanFeedbackOnPrRate', 'quality.humanReworks',
-      'quality.medianHumanDeltaLines', 'quality.specFirstApprovalRate', 'quality.verifyFirstPassRate', 'reviewers', 'since', 'speed', 'speed.medianMinutesToDone',
+      'quality.medianHumanDeltaLines', 'quality.recurringFindings', 'quality.specFirstApprovalRate', 'quality.verifyFirstPassRate', 'reviewers', 'since', 'speed', 'speed.medianMinutesToDone',
       'speed.medianMinutesToPr', 'waitingOn',
     ]);
   } finally {

@@ -1062,6 +1062,16 @@ export interface ReviewerStats {
   changes: number;
   blockers: number;
   changeRate: number | null;
+  /** Tagged findings the lens raised in its review files. */
+  findings: number;
+  /** Builder answers `→ fixed` to this lens's findings. */
+  fixed: number;
+  /** Builder answers `→ disagree:` to this lens's findings. */
+  disputes: number;
+  /** disputes / (fixed + disputes); null when the builder answered none. */
+  disputeRate: number | null;
+  /** (lens, path) pairs this lens raised in two consecutive rounds of one job. */
+  recurring: number;
 }
 
 /** GET /api/stats: computeStats in lib/stats.ts. */
@@ -1085,6 +1095,8 @@ export interface Stats {
     foremanDecisions: number;
     foremanReworks: number;
     specFirstApprovalRate: number | null;
+    /** Recurring (lens, path) review findings across every job in the window. */
+    recurringFindings: number;
   };
   speed: { medianMinutesToPr: number | null; medianMinutesToDone: number | null };
   cost: {
