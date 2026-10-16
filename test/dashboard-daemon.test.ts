@@ -1,7 +1,7 @@
 // The status bar's Daemon popover's and the session log's models (dashboard/src/lib/daemon.ts). The log-line cases live in dashboard-session-log.test.ts.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PERMISSION_MODES, START_HINT, mergePoolState, mergeSessionState, poolModel, postDaemon, postDaemonMode, sessionControls, sessionMode, sessionPill } from '../dashboard/src/lib/daemon.ts';
+import { PERMISSION_MODES, START_HINT, daemonRows, mergePoolState, mergeSessionState, poolModel, postDaemon, postDaemonMode, sessionControls, sessionMode, sessionPill } from '../dashboard/src/lib/daemon.ts';
 
 const XSS = '<script>alert(1)</script><img src=x onerror=alert(2)>';
 const session = (o: any = {}): any => ({ scope: 'job', wanted: true, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, failures: 0, held: null, waiting: false, lastError: null, ...o });
@@ -212,4 +212,38 @@ test('postDaemonMode posts the scope and mode with the token', async () => {
   assert.deepEqual(JSON.parse(calls[0].init.body), { scope: 'job-a', mode: 'auto' });
   const failing: any = async () => ({ ok: false, status: 400, statusText: 'Bad Request', text: async () => '{"error":"mode must be one of default, auto, dontAsk"}' });
   await assert.rejects(postDaemonMode('job-a', 'auto', 'tok', failing), /mode must be one of/);
+});
+
+test('daemonRows lists inbox, foreman, then jobs', () => {
+  const p = pool({
+    jobs: {
+      'b-job': session({ status: 'idle', running: true }),
+      'a-job': session({ status: 'busy', running: true }),
+      ghost: session({ held: 'budget' }),
+    },
+    permissionModes: { 'b-job': 'auto' },
+  });
+  const jobs = [{ id: 'a-job', title: XSS }, { id: 'b-job', title: 'Refactor the pool' }];
+  const rows = (o: any) => daemonRows(poolModel(pool({ ...p, ...o }), { pending: false })!, jobs);
+  // Foreman off: Inbox, then the jobs in the model's status order (busy, idle, held).
+  const off = rows({});
+  assert.deepEqual(off.map((r) => (r.kind === 'job' ? r.id : r.kind)), ['inbox', 'a-job', 'b-job', 'ghost']);
+  assert.deepEqual(off[0], { kind: 'inbox', pill: poolModel(p, { pending: false })!.inbox }, 'the inbox row carries its pill');
+  const b = off.find((r) => r.kind === 'job' && r.id === 'b-job');
+  assert.ok(b && b.kind === 'job' && b.mode === 'auto' && b.title === 'Refactor the pool', 'a job row carries its overridden mode');
+  const a = off.find((r) => r.kind === 'job' && r.id === 'a-job');
+  assert.ok(a && a.kind === 'job');
+  assert.equal(a.title, XSS, 'the title is passed through as data; the component renders it as text');
+  assert.equal(a.pill.label, 'busy');
+  const ghost = off.find((r) => r.kind === 'job' && r.id === 'ghost');
+  assert.ok(ghost && ghost.kind === 'job' && ghost.title === null, 'an unknown id has a null title');
+  assert.equal(ghost.pill.label, 'held: budget', 'the row says held itself');
+  // Foreman on: the Foreman row comes second, with the office pill.
+  const on = rows({ foreman: true, office: session({ scope: '_office', status: 'idle', running: true }) });
+  assert.deepEqual(on.map((r) => (r.kind === 'job' ? r.id : r.kind)), ['inbox', 'foreman', 'a-job', 'b-job', 'ghost']);
+  assert.equal(on[1].pill.label, 'idle');
+  // A job list without titles, or an empty pool, still lists the Inbox.
+  assert.deepEqual(daemonRows(poolModel(pool(), { pending: false })!, []).map((r) => r.kind), ['inbox']);
+  const untitled = daemonRows(poolModel(p, { pending: false })!, [{ id: 'a-job' }]);
+  assert.ok(untitled.every((r) => r.kind !== 'job' || r.title === null));
 });

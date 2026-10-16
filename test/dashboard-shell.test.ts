@@ -1104,9 +1104,10 @@ test('controls in one row share one size', () => {
   const right = elements('components/PageHeader.svelte').filter((e) => e.name === 'div').at(-1);
   assert.ok(right && right.classes.includes('gap-2') && !right.classes.includes('gap-2.5'), `PageHeader's right container uses gap-2 (${right?.classes.join(' ')})`);
 
-  // The Daemon popover and the session log are sm rows: their chips and fields take chip sm and input sm.
-  const daemonChips = elements('components/statusbar/DaemonPanel.svelte').filter((e) => e.classes.includes('chip'));
-  assert.ok(daemonChips.length >= 5, `checked ${daemonChips.length} Daemon popover chips`);
+  // The Daemon popover and the session log are sm rows: their chips and fields take chip sm and input sm. The Foreman
+  // row's tag is a word inside the row's name, not a control beside it, so it keeps the chip's own height.
+  const daemonChips = elements('components/statusbar/DaemonPanel.svelte').filter((e) => e.classes.includes('chip') && !e.classes.includes('live'));
+  assert.ok(daemonChips.length >= 2, `checked ${daemonChips.length} Daemon popover chips (the pool pill and the row pill)`);
   for (const c of daemonChips) assert.ok(c.classes.includes('sm'), `DaemonPanel: <${c.name} class="${c.classes.join(' ')}"> is chip sm`);
   const log = elements('components/SessionLog.svelte');
   const pill = log.find((e) => attrOf(e, 'role') === 'status' && e.classes.includes('chip'));
@@ -1335,22 +1336,27 @@ test('the daemon popover keeps every daemon bar control', () => {
   assert.match(bar, /<DaemonPanel \{model\} \{pending\} \{act\} \/>/);
   const panel = read('components/statusbar/DaemonPanel.svelte');
   for (const [rel, text] of [['StatusBar', bar], ['DaemonPanel', panel]]) assert.doesNotMatch(text, /\bfetch\(/, `${rel} calls no fetch(`);
-  assert.match(panel, /import \{ LOG_KEY \} from '\.\.\/\.\.\/lib\/daemon-log\.ts';/);
+  // The Inbox log left for the Inbox popover, with its saved state.
+  assert.doesNotMatch(panel, /LOG_KEY|<SessionLog\b|toggleInbox/, 'no Inbox log here');
+  const inboxPanel = read('components/statusbar/InboxPanel.svelte');
+  assert.match(inboxPanel, /import \{ LOG_KEY \} from '\.\.\/\.\.\/lib\/daemon-log\.ts';/);
   assert.equal(LOG_KEY, 'forge.daemonLog', 'the toggle keeps its saved state');
-  assert.match(panel, /localStorage\.getItem\(LOG_KEY\) === '1'/);
-  assert.match(panel, /localStorage\.setItem\(LOG_KEY, inboxOpen \? '1' : '0'\)/);
-  const markup = markupOf('components/statusbar/DaemonPanel.svelte');
-  assert.equal(markup.match(/<SessionLog\b/g)?.length, 1);
-  assert.ok(ifBody(markup, 'inboxOpen')?.includes('<SessionLog scope={INBOX_SCOPE} compact />'), 'the inbox log renders only while the toggle is on');
-  const toggle = elements('components/statusbar/DaemonPanel.svelte').find((e) => attrOf(e, 'onclick') === '{toggleInbox}');
+  assert.match(inboxPanel, /localStorage\.getItem\(LOG_KEY\) === '1'/);
+  assert.match(inboxPanel, /localStorage\.setItem\(LOG_KEY, inboxOpen \? '1' : '0'\)/);
+  const inboxMarkup = markupOf('components/statusbar/InboxPanel.svelte');
+  assert.equal(inboxMarkup.match(/<SessionLog\b/g)?.length, 1);
+  assert.ok(ifBody(inboxMarkup, 'inboxOpen')?.includes('<SessionLog scope={INBOX_SCOPE} compact />'), 'the inbox log renders only while the toggle is on');
+  assert.ok(inboxMarkup.indexOf('<PermissionPrompts') < inboxMarkup.indexOf('toggleInbox'), 'under the permission prompts');
+  const toggle = elements('components/statusbar/InboxPanel.svelte').find((e) => attrOf(e, 'onclick') === '{toggleInbox}');
   assert.ok(toggle && has(toggle, 'btn', 'sm') && attrOf(toggle, 'aria-expanded'), 'the Inbox log toggle is a btn sm with aria-expanded');
+  const markup = markupOf('components/statusbar/DaemonPanel.svelte');
   for (const icon of ['play', 'stop']) assert.ok(panel.includes(`<Icon name="${icon}" />`), `the ${icon} icon`);
   assert.match(panel, /disabled=\{!model\.canStart\} title=\{model\.startHint\} aria-label=\{\$t\('daemon\.startAll'\)\}/, 'Start follows canStart and carries the config hint');
   assert.match(panel, /disabled=\{!model\.canStop\} aria-label=\{\$t\('daemon\.stopAll'\)\}/);
-  for (const chip of ['daemon.held', 'daemon.waiting', 'daemon.kept']) assert.ok(panel.includes(`$t('${chip}'`), `the ${chip} chip`);
+  for (const chip of ['daemon.held', 'daemon.waiting', 'daemon.kept']) assert.ok(!panel.includes(`$t('${chip}'`), `no ${chip} chip: the rows say it`);
   assert.match(markup, /\{#if model\.error !== null\}<p[^>]*>\{model\.error\}<\/p>\{\/if\}/, 'the pool error renders as text');
   assert.doesNotMatch(panel, /\{@html/);
-  assert.match(panel, /closePopover\('navigate'\);\s*openDrawer\(id, null, 'log'\);/, 'a job chip closes the popover, then opens that job on its session log');
+  assert.match(panel, /closePopover\('navigate'\);\s*openDrawer\(id, null, 'log'\);/, 'a job row closes the popover, then opens that job on its session log');
   assert.match(markup, /\$t\('statusbar\.daemon\.disabled'\)/, 'the daemon-off explanation');
 });
 
@@ -1547,4 +1553,27 @@ test('Needs you is a status-bar popover, not a page', () => {
   assert.doesNotMatch(panel, /PageHeader|<h2|\{@html/, 'no page header and no raw html');
   assert.match(panel, /href=\{u\}/, 'the PR link is the safeUrl');
   assert.match(panel, /const u = safeUrl\(j\.pr\?\.url\)/);
+});
+
+test('the Daemon popover lists sessions, the Inbox popover holds its log', () => {
+  const panel = read('components/statusbar/DaemonPanel.svelte');
+  assert.match(panel, /const rows = \$derived\(model \? daemonRows\(model, S\.data\?\.jobs \?\? \[\]\) : \[\]\);/, 'rows come from daemonRows');
+  const els = elements('components/statusbar/DaemonPanel.svelte');
+  const jobRow = els.find((e) => e.name === 'button' && attrOf(e, 'onclick') === '{() => openJob(r.id)}');
+  assert.ok(jobRow && has(jobRow, 'plain', 'clickable'), 'a job row is a button on a plain surface');
+  assert.match(panel, /<span class="truncate text-sm">\{r\.title \?\? r\.id\}<\/span><span class="mono muted truncate">\{r\.id\}/, 'its title (or id) and its mono id, as text');
+  assert.match(panel, /\$t\('daemon\.rows\.inbox'\)/);
+  assert.match(panel, /\$t\('daemon\.rows\.inboxAbout'\)/);
+  assert.match(panel, /<span class="chip live">\{\$t\('daemon\.rows\.foremanTag'\)\}<\/span>/, 'the Foreman row carries a live foreman tag');
+  assert.match(panel, /\$t\('daemon\.rows\.foremanAbout'\)/);
+  const inert = els.find((e) => e.name === 'div' && has(e, 'plain') && !attrOf(e, 'onclick'));
+  assert.ok(inert, 'the Inbox and Foreman rows are not interactive');
+  assert.equal((panel.match(/\{@render pill\(r\.pill\)\}/g) ?? []).length, 2, 'every row ends with its session pill');
+  assert.doesNotMatch(panel, /<SessionLog|LOG_KEY|daemon\.(held|waiting|kept)/, 'no log, no held, waiting or kept chips');
+  assert.doesNotMatch(panel, /\{@html/);
+  const inbox = read('components/statusbar/InboxPanel.svelte');
+  assert.match(inbox, /<SessionLog scope=\{INBOX_SCOPE\} compact \/>/, 'the Inbox popover holds the Inbox log');
+  assert.match(read('lib/daemon-log.ts'), /Inbox popover's Inbox log/, "LOG_KEY's comment names its new home");
+  // The Held and Waiting buttons still open the Daemon popover.
+  assert.equal((read('components/StatusBar.svelte').match(/data-popover="daemon"/g) ?? []).length, 3, 'Daemon, Held and Waiting');
 });
