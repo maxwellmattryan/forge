@@ -220,7 +220,7 @@ test('the trust digest covers the secrets allowlist', async () => {
     fs.writeFileSync(file, '**\n');
     const r = await forgeAsync(repo.dir, ['status'], daemon);
     assert.equal(r.status, 1);
-    assert.match(r.stderr, /secrets-allow\.txt or \.forge\/trackers\/ changed since a human started the daemon/);
+    assert.match(r.stderr, /secrets-allow\.txt, \.forge\/trackers\/ or \.forge\/verifiers\/ changed since a human started the daemon/);
   } finally {
     repo.cleanup();
   }
