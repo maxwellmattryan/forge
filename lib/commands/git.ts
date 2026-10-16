@@ -10,11 +10,12 @@ import { attributionForbidden, findAttribution } from '../attribution.ts';
 import { sessionEnv } from '../daemon.ts';
 import { PINNED_DIFF_OPTS, PINNED_GIT_CONFIG } from '../integrity.ts';
 import { jobDir, loadJob } from '../jobs.ts';
+import { blobReader, checkProtected, comparisonPoint, diffEntries, historyEnv, logEscalated, logRefused, policyRules, recordProtected, refusalText } from '../protected.ts';
 import { resolveWorktreePaths } from '../paths.ts';
 import { applyAllowlist, diffUnits, loadAllowlist, logSecrets, refusalMessage, refuseSecrets, scanUnits, secretMode, textUnit } from '../secrets.ts';
 import { ForgeError, run } from '../util.ts';
 import { usageError } from './args.ts';
-import type { CommandHelp, Config, HelpGroup } from '../types.ts';
+import type { CommandHelp, Config, HelpGroup, Job, ProtectedHit } from '../types.ts';
 
 // Re-exported: callers (and tests) imported it from here before it moved to lib/paths.ts.
 export { resolveWorktreePaths };
@@ -39,9 +40,9 @@ const GIT: HelpGroup = {
     {
       command: 'git add',
       args: '<id> -- <path>...',
-      summary: "stage paths in the job's worktree, from any cwd; refuses git options and paths outside the worktree",
+      summary: "stage paths in the job's worktree, from any cwd; refuses git options, paths outside the worktree and a protected path the policy refuses; prints protected: <n> when the branch changes escalate paths",
       exits: [
-        [1, 'no such job or worktree, an option, or a path outside the worktree or in .git'],
+        [1, 'no such job or worktree, an option, a path outside the worktree or in .git, or a protected path (code protected_path)'],
         [5, 'git failed'],
       ],
       readme: true,
@@ -50,13 +51,13 @@ const GIT: HelpGroup = {
       command: 'git commit',
       args: '<id> (--message T | --message-file F) [-- <path>...]',
       summary:
-        "commit in the job's worktree, on its branch, from any cwd (how agents commit, in a daemon session too); refuses git options, paths outside the worktree, AI attribution and a likely secret (in the message always; in the staged changes under verifySecrets: block)",
+        "commit in the job's worktree, on its branch, from any cwd (how agents commit, in a daemon session too); refuses git options, paths outside the worktree, AI attribution, a protected path the policy refuses and a likely secret (in the message always; in the staged changes under verifySecrets: block); prints protected: <n> when the branch changes escalate paths",
       flags: [
         ['--message T', 'the commit message'],
         ['--message-file F', 'read the message from F, a file inside the job dir'],
       ],
       exits: [
-        [1, 'no such job or worktree, the wrong branch, a merge or rebase in progress, nothing to commit, a refused option, path or message, or a likely secret (code secret_found)'],
+        [1, 'no such job or worktree, the wrong branch, a merge or rebase in progress, nothing to commit, a refused option, path or message, a protected path (code protected_path), or a likely secret (code secret_found)'],
         [5, 'git failed'],
       ],
       readme: true,
@@ -136,12 +137,60 @@ function gitEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return env.FORGE_DAEMON === '1' ? sessionEnv(base) : base;
 }
 
+/** What the protected-paths preview found: refusals among this call's changes, the escalate set S, and the comparison point. */
+interface ProtectedPreview {
+  refused: ProtectedHit[];
+  escalated: ProtectedHit[];
+  own: ProtectedHit[];
+  m: string;
+}
+
+/**
+ * Previews the index `git add -A -- <paths>` would produce, in a temp copy of the index inside the
+ * job dir (removed in a finally), and checks it against the policy before anything is written. C is
+ * what differs between HEAD and the preview (this call's commit), D what differs from the comparison
+ * point M (the branch). A refuse path is refused only when it is in both, so putting a path back to
+ * its M content, or leaving a path the call doesn't touch, stays possible. Null with the policy off.
+ */
+function protectedPreview(config: Config, job: Job, cwd: string, dir: string, genv: NodeJS.ProcessEnv, paths: string[]): ProtectedPreview | null {
+  const rules = policyRules(config);
+  if (!rules.length) return null;
+  const henv = historyEnv(genv);
+  let m: string;
+  try {
+    m = comparisonPoint(cwd, config, job, 'HEAD', henv);
+  } catch (e) {
+    throw new ForgeError(`can't find where ${job.id}'s branch starts, so its protected paths can't be checked (${(e as Error).message})`, 'protected_path');
+  }
+  const index = path.resolve(cwd, run('git', ['rev-parse', '--git-path', 'index'], { cwd, env: genv }).stdout.trim());
+  const tmp = path.join(dir, `.protected-index-${process.pid}-${Date.now()}`);
+  const penv = { ...genv, GIT_INDEX_FILE: tmp };
+  try {
+    if (fs.existsSync(index)) {
+      fs.copyFileSync(index, tmp, fs.constants.COPYFILE_EXCL);
+      // Git trusts an entry's stat data only when the file is older than the index file. A fresh copy
+      // is newer than everything, so a same-size edit made just before would read as unchanged; the
+      // original's mtime (a second earlier, against rounding) keeps git's racy-entry check intact.
+      const st = fs.statSync(index);
+      fs.utimesSync(tmp, st.atime, new Date(st.mtimeMs - 1000));
+    } else run('git', ['read-tree', 'HEAD'], { cwd, env: penv });
+    run('git', ['--literal-pathspecs', 'add', '-A', ...(paths.length ? ['--', ...paths] : [])], { cwd, env: penv });
+    const denv = historyEnv(penv);
+    const c = new Set(diffEntries(cwd, 'HEAD', 'index', denv).map((e) => e.path));
+    const found = checkProtected(diffEntries(cwd, m, 'index', denv), rules, blobReader(cwd, denv), cwd);
+    return { refused: found.refused.filter((h) => c.has(h.path)), escalated: found.escalated, own: found.escalated.filter((h) => c.has(h.path)), m };
+  } finally {
+    fs.rmSync(tmp, { force: true });
+    fs.rmSync(`${tmp}.lock`, { force: true });
+  }
+}
+
 export function gitWrite(
   root: string,
   config: Config,
   args: string[],
   env: NodeJS.ProcessEnv = process.env,
-): { id: string; staged: string[] } | { id: string; sha: string; branch: string; files: string[]; secrets?: number } {
+): { id: string; staged: string[]; protected?: number } | { id: string; sha: string; branch: string; files: string[]; secrets?: number; protected?: number } {
   const [sub, id, ...rest] = args;
   if (sub !== 'add' && sub !== 'commit') throw usageError(GIT);
   if (!id || id.startsWith('-')) throw usageError(GIT, sub);
@@ -161,12 +210,29 @@ export function gitWrite(
   const paths = resolveWorktreePaths(cwd, opts.paths);
   // Literal, so a path like `:(top)…` or `*` is a file name, not pathspec magic.
   const add = (ps: string[]) => git(['--literal-pathspecs', 'add', '-A', ...(ps.length ? ['--', ...ps] : [])]);
+  const dir = fs.realpathSync(jobDir(root, id));
+  /** Refuses before anything is written; returns the escalate set to record once the write is done. */
+  const guard = (): ProtectedPreview | null => {
+    const p = protectedPreview(config, job, cwd, dir, genv, paths);
+    if (p?.refused.length) {
+      logRefused(root, job.id, sub, p.refused);
+      throw new ForgeError(refusalText(`forge git ${sub}`, p.refused), 'protected_path');
+    }
+    return p;
+  };
+  const record = (p: ProtectedPreview | null, head: string | null): { protected?: number } => {
+    if (!p) return {};
+    recordProtected(root, job.id, sub, p.escalated, head, { cwd, from: p.m, to: head ?? 'index', env: historyEnv(genv) });
+    if (p.own.length) logEscalated(root, job.id, sub, p.own, head);
+    return p.escalated.length ? { protected: p.escalated.length } : {};
+  };
 
   if (sub === 'add') {
     if (opts.message !== null || opts.messageFile !== null) throw new ForgeError('forge git add takes only -- and paths');
     if (!paths.length) throw new ForgeError('forge git add needs at least one path after --');
+    const p = guard();
     add(paths);
-    return { id, staged: opts.paths };
+    return { id, staged: opts.paths, ...record(p, null) };
   }
 
   const gitPath = (p: string) => path.resolve(cwd, git(['rev-parse', '--git-path', p]).stdout.trim());
@@ -177,7 +243,6 @@ export function gitWrite(
   const branch = git(['symbolic-ref', '--short', '-q', 'HEAD'], { allowFail: true }).stdout.trim();
   if (!branch || branch !== job.branch) throw new ForgeError(`the worktree is on ${branch || 'a detached HEAD'}, not the job's branch ${job.branch}`);
   if ((opts.message === null) === (opts.messageFile === null)) throw new ForgeError('pass exactly one of --message or --message-file');
-  const dir = fs.realpathSync(jobDir(root, id));
   let message: string;
   if (opts.messageFile !== null) {
     let file: string;
@@ -200,6 +265,7 @@ export function gitWrite(
   // Before anything is staged: the message is text Forge publishes, refused in either mode.
   refuseSecrets(root, config, [textUnit('(commit message)', message)], { what: 'the commit message', id, gate: 'commit' });
 
+  const p = guard();
   add(paths);
   if (git(['diff', '--cached', '--quiet'], { allowFail: true }).ok) throw new ForgeError(`nothing to commit in ${cwd}`);
   // A builder can't rewrite history through forge git, so this is the last point where it can still
@@ -218,5 +284,5 @@ export function gitWrite(
   }
   const sha = git(['rev-parse', 'HEAD']).stdout.trim();
   const files = git(['diff-tree', '--no-commit-id', '--name-only', '-r', '--root', 'HEAD']).stdout.split('\n').filter(Boolean);
-  return { id, sha, branch, files, ...(found.findings.length ? { secrets: found.findings.length } : {}) };
+  return { id, sha, branch, files, ...(found.findings.length ? { secrets: found.findings.length } : {}), ...record(p, sha) };
 }

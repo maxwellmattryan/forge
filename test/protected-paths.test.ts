@@ -7,7 +7,8 @@ import path from 'node:path';
 import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
 import { matchPolicy, policyProblems, policyRules } from '../lib/protected.ts';
 import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
-import { tempRepo } from './helpers.ts';
+import { execFileSync } from 'node:child_process';
+import { forgeAsync, repoTemplate, tempRepo } from './helpers.ts';
 
 const DEFAULT_RULES = [
   { paths: ['.github/workflows/**', '.gitlab-ci.yml', 'Jenkinsfile', '.circleci/**'], action: 'escalate', reason: 'CI/CD configuration' },
@@ -112,5 +113,307 @@ describe('the policy', () => {
       { paths: ['a/b'], action: 'escalate' as const, reason: 'second' },
     ];
     assert.equal(matchPolicy('a/b', twice)?.reason, 'first');
+  });
+});
+
+// ---------- the gates, on scratch repos ----------
+
+const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
+/** Writes a marker when FORGE_TEST_MARK is set, so a test can tell whether verify ran a configured command. */
+const MARK_CMD = '[ -z "$FORGE_TEST_MARK" ] || touch "$FORGE_TEST_MARK"';
+
+const write = (dir: string, rel: string, text: string) => {
+  fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+  fs.writeFileSync(path.join(dir, rel), text);
+};
+const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim();
+const commitAll = (cwd: string, msg: string) => {
+  git(cwd, 'add', '-A');
+  git(cwd, '-c', 'user.email=t@e.st', '-c', 'user.name=T', 'commit', '-qm', msg);
+};
+
+const fresh = repoTemplate((dir) => {
+  const answers = path.join(dir, '..', `answers-${path.basename(dir)}.json`);
+  fs.writeFileSync(answers, JSON.stringify({ commands: { test: MARK_CMD }, verify: ['test'], worktrees: { root: '../{repo}.wt' } }));
+  try {
+    execFileSync(process.execPath, [BIN, 'init', 'write', '--answers', answers], { cwd: dir, env: { ...process.env, FORGE_ROOT: dir }, stdio: 'pipe' });
+  } finally {
+    fs.rmSync(answers, { force: true });
+  }
+  write(dir, 'notes.txt', 'notes\n');
+  write(dir, '.forge/secrets-allow.txt', '# nothing allowed\n');
+  write(dir, 'package-lock.json', '{"lockfileVersion":1}\n');
+  commitAll(dir, 'forge init');
+});
+
+/** A copy of the template repo with helpers for its jobs. */
+function scratch() {
+  const repo = fresh();
+  const raw = (args: string[], env: NodeJS.ProcessEnv = {}) => forgeAsync(repo.dir, args, env);
+  const f = async (...args: string[]) => {
+    const r = await raw(args);
+    if (r.status !== 0) throw new Error(`forge ${args.join(' ')} exited ${r.status}: ${r.stderr}${r.stdout}`);
+    try {
+      return JSON.parse(r.stdout);
+    } catch {
+      return r.stdout.trim();
+    }
+  };
+  /** Runs a forge command with --json and returns its status and parsed output (or error). */
+  const json = async (args: string[], env: NodeJS.ProcessEnv = {}) => {
+    const r = await raw([...args.slice(0, 2), '--json', ...args.slice(2)], env);
+    let out: any = null;
+    try {
+      out = JSON.parse(r.stdout);
+    } catch {}
+    return { status: r.status, out, err: out?.error ?? null, stderr: r.stderr };
+  };
+  const job = async () => {
+    const j = await f('job', 'new', '--title', 'protected job');
+    const wt: string = (await f('worktree', 'create', j.id)).path;
+    await f('job', 'round', j.id);
+    return { id: j.id as string, wt, dir: path.join(repo.dir, '.forge', 'jobs', j.id) };
+  };
+  const events = (dir: string) => fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  const flag = (dir: string) => JSON.parse(fs.readFileSync(path.join(dir, 'job.json'), 'utf8')).protectedPaths;
+  const cleanup = () => {
+    repo.cleanup();
+    fs.rmSync(path.join(repo.dir, '..', `${path.basename(repo.dir)}.wt`), { recursive: true, force: true });
+  };
+  return { repo, raw, f, json, job, events, flag, cleanup };
+}
+
+const CONFIG_REASON = "Forge's own policy changes only by a human on the base branch";
+
+describe('forge git add and commit', { concurrency: 4 }, () => {
+  test('add refuses a refuse path without staging', async () => {
+    const s = scratch();
+    try {
+      const j = await s.job();
+      write(j.wt, '.forge/config.yml', 'schemaVersion: 6\npolicy:\n  protectedPaths: []\n');
+      const before = git(j.wt, 'diff', '--cached', '--name-only');
+      const r = await s.json(['git', 'add', j.id, '--', '.forge/config.yml']);
+      assert.equal(r.status, 1, r.stderr);
+      assert.equal(r.err.code, 'protected_path');
+      assert.match(r.err.message, /^forge git add refuses protected paths:\n/);
+      assert.ok(r.err.message.includes(`.forge/config.yml: rule 7 (.forge/config.yml): ${CONFIG_REASON}`), r.err.message);
+      assert.equal(git(j.wt, 'diff', '--cached', '--name-only'), before, 'nothing staged');
+      const ev = s.events(j.dir).filter((e) => e.type === 'protected-path');
+      assert.deepEqual(ev.map((e) => [e.gate, e.action, e.blocked, e.more]), [['add', 'refuse', true, 0]]);
+      assert.deepEqual(ev[0].paths, [{ path: '.forge/config.yml', rule: 7, glob: '.forge/config.yml', reason: CONFIG_REASON }]);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('commit refuses without writing', async () => {
+    const s = scratch();
+    try {
+      const j = await s.job();
+      const head = git(j.wt, 'rev-parse', 'HEAD');
+      write(j.wt, 'certs/key.pem', 'not a real key\n');
+      write(j.wt, 'src/ok.ts', 'export const ok = 1;\n');
+      const r = await s.json(['git', 'commit', j.id, '--message', 'm']);
+      assert.equal(r.status, 1, r.stderr);
+      assert.equal(r.err.code, 'protected_path');
+      assert.match(r.err.message, /^forge git commit refuses protected paths:\n {2}certs\/key\.pem: rule 6 \(\*\*\/\*\.pem\): private keys and certificates are never committed by Forge$/);
+      assert.equal(git(j.wt, 'rev-parse', 'HEAD'), head, 'HEAD unchanged');
+      assert.equal(git(j.wt, 'diff', '--cached', '--name-only'), '', 'the index unchanged');
+      assert.equal(fs.readFileSync(path.join(j.wt, 'certs/key.pem'), 'utf8'), 'not a real key\n', 'the worktree file unchanged');
+      assert.deepEqual(fs.readdirSync(j.dir).filter((n) => n.startsWith('.protected-index')), [], 'no temp index left');
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('commit escalates and records the flag', async () => {
+    const s = scratch();
+    try {
+      const j = await s.job();
+      write(j.wt, 'package-lock.json', '{"lockfileVersion":2}\n');
+      const r = await s.json(['git', 'commit', j.id, '--message', 'bump lock']);
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(r.out.protected, 1);
+      const blob = git(j.wt, 'rev-parse', 'HEAD:package-lock.json');
+      const flag = s.flag(j.dir);
+      assert.deepEqual(flag.hits, [{ path: 'package-lock.json', rule: 4, glob: 'package-lock.json', reason: 'dependency lockfile', blob }]);
+      assert.deepEqual([flag.gate, flag.head, flag.more], ['commit', r.out.sha, 0]);
+      const ev = s.events(j.dir).filter((e) => e.type === 'protected-path');
+      assert.deepEqual(ev.map((e) => [e.gate, e.action, e.blocked, e.head]), [['commit', 'escalate', false, r.out.sha]]);
+      const diff = fs.readFileSync(path.join(j.dir, 'protected.diff'), 'utf8');
+      assert.match(diff, /^diff --git a\/package-lock\.json b\/package-lock\.json$/m);
+      assert.match(diff, /^\+\{"lockfileVersion":2\}$/m);
+      // A commit with no escalate path on the branch any more clears the flag and the diff.
+      write(j.wt, 'package-lock.json', '{"lockfileVersion":1}\n');
+      const back = await s.json(['git', 'commit', j.id, '--message', 'restore lock']);
+      assert.equal(back.status, 0, back.stderr);
+      assert.equal(back.out.protected, undefined);
+      assert.equal(s.flag(j.dir), null);
+      assert.equal(fs.existsSync(path.join(j.dir, 'protected.diff')), false);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('flag at moves only on new content', async () => {
+    const s = scratch();
+    try {
+      const j = await s.job();
+      write(j.wt, '.github/workflows/ci.yml', 'on: push\n');
+      const added = await s.json(['git', 'add', j.id, '--', '.github/workflows/ci.yml']);
+      assert.equal(added.status, 0, added.stderr);
+      assert.equal(added.out.protected, 1);
+      const first = s.flag(j.dir);
+      assert.deepEqual([first.gate, first.head, first.hits[0].rule, first.hits[0].path], ['add', null, 1, '.github/workflows/ci.yml']);
+      const c1 = await s.json(['git', 'commit', j.id, '--message', 'ci']);
+      assert.equal(c1.status, 0, c1.stderr);
+      const second = s.flag(j.dir);
+      assert.equal(second.gate, 'commit');
+      assert.equal(second.at, first.at, 'the same content keeps at');
+      write(j.wt, '.github/workflows/ci.yml', 'on: [push, pull_request]\n');
+      const c2 = await s.json(['git', 'commit', j.id, '--message', 'ci again']);
+      assert.equal(c2.status, 0, c2.stderr);
+      const third = s.flag(j.dir);
+      assert.ok(third.at > first.at, 'new content moves at');
+      assert.equal(third.hits[0].blob, git(j.wt, 'rev-parse', 'HEAD:.github/workflows/ci.yml'));
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('renames and deletions check both sides', async () => {
+    const s = scratch();
+    try {
+      const j = await s.job();
+      const reset = () => {
+        git(j.wt, 'reset', '-q', '--hard');
+        git(j.wt, 'clean', '-qfd');
+      };
+      const refused = async (paths: string[], named: string, rule: string) => {
+        const before = git(j.wt, 'diff', '--cached', '--name-status');
+        const r = await s.json(['git', 'add', j.id, '--', ...paths]);
+        assert.equal(r.status, 1, `${paths}: ${r.stderr}${JSON.stringify(r.out)}`);
+        assert.equal(r.err.code, 'protected_path');
+        assert.ok(r.err.message.includes(`\n  ${named}: rule 7 (${rule}): `), r.err.message);
+        assert.equal(r.err.message.split('\n').length, 2, 'only the protected side is named');
+        assert.equal(git(j.wt, 'diff', '--cached', '--name-status'), before);
+        reset();
+      };
+      fs.renameSync(path.join(j.wt, '.forge/config.yml'), path.join(j.wt, 'notes.yml'));
+      await refused(['.forge/config.yml', 'notes.yml'], '.forge/config.yml', '.forge/config.yml');
+      fs.mkdirSync(path.join(j.wt, '.forge/trackers'), { recursive: true });
+      fs.renameSync(path.join(j.wt, 'notes.txt'), path.join(j.wt, '.forge/trackers/x.ts'));
+      await refused(['notes.txt', '.forge/trackers/x.ts'], '.forge/trackers/x.ts', '.forge/trackers/**');
+      fs.rmSync(path.join(j.wt, '.forge/secrets-allow.txt'));
+      await refused(['.forge/secrets-allow.txt'], '.forge/secrets-allow.txt', '.forge/secrets-allow.txt');
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('reverting a refused path is allowed', async () => {
+    const s = scratch();
+    try {
+      const j = await s.job();
+      const original = fs.readFileSync(path.join(j.wt, '.forge/config.yml'), 'utf8');
+      write(j.wt, '.forge/config.yml', `${original}# sneaked in\n`);
+      commitAll(j.wt, 'plain git, outside forge git');
+      write(j.wt, '.forge/config.yml', original);
+      const r = await s.json(['git', 'commit', j.id, '--message', 'revert the config']);
+      assert.equal(r.status, 0, r.stderr);
+      assert.deepEqual(r.out.files, ['.forge/config.yml']);
+      assert.equal(git(j.wt, 'diff', '--name-only', 'main', 'HEAD', '--', '.forge'), '');
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('symlinks and case variants are caught', async () => {
+    const s = scratch();
+    try {
+      // A symlink pointing at a refuse path.
+      const a = await s.job();
+      fs.symlinkSync('.forge/config.yml', path.join(a.wt, 'cfg'));
+      const r = await s.json(['git', 'add', a.id, '--', 'cfg']);
+      assert.equal(r.status, 1, r.stderr);
+      assert.ok(r.err.message.includes(`\n  cfg: rule 7 (.forge/config.yml): ${CONFIG_REASON}`), r.err.message);
+      assert.equal(git(a.wt, 'diff', '--cached', '--name-only'), '');
+
+      // A symlink standing in for a protected directory.
+      const b = await s.job();
+      write(b.wt, 'ci/workflows/x.yml', 'on: push\n');
+      fs.symlinkSync('ci/', path.join(b.wt, '.github'));
+      const rb = await s.json(['git', 'add', b.id, '--', '.github', 'ci']);
+      assert.equal(rb.status, 0, rb.stderr);
+      assert.equal(rb.out.protected, 1);
+      assert.deepEqual(s.flag(b.dir).hits.map((h: any) => [h.path, h.rule, h.glob]), [['.github', 1, '.github/workflows/**']]);
+
+      // A case variant of a protected directory.
+      const c = await s.job();
+      write(c.wt, '.GitHub/Workflows/x.yml', 'on: push\n');
+      const rc = await s.json(['git', 'add', c.id, '--', '.GitHub']);
+      assert.equal(rc.status, 0, rc.stderr);
+      assert.deepEqual(s.flag(c.dir).hits.map((h: any) => [h.path, h.rule]), [['.GitHub/Workflows/x.yml', 1]]);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test("a base merge's own changes do not count", async () => {
+    const s = scratch();
+    try {
+      const j = await s.job();
+      write(j.wt, 'README.md', '# ours\n');
+      commitAll(j.wt, 'ours');
+      write(s.repo.dir, 'README.md', '# theirs\n');
+      fs.appendFileSync(path.join(s.repo.dir, '.forge/config.yml'), '# a human changed the policy on main\n');
+      commitAll(s.repo.dir, 'theirs');
+      const r = await s.json(['integrate', j.id, '--strategy', 'merge', '--keep-conflicts'], { GIT_EDITOR: 'true' });
+      assert.equal(r.status, 1, r.stderr);
+      assert.deepEqual(r.out.conflicts, ['README.md']);
+      assert.ok(git(j.wt, 'diff', '--cached', '--name-only').split('\n').includes('.forge/config.yml'), 'the base side is staged by the merge');
+      write(j.wt, 'README.md', '# both\n');
+      const added = await s.json(['git', 'add', j.id, '--', 'README.md']);
+      assert.equal(added.status, 0, `${added.stderr}${JSON.stringify(added.out)}`);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('the flag is not settable by job set', async () => {
+    const s = scratch();
+    try {
+      const j = await s.job();
+      for (const field of ['protectedPaths=null', 'protectedPaths.hits=[]']) {
+        const r = await s.raw(['job', 'set', j.id, '--field', field]);
+        assert.equal(r.status, 1, field);
+        assert.match(r.stderr, /--field protectedPaths is not settable; use forge git add\|commit, forge verify or forge pr open/);
+      }
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('invalid policy fails closed', async () => {
+    const s = scratch();
+    try {
+      const j = await s.job();
+      const cfg = path.join(s.repo.dir, '.forge/config.yml');
+      const text = fs.readFileSync(cfg, 'utf8');
+      assert.match(text, /^policy:\n/m, 'init write records the policy');
+      fs.writeFileSync(cfg, text.replace(/^policy:\n(?:[ #].*\n|\n)*/m, 'policy:\n  protectedPaths: everything\n'));
+      const head = git(j.wt, 'rev-parse', 'HEAD');
+      write(j.wt, 'src/a.ts', 'export const a = 1;\n');
+      for (const args of [['git', 'commit', j.id, '--message', 'm'], ['git', 'add', j.id, '--', 'src/a.ts']]) {
+        const r = await s.json(args);
+        assert.equal(r.status, 2, `${args[1]}: ${r.stderr}`);
+        assert.equal(r.err.code, 'config_invalid');
+        assert.match(r.err.message, /policy\.protectedPaths must be a list of rules/);
+      }
+      assert.equal(git(j.wt, 'rev-parse', 'HEAD'), head, 'HEAD unchanged');
+      assert.equal(git(j.wt, 'diff', '--cached', '--name-only'), '', 'the index unchanged');
+    } finally {
+      s.cleanup();
+    }
   });
 });
