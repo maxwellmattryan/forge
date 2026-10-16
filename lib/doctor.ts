@@ -3,12 +3,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { validateConfig, worktreeRoot } from './config.ts';
 import { apiKeyVars } from './daemon.ts';
+import { deprecationChecks } from './deprecations.ts';
 import { isActive, listJobs } from './jobs.ts';
 import { paths, exists } from './paths.ts';
 import { SUPPORT_URL, hostInfo, platformTier, posixShell, tierDetail, versionAtLeast } from './platform.ts';
 import type { HostInfo } from './platform.ts';
 import type { Config, DoctorCheck, DoctorReport } from './types.ts';
-import { hasBinary, run } from './util.ts';
+import { hasBinary, readText, run } from './util.ts';
+import { latestReleaseCheck } from './version.ts';
 
 /** package.json `engines`: Node 22.18 is the first with type stripping on by default. */
 export function nodeSupported(version: string): boolean {
@@ -58,6 +60,7 @@ export async function doctor(root: string, config: Config, initialized: boolean,
   if (initialized) {
     const problems = validateConfig(config, root);
     add('config valid', !problems.length, problems.join('; '));
+    checks.push(...deprecationChecks(readText(paths(root).config)));
   }
   const keys = apiKeyVars(process.env);
   if (initialized && config.daemon.enabled && keys.length) {
@@ -86,5 +89,9 @@ export async function doctor(root: string, config: Config, initialized: boolean,
   }
   const unsupported = listJobs(root).filter((j) => j._unsupported);
   if (unsupported.length) add('job schema', false, `${unsupported.length} job(s) from a newer Forge`);
+  // Last, and bounded: the only network call, and left out entirely when it cannot tell.
+  const release = latestReleaseCheck();
+  if (release) checks.push(release);
+  // Warnings are ok: true, so they never fail the report.
   return { ok: checks.every((c) => c.ok), checks };
 }

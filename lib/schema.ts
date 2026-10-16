@@ -11,7 +11,7 @@ export const EVENT_SCHEMA_VERSION = 1;
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 19;
+export const API_VERSION = 20;
 
 export const STAGES = [
   'backlog',

@@ -3,7 +3,7 @@
   import { onMount, tick } from 'svelte';
   import Banner from '../Banner.svelte';
   import Chip from '../Chip.svelte';
-  import { doctorReport, failedCount } from '../../lib/diagnostics.ts';
+  import { doctorReport, failedCount, warnCount } from '../../lib/diagnostics.ts';
   import { t } from '../../lib/locale.ts';
   import type { SettingsSession } from '../../lib/settings-session.svelte.ts';
   import { toast } from '../../lib/toast.svelte.ts';
@@ -12,6 +12,7 @@
 
   const d = $derived(session.doctor);
   const failed = $derived(d ? failedCount(d) : 0);
+  const warned = $derived(d ? warnCount(d) : 0);
   let fallback = $state<string | null>(null);
   let box = $state<HTMLTextAreaElement>();
   let summary = $state<HTMLDivElement>();
@@ -48,7 +49,7 @@
 <div class="p-4 md:p-6 flex flex-col gap-4">
   <div bind:this={summary} tabindex="-1" aria-live="polite" class="text-sm outline-none">
     {#if session.doctorRunning}<span class="text-muted">{$t('settings.diagnostics.running')}</span>
-    {:else if d}<span class="font-medium {failed ? 'text-bad' : 'text-ok'}">{failed ? $t('settings.diagnostics.failed', { count: failed }) : $t('settings.diagnostics.passed')}</span>{/if}
+    {:else if d}<span class="font-medium {failed ? 'text-bad' : 'text-ok'}">{failed ? $t('settings.diagnostics.failed', { count: failed }) : $t('settings.diagnostics.passed')}</span>{#if warned}<span class="text-warn">{' · '}{$t('settings.diagnostics.warnings', { count: warned })}</span>{/if}{/if}
   </div>
   {#if session.doctorError && !session.doctorRunning}<Banner msg={session.doctorError} />{/if}
   {#if d}
@@ -56,7 +57,7 @@
       <ul class="divide-y divide-line">
         {#each d.checks as c, i (i)}
           <li class="flex items-start gap-3 px-3 py-2.5 text-sm min-w-0">
-            {#if c.ok}<Chip tone="ok" text={$t('settings.diagnostics.ok')} extra="shrink-0 w-14 justify-center" />{:else}<Chip tone="bad" text={$t('settings.diagnostics.fail')} extra="shrink-0 w-14 justify-center" />{/if}
+            {#if !c.ok}<Chip tone="bad" text={$t('settings.diagnostics.fail')} extra="shrink-0 w-16 justify-center" />{:else if c.warn}<Chip tone="warn" text={$t('settings.diagnostics.warn')} extra="shrink-0 w-16 justify-center" />{:else}<Chip tone="ok" text={$t('settings.diagnostics.ok')} extra="shrink-0 w-16 justify-center" />{/if}
             <div class="min-w-0"><div class="font-medium">{c.name}</div>{#if c.detail}<div class="mono muted text-[11px] break-all">{c.detail}</div>{/if}</div>
           </li>
         {/each}
