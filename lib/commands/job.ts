@@ -14,6 +14,7 @@ import { normalizeRef } from '../issue-link.ts';
 import { exists } from '../paths.ts';
 import { COMPLEXITIES, EFFORTS, OFFICE_GATES } from '../schema.ts';
 import { daemonScope } from '../requests.ts';
+import { jobPanel } from '../panel.ts';
 import { jobScope } from '../scope.ts';
 import { loadStepInput, step } from '../step.ts';
 import { createAndLink, linkJob, markNoIssue, suggestLink } from '../tracker-link.ts';
@@ -196,6 +197,15 @@ const JOB: HelpGroup = {
       command: 'job scope',
       args: '<id>',
       summary: "files the branch changed outside the spec's Approach",
+      exits: [
+        [1, 'no such job, no worktree or no spec.md'],
+        [5, 'git failed'],
+      ],
+    },
+    {
+      command: 'job panel',
+      args: '<id>',
+      summary: "this round's review lenses: always, the spec's suggestions and the panel's paths matched against the branch diff, with a reason per lens",
       exits: [
         [1, 'no such job, no worktree or no spec.md'],
         [5, 'git failed'],
@@ -551,6 +561,8 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       return jobPaths(root, config, loadJob(root, req(id, 'job id')));
     case 'scope':
       return jobScope(root, config, req(id, 'job id'));
+    case 'panel':
+      return jobPanel(root, config, req(id, 'job id'));
     case 'acs':
       return jobAcs(root, req(id, 'job id'));
     case 'findings': {
