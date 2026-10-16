@@ -25,7 +25,7 @@ Keep the repo and its worktrees on the Linux filesystem (for example `~/src/<rep
 ## Native Windows
 
 - **Refused**: the daemon (the session pool `forge dash` runs) and `forge update`. The daemon needs POSIX process groups and `ps` to stop and prove its sessions, so the pool refuses to start and the dashboard serves without it. `forge update` exits 1 without detecting the install: update the plugin from Claude Code, or `git pull` your clone.
-- **Best effort**: the rest of the CLI and the dashboard.
+- **Runs, but not supported**: the rest of the CLI and the dashboard.
 - **Command templates** (`commands.*`, `worktrees.setup`, eval checks) are POSIX `sh`. Off Windows they run as `$SHELL -lc <cmd>` (`/bin/sh` when `$SHELL` is unset). On native Windows they run under Git for Windows' `sh` (Git Bash): the first `sh.exe` on PATH, else `%ProgramFiles%\Git\bin\sh.exe`. Without one, the command is refused with a message saying so.
 - **CI**: a `windows (node 22.18.0)` job runs the typecheck and the test files that pass on Windows. It guards the fixes that keep the CLI usable there against regressions; it is not a promise of support.
 
