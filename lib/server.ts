@@ -20,7 +20,8 @@ import { paths, exists, DEV_DIST_DIR, PLUGIN_ROOT } from './paths.ts';
 import { API_VERSION, CONFIG_SCHEMA_VERSION, EFFORTS, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from './schema.ts';
 import { computeStats } from './stats.ts';
 import { listRuns, listTasks, compareRuns, forgeVersion } from './evals.ts';
-import { INBOX_SCOPE, enqueue, listRequests, validJobId, validScope } from './requests.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, enqueue, listRequests, validJobId, validScope } from './requests.ts';
+import { gateOwner } from './foreman.ts';
 import { loadTracker } from './trackers/index.ts';
 import { roster } from './roster.ts';
 import { deriveTitle, normalizeTitle } from './title.ts';
@@ -225,6 +226,8 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         const parsed = await readJsonBody(req);
         if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
         const body: Record<string, any> = parsed.body && typeof parsed.body === 'object' && !Array.isArray(parsed.body) ? parsed.body : {};
+        // Only the CLI's park and sync paths write gate requests: they carry the reserved check's result.
+        if (body.type === 'gate') return jsonStatus(res, 400, { error: 'gate requests are written only by forge job set and forge pr sync' });
         const problem = requestArgsProblem(body);
         if (problem) return jsonStatus(res, 400, { error: problem });
         const held = resumeHeld(root, body);
@@ -264,7 +267,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
           return jsonStatus(res, 400, { error: 'body is not JSON' });
         }
         const obj = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
-        if (!validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox" or a job id' });
+        if (!validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox", "_office" or a job id' });
         if (typeof obj.id !== 'string' || !UUID.test(obj.id)) return jsonStatus(res, 400, { error: 'id must be a permission prompt id' });
         if (!PERMISSION_DECISIONS.includes(obj.decision)) return jsonStatus(res, 400, { error: `decision must be one of ${PERMISSION_DECISIONS.join(', ')}` });
         // Only the decision travels on: what the session gets back is built from claude's own request.
@@ -280,8 +283,8 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
           return jsonStatus(res, 400, { error: 'body is not JSON' });
         }
         const obj = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
-        if (!validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox" or a job id' });
-        if (obj.scope !== INBOX_SCOPE && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
+        if (!validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox", "_office" or a job id' });
+        if (obj.scope !== INBOX_SCOPE && obj.scope !== OFFICE_SCOPE && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
         if (!PERMISSION_MODES.includes(obj.mode)) return jsonStatus(res, 400, { error: `mode must be one of ${PERMISSION_MODES.join(', ')}` });
         // Only a value from that fixed list travels on, to the supervisor's memory and the session's stdin.
         const r = pool?.setPermissionMode(obj.scope, obj.mode) ?? { error: 'the daemon pool is not ready' };
@@ -301,8 +304,8 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (action !== 'start' && action !== 'stop') return jsonStatus(res, 400, { error: 'action must be "start" or "stop"' });
         if (obj.scope !== undefined) {
           // Checked before anything is built from it.
-          if (!validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox" or a job id' });
-          if (obj.scope !== INBOX_SCOPE && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
+          if (!validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox", "_office" or a job id' });
+          if (obj.scope !== INBOX_SCOPE && obj.scope !== OFFICE_SCOPE && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
           if (action === 'stop') {
             await pool?.stopSession(obj.scope);
             return json(res, poolState());
@@ -353,7 +356,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     if (readGuard(req, res)) return;
     const scope = url.searchParams.get('session');
     // Syntax only, so the logs of deleted jobs stay viewable.
-    if (!validScope(scope)) return jsonStatus(res, 400, { error: 'session must be "_inbox" or a job id' });
+    if (!validScope(scope)) return jsonStatus(res, 400, { error: 'session must be "_inbox", "_office" or a job id' });
     if (clients.size >= MAX_SSE_CLIENTS) return send(res, 503, 'text/plain', 'too many event streams');
     res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
     res.write('retry: 3000\n\n');
@@ -514,7 +517,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
   function sessionLog(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
     if (readGuard(req, res)) return;
     const scope = url.searchParams.get('session');
-    if (!validScope(scope)) return jsonStatus(res, 400, { error: 'session must be "_inbox" or a job id' });
+    if (!validScope(scope)) return jsonStatus(res, 400, { error: 'session must be "_inbox", "_office" or a job id' });
     const rawBefore = url.searchParams.get('before');
     const before = rawBefore === null || rawBefore === '' ? null : Number(rawBefore);
     if (before !== null && !(Number.isSafeInteger(before) && before >= 0)) return jsonStatus(res, 400, { error: 'before must be a log offset' });
@@ -673,7 +676,7 @@ function offSessionState(_root: string, scope: string): DaemonSessionState {
 
 /** The pool block before a pool exists (never visible once the server is listening). */
 function idlePoolState(root: string): PoolState {
-  return { enabled: false, wanted: false, maxConcurrent: 1, live: 0, lastError: null, inbox: offSessionState(root, INBOX_SCOPE), jobs: {}, permissionMode: 'default', permissionModes: {} };
+  return { enabled: false, wanted: false, maxConcurrent: 1, live: 0, lastError: null, inbox: offSessionState(root, INBOX_SCOPE), office: offSessionState(root, OFFICE_SCOPE), foreman: false, jobs: {}, permissionMode: 'default', permissionModes: {} };
 }
 
 /**
@@ -762,11 +765,12 @@ function isLoopbackHost(host: string | undefined): boolean {
 
 function state(root: string, daemons: DaemonPoolState, projects: string): ApiState {
   const { config, initialized } = loadConfig(root);
+  const requests = listRequests(root);
   const jobs = listJobs(root).map((j) => {
     const events = readEvents(root, j.id);
     const last = events[events.length - 1] ?? null;
     // The time rule only, so polling never spawns `ps`; the job detail adds the daemon proofs.
-    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: ownerStatus(j), activity: jobActivity(root, j, projects) };
+    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: ownerStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests) };
   });
   return {
     apiVersion: API_VERSION,
@@ -784,9 +788,9 @@ function state(root: string, daemons: DaemonPoolState, projects: string): ApiSta
       effort: resolveEffort(config).level,
     },
     // `enabled` and the cap from this read of config.yml, so they are current even while the pool is stopped.
-    daemons: { ...daemons, enabled: config.daemon?.enabled === true, maxConcurrent: validCap(config.daemon?.maxConcurrent) ?? daemons.maxConcurrent },
+    daemons: { ...daemons, enabled: config.daemon?.enabled === true, foreman: config.foreman?.enabled === true, maxConcurrent: validCap(config.daemon?.maxConcurrent) ?? daemons.maxConcurrent },
     jobs,
-    requests: listRequests(root).filter((r) => r.status === 'pending' || r.status === 'in-progress'),
+    requests: requests.filter((r) => r.status === 'pending' || r.status === 'in-progress'),
     now: new Date().toISOString(),
   };
 }

@@ -63,7 +63,7 @@ export function prepareRetro(
     const events = readEvents(root, j.id);
     const lines: string[] = [];
     for (const e of events) {
-      if (e.type === 'human') lines.push(`- human **${e.action}**${e.note ? `: ${String(e.note).slice(0, 400)}` : ''}`);
+      if (e.type === 'human') lines.push(`- ${e.actor === 'foreman' ? 'foreman' : 'human'} **${e.action}**${e.note ? `: ${String(e.note).slice(0, 400)}` : ''}`);
       if (e.type === 'command' && !e.ok && /^verify-/.test(e.name ?? '')) lines.push(`- verify step failed: ${e.name}`);
       if (e.type === 'integrate-conflicts') lines.push(`- merge conflicts in: ${((e.conflicts ?? []) as string[]).join(', ')}`); // the event lists the conflicted paths
     }

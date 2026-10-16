@@ -1,10 +1,10 @@
 // Agent briefs for `forge job step`: paths and config-derived lines only, never file contents, so
 // text an agent wrote (after reading tracker or PR text) is never re-injected into another prompt.
 import path from 'node:path';
-import { lensNeedsApp, resolveEffort, reviewerChecklist } from './config.ts';
+import { autoMerge, lensNeedsApp, resolveEffort, reviewerChecklist } from './config.ts';
 import { jobDir, reviewDir } from './jobs.ts';
 import { paths, exists } from './paths.ts';
-import type { Config, Job, StepInput } from './types.ts';
+import type { Config, GateClass, Job, StepInput } from './types.ts';
 
 /**
  * Absolute paths an agent prompt needs, keyed as `forge job paths` prints them. Reads (which
@@ -150,7 +150,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
         [
           `Acceptance criteria (forge job acs): ${JSON.stringify(input.acs)}`,
           `Always escalate: ${JSON.stringify(c.approver.alwaysEscalate ?? [])}`,
-          `Merge: auto ${Boolean(c.merge.auto)} · autoWhen ${JSON.stringify(c.merge.autoWhen ?? [])}`,
+          `Merge: auto ${autoMerge(c)} · autoWhen ${JSON.stringify(c.merge.autoWhen ?? [])}`,
           infra,
           `Scope: ${p('scope')}`,
         ],
@@ -194,4 +194,36 @@ export function renderBrief(input: StepInput, spec: BriefSpec): string {
     REPLY_LINE,
   ];
   return lines.join('\n');
+}
+
+/**
+ * The forge:assistant brief `forge job assist` returns to the office session: paths, the gate class
+ * and the reserved list, never file contents, so the office session's context holds no job text.
+ * Reads nothing: every path is listed whether or not it exists, and the assistant skips the missing.
+ */
+export function assistantBrief(root: string, config: Config, job: Job, gate: GateClass, reserved: unknown): string {
+  const dir = jobDir(root, job.id);
+  const round = Math.max(job.round, 1);
+  const inputs = [
+    path.join(dir, 'request.md'),
+    path.join(dir, 'plan.md'),
+    path.join(dir, 'spec.md'),
+    path.join(dir, 'decision.md'),
+    reviewDir(root, job.id, round),
+    path.join(dir, 'pr-feedback.md'),
+    path.join(dir, 'verify', `round-${job.round}.md`),
+    path.join(dir, 'feedback.md'),
+  ];
+  return [
+    `Job id: ${job.id}`,
+    'Role: assistant',
+    `Gate: ${gate}`,
+    `Round: ${job.round}`,
+    `Inputs: ${inputs.join(', ')}`,
+    `Output: ${path.join(dir, 'feedback.md')} (only on revise or rework)`,
+    // JSON, so a pattern can't start a line of its own in the brief.
+    `Reserved: ${JSON.stringify(Array.isArray(reserved) ? reserved : [])}`,
+    UNTRUSTED_LINE,
+    REPLY_LINE,
+  ].join('\n');
 }

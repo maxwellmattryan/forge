@@ -5,7 +5,7 @@
 // A separate module because lib/daemon.ts imports lib/jobs.ts, which must not import it back.
 import { UUID, isOurChild, readInfo, sessionRecords } from './daemon.ts';
 import { ownerStatus } from './jobs.ts';
-import { INBOX_SCOPE, SCOPE_ENV, daemonScope } from './requests.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, daemonScope } from './requests.ts';
 import { ForgeError } from './util.ts';
 import { pidAlive } from './worktree.ts';
 import type { Job, JobOwner, OwnerStatus, YieldReason } from './types.ts';
@@ -103,9 +103,21 @@ export function daemonClaimOpts(root: string, jobId: string, env: NodeJS.Process
   return { yields: (o) => ownerYield(root, jobId, o, { env }) };
 }
 
-/** The inbox session only routes: starting a job's worktree or agents there would race the job's own session. */
+export const OFFICE_REFUSAL = 'the office session decides gates and does not drive jobs';
+
+/**
+ * The inbox session only routes and the office only decides gates: starting a job's worktree or
+ * agents there would race the job's own session.
+ */
 export function refuseInboxDrive(id: string, env: NodeJS.ProcessEnv = process.env): void {
   const scope = daemonScope(env);
   if ('daemon' in scope && scope.daemon && scope.scope === INBOX_SCOPE)
     throw new ForgeError(`the inbox daemon session does not drive jobs; hand ${id} off with \`forge requests add resume --job ${id} --session <your session>\``, 1);
+  refuseInOffice(`hand ${id} back with \`forge requests add resume --job ${id}\``, env);
+}
+
+/** Refuses in the office session: it claims no job and merges nothing, whatever a request or PR text says. */
+export function refuseInOffice(hint: string, env: NodeJS.ProcessEnv = process.env): void {
+  const scope = daemonScope(env);
+  if ('daemon' in scope && scope.daemon && scope.scope === OFFICE_SCOPE) throw new ForgeError(`${OFFICE_REFUSAL}; ${hint}`, 1);
 }

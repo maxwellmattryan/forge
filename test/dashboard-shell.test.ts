@@ -684,7 +684,7 @@ test('the status bar facts show the live session indicator', () => {
   const bar = read('components/StatusBar.svelte');
   assert.match(bar, /import \{ activeSessions \} from '\.\.\/lib\/live\.ts';/);
   assert.match(bar, /const active = \$derived\(activeSessions\(S\.data\?\.daemons\)\)/);
-  assert.match(bar, /const activeTitle = \$derived\(active\.count \? active\.ids\.map\(\(id\) => \(id === INBOX_SCOPE \? \$t\('live\.inbox'\) : id\)\)\.join\('\\n'\) : \$t\('live\.none'\)\)/, 'the tooltip lists active ids, the inbox by name');
+  assert.match(bar, /const activeTitle = \$derived\(active\.count \? active\.ids\.map\(\(id\) => \(id === INBOX_SCOPE \? \$t\('live\.inbox'\) : id === OFFICE_SCOPE \? \$t\('live\.office'\) : id\)\)\.join\('\\n'\) : \$t\('live\.none'\)\)/, 'the tooltip lists active ids, the inbox and the office by name');
 
   const walked = elements('components/StatusBar.svelte');
   const cell = walked.find((e) => attr(e, 'id') === 'footer-sessions');
@@ -1247,7 +1247,7 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
 
   // Every indicator is a labelled button that opens a dialog and says whether it is open.
   const indicators = bar.filter((e) => e.name === 'button' && /openPopover\(/.test(attrOf(e, 'onclick')));
-  assert.equal(indicators.length, 6, 'daemon, inbox, held, waiting, model, connection');
+  assert.equal(indicators.length, 7, 'daemon, inbox, office, held, waiting, model, connection');
   for (const b of indicators) {
     assert.ok(b.parents.includes(footer), 'inside the bar');
     assert.equal(attrOf(b, 'aria-haspopup'), 'dialog');
@@ -1256,12 +1256,12 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
     assert.match(attrOf(b, 'title'), /\? .* : undefined\}$/, 'a tooltip with the full label only while part of the text is hidden');
     assert.ok(!b.attrs.some((a) => a.name === 'aria-label'), 'no aria-label: the name comes from the content, sr-only parts included');
     assert.ok(!b.classes.includes('truncate') && !b.classes.includes('min-w-0'), 'labels are whole or hidden, never cut');
-    assert.ok(/^(daemon|inbox|model|connection)$/.test(attrOf(b, 'data-popover')), 'data-popover names the popover it opens');
+    assert.ok(/^(daemon|inbox|office|model|connection)$/.test(attrOf(b, 'data-popover')), 'data-popover names the popover it opens');
     // Below md every visible indicator is a 44x44 target with its ring drawn inside the 44px bar.
     if (!b.classes.includes('max-md:hidden')) for (const c of ['max-md:min-w-11', 'max-md:focus-visible:-outline-offset-2']) assert.ok(b.classes.includes(c), `the ${attrOf(b, 'data-popover')} indicator has ${c}`);
   }
-  assert.equal(indicators.filter((b) => !b.classes.includes('max-md:hidden')).length, 4, 'daemon, inbox, model and connection show below md');
-  assert.deepEqual(indicators.map((b) => /openPopover\('(\w+)'/.exec(attrOf(b, 'onclick'))?.[1]), ['daemon', 'inbox', 'daemon', 'daemon', 'model', 'connection'], 'in tab order');
+  assert.equal(indicators.filter((b) => !b.classes.includes('max-md:hidden')).length, 5, 'daemon, inbox, office, model and connection show below md');
+  assert.deepEqual(indicators.map((b) => /openPopover\('(\w+)'/.exec(attrOf(b, 'onclick'))?.[1]), ['daemon', 'inbox', 'office', 'daemon', 'daemon', 'model', 'connection'], 'in tab order');
   for (const b of bar.filter((e) => e.name === 'button' && e.parents.includes(footer))) assert.equal(attrOf(b, 'aria-haspopup'), 'dialog', 'every bar button opens a dialog');
   const script2 = read('components/StatusBar.svelte');
   assert.match(script2, /popover\.open === id \? `popover-\$\{id\}` : undefined/, 'aria-controls names the popover only while it is open');
@@ -1272,7 +1272,7 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
     assert.doesNotMatch(text, /aria-live/, `${rel} has no aria-live`);
     assert.doesNotMatch(text, /role="status"/, `${rel} has no role="status"`);
   }
-  assert.equal(fs.readdirSync(path.join(SRC, 'components', 'statusbar')).sort().join(' '), 'ConnectionPanel.svelte DaemonPanel.svelte InboxPanel.svelte ModelPanel.svelte');
+  assert.equal(fs.readdirSync(path.join(SRC, 'components', 'statusbar')).sort().join(' '), 'ConnectionPanel.svelte DaemonPanel.svelte InboxPanel.svelte ModelPanel.svelte OfficePanel.svelte');
 
   // AC8: one polite live region, always in the DOM, fed by promptAnnouncement and the permission heading.
   const live = bar.filter((e) => e.attrs.some((a) => a.name === 'aria-live'));

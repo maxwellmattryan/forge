@@ -485,6 +485,7 @@ const CLOCK_SKEW_MS = 60_000;
  * after its start, the ceiling ownerStatus uses, so a phantom can't hold a slot forever.
  */
 export function sessionAgents(root: string, scope: string, sessionId: string | null, at = Date.now()): SessionAgents {
+  // The office's scope is not a job id either, so it never has agents to keep it.
   if (scope === INBOX_SCOPE || !validJobId(scope) || !sessionId) return noAgents();
   let job;
   try {

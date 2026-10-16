@@ -30,6 +30,8 @@ export interface JobChip {
 export interface PoolModel {
   pill: Pill;
   inbox: Pill;
+  /** The office session's pill, or null while foreman.enabled is false: the status bar then shows no office. */
+  office: Pill | null;
   live: number;
   cap: number;
   held: string[];
@@ -90,7 +92,8 @@ export function sessionPill(session: SessionInput): Pill {
 export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): PoolModel | null {
   const p = obj(pool);
   const jobs = Object.entries(obj(p.jobs)).map(([id, s]) => [id, obj(s)] as const);
-  const sessions = [obj(p.inbox), ...jobs.map(([, s]) => s)];
+  const foreman = p.foreman === true;
+  const sessions = [obj(p.inbox), ...(foreman ? [obj(p.office)] : []), ...jobs.map(([, s]) => s)];
   const anyRunning = sessions.some(running);
   if (!pool || (!p.enabled && !p.wanted && !anyRunning)) return null;
   let label = 'stopped';
@@ -113,6 +116,7 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
       title: p.lastError ? String(p.lastError) : [`${jobs.filter(([, s]) => running(s)).length} job sessions running`, ...sessions.filter((s) => s.lastError).map((s) => `${String(s.scope ?? '')}: ${String(s.lastError)}`)].join('\n'),
     },
     inbox: sessionPill(p.inbox ?? null),
+    office: foreman ? sessionPill(p.office ?? null) : null,
     live: Number(p.live) || 0,
     cap: Number(p.maxConcurrent) || 0,
     held: jobs.filter(([, s]) => s.held).map(([id]) => id),

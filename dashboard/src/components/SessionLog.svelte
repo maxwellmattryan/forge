@@ -15,7 +15,7 @@
   import { renderable } from '../lib/md-view.ts';
   import { mdView } from '../lib/md-view.svelte.ts';
   import { TONE_CLASS, clock, usd } from '../lib/util.ts';
-  import { INBOX_SCOPE } from '../lib/types.ts';
+  import { INBOX_SCOPE, OFFICE_SCOPE } from '../lib/types.ts';
   import type { DaemonSessionState } from '../lib/types.ts';
   import { atBottom, buildSessionView, readFilters } from '../lib/session-log.ts';
   import type { Entry, Filters, Item } from '../lib/session-log.ts';
@@ -45,7 +45,7 @@
 
   // The stream's state frames are freshest; the 2 s /api/state poll covers the rest.
   let live = $state<Partial<DaemonSessionState> | null>(null);
-  const polled = $derived(scope === INBOX_SCOPE ? (S.data?.daemons?.inbox ?? null) : (S.data?.daemons?.jobs?.[scope] ?? null));
+  const polled = $derived(scope === INBOX_SCOPE ? (S.data?.daemons?.inbox ?? null) : scope === OFFICE_SCOPE ? (S.data?.daemons?.office ?? null) : (S.data?.daemons?.jobs?.[scope] ?? null));
   const session = $derived(live ?? polled);
   const poolWanted = $derived(S.data?.daemons?.wanted === true);
   let pending = $state(false);
@@ -234,10 +234,13 @@
         {#if !PERMISSION_MODES.some((m) => m === mode.chosen)}<option value={mode.chosen} disabled>{mode.chosen}</option>{/if}
       </select>
     </label>
-    {#if scope !== INBOX_SCOPE}<EffortSelect job={scope} />{/if}
+    {#if scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE}<EffortSelect job={scope} />{/if}
     {#if scope === INBOX_SCOPE}
       <button class="btn sm" disabled={!controls.canStart} title={$t('session.startHint')} onclick={() => act('start')}><Icon name="play" />{$t('session.startInbox')}</button>
       <button class="btn sm" disabled={!controls.canStop} onclick={() => act('stop')}><Icon name="stop" />{$t('session.stopInbox')}</button>
+    {:else if scope === OFFICE_SCOPE}
+      <button class="btn sm" disabled={!controls.canStart} title={$t('session.startHint')} onclick={() => act('start')}><Icon name="play" />{$t('session.startOffice')}</button>
+      <button class="btn sm" disabled={!controls.canStop} onclick={() => act('stop')}><Icon name="stop" />{$t('session.stopOffice')}</button>
     {:else}
       <button class="btn sm" disabled={!controls.canStart} title={$t('session.startHint')} aria-label={$t('session.startJob')} onclick={() => act('start')}><Icon name="play" />{$t('session.start')}</button>
       <button class="btn sm" disabled={!controls.canStop} aria-label={$t('session.stopJob')} onclick={() => act('stop')}><Icon name="stop" />{$t('session.stop')}</button>
@@ -262,7 +265,7 @@
     <div class="text-sm text-muted">{$t('session.loading')}</div>
   {:else if !entries.length}
     {@const enabled = S.data?.daemons?.enabled === true}
-    <Empty>{#if transcript}{$t('session.transcriptEmpty')}{:else if scope === INBOX_SCOPE}{enabled ? $t('session.emptyInboxEnabled') : $t('session.emptyInbox')}{:else}{enabled ? $t('session.emptyEnabled') : $t('session.empty')}{/if}</Empty>
+    <Empty>{#if transcript}{$t('session.transcriptEmpty')}{:else if scope === INBOX_SCOPE}{enabled ? $t('session.emptyInboxEnabled') : $t('session.emptyInbox')}{:else if scope === OFFICE_SCOPE}{$t('session.emptyOffice')}{:else}{enabled ? $t('session.emptyEnabled') : $t('session.empty')}{/if}</Empty>
   {/if}
   {#if entries.length}
     <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrollable region must be reachable from the keyboard) -->

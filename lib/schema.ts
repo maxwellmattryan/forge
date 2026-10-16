@@ -4,14 +4,14 @@
 // refused rather than guessed at.
 import type { Job, LoadedJob } from './types.ts';
 
-export const CONFIG_SCHEMA_VERSION = 4;
+export const CONFIG_SCHEMA_VERSION = 5;
 export const JOB_SCHEMA_VERSION = 9;
 export const EVENT_SCHEMA_VERSION = 1;
 /**
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 18;
+export const API_VERSION = 19;
 
 export const STAGES = [
   'backlog',
@@ -60,7 +60,13 @@ export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 export const COMPLEXITIES = ['low', 'medium', 'high'] as const;
 
 /** The roles runtime.efforts sets, in runtime.models order. No orchestrator: sessions take runtime.effort. */
-export const EFFORT_ROLES = ['planner', 'spec-writer', 'designer', 'builder', 'reviewer', 'approver', 'integrator', 'retro', 'judge'] as const;
+export const EFFORT_ROLES = ['planner', 'spec-writer', 'designer', 'builder', 'reviewer', 'approver', 'integrator', 'retro', 'judge', 'assistant'] as const;
+
+/** The gate classes the foreman may decide (foreman.decides); `pr-feedback` is a job waiting on pr-review with feedback. */
+export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback'] as const;
+
+/** foreman.ship: propose leaves merging as it was; merge counts as merge.auto for the approver and PR4. */
+export const FOREMAN_SHIP = ['propose', 'merge'] as const;
 
 /** Config migrations keyed by the version they upgrade *from*. */
 const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
@@ -81,6 +87,9 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // defaulting to unset, so no v3 config changes; the bump lets older Forges refuse a config whose
   // effort they would ignore.
   3: (c) => c,
+  // v5 adds the foreman block (off by default) and the assistant's model and effort, so no v4 config
+  // changes; the bump lets older Forges refuse a config whose foreman policy they would ignore.
+  4: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {

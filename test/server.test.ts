@@ -901,7 +901,7 @@ test('POST /api/daemon starts and stops one session', async () => {
     const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)[1];
     const good = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
     const post = (body, headers: any = good) => hit(port, { method: 'POST', path: '/api/daemon', headers, body: JSON.stringify(body) });
-    const keys = ['enabled', 'wanted', 'maxConcurrent', 'live', 'lastError', 'inbox', 'jobs', 'permissionMode', 'permissionModes', 'clients'];
+    const keys = ['enabled', 'wanted', 'maxConcurrent', 'live', 'lastError', 'inbox', 'office', 'foreman', 'jobs', 'permissionMode', 'permissionModes', 'clients'];
     assert.equal((await post({ action: 'stop', scope: jobA }, { ...good, 'x-forge-token': 'wrong' })).status, 403);
     assert.equal((await post({ action: 'stop', scope: jobA }, { ...good, origin: 'http://evil.example' })).status, 403);
     assert.equal((await post({ action: 'stop', scope: jobA }, { ...good, 'content-type': 'text/plain' })).status, 415);
@@ -946,7 +946,7 @@ test('POST /api/daemon starts and stops one session', async () => {
 
 test('/api/state exposes the session pool', async () => {
   const repo = tempRepo();
-  const keys = ['enabled', 'wanted', 'maxConcurrent', 'live', 'lastError', 'inbox', 'jobs', 'permissionMode', 'permissionModes', 'clients'];
+  const keys = ['enabled', 'wanted', 'maxConcurrent', 'live', 'lastError', 'inbox', 'office', 'foreman', 'jobs', 'permissionMode', 'permissionModes', 'clients'];
   const sessionKeys = ['scope', 'wanted', 'running', 'status', 'sessionId', 'pid', 'lastTurnAt', 'lastResultAt', 'turns', 'failures', 'held', 'waiting', 'lastError', 'permissions', 'permissionMode', 'kept', 'effort'];
   const kitOff = fakeChildren();
   let srv = await startServer(repo.dir, { port: 0, daemon: kitOff.opts });
@@ -1007,7 +1007,7 @@ test('/api/state exposes the session pool', async () => {
     .map((f) => fs.readFileSync(path.join(src, f), 'utf8'))
     .join('\n');
   assert.ok(app.includes('/api/requests'), 'read the dashboard sources');
-  assert.equal(DASH_API_VERSION, 18, 'the dashboard reads API_VERSION from src/lib/types.ts');
+  assert.equal(DASH_API_VERSION, 19, 'the dashboard reads API_VERSION from src/lib/types.ts');
   assert.doesNotMatch(app, /launcher|launched/);
 });
 
@@ -1171,7 +1171,7 @@ test('GET /api/about reports versions', async () => {
     assert.equal(r.status, 200);
     const a = JSON.parse(r.text);
     assert.equal(a.forgeVersion, JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version);
-    assert.equal(a.apiVersion, 18);
+    assert.equal(a.apiVersion, 19);
     assert.equal(a.pluginRoot, PLUGIN_ROOT);
     assert.deepEqual(a.schemaVersions, { config: schema.CONFIG_SCHEMA_VERSION, job: schema.JOB_SCHEMA_VERSION, event: schema.EVENT_SCHEMA_VERSION });
     assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'pricing.json'), 'utf8')).asOf);
@@ -1359,6 +1359,62 @@ test('POST /api/requests validates link and n args', async () => {
   }
 });
 
+test('dashboard cannot enqueue gate requests', async () => {
+  const repo = tempRepo();
+  const job = seedJob(repo.dir, 'job-a');
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const port = Number(new URL(url).port);
+  try {
+    for (const body of [{ type: 'gate', job, args: { gate: 'spec-approval', reserved: null } }, { type: 'gate', job }, { type: 'gate' }]) {
+      const r = await postJson(port, '/api/requests', body);
+      assert.equal(r.status, 400, JSON.stringify(body));
+      assert.match(JSON.parse(r.text).error, /gate requests are written only by/);
+    }
+    assert.deepEqual(JSON.parse((await hit(port, { path: '/api/requests' })).text), [], 'nothing was queued');
+    // The office scope is a session the daemon endpoints accept, with no job behind it.
+    const mode = await postJson(port, '/api/daemon/mode', { scope: '_office', mode: 'dontAsk' });
+    assert.notEqual(mode.status, 404, mode.text);
+    assert.notEqual(mode.status, 400, mode.text);
+  } finally {
+    await close();
+    repo.cleanup();
+  }
+});
+
+test('state exposes office session and gateOwner', async () => {
+  const repo = tempRepo();
+  fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
+  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 5, foreman: { enabled: true } }));
+  const now = new Date().toISOString();
+  const seed = (id: string, extra: Record<string, unknown>) => {
+    const d = path.join(repo.dir, '.forge', 'jobs', id);
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, 'job.json'), JSON.stringify({ schemaVersion: 9, id, title: id, stage: 'spec', state: 'running', createdAt: now, updatedAt: now, ...extra }));
+  };
+  seed('j-run', {});
+  seed('j-spec', { state: 'waiting', waitingOn: 'spec-approval', reason: 'spec ready' });
+  seed('j-auth', { stage: 'decide', state: 'waiting', waitingOn: 'escalation', reason: 'approver escalated: auth change' });
+  seed('j-input', { stage: 'build', state: 'waiting', waitingOn: 'input' });
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const port = Number(new URL(url).port);
+  try {
+    const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
+    assert.equal(st.apiVersion, 19);
+    assert.equal(st.daemons.foreman, true);
+    assert.equal(st.daemons.office.scope, '_office');
+    assert.equal(st.daemons.office.running, false);
+    const owners = Object.fromEntries(st.jobs.map((j) => [j.id, j.gateOwner]));
+    assert.deepEqual(owners, { 'j-run': null, 'j-spec': 'foreman', 'j-auth': 'human', 'j-input': 'human' });
+    fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 5, foreman: { enabled: false } }));
+    const off = JSON.parse((await hit(port, { path: '/api/state' })).text);
+    assert.equal(off.daemons.foreman, false);
+    assert.ok(off.jobs.every((j) => j.gateOwner === null), 'the foreman off: no owner badge');
+  } finally {
+    await close();
+    repo.cleanup();
+  }
+});
+
 test('job detail lists the job\'s requests', async () => {
   const repo = tempRepo();
   const a = seedJob(repo.dir, 'job-a');
@@ -1443,7 +1499,7 @@ test('owner status in /api/state and job detail', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 18);
+    assert.equal(st.apiVersion, 19);
     const byId = Object.fromEntries(st.jobs.map((j) => [j.id, j.ownerStatus]));
     assert.deepEqual(Object.fromEntries(Object.entries(byId).map(([k, v]: [string, any]) => [k, v.status])), { 'j-none': 'none', 'j-live': 'live', 'j-agent': 'live', 'j-stale': 'stale', 'j-dead': 'live' }, 'the time rule only: never dead');
     assert.deepEqual(byId['j-none'], { status: 'none', session: null, since: null, heartbeat: null, agentRunning: false, reason: null, jobSession: false });
@@ -1591,7 +1647,7 @@ test('/api/state and job detail carry effort', async () => {
   try {
     const port = Number(new URL(srv.url).port);
     const s = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(s.apiVersion, 18);
+    assert.equal(s.apiVersion, 19);
     assert.equal(s.config.effort, 'medium');
     const row = (id) => s.jobs.find((j) => j.id === id);
     assert.equal(row(plain).effort, null, 'a v3 job reads as inherit');

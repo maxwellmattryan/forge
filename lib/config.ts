@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PLUGIN_ROOT, paths, exists, resolveFrom } from './paths.ts';
-import { COMPLEXITIES, CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, migrateConfig } from './schema.ts';
+import { COMPLEXITIES, CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES, migrateConfig } from './schema.ts';
 import type { Config, Effort, EffortRole, EffortSource, LoadedConfig, VerifyEntry } from './types.ts';
 import { ForgeError, deepMerge, isClaudeExecutable, readText, splitWords } from './util.ts';
 import * as yaml from './yaml.ts';
@@ -75,6 +75,7 @@ export function defaults(): Config {
         integrator: 'sonnet',
         retro: 'opus',
         judge: 'opus',
+        assistant: 'sonnet',
       },
     },
     tracker: {
@@ -195,7 +196,50 @@ export function defaults(): Config {
       // would silently bill it instead of the subscription.
       auth: 'subscription',
     },
+    // Opt-in: the `_office` daemon session decides gates through forge:assistant sub-agents;
+    // docs/ARCHITECTURE.md "Foreman". Whole-phrase, case-insensitive patterns: a match keeps the
+    // gate with a human, and a false positive errs that way on purpose.
+    foreman: {
+      enabled: false,
+      decides: [...OFFICE_GATES],
+      reserved: [...DEFAULT_RESERVED],
+      ship: 'propose',
+    },
   };
+}
+
+/** foreman.reserved's default: topics that always stay with a human. */
+export const DEFAULT_RESERVED = [
+  'credential',
+  'credentials',
+  'secret',
+  'secrets',
+  'token',
+  'tokens',
+  'password',
+  'auth',
+  'authentication',
+  'authorization',
+  'oauth',
+  'permission',
+  'permissions',
+  'security',
+  'CI',
+  'CI/CD',
+  'workflow',
+  'workflows',
+  'GitHub Actions',
+  'payment',
+  'payments',
+  'PII',
+  'crypto',
+  'cryptography',
+  'encryption',
+] as const;
+
+/** foreman.ship merge (with the foreman on) counts as merge.auto, for the approver brief and step PR4 only. */
+export function autoMerge(config: Config): boolean {
+  return config.merge?.auto === true || (config.foreman?.enabled === true && config.foreman?.ship === 'merge');
 }
 
 /**
@@ -270,6 +314,24 @@ export function validateConfig(c: any, root: string): string[] {
     else if (k === 'verifyRetries' && !Number.isInteger(v)) problems.push(`pipeline.budget.verifyRetries must be null or a non-negative integer (got ${v})`);
   }
   problems.push(...daemonProblems(c, root));
+  problems.push(...foremanProblems(c));
+  return problems;
+}
+
+/** foreman.*: at run time an unknown `decides` class is ignored and an invalid `reserved` fails closed. */
+export function foremanProblems(c: any): string[] {
+  const f = c.foreman;
+  if (f === undefined) return [];
+  if (f === null || typeof f !== 'object' || Array.isArray(f)) return [`foreman must be a map (got ${JSON.stringify(f)})`];
+  const problems: string[] = [];
+  if (f.enabled !== undefined && typeof f.enabled !== 'boolean') problems.push(`foreman.enabled must be true or false (got ${JSON.stringify(f.enabled)})`);
+  if (!Array.isArray(f.decides)) problems.push(`foreman.decides must be a list of gate classes (got ${JSON.stringify(f.decides)})`);
+  else
+    for (const g of f.decides)
+      if (!(OFFICE_GATES as readonly unknown[]).includes(g)) problems.push(`foreman.decides entry ${JSON.stringify(g)} is not a gate class (${OFFICE_GATES.join(' | ')})`);
+  if (!Array.isArray(f.reserved) || f.reserved.some((p: unknown) => typeof p !== 'string' || !p.trim()))
+    problems.push(`foreman.reserved must be a list of non-empty strings (got ${JSON.stringify(f.reserved)}); until fixed, every gate stays with a human`);
+  if (!(FOREMAN_SHIP as readonly unknown[]).includes(f.ship)) problems.push(`foreman.ship must be one of ${FOREMAN_SHIP.join(' | ')} (got ${JSON.stringify(f.ship)})`);
   return problems;
 }
 

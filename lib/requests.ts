@@ -8,7 +8,7 @@ import { paths, exists } from './paths.ts';
 import type { ForgeRequest } from './types.ts';
 import { ForgeError, now, readJson, shortId, withLock, writeJsonAtomic } from './util.ts';
 
-export const REQUEST_TYPES = ['next', 'run', 'approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume', 'sync', 'eval-run', 'retro'] as const;
+export const REQUEST_TYPES = ['next', 'run', 'approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume', 'sync', 'eval-run', 'retro', 'gate'] as const;
 
 /** Request types that act on one job, so they need one and route to that job's daemon session. */
 export const JOB_REQUEST_TYPES = ['approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume'] as const;
@@ -18,6 +18,8 @@ export const JOB_REQUEST_TYPES = ['approve', 'revise-spec', 'rework', 'answer', 
  * alphanumeric, so it can never be one.
  */
 export const INBOX_SCOPE = '_inbox';
+/** The foreman's daemon session: it receives every `gate` request and never drives a job. */
+export const OFFICE_SCOPE = '_office';
 /** Carries a daemon session's scope into its environment; never stdin or argv. */
 export const SCOPE_ENV = 'FORGE_DAEMON_SCOPE';
 export const JOB_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -28,16 +30,17 @@ export function validJobId(s: unknown): s is string {
   return typeof s === 'string' && s.length <= MAX_JOB_ID && JOB_ID.test(s);
 }
 
-/** Syntax only: the inbox or a valid job id. Existence is requestScope's business. */
+/** Syntax only: the inbox, the office or a valid job id. Existence is requestScope's business. */
 export function validScope(s: unknown): s is string {
-  return s === INBOX_SCOPE || validJobId(s);
+  return s === INBOX_SCOPE || s === OFFICE_SCOPE || validJobId(s);
 }
 
 /**
- * Which daemon session a request belongs to: its job's for a job request whose job exists,
- * the inbox for everything else (which rejects malformed or unknown jobs per the skill).
+ * Which daemon session a request belongs to: the office for a gate, its job's for a job request
+ * whose job exists, the inbox for everything else (which rejects malformed or unknown jobs per the skill).
  */
 export function requestScope(root: string, rec: { type?: unknown; job?: unknown }): string {
+  if (rec?.type === 'gate') return OFFICE_SCOPE;
   if (!(JOB_REQUEST_TYPES as readonly unknown[]).includes(rec?.type) || !validJobId(rec.job)) return INBOX_SCOPE;
   return exists(path.join(paths(root).jobs, rec.job, 'job.json')) ? rec.job : INBOX_SCOPE;
 }
@@ -65,6 +68,7 @@ export function enqueue(
   if (!(REQUEST_TYPES as readonly string[]).includes(req.type)) throw new ForgeError(`unknown request type "${req.type}"`);
   if ((JOB_REQUEST_TYPES as readonly string[]).includes(req.type) && !req.job)
     throw new ForgeError(`request "${req.type}" needs a job`);
+  if (req.type === 'gate' && !validJobId(req.job)) throw new ForgeError('a gate request needs a valid job');
   const id = `${Date.now()}-${shortId()}`;
   const rec: ForgeRequest = {
     id,
