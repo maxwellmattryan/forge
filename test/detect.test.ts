@@ -78,3 +78,21 @@ test('suggests worktrees.generated for committed build output', () => {
   assert.deepEqual(suggest({ ...build, 'a/b/dist/x': '1' }), [], 'third level is not suggested');
   assert.deepEqual(suggest({ 'dist/a.js': '1' }), [], 'no build command, nothing regenerates it');
 });
+
+test('suggests the design lens for UI repos', () => {
+  const panel = (files: Record<string, string>) => {
+    const repo = tempRepo();
+    try {
+      for (const [rel, text] of Object.entries(files)) fs.writeFileSync(path.join(repo.dir, rel), text);
+      return detect(repo.dir).suggestions['review.panel'] as string[];
+    } finally {
+      repo.cleanup();
+    }
+  };
+  const ui = panel({ 'package.json': pkg({ dependencies: { svelte: '5.0.0' } }) });
+  assert.ok(ui.includes('design'), JSON.stringify(ui));
+  for (const lens of ['ui', 'ux', 'accessibility']) assert.ok(!ui.includes(lens), `${lens} in ${JSON.stringify(ui)}`);
+
+  const plain = panel({ 'package.json': pkg({ dependencies: { express: '4.0.0' } }) });
+  for (const lens of ['design', 'ui', 'ux', 'accessibility']) assert.ok(!plain.includes(lens), `${lens} in ${JSON.stringify(plain)}`);
+});
