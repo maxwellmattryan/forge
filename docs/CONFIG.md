@@ -403,7 +403,7 @@ All four keys are read-only in the settings: edit them by hand.
 
 | Path | Purpose |
 |---|---|
-| `.forge/notes/learnings.md` | lessons every agent reads; keep short |
+| `.forge/notes/learnings.md` | lessons every agent reads; keep short; each carries an experiment and a review-by |
 | `.forge/notes/<role>.md` | addendum for one role (`builder.md`, `spec-writer.md`, …) |
 | `.forge/notes/experiments.md` | the retro's ledger of changes and their metrics |
 | `.forge/reviewers/<lens>.md` | a repo checklist; overrides the built-in lens of the same name |
