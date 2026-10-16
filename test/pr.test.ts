@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { findPr, mergeAction, hasCiWorkflows, mergePr, prText, syncPr, syncTransition } from '../lib/pr.ts';
+import { approvedBy, findPr, mergeAction, hasCiWorkflows, mergePr, prText, syncPr, syncTransition } from '../lib/pr.ts';
 import { stripAttribution } from '../lib/attribution.ts';
 import { defaults } from '../lib/config.ts';
 import { claimJob, createJob, loadJob, logEvent, setJob, readEvents, updateJob } from '../lib/jobs.ts';
@@ -701,14 +701,31 @@ test('pr body names the approving human', () => {
     const human = job('Escalated');
     escalateAndApprove(repo.dir, human, 'touches auth: needs a human.\nsecond line', { login: '@team`x`', source: 'gh' });
     const text = body(human);
-    const decision = `## Decision\n\nEscalated: touches auth: needs a human. second line. Approved by \`@teamx\` (gh) on ${today}.`;
+    const decision = `## Decision\n\nEscalated: \`touches auth: needs a human. second line\`. Approved by \`@teamx\` (gh) on ${today}.`;
     assert.ok(text.includes(decision), text);
     assert.ok(text.indexOf('## Decision') < text.indexOf('Source: '), 'before the Source line');
     assert.equal(stripAttribution(text), text, 'nothing for the attribution scrub to change');
 
     const nobody = job('Unknown approver');
     escalateAndApprove(repo.dir, nobody, 'risky', { login: null, source: 'unknown' });
-    assert.ok(body(nobody).includes('Approved by `unknown` (unknown)'));
+    assert.ok(body(nobody).includes(`Approved by a person (unknown) on ${today}.`));
+
+    // A local account name or a raw email never reaches a public PR or tracker comment: only gh and env logins are named.
+    for (const [source, login] of [['dashboard', 'localuser'], ['os', 'localuser'], ['git', 'someone@example.test']] as const) {
+      const id = job(`Approved via ${source}`);
+      escalateAndApprove(repo.dir, id, 'risky', { login, source });
+      const t = body(id);
+      assert.ok(t.includes(`Approved by a person (${source}) on ${today}.`), t);
+      assert.ok(!t.includes(login), `${source} login stays out of the PR body`);
+      const comment = approvedBy({ reason: 'r', login, source, ts: `${today}T00:00:00.000Z` });
+      assert.equal(comment, `a person (${source}) on ${today}`);
+    }
+    assert.equal(approvedBy({ reason: 'r', login: 'alice', source: 'env', ts: `${today}T00:00:00.000Z` }), `\`alice\` (env) on ${today}`);
+
+    // The reason sits in a code span, so a mention, link, image or HTML in it renders as text.
+    const crafted = job('Crafted reason');
+    escalateAndApprove(repo.dir, crafted, 'ping @org/team ![x](https://e.test/t.png) [l](https://e.test) <img src=x>', { login: 'alice', source: 'gh' });
+    assert.ok(body(crafted).includes('Escalated: `ping @org/team ![x](https://e.test/t.png) [l](https://e.test) <img src=x>`. Approved by'), body(crafted));
 
     const foreman = job('Foreman approved');
     escalateAndApprove(repo.dir, foreman, 'risky', { login: null, source: 'foreman' });

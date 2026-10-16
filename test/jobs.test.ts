@@ -162,6 +162,9 @@ test('reads v1 events into the v2 actor shape', () => {
     [{ login: '`@bob`\n', source: 'gh' }, { login: '@bob', source: 'gh' }],
   ] as const)
     assert.deepEqual(normalizeEvent({ v: 2, ts: 't', type: 'budget-ack', actor })!.actor, want, JSON.stringify(actor));
+  // A foreman source stays the foreman's whatever its login, so a malformed one never reads as a person's.
+  for (const login of [undefined, 7, 'mallory', { x: 1 }])
+    assert.deepEqual(normalizeEvent({ v: 2, ts: 't', type: 'human', actor: { login, source: 'foreman' } })!.actor, FOREMAN, String(login));
   // A raw legacy "foreman" on a v2 line is still the foreman's, never a person's.
   assert.deepEqual(normalizeEvent({ v: 2, ts: 't', type: 'human', actor: 'foreman' })!.actor, FOREMAN);
   // A newer Forge's event passes through, except that its actor is sanitised.

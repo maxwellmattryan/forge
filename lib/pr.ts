@@ -298,10 +298,22 @@ export function escalationApproval(events: JobEvent[]): EscalationApproval | nul
   return { reason, login: actor.login, source: actor.source, ts: approve.ts };
 }
 
-/** `` `<login>` (<source>) on <YYYY-MM-DD> ``: the login in a code span, so it can never mention anyone or carry markdown. */
+/**
+ * Sources whose login may be published. A `gh` login is already public on GitHub and `FORGE_ACTOR`
+ * is a name someone chose to record; `dashboard`, `os` and `git` are a local account name or a raw
+ * email address, which a public PR or issue must never carry.
+ */
+const PUBLIC_LOGIN_SOURCES: readonly ActorSource[] = ['gh', 'env'];
+
+/**
+ * `` `<login>` (<source>) on <YYYY-MM-DD> `` for a public source, else `a person (<source>) on <YYYY-MM-DD>`.
+ * The login sits in a code span, so it can never mention anyone or carry markdown.
+ */
 export function approvedBy(a: EscalationApproval): string {
-  const login = (a.login ?? '').replace(/`/g, '') || 'unknown';
-  return `\`${login}\` (${a.source}) on ${a.ts.slice(0, 10)}`;
+  const date = a.ts.slice(0, 10);
+  const login = (a.login ?? '').replace(/`/g, '');
+  if (!login || !PUBLIC_LOGIN_SOURCES.includes(a.source)) return `a person (${a.source}) on ${date}`;
+  return `\`${login}\` (${a.source}) on ${date}`;
 }
 
 function prBody(root: string, config: Config, job: Job): string {
@@ -309,7 +321,9 @@ function prBody(root: string, config: Config, job: Job): string {
   const custom = readText(path.join(dir, 'pr.md')).trim();
   const parts = [custom || `## Summary\n\n${firstParagraph(readText(path.join(dir, 'spec.md'))) || job.title}`];
   const approval = escalationApproval(readEvents(root, job.id));
-  if (approval) parts.push(`## Decision\n\nEscalated: ${approval.reason}. Approved by ${approvedBy(approval)}.`);
+  // The reason was written by an agent that read untrusted text, so it goes in a code span: no
+  // mention, link, image or HTML in it renders on a public PR (safeText already removed backticks).
+  if (approval) parts.push(`## Decision\n\nEscalated: \`${approval.reason}\`. Approved by ${approvedBy(approval)}.`);
   if (job.source?.tracker === 'github' && job.source.ref && config.pr.closeIssue) parts.push(`Closes #${job.source.ref}`);
   else if (job.source?.url) parts.push(`Source: ${job.source.url}`);
   parts.push(MARKER);

@@ -250,6 +250,9 @@ export function normalizeActor(raw: unknown): EventActor {
   if (typeof raw === 'string') return { login: sanitizeLogin(raw) || null, source: 'unknown' };
   if (!raw || typeof raw !== 'object') return { login: null, source: 'unknown' };
   const a = raw as { login?: unknown; source?: unknown };
+  // Whatever its login says, a foreman entry stays the foreman's: a malformed one must not fall to
+  // `unknown`, which protected paths would count as a person's approval.
+  if (a.source === 'foreman') return { login: null, source: 'foreman' };
   const login = typeof a.login === 'string' ? sanitizeLogin(a.login) || null : null;
   const valid = (typeof a.login === 'string' || a.login === null) && isActorSource(a.source);
   return { login, source: valid ? (a.source as EventActor['source']) : 'unknown' };
