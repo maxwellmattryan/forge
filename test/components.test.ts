@@ -5,11 +5,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
-import { defaults, loadConfig } from '../lib/config.ts';
+import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
 import { commandSources } from '../lib/integrity.ts';
 import { createJob, jobDir, updateJob } from '../lib/jobs.ts';
 import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
-import { jobComponent, servicesToComponents } from '../lib/components.ts';
+import { buildCycles, jobComponent, servicesToComponents } from '../lib/components.ts';
 import { commandTemplate, createWorktree } from '../lib/worktree.ts';
 import * as yaml from '../lib/yaml.ts';
 
@@ -176,6 +176,96 @@ describe('components in run and verify', { concurrency: 4 }, () => {
       assert.match(r.log, /TOP-TEST/);
     } finally {
       x.cleanup();
+    }
+  });
+});
+
+const lib = (name: string, extra: Record<string, unknown> = {}) => ({ name, path: `libs/${name}`, kind: 'library', ...extra });
+const dep = (component: string, type = 'build') => ({ component, type });
+/** validateConfig over defaults() with these components, keeping only the components problems. */
+const problemsFor = (components: unknown, extra: Record<string, unknown> = {}) =>
+  validateConfig({ ...defaults(), ...extra, components }, process.cwd()).filter((p) => /^(components|services)\b/.test(p));
+
+describe('components validation', { concurrency: 4 }, () => {
+  test('validation reports each malformed component', () => {
+    const valid = [
+      { name: 'core', repo: null, path: 'crates/core', kind: 'library', commands: { test: 'cargo test', dev: null }, owners: ['@team-core'], notes: null },
+      { name: 'api', path: 'svc/api', kind: 'service', dependsOn: [dep('core'), dep('web', 'runtime'), { backing: 'postgres', type: 'runtime' }] },
+      { name: 'web', path: '.', kind: 'app', dependsOn: [dep('core'), dep('api', 'runtime')] },
+    ];
+    assert.deepEqual(problemsFor(valid), []);
+    assert.deepEqual(validateConfig({ ...defaults(), components: valid }, process.cwd()), [], 'the whole config is valid');
+    const cases: [string, unknown, RegExp][] = [
+      ['non-list components', { core: {} }, /^components must be a list \(got \{"core":\{\}\}\)$/],
+      ['non-map entry', ['core'], /^components\[0\] must be a map$/],
+      ['missing name', [{ path: 'x', kind: 'library' }], /^components\[0\]\.name must .*\(got nothing\)$/],
+      ['name failing SAFE_REF', [lib('a;rm -rf')], /^components\[0\]\.name must .*"a;rm -rf"/],
+      ['duplicate name', [lib('a'), lib('a')], /^components "a" is listed more than once$/],
+      ['missing path', [{ name: 'a', kind: 'library' }], /^components "a"\.path must be a relative path inside the repo \(got nothing\)$/],
+      ['absolute path', [lib('a', { path: '/etc' })], /^components "a"\.path must be a relative path inside the repo \(got "\/etc"\)$/],
+      ['../x path', [lib('a', { path: '../x' })], /^components "a"\.path must be a relative path/],
+      ['a/../../x path', [lib('a', { path: 'a/../../x' })], /^components "a"\.path must be a relative path/],
+      ['bad kind', [lib('a', { kind: 'daemon' })], /^components "a"\.kind must be one of library \| service \| app \(got "daemon"\)$/],
+      ['non-list dependsOn', [lib('a', { dependsOn: 'b' })], /^components "a"\.dependsOn must be a list/],
+      ['entry with neither target', [lib('a', { dependsOn: [{ type: 'build' }] })], /^components "a"\.dependsOn\[0\] must name exactly one of component or backing$/],
+      ['entry with both', [lib('a'), lib('b', { dependsOn: [{ component: 'a', backing: 'pg', type: 'build' }] })], /^components "b"\.dependsOn\[0\] must name exactly one of component or backing$/],
+      ['bad type', [lib('a'), lib('b', { dependsOn: [dep('a', 'link')] })], /^components "b"\.dependsOn\[0\]\.type must be one of build \| runtime \(got "link"\)$/],
+      ['unknown component target', [lib('a', { dependsOn: [dep('ghost')] })], /^components "a"\.dependsOn\[0\] names unknown component "ghost"$/],
+      ['non-string owners entry', [lib('a', { owners: ['@a', 3] })], /^components "a"\.owners must be a list of strings/],
+      ['command value that is a number', [lib('a', { commands: { test: 1 } })], /^components "a"\.commands\.test must be a string or null \(got 1\)$/],
+      // Beyond AC8's list: the other shape rules.
+      ['backslash path', [lib('a', { path: '\\share' })], /^components "a"\.path must/],
+      ['drive-letter path', [lib('a', { path: 'C:x' })], /^components "a"\.path must/],
+      ['backslash .. segment', [lib('a', { path: 'a\\..\\..\\x' })], /^components "a"\.path must/],
+      ['empty path', [lib('a', { path: '' })], /^components "a"\.path must/],
+      ['non-string repo', [lib('a', { repo: 3 })], /^components "a"\.repo must be a string or null/],
+      ['non-list owners', [lib('a', { owners: '@a' })], /^components "a"\.owners must be a list of strings/],
+      ['non-map commands', [lib('a', { commands: ['x'] })], /^components "a"\.commands must be a map/],
+      ['non-string notes', [lib('a', { notes: 1 })], /^components "a"\.notes must be a string or null/],
+      ['empty target', [lib('a', { dependsOn: [{ backing: '', type: 'runtime' }] })], /^components "a"\.dependsOn\[0\]\.backing must be a non-empty string/],
+      ['non-map dependsOn entry', [lib('a', { dependsOn: ['b'] })], /^components "a"\.dependsOn\[0\] must name exactly one/],
+      ['runtime self edge', [lib('a', { dependsOn: [dep('a', 'runtime')] })], /^components "a"\.dependsOn\[0\] names unknown component "a"$/],
+    ];
+    for (const [what, components, re] of cases) {
+      const got = problemsFor(components);
+      assert.equal(got.length, 1, `${what}: ${JSON.stringify(got)}`);
+      assert.match(got[0], re, what);
+    }
+  });
+
+  test('build dependency cycles are rejected, runtime cycles are not', () => {
+    const ring = (type: (i: number) => string) => ['a', 'b', 'c'].map((n, i, all) => lib(n, { dependsOn: [dep(all[(i + 1) % 3], type(i))] }));
+    // Listed out of order, so the report's start comes from sorting, not from the list.
+    const built = ring(() => 'build');
+    assert.deepEqual(problemsFor([built[1], built[2], built[0]]), ['components: build dependency cycle a -> b -> c -> a']);
+    assert.deepEqual(problemsFor([lib('a', { dependsOn: [dep('a')] })]), ['components: build dependency cycle a -> a']);
+    assert.deepEqual(problemsFor(ring(() => 'runtime')), []);
+    assert.deepEqual(problemsFor(ring((i) => (i === 1 ? 'runtime' : 'build'))), []);
+    const two = [...built, lib('x', { dependsOn: [dep('y')] }), lib('y', { dependsOn: [dep('x')] })];
+    assert.deepEqual(problemsFor(two), ['components: build dependency cycle a -> b -> c -> a', 'components: build dependency cycle x -> y -> x']);
+    assert.deepEqual(buildCycles(two), [['a', 'b', 'c'], ['x', 'y']]);
+    assert.deepEqual(buildCycles('nope'), []);
+  });
+
+  test('config validate rejects cycles and a leftover services key', async () => {
+    const repo = tempRepo();
+    try {
+      const cfg = path.join(repo.dir, '.forge', 'config.yml');
+      fs.mkdirSync(path.dirname(cfg), { recursive: true });
+      const write = (c: Record<string, unknown>) => fs.writeFileSync(cfg, yaml.stringify({ schemaVersion: 9, tracker: { kind: 'none' }, ...c }));
+      write({ components: [lib('a', { dependsOn: [dep('b')] }), lib('b', { dependsOn: [dep('a')] })] });
+      let r = await forgeAsync(repo.dir, ['config', 'validate']);
+      assert.equal(r.status, 1, r.stdout);
+      assert.match(r.stdout + r.stderr, /components: build dependency cycle a -> b -> a/);
+      write({ services: [{ name: 'api', path: 'api' }], components: [lib('a')] });
+      r = await forgeAsync(repo.dir, ['config', 'validate']);
+      assert.equal(r.status, 1, r.stdout);
+      assert.match(r.stdout + r.stderr, /services was renamed to components in config schemaVersion 9; move its entries under components and delete services/);
+      write({ components: [lib('a')] });
+      r = await forgeAsync(repo.dir, ['config', 'validate']);
+      assert.equal(r.status, 0, r.stdout + r.stderr);
+    } finally {
+      repo.cleanup();
     }
   });
 });
