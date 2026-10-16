@@ -1,5 +1,7 @@
 # Architecture
 
+Terms for projects with several repos are defined in [GLOSSARY.md](GLOSSARY.md).
+
 ## Layers
 
 | Layer | Where | Changes when |
