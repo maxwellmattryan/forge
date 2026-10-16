@@ -27,6 +27,7 @@ import { bodyFrom, list, num, oneOf, req, requireJob, str, usageError } from './
 import { mirrorToTracker, startFromRef } from './tracker.ts';
 import type { AgentUsage, Config, Effort, HelpGroup, Job } from '../types.ts';
 import { FOREMAN_ACTOR, currentActor } from '../actor.ts';
+import { jobAudit, toCsv } from '../audit.ts';
 
 const NO_JOB: [1, string] = [1, 'no such job'];
 const BODY: [string, string][] = [
@@ -178,6 +179,18 @@ const JOB: HelpGroup = {
         ['--ack', 'accept the limits now exceeded, so the job goes on'],
       ],
       exits: [[1, 'no such job, or an unknown budget key or bad value']],
+    },
+    {
+      command: 'job audit',
+      args: '<id> [--json|--csv]',
+      summary: "the job's audit trail: who did each human action (best effort, unauthenticated), its gate transitions, and its PR opening and merge, in time order",
+      flags: [
+        ['--json', 'the rows as JSON (the default)'],
+        ['--csv', 'the rows as RFC 4180 CSV with CRLF line ends, formula-like cells prefixed with \''],
+      ],
+      exits: [NO_JOB],
+      docs: ['Audit trail', 'docs/ARCHITECTURE.md#audit-trail'],
+      readme: true,
     },
     {
       command: 'job verdicts',
@@ -569,6 +582,11 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         logEvent(root, jobId, 'decision', d);
       }
       return d;
+    }
+    case 'audit': {
+      if (flags.json && flags.csv) throw usageError(JOB, 'audit');
+      const a = jobAudit(root, requireJob(root, id).id);
+      return flags.csv ? toCsv(a.rows, () => a.pr) : a;
     }
     case 'budget':
       return budgetCmd(root, config, req(id, 'job id'), { set: list(flags.set), ack: Boolean(flags.ack) });

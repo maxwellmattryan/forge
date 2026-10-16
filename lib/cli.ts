@@ -16,6 +16,7 @@ import { computeStats } from './stats.ts';
 import { ForgeError, readJson, run } from './util.ts';
 import * as wt from './worktree.ts';
 import { advanceCmd } from './commands/advance.ts';
+import { auditCmd } from './commands/audit.ts';
 import { num, out, parseArgs, req, requireJob, withoutJson } from './commands/args.ts';
 import { configCmd } from './commands/config.ts';
 import { daemonCmd } from './commands/daemon.ts';
@@ -168,6 +169,9 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       const s = computeStats(root, { since: flags.since, includeEvals: Boolean(flags['include-evals']) });
       return ok(flags.json ? s : statsText(s));
     }
+    case 'audit':
+      needInit();
+      return ok(auditCmd(root, pos.slice(1), flags));
     case 'roster':
       return ok(roster(root, config));
     case 'retro': {

@@ -705,6 +705,34 @@ export interface EventActor {
   login: string | null;
   source: ActorSource;
 }
+
+/** One row of `forge job audit` / `forge audit` (lib/audit.ts); `job` is null for the repo-level log. */
+export interface AuditRow {
+  ts: string;
+  job: string | null;
+  actor: EventActor | null;
+  /** The `human` event's action, else the event type, else `gate:<waitingOn>` / `gate-cleared:<waitingOn>`. */
+  action: string;
+  /** The human's note or the transition's reason. */
+  note: string | null;
+  /** A short per-type summary: budget keys, the PR and merge method, the linked ref, the permission tool. */
+  detail: string | null;
+}
+
+/** `forge job audit <id> --json`. */
+export interface JobAudit {
+  id: string;
+  title: string;
+  pr: { number: number | null; mergeMethod: string | null; merged: boolean };
+  rows: AuditRow[];
+}
+
+/** `forge audit --json`. */
+export interface RepoAudit {
+  since: string;
+  until: string;
+  rows: AuditRow[];
+}
 /** Who owns a waiting job's gate: gateOwner in lib/foreman.ts; null when the job waits on nothing. */
 export type GateOwner = 'foreman' | 'human' | null;
 

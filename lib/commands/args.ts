@@ -4,8 +4,11 @@ import { loadJob } from '../jobs.ts';
 import { ForgeError } from '../util.ts';
 import type { HelpGroup, LoadedJob } from '../types.ts';
 
-/** Global flags that take no value, so `forge --json job list` doesn't read `job` as the value of --json. */
-const BOOLEAN_FLAGS = new Set(['json', 'help', 'pretty']);
+/**
+ * Flags that take no value, so `forge --json job list` doesn't read `job` as the value of --json:
+ * the global ones, and --csv, so `forge job audit --csv <id>` keeps its id.
+ */
+const BOOLEAN_FLAGS = new Set(['json', 'help', 'pretty', 'csv']);
 
 export function parseArgs(argv: string[]): { pos: string[]; flags: Record<string, any> } {
   const pos: string[] = [];
