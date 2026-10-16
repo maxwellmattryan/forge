@@ -571,7 +571,7 @@ test('boardRank and sortByRank: rank, then newest, then id', () => {
 
 test('cardModel: slots and null rules', () => {
   const bare = V.cardModel({ id: 'slug-ab12', stage: 'backlog', state: 'queued', source: { ref: 'slug' }, round: 0 } as any);
-  assert.deepEqual(bare, { ref: 'slug-ab12', refTitle: 'slug-ab12', steps: V.stageSteps({ stage: 'backlog', state: 'queued' }), stage: 'Queued', round: null, progress: null, lenses: null, running: false });
+  assert.deepEqual(bare, { ref: 'slug-ab12', refTitle: 'slug-ab12', steps: V.stageSteps({ stage: 'backlog', state: 'queued' }), stage: 'Queued', round: null, progress: null, lenses: null, running: false, protected: null });
   assert.equal(V.cardModel({ id: 'x', reviewers: [], progress: { done: 0, total: 0 } } as any).lenses, null, 'no reviewers, no lenses');
   assert.equal(V.cardModel({ id: 'x', progress: { done: 0, total: 0 } } as any).progress, null, 'no tasks, no bar');
 
@@ -592,6 +592,8 @@ test('cardModel: slots and null rules', () => {
   assert.deepEqual(V.cardModel({ id: 'x', round: 1 } as any).round, { round: 1, max: null }, 'a missing maxRounds');
   assert.equal(V.cardModel({ id: 'x', stage: 'mystery' } as any).stage, 'mystery', 'an unknown stage shows raw');
   assert.equal(V.cardModel({ id: 'my-job', source: { ref: 'ENG-4' } } as any).ref, 'ENG-4');
+  const flag = { hits: [{ path: 'yarn.lock', rule: 4, glob: 'yarn.lock', reason: 'dependency lockfile', blob: null }], more: 0, at: 't', gate: 'commit', head: null };
+  assert.deepEqual(V.cardModel({ id: 'x', protectedPaths: flag } as any).protected, { reasons: ['dependency lockfile'], rows: [{ path: 'yarn.lock', reason: 'dependency lockfile' }], more: 0 }, 'the Protected chip');
 });
 
 test('foreman event line and gate owner badge', () => {

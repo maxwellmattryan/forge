@@ -1735,3 +1735,30 @@ test('POST /api/jobs/:id/effort sets a job\'s effort, guarded like every POST', 
     repo.cleanup();
   }
 });
+
+test('state carries protectedPaths', async () => {
+  const repo = tempRepo();
+  fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
+  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 6 }));
+  const now = new Date().toISOString();
+  const flag = { hits: [{ path: '<img src=x onerror=alert(1)>.yml', rule: 1, glob: '.github/workflows/**', reason: 'CI/CD configuration', blob: 'a'.repeat(40) }], more: 0, at: now, gate: 'commit', head: 'b'.repeat(40) };
+  const seed = (id: string, extra: Record<string, unknown>) => {
+    const d = path.join(repo.dir, '.forge', 'jobs', id);
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, 'job.json'), JSON.stringify({ schemaVersion: 10, id, title: id, stage: 'decide', state: 'running', createdAt: now, updatedAt: now, ...extra }));
+  };
+  seed('j-flag', { protectedPaths: flag });
+  seed('j-old', { schemaVersion: 9 });
+  const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
+  const port = Number(new URL(url).port);
+  try {
+    const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
+    const byId = Object.fromEntries(st.jobs.map((j) => [j.id, j.protectedPaths]));
+    assert.deepEqual(byId, { 'j-flag': flag, 'j-old': null });
+    const detail = JSON.parse((await get(port, '/api/jobs/j-flag')).body.toString('utf8'));
+    assert.deepEqual(detail.job.protectedPaths, flag);
+  } finally {
+    await close();
+    repo.cleanup();
+  }
+});

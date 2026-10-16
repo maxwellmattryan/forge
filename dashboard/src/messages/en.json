@@ -38,7 +38,10 @@
     "runningAgents": {
       "one": "{count} agent",
       "other": "{count} agents"
-    }
+    },
+    "protected": "Protected",
+    "protectedTitle": "Protected paths: {reasons}",
+    "protectedDrawer": "Protected · {reasons}"
   },
   "table": {
     "stage": "Stage",
@@ -267,7 +270,10 @@
     "addressFeedback": "Address feedback",
     "queued": "Queued requests",
     "handling": "handling ({session})",
-    "queuedStatus": "queued"
+    "queuedStatus": "queued",
+    "protectedPaths": "Protected paths",
+    "protectedMore": "+{count} more",
+    "protectedDiff": "View diff"
   },
   "gate": {
     "foreman": "Foreman deciding",

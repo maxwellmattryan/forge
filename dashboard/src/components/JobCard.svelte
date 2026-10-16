@@ -30,12 +30,13 @@
   const act = $derived(sessionActivity(S.data?.daemons?.jobs?.[j.id], j.lastEvent?.ts));
   const flashing = $derived((S.flashes[j.id] ?? 0) > ticker.now);
   const effort = $derived(effortChip(j.effort, S.data?.config?.effort));
+  const protTitle = $derived(m.protected ? $t('job.protectedTitle', { reasons: m.protected.reasons.join(' · ') }) : '');
 </script>
 
 <button class="plate clickable {needsHuman(j) ? 'ember' : ''} w-full text-left p-3 pb-2.5 flex flex-col gap-2" onclick={() => openDrawer(j.id)}>
   <span data-slot="title" class="h card line-clamp-2">{j.title}</span>
   <span data-slot="ref" class="mono muted text-[11px] truncate" title={m.refTitle}>{m.ref}</span>
-  <div data-slot="state" class="flex flex-wrap items-center gap-1.5"><StateChip job={j} /><PrChip pr={j.pr} />{@html budgetChip(j, S.data?.config?.pipeline?.budget)}<EffortChip level={effort} />{#if agentsLive}<div class="basis-full min-w-0"><AgentActivity activity={agentsLive} owner={j.ownerStatus} /></div>{/if}<DepChips job={j} /></div>
+  <div data-slot="state" class="flex flex-wrap items-center gap-1.5"><StateChip job={j} />{#if m.protected}<span class="chip warn" title={protTitle} aria-label={protTitle}>{$t('job.protected')}</span>{/if}<PrChip pr={j.pr} />{@html budgetChip(j, S.data?.config?.pipeline?.budget)}<EffortChip level={effort} />{#if agentsLive}<div class="basis-full min-w-0"><AgentActivity activity={agentsLive} owner={j.ownerStatus} /></div>{/if}<DepChips job={j} /></div>
   <!-- Wraps: on a narrow card the stage and round drop under the stepper rather than truncating the round away. -->
   <div data-slot="stage" class="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0"><StageStepper steps={m.steps} stage={m.stage} active={m.running} /><span class="label text-[10px] truncate min-w-0 max-w-full">{m.stage}{#if m.round}{' · '}{$t('job.round', m.round)}{/if}</span></div>
   {#if m.progress}<div data-slot="progress"><ProgressBar progress={m.progress} /></div>{/if}
