@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PLUGIN_ROOT, paths, exists, resolveFrom } from './paths.ts';
+import { notifyProblems } from './notify-config.ts';
 import { globProblem, policyProblems } from './policy-check.ts';
 import { COMPLEXITIES, CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES, migrateConfig } from './schema.ts';
 import type { Config, Effort, EffortRole, EffortSource, LoadedConfig, VerifyEntry } from './types.ts';
@@ -229,6 +230,12 @@ export function defaults(): Config {
       logsDays: null,
       logMaxBytes: null,
     },
+    // Off by default: with no webhook and no command Forge spawns nothing and sends nothing;
+    // docs/CONFIG.md "Notifications".
+    notify: {
+      webhooks: [],
+      command: null,
+    },
   };
 }
 
@@ -365,6 +372,7 @@ export function validateConfig(c: any, root: string): string[] {
   problems.push(...foremanProblems(c));
   problems.push(...policyProblems(c));
   problems.push(...retentionProblems(c));
+  problems.push(...notifyProblems(c));
   return problems;
 }
 

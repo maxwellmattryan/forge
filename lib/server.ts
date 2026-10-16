@@ -737,9 +737,27 @@ const PERMISSION_DECISIONS: readonly PermissionDecision[] = ['allow', 'session',
 const DAEMON_LOCK = 'stop the daemon first: any change to .forge/config.yml stops it, and only a human may start it again';
 const CONFIG_STATUS: Record<ConfigSetError['reason'], number> = { unknown: 400, invalid: 400, locked: 403, uninitialized: 409, 'unsupported-yaml': 409 };
 
+/** A webhook's path and query are its secret (a Slack URL is a bearer token), so the dashboard gets scheme and host. */
+function maskWebhooks(hooks: unknown): unknown {
+  if (!Array.isArray(hooks)) return hooks;
+  return hooks.map((h) => {
+    // A malformed entry may be a bare URL string, so it is masked whole.
+    if (!h || typeof h !== 'object' || Array.isArray(h)) return '<invalid>';
+    let url = '<invalid>';
+    try {
+      const u = new URL(String((h as { url?: unknown }).url));
+      url = `${u.protocol}//${u.host}/…`;
+    } catch {}
+    return { ...h, url };
+  });
+}
+
 function configResponse(root: string, daemonWanted: boolean): ConfigResponse {
   const { config, initialized } = loadConfig(root);
   const values = Object.fromEntries(FIELDS.map((f) => [f.key, getPath(config, f.key) ?? null]));
+  values['notify.webhooks'] = maskWebhooks(values['notify.webhooks']);
+  // A command can embed a webhook URL or an auth header; the field is locked, so the dashboard never needs its text.
+  if (values['notify.command'] !== null) values['notify.command'] = '<set>';
   const lockedBy = !initialized ? 'uninitialized' : daemonWanted ? 'daemon' : null;
   return { initialized, path: '.forge/config.yml', fields: FIELDS, values, problems: initialized ? validateConfig(config, root) : [], writable: lockedBy === null, lockedBy };
 }

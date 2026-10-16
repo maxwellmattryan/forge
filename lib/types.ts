@@ -2,7 +2,7 @@
 // this file never runs. The dashboard's src/lib/types.ts carries a copy of the API shapes, kept
 // equal by test/types-parity.ts, until the dashboard imports this file. Unions that have a runtime
 // list are derived from that list, never retyped.
-import type { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
+import type { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS, OFFICE_GATES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import type { REQUEST_TYPES } from './requests.ts';
 import type { AcCoverage } from './acs.ts';
 import type { SECRET_KINDS } from './secrets.ts';
@@ -752,6 +752,19 @@ export interface Config {
   policy: { protectedPaths: ProtectedRule[] };
   /** What Forge deletes and when; null keeps forever: docs/CONFIG.md "Retention". */
   retention: { jobsDays: number | null; logsDays: number | null; logMaxBytes: number | null };
+  /** Where Forge pushes gate, PR, failure and budget notifications: docs/CONFIG.md "Notifications". */
+  notify: { webhooks: NotifyWebhook[]; command: string | null };
+}
+
+/** A notify event: NOTIFY_EVENTS in lib/schema.ts. */
+export type NotifyEvent = (typeof NOTIFY_EVENTS)[number];
+/** notify.webhooks[].format: NOTIFY_FORMATS in lib/schema.ts. */
+export type NotifyFormat = (typeof NOTIFY_FORMATS)[number];
+/** One notify.webhooks entry; `events` omitted subscribes to every event, `format` defaults to json. */
+export interface NotifyWebhook {
+  url: string;
+  events?: NotifyEvent[];
+  format?: NotifyFormat;
 }
 
 /** A gate class the foreman may decide: OFFICE_GATES in lib/schema.ts. */

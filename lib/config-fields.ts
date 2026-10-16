@@ -115,6 +115,9 @@ export const FIELDS: ConfigField[] = [
   // Locked: the dashboard token alone must not be able to delete job files or session logs.
   field('retention.jobsDays', 'pipeline', 'Archive jobs after (days)', 'forge sync and forge dash archive finished jobs this many days old into .forge/archive/ and delete their job folders. Empty keeps them forever.', { type: 'integer', min: 1, max: 3650, nullable: true, locked: 'deletes job files' }),
   field('policy.protectedPaths', 'pipeline', 'Protected paths', 'Globs Forge refuses to write or escalates to a human; checked at forge git add/commit, verify and pr open.', { type: 'object', locked: 'names what Forge refuses to write' }),
+  // Locked: the dashboard token alone must not redirect notifications or run a program.
+  field('notify.webhooks', 'pipeline', 'Notification webhooks', 'URLs Forge posts a fixed-shape notification to on gates, PRs, failures and budget stops: each with url, optional events and format (json or slack).', { type: 'object', locked: 'names a URL Forge posts to' }),
+  field('notify.command', 'pipeline', 'Notification command', 'A shell command Forge runs once per notification; {event}, {job}, {title}, {url}, {stage}, {reason} and {dashboardUrl} read from environment variables.', { type: 'string', nullable: true, locked: 'runs a program' }),
 
   field('review.blockOn', 'review', 'Block on', 'Severities that force another round. Blocker and major always do; add minor or nit to be stricter.', { type: 'list', options: SEVERITIES, required: ['blocker', 'major'] }),
   field('review.onPrFeedback', 'review', 'On PR feedback', 'Which lenses re-run after PR feedback.', { type: 'enum', options: ['changed', 'full', 'none'] }),
@@ -355,6 +358,9 @@ export const CONFIG_DISCLOSURE: Record<string, Disclosure> = {
   foreman: 'plain',
   'foreman.reserved': 'text',
   retention: 'plain',
+  notify: 'plain',
+  'notify.webhooks': 'url',
+  'notify.command': 'command',
 };
 
 /** The class of the longest CONFIG_DISCLOSURE prefix of `key`, or null when none covers it. */
