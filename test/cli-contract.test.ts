@@ -560,7 +560,7 @@ test('CLI JSON keys are stable', POSIX, () => {
       'cost.reportingCoverage.exact', 'cost.reportingCoverage.withUsage', 'cost.totalTokens', 'counts', 'counts.active', 'counts.cancelled', 'counts.done', 'counts.failed',
       'counts.total', 'counts.waiting', 'generatedAt', 'quality', 'quality.avgRounds', 'quality.escalationRate', 'quality.firstPassReviewRate', 'quality.foremanDecisions', 'quality.foremanReworks', 'quality.humanDeltaCoverage',
       'quality.humanDeltaCoverage.measured', 'quality.humanDeltaCoverage.merged', 'quality.humanDeltaRate', 'quality.humanFeedbackOnPrRate', 'quality.humanReworks',
-      'quality.medianHumanDeltaLines', 'quality.specFirstApprovalRate', 'quality.verifyFirstPassRate', 'reviewers', 'since', 'speed', 'speed.medianMinutesToDone',
+      'quality.medianHumanDeltaLines', 'quality.recurringFindings', 'quality.specFirstApprovalRate', 'quality.verifyFirstPassRate', 'reviewers', 'since', 'speed', 'speed.medianMinutesToDone',
       'speed.medianMinutesToPr', 'waitingOn',
     ]);
   } finally {

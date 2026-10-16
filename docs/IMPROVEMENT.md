@@ -16,6 +16,10 @@
 | median minutes to PR / to done | throughput |
 | tokens, API-equivalent cost (by role, by model), usage coverage | spend, and how trustworthy the spend numbers are |
 | per-lens change rate | lenses that never find anything are candidates to narrow or drop |
+| **per-lens dispute rate** | share of the lens's answered findings the builder disputed (`→ disagree:` in build.md's `Findings addressed`, over fixed plus disputed): a reviewer-precision signal. A lens builders often dispute may need a sharper checklist |
+| **recurring findings** | (lens, path) pairs the same lens raised in two consecutive review rounds of one job, ignoring line numbers and severity: oscillation, where a fix didn't hold or the reviewer keeps moving the goalposts |
+
+`forge job findings <id>` shows one job's counts: findings raised, fixed and disputed per round and per lens, and its recurring findings. It reads the review files and the builder's answer lines (`- <lens> <severity> <path:line> → fixed | disagree: <reason>`, defined in `agents/builder.md`). Integration reviews, verify, PR feedback and `feedback.md` are not counted.
 
 ## 2. Evals (`forge eval …`, Evals view)
 
@@ -31,7 +35,7 @@ Eval jobs get a standalone shallow clone that holds only the task's base commit,
 
 ## 3. Retros (`/forge retro`)
 
-The retro agent reads the metrics, a digest of human interventions and the human delta after Forge's last push (`forge retro prepare`), and the experiment ledger. It then:
+The retro agent reads the metrics (per-lens dispute rates and recurring findings among them), a digest of human interventions, the human delta after Forge's last push and each job's recurring findings as oscillation signals (`forge retro prepare`), and the experiment ledger. It then:
 1. evaluates earlier experiments against their baselines (kept, reverted, or inconclusive)
 2. finds patterns (not anecdotes) across jobs
 3. proposes at most five small edits to `.forge/notes/learnings.md`, role addenda, reviewer checklists or config, each with evidence, a target metric and a baseline

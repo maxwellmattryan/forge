@@ -1,6 +1,7 @@
 // Forge metrics. They describe Forge's behaviour, not the codebase's quality, which is
 // what makes them comparable across every repo Forge runs in and gives the retro loop
 // something stable to improve against.
+import { jobFindings } from './findings.ts';
 import { listJobs, readEvents } from './jobs.ts';
 import type { Job, ReviewerStats, Stats, UsageRow } from './types.ts';
 
@@ -29,7 +30,7 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
   const counts = { total: jobs.length, active: 0, done: 0, cancelled: 0, failed: 0, waiting: 0 };
   let reviewed = 0, firstPass = 0, roundsSum = 0, decided = 0, escalated = 0, verified = 0, verifyFirstPass = 0;
   let withPr = 0, prWithHumanFeedback = 0, humanRework = 0, foremanDecisions = 0, foremanRework = 0, specJobs = 0, specFirstTry = 0;
-  let merged = 0, deltaMeasured = 0, deltaNonEmpty = 0;
+  let merged = 0, deltaMeasured = 0, deltaNonEmpty = 0, recurringFindings = 0;
   const deltaLines: number[] = [];
   const timeToPr: number[] = [];
   const cycle: number[] = [];
@@ -57,11 +58,22 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
       if (first && Object.values(first).every((v) => v === 'PASS')) firstPass++;
       for (const r of rounds) {
         for (const [name, v] of Object.entries(j.verdicts[r] ?? {})) {
-          // changeRate is filled in for every lens after the loop.
-          const s = (reviewers[name] ??= { reviews: 0, changes: 0, blockers: 0 } as ReviewerStats);
+          // changeRate and disputeRate are filled in for every lens after the loop.
+          const s = (reviewers[name] ??= { reviews: 0, changes: 0, blockers: 0, findings: 0, fixed: 0, disputes: 0, recurring: 0 } as ReviewerStats);
           s.reviews++;
           if (v === 'CHANGES') s.changes++;
         }
+      }
+      // Only lenses with verdicts in the window: an answer line naming `verify` or `pr` is no reviewer.
+      const f = jobFindings(root, j.id);
+      recurringFindings += f.totals.recurring;
+      for (const [lens, c] of Object.entries(f.byLens)) {
+        const s = reviewers[lens];
+        if (!s) continue;
+        s.findings += c.raised;
+        s.fixed += c.fixed;
+        s.disputes += c.disputed;
+        s.recurring += c.recurring;
       }
     }
     const firstVerify = firstVerifyRun(j);
@@ -127,7 +139,9 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
       b.runs += v.runs;
     }
   }
-  for (const s of Object.values(reviewers)) Object.assign(s, { changeRate: ratio(s.changes, s.reviews) });
+  // Disputes over answered findings, not raised ones: builders skip many nits and the last round's
+  // findings are never answered, so a raised denominator would mostly measure whether a next round came.
+  for (const s of Object.values(reviewers)) Object.assign(s, { changeRate: ratio(s.changes, s.reviews), disputeRate: ratio(s.disputes, s.fixed + s.disputes) });
   return {
     generatedAt: new Date().toISOString(),
     since: opts.since ?? null,
@@ -146,6 +160,7 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
       foremanDecisions,
       foremanReworks: foremanRework,
       specFirstApprovalRate: ratio(specFirstTry, specJobs),
+      recurringFindings,
     },
     speed: {
       medianMinutesToPr: median(timeToPr) === null ? null : r2(median(timeToPr) as number),

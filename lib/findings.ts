@@ -46,7 +46,8 @@ const LENS = /^[a-z0-9][a-z0-9_-]*$/;
 const ROUND_DIR = /^round-([1-9]\d*)$/;
 // Every regex below runs over agent-written text, so each is linear: no two adjacent unbounded
 // runs can match the same characters (see the comment on HEADING in lib/acs.ts).
-const REVIEW_LINE = /^\s*[-*]\s*\[(blocker|major|minor|nit)\](.*)$/i;
+// `s`: a Unicode line separator inside a finding must not hide it.
+const REVIEW_LINE = /^\s*[-*]\s*\[(blocker|major|minor|nit)\](.*)$/is;
 const ANSWER_LINE = /^\s*[-*]\s+([a-z0-9][a-z0-9_-]*)\s+\[?(blocker|major|minor|nit)\]?\s+(\S+)\s+(?:→|->)\s+(fixed\b|disagree:)/i;
 const UNSAFE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
 
