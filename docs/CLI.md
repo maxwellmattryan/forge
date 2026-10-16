@@ -100,7 +100,7 @@ Set by the `forge dash` supervisor for daemon sessions, never by hand:
 | Variable | Effect |
 |---|---|
 | `FORGE_DAEMON` | `1` in a headless session: the config trust check runs first, config rewrites and job effort changes (`forge job effort`, `forge job new --effort`) are refused, and `forge requests` sees only the session's scope |
-| `FORGE_DAEMON_SCOPE` | the session's scope: `_inbox`, or the id of the job it drives |
+| `FORGE_DAEMON_SCOPE` | the session's scope: `_inbox`, `_office` (the foreman), or the id of the job it drives |
 | `FORGE_DAEMON_TRUST` | the digest of the checkout path, `.forge/config.yml` and `.forge/trackers/` the human started the daemon with; `forge` refuses to run when they no longer match |
 
 Set by Forge for configured commands (`forge run`, `forge verify`, worktree setup), which never see the daemon variables above:
@@ -110,6 +110,12 @@ Set by Forge for configured commands (`forge run`, `forge verify`, worktree setu
 | `FORGE_JOB` | the job id |
 | `FORGE_WORKTREE` | the job's worktree |
 | `FORGE_PORT`, `PORT` | the job's port, empty when it has none |
+
+## Foreman decisions
+
+`forge job human <id> <action> [--actor human|foreman]` records who decided. Without `--actor` the event says `actor: "human"`. `--actor foreman` is accepted only from the office daemon session (`FORGE_DAEMON_SCOPE=_office`), which in turn must pass it, and only after the authority checks in docs/ARCHITECTURE.md "Foreman": the job waits on a gate class in `foreman.decides`, the action belongs to that class, `--note` is given and no reserved pattern matches, and there is no `--link` or `--reason`. A refusal exits 1 and writes nothing.
+
+`forge job assist <id> --gate <class>` is read-only and returns `{gate, stale, reserved, model, effort, subagent, brief}`: the `forge:assistant` spawn for that gate, with a brief of paths only. `stale: true` means the job no longer waits on that gate, and `reserved` is re-checked at call time. An unknown `--gate` exits 1, and so does a daemon session other than the office. `forge requests add gate` always exits 1: only `forge job set` and `forge pr sync` write gate requests.
 
 ## Stability
 
