@@ -15,7 +15,7 @@ export const HELP: HelpGroup[] = [
       {
         command: 'stats',
         args: '[--since DATE] [--include-evals] [--json]',
-        summary: 'pipeline metrics: review and verify first-pass rates, escalations, time to PR, tokens and cost (a text summary, or the full object with --json)',
+        summary: 'pipeline metrics: review and verify first-pass rates, per-lens change and dispute rates, recurring findings, escalations, time to PR, tokens and cost (a text summary, or the full object with --json)',
         flags: [
           ['--since DATE', 'only jobs created on or after DATE'],
           ['--include-evals', 'count eval jobs too'],
@@ -52,13 +52,13 @@ export function statsText(s: Stats): string {
   const q = s.quality;
   const lines = [
     `jobs ${s.counts.total} (active ${s.counts.active}, done ${s.counts.done}, waiting ${s.counts.waiting}, cancelled ${s.counts.cancelled})`,
-    `first-pass review ${pct(q.firstPassReviewRate)} · avg rounds ${q.avgRounds ?? '—'} · verify first-pass ${pct(q.verifyFirstPassRate)}`,
+    `first-pass review ${pct(q.firstPassReviewRate)} · avg rounds ${q.avgRounds ?? '—'} · verify first-pass ${pct(q.verifyFirstPassRate)} · recurring findings ${q.recurringFindings}`,
     `escalations ${pct(q.escalationRate)} · PRs with human feedback ${pct(q.humanFeedbackOnPrRate)} · human reworks ${q.humanReworks} · spec approved first try ${pct(q.specFirstApprovalRate)}`,
     `human delta after push ${pct(q.humanDeltaRate ?? null)} · median ${q.medianHumanDeltaLines ?? '—'} lines · measured ${q.humanDeltaCoverage?.measured ?? 0}/${q.humanDeltaCoverage?.merged ?? 0}`,
     `median to PR ${s.speed.medianMinutesToPr ?? '—'} min · median to done ${s.speed.medianMinutesToDone ?? '—'} min`,
     `tokens ${s.cost.totalTokens.toLocaleString()} · est. API cost $${s.cost.estCostUsd} · per job $${s.cost.avgCostPerJobUsd ?? '—'} · usage coverage ${s.cost.reportingCoverage.withUsage}/${s.cost.reportingCoverage.agentRuns} (exact ${s.cost.reportingCoverage.exact})`,
   ];
   const rv = Object.entries(s.reviewers);
-  if (rv.length) lines.push('reviewers: ' + rv.map(([k, v]) => `${k} ${pct(v.changeRate)} changes`).join(' · '));
+  if (rv.length) lines.push('reviewers: ' + rv.map(([k, v]) => `${k} ${pct(v.changeRate)} changes, ${pct(v.disputeRate)} disputed`).join(' · '));
   return lines.join('\n');
 }
