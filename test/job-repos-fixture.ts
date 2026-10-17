@@ -121,13 +121,19 @@ export async function twoRepo(): Promise<TwoRepo> {
 // Per slug `o/<name>`: <name>.pr holds the PR's head branch once created; <name>.state, .url, .num,
 // .head, .checks (passing|pending|failing) and .mergestate override what gh reports; <name>.cross
 // makes it a fork PR; .headref and .baseref override the branches gh reports; .racebody replaces the
-// body right after a `pr view --json body…` prints it (a human edit between two reads); <name>.fail makes `pr create` fail, .viewfail `pr view`, .editfail `pr edit` and
-// .mergefail `pr merge`. <name>.body is the PR body: `pr create` and `pr edit` write it from
+// body right after a `pr view --json body…` prints it (a human edit between two reads); <name>.fail makes `pr create` fail, .viewfail `pr view`, .editfail `pr edit`,
+// .mergefail `pr merge` and .readyfail `pr ready`. <name>.body is the PR body: `pr create` and `pr edit` write it from
 // --body-file and `pr view --json body` prints it. `pr merge` without --auto makes the PR MERGED.
+// <name>.draft marks the PR a draft: `pr create --draft` writes it, `pr ready` removes it, and
+// `pr list` and `pr view` report it as isDraft.
+// Issues: `issue list` prints <name>.issues (default []), and <name>.issuefail makes it fail;
+// `issue view N` prints <name>.issue-N, else an open issue N carrying the labels in <name>.labels-N;
+// `issue edit N --add-label L` writes L to <name>.labels-N; `issue comment N` writes its body to
+// <name>.comment-N, and <name>.commentfail makes it fail. `api user` is forge-bot.
 const FAKE_GH = `#!/bin/sh
 d="$FAKE_GH_DIR"
 echo "$*" >> "$d/calls.log"
-slug=""; head=""; open=""; prev=""; bodyfile=""; json=""; auto=""
+slug=""; head=""; open=""; prev=""; bodyfile=""; json=""; auto=""; draft=""
 for a in "$@"; do
   [ "$prev" = "-R" ] && slug="$a"
   [ "$prev" = "--head" ] && head="$a"
@@ -135,12 +141,14 @@ for a in "$@"; do
   [ "$prev" = "--body-file" ] && bodyfile="$a"
   [ "$prev" = "--json" ] && json="$a"
   [ "$a" = "--auto" ] && auto=1
+  [ "$a" = "--draft" ] && draft=1
   prev="$a"
 done
 name="\${slug#*/}"
 num() { if [ -f "$d/$name.num" ]; then cat "$d/$name.num"; elif [ "$name" = lib ]; then echo 7; else echo 11; fi; }
 url() { if [ -f "$d/$name.url" ]; then cat "$d/$name.url"; else echo "https://github.com/$slug/pull/$(num)"; fi; }
 state() { if [ -f "$d/$name.state" ]; then cat "$d/$name.state"; else echo OPEN; fi; }
+isdraft() { if [ -f "$d/$name.draft" ]; then echo true; else echo false; fi; }
 cross() { if [ -f "$d/$name.cross" ]; then echo true; else echo false; fi; }
 merged() { if [ "$(state)" = MERGED ]; then echo '"2026-10-02T00:00:00Z"'; else echo null; fi; }
 branch() { if [ -f "$d/$name.headref" ]; then cat "$d/$name.headref"; else cat "$d/$name.pr" 2>/dev/null; fi; }
@@ -159,6 +167,7 @@ case "$1 $2" in
   "pr create")
     if [ -f "$d/$name.fail" ]; then echo "create failed for $slug" >&2; exit 1; fi
     echo "$head" > "$d/$name.pr"
+    if [ -n "$draft" ]; then : > "$d/$name.draft"; else rm -f "$d/$name.draft"; fi
     if [ -n "$bodyfile" ]; then cp "$bodyfile" "$d/$name.body"; fi
     url ;;
   "pr edit")
@@ -166,7 +175,7 @@ case "$1 $2" in
     if [ -n "$bodyfile" ]; then cp "$bodyfile" "$d/$name.body"; fi ;;
   "pr list")
     if { [ -f "$d/$name.pr" ] || [ -f "$d/$name.cross" ]; } && { [ -z "$open" ] || [ "$(state)" = OPEN ]; }; then
-      printf '[{"number":%s,"url":"%s","state":"%s","isDraft":false,"isCrossRepository":%s,"headRefName":"%s","baseRefName":"main"}]' "$(num)" "$(url)" "$(state)" "$(cross)" "$head"
+      printf '[{"number":%s,"url":"%s","state":"%s","isDraft":%s,"isCrossRepository":%s,"headRefName":"%s","baseRefName":"main"}]' "$(num)" "$(url)" "$(state)" "$(isdraft)" "$(cross)" "$head"
     else echo '[]'; fi ;;
   "pr view")
     if [ -f "$d/$name.viewfail" ]; then echo "view failed for $slug" >&2; exit 1; fi
@@ -175,9 +184,31 @@ case "$1 $2" in
       if [ -f "$d/$name.racebody" ]; then mv "$d/$name.racebody" "$d/$name.body"; fi
       exit 0
     fi
-    printf '{"number":%s,"url":"%s","state":"%s","isDraft":false,"isCrossRepository":%s,"headRefOid":"%s","mergeable":"MERGEABLE","mergeStateStatus":"%s","reviewDecision":"","statusCheckRollup":%s,"mergedAt":%s,"closedAt":null,"headRefName":"%s","baseRefName":"%s","title":"t","author":{"login":"x"}}' "$(num)" "$(url)" "$(state)" "$(cross)" "$(headoid)" "$(mstate)" "$(rollup)" "$(merged)" "$(branch)" "$(baseref)" ;;
+    printf '{"number":%s,"url":"%s","state":"%s","isDraft":%s,"isCrossRepository":%s,"headRefOid":"%s","mergeable":"MERGEABLE","mergeStateStatus":"%s","reviewDecision":"","statusCheckRollup":%s,"mergedAt":%s,"closedAt":null,"headRefName":"%s","baseRefName":"%s","title":"t","author":{"login":"x"}}' "$(num)" "$(url)" "$(state)" "$(isdraft)" "$(cross)" "$(headoid)" "$(mstate)" "$(rollup)" "$(merged)" "$(branch)" "$(baseref)" ;;
   "api graphql") echo '{"data":{"repository":{"pullRequest":{},"issue":null}}}' ;;
+  "api user") echo forge-bot ;;
   "repo view") echo o/app ;;
+  "pr ready")
+    if [ -f "$d/$name.readyfail" ]; then echo "ready failed for $slug" >&2; exit 1; fi
+    rm -f "$d/$name.draft" ;;
+  "label create") ;;
+  "issue list")
+    if [ -f "$d/$name.issuefail" ]; then echo "issue list failed for $slug" >&2; exit 1; fi
+    if [ -f "$d/$name.issues" ]; then cat "$d/$name.issues"; else echo '[]'; fi ;;
+  "issue view")
+    if [ -f "$d/$name.issue-$3" ]; then cat "$d/$name.issue-$3"; exit 0; fi
+    labels='[]'
+    if [ -f "$d/$name.labels-$3" ]; then labels="$(cat "$d/$name.labels-$3")"; fi
+    printf '{"number":%s,"title":"Issue %s","body":"b","url":"https://github.com/%s/issues/%s","labels":%s,"assignees":[],"comments":[],"state":"OPEN","author":{"login":"x"}}' "$3" "$3" "$slug" "$3" "$labels" ;;
+  "issue edit")
+    label=""; p2=""
+    for a in "$@"; do [ "$p2" = "--add-label" ] && label="$a"; p2="$a"; done
+    if [ -n "$label" ]; then printf '[{"name":"%s"}]' "$label" > "$d/$name.labels-$3"; fi ;;
+  "issue comment")
+    # Read the body before failing, as gh does: exiting with stdin unread races forge's write into EPIPE.
+    cat > "$d/$name.comment-$3.tmp"
+    if [ -f "$d/$name.commentfail" ]; then rm -f "$d/$name.comment-$3.tmp"; echo "comment failed for $slug" >&2; exit 1; fi
+    mv "$d/$name.comment-$3.tmp" "$d/$name.comment-$3" ;;
   "pr merge")
     if [ -f "$d/$name.mergefail" ]; then echo "merge failed for $slug" >&2; exit 1; fi
     if [ -z "$auto" ]; then echo MERGED > "$d/$name.state"; fi ;;

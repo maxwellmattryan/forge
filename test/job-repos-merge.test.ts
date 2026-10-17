@@ -205,8 +205,14 @@ describe('linked PRs: sync across repos', { concurrency: 4, skip }, () => {
   });
 });
 
-/** Makes the fake gh report each PR's head as the commit forge pr open pushed, with `checks`. */
+/**
+ * Makes the fake gh report each PR's head as the commit forge pr open pushed, with `checks`, and
+ * records both repos' releases: these edges are the default `local`, whose release gate would
+ * otherwise hold every consumer (test/interim-pr.test.ts covers that gate).
+ */
 function pin(p: PrProject, id: string, checks: 'passing' | 'pending' | 'failing' | null = 'passing') {
+  const events = path.join(p.root, '.forge', 'jobs', id, 'events.jsonl');
+  for (const repo of ['lib', null]) fs.appendFileSync(events, JSON.stringify({ v: 2, ts: new Date().toISOString(), type: 'interim-released', repo, version: '1.0.0' }) + '\n');
   const job = loadJob(p.root, id);
   p.fake('app.head', job.pr!.pushedSha!);
   p.fake('lib.head', job.repos[1].pr!.pushedSha!);

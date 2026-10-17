@@ -1,0 +1,25 @@
+# Forge release gate, seeded by `forge init write`: fails while a tracked manifest still pins a
+# dependency to a commit or a canary pre-release (an interim reference), so the consumer can't merge
+# before its dependency is released. Make the "release gate" check required in branch protection;
+# Forge never changes repository settings. Edit the patterns in .forge/ci/release-gate.mjs.
+name: forge release gate
+
+on:
+  pull_request: {}
+  merge_group: {}
+
+permissions:
+  contents: read
+
+jobs:
+  release-gate:
+    name: release gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check for interim references
+        run: node .forge/ci/release-gate.mjs

@@ -271,7 +271,7 @@ export function packageOverrides(file: string, beforeText: string | null, afterT
 export function isConfigPath(p: string): boolean {
   const base = path.posix.basename(p);
   if (/^(Makefile|makefile|GNUmakefile|justfile|Justfile)$/.test(base) || base.endsWith('.mk')) return true;
-  if (/^(\.github\/workflows|\.circleci|\.buildkite)\//.test(p) || ['.gitlab-ci.yml', 'azure-pipelines.yml', 'Jenkinsfile', '.forge/config.yml', '.forge/secrets-allow.txt'].includes(p)) return true;
+  if (/^(\.github\/workflows|\.circleci|\.buildkite|\.forge\/ci)\//.test(p) || ['.gitlab-ci.yml', 'azure-pipelines.yml', 'Jenkinsfile', '.forge/config.yml', '.forge/secrets-allow.txt'].includes(p)) return true;
   if (/^(jest\.config|vitest\.config|vitest\.workspace|playwright\.config|karma\.conf)\./.test(base) || /^\.(mocharc|nycrc)/.test(base)) return true;
   // Attributes can mark test files `-diff`/`binary`, which would hide their changed lines.
   return base === 'pytest.ini' || base === 'tox.ini' || base === '.gitattributes';

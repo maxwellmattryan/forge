@@ -92,10 +92,10 @@ test('commandSources: script files the commands run, never their arguments', () 
 });
 
 test('isConfigPath: CI anchored at the root, build and runner config anywhere', () => {
-  for (const p of ['.gitattributes', 'test/.gitattributes', '.github/workflows/ci.yml', '.gitlab-ci.yml', '.circleci/config.yml', 'Jenkinsfile', 'Makefile', 'pkg/rules.mk', 'web/justfile', 'web/jest.config.ts', 'vitest.workspace.js', '.mocharc.yml', 'tox.ini', '.forge/config.yml', '.forge/secrets-allow.txt']) {
+  for (const p of ['.gitattributes', 'test/.gitattributes', '.github/workflows/ci.yml', '.gitlab-ci.yml', '.circleci/config.yml', 'Jenkinsfile', 'Makefile', 'pkg/rules.mk', 'web/justfile', 'web/jest.config.ts', 'vitest.workspace.js', '.mocharc.yml', 'tox.ini', '.forge/config.yml', '.forge/secrets-allow.txt', '.forge/ci/release-gate.mjs']) {
     assert.equal(isConfigPath(p), true, p);
   }
-  for (const p of ['docs/.github/workflows/ci.yml', 'sub/Jenkinsfile', 'sub/.forge/config.yml', 'sub/.forge/secrets-allow.txt', 'secrets-allow.txt', 'lib/make.mjs', 'README.md', 'package.json']) {
+  for (const p of ['docs/.github/workflows/ci.yml', 'sub/Jenkinsfile', 'sub/.forge/config.yml', 'sub/.forge/secrets-allow.txt', 'sub/.forge/ci/release-gate.mjs', 'secrets-allow.txt', 'lib/make.mjs', 'README.md', 'package.json']) {
     assert.equal(isConfigPath(p), false, p);
   }
 });

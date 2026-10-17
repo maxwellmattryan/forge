@@ -26,8 +26,8 @@ import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretMode, text
 import { cleanGenerated, generatedConfig, generatedPaths, partitionConflicts, rebuild, regenerateProblem, takeBaseSide } from './regenerate.ts';
 import type { Strategy } from './regenerate.ts';
 import { commandTemplate, verifiedHead } from './worktree.ts';
-import { FULL_SHA, deferralStatus, pendingDeferral, readDeferrals, repoLabel, resolveInterim } from './interim.ts';
-import type { Deferral } from './interim.ts';
+import { FULL_SHA, deferralStatus, heldConsumers, pendingDeferral, readDeferrals, releaseGates, repoLabel, resolveInterim } from './interim.ts';
+import type { Deferral, ReleaseGate } from './interim.ts';
 import { interimStatus } from './interim-apply.ts';
 
 const MARKER = '<!-- forge -->';
@@ -54,7 +54,7 @@ export interface MergeResult {
   /** A linked job: the PR the action is about (null: the root). */
   repo?: string | null;
   /** A linked job's refusal: a dependency PR is not merged (order) or the dependsOn edges cycle. */
-  reason?: 'order' | 'cycle';
+  reason?: 'order' | 'cycle' | 'release';
   /** A linked job: each PR this call acted on, in merge order. */
   parts?: MergePart[];
 }
@@ -273,7 +273,8 @@ export function openPr(
   const bodyFile = path.join(jobDir(root, id), 'pr-body.md');
   fs.writeFileSync(bodyFile, text.body);
   const args = ['pr', 'create', '-R', slug, '--base', job.base!, '--head', job.branch!, '--title', text.title, '--body-file', bodyFile];
-  // A consumer on a local edge has nothing CI can resolve: its PR is held as a draft.
+  // A consumer on a local edge has nothing CI can resolve, and one on a sequential edge waits for the
+  // dependency's release: its PR is held as a draft.
   const isDraft = interim.drafts.has(null) || Boolean(opts.draft ?? config.pr.draft);
   if (isDraft) args.push('--draft');
   for (const l of config.pr.labels ?? []) args.push('--label', l);
@@ -293,7 +294,7 @@ interface InterimOpenPlan {
   /** The job's PR repos, dependencies first: members open in this order. */
   order: RepoKey[];
   deferred: Deferral[];
-  /** Consumers on a local edge: their PR is created as a draft. */
+  /** Consumers on a local edge, and on a sequential edge whose release is unrecorded: their PR is created as a draft. */
   drafts: Set<RepoKey>;
   /** The root is the dependency of a git-ref or canary edge: its branch is pushed before any member's. */
   rootFirst: boolean;
@@ -330,7 +331,8 @@ function interimOpenPlan(root: string, config: Config, job: Job, heads: Map<Repo
     if (via) d = { ...deferred.find((x) => x.repo === via.dependency)!, repo };
     if (d) deferred.push(d);
   }
-  const drafts = new Set(edges.filter((e) => e.strategy === 'local').map((e) => e.consumer));
+  const held = heldConsumers(releaseGates(edges, readEvents(root, job.id)));
+  const drafts = new Set(edges.filter((e) => e.strategy === 'local' || (e.strategy === 'sequential' && held.has(e.consumer))).map((e) => e.consumer));
   const rootFirst = edges.some((e) => e.dependency === null && (e.strategy === 'git-ref' || e.strategy === 'canary'));
   return { order, deferred, drafts, rootFirst };
 }
@@ -1515,13 +1517,13 @@ function memberTarget(root: string, config: Config, job: Job, m: MemberSync): Me
 }
 
 /**
- * `forge pr merge`'s target flags, checked strictly: `--root` must be bare (`--root <id>` would
- * swallow the id), `--repo` one member name, and not both.
+ * `forge pr merge`'s and `forge pr ready`'s target flags, checked strictly: `--root` must be bare
+ * (`--root <id>` would swallow the id), `--repo` one member name, and not both.
  */
-export function mergeTarget(flags: Record<string, unknown>): { repo?: string; root?: true } {
+export function mergeTarget(flags: Record<string, unknown>, sub: 'merge' | 'ready' = 'merge'): { repo?: string; root?: true } {
   const { repo, root } = flags;
-  if (root !== undefined && root !== true) throw new ForgeError('--root takes no value; put the job id first: forge pr merge <id> --root');
-  if (repo !== undefined && (typeof repo !== 'string' || !REPO_NAME.test(repo))) throw new ForgeError('--repo needs one member repo name: forge pr merge <id> --repo NAME');
+  if (root !== undefined && root !== true) throw new ForgeError(`--root takes no value; put the job id first: forge pr ${sub} <id> --root`);
+  if (repo !== undefined && (typeof repo !== 'string' || !REPO_NAME.test(repo))) throw new ForgeError(`--repo needs one member repo name: forge pr ${sub} <id> --repo NAME`);
   if (repo !== undefined && root === true) throw new ForgeError('pass --repo or --root, not both');
   return { ...(typeof repo === 'string' ? { repo } : {}), ...(root === true ? { root: true as const } : {}) };
 }
@@ -1531,6 +1533,7 @@ function mergeLinked(root: string, config: Config, id: string, opts: { now: bool
   const { result, members } = syncPrDetailed(root, config, id, { route: false });
   const job = loadJob(root, id);
   const { order, deps, cycle } = jobRepoOrder(config, job);
+  const gates = releaseGates(resolveInterim(config, job).edges, readEvents(root, id));
   const synced = result.pr;
   const rootNumber = safePrNumber(synced?.number) ?? job.pr!.number;
   // This call's answers only: a member missing from the sync (or one that failed) is unknown.
@@ -1545,7 +1548,7 @@ function mergeLinked(root: string, config: Config, id: string, opts: { now: bool
   const tag = (k: RepoKey) => ({ ...(k !== null ? { repo: k } : {}), ...(targeted ? { target: true } : {}) });
   const keys: RepoKey[] = targeted ? [opts.target as RepoKey] : order;
   const parts: MergePart[] = [];
-  let reason: 'order' | 'cycle' | undefined;
+  let reason: 'order' | 'cycle' | 'release' | undefined;
   const finish = (): MergeResult => {
     const merged = order.every((k) => states.get(k) === 'MERGED');
     const last = parts.at(-1);
@@ -1557,7 +1560,7 @@ function mergeLinked(root: string, config: Config, id: string, opts: { now: bool
     const { repo, action, checks, mergeState, error } = last;
     return { merged, autoMerge: action === 'auto', action, checks, ...(mergeState !== undefined ? { mergeState } : {}), ...(error !== undefined ? { error } : {}), repo, ...(reason ? { reason } : {}), parts };
   };
-  const refuse = (k: RepoKey, why: 'order' | 'cycle', error: string, extra: Record<string, unknown> = {}): MergeResult => {
+  const refuse = (k: RepoKey, why: 'order' | 'cycle' | 'release', error: string, extra: Record<string, unknown> = {}): MergeResult => {
     reason = why;
     logEvent(root, id, 'pr-merge-refused', { ...tag(k), number: numberOf(k), reason: why, ...extra });
     parts.push({ repo: k, number: numberOf(k), action: 'refused', checks: undefined, error });
@@ -1577,6 +1580,10 @@ function mergeLinked(root: string, config: Config, id: string, opts: { now: bool
     const waiting = (deps.get(k) ?? []).find((d) => states.get(d) !== 'MERGED');
     if (waiting !== undefined) return refuse(k, 'order', `${label(k)} depends on ${label(waiting)}, which is not merged yet; merge it first`, { waitingFor: label(waiting) });
     if (state === null) throw new ForgeError(numberOf(k) === null ? `repo ${k} has no PR to merge` : `${label(k)} could not be read in this call; run: forge pr sync ${id}`);
+    // After the order check, and never bypassed by --now: a held consumer merges only after a human
+    // recorded its dependency's release.
+    const gate = gates.find((g) => g.consumer === k && g.gate === 'held');
+    if (gate) return refuse(k, 'release', releaseGateMessage(id, gate));
     const t = k === null ? rootTarget(root, config, id, rootNumber, synced) : memberTarget(root, config, job, members.get(k)!);
     const r = mergeOne(root, config, id, t, { now: opts.now, tag: tag(k) });
     parts.push({ repo: k, number: t.number, action: r.action, checks: r.checks, ...(r.mergeState !== undefined ? { mergeState: r.mergeState } : {}), ...(r.error !== undefined ? { error: r.error } : {}) });
@@ -1584,4 +1591,76 @@ function mergeLinked(root: string, config: Config, id: string, opts: { now: bool
     states.set(k, 'MERGED');
   }
   return finish();
+}
+
+/** Why a held consumer's PR stays a draft, and the command a human runs to clear it. */
+export function releaseGateMessage(id: string, gate: Pick<ReleaseGate, 'consumer' | 'dependency'>): string {
+  const dep = gate.dependency === null ? '--root' : gate.dependency;
+  return `${repoLabel(gate.consumer)}'s PR stays a draft until ${repoLabel(gate.dependency)}'s release is recorded; a human runs: forge job interim release ${id} ${dep} <version>`;
+}
+
+/** What `forge pr ready` did: the PRs it marked ready for review, and the ones it left alone and why. */
+export interface ReadyResult {
+  id: string;
+  ready: { repo: RepoKey; number: number }[];
+  skipped: { repo: RepoKey; number: number | null; why: string }[];
+}
+
+/**
+ * `forge pr ready`: marks the job's draft PRs ready for review, in merge order. With no target, every
+ * open draft PR of the job (root and non-verify-only members); with `repo` or `root`, only that one.
+ * Refused (`release_gate`) before any gh call while a targeted repo's release gate is held.
+ */
+export function readyPr(root: string, config: Config, id: string, target: { repo?: string; root?: true } = {}): ReadyResult {
+  const job = loadJob(root, id);
+  if (target.repo !== undefined) {
+    const m = memberEntry(job, target.repo);
+    if (!m) throw new ForgeError(`job ${id} has no member repo ${target.repo}`);
+    if (m.verifyOnly) throw new ForgeError(`repo ${target.repo} is verify-only in job ${id}, so it has no PR`);
+  }
+  const prOf = (k: RepoKey) => (k === null ? job.pr : memberEntry(job, k)?.pr);
+  const all: RepoKey[] = [null, ...memberRepos(job).filter((m) => !m.verifyOnly).map((m) => m.repo)];
+  const { order } = jobRepoOrder(config, job);
+  const rank = (k: RepoKey) => (order.includes(k) ? order.indexOf(k) : order.length + all.indexOf(k));
+  const keys: RepoKey[] =
+    target.repo !== undefined
+      ? [target.repo]
+      : target.root
+        ? [null]
+        : all.filter((k) => {
+            const pr = prOf(k);
+            return pr?.state === 'OPEN' && pr.isDraft === true;
+          });
+  keys.sort((a, b) => rank(a) - rank(b));
+  const gates = releaseGates(resolveInterim(config, job).edges, readEvents(root, id));
+  for (const k of keys) {
+    const gate = gates.find((g) => g.consumer === k && g.gate === 'held');
+    if (gate) throw new ForgeError(releaseGateMessage(id, gate), 'release_gate');
+  }
+  const out: ReadyResult = { id, ready: [], skipped: [] };
+  const pending: { repo: RepoKey; number: number }[] = [];
+  for (const k of keys) {
+    const pr = prOf(k);
+    const number = safePrNumber(pr?.number);
+    if (number === null) out.skipped.push({ repo: k, number: null, why: 'no PR' });
+    else if (pr?.state !== 'OPEN') out.skipped.push({ repo: k, number, why: `not open (${String(pr?.state ?? 'unknown').slice(0, 20)})` });
+    else if (pr.isDraft !== true) out.skipped.push({ repo: k, number, why: 'not a draft' });
+    else pending.push({ repo: k, number });
+  }
+  if (!pending.length) return out;
+  requireGh();
+  for (const { repo, number } of pending) {
+    let slug: string;
+    if (repo === null) slug = repoSlug(root, config);
+    else {
+      slug = memberSlug(config, repo);
+      if (!SLUG_RE.test(slug)) throw new ForgeError(`repo ${repo} has an unusable GitHub repository ${JSON.stringify(slug).slice(0, 80)}`);
+    }
+    gh(root, ['pr', 'ready', String(number), '-R', slug]);
+    if (repo === null) setJob(root, id, { fields: { 'pr.isDraft': false } });
+    else recordMemberPr(root, id, repo, (prev) => ({ ...(prev ?? {}), isDraft: false }) as JobRepoPr);
+    logEvent(root, id, 'pr-ready', { ...(repo !== null ? { repo } : {}), number });
+    out.ready.push({ repo, number });
+  }
+  return out;
 }

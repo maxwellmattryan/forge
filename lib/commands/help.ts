@@ -145,15 +145,25 @@ export const CORE: HelpGroup[] = [
         flags: [
           ['--repo NAME', 'merge only that member repo PR, once every PR it depends on merged'],
           ['--root', 'merge only the root repo PR, once every PR it depends on merged'],
-          ['--now', 'merge without waiting for CI, or a head forge pr open did not check (logged as pr-merge-bypass); never bypasses the merge order'],
+          ['--now', 'merge without waiting for CI, or a head forge pr open did not check (logged as pr-merge-bypass); never bypasses the merge order or a release gate'],
         ],
         exits: [
           [
             1,
-            'the merge was refused or failed (the result says why), a dependency PR is not merged yet or the dependsOn edges form a cycle (reason order|cycle), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, the office daemon session ran it, or protected paths apply and the PR head is not the one forge pr open checked (code protected_path; --now overrides)',
+            "the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a local or sequential dependency's release is not recorded (reason order|cycle|release), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, the office daemon session ran it, or protected paths apply and the PR head is not the one forge pr open checked (code protected_path; --now overrides)",
           ],
           GH_FAILED,
         ],
+      },
+      {
+        command: 'pr ready',
+        args: '<id> [--repo NAME | --root]',
+        summary: "mark the job's open draft PRs ready for review, in merge order (result: ready and skipped); a consumer held by a local or sequential interim edge stays a draft until a human records its dependency's release (forge job interim release)",
+        flags: [
+          ['--repo NAME', 'only that member repo PR'],
+          ['--root', 'only the root repo PR'],
+        ],
+        exits: [[1, "no such job, --repo names no PR member, --repo and --root together, --root given a value, or a targeted PR's release gate is held (code release_gate; nothing is called)"], GH_FAILED],
       },
     ],
   },
