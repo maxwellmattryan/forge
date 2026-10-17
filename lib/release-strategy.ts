@@ -1,6 +1,7 @@
 // A repo's release strategy (docs/CONFIG.md "Release strategy"): how it versions, which tool cuts a
 // release, where it publishes and how often. Validation here, and doctor's check that the declared
-// mechanism's tool is on this machine. Doctor only looks: it never runs `command` or the tool.
+// mechanism's tool is on this machine. Doctor only looks: it never runs `command` or the tool
+// (`forge release run` does, lib/release-run.ts).
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -11,6 +12,7 @@ export const RELEASE_VERSIONINGS = ['semver', 'calver'] as const;
 export const RELEASE_MECHANISMS = ['release-please', 'cargo-release', 'changesets', 'tag'] as const;
 export const RELEASE_REGISTRIES = ['crates.io', 'npm', 'none'] as const;
 export const RELEASE_CADENCES = ['on-merge', 'scheduled', 'manual'] as const;
+export const RELEASE_PUBLISH = ['confirm', 'allow'] as const;
 export const COMMAND_MAX = 1000;
 
 // Same rendering as member-repos.ts, so every release message reads alike.
@@ -26,6 +28,7 @@ export function strategyProblems(r: Record<string, any>, at: string): string[] {
     ['mechanism', RELEASE_MECHANISMS],
     ['registry', RELEASE_REGISTRIES],
     ['cadence', RELEASE_CADENCES],
+    ['publish', RELEASE_PUBLISH],
   ];
   for (const [key, values] of enums)
     if (!unset(r[key]) && !values.includes(r[key])) problems.push(`${at}.${key} must be one of ${values.join(' | ')} (got ${show(r[key])})`);

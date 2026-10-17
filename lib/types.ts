@@ -6,7 +6,7 @@ import type { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLE
 import type { REQUEST_TYPES } from './requests.ts';
 import type { COMPONENT_KINDS, DEPENDENCY_TYPES, INTERIM_STRATEGIES, LINK_ECOSYSTEMS } from './components.ts';
 import type { AcCoverage } from './acs.ts';
-import type { RELEASE_CADENCES, RELEASE_MECHANISMS, RELEASE_REGISTRIES, RELEASE_VERSIONINGS } from './release-strategy.ts';
+import type { RELEASE_CADENCES, RELEASE_MECHANISMS, RELEASE_PUBLISH, RELEASE_REGISTRIES, RELEASE_VERSIONINGS } from './release-strategy.ts';
 import type { SECRET_KINDS } from './secrets.ts';
 import type { JobFindings } from './findings.ts';
 
@@ -673,6 +673,8 @@ export type ReleaseVersioning = (typeof RELEASE_VERSIONINGS)[number];
 export type ReleaseMechanism = (typeof RELEASE_MECHANISMS)[number];
 export type ReleaseRegistry = (typeof RELEASE_REGISTRIES)[number];
 export type ReleaseCadence = (typeof RELEASE_CADENCES)[number];
+/** Whether `forge release run` asks before a publish step; null asks too. */
+export type ReleasePublish = (typeof RELEASE_PUBLISH)[number];
 
 /** A repo's release strategy beside its interim strategy (docs/CONFIG.md "Release strategy"); null or absent is undeclared. */
 export interface ReleaseStrategy {
@@ -682,6 +684,8 @@ export interface ReleaseStrategy {
   command?: string | null;
   registry?: ReleaseRegistry | null;
   cadence?: ReleaseCadence | null;
+  /** `allow` lets `forge release run` run this repo's publish steps without asking; null or `confirm` asks on a terminal. */
+  publish?: ReleasePublish | null;
 }
 
 /** A `dependsOn` edge's local link (docs/CONFIG.md "Components"): the consumer builds against the dependency's job worktree. */

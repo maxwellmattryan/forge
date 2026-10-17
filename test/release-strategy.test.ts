@@ -1,4 +1,4 @@
-// Release strategy (config schemaVersion 16, issue #189): versioning, mechanism + command, registry
+// Release strategy (config schemaVersion 16, issue #189; release.publish in 17, #190): versioning, mechanism + command, registry
 // and cadence on the root `release` and each `repos[].release`, and doctor's look-only check that
 // the declared mechanism's tool is on this machine.
 import { describe, test } from 'node:test';
@@ -15,7 +15,7 @@ import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
 import { redactedConfig } from '../lib/config-fields.ts';
 import { doctor } from '../lib/doctor.ts';
 import { releaseChecks } from '../lib/member-repos.ts';
-import { RELEASE_CADENCES, RELEASE_MECHANISMS, RELEASE_REGISTRIES, RELEASE_VERSIONINGS, commandProgram, releaseMechanismCheck } from '../lib/release-strategy.ts';
+import { RELEASE_CADENCES, RELEASE_MECHANISMS, RELEASE_PUBLISH, RELEASE_REGISTRIES, RELEASE_VERSIONINGS, commandProgram, releaseMechanismCheck } from '../lib/release-strategy.ts';
 import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 import { deepMerge, findOnPath } from '../lib/util.ts';
 import * as yaml from '../lib/yaml.ts';
@@ -23,7 +23,7 @@ import * as yaml from '../lib/yaml.ts';
 const WIN = process.platform === 'win32';
 const POSIX_ONLY = WIN && 'Windows has no executable bit: any regular file with a PATHEXT extension runs';
 const LIB = { name: 'lib', remote: 'git@github.com:acme/lib.git', defaultBranch: 'main' };
-const ROOT_DEFAULT = { interim: 'local', versioning: null, mechanism: null, command: null, registry: null, cadence: null };
+const ROOT_DEFAULT = { interim: 'local', versioning: null, mechanism: null, command: null, registry: null, cadence: null, publish: null };
 const TAG_MSG = (at: string, got: string) => `${at}.command must be a one-line command of at most 1000 characters when mechanism is tag (got ${got})`;
 const ONLY_TAG = (at: string) => `${at}.command is only read when mechanism is tag; remove it or set mechanism: tag`;
 
@@ -117,12 +117,32 @@ describe('release strategy config', { concurrency: 4 }, () => {
   });
 
   test('v15 config migrates to v16 unchanged', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 16);
+    assert.equal(CONFIG_SCHEMA_VERSION, 17);
     const v15 = { schemaVersion: 15, release: { interim: 'canary' }, components: [], repos: [], checkout: [], downstream: { enabled: true, max: 5, skip: [] } };
     const { config, from } = migrateConfig(structuredClone(v15));
     assert.equal(from, 15);
-    assert.deepEqual(config, { ...v15, schemaVersion: 16 });
-    assert.deepEqual(validateConfig({ ...defaults(), schemaVersion: 17 }, process.cwd()), ['config schemaVersion 17 is newer than this Forge (16); update the plugin']);
+    assert.deepEqual(config, { ...v15, schemaVersion: 17 });
+    assert.deepEqual(validateConfig({ ...defaults(), schemaVersion: 18 }, process.cwd()), ['config schemaVersion 18 is newer than this Forge (17); update the plugin']);
+  });
+
+  test('a v16 config migrates to v17 unchanged', () => {
+    assert.equal(CONFIG_SCHEMA_VERSION, 17);
+    const v16 = { schemaVersion: 16, release: { interim: 'canary', mechanism: 'tag', command: 'git tag v1' }, components: [], repos: [{ ...LIB, release: { mechanism: 'changesets' } }], checkout: [], downstream: { enabled: true, max: 5, skip: [] } };
+    const { config, from } = migrateConfig(structuredClone(v16));
+    assert.equal(from, 16);
+    assert.deepEqual(config, { ...v16, schemaVersion: 17 });
+  });
+
+  test('release.publish validates', () => {
+    assert.equal(defaults().release.publish, null);
+    for (const v of [...RELEASE_PUBLISH, null]) {
+      assert.deepEqual(root({ publish: v }), [], `root ${v}`);
+      assert.deepEqual(member({ publish: v }), [], `member ${v}`);
+    }
+    for (const [v, got] of [['yes', '"yes"'], [true, 'true'], ['ALLOW', '"ALLOW"']] as [unknown, string][]) {
+      assert.deepEqual(root({ publish: v }), [`release.publish must be one of confirm | allow (got ${got})`]);
+      assert.deepEqual(member({ publish: v }), [`repos "lib".release.publish must be one of confirm | allow (got ${got})`]);
+    }
   });
 
   test('a v15 config file still loads', () => {
@@ -132,7 +152,7 @@ describe('release strategy config', { concurrency: 4 }, () => {
       fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), 'schemaVersion: 15\nrelease:\n  interim: canary\n');
       const loaded = loadConfig(dir);
       assert.equal(loaded.migratedFrom, 15);
-      assert.equal(loaded.config.schemaVersion, 16);
+      assert.equal(loaded.config.schemaVersion, 17);
       assert.equal(loaded.config.release.interim, 'canary');
       assert.equal(loaded.config.release.mechanism, null);
       assert.deepEqual(validateConfig(loaded.config, dir), []);
