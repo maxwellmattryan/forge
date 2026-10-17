@@ -119,7 +119,7 @@ The `forge` CLI underneath is also for scripts, CI and other agent runtimes: `fo
 | `forge notify test [--event <name>]` | send one sample notification (job null, title "Forge test notification") to every valid notify.webhooks entry regardless of its events, and run notify.command if set; prints {event, results: [{target, host, format, ok, status, error, attempts}]} and records nothing (see [Notifications](docs/CONFIG.md#notifications)) |
 | `forge config get [<key>]` | read the effective config: one dotted key (strings raw, null when absent), or all of it (see [Changing settings](docs/CONFIG.md#changing-settings)) |
 | `forge config set <key> <value>` | change one editable key in `.forge/config.yml`, keeping its comments (see [Changing settings](docs/CONFIG.md#changing-settings)) |
-| `forge doctor [<job>] [--bundle] [--out <dir>] [--include-text]` | check this repo and machine for Forge (tools, config, job files) and print what is wrong, indented; --bundle writes a redacted support bundle for a bug report (see [Support bundle](docs/CLI.md#support-bundle)) |
+| `forge doctor [<job>] [--bundle] [--out <dir>] [--include-text]` | check this repo and machine for Forge (tools, config, job files, and the tool of each declared release mechanism) and print what is wrong, indented; --bundle writes a redacted support bundle for a bug report (see [Support bundle](docs/CLI.md#support-bundle)) |
 | `forge update [--check] [--keep-dash]` | update this Forge install (plugin or clone) and restart this repo's dashboard on the new code (see [Updating](README.md#updating)) |
 <!-- forge:commands:end -->
 

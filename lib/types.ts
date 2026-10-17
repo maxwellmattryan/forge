@@ -6,6 +6,7 @@ import type { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLE
 import type { REQUEST_TYPES } from './requests.ts';
 import type { COMPONENT_KINDS, DEPENDENCY_TYPES, INTERIM_STRATEGIES, LINK_ECOSYSTEMS } from './components.ts';
 import type { AcCoverage } from './acs.ts';
+import type { RELEASE_CADENCES, RELEASE_MECHANISMS, RELEASE_REGISTRIES, RELEASE_VERSIONINGS } from './release-strategy.ts';
 import type { SECRET_KINDS } from './secrets.ts';
 import type { JobFindings } from './findings.ts';
 
@@ -668,6 +669,20 @@ export type ComponentKind = (typeof COMPONENT_KINDS)[number];
 export type DependencyType = (typeof DEPENDENCY_TYPES)[number];
 export type LinkEcosystem = (typeof LINK_ECOSYSTEMS)[number];
 export type InterimStrategy = (typeof INTERIM_STRATEGIES)[number];
+export type ReleaseVersioning = (typeof RELEASE_VERSIONINGS)[number];
+export type ReleaseMechanism = (typeof RELEASE_MECHANISMS)[number];
+export type ReleaseRegistry = (typeof RELEASE_REGISTRIES)[number];
+export type ReleaseCadence = (typeof RELEASE_CADENCES)[number];
+
+/** A repo's release strategy beside its interim strategy (docs/CONFIG.md "Release strategy"); null or absent is undeclared. */
+export interface ReleaseStrategy {
+  versioning?: ReleaseVersioning | null;
+  mechanism?: ReleaseMechanism | null;
+  /** The release command a human runs; only read with `mechanism: tag`. */
+  command?: string | null;
+  registry?: ReleaseRegistry | null;
+  cadence?: ReleaseCadence | null;
+}
 
 /** A `dependsOn` edge's local link (docs/CONFIG.md "Components"): the consumer builds against the dependency's job worktree. */
 export interface ComponentLink {
@@ -710,8 +725,8 @@ export interface MemberRepoConfig {
   remote: string;
   defaultBranch: string;
   tracker?: { kind: 'github' | 'none'; repo?: string | null } | null;
-  /** How the repo releases: its interim strategy as a dependency (docs/CONFIG.md "Interim strategies"). */
-  release?: { interim?: InterimStrategy } | null;
+  /** How the repo releases: its interim strategy as a dependency and its release strategy (docs/CONFIG.md "Release strategy"). */
+  release?: ({ interim?: InterimStrategy } & ReleaseStrategy) | null;
 }
 
 /** What `forge run <job> <name>` executes: defaults().commands in lib/config.ts. */
@@ -819,8 +834,8 @@ export interface Config {
     autoWhen: string[];
   };
   aiAttribution: 'forbid' | 'allow';
-  /** The root repo's release settings: its interim strategy as a dependency (docs/CONFIG.md "Interim strategies"). */
-  release: { interim: InterimStrategy };
+  /** The root repo's release settings: its interim strategy as a dependency and its release strategy, every key present once defaults fill it (docs/CONFIG.md "Release strategy"). */
+  release: { interim: InterimStrategy } & { [K in keyof ReleaseStrategy]-?: ReleaseStrategy[K] };
   resources: ResourceConfig[];
   components: ComponentConfig[];
   repos: MemberRepoConfig[];

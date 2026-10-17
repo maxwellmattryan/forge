@@ -92,6 +92,31 @@ export function hasBinary(cmd: string): boolean {
   }
 }
 
+/**
+ * Where `cmd` would be found on `env.PATH`, by stat and access only (nothing runs, unlike
+ * hasBinary). Relative PATH entries are skipped: they would search the cwd, which a checkout controls.
+ */
+export function findOnPath(cmd: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string | null {
+  if (!cmd || cmd.includes('/') || cmd.includes('\\') || cmd.includes('\0')) return null;
+  const win = platform === 'win32';
+  const exts = win ? (env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean) : [];
+  const names = win ? [...(path.extname(cmd) ? [cmd] : []), ...exts.map((e) => cmd + e)] : [cmd];
+  for (const dir of (env.PATH ?? env.Path ?? '').split(path.delimiter)) {
+    if (!dir || !path.isAbsolute(dir)) continue;
+    for (const n of names) {
+      const file = path.join(dir, n);
+      try {
+        if (!fs.statSync(file).isFile()) continue;
+        if (!win) fs.accessSync(file, fs.constants.X_OK);
+        return file;
+      } catch {
+        // missing or not executable: keep looking
+      }
+    }
+  }
+  return null;
+}
+
 export function readJson(file: string, fallback?: any): any {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));

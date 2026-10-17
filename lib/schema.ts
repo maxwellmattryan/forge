@@ -9,7 +9,7 @@ import type { EventActor, Job, JobEvent, JobIssue, JobRepo, JobRepoPr, LoadedJob
 
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
 
-export const CONFIG_SCHEMA_VERSION = 15;
+export const CONFIG_SCHEMA_VERSION = 16;
 export const JOB_SCHEMA_VERSION = 13;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
@@ -155,6 +155,9 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // v15 adds checkout, empty by default, so no v14 config changes; the bump lets older Forges
   // refuse a config whose checkout steps they would ignore.
   14: (c) => c,
+  // v16 adds the release strategy keys, unset by default, so no v15 config changes; the bump lets
+  // older Forges refuse a config whose release strategy they would ignore.
+  15: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {

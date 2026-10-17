@@ -5,7 +5,7 @@
 Command templates are POSIX `sh`: each runs as `$SHELL -lc <cmd>` (`/bin/sh` when `$SHELL` is unset), and on native Windows under Git for Windows' `sh` (Git Bash; the first `sh.exe` on PATH, else `%ProgramFiles%\Git\bin\sh.exe`), or is refused with an error when there is none (see [SUPPORT.md](SUPPORT.md)). Command templates may use `{port}`, `{job}`, `{worktree}`, `{root}`, `{branch}`, `{base}` and `{args}`. `{args}` holds the extra arguments of `forge run <job> <name> -- <args…>`, each already in single quotes, and arguments go only where a template has it: `forge run` refuses arguments for a template without `{args}`, so a command takes none unless you opt in. Write `{args}` unquoted, as a whole word: after the start, a space, a tab, a newline or `(`, and before the end, a space, a tab, a newline, `;`, `&`, `|` or `)`. Arguments for a template where it sits inside `'…'` or `"…"` or touches another word (`x{args}`, `\{args}`) are refused, and so are arguments for any template containing a heredoc (`<<`), `$'` or `\'`, where the quoting would not hold. The arguments become words of whatever command surrounds `{args}`, so `exec {args}`, `env {args}` or `time {args}` runs the first one as a program. An argument containing a quote, backslash or control character is refused too. Every refusal comes before anything runs. Only `forge run` has arguments: `forge verify`, worktree setup, `forge run --background`, `forge integrate`'s rebuild and `forge eval grade` fill `{args}` with nothing. The other placeholders are filled in unquoted, so `{job}`, `{branch}` and `{base}` are checked first: each must start with a letter or digit and use only `A-Z a-z 0-9 . _ / -` (at most 200 characters), and an unsafe value stops the command before it runs, with an error naming the field. `{worktree}` is filled only with the path Forge computes for the job, `<worktrees.root>/<job id>`: a command whose template uses it stops before it runs when the job's stored `worktree` is anything else, for the same reason. Commands that don't use `{worktree}` are not affected. Commands also get `PORT`, `FORGE_PORT`, `FORGE_JOB` and `FORGE_WORKTREE` in their environment, and never the daemon session's `FORGE_DAEMON*` variables, so a command that calls `forge` behaves the same under the daemon as for a human.
 
 ```yaml
-schemaVersion: 15
+schemaVersion: 16
 
 project:
   name: null                 # display name
@@ -170,6 +170,11 @@ aiAttribution: forbid        # forbid | allow: whether commits, PRs, issues and 
 
 release:
   interim: local             # canary | git-ref | local | sequential: what a consumer's PR points at while this (root) repo's change is unmerged (see Interim strategies)
+  versioning: null           # semver | calver; null = undeclared (see Release strategy)
+  mechanism: null            # release-please | cargo-release | changesets | tag: the tool that cuts a release; doctor checks it is installed
+  command: null              # with mechanism: tag only, the one-line command a human runs to release (never run by Forge)
+  registry: null             # crates.io | npm | none
+  cadence: null              # on-merge | scheduled | manual
 
 resources: []                # what agents should know exists, e.g.
 #  - { name: App designs, kind: figma, url: "https://www.figma.com/design/…", use: "source of truth for UI" }
@@ -604,6 +609,67 @@ components:
 - **Downstream verification.** A consumer repo with a link to a repo the job changes is what [Downstream verification](#downstream-verification) adds to a job; without a link it would test the released library, so it is skipped.
 - **Never committed.** Verify's integrity report flags added lines that carry a local override (an absolute path of a worktrees root or of `.forge/jobs`, `FETCHCONTENT_SOURCE_DIR_`, a `[patch` table in a `.cargo/config(.toml)`, or a `file:`/`link:` dependency in `package.json` that is absolute or leaves the repo) as blocking under `verifyIntegrity: block` (see [Verify integrity](#verify-integrity)).
 
+### Release strategy
+
+Each repo writes down how it releases, so the Foreman and humans read one place instead of guessing: its **versioning**, the **mechanism** (tool) that cuts a release, the **registry** it publishes to, and its **cadence**. The keys sit beside `interim` (below) in the top-level `release` for the root repo and in `repos[].release` for each member, with the same names and values. A single-repo project declares its strategy by editing only `release:`. Nothing acts on these keys yet: `forge release` and the release gate's use of them are planned in M006, and today only validation and `forge doctor` read them.
+
+```yaml
+release:
+  interim: local
+  versioning: semver
+  mechanism: tag
+  command: npm run release     # required with mechanism: tag, refused otherwise
+  registry: none
+  cadence: on-merge
+repos:
+  - name: engine
+    remote: git@github.com:acme/engine.git
+    defaultBranch: main
+    release: { interim: git-ref, versioning: semver, mechanism: cargo-release, registry: crates.io, cadence: manual }
+```
+
+| Key | Values | Default | Meaning |
+|---|---|---|---|
+| `versioning` | `semver`, `calver` | `null` | How version numbers are chosen. |
+| `mechanism` | `release-please`, `cargo-release`, `changesets`, `tag` | `null` | The tool that cuts a release; `tag` means a git tag made by the repo's own `command`. |
+| `command` | a one-line string, at most 1000 characters | `null` | The command a human runs to release; read only with `mechanism: tag`. Forge never runs it. Support bundles redact it. |
+| `registry` | `crates.io`, `npm`, `none` | `null` | Where released packages are published (`none`: a tag or GitHub Release only). |
+| `cadence` | `on-merge`, `scheduled`, `manual` | `null` | When a release happens: every merge to the default branch, on a timer (usually CI), or when a human decides. |
+
+Every key is optional, and `null` or absent means undeclared ("unknown"): nothing defaults to a value, and doctor runs no check for a repo with no `mechanism`. A member's `release` may be absent, `null`, or a partial map; one without `interim` still has its other keys checked. Unknown keys inside `release` are ignored, and combinations (such as `cargo-release` with `registry: npm`) are not cross-checked.
+
+**Validation** (`forge config validate`, `forge doctor`'s `config valid`, `forge init write`, Settings diagnostics), one message per problem, where `<at>` is `release` or `repos "<name>".release` (`repos[<i>].release` for an unnamed entry) and `<v>` is the value as JSON, cut at 120 characters (`nothing` when absent):
+
+- `<at>.versioning must be one of semver | calver (got <v>)`
+- `<at>.mechanism must be one of release-please | cargo-release | changesets | tag (got <v>)`
+- `<at>.registry must be one of crates.io | npm | none (got <v>)`
+- `<at>.cadence must be one of on-merge | scheduled | manual (got <v>)`
+- with `mechanism: tag`, a `command` that is absent, not a string, empty after trimming, over 1000 characters, or contains a control character (a newline included): `<at>.command must be a one-line command of at most 1000 characters when mechanism is tag (got <v>)`
+- with any other mechanism, or none, a `command` that is set: `<at>.command is only read when mechanism is tag; remove it or set mechanism: tag`
+
+**Doctor.** `forge doctor` (and Settings › Diagnostics) adds a `release mechanism` check for the root when `release.mechanism` is set and the top-level `release` validates, then a `release mechanism <name>` check per `repos` entry with a mechanism, in config order, when `repos` validates; they follow the `repo <name>` checks. A member is checked in its `.forge/local.yml` clone, `<dir>` below (the root repo for the root check). Doctor only looks: it never runs `command`, the tool, or the tool with `--version`, and finds tools by `stat` and access checks alone. PATH entries that are empty or relative are skipped, so the current directory never supplies a tool; on Windows each `PATHEXT` extension is tried.
+
+| Mechanism | Looks for |
+|---|---|
+| `release-please` | `release-please` in `<dir>/node_modules/.bin`, then on PATH |
+| `changesets` | `changeset` in `<dir>/node_modules/.bin`, then on PATH |
+| `cargo-release` | `cargo-release` on PATH |
+| `tag` | `git` on PATH, and the program `command` runs (below) |
+
+| Situation | Result | Detail |
+|---|---|---|
+| every tool found | passes | `<mechanism>: <tool> at <path>` (tag: `tag: git at <path>, <program> at <path>`) |
+| a tool missing, `cadence` unset or `manual` | fails | `<mechanism>: <tool> not found in <dir>/node_modules/.bin or on PATH; install it: <hint>` (`not found on PATH` for a PATH-only tool, `not found at <path>` for a program given as a path) |
+| a tool missing, `cadence` `on-merge` or `scheduled` | warns | the same, plus `; cadence <c> usually releases from CI, so this matters only to release from this machine` |
+| a `tag` command whose program can't be told | warns | `tag: cannot tell which program release.command runs (<reason>); checked git only` (a missing git still fails, or warns by cadence) |
+| a member with no `local.yml` entry, or whose path is not a directory | warns | `<mechanism>: <name>'s clone is not resolved (see the repo <name> check); not checked` |
+
+The hints: `npm install --save-dev release-please`, `npm install --save-dev @changesets/cli`, `cargo install cargo-release`, `install git`, and for a tag command's program `install <program> or fix release.command`. The program is `command`'s first word after any leading `NAME=value` assignments, with quotes removed (`'my tool' x` runs `my tool`). Doctor can't tell when the command has an unterminated quote, has no word after the assignments, contains any of `` $ ` ( ) ; | & < > `` anywhere, has any of `* ? [ ] { } ~` in the program, the program is a shell builtin or keyword (`cd . source exec eval export set unset if for while until case command builtin time !`), or, on Windows, the program is a network (UNC) path starting with `\\` or `//`. A program containing `/` (or `\` on Windows) is resolved against `<dir>` and must be a regular file (executable outside Windows); any other is looked up on PATH.
+
+**Forge's own release** ([RELEASES.md](RELEASES.md)) maps onto these keys as `versioning: semver`, `mechanism: tag` (`release.yml` tags `v<version>` on a merge to `main` that changes the version; the `command` would be what a human runs by hand, such as `git tag v<version> && git push origin v<version>`, quoted as one string), `registry: none` (a GitHub Release, no package registry) and `cadence: on-merge`. Forge's own `.forge/config.yml` does not declare them.
+
+**Migration** (config `schemaVersion` 15 → 16): nothing changes. v16 adds `release.versioning`, `release.mechanism`, `release.command`, `release.registry` and `release.cadence` (and the same keys on `repos[].release`), all unset by default; the bump lets older Forges refuse a config whose release strategy they would ignore. `forge migrate` writes the new version.
+
 ### Interim strategies
 
 A multi-repo job's consumer PR has to point at *something* while its dependency's change is unmerged or unreleased, and projects release differently, so each dependency repo has an **interim strategy**. An **edge** is a consumer job repo and a dependency job repo, from `components[].dependsOn` (the merge order [Job repos](ARCHITECTURE.md#job-repos) uses, transitive through repos outside the job); its **links** are the `link`s joining the two repos. A verify-only member is unchanged, so it is never a dependency. The strategy is per dependency and every edge into it shares it, resolved as: the job's override (`forge job repo interim <id> <name>|--root <strategy>`, human-only), then config (`repos[].release.interim` for a member, the top-level `release.interim` for the root repo), then `local`.
@@ -658,7 +724,7 @@ repos:
     remote: git@github.com:acme/ui-kit.git     # required: the clone url
     defaultBranch: main                        # required
     tracker: { kind: github, repo: acme/ui-kit }   # optional: kind github | none; repo is owner/name
-    release: { interim: local }                    # optional: canary | git-ref | local | sequential (see Interim strategies)
+    release: { interim: local, versioning: semver, mechanism: changesets, registry: npm, cadence: manual }   # optional; interim: canary | git-ref | local | sequential (see Interim strategies); the rest: see Release strategy
 ```
 
 `tracker` defaults to the GitHub repo `remote` names: with no `tracker`, or `kind: github` without `repo`, the member's tracker is the `owner/name` of its `remote` on github.com (or `GH_HOST`), and a remote that names none (another host, a local path) means no tracker. `kind: none` turns it off. A member with a tracker has its ready issues offered by `forge next` after the root's and can start a job with `forge job from-ref owner/name#N`, which adds the member to that job; its issues get status labels only, never the root's GitHub Project ([Member repo trackers](TRACKERS.md#member-repo-trackers)).
@@ -679,7 +745,7 @@ A relative path resolves against the root repo, a leading `~/` is the home direc
 - a `remote` that isn't a non-empty string of at most 2000 characters, starts with `-`, or contains whitespace or control characters
 - a `defaultBranch` that isn't a safe branch name (`A-Z a-z 0-9 . _ / -`, starting with a letter or digit, at most 200 characters), or contains `..` or `//`, or ends in `/` or `.lock`
 - a `tracker` that is set but isn't a map with `kind` `github | none`, or a `github` `repo` that isn't `owner/name`
-- a `release` that is set but isn't a map, or an `interim` outside `canary | git-ref | local | sequential` (the top-level `release` is checked the same way)
+- a `release` that is set but isn't a map, an `interim` outside `canary | git-ref | local | sequential`, or a `versioning`, `mechanism`, `command`, `registry` or `cadence` that [Release strategy](#release-strategy) refuses (the top-level `release` is checked the same way)
 - `components "<c>".repo names unknown repo "<x>"` for a component whose `repo` names no entry
 
 **Doctor.** When `repos` validates, `forge doctor` (and Settings › Diagnostics) adds one `repo <name>` check per member, after `config valid`, and always prints the fix:
@@ -694,7 +760,7 @@ A relative path resolves against the root repo, a leading `~/` is the home direc
 | checked out on `defaultBranch` with uncommitted changes | warns | `<defaultBranch> has uncommitted changes (<n> paths) at <path>` |
 | otherwise | passes | `<path> on <branch or detached>` |
 
-Remotes match when they are equal after dropping any `user:password@`, a trailing `/` and `.git`, or name the same GitHub `owner/name` (`git@github.com:acme/x.git` and `https://github.com/acme/x` match). Paths are single-quoted when they contain anything outside `A-Za-z0-9._/~-`. A `local.yml` check appears only when that file has a problem: unparsable YAML, a `repos` that isn't a map, or an entry without a non-empty string `path` fails it (and every member then reads as having no entry), and names that aren't in `repos` give a warning. With no `repos` and no `local.yml` there are no new checks. Doctor only reads: it never clones, fetches or checks out, runs git with `core.fsmonitor=false` and `GIT_OPTIONAL_LOCKS=0` so `status` never rewrites a member's index, and never passes `remote` to git.
+Remotes match when they are equal after dropping any `user:password@`, a trailing `/` and `.git`, or name the same GitHub `owner/name` (`git@github.com:acme/x.git` and `https://github.com/acme/x` match). Paths are single-quoted when they contain anything outside `A-Za-z0-9._/~-`. A `local.yml` check appears only when that file has a problem: unparsable YAML, a `repos` that isn't a map, or an entry without a non-empty string `path` fails it (and every member then reads as having no entry), and names that aren't in `repos` give a warning. With no `repos` and no `local.yml` there are no new checks. Doctor only reads: it never clones, fetches or checks out, runs git with `core.fsmonitor=false` and `GIT_OPTIONAL_LOCKS=0` so `status` never rewrites a member's index, and never passes `remote` to git. After these checks come the `release mechanism <name>` checks for members that declare a mechanism ([Release strategy](#release-strategy)).
 
 **Using a member in a job.** A human adds a member to one job with `forge job repo add <id> <name> [--verify-only]` (refused unless the member passes the doctor check above, and refused in a daemon session), or a job started from the member's own issue gets it at creation; the job then changes that repo too ([Job repos](ARCHITECTURE.md#job-repos)). `forge worktree create` makes the member's worktree at `worktrees.root` with `{repo}` set to the clone's directory name, resolved from the clone (by default `../<clone>.worktrees/<id>`), on the job's branch, or detached at `defaultBranch` for a verify-only member. A member's commands are its components' `commands` (`forge run <id> <cmd> --repo <name>`; `forge verify` runs each `verify` step as the member component's command, and skips a step none defines). `forge pr open` opens the member's PR in `tracker.repo` when `tracker.kind` is `github`, else in the `owner/name` its `remote` names on github.com (or `GH_HOST`). Members get no `worktrees.copy`, `worktrees.setup`, port or shared Cargo target. `policy.protectedPaths` applies to every member the job commits to exactly as to the root ("Protected paths" above).
 

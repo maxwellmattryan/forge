@@ -19,15 +19,15 @@ const noJob = { interim: null, repos: [] } as unknown as Job;
 
 describe('interim strategies: config', { concurrency: 4 }, () => {
   test('v12 config migrates to v13 unchanged', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 15);
+    assert.equal(CONFIG_SCHEMA_VERSION, 16);
     const v12 = { schemaVersion: 12, repos: structuredClone(REPOS), components: components(link('npm')), aiAttribution: 'forbid' };
     const { config, from } = migrateConfig(structuredClone(v12));
     assert.equal(from, 12);
-    assert.deepEqual(config, { ...v12, schemaVersion: 15, downstream: { enabled: true, max: 5, skip: [] } });
+    assert.deepEqual(config, { ...v12, schemaVersion: 16, downstream: { enabled: true, max: 5, skip: [] } });
   });
 
   test('release.interim validates on the root and on repos entries', () => {
-    assert.deepEqual(defaults().release, { interim: 'local' });
+    assert.deepEqual(defaults().release, { interim: 'local', versioning: null, mechanism: null, command: null, registry: null, cadence: null });
     assert.deepEqual(problems({}), []);
     for (const interim of ['canary', 'git-ref', 'local', 'sequential']) {
       assert.deepEqual(problems({ release: { interim } }), [], interim);
@@ -43,7 +43,7 @@ describe('interim strategies: config', { concurrency: 4 }, () => {
     const config = { ...defaults(), repos: REPOS } as Config;
     assert.deepEqual(strategyOf(config, noJob, 'lib'), { strategy: 'local', source: 'config' });
     assert.deepEqual(strategyOf({ ...config, repos: [{ ...REPOS[0], release: { interim: 'git-ref' } }] }, noJob, 'lib'), { strategy: 'git-ref', source: 'config' });
-    assert.deepEqual(strategyOf({ ...config, release: { interim: 'sequential' } }, noJob, null), { strategy: 'sequential', source: 'config' });
+    assert.deepEqual(strategyOf({ ...config, release: { ...config.release, interim: 'sequential' } }, noJob, null), { strategy: 'sequential', source: 'config' });
     assert.deepEqual(strategyOf({ ...config, release: { interim: 'bogus' } } as unknown as Config, noJob, null), { strategy: 'local', source: 'config' }, 'an invalid value never resolves');
   });
 

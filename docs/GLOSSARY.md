@@ -35,12 +35,14 @@ Planned in M005, except where a config key exists today.
 
 ## Releases
 
-Planned in M006.
+The release strategy keys are in config today (see [CONFIG.md "Release strategy"](CONFIG.md#release-strategy)); the commands that act on them are planned in M006.
 
 | Term | Meaning | Config key |
 |---|---|---|
 | **release** | Publishing new versions of one or more components, the one word for single-repo and multi-repo releases alike. | planned (M006) |
-| **release strategy** | A project's policy for how and when its components release (coordinated or independent, and the cadence) and which interim strategy each dependency uses. | planned (M006) |
+| **release strategy** | How one repo releases, declared per repo: its versioning (`semver` or `calver`), release mechanism, registry (`crates.io`, `npm` or `none`), release cadence and interim strategy. | `release` |
+| **release mechanism** | The tool that cuts a repo's release, one of `release-please`, `cargo-release`, `changesets` or `tag` (a git tag made by the repo's own `release.command`), which `forge doctor` checks is installed. | `release.mechanism` |
+| **release cadence** | When a repo releases, one of `on-merge` (every merge to the default branch), `scheduled` (on a timer, usually in CI) or `manual` (when a human decides). | `release.cadence` |
 | **release plan** | The ordered components, versions and steps for one release, which a human can run from the CLI without the Foreman. | planned (M006) |
 | **release gate** | A check that blocks merging a PR while it still uses an interim reference. | planned (M006) |
 

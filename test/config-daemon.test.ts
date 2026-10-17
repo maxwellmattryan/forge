@@ -40,7 +40,7 @@ test('AC1: defaults carry the daemon block and no dashboard.launcher', () => {
     auth: 'subscription',
   });
   assert.deepEqual(d.dashboard, { port: 7400 });
-  assert.equal(CONFIG_SCHEMA_VERSION, 15);
+  assert.equal(CONFIG_SCHEMA_VERSION, 16);
   // The quoted tool names survive a YAML round trip, so `forge init write` can store the block.
   assert.deepEqual(yaml.parse(yaml.stringify({ daemon: d.daemon })).daemon, d.daemon);
 });
@@ -55,7 +55,7 @@ test('AC2: v1 dashboard.launcher migrates to daemon.command', () => {
   try {
     write('schemaVersion: 1\ndashboard:\n  port: 7411\n  launcher: \'claude -p "{prompt}"\'\n');
     let loaded = loadConfig(repo.dir);
-    assert.equal(loaded.config.schemaVersion, 15);
+    assert.equal(loaded.config.schemaVersion, 16);
     assert.equal(loaded.config.daemon.command, 'claude -p "{prompt}"');
     assert.equal(loaded.config.daemon.enabled, false, 'the migration never enables the daemon');
     assert.equal('launcher' in loaded.config.dashboard, false);
@@ -81,7 +81,7 @@ test('AC2: v1 dashboard.launcher migrates to daemon.command', () => {
     write('schemaVersion: 1\ndashboard:\n  port: 7400\n  launcher: \'claude -p "{prompt}"\'\n');
     assert.deepEqual(migrate(repo.dir).changed, ['.forge/config.yml']);
     const text = fs.readFileSync(cfg, 'utf8');
-    assert.match(text, /^schemaVersion: 15$/m);
+    assert.match(text, /^schemaVersion: 16$/m);
     assert.match(text, /^daemon:$/m);
     assert.doesNotMatch(text, /launcher:/);
     assert.equal(yaml.parse(text).daemon.command, 'claude -p "{prompt}"');

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { validateConfig, worktreeRoot } from './config.ts';
 import { apiKeyVars } from './daemon.ts';
 import { deprecationChecks } from './deprecations.ts';
-import { memberRepoChecks, repoProblems } from './member-repos.ts';
+import { memberRepoChecks, releaseChecks, repoProblems } from './member-repos.ts';
 import { isActive, listJobs } from './jobs.ts';
 import { notifyChecks } from './notify.ts';
 import { paths, exists } from './paths.ts';
@@ -98,6 +98,7 @@ export async function doctor(root: string, config: Config, initialized: boolean,
     checks.push(...deprecationChecks(readText(paths(root).config)));
     // A bad repos list is already a failing config check; member checks would only guess at it.
     if (!repoProblems(config, root).length) checks.push(...memberRepoChecks(root, config));
+    checks.push(...releaseChecks(root, config));
   }
   const keys = apiKeyVars(process.env);
   if (initialized && config.daemon.enabled && keys.length) {

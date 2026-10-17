@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { INTERIM_STRATEGIES, isInterimStrategy } from './components.ts';
 import { paths, resolveFrom } from './paths.ts';
+import { releaseMechanismCheck, strategyProblems } from './release-strategy.ts';
 import { SEG, githubHost, slugFromRemote } from './repo-slug.ts';
 import type { Config, DoctorCheck } from './types.ts';
 import { SAFE_REF, readText, run, safeText } from './util.ts';
@@ -36,14 +37,16 @@ const isGithubSlug = (s: unknown): boolean => {
 };
 
 /**
- * A `release` map: `interim` one of the strategies. The root's (top-level) is always a map once
- * defaults fill it; a member's may be absent or null.
+ * A `release` map: `interim` one of the strategies, and the release strategy keys
+ * (lib/release-strategy.ts). The root's (top-level) is always a map once defaults fill it; a
+ * member's may be absent, null, or a map without interim.
  */
 export function releaseProblems(r: unknown, at: string, optional = false): string[] {
   if (optional && (r === undefined || r === null)) return [];
   if (!isMap(r)) return [`${at} must be a map with interim ${INTERIM_STRATEGIES.join(' | ')} (got ${show(r)})`];
-  if (r.interim === undefined && optional) return [];
-  return isInterimStrategy(r.interim) ? [] : [`${at}.interim must be one of ${INTERIM_STRATEGIES.join(' | ')} (got ${show(r.interim)})`];
+  const problems: string[] = [];
+  if (!(optional && r.interim === undefined) && !isInterimStrategy(r.interim)) problems.push(`${at}.interim must be one of ${INTERIM_STRATEGIES.join(' | ')} (got ${show(r.interim)})`);
+  return [...problems, ...strategyProblems(r, at)];
 }
 
 /** `downstream`: a map with enabled (boolean), max (integer 0–50) and skip (names of `repos` entries). */
@@ -257,5 +260,34 @@ export function memberRepoChecks(root: string, config: Config): DoctorCheck[] {
     if (unknown.length) checks.push({ name: 'local.yml', ok: true, warn: true, detail: `names not in repos: ${unknown.map((n) => JSON.stringify(n)).join(', ')}` });
   }
   for (const r of repos) checks.push(memberCheck(root, config, r, local));
+  return checks;
+}
+
+/**
+ * Doctor's release checks: `release mechanism` for the root, then `release mechanism <name>` per
+ * `repos` entry in config order, each only when that repo declares a mechanism. Members are checked
+ * only when `repos` validates, and in their local.yml clone; nothing runs in it.
+ */
+export function releaseChecks(root: string, config: Config, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): DoctorCheck[] {
+  const checks: DoctorCheck[] = [];
+  if (config.release?.mechanism && !releaseProblems(config.release, 'release').length) checks.push(releaseMechanismCheck('release mechanism', root, config.release, env, platform));
+  const repos = Array.isArray(config.repos) ? config.repos : [];
+  if (!repos.some((r) => r.release?.mechanism) || repoProblems(config, root).length) return checks;
+  const local = readLocalConfig(root);
+  for (const r of repos) {
+    const mechanism = r.release?.mechanism;
+    if (!r.release || !mechanism) continue;
+    const name = `release mechanism ${r.name}`;
+    const entry = Object.hasOwn(local.repos, r.name) ? local.repos[r.name] : undefined;
+    const dir = entry ? resolveMemberPath(root, entry.path) : null;
+    let isDir = false;
+    try {
+      isDir = dir !== null && fs.statSync(dir).isDirectory();
+    } catch {
+      // missing: reported by the repo <name> check
+    }
+    if (!dir || !isDir) checks.push({ name, ok: true, warn: true, detail: `${mechanism}: ${r.name}'s clone is not resolved (see the repo ${r.name} check); not checked` });
+    else checks.push(releaseMechanismCheck(name, dir, r.release, env, platform));
+  }
   return checks;
 }
