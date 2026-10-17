@@ -12,7 +12,7 @@ const GLOSSARY = read('docs/GLOSSARY.md');
 const TERMS = [
   'project', 'root repo', 'member repo', 'component', 'dependency', 'backing service', 'isolation', 'project graph',
   'profile', 'environment', 'endpoint', 'focus', 'checkout hook', 'job repo', 'verify-only repo', 'local link',
-  'interim reference', 'interim strategy', 'release gate', 'release', 'release strategy', 'release plan', 'config sink',
+  'interim reference', 'interim strategy', 'release gate', 'release', 'release strategy', 'release mechanism', 'release cadence', 'release plan', 'config sink',
   'secret reference', 'issue ref',
 ];
 
@@ -59,6 +59,8 @@ test('enumerated terms list their values', () => {
     dependency: ['build', 'runtime'],
     isolation: ['per-job', 'shared', 'external'],
     'interim strategy': ['canary', 'git-ref', 'local', 'sequential'],
+    'release mechanism': ['release-please', 'cargo-release', 'changesets', 'tag'],
+    'release cadence': ['on-merge', 'scheduled', 'manual'],
   };
   const all = rows();
   for (const [term, vals] of Object.entries(values)) {

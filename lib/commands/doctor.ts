@@ -18,7 +18,7 @@ const DOCTOR: HelpGroup = {
     {
       command: 'doctor',
       args: '[<job>] [--bundle] [--out <dir>] [--include-text]',
-      summary: 'check this repo and machine for Forge (tools, config, job files) and print what is wrong, indented; --bundle writes a redacted support bundle for a bug report',
+      summary: 'check this repo and machine for Forge (tools, config, job files, and the tool of each declared release mechanism) and print what is wrong, indented; --bundle writes a redacted support bundle for a bug report',
       flags: [
         ['--bundle [<job>]', "write forge-support-<date>.zip: doctor, versions, redacted config, and the job's (default: every active job's) events, step, verify and daemon logs, with paths, logins, emails and likely secrets redacted; the manifest prints to stderr first"],
         ['--out <dir>', 'an existing directory to write the bundle to (default: the current directory)'],

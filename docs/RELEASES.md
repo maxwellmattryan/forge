@@ -6,6 +6,8 @@ How Forge is versioned, which releases get fixes, how a release is cut, and how 
 
 Forge follows [semver](https://semver.org). Below 1.0, a minor release (`0.x` → `0.x+1`) may break any surface below, and a patch release never does. From 1.0, only a major release may. A breaking change is always called out in [CHANGELOG.md](../CHANGELOG.md).
 
+In the general form any repo can declare, [CONFIG.md "Release strategy"](CONFIG.md#release-strategy), this is `versioning: semver`, `mechanism: tag`, `registry: none` and `cadence: on-merge`.
+
 | Surface | What counts as breaking |
 |---|---|
 | CLI JSON | Renaming or removing a JSON field, an error code or an exit number ([CLI.md](CLI.md#stability)). New commands, flags and fields are additive. |
