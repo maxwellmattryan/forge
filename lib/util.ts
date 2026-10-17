@@ -365,6 +365,17 @@ export function shellArgs(args: string[]): string {
   return args.map((a) => `'${a}'`).join(' ');
 }
 
+/**
+ * A component's path becomes the cwd of its shell commands (path.join(worktree, path)), so it must
+ * stay inside the checkout: no absolute path, drive letter or `..` segment on either separator.
+ * Here rather than in components.ts so config-sinks.ts can use it without a cycle.
+ */
+export function isInsidePath(p: unknown): p is string {
+  if (typeof p !== 'string' || !p.trim()) return false;
+  if (path.isAbsolute(p) || /^[/\\]/.test(p) || /^[A-Za-z]:/.test(p)) return false;
+  return !p.split(/[/\\]/).includes('..');
+}
+
 export function fill(template: string, vars: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
 }

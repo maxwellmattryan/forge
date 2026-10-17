@@ -9,7 +9,7 @@ import type { EventActor, Job, JobEvent, JobIssue, JobRepo, JobRepoPr, LoadedJob
 
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
 
-export const CONFIG_SCHEMA_VERSION = 18;
+export const CONFIG_SCHEMA_VERSION = 19;
 export const JOB_SCHEMA_VERSION = 13;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
@@ -190,6 +190,9 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
     if (!Array.isArray(r) || r.includes('gate:release')) return c;
     return { ...c, foreman: { ...c.foreman, reserved: [...r, 'gate:release'] } };
   },
+  // v19 adds components[].config (config sinks), absent by default, so no v18 config changes; the
+  // bump lets older Forges refuse a config whose sinks they would ignore.
+  18: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
