@@ -97,8 +97,10 @@ export function releaseMechanismCheck(name: string, dir: string, release: Releas
   if (mechanism === 'tag') {
     tools.push({ tool: 'git', hint: 'install git' });
     const prog = commandProgram(String(release.command ?? ''));
-    if ('unknown' in prog) note = `tag: cannot tell which program release.command runs (${prog.unknown}); checked git only`;
-    else {
+    // Stat'ing a UNC path on Windows opens an SMB connection (and can leak the user's NTLM hash): doctor only looks locally.
+    const unknown = 'unknown' in prog ? prog.unknown : platform === 'win32' && /^[\\/]{2}/.test(prog.word) ? 'it names a network path' : null;
+    if (unknown !== null) note = `tag: cannot tell which program release.command runs (${unknown}); checked git only`;
+    else if ('word' in prog) {
       const sep = platform === 'win32' ? /[\\/]/ : /\//;
       const hint = `install ${prog.word} or fix release.command`;
       tools.push(sep.test(prog.word) ? { tool: prog.word, hint, file: path.resolve(dir, prog.word) } : { tool: prog.word, hint });

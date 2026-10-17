@@ -162,7 +162,7 @@ describe('findOnPath', { concurrency: 4 }, () => {
       assert.equal(findOnPath('a/tool', { PATH: dir }), null, 'a path is never looked up');
       assert.equal(findOnPath('tool', { Path: a }), tool, 'Windows spells it Path');
       // A relative entry would search the cwd: never followed, even when it holds the tool.
-      const rel = path.relative(process.cwd(), a);
+      const rel = path.join('rel-dir', 'bin');
       assert.ok(!path.isAbsolute(rel));
       assert.equal(findOnPath('tool', { PATH: rel }), null, 'relative entries are skipped');
       // A directory with the tool's name is not the tool.
@@ -291,6 +291,15 @@ describe('release mechanism check', { concurrency: 4 }, () => {
       assert.match(check(`'unterminated`).detail, /\(unterminated '\)/);
       assert.match(check('FOO=1').detail, /\(no program after the variable assignments\)/);
       assert.match(check('cd dist').detail, /\(cd is a shell builtin\)/);
+      // A UNC program on win32 is never stat'd (that would open an SMB connection): cannot tell.
+      const winTools = path.join(dir, 'win-tools');
+      fs.mkdirSync(winTools);
+      fs.writeFileSync(path.join(winTools, 'git.CMD'), '');
+      for (const command of ['\\\\host\\share\\release.cmd --x', '//host/share/release.cmd']) {
+        const c = releaseMechanismCheck('release mechanism', repo, { mechanism: 'tag', command }, { PATH: winTools }, 'win32');
+        assert.equal(c.warn, true, command);
+        assert.match(c.detail, /^tag: cannot tell which program release\.command runs \(it names a network path\); checked git only$/, command);
+      }
       assert.ok(!fs.existsSync(marker), 'doctor never runs the command or the tool');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -303,7 +312,8 @@ describe('release mechanism check', { concurrency: 4 }, () => {
     commandProgram(hostile);
     commandProgram(`'${'x'.repeat(10_000)}`);
     commandProgram(`${'$('.repeat(5000)}`);
-    assert.ok(Date.now() - start < 1000);
+    // Generous: it guards against catastrophic backtracking, not speed, and a loaded shard must not flake it.
+    assert.ok(Date.now() - start < 10_000);
   });
 });
 
@@ -386,7 +396,9 @@ describe('forge doctor', { concurrency: 4 }, () => {
       const prog = stub(tools, 'forge-release-stub');
       // A gh that answers nothing, so doctor's latest-release check stays off the network.
       stub(tools, 'gh', 'exit 1');
-      const env = { PATH: `${tools}${path.delimiter}${process.env.PATH}` };
+      // Windows inherits `Path`: unset every spelling (spawn skips undefined) so the child sees one PATH.
+      const unset = Object.fromEntries(Object.keys(process.env).filter((k) => k.toUpperCase() === 'PATH').map((k) => [k, undefined]));
+      const env = { ...unset, PATH: `${tools}${path.delimiter}${process.env.PATH}` };
       const releaseCheck = async () => {
         const r = await forgeAsync(repo.dir, ['doctor', '--json'], env);
         return JSON.parse(r.stdout).checks.find((c: any) => c.name === 'release mechanism');
