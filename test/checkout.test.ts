@@ -211,7 +211,48 @@ describe('checkout steps', { concurrency: 4 }, () => {
     }
   });
 
-  test('a planted checkout record is ignored', { timeout: 60_000, skip: POSIX }, async () => {
+  test('a forged job worktree runs no command on apply or undo', { timeout: 60_000, skip: POSIX }, async () => {
+    const s = scratch();
+    try {
+      const a = await s.job('alpha');
+      const other = path.join(s.fixed, 'elsewhere');
+      fs.mkdirSync(other);
+      const file = path.join(s.root, '.forge', 'jobs', a.id, 'job.json');
+      fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), worktree: other }));
+      s.configure({ checkout: [{ run: 'on', undo: 'off' }] });
+      assert.match(await s.fail('focus', a.id), /checkout\[0\] run on failed \(the job has no worktree of its own under the worktrees root; nothing run\)/);
+      assert.deepEqual(s.marker(), [], 'apply ran nothing');
+      assert.equal(fs.existsSync(s.record), false);
+
+      // A planted record naming a configured pair for that job runs no undo either.
+      fs.mkdirSync(path.dirname(s.record), { recursive: true });
+      fs.writeFileSync(s.record, JSON.stringify({ v: 1, job: a.id, entries: [{ step: 0, kind: 'run', run: 'on', undo: 'off', state: 'applied' }] }));
+      const r = await s.f('focus', '--clear');
+      assert.deepEqual(r.checkout.undone.map((u: any) => [u.step, u.ok]), [[0, false]]);
+      assert.match(r.checkout.undone[0].error, /no worktree of its own/);
+      assert.deepEqual(s.marker(), [], 'undo ran nothing');
+      assert.equal(fs.existsSync(s.record), false);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('a link source whose first segment starts with .. is accepted', { timeout: 60_000, skip: POSIX }, async () => {
+    const s = scratch();
+    try {
+      const a = await s.job('alpha', null);
+      fs.mkdirSync(path.join(a.wt, '..build'));
+      fs.writeFileSync(path.join(a.wt, '..build', 'plugin'), 'dotted');
+      s.configure({ checkout: [{ link: '..build/plugin', to: s.target }] });
+      await s.f('focus', a.id);
+      assert.equal(s.readlink(), path.join(fs.realpathSync(a.wt), '..build', 'plugin'));
+      assert.equal(fs.readFileSync(s.target, 'utf8'), 'dotted');
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('a planted checkout record is ignored',{ timeout: 60_000, skip: POSIX }, async () => {
     const s = scratch();
     try {
       const a = await s.job('alpha');

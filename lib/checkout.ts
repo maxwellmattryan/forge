@@ -10,7 +10,7 @@ import { resolveTarget } from './checkout-config.ts';
 import { worktreeRoot } from './config.ts';
 import { containedWorktree } from './editor.ts';
 import { readSmallJson } from './focus.ts';
-import { jobDir, logEvent } from './jobs.ts';
+import { jobDir, loadJob, logEvent } from './jobs.ts';
 import { paths } from './paths.ts';
 import { validJobId } from './requests.ts';
 import type { CheckoutStep, CheckoutStepResult, Config, Job } from './types.ts';
@@ -154,10 +154,25 @@ function undoLink(root: string, config: Config, id: string, e: LinkEntry): Check
   }
 }
 
-async function undoRun(config: Config, id: string, e: RunEntry, run: StepRunner): Promise<CheckoutStepResult> {
+const NO_WORKTREE = 'the job has no worktree of its own under the worktrees root';
+
+/**
+ * The job's contained worktree, or null. A run step's cwd is job.json's `worktree`, which an agent
+ * can point anywhere, so a command runs only where the dashboard's Run would (containedWorktree).
+ */
+function ownWorktree(root: string, config: Config, id: string): string | null {
+  try {
+    return containedWorktree(root, config, loadJob(root, id));
+  } catch {
+    return null;
+  }
+}
+
+async function undoRun(root: string, config: Config, id: string, e: RunEntry, run: StepRunner): Promise<CheckoutStepResult> {
   const step = (config.checkout ?? []).find((s) => isRun(s) && s.run === e.run && (s.undo ?? null) === e.undo);
   if (!step) return { step: e.step, kind: 'run', ok: false, command: e.undo ?? e.run, error: 'not a configured run and undo pair; nothing run' };
   if (e.undo === null) return { step: e.step, kind: 'run', ok: true };
+  if (!ownWorktree(root, config, id)) return { step: e.step, kind: 'run', ok: false, command: e.undo, error: `${NO_WORKTREE}; nothing run` };
   return runStep(run, id, e.undo, `checkout-undo-${e.undo}`, e.step);
 }
 
@@ -165,7 +180,7 @@ async function undoRun(config: Config, id: string, e: RunEntry, run: StepRunner)
 async function undoEntries(root: string, config: Config, id: string, entries: CheckoutEntry[], phase: Phase, run: StepRunner): Promise<CheckoutStepResult[]> {
   const results: CheckoutStepResult[] = [];
   for (const e of [...entries].reverse()) {
-    const r = e.kind === 'link' ? undoLink(root, config, id, e) : await undoRun(config, id, e, run);
+    const r = e.kind === 'link' ? undoLink(root, config, id, e) : await undoRun(root, config, id, e, run);
     event(root, id, phase, r);
     results.push(r);
   }
@@ -186,7 +201,7 @@ export async function undoCheckout(root: string, config: Config, run: StepRunner
 
 /** Why a link step can't be applied, or null; checked before anything is recorded or moved. */
 function linkProblem(contained: string | null, step: { link: string }, to: string): string | null {
-  if (!contained) return "the job has no worktree of its own under the worktrees root";
+  if (!contained) return NO_WORKTREE;
   const source = path.join(contained, step.link);
   if (!lexists(source)) return `source ${step.link} does not exist in the job's worktree`;
   let real: string;
@@ -196,7 +211,7 @@ function linkProblem(contained: string | null, step: { link: string }, to: strin
     return `source ${step.link} does not resolve`;
   }
   const rel = path.relative(contained, real);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) return `source ${step.link} resolves outside the job's worktree`;
+  if (rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) return `source ${step.link} resolves outside the job's worktree`;
   try {
     if (!fs.statSync(path.dirname(to)).isDirectory()) throw new Error();
   } catch {
@@ -222,7 +237,7 @@ export async function applyCheckout(
   const record: CheckoutRecord = { v: 1, job: job.id, entries: [] };
   const save = () => writeJsonAtomic(checkoutFile(root), record);
   const results: CheckoutStepResult[] = [];
-  const contained = steps.some(isLink) ? containedWorktree(root, config, job) : null;
+  const contained = steps.length ? containedWorktree(root, config, job) : null;
   for (const [i, step] of steps.entries()) {
     let r: CheckoutStepResult;
     if (isLink(step)) {
@@ -244,6 +259,8 @@ export async function applyCheckout(
           r.error = (e as Error).message;
         }
       }
+    } else if (isRun(step) && !contained) {
+      r = { step: i, kind: 'run', ok: false, command: step.run, error: `${NO_WORKTREE}; nothing run` };
     } else if (isRun(step)) {
       const entry: RunEntry = { step: i, kind: 'run', run: step.run, undo: step.undo ?? null, state: 'pending' };
       record.entries.push(entry);
