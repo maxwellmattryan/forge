@@ -414,7 +414,7 @@ test('help covers every routed command', () => {
     s.init();
     const r = s.cli(['job', 'bogus']);
     assert.equal(r.status, 2);
-    assert.ok(r.stderr.includes('usage: forge job new|from-ref|link|list|show|get|set|effort|claim|release|note|human|assist|agent|round|budget|audit|archive|prune|verdicts|decision|progress|paths|scope|panel|acs|findings|step|advance; run `forge help job`'), r.stderr);
+    assert.ok(r.stderr.includes('usage: forge job new|from-ref|link|list|show|get|set|effort|claim|release|repo|interim|note|human|assist|agent|round|budget|audit|archive|prune|verdicts|decision|progress|paths|links|scope|panel|acs|findings|step|advance; run `forge help job`'), r.stderr);
   } finally {
     s.cleanup();
   }
@@ -560,7 +560,7 @@ test('CLI JSON keys are stable', POSIX, () => {
     assert.deepEqual(keyPaths(s.json(['job', 'step', id])), ['action', 'command', 'id', 'rule', 'shell', 'why']);
     assert.deepEqual(keyPaths(s.json(['status', '--json'])), ['[].id', '[].pr', '[].round', '[].session', '[].stage', '[].state', '[].tasks', '[].tasks.done', '[].tasks.total', '[].waitingOn']);
     assert.deepEqual(keyPaths(verify), [
-      'attempt', 'file', 'integrity', 'integrity.base', 'integrity.blocking', 'integrity.configEdits', 'integrity.deletedTests', 'integrity.findings', 'integrity.mode', 'integrity.more',
+      'attempt', 'file', 'integrity', 'integrity.base', 'integrity.blocking', 'integrity.configEdits', 'integrity.deletedTests', 'integrity.findings', 'integrity.linkOverrides', 'integrity.mode', 'integrity.more',
       'integrity.ok', 'integrity.renamedTests', 'integrity.skipMarkers', 'integrity.testCount', 'integrity.testCount.after', 'integrity.testCount.before', 'integrity.testCount.delta',
       'ok', 'protected', 'protected.escalated', 'protected.more', 'protected.ok', 'protected.refused', 'round', 'secrets', 'secrets.allowed', 'secrets.count', 'secrets.findings', 'secrets.mode', 'secrets.more', 'secrets.ok', 'sha', 'steps', 'steps[].cmd', 'steps[].durationMs', 'steps[].exit', 'steps[].log', 'steps[].name', 'steps[].ok', 'steps[].skipped',
     ]);

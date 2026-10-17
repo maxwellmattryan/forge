@@ -8,6 +8,22 @@ import { SAFE_REF } from './util.ts';
 
 export const COMPONENT_KINDS = ['library', 'service', 'app'] as const;
 export const DEPENDENCY_TYPES = ['build', 'runtime'] as const;
+export const LINK_ECOSYSTEMS = ['cargo', 'cmake', 'npm'] as const;
+/** What a consumer's PR points at while its dependency is unmerged (lib/interim.ts, docs/CONFIG.md "Interim strategies"). */
+export const INTERIM_STRATEGIES = ['canary', 'git-ref', 'local', 'sequential'] as const;
+
+export const isInterimStrategy = (v: unknown): v is (typeof INTERIM_STRATEGIES)[number] => (INTERIM_STRATEGIES as readonly unknown[]).includes(v);
+
+// Names and sources reach TOML and sh (lib/links.ts quotes them too), so each is held to what its
+// ecosystem accepts: a crate name, a FetchContent name (it becomes a CMake variable), an npm name.
+const LINK_NAMES: Record<(typeof LINK_ECOSYSTEMS)[number], { re: RegExp; max: number; what: string }> = {
+  cargo: { re: /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/, max: 64, what: 'a crate name (A-Z a-z 0-9 _ -, at most 64 characters)' },
+  cmake: { re: /^[A-Za-z0-9][A-Za-z0-9_.+-]{0,99}$/, max: 100, what: 'a FetchContent name (A-Z a-z 0-9 _ . + -, at most 100 characters)' },
+  npm: { re: /^(@[a-z0-9][a-z0-9._~-]*\/)?[a-z0-9][a-z0-9._~-]*$/, max: 214, what: 'an npm package name (lower case, optionally @scope/, at most 214 characters)' },
+};
+const REGISTRY_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+const SOURCE_MAX = 2000;
+const SOURCE_URL = /^(?:https|ssh|git):\/\/[^\s"'\\\u0000-\u001f\u007f-\u009f]+$/;
 
 const isMap = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 
@@ -42,6 +58,49 @@ export function jobComponent(config: Pick<Config, 'components'>, job: Pick<Job, 
 const show = (v: unknown): string => (v === undefined ? 'nothing' : JSON.stringify(v));
 const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
 
+/** Whether `name` is a valid link name for `ecosystem`. */
+export function isLinkName(ecosystem: unknown, name: unknown): name is string {
+  const rule = LINK_NAMES[ecosystem as (typeof LINK_ECOSYSTEMS)[number]];
+  return Boolean(rule) && typeof name === 'string' && name.length <= rule.max && rule.re.test(name);
+}
+
+/** A cargo `[patch.<source>]` key: `crates-io`, a registry name, or a git url. */
+export function isLinkSource(s: unknown): s is string {
+  return typeof s === 'string' && s.length <= SOURCE_MAX && (REGISTRY_NAME.test(s) || SOURCE_URL.test(s));
+}
+
+/** The problems with one `dependsOn` edge's `link`, labelled `at` (`components "x".dependsOn[0].link`). */
+function linkProblems(link: unknown, at: string): string[] {
+  if (!isMap(link) || !(LINK_ECOSYSTEMS as readonly unknown[]).includes(link.ecosystem))
+    return [`${at} must be a map with ecosystem ${LINK_ECOSYSTEMS.join(' | ')} (got ${show(link)})`];
+  const problems: string[] = [];
+  const eco = link.ecosystem as (typeof LINK_ECOSYSTEMS)[number];
+  if (!isLinkName(eco, link.name)) problems.push(`${at}.name must be ${LINK_NAMES[eco].what} (got ${show(link.name)})`);
+  if (link.source !== undefined && link.source !== null) {
+    if (eco !== 'cargo') problems.push(`${at}.source is only for a cargo link (got ${show(link.source)})`);
+    else if (!isLinkSource(link.source))
+      problems.push(`${at}.source must be crates-io, a registry name or an https://, ssh:// or git:// url of at most ${SOURCE_MAX} characters without whitespace, quotes, backslashes or control characters (got ${show(link.source)})`);
+  }
+  if (link.path !== undefined && link.path !== null && !isInsidePath(link.path)) problems.push(`${at}.path must be a relative path inside the dependency's repo (got ${show(link.path)})`);
+  if (link.manifest !== undefined && link.manifest !== null && !isManifestPath(eco, link.manifest))
+    problems.push(`${at}.manifest must be a relative path inside the consumer's repo to ${MANIFEST_NAMES[eco]} (got ${show(link.manifest)})`);
+  return problems;
+}
+
+const MANIFEST_NAMES: Record<(typeof LINK_ECOSYSTEMS)[number], string> = { cargo: 'a Cargo.toml', cmake: 'a CMakeLists.txt or a .cmake file', npm: 'a package.json' };
+
+/** A link's `manifest`: inside the consumer's repo, and the file its ecosystem's pin goes in. */
+export function isManifestPath(ecosystem: unknown, p: unknown): p is string {
+  if (!isInsidePath(p)) return false;
+  const base = p.split(/[/\\]/).pop() ?? '';
+  if (ecosystem === 'cargo') return base === 'Cargo.toml';
+  if (ecosystem === 'cmake') return base === 'CMakeLists.txt' || (base.endsWith('.cmake') && base.length > '.cmake'.length);
+  if (ecosystem === 'npm') return base === 'package.json';
+  return false;
+}
+
+const repoLabel = (r: unknown): string => (typeof r === 'string' ? `repo ${r}` : 'the root repo');
+
 /**
  * A component's path becomes the cwd of its shell commands (path.join(worktree, path)), so it must
  * stay inside the checkout: no absolute path, drive letter or `..` segment on either separator.
@@ -63,6 +122,8 @@ export function componentProblems(c: any): string[] {
   const counts = new Map<string, number>();
   for (const e of list) if (isMap(e) && typeof e.name === 'string' && SAFE_REF.test(e.name)) counts.set(e.name, (counts.get(e.name) ?? 0) + 1);
   const reported = new Set<string>();
+  // One consumer repo, ecosystem, name (and cargo source) to the first link's dependency dir.
+  const linkTargets = new Map<string, { dir: string; at: string }>();
   list.forEach((e: unknown, i: number) => {
     if (!isMap(e)) return problems.push(`components[${i}] must be a map`);
     const named = typeof e.name === 'string' && SAFE_REF.test(e.name);
@@ -92,6 +153,22 @@ export function componentProblems(c: any): string[] {
       else if (keys[0] === 'component' && (dep.component === e.name ? dep.type !== 'build' : !counts.has(dep.component)))
         problems.push(`${at}.dependsOn[${j}] names unknown component ${show(dep.component)}`);
       if (isMap(d) && !(DEPENDENCY_TYPES as readonly unknown[]).includes(dep.type)) problems.push(`${at}.dependsOn[${j}].type must be one of ${DEPENDENCY_TYPES.join(' | ')} (got ${show(dep.type)})`);
+      if (dep.link === undefined) return;
+      const lat = `${at}.dependsOn[${j}].link`;
+      if (dep.backing !== undefined) return problems.push(`${lat} is only for a component edge, not a backing one`);
+      const found = linkProblems(dep.link, lat);
+      problems.push(...found);
+      const target = typeof dep.component === 'string' && counts.get(dep.component) === 1 ? list.find((c: any) => isMap(c) && c.name === dep.component) : null;
+      if (!target) return;
+      if ((e.repo ?? null) === (target.repo ?? null))
+        return problems.push(`${lat} joins two components of ${repoLabel(e.repo)}; a link points a consumer at another repo's worktree`);
+      if (found.length) return;
+      const l = dep.link;
+      const key = JSON.stringify([e.repo ?? null, l.ecosystem, l.name, l.ecosystem === 'cargo' ? (l.source ?? 'crates-io') : null]);
+      const dir = JSON.stringify([target.repo ?? null, path.posix.normalize(String(l.path ?? target.path).replace(/\\/g, '/')).replace(/\/+$/, '')]);
+      const seen = linkTargets.get(key);
+      if (!seen) linkTargets.set(key, { dir, at: lat });
+      else if (seen.dir !== dir) problems.push(`${lat} gives ${repoLabel(e.repo)} the ${l.ecosystem} link ${JSON.stringify(l.name)} again with another dependency dir than ${seen.at}`);
     });
   });
   for (const cycle of buildCycles(list)) problems.push(`components: build dependency cycle ${[...cycle, cycle[0]].join(' -> ')}`);

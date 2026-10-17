@@ -1,4 +1,4 @@
-// checkout: config (issue #187): validation of each step, the default, and the v10 -> v11 migration.
+// checkout: config (issue #187): validation of each step, the default, and the v13 -> v14 migration.
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -66,19 +66,19 @@ describe('checkout config', { concurrency: 4 }, () => {
   });
 
   test('a previous-version config migrates', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 11);
-    const v10 = { schemaVersion: 10, git: { base: 'trunk' }, components: [] };
-    const { config, from } = migrateConfig(structuredClone(v10));
-    assert.equal(from, 10);
-    assert.deepEqual(config, { ...v10, schemaVersion: 11 }, 'nothing but schemaVersion changes');
+    assert.equal(CONFIG_SCHEMA_VERSION, 14);
+    const v13 = { schemaVersion: 13, git: { base: 'trunk' }, components: [], repos: [] };
+    const { config, from } = migrateConfig(structuredClone(v13));
+    assert.equal(from, 13);
+    assert.deepEqual(config, { ...v13, schemaVersion: 14 }, 'nothing but schemaVersion changes');
     const repo = tempRepo();
     try {
       const cfg = path.join(repo.dir, '.forge', 'config.yml');
       fs.mkdirSync(path.dirname(cfg), { recursive: true });
-      fs.writeFileSync(cfg, 'schemaVersion: 10\n');
+      fs.writeFileSync(cfg, 'schemaVersion: 13\n');
       const loaded = loadConfig(repo.dir);
-      assert.equal(loaded.migratedFrom, 10);
-      assert.equal(loaded.config.schemaVersion, 11);
+      assert.equal(loaded.migratedFrom, 13);
+      assert.equal(loaded.config.schemaVersion, 14);
       assert.deepEqual(loaded.config.checkout, []);
     } finally {
       repo.cleanup();

@@ -13,6 +13,7 @@
   import SessionActivity from './SessionActivity.svelte';
   import AgentActivity from './AgentActivity.svelte';
   import { budgetChip } from '../lib/budget.ts';
+  import { memberPrs } from '../lib/repos.ts';
   import { effortChip } from '../lib/effort.ts';
   import { ago, tokensShort } from '../lib/util.ts';
   import { agentsSummary, cardModel, needsHuman, runningRoles } from '../lib/view.ts';
@@ -36,7 +37,7 @@
 <button class="plate clickable {needsHuman(j) ? 'ember' : ''} w-full text-left p-3 pb-2.5 flex flex-col gap-2" onclick={() => openDrawer(j.id)}>
   <span data-slot="title" class="h card line-clamp-2">{j.title}</span>
   <span data-slot="ref" class="mono muted text-[11px] truncate" title={m.refTitle}>{m.ref}</span>
-  <div data-slot="state" class="flex flex-wrap items-center gap-1.5"><StateChip job={j} />{#if m.protected}<span class="chip warn" title={protTitle}><span aria-hidden="true">{$t('job.protected')}</span><span class="sr-only">{protTitle}</span></span>{/if}<PrChip pr={j.pr} />{@html budgetChip(j, S.data?.config?.pipeline?.budget)}<EffortChip level={effort} />{#if agentsLive}<div class="basis-full min-w-0"><AgentActivity activity={agentsLive} owner={j.ownerStatus} /></div>{/if}<DepChips job={j} /></div>
+  <div data-slot="state" class="flex flex-wrap items-center gap-1.5"><StateChip job={j} />{#if m.protected}<span class="chip warn" title={protTitle}><span aria-hidden="true">{$t('job.protected')}</span><span class="sr-only">{protTitle}</span></span>{/if}<PrChip pr={j.pr} />{#each memberPrs(j) as mp (mp.repo)}<PrChip pr={mp.pr} repo={mp.repo} />{/each}{@html budgetChip(j, S.data?.config?.pipeline?.budget)}<EffortChip level={effort} />{#if agentsLive}<div class="basis-full min-w-0"><AgentActivity activity={agentsLive} owner={j.ownerStatus} /></div>{/if}<DepChips job={j} /></div>
   <!-- Wraps: on a narrow card the stage and round drop under the stepper rather than truncating the round away. -->
   <div data-slot="stage" class="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0"><StageStepper steps={m.steps} stage={m.stage} active={m.running} /><span class="label text-[10px] truncate min-w-0 max-w-full">{m.stage}{#if m.round}{' · '}{$t('job.round', m.round)}{/if}</span></div>
   {#if m.progress}<div data-slot="progress"><ProgressBar progress={m.progress} /></div>{/if}

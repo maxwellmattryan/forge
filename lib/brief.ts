@@ -1,10 +1,15 @@
 // Agent briefs for `forge job step`: paths and config-derived lines only, never file contents, so
 // text an agent wrote (after reading tracker or PR text) is never re-injected into another prompt.
 import path from 'node:path';
-import { autoMerge, lensNeedsApp, resolveEffort, reviewerChecklist } from './config.ts';
+import { autoMerge, lensNeedsApp, resolveEffort } from './config.ts';
 import { jobDir, reviewDir } from './jobs.ts';
+import { memberEntry, memberRepos, trustedMemberWorktree } from './job-repos.ts';
+import { releaseGates, resolveInterim } from './interim.ts';
+import { reviewFileName, reviewedRepoNames, splitLens } from './lens.ts';
+import { lensChecklists } from './member-panel.ts';
+import { repoGraph } from './project.ts';
 import { paths, exists } from './paths.ts';
-import type { Config, GateClass, Job, StepInput } from './types.ts';
+import type { Config, GateClass, Job, JobEvent, StepInput } from './types.ts';
 
 /**
  * Absolute paths an agent prompt needs, keyed as `forge job paths` prints them. Reads (which
@@ -30,6 +35,8 @@ export function jobPathMap(root: string, config: Config, job: Job): Record<strin
     verifierInput: path.join(dir, 'verify', `round-${job.round}-verifiers-input.md`),
     verifierAnswers: path.join(dir, 'verify', `round-${job.round}-verifier-answers.md`),
     scope: path.join(dir, 'scope.md'),
+    // Only with a reviewed member: single-repo reviewers read `forge git diff` as before.
+    ...(reviewedRepoNames(job).length ? { scopeDiff: path.join(dir, 'scope.diff') } : {}),
     screenshots: path.join(dir, 'screenshots'),
     reviewDir: reviewDir(root, job.id, round),
     previousReviewDir: round > 1 ? path.join(dir, 'review', `round-${round - 1}`) : null,
@@ -40,11 +47,13 @@ export function jobPathMap(root: string, config: Config, job: Job): Record<strin
     prFeedback: path.join(dir, 'pr-feedback.md'),
     prBody: path.join(dir, 'pr.md'),
     feedback: path.join(dir, 'feedback.md'),
+    repoProposals: path.join(dir, 'repo-proposals.md'),
     learnings: path.join(p.notes, 'learnings.md'),
     notesDir: p.notes,
     config: p.config,
     instructions: (config.project.instructions ?? []).map((f: string) => path.join(job.worktree ?? root, f)).filter(exists),
-    checklists: Object.fromEntries((job.reviewers ?? []).map((r: string) => [r, reviewerChecklist(root, r, config.review.panel.find((x) => x.name === r)?.checklist)])),
+    checklists: lensChecklists(root, config, job, job.reviewers ?? []),
+    ...(memberRepos(job).length ? { repos: Object.fromEntries(memberRepos(job).map((m) => [m.repo, m.worktree])) } : {}),
   };
 }
 
@@ -85,6 +94,15 @@ export interface RoleContext {
   verifiers?: number;
 }
 
+/**
+ * The `Project repos (JSON)` line: each config `repos` entry, whether the job has it, its components
+ * and who depends on them. Config-derived only; null for a single-repo setup.
+ */
+export function projectReposLine(config: Config, job: Pick<Job, 'repos'>): string | null {
+  const rows = repoGraph(config).map((g) => ({ repo: g.repo, onJob: Boolean(memberEntry(job, g.repo)), components: g.components, usedBy: g.usedBy }));
+  return rows.length ? `Project repos (JSON): ${JSON.stringify(rows)}` : null;
+}
+
 /** The inputs, outputs and extra lines each role gets: the brief half of Approach in issue #68. */
 /** The approver's `Protected paths:` line. JSON, so a path can't start a line of the brief. */
 export function protectedLine(job: Pick<Job, 'protectedPaths'>): string {
@@ -95,24 +113,37 @@ export function protectedLine(job: Pick<Job, 'protectedPaths'>): string {
   return `Protected paths: ${JSON.stringify(shown)}${more > 0 ? ` (+${more} more)` : ''}: a human must approve after you whatever you decide; never mark auto-merge eligible`;
 }
 
+/**
+ * The approver's and assistant's `Release gate` line: each interim edge's gate as JSON (so a repo
+ * name can't start a line of the brief), or `none` for a job without interim edges.
+ */
+export function releaseGateLine(config: Pick<Config, 'components' | 'repos' | 'release'>, job: Pick<Job, 'interim' | 'repos' | 'pr'>, events: Pick<JobEvent, 'type'>[]): string {
+  const edges = resolveInterim(config, job).edges;
+  if (!edges.length) return 'Release gate: none';
+  return `Release gate (JSON): ${JSON.stringify(releaseGates(edges, events))}; held: the consumer PR stays a draft and Forge refuses to ready or merge it until a human records the release; ci: the seeded release-gate check fails while the pin remains. Never mark auto-merge eligible while a gate is held.`;
+}
+
 export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {}): BriefSpec {
   const j = input.job;
   const c = input.config;
   const p = (k: string) => String(input.paths[k]);
   const infra = `Infra: mode ${c.infra.mode} · allowed ${JSON.stringify(c.infra.allowed ?? [])}`;
   const base = role.split(':')[0];
+  const reposLine = base === 'planner' || base === 'spec-writer' ? projectReposLine(c, j) : null;
+  const repos = reposLine ? [reposLine] : [];
   const out = (o: string[], inputs: string[], extra: string[]): BriefSpec => ({ role: base, lens: ctx.lens, inputs, outputs: ctx.output ? [ctx.output] : o, extra, retry: ctx.retry });
   switch (base) {
     case 'planner':
-      return out([p('plan')], [p('request'), p('feedback'), ...(ctx.answered ? [p('questions')] : [])], [`Split mode: ${ctx.splitMode ?? c.pipeline.split}`]);
+      return out([p('plan')], [p('request'), p('feedback'), p('repoProposals'), ...(ctx.answered ? [p('questions')] : [])], [`Split mode: ${ctx.splitMode ?? c.pipeline.split}`, ...repos]);
     case 'spec-writer':
       return out(
         [p('spec')],
-        [p('request'), p('plan'), p('design'), p('feedback'), ...(ctx.answered ? [p('questions')] : [])],
+        [p('request'), p('plan'), p('design'), p('feedback'), p('repoProposals'), ...(ctx.answered ? [p('questions')] : [])],
         [
           `Review panel: ${c.review.panel.map((x) => x.name).join(', ') || 'none'}`,
           c.resources.length ? `Resources: ${c.resources.length} in ${p('config')}` : 'Resources: none configured',
           ...(ctx.foldIn ? ['Fold in the Spec deltas from design.md.'] : []),
+          ...repos,
         ],
       );
     case 'designer':
@@ -151,14 +182,23 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
     case 'reviewer': {
       const lens = ctx.lens ?? role.slice('reviewer:'.length);
       const extra = [`Lens: ${lens}`, `Checklist: ${input.checklists[lens] ?? 'none'}`, `Scope: ${p('scope')}`];
+      const lensRepo = splitLens(lens)?.repo;
+      const member = lensRepo ? memberEntry(j, lensRepo) : null;
+      if (member) {
+        // The computed path, not job.json's: the session can write job.json, and verdicts trusts the same value.
+        const wt = trustedMemberWorktree(input.root, c, j, member.repo) ?? 'none';
+        extra.push(`Lens repo: ${member.repo} · worktree ${wt} · base ${member.base ?? 'none'}`);
+      }
       if (lensNeedsApp(c, lens) && c.commands.dev) extra.push(`Dev server: http://localhost:${j.port ?? c.ports.base}`);
+      // The integration review stays root-only and has its own Diff line below.
+      if (input.paths.scopeDiff && !ctx.integration) extra.push(`Diff: ${p('scopeDiff')} (every job repo; member paths are prefixed <repo>/)`);
       if (ctx.integration) {
         // JSON, so a conflicted file name can't start a line of its own in the brief.
         extra.push(`Integration review: conflicted files ${JSON.stringify(ctx.integration.conflicts)}`);
         extra.push(`Diff: use the Before/Merge shas in build.md's ## Integration block, as in ${path.join(input.pluginRoot, 'skills', 'forge', 'reference', 'pr-lifecycle.md')}`);
       }
       // The verifiers report, when this round has one, so its warnings reach the panel.
-      return out([path.join(p('reviewDir'), `${lens}.md`)], [p('spec'), p('design'), p('build'), p('verifiers')], extra);
+      return out([path.join(p('reviewDir'), reviewFileName(lens))], [p('spec'), p('design'), p('build'), p('verifiers')], extra);
     }
     case 'approver':
       return out(
@@ -169,6 +209,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
           `Always escalate: ${JSON.stringify(c.approver.alwaysEscalate ?? [])}`,
           `Merge: auto ${autoMerge(c)} · autoWhen ${JSON.stringify(c.merge.autoWhen ?? [])}`,
           protectedLine(j),
+          releaseGateLine(c, j, input.events),
           infra,
           `Scope: ${p('scope')}`,
         ],
@@ -204,6 +245,7 @@ export function renderBrief(input: StepInput, spec: BriefSpec): string {
     `Role: ${spec.role}${spec.lens ? ` · lens ${spec.lens}` : ''}`,
     `Round: ${j.round}`,
     `Worktree: ${j.worktree ?? 'none'}`,
+    ...memberRepos(j).map((m) => `Repo ${m.repo}: ${m.worktree ?? 'none'} · branch ${m.verifyOnly ? 'none (verify only)' : (m.branch ?? 'none')} · base ${m.base ?? 'none'}`),
     `Base branch: ${j.base ?? input.config.git.base}`,
     `Job paths (JSON): ${JSON.stringify(input.paths)}`,
     `Inputs: ${present.length ? present.join(', ') : 'none'}`,
@@ -222,7 +264,7 @@ export function renderBrief(input: StepInput, spec: BriefSpec): string {
  * and the reserved list, never file contents, so the office session's context holds no job text.
  * Reads nothing: every path is listed whether or not it exists, and the assistant skips the missing.
  */
-export function assistantBrief(root: string, config: Config, job: Job, gate: GateClass, reserved: unknown): string {
+export function assistantBrief(root: string, config: Config, job: Job, gate: GateClass, reserved: unknown, events: Pick<JobEvent, 'type'>[], pending: { repo: string; reason: string }[] = []): string {
   const dir = jobDir(root, job.id);
   const round = Math.max(job.round, 1);
   const inputs = [
@@ -234,7 +276,9 @@ export function assistantBrief(root: string, config: Config, job: Job, gate: Gat
     path.join(dir, 'pr-feedback.md'),
     path.join(dir, 'verify', `round-${job.round}.md`),
     path.join(dir, 'feedback.md'),
+    path.join(dir, 'repo-proposals.md'),
   ];
+  const repos = gate === 'repo-proposal' ? projectReposLine(config, job) : null;
   return [
     `Job id: ${job.id}`,
     'Role: assistant',
@@ -244,6 +288,10 @@ export function assistantBrief(root: string, config: Config, job: Job, gate: Gat
     `Output: ${path.join(dir, 'feedback.md')} (only on revise or rework)`,
     // JSON, so a pattern can't start a line of its own in the brief.
     `Reserved: ${JSON.stringify(Array.isArray(reserved) ? reserved : [])}`,
+    releaseGateLine(config, job, events),
+    ...(repos ? [repos] : []),
+    // From events, not the session-editable repo-proposals.md: the only set the assistant may decide, and the one the foreman passes as --repo.
+    ...(gate === 'repo-proposal' ? [`Pending repos (JSON): ${JSON.stringify(pending.map((r) => ({ repo: r.repo, reason: r.reason })))}`] : []),
     UNTRUSTED_LINE,
     REPLY_LINE,
   ].join('\n');

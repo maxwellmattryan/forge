@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PLUGIN_ROOT, paths, exists, resolveFrom } from './paths.ts';
 import { componentProblems } from './components.ts';
+import { releaseProblems, repoProblems } from './member-repos.ts';
 import { checkoutProblems } from './checkout-config.ts';
 import { notifyProblems } from './notify-config.ts';
 import { globProblem, policyProblems } from './policy-check.ts';
@@ -147,8 +148,10 @@ export function defaults(): Config {
       autoWhen: [],
     },
     aiAttribution: 'forbid',
+    release: { interim: 'local' },
     resources: [],
     components: [],
+    repos: [],
     checkout: [],
     infra: {
       mode: 'human',
@@ -210,7 +213,8 @@ export function defaults(): Config {
     // gate with a human, and a false positive errs that way on purpose.
     foreman: {
       enabled: false,
-      decides: [...OFFICE_GATES],
+      // Widening the repos a job pushes to is opt-in: an owner adds repo-proposal deliberately.
+      decides: OFFICE_GATES.filter((g) => g !== 'repo-proposal'),
       reserved: [...DEFAULT_RESERVED],
       ship: 'propose',
     },
@@ -223,7 +227,7 @@ export function defaults(): Config {
         { paths: ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'Cargo.lock'], action: 'escalate', reason: 'dependency lockfile' },
         { paths: ['**/.env*'], action: 'escalate', reason: 'environment files can hold credentials' },
         { paths: ['**/*.pem'], action: 'refuse', reason: 'private keys and certificates are never committed by Forge' },
-        { paths: ['.forge/config.yml', '.forge/secrets-allow.txt', '.forge/trackers/**'], action: 'refuse', reason: "Forge's own policy changes only by a human on the base branch" },
+        { paths: ['.forge/config.yml', '.forge/secrets-allow.txt', '.forge/trackers/**', '.forge/ci/**'], action: 'refuse', reason: "Forge's own policy changes only by a human on the base branch" },
       ],
     },
     // Off by default: nothing is archived, deleted or rotated mid-session until a human sets a key;
@@ -369,6 +373,7 @@ export function validateConfig(c: any, root: string): string[] {
   oneOf('infra.mode', c.infra.mode, ['human', 'plan-only', 'agent']);
   oneOf('worktrees.cleanup', c.worktrees.cleanup, ['on-merge', 'manual']);
   oneOf('aiAttribution', c.aiAttribution, ['forbid', 'allow']);
+  problems.push(...releaseProblems(c.release, 'release'));
   if (c.runtime?.diversity !== undefined && typeof c.runtime.diversity !== 'boolean')
     problems.push(`runtime.diversity must be true or false (got ${JSON.stringify(c.runtime.diversity)})`);
   oneOf('verifyIntegrity', c.verifyIntegrity, ['warn', 'block']);
@@ -404,6 +409,7 @@ export function validateConfig(c: any, root: string): string[] {
   problems.push(...retentionProblems(c));
   problems.push(...notifyProblems(c));
   problems.push(...componentProblems(c));
+  problems.push(...repoProblems(c, root));
   problems.push(...checkoutProblems(c));
   problems.push(...repoBudgetProblems(c));
   return problems;

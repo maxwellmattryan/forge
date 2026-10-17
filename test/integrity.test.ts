@@ -92,10 +92,10 @@ test('commandSources: script files the commands run, never their arguments', () 
 });
 
 test('isConfigPath: CI anchored at the root, build and runner config anywhere', () => {
-  for (const p of ['.gitattributes', 'test/.gitattributes', '.github/workflows/ci.yml', '.gitlab-ci.yml', '.circleci/config.yml', 'Jenkinsfile', 'Makefile', 'pkg/rules.mk', 'web/justfile', 'web/jest.config.ts', 'vitest.workspace.js', '.mocharc.yml', 'tox.ini', '.forge/config.yml', '.forge/secrets-allow.txt']) {
+  for (const p of ['.gitattributes', 'test/.gitattributes', '.github/workflows/ci.yml', '.gitlab-ci.yml', '.circleci/config.yml', 'Jenkinsfile', 'Makefile', 'pkg/rules.mk', 'web/justfile', 'web/jest.config.ts', 'vitest.workspace.js', '.mocharc.yml', 'tox.ini', '.forge/config.yml', '.forge/secrets-allow.txt', '.forge/ci/release-gate.mjs']) {
     assert.equal(isConfigPath(p), true, p);
   }
-  for (const p of ['docs/.github/workflows/ci.yml', 'sub/Jenkinsfile', 'sub/.forge/config.yml', 'sub/.forge/secrets-allow.txt', 'secrets-allow.txt', 'lib/make.mjs', 'README.md', 'package.json']) {
+  for (const p of ['docs/.github/workflows/ci.yml', 'sub/Jenkinsfile', 'sub/.forge/config.yml', 'sub/.forge/secrets-allow.txt', 'sub/.forge/ci/release-gate.mjs', 'secrets-allow.txt', 'lib/make.mjs', 'README.md', 'package.json']) {
     assert.equal(isConfigPath(p), false, p);
   }
 });
@@ -750,4 +750,124 @@ test('integrityError: a check verify could not finish fails block and is printed
   assert.match(renderIntegrity(r), /^## integrity: error/);
   assert.equal(integrityError({ ...clean, mode: 'warn' }, 'boom').ok, true);
   assert.equal(integrityError({ ...clean, error: 'base x not found' }, 'boom').error, 'base x not found; boom');
+});
+
+/** Commits one of each local link override (R1–R4) on the job branch of `repo`, with `leak` as R1's absolute path. */
+function commitOverrides(dir: string, leak: string) {
+  write(dir, 'Cargo.toml', `[package]\nname = "app"\n\n[dependencies]\nengine-core = { path = "${leak}/x/engine-core" }\n`);
+  write(dir, 'CMakeLists.txt', 'set(FETCHCONTENT_SOURCE_DIR_X /somewhere CACHE PATH "")\n');
+  write(dir, '.cargo/config.toml', '[patch.crates-io]\nengine-core = { path = "../engine" }\n');
+  write(dir, 'package.json', JSON.stringify({ name: 'app', dependencies: { engine: 'file:../../app.worktrees/x/engine' } }, null, 2) + '\n');
+  commitAll(dir, 'overrides');
+}
+
+const overrides = (r) => r.overrides.map((o) => `${o.path}:${o.line} ${o.rule}`).sort();
+const EXPECTED = ['.cargo/config.toml:1 R3', 'CMakeLists.txt:1 R2', 'Cargo.toml:5 R1', 'package.json:4 R4'];
+
+test('local link overrides are flagged', () => {
+  const { repo, job, block, check } = jobRepo({ 'README.md': 'x\n' });
+  const member = tempRepo();
+  try {
+    const leak = path.join(path.dirname(repo.dir), `${path.basename(repo.dir)}.worktrees`);
+    commitOverrides(repo.dir, leak);
+    // Under block: blocking, verify's integrity step lists each one.
+    const r = check();
+    assert.deepEqual(overrides(r), EXPECTED);
+    assert.equal(r.blocking, 4);
+    assert.equal(r.ok, false);
+    assert.deepEqual(blockingLines(r).split('\n').sort(), EXPECTED.map((e) => `override ${e.replace(/ (R\d)$/, ' ($1)')}`).sort());
+    assert.deepEqual([...(compactIntegrity(r) as any).linkOverrides].sort(), EXPECTED.map((e) => e.replace(/ (R\d)$/, ' ($1)')).sort());
+    const md = renderIntegrity(r);
+    assert.match(md, /### Local link overrides committed \(4\)/);
+    assert.ok(md.includes(`Cargo.toml:5: R1: engine-core = { path = "${leak}/x/engine-core" }`));
+    // Under warn: findings, and the report passes.
+    const w = check({ ...defaults(), verifyIntegrity: 'warn' });
+    assert.equal(w.ok, true);
+    assert.equal(w.findings, w.configEdits.length + 4);
+    // In a member: the root's config and paths, the member's worktree and diff; the job dirs count too.
+    for (const [rel, text] of Object.entries({ 'README.md': 'm\n' })) write(member.dir, rel, text);
+    commitAll(member.dir, 'base');
+    member.git('checkout', '-qb', 'job');
+    commitOverrides(member.dir, path.join(repo.dir, '.forge', 'jobs'));
+    const m = testIntegrity(repo.dir, block, { ...job, worktree: member.dir });
+    assert.deepEqual(overrides(m), EXPECTED);
+    assert.equal(m.ok, false);
+  } finally {
+    repo.cleanup();
+    member.cleanup();
+  }
+});
+
+test('in-repo overrides are not flagged', () => {
+  const { repo, check } = jobRepo({ 'README.md': 'x\n' });
+  try {
+    write(repo.dir, 'Cargo.toml', '[package]\nname = "app"\n\n[dependencies]\nx = { path = "crates/x" }\n\n[patch.crates-io]\ny = { path = "crates/y" }\n');
+    write(repo.dir, 'packages/app/package.json', JSON.stringify({ name: 'app', dependencies: { x: 'file:./packages/x', y: 'file:../y', z: '^1.0.0' }, overrides: { w: { v: 'link:../w' } } }, null, 2));
+    write(repo.dir, 'package.json', JSON.stringify({ name: 'root', dependencies: { x: 'file:./packages/x' } }));
+    write(repo.dir, 'docs/notes.md', 'cargo [patch] tables live in Cargo.toml here\n');
+    commitAll(repo.dir, 'in-repo');
+    const r = check();
+    assert.deepEqual(r.overrides, []);
+    assert.equal(r.ok, true);
+    // Only the new spec counts: the in-repo one beside it stays unflagged, the absolute one does not.
+    write(repo.dir, 'package.json', JSON.stringify({ name: 'root', dependencies: { x: 'file:./packages/x' }, devDependencies: { far: 'file:/abs/far' } }));
+    commitAll(repo.dir, 'abs');
+    assert.deepEqual(overrides(check()), ['package.json:1 R4']);
+    // A 10k-character hostile line is cheap to check.
+    write(repo.dir, 'big.txt', `${'patch.'.repeat(2000)}\n`);
+    commitAll(repo.dir, 'big');
+    const started = Date.now();
+    check();
+    assert.ok(Date.now() - started < 5000);
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('link override bypasses are caught', () => {
+  const leakOf = (dir) => path.join(path.dirname(dir), `${path.basename(dir)}.worktrees`);
+  // (a) attributes marking the files -diff or binary
+  let { repo, check } = jobRepo({ 'README.md': 'x\n' });
+  try {
+    write(repo.dir, '.gitattributes', '* -diff\nCargo.toml binary\n');
+    commitOverrides(repo.dir, leakOf(repo.dir));
+    assert.deepEqual(overrides(check()), EXPECTED);
+  } finally {
+    repo.cleanup();
+  }
+  // (b) the override added through a renamed file: read on its `to` side
+  ({ repo, check } = jobRepo({ 'build/old.cmake': 'set(A 1)\nset(B 2)\nset(C 3)\nset(D 4)\n' }));
+  try {
+    repo.git('mv', 'build/old.cmake', 'build/new.cmake');
+    write(repo.dir, 'build/new.cmake', 'set(A 1)\nset(B 2)\nset(C 3)\nset(D 4)\nset(FETCHCONTENT_SOURCE_DIR_ENGINE /x)\n');
+    commitAll(repo.dir, 'rename');
+    const r = check();
+    assert.deepEqual(overrides(r), ['build/new.cmake:5 R2']);
+    assert.equal(r.ok, false);
+  } finally {
+    repo.cleanup();
+  }
+  // (c) a symlinked .cargo/config.toml in the commit: a link-mode change, so R3 names the path
+  if (process.platform !== 'win32') {
+    ({ repo, check } = jobRepo({ 'README.md': 'x\n' }));
+    try {
+      fs.mkdirSync(path.join(repo.dir, '.cargo'));
+      fs.symlinkSync('../../elsewhere/config.toml', path.join(repo.dir, '.cargo', 'config.toml'));
+      commitAll(repo.dir, 'symlink');
+      const r = check();
+      assert.deepEqual(overrides(r), ['.cargo/config.toml:0 R3']);
+      assert.equal(r.ok, false);
+    } finally {
+      repo.cleanup();
+    }
+  }
+  // (d) a dotted-key patch table in a nested cargo config
+  ({ repo, check } = jobRepo({ 'README.md': 'x\n' }));
+  try {
+    write(repo.dir, 'sub/.cargo/config', 'patch.crates-io.engine = { path = "../engine" }\n');
+    commitAll(repo.dir, 'dotted');
+    assert.deepEqual(overrides(check()), ['sub/.cargo/config:1 R3']);
+  } finally {
+    repo.cleanup();
+  }
 });

@@ -5,14 +5,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
-import { REPLY_LINE, renderBrief, roleBrief } from '../lib/brief.ts';
+import { REPLY_LINE, assistantBrief, jobPathMap, renderBrief, roleBrief } from '../lib/brief.ts';
 import type { RoleContext } from '../lib/brief.ts';
 import { defaults } from '../lib/config.ts';
 import { createJob, jobDir, updateJob } from '../lib/jobs.ts';
-import { WAITING_ON } from '../lib/schema.ts';
+import { WAITING_ON, normalizeJob } from '../lib/schema.ts';
 import { gateTell, loadStepInput, step } from '../lib/step.ts';
 import type { Stage, StepInput } from '../lib/types.ts';
-import { JOB_DIR, ag, fixture } from './step-fixture.ts';
+import { JOB_DIR, ag, ev, fixture } from './step-fixture.ts';
 
 const SENTINEL = 'ZZSENTINEL-7f3a';
 const LABELS = ['Job id: ', 'Role: ', 'Round: ', 'Worktree: ', 'Base branch: ', 'Job paths (JSON): ', 'Inputs: ', 'Output: ', 'Effort: '];
@@ -236,6 +236,32 @@ test('approver brief names protected paths', () => {
   assert.ok(!brief(fixture({ job: { protectedPaths: odd } }), 'approver').split('\n').some((l) => l.startsWith('Reply: DONE')));
 });
 
+test('release gate line in the approver and assistant briefs', () => {
+  const both = (f: StepInput) => [brief(f, 'approver'), assistantBrief(f.root, f.config, f.job, 'escalation', [], f.events)];
+  for (const b of both(fixture())) has(b, 'Release gate: none');
+  const twoRepo = (c: any) => {
+    c.repos = [{ name: 'lib', remote: '/x/lib.git', defaultBranch: 'main' }];
+    c.components = [
+      { name: 'app', path: '.', kind: 'app', dependsOn: [{ component: 'lib', type: 'build' }] },
+      { name: 'lib', repo: 'lib', path: '.', kind: 'library' },
+    ];
+  };
+  const repos = [
+    { repo: null, worktree: '/repo.worktrees/j', branch: 'forge/j', base: 'main', pr: null, verifyOnly: false, interim: null },
+    { repo: 'lib', worktree: null, branch: 'forge/j', base: 'main', pr: null, verifyOnly: false, interim: null },
+  ];
+  const tail = '; held: the consumer PR stays a draft and Forge refuses to ready or merge it until a human records the release; ci: the seeded release-gate check fails while the pin remains. Never mark auto-merge eligible while a gate is held.';
+  const held = fixture({ config: twoRepo, job: { repos } });
+  for (const b of both(held)) has(b, `Release gate (JSON): [{"consumer":null,"dependency":"lib","strategy":"local","gate":"held"}]${tail}`);
+  const released = fixture({ config: twoRepo, job: { repos }, events: [ev('interim-released', 5, { repo: 'lib', version: '1.2.0' })] });
+  for (const b of both(released)) has(b, `Release gate (JSON): [{"consumer":null,"dependency":"lib","strategy":"local","gate":"released","version":"1.2.0"}]${tail}`);
+  // The line follows the protected-paths line, and the approver brief stays within 25 lines.
+  const lines = brief(held, 'approver').split('\n');
+  assert.ok(lines[lines.findIndex((l) => l.startsWith('Protected paths: ')) + 1].startsWith('Release gate (JSON): '));
+  assert.ok(lines.length <= 25, `${lines.length} lines`);
+  assertShape(brief(fixture(), 'approver'), 'approver');
+});
+
 test('integrator brief carries strategy and conflicts', () => {
   const b = brief(fixture(), 'integrator', { strategy: 'merge', integration: { conflicts: ['a.ts'], fix: true } });
   has(b, 'Strategy: merge');
@@ -277,5 +303,58 @@ test('reviewers and approver read the verifiers report', () => {
     const ctx: RoleContext = role === 'approver' ? {} : { lens: 'code' };
     assert.ok(inputs(brief(withReport, role, ctx)).includes(report), `${role} reads the report`);
     assert.ok(!inputs(brief(without, role, ctx)).includes(report), `${role} without a report`);
+  }
+});
+
+test('member repos are listed after the worktree line', () => {
+  const root = { repo: null, worktree: '/repo.worktrees/j', branch: 'forge/j', base: 'main', pr: null, verifyOnly: false };
+  const lib = { repo: 'lib', worktree: '/lib.worktrees/j', branch: 'forge/j', base: 'main', pr: null, verifyOnly: false };
+  const docs = { repo: 'docs', worktree: null, branch: null, base: 'release/1.x', pr: null, verifyOnly: true };
+  const f = fixture({ files: ['spec', 'tasks'], job: { repos: [root, lib, docs] } });
+  const lines = brief(f, 'builder').split('\n');
+  const at = lines.findIndex((l) => l.startsWith('Worktree: '));
+  assert.equal(lines[at + 1], 'Repo lib: /lib.worktrees/j · branch forge/j · base main');
+  assert.equal(lines[at + 2], 'Repo docs: none · branch none (verify only) · base release/1.x');
+  assert.ok(lines[at + 3].startsWith('Base branch: '));
+  const single = brief(fixture({ files: ['spec', 'tasks'] }), 'builder');
+  assert.ok(!single.includes('Repo '), 'a single-repo brief has no Repo line');
+  const job = normalizeJob({ id: 'j', branch: 'forge/j', base: 'main', worktree: '/repo.worktrees/j' });
+  assert.equal('repos' in jobPathMap('/repo', defaults(), job), false, 'a single-repo path map has no repos key');
+  assert.deepEqual(jobPathMap('/repo', defaults(), { ...job, repos: [root, lib, docs] }).repos, { lib: '/lib.worktrees/j', docs: null });
+});
+
+test('planner and spec-writer briefs carry the repo graph', () => {
+  const graph = (c: any) => {
+    c.repos = [{ name: 'lib', remote: 'https://example.com/lib.git', defaultBranch: 'main' }];
+    c.components = [
+      { name: 'core', repo: 'lib', path: '.', kind: 'library' },
+      { name: 'app', path: '.', kind: 'service', dependsOn: [{ component: 'core', type: 'build' }] },
+    ];
+  };
+  const proposals = path.join(JOB_DIR, 'repo-proposals.md');
+  const line = 'Project repos (JSON): [{"repo":"lib","onJob":false,"components":["core"],"usedBy":[{"component":"app","repo":null,"type":"build"}]}]';
+  const f = fixture({ config: graph, files: ['request'], present: [proposals] });
+  assert.equal(f.paths.repoProposals, proposals);
+  for (const role of ['planner', 'spec-writer']) {
+    const b = brief(f, role);
+    has(b, line);
+    assert.match(b, new RegExp(`^Inputs: .*${proposals.replace(/[.\\/]/g, '\\$&')}`, 'm'), role);
+    assert.ok(!brief(fixture({ files: ['request'] }), role).includes('Project repos'), `${role}: single-repo has no line`);
+    const inputs = brief(fixture({ config: graph, files: ['request'] }), role).split('\n').find((l) => l.startsWith('Inputs: '))!;
+    assert.ok(!inputs.includes(proposals), `${role}: lists the file only when it exists`);
+  }
+  assert.ok(!brief(fixture({ config: graph, files: ['spec', 'tasks'] }), 'builder').includes('Project repos'), 'the builder gets no graph');
+  const lib = { repo: 'lib', worktree: null, branch: null, base: 'main', pr: null, verifyOnly: false };
+  const onJob = fixture({ config: graph, job: { repos: [{ repo: null } as any, lib] } });
+  has(brief(onJob, 'planner'), line.replace('"onJob":false', '"onJob":true'));
+});
+
+test('planner and spec-writer prompts propose repos through the CLI', () => {
+  for (const role of ['planner', 'spec-writer']) {
+    const text = fs.readFileSync(path.join(import.meta.dirname, '..', 'agents', `${role}.md`), 'utf8');
+    assert.ok(text.includes('forge job repo propose <job> <repo> --reason'), `${role}: the propose command`);
+    assert.ok(text.includes('Propose only names from that line'), `${role}: names from the Project repos line`);
+    assert.ok(text.includes('never re-propose a rejected repo'), `${role}: no re-proposal`);
+    assert.ok(text.includes('Never approve or reject a proposal yourself'), `${role}: never decides`);
   }
 });

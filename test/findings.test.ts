@@ -343,3 +343,36 @@ test('retro lists recurring findings as oscillation signals', () => {
     r.cleanup();
   }
 });
+
+test('qualified lenses: review files and answer lines', () => {
+  const r = repo();
+  try {
+    const job = createJob(r.dir, defaults(), { title: 'Qualified' });
+    seed(
+      r.dir,
+      job.id,
+      { 1: { 'lib.realtime': ['- [major] lib/src/dsp.rs:3 — allocates on the audio thread'], 'lib.v2.code': ['- [minor] lib.v2/a.rs — b'], 'lib.Bad_Name': ['- [major] x.ts — not a lens'] } },
+      ['## Round 2', 'Findings addressed:', '- lib:realtime [major] lib/src/dsp.rs:3 → fixed', '- lib.v2:code minor lib.v2/a.rs → disagree: intended', ''].join('\n'),
+    );
+    assert.deepEqual(parseAddressed(['## Round 2', '- Lib:REALTIME major a.rs → fixed'].join('\n'))[0].lens, 'Lib:realtime');
+    return forgeAsync(r.dir, ['job', 'findings', job.id]).then((res) => {
+      assert.equal(res.status, 0, res.stderr);
+      const out = JSON.parse(res.stdout);
+      assert.deepEqual(out.byLens, {
+        'lib:realtime': { raised: 1, fixed: 1, disputed: 0, recurring: 0 },
+        'lib.v2:code': { raised: 1, fixed: 0, disputed: 1, recurring: 0 },
+      });
+      assert.deepEqual(out.disputed, [{ round: 1, lens: 'lib.v2:code', severity: 'minor', path: 'lib.v2/a.rs' }]);
+      r.cleanup();
+    });
+  } catch (e) {
+    r.cleanup();
+    throw e;
+  }
+});
+
+test('a qualified answer line stays linear on a hostile line', () => {
+  const started = Date.now();
+  parseAddressed(['## Round 2', `- ${'a'.repeat(99)}:${'b'.repeat(10_000)}`, `- ${'a.'.repeat(5_000)}`, `- ${'a'.repeat(10_000)}:code major x → fixed`].join('\n'));
+  assert.ok(Date.now() - started < 1000);
+});

@@ -1,4 +1,4 @@
-// `forge run <job> <command> [--tail N] [-- <args…>]` and `forge run <job> <command> --background`.
+// `forge run <job> <command> [--repo R] [--tail N] [-- <args…>]` and `forge run <job> <command> --background`.
 import type { Config, Dispatched } from '../types.ts';
 import { ForgeError } from '../util.ts';
 import * as wt from '../worktree.ts';
@@ -21,11 +21,14 @@ export async function runCmd(root: string, config: Config, argv: string[]): Prom
   // A word after --background is parsed as its value, so it is an extra argument too.
   if (pos.length > 3 || (flags.background !== undefined && flags.background !== true)) throw new ForgeError(AFTER_DASHES);
   const tail = num(flags.tail, '--tail', { integer: true }) ?? 40;
+  const repo = flags.repo === undefined ? undefined : req(typeof flags.repo === 'string' ? flags.repo : undefined, '--repo');
+  // Member worktrees get no port, so a server there would collide with the root's.
+  if (repo !== undefined && flags.background) throw new ForgeError('forge run --repo takes no --background: member repos run no background commands');
   if (flags.background) {
     // A reused server could not take them anyway: it is already running with its own.
     if (args.length) throw new ForgeError('forge run --background takes no extra arguments');
     return { data: await wt.startBackground(root, config, id, name), exitCode: 0 };
   }
-  const r = wt.runCommand(root, config, id, name, { tail, args });
+  const r = wt.runCommand(root, config, id, name, { tail, args, ...(repo !== undefined ? { repo } : {}) });
   return { data: r, exitCode: r.ok ? 0 : 1 };
 }

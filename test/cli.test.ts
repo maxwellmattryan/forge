@@ -733,9 +733,9 @@ describe('the CLI end to end', { concurrency: 4 }, () => {
     const { repo, cli, id, refuses } = await guardRepo();
     try {
       const r = await refuses(['job', 'human', id, 'bogus'], /unknown action "bogus"/, 2);
-      for (const a of ['approve-spec', 'revise-spec', 'approve-split', 'revise-split', 'approve', 'rework', 'answer']) assert.ok(r.stderr.includes(a), a);
+      for (const a of ['approve-spec', 'revise-spec', 'approve-split', 'revise-split', 'approve', 'rework', 'answer', 'approve-repos', 'reject-repos']) assert.ok(r.stderr.includes(a), a);
       await refuses(['job', 'human', id, 'reject'], /unknown action "reject"/, 2);
-      await refuses(['job', 'human', id], /missing action \(approve-spec\|revise-spec\|approve-split\|revise-split\|approve\|rework\|answer\)/, 2);
+      await refuses(['job', 'human', id], /missing action \(approve-spec\|revise-spec\|approve-split\|revise-split\|approve\|rework\|answer\|approve-repos\|reject-repos\)/, 2);
       for (const a of ['revise-spec', 'approve-spec', 'rework']) {
         const ok = await cli('job', 'human', id, a, '--note', `n ${a}`);
         assert.equal(ok.status, 0, ok.stderr);

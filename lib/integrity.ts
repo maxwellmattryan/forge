@@ -2,9 +2,11 @@
 // runs them. A build can go green by deleting a test, adding `.skip`, or editing the test script;
 // this makes those changes visible to reviewers and, under `verifyIntegrity: block`, fails verify.
 // Must not import evals.ts or worktree.ts: worktree imports this module, and evals imports worktree.
+// It also reports local link overrides (lib/links.ts) that reached a commit.
 import fs from 'node:fs';
 import path from 'node:path';
 import { jobDir } from './jobs.ts';
+import { linkLeakPaths } from './links.ts';
 import { exists } from './paths.ts';
 import { approachPaths, approachSection, realHistoryEnv, resolveBase } from './scope.ts';
 import type { Config, Job } from './types.ts';
@@ -19,6 +21,8 @@ const JSON_LIST_LIMIT = 10;
 // submodule visibility. Callers add `--text`, which defeats `-diff`/`binary` attributes that would
 // hide added lines. Shared with the secret scanner (lib/secrets.ts), which reads the same diffs.
 export const PINNED_GIT_CONFIG: readonly string[] = ['-c', 'core.quotepath=off', '-c', 'diff.interHunkContext=0', '-c', 'diff.suppressBlankEmpty=false', '-c', 'diff.relative=false'];
+// fsmonitor, untracked-file and submodule settings are repo config the worktree can write, and each can hide changes.
+export const STATUS_ARGV: readonly string[] = ['-c', 'core.fsmonitor=false', 'status', '--porcelain', '--untracked-files=normal', '--ignore-submodules=none'];
 export const PINNED_DIFF_OPTS: readonly string[] = ['--no-ext-diff', '--no-textconv', '--no-color', '--no-relative', '--ignore-submodules=none', '--inter-hunk-context=0', '--src-prefix=a/', '--dst-prefix=b/', '-M'];
 
 /** A test file the diff deleted, or made stop running: an entry of IntegrityReport.deleted. */
@@ -40,10 +44,20 @@ export interface IntegrityReport {
   markers: { path: string; line: number; text: string }[];
   count: { before: number; after: number; delta: number; files: { path: string; before: number; after: number }[] };
   configEdits: { path: string; detail: string }[];
+  /** Added lines that carry a local link override (R1–R4: overrideRule, packageOverrides). */
+  overrides: LinkOverride[];
   blocking: number;
   findings: number;
   ok: boolean;
   error?: string;
+}
+
+/** A committed local link override: an entry of IntegrityReport.overrides. */
+export interface LinkOverride {
+  path: string;
+  line: number;
+  text: string;
+  rule: 'R1' | 'R2' | 'R3' | 'R4';
 }
 
 /** The `integrity` key of verify's JSON: compactIntegrity. */
@@ -60,6 +74,7 @@ export type CompactIntegrity =
       skipMarkers: string[];
       testCount: { before: number; after: number; delta: number };
       configEdits: string[];
+      linkOverrides: string[];
       more: number;
     };
 
@@ -198,11 +213,65 @@ export function commandSources(config: Pick<Config, 'commands' | 'components'>):
   return [...out];
 }
 
+const CARGO_CONFIG = /(^|\/)\.cargo\/config(\.toml)?$/;
+// A `[patch…]` table header, or the same table as a dotted key (`patch.crates-io.x = …`).
+const PATCH_TABLE = /^\s*(\[\s*patch\b|patch\s*[.=])/;
+
+/**
+ * Which rule an added line breaks, or null: R1 an absolute path of a worktrees root or the job
+ * dirs (`leaks`, linkLeakPaths), R2 a FetchContent source-dir override, R3 a cargo `[patch]` in a
+ * `.cargo/config(.toml)`. R4 (package.json) needs both sides of the file: packageOverrides.
+ */
+export function overrideRule(file: string, text: string, leaks: string[]): LinkOverride['rule'] | null {
+  if (leaks.some((p) => text.includes(p))) return 'R1';
+  if (text.includes('FETCHCONTENT_SOURCE_DIR_')) return 'R2';
+  if (CARGO_CONFIG.test(file) && PATCH_TABLE.test(text)) return 'R3';
+  return null;
+}
+
+const PACKAGE_DEP_KEYS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'overrides', 'resolutions'];
+
+/**
+ * R4: dependency specs in a package.json at `file` that are new or changed and are `file:` or `link:`
+ * with a path that is absolute or leaves the repo. `overrides` may nest, so every string under it counts.
+ */
+export function packageOverrides(file: string, beforeText: string | null, afterText: string | null): { key: string; spec: string }[] {
+  const parse = (t: string | null): any => {
+    try {
+      const v = JSON.parse(t?.trim() ? t : '{}');
+      return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+    } catch {
+      return {};
+    }
+  };
+  const specs = (doc: any): Map<string, string> => {
+    const out = new Map<string, string>();
+    const walk = (v: unknown, at: string, depth: number) => {
+      if (typeof v === 'string') out.set(at, v);
+      else if (v && typeof v === 'object' && !Array.isArray(v) && depth < 20) for (const [k, x] of Object.entries(v)) walk(x, `${at}.${k}`, depth + 1);
+    };
+    for (const k of PACKAGE_DEP_KEYS) walk(doc[k], k, 0);
+    return out;
+  };
+  const before = specs(parse(beforeText));
+  const dir = path.posix.dirname(file);
+  const out: { key: string; spec: string }[] = [];
+  for (const [key, spec] of specs(parse(afterText))) {
+    if (before.get(key) === spec) continue;
+    const m = /^\s*(?:file|link):(.*)$/s.exec(spec);
+    if (!m) continue;
+    const p = m[1].trim().replace(/\\/g, '/');
+    const outside = p.startsWith('/') || p.startsWith('~') || /^[A-Za-z]:/.test(p) || path.posix.normalize(path.posix.join(dir, p)).split('/')[0] === '..';
+    if (outside) out.push({ key, spec });
+  }
+  return out;
+}
+
 /** Paths that are test, build or CI config whatever their content. */
 export function isConfigPath(p: string): boolean {
   const base = path.posix.basename(p);
   if (/^(Makefile|makefile|GNUmakefile|justfile|Justfile)$/.test(base) || base.endsWith('.mk')) return true;
-  if (/^(\.github\/workflows|\.circleci|\.buildkite)\//.test(p) || ['.gitlab-ci.yml', 'azure-pipelines.yml', 'Jenkinsfile', '.forge/config.yml', '.forge/secrets-allow.txt'].includes(p)) return true;
+  if (/^(\.github\/workflows|\.circleci|\.buildkite|\.forge\/ci)\//.test(p) || ['.gitlab-ci.yml', 'azure-pipelines.yml', 'Jenkinsfile', '.forge/config.yml', '.forge/secrets-allow.txt'].includes(p)) return true;
   if (/^(jest\.config|vitest\.config|vitest\.workspace|playwright\.config|karma\.conf)\./.test(base) || /^\.(mocharc|nycrc)/.test(base)) return true;
   // Attributes can mark test files `-diff`/`binary`, which would hide their changed lines.
   return base === 'pytest.ini' || base === 'tox.ini' || base === '.gitattributes';
@@ -523,7 +592,7 @@ function baseHasJobCommits(git: (args: string[]) => string, branch: string | nul
  */
 export function testIntegrity(root: string, config: Config, job: Pick<Job, 'id' | 'worktree' | 'base'> & { branch?: string | null }): IntegrityReport {
   const mode = config.verifyIntegrity === 'block' ? 'block' : 'warn';
-  const report: IntegrityReport = { mode, base: null, mergeBase: null, head: null, deleted: [], renamed: [], markers: [], count: { before: 0, after: 0, delta: 0, files: [] }, configEdits: [], blocking: 0, findings: 0, ok: true };
+  const report: IntegrityReport = { mode, base: null, mergeBase: null, head: null, deleted: [], renamed: [], markers: [], count: { before: 0, after: 0, delta: 0, files: [] }, configEdits: [], overrides: [], blocking: 0, findings: 0, ok: true };
   try {
     // verify runs this only for a job with a worktree.
     const cwd = job.worktree!;
@@ -587,8 +656,25 @@ export function testIntegrity(root: string, config: Config, job: Pick<Job, 'id' 
       }
       const edit = configEdit(c, sources, text, mergeBase);
       if (edit) report.configEdits.push(edit);
+      // A symlinked `.cargo/config.toml` points cargo at a file outside the diff: its content is never reviewed.
+      if (c.to && CARGO_CONFIG.test(c.to) && LINK_MODES[c.newMode]) report.overrides.push({ path: c.to, line: 0, text: `now a ${LINK_MODES[c.newMode]}`, rule: 'R3' });
+      if (c.to && path.posix.basename(c.to) === 'package.json') {
+        const added = lines.get(c.to)?.added ?? [];
+        for (const o of packageOverrides(c.to, c.from ? text(mergeBase, c.from) : null, text('HEAD', c.to))) {
+          const hit = added.find((a) => a.text.includes(JSON.stringify(o.spec)));
+          report.overrides.push({ path: c.to, line: hit?.line ?? 0, text: hit?.text.trim() ?? `${o.key}: ${o.spec}`, rule: 'R4' });
+        }
+      }
     }
     report.count.delta = report.count.after - report.count.before;
+
+    const leaks = linkLeakPaths(root, config);
+    for (const [file, { added }] of lines) {
+      for (const a of added) {
+        const rule = overrideRule(file, a.text, leaks);
+        if (rule) report.overrides.push({ path: file, line: a.line, text: a.text.trim(), rule });
+      }
+    }
 
     for (const [file, { added, removed }] of lines) {
       const t = isTest(file);
@@ -612,8 +698,8 @@ export function testIntegrity(root: string, config: Config, job: Pick<Job, 'id' 
     report.ok = mode !== 'block';
     return report;
   }
-  report.blocking = report.deleted.filter((d) => !d.inSpec).length + report.markers.length;
-  report.findings = report.deleted.length + report.renamed.length + report.markers.length + report.configEdits.length + (report.count.delta < 0 ? 1 : 0);
+  report.blocking = report.deleted.filter((d) => !d.inSpec).length + report.markers.length + report.overrides.length;
+  report.findings = report.deleted.length + report.renamed.length + report.markers.length + report.configEdits.length + report.overrides.length + (report.count.delta < 0 ? 1 : 0);
   report.ok = mode !== 'block' || report.blocking === 0;
   return report;
 }
@@ -681,7 +767,7 @@ export function renderIntegrity(report: IntegrityReport): string {
     return lines.join('\n');
   }
   if (!report.findings) {
-    lines.push('No deleted or renamed tests, skip/focus markers, test-count drop or test/CI config edits.', '');
+    lines.push('No deleted or renamed tests, skip/focus markers, test-count drop, test/CI config edits or local link overrides.', '');
     return lines.join('\n');
   }
   const section = (title: string, items: string[]) => {
@@ -699,6 +785,19 @@ export function renderIntegrity(report: IntegrityReport): string {
   }
   if (c.delta < 0) section('Test count dropped', c.files.filter((f) => f.after < f.before).map((f) => `- ${code(f.path)}: ${f.before} → ${f.after}`));
   section('Test, build or CI config edits', report.configEdits.map((e) => `- ${code(e.path)}: ${clean(e.detail)}`));
+  if (report.overrides.length) {
+    const found = report.overrides.map((o) => clean(`${o.path}:${o.line}: ${o.rule}: ${o.text.length > 160 ? `${o.text.slice(0, 160)}…` : o.text}`).replace(/```/g, "'''"));
+    lines.push(
+      `### Local link overrides committed (${report.overrides.length})`,
+      '',
+      'Forge links these at run time from the job dir; a committed one builds only on this machine. Revert it:',
+      '',
+      '```text',
+      ...found,
+      '```',
+      '',
+    );
+  }
   return lines.join('\n');
 }
 
@@ -723,6 +822,7 @@ export function compactIntegrity(report: IntegrityReport): CompactIntegrity {
     skipMarkers: cap(report.markers.map((m) => `${m.path}:${m.line}`)),
     testCount: { before: report.count.before, after: report.count.after, delta: report.count.delta },
     configEdits: cap(report.configEdits.map((e) => e.path)),
+    linkOverrides: cap(report.overrides.map((o) => `${o.path}:${o.line} (${o.rule})`)),
     more,
   };
 }
@@ -733,5 +833,6 @@ export function blockingLines(report: IntegrityReport): string {
   return [
     ...report.deleted.filter((d) => !d.inSpec).map((d) => clean(`deleted ${d.path}${d.to ? ` (${d.why}: ${d.to})` : d.why ? ` (${d.why})` : ''}`)),
     ...report.markers.map((m) => clean(`skip marker ${m.path}:${m.line}`)),
+    ...report.overrides.map((o) => clean(`override ${o.path}:${o.line} (${o.rule})`)),
   ].join('\n');
 }

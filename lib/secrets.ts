@@ -487,6 +487,25 @@ export function scanPaths(root: string, config: Config, globs: string[]): Secret
   return { ...scan, ...applyAllowlist(raw, allow) };
 }
 
+/**
+ * Whole files about to leave the machine as they are (a package export, not a diff): base content
+ * ships too, so a key already on the default branch counts. Files over 2 MiB are counted as skipped.
+ */
+export function scanFiles(root: string, config: Config, files: { path: string; body: Buffer }[]): SecretScan {
+  const allow = loadAllowlist(root);
+  const scan = emptyScan(allow);
+  const units: TextUnit[] = [];
+  for (const f of files) {
+    if (f.body.length > MAX_FILE) {
+      scan.scanned.skipped++;
+      continue;
+    }
+    units.push({ path: f.path, line: 1, text: f.body.toString('utf8'), file: true, commit: null });
+    scan.scanned.files++;
+  }
+  return { ...scan, ...applyAllowlist(scanUnits(units, { config }), allow) };
+}
+
 /** Files a role writes besides its recorded output. */
 const ROLE_EXTRAS: Record<string, string[]> = {
   builder: ['build.md', 'tasks.md'],

@@ -77,6 +77,29 @@ describe('audit', { concurrency: 4 }, () => {
     }
   });
 
+  test('member merge rows name the repo', async () => {
+    const r = repo();
+    try {
+      const id = seed(r.dir, 'Linked', [
+        { v: 2, ts: at(3, 0), type: 'pr-opened', number: 11, url: 'u' },
+        { v: 2, ts: at(3, 1), type: 'pr-auto-merge', repo: 'lib', number: 7, checks: 'pending' },
+        { v: 2, ts: at(3, 2), type: 'pr-merge-bypass', repo: 'lib', number: 7, checks: 'pending', actor: ALICE },
+        { v: 2, ts: at(3, 3), type: 'pr-merged', repo: 'lib', number: 7, method: 'squash', checks: 'pending', bypass: true, actor: ALICE },
+        { v: 2, ts: at(3, 4), type: 'pr-merge-failed', repo: 'lib', number: 7, error: 'x', actor: ALICE },
+      ]);
+      const res = await forgeAsync(r.dir, ['job', 'audit', id]);
+      assert.equal(res.status, 0, res.stderr);
+      const a = JSON.parse(res.stdout);
+      assert.deepEqual(
+        a.rows.map((x: any) => [x.action, x.detail]),
+        [['pr-opened', '#11'], ['pr-auto-merge', 'lib #7'], ['pr-merge-bypass', 'lib #7 checks pending'], ['pr-merged', 'lib #7 squash'], ['pr-merge-failed', 'lib #7']],
+      );
+      assert.deepEqual(a.pr, { number: null, mergeMethod: null, merged: false }, 'a member merge is not the job PR merging');
+    } finally {
+      r.cleanup();
+    }
+  });
+
   test('csv escaping and formula guard', async () => {
     const r = repo();
     try {

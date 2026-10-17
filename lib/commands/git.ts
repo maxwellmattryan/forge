@@ -10,7 +10,8 @@ import { attributionForbidden, findAttribution } from '../attribution.ts';
 import { sessionEnv } from '../daemon.ts';
 import { PINNED_DIFF_OPTS, PINNED_GIT_CONFIG } from '../integrity.ts';
 import { jobDir, loadJob } from '../jobs.ts';
-import { blobReader, checkProtected, comparisonPoint, diffEntries, historyEnv, logEscalated, logRefused, policyRules, recordProtected, refusalText } from '../protected.ts';
+import { memberWorktree } from '../job-repos.ts';
+import { blobReader, checkProtected, comparisonPoint, diffEntries, historyEnv, logEscalated, logRefused, policyRules, prefixHits, recordProtected, refusalText } from '../protected.ts';
 import { resolveWorktreePaths } from '../paths.ts';
 import { applyAllowlist, diffUnits, loadAllowlist, logSecrets, refusalMessage, refuseSecrets, scanUnits, secretMode, textUnit } from '../secrets.ts';
 import { ForgeError, run } from '../util.ts';
@@ -39,8 +40,9 @@ const GIT: HelpGroup = {
     ...READ_SUBCOMMANDS.map(readHelp),
     {
       command: 'git add',
-      args: '<id> -- <path>...',
+      args: '<id> [--repo NAME] -- <path>...',
       summary: "stage paths in the job's worktree, from any cwd; refuses git options, paths outside the worktree and a protected path the policy refuses; prints protected: <n> when the branch changes escalate paths",
+      flags: [['--repo NAME', "stage in member repo NAME's worktree instead (not a verify-only repo)"]],
       exits: [
         [1, 'no such job or worktree, an option, a path outside the worktree or in .git, or a protected path (code protected_path)'],
         [5, 'git failed'],
@@ -49,10 +51,11 @@ const GIT: HelpGroup = {
     },
     {
       command: 'git commit',
-      args: '<id> (--message T | --message-file F) [-- <path>...]',
+      args: '<id> [--repo NAME] (--message T | --message-file F) [-- <path>...]',
       summary:
         "commit in the job's worktree, on its branch, from any cwd (how agents commit, in a daemon session too); refuses git options, paths outside the worktree, AI attribution, a protected path the policy refuses and a likely secret (in the message always; in the staged changes under verifySecrets: block); prints protected: <n> when the branch changes escalate paths",
       flags: [
+        ['--repo NAME', "commit in member repo NAME's worktree instead (not a verify-only repo; protected paths are root-repo paths and not checked there)"],
         ['--message T', 'the commit message'],
         ['--message-file F', 'read the message from F, a file inside the job dir'],
       ],
@@ -102,11 +105,13 @@ export interface GitWriteArgs {
   message: string | null;
   messageFile: string | null;
   paths: string[];
+  /** A member repo (`--repo`): stage and commit in its worktree instead of the root's. */
+  repo?: string;
 }
 
 const MESSAGE_FILE_MAX = 1024 * 1024;
 
-/** `[--message T | --message-file P] [-- paths…]`, strictly: any other option is refused. */
+/** `[--repo R] [--message T | --message-file P] [-- paths…]`, strictly: any other option is refused. */
 export function parseGitWriteArgs(args: string[]): GitWriteArgs {
   const out: GitWriteArgs = { message: null, messageFile: null, paths: [] };
   const set = (key: 'message' | 'messageFile', flag: string, v: string | undefined) => {
@@ -120,7 +125,12 @@ export function parseGitWriteArgs(args: string[]): GitWriteArgs {
       out.paths = args.slice(i + 1);
       break;
     }
-    if (a === '--message' || a === '--message-file') set(a === '--message' ? 'message' : 'messageFile', a, args[++i]);
+    if (a === '--repo' || a.startsWith('--repo=')) {
+      const v = a === '--repo' ? args[++i] : a.slice('--repo='.length);
+      if (!v || v.startsWith('-')) throw new ForgeError('--repo needs a repo name');
+      if (out.repo !== undefined) throw new ForgeError('pass --repo once');
+      out.repo = v;
+    } else if (a === '--message' || a === '--message-file') set(a === '--message' ? 'message' : 'messageFile', a, args[++i]);
     else if (a.startsWith('--message=')) set('message', '--message', a.slice('--message='.length));
     else if (a.startsWith('--message-file=')) set('messageFile', '--message-file', a.slice('--message-file='.length));
     else if (a.startsWith('-')) throw new ForgeError(`forge git refuses ${JSON.stringify(a.slice(0, 80))}: it takes only --message or --message-file, then -- and paths`);
@@ -143,6 +153,8 @@ interface ProtectedPreview {
   escalated: ProtectedHit[];
   own: ProtectedHit[];
   m: string;
+  /** A member repo's escalate set as paths in its worktree, before they were named `<repo>:<path>`. */
+  local?: ProtectedHit[];
   /** The real index, and the checked preview that installPreview puts in its place. */
   index: string;
   tmp: string;
@@ -232,8 +244,11 @@ export function gitWrite(
   if (!id || id.startsWith('-')) throw usageError(GIT, sub);
   const job = loadJob(root, id);
   const opts = parseGitWriteArgs(rest);
-  if (!job.worktree || !fs.existsSync(job.worktree)) throw new ForgeError(`job ${id} has no worktree`);
-  const cwd = fs.realpathSync(job.worktree);
+  // A member repo: its checked worktree (never the stored path as is), and never its clone.
+  const member = opts.repo === undefined ? null : memberWorktree(root, config, job, opts.repo);
+  if (member?.member.verifyOnly) throw new ForgeError(`repo ${member.member.repo} is verify-only: the job never commits there`);
+  if (!member && (!job.worktree || !fs.existsSync(job.worktree))) throw new ForgeError(`job ${id} has no worktree`);
+  const cwd = fs.realpathSync(member ? member.worktree : job.worktree!);
   const genv = gitEnv(env);
   const git = (a: string[], o: { allowFail?: boolean } = {}) => run('git', a, { cwd, env: genv, allowFail: o.allowFail });
   const toplevel = (dir: string) => {
@@ -242,14 +257,23 @@ export function gitWrite(
   };
   const top = toplevel(cwd);
   if (cwd === fs.realpathSync(root) || (top !== null && top === toplevel(root))) throw new ForgeError(`forge git ${sub} refuses to commit in the main checkout (${cwd})`);
+  if (member && (cwd === fs.realpathSync(member.clone) || (top !== null && top === toplevel(member.clone))))
+    throw new ForgeError(`forge git ${sub} refuses to commit in repo ${member.member.repo}'s clone (${cwd}); only its job worktree`);
   if (top !== cwd) throw new ForgeError(`${cwd} is not the root of a git worktree`);
   const paths = resolveWorktreePaths(cwd, opts.paths);
   // Literal, so a path like `:(top)…` or `*` is a file name, not pathspec magic.
   const add = (ps: string[]) => git(['--literal-pathspecs', 'add', '-A', ...(ps.length ? ['--', ...ps] : [])]);
   const dir = fs.realpathSync(jobDir(root, id));
   /** Refuses before anything is written; returns the escalate set to record once the write is done. */
+  // A member repo gets the root's policy over its own branch (from its own base); its hits are named
+  // `<repo>:<path>` on the job flag, so one human approval covers every repo the job pushes.
   const guard = (): ProtectedPreview | null => {
-    const p = protectedPreview(config, job, cwd, dir, genv, paths);
+    let p = protectedPreview(config, member ? { ...job, base: member.member.base } : job, cwd, dir, genv, paths);
+    if (p && member) {
+      const repo = member.member.repo;
+      const named = prefixHits(repo, p);
+      p = { ...p, ...named, own: prefixHits(repo, { refused: [], escalated: p.own }).escalated, local: p.escalated };
+    }
     if (p?.refused.length) {
       dropPreview(p.tmp);
       logRefused(root, job.id, sub, p.refused);
@@ -259,9 +283,15 @@ export function gitWrite(
   };
   /** Stages exactly what guard checked; a plain add with the policy off. */
   const stage = (p: ProtectedPreview | null) => (p ? installPreview(p, cwd) : void add(paths));
+  // The flag holds the whole job's set: keep the other repos' hits as the last check recorded them.
+  // By the hit's `repo` tag, not its `<repo>:` name, which a root path can also begin with.
+  const repoOf = (h: ProtectedHit) => (typeof h.repo === 'string' ? h.repo : null);
+  const mine = member ? member.member.repo : null;
+  const carried = (job.protectedPaths?.hits ?? []).filter((h) => typeof h?.path === 'string' && repoOf(h) !== mine);
   const record = (p: ProtectedPreview | null, head: string | null): { protected?: number } => {
     if (!p) return {};
-    recordProtected(root, job.id, sub, p.escalated, head, { cwd, from: p.m, to: head ?? 'index', env: historyEnv(genv) });
+    const src = { cwd, from: p.m, to: head ?? 'index', env: historyEnv(genv), paths: (p.local ?? p.escalated).map((h) => h.path), ...(mine === null ? {} : { repo: mine }) };
+    recordProtected(root, job.id, sub, [...p.escalated, ...carried], head, src);
     if (p.own.length) logEscalated(root, job.id, sub, p.own, head);
     return p.escalated.length ? { protected: p.escalated.length } : {};
   };

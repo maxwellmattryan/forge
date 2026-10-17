@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { HEADING, unfenced } from './acs.ts';
 import { jobDir } from './jobs.ts';
+import { lensFromReviewFile } from './lens.ts';
 import type { SEVERITIES } from './schema.ts';
 
 export type Severity = (typeof SEVERITIES)[number];
@@ -48,7 +49,8 @@ const ROUND_DIR = /^round-([1-9]\d*)$/;
 // runs can match the same characters (see the comment on HEADING in lib/acs.ts).
 // `s`: a Unicode line separator inside a finding must not hide it.
 const REVIEW_LINE = /^\s*[-*]\s*\[(blocker|major|minor|nit)\](.*)$/is;
-const ANSWER_LINE = /^\s*[-*]\s+([a-z0-9][a-z0-9_-]*)\s+\[?(blocker|major|minor|nit)\]?\s+(\S+)\s+(?:→|->)\s+(fixed\b|disagree:)/i;
+// The lens may be qualified (`lib:realtime`): the `:` ends the bounded repo run, so it stays linear.
+const ANSWER_LINE = /^\s*[-*]\s+((?:[A-Za-z0-9][A-Za-z0-9._-]{0,99}:)?[a-z0-9][a-z0-9_-]*)\s+\[?(blocker|major|minor|nit)\]?\s+(\S+)\s+(?:→|->)\s+(fixed\b|disagree:)/i;
 const UNSAFE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
 
 /**
@@ -105,7 +107,7 @@ export function parseAddressed(text: string): FindingAnswer[] {
     if (!m) continue;
     const answer: FindingAnswer = {
       round: round - 1,
-      lens: m[1].toLowerCase(),
+      lens: lensKey(m[1]),
       severity: m[2].toLowerCase() as Severity,
       path: m[3] === '-' ? null : cleanPath(m[3]),
       outcome: m[4].toLowerCase() === 'disagree:' ? 'disputed' : 'fixed',
@@ -116,6 +118,12 @@ export function parseAddressed(text: string): FindingAnswer[] {
     out.push(answer);
   }
   return out;
+}
+
+/** An answer's lens as review files name it: a repo name keeps its case, the lens name is lowercased. */
+function lensKey(raw: string): string {
+  const colon = raw.lastIndexOf(':');
+  return colon < 0 ? raw.toLowerCase() : `${raw.slice(0, colon)}:${raw.slice(colon + 1).toLowerCase()}`;
 }
 
 const zero = (): Counts => ({ raised: 0, fixed: 0, disputed: 0 });
@@ -197,7 +205,7 @@ function entries(dir: string): fs.Dirent[] {
   }
 }
 
-/** Read-only. Integration reviews are excluded: only `review/round-<n>/<lens>.md` count. */
+/** Read-only. Integration reviews are excluded: only `review/round-<n>/<lens>.md` (or `<repo>.<lens>.md`) count. */
 export function jobFindings(root: string, id: string): JobFindings {
   const dir = jobDir(root, id);
   const raised = new Map<number, { lens: string; severity: Severity; path: string | null }[]>();
@@ -208,8 +216,10 @@ export function jobFindings(root: string, id: string): JobFindings {
     const findings: { lens: string; severity: Severity; path: string | null }[] = [];
     let files = 0;
     for (const f of entries(path.join(dir, 'review', d.name))) {
-      const lens = f.name.endsWith('.md') ? f.name.slice(0, -3) : '';
-      if (!f.isFile() || !LENS.test(lens)) continue;
+      const stem = f.name.endsWith('.md') ? f.name.slice(0, -3) : '';
+      // `<repo>.<name>.md` is a member repo's qualified lens `<repo>:<name>`.
+      const lens = stem.includes('.') ? lensFromReviewFile(f.name) : LENS.test(stem) ? stem : null;
+      if (!f.isFile() || !lens) continue;
       const text = readSmall(path.join(dir, 'review', d.name, f.name));
       if (text === null) continue;
       files++;

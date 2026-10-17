@@ -1,9 +1,9 @@
-// Shapes of the forge dash HTTP API for API_VERSION 26. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
+// Shapes of the forge dash HTTP API for API_VERSION 28. Derived from lib/server.ts and the modules it calls. Change this file in the same commit as any /api or SSE shape change, and bump API_VERSION here and in lib/schema.ts together; test/dashboard-lib.test.ts fails if they differ.
 
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 26;
+export const API_VERSION = 28;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 /** lib/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */
@@ -35,6 +35,7 @@ export type Effort = (typeof EFFORTS)[number];
 export type EffortSource = 'job' | 'panel' | 'role' | 'complexity' | 'config' | 'none';
 /** A spec's judged difficulty: COMPLEXITIES in lib/schema.ts. */
 export type Complexity = 'low' | 'medium' | 'high';
+export type InterimStrategy = 'canary' | 'git-ref' | 'local' | 'sequential';
 
 // ---------- job data ----------
 
@@ -214,6 +215,36 @@ export interface VerifyRun {
   file: string;
   /** The name of the step that failed (`test`, `integrity`, `secrets`, `protected`, …), null on a pass. */
   failure?: string | null;
+  /** One record per member repo, only when the job has members: verify in lib/worktree.ts. */
+  repos?: VerifyRunRepo[];
+}
+
+/** One member repo's part of a verify run: the HEAD it checked and its first failing step. */
+export interface VerifyRunRepo {
+  repo: string;
+  sha: string;
+  ok: boolean;
+  failure: string | null;
+}
+
+/** A job repo's PR: a JobPr whose url is null when `gh` gave anything but an https url. */
+export type JobRepoPr = Omit<JobPr, 'url'> & { url: string | null };
+
+/**
+ * One repo a job changes: `repos[0]` is the root repo (`repo: null`), mirrored from the top-level
+ * branch/base/worktree/pr by normalizeJob; later entries are member repos (lib/job-repos.ts).
+ */
+export interface JobRepo {
+  repo: string | null;
+  worktree: string | null;
+  /** The job's branch, derived on every load; null for a verify-only member. */
+  branch: string | null;
+  base: string | null;
+  pr: JobRepoPr | null;
+  /** Verified with the job but never branched, pushed or given a PR. */
+  verifyOnly: boolean;
+  /** The human's interim strategy for this repo as a dependency; null inherits config. */
+  interim?: InterimStrategy | null;
 }
 
 /** A reviewer's settled verdict for a round: the verdicts case in lib/commands/job.ts (via roundVerdicts in lib/jobs.ts). */
@@ -270,6 +301,10 @@ export interface Job {
   complexity: Complexity | null;
   /** Escalate paths the branch changes, recorded by the CLI only: recordProtected in lib/protected.ts. */
   protectedPaths: ProtectedPaths | null;
+  /** The human's interim strategy for the root repo as a dependency; null inherits config. */
+  interim: InterimStrategy | null;
+  /** The root repo first, then member repos: `forge job repo add|remove` in lib/job-repos.ts. */
+  repos: JobRepo[];
 }
 
 /** A changed path an escalate rule matched; `rule` is 1-based and `blob` is null for a deletion. */
@@ -279,6 +314,8 @@ export interface ProtectedHit {
   glob: string;
   reason: string;
   blob: string | null;
+  /** The member repo a `<repo>:<path>` hit came from; absent for a root hit. */
+  repo?: string;
 }
 
 /** job.protectedPaths: the escalate paths that need a human approval given after `at`. */
@@ -1150,6 +1187,34 @@ export interface PostJobEffortResponse {
   effort: Effort | null;
   previous: Effort | null;
   changed: boolean;
+}
+
+/** POST /api/jobs/:id/repos body: the handler in lib/server.ts. `repos` are the names the drawer listed, which must be the whole pending set. */
+export interface PostJobReposBody {
+  decision: 'approve' | 'reject';
+  repos: string[];
+  note?: string | null;
+}
+
+/** POST /api/jobs/:id/repos reply: decideRepoProposals in lib/repo-proposals.ts, and whether the job was set running and resumed. */
+export interface PostJobReposResponse {
+  id: string;
+  decision: 'approve' | 'reject';
+  repos: string[];
+  added: string[];
+  pending: string[];
+  resumed: boolean;
+}
+
+/** One row of a job's repo-proposals.json: RepoProposal in lib/types.ts (lib/repo-proposals.ts writes it). */
+export interface RepoProposal {
+  repo: string;
+  reason: string;
+  proposedAt: string;
+  status: 'pending' | 'approved' | 'rejected';
+  decidedAt: string | null;
+  actor: EventActor | null;
+  note: string | null;
 }
 
 /** A focused job, as `forge focus` and /api/state report it: resolveFocus in lib/focus.ts. */

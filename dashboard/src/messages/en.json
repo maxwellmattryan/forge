@@ -234,6 +234,9 @@
     "port": "Port",
     "worktree": "Worktree",
     "pr": "PR",
+    "repos": "Repos",
+    "repo": "Repo",
+    "verifyOnly": "verify only",
     "issues": "Issues",
     "link": "link",
     "session": "Session",
@@ -810,6 +813,20 @@
     "approveLinkRef": "Approve the spec and link {ref}",
     "approveCreate": "Approve & create an issue",
     "approveNone": "Approve, no issue needed"
+  },
+  "repoProposal": {
+    "prompt": "An agent proposes adding these repos to the job. Approving gives each its own worktree, branch and PR; rejecting keeps the work in the job's repos.",
+    "list": "Proposed repos",
+    "status": {
+      "pending": "pending",
+      "approved": "approved",
+      "rejected": "rejected"
+    },
+    "approve": "Approve repos",
+    "reject": "Reject repos",
+    "approved": "Approved {repos}",
+    "rejected": "Rejected {repos}",
+    "failed": "Could not decide the proposal: {error}"
   },
   "github": {
     "kind": {

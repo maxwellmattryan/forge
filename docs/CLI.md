@@ -79,6 +79,8 @@ Every error carries one of these codes, and the code fixes the exit.
 | `internal` | 1 | not a Forge error: a bug or an unexpected Node error (rerun with `FORGE_DEBUG=1` for the stack) |
 | `secret_found` | 1 | the secret scanner found a likely credential in what Forge was about to commit or send (a commit, the PR title or body, a tracker write); the message shows it masked, with its fingerprint |
 | `protected_path` | 1 | a path the `policy.protectedPaths` policy refuses is in what `forge git add\|commit` would stage or commit, `forge pr open` found a refused path or escalate paths no human approved, or `forge pr merge` found a PR head `forge pr open` never checked (docs/CONFIG.md "Protected paths") |
+| `interim_stale` | 1 | `forge pr open` found a git-ref or canary pin in the checked commits that is not the dependency's checked HEAD (a hand-edited pin, or a dependency that moved without a verify); the hint is `forge verify <id>` (docs/CONFIG.md "Interim strategies") |
+| `release_gate` | 1 | `forge pr ready` targeted a consumer PR whose local or sequential dependency's release is not recorded; nothing was called, and a human runs `forge job interim release <id> <name>\|--root <version>` (docs/CONFIG.md "Interim strategies") |
 | `usage` | 2 | the default for exit 2: the call could not be parsed; the hint names the help to read |
 | `unknown_command` | 2 | the first word is not a command |
 | `not_initialized` | 2 | the repo has no `.forge/config.yml`; run `/forge init` |
@@ -135,6 +137,8 @@ Set by Forge for configured commands (`forge run`, `forge verify`, worktree setu
 | `FORGE_JOB` | the job id |
 | `FORGE_WORKTREE` | the job's worktree |
 | `FORGE_PORT`, `PORT` | the job's port, empty when it has none |
+| `FORGE_CARGO_CONFIG` | `forge run` and `forge verify` steps only, when the repo the command runs in has an active cargo local link: the absolute path of the rendered `cargo-links.toml`, for a command that calls cargo by absolute path (see Local links) |
+| `FORGE_CMAKE_ARGS` | the same, when the repo declares a cmake local link: the `-DFETCHCONTENT_SOURCE_DIR_<NAME>=<dir>` / `-U…` arguments as single-quoted shell words |
 
 Set by Forge for `notify.command` (docs/CONFIG.md "Notifications"), whose `{placeholders}` become quoted references to them; empty for a null field:
 
@@ -148,6 +152,19 @@ Set by Forge for `notify.command` (docs/CONFIG.md "Notifications"), whose `{plac
 | `FORGE_NOTIFY_REASON` | the fixed reason text |
 | `FORGE_NOTIFY_DASHBOARD_URL` | the dashboard's pipeline page |
 
+## Local links
+
+`forge job links <id>` prints `{ id, links }`, one entry per `link` declared on a `components[].dependsOn[]` edge (docs/CONFIG.md "Components"): `{ consumer, consumerRepo, dependency, dependencyRepo, ecosystem, name, source, dir, active, reason }`. `consumerRepo` and `dependencyRepo` are `null` for the root repo, `source` is `null` except for cargo, `dir` is the dependency directory when the link is active, and `reason` says why it is not (`repo <r> is not on the job`, `repo <r> has no worktree yet; run: forge worktree create <id>`, `repo <r>'s stored worktree is not the path Forge computes`, `<path> does not exist in repo <r>'s worktree`). Entries are sorted by consumer repo (root first), ecosystem and name; a job with no declared links prints `links: []`. It only reads, so daemon sessions may run it.
+
+`forge run` (with or without `--repo`) and every verify step render the links of the repo the command runs in into `<jobDir>/links/<repo or _root>/` and put its `bin/` shims first on PATH, after the login profile. The result (`forge run`'s JSON and each verify step) then gains:
+
+| Key | When | Value |
+|---|---|---|
+| `links` | some link is active for that repo | the active links, `"<ecosystem>:<name>"` |
+| `restored` | a tracked `Cargo.lock`, `package-lock.json` or `npm-shrinkwrap.json` changed during the command (or its verify group) | the repo-relative paths Forge wrote back; a `link-lockfiles-restored` event `{ repo, paths }` is logged |
+
+The log file gains a `(links <bin dir>)` line after `(cwd …)`. Background commands and `worktrees.setup` get no links, and native Windows gets the env vars but no shims.
+
 ## Agent ids
 
 `forge job agent <id> attach --role R --agent-id A` records the runtime's id of an agent that is already `running` (the orchestrator runs it right after a background spawn), so `forge dash` can follow that agent's transcript while it works. It changes nothing else: `runs`, `startedAt` and `status` stay, and no event is logged. It prints `{ "role", "status", "agentId" }`, exits 1 when the role isn't running, and exits 2 (`usage`) without writing anything when `A` doesn't match `^[A-Za-z0-9_-]{1,100}$`, since the id becomes part of a transcript's file name.
@@ -158,6 +175,16 @@ Set by Forge for `notify.command` (docs/CONFIG.md "Notifications"), whose `{plac
 
 `forge job assist <id> --gate <class>` is read-only and returns `{gate, stale, reserved, model, effort, subagent, brief}`: the `forge:assistant` spawn for that gate, with a brief of paths only. `stale: true` means the job no longer waits on that gate, and `reserved` is re-checked at call time. An unknown `--gate` exits 1, and so does a daemon session other than the office. `forge requests add gate` always exits 1: only `forge job set` and `forge pr sync` write gate requests.
 
+## Merging
+
+`forge pr merge <id> [--repo NAME | --root] [--now]` syncs first, then merges one PR at a time with exactly one `gh pr merge` call each: directly when checks pass or the repo has no CI, queued with `--auto` while checks are pending only when GitHub holds the PR and no protected-paths policy applies, deferred otherwise, and refused when checks fail. A single-repo job has one PR, and the result is `{ merged, autoMerge, action, checks, mergeState?, error? }` with `action` one of `already-merged`, `merged`, `auto`, `deferred`, `refused`, `failed`.
+
+A job with a member repo that gets a PR merges its PRs in the order of the components' `dependsOn` (docs/ARCHITECTURE.md "Job repos"): a PR is merged, or queued with `--auto`, only when every PR it depends on is MERGED by this call's own sync. The walk goes on after a direct merge and stops at the first PR it queues, defers, refuses or fails to merge, so a consumer is never queued while a dependency is unmerged. `--repo NAME` merges only that member's PR and `--root` only the root's; either is refused while a PR it depends on is not merged, has no PR, or could not be read. The result adds `repo` (the PR acted on last, null for the root), `parts` (one `{ repo, number, action, checks, mergeState?, error? }` per PR acted on, in order) and, on an order refusal, `reason`: `order` when a dependency PR is not merged, `cycle` when the components' `dependsOn` form a cycle between the job's repos, which refuses every merge of the job. Both exit 1 with no `gh pr merge` call and log `pr-merge-refused` with that `reason`. `merged` is true only when every PR of the job is MERGED. `--now` bypasses CI and the head pin for each PR it merges, never the order. `--repo` with `--root`, `--repo` naming no PR member, and `--root` with a value (`--root <id>` swallows the id) exit 1.
+
+## Next
+
+`forge next [--claim --session S] [--force] [--limit N]` prints `{ item, more }` (`item` null when nothing is ready), plus `blocked` (`[{ ref, id, waitingOn }]`, items whose job waits on dependencies) when any. The ready list is the root tracker's items, then each [member repo tracker](TRACKERS.md#member-repo-trackers)'s in config `repos` order, each read with the same `--limit`. A member item's `ref` is `owner/name#N` and it adds `repo` (the member's name); a root item has no `repo` key. A member that could not be read (its clone fails doctor's member check, or its tracker call failed) is left out and listed in `skippedRepos: [{ repo, reason }]`, with `reason` at most 300 characters; the key is present only when a member was skipped, on every result shape (`item`, a started job, `resumed`). A root tracker failure exits 1 as before. With `--claim`, a member item starts its job through `forge job from-ref`, and the result is `{ id, ref: "owner/name#N", title, branch, repo }` plus `resumed`, `blocked`, `repoBudget` and `skippedRepos` where they apply.
+
 ## Audit trail
 
 `forge job audit <id> [--json|--csv]` prints the job's audit rows in time order (ARCHITECTURE.md "Audit trail" says which events carry an actor). JSON, the default:
@@ -167,7 +194,9 @@ Set by Forge for `notify.command` (docs/CONFIG.md "Notifications"), whose `{plac
   "rows": [ { "ts", "job", "actor": { "login", "source" }|null, "action", "note": s|null, "detail": s|null } ] }
 ```
 
-A row is an event with an actor (`action` is the `human` event's action, else the event type), a gate transition (`gate:<waitingOn>` into a wait, `gate-cleared:<waitingOn>` out of one, with the reason as `note`), `pr-opened`, or `pr-merged` / `pr-auto-merge`. `detail` is a one-line summary per type: budget keys, the PR number and merge method, the linked ref, the permission tool and decision, the mode, a config key's change. An unknown job exits 1.
+A row is an event with an actor (`action` is the `human` event's action, else the event type), a gate transition (`gate:<waitingOn>` into a wait, `gate-cleared:<waitingOn>` out of one, with the reason as `note`), `pr-opened`, or `pr-merged` / `pr-auto-merge`. `detail` is a one-line summary per type, and a member repo's merge rows start with the repo (`lib #7 squash`). `pr` is the root PR: `merged` counts only its merge.
+
+`detail` per type: budget keys, the PR number and merge method, the linked ref, the permission tool and decision, the mode, a config key's change. An unknown job exits 1.
 
 Archived jobs (`forge job archive`, `forge job prune`, `retention.jobsDays`) are included: their rows come from `.forge/archive/<id>.json`, plus an `archived` row (detail: the trigger) per job, and `forge job audit <id>` accepts an archived id.
 

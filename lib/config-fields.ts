@@ -347,8 +347,11 @@ export const CONFIG_DISCLOSURE: Record<string, Disclosure> = {
   'pr.reviewers': 'text',
   merge: 'plain',
   aiAttribution: 'plain',
+  release: 'plain',
   resources: 'url',
   components: 'command',
+  // Remotes can name private hosts and repos, so support bundles hide them like resources.
+  repos: 'url',
   checkout: 'command',
   infra: 'plain',
   'infra.allowed': 'command',

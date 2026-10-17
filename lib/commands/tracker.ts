@@ -7,15 +7,21 @@ import { listRequests } from '../requests.ts';
 import { checkRepoBudget, isRepoHold, repoBudgetBlock } from '../repo-budget.ts';
 import { applyRetention } from '../retention.ts';
 import { searchTerms } from '../issue-link.ts';
-import { checkIssueRef, linkedIssues, nativeRef, nativeRefs, parseIssueRef, primaryIssue, sameIssue } from '../issue-ref.ts';
+import { checkIssueRef, isSafeUrl, linkedIssues, nativeRef, nativeRefs, parseIssueRef, primaryIssue, sameIssue } from '../issue-ref.ts';
 import { localRepoSlug } from '../repo-slug.ts';
+import { isLinkedJob, jobRepoOrder, nextMergeable } from '../repo-order.ts';
+import type { PrStateKey, RepoKey } from '../repo-order.ts';
+import { memberClone, memberConfig, memberRepos, recordJobRepo } from '../job-repos.ts';
+import { memberCheck, readLocalConfig } from '../member-repos.ts';
 import { clampLimit, publicHits, searchTracker } from '../tracker-link.ts';
-import { loadTracker } from '../trackers/index.ts';
+import { loadTracker, memberTracker } from '../trackers/index.ts';
+import { matchMember, memberForRef, memberTrackerConfig, memberTrackers, qualify } from '../member-trackers.ts';
+import type { MemberTracker } from '../member-trackers.ts';
 import { DEFAULT_LIMIT, MAX_LIMIT, applyTriage, prepareTriage } from '../triage.ts';
 import { ForgeError } from '../util.ts';
 import * as wt from '../worktree.ts';
 import { bodyFrom, list, num, req, str, usageError } from './args.ts';
-import type { Config, HelpGroup, Job, JobPr, Tracker, TrackerItem } from '../types.ts';
+import type { Config, HelpGroup, Job, JobIssue, JobPr, Tracker, TrackerItem } from '../types.ts';
 
 const TRACKER_EXITS: [1 | 5, string][] = [
   [1, 'the tracker refused the call, no such item or job, or a likely secret in the text Forge would send (code secret_found)'],
@@ -88,7 +94,7 @@ export const HELP: HelpGroup[] = [
       {
         command: 'next',
         args: '[--claim --session S] [--force] [--limit N]',
-        summary: 'resume a queued unowned job (with --claim --session), else the next ready tracker item whose job is not blocked, skipping needs-info items (with --claim, start its job); while the repo budget holds new work it starts nothing and prints {held: true, repoBudget}',
+        summary: "resume a queued unowned job (with --claim --session), else the next ready tracker item whose job is not blocked, skipping needs-info items (with --claim, start its job): the root tracker's first, then each member repo's tracker (config repos), whose items carry repo and an owner/name#N ref; a member that can't be read is listed in skippedRepos; while the repo budget holds new work it starts nothing and prints {held: true, repoBudget}",
         flags: [
           ['--claim', 'claim the work instead of only showing it'],
           ['--session S', 'the session claiming it'],
@@ -180,23 +186,60 @@ function resumeQueued(root: string, session: string): Job | null {
   return null;
 }
 
-/** Ready tracker items, minus those whose active job waits on dependencies (listed as `blocked`). */
-function readyItems(root: string, config: Config, tracker: Tracker, flags: Record<string, any>, limit: number): { ready: TrackerItem[]; blocked: { ref: string; id: string; waitingOn: string[] }[] } {
+type Blocked = { ref: string; id: string; waitingOn: string[] };
+/** A member repo whose tracker `next` could not read: its clone failed doctor's check, or the tracker threw. */
+type Skipped = { repo: string; reason: string };
+/** A ready item; a member repo's carries `repo` and an `owner/name#N` ref. */
+type ReadyItem = TrackerItem & { repo?: string };
+
+/**
+ * Ready tracker items, minus those whose active job waits on dependencies (listed as `blocked`):
+ * the root tracker's first, then each member repo tracker's in config order. A member that can't
+ * be read is listed in `skipped` instead; the root tracker's failure still throws.
+ */
+function readyItems(root: string, config: Config, tracker: Tracker, flags: Record<string, any>, limit: number): { ready: ReadyItem[]; blocked: Blocked[]; skipped: Skipped[] } {
   // A custom adapter may return needs-info items in a ready list; triage asked for more first.
   const items = tracker.list({ root, config }, { ready: true, limit }).filter((i) => !i.needsInfo);
-  const blocked: { ref: string; id: string; waitingOn: string[] }[] = [];
+  const blocked: Blocked[] = [];
   // --force skips nothing. Otherwise an item is blocked when the active job it would resume
   // (the same match startFromRef uses) has unmet dependencies.
   const slug = localRepoSlug(root, config);
   const active = flags.force ? [] : listJobs(root).filter((j) => isActive(j) && j.issues.length);
-  const ready = items.filter((i) => {
+  const ready: ReadyItem[] = items.filter((i) => {
     // unmet is empty unless a job was found.
     const job = active.find((j) => nativeRefs(j, config.tracker.kind, slug).includes(String(i.ref)));
     const unmet = job ? unmetDependencies(root, job) : [];
     if (unmet.length) blocked.push({ ref: i.ref, id: job!.id, waitingOn: unmet.map((u) => u.id) });
     return !unmet.length;
   });
-  return { ready, blocked };
+  const skipped: Skipped[] = [];
+  const members = memberTrackers(root, config);
+  // Read once for every member: doctor's check takes the parsed file.
+  const local = members.length ? readLocalConfig(root) : null;
+  for (const m of members) {
+    const skip = (reason: string) => skipped.push({ repo: m.name, reason: reason.slice(0, 300) });
+    const check = memberCheck(root, config, memberConfig(config, m.name), local!);
+    if (!check.ok) {
+      skip(check.detail);
+      continue;
+    }
+    let listed: TrackerItem[];
+    try {
+      listed = memberTracker().list({ root, config: memberTrackerConfig(config, m.slug) }, { ready: true, limit });
+    } catch (e) {
+      skip((e as Error).message);
+      continue;
+    }
+    for (const i of listed) {
+      if (i.needsInfo) continue;
+      const ref = qualify(m.slug, i.ref);
+      const job = active.find((j) => j.issues.some((x) => sameIssue(x, { tracker: 'github', ref }, slug)));
+      const unmet = job ? unmetDependencies(root, job) : [];
+      if (unmet.length) blocked.push({ ref, id: job!.id, waitingOn: unmet.map((u) => u.id) });
+      else ready.push({ ...i, ref, repo: m.name });
+    }
+  }
+  return { ready, blocked, skipped };
 }
 
 /** `forge next --claim` and `forge job from-ref`. The result is printed as JSON. */
@@ -218,45 +261,62 @@ export async function nextCmd(root: string, config: Config, flags: Record<string
   const resumed = session ? resumeQueued(root, session) : null;
   if (resumed) {
     warned(resumed.id);
-    let blocked: { ref: string; id: string; waitingOn: string[] }[] = [];
+    let blocked: Blocked[] = [];
+    let skipped: Skipped[] = [];
     // The job is already claimed, so a tracker hiccup only costs the `blocked` report; it is
     // recorded on the job, as mirrorToTracker records its own.
     try {
-      blocked = readyItems(root, config, await loadTracker(root, config), flags, limit).blocked;
+      ({ blocked, skipped } = readyItems(root, config, await loadTracker(root, config), flags, limit));
     } catch (e) {
       logEvent(root, resumed.id, 'tracker-error', { error: (e as Error).message.slice(0, 300) });
     }
-    return { id: resumed.id, ref: primaryIssue(resumed)?.ref ?? null, title: resumed.title, branch: resumed.branch, stage: resumed.stage, state: resumed.state, resumed: true, ...(blocked.length ? { blocked } : {}), ...warn };
+    return {
+      id: resumed.id,
+      ref: primaryIssue(resumed)?.ref ?? null,
+      title: resumed.title,
+      branch: resumed.branch,
+      stage: resumed.stage,
+      state: resumed.state,
+      resumed: true,
+      ...(blocked.length ? { blocked } : {}),
+      ...warn,
+      ...(skipped.length ? { skippedRepos: skipped } : {}),
+    };
   }
   const tracker = await loadTracker(root, config);
-  const { ready, blocked } = readyItems(root, config, tracker, flags, limit);
-  const extra = blocked.length ? { blocked } : {};
+  const { ready, blocked, skipped } = readyItems(root, config, tracker, flags, limit);
+  const extra = { ...(blocked.length ? { blocked } : {}) };
+  const skips = skipped.length ? { skippedRepos: skipped } : {};
   const item = ready[0];
-  if (!item) return { item: null, ...extra, ...warn };
-  if (!flags.claim) return { item, more: ready.length - 1, ...extra, ...warn };
+  if (!item) return { item: null, ...extra, ...warn, ...skips };
+  if (!flags.claim) return { item, more: ready.length - 1, ...extra, ...warn, ...skips };
   const started = await startFromRef(root, config, tracker, item.ref, flags);
   if (!('existing' in started)) warned(started.id);
-  return { ...started, ...(session ? { resumed: false } : {}), ...extra, ...warn };
+  return { ...started, ...(session ? { resumed: false } : {}), ...extra, ...warn, ...skips };
 }
 
+// What checkIssueRef refuses outright; a ref carrying one never takes the member path either.
+const CONTROL = /[\x00-\x1f\x7f\u2028\u2029]/;
+
+type Started = { id: string; existing: true; stage: Job['stage']; state: Job['state'] } | { id: string; ref: string; title: string; branch: Job['branch']; repo?: string };
+
 /** Starts (or finds) the job for a tracker item and claims the item for it. */
-export async function startFromRef(
-  root: string,
-  config: Config,
-  tracker: Tracker,
-  ref: string,
-  flags: Record<string, any>,
-  opts: { splitMode?: 'never' } = {},
-): Promise<{ id: string; existing: true; stage: Job['stage']; state: Job['state'] } | { id: string; ref: string; title: string; branch: Job['branch'] }> {
+export async function startFromRef(root: string, config: Config, tracker: Tracker, ref: string, flags: Record<string, any>, opts: { splitMode?: 'never' } = {}): Promise<Started> {
   const session = str(flags.session, '--session');
   const ctx = { root, config };
   const kind = config.tracker.kind;
   const slug = localRepoSlug(root, config);
+  // A member repo's issue, whatever the root's tracker: only a slug a human configured matches.
+  const member = typeof ref === 'string' && !CONTROL.test(ref) ? memberForRef(root, config, ref.trim()) : null;
+  if (member) return startFromMemberRef(root, config, member, slug, flags, opts);
   const checked = checkIssueRef(ref, { tracker: kind, slug });
   if ('error' in checked) throw new ForgeError(checked.error);
-  // Only this repo's issues: a foreign one would be read, claimed and closed in a repo Forge doesn't own.
+  // Only this repo's and its members' issues: a foreign one would be read, claimed and closed in a repo Forge doesn't own.
   const native = nativeRef({ tracker: kind, ref: checked.ref }, kind, slug);
-  if (native === null) throw new ForgeError(`from-ref takes an issue in ${slug ?? 'this repo'}`);
+  if (native === null) {
+    const members = memberTrackers(root, config).map((m) => m.slug);
+    throw new ForgeError(`from-ref takes an issue in ${slug ?? 'this repo'}${members.length ? ` or a member repo's tracker (${members.join(', ')})` : ''}`);
+  }
   const item = tracker.get(ctx, native);
   if (!item) throw new ForgeError(`no ${tracker.name} item "${native}"`);
   const itemRef = String(item.ref);
@@ -276,36 +336,104 @@ export async function startFromRef(
 }
 
 /**
- * Best-effort: tracker hiccups must never block the pipeline. Each of this repo's issues is
- * updated; a finished job leaves alone an issue another active job still carries, so one sharer
- * finishing never marks the shared issue done.
+ * startFromRef for a member repo's issue. The member comes from human-owned config, so intake may
+ * add it, but only to the job it creates here: an issue an active job already carries returns that
+ * job untouched. Doctor's check on the member's clone runs before anything is created or claimed.
+ */
+async function startFromMemberRef(
+  root: string,
+  config: Config,
+  member: MemberTracker & { n: string },
+  slug: string | null,
+  flags: Record<string, any>,
+  opts: { splitMode?: 'never' },
+): Promise<Started> {
+  const session = str(flags.session, '--session');
+  const ref = qualify(member.slug, member.n);
+  const existing = listJobs(root).find((j) => isActive(j) && j.issues.some((x) => sameIssue(x, { tracker: 'github', ref }, slug)));
+  if (existing) return { id: existing.id, existing: true, stage: existing.stage, state: existing.state };
+  memberClone(root, config, member.name);
+  const tracker = memberTracker();
+  const ctx = { root, config: memberTrackerConfig(config, member.slug) };
+  // Only the digits reach gh as the issue argument; -R is the configured slug.
+  const item = tracker.get(ctx, member.n);
+  if (!item) throw new ForgeError(`no github item "${ref}"`);
+  const job = createJob(root, config, { title: item.title, issues: [{ tracker: 'github', ref, url: isSafeUrl(item.url) ? item.url : null }], body: item.body ?? '', splitMode: opts.splitMode });
+  recordJobRepo(root, config, job.id, member.name, false);
+  const claim = tracker.claim(ctx, member.n, loadJob(root, job.id));
+  if (!claim.ok) {
+    setJob(root, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` });
+    throw new ForgeError(`could not claim ${ref}: ${claim.reason}`, 3);
+  }
+  if (session) claimJob(root, job.id, session, false, daemonClaimOpts(root, job.id));
+  return { id: job.id, ref, title: item.title, branch: job.branch, repo: member.name };
+}
+
+/** The job's linked issues a member repo's tracker owns, each with its member and number. */
+function memberIssues(root: string, config: Config, job: Job, slug: string | null): { issue: JobIssue; member: MemberTracker & { n: string } }[] {
+  const kind = config.tracker.kind;
+  const candidates = linkedIssues(job).filter((i) => i.tracker === 'github' && nativeRef(i, kind, slug) === null);
+  if (!candidates.length) return [];
+  const members = memberTrackers(root, config);
+  if (!members.length) return [];
+  return candidates.flatMap((issue) => {
+    const member = matchMember(members, issue.ref);
+    return member ? [{ issue, member }] : [];
+  });
+}
+
+/**
+ * Best-effort: tracker hiccups must never block the pipeline. Each issue is updated in its own
+ * repo: this repo's through its tracker, a member repo's through that member's; every other issue
+ * is foreign and left alone. A finished job leaves alone an issue another active job still
+ * carries, so one sharer finishing never marks the shared issue done. One repo's failure is
+ * logged and never skips another's.
  */
 export async function mirrorToTracker(root: string, config: Config, job: Job): Promise<void> {
   if (job.kind === 'eval') return;
   const kind = config.tracker.kind;
   const slug = localRepoSlug(root, config);
   let issues = linkedIssues(job).filter((i) => nativeRef(i, kind, slug) !== null);
-  if (!issues.length) return;
+  let members = memberIssues(root, config, job, slug);
+  if (!issues.length && !members.length) return;
   if (job.state === 'done' || job.state === 'cancelled') {
     const others = listJobs(root).filter((j) => j.id !== job.id && isActive(j));
-    issues = issues.filter((i) => !others.some((o) => o.issues.some((x) => sameIssue(x, i, slug))));
+    const shared = (i: JobIssue) => others.some((o) => o.issues.some((x) => sameIssue(x, i, slug)));
+    issues = issues.filter((i) => !shared(i));
+    members = members.filter((m) => !shared(m.issue));
   }
-  try {
-    const tracker = await loadTracker(root, config);
-    for (const i of issues) tracker.update({ root, config }, nativeRef(i, kind, slug)!, job);
-  } catch (e) {
-    logEvent(root, job.id, 'tracker-error', { error: (e as Error).message.slice(0, 300) });
+  const failed = (e: unknown) => logEvent(root, job.id, 'tracker-error', { error: (e as Error).message.slice(0, 300) });
+  if (issues.length) {
+    try {
+      const tracker = await loadTracker(root, config);
+      for (const i of issues) tracker.update({ root, config }, nativeRef(i, kind, slug)!, job);
+    } catch (e) {
+      failed(e);
+    }
+  }
+  for (const { member } of members) {
+    try {
+      memberTracker().update({ root, config: memberTrackerConfig(config, member.slug) }, member.n, job);
+    } catch (e) {
+      failed(e);
+    }
   }
 }
 
 /**
- * Once, when sync first sees the merge: names on the issue the person who approved the job's
- * escalation. The event it logs stops a second post; a failure is logged and never fails the sync.
+ * Once, when sync first sees the merge: names on each issue, in its own repo, the person who
+ * approved the job's escalation. A member issue cites the PR as `<root slug>#N`, since a bare `#N`
+ * links to the member's own PR N. The event it logs stops a second post; it is logged only when
+ * every post succeeded, so a retry re-posts rather than skipping an issue. A failure is logged and
+ * never fails the sync.
  */
 export async function commentApproval(root: string, config: Config, job: Job): Promise<void> {
   if (job.kind === 'eval') return;
-  const refs = nativeRefs(job, config.tracker.kind, localRepoSlug(root, config));
-  if (!refs.length) return;
+  const slug = localRepoSlug(root, config);
+  const refs = nativeRefs(job, config.tracker.kind, slug);
+  // A member issue needs the root slug to cite the root's PR; without one it gets no comment.
+  const members = slug ? memberIssues(root, config, job, slug) : [];
+  if (!refs.length && !members.length) return;
   const events = readEvents(root, job.id);
   if (events.some((e) => e.type === 'tracker-approval-comment')) return;
   const approval = pr.escalationApproval(events);
@@ -313,14 +441,33 @@ export async function commentApproval(root: string, config: Config, job: Job): P
   const merged = events.findLast((e) => e.type === 'pr-merged');
   const method = typeof merged?.method === 'string' ? merged.method : config.merge.method;
   const number = job.pr?.number;
-  try {
-    const tracker = await loadTracker(root, config);
-    // One event for the set: a retry after a partial failure re-posts rather than skipping an issue.
-    for (const ref of refs) tracker.comment({ root, config }, ref, `Merged in #${number} (${method}). Escalation approved by ${pr.approvedBy(approval)}.`);
-    logEvent(root, job.id, 'tracker-approval-comment', { refs, pr: number ?? null });
-  } catch (e) {
+  const by = pr.approvedBy(approval);
+  const posted: string[] = [];
+  let ok = true;
+  const failed = (e: unknown) => {
+    ok = false;
     logEvent(root, job.id, 'tracker-error', { error: (e as Error).message.slice(0, 300) });
+  };
+  if (refs.length) {
+    try {
+      const tracker = await loadTracker(root, config);
+      for (const ref of refs) {
+        tracker.comment({ root, config }, ref, `Merged in #${number} (${method}). Escalation approved by ${by}.`);
+        posted.push(ref);
+      }
+    } catch (e) {
+      failed(e);
+    }
   }
+  for (const { member } of members) {
+    try {
+      memberTracker().comment({ root, config: memberTrackerConfig(config, member.slug) }, member.n, `Merged in ${slug}#${number} (${method}). Escalation approved by ${by}.`);
+      posted.push(qualify(member.slug, member.n));
+    } catch (e) {
+      failed(e);
+    }
+  }
+  if (ok && posted.length) logEvent(root, job.id, 'tracker-approval-comment', { refs: posted, pr: number ?? null });
 }
 
 const MERGE_EVENTS = new Set(['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed']);
@@ -328,6 +475,29 @@ const MERGE_EVENTS = new Set(['pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
 /** A deferred merge has no GitHub-side queue, so sync surfaces it for the orchestrator to retry. */
 function lastMergeEvent(root: string, id: string): string | null {
   return readEvents(root, id).filter((e) => MERGE_EVENTS.has(e.type)).pop()?.type ?? null;
+}
+
+const CONTINUES = new Set(['pr-merged', 'pr-auto-merge', 'pr-merge-deferred']);
+
+/**
+ * Whether a linked job's merge walk should go on: its last merge event since the last push was an
+ * untargeted merge, queue or deferral, and the next OPEN PR in merge order has every dependency
+ * MERGED (a queued dependency landed), unless that PR is the one already queued. Only a hint from stored states: mergePr re-reads every state itself.
+ */
+function linkedMergeDeferred(root: string, config: Config, job: Job): boolean {
+  const events = readEvents(root, job.id);
+  const pushed = events.findLastIndex((e) => e.type === 'pr-opened' || e.type === 'pr-updated');
+  const last = events.slice(pushed + 1).filter((e) => MERGE_EVENTS.has(e.type)).pop();
+  if (!last || last.target === true || !CONTINUES.has(last.type)) return false;
+  const { order, deps, cycle } = jobRepoOrder(config, job);
+  if (cycle) return false;
+  const known = (s: unknown): PrStateKey => (s === 'OPEN' || s === 'CLOSED' || s === 'MERGED' ? s : null);
+  const states = new Map<RepoKey, PrStateKey>([[null, known(job.pr?.state)]]);
+  for (const m of memberRepos(job)) states.set(m.repo, known(m.pr?.state));
+  const next = nextMergeable(order, deps, states);
+  // A PR queued with --auto is GitHub's to merge: the walk goes on once it has.
+  if (last.type === 'pr-auto-merge' && next === (typeof last.repo === 'string' ? last.repo : null)) return false;
+  return next !== undefined && states.get(next) === 'OPEN';
 }
 
 /**
@@ -365,7 +535,7 @@ export async function syncAll(
         conflicts: r.pr?.conflicts ?? false,
         behindBy: r.pr?.behindBy ?? null,
         checks: r.pr?.checks?.state ?? null,
-        mergeDeferred: r.pr?.state === 'OPEN' && lastMergeEvent(root, job.id) === 'pr-merge-deferred',
+        mergeDeferred: isLinkedJob(after) ? linkedMergeDeferred(root, config, after) : r.pr?.state === 'OPEN' && lastMergeEvent(root, job.id) === 'pr-merge-deferred',
         newFeedback: (r.pr?.unresolvedThreads ?? 0) > (before.unresolvedThreads ?? 0) || (r.pr?.changesRequested ?? 0) > (before.changesRequested ?? 0),
         cleaned,
       });

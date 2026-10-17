@@ -150,6 +150,15 @@ jobs:
             test/verify-e2e.test.ts: runs command templates through sh
             test/verify-groups.test.ts: runs command templates through sh
             test/verifiers-cli.test.ts: runs command templates through sh
+            test/job-repos.test.ts: runs command templates through sh
+            test/job-repos-pr.test.ts: spawns a fake gh, a sh script
+            test/member-intake.test.ts: spawns a fake gh, a sh script
+            test/interim-cli.test.ts: drives member repo worktrees, which test/job-repos.test.ts covers only off Windows
+            test/interim-pr.test.ts: spawns a fake gh, a sh script
+            test/interim-gitref.test.ts: spawns a fake gh, a sh script
+            test/interim-canary.test.ts: spawns a fake gh and npm, sh scripts
+            test/links-cli.test.ts: runs command templates through sh
+            test/links-toolchains.test.ts: runs command templates through sh
             test/foreman.test.ts: runs sh stubs and hooks it writes
             test/git-commit.test.ts: runs sh stubs and hooks it writes
             test/daemon-cli.test.ts: relies on FIFOs

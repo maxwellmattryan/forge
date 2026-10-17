@@ -4,7 +4,7 @@
 // list are derived from that list, never retyped.
 import type { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import type { REQUEST_TYPES } from './requests.ts';
-import type { COMPONENT_KINDS, DEPENDENCY_TYPES } from './components.ts';
+import type { COMPONENT_KINDS, DEPENDENCY_TYPES, INTERIM_STRATEGIES, LINK_ECOSYSTEMS } from './components.ts';
 import type { AcCoverage } from './acs.ts';
 import type { SECRET_KINDS } from './secrets.ts';
 import type { JobFindings } from './findings.ts';
@@ -204,6 +204,36 @@ export interface VerifyRun {
   file: string;
   /** The name of the step that failed (`test`, `integrity`, `secrets`, `protected`, …), null on a pass. */
   failure?: string | null;
+  /** One record per member repo, only when the job has members: verify in lib/worktree.ts. */
+  repos?: VerifyRunRepo[];
+}
+
+/** One member repo's part of a verify run: the HEAD it checked and its first failing step. */
+export interface VerifyRunRepo {
+  repo: string;
+  sha: string;
+  ok: boolean;
+  failure: string | null;
+}
+
+/** A job repo's PR: a JobPr whose url is null when `gh` gave anything but an https url. */
+export type JobRepoPr = Omit<JobPr, 'url'> & { url: string | null };
+
+/**
+ * One repo a job changes: `repos[0]` is the root repo (`repo: null`), mirrored from the top-level
+ * branch/base/worktree/pr by normalizeJob; later entries are member repos (lib/job-repos.ts).
+ */
+export interface JobRepo {
+  repo: string | null;
+  worktree: string | null;
+  /** The job's branch, derived on every load; null for a verify-only member. */
+  branch: string | null;
+  base: string | null;
+  pr: JobRepoPr | null;
+  /** Verified with the job but never branched, pushed or given a PR. */
+  verifyOnly: boolean;
+  /** The human's interim strategy for this repo as a dependency (`forge job repo interim`); null inherits config. repos[0] mirrors `Job.interim`. normalizeJob always sets it. */
+  interim?: InterimStrategy | null;
 }
 
 /** A reviewer's settled verdict for a round: the verdicts case in lib/commands/job.ts (via roundVerdicts in lib/jobs.ts). */
@@ -260,6 +290,10 @@ export interface Job {
   complexity: Complexity | null;
   /** Escalate paths the branch changes, recorded by the CLI only: recordProtected in lib/protected.ts. */
   protectedPaths: ProtectedPaths | null;
+  /** The human's interim strategy for the root repo as a dependency (`forge job repo interim --root`); null inherits config. */
+  interim: InterimStrategy | null;
+  /** The root repo first, then member repos: `forge job repo add|remove` in lib/job-repos.ts. */
+  repos: JobRepo[];
 }
 
 /** One `policy.protectedPaths` rule: docs/CONFIG.md "Protected paths". */
@@ -276,6 +310,8 @@ export interface ProtectedHit {
   glob: string;
   reason: string;
   blob: string | null;
+  /** The member repo a `<repo>:<path>` hit came from; absent for a root hit. */
+  repo?: string;
 }
 
 /** job.protectedPaths: the escalate paths that need a human approval given after `at`. */
@@ -385,6 +421,8 @@ export interface StepInput {
   /** The absolute paths in `paths` that exist, for brief inputs. */
   present: string[];
   worktreeExists: boolean;
+  /** A member repo on the job has no worktree yet (step RP2). */
+  memberWorktreesMissing: boolean;
   /** requestBody(): its length and the lines that start with a list marker or a heading. */
   request: { length: number; listLines: number };
   plan: { verdict: 'SINGLE' | 'SPLIT' | null; jobs: number; recommendSplit: boolean };
@@ -414,6 +452,17 @@ export interface StepInput {
 
 /** The job files StepInput.files records. */
 export type StepFile = 'request' | 'plan' | 'spec' | 'design' | 'mockup' | 'build' | 'tasks' | 'questions' | 'feedback' | 'prFeedback' | 'runbook' | 'decision' | 'scope' | 'issueCandidates' | 'evalJudge';
+
+/** One member repo an agent proposed for a job (lib/repo-proposals.ts), as repo-proposals.json lists it. */
+export interface RepoProposal {
+  repo: string;
+  reason: string;
+  proposedAt: string;
+  status: 'pending' | 'approved' | 'rejected';
+  decidedAt: string | null;
+  actor: EventActor | null;
+  note: string | null;
+}
 
 // ---------- events ----------
 
@@ -617,18 +666,35 @@ export interface ResourceConfig {
 
 export type ComponentKind = (typeof COMPONENT_KINDS)[number];
 export type DependencyType = (typeof DEPENDENCY_TYPES)[number];
+export type LinkEcosystem = (typeof LINK_ECOSYSTEMS)[number];
+export type InterimStrategy = (typeof INTERIM_STRATEGIES)[number];
+
+/** A `dependsOn` edge's local link (docs/CONFIG.md "Components"): the consumer builds against the dependency's job worktree. */
+export interface ComponentLink {
+  ecosystem: LinkEcosystem;
+  /** The crate, FetchContent or package name. */
+  name: string;
+  /** cargo only: the `[patch.<source>]` table; absent or null is `crates-io`. */
+  source?: string | null;
+  /** The directory in the dependency's repo; absent or null is the dependency component's `path`. */
+  path?: string | null;
+  /** The consumer's manifest an interim pin is written to, relative to the consumer repo's root; absent or null is the ecosystem's file in the consumer component's path. */
+  manifest?: string | null;
+}
 
 /** One edge of a component's `dependsOn`: exactly one of `component` or `backing` is set. */
 export interface ComponentDependency {
   component?: string;
   backing?: string;
   type: DependencyType;
+  /** Only on a `component` edge to a component of another repo. */
+  link?: ComponentLink;
 }
 
 /** One part of a repo: an entry of `components` (docs/CONFIG.md "Components"). */
 export interface ComponentConfig {
   name: string;
-  /** null or absent: the root repo. */
+  /** a `repos` name; null or absent: the root repo. */
   repo?: string | null;
   path: string;
   kind: ComponentKind;
@@ -636,6 +702,16 @@ export interface ComponentConfig {
   dependsOn?: ComponentDependency[];
   owners?: string[];
   notes?: string | null;
+}
+
+/** One member repo: an entry of `repos` (docs/CONFIG.md "Repos"). The root repo is implicit. */
+export interface MemberRepoConfig {
+  name: string;
+  remote: string;
+  defaultBranch: string;
+  tracker?: { kind: 'github' | 'none'; repo?: string | null } | null;
+  /** How the repo releases: its interim strategy as a dependency (docs/CONFIG.md "Interim strategies"). */
+  release?: { interim?: InterimStrategy } | null;
 }
 
 /** What `forge run <job> <name>` executes: defaults().commands in lib/config.ts. */
@@ -743,8 +819,11 @@ export interface Config {
     autoWhen: string[];
   };
   aiAttribution: 'forbid' | 'allow';
+  /** The root repo's release settings: its interim strategy as a dependency (docs/CONFIG.md "Interim strategies"). */
+  release: { interim: InterimStrategy };
   resources: ResourceConfig[];
   components: ComponentConfig[];
+  repos: MemberRepoConfig[];
   /** Steps `forge focus` applies to the focused job and undoes on the next change: lib/checkout.ts. */
   checkout: CheckoutStep[];
   infra: {
@@ -1834,6 +1913,23 @@ export interface PostJobEffortResponse {
   effort: Effort | null;
   previous: Effort | null;
   changed: boolean;
+}
+
+/** POST /api/jobs/:id/repos body: the handler in lib/server.ts. `repos` are the names the drawer listed, which must be the whole pending set. */
+export interface PostJobReposBody {
+  decision: 'approve' | 'reject';
+  repos: string[];
+  note?: string | null;
+}
+
+/** POST /api/jobs/:id/repos reply: decideRepoProposals in lib/repo-proposals.ts, and whether the job was set running and resumed. */
+export interface PostJobReposResponse {
+  id: string;
+  decision: 'approve' | 'reject';
+  repos: string[];
+  added: string[];
+  pending: string[];
+  resumed: boolean;
 }
 
 /** A focused job, as `forge focus` and /api/state report it: resolveFocus in lib/focus.ts. */

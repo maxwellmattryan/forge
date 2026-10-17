@@ -9,8 +9,8 @@ Planned in M004, except where a config key exists today.
 | Term | Meaning | Config key |
 |---|---|---|
 | **project** | One or more repos Forge works on together, configured from the root repo's `.forge/`, with no global state outside those repos (today's block describes a project of one repo). | `project` |
-| **root repo** | The repo that holds the project's `.forge/`, which for a project of one repo is that repo. | planned (M004) |
-| **member repo** | Any other repo the root repo's config lists as part of the project. | planned (M004) |
+| **root repo** | The repo that holds the project's `.forge/`, which for a project of one repo is that repo and is never listed in `repos`. | `repos` |
+| **member repo** | Any other repo the root repo's config lists as part of the project. | `repos` |
 | **component** | A buildable unit inside a repo, of kind `library`, `service` or `app`. | planned (M004) |
 | **dependency** | An edge from one component to another, `build` when it is needed to compile or bundle and `runtime` when it must be running. | planned (M004) |
 | **project graph** | The components of all of a project's repos and the dependencies between them, drawn by the dashboard's project view. | `components` |
@@ -24,12 +24,13 @@ Planned in M005, except where a config key exists today.
 
 | Term | Meaning | Config key |
 |---|---|---|
-| **job repo** | A repo the job changes, so it gets a branch, a worktree and a PR. | planned (M005) |
-| **verify-only repo** | A repo the job checks out to build and test against its changes without changing it. | planned (M005) |
+| **job repo** | A repo the job changes, the root repo first and then each member repo a human adds with `forge job repo add`, so it gets its own worktree, verify evidence, branch and PR. | - |
+| **repo proposal** | A planner's or spec-writer's request, made with `forge job repo propose`, to add a member repo to its job, which parks the job until a human (or the foreman, when `repo-proposal` is in `foreman.decides`) approves or rejects it. | `foreman.decides` |
+| **verify-only repo** | A job repo added with `--verify-only`, which the job checks out at its base to build and test against its changes without branching, pushing or opening a PR there. | - |
 | **checkout hook** | A command run once when a job's checkout of a repo is created (today's single-repo form; per-repo hooks are planned). | `worktrees.setup` |
-| **local link** | Wiring one job repo to build against a sibling job repo's checkout instead of a published version. | planned (M005) |
-| **interim reference** | What a consumer job repo points at for a dependency changed in the same job until that dependency is released. | planned (M005) |
-| **interim strategy** | How an interim reference is made, one of `canary` (a published pre-release), `git-ref` (a pinned commit), `local` (local links, with the consumer PR held as a draft until release) or `sequential` (release the dependency first). | planned (M005) |
+| **local link** | Wiring one job repo to build against a sibling job repo's checkout instead of a published version, declared as `link` on a `components[].dependsOn[]` edge and applied by `forge run` and `forge verify`. | `components` |
+| **interim reference** | What a consumer job repo points at for a dependency changed in the same job until that dependency is released: a `git-ref` pin, a `canary` version, or nothing (`local`, `sequential`); see [CONFIG.md "Interim strategies"](CONFIG.md#interim-strategies). | - |
+| **interim strategy** | How an interim reference is made, one of `canary` (a published pre-release), `git-ref` (a pinned commit), `local` (local links, with the consumer PR held as a draft) or `sequential` (merge the dependency first), per dependency and overridable per job with `forge job repo interim`. | `release.interim` |
 
 ## Releases
 

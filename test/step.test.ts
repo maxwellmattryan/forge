@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { RULES, hasSpecDeltas, listLineCount, parsePlan, parseSpecHeader, roundLenses, selectPanel, shellLine, step } from '../lib/step.ts';
 import type { Config, Job, StepAction, StepInput, VerifyRun } from '../lib/types.ts';
-import { JOB_DIR, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
+import { JOB_DIR, WT, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
 import type { FixtureOpts } from './step-fixture.ts';
 
 interface Row {
@@ -20,6 +20,20 @@ interface Row {
 const run = (...command: string[]) => ({ action: 'run', command });
 const vr = (round: number, at: number, ok: boolean, failure: string | null = ok ? null : 'test'): VerifyRun => ({ round, attempt: 1, sha: 's', ok, at: t(at), file: `verify/round-${round}.md`, failure });
 const job = (j: Partial<Job>): Partial<Job> => ({ state: 'running', ...j });
+// A root app that depends on member lib, lib's interim strategy from config (default local).
+const twoRepoConfig = (c: any, interim?: string) => {
+  c.repos = [{ name: 'lib', remote: '/x/lib.git', defaultBranch: 'main', ...(interim ? { release: { interim } } : {}) }];
+  c.components = [
+    { name: 'app', path: '.', kind: 'app', dependsOn: [{ component: 'lib', type: 'build' }] },
+    { name: 'lib', repo: 'lib', path: '.', kind: 'library' },
+  ];
+};
+const libRepo = (state: 'OPEN' | 'MERGED' | null): Job['repos'] => [
+  { repo: null, worktree: WT, branch: 'forge/j', base: 'main', pr: null, verifyOnly: false, interim: null },
+  { repo: 'lib', worktree: null, branch: 'forge/j', base: 'main', pr: state ? { number: 7, url: null, state, isDraft: false, lastSyncedAt: t(9) } : null, verifyOnly: false, interim: null },
+];
+const SEQ = { repo: null, why: 'sequential', waitingOn: ['lib'] };
+const CANARY = { repo: null, why: 'canary', waitingOn: ['lib'], name: '@acme/lib', version: '1.4.0-canary.0123456789ab' };
 const SPEC_DONE = { 'spec-writer': ag(0, 1, 2) };
 const LOCAL = (c: Config) => void (c.tracker.kind = 'local');
 const LINKED: Partial<Job> = { issues: [{ tracker: 'local', ref: 'x', url: null }] };
@@ -33,6 +47,10 @@ const UNLINKED: [string, Partial<Job>, ReturnType<typeof ev>[]][] = [
 const SPEC_TELL = `j spec ready: ${path.join(JOB_DIR, 'spec.md')}. /forge approve j or /forge revise j <note>`;
 const LINK_TELL = `j needs an issue: candidates in ${path.join(JOB_DIR, 'issue-candidates.md')} (untrusted). /forge approve j <ref> | new | none [reason]`;
 const PANEL_SET = ev('fields', 3, { fields: { reviewers: ['code', 'tests'] } });
+/** An agent proposed member repo lib at minute n. */
+const PROPOSED = (n: number) => ev('repo-proposed', n, { repo: 'lib', reason: 'core API' });
+/** The job's repos once lib was added: the root mirror, then lib. */
+const WITH_LIB = [{ repo: null }, { repo: 'lib', worktree: '/lib.worktrees/j', branch: 'forge/j', base: 'main', pr: null, verifyOnly: false }] as Job['repos'];
 
 /** A job in review, round 1: builder done, verify passed, panel and scope written. */
 const inReview = (agents: Job['agents'] = {}, more: Partial<Job> = {}): Partial<Job> =>
@@ -213,6 +231,16 @@ const rows: Row[] = [
   ...UNLINKED.map(([why, j, events]) => ({ name: `I1 reads issues: ${why}`, fx: { config: LOCAL, job: job({ stage: 'backlog', state: 'queued', ...j }), events }, want: run('job', 'link', 'j', '--suggest') })),
   { name: 'G4 issue-link tell names the candidates as untrusted', fx: { job: job({ stage: 'backlog', state: 'waiting', waitingOn: 'issue-link' }) }, want: { action: 'wait', tell: `j needs an issue: candidates in ${path.join(JOB_DIR, 'issue-candidates.md')} (untrusted). /forge approve j <ref> | new | none [reason]` } },
   { name: 'I3 creates the worktree', fx: { worktree: false, job: job({ stage: 'backlog' }) }, want: run('worktree', 'create', 'j') },
+  {
+    name: 'I3: a member repo worktree is missing',
+    fx: { worktree: false, job: job({ stage: 'backlog', repos: [{ repo: null, worktree: WT, branch: 'forge/j', base: 'main', pr: null, verifyOnly: false }, { repo: 'lib', worktree: null, branch: 'forge/j', base: 'main', pr: null, verifyOnly: false }] }) },
+    want: run('worktree', 'create', 'j'),
+  },
+  {
+    name: 'I3: every job repo has its worktree',
+    fx: { job: job({ stage: 'backlog', repos: [{ repo: null, worktree: WT, branch: 'forge/j', base: 'main', pr: null, verifyOnly: false }, { repo: 'lib', worktree: '/lib.worktrees/j', branch: 'forge/j', base: 'main', pr: null, verifyOnly: false }] }) },
+    want: run('pr', 'find', 'j'),
+  },
   { name: 'I3 an unlinked job with candidates gets its worktree', fx: { config: LOCAL, files: ['issueCandidates'], worktree: false, job: job({ stage: 'backlog' }) }, want: run('worktree', 'create', 'j') },
   { name: 'I8 an unlinked job specs like a linked one', fx: { config: LOCAL, files: ['issueCandidates'], job: job({ stage: 'backlog' }), events: [ev('pr-find', 1)] }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'running') },
   { name: 'I7 an unlinked long request gets a planner', fx: { config: LOCAL, files: ['issueCandidates'], job: job({ stage: 'backlog' }), events: [ev('pr-find', 1)], request: { length: 601 } }, want: run('job', 'set', 'j', '--stage', 'plan', '--state', 'running') },
@@ -795,6 +823,7 @@ const rows: Row[] = [
     want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'protected paths: package-lock.json, +5 more'), rule: 'PP1' },
   },
   { name: 'PP1 a flag raised at the pr stage parks', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], protectedPaths: FLAG(12, ['Dockerfile']) }), events: [ev('pr-opened', 11)] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'protected paths: Dockerfile'), rule: 'PP1' } },
+  { name: "PP1 a member repo's path is named in the reason", fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], protectedPaths: FLAG(12, ['lib:.github/workflows/ci.yml']) }), events: [ev('pr-opened', 11)] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'protected paths: lib:.github/workflows/ci.yml'), rule: 'PP1' } },
   { name: 'protected paths: PP1 an approved flag at the pr stage goes on', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], protectedPaths: FLAG(5) }), events: [...ppPark(6, 7), ev('pr-opened', 11)] }, want: { rule: 'PR5' } },
   {
     name: 'G4 a protected park names the diff',
@@ -809,6 +838,39 @@ const rows: Row[] = [
     name: 'protected paths: PR4 never auto-merges protected paths',
     fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], protectedPaths: FLAG(5) }), decision: { decision: 'APPROVE', autoMerge: true }, events: [...ppPark(6, 7), ev('pr-opened', 11)] },
     want: { action: 'run', rule: 'PR5' },
+  },
+
+  // ---- Repo proposals (RP1, RP2)
+  ...(['plan', 'spec', 'design', 'build', 'verify', 'review', 'decide', 'integrate'] as const).map((stage) => ({
+    name: `RP1 parks a pending proposal at ${stage}`,
+    fx: { job: job({ stage, round: 1, agents: { builder: ag(1, 5, 6) } }), events: [PROPOSED(7)] },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'repo proposal: lib'), rule: 'RP1' },
+  })),
+  { name: 'RP1 parks before the spec gate', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, PROPOSED(4)] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'repo proposal: lib'), rule: 'RP1' } },
+  {
+    name: 'SP5 after an approved proposal',
+    fx: { job: job({ stage: 'spec', agents: SPEC_DONE, repos: WITH_LIB }), events: [PANEL_SET, PROPOSED(4), ev('human', 5, { action: 'approve-repos', repos: ['lib'], note: null })] },
+    want: { ...run('job', 'set', 'j', '--stage', 'spec', '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready'), rule: 'SP5' },
+  },
+  { name: 'repo proposals: RP1 a generic approve on the park re-parks', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, PROPOSED(4), ev('human', 6, { action: 'approve' })] }, want: { rule: 'RP1' } },
+  { name: 'repo proposals: RP1 a name outside REPO_NAME is never pending', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, ev('repo-proposed', 4, { repo: "x'$(touch y)", reason: 'r' }), ev('repo-proposed', 4, { repo: '-rf', reason: 'r' })] }, want: { rule: 'SP5' } },
+  {
+    name: 'RP1 names at most five repos and counts the rest',
+    fx: { job: job({ stage: 'build', round: 1, agents: { builder: ag(1, 5, 6) } }), events: ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((r, i) => ev('repo-proposed', 7 + i, { repo: r, reason: 'x' })) },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'repo proposal: a, b, c, d, e +2 more'), rule: 'RP1' },
+  },
+  { name: 'repo proposals: RP1 waits for a running agent', fx: { job: job({ stage: 'spec', agents: { 'spec-writer': ag(0, 1) } }), events: [PROPOSED(2)] }, want: { action: 'wait', rule: 'G5' } },
+  { name: 'repo proposals: RP1 not at backlog', fx: { job: job({ stage: 'backlog' }), events: [PROPOSED(2)] }, want: { rule: 'I5' } },
+  { name: 'repo proposals: RP1 not at pr', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [PROPOSED(12)] }, want: { rule: 'PR3' } },
+  { name: 'repo proposals: RP1 a rejected proposal is not pending', fx: { job: job({ stage: 'spec', agents: { 'spec-writer': ag(0, 5, 6) } }), events: [PROPOSED(2), ev('human', 3, { action: 'reject-repos', repos: ['lib'] }), ev('fields', 7, { fields: { reviewers: ['code'] } })] }, want: { rule: 'SP5' } },
+  { name: 'RP2 creates the worktree of an approved repo', fx: { job: job({ stage: 'spec', agents: SPEC_DONE, repos: WITH_LIB }), memberWorktreesMissing: true, events: [PANEL_SET, PROPOSED(4), ev('human', 5, { action: 'approve-repos', repos: ['lib'] })] }, want: { ...run('worktree', 'create', 'j'), rule: 'RP2' } },
+  { name: 'SP2 re-specs after a rejected repo proposal', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, PROPOSED(2), ev('human', 4, { action: 'reject-repos', repos: ['lib'], note: 'no' })] }, want: { action: 'spawn', rule: 'SP2', role: 'spec-writer' } },
+  { name: 'P1 re-plans after a rejected repo proposal', fx: { job: job({ stage: 'plan', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SINGLE' }, events: [PROPOSED(2), ev('human', 4, { action: 'reject-repos', repos: ['lib'] })] }, want: { action: 'spawn', rule: 'P1', role: 'planner' } },
+  { name: 'repo proposals: P4 a reject older than the planner run does not re-plan', fx: { job: job({ stage: 'plan', agents: { planner: ag(0, 5, 6) } }), plan: { verdict: 'SINGLE' }, events: [PROPOSED(2), ev('human', 4, { action: 'reject-repos', repos: ['lib'] })] }, want: { rule: 'P4' } },
+  {
+    name: 'G4 a repo proposal park names repo-proposals.md',
+    fx: { job: job({ stage: 'spec', state: 'waiting', waitingOn: 'human', reason: 'repo proposal: lib' }), events: [PROPOSED(2)] },
+    want: { action: 'wait', waitingOn: 'human', tell: `j proposes repos (repo proposal: lib): ${path.join(JOB_DIR, 'repo-proposals.md')}. Approve or reject in the dashboard, or in your own terminal: forge job human j approve-repos|reject-repos --repo <names> --note …` },
   },
 
   // ---- Secret scan (SC1–SC3) and the human gate
@@ -838,6 +900,20 @@ const rows: Row[] = [
   { name: 'PR5 ship merge without the foreman on never merges', fx: { config: (c) => Object.assign(c.foreman, { enabled: false, ship: 'merge' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
   { name: 'PR5 once a merge was tried, the PR waits', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11), ev('pr-merge-refused', 12)] }, want: { action: 'run', rule: 'PR5' } },
   { name: 'PR5 waits on PR review', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('pr-updated', 11)] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review') },
+  // ---- Interim strategies: a local edge holds off PR4; a deferral parks (PR6, PR8) or reopens (PR7)
+  { name: 'local: PR4 skipped while an edge is local', fx: { config: (c) => (twoRepoConfig(c), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo(null) }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
+  { name: 'release gate: PR4 skipped while a sequential release is unrecorded', fx: { config: (c) => (twoRepoConfig(c, 'sequential'), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('MERGED') }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11)] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review', '--reason', 'the root repo PR stays a draft until the release of repo lib is recorded [interim: sequential]: a human runs forge job interim release j lib VERSION') },
+  { name: 'release gate: PR4 merges once the release is recorded', fx: { config: (c) => (twoRepoConfig(c, 'sequential'), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('MERGED') }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11), ev('interim-released', 12, { repo: 'lib', version: '1.2.0' })] }, want: { ...run('pr', 'merge', 'j'), rule: 'PR4' } },
+  { name: 'release gate: a malformed release record keeps PR4 off', fx: { config: (c) => (twoRepoConfig(c, 'sequential'), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('MERGED') }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11), ev('interim-released', 12, { repo: 'lib', version: '1.2.0-canary.abc' })] }, want: { action: 'run', rule: 'PR5' } },
+  { name: 'release gate: PR4 never merges a draft PR', fx: { config: (c) => (twoRepoConfig(c, 'sequential'), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('OPEN').map((r) => (r.repo === 'lib' ? { ...r, pr: { ...r.pr!, isDraft: true } } : r)) }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11), ev('interim-released', 12, { repo: 'lib', version: '1.2.0' })] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review') },
+  { name: 'release gate: a single-repo draft PR still auto-merges', fx: { config: (c) => ((c.pr.draft = true), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], pr: { ...OPEN_PR, isDraft: true } }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11)] }, want: { ...run('pr', 'merge', 'j'), rule: 'PR4' } },
+  { name: 'PR3 counts pr-deferred as an open attempt', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true), vr(1, 14, true)], repos: libRepo('OPEN') }), events: [ev('pr-deferred', 11, { deferred: [SEQ] })] }, want: { ...run('pr', 'open', 'j'), rule: 'PR3' } },
+  { name: 'PR6 canary deferral waits on a human', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('OPEN') }), events: [ev('pr-deferred', 11, { deferred: [CANARY] })] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'the root repo waits on a canary of repo lib [@acme/lib@1.4.0-canary.0123456789ab]: a human runs forge job interim publish j lib --confirm') },
+  { name: 'PR6 another version published does not count', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('OPEN') }), events: [ev('pr-deferred', 11, { deferred: [CANARY] }), ev('canary-published', 12, { repo: 'lib', name: '@acme/lib', version: '1.4.0-canary.ffffffffffff' })] }, want: { action: 'run', rule: 'PR6' } },
+  { name: 'PR7 reopens once the canary is published', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('OPEN') }), events: [ev('pr-deferred', 11, { deferred: [CANARY] }), ev('canary-published', 12, { repo: 'lib', name: '@acme/lib', version: CANARY.version, sha: 'a'.repeat(40) })] }, want: { ...run('pr', 'open', 'j'), rule: 'PR7' } },
+  { name: 'PR7 reopens once dependencies merged', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('MERGED') }), events: [ev('pr-deferred', 11, { deferred: [SEQ] })] }, want: { ...run('pr', 'open', 'j'), rule: 'PR7' } },
+  { name: 'PR8 sequential deferral waits on pr-review', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('OPEN') }), events: [ev('pr-deferred', 11, { deferred: [SEQ] })] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review', '--reason', 'the root repo PR opens after repo lib merges [interim: sequential]') },
+  { name: 'PR8 a forged deferral entry is ignored', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('OPEN') }), events: [ev('pr-deferred', 11, { deferred: [SEQ, { repo: "x';id", why: 'sequential', waitingOn: ['lib'] }, { repo: null, why: 'canary', waitingOn: ['lib'] }] })] }, want: { action: 'run', rule: 'PR8' } },
 
   // ---- A PR job forge sync moved to integrate: the earlier episode's integrated and pr-updated don't count
   { name: 'sync-routed: IG1 integrates despite an earlier episode', fx: { job: atIntegrate({ pr: OPEN_PR }), events: routed }, want: run('integrate', 'j') },

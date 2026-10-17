@@ -2,8 +2,9 @@
 // dependsOn edges. Config is hand-edited, so every entry is checked here and a bad one is dropped
 // (validation reports it, and `problems` counts what it reports) rather than thrown on.
 
-import type { Config, ProjectComponent, ProjectEdge, ProjectResponse } from './types.ts';
+import type { Config, DependencyType, ProjectComponent, ProjectEdge, ProjectResponse } from './types.ts';
 import { COMPONENT_KINDS, DEPENDENCY_TYPES, componentProblems } from './components.ts';
+import { REPO_NAME } from './member-repos.ts';
 import { SAFE_REF } from './util.ts';
 
 const isMap = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
@@ -45,4 +46,34 @@ export function projectGraph(config: Pick<Config, 'components'>): ProjectRespons
     edges: [...edges.values()].sort((a, b) => cmp(a.from, b.from) || cmp(a.to, b.to) || cmp(a.type, b.type) || cmp(a.target, b.target)),
     problems: componentProblems(config).length,
   };
+}
+
+/** One member repo as the planner and spec-writer see it: its components and who depends on them. */
+export interface RepoGraphRow {
+  repo: string;
+  components: string[];
+  usedBy: { component: string; repo: string | null; type: DependencyType }[];
+}
+
+/**
+ * A row per config `repos` entry with a valid name: the projectGraph components in that repo, and
+ * the component edges into them from components in another repo (null: the root). Pure, config only.
+ */
+export function repoGraph(config: Pick<Config, 'components' | 'repos'>): RepoGraphRow[] {
+  const repos: unknown[] = Array.isArray(config?.repos) ? config.repos : [];
+  const graph = projectGraph(config);
+  const repoOf = new Map(graph.components.map((c) => [c.name, c.repo]));
+  const seen = new Set<string>();
+  const rows: RepoGraphRow[] = [];
+  for (const r of repos) {
+    const name = isMap(r) ? r.name : undefined;
+    if (typeof name !== 'string' || !REPO_NAME.test(name) || seen.has(name)) continue;
+    seen.add(name);
+    const components = graph.components.filter((c) => c.repo === name).map((c) => c.name);
+    const usedBy = graph.edges
+      .filter((e) => e.target === 'component' && components.includes(e.to) && repoOf.get(e.from) !== name)
+      .map((e) => ({ component: e.from, repo: repoOf.get(e.from) ?? null, type: e.type }));
+    rows.push({ repo: name, components, usedBy });
+  }
+  return rows;
 }

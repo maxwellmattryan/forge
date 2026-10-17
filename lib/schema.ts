@@ -2,14 +2,15 @@
 // shapes in memory (and `forge migrate` rewrites them on disk), so a plugin update never
 // strands jobs or configs written by an older version. A file from a *newer* plugin is
 // refused rather than guessed at.
-import { servicesToComponents } from './components.ts';
+import { isInterimStrategy, servicesToComponents } from './components.ts';
 import { isSafeUrl, isStoredRef, sameIssue } from './issue-ref.ts';
-import type { EventActor, Job, JobEvent, JobIssue, LoadedJob } from './types.ts';
+import { REPO_NAME, isSafeBranch } from './member-repos.ts';
+import type { EventActor, Job, JobEvent, JobIssue, JobRepo, JobRepoPr, LoadedJob } from './types.ts';
 
-export { COMPONENT_KINDS, DEPENDENCY_TYPES } from './components.ts';
+export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
 
-export const CONFIG_SCHEMA_VERSION = 11;
-export const JOB_SCHEMA_VERSION = 11;
+export const CONFIG_SCHEMA_VERSION = 14;
+export const JOB_SCHEMA_VERSION = 13;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
 export const ARCHIVE_SCHEMA_VERSION = 1;
@@ -17,7 +18,7 @@ export const ARCHIVE_SCHEMA_VERSION = 1;
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 26;
+export const API_VERSION = 28;
 
 /**
  * Where an event's `actor` came from: lib/actor.ts resolves env, gh, git, os and dashboard; the
@@ -89,8 +90,8 @@ export const COMPLEXITIES = ['low', 'medium', 'high'] as const;
 /** The roles runtime.efforts sets, in runtime.models order. No orchestrator: sessions take runtime.effort. */
 export const EFFORT_ROLES = ['planner', 'spec-writer', 'designer', 'builder', 'reviewer', 'approver', 'integrator', 'retro', 'judge', 'assistant'] as const;
 
-/** The gate classes the foreman may decide (foreman.decides); `pr-feedback` is a job waiting on pr-review with feedback. */
-export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback'] as const;
+/** The gate classes the foreman may decide (foreman.decides); `pr-feedback` is a pr-review wait with feedback, `repo-proposal` a `human` wait with pending repo proposals. */
+export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal'] as const;
 
 /** foreman.ship: propose leaves merging as it was; merge counts as merge.auto for the approver and PR4. */
 export const FOREMAN_SHIP = ['propose', 'merge'] as const;
@@ -133,9 +134,23 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // part with its own commands, so each becomes a `service` component with no dependencies; its
   // name, path and commands are unchanged, so `forge run` and `forge verify` pick the same command.
   9: servicesToComponents,
-  // v11 adds checkout, empty by default; the bump lets older Forges refuse a config whose checkout
-  // steps they would ignore.
-  10: (c) => c,
+  // v11 adds member repos, empty by default, so a v10 config gains `repos: []` (an existing value is
+  // kept for validation to judge); the bump lets older Forges refuse a config whose member repos they
+  // would ignore. A v10 config may still carry `services`, which migrateConfig folded while 10 was
+  // current, so fold it here first.
+  10: (c) => {
+    const f = servicesToComponents(c);
+    return f && typeof f === 'object' && 'repos' in f ? f : { ...f, repos: [] };
+  },
+  // v12 adds dependsOn links, absent by default, so no v11 config changes; the bump lets older Forges
+  // refuse a config whose links they would ignore.
+  11: (c) => c,
+  // v13 adds release.interim and link.manifest, absent by default, so no v12 config changes; the bump
+  // lets older Forges refuse a config whose interim strategy they would ignore.
+  12: (c) => c,
+  // v14 adds checkout, empty by default, so no v13 config changes; the bump lets older Forges
+  // refuse a config whose checkout steps they would ignore.
+  13: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
@@ -184,6 +199,12 @@ const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
     const { source, ...rest } = j;
     return { ...rest, issues: j.issues ?? sourceToIssues(source) };
   },
+  // v12 lets a job change member repos too: `repos[0]` mirrors the root repo's top-level fields
+  // (normalizeJob rebuilds it), so a v11 job becomes a one-repo job and nothing it did changes.
+  11: (j) => ({ ...j, repos: Array.isArray(j.repos) ? j.repos : [] }),
+  // v13 adds the human's per-job interim strategy override (forge job repo interim): null inherits
+  // config, which is what every v12 job did. Members get theirs in cleanRepos.
+  12: (j) => ({ ...j, interim: j.interim ?? null }),
 };
 
 const MAX_TRACKER = 40;
@@ -234,6 +255,55 @@ export function cleanIssues(raw: unknown): JobIssue[] {
   return out;
 }
 
+/** An https url Forge may store from `gh` output: isSafeUrl, https only. */
+export const isHttpsUrl = (u: unknown): u is string => isSafeUrl(u) && u.startsWith('https://');
+
+function cleanRepoPr(raw: unknown): JobRepoPr | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const pr = raw as Record<string, unknown>;
+  if (typeof pr.number !== 'number' || !Number.isSafeInteger(pr.number) || pr.number <= 0) return null;
+  // Only the keys Forge writes for a member PR, so a hand-edited key never reaches /api/state.
+  const out: Record<string, unknown> = {};
+  for (const k of REPO_PR_KEYS) if (pr[k] !== undefined) out[k] = pr[k];
+  return { ...(out as unknown as JobRepoPr), url: isHttpsUrl(pr.url) ? pr.url : null };
+}
+
+/** What openMemberPr and syncMemberPrs record (lib/pr.ts). */
+const REPO_PR_KEYS = ['number', 'url', 'state', 'isDraft', 'openedAt', 'lastSyncedAt', 'pushedSha', 'headOid', 'mergeable', 'mergeState', 'checks', 'mergedAt'] as const;
+
+/**
+ * `repos` as readers see it: the root mirror rebuilt from the top-level fields, then every member
+ * entry that passes the checks. job.json is writable outside the CLI, so a member's name, base,
+ * worktree and PR are checked here and its branch is never read back: it is always the job's.
+ */
+export function cleanRepos(job: Pick<Job, 'branch' | 'base' | 'worktree' | 'pr'> & { repos?: unknown; interim?: unknown }): JobRepo[] {
+  const root: JobRepo = { repo: null, worktree: job.worktree ?? null, branch: job.branch ?? null, base: job.base ?? null, pr: job.pr ?? null, verifyOnly: false, interim: interimOrNull(job.interim) };
+  const out: JobRepo[] = [root];
+  if (!Array.isArray(job.repos)) return out;
+  const seen = new Set<string>();
+  for (const e of job.repos.slice(1)) {
+    if (!e || typeof e !== 'object' || Array.isArray(e)) continue;
+    const m = e as Record<string, unknown>;
+    if (typeof m.repo !== 'string' || !REPO_NAME.test(m.repo) || seen.has(m.repo)) continue;
+    seen.add(m.repo);
+    const verifyOnly = m.verifyOnly === true;
+    out.push({
+      repo: m.repo,
+      // Control characters never: the path is printed one per line in agent briefs.
+      worktree: typeof m.worktree === 'string' && m.worktree !== '' && !/[\u0000-\u001f\u007f]/.test(m.worktree) ? m.worktree : null,
+      branch: verifyOnly ? null : (job.branch ?? null),
+      base: isSafeBranch(m.base) ? m.base : null,
+      pr: cleanRepoPr(m.pr),
+      verifyOnly,
+      interim: interimOrNull(m.interim),
+    });
+  }
+  return out;
+}
+
+// A hand-edited value outside the four strategies reads as no override, never as one Forge guesses at.
+const interimOrNull = (v: unknown) => (isInterimStrategy(v) ? v : null);
+
 function failedVerifiesByRound(runs: any[]): Record<string, number> {
   const out: Record<string, number> = {};
   for (const r of runs) if (r && r.ok === false) out[String(r.round)] = (out[String(r.round)] ?? 0) + 1;
@@ -249,9 +319,8 @@ export function migrateConfig(raw: any): { config: any; from: number | undefined
     config = CONFIG_MIGRATIONS[v](config);
     v++;
   }
-  // A v10-or-later, unversioned or hand-written config may still use the old key; fold it the same
-  // way. Idempotent, so a config the v9 migration already folded comes back unchanged.
-  config = servicesToComponents(config);
+  // An unversioned or hand-written config may still use the old key; fold it the same way.
+  if (from === CONFIG_SCHEMA_VERSION) config = servicesToComponents(config);
   config.schemaVersion = CONFIG_SCHEMA_VERSION;
   return { config, from: from === CONFIG_SCHEMA_VERSION ? undefined : from };
 }
@@ -317,12 +386,15 @@ export function normalizeJob(raw: any): LoadedJob {
     // Tolerant: anything but an object with a hits list reads as no flag. Safe, because verify and
     // pr open recompute the set from git rather than trusting this.
     protectedPaths: job.protectedPaths && typeof job.protectedPaths === 'object' && Array.isArray(job.protectedPaths.hits) ? job.protectedPaths : null,
+    interim: interimOrNull(job.interim),
+    repos: cleanRepos({ branch: job.branch ?? null, base: job.base ?? null, worktree: job.worktree ?? null, pr: job.pr ?? null, interim: job.interim, repos: job.repos }),
   };
 }
 
 export function serializeJob(job: LoadedJob): Job {
   const { _unsupported, ...rest } = job;
-  return { ...rest, schemaVersion: JOB_SCHEMA_VERSION };
+  // Rebuilt from the final top-level fields, so a write through them can never leave repos[0] behind.
+  return { ...rest, repos: cleanRepos(rest), schemaVersion: JOB_SCHEMA_VERSION };
 }
 
 /**

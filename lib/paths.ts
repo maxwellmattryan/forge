@@ -39,6 +39,8 @@ export interface ForgePaths {
   trackers: string;
   /** Repo-local verifiers: read from the main checkout only. */
   verifiers: string;
+  /** Machine-local settings (member repo clone paths); gitignored, never written by Forge. */
+  local: string;
   job: (id: string) => string;
 }
 
@@ -58,6 +60,7 @@ export function paths(root: string): ForgePaths {
     reviewers: path.join(dir, 'reviewers'),
     trackers: path.join(dir, 'trackers'),
     verifiers: path.join(dir, 'verifiers'),
+    local: path.join(dir, 'local.yml'),
     job: (id: string) => path.join(dir, 'jobs', id),
   };
 }

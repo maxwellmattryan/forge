@@ -10,11 +10,17 @@ import path from 'node:path';
 import { acCoverage } from './acs.ts';
 import { jobPathMap, renderBrief, roleBrief } from './brief.ts';
 import type { RoleContext } from './brief.ts';
-import { autoMerge, lensNeedsApp, resolveEffort, reviewerChecklist } from './config.ts';
+import { autoMerge, lensNeedsApp, resolveEffort } from './config.ts';
 import { configForJob } from './eval-overlay.ts';
 import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
 import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
+import { memberRepos } from './job-repos.ts';
+import { deferralStatus, readDeferrals, releaseGates, resolveInterim } from './interim.ts';
+import { LENS_NAME, isLens, lensRepoAllowed, reviewFileName, splitLens } from './lens.ts';
+import { lensChecklists } from './member-panel.ts';
+import type { MemberLens } from './member-panel.ts';
+import { pendingRepoProposals } from './repo-proposals.ts';
 import { PLUGIN_ROOT, exists } from './paths.ts';
 import { COMPLEXITIES } from './schema.ts';
 import { generatedConfig } from './regenerate.ts';
@@ -22,7 +28,7 @@ import { protectedApproved, protectedReason } from './protected.ts';
 import { approachPaths, inSpec, integrationTouched } from './scope.ts';
 import { AGENT_ID } from './transcripts.ts';
 import { verifierCount } from './verifiers.ts';
-import type { Config, Job, JobAgent, JobEvent, StepAction, StepDone, StepFile, StepInput, StepProcedure, StepRun, StepSpawn, StepVerdicts, StepWait, StepWaitingOn, VerifyRun, WaitingOn } from './types.ts';
+import type { Config, Job, JobAgent, PanelEntry, JobEvent, StepAction, StepDone, StepFile, StepInput, StepProcedure, StepRun, StepSpawn, StepVerdicts, StepWait, StepWaitingOn, VerifyRun, WaitingOn } from './types.ts';
 import { ForgeError, SAFE_REF, readJson, readText } from './util.ts';
 
 export const RULES = [
@@ -41,11 +47,16 @@ export const RULES = [
   'DC1', 'DC2', 'DC3', 'DC4', 'DC5', 'DC6', 'DC7', 'DC8', 'DC9', 'DC10',
   'IG1', 'IG2', 'IG3', 'IG4', 'IG5', 'IG6', 'IG7', 'IG8', 'IG9', 'IG10', 'IG11',
   'PR1', 'PR2', 'PR3', 'PR4', 'PR5',
+  // Interim strategies deferred a PR: park on a human canary publish (PR6), reopen (PR7), or wait for a merge (PR8).
+  'PR6', 'PR7', 'PR8',
   // A secret scan stopped the job: park on `human` (SC1, SC3), or scan again once a human approved (SC2).
   'SC1', 'SC2', 'SC3',
   // Protected paths: park on `human` until a human approves the current content (PP1), or send a
   // refused path back to build (PP2).
   'PP1', 'PP2',
+  // Repo proposals: park on `human` while an agent's proposal waits (RP1), then create an approved
+  // repo's worktree (RP2). Appended, though they run before the stage rules, as IDs are stable.
+  'RP1', 'RP2',
   // No rule matched: a state step can't advance, parked visibly instead of looping.
   'X1',
 ] as const;
@@ -56,7 +67,6 @@ export type RuleId = (typeof RULES)[number];
 export const PLAN_AUTO_CHARS = 600;
 export const PLAN_AUTO_LINES = 3;
 
-const LENS_NAME = /^[a-z0-9][a-z0-9-]*$/;
 const NEEDS_INPUT = /\bNEEDS-INPUT\b/i;
 const SAFE_ELEMENT = /^[A-Za-z0-9 ._:/@=,+\-[\]"]*$/;
 const BARE_ELEMENT = /^[A-Za-z0-9._:/@=,+-]+$/;
@@ -67,7 +77,7 @@ const STEP_EVENTS = new Set([
   'human', 'round', 'worktree', 'worktree-setup-failed', 'pr-find', 'pr-adopted', 'scope', 'panel', 'integrated', 'integrate-conflicts',
   'integration-review', 'decision', 'fields', 'pr-opened', 'pr-updated', 'pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
   'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found', 'verifiers',
-  'protected-path',
+  'protected-path', 'repo-proposed', 'pr-deferred', 'canary-published', 'interim-released',
 ]);
 const MERGE_EVENTS = ['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed'];
 
@@ -154,7 +164,9 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     paths,
     files,
     present,
-    worktreeExists: Boolean(job.worktree && exists(job.worktree)),
+    // Every job repo's worktree: a missing member worktree sends the job back to I3 (worktree create).
+    worktreeExists: Boolean(job.worktree && exists(job.worktree)) && memberRepos(job).every((m) => Boolean(m.worktree && exists(m.worktree))),
+    memberWorktreesMissing: memberRepos(job).some((m) => !(m.worktree && exists(m.worktree))),
     request: { length: body.length, listLines: listLineCount(body) },
     plan: parsePlan(read('plan.md') ?? ''),
     spec: { ...parseSpecHeader(specText), approachPaths: approachPaths(specText) },
@@ -169,7 +181,7 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     runtime,
     events,
     evalTask,
-    checklists: Object.fromEntries(names.map((n) => [n, reviewerChecklist(root, n, config.review.panel.find((p) => p.name === n)?.checklist)])),
+    checklists: lensChecklists(root, config, job, names),
     integrationTouched: loadIntegrationTouched(job, config, events),
     // The main checkout's, never the worktree's: a branch can't switch the gate on or off.
     verifiers: verifierCount(root),
@@ -233,9 +245,10 @@ const alwaysLenses = (config: Config) => config.review.panel.filter((p) => p.alw
  * `changed` still means the always-on lenses, and `full` reads the panel that RV9's
  * `forge job panel` recomputes from the diff. Step stays pure: the diff is read by that command.
  */
-export function roundLenses(job: Pick<Job, 'reviewers' | 'pr'>, config: Config): string[] {
-  // job.reviewers is settable with --field, so a name that isn't a plain lens is dropped, never quoted.
-  const base = (job.reviewers.length ? job.reviewers : alwaysLenses(config)).filter((l) => LENS_NAME.test(l));
+export function roundLenses(job: Pick<Job, 'reviewers' | 'pr'> & { repos?: Job['repos'] }, config: Config): string[] {
+  // job.reviewers is settable with --field, so a name that isn't a lens is dropped, never quoted, and
+  // a qualified lens counts only while its repo is a reviewed member of the job.
+  const base = (job.reviewers.length ? job.reviewers : alwaysLenses(config)).filter((l) => isLens(l) && lensRepoAllowed(job, l));
   if (job.pr?.state !== 'OPEN') return base;
   if (config.review.onPrFeedback === 'none') return [];
   return config.review.onPrFeedback === 'full' ? base : alwaysLenses(config).filter((l) => LENS_NAME.test(l));
@@ -255,19 +268,54 @@ export interface PanelChoice {
   reasons: Record<string, string[]>;
 }
 
+/** One reviewed member for choosePanel: its usable panel entries and its changed files, repo-relative. */
+export interface PanelMember {
+  repo: string;
+  lenses: MemberLens[];
+  changed: string[];
+}
+
 /**
  * The review panel from recorded inputs, in panel order: `always` lenses, the spec's suggestions
  * that are in the panel, lenses whose `when` paths or `paths` cover an Approach path, lenses whose
  * `paths` match a changed file (skipped when `changed` is null, at spec time), then `carried`
  * lenses, which can only add, so a lens never drops within a build loop. A lens gets every reason
  * that applies, in that order. Names that aren't plain lens names are dropped wherever they come from.
+ * `members` adds each reviewed member's own lenses as `<repo>:<name>` after the root's, matched
+ * against Approach paths under `<repo>/` and the member's changed files; an entry subsumed by a root
+ * lens adds its reasons to that lens instead. A carried qualified lens stays only while its repo is a member.
  */
-export function choosePanel(x: { kind: Job['kind']; config: Config; suggested: string[]; approachPaths: string[]; changed: string[] | null; carried: string[] }): PanelChoice {
+export function choosePanel(x: { kind: Job['kind']; config: Config; suggested: string[]; approachPaths: string[]; changed: string[] | null; carried: string[]; members?: PanelMember[] }): PanelChoice {
   if (x.kind === 'retro') return { lenses: ['code', 'docs'], reasons: { code: ['retro'], docs: ['retro'] } };
   const panel = x.config.review.panel.filter((p) => LENS_NAME.test(p.name));
   const names = panel.map((p) => p.name);
-  const suggested = new Set(x.suggested.filter((n) => LENS_NAME.test(n) && names.includes(n)));
-  const carried = [...new Set(x.carried.filter((n) => typeof n === 'string' && LENS_NAME.test(n)))];
+  const members = x.members ?? [];
+  const memberNames = members.map((m) => m.repo);
+  const qualified = members.flatMap((m) => m.lenses.filter((l) => !l.subsumed).map((l) => l.lens));
+  const suggested = new Set(x.suggested.filter((n) => (LENS_NAME.test(n) && names.includes(n)) || qualified.includes(n)));
+  const ofMember = (n: string) => {
+    const s = splitLens(n);
+    return Boolean(s?.repo && memberNames.includes(s.repo));
+  };
+  const carried = [...new Set(x.carried.filter((n) => typeof n === 'string' && (LENS_NAME.test(n) || ofMember(n))))];
+  // A member entry's Approach and diff reasons, with paths written `<repo>/<path>`.
+  const memberWhy = (m: PanelMember, e: PanelEntry): string[] => {
+    const why: string[] = [];
+    const prefix = `${m.repo}/`;
+    const globs = Array.isArray(e.paths) ? e.paths.filter((g): g is string => typeof g === 'string' && g !== '') : [];
+    const tokens = [...whenTokens(e.when), ...globs];
+    const covered = tokens.length ? x.approachPaths.find((ap) => ap.startsWith(prefix) && inSpec(ap.slice(prefix.length), tokens)) : undefined;
+    if (covered !== undefined) why.push(`approach ${covered}`);
+    for (const g of x.changed ? globs : []) {
+      const hits = m.changed.filter((f) => inSpec(f, [g]));
+      if (hits.length) why.push(`paths ${g}: ${prefix}${hits[0]}${hits.length > 1 ? ` (+${hits.length - 1} more)` : ''}`);
+    }
+    return why;
+  };
+  const subsumed = new Map<string, string[]>();
+  for (const m of members)
+    for (const l of m.lenses)
+      if (l.subsumed && names.includes(l.lens)) subsumed.set(l.lens, [...(subsumed.get(l.lens) ?? []), ...memberWhy(m, l.entry)]);
   // A Map, not an object: a digits-only lens name would sort first among an object's keys.
   const chosen = new Map<string, string[]>();
   for (const p of panel) {
@@ -283,10 +331,22 @@ export function choosePanel(x: { kind: Job['kind']; config: Config; suggested: s
       const hits = (x.changed ?? []).filter((f) => inSpec(f, [g]));
       if (hits.length) why.push(`paths ${g}: ${hits[0]}${hits.length > 1 ? ` (+${hits.length - 1} more)` : ''}`);
     }
+    for (const r of subsumed.get(p.name) ?? []) if (!why.includes(r)) why.push(r);
     if (carried.includes(p.name)) why.push('carried');
     if (why.length) chosen.set(p.name, why);
   }
-  for (const n of carried) if (!names.includes(n)) chosen.set(n, ['carried']);
+  for (const m of members) {
+    for (const l of m.lenses) {
+      if (l.subsumed || chosen.has(l.lens)) continue;
+      const why: string[] = [];
+      if (l.entry.always) why.push('always');
+      if (suggested.has(l.lens)) why.push('suggested');
+      why.push(...memberWhy(m, l.entry));
+      if (carried.includes(l.lens)) why.push('carried');
+      if (why.length) chosen.set(l.lens, why);
+    }
+  }
+  for (const n of carried) if (!chosen.has(n) && !names.includes(n)) chosen.set(n, ['carried']);
   return { lenses: [...chosen.keys()], reasons: Object.fromEntries(chosen) };
 }
 
@@ -427,7 +487,7 @@ function done(x: StepInput, rule: RuleId, tell?: string): StepDone {
 function outputFor(x: StepInput, role: string): string | undefined {
   if (role.startsWith('reviewer:')) {
     const lens = role.slice('reviewer:'.length);
-    return x.job.stage === 'integrate' ? p(x, 'integrationReview') : path.join(x.jobDir, 'review', `round-${x.job.round}`, `${lens}.md`);
+    return x.job.stage === 'integrate' ? p(x, 'integrationReview') : path.join(x.jobDir, 'review', `round-${x.job.round}`, reviewFileName(lens));
   }
   if (role === 'verifier') return path.join(x.jobDir, 'verify', `round-${x.job.round}-verifier-answers.md`);
   const fixed: Record<string, string> = { planner: 'plan.md', 'spec-writer': 'spec.md', designer: 'design.md', approver: 'decision.md', judge: 'eval-judge.md' };
@@ -455,9 +515,9 @@ export function reworkReviewFiles(job: Job, previousReviewDir: string | null): s
   if (job.round <= 1 || !previousReviewDir) return [];
   const prev = job.verdicts[String(job.round - 1)] ?? {};
   return Object.keys(prev)
-    .filter((lens) => LENS_NAME.test(lens) && prev[lens] !== 'PASS')
+    .filter((lens) => isLens(lens) && lensRepoAllowed(job, lens) && prev[lens] !== 'PASS')
     .sort()
-    .map((lens) => path.join(previousReviewDir, `${lens}.md`));
+    .map((lens) => path.join(previousReviewDir, reviewFileName(lens)));
 }
 
 function lastConflicts(x: StepInput): JobEvent | undefined {
@@ -613,6 +673,8 @@ export function gateTell(x: StepInput, waitingOn: WaitingOn): string {
     case 'pr-review':
       return prReviewTell(x);
     case 'human':
+      if (reason.startsWith('repo proposal:'))
+        return `${id} proposes repos (${reason}): ${path.join(x.jobDir, 'repo-proposals.md')}. Approve or reject in the dashboard, or in your own terminal: forge job human ${id} approve-repos|reject-repos --repo <names> --note …`;
       if (reason.startsWith('protected paths'))
         return `${id} changed protected paths (${reason}). Diff: ${path.join(x.jobDir, 'protected.diff')}. /forge approve ${id} once a human has reviewed them, or /forge rework ${id} <note>`;
       if (reason.startsWith('secret scan'))
@@ -703,6 +765,8 @@ function decide(x: StepInput): StepAction {
   if (secret) return secret;
   const guarded = protectedGate(x);
   if (guarded) return guarded;
+  const proposal = repoProposalGate(x);
+  if (proposal) return proposal;
 
   switch (j.stage) {
     case 'backlog':
@@ -777,6 +841,27 @@ function protectedGate(x: StepInput): StepAction | null {
   return protectedPark(x);
 }
 
+/** At most this many repo names in RP1's reason; the rest are counted. */
+const RP1_NAMES = 5;
+
+/**
+ * RP1: an agent proposed a member repo and no decision covers it yet, so the job waits on a human
+ * (or the foreman, when allowed) before anything else in the stage runs. RP2: an approved repo, or
+ * one a human added mid-job, has no worktree yet. Names come from events but pass REPO_NAME, which
+ * sits inside shellLine's safe class.
+ */
+function repoProposalGate(x: StepInput): StepAction | null {
+  const j = x.job;
+  if (j.stage === 'backlog' || j.stage === 'pr' || j.stage === 'done') return null;
+  const names = pendingRepoProposals(j, x.events).map((r) => r.repo);
+  if (names.length) {
+    const shown = names.slice(0, RP1_NAMES).join(', ') + (names.length > RP1_NAMES ? ` +${names.length - RP1_NAMES} more` : '');
+    return park(x, 'RP1', 'human', `repo proposal: ${shown}`);
+  }
+  if (x.memberWorktreesMissing) return run(x, 'RP2', ['worktree', 'create', j.id], 'an approved repo needs its worktree');
+  return null;
+}
+
 function stuck(x: StepInput): StepRun {
   return park(x, 'X1', 'escalation', `step found no rule for stage ${x.job.stage}`);
 }
@@ -798,7 +883,7 @@ function intake(x: StepInput): StepAction {
 function plan(x: StepInput): StepAction {
   const j = x.job;
   const planner = agent(x, 'planner');
-  if (!ended(planner) || after(human(x, 'revise-split')?.ts, planner.startedAt)) return spawn(x, 'P1', 'planner');
+  if (!ended(planner) || after(human(x, 'revise-split')?.ts, planner.startedAt) || after(human(x, 'reject-repos')?.ts, planner.startedAt)) return spawn(x, 'P1', 'planner');
   const g = generic(x, 'planner');
   if (g) return g;
   if (x.plan.verdict === 'SPLIT') {
@@ -822,7 +907,7 @@ function spec(x: StepInput): StepAction {
   const c = x.config;
   const sw = agent(x, 'spec-writer');
   if (j.kind !== 'retro' && !ended(sw)) return spawn(x, 'SP1', 'spec-writer');
-  if (after(human(x, 'revise-spec')?.ts, sw?.startedAt)) return spawn(x, 'SP2', 'spec-writer');
+  if (after(human(x, 'revise-spec')?.ts, sw?.startedAt) || (sw && after(human(x, 'reject-repos')?.ts, sw.startedAt))) return spawn(x, 'SP2', 'spec-writer');
   if (sw) {
     const g = generic(x, 'spec-writer');
     if (g) return g;
@@ -986,7 +1071,7 @@ function review(x: StepInput): StepAction {
   if (malformed.length && !j.verdicts[String(j.round)]) {
     const fresh = malformed.find((l) => !agent(x, `reviewer:${l}`)?.retry);
     if (fresh) {
-      const file = path.join(x.jobDir, 'review', `round-${j.round}`, `${fresh}.md`);
+      const file = path.join(x.jobDir, 'review', `round-${j.round}`, reviewFileName(fresh));
       return spawn(x, 'RV5', `reviewer:${fresh}`, { retry: true, retryLine: `Retry: ${file} has no VERDICT line; rewrite it in the required format.` });
     }
     return run(x, 'RV5', verdictsCmd(['--malformed', 'changes']), 'a lens failed the review format twice: count it as CHANGES');
@@ -1152,8 +1237,44 @@ function pr(x: StepInput): StepAction {
   if (!x.config.pr.enabled) return toStage(x, 'PR1', 'done', 'PRs are off: the branch is the result', { tell: `${j.id} finished on branch ${safe(j.branch, SAFE_REF, 'its branch')}` });
   const last = j.verifyRuns.at(-1);
   if (!last?.ok) return run(x, 'PR2', ['verify', j.id], 'pr open needs a verified HEAD');
-  const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated');
+  // The last open attempt: a deferral counts, so PR3 doesn't run pr open again on the same verify.
+  const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated' || e.type === 'pr-deferred');
   if (!after(opened?.ts, last.at)) return run(x, 'PR3', ['pr', 'open', j.id], 'push and open or update the PR');
-  if (x.decision.autoMerge && autoMerge(x.config) && !j.protectedPaths?.hits?.length && !lastEvent(x, (e) => MERGE_EVENTS.includes(e.type) && after(e.ts, opened!.ts))) return run(x, 'PR4', ['pr', 'merge', j.id], 'the approver marked it auto-merge eligible');
-  return set(x, 'PR5', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review' }, 'the PR waits on human review');
+  if (opened!.type === 'pr-deferred') return deferredPr(x, opened!);
+  // A local edge holds a consumer PR as a draft that nothing CI can build, a held release gate keeps
+  // it a draft until a human records the dependency's release, and a draft PR in a job with interim
+  // edges is never merged: none of them merges unattended. A job without edges keeps its old
+  // behaviour, so a single-repo `pr.draft: true` job still auto-merges (gh un-drafts it).
+  const edges = resolveInterim(x.config, j).edges;
+  const local = edges.some((e) => e.strategy === 'local');
+  const held = releaseGates(edges, x.events).find((g) => g.gate === 'held');
+  const draft = edges.length > 0 && (j.pr?.isDraft === true || memberRepos(j).some((m) => m.pr?.isDraft === true));
+  if (!local && !held && !draft && x.decision.autoMerge && autoMerge(x.config) && !j.protectedPaths?.hits?.length && !lastEvent(x, (e) => MERGE_EVENTS.includes(e.type) && after(e.ts, opened!.ts)))
+    return run(x, 'PR4', ['pr', 'merge', j.id], 'the approver marked it auto-merge eligible');
+  // Plain words only: the reason goes through shellLine, which allows no quote, pipe or angle bracket.
+  const reason = held
+    ? `${repoWord(held.consumer)} PR stays a draft until the release of ${repoWord(held.dependency)} is recorded [interim: ${held.strategy}]: a human runs forge job interim release ${j.id} ${held.dependency === null ? '--root' : safe(held.dependency, REPO_WORD, '<repo>')} VERSION`
+    : undefined;
+  return set(x, 'PR5', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', ...(reason ? { reason } : {}) }, 'the PR waits on human review');
+}
+
+const REPO_WORD = /^[A-Za-z0-9._-]+$/;
+const repoWord = (k: string | null): string => (k === null ? 'the root repo' : `repo ${safe(k, REPO_WORD, 'a member')}`);
+
+/** PR6–PR8: the last pr open deferred some PRs; recorded PR states and canary events say what happens next. */
+function deferredPr(x: StepInput, deferral: JobEvent): StepAction {
+  const j = x.job;
+  const deferred = readDeferrals(deferral.deferred);
+  const state = (k: string | null) => (k === null ? j.pr?.state : memberRepos(j).find((m) => m.repo === k)?.pr?.state);
+  const s = deferralStatus(deferred, state, x.events);
+  if (s.canary) {
+    const dep = s.canary.waitingOn[0];
+    const pkg = safe(`${s.canary.name}@${s.canary.version}`, SAFE_ELEMENT, 'its package');
+    const cmd = `forge job interim publish ${j.id} ${dep === null ? '--root' : safe(dep, REPO_WORD, '<repo>')} --confirm`;
+    return park(x, 'PR6', 'human', `${repoWord(s.canary.repo)} waits on a canary of ${repoWord(dep)} [${pkg}]: a human runs ${cmd}`);
+  }
+  if (s.openable) return run(x, 'PR7', ['pr', 'open', j.id], 'every deferred PR can open now: its dependencies merged or the canary is published');
+  const wait = s.sequential ?? deferred[0];
+  const reason = wait ? `${repoWord(wait.repo)} PR opens after ${wait.waitingOn.map(repoWord).join(', ')} merges [interim: sequential]` : 'a deferred PR waits on its dependencies';
+  return set(x, 'PR8', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', reason }, 'a deferred PR opens once its dependencies merge');
 }

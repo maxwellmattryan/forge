@@ -8,6 +8,7 @@ import path from 'node:path';
 import { isForemanActor, jobDir, readEvents } from './jobs.ts';
 import { OFFICE_SCOPE, daemonScope, enqueue, listRequests } from './requests.ts';
 import { OFFICE_GATES } from './schema.ts';
+import { isRepoProposalPark, pendingRepoProposals, repoProposals } from './repo-proposals.ts';
 import { ForgeError } from './util.ts';
 import type { Config, ForgeRequest, GateClass, GateOwner, Job, JobEvent } from './types.ts';
 
@@ -21,6 +22,7 @@ export const ACTIONS_BY_GATE: Record<GateClass, readonly string[]> = {
   'rounds-exhausted': ['approve', 'revise-spec', 'rework'],
   conflicts: ['approve'],
   'pr-feedback': ['rework'],
+  'repo-proposal': ['approve-repos', 'reject-repos'],
 };
 
 /** What reservedMatch returns when foreman.reserved can't be read: every gate stays with a human. */
@@ -32,11 +34,20 @@ const MAX_DECISION_BYTES = 256 * 1024;
 
 export const isGateClass = (g: unknown): g is GateClass => (OFFICE_GATES as readonly unknown[]).includes(g);
 
-/** The class of the gate a job waits on, or null: pr-review counts as pr-feedback. */
-export function gateClass(job: Pick<Job, 'state' | 'waitingOn'>): GateClass | null {
+/**
+ * The class of the gate a job waits on, or null: pr-review counts as pr-feedback, and RP1's `human`
+ * park counts as repo-proposal while its events still hold a pending proposal.
+ */
+export function gateClass(job: Pick<Job, 'state' | 'waitingOn' | 'reason' | 'repos'>, events: JobEvent[] = []): GateClass | null {
   if (job.state !== 'waiting') return null;
+  if (isRepoProposalPark(job)) return pendingRepoProposals(job, events).length ? 'repo-proposal' : null;
   if (job.waitingOn === 'pr-review') return 'pr-feedback';
   return isGateClass(job.waitingOn) ? job.waitingOn : null;
+}
+
+/** gateClass with the job's events read from disk, only for the one park that needs them. */
+export function gateClassFor(root: string, job: Pick<Job, 'id' | 'state' | 'waitingOn' | 'reason' | 'repos'>): GateClass | null {
+  return gateClass(job, isRepoProposalPark(job) ? readEvents(root, job.id) : []);
 }
 
 /** foreman.decides with anything that isn't a gate class dropped (validation reports those). */
@@ -103,9 +114,14 @@ export function sections(text: string, titles: string[]): string[] {
   return out;
 }
 
-/** What a reserved pattern is matched against for a gate: the reason, plus decision.md's Why and For the human on escalations. */
+/**
+ * What a reserved pattern is matched against for a gate: the reason, plus decision.md's Why and For the
+ * human on escalations, and the agent-written reasons of the pending proposals on a repo proposal.
+ */
 export function reservedTexts(root: string, job: Pick<Job, 'id' | 'reason'>, gate: GateClass | null): string[] {
   const texts = [job.reason ?? ''];
+  // From events, not repo-proposals.md: the reasons the assistant reads, without the session-editable copy.
+  if (gate === 'repo-proposal') texts.push(...repoProposals({ repos: [] }, readEvents(root, job.id)).filter((r) => r.status === 'pending').map((r) => r.reason));
   if (gate === 'escalation' || gate === 'rounds-exhausted') {
     const d = readDecision(root, job.id);
     // An unreadable decision.md can't be checked, so it counts as reserved.
@@ -164,7 +180,7 @@ const isGateRequest = (r: ForgeRequest, job: string, gate: GateClass) => r.type 
  */
 export function gateOwner(root: string, config: Config, job: Job, requests: ForgeRequest[] = listRequests(root)): GateOwner {
   if (!foremanEnabled(config) || job.state !== 'waiting') return null;
-  const gate = gateClass(job);
+  const gate = gateClassFor(root, job);
   if (!gate || !decides(config).includes(gate)) return 'human';
   if (reservedFor(root, config, job, gate)) return 'human';
   const latest = requests.filter((r) => isGateRequest(r, job.id, gate) && (gate !== 'pr-feedback' || r.args?.key === job.pr?.headOid)).at(-1);
@@ -180,7 +196,7 @@ export function gateOwner(root: string, config: Config, job: Job, requests: Forg
  */
 export function maybeEnqueueGate(root: string, config: Config, before: Pick<Job, 'state' | 'waitingOn'>, after: Job): ForgeRequest | null {
   if (!foremanEnabled(config)) return null;
-  const gate = gateClass(after);
+  const gate = gateClassFor(root, after);
   if (!gate || gate === 'pr-feedback' || !decides(config).includes(gate)) return null;
   if (before.state === 'waiting' && before.waitingOn === after.waitingOn) return null;
   const open = listRequests(root).some((r) => isGateRequest(r, after.id, gate) && (r.status === 'pending' || r.status === 'in-progress'));
@@ -237,7 +253,7 @@ export function checkForemanDecision(
   if (!inOffice(env)) refuse('only the office daemon session records foreman decisions');
   if (flags.link !== undefined || flags.reason !== undefined) refuse('linking an issue stays a human call (no --link or --reason)');
   if (typeof note !== 'string' || !note.trim()) refuse('a foreman decision needs --note with its reason');
-  const gate = gateClass(job);
+  const gate = gateClassFor(root, job);
   if (!gate) refuse(`job ${job.id} is not waiting on a gate the foreman decides`);
   if (!foremanEnabled(config)) refuse('foreman.enabled is false');
   if (!decides(config).includes(gate!)) refuse(`${gate} is not in foreman.decides`);
@@ -261,6 +277,8 @@ export const SET_AFTER: Record<string, readonly (string | undefined)[]> = {
   'revise-split': ['plan'],
   approve: ['integrate', 'decide'],
   rework: ['build'],
+  'approve-repos': [undefined],
+  'reject-repos': [undefined],
 };
 
 /** Only these `forge job` subcommands run in the office session: it reads, decides and notes, nothing more. */

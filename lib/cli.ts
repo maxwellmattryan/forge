@@ -7,6 +7,7 @@ import { refuseInOffice, refuseInboxDrive } from './daemon-owner.ts';
 import { NEED_INIT } from './config-set.ts';
 import { detect } from './detect.ts';
 import { loadJob } from './jobs.ts';
+import { trustedMemberWorktree } from './job-repos.ts';
 import { mainRoot } from './paths.ts';
 import * as pr from './pr.ts';
 import { prepareRetro, retroDue } from './retro.ts';
@@ -122,10 +123,15 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       if (sub === 'create') {
         const id = req(rest[0], 'job id');
         refuseInboxDrive(id);
-        return ok(wt.createWorktree(root, config, id));
+        const res = wt.createWorktree(root, config, id);
+        return { data: res, exitCode: res.repos?.some((r) => !r.ok) ? 1 : 0 };
       }
-      if (sub === 'remove') return ok(await wt.removeWorktree(root, req(rest[0], 'job id'), { deleteBranch: Boolean(flags['delete-branch']), force: Boolean(flags.force) }));
-      if (sub === 'path') return ok(loadJob(root, req(rest[0], 'job id')).worktree ?? '');
+      const repo = flags.repo === undefined ? undefined : req(typeof flags.repo === 'string' ? flags.repo : undefined, '--repo');
+      if (sub === 'remove') {
+        const res = await wt.removeWorktree(root, req(rest[0], 'job id'), { deleteBranch: Boolean(flags['delete-branch']), force: Boolean(flags.force), repo });
+        return { data: res, exitCode: res.repos?.some((r) => r.error) ? 1 : 0 };
+      }
+      if (sub === 'path') return ok(repo === undefined ? (loadJob(root, req(rest[0], 'job id')).worktree ?? '') : (trustedMemberWorktree(root, config, loadJob(root, req(rest[0], 'job id')), repo) ?? ''));
       if (sub === 'prune') return ok(run('git', ['worktree', 'prune', '-v'], { cwd: root }).stderr.trim() || 'nothing to prune');
       throw usage('worktree');
     }
@@ -157,6 +163,10 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
     }
     case 'pr': {
       needInit();
+      // Before the id: `--root <id>` makes parseArgs swallow the id as the flag's value, and a
+      // misread merge target must be refused, never guessed.
+      if (sub === 'merge') pr.mergeTarget(flags);
+      if (sub === 'ready') pr.mergeTarget(flags, 'ready');
       const id = req(rest[0], 'job id');
       if (sub === 'find') return ok(pr.findPr(root, config, id));
       if (sub === 'open') return ok(pr.openPr(root, config, id, { title: flags.title, draft: flags.draft === undefined ? undefined : Boolean(flags.draft), force: Boolean(flags.force) }));
@@ -165,9 +175,10 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
         // Strictly `true`: `--now <id>` would make parseArgs swallow the id as the flag's value,
         // and that mistake must not silently bypass CI.
         refuseInOffice('the foreman never merges; foreman.ship merge only feeds the approver and step PR4');
-        const r = pr.mergePr(root, config, id, { now: flags.now === true });
+        const r = pr.mergePr(root, config, id, { now: flags.now === true, ...pr.mergeTarget(flags) });
         return { data: r, exitCode: r.action === 'refused' || r.action === 'failed' ? 1 : 0 };
       }
+      if (sub === 'ready') return ok(pr.readyPr(root, config, id, pr.mergeTarget(flags, 'ready')));
       throw usage('pr');
     }
     case 'sync':
