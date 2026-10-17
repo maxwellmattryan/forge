@@ -414,7 +414,7 @@ test('help covers every routed command', () => {
     s.init();
     const r = s.cli(['job', 'bogus']);
     assert.equal(r.status, 2);
-    assert.ok(r.stderr.includes('usage: forge job new|from-ref|link|list|show|get|set|effort|claim|release|repo|note|human|assist|agent|round|budget|audit|archive|prune|verdicts|decision|progress|paths|scope|panel|acs|findings|step|advance; run `forge help job`'), r.stderr);
+    assert.ok(r.stderr.includes('usage: forge job new|from-ref|link|list|show|get|set|effort|claim|release|repo|note|human|assist|agent|round|budget|audit|archive|prune|verdicts|decision|progress|paths|links|scope|panel|acs|findings|step|advance; run `forge help job`'), r.stderr);
   } finally {
     s.cleanup();
   }

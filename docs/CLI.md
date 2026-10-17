@@ -134,6 +134,8 @@ Set by Forge for configured commands (`forge run`, `forge verify`, worktree setu
 | `FORGE_JOB` | the job id |
 | `FORGE_WORKTREE` | the job's worktree |
 | `FORGE_PORT`, `PORT` | the job's port, empty when it has none |
+| `FORGE_CARGO_CONFIG` | `forge run` and `forge verify` steps only, when the repo the command runs in has an active cargo local link: the absolute path of the rendered `cargo-links.toml`, for a command that calls cargo by absolute path (see Local links) |
+| `FORGE_CMAKE_ARGS` | the same, when the repo declares a cmake local link: the `-DFETCHCONTENT_SOURCE_DIR_<NAME>=<dir>` / `-U…` arguments as single-quoted shell words |
 
 Set by Forge for `notify.command` (docs/CONFIG.md "Notifications"), whose `{placeholders}` become quoted references to them; empty for a null field:
 
@@ -146,6 +148,19 @@ Set by Forge for `notify.command` (docs/CONFIG.md "Notifications"), whose `{plac
 | `FORGE_NOTIFY_STAGE` | the job's stage |
 | `FORGE_NOTIFY_REASON` | the fixed reason text |
 | `FORGE_NOTIFY_DASHBOARD_URL` | the dashboard's pipeline page |
+
+## Local links
+
+`forge job links <id>` prints `{ id, links }`, one entry per `link` declared on a `components[].dependsOn[]` edge (docs/CONFIG.md "Components"): `{ consumer, consumerRepo, dependency, dependencyRepo, ecosystem, name, source, dir, active, reason }`. `consumerRepo` and `dependencyRepo` are `null` for the root repo, `source` is `null` except for cargo, `dir` is the dependency directory when the link is active, and `reason` says why it is not (`repo <r> is not on the job`, `repo <r> has no worktree yet; run: forge worktree create <id>`, `repo <r>'s stored worktree is not the path Forge computes`, `<path> does not exist in repo <r>'s worktree`). Entries are sorted by consumer repo (root first), ecosystem and name; a job with no declared links prints `links: []`. It only reads, so daemon sessions may run it.
+
+`forge run` (with or without `--repo`) and every verify step render the links of the repo the command runs in into `<jobDir>/links/<repo or _root>/` and put its `bin/` shims first on PATH, after the login profile. The result (`forge run`'s JSON and each verify step) then gains:
+
+| Key | When | Value |
+|---|---|---|
+| `links` | some link is active for that repo | the active links, `"<ecosystem>:<name>"` |
+| `restored` | a tracked `Cargo.lock`, `package-lock.json` or `npm-shrinkwrap.json` changed during the command (or its verify group) | the repo-relative paths Forge wrote back; a `link-lockfiles-restored` event `{ repo, paths }` is logged |
+
+The log file gains a `(links <bin dir>)` line after `(cwd …)`. Background commands and `worktrees.setup` get no links, and native Windows gets the env vars but no shims.
 
 ## Agent ids
 
