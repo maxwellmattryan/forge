@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { PINNED_GIT_CONFIG, STATUS_ARGV } from './integrity.ts';
 import { loadJob, jobDir, logEvent } from './jobs.ts';
 import { memberWorktree } from './job-repos.ts';
 import { reviewedRepoNames } from './lens.ts';
@@ -229,7 +230,8 @@ export function reviewedRepoDiffs(root: string, config: Config, job: Pick<Job, '
     const { member, worktree: cwd } = memberWorktree(root, config, job, name);
     const { baseRef, mergeBase } = resolveBase(cwd, config, { base: member.base });
     const head = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], { cwd, env }).stdout.trim();
-    const dirty = run('git', ['status', '--porcelain'], { cwd, env }).stdout.trim() !== '';
+    // STATUS_ARGV pins core.fsmonitor off: the member worktree's config is builder-writable, and git status runs that program.
+    const dirty = run('git', [...STATUS_ARGV], { cwd, env }).stdout.trim() !== '';
     return { repo: name, cwd, baseRef, mergeBase, head, dirty, changed: committedChanges(cwd, mergeBase) };
   });
 }
@@ -245,16 +247,17 @@ export interface DiffSection {
 }
 
 /**
- * The combined unified diff reviewers read. Prefixes, context, colour, renames, external drivers and
- * textconv are all pinned on the command line, because the worktree's git config is builder-writable
- * and could otherwise drop the repo prefix or substitute a driver's output for the real change.
+ * The combined unified diff reviewers read. Prefixes, context, colour, renames, external drivers,
+ * textconv, submodules and binary detection are all pinned on the command line, because the worktree's
+ * git config and attributes are builder-writable and could otherwise drop the repo prefix, substitute a
+ * driver's output for the real change, or turn a hunk into "Binary files differ" (`-diff`, `binary`).
  */
 export function writeScopeDiff(file: string, sections: DiffSection[]): void {
   const env = realHistoryEnv();
   const parts = sections.map((s) => {
     const out = run(
       'git',
-      ['-c', 'core.quotepath=off', 'diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-relative', '--no-renames', '-U3', `--src-prefix=a/${s.prefix}`, `--dst-prefix=b/${s.prefix}`, s.mergeBase, s.head, '--'],
+      [...PINNED_GIT_CONFIG, 'diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-relative', '--no-renames', '--ignore-submodules=none', '--text', '-U3', `--src-prefix=a/${s.prefix}`, `--dst-prefix=b/${s.prefix}`, s.mergeBase, s.head, '--'],
       { cwd: s.cwd, env },
     ).stdout;
     return `# repo ${s.label} base ${s.baseRef} @ ${s.mergeBase} · HEAD ${s.head}\n${out}`;
@@ -275,7 +278,7 @@ export function jobScope(root: string, config: Config, id: string): ScopeReport 
   const cwd = job.worktree;
   const { baseRef, mergeBase } = resolveBase(cwd, config, job);
   const head = git(cwd, ['rev-parse', 'HEAD']);
-  const dirty = git(cwd, ['status', '--porcelain']) !== '';
+  const dirty = git(cwd, [...STATUS_ARGV]) !== '';
   const rootChanged = committedChanges(cwd, mergeBase);
   const members = reviewedRepoDiffs(root, config, job);
   // Root files first, then each member's under its `<repo>/` prefix, so the Approach can name either.

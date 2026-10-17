@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { configForJob } from './eval-overlay.ts';
+import { STATUS_ARGV } from './integrity.ts';
 import { jobDir, loadJob, logEvent, setJob } from './jobs.ts';
 import { exists } from './paths.ts';
 import { readMemberPanel } from './member-panel.ts';
@@ -48,7 +49,7 @@ export function jobPanel(root: string, base: Config, id: string): PanelReport {
   const env = realHistoryEnv();
   const { baseRef, mergeBase } = resolveBase(cwd, config, job);
   const head = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], { cwd, env }).stdout.trim();
-  const dirty = run('git', ['status', '--porcelain'], { cwd, env }).stdout.trim() !== '';
+  const dirty = run('git', [...STATUS_ARGV], { cwd, env }).stdout.trim() !== '';
   const changed = committedChanges(cwd, mergeBase);
   // Before any write: a member whose worktree or panel config can't be used fails the command, so
   // the round never reviews with one of its lenses silently missing.

@@ -7,7 +7,7 @@ import { isOwnWorktreePath, loadConfig, verifyGroups, worktreeRoot } from './con
 import { e2ePlan } from './e2e.ts';
 import { configForJob } from './eval-overlay.ts';
 import { stackSource } from './deps.ts';
-import { blockingLines, compactIntegrity, hiddenChanges, integrityError, renderIntegrity, testIntegrity } from './integrity.ts';
+import { STATUS_ARGV, blockingLines, compactIntegrity, hiddenChanges, integrityError, renderIntegrity, testIntegrity } from './integrity.ts';
 import type { CompactIntegrity, IntegrityReport } from './integrity.ts';
 import { listJobs, isActive, loadJob, logEvent, setJob, touchJob, updateJob, jobDir } from './jobs.ts';
 import { exists, resolveFrom } from './paths.ts';
@@ -576,7 +576,7 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
     return { ...wt, head: run('git', ['rev-parse', 'HEAD'], { cwd: wt.worktree }).stdout.trim() };
   });
   const sha = run('git', ['rev-parse', 'HEAD'], { cwd: job.worktree }).stdout.trim();
-  const status = STATUS_ARGV;
+  const status = [...STATUS_ARGV];
   const changed = run('git', status, { cwd: job.worktree }).stdout.trim();
   let hiddenError: string | null = null;
   let hidden = '';
@@ -692,8 +692,6 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   };
 }
 
-// fsmonitor, untracked-file and submodule settings are repo config the worktree can write, and each can hide changes.
-const STATUS_ARGV = ['-c', 'core.fsmonitor=false', 'status', '--porcelain', '--untracked-files=normal', '--ignore-submodules=none'];
 
 /** One member repo's verify: its record, its steps for the report, and its scan and integrity report. */
 interface MemberVerify {
@@ -716,7 +714,7 @@ async function verifyMember(root: string, config: Config, job: Job, groups: stri
   const view = { id: job.id, worktree: cwd, base: m.member.base };
   // The HEAD the root's protected check saw, so the run records the commit it checked.
   const sha = m.head;
-  const changed = run('git', STATUS_ARGV, { cwd }).stdout.trim();
+  const changed = run('git', [...STATUS_ARGV], { cwd }).stdout.trim();
   let hiddenError: string | null = null;
   let hidden = '';
   if (!changed) {

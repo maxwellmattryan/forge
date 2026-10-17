@@ -95,6 +95,40 @@ describe('cross-repo review: scope', { concurrency: 4 }, () => {
     assert.doesNotMatch(after, /EXTERNAL-DIFF/);
   });
 
+  test('scope.diff shows member hunks that attributes would mark binary', async () => {
+    const p = await project();
+    // A committed `.gitattributes` and a worktree core.attributesFile both try to hide the hunks.
+    const j = await setup(p, { libFiles: { 'lib.txt': 'lib\n', 'other.txt': 'other\n', '.gitattributes': '*.txt -diff\n' } });
+    const attrs = path.join(p.parent, 'hide-attrs');
+    fs.writeFileSync(attrs, '* binary\n');
+    p.git(j.libWt, 'config', 'core.attributesFile', attrs);
+    p.git(j.rootWt, 'config', 'core.attributesFile', attrs);
+    p.git(j.libWt, 'config', 'diff.ignoreSubmodules', 'all');
+    await p.f('job', 'scope', j.id);
+    const diff = fs.readFileSync(path.join(j.dir, 'scope.diff'), 'utf8');
+    assert.doesNotMatch(diff, /Binary files/);
+    const lib = diff.slice(diff.indexOf('# repo lib base '));
+    assert.match(lib, /^\+\+\+ b\/lib\/lib\.txt\n@@ [^\n]+\n\+lib$/m);
+    assert.match(lib, /^\+other$/m);
+    assert.match(diff, /^\+app$/m);
+  });
+
+  test('scope and panel never run a worktree core.fsmonitor program', { skip: process.platform === 'win32' }, async () => {
+    const p = await project();
+    const j = await setup(p);
+    const marker = path.join(p.parent, 'fsmonitor-ran');
+    const hook = path.join(p.parent, 'fsmonitor-hook');
+    fs.writeFileSync(hook, `#!/bin/sh\necho ran >> '${marker}'\n`, { mode: 0o755 });
+    for (const wt of [j.libWt, j.rootWt]) p.git(wt, 'config', 'core.fsmonitor', hook);
+    // Unpinned, git status runs it, so the assertions below are meaningful.
+    p.git(j.libWt, 'status', '--porcelain');
+    assert.ok(fs.existsSync(marker), 'plain git status runs the fsmonitor hook');
+    fs.rmSync(marker);
+    await p.f('job', 'scope', j.id);
+    await p.f('job', 'panel', j.id);
+    assert.ok(!fs.existsSync(marker), fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8') : '');
+  });
+
   test('verify-only members are not reviewed', async () => {
     const p = await project();
     const j = await setup(p, { verifyOnly: true });
@@ -232,6 +266,22 @@ describe('cross-repo review: member panels', { concurrency: 4 }, () => {
     assert.equal(v.complete, true, JSON.stringify(v));
     assert.ok(!('nope:code' in v.reviewers));
     assert.ok(!fs.existsSync(path.join(j.dir, 'review', 'round-1', 'nope.code.md')));
+  });
+
+  test('the Lens repo line names the computed worktree, never a stored decoy', { skip: noStep }, async () => {
+    const p = await project();
+    const j = await setup(p, { libFiles: DSP });
+    libPanel(p, [{ name: 'realtime', paths: ['src/**'] }], { realtime: '# Realtime\n' });
+    await p.f('job', 'panel', j.id);
+    await p.f('job', 'scope', j.id);
+    // job.json is session-writable: point the stored member worktree at the clone itself.
+    updateJob(p.root, j.id, (job) => {
+      job.repos[1].worktree = p.lib;
+    });
+    const spawns = await reviewSpawns(p, j.id);
+    const s = spawns['reviewer:lib:realtime'];
+    assert.ok(s, Object.keys(spawns).join(','));
+    assert.deepEqual(lines(s.brief, 'Lens repo: '), ['Lens repo: lib · worktree none · base main']);
   });
 
   test('member panel config is size-capped, regular-file-only and confined to the clone', async () => {

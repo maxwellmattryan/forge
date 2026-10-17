@@ -3,7 +3,7 @@
 import path from 'node:path';
 import { autoMerge, lensNeedsApp, resolveEffort } from './config.ts';
 import { jobDir, reviewDir } from './jobs.ts';
-import { memberEntry, memberRepos } from './job-repos.ts';
+import { memberEntry, memberRepos, trustedMemberWorktree } from './job-repos.ts';
 import { reviewFileName, reviewedRepoNames, splitLens } from './lens.ts';
 import { lensChecklists } from './member-panel.ts';
 import { paths, exists } from './paths.ts';
@@ -159,7 +159,11 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
       const extra = [`Lens: ${lens}`, `Checklist: ${input.checklists[lens] ?? 'none'}`, `Scope: ${p('scope')}`];
       const lensRepo = splitLens(lens)?.repo;
       const member = lensRepo ? memberEntry(j, lensRepo) : null;
-      if (member) extra.push(`Lens repo: ${member.repo} · worktree ${member.worktree ?? 'none'} · base ${member.base ?? 'none'}`);
+      if (member) {
+        // The computed path, not job.json's: the session can write job.json, and verdicts trusts the same value.
+        const wt = trustedMemberWorktree(input.root, c, j, member.repo) ?? 'none';
+        extra.push(`Lens repo: ${member.repo} · worktree ${wt} · base ${member.base ?? 'none'}`);
+      }
       if (lensNeedsApp(c, lens) && c.commands.dev) extra.push(`Dev server: http://localhost:${j.port ?? c.ports.base}`);
       // The integration review stays root-only and has its own Diff line below.
       if (input.paths.scopeDiff && !ctx.integration) extra.push(`Diff: ${p('scopeDiff')} (every job repo; member paths are prefixed <repo>/)`);
