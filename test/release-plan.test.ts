@@ -3,13 +3,14 @@
 // fakes spawn, so nothing here runs a tool or touches a remote.
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawn as spawnChild, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { defaults } from '../lib/config.ts';
-import { type GitReader, type RepoInput, type ReleaseStep, planRelease, readManifestPackage, renderReleaseMd, stepsFor, writeReleasePlan } from '../lib/release-plan.ts';
-import { runRelease } from '../lib/release-run.ts';
+import { type GitReader, type RepoInput, type ReleaseStep, planHash, planRelease, readManifestPackage, releaseFiles, renderReleaseMd, stepsFor, writeReleasePlan } from '../lib/release-plan.ts';
+import { releaseStatus, runRelease } from '../lib/release-run.ts';
 import type { Config } from '../lib/types.ts';
 
 // A suite run from a daemon session inherits its marker; this file runs no CLI, so it drops it itself.
@@ -137,6 +138,10 @@ describe('release plan', { concurrency: 4 }, () => {
       assert.match((readManifestPackage(d, 'npm') as { reason: string }).reason, /private/);
       fs.writeFileSync(path.join(d, 'package.json'), JSON.stringify({ name: '--registry=evil', version: '1.0.0' }));
       assert.deepEqual(readManifestPackage(d, 'npm'), { reason: 'package.json has no valid name' });
+      for (const name of ['-v', '@-x/y', '-'])
+        fs.writeFileSync(path.join(d, 'package.json'), JSON.stringify({ name, version: '1.0.0' })), assert.deepEqual(readManifestPackage(d, 'npm'), { reason: 'package.json has no valid name' }, name);
+      fs.writeFileSync(path.join(d, 'Cargo.toml'), '[package]\nname = "--offline"\nversion = "1.0.0"\n');
+      assert.deepEqual(readManifestPackage(d, 'cargo'), { reason: 'Cargo.toml has no valid [package] name' });
       fs.writeFileSync(path.join(d, 'Cargo.toml'), '[workspace.package]\nversion = "9.9.9"\n[package]\nname = "bbx_core" # the core\nversion = "0.4.1"\n[dependencies]\nname = "x"\n');
       assert.deepEqual(readManifestPackage(d, 'cargo'), { name: 'bbx_core', version: '0.4.1' });
       fs.writeFileSync(path.join(d, 'Cargo.toml'), '[workspace]\nmembers = ["a"]\n');
@@ -234,6 +239,112 @@ describe('release plan', { concurrency: 4 }, () => {
       assert.notEqual(hash(config({ ...base, command: 'git tag v2' }, { mechanism: 'changesets' })), h, 'release.command');
       assert.notEqual(hash(config(base, { mechanism: 'changesets', registry: 'none' })), h, "a member's release key");
       assert.notEqual(hash(config(base, { mechanism: 'changesets' }, 'lib-on-app')), h, 'the order');
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('a planted selection is refused before git runs', async () => {
+    const p = project();
+    try {
+      fs.mkdirSync(path.join(p.root, '.forge'));
+      pkg(p.root, 'app');
+      const c = config({ mechanism: 'tag', command: 'git tag v1' });
+      writeReleasePlan(p.root, c, { kind: 'all' }, opts(p));
+      const files = releaseFiles(p.root);
+      const good = JSON.parse(fs.readFileSync(files.json, 'utf8'));
+      const calls: string[][] = [];
+      const git: GitReader = (_d, args) => (calls.push(args), { ok: true, stdout: '' });
+      // A self-consistent hash: the selection is what an attacker who can write .forge/runtime/ controls.
+      const plant = (selection: unknown) => {
+        const planted = { ...good, selection };
+        planted.hash = planHash(planted);
+        fs.writeFileSync(files.json, JSON.stringify(planted));
+      };
+      const cases: [unknown, RegExp][] = [
+        [{ kind: 'since', tag: '--output=x' }, /selection\.tag "--output=x" is not a safe tag name.*re-run forge release plan/],
+        [{ kind: 'since', tag: '-x' }, /is not a safe tag name/],
+        [{ kind: 'job', job: '../../x' }, /selection\.job "\.\.\/\.\.\/x" is not a valid job id; re-run forge release plan/],
+        [{ kind: 'job', job: '-x' }, /is not a valid job id/],
+      ];
+      for (const [selection, err] of cases) {
+        plant(selection);
+        assert.throws(() => releaseStatus(p.root, c, { ...opts(p), git }), err);
+        if (process.platform !== 'win32') await assert.rejects(runRelease(p.root, c, { ...opts(p), git, interactive: false, confirm: async () => false, echo: () => {} }), err);
+      }
+      assert.deepEqual(calls, [], 'no git command ran');
+      for (const d of [p.root, p.lib, process.cwd()]) assert.deepEqual(fs.readdirSync(d).filter((f) => f.startsWith('--output')), [], d);
+      assert.equal(fs.existsSync(files.state), false);
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('plan --force discards an unreadable state.json', () => {
+    const p = project();
+    try {
+      fs.mkdirSync(path.join(p.root, '.forge'));
+      pkg(p.root, 'app');
+      const c = config({ mechanism: 'tag', command: 'git tag v1' });
+      writeReleasePlan(p.root, c, { kind: 'all' }, opts(p));
+      const files = releaseFiles(p.root);
+      for (const bad of ['{not json', JSON.stringify({ version: 99 })]) {
+        fs.writeFileSync(files.state, bad);
+        assert.throws(() => writeReleasePlan(p.root, c, { kind: 'all' }, opts(p)), /re-run forge release plan --force/);
+        assert.ok(fs.existsSync(files.state), 'without --force it stays');
+        const lines: string[] = [];
+        writeReleasePlan(p.root, c, { kind: 'all' }, { ...opts(p), force: true, log: (l) => lines.push(l) });
+        assert.equal(fs.existsSync(files.state), false);
+        assert.deepEqual(lines, [`forge release plan: --force discarded an unreadable ${files.state}`]);
+      }
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('two takeovers of one stale lock: exactly one wins', { timeout: 60_000 }, async () => {
+    const p = project();
+    try {
+      const lock = path.join(p.root, '.forge', 'locks', 'release');
+      fs.mkdirSync(lock, { recursive: true });
+      const dead = spawnSync(process.execPath, ['-e', '']).pid;
+      fs.writeFileSync(path.join(lock, 'owner.json'), JSON.stringify({ pid: dead, startedAt: new Date().toISOString() }));
+      const go = path.join(p.root, 'go');
+      const mod = new URL('../lib/release-run.ts', import.meta.url).href;
+      // Each child waits for the go file, takes the lock once and holds it until its stdin closes, so
+      // neither sees the other's lock as a dead owner's.
+      const script = `import fs from 'node:fs';
+const { takeReleaseLock } = await import(${JSON.stringify(mod)});
+process.stdout.write('ready\\n');
+while (!fs.existsSync(${JSON.stringify(go)})) {}
+let out;
+try { takeReleaseLock(${JSON.stringify(p.root)}); out = 'won'; } catch (e) { out = e.code === 'owned' ? 'owned' : 'error ' + e.message; }
+process.stdout.write(out + '\\n');
+process.stdin.resume();
+process.stdin.on('end', () => process.exit(0));`;
+      const kids = [0, 1].map(() => spawnChild(process.execPath, ['--input-type=module', '-e', script], { stdio: ['pipe', 'pipe', 'inherit'] }));
+      const lines = kids.map((k) => {
+        let buf = '';
+        const want = (n: number) => new Promise<string[]>((resolve, reject) => {
+          const check = () => {
+            const l = buf.split('\n').filter(Boolean);
+            if (l.length >= n) resolve(l);
+          };
+          k.stdout!.on('data', (d) => ((buf += d), check()));
+          k.on('exit', (code) => reject(new Error(`child exited ${code}: ${buf}`)));
+          check();
+        });
+        return want;
+      });
+      await Promise.all(lines.map((w) => w(1)));
+      fs.writeFileSync(go, '');
+      const results = (await Promise.all(lines.map((w) => w(2)))).map((l) => l[1]).sort();
+      for (const k of kids) k.stdin!.end();
+      await Promise.all(kids.map((k) => new Promise((r) => (k.exitCode !== null ? r(null) : k.on('exit', r)))));
+      assert.deepEqual(results, ['owned', 'won']);
+      const owner = JSON.parse(fs.readFileSync(path.join(lock, 'owner.json'), 'utf8'));
+      assert.ok(kids.some((k) => k.pid === owner.pid), 'the winner owns the lock');
+      assert.deepEqual(fs.readdirSync(path.dirname(lock)).filter((f) => f.startsWith('release.')), [], 'no dir left aside');
     } finally {
       p.cleanup();
     }

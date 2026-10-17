@@ -6,6 +6,7 @@
 // that crashed before its checkpoint) is never run twice. Publish steps ask on a TTY unless the
 // repo sets `release.publish: allow`; nothing here fakes a TTY or skips the question.
 
+import crypto from 'node:crypto';
 import { spawn as nodeSpawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -105,30 +106,57 @@ export function takeReleaseLock(root: string): () => void {
       if ((e as NodeJS.ErrnoException).code === 'EEXIST') return false;
       throw e;
     }
-    fs.writeFileSync(owner, JSON.stringify({ pid: process.pid, startedAt: now() }) + '\n');
+    try {
+      fs.writeFileSync(owner, JSON.stringify({ pid: process.pid, startedAt: now() }) + '\n');
+    } catch (e) {
+      // A stale-lock taker moved the new dir aside before its owner was written: that taker puts it back.
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw e;
+    }
     return true;
   };
-  if (!take()) {
+  // A lock is stale when its owner pid is dead, or, with no readable owner, when it is older than LOCK_STALE_MS.
+  const staleOwner = (lockDir: string): { stale: boolean; pid: unknown } => {
     let pid: unknown = null;
     try {
-      pid = JSON.parse(fs.readFileSync(owner, 'utf8'))?.pid;
+      pid = JSON.parse(fs.readFileSync(path.join(lockDir, 'owner.json'), 'utf8'))?.pid;
     } catch {
       // missing or half-written: judged by the dir's age below
     }
-    let stale: boolean;
-    if (typeof pid === 'number') stale = !pidAlive(pid);
-    else {
-      let age = 0;
-      try {
-        age = Date.now() - fs.statSync(dir).mtimeMs;
-      } catch {
-        age = Infinity;
-      }
-      stale = age > LOCK_STALE_MS;
+    if (typeof pid === 'number') return { stale: !pidAlive(pid), pid };
+    let age = 0;
+    try {
+      age = Date.now() - fs.statSync(lockDir).mtimeMs;
+    } catch {
+      age = Infinity;
     }
-    if (!stale) throw new ForgeError(`another forge release run (pid ${typeof pid === 'number' ? pid : 'unknown'}) is in progress`, 'owned');
-    fs.rmSync(dir, { recursive: true, force: true });
-    if (!take()) throw new ForgeError('another forge release run took the release lock first', 'owned');
+    return { stale: age > LOCK_STALE_MS, pid };
+  };
+  const lost = () => new ForgeError('another forge release run took the release lock first', 'owned');
+  if (!take()) {
+    const seen = staleOwner(dir);
+    if (!seen.stale) throw new ForgeError(`another forge release run (pid ${typeof seen.pid === 'number' ? seen.pid : 'unknown'}) is in progress`, 'owned');
+    // Removing a stale lock and then taking it lets two takers both win: the second can remove the
+    // first one's fresh lock. A rename is atomic, so only one taker moves a given dir aside; and a
+    // taker that moved a dir that is no longer stale (someone else's fresh lock) puts it back.
+    const aside = `${dir}.stale-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+    try {
+      fs.renameSync(dir, aside);
+    } catch (e) {
+      // ENOENT: another taker moved it first; the rest are Windows refusing a dir in use.
+      if (['ENOENT', 'EPERM', 'EBUSY', 'EACCES'].includes((e as NodeJS.ErrnoException).code ?? '')) throw lost();
+      throw e;
+    }
+    if (!staleOwner(aside).stale) {
+      try {
+        fs.renameSync(aside, dir);
+      } catch {
+        // dir was taken again meanwhile; the moved lock's owner finds it gone at release and leaves it
+      }
+      throw lost();
+    }
+    fs.rmSync(aside, { recursive: true, force: true });
+    if (!take()) throw lost();
   }
   return () => {
     try {

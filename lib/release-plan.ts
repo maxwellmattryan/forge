@@ -13,6 +13,7 @@ import { memberCheck, readLocalConfig, resolveMemberPath, gitEnv, shellWord } fr
 import { paths } from './paths.ts';
 import { memberRepos } from './job-repos.ts';
 import { prRepos, repoOrder, type RepoKey } from './repo-order.ts';
+import { validJobId } from './requests.ts';
 import type { Config, ReleaseCadence, ReleaseMechanism, ReleaseRegistry, ReleaseStrategy } from './types.ts';
 import { ForgeError, assertSafeRef, fenced, now, run, safeText, writeJsonAtomic, writeTextAtomic } from './util.ts';
 
@@ -149,8 +150,9 @@ export function strategyOf(config: Config, repo: RepoKey): ReleaseStrategy | nul
 
 // Manifests are the human's own files, but their text lands in release.md and argv: only names and
 // versions a registry would accept go through.
-const NPM_NAME = /^(?:@[a-z0-9~-][a-z0-9._~-]*\/)?[a-z0-9~-][a-z0-9._~-]{0,213}$/;
-const CARGO_NAME = /^[A-Za-z0-9_-]{1,64}$/;
+// The first character is never `-`: the name goes into `npm view` / `cargo search` argv.
+const NPM_NAME = /^(?:@[a-z0-9~][a-z0-9._~-]*\/)?[a-z0-9~][a-z0-9._~-]{0,213}$/;
+const CARGO_NAME = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$/;
 const VERSION = /^\d[0-9A-Za-z.+-]{0,63}$/;
 const MANIFEST_MAX = 1024 * 1024;
 
@@ -526,6 +528,16 @@ export function readPlanFile(files: ReleaseFiles): ReleasePlan | null {
   const sel = p.selection;
   const okSel = sel && ((sel.kind === 'job' && typeof sel.job === 'string') || (sel.kind === 'since' && typeof sel.tag === 'string') || sel.kind === 'all');
   if (!okSel || typeof p.hash !== 'string' || !Array.isArray(p.repos)) throw new ForgeError(`${files.json} is not a release plan Forge wrote; re-run forge release plan`);
+  // Anyone who can write .forge/runtime/ can plant this file, and its selection reaches git argv and
+  // a path join before any hash is compared, so it passes the same rules as the CLI flags.
+  if (sel.kind === 'since') {
+    try {
+      assertSafeRef(sel.tag, 'selection.tag');
+    } catch (e) {
+      throw new ForgeError(`${files.json}: ${(e as Error).message.replace('safe branch name', 'safe tag name')}; re-run forge release plan`);
+    }
+  }
+  if (sel.kind === 'job' && !validJobId(sel.job)) throw new ForgeError(`${files.json}: selection.job ${JSON.stringify(sel.job.slice(0, 80))} is not a valid job id; re-run forge release plan`);
   return p as ReleasePlan;
 }
 
@@ -563,7 +575,17 @@ export function writeReleasePlan(root: string, config: Config, selection: Releas
   const files = releaseFiles(root);
   assertNoSymlinks(files);
   const plan = planRelease(root, config, selection, opts);
-  const state = readState(files);
+  const log = opts.log ?? ((l: string) => process.stderr.write(l + '\n'));
+  let state: ReleaseState | null;
+  try {
+    state = readState(files);
+  } catch (e) {
+    if (!opts.force) throw e;
+    // readState's own error says to use --force, so --force must get past an unreadable file.
+    log(`forge release plan: --force discarded an unreadable ${files.state}`);
+    fs.rmSync(files.state, { force: true });
+    state = null;
+  }
   if (state && state.planHash !== plan.hash) {
     // finishedAt is set only once every step is done; the counts come from the plan the state belongs to.
     if (!state.finishedAt) {
@@ -577,7 +599,7 @@ export function writeReleasePlan(root: string, config: Config, selection: Releas
       const steps = old && old.hash === state.planHash ? planSteps(old).map((s) => s.id) : Object.keys(state.steps);
       const done = steps.filter((id) => state.steps[id]?.status === 'done').length;
       if (!opts.force) throw new ForgeError(`a release run is in progress (${done}/${steps.length} steps done); finish it with forge release run, or re-plan with --force, which discards its checkpoints`);
-      (opts.log ?? ((l) => process.stderr.write(l + '\n')))(`forge release plan: --force discarded the checkpoints of plan ${state.planHash.slice(0, 12)} (${done}/${steps.length} steps done)`);
+      log(`forge release plan: --force discarded the checkpoints of plan ${state.planHash.slice(0, 12)} (${done}/${steps.length} steps done)`);
     }
     fs.rmSync(files.state, { force: true });
   }
