@@ -1184,6 +1184,33 @@ export interface PostJobEffortResponse {
   changed: boolean;
 }
 
+/** POST /api/jobs/:id/repos body: the handler in lib/server.ts. Decides every pending repo proposal. */
+export interface PostJobReposBody {
+  decision: 'approve' | 'reject';
+  note?: string | null;
+}
+
+/** POST /api/jobs/:id/repos reply: decideRepoProposals in lib/repo-proposals.ts, and whether the job was set running and resumed. */
+export interface PostJobReposResponse {
+  id: string;
+  decision: 'approve' | 'reject';
+  repos: string[];
+  added: string[];
+  pending: string[];
+  resumed: boolean;
+}
+
+/** One row of a job's repo-proposals.json: RepoProposal in lib/types.ts (lib/repo-proposals.ts writes it). */
+export interface RepoProposal {
+  repo: string;
+  reason: string;
+  proposedAt: string;
+  status: 'pending' | 'approved' | 'rejected';
+  decidedAt: string | null;
+  actor: EventActor | null;
+  note: string | null;
+}
+
 /** A focused job, as `forge focus` and /api/state report it: resolveFocus in lib/focus.ts. */
 export interface FocusFact {
   id: string;

@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { budgetRepo } from './repo-budget-fixture.ts';
+import { twoRepo } from './job-repos-fixture.ts';
 import { broadcast, distAllowlist, distDirFor, startServer } from '../lib/server.ts';
 import { DEV_DIST_DIR } from '../lib/paths.ts';
 import { TURN_LINE } from '../lib/daemon.ts';
@@ -2083,5 +2084,78 @@ test('job detail serves issues', async () => {
   } finally {
     await srv.close();
     repo.cleanup();
+  }
+});
+
+test('POST /api/jobs/:id/repos decides pending proposals', async () => {
+  const p = await twoRepo();
+  p.config((c) => c.repos.push({ name: 'tools', remote: 'https://example.com/tools.git', defaultBranch: 'main' }));
+  const parked = (await p.f('job', 'new', '--title', 'parked')).id;
+  await p.f('job', 'repo', 'propose', parked, 'lib', '--reason', '<script>alert(1)</script> core API');
+  await p.f('job', 'set', parked, '--stage', 'spec', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'repo proposal: lib');
+  const idle = (await p.f('job', 'new', '--title', 'nothing pending')).id;
+  const noClone = (await p.f('job', 'new', '--title', 'no clone')).id;
+  await p.f('job', 'repo', 'propose', noClone, 'tools', '--reason', 'cli flag');
+  const rejected = (await p.f('job', 'new', '--title', 'rejected')).id;
+  await p.f('job', 'repo', 'propose', rejected, 'lib', '--reason', 'maybe');
+  const srv = await startServer(p.root, { port: 0 });
+  const port = Number(new URL(srv.url).port);
+  const dir = (id: string) => path.join(p.root, '.forge', 'jobs', id);
+  const snapshot = () => [parked, idle, noClone].map((id) => ['job.json', 'events.jsonl'].map((f) => fs.readFileSync(path.join(dir(id), f), 'utf8')).join('\0'));
+  const resumes = () => {
+    const d = path.join(p.root, '.forge', 'runtime', 'requests');
+    return fs.existsSync(d) ? fs.readdirSync(d).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(fs.readFileSync(path.join(d, f), 'utf8'))).filter((r) => r.type === 'resume') : [];
+  };
+  try {
+    const token = await tokenOf(port);
+    const good = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (body, headers: any = good, job = parked) => hit(port, { method: 'POST', path: `/api/jobs/${job}/repos`, headers, body: typeof body === 'string' ? body : JSON.stringify(body) });
+    const before = snapshot();
+    const refusals: [number, any, any?, string?][] = [
+      [403, { decision: 'approve' }, { ...good, 'x-forge-token': 'wrong' }],
+      [403, { decision: 'approve' }, (({ 'x-forge-token': _t, ...rest }) => rest)(good)],
+      [403, { decision: 'approve' }, { ...good, origin: 'http://evil.example' }],
+      [415, { decision: 'approve' }, { ...good, 'content-type': 'text/plain' }],
+      [400, { decision: 'maybe' }],
+      [400, {}],
+      [400, []],
+      [400, 'null'],
+      [400, '{not json'],
+      [400, { decision: 'approve', note: 5 }],
+      [400, { decision: 'approve', note: 'x'.repeat(2001) }],
+      [404, { decision: 'approve' }, good, 'no-such-job'],
+      [404, { decision: 'approve' }, good, '_inbox'],
+      [409, { decision: 'approve' }, good, idle],
+      [409, { decision: 'reject' }, good, idle],
+      [409, { decision: 'approve' }, good, noClone],
+    ];
+    for (const [status, body, headers, job] of refusals) {
+      const r = await post(body, headers ?? good, job ?? parked);
+      assert.equal(r.status, status, `${JSON.stringify(body)} ${job ?? ''}: ${r.text}`);
+    }
+    assert.match(JSON.parse((await post({ decision: 'approve' }, good, noClone)).text).error, /repo tools: no path in \.forge\/local\.yml/);
+    assert.equal((await hit(port, { path: `/api/jobs/${parked}/repos` })).status, 404, 'GET is not a route');
+    assert.deepEqual(snapshot(), before, 'no refusal wrote anything');
+    assert.deepEqual(resumes(), []);
+
+    const ok = await post({ decision: 'approve', note: 'needed' });
+    assert.equal(ok.status, 200, ok.text);
+    assert.deepEqual(JSON.parse(ok.text), { id: parked, decision: 'approve', repos: ['lib'], added: ['lib'], pending: [], resumed: true });
+    const job = JSON.parse(fs.readFileSync(path.join(dir(parked), 'job.json'), 'utf8'));
+    assert.equal(job.state, 'running');
+    assert.equal(job.repos[1].repo, 'lib');
+    const human = p.events(parked).filter((e) => e.type === 'human');
+    assert.deepEqual(human.map((e) => [e.action, e.repos, e.note, e.actor.source]), [['approve-repos', ['lib'], 'needed', 'dashboard']]);
+    assert.deepEqual(resumes().map((r) => [r.job, r.from]), [[parked, 'dashboard']]);
+
+    // A job that never parked on the proposal is decided but not moved or resumed.
+    const no = await post({ decision: 'reject', note: null }, good, rejected);
+    assert.equal(no.status, 200, no.text);
+    assert.deepEqual(JSON.parse(no.text), { id: rejected, decision: 'reject', repos: ['lib'], added: [], pending: [], resumed: false });
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir(rejected), 'job.json'), 'utf8')).state, 'queued');
+    assert.equal(resumes().length, 1);
+  } finally {
+    await srv.close();
+    p.cleanup();
   }
 });
