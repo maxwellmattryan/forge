@@ -34,4 +34,4 @@ Append the answer under the questions in `questions.md`, `forge job human <job> 
 On a repo proposal park (`human`, reason starting `repo proposal:`), `rework` is a `revise` (above). Otherwise: `forge job human <job> rework --note "…"`, write the note to `feedback.md`, then `forge job set <job> --stage build --state running`. Step starts a new build round with it as input; this is allowed even after `maxRounds`. The round the rework opens runs build, verify, review and decide; a further round with no new rework parks on `rounds-exhausted` again. A `rework` on a job waiting on `conflicts` (the dashboard's "Fix conflicts now") is an `approve`.
 
 ## `cancel <job>`
-`forge job set <job> --state cancelled --reason "…"`, then `forge stop <job>`. Leave the worktree unless asked to remove it (`forge worktree remove <job>`).
+`forge job set <job> --state cancelled --reason "…"`, then `forge stop <job>`. Leave the worktree unless asked to remove it (`forge worktree remove <job>`, which also removes its per-job backing containers); to free those alone, `forge backing down <job>`.

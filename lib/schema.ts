@@ -8,8 +8,9 @@ import { REPO_NAME, isSafeBranch } from './member-repos.ts';
 import type { EventActor, Job, JobEvent, JobIssue, JobRepo, JobRepoPr, LoadedJob } from './types.ts';
 
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
+export { BACKING_ISOLATIONS } from './backing-config.ts';
 
-export const CONFIG_SCHEMA_VERSION = 18;
+export const CONFIG_SCHEMA_VERSION = 19;
 export const JOB_SCHEMA_VERSION = 13;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
@@ -190,6 +191,9 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
     if (!Array.isArray(r) || r.includes('gate:release')) return c;
     return { ...c, foreman: { ...c.foreman, reserved: [...r, 'gate:release'] } };
   },
+  // v19 adds backing, empty by default, so no v18 config changes; the bump lets older Forges refuse
+  // a config whose backing services they would ignore.
+  18: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {

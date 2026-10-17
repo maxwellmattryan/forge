@@ -111,3 +111,11 @@ test('repoGraph: one row per valid repos entry, with the components that depend 
   assert.deepEqual(repoGraph({ components: [] } as any), []);
   assert.deepEqual(repoGraph({ repos: 'x', components: [] } as any), []);
 });
+
+test('declared backing entries appear in the project graph', () => {
+  const components = [{ name: 'api', path: '.', kind: 'service', dependsOn: [{ backing: 'postgres', type: 'runtime' }] }];
+  const backing = [{ name: 'redis', isolation: 'shared', image: 'redis:7' }, { name: 'postgres', isolation: 'per-job', image: 'postgres:16' }, { name: 'queue', isolation: 'external', url: 'amqp://x' }, 'junk', { isolation: 'shared' }];
+  const r = projectGraph({ components, backing } as any);
+  assert.deepEqual(r.backing, ['postgres', 'queue', 'redis'], 'the sorted union of edge targets and declared names');
+  assert.deepEqual(Object.keys(r), ['components', 'backing', 'edges', 'problems'], 'only the content changes');
+});

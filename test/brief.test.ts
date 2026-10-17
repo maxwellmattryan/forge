@@ -382,3 +382,23 @@ test('planner and spec-writer prompts propose repos through the CLI', () => {
     assert.ok(text.includes('Never approve or reject a proposal yourself'), `${role}: never decides`);
   }
 });
+
+test('backing services line', () => {
+  const secret = ['pw', 'never', 'shown'].join('-');
+  const withBacking = (c: any) =>
+    (c.backing = [
+      { name: 'postgres', isolation: 'per-job', image: 'postgres:16', ports: [5432], env: { POSTGRES_PASSWORD: secret }, url: `postgres://u:${secret}@{host}:{port}/app` },
+      { name: 'redis', isolation: 'shared', image: 'redis:7', ports: [6379] },
+      { name: 'queue', isolation: 'external', url: 'amqp://mq.internal:5672' },
+    ]);
+  const f = { ...fixture({ config: withBacking }), backing: { job: { v: 1 as const, ports: { postgres: { 5432: 4101 } } }, shared: { v: 1 as const, ports: { redis: { 6379: 4150 } } } } };
+  const line = 'Backing services: postgres per-job 127.0.0.1:4101; redis shared 127.0.0.1:4150; queue external. Reach them through $FORGE_BACKING_<NAME>_* in configured commands.';
+  for (const [role, ctx] of [['builder', {}], ['builder', { rework: ['review'] }], ['reviewer:code', { lens: 'code' }]] as [string, RoleContext][]) {
+    const b = brief(f, role, ctx);
+    has(b, line);
+    assert.ok(!b.includes(secret) && !b.includes('mq.internal') && !b.includes('postgres://'), 'no env value or url');
+  }
+  // Not up yet: names and isolations only.
+  has(brief({ ...f, backing: { job: { v: 1, ports: {} }, shared: { v: 1, ports: {} } } }, 'builder'), 'Backing services: postgres per-job; redis shared; queue external. Reach them through $FORGE_BACKING_<NAME>_* in configured commands.');
+  for (const role of ['builder', 'reviewer:code']) assert.ok(!brief(fixture(), role, { lens: 'code' }).includes('Backing services'), 'absent without entries');
+});

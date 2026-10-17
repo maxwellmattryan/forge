@@ -359,6 +359,8 @@ export const CONFIG_DISCLOSURE: Record<string, Disclosure> = {
   // Remotes can name private hosts and repos, so support bundles hide them like resources.
   repos: 'url',
   checkout: 'command',
+  // Images, env values and urls can name private hosts or carry credentials.
+  backing: 'command',
   downstream: 'plain',
   infra: 'plain',
   'infra.allowed': 'command',

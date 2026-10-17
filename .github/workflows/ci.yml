@@ -155,6 +155,8 @@ jobs:
             test/member-intake.test.ts: spawns a fake gh, a sh script
             test/interim-cli.test.ts: drives member repo worktrees, which test/job-repos.test.ts covers only off Windows
             test/interim-pr.test.ts: spawns a fake gh, a sh script
+            test/backing-cli.test.ts: spawns a fake docker sh script on PATH
+            test/backing.test.ts: runs command templates through sh
             test/interim-gitref.test.ts: spawns a fake gh, a sh script
             test/interim-canary.test.ts: spawns a fake gh and npm, sh scripts
             test/links-cli.test.ts: runs command templates through sh
