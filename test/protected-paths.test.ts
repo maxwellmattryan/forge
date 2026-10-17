@@ -40,11 +40,11 @@ describe('the policy', () => {
   });
 
   test('config v5 migrates to v7 unchanged', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 15);
+    assert.equal(CONFIG_SCHEMA_VERSION, 16);
     const v5 = { schemaVersion: 5, git: { base: 'trunk' }, approver: { alwaysEscalate: ['x'] } };
     const { config, from } = migrateConfig(structuredClone(v5));
     assert.equal(from, 5);
-    assert.deepEqual(config, { ...v5, schemaVersion: 15, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
+    assert.deepEqual(config, { ...v5, schemaVersion: 16, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
   });
 
   test('invalid policy shapes are reported', () => {
