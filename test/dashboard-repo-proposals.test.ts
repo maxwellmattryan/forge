@@ -2,7 +2,7 @@
 // repo-proposals.json (agent-written job state), and the POST that decides every pending proposal.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isRepoProposal, parseRepoProposals, postRepoDecision, proposalTone } from '../dashboard/src/lib/repo-proposals.ts';
+import { isRepoProposal, parseRepoProposals, pendingRepos, postRepoDecision, proposalTone } from '../dashboard/src/lib/repo-proposals.ts';
 import { inboxActions, inboxDoc, inboxKind, showsNote } from '../dashboard/src/lib/view.ts';
 
 const parked = { id: 'j', state: 'waiting', waitingOn: 'human', reason: 'repo proposal: lib, tools', round: 0 } as any;
@@ -47,22 +47,33 @@ test('parseRepoProposals keeps well-formed rows and drops the rest', () => {
   assert.deepEqual(['pending', 'approved', 'rejected'].map((s) => proposalTone(s as any)), ['you', 'ok', 'muted']);
 });
 
-test('postRepoDecision posts the decision and the note, and throws the server error', async () => {
+test('pendingRepos lists only the pending rows the drawer shows', () => {
+  const rows = parseRepoProposals(JSON.stringify({ proposals: [
+    { repo: 'lib', status: 'pending', reason: '' },
+    { repo: 'tools', status: 'rejected', reason: '' },
+    { repo: '../evil', status: 'pending', reason: '' },
+    { repo: 'docs', status: 'pending', reason: '' },
+  ] }));
+  assert.deepEqual(pendingRepos(rows), ['lib', 'docs']);
+  assert.deepEqual(pendingRepos([]), []);
+});
+
+test('postRepoDecision posts the decision, the shown repos and the note, and throws the server error', async () => {
   const calls: any[] = [];
   const reply = (status: number, body: unknown) => async (url: string, init: any) => {
     calls.push({ url, init });
     return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status });
   };
   const ok = { id: 'a b', decision: 'approve', repos: ['lib'], added: ['lib'], pending: [], resumed: true };
-  assert.deepEqual(await postRepoDecision('a b', 'approve', '  ship it ', 'tok', reply(200, ok) as any), ok);
-  await postRepoDecision('a', 'reject', '   ', 'tok', reply(200, { ...ok, decision: 'reject' }) as any);
+  assert.deepEqual(await postRepoDecision('a b', 'approve', ['lib'], '  ship it ', 'tok', reply(200, ok) as any), ok);
+  await postRepoDecision('a', 'reject', ['lib', 'tools'], '   ', 'tok', reply(200, { ...ok, decision: 'reject' }) as any);
   assert.deepEqual(
     calls.map((c) => [c.url, c.init.method, c.init.headers['x-forge-token'], c.init.headers['content-type'], c.init.body]),
     [
-      ['/api/jobs/a%20b/repos', 'POST', 'tok', 'application/json', '{"decision":"approve","note":"ship it"}'],
-      ['/api/jobs/a/repos', 'POST', 'tok', 'application/json', '{"decision":"reject","note":null}'],
+      ['/api/jobs/a%20b/repos', 'POST', 'tok', 'application/json', '{"decision":"approve","repos":["lib"],"note":"ship it"}'],
+      ['/api/jobs/a/repos', 'POST', 'tok', 'application/json', '{"decision":"reject","repos":["lib","tools"],"note":null}'],
     ],
   );
-  await assert.rejects(postRepoDecision('a', 'approve', '', 'tok', reply(409, { error: 'repo tools: no path' }) as any), /repo tools: no path/);
-  await assert.rejects(postRepoDecision('a', 'approve', '', 'tok', reply(500, 'boom') as any), /boom/);
+  await assert.rejects(postRepoDecision('a', 'approve', ['lib'], '', 'tok', reply(409, { error: 'repo tools: no path' }) as any), /repo tools: no path/);
+  await assert.rejects(postRepoDecision('a', 'approve', ['lib'], '', 'tok', reply(500, 'boom') as any), /boom/);
 });

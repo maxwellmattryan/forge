@@ -1902,9 +1902,10 @@ export interface PostJobEffortResponse {
   changed: boolean;
 }
 
-/** POST /api/jobs/:id/repos body: the handler in lib/server.ts. Decides every pending repo proposal. */
+/** POST /api/jobs/:id/repos body: the handler in lib/server.ts. `repos` are the names the drawer listed, which must be the whole pending set. */
 export interface PostJobReposBody {
   decision: 'approve' | 'reject';
+  repos: string[];
   note?: string | null;
 }
 

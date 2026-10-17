@@ -8,14 +8,14 @@ import { budgetCmd, enforceBudget } from '../budget.ts';
 import { OFFICE_REFUSAL, daemonClaimOpts, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
 import { OFFICE_JOB_COMMANDS, checkForemanDecision, checkOfficeSetFor, gateClassFor, inOffice, isGateClass, maybeEnqueueGate, reservedFor } from '../foreman.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
-import { agentOutputMissing, attachAgent, claimJob, createJob, ownerStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
+import { agentOutputMissing, attachAgent, claimJob, createJob, ownerStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir, readEvents } from '../jobs.ts';
 import { logSecrets, scanAgentOutputs } from '../secrets.ts';
 import { issueLinkStatus } from '../issue-link.ts';
 import { checkIssueRef, isSafeUrl, issueUrl } from '../issue-ref.ts';
 import { githubHost, localRepoSlug } from '../repo-slug.ts';
 import { exists } from '../paths.ts';
 import { addJobRepo, refuseJobRepoInDaemon, removeJobRepo } from '../job-repos.ts';
-import { decideRepoProposals, proposeJobRepo } from '../repo-proposals.ts';
+import { decideRepoProposals, pendingRepoProposals, proposeJobRepo } from '../repo-proposals.ts';
 import { resolveLinks } from '../links.ts';
 import { COMPLEXITIES, EFFORTS, OFFICE_GATES } from '../schema.ts';
 import { daemonScope } from '../requests.ts';
@@ -161,16 +161,16 @@ const JOB: HelpGroup = {
     {
       command: 'job human',
       args: '<id> <action> [--note N] [--link <ref>|new|none] [--reason R] [--repo A[,B]] [--actor human|foreman]',
-      summary: 'record a human decision: approve-spec, revise-spec, approve-split, revise-split, approve, rework, answer, or approve-repos or reject-repos on pending repo proposals (approve adds each repo to the job)',
+      summary: 'record a human decision: approve-spec, revise-spec, approve-split, revise-split, approve, rework, answer, or approve-repos or reject-repos on the pending repo proposals named by --repo (approve adds each repo to the job)',
       flags: [
         ['--note N', 'the human\'s note'],
-        ['--repo A[,B]', 'with approve-repos or reject-repos: only these pending repos (default: every pending one)'],
+        ['--repo A[,B]', 'with approve-repos or reject-repos (required): the pending repos you decide; with --actor foreman, every pending one'],
         ['--link <ref>|new|none', 'with approve or approve-spec: link an issue, create one, or record that none is needed'],
         ['--reason R', 'why, with --link none'],
         ['--actor human|foreman', 'who decided (default human); foreman only from the office daemon session, which must pass it'],
       ],
       exits: [
-        [1, 'no such job, a --link that cannot be made, a foreman decision the authority checks refuse, or approve-repos or reject-repos with nothing pending, a repo that is not pending, a failing clone check, or from a daemon session other than the office'],
+        [1, 'no such job, a --link that cannot be made, a foreman decision the authority checks refuse, or approve-repos or reject-repos with nothing pending, no --repo, a repo that is not pending, a foreman --repo that is not the whole pending set, a failing clone check, or from a daemon session other than the office'],
         [3, 'the tracker claim was lost to another job'],
         [5, 'gh failed (GitHub tracker)'],
       ],
@@ -178,7 +178,7 @@ const JOB: HelpGroup = {
     {
       command: 'job assist',
       args: '<id> --gate G',
-      summary: "the office session's forge:assistant spawn for a gate: model, effort and a brief of paths only; stale when the job no longer waits there. Read-only",
+      summary: "the office session's forge:assistant spawn for a gate: model, effort and a brief of paths only, and for repo-proposal the pending repos to pass as --repo; stale when the job no longer waits there. Read-only",
       flags: [['--gate G', `the gate class: ${OFFICE_GATES.join(', ')}`]],
       exits: [[1, 'no such job, an unknown gate, or a daemon session other than the office']],
     },
@@ -613,9 +613,11 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         if ('problem' in s) throw new ForgeError(s.problem);
         if (s.daemon && !inOffice()) throw new ForgeError(`forge job human ${action} decides which repos a job pushes to, which a daemon session may not do; decide in the dashboard or your own terminal`, 1);
         const actor = who === 'foreman' ? FOREMAN_ACTOR : currentActor(root);
-        const repos = flags.repo === undefined ? undefined : list(flags.repo);
-        if (flags.repo !== undefined && !repos?.length) throw new ForgeError('--repo needs one or more repo names', 'usage');
-        const decided = decideRepoProposals(root, config, jobId, action === 'approve-repos' ? 'approve' : 'reject', { repos, note: note ?? (rest.slice(2).join(' ') || null), actor });
+        // The decider names what it saw: never "every pending repo", which could include one proposed since.
+        const repos = flags.repo === undefined ? [] : list(flags.repo);
+        if (!repos.length) throw new ForgeError(`forge job human ${action} needs --repo A[,B]: the pending repos you decide (see repo-proposals.md)`, 1);
+        // The foreman decides the whole list its assist call returned; a person may name a subset.
+        const decided = decideRepoProposals(root, config, jobId, action === 'approve-repos' ? 'approve' : 'reject', { repos, exact: who === 'foreman', note: note ?? (rest.slice(2).join(' ') || null), actor });
         return { ok: true, ...decided };
       }
       // A rejected split re-plans as one job; recorded before the event so step never sees one without the other.
@@ -843,6 +845,8 @@ function assist(root: string, config: Config, job: Job, rawGate: unknown) {
     effort: resolveEffort(config, job, 'assistant').level,
     subagent: 'forge:assistant',
     brief: assistantBrief(root, config, job, gate, config.foreman?.reserved),
+    // The pending set from events: the foreman passes exactly this as --repo, so it never decides one it wasn't briefed on.
+    ...(gate === 'repo-proposal' && !stale ? { repos: pendingRepoProposals(job, readEvents(root, job.id)).map((r) => r.repo) } : {}),
   };
 }
 

@@ -1,17 +1,18 @@
 <!-- The repo-proposal gate's answers (step RP1): the proposals an agent made (repo-proposals.json), each with its status and
-     reason, and (with `buttons`, rendered after the note) Approve repos / Reject repos, which decide every pending one through
-     POST /api/jobs/:id/repos with the note.
+     reason, and (with `buttons`, rendered after the note) Approve repos / Reject repos, which decide the pending repos the list
+     shows (`shown`, bound by JobActions from the list instance) through POST /api/jobs/:id/repos with the note. The server
+     refuses (409) unless those are the whole pending set from the job's events, since the file is session-editable.
      Reasons and notes are agent-written job state: they render as text, never as markup. An error toasts the server's message. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
   import { api } from '../lib/util.ts';
   import { forgeToken, refresh } from '../lib/app.svelte.ts';
-  import { parseRepoProposals, postRepoDecision, proposalTone } from '../lib/repo-proposals.ts';
+  import { parseRepoProposals, pendingRepos, postRepoDecision, proposalTone } from '../lib/repo-proposals.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
   import type { RepoProposal } from '../lib/types.ts';
 
-  let { id, note = '', buttons = false }: { id: string; note?: string; buttons?: boolean } = $props();
+  let { id, note = '', buttons = false, shown = $bindable([]) }: { id: string; note?: string; buttons?: boolean; shown?: string[] } = $props();
 
   let rows = $state<RepoProposal[]>([]);
   let busy = $state(false);
@@ -20,9 +21,12 @@
     if (buttons) return;
     const job = id;
     rows = [];
+    shown = [];
     api<string>(`/api/jobs/${encodeURIComponent(job)}/file?path=${encodeURIComponent('repo-proposals.json')}`)
       .then((text) => {
-        if (job === id) rows = parseRepoProposals(typeof text === 'string' ? text : JSON.stringify(text));
+        if (job !== id) return;
+        rows = parseRepoProposals(typeof text === 'string' ? text : JSON.stringify(text));
+        shown = pendingRepos(rows);
       })
       .catch(() => {});
   });
@@ -30,7 +34,7 @@
   async function decide(decision: 'approve' | 'reject'): Promise<void> {
     busy = true;
     try {
-      const r = await postRepoDecision(id, decision, note, forgeToken());
+      const r = await postRepoDecision(id, decision, shown, note, forgeToken());
       toast(decision === 'approve' ? $t('repoProposal.approved', { repos: r.repos.join(', ') }) : $t('repoProposal.rejected', { repos: r.repos.join(', ') }));
       await refresh();
     } catch (e) {
@@ -43,8 +47,8 @@
 
 {#if buttons}
   <div class="flex flex-wrap gap-2">
-    <button class="btn primary" disabled={busy} onclick={() => decide('approve')}>{$t('repoProposal.approve')}</button>
-    <button class="btn" disabled={busy} onclick={() => decide('reject')}>{$t('repoProposal.reject')}</button>
+    <button class="btn primary" disabled={busy || !shown.length} onclick={() => decide('approve')}>{$t('repoProposal.approve')}</button>
+    <button class="btn" disabled={busy || !shown.length} onclick={() => decide('reject')}>{$t('repoProposal.reject')}</button>
   </div>
 {:else}
 <div class="flex flex-col gap-2">

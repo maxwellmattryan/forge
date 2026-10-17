@@ -8,10 +8,11 @@ import path from 'node:path';
 import { addJobRepo, memberClone, memberConfig, memberEntry, memberRepos } from './job-repos.ts';
 import { jobDir, loadJob, logEvent, logHumanEvent, readEvents } from './jobs.ts';
 import { REPO_NAME } from './member-repos.ts';
+import { paths } from './paths.ts';
 import { repoGraph } from './project.ts';
 import { daemonScope } from './requests.ts';
 import type { Config, EventActor, Job, JobEvent, RepoProposal } from './types.ts';
-import { ForgeError, fenced, safeText, writeJsonAtomic, writeTextAtomic } from './util.ts';
+import { ForgeError, fenced, safeText, withLock, writeJsonAtomic, writeTextAtomic } from './util.ts';
 
 export const PROPOSALS_MD = 'repo-proposals.md';
 export const PROPOSALS_JSON = 'repo-proposals.json';
@@ -114,35 +115,45 @@ export interface DecideResult {
 }
 
 /**
- * Approves (adds each repo through addJobRepo) or rejects pending proposals and logs one `human` event
- * with the repos and the actor. Every check, including each repo's clone check, runs before any write.
- * The callers own the authority check: the CLI refuses job and inbox sessions, the server is the dashboard.
+ * Approves (adds each repo through addJobRepo) or rejects the named pending proposals and logs one
+ * `human` event with the repos and the actor. The caller always names the repos the decider saw: every
+ * name must be pending, and with `exact` (the dashboard and the foreman, which decide a whole list at
+ * once) the names must be the whole pending set, so a repo proposed after the list was read, or hidden
+ * from an edited repo-proposals.json, is never decided unseen. It runs under the job's decision lock,
+ * and every check, including each repo's clone check, runs before any write. The callers own the
+ * authority check: the CLI refuses job and inbox sessions, the server is the dashboard.
  */
 export function decideRepoProposals(
   root: string,
   config: Config,
   id: string,
   decision: 'approve' | 'reject',
-  opts: { repos?: string[]; note?: string | null; actor: EventActor },
+  opts: { repos: string[]; exact?: boolean; note?: string | null; actor: EventActor },
 ): DecideResult {
-  const job = loadJob(root, id);
-  const pending = pendingRepoProposals(job, readEvents(root, id)).map((r) => r.repo);
-  if (!pending.length) throw new ForgeError(`job ${id} has no pending repo proposals`, 1);
-  const wanted = opts.repos?.length ? [...new Set(opts.repos)] : pending;
-  for (const name of wanted) if (!pending.includes(name)) throw new ForgeError(`repo ${JSON.stringify(String(name)).slice(0, 110)} has no pending proposal on job ${id} (pending: ${pending.join(', ')})`, 1);
-  if (decision === 'approve') {
-    if (closedFor(job)) throw new ForgeError(`job ${id} is at stage ${job.stage} (${job.state}); repos can be added only before its PR`, 1);
-    for (const name of wanted) {
-      memberConfig(config, name);
-      memberClone(root, config, name);
+  // Not the job.json `.lock`: addJobRepo takes that one inside, and withLock isn't re-entrant.
+  return withLock(path.join(paths(root).locks, `repo-decision-${id}`), () => {
+    const job = loadJob(root, id);
+    const pending = pendingRepoProposals(job, readEvents(root, id)).map((r) => r.repo);
+    if (!pending.length) throw new ForgeError(`job ${id} has no pending repo proposals`, 1);
+    const wanted = [...new Set(opts.repos)];
+    if (!wanted.length) throw new ForgeError(`name the repos you decide (pending on job ${id}: ${pending.join(', ')})`, 1);
+    for (const name of wanted) if (!pending.includes(name)) throw new ForgeError(`repo ${JSON.stringify(String(name)).slice(0, 110)} has no pending proposal on job ${id} (pending: ${pending.join(', ')})`, 1);
+    const unseen = pending.filter((name) => !wanted.includes(name));
+    if (opts.exact && unseen.length) throw new ForgeError(`job ${id} also has ${unseen.join(', ')} pending, which this decision did not list; reload and decide again`, 1);
+    if (decision === 'approve') {
+      if (closedFor(job)) throw new ForgeError(`job ${id} is at stage ${job.stage} (${job.state}); repos can be added only before its PR`, 1);
+      for (const name of wanted) {
+        memberConfig(config, name);
+        memberClone(root, config, name);
+      }
+      for (const name of wanted) addJobRepo(root, config, id, name, false);
     }
-    for (const name of wanted) addJobRepo(root, config, id, name, false);
-  }
-  const note = typeof opts.note === 'string' && opts.note.trim() ? opts.note.trim().slice(0, NOTE_MAX) : null;
-  logHumanEvent(root, id, 'human', { action: DECISION_ACTIONS[decision], repos: wanted, note }, opts.actor);
-  writeRepoProposalFiles(root, config, id);
-  const left = pendingRepoProposals(loadJob(root, id), readEvents(root, id)).map((r) => r.repo);
-  return { id, decision, repos: wanted, added: decision === 'approve' ? wanted : [], pending: left };
+    const note = typeof opts.note === 'string' && opts.note.trim() ? opts.note.trim().slice(0, NOTE_MAX) : null;
+    logHumanEvent(root, id, 'human', { action: DECISION_ACTIONS[decision], repos: wanted, note }, opts.actor);
+    writeRepoProposalFiles(root, config, id);
+    const left = pendingRepoProposals(loadJob(root, id), readEvents(root, id)).map((r) => r.repo);
+    return { id, decision, repos: wanted, added: decision === 'approve' ? wanted : [], pending: left };
+  });
 }
 
 const who = (a: EventActor | null): string => (a ? safeText(a.login ?? a.source, 100) : 'unknown');
@@ -168,7 +179,7 @@ export function writeRepoProposalFiles(root: string, config: Config, id: string)
     lines.push('', 'Reason:', '', fenced(safeText(r.reason, REASON_MAX)), '');
     if (r.note) lines.push('Note:', '', fenced(safeText(r.note, NOTE_MAX)), '');
   }
-  lines.push(`Decide in the dashboard, or in your own terminal: forge job human ${id} approve-repos|reject-repos [--repo <name>] --note "<why>". A rejected repo can't be proposed again on this job.`, '');
+  lines.push(`Decide in the dashboard, or in your own terminal: forge job human ${id} approve-repos|reject-repos --repo <name>[,<name>] --note "<why>". A rejected repo can't be proposed again on this job.`, '');
   const dir = jobDir(root, id);
   writeTextAtomic(path.join(dir, PROPOSALS_MD), lines.join('\n'));
   writeJsonAtomic(path.join(dir, PROPOSALS_JSON), { proposals: rows });

@@ -856,7 +856,7 @@ const rows: Row[] = [
   {
     name: 'G4 a repo proposal park names repo-proposals.md',
     fx: { job: job({ stage: 'spec', state: 'waiting', waitingOn: 'human', reason: 'repo proposal: lib' }), events: [PROPOSED(2)] },
-    want: { action: 'wait', waitingOn: 'human', tell: `j proposes repos (repo proposal: lib): ${path.join(JOB_DIR, 'repo-proposals.md')}. Approve or reject in the dashboard, or in your own terminal: forge job human j approve-repos|reject-repos --note …` },
+    want: { action: 'wait', waitingOn: 'human', tell: `j proposes repos (repo proposal: lib): ${path.join(JOB_DIR, 'repo-proposals.md')}. Approve or reject in the dashboard, or in your own terminal: forge job human j approve-repos|reject-repos --repo <names> --note …` },
   },
 
   // ---- Secret scan (SC1–SC3) and the human gate

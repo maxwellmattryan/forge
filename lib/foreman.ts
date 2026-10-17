@@ -8,7 +8,7 @@ import path from 'node:path';
 import { isForemanActor, jobDir, readEvents } from './jobs.ts';
 import { OFFICE_SCOPE, daemonScope, enqueue, listRequests } from './requests.ts';
 import { OFFICE_GATES } from './schema.ts';
-import { isRepoProposalPark, pendingRepoProposals } from './repo-proposals.ts';
+import { isRepoProposalPark, pendingRepoProposals, repoProposals } from './repo-proposals.ts';
 import { ForgeError } from './util.ts';
 import type { Config, ForgeRequest, GateClass, GateOwner, Job, JobEvent } from './types.ts';
 
@@ -114,9 +114,14 @@ export function sections(text: string, titles: string[]): string[] {
   return out;
 }
 
-/** What a reserved pattern is matched against for a gate: the reason, plus decision.md's Why and For the human on escalations. */
+/**
+ * What a reserved pattern is matched against for a gate: the reason, plus decision.md's Why and For the
+ * human on escalations, and the agent-written reasons of the pending proposals on a repo proposal.
+ */
 export function reservedTexts(root: string, job: Pick<Job, 'id' | 'reason'>, gate: GateClass | null): string[] {
   const texts = [job.reason ?? ''];
+  // From events, not repo-proposals.md: the reasons the assistant reads, without the session-editable copy.
+  if (gate === 'repo-proposal') texts.push(...repoProposals({ repos: [] }, readEvents(root, job.id)).filter((r) => r.status === 'pending').map((r) => r.reason));
   if (gate === 'escalation' || gate === 'rounds-exhausted') {
     const d = readDecision(root, job.id);
     // An unreadable decision.md can't be checked, so it counts as reserved.

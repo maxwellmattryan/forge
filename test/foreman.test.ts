@@ -608,18 +608,34 @@ test('repo-proposal is a derived gate class the foreman decides only when allowe
     assert.equal(g.length, 1);
     assert.deepEqual(g[0].args, { gate: 'repo-proposal', reserved: null });
     assert.equal(gateOwner(s.root, s.config(), loadJob(s.root, id)), 'foreman');
+    // A reserved pattern in an agent-written proposal reason keeps the gate with a human.
+    const cfg = { ...s.config(), foreman: { ...s.config().foreman, reserved: ['database migration'] } };
+    assert.equal(reservedFor(s.root, cfg, loadJob(s.root, id), 'repo-proposal'), null);
+    const other = s.job('Reserved reason', { stage: 'spec', state: 'running' });
+    logEvent(s.root, other, 'repo-proposed', { repo: 'lib', reason: 'core needs a Database Migration first' });
+    assert.equal(reservedFor(s.root, cfg, { ...loadJob(s.root, other), reason: 'repo proposal: lib' }, 'repo-proposal'), 'database migration');
     const a = await s.cli(OFFICE_SCOPE, 'job', 'assist', id, '--gate', 'repo-proposal');
     assert.equal(a.code, 0, a.out);
     assert.equal(a.json().stale, false);
     assert.ok(a.json().brief.includes(path.join(jobDir(s.root, id), 'repo-proposals.md')));
     assert.match(a.json().brief, /^Project repos \(JSON\): \[\{"repo":"lib","onJob":false,"components":\["core"\],"usedBy":\[\{"component":"app","repo":null,"type":"build"\}\]\}\]$/m);
+    assert.deepEqual(a.json().repos, ['lib'], 'the pending set from events, for --repo');
     // Only this gate's actions.
     const wrong = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'approve', '--actor', 'foreman', '--note', 'x');
     assert.equal(wrong.code, 1, wrong.out);
     assert.match(wrong.out, /approve is not a repo-proposal action \(approve-repos, reject-repos\)/);
-    const rejected = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'reject-repos', '--actor', 'foreman', '--note', 'not needed');
+    const unnamed = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'reject-repos', '--actor', 'foreman', '--note', 'not needed');
+    assert.equal(unnamed.code, 1, unnamed.out);
+    assert.match(unnamed.out, /needs --repo/);
+    // A repo proposed after the assistant was briefed: the foreman's list is no longer the pending set.
+    logEvent(s.root, id, 'repo-proposed', { repo: 'tools', reason: 'cli flag' });
+    const partial = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'reject-repos', '--repo', 'lib', '--actor', 'foreman', '--note', 'not needed');
+    assert.equal(partial.code, 1, partial.out);
+    assert.match(partial.out, /also has tools pending, which this decision did not list/);
+    assert.deepEqual(readEvents(s.root, id).filter((e) => e.type === 'human'), []);
+    const rejected = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'reject-repos', '--repo', 'lib,tools', '--actor', 'foreman', '--note', 'not needed');
     assert.equal(rejected.code, 0, rejected.out);
-    assert.deepEqual(readEvents(s.root, id).filter((e) => e.type === 'human').map((e) => [e.action, e.repos, e.actor]), [['reject-repos', ['lib'], { login: null, source: 'foreman' }]]);
+    assert.deepEqual(readEvents(s.root, id).filter((e) => e.type === 'human').map((e) => [e.action, e.repos, e.actor]), [['reject-repos', ['lib', 'tools'], { login: null, source: 'foreman' }]]);
     const resumed = await s.cli(OFFICE_SCOPE, 'job', 'set', id, '--state', 'running');
     assert.equal(resumed.code, 0, resumed.out);
     assert.equal(loadJob(s.root, id).state, 'running');

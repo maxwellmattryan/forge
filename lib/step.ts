@@ -621,7 +621,7 @@ export function gateTell(x: StepInput, waitingOn: WaitingOn): string {
       return prReviewTell(x);
     case 'human':
       if (reason.startsWith('repo proposal:'))
-        return `${id} proposes repos (${reason}): ${path.join(x.jobDir, 'repo-proposals.md')}. Approve or reject in the dashboard, or in your own terminal: forge job human ${id} approve-repos|reject-repos --note …`;
+        return `${id} proposes repos (${reason}): ${path.join(x.jobDir, 'repo-proposals.md')}. Approve or reject in the dashboard, or in your own terminal: forge job human ${id} approve-repos|reject-repos --repo <names> --note …`;
       if (reason.startsWith('protected paths'))
         return `${id} changed protected paths (${reason}). Diff: ${path.join(x.jobDir, 'protected.diff')}. /forge approve ${id} once a human has reviewed them, or /forge rework ${id} <note>`;
       if (reason.startsWith('secret scan'))

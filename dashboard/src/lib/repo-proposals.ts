@@ -46,9 +46,16 @@ export function parseRepoProposals(raw: string): RepoProposal[] {
   return rows;
 }
 
-/** POST /api/jobs/:id/repos: decides every pending proposal; throws with the server's `error`. */
-export async function postRepoDecision(id: string, decision: PostJobReposBody['decision'], note: string, token: string, fetchImpl: typeof fetch = fetch): Promise<PostJobReposResponse> {
-  const body: PostJobReposBody = { decision, note: note.trim() ? note.trim() : null };
+/** The pending repos among the rows the drawer lists: what Approve and Reject name, and nothing else. */
+export const pendingRepos = (rows: RepoProposal[]): string[] => rows.filter((r) => r.status === 'pending').map((r) => r.repo);
+
+/**
+ * POST /api/jobs/:id/repos with the repos the drawer listed; throws with the server's `error`. The server
+ * answers 409 unless they are the whole pending set from the job's events, so a repo the edited file hid,
+ * or one proposed since the list loaded, is never decided unseen.
+ */
+export async function postRepoDecision(id: string, decision: PostJobReposBody['decision'], repos: string[], note: string, token: string, fetchImpl: typeof fetch = fetch): Promise<PostJobReposResponse> {
+  const body: PostJobReposBody = { decision, repos, note: note.trim() ? note.trim() : null };
   const res = await fetchImpl(`/api/jobs/${encodeURIComponent(id)}/repos`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forge-token': token }, body: JSON.stringify(body) });
   const raw = await res.text();
   let parsed: unknown = null;

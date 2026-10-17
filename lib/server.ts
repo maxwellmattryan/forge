@@ -21,6 +21,7 @@ import type { GhRunner } from './github-preview.ts';
 import { daemonSessionIds, jobSessionEnv, ownerStatusWithProof } from './daemon-owner.ts';
 import { RUNNING_AGENT_MAX_MS, createJob, isActive, listJobs, loadJob, ownerStatus, progress, readEvents, jobDir, requestBody, setJob, setJobEffort } from './jobs.ts';
 import { decideRepoProposals, isRepoProposalPark } from './repo-proposals.ts';
+import { REPO_NAME } from './member-repos.ts';
 import { parseIssueRef } from './issue-ref.ts';
 import { paths, exists, DEV_DIST_DIR, PLUGIN_ROOT } from './paths.ts';
 import { API_VERSION, CONFIG_SCHEMA_VERSION, EFFORTS, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from './schema.ts';
@@ -110,6 +111,8 @@ const TEXT_EXT = new Set(['.md', '.log', '.patch', '.diff', '.json', '.jsonl', '
 const MAX_FILE = 2 * 1024 * 1024;
 /** POST /api/jobs/:id/repos: the longest note it records. */
 const REPO_NOTE_MAX = 2000;
+/** A decision lists at most this many repos: more than any project has members. */
+const REPO_LIST_MAX = 100;
 // Raster formats only: SVG can carry script, so it is never served as an image.
 const IMAGE_TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
 const MAX_IMAGE = 10 * 1024 * 1024;
@@ -414,13 +417,15 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         const id = rm[1];
         if (!validJobId(id) || !exists(path.join(jobDir(root, id), 'job.json'))) return jsonStatus(res, 404, { error: validJobId(id) ? `no job ${id}` : 'no such job' });
         const body = parsed.body;
-        if (!isObject(body) || (body.decision !== 'approve' && body.decision !== 'reject')) return jsonStatus(res, 400, { error: 'body must be {"decision": "approve"|"reject", "note"?: string}' });
+        if (!isObject(body) || (body.decision !== 'approve' && body.decision !== 'reject')) return jsonStatus(res, 400, { error: 'body must be {"decision": "approve"|"reject", "repos": [names], "note"?: string}' });
+        const repos = body.repos;
+        if (!Array.isArray(repos) || !repos.length || repos.length > REPO_LIST_MAX || !repos.every((r) => typeof r === 'string' && REPO_NAME.test(r))) return jsonStatus(res, 400, { error: `repos must be a list of 1 to ${REPO_LIST_MAX} repo names: the proposals you decide` });
         const note = body.note;
         if (note !== undefined && note !== null && (typeof note !== 'string' || note.length > REPO_NOTE_MAX)) return jsonStatus(res, 400, { error: `note must be a string of at most ${REPO_NOTE_MAX} characters, or null` });
         let decided: ReturnType<typeof decideRepoProposals>;
         try {
-          // The dashboard is a human's: every pending proposal, decided at once (the CLI's --repo covers subsets).
-          decided = decideRepoProposals(root, loadConfig(root).config, id, body.decision, { note: (note as string | null | undefined) ?? null, actor: dashboardActor() });
+          // Exactly the repos the drawer listed, or 409: a repo proposed since, or hidden from repo-proposals.json, is never approved unseen.
+          decided = decideRepoProposals(root, loadConfig(root).config, id, body.decision, { repos: repos as string[], exact: true, note: (note as string | null | undefined) ?? null, actor: dashboardActor() });
         } catch (e) {
           if (e instanceof ForgeError) return jsonStatus(res, 409, { error: e.message });
           throw e;
