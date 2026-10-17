@@ -8,7 +8,7 @@ import type { EventActor, Job, JobEvent, JobIssue, LoadedJob } from './types.ts'
 
 export { COMPONENT_KINDS, DEPENDENCY_TYPES } from './components.ts';
 
-export const CONFIG_SCHEMA_VERSION = 10;
+export const CONFIG_SCHEMA_VERSION = 11;
 export const JOB_SCHEMA_VERSION = 11;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
@@ -133,6 +133,14 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // part with its own commands, so each becomes a `service` component with no dependencies; its
   // name, path and commands are unchanged, so `forge run` and `forge verify` pick the same command.
   9: servicesToComponents,
+  // v11 adds member repos, empty by default, so a v10 config gains `repos: []` (an existing value is
+  // kept for validation to judge); the bump lets older Forges refuse a config whose member repos they
+  // would ignore. A v10 config may still carry `services`, which migrateConfig folded while 10 was
+  // current, so fold it here first.
+  10: (c) => {
+    const f = servicesToComponents(c);
+    return f && typeof f === 'object' && 'repos' in f ? f : { ...f, repos: [] };
+  },
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {

@@ -4,7 +4,8 @@
 import { run } from './util.ts';
 import type { Config } from './types.ts';
 
-const SEG = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+/** One `owner` or `name` segment of a GitHub `owner/name`. */
+export const SEG = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 const fromRemote = new Map<string, string | null>();
 
 const cleanSlug = (owner: string, repo: string): string | null => {

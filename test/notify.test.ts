@@ -14,11 +14,11 @@ const DASH = 'http://127.0.0.1:7400/#/pipeline';
 
 describe('notify config and payloads', { concurrency: 4 }, () => {
   test('a v7 config migrates to v8 with empty notify', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 10);
+    assert.equal(CONFIG_SCHEMA_VERSION, 11);
     const v7 = { schemaVersion: 7, git: { base: 'trunk' }, retention: { jobsDays: 30 } };
     const { config, from } = migrateConfig(structuredClone(v7));
     assert.equal(from, 7);
-    assert.deepEqual(config, { ...v7, schemaVersion: 10 }, 'nothing but schemaVersion changes');
+    assert.deepEqual(config, { ...v7, schemaVersion: 11, repos: [] }, 'only schemaVersion and the empty repos list change');
     assert.deepEqual(defaults().notify, { webhooks: [], command: null });
     assert.deepEqual(notifyProblems(defaults()), []);
   });

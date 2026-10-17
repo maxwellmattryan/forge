@@ -628,7 +628,7 @@ export interface ComponentDependency {
 /** One part of a repo: an entry of `components` (docs/CONFIG.md "Components"). */
 export interface ComponentConfig {
   name: string;
-  /** null or absent: the root repo. */
+  /** a `repos` name; null or absent: the root repo. */
   repo?: string | null;
   path: string;
   kind: ComponentKind;
@@ -636,6 +636,14 @@ export interface ComponentConfig {
   dependsOn?: ComponentDependency[];
   owners?: string[];
   notes?: string | null;
+}
+
+/** One member repo: an entry of `repos` (docs/CONFIG.md "Repos"). The root repo is implicit. */
+export interface MemberRepoConfig {
+  name: string;
+  remote: string;
+  defaultBranch: string;
+  tracker?: { kind: 'github' | 'none'; repo?: string | null } | null;
 }
 
 /** What `forge run <job> <name>` executes: defaults().commands in lib/config.ts. */
@@ -745,6 +753,7 @@ export interface Config {
   aiAttribution: 'forbid' | 'allow';
   resources: ResourceConfig[];
   components: ComponentConfig[];
+  repos: MemberRepoConfig[];
   infra: {
     mode: 'human' | 'plan-only' | 'agent';
     allowed: string[];

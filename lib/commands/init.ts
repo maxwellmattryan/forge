@@ -43,6 +43,20 @@ export function initWrite(root: string, answers: any, force: boolean): { ok: tru
   return withLock(configLock(root), () => writeInit(root, answers, force));
 }
 
+const LOCAL_YML_LINES = '# Machine-local paths (member repo clones); never committed.\nlocal.yml\n';
+
+/**
+ * Appends a `local.yml` line to an existing `.forge/.gitignore` that lacks one, leaving every other
+ * line alone: a repo initialized before member repos would otherwise commit its machine paths.
+ */
+function ignoreLocalYml(file: string): boolean {
+  if (!exists(file)) return false;
+  const text = readText(file);
+  if (text.split(/\r?\n/).some((l) => ['local.yml', '/local.yml'].includes(l.trim()))) return false;
+  fs.appendFileSync(file, (text && !text.endsWith('\n') ? '\n' : '') + LOCAL_YML_LINES);
+  return true;
+}
+
 function writeInit(root: string, answers: any, force: boolean): { ok: true; written: string[]; warnings: string[] } {
   const p = paths(root);
   if (exists(p.config) && !force) {
@@ -68,6 +82,10 @@ function writeInit(root: string, answers: any, force: boolean): { ok: true; writ
     fs.mkdirSync(path.dirname(dst), { recursive: true });
     fs.copyFileSync(src, dst);
     written.push(path.relative(root, dst));
+  }
+  if (ignoreLocalYml(path.join(p.dir, '.gitignore'))) {
+    const rel = path.relative(root, path.join(p.dir, '.gitignore'));
+    if (!written.includes(rel)) written.push(rel);
   }
   return { ok: true, written, warnings: modelOverlap(config).warnings };
 }

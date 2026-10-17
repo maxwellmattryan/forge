@@ -5,3 +5,5 @@ locks/
 runtime/
 # Archive records of finished jobs (forge job archive / prune); each holds a job's events.
 archive/
+# Machine-local paths (member repo clones); never committed.
+local.yml
