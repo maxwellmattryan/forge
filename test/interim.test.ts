@@ -36,6 +36,19 @@ describe('interim: pure helpers', { concurrency: 4 }, () => {
     assert.ok(Date.now() - t < 200, 'a 10k-character remote parses in linear time');
   });
 
+  test('remote credentials are dropped under every scheme', () => {
+    assert.equal(remoteUrl('ssh://git:pw@host/acme/lib.git'), 'ssh://host/acme/lib.git', 'a password never stays');
+    assert.equal(remoteUrl('ssh://git@host/acme/lib.git'), 'ssh://git@host/acme/lib.git', 'a bare ssh user stays');
+    assert.equal(remoteUrl('https://u:p@ss@github.com/acme/lib.git'), 'https://github.com/acme/lib.git', 'through the last @ of the authority');
+    assert.equal(remoteUrl('https://ghp_tok@github.com/acme/lib.git'), 'https://github.com/acme/lib.git', 'a token as the user name');
+    assert.equal(remoteUrl('git://u:p@host/lib.git'), 'git://host/lib.git');
+    assert.equal(remoteUrl('https://github.com/acme/lib@v1.git'), 'https://github.com/acme/lib@v1.git', 'an @ in the path is not userinfo');
+    const hostile = `ssh://${'@'.repeat(10_000)}${'a'.repeat(10_000)}`;
+    const t = Date.now();
+    remoteUrl(hostile);
+    assert.ok(Date.now() - t < 200, 'a 10k-character authority parses in linear time');
+  });
+
   test('pinCargo writes, replaces and refuses', () => {
     const base = '[package]\nname = "app"\n\n[dependencies]\nengine-core = "1"\n';
     const first = pinCargo(base, [pin(), pin(SHA, { source: 'https://github.com/acme/x', name: 'a-macro' })]);

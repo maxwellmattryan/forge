@@ -129,6 +129,18 @@ describe('interim strategies: git-ref', { concurrency: 4 }, () => {
     assert.equal(blocked.out.failure.name, 'interim');
   });
 
+  test('git-ref never pins a remote in the home directory', async () => {
+    const p = await project([{ ecosystem: 'npm', name: 'engine' }]);
+    const j = await ready(p);
+    p.commit(j.rootWt, { 'package.json': PKG });
+    // lib's bare remote sits under p.parent: as HOME, that is a local home path.
+    const r = await p.raw(['job', 'interim', j.id], { HOME: p.parent });
+    assert.equal(r.status, 0, r.stderr);
+    const st = JSON.parse(r.stdout);
+    assert.deepEqual(st.edges.map((e: any) => e.state), ['blocked']);
+    assert.match(st.edges[0].detail, /remote is a path in your home directory, which a pushed manifest must not name/);
+  });
+
   test('integrity accepts pins and still flags local overrides', async () => {
     const p = await project([
       { ecosystem: 'cargo', name: 'engine-core' },

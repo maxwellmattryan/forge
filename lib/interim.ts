@@ -39,7 +39,8 @@ export interface InterimResolution {
   cycle: RepoKey[] | null;
 }
 
-const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+/** A full commit id (sha1 or sha256): the only revision a pin or a publish accepts. */
+export const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 
 /** `repo lib`, or `the root repo`: how prose names a repo key. */
 export const repoLabel = (key: RepoKey): string => (key === null ? 'the root repo' : `repo ${key}`);
@@ -116,17 +117,33 @@ const SCP_LIKE = /^(?:([A-Za-z0-9._~-]{1,100})@)?([A-Za-z0-9.-]{2,253}):(?!\/\/)
 
 /**
  * A remote as a URL git, cargo and npm all accept: an absolute path becomes `file://<path>`, an
- * scp-like `user@host:path` becomes `ssh://user@host/path`, and a URL is kept, its credentials
- * dropped for http(s) (the result is committed). Null for anything else (a relative path).
+ * scp-like `user@host:path` becomes `ssh://user@host/path`, and a URL is kept without its
+ * credentials (the result is committed). Null for anything else (a relative path).
  */
 export function remoteUrl(remote: string): string | null {
   if (!remote || /[\s\u0000-\u001f\u007f]/.test(remote) || remote.startsWith('-')) return null;
-  if (URL_SCHEME.test(remote)) return /^(git\+)?https?:\/\//i.test(remote) ? remote.replace(/^((?:git\+)?https?:\/\/)[^/@]*@/i, '$1') : remote;
+  if (URL_SCHEME.test(remote)) return withoutCredentials(remote);
   if (remote.startsWith('/')) return `file://${remote}`;
   if (/^[A-Za-z]:[\\/]/.test(remote)) return `file:///${remote.replace(/\\/g, '/')}`;
   const scp = SCP_LIKE.exec(remote);
   if (scp) return `ssh://${scp[1] ? `${scp[1]}@` : ''}${scp[2]}/${scp[3].replace(/^\/+/, '')}`;
   return null;
+}
+
+/**
+ * A URL's userinfo dropped through the last `@` of its authority, so a raw `@` in a password can't
+ * leave the rest of it behind. Outside http(s) a bare user name stays (`ssh://git@host` needs it and
+ * it is no secret); a password never does, under any scheme.
+ */
+function withoutCredentials(url: string): string {
+  const scheme = URL_SCHEME.exec(url)![0];
+  const rest = url.slice(scheme.length);
+  const end = rest.search(/[/?#]/);
+  const at = (end === -1 ? rest : rest.slice(0, end)).lastIndexOf('@');
+  if (at === -1) return url;
+  const user = rest.slice(0, at);
+  const keep = !/^(git\+)?https?:\/\/$/i.test(scheme) && /^[A-Za-z0-9._~-]{1,100}$/.test(user) ? `${user}@` : '';
+  return `${scheme}${keep}${rest.slice(at + 1)}`;
 }
 
 /** npm's git dependency spec for a remote at a sha: `git+<url>#<sha>`, null when the remote has no URL form. */
