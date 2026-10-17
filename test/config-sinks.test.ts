@@ -180,7 +180,8 @@ describe('config sink renderers', { concurrency: 4 }, () => {
     assert.throws(() => renderMerge('json', '{"__proto__": {"x": 1}}', { a: 1 }, CTX), /merge base key "__proto__" is not allowed/);
     assert.throws(() => renderMerge('json', '{}', JSON.parse('{"a": {"constructor": {"y": 1}}}'), CTX), /values key "constructor" is not allowed/);
     assert.equal(({} as any).x, undefined);
-    assert.throws(() => renderMerge('json', '{"a":', { a: 1 }, CTX), /JSON/);
+    // A parse failure keeps the parser's message (it quotes the text) as `cause` only.
+    assert.throws(() => renderMerge('json', '{"a":', { a: 1 }, CTX), (e: Error) => e.message === 'the merge base does not parse as json' && e.cause instanceof SyntaxError);
     assert.throws(() => renderMerge('json', '[1]', { a: 1 }, CTX), /the merge base is not a map/);
     assert.throws(() => renderMerge('toml', null, { a: 1 }, CTX), /toml supports mode template only/);
   });
@@ -191,7 +192,7 @@ describe('config sink renderers', { concurrency: 4 }, () => {
     assert.deepEqual(yaml.parse(out), { server: { host: 'h', port: 4123, name: 'j1' }, keep: true, extra: { on: false } });
     assert.equal(out, yaml.stringify({ server: { host: 'h', port: 4123, name: 'j1' }, keep: true, extra: { on: false } }));
     assert.deepEqual(yaml.parse(renderMerge('yaml', null, { a: 'x' }, CTX)), { a: 'x' });
-    assert.throws(() => renderMerge('yaml', 'a: &anchor x\n', { a: 1 }, CTX), /YAML/);
+    assert.throws(() => renderMerge('yaml', 'a: &anchor x\n', { a: 1 }, CTX), (e: Error) => e.message === 'the merge base does not parse as yaml' && /YAML/.test((e.cause as Error).message));
   });
 
   test('json template must parse', () => {

@@ -205,13 +205,33 @@ describe('config sinks at run time', { concurrency: 4 }, () => {
       await refused([{ file: { path: 'app.toml', format: 'toml', mode: 'template', from: 'missing.template' } }], /config sink 0 of component "api": from services\/api\/missing\.template does not exist/);
       // A forged job.worktree.
       await refused([{ 'env-file': '.env.local', values: { A: 'x' } }], /config sinks need the job's own worktree/, (j) => updateJob(x.root, j.id, (job) => void (job.worktree = `${j.wt}${path.sep}`)));
-      // A merge base that does not parse names the file.
-      await refused([{ file: { path: 'config.json', format: 'json', mode: 'merge', from: 'app.toml.template' }, values: { a: 1 } }], /config sink 0 \(services\/api\/app\.toml\.template\): .*JSON/);
+      // A `from` that is a hard link (its content can come from anywhere on the filesystem).
+      await refused([{ file: { path: 'app.toml', format: 'toml', mode: 'template', from: 'linked.template' } }], /config sink 0 of component "api": from services\/api\/linked\.template must not be a hard link/, (j) => fs.linkSync(path.join(j.api, 'tracked.json'), path.join(j.api, 'linked.template')));
+      // A merge base that does not parse names the file, and a `from` file's parser message is kept.
+      await refused([{ file: { path: 'config.json', format: 'json', mode: 'merge', from: 'app.toml.template' }, values: { a: 1 } }], /config sink 0 \(services\/api\/app\.toml\.template\): the merge base does not parse as json: .*JSON/);
+      // A sink that fails validation is refused at run time too (`forge run` does not validate config).
+      await refused([{ env: { FORGE_JOB: 'x' } }], /config sinks are invalid: components "api"\.config\[0\]\.env variable "FORGE_JOB" can.t start with FORGE_/);
       // A reserved namespace fails at render with its issue.
       await refused([{ env: { DB: '{secret.db}' } }], /\{secret\.db\} needs secret references \(#197\), which this Forge does not support yet/);
     } finally {
       x.cleanup();
       fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('a garbled previous render is refused without quoting it', async () => {
+    const x = scratch([{ file: { path: 'config.json', format: 'json', mode: 'merge' }, values: { port: '{port}' } }]);
+    try {
+      const j = x.job();
+      const sentinel = `tok-${crypto.randomBytes(8).toString('hex')}`;
+      fs.writeFileSync(path.join(j.api, 'config.json'), `{"token": "${sentinel}"} trailing\n`);
+      const r = await forgeAsync(x.root, ['run', j.id, 'test']);
+      assert.notEqual(r.status, 0);
+      assert.match(r.stderr, /config sink 0 \(services\/api\/config\.json\): the merge base does not parse as json; delete it or fix it by hand/);
+      assert.equal((r.stdout + r.stderr).includes(sentinel), false, 'the previous render is never quoted');
+      assert.equal(fs.existsSync(path.join(j.api, 'ran.marker')), false);
+    } finally {
+      x.cleanup();
     }
   });
 

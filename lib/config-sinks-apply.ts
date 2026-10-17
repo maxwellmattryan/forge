@@ -10,7 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isOwnWorktreePath } from './config.ts';
-import { renderEnvFile, renderMerge, renderTemplate, resolveString } from './config-sinks.ts';
+import { renderEnvFile, renderMerge, renderTemplate, resolveString, sinkProblems } from './config-sinks.ts';
 import type { ExprContext } from './config-sinks.ts';
 import { jobDir } from './jobs.ts';
 import { writeIfChanged } from './links.ts';
@@ -82,6 +82,10 @@ function gitEnv(): NodeJS.ProcessEnv {
 export function applySinks(root: string, config: Config, job: Job, component: ComponentConfig, opts: ApplyOptions): AppliedSinks | null {
   const sinks = component.config;
   if (!Array.isArray(sinks) || !sinks.length) return null;
+  // `forge run` loads config without validating it, and the env-name rules (no `FORGE_*`, no `PORT`)
+  // are what keep a sink from overriding the job markers it is merged over.
+  const problems = sinkProblems(sinks, `components ${JSON.stringify(component.name)}.config`, component);
+  if (problems.length) throw new ForgeError(`config sinks are invalid: ${problems.join('; ')}`, 'config_invalid');
   if (!isOwnWorktreePath(root, config, job.id, job.worktree)) throw new ForgeError("config sinks need the job's own worktree");
   const worktree = job.worktree!;
   let worktreeReal: string;
@@ -121,7 +125,7 @@ export function applySinks(root: string, config: Config, job: Job, component: Co
     summary.files.push(out.rel);
   };
 
-  /** The text of a `from` file: a regular file (not a symlink) inside the worktree. */
+  /** The text of a `from` file: a regular file (not a symlink or a hard link) inside the worktree. */
   const readFrom = (i: number, rel: string): string => {
     const src = place(rel, `${label(i)} from`);
     let st: fs.Stats;
@@ -131,6 +135,8 @@ export function applySinks(root: string, config: Config, job: Job, component: Co
       throw new ForgeError(`${label(i)}: from ${src.rel} does not exist`);
     }
     if (!st.isFile()) throw new ForgeError(`${label(i)}: from ${src.rel} must be a regular file, not a symlink or directory`);
+    // A hard link resolves inside the worktree but reads a file from anywhere on the filesystem.
+    if (st.nlink > 1) throw new ForgeError(`${label(i)}: from ${src.rel} must not be a hard link`);
     if (!resolvesInside(worktreeReal, src.abs)) throw new ForgeError(`${label(i)}: from ${src.rel} resolves outside the job's worktree`);
     return fs.readFileSync(src.abs, 'utf8');
   };
@@ -167,7 +173,7 @@ export function applySinks(root: string, config: Config, job: Job, component: Co
       } else {
         const base = f.from ? readFrom(i, f.from) : currentText(f.path);
         const baseName = posix(path.join(component.path, f.from ?? f.path));
-        writeOutput(i, f.path, render(i, () => renderMerge(f.format, base, sink.values ?? {}, ctx), baseName));
+        writeOutput(i, f.path, render(i, () => renderMerge(f.format, base, sink.values ?? {}, ctx), { name: baseName, from: Boolean(f.from) }));
       }
     } else {
       runCommandSink(root, job, component, i, sink.command, resolved(i, sink.values), opts);
@@ -177,14 +183,19 @@ export function applySinks(root: string, config: Config, job: Job, component: Co
   return { env, summary };
 }
 
-/** Runs a renderer, turning its error into a ForgeError that names the sink (and the base file for a parse error). */
-function render<T>(i: number, fn: () => T, baseName?: string): T {
+/**
+ * Runs a renderer, turning its error into a ForgeError that names the sink and, for a merge, the base
+ * file. A parser's message quotes the text around the error: that is checkout content for a `from`
+ * file, but the previous render at `path` holds job values, so there only a fix hint is given.
+ */
+function render<T>(i: number, fn: () => T, base?: { name: string; from: boolean }): T {
   try {
     return fn();
   } catch (e) {
-    const msg = (e as Error).message;
-    const where = baseName ? ` (${baseName})` : '';
-    throw new ForgeError(`config sink ${i}${where}: ${msg}`);
+    const err = e as Error;
+    const where = base ? ` (${base.name})` : '';
+    const detail = err.cause instanceof Error ? (base?.from ? `: ${err.cause.message}` : '; delete it or fix it by hand') : '';
+    throw new ForgeError(`config sink ${i}${where}: ${err.message}${detail}`);
   }
 }
 

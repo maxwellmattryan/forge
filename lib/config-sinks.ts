@@ -235,10 +235,19 @@ function deepMerge(base: unknown, over: Record<string, unknown>): Record<string,
   return out;
 }
 
-/** The merge base parsed in `format`: a map, or `{}` for null text. Throws the parser's message. */
+/**
+ * The merge base parsed in `format`: a map, or `{}` for null text. A parse failure keeps the parser's
+ * message (which quotes the text around the error) as `cause` only, so the caller decides whether
+ * the base is safe to quote.
+ */
 function parseBase(format: SinkFormat, text: string | null): Record<string, unknown> {
   if (text === null || !text.trim()) return {};
-  const parsed = format === 'json' ? JSON.parse(text) : yaml.parse(text);
+  let parsed: unknown;
+  try {
+    parsed = format === 'json' ? JSON.parse(text) : yaml.parse(text);
+  } catch (e) {
+    throw new Error(`the merge base does not parse as ${format}`, { cause: e });
+  }
   if (parsed === null || parsed === undefined) return {};
   if (!isMap(parsed)) throw new Error(`the merge base is not a map`);
   return parsed;
