@@ -258,7 +258,7 @@ const JOB: HelpGroup = {
       args: '<id>',
       summary: "the job's local links (config dependsOn links), active or not, with the dependency dir or the reason",
       exits: [NO_JOB],
-      docs: ['Components', 'docs/CONFIG.md#components'],
+      docs: ['Local links', 'docs/CONFIG.md#local-links'],
       readme: true,
     },
     {

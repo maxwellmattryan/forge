@@ -26,7 +26,7 @@ Planned in M005, except where a config key exists today.
 | **job repo** | A repo the job changes, the root repo first and then each member repo a human adds with `forge job repo add`, so it gets its own worktree, verify evidence, branch and PR. | - |
 | **verify-only repo** | A job repo added with `--verify-only`, which the job checks out at its base to build and test against its changes without branching, pushing or opening a PR there. | - |
 | **checkout hook** | A command run once when a job's checkout of a repo is created (today's single-repo form; per-repo hooks are planned). | `worktrees.setup` |
-| **local link** | Wiring one job repo to build against a sibling job repo's checkout instead of a published version. | planned (M005) |
+| **local link** | Wiring one job repo to build against a sibling job repo's checkout instead of a published version, declared as `link` on a `components[].dependsOn[]` edge and applied by `forge run` and `forge verify`. | `components` |
 | **interim reference** | What a consumer job repo points at for a dependency changed in the same job until that dependency is released. | planned (M005) |
 | **interim strategy** | How an interim reference is made, one of `canary` (a published pre-release), `git-ref` (a pinned commit), `local` (local links, with the consumer PR held as a draft until release) or `sequential` (release the dependency first). | planned (M005) |
 
