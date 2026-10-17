@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { loadJob, jobDir, logEvent } from './jobs.ts';
+import { memberWorktree } from './job-repos.ts';
+import { reviewedRepoNames } from './lens.ts';
 import { exists } from './paths.ts';
 import type { Config, Job } from './types.ts';
 import { matchPolicy, policyRules } from './protected.ts';
@@ -29,6 +31,33 @@ export interface ScopeReport {
   /** Set instead when the policy is invalid; scope itself never fails on it. */
   protectedError?: string;
   file: string;
+  /** Only in a job with a reviewed member: each member's comparison point and counts, in job.repos order. */
+  repos?: RepoScope[];
+  /** Each reviewed member's HEAD; the root's is `head`. */
+  heads?: Record<string, string>;
+  /** The combined diff, relative to the job dir. */
+  diff?: string;
+}
+
+/** One reviewed member in scope and panel output. */
+export interface RepoScope {
+  repo: string;
+  base: string;
+  mergeBase: string;
+  head: string;
+  dirty: boolean;
+  changed: number;
+}
+
+/** A reviewed member's diff inputs: its checked worktree, comparison point, HEAD and changed files (repo-relative). */
+export interface RepoDiff {
+  repo: string;
+  cwd: string;
+  baseRef: string;
+  mergeBase: string;
+  head: string;
+  dirty: boolean;
+  changed: string[];
 }
 
 /**
@@ -190,6 +219,50 @@ export function committedChanges(cwd: string, mergeBase: string): string[] {
 }
 
 /**
+ * Every reviewed member's diff inputs, in job.repos order; none for a single-repo job. A member's
+ * worktree goes through memberWorktree's checks (a stored path that isn't Forge's computed one
+ * throws), and its base through resolveBase, so the comparison point is pinned as the root's is.
+ */
+export function reviewedRepoDiffs(root: string, config: Config, job: Pick<Job, 'id' | 'repos'>): RepoDiff[] {
+  const env = realHistoryEnv();
+  return reviewedRepoNames(job).map((name) => {
+    const { member, worktree: cwd } = memberWorktree(root, config, job, name);
+    const { baseRef, mergeBase } = resolveBase(cwd, config, { base: member.base });
+    const head = run('git', ['rev-parse', '--verify', 'HEAD^{commit}'], { cwd, env }).stdout.trim();
+    const dirty = run('git', ['status', '--porcelain'], { cwd, env }).stdout.trim() !== '';
+    return { repo: name, cwd, baseRef, mergeBase, head, dirty, changed: committedChanges(cwd, mergeBase) };
+  });
+}
+
+/** One section of scope.diff: `prefix` is '' for the root and `<repo>/` for a member. */
+export interface DiffSection {
+  label: string;
+  cwd: string;
+  baseRef: string;
+  mergeBase: string;
+  head: string;
+  prefix: string;
+}
+
+/**
+ * The combined unified diff reviewers read. Prefixes, context, colour, renames, external drivers and
+ * textconv are all pinned on the command line, because the worktree's git config is builder-writable
+ * and could otherwise drop the repo prefix or substitute a driver's output for the real change.
+ */
+export function writeScopeDiff(file: string, sections: DiffSection[]): void {
+  const env = realHistoryEnv();
+  const parts = sections.map((s) => {
+    const out = run(
+      'git',
+      ['-c', 'core.quotepath=off', 'diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-relative', '--no-renames', '-U3', `--src-prefix=a/${s.prefix}`, `--dst-prefix=b/${s.prefix}`, s.mergeBase, s.head, '--'],
+      { cwd: s.cwd, env },
+    ).stdout;
+    return `# repo ${s.label} base ${s.baseRef} @ ${s.mergeBase} · HEAD ${s.head}\n${out}`;
+  });
+  fs.writeFileSync(file, parts.join(''));
+}
+
+/**
  * Compares the committed diff since the merge-base with the spec's Approach paths and writes scope.md.
  * No job.json change; one `scope` event, so `forge job step` knows this round's scope is current.
  */
@@ -203,7 +276,10 @@ export function jobScope(root: string, config: Config, id: string): ScopeReport 
   const { baseRef, mergeBase } = resolveBase(cwd, config, job);
   const head = git(cwd, ['rev-parse', 'HEAD']);
   const dirty = git(cwd, ['status', '--porcelain']) !== '';
-  const changedFiles = committedChanges(cwd, mergeBase);
+  const rootChanged = committedChanges(cwd, mergeBase);
+  const members = reviewedRepoDiffs(root, config, job);
+  // Root files first, then each member's under its `<repo>/` prefix, so the Approach can name either.
+  const changedFiles = [...rootChanged, ...members.flatMap((m) => m.changed.map((f) => `${m.repo}/${f}`))];
 
   const specText = fs.readFileSync(specFile, 'utf8');
   const approach = approachSection(specText) !== null;
@@ -214,7 +290,8 @@ export function jobScope(root: string, config: Config, id: string): ScopeReport 
   let protectedError: string | undefined;
   try {
     const rules = policyRules(config);
-    prot = changedFiles.flatMap((f) => {
+    // Root files only: member protected paths are enforced by forge git, verify and pr open.
+    prot = rootChanged.flatMap((f) => {
       const m = matchPolicy(f, rules);
       return m ? [{ path: f, action: m.action, reason: m.reason }] : [];
     });
@@ -223,8 +300,17 @@ export function jobScope(root: string, config: Config, id: string): ScopeReport 
   }
 
   const file = path.join(dir, 'scope.md');
-  fs.writeFileSync(file, renderScope({ baseRef, mergeBase, head, dirty, approach, tokens, inside, outside, changed: changedFiles.length, prot, protectedError }));
-  logEvent(root, job.id, 'scope', { round: job.round, head });
+  const diffFile = path.join(dir, 'scope.diff');
+  const heads = Object.fromEntries(members.map((m) => [m.repo, m.head]));
+  if (members.length)
+    writeScopeDiff(diffFile, [
+      { label: 'root', cwd, baseRef, mergeBase, head, prefix: '' },
+      ...members.map((m) => ({ label: m.repo, cwd: m.cwd, baseRef: m.baseRef, mergeBase: m.mergeBase, head: m.head, prefix: `${m.repo}/` })),
+    ]);
+  // A single-repo job's reviewers read `forge git diff`; a combined diff left by an earlier run would mislead them.
+  else fs.rmSync(diffFile, { force: true });
+  fs.writeFileSync(file, renderScope({ baseRef, mergeBase, head, dirty, approach, tokens, inside, outside, changed: changedFiles.length, prot, protectedError, members }));
+  logEvent(root, job.id, 'scope', { round: job.round, head, ...(members.length ? { heads } : {}) });
   return {
     id: job.id,
     base: baseRef,
@@ -241,6 +327,9 @@ export function jobScope(root: string, config: Config, id: string): ScopeReport 
     protectedMore: Math.max(0, prot.length - LIST_LIMIT),
     ...(protectedError ? { protectedError } : {}),
     file: path.relative(root, file),
+    ...(members.length
+      ? { repos: members.map((m) => ({ repo: m.repo, base: m.baseRef, mergeBase: m.mergeBase, head: m.head, dirty: m.dirty, changed: m.changed.length })), heads, diff: path.relative(dir, diffFile) }
+      : {}),
   };
 }
 
@@ -256,14 +345,18 @@ function renderScope(s: {
   changed: number;
   prot: { path: string; action: string; reason: string }[];
   protectedError?: string;
+  members?: RepoDiff[];
 }): string {
+  const members = s.members ?? [];
   const list = (xs: string[]) => (xs.length ? xs.map((x) => `- \`${x}\``) : ['- none']);
   return [
     `SCOPE: ${s.outside.length} of ${s.changed} changed files outside spec Approach`,
     '',
     `Base ${s.baseRef} @ ${s.mergeBase.slice(0, 12)} · HEAD ${s.head.slice(0, 12)} · ${now()}`,
+    ...members.map((m) => `Repo ${m.repo}: base ${m.baseRef} @ ${m.mergeBase.slice(0, 12)} · HEAD ${m.head.slice(0, 12)}`),
     ...(s.approach ? [] : ['> spec.md has no Approach section: every changed file counts as out of scope.']),
     ...(s.dirty ? ['> Worktree has uncommitted changes; they are not included.'] : []),
+    ...members.filter((m) => m.dirty).map((m) => `> Repo ${m.repo} has uncommitted changes; they are not included.`),
     '',
     `## Protected (${s.prot.length})`,
     ...(s.protectedError ? [`- the policy is invalid: ${s.protectedError.replace(/[\x00-\x1f\x7f]/g, ' ')}`] : s.prot.length ? s.prot.map((p) => `- \`${p.path}\`: ${p.action} (${p.reason})`) : ['- none']),

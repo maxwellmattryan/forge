@@ -60,7 +60,7 @@ function realpathOfExisting(p: string): string {
 }
 
 /** Inside or equal: a worktree at the clone itself, or under it, is never a worktree of its own. */
-function within(parent: string, child: string): boolean {
+export function within(parent: string, child: string): boolean {
   const rel = path.relative(realpathOfExisting(parent), realpathOfExisting(child));
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
