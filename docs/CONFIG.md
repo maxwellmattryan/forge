@@ -231,7 +231,7 @@ policy:                      # enforced by the CLI, not a prompt (see "Protected
     - { paths: [package-lock.json, yarn.lock, pnpm-lock.yaml, Cargo.lock], action: escalate, reason: dependency lockfile }
     - { paths: ["**/.env*"], action: escalate, reason: environment files can hold credentials }
     - { paths: ["**/*.pem"], action: refuse, reason: private keys and certificates are never committed by Forge }
-    - { paths: [.forge/config.yml, .forge/secrets-allow.txt, .forge/trackers/**], action: refuse, reason: "Forge's own policy changes only by a human on the base branch" }
+    - { paths: [.forge/config.yml, .forge/secrets-allow.txt, .forge/trackers/**, .forge/ci/**], action: refuse, reason: "Forge's own policy changes only by a human on the base branch" }
 
 retention:                   # what Forge deletes and when; null keeps forever (see "Retention" below)
   jobsDays: null             # 1-3650: forge sync and forge dash archive finished jobs this many days old

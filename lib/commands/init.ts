@@ -57,6 +57,15 @@ function ignoreLocalYml(file: string): boolean {
   return true;
 }
 
+export const RELEASE_GATE_WARNING =
+  'seeded the release gate: commit .forge/ci/release-gate.mjs and .github/workflows/forge-release-gate.yml, then make the "release gate" check required in branch protection (docs/CONFIG.md "Release gate")';
+
+/** Whether the config pins any dependency (git-ref or canary, at the root or a member): only those leave a pin a CI check can see. */
+function seedsReleaseGate(config: any): boolean {
+  const repos: any[] = Array.isArray(config?.repos) ? config.repos : [];
+  return [config?.release?.interim, ...repos.map((r) => r?.release?.interim)].some((s) => s === 'git-ref' || s === 'canary');
+}
+
 function writeInit(root: string, answers: any, force: boolean): { ok: true; written: string[]; warnings: string[] } {
   const p = paths(root);
   if (exists(p.config) && !force) {
@@ -77,17 +86,27 @@ function writeInit(root: string, answers: any, force: boolean): { ok: true; writ
     [path.join(tpl, 'README.md'), path.join(p.dir, 'README.md')],
   ];
   if (config.tracker.kind === 'local') seeds.push([path.join(tpl, 'backlog.md'), path.join(root, config.tracker.local.path)]);
-  for (const [src, dst] of seeds) {
+  const gate: [string, string][] = seedsReleaseGate(config)
+    ? [
+        [path.join(tpl, 'release-gate', 'release-gate.mjs'), path.join(p.dir, 'ci', 'release-gate.mjs')],
+        [path.join(tpl, 'release-gate', 'forge-release-gate.yml'), path.join(root, '.github', 'workflows', 'forge-release-gate.yml')],
+      ]
+    : [];
+  let gateWritten = false;
+  for (const [src, dst] of [...seeds, ...gate]) {
     if (exists(dst)) continue;
     fs.mkdirSync(path.dirname(dst), { recursive: true });
     fs.copyFileSync(src, dst);
     written.push(path.relative(root, dst));
+    if (gate.some(([, g]) => g === dst)) gateWritten = true;
   }
   if (ignoreLocalYml(path.join(p.dir, '.gitignore'))) {
     const rel = path.relative(root, path.join(p.dir, '.gitignore'));
     if (!written.includes(rel)) written.push(rel);
   }
-  return { ok: true, written, warnings: modelOverlap(config).warnings };
+  const warnings = [...modelOverlap(config).warnings];
+  if (gateWritten) warnings.push(RELEASE_GATE_WARNING);
+  return { ok: true, written, warnings };
 }
 
 export function migrate(root: string): { changed: string[] } {
