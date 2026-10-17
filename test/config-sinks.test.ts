@@ -8,6 +8,7 @@ import { componentProblems } from '../lib/components.ts';
 import { loadConfig, validateConfig } from '../lib/config.ts';
 import { EXPRESSION_ROOTS, fillTemplate, renderEnvFile, renderMerge, renderTemplate, resolveString, resolveValue, sinkProblems } from '../lib/config-sinks.ts';
 import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
+import { run } from '../lib/util.ts';
 import * as yaml from '../lib/yaml.ts';
 
 const CTX = { job: 'j1', port: 4123, worktree: '/wt/j1', branch: 'forge/j1', base: 'main', component: { name: 'api', path: 'services/api', dir: '/wt/j1/services/api' } };
@@ -206,5 +207,16 @@ describe('config sink renderers', { concurrency: 4 }, () => {
     const text = '[server]\nport = {port}\nname = "{job}"\ntable = { x = 1 }\n';
     assert.equal(renderTemplate('toml', text, CTX, 'app.toml.template'), '[server]\nport = 4123\nname = "j1"\ntable = { x = 1 }\n');
     assert.equal(renderTemplate('yaml', 'job: "{job}"\n', CTX, 'a.yml'), 'job: "j1"\n');
+  });
+});
+
+describe('config sink commands', { concurrency: 4 }, () => {
+  test('a command that exits without reading its stdin keeps its exit status', () => {
+    // More input than the pipe buffer holds makes the EPIPE deterministic; a small stdin only races it.
+    const r = run('sh', ['-c', 'exit 3'], { input: 'x'.repeat(1 << 20), allowFail: true });
+    assert.equal(r.status, 3);
+    assert.equal(r.ok, false);
+    assert.equal(run('sh', ['-c', 'true'], { input: 'x'.repeat(1 << 20), allowFail: true }).status, 0);
+    assert.throws(() => run('sh', ['-c', 'exit 3'], { input: 'x'.repeat(1 << 20) }), /exited 3/);
   });
 });
