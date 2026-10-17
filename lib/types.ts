@@ -1967,12 +1967,17 @@ export interface FocusFact {
   since: string;
 }
 
-/** One way to reach a job's running service: endpointsFor in lib/server.ts. Only `dev` for now. */
+/**
+ * One row of a job's Environment card: endpointsFor in lib/server.ts. A `component` row has a
+ * `http://localhost:<port>/` url; a `backing` row has none. `live` is a boolean only on the component
+ * row the dev command serves (the one whose port is `job.port`), null everywhere else.
+ */
 export interface Endpoint {
-  name: 'dev';
-  url: string;
+  kind: 'component' | 'backing';
+  name: string;
+  url: string | null;
   port: number;
-  live: boolean;
+  live: boolean | null;
 }
 
 /** POST /api/focus body: a job id to focus, or null to clear. */

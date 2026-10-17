@@ -101,15 +101,15 @@ test('state exposes focus and endpoints', { timeout: 60_000 }, async () => {
     await s.f('worktree', 'create', done);
     await s.f('worktree', 'create', badPort);
     await s.f('job', 'set', done, '--state', 'done');
-    s.patchJob(badPort, { port: 70000 });
+    s.patchJob(badPort, { port: 70000, ports: { dev: 70000 } });
 
     let st = await s.state();
-    assert.equal(st.apiVersion, 28);
-    assert.equal(API_VERSION, 28);
-    assert.equal(DASH_API_VERSION, 28);
+    assert.equal(st.apiVersion, 29);
+    assert.equal(API_VERSION, 29);
+    assert.equal(DASH_API_VERSION, 29);
     assert.equal(st.focus, null);
     const row = (id: string) => st.jobs.find((j: any) => j.id === id);
-    assert.deepEqual(row(a).endpoints, [{ name: 'dev', url: `http://localhost:${wtA.port}/`, port: wtA.port, live: false }]);
+    assert.deepEqual(row(a).endpoints, [{ kind: 'component', name: 'dev', url: `http://localhost:${wtA.port}/`, port: wtA.port, live: false }]);
     assert.deepEqual(row(bare).endpoints, [], 'no worktree');
     assert.deepEqual(row(done).endpoints, [], 'not active');
     assert.deepEqual(row(badPort).endpoints, [], 'port out of range');
@@ -126,7 +126,7 @@ test('state exposes focus and endpoints', { timeout: 60_000 }, async () => {
 
     // A planted runtime.json that is a FIFO or names pid 1 never reads as live, and never hangs the poll.
     const rt = path.join(s.root, '.forge', 'jobs', badPort, 'runtime.json');
-    s.patchJob(badPort, { port: wtA.port + 5 });
+    s.patchJob(badPort, { port: wtA.port + 5, ports: { dev: wtA.port + 5 } });
     fs.writeFileSync(rt, JSON.stringify({ dev: { pid: 1 } }));
     st = await s.state();
     assert.equal(row(badPort).endpoints[0].live, false, 'pid 1 is not a live dev server');
@@ -138,12 +138,53 @@ test('state exposes focus and endpoints', { timeout: 60_000 }, async () => {
       assert.equal(row(badPort).endpoints[0].live, false, 'a FIFO reads as not running');
     }
 
+    // Two components and a per-job backing service: one row each, live only on the row the dev command serves.
     const cfg = path.join(s.root, '.forge', 'config.yml');
-    const text = fs.readFileSync(cfg, 'utf8');
-    assert.match(text, /^ {2}dev: sleep 30$/m);
-    fs.writeFileSync(cfg, text.replace(/^ {2}dev: sleep 30$/m, '  dev: null'));
+    const edit = (fn: (c: any) => void) => {
+      const c = yaml.parse(fs.readFileSync(cfg, 'utf8'));
+      fn(c);
+      fs.writeFileSync(cfg, yaml.stringify(c));
+    };
+    edit((c) => {
+      c.components = [
+        { name: 'api', path: '.', kind: 'service' },
+        { name: 'web', path: 'web', kind: 'app' },
+        { name: 'core', path: 'core', kind: 'library' },
+      ];
+      c.backing = [{ name: 'postgres', isolation: 'per-job', image: 'postgres:16', ports: [5432] }];
+    });
+    const pa = wtA.port;
+    const pw = wtA.port + 1;
+    const pp = wtA.port + 2;
+    s.patchJob(a, { port: pa, ports: { api: pa, web: pw } });
+    fs.writeFileSync(path.join(s.root, '.forge', 'jobs', a, 'backing.json'), JSON.stringify({ v: 1, ports: { postgres: { 5432: pp } } }));
     st = await s.state();
-    assert.deepEqual(row(a).endpoints, [], 'no dev command configured');
+    assert.deepEqual(row(a).endpoints, [
+      { kind: 'component', name: 'api', url: `http://localhost:${pa}/`, port: pa, live: true },
+      { kind: 'component', name: 'web', url: `http://localhost:${pw}/`, port: pw, live: null },
+      { kind: 'backing', name: 'postgres', url: null, port: pp, live: null },
+    ]);
+    assert.deepEqual(row(done).endpoints, [], 'not active');
+    // A forged ports map (a repeated port) reads as not allocated: `port` still stands for the first entry, and no crafted value reaches the page.
+    s.patchJob(a, { port: pa, ports: { api: pa, web: pa } });
+    st = await s.state();
+    assert.deepEqual(row(a).endpoints.map((e: any) => [e.name, e.port]), [['api', pa], ['postgres', pp]]);
+    s.patchJob(a, { port: pa, ports: { api: '4100', web: pw } });
+    st = await s.state();
+    assert.deepEqual(row(a).endpoints.map((e: any) => [e.name, e.port]), [['api', pa], ['postgres', pp]], 'a string port never becomes a row');
+    s.patchJob(a, { port: pa, ports: { api: pa, web: pw } });
+
+    edit((c) => (c.commands.dev = null));
+    st = await s.state();
+    assert.deepEqual(
+      row(a).endpoints.map((e: any) => [e.name, e.live]),
+      [
+        ['api', null],
+        ['web', null],
+        ['postgres', null],
+      ],
+      'no dev command: nothing can be live',
+    );
   } finally {
     await s.cleanup();
   }

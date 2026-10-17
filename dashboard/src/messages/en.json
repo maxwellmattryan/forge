@@ -77,7 +77,8 @@
     "open": "Open",
     "live": "running",
     "stopped": "not running",
-    "none": "No endpoint yet: the job needs a worktree and a port, and a dev command in commands.dev"
+    "backingAddress": "127.0.0.1:{port}",
+    "none": "No endpoint yet: the job needs a worktree and its ports"
   },
   "daemon": {
     "pill": "Daemon {label}",

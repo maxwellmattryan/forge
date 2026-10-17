@@ -3,7 +3,7 @@
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 28;
+export const API_VERSION = 29;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 /** lib/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */
@@ -1227,12 +1227,17 @@ export interface FocusFact {
   since: string;
 }
 
-/** One way to reach a job's running service: endpointsFor in lib/server.ts. Only `dev` for now. */
+/**
+ * One row of a job's Environment card: endpointsFor in lib/server.ts. A `component` row has a
+ * `http://localhost:<port>/` url; a `backing` row has none. `live` is a boolean only on the component
+ * row the dev command serves (the one whose port is `job.port`), null everywhere else.
+ */
 export interface Endpoint {
-  name: 'dev';
-  url: string;
+  kind: 'component' | 'backing';
+  name: string;
+  url: string | null;
   port: number;
-  live: boolean;
+  live: boolean | null;
 }
 
 /** POST /api/focus body: a job id to focus, or null to clear. */

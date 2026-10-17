@@ -1,5 +1,6 @@
 <!-- The drawer's Environment card, for active jobs only: Focus or Unfocus (a pointer, POST /api/focus), the job's endpoints
-     with a live dot and an Open link, Open in editor (the worktree in FORGE_EDITOR on the machine running forge dash) and
+     (one per port-bearing component with an Open link, the dev server's with a live dot; one per managed backing service
+     with its loopback address), Open in editor (the worktree in FORGE_EDITOR on the machine running forge dash) and
      Run (the job's dev command, started once and reused after). Nothing here starts, stops or signals another job's
      processes. Endpoint URLs come from the server, built from an integer port, and render as text. -->
 <script lang="ts">
@@ -62,13 +63,13 @@
     </div>
     {#if model.endpoints.length}
       <ul class="flex flex-col gap-1.5">
-        {#each model.endpoints as e (e.name)}
+        {#each model.endpoints as e (`${e.kind}:${e.name}`)}
           {@const href = safeUrl(e.url)}
           <li class="flex items-center gap-2 min-w-0 text-sm">
-            <LiveDot on={e.live} /><span class="sr-only">{e.live ? $t('environment.live') : $t('environment.stopped')}</span>
+            {#if typeof e.live === 'boolean'}<LiveDot on={e.live} /><span class="sr-only">{e.live ? $t('environment.live') : $t('environment.stopped')}</span>{/if}
             <span class="label shrink-0">{e.name}</span>
-            <span class="mono text-[13px] truncate selectable min-w-0">{e.url}</span>
-            {#if href}<a class="btn sm ml-auto shrink-0" {href} target="_blank" rel="noopener">{$t('environment.open')}</a>{/if}
+            <span class="mono text-[13px] truncate selectable min-w-0">{e.kind === 'backing' ? $t('environment.backingAddress', { port: String(e.port) }) : e.url}</span>
+            {#if e.kind === 'component' && href}<a class="btn sm ml-auto shrink-0" {href} target="_blank" rel="noopener">{$t('environment.open')}</a>{/if}
           </li>
         {/each}
       </ul>
