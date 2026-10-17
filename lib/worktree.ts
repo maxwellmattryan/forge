@@ -17,6 +17,7 @@ import { checkBranch, compactProtected, renderProtected } from './protected.ts';
 import type { BranchCheck, CompactProtected } from './protected.ts';
 import { logSecrets, renderSecrets, scanBranch, secretMode, secretsOk, secretsTail, compactSecrets } from './secrets.ts';
 import { jobComponent } from './components.ts';
+import { refreshInterim } from './interim-apply.ts';
 import { applyLinks, consumerLockfiles, pathPrelude, restoreLockfiles, snapshotLockfiles } from './links.ts';
 import type { AppliedLinks, LockSnapshot } from './links.ts';
 import { memberClone, memberEntry, memberRepos, memberWorktree, memberWorktreePath, trustedMemberWorktree } from './job-repos.ts';
@@ -634,10 +635,11 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   const groups = verifyGroups(config.verify);
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
   // Every member's worktree is checked before anything runs, so a missing one records nothing.
-  const members = memberRepos(job).map((m) => {
-    const wt = memberWorktree(root, config, job, m.repo);
-    return { ...wt, head: run('git', ['rev-parse', 'HEAD'], { cwd: wt.worktree }).stdout.trim() };
-  });
+  const checkedMembers = memberRepos(job).map((m) => memberWorktree(root, config, job, m.repo));
+  // Before any HEAD is read: git-ref and canary pins are committed here, so the run records and
+  // checks the pinned commits. Nothing at all for a job with only local or sequential edges.
+  const interim = refreshInterim(root, config, job);
+  const members = checkedMembers.map((wt) => ({ ...wt, head: run('git', ['rev-parse', 'HEAD'], { cwd: wt.worktree }).stdout.trim() }));
   const sha = run('git', ['rev-parse', 'HEAD'], { cwd: job.worktree }).stdout.trim();
   const status = STATUS_ARGV;
   const changed = run('git', status, { cwd: job.worktree }).stdout.trim();
@@ -681,11 +683,17 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   if (!protectedStep.ok) protectedStep.tail = prot.error ?? prot.refused.slice(0, 20).map((h) => `${h.path}: rule ${h.rule} (${h.glob}): ${h.reason}`).join('\n');
   else if (prot.escalated.length) protectedStep.reason = `${prot.escalated.length} protected paths need a human`;
   results.push(protectedStep);
+  // Like protected, a pin that can't be written stops every configured step, the members' too.
+  const interimStep: VerifyStep = { name: 'interim', ok: interim.ok, exit: null };
+  if (!interim.ok) interimStep.tail = interim.problems.join('\n');
+  else if (interim.commits.length) interimStep.reason = interim.commits.map((c) => `pins committed in ${c.repo === null ? 'the root repo' : `repo ${c.repo}`} (${c.sha.slice(0, 12)})`).join('; ');
+  if (interim.active) results.push(interimStep);
+  const gatesOk = secretsStep.ok && protectedStep.ok && interimStep.ok;
   if (!dirty) {
     // One snapshot before the first group: steps of a group run at once, so each restores only after all settle.
-    const locks = secretsStep.ok && protectedStep.ok ? verifyLockSnapshot(root, config, job, null) : null;
+    const locks = gatesOk ? verifyLockSnapshot(root, config, job, null) : null;
     try {
-      for (const group of secretsStep.ok && protectedStep.ok ? groups : []) {
+      for (const group of gatesOk ? groups : []) {
         // A failing step never stops its siblings: each finishes and keeps its own log. One that
         // throws is reported only once the others have settled, so none writes after verify returns.
         const settled = await Promise.allSettled(
@@ -718,7 +726,7 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   }
   // A failure in the root never skips a member, nor one member another.
   const memberRuns: MemberVerify[] = [];
-  for (const m of members) memberRuns.push(await verifyMember(root, config, job, groups, mode, m));
+  for (const m of members) memberRuns.push(await verifyMember(root, config, job, interimStep.ok ? groups : [], mode, m));
   const rootFailure = results.find((r) => !r.ok);
   const ok = results.every((r) => r.ok) && memberRuns.every((m) => m.rec.ok);
   const attempt = job.verifyRuns.filter((r) => r.round === job.round).length + 1;
@@ -856,6 +864,11 @@ function renderSteps(lines: string[], results: VerifyStep[], secrets: SecretScan
     }
     if (r.name === 'protected' && prot) {
       lines.push(renderProtected(prot));
+      continue;
+    }
+    if (r.name === 'interim') {
+      if (r.ok) lines.push('## interim: ok', '', r.reason ?? 'Every git-ref and canary pin is current.', '');
+      else lines.push('## interim: FAILED', '', 'Interim pins (docs/CONFIG.md "Interim strategies") could not be written; no configured step ran:', '', ...String(r.tail).split('\n').map((l) => `- ${l}`), '');
       continue;
     }
     lines.push(`## ${r.name}: ${r.skipped ? `skipped (${r.reason ?? 'no command configured'})` : r.ok ? 'ok' : `FAILED (exit ${r.exit})`}`);
