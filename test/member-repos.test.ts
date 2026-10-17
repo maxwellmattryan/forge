@@ -11,7 +11,7 @@ import { tempRepo, scratchGitConfig } from './helpers.ts';
 import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
 import { doctor } from '../lib/doctor.ts';
 import { initWrite, migrate } from '../lib/commands/init.ts';
-import { memberRepoChecks, readLocalConfig, remotesMatch, repoProblems, resolveMemberPath } from '../lib/member-repos.ts';
+import { memberRepoChecks, readLocalConfig, remotesMatch, repoProblems, resolveMemberPath, sameDir } from '../lib/member-repos.ts';
 import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 import { deepMerge } from '../lib/util.ts';
 import * as yaml from '../lib/yaml.ts';
@@ -240,6 +240,25 @@ describe('member repo doctor checks', { concurrency: 4 }, () => {
         assert.equal(c.ok, false, dir);
         assert.match(c.detail, / is not a git clone; point \.forge\/local\.yml at the clone's top-level directory$/, dir);
       }
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('the top-level check matches the clone however git spells its path', () => {
+    const p = project();
+    try {
+      const dir = path.join(p.parent, 'spelled');
+      fs.mkdirSync(path.join(dir, 'sub'), { recursive: true });
+      // A junction needs no privilege on Windows; posix ignores the type.
+      fs.symlinkSync(dir, path.join(p.parent, 'link'), 'junction');
+      // git on Windows prints C:/Users/... with forward slashes; on posix the form is unchanged.
+      assert.equal(sameDir(dir.replaceAll('\\', '/'), dir), true);
+      assert.equal(sameDir(path.join(dir, 'sub', '..'), dir), true);
+      assert.equal(sameDir(path.join(p.parent, 'link'), dir), true);
+      assert.equal(sameDir(path.join(dir, 'sub'), dir), false);
+      assert.equal(sameDir(path.join(p.parent, 'missing'), dir), false);
+      if (process.platform === 'win32') assert.equal(sameDir(dir.toUpperCase(), dir.toLowerCase()), true);
     } finally {
       p.cleanup();
     }

@@ -154,6 +154,21 @@ function gitEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
+// git prints the top level as a forward-slash long path on Windows (C:/Users/runneradmin/…) while the
+// clone path may use 8.3 short names (C:\Users\RUNNER~1\…): realpathSync.native expands those, and
+// Windows paths compare case-insensitively.
+export function sameDir(a: string, b: string, platform: NodeJS.Platform = process.platform): boolean {
+  let ra: string;
+  let rb: string;
+  try {
+    ra = fs.realpathSync.native(path.resolve(a));
+    rb = fs.realpathSync.native(path.resolve(b));
+  } catch {
+    return false;
+  }
+  return platform === 'win32' ? ra.toLowerCase() === rb.toLowerCase() : ra === rb;
+}
+
 function memberCheck(root: string, config: Config, repo: Config['repos'][number], local: LocalConfig): DoctorCheck {
   const name = `repo ${repo.name}`;
   const remote = quoteRemote(repo.remote);
@@ -177,11 +192,7 @@ function memberCheck(root: string, config: Config, repo: Config['repos'][number]
   const git = (args: string[]) => run('git', ['-c', 'core.fsmonitor=false', ...args], { cwd: dir, allowFail: true, timeoutMs: 5000, env });
   const top = git(['rev-parse', '--show-toplevel']);
   if (!top.ok) return notClone;
-  try {
-    if (fs.realpathSync(top.stdout.trim()) !== fs.realpathSync(dir)) return notClone;
-  } catch {
-    return notClone;
-  }
+  if (!sameDir(top.stdout.trim(), dir)) return notClone;
   const url = git(['remote', 'get-url', '--', gitRemote]);
   const actual = url.ok ? url.stdout.trim() : '';
   if (!actual || !remotesMatch(actual, repo.remote)) {
