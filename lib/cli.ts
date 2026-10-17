@@ -124,7 +124,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
         refuseInboxDrive(id);
         return ok(wt.createWorktree(root, config, id));
       }
-      if (sub === 'remove') return ok(wt.removeWorktree(root, req(rest[0], 'job id'), { deleteBranch: Boolean(flags['delete-branch']), force: Boolean(flags.force) }));
+      if (sub === 'remove') return ok(await wt.removeWorktree(root, req(rest[0], 'job id'), { deleteBranch: Boolean(flags['delete-branch']), force: Boolean(flags.force) }));
       if (sub === 'path') return ok(loadJob(root, req(rest[0], 'job id')).worktree ?? '');
       if (sub === 'prune') return ok(run('git', ['worktree', 'prune', '-v'], { cwd: root }).stderr.trim() || 'nothing to prune');
       throw usage('worktree');
@@ -136,7 +136,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       return ok({ stopped: wt.stopBackground(root, req(sub, 'job id')) });
     case 'focus':
       needInit();
-      return ok(focusCmd(root, pos.slice(1), flags));
+      return ok(await focusCmd(root, config, pos.slice(1), flags));
     case 'verify': {
       needInit();
       const r = await wt.verify(root, config, req(sub, 'job id'));

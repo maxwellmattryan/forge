@@ -1172,10 +1172,23 @@ export interface PostFocusBody {
   job: string | null;
 }
 
+/** One checkout step applied or undone on a focus change: lib/checkout.ts. `log` is relative to the job dir. */
+export interface CheckoutStepResult {
+  step: number;
+  kind: 'link' | 'run';
+  ok: boolean;
+  to?: string;
+  command?: string;
+  log?: string;
+  error?: string;
+}
+
 /** `forge focus <id>|--clear` and POST /api/focus reply: focusJob in lib/focus-actions.ts. */
 export interface FocusResponse {
   focus: FocusFact | null;
   previous: string | null;
+  /** Present only when a checkout step was undone or applied; `job` is the job whose steps were undone. */
+  checkout?: { undone: CheckoutStepResult[]; applied: CheckoutStepResult[]; job?: string };
 }
 
 /** POST /api/jobs/:id/run body: `dev` is the only command the dashboard may start. */

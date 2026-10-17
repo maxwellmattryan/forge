@@ -353,7 +353,7 @@ export async function syncAll(
       let cleaned = false;
       if (after.state === 'done' && config.worktrees.cleanup === 'on-merge' && after.worktree) {
         try {
-          wt.removeWorktree(root, job.id, { deleteBranch: true });
+          await wt.removeWorktree(root, job.id, { deleteBranch: true });
           cleaned = true;
         } catch {}
       }

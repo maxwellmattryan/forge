@@ -129,7 +129,7 @@ describe('the CLI end to end', { concurrency: 4 }, () => {
 
       // job.worktree is writable state: a bad value must never turn removal into rm -rf of the main checkout.
       setJob(repo.dir, evalJob, { fields: { worktree: repo.dir } });
-      assert.throws(() => removeWorktree(repo.dir, evalJob, { force: true }), /refusing to delete/);
+      await assert.rejects(() => removeWorktree(repo.dir, evalJob, { force: true }), /refusing to delete/);
       assert.ok(fs.existsSync(path.join(repo.dir, '.git')) && fs.existsSync(path.join(repo.dir, 'README.md')), 'main checkout survives');
       setJob(repo.dir, evalJob, { fields: { worktree: null } });
 
@@ -144,9 +144,9 @@ describe('the CLI end to end', { concurrency: 4 }, () => {
       assert.equal(fs.readFileSync(path.join(isoDir, 'keep.txt'), 'utf8'), 'mine', 'a pre-existing directory is left untouched');
       fs.rmSync(isoDir, { recursive: true });
       assert.equal(createWorktree(repo.dir, config, iso, { isolate: true }).ok, true);
-      assert.throws(() => removeWorktree(repo.dir, iso), /refusing to delete/, 'only eval jobs get directory deletion');
+      await assert.rejects(() => removeWorktree(repo.dir, iso), /refusing to delete/, 'only eval jobs get directory deletion');
       setJob(repo.dir, iso, { fields: { eval: { run: 'r', task: 't' } } });
-      removeWorktree(repo.dir, iso);
+      await removeWorktree(repo.dir, iso);
       assert.equal(fs.existsSync(isoDir), false, 'a clean eval clone is removed without --force');
       const runs = await f('eval', 'runs');
       assert.equal(runs[0].status, 'done');

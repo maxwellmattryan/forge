@@ -8,7 +8,7 @@ import type { EventActor, Job, JobEvent, JobIssue, LoadedJob } from './types.ts'
 
 export { COMPONENT_KINDS, DEPENDENCY_TYPES } from './components.ts';
 
-export const CONFIG_SCHEMA_VERSION = 10;
+export const CONFIG_SCHEMA_VERSION = 11;
 export const JOB_SCHEMA_VERSION = 11;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
@@ -133,6 +133,9 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // part with its own commands, so each becomes a `service` component with no dependencies; its
   // name, path and commands are unchanged, so `forge run` and `forge verify` pick the same command.
   9: servicesToComponents,
+  // v11 adds checkout, empty by default; the bump lets older Forges refuse a config whose checkout
+  // steps they would ignore.
+  10: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
@@ -246,8 +249,9 @@ export function migrateConfig(raw: any): { config: any; from: number | undefined
     config = CONFIG_MIGRATIONS[v](config);
     v++;
   }
-  // An unversioned or hand-written config may still use the old key; fold it the same way.
-  if (from === CONFIG_SCHEMA_VERSION) config = servicesToComponents(config);
+  // A v10-or-later, unversioned or hand-written config may still use the old key; fold it the same
+  // way. Idempotent, so a config the v9 migration already folded comes back unchanged.
+  config = servicesToComponents(config);
   config.schemaVersion = CONFIG_SCHEMA_VERSION;
   return { config, from: from === CONFIG_SCHEMA_VERSION ? undefined : from };
 }

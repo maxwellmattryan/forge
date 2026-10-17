@@ -280,7 +280,7 @@ test('switching focus starts and stops nothing', { timeout: 60_000, skip: proces
     // The work itself, timed in-process: the CLI's own start-up time under a loaded suite says nothing about focus.
     for (const id of [b, a, b]) {
       const t = performance.now();
-      focusJob(s.root, id, 'cli', { login: 'forge-test', source: 'env' });
+      await focusJob(s.root, id, 'cli', { login: 'forge-test', source: 'env' });
       assert.ok(performance.now() - t < 1000, `focusing ${id} took under 1 s`);
     }
     assert.ok(pids.every(alive), 'both dev servers still live');

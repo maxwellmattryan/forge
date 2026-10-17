@@ -15,6 +15,7 @@ import { buildBundle, bundleFileName } from './bundle.ts';
 import { doctor } from './doctor.ts';
 import { containedWorktree, editorArgv, openEditor } from './editor.ts';
 import { readSmallJson } from './focus.ts';
+import { CheckoutError } from './checkout.ts';
 import { InactiveJobError, currentFocus, focusJob } from './focus-actions.ts';
 import { createPreviewer, ghRunner, parseGitHubUrl } from './github-preview.ts';
 import type { GhRunner } from './github-preview.ts';
@@ -413,9 +414,9 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (job !== null && !validJobId(job)) return jsonStatus(res, 400, { error: 'invalid job id' });
         if (job !== null && !exists(path.join(jobDir(root, job), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${job}` });
         try {
-          return json(res, focusJob(root, job, 'dashboard', dashboardActor()) satisfies FocusResponse);
+          return json(res, (await focusJob(root, job, 'dashboard', dashboardActor())) satisfies FocusResponse);
         } catch (e) {
-          if (e instanceof InactiveJobError) return jsonStatus(res, 409, { error: e.message });
+          if (e instanceof InactiveJobError || e instanceof CheckoutError) return jsonStatus(res, 409, { error: e.message });
           if (e instanceof ForgeError && (e.code === 'not_found' || e.code === 'usage')) return jsonStatus(res, e.code === 'not_found' ? 404 : 400, { error: e.message });
           throw e;
         }

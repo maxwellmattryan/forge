@@ -3,6 +3,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { enforceBudget } from './budget.ts';
+import { readCheckoutRecord, undoCheckout, withCheckoutLock } from './checkout.ts';
 import { isOwnWorktreePath, loadConfig, verifyGroups, worktreeRoot } from './config.ts';
 import { e2ePlan } from './e2e.ts';
 import { configForJob } from './eval-overlay.ts';
@@ -711,8 +712,17 @@ export function stopBackground(root: string, id: string): string[] {
   return stopped;
 }
 
-export function removeWorktree(root: string, id: string, opts: { deleteBranch?: boolean; force?: boolean } = {}): { removed: string | null } {
+export async function removeWorktree(root: string, id: string, opts: { deleteBranch?: boolean; force?: boolean } = {}): Promise<{ removed: string | null }> {
   const job = loadJob(root, id);
+  // Before anything is deleted: a fixed path must never be left pointing into a removed worktree,
+  // and the undo commands need the worktree to run in.
+  if (readCheckoutRecord(root)?.job === id) {
+    const config = loadConfig(root).config;
+    const runner = (jid: string, name: string, label: string) => runCommandAsync(root, config, jid, name, { label, tail: 20 });
+    await withCheckoutLock(root, async () => {
+      if (readCheckoutRecord(root)?.job === id) await undoCheckout(root, config, runner);
+    });
+  }
   stopBackground(root, id);
   // Eval jobs get a standalone clone (a .git directory) that `git worktree remove` does not know.
   const standalone = Boolean(job.worktree && exists(job.worktree) && isDir(path.join(job.worktree, '.git')));
