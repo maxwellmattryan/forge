@@ -25,7 +25,7 @@ import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretMode, text
 import { cleanGenerated, generatedConfig, generatedPaths, partitionConflicts, rebuild, regenerateProblem, takeBaseSide } from './regenerate.ts';
 import type { Strategy } from './regenerate.ts';
 import { commandTemplate, verifiedHead } from './worktree.ts';
-import { deferralStatus, pendingDeferral, readDeferrals, repoLabel } from './interim.ts';
+import { FULL_SHA, deferralStatus, pendingDeferral, readDeferrals, repoLabel, resolveInterim } from './interim.ts';
 import type { Deferral } from './interim.ts';
 import { interimStatus } from './interim-apply.ts';
 
@@ -34,7 +34,6 @@ const MARKER = '<!-- forge -->';
 // the rest of a linked job's PR body survive every update.
 export const SIBLINGS_START = '<!-- forge:siblings -->';
 export const SIBLINGS_END = '<!-- /forge:siblings -->';
-const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 
 /** Human feedback on a PR, as GitHub's GraphQL returns it (raw input): fetchFeedback. */
 interface PrFeedback {
@@ -197,8 +196,10 @@ export function openPr(
   logSecrets(root, id, 'pr', scan, { blocked: mode === 'block' });
   if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of ${id}'s commits could not finish (${scan.error}); forge pr open won't push an unscanned branch`, 'secret_found', `forge secrets scan ${id}`);
   if (mode === 'block' && scan.findings.length) throw new ForgeError(refusalMessage(`the commits of ${id}`, scan.findings), 'secret_found', `forge secrets scan ${id}`);
-  // A member whose PR already merged (a sequential dependency, say) is never pushed or checked again.
-  const open = memberRepos(job).filter((m) => !m.verifyOnly && m.pr?.state !== 'MERGED');
+  // With interim edges, a member whose PR already merged (a sequential dependency, say) is never
+  // pushed or checked again. Other jobs keep checking every member, as before interim strategies.
+  const skipMerged = resolveInterim(config, job).edges.length > 0;
+  const open = memberRepos(job).filter((m) => !m.verifyOnly && !(skipMerged && m.pr?.state === 'MERGED'));
   // Every member is checked before anything is pushed, then opened before the root PR, so a member
   // failure leaves no root PR behind.
   const plans = open.map((m) => checkMemberPr(root, config, job, m.repo, text.title, mode, evidence.heads?.[m.repo]));
@@ -332,20 +333,29 @@ function interimOpenPlan(root: string, config: Config, job: Job, heads: Map<Repo
 
 /**
  * Whether a job repo's PR is MERGED according to GitHub now (a recorded state is writable). No PR
- * counts as not merged; so does one that is not the job's own, or any gh failure.
+ * counts as not merged; so does one that is not the job's own, or any gh failure. When the record
+ * says MERGED and GitHub disagrees, GitHub wins and the record is corrected (`pr-state-corrected`):
+ * otherwise step would see a merged dependency, run pr open (PR7), and pr open would defer again,
+ * forever. A record GitHub can't confirm either way stops pr open instead.
  */
 function freshMerged(root: string, config: Config, job: Job, key: RepoKey): boolean {
   const pr = key === null ? job.pr : memberEntry(job, key)?.pr;
   const number = safePrNumber(pr?.number);
   if (number === null) return false;
+  let live: PrStateKey | null = null;
   try {
     const slug = key === null ? repoSlug(root, config) : memberSlug(config, key);
     const view = JSON.parse(gh(root, ['pr', 'view', String(number), '-R', slug, '--json', 'state,headRefName,baseRefName']).stdout);
     assertJobPr(view, job.branch, key === null ? job.base : (memberEntry(job, key)?.base ?? null), `PR #${number} in ${slug}`);
-    return view?.state === 'MERGED';
-  } catch {
-    return false;
+    live = PR_STATES.has(view?.state) ? (view.state as PrStateKey) : null;
+  } catch {}
+  if (pr?.state === 'MERGED' && live !== 'MERGED') {
+    if (live === null) throw new ForgeError(`${repoLabel(key)}'s PR #${number} is recorded MERGED, but GitHub can't confirm its state; run: forge pr sync ${job.id}`, 'external');
+    if (key === null) setJob(root, job.id, { fields: { 'pr.state': live } });
+    else recordMemberPr(root, job.id, key, (prev) => ({ ...(prev ?? {}), state: live }) as JobRepoPr);
+    logEvent(root, job.id, 'pr-state-corrected', { repo: key, number, recorded: 'MERGED', live });
   }
+  return live === 'MERGED';
 }
 
 /**

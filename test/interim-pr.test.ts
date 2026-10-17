@@ -20,6 +20,14 @@ async function opened(p: PrProject, id: string) {
 }
 
 const step = async (p: PrProject, id: string) => p.f('job', 'step', id);
+/** Writes a member PR state straight into job.json, as a hand edit or a stale record would. */
+function recordState(p: PrProject, id: string, repo: string, state: string): void {
+  const file = path.join(p.root, '.forge', 'jobs', id, 'job.json');
+  const job = JSON.parse(fs.readFileSync(file, 'utf8'));
+  job.repos.find((r: any) => r.repo === repo).pr.state = state;
+  fs.writeFileSync(file, JSON.stringify(job, null, 2));
+}
+
 const park = (p: PrProject, id: string) => p.f('job', 'set', id, '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review');
 
 describe('interim strategies: pull requests', { concurrency: 4 }, () => {
@@ -111,5 +119,41 @@ describe('interim strategies: pull requests', { concurrency: 4 }, () => {
     assert.deepEqual(again.repos.map((x: any) => [x.repo, x.created]), [['lib', true]]);
     assert.ok(p.heads(p.libBare).split('\n').includes(j.branch));
     assert.equal(p.calls().filter((c) => c.startsWith('pr create -R o/app')).length, 1, 'the merged root is not opened again');
+  });
+
+  test('without interim edges a merged member PR is still checked and pushed', async () => {
+    const p = await project();
+    const j = await ready(p);
+    await p.f('verify', j.id);
+    await opened(p, j.id);
+    recordState(p, j.id, 'lib', 'MERGED');
+    const sha = p.commit(j.libWt, { 'more.txt': 'more\n' }, 'feat: more');
+    await p.f('verify', j.id);
+    const out = await opened(p, j.id);
+    assert.deepEqual(out.repos.map((r: any) => r.repo), ['lib'], 'the member is not skipped');
+    assert.equal(p.git(p.libBare, 'rev-parse', j.branch).trim(), sha, 'its new commit is pushed');
+  });
+
+  test('a recorded merge GitHub denies is corrected, so PR7 does not loop', async () => {
+    const p = await project();
+    dependsOn(p, 'app-on-lib');
+    p.config((c) => (c.repos[0].release = { interim: 'sequential' }));
+    const j = await ready(p);
+    await p.f('verify', j.id);
+    await opened(p, j.id);
+    await p.f('job', 'set', j.id, '--stage', 'pr', '--state', 'running');
+    recordState(p, j.id, 'lib', 'MERGED');
+    assert.equal((await step(p, j.id)).rule, 'PR7', 'the record alone says the dependency merged');
+    const out = await opened(p, j.id);
+    assert.deepEqual(out.deferred, [{ repo: null, why: 'sequential', waitingOn: ['lib'] }], 'GitHub says it is open: still deferred');
+    assert.equal(loadJob(p.root, j.id).repos.find((r) => r.repo === 'lib')?.pr?.state, 'OPEN', 'the record follows GitHub');
+    assert.deepEqual(p.events(j.id).filter((e) => e.type === 'pr-state-corrected').map((e) => [e.repo, e.recorded, e.live]), [['lib', 'MERGED', 'OPEN']]);
+    assert.equal((await step(p, j.id)).rule, 'PR8', 'no second PR7');
+
+    recordState(p, j.id, 'lib', 'MERGED');
+    p.fake('lib.viewfail', '1');
+    const r = await p.pr(['open', j.id]);
+    assert.equal(r.status, 5, 'a record GitHub cannot confirm stops pr open (external)');
+    assert.match(r.stderr, /recorded MERGED, but GitHub can't confirm its state/);
   });
 });
