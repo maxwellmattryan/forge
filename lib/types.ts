@@ -4,7 +4,7 @@
 // list are derived from that list, never retyped.
 import type { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import type { REQUEST_TYPES } from './requests.ts';
-import type { COMPONENT_KINDS, DEPENDENCY_TYPES } from './components.ts';
+import type { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
 import type { AcCoverage } from './acs.ts';
 import type { SECRET_KINDS } from './secrets.ts';
 import type { JobFindings } from './findings.ts';
@@ -649,12 +649,26 @@ export interface ResourceConfig {
 
 export type ComponentKind = (typeof COMPONENT_KINDS)[number];
 export type DependencyType = (typeof DEPENDENCY_TYPES)[number];
+export type LinkEcosystem = (typeof LINK_ECOSYSTEMS)[number];
+
+/** A `dependsOn` edge's local link (docs/CONFIG.md "Components"): the consumer builds against the dependency's job worktree. */
+export interface ComponentLink {
+  ecosystem: LinkEcosystem;
+  /** The crate, FetchContent or package name. */
+  name: string;
+  /** cargo only: the `[patch.<source>]` table; absent or null is `crates-io`. */
+  source?: string | null;
+  /** The directory in the dependency's repo; absent or null is the dependency component's `path`. */
+  path?: string | null;
+}
 
 /** One edge of a component's `dependsOn`: exactly one of `component` or `backing` is set. */
 export interface ComponentDependency {
   component?: string;
   backing?: string;
   type: DependencyType;
+  /** Only on a `component` edge to a component of another repo. */
+  link?: ComponentLink;
 }
 
 /** One part of a repo: an entry of `components` (docs/CONFIG.md "Components"). */
