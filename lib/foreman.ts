@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isForemanActor, jobDir, readEvents } from './jobs.ts';
 import { OFFICE_SCOPE, daemonScope, enqueue, listRequests } from './requests.ts';
-import { OFFICE_GATES } from './schema.ts';
+import { OFFICE_GATES, reservedGateEntry } from './schema.ts';
 import { isRepoProposalPark, pendingRepoProposals, repoProposals } from './repo-proposals.ts';
 import { ForgeError } from './util.ts';
 import type { Config, ForgeRequest, GateClass, GateOwner, Job, JobEvent } from './types.ts';
@@ -60,15 +60,9 @@ function listedDecides(config: Config): GateClass[] {
 
 const GATE_PREFIX = 'gate:';
 
-/** The class part of a `gate:<class>` entry (trimmed, maybe not a class), or null for a text pattern. */
-const entryClass = (p: string): string | null => {
-  const t = p.trim();
-  return t.startsWith(GATE_PREFIX) ? t.slice(GATE_PREFIX.length).trim() : null;
-};
-
 /**
  * The gate classes foreman.reserved keeps with a human as a whole (`gate:<class>` entries). A
- * `reserved` that can't be read, or a `gate:` entry naming no class, is not handled here:
+ * `reserved` that can't be read, or a mis-written `gate:` entry, is not handled here:
  * reservedMatch fails closed on it, so every gate still stays with a human.
  */
 export function reservedClasses(config: Config): GateClass[] {
@@ -76,8 +70,8 @@ export function reservedClasses(config: Config): GateClass[] {
   if (!Array.isArray(patterns)) return [];
   const out = new Set<GateClass>();
   for (const p of patterns) {
-    const g = typeof p === 'string' ? entryClass(p) : null;
-    if (g !== null && isGateClass(g)) out.add(g);
+    const g = typeof p === 'string' ? reservedGateEntry(p) : null;
+    if (g !== null && g !== 'invalid') out.add(g);
   }
   return [...out];
 }
@@ -108,12 +102,10 @@ export function reservedMatch(config: Config, texts: (string | null | undefined)
   if (!Array.isArray(patterns) || patterns.some((p) => typeof p !== 'string' || !p.trim())) return INVALID_RESERVED;
   const hay = texts.filter((t): t is string => typeof t === 'string' && t !== '');
   for (const p of patterns as string[]) {
-    // `gate:<class>` reserves a class (reservedClasses), never text; one naming no class fails closed.
-    const g = entryClass(p);
-    if (g !== null) {
-      if (!isGateClass(g)) return INVALID_RESERVED;
-      continue;
-    }
+    // `gate:<class>` reserves a class (reservedClasses), never text; a mis-written one fails closed.
+    const g = reservedGateEntry(p);
+    if (g === 'invalid') return INVALID_RESERVED;
+    if (g !== null) continue;
     const re = new RegExp(`(?<![A-Za-z0-9])${escapeRe(p.trim())}(?![A-Za-z0-9])`, 'i');
     if (hay.some((t) => re.test(t))) return p;
   }

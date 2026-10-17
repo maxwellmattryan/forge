@@ -7,7 +7,7 @@ import { downstreamProblems, releaseProblems, repoProblems } from './member-repo
 import { checkoutProblems } from './checkout-config.ts';
 import { notifyProblems } from './notify-config.ts';
 import { globProblem, policyProblems } from './policy-check.ts';
-import { COMPLEXITIES, CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES, REPO_BUDGET_MODES, migrateConfig } from './schema.ts';
+import { COMPLEXITIES, CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES, REPO_BUDGET_MODES, migrateConfig, reservedGateEntry } from './schema.ts';
 import type { Config, Effort, EffortRole, EffortSource, LoadedConfig, VerifyEntry } from './types.ts';
 import { ForgeError, deepMerge, isClaudeExecutable, readText, splitWords } from './util.ts';
 export { globProblem };
@@ -437,9 +437,12 @@ export function foremanProblems(c: any): string[] {
     problems.push(`foreman.reserved must be a list of non-empty strings (got ${JSON.stringify(f.reserved)}); until fixed, every gate stays with a human`);
   else
     for (const p of f.reserved as string[]) {
+      if (reservedGateEntry(p) !== 'invalid') continue;
       const t = p.trim();
-      if (t.startsWith('gate:') && !(OFFICE_GATES as readonly string[]).includes(t.slice(5).trim()))
-        problems.push(`foreman.reserved entry ${JSON.stringify(t)} names no gate class (${OFFICE_GATES.join(' | ')}); until fixed, every gate stays with a human`);
+      const exact = /^gate:/.test(t) && !/\s/.test(t);
+      problems.push(
+        `foreman.reserved entry ${JSON.stringify(t)} ${exact ? 'names no gate class' : 'is a mis-written class reservation'} (write exactly gate:<class>, lowercase with no spaces, the class one of ${OFFICE_GATES.join(' | ')}); until fixed, every gate stays with a human`,
+      );
     }
   if (!(FOREMAN_SHIP as readonly unknown[]).includes(f.ship)) problems.push(`foreman.ship must be one of ${FOREMAN_SHIP.join(' | ')} (got ${JSON.stringify(f.ship)})`);
   return problems;

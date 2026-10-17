@@ -97,6 +97,20 @@ export const EFFORT_ROLES = ['planner', 'spec-writer', 'designer', 'builder', 'r
  */
 export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release'] as const;
 
+/**
+ * A foreman.reserved entry read as a class reservation: the class for exactly `gate:<class>`
+ * (whitespace around the entry trimmed), 'invalid' for anything else shaped like one
+ * (`Gate:release`, `gate: release`, `gate:Release`, an unknown class), null for a text pattern.
+ * A mis-written reservation must fail closed, never fall through to a text pattern that leaves
+ * the class open.
+ */
+export function reservedGateEntry(p: string): (typeof OFFICE_GATES)[number] | 'invalid' | null {
+  const t = p.trim();
+  if (!/^gate\s*:/i.test(t)) return null;
+  const c = t.startsWith('gate:') ? t.slice(5) : '';
+  return (OFFICE_GATES as readonly string[]).includes(c) ? (c as (typeof OFFICE_GATES)[number]) : 'invalid';
+}
+
 /** foreman.ship: propose leaves merging as it was; merge counts as merge.auto for the approver and PR4. */
 export const FOREMAN_SHIP = ['propose', 'merge'] as const;
 

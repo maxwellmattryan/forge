@@ -129,6 +129,21 @@ describe('gate: entries and the v18 config', () => {
     assert.equal(classReservation(rp, 'repo-proposal'), 'gate:repo-proposal');
   });
 
+  test('a mis-written gate: entry is reported and fails closed', () => {
+    const cfg = (reserved: unknown): any => ({ foreman: { enabled: true, decides: [...OFFICE_GATES], reserved } });
+    for (const entry of ['Gate:release', 'GATE:release', 'gate: release', 'gate:Release', 'gate :release']) {
+      const problems = foremanProblems({ foreman: { enabled: true, decides: [...OFFICE_GATES], reserved: ['secret', entry], ship: 'propose' } });
+      assert.equal(problems.length, 1, `${entry}: ${problems.join('; ')}`);
+      assert.ok(problems[0].includes(JSON.stringify(entry)), `${entry}: names the entry`);
+      assert.match(problems[0], /write exactly gate:<class>, lowercase with no spaces.*every gate stays with a human/, entry);
+      assert.equal(reservedMatch(cfg(['secret', entry]), []), INVALID_RESERVED, `${entry}: fails closed with no text`);
+      assert.equal(reservedMatch(cfg([entry]), ['nothing reserved here']), INVALID_RESERVED, entry);
+      assert.equal(classReservation(cfg([entry]), 'release'), null, `${entry}: not read as a reservation`);
+    }
+    // Text patterns that merely mention a gate are still text.
+    assert.equal(reservedMatch(cfg(['gated release', 'gateway']), ['a gateway change']), 'gateway');
+  });
+
   test('config v17 migrates to v18, reserving the release gate', () => {
     assert.equal(CONFIG_SCHEMA_VERSION, 18);
     const d = defaults();
@@ -298,6 +313,28 @@ describe('forge release with the foreman', { concurrency: 4 }, () => {
     const a = await p.cli(OFFICE_SCOPE, 'job', 'assist', p.job, '--gate', 'release');
     assert.equal(a.json.reserved, 'gate:release', 'assist reports the class reservation');
     assert.equal(fs.readFileSync(p.eventsFile, 'utf8'), before);
+  });
+
+  test('a mis-written gate:release keeps the release gate with a human even in decides', async () => {
+    const p = await project(cleanups, delegate);
+    // A plan made while the class was delegated is pending; the mis-written entry must still win.
+    assert.equal((await p.cli(undefined, 'release', 'plan', '--job', p.job)).status, 0);
+    for (const entry of ['Gate:release', 'GATE:release', 'gate: release', 'gate:Release']) {
+      p.config((c) => (c.foreman.reserved = ['secret', entry]));
+      const v = await p.cli(undefined, 'config', 'validate');
+      assert.notEqual(v.status, 0, `${entry}: ${v.out}`);
+      assert.ok(v.out.includes('write exactly gate:<class>'), `${entry}: ${v.out}`);
+      // config problems block planning outright, so nothing reaches the foreman.
+      const plan = await p.cli(undefined, 'release', 'plan', '--job', p.job, '--force');
+      assert.equal(plan.status, 1, `${entry}: ${plan.out}`);
+      assert.match(plan.out, /no release can be planned/, entry);
+      const before = fs.readFileSync(p.eventsFile, 'utf8');
+      const r = await p.cli(OFFICE_SCOPE, 'job', 'human', p.job, 'approve-release', '--actor', 'foreman', '--note', 'ok');
+      assert.equal(r.status, 1, `${entry}: ${r.out}`);
+      assert.match(r.out, /--actor foreman refused|config\.yml has 1 problem/, entry);
+      assert.equal(fs.readFileSync(p.eventsFile, 'utf8'), before, `${entry}: nothing recorded`);
+      assert.equal(approvals(p).length, 0, entry);
+    }
   });
 
   test('approve-release authority is enforced by the CLI', async () => {
