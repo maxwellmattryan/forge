@@ -177,6 +177,10 @@ components: []               # the parts of a monorepo (see Components), e.g.
 #  - { name: api, path: services/api, kind: service, commands: { test: "go test ./...", dev: "go run . -port {port}" },
 #      dependsOn: [{ component: proto, type: build }, { backing: postgres, type: runtime }], owners: ["@team-api"] }
 
+checkout: []                 # steps forge focus applies to the focused job (see Checkout steps), e.g.
+#  - { link: build/MyPlugin.vst3, to: ~/Library/Audio/Plug-Ins/VST3/MyPlugin.vst3 }
+#  - { run: install-plugin, undo: uninstall-plugin }   # names commands.* entries
+
 infra:
   mode: human                # human | plan-only | agent
   allowed: []                # commands agents may run under plan-only/agent, e.g. ["terraform plan", "kubectl get"]
@@ -555,6 +559,31 @@ components:
 - **`repo`** is accepted for member repos to come; today it only keeps the component out of command selection and the integrity scan.
 
 **Migration** (config `schemaVersion` 9 → 10): `services` becomes `components`. Each service keeps its `name`, `path` (`.` when it had none), `commands`, `owners`, `notes` and any other keys, and gains `kind: service` and `dependsOn: []`, so every job runs the same commands from the same path as before. The migration happens in memory on every read; `forge migrate` writes it to disk. A config with no `schemaVersion` that still has `services` and no `components` is folded the same way. A v10 config that sets both is refused: `services was renamed to components in config schemaVersion 10; move its entries under components and delete services`.
+
+## Checkout steps
+
+Some tools read one fixed place rather than a job's address: a DAW loads plug-ins from one folder. `checkout` makes that place follow the job you focus (`forge focus <id>` or the dashboard's **Focus**). It is edited by hand (Settings shows it read-only). With no steps, focus is only a pointer, as before.
+
+```yaml
+checkout:                                   # default []
+  - link: build/MyPlugin.vst3               # path in the job's worktree
+    to: ~/Library/Audio/Plug-Ins/VST3/MyPlugin.vst3   # fixed path: absolute or ~/…
+  - run: install-plugin                     # names a commands.* entry
+    undo: uninstall-plugin                  # optional, names a commands.* entry
+```
+
+- **Steps.** Each step has exactly one of `link` or `run`. A `link` step needs `to` and has no `undo`; a `run` step may have `undo` and has no `to`.
+- **Focusing a job** first undoes the steps recorded for the previous job (in reverse, best effort: each failure is reported, none blocks the switch), then applies the new job's steps in order:
+  - **link**: the source is `<worktree>/<link>` of the job's own worktree (`<worktrees.root>/<id>`; a `worktree` in job.json pointing elsewhere fails the step). It must exist and its realpath must stay inside the worktree. The parent directory of `to` must exist (Forge never creates it). Anything already at `to` is renamed to `<to>.forge-aside`, never deleted, and an existing `<to>.forge-aside` fails the step. Then `to` becomes a symlink to the source.
+  - **run**: runs the named command for that job exactly as `forge run <job> <name>` does, with a log under the job's `logs/` named `checkout-<name>-…` (`checkout-undo-<name>-…` for an undo) and a `command` event. A non-zero exit fails the step.
+- **A failing step** undoes the steps applied so far, re-applies the previous job's steps when that job is still active and has its worktree, and leaves focus where it was. `forge focus` exits 1 and `POST /api/focus` answers 409 with a message such as `checkout[1] run install-plugin failed (exit 2); log: logs/checkout-install-plugin-….log; focus stays on 12-foo`.
+- **Re-focusing** the job whose steps are applied does nothing. Focusing it again when its steps are not applied (say `checkout` was added after you focused it) applies them, which is how to re-run them.
+- **Clearing focus** (`forge focus --clear`) undoes the recorded steps, also when nothing is focused any more. A job that finishes lets go of focus, but its steps stay applied until the next focus change, `--clear`, or `forge worktree remove` (and `forge sync`'s on-merge cleanup), which undoes them before deleting the worktree.
+- **Undo** unlinks `to` only when it is still the symlink Forge made, then renames `<to>.forge-aside` back. A `to` you replaced since is left in place and reported. A run step's `undo` runs in that job's worktree; a step without one does nothing.
+- **The record** of what was applied is `.forge/runtime/checkout.json`, read without following symlinks and capped at 64 KiB. It only steers undo for targets and `run`/`undo` pairs the current config names, so a planted record can't rename, unlink or run anything else. Each step logs a `checkout` event (`phase: apply | undo | rollback`, `step`, `kind`, `ok`) on its job.
+- **Validation** (`forge config validate`, `forge doctor`, `forge init write`, Settings) reports each problem as `checkout[<i>]…`: neither or both of `link` and `run`; a `link` that is empty, absolute or has a `..` segment; a `to` that is missing, not absolute or `~/…`, has a `..` segment or a NUL, or is `/`, `~` or `~/`; `undo` on a link step or `to` on a run step; a `run` or `undo` that names no non-null command in `commands` or a component's `commands`; and two link steps whose `to` resolve to the same path (`checkout[3].to repeats checkout[0].to`). A `checkout` that isn't a list is `checkout must be a list (got …)`.
+
+**Migration** (config `schemaVersion` 10 → 11): nothing changes. v11 adds `checkout`, empty by default; the bump lets older Forges refuse a config whose checkout steps they would ignore.
 
 ## Deprecated keys
 
