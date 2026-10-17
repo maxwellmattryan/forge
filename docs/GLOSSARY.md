@@ -49,7 +49,7 @@ The release strategy keys are in config (see [CONFIG.md "Release strategy"](CONF
 
 ## Environments
 
-Planned in M007.
+Planned in M007; a row with a config key is implemented.
 
 | Term | Meaning | Config key |
 |---|---|---|

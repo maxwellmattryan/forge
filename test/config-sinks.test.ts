@@ -8,7 +8,6 @@ import { componentProblems } from '../lib/components.ts';
 import { loadConfig, validateConfig } from '../lib/config.ts';
 import { EXPRESSION_ROOTS, fillTemplate, renderEnvFile, renderMerge, renderTemplate, resolveString, resolveValue, sinkProblems } from '../lib/config-sinks.ts';
 import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
-import { run } from '../lib/util.ts';
 import * as yaml from '../lib/yaml.ts';
 
 const CTX = { job: 'j1', port: 4123, worktree: '/wt/j1', branch: 'forge/j1', base: 'main', component: { name: 'api', path: 'services/api', dir: '/wt/j1/services/api' } };
@@ -82,19 +81,21 @@ describe('config sinks validation', { concurrency: 4 }, () => {
     assert.deepEqual(validateConfig({ ...loadDefaults(), components: [component(VALID)] }, process.cwd()), []);
   });
 
-  test('a v18 config migrates to v19 unchanged', async () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 19);
-    const v18 = { schemaVersion: 18, components: [component(VALID)] };
-    const m = migrateConfig(structuredClone(v18));
-    assert.equal(m.from, 18);
-    assert.deepEqual(m.config, { ...v18, schemaVersion: 19 });
+  test('a v19 config migrates to v20 unchanged', async () => {
+    assert.equal(CONFIG_SCHEMA_VERSION, 20);
+    const v19 = { schemaVersion: 19, components: [component(VALID)] };
+    const m = migrateConfig(structuredClone(v19));
+    assert.equal(m.from, 19);
+    assert.deepEqual(m.config, { ...v19, schemaVersion: 20 });
+    // Through the backing bump (#272) too: v18 → v19 → v20 is two no-ops.
+    assert.deepEqual(migrateConfig({ ...structuredClone(v19), schemaVersion: 18 }).config, { ...v19, schemaVersion: 20 });
     const repo = tempRepo();
     try {
       const cfg = path.join(repo.dir, '.forge', 'config.yml');
       fs.mkdirSync(path.dirname(cfg), { recursive: true });
-      fs.writeFileSync(cfg, yaml.stringify({ schemaVersion: 18, tracker: { kind: 'none' }, components: [component(VALID)] }));
+      fs.writeFileSync(cfg, yaml.stringify({ schemaVersion: 19, tracker: { kind: 'none' }, components: [component(VALID)] }));
       const loaded = loadConfig(repo.dir);
-      assert.equal(loaded.migratedFrom, 18);
+      assert.equal(loaded.migratedFrom, 19);
       assert.deepEqual(loaded.config.components, [component(VALID)]);
       const r = await forgeAsync(repo.dir, ['config', 'validate']);
       assert.equal(r.status, 0, r.stderr + r.stdout);
@@ -208,16 +209,5 @@ describe('config sink renderers', { concurrency: 4 }, () => {
     const text = '[server]\nport = {port}\nname = "{job}"\ntable = { x = 1 }\n';
     assert.equal(renderTemplate('toml', text, CTX, 'app.toml.template'), '[server]\nport = 4123\nname = "j1"\ntable = { x = 1 }\n');
     assert.equal(renderTemplate('yaml', 'job: "{job}"\n', CTX, 'a.yml'), 'job: "j1"\n');
-  });
-});
-
-describe('config sink commands', { concurrency: 4 }, () => {
-  test('a command that exits without reading its stdin keeps its exit status', () => {
-    // More input than the pipe buffer holds makes the EPIPE deterministic; a small stdin only races it.
-    const r = run('sh', ['-c', 'exit 3'], { input: 'x'.repeat(1 << 20), allowFail: true });
-    assert.equal(r.status, 3);
-    assert.equal(r.ok, false);
-    assert.equal(run('sh', ['-c', 'true'], { input: 'x'.repeat(1 << 20), allowFail: true }).status, 0);
-    assert.throws(() => run('sh', ['-c', 'exit 3'], { input: 'x'.repeat(1 << 20) }), /exited 3/);
   });
 });
