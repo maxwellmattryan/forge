@@ -11,7 +11,7 @@ import { removeLinkDir } from './links.ts';
 import { memberCheck, readLocalConfig, resolveMemberPath } from './member-repos.ts';
 import { exists, resolveFrom } from './paths.ts';
 import type { Config, Job, JobRepo, MemberRepoConfig } from './types.ts';
-import { ForgeError, assertSafeRef, run } from './util.ts';
+import { ForgeError, GIT_PINS, assertSafeRef, run } from './util.ts';
 
 /** A member entry: `repo` is always a name. */
 export type MemberJobRepo = JobRepo & { repo: string };
@@ -136,11 +136,11 @@ export function addJobRepo(root: string, config: Config, id: string, name: strin
   return { id: saved.id, repos: loadJob(root, id).repos };
 }
 
-/** git in a member checkout, without the caller's GIT_DIR-style overrides or a worktree's fsmonitor hook. */
+/** git in a member checkout, without the caller's GIT_DIR-style overrides and with the session's GIT_PINS, so no hook or fsmonitor program the worktree holds runs. */
 function memberGit(cwd: string, args: string[]) {
   const env = { ...process.env };
   for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY']) delete env[k];
-  return run('git', ['-c', 'core.fsmonitor=false', ...args], { cwd, allowFail: true, env });
+  return run('git', [...GIT_PINS.flatMap(([key, value]) => ['-c', `${key}=${value}`]), ...args], { cwd, allowFail: true, env });
 }
 
 /**

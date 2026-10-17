@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
 import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
-import { downstreamMembers, downstreamRepos } from '../lib/downstream.ts';
+import { changedRepos, downstreamMembers, downstreamRepos } from '../lib/downstream.ts';
 import { migrate } from '../lib/commands/init.ts';
 import { CONFIG_SCHEMA_VERSION, migrateConfig, normalizeJob } from '../lib/schema.ts';
 import type { Config, Job, JobEvent, JobRepo } from '../lib/types.ts';
@@ -150,6 +150,20 @@ describe('downstream verification: candidates', { concurrency: 4 }, () => {
     ];
     assert.deepEqual([...downstreamMembers(j, events)], ['app-a']);
     assert.deepEqual([...downstreamMembers(job(), events)], []);
+  });
+
+  test('a hand-edited, unpromoted downstream member is not a changed repo', () => {
+    // lib2 joined downstream and job.json was edited to verifyOnly: false with no promotion: its consumer app-c must not be pulled in.
+    const edited = job(member('lib2', false));
+    const joined = [ev('job-repo-added', { repo: 'lib2', verifyOnly: true, downstream: true })];
+    assert.deepEqual([...changedRepos(edited, joined)], [null]);
+    assert.deepEqual(downstreamRepos(config(), edited, joined, 'core-repo').add, ['app-a', 'app-b']);
+    // Promoted after it joined: a changed repo, so its consumer is discovered.
+    const promoted = [...joined, ev('job-repo-promoted', { repo: 'lib2' })];
+    assert.deepEqual([...changedRepos(edited, promoted)], [null, 'lib2']);
+    assert.deepEqual(downstreamRepos(config(), edited, promoted).add, ['app-a', 'app-b', 'app-c']);
+    // Added edited by a human: a changed repo as before.
+    assert.deepEqual([...changedRepos(edited, [ev('job-repo-added', { repo: 'lib2', verifyOnly: false })])], [null, 'lib2']);
   });
 
   test('downstreamRepos is pure', () => {

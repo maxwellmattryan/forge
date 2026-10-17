@@ -729,8 +729,9 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   }
   // A downstream consumer proves nothing against the released library: without an active link from a
   // changed repo it fails `links` and none of its configured steps runs.
-  const downstream = downstreamMembers(job, readEvents(root, id));
-  const changedSet = changedRepos(job);
+  const events = readEvents(root, id);
+  const downstream = downstreamMembers(job, events);
+  const changedSet = changedRepos(job, events);
   const linkGuard = (repo: string): string | null => {
     if (!downstream.has(repo)) return null;
     const mine = resolveLinks(root, config, job).filter((l) => l.consumerRepo === repo && changedSet.has(l.dependencyRepo));
@@ -752,7 +753,7 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   if (integrity) lines.push(renderIntegrity(integrity));
   for (const m of memberRuns) {
     lines.push('', `# ${downstream.has(m.rec.repo) ? 'Downstream consumer' : 'Repo'} ${m.rec.repo} · ${m.rec.sha.slice(0, 12)}`, '');
-    renderSteps(lines, m.results, m.secrets, mode, null);
+    renderSteps(lines, m.results, m.secrets, mode, null, downstream.has(m.rec.repo));
     if (m.integrity) lines.push(renderIntegrity(m.integrity));
   }
   const dir = path.join(jobDir(root, id), 'verify');
@@ -877,7 +878,9 @@ async function verifyMember(
 }
 
 /** The `## <step>: …` sections of a verify report, the root's (with `prot`) and each member's alike. */
-function renderSteps(lines: string[], results: VerifyStep[], secrets: SecretScan, mode: ReturnType<typeof secretMode>, prot: Pick<BranchCheck, 'refused' | 'escalated' | 'error'> | null): void {
+// `linkGuard`: only a downstream consumer's results can hold the link guard, so a root or member
+// step a repo happens to name `links` renders like any other configured step.
+function renderSteps(lines: string[], results: VerifyStep[], secrets: SecretScan, mode: ReturnType<typeof secretMode>, prot: Pick<BranchCheck, 'refused' | 'escalated' | 'error'> | null, linkGuard = false): void {
   for (const r of results) {
     if (r.name === 'worktree-clean') {
       lines.push('## worktree-clean: FAILED (uncommitted or hidden changes)', '', 'Commit or discard these (or clear the index flags and filters) before verify can run:', '', '```', r.tail!, '```', ''); // the gate's tail lists the changes
@@ -892,7 +895,7 @@ function renderSteps(lines: string[], results: VerifyStep[], secrets: SecretScan
       lines.push(renderProtected(prot));
       continue;
     }
-    if (r.name === 'links' && !r.ok) {
+    if (linkGuard && r.name === 'links' && !r.ok) {
       lines.push('## links: FAILED', '', 'No link from a changed repo is active for this downstream consumer, so its tests would build against the released library; no configured step ran:', '', ...String(r.tail).split('\n').map((l) => `- ${l}`), '');
       continue;
     }

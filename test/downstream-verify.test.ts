@@ -136,4 +136,19 @@ describe('downstream verification: verify', { concurrency: 4 }, () => {
     assert.match(v.report, /^Downstream consumer `app-a` failed `links`: /m);
     assert.equal(fs.readdirSync(path.join(p.root, '.forge', 'jobs', id, 'logs')).some((f) => f.includes('app-a-test')), false, 'no app-a test log');
   });
+
+  test('a root verify step named links renders as a configured step', async () => {
+    const { p, id, wt } = await started();
+    p.config((c) => {
+      c.verify = ['links', 'test'];
+      c.commands.links = 'exit 3';
+    });
+    commit(p, wt, (d) => fs.writeFileSync(path.join(d, 'core', 'core.txt'), 'core v2\n'), 'feat: core v2');
+    const v = await verify(p, id);
+    assert.equal(v.out.ok, false);
+    const root = v.report.slice(0, v.report.indexOf('\n# '));
+    assert.match(root, /^## links: FAILED \(exit 3\)$/m);
+    assert.doesNotMatch(v.report, /No link from a changed repo is active/);
+    assert.deepEqual(v.out.downstream, [{ repo: 'app-a', ok: true, failure: null }, { repo: 'app-b', ok: true, failure: null }]);
+  });
 });

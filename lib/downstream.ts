@@ -54,9 +54,14 @@ export function unpromotedDownstream(job: Pick<Job, 'repos'>, events: JobEvent[]
     .map((m) => m.repo);
 }
 
-/** The repos the job changes: the root (null) and every member that is not verify-only. */
-export function changedRepos(job: Pick<Job, 'repos'>): Set<string | null> {
-  return new Set<string | null>([null, ...memberRepos(job).filter((m) => !m.verifyOnly).map((m) => m.repo)]);
+/**
+ * The repos the job changes: the root (null) and every member that is not verify-only, except an
+ * unpromoted downstream consumer a hand edit marked edited. Discovery and the push guard read the
+ * same definition, so such an edit can't pull the consumer's own consumers onto the job.
+ */
+export function changedRepos(job: Pick<Job, 'repos'>, events: JobEvent[]): Set<string | null> {
+  const unpromoted = new Set(unpromotedDownstream(job, events));
+  return new Set<string | null>([null, ...memberRepos(job).filter((m) => !m.verifyOnly && !unpromoted.has(m.repo)).map((m) => m.repo)]);
 }
 
 /** Whether a human removed `repo` from the job: a `job-repo-removed` after its latest `job-repo-added`. */
@@ -80,7 +85,7 @@ export function downstreamRepos(config: Pick<Config, 'components' | 'repos' | 'v
   const out: DownstreamCandidates = { add: [], skipped: [] };
   const settings = config.downstream;
   if (!isMap(settings) || settings.enabled !== true) return out;
-  const changed = changedRepos(job);
+  const changed = changedRepos(job, events);
   const onJob = new Set(memberRepos(job).map((m) => m.repo));
   const graph = projectGraph(config);
   const repoOf = new Map(graph.components.map((c) => [c.name, c.repo]));
