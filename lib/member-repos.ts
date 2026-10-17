@@ -179,7 +179,7 @@ const quoteRemote = (r: string): string => shellWord(r, /^[A-Za-z0-9._/~:@+=%-]+
  * The env for git in a member clone: inherited location variables would point the call at another
  * repo, and optional locks off keeps `status` from refreshing (writing) the clone's index.
  */
-function gitEnv(): NodeJS.ProcessEnv {
+export function gitEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY']) delete env[k];
   env.GIT_OPTIONAL_LOCKS = '0';

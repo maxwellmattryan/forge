@@ -30,6 +30,7 @@ import { helpCmd, usage } from './commands/help.ts';
 import { initWrite, migrate } from './commands/init.ts';
 import { jobCmd } from './commands/job.ts';
 import { notifyCmd } from './commands/notify.ts';
+import { releaseCmd } from './commands/release.ts';
 import { requestsCmd } from './commands/requests.ts';
 import { runCmd } from './commands/run.ts';
 import { secretsCmd } from './commands/secrets.ts';
@@ -181,6 +182,9 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       if (sub === 'ready') return ok(pr.readyPr(root, config, id, pr.mergeTarget(flags, 'ready')));
       throw usage('pr');
     }
+    case 'release':
+      needInit();
+      return releaseCmd(ctx, sub, rest, flags);
     case 'sync':
       needInit();
       return ok(await syncAll(root, config));
