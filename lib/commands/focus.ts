@@ -14,10 +14,7 @@ const FOCUS: HelpGroup = {
       summary:
         "print the focused job ({focus: {id, title, since} | null}), focus an active job, or clear focus; a pointer in .forge/runtime/focus.json that a job lets go of when it finishes. Moving it undoes the previous job's configured checkout steps and runs the new job's; a failing step rolls back and keeps the previous focus",
       flags: [['--clear', 'clear focus (succeeds when nothing is focused)']],
-      exits: [
-        [1, 'no such job, or a daemon session set or cleared it'],
-        [1, 'a checkout step failed (focus unchanged)'],
-      ],
+      exits: [[1, 'no such job, a daemon session set or cleared it, or a checkout step failed (focus unchanged)']],
       readme: true,
     },
   ],
