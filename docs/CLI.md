@@ -138,7 +138,8 @@ Set by Forge for configured commands (`forge run`, `forge verify`, worktree setu
 |---|---|
 | `FORGE_JOB` | the job id |
 | `FORGE_WORKTREE` | the job's worktree |
-| `FORGE_PORT`, `PORT` | the job's port, empty when it has none |
+| `FORGE_PORT`, `PORT` | the port of the component the command runs for (the job's component for a root command, else the job's `port`; a member repo's component for `--repo`), empty when there is none |
+| `FORGE_PORT_<C>`, `FORGE_ENDPOINT_<C>` | per port-bearing component (prefixes `FORGE_PORT_` and `FORGE_ENDPOINT_`, `C` the name upper-cased with every character outside `A-Z 0-9` as `_`): its port and `http://localhost:<port>` (docs/CONFIG.md "Ports and endpoints") |
 | `FORGE_CARGO_CONFIG` | `forge run` and `forge verify` steps only, when the repo the command runs in has an active cargo local link: the absolute path of the rendered `cargo-links.toml`, for a command that calls cargo by absolute path (see Local links) |
 | `FORGE_CMAKE_ARGS` | the same, when the repo declares a cmake local link: the `-DFETCHCONTENT_SOURCE_DIR_<NAME>=<dir>` / `-U…` arguments as single-quoted shell words |
 | `FORGE_BACKING_<NAME>_HOST` | per `backing:` entry (prefix `FORGE_BACKING_`, `NAME` upper-cased with `-` as `_`), when the job's services were brought up: `127.0.0.1`; not set for an external entry (docs/CONFIG.md "Backing services") |

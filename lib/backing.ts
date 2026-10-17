@@ -98,7 +98,7 @@ function entries(config: Config): BackingEntry[] {
 }
 
 /** entries() without throwing: an invalid config contributes nothing (validation reports it). */
-function entriesOrNone(config: Config): BackingEntry[] {
+export function entriesOrNone(config: Config): BackingEntry[] {
   try {
     return entries(config);
   } catch {
