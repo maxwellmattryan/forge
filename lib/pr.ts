@@ -2,18 +2,20 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ownerStatusWithProof } from './daemon-owner.ts';
 import { currentActor } from './actor.ts';
-import { isActive, isForemanActor, listJobs, loadJob, logEvent, readEvents, setJob, jobDir } from './jobs.ts';
+import { isActive, isForemanActor, listJobs, loadJob, logEvent, readEvents, setJob, updateJob, jobDir } from './jobs.ts';
+import { memberConfig, memberEntry, memberRepos, memberWorktree } from './job-repos.ts';
+import { isHttpsUrl } from './schema.ts';
 import { checkBranch, historyEnv, logEscalated, policyRules, protectedApproved, refusalText } from './protected.ts';
 import { enqueuePrFeedbackGate, maybeEnqueueGate } from './foreman.ts';
 import { prLinkNote } from './issue-link.ts';
 import { isSafeUrl, linkedIssues, nativeRef, sameIssue } from './issue-ref.ts';
-import { localRepoSlug } from './repo-slug.ts';
+import { githubHost, localRepoSlug, slugFromRemote } from './repo-slug.ts';
 import { queueNotify } from './notify.ts';
 import { exists } from './paths.ts';
 import { enqueue, listRequests } from './requests.ts';
 import { attributionForbidden, scrubBranch, stripAttribution } from './attribution.ts';
 import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from './delta.ts';
-import type { ActorSource, Config, HumanDelta, Job, JobChange, JobEvent, JobPr, PrChecks } from './types.ts';
+import type { ActorSource, Config, HumanDelta, Job, JobChange, JobEvent, JobPr, JobRepoPr, PrChecks } from './types.ts';
 import { ForgeError, SAFE_REF, hasBinary, now, readText, run, safeText } from './util.ts';
 import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretMode, textUnit } from './secrets.ts';
 import { cleanGenerated, generatedConfig, generatedPaths, partitionConflicts, rebuild, regenerateProblem, takeBaseSide } from './regenerate.ts';
@@ -129,12 +131,20 @@ function view(root: string, slug: string, num: number): any {
   return JSON.parse(gh(root, ['pr', 'view', String(num), '-R', slug, '--json', PR_FIELDS]).stdout);
 }
 
+/** One member repo's part of `forge pr open`: openMemberPr. */
+export interface MemberPrResult {
+  repo: string;
+  number: number;
+  url: string | null;
+  created: boolean;
+}
+
 export function openPr(
   root: string,
   config: Config,
   id: string,
   opts: { title?: string; draft?: boolean; force?: boolean } = {},
-): { number: number; url: string; created: boolean; unlinked?: true } {
+): { number: number; url: string; created: boolean; unlinked?: true; repos?: MemberPrResult[] } {
   requireGh();
   const job = loadJob(root, id);
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree`);
@@ -143,7 +153,9 @@ export function openPr(
   const evidence = verifiedHead(root, id);
   if (!evidence.verified) {
     const last = evidence.last ? `last verify: round ${evidence.last.round} attempt ${evidence.last.attempt}, ${evidence.last.ok ? 'PASS' : 'FAIL'} on ${String(evidence.last.sha).slice(0, 12)}` : 'never verified';
-    if (!opts.force) throw new ForgeError(`HEAD ${evidence.head.slice(0, 12)} of ${id} is not verified (${last}); run: forge verify ${id}, or pass --force`);
+    // With job repos the root HEAD can match while a member's does not: name what moved.
+    const repoNote = evidence.heads && evidence.last?.ok && evidence.last.sha === evidence.head ? `, but a job repo HEAD is not the one it checked` : '';
+    if (!opts.force) throw new ForgeError(`HEAD ${evidence.head.slice(0, 12)} of ${id} is not verified (${last}${repoNote}); run: forge verify ${id}, or pass --force`);
     logEvent(root, id, 'pr-unverified', { head: evidence.head, last: evidence.last });
   }
   // Before any gh call or push, and even for a PR that already exists: the scan is the last point
@@ -166,6 +178,13 @@ export function openPr(
   const slug = repoSlug(root, config);
   const ahead = run('git', ['rev-list', '--count', `${config.git.remote}/${job.base}..${checked}`, '--'], { cwd: job.worktree, allowFail: true });
   if (ahead.ok && ahead.stdout.trim() === '0') throw new ForgeError(`branch ${job.branch} has no commits ahead of ${job.base}`);
+  // Every member is checked before anything is pushed, then opened before the root PR, so a member
+  // failure leaves no root PR behind (this is not a merge order).
+  const plans = memberRepos(job)
+    .filter((m) => !m.verifyOnly)
+    .map((m) => checkMemberPr(root, config, job, m.repo, text.title, mode, evidence.heads?.[m.repo]));
+  const memberResults = plans.map((p) => openMemberPr(root, config, job, p, text.title, opts.draft));
+  const repos = memberRepos(job).length ? { repos: memberResults } : {};
   let rewritten = false;
   let pushedSha = checked;
   if (attributionForbidden(config)) {
@@ -186,7 +205,7 @@ export function openPr(
   if (existing && existing.state === 'OPEN') {
     setJob(root, id, { fields: { 'pr.pushedSha': pushedSha } });
     logEvent(root, id, 'pr-updated', { number: existing.number });
-    return { number: existing.number, url: existing.url, created: false, ...prLinkNote(job, config) };
+    return { number: existing.number, url: existing.url, created: false, ...prLinkNote(job, config), ...repos };
   }
   const bodyFile = path.join(jobDir(root, id), 'pr-body.md');
   fs.writeFileSync(bodyFile, text.body);
@@ -199,7 +218,173 @@ export function openPr(
   setJob(root, id, { fields: { pr: { number, url, state: 'OPEN', isDraft: Boolean(opts.draft ?? config.pr.draft), openedAt: now(), lastSyncedAt: now(), pushedSha } } });
   logEvent(root, id, 'pr-opened', { number, url });
   queueNotify(root, ['pr-opened'], { job: job.id, reason: 'pr-opened' });
-  return { number, url, created: true, ...prLinkNote(job, config) };
+  return { number, url, created: true, ...prLinkNote(job, config), ...repos };
+}
+
+/**
+ * A member repo's GitHub `owner/name`: its `tracker.repo` when the tracker is github, else read from
+ * its remote url. Refused when neither gives one.
+ */
+export function memberSlug(config: Config, name: string): string {
+  const repo = memberConfig(config, name);
+  if (repo.tracker?.kind === 'github' && typeof repo.tracker.repo === 'string' && repo.tracker.repo) return repo.tracker.repo;
+  const slug = slugFromRemote(repo.remote, githubHost());
+  if (slug) return slug;
+  throw new ForgeError(`cannot determine the GitHub repository of repo ${name}; set repos[].tracker.repo`);
+}
+
+/** What openMemberPr pushes and opens, fixed by checkMemberPr before any repo is pushed. */
+interface MemberPrPlan {
+  repo: string;
+  slug: string;
+  worktree: string;
+  base: string;
+  checked: string;
+  body: string;
+}
+
+/**
+ * Every check a member repo needs before anything leaves the machine: the secret scan of its PR
+ * body and of its commits (after refreshing its base from the push remote), at least one commit ahead
+ * of its base, and a slug to open the PR in. The commit checked is the HEAD verify recorded.
+ */
+function checkMemberPr(root: string, config: Config, job: Job, name: string, title: string, mode: 'block' | 'warn', verified: string | undefined): MemberPrPlan {
+  const { member, worktree } = memberWorktree(root, config, job, name);
+  const base = member.base!;
+  const checked = verified ?? run('git', ['rev-parse', 'HEAD'], { cwd: worktree }).stdout.trim();
+  if (!FULL_SHA.test(checked)) throw new ForgeError(`HEAD of repo ${name} is not a commit id`);
+  const body = memberPrBody(root, config, job);
+  refuseSecrets(root, config, [textUnit('(pr title)', title), textUnit(`(pr body of repo ${name})`, body)], { what: `the PR title or body of repo ${name}`, id: job.id, gate: 'pr' });
+  const view = { ...job, worktree, base };
+  refreshBase(view, config, mode);
+  const scan = scanBranch(root, config, view, { staged: false, head: checked });
+  logSecrets(root, job.id, 'pr', scan, { blocked: mode === 'block' });
+  if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of repo ${name}'s commits could not finish (${scan.error}); forge pr open won't push an unscanned branch`, 'secret_found', `forge secrets scan ${job.id}`);
+  if (mode === 'block' && scan.findings.length) throw new ForgeError(refusalMessage(`the commits of repo ${name}`, scan.findings), 'secret_found', `forge secrets scan ${job.id}`);
+  const ahead = run('git', ['rev-list', '--count', `${config.git.remote}/${base}..${checked}`, '--'], { cwd: worktree, allowFail: true });
+  if (!ahead.ok || ahead.stdout.trim() === '0') throw new ForgeError(`repo ${name} has no commits ahead of ${base}; remove it (forge job repo remove) or re-add it with --verify-only`);
+  return { repo: name, slug: memberSlug(config, name), worktree, base, checked, body };
+}
+
+/**
+ * Pushes a member's checked commit (scrubbed of attribution when that is forbidden) to the job's
+ * branch and finds its open PR by branch or creates one. The PR is recorded at once, so a failure in
+ * a later repo keeps it, and a rerun finds it again. A failure names the repo.
+ */
+function openMemberPr(root: string, config: Config, job: Job, p: MemberPrPlan, title: string, draft: boolean | undefined): MemberPrResult {
+  try {
+    const remote = config.git.remote;
+    let pushedSha = p.checked;
+    let rewritten = false;
+    if (attributionForbidden(config)) {
+      const remoteBase = `${remote}/${p.base}`;
+      const base = run('git', ['rev-parse', '--verify', '--quiet', remoteBase], { cwd: p.worktree, allowFail: true }).ok ? remoteBase : p.base;
+      const scrub = scrubBranch(p.worktree, base, p.checked, historyEnv());
+      if (scrub.rewritten) {
+        rewritten = true;
+        pushedSha = scrub.sha;
+        logEvent(root, job.id, 'attribution-scrubbed', { repo: p.repo, rewritten: scrub.rewritten, commits: scrub.commits });
+      }
+    }
+    pushBranch({ ...job, worktree: p.worktree }, config, pushedSha, { force: rewritten });
+    const existing = memberPrByBranch(p.worktree, p.slug, job.branch!, 'open');
+    const at = now();
+    if (existing) {
+      const number = safePrNumber(existing.number);
+      if (number === null) throw new ForgeError(`gh returned an unusable PR number for ${p.slug}`);
+      const url = isHttpsUrl(existing.url) ? existing.url : null;
+      recordMemberPr(root, job.id, p.repo, (prev) => ({ ...(prev ?? {}), number, url, state: 'OPEN', isDraft: existing.isDraft === true, openedAt: prev?.openedAt ?? at, lastSyncedAt: at, pushedSha }));
+      logEvent(root, job.id, 'repo-pr-updated', { repo: p.repo, number });
+      return { repo: p.repo, number, url, created: false };
+    }
+    const bodyFile = path.join(jobDir(root, job.id), `pr-body-${p.repo}.md`);
+    fs.writeFileSync(bodyFile, p.body);
+    const args = ['pr', 'create', '-R', p.slug, '--base', p.base, '--head', job.branch!, '--title', title, '--body-file', bodyFile];
+    const isDraft = Boolean(draft ?? config.pr.draft);
+    if (isDraft) args.push('--draft');
+    for (const l of config.pr.labels ?? []) args.push('--label', l);
+    for (const r of config.pr.reviewers ?? []) args.push('--reviewer', r);
+    const out = gh(p.worktree, args).stdout.trim().split('\n').pop() ?? '';
+    const number = safePrNumber(Number(out.match(/\/pull\/(\d+)/)?.[1]));
+    if (number === null) throw new ForgeError(`gh pr create printed no PR url for ${p.slug}`);
+    const url = isHttpsUrl(out) ? out : null;
+    recordMemberPr(root, job.id, p.repo, () => ({ number, url, state: 'OPEN', isDraft, openedAt: at, lastSyncedAt: at, pushedSha }));
+    logEvent(root, job.id, 'repo-pr-opened', { repo: p.repo, number });
+    return { repo: p.repo, number, url, created: true };
+  } catch (e) {
+    const err = e as ForgeError;
+    throw new ForgeError(`repo ${p.repo}: ${err.message}`, err.code ?? 'failed', err.hint ?? null);
+  }
+}
+
+const safePrNumber = (n: unknown): number | null => (typeof n === 'number' && Number.isSafeInteger(n) && n > 0 ? n : null);
+
+function recordMemberPr(root: string, id: string, repo: string, make: (prev: JobRepoPr | null) => JobRepoPr): void {
+  updateJob(root, id, (j) => {
+    const e = memberEntry(j, repo);
+    if (e) e.pr = make(e.pr);
+  });
+}
+
+/**
+ * The member PR on `branch` in `slug`, same repo only: a PR from a fork on a branch of the same name
+ * is refused, never adopted. gh output: raw input.
+ */
+function memberPrByBranch(cwd: string, slug: string, branch: string, which: 'open' | 'any'): any {
+  const list = JSON.parse(gh(cwd, ['pr', 'list', '-R', slug, '--head', branch, '--state', which === 'open' ? 'open' : 'all', '--json', PR_FIELDS, '--limit', '5']).stdout);
+  if (!Array.isArray(list)) return null;
+  const cross = list.find((x: any) => x?.isCrossRepository);
+  if (cross) throw new ForgeError(`PR #${Number(cross.number)} on ${branch} in ${slug} comes from a fork; Forge only uses branches in ${slug}`);
+  return list.find((x: any) => x?.state === 'OPEN') ?? (which === 'any' ? (list[0] ?? null) : null);
+}
+
+/** A member PR's body: the summary, then the marker. No Closes or Refs lines and no links to the job's other PRs. */
+export function memberPrBody(root: string, config: Config, job: Job): string {
+  const summary = `## Summary\n\n${firstParagraph(readText(path.join(jobDir(root, job.id), 'spec.md'))) || job.title}`;
+  const body = [summary, MARKER].join('\n\n') + '\n';
+  return attributionForbidden(config) ? stripAttribution(body) : body;
+}
+
+const PR_STATES = new Set(['OPEN', 'CLOSED', 'MERGED']);
+
+/**
+ * Records each member PR's state for display: by its number, or found by branch when none is
+ * recorded yet. Only checked values are stored (a safe number, an https url, a sha); a failure logs
+ * `repo-pr-sync-failed` and never stops the root sync. The job's own transition stays root-only.
+ */
+function syncMemberPrs(root: string, config: Config, id: string): void {
+  const job = loadJob(root, id);
+  const fields = 'number,url,state,isDraft,headRefOid,mergeable,mergeStateStatus,statusCheckRollup,mergedAt,isCrossRepository';
+  for (const m of memberRepos(job).filter((x) => !x.verifyOnly)) {
+    try {
+      const slug = memberSlug(config, m.repo);
+      let number = m.pr?.number ?? null;
+      if (!number) {
+        const found = memberPrByBranch(root, slug, job.branch!, 'any');
+        if (!found) continue;
+        number = safePrNumber(found.number);
+        if (number === null) throw new ForgeError('unusable PR number');
+      }
+      const pr = JSON.parse(gh(root, ['pr', 'view', String(number), '-R', slug, '--json', fields]).stdout);
+      if (pr?.isCrossRepository) throw new ForgeError(`PR #${number} in ${slug} comes from a fork`);
+      const fresh = {
+        number: safePrNumber(pr.number),
+        url: isHttpsUrl(pr.url) ? pr.url : null,
+        state: PR_STATES.has(pr.state) ? pr.state : (m.pr?.state ?? 'OPEN'),
+        isDraft: pr.isDraft === true,
+        headOid: isSha(pr.headRefOid) ? pr.headRefOid : null,
+        mergeable: typeof pr.mergeable === 'string' ? safeText(pr.mergeable, 40) : undefined,
+        mergeState: typeof pr.mergeStateStatus === 'string' ? safeText(pr.mergeStateStatus, 40) : undefined,
+        checks: summarizeChecks(Array.isArray(pr.statusCheckRollup) ? pr.statusCheckRollup : []),
+        mergedAt: typeof pr.mergedAt === 'string' && pr.mergedAt ? safeText(pr.mergedAt, 40) : null,
+        lastSyncedAt: now(),
+      };
+      recordMemberPr(root, id, m.repo, (prev) => ({ ...(prev ?? {}), ...fresh }) as JobRepoPr);
+      logEvent(root, id, 'repo-pr-synced', { repo: m.repo, state: fresh.state });
+    } catch {
+      logEvent(root, id, 'repo-pr-sync-failed', { repo: m.repo });
+    }
+  }
 }
 
 /**
@@ -425,6 +610,8 @@ export interface SyncResult {
 export function syncPr(root: string, config: Config, id: string, opts: { route?: boolean } = {}): SyncResult {
   const route = opts.route !== false;
   requireGh();
+  // Member PRs first, for display only: a failure there never stops the root sync.
+  if (memberRepos(loadJob(root, id)).length) syncMemberPrs(root, config, id);
   let job = loadJob(root, id);
   if (!job.pr?.number) {
     const found = findPr(root, config, id);

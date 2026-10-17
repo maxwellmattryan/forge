@@ -5,11 +5,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
-import { REPLY_LINE, renderBrief, roleBrief } from '../lib/brief.ts';
+import { REPLY_LINE, jobPathMap, renderBrief, roleBrief } from '../lib/brief.ts';
 import type { RoleContext } from '../lib/brief.ts';
 import { defaults } from '../lib/config.ts';
 import { createJob, jobDir, updateJob } from '../lib/jobs.ts';
-import { WAITING_ON } from '../lib/schema.ts';
+import { WAITING_ON, normalizeJob } from '../lib/schema.ts';
 import { gateTell, loadStepInput, step } from '../lib/step.ts';
 import type { Stage, StepInput } from '../lib/types.ts';
 import { JOB_DIR, ag, fixture } from './step-fixture.ts';
@@ -278,4 +278,21 @@ test('reviewers and approver read the verifiers report', () => {
     assert.ok(inputs(brief(withReport, role, ctx)).includes(report), `${role} reads the report`);
     assert.ok(!inputs(brief(without, role, ctx)).includes(report), `${role} without a report`);
   }
+});
+
+test('member repos are listed after the worktree line', () => {
+  const root = { repo: null, worktree: '/repo.worktrees/j', branch: 'forge/j', base: 'main', pr: null, verifyOnly: false };
+  const lib = { repo: 'lib', worktree: '/lib.worktrees/j', branch: 'forge/j', base: 'main', pr: null, verifyOnly: false };
+  const docs = { repo: 'docs', worktree: null, branch: null, base: 'release/1.x', pr: null, verifyOnly: true };
+  const f = fixture({ files: ['spec', 'tasks'], job: { repos: [root, lib, docs] } });
+  const lines = brief(f, 'builder').split('\n');
+  const at = lines.findIndex((l) => l.startsWith('Worktree: '));
+  assert.equal(lines[at + 1], 'Repo lib: /lib.worktrees/j · branch forge/j · base main');
+  assert.equal(lines[at + 2], 'Repo docs: none · branch none (verify only) · base release/1.x');
+  assert.ok(lines[at + 3].startsWith('Base branch: '));
+  const single = brief(fixture({ files: ['spec', 'tasks'] }), 'builder');
+  assert.ok(!single.includes('Repo '), 'a single-repo brief has no Repo line');
+  const job = normalizeJob({ id: 'j', branch: 'forge/j', base: 'main', worktree: '/repo.worktrees/j' });
+  assert.equal('repos' in jobPathMap('/repo', defaults(), job), false, 'a single-repo path map has no repos key');
+  assert.deepEqual(jobPathMap('/repo', defaults(), { ...job, repos: [root, lib, docs] }).repos, { lib: '/lib.worktrees/j', docs: null });
 });

@@ -271,7 +271,8 @@ export function cleanRepos(job: Pick<Job, 'branch' | 'base' | 'worktree' | 'pr'>
     const verifyOnly = m.verifyOnly === true;
     out.push({
       repo: m.repo,
-      worktree: typeof m.worktree === 'string' && m.worktree !== '' && !m.worktree.includes('\0') ? m.worktree : null,
+      // Control characters never: the path is printed one per line in agent briefs.
+      worktree: typeof m.worktree === 'string' && m.worktree !== '' && !/[\u0000-\u001f\u007f]/.test(m.worktree) ? m.worktree : null,
       branch: verifyOnly ? null : (job.branch ?? null),
       base: isSafeBranch(m.base) ? m.base : null,
       pr: cleanRepoPr(m.pr),

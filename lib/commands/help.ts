@@ -124,15 +124,15 @@ export const CORE: HelpGroup[] = [
       {
         command: 'pr open',
         args: '<id> [--title T] [--draft] [--force]',
-        summary: 'push the verified branch and open or update its PR',
+        summary: "push the verified branch and open or update its PR; with job repos, every repo is checked first, then each non-verify-only member's branch is pushed and its PR opened or updated (result: repos) before the root PR",
         flags: [
           ['--title T', 'the PR title (default: the job title)'],
           ['--draft', 'open it as a draft'],
           ['--force', 'publish a HEAD that forge verify has not passed'],
         ],
-        exits: [[1, 'no such job or worktree, an unverified HEAD, nothing to push, or a likely secret in the PR title or body or the commits it would push (code secret_found)'], GH_FAILED],
+        exits: [[1, 'no such job or worktree, an unverified HEAD (of any job repo), nothing to push (in any job repo), no GitHub slug for a member repo, or a likely secret in a PR title or body or the commits it would push (code secret_found)'], GH_FAILED],
       },
-      { command: 'pr sync', args: '<id>', summary: "read the PR's state, checks and review feedback into the job", exits: [NO_JOB, GH_FAILED] },
+      { command: 'pr sync', args: '<id>', summary: "read the PR's state, checks and review feedback into the job; each member repo PR's state and checks are recorded first, for display only", exits: [NO_JOB, GH_FAILED] },
       {
         command: 'pr merge',
         args: '<id> [--now]',

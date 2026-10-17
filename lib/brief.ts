@@ -3,6 +3,7 @@
 import path from 'node:path';
 import { autoMerge, lensNeedsApp, resolveEffort, reviewerChecklist } from './config.ts';
 import { jobDir, reviewDir } from './jobs.ts';
+import { memberRepos } from './job-repos.ts';
 import { paths, exists } from './paths.ts';
 import type { Config, GateClass, Job, StepInput } from './types.ts';
 
@@ -45,6 +46,7 @@ export function jobPathMap(root: string, config: Config, job: Job): Record<strin
     config: p.config,
     instructions: (config.project.instructions ?? []).map((f: string) => path.join(job.worktree ?? root, f)).filter(exists),
     checklists: Object.fromEntries((job.reviewers ?? []).map((r: string) => [r, reviewerChecklist(root, r, config.review.panel.find((x) => x.name === r)?.checklist)])),
+    ...(memberRepos(job).length ? { repos: Object.fromEntries(memberRepos(job).map((m) => [m.repo, m.worktree])) } : {}),
   };
 }
 
@@ -204,6 +206,7 @@ export function renderBrief(input: StepInput, spec: BriefSpec): string {
     `Role: ${spec.role}${spec.lens ? ` · lens ${spec.lens}` : ''}`,
     `Round: ${j.round}`,
     `Worktree: ${j.worktree ?? 'none'}`,
+    ...memberRepos(j).map((m) => `Repo ${m.repo}: ${m.worktree ?? 'none'} · branch ${m.verifyOnly ? 'none (verify only)' : (m.branch ?? 'none')} · base ${m.base ?? 'none'}`),
     `Base branch: ${j.base ?? input.config.git.base}`,
     `Job paths (JSON): ${JSON.stringify(input.paths)}`,
     `Inputs: ${present.length ? present.join(', ') : 'none'}`,
