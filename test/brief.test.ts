@@ -250,7 +250,7 @@ test('release gate line in the approver and assistant briefs', () => {
     { repo: null, worktree: '/repo.worktrees/j', branch: 'forge/j', base: 'main', pr: null, verifyOnly: false, interim: null },
     { repo: 'lib', worktree: null, branch: 'forge/j', base: 'main', pr: null, verifyOnly: false, interim: null },
   ];
-  const tail = '; held: the consumer PR stays a draft and Forge refuses to ready or merge it until a human records the release; ci: the seeded release-gate check fails while the pin remains. Never mark auto-merge eligible while a gate is held.';
+  const tail = '; held: the consumer PR stays a draft and Forge refuses to ready or merge it until a human records the release; bump-due: the release is recorded and verify still has to bump the consumer\'s manifests to it; ci: the seeded release-gate check fails while the pin remains. Never mark auto-merge eligible while a gate is held or bump-due.';
   const held = fixture({ config: twoRepo, job: { repos } });
   for (const b of both(held)) has(b, `Release gate (JSON): [{"consumer":null,"dependency":"lib","strategy":"local","gate":"held"}]${tail}`);
   const released = fixture({ config: twoRepo, job: { repos }, events: [ev('interim-released', 5, { repo: 'lib', version: '1.2.0' })] });

@@ -8,6 +8,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { TRUST_ENV, trustDigest } from '../lib/config.ts';
+import { releasedVersionFrom } from '../lib/release-run.ts';
+import { loadJob } from '../lib/jobs.ts';
 import { type TwoRepo, dependsOn, twoRepo } from './job-repos-fixture.ts';
 
 const posix = process.platform === 'win32' ? 'the stubs are sh scripts and forge release run refuses native Windows' : false;
@@ -367,6 +369,58 @@ describe('forge release', { concurrency: 4 }, () => {
     assert.equal(linkedRun.status, 1);
     assert.match(linkedRun.stderr, /is a symlink/);
     assert.deepEqual(fs.readdirSync(elsewhere), []);
+  });
+
+  test("a --job run records the dependency's release", { skip: posix }, async () => {
+    const tagged = (command: string) => async () => {
+      const p = await project(cleanups);
+      p.setup((c) => {
+        c.repos[0].release = { mechanism: 'tag', command, publish: 'allow', interim: 'local' };
+      });
+      const j = await p.f('job', 'new', '--title', `Release run ${Math.random().toString(36).slice(2, 8)}`);
+      await p.f('job', 'repo', 'add', j.id, 'lib');
+      const file = path.join(p.root, '.forge', 'jobs', j.id, 'job.json');
+      const job = JSON.parse(fs.readFileSync(file, 'utf8'));
+      job.pr = { number: 11, url: null, state: 'OPEN', isDraft: true };
+      job.repos.find((r: any) => r.repo === 'lib').pr = { number: 7, url: null, state: 'MERGED', isDraft: false };
+      fs.writeFileSync(file, JSON.stringify(job, null, 2));
+      await p.f('job', 'set', j.id, '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review');
+      const plan = await p.run(['plan', '--job', j.id]);
+      assert.equal(plan.status, 0, plan.stderr);
+      assert.deepEqual(plan.json.skipped, [{ repo: '(root)', reason: "PR not merged: it waits on its dependencies' release" }]);
+      return { p, id: j.id as string, releases: () => p.events(j.id).filter((e) => e.type === 'interim-released') };
+    };
+    // The tag check of this run names v1.0.0: recorded, and the job resumes.
+    const one = await tagged(TAG)();
+    const r = await one.p.run(['run']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.json.released, [{ repo: 'lib', version: 'v1.0.0', recorded: true }]);
+    assert.deepEqual(one.releases().map((e) => [e.repo, e.version]), [['lib', 'v1.0.0']]);
+    const resumed = loadJob(one.p.root, one.id);
+    assert.deepEqual([resumed.state, resumed.waitingOn], ['running', null]);
+    assert.match(String(resumed.reason), /^release of repo lib v1\.0\.0 recorded: bump its consumers/);
+    // A state.json that says every step is done, with a forged version: nothing runs, nothing is logged.
+    assert.equal((await one.p.run(['plan', '--job', one.id, '--force'])).status, 0);
+    const at = new Date().toISOString();
+    const forged = { status: 'done', at, tags: ['v9.9.9'], version: '9.9.9' };
+    fs.writeFileSync(path.join(one.p.dir, 'state.json'), JSON.stringify({ version: 1, planHash: steps(one.p).hash, startedAt: at, updatedAt: at, finishedAt: null, steps: { 'lib/preflight': { status: 'done', at }, 'lib/release': forged } }));
+    const again = await one.p.run(['run']);
+    assert.equal(again.status, 0, again.stderr);
+    assert.deepEqual(again.json.released, []);
+    assert.equal(one.releases().length, 1, 'no event from state.json');
+    // Two version tags at HEAD: ambiguous, nothing recorded, and the hint names the command.
+    const two = await tagged('git tag v1.0.0 && git tag v1.0.1 && git push -q origin v1.0.0 v1.0.1')();
+    const amb = await two.p.run(['run']);
+    assert.equal(amb.status, 0, amb.stderr);
+    assert.deepEqual(amb.json.released, [{ repo: 'lib', version: null, recorded: false, hint: `forge job interim release ${two.id} lib <version>` }]);
+    assert.deepEqual(two.releases(), []);
+    // The levels: a registry version, then <link>@<v>, then a bare version tag.
+    assert.equal(releasedVersionFrom([{ ok: true, tags: ['v1.0.0', 'engine@2.0.0'] }, { ok: true, version: '3.0.0' }], ['engine']), '3.0.0');
+    assert.equal(releasedVersionFrom([{ ok: true, tags: ['v1.0.0', 'engine@2.0.0', 'other@4.0.0'] }], ['engine']), '2.0.0');
+    assert.equal(releasedVersionFrom([{ ok: true, tags: ['v1.0.0', 'nightly'] }], ['engine']), 'v1.0.0');
+    assert.equal(releasedVersionFrom([{ ok: true, tags: ['engine@2.0.0', 'engine@2.0.1'] }], ['engine']), null);
+    assert.equal(releasedVersionFrom([{ ok: true, tags: ['v1.0.0-canary.abc', 'engine@-Z'] }], ['engine']), null);
+    assert.equal(releasedVersionFrom(undefined, []), null);
   });
 
   test('status shows progress and staleness', { skip: posix }, async () => {

@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { validateConfig } from './config.ts';
+import { resolveInterim } from './interim.ts';
 import { loadJob } from './jobs.ts';
 import { memberCheck, readLocalConfig, resolveMemberPath, gitEnv, shellWord } from './member-repos.ts';
 import { paths } from './paths.ts';
@@ -333,7 +334,14 @@ export function planRelease(root: string, config: Config, selection: ReleaseSele
     candidates = prRepos(job);
     const prOf = (repo: RepoKey) => (repo === null ? job.pr : memberRepos(job).find((m) => m.repo === repo)?.pr);
     const unmerged = candidates.filter((r) => prOf(r)?.state !== 'MERGED');
-    if (unmerged.length) throw new ForgeError(`forge release plan --job ${selection.job}: ${unmerged.map(labelOf).join(', ')} have no merged PR; run forge pr sync ${selection.job} first`);
+    // A consumer of an interim edge merges after its dependencies' release (its release gate), so it
+    // is left out of this plan rather than refused; any other unmerged PR still is.
+    const consumers = new Set(resolveInterim(config, job).edges.map((e) => e.consumer));
+    const refused = unmerged.filter((r) => !consumers.has(r));
+    if (refused.length) throw new ForgeError(`forge release plan --job ${selection.job}: ${refused.map(labelOf).join(', ')} have no merged PR; run forge pr sync ${selection.job} first`);
+    for (const r of unmerged) skip(r, "PR not merged: it waits on its dependencies' release");
+    candidates = candidates.filter((r) => !unmerged.includes(r));
+    if (!candidates.length) throw new ForgeError(`forge release plan --job ${selection.job}: no PR of the job is merged yet`);
   } else candidates = [null, ...members];
 
   const dirs = new Map<RepoKey, string>();

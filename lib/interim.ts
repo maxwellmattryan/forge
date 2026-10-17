@@ -5,7 +5,7 @@
 // `ready` for git-ref and canary) and every write live in lib/interim-apply.ts.
 
 import path from 'node:path';
-import { INTERIM_STRATEGIES, isInterimStrategy } from './components.ts';
+import { INTERIM_STRATEGIES, isInterimStrategy, isLinkName } from './components.ts';
 import { memberEntry } from './job-repos.ts';
 import { declaredLinks } from './links.ts';
 import type { DeclaredLink } from './links.ts';
@@ -15,8 +15,11 @@ import type { Config, InterimStrategy, Job } from './types.ts';
 
 export { INTERIM_STRATEGIES, isInterimStrategy };
 
-/** held (local), waiting, ready, blocked (can't be pinned), stale (the pin is not the dependency's HEAD). */
-export type EdgeState = 'held' | 'waiting' | 'ready' | 'blocked' | 'stale';
+/**
+ * held (local), waiting, ready, blocked (can't be pinned or bumped), stale (the pin is not the
+ * dependency's HEAD, or the manifests don't name its released version yet), released (they do).
+ */
+export type EdgeState = 'held' | 'waiting' | 'ready' | 'blocked' | 'stale' | 'released';
 
 /** One (consumer, dependency) pair of a job's PR repos: `forge job interim`. */
 export interface InterimEdge {
@@ -29,6 +32,8 @@ export interface InterimEdge {
   detail: string;
   /** A waiting canary edge: the package and version not published yet. */
   canary?: { name: string; version: string };
+  /** A release edge (interimStatus): the dependency's recorded release the consumer is bumped to. */
+  release?: string;
 }
 
 export interface InterimResolution {
@@ -217,6 +222,13 @@ export function pinCargo(text: string, pins: CargoPin[], file = 'Cargo.toml'): P
   const found = findBlock(lines, file);
   if (found && 'error' in found) return found;
   const block = found as { begin: number; end: number } | null;
+  // No pins left (every crate was released): the block goes, with the blank line it was appended after.
+  if (!pins.length) {
+    if (!block) return { text };
+    const last = lines.slice(block.end + 1).every((l) => l.trim() === '');
+    const from = last && block.begin > 0 && lines[block.begin - 1].trim() === '' ? block.begin - 1 : block.begin;
+    return { text: [...lines.slice(0, from), ...lines.slice(block.end + 1)].join(eol) };
+  }
   const sources = new Map<string, Map<string, CargoPin>>();
   for (const p of pins) {
     if (!FULL_SHA.test(p.rev)) return { error: `not a commit id: ${JSON.stringify(p.rev).slice(0, 60)}` };
@@ -296,10 +308,9 @@ const unquote = (t: string): string => (t.startsWith('"') && t.endsWith('"') && 
 
 /**
  * `text` with the one `GIT_TAG <value>` of the one `FetchContent_Declare(<name> …)` (name matched
- * case-insensitively) set to `sha`. Zero or several matching declares, or zero or several GIT_TAGs, are refused.
+ * case-insensitively) set to `value`. Zero or several matching declares, or zero or several GIT_TAGs, are refused.
  */
-export function pinCmake(text: string, name: string, sha: string, file = 'CMakeLists.txt'): PinResult {
-  if (!FULL_SHA.test(sha)) return { error: `not a commit id: ${JSON.stringify(sha).slice(0, 60)}` };
+function setGitTag(text: string, name: string, value: string, file: string, what: 'pin' | 'release'): PinResult {
   const re = /\bFetchContent_Declare\s*\(/gi;
   const found: { tokens: Token[] }[] = [];
   for (let m = re.exec(text); m; m = re.exec(text)) {
@@ -308,21 +319,33 @@ export function pinCmake(text: string, name: string, sha: string, file = 'CMakeL
     if (args.tokens.length && unquote(args.tokens[0].text).toLowerCase() === name.toLowerCase()) found.push(args);
     re.lastIndex = args.close + 1;
   }
-  if (found.length !== 1) return { error: `${file} has ${found.length} FetchContent_Declare(${name} …) calls; the pin needs exactly one` };
+  if (found.length !== 1) return { error: `${file} has ${found.length} FetchContent_Declare(${name} …) calls; the ${what} needs exactly one` };
   const tokens = found[0].tokens;
   const tags = tokens.flatMap((t, i) => (t.text === 'GIT_TAG' ? [i] : []));
-  if (tags.length !== 1 || tags[0] + 1 >= tokens.length) return { error: `FetchContent_Declare(${name} …) in ${file} has ${tags.length} GIT_TAG arguments; the pin needs exactly one with a value` };
-  const value = tokens[tags[0] + 1];
-  return { text: text.slice(0, value.start) + sha + text.slice(value.end) };
+  if (tags.length !== 1 || tags[0] + 1 >= tokens.length) return { error: `FetchContent_Declare(${name} …) in ${file} has ${tags.length} GIT_TAG arguments; the ${what} needs exactly one with a value` };
+  const old = tokens[tags[0] + 1];
+  return { text: text.slice(0, old.start) + value + text.slice(old.end) };
+}
+
+/** pinCmake: the GIT_TAG set to a full commit id. */
+export function pinCmake(text: string, name: string, sha: string, file = 'CMakeLists.txt'): PinResult {
+  if (!FULL_SHA.test(sha)) return { error: `not a commit id: ${JSON.stringify(sha).slice(0, 60)}` };
+  return setGitTag(text, name, sha, file, 'pin');
+}
+
+/** The GIT_TAG set to a released version, kept exactly as recorded (`v1.2.0` stays `v1.2.0`): it names a tag. */
+export function releaseCmake(text: string, name: string, tag: string, file = 'CMakeLists.txt'): PinResult {
+  if (!isReleaseVersion(tag)) return { error: `not a released version: ${JSON.stringify(String(tag)).slice(0, 60)}` };
+  return setGitTag(text, name, tag, file, 'release');
 }
 
 const NPM_SECTIONS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'] as const;
 
 /**
- * `text` (a package.json) with `name` set to `spec` in every dependency section that has it,
+ * `text` (a package.json) with `name` set to `spec(old)` in every dependency section that has it,
  * indentation and the trailing newline kept. A file with no dependency on `name` is refused.
  */
-export function pinNpm(text: string, name: string, spec: string, file = 'package.json'): PinResult {
+function editNpm(text: string, name: string, file: string, spec: (old: unknown) => string): PinResult {
   let doc: any;
   try {
     doc = JSON.parse(text);
@@ -334,7 +357,7 @@ export function pinNpm(text: string, name: string, spec: string, file = 'package
   for (const s of NPM_SECTIONS) {
     const sec = doc[s];
     if (sec && typeof sec === 'object' && !Array.isArray(sec) && Object.prototype.hasOwnProperty.call(sec, name)) {
-      sec[name] = spec;
+      sec[name] = spec(sec[name]);
       hits++;
     }
   }
@@ -343,6 +366,216 @@ export function pinNpm(text: string, name: string, spec: string, file = 'package
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
   const out = JSON.stringify(doc, null, indent).replace(/\n/g, eol);
   return { text: /\r?\n$/.test(text) ? out + eol : out };
+}
+
+/** `text` (a package.json) with `name` set to `spec` in every dependency section that has it. */
+export function pinNpm(text: string, name: string, spec: string, file = 'package.json'): PinResult {
+  return editNpm(text, name, file, () => spec);
+}
+
+const EXACT_SEMVER = /^\d{1,16}\.\d{1,16}\.\d{1,16}(?:-[0-9A-Za-z.-]{1,100})?(?:\+[0-9A-Za-z.-]{1,100})?$/;
+
+/** A version's requirement core: no leading `v`, no `+build`. */
+export const releaseCore = (version: string): string => version.replace(/^v/, '').replace(/\+.*$/, '');
+
+/**
+ * The npm spec a released version replaces `old` with: `^`/`~` kept before a numeric range, the bare
+ * core for an exact version, and `^core` for anything else (a git, canary, file or tag spec).
+ */
+export function npmReleaseSpec(old: unknown, version: string): string {
+  const core = releaseCore(version);
+  const s = typeof old === 'string' ? old.trim() : '';
+  if (/^[\^~]\d/.test(s)) return `${s[0]}${core}`;
+  if (EXACT_SEMVER.test(s) && !/canary/i.test(s)) return core;
+  return `^${core}`;
+}
+
+/** Every dependency section of a package.json that has `name` set to the released version's spec. */
+export function releaseNpm(text: string, name: string, version: string, file = 'package.json'): PinResult {
+  if (!isReleaseVersion(version)) return { error: `not a released version: ${JSON.stringify(String(version)).slice(0, 60)}` };
+  return editNpm(text, name, file, (old) => npmReleaseSpec(old, version));
+}
+
+const CARGO_DEP_TABLES = new Set(['dependencies', 'dev-dependencies', 'build-dependencies']);
+
+/** Where the TOML string that opens at `at` (`"` or `'`) closes, or -1; one line only. */
+function stringEnd(s: string, at: number): number {
+  if (s[at] === "'") return s.indexOf("'", at + 1);
+  for (let i = at + 1; i < s.length; i++) {
+    if (s[i] === '\\') i++;
+    else if (s[i] === '"') return i;
+  }
+  return -1;
+}
+
+/** A TOML key at the start of `s` (bare, basic or literal string) and the text after it; null when there is none. */
+function tomlKey(s: string): { key: string; rest: string } | null {
+  if (s.startsWith('"') || s.startsWith("'")) {
+    const end = stringEnd(s, 0);
+    if (end < 0) return null;
+    let key = s.slice(1, end);
+    if (s[0] === '"') {
+      try {
+        key = JSON.parse(s.slice(0, end + 1));
+      } catch {}
+    }
+    return { key, rest: s.slice(end + 1) };
+  }
+  const m = /^[A-Za-z0-9_-]{1,200}/.exec(s);
+  return m ? { key: m[0], rest: s.slice(m[0].length) } : null;
+}
+
+/** The dotted keys of a `[table]` header line (trimmed); null for an array of tables or anything malformed. */
+function tableHeader(t: string): string[] | null {
+  if (!t.startsWith('[') || t.startsWith('[[')) return null;
+  const segs: string[] = [];
+  let s = t.slice(1);
+  for (;;) {
+    const k = tomlKey(s.trimStart());
+    if (!k) return null;
+    segs.push(k.key);
+    s = k.rest.trimStart();
+    if (s.startsWith('.')) s = s.slice(1);
+    else return s.startsWith(']') ? segs : null;
+  }
+}
+
+/** The top-level keys of the one-line inline table that opens at `open`, each with its value's offset, and its `}`; null when it does not close on the line. */
+function inlineTable(line: string, open: number): { close: number; fields: Map<string, number> } | null {
+  const fields = new Map<string, number>();
+  let depth = 0;
+  let expectKey = false;
+  for (let i = open; i < line.length; ) {
+    const c = line[i];
+    if (depth === 1 && expectKey && !/\s/.test(c) && c !== '}') {
+      const k = tomlKey(line.slice(i));
+      const eq = k ? /^\s*=\s*/.exec(k.rest) : null;
+      if (!k || !eq) return null;
+      const at = line.length - k.rest.length + eq[0].length;
+      fields.set(k.key, at);
+      expectKey = false;
+      i = at;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      const end = stringEnd(line, i);
+      if (end < 0) return null;
+      i = end + 1;
+      continue;
+    }
+    if (c === '#') return null;
+    if (c === '{' || c === '[') {
+      depth++;
+      if (depth === 1) expectKey = true;
+    } else if (c === '}' || c === ']') {
+      depth--;
+      if (depth === 0) return { close: i, fields };
+    } else if (c === ',' && depth === 1) expectKey = true;
+    i++;
+  }
+  return null;
+}
+
+/**
+ * `text` (a Cargo.toml) with every dependency entry for crate `name` set to the released version:
+ * `[dependencies]`, `[dev-dependencies]`, `[build-dependencies]`, `[workspace.dependencies]` and
+ * `[target.*.dependencies]`, as a string, a one-line inline table's `version`, or a
+ * `[dependencies.<name>]` subtable. A `=`, `^` or `~` operator is kept; `workspace = true` is left
+ * alone. The Forge block is skipped (pinCargo owns it). Refused: a multi-line inline table, a dotted
+ * `<name>.version` key, an entry with no version, and a file with no entry for the crate.
+ */
+export function releaseCargo(text: string, name: string, version: string, file = 'Cargo.toml'): PinResult {
+  if (!isReleaseVersion(version)) return { error: `not a released version: ${JSON.stringify(String(version)).slice(0, 60)}` };
+  const core = releaseCore(version);
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const lines = text.split(/\r?\n/);
+  const found = findBlock(lines, file);
+  if (found && 'error' in found) return found;
+  const block = found as { begin: number; end: number } | null;
+  const req = (old: string) => `${/^\s*([=^~])/.exec(old)?.[1] ?? ''}${core}`;
+  /** `line` with the string value at `at` set to the requirement, or null when no string starts there. */
+  const setString = (line: string, at: number): string | null => {
+    if (line[at] !== '"' && line[at] !== "'") return null;
+    const end = stringEnd(line, at);
+    if (end < 0) return null;
+    return `${line.slice(0, at)}${line[at]}${req(line.slice(at + 1, end))}${line[at]}${line.slice(end + 1)}`;
+  };
+  const where = (i: number) => `${file}:${i + 1}`;
+  let entry = false;
+  let sub: { line: number; version: boolean; workspace: boolean } | null = null;
+  let hits = 0;
+  const closeSub = (): string | null => {
+    const open = sub;
+    sub = null;
+    return open && !open.version && !open.workspace ? `${where(open.line)}: the [${name}] dependency table has no version` : null;
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const t = line.trim();
+    if ((block && i >= block.begin && i <= block.end) || t.startsWith('[')) {
+      const err = closeSub();
+      if (err) return { error: err };
+      const h = block && i >= block.begin && i <= block.end ? null : tableHeader(t);
+      entry = Boolean(h && CARGO_DEP_TABLES.has(h.at(-1)!));
+      if (h && h.length >= 2 && CARGO_DEP_TABLES.has(h.at(-2)!) && h.at(-1) === name) {
+        sub = { line: i, version: false, workspace: false };
+        hits++;
+      }
+      continue;
+    }
+    if ((!entry && !sub) || t === '' || t.startsWith('#')) continue;
+    const indent = line.length - line.trimStart().length;
+    const k = tomlKey(line.slice(indent));
+    if (!k) continue;
+    const eq = /^\s*=\s*/.exec(k.rest);
+    const at = line.length - k.rest.length + (eq ? eq[0].length : 0);
+    if (sub) {
+      if (!eq) continue;
+      if (k.key === 'workspace' && /^true\b/.test(line.slice(at))) sub.workspace = true;
+      if (k.key === 'version') {
+        const next = setString(line, at);
+        if (next === null) return { error: `${where(i)}: the version of ${name} is not a string` };
+        lines[i] = next;
+        sub.version = true;
+      }
+      continue;
+    }
+    if (k.key !== name) continue;
+    if (/^\s*\./.test(k.rest)) return { error: `${where(i)} sets ${name} with a dotted key; write it as ${name} = { version = … } for Forge to bump it` };
+    if (!eq) continue;
+    hits++;
+    if (line[at] === '{') {
+      const tbl = inlineTable(line, at);
+      if (!tbl) return { error: `${where(i)}: the ${name} entry is a multi-line inline table; put it on one line for Forge to bump it` };
+      const ws = tbl.fields.get('workspace');
+      if (ws !== undefined && /^true\b/.test(line.slice(ws))) continue;
+      const v = tbl.fields.get('version');
+      if (v === undefined) return { error: `${where(i)}: the ${name} entry has no version` };
+      const next = setString(line, v);
+      if (next === null) return { error: `${where(i)}: the version of ${name} is not a string` };
+      lines[i] = next;
+      continue;
+    }
+    const next = setString(line, at);
+    if (next === null) return { error: `${where(i)}: the ${name} entry is neither a version string nor an inline table` };
+    lines[i] = next;
+  }
+  const err = closeSub();
+  if (err) return { error: err };
+  if (!hits) return { error: `${file} has no dependency on ${name}` };
+  return { text: lines.join(eol) };
+}
+
+/**
+ * The lockfile refresh's argv after a release (run with no shell): `cargo update -p <name> --precise
+ * <core>` or `npm install --package-lock-only --ignore-scripts --no-audit --no-fund`. Refused for a
+ * name that is no link name or starts with `-` (an option to cargo) and a version that is no release.
+ */
+export function lockfileArgv(ecosystem: string, name: string, version: string): { argv: string[] } | { error: string } {
+  if (ecosystem !== 'cargo' && ecosystem !== 'npm') return { error: `${ecosystem} has no lockfile Forge refreshes` };
+  if (!isLinkName(ecosystem, name) || name.startsWith('-')) return { error: `${JSON.stringify(String(name)).slice(0, 80)} is not a ${ecosystem} name Forge passes to a lockfile refresh` };
+  if (!isReleaseVersion(version) || releaseCore(version).startsWith('-')) return { error: `${JSON.stringify(String(version)).slice(0, 60)} is not a released version` };
+  return ecosystem === 'cargo' ? { argv: ['update', '-p', name, '--precise', releaseCore(version)] } : { argv: ['install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund'] };
 }
 
 // ---------- deferred PRs ----------
@@ -401,37 +634,65 @@ export const RELEASE_VERSION = /^v?(0|[1-9]\d{0,15})\.(0|[1-9]\d{0,15})\.(0|[1-9
 /** Whether `v` is a version a release record may carry (RELEASE_VERSION, at most 120 chars, no `canary`). */
 export const isReleaseVersion = (v: unknown): v is string => typeof v === 'string' && v.length <= 120 && RELEASE_VERSION.test(v) && !/canary/i.test(v);
 
-type ReleaseEvent = { type: string; repo?: unknown; version?: unknown };
+type ReleaseEvent = { type: string; repo?: unknown; version?: unknown; dependency?: unknown };
+
+const isRelease = (x: ReleaseEvent, repo: RepoKey): boolean => x.type === 'interim-released' && isRepoKey(x.repo) && x.repo === repo && isReleaseVersion(x.version);
+
+/** Where the latest valid `interim-released` event for dependency `repo` sits in `events`, or -1. */
+export const releaseIndex = (events: ReleaseEvent[], repo: RepoKey): number => events.findLastIndex((x) => isRelease(x, repo));
 
 /**
  * The version the latest valid `interim-released` event records for dependency `repo`, or null.
  * events.jsonl is writable outside the CLI, so every record is checked and a malformed one is ignored.
  */
 export function releasedVersion(events: ReleaseEvent[], repo: RepoKey): string | null {
-  const e = events.findLast((x) => x.type === 'interim-released' && isRepoKey(x.repo) && x.repo === repo && isReleaseVersion(x.version));
-  return e ? (e.version as string) : null;
+  const i = releaseIndex(events, repo);
+  return i < 0 ? null : (events[i].version as string);
 }
 
 /**
- * One edge's release gate: `ci` for git-ref and canary (the seeded release-gate check fails while the
- * pin remains), `held` for local and sequential until the dependency's release is recorded, then
- * `released` with its version.
+ * The version of the latest valid `interim-bumped` event for (consumer, dependency) after index
+ * `afterIndex` (events.jsonl order), or null. Every field is checked, as for a release record.
+ */
+export function bumpedVersion(events: ReleaseEvent[], consumer: RepoKey, dependency: RepoKey, afterIndex: number): string | null {
+  for (let i = events.length - 1; i > afterIndex && i >= 0; i--) {
+    const x = events[i];
+    if (x.type === 'interim-bumped' && isRepoKey(x.repo) && x.repo === consumer && isRepoKey(x.dependency) && x.dependency === dependency && isReleaseVersion(x.version)) return x.version;
+  }
+  return null;
+}
+
+/**
+ * One edge's release gate. With no recorded release: `ci` for git-ref and canary (the seeded
+ * release-gate check fails while the pin remains), `held` for local and sequential. With a recorded
+ * release: `bump-due` while the edge has links, the consumer's PR is not merged and no
+ * `interim-bumped` for that version came after the record; otherwise `released`.
  */
 export interface ReleaseGate {
   consumer: RepoKey;
   dependency: RepoKey;
   strategy: InterimStrategy;
-  gate: 'ci' | 'held' | 'released';
+  gate: 'ci' | 'held' | 'bump-due' | 'released';
   version?: string;
 }
 
-export function releaseGates(edges: Pick<InterimEdge, 'consumer' | 'dependency' | 'strategy'>[], events: ReleaseEvent[]): ReleaseGate[] {
-  return edges.map(({ consumer, dependency, strategy }) => {
-    if (strategy === 'git-ref' || strategy === 'canary') return { consumer, dependency, strategy, gate: 'ci' as const };
-    const version = releasedVersion(events, dependency);
-    return version === null ? { consumer, dependency, strategy, gate: 'held' as const } : { consumer, dependency, strategy, gate: 'released' as const, version };
+/** A job repo's recorded PR state, from the job record (null: the root). */
+export const prStateOf = (job: Pick<Job, 'pr' | 'repos'>, key: RepoKey): unknown => (key === null ? job.pr?.state : memberEntry(job, key)?.pr?.state);
+
+/** Whether an edge's consumer is bumped to a recorded release: it has links and an unmerged PR. */
+export const bumpsOnRelease = (e: { consumer: RepoKey; links?: unknown[] }, job: Pick<Job, 'pr' | 'repos'> | undefined): boolean =>
+  Boolean(e.links?.length) && (job ? prStateOf(job, e.consumer) !== 'MERGED' : true);
+
+export function releaseGates(edges: (Pick<InterimEdge, 'consumer' | 'dependency' | 'strategy'> & { links?: InterimEdge['links'] })[], events: ReleaseEvent[], job?: Pick<Job, 'pr' | 'repos'>): ReleaseGate[] {
+  return edges.map((e) => {
+    const { consumer, dependency, strategy } = e;
+    const at = releaseIndex(events, dependency);
+    if (at < 0) return { consumer, dependency, strategy, gate: strategy === 'git-ref' || strategy === 'canary' ? ('ci' as const) : ('held' as const) };
+    const version = events[at].version as string;
+    const due = bumpsOnRelease(e, job) && bumpedVersion(events, consumer, dependency, at) !== version;
+    return { consumer, dependency, strategy, gate: due ? ('bump-due' as const) : ('released' as const), version };
   });
 }
 
-/** The consumers with at least one held gate: their PRs stay drafts, and Forge never readies or merges them. */
-export const heldConsumers = (gates: ReleaseGate[]): Set<RepoKey> => new Set(gates.filter((g) => g.gate === 'held').map((g) => g.consumer));
+/** The consumers with a held or bump-due gate: their PRs stay drafts, and Forge never readies or merges them. */
+export const heldConsumers = (gates: ReleaseGate[]): Set<RepoKey> => new Set(gates.filter((g) => g.gate === 'held' || g.gate === 'bump-due').map((g) => g.consumer));

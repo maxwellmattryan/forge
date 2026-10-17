@@ -10,6 +10,8 @@ import type { TwoRepo } from './job-repos-fixture.ts';
 import { TRUST_ENV, trustDigest } from '../lib/config.ts';
 import { RELEASE_DAEMON_REFUSAL } from '../lib/interim-apply.ts';
 import { isReleaseVersion, releaseGates, releasedVersion } from '../lib/interim.ts';
+import { loadJob } from '../lib/jobs.ts';
+import { listRequests } from '../lib/requests.ts';
 
 const cleanups: (() => void)[] = [];
 after(() => cleanups.forEach((c) => c()));
@@ -60,16 +62,13 @@ describe('interim release', { concurrency: 4 }, () => {
     };
     await refused(['no-such-job', 'lib', '1.2.0'], /no-such-job/);
     await refused([id, 'other', '1.2.0'], /has no repo "other"/);
-    await refused([id, '--root', '1.2.0'], /the root repo is not the dependency of a local or sequential edge .*no edge depends on it/);
+    await refused([id, '--root', '1.2.0'], /the root repo is not the dependency of an edge on job .* \(no edge depends on it\)/);
     await refused([id, 'lib', '1.2.0'], /repo lib's PR is not merged \(recorded state none\); a release comes from a merged change; run: forge pr sync /);
     recordPr(p, id, 'lib', 'OPEN');
     await refused([id, 'lib', '1.2.0'], /repo lib's PR is not merged \(recorded state OPEN\)/);
     recordPr(p, id, 'lib', 'MERGED');
     for (const bad of ['1.2', '01.2.0', 'latest', `1.2.0-${'x'.repeat(130)}`, '1.2.0 ']) await refused([id, 'lib', bad], /is not a semver version/);
     for (const canary of ['1.2.0-canary.abc123', '1.2.0-CANARY', '1.2.0+canary']) await refused([id, 'lib', canary], /is a canary; a release gate clears only on a released version/);
-    p.config((c) => (c.repos[0].release = { interim: 'git-ref' }));
-    await refused([id, 'lib', '1.2.0'], /repo lib is not the dependency of a local or sequential edge .*its edges are git-ref; the release-gate check guards those/);
-    p.config((c) => (c.repos[0].release = { interim: 'local' }));
     const job = JSON.parse(fs.readFileSync(jobFile(p, id), 'utf8'));
     for (const state of ['done', 'cancelled']) {
       fs.writeFileSync(jobFile(p, id), JSON.stringify({ ...job, state }, null, 2));
@@ -86,9 +85,9 @@ describe('interim release', { concurrency: 4 }, () => {
     let interim = await p.f('job', 'interim', id);
     assert.deepEqual(interim.gates, [{ consumer: null, dependency: 'lib', strategy: 'local', gate: 'held' }]);
     recordPr(p, id, 'lib', 'MERGED');
-    assert.deepEqual(await p.f('job', 'interim', 'release', id, 'lib', '1.2.0'), { id, repo: 'lib', version: '1.2.0', recorded: true, clear: [null] });
+    assert.deepEqual(await p.f('job', 'interim', 'release', id, 'lib', '1.2.0'), { id, repo: 'lib', version: '1.2.0', recorded: true, clear: [null], bump: [] });
     assert.deepEqual(released(p, id).map((e) => [e.repo, e.version]), [['lib', '1.2.0']]);
-    assert.deepEqual(await p.f('job', 'interim', 'release', id, 'lib', '1.2.0'), { id, repo: 'lib', version: '1.2.0', recorded: false, clear: [null] });
+    assert.deepEqual(await p.f('job', 'interim', 'release', id, 'lib', '1.2.0'), { id, repo: 'lib', version: '1.2.0', recorded: false, clear: [null], bump: [] });
     assert.equal(released(p, id).length, 1, 'the same version again logs nothing');
     interim = await p.f('job', 'interim', id);
     assert.deepEqual(interim.gates, [{ consumer: null, dependency: 'lib', strategy: 'local', gate: 'released', version: '1.2.0' }]);
@@ -100,8 +99,8 @@ describe('interim release', { concurrency: 4 }, () => {
     const { p, id } = await setup('lib-on-app');
     p.config((c) => (c.release = { interim: 'sequential' }));
     recordPr(p, id, null, 'MERGED');
-    assert.deepEqual(await p.f('job', 'interim', 'release', id, '--root', '2.0.0'), { id, repo: null, version: '2.0.0', recorded: true, clear: ['lib'] });
-    assert.deepEqual(await p.f('job', 'interim', 'release', id, '2.0.1', '--root'), { id, repo: null, version: '2.0.1', recorded: true, clear: ['lib'] });
+    assert.deepEqual(await p.f('job', 'interim', 'release', id, '--root', '2.0.0'), { id, repo: null, version: '2.0.0', recorded: true, clear: ['lib'], bump: [] });
+    assert.deepEqual(await p.f('job', 'interim', 'release', id, '2.0.1', '--root'), { id, repo: null, version: '2.0.1', recorded: true, clear: ['lib'], bump: [] });
     assert.deepEqual(released(p, id).map((e) => [e.repo, e.version]), [[null, '2.0.0'], [null, '2.0.1']]);
     assert.deepEqual((await p.f('job', 'interim', id)).gates, [{ consumer: 'lib', dependency: null, strategy: 'sequential', gate: 'released', version: '2.0.1' }]);
     const extra = await p.raw(['job', 'interim', 'release', id, 'lib', '2.0.0', '--root']);
@@ -140,8 +139,8 @@ describe('interim release', { concurrency: 4 }, () => {
     assert.deepEqual(
       releaseGates(
         [
-          { consumer: null, dependency: 'lib', strategy: 'git-ref' },
-          { consumer: null, dependency: 'lib', strategy: 'canary' },
+          { consumer: null, dependency: 'other', strategy: 'git-ref' },
+          { consumer: null, dependency: 'other', strategy: 'canary' },
           { consumer: 'lib', dependency: null, strategy: 'sequential' },
           { consumer: 'web', dependency: 'other', strategy: 'local' },
         ],
@@ -149,5 +148,53 @@ describe('interim release', { concurrency: 4 }, () => {
       ).map((g) => [g.gate, g.version]),
       [['ci', undefined], ['ci', undefined], ['released', '2.0.0'], ['held', undefined]],
     );
+  });
+
+  test('release record: any strategy, resume', async () => {
+    const { p, id } = await setup();
+    // app (root) consumes lib through a cargo link; lib is git-ref.
+    p.config((c) => {
+      c.components.find((x: any) => x.name === 'app').dependsOn = [{ component: 'lib', type: 'build', link: { ecosystem: 'cargo', name: 'engine-core' } }];
+      c.repos[0].release = { interim: 'git-ref' };
+      c.daemon = { ...(c.daemon ?? {}), enabled: true };
+    });
+    recordPr(p, id, 'lib', 'OPEN');
+    const refusedOpen = await p.raw(['job', 'interim', 'release', id, 'lib', '1.2.0']);
+    assert.equal(refusedOpen.status, 1);
+    assert.match(refusedOpen.stderr, /repo lib's PR is not merged \(recorded state OPEN\)/);
+    recordPr(p, id, 'lib', 'MERGED');
+    recordPr(p, id, null, 'OPEN');
+    await p.f('job', 'set', id, '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review');
+    const out = await p.f('job', 'interim', 'release', id, 'lib', '1.2.0');
+    assert.deepEqual(out, { id, repo: 'lib', version: '1.2.0', recorded: true, clear: [], bump: [null], resumed: true });
+    const job = loadJob(p.root, id);
+    assert.deepEqual([job.stage, job.state, job.waitingOn], ['pr', 'running', null]);
+    assert.match(String(job.reason), /^release of repo lib 1\.2\.0 recorded: bump its consumers/);
+    const resumes = () => listRequests(p.root).filter((r) => r.type === 'resume' && r.job === id);
+    assert.equal(resumes().length, 1, 'a resume request with the daemon on');
+    assert.deepEqual((await p.f('job', 'interim', id)).gates, [{ consumer: null, dependency: 'lib', strategy: 'git-ref', gate: 'bump-due', version: '1.2.0' }]);
+    // Parked again, a second record resumes it once more but queues no second request.
+    await p.f('job', 'set', id, '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review');
+    assert.equal((await p.f('job', 'interim', 'release', id, 'lib', '1.2.1')).resumed, true);
+    assert.equal(resumes().length, 1, 'none duplicated');
+    // Another wait is never touched.
+    await p.f('job', 'set', id, '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'human');
+    assert.equal((await p.f('job', 'interim', 'release', id, 'lib', '1.2.2')).resumed, undefined);
+    assert.equal(loadJob(p.root, id).waitingOn, 'human');
+    // A merged consumer is clear: nothing to bump.
+    recordPr(p, id, null, 'MERGED');
+    assert.deepEqual(await p.f('job', 'interim', 'release', id, 'lib', '1.2.3'), { id, repo: 'lib', version: '1.2.3', recorded: true, clear: [null], bump: [] });
+    // Canary too.
+    p.config((c) => {
+      c.components.find((x: any) => x.name === 'app').dependsOn = [{ component: 'lib', type: 'build', link: { ecosystem: 'npm', name: 'engine' } }];
+      c.repos[0].release = { interim: 'canary' };
+    });
+    recordPr(p, id, null, 'OPEN');
+    assert.deepEqual(await p.f('job', 'interim', 'release', id, 'lib', '2.0.0'), { id, repo: 'lib', version: '2.0.0', recorded: true, clear: [], bump: [null] });
+    const refusedRoot = await p.raw(['job', 'interim', 'release', id, '--root', '1.0.0']);
+    assert.match(refusedRoot.stderr, /the root repo is not the dependency of an edge on job .* \(no edge depends on it\)/);
+    const daemon = await p.raw(['job', 'interim', 'release', id, 'lib', '3.0.0'], { FORGE_DAEMON: '1', [TRUST_ENV]: trustDigest(p.root) });
+    assert.ok(daemon.stderr.includes(RELEASE_DAEMON_REFUSAL), daemon.stderr);
+    assert.deepEqual(released(p, id).map((e) => e.version), ['1.2.0', '1.2.1', '1.2.2', '1.2.3', '2.0.0']);
   });
 });

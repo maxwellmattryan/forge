@@ -26,7 +26,7 @@ import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretMode, text
 import { cleanGenerated, generatedConfig, generatedPaths, partitionConflicts, rebuild, regenerateProblem, takeBaseSide } from './regenerate.ts';
 import type { Strategy } from './regenerate.ts';
 import { commandTemplate, verifiedHead } from './worktree.ts';
-import { FULL_SHA, deferralStatus, heldConsumers, pendingDeferral, readDeferrals, releaseGates, repoLabel, resolveInterim } from './interim.ts';
+import { FULL_SHA, bumpsOnRelease, deferralStatus, heldConsumers, pendingDeferral, readDeferrals, releaseGates, repoLabel, resolveInterim } from './interim.ts';
 import type { Deferral, ReleaseGate } from './interim.ts';
 import { interimStatus } from './interim-apply.ts';
 
@@ -312,7 +312,12 @@ function interimOpenPlan(root: string, config: Config, job: Job, heads: Map<Repo
   const blocked = edges.find((e) => e.state === 'blocked');
   if (blocked) throw new ForgeError(`interim ${blocked.strategy}: ${repoLabel(blocked.consumer)} on ${repoLabel(blocked.dependency)} can't be pinned: ${blocked.detail}`);
   const stale = edges.find((e) => e.state === 'stale');
-  if (stale) throw new ForgeError(`interim ${stale.strategy}: ${stale.detail.replace(/; run: .*$/, '')}; the checked commits don't carry the pin`, 'interim_stale', `forge verify ${job.id}`);
+  if (stale)
+    throw new ForgeError(
+      `interim ${stale.strategy}: ${stale.detail.replace(/; run: .*$/, '')}; the checked commits don't ${stale.release ? 'name the released version' : 'carry the pin'}`,
+      'interim_stale',
+      `forge verify ${job.id}`,
+    );
   const merged = new Map<RepoKey, boolean>();
   const isMerged = (k: RepoKey): boolean => {
     if (!merged.has(k)) merged.set(k, freshMerged(root, config, job, k));
@@ -331,7 +336,7 @@ function interimOpenPlan(root: string, config: Config, job: Job, heads: Map<Repo
     if (via) d = { ...deferred.find((x) => x.repo === via.dependency)!, repo };
     if (d) deferred.push(d);
   }
-  const held = heldConsumers(releaseGates(edges, readEvents(root, job.id)));
+  const held = heldConsumers(releaseGates(edges, readEvents(root, job.id), job));
   const drafts = new Set(edges.filter((e) => e.strategy === 'local' || (e.strategy === 'sequential' && held.has(e.consumer))).map((e) => e.consumer));
   const rootFirst = edges.some((e) => e.dependency === null && (e.strategy === 'git-ref' || e.strategy === 'canary'));
   return { order, deferred, drafts, rootFirst };
@@ -1533,7 +1538,7 @@ function mergeLinked(root: string, config: Config, id: string, opts: { now: bool
   const { result, members } = syncPrDetailed(root, config, id, { route: false });
   const job = loadJob(root, id);
   const { order, deps, cycle } = jobRepoOrder(config, job);
-  const gates = releaseGates(resolveInterim(config, job).edges, readEvents(root, id));
+  const gates = releaseGates(resolveInterim(config, job).edges, readEvents(root, id), job);
   const synced = result.pr;
   const rootNumber = safePrNumber(synced?.number) ?? job.pr!.number;
   // This call's answers only: a member missing from the sync (or one that failed) is unknown.
@@ -1581,8 +1586,8 @@ function mergeLinked(root: string, config: Config, id: string, opts: { now: bool
     if (waiting !== undefined) return refuse(k, 'order', `${label(k)} depends on ${label(waiting)}, which is not merged yet; merge it first`, { waitingFor: label(waiting) });
     if (state === null) throw new ForgeError(numberOf(k) === null ? `repo ${k} has no PR to merge` : `${label(k)} could not be read in this call; run: forge pr sync ${id}`);
     // After the order check, and never bypassed by --now: a held consumer merges only after a human
-    // recorded its dependency's release.
-    const gate = gates.find((g) => g.consumer === k && g.gate === 'held');
+    // recorded its dependency's release, and a bump-due one only once verify bumped it to that release.
+    const gate = gates.find((g) => g.consumer === k && (g.gate === 'held' || g.gate === 'bump-due'));
     if (gate) return refuse(k, 'release', releaseGateMessage(id, gate));
     const t = k === null ? rootTarget(root, config, id, rootNumber, synced) : memberTarget(root, config, job, members.get(k)!);
     const r = mergeOne(root, config, id, t, { now: opts.now, tag: tag(k) });
@@ -1593,8 +1598,10 @@ function mergeLinked(root: string, config: Config, id: string, opts: { now: bool
   return finish();
 }
 
-/** Why a held consumer's PR stays a draft, and the command a human runs to clear it. */
-export function releaseGateMessage(id: string, gate: Pick<ReleaseGate, 'consumer' | 'dependency'>): string {
+/** Why a held consumer's PR stays a draft, and the command a human runs to clear it; for a bump-due one, the commands that bump it. */
+export function releaseGateMessage(id: string, gate: Pick<ReleaseGate, 'consumer' | 'dependency'> & Partial<Pick<ReleaseGate, 'gate' | 'version'>>): string {
+  if (gate.gate === 'bump-due')
+    return `${repoLabel(gate.consumer)}'s manifests don't name ${repoLabel(gate.dependency)}'s released version ${gate.version} yet; run: forge verify ${id}, then forge pr open ${id}`;
   const dep = gate.dependency === null ? '--root' : gate.dependency;
   return `${repoLabel(gate.consumer)}'s PR stays a draft until ${repoLabel(gate.dependency)}'s release is recorded; a human runs: forge job interim release ${id} ${dep} <version>`;
 }
@@ -1609,7 +1616,8 @@ export interface ReadyResult {
 /**
  * `forge pr ready`: marks the job's draft PRs ready for review, in merge order. With no target, every
  * open draft PR of the job (root and non-verify-only members); with `repo` or `root`, only that one.
- * Refused (`release_gate`) before any gh call while a targeted repo's release gate is held.
+ * Refused (`release_gate`) before any gh call while a targeted repo's release gate is held or bump-due,
+ * or its manifests at HEAD don't name a recorded release yet.
  */
 export function readyPr(root: string, config: Config, id: string, target: { repo?: string; root?: true } = {}): ReadyResult {
   const job = loadJob(root, id);
@@ -1632,10 +1640,20 @@ export function readyPr(root: string, config: Config, id: string, target: { repo
             return pr?.state === 'OPEN' && pr.isDraft === true;
           });
   keys.sort((a, b) => rank(a) - rank(b));
-  const gates = releaseGates(resolveInterim(config, job).edges, readEvents(root, id));
+  const edges = resolveInterim(config, job).edges;
+  const gates = releaseGates(edges, readEvents(root, id), job);
   for (const k of keys) {
-    const gate = gates.find((g) => g.consumer === k && g.gate === 'held');
+    const gate = gates.find((g) => g.consumer === k && (g.gate === 'held' || g.gate === 'bump-due'));
     if (gate) throw new ForgeError(releaseGateMessage(id, gate), 'release_gate');
+  }
+  // events.jsonl is writable outside the CLI: a released gate on a release edge is only believed once
+  // the consumer's manifests at HEAD really name the released version (git, no network).
+  if (keys.some((k) => gates.some((g, i) => g.consumer === k && g.gate === 'released' && bumpsOnRelease(edges[i], job)))) {
+    const status = interimStatus(root, config, job).edges;
+    for (const k of keys) {
+      const stale = status.find((e) => e.consumer === k && e.release !== undefined && e.state !== 'released');
+      if (stale) throw new ForgeError(releaseGateMessage(id, { consumer: k, dependency: stale.dependency, gate: 'bump-due', version: stale.release }), 'release_gate');
+    }
   }
   const out: ReadyResult = { id, ready: [], skipped: [] };
   const pending: { repo: RepoKey; number: number }[] = [];
