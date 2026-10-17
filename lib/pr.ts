@@ -434,15 +434,31 @@ const SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
 const PR_STATES = new Set(['OPEN', 'CLOSED', 'MERGED']);
 
+/** One member PR as this call's sync read it: state null when its sync failed or found no PR. */
+export interface MemberSync {
+  repo: string;
+  number: number | null;
+  state: PrStateKey;
+  /** The PR turned CLOSED in this sync. */
+  newlyClosed: boolean;
+  headOid: string | null;
+  checks: PrChecks['state'] | undefined;
+  mergeState: string | null;
+}
+
 /**
- * Records each member PR's state for display: by its number, or found by branch when none is
- * recorded yet. Only checked values are stored (a safe number, an https url, a sha); a failure logs
- * `repo-pr-sync-failed` and never stops the root sync. The job's own transition stays root-only.
+ * Records each member PR's state: by its number, or found by branch when none is recorded yet. Only
+ * checked values are stored (a safe number, an https url, a sha); a failure logs
+ * `repo-pr-sync-failed` and never stops the root sync. Returns what this call read, so the job's
+ * transition and a merge decide on GitHub's answers now, never on a stored (writable) state.
  */
-function syncMemberPrs(root: string, config: Config, id: string): void {
+function syncMemberPrs(root: string, config: Config, id: string): Map<string, MemberSync> {
   const job = loadJob(root, id);
+  const out = new Map<string, MemberSync>();
   const fields = 'number,url,state,isDraft,headRefOid,mergeable,mergeStateStatus,statusCheckRollup,mergedAt,isCrossRepository';
   for (const m of memberRepos(job).filter((x) => !x.verifyOnly)) {
+    const unread: MemberSync = { repo: m.repo, number: safePrNumber(m.pr?.number), state: null, newlyClosed: false, headOid: null, checks: undefined, mergeState: null };
+    out.set(m.repo, unread);
     try {
       const slug = memberSlug(config, m.repo);
       let number = m.pr?.number ?? null;
@@ -470,10 +486,16 @@ function syncMemberPrs(root: string, config: Config, id: string): void {
       };
       recordMemberPr(root, id, m.repo, (prev) => ({ ...(prev ?? {}), ...fresh }) as JobRepoPr);
       logEvent(root, id, 'repo-pr-synced', { repo: m.repo, state: fresh.state });
+      // Only a state GitHub named counts: a fallback to the stored one is not this call's answer.
+      const state = fresh.number !== null && PR_STATES.has(pr.state) ? (pr.state as PrStateKey) : null;
+      const newlyClosed = state === 'CLOSED' && m.pr?.state !== 'CLOSED';
+      if (newlyClosed) logEvent(root, id, 'repo-pr-closed', { repo: m.repo, number: fresh.number });
+      out.set(m.repo, { repo: m.repo, number: fresh.number, state, newlyClosed, headOid: fresh.headOid, checks: fresh.checks.state, mergeState: fresh.mergeState ?? null });
     } catch {
       logEvent(root, id, 'repo-pr-sync-failed', { repo: m.repo });
     }
   }
+  return out;
 }
 
 /**
@@ -651,24 +673,60 @@ export interface SyncTransition {
   integrateFor: string | null;
 }
 
+/** A member PR as syncTransition weighs it: this call's state, null when it could not be read. */
+export type MemberPrState = Pick<MemberSync, 'repo' | 'number' | 'state' | 'newlyClosed'>;
+
 /**
  * The state a sync leaves a job in. `pr` is the merged record (job.pr plus what GitHub just said),
  * `job.pr` the previous one. A PR job routes to integrate only from a state sync itself parks in,
  * on a head Forge pushed and has not routed before, and with no live session driving it, so no
  * one else's commits or session are ever acted on. `ownerLive` runs last: it may spawn `ps`.
+ * `members` (a linked job's non-verify-only member PRs, as this sync read them) holds a merged root
+ * job open until every member PR merged too.
  */
 export function syncTransition(
-  job: Pick<Job, 'stage' | 'state' | 'waitingOn' | 'pr'>,
+  job: Pick<Job, 'stage' | 'state' | 'waitingOn' | 'pr'> & { reason?: string | null },
+  pr: JobPr,
+  config: Pick<Config, 'pr'>,
+  opts: { route: boolean; ownerLive: () => boolean; members?: MemberPrState[] },
+): SyncTransition {
+  const members = opts.members ?? [];
+  const t = rootTransition(job, pr, config, opts, members);
+  const closed = members.filter((m) => m.newlyClosed).map((m) => `repo ${m.repo} PR #${m.number ?? '?'} was closed without merging`);
+  if (!closed.length) return t;
+  const note = [t.change.note, ...closed].filter(Boolean).join('; ');
+  return { ...t, change: { ...t.change, note } };
+}
+
+/** Why a merged root job still waits: the first member PR that has not merged. */
+function memberWait(m: MemberPrState): string {
+  if (m.number === null) return `PR merged; waiting on repo ${m.repo} (no PR)`;
+  if (m.state === null) return `PR merged; waiting on repo ${m.repo} (state unknown)`;
+  return `PR merged; waiting on repo ${m.repo} PR #${m.number}${m.state === 'CLOSED' ? ' (closed without merging)' : ''}`;
+}
+
+function rootTransition(
+  job: Pick<Job, 'stage' | 'state' | 'waitingOn' | 'pr'> & { reason?: string | null },
   pr: JobPr,
   config: Pick<Config, 'pr'>,
   opts: { route: boolean; ownerLive: () => boolean },
+  members: MemberPrState[],
 ): SyncTransition {
   const prev: Partial<JobPr> = job.pr ?? {};
   // gh output: only a real sha is compared or stored.
   const head = isSha(pr.headOid) ? pr.headOid : null;
   const kept = head !== null && prev.integrateFor === head ? head : null;
   const stay = (change: SyncTransition['change'] = {}): SyncTransition => ({ change, integrate: false, integrateFor: kept });
-  if (pr.state === 'MERGED') return stay(job.state !== 'done' ? { stage: 'done', state: 'done', reason: 'PR merged' } : {});
+  if (pr.state === 'MERGED') {
+    if (!members.length) return stay(job.state !== 'done' ? { stage: 'done', state: 'done', reason: 'PR merged' } : {});
+    // A member whose sync failed counts as not merged: done is final, so it waits for an answer.
+    const open = members.find((m) => m.state !== 'MERGED');
+    if (!open) return stay(job.state !== 'done' ? { stage: 'done', state: 'done', reason: 'all PRs merged' } : {});
+    if (['running', 'done', 'cancelled'].includes(job.state)) return stay();
+    const reason = memberWait(open);
+    if (job.stage === 'pr' && job.state === 'waiting' && job.waitingOn === 'pr-review' && job.reason === reason) return stay();
+    return stay({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review', reason });
+  }
   if (pr.state === 'CLOSED') return stay(!['cancelled', 'done'].includes(job.state) ? { state: 'cancelled', reason: 'PR closed without merging' } : {});
   if (pr.state !== 'OPEN' || job.stage !== 'pr') return stay();
   const policy = config.pr.conflicts;
@@ -702,16 +760,28 @@ export interface SyncResult {
  * `route: false` (mergePr) syncs without ever moving the job to integrate.
  */
 export function syncPr(root: string, config: Config, id: string, opts: { route?: boolean } = {}): SyncResult {
+  return syncPrDetailed(root, config, id, opts).result;
+}
+
+/** syncPr, plus each non-verify-only member PR as this call read it (mergePr decides on these). */
+function syncPrDetailed(root: string, config: Config, id: string, opts: { route?: boolean } = {}): { result: SyncResult; members: Map<string, MemberSync> } {
   const route = opts.route !== false;
   requireGh();
-  // Member PRs first, for display only: a failure there never stops the root sync.
-  if (memberRepos(loadJob(root, id)).length) syncMemberPrs(root, config, id);
+  // Member PRs first: a failure there never stops the root sync, and counts as not merged.
+  const members = isLinkedJob(loadJob(root, id)) ? syncMemberPrs(root, config, id) : new Map<string, MemberSync>();
   let job = loadJob(root, id);
   if (!job.pr?.number) {
     const found = findPr(root, config, id);
-    if (!found) return { id, pr: null };
+    if (!found) return { result: { id, pr: null }, members };
     job = loadJob(root, id);
   }
+  // Every non-verify-only member the job has now, read or not: one missing from this sync is unknown.
+  const memberStates: MemberPrState[] = memberRepos(job)
+    .filter((m) => !m.verifyOnly)
+    .map((m) => {
+      const r = members.get(m.repo);
+      return r ? { repo: r.repo, number: r.number, state: r.state, newlyClosed: r.newlyClosed } : { repo: m.repo, number: safePrNumber(m.pr?.number), state: null, newlyClosed: false };
+    });
   const slug = repoSlug(root, config);
   const fields = 'number,url,state,isDraft,headRefOid,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup,mergedAt,closedAt,headRefName,baseRefName';
   // findPr recorded the PR it found. gh output: raw input.
@@ -747,7 +817,7 @@ export function syncPr(root: string, config: Config, id: string, opts: { route?:
   setJob(root, id, {
     derive: (j) => {
       const merged: JobPr = { ...j.pr, ...fresh, ...(humanDelta ? { humanDelta } : {}) };
-      const t = syncTransition(j, merged, config, { route, ownerLive: () => ownerStatusWithProof(root, j, { env: process.env }).status === 'live' });
+      const t = syncTransition(j, merged, config, { route, ownerLive: () => ownerStatusWithProof(root, j, { env: process.env }).status === 'live', members: memberStates });
       const { integrateFor: _previous, ...rest } = merged;
       synced = t.integrateFor ? { ...rest, integrateFor: t.integrateFor } : rest;
       integrate = t.integrate;
@@ -778,7 +848,7 @@ export function syncPr(root: string, config: Config, id: string, opts: { route?:
     maybeEnqueueGate(root, config, job, after);
     enqueuePrFeedbackGate(root, config, after, trustedFeedback(feedback));
   }
-  return integrate ? { id, pr: synced, integrate: true } : { id, pr: synced };
+  return { result: integrate ? { id, pr: synced, integrate: true } : { id, pr: synced }, members };
 }
 
 function measureOnMerge(root: string, config: Config, job: Job, headRefOid: unknown): HumanDelta {

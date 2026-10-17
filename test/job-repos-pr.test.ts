@@ -164,7 +164,7 @@ describe('job repos: pull requests', { concurrency: 4 }, () => {
     assert.equal(loadJob(p.root, j.id).repos[1].pr!.number, 7);
   });
 
-  test('sync records member PR state and leaves the transition and merge root-only', async () => {
+  test('sync records member PR state', async () => {
     const p = await project();
     const j = await ready(p);
     await p.f('verify', j.id);
@@ -183,7 +183,7 @@ describe('job repos: pull requests', { concurrency: 4 }, () => {
     job = await sync();
     m = job.repos[1].pr!;
     assert.deepEqual([m.state, m.mergedAt], ['MERGED', '2026-10-02T00:00:00Z']);
-    assert.deepEqual([job.stage, job.state, job.waitingOn], ['pr', 'waiting', 'pr-review'], 'the root PR alone decides the transition');
+    assert.deepEqual([job.stage, job.state, job.waitingOn], ['pr', 'waiting', 'pr-review'], 'a merged member does not finish a job whose root PR is open');
     fs.writeFileSync(path.join(p.gh, 'lib.url'), 'http://github.com/o/lib/pull/7');
     job = await sync();
     assert.equal(job.repos[1].pr!.url, null, 'a url that is not https is not stored');

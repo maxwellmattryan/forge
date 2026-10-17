@@ -122,3 +122,47 @@ describe('linked PRs: sibling links', { concurrency: 4, skip }, () => {
     assert.deepEqual(p.calls().filter((c) => c.startsWith('pr edit') || c.includes('--json body')), [], 'no edit or body read');
   });
 });
+
+/** Syncs `id` (exit 0) and returns the job after. */
+async function synced(p: PrProject, id: string) {
+  const r = await p.pr(['sync', id]);
+  assert.equal(r.status, 0, r.stderr);
+  return loadJob(p.root, id);
+}
+
+describe('linked PRs: sync across repos', { concurrency: 4, skip }, () => {
+  test('the job is done only when every PR merged', async () => {
+    const p = await prProject(cleanups);
+    const j = await opened(p);
+    await p.f('job', 'set', j.id, '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review');
+    p.fake('app.state', 'MERGED');
+    let job = await synced(p, j.id);
+    assert.deepEqual([job.stage, job.state, job.waitingOn, job.reason], ['pr', 'waiting', 'pr-review', 'PR merged; waiting on repo lib PR #7']);
+    // The member merged, but this sync could not read it: not done.
+    p.fake('lib.state', 'MERGED');
+    p.fake('lib.viewfail', '');
+    job = await synced(p, j.id);
+    assert.deepEqual([job.stage, job.state, job.reason], ['pr', 'waiting', 'PR merged; waiting on repo lib (state unknown)']);
+    p.fake('lib.viewfail', null);
+    job = await synced(p, j.id);
+    assert.deepEqual([job.stage, job.state, job.reason], ['done', 'done', 'all PRs merged']);
+  });
+
+  test('a closed member PR is surfaced, not ignored', async () => {
+    const p = await prProject(cleanups);
+    const j = await opened(p);
+    await p.f('job', 'set', j.id, '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review');
+    p.fake('lib.state', 'CLOSED');
+    await synced(p, j.id);
+    let job = await synced(p, j.id);
+    assert.deepEqual(p.events(j.id).filter((e) => e.type === 'repo-pr-closed').map((e) => [e.repo, e.number]), [['lib', 7]], 'logged once over two syncs');
+    assert.deepEqual(p.events(j.id).filter((e) => e.type === 'note').map((e) => e.text), ['repo lib PR #7 was closed without merging']);
+    assert.deepEqual([job.stage, job.state], ['pr', 'waiting'], 'a member never cancels the job');
+    p.fake('app.state', 'MERGED');
+    job = await synced(p, j.id);
+    assert.deepEqual([job.stage, job.state, job.reason], ['pr', 'waiting', 'PR merged; waiting on repo lib PR #7 (closed without merging)'], 'and it is never done while closed');
+    p.fake('app.state', 'CLOSED');
+    job = await synced(p, j.id);
+    assert.deepEqual([job.state, job.reason], ['cancelled', 'PR closed without merging'], 'a closed root still cancels');
+  });
+});
