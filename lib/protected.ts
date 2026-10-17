@@ -54,8 +54,8 @@ const ARGV_CHUNK = 64 * 1024;
 const LINK_MODES = new Set(['120000', '160000']);
 const NULL_SHA = /^0+$/;
 const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
-/** Paths printed in the PP1 reason: shellLine's safe class, never an option. */
-const REASON_PATH = /^[A-Za-z0-9._/@+-]+$/;
+/** Paths printed in the PP1 reason: shellLine's safe class (with `:` for a member repo's `<repo>:<path>`), never an option. */
+const REASON_PATH = /^[A-Za-z0-9._:/@+-]+$/;
 
 const isMap = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
@@ -267,6 +267,10 @@ export interface DiffSource {
   from: string;
   to: string;
   env: NodeJS.ProcessEnv;
+  /** The paths to diff in `cwd` when they are not S's own (a member repo's part of S, unprefixed). */
+  paths?: string[];
+  /** A member repo's name: its part of protected.diff gets a `# repo <name>` header. */
+  repo?: string;
 }
 
 /** Paths split so no `git diff` call's argv passes ARGV_CHUNK bytes. */
@@ -288,12 +292,26 @@ function chunks(paths: string[]): string[][] {
 }
 
 /** The patch of every S path (git diff has no --pathspec-from-file, so in chunks), capped at DIFF_CAP. */
-function writeDiff(file: string, s: ProtectedHit[], src: DiffSource): void {
-  const range = src.to === 'index' ? ['--cached', src.from] : [src.from, src.to];
+function writeDiff(file: string, s: ProtectedHit[], sources: DiffSource[]): void {
   const parts: Buffer[] = [];
   let size = 0;
   let note = '';
-  for (const group of chunks(s.map((h) => h.path))) {
+  for (const src of sources) {
+    if (note) break;
+    const paths = src.paths ?? s.map((h) => h.path);
+    if (!paths.length) continue;
+    if (src.repo !== undefined) parts.push(Buffer.from(`# repo ${clean(src.repo)}\n`));
+    note = writeSource(src, paths, parts, size);
+    size = parts.reduce((n, b) => n + b.length, 0);
+  }
+  writeTextAtomic(file, `${Buffer.concat(parts).subarray(0, DIFF_CAP).toString('utf8')}${note}`);
+}
+
+/** One source's part of protected.diff, appended to `parts`; the note to end the file with, if any. */
+function writeSource(src: DiffSource, paths: string[], parts: Buffer[], size: number): string {
+  const range = src.to === 'index' ? ['--cached', src.from] : [src.from, src.to];
+  let note = '';
+  for (const group of chunks(paths)) {
     const r = spawnSync('git', ['--literal-pathspecs', ...PINNED_GIT_CONFIG, 'diff', ...PATCH_OPTS, ...range, '--', ...group], {
       cwd: src.cwd,
       env: src.env,
@@ -312,7 +330,7 @@ function writeDiff(file: string, s: ProtectedHit[], src: DiffSource): void {
       break;
     }
   }
-  writeTextAtomic(file, `${Buffer.concat(parts).subarray(0, DIFF_CAP).toString('utf8')}${note}`);
+  return note;
 }
 
 /** sha256 over every (path, blob) of S, so a change past the stored MAX_HITS still moves `at`. */
@@ -328,7 +346,7 @@ export function protectedDigest(s: Pick<ProtectedHit, 'path' | 'blob'>[]): strin
  * approval stays bound to the exact content it saw. Past MAX_HITS the stored hits can't show that,
  * so there `at` also moves whenever the digest of the whole of S changes. Only the CLI calls this.
  */
-export function recordProtected(root: string, id: string, gate: ProtectedGate, s: ProtectedHit[], head: string | null, diff: DiffSource | null): ProtectedPaths | null {
+export function recordProtected(root: string, id: string, gate: ProtectedGate, s: ProtectedHit[], head: string | null, diff: DiffSource | DiffSource[] | null): ProtectedPaths | null {
   const file = path.join(jobDir(root, id), 'protected.diff');
   if (!s.length) {
     if (loadJob(root, id).protectedPaths) updateJob(root, id, (j) => void (j.protectedPaths = null));
@@ -347,7 +365,7 @@ export function recordProtected(root: string, id: string, gate: ProtectedGate, s
     flag = { hits, more, at: fresh ? now() : prev.at, gate, head, digest };
     j.protectedPaths = flag;
   });
-  if (diff) writeDiff(file, s, diff);
+  if (diff) writeDiff(file, s, Array.isArray(diff) ? diff : [diff]);
   return flag;
 }
 
@@ -398,25 +416,59 @@ export interface CompactProtected {
  * flag is never trusted. An invalid policy throws config_invalid; anything else that stops the
  * check comes back as `error`, never as a clean result.
  */
-export function checkBranch(root: string, config: Config, job: Pick<Job, 'id' | 'worktree' | 'base'>, head: string, gate: 'verify' | 'pr'): BranchCheck {
+export function checkBranch(
+  root: string,
+  config: Config,
+  job: Pick<Job, 'id' | 'worktree' | 'base'>,
+  head: string,
+  gate: 'verify' | 'pr',
+  members: MemberBranch[] = [],
+): BranchCheck {
   const rules = policyRules(config);
   const empty: BranchCheck = { refused: [], escalated: [], flag: null, error: null };
   // The policy is off: nothing to compare, and a flag from before it was turned off is cleared.
   if (!rules.length) return { ...empty, flag: recordProtected(root, job.id, gate, [], head, null) };
   try {
     if (!job.worktree) throw new ForgeError(`job ${job.id} has no worktree`);
-    if (!FULL_SHA.test(head)) throw new ForgeError(`${JSON.stringify(head.slice(0, 80))} is not a commit id`);
-    const cwd = fs.realpathSync(job.worktree);
     const env = historyEnv();
-    const m = resolveBase(cwd, config, job, head).mergeBase;
-    if (!FULL_SHA.test(m)) throw new ForgeError(`merge-base ${JSON.stringify(m.slice(0, 80))} is not a commit id`);
-    const found = checkProtected(diffEntries(cwd, m, head, env), rules, blobReader(cwd, env), cwd);
-    const flag = recordProtected(root, job.id, gate, found.escalated, head, { cwd, from: m, to: head, env });
+    const branch = (wt: string, base: Pick<Job, 'base'>, tip: string, repo?: string) => {
+      if (!FULL_SHA.test(tip)) throw new ForgeError(`${JSON.stringify(tip.slice(0, 80))} is not a commit id`);
+      const cwd = fs.realpathSync(wt);
+      const m = resolveBase(cwd, config, base, tip).mergeBase;
+      if (!FULL_SHA.test(m)) throw new ForgeError(`merge-base ${JSON.stringify(m.slice(0, 80))} is not a commit id`);
+      const found = checkProtected(diffEntries(cwd, m, tip, env), rules, blobReader(cwd, env), cwd);
+      const src: DiffSource = { cwd, from: m, to: tip, env, paths: found.escalated.map((h) => h.path), ...(repo === undefined ? {} : { repo }) };
+      return { found: repo === undefined ? found : prefixHits(repo, found), src };
+    };
+    // Member repos get the same policy over their own branch, so one job flag (and one human
+    // approval) covers every repo the job pushes.
+    const parts = [branch(job.worktree, job, head), ...members.map((b) => branch(b.worktree, { base: b.base }, b.head, b.repo))];
+    const found: ProtectedCheck = { refused: parts.flatMap((p) => p.found.refused), escalated: parts.flatMap((p) => p.found.escalated) };
+    const flag = recordProtected(root, job.id, gate, found.escalated, head, parts.map((p) => p.src));
     if (found.refused.length) logRefused(root, job.id, gate, found.refused, { head });
     return { ...found, flag, error: null };
   } catch (e) {
     return { ...empty, error: (e as Error).message };
   }
+}
+
+/** A member repo's branch for checkBranch: its checked worktree, base and the head to check. */
+export interface MemberBranch {
+  repo: string;
+  worktree: string;
+  base: string | null;
+  head: string;
+}
+
+/** `<repo>:<path>`: how a member repo's hit is named on the job flag, in events and in messages. */
+export function memberHitPath(repo: string, p: string): string {
+  return `${repo}:${p}`;
+}
+
+/** A member's hits named `<repo>:<path>`, so they never collide with a root path on the flag. */
+export function prefixHits(repo: string, c: ProtectedCheck): ProtectedCheck {
+  const pre = (h: ProtectedHit): ProtectedHit => ({ ...h, path: memberHitPath(repo, h.path) });
+  return { refused: c.refused.map(pre), escalated: c.escalated.map(pre) };
 }
 
 export function compactProtected(c: Pick<BranchCheck, 'refused' | 'escalated' | 'error'>): CompactProtected {

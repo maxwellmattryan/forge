@@ -250,8 +250,14 @@ function cleanRepoPr(raw: unknown): JobRepoPr | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const pr = raw as Record<string, unknown>;
   if (typeof pr.number !== 'number' || !Number.isSafeInteger(pr.number) || pr.number <= 0) return null;
-  return { ...(pr as unknown as JobRepoPr), url: isHttpsUrl(pr.url) ? pr.url : null };
+  // Only the keys Forge writes for a member PR, so a hand-edited key never reaches /api/state.
+  const out: Record<string, unknown> = {};
+  for (const k of REPO_PR_KEYS) if (pr[k] !== undefined) out[k] = pr[k];
+  return { ...(out as unknown as JobRepoPr), url: isHttpsUrl(pr.url) ? pr.url : null };
 }
+
+/** What openMemberPr and syncMemberPrs record (lib/pr.ts). */
+const REPO_PR_KEYS = ['number', 'url', 'state', 'isDraft', 'openedAt', 'lastSyncedAt', 'pushedSha', 'headOid', 'mergeable', 'mergeState', 'checks', 'mergedAt'] as const;
 
 /**
  * `repos` as readers see it: the root mirror rebuilt from the top-level fields, then every member

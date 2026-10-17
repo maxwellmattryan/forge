@@ -571,7 +571,10 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   const groups = verifyGroups(config.verify);
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
   // Every member's worktree is checked before anything runs, so a missing one records nothing.
-  const members = memberRepos(job).map((m) => memberWorktree(root, config, job, m.repo));
+  const members = memberRepos(job).map((m) => {
+    const wt = memberWorktree(root, config, job, m.repo);
+    return { ...wt, head: run('git', ['rev-parse', 'HEAD'], { cwd: wt.worktree }).stdout.trim() };
+  });
   const sha = run('git', ['rev-parse', 'HEAD'], { cwd: job.worktree }).stdout.trim();
   const status = STATUS_ARGV;
   const changed = run('git', status, { cwd: job.worktree }).stdout.trim();
@@ -605,7 +608,9 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   const protStarted = Date.now();
   let prot: Pick<BranchCheck, 'refused' | 'escalated' | 'error'>;
   try {
-    prot = checkBranch(root, config, job, sha, 'verify');
+    // Every repo the job pushes (not a verify-only one), over the HEAD this run records for it.
+    const branches = members.filter((m) => !m.member.verifyOnly).map((m) => ({ repo: m.member.repo, worktree: m.worktree, base: m.member.base, head: m.head }));
+    prot = checkBranch(root, config, job, sha, 'verify', branches);
   } catch (e) {
     prot = { refused: [], escalated: [], error: (e as Error).message };
   }
@@ -701,14 +706,16 @@ interface MemberVerify {
 /**
  * A member repo's checks, in the root's order: worktree-clean, the secret scan over its range, each
  * `verify` group step as the member component's command (skipped when none defines it), then test
- * integrity against the member's base. No protected, e2e or verifiers step: those are root-only.
+ * integrity against the member's base. No e2e or verifiers step: those are root-only. Its protected
+ * paths are checked in the root's `protected` step, named `<repo>:<path>`.
  */
-async function verifyMember(root: string, config: Config, job: Job, groups: string[][], mode: ReturnType<typeof secretMode>, m: { member: JobRepo & { repo: string }; worktree: string }): Promise<MemberVerify> {
+async function verifyMember(root: string, config: Config, job: Job, groups: string[][], mode: ReturnType<typeof secretMode>, m: { member: JobRepo & { repo: string }; worktree: string; head: string }): Promise<MemberVerify> {
   const repo = m.member.repo;
   const cwd = m.worktree;
   // The view scanBranch and testIntegrity read: the member's worktree and base under the job's id.
   const view = { id: job.id, worktree: cwd, base: m.member.base };
-  const sha = run('git', ['rev-parse', 'HEAD'], { cwd }).stdout.trim();
+  // The HEAD the root's protected check saw, so the run records the commit it checked.
+  const sha = m.head;
   const changed = run('git', STATUS_ARGV, { cwd }).stdout.trim();
   let hiddenError: string | null = null;
   let hidden = '';

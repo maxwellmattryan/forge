@@ -163,6 +163,41 @@ describe('job repos: pull requests', { concurrency: 4 }, () => {
     assert.ok(!p.calls().some((c) => c.startsWith('pr create')));
   });
 
+  test('pr open applies protected paths to every member branch before anything is pushed', async () => {
+    const p = await project();
+    const pushed = () => [p.heads(p.libBare), p.heads(p.rootBare)];
+    // An escalate path committed by plain git in the member: no push and no PR in any repo until a
+    // human approves at the PP1 park.
+    const j = await ready(p, { libFiles: { 'lib.txt': 'lib\n', '.github/workflows/ci.yml': 'on: push\n' } });
+    await p.f('verify', j.id);
+    let r = await p.raw(['pr', 'open', j.id, '--json'], p.env);
+    assert.equal(r.status, 1, r.stdout);
+    let err = JSON.parse(r.stdout).error;
+    assert.equal(err.code, 'protected_path');
+    assert.equal(err.message, `protected paths need a human approval: 1 paths; /forge approve ${j.id}`);
+    assert.deepEqual(pushed(), ['main', 'main'], 'nothing was pushed');
+    assert.ok(!p.calls().some((c) => c.startsWith('pr ')), 'gh opened nothing');
+    const flag = loadJob(p.root, j.id).protectedPaths!;
+    assert.deepEqual([flag.gate, flag.hits.map((h) => h.path)], ['pr', ['lib:.github/workflows/ci.yml']]);
+    await p.f('job', 'set', j.id, '--state', 'waiting', '--waiting-on', 'human', '--reason', 'protected paths: lib:.github/workflows/ci.yml');
+    await p.f('job', 'human', j.id, 'approve');
+    await p.f('job', 'set', j.id, '--state', 'running');
+    r = await p.pr(['open', j.id]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(JSON.parse(r.stdout).repos.map((x: any) => x.repo), ['lib']);
+    assert.ok(p.heads(p.libBare).split('\n').includes(j.branch), 'approved: the member branch was pushed');
+
+    // A refuse path in the member stops pr open, --force included, before any push.
+    const k = await ready(p, { libFiles: { 'k.pem': 'x\n' } });
+    r = await p.raw(['pr', 'open', k.id, '--force', '--json'], p.env);
+    assert.equal(r.status, 1, r.stdout);
+    err = JSON.parse(r.stdout).error;
+    assert.equal(err.code, 'protected_path');
+    assert.match(err.message, /^forge pr open refuses protected paths:\n  lib:k\.pem: rule 6/);
+    assert.ok(!p.heads(p.libBare).split('\n').includes(k.branch));
+    assert.ok(!p.heads(p.rootBare).split('\n').includes(k.branch));
+  });
+
   test('a member PR failure names the repo and a rerun completes', async () => {
     const p = await project();
     const j = await ready(p);

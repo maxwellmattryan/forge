@@ -10,8 +10,8 @@ import { attributionForbidden, findAttribution } from '../attribution.ts';
 import { sessionEnv } from '../daemon.ts';
 import { PINNED_DIFF_OPTS, PINNED_GIT_CONFIG } from '../integrity.ts';
 import { jobDir, loadJob } from '../jobs.ts';
-import { memberWorktree } from '../job-repos.ts';
-import { blobReader, checkProtected, comparisonPoint, diffEntries, historyEnv, logEscalated, logRefused, policyRules, recordProtected, refusalText } from '../protected.ts';
+import { memberRepos, memberWorktree } from '../job-repos.ts';
+import { blobReader, checkProtected, comparisonPoint, diffEntries, historyEnv, logEscalated, logRefused, memberHitPath, policyRules, prefixHits, recordProtected, refusalText } from '../protected.ts';
 import { resolveWorktreePaths } from '../paths.ts';
 import { applyAllowlist, diffUnits, loadAllowlist, logSecrets, refusalMessage, refuseSecrets, scanUnits, secretMode, textUnit } from '../secrets.ts';
 import { ForgeError, run } from '../util.ts';
@@ -153,6 +153,8 @@ interface ProtectedPreview {
   escalated: ProtectedHit[];
   own: ProtectedHit[];
   m: string;
+  /** A member repo's escalate set as paths in its worktree, before they were named `<repo>:<path>`. */
+  local?: ProtectedHit[];
   /** The real index, and the checked preview that installPreview puts in its place. */
   index: string;
   tmp: string;
@@ -263,10 +265,15 @@ export function gitWrite(
   const add = (ps: string[]) => git(['--literal-pathspecs', 'add', '-A', ...(ps.length ? ['--', ...ps] : [])]);
   const dir = fs.realpathSync(jobDir(root, id));
   /** Refuses before anything is written; returns the escalate set to record once the write is done. */
-  // policy.protectedPaths globs are root-repo paths, so they are not applied in a member repo.
+  // A member repo gets the root's policy over its own branch (from its own base); its hits are named
+  // `<repo>:<path>` on the job flag, so one human approval covers every repo the job pushes.
   const guard = (): ProtectedPreview | null => {
-    if (member) return null;
-    const p = protectedPreview(config, job, cwd, dir, genv, paths);
+    let p = protectedPreview(config, member ? { ...job, base: member.member.base } : job, cwd, dir, genv, paths);
+    if (p && member) {
+      const repo = member.member.repo;
+      const named = prefixHits(repo, p);
+      p = { ...p, ...named, own: prefixHits(repo, { refused: [], escalated: p.own }).escalated, local: p.escalated };
+    }
     if (p?.refused.length) {
       dropPreview(p.tmp);
       logRefused(root, job.id, sub, p.refused);
@@ -276,9 +283,15 @@ export function gitWrite(
   };
   /** Stages exactly what guard checked; a plain add with the policy off. */
   const stage = (p: ProtectedPreview | null) => (p ? installPreview(p, cwd) : void add(paths));
+  // The flag holds the whole job's set: keep the other repos' hits as the last check recorded them.
+  const names = memberRepos(job).filter((m) => !m.verifyOnly).map((m) => m.repo);
+  const repoOf = (p: string) => names.find((n) => p.startsWith(memberHitPath(n, ''))) ?? null;
+  const mine = member ? member.member.repo : null;
+  const carried = (job.protectedPaths?.hits ?? []).filter((h) => typeof h?.path === 'string' && repoOf(h.path) !== mine);
   const record = (p: ProtectedPreview | null, head: string | null): { protected?: number } => {
     if (!p) return {};
-    recordProtected(root, job.id, sub, p.escalated, head, { cwd, from: p.m, to: head ?? 'index', env: historyEnv(genv) });
+    const src = { cwd, from: p.m, to: head ?? 'index', env: historyEnv(genv), paths: (p.local ?? p.escalated).map((h) => h.path), ...(mine === null ? {} : { repo: mine }) };
+    recordProtected(root, job.id, sub, [...p.escalated, ...carried], head, src);
     if (p.own.length) logEscalated(root, job.id, sub, p.own, head);
     return p.escalated.length ? { protected: p.escalated.length } : {};
   };

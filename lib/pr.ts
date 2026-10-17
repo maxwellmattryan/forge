@@ -6,6 +6,7 @@ import { isActive, isForemanActor, listJobs, loadJob, logEvent, readEvents, setJ
 import { memberConfig, memberEntry, memberRepos, memberWorktree } from './job-repos.ts';
 import { isHttpsUrl } from './schema.ts';
 import { checkBranch, historyEnv, logEscalated, policyRules, protectedApproved, refusalText } from './protected.ts';
+import type { MemberBranch } from './protected.ts';
 import { enqueuePrFeedbackGate, maybeEnqueueGate } from './foreman.ts';
 import { prLinkNote } from './issue-link.ts';
 import { isSafeUrl, linkedIssues, nativeRef, sameIssue } from './issue-ref.ts';
@@ -170,7 +171,7 @@ export function openPr(
   logSecrets(root, id, 'pr', scan, { blocked: mode === 'block' });
   if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of ${id}'s commits could not finish (${scan.error}); forge pr open won't push an unscanned branch`, 'secret_found', `forge secrets scan ${id}`);
   if (mode === 'block' && scan.findings.length) throw new ForgeError(refusalMessage(`the commits of ${id}`, scan.findings), 'secret_found', `forge secrets scan ${id}`);
-  refuseProtected(root, config, job, evidence.head);
+  refuseProtected(root, config, job, evidence.head, memberBranches(root, config, job, evidence.heads));
   // From here on only the checked commit is used, never HEAD: a commit made in the worktree after
   // the checks (a stale session, a process the builder left behind) must not ride along.
   const checked = evidence.head;
@@ -368,6 +369,8 @@ function syncMemberPrs(root: string, config: Config, id: string): void {
       const pr = JSON.parse(gh(root, ['pr', 'view', String(number), '-R', slug, '--json', fields]).stdout);
       if (pr?.isCrossRepository) throw new ForgeError(`PR #${number} in ${slug} comes from a fork`);
       const fresh = {
+        // Null when gh returns an unusable number: cleanRepoPr then drops this record on the next
+        // load, and the next sync finds the PR by branch again.
         number: safePrNumber(pr.number),
         url: isHttpsUrl(pr.url) ? pr.url : null,
         state: PR_STATES.has(pr.state) ? pr.state : (m.pr?.state ?? 'OPEN'),
@@ -388,13 +391,27 @@ function syncMemberPrs(root: string, config: Config, id: string): void {
 }
 
 /**
+ * The branches of the member repos `pr open` pushes (verify-only ones never are), at the HEAD verify
+ * recorded, or the current one under `--force`: the same commit checkMemberPr pushes.
+ */
+function memberBranches(root: string, config: Config, job: Job, heads: Record<string, string> | undefined): MemberBranch[] {
+  return memberRepos(job)
+    .filter((m) => !m.verifyOnly)
+    .map((m) => {
+      const { member, worktree } = memberWorktree(root, config, job, m.repo);
+      const head = heads?.[m.repo] ?? run('git', ['rev-parse', 'HEAD'], { cwd: worktree }).stdout.trim();
+      return { repo: m.repo, worktree, base: member.base, head };
+    });
+}
+
+/**
  * The protected-paths re-check before anything leaves the machine, `--force` or not. The set is
  * recomputed from the branch (a hand-cleared job.json flag changes nothing), a refuse path stops the
  * open, and escalate paths stop it until a human approved their current content at a PP1 park.
  */
-function refuseProtected(root: string, config: Config, job: Job, head: string): void {
+function refuseProtected(root: string, config: Config, job: Job, head: string, members: MemberBranch[]): void {
   const id = job.id;
-  const c = checkBranch(root, config, job, head, 'pr');
+  const c = checkBranch(root, config, job, head, 'pr', members);
   if (c.error) throw new ForgeError(`can't check ${id}'s protected paths (${c.error}); forge pr open won't push a branch it can't check`, 'protected_path');
   if (c.refused.length) throw new ForgeError(refusalText('forge pr open', c.refused), 'protected_path');
   if (c.escalated.length && !protectedApproved(c.flag, readEvents(root, id))) {
