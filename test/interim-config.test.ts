@@ -27,7 +27,7 @@ describe('interim strategies: config', { concurrency: 4 }, () => {
   });
 
   test('release.interim validates on the root and on repos entries', () => {
-    assert.deepEqual(defaults().release, { interim: 'local', versioning: null, mechanism: null, command: null, registry: null, cadence: null });
+    assert.deepEqual(defaults().release, { interim: 'local', versioning: null, mechanism: null, command: null, registry: null, cadence: null, publish: null });
     assert.deepEqual(problems({}), []);
     for (const interim of ['canary', 'git-ref', 'local', 'sequential']) {
       assert.deepEqual(problems({ release: { interim } }), [], interim);
