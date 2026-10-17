@@ -3,7 +3,7 @@
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 27;
+export const API_VERSION = 28;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 /** lib/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */
@@ -35,6 +35,7 @@ export type Effort = (typeof EFFORTS)[number];
 export type EffortSource = 'job' | 'panel' | 'role' | 'complexity' | 'config' | 'none';
 /** A spec's judged difficulty: COMPLEXITIES in lib/schema.ts. */
 export type Complexity = 'low' | 'medium' | 'high';
+export type InterimStrategy = 'canary' | 'git-ref' | 'local' | 'sequential';
 
 // ---------- job data ----------
 
@@ -242,6 +243,8 @@ export interface JobRepo {
   pr: JobRepoPr | null;
   /** Verified with the job but never branched, pushed or given a PR. */
   verifyOnly: boolean;
+  /** The human's interim strategy for this repo as a dependency; null inherits config. */
+  interim?: InterimStrategy | null;
 }
 
 /** A reviewer's settled verdict for a round: the verdicts case in lib/commands/job.ts (via roundVerdicts in lib/jobs.ts). */
@@ -298,6 +301,8 @@ export interface Job {
   complexity: Complexity | null;
   /** Escalate paths the branch changes, recorded by the CLI only: recordProtected in lib/protected.ts. */
   protectedPaths: ProtectedPaths | null;
+  /** The human's interim strategy for the root repo as a dependency; null inherits config. */
+  interim: InterimStrategy | null;
   /** The root repo first, then member repos: `forge job repo add|remove` in lib/job-repos.ts. */
   repos: JobRepo[];
 }

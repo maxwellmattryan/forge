@@ -27,7 +27,7 @@ describe('job repos: forge job repo', { concurrency: 4 }, () => {
     const j = await p.f('job', 'new', '--title', 'two repos');
     const added = await p.f('job', 'repo', 'add', j.id, 'lib');
     assert.equal(added.id, j.id);
-    assert.deepEqual(added.repos[1], { repo: 'lib', worktree: null, branch: `forge/${j.id}`, base: 'main', pr: null, verifyOnly: false });
+    assert.deepEqual(added.repos[1], { repo: 'lib', worktree: null, branch: `forge/${j.id}`, base: 'main', pr: null, verifyOnly: false, interim: null });
     assert.deepEqual(p.events(j.id).filter((e) => e.type === 'job-repo-added').map((e) => [e.repo, e.verifyOnly]), [['lib', false]]);
     const fail = async (args: string[], re: RegExp) => {
       const r = await p.raw(args);
@@ -52,7 +52,7 @@ describe('job repos: forge job repo', { concurrency: 4 }, () => {
     await fail(['job', 'repo', 'add', 'no-such-job', 'lib'], /no job "no-such-job"/);
     const v = await p.f('job', 'new', '--title', 'verify only');
     const vo = await p.f('job', 'repo', 'add', '--verify-only', v.id, 'lib');
-    assert.deepEqual(vo.repos[1], { repo: 'lib', worktree: null, branch: null, base: 'main', pr: null, verifyOnly: true });
+    assert.deepEqual(vo.repos[1], { repo: 'lib', worktree: null, branch: null, base: 'main', pr: null, verifyOnly: true, interim: null });
   });
 
   test('repos is writable only by a human through forge job repo', async () => {

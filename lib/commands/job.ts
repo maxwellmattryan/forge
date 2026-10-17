@@ -14,7 +14,8 @@ import { issueLinkStatus } from '../issue-link.ts';
 import { checkIssueRef, isSafeUrl, issueUrl } from '../issue-ref.ts';
 import { githubHost, localRepoSlug } from '../repo-slug.ts';
 import { exists } from '../paths.ts';
-import { addJobRepo, refuseJobRepoInDaemon, removeJobRepo } from '../job-repos.ts';
+import { addJobRepo, refuseInterimInDaemon, refuseJobRepoInDaemon, removeJobRepo } from '../job-repos.ts';
+import { interimStatus, publishCanary, setRepoInterim } from '../interim-apply.ts';
 import { resolveLinks } from '../links.ts';
 import { COMPLEXITIES, EFFORTS, OFFICE_GATES } from '../schema.ts';
 import { daemonScope } from '../requests.ts';
@@ -140,13 +141,38 @@ const JOB: HelpGroup = {
     { command: 'job release', args: '<id>', summary: "drop the job's owner", exits: [NO_JOB] },
     {
       command: 'job repo',
-      args: 'add <id> <name> [--verify-only] | remove <id> <name>',
+      args: 'add <id> <name> [--verify-only] | remove <id> <name> | interim <id> (<name> | --root) canary|git-ref|local|sequential|inherit',
       summary:
-        "add a member repo (a config repos entry whose clone passes doctor's check) to a job, which then gets its own worktree, verify evidence and PR on the job's branch; remove drops one that has no PR and no worktree left. Human-only",
-      flags: [['--verify-only', 'with add: verify the repo at its base with the job, but give it no branch, push or PR']],
-      exits: [[1, 'no such job, a done job or one at stage pr, an unknown or duplicate repo, a failing clone check, a repo with a PR or a worktree, or a daemon session']],
+        "add a member repo (a config repos entry whose clone passes doctor's check) to a job, which then gets its own worktree, verify evidence and PR on the job's branch; remove drops one that has no PR and no worktree left; interim sets one job repo's interim strategy as a dependency (what a consumer's PR points at while it is unmerged: docs/CONFIG.md \"Interim strategies\"), overriding release.interim, and inherit clears it. Human-only",
+      flags: [
+        ['--verify-only', 'with add: verify the repo at its base with the job, but give it no branch, push or PR'],
+        ['--root', 'with interim: the root repo instead of a member'],
+      ],
+      exits: [
+        [
+          1,
+          'no such job, a done job or one at stage pr, an unknown or duplicate repo, a failing clone check, a repo with a PR or a worktree, or a daemon session; for interim, a done or cancelled job, an unknown or verify-only repo, canary for a repo a cargo or cmake link depends on, or a daemon session',
+        ],
+      ],
       docs: ['Job repos', 'docs/ARCHITECTURE.md#job-repos'],
       readme: true,
+    },
+    {
+      command: 'job interim',
+      args: '<id> | publish <id> (<name> | --root) [--confirm]',
+      summary:
+        "each dependency edge between the job's repos: its interim strategy (job or config), links, state (held, waiting, ready, blocked or stale) and why, with no network call. publish publishes a dependency repo's canary: each npm link's package, exported from the verified commit's git objects, as <version>-canary.<sha12> under the canary dist-tag; without --confirm it only lists what it would publish. publish is the only command that publishes anything. Human-only",
+      flags: [
+        ['--root', 'with publish: the root repo instead of a member'],
+        ['--confirm', 'with publish: publish (without it, nothing is published)'],
+      ],
+      exits: [
+        [
+          1,
+          "no such job; for publish, a daemon session, a repo that is not the dependency of an npm-only canary edge, a HEAD that is not the one the latest passing verify checked, a package.json whose name is not the link's, a failed npm publish, or a likely secret in its commits (code secret_found)",
+        ],
+      ],
+      docs: ['Interim strategies', 'docs/CONFIG.md#interim-strategies'],
     },
     { command: 'job note', args: '<id> [text] [--body B | --body-file F]', summary: 'log a note event', flags: BODY, exits: [NO_JOB] },
     {
@@ -367,6 +393,8 @@ const LOCKED_FIELDS: Record<string, string> = {
   eval: 'forge eval start',
   // Which repos a job pushes to is a human decision.
   repos: 'forge job repo add|remove',
+  // What its PRs point at, and what may be published, is too.
+  interim: 'forge job repo interim',
 };
 
 // Kinds step routes differently: a retro job's review panel is fixed at code and docs, and an eval
@@ -608,6 +636,16 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       return { ok: true, ...(link !== undefined ? { link: linked } : {}) };
     }
     case 'repo': {
+      if (rest[0] === 'interim') {
+        refuseInterimInDaemon();
+        const jobId = rest[1];
+        const root_ = flags.root;
+        // parseArgs gives `--root` the next word as its value, so `--root canary` arrives as root: 'canary'.
+        const strategy = typeof root_ === 'string' ? root_ : rest[root_ === true ? 2 : 3];
+        const name = root_ === undefined ? rest[2] : undefined;
+        if (!jobId || !strategy || (root_ === undefined && !name) || rest.length > (root_ === undefined ? 4 : typeof root_ === 'string' ? 2 : 3)) throw usageError(JOB, 'repo');
+        return setRepoInterim(root, config, requireJob(root, jobId).id, name ?? null, strategy);
+      }
       refuseJobRepoInDaemon();
       const action = rest[0];
       const jobId = rest[1];
@@ -615,6 +653,18 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       if (!['add', 'remove'].includes(String(action)) || !jobId || !name || rest.length > 3 || (action === 'remove' && flags['verify-only'] !== undefined)) throw usageError(JOB, 'repo');
       requireJob(root, jobId);
       return action === 'add' ? addJobRepo(root, config, jobId, name, flags['verify-only'] === true) : removeJobRepo(root, jobId, name);
+    }
+    case 'interim': {
+      if (rest[0] === 'publish') {
+        const jobId = rest[1];
+        const root_ = flags.root;
+        if (!jobId || (root_ !== undefined && root_ !== true) || (root_ === true ? rest.length !== 2 : rest.length !== 3)) throw usageError(JOB, 'interim');
+        if (flags.confirm !== undefined && flags.confirm !== true) throw usageError(JOB, 'interim');
+        return publishCanary(root, config, requireJob(root, jobId).id, root_ === true ? null : rest[2], { confirm: flags.confirm === true });
+      }
+      if (!id || rest.length > 1) throw usageError(JOB, 'interim');
+      const job = requireJob(root, id);
+      return { id: job.id, edges: interimStatus(root, config, job).edges };
     }
     case 'assist':
       return assist(root, config, requireJob(root, id), flags.gate);
