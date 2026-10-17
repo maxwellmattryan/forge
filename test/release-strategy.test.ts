@@ -174,12 +174,12 @@ describe('findOnPath', { concurrency: 4 }, () => {
       fs.mkdirSync(w);
       fs.writeFileSync(path.join(w, 'tool'), '');
       assert.equal(findOnPath('tool', { PATH: w }, 'win32'), null, 'win32 needs an extension');
-      fs.writeFileSync(path.join(w, 'tool.cmd'), '');
-      // Windows (and macOS) file names compare case-insensitively, so the hit may read tool.CMD.
-      const low = (p: string | null) => p?.toLowerCase();
-      assert.equal(low(findOnPath('tool', { PATH: w, PATHEXT: '.EXE;.CMD' }, 'win32')), low(path.join(w, 'tool.cmd')));
-      assert.equal(low(findOnPath('tool', { PATH: w }, 'win32')), low(path.join(w, 'tool.cmd')), 'default PATHEXT');
-      assert.equal(findOnPath('tool.cmd', { PATH: w, PATHEXT: '.EXE' }, 'win32'), path.join(w, 'tool.cmd'), 'a name with an extension is tried as is');
+      // Spelt as the PATHEXT entries are: Linux and case-sensitive macOS volumes compare names exactly.
+      const cmd = path.join(w, 'tool.CMD');
+      fs.writeFileSync(cmd, '');
+      assert.equal(findOnPath('tool', { PATH: w, PATHEXT: '.EXE;.CMD' }, 'win32'), cmd);
+      assert.equal(findOnPath('tool', { PATH: w }, 'win32'), cmd, 'default PATHEXT');
+      assert.equal(findOnPath('tool.CMD', { PATH: w, PATHEXT: '.EXE' }, 'win32'), cmd, 'a name with an extension is tried as is');
       assert.equal(findOnPath('tool', { PATH: w, PATHEXT: '.EXE' }, 'win32'), null);
       await t.test('a non-executable file is skipped on POSIX', { skip: POSIX_ONLY }, () => {
         const n = path.join(dir, 'n');
