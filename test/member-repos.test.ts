@@ -281,6 +281,56 @@ describe('member repo doctor checks', { concurrency: 4 }, () => {
     }
   });
 
+  test('a credentialed remote never shows its secret', () => {
+    // Built at runtime so no literal credential sits in the source.
+    const secret = crypto.randomBytes(12).toString('hex');
+    const want = 'https://git.example.com/acme/x.git';
+    const userinfo = [`user:${secret}`, secret];
+    for (const info of userinfo) assert.ok(remotesMatch(`https://${info}@git.example.com/acme/x`, want), info);
+    const p = project();
+    try {
+      const dir = path.join(p.parent, 'x');
+      const git = clone(dir, `https://user:${secret}@git.example.com/acme/other.git`);
+      writeLocal(p.root, `repos:\n  x: { path: ${dir} }\n`);
+      const check = () => memberRepoChecks(p.root, cfg({ repos: [member('x', want)] }))[0] as any;
+      let c = check();
+      assert.equal(c.ok, false);
+      assert.ok(!c.detail.includes(secret), c.detail);
+      assert.equal(c.detail, `remote "origin" is https://git.example.com/acme/other.git, expected ${want}; run: git -C ${dir} remote set-url origin ${want}`);
+      git('remote', 'set-url', 'origin', `https://${secret}@git.example.com/acme/other.git`);
+      c = check();
+      assert.ok(!c.detail.includes(secret), c.detail);
+      // The right repo behind credentials is not a mismatch.
+      git('remote', 'set-url', 'origin', `https://user:${secret}@git.example.com/acme/x.git`);
+      c = check();
+      assert.equal(c.ok, true, c.detail);
+      assert.ok(!c.detail.includes(secret), c.detail);
+    } finally {
+      p.cleanup();
+    }
+  });
+
+  test('member names that are Object.prototype keys do not crash', () => {
+    const p = project();
+    try {
+      const names = ['constructor', 'toString', 'valueOf', 'hasOwnProperty'];
+      const config = cfg({ repos: names.map((n) => member(n, A)) });
+      assert.deepEqual(repoProblems(config, p.root), []);
+      const none = memberRepoChecks(p.root, config);
+      assert.deepEqual(none.map((c) => [c.name, c.ok]), names.map((n) => [`repo ${n}`, false]));
+      for (const c of none) assert.match(c.detail as string, /^no path in \.forge\/local\.yml/);
+      const dir = path.join(p.parent, 'constructor');
+      clone(dir, A);
+      writeLocal(p.root, `repos:\n  constructor: { path: ${dir} }\n`);
+      const checks = memberRepoChecks(p.root, config);
+      assert.equal(byName(checks, 'repo constructor').ok, true, byName(checks, 'repo constructor').detail);
+      assert.match(byName(checks, 'repo toString').detail, /^no path in/);
+      assert.equal(Object.getPrototypeOf(readLocalConfig(p.root).repos), null);
+    } finally {
+      p.cleanup();
+    }
+  });
+
   test('dirty default branch warns', () => {
     const p = project();
     try {

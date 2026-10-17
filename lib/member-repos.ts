@@ -107,7 +107,8 @@ export function readLocalConfig(root: string): LocalConfig {
   if (doc.repos === undefined || doc.repos === null) return { present: true, repos: {}, problems: [] };
   if (!isMap(doc.repos)) return bad(`local.yml repos must be a map of member names to { path } (got ${show(doc.repos)})`);
   const problems: string[] = [];
-  const repos: Record<string, { path: string }> = {};
+  // Null prototype: member names like `constructor` or `__proto__` are valid and must not hit Object.prototype.
+  const repos: Record<string, { path: string }> = Object.create(null);
   for (const [name, v] of Object.entries(doc.repos)) {
     if (isMap(v) && typeof v.path === 'string' && v.path.trim() && !v.path.includes('\0')) repos[name] = { path: v.path };
     else problems.push(`local.yml repos ${JSON.stringify(name)} needs a non-empty string path (got ${show(v)})`);
@@ -121,7 +122,9 @@ export function resolveMemberPath(root: string, p: string): string {
   return resolveFrom(root, home);
 }
 
-const plainUrl = (u: string): string => u.trim().replace(/\/$/, '').replace(/\.git$/, '');
+/** `u` without the userinfo of a `scheme://user:pass@host` url: it may carry a password or token. */
+export const stripUserinfo = (u: string): string => u.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@\s]*@/i, '$1');
+const plainUrl = (u: string): string => stripUserinfo(u.trim()).replace(/\/$/, '').replace(/\.git$/, '');
 
 /** Whether two remote urls name the same repo: equal up to a trailing `/` or `.git`, or the same GitHub `owner/name`. */
 export function remotesMatch(a: string, b: string): boolean {
@@ -155,7 +158,7 @@ function memberCheck(root: string, config: Config, repo: Config['repos'][number]
   const name = `repo ${repo.name}`;
   const remote = quoteRemote(repo.remote);
   const gitRemote = config.git?.remote || 'origin';
-  const entry = local.repos[repo.name];
+  const entry = Object.hasOwn(local.repos, repo.name) ? local.repos[repo.name] : undefined;
   if (!entry) {
     const rel = `../${repo.name}`;
     return { name, ok: false, detail: `no path in .forge/local.yml; clone it: git clone ${remote} ${rel}, then add to .forge/local.yml: repos: { ${repo.name}: { path: ${rel} } }` };
@@ -183,7 +186,7 @@ function memberCheck(root: string, config: Config, repo: Config['repos'][number]
   const actual = url.ok ? url.stdout.trim() : '';
   if (!actual || !remotesMatch(actual, repo.remote)) {
     const fix = actual ? `remote set-url ${gitRemote} ${remote}` : `remote add ${gitRemote} ${remote}`;
-    return { name, ok: false, detail: `remote "${gitRemote}" is ${actual ? quoteRemote(safeText(actual, 300)) : 'missing'}, expected ${remote}; run: git -C ${qp} ${fix}` };
+    return { name, ok: false, detail: `remote "${gitRemote}" is ${actual ? quoteRemote(safeText(stripUserinfo(actual), 300)) : 'missing'}, expected ${remote}; run: git -C ${qp} ${fix}` };
   }
   // defaultBranch is validated (isSafeBranch) and only ever passed inside a full ref name.
   if (!git(['rev-parse', '--verify', '--quiet', `refs/heads/${repo.defaultBranch}`]).ok)
