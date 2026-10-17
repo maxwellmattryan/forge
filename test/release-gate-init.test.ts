@@ -4,7 +4,9 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { RELEASE_GATE_WARNING, initWrite } from '../lib/commands/init.ts';
+import { RELEASE_GATE_RULE, RELEASE_GATE_WARNING, initWrite } from '../lib/commands/init.ts';
+import { matchPolicy } from '../lib/protected.ts';
+import type { ProtectedRule } from '../lib/types.ts';
 import { PLUGIN_ROOT } from '../lib/paths.ts';
 import * as yaml from '../lib/yaml.ts';
 import { tempRepo } from './helpers.ts';
@@ -62,6 +64,48 @@ describe('release gate seeding', { concurrency: 4 }, () => {
       assert.equal(second.warnings.includes(RELEASE_GATE_WARNING), false, 'nothing seeded, no warning');
     } finally {
       r.cleanup();
+    }
+  });
+
+  test('an older protectedPaths list gains the gate refusal when the gate is seeded', () => {
+    const old: ProtectedRule[] = [
+      { paths: ['.github/workflows/**'], action: 'escalate', reason: 'CI/CD configuration' },
+      { paths: ['.forge/config.yml', '.forge/secrets-allow.txt', '.forge/trackers/**'], action: 'refuse', reason: "Forge's own policy changes only by a human on the base branch" },
+    ];
+    const rules = (dir: string) => (yaml.parse(fs.readFileSync(path.join(dir, '.forge', 'config.yml'), 'utf8')) as any).policy.protectedPaths;
+    const r = tempRepo();
+    try {
+      initWrite(r.dir, { ...base, policy: { protectedPaths: old } }, false);
+      assert.deepEqual(rules(r.dir), old, 'no gate seeded: the list is left alone');
+      assert.equal(matchPolicy('.forge/ci/release-gate.mjs', rules(r.dir)), null);
+      initWrite(r.dir, { release: { interim: 'git-ref' } }, false);
+      const after = rules(r.dir);
+      assert.deepEqual(after, [...old, { ...RELEASE_GATE_RULE, paths: ['.forge/ci/**'] }]);
+      assert.equal(matchPolicy('.forge/ci/release-gate.mjs', after)?.action, 'refuse');
+      initWrite(r.dir, { release: { interim: 'git-ref' } }, false);
+      assert.deepEqual(rules(r.dir), after, 'appended once');
+    } finally {
+      r.cleanup();
+    }
+  });
+
+  test('a rule that already refuses the script, or only escalates it, is respected or topped up', () => {
+    const cases: [string, any[], boolean][] = [
+      ['refused by a broader glob', [{ paths: ['.forge/**'], action: 'refuse', reason: 'mine' }], false],
+      ['refused by the default', [{ paths: ['.forge/ci/**'], action: 'refuse', reason: 'mine' }], false],
+      ['only escalated', [{ paths: ['.forge/ci/**'], action: 'escalate', reason: 'mine' }], true],
+      ['an empty list', [], true],
+    ];
+    for (const [name, list, appended] of cases) {
+      const r = tempRepo();
+      try {
+        initWrite(r.dir, { ...base, policy: { protectedPaths: list }, release: { interim: 'canary' } }, false);
+        const got = (yaml.parse(fs.readFileSync(path.join(r.dir, '.forge', 'config.yml'), 'utf8')) as any).policy.protectedPaths;
+        assert.deepEqual(got, appended ? [...list, { ...RELEASE_GATE_RULE, paths: ['.forge/ci/**'] }] : list, name);
+        assert.equal(matchPolicy('.forge/ci/release-gate.mjs', got)?.action, 'refuse', name);
+      } finally {
+        r.cleanup();
+      }
     }
   });
 

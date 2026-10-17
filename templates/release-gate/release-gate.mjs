@@ -16,10 +16,25 @@ import path from 'node:path';
 // pins your project really uses. A scan may throw to say the file can't be checked (exit 2).
 const RULES = [
   {
-    // edit to match your project: the [patch] block Forge's git-ref strategy writes into Cargo.toml.
+    // edit to match your project: the [patch] block Forge's git-ref strategy writes into Cargo.toml,
+    // and any other [patch] entry pinned to a commit (`rev = "<sha>"`), marker or not.
     ecosystem: 'cargo',
     files: (p) => path.posix.basename(p) === 'Cargo.toml',
-    scan: (text) => lines(text).flatMap((l, i) => (l.trim() === '# forge:interim begin' ? [{ line: i + 1, why: 'a Forge interim [patch] block' }] : [])),
+    scan: (text) => {
+      const out = [];
+      let patch = false;
+      let forge = false;
+      lines(text).forEach((l, i) => {
+        const t = l.trim();
+        if (t === '# forge:interim begin') {
+          forge = true;
+          out.push({ line: i + 1, why: 'a Forge interim [patch] block' });
+        } else if (t === '# forge:interim end') forge = false;
+        else if (t.startsWith('[')) patch = /^\[\s*patch\s*[.\]]/.test(t);
+        else if (patch && !forge && /\brev\s*=\s*["'][0-9a-f]{40}["']/.test(l)) out.push({ line: i + 1, why: 'a [patch] entry pinned to a commit' });
+      });
+      return out;
+    },
   },
   {
     // edit to match your project: a FetchContent GIT_TAG set to a full commit id.
@@ -88,8 +103,9 @@ for (const file of trackedFiles()) {
   if (!rules.length) continue;
   let text;
   try {
-    // Never follow a tracked symlink: its target, if tracked, is scanned on its own.
-    if (!fs.lstatSync(file).isFile()) continue;
+    // A manifest that isn't a regular file (a symlink to some other tracked file, say) is never
+    // followed: cargo and npm would read its target, which no rule may cover, so fail closed.
+    if (!fs.lstatSync(file).isFile()) cannotCheck(`${file} is not a regular file`);
     text = fs.readFileSync(file, 'utf8');
   } catch (e) {
     if (e && e.code === 'ENOENT') continue;

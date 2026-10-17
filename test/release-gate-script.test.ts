@@ -121,6 +121,40 @@ describe('the seeded release gate script', { concurrency: 4 }, () => {
     assert.match(none.stderr, /^release gate: cannot check: git ls-files exited /);
   });
 
+  test('a tracked manifest that is a symlink fails closed', { skip: process.platform === 'win32' && 'symlinks need privileges on Windows' }, () => {
+    const r = repo();
+    r.put({ 'deps.json': pinned()['package.json'] });
+    fs.symlinkSync('deps.json', path.join(r.dir, 'package.json'));
+    r.commit({});
+    const out = r.gate();
+    assert.equal(out.status, 2, out.stdout + out.stderr);
+    assert.equal(out.stderr, 'release gate: cannot check: package.json is not a regular file\n');
+  });
+
+  test('a [patch] entry pinned to a commit fails without the Forge marker', () => {
+    const stripped = ok(pinCargo(CARGO, [{ source: 'crates-io', name: 'lib', git: 'https://example.com/lib.git', rev: SHA }]))
+      .split('\n')
+      .filter((l) => !l.startsWith('# forge:interim'))
+      .join('\n');
+    const cases: [string, string, number][] = [
+      ['marker stripped', stripped, 1],
+      ['quoted source, inline table', `${CARGO}\n[patch."https://example.com/x"]\nlib = { git = "https://example.com/lib.git", rev = '${SHA}' }\n`, 1],
+      ['a rev outside [patch]', `${CARGO}other = { git = "https://example.com/o.git", rev = "${SHA}" }\n`, 0],
+      ['a [patch] at a tag', `${CARGO}\n[patch.crates-io]\nlib = { git = "https://example.com/lib.git", tag = "v1.2.0" }\n`, 0],
+      ['a later section ends the [patch]', `${CARGO}\n[patch.crates-io]\nlib = { path = "../lib" }\n\n[workspace.dependencies]\nx = { git = "https://example.com/x.git", rev = "${SHA}" }\n`, 0],
+    ];
+    for (const [name, text, status] of cases) {
+      const r = repo();
+      r.commit({ 'Cargo.toml': text });
+      const out = r.gate();
+      assert.equal(out.status, status, `${name}: ${out.stdout}${out.stderr}`);
+      if (status) assert.match(out.stdout, /^Cargo\.toml:\d+: cargo: a \[patch\] entry pinned to a commit: /m, name);
+    }
+    const r = repo();
+    r.commit({ 'Cargo.toml': pinned()['Cargo.toml'] });
+    assert.equal(r.gate().stdout.split('\n').filter((l) => l.startsWith('Cargo.toml:')).length, 1, 'the Forge block is reported once, not per rev');
+  });
+
   test('patterns are editable in the seeded file', () => {
     const r = repo();
     r.commit({ 'package.json': pinned()['package.json'] });
