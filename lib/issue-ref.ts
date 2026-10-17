@@ -72,7 +72,7 @@ export function isStoredRef(ref: unknown, tracker: string): ref is string {
 }
 
 /** `owner/repo#12` as its parts, or null for any other shape. */
-function splitQualified(ref: string): { path: string; n: string } | null {
+export function splitQualified(ref: string): { path: string; n: string } | null {
   if (!isQualified(ref)) return null;
   const at = ref.lastIndexOf('#');
   return { path: ref.slice(0, at), n: ref.slice(at + 1) };

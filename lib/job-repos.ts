@@ -1,6 +1,7 @@
 // Job repos: the member repos (config `repos`) one job changes beside the root repo. `job.repos[0]`
 // mirrors the root's top-level fields (lib/schema.ts cleanRepos); entries 1..n are members, added
-// and removed only by a human (`forge job repo add|remove`). job.json is writable by the session,
+// and removed by a human (`forge job repo add|remove`), or added once by intake to the job it creates
+// from a member repo's issue (lib/member-trackers.ts). job.json is writable by the session,
 // so nothing here trusts a stored clone path or worktree: the clone is recomputed from config plus
 // `.forge/local.yml` every time, and a stored worktree is used only when it is the path Forge computes.
 
@@ -125,15 +126,25 @@ export function addJobRepo(root: string, config: Config, id: string, name: strin
   const job = loadJob(root, id);
   if (['done', 'cancelled'].includes(job.state) || ['pr', 'done'].includes(job.stage))
     throw new ForgeError(`job ${id} is at stage ${job.stage} (${job.state}); repos can be added only before its PR`);
-  const entry = memberConfig(config, name);
+  memberConfig(config, name);
   if (memberEntry(job, name)) throw new ForgeError(`job ${id} already has repo ${name}`);
   memberClone(root, config, name);
-  const saved = updateJob(root, id, (j) => {
+  recordJobRepo(root, config, id, name, verifyOnly);
+  return { id, repos: loadJob(root, id).repos };
+}
+
+/**
+ * Records member `name` on job `id` with its defaultBranch as base, and logs `job-repo-added`. The
+ * caller has checked the member: `forge job repo add` for a human, and intake (startFromRef) only for
+ * the job it just created from that member's own issue.
+ */
+export function recordJobRepo(root: string, config: Config, id: string, name: string, verifyOnly: boolean): void {
+  const entry = memberConfig(config, name);
+  updateJob(root, id, (j) => {
     if (memberEntry(j, name)) throw new ForgeError(`job ${id} already has repo ${name}`);
     j.repos.push({ repo: name, worktree: null, branch: null, base: entry.defaultBranch, pr: null, verifyOnly, interim: null });
   });
   logEvent(root, id, 'job-repo-added', { repo: name, verifyOnly });
-  return { id: saved.id, repos: loadJob(root, id).repos };
 }
 
 /** `forge job repo remove`: drops a member that has no PR and no worktree left. */
