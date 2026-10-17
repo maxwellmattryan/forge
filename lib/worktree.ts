@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { backingDown, backingEnv, backingUp, hasJobBacking, takenPorts } from './backing.ts';
 import { enforceBudget } from './budget.ts';
 import { readCheckoutRecord, undoCheckout, withCheckoutLock } from './checkout.ts';
 import { isOwnWorktreePath, loadConfig, verifyGroups, worktreeRoot } from './config.ts';
@@ -23,7 +24,7 @@ import { refreshInterim } from './interim-apply.ts';
 import { applyLinks, consumerLockfiles, pathPrelude, resolveLinks, restoreLockfiles, snapshotLockfiles } from './links.ts';
 import type { AppliedLinks, LockSnapshot } from './links.ts';
 import { memberClone, memberEntry, memberRepos, memberWorktree, memberWorktreePath, trustedMemberWorktree } from './job-repos.ts';
-import type { ComponentConfig, CompactSecrets, Config, Job, JobRepo, SecretScan, VerifyRun, VerifyRunRepo } from './types.ts';
+import type { BackingDownResult, BackingUpEntry, ComponentConfig, CompactSecrets, Config, Job, JobRepo, SecretScan, VerifyRun, VerifyRunRepo } from './types.ts';
 import { ForgeError, assertSafeRef, fill, now, readJson, run, shellArgs, tail, withLock, writeJsonAtomic } from './util.ts';
 
 /** One member repo's part of `forge worktree create`: createMemberWorktrees. */
@@ -38,7 +39,18 @@ export interface MemberWorktreeResult {
 /** What `forge worktree create` returns: createWorktree. `repos` (members only) when the job has members. */
 export type CreateWorktreeResult =
   | { path: string; created: false; ok?: boolean; repos?: MemberWorktreeResult[] }
-  | { path: string; created: true; port: number; stackedOn?: string; base?: string; setup: { cmd: string; ok: boolean; tail: string }[]; ok: boolean; repos?: MemberWorktreeResult[] };
+  | {
+      path: string;
+      created: true;
+      port: number;
+      stackedOn?: string;
+      base?: string;
+      /** One entry per `backing:` entry, only when the config has some. */
+      backing?: BackingUpEntry[];
+      setup: { cmd: string; ok: boolean; tail: string }[];
+      ok: boolean;
+      repos?: MemberWorktreeResult[];
+    };
 
 /** What `forge run` returns: runCommand. */
 export interface CommandResult {
@@ -141,16 +153,23 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   const port = allocatePort(root, config, id);
   setJob(root, id, { fields: { worktree: dir, port } });
   logEvent(root, id, 'worktree', { path: dir, port });
+  // Before setup, so setup commands (migrations, seeds) can reach the services.
+  const backing = config.backing?.length ? { backing: backingUp(root, config, { id, port }) } : {};
+  const down = backing.backing?.find((b) => !b.ok);
+  if (down) {
+    logEvent(root, id, 'worktree-setup-failed', { backing: down.name });
+    return { path: dir, created: true, port, ...stacked, ...backing, setup: [], ok: false };
+  }
   const setupLog: { cmd: string; ok: boolean; tail: string }[] = [];
   for (const cmd of config.worktrees.setup ?? []) {
-    const res = shell(fill(cmd, vars(root, config, job, dir, port, cmd)), dir, envFor(job, dir, port));
+    const res = shell(fill(cmd, vars(root, config, job, dir, port, cmd)), dir, jobEnv(root, config, job, dir, port));
     setupLog.push({ cmd, ok: res.ok, tail: tail(res.output, 15) });
     if (!res.ok) {
       logEvent(root, id, 'worktree-setup-failed', { cmd });
-      return { path: dir, created: true, port, ...stacked, setup: setupLog, ok: false };
+      return { path: dir, created: true, port, ...stacked, ...backing, setup: setupLog, ok: false };
     }
   }
-  return { path: dir, created: true, port, ...stacked, setup: setupLog, ok: true };
+  return { path: dir, created: true, port, ...stacked, ...backing, setup: setupLog, ok: true };
 }
 
 /**
@@ -317,7 +336,8 @@ function writeSharedCargoTarget(root: string, config: Config, wtRoot: string): v
 }
 
 function allocatePort(root: string, config: Config, id: string): number {
-  const taken = new Set(listJobs(root).filter((j) => isActive(j) && j.id !== id && j.port).map((j) => j.port));
+  // Backing services hold ports from the same range, whether or not their job is still active.
+  const taken = new Set([...listJobs(root).filter((j) => isActive(j) && j.id !== id && j.port).map((j) => j.port), ...takenPorts(root, config)]);
   for (let p = config.ports.base; p < config.ports.base + config.ports.span; p++) if (!taken.has(p)) return p;
   throw new ForgeError(`no free port in ${config.ports.base}-${config.ports.base + config.ports.span - 1}`);
 }
@@ -398,6 +418,11 @@ export function envFor(job: Job, dir: string, port: number | null, base: NodeJS.
   const env: NodeJS.ProcessEnv = { ...base };
   for (const k of Object.keys(env)) if (DAEMON_MARKER.test(k)) delete env[k];
   return Object.assign(env, { FORGE_JOB: job.id, FORGE_WORKTREE: dir, PORT: port ? String(port) : '', FORGE_PORT: port ? String(port) : '' });
+}
+
+/** envFor plus the job's FORGE_BACKING_* variables: what every configured command Forge runs for a job sees. */
+function jobEnv(root: string, config: Config, job: Job, dir: string, port: number | null): NodeJS.ProcessEnv {
+  return { ...envFor(job, dir, port), ...backingEnv(root, config, job) };
 }
 
 interface ShellResult {
@@ -514,7 +539,7 @@ function prepareCommand(root: string, config: Config, id: string, name: string, 
   const cmd = fillCommand(name, template, vars(root, config, job, job.worktree, job.port, template), opts.args ?? []);
   // Agents run commands all through a build; each one proves the session is alive.
   touchJob(root, id);
-  return { cmd, cwd, ...withLinks(root, config, job, null, envFor(job, job.worktree, job.port)) };
+  return { cmd, cwd, ...withLinks(root, config, job, null, jobEnv(root, config, job, job.worktree, job.port)) };
 }
 
 /**
@@ -528,7 +553,7 @@ function prepareMemberCommand(root: string, config: Config, id: string, name: st
   if (!component) throw new ForgeError(`no component of repo ${repo} defines a "${name}" command (components[].commands.${name} with repo: ${repo})`);
   const cmd = fillCommand(name, component.commands![name]!, memberVars(root, job, member, worktree), opts.args ?? []);
   touchJob(root, id);
-  return { cmd, cwd: path.join(worktree, component.path), ...withLinks(root, config, job, repo, envFor(job, worktree, null)), repo };
+  return { cmd, cwd: path.join(worktree, component.path), ...withLinks(root, config, job, repo, jobEnv(root, config, job, worktree, null)), repo };
 }
 
 /** The one component of member `repo` that defines `name`, null when none does; several is refused. */
@@ -977,7 +1002,7 @@ export async function startBackground(
     const fd = fs.openSync(logFile, 'a');
     const child = spawn(sh, ['-lc', cmd], {
       cwd: job.worktree!,
-      env: envFor(job, job.worktree!, job.port),
+      env: jobEnv(root, config, job, job.worktree!, job.port),
       detached: true,
       stdio: ['ignore', fd, fd],
     });
@@ -1054,17 +1079,18 @@ export async function removeWorktree(
   root: string,
   id: string,
   opts: { deleteBranch?: boolean; force?: boolean; repo?: string } = {},
-): Promise<{ removed: string | null; repos?: { repo: string; removed: string | null; error?: string }[] }> {
+): Promise<{ removed: string | null; repos?: { repo: string; removed: string | null; error?: string }[]; backing?: BackingDownResult }> {
   if (opts.repo !== undefined) {
     const job = loadJob(root, id);
     if (!memberEntry(job, opts.repo)) throw new ForgeError(`job ${id} has no repo ${JSON.stringify(opts.repo).slice(0, 110)}`);
     return { removed: null, repos: [removeMemberWorktree(root, loadConfig(root).config, job, opts.repo, opts)] };
   }
-  const res = await removeRootWorktree(root, id, opts);
+  const removedRoot = await removeRootWorktree(root, id, opts);
+  const config = loadConfig(root).config;
+  const res = { ...removedRoot, ...rootBackingDown(root, config, id) };
   const job = loadJob(root, id);
   const members = memberRepos(job);
   if (!members.length) return res;
-  const config = loadConfig(root).config;
   // One member's failure (its clone moved, a dirty worktree without --force) never strands the others.
   const repos = members.map((m) => {
     try {
@@ -1074,6 +1100,16 @@ export async function removeWorktree(
     }
   });
   return { ...res, repos };
+}
+
+/** The job's per-job containers, after the git removal: a docker failure is reported, never strands the worktree. */
+function rootBackingDown(root: string, config: Config, id: string): { backing?: BackingDownResult } {
+  if (!hasJobBacking(root, config, id)) return {};
+  try {
+    return { backing: backingDown(root, config, id) };
+  } catch (e) {
+    return { backing: { removed: [], volumes: [], ok: false, error: (e as Error).message } };
+  }
 }
 
 /**

@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { validateConfig, worktreeRoot } from './config.ts';
+import { dockerCheck } from './backing.ts';
 import { apiKeyVars } from './daemon.ts';
 import { deprecationChecks } from './deprecations.ts';
 import { memberRepoChecks, releaseChecks, repoProblems } from './member-repos.ts';
@@ -99,6 +100,9 @@ export async function doctor(root: string, config: Config, initialized: boolean,
     // A bad repos list is already a failing config check; member checks would only guess at it.
     if (!repoProblems(config, root).length) checks.push(...memberRepoChecks(root, config));
     checks.push(...releaseChecks(root, config));
+    // Only with a valid config that has a per-job or shared entry; otherwise Docker is never called.
+    const docker = problems.length ? null : dockerCheck(config);
+    if (docker) checks.push(docker);
   }
   const keys = apiKeyVars(process.env);
   if (initialized && config.daemon.enabled && keys.length) {

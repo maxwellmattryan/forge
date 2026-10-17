@@ -449,6 +449,8 @@ export interface StepInput {
   integrationTouched: { head: string; upstream: string; sha: string; files: string[] | null } | null;
   /** How many `.forge/verifiers/*.md` entries the main checkout has: 0 keeps the verify stage as it was. */
   verifiers: number;
+  /** The job's and the project's backing port records, for the brief's Backing services line; absent without backing entries. */
+  backing?: { job: BackingRecord; shared: BackingRecord };
 }
 
 /** The job files StepInput.files records. */

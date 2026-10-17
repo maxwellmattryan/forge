@@ -7,6 +7,7 @@ import { PLUGIN_ROOT } from '../paths.ts';
 import { ERROR_CODES, ForgeError } from '../util.ts';
 import { jsonFlag, out, parseArgs, usageError } from './args.ts';
 import { HELP as AUDIT } from './audit.ts';
+import { HELP as BACKING } from './backing.ts';
 import { HELP as BUDGET } from './budget.ts';
 import { HELP as CONFIG } from './config.ts';
 import { HELP as DAEMON } from './daemon.ts';
@@ -41,19 +42,19 @@ export const CORE: HelpGroup[] = [
         command: 'worktree create',
         args: '<id>',
         summary:
-          "create the job's worktree and branch (stacked on its one unmerged dependency, if any) and run worktrees.setup there, then each missing member repo worktree (forge job repo add) on the job's branch, or detached at its base for a verify-only repo; with members, the result lists them as repos",
+          "create the job's worktree and branch (stacked on its one unmerged dependency, if any) bring its backing services up (a failed one skips setup and fails the result, listed as backing), and run worktrees.setup there, then each missing member repo worktree (forge job repo add) on the job's branch, or detached at its base for a verify-only repo; with members, the result lists them as repos",
         exits: [[1, 'no such job, an unsafe branch name, no free port, a member repo worktree that could not be created (the result names it), or the inbox or office daemon session ran it'], GIT_FAILED],
       },
       {
         command: 'worktree remove',
         args: '<id> [--repo NAME] [--delete-branch] [--force]',
-        summary: "remove the job's worktree and every member repo worktree, or with --repo only that member's",
+        summary: "remove the job's worktree and every member repo worktree, or with --repo only that member's; without --repo also its per-job backing containers and volumes (listed as backing)",
         flags: [
           ['--repo NAME', 'only the worktree of member repo NAME'],
           ['--delete-branch', "delete the job's branch too (not in a verify-only repo)"],
           ['--force', 'remove it with uncommitted changes'],
         ],
-        exits: [[1, 'no such job or repo, or a member worktree that could not be removed (the result names it)'], GIT_FAILED],
+        exits: [[1, 'no such job or repo, a member worktree that could not be removed (the result names it), or a backing teardown that failed (backing.json is kept for a retry)'], GIT_FAILED],
       },
       {
         command: 'worktree path',
@@ -206,8 +207,8 @@ export const CORE: HelpGroup[] = [
   },
 ];
 
-const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...FOCUS, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
-const ORDER = ['status', 'next', 'job', 'worktree', 'run', 'stop', 'focus', 'verify', 'verifiers', 'secrets', 'integrate', 'git', 'pr', 'release', 'sync', 'tracker', 'stats', 'budget', 'audit', 'roster', 'retro', 'eval', 'requests', 'daemon', 'notify', 'init', 'migrate', 'config', 'doctor', 'dash', 'version', 'update', 'help'];
+const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...BACKING, ...FOCUS, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
+const ORDER = ['status', 'next', 'job', 'worktree', 'backing', 'run', 'stop', 'focus', 'verify', 'verifiers', 'secrets', 'integrate', 'git', 'pr', 'release', 'sync', 'tracker', 'stats', 'budget', 'audit', 'roster', 'retro', 'eval', 'requests', 'daemon', 'notify', 'init', 'migrate', 'config', 'doctor', 'dash', 'version', 'update', 'help'];
 
 /** Every command group, in the order the overview lists them. */
 export const GROUPS: HelpGroup[] = ORDER.map((name) => {

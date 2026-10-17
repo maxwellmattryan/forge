@@ -1,6 +1,7 @@
 // Agent briefs for `forge job step`: paths and config-derived lines only, never file contents, so
 // text an agent wrote (after reading tracker or PR text) is never re-injected into another prompt.
 import path from 'node:path';
+import { backingLine } from './backing.ts';
 import { autoMerge, lensNeedsApp, resolveEffort } from './config.ts';
 import { jobDir, reviewDir } from './jobs.ts';
 import { memberEntry, memberRepos, trustedMemberWorktree } from './job-repos.ts';
@@ -145,6 +146,9 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
   const c = input.config;
   const p = (k: string) => String(input.paths[k]);
   const infra = `Infra: mode ${c.infra.mode} · allowed ${JSON.stringify(c.infra.allowed ?? [])}`;
+  // Names, isolations and loopback ports only: env values and urls can carry credentials.
+  const backing = backingLine(c, input.backing?.job ?? null, input.backing?.shared ?? null);
+  const backingLines = backing ? [backing] : [];
   const base = role.split(':')[0];
   const reposLine = base === 'planner' || base === 'spec-writer' ? projectReposLine(c, j) : null;
   const repos = reposLine ? [reposLine] : [];
@@ -187,6 +191,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
           ...(reference.length ? [`Reference: ${reference.join(', ')}`] : []),
           ...(downstream ? [downstream] : []),
           infra,
+          ...backingLines,
         ]);
       }
       const inputs = [p('spec'), p('design'), p('mockup'), p('tasks')];
@@ -196,7 +201,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
       if (rework.includes('pr-feedback')) inputs.push(p('prFeedback'));
       if (rework.includes('feedback')) inputs.push(p('feedback'));
       if (rework.includes('answer')) inputs.push(p('questions'));
-      return out([p('tasks'), p('build')], inputs, [...(rework.length ? [`Rework: ${rework.join(', ')}`] : []), infra]);
+      return out([p('tasks'), p('build')], inputs, [...(rework.length ? [`Rework: ${rework.join(', ')}`] : []), infra, ...backingLines]);
     }
     case 'reviewer': {
       const lens = ctx.lens ?? role.slice('reviewer:'.length);
@@ -209,6 +214,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
         extra.push(`Lens repo: ${member.repo} · worktree ${wt} · base ${member.base ?? 'none'}`);
       }
       if (lensNeedsApp(c, lens) && c.commands.dev) extra.push(`Dev server: http://localhost:${j.port ?? c.ports.base}`);
+      extra.push(...backingLines);
       // The integration review stays root-only and has its own Diff line below.
       if (input.paths.scopeDiff && !ctx.integration) extra.push(`Diff: ${p('scopeDiff')} (every job repo; member paths are prefixed <repo>/)`);
       if (ctx.integration) {

@@ -8,6 +8,7 @@
 // argument outside a strict class, so an unattended daemon can run the result as-is.
 import path from 'node:path';
 import { acCoverage } from './acs.ts';
+import { readJobRecord, readSharedRecord } from './backing.ts';
 import { jobPathMap, renderBrief, roleBrief } from './brief.ts';
 import type { RoleContext } from './brief.ts';
 import { autoMerge, lensNeedsApp, resolveEffort } from './config.ts';
@@ -193,6 +194,7 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     integrationTouched: loadIntegrationTouched(job, config, events),
     // The main checkout's, never the worktree's: a branch can't switch the gate on or off.
     verifiers: verifierCount(root),
+    ...(config.backing?.length ? { backing: { job: readJobRecord(root, job.id, config), shared: readSharedRecord(root, config) } } : {}),
   };
 }
 
@@ -897,9 +899,10 @@ function intake(x: StepInput): StepAction {
   // Intake only searches: the human picks the issue at the spec gate (SP5), or before build (SP7).
   if (issueLinkStatus(j, x.config) === 'missing' && !x.files.issueCandidates) return run(x, 'I1', ['job', 'link', j.id, '--suggest'], 'every job needs an issue: look for candidates');
   if (!x.worktreeExists) return run(x, 'I3', ['worktree', 'create', j.id], 'the job needs its worktree');
-  const wt = lastEvent(x, (e) => e.type === 'worktree');
-  const failed = lastEvent(x, (e) => e.type === 'worktree-setup-failed');
-  if (failed && after(failed.ts, wt?.ts)) return set(x, 'I4', { state: 'failed', reason: 'worktree setup failed' }, 'the worktree setup command failed');
+  // By position, not timestamp: a backing failure can land in the same millisecond as its worktree event.
+  const wt = x.events.findLastIndex((e) => e.type === 'worktree');
+  const failed = x.events.findLastIndex((e) => e.type === 'worktree-setup-failed');
+  if (failed >= 0 && failed > wt) return set(x, 'I4', { state: 'failed', reason: 'worktree setup failed' }, 'the worktree setup command failed');
   if (x.config.pr.enabled && j.kind !== 'eval' && !j.pr && !lastEvent(x, (e) => e.type === 'pr-find' || e.type === 'pr-adopted')) return run(x, 'I5', ['pr', 'find', j.id], 'continue an existing PR instead of forking it');
   if (j.pr) return procedure(x, 'I6', 'pr-lifecycle.md', 'PR exists');
   if (planningNeeded(x)) return toStage(x, 'I7', 'plan', 'the request needs a plan');
