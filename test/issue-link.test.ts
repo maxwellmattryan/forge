@@ -497,7 +497,7 @@ test('pr open reports unlinked only when missing', () => {
   assert.deepEqual(prLinkNote(base, { tracker: { kind: 'none' } } as any), {});
   // openPr spreads the note into its result.
   const src = fs.readFileSync(path.resolve(import.meta.dirname, '..', 'lib', 'pr.ts'), 'utf8');
-  assert.equal(src.match(/created: (true|false), \.\.\.prLinkNote\(job, config\)/g)?.length, 2);
+  assert.equal(src.match(/created: (true|false), \.\.\.prLinkNote\(job, config\)/g)?.length, 3);
 });
 
 describe('forge job human --link', { concurrency: 4 }, () => {

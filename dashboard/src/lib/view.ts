@@ -3,6 +3,7 @@
 import type { EvalCompare, Job, JobEvent, JobPr, LastHuman, OwnerStatus, Progress, RequestType, Stage, StateJob, WaitingOn } from './types.ts';
 import { PARK_LABEL, REPO_HOLD_LABEL, STAGE_LABEL, WAIT_LABEL } from './labels.ts';
 import { isRepoHold } from './repo-budget.ts';
+import { isRepoProposal } from './repo-proposals.ts';
 import { protectedSummary } from './protected.ts';
 import type { ProtectedSummary } from './protected.ts';
 
@@ -277,14 +278,17 @@ export function inboxGroups<T extends JobLike>(jobs: T[]): { urgent: T[]; prs: T
   };
 }
 
-/** `repo-budget`: a budget wait the repo cap set. Approving it lifts nothing, so its card offers only Cancel and points at the Repo budget section. */
-export type InboxKind = WaitingOn | 'failed' | 'repo-budget' | null | undefined;
+/**
+ * `repo-budget`: a budget wait the repo cap set. Approving it lifts nothing, so its card offers only Cancel and points at the Repo budget section.
+ * `repo-proposal`: step RP1's `human` wait on an agent's repo proposal, decided by RepoProposalActions (a plain Approve would only re-park it).
+ */
+export type InboxKind = WaitingOn | 'failed' | 'repo-budget' | 'repo-proposal' | null | undefined;
 
-export const inboxKind = (job: JobLike): InboxKind => (job.state === 'failed' ? 'failed' : isRepoHold(job) ? 'repo-budget' : job.waitingOn);
+export const inboxKind = (job: JobLike): InboxKind => (job.state === 'failed' ? 'failed' : isRepoHold(job) ? 'repo-budget' : isRepoProposal(job) ? 'repo-proposal' : job.waitingOn);
 
 /** The file the card links to ("Read … →"), or null. */
 export function inboxDoc(kind: InboxKind, job: JobLike): string | null {
-  const docs: Record<string, string> = { 'spec-approval': 'spec.md', 'split-approval': 'plan.md', 'issue-link': 'issue-candidates.md', input: 'questions.md', escalation: 'decision.md', infra: 'runbook.md', 'rounds-exhausted': `review/round-${job.round}` };
+  const docs: Record<string, string> = { 'spec-approval': 'spec.md', 'split-approval': 'plan.md', 'issue-link': 'issue-candidates.md', input: 'questions.md', escalation: 'decision.md', infra: 'runbook.md', 'rounds-exhausted': `review/round-${job.round}`, 'repo-proposal': 'repo-proposals.md' };
   return docs[s(kind)] ?? null;
 }
 
@@ -307,7 +311,7 @@ export function notePlaceholder(kind: InboxKind, opts: { linkPending?: boolean }
         : 'Optional note for the agents…';
 }
 
-export const showsNote = (kind: InboxKind): boolean => ['spec-approval', 'split-approval', 'issue-link', 'input', 'escalation', 'rounds-exhausted', 'budget', 'human'].includes(s(kind));
+export const showsNote = (kind: InboxKind): boolean => ['spec-approval', 'split-approval', 'issue-link', 'input', 'escalation', 'rounds-exhausted', 'budget', 'human', 'repo-proposal'].includes(s(kind));
 
 export interface InboxAction {
   label: string;
@@ -342,6 +346,9 @@ export function inboxActions(kind: InboxKind, opts: { linkPending?: boolean } = 
     case 'budget':
       return [act('Approve & continue', 'approve', true, true), act('Cancel job', 'cancel')];
     case 'repo-budget':
+      return [act('Cancel job', 'cancel')];
+    // Approve repos and Reject repos come from RepoProposalActions.svelte, which POSTs the decision.
+    case 'repo-proposal':
       return [act('Cancel job', 'cancel')];
     case 'infra':
       return [act('Steps done, resume', 'resume', true)];

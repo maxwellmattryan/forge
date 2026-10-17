@@ -2,15 +2,15 @@
 // shapes in memory (and `forge migrate` rewrites them on disk), so a plugin update never
 // strands jobs or configs written by an older version. A file from a *newer* plugin is
 // refused rather than guessed at.
-import { servicesToComponents } from './components.ts';
+import { isInterimStrategy, servicesToComponents } from './components.ts';
 import { isSafeUrl, isStoredRef, sameIssue } from './issue-ref.ts';
 import { REPO_NAME, isSafeBranch } from './member-repos.ts';
 import type { EventActor, Job, JobEvent, JobIssue, JobRepo, JobRepoPr, LoadedJob } from './types.ts';
 
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
 
-export const CONFIG_SCHEMA_VERSION = 12;
-export const JOB_SCHEMA_VERSION = 12;
+export const CONFIG_SCHEMA_VERSION = 13;
+export const JOB_SCHEMA_VERSION = 13;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
 export const ARCHIVE_SCHEMA_VERSION = 1;
@@ -18,7 +18,7 @@ export const ARCHIVE_SCHEMA_VERSION = 1;
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 27;
+export const API_VERSION = 28;
 
 /**
  * Where an event's `actor` came from: lib/actor.ts resolves env, gh, git, os and dashboard; the
@@ -90,8 +90,8 @@ export const COMPLEXITIES = ['low', 'medium', 'high'] as const;
 /** The roles runtime.efforts sets, in runtime.models order. No orchestrator: sessions take runtime.effort. */
 export const EFFORT_ROLES = ['planner', 'spec-writer', 'designer', 'builder', 'reviewer', 'approver', 'integrator', 'retro', 'judge', 'assistant'] as const;
 
-/** The gate classes the foreman may decide (foreman.decides); `pr-feedback` is a job waiting on pr-review with feedback. */
-export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback'] as const;
+/** The gate classes the foreman may decide (foreman.decides); `pr-feedback` is a pr-review wait with feedback, `repo-proposal` a `human` wait with pending repo proposals. */
+export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal'] as const;
 
 /** foreman.ship: propose leaves merging as it was; merge counts as merge.auto for the approver and PR4. */
 export const FOREMAN_SHIP = ['propose', 'merge'] as const;
@@ -145,6 +145,9 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // v12 adds dependsOn links, absent by default, so no v11 config changes; the bump lets older Forges
   // refuse a config whose links they would ignore.
   11: (c) => c,
+  // v13 adds release.interim and link.manifest, absent by default, so no v12 config changes; the bump
+  // lets older Forges refuse a config whose interim strategy they would ignore.
+  12: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
@@ -196,6 +199,9 @@ const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
   // v12 lets a job change member repos too: `repos[0]` mirrors the root repo's top-level fields
   // (normalizeJob rebuilds it), so a v11 job becomes a one-repo job and nothing it did changes.
   11: (j) => ({ ...j, repos: Array.isArray(j.repos) ? j.repos : [] }),
+  // v13 adds the human's per-job interim strategy override (forge job repo interim): null inherits
+  // config, which is what every v12 job did. Members get theirs in cleanRepos.
+  12: (j) => ({ ...j, interim: j.interim ?? null }),
 };
 
 const MAX_TRACKER = 40;
@@ -267,8 +273,8 @@ const REPO_PR_KEYS = ['number', 'url', 'state', 'isDraft', 'openedAt', 'lastSync
  * entry that passes the checks. job.json is writable outside the CLI, so a member's name, base,
  * worktree and PR are checked here and its branch is never read back: it is always the job's.
  */
-export function cleanRepos(job: Pick<Job, 'branch' | 'base' | 'worktree' | 'pr'> & { repos?: unknown }): JobRepo[] {
-  const root: JobRepo = { repo: null, worktree: job.worktree ?? null, branch: job.branch ?? null, base: job.base ?? null, pr: job.pr ?? null, verifyOnly: false };
+export function cleanRepos(job: Pick<Job, 'branch' | 'base' | 'worktree' | 'pr'> & { repos?: unknown; interim?: unknown }): JobRepo[] {
+  const root: JobRepo = { repo: null, worktree: job.worktree ?? null, branch: job.branch ?? null, base: job.base ?? null, pr: job.pr ?? null, verifyOnly: false, interim: interimOrNull(job.interim) };
   const out: JobRepo[] = [root];
   if (!Array.isArray(job.repos)) return out;
   const seen = new Set<string>();
@@ -286,10 +292,14 @@ export function cleanRepos(job: Pick<Job, 'branch' | 'base' | 'worktree' | 'pr'>
       base: isSafeBranch(m.base) ? m.base : null,
       pr: cleanRepoPr(m.pr),
       verifyOnly,
+      interim: interimOrNull(m.interim),
     });
   }
   return out;
 }
+
+// A hand-edited value outside the four strategies reads as no override, never as one Forge guesses at.
+const interimOrNull = (v: unknown) => (isInterimStrategy(v) ? v : null);
 
 function failedVerifiesByRound(runs: any[]): Record<string, number> {
   const out: Record<string, number> = {};
@@ -373,7 +383,8 @@ export function normalizeJob(raw: any): LoadedJob {
     // Tolerant: anything but an object with a hits list reads as no flag. Safe, because verify and
     // pr open recompute the set from git rather than trusting this.
     protectedPaths: job.protectedPaths && typeof job.protectedPaths === 'object' && Array.isArray(job.protectedPaths.hits) ? job.protectedPaths : null,
-    repos: cleanRepos({ branch: job.branch ?? null, base: job.base ?? null, worktree: job.worktree ?? null, pr: job.pr ?? null, repos: job.repos }),
+    interim: interimOrNull(job.interim),
+    repos: cleanRepos({ branch: job.branch ?? null, base: job.base ?? null, worktree: job.worktree ?? null, pr: job.pr ?? null, interim: job.interim, repos: job.repos }),
   };
 }
 

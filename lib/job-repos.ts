@@ -108,6 +108,14 @@ export function memberWorktree(root: string, config: Config, job: Pick<Job, 'id'
 // Pushing to another repo is a human decision: a session misled by tracker or PR text must not widen it.
 const REPO_DAEMON_REFUSAL = "forge job repo adds or removes the repos a job pushes to, which a daemon session may not change; a human runs it in their own session";
 
+// What a consumer's PR points at decides what may be published from the job: a human choice too.
+const INTERIM_DAEMON_REFUSAL = "forge job repo interim sets what a job's PRs point at and what it may publish, which a daemon session may not change; a human runs it in their own session";
+
+/** Refuses `forge job repo interim` in a daemon session. */
+export function refuseInterimInDaemon(): void {
+  if (process.env.FORGE_DAEMON === '1') throw new ForgeError(INTERIM_DAEMON_REFUSAL);
+}
+
 /** Refuses `forge job repo` in a daemon session. */
 export function refuseJobRepoInDaemon(): void {
   if (process.env.FORGE_DAEMON === '1') throw new ForgeError(REPO_DAEMON_REFUSAL);
@@ -134,7 +142,7 @@ export function recordJobRepo(root: string, config: Config, id: string, name: st
   const entry = memberConfig(config, name);
   updateJob(root, id, (j) => {
     if (memberEntry(j, name)) throw new ForgeError(`job ${id} already has repo ${name}`);
-    j.repos.push({ repo: name, worktree: null, branch: null, base: entry.defaultBranch, pr: null, verifyOnly });
+    j.repos.push({ repo: name, worktree: null, branch: null, base: entry.defaultBranch, pr: null, verifyOnly, interim: null });
   });
   logEvent(root, id, 'job-repo-added', { repo: name, verifyOnly });
 }

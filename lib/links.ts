@@ -7,7 +7,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { LINK_ECOSYSTEMS, isInsidePath, isLinkName, isLinkSource } from './components.ts';
+import { LINK_ECOSYSTEMS, isInsidePath, isLinkName, isLinkSource, isManifestPath } from './components.ts';
 import { isOwnWorktreePath, worktreeRoot } from './config.ts';
 import { memberEntry, memberWorktreePath, trustedMemberWorktree } from './job-repos.ts';
 import { jobDir } from './jobs.ts';
@@ -26,6 +26,11 @@ export interface DeclaredLink {
   source: string | null;
   /** The directory in the dependency's repo. */
   relPath: string;
+  /**
+   * The consumer's manifest an interim pin goes in (lib/interim.ts), relative to the consumer repo:
+   * `link.manifest`, or the ecosystem's file in the consumer component's path; null when that path is unusable.
+   */
+  manifest: string | null;
 }
 
 /** One entry of `forge job links`: resolveLinks. */
@@ -58,6 +63,9 @@ export interface AppliedLinks {
 export type LockEcosystem = 'cargo' | 'npm';
 
 const isMap = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+/** The manifest an interim pin goes in when a link names none. */
+const MANIFEST_FILE: Record<LinkEcosystem, string> = { cargo: 'Cargo.toml', cmake: 'CMakeLists.txt', npm: 'package.json' };
+const posixPath = (p: string): string => path.posix.normalize(p.replace(/\\/g, '/'));
 const repoOf = (c: { repo?: string | null }): string | null => (typeof c.repo === 'string' ? c.repo : null);
 
 /** Every well-formed link in config, in config order; invalid entries are skipped, as projectGraph does. */
@@ -82,6 +90,7 @@ export function declaredLinks(config: Pick<Config, 'components'>): DeclaredLink[
       if (repoOf(c) === repoOf(dep)) continue;
       const relPath = l.path ?? dep.path;
       if (!isInsidePath(relPath)) continue;
+      if (l.manifest !== undefined && l.manifest !== null && !isManifestPath(l.ecosystem, l.manifest)) continue;
       out.push({
         consumer: c.name,
         consumerRepo: repoOf(c),
@@ -91,6 +100,7 @@ export function declaredLinks(config: Pick<Config, 'components'>): DeclaredLink[
         name: l.name,
         source: l.ecosystem === 'cargo' ? (source ?? 'crates-io') : null,
         relPath,
+        manifest: typeof l.manifest === 'string' ? posixPath(l.manifest) : isInsidePath(c.path) ? posixPath(path.posix.join(c.path.replace(/\\/g, '/'), MANIFEST_FILE[l.ecosystem as LinkEcosystem])) : null,
       });
     }
   }

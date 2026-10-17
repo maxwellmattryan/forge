@@ -192,7 +192,7 @@ describe('member repo trackers: next', { concurrency: 4 }, () => {
     const job = loadJob(p.root, out.id);
     assert.deepEqual(job.issues[0], { tracker: 'github', ref: 'o/lib#5', url: 'https://github.com/o/lib/issues/5' });
     // The entry `forge job repo add` writes; loading names the member's branch after the job's.
-    assert.deepEqual(job.repos[1], { repo: 'lib', worktree: null, branch: `forge/${out.id}`, base: 'main', pr: null, verifyOnly: false });
+    assert.deepEqual(job.repos[1], { repo: 'lib', worktree: null, branch: `forge/${out.id}`, base: 'main', pr: null, verifyOnly: false, interim: null });
     assert.equal(job.owner?.session, 'S');
     const added = p.events(out.id).filter((e) => e.type === 'job-repo-added');
     assert.deepEqual(added.map((e) => [e.repo, e.verifyOnly]), [['lib', false]]);

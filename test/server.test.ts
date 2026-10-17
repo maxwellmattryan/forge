@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { budgetRepo } from './repo-budget-fixture.ts';
+import { twoRepo } from './job-repos-fixture.ts';
 import { broadcast, distAllowlist, distDirFor, startServer } from '../lib/server.ts';
 import { DEV_DIST_DIR } from '../lib/paths.ts';
 import { TURN_LINE } from '../lib/daemon.ts';
@@ -1069,7 +1070,7 @@ test('/api/state exposes the session pool', async () => {
     .map((f) => fs.readFileSync(path.join(src, f), 'utf8'))
     .join('\n');
   assert.ok(app.includes('/api/requests'), 'read the dashboard sources');
-  assert.equal(DASH_API_VERSION, 27, 'the dashboard reads API_VERSION from src/lib/types.ts');
+  assert.equal(DASH_API_VERSION, 28, 'the dashboard reads API_VERSION from src/lib/types.ts');
   assert.doesNotMatch(app, /launcher|launched/);
 });
 
@@ -1256,7 +1257,7 @@ test('GET /api/about reports versions', async () => {
     assert.equal(r.status, 200);
     const a = JSON.parse(r.text);
     assert.equal(a.forgeVersion, JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version);
-    assert.equal(a.apiVersion, 27);
+    assert.equal(a.apiVersion, 28);
     assert.equal(a.pluginRoot, PLUGIN_ROOT);
     assert.deepEqual(a.schemaVersions, { config: schema.CONFIG_SCHEMA_VERSION, job: schema.JOB_SCHEMA_VERSION, event: schema.EVENT_SCHEMA_VERSION });
     assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'pricing.json'), 'utf8')).asOf);
@@ -1514,7 +1515,7 @@ test('state exposes office session and gateOwner', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 27);
+    assert.equal(st.apiVersion, 28);
     assert.equal(st.daemons.foreman, true);
     assert.equal(st.daemons.office.scope, '_office');
     assert.equal(st.daemons.office.running, false);
@@ -1615,7 +1616,7 @@ test('owner status in /api/state and job detail', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 27);
+    assert.equal(st.apiVersion, 28);
     const byId = Object.fromEntries(st.jobs.map((j) => [j.id, j.ownerStatus]));
     assert.deepEqual(Object.fromEntries(Object.entries(byId).map(([k, v]: [string, any]) => [k, v.status])), { 'j-none': 'none', 'j-live': 'live', 'j-agent': 'live', 'j-stale': 'stale', 'j-dead': 'live' }, 'the time rule only: never dead');
     assert.deepEqual(byId['j-none'], { status: 'none', session: null, since: null, heartbeat: null, agentRunning: false, reason: null, jobSession: false });
@@ -1763,7 +1764,7 @@ test('/api/state and job detail carry effort', async () => {
   try {
     const port = Number(new URL(srv.url).port);
     const s = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(s.apiVersion, 27);
+    assert.equal(s.apiVersion, 28);
     assert.equal(s.config.effort, 'medium');
     const row = (id) => s.jobs.find((j) => j.id === id);
     assert.equal(row(plain).effort, null, 'a v3 job reads as inherit');
@@ -1969,7 +1970,7 @@ test('state carries lastHuman', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 27);
+    assert.equal(st.apiVersion, 28);
     const by = Object.fromEntries(st.jobs.map((j) => [j.id, j.lastHuman]));
     assert.deepEqual(by, {
       [acted]: { ts: '2026-03-01T00:00:01.000Z', type: 'budget-ack', action: null, actor: { login: 'bob', source: 'env' } },
@@ -1993,7 +1994,7 @@ test('state carries repo budget', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 27);
+    assert.equal(st.apiVersion, 28);
     assert.equal(st.budget.month, new Date().toISOString().slice(0, 7));
     assert.deepEqual(st.budget.spent, { dayUsd: 12, monthUsd: 12, monthTokens: 12 });
     assert.deepEqual(st.budget.exceeded, ['usdPerMonth']);
@@ -2083,5 +2084,97 @@ test('job detail serves issues', async () => {
   } finally {
     await srv.close();
     repo.cleanup();
+  }
+});
+
+test('POST /api/jobs/:id/repos decides pending proposals', async () => {
+  const p = await twoRepo();
+  p.config((c) => c.repos.push({ name: 'tools', remote: 'https://example.com/tools.git', defaultBranch: 'main' }));
+  const parked = (await p.f('job', 'new', '--title', 'parked')).id;
+  await p.f('job', 'repo', 'propose', parked, 'lib', '--reason', '<script>alert(1)</script> core API');
+  await p.f('job', 'set', parked, '--stage', 'spec', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'repo proposal: lib');
+  const idle = (await p.f('job', 'new', '--title', 'nothing pending')).id;
+  const noClone = (await p.f('job', 'new', '--title', 'no clone')).id;
+  await p.f('job', 'repo', 'propose', noClone, 'tools', '--reason', 'cli flag');
+  const rejected = (await p.f('job', 'new', '--title', 'rejected')).id;
+  await p.f('job', 'repo', 'propose', rejected, 'lib', '--reason', 'maybe');
+  // Two pending, with repo-proposals.json edited (as a session could) to list only lib.
+  const hidden = (await p.f('job', 'new', '--title', 'hidden repo')).id;
+  await p.f('job', 'repo', 'propose', hidden, 'lib', '--reason', 'core API');
+  await p.f('job', 'repo', 'propose', hidden, 'tools', '--reason', 'cli flag');
+  const shownFile = path.join(p.root, '.forge', 'jobs', hidden, 'repo-proposals.json');
+  const shown = JSON.parse(fs.readFileSync(shownFile, 'utf8'));
+  fs.writeFileSync(shownFile, JSON.stringify({ proposals: shown.proposals.filter((r: any) => r.repo === 'lib') }));
+  const srv = await startServer(p.root, { port: 0 });
+  const port = Number(new URL(srv.url).port);
+  const dir = (id: string) => path.join(p.root, '.forge', 'jobs', id);
+  const snapshot = () => [parked, idle, noClone, hidden].map((id) => ['job.json', 'events.jsonl'].map((f) => fs.readFileSync(path.join(dir(id), f), 'utf8')).join('\0'));
+  const resumes = () => {
+    const d = path.join(p.root, '.forge', 'runtime', 'requests');
+    return fs.existsSync(d) ? fs.readdirSync(d).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(fs.readFileSync(path.join(d, f), 'utf8'))).filter((r) => r.type === 'resume') : [];
+  };
+  try {
+    const token = await tokenOf(port);
+    const good = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (body, headers: any = good, job = parked) => hit(port, { method: 'POST', path: `/api/jobs/${job}/repos`, headers, body: typeof body === 'string' ? body : JSON.stringify(body) });
+    const before = snapshot();
+    const lib = { decision: 'approve', repos: ['lib'] };
+    const refusals: [number, any, any?, string?][] = [
+      [403, lib, { ...good, 'x-forge-token': 'wrong' }],
+      [403, lib, (({ 'x-forge-token': _t, ...rest }) => rest)(good)],
+      [403, lib, { ...good, origin: 'http://evil.example' }],
+      [415, lib, { ...good, 'content-type': 'text/plain' }],
+      [400, { decision: 'maybe', repos: ['lib'] }],
+      [400, {}],
+      [400, []],
+      [400, 'null'],
+      [400, '{not json'],
+      [400, { ...lib, note: 5 }],
+      [400, { ...lib, note: 'x'.repeat(2001) }],
+      [400, { decision: 'approve' }],
+      [400, { decision: 'approve', repos: [] }],
+      [400, { decision: 'approve', repos: 'lib' }],
+      [400, { decision: 'approve', repos: [5] }],
+      [400, { decision: 'approve', repos: ['../evil'] }],
+      [400, { decision: 'approve', repos: Array.from({ length: 101 }, (_, i) => `r${i}`) }],
+      [404, lib, good, 'no-such-job'],
+      [404, lib, good, '_inbox'],
+      [409, lib, good, idle],
+      [409, { decision: 'reject', repos: ['lib'] }, good, idle],
+      [409, { decision: 'approve', repos: ['tools'] }, good, noClone],
+      [409, { decision: 'approve', repos: ['tools'] }, good, parked],
+      [409, lib, good, hidden],
+      [409, { decision: 'reject', repos: ['lib'] }, good, hidden],
+    ];
+    for (const [status, body, headers, job] of refusals) {
+      const r = await post(body, headers ?? good, job ?? parked);
+      assert.equal(r.status, status, `${JSON.stringify(body)} ${job ?? ''}: ${r.text}`);
+    }
+    assert.match(JSON.parse((await post({ decision: 'approve', repos: ['tools'] }, good, noClone)).text).error, /repo tools: no path in \.forge\/local\.yml/);
+    // The hidden-repo case: the drawer listed lib only, so neither decision goes through while tools is pending.
+    assert.match(JSON.parse((await post(lib, good, hidden)).text).error, /also has tools pending, which this decision did not list/);
+    assert.equal((await hit(port, { path: `/api/jobs/${parked}/repos` })).status, 404, 'GET is not a route');
+    assert.deepEqual(snapshot(), before, 'no refusal wrote anything');
+    assert.deepEqual(resumes(), []);
+
+    const ok = await post({ ...lib, note: 'needed' });
+    assert.equal(ok.status, 200, ok.text);
+    assert.deepEqual(JSON.parse(ok.text), { id: parked, decision: 'approve', repos: ['lib'], added: ['lib'], pending: [], resumed: true });
+    const job = JSON.parse(fs.readFileSync(path.join(dir(parked), 'job.json'), 'utf8'));
+    assert.equal(job.state, 'running');
+    assert.equal(job.repos[1].repo, 'lib');
+    const human = p.events(parked).filter((e) => e.type === 'human');
+    assert.deepEqual(human.map((e) => [e.action, e.repos, e.note, e.actor.source]), [['approve-repos', ['lib'], 'needed', 'dashboard']]);
+    assert.deepEqual(resumes().map((r) => [r.job, r.from]), [[parked, 'dashboard']]);
+
+    // A job that never parked on the proposal is decided but not moved or resumed.
+    const no = await post({ decision: 'reject', repos: ['lib'], note: null }, good, rejected);
+    assert.equal(no.status, 200, no.text);
+    assert.deepEqual(JSON.parse(no.text), { id: rejected, decision: 'reject', repos: ['lib'], added: [], pending: [], resumed: false });
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir(rejected), 'job.json'), 'utf8')).state, 'queued');
+    assert.equal(resumes().length, 1);
+  } finally {
+    await srv.close();
+    p.cleanup();
   }
 });

@@ -24,11 +24,12 @@ Planned in M005, except where a config key exists today.
 | Term | Meaning | Config key |
 |---|---|---|
 | **job repo** | A repo the job changes, the root repo first and then each member repo a human adds with `forge job repo add`, so it gets its own worktree, verify evidence, branch and PR. | - |
+| **repo proposal** | A planner's or spec-writer's request, made with `forge job repo propose`, to add a member repo to its job, which parks the job until a human (or the foreman, when `repo-proposal` is in `foreman.decides`) approves or rejects it. | `foreman.decides` |
 | **verify-only repo** | A job repo added with `--verify-only`, which the job checks out at its base to build and test against its changes without branching, pushing or opening a PR there. | - |
 | **checkout hook** | A command run once when a job's checkout of a repo is created (today's single-repo form; per-repo hooks are planned). | `worktrees.setup` |
 | **local link** | Wiring one job repo to build against a sibling job repo's checkout instead of a published version, declared as `link` on a `components[].dependsOn[]` edge and applied by `forge run` and `forge verify`. | `components` |
-| **interim reference** | What a consumer job repo points at for a dependency changed in the same job until that dependency is released. | planned (M005) |
-| **interim strategy** | How an interim reference is made, one of `canary` (a published pre-release), `git-ref` (a pinned commit), `local` (local links, with the consumer PR held as a draft until release) or `sequential` (release the dependency first). | planned (M005) |
+| **interim reference** | What a consumer job repo points at for a dependency changed in the same job until that dependency is released: a `git-ref` pin, a `canary` version, or nothing (`local`, `sequential`); see [CONFIG.md "Interim strategies"](CONFIG.md#interim-strategies). | - |
+| **interim strategy** | How an interim reference is made, one of `canary` (a published pre-release), `git-ref` (a pinned commit), `local` (local links, with the consumer PR held as a draft) or `sequential` (merge the dependency first), per dependency and overridable per job with `forge job repo interim`. | `release.interim` |
 
 ## Releases
 

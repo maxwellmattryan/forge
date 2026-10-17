@@ -36,17 +36,17 @@ test('config defaults and validation', () => {
 });
 
 test('config v8 migrates to v9 unchanged', () => {
-  assert.equal(CONFIG_SCHEMA_VERSION, 12);
+  assert.equal(CONFIG_SCHEMA_VERSION, 13);
   const v8 = { schemaVersion: 8, git: { base: 'trunk' }, notify: { webhooks: [], command: null } };
   const { config, from } = migrateConfig(structuredClone(v8));
   assert.equal(from, 8);
-  assert.deepEqual(config, { ...v8, schemaVersion: 12, repos: [] }, 'only schemaVersion and the empty repos list change');
+  assert.deepEqual(config, { ...v8, schemaVersion: 13, repos: [] }, 'only schemaVersion and the empty repos list change');
   const repo = tempRepo();
   try {
     fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
     fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify(v8));
     const loaded = loadConfig(repo.dir);
-    assert.equal(loaded.config.schemaVersion, 12);
+    assert.equal(loaded.config.schemaVersion, 13);
     assert.deepEqual(loaded.config.budget, defaults().budget, 'a v8 config loads with the budget defaults');
   } finally {
     repo.cleanup();

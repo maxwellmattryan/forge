@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PLUGIN_ROOT, paths, exists, resolveFrom } from './paths.ts';
 import { componentProblems } from './components.ts';
-import { repoProblems } from './member-repos.ts';
+import { releaseProblems, repoProblems } from './member-repos.ts';
 import { notifyProblems } from './notify-config.ts';
 import { globProblem, policyProblems } from './policy-check.ts';
 import { COMPLEXITIES, CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES, REPO_BUDGET_MODES, migrateConfig } from './schema.ts';
@@ -147,6 +147,7 @@ export function defaults(): Config {
       autoWhen: [],
     },
     aiAttribution: 'forbid',
+    release: { interim: 'local' },
     resources: [],
     components: [],
     repos: [],
@@ -210,7 +211,8 @@ export function defaults(): Config {
     // gate with a human, and a false positive errs that way on purpose.
     foreman: {
       enabled: false,
-      decides: [...OFFICE_GATES],
+      // Widening the repos a job pushes to is opt-in: an owner adds repo-proposal deliberately.
+      decides: OFFICE_GATES.filter((g) => g !== 'repo-proposal'),
       reserved: [...DEFAULT_RESERVED],
       ship: 'propose',
     },
@@ -369,6 +371,7 @@ export function validateConfig(c: any, root: string): string[] {
   oneOf('infra.mode', c.infra.mode, ['human', 'plan-only', 'agent']);
   oneOf('worktrees.cleanup', c.worktrees.cleanup, ['on-merge', 'manual']);
   oneOf('aiAttribution', c.aiAttribution, ['forbid', 'allow']);
+  problems.push(...releaseProblems(c.release, 'release'));
   if (c.runtime?.diversity !== undefined && typeof c.runtime.diversity !== 'boolean')
     problems.push(`runtime.diversity must be true or false (got ${JSON.stringify(c.runtime.diversity)})`);
   oneOf('verifyIntegrity', c.verifyIntegrity, ['warn', 'block']);
