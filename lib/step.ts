@@ -16,7 +16,7 @@ import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
 import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
 import { memberRepos } from './job-repos.ts';
-import { deferralStatus, readDeferrals, releaseGates, resolveInterim } from './interim.ts';
+import { deferralStatus, readDeferrals, releaseGates, releaseIndex, resolveInterim } from './interim.ts';
 import { LENS_NAME, isLens, lensRepoAllowed, reviewFileName, splitLens } from './lens.ts';
 import { lensChecklists } from './member-panel.ts';
 import type { MemberLens } from './member-panel.ts';
@@ -50,6 +50,9 @@ export const RULES = [
   'PR1', 'PR2', 'PR3', 'PR4', 'PR5',
   // Interim strategies deferred a PR: park on a human canary publish (PR6), reopen (PR7), or wait for a merge (PR8).
   'PR6', 'PR7', 'PR8',
+  // A recorded release: verify bumps its consumers (PR9, run before PR2), then an all-released draft
+  // consumer leaves draft (PR10, run before PR4). Appended, as IDs are stable.
+  'PR9', 'PR10',
   // A secret scan stopped the job: park on `human` (SC1, SC3), or scan again once a human approved (SC2).
   'SC1', 'SC2', 'SC3',
   // Protected paths: park on `human` until a human approves the current content (PP1), or send a
@@ -81,7 +84,8 @@ const STEP_EVENTS = new Set([
   'human', 'round', 'worktree', 'worktree-setup-failed', 'pr-find', 'pr-adopted', 'scope', 'panel', 'integrated', 'integrate-conflicts',
   'integration-review', 'decision', 'fields', 'pr-opened', 'pr-updated', 'pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
   'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found', 'verifiers',
-  'protected-path', 'repo-proposed', 'pr-deferred', 'canary-published', 'interim-released', 'downstream-checked', 'job-repo-added', 'job-repo-removed',
+  'protected-path', 'repo-proposed', 'pr-deferred', 'canary-published', 'interim-released', 'interim-bumped', 'pr-ready', 'downstream-checked', 'job-repo-added',
+  'job-repo-removed',
 ]);
 const MERGE_EVENTS = ['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed'];
 
@@ -1264,27 +1268,73 @@ function integrate(x: StepInput): StepAction {
 function pr(x: StepInput): StepAction {
   const j = x.job;
   if (!x.config.pr.enabled) return toStage(x, 'PR1', 'done', 'PRs are off: the branch is the result', { tell: `${j.id} finished on branch ${safe(j.branch, SAFE_REF, 'its branch')}` });
+  const res = resolveInterim(x.config, j);
+  const edges = res.edges;
+  const gates = releaseGates(edges, x.events, j);
+  const bump = releaseBump(x, gates);
+  if (bump) return bump;
   const last = j.verifyRuns.at(-1);
   if (!last?.ok) return run(x, 'PR2', ['verify', j.id], 'pr open needs a verified HEAD');
   // The last open attempt: a deferral counts, so PR3 doesn't run pr open again on the same verify.
   const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated' || e.type === 'pr-deferred');
   if (!after(opened?.ts, last.at)) return run(x, 'PR3', ['pr', 'open', j.id], 'push and open or update the PR');
   if (opened!.type === 'pr-deferred') return deferredPr(x, opened!);
-  // A local edge holds a consumer PR as a draft that nothing CI can build, a held release gate keeps
-  // it a draft until a human records the dependency's release, and a draft PR in a job with interim
-  // edges is never merged: none of them merges unattended. A job without edges keeps its old
+  // The first draft consumer in merge order whose every gate is released leaves draft.
+  for (const k of res.order) {
+    const p = k === null ? j.pr : memberRepos(j).find((m) => m.repo === k)?.pr;
+    const mine = gates.filter((g) => g.consumer === k);
+    if (p?.state !== 'OPEN' || p.isDraft !== true || !mine.length || !mine.every((g) => g.gate === 'released')) continue;
+    if (k !== null && !REPO_WORD.test(k)) continue;
+    return run(x, 'PR10', ['pr', 'ready', j.id, ...(k === null ? ['--root'] : ['--repo', k])], 'release recorded and consumers bumped: mark the consumer ready for review');
+  }
+  // A local edge holds a consumer PR as a draft that nothing CI can build until its release is
+  // recorded and bumped, a held or bump-due gate keeps it a draft, and a draft PR in a job with
+  // interim edges is never merged: none of them merges unattended. A job without edges keeps its old
   // behaviour, so a single-repo `pr.draft: true` job still auto-merges (gh un-drafts it).
-  const edges = resolveInterim(x.config, j).edges;
-  const local = edges.some((e) => e.strategy === 'local');
-  const held = releaseGates(edges, x.events).find((g) => g.gate === 'held');
+  const local = edges.some((e, i) => e.strategy === 'local' && gates[i].gate !== 'released');
+  const held = gates.find((g) => g.gate === 'held' || g.gate === 'bump-due');
   const draft = edges.length > 0 && (j.pr?.isDraft === true || memberRepos(j).some((m) => m.pr?.isDraft === true));
   if (!local && !held && !draft && x.decision.autoMerge && autoMerge(x.config) && !j.protectedPaths?.hits?.length && !lastEvent(x, (e) => MERGE_EVENTS.includes(e.type) && after(e.ts, opened!.ts)))
     return run(x, 'PR4', ['pr', 'merge', j.id], 'the approver marked it auto-merge eligible');
   // Plain words only: the reason goes through shellLine, which allows no quote, pipe or angle bracket.
-  const reason = held
-    ? `${repoWord(held.consumer)} PR stays a draft until the release of ${repoWord(held.dependency)} is recorded [interim: ${held.strategy}]: a human runs forge job interim release ${j.id} ${held.dependency === null ? '--root' : safe(held.dependency, REPO_WORD, '<repo>')} VERSION`
-    : undefined;
+  const reason =
+    held?.gate === 'held'
+      ? `${repoWord(held.consumer)} PR stays a draft until the release of ${repoWord(held.dependency)} is recorded [interim: ${held.strategy}]: a human runs forge job interim release ${j.id} ${held.dependency === null ? '--root' : safe(held.dependency, REPO_WORD, '<repo>')} VERSION`
+      : held
+        ? `${repoWord(held.consumer)} PR waits on its release bump: forge verify ${j.id}`
+        : undefined;
   return set(x, 'PR5', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', ...(reason ? { reason } : {}) }, 'the PR waits on human review');
+}
+
+const SAFE_VERSION = /^[0-9A-Za-z.+-]{1,120}$/;
+
+/**
+ * PR9: a release is recorded and some consumer is not bumped to it yet (a bump-due gate). Verify
+ * bumps it, unless a verify newer than the record failed (park, until a human approves after it) or
+ * passed without bumping (park).
+ */
+function releaseBump(x: StepInput, gates: ReturnType<typeof releaseGates>): StepAction | null {
+  const due = gates.filter((g) => g.gate === 'bump-due');
+  if (!due.length) return null;
+  const j = x.job;
+  let since: string | null = null;
+  let first = due[0];
+  for (const g of due) {
+    const at = x.events[releaseIndex(x.events, g.dependency)]?.ts ?? null;
+    if (at && (!since || at > since)) {
+      since = at;
+      first = g;
+    }
+  }
+  const what = `${repoWord(first.dependency)} ${safe(first.version, SAFE_VERSION, 'version')}`;
+  const runs = j.verifyRuns.filter((r) => after(r.at, since));
+  if (!runs.length) return run(x, 'PR9', ['verify', j.id], `release of ${what} recorded: bump its consumers and verify`);
+  const latest = runs.at(-1)!;
+  if (!latest.ok) {
+    if (after(human(x, 'approve')?.ts, latest.at)) return null;
+    return park(x, 'PR9', 'escalation', `release bump: verify failed after the release of ${what}`);
+  }
+  return park(x, 'PR9', 'escalation', `release bump: verify passed without bumping ${repoWord(first.consumer)}`);
 }
 
 const REPO_WORD = /^[A-Za-z0-9._-]+$/;
