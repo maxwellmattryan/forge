@@ -17,7 +17,7 @@ const DEFAULT_RULES = [
   { paths: ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'Cargo.lock'], action: 'escalate', reason: 'dependency lockfile' },
   { paths: ['**/.env*'], action: 'escalate', reason: 'environment files can hold credentials' },
   { paths: ['**/*.pem'], action: 'refuse', reason: 'private keys and certificates are never committed by Forge' },
-  { paths: ['.forge/config.yml', '.forge/secrets-allow.txt', '.forge/trackers/**'], action: 'refuse', reason: "Forge's own policy changes only by a human on the base branch" },
+  { paths: ['.forge/config.yml', '.forge/secrets-allow.txt', '.forge/trackers/**', '.forge/ci/**'], action: 'refuse', reason: "Forge's own policy changes only by a human on the base branch" },
 ];
 
 describe('the policy', () => {
@@ -96,6 +96,7 @@ describe('the policy', () => {
       ['certs/key.pem', 6, '**/*.pem', 'refuse'],
       ['.forge/config.yml', 7, '.forge/config.yml', 'refuse'],
       ['.forge/trackers/x.ts', 7, '.forge/trackers/**', 'refuse'],
+      ['.forge/ci/release-gate.mjs', 7, '.forge/ci/**', 'refuse'],
       ['src/app.ts', null, null, null],
       ['.forge/backlog.md', null, null, null],
       ['docs/migrations.md', null, null, null],
@@ -216,6 +217,22 @@ describe('forge git add and commit', { concurrency: 4 }, () => {
       const ev = s.events(j.dir).filter((e) => e.type === 'protected-path');
       assert.deepEqual(ev.map((e) => [e.gate, e.action, e.blocked, e.more]), [['add', 'refuse', true, 0]]);
       assert.deepEqual(ev[0].paths, [{ path: '.forge/config.yml', rule: 7, glob: '.forge/config.yml', reason: CONFIG_REASON }]);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('the seeded release gate script is refused', async () => {
+    const s = scratch();
+    try {
+      const j = await s.job();
+      write(j.wt, '.forge/ci/release-gate.mjs', 'process.exit(0);\n');
+      const before = git(j.wt, 'diff', '--cached', '--name-only');
+      const r = await s.json(['git', 'add', j.id, '--', '.forge/ci/release-gate.mjs']);
+      assert.equal(r.status, 1, r.stderr);
+      assert.equal(r.err.code, 'protected_path');
+      assert.ok(r.err.message.includes(`.forge/ci/release-gate.mjs: rule 7 (.forge/ci/**): ${CONFIG_REASON}`), r.err.message);
+      assert.equal(git(j.wt, 'diff', '--cached', '--name-only'), before, 'nothing staged');
     } finally {
       s.cleanup();
     }
