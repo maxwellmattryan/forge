@@ -221,6 +221,37 @@ describe('release plan', { concurrency: 4 }, () => {
     }
   });
 
+  test('--job plans merged dependencies of an interim edge', () => {
+    const p = project();
+    try {
+      const strategies = [{ mechanism: 'tag', command: 'git tag v1' }, { mechanism: 'changesets' }] as const;
+      const writeJob = (rootState: string, libState: string) => {
+        const dir = path.join(p.root, '.forge', 'jobs', 'j1');
+        fs.mkdirSync(dir, { recursive: true });
+        const job = { id: 'j1', pr: { number: 11, state: rootState }, repos: [{ repo: null }, { repo: 'lib', base: 'main', pr: { number: 7, state: libState } }] };
+        fs.writeFileSync(path.join(dir, 'job.json'), JSON.stringify(job));
+      };
+      const c = config(strategies[0], strategies[1]);
+      // The root consumes lib: its unmerged PR waits on lib's release, so it is skipped, not refused.
+      writeJob('OPEN', 'MERGED');
+      const plan = planRelease(p.root, c, { kind: 'job', job: 'j1' }, opts(p));
+      assert.deepEqual(plan.order, ['lib']);
+      assert.deepEqual(plan.skipped, [{ repo: null, label: '(root)', reason: "PR not merged: it waits on its dependencies' release" }]);
+      // An unmerged dependency (no consumer) is still refused.
+      writeJob('MERGED', 'OPEN');
+      assert.throws(() => planRelease(p.root, c, { kind: 'job', job: 'j1' }, opts(p)), { message: 'forge release plan --job j1: lib have no merged PR; run forge pr sync j1 first' });
+      writeJob('OPEN', 'OPEN');
+      assert.throws(() => planRelease(p.root, c, { kind: 'job', job: 'j1' }, opts(p)), { message: 'forge release plan --job j1: lib have no merged PR; run forge pr sync j1 first' });
+      // Every unmerged PR a consumer (lib and the root on each other), and none merged: nothing to plan.
+      writeJob('OPEN', 'OPEN');
+      assert.throws(() => planRelease(p.root, config(strategies[0], strategies[1], 'cycle-build'), { kind: 'job', job: 'j1' }, opts(p)), { message: 'forge release plan --job j1: no PR of the job is merged yet' });
+      writeJob('MERGED', 'MERGED');
+      assert.deepEqual(planRelease(p.root, c, { kind: 'job', job: 'j1' }, opts(p)).order, ['lib', '(root)']);
+    } finally {
+      p.cleanup();
+    }
+  });
+
   test('plan hash', () => {
     const p = project();
     try {

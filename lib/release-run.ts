@@ -10,6 +10,9 @@ import crypto from 'node:crypto';
 import { spawn as nodeSpawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { logRelease } from './interim-apply.ts';
+import { isReleaseVersion, resolveInterim } from './interim.ts';
+import { loadJob } from './jobs.ts';
 import { paths } from './paths.ts';
 import { SUPPORT_URL, posixShell } from './platform.ts';
 import {
@@ -37,6 +40,7 @@ import {
   stepCommand,
   strategyOf,
 } from './release-plan.ts';
+import type { RepoKey } from './repo-order.ts';
 import type { Config } from './types.ts';
 import { ForgeError, findOnPath, now, run, writeJsonAtomic } from './util.ts';
 import { pidAlive } from './worktree.ts';
@@ -64,6 +68,17 @@ export interface RunResult {
   ran: string[];
   skipped: string[];
   stopped: RunStop | null;
+  /** A `--job` run only: each dependency repo whose last step finished in this run, and the release it recorded on the job. */
+  released?: RunReleased[];
+}
+
+export interface RunReleased {
+  repo: RepoKey;
+  /** Null when this run's checks named no single version: nothing was recorded. */
+  version: string | null;
+  recorded: boolean;
+  /** When nothing was recorded: the command a human runs to record it. */
+  hint?: string;
 }
 
 export type SpawnFn = typeof nodeSpawn;
@@ -169,11 +184,31 @@ export function takeReleaseLock(root: string): () => void {
   };
 }
 
-interface CheckResult {
+export interface CheckResult {
   ok: boolean;
   detail?: string;
   tags?: string[];
   version?: string;
+}
+
+/**
+ * The version a dependency's release run shows, from the checks this invocation ran: a registry
+ * check's version, else a `<link name>@<v>` tag, else a tag that is a version itself (`v1.2.0`).
+ * The first level with candidates decides; several distinct versions there, or none at all, give null.
+ */
+export function releasedVersionFrom(checks: CheckResult[] | undefined, linkNames: string[]): string | null {
+  const all = checks ?? [];
+  const tags = [...new Set(all.flatMap((c) => c.tags ?? []))];
+  const levels = [
+    all.flatMap((c) => (typeof c.version === 'string' && isReleaseVersion(c.version) ? [c.version] : [])),
+    tags.flatMap((t) => linkNames.flatMap((n) => (t.startsWith(`${n}@`) && isReleaseVersion(t.slice(n.length + 1)) ? [t.slice(n.length + 1)] : []))),
+    tags.filter((t) => isReleaseVersion(t)),
+  ];
+  for (const level of levels) {
+    const distinct = [...new Set(level)];
+    if (distinct.length) return distinct.length === 1 ? distinct[0] : null;
+  }
+  return null;
 }
 
 const lines = (s: string): string[] => s.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -339,8 +374,12 @@ export async function runRelease(root: string, config: Config, opts: RunOptions)
       st.updatedAt = now();
       writeJsonAtomic(files.state, st);
     };
+    // What this invocation saw: only its own checks name a released version, never state.json (writable).
+    const fresh = new Map<RepoKey, CheckResult[]>();
+    const doneNow = new Set<string>();
     const set = (id: string, s: Omit<StepState, 'at'>) => {
       st.steps[id] = { ...s, at: now() };
+      if (s.status === 'done') doneNow.add(id);
       save();
     };
     const steps = planSteps(plan);
@@ -354,7 +393,12 @@ export async function runRelease(root: string, config: Config, opts: RunOptions)
       if (st.steps[step.id]?.status === 'done') continue;
       const repo = repoOf.get(step.id)!;
       const acts = step.argv !== null || step.shell !== null || step.manual !== null;
-      const check = () => runCheck(step.check!, repo, config, git, env);
+      const check = () => {
+        const c = runCheck(step.check!, repo, config, git, env);
+        if (!fresh.has(repo.repo)) fresh.set(repo.repo, []);
+        fresh.get(repo.repo)!.push(c);
+        return c;
+      };
       const failCheck = (c: CheckResult, log: string | null = null) => {
         const detail = `check ${step.check} failed: ${c.detail ?? 'not satisfied'}`;
         set(step.id, { status: 'failed', reason: 'check', detail, ...(log ? { log } : {}) });
@@ -444,10 +488,39 @@ export async function runRelease(root: string, config: Config, opts: RunOptions)
       st.finishedAt = now();
       save();
     } else if (!fs.existsSync(files.state)) save();
-    return { data: { ok: !stopped, plan: files.md, state: files.state, done, total: steps.length, ran, skipped, stopped }, exitCode: stopped ? 1 : 0 };
+    const released = plan.selection.kind === 'job' ? recordReleases(root, config, plan, plan.selection.job, fresh, doneNow) : undefined;
+    return { data: { ok: !stopped, plan: files.md, state: files.state, done, total: steps.length, ran, skipped, stopped, ...(released ? { released } : {}) }, exitCode: stopped ? 1 : 0 };
   } finally {
     release();
   }
+}
+
+/**
+ * After a `--job` run: for each repo whose last step reached done in this invocation and that is
+ * the dependency of an edge of the job, the release its fresh checks name is logged on the job
+ * (logRelease, which also resumes it). Nothing is recorded when they name no single version.
+ */
+function recordReleases(root: string, config: Config, plan: ReleasePlan, id: string, fresh: Map<RepoKey, CheckResult[]>, doneNow: Set<string>): RunReleased[] {
+  const edges = resolveInterim(config, loadJob(root, id)).edges;
+  const out: RunReleased[] = [];
+  for (const r of plan.repos) {
+    const last = r.steps.at(-1);
+    const into = edges.filter((e) => e.dependency === r.repo);
+    if (!last || !doneNow.has(last.id) || !into.length) continue;
+    const hint = `forge job interim release ${id} ${r.repo ?? '--root'} <version>`;
+    const version = releasedVersionFrom(fresh.get(r.repo), [...new Set(into.flatMap((e) => e.links.map((l) => l.name)))]);
+    if (version === null) {
+      out.push({ repo: r.repo, version: null, recorded: false, hint });
+      continue;
+    }
+    try {
+      out.push({ repo: r.repo, version, recorded: logRelease(root, config, id, r.repo, version, 'forge release run recorded the release').recorded });
+    } catch {
+      // A refusal (the dependency's recorded PR is not MERGED, say) records nothing: a human records it.
+      out.push({ repo: r.repo, version: null, recorded: false, hint });
+    }
+  }
+  return out;
 }
 
 /** `forge release status`: read-only progress, recorded tags and versions, and whether the plan is stale. */

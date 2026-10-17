@@ -136,7 +136,7 @@ export function downstreamFailuresLine(input: Pick<StepInput, 'job' | 'events'>)
 export function releaseGateLine(config: Pick<Config, 'components' | 'repos' | 'release'>, job: Pick<Job, 'interim' | 'repos' | 'pr'>, events: Pick<JobEvent, 'type'>[]): string {
   const edges = resolveInterim(config, job).edges;
   if (!edges.length) return 'Release gate: none';
-  return `Release gate (JSON): ${JSON.stringify(releaseGates(edges, events))}; held: the consumer PR stays a draft and Forge refuses to ready or merge it until a human records the release; ci: the seeded release-gate check fails while the pin remains. Never mark auto-merge eligible while a gate is held.`;
+  return `Release gate (JSON): ${JSON.stringify(releaseGates(edges, events, job))}; held: the consumer PR stays a draft and Forge refuses to ready or merge it until a human records the release; bump-due: the release is recorded and verify still has to bump the consumer's manifests to it; ci: the seeded release-gate check fails while the pin remains. Never mark auto-merge eligible while a gate is held or bump-due.`;
 }
 
 export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {}): BriefSpec {

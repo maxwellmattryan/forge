@@ -15,8 +15,11 @@ import type { Config, InterimStrategy, Job } from './types.ts';
 
 export { INTERIM_STRATEGIES, isInterimStrategy };
 
-/** held (local), waiting, ready, blocked (can't be pinned), stale (the pin is not the dependency's HEAD). */
-export type EdgeState = 'held' | 'waiting' | 'ready' | 'blocked' | 'stale';
+/**
+ * held (local), waiting, ready, blocked (can't be pinned or bumped), stale (the pin is not the
+ * dependency's HEAD, or the manifests don't name its released version yet), released (they do).
+ */
+export type EdgeState = 'held' | 'waiting' | 'ready' | 'blocked' | 'stale' | 'released';
 
 /** One (consumer, dependency) pair of a job's PR repos: `forge job interim`. */
 export interface InterimEdge {
@@ -29,6 +32,8 @@ export interface InterimEdge {
   detail: string;
   /** A waiting canary edge: the package and version not published yet. */
   canary?: { name: string; version: string };
+  /** A release edge (interimStatus): the dependency's recorded release the consumer is bumped to. */
+  release?: string;
 }
 
 export interface InterimResolution {
@@ -629,37 +634,65 @@ export const RELEASE_VERSION = /^v?(0|[1-9]\d{0,15})\.(0|[1-9]\d{0,15})\.(0|[1-9
 /** Whether `v` is a version a release record may carry (RELEASE_VERSION, at most 120 chars, no `canary`). */
 export const isReleaseVersion = (v: unknown): v is string => typeof v === 'string' && v.length <= 120 && RELEASE_VERSION.test(v) && !/canary/i.test(v);
 
-type ReleaseEvent = { type: string; repo?: unknown; version?: unknown };
+type ReleaseEvent = { type: string; repo?: unknown; version?: unknown; dependency?: unknown };
+
+const isRelease = (x: ReleaseEvent, repo: RepoKey): boolean => x.type === 'interim-released' && isRepoKey(x.repo) && x.repo === repo && isReleaseVersion(x.version);
+
+/** Where the latest valid `interim-released` event for dependency `repo` sits in `events`, or -1. */
+export const releaseIndex = (events: ReleaseEvent[], repo: RepoKey): number => events.findLastIndex((x) => isRelease(x, repo));
 
 /**
  * The version the latest valid `interim-released` event records for dependency `repo`, or null.
  * events.jsonl is writable outside the CLI, so every record is checked and a malformed one is ignored.
  */
 export function releasedVersion(events: ReleaseEvent[], repo: RepoKey): string | null {
-  const e = events.findLast((x) => x.type === 'interim-released' && isRepoKey(x.repo) && x.repo === repo && isReleaseVersion(x.version));
-  return e ? (e.version as string) : null;
+  const i = releaseIndex(events, repo);
+  return i < 0 ? null : (events[i].version as string);
 }
 
 /**
- * One edge's release gate: `ci` for git-ref and canary (the seeded release-gate check fails while the
- * pin remains), `held` for local and sequential until the dependency's release is recorded, then
- * `released` with its version.
+ * The version of the latest valid `interim-bumped` event for (consumer, dependency) after index
+ * `afterIndex` (events.jsonl order), or null. Every field is checked, as for a release record.
+ */
+export function bumpedVersion(events: ReleaseEvent[], consumer: RepoKey, dependency: RepoKey, afterIndex: number): string | null {
+  for (let i = events.length - 1; i > afterIndex && i >= 0; i--) {
+    const x = events[i];
+    if (x.type === 'interim-bumped' && isRepoKey(x.repo) && x.repo === consumer && isRepoKey(x.dependency) && x.dependency === dependency && isReleaseVersion(x.version)) return x.version;
+  }
+  return null;
+}
+
+/**
+ * One edge's release gate. With no recorded release: `ci` for git-ref and canary (the seeded
+ * release-gate check fails while the pin remains), `held` for local and sequential. With a recorded
+ * release: `bump-due` while the edge has links, the consumer's PR is not merged and no
+ * `interim-bumped` for that version came after the record; otherwise `released`.
  */
 export interface ReleaseGate {
   consumer: RepoKey;
   dependency: RepoKey;
   strategy: InterimStrategy;
-  gate: 'ci' | 'held' | 'released';
+  gate: 'ci' | 'held' | 'bump-due' | 'released';
   version?: string;
 }
 
-export function releaseGates(edges: Pick<InterimEdge, 'consumer' | 'dependency' | 'strategy'>[], events: ReleaseEvent[]): ReleaseGate[] {
-  return edges.map(({ consumer, dependency, strategy }) => {
-    if (strategy === 'git-ref' || strategy === 'canary') return { consumer, dependency, strategy, gate: 'ci' as const };
-    const version = releasedVersion(events, dependency);
-    return version === null ? { consumer, dependency, strategy, gate: 'held' as const } : { consumer, dependency, strategy, gate: 'released' as const, version };
+/** A job repo's recorded PR state, from the job record (null: the root). */
+export const prStateOf = (job: Pick<Job, 'pr' | 'repos'>, key: RepoKey): unknown => (key === null ? job.pr?.state : memberEntry(job, key)?.pr?.state);
+
+/** Whether an edge's consumer is bumped to a recorded release: it has links and an unmerged PR. */
+export const bumpsOnRelease = (e: { consumer: RepoKey; links?: unknown[] }, job: Pick<Job, 'pr' | 'repos'> | undefined): boolean =>
+  Boolean(e.links?.length) && (job ? prStateOf(job, e.consumer) !== 'MERGED' : true);
+
+export function releaseGates(edges: (Pick<InterimEdge, 'consumer' | 'dependency' | 'strategy'> & { links?: InterimEdge['links'] })[], events: ReleaseEvent[], job?: Pick<Job, 'pr' | 'repos'>): ReleaseGate[] {
+  return edges.map((e) => {
+    const { consumer, dependency, strategy } = e;
+    const at = releaseIndex(events, dependency);
+    if (at < 0) return { consumer, dependency, strategy, gate: strategy === 'git-ref' || strategy === 'canary' ? ('ci' as const) : ('held' as const) };
+    const version = events[at].version as string;
+    const due = bumpsOnRelease(e, job) && bumpedVersion(events, consumer, dependency, at) !== version;
+    return { consumer, dependency, strategy, gate: due ? ('bump-due' as const) : ('released' as const), version };
   });
 }
 
-/** The consumers with at least one held gate: their PRs stay drafts, and Forge never readies or merges them. */
-export const heldConsumers = (gates: ReleaseGate[]): Set<RepoKey> => new Set(gates.filter((g) => g.gate === 'held').map((g) => g.consumer));
+/** The consumers with a held or bump-due gate: their PRs stay drafts, and Forge never readies or merges them. */
+export const heldConsumers = (gates: ReleaseGate[]): Set<RepoKey> => new Set(gates.filter((g) => g.gate === 'held' || g.gate === 'bump-due').map((g) => g.consumer));

@@ -711,7 +711,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       if (!id || rest.length > 1) throw usageError(JOB, 'interim');
       const job = requireJob(root, id);
       const edges = interimStatus(root, config, job).edges;
-      return { id: job.id, edges, gates: releaseGates(edges, readEvents(root, job.id)) };
+      return { id: job.id, edges, gates: releaseGates(edges, readEvents(root, job.id), job) };
     }
     case 'assist':
       return assist(root, config, requireJob(root, id), flags.gate);
