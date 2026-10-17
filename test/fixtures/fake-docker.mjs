@@ -5,7 +5,7 @@ import fs from 'node:fs';
 
 /** A fresh state: daemon up, nothing created. */
 export function emptyState() {
-  return { daemon: 'up', version: '27.1.1', containers: {}, volumes: {}, failRun: false, failRm: false, envFiles: [] };
+  return { daemon: 'up', version: '27.1.1', containers: {}, volumes: {}, failRun: false, failStart: false, failRm: false, envFiles: [] };
 }
 
 const flagValues = (args, flag) => args.flatMap((a, i) => (a === flag ? [args[i + 1]] : []));
@@ -52,6 +52,7 @@ export function handle(state, args) {
     return ok('0123456789abcdef\n');
   }
   if (cmd === 'start') {
+    if (state.failStart) return fail('Error response from daemon: cannot start container');
     const c = state.containers[last];
     if (!c) return fail(`Error response from daemon: No such container: ${last}`);
     c.running = true;

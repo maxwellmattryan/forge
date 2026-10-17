@@ -191,14 +191,17 @@ export function takenPorts(root: string, config: Config, exceptId?: string): Set
   return taken;
 }
 
+/** The lock every host port is handed out under: job ports (lib/worktree.ts) and backing ports alike. */
+export const portsLock = (root: string): string => path.join(paths(root).locks, 'ports');
+
 /**
  * Host ports for the job's per-job entries and the project's shared ones, reusing every valid
- * existing assignment, under the same lock as nothing else hands out a port twice. Skips every
+ * existing assignment, under portsLock (which job ports take too), so no port is handed out twice. Skips every
  * active job's `port`, every other job's backing ports and the job's own `port`.
  */
 export function allocateBacking(root: string, config: Config, job: { id: string; port?: number | null }): { job: BackingRecord; shared: BackingRecord } {
   const list = entries(config);
-  return withLock(path.join(paths(root).locks, 'ports'), () => {
+  return withLock(portsLock(root), () => {
     const taken = new Set<number>(takenPorts(root, config, job.id));
     // The shared record is re-validated below, so its raw ports must not block its own reuse.
     for (const p of rawPorts(sharedRecordFile(root), config)) taken.delete(p);
@@ -369,8 +372,11 @@ function runContainer(runner: DockerRunner, args: string[], env: BackingEntry['e
   }
 }
 
-/** One managed service brought up: run when missing, start when stopped, nothing when running. */
-function ensure(root: string, runner: DockerRunner, e: BackingEntry, owner: string, jobId: string | null, ports: Record<string, number>): BackingUpEntry['action'] {
+/**
+ * One managed service brought up: run when missing, start when stopped, nothing when running.
+ * `attempt.action` says what it set out to do, so a failure reports that rather than a guess.
+ */
+function ensure(root: string, runner: DockerRunner, e: BackingEntry, owner: string, jobId: string | null, ports: Record<string, number>, attempt: { action: BackingUpEntry['action'] }): BackingUpEntry['action'] {
   const name = containerName(owner, e.name);
   const labels = ownLabels(root, e, jobId);
   const whose = jobId ? "this job's" : "this project's";
@@ -378,10 +384,12 @@ function ensure(root: string, runner: DockerRunner, e: BackingEntry, owner: stri
   if (found.exists) {
     if (!matches(found.labels, labels)) throw new DockerFailure(`container ${name} exists and is not ${whose}`);
     if (found.running) return 'running';
+    attempt.action = 'started';
     const r = runner(['start', name]);
     if (!r.ok) throw new DockerFailure(failure('start', r));
     return 'started';
   }
+  attempt.action = 'created';
   // Volumes are created with the same labels first, so a same-named volume of another checkout is never mounted.
   const vols = (e.volumes ?? []).map((p, i) => ({ vol: volumeName(owner, e.name, i), path: p }));
   for (const { vol } of vols) {
@@ -415,24 +423,31 @@ export function backingUp(root: string, config: Config, job: { id: string; port?
   if (!list.length) return [];
   const external = (e: BackingEntry): BackingUpEntry => ({ name: e.name, isolation: e.isolation, action: 'external', ok: true });
   if (!list.some(isManaged)) return list.map(external);
+  // Failed before any container was touched: every managed entry reports `none` with the reason.
+  const unreached = (error: string) => list.map((e): BackingUpEntry => (isManaged(e) ? { name: e.name, isolation: e.isolation, action: 'none', ok: false, error } : external(e)));
   const state = dockerState(runner);
-  if (state.state !== 'ok') {
-    const error = stateError(state, list);
-    return list.map((e) => (isManaged(e) ? { name: e.name, isolation: e.isolation, action: 'created', ok: false, error } : external(e)));
+  if (state.state !== 'ok') return unreached(stateError(state, list));
+  let recs: ReturnType<typeof allocateBacking>;
+  try {
+    recs = allocateBacking(root, config, job);
+  } catch (err) {
+    // No free port (or a lock timeout): a failed entry, so worktree create fails the job through I4 instead of throwing after the worktree is saved.
+    if (!(err instanceof ForgeError)) throw err;
+    return unreached(err.message);
   }
-  const recs = allocateBacking(root, config, job);
   const slug = projectSlug(root, config);
   return list.map((e): BackingUpEntry => {
     if (!isManaged(e)) return external(e);
     const shared = e.isolation === 'shared';
+    const attempt: { action: BackingUpEntry['action'] } = { action: 'none' };
     try {
-      const go = () => ensure(root, runner, e, shared ? slug : job.id, shared ? null : job.id, (shared ? recs.shared : recs.job).ports[e.name] ?? {});
+      const go = () => ensure(root, runner, e, shared ? slug : job.id, shared ? null : job.id, (shared ? recs.shared : recs.job).ports[e.name] ?? {}, attempt);
       // A pull can take minutes, so the shared lock waits and goes stale on that scale.
       const action = shared ? withLock(path.join(paths(root).locks, 'backing-shared'), go, { timeoutMs: RUN_TIMEOUT_MS + 60_000, staleMs: RUN_TIMEOUT_MS + 120_000 }) : go();
       return { name: e.name, isolation: e.isolation, action, ok: true };
     } catch (err) {
       if (!(err instanceof DockerFailure) && !(err instanceof ForgeError)) throw err;
-      return { name: e.name, isolation: e.isolation, action: 'created', ok: false, error: err.message };
+      return { name: e.name, isolation: e.isolation, action: attempt.action, ok: false, error: err.message };
     }
   });
 }

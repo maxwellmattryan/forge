@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { backingDown, backingEnv, backingUp, hasJobBacking, takenPorts } from './backing.ts';
+import { backingDown, backingEnv, backingUp, hasJobBacking, portsLock, takenPorts } from './backing.ts';
 import { enforceBudget } from './budget.ts';
 import { readCheckoutRecord, undoCheckout, withCheckoutLock } from './checkout.ts';
 import { isOwnWorktreePath, loadConfig, verifyGroups, worktreeRoot } from './config.ts';
@@ -150,8 +150,12 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   }
   copyUntracked(root, dir, config.worktrees.copy ?? [], opts.sparseExclude ?? []);
   if (config.worktrees.cargo?.sharedTarget) writeSharedCargoTarget(root, config, wtRoot);
-  const port = allocatePort(root, config, id);
-  setJob(root, id, { fields: { worktree: dir, port } });
+  // Chosen and saved under the lock backing ports are allocated under, so a concurrent create never takes it.
+  const port = withLock(portsLock(root), () => {
+    const p = allocatePort(root, config, id);
+    setJob(root, id, { fields: { worktree: dir, port: p } });
+    return p;
+  });
   logEvent(root, id, 'worktree', { path: dir, port });
   // Before setup, so setup commands (migrations, seeds) can reach the services.
   const backing = config.backing?.length ? { backing: backingUp(root, config, { id, port }) } : {};
@@ -335,6 +339,7 @@ function writeSharedCargoTarget(root: string, config: Config, wtRoot: string): v
   if (!exists(file) || fs.readFileSync(file, 'utf8') !== body) fs.writeFileSync(file, body);
 }
 
+/** Called under portsLock, which allocateBacking also holds. */
 function allocatePort(root: string, config: Config, id: string): number {
   // Backing services hold ports from the same range, whether or not their job is still active.
   const taken = new Set([...listJobs(root).filter((j) => isActive(j) && j.id !== id && j.port).map((j) => j.port), ...takenPorts(root, config)]);

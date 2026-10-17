@@ -2004,7 +2004,8 @@ export interface BackingRecord {
 export interface BackingUpEntry {
   name: string;
   isolation: BackingIsolation;
-  action: 'created' | 'started' | 'running' | 'external';
+  /** What Forge did, or on a failure what it attempted: `none` when it failed before running or starting a container. */
+  action: 'created' | 'started' | 'running' | 'external' | 'none';
   ok: boolean;
   error?: string;
 }

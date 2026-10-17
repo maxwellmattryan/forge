@@ -13,7 +13,7 @@ import { createJob, loadJob, readEvents, setJob } from '../lib/jobs.ts';
 import { loadStepInput, step } from '../lib/step.ts';
 import { createWorktree, removeWorktree, runCommand, verify } from '../lib/worktree.ts';
 import { emptyState, handle } from './fixtures/fake-docker.mjs';
-import { forgeAsync, repoTemplate } from './helpers.ts';
+import { forgeAsync, repoTemplate, waitFor } from './helpers.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 // Built at runtime: a literal that looks like a credential would trip the secret scan on commit.
@@ -143,6 +143,7 @@ test('up is idempotent and never adopts a foreign container', () => {
       const [r] = b.backingUp(s.dir, s.config, { id: other, port: 4101 }, f.runner);
       assert.equal(r.ok, false);
       assert.equal(r.error, `container ${foreign} exists and is not this job's`);
+      assert.equal(r.action, 'none', 'refused before touching it');
       assert.equal(f.writes().length, writes, 'not started, stopped or removed');
       assert.equal(f.state.containers[foreign].running, false);
       assert.equal(b.backingDown(s.dir, s.config, other, f.runner).ok, true);
@@ -316,6 +317,7 @@ test('a backing failure fails worktree setup', async () => {
     const [entry] = (res.created && res.backing) || [];
     assert.equal(entry.ok, false);
     assert.match(entry.error!, /^docker run failed/);
+    assert.equal(entry.action, 'created', 'the action it attempted');
     assert.deepEqual(res.created && res.setup, []);
     assert.ok(!fs.existsSync(path.join(res.path, 'setup-ran')), 'worktrees.setup did not run');
     const failed = readEvents(s.dir, id).filter((e) => e.type === 'worktree-setup-failed');
@@ -325,6 +327,87 @@ test('a backing failure fails worktree setup', async () => {
     );
     assert.equal(step(loadStepInput(s.dir, s.config, id)).rule, 'I4');
   } finally {
+    s.cleanup();
+  }
+});
+
+test('a failed bring-up reports the action it attempted', () => {
+  const s = scratch([PG, QUEUE]);
+  const f = fake();
+  try {
+    const id = createJob(s.dir, s.config, { title: 'Attempted' }).id;
+    const job = { id, port: 4100 };
+    const queue = { name: 'queue', isolation: 'external', action: 'external', ok: true };
+    const missing = b.backingUp(s.dir, s.config, job, fake({ missing: true }).runner);
+    assert.deepEqual(missing, [{ name: 'postgres', isolation: 'per-job', action: 'none', ok: false, error: 'docker not found on PATH: install Docker to run backing services postgres' }, queue]);
+    f.state.daemon = 'down';
+    assert.equal(b.backingUp(s.dir, s.config, job, f.runner)[0].action, 'none', 'daemon stopped');
+    f.state.daemon = 'up';
+    f.state.failRun = true;
+    assert.deepEqual(b.backingUp(s.dir, s.config, job, f.runner)[0].action, 'created');
+    f.state.failRun = false;
+    assert.equal(b.backingUp(s.dir, s.config, job, f.runner)[0].action, 'created');
+    f.state.containers[`forge-${id}-postgres`].running = false;
+    f.state.failStart = true;
+    const [started] = b.backingUp(s.dir, s.config, job, f.runner);
+    assert.equal(started.ok, false);
+    assert.equal(started.action, 'started');
+    assert.match(started.error!, /^docker start failed/);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('no free port for a backing service fails worktree setup instead of throwing', async () => {
+  const s = scratch([PG], ['touch setup-ran']);
+  const f = fake();
+  // One port in the range: the job's own port takes it, leaving none for postgres.
+  const config = { ...s.config, ports: { ...s.config.ports, span: 1 } };
+  try {
+    const id = createJob(s.dir, config, { title: 'Full' }).id;
+    const res = await withRunner(f.runner, () => createWorktree(s.dir, config, id));
+    assert.ok(res.created);
+    assert.equal(res.ok, false);
+    assert.equal(res.port, config.ports.base);
+    const entries = (res.created && res.backing) || [];
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].ok, false);
+    assert.equal(entries[0].action, 'none');
+    assert.match(entries[0].error!, /^no free port in \d+-\d+ for backing services$/);
+    assert.deepEqual(res.created && res.setup, []);
+    assert.ok(!fs.existsSync(path.join(res.path, 'setup-ran')), 'worktrees.setup did not run');
+    assert.equal(f.runs().length, 0);
+    assert.deepEqual(
+      readEvents(s.dir, id)
+        .filter((e) => e.type === 'worktree-setup-failed')
+        .map((e) => e.backing),
+      ['postgres'],
+    );
+    assert.equal(step(loadStepInput(s.dir, config, id)).rule, 'I4');
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('job ports are allocated under the backing ports lock', async () => {
+  const s = scratch([]);
+  const lock = b.portsLock(s.dir);
+  try {
+    const id = createJob(s.dir, s.config, { title: 'Locked' }).id;
+    fs.mkdirSync(lock, { recursive: true });
+    const pending = forgeAsync(s.dir, ['worktree', 'create', id]);
+    // git has made the worktree, so the create is past everything before the port.
+    await waitFor(() => fs.existsSync(`${s.dir}.wt`) && fs.readdirSync(`${s.dir}.wt`).length > 0, { what: 'the worktree' });
+    await new Promise((r) => setTimeout(r, 400));
+    assert.equal(loadJob(s.dir, id).port ?? null, null, 'no port while another create holds the lock');
+    fs.rmdirSync(lock);
+    const r = await pending;
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(JSON.parse(r.stdout).ok, true);
+    assert.equal(loadJob(s.dir, id).port, s.config.ports.base);
+    assert.ok(!fs.existsSync(lock), 'released');
+  } finally {
+    fs.rmSync(lock, { recursive: true, force: true });
     s.cleanup();
   }
 });
