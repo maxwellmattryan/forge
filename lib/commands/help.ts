@@ -132,13 +132,28 @@ export const CORE: HelpGroup[] = [
         ],
         exits: [[1, 'no such job or worktree, an unverified HEAD (of any job repo), nothing to push (in any job repo), no GitHub slug for a member repo, or a likely secret in a PR title or body or the commits it would push (code secret_found)'], GH_FAILED],
       },
-      { command: 'pr sync', args: '<id>', summary: "read the PR's state, checks and review feedback into the job; each member repo PR's state and checks are recorded first, for display only", exits: [NO_JOB, GH_FAILED] },
+      {
+        command: 'pr sync',
+        args: '<id>',
+        summary: "read the PR's state, checks and review feedback into the job; each member repo PR's state and checks are read first, and the job is done only when every PR merged; a multi-repo job's PR bodies get their sibling links",
+        exits: [NO_JOB, GH_FAILED],
+      },
       {
         command: 'pr merge',
-        args: '<id> [--now]',
-        summary: 'merge once CI passes, or queue auto-merge, or defer; --now is a human override that bypasses CI',
-        flags: [['--now', 'merge without waiting for CI, or a head forge pr open did not check (logged as pr-merge-bypass)']],
-        exits: [[1, 'the merge was refused or failed (the result says why), the job has no PR, the office daemon session ran it, or protected paths apply and the PR head is not the one forge pr open checked (code protected_path; --now overrides)'], GH_FAILED],
+        args: '<id> [--repo NAME | --root] [--now]',
+        summary: "merge once CI passes, or queue auto-merge, or defer; a multi-repo job's PRs merge in the components' dependsOn order, never a PR before its dependencies; --now is a human override that bypasses CI",
+        flags: [
+          ['--repo NAME', 'merge only that member repo PR, once every PR it depends on merged'],
+          ['--root', 'merge only the root repo PR, once every PR it depends on merged'],
+          ['--now', 'merge without waiting for CI, or a head forge pr open did not check (logged as pr-merge-bypass); never bypasses the merge order'],
+        ],
+        exits: [
+          [
+            1,
+            'the merge was refused or failed (the result says why), a dependency PR is not merged yet or the dependsOn edges form a cycle (reason order|cycle), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, the office daemon session ran it, or protected paths apply and the PR head is not the one forge pr open checked (code protected_path; --now overrides)',
+          ],
+          GH_FAILED,
+        ],
       },
     ],
   },

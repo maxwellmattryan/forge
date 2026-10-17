@@ -200,10 +200,11 @@ describe('job repos: pull requests', { concurrency: 4 }, () => {
     assert.deepEqual(p.events(k.id).filter((e) => e.type === 'repo-pr-sync-failed').map((e) => e.repo), ['lib']);
     assert.equal(loadJob(p.root, k.id).pr?.number, 11, 'the root PR still synced');
 
+    // Merging covers every PR of the job, in job.repos order when no component orders them.
+    fs.rmSync(path.join(p.gh, 'lib.cross'));
     const merge = await p.pr(['merge', j.id, '--now']);
     assert.equal(merge.status, 0, merge.stderr + merge.stdout);
     const merges = p.calls().filter((c) => c.startsWith('pr merge'));
-    assert.equal(merges.length, 1);
-    assert.match(merges[0], /-R o\/app/);
+    assert.deepEqual(merges.map((c) => c.split(' ').slice(2, 5).join(' ')), ['11 -R o/app', '7 -R o/lib']);
   });
 });

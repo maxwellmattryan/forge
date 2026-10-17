@@ -157,11 +157,11 @@ case "$1 $2" in
   "pr create")
     if [ -f "$d/$name.fail" ]; then echo "create failed for $slug" >&2; exit 1; fi
     echo "$head" > "$d/$name.pr"
-    [ -n "$bodyfile" ] && cp "$bodyfile" "$d/$name.body"
+    if [ -n "$bodyfile" ]; then cp "$bodyfile" "$d/$name.body"; fi
     url ;;
   "pr edit")
     if [ -f "$d/$name.editfail" ]; then echo "edit failed for $slug" >&2; exit 1; fi
-    [ -n "$bodyfile" ] && cp "$bodyfile" "$d/$name.body" ;;
+    if [ -n "$bodyfile" ]; then cp "$bodyfile" "$d/$name.body"; fi ;;
   "pr list")
     if { [ -f "$d/$name.pr" ] || [ -f "$d/$name.cross" ]; } && { [ -z "$open" ] || [ "$(state)" = OPEN ]; }; then
       printf '[{"number":%s,"url":"%s","state":"%s","isDraft":false,"isCrossRepository":%s,"headRefName":"%s","baseRefName":"main"}]' "$(num)" "$(url)" "$(state)" "$(cross)" "$head"
@@ -177,7 +177,7 @@ case "$1 $2" in
   "repo view") echo o/app ;;
   "pr merge")
     if [ -f "$d/$name.mergefail" ]; then echo "merge failed for $slug" >&2; exit 1; fi
-    [ -z "$auto" ] && echo MERGED > "$d/$name.state" ;;
+    if [ -z "$auto" ]; then echo MERGED > "$d/$name.state"; fi ;;
 esac
 `;
 
