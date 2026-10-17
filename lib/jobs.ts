@@ -10,6 +10,7 @@ import { localRepoSlug } from './repo-slug.ts';
 import type { AgentUsage, Config, Effort, EventActor, Job, JobAgent, JobIssue, JobChange, JobOwner, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
 import { queueNotify, transitionEvents } from './notify.ts';
 import { estimateCost } from './usage.ts';
+import { reviewFileName } from './lens.ts';
 import { ForgeError, assertSafeRef, now, readJson, readText, setPath, slugify, shortId, withLock, writeJsonAtomic } from './util.ts';
 
 /** A session that has not touched its job for this long is presumed dead and can be taken over. */
@@ -487,7 +488,7 @@ export function resolveAgentOutput(root: string, id: string, value: string): str
 
 /** The output a role writes when its start recorded none: the single-output roles only. */
 export function defaultAgentOutput(role: string, round: number | undefined): string | null {
-  if (role.startsWith('reviewer:')) return path.join('review', `round-${round ?? 0}`, `${role.slice('reviewer:'.length)}.md`);
+  if (role.startsWith('reviewer:')) return path.join('review', `round-${round ?? 0}`, reviewFileName(role.slice('reviewer:'.length)));
   if (role === 'approver') return 'decision.md';
   if (role === 'spec-writer') return 'spec.md';
   if (role === 'verifier') return path.join('verify', `round-${round ?? 0}-verifier-answers.md`);
@@ -610,7 +611,7 @@ export function roundVerdicts(
   const ended = reviewerEnded(root, id, round);
   const out: Record<string, any> = {};
   for (const r of reviewers) {
-    const file = path.join(dir, `${r}.md`);
+    const file = path.join(dir, reviewFileName(r));
     if (!exists(file)) {
       out[r] = ended(r) ? { verdict: 'MISSING', file: path.relative(jobDir(root, id), file), path: file } : { verdict: 'PENDING' };
       continue;

@@ -1,9 +1,11 @@
 // Agent briefs for `forge job step`: paths and config-derived lines only, never file contents, so
 // text an agent wrote (after reading tracker or PR text) is never re-injected into another prompt.
 import path from 'node:path';
-import { autoMerge, lensNeedsApp, resolveEffort, reviewerChecklist } from './config.ts';
+import { autoMerge, lensNeedsApp, resolveEffort } from './config.ts';
 import { jobDir, reviewDir } from './jobs.ts';
-import { memberRepos } from './job-repos.ts';
+import { memberEntry, memberRepos, trustedMemberWorktree } from './job-repos.ts';
+import { reviewFileName, reviewedRepoNames, splitLens } from './lens.ts';
+import { lensChecklists } from './member-panel.ts';
 import { paths, exists } from './paths.ts';
 import type { Config, GateClass, Job, StepInput } from './types.ts';
 
@@ -31,6 +33,8 @@ export function jobPathMap(root: string, config: Config, job: Job): Record<strin
     verifierInput: path.join(dir, 'verify', `round-${job.round}-verifiers-input.md`),
     verifierAnswers: path.join(dir, 'verify', `round-${job.round}-verifier-answers.md`),
     scope: path.join(dir, 'scope.md'),
+    // Only with a reviewed member: single-repo reviewers read `forge git diff` as before.
+    ...(reviewedRepoNames(job).length ? { scopeDiff: path.join(dir, 'scope.diff') } : {}),
     screenshots: path.join(dir, 'screenshots'),
     reviewDir: reviewDir(root, job.id, round),
     previousReviewDir: round > 1 ? path.join(dir, 'review', `round-${round - 1}`) : null,
@@ -45,7 +49,7 @@ export function jobPathMap(root: string, config: Config, job: Job): Record<strin
     notesDir: p.notes,
     config: p.config,
     instructions: (config.project.instructions ?? []).map((f: string) => path.join(job.worktree ?? root, f)).filter(exists),
-    checklists: Object.fromEntries((job.reviewers ?? []).map((r: string) => [r, reviewerChecklist(root, r, config.review.panel.find((x) => x.name === r)?.checklist)])),
+    checklists: lensChecklists(root, config, job, job.reviewers ?? []),
     ...(memberRepos(job).length ? { repos: Object.fromEntries(memberRepos(job).map((m) => [m.repo, m.worktree])) } : {}),
   };
 }
@@ -153,14 +157,23 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
     case 'reviewer': {
       const lens = ctx.lens ?? role.slice('reviewer:'.length);
       const extra = [`Lens: ${lens}`, `Checklist: ${input.checklists[lens] ?? 'none'}`, `Scope: ${p('scope')}`];
+      const lensRepo = splitLens(lens)?.repo;
+      const member = lensRepo ? memberEntry(j, lensRepo) : null;
+      if (member) {
+        // The computed path, not job.json's: the session can write job.json, and verdicts trusts the same value.
+        const wt = trustedMemberWorktree(input.root, c, j, member.repo) ?? 'none';
+        extra.push(`Lens repo: ${member.repo} · worktree ${wt} · base ${member.base ?? 'none'}`);
+      }
       if (lensNeedsApp(c, lens) && c.commands.dev) extra.push(`Dev server: http://localhost:${j.port ?? c.ports.base}`);
+      // The integration review stays root-only and has its own Diff line below.
+      if (input.paths.scopeDiff && !ctx.integration) extra.push(`Diff: ${p('scopeDiff')} (every job repo; member paths are prefixed <repo>/)`);
       if (ctx.integration) {
         // JSON, so a conflicted file name can't start a line of its own in the brief.
         extra.push(`Integration review: conflicted files ${JSON.stringify(ctx.integration.conflicts)}`);
         extra.push(`Diff: use the Before/Merge shas in build.md's ## Integration block, as in ${path.join(input.pluginRoot, 'skills', 'forge', 'reference', 'pr-lifecycle.md')}`);
       }
       // The verifiers report, when this round has one, so its warnings reach the panel.
-      return out([path.join(p('reviewDir'), `${lens}.md`)], [p('spec'), p('design'), p('build'), p('verifiers')], extra);
+      return out([path.join(p('reviewDir'), reviewFileName(lens))], [p('spec'), p('design'), p('build'), p('verifiers')], extra);
     }
     case 'approver':
       return out(
