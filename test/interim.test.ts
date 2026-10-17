@@ -4,6 +4,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { defaults } from '../lib/config.ts';
 import { BLOCK_BEGIN, BLOCK_END, canaryVersion, npmGitSpec, pinCargo, pinCmake, pinNpm, remoteUrl, resolveInterim } from '../lib/interim.ts';
+import { isPackageManagerConfig } from '../lib/interim-apply.ts';
 import type { Config, Job } from '../lib/types.ts';
 
 const SHA = '0123456789abcdef0123456789abcdef01234567';
@@ -128,5 +129,22 @@ describe('interim: pure helpers', { concurrency: 4 }, () => {
     const merged = { ...seq, repos: [{ repo: null }, member('lib', { interim: 'sequential', pr: { number: 7, state: 'MERGED' } }), member('tools')] } as unknown as Job;
     assert.equal(resolveInterim(config, merged).edges[2].state, 'ready');
     assert.deepEqual(resolveInterim(config, { ...job, repos: [{ repo: null }] } as unknown as Job).edges, [], 'a single-repo job has no edges');
+  });
+
+  test('package manager config names match by case, Unicode form and filesystem folding', () => {
+    const refused = [
+      '.npmrc', '.NPMRC', '.Npmrc', 'pkg/.npmrc', 'a/b/.NpMrC', 'pkg\\.npmrc', 'npmrc', 'NPMRC~1',
+      '.yarnrc', '.yarnrc.yml', '.YARNRC.YML', '.pnpmrc', '.PNPMRC',
+      '.npmrc.', '.npmrc  ', '.npmrc::$DATA', '.npm\u200Brc', '.n\u00ADpmrc', '.\uFF4E\uFF50\uFF4D\uFF52\uFF43',
+      '.npmrc/inner', 'sub/.Yarnrc/x',
+    ];
+    for (const p of refused) assert.equal(isPackageManagerConfig(p), true, JSON.stringify(p));
+    for (const p of ['package.json', 'README.md', 'src/npm.ts', 'docs/rc.md', '.npmignore', 'lib/yarn.lock', 'pnpm-lock.yaml'])
+      assert.equal(isPackageManagerConfig(p), false, p);
+    // A 10k hostile name finishes at once (no backtracking).
+    const t = Date.now();
+    assert.equal(isPackageManagerConfig(`${'. '.repeat(5000)}x`), false);
+    assert.equal(isPackageManagerConfig(`.npmrc${':'.repeat(10000)}`), true);
+    assert.ok(Date.now() - t < 500);
   });
 });

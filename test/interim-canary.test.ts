@@ -18,13 +18,16 @@ import { token } from './secret-fixtures.ts';
 const cleanups: (() => void)[] = [];
 after(() => cleanups.forEach((c) => c()));
 
-// One line per call (`<cwd> <args>`), and the package.json it saw beside the log.
+// One line per call (`<cwd> <args>`), and the package.json and files it saw in the package dir
+// (\$2, after \`publish\`) beside the log, with the global config npm was pointed at.
 const STUB = `#!/bin/sh
 d="$STUB_DIR"
 echo "$PWD $*" >> "$d/npm.log"
 n=$(wc -l < "$d/npm.log" | tr -d ' ')
-cp package.json "$d/published-$n.json" 2>/dev/null
-ls -A > "$d/files-$n.txt"
+cp "$2/package.json" "$d/published-$n.json" 2>/dev/null
+ls -A "$2" > "$d/files-$n.txt"
+ls -A "$PWD" > "$d/cwd-$n.txt"
+echo "$npm_config_globalconfig" > "$d/globalconfig-$n.txt"
 [ -f "$d/fail" ] && exit 1
 exit 0
 `;
@@ -149,9 +152,14 @@ describe('interim strategies: canary', { concurrency: 4 }, () => {
     const calls = c.log();
     assert.equal(calls.length, 1);
     const [cwd, ...argv] = calls[0].split(' ');
-    assert.deepEqual(argv, ['publish', '--ignore-scripts', '--workspaces=false', '--tag', 'canary'], 'no lifecycle script runs');
-    assert.ok(path.resolve(cwd).startsWith(path.join(fs.realpathSync(os.tmpdir()), 'forge-canary-')) || path.resolve(cwd).startsWith(path.join(os.tmpdir(), 'forge-canary-')), `exported outside the repo and the job dir: ${cwd}`);
-    assert.ok(!fs.existsSync(cwd), 'and removed after the publish');
+    const [, pkgDir] = argv;
+    assert.deepEqual(argv, ['publish', pkgDir, '--ignore-scripts', '--workspaces=false', '--tag', 'canary', '--prefix', cwd], 'no lifecycle script runs, and npm runs from an empty prefix');
+    for (const d of [cwd, pkgDir])
+      assert.ok(path.resolve(d).startsWith(path.join(fs.realpathSync(os.tmpdir()), 'forge-canary-')) || path.resolve(d).startsWith(path.join(os.tmpdir(), 'forge-canary-')), `exported outside the repo and the job dir: ${d}`);
+    assert.ok(!pkgDir.startsWith(cwd + path.sep), 'the package is not under the prefix npm reads project config from');
+    assert.deepEqual(fs.readFileSync(path.join(c.stub, 'cwd-1.txt'), 'utf8').split('\n').filter(Boolean), ['npmrc'], 'the prefix holds only the empty global config');
+    assert.equal(fs.readFileSync(path.join(c.stub, 'globalconfig-1.txt'), 'utf8').trim(), path.join(cwd, 'npmrc'));
+    assert.ok(!fs.existsSync(cwd) && !fs.existsSync(pkgDir), 'and removed after the publish');
     assert.ok(!fs.existsSync(path.join(c.jobDir, 'canary')));
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(c.stub, 'published-1.json'), 'utf8')), { name: 'engine', version });
     assert.deepEqual(fs.readFileSync(path.join(c.stub, 'files-1.txt'), 'utf8').split('\n').filter(Boolean).sort(), ['README.md', 'package.json'], 'only the tracked files of the verified commit');
@@ -203,13 +211,21 @@ describe('interim strategies: canary', { concurrency: 4 }, () => {
     }
     assert.deepEqual(rc.log(), []);
 
+    // The class, not the instance: any case, a nested package dir, and a name that only folds to .npmrc.
+    const upper = await canary(LIB_PKG(), { libFiles: { '.NPMRC': 'registry=http://127.0.0.1:9/\n', 'pkg/.Npmrc': 'x=1\n' } });
+    json(await upper.run(['verify', upper.id]));
+    const ur = await upper.tty(['job', 'interim', 'publish', upper.id, 'lib', '--confirm']);
+    assert.equal(ur.status, 1);
+    assert.match(ur.stderr, /tracks "(\.NPMRC|pkg\/\.Npmrc)" in the package engine; npm would read it as config/);
+    assert.deepEqual(upper.log(), []);
+
     const pkg = '{\n  "name": "engine",\n  "version": "1.4.0",\n  "scripts": { "prepublishOnly": "touch PWNED" },\n  "publishConfig": { "registry": "http://127.0.0.1:9/", "tag": "latest" }\n}\n';
     const pc = await canary(pkg);
     json(await pc.run(['verify', pc.id]));
     json(await pc.tty(['job', 'interim', 'publish', pc.id, 'lib', '--confirm']));
     const published = JSON.parse(fs.readFileSync(path.join(pc.stub, 'published-1.json'), 'utf8'));
     assert.equal(published.publishConfig, undefined, 'publishConfig never reaches npm');
-    assert.match(pc.log()[0], / publish --ignore-scripts /);
+    assert.match(pc.log()[0], / publish \S+ --ignore-scripts /);
 
     const base = await canary(LIB_PKG(), { libBase: { 'k.ts': `export const k = '${token.github('canary-base')}';\n` } });
     json(await base.run(['verify', base.id]));
@@ -218,6 +234,19 @@ describe('interim strategies: canary', { concurrency: 4 }, () => {
     assert.equal(JSON.parse(r.stdout).error.code, 'secret_found', 'a key already on the default branch ships too');
     assert.match(JSON.parse(r.stdout).error.message, /the package engine of repo lib/, 'found in the export, not the branch commits');
     assert.deepEqual(base.log(), []);
+  });
+
+  test('publish refuses a tracked symlink', async () => {
+    const c = await canary();
+    fs.symlinkSync('../../../.npmrc', path.join(c.libWt, 'notes'));
+    c.commit(c.libWt, {}, 'feat: link');
+    json(await c.run(['verify', c.id]));
+    for (const args of [[], ['--confirm']]) {
+      const r = await c.tty(['job', 'interim', 'publish', c.id, 'lib', ...args]);
+      assert.equal(r.status, 1, args.join(' '));
+      assert.match(r.stderr, /tracks the symlink "notes" in the package engine; Forge publishes regular files only/);
+    }
+    assert.deepEqual(c.log(), []);
   });
 
   test('publish checks the verified commit is on the job branch in git', async () => {

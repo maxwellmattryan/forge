@@ -169,7 +169,7 @@ const JOB: HelpGroup = {
       exits: [
         [
           1,
-          "no such job; for publish, a daemon session, --confirm without a terminal on stdin, a repo that is not the dependency of an npm-only canary edge, a HEAD that is not the one the latest passing verify checked or not on the job branch, a package.json whose name is not the link's, a package that tracks an .npmrc or .yarnrc, a failed npm publish, or a likely secret in its commits or its files (code secret_found)",
+          "no such job; for publish, a daemon session, --confirm without a terminal on stdin, a repo that is not the dependency of an npm-only canary edge, a HEAD that is not the one the latest passing verify checked or not on the job branch, a package.json whose name is not the link's, a package that tracks a symlink or npm, yarn or pnpm config in any case, a failed npm publish, or a likely secret in its commits or its files (code secret_found)",
         ],
       ],
       docs: ['Interim strategies', 'docs/CONFIG.md#interim-strategies'],

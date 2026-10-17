@@ -400,8 +400,31 @@ export interface CanaryPackage {
   skipped?: true;
 }
 
-/** Config npm reads from a package directory, and so from an export: it could redirect the registry and the token. */
-const NPM_CONFIG_FILE = /(^|\/)(\.npmrc|\.yarnrc[^/]*)$/;
+/**
+ * The name a case-insensitive, normalization-insensitive filesystem (APFS, HFS+, NTFS) would give one
+ * path component: NFKC, case-folded, without default-ignorable code points (HFS+ drops them),
+ * an NTFS stream suffix (`:$DATA`) or trailing dots and spaces (NTFS drops those).
+ */
+function foldName(component: string): string {
+  return component
+    .normalize('NFKC')
+    .replace(/\p{Default_Ignorable_Code_Point}/gu, '')
+    .toUpperCase()
+    .toLowerCase()
+    .normalize('NFKC')
+    .replace(/:.*$/s, '')
+    .replace(/[. ]+$/, '');
+}
+
+/**
+ * Whether a tracked path is, or sits under, a file npm, yarn or pnpm could read as config: any
+ * component whose folded name, leading dots dropped, starts with `npmrc`, `yarnrc` or `pnpmrc`
+ * (`.npmrc`, `.NPMRC`, `.yarnrc.yml`, an 8.3 `NPMRC~1`). Over-matching refuses a publish a human can
+ * redo by hand; under-matching could send the human's token to another registry.
+ */
+export function isPackageManagerConfig(rel: string): boolean {
+  return rel.split(/[\\/]/).some((c) => /^(npm|yarn|pnpm)rc/.test(foldName(c).replace(/^\.+/, '')));
+}
 
 interface TreeEntry {
   mode: string;
@@ -409,15 +432,19 @@ interface TreeEntry {
   path: string;
 }
 
-/** The regular files of `rel` at `sha` from git objects only. Symlinks and submodules are left out. */
+/** The blobs of `rel` at `sha` from git objects only, symlinks included (the caller refuses them). Submodules are left out. */
 function treeEntries(cwd: string, sha: string, rel: string): TreeEntry[] {
   const spec = rel.replace(/\\/g, '/').replace(/\/+$/, '');
   const ls = run('git', ['-c', 'core.quotepath=off', 'ls-tree', '-r', '-z', '--full-tree', sha, '--', ...(spec === '.' ? [] : [spec])], { cwd, env: gitEnv() });
   return ls.stdout.split('\0').filter(Boolean).flatMap((line) => {
     const m = /^(\d{6}) blob ([0-9a-f]{40,64})\t(.+)$/s.exec(line);
-    return m && (m[1] === '100644' || m[1] === '100755') ? [{ mode: m[1], blob: m[2], path: m[3] }] : [];
+    return m ? [{ mode: m[1], blob: m[2], path: m[3] }] : [];
   });
 }
+
+// O_EXCL: two tracked paths that fold to one name (`package.json` and `PACKAGE.JSON` on APFS) fail
+// instead of the second silently replacing the first. O_NOFOLLOW: never write through a link.
+const EXPORT_FLAGS = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW ?? 0);
 
 /**
  * Writes `entries` into `dir` from git objects only: no checkout, so no filter, hook or attribute in
@@ -441,7 +468,17 @@ function exportTree(cwd: string, entries: TreeEntry[], dir: string): { path: str
     if (!isInsidePath(e.path)) continue;
     const file = path.join(dir, e.path);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, body, { mode: e.mode === '100755' ? 0o755 : 0o644 });
+    try {
+      const fd = fs.openSync(file, EXPORT_FLAGS, e.mode === '100755' ? 0o755 : 0o644);
+      try {
+        fs.writeFileSync(fd, body);
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch (err: any) {
+      if (err?.code === 'EEXIST' || err?.code === 'ELOOP') throw new ForgeError(`${JSON.stringify(e.path).slice(0, 220)} collides with another tracked path in the export (this filesystem folds case or Unicode); Forge won't publish it`);
+      throw err;
+    }
     written.push({ path: e.path, body });
   }
   return written;
@@ -510,8 +547,12 @@ export function publishCanary(root: string, config: Config, id: string, key: Rep
     if (!version) throw new ForgeError(`${rel}/package.json in ${repoLabel(key)} has no semver version at ${head.slice(0, 12)}`);
     if (pkg.name !== name) throw new ForgeError(`${rel}/package.json in ${repoLabel(key)} is named ${JSON.stringify(String(pkg.name)).slice(0, 220)}, not the link's ${name}; Forge publishes only the package config names`);
     const entries = treeEntries(wt, head, rel);
-    const rc = entries.find((e) => NPM_CONFIG_FILE.test(e.path));
+    const link = entries.find((e) => e.mode === '120000');
+    if (link) throw new ForgeError(`${repoLabel(key)} tracks the symlink ${JSON.stringify(link.path).slice(0, 220)} in the package ${name}; Forge publishes regular files only, so it won't publish it`);
+    const rc = entries.find((e) => isPackageManagerConfig(e.path));
     if (rc) throw new ForgeError(`${repoLabel(key)} tracks ${JSON.stringify(rc.path).slice(0, 220)} in the package ${name}; npm would read it as config while publishing, so Forge won't publish it`);
+    const odd = entries.find((e) => e.mode !== '100644' && e.mode !== '100755');
+    if (odd) throw new ForgeError(`${repoLabel(key)} tracks ${JSON.stringify(odd.path).slice(0, 220)} with mode ${odd.mode} in the package ${name}; Forge publishes regular files only`);
     trees.set(name, entries);
     would.push({ name, version, tag: 'canary', dir: rel });
   }
@@ -524,13 +565,17 @@ export function publishCanary(root: string, config: Config, id: string, key: Rep
     }
     // Outside the repo and the job dir (both writable by the builder), so npm finds no project or
     // workspace config above the package either.
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-canary-'));
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-canary-')));
     try {
-      const files = exportTree(wt, trees.get(p.name)!, dir);
+      const tree = path.join(dir, 'tree');
+      const prefix = path.join(dir, 'npm');
+      fs.mkdirSync(tree, { mode: 0o700 });
+      fs.mkdirSync(prefix, { mode: 0o700 });
+      const files = exportTree(wt, trees.get(p.name)!, tree);
       const exported = scanFiles(root, config, files);
       logSecrets(root, id, 'publish', exported, { blocked: mode === 'block' });
       if (mode === 'block' && exported.findings.length) throw new ForgeError(refusalMessage(`the package ${p.name} of ${repoLabel(key)}`, exported.findings), 'secret_found', `forge secrets scan ${id}`);
-      const pkgDir = path.join(dir, p.dir);
+      const pkgDir = path.join(tree, p.dir);
       const file = path.join(pkgDir, 'package.json');
       const raw = fs.readFileSync(file, 'utf8');
       const pkg = JSON.parse(raw);
@@ -541,8 +586,17 @@ export function publishCanary(root: string, config: Config, id: string, key: Rep
       const indent = /\n([ \t]+)"/.exec(raw)?.[1] ?? '  ';
       fs.writeFileSync(file, `${JSON.stringify(pkg, null, indent)}\n`);
       // Fixed argv, no shell: nothing from the repo or job reaches npm's options, and none of the
-      // package's lifecycle scripts runs in the human's session.
-      const r = run('npm', ['publish', '--ignore-scripts', '--workspaces=false', '--tag', 'canary'], { cwd: pkgDir, allowFail: true });
+      // package's lifecycle scripts runs in the human's session. npm reads project config from its
+      // local prefix, which is the package dir when it runs there; `--prefix` and the cwd move that
+      // to an empty dir, so even a config file the name check missed is never read. The global
+      // config moves with the prefix and is pinned to an empty file; the user config stays the
+      // human's own (`~/.npmrc` or their `npm_config_userconfig`), which holds the token.
+      const globalconfig = path.join(prefix, 'npmrc');
+      fs.writeFileSync(globalconfig, '', { mode: 0o600, flag: 'wx' });
+      const env: NodeJS.ProcessEnv = {};
+      for (const [k, v] of Object.entries(process.env)) if (!/^npm_config_(globalconfig|prefix|workspaces?|ignore_scripts|tag)$/i.test(k)) env[k] = v;
+      env.npm_config_globalconfig = globalconfig;
+      const r = run('npm', ['publish', pkgDir, '--ignore-scripts', '--workspaces=false', '--tag', 'canary', '--prefix', prefix], { cwd: prefix, env, allowFail: true });
       if (!r.ok) throw new ForgeError(`npm publish of ${p.name}@${p.version} exited ${r.status ?? 'without starting'}; nothing was recorded`, 'external');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
