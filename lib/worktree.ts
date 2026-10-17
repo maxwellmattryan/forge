@@ -19,6 +19,8 @@ import { checkBranch, compactProtected, renderProtected } from './protected.ts';
 import type { BranchCheck, CompactProtected } from './protected.ts';
 import { logSecrets, renderSecrets, scanBranch, secretMode, secretsOk, secretsTail, compactSecrets } from './secrets.ts';
 import { jobComponent } from './components.ts';
+import { applySinks } from './config-sinks-apply.ts';
+import type { SinkSummary } from './config-sinks-apply.ts';
 import { refreshInterim } from './interim-apply.ts';
 import { applyLinks, consumerLockfiles, pathPrelude, resolveLinks, restoreLockfiles, snapshotLockfiles } from './links.ts';
 import type { AppliedLinks, LockSnapshot } from './links.ts';
@@ -53,6 +55,8 @@ export interface CommandResult {
   links?: string[];
   /** Lockfiles written back after the command; only when non-empty. */
   restored?: string[];
+  /** The component's config sinks rendered before the command: names, relative paths and a count, never values. */
+  config?: SinkSummary;
 }
 
 /** One verify step: a command's result, a skipped step, or a gate verify adds itself (worktree-clean, secrets, protected, integrity). */
@@ -492,6 +496,8 @@ interface PreparedCommand {
   /** Run before `cmd`, after the login profile: the PATH line that puts the link shims first. */
   prelude: string;
   links: AppliedLinks | null;
+  /** The component's config sinks rendered for this command, when it has any. */
+  config?: SinkSummary;
 }
 
 /** The env and PATH prelude of a consumer repo's links, rendered fresh for this command. */
@@ -511,10 +517,16 @@ function prepareCommand(root: string, config: Config, id: string, name: string, 
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
   const cwd = component?.path ? path.join(job.worktree, component.path) : job.worktree;
   // Before touchJob: refused arguments leave no trace, not even a heartbeat.
-  const cmd = fillCommand(name, template, vars(root, config, job, job.worktree, job.port, template), opts.args ?? []);
+  const v = vars(root, config, job, job.worktree, job.port, template);
+  const cmd = fillCommand(name, template, v, opts.args ?? []);
+  // After the arguments and before the heartbeat: a refused sink leaves no trace either.
+  const applied = component ? applySinks(root, config, job, component, { env: envFor(job, job.worktree, job.port), fillCmd: (t) => fill(t, v) }) : null;
   // Agents run commands all through a build; each one proves the session is alive.
   touchJob(root, id);
-  return { cmd, cwd, ...withLinks(root, config, job, null, envFor(job, job.worktree, job.port)) };
+  if (applied) logEvent(root, id, 'config-sinks', applied.summary);
+  // Sink env sits over the inherited environment and under the links' (names are disjoint by validation).
+  const env = { ...envFor(job, job.worktree, job.port), ...applied?.env };
+  return { cmd, cwd, ...withLinks(root, config, job, null, env), ...(applied ? { config: applied.summary } : {}) };
 }
 
 /**
@@ -556,6 +568,7 @@ function recordCommand(root: string, id: string, name: string, p: PreparedComman
   const result: CommandResult = { name, cmd: p.cmd, ok: res.ok, exit: res.status, durationMs: Date.now() - started, log: path.relative(jobDir(root, id), logFile), tail: tail(res.output, opts.tail ?? 40) };
   if (p.links?.labels.length) result.links = p.links.labels;
   if (restored.length) result.restored = restored;
+  if (p.config) result.config = p.config;
   logEvent(root, id, 'command', { name, ...(p.repo ? { repo: p.repo } : {}), ok: res.ok, exit: res.status, durationMs: result.durationMs });
   return result;
 }
@@ -970,14 +983,21 @@ export async function startBackground(
     if (prev && pidAlive(prev.pid)) return { pid: prev.pid, log: path.resolve(dir, String(prev.log ?? `logs/${name}.log`)), reused: true };
     // Filled before the log is opened, so a refused value leaves nothing behind.
     // Checked above; the narrowing does not reach into this callback.
-    const cmd = fill(template, vars(root, config, job, job.worktree!, job.port, template));
+    const v = vars(root, config, job, job.worktree!, job.port, template);
+    const cmd = fill(template, v);
+    // The component's sinks render before the server starts, as before a foreground command; a
+    // reused live process (above) renders nothing.
+    const component = jobComponent(config, job);
+    const baseEnv = envFor(job, job.worktree!, job.port);
+    const applied = component ? applySinks(root, config, job, component, { env: baseEnv, fillCmd: (t) => fill(t, v) }) : null;
+    if (applied) logEvent(root, id, 'config-sinks', applied.summary);
     const sh = posixShell();
     const logFile = path.join(dir, 'logs', `${name}.log`);
     fs.mkdirSync(path.dirname(logFile), { recursive: true });
     const fd = fs.openSync(logFile, 'a');
     const child = spawn(sh, ['-lc', cmd], {
       cwd: job.worktree!,
-      env: envFor(job, job.worktree!, job.port),
+      env: { ...baseEnv, ...applied?.env },
       detached: true,
       stdio: ['ignore', fd, fd],
     });

@@ -290,8 +290,8 @@ export function sameMode(actual: number, wanted: number, platform: NodeJS.Platfo
   return (actual & bits) === (wanted & bits);
 }
 
-/** Writes `content` (temp file plus rename) only when the file differs; a symlink or FIFO there is replaced. */
-function writeIfChanged(file: string, content: string, mode: number): void {
+/** Writes `content` (temp file plus rename) only when the file differs; a symlink or FIFO there is replaced, never followed. Config sinks (lib/config-sinks-apply.ts) reuse it. */
+export function writeIfChanged(file: string, content: string, mode: number): void {
   try {
     const st = fs.lstatSync(file);
     if (st.isFile() && sameMode(st.mode, mode) && fs.readFileSync(file, 'utf8') === content) return;
