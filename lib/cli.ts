@@ -163,6 +163,9 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
     }
     case 'pr': {
       needInit();
+      // Before the id: `--root <id>` makes parseArgs swallow the id as the flag's value, and a
+      // misread merge target must be refused, never guessed.
+      if (sub === 'merge') pr.mergeTarget(flags);
       const id = req(rest[0], 'job id');
       if (sub === 'find') return ok(pr.findPr(root, config, id));
       if (sub === 'open') return ok(pr.openPr(root, config, id, { title: flags.title, draft: flags.draft === undefined ? undefined : Boolean(flags.draft), force: Boolean(flags.force) }));
@@ -171,7 +174,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
         // Strictly `true`: `--now <id>` would make parseArgs swallow the id as the flag's value,
         // and that mistake must not silently bypass CI.
         refuseInOffice('the foreman never merges; foreman.ship merge only feeds the approver and step PR4');
-        const r = pr.mergePr(root, config, id, { now: flags.now === true });
+        const r = pr.mergePr(root, config, id, { now: flags.now === true, ...pr.mergeTarget(flags) });
         return { data: r, exitCode: r.action === 'refused' || r.action === 'failed' ? 1 : 0 };
       }
       throw usage('pr');

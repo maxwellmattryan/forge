@@ -5,6 +5,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { approvedBy, findPr, mergeAction, hasCiWorkflows, mergePr, prText, syncPr, syncTransition } from '../lib/pr.ts';
+import type { MemberPrState } from '../lib/pr.ts';
 import { stripAttribution } from '../lib/attribution.ts';
 import { defaults } from '../lib/config.ts';
 import { claimJob, createJob, loadJob, logEvent, setJob, readEvents, updateJob } from '../lib/jobs.ts';
@@ -574,8 +575,12 @@ test('syncTransition matrix', () => {
   const conflictsPark = { state: 'waiting', waitingOn: 'conflicts' };
   const reviewPark = { state: 'waiting', waitingOn: 'pr-review' };
   const deferNote = { state: 'waiting', waitingOn: 'pr-review', note: 'conflicts with base deferred by pr.conflicts' };
-  // [name, policy, job, gh fields, route, ownerLive, want change, integrate, integrateFor, ownerLive calls]
-  const rows: [string, 'ask' | 'fix' | 'defer', J, Partial<JobPr>, boolean, boolean, object, boolean, string | null, number][] = [
+  const member = (state: 'OPEN' | 'CLOSED' | 'MERGED' | null, o: { number?: number | null; newlyClosed?: boolean } = {}) => [{ repo: 'lib', number: 7, state, newlyClosed: false, ...o }];
+  const MERGED: Partial<JobPr> = { state: 'MERGED' };
+  const memberWait = (reason: string) => ({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review', reason: `PR merged; waiting on repo lib ${reason}` });
+  const closedNote = 'repo lib PR #7 was closed without merging';
+  // [name, policy, job, gh fields, route, ownerLive, want change, integrate, integrateFor, ownerLive calls, members]
+  const rows: [string, 'ask' | 'fix' | 'defer', J, Partial<JobPr>, boolean, boolean, object, boolean, string | null, number, MemberPrState[]?][] = [
     ['ask conflicting parks on conflicts', 'ask', at(), CONFLICT, true, false, conflictsPark, false, null, 0],
     ['fix conflicting routes', 'fix', at(), CONFLICT, true, false, fixR, true, SHA_A, 1],
     ['defer conflicting defers with a note', 'defer', at(), CONFLICT, true, false, deferNote, false, null, 0],
@@ -606,11 +611,25 @@ test('syncTransition matrix', () => {
     ['a new head drops integrateFor', 'ask', at({}, { integrateFor: SHA_B }), {}, true, false, reviewPark, false, null, 0],
     ['merged', 'fix', at({}, { integrateFor: SHA_A }), { ...BEHIND, state: 'MERGED' }, true, false, { stage: 'done', state: 'done', reason: 'PR merged' }, false, SHA_A, 0],
     ['closed', 'fix', at(), { ...CONFLICT, state: 'CLOSED' }, true, false, { state: 'cancelled', reason: 'PR closed without merging' }, false, null, 0],
+    ['root merged, member open', 'ask', at(), MERGED, true, false, memberWait('PR #7'), false, null, 0, member('OPEN')],
+    ['root merged, member closed', 'ask', at(), MERGED, true, false, memberWait('PR #7 (closed without merging)'), false, null, 0, member('CLOSED')],
+    ['root merged, member newly closed', 'ask', at(), MERGED, true, false, { ...memberWait('PR #7 (closed without merging)'), note: closedNote }, false, null, 0, member('CLOSED', { newlyClosed: true })],
+    ['root merged, member unread', 'ask', at(), MERGED, true, false, memberWait('(state unknown)'), false, null, 0, member(null)],
+    ['root merged, member without a PR', 'ask', at(), MERGED, true, false, memberWait('(no PR)'), false, null, 0, member(null, { number: null })],
+    ['root merged, member merged', 'ask', at(), MERGED, true, false, { stage: 'done', state: 'done', reason: 'all PRs merged' }, false, null, 0, member('MERGED')],
+    ['root merged from integrate, member open', 'ask', at({ stage: 'integrate', state: 'failed', waitingOn: null }), MERGED, true, false, memberWait('PR #7'), false, null, 0, member('OPEN')],
+    ['root merged, already waiting so', 'ask', { ...at(), reason: 'PR merged; waiting on repo lib PR #7' } as J, MERGED, true, false, {}, false, null, 0, member('OPEN')],
+    ['root merged, member open, running job untouched', 'ask', at({ state: 'running', waitingOn: null }), MERGED, true, false, {}, false, null, 0, member('OPEN')],
+    ['root merged, member open, done job untouched', 'ask', at({ stage: 'done', state: 'done', waitingOn: null }), MERGED, true, false, {}, false, null, 0, member('OPEN')],
+    ['root merged, member closed, done job keeps the note', 'ask', at({ stage: 'done', state: 'done', waitingOn: null }), MERGED, true, false, { note: closedNote }, false, null, 0, member('CLOSED', { newlyClosed: true })],
+    ['root open, member newly closed', 'ask', at(), {}, true, false, { ...reviewPark, note: closedNote }, false, null, 0, member('CLOSED', { newlyClosed: true })],
+    ['root closed still cancels', 'ask', at(), { state: 'CLOSED' }, true, false, { state: 'cancelled', reason: 'PR closed without merging' }, false, null, 0, member('OPEN')],
+    ['no members: merged as before', 'ask', at(), MERGED, true, false, { stage: 'done', state: 'done', reason: 'PR merged' }, false, null, 0, []],
   ];
-  for (const [name, policy, j, fields, route, live, change, integrate, integrateFor, calls] of rows) {
+  for (const [name, policy, j, fields, route, live, change, integrate, integrateFor, calls, members] of rows) {
     let n = 0;
     const merged = { ...j.pr!, ...gh(fields) } as JobPr;
-    const t = syncTransition(j, merged, cfg(policy), { route, ownerLive: () => (n++, live) });
+    const t = syncTransition(j, merged, cfg(policy), { route, ownerLive: () => (n++, live), ...(members ? { members } : {}) });
     assert.deepEqual(t, { change, integrate, integrateFor }, name);
     assert.equal(n, calls, `${name}: ownerLive calls`);
   }

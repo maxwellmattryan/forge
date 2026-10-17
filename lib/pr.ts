@@ -3,8 +3,11 @@ import path from 'node:path';
 import { ownerStatusWithProof } from './daemon-owner.ts';
 import { currentActor } from './actor.ts';
 import { isActive, isForemanActor, listJobs, loadJob, logEvent, readEvents, setJob, updateJob, jobDir } from './jobs.ts';
-import { memberConfig, memberEntry, memberRepos, memberWorktree } from './job-repos.ts';
+import { memberClone, memberConfig, memberEntry, memberRepos, memberWorktree } from './job-repos.ts';
+import { REPO_NAME } from './member-repos.ts';
 import { isHttpsUrl } from './schema.ts';
+import { isLinkedJob, jobRepoOrder, siblingLine } from './repo-order.ts';
+import type { PrStateKey, RepoKey } from './repo-order.ts';
 import { checkBranch, historyEnv, logEscalated, policyRules, protectedApproved, refusalText } from './protected.ts';
 import type { MemberBranch } from './protected.ts';
 import { enqueuePrFeedbackGate, maybeEnqueueGate } from './foreman.ts';
@@ -24,6 +27,10 @@ import type { Strategy } from './regenerate.ts';
 import { commandTemplate, verifiedHead } from './worktree.ts';
 
 const MARKER = '<!-- forge -->';
+// The sibling line's section: Forge rewrites only what sits between these, so a human's edits to
+// the rest of a linked job's PR body survive every update.
+export const SIBLINGS_START = '<!-- forge:siblings -->';
+export const SIBLINGS_END = '<!-- /forge:siblings -->';
 const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 
 /** Human feedback on a PR, as GitHub's GraphQL returns it (raw input): fetchFeedback. */
@@ -38,6 +45,22 @@ export interface MergeResult {
   merged: boolean;
   autoMerge?: boolean;
   action: 'already-merged' | 'deferred' | 'refused' | 'failed' | 'auto' | 'merged';
+  checks: PrChecks['state'] | undefined;
+  mergeState?: string | null;
+  error?: string;
+  /** A linked job: the PR the action is about (null: the root). */
+  repo?: string | null;
+  /** A linked job's refusal: a dependency PR is not merged (order) or the dependsOn edges cycle. */
+  reason?: 'order' | 'cycle';
+  /** A linked job: each PR this call acted on, in merge order. */
+  parts?: MergePart[];
+}
+
+/** One PR a linked job's merge acted on: mergePr. */
+export interface MergePart {
+  repo: string | null;
+  number: number | null;
+  action: MergeResult['action'];
   checks: PrChecks['state'] | undefined;
   mergeState?: string | null;
   error?: string;
@@ -209,6 +232,7 @@ export function openPr(
   if (existing && existing.state === 'OPEN') {
     setJob(root, id, { fields: { 'pr.pushedSha': pushedSha } });
     logEvent(root, id, 'pr-updated', { number: existing.number });
+    linkSiblingsQuietly(root, config, id);
     return { number: existing.number, url: existing.url, created: false, ...prLinkNote(job, config), ...repos };
   }
   const bodyFile = path.join(jobDir(root, id), 'pr-body.md');
@@ -222,6 +246,7 @@ export function openPr(
   setJob(root, id, { fields: { pr: { number, url, state: 'OPEN', isDraft: Boolean(opts.draft ?? config.pr.draft), openedAt: now(), lastSyncedAt: now(), pushedSha } } });
   logEvent(root, id, 'pr-opened', { number, url });
   queueNotify(root, ['pr-opened'], { job: job.id, reason: 'pr-opened' });
+  linkSiblingsQuietly(root, config, id);
   return { number, url, created: true, ...prLinkNote(job, config), ...repos };
 }
 
@@ -342,24 +367,147 @@ function memberPrByBranch(cwd: string, slug: string, branch: string, which: 'ope
   return list.find((x: any) => x?.state === 'OPEN') ?? (which === 'any' ? (list[0] ?? null) : null);
 }
 
-/** A member PR's body: the summary, then the marker. No Closes or Refs lines and no links to the job's other PRs. */
+/**
+ * A member PR's body: the summary, the (empty) siblings section linkSiblingPrs fills, then the marker.
+ * No Closes or Refs lines.
+ */
 export function memberPrBody(root: string, config: Config, job: Job): string {
   const summary = `## Summary\n\n${firstParagraph(readText(path.join(jobDir(root, job.id), 'spec.md'))) || job.title}`;
-  const body = [summary, MARKER].join('\n\n') + '\n';
+  const body = [summary, `${SIBLINGS_START}\n${SIBLINGS_END}`, MARKER].join('\n\n') + '\n';
   return attributionForbidden(config) ? stripAttribution(body) : body;
+}
+
+/**
+ * `body` with `line` between the first SIBLINGS_START and the next SIBLINGS_END, or null when either
+ * marker is missing (a human removed them, so Forge no longer owns any part of the body).
+ */
+export function spliceSiblings(body: string, line: string): string | null {
+  const s = body.indexOf(SIBLINGS_START);
+  if (s < 0) return null;
+  const from = s + SIBLINGS_START.length;
+  const e = body.indexOf(SIBLINGS_END, from);
+  if (e < 0) return null;
+  return `${body.slice(0, from)}\n${line}\n${body.slice(e)}`;
+}
+
+/**
+ * Writes the sibling line into every OPEN PR of a linked job whose last write (or skip) recorded a
+ * different line. Each PR's live body is read and only the section between the markers changes. A
+ * PR not on the job's branch and base is never edited. A failure logs `pr-links-failed` and moves
+ * on: links never fail `pr open` or `sync`.
+ */
+function linkSiblingPrs(root: string, config: Config, id: string): void {
+  const job = loadJob(root, id);
+  if (!isLinkedJob(job)) return;
+  const { order, cycle } = jobRepoOrder(config, job);
+  const prs: { repo: RepoKey; slug: string; number: number; state: string | undefined }[] = [];
+  for (const key of order) {
+    let slug: string;
+    try {
+      slug = key === null ? repoSlug(root, config) : memberSlug(config, key);
+    } catch {
+      continue;
+    }
+    const pr = key === null ? job.pr : memberEntry(job, key)?.pr;
+    const number = safePrNumber(pr?.number);
+    if (number !== null) prs.push({ repo: key, slug, number, state: pr?.state });
+  }
+  const line = siblingLine(job.id, prs, cycle !== null);
+  if (line === null) return;
+  // A 'changed' skip is retried: the body moved under us, not the markers.
+  const events = readEvents(root, id).filter((e) => e.type === 'pr-links-updated' || (e.type === 'pr-links-skipped' && e.reason !== 'changed'));
+  for (const p of prs) {
+    if (p.state !== 'OPEN' || !SLUG_RE.test(p.slug)) continue;
+    const repo = p.repo === null ? {} : { repo: p.repo };
+    const last = events.findLast((e) => (e.repo ?? null) === p.repo && e.number === p.number);
+    if (last?.line === line) continue;
+    try {
+      const base = p.repo === null ? job.base : (memberEntry(job, p.repo)?.base ?? null);
+      const read = (): string => {
+        const view = JSON.parse(gh(root, ['pr', 'view', String(p.number), '-R', p.slug, '--json', 'body,headRefName,baseRefName']).stdout);
+        assertJobPr(view, job.branch, base, `PR #${p.number} in ${p.slug}`);
+        if (typeof view?.body !== 'string') throw new ForgeError('gh returned no body');
+        return view.body;
+      };
+      const body = read();
+      const next = spliceSiblings(body, line);
+      if (next === null) {
+        logEvent(root, id, 'pr-links-skipped', { ...repo, number: p.number, line, reason: 'markers' });
+        continue;
+      }
+      if (next !== body) {
+        const file = path.join(jobDir(root, id), p.repo === null ? 'pr-links.md' : `pr-links-${p.repo}.md`);
+        fs.writeFileSync(file, next);
+        // gh has no compare-and-swap edit, so re-read right before writing: a body someone changed
+        // since the first read is left alone (this narrows the race to the gap between two calls).
+        if (read() !== body) {
+          logEvent(root, id, 'pr-links-skipped', { ...repo, number: p.number, line, reason: 'changed' });
+          continue;
+        }
+        gh(root, ['pr', 'edit', String(p.number), '-R', p.slug, '--body-file', file]);
+      }
+      logEvent(root, id, 'pr-links-updated', { ...repo, number: p.number, line });
+    } catch {
+      logEvent(root, id, 'pr-links-failed', { ...repo, number: p.number });
+    }
+  }
+}
+
+/**
+ * linkSiblingPrs that cannot throw, even on a job it cannot load: links never fail `pr open` or
+ * `sync`, so an error is logged as `pr-links-failed` (no number) and swallowed.
+ */
+function linkSiblingsQuietly(root: string, config: Config, id: string): void {
+  try {
+    linkSiblingPrs(root, config, id);
+  } catch (e) {
+    try {
+      logEvent(root, id, 'pr-links-failed', { error: safeText(e instanceof Error ? e.message : String(e), 200) });
+    } catch {
+      // The job dir itself is unusable, so there is nowhere to log; the caller still must not fail.
+    }
+  }
+}
+
+const SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+
+/**
+ * Throws unless gh's `pr` is the job's own PR in that repo: head on the job's branch, base on the
+ * repo's base. A PR number in job.json is agent-writable, so without this a rewritten number would
+ * let a merged PR elsewhere satisfy the merge order, or send a merge or body edit to an unrelated PR.
+ */
+function assertJobPr(pr: any, branch: string | null, base: string | null, label: string): void {
+  if (!branch || pr?.headRefName !== branch) throw new ForgeError(`${label} is not on the job's branch ${branch}`);
+  if (!base || pr?.baseRefName !== base) throw new ForgeError(`${label} does not target ${base}`);
 }
 
 const PR_STATES = new Set(['OPEN', 'CLOSED', 'MERGED']);
 
+/** One member PR as this call's sync read it: state null when its sync failed or found no PR. */
+export interface MemberSync {
+  repo: string;
+  number: number | null;
+  state: PrStateKey;
+  /** The PR turned CLOSED in this sync. */
+  newlyClosed: boolean;
+  headOid: string | null;
+  checks: PrChecks['state'] | undefined;
+  mergeState: string | null;
+}
+
 /**
- * Records each member PR's state for display: by its number, or found by branch when none is
- * recorded yet. Only checked values are stored (a safe number, an https url, a sha); a failure logs
- * `repo-pr-sync-failed` and never stops the root sync. The job's own transition stays root-only.
+ * Records each member PR's state: by its number, or found by branch when none is recorded yet. Only
+ * checked values are stored (a safe number, an https url, a sha); a failure logs
+ * `repo-pr-sync-failed` and never stops the root sync. Returns what this call read, so the job's
+ * transition and a merge decide on GitHub's answers now, never on a stored (writable) state.
  */
-function syncMemberPrs(root: string, config: Config, id: string): void {
+function syncMemberPrs(root: string, config: Config, id: string): Map<string, MemberSync> {
   const job = loadJob(root, id);
-  const fields = 'number,url,state,isDraft,headRefOid,mergeable,mergeStateStatus,statusCheckRollup,mergedAt,isCrossRepository';
+  const out = new Map<string, MemberSync>();
+  const fields = 'number,url,state,isDraft,headRefOid,mergeable,mergeStateStatus,statusCheckRollup,mergedAt,isCrossRepository,headRefName,baseRefName';
   for (const m of memberRepos(job).filter((x) => !x.verifyOnly)) {
+    const unread: MemberSync = { repo: m.repo, number: safePrNumber(m.pr?.number), state: null, newlyClosed: false, headOid: null, checks: undefined, mergeState: null };
+    out.set(m.repo, unread);
     try {
       const slug = memberSlug(config, m.repo);
       let number = m.pr?.number ?? null;
@@ -371,6 +519,7 @@ function syncMemberPrs(root: string, config: Config, id: string): void {
       }
       const pr = JSON.parse(gh(root, ['pr', 'view', String(number), '-R', slug, '--json', fields]).stdout);
       if (pr?.isCrossRepository) throw new ForgeError(`PR #${number} in ${slug} comes from a fork`);
+      assertJobPr(pr, job.branch, m.base, `PR #${number} in ${slug}`);
       const fresh = {
         // Null when gh returns an unusable number: cleanRepoPr then drops this record on the next
         // load, and the next sync finds the PR by branch again.
@@ -387,10 +536,16 @@ function syncMemberPrs(root: string, config: Config, id: string): void {
       };
       recordMemberPr(root, id, m.repo, (prev) => ({ ...(prev ?? {}), ...fresh }) as JobRepoPr);
       logEvent(root, id, 'repo-pr-synced', { repo: m.repo, state: fresh.state });
+      // Only a state GitHub named counts: a fallback to the stored one is not this call's answer.
+      const state = fresh.number !== null && PR_STATES.has(pr.state) ? (pr.state as PrStateKey) : null;
+      const newlyClosed = state === 'CLOSED' && m.pr?.state !== 'CLOSED';
+      if (newlyClosed) logEvent(root, id, 'repo-pr-closed', { repo: m.repo, number: fresh.number });
+      out.set(m.repo, { repo: m.repo, number: fresh.number, state, newlyClosed, headOid: fresh.headOid, checks: fresh.checks.state, mergeState: fresh.mergeState ?? null });
     } catch {
       logEvent(root, id, 'repo-pr-sync-failed', { repo: m.repo });
     }
   }
+  return out;
 }
 
 /**
@@ -527,6 +682,7 @@ function prBody(root: string, config: Config, job: Job): string {
   // The reason was written by an agent that read untrusted text, so it goes in a code span: no
   // mention, link, image or HTML in it renders on a public PR (safeText already removed backticks).
   if (approval) parts.push(`## Decision\n\nEscalated: \`${approval.reason}\`. Approved by ${approvedBy(approval)}.`);
+  if (isLinkedJob(job)) parts.push(`${SIBLINGS_START}\n${SIBLINGS_END}`);
   const issueLines = issueReferences(root, config, job);
   if (issueLines.length) parts.push(issueLines.join('\n'));
   parts.push(MARKER);
@@ -567,24 +723,60 @@ export interface SyncTransition {
   integrateFor: string | null;
 }
 
+/** A member PR as syncTransition weighs it: this call's state, null when it could not be read. */
+export type MemberPrState = Pick<MemberSync, 'repo' | 'number' | 'state' | 'newlyClosed'>;
+
 /**
  * The state a sync leaves a job in. `pr` is the merged record (job.pr plus what GitHub just said),
  * `job.pr` the previous one. A PR job routes to integrate only from a state sync itself parks in,
  * on a head Forge pushed and has not routed before, and with no live session driving it, so no
  * one else's commits or session are ever acted on. `ownerLive` runs last: it may spawn `ps`.
+ * `members` (a linked job's non-verify-only member PRs, as this sync read them) holds a merged root
+ * job open until every member PR merged too.
  */
 export function syncTransition(
-  job: Pick<Job, 'stage' | 'state' | 'waitingOn' | 'pr'>,
+  job: Pick<Job, 'stage' | 'state' | 'waitingOn' | 'pr'> & { reason?: string | null },
+  pr: JobPr,
+  config: Pick<Config, 'pr'>,
+  opts: { route: boolean; ownerLive: () => boolean; members?: MemberPrState[] },
+): SyncTransition {
+  const members = opts.members ?? [];
+  const t = rootTransition(job, pr, config, opts, members);
+  const closed = members.filter((m) => m.newlyClosed).map((m) => `repo ${m.repo} PR #${m.number ?? '?'} was closed without merging`);
+  if (!closed.length) return t;
+  const note = [t.change.note, ...closed].filter(Boolean).join('; ');
+  return { ...t, change: { ...t.change, note } };
+}
+
+/** Why a merged root job still waits: the first member PR that has not merged. */
+function memberWait(m: MemberPrState): string {
+  if (m.number === null) return `PR merged; waiting on repo ${m.repo} (no PR)`;
+  if (m.state === null) return `PR merged; waiting on repo ${m.repo} (state unknown)`;
+  return `PR merged; waiting on repo ${m.repo} PR #${m.number}${m.state === 'CLOSED' ? ' (closed without merging)' : ''}`;
+}
+
+function rootTransition(
+  job: Pick<Job, 'stage' | 'state' | 'waitingOn' | 'pr'> & { reason?: string | null },
   pr: JobPr,
   config: Pick<Config, 'pr'>,
   opts: { route: boolean; ownerLive: () => boolean },
+  members: MemberPrState[],
 ): SyncTransition {
   const prev: Partial<JobPr> = job.pr ?? {};
   // gh output: only a real sha is compared or stored.
   const head = isSha(pr.headOid) ? pr.headOid : null;
   const kept = head !== null && prev.integrateFor === head ? head : null;
   const stay = (change: SyncTransition['change'] = {}): SyncTransition => ({ change, integrate: false, integrateFor: kept });
-  if (pr.state === 'MERGED') return stay(job.state !== 'done' ? { stage: 'done', state: 'done', reason: 'PR merged' } : {});
+  if (pr.state === 'MERGED') {
+    if (!members.length) return stay(job.state !== 'done' ? { stage: 'done', state: 'done', reason: 'PR merged' } : {});
+    // A member whose sync failed counts as not merged: done is final, so it waits for an answer.
+    const open = members.find((m) => m.state !== 'MERGED');
+    if (!open) return stay(job.state !== 'done' ? { stage: 'done', state: 'done', reason: 'all PRs merged' } : {});
+    if (['running', 'done', 'cancelled'].includes(job.state)) return stay();
+    const reason = memberWait(open);
+    if (job.stage === 'pr' && job.state === 'waiting' && job.waitingOn === 'pr-review' && job.reason === reason) return stay();
+    return stay({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review', reason });
+  }
   if (pr.state === 'CLOSED') return stay(!['cancelled', 'done'].includes(job.state) ? { state: 'cancelled', reason: 'PR closed without merging' } : {});
   if (pr.state !== 'OPEN' || job.stage !== 'pr') return stay();
   const policy = config.pr.conflicts;
@@ -618,16 +810,28 @@ export interface SyncResult {
  * `route: false` (mergePr) syncs without ever moving the job to integrate.
  */
 export function syncPr(root: string, config: Config, id: string, opts: { route?: boolean } = {}): SyncResult {
+  return syncPrDetailed(root, config, id, opts).result;
+}
+
+/** syncPr, plus each non-verify-only member PR as this call read it (mergePr decides on these). */
+function syncPrDetailed(root: string, config: Config, id: string, opts: { route?: boolean } = {}): { result: SyncResult; members: Map<string, MemberSync> } {
   const route = opts.route !== false;
   requireGh();
-  // Member PRs first, for display only: a failure there never stops the root sync.
-  if (memberRepos(loadJob(root, id)).length) syncMemberPrs(root, config, id);
+  // Member PRs first: a failure there never stops the root sync, and counts as not merged.
+  const members = isLinkedJob(loadJob(root, id)) ? syncMemberPrs(root, config, id) : new Map<string, MemberSync>();
   let job = loadJob(root, id);
   if (!job.pr?.number) {
     const found = findPr(root, config, id);
-    if (!found) return { id, pr: null };
+    if (!found) return { result: { id, pr: null }, members };
     job = loadJob(root, id);
   }
+  // Every non-verify-only member the job has now, read or not: one missing from this sync is unknown.
+  const memberStates: MemberPrState[] = memberRepos(job)
+    .filter((m) => !m.verifyOnly)
+    .map((m) => {
+      const r = members.get(m.repo);
+      return r ? { repo: r.repo, number: r.number, state: r.state, newlyClosed: r.newlyClosed } : { repo: m.repo, number: safePrNumber(m.pr?.number), state: null, newlyClosed: false };
+    });
   const slug = repoSlug(root, config);
   const fields = 'number,url,state,isDraft,headRefOid,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup,mergedAt,closedAt,headRefName,baseRefName';
   // findPr recorded the PR it found. gh output: raw input.
@@ -663,7 +867,7 @@ export function syncPr(root: string, config: Config, id: string, opts: { route?:
   setJob(root, id, {
     derive: (j) => {
       const merged: JobPr = { ...j.pr, ...fresh, ...(humanDelta ? { humanDelta } : {}) };
-      const t = syncTransition(j, merged, config, { route, ownerLive: () => ownerStatusWithProof(root, j, { env: process.env }).status === 'live' });
+      const t = syncTransition(j, merged, config, { route, ownerLive: () => ownerStatusWithProof(root, j, { env: process.env }).status === 'live', members: memberStates });
       const { integrateFor: _previous, ...rest } = merged;
       synced = t.integrateFor ? { ...rest, integrateFor: t.integrateFor } : rest;
       integrate = t.integrate;
@@ -686,13 +890,15 @@ export function syncPr(root: string, config: Config, id: string, opts: { route?:
   // title, branch or body reaches a daemon session through it.
   if (integrate && config.daemon?.enabled === true && !listRequests(root, { status: 'pending' }).some((r) => r.type === 'resume' && r.job === id))
     enqueue(root, config, { type: 'resume', job: id, text: 'forge sync moved this job to integrate', from: 'sync' });
+  // After the root PR's state is recorded, so a merged or closed PR is never edited.
+  if (isLinkedJob(job)) linkSiblingsQuietly(root, config, id);
   // The foreman's gates: a park on conflicts, or feedback on a PR waiting for review. Never from mergePr.
   if (route) {
     const after = loadJob(root, id);
     maybeEnqueueGate(root, config, job, after);
     enqueuePrFeedbackGate(root, config, after, trustedFeedback(feedback));
   }
-  return integrate ? { id, pr: synced, integrate: true } : { id, pr: synced };
+  return { result: integrate ? { id, pr: synced, integrate: true } : { id, pr: synced }, members };
 }
 
 function measureOnMerge(root: string, config: Config, job: Job, headRefOid: unknown): HumanDelta {
@@ -1003,36 +1209,48 @@ export function hasCiWorkflows(root: string, ref?: string): boolean {
   }
 }
 
+/** One PR as a merge decides on it: what this call's sync read, plus what forge pr open pushed. */
+interface MergeTarget {
+  repo: string | null;
+  number: number;
+  /** Only read once a gh merge call is due, as before linked jobs. */
+  slug: () => string;
+  state: string | null | undefined;
+  checks: PrChecks['state'] | undefined;
+  mergeState: string | null;
+  headOid: string | null;
+  pushedSha: string | null;
+  /** Whether the PR's base has workflows, asked only when the checks rollup is empty. */
+  hasWorkflows: () => boolean;
+}
+
+const prLabel = (repo: string | null, number: number | null): string => (repo === null ? `PR #${number ?? '?'}` : number === null ? `repo ${repo} (no PR)` : `repo ${repo} PR #${number}`);
+
 /**
- * Merges only once CI allows it: direct when checks pass (or the repo has no CI), queued with
- * `--auto` while pending if GitHub enforces requirements, deferred (no call) while pending if
- * it does not, refused when failing. Exactly one `gh pr merge` call, never a
- * fallback between direct and `--auto`, because a fallback is how unverified code got merged.
+ * One PR's merge policy: direct when checks pass (or its repo has no CI), queued with `--auto` while
+ * pending if GitHub enforces requirements, deferred (no call) while pending if it does not, refused
+ * when failing. Exactly one `gh pr merge` call, never a fallback between direct and `--auto`,
+ * because a fallback is how unverified code got merged. `tag` goes on every event (repo, target).
  */
-export function mergePr(root: string, config: Config, id: string, opts: { now?: boolean } = {}): MergeResult {
-  requireGh();
-  const job = loadJob(root, id);
-  if (!job.pr?.number) throw new ForgeError(`job ${id} has no PR`);
-  // A merge never routes: a conflicting PR parks as before, and the next forge sync routes it.
-  const { pr: synced } = syncPr(root, config, id, { route: false });
-  const number = synced?.number ?? job.pr.number;
-  const checks = synced?.checks?.state;
-  if (synced?.state === 'MERGED') return { merged: true, action: 'already-merged', checks };
-  if (synced?.state === 'CLOSED') throw new ForgeError(`PR #${number} is closed; reopen it before merging`);
-  const now = opts.now === true;
+function mergeOne(root: string, config: Config, id: string, t: MergeTarget, opts: { now: boolean; tag: Record<string, unknown> }): MergeResult {
+  const { number, checks, tag } = { ...t, tag: opts.tag };
+  const label = prLabel(t.repo, number);
+  if (t.state === 'MERGED') return { merged: true, action: 'already-merged', checks };
+  if (t.state === 'CLOSED') throw new ForgeError(`${label} is closed; reopen it before merging`);
+  const now = opts.now;
   // forge pr open checked protected paths on the head it pushed. A head pushed since, by plain git
   // or a stale session, was never checked, so only a human's --now merges it unless pr open runs again.
-  const head = synced?.headOid ?? null;
-  const pushed = loadJob(root, id).pr?.pushedSha ?? null;
+  const head = t.headOid;
+  const pushed = t.pushedSha;
   if (!now && policyRules(config).length && (head === null || head !== pushed)) {
-    logEvent(root, id, 'pr-merge-refused', { number, checks, head, pushedSha: pushed, reason: 'protected' });
+    logEvent(root, id, 'pr-merge-refused', { ...tag, number, checks, head, pushedSha: pushed, reason: 'protected' });
     throw new ForgeError(
-      `PR #${number}'s head ${String(head ?? 'unknown').slice(0, 12)} is not the commit forge pr open checked for protected paths (${String(pushed ?? 'none').slice(0, 12)}); run: forge pr open ${id}, or merge with --now`,
+      `${label}'s head ${String(head ?? 'unknown').slice(0, 12)} is not the commit forge pr open checked for protected paths (${String(pushed ?? 'none').slice(0, 12)}); run: forge pr open ${id}, or merge with --now`,
       'protected_path',
     );
   }
-  const hasWorkflows = checks === 'none' ? hasCiWorkflows(root, `${config.git.remote}/${job.base}`) : false;
-  const mergeState = synced?.mergeState ?? null;
+  const hasWorkflows = checks === 'none' ? t.hasWorkflows() : false;
+  const mergeState = t.mergeState;
   const decided = mergeAction(checks, { hasWorkflows, now, mergeState });
   // Once --auto is queued, GitHub merges on its own, and whether it still holds
   // --match-head-commit then is not documented. Under a protected-paths policy Forge waits instead,
@@ -1040,33 +1258,172 @@ export function mergePr(root: string, config: Config, id: string, opts: { now?: 
   const held = decided === 'auto' && policyRules(config).length > 0;
   const action = held ? 'defer' : decided;
   if (action === 'defer') {
-    logEvent(root, id, 'pr-merge-deferred', { number, checks, mergeState, ...(held ? { reason: 'protected' } : {}) });
+    logEvent(root, id, 'pr-merge-deferred', { ...tag, number, checks, mergeState, ...(held ? { reason: 'protected' } : {}) });
     return { merged: false, autoMerge: false, action: 'deferred', checks, mergeState };
   }
   if (action === 'refuse') {
-    logEvent(root, id, 'pr-merge-refused', { number, checks });
+    logEvent(root, id, 'pr-merge-refused', { ...tag, number, checks });
     return { merged: false, autoMerge: false, action: 'refused', checks, error: 'CI is failing; fix it or pass --now to merge anyway' };
   }
-  const slug = repoSlug(root, config);
-  const args = ['pr', 'merge', String(number), '-R', slug, `--${config.merge.method}`];
+  const args = ['pr', 'merge', String(number), '-R', t.slug(), `--${config.merge.method}`];
   if (action === 'auto') args.push('--auto');
   // Pin the commit whose checks were just read, so a push after the sync cannot ride along.
-  if (synced?.headOid) args.push('--match-head-commit', synced.headOid);
+  if (t.headOid) args.push('--match-head-commit', t.headOid);
   // --now is a person's call, so every event it writes says who; without it the approver's
   // auto-merge is not a human action and records no actor.
   const by = now ? { actor: currentActor(root) } : {};
   // Logged before the call so a human override is on record even if the merge then fails.
-  if (now) logEvent(root, id, 'pr-merge-bypass', { number, checks, ...by });
+  if (now) logEvent(root, id, 'pr-merge-bypass', { ...tag, number, checks, ...by });
   const res = run('gh', args, { cwd: root, allowFail: true });
   if (!res.ok) {
     const error = (res.stderr || res.stdout).trim();
-    logEvent(root, id, 'pr-merge-failed', { number, error, ...by });
+    logEvent(root, id, 'pr-merge-failed', { ...tag, number, error, ...by });
     return { merged: false, autoMerge: false, action: 'failed', checks, error };
   }
   if (action === 'auto') {
-    logEvent(root, id, 'pr-auto-merge', { number, checks, ...by });
+    logEvent(root, id, 'pr-auto-merge', { ...tag, number, checks, ...by });
     return { merged: false, autoMerge: true, action: 'auto', checks };
   }
-  logEvent(root, id, 'pr-merged', { number, method: config.merge.method, checks, bypass: now && checks !== 'passing', ...by });
+  logEvent(root, id, 'pr-merged', { ...tag, number, method: config.merge.method, checks, bypass: now && checks !== 'passing', ...by });
   return { merged: true, autoMerge: false, action: 'merged', checks };
+}
+
+/**
+ * Merges only once CI allows it (mergeOne). A linked job's PRs merge in the order of the
+ * components' dependsOn (lib/repo-order.ts): a PR is merged, or queued with `--auto`, only when
+ * every dependency's PR is MERGED by this call's own sync, so a consumer never lands first and a
+ * hand-edited job.json state counts for nothing. `repo` (a member) or `root` merges only that PR.
+ */
+export function mergePr(root: string, config: Config, id: string, opts: { now?: boolean; repo?: string; root?: boolean } = {}): MergeResult {
+  requireGh();
+  const job = loadJob(root, id);
+  if (opts.repo !== undefined && opts.root) throw new ForgeError('pass --repo or --root, not both');
+  if (opts.repo !== undefined) {
+    if (typeof opts.repo !== 'string' || !REPO_NAME.test(opts.repo)) throw new ForgeError(`--repo must name a member repo (got ${(JSON.stringify(opts.repo) ?? String(opts.repo)).slice(0, 80)})`);
+    const m = memberEntry(job, opts.repo);
+    if (!m) throw new ForgeError(`job ${id} has no member repo ${opts.repo}`);
+    if (m.verifyOnly) throw new ForgeError(`repo ${opts.repo} is verify-only in job ${id}, so it has no PR to merge`);
+  }
+  if (!job.pr?.number) throw new ForgeError(`job ${id} has no PR`);
+  const now = opts.now === true;
+  if (isLinkedJob(job)) return mergeLinked(root, config, id, { now, target: opts.repo !== undefined ? opts.repo : opts.root ? null : undefined });
+  // A merge never routes: a conflicting PR parks as before, and the next forge sync routes it.
+  const { pr: synced } = syncPr(root, config, id, { route: false });
+  const number = synced?.number ?? job.pr.number;
+  const checks = synced?.checks?.state;
+  if (synced?.state === 'MERGED') return { merged: true, action: 'already-merged', checks };
+  return mergeOne(root, config, id, rootTarget(root, config, id, number, synced), { now, tag: {} });
+}
+
+function rootTarget(root: string, config: Config, id: string, number: number, synced: JobPr | null): MergeTarget {
+  const job = loadJob(root, id);
+  return {
+    repo: null,
+    number,
+    slug: () => repoSlug(root, config),
+    state: synced?.state,
+    checks: synced?.checks?.state,
+    mergeState: synced?.mergeState ?? null,
+    headOid: synced?.headOid ?? null,
+    pushedSha: job.pr?.pushedSha ?? null,
+    hasWorkflows: () => hasCiWorkflows(root, `${config.git.remote}/${job.base}`),
+  };
+}
+
+function memberTarget(root: string, config: Config, job: Job, m: MemberSync): MergeTarget {
+  const entry = memberEntry(job, m.repo);
+  return {
+    repo: m.repo,
+    number: m.number!,
+    slug: () => {
+      const slug = memberSlug(config, m.repo);
+      if (!SLUG_RE.test(slug)) throw new ForgeError(`repo ${m.repo} has an unusable GitHub repository ${JSON.stringify(slug).slice(0, 80)}`);
+      return slug;
+    },
+    state: m.state,
+    checks: m.checks,
+    mergeState: m.mergeState,
+    headOid: m.headOid,
+    pushedSha: entry?.pr?.pushedSha ?? null,
+    // A clone Forge can't check is treated as having CI: an empty rollup then waits, never merges.
+    hasWorkflows: () => {
+      try {
+        return hasCiWorkflows(memberClone(root, config, m.repo), `${config.git.remote}/${entry?.base}`);
+      } catch {
+        return true;
+      }
+    },
+  };
+}
+
+/**
+ * `forge pr merge`'s target flags, checked strictly: `--root` must be bare (`--root <id>` would
+ * swallow the id), `--repo` one member name, and not both.
+ */
+export function mergeTarget(flags: Record<string, unknown>): { repo?: string; root?: true } {
+  const { repo, root } = flags;
+  if (root !== undefined && root !== true) throw new ForgeError('--root takes no value; put the job id first: forge pr merge <id> --root');
+  if (repo !== undefined && (typeof repo !== 'string' || !REPO_NAME.test(repo))) throw new ForgeError('--repo needs one member repo name: forge pr merge <id> --repo NAME');
+  if (repo !== undefined && root === true) throw new ForgeError('pass --repo or --root, not both');
+  return { ...(typeof repo === 'string' ? { repo } : {}), ...(root === true ? { root: true as const } : {}) };
+}
+
+/** mergePr for a linked job: the walk in merge order, or one `target` PR (null: the root). */
+function mergeLinked(root: string, config: Config, id: string, opts: { now: boolean; target: RepoKey | undefined }): MergeResult {
+  const { result, members } = syncPrDetailed(root, config, id, { route: false });
+  const job = loadJob(root, id);
+  const { order, deps, cycle } = jobRepoOrder(config, job);
+  const synced = result.pr;
+  const rootNumber = safePrNumber(synced?.number) ?? job.pr!.number;
+  // This call's answers only: a member missing from the sync (or one that failed) is unknown.
+  const states = new Map<RepoKey, PrStateKey>([[null, synced && PR_STATES.has(synced.state) ? synced.state : null]]);
+  for (const k of order) if (k !== null) states.set(k, members.get(k)?.state ?? null);
+  const numberOf = (k: RepoKey): number | null => (k === null ? rootNumber : (members.get(k)?.number ?? null));
+  const label = (k: RepoKey): string => {
+    const base = k === null ? `the root PR #${rootNumber}` : prLabel(k, numberOf(k));
+    return states.get(k) === null && numberOf(k) !== null ? `${base} (state unknown)` : base;
+  };
+  const targeted = opts.target !== undefined;
+  const tag = (k: RepoKey) => ({ ...(k !== null ? { repo: k } : {}), ...(targeted ? { target: true } : {}) });
+  const keys: RepoKey[] = targeted ? [opts.target as RepoKey] : order;
+  const parts: MergePart[] = [];
+  let reason: 'order' | 'cycle' | undefined;
+  const finish = (): MergeResult => {
+    const merged = order.every((k) => states.get(k) === 'MERGED');
+    const last = parts.at(-1);
+    if (!last) {
+      if (keys.every((k) => states.get(k) === 'MERGED')) return { merged, action: 'already-merged', checks: synced?.checks?.state, repo: keys.length === 1 ? keys[0] : null, parts };
+      const unread = keys.filter((k) => states.get(k) !== 'MERGED').map(label);
+      return { merged, autoMerge: false, action: 'refused', checks: undefined, error: `${unread.join(', ')} could not be read in this call; run: forge pr sync ${id}`, parts };
+    }
+    const { repo, action, checks, mergeState, error } = last;
+    return { merged, autoMerge: action === 'auto', action, checks, ...(mergeState !== undefined ? { mergeState } : {}), ...(error !== undefined ? { error } : {}), repo, ...(reason ? { reason } : {}), parts };
+  };
+  const refuse = (k: RepoKey, why: 'order' | 'cycle', error: string, extra: Record<string, unknown> = {}): MergeResult => {
+    reason = why;
+    logEvent(root, id, 'pr-merge-refused', { ...tag(k), number: numberOf(k), reason: why, ...extra });
+    parts.push({ repo: k, number: numberOf(k), action: 'refused', checks: undefined, error });
+    return finish();
+  };
+  if (cycle) {
+    const k = keys.find((x) => states.get(x) !== 'MERGED');
+    if (k === undefined) return finish();
+    const names = cycle.map((x) => (x === null ? 'the root repo' : `repo ${x}`)).join(', ');
+    return refuse(k, 'cycle', `the components' dependsOn form a cycle between ${names}; no PR of job ${id} is merged until config orders them`);
+  }
+  for (const k of keys) {
+    const state = states.get(k);
+    if (state === 'MERGED') continue;
+    // Its consumers are refused on order below; the PR itself can't be judged on an unknown state.
+    if (state === null && !targeted) continue;
+    const waiting = (deps.get(k) ?? []).find((d) => states.get(d) !== 'MERGED');
+    if (waiting !== undefined) return refuse(k, 'order', `${label(k)} depends on ${label(waiting)}, which is not merged yet; merge it first`, { waitingFor: label(waiting) });
+    if (state === null) throw new ForgeError(numberOf(k) === null ? `repo ${k} has no PR to merge` : `${label(k)} could not be read in this call; run: forge pr sync ${id}`);
+    const t = k === null ? rootTarget(root, config, id, rootNumber, synced) : memberTarget(root, config, job, members.get(k)!);
+    const r = mergeOne(root, config, id, t, { now: opts.now, tag: tag(k) });
+    parts.push({ repo: k, number: t.number, action: r.action, checks: r.checks, ...(r.mergeState !== undefined ? { mergeState: r.mergeState } : {}), ...(r.error !== undefined ? { error: r.error } : {}) });
+    if (r.action !== 'merged') break;
+    states.set(k, 'MERGED');
+  }
+  return finish();
 }

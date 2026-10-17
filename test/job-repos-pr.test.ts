@@ -4,90 +4,15 @@ import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { twoRepo } from './job-repos-fixture.ts';
-import type { TwoRepo } from './job-repos-fixture.ts';
+import { prProject, ready } from './job-repos-fixture.ts';
 import { loadConfig } from '../lib/config.ts';
 import { loadJob } from '../lib/jobs.ts';
-import { memberPrBody, prText } from '../lib/pr.ts';
+import { SIBLINGS_END, SIBLINGS_START, memberPrBody, prText } from '../lib/pr.ts';
 import { token } from './secret-fixtures.ts';
-
-// Per slug `o/<name>`: <name>.pr holds the PR's head branch once created; <name>.state, .url and
-// .cross override what gh reports; <name>.fail makes `pr create` fail.
-const FAKE_GH = `#!/bin/sh
-d="$FAKE_GH_DIR"
-echo "$*" >> "$d/calls.log"
-slug=""; head=""; open=""; prev=""
-for a in "$@"; do
-  [ "$prev" = "-R" ] && slug="$a"
-  [ "$prev" = "--head" ] && head="$a"
-  [ "$prev" = "--state" ] && [ "$a" = "open" ] && open=1
-  prev="$a"
-done
-name="\${slug#*/}"
-num() { if [ "$name" = lib ]; then echo 7; else echo 11; fi; }
-url() { if [ -f "$d/$name.url" ]; then cat "$d/$name.url"; else echo "https://github.com/$slug/pull/$(num)"; fi; }
-state() { if [ -f "$d/$name.state" ]; then cat "$d/$name.state"; else echo OPEN; fi; }
-cross() { if [ -f "$d/$name.cross" ]; then echo true; else echo false; fi; }
-merged() { if [ "$(state)" = MERGED ]; then echo '"2026-10-02T00:00:00Z"'; else echo null; fi; }
-branch() { cat "$d/$name.pr" 2>/dev/null; }
-case "$1 $2" in
-  "pr create")
-    if [ -f "$d/$name.fail" ]; then echo "create failed for $slug" >&2; exit 1; fi
-    echo "$head" > "$d/$name.pr"
-    url ;;
-  "pr list")
-    if { [ -f "$d/$name.pr" ] || [ -f "$d/$name.cross" ]; } && { [ -z "$open" ] || [ "$(state)" = OPEN ]; }; then
-      printf '[{"number":%s,"url":"%s","state":"%s","isDraft":false,"isCrossRepository":%s,"headRefName":"%s","baseRefName":"main"}]' "$(num)" "$(url)" "$(state)" "$(cross)" "$head"
-    else echo '[]'; fi ;;
-  "pr view")
-    printf '{"number":%s,"url":"%s","state":"%s","isDraft":false,"isCrossRepository":%s,"headRefOid":"%s","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"","statusCheckRollup":[],"mergedAt":%s,"closedAt":null,"headRefName":"%s","baseRefName":"main","title":"t","author":{"login":"x"}}' "$(num)" "$(url)" "$(state)" "$(cross)" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "$(merged)" "$(branch)" ;;
-  "api graphql") echo '{"data":{"repository":{"pullRequest":{},"issue":null}}}' ;;
-  "repo view") echo o/app ;;
-  "pr merge") ;;
-esac
-`;
 
 const cleanups: (() => void)[] = [];
 after(() => cleanups.forEach((c) => c()));
-
-interface PrProject extends TwoRepo {
-  env: NodeJS.ProcessEnv;
-  gh: string;
-  calls: () => string[];
-  pr: (args: string[]) => Promise<{ status: number | null; stdout: string; stderr: string }>;
-  heads: (bare: string) => string;
-}
-
-async function project(): Promise<PrProject> {
-  const p = await twoRepo();
-  cleanups.push(p.cleanup);
-  const gh = path.join(p.parent, 'gh');
-  fs.mkdirSync(path.join(gh, 'bin'), { recursive: true });
-  fs.writeFileSync(path.join(gh, 'bin', 'gh'), FAKE_GH, { mode: 0o755 });
-  fs.writeFileSync(path.join(gh, 'calls.log'), '');
-  const env = { PATH: `${path.join(gh, 'bin')}${path.delimiter}${process.env.PATH}`, FAKE_GH_DIR: gh };
-  return {
-    ...p,
-    env,
-    gh,
-    calls: () => fs.readFileSync(path.join(gh, 'calls.log'), 'utf8').split('\n').filter(Boolean),
-    pr: (args) => p.raw(['pr', ...args], env),
-    heads: (bare) => p.git(bare, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/').trim(),
-  };
-}
-
-/** A job with member lib, both repos committed and verified. */
-async function ready(p: PrProject, opts: { verifyOnly?: boolean; libCommit?: boolean; libFiles?: Record<string, string> } = {}) {
-  const j = await p.f('job', 'new', '--title', `Two repo change ${Math.random().toString(36).slice(2, 8)}`);
-  await p.f('job', 'repo', 'add', ...(opts.verifyOnly ? ['--verify-only'] : []), j.id, 'lib');
-  await p.f('worktree', 'create', j.id);
-  const rootWt = path.join(p.parent, 'app.worktrees', j.id);
-  const libWt = path.join(p.parent, 'lib.worktrees', j.id);
-  p.commit(rootWt, { 'app.txt': 'app\n' }, 'feat: app');
-  if (!opts.verifyOnly && opts.libCommit !== false) p.commit(libWt, opts.libFiles ?? { 'lib.txt': 'lib\n' }, 'feat: lib');
-  await p.f('job', 'round', j.id);
-  return { id: j.id as string, rootWt, libWt, branch: `forge/${j.id}` };
-}
+const project = () => prProject(cleanups);
 
 describe('job repos: pull requests', { concurrency: 4 }, () => {
   test('pr open opens one PR per non-verify-only repo', async () => {
@@ -109,11 +34,13 @@ describe('job repos: pull requests', { concurrency: 4 }, () => {
     const job = loadJob(p.root, j.id);
     const pr = job.repos[1].pr!;
     assert.deepEqual([pr.number, pr.url, pr.state, pr.pushedSha], [7, 'https://github.com/o/lib/pull/7', 'OPEN', libHead]);
-    // The root body is the single-repo body: no member links.
+    // The root body is created with an empty siblings section; linking then fills it (job-repos-merge.test.ts).
     const config = loadConfig(p.root).config;
     const rootBody = fs.readFileSync(path.join(p.root, '.forge', 'jobs', j.id, 'pr-body.md'), 'utf8');
-    assert.equal(rootBody, prText(p.root, config, { ...job, repos: job.repos.slice(0, 1) }).body);
+    assert.equal(rootBody, prText(p.root, config, job).body);
+    assert.equal(rootBody, prText(p.root, config, { ...job, repos: job.repos.slice(0, 1) }).body.replace('<!-- forge -->', `${SIBLINGS_START}\n${SIBLINGS_END}\n\n<!-- forge -->`));
     assert.ok(!rootBody.includes('o/lib') && !rootBody.includes('/pull/'));
+    assert.ok(p.body('app').includes(`Part of job ${j.id}: o/app#11 then o/lib#7`), 'no dependsOn: job.repos order');
     const memberBody = fs.readFileSync(path.join(p.root, '.forge', 'jobs', j.id, 'pr-body-lib.md'), 'utf8');
     assert.equal(memberBody, memberPrBody(p.root, config, job));
     assert.doesNotMatch(memberBody, /Closes|Refs|\/pull\//);
@@ -237,7 +164,7 @@ describe('job repos: pull requests', { concurrency: 4 }, () => {
     assert.equal(loadJob(p.root, j.id).repos[1].pr!.number, 7);
   });
 
-  test('sync records member PR state and leaves the transition and merge root-only', async () => {
+  test('sync records member PR state', async () => {
     const p = await project();
     const j = await ready(p);
     await p.f('verify', j.id);
@@ -256,7 +183,7 @@ describe('job repos: pull requests', { concurrency: 4 }, () => {
     job = await sync();
     m = job.repos[1].pr!;
     assert.deepEqual([m.state, m.mergedAt], ['MERGED', '2026-10-02T00:00:00Z']);
-    assert.deepEqual([job.stage, job.state, job.waitingOn], ['pr', 'waiting', 'pr-review'], 'the root PR alone decides the transition');
+    assert.deepEqual([job.stage, job.state, job.waitingOn], ['pr', 'waiting', 'pr-review'], 'a merged member does not finish a job whose root PR is open');
     fs.writeFileSync(path.join(p.gh, 'lib.url'), 'http://github.com/o/lib/pull/7');
     job = await sync();
     assert.equal(job.repos[1].pr!.url, null, 'a url that is not https is not stored');
@@ -273,10 +200,13 @@ describe('job repos: pull requests', { concurrency: 4 }, () => {
     assert.deepEqual(p.events(k.id).filter((e) => e.type === 'repo-pr-sync-failed').map((e) => e.repo), ['lib']);
     assert.equal(loadJob(p.root, k.id).pr?.number, 11, 'the root PR still synced');
 
+    // Merging covers every PR of the job, in job.repos order when no component orders them.
+    fs.rmSync(path.join(p.gh, 'lib.cross'));
+    // lib #7 is back on j's branch: sync checks the head before anything merges it.
+    fs.writeFileSync(path.join(p.gh, 'lib.pr'), loadJob(p.root, j.id).branch!);
     const merge = await p.pr(['merge', j.id, '--now']);
     assert.equal(merge.status, 0, merge.stderr + merge.stdout);
     const merges = p.calls().filter((c) => c.startsWith('pr merge'));
-    assert.equal(merges.length, 1);
-    assert.match(merges[0], /-R o\/app/);
+    assert.deepEqual(merges.map((c) => c.split(' ').slice(2, 5).join(' ')), ['11 -R o/app', '7 -R o/lib']);
   });
 });
