@@ -214,7 +214,9 @@ export function openPr(
   const ahead = run('git', ['rev-list', '--count', `${config.git.remote}/${job.base}..${checked}`, '--'], { cwd: job.worktree, allowFail: true });
   if (ahead.ok && ahead.stdout.trim() === '0') throw new ForgeError(`branch ${job.branch} has no commits ahead of ${job.base}`);
   // Interim strategies, judged against the checked commits before anything is pushed.
-  const interim = interimOpenPlan(root, config, job, new Map<RepoKey, string>([[null, checked], ...plans.map((p): [RepoKey, string] => [p.repo, p.checked])]));
+  // A merged member is not re-checked, but a consumer may still pin it: its HEAD now stands in.
+  const heads = new Map<RepoKey, string>([[null, checked], ...Object.entries(evidence.heads ?? {}), ...plans.map((p): [RepoKey, string] => [p.repo, p.checked])]);
+  const interim = interimOpenPlan(root, config, job, heads);
   const isDeferred = (k: RepoKey) => interim.deferred.some((d) => d.repo === k);
   plans.sort((a, b) => interim.order.indexOf(a.repo) - interim.order.indexOf(b.repo));
   let rootPushed: string | null = null;
