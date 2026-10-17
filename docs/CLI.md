@@ -60,12 +60,13 @@ Like `forge version`, it needs no repo and no `.forge/`. The commit is self-repo
 | usage | 2 | Forge could not parse the call: an unknown command or subcommand, a missing argument, a flag with no value or given twice, a value that is not a number, JSON or one of the listed words. Also a missing or unparseable `.forge/config.yml`, or not inside a git repository |
 | owned | 3 | the job or request is held by another live session, or a tracker claim was lost to another job |
 | blocked | 4 | the job's dependencies are not done, or the repo budget (`budget:`) holds new work: `forge job claim` parked the job, or `forge job from-ref` started nothing |
-| external | 5 | a tool Forge runs failed to start or exited non-zero: git, gh, claude |
+| external | 5 | a tool Forge runs failed to start or exited non-zero: git, gh, claude, docker |
 
 The exceptions:
 - `verify`, `run`, `integrate`, `pr merge`, `job advance`, `config validate`, `secrets scan` and `update` print their own result when they fail, and exit 1. `secrets scan` fails on any finding; a scan that cannot finish is an error. `forge job advance` exits 3 when it refuses a job its session does not hold, and 1 when a command it ran failed, whatever that command's own exit would have been.
 - `forge git diff|log|show|range-diff` exit with git's own code once git runs.
 - `forge release run` prints its own result and exits 1 when it stops at a step (the result's `stopped` says why), and exits 3 (`owned`) while another `forge release run` holds the release lock.
+- `forge backing up|down|status` exit 5 (`external`) when Docker is missing, its daemon is stopped or a docker command fails (for `up`, also a same-named container that isn't this job's); `status <job>` still exits 0 and reports `unknown`. `forge worktree remove` exits 1 when its backing teardown fails (docs/CONFIG.md "Backing services").
 - `forge focus <id>|--clear` exits 1 when a configured checkout step fails (docs/CONFIG.md "Checkout steps"): the message names the step, why it failed and its log, and focus is unchanged.
 - The no-AI-attribution hook's exit 2 belongs to Claude Code's hook protocol, not this table.
 
@@ -116,7 +117,7 @@ Read by Forge:
 | `FORGE_EDITOR` | the editor command `forge dash`'s Open in editor runs, split into words without a shell, with the job's worktree path appended; default `code`. Read from `forge dash`'s own environment |
 | `GH_HOST` | a GitHub Enterprise host whose issue URLs count as the configured repo's, besides github.com |
 | `SHELL` | the shell configured commands run in (`$SHELL -lc`; `/bin/sh` when unset): `forge run`, `forge verify`, worktree setup and eval checks |
-| `PATH` | where git, gh, claude and node are found |
+| `PATH` | where git, gh, claude, node and docker are found |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` | `forge dash` leaves them out of daemon sessions' environment unless `daemon.auth: api-key` |
 | `GIT_CONFIG_COUNT` | daemon sessions append their git pins after the entries already counted |
 | `CLAUDE_CONFIG_DIR` | Claude Code's own config dir: transcripts are read from `$CLAUDE_CONFIG_DIR/projects`, else `~/.claude/projects`, by `forge job agent … end --import` and the dashboard's agent activity and transcript views |
@@ -140,6 +141,9 @@ Set by Forge for configured commands (`forge run`, `forge verify`, worktree setu
 | `FORGE_PORT`, `PORT` | the job's port, empty when it has none |
 | `FORGE_CARGO_CONFIG` | `forge run` and `forge verify` steps only, when the repo the command runs in has an active cargo local link: the absolute path of the rendered `cargo-links.toml`, for a command that calls cargo by absolute path (see Local links) |
 | `FORGE_CMAKE_ARGS` | the same, when the repo declares a cmake local link: the `-DFETCHCONTENT_SOURCE_DIR_<NAME>=<dir>` / `-U…` arguments as single-quoted shell words |
+| `FORGE_BACKING_<NAME>_HOST` | per `backing:` entry (prefix `FORGE_BACKING_`, `NAME` upper-cased with `-` as `_`), when the job's services were brought up: `127.0.0.1`; not set for an external entry (docs/CONFIG.md "Backing services") |
+| `FORGE_BACKING_<NAME>_PORT`, `FORGE_BACKING_<NAME>_PORT_<containerPort>` | the host port of the entry's first container port, and of each one |
+| `FORGE_BACKING_<NAME>_URL` | the external entry's `url`, or the managed entry's `url` template filled with `{host}`, `{port}` and `{port_<n>}`; unset without a `url` |
 
 Set by Forge for `notify.command` (docs/CONFIG.md "Notifications"), whose `{placeholders}` become quoted references to them; empty for a null field:
 

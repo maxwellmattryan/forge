@@ -55,8 +55,8 @@ Planned in M007.
 |---|---|---|
 | **environment** | The running components and backing services one job uses, each at its own endpoints (today a job's environment is its worktree plus its `port`). | planned (M007) |
 | **endpoint** | An address (URL or host and port) where an environment serves one component or backing service. | planned (M007) |
-| **backing service** | Infrastructure a component needs while it runs, such as a database, cache or queue. | planned (M007) |
-| **isolation** | How a backing service is provided to jobs: `per-job` (its own container per job), `shared` (one instance every job uses) or `external` (run outside Forge, which only points at it). | planned (M007) |
+| **backing service** | Infrastructure a component needs while it runs, such as a database, cache or queue. | `backing` |
+| **isolation** | How a backing service is provided to jobs: `per-job` (its own container per job), `shared` (one instance every job uses) or `external` (run outside Forge, which only points at it). | `backing` |
 | **config sink** | Where Forge writes a component's configuration for an environment (a `.env` file, a JSON config file, environment variables), chosen per component and never assumed. | planned (M007) |
 | **secret reference** | A pointer to a secret held elsewhere (an environment variable name, a keychain entry, a secret manager path) that Forge resolves at run time and never writes into job files, prompts or logs. | planned (M007) |
 
