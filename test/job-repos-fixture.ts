@@ -120,7 +120,8 @@ export async function twoRepo(): Promise<TwoRepo> {
 
 // Per slug `o/<name>`: <name>.pr holds the PR's head branch once created; <name>.state, .url, .num,
 // .head, .checks (passing|pending|failing) and .mergestate override what gh reports; <name>.cross
-// makes it a fork PR; <name>.fail makes `pr create` fail, .viewfail `pr view`, .editfail `pr edit` and
+// makes it a fork PR; .headref and .baseref override the branches gh reports; .racebody replaces the
+// body right after a `pr view --json body…` prints it (a human edit between two reads); <name>.fail makes `pr create` fail, .viewfail `pr view`, .editfail `pr edit` and
 // .mergefail `pr merge`. <name>.body is the PR body: `pr create` and `pr edit` write it from
 // --body-file and `pr view --json body` prints it. `pr merge` without --auto makes the PR MERGED.
 const FAKE_GH = `#!/bin/sh
@@ -142,7 +143,8 @@ url() { if [ -f "$d/$name.url" ]; then cat "$d/$name.url"; else echo "https://gi
 state() { if [ -f "$d/$name.state" ]; then cat "$d/$name.state"; else echo OPEN; fi; }
 cross() { if [ -f "$d/$name.cross" ]; then echo true; else echo false; fi; }
 merged() { if [ "$(state)" = MERGED ]; then echo '"2026-10-02T00:00:00Z"'; else echo null; fi; }
-branch() { cat "$d/$name.pr" 2>/dev/null; }
+branch() { if [ -f "$d/$name.headref" ]; then cat "$d/$name.headref"; else cat "$d/$name.pr" 2>/dev/null; fi; }
+baseref() { if [ -f "$d/$name.baseref" ]; then cat "$d/$name.baseref"; else echo main; fi; }
 headoid() { if [ -f "$d/$name.head" ]; then cat "$d/$name.head"; else echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; fi; }
 mstate() { if [ -f "$d/$name.mergestate" ]; then cat "$d/$name.mergestate"; else echo CLEAN; fi; }
 rollup() {
@@ -168,11 +170,12 @@ case "$1 $2" in
     else echo '[]'; fi ;;
   "pr view")
     if [ -f "$d/$name.viewfail" ]; then echo "view failed for $slug" >&2; exit 1; fi
-    if [ "$json" = body ]; then
-      node -e 'const fs = require("fs"); let b = ""; try { b = fs.readFileSync(process.argv[1], "utf8"); } catch {} process.stdout.write(JSON.stringify({ body: b }));' "$d/$name.body"
+    if [ "\${json%%,*}" = body ]; then
+      node -e 'const fs = require("fs"); let b = ""; try { b = fs.readFileSync(process.argv[1], "utf8"); } catch {} process.stdout.write(JSON.stringify({ body: b, headRefName: process.argv[2], baseRefName: process.argv[3] }));' "$d/$name.body" "$(branch)" "$(baseref)"
+      if [ -f "$d/$name.racebody" ]; then mv "$d/$name.racebody" "$d/$name.body"; fi
       exit 0
     fi
-    printf '{"number":%s,"url":"%s","state":"%s","isDraft":false,"isCrossRepository":%s,"headRefOid":"%s","mergeable":"MERGEABLE","mergeStateStatus":"%s","reviewDecision":"","statusCheckRollup":%s,"mergedAt":%s,"closedAt":null,"headRefName":"%s","baseRefName":"main","title":"t","author":{"login":"x"}}' "$(num)" "$(url)" "$(state)" "$(cross)" "$(headoid)" "$(mstate)" "$(rollup)" "$(merged)" "$(branch)" ;;
+    printf '{"number":%s,"url":"%s","state":"%s","isDraft":false,"isCrossRepository":%s,"headRefOid":"%s","mergeable":"MERGEABLE","mergeStateStatus":"%s","reviewDecision":"","statusCheckRollup":%s,"mergedAt":%s,"closedAt":null,"headRefName":"%s","baseRefName":"%s","title":"t","author":{"login":"x"}}' "$(num)" "$(url)" "$(state)" "$(cross)" "$(headoid)" "$(mstate)" "$(rollup)" "$(merged)" "$(branch)" "$(baseref)" ;;
   "api graphql") echo '{"data":{"repository":{"pullRequest":{},"issue":null}}}' ;;
   "repo view") echo o/app ;;
   "pr merge")

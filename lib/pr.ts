@@ -393,7 +393,8 @@ export function spliceSiblings(body: string, line: string): string | null {
 /**
  * Writes the sibling line into every OPEN PR of a linked job whose last write (or skip) recorded a
  * different line. Each PR's live body is read and only the section between the markers changes. A
- * failure logs `pr-links-failed` and moves on: links never fail `pr open` or `sync`.
+ * PR not on the job's branch and base is never edited. A failure logs `pr-links-failed` and moves
+ * on: links never fail `pr open` or `sync`.
  */
 function linkSiblingPrs(root: string, config: Config, id: string): void {
   const job = loadJob(root, id);
@@ -413,16 +414,22 @@ function linkSiblingPrs(root: string, config: Config, id: string): void {
   }
   const line = siblingLine(job.id, prs, cycle !== null);
   if (line === null) return;
-  const events = readEvents(root, id).filter((e) => e.type === 'pr-links-updated' || e.type === 'pr-links-skipped');
+  // A 'changed' skip is retried: the body moved under us, not the markers.
+  const events = readEvents(root, id).filter((e) => e.type === 'pr-links-updated' || (e.type === 'pr-links-skipped' && e.reason !== 'changed'));
   for (const p of prs) {
     if (p.state !== 'OPEN' || !SLUG_RE.test(p.slug)) continue;
     const repo = p.repo === null ? {} : { repo: p.repo };
     const last = events.findLast((e) => (e.repo ?? null) === p.repo && e.number === p.number);
     if (last?.line === line) continue;
     try {
-      const view = JSON.parse(gh(root, ['pr', 'view', String(p.number), '-R', p.slug, '--json', 'body']).stdout);
-      const body = typeof view?.body === 'string' ? view.body : null;
-      if (body === null) throw new ForgeError('gh returned no body');
+      const base = p.repo === null ? job.base : (memberEntry(job, p.repo)?.base ?? null);
+      const read = (): string => {
+        const view = JSON.parse(gh(root, ['pr', 'view', String(p.number), '-R', p.slug, '--json', 'body,headRefName,baseRefName']).stdout);
+        assertJobPr(view, job.branch, base, `PR #${p.number} in ${p.slug}`);
+        if (typeof view?.body !== 'string') throw new ForgeError('gh returned no body');
+        return view.body;
+      };
+      const body = read();
       const next = spliceSiblings(body, line);
       if (next === null) {
         logEvent(root, id, 'pr-links-skipped', { ...repo, number: p.number, line, reason: 'markers' });
@@ -431,6 +438,12 @@ function linkSiblingPrs(root: string, config: Config, id: string): void {
       if (next !== body) {
         const file = path.join(jobDir(root, id), p.repo === null ? 'pr-links.md' : `pr-links-${p.repo}.md`);
         fs.writeFileSync(file, next);
+        // gh has no compare-and-swap edit, so re-read right before writing: a body someone changed
+        // since the first read is left alone (this narrows the race to the gap between two calls).
+        if (read() !== body) {
+          logEvent(root, id, 'pr-links-skipped', { ...repo, number: p.number, line, reason: 'changed' });
+          continue;
+        }
         gh(root, ['pr', 'edit', String(p.number), '-R', p.slug, '--body-file', file]);
       }
       logEvent(root, id, 'pr-links-updated', { ...repo, number: p.number, line });
@@ -440,14 +453,33 @@ function linkSiblingPrs(root: string, config: Config, id: string): void {
   }
 }
 
-/** linkSiblingPrs that cannot throw, even on a job it cannot load. */
+/**
+ * linkSiblingPrs that cannot throw, even on a job it cannot load: links never fail `pr open` or
+ * `sync`, so an error is logged as `pr-links-failed` (no number) and swallowed.
+ */
 function linkSiblingsQuietly(root: string, config: Config, id: string): void {
   try {
     linkSiblingPrs(root, config, id);
-  } catch {}
+  } catch (e) {
+    try {
+      logEvent(root, id, 'pr-links-failed', { error: safeText(e instanceof Error ? e.message : String(e), 200) });
+    } catch {
+      // The job dir itself is unusable, so there is nowhere to log; the caller still must not fail.
+    }
+  }
 }
 
 const SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+
+/**
+ * Throws unless gh's `pr` is the job's own PR in that repo: head on the job's branch, base on the
+ * repo's base. A PR number in job.json is agent-writable, so without this a rewritten number would
+ * let a merged PR elsewhere satisfy the merge order, or send a merge or body edit to an unrelated PR.
+ */
+function assertJobPr(pr: any, branch: string | null, base: string | null, label: string): void {
+  if (!branch || pr?.headRefName !== branch) throw new ForgeError(`${label} is not on the job's branch ${branch}`);
+  if (!base || pr?.baseRefName !== base) throw new ForgeError(`${label} does not target ${base}`);
+}
 
 const PR_STATES = new Set(['OPEN', 'CLOSED', 'MERGED']);
 
@@ -472,7 +504,7 @@ export interface MemberSync {
 function syncMemberPrs(root: string, config: Config, id: string): Map<string, MemberSync> {
   const job = loadJob(root, id);
   const out = new Map<string, MemberSync>();
-  const fields = 'number,url,state,isDraft,headRefOid,mergeable,mergeStateStatus,statusCheckRollup,mergedAt,isCrossRepository';
+  const fields = 'number,url,state,isDraft,headRefOid,mergeable,mergeStateStatus,statusCheckRollup,mergedAt,isCrossRepository,headRefName,baseRefName';
   for (const m of memberRepos(job).filter((x) => !x.verifyOnly)) {
     const unread: MemberSync = { repo: m.repo, number: safePrNumber(m.pr?.number), state: null, newlyClosed: false, headOid: null, checks: undefined, mergeState: null };
     out.set(m.repo, unread);
@@ -487,6 +519,7 @@ function syncMemberPrs(root: string, config: Config, id: string): Map<string, Me
       }
       const pr = JSON.parse(gh(root, ['pr', 'view', String(number), '-R', slug, '--json', fields]).stdout);
       if (pr?.isCrossRepository) throw new ForgeError(`PR #${number} in ${slug} comes from a fork`);
+      assertJobPr(pr, job.branch, m.base, `PR #${number} in ${slug}`);
       const fresh = {
         // Null when gh returns an unusable number: cleanRepoPr then drops this record on the next
         // load, and the next sync finds the PR by branch again.

@@ -98,6 +98,44 @@ describe('linked PRs: sibling links', { concurrency: 4, skip }, () => {
     assert.ok(p.body('lib').includes(section(`Part of job ${j.id}: o/lib#12 then o/app#11`)));
   });
 
+  test('a PR off the job branch, or edited between reads, is never overwritten', async () => {
+    const p = await prProject(cleanups);
+    dependsOn(p, 'app-on-lib');
+    const j = await opened(p);
+    await p.f('job', 'set', j.id, '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review');
+    const sync = async () => {
+      const r = await p.pr(['sync', j.id]);
+      assert.equal(r.status, 0, r.stderr);
+    };
+    const kinds = (type: string) => p.events(j.id).filter((e) => e.type === type).map((e) => [e.repo ?? null, e.number, e.reason]);
+
+    // job.json's lib number now names an unrelated PR on another branch: its body is left alone.
+    const foreign = `foreign\n${SIBLINGS_START}\nkeep\n${SIBLINGS_END}\n`;
+    p.fake('lib.headref', 'someone-else');
+    p.fake('lib.body', foreign);
+    p.fake('app.num', '12');
+    const before = edits(p, 'o/lib').length;
+    await sync();
+    assert.equal(edits(p, 'o/lib').length, before, 'no edit of a PR on another branch');
+    assert.equal(p.body('lib'), foreign);
+    assert.deepEqual(kinds('pr-links-failed'), [['lib', 7, undefined]]);
+    p.fake('lib.headref', null);
+
+    // A human edits the root body between Forge's read and its write: the edit wins, and the next
+    // sync writes the line into the edited body.
+    const human = `edited by a person\n${SIBLINGS_START}\n${SIBLINGS_END}\n`;
+    p.fake('app.racebody', human);
+    p.fake('app.num', '13');
+    const rootEdits = edits(p, 'o/app').length;
+    await sync();
+    assert.equal(edits(p, 'o/app').length, rootEdits, 'no write over a body that changed since the read');
+    assert.equal(p.body('app'), human);
+    assert.deepEqual(kinds('pr-links-skipped'), [[null, 13, 'changed']]);
+    await sync();
+    const line = `Part of job ${j.id}: o/lib#7 then o/app#13`;
+    assert.equal(p.body('app'), human.replace(`${SIBLINGS_START}\n${SIBLINGS_END}`, section(line)));
+  });
+
   test('no sibling section without a PR member', async () => {
     const p = await prProject(cleanups);
     dependsOn(p, 'app-on-lib');
@@ -297,6 +335,36 @@ describe('linked PRs: graph-ordered merges', { concurrency: 4, skip }, () => {
     assert.match(json(r).error, /dependsOn form a cycle between the root repo, repo lib/);
     assert.deepEqual(merges(p), [], 'no gh pr merge call');
     assert.deepEqual(p.events(j.id).filter((e) => e.type === 'pr-merge-refused').map((e) => e.reason), ['order', 'order', 'cycle']);
+  });
+
+  test('a member PR number off the job branch fails closed', async () => {
+    const p = await prProject(cleanups);
+    dependsOn(p, 'app-on-lib');
+    const j = await opened(p);
+    pin(p, j.id);
+    const failed = () => p.events(j.id).filter((e) => e.type === 'repo-pr-sync-failed').length;
+
+    // job.json's lib number names a PR merged elsewhere, from another branch: it is not lib's PR.
+    p.fake('lib.headref', 'someone-else');
+    p.fake('lib.state', 'MERGED');
+    let r = await p.pr(['merge', j.id, '--now']);
+    assert.equal(r.status, 1, r.stderr);
+    assert.deepEqual([json(r).action, json(r).reason, json(r).repo], ['refused', 'order', null]);
+    assert.match(json(r).error, /repo lib PR #7 \(state unknown\)/);
+    assert.equal(failed(), 1);
+    assert.notEqual(loadJob(p.root, j.id).repos[1].pr!.state, 'MERGED', 'the foreign state is not recorded');
+
+    // An unrelated open PR on the job's branch name but another base is neither merged nor targeted.
+    p.fake('lib.headref', null);
+    p.fake('lib.state', null);
+    p.fake('lib.baseref', 'release');
+    r = await p.pr(['merge', j.id, '--repo', 'lib', '--now']);
+    assert.equal(r.status, 1, r.stderr);
+    assert.equal(failed(), 2);
+    r = await p.pr(['merge', j.id, '--now']);
+    assert.equal(r.status, 1, r.stderr);
+    assert.deepEqual([json(r).reason, json(r).repo], ['order', null]);
+    assert.deepEqual(merges(p), [], 'no gh pr merge call');
   });
 
   test('member PRs get the same merge policy', async () => {

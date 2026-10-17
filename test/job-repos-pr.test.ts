@@ -202,6 +202,8 @@ describe('job repos: pull requests', { concurrency: 4 }, () => {
 
     // Merging covers every PR of the job, in job.repos order when no component orders them.
     fs.rmSync(path.join(p.gh, 'lib.cross'));
+    // lib #7 is back on j's branch: sync checks the head before anything merges it.
+    fs.writeFileSync(path.join(p.gh, 'lib.pr'), loadJob(p.root, j.id).branch!);
     const merge = await p.pr(['merge', j.id, '--now']);
     assert.equal(merge.status, 0, merge.stderr + merge.stdout);
     const merges = p.calls().filter((c) => c.startsWith('pr merge'));
