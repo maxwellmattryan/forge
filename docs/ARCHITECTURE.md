@@ -151,6 +151,19 @@ These add events `repo-pr-closed`, `pr-links-updated`, `pr-links-skipped` and `p
 
 Residual risk: a `Write` to job.json can flip a member's `verifyOnly` or drop a member entry; the flip is still bounded by the commits-ahead check and the verified-HEAD rule. The same `Write` can also add a member entry by hand, skipping the human-only `forge job repo add`; `pr open` then pushes to that repo and opens a PR there. It is bounded: only a repo a human listed in config `repos` whose clone passes doctor's check qualifies, its branch gets every check above (secrets, protected paths, verified HEAD), and every member it pushes is listed in `pr open`'s `repos` result. Forge now merges member PRs, so such a member would be merged too, bounded by the same checks plus CI and the head pin at merge time. The merge order comes from the main checkout's `.forge/config.yml`, which a session with `Write` there could change. Requiring a `job-repo-added` event would not close it, since `events.jsonl` is just as writable; binding members to a tamper-evident record is the same follow-up as for approvals ("Untrusted input").
 
+### Local links
+
+A `link` on a `dependsOn` edge (CONFIG.md "Local links") makes a consumer job repo build against a dependency job repo's worktree while the job is in progress. The rule is that a link never reaches a commit: `lib/links.ts` recomputes the links from config and the job's repos before every `forge run` and verify step, renders them only into `<jobDir>/links/`, and puts shims for cargo, cmake and npm first on that command's PATH; tracked lockfiles the patched build rewrites are written back afterwards. Verify's integrity report (`lib/integrity.ts`) then flags any override that was committed anyway.
+
+**Threat model.** The attackers are the builder (or a session misled by tracker or PR text) and a hostile checkout.
+
+1. Committing a link override so the PR builds only on this machine: integrity rules R1 (an absolute path of the root's or a member's worktrees root, or of `.forge/jobs`), R2 (`FETCHCONTENT_SOURCE_DIR_`), R3 (a `[patch` table in a `.cargo/config(.toml)`) and R4 (a `file:`/`link:` dependency in `package.json` that is absolute or leaves the repo), blocking under `verifyIntegrity: block`. The diff is read with `--text`, so `-diff`/`binary` attributes hide nothing; renames are read on their new side; a symlinked `.cargo/config.toml` is reported as a link-mode change.
+2. Editing job.json so a link points a build at a directory of its choosing: worktrees are recomputed (`isOwnWorktreePath`, `trustedMemberWorktree`), never taken from the stored value alone, and a link dir that resolves outside its worktree is inactive.
+3. Config text reaching TOML and sh: names and sources are pattern-checked at validation, every value is single-quoted in the shims, and paths are JSON-escaped into TOML.
+4. Planted shims in the job dir: Forge rewrites every rendered file before each command, deletes what it did not render, and replaces a planted symlink there instead of following it. The session can run commands as the same user anyway, so this is not a privilege boundary.
+
+Residual risk: a command that calls a tool by absolute path builds without links (a missing link, not a leak), and R1 knows only this machine's paths. Two `forge run`s at once in one consumer worktree can race the lockfile snapshot; verify's `worktree-clean` then reports what is left.
+
 ## Concurrency
 
 - **Many jobs, one session**: the orchestrator runs agents in the background and advances each job as notifications arrive, up to `runtime.maxParallelJobs`.

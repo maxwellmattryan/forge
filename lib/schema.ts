@@ -7,9 +7,9 @@ import { isSafeUrl, isStoredRef, sameIssue } from './issue-ref.ts';
 import { REPO_NAME, isSafeBranch } from './member-repos.ts';
 import type { EventActor, Job, JobEvent, JobIssue, JobRepo, JobRepoPr, LoadedJob } from './types.ts';
 
-export { COMPONENT_KINDS, DEPENDENCY_TYPES } from './components.ts';
+export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
 
-export const CONFIG_SCHEMA_VERSION = 11;
+export const CONFIG_SCHEMA_VERSION = 12;
 export const JOB_SCHEMA_VERSION = 12;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
@@ -142,6 +142,9 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
     const f = servicesToComponents(c);
     return f && typeof f === 'object' && 'repos' in f ? f : { ...f, repos: [] };
   },
+  // v12 adds dependsOn links, absent by default, so no v11 config changes; the bump lets older Forges
+  // refuse a config whose links they would ignore.
+  11: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {

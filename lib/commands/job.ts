@@ -15,6 +15,7 @@ import { checkIssueRef, isSafeUrl, issueUrl } from '../issue-ref.ts';
 import { githubHost, localRepoSlug } from '../repo-slug.ts';
 import { exists } from '../paths.ts';
 import { addJobRepo, refuseJobRepoInDaemon, removeJobRepo } from '../job-repos.ts';
+import { resolveLinks } from '../links.ts';
 import { COMPLEXITIES, EFFORTS, OFFICE_GATES } from '../schema.ts';
 import { daemonScope } from '../requests.ts';
 import { jobPanel } from '../panel.ts';
@@ -252,6 +253,14 @@ const JOB: HelpGroup = {
     { command: 'job decision', args: '<id>', summary: "read decision.md and record the approver's decision", exits: [NO_JOB] },
     { command: 'job progress', args: '<id>', summary: 'tasks done and total in tasks.md', exits: [NO_JOB] },
     { command: 'job paths', args: '<id>', summary: "absolute paths of the job's files, for agent briefs", exits: [NO_JOB] },
+    {
+      command: 'job links',
+      args: '<id>',
+      summary: "the job's local links (config dependsOn links), active or not, with the dependency dir or the reason",
+      exits: [NO_JOB],
+      docs: ['Local links', 'docs/CONFIG.md#local-links'],
+      readme: true,
+    },
     {
       command: 'job scope',
       args: '<id>',
@@ -756,6 +765,10 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       return progress(root, requireJob(root, id).id);
     case 'paths':
       return jobPaths(root, config, loadJob(root, req(id, 'job id')));
+    case 'links': {
+      const job = requireJob(root, id);
+      return { id: job.id, links: resolveLinks(root, config, job) };
+    }
     case 'scope':
       return jobScope(root, config, req(id, 'job id'));
     case 'panel':

@@ -17,6 +17,8 @@ import { checkBranch, compactProtected, renderProtected } from './protected.ts';
 import type { BranchCheck, CompactProtected } from './protected.ts';
 import { logSecrets, renderSecrets, scanBranch, secretMode, secretsOk, secretsTail, compactSecrets } from './secrets.ts';
 import { jobComponent } from './components.ts';
+import { applyLinks, consumerLockfiles, pathPrelude, restoreLockfiles, snapshotLockfiles } from './links.ts';
+import type { AppliedLinks, LockSnapshot } from './links.ts';
 import { memberClone, memberEntry, memberRepos, memberWorktree, memberWorktreePath, trustedMemberWorktree } from './job-repos.ts';
 import type { ComponentConfig, CompactSecrets, Config, Job, JobRepo, SecretScan, VerifyRun, VerifyRunRepo } from './types.ts';
 import { ForgeError, assertSafeRef, fill, now, readJson, run, shellArgs, tail, withLock, writeJsonAtomic } from './util.ts';
@@ -44,6 +46,10 @@ export interface CommandResult {
   durationMs: number;
   log: string;
   tail: string;
+  /** The active local links applied, `<ecosystem>:<name>`; only when there are some. */
+  links?: string[];
+  /** Lockfiles written back after the command; only when non-empty. */
+  restored?: string[];
 }
 
 /** One verify step: a command's result, a skipped step, or a gate verify adds itself (worktree-clean, secrets, protected, integrity). */
@@ -57,6 +63,8 @@ export interface VerifyStep {
   cmd?: string;
   log?: string;
   durationMs?: number;
+  links?: string[];
+  restored?: string[];
 }
 
 /** What `forge verify` returns: verify. */
@@ -465,6 +473,8 @@ export interface RunOptions {
   args?: string[];
   /** A member repo: run its component's command in its worktree (`forge run … --repo`). */
   repo?: string;
+  /** false: the caller (verify) snapshots and restores lockfiles itself, once per group. */
+  lockGuard?: false;
 }
 
 /** A command ready to run: the filled line, where it runs, and its environment. */
@@ -474,6 +484,16 @@ interface PreparedCommand {
   env: NodeJS.ProcessEnv;
   /** Set for a member repo's command. */
   repo?: string;
+  /** Run before `cmd`, after the login profile: the PATH line that puts the link shims first. */
+  prelude: string;
+  links: AppliedLinks | null;
+}
+
+/** The env and PATH prelude of a consumer repo's links, rendered fresh for this command. */
+function withLinks(root: string, config: Config, job: Job, repo: string | null, env: NodeJS.ProcessEnv): { env: NodeJS.ProcessEnv; prelude: string; links: AppliedLinks | null } {
+  const links = applyLinks(root, config, job, repo);
+  if (!links) return { env, prelude: '', links };
+  return { env: { ...env, ...links.env }, prelude: links.binDir ? pathPrelude(links.binDir) : '', links };
 }
 
 /** Everything before the command starts, shared by the sync and async runners so both log alike. */
@@ -489,7 +509,7 @@ function prepareCommand(root: string, config: Config, id: string, name: string, 
   const cmd = fillCommand(name, template, vars(root, config, job, job.worktree, job.port, template), opts.args ?? []);
   // Agents run commands all through a build; each one proves the session is alive.
   touchJob(root, id);
-  return { cmd, cwd, env: envFor(job, job.worktree, job.port) };
+  return { cmd, cwd, ...withLinks(root, config, job, null, envFor(job, job.worktree, job.port)) };
 }
 
 /**
@@ -503,7 +523,7 @@ function prepareMemberCommand(root: string, config: Config, id: string, name: st
   if (!component) throw new ForgeError(`no component of repo ${repo} defines a "${name}" command (components[].commands.${name} with repo: ${repo})`);
   const cmd = fillCommand(name, component.commands![name]!, memberVars(root, job, member, worktree), opts.args ?? []);
   touchJob(root, id);
-  return { cmd, cwd: path.join(worktree, component.path), env: envFor(job, worktree, null), repo };
+  return { cmd, cwd: path.join(worktree, component.path), ...withLinks(root, config, job, repo, envFor(job, worktree, null)), repo };
 }
 
 /** The one component of member `repo` that defines `name`, null when none does; several is refused. */
@@ -522,12 +542,15 @@ function memberVars(root: string, job: Job, member: JobRepo, worktree: string): 
 }
 
 /** Everything after: the log file, the `command` event and the result with its tail. */
-function recordCommand(root: string, id: string, name: string, p: PreparedCommand, res: ShellResult, started: number, opts: RunOptions): CommandResult {
+function recordCommand(root: string, id: string, name: string, p: PreparedCommand, res: ShellResult, started: number, opts: RunOptions, restored: string[] = []): CommandResult {
   const logDir = path.join(jobDir(root, id), 'logs');
   fs.mkdirSync(logDir, { recursive: true });
   const logFile = path.join(logDir, `${opts.label ?? (p.repo ? `${p.repo}-${name}` : name)}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
-  fs.writeFileSync(logFile, `$ ${p.cmd}\n(cwd ${p.cwd})\n\n${res.output}\n\n[exit ${res.status}]\n`);
-  const result = { name, cmd: p.cmd, ok: res.ok, exit: res.status, durationMs: Date.now() - started, log: path.relative(jobDir(root, id), logFile), tail: tail(res.output, opts.tail ?? 40) };
+  const linksLine = p.links?.binDir ? `(links ${p.links.binDir})\n` : '';
+  fs.writeFileSync(logFile, `$ ${p.cmd}\n(cwd ${p.cwd})\n${linksLine}\n${res.output}\n\n[exit ${res.status}]\n`);
+  const result: CommandResult = { name, cmd: p.cmd, ok: res.ok, exit: res.status, durationMs: Date.now() - started, log: path.relative(jobDir(root, id), logFile), tail: tail(res.output, opts.tail ?? 40) };
+  if (p.links?.labels.length) result.links = p.links.labels;
+  if (restored.length) result.restored = restored;
   logEvent(root, id, 'command', { name, ...(p.repo ? { repo: p.repo } : {}), ok: res.ok, exit: res.status, durationMs: result.durationMs });
   return result;
 }
@@ -538,16 +561,56 @@ function recordCommand(root: string, id: string, name: string, p: PreparedComman
  */
 export function runCommand(root: string, config: Config, id: string, name: string, opts: RunOptions = {}): CommandResult {
   const p = prepareCommand(root, config, id, name, opts);
+  const snap = opts.lockGuard === false ? null : lockSnapshot(p);
   const started = Date.now();
-  return recordCommand(root, id, name, p, shell(p.cmd, p.cwd, p.env), started, opts);
+  let res: ShellResult;
+  let restored: string[] = [];
+  try {
+    res = shell(p.prelude + p.cmd, p.cwd, p.env);
+  } finally {
+    restored = restoreLocks(root, id, p.repo ?? null, snap);
+  }
+  return recordCommand(root, id, name, p, res, started, opts, restored);
+}
+
+/** The consumer's tracked lockfiles before a command with active cargo or npm links, else null. */
+function lockSnapshot(p: PreparedCommand): LockSnapshot | null {
+  return p.links?.worktree && p.links.lockfiles.length ? snapshotLockfiles(p.links.worktree, p.links.lockfiles) : null;
+}
+
+/** Writes back what a linked build rewrote (a `[patch]` rewrites Cargo.lock) and logs it; returns the paths. */
+function restoreLocks(root: string, id: string, repo: string | null, snap: LockSnapshot | null): string[] {
+  if (!snap) return [];
+  const paths = restoreLockfiles(snap);
+  if (paths.length) logEvent(root, id, 'link-lockfiles-restored', { repo, paths });
+  return paths;
+}
+
+/** Verify's snapshot of one consumer repo's lockfiles, taken before its first group. */
+function verifyLockSnapshot(root: string, config: Config, job: Job, repo: string | null): LockSnapshot | null {
+  const c = consumerLockfiles(root, config, job, repo);
+  return c ? snapshotLockfiles(c.worktree, c.ecosystems) : null;
+}
+
+/** Restores after a verify group settles and records what it restored on that group's steps. */
+function restoreGroup(root: string, id: string, repo: string | null, snap: LockSnapshot | null, ran: VerifyStep[]): void {
+  const restored = restoreLocks(root, id, repo, snap);
+  if (restored.length) for (const r of ran) if (!r.skipped) r.restored = restored;
 }
 
 /** runCommand without blocking the event loop, so verify can run a group's steps side by side. */
 export async function runCommandAsync(root: string, config: Config, id: string, name: string, opts: RunOptions = {}): Promise<CommandResult> {
   const p = prepareCommand(root, config, id, name, opts);
+  const snap = opts.lockGuard === false ? null : lockSnapshot(p);
   const started = Date.now();
-  const res = await shellAsync(p.cmd, p.cwd, p.env);
-  return recordCommand(root, id, name, p, res, started, opts);
+  let res: ShellResult;
+  let restored: string[] = [];
+  try {
+    res = await shellAsync(p.prelude + p.cmd, p.cwd, p.env);
+  } finally {
+    restored = restoreLocks(root, id, p.repo ?? null, snap);
+  }
+  return recordCommand(root, id, name, p, res, started, opts, restored);
 }
 
 /**
@@ -619,22 +682,34 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   else if (prot.escalated.length) protectedStep.reason = `${prot.escalated.length} protected paths need a human`;
   results.push(protectedStep);
   if (!dirty) {
-    for (const group of secretsStep.ok && protectedStep.ok ? groups : []) {
-      // A failing step never stops its siblings: each finishes and keeps its own log. One that
-      // throws is reported only once the others have settled, so none writes after verify returns.
-      const settled = await Promise.allSettled(
-        group.map((step): Promise<VerifyStep> => (config.commands[step] ? runCommandAsync(root, config, id, step, { label: `verify-${step}` }) : Promise.resolve({ name: step, ok: true, skipped: true }))),
-      );
-      const thrown = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
-      if (thrown) throw thrown.reason;
-      const ran = settled.map((s) => (s as PromiseFulfilledResult<VerifyStep>).value);
-      results.push(...ran);
-      if (ran.some((r) => !r.ok)) break;
-    }
-    if (results.every((r) => r.ok)) {
-      const plan = e2ePlan(config, job, commandTemplate(config, job, 'e2e'));
-      if (plan?.run) results.push({ ...runCommand(root, config, id, 'e2e', { label: 'verify-e2e' }), reason: plan.reason });
-      else if (plan) results.push({ name: 'e2e', ok: true, skipped: true, reason: plan.reason });
+    // One snapshot before the first group: steps of a group run at once, so each restores only after all settle.
+    const locks = secretsStep.ok && protectedStep.ok ? verifyLockSnapshot(root, config, job, null) : null;
+    try {
+      for (const group of secretsStep.ok && protectedStep.ok ? groups : []) {
+        // A failing step never stops its siblings: each finishes and keeps its own log. One that
+        // throws is reported only once the others have settled, so none writes after verify returns.
+        const settled = await Promise.allSettled(
+          group.map((step): Promise<VerifyStep> =>
+            config.commands[step] ? runCommandAsync(root, config, id, step, { label: `verify-${step}`, lockGuard: false }) : Promise.resolve({ name: step, ok: true, skipped: true }),
+          ),
+        );
+        const thrown = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
+        if (thrown) throw thrown.reason;
+        const ran = settled.map((s) => (s as PromiseFulfilledResult<VerifyStep>).value);
+        restoreGroup(root, id, null, locks, ran);
+        results.push(...ran);
+        if (ran.some((r) => !r.ok)) break;
+      }
+      if (results.every((r) => r.ok)) {
+        const plan = e2ePlan(config, job, commandTemplate(config, job, 'e2e'));
+        if (plan?.run) {
+          const e2e: VerifyStep = { ...runCommand(root, config, id, 'e2e', { label: 'verify-e2e', lockGuard: false }), reason: plan.reason };
+          restoreGroup(root, id, null, locks, [e2e]);
+          results.push(e2e);
+        } else if (plan) results.push({ name: 'e2e', ok: true, skipped: true, reason: plan.reason });
+      }
+    } finally {
+      restoreLocks(root, id, null, locks);
     }
     // Computed whatever the commands returned: a deleted test is evidence even when the build is red.
     integrity = testIntegrity(root, config, job);
@@ -739,19 +814,25 @@ async function verifyMember(root: string, config: Config, job: Job, groups: stri
   results.push(secretsStep);
   let integrity: IntegrityReport | null = null;
   if (!dirty) {
-    for (const group of secretsStep.ok ? groups : []) {
-      const settled = await Promise.allSettled(
-        group.map((step): Promise<VerifyStep> =>
-          memberComponent(config, repo, step)
-            ? runCommandAsync(root, config, job.id, step, { label: `verify-${repo}-${step}`, repo })
-            : Promise.resolve({ name: step, ok: true, skipped: true, reason: `no ${step} command for repo ${repo}` }),
-        ),
-      );
-      const thrown = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
-      if (thrown) throw thrown.reason;
-      const ran = settled.map((s) => (s as PromiseFulfilledResult<VerifyStep>).value);
-      results.push(...ran);
-      if (ran.some((r) => !r.ok)) break;
+    const locks = secretsStep.ok ? verifyLockSnapshot(root, config, job, repo) : null;
+    try {
+      for (const group of secretsStep.ok ? groups : []) {
+        const settled = await Promise.allSettled(
+          group.map((step): Promise<VerifyStep> =>
+            memberComponent(config, repo, step)
+              ? runCommandAsync(root, config, job.id, step, { label: `verify-${repo}-${step}`, repo, lockGuard: false })
+              : Promise.resolve({ name: step, ok: true, skipped: true, reason: `no ${step} command for repo ${repo}` }),
+          ),
+        );
+        const thrown = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
+        if (thrown) throw thrown.reason;
+        const ran = settled.map((s) => (s as PromiseFulfilledResult<VerifyStep>).value);
+        restoreGroup(root, job.id, repo, locks, ran);
+        results.push(...ran);
+        if (ran.some((r) => !r.ok)) break;
+      }
+    } finally {
+      restoreLocks(root, job.id, repo, locks);
     }
     integrity = testIntegrity(root, config, view);
     if (hiddenError) integrity = integrityError(integrity, `could not check the worktree for hidden changes: ${hiddenError}`);
