@@ -824,6 +824,8 @@ export interface Config {
   resources: ResourceConfig[];
   components: ComponentConfig[];
   repos: MemberRepoConfig[];
+  /** Verify-only consumers of a changed library: docs/CONFIG.md "Downstream verification". */
+  downstream: { enabled: boolean; max: number; skip: string[] };
   infra: {
     mode: 'human' | 'plan-only' | 'agent';
     allowed: string[];

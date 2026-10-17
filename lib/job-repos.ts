@@ -121,7 +121,7 @@ export function refuseJobRepoInDaemon(): void {
 }
 
 /** `forge job repo add`: records a member with its defaultBranch as base, after doctor's member check. */
-export function addJobRepo(root: string, config: Config, id: string, name: string, verifyOnly: boolean): { id: string; repos: JobRepo[] } {
+export function addJobRepo(root: string, config: Config, id: string, name: string, verifyOnly: boolean, opts: { downstream?: boolean } = {}): { id: string; repos: JobRepo[] } {
   const job = loadJob(root, id);
   if (['done', 'cancelled'].includes(job.state) || ['pr', 'done'].includes(job.stage))
     throw new ForgeError(`job ${id} is at stage ${job.stage} (${job.state}); repos can be added only before its PR`);
@@ -132,7 +132,7 @@ export function addJobRepo(root: string, config: Config, id: string, name: strin
     if (memberEntry(j, name)) throw new ForgeError(`job ${id} already has repo ${name}`);
     j.repos.push({ repo: name, worktree: null, branch: null, base: entry.defaultBranch, pr: null, verifyOnly, interim: null });
   });
-  logEvent(root, id, 'job-repo-added', { repo: name, verifyOnly });
+  logEvent(root, id, 'job-repo-added', { repo: name, verifyOnly, ...(opts.downstream ? { downstream: true } : {}) });
   return { id: saved.id, repos: loadJob(root, id).repos };
 }
 

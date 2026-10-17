@@ -122,6 +122,10 @@ export const FIELDS: ConfigField[] = [
   // Locked: the dashboard token alone must not redirect notifications or run a program.
   field('notify.webhooks', 'pipeline', 'Notification webhooks', 'URLs Forge posts a fixed-shape notification to on gates, PRs, failures and budget stops: each with url, optional events and format (json or slack).', { type: 'object', locked: 'names a URL Forge posts to' }),
   field('notify.command', 'pipeline', 'Notification command', 'A shell command Forge runs once per notification; {event}, {job}, {title}, {url}, {stage}, {reason} and {dashboardUrl} read from environment variables.', { type: 'string', nullable: true, locked: 'runs a program' }),
+  // Locked: turning the check off or capping it at 0 loosens a verification gate, and skip names repositories.
+  field('downstream.enabled', 'pipeline', 'Downstream verification', "A changed library's linked consumer repos join the job verify-only, and verify runs their tests against the job's changes.", { type: 'boolean', locked: "runs member repos' commands in verify" }),
+  field('downstream.max', 'pipeline', 'Downstream repos per job', 'At most this many consumer repos join one job for downstream verification.', { type: 'integer', min: 0, max: 50, locked: 'caps a verification gate' }),
+  field('downstream.skip', 'pipeline', 'Downstream skip', 'repos entries never added for downstream verification.', { type: 'list', locked: 'names repositories' }),
 
   field('review.blockOn', 'review', 'Block on', 'Severities that force another round. Blocker and major always do; add minor or nit to be stricter.', { type: 'list', options: SEVERITIES, required: ['blocker', 'major'] }),
   field('review.onPrFeedback', 'review', 'On PR feedback', 'Which lenses re-run after PR feedback.', { type: 'enum', options: ['changed', 'full', 'none'] }),
@@ -352,6 +356,7 @@ export const CONFIG_DISCLOSURE: Record<string, Disclosure> = {
   components: 'command',
   // Remotes can name private hosts and repos, so support bundles hide them like resources.
   repos: 'url',
+  downstream: 'plain',
   infra: 'plain',
   'infra.allowed': 'command',
   'infra.notes': 'text',
