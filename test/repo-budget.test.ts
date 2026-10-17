@@ -46,7 +46,7 @@ test('config v8 migrates to v9 unchanged', () => {
     fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
     fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify(v8));
     const loaded = loadConfig(repo.dir);
-    assert.equal(loaded.config.schemaVersion, 13);
+    assert.equal(loaded.config.schemaVersion, 14);
     assert.deepEqual(loaded.config.budget, defaults().budget, 'a v8 config loads with the budget defaults');
   } finally {
     repo.cleanup();
