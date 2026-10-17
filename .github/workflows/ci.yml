@@ -152,6 +152,7 @@ jobs:
             test/verifiers-cli.test.ts: runs command templates through sh
             test/job-repos.test.ts: runs command templates through sh
             test/job-repos-pr.test.ts: spawns a fake gh, a sh script
+            test/member-intake.test.ts: spawns a fake gh, a sh script
             test/links-cli.test.ts: runs command templates through sh
             test/links-toolchains.test.ts: runs command templates through sh
             test/foreman.test.ts: runs sh stubs and hooks it writes

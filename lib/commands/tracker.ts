@@ -13,12 +13,14 @@ import { isLinkedJob, jobRepoOrder, nextMergeable } from '../repo-order.ts';
 import type { PrStateKey, RepoKey } from '../repo-order.ts';
 import { memberRepos } from '../job-repos.ts';
 import { clampLimit, publicHits, searchTracker } from '../tracker-link.ts';
-import { loadTracker } from '../trackers/index.ts';
+import { loadTracker, memberTracker } from '../trackers/index.ts';
+import { matchMember, memberForRef, memberTrackerConfig, memberTrackers, qualify } from '../member-trackers.ts';
+import type { MemberTracker } from '../member-trackers.ts';
 import { DEFAULT_LIMIT, MAX_LIMIT, applyTriage, prepareTriage } from '../triage.ts';
 import { ForgeError } from '../util.ts';
 import * as wt from '../worktree.ts';
 import { bodyFrom, list, num, req, str, usageError } from './args.ts';
-import type { Config, HelpGroup, Job, JobPr, Tracker, TrackerItem } from '../types.ts';
+import type { Config, HelpGroup, Job, JobIssue, JobPr, Tracker, TrackerItem } from '../types.ts';
 
 const TRACKER_EXITS: [1 | 5, string][] = [
   [1, 'the tracker refused the call, no such item or job, or a likely secret in the text Forge would send (code secret_found)'],
@@ -278,37 +280,71 @@ export async function startFromRef(
   return { id: job.id, ref: item.ref, title: item.title, branch: job.branch };
 }
 
+/** The job's linked issues a member repo's tracker owns, each with its member and number. */
+function memberIssues(root: string, config: Config, job: Job, slug: string | null): { issue: JobIssue; member: MemberTracker & { n: string } }[] {
+  const kind = config.tracker.kind;
+  const candidates = linkedIssues(job).filter((i) => i.tracker === 'github' && nativeRef(i, kind, slug) === null);
+  if (!candidates.length) return [];
+  const members = memberTrackers(root, config);
+  if (!members.length) return [];
+  return candidates.flatMap((issue) => {
+    const member = matchMember(members, issue.ref);
+    return member ? [{ issue, member }] : [];
+  });
+}
+
 /**
- * Best-effort: tracker hiccups must never block the pipeline. Each of this repo's issues is
- * updated; a finished job leaves alone an issue another active job still carries, so one sharer
- * finishing never marks the shared issue done.
+ * Best-effort: tracker hiccups must never block the pipeline. Each issue is updated in its own
+ * repo: this repo's through its tracker, a member repo's through that member's; every other issue
+ * is foreign and left alone. A finished job leaves alone an issue another active job still
+ * carries, so one sharer finishing never marks the shared issue done. One repo's failure is
+ * logged and never skips another's.
  */
 export async function mirrorToTracker(root: string, config: Config, job: Job): Promise<void> {
   if (job.kind === 'eval') return;
   const kind = config.tracker.kind;
   const slug = localRepoSlug(root, config);
   let issues = linkedIssues(job).filter((i) => nativeRef(i, kind, slug) !== null);
-  if (!issues.length) return;
+  let members = memberIssues(root, config, job, slug);
+  if (!issues.length && !members.length) return;
   if (job.state === 'done' || job.state === 'cancelled') {
     const others = listJobs(root).filter((j) => j.id !== job.id && isActive(j));
-    issues = issues.filter((i) => !others.some((o) => o.issues.some((x) => sameIssue(x, i, slug))));
+    const shared = (i: JobIssue) => others.some((o) => o.issues.some((x) => sameIssue(x, i, slug)));
+    issues = issues.filter((i) => !shared(i));
+    members = members.filter((m) => !shared(m.issue));
   }
-  try {
-    const tracker = await loadTracker(root, config);
-    for (const i of issues) tracker.update({ root, config }, nativeRef(i, kind, slug)!, job);
-  } catch (e) {
-    logEvent(root, job.id, 'tracker-error', { error: (e as Error).message.slice(0, 300) });
+  const failed = (e: unknown) => logEvent(root, job.id, 'tracker-error', { error: (e as Error).message.slice(0, 300) });
+  if (issues.length) {
+    try {
+      const tracker = await loadTracker(root, config);
+      for (const i of issues) tracker.update({ root, config }, nativeRef(i, kind, slug)!, job);
+    } catch (e) {
+      failed(e);
+    }
+  }
+  for (const { member } of members) {
+    try {
+      memberTracker().update({ root, config: memberTrackerConfig(config, member.slug) }, member.n, job);
+    } catch (e) {
+      failed(e);
+    }
   }
 }
 
 /**
- * Once, when sync first sees the merge: names on the issue the person who approved the job's
- * escalation. The event it logs stops a second post; a failure is logged and never fails the sync.
+ * Once, when sync first sees the merge: names on each issue, in its own repo, the person who
+ * approved the job's escalation. A member issue cites the PR as `<root slug>#N`, since a bare `#N`
+ * links to the member's own PR N. The event it logs stops a second post; it is logged only when
+ * every post succeeded, so a retry re-posts rather than skipping an issue. A failure is logged and
+ * never fails the sync.
  */
 export async function commentApproval(root: string, config: Config, job: Job): Promise<void> {
   if (job.kind === 'eval') return;
-  const refs = nativeRefs(job, config.tracker.kind, localRepoSlug(root, config));
-  if (!refs.length) return;
+  const slug = localRepoSlug(root, config);
+  const refs = nativeRefs(job, config.tracker.kind, slug);
+  // A member issue needs the root slug to cite the root's PR; without one it gets no comment.
+  const members = slug ? memberIssues(root, config, job, slug) : [];
+  if (!refs.length && !members.length) return;
   const events = readEvents(root, job.id);
   if (events.some((e) => e.type === 'tracker-approval-comment')) return;
   const approval = pr.escalationApproval(events);
@@ -316,14 +352,33 @@ export async function commentApproval(root: string, config: Config, job: Job): P
   const merged = events.findLast((e) => e.type === 'pr-merged');
   const method = typeof merged?.method === 'string' ? merged.method : config.merge.method;
   const number = job.pr?.number;
-  try {
-    const tracker = await loadTracker(root, config);
-    // One event for the set: a retry after a partial failure re-posts rather than skipping an issue.
-    for (const ref of refs) tracker.comment({ root, config }, ref, `Merged in #${number} (${method}). Escalation approved by ${pr.approvedBy(approval)}.`);
-    logEvent(root, job.id, 'tracker-approval-comment', { refs, pr: number ?? null });
-  } catch (e) {
+  const by = pr.approvedBy(approval);
+  const posted: string[] = [];
+  let ok = true;
+  const failed = (e: unknown) => {
+    ok = false;
     logEvent(root, job.id, 'tracker-error', { error: (e as Error).message.slice(0, 300) });
+  };
+  if (refs.length) {
+    try {
+      const tracker = await loadTracker(root, config);
+      for (const ref of refs) {
+        tracker.comment({ root, config }, ref, `Merged in #${number} (${method}). Escalation approved by ${by}.`);
+        posted.push(ref);
+      }
+    } catch (e) {
+      failed(e);
+    }
   }
+  for (const { member } of members) {
+    try {
+      memberTracker().comment({ root, config: memberTrackerConfig(config, member.slug) }, member.n, `Merged in ${slug}#${number} (${method}). Escalation approved by ${by}.`);
+      posted.push(qualify(member.slug, member.n));
+    } catch (e) {
+      failed(e);
+    }
+  }
+  if (ok && posted.length) logEvent(root, job.id, 'tracker-approval-comment', { refs: posted, pr: number ?? null });
 }
 
 const MERGE_EVENTS = new Set(['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed']);

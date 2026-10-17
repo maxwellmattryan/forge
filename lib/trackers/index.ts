@@ -64,6 +64,11 @@ export function guardTracker(adapter: Tracker, opts: { custom: boolean }): Track
   return g;
 }
 
+/** A member repo's tracker (lib/member-trackers.ts): always the built-in GitHub adapter, guarded. */
+export function memberTracker(): Tracker {
+  return guardTracker(github, { custom: false });
+}
+
 export async function loadTracker(root: string, config: Config): Promise<Tracker> {
   const kind = config.tracker.kind;
   if (kind === 'local') return guardTracker(local, { custom: false });
