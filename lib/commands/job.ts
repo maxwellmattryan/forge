@@ -885,7 +885,7 @@ function assist(root: string, config: Config, job: Job, rawGate: unknown) {
     model: modelFor(config, 'assistant'),
     effort: resolveEffort(config, job, 'assistant').level,
     subagent: 'forge:assistant',
-    brief: assistantBrief(root, config, job, gate, config.foreman?.reserved),
+    brief: assistantBrief(root, config, job, gate, config.foreman?.reserved, readEvents(root, job.id)),
   };
 }
 

@@ -16,7 +16,7 @@ import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
 import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
 import { memberRepos } from './job-repos.ts';
-import { deferralStatus, readDeferrals, resolveInterim } from './interim.ts';
+import { deferralStatus, readDeferrals, releaseGates, resolveInterim } from './interim.ts';
 import { LENS_NAME, isLens, lensRepoAllowed, reviewFileName, splitLens } from './lens.ts';
 import { lensChecklists } from './member-panel.ts';
 import type { MemberLens } from './member-panel.ts';
@@ -73,7 +73,7 @@ const STEP_EVENTS = new Set([
   'human', 'round', 'worktree', 'worktree-setup-failed', 'pr-find', 'pr-adopted', 'scope', 'panel', 'integrated', 'integrate-conflicts',
   'integration-review', 'decision', 'fields', 'pr-opened', 'pr-updated', 'pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
   'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found', 'verifiers',
-  'protected-path', 'pr-deferred', 'canary-published',
+  'protected-path', 'pr-deferred', 'canary-published', 'interim-released',
 ]);
 const MERGE_EVENTS = ['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed'];
 
@@ -1211,10 +1211,20 @@ function pr(x: StepInput): StepAction {
   const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated' || e.type === 'pr-deferred');
   if (!after(opened?.ts, last.at)) return run(x, 'PR3', ['pr', 'open', j.id], 'push and open or update the PR');
   if (opened!.type === 'pr-deferred') return deferredPr(x, opened!);
-  // A local edge holds a consumer PR as a draft that nothing CI can build: never merge it unattended.
-  const local = resolveInterim(x.config, j).edges.some((e) => e.strategy === 'local');
-  if (!local && x.decision.autoMerge && autoMerge(x.config) && !j.protectedPaths?.hits?.length && !lastEvent(x, (e) => MERGE_EVENTS.includes(e.type) && after(e.ts, opened!.ts))) return run(x, 'PR4', ['pr', 'merge', j.id], 'the approver marked it auto-merge eligible');
-  return set(x, 'PR5', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review' }, 'the PR waits on human review');
+  // A local edge holds a consumer PR as a draft that nothing CI can build, a held release gate keeps
+  // it a draft until a human records the dependency's release, and a draft PR is never merged: none
+  // of them merges unattended.
+  const edges = resolveInterim(x.config, j).edges;
+  const local = edges.some((e) => e.strategy === 'local');
+  const held = releaseGates(edges, x.events).find((g) => g.gate === 'held');
+  const draft = j.pr?.isDraft === true || memberRepos(j).some((m) => m.pr?.isDraft === true);
+  if (!local && !held && !draft && x.decision.autoMerge && autoMerge(x.config) && !j.protectedPaths?.hits?.length && !lastEvent(x, (e) => MERGE_EVENTS.includes(e.type) && after(e.ts, opened!.ts)))
+    return run(x, 'PR4', ['pr', 'merge', j.id], 'the approver marked it auto-merge eligible');
+  // Plain words only: the reason goes through shellLine, which allows no quote, pipe or angle bracket.
+  const reason = held
+    ? `${repoWord(held.consumer)} PR stays a draft until the release of ${repoWord(held.dependency)} is recorded [interim: ${held.strategy}]: a human runs forge job interim release ${j.id} ${held.dependency === null ? '--root' : safe(held.dependency, REPO_WORD, '<repo>')} VERSION`
+    : undefined;
+  return set(x, 'PR5', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', ...(reason ? { reason } : {}) }, 'the PR waits on human review');
 }
 
 const REPO_WORD = /^[A-Za-z0-9._-]+$/;

@@ -273,6 +273,7 @@ describe('foreman CLI', { concurrency: 4 }, () => {
       for (const p of ['spec.md', 'plan.md', 'decision.md', path.join('review', 'round-1'), 'pr-feedback.md', path.join('verify', 'round-0.md'), 'feedback.md']) assert.ok(a.brief.includes(path.join(dir, p)), p);
       assert.match(a.brief, /^Gate: spec-approval$/m);
       assert.match(a.brief, /^Reserved: \["credential",/m);
+      assert.match(a.brief, /^Release gate: none$/m);
       assert.match(a.brief, /^Untrusted: /m);
       // Read-only: nothing new in the job dir.
       assert.deepEqual(fs.readdirSync(dir).sort(), ['events.jsonl', 'job.json', 'plan.md', 'pr-feedback.md', 'request.md', 'spec.md'].filter((f) => fs.existsSync(path.join(dir, f))).sort());

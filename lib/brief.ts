@@ -4,10 +4,11 @@ import path from 'node:path';
 import { autoMerge, lensNeedsApp, resolveEffort } from './config.ts';
 import { jobDir, reviewDir } from './jobs.ts';
 import { memberEntry, memberRepos, trustedMemberWorktree } from './job-repos.ts';
+import { releaseGates, resolveInterim } from './interim.ts';
 import { reviewFileName, reviewedRepoNames, splitLens } from './lens.ts';
 import { lensChecklists } from './member-panel.ts';
 import { paths, exists } from './paths.ts';
-import type { Config, GateClass, Job, StepInput } from './types.ts';
+import type { Config, GateClass, Job, JobEvent, StepInput } from './types.ts';
 
 /**
  * Absolute paths an agent prompt needs, keyed as `forge job paths` prints them. Reads (which
@@ -101,6 +102,16 @@ export function protectedLine(job: Pick<Job, 'protectedPaths'>): string {
   return `Protected paths: ${JSON.stringify(shown)}${more > 0 ? ` (+${more} more)` : ''}: a human must approve after you whatever you decide; never mark auto-merge eligible`;
 }
 
+/**
+ * The approver's and assistant's `Release gate` line: each interim edge's gate as JSON (so a repo
+ * name can't start a line of the brief), or `none` for a job without interim edges.
+ */
+export function releaseGateLine(config: Pick<Config, 'components' | 'repos' | 'release'>, job: Pick<Job, 'interim' | 'repos' | 'pr'>, events: Pick<JobEvent, 'type'>[]): string {
+  const edges = resolveInterim(config, job).edges;
+  if (!edges.length) return 'Release gate: none';
+  return `Release gate (JSON): ${JSON.stringify(releaseGates(edges, events))}; held: the consumer PR stays a draft and Forge refuses to ready or merge it until a human records the release; ci: the seeded release-gate check fails while the pin remains. Never mark auto-merge eligible while a gate is held.`;
+}
+
 export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {}): BriefSpec {
   const j = input.job;
   const c = input.config;
@@ -184,6 +195,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
           `Always escalate: ${JSON.stringify(c.approver.alwaysEscalate ?? [])}`,
           `Merge: auto ${autoMerge(c)} · autoWhen ${JSON.stringify(c.merge.autoWhen ?? [])}`,
           protectedLine(j),
+          releaseGateLine(c, j, input.events),
           infra,
           `Scope: ${p('scope')}`,
         ],
@@ -238,7 +250,7 @@ export function renderBrief(input: StepInput, spec: BriefSpec): string {
  * and the reserved list, never file contents, so the office session's context holds no job text.
  * Reads nothing: every path is listed whether or not it exists, and the assistant skips the missing.
  */
-export function assistantBrief(root: string, config: Config, job: Job, gate: GateClass, reserved: unknown): string {
+export function assistantBrief(root: string, config: Config, job: Job, gate: GateClass, reserved: unknown, events: Pick<JobEvent, 'type'>[]): string {
   const dir = jobDir(root, job.id);
   const round = Math.max(job.round, 1);
   const inputs = [
@@ -260,6 +272,7 @@ export function assistantBrief(root: string, config: Config, job: Job, gate: Gat
     `Output: ${path.join(dir, 'feedback.md')} (only on revise or rework)`,
     // JSON, so a pattern can't start a line of its own in the brief.
     `Reserved: ${JSON.stringify(Array.isArray(reserved) ? reserved : [])}`,
+    releaseGateLine(config, job, events),
     UNTRUSTED_LINE,
     REPLY_LINE,
   ].join('\n');
