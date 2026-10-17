@@ -247,6 +247,29 @@ describe('job repos: run, git and verify', { concurrency: 4 }, () => {
     assert.deepEqual(out.protected.refused, ['lib:k.pem']);
   });
 
+  test('carried protected hits go by their repo tag, not a <repo>: prefix', async () => {
+    const p = await project();
+    const { id, libWt, rootWt } = await withLib(p);
+    const hits = () => loadJob(p.root, id).protectedPaths!.hits.map((h) => [h.path, h.repo ?? null]).sort();
+    // A root path that begins with the member's name is still a root hit.
+    fs.mkdirSync(path.join(rootWt, 'lib:x', 'migrations'), { recursive: true });
+    fs.writeFileSync(path.join(rootWt, 'lib:x', 'migrations', '1.sql'), 'select 1;\n');
+    assert.equal((await p.f('git', 'commit', id, '--message', 'feat: root migration')).protected, 1);
+    assert.deepEqual(hits(), [['lib:x/migrations/1.sql', null]]);
+    // A member commit replaces only the member's own hits.
+    fs.writeFileSync(path.join(libWt, 'more.txt'), 'more\n');
+    await p.f('git', 'commit', id, '--repo', 'lib', '--message', 'feat: lib');
+    assert.deepEqual(hits(), [['lib:x/migrations/1.sql', null]], 'the root hit survives a member commit');
+    fs.mkdirSync(path.join(libWt, '.github', 'workflows'), { recursive: true });
+    fs.writeFileSync(path.join(libWt, '.github', 'workflows', 'ci.yml'), 'on: push\n');
+    await p.f('git', 'commit', id, '--repo', 'lib', '--message', 'ci: lib');
+    assert.deepEqual(hits(), [['lib:.github/workflows/ci.yml', 'lib'], ['lib:x/migrations/1.sql', null]]);
+    // And a root commit replaces only the root's.
+    fs.writeFileSync(path.join(rootWt, 'app2.txt'), 'app\n');
+    await p.f('git', 'commit', id, '--message', 'feat: app');
+    assert.deepEqual(hits(), [['lib:.github/workflows/ci.yml', 'lib'], ['lib:x/migrations/1.sql', null]]);
+  });
+
   test('forge run --repo runs the member component\'s command', async () => {
     const p = await project();
     const { id, libWt } = await withLib(p);

@@ -465,9 +465,12 @@ export function memberHitPath(repo: string, p: string): string {
   return `${repo}:${p}`;
 }
 
-/** A member's hits named `<repo>:<path>`, so they never collide with a root path on the flag. */
+/**
+ * A member's hits named `<repo>:<path>` for people, and tagged with `repo` for code: a root path can
+ * itself begin with `<repo>:`, so the name alone can't say which repo a hit came from.
+ */
 export function prefixHits(repo: string, c: ProtectedCheck): ProtectedCheck {
-  const pre = (h: ProtectedHit): ProtectedHit => ({ ...h, path: memberHitPath(repo, h.path) });
+  const pre = (h: ProtectedHit): ProtectedHit => ({ ...h, path: memberHitPath(repo, h.path), repo });
   return { refused: c.refused.map(pre), escalated: c.escalated.map(pre) };
 }
 

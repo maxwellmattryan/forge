@@ -309,6 +309,8 @@ export interface ProtectedHit {
   glob: string;
   reason: string;
   blob: string | null;
+  /** The member repo a `<repo>:<path>` hit came from; absent for a root hit. */
+  repo?: string;
 }
 
 /** job.protectedPaths: the escalate paths that need a human approval given after `at`. */

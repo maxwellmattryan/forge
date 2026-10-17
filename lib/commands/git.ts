@@ -10,8 +10,8 @@ import { attributionForbidden, findAttribution } from '../attribution.ts';
 import { sessionEnv } from '../daemon.ts';
 import { PINNED_DIFF_OPTS, PINNED_GIT_CONFIG } from '../integrity.ts';
 import { jobDir, loadJob } from '../jobs.ts';
-import { memberRepos, memberWorktree } from '../job-repos.ts';
-import { blobReader, checkProtected, comparisonPoint, diffEntries, historyEnv, logEscalated, logRefused, memberHitPath, policyRules, prefixHits, recordProtected, refusalText } from '../protected.ts';
+import { memberWorktree } from '../job-repos.ts';
+import { blobReader, checkProtected, comparisonPoint, diffEntries, historyEnv, logEscalated, logRefused, policyRules, prefixHits, recordProtected, refusalText } from '../protected.ts';
 import { resolveWorktreePaths } from '../paths.ts';
 import { applyAllowlist, diffUnits, loadAllowlist, logSecrets, refusalMessage, refuseSecrets, scanUnits, secretMode, textUnit } from '../secrets.ts';
 import { ForgeError, run } from '../util.ts';
@@ -284,10 +284,10 @@ export function gitWrite(
   /** Stages exactly what guard checked; a plain add with the policy off. */
   const stage = (p: ProtectedPreview | null) => (p ? installPreview(p, cwd) : void add(paths));
   // The flag holds the whole job's set: keep the other repos' hits as the last check recorded them.
-  const names = memberRepos(job).filter((m) => !m.verifyOnly).map((m) => m.repo);
-  const repoOf = (p: string) => names.find((n) => p.startsWith(memberHitPath(n, ''))) ?? null;
+  // By the hit's `repo` tag, not its `<repo>:` name, which a root path can also begin with.
+  const repoOf = (h: ProtectedHit) => (typeof h.repo === 'string' ? h.repo : null);
   const mine = member ? member.member.repo : null;
-  const carried = (job.protectedPaths?.hits ?? []).filter((h) => typeof h?.path === 'string' && repoOf(h.path) !== mine);
+  const carried = (job.protectedPaths?.hits ?? []).filter((h) => typeof h?.path === 'string' && repoOf(h) !== mine);
   const record = (p: ProtectedPreview | null, head: string | null): { protected?: number } => {
     if (!p) return {};
     const src = { cwd, from: p.m, to: head ?? 'index', env: historyEnv(genv), paths: (p.local ?? p.escalated).map((h) => h.path), ...(mine === null ? {} : { repo: mine }) };

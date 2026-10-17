@@ -171,7 +171,15 @@ export function openPr(
   logSecrets(root, id, 'pr', scan, { blocked: mode === 'block' });
   if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of ${id}'s commits could not finish (${scan.error}); forge pr open won't push an unscanned branch`, 'secret_found', `forge secrets scan ${id}`);
   if (mode === 'block' && scan.findings.length) throw new ForgeError(refusalMessage(`the commits of ${id}`, scan.findings), 'secret_found', `forge secrets scan ${id}`);
-  refuseProtected(root, config, job, evidence.head, memberBranches(root, config, job, evidence.heads));
+  // Every member is checked before anything is pushed, then opened before the root PR, so a member
+  // failure leaves no root PR behind (this is not a merge order).
+  const plans = memberRepos(job)
+    .filter((m) => !m.verifyOnly)
+    .map((m) => checkMemberPr(root, config, job, m.repo, text.title, mode, evidence.heads?.[m.repo]));
+  // After checkMemberPr, which refreshes each member's base from its push remote and pushes nothing:
+  // a member's remote-tracking base is writable from its worktree, and checked stale it would hide
+  // the member's protected paths behind an empty diff, as the root's refresh above prevents for it.
+  refuseProtected(root, config, job, evidence.head, plans.map((p) => ({ repo: p.repo, worktree: p.worktree, base: p.base, head: p.checked })));
   // From here on only the checked commit is used, never HEAD: a commit made in the worktree after
   // the checks (a stale session, a process the builder left behind) must not ride along.
   const checked = evidence.head;
@@ -179,11 +187,6 @@ export function openPr(
   const slug = repoSlug(root, config);
   const ahead = run('git', ['rev-list', '--count', `${config.git.remote}/${job.base}..${checked}`, '--'], { cwd: job.worktree, allowFail: true });
   if (ahead.ok && ahead.stdout.trim() === '0') throw new ForgeError(`branch ${job.branch} has no commits ahead of ${job.base}`);
-  // Every member is checked before anything is pushed, then opened before the root PR, so a member
-  // failure leaves no root PR behind (this is not a merge order).
-  const plans = memberRepos(job)
-    .filter((m) => !m.verifyOnly)
-    .map((m) => checkMemberPr(root, config, job, m.repo, text.title, mode, evidence.heads?.[m.repo]));
   const memberResults = plans.map((p) => openMemberPr(root, config, job, p, text.title, opts.draft));
   const repos = memberRepos(job).length ? { repos: memberResults } : {};
   let rewritten = false;
@@ -394,16 +397,6 @@ function syncMemberPrs(root: string, config: Config, id: string): void {
  * The branches of the member repos `pr open` pushes (verify-only ones never are), at the HEAD verify
  * recorded, or the current one under `--force`: the same commit checkMemberPr pushes.
  */
-function memberBranches(root: string, config: Config, job: Job, heads: Record<string, string> | undefined): MemberBranch[] {
-  return memberRepos(job)
-    .filter((m) => !m.verifyOnly)
-    .map((m) => {
-      const { member, worktree } = memberWorktree(root, config, job, m.repo);
-      const head = heads?.[m.repo] ?? run('git', ['rev-parse', 'HEAD'], { cwd: worktree }).stdout.trim();
-      return { repo: m.repo, worktree, base: member.base, head };
-    });
-}
-
 /**
  * The protected-paths re-check before anything leaves the machine, `--force` or not. The set is
  * recomputed from the branch (a hand-cleared job.json flag changes nothing), a refuse path stops the

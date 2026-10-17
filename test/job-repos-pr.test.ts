@@ -198,6 +198,26 @@ describe('job repos: pull requests', { concurrency: 4 }, () => {
     assert.ok(!p.heads(p.rootBare).split('\n').includes(k.branch));
   });
 
+  test('pr open refreshes a member base before its protected check', async () => {
+    const p = await project();
+    // The member's remote-tracking base, writable from its worktree, moved to the job tip: from it
+    // the workflow file is no change at all, so commit and verify see nothing to flag.
+    const j = await ready(p, { libFiles: { 'lib.txt': 'lib\n', '.github/workflows/ci.yml': 'on: push\n' } });
+    p.git(j.libWt, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+    const v = await p.f('verify', j.id);
+    assert.equal(v.ok, true, JSON.stringify(v));
+    assert.equal(loadJob(p.root, j.id).protectedPaths, null, 'the stale base hid the member path from verify');
+    const r = await p.raw(['pr', 'open', j.id, '--json'], p.env);
+    assert.equal(r.status, 1, r.stdout);
+    const err = JSON.parse(r.stdout).error;
+    assert.equal(err.code, 'protected_path');
+    assert.equal(err.message, `protected paths need a human approval: 1 paths; /forge approve ${j.id}`);
+    assert.deepEqual(loadJob(p.root, j.id).protectedPaths!.hits.map((h) => [h.path, h.repo]), [['lib:.github/workflows/ci.yml', 'lib']]);
+    assert.notEqual(p.git(j.libWt, 'rev-parse', 'refs/remotes/origin/main').trim(), p.git(j.libWt, 'rev-parse', 'HEAD').trim(), 'the base was refreshed');
+    assert.deepEqual([p.heads(p.libBare), p.heads(p.rootBare)], ['main', 'main'], 'nothing was pushed');
+    assert.ok(!p.calls().some((c) => c.startsWith('pr ')), 'gh opened nothing');
+  });
+
   test('a member PR failure names the repo and a rerun completes', async () => {
     const p = await project();
     const j = await ready(p);
