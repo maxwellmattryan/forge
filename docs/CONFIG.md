@@ -168,6 +168,9 @@ merge:
 
 aiAttribution: forbid        # forbid | allow: whether commits, PRs, issues and comments may credit an AI (see README)
 
+release:
+  interim: local             # canary | git-ref | local | sequential: what a consumer's PR points at while this (root) repo's change is unmerged (see Interim strategies)
+
 resources: []                # what agents should know exists, e.g.
 #  - { name: App designs, kind: figma, url: "https://www.figma.com/design/…", use: "source of truth for UI" }
 #  - { name: API docs, kind: docs, path: docs/api.md }
@@ -578,6 +581,7 @@ components:
           name: engine-core     # the crate, FetchContent or package name
           source: crates-io     # cargo only, default crates-io: the [patch.<source>] table (a registry name or a git url)
           path: crates/core     # optional: the directory in the dependency's repo; default the dependency component's path
+          manifest: Cargo.toml  # optional: the consumer's manifest an interim pin goes in, relative to its repo (see Interim strategies)
   - { name: engine-core, repo: engine, path: crates/core, kind: library }
 ```
 
@@ -588,8 +592,38 @@ components:
   - **npm** (an active npm link): after an `install`, `i`, `in`, `add`, `ci`, `clean-install`, `ic`, `install-clean`, `update`, `up` or `upgrade` that passes, the shim runs `npm install --no-save --no-audit --no-fund --install-links=false <dirs>` in the same directory, so `node_modules/<name>` is a symlink into the dependency's worktree and neither `package.json` nor the lockfile is written.
 - **Lockfiles.** A cargo `[patch]` makes cargo rewrite `Cargo.lock`, so with active cargo (or npm) links Forge snapshots every tracked `Cargo.lock` (or `package-lock.json` and `npm-shrinkwrap.json`) in the consumer's worktree first and writes back any that changed or went missing after the command, pass or fail; verify does it once per repo around its groups. The result's `restored` lists them and a `link-lockfiles-restored` event is logged. Your own uncommitted lockfile edit, made before the run, is what the snapshot holds, so it survives.
 - **Not linked.** A command that calls a tool by absolute path bypasses the shims (use the env vars), and background commands (`forge run --background`, the dashboard's Run) and `worktrees.setup` get no links. On native Windows Forge writes no shims; the env vars and `forge job links` still work.
-- **Validation.** `link` must be a map with `ecosystem` `cargo | cmake | npm`; it is a problem on a `backing` edge, between two components of the same repo, with a `name` that fails its ecosystem's pattern (a crate name, a FetchContent name, an npm package name), with a `source` on a non-cargo link or one that is not `crates-io`, a registry name or an `https://`, `ssh://` or `git://` url without whitespace, quotes, backslashes or control characters, with a `path` that is absolute or has a `..` segment, and when two links give one consumer repo the same ecosystem and name (and cargo source) with different dependency directories.
+- **Validation.** `link` must be a map with `ecosystem` `cargo | cmake | npm`; it is a problem on a `backing` edge, between two components of the same repo, with a `name` that fails its ecosystem's pattern (a crate name, a FetchContent name, an npm package name), with a `source` on a non-cargo link or one that is not `crates-io`, a registry name or an `https://`, `ssh://` or `git://` url without whitespace, quotes, backslashes or control characters, with a `path` that is absolute or has a `..` segment, with a `manifest` that is absolute, has a `..` segment or is not the ecosystem's file (`Cargo.toml` for cargo, `CMakeLists.txt` or a `*.cmake` file for cmake, `package.json` for npm), and when two links give one consumer repo the same ecosystem and name (and cargo source) with different dependency directories.
 - **Never committed.** Verify's integrity report flags added lines that carry a local override (an absolute path of a worktrees root or of `.forge/jobs`, `FETCHCONTENT_SOURCE_DIR_`, a `[patch` table in a `.cargo/config(.toml)`, or a `file:`/`link:` dependency in `package.json` that is absolute or leaves the repo) as blocking under `verifyIntegrity: block` (see [Verify integrity](#verify-integrity)).
+
+### Interim strategies
+
+A multi-repo job's consumer PR has to point at *something* while its dependency's change is unmerged or unreleased, and projects release differently, so each dependency repo has an **interim strategy**. An **edge** is a consumer job repo and a dependency job repo, from `components[].dependsOn` (the merge order [Job repos](ARCHITECTURE.md#job-repos) uses, transitive through repos outside the job); its **links** are the `link`s joining the two repos. A verify-only member is unchanged, so it is never a dependency. The strategy is per dependency and every edge into it shares it, resolved as: the job's override (`forge job repo interim <id> <name>|--root <strategy>`, human-only), then config (`repos[].release.interim` for a member, the top-level `release.interim` for the root repo), then `local`.
+
+```yaml
+release:
+  interim: local               # the root repo as a dependency
+repos:
+  - name: engine
+    remote: git@github.com:acme/engine.git
+    defaultBranch: main
+    release: { interim: git-ref }   # optional; absent or null is local
+```
+
+| Strategy | What the consumer's PR points at | What Forge does |
+|---|---|---|
+| `local` (default) | nothing CI can resolve: local links only | Publishes and pins nothing. `forge pr open` creates the consumer's PR as a draft, whatever `pr.draft` or `--draft` says (an existing PR is left as it is), and step never auto-merges the job (PR4 falls through to PR5). |
+| `sequential` | the dependency after it merges | `forge pr open` opens the dependency's PR and defers the consumer's (not pushed, no PR) until GitHub reports the dependency's PR `MERGED`; then `forge pr sync` resumes the job (`reopen: true`) and the next `forge pr open` opens it. Merge, not release, is the trigger. |
+| `git-ref` | the dependency's commit | `forge verify` writes the pin into the consumer's manifest and commits it in the consumer's worktree: cargo, a `[patch."<source>"]` entry `"<name>" = { git = "<remote>", rev = "<sha>" }` in one block between `# forge:interim begin` and `# forge:interim end`; cmake, the one `GIT_TAG` of the one `FetchContent_Declare(<name> …)`; npm, `git+<url>#<sha>` in every dependency section that has the package. |
+| `canary` (npm only) | a published pre-release, `<major>.<minor>.<patch>-canary.<sha12>` | `forge verify` pins that exact version (not the moving `canary` dist-tag, so the consumer's CI is reproducible); `forge pr open` opens the dependency's PR and defers the consumer's until a human publishes the canary with `forge job interim publish <id> <name>|--root --confirm`, the only command in Forge that publishes anything. |
+
+- **The manifest** is the link's `manifest`, or the ecosystem's file (`Cargo.toml`, `CMakeLists.txt`, `package.json`) in the consumer component's `path`. The remote is the member's `remote`, or the root's `git.remote` URL; an absolute path becomes `file://<path>`, `user@host:path` becomes `ssh://user@host/path`, and an http(s) URL loses any `user:password@`.
+- **Verify** refreshes the pins first, dependencies first, before it reads any HEAD: when `aiAttribution` is `forbid` it scrubs the dependency's branch as `pr open` will (so the pinned sha is the one pushed), then commits the changed manifests as `forge: interim pins for job <id>`. Nothing is committed when nothing changed, or when a worktree involved is dirty (`worktree-clean` then fails the run). A pin that can't be written (no link, a `[patch."<source>"]` table outside the Forge block, zero or several matching `FetchContent_Declare` or `GIT_TAG`, an npm package below its repo's root, a dependsOn cycle) fails the `interim` step, which runs after `protected` and, like it, stops every configured step. With only `local` and `sequential` edges verify has no `interim` step.
+- **`forge pr open`** refuses before pushing anything when an edge is blocked, and with `interim_stale` (hint `forge verify <id>`) when a pin in the checked commits is not the dependency's checked HEAD. It opens member PRs dependencies first, pushes the root's branch before any member's when the root is a git-ref or canary dependency, and lists what it held back as `deferred: [{ repo, why, waitingOn, version? }]` (a `pr-deferred` event). A repo that depends on a deferred one through a sequential, git-ref or canary edge is deferred too.
+- **Publishing a canary** (`forge job interim publish`) is refused in a daemon session, for a repo that is not the dependency of a canary edge whose links are all npm, and unless the repo's HEAD is the one the latest passing verify checked; the secret scan runs over its commits (`verifySecrets: block` refuses a finding or an incomplete scan). Without `--confirm` it only lists what it would publish. With it, each npm link's package is exported from the verified commit's git objects into `<jobDir>/canary/<repo>/<n>/` (nothing untracked or ignored, no checkout filter), its `package.json` `name` must equal the link's, its `version` is set to the canary version, and `npm publish --tag canary` runs there with no shell. Each publish logs `canary-published`; a version already published is skipped, and a job parked for it resumes.
+- **Limits.** crates.io refuses to publish a crate with git dependencies, so `git-ref` suits consumers that are not published themselves. Lockfiles (`Cargo.lock`, `package-lock.json`) are not rewritten for a pin, so `cargo --locked` or `npm ci` in the consumer's CI needs a lockfile update by hand. npm installs a git dependency only from its repo's root, so an npm `git-ref` needs the package there. `canary` is npm-only, and is refused for a dependency a cargo or cmake link depends on. Submodule bumps are not a `git-ref` form. Reverting a pin to a released version, and a gate that blocks merging while one remains, are not done yet.
+- **Inspect.** `forge job interim <id>` lists every edge with its strategy, `source` (`job` or `config`), links, `state` and a one-line `detail`, with no network call: `held` (local), `waiting` (an unmerged sequential dependency, an unpublished canary), `ready`, `blocked` (can't be pinned) or `stale` (verify has not pinned the dependency's HEAD yet).
+
+**Migration** (config `schemaVersion` 12 → 13): nothing changes. v13 adds `release.interim` (default `local`) and a link's `manifest`, absent by default; the bump lets older Forges refuse a config whose interim strategy they would ignore. `forge migrate` writes the new version.
 
 **Migration** (config `schemaVersion` 11 → 12): nothing changes. v12 adds `link` on `dependsOn` edges, absent by default; the bump lets older Forges refuse a config whose links they would ignore. `forge migrate` writes the new version.
 
@@ -605,6 +639,7 @@ repos:
     remote: git@github.com:acme/ui-kit.git     # required: the clone url
     defaultBranch: main                        # required
     tracker: { kind: github, repo: acme/ui-kit }   # optional: kind github | none; repo is owner/name
+    release: { interim: local }                    # optional: canary | git-ref | local | sequential (see Interim strategies)
 ```
 
 Where each member is cloned differs per machine, so the paths live in **`.forge/local.yml`**, which `/forge init` gitignores and Forge never writes:
@@ -623,6 +658,7 @@ A relative path resolves against the root repo, a leading `~/` is the home direc
 - a `remote` that isn't a non-empty string of at most 2000 characters, starts with `-`, or contains whitespace or control characters
 - a `defaultBranch` that isn't a safe branch name (`A-Z a-z 0-9 . _ / -`, starting with a letter or digit, at most 200 characters), or contains `..` or `//`, or ends in `/` or `.lock`
 - a `tracker` that is set but isn't a map with `kind` `github | none`, or a `github` `repo` that isn't `owner/name`
+- a `release` that is set but isn't a map, or an `interim` outside `canary | git-ref | local | sequential` (the top-level `release` is checked the same way)
 - `components "<c>".repo names unknown repo "<x>"` for a component whose `repo` names no entry
 
 **Doctor.** When `repos` validates, `forge doctor` (and Settings › Diagnostics) adds one `repo <name>` check per member, after `config valid`, and always prints the fix:

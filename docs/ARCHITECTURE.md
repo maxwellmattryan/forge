@@ -122,7 +122,7 @@ Trackers see a coarser view: `queued`, `in-progress`, `review`, `blocked`, `done
 
 ## Job repos
 
-A job can change [member repos](GLOSSARY.md#multi-repo-jobs) together with the root repo. `job.repos` lists every [job repo](GLOSSARY.md#multi-repo-jobs) as `{ repo, worktree, branch, base, pr, verifyOnly }`:
+A job can change [member repos](GLOSSARY.md#multi-repo-jobs) together with the root repo. `job.repos` lists every [job repo](GLOSSARY.md#multi-repo-jobs) as `{ repo, worktree, branch, base, pr, verifyOnly, interim }` (`interim`: the job's [interim strategy](#interim-strategies) override for that repo as a dependency):
 
 - `repos[0]` is the root repo (`repo: null`). It is a mirror: the top-level `branch`, `base`, `worktree` and `pr` stay the root's own fields, every reader keeps using them, and `normalizeJob` and `serializeJob` rebuild `repos[0]` from them, so it can't drift. Nothing writes `repos[0]` directly.
 - Entries 1..n are members, named by a `repos` entry in config. A member's `branch` is always the job's branch (null for a verify-only member), derived on every load and never read back from disk. Its `base` is the member's `defaultBranch` when it was added.
@@ -163,6 +163,25 @@ A `link` on a `dependsOn` edge (CONFIG.md "Local links") makes a consumer job re
 4. Planted shims in the job dir: Forge rewrites every rendered file before each command, deletes what it did not render, and replaces a planted symlink there instead of following it. The session can run commands as the same user anyway, so this is not a privilege boundary.
 
 Residual risk: a command that calls a tool by absolute path builds without links (a missing link, not a leak), and R1 knows only this machine's paths. Two `forge run`s at once in one consumer worktree can race the lockfile snapshot; verify's `worktree-clean` then reports what is left.
+
+### Interim strategies
+
+What a consumer's PR points at while its dependency is unmerged is the dependency's **interim strategy** (CONFIG.md "Interim strategies"): `local` (the default: the consumer PR is a draft and never auto-merged), `sequential` (the consumer PR opens after the dependency's merges), `git-ref` (verify pins the dependency's commit in the consumer's manifest) or `canary` (verify pins a `-canary.<sha12>` npm version a human publishes). The job override is `job.interim` for the root and `repos[i].interim` for a member (`repos[0].interim` mirrors `job.interim`; job schemaVersion 13), set only by the human-only `forge job repo interim` (`interim` is locked in `forge job set`); null inherits config. `lib/interim.ts` resolves strategies and edge states without I/O (step imports it); `lib/interim-apply.ts` writes and checks pins and publishes.
+
+- **Deferral.** `forge pr open` holds back a repo whose sequential dependency is not MERGED according to `gh` now, or whose canary is unpublished, plus every repo that depends on a held one through a sequential, git-ref or canary edge. A held repo is checked like any other but never pushed and never given a PR, and the result's `deferred` list and a `pr-deferred` event (logged after that call's PR events) record why. Deferral is recomputed on every `pr open`; nothing is stored in job.json. Step treats the latest of `pr-opened`, `pr-updated` and `pr-deferred` as the last open attempt (PR3), then parks a canary deferral on `human` (PR6), runs `pr open` again once every deferral can open (PR7), or waits on `pr-review` (PR8); `forge pr sync` resumes a parked job whose sequential dependencies merged in its own answers (`reopen: true`, plus a `resume` request when the daemon is on), before the merged-root wait and even when the root has no PR. A PR already MERGED is never pushed again.
+- **Pins.** Verify commits pins before it reads any HEAD, dependencies first, after scrubbing a dependency's branch the way `pr open` will, so the sha pinned is the sha pushed; `pr open` recomputes every pin against the checked commits and refuses a stale one (`interim_stale`), and pushes the root's branch first when a member pins it.
+
+**Threat model.** The attacker is the builder or orchestrator, possibly steered by tracker or PR text, which can write job.json, events.jsonl and the worktrees. The assets are a package published under the human's npm credentials and pins that point CI at code nobody verified.
+
+1. Publishing from a daemon session: `forge job interim publish` and `forge job repo interim` refuse under `FORGE_DAEMON=1`.
+2. An automatic path publishing: only `forge job interim publish --confirm` runs `npm`; verify, `pr open`, `pr sync` and step never do. A hand-edited `interim: canary` only defers PRs.
+3. Publishing someone else's package: the exported `package.json` `name` must equal the link's `name` from config.
+4. Publishing unverified or uncommitted content: the dependency's HEAD must be the sha the latest passing verify recorded, and the package is written from that commit's git objects (`ls-tree` plus `cat-file`, no checkout, so no filter, hook or attribute runs and nothing untracked or ignored ships).
+5. Secrets in the published commits: the secret scan runs over the dependency's branch first and blocks under `verifySecrets: block`.
+6. Option and manifest injection: `npm` gets fixed argv with no shell; a sha must be a full hex id; a remote passes the same check as `repos[].remote` and goes into TOML or JSON via `JSON.stringify`, into CMake as a whole-token replace.
+7. A forged pin (a rev edited to an unverified sha): `pr open` recomputes it from the checked commits and refuses.
+
+Accepted: a forged `canary-published` event only lets a consumer PR open against a version that doesn't exist, so its CI fails; nothing is published. A forged `job.interim` in job.json can switch a strategy (it is not tamper-evident, like other job.json fields); every effect stays bounded by the checks above.
 
 ## Concurrency
 
