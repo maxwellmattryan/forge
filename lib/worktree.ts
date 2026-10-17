@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { backingDown, backingEnv, backingUp, hasJobBacking, portsLock, takenPorts } from './backing.ts';
+import { backingDown, backingEnv, backingUp, hasJobBacking, portsLock } from './backing.ts';
 import { enforceBudget } from './budget.ts';
 import { readCheckoutRecord, undoCheckout, withCheckoutLock } from './checkout.ts';
 import { isOwnWorktreePath, loadConfig, verifyGroups, worktreeRoot } from './config.ts';
@@ -11,7 +11,7 @@ import { configForJob } from './eval-overlay.ts';
 import { stackSource } from './deps.ts';
 import { STATUS_ARGV, blockingLines, compactIntegrity, hiddenChanges, integrityError, renderIntegrity, testIntegrity } from './integrity.ts';
 import type { CompactIntegrity, IntegrityReport } from './integrity.ts';
-import { listJobs, isActive, loadJob, logEvent, readEvents, setJob, touchJob, updateJob, jobDir } from './jobs.ts';
+import { loadJob, logEvent, readEvents, setJob, touchJob, updateJob, jobDir } from './jobs.ts';
 import { changedRepos, downstreamMembers } from './downstream.ts';
 import { exists, resolveFrom } from './paths.ts';
 import { posixShell } from './platform.ts';
@@ -20,6 +20,7 @@ import { checkBranch, compactProtected, renderProtected } from './protected.ts';
 import type { BranchCheck, CompactProtected } from './protected.ts';
 import { logSecrets, renderSecrets, scanBranch, secretMode, secretsOk, secretsTail, compactSecrets } from './secrets.ts';
 import { jobComponent } from './components.ts';
+import { allocatePorts, portBearing } from './ports.ts';
 import { refreshInterim } from './interim-apply.ts';
 import { applyLinks, consumerLockfiles, pathPrelude, resolveLinks, restoreLockfiles, snapshotLockfiles } from './links.ts';
 import type { AppliedLinks, LockSnapshot } from './links.ts';
@@ -38,11 +39,13 @@ export interface MemberWorktreeResult {
 
 /** What `forge worktree create` returns: createWorktree. `repos` (members only) when the job has members. */
 export type CreateWorktreeResult =
-  | { path: string; created: false; ok?: boolean; repos?: MemberWorktreeResult[] }
+  | { path: string; created: false; port: number | null; ports: Record<string, number>; ok?: boolean; repos?: MemberWorktreeResult[] }
   | {
       path: string;
       created: true;
       port: number;
+      /** One port per port-bearing component (lib/ports.ts); `port` is the first entry's. */
+      ports: Record<string, number>;
       stackedOn?: string;
       base?: string;
       /** One entry per `backing:` entry, only when the config has some. */
@@ -126,7 +129,7 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   checkRefs(job);
   const wtRoot = worktreeRoot(root, config);
   const dir = path.join(wtRoot, id);
-  if (job.worktree && exists(job.worktree)) return { path: job.worktree, created: false };
+  if (job.worktree && exists(job.worktree)) return { path: job.worktree, created: false, port: job.port, ports: job.ports };
   const remote = config.git.remote;
   run('git', ['fetch', remote, '--prune'], { cwd: root, allowFail: true });
   // createJob always sets branch and base; the `!`s below rely on it.
@@ -151,29 +154,33 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   copyUntracked(root, dir, config.worktrees.copy ?? [], opts.sparseExclude ?? []);
   if (config.worktrees.cargo?.sharedTarget) writeSharedCargoTarget(root, config, wtRoot);
   // Chosen and saved under the lock backing ports are allocated under, so a concurrent create never takes it.
-  const port = withLock(portsLock(root), () => {
-    const p = allocatePort(root, config, id);
-    setJob(root, id, { fields: { worktree: dir, port: p } });
+  const ports = withLock(portsLock(root), () => {
+    const p = allocatePorts(root, config, job);
+    setJob(root, id, { fields: { worktree: dir, port: p[portBearing(config, job)[0]], ports: p } });
     return p;
   });
-  logEvent(root, id, 'worktree', { path: dir, port });
+  const port = ports[portBearing(config, job)[0]];
+  // The in-memory job feeds setup's placeholders and env below.
+  Object.assign(job, { worktree: dir, port, ports });
+  logEvent(root, id, 'worktree', { path: dir, port, ports });
   // Before setup, so setup commands (migrations, seeds) can reach the services.
-  const backing = config.backing?.length ? { backing: backingUp(root, config, { id, port }) } : {};
+  const backing = config.backing?.length ? { backing: backingUp(root, config, { id, port, ports }) } : {};
   const down = backing.backing?.find((b) => !b.ok);
   if (down) {
     logEvent(root, id, 'worktree-setup-failed', { backing: down.name });
-    return { path: dir, created: true, port, ...stacked, ...backing, setup: [], ok: false };
+    return { path: dir, created: true, port, ports, ...stacked, ...backing, setup: [], ok: false };
   }
   const setupLog: { cmd: string; ok: boolean; tail: string }[] = [];
+  const setupPort = port;
   for (const cmd of config.worktrees.setup ?? []) {
-    const res = shell(fill(cmd, vars(root, config, job, dir, port, cmd)), dir, jobEnv(root, config, job, dir, port));
+    const res = shell(fill(cmd, vars(root, config, job, dir, setupPort, cmd)), dir, jobEnv(root, config, job, dir, setupPort));
     setupLog.push({ cmd, ok: res.ok, tail: tail(res.output, 15) });
     if (!res.ok) {
       logEvent(root, id, 'worktree-setup-failed', { cmd });
-      return { path: dir, created: true, port, ...stacked, ...backing, setup: setupLog, ok: false };
+      return { path: dir, created: true, port, ports, ...stacked, ...backing, setup: setupLog, ok: false };
     }
   }
-  return { path: dir, created: true, port, ...stacked, ...backing, setup: setupLog, ok: true };
+  return { path: dir, created: true, port, ports, ...stacked, ...backing, setup: setupLog, ok: true };
 }
 
 /**
@@ -337,14 +344,6 @@ function writeSharedCargoTarget(root: string, config: Config, wtRoot: string): v
   const body = `# Written by Forge: shares one build directory across job worktrees.\n[build]\ntarget-dir = ${JSON.stringify(target)}\n`;
   fs.mkdirSync(cfgDir, { recursive: true });
   if (!exists(file) || fs.readFileSync(file, 'utf8') !== body) fs.writeFileSync(file, body);
-}
-
-/** Called under portsLock, which allocateBacking also holds. */
-function allocatePort(root: string, config: Config, id: string): number {
-  // Backing services hold ports from the same range, whether or not their job is still active.
-  const taken = new Set([...listJobs(root).filter((j) => isActive(j) && j.id !== id && j.port).map((j) => j.port), ...takenPorts(root, config)]);
-  for (let p = config.ports.base; p < config.ports.base + config.ports.span; p++) if (!taken.has(p)) return p;
-  throw new ForgeError(`no free port in ${config.ports.base}-${config.ports.base + config.ports.span - 1}`);
 }
 
 // Placeholders fill a shell command, and job.json can be edited outside the CLI, so these are

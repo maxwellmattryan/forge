@@ -262,7 +262,10 @@ export interface Job {
   branch: string | null;
   base: string | null;
   worktree: string | null;
+  /** The first port-bearing component's port (what `{port}`, the dev server and the live dot use): lib/ports.ts. */
   port: number | null;
+  /** One port per service or app component (`dev` when the repo has none), allocated with the worktree: lib/ports.ts. */
+  ports: Record<string, number>;
   round: number;
   maxRounds: number;
   reviewers: string[];

@@ -197,16 +197,21 @@ export const portsLock = (root: string): string => path.join(paths(root).locks, 
 /**
  * Host ports for the job's per-job entries and the project's shared ones, reusing every valid
  * existing assignment, under portsLock (which job ports take too), so no port is handed out twice. Skips every
- * active job's `port`, every other job's backing ports and the job's own `port`.
+ * active job's `port` and `ports`, every other job's backing ports and the job's own.
  */
-export function allocateBacking(root: string, config: Config, job: { id: string; port?: number | null }): { job: BackingRecord; shared: BackingRecord } {
+export function allocateBacking(root: string, config: Config, job: { id: string; port?: number | null; ports?: Record<string, number> }): { job: BackingRecord; shared: BackingRecord } {
   const list = entries(config);
   return withLock(portsLock(root), () => {
     const taken = new Set<number>(takenPorts(root, config, job.id));
     // The shared record is re-validated below, so its raw ports must not block its own reuse.
     for (const p of rawPorts(sharedRecordFile(root), config)) taken.delete(p);
-    for (const j of listJobs(root)) if (isActive(j) && j.port) taken.add(j.port);
+    for (const j of listJobs(root)) {
+      if (!isActive(j)) continue;
+      if (j.port) taken.add(j.port);
+      for (const p of Object.values(j.ports)) taken.add(p);
+    }
     if (job.port) taken.add(job.port);
+    for (const p of Object.values(job.ports ?? {})) taken.add(p);
     const oldShared = readSharedRecord(root, config);
     const oldJob = readJobRecord(root, job.id, config);
     const shared = emptyRecord();
@@ -418,7 +423,7 @@ function ensure(root: string, runner: DockerRunner, e: BackingEntry, owner: stri
  * Brings every entry up for the job, idempotently. Probes Docker once; shared entries serialise on
  * a lock so they start at most once. One failure is reported and the rest still run.
  */
-export function backingUp(root: string, config: Config, job: { id: string; port?: number | null }, runner: DockerRunner = activeRunner): BackingUpEntry[] {
+export function backingUp(root: string, config: Config, job: { id: string; port?: number | null; ports?: Record<string, number> }, runner: DockerRunner = activeRunner): BackingUpEntry[] {
   const list = entries(config);
   if (!list.length) return [];
   const external = (e: BackingEntry): BackingUpEntry => ({ name: e.name, isolation: e.isolation, action: 'external', ok: true });
