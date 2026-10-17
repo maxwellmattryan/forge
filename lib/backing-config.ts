@@ -17,16 +17,18 @@ const MANAGED_ONLY = ['image', 'ports', 'env', 'volumes'] as const;
 
 const isMap = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const show = (v: unknown): string => (v === undefined ? 'nothing' : (JSON.stringify(v) ?? String(v)).slice(0, 120));
+/** A value's kind, for fields that can hold credentials (a url, the whole backing value): never the value itself. */
+const kind = (v: unknown): string => (v === undefined ? 'nothing' : v === null ? 'null' : Array.isArray(v) ? 'a list' : typeof v === 'object' ? 'a map' : `a ${typeof v}`);
 
 /** Whether an entry runs a container Forge manages (per-job or shared). */
 export function isManaged(e: { isolation?: unknown }): boolean {
   return e.isolation === 'per-job' || e.isolation === 'shared';
 }
 
-/** Why a url string is unusable, or null: empty, too long, or holding whitespace or a control character. */
+/** Why a url string is unusable, or null: empty, too long, or holding whitespace or a control character. Never echoes the url. */
 function urlProblem(url: unknown): string | null {
   if (typeof url !== 'string' || !url || url.length > MAX_URL || /[\s\x00-\x1f\x7f]/.test(url))
-    return `must be a non-empty string of at most ${MAX_URL} characters with no whitespace or control characters (got ${show(url)})`;
+    return `must be a non-empty string of at most ${MAX_URL} characters with no whitespace or control characters (got ${kind(url)})`;
   return null;
 }
 
@@ -85,7 +87,9 @@ function templateProblems(at: string, url: unknown, ports: unknown): string[] {
     }
     const n = /^port_(\d+)$/.exec(name);
     if (n && list.includes(Number(n[1]))) continue;
-    problems.push(`${at}.url placeholder {${name.slice(0, 40)}} is not {host}, {port} or {port_<n>} for a port in ports`);
+    // The placeholder is part of the url, so it is named only when it looks like one.
+    const shown = /^[a-z0-9_]{1,20}$/.test(name) ? `{${name}}` : '(not shown)';
+    problems.push(`${at}.url placeholder ${shown} is not {host}, {port} or {port_<n>} for a port in ports`);
   }
   return problems;
 }
@@ -94,7 +98,7 @@ function templateProblems(at: string, url: unknown, ports: unknown): string[] {
 export function backingProblems(c: any): string[] {
   const list = c?.backing;
   if (list === undefined) return [];
-  if (!Array.isArray(list)) return [`backing must be a list (got ${show(list)})`];
+  if (!Array.isArray(list)) return [`backing must be a list (got ${kind(list)})`];
   const problems: string[] = [];
   const names = new Map<string, number>();
   list.forEach((e: unknown, i: number) => {

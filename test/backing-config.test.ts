@@ -30,7 +30,7 @@ describe('backing config', { concurrency: 4 }, () => {
     assert.deepEqual(backingProblems({}), [], 'absent is fine');
     assert.deepEqual(problems([]), []);
     assert.deepEqual(validateConfig({ ...defaults(), backing: EXAMPLE }, process.cwd()), []);
-    assert.deepEqual(problems('x'), ['backing must be a list (got "x")']);
+    assert.deepEqual(problems('x'), ['backing must be a list (got a string)']);
     const cases: [unknown, string][] = [
       ['x', 'backing[0] must be a map with name and isolation'],
       [{ ...pg, name: 'Postgres' }, 'backing[0].name must match ^[a-z][a-z0-9-]{0,31}$ (got "Postgres")'],
@@ -49,7 +49,7 @@ describe('backing config', { concurrency: 4 }, () => {
       [{ ...pg, volumes: ['data'] }, 'backing[0].volumes[0] must be an absolute container path of letters, digits and ._/- with no .. segment (got "data")'],
       [{ ...pg, volumes: ['/a/../b'] }, 'backing[0].volumes[0] must be an absolute container path of letters, digits and ._/- with no .. segment (got "/a/../b")'],
       [{ name: 'q', isolation: 'external' }, 'backing[0].url is required for an external entry'],
-      [{ name: 'q', isolation: 'external', url: 'a b' }, 'backing[0].url must be a non-empty string of at most 500 characters with no whitespace or control characters (got "a b")'],
+      [{ name: 'q', isolation: 'external', url: 'a b' }, 'backing[0].url must be a non-empty string of at most 500 characters with no whitespace or control characters (got a string)'],
       [{ name: 'q', isolation: 'external', url: 'amqp://x', image: 'rabbitmq' }, 'backing[0].image is only for a per-job or shared entry'],
       [{ ...pg, url: 'postgres://{host}:{port_9999}/app' }, 'backing[0].url placeholder {port_9999} is not {host}, {port} or {port_<n>} for a port in ports'],
       [{ ...pg, ports: [], url: 'x://{host}:{port}' }, 'backing[0].url uses {port} but the entry has no ports'],
@@ -58,6 +58,24 @@ describe('backing config', { concurrency: 4 }, () => {
     for (const [entry, message] of cases) assert.deepEqual(problems([entry]), [message], JSON.stringify(entry));
     assert.deepEqual(problems([pg, { ...pg }]), ['backing[1].name repeats backing[0].name "postgres"']);
     assert.ok(!problems([{ ...pg, env: { A: 'x\ny' } }]).some((p) => p.includes('x\ny')), 'an env value never shows in a problem');
+    // A url or a non-list backing value can hold credentials: problems name the field, never the value.
+    const cred = ['hunter', '2'].join('');
+    const leaks: unknown[] = [
+      `postgres://u:${cred}@db`,
+      [{ name: 'q', isolation: 'external', url: `amqp://u:${cred}@mq x` }],
+      [{ name: 'q', isolation: 'external', url: `amqp://u:${cred}@mq`.padEnd(600, 'x') }],
+      [{ name: 'q', isolation: 'external', url: { password: cred } }],
+      [{ ...pg, url: `postgres://u:${cred}@{host}:{port} ` }],
+      [{ ...pg, url: `postgres://{host}:{port}/{user:${cred}}` }],
+      { url: `x://${cred}` },
+    ];
+    for (const backing of leaks) {
+      const found = problems(backing);
+      assert.equal(found.length, 1, JSON.stringify(backing));
+      assert.ok(!found.some((p) => p.includes(cred)), found.join('; '));
+    }
+    assert.deepEqual(problems({ url: `x://${cred}` }), ['backing must be a list (got a map)']);
+    assert.match(problems([{ ...pg, url: `postgres://{host}:{port}/{user:${cred}}` }])[0], /^backing\[0\]\.url placeholder \(not shown\) is not/);
     // dependsOn backing edges name a declared entry once backing is non-empty.
     const components = [{ name: 'api', kind: 'service', path: '.', dependsOn: [{ backing: 'postgres', type: 'runtime' }, { backing: 'mysql', type: 'runtime' }] }];
     assert.deepEqual(problems(EXAMPLE, { components }), ['components[0].dependsOn[1].backing names no backing entry "mysql"']);
