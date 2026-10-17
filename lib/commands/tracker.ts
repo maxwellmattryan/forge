@@ -9,6 +9,9 @@ import { applyRetention } from '../retention.ts';
 import { searchTerms } from '../issue-link.ts';
 import { checkIssueRef, linkedIssues, nativeRef, nativeRefs, parseIssueRef, primaryIssue, sameIssue } from '../issue-ref.ts';
 import { localRepoSlug } from '../repo-slug.ts';
+import { isLinkedJob, jobRepoOrder, nextMergeable } from '../repo-order.ts';
+import type { PrStateKey, RepoKey } from '../repo-order.ts';
+import { memberRepos } from '../job-repos.ts';
 import { clampLimit, publicHits, searchTracker } from '../tracker-link.ts';
 import { loadTracker } from '../trackers/index.ts';
 import { DEFAULT_LIMIT, MAX_LIMIT, applyTriage, prepareTriage } from '../triage.ts';
@@ -330,6 +333,29 @@ function lastMergeEvent(root: string, id: string): string | null {
   return readEvents(root, id).filter((e) => MERGE_EVENTS.has(e.type)).pop()?.type ?? null;
 }
 
+const CONTINUES = new Set(['pr-merged', 'pr-auto-merge', 'pr-merge-deferred']);
+
+/**
+ * Whether a linked job's merge walk should go on: its last merge event since the last push was an
+ * untargeted merge, queue or deferral, and the next OPEN PR in merge order has every dependency
+ * MERGED (a queued dependency landed), unless that PR is the one already queued. Only a hint from stored states: mergePr re-reads every state itself.
+ */
+function linkedMergeDeferred(root: string, config: Config, job: Job): boolean {
+  const events = readEvents(root, job.id);
+  const pushed = events.findLastIndex((e) => e.type === 'pr-opened' || e.type === 'pr-updated');
+  const last = events.slice(pushed + 1).filter((e) => MERGE_EVENTS.has(e.type)).pop();
+  if (!last || last.target === true || !CONTINUES.has(last.type)) return false;
+  const { order, deps, cycle } = jobRepoOrder(config, job);
+  if (cycle) return false;
+  const known = (s: unknown): PrStateKey => (s === 'OPEN' || s === 'CLOSED' || s === 'MERGED' ? s : null);
+  const states = new Map<RepoKey, PrStateKey>([[null, known(job.pr?.state)]]);
+  for (const m of memberRepos(job)) states.set(m.repo, known(m.pr?.state));
+  const next = nextMergeable(order, deps, states);
+  // A PR queued with --auto is GitHub's to merge: the walk goes on once it has.
+  if (last.type === 'pr-auto-merge' && next === (typeof last.repo === 'string' ? last.repo : null)) return false;
+  return next !== undefined && states.get(next) === 'OPEN';
+}
+
 /**
  * `forge sync`: PRs and trackers for every job, then stacked-branch retargets, dependency waits and
  * umbrella jobs. `integrating` lists the jobs this sync moved to integrate.
@@ -365,7 +391,7 @@ export async function syncAll(
         conflicts: r.pr?.conflicts ?? false,
         behindBy: r.pr?.behindBy ?? null,
         checks: r.pr?.checks?.state ?? null,
-        mergeDeferred: r.pr?.state === 'OPEN' && lastMergeEvent(root, job.id) === 'pr-merge-deferred',
+        mergeDeferred: isLinkedJob(after) ? linkedMergeDeferred(root, config, after) : r.pr?.state === 'OPEN' && lastMergeEvent(root, job.id) === 'pr-merge-deferred',
         newFeedback: (r.pr?.unresolvedThreads ?? 0) > (before.unresolvedThreads ?? 0) || (r.pr?.changesRequested ?? 0) > (before.changesRequested ?? 0),
         cleaned,
       });

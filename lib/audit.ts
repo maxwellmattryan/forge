@@ -41,15 +41,18 @@ function detail(e: JobEvent): string | null {
     case 'dependencies-overridden':
       d = join(e.unmet);
       break;
+    // A member repo's merge events name the repo; the root's carry none.
     case 'pr-merged':
-      d = [pr(e.number), str(e.method)].filter(Boolean).join(' ') || null;
+      d = [str(e.repo), pr(e.number), str(e.method)].filter(Boolean).join(' ') || null;
       break;
     case 'pr-merge-bypass':
-      d = [pr(e.number), str(e.checks) && `checks ${e.checks}`].filter(Boolean).join(' ') || null;
+      d = [str(e.repo), pr(e.number), str(e.checks) && `checks ${e.checks}`].filter(Boolean).join(' ') || null;
       break;
-    case 'pr-opened':
     case 'pr-auto-merge':
     case 'pr-merge-failed':
+      d = [str(e.repo), pr(e.number)].filter(Boolean).join(' ') || null;
+      break;
+    case 'pr-opened':
       d = pr(e.number);
       break;
     case 'daemon-permission':
@@ -100,7 +103,8 @@ function rowsOf(events: JobEvent[], job: string | null): AuditRow[] {
 }
 
 function prOf(job: LoadedJob, events: JobEvent[]): JobAudit['pr'] {
-  const merged = events.findLast((e) => e.type === 'pr-merged');
+  // The job's own PR is the root's: a member's merge says nothing about it.
+  const merged = events.findLast((e) => e.type === 'pr-merged' && e.repo === undefined);
   return {
     number: typeof job.pr?.number === 'number' ? job.pr.number : null,
     mergeMethod: merged && typeof merged.method === 'string' ? merged.method : null,
