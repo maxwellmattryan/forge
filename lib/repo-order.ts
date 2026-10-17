@@ -87,7 +87,11 @@ function topo(repos: RepoKey[], deps: Map<RepoKey, RepoKey[]>): { order: RepoKey
 
 /** The merge order of the job's PR repos; see RepoOrder. Never throws. */
 export function jobRepoOrder(config: Pick<Config, 'components' | 'repos'>, job: Pick<Job, 'repos'>): RepoOrder {
-  const repos = prRepos(job);
+  return repoOrder(config, prRepos(job));
+}
+
+/** `repos`, dependencies first (`repos` order breaks ties and stands on a cycle); see RepoOrder. Never throws. */
+export function repoOrder(config: Pick<Config, 'components' | 'repos'>, repos: RepoKey[]): RepoOrder {
   const full = jobDeps(repoGraph(config, ['build', 'runtime']), repos);
   const first = topo(repos, full);
   if (!first.left.length) return { order: first.order, deps: full, relaxed: false, cycle: null };

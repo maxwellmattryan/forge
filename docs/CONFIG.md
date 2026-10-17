@@ -5,7 +5,7 @@
 Command templates are POSIX `sh`: each runs as `$SHELL -lc <cmd>` (`/bin/sh` when `$SHELL` is unset), and on native Windows under Git for Windows' `sh` (Git Bash; the first `sh.exe` on PATH, else `%ProgramFiles%\Git\bin\sh.exe`), or is refused with an error when there is none (see [SUPPORT.md](SUPPORT.md)). Command templates may use `{port}`, `{job}`, `{worktree}`, `{root}`, `{branch}`, `{base}` and `{args}`. `{args}` holds the extra arguments of `forge run <job> <name> -- <args…>`, each already in single quotes, and arguments go only where a template has it: `forge run` refuses arguments for a template without `{args}`, so a command takes none unless you opt in. Write `{args}` unquoted, as a whole word: after the start, a space, a tab, a newline or `(`, and before the end, a space, a tab, a newline, `;`, `&`, `|` or `)`. Arguments for a template where it sits inside `'…'` or `"…"` or touches another word (`x{args}`, `\{args}`) are refused, and so are arguments for any template containing a heredoc (`<<`), `$'` or `\'`, where the quoting would not hold. The arguments become words of whatever command surrounds `{args}`, so `exec {args}`, `env {args}` or `time {args}` runs the first one as a program. An argument containing a quote, backslash or control character is refused too. Every refusal comes before anything runs. Only `forge run` has arguments: `forge verify`, worktree setup, `forge run --background`, `forge integrate`'s rebuild and `forge eval grade` fill `{args}` with nothing. The other placeholders are filled in unquoted, so `{job}`, `{branch}` and `{base}` are checked first: each must start with a letter or digit and use only `A-Z a-z 0-9 . _ / -` (at most 200 characters), and an unsafe value stops the command before it runs, with an error naming the field. `{worktree}` is filled only with the path Forge computes for the job, `<worktrees.root>/<job id>`: a command whose template uses it stops before it runs when the job's stored `worktree` is anything else, for the same reason. Commands that don't use `{worktree}` are not affected. Commands also get `PORT`, `FORGE_PORT`, `FORGE_JOB` and `FORGE_WORKTREE` in their environment, and never the daemon session's `FORGE_DAEMON*` variables, so a command that calls `forge` behaves the same under the daemon as for a human.
 
 ```yaml
-schemaVersion: 16
+schemaVersion: 17
 
 project:
   name: null                 # display name
@@ -611,7 +611,7 @@ components:
 
 ### Release strategy
 
-Each repo writes down how it releases, so the Foreman and humans read one place instead of guessing: its **versioning**, the **mechanism** (tool) that cuts a release, the **registry** it publishes to, and its **cadence**. The keys sit beside `interim` (below) in the top-level `release` for the root repo and in `repos[].release` for each member, with the same names and values. A single-repo project declares its strategy by editing only `release:`. Nothing acts on these keys yet: `forge release` and the release gate's use of them are planned in M006, and today only validation and `forge doctor` read them.
+Each repo writes down how it releases, so the Foreman and humans read one place instead of guessing: its **versioning**, the **mechanism** (tool) that cuts a release, the **registry** it publishes to, and its **cadence**. The keys sit beside `interim` (below) in the top-level `release` for the root repo and in `repos[].release` for each member, with the same names and values. A single-repo project declares its strategy by editing only `release:`. `forge release plan` reads `mechanism`, `command`, `registry`, `cadence` and `publish` to build a release plan, and `forge release run` runs it ([RELEASES.md "Releasing a project"](RELEASES.md#releasing-a-project)); validation and `forge doctor` read every key. `versioning` is documentation: each mechanism's own tool decides the version.
 
 ```yaml
 release:
@@ -625,16 +625,17 @@ repos:
   - name: engine
     remote: git@github.com:acme/engine.git
     defaultBranch: main
-    release: { interim: git-ref, versioning: semver, mechanism: cargo-release, registry: crates.io, cadence: manual }
+    release: { interim: git-ref, versioning: semver, mechanism: cargo-release, registry: crates.io, cadence: manual, publish: confirm }
 ```
 
 | Key | Values | Default | Meaning |
 |---|---|---|---|
 | `versioning` | `semver`, `calver` | `null` | How version numbers are chosen. |
 | `mechanism` | `release-please`, `cargo-release`, `changesets`, `tag` | `null` | The tool that cuts a release; `tag` means a git tag made by the repo's own `command`. |
-| `command` | a one-line string, at most 1000 characters | `null` | The command a human runs to release; read only with `mechanism: tag`. Forge never runs it. Support bundles redact it. |
+| `command` | a one-line string, at most 1000 characters | `null` | The command a human runs to release; read only with `mechanism: tag`. `forge release run` runs it, after asking unless `publish: allow`; doctor never does. Support bundles redact it. |
 | `registry` | `crates.io`, `npm`, `none` | `null` | Where released packages are published (`none`: a tag or GitHub Release only). |
 | `cadence` | `on-merge`, `scheduled`, `manual` | `null` | When a release happens: every merge to the default branch, on a timer (usually CI), or when a human decides. |
+| `publish` | `confirm`, `allow` | `null` | Whether `forge release run` asks on a terminal before each of this repo's publish steps (`confirm`, and `null`) or runs them without asking (`allow`). With `allow`, an agent session that runs `forge release run` publishes too: set it only where that is acceptable. Only a hand edit of `.forge/config.yml` sets it: Settings does not edit it. |
 
 Every key is optional, and `null` or absent means undeclared ("unknown"): nothing defaults to a value, and doctor runs no check for a repo with no `mechanism`. A member's `release` may be absent, `null`, or a partial map; one without `interim` still has its other keys checked. Unknown keys inside `release` are ignored, and combinations (such as `cargo-release` with `registry: npm`) are not cross-checked.
 
@@ -644,6 +645,7 @@ Every key is optional, and `null` or absent means undeclared ("unknown"): nothin
 - `<at>.mechanism must be one of release-please | cargo-release | changesets | tag (got <v>)`
 - `<at>.registry must be one of crates.io | npm | none (got <v>)`
 - `<at>.cadence must be one of on-merge | scheduled | manual (got <v>)`
+- `<at>.publish must be one of confirm | allow (got <v>)`
 - with `mechanism: tag`, a `command` that is absent, not a string, empty after trimming, over 1000 characters, or contains a control character (a newline included): `<at>.command must be a one-line command of at most 1000 characters when mechanism is tag (got <v>)`
 - with any other mechanism, or none, a `command` that is set: `<at>.command is only read when mechanism is tag; remove it or set mechanism: tag`
 
@@ -670,6 +672,8 @@ The hints: `npm install --save-dev release-please`, `npm install --save-dev @cha
 
 **Migration** (config `schemaVersion` 15 → 16): nothing changes. v16 adds `release.versioning`, `release.mechanism`, `release.command`, `release.registry` and `release.cadence` (and the same keys on `repos[].release`), all unset by default; the bump lets older Forges refuse a config whose release strategy they would ignore. `forge migrate` writes the new version.
 
+**Migration** (config `schemaVersion` 16 → 17): nothing changes. v17 adds `release.publish` (and `repos[].release.publish`), unset by default, which `forge release run` reads as "ask first"; the bump lets older Forges refuse a config whose publish policy they would ignore. `forge migrate` writes the new version.
+
 ### Interim strategies
 
 A multi-repo job's consumer PR has to point at *something* while its dependency's change is unmerged or unreleased, and projects release differently, so each dependency repo has an **interim strategy**. An **edge** is a consumer job repo and a dependency job repo, from `components[].dependsOn` (the merge order [Job repos](ARCHITECTURE.md#job-repos) uses, transitive through repos outside the job); its **links** are the `link`s joining the two repos. A verify-only member is unchanged, so it is never a dependency. The strategy is per dependency and every edge into it shares it, resolved as: the job's override (`forge job repo interim <id> <name>|--root <strategy>`, human-only), then config (`repos[].release.interim` for a member, the top-level `release.interim` for the root repo), then `local`.
@@ -689,7 +693,7 @@ repos:
 | `local` (default) | nothing CI can resolve: local links only | Publishes and pins nothing. `forge pr open` creates the consumer's PR as a draft, whatever `pr.draft` or `--draft` says (an existing PR is left as it is), and step never auto-merges the job (PR4 falls through to PR5). The draft stays one until a human records the dependency's release (`forge job interim release`, below): until then `forge pr ready` and `forge pr merge` refuse the consumer. |
 | `sequential` | the dependency after it merges | `forge pr open` opens the dependency's PR and defers the consumer's (not pushed, no PR) until GitHub reports the dependency's PR `MERGED`; then `forge pr sync` resumes the job (`reopen: true`) and the next `forge pr open` opens it, as a draft until a human records the dependency's release (`forge job interim release`); after that a new consumer PR follows `pr.draft` and `--draft` again. Merge opens the consumer's PR; the recorded release lets it leave draft (`forge pr ready`) and merge. |
 | `git-ref` | the dependency's commit | `forge verify` writes the pin into the consumer's manifest and commits it in the consumer's worktree: cargo, a `[patch."<source>"]` entry `"<name>" = { git = "<remote>", rev = "<sha>" }` in one block between `# forge:interim begin` and `# forge:interim end`; cmake, the one `GIT_TAG` of the one `FetchContent_Declare(<name> …)`; npm, `git+<url>#<sha>` in every dependency section that has the package. |
-| `canary` (npm only) | a published pre-release, `<major>.<minor>.<patch>-canary.<sha12>` | `forge verify` pins that exact version (not the moving `canary` dist-tag, so the consumer's CI is reproducible); `forge pr open` opens the dependency's PR and defers the consumer's until a human publishes the canary with `forge job interim publish <id> <name>|--root --confirm`, the only command in Forge that publishes anything. |
+| `canary` (npm only) | a published pre-release, `<major>.<minor>.<patch>-canary.<sha12>` | `forge verify` pins that exact version (not the moving `canary` dist-tag, so the consumer's CI is reproducible); `forge pr open` opens the dependency's PR and defers the consumer's until a human publishes the canary with `forge job interim publish <id> <name>|--root --confirm`; it and `forge release run` are the only commands in Forge that publish anything. |
 
 - **The manifest** is the link's `manifest`, or the ecosystem's file (`Cargo.toml`, `CMakeLists.txt`, `package.json`) in the consumer component's `path`. The remote is the member's `remote`, or the root's `git.remote` URL; an absolute path becomes `file://<path>` (one in your home directory leaves the edge `blocked`, since a pushed manifest must not name it), `user@host:path` becomes `ssh://user@host/path`, and a URL loses its password under every scheme, and its whole `user:password@` under http(s).
 - **Verify** refreshes the pins first, dependencies first, before it reads any HEAD: when `aiAttribution` is `forbid` it scrubs the dependency's branch as `pr open` will (so the pinned sha is the one pushed), then commits the changed manifests as `forge: interim pins for job <id>`. Nothing is committed when nothing changed, or when a worktree involved is dirty (`worktree-clean` then fails the run). A pin that can't be written (no link, a `[patch."<source>"]` table outside the Forge block, zero or several matching `FetchContent_Declare` or `GIT_TAG`, an npm package below its repo's root, a dependsOn cycle) fails the `interim` step, which runs after `protected` and, like it, stops every configured step. With only `local` and `sequential` edges verify has no `interim` step.

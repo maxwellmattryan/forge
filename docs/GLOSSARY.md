@@ -35,15 +35,15 @@ Planned in M005, except where a config key exists today.
 
 ## Releases
 
-The release strategy keys are in config today (see [CONFIG.md "Release strategy"](CONFIG.md#release-strategy)); the commands that act on them are planned in M006.
+The release strategy keys are in config (see [CONFIG.md "Release strategy"](CONFIG.md#release-strategy)), and `forge release plan|run|status` acts on them (see [RELEASES.md "Releasing a project"](RELEASES.md#releasing-a-project)).
 
 | Term | Meaning | Config key |
 |---|---|---|
-| **release** | Publishing new versions of one or more components, the one word for single-repo and multi-repo releases alike. | planned (M006) |
+| **release** | Publishing new versions of one or more components, the one word for single-repo and multi-repo releases alike. | - |
 | **release strategy** | How one repo releases, declared per repo: its versioning (`semver` or `calver`), release mechanism, registry (`crates.io`, `npm` or `none`), release cadence and interim strategy. | `release` |
 | **release mechanism** | The tool that cuts a repo's release, one of `release-please`, `cargo-release`, `changesets` or `tag` (a git tag made by the repo's own `release.command`), which `forge doctor` checks is installed. | `release.mechanism` |
 | **release cadence** | When a repo releases, one of `on-merge` (every merge to the default branch), `scheduled` (on a timer, usually in CI) or `manual` (when a human decides). | `release.cadence` |
-| **release plan** | The ordered components, versions and steps for one release, which a human can run from the CLI without the Foreman. | planned (M006) |
+| **release plan** | The ordered repos, steps, checks and rollback for one release that `forge release plan` writes and a human runs with `forge release run`, without the Foreman. | - |
 | **release gate** | A check that blocks merging a PR while it still uses an interim reference. | planned (M006) |
 
 ## Environments

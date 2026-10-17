@@ -148,7 +148,7 @@ export function defaults(): Config {
       autoWhen: [],
     },
     aiAttribution: 'forbid',
-    release: { interim: 'local', versioning: null, mechanism: null, command: null, registry: null, cadence: null },
+    release: { interim: 'local', versioning: null, mechanism: null, command: null, registry: null, cadence: null, publish: null },
     resources: [],
     components: [],
     repos: [],
