@@ -14,10 +14,12 @@ export function resolveTarget(to: string): string {
 
 /** Why `to` is unusable as a fixed path, or null. */
 function targetProblem(to: unknown): string | null {
-  if (typeof to !== 'string' || !(to.startsWith('/') || to.startsWith('~/'))) return `must be an absolute path or start with ~/ (got ${show(to)})`;
+  // path.isAbsolute also accepts a win32 drive or UNC path where Forge runs on Windows.
+  if (typeof to !== 'string' || !(to.startsWith('/') || to.startsWith('~/') || path.isAbsolute(to))) return `must be an absolute path or start with ~/ (got ${show(to)})`;
   if (to.includes('\0')) return 'must not contain a NUL character';
-  const rest = to.startsWith('~/') ? to.slice(2) : to;
-  const segments = rest.split('/');
+  const rest = to.startsWith('~/') ? to.slice(2) : to.slice(path.parse(to).root.length);
+  // Backslash is a separator on win32; splitting on it everywhere only refuses more.
+  const segments = rest.split(/[\\/]/);
   if (segments.includes('..')) return `must not contain a .. segment (got ${show(to)})`;
   if (!segments.some((s) => s !== '' && s !== '.')) return `must name a path below / or ~ (got ${show(to)})`;
   return null;
@@ -53,7 +55,9 @@ export function checkoutProblems(c: any): string[] {
       if (e.undo !== undefined) problems.push(`${at}.undo is only for a run step`);
       const tp = targetProblem(e.to);
       if (tp) return problems.push(`${at}.to ${tp}`);
-      const target = resolveTarget(e.to);
+      // Compared resolved, so `~/p`, `<home>/p` and `<home>\p` are one target; win32 paths ignore case.
+      const resolved = resolveTarget(e.to);
+      const target = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
       const first = seen.get(target);
       if (first !== undefined) problems.push(`${at}.to repeats checkout[${first}].to`);
       else seen.set(target, i);

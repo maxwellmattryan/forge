@@ -36,6 +36,7 @@ describe('checkout config', { concurrency: 4 }, () => {
       [{ link: 'a', to: '~x' }, 'checkout[0].to must be an absolute path or start with ~/ (got "~x")'],
       [{ link: 'a', to: '/a/../b' }, 'checkout[0].to must not contain a .. segment (got "/a/../b")'],
       [{ link: 'a', to: '~/../b' }, 'checkout[0].to must not contain a .. segment (got "~/../b")'],
+      [{ link: 'a', to: '/a\\..\\b' }, 'checkout[0].to must not contain a .. segment (got "/a\\\\..\\\\b")'],
       [{ link: 'a', to: '/' }, 'checkout[0].to must name a path below / or ~ (got "/")'],
       [{ link: 'a', to: '~/' }, 'checkout[0].to must name a path below / or ~ (got "~/")'],
       [{ link: 'a', to: '/x\0y' }, 'checkout[0].to must not contain a NUL character'],
@@ -57,7 +58,12 @@ describe('checkout config', { concurrency: 4 }, () => {
       ['checkout[2].to repeats checkout[0].to', 'checkout[4].to repeats checkout[3].to'],
     );
     assert.equal(resolveTarget('~/a/b'), path.join(home, 'a', 'b'));
-    assert.equal(resolveTarget('/a/./b/'), '/a/b');
+    assert.equal(resolveTarget('/a/./b/'), path.resolve('/a/b'));
+    if (process.platform === 'win32') {
+      // A drive or UNC path is absolute there, and the same target in another case or separator repeats.
+      assert.deepEqual(problems([{ link: 'a', to: 'C:\\Users\\p' }, { link: 'b', to: '\\\\host\\share\\p' }, { link: 'c', to: 'c:/users/P' }]), ['checkout[2].to repeats checkout[0].to']);
+      assert.deepEqual(problems([{ link: 'a', to: 'C:\\' }]), ['checkout[0].to must name a path below / or ~ (got "C:\\\\")']);
+    }
   });
 
   test('defaults', () => {
