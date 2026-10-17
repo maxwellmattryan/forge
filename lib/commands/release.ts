@@ -17,13 +17,13 @@ const RELEASE: HelpGroup = {
       command: 'release plan',
       args: '[--job ID | --since TAG] [--force]',
       summary:
-        "plan a release from each repo's release strategy, dependencies first: write .forge/runtime/release/release.md (steps, checks and rollback) and release.json; nothing runs, and the job's PRs (--job) must be merged",
+        "plan a release from each repo's release strategy, dependencies first: write .forge/runtime/release/release.md (steps, checks and rollback) and release.json; nothing runs. With --job, the job's PRs must be merged, except a consumer of an interim edge, which is skipped (it merges after its dependencies' release)",
       flags: [
-        ['--job ID', "release the job's PR repos, each with a merged PR"],
+        ['--job ID', "release the job's merged PR repos; an unmerged consumer of an interim edge is skipped"],
         ['--since TAG', 'release the repos with commits since TAG'],
         ['--force', "discard an unfinished run's checkpoints (not in a daemon session)"],
       ],
-      exits: [[1, 'config problems, an unmerged PR, an unusable member clone (--job), no repo with the tag, a build cycle, an unfinished run of another plan, a symlinked release dir, or --force in a daemon session']],
+      exits: [[1, 'config problems, an unmerged PR that is no interim consumer, no merged PR at all (--job), an unusable member clone (--job), no repo with the tag, a build cycle, an unfinished run of another plan, a symlinked release dir, or --force in a daemon session']],
       docs: DOCS,
       readme: true,
     },
@@ -31,7 +31,7 @@ const RELEASE: HelpGroup = {
       command: 'release run',
       args: '',
       summary:
-        'run the plan step by step, checking each, with checkpoints so a second run resumes at the first step not done; a step whose check already passes is skipped, and publish steps ask on a terminal unless the repo sets release.publish: allow. Prints its own result',
+        'run the plan step by step, checking each, with checkpoints so a second run resumes at the first step not done; a step whose check already passes is skipped, and publish steps ask on a terminal unless the repo sets release.publish: allow. On a --job plan, each dependency repo whose last step finished in this run gets its release recorded on the job from the checks of this run (released: version, recorded, and a hint when no single version showed), which resumes the job to bump its consumers. Prints its own result',
       exits: [
         [1, 'stopped at a step (the result says why), no plan, a stale or edited plan, a symlinked release dir, a daemon session, or native Windows'],
         [3, 'another forge release run holds the lock'],

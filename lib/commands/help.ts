@@ -151,7 +151,7 @@ export const CORE: HelpGroup[] = [
         exits: [
           [
             1,
-            "the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a local or sequential dependency's release is not recorded (reason order|cycle|release), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, the office daemon session ran it, or protected paths apply and the PR head is not the one forge pr open checked (code protected_path; --now overrides)",
+            "the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order|cycle|release), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, the office daemon session ran it, or protected paths apply and the PR head is not the one forge pr open checked (code protected_path; --now overrides)",
           ],
           GH_FAILED,
         ],
@@ -159,12 +159,12 @@ export const CORE: HelpGroup[] = [
       {
         command: 'pr ready',
         args: '<id> [--repo NAME | --root]',
-        summary: "mark the job's open draft PRs ready for review, in merge order (result: ready and skipped); a consumer held by a local or sequential interim edge stays a draft until a human records its dependency's release (forge job interim release)",
+        summary: "mark the job's open draft PRs ready for review, in merge order (result: ready and skipped); a consumer held by a local or sequential interim edge stays a draft until a human records its dependency's release (forge job interim release), and a consumer with a recorded release until verify bumped its manifests to it",
         flags: [
           ['--repo NAME', 'only that member repo PR'],
           ['--root', 'only the root repo PR'],
         ],
-        exits: [[1, "no such job, --repo names no PR member, --repo and --root together, --root given a value, or a targeted PR's release gate is held (code release_gate; nothing is called)"], GH_FAILED],
+        exits: [[1, "no such job, --repo names no PR member, --repo and --root together, --root given a value, or a targeted PR's release gate is held or bump-due, or its manifests at HEAD don't name the recorded release (code release_gate; nothing is called)"], GH_FAILED],
       },
     ],
   },
