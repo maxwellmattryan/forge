@@ -242,4 +242,48 @@ describe('interim strategies: pull requests', { concurrency: 4 }, () => {
     assert.deepEqual(p.events(j.id).filter((e) => e.type === 'pr-merge-refused').map((e) => e.reason), ['release', 'release', 'release']);
     assert.deepEqual(p.events(j.id).filter((e) => e.type === 'pr-merge-bypass'), [], '--now never bypasses a release gate');
   });
+
+  test('bump-due consumers are not readied or merged', async () => {
+    const p = await project();
+    p.config((c) => {
+      c.pr.draft = false;
+      c.components = [
+        { name: 'app', path: '.', kind: 'app', dependsOn: [{ component: 'lib', type: 'build', link: { ecosystem: 'npm', name: 'engine' } }] },
+        { name: 'lib', repo: 'lib', path: '.', kind: 'library' },
+      ];
+    });
+    const j = await ready(p);
+    p.commit(j.rootWt, { 'package.json': '{\n  "name": "app",\n  "dependencies": {\n    "engine": "^1.0.0"\n  }\n}\n' });
+    await p.f('verify', j.id);
+    await opened(p, j.id);
+    const job = loadJob(p.root, j.id);
+    p.fake('app.head', job.pr!.pushedSha!);
+    p.fake('lib.head', job.repos[1].pr!.pushedSha!);
+    p.fake('app.checks', 'passing');
+    p.fake('lib.checks', 'passing');
+    p.fake('lib.state', 'MERGED');
+    assert.equal((await p.raw(['pr', 'sync', j.id], p.env)).status, 0);
+    await p.f('job', 'interim', 'release', j.id, 'lib', '1.2.0');
+    assert.equal((await p.f('job', 'interim', j.id)).gates[0].gate, 'bump-due');
+    const message = `the root repo's manifests don't name repo lib's released version 1.2.0 yet; run: forge verify ${j.id}, then forge pr open ${j.id}`;
+    for (const flags of [[], ['--root']]) {
+      const r = await p.raw(['pr', 'ready', '--json', j.id, ...flags], p.env);
+      assert.equal(r.status, 1, r.stdout);
+      assert.deepEqual([JSON.parse(r.stdout).error.code, JSON.parse(r.stdout).error.message], ['release_gate', message]);
+    }
+    assert.deepEqual(readies(p), [], 'no gh pr ready call');
+    for (const flags of [[], ['--now'], ['--root', '--now']]) {
+      const m = await p.pr(['merge', j.id, ...flags]);
+      assert.equal(m.status, 1, String(flags));
+      const out = JSON.parse(m.stdout);
+      assert.deepEqual([out.action, out.reason, out.error], ['refused', 'release', message], String(flags));
+    }
+    assert.ok(!p.calls().some((c) => c.startsWith('pr merge 11 -R o/app')), 'no gh pr merge for the consumer');
+    // Once verify bumped it, the gate is released and the consumer may leave draft.
+    await p.f('verify', j.id);
+    assert.equal((await p.f('job', 'interim', j.id)).gates[0].gate, 'released');
+    const r = await p.raw(['pr', 'ready', j.id], p.env);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(readies(p), ['pr ready 11 -R o/app']);
+  });
 });
