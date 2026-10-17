@@ -8,6 +8,7 @@ import path from 'node:path';
 import { twoRepo } from './job-repos-fixture.ts';
 import type { TwoRepo } from './job-repos-fixture.ts';
 import * as yaml from '../lib/yaml.ts';
+import { updateJob } from '../lib/jobs.ts';
 
 const cleanups: (() => void)[] = [];
 after(() => cleanups.forEach((c) => c()));
@@ -134,6 +135,14 @@ async function reviewSpawns(p: TwoRepo, id: string): Promise<Record<string, any>
   return Object.fromEntries([a, ...(a.spawns ?? [])].map((s: any) => [s.role, s]));
 }
 
+/** Writes every spawn's review file: PASS unless `changes` names its role. */
+function writeReviews(spawns: Record<string, any>, changes: Record<string, string> = {}): void {
+  for (const [role, s] of Object.entries(spawns)) {
+    fs.mkdirSync(path.dirname(s.output), { recursive: true });
+    fs.writeFileSync(s.output, changes[role] ?? '# Review\n\nVERDICT: PASS\n');
+  }
+}
+
 const lines = (brief: string, prefix: string) => brief.split('\n').filter((l) => l.startsWith(prefix));
 const DSP = { 'src/dsp.rs': 'fn process() {}\n' };
 // forge job step refuses the job's backslash paths as unsafe arguments on Windows (as in test/step.test.ts).
@@ -173,6 +182,16 @@ describe('cross-repo review: member panels', { concurrency: 4 }, () => {
     const code = spawns['reviewer:code'];
     assert.equal(lines(code.brief, 'Diff: ').length, 1);
     assert.equal(lines(code.brief, 'Lens repo: ').length, 0);
+
+    writeReviews(spawns, { 'reviewer:lib:realtime': '# Review\n\nVERDICT: CHANGES\n\n- [major] lib/src/dsp.rs:3 — allocates on the audio thread\n' });
+    const v = await p.f('job', 'verdicts', j.id);
+    assert.equal(v.reviewers['lib:realtime'].verdict, 'CHANGES');
+    assert.equal(v.reviewers['lib:realtime'].file, path.join('review', 'round-1', 'lib.realtime.md'));
+    assert.equal(JSON.parse(fs.readFileSync(path.join(j.dir, 'job.json'), 'utf8')).verdicts['1']['lib:realtime'], 'CHANGES');
+    fs.writeFileSync(path.join(j.dir, 'build.md'), '## Round 2\nFindings addressed:\n- lib:realtime [major] lib/src/dsp.rs:3 → disagree: the buffer is preallocated\n');
+    const findings = await p.f('job', 'findings', j.id);
+    assert.deepEqual(findings.byLens['lib:realtime'], { raised: 1, fixed: 0, disputed: 1, recurring: 0 });
+    assert.deepEqual(findings.disputed, [{ round: 1, lens: 'lib:realtime', severity: 'major', path: 'lib/src/dsp.rs' }]);
   });
 
   test("a member's built-in lens is subsumed unless it has its own checklist", async () => {
@@ -207,6 +226,12 @@ describe('cross-repo review: member panels', { concurrency: 4 }, () => {
     const spawns = await reviewSpawns(p, j.id);
     assert.ok(!('reviewer:nope:code' in spawns), Object.keys(spawns).join(','));
     assert.deepEqual(lines(spawns['reviewer:lib:realtime'].brief, 'Checklist: '), [`Checklist: ${path.join(p.lib, '.forge', 'reviewers', 'realtime.md')}`]);
+    // Verdicts never read it without --reviewers: every other lens's review completes the round.
+    writeReviews(spawns);
+    const v = await p.f('job', 'verdicts', j.id, '--compact');
+    assert.equal(v.complete, true, JSON.stringify(v));
+    assert.ok(!('nope:code' in v.reviewers));
+    assert.ok(!fs.existsSync(path.join(j.dir, 'review', 'round-1', 'nope.code.md')));
   });
 
   test('member panel config is size-capped, regular-file-only and confined to the clone', async () => {
@@ -261,9 +286,40 @@ describe('cross-repo review: member panels', { concurrency: 4 }, () => {
   });
 });
 
+describe('cross-repo review: verdicts', { concurrency: 4 }, () => {
+  test("verdicts record each repo's HEAD", async () => {
+    const p = await project();
+    const j = await setup(p);
+    await p.f('job', 'set', j.id, '--field', 'reviewers=["code"]');
+    const review = (dir: string) => {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'code.md'), '# Review\n\nVERDICT: PASS\n');
+    };
+    review(path.join(j.dir, 'review', 'round-1'));
+    review(path.join(j.dir, 'review', 'integration'));
+    const libHead = head(p, j.libWt);
+    const round = await p.f('job', 'verdicts', j.id, '--compact');
+    assert.deepEqual(round.heads, { lib: libHead });
+    assert.equal(round.sha, head(p, j.rootWt));
+    assert.deepEqual(p.events(j.id).filter((e) => e.type === 'verdicts').at(-1).heads, { lib: libHead });
+    const full = await p.f('job', 'verdicts', j.id);
+    assert.deepEqual(full.heads, { lib: libHead });
+    const integration = await p.f('job', 'verdicts', j.id, '--round', 'integration', '--compact');
+    assert.deepEqual(integration.heads, { lib: libHead });
+    assert.deepEqual(p.events(j.id).filter((e) => e.type === 'integration-review').at(-1).heads, { lib: libHead });
+    // A stored worktree that is not Forge's computed path is never read.
+    updateJob(p.root, j.id, (job) => {
+      job.repos[1].worktree = p.lib;
+    });
+    const untrusted = await p.f('job', 'verdicts', j.id, '--compact');
+    assert.deepEqual(untrusted.heads, { lib: null });
+    assert.deepEqual(p.events(j.id).filter((e) => e.type === 'verdicts').at(-1).heads, { lib: null });
+  });
+});
+
 describe('cross-repo review: single-repo jobs', { concurrency: 4 }, () => {
-  for (const kind of ['single-repo', 'verify-only'] as const) {
-    test(`${kind}: panel and briefs are as before`, { skip: noStep }, async () => {
+  test('single-repo and verify-only jobs review exactly as before', { skip: noStep }, async () => {
+    for (const kind of ['single-repo', 'verify-only'] as const) {
       const p = await project();
       const j = await setup(p, kind === 'single-repo' ? { noMember: true } : { verifyOnly: true });
       const panel = await p.f('job', 'panel', j.id);
@@ -276,6 +332,15 @@ describe('cross-repo review: single-repo jobs', { concurrency: 4 }, () => {
         assert.equal(lines(s.brief, 'Lens repo: ').length, 0);
         assert.doesNotMatch(s.brief, /scopeDiff/);
       }
-    });
-  }
+      writeReviews(spawns);
+      const v = await p.f('job', 'verdicts', j.id, '--compact');
+      assert.equal(v.complete, true);
+      assert.ok(!('heads' in v));
+      assert.ok(!('heads' in p.events(j.id).filter((e) => e.type === 'verdicts').at(-1)));
+      const s = await p.f('job', 'scope', j.id);
+      for (const k of ['repos', 'heads', 'diff']) assert.ok(!(k in s), `scope: no ${k}`);
+      assert.ok(!fs.existsSync(path.join(j.dir, 'scope.diff')));
+      assert.ok(!('heads' in p.events(j.id).filter((e) => e.type === 'scope').at(-1)));
+    }
+  });
 });
