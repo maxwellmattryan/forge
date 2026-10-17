@@ -16,6 +16,7 @@ import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
 import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
 import { memberRepos } from './job-repos.ts';
+import { pendingRepoProposals } from './repo-proposals.ts';
 import { PLUGIN_ROOT, exists } from './paths.ts';
 import { COMPLEXITIES } from './schema.ts';
 import { generatedConfig } from './regenerate.ts';
@@ -47,6 +48,9 @@ export const RULES = [
   // Protected paths: park on `human` until a human approves the current content (PP1), or send a
   // refused path back to build (PP2).
   'PP1', 'PP2',
+  // Repo proposals: park on `human` while an agent's proposal waits (RP1), then create an approved
+  // repo's worktree (RP2). Appended, though they run before the stage rules, as IDs are stable.
+  'RP1', 'RP2',
   // No rule matched: a state step can't advance, parked visibly instead of looping.
   'X1',
 ] as const;
@@ -68,7 +72,7 @@ const STEP_EVENTS = new Set([
   'human', 'round', 'worktree', 'worktree-setup-failed', 'pr-find', 'pr-adopted', 'scope', 'panel', 'integrated', 'integrate-conflicts',
   'integration-review', 'decision', 'fields', 'pr-opened', 'pr-updated', 'pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
   'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found', 'verifiers',
-  'protected-path',
+  'protected-path', 'repo-proposed',
 ]);
 const MERGE_EVENTS = ['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed'];
 
@@ -157,6 +161,7 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     present,
     // Every job repo's worktree: a missing member worktree sends the job back to I3 (worktree create).
     worktreeExists: Boolean(job.worktree && exists(job.worktree)) && memberRepos(job).every((m) => Boolean(m.worktree && exists(m.worktree))),
+    memberWorktreesMissing: memberRepos(job).some((m) => !(m.worktree && exists(m.worktree))),
     request: { length: body.length, listLines: listLineCount(body) },
     plan: parsePlan(read('plan.md') ?? ''),
     spec: { ...parseSpecHeader(specText), approachPaths: approachPaths(specText) },
@@ -615,6 +620,8 @@ export function gateTell(x: StepInput, waitingOn: WaitingOn): string {
     case 'pr-review':
       return prReviewTell(x);
     case 'human':
+      if (reason.startsWith('repo proposal:'))
+        return `${id} proposes repos (${reason}): ${path.join(x.jobDir, 'repo-proposals.md')}. Approve or reject in the dashboard, or in your own terminal: forge job human ${id} approve-repos|reject-repos --note …`;
       if (reason.startsWith('protected paths'))
         return `${id} changed protected paths (${reason}). Diff: ${path.join(x.jobDir, 'protected.diff')}. /forge approve ${id} once a human has reviewed them, or /forge rework ${id} <note>`;
       if (reason.startsWith('secret scan'))
@@ -705,6 +712,8 @@ function decide(x: StepInput): StepAction {
   if (secret) return secret;
   const guarded = protectedGate(x);
   if (guarded) return guarded;
+  const proposal = repoProposalGate(x);
+  if (proposal) return proposal;
 
   switch (j.stage) {
     case 'backlog':
@@ -779,6 +788,27 @@ function protectedGate(x: StepInput): StepAction | null {
   return protectedPark(x);
 }
 
+/** At most this many repo names in RP1's reason; the rest are counted. */
+const RP1_NAMES = 5;
+
+/**
+ * RP1: an agent proposed a member repo and no decision covers it yet, so the job waits on a human
+ * (or the foreman, when allowed) before anything else in the stage runs. RP2: an approved repo, or
+ * one a human added mid-job, has no worktree yet. Names come from events but pass REPO_NAME, which
+ * sits inside shellLine's safe class.
+ */
+function repoProposalGate(x: StepInput): StepAction | null {
+  const j = x.job;
+  if (j.stage === 'backlog' || j.stage === 'pr' || j.stage === 'done') return null;
+  const names = pendingRepoProposals(j, x.events).map((r) => r.repo);
+  if (names.length) {
+    const shown = names.slice(0, RP1_NAMES).join(', ') + (names.length > RP1_NAMES ? ` +${names.length - RP1_NAMES} more` : '');
+    return park(x, 'RP1', 'human', `repo proposal: ${shown}`);
+  }
+  if (x.memberWorktreesMissing) return run(x, 'RP2', ['worktree', 'create', j.id], 'an approved repo needs its worktree');
+  return null;
+}
+
 function stuck(x: StepInput): StepRun {
   return park(x, 'X1', 'escalation', `step found no rule for stage ${x.job.stage}`);
 }
@@ -800,7 +830,7 @@ function intake(x: StepInput): StepAction {
 function plan(x: StepInput): StepAction {
   const j = x.job;
   const planner = agent(x, 'planner');
-  if (!ended(planner) || after(human(x, 'revise-split')?.ts, planner.startedAt)) return spawn(x, 'P1', 'planner');
+  if (!ended(planner) || after(human(x, 'revise-split')?.ts, planner.startedAt) || after(human(x, 'reject-repos')?.ts, planner.startedAt)) return spawn(x, 'P1', 'planner');
   const g = generic(x, 'planner');
   if (g) return g;
   if (x.plan.verdict === 'SPLIT') {
@@ -824,7 +854,7 @@ function spec(x: StepInput): StepAction {
   const c = x.config;
   const sw = agent(x, 'spec-writer');
   if (j.kind !== 'retro' && !ended(sw)) return spawn(x, 'SP1', 'spec-writer');
-  if (after(human(x, 'revise-spec')?.ts, sw?.startedAt)) return spawn(x, 'SP2', 'spec-writer');
+  if (after(human(x, 'revise-spec')?.ts, sw?.startedAt) || (sw && after(human(x, 'reject-repos')?.ts, sw.startedAt))) return spawn(x, 'SP2', 'spec-writer');
   if (sw) {
     const g = generic(x, 'spec-writer');
     if (g) return g;

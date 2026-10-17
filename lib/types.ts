@@ -417,6 +417,8 @@ export interface StepInput {
   /** The absolute paths in `paths` that exist, for brief inputs. */
   present: string[];
   worktreeExists: boolean;
+  /** A member repo on the job has no worktree yet (step RP2). */
+  memberWorktreesMissing: boolean;
   /** requestBody(): its length and the lines that start with a list marker or a heading. */
   request: { length: number; listLines: number };
   plan: { verdict: 'SINGLE' | 'SPLIT' | null; jobs: number; recommendSplit: boolean };
@@ -446,6 +448,17 @@ export interface StepInput {
 
 /** The job files StepInput.files records. */
 export type StepFile = 'request' | 'plan' | 'spec' | 'design' | 'mockup' | 'build' | 'tasks' | 'questions' | 'feedback' | 'prFeedback' | 'runbook' | 'decision' | 'scope' | 'issueCandidates' | 'evalJudge';
+
+/** One member repo an agent proposed for a job (lib/repo-proposals.ts), as repo-proposals.json lists it. */
+export interface RepoProposal {
+  repo: string;
+  reason: string;
+  proposedAt: string;
+  status: 'pending' | 'approved' | 'rejected';
+  decidedAt: string | null;
+  actor: EventActor | null;
+  note: string | null;
+}
 
 // ---------- events ----------
 

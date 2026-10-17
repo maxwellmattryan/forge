@@ -3,6 +3,7 @@
 // derived from events.jsonl on read; nothing here writes.
 import { hasLiveJob, listArchived, readArchived } from './archive.ts';
 import { listJobs, loadJob, parseEventLines, readEvents, repoAuditFile } from './jobs.ts';
+import { REPO_NAME } from './member-repos.ts';
 import type { AuditRow, JobAudit, JobEvent, LoadedJob, RepoAudit, TransitionSide } from './types.ts';
 import { ForgeError, readText, safeText } from './util.ts';
 
@@ -69,6 +70,10 @@ function detail(e: JobEvent): string | null {
       break;
     case 'unfocus':
       d = str(e.reason);
+      break;
+    // A repo proposal decision names its repos; other human events carry none.
+    case 'human':
+      d = Array.isArray(e.repos) ? e.repos.filter((r): r is string => typeof r === 'string' && REPO_NAME.test(r)).join(',') || null : null;
       break;
     case 'config-set':
       d = `${String(e.key)}: ${JSON.stringify(e.previous ?? null)} -> ${JSON.stringify(e.value ?? null)}`;
