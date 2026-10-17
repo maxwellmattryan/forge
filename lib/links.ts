@@ -270,11 +270,21 @@ function realDir(dir: string): void {
   fs.mkdirSync(dir);
 }
 
+/**
+ * Whether a file's `st.mode` already carries `wanted`. Windows keeps only a read-only flag, so Node
+ * reports 0o666 or 0o444 whatever chmod was given: compare the owner write bit there, or every call
+ * would rewrite an unchanged file.
+ */
+export function sameMode(actual: number, wanted: number, platform: NodeJS.Platform = process.platform): boolean {
+  const bits = platform === 'win32' ? 0o200 : 0o777;
+  return (actual & bits) === (wanted & bits);
+}
+
 /** Writes `content` (temp file plus rename) only when the file differs; a symlink or FIFO there is replaced. */
 function writeIfChanged(file: string, content: string, mode: number): void {
   try {
     const st = fs.lstatSync(file);
-    if (st.isFile() && (st.mode & 0o777) === mode && fs.readFileSync(file, 'utf8') === content) return;
+    if (st.isFile() && sameMode(st.mode, mode) && fs.readFileSync(file, 'utf8') === content) return;
   } catch {}
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(tmp, content, { mode });

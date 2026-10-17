@@ -10,7 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { forgeAsync, scratchGitConfig, tempRepo } from './helpers.ts';
 import { defaults, validateConfig } from '../lib/config.ts';
 import { memberWorktreePath } from '../lib/job-repos.ts';
-import { applyLinks, cargoShim, cmakeArgs, cmakeShim, declaredLinks, linkLeakPaths, npmShim, pathPrelude, renderCargoConfig, resolveLinks, restoreLockfiles, snapshotLockfiles } from '../lib/links.ts';
+import { applyLinks, cargoShim, cmakeArgs, cmakeShim, declaredLinks, linkLeakPaths, npmShim, pathPrelude, renderCargoConfig, resolveLinks, restoreLockfiles, sameMode, snapshotLockfiles } from '../lib/links.ts';
 import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 import type { Config, Job } from '../lib/types.ts';
 import * as yaml from '../lib/yaml.ts';
@@ -231,6 +231,16 @@ describe('links: resolution', { concurrency: 4 }, () => {
     // A repo with no declared links gets nothing, and its dir is removed.
     assert.equal(applyLinks(s.root, { ...s.config, components: [] }, s.job(), null), null);
     assert.equal(fs.existsSync(dir), false);
+  });
+
+  test('sameMode compares only the permission bits the platform keeps', () => {
+    // Windows reports 0o666 (or 0o444 when read-only) whatever chmod was given.
+    assert.equal(sameMode(0o100666, 0o644, 'win32'), true);
+    assert.equal(sameMode(0o100666, 0o755, 'win32'), true);
+    assert.equal(sameMode(0o100444, 0o644, 'win32'), false);
+    assert.equal(sameMode(0o100644, 0o644, 'linux'), true);
+    assert.equal(sameMode(0o100666, 0o644, 'linux'), false);
+    assert.equal(sameMode(0o100644, 0o755, 'darwin'), false);
   });
 
   test('lockfile snapshot restores changed and missing files only', () => {
