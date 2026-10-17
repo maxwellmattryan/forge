@@ -1,7 +1,7 @@
 // Local links (config schemaVersion 12): the `link` shape on dependsOn edges, its validation, link
 // resolution against the job's repos, and the pure renderers. No sh and no toolchains, so this file
 // runs on CI's Windows leg too; the CLI and toolchain tests are links-cli and links-toolchains.
-import { after, describe, test } from 'node:test';
+import { after, describe, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -10,7 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { forgeAsync, scratchGitConfig, tempRepo } from './helpers.ts';
 import { defaults, validateConfig } from '../lib/config.ts';
 import { memberWorktreePath } from '../lib/job-repos.ts';
-import { applyLinks, cargoShim, cmakeArgs, cmakeShim, declaredLinks, linkLeakPaths, npmShim, pathPrelude, renderCargoConfig, resolveLinks, restoreLockfiles, sameMode, snapshotLockfiles } from '../lib/links.ts';
+import { applyLinks, cargoShim, cmakeArgs, cmakeShim, declaredLinks, linkLeakPaths, npmShim, pathPrelude, renderCargoConfig, resolveLinks, restoreLockfiles, sameMode, snapshotLockfiles, writeIfChanged } from '../lib/links.ts';
 import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 import type { Config, Job } from '../lib/types.ts';
 import * as yaml from '../lib/yaml.ts';
@@ -328,5 +328,47 @@ describe('links: renderers', { concurrency: 4 }, () => {
     assert.ok(npm.includes(`install|i|in|add|ci|clean-install|ic|install-clean|update|up|upgrade)`));
     assert.ok(npm.includes(`exec "$real" install --no-save --no-audit --no-fund --install-links=false '/w/b dir' '/w/a'\\''x' ;;`));
     assert.equal(pathPrelude(bin), `PATH=${qBin}:"$PATH"; export PATH\n`);
+  });
+});
+
+describe('links: writeIfChanged', () => {
+  test('the temp file is random, opened exclusively, and a planted entry at its name is never followed', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-write-'));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-write-outside-'));
+    cleanups.push(() => {
+      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    });
+    const file = path.join(dir, 'config.json');
+    const target = path.join(outside, 'target');
+    fs.writeFileSync(target, 'orig\n');
+    const names: string[] = [];
+    const flags: unknown[] = [];
+    const real = fs.openSync;
+    // A hostile checkout that guesses the temp name plants a symlink there just before the open.
+    const spy = mock.method(fs, 'openSync', function (this: unknown, p: fs.PathLike, f?: unknown, m?: unknown) {
+      if (typeof p === 'string' && p.endsWith('.tmp')) {
+        names.push(path.basename(p));
+        flags.push(f);
+        if (names.length === 1) fs.symlinkSync(target, p);
+      }
+      return real.call(fs, p as string, f as fs.OpenMode, m as fs.Mode);
+    });
+    try {
+      assert.throws(() => writeIfChanged(file, 'secret\n', 0o600), { code: 'EEXIST' });
+      assert.equal(fs.readFileSync(target, 'utf8'), 'orig\n', 'the planted symlink target is untouched');
+      assert.equal(fs.existsSync(file), false);
+      fs.unlinkSync(path.join(dir, names[0]));
+      writeIfChanged(file, 'secret\n', 0o600);
+    } finally {
+      spy.mock.restore();
+    }
+    assert.equal(names.length, 2);
+    assert.notEqual(names[0], names[1], 'the temp name is not derived from pid and time');
+    for (const n of names) assert.match(n, /^config\.json\.[0-9a-f]{16}\.tmp$/);
+    assert.deepEqual(flags, ['wx', 'wx']);
+    assert.equal(fs.readFileSync(file, 'utf8'), 'secret\n');
+    assert.ok(sameMode(fs.statSync(file).mode, 0o600));
+    assert.deepEqual(fs.readdirSync(dir), ['config.json'], 'no temp file is left behind');
   });
 });

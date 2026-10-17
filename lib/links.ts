@@ -5,6 +5,7 @@
 // never in a worktree, so an override cannot reach a commit by accident (integrity.ts catches one on purpose).
 // Must not import worktree.ts or integrity.ts: both import this module.
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { LINK_ECOSYSTEMS, isInsidePath, isLinkName, isLinkSource, isManifestPath } from './components.ts';
@@ -290,16 +291,31 @@ export function sameMode(actual: number, wanted: number, platform: NodeJS.Platfo
   return (actual & bits) === (wanted & bits);
 }
 
-/** Writes `content` (temp file plus rename) only when the file differs; a symlink or FIFO there is replaced, never followed. Config sinks (lib/config-sinks-apply.ts) reuse it. */
+/**
+ * Writes `content` (temp file plus rename) only when the file differs; a symlink or FIFO there is
+ * replaced, never followed. The temp name is random and opened exclusively (`wx`), so an entry a
+ * hostile checkout plants at a guessed name fails the write instead of redirecting it, and the
+ * mode is set on the open descriptor, never through a path. Config sinks (lib/config-sinks-apply.ts) reuse it.
+ */
 export function writeIfChanged(file: string, content: string, mode: number): void {
   try {
     const st = fs.lstatSync(file);
     if (st.isFile() && sameMode(st.mode, mode) && fs.readFileSync(file, 'utf8') === content) return;
   } catch {}
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmp, content, { mode });
-  fs.chmodSync(tmp, mode);
-  fs.renameSync(tmp, file);
+  const tmp = `${file}.${crypto.randomBytes(8).toString('hex')}.tmp`;
+  const fd = fs.openSync(tmp, 'wx', mode);
+  try {
+    try {
+      fs.writeFileSync(fd, content);
+      fs.fchmodSync(fd, mode);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    fs.rmSync(tmp, { force: true });
+    throw e;
+  }
 }
 
 /** Removes every entry of `dir` not in `keep` (a missing dir is fine). */
