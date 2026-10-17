@@ -23,6 +23,8 @@ export const ACTIONS_BY_GATE: Record<GateClass, readonly string[]> = {
   conflicts: ['approve'],
   'pr-feedback': ['rework'],
   'repo-proposal': ['approve-repos', 'reject-repos'],
+  // No job waits on a release, so it has no SET_AFTER entry: checkOfficeSet refuses any move after it.
+  release: ['approve-release'],
 };
 
 /** What reservedMatch returns when foreman.reserved can't be read: every gate stays with a human. */
@@ -50,10 +52,46 @@ export function gateClassFor(root: string, job: Pick<Job, 'id' | 'state' | 'wait
   return gateClass(job, isRepoProposalPark(job) ? readEvents(root, job.id) : []);
 }
 
-/** foreman.decides with anything that isn't a gate class dropped (validation reports those). */
-export function decides(config: Config): GateClass[] {
+/** foreman.decides as written, with anything that isn't a gate class dropped (validation reports those). */
+function listedDecides(config: Config): GateClass[] {
   const d = config.foreman?.decides;
   return Array.isArray(d) ? d.filter(isGateClass) : [];
+}
+
+const GATE_PREFIX = 'gate:';
+
+/** The class part of a `gate:<class>` entry (trimmed, maybe not a class), or null for a text pattern. */
+const entryClass = (p: string): string | null => {
+  const t = p.trim();
+  return t.startsWith(GATE_PREFIX) ? t.slice(GATE_PREFIX.length).trim() : null;
+};
+
+/**
+ * The gate classes foreman.reserved keeps with a human as a whole (`gate:<class>` entries). A
+ * `reserved` that can't be read, or a `gate:` entry naming no class, is not handled here:
+ * reservedMatch fails closed on it, so every gate still stays with a human.
+ */
+export function reservedClasses(config: Config): GateClass[] {
+  const patterns: unknown = config.foreman?.reserved;
+  if (!Array.isArray(patterns)) return [];
+  const out = new Set<GateClass>();
+  for (const p of patterns) {
+    const g = typeof p === 'string' ? entryClass(p) : null;
+    if (g !== null && isGateClass(g)) out.add(g);
+  }
+  return [...out];
+}
+
+/** The `gate:<class>` entry that keeps `gate` with a human as a class, or null. */
+export const classReservation = (config: Config, gate: GateClass): string | null => (reservedClasses(config).includes(gate) ? `${GATE_PREFIX}${gate}` : null);
+
+/**
+ * The gate classes the foreman decides: foreman.decides minus every class foreman.reserved keeps with
+ * a human (`gate:<class>`), so reserved wins wherever a caller asks.
+ */
+export function decides(config: Config): GateClass[] {
+  const held = reservedClasses(config);
+  return listedDecides(config).filter((g) => !held.includes(g));
 }
 
 export const foremanEnabled = (config: Config): boolean => config.foreman?.enabled === true;
@@ -70,6 +108,12 @@ export function reservedMatch(config: Config, texts: (string | null | undefined)
   if (!Array.isArray(patterns) || patterns.some((p) => typeof p !== 'string' || !p.trim())) return INVALID_RESERVED;
   const hay = texts.filter((t): t is string => typeof t === 'string' && t !== '');
   for (const p of patterns as string[]) {
+    // `gate:<class>` reserves a class (reservedClasses), never text; one naming no class fails closed.
+    const g = entryClass(p);
+    if (g !== null) {
+      if (!isGateClass(g)) return INVALID_RESERVED;
+      continue;
+    }
     const re = new RegExp(`(?<![A-Za-z0-9])${escapeRe(p.trim())}(?![A-Za-z0-9])`, 'i');
     if (hay.some((t) => re.test(t))) return p;
   }
@@ -256,7 +300,9 @@ export function checkForemanDecision(
   const gate = gateClassFor(root, job);
   if (!gate) refuse(`job ${job.id} is not waiting on a gate the foreman decides`);
   if (!foremanEnabled(config)) refuse('foreman.enabled is false');
-  if (!decides(config).includes(gate!)) refuse(`${gate} is not in foreman.decides`);
+  if (!listedDecides(config).includes(gate!)) refuse(`${gate} is not in foreman.decides`);
+  const held = classReservation(config, gate!);
+  if (held) refuse(`${gate} is reserved (${held}): left for a human`);
   if (!ACTIONS_BY_GATE[gate!].includes(action)) refuse(`${action} is not a ${gate} action (${ACTIONS_BY_GATE[gate!].join(', ')})`);
   // pr-feedback is the foreman's only once sync armed it for this head (trusted feedback or failing
   // checks): a queued gate request keyed by the PR's current head sha must exist.

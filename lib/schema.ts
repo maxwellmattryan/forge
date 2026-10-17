@@ -9,7 +9,7 @@ import type { EventActor, Job, JobEvent, JobIssue, JobRepo, JobRepoPr, LoadedJob
 
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
 
-export const CONFIG_SCHEMA_VERSION = 17;
+export const CONFIG_SCHEMA_VERSION = 18;
 export const JOB_SCHEMA_VERSION = 13;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
@@ -90,8 +90,12 @@ export const COMPLEXITIES = ['low', 'medium', 'high'] as const;
 /** The roles runtime.efforts sets, in runtime.models order. No orchestrator: sessions take runtime.effort. */
 export const EFFORT_ROLES = ['planner', 'spec-writer', 'designer', 'builder', 'reviewer', 'approver', 'integrator', 'retro', 'judge', 'assistant'] as const;
 
-/** The gate classes the foreman may decide (foreman.decides); `pr-feedback` is a pr-review wait with feedback, `repo-proposal` a `human` wait with pending repo proposals. */
-export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal'] as const;
+/**
+ * The gate classes the foreman may decide (foreman.decides); `pr-feedback` is a pr-review wait with
+ * feedback, `repo-proposal` a `human` wait with pending repo proposals, and `release` a job's release
+ * plan awaiting approval (lib/release-approval.ts), which no job waits on.
+ */
+export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release'] as const;
 
 /** foreman.ship: propose leaves merging as it was; merge counts as merge.auto for the approver and PR4. */
 export const FOREMAN_SHIP = ['propose', 'merge'] as const;
@@ -162,6 +166,16 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // default, so no v16 config changes; the bump lets older Forges refuse a config whose publish
   // policy they would ignore.
   16: (c) => c,
+  // v18 adds the `release` gate class and `gate:<class>` entries in foreman.reserved, with
+  // `gate:release` in the default list. deepMerge replaces arrays, so a config that wrote out its own
+  // `reserved` would never get the new default: append it there. A v17 `decides` can't name
+  // `release` (it was invalid), so this never takes a delegation away, and the bump lets older
+  // Forges refuse a config whose `decides` names a class they would ignore.
+  17: (c) => {
+    const r = c?.foreman?.reserved;
+    if (!Array.isArray(r) || r.includes('gate:release')) return c;
+    return { ...c, foreman: { ...c.foreman, reserved: [...r, 'gate:release'] } };
+  },
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
