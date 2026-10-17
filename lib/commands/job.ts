@@ -16,6 +16,7 @@ import { githubHost, localRepoSlug } from '../repo-slug.ts';
 import { exists } from '../paths.ts';
 import { addJobRepo, refuseInterimInDaemon, refuseJobRepoInDaemon, removeJobRepo, trustedMemberWorktree } from '../job-repos.ts';
 import { decideRepoProposals, pendingRepoProposals, proposeJobRepo } from '../repo-proposals.ts';
+import { addDownstreamRepos } from '../downstream.ts';
 import { interimStatus, publishCanary, setRepoInterim } from '../interim-apply.ts';
 import { isLens, lensRepoAllowed, reviewedRepoNames } from '../lens.ts';
 import { resolveLinks } from '../links.ts';
@@ -143,9 +144,9 @@ const JOB: HelpGroup = {
     { command: 'job release', args: '<id>', summary: "drop the job's owner", exits: [NO_JOB] },
     {
       command: 'job repo',
-      args: 'add <id> <name> [--verify-only] | remove <id> <name> | propose <id> <name> --reason R | interim <id> (<name> | --root) canary|git-ref|local|sequential|inherit',
+      args: 'add <id> <name> [--verify-only] | remove <id> <name> | propose <id> <name> --reason R | downstream <id> | interim <id> (<name> | --root) canary|git-ref|local|sequential|inherit',
       summary:
-        "add a member repo (a config repos entry whose clone passes doctor's check) to a job, which then gets its own worktree, verify evidence and PR on the job's branch; remove drops one that has no PR and no worktree left; interim sets one job repo's interim strategy as a dependency (what a consumer's PR points at while it is unmerged: docs/CONFIG.md \"Interim strategies\"), overriding release.interim, and inherit clears it (add, remove and interim are human-only). propose records an agent's proposal of a repos entry with its reason in repo-proposals.md; the job then waits until a human, or the foreman when allowed, runs forge job human <id> approve-repos|reject-repos",
+        "add a member repo (a config repos entry whose clone passes doctor's check) to a job, which then gets its own worktree, verify evidence and PR on the job's branch; remove drops one that has no PR and no worktree left; interim sets one job repo's interim strategy as a dependency (what a consumer's PR points at while it is unmerged: docs/CONFIG.md \"Interim strategies\"), overriding release.interim, and inherit clears it (add, remove and interim are human-only). propose records an agent's proposal of a repos entry with its reason in repo-proposals.md; the job then waits until a human, or the foreman when allowed, runs forge job human <id> approve-repos|reject-repos (approving a verify-only member promotes it to an edited one). downstream adds the changed repos' linked consumers as verify-only repos, so verify runs their tests against the job's changes, and prints what it added and skipped with each reason (docs/CONFIG.md \"Downstream verification\"); it takes no repo name, and the job's own session may run it",
       flags: [
         ['--verify-only', 'with add: verify the repo at its base with the job, but give it no branch, push or PR'],
         ['--reason R', 'with propose: what changes in that repo and which component needs it (at most 200 characters)'],
@@ -154,7 +155,7 @@ const JOB: HelpGroup = {
       exits: [
         [
           1,
-          'no such job, a done job or one at stage pr, an unknown or duplicate repo, a failing clone check, a repo with a PR or a worktree, or a daemon session; for interim, a done or cancelled job, an unknown or verify-only repo, canary for a repo a cargo or cmake link depends on, or a daemon session; for propose: a missing or long --reason, an eval job, a repo rejected on this job, or a daemon session other than the job\'s own',
+          'no such job, a done job or one at stage pr, an unknown or duplicate repo, a failing clone check, a repo with a PR or a worktree, or a daemon session; for interim, a done or cancelled job, an unknown or verify-only repo, canary for a repo a cargo or cmake link depends on, or a daemon session; for propose: a missing or long --reason, an eval job, a repo rejected on this job, or a daemon session other than the job\'s own; for downstream: an eval job, a job at stage pr or later, or a daemon session other than the job\'s own',
         ],
       ],
       docs: ['Job repos', 'docs/ARCHITECTURE.md#job-repos'],
@@ -656,6 +657,11 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       return { ok: true, ...(link !== undefined ? { link: linked } : {}) };
     }
     case 'repo': {
+      // Computed from config and events, never named: the one way a job's own session adds a repo, and only verify-only.
+      if (rest[0] === 'downstream') {
+        if (rest.length !== 2 || Object.keys(flags).length) throw usageError(JOB, 'repo');
+        return addDownstreamRepos(root, config, rest[1]);
+      }
       if (rest[0] === 'interim') {
         refuseInterimInDaemon();
         const jobId = rest[1];

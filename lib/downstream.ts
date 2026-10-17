@@ -34,6 +34,26 @@ export function downstreamMembers(job: Pick<Job, 'repos'>, events: JobEvent[]): 
   return new Set(memberRepos(job).filter((m) => m.verifyOnly && latest.get(m.repo)?.downstream === true).map((m) => m.repo));
 }
 
+/**
+ * Members job.json marks as edited although they joined as downstream consumers and no
+ * `job-repo-promoted` event followed: a hand edit, so nothing may push them or open their PR.
+ */
+export function unpromotedDownstream(job: Pick<Job, 'repos'>, events: JobEvent[]): string[] {
+  const added = new Map<string, number>();
+  const promoted = new Map<string, number>();
+  events.forEach((e, i) => {
+    if (typeof e.repo !== 'string') return;
+    if (e.type === 'job-repo-added') added.set(e.repo, i);
+    else if (e.type === 'job-repo-promoted') promoted.set(e.repo, i);
+  });
+  return memberRepos(job)
+    .filter((m) => {
+      const at = added.get(m.repo);
+      return !m.verifyOnly && at !== undefined && events[at].downstream === true && (promoted.get(m.repo) ?? -1) < at;
+    })
+    .map((m) => m.repo);
+}
+
 /** The repos the job changes: the root (null) and every member that is not verify-only. */
 export function changedRepos(job: Pick<Job, 'repos'>): Set<string | null> {
   return new Set<string | null>([null, ...memberRepos(job).filter((m) => !m.verifyOnly).map((m) => m.repo)]);
