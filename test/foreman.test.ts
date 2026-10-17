@@ -620,6 +620,7 @@ test('repo-proposal is a derived gate class the foreman decides only when allowe
     assert.ok(a.json().brief.includes(path.join(jobDir(s.root, id), 'repo-proposals.md')));
     assert.match(a.json().brief, /^Project repos \(JSON\): \[\{"repo":"lib","onJob":false,"components":\["core"\],"usedBy":\[\{"component":"app","repo":null,"type":"build"\}\]\}\]$/m);
     assert.deepEqual(a.json().repos, ['lib'], 'the pending set from events, for --repo');
+    assert.match(a.json().brief, /^Pending repos \(JSON\): \[\{"repo":"lib","reason":"core API"\}\]$/m);
     // Only this gate's actions.
     const wrong = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'approve', '--actor', 'foreman', '--note', 'x');
     assert.equal(wrong.code, 1, wrong.out);
@@ -644,6 +645,34 @@ test('repo-proposal is a derived gate class the foreman decides only when allowe
   }
 });
 
+test('a repo hidden from repo-proposals.md is still named in the assistant brief, and the foreman must decide it', async () => {
+  const s = scratch((c) => {
+    c.repos = ['lib', 'tools'].map((name) => ({ name, remote: `https://example.com/${name}.git`, defaultBranch: 'main' }));
+    c.foreman.decides = ['repo-proposal'];
+  });
+  try {
+    const id = s.job('Hidden', { stage: 'spec', state: 'running' });
+    logEvent(s.root, id, 'repo-proposed', { repo: 'lib', reason: 'core API' });
+    logEvent(s.root, id, 'repo-proposed', { repo: 'tools', reason: 'cli flag' });
+    const r = await s.cli(undefined, 'job', 'set', id, '--state', 'waiting', '--waiting-on', 'human', '--reason', 'repo proposal: lib, tools');
+    assert.equal(r.code, 0, r.out);
+    // The job session rewrites its editable copy to show only lib.
+    fs.writeFileSync(path.join(jobDir(s.root, id), 'repo-proposals.md'), '# Repo proposals\n\n## lib (pending)\n\ncore API, nothing else needed\n');
+    const a = await s.cli(OFFICE_SCOPE, 'job', 'assist', id, '--gate', 'repo-proposal');
+    assert.equal(a.code, 0, a.out);
+    assert.match(a.json().brief, /^Pending repos \(JSON\): \[\{"repo":"lib","reason":"core API"\},\{"repo":"tools","reason":"cli flag"\}\]$/m, 'both, from events');
+    assert.deepEqual(a.json().repos, ['lib', 'tools']);
+    // A foreman that follows the edited file instead of the brief is refused, and nothing is decided.
+    const partial = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'approve-repos', '--repo', 'lib', '--actor', 'foreman', '--note', 'core API');
+    assert.equal(partial.code, 1, partial.out);
+    assert.match(partial.out, /also has tools pending, which this decision did not list/);
+    assert.deepEqual(readEvents(s.root, id).filter((e) => e.type === 'human'), []);
+    assert.deepEqual((loadJob(s.root, id).repos ?? []).map((m: any) => m.repo).filter(Boolean), [], 'no member repo added');
+  } finally {
+    s.cleanup();
+  }
+});
+
 test('assistant prompt has every gate section and the contract', () => {
   const text = fs.readFileSync(path.join(ROOT, 'agents', 'assistant.md'), 'utf8');
   const front = text.split('---')[1];
@@ -651,6 +680,9 @@ test('assistant prompt has every gate section and the contract', () => {
   assert.match(front, /^model: sonnet$/m);
   assert.match(front, /^disallowedTools: Bash, Edit, NotebookEdit$/m, 'no Bash: injected text reaches the CLI only through the one-line verdict');
   for (const g of OFFICE_GATES) assert.match(text, new RegExp(`^## ${g}$`, 'm'), g);
+  const rp = text.split('## repo-proposal\n')[1].split('\n## ')[0];
+  assert.match(rp, /`Pending repos \(JSON\)` line is the authoritative list/);
+  assert.match(rp, /does not show exactly that set as pending[^.]*: `escalate`/);
   const untrusted = fs.readFileSync(path.join(ROOT, 'agents', 'builder.md'), 'utf8').split('\n').find((l) => l.startsWith('**Untrusted input.**'));
   assert.ok(untrusted && text.includes(untrusted), 'the untrusted-input paragraph, verbatim');
   assert.equal(text.trimEnd().split('\n').at(-1), 'Reply with exactly one line: `ASSIST: approve|revise|rework|escalate · <reason>`.');

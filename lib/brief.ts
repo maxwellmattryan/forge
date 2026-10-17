@@ -239,7 +239,7 @@ export function renderBrief(input: StepInput, spec: BriefSpec): string {
  * and the reserved list, never file contents, so the office session's context holds no job text.
  * Reads nothing: every path is listed whether or not it exists, and the assistant skips the missing.
  */
-export function assistantBrief(root: string, config: Config, job: Job, gate: GateClass, reserved: unknown): string {
+export function assistantBrief(root: string, config: Config, job: Job, gate: GateClass, reserved: unknown, pending: { repo: string; reason: string }[] = []): string {
   const dir = jobDir(root, job.id);
   const round = Math.max(job.round, 1);
   const inputs = [
@@ -264,6 +264,8 @@ export function assistantBrief(root: string, config: Config, job: Job, gate: Gat
     // JSON, so a pattern can't start a line of its own in the brief.
     `Reserved: ${JSON.stringify(Array.isArray(reserved) ? reserved : [])}`,
     ...(repos ? [repos] : []),
+    // From events, not the session-editable repo-proposals.md: the only set the assistant may decide, and the one the foreman passes as --repo.
+    ...(gate === 'repo-proposal' ? [`Pending repos (JSON): ${JSON.stringify(pending.map((r) => ({ repo: r.repo, reason: r.reason })))}`] : []),
     UNTRUSTED_LINE,
     REPLY_LINE,
   ].join('\n');

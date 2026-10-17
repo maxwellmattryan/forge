@@ -837,6 +837,8 @@ function assist(root: string, config: Config, job: Job, rawGate: unknown) {
   if (!isGateClass(gate)) throw new ForgeError(`--gate must be one of ${OFFICE_GATES.join(', ')} (got ${JSON.stringify(String(gate ?? '').slice(0, 40))})`, 1);
   const stale = gateClassFor(root, job) !== gate;
   const reserved = stale ? null : reservedFor(root, config, job, gate);
+  // One read of the events for both the brief and `repos`, so the foreman's --repo is exactly the set the assistant judged.
+  const pending = gate === 'repo-proposal' && !stale ? pendingRepoProposals(job, readEvents(root, job.id)) : [];
   return {
     gate,
     stale,
@@ -844,9 +846,9 @@ function assist(root: string, config: Config, job: Job, rawGate: unknown) {
     model: modelFor(config, 'assistant'),
     effort: resolveEffort(config, job, 'assistant').level,
     subagent: 'forge:assistant',
-    brief: assistantBrief(root, config, job, gate, config.foreman?.reserved),
-    // The pending set from events: the foreman passes exactly this as --repo, so it never decides one it wasn't briefed on.
-    ...(gate === 'repo-proposal' && !stale ? { repos: pendingRepoProposals(job, readEvents(root, job.id)).map((r) => r.repo) } : {}),
+    brief: assistantBrief(root, config, job, gate, config.foreman?.reserved, pending),
+    // The brief's `Pending repos` names: the foreman passes exactly these as --repo, and `exact` refuses once they stop being the pending set.
+    ...(gate === 'repo-proposal' && !stale ? { repos: pending.map((r) => r.repo) } : {}),
   };
 }
 
