@@ -205,8 +205,10 @@ case "$1 $2" in
     for a in "$@"; do [ "$p2" = "--add-label" ] && label="$a"; p2="$a"; done
     if [ -n "$label" ]; then printf '[{"name":"%s"}]' "$label" > "$d/$name.labels-$3"; fi ;;
   "issue comment")
-    if [ -f "$d/$name.commentfail" ]; then echo "comment failed for $slug" >&2; exit 1; fi
-    cat > "$d/$name.comment-$3" ;;
+    # Read the body before failing, as gh does: exiting with stdin unread races forge's write into EPIPE.
+    cat > "$d/$name.comment-$3.tmp"
+    if [ -f "$d/$name.commentfail" ]; then rm -f "$d/$name.comment-$3.tmp"; echo "comment failed for $slug" >&2; exit 1; fi
+    mv "$d/$name.comment-$3.tmp" "$d/$name.comment-$3" ;;
   "pr merge")
     if [ -f "$d/$name.mergefail" ]; then echo "merge failed for $slug" >&2; exit 1; fi
     if [ -z "$auto" ]; then echo MERGED > "$d/$name.state"; fi ;;
