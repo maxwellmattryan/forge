@@ -1212,12 +1212,13 @@ function pr(x: StepInput): StepAction {
   if (!after(opened?.ts, last.at)) return run(x, 'PR3', ['pr', 'open', j.id], 'push and open or update the PR');
   if (opened!.type === 'pr-deferred') return deferredPr(x, opened!);
   // A local edge holds a consumer PR as a draft that nothing CI can build, a held release gate keeps
-  // it a draft until a human records the dependency's release, and a draft PR is never merged: none
-  // of them merges unattended.
+  // it a draft until a human records the dependency's release, and a draft PR in a job with interim
+  // edges is never merged: none of them merges unattended. A job without edges keeps its old
+  // behaviour, so a single-repo `pr.draft: true` job still auto-merges (gh un-drafts it).
   const edges = resolveInterim(x.config, j).edges;
   const local = edges.some((e) => e.strategy === 'local');
   const held = releaseGates(edges, x.events).find((g) => g.gate === 'held');
-  const draft = j.pr?.isDraft === true || memberRepos(j).some((m) => m.pr?.isDraft === true);
+  const draft = edges.length > 0 && (j.pr?.isDraft === true || memberRepos(j).some((m) => m.pr?.isDraft === true));
   if (!local && !held && !draft && x.decision.autoMerge && autoMerge(x.config) && !j.protectedPaths?.hits?.length && !lastEvent(x, (e) => MERGE_EVENTS.includes(e.type) && after(e.ts, opened!.ts)))
     return run(x, 'PR4', ['pr', 'merge', j.id], 'the approver marked it auto-merge eligible');
   // Plain words only: the reason goes through shellLine, which allows no quote, pipe or angle bracket.
