@@ -88,3 +88,56 @@ test('review.panel paths validation', () => {
   assert.deepEqual(panelPathsProblems('docs', ['ok/**', '', '../x']).length, 2);
   assert.ok(panelPathsProblems('docs', ['', '../x']).every((m) => m.startsWith('review.panel "docs".paths')));
 });
+
+test('choosePanel: member lenses, subsumed entries, order and carry', () => {
+  const ml = (repo: string, name: string, entry: Record<string, unknown>, subsumed = false) => ({
+    lens: subsumed ? name : `${repo}:${name}`,
+    subsumed,
+    entry: { name, ...entry },
+    checklist: null,
+  });
+  const members = [
+    {
+      repo: 'lib',
+      changed: ['src/dsp.rs', 'src/fft.rs', 'README.md'],
+      lenses: [
+        ml('lib', 'realtime', { paths: ['src/**'] }),
+        // Named like a root lens with no checklist of its own: subsumed by the root `docs`.
+        ml('lib', 'docs', { paths: ['*.md'], always: true }, true),
+        ml('lib', 'code', { when: 'src/api.rs' }),
+        ml('lib', 'perf', { always: true }),
+        ml('lib', 'idle', { paths: ['bench/**'] }),
+      ],
+    },
+    { repo: 'ui', changed: [], lenses: [ml('ui', 'a11y', {})] },
+  ];
+  const r = choosePanel({
+    kind: 'feature',
+    config: PANEL,
+    suggested: ['ui:a11y', 'other:x'],
+    approachPaths: ['lib/src/api.rs', 'src/api.rs', 'lib/src/dsp.rs'],
+    // Root lenses match root changed files only.
+    changed: ['lib/trackers/gh.ts'],
+    carried: ['lib:realtime', 'other:realtime', 'lib:gone', 'ui:a11y', 'nope:code'],
+    members,
+  });
+  // Root lenses in root panel order, then each member's in job.repos and panel order, then carried names.
+  assert.deepEqual(r.lenses, ['code', 'security', 'docs', 'tests', 'lib:realtime', 'lib:code', 'lib:perf', 'ui:a11y', 'lib:gone']);
+  assert.deepEqual(r.reasons, {
+    code: ['always'],
+    security: ['paths lib/trackers/**: lib/trackers/gh.ts'],
+    docs: ['paths *.md: lib/README.md'],
+    tests: ['always'],
+    'lib:realtime': ['approach lib/src/api.rs', 'paths src/**: lib/src/dsp.rs (+1 more)', 'carried'],
+    'lib:code': ['approach lib/src/api.rs'],
+    'lib:perf': ['always'],
+    'ui:a11y': ['suggested', 'carried'],
+    'lib:gone': ['carried'],
+  });
+  // Without members, a qualified carried name is dropped and today's rows are unchanged.
+  const plain = choosePanel({ kind: 'feature', config: PANEL, suggested: ['lib:realtime'], approachPaths: [], changed: [], carried: ['lib:realtime'] });
+  assert.deepEqual(plain.lenses, ['code', 'tests']);
+  // A subsumed entry whose root lens isn't in the root panel adds nothing.
+  const lone = choosePanel({ kind: 'feature', config: config([{ name: 'code', always: true }]), suggested: [], approachPaths: [], changed: [], carried: [], members: [{ repo: 'lib', changed: ['x.md'], lenses: [ml('lib', 'docs', { paths: ['*.md'] }, true)] }] });
+  assert.deepEqual(lone, { lenses: ['code'], reasons: { code: ['always'] } });
+});

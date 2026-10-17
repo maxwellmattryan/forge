@@ -10,13 +10,16 @@ import path from 'node:path';
 import { acCoverage } from './acs.ts';
 import { jobPathMap, renderBrief, roleBrief } from './brief.ts';
 import type { RoleContext } from './brief.ts';
-import { autoMerge, lensNeedsApp, resolveEffort, reviewerChecklist } from './config.ts';
+import { autoMerge, lensNeedsApp, resolveEffort } from './config.ts';
 import { configForJob } from './eval-overlay.ts';
 import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
 import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
 import { memberRepos } from './job-repos.ts';
 import { deferralStatus, readDeferrals, resolveInterim } from './interim.ts';
+import { LENS_NAME, isLens, lensRepoAllowed, reviewFileName, splitLens } from './lens.ts';
+import { lensChecklists } from './member-panel.ts';
+import type { MemberLens } from './member-panel.ts';
 import { PLUGIN_ROOT, exists } from './paths.ts';
 import { COMPLEXITIES } from './schema.ts';
 import { generatedConfig } from './regenerate.ts';
@@ -24,7 +27,7 @@ import { protectedApproved, protectedReason } from './protected.ts';
 import { approachPaths, inSpec, integrationTouched } from './scope.ts';
 import { AGENT_ID } from './transcripts.ts';
 import { verifierCount } from './verifiers.ts';
-import type { Config, Job, JobAgent, JobEvent, StepAction, StepDone, StepFile, StepInput, StepProcedure, StepRun, StepSpawn, StepVerdicts, StepWait, StepWaitingOn, VerifyRun, WaitingOn } from './types.ts';
+import type { Config, Job, JobAgent, PanelEntry, JobEvent, StepAction, StepDone, StepFile, StepInput, StepProcedure, StepRun, StepSpawn, StepVerdicts, StepWait, StepWaitingOn, VerifyRun, WaitingOn } from './types.ts';
 import { ForgeError, SAFE_REF, readJson, readText } from './util.ts';
 
 export const RULES = [
@@ -60,7 +63,6 @@ export type RuleId = (typeof RULES)[number];
 export const PLAN_AUTO_CHARS = 600;
 export const PLAN_AUTO_LINES = 3;
 
-const LENS_NAME = /^[a-z0-9][a-z0-9-]*$/;
 const NEEDS_INPUT = /\bNEEDS-INPUT\b/i;
 const SAFE_ELEMENT = /^[A-Za-z0-9 ._:/@=,+\-[\]"]*$/;
 const BARE_ELEMENT = /^[A-Za-z0-9._:/@=,+-]+$/;
@@ -174,7 +176,7 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     runtime,
     events,
     evalTask,
-    checklists: Object.fromEntries(names.map((n) => [n, reviewerChecklist(root, n, config.review.panel.find((p) => p.name === n)?.checklist)])),
+    checklists: lensChecklists(root, config, job, names),
     integrationTouched: loadIntegrationTouched(job, config, events),
     // The main checkout's, never the worktree's: a branch can't switch the gate on or off.
     verifiers: verifierCount(root),
@@ -238,9 +240,10 @@ const alwaysLenses = (config: Config) => config.review.panel.filter((p) => p.alw
  * `changed` still means the always-on lenses, and `full` reads the panel that RV9's
  * `forge job panel` recomputes from the diff. Step stays pure: the diff is read by that command.
  */
-export function roundLenses(job: Pick<Job, 'reviewers' | 'pr'>, config: Config): string[] {
-  // job.reviewers is settable with --field, so a name that isn't a plain lens is dropped, never quoted.
-  const base = (job.reviewers.length ? job.reviewers : alwaysLenses(config)).filter((l) => LENS_NAME.test(l));
+export function roundLenses(job: Pick<Job, 'reviewers' | 'pr'> & { repos?: Job['repos'] }, config: Config): string[] {
+  // job.reviewers is settable with --field, so a name that isn't a lens is dropped, never quoted, and
+  // a qualified lens counts only while its repo is a reviewed member of the job.
+  const base = (job.reviewers.length ? job.reviewers : alwaysLenses(config)).filter((l) => isLens(l) && lensRepoAllowed(job, l));
   if (job.pr?.state !== 'OPEN') return base;
   if (config.review.onPrFeedback === 'none') return [];
   return config.review.onPrFeedback === 'full' ? base : alwaysLenses(config).filter((l) => LENS_NAME.test(l));
@@ -260,19 +263,54 @@ export interface PanelChoice {
   reasons: Record<string, string[]>;
 }
 
+/** One reviewed member for choosePanel: its usable panel entries and its changed files, repo-relative. */
+export interface PanelMember {
+  repo: string;
+  lenses: MemberLens[];
+  changed: string[];
+}
+
 /**
  * The review panel from recorded inputs, in panel order: `always` lenses, the spec's suggestions
  * that are in the panel, lenses whose `when` paths or `paths` cover an Approach path, lenses whose
  * `paths` match a changed file (skipped when `changed` is null, at spec time), then `carried`
  * lenses, which can only add, so a lens never drops within a build loop. A lens gets every reason
  * that applies, in that order. Names that aren't plain lens names are dropped wherever they come from.
+ * `members` adds each reviewed member's own lenses as `<repo>:<name>` after the root's, matched
+ * against Approach paths under `<repo>/` and the member's changed files; an entry subsumed by a root
+ * lens adds its reasons to that lens instead. A carried qualified lens stays only while its repo is a member.
  */
-export function choosePanel(x: { kind: Job['kind']; config: Config; suggested: string[]; approachPaths: string[]; changed: string[] | null; carried: string[] }): PanelChoice {
+export function choosePanel(x: { kind: Job['kind']; config: Config; suggested: string[]; approachPaths: string[]; changed: string[] | null; carried: string[]; members?: PanelMember[] }): PanelChoice {
   if (x.kind === 'retro') return { lenses: ['code', 'docs'], reasons: { code: ['retro'], docs: ['retro'] } };
   const panel = x.config.review.panel.filter((p) => LENS_NAME.test(p.name));
   const names = panel.map((p) => p.name);
-  const suggested = new Set(x.suggested.filter((n) => LENS_NAME.test(n) && names.includes(n)));
-  const carried = [...new Set(x.carried.filter((n) => typeof n === 'string' && LENS_NAME.test(n)))];
+  const members = x.members ?? [];
+  const memberNames = members.map((m) => m.repo);
+  const qualified = members.flatMap((m) => m.lenses.filter((l) => !l.subsumed).map((l) => l.lens));
+  const suggested = new Set(x.suggested.filter((n) => (LENS_NAME.test(n) && names.includes(n)) || qualified.includes(n)));
+  const ofMember = (n: string) => {
+    const s = splitLens(n);
+    return Boolean(s?.repo && memberNames.includes(s.repo));
+  };
+  const carried = [...new Set(x.carried.filter((n) => typeof n === 'string' && (LENS_NAME.test(n) || ofMember(n))))];
+  // A member entry's Approach and diff reasons, with paths written `<repo>/<path>`.
+  const memberWhy = (m: PanelMember, e: PanelEntry): string[] => {
+    const why: string[] = [];
+    const prefix = `${m.repo}/`;
+    const globs = Array.isArray(e.paths) ? e.paths.filter((g): g is string => typeof g === 'string' && g !== '') : [];
+    const tokens = [...whenTokens(e.when), ...globs];
+    const covered = tokens.length ? x.approachPaths.find((ap) => ap.startsWith(prefix) && inSpec(ap.slice(prefix.length), tokens)) : undefined;
+    if (covered !== undefined) why.push(`approach ${covered}`);
+    for (const g of x.changed ? globs : []) {
+      const hits = m.changed.filter((f) => inSpec(f, [g]));
+      if (hits.length) why.push(`paths ${g}: ${prefix}${hits[0]}${hits.length > 1 ? ` (+${hits.length - 1} more)` : ''}`);
+    }
+    return why;
+  };
+  const subsumed = new Map<string, string[]>();
+  for (const m of members)
+    for (const l of m.lenses)
+      if (l.subsumed && names.includes(l.lens)) subsumed.set(l.lens, [...(subsumed.get(l.lens) ?? []), ...memberWhy(m, l.entry)]);
   // A Map, not an object: a digits-only lens name would sort first among an object's keys.
   const chosen = new Map<string, string[]>();
   for (const p of panel) {
@@ -288,10 +326,22 @@ export function choosePanel(x: { kind: Job['kind']; config: Config; suggested: s
       const hits = (x.changed ?? []).filter((f) => inSpec(f, [g]));
       if (hits.length) why.push(`paths ${g}: ${hits[0]}${hits.length > 1 ? ` (+${hits.length - 1} more)` : ''}`);
     }
+    for (const r of subsumed.get(p.name) ?? []) if (!why.includes(r)) why.push(r);
     if (carried.includes(p.name)) why.push('carried');
     if (why.length) chosen.set(p.name, why);
   }
-  for (const n of carried) if (!names.includes(n)) chosen.set(n, ['carried']);
+  for (const m of members) {
+    for (const l of m.lenses) {
+      if (l.subsumed || chosen.has(l.lens)) continue;
+      const why: string[] = [];
+      if (l.entry.always) why.push('always');
+      if (suggested.has(l.lens)) why.push('suggested');
+      why.push(...memberWhy(m, l.entry));
+      if (carried.includes(l.lens)) why.push('carried');
+      if (why.length) chosen.set(l.lens, why);
+    }
+  }
+  for (const n of carried) if (!chosen.has(n) && !names.includes(n)) chosen.set(n, ['carried']);
   return { lenses: [...chosen.keys()], reasons: Object.fromEntries(chosen) };
 }
 
@@ -432,7 +482,7 @@ function done(x: StepInput, rule: RuleId, tell?: string): StepDone {
 function outputFor(x: StepInput, role: string): string | undefined {
   if (role.startsWith('reviewer:')) {
     const lens = role.slice('reviewer:'.length);
-    return x.job.stage === 'integrate' ? p(x, 'integrationReview') : path.join(x.jobDir, 'review', `round-${x.job.round}`, `${lens}.md`);
+    return x.job.stage === 'integrate' ? p(x, 'integrationReview') : path.join(x.jobDir, 'review', `round-${x.job.round}`, reviewFileName(lens));
   }
   if (role === 'verifier') return path.join(x.jobDir, 'verify', `round-${x.job.round}-verifier-answers.md`);
   const fixed: Record<string, string> = { planner: 'plan.md', 'spec-writer': 'spec.md', designer: 'design.md', approver: 'decision.md', judge: 'eval-judge.md' };
@@ -460,9 +510,9 @@ export function reworkReviewFiles(job: Job, previousReviewDir: string | null): s
   if (job.round <= 1 || !previousReviewDir) return [];
   const prev = job.verdicts[String(job.round - 1)] ?? {};
   return Object.keys(prev)
-    .filter((lens) => LENS_NAME.test(lens) && prev[lens] !== 'PASS')
+    .filter((lens) => isLens(lens) && lensRepoAllowed(job, lens) && prev[lens] !== 'PASS')
     .sort()
-    .map((lens) => path.join(previousReviewDir, `${lens}.md`));
+    .map((lens) => path.join(previousReviewDir, reviewFileName(lens)));
 }
 
 function lastConflicts(x: StepInput): JobEvent | undefined {
@@ -991,7 +1041,7 @@ function review(x: StepInput): StepAction {
   if (malformed.length && !j.verdicts[String(j.round)]) {
     const fresh = malformed.find((l) => !agent(x, `reviewer:${l}`)?.retry);
     if (fresh) {
-      const file = path.join(x.jobDir, 'review', `round-${j.round}`, `${fresh}.md`);
+      const file = path.join(x.jobDir, 'review', `round-${j.round}`, reviewFileName(fresh));
       return spawn(x, 'RV5', `reviewer:${fresh}`, { retry: true, retryLine: `Retry: ${file} has no VERDICT line; rewrite it in the required format.` });
     }
     return run(x, 'RV5', verdictsCmd(['--malformed', 'changes']), 'a lens failed the review format twice: count it as CHANGES');
