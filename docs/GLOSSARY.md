@@ -9,8 +9,8 @@ Planned in M004, except where a config key exists today.
 | Term | Meaning | Config key |
 |---|---|---|
 | **project** | One or more repos Forge works on together, configured from the root repo's `.forge/`, with no global state outside those repos (today's block describes a project of one repo). | `project` |
-| **root repo** | The repo that holds the project's `.forge/`, which for a project of one repo is that repo. | planned (M004) |
-| **member repo** | Any other repo the root repo's config lists as part of the project. | planned (M004) |
+| **root repo** | The repo that holds the project's `.forge/`, which for a project of one repo is that repo and is never listed in `repos`. | `repos` |
+| **member repo** | Any other repo the root repo's config lists as part of the project. | `repos` |
 | **component** | A buildable unit inside a repo, of kind `library`, `service` or `app`. | planned (M004) |
 | **dependency** | An edge from one component to another, `build` when it is needed to compile or bundle and `runtime` when it must be running. | planned (M004) |
 | **project graph** | The components of all of a project's repos and the dependencies between them, drawn by the dashboard's project view. | `components` |

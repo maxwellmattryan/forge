@@ -5,7 +5,7 @@
 Command templates are POSIX `sh`: each runs as `$SHELL -lc <cmd>` (`/bin/sh` when `$SHELL` is unset), and on native Windows under Git for Windows' `sh` (Git Bash; the first `sh.exe` on PATH, else `%ProgramFiles%\Git\bin\sh.exe`), or is refused with an error when there is none (see [SUPPORT.md](SUPPORT.md)). Command templates may use `{port}`, `{job}`, `{worktree}`, `{root}`, `{branch}`, `{base}` and `{args}`. `{args}` holds the extra arguments of `forge run <job> <name> -- <args…>`, each already in single quotes, and arguments go only where a template has it: `forge run` refuses arguments for a template without `{args}`, so a command takes none unless you opt in. Write `{args}` unquoted, as a whole word: after the start, a space, a tab, a newline or `(`, and before the end, a space, a tab, a newline, `;`, `&`, `|` or `)`. Arguments for a template where it sits inside `'…'` or `"…"` or touches another word (`x{args}`, `\{args}`) are refused, and so are arguments for any template containing a heredoc (`<<`), `$'` or `\'`, where the quoting would not hold. The arguments become words of whatever command surrounds `{args}`, so `exec {args}`, `env {args}` or `time {args}` runs the first one as a program. An argument containing a quote, backslash or control character is refused too. Every refusal comes before anything runs. Only `forge run` has arguments: `forge verify`, worktree setup, `forge run --background`, `forge integrate`'s rebuild and `forge eval grade` fill `{args}` with nothing. The other placeholders are filled in unquoted, so `{job}`, `{branch}` and `{base}` are checked first: each must start with a letter or digit and use only `A-Z a-z 0-9 . _ / -` (at most 200 characters), and an unsafe value stops the command before it runs, with an error naming the field. `{worktree}` is filled only with the path Forge computes for the job, `<worktrees.root>/<job id>`: a command whose template uses it stops before it runs when the job's stored `worktree` is anything else, for the same reason. Commands that don't use `{worktree}` are not affected. Commands also get `PORT`, `FORGE_PORT`, `FORGE_JOB` and `FORGE_WORKTREE` in their environment, and never the daemon session's `FORGE_DAEMON*` variables, so a command that calls `forge` behaves the same under the daemon as for a human.
 
 ```yaml
-schemaVersion: 5
+schemaVersion: 11
 
 project:
   name: null                 # display name
@@ -176,6 +176,9 @@ components: []               # the parts of a monorepo (see Components), e.g.
 #  - { name: proto, path: crates/proto, kind: library }
 #  - { name: api, path: services/api, kind: service, commands: { test: "go test ./...", dev: "go run . -port {port}" },
 #      dependsOn: [{ component: proto, type: build }, { backing: postgres, type: runtime }], owners: ["@team-api"] }
+
+repos: []                    # member repos of the project; the root repo is implicit (see Repos), e.g.
+#  - { name: ui-kit, remote: "git@github.com:acme/ui-kit.git", defaultBranch: main }
 
 infra:
   mode: human                # human | plan-only | agent
@@ -538,7 +541,7 @@ All four keys are read-only in the settings: edit them by hand.
 ```yaml
 components:
   - name: core                  # required, unique; letters, digits and . _ / -, starting with a letter or digit
-    repo: null                  # optional; null or absent is this repo
+    repo: null                  # optional; a repos name, or null / absent for this repo
     path: crates/core           # required, relative, inside the repo; "." is the repo root
     kind: library               # required: library | service | app
     commands: { test: "cargo test" }   # optional, like the top-level commands
@@ -551,10 +554,56 @@ components:
 
 - **Selection.** A job's `services` field names the components it touches (the spec's `Services:` header fills it; step records only names that are configured components). When it names exactly one component of this repo, `forge run` and `forge verify` use that component's command, falling back to the top-level one, and run it from `<worktree>/<path>`. With none, several, an unknown name or a component whose `repo` is set, the top-level commands run from the worktree root. The verify integrity scan counts a component's script files under its path, and skips components whose `repo` is set.
 - **Dependencies.** Each `dependsOn` entry names exactly one of `component` (another entry's name) or `backing` (a backing service such as a database; only its shape is checked for now), and a `type`: `build` (needed to build or test this one) or `runtime` (needed only while it runs). The dashboard's **Project** view draws them as the project graph (build edges solid, runtime edges dashed) and highlights a job's components and their downstream consumers; downstream verification will act on them later.
-- **Validation** (`forge config validate`, `forge doctor`, `forge init write`, Settings): `components` must be a list of maps; a `name` that is missing, unsafe or repeated, a `path` that is missing, empty, absolute (`/…`, `\…`, a drive letter) or has a `..` segment, and a `kind` outside the three are problems, as are a non-string `repo` or `notes`, `owners` that isn't a list of strings, and `commands` that isn't a map of strings or nulls. A `dependsOn` entry with neither or both targets, an empty target, a `type` other than `build | runtime`, or a `component` that names no component is a problem. A cycle of `build` edges is reported once with its path, e.g. `components: build dependency cycle a -> b -> c -> a` (a component naming itself as a build dependency is the cycle `a -> a`). Cycles that include a `runtime` edge are allowed.
-- **`repo`** is accepted for member repos to come; today it only keeps the component out of command selection and the integrity scan.
+- **Validation** (`forge config validate`, `forge doctor`, `forge init write`, Settings): `components` must be a list of maps; a `name` that is missing, unsafe or repeated, a `path` that is missing, empty, absolute (`/…`, `\…`, a drive letter) or has a `..` segment, and a `kind` outside the three are problems, as are a non-string `repo` or `notes`, a `repo` that names no `repos` entry (`components "<c>".repo names unknown repo "<x>"`), `owners` that isn't a list of strings, and `commands` that isn't a map of strings or nulls. A `dependsOn` entry with neither or both targets, an empty target, a `type` other than `build | runtime`, or a `component` that names no component is a problem. A cycle of `build` edges is reported once with its path, e.g. `components: build dependency cycle a -> b -> c -> a` (a component naming itself as a build dependency is the cycle `a -> a`). Cycles that include a `runtime` edge are allowed.
+- **`repo`** names a member repo from [`repos`](#repos); null or absent is the root repo. Today it only keeps the component out of command selection and the integrity scan.
 
 **Migration** (config `schemaVersion` 9 → 10): `services` becomes `components`. Each service keeps its `name`, `path` (`.` when it had none), `commands`, `owners`, `notes` and any other keys, and gains `kind: service` and `dependsOn: []`, so every job runs the same commands from the same path as before. The migration happens in memory on every read; `forge migrate` writes it to disk. A config with no `schemaVersion` that still has `services` and no `components` is folded the same way. A v10 config that sets both is refused: `services was renamed to components in config schemaVersion 10; move its entries under components and delete services`.
+
+## Repos
+
+A project can span several repos: the **root repo**, which holds `.forge/`, and **member repos** such as the libraries an app builds on. `repos` lists the members; the root repo is implicit and never listed. It is edited by hand (it is not a `forge config set` key and Settings doesn't show it), and support bundles hide it like `resources`, since remotes can name private hosts. Each entry:
+
+```yaml
+repos:
+  - name: ui-kit                               # required, unique; A-Z a-z 0-9 . _ -, starting with a letter or digit, at most 100
+    remote: git@github.com:acme/ui-kit.git     # required: the clone url
+    defaultBranch: main                        # required
+    tracker: { kind: github, repo: acme/ui-kit }   # optional: kind github | none; repo is owner/name
+```
+
+Where each member is cloned differs per machine, so the paths live in **`.forge/local.yml`**, which `/forge init` gitignores and Forge never writes:
+
+```yaml
+repos:
+  ui-kit: { path: ../ui-kit }
+```
+
+A relative path resolves against the root repo, a leading `~/` is the home directory, and an absolute path is used as is. `forge init write` adds a `local.yml` line to `.forge/.gitignore` when it lacks one (and lists the file in `written`); other lines are never touched.
+
+**Validation** (`forge config validate`, `forge doctor`, `forge init write`, Settings diagnostics), one message per problem:
+
+- `repos must be a list (got …)`; `repos[<i>] must be a map`
+- a `name` that is missing or unsafe, a name listed twice (`repos "<name>" is listed more than once`), or the root repo's directory name (`repos "<name>" is the root repo; the root repo is implicit`)
+- a `remote` that isn't a non-empty string of at most 2000 characters, starts with `-`, or contains whitespace or control characters
+- a `defaultBranch` that isn't a safe branch name (`A-Z a-z 0-9 . _ / -`, starting with a letter or digit, at most 200 characters), or contains `..` or `//`, or ends in `/` or `.lock`
+- a `tracker` that is set but isn't a map with `kind` `github | none`, or a `github` `repo` that isn't `owner/name`
+- `components "<c>".repo names unknown repo "<x>"` for a component whose `repo` names no entry
+
+**Doctor.** When `repos` validates, `forge doctor` (and Settings › Diagnostics) adds one `repo <name>` check per member, after `config valid`, and always prints the fix:
+
+| Situation | Result | Detail |
+|---|---|---|
+| no `local.yml`, or no entry for the name | fails | `no path in .forge/local.yml; clone it: git clone <remote> ../<name>, then add to .forge/local.yml: repos: { <name>: { path: ../<name> } }` |
+| the path does not exist | fails | `missing clone at <path>; run: git clone <remote> <path>` |
+| the path isn't the top level of a git clone | fails | `<path> is not a git clone; point .forge/local.yml at the clone's top-level directory` |
+| the clone's `git.remote` remote is missing or points elsewhere | fails | `remote "origin" is <actual or missing>, expected <remote>; run: git -C <path> remote set-url origin <remote>` (`remote add` when missing) |
+| no local `defaultBranch` | warns | `no local branch <defaultBranch>; run: git -C <path> fetch origin <defaultBranch>:<defaultBranch>` |
+| checked out on `defaultBranch` with uncommitted changes | warns | `<defaultBranch> has uncommitted changes (<n> paths) at <path>` |
+| otherwise | passes | `<path> on <branch or detached>` |
+
+Remotes match when they are equal after dropping a trailing `/` and `.git`, or name the same GitHub `owner/name` (`git@github.com:acme/x.git` and `https://github.com/acme/x` match). Paths are single-quoted when they contain anything outside `A-Za-z0-9._/~-`. A `local.yml` check appears only when that file has a problem: unparsable YAML, a `repos` that isn't a map, or an entry without a non-empty string `path` fails it (and every member then reads as having no entry), and names that aren't in `repos` give a warning. With no `repos` and no `local.yml` there are no new checks. Doctor only reads: it never clones, fetches or checks out, runs git with `core.fsmonitor=false` and `GIT_OPTIONAL_LOCKS=0` so `status` never rewrites a member's index, and never passes `remote` to git.
+
+**Migration** (config `schemaVersion` 10 → 11): v11 adds `repos`, empty by default; an older config gains `repos: []` (an existing `repos` value is kept for validation to judge), and a leftover `services` is still folded into `components`. The bump lets older Forges refuse a config whose member repos they would ignore. The migration happens in memory on every read; `forge migrate` writes it to disk.
 
 ## Deprecated keys
 
@@ -572,4 +621,5 @@ None today.
 | `.forge/reviewers/<lens>.md` | a repo checklist; overrides the built-in lens of the same name |
 | `.forge/trackers/<name>.mjs` or `.ts` | a custom tracker adapter (see TRACKERS.md) |
 | `.forge/secrets-allow.txt` | path globs and `sha256:` fingerprints the secret scanner allows; read from the main checkout only ("Secret scanning") |
+| `.forge/local.yml` | this machine's member repo clone paths ("Repos"); gitignored, never written by Forge |
 | `.forge/evals/<task>/` | eval tasks (see IMPROVEMENT.md); `evals/runs/` holds results |
