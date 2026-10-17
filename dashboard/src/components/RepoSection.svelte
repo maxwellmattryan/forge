@@ -9,22 +9,24 @@
 
   let { job }: { job: Partial<Job> } = $props();
   const rows = $derived(jobRepoRows(job, S.data?.repo?.name ?? ''));
+  const headingId = $derived(`repos-${job.id ?? ''}`);
 </script>
 
 {#if rows.length}
   <div class="plate flat">
-    <h3 class="h section px-4 pt-3">{$t('drawer.repos')}</h3>
+    <h3 id={headingId} class="h section px-3 pt-3">{$t('drawer.repos')}</h3>
+    <!-- Minimum widths, so at phone width the table scrolls as a whole instead of crushing its cells into fragments. -->
     <div class="overflow-x-auto">
-      <table class="tbl">
+      <table class="tbl min-w-[36rem]" aria-labelledby={headingId}>
         <thead><tr><th>{$t('drawer.repo')}</th><th>{$t('drawer.branch')}</th><th>{$t('drawer.base')}</th><th>{$t('drawer.worktree')}</th><th>{$t('drawer.pr')}</th></tr></thead>
         <tbody>
           {#each rows as row, i (i)}
             {@const href = safeUrl(row.prUrl)}
             <tr>
               <td class="mono">{row.name}</td>
-              <td class="mono break-all">{#if row.verifyOnly}<span class="muted">{$t('drawer.verifyOnly')}</span>{:else}{row.branch ?? '—'}{/if}</td>
+              <td class="mono whitespace-nowrap">{#if row.verifyOnly}<span class="muted">{$t('drawer.verifyOnly')}</span>{:else}{row.branch ?? '—'}{/if}</td>
               <td class="mono">{row.base ?? '—'}</td>
-              <td class="mono break-all selectable">{row.worktree ?? '—'}</td>
+              <td class="mono break-all min-w-[16rem] selectable">{row.worktree ?? '—'}</td>
               <td class="whitespace-nowrap">{#if href}<a {href} target="_blank" rel="noopener"><PrChip pr={row.pr} /></a>{:else if row.prNumber}<PrChip pr={row.pr} />{:else}—{/if}</td>
             </tr>
           {/each}
