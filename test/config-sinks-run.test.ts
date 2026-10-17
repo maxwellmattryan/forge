@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate, waitFor } from './helpers.ts';
 import { loadConfig } from '../lib/config.ts';
 import { createJob, jobDir, updateJob } from '../lib/jobs.ts';
+import { run } from '../lib/util.ts';
 import { createWorktree } from '../lib/worktree.ts';
 import * as yaml from '../lib/yaml.ts';
 
@@ -196,6 +197,10 @@ describe('config sinks at run time', { concurrency: 4 }, () => {
       // A symlinked parent pointing outside (the `out/` dir is ignored, so only confinement refuses it).
       await refused([{ 'env-file': 'out/.env', values: { A: 'x' } }], /config sink path services\/api\/out\/\.env has a parent directory that resolves outside/, (j) => fs.symlinkSync(outside, path.join(j.api, 'out')));
       assert.deepEqual(fs.readdirSync(outside), [], 'nothing written outside the worktree');
+      // A symlinked parent that stays inside the worktree: the logical path is under the ignored `out/`,
+      // but the file would land on a tracked one, so git is asked about the real location.
+      const j3 = await refused([{ 'env-file': 'out/services/api/tracked.json', values: { A: 'x' } }], /config sink path services\/api\/out\/services\/api\/tracked\.json \(services\/api\/tracked\.json\) must be git-ignored and untracked; add it to \.gitignore/, (j) => fs.symlinkSync(j.wt, path.join(j.api, 'out')));
+      assert.equal(fs.readFileSync(path.join(j3.api, 'tracked.json'), 'utf8'), '{}\n', 'the tracked file is untouched');
       // A `from` that is a symlink to a file outside.
       const secret = path.join(outside, 'id_rsa');
       fs.writeFileSync(secret, 'PRIVATE\n');
@@ -331,5 +336,16 @@ describe('config sinks at run time', { concurrency: 4 }, () => {
     } finally {
       x.cleanup();
     }
+  });
+});
+
+describe('config sink commands', { concurrency: 4 }, () => {
+  test('a command that exits without reading its stdin keeps its exit status', () => {
+    // More input than the pipe buffer holds makes the EPIPE deterministic; a small stdin only races it.
+    const r = run('sh', ['-c', 'exit 3'], { input: 'x'.repeat(1 << 20), allowFail: true });
+    assert.equal(r.status, 3);
+    assert.equal(r.ok, false);
+    assert.equal(run('sh', ['-c', 'true'], { input: 'x'.repeat(1 << 20), allowFail: true }).status, 0);
+    assert.throws(() => run('sh', ['-c', 'exit 3'], { input: 'x'.repeat(1 << 20) }), /exited 3/);
   });
 });

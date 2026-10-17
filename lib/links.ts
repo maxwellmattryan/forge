@@ -403,7 +403,8 @@ export interface LockSnapshot {
   files: { rel: string; bytes: Buffer }[];
 }
 
-function gitEnv(): NodeJS.ProcessEnv {
+/** process.env without the GIT_* overrides that would point a git child at another repo. */
+export function gitEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY']) delete env[k];
   return env;

@@ -735,7 +735,7 @@ export type SinkValues = { [k: string]: string | number | boolean | null | SinkV
 export type ConfigSink =
   | { env: Record<string, string> }
   | { 'env-file': string; values?: Record<string, string> }
-  | { file: { path: string; format: SinkFormat; mode: SinkMode; from?: string }; values?: SinkValues }
+  | { file: { path: string; format: SinkFormat; mode: SinkMode; from?: string | null }; values?: SinkValues }
   | { command: string; values?: Record<string, string> };
 
 /** One member repo: an entry of `repos` (docs/CONFIG.md "Repos"). The root repo is implicit. */

@@ -13,7 +13,7 @@ import { isOwnWorktreePath } from './config.ts';
 import { renderEnvFile, renderMerge, renderTemplate, resolveString, sinkProblems } from './config-sinks.ts';
 import type { ExprContext } from './config-sinks.ts';
 import { jobDir } from './jobs.ts';
-import { writeIfChanged } from './links.ts';
+import { gitEnv, writeIfChanged } from './links.ts';
 import { posixShell } from './platform.ts';
 import type { ComponentConfig, Config, ConfigSink, Job } from './types.ts';
 import { ForgeError, run } from './util.ts';
@@ -44,15 +44,18 @@ export interface ApplyOptions {
 
 const posix = (p: string): string => p.split(path.sep).join('/');
 
-/** Whether `child` resolves inside `parentReal` (a realpath); false when it does not exist. */
-function resolvesInside(parentReal: string, child: string): boolean {
+/** The realpath of `child` when it resolves inside `parentReal` (a realpath); null otherwise or when it does not exist. */
+function realInside(parentReal: string, child: string): string | null {
   try {
-    const rel = path.relative(parentReal, fs.realpathSync.native(child));
-    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+    const real = fs.realpathSync.native(child);
+    const rel = path.relative(parentReal, real);
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel)) ? real : null;
   } catch {
-    return false;
+    return null;
   }
 }
+
+const resolvesInside = (parentReal: string, child: string): boolean => realInside(parentReal, child) !== null;
 
 /** The nearest ancestor of `p` (or `p` itself) that exists, by lstat, so a dangling symlink counts. */
 function deepestExisting(p: string): string {
@@ -66,12 +69,6 @@ function deepestExisting(p: string): string {
     if (up === cur) return cur;
     cur = up;
   }
-}
-
-function gitEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY']) delete env[k];
-  return env;
 }
 
 /**
@@ -108,7 +105,7 @@ export function applySinks(root: string, config: Config, job: Job, component: Co
     return { abs, rel: posix(r) };
   };
 
-  /** Writes `content` to an output path after the git-ignore and confinement checks. */
+  /** Writes `content` to an output path after the confinement and git-ignore checks. */
   const writeOutput = (i: number, rel: string, content: string): void => {
     const out = place(rel, `${label(i)} path`);
     const parent = path.dirname(out.abs);
@@ -116,11 +113,15 @@ export function applySinks(root: string, config: Config, job: Job, component: Co
     // without creating anything, and a dir that appeared meanwhile is checked again.
     const refuse = () => new ForgeError(`config sink path ${out.rel} has a parent directory that resolves outside the job's worktree`);
     if (!resolvesInside(worktreeReal, deepestExisting(parent))) throw refuse();
-    // Tracked files are not ignored (no --no-index), so one refusal covers both; `--` keeps the path from reading as an option.
-    const ignored = run('git', ['-c', 'core.quotepath=off', '-c', 'core.fsmonitor=false', 'check-ignore', '-q', '--', out.rel], { cwd: worktree, allowFail: true, env: gitEnv() });
-    if (!ignored.ok) throw new ForgeError(`config sink path ${out.rel} must be git-ignored and untracked; add it to .gitignore`);
     fs.mkdirSync(parent, { recursive: true });
-    if (!resolvesInside(worktreeReal, parent)) throw refuse();
+    const parentReal = realInside(worktreeReal, parent);
+    if (parentReal === null) throw refuse();
+    // git judges the file's real location: a parent symlink that stays inside the worktree (`out -> ../..`)
+    // would let an ignored logical path land on a tracked file. Tracked files are not ignored (no
+    // --no-index), so one refusal covers both; `--` keeps the path from reading as an option.
+    const realRel = posix(path.join(path.relative(worktreeReal, parentReal), path.basename(out.abs)));
+    const ignored = run('git', ['-c', 'core.quotepath=off', '-c', 'core.fsmonitor=false', 'check-ignore', '-q', '--', realRel], { cwd: worktreeReal, allowFail: true, env: gitEnv() });
+    if (!ignored.ok) throw new ForgeError(`config sink path ${out.rel}${realRel === out.rel ? '' : ` (${realRel})`} must be git-ignored and untracked; add it to .gitignore`);
     writeIfChanged(out.abs, content, 0o600);
     summary.files.push(out.rel);
   };
@@ -194,14 +195,14 @@ function render<T>(i: number, fn: () => T, base?: { name: string; from: boolean 
   } catch (e) {
     const err = e as Error;
     const where = base ? ` (${base.name})` : '';
-    const detail = err.cause instanceof Error ? (base?.from ? `: ${err.cause.message}` : '; delete it or fix it by hand') : '';
+    const detail = !base || !(err.cause instanceof Error) ? '' : base.from ? `: ${err.cause.message}` : '; delete it or fix it by hand';
     throw new ForgeError(`config sink ${i}${where}: ${err.message}${detail}`);
   }
 }
 
 /**
  * A command sink: the project's script, in the component dir, with the values as env and as JSON on
- * stdin. Its output goes only to `<jobDir>/logs/config-<component>-<timestamp>.log`.
+ * stdin. Its output goes only to `<jobDir>/logs/config-<component>-<timestamp>-<i>.log`.
  */
 function runCommandSink(root: string, job: Job, component: ComponentConfig, i: number, template: string, values: Record<string, string>, opts: ApplyOptions): void {
   const cmd = opts.fillCmd(template);
@@ -209,7 +210,8 @@ function runCommandSink(root: string, job: Job, component: ComponentConfig, i: n
   const res = run(posixShell(), ['-lc', cmd], { cwd, env: { ...opts.env, ...values }, input: JSON.stringify(values), allowFail: true });
   const logDir = path.join(jobDir(root, job.id), 'logs');
   fs.mkdirSync(logDir, { recursive: true });
-  const logFile = path.join(logDir, `config-${component.name.replace(/[\\/]/g, '-')}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
+  // `i` keeps two sinks that finish in the same millisecond from sharing a log.
+  const logFile = path.join(logDir, `config-${component.name.replace(/[\\/]/g, '-')}-${new Date().toISOString().replace(/[:.]/g, '-')}-${i}.log`);
   fs.writeFileSync(logFile, `$ ${cmd}\n(cwd ${cwd})\n\n${res.stdout}${res.stderr ? `\n${res.stderr}` : ''}\n\n[exit ${res.status}]\n`);
   if (!res.ok) throw new ForgeError(`config sink command ${i} of component ${JSON.stringify(component.name)} exited ${res.status ?? 'without a status'}; see ${logFile}`);
 }
