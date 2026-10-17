@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
 import { TRUST_ENV, autoMerge, defaults, loadConfig, trustDigest, validateConfig } from '../lib/config.ts';
 import { FIELDS } from '../lib/config-fields.ts';
-import { INVALID_RESERVED, SECURITY_CHANGES, SECURITY_UNCLEAR, gateOwner, latestSecurityVerdict, reservedFor, reservedMatch } from '../lib/foreman.ts';
+import { INVALID_RESERVED, SECURITY_CHANGES, SECURITY_UNCLEAR, gateClass, gateOwner, latestSecurityVerdict, reservedFor, reservedMatch } from '../lib/foreman.ts';
 import { createJob, jobDir, loadJob, logEvent, readEvents, setJob } from '../lib/jobs.ts';
 import { syncPr, trustedFeedback } from '../lib/pr.ts';
 import { OFFICE_SCOPE, ackRequest, enqueue, listRequests, requestScope } from '../lib/requests.ts';
@@ -69,8 +69,9 @@ test('config v4 migrates to v7 with foreman defaults off', () => {
   assert.equal(from, 4);
   assert.deepEqual(config, { ...v4, schemaVersion: 12, repos: [] }, 'only schemaVersion and the empty repos list change');
   const d = defaults();
-  assert.deepEqual(d.foreman, { enabled: false, decides: [...OFFICE_GATES], reserved: d.foreman.reserved, ship: 'propose' });
-  assert.deepEqual(OFFICE_GATES, ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback']);
+  // repo-proposal widens the repos a job pushes to, so the default leaves it with a human.
+  assert.deepEqual(d.foreman, { enabled: false, decides: OFFICE_GATES.filter((g) => g !== 'repo-proposal'), reserved: d.foreman.reserved, ship: 'propose' });
+  assert.deepEqual(OFFICE_GATES, ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal']);
   for (const p of ['credentials', 'auth', 'permissions', 'security', 'CI/CD', 'token']) assert.ok(d.foreman.reserved.includes(p), p);
   assert.equal(d.runtime.models.assistant, 'sonnet');
   assert.equal(d.runtime.efforts.assistant, null);
@@ -565,6 +566,68 @@ esac
   }
 });
 
+test('repo-proposal is a derived gate class the foreman decides only when allowed', async () => {
+  const parked = { state: 'waiting', waitingOn: 'human', reason: 'repo proposal: lib', repos: [] } as any;
+  const proposed = [{ v: 2, ts: 't1', type: 'repo-proposed', repo: 'lib', reason: 'core API' }];
+  assert.equal(gateClass(parked, proposed), 'repo-proposal');
+  assert.equal(gateClass(parked, []), null, 'no pending proposal: a plain human wait');
+  assert.equal(gateClass(parked, [...proposed, { v: 2, ts: 't2', type: 'human', action: 'reject-repos', repos: ['lib'] }]), null, 'decided');
+  assert.equal(gateClass({ ...parked, reason: 'protected paths: x' }, proposed), null, 'another human wait');
+  assert.equal(gateClass({ ...parked, waitingOn: 'spec-approval' }, proposed), 'spec-approval');
+
+  const withRepos = (c: any) => {
+    c.repos = [{ name: 'lib', remote: 'https://example.com/lib.git', defaultBranch: 'main' }];
+    c.components = [
+      { name: 'core', repo: 'lib', path: '.', kind: 'library' },
+      { name: 'app', path: '.', kind: 'service', dependsOn: [{ component: 'core', type: 'build' }] },
+    ];
+  };
+  // The default decides leaves the park with a human: no gate request.
+  const off = scratch(withRepos);
+  try {
+    const id = off.job('Default', { stage: 'spec', state: 'running' });
+    logEvent(off.root, id, 'repo-proposed', { repo: 'lib', reason: 'core API' });
+    const r = await off.cli(undefined, 'job', 'set', id, '--state', 'waiting', '--waiting-on', 'human', '--reason', 'repo proposal: lib');
+    assert.equal(r.code, 0, r.out);
+    assert.deepEqual(off.gates(id), []);
+    assert.equal(gateOwner(off.root, off.config(), loadJob(off.root, id)), 'human');
+  } finally {
+    off.cleanup();
+  }
+
+  const s = scratch((c) => {
+    withRepos(c);
+    c.foreman.decides = ['repo-proposal'];
+  });
+  try {
+    const id = s.job('Allowed', { stage: 'spec', state: 'running' });
+    logEvent(s.root, id, 'repo-proposed', { repo: 'lib', reason: 'core API' });
+    const r = await s.cli(undefined, 'job', 'set', id, '--state', 'waiting', '--waiting-on', 'human', '--reason', 'repo proposal: lib');
+    assert.equal(r.code, 0, r.out);
+    const g = s.gates(id);
+    assert.equal(g.length, 1);
+    assert.deepEqual(g[0].args, { gate: 'repo-proposal', reserved: null });
+    assert.equal(gateOwner(s.root, s.config(), loadJob(s.root, id)), 'foreman');
+    const a = await s.cli(OFFICE_SCOPE, 'job', 'assist', id, '--gate', 'repo-proposal');
+    assert.equal(a.code, 0, a.out);
+    assert.equal(a.json().stale, false);
+    assert.ok(a.json().brief.includes(path.join(jobDir(s.root, id), 'repo-proposals.md')));
+    assert.match(a.json().brief, /^Project repos \(JSON\): \[\{"repo":"lib","onJob":false,"components":\["core"\],"usedBy":\[\{"component":"app","repo":null,"type":"build"\}\]\}\]$/m);
+    // Only this gate's actions.
+    const wrong = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'approve', '--actor', 'foreman', '--note', 'x');
+    assert.equal(wrong.code, 1, wrong.out);
+    assert.match(wrong.out, /approve is not a repo-proposal action \(approve-repos, reject-repos\)/);
+    const rejected = await s.cli(OFFICE_SCOPE, 'job', 'human', id, 'reject-repos', '--actor', 'foreman', '--note', 'not needed');
+    assert.equal(rejected.code, 0, rejected.out);
+    assert.deepEqual(readEvents(s.root, id).filter((e) => e.type === 'human').map((e) => [e.action, e.repos, e.actor]), [['reject-repos', ['lib'], { login: null, source: 'foreman' }]]);
+    const resumed = await s.cli(OFFICE_SCOPE, 'job', 'set', id, '--state', 'running');
+    assert.equal(resumed.code, 0, resumed.out);
+    assert.equal(loadJob(s.root, id).state, 'running');
+  } finally {
+    s.cleanup();
+  }
+});
+
 test('assistant prompt has every gate section and the contract', () => {
   const text = fs.readFileSync(path.join(ROOT, 'agents', 'assistant.md'), 'utf8');
   const front = text.split('---')[1];
@@ -584,7 +647,7 @@ test('foreman procedure names only CLI calls', () => {
   for (const f of ['spec.md', 'plan.md', 'decision.md', 'pr-feedback.md', 'verify']) {
     assert.doesNotMatch(text, new RegExp(`\\b(Read|cat|head|tail|grep)\\b[^\\n|]*${f.replace('.', '\\.')}`), `no read of ${f}`);
   }
-  for (const g of ['spec-approval', 'split-approval', 'escalation, rounds-exhausted', 'conflicts', 'pr-feedback']) assert.match(text, new RegExp(`^\\| ${g} \\|`, 'm'), g);
+  for (const g of ['spec-approval', 'split-approval', 'escalation, rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal']) assert.match(text, new RegExp(`^\\| ${g} \\|`, 'm'), g);
   assert.match(fs.readFileSync(path.join(ref, 'requests.md'), 'utf8'), /`scope: "office"`[^\n]*reference\/foreman\.md/);
   assert.match(fs.readFileSync(path.join(ROOT, 'skills', 'forge', 'SKILL.md'), 'utf8'), /With `foreman\.enabled`, the CLI turns gates into `gate` requests/);
 });

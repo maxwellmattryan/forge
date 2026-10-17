@@ -210,7 +210,8 @@ export function defaults(): Config {
     // gate with a human, and a false positive errs that way on purpose.
     foreman: {
       enabled: false,
-      decides: [...OFFICE_GATES],
+      // Widening the repos a job pushes to is opt-in: an owner adds repo-proposal deliberately.
+      decides: OFFICE_GATES.filter((g) => g !== 'repo-proposal'),
       reserved: [...DEFAULT_RESERVED],
       ship: 'propose',
     },

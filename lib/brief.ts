@@ -3,7 +3,8 @@
 import path from 'node:path';
 import { autoMerge, lensNeedsApp, resolveEffort, reviewerChecklist } from './config.ts';
 import { jobDir, reviewDir } from './jobs.ts';
-import { memberRepos } from './job-repos.ts';
+import { memberEntry, memberRepos } from './job-repos.ts';
+import { repoGraph } from './project.ts';
 import { paths, exists } from './paths.ts';
 import type { Config, GateClass, Job, StepInput } from './types.ts';
 
@@ -41,6 +42,7 @@ export function jobPathMap(root: string, config: Config, job: Job): Record<strin
     prFeedback: path.join(dir, 'pr-feedback.md'),
     prBody: path.join(dir, 'pr.md'),
     feedback: path.join(dir, 'feedback.md'),
+    repoProposals: path.join(dir, 'repo-proposals.md'),
     learnings: path.join(p.notes, 'learnings.md'),
     notesDir: p.notes,
     config: p.config,
@@ -87,6 +89,15 @@ export interface RoleContext {
   verifiers?: number;
 }
 
+/**
+ * The `Project repos (JSON)` line: each config `repos` entry, whether the job has it, its components
+ * and who depends on them. Config-derived only; null for a single-repo setup.
+ */
+export function projectReposLine(config: Config, job: Pick<Job, 'repos'>): string | null {
+  const rows = repoGraph(config).map((g) => ({ repo: g.repo, onJob: Boolean(memberEntry(job, g.repo)), components: g.components, usedBy: g.usedBy }));
+  return rows.length ? `Project repos (JSON): ${JSON.stringify(rows)}` : null;
+}
+
 /** The inputs, outputs and extra lines each role gets: the brief half of Approach in issue #68. */
 /** The approver's `Protected paths:` line. JSON, so a path can't start a line of the brief. */
 export function protectedLine(job: Pick<Job, 'protectedPaths'>): string {
@@ -103,18 +114,21 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
   const p = (k: string) => String(input.paths[k]);
   const infra = `Infra: mode ${c.infra.mode} · allowed ${JSON.stringify(c.infra.allowed ?? [])}`;
   const base = role.split(':')[0];
+  const reposLine = base === 'planner' || base === 'spec-writer' ? projectReposLine(c, j) : null;
+  const repos = reposLine ? [reposLine] : [];
   const out = (o: string[], inputs: string[], extra: string[]): BriefSpec => ({ role: base, lens: ctx.lens, inputs, outputs: ctx.output ? [ctx.output] : o, extra, retry: ctx.retry });
   switch (base) {
     case 'planner':
-      return out([p('plan')], [p('request'), p('feedback'), ...(ctx.answered ? [p('questions')] : [])], [`Split mode: ${ctx.splitMode ?? c.pipeline.split}`]);
+      return out([p('plan')], [p('request'), p('feedback'), p('repoProposals'), ...(ctx.answered ? [p('questions')] : [])], [`Split mode: ${ctx.splitMode ?? c.pipeline.split}`, ...repos]);
     case 'spec-writer':
       return out(
         [p('spec')],
-        [p('request'), p('plan'), p('design'), p('feedback'), ...(ctx.answered ? [p('questions')] : [])],
+        [p('request'), p('plan'), p('design'), p('feedback'), p('repoProposals'), ...(ctx.answered ? [p('questions')] : [])],
         [
           `Review panel: ${c.review.panel.map((x) => x.name).join(', ') || 'none'}`,
           c.resources.length ? `Resources: ${c.resources.length} in ${p('config')}` : 'Resources: none configured',
           ...(ctx.foldIn ? ['Fold in the Spec deltas from design.md.'] : []),
+          ...repos,
         ],
       );
     case 'designer':
@@ -237,7 +251,9 @@ export function assistantBrief(root: string, config: Config, job: Job, gate: Gat
     path.join(dir, 'pr-feedback.md'),
     path.join(dir, 'verify', `round-${job.round}.md`),
     path.join(dir, 'feedback.md'),
+    path.join(dir, 'repo-proposals.md'),
   ];
+  const repos = gate === 'repo-proposal' ? projectReposLine(config, job) : null;
   return [
     `Job id: ${job.id}`,
     'Role: assistant',
@@ -247,6 +263,7 @@ export function assistantBrief(root: string, config: Config, job: Job, gate: Gat
     `Output: ${path.join(dir, 'feedback.md')} (only on revise or rework)`,
     // JSON, so a pattern can't start a line of its own in the brief.
     `Reserved: ${JSON.stringify(Array.isArray(reserved) ? reserved : [])}`,
+    ...(repos ? [repos] : []),
     UNTRUSTED_LINE,
     REPLY_LINE,
   ].join('\n');

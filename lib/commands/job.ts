@@ -6,7 +6,7 @@ import { jobFindings } from '../findings.ts';
 import { assistantBrief, jobPathMap } from '../brief.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
 import { OFFICE_REFUSAL, daemonClaimOpts, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
-import { OFFICE_JOB_COMMANDS, checkForemanDecision, checkOfficeSetFor, gateClass, inOffice, isGateClass, maybeEnqueueGate, reservedFor } from '../foreman.ts';
+import { OFFICE_JOB_COMMANDS, checkForemanDecision, checkOfficeSetFor, gateClassFor, inOffice, isGateClass, maybeEnqueueGate, reservedFor } from '../foreman.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
 import { agentOutputMissing, attachAgent, claimJob, createJob, ownerStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
 import { logSecrets, scanAgentOutputs } from '../secrets.ts';
@@ -833,7 +833,7 @@ function assist(root: string, config: Config, job: Job, rawGate: unknown) {
   if (s.daemon && !inOffice()) throw new ForgeError('forge job assist is for the office session (or a human outside the daemon)', 1);
   const gate = str(rawGate, '--gate');
   if (!isGateClass(gate)) throw new ForgeError(`--gate must be one of ${OFFICE_GATES.join(', ')} (got ${JSON.stringify(String(gate ?? '').slice(0, 40))})`, 1);
-  const stale = gateClass(job) !== gate;
+  const stale = gateClassFor(root, job) !== gate;
   const reserved = stale ? null : reservedFor(root, config, job, gate);
   return {
     gate,
