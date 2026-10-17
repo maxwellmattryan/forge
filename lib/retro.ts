@@ -6,6 +6,7 @@ import { isForemanActor, listJobs, readEvents, jobDir } from './jobs.ts';
 import { listArchived } from './archive.ts';
 import { listRuns } from './evals.ts';
 import { jobFindings } from './findings.ts';
+import { reviewFileName } from './lens.ts';
 import { expiredLearnings, metricValue, readExperiments, readLearnings, verdict } from './learnings.ts';
 import { paths, exists } from './paths.ts';
 import { computeStats } from './stats.ts';
@@ -101,7 +102,7 @@ export function prepareRetro(
       for (const [lens, verdict] of Object.entries(v ?? {})) {
         if (verdict === 'MALFORMED') lines.push(`- reviewer ${lens} wrote a malformed review (round ${round})`);
         if (verdict === 'CHANGES') {
-          const file = path.join(jd, 'review', `round-${round}`, `${lens}.md`);
+          const file = path.join(jd, 'review', `round-${round}`, reviewFileName(lens));
           const findings = readText(file).split('\n').filter((l) => /^\s*[-*]\s*\[(blocker|major)\]/i.test(l)).slice(0, 4);
           for (const f of findings) lines.push(`- r${round} ${lens}: ${f.trim().slice(0, 300)}`);
         }

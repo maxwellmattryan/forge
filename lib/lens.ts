@@ -42,13 +42,13 @@ export function lensFromReviewFile(file: string): string | null {
 }
 
 /** The names of the job's reviewed members: every `repos` entry after the root mirror that is not verify-only. */
-export function reviewedRepoNames(job: Pick<Job, 'repos'>): string[] {
+export function reviewedRepoNames(job: { repos?: Job['repos'] }): string[] {
   const repos = Array.isArray(job.repos) ? job.repos.slice(1) : [];
   return repos.filter((r) => typeof r?.repo === 'string' && !r.verifyOnly).map((r) => r.repo as string);
 }
 
 /** Whether `lens` may review this job: a plain lens always, a qualified one only for a reviewed member. */
-export function lensRepoAllowed(job: Pick<Job, 'repos'>, lens: string): boolean {
+export function lensRepoAllowed(job: { repos?: Job['repos'] }, lens: string): boolean {
   const s = splitLens(lens);
   if (!s) return false;
   return s.repo === null || reviewedRepoNames(job).includes(s.repo);
