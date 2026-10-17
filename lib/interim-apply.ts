@@ -16,7 +16,7 @@ import { isInsidePath } from './components.ts';
 import { isOwnWorktreePath } from './config.ts';
 import { memberConfig, memberEntry, trustedMemberWorktree } from './job-repos.ts';
 import { loadJob, logEvent, readEvents, setJob, updateJob } from './jobs.ts';
-import { FULL_SHA, INTERIM_STRATEGIES, canaryVersion, isInterimStrategy, npmGitSpec, pinCargo, pinCmake, pinNpm, pinsAny, remoteUrl, repoLabel, resolveInterim } from './interim.ts';
+import { FULL_SHA, INTERIM_STRATEGIES, RELEASE_VERSION, canaryVersion, heldConsumers, isInterimStrategy, npmGitSpec, pinCargo, pinCmake, pinNpm, pinsAny, releaseGates, releasedVersion, remoteUrl, repoLabel, resolveInterim } from './interim.ts';
 import type { CargoPin, InterimEdge, PinResult } from './interim.ts';
 import { isSafeRemote } from './member-repos.ts';
 import { historyEnv } from './protected.ts';
@@ -630,4 +630,42 @@ export function publishCanary(root: string, config: Config, id: string, key: Rep
   }
   const resumed = resumeParked(root, config, id, `canary of ${repoLabel(key)} published: open the deferred PRs`);
   return { id, repo: key, confirm: true, published, ...(resumed ? { resumed } : {}) };
+}
+
+// ---------- release record ----------
+
+// A recorded release opens a held consumer's PR for review and merge: a session misled by tracker or
+// PR text must never be the one that says the dependency shipped.
+export const RELEASE_DAEMON_REFUSAL = "forge job interim release records a dependency's release, which a daemon session may not do; a human runs it in their own session";
+
+/**
+ * `forge job interim release`: records that dependency `key` (null: the root) of a local or
+ * sequential edge was released as `version`, which clears the release gate of its consumers. Refused
+ * in a daemon session, for a finished job, an unknown repo, a repo no local or sequential edge
+ * depends on, a version that is not semver or is a canary, and a dependency whose recorded PR is not
+ * MERGED. Recording the version the latest valid record already holds logs nothing.
+ */
+export function recordRelease(root: string, config: Config, id: string, key: RepoKey, version: string): { id: string; repo: RepoKey; version: string; recorded: boolean; clear: RepoKey[] } {
+  if (process.env.FORGE_DAEMON === '1') throw new ForgeError(RELEASE_DAEMON_REFUSAL);
+  const job = loadJob(root, id);
+  if (['done', 'cancelled'].includes(job.state)) throw new ForgeError(`job ${id} is ${job.state}; there is no release gate left to clear`);
+  if (key !== null && !memberEntry(job, key)) throw new ForgeError(`job ${id} has no repo ${JSON.stringify(key).slice(0, 110)}`);
+  const edges = resolveInterim(config, job).edges;
+  const mine = edges.filter((e) => e.dependency === key);
+  if (!mine.some((e) => e.strategy === 'local' || e.strategy === 'sequential')) {
+    const has = [...new Set(mine.map((e) => e.strategy))];
+    throw new ForgeError(
+      `${repoLabel(key)} is not the dependency of a local or sequential edge on job ${id} (${has.length ? `its edges are ${has.join(', ')}; the release-gate check guards those` : 'no edge depends on it'})`,
+    );
+  }
+  if (typeof version !== 'string' || version.length > 120 || !RELEASE_VERSION.test(version)) throw new ForgeError(`${JSON.stringify(String(version)).slice(0, 60)} is not a semver version (1.2.0, v1.2.0, 1.2.0-rc.1)`);
+  if (/canary/i.test(version)) throw new ForgeError(`${JSON.stringify(version).slice(0, 60)} is a canary; a release gate clears only on a released version`);
+  const pr = key === null ? job.pr : memberEntry(job, key)?.pr;
+  if (pr?.state !== 'MERGED')
+    throw new ForgeError(`${repoLabel(key)}'s PR is not merged (recorded state ${pr?.state ? String(pr.state).slice(0, 20) : 'none'}); a release comes from a merged change; run: forge pr sync ${id}`);
+  const recorded = releasedVersion(readEvents(root, id), key) !== version;
+  if (recorded) logEvent(root, id, 'interim-released', { repo: key, version });
+  const held = heldConsumers(releaseGates(edges, readEvents(root, id)));
+  const clear = [...new Set(mine.map((e) => e.consumer))].filter((c) => !held.has(c));
+  return { id, repo: key, version, recorded, clear };
 }

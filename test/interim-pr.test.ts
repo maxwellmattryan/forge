@@ -19,6 +19,7 @@ async function opened(p: PrProject, id: string) {
   return JSON.parse(r.stdout);
 }
 
+const readies = (p: PrProject) => p.calls().filter((c) => c.startsWith('pr ready'));
 const step = async (p: PrProject, id: string) => p.f('job', 'step', id);
 /** Writes a member PR state straight into job.json, as a hand edit or a stale record would. */
 function recordState(p: PrProject, id: string, repo: string, state: string): void {
@@ -155,5 +156,90 @@ describe('interim strategies: pull requests', { concurrency: 4 }, () => {
     const r = await p.pr(['open', j.id]);
     assert.equal(r.status, 5, 'a record GitHub cannot confirm stops pr open (external)');
     assert.match(r.stderr, /recorded MERGED, but GitHub can't confirm its state/);
+  });
+
+  test('a local consumer PR cannot leave draft before its dependency is released', async () => {
+    const p = await project();
+    dependsOn(p, 'app-on-lib');
+    p.config((c) => (c.pr.draft = false));
+    const j = await ready(p);
+    await p.f('verify', j.id);
+    await opened(p, j.id);
+    assert.equal(loadJob(p.root, j.id).pr?.isDraft, true);
+    const refused = await p.raw(['pr', 'ready', '--json', j.id], p.env);
+    assert.equal(refused.status, 1, refused.stdout);
+    const err = JSON.parse(refused.stdout).error;
+    assert.equal(err.code, 'release_gate');
+    assert.equal(err.message, `the root repo's PR stays a draft until repo lib's release is recorded; a human runs: forge job interim release ${j.id} lib <version>`);
+    assert.equal((await p.raw(['pr', 'ready', j.id, '--root'], p.env)).status, 1, 'targeted too');
+    assert.deepEqual(readies(p), [], 'no gh pr ready call');
+    assert.equal(loadJob(p.root, j.id).pr?.isDraft, true);
+
+    p.fake('lib.state', 'MERGED');
+    assert.equal((await p.raw(['pr', 'sync', j.id], p.env)).status, 0);
+    assert.equal((await p.f('job', 'interim', 'release', j.id, 'lib', '1.2.0')).recorded, true);
+    const r = await p.raw(['pr', 'ready', j.id], p.env);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(JSON.parse(r.stdout), { id: j.id, ready: [{ repo: null, number: 11 }], skipped: [] });
+    assert.deepEqual(readies(p), ['pr ready 11 -R o/app']);
+    assert.equal(loadJob(p.root, j.id).pr?.isDraft, false);
+    assert.deepEqual(p.events(j.id).filter((e) => e.type === 'pr-ready').map((e) => [e.repo, e.number]), [[undefined, 11]]);
+    const again = await p.raw(['pr', 'ready', j.id, '--root'], p.env);
+    assert.deepEqual(JSON.parse(again.stdout).skipped, [{ repo: null, number: 11, why: 'not a draft' }]);
+    assert.equal(readies(p).length, 1, 'nothing to ready: no call');
+  });
+
+  test('sequential opens the consumer as a draft until the release is recorded', async () => {
+    const p = await project();
+    dependsOn(p, 'app-on-lib');
+    p.config((c) => {
+      c.pr.draft = false;
+      c.repos[0].release = { interim: 'sequential' };
+    });
+    const j = await ready(p);
+    await p.f('verify', j.id);
+    assert.deepEqual((await opened(p, j.id)).deferred, [{ repo: null, why: 'sequential', waitingOn: ['lib'] }]);
+    p.fake('lib.state', 'MERGED');
+    assert.equal((await p.raw(['pr', 'sync', j.id], p.env)).status, 0);
+    const out = await opened(p, j.id);
+    assert.deepEqual([out.number, out.created], [11, true]);
+    assert.match(p.calls().find((c) => c.startsWith('pr create -R o/app'))!, /--draft/, 'the consumer opens as a draft while the gate is held');
+    assert.equal(loadJob(p.root, j.id).pr?.isDraft, true);
+    const refused = await p.raw(['pr', 'ready', '--json', j.id], p.env);
+    assert.equal(refused.status, 1);
+    assert.equal(JSON.parse(refused.stdout).error.code, 'release_gate');
+    assert.deepEqual(readies(p), []);
+    await p.f('job', 'interim', 'release', j.id, 'lib', '1.2.0');
+    const r = await p.raw(['pr', 'ready', j.id], p.env);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(readies(p), ['pr ready 11 -R o/app']);
+    assert.equal(loadJob(p.root, j.id).pr?.isDraft, false);
+  });
+
+  test('pr merge refuses a consumer whose dependency is unreleased', async () => {
+    const p = await project();
+    dependsOn(p, 'app-on-lib');
+    const j = await ready(p);
+    await p.f('verify', j.id);
+    await opened(p, j.id);
+    const job = loadJob(p.root, j.id);
+    p.fake('app.head', job.pr!.pushedSha!);
+    p.fake('lib.head', job.repos[1].pr!.pushedSha!);
+    p.fake('app.checks', 'passing');
+    p.fake('lib.checks', 'passing');
+    const r = await p.pr(['merge', j.id]);
+    assert.equal(r.status, 1, r.stderr);
+    const out = JSON.parse(r.stdout);
+    assert.deepEqual([out.action, out.reason, out.repo], ['refused', 'release', null]);
+    assert.equal(out.error, `the root repo's PR stays a draft until repo lib's release is recorded; a human runs: forge job interim release ${j.id} lib <version>`);
+    assert.deepEqual(out.parts.map((x: any) => [x.repo, x.action]), [['lib', 'merged'], [null, 'refused']], 'the dependency merged first');
+    for (const flags of [['--now'], ['--root', '--now']]) {
+      const n = await p.pr(['merge', j.id, ...flags]);
+      assert.equal(n.status, 1, String(flags));
+      assert.deepEqual([JSON.parse(n.stdout).action, JSON.parse(n.stdout).reason], ['refused', 'release'], String(flags));
+    }
+    assert.ok(!p.calls().some((c) => c.startsWith('pr merge 11 -R o/app')), 'no gh pr merge for the consumer');
+    assert.deepEqual(p.events(j.id).filter((e) => e.type === 'pr-merge-refused').map((e) => e.reason), ['release', 'release', 'release']);
+    assert.deepEqual(p.events(j.id).filter((e) => e.type === 'pr-merge-bypass'), [], '--now never bypasses a release gate');
   });
 });

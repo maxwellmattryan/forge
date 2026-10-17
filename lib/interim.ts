@@ -392,3 +392,46 @@ export function deferralStatus(deferred: Deferral[], state: (repo: RepoKey) => s
   const sequential = deferred.find((d) => d.why === 'sequential' && !d.waitingOn.every((w) => state(w) === 'MERGED')) ?? null;
   return { canary, sequential, openable: deferred.length > 0 && !canary && !sequential };
 }
+
+// ---------- release gates ----------
+
+/** A released version `forge job interim release` records: semver, an optional `v`, never a canary. */
+export const RELEASE_VERSION = /^v?(0|[1-9]\d{0,15})\.(0|[1-9]\d{0,15})\.(0|[1-9]\d{0,15})(?:-[0-9A-Za-z.-]{1,100})?(?:\+[0-9A-Za-z.-]{1,100})?$/;
+
+/** Whether `v` is a version a release record may carry (RELEASE_VERSION, at most 120 chars, no `canary`). */
+export const isReleaseVersion = (v: unknown): v is string => typeof v === 'string' && v.length <= 120 && RELEASE_VERSION.test(v) && !/canary/i.test(v);
+
+type ReleaseEvent = { type: string; repo?: unknown; version?: unknown };
+
+/**
+ * The version the latest valid `interim-released` event records for dependency `repo`, or null.
+ * events.jsonl is writable outside the CLI, so every record is checked and a malformed one is ignored.
+ */
+export function releasedVersion(events: ReleaseEvent[], repo: RepoKey): string | null {
+  const e = events.findLast((x) => x.type === 'interim-released' && isRepoKey(x.repo) && x.repo === repo && isReleaseVersion(x.version));
+  return e ? (e.version as string) : null;
+}
+
+/**
+ * One edge's release gate: `ci` for git-ref and canary (the seeded release-gate check fails while the
+ * pin remains), `held` for local and sequential until the dependency's release is recorded, then
+ * `released` with its version.
+ */
+export interface ReleaseGate {
+  consumer: RepoKey;
+  dependency: RepoKey;
+  strategy: InterimStrategy;
+  gate: 'ci' | 'held' | 'released';
+  version?: string;
+}
+
+export function releaseGates(edges: Pick<InterimEdge, 'consumer' | 'dependency' | 'strategy'>[], events: ReleaseEvent[]): ReleaseGate[] {
+  return edges.map(({ consumer, dependency, strategy }) => {
+    if (strategy === 'git-ref' || strategy === 'canary') return { consumer, dependency, strategy, gate: 'ci' as const };
+    const version = releasedVersion(events, dependency);
+    return version === null ? { consumer, dependency, strategy, gate: 'held' as const } : { consumer, dependency, strategy, gate: 'released' as const, version };
+  });
+}
+
+/** The consumers with at least one held gate: their PRs stay drafts, and Forge never readies or merges them. */
+export const heldConsumers = (gates: ReleaseGate[]): Set<RepoKey> => new Set(gates.filter((g) => g.gate === 'held').map((g) => g.consumer));

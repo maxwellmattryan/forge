@@ -8,14 +8,15 @@ import { budgetCmd, enforceBudget } from '../budget.ts';
 import { OFFICE_REFUSAL, daemonClaimOpts, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
 import { OFFICE_JOB_COMMANDS, checkForemanDecision, checkOfficeSetFor, gateClass, inOffice, isGateClass, maybeEnqueueGate, reservedFor } from '../foreman.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
-import { agentOutputMissing, attachAgent, claimJob, createJob, ownerStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
+import { agentOutputMissing, attachAgent, claimJob, createJob, ownerStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, readEvents, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir } from '../jobs.ts';
 import { logSecrets, scanAgentOutputs } from '../secrets.ts';
 import { issueLinkStatus } from '../issue-link.ts';
 import { checkIssueRef, isSafeUrl, issueUrl } from '../issue-ref.ts';
 import { githubHost, localRepoSlug } from '../repo-slug.ts';
 import { exists } from '../paths.ts';
 import { addJobRepo, refuseInterimInDaemon, refuseJobRepoInDaemon, removeJobRepo, trustedMemberWorktree } from '../job-repos.ts';
-import { interimStatus, publishCanary, setRepoInterim } from '../interim-apply.ts';
+import { RELEASE_DAEMON_REFUSAL, interimStatus, publishCanary, recordRelease, setRepoInterim } from '../interim-apply.ts';
+import { releaseGates } from '../interim.ts';
 import { isLens, lensRepoAllowed, reviewedRepoNames } from '../lens.ts';
 import { resolveLinks } from '../links.ts';
 import { COMPLEXITIES, EFFORTS, OFFICE_GATES } from '../schema.ts';
@@ -160,17 +161,17 @@ const JOB: HelpGroup = {
     },
     {
       command: 'job interim',
-      args: '<id> | publish <id> (<name> | --root) [--confirm]',
+      args: '<id> | publish <id> (<name> | --root) [--confirm] | release <id> (<name> | --root) <version>',
       summary:
-        "each dependency edge between the job's repos: its interim strategy (job or config), links, state (held, waiting, ready, blocked or stale) and why, with no network call. publish publishes a dependency repo's canary: each npm link's package, exported from the verified commit's git objects, as <version>-canary.<sha12> under the canary dist-tag; without --confirm it only lists what it would publish, and --confirm needs a terminal on stdin. publish is the only command that publishes anything. Human-only",
+        "each dependency edge between the job's repos: its interim strategy (job or config), links, state (held, waiting, ready, blocked or stale) and why, with no network call, plus each edge's release gate (ci, held or released). publish publishes a dependency repo's canary: each npm link's package, exported from the verified commit's git objects, as <version>-canary.<sha12> under the canary dist-tag; without --confirm it only lists what it would publish, and --confirm needs a terminal on stdin. publish is the only command that publishes anything. release records that the dependency of a local or sequential edge was released as <version>, after its PR merged: the consumer's PR may then leave draft (forge pr ready) and merge. publish and release are human-only",
       flags: [
-        ['--root', 'with publish: the root repo instead of a member'],
+        ['--root', 'with publish or release: the root repo instead of a member'],
         ['--confirm', 'with publish: publish (without it, nothing is published)'],
       ],
       exits: [
         [
           1,
-          "no such job; for publish, a daemon session, --confirm without a terminal on stdin, a repo that is not the dependency of an npm-only canary edge, a HEAD that is not the one the latest passing verify checked or not on the job branch, a package.json whose name is not the link's, a package that tracks a symlink or npm, yarn or pnpm config in any case, a failed npm publish, or a likely secret in its commits or its files (code secret_found)",
+          "no such job; for publish, a daemon session, --confirm without a terminal on stdin, a repo that is not the dependency of an npm-only canary edge, a HEAD that is not the one the latest passing verify checked or not on the job branch, a package.json whose name is not the link's, a package that tracks a symlink or npm, yarn or pnpm config in any case, a failed npm publish, or a likely secret in its commits or its files (code secret_found); for release, a daemon session, a done or cancelled job, an unknown repo, a repo no local or sequential edge depends on, a version that is not semver or names a canary, or a dependency whose recorded PR is not merged",
         ],
       ],
       docs: ['Interim strategies', 'docs/CONFIG.md#interim-strategies'],
@@ -664,9 +665,21 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         if (flags.confirm !== undefined && flags.confirm !== true) throw usageError(JOB, 'interim');
         return publishCanary(root, config, requireJob(root, jobId).id, root_ === true ? null : rest[2], { confirm: flags.confirm === true, interactive: process.stdin.isTTY === true });
       }
+      if (rest[0] === 'release') {
+        // Before the job or config is read: a daemon session never records a release.
+        if (process.env.FORGE_DAEMON === '1') throw new ForgeError(RELEASE_DAEMON_REFUSAL);
+        const jobId = rest[1];
+        const root_ = flags.root;
+        // parseArgs gives `--root` the next word as its value, so `--root 1.2.0` arrives as root: '1.2.0'.
+        const version = typeof root_ === 'string' ? root_ : rest[root_ === true ? 2 : 3];
+        const name = root_ === undefined ? rest[2] : undefined;
+        if (!jobId || !version || (root_ === undefined && !name) || rest.length !== (root_ === undefined ? 4 : typeof root_ === 'string' ? 2 : 3)) throw usageError(JOB, 'interim');
+        return recordRelease(root, config, requireJob(root, jobId).id, name ?? null, version);
+      }
       if (!id || rest.length > 1) throw usageError(JOB, 'interim');
       const job = requireJob(root, id);
-      return { id: job.id, edges: interimStatus(root, config, job).edges };
+      const edges = interimStatus(root, config, job).edges;
+      return { id: job.id, edges, gates: releaseGates(edges, readEvents(root, job.id)) };
     }
     case 'assist':
       return assist(root, config, requireJob(root, id), flags.gate);
