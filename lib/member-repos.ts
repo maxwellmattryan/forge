@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { INTERIM_STRATEGIES, isInterimStrategy } from './components.ts';
 import { paths, resolveFrom } from './paths.ts';
 import { SEG, githubHost, slugFromRemote } from './repo-slug.ts';
 import type { Config, DoctorCheck } from './types.ts';
@@ -24,7 +25,8 @@ export function isSafeBranch(b: unknown): b is string {
   return typeof b === 'string' && SAFE_REF.test(b) && !b.includes('..') && !b.includes('//') && !b.endsWith('/') && !b.endsWith('.lock');
 }
 
-const isSafeRemote = (r: unknown): r is string =>
+/** A git remote Forge may pass to git or write into a manifest: no leading -, whitespace or control characters. */
+export const isSafeRemote = (r: unknown): r is string =>
   typeof r === 'string' && r.trim() !== '' && r.length <= REMOTE_MAX && !r.startsWith('-') && !/[\s\u0000-\u001f\u007f-\u009f]/.test(r);
 
 const isGithubSlug = (s: unknown): boolean => {
@@ -32,6 +34,17 @@ const isGithubSlug = (s: unknown): boolean => {
   const parts = s.split('/');
   return parts.length === 2 && parts.every((p) => SEG.test(p) && !p.includes('..'));
 };
+
+/**
+ * A `release` map: `interim` one of the strategies. The root's (top-level) is always a map once
+ * defaults fill it; a member's may be absent or null.
+ */
+export function releaseProblems(r: unknown, at: string, optional = false): string[] {
+  if (optional && (r === undefined || r === null)) return [];
+  if (!isMap(r)) return [`${at} must be a map with interim ${INTERIM_STRATEGIES.join(' | ')} (got ${show(r)})`];
+  if (r.interim === undefined && optional) return [];
+  return isInterimStrategy(r.interim) ? [] : [`${at}.interim must be one of ${INTERIM_STRATEGIES.join(' | ')} (got ${show(r.interim)})`];
+}
 
 /** Every problem with `repos` and with a component's `repo` naming one, in the form validateConfig reports. */
 export function repoProblems(c: any, root: string): string[] {
@@ -57,6 +70,7 @@ export function repoProblems(c: any, root: string): string[] {
         problems.push(`${at}.remote must be a git url of at most ${REMOTE_MAX} characters, not starting with - and without whitespace or control characters (got ${show(e.remote)})`);
       if (!isSafeBranch(e.defaultBranch))
         problems.push(`${at}.defaultBranch must be a branch name using only A-Z a-z 0-9 . _ / -, without .. or //, not ending in / or .lock (got ${show(e.defaultBranch)})`);
+      problems.push(...releaseProblems(e.release, `${at}.release`, true));
       const t = e.tracker;
       if (t === undefined || t === null) return;
       if (!isMap(t) || !['github', 'none'].includes(t.kind)) problems.push(`${at}.tracker must be a map with kind github | none (got ${show(t)})`);

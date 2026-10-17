@@ -4,7 +4,7 @@
 // list are derived from that list, never retyped.
 import type { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import type { REQUEST_TYPES } from './requests.ts';
-import type { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
+import type { COMPONENT_KINDS, DEPENDENCY_TYPES, INTERIM_STRATEGIES, LINK_ECOSYSTEMS } from './components.ts';
 import type { AcCoverage } from './acs.ts';
 import type { SECRET_KINDS } from './secrets.ts';
 import type { JobFindings } from './findings.ts';
@@ -232,6 +232,8 @@ export interface JobRepo {
   pr: JobRepoPr | null;
   /** Verified with the job but never branched, pushed or given a PR. */
   verifyOnly: boolean;
+  /** The human's interim strategy for this repo as a dependency (`forge job repo interim`); null inherits config. repos[0] mirrors `Job.interim`. normalizeJob always sets it. */
+  interim?: InterimStrategy | null;
 }
 
 /** A reviewer's settled verdict for a round: the verdicts case in lib/commands/job.ts (via roundVerdicts in lib/jobs.ts). */
@@ -288,6 +290,8 @@ export interface Job {
   complexity: Complexity | null;
   /** Escalate paths the branch changes, recorded by the CLI only: recordProtected in lib/protected.ts. */
   protectedPaths: ProtectedPaths | null;
+  /** The human's interim strategy for the root repo as a dependency (`forge job repo interim --root`); null inherits config. */
+  interim: InterimStrategy | null;
   /** The root repo first, then member repos: `forge job repo add|remove` in lib/job-repos.ts. */
   repos: JobRepo[];
 }
@@ -663,6 +667,7 @@ export interface ResourceConfig {
 export type ComponentKind = (typeof COMPONENT_KINDS)[number];
 export type DependencyType = (typeof DEPENDENCY_TYPES)[number];
 export type LinkEcosystem = (typeof LINK_ECOSYSTEMS)[number];
+export type InterimStrategy = (typeof INTERIM_STRATEGIES)[number];
 
 /** A `dependsOn` edge's local link (docs/CONFIG.md "Components"): the consumer builds against the dependency's job worktree. */
 export interface ComponentLink {
@@ -673,6 +678,8 @@ export interface ComponentLink {
   source?: string | null;
   /** The directory in the dependency's repo; absent or null is the dependency component's `path`. */
   path?: string | null;
+  /** The consumer's manifest an interim pin is written to, relative to the consumer repo's root; absent or null is the ecosystem's file in the consumer component's path. */
+  manifest?: string | null;
 }
 
 /** One edge of a component's `dependsOn`: exactly one of `component` or `backing` is set. */
@@ -703,6 +710,8 @@ export interface MemberRepoConfig {
   remote: string;
   defaultBranch: string;
   tracker?: { kind: 'github' | 'none'; repo?: string | null } | null;
+  /** How the repo releases: its interim strategy as a dependency (docs/CONFIG.md "Interim strategies"). */
+  release?: { interim?: InterimStrategy } | null;
 }
 
 /** What `forge run <job> <name>` executes: defaults().commands in lib/config.ts. */
@@ -810,6 +819,8 @@ export interface Config {
     autoWhen: string[];
   };
   aiAttribution: 'forbid' | 'allow';
+  /** The root repo's release settings: its interim strategy as a dependency (docs/CONFIG.md "Interim strategies"). */
+  release: { interim: InterimStrategy };
   resources: ResourceConfig[];
   components: ComponentConfig[];
   repos: MemberRepoConfig[];

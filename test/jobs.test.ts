@@ -188,14 +188,14 @@ test('reads v1 events into the v2 actor shape', () => {
 test('v9 job gains protectedPaths null', () => {
   const repo = tempRepo();
   try {
-    assert.equal(JOB_SCHEMA_VERSION, 12);
+    assert.equal(JOB_SCHEMA_VERSION, 13);
     const job = createJob(repo.dir, defaults(), { title: 'Old v9' });
     const file = path.join(jobDir(repo.dir, job.id), 'job.json');
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
     delete raw.protectedPaths;
     fs.writeFileSync(file, JSON.stringify({ ...raw, schemaVersion: 9 }));
     const loaded = loadJob(repo.dir, job.id);
-    assert.equal(loaded.schemaVersion, 12);
+    assert.equal(loaded.schemaVersion, 13);
     assert.equal(loaded.protectedPaths, null);
     assert.equal(normalizeJob({ id: 'x', schemaVersion: 10 }).protectedPaths, null);
     // Tolerant: a hand-edited value without a hits list reads as no flag.

@@ -14,8 +14,10 @@ import { issueLinkStatus } from '../issue-link.ts';
 import { checkIssueRef, isSafeUrl, issueUrl } from '../issue-ref.ts';
 import { githubHost, localRepoSlug } from '../repo-slug.ts';
 import { exists } from '../paths.ts';
-import { addJobRepo, refuseJobRepoInDaemon, removeJobRepo } from '../job-repos.ts';
+import { addJobRepo, refuseInterimInDaemon, refuseJobRepoInDaemon, removeJobRepo, trustedMemberWorktree } from '../job-repos.ts';
 import { decideRepoProposals, pendingRepoProposals, proposeJobRepo } from '../repo-proposals.ts';
+import { interimStatus, publishCanary, setRepoInterim } from '../interim-apply.ts';
+import { isLens, lensRepoAllowed, reviewedRepoNames } from '../lens.ts';
 import { resolveLinks } from '../links.ts';
 import { COMPLEXITIES, EFFORTS, OFFICE_GATES } from '../schema.ts';
 import { daemonScope } from '../requests.ts';
@@ -141,20 +143,39 @@ const JOB: HelpGroup = {
     { command: 'job release', args: '<id>', summary: "drop the job's owner", exits: [NO_JOB] },
     {
       command: 'job repo',
-      args: 'add <id> <name> [--verify-only] | remove <id> <name> | propose <id> <name> --reason R',
+      args: 'add <id> <name> [--verify-only] | remove <id> <name> | propose <id> <name> --reason R | interim <id> (<name> | --root) canary|git-ref|local|sequential|inherit',
       summary:
-        "add a member repo (a config repos entry whose clone passes doctor's check) to a job, which then gets its own worktree, verify evidence and PR on the job's branch; remove drops one that has no PR and no worktree left (both human-only). propose records an agent's proposal of a repos entry with its reason in repo-proposals.md; the job then waits until a human, or the foreman when allowed, runs forge job human <id> approve-repos|reject-repos",
+        "add a member repo (a config repos entry whose clone passes doctor's check) to a job, which then gets its own worktree, verify evidence and PR on the job's branch; remove drops one that has no PR and no worktree left; interim sets one job repo's interim strategy as a dependency (what a consumer's PR points at while it is unmerged: docs/CONFIG.md \"Interim strategies\"), overriding release.interim, and inherit clears it (add, remove and interim are human-only). propose records an agent's proposal of a repos entry with its reason in repo-proposals.md; the job then waits until a human, or the foreman when allowed, runs forge job human <id> approve-repos|reject-repos",
       flags: [
         ['--verify-only', 'with add: verify the repo at its base with the job, but give it no branch, push or PR'],
         ['--reason R', 'with propose: what changes in that repo and which component needs it (at most 200 characters)'],
+        ['--root', 'with interim: the root repo instead of a member'],
       ],
       exits: [
         [
           1,
-          "no such job, a done job or one at stage pr, an unknown or duplicate repo, a failing clone check, a repo with a PR or a worktree, or a daemon session; for propose: a missing or long --reason, an eval job, a repo rejected on this job, or a daemon session other than the job's own",
+          'no such job, a done job or one at stage pr, an unknown or duplicate repo, a failing clone check, a repo with a PR or a worktree, or a daemon session; for interim, a done or cancelled job, an unknown or verify-only repo, canary for a repo a cargo or cmake link depends on, or a daemon session; for propose: a missing or long --reason, an eval job, a repo rejected on this job, or a daemon session other than the job\'s own',
         ],
       ],
       docs: ['Job repos', 'docs/ARCHITECTURE.md#job-repos'],
+      readme: true,
+    },
+    {
+      command: 'job interim',
+      args: '<id> | publish <id> (<name> | --root) [--confirm]',
+      summary:
+        "each dependency edge between the job's repos: its interim strategy (job or config), links, state (held, waiting, ready, blocked or stale) and why, with no network call. publish publishes a dependency repo's canary: each npm link's package, exported from the verified commit's git objects, as <version>-canary.<sha12> under the canary dist-tag; without --confirm it only lists what it would publish, and --confirm needs a terminal on stdin. publish is the only command that publishes anything. Human-only",
+      flags: [
+        ['--root', 'with publish: the root repo instead of a member'],
+        ['--confirm', 'with publish: publish (without it, nothing is published)'],
+      ],
+      exits: [
+        [
+          1,
+          "no such job; for publish, a daemon session, --confirm without a terminal on stdin, a repo that is not the dependency of an npm-only canary edge, a HEAD that is not the one the latest passing verify checked or not on the job branch, a package.json whose name is not the link's, a package that tracks a symlink or npm, yarn or pnpm config in any case, a failed npm publish, or a likely secret in its commits or its files (code secret_found)",
+        ],
+      ],
+      docs: ['Interim strategies', 'docs/CONFIG.md#interim-strategies'],
       readme: true,
     },
     { command: 'job note', args: '<id> [text] [--body B | --body-file F]', summary: 'log a note event', flags: BODY, exits: [NO_JOB] },
@@ -251,7 +272,7 @@ const JOB: HelpGroup = {
     {
       command: 'job verdicts',
       args: '<id> [--round N|integration] [--reviewers a,b] [--malformed changes] [--compact]',
-      summary: "read a round's review files and record their verdicts once all are in",
+      summary: "read a round's review files and record their verdicts once all are in, with each reviewed job repo's HEAD",
       flags: [
         ['--round N', 'the round (default: the current one), or integration'],
         ['--reviewers a,b', 'the lenses to read (default: the job\'s reviewers)'],
@@ -274,7 +295,7 @@ const JOB: HelpGroup = {
     {
       command: 'job scope',
       args: '<id>',
-      summary: "files the branch changed outside the spec's Approach",
+      summary: "files the branch changed outside the spec's Approach, across every reviewed job repo (member paths prefixed <repo>/), plus scope.diff for a multi-repo job",
       exits: [
         [1, 'no such job, no worktree or no spec.md'],
         [5, 'git failed'],
@@ -283,7 +304,7 @@ const JOB: HelpGroup = {
     {
       command: 'job panel',
       args: '<id>',
-      summary: "this round's review lenses: always, the spec's suggestions and the panel's paths matched against the branch diff, with a reason per lens",
+      summary: "this round's review lenses: always, the spec's suggestions and the panel's paths matched against the branch diff, with a reason per lens; each reviewed job repo adds the lenses its clone's panel defines, as <repo>:<lens>",
       exits: [
         [1, 'no such job, no worktree or no spec.md'],
         [5, 'git failed'],
@@ -378,6 +399,8 @@ const LOCKED_FIELDS: Record<string, string> = {
   eval: 'forge eval start',
   // Which repos a job pushes to is a human decision.
   repos: 'forge job repo add|remove',
+  // What its PRs point at, and what may be published, is too.
+  interim: 'forge job repo interim',
 };
 
 // Kinds step routes differently: a retro job's review panel is fixed at code and docs, and an eval
@@ -633,6 +656,16 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       return { ok: true, ...(link !== undefined ? { link: linked } : {}) };
     }
     case 'repo': {
+      if (rest[0] === 'interim') {
+        refuseInterimInDaemon();
+        const jobId = rest[1];
+        const root_ = flags.root;
+        // parseArgs gives `--root` the next word as its value, so `--root canary` arrives as root: 'canary'.
+        const strategy = typeof root_ === 'string' ? root_ : rest[root_ === true ? 2 : 3];
+        const name = root_ === undefined ? rest[2] : undefined;
+        if (!jobId || !strategy || (root_ === undefined && !name) || rest.length > (root_ === undefined ? 4 : typeof root_ === 'string' ? 2 : 3)) throw usageError(JOB, 'repo');
+        return setRepoInterim(root, config, requireJob(root, jobId).id, name ?? null, strategy);
+      }
       const action = rest[0];
       const jobId = rest[1];
       const name = rest[2];
@@ -648,6 +681,18 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       if (!['add', 'remove'].includes(String(action)) || !jobId || !name || rest.length > 3 || (action === 'remove' && flags['verify-only'] !== undefined)) throw usageError(JOB, 'repo');
       requireJob(root, jobId);
       return action === 'add' ? addJobRepo(root, config, jobId, name, flags['verify-only'] === true) : removeJobRepo(root, jobId, name);
+    }
+    case 'interim': {
+      if (rest[0] === 'publish') {
+        const jobId = rest[1];
+        const root_ = flags.root;
+        if (!jobId || (root_ !== undefined && root_ !== true) || (root_ === true ? rest.length !== 2 : rest.length !== 3)) throw usageError(JOB, 'interim');
+        if (flags.confirm !== undefined && flags.confirm !== true) throw usageError(JOB, 'interim');
+        return publishCanary(root, config, requireJob(root, jobId).id, root_ === true ? null : rest[2], { confirm: flags.confirm === true, interactive: process.stdin.isTTY === true });
+      }
+      if (!id || rest.length > 1) throw usageError(JOB, 'interim');
+      const job = requireJob(root, id);
+      return { id: job.id, edges: interimStatus(root, config, job).edges };
     }
     case 'assist':
       return assist(root, config, requireJob(root, id), flags.gate);
@@ -739,19 +784,28 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       const integration = flags.round === 'integration';
       if (flags.round !== undefined && !integration && !/^[1-9]\d*$/.test(String(flags.round))) throw new ForgeError('--round must be a positive integer or "integration"', 'usage');
       const round: number | 'integration' = integration ? 'integration' : Number(flags.round ?? job.round);
-      const reviewers = list(flags.reviewers).length ? list(flags.reviewers) : integration ? ['code'] : job.reviewers;
+      // job.reviewers is settable with --field: a qualified lens counts only for a reviewed member of the job.
+      const reviewers = list(flags.reviewers).length ? list(flags.reviewers) : integration ? ['code'] : job.reviewers.filter((l) => isLens(l) && lensRepoAllowed(job, l));
       if (!reviewers.length) throw new ForgeError(`job ${id} has no reviewers selected; set them with: forge job set ${id} --field reviewers='["code","tests"]'`);
       if (flags.malformed !== undefined && flags.malformed !== 'changes') throw new ForgeError('--malformed accepts only "changes"', 'usage');
       const v = roundVerdicts(root, job.id, round, reviewers, config.review.blockOn, { malformedAs: flags.malformed });
       // The sha reviewers saw is evidence; it tells a later reader whether the review is still current.
       const sha = job.worktree && exists(job.worktree) ? run('git', ['rev-parse', 'HEAD'], { cwd: job.worktree, allowFail: true }).stdout.trim() || null : null;
+      // Each reviewed member's HEAD beside the root's sha; only Forge's own worktree path is trusted.
+      const memberHeads = Object.fromEntries(
+        reviewedRepoNames(job).map((name) => {
+          const wt = trustedMemberWorktree(root, config, job, name);
+          return [name, wt ? run('git', ['rev-parse', 'HEAD'], { cwd: wt, allowFail: true }).stdout.trim() || null : null];
+        }),
+      );
+      const heads = Object.keys(memberHeads).length ? { heads: memberHeads } : {};
       if (v.complete) {
         const verdicts = Object.fromEntries(Object.entries(v.reviewers).map(([k, r]) => [k, r.verdict]));
         const coerced = Object.entries(v.reviewers).filter(([, r]) => r.coerced).map(([k]) => k);
-        if (integration) logEvent(root, job.id, 'integration-review', { outcome: v.outcome, sha, reviewers: verdicts, coerced: coerced.length ? coerced : undefined });
+        if (integration) logEvent(root, job.id, 'integration-review', { outcome: v.outcome, sha, ...heads, reviewers: verdicts, coerced: coerced.length ? coerced : undefined });
         else {
           setJob(root, job.id, { fields: { [`verdicts.${round}`]: verdicts } });
-          logEvent(root, job.id, 'verdicts', { round, outcome: v.outcome, sha, coerced: coerced.length ? coerced : undefined });
+          logEvent(root, job.id, 'verdicts', { round, outcome: v.outcome, sha, ...heads, coerced: coerced.length ? coerced : undefined });
         }
         if (coerced.length) logEvent(root, job.id, 'note', { text: `${integration ? 'integration review' : `round ${round}`}: malformed review(s) from ${coerced.join(', ')} counted as CHANGES` });
       }
@@ -759,9 +813,9 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         // Absolute paths, so the orchestrator can hand a re-spawned reviewer its output verbatim.
         const missing = Object.fromEntries(Object.entries(v.reviewers).filter(([, r]) => r.verdict === 'MISSING').map(([k, r]) => [k, r.path]));
         const reviewers = Object.fromEntries(Object.entries(v.reviewers).map(([k, r]) => [k, r.verdict === 'CHANGES' ? `CHANGES(${r.blocking})` : r.verdict]));
-        return { round, complete: v.complete, outcome: v.outcome, sha, reviewers, ...(Object.keys(missing).length ? { missing } : {}) };
+        return { round, complete: v.complete, outcome: v.outcome, sha, ...heads, reviewers, ...(Object.keys(missing).length ? { missing } : {}) };
       }
-      return { ...v, sha };
+      return { ...v, sha, ...heads };
     }
     case 'decision': {
       const jobId = requireJob(root, id).id;
