@@ -14,6 +14,7 @@ import { issueLinkStatus } from '../issue-link.ts';
 import { checkIssueRef, isSafeUrl, issueUrl } from '../issue-ref.ts';
 import { githubHost, localRepoSlug } from '../repo-slug.ts';
 import { exists } from '../paths.ts';
+import { addJobRepo, refuseJobRepoInDaemon, removeJobRepo } from '../job-repos.ts';
 import { COMPLEXITIES, EFFORTS, OFFICE_GATES } from '../schema.ts';
 import { daemonScope } from '../requests.ts';
 import { jobPanel } from '../panel.ts';
@@ -136,6 +137,16 @@ const JOB: HelpGroup = {
       exits: [[1, 'no such job, or the office daemon session ran it'], [3, 'another live session holds the job'], [4, 'dependencies pending, or the repo budget holds new work']],
     },
     { command: 'job release', args: '<id>', summary: "drop the job's owner", exits: [NO_JOB] },
+    {
+      command: 'job repo',
+      args: 'add <id> <name> [--verify-only] | remove <id> <name>',
+      summary:
+        "add a member repo (a config repos entry whose clone passes doctor's check) to a job, which then gets its own worktree, verify evidence and PR on the job's branch; remove drops one that has no PR and no worktree left. Human-only",
+      flags: [['--verify-only', 'with add: verify the repo at its base with the job, but give it no branch, push or PR']],
+      exits: [[1, 'no such job, a done job or one at stage pr, an unknown or duplicate repo, a failing clone check, a repo with a PR or a worktree, or a daemon session']],
+      docs: ['Job repos', 'docs/ARCHITECTURE.md#job-repos'],
+      readme: true,
+    },
     { command: 'job note', args: '<id> [text] [--body B | --body-file F]', summary: 'log a note event', flags: BODY, exits: [NO_JOB] },
     {
       command: 'job human',
@@ -345,6 +356,8 @@ const LOCKED_FIELDS: Record<string, string> = {
   // A cleared flag would skip the PP1 park; pr open recomputes it anyway.
   protectedPaths: 'forge git add|commit, forge verify or forge pr open',
   eval: 'forge eval start',
+  // Which repos a job pushes to is a human decision.
+  repos: 'forge job repo add|remove',
 };
 
 // Kinds step routes differently: a retro job's review panel is fixed at code and docs, and an eval
@@ -584,6 +597,15 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       else if (typeof link === 'string') linked = linkJob(root, config, await loadTracker(root, config), jobId, [link], actor);
       logHumanEvent(root, jobId, 'human', { action, note: note ?? (rest.slice(2).join(' ') || null) }, actor);
       return { ok: true, ...(link !== undefined ? { link: linked } : {}) };
+    }
+    case 'repo': {
+      refuseJobRepoInDaemon();
+      const action = rest[0];
+      const jobId = rest[1];
+      const name = rest[2];
+      if (!['add', 'remove'].includes(String(action)) || !jobId || !name || rest.length > 3 || (action === 'remove' && flags['verify-only'] !== undefined)) throw usageError(JOB, 'repo');
+      requireJob(root, jobId);
+      return action === 'add' ? addJobRepo(root, config, jobId, name, flags['verify-only'] === true) : removeJobRepo(root, jobId, name);
     }
     case 'assist':
       return assist(root, config, requireJob(root, id), flags.gate);

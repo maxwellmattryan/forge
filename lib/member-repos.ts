@@ -169,7 +169,8 @@ export function sameDir(a: string, b: string, platform: NodeJS.Platform = proces
   return platform === 'win32' ? ra.toLowerCase() === rb.toLowerCase() : ra === rb;
 }
 
-function memberCheck(root: string, config: Config, repo: Config['repos'][number], local: LocalConfig): DoctorCheck {
+/** Doctor's check of one member clone: its local.yml path, that it is a clone, and its remote. */
+export function memberCheck(root: string, config: Config, repo: Config['repos'][number], local: LocalConfig): DoctorCheck {
   const name = `repo ${repo.name}`;
   const remote = quoteRemote(repo.remote);
   const gitRemote = config.git?.remote || 'origin';

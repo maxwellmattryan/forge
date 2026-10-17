@@ -63,7 +63,7 @@ test('effort levels, default and resolution', () => {
 test('reads a v6 job', () => {
   const s = scratch();
   try {
-    assert.equal(JOB_SCHEMA_VERSION, 11);
+    assert.equal(JOB_SCHEMA_VERSION, 12);
     const job = createJob(s.root, defaults(), { title: 'Old v6' });
     const file = path.join(jobDir(s.root, job.id), 'job.json');
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -71,20 +71,20 @@ test('reads a v6 job', () => {
     raw.schemaVersion = 6;
     fs.writeFileSync(file, JSON.stringify(raw));
     const loaded = loadJob(s.root, job.id);
-    assert.equal(loaded.schemaVersion, 11);
+    assert.equal(loaded.schemaVersion, 12);
     assert.equal(loaded.effort, null);
     assert.equal(normalizeJob({ id: 'x', schemaVersion: 6 }).effort, null);
     assert.equal(normalizeJob({ id: 'x', schemaVersion: 6, effort: 'low' }).effort, 'low', 'a v6 job that somehow has a valid level keeps it');
-    assert.equal(normalizeJob({ id: 'x', schemaVersion: 12 })._unsupported, true);
+    assert.equal(normalizeJob({ id: 'x', schemaVersion: 13 })._unsupported, true);
     // v7 → v8 only adds the `human` gate: a v7 job loads unchanged.
     const v7 = normalizeJob({ id: 'x', schemaVersion: 7, effort: 'high', state: 'waiting', waitingOn: 'escalation', reason: 'r' });
-    assert.equal(v7.schemaVersion, 11);
+    assert.equal(v7.schemaVersion, 12);
     assert.deepEqual([v7.effort, v7.state, v7.waitingOn, v7.reason, v7._unsupported], ['high', 'waiting', 'escalation', 'r', undefined]);
 
     const migrated = s.f('migrate');
     assert.ok(migrated.changed.includes(path.relative(s.root, file)));
     const rewritten = JSON.parse(fs.readFileSync(file, 'utf8'));
-    assert.equal(rewritten.schemaVersion, 11);
+    assert.equal(rewritten.schemaVersion, 12);
     assert.equal(rewritten.effort, null);
 
     for (const bad of ['ultra', '--dangerously-skip-permissions', 5, 'high --add-dir /', { level: 'high' }]) {
@@ -352,7 +352,7 @@ test('reads a v8 job', () => {
     raw.schemaVersion = 8;
     fs.writeFileSync(file, JSON.stringify(raw));
     const loaded = loadJob(s.root, job.id);
-    assert.equal(loaded.schemaVersion, 11);
+    assert.equal(loaded.schemaVersion, 12);
     assert.equal(loaded.complexity, null);
     assert.equal(normalizeJob({ id: 'x', schemaVersion: 8, complexity: 'extreme' }).complexity, null);
     assert.equal(normalizeJob({ id: 'x', schemaVersion: 9, complexity: 'extreme' }).complexity, null);
