@@ -161,7 +161,7 @@ const JOB: HelpGroup = {
       command: 'job interim',
       args: '<id> | publish <id> (<name> | --root) [--confirm]',
       summary:
-        "each dependency edge between the job's repos: its interim strategy (job or config), links, state (held, waiting, ready, blocked or stale) and why, with no network call. publish publishes a dependency repo's canary: each npm link's package, exported from the verified commit's git objects, as <version>-canary.<sha12> under the canary dist-tag; without --confirm it only lists what it would publish. publish is the only command that publishes anything. Human-only",
+        "each dependency edge between the job's repos: its interim strategy (job or config), links, state (held, waiting, ready, blocked or stale) and why, with no network call. publish publishes a dependency repo's canary: each npm link's package, exported from the verified commit's git objects, as <version>-canary.<sha12> under the canary dist-tag; without --confirm it only lists what it would publish, and --confirm needs a terminal on stdin. publish is the only command that publishes anything. Human-only",
       flags: [
         ['--root', 'with publish: the root repo instead of a member'],
         ['--confirm', 'with publish: publish (without it, nothing is published)'],
@@ -169,10 +169,11 @@ const JOB: HelpGroup = {
       exits: [
         [
           1,
-          "no such job; for publish, a daemon session, a repo that is not the dependency of an npm-only canary edge, a HEAD that is not the one the latest passing verify checked, a package.json whose name is not the link's, a failed npm publish, or a likely secret in its commits (code secret_found)",
+          "no such job; for publish, a daemon session, --confirm without a terminal on stdin, a repo that is not the dependency of an npm-only canary edge, a HEAD that is not the one the latest passing verify checked or not on the job branch, a package.json whose name is not the link's, a package that tracks an .npmrc or .yarnrc, a failed npm publish, or a likely secret in its commits or its files (code secret_found)",
         ],
       ],
       docs: ['Interim strategies', 'docs/CONFIG.md#interim-strategies'],
+      readme: true,
     },
     { command: 'job note', args: '<id> [text] [--body B | --body-file F]', summary: 'log a note event', flags: BODY, exits: [NO_JOB] },
     {
@@ -660,7 +661,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         const root_ = flags.root;
         if (!jobId || (root_ !== undefined && root_ !== true) || (root_ === true ? rest.length !== 2 : rest.length !== 3)) throw usageError(JOB, 'interim');
         if (flags.confirm !== undefined && flags.confirm !== true) throw usageError(JOB, 'interim');
-        return publishCanary(root, config, requireJob(root, jobId).id, root_ === true ? null : rest[2], { confirm: flags.confirm === true });
+        return publishCanary(root, config, requireJob(root, jobId).id, root_ === true ? null : rest[2], { confirm: flags.confirm === true, interactive: process.stdin.isTTY === true });
       }
       if (!id || rest.length > 1) throw usageError(JOB, 'interim');
       const job = requireJob(root, id);

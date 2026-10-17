@@ -6,24 +6,25 @@
 // Must not import worktree.ts or integrity.ts: worktree.ts imports this module.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { attributionForbidden, scrubBranch } from './attribution.ts';
 import { isInsidePath } from './components.ts';
 import { isOwnWorktreePath } from './config.ts';
 import { memberConfig, memberEntry, trustedMemberWorktree } from './job-repos.ts';
-import { jobDir, loadJob, logEvent, readEvents, setJob, updateJob } from './jobs.ts';
-import { INTERIM_STRATEGIES, canaryVersion, isInterimStrategy, npmGitSpec, pinCargo, pinCmake, pinNpm, pinsAny, remoteUrl, repoLabel, resolveInterim } from './interim.ts';
+import { loadJob, logEvent, readEvents, setJob, updateJob } from './jobs.ts';
+import { FULL_SHA, INTERIM_STRATEGIES, canaryVersion, isInterimStrategy, npmGitSpec, pinCargo, pinCmake, pinNpm, pinsAny, remoteUrl, repoLabel, resolveInterim } from './interim.ts';
 import type { CargoPin, InterimEdge, PinResult } from './interim.ts';
 import { isSafeRemote } from './member-repos.ts';
 import { historyEnv } from './protected.ts';
 import type { RepoKey } from './repo-order.ts';
 import { enqueue, listRequests } from './requests.ts';
-import { logSecrets, refusalMessage, scanBranch, secretMode } from './secrets.ts';
+import { logSecrets, refusalMessage, scanBranch, scanFiles, secretMode } from './secrets.ts';
 import type { Config, InterimStrategy, Job, JobEvent } from './types.ts';
 import { ForgeError, SAFE_REF, run } from './util.ts';
 
-const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 const STATUS_ARGV = ['-c', 'core.fsmonitor=false', 'status', '--porcelain', '--untracked-files=normal', '--ignore-submodules=none'];
 const PIN_STRATEGIES = new Set(['git-ref', 'canary']);
 
@@ -69,7 +70,33 @@ function dependencyUrl(root: string, config: Config, key: RepoKey): { url: strin
   }
   if (!isSafeRemote(remote)) return { error: `${repoLabel(key)} has no usable remote URL` };
   const url = remoteUrl(remote);
-  return url === null ? { error: `${repoLabel(key)}'s remote is neither a URL, an absolute path nor user@host:path` } : { url };
+  if (url === null) return { error: `${repoLabel(key)}'s remote is neither a URL, an absolute path nor user@host:path` };
+  if (underHome(url)) return { error: `${repoLabel(key)}'s remote is a path in your home directory, which a pushed manifest must not name (and CI can't fetch); give the repo a hosted remote` };
+  return { url };
+}
+
+/** A `file://` URL inside the user's home directory: pinned, it would publish a local home path in a PR. */
+function underHome(url: string): boolean {
+  if (!/^file:\/\//i.test(url)) return false;
+  let file: string;
+  try {
+    file = path.resolve(fileURLToPath(url));
+  } catch {
+    return true;
+  }
+  const homes = new Set<string>();
+  for (const h of [os.homedir(), process.env.HOME]) {
+    if (!h || path.resolve(h) === path.parse(path.resolve(h)).root) continue;
+    homes.add(path.resolve(h));
+    try {
+      homes.add(fs.realpathSync(h));
+    } catch {}
+  }
+  let real = file;
+  try {
+    real = fs.realpathSync(file);
+  } catch {}
+  return [...homes].some((h) => [file, real].some((f) => f === h || f.startsWith(h + path.sep)));
 }
 
 interface Pins {
@@ -373,39 +400,36 @@ export interface CanaryPackage {
   skipped?: true;
 }
 
-const repoDirName = (key: RepoKey): string => key ?? '_root';
+/** Config npm reads from a package directory, and so from an export: it could redirect the registry and the token. */
+const NPM_CONFIG_FILE = /(^|\/)(\.npmrc|\.yarnrc[^/]*)$/;
 
-/** A fresh `<jobDir>/canary/<repo>/<n>/`, every level a real directory (a planted symlink is replaced). */
-function freshExportDir(root: string, id: string, key: RepoKey): string {
-  const levels = [path.join(jobDir(root, id), 'canary'), path.join(jobDir(root, id), 'canary', repoDirName(key))];
-  for (const d of levels) {
-    try {
-      if (!fs.lstatSync(d).isDirectory()) fs.rmSync(d, { force: true, recursive: true });
-    } catch {}
-    fs.mkdirSync(d, { recursive: true });
-  }
-  const used = fs.readdirSync(levels[1]).filter((n) => /^\d{1,9}$/.test(n)).map(Number);
-  const dir = path.join(levels[1], String((used.length ? Math.max(...used) : 0) + 1));
-  fs.mkdirSync(dir);
-  return dir;
+interface TreeEntry {
+  mode: string;
+  blob: string;
+  path: string;
 }
 
-/**
- * Writes the tree of `rel` at `sha` into `dir` from git objects only: no checkout, so no filter,
- * hook or attribute in the (builder-writable) repo config runs, and nothing untracked or ignored in
- * the worktree ships. Symlinks and submodules are left out.
- */
-function exportTree(cwd: string, sha: string, rel: string, dir: string): void {
+/** The regular files of `rel` at `sha` from git objects only. Symlinks and submodules are left out. */
+function treeEntries(cwd: string, sha: string, rel: string): TreeEntry[] {
   const spec = rel.replace(/\\/g, '/').replace(/\/+$/, '');
   const ls = run('git', ['-c', 'core.quotepath=off', 'ls-tree', '-r', '-z', '--full-tree', sha, '--', ...(spec === '.' ? [] : [spec])], { cwd, env: gitEnv() });
-  const entries = ls.stdout.split('\0').filter(Boolean).flatMap((line) => {
+  return ls.stdout.split('\0').filter(Boolean).flatMap((line) => {
     const m = /^(\d{6}) blob ([0-9a-f]{40,64})\t(.+)$/s.exec(line);
     return m && (m[1] === '100644' || m[1] === '100755') ? [{ mode: m[1], blob: m[2], path: m[3] }] : [];
   });
-  if (!entries.length) return;
+}
+
+/**
+ * Writes `entries` into `dir` from git objects only: no checkout, so no filter, hook or attribute in
+ * the (builder-writable) repo config runs, and nothing untracked or ignored in the worktree ships.
+ * Returns what it wrote, for the secret scan.
+ */
+function exportTree(cwd: string, entries: TreeEntry[], dir: string): { path: string; body: Buffer }[] {
+  if (!entries.length) return [];
   const batch = spawnSync('git', ['cat-file', '--batch'], { cwd, env: gitEnv(), input: entries.map((e) => e.blob).join('\n') + '\n', maxBuffer: 512 * 1024 * 1024 });
-  if (batch.status !== 0 || !batch.stdout) throw new ForgeError(`git cat-file could not read the objects of ${spec} at ${sha.slice(0, 12)}`);
+  if (batch.status !== 0 || !batch.stdout) throw new ForgeError(`git cat-file could not read the objects of the export`);
   const out = batch.stdout as Buffer;
+  const written: { path: string; body: Buffer }[] = [];
   let at = 0;
   for (const e of entries) {
     const nl = out.indexOf(10, at);
@@ -418,7 +442,9 @@ function exportTree(cwd: string, sha: string, rel: string, dir: string): void {
     const file = path.join(dir, e.path);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, body, { mode: e.mode === '100755' ? 0o755 : 0o644 });
+    written.push({ path: e.path, body });
   }
+  return written;
 }
 
 /** Resumes a job PR6 parked, the way a human's approval of a parked gate does: running, plus a `resume` request when the daemon is on. */
@@ -431,14 +457,21 @@ function resumeParked(root: string, config: Config, id: string, reason: string):
   return true;
 }
 
+// Publishing runs on the human's npm credentials, so it needs a human at a terminal too: an agent's
+// Bash tool has no TTY on stdin. A speed bump against a misled session, not a sandbox.
+export const PUBLISH_TTY_REFUSAL = 'forge job interim publish --confirm needs a human at a terminal (stdin is not a TTY); run it yourself in your own shell';
+
 /**
  * `forge job interim publish`: the only path in Forge that publishes anything. Refused in a daemon
- * session, for a repo that is not the dependency of an npm-only canary edge, for a HEAD that is not
- * the one the latest passing verify recorded, and for a secret in the commits under
- * `verifySecrets: block`. Without `confirm` it only says what it would publish.
+ * session, with `confirm` when stdin is not a terminal, for a repo that is not the dependency of an
+ * npm-only canary edge, for a HEAD that is not the one the latest passing verify recorded or not on
+ * the job branch, for a package that carries npm or yarn config, and for a secret in the commits or
+ * in the exported files under `verifySecrets: block`. Without `confirm` it only says what it would
+ * publish.
  */
-export function publishCanary(root: string, config: Config, id: string, key: RepoKey, opts: { confirm: boolean }): { id: string; repo: RepoKey; confirm: boolean; would?: CanaryPackage[]; published?: CanaryPackage[]; resumed?: boolean } {
+export function publishCanary(root: string, config: Config, id: string, key: RepoKey, opts: { confirm: boolean; interactive: boolean }): { id: string; repo: RepoKey; confirm: boolean; would?: CanaryPackage[]; published?: CanaryPackage[]; resumed?: boolean } {
   if (process.env.FORGE_DAEMON === '1') throw new ForgeError(PUBLISH_DAEMON_REFUSAL);
+  if (opts.confirm && !opts.interactive) throw new ForgeError(PUBLISH_TTY_REFUSAL);
   const job = loadJob(root, id);
   if (key !== null && !memberEntry(job, key)) throw new ForgeError(`job ${id} has no repo ${JSON.stringify(key).slice(0, 110)}`);
   const edges = resolveInterim(config, job).edges.filter((e) => e.dependency === key && e.strategy === 'canary' && e.links.length && e.links.every((l) => l.ecosystem === 'npm'));
@@ -450,6 +483,13 @@ export function publishCanary(root: string, config: Config, id: string, key: Rep
   const verified = key === null ? last?.sha : last?.repos?.find((r) => r.repo === key)?.sha;
   if (!head || !verified || head !== verified)
     throw new ForgeError(`${repoLabel(key)}'s HEAD ${String(head).slice(0, 12)} is not the commit the latest passing verify checked (${String(verified ?? 'none').slice(0, 12)}); run: forge verify ${id}`);
+  // job.json is writable by the session this guards against: git says whether the verified commit is
+  // really on the job's branch, not only what the record claims.
+  // Every member shares the job's branch (cleanRepos).
+  const branch = job.branch;
+  const tip = branch && SAFE_REF.test(branch) ? git(wt, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}^{commit}`]).stdout.trim() : '';
+  if (!FULL_SHA.test(tip) || !git(wt, ['merge-base', '--is-ancestor', head, tip]).ok)
+    throw new ForgeError(`${repoLabel(key)}'s verified commit ${head.slice(0, 12)} is not on the job branch ${JSON.stringify(String(branch)).slice(0, 120)}; run: forge verify ${id}`);
   const mode = secretMode(config);
   const view = { id, worktree: wt, base: key === null ? job.base : (memberEntry(job, key)?.base ?? null) };
   const scan = scanBranch(root, config, view, { staged: false, head });
@@ -459,6 +499,7 @@ export function publishCanary(root: string, config: Config, id: string, key: Rep
   const byName = new Map<string, string>();
   for (const e of edges) for (const l of e.links) if (!byName.has(l.name)) byName.set(l.name, l.relPath);
   const would: CanaryPackage[] = [];
+  const trees = new Map<string, TreeEntry[]>();
   for (const [name, rel] of [...byName].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     const text = readAt(wt, head, path.posix.join(rel.replace(/\\/g, '/'), 'package.json'));
     let pkg: any = null;
@@ -468,6 +509,10 @@ export function publishCanary(root: string, config: Config, id: string, key: Rep
     const version = canaryVersion(pkg?.version, head);
     if (!version) throw new ForgeError(`${rel}/package.json in ${repoLabel(key)} has no semver version at ${head.slice(0, 12)}`);
     if (pkg.name !== name) throw new ForgeError(`${rel}/package.json in ${repoLabel(key)} is named ${JSON.stringify(String(pkg.name)).slice(0, 220)}, not the link's ${name}; Forge publishes only the package config names`);
+    const entries = treeEntries(wt, head, rel);
+    const rc = entries.find((e) => NPM_CONFIG_FILE.test(e.path));
+    if (rc) throw new ForgeError(`${repoLabel(key)} tracks ${JSON.stringify(rc.path).slice(0, 220)} in the package ${name}; npm would read it as config while publishing, so Forge won't publish it`);
+    trees.set(name, entries);
     would.push({ name, version, tag: 'canary', dir: rel });
   }
   if (!opts.confirm) return { id, repo: key, confirm: false, would };
@@ -477,21 +522,33 @@ export function publishCanary(root: string, config: Config, id: string, key: Rep
       published.push({ ...p, skipped: true });
       continue;
     }
-    const dir = freshExportDir(root, id, key);
-    exportTree(wt, head, p.dir, dir);
-    const pkgDir = path.join(dir, p.dir);
-    const file = path.join(pkgDir, 'package.json');
-    const raw = fs.readFileSync(file, 'utf8');
-    const pkg = JSON.parse(raw);
-    if (pkg.name !== p.name) throw new ForgeError(`the exported package.json is named ${JSON.stringify(String(pkg.name)).slice(0, 220)}, not ${p.name}`);
-    pkg.version = p.version;
-    const indent = /\n([ \t]+)"/.exec(raw)?.[1] ?? '  ';
-    fs.writeFileSync(file, `${JSON.stringify(pkg, null, indent)}\n`);
-    // Fixed argv, no shell: nothing from the repo or job reaches npm's options.
-    const r = run('npm', ['publish', '--tag', 'canary'], { cwd: pkgDir, allowFail: true });
-    if (!r.ok) throw new ForgeError(`npm publish of ${p.name}@${p.version} exited ${r.status ?? 'without starting'}; nothing was recorded`, 'external');
+    // Outside the repo and the job dir (both writable by the builder), so npm finds no project or
+    // workspace config above the package either.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-canary-'));
+    try {
+      const files = exportTree(wt, trees.get(p.name)!, dir);
+      const exported = scanFiles(root, config, files);
+      logSecrets(root, id, 'publish', exported, { blocked: mode === 'block' });
+      if (mode === 'block' && exported.findings.length) throw new ForgeError(refusalMessage(`the package ${p.name} of ${repoLabel(key)}`, exported.findings), 'secret_found', `forge secrets scan ${id}`);
+      const pkgDir = path.join(dir, p.dir);
+      const file = path.join(pkgDir, 'package.json');
+      const raw = fs.readFileSync(file, 'utf8');
+      const pkg = JSON.parse(raw);
+      if (pkg.name !== p.name) throw new ForgeError(`the exported package.json is named ${JSON.stringify(String(pkg.name)).slice(0, 220)}, not ${p.name}`);
+      pkg.version = p.version;
+      // It could point the publish at another registry or make the canary everyone's latest.
+      delete pkg.publishConfig;
+      const indent = /\n([ \t]+)"/.exec(raw)?.[1] ?? '  ';
+      fs.writeFileSync(file, `${JSON.stringify(pkg, null, indent)}\n`);
+      // Fixed argv, no shell: nothing from the repo or job reaches npm's options, and none of the
+      // package's lifecycle scripts runs in the human's session.
+      const r = run('npm', ['publish', '--ignore-scripts', '--workspaces=false', '--tag', 'canary'], { cwd: pkgDir, allowFail: true });
+      if (!r.ok) throw new ForgeError(`npm publish of ${p.name}@${p.version} exited ${r.status ?? 'without starting'}; nothing was recorded`, 'external');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
     logEvent(root, id, 'canary-published', { repo: key, name: p.name, version: p.version, sha: head });
-    published.push({ ...p, dir: path.relative(root, pkgDir) });
+    published.push(p);
   }
   const resumed = resumeParked(root, config, id, `canary of ${repoLabel(key)} published: open the deferred PRs`);
   return { id, repo: key, confirm: true, published, ...(resumed ? { resumed } : {}) };
