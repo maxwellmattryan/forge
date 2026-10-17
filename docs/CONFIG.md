@@ -572,6 +572,8 @@ components:
       - { component: engine-core, type: build, link: { ecosystem: cargo, name: engine-core } }   # see Local links
     owners: ["@team-core"]      # optional list of strings
     notes: null                 # optional string
+    config:                     # optional: config sinks rendered before each of this component's commands (see Config sinks)
+      - env: { PORT_HTTP: "{port}" }
 ```
 
 - **Selection.** A job's `services` field names the components it touches (the spec's `Services:` header fills it; step records only names that are configured components). When it names exactly one component of this repo, `forge run` and `forge verify` use that component's command, falling back to the top-level one, and run it from `<worktree>/<path>`. With none, several, an unknown name or a component whose `repo` is set, the top-level commands run from the worktree root. The verify integrity scan counts a component's script files under its path, and skips components whose `repo` is set.
@@ -610,6 +612,50 @@ components:
 - **Validation.** `link` must be a map with `ecosystem` `cargo | cmake | npm`; it is a problem on a `backing` edge, between two components of the same repo, with a `name` that fails its ecosystem's pattern (a crate name, a FetchContent name, an npm package name), with a `source` on a non-cargo link or one that is not `crates-io`, a registry name or an `https://`, `ssh://` or `git://` url without whitespace, quotes, backslashes or control characters, with a `path` that is absolute or has a `..` segment, with a `manifest` that is absolute, has a `..` segment or is not the ecosystem's file (`Cargo.toml` for cargo, `CMakeLists.txt` or a `*.cmake` file for cmake, `package.json` for npm), and when two links give one consumer repo the same ecosystem and name (and cargo source) with different dependency directories.
 - **Downstream verification.** A consumer repo with a link to a repo the job changes is what [Downstream verification](#downstream-verification) adds to a job; without a link it would test the released library, so it is skipped.
 - **Never committed.** Verify's integrity report flags added lines that carry a local override (an absolute path of a worktrees root or of `.forge/jobs`, `FETCHCONTENT_SOURCE_DIR_`, a `[patch` table in a `.cargo/config(.toml)`, or a `file:`/`link:` dependency in `package.json` that is absolute or leaves the repo) as blocking under `verifyIntegrity: block` (see [Verify integrity](#verify-integrity)).
+
+### Config sinks
+
+Projects take their configuration in different ways: environment variables, `.env` files, `config.json`, generated files. A component's `config` lists its **config sinks**, and Forge renders every one of them with the job's values right before it runs that component's command, so the component always reads the job's port and id wherever it expects them. Each sink is a map with exactly one kind key:
+
+```yaml
+components:
+  - name: api
+    path: services/api
+    kind: service
+    commands: { test: "npm test", dev: "npm run dev" }
+    config:
+      - env:                                   # injected into the command's environment; nothing on disk
+          PORT_HTTP: "{port}"
+          API_BASE: "http://localhost:{port}"
+      - env-file: .env.local                   # written as NAME=value lines
+        values: { JOB_ID: "{job}" }
+      - file: { path: config.json, format: json, mode: merge, from: config.example.json }
+        values: { server: { port: "{port}", name: "{job}" } }
+      - file: { path: app.toml, format: toml, mode: template, from: app.toml.template }
+      - command: "node scripts/write-config.mjs" # a project script; gets values as env and JSON on stdin
+        values: { PORT_HTTP: "{port}" }
+```
+
+- **`env`**: a map from variable name to a string expression, merged into the command's environment over the inherited one. Nothing is written to disk.
+- **`env-file`**: a path, plus `values`, a flat map of names to string expressions, written one `NAME=value` line per entry in `values` order. A value matching `^[A-Za-z0-9_./:@%+,-]*$` is written bare; any other is double-quoted with `\`, `"` and `
+` escaped.
+- **`file`**: `{ path, format: json | yaml | toml, mode: template | merge, from? }`, plus `values` for merge mode.
+  - `template`: `from` is required and `values` is not allowed. The text of `from` is filled with expressions and written to `path`. A `json` result must parse, or the render fails naming `from`; yaml and toml output is not parsed.
+  - `merge`: `values` is required: a nested map whose leaves are strings (expressions), numbers, booleans or null. The base is `from` when given, otherwise the current file at `path` when it exists, otherwise `{}`. `values` are deep-merged over the base: maps merge key by key, and arrays and scalars from `values` replace. The result is written in `format`: 2-space JSON with a trailing newline, or YAML through Forge's own writer (the base must stay in the YAML subset config.yml itself uses: no anchors, tags or multi-document streams). Merge is for `json` and `yaml` only: Forge has no TOML parser, so `toml` with `mode: merge` is a validation problem; use `mode: template`.
+- **`command`**: a shell command (with the same `{job}`, `{port}`, `{worktree}`, `{branch}` and `{base}` placeholders as other commands), plus optional `values`, a flat map like env-file's. It runs in the component's directory before the configured command, with the command's environment plus the values as variables and `JSON.stringify(values)` on stdin. Its output goes only to `<jobDir>/logs/config-<component>-<timestamp>.log`. A non-zero exit stops everything: `config sink command <i> of component "<c>" exited <n>; see <log path>`.
+
+Every path (`env-file`, `file.path`, `file.from`) is relative to the component's directory (`<worktree>/<path>`), the same cwd its commands run in.
+
+**Expressions.** An expression is `{name}` inside a string value. The roots are `{job}` (the job id), `{port}` (the job's port, a number, or null when the job has none), `{worktree}` (the absolute path of the job's checkout), `{branch}`, `{base}`, `{component.name}`, `{component.path}` and `{component.dir}` (the absolute `<worktree>/<path>`). `{endpoint.…}`, `{backing.…}` and `{secret.…}` are reserved for [endpoints](GLOSSARY.md), backing services and secret references: using one passes validation but fails the render with the issue to watch (`{secret.db} needs secret references (#197), which this Forge does not support yet`).
+- **Typing.** A string that is exactly one expression takes the expression's type: `"{port}"` becomes the number `4123`, or `null` without a port. Any other string is interpolated into a string, and null interpolates as the empty string. In `env`, `env-file` and `command` values everything is stringified, with null as `''`. Quote the expression in YAML (`"{port}"`): unquoted, a YAML parser reads `{port}` as a map, and validation says so.
+- **In config values**, any `{x}` whose `x` looks like an identifier path (`^[A-Za-z_][A-Za-z0-9_.-]*$`) must be a known or reserved root, or validation reports it. Braces around anything else (`{"a":1}`) are literal.
+- **In template files**, only known and reserved roots are recognised, and any other `{…}` is left untouched, so JSON objects, TOML inline tables and literal braces survive. A substituted string is escaped as the content of a double-quoted JSON string, valid inside double quotes in JSON, YAML and TOML basic strings; a number or null is written bare.
+
+**When sinks apply.** Every time Forge prepares a command for a job whose selected component (the one root-repo component its `services` names) has `config`, it renders all of that component's sinks in list order before the command starts: `forge run <job> <name>`, each `forge verify` step (and checkout `run` steps, which go through it) and `forge run <job> <name> --background` (a reused live process renders nothing). `worktrees.setup` and member-repo commands never render sinks, and a job with no component or several runs the top-level commands with none. Sinks are re-rendered on every command, so a file always matches the current config and job values; a file whose bytes and mode are already correct is not rewritten, and writes go through a temp file plus rename, so a reader sees either the old file or the new one. When sinks were applied, `forge run`'s result (and the verify step) gains `config: { component, env, files, commands }`: the env names, the worktree-relative paths of the rendered files and how many command sinks ran, and one `config-sinks` event with the same fields is logged per prepared command. No rendered value appears in output, errors, events, logs or `runtime.json`: values are job data today, but secret references will route through this path.
+
+**Git-ignored rule.** An output path (`env-file` or `file.path`) must be git-ignored and untracked in the job's checkout (`git check-ignore` says so), or the run is refused: `config sink path services/api/config.json must be git-ignored and untracked; add it to .gitignore`. This keeps rendered job values out of commits and out of verify's worktree-clean gate; Forge writes nothing to `.git/info/exclude`. Rendered files are written with mode `0600`. The checkout is treated as hostile: a symlink at the output path is replaced by a regular file, never followed; a parent directory that resolves outside the worktree is refused (missing ones are created); a `from` that is a symlink, is not a regular file, resolves outside the worktree or is missing is refused, naming the path; and a job whose stored `worktree` is not the path Forge computes for it is refused (`config sinks need the job's own worktree`). Each refusal stops before the configured command runs.
+
+**Validation** (`forge config validate`, `forge doctor`, Settings) names each malformed sink as `components "<c>".config[<i>]`: a sink with no kind key or two, a non-list `config`, an absolute, empty or `..` path, an unknown `format` or `mode`, `toml` with `merge`, `template` without `from` or with `values`, `merge` without `values`, a variable name outside `^[A-Za-z_][A-Za-z0-9_]*$` or starting with `FORGE_` or equal to `PORT` (Forge sets those itself), a non-string `env`, env-file or command value, a merge `values` leaf that is an array (or a `__proto__`, `constructor` or `prototype` key), an unknown expression root, an empty `command`, and `config` on a component whose `repo` is set (a member repo has no checkout in the job's worktree).
 
 ### Release strategy
 
