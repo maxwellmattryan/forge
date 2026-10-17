@@ -40,6 +40,8 @@ export interface FixtureOpts {
   integrationTouched?: StepInput['integrationTouched'];
   /** `.forge/verifiers/*.md` entries in the main checkout; 0 by default. */
   verifiers?: number;
+  /** A member repo has no worktree yet (RP2). */
+  memberWorktreesMissing?: boolean;
   /** Extra existing paths (dirs such as review/round-1). */
   present?: string[];
 }
@@ -88,6 +90,7 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     files,
     present,
     worktreeExists: o.worktree !== false,
+    memberWorktreesMissing: o.memberWorktreesMissing ?? false,
     request: { length: 40, listLines: 0, ...o.request },
     plan: { verdict: null, jobs: 0, recommendSplit: false, ...o.plan },
     spec: { size: null, complexity: null, needsDesign: false, services: [], suggested: [], approachPaths: [], ...o.spec },

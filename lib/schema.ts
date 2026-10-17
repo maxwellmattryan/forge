@@ -90,8 +90,8 @@ export const COMPLEXITIES = ['low', 'medium', 'high'] as const;
 /** The roles runtime.efforts sets, in runtime.models order. No orchestrator: sessions take runtime.effort. */
 export const EFFORT_ROLES = ['planner', 'spec-writer', 'designer', 'builder', 'reviewer', 'approver', 'integrator', 'retro', 'judge', 'assistant'] as const;
 
-/** The gate classes the foreman may decide (foreman.decides); `pr-feedback` is a job waiting on pr-review with feedback. */
-export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback'] as const;
+/** The gate classes the foreman may decide (foreman.decides); `pr-feedback` is a pr-review wait with feedback, `repo-proposal` a `human` wait with pending repo proposals. */
+export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal'] as const;
 
 /** foreman.ship: propose leaves merging as it was; merge counts as merge.auto for the approver and PR4. */
 export const FOREMAN_SHIP = ['propose', 'merge'] as const;

@@ -1,7 +1,7 @@
 // projectGraph (lib/project.ts): the config-derived graph GET /api/project serves (issue #175).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { projectGraph } from '../lib/project.ts';
+import { projectGraph, repoGraph } from '../lib/project.ts';
 import { componentProblems } from '../lib/components.ts';
 
 const g = (components: unknown) => projectGraph({ components } as any);
@@ -92,4 +92,22 @@ test('bad entries are dropped, not thrown on', () => {
   assert.equal(r!.problems, componentProblems({ components }).length);
   // A components value that is not a list draws nothing and still counts its problem.
   assert.deepEqual(g('oops'), { components: [], backing: [], edges: [], problems: 1 });
+});
+
+test('repoGraph: one row per valid repos entry, with the components that depend on it', () => {
+  const config = {
+    repos: [{ name: 'lib' }, { name: '../evil' }, { name: 'lib' }, { name: 'tools' }, 'junk'],
+    components: [
+      { name: 'app', path: '.', kind: 'service', dependsOn: [{ component: 'core', type: 'build' }, { component: 'cli', type: 'runtime' }] },
+      { name: 'core', path: '.', kind: 'library', repo: 'lib', dependsOn: [{ component: 'util', type: 'build' }] },
+      { name: 'util', path: 'u', kind: 'library', repo: 'lib' },
+      { name: 'cli', path: '.', kind: 'app', repo: 'tools', dependsOn: [{ component: 'core', type: 'runtime' }] },
+    ],
+  };
+  assert.deepEqual(repoGraph(config as any), [
+    { repo: 'lib', components: ['core', 'util'], usedBy: [{ component: 'app', repo: null, type: 'build' }, { component: 'cli', repo: 'tools', type: 'runtime' }] },
+    { repo: 'tools', components: ['cli'], usedBy: [{ component: 'app', repo: null, type: 'runtime' }] },
+  ]);
+  assert.deepEqual(repoGraph({ components: [] } as any), []);
+  assert.deepEqual(repoGraph({ repos: 'x', components: [] } as any), []);
 });
