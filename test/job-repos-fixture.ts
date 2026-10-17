@@ -117,3 +117,124 @@ export async function twoRepo(): Promise<TwoRepo> {
       .map((l) => JSON.parse(l));
   return { parent, root, lib, rootBare, libBare, git, f, raw, commit, config, events, cleanup: () => fs.rmSync(parent, { recursive: true, force: true }) };
 }
+
+// Per slug `o/<name>`: <name>.pr holds the PR's head branch once created; <name>.state, .url, .num,
+// .head, .checks (passing|pending|failing) and .mergestate override what gh reports; <name>.cross
+// makes it a fork PR; <name>.fail makes `pr create` fail, .viewfail `pr view`, .editfail `pr edit` and
+// .mergefail `pr merge`. <name>.body is the PR body: `pr create` and `pr edit` write it from
+// --body-file and `pr view --json body` prints it. `pr merge` without --auto makes the PR MERGED.
+const FAKE_GH = `#!/bin/sh
+d="$FAKE_GH_DIR"
+echo "$*" >> "$d/calls.log"
+slug=""; head=""; open=""; prev=""; bodyfile=""; json=""; auto=""
+for a in "$@"; do
+  [ "$prev" = "-R" ] && slug="$a"
+  [ "$prev" = "--head" ] && head="$a"
+  [ "$prev" = "--state" ] && [ "$a" = "open" ] && open=1
+  [ "$prev" = "--body-file" ] && bodyfile="$a"
+  [ "$prev" = "--json" ] && json="$a"
+  [ "$a" = "--auto" ] && auto=1
+  prev="$a"
+done
+name="\${slug#*/}"
+num() { if [ -f "$d/$name.num" ]; then cat "$d/$name.num"; elif [ "$name" = lib ]; then echo 7; else echo 11; fi; }
+url() { if [ -f "$d/$name.url" ]; then cat "$d/$name.url"; else echo "https://github.com/$slug/pull/$(num)"; fi; }
+state() { if [ -f "$d/$name.state" ]; then cat "$d/$name.state"; else echo OPEN; fi; }
+cross() { if [ -f "$d/$name.cross" ]; then echo true; else echo false; fi; }
+merged() { if [ "$(state)" = MERGED ]; then echo '"2026-10-02T00:00:00Z"'; else echo null; fi; }
+branch() { cat "$d/$name.pr" 2>/dev/null; }
+headoid() { if [ -f "$d/$name.head" ]; then cat "$d/$name.head"; else echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; fi; }
+mstate() { if [ -f "$d/$name.mergestate" ]; then cat "$d/$name.mergestate"; else echo CLEAN; fi; }
+rollup() {
+  case "$(cat "$d/$name.checks" 2>/dev/null)" in
+    passing) echo '[{"conclusion":"SUCCESS"}]' ;;
+    pending) echo '[{"status":"IN_PROGRESS"}]' ;;
+    failing) echo '[{"conclusion":"FAILURE"}]' ;;
+    *) echo '[]' ;;
+  esac
+}
+case "$1 $2" in
+  "pr create")
+    if [ -f "$d/$name.fail" ]; then echo "create failed for $slug" >&2; exit 1; fi
+    echo "$head" > "$d/$name.pr"
+    [ -n "$bodyfile" ] && cp "$bodyfile" "$d/$name.body"
+    url ;;
+  "pr edit")
+    if [ -f "$d/$name.editfail" ]; then echo "edit failed for $slug" >&2; exit 1; fi
+    [ -n "$bodyfile" ] && cp "$bodyfile" "$d/$name.body" ;;
+  "pr list")
+    if { [ -f "$d/$name.pr" ] || [ -f "$d/$name.cross" ]; } && { [ -z "$open" ] || [ "$(state)" = OPEN ]; }; then
+      printf '[{"number":%s,"url":"%s","state":"%s","isDraft":false,"isCrossRepository":%s,"headRefName":"%s","baseRefName":"main"}]' "$(num)" "$(url)" "$(state)" "$(cross)" "$head"
+    else echo '[]'; fi ;;
+  "pr view")
+    if [ -f "$d/$name.viewfail" ]; then echo "view failed for $slug" >&2; exit 1; fi
+    if [ "$json" = body ]; then
+      node -e 'const fs = require("fs"); let b = ""; try { b = fs.readFileSync(process.argv[1], "utf8"); } catch {} process.stdout.write(JSON.stringify({ body: b }));' "$d/$name.body"
+      exit 0
+    fi
+    printf '{"number":%s,"url":"%s","state":"%s","isDraft":false,"isCrossRepository":%s,"headRefOid":"%s","mergeable":"MERGEABLE","mergeStateStatus":"%s","reviewDecision":"","statusCheckRollup":%s,"mergedAt":%s,"closedAt":null,"headRefName":"%s","baseRefName":"main","title":"t","author":{"login":"x"}}' "$(num)" "$(url)" "$(state)" "$(cross)" "$(headoid)" "$(mstate)" "$(rollup)" "$(merged)" "$(branch)" ;;
+  "api graphql") echo '{"data":{"repository":{"pullRequest":{},"issue":null}}}' ;;
+  "repo view") echo o/app ;;
+  "pr merge")
+    if [ -f "$d/$name.mergefail" ]; then echo "merge failed for $slug" >&2; exit 1; fi
+    [ -z "$auto" ] && echo MERGED > "$d/$name.state" ;;
+esac
+`;
+
+export interface PrProject extends TwoRepo {
+  env: NodeJS.ProcessEnv;
+  /** The fake gh's state directory. */
+  gh: string;
+  calls: () => string[];
+  pr: (args: string[]) => Promise<{ status: number | null; stdout: string; stderr: string }>;
+  heads: (bare: string) => string;
+  /** Writes `<name>.<what>` in the fake gh's directory; null removes it. */
+  fake: (file: string, text: string | null) => void;
+  /** The PR body the fake gh holds for `o/<name>`. */
+  body: (name: string) => string;
+}
+
+/** The two-repo project with the fake gh first on PATH; its cleanup goes into `cleanups`. */
+export async function prProject(cleanups: (() => void)[]): Promise<PrProject> {
+  const p = await twoRepo();
+  cleanups.push(p.cleanup);
+  const gh = path.join(p.parent, 'gh');
+  fs.mkdirSync(path.join(gh, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(gh, 'bin', 'gh'), FAKE_GH, { mode: 0o755 });
+  fs.writeFileSync(path.join(gh, 'calls.log'), '');
+  const env = { PATH: `${path.join(gh, 'bin')}${path.delimiter}${process.env.PATH}`, FAKE_GH_DIR: gh };
+  return {
+    ...p,
+    env,
+    gh,
+    calls: () => fs.readFileSync(path.join(gh, 'calls.log'), 'utf8').split('\n').filter(Boolean),
+    pr: (args) => p.raw(['pr', ...args], env),
+    heads: (bare) => p.git(bare, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/').trim(),
+    fake: (file, text) => (text === null ? fs.rmSync(path.join(gh, file), { force: true }) : fs.writeFileSync(path.join(gh, file), text)),
+    body: (name) => fs.readFileSync(path.join(gh, `${name}.body`), 'utf8'),
+  };
+}
+
+/** A job with member lib, both repos committed and verified. */
+export async function ready(p: PrProject, opts: { verifyOnly?: boolean; libCommit?: boolean; libFiles?: Record<string, string> } = {}) {
+  const j = await p.f('job', 'new', '--title', `Two repo change ${Math.random().toString(36).slice(2, 8)}`);
+  await p.f('job', 'repo', 'add', ...(opts.verifyOnly ? ['--verify-only'] : []), j.id, 'lib');
+  await p.f('worktree', 'create', j.id);
+  const rootWt = path.join(p.parent, 'app.worktrees', j.id);
+  const libWt = path.join(p.parent, 'lib.worktrees', j.id);
+  p.commit(rootWt, { 'app.txt': 'app\n' }, 'feat: app');
+  if (!opts.verifyOnly && opts.libCommit !== false) p.commit(libWt, opts.libFiles ?? { 'lib.txt': 'lib\n' }, 'feat: lib');
+  await p.f('job', 'round', j.id);
+  return { id: j.id as string, rootWt, libWt, branch: `forge/${j.id}` };
+}
+
+/** Adds an `app` component in the root that depends on lib's component (`type`), or the reverse. */
+export function dependsOn(p: TwoRepo, edge: 'app-on-lib' | 'lib-on-app' | 'cycle', type: 'build' | 'runtime' = 'build'): void {
+  p.config((c) => {
+    const lib = c.components.find((x: any) => x.name === 'lib');
+    const app = { name: 'app', repo: null, path: '.', kind: 'service', dependsOn: [] as any[] };
+    if (edge !== 'lib-on-app') app.dependsOn.push({ component: 'lib', type });
+    if (edge !== 'app-on-lib') lib.dependsOn = [{ component: 'app', type }];
+    c.components = [...c.components.filter((x: any) => x.name !== 'app'), app];
+  });
+}

@@ -5,6 +5,8 @@ import { currentActor } from './actor.ts';
 import { isActive, isForemanActor, listJobs, loadJob, logEvent, readEvents, setJob, updateJob, jobDir } from './jobs.ts';
 import { memberConfig, memberEntry, memberRepos, memberWorktree } from './job-repos.ts';
 import { isHttpsUrl } from './schema.ts';
+import { isLinkedJob, jobRepoOrder, siblingLine } from './repo-order.ts';
+import type { PrStateKey, RepoKey } from './repo-order.ts';
 import { checkBranch, historyEnv, logEscalated, policyRules, protectedApproved, refusalText } from './protected.ts';
 import type { MemberBranch } from './protected.ts';
 import { enqueuePrFeedbackGate, maybeEnqueueGate } from './foreman.ts';
@@ -24,6 +26,10 @@ import type { Strategy } from './regenerate.ts';
 import { commandTemplate, verifiedHead } from './worktree.ts';
 
 const MARKER = '<!-- forge -->';
+// The sibling line's section: Forge rewrites only what sits between these, so a human's edits to
+// the rest of a linked job's PR body survive every update.
+export const SIBLINGS_START = '<!-- forge:siblings -->';
+export const SIBLINGS_END = '<!-- /forge:siblings -->';
 const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 
 /** Human feedback on a PR, as GitHub's GraphQL returns it (raw input): fetchFeedback. */
@@ -209,6 +215,7 @@ export function openPr(
   if (existing && existing.state === 'OPEN') {
     setJob(root, id, { fields: { 'pr.pushedSha': pushedSha } });
     logEvent(root, id, 'pr-updated', { number: existing.number });
+    linkSiblingsQuietly(root, config, id);
     return { number: existing.number, url: existing.url, created: false, ...prLinkNote(job, config), ...repos };
   }
   const bodyFile = path.join(jobDir(root, id), 'pr-body.md');
@@ -222,6 +229,7 @@ export function openPr(
   setJob(root, id, { fields: { pr: { number, url, state: 'OPEN', isDraft: Boolean(opts.draft ?? config.pr.draft), openedAt: now(), lastSyncedAt: now(), pushedSha } } });
   logEvent(root, id, 'pr-opened', { number, url });
   queueNotify(root, ['pr-opened'], { job: job.id, reason: 'pr-opened' });
+  linkSiblingsQuietly(root, config, id);
   return { number, url, created: true, ...prLinkNote(job, config), ...repos };
 }
 
@@ -342,12 +350,87 @@ function memberPrByBranch(cwd: string, slug: string, branch: string, which: 'ope
   return list.find((x: any) => x?.state === 'OPEN') ?? (which === 'any' ? (list[0] ?? null) : null);
 }
 
-/** A member PR's body: the summary, then the marker. No Closes or Refs lines and no links to the job's other PRs. */
+/**
+ * A member PR's body: the summary, the (empty) siblings section linkSiblingPrs fills, then the marker.
+ * No Closes or Refs lines.
+ */
 export function memberPrBody(root: string, config: Config, job: Job): string {
   const summary = `## Summary\n\n${firstParagraph(readText(path.join(jobDir(root, job.id), 'spec.md'))) || job.title}`;
-  const body = [summary, MARKER].join('\n\n') + '\n';
+  const body = [summary, `${SIBLINGS_START}\n${SIBLINGS_END}`, MARKER].join('\n\n') + '\n';
   return attributionForbidden(config) ? stripAttribution(body) : body;
 }
+
+/**
+ * `body` with `line` between the first SIBLINGS_START and the next SIBLINGS_END, or null when either
+ * marker is missing (a human removed them, so Forge no longer owns any part of the body).
+ */
+export function spliceSiblings(body: string, line: string): string | null {
+  const s = body.indexOf(SIBLINGS_START);
+  if (s < 0) return null;
+  const from = s + SIBLINGS_START.length;
+  const e = body.indexOf(SIBLINGS_END, from);
+  if (e < 0) return null;
+  return `${body.slice(0, from)}\n${line}\n${body.slice(e)}`;
+}
+
+/**
+ * Writes the sibling line into every OPEN PR of a linked job whose last write (or skip) recorded a
+ * different line. Each PR's live body is read and only the section between the markers changes. A
+ * failure logs `pr-links-failed` and moves on: links never fail `pr open` or `sync`.
+ */
+function linkSiblingPrs(root: string, config: Config, id: string): void {
+  const job = loadJob(root, id);
+  if (!isLinkedJob(job)) return;
+  const { order, cycle } = jobRepoOrder(config, job);
+  const prs: { repo: RepoKey; slug: string; number: number; state: string | undefined }[] = [];
+  for (const key of order) {
+    let slug: string;
+    try {
+      slug = key === null ? repoSlug(root, config) : memberSlug(config, key);
+    } catch {
+      continue;
+    }
+    const pr = key === null ? job.pr : memberEntry(job, key)?.pr;
+    const number = safePrNumber(pr?.number);
+    if (number !== null) prs.push({ repo: key, slug, number, state: pr?.state });
+  }
+  const line = siblingLine(job.id, prs, cycle !== null);
+  if (line === null) return;
+  const events = readEvents(root, id).filter((e) => e.type === 'pr-links-updated' || e.type === 'pr-links-skipped');
+  for (const p of prs) {
+    if (p.state !== 'OPEN' || !SLUG_RE.test(p.slug)) continue;
+    const repo = p.repo === null ? {} : { repo: p.repo };
+    const last = events.findLast((e) => (e.repo ?? null) === p.repo && e.number === p.number);
+    if (last?.line === line) continue;
+    try {
+      const view = JSON.parse(gh(root, ['pr', 'view', String(p.number), '-R', p.slug, '--json', 'body']).stdout);
+      const body = typeof view?.body === 'string' ? view.body : null;
+      if (body === null) throw new ForgeError('gh returned no body');
+      const next = spliceSiblings(body, line);
+      if (next === null) {
+        logEvent(root, id, 'pr-links-skipped', { ...repo, number: p.number, line, reason: 'markers' });
+        continue;
+      }
+      if (next !== body) {
+        const file = path.join(jobDir(root, id), p.repo === null ? 'pr-links.md' : `pr-links-${p.repo}.md`);
+        fs.writeFileSync(file, next);
+        gh(root, ['pr', 'edit', String(p.number), '-R', p.slug, '--body-file', file]);
+      }
+      logEvent(root, id, 'pr-links-updated', { ...repo, number: p.number, line });
+    } catch {
+      logEvent(root, id, 'pr-links-failed', { ...repo, number: p.number });
+    }
+  }
+}
+
+/** linkSiblingPrs that cannot throw, even on a job it cannot load. */
+function linkSiblingsQuietly(root: string, config: Config, id: string): void {
+  try {
+    linkSiblingPrs(root, config, id);
+  } catch {}
+}
+
+const SLUG_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
 const PR_STATES = new Set(['OPEN', 'CLOSED', 'MERGED']);
 
@@ -527,6 +610,7 @@ function prBody(root: string, config: Config, job: Job): string {
   // The reason was written by an agent that read untrusted text, so it goes in a code span: no
   // mention, link, image or HTML in it renders on a public PR (safeText already removed backticks).
   if (approval) parts.push(`## Decision\n\nEscalated: \`${approval.reason}\`. Approved by ${approvedBy(approval)}.`);
+  if (isLinkedJob(job)) parts.push(`${SIBLINGS_START}\n${SIBLINGS_END}`);
   const issueLines = issueReferences(root, config, job);
   if (issueLines.length) parts.push(issueLines.join('\n'));
   parts.push(MARKER);
@@ -686,6 +770,8 @@ export function syncPr(root: string, config: Config, id: string, opts: { route?:
   // title, branch or body reaches a daemon session through it.
   if (integrate && config.daemon?.enabled === true && !listRequests(root, { status: 'pending' }).some((r) => r.type === 'resume' && r.job === id))
     enqueue(root, config, { type: 'resume', job: id, text: 'forge sync moved this job to integrate', from: 'sync' });
+  // After the root PR's state is recorded, so a merged or closed PR is never edited.
+  if (isLinkedJob(job)) linkSiblingsQuietly(root, config, id);
   // The foreman's gates: a park on conflicts, or feedback on a PR waiting for review. Never from mergePr.
   if (route) {
     const after = loadJob(root, id);
