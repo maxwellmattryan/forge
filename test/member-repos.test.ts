@@ -11,7 +11,7 @@ import { tempRepo, scratchGitConfig } from './helpers.ts';
 import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
 import { doctor } from '../lib/doctor.ts';
 import { initWrite, migrate } from '../lib/commands/init.ts';
-import { memberRepoChecks, readLocalConfig, remotesMatch, repoProblems, resolveMemberPath, sameDir } from '../lib/member-repos.ts';
+import { memberRepoChecks, readLocalConfig, remotesMatch, repoProblems, resolveMemberPath, sameDir, shellWord } from '../lib/member-repos.ts';
 import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 import { deepMerge } from '../lib/util.ts';
 import * as yaml from '../lib/yaml.ts';
@@ -287,11 +287,13 @@ describe('member repo doctor checks', { concurrency: 4 }, () => {
       const check = () => memberRepoChecks(p.root, cfg({ repos: [member('a', A)] }))[0] as any;
       let c = check();
       assert.equal(c.ok, false);
-      assert.equal(c.detail, `remote "origin" is https://github.com/acme/wrong, expected ${A}; run: git -C ${dir} remote set-url origin ${A}`);
+      assert.equal(c.detail, `remote "origin" is https://github.com/acme/wrong, expected ${A}; run: git -C ${shellWord(dir)} remote set-url origin ${A}`);
+      // A Windows path has backslashes, which shellWord quotes, so the expected details here go through it too.
+      assert.equal(shellWord('C:\\x\\a'), "'C:\\x\\a'");
       git('remote', 'remove', 'origin');
       c = check();
       assert.equal(c.ok, false);
-      assert.equal(c.detail, `remote "origin" is missing, expected ${A}; run: git -C ${dir} remote add origin ${A}`);
+      assert.equal(c.detail, `remote "origin" is missing, expected ${A}; run: git -C ${shellWord(dir)} remote add origin ${A}`);
       git('remote', 'add', 'origin', 'https://github.com/acme/a');
       c = check();
       assert.equal(c.ok, true, c.detail);
@@ -315,7 +317,7 @@ describe('member repo doctor checks', { concurrency: 4 }, () => {
       let c = check();
       assert.equal(c.ok, false);
       assert.ok(!c.detail.includes(secret), c.detail);
-      assert.equal(c.detail, `remote "origin" is https://git.example.com/acme/other.git, expected ${want}; run: git -C ${dir} remote set-url origin ${want}`);
+      assert.equal(c.detail, `remote "origin" is https://git.example.com/acme/other.git, expected ${want}; run: git -C ${shellWord(dir)} remote set-url origin ${want}`);
       git('remote', 'set-url', 'origin', `https://${secret}@git.example.com/acme/other.git`);
       c = check();
       assert.ok(!c.detail.includes(secret), c.detail);
@@ -361,18 +363,18 @@ describe('member repo doctor checks', { concurrency: 4 }, () => {
       fs.writeFileSync(path.join(dir, 'new.txt'), 'new\n');
       let c = check();
       assert.deepEqual([c.ok, c.warn], [true, true]);
-      assert.equal(c.detail, `main has uncommitted changes (2 paths) at ${dir}`);
+      assert.equal(c.detail, `main has uncommitted changes (2 paths) at ${shellWord(dir)}`);
       git('checkout', '-q', '-b', 'feature');
       c = check();
       assert.equal(c.ok, true);
       assert.equal(c.warn, undefined);
-      assert.equal(c.detail, `${dir} on feature`);
+      assert.equal(c.detail, `${shellWord(dir)} on feature`);
       c = check('develop');
       assert.deepEqual([c.ok, c.warn], [true, true]);
-      assert.equal(c.detail, `no local branch develop; run: git -C ${dir} fetch origin develop:develop`);
+      assert.equal(c.detail, `no local branch develop; run: git -C ${shellWord(dir)} fetch origin develop:develop`);
       git('checkout', '-q', '--detach');
       c = check();
-      assert.equal(c.detail, `${dir} on detached`);
+      assert.equal(c.detail, `${shellWord(dir)} on detached`);
     } finally {
       p.cleanup();
     }
@@ -413,10 +415,17 @@ describe('member repo doctor checks', { concurrency: 4 }, () => {
       assert.equal(resolveMemberPath(p.root, '~/x'), path.join(os.homedir(), 'x'));
       assert.equal(resolveMemberPath(p.root, '../x'), path.resolve(p.root, '../x'));
       assert.equal(resolveMemberPath(p.root, '/abs/x'), '/abs/x');
-      // A FIFO in place of the file is refused rather than read.
-      fs.rmSync(path.join(p.root, '.forge', 'local.yml'));
-      execFileSync('mkfifo', [path.join(p.root, '.forge', 'local.yml')]);
-      assert.match(byName(memberRepoChecks(p.root, config), 'local.yml').detail, /not a regular file/);
+      // Anything but a regular file in its place is refused rather than read: a directory on every
+      // platform, and a FIFO where the OS has them (Windows has none; MSYS mkfifo makes nothing Node sees).
+      const localFile = path.join(p.root, '.forge', 'local.yml');
+      fs.rmSync(localFile);
+      fs.mkdirSync(localFile);
+      assert.match(byName(memberRepoChecks(p.root, config), 'local.yml')?.detail, /not a regular file/);
+      if (process.platform !== 'win32') {
+        fs.rmSync(localFile, { recursive: true });
+        execFileSync('mkfifo', [localFile]);
+        assert.match(byName(memberRepoChecks(p.root, config), 'local.yml')?.detail, /not a regular file/);
+      }
     } finally {
       p.cleanup();
     }
