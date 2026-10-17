@@ -2,7 +2,7 @@
 // this file never runs. The dashboard's src/lib/types.ts carries a copy of the API shapes, kept
 // equal by test/types-parity.ts, until the dashboard imports this file. Unions that have a runtime
 // list are derived from that list, never retyped.
-import type { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
+import type { ACTOR_SOURCES, BACKING_ISOLATIONS, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import type { REQUEST_TYPES } from './requests.ts';
 import type { COMPONENT_KINDS, DEPENDENCY_TYPES, INTERIM_STRATEGIES, LINK_ECOSYSTEMS } from './components.ts';
 import type { AcCoverage } from './acs.ts';
@@ -845,6 +845,8 @@ export interface Config {
   repos: MemberRepoConfig[];
   /** Steps `forge focus` applies to the focused job and undoes on the next change: lib/checkout.ts. */
   checkout: CheckoutStep[];
+  /** Databases, caches and queues jobs run against: lib/backing.ts, docs/CONFIG.md "Backing services". */
+  backing: BackingEntry[];
   /** Verify-only consumers of a changed library: docs/CONFIG.md "Downstream verification". */
   downstream: { enabled: boolean; max: number; skip: string[] };
   infra: {
@@ -1975,6 +1977,43 @@ export interface PostFocusBody {
 
 /** One `checkout:` entry: a fixed path linked to the focused job's build, or a configured command (with an optional undo). */
 export type CheckoutStep = { link: string; to: string } | { run: string; undo?: string | null };
+
+/** How a backing service is shared: a container per job, one per project, or an address run elsewhere. */
+export type BackingIsolation = (typeof BACKING_ISOLATIONS)[number];
+
+/** One `backing:` entry (lib/backing-config.ts validates it). image, ports, env and volumes are for managed (per-job, shared) entries only. */
+export interface BackingEntry {
+  name: string;
+  isolation: BackingIsolation;
+  image?: string;
+  ports?: number[];
+  env?: Record<string, string | number | boolean>;
+  volumes?: string[];
+  url?: string;
+}
+
+/** `.forge/jobs/<job>/backing.json` and `.forge/runtime/backing.json`: host port per container port, per entry name. */
+export interface BackingRecord {
+  v: 1;
+  ports: Record<string, Record<string, number>>;
+}
+
+/** One service in `forge worktree create` and `forge backing up`. */
+export interface BackingUpEntry {
+  name: string;
+  isolation: BackingIsolation;
+  action: 'created' | 'started' | 'running' | 'external';
+  ok: boolean;
+  error?: string;
+}
+
+/** `forge backing down <job>` and the `backing` key of `forge worktree remove`. */
+export interface BackingDownResult {
+  removed: string[];
+  volumes: string[];
+  ok: boolean;
+  error?: string;
+}
 
 /** One checkout step applied or undone on a focus change: lib/checkout.ts. `log` is relative to the job dir. */
 export interface CheckoutStepResult {
