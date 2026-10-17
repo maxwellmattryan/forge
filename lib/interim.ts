@@ -27,6 +27,8 @@ export interface InterimEdge {
   links: DeclaredLink[];
   state: EdgeState;
   detail: string;
+  /** A waiting canary edge: the package and version not published yet. */
+  canary?: { name: string; version: string };
 }
 
 export interface InterimResolution {
@@ -324,4 +326,52 @@ export function pinNpm(text: string, name: string, spec: string, file = 'package
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
   const out = JSON.stringify(doc, null, indent).replace(/\n/g, eol);
   return { text: /\r?\n$/.test(text) ? out + eol : out };
+}
+
+// ---------- deferred PRs ----------
+
+/** A repo `pr open` held back: its PR opens once `waitingOn` merged (sequential) or the canary is published. */
+export interface Deferral {
+  repo: RepoKey;
+  why: 'sequential' | 'canary';
+  waitingOn: RepoKey[];
+  /** canary only: the version the consumer pins, and its package. */
+  version?: string;
+  name?: string;
+}
+
+const isRepoKey = (v: unknown): v is RepoKey => v === null || (typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(v));
+
+/** A `pr-deferred` event's list, every entry checked (events.jsonl is writable outside the CLI); malformed entries are dropped. */
+export function readDeferrals(raw: unknown): Deferral[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Deferral[] = [];
+  for (const d of raw) {
+    if (!d || typeof d !== 'object') continue;
+    const { repo, why, waitingOn, version, name } = d as Record<string, unknown>;
+    if (!isRepoKey(repo) || (why !== 'sequential' && why !== 'canary') || !Array.isArray(waitingOn) || !waitingOn.length || !waitingOn.every(isRepoKey)) continue;
+    if (why === 'canary' && (typeof version !== 'string' || typeof name !== 'string')) continue;
+    out.push({ repo, why, waitingOn, ...(why === 'canary' ? { version: version as string, name: name as string } : {}) });
+  }
+  return out;
+}
+
+/** The latest open attempt (`pr-opened`, `pr-updated` or `pr-deferred`) when it is a `pr-deferred`, else null. */
+export function pendingDeferral<E extends { type: string }>(events: E[]): E | null {
+  const last = events.findLast((e) => e.type === 'pr-opened' || e.type === 'pr-updated' || e.type === 'pr-deferred');
+  return last?.type === 'pr-deferred' ? last : null;
+}
+
+/** Whether a `canary-published` event records `version` for dependency `repo`. */
+export const canaryPublished = (events: { type: string; repo?: unknown; version?: unknown }[], repo: RepoKey, version: string | undefined): boolean =>
+  events.some((e) => e.type === 'canary-published' && (e.repo ?? null) === repo && e.version === version);
+
+/**
+ * Where a deferral stands: the first canary still unpublished, the first sequential entry whose
+ * dependencies have not all merged (per `state`), and whether every entry can open now.
+ */
+export function deferralStatus(deferred: Deferral[], state: (repo: RepoKey) => string | null | undefined, events: { type: string; repo?: unknown; version?: unknown }[]): { canary: Deferral | null; sequential: Deferral | null; openable: boolean } {
+  const canary = deferred.find((d) => d.why === 'canary' && !canaryPublished(events, d.waitingOn[0], d.version)) ?? null;
+  const sequential = deferred.find((d) => d.why === 'sequential' && !d.waitingOn.every((w) => state(w) === 'MERGED')) ?? null;
+  return { canary, sequential, openable: deferred.length > 0 && !canary && !sequential };
 }

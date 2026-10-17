@@ -25,6 +25,9 @@ import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretMode, text
 import { cleanGenerated, generatedConfig, generatedPaths, partitionConflicts, rebuild, regenerateProblem, takeBaseSide } from './regenerate.ts';
 import type { Strategy } from './regenerate.ts';
 import { commandTemplate, verifiedHead } from './worktree.ts';
+import { deferralStatus, pendingDeferral, readDeferrals, repoLabel } from './interim.ts';
+import type { Deferral } from './interim.ts';
+import { interimStatus } from './interim-apply.ts';
 
 const MARKER = '<!-- forge -->';
 // The sibling line's section: Forge rewrites only what sits between these, so a human's edits to
@@ -168,7 +171,7 @@ export function openPr(
   config: Config,
   id: string,
   opts: { title?: string; draft?: boolean; force?: boolean } = {},
-): { number: number; url: string; created: boolean; unlinked?: true; repos?: MemberPrResult[] } {
+): { number: number | null; url: string | null; created: boolean; unlinked?: true; repos?: MemberPrResult[]; deferred?: Deferral[] } {
   requireGh();
   const job = loadJob(root, id);
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree`);
@@ -194,11 +197,11 @@ export function openPr(
   logSecrets(root, id, 'pr', scan, { blocked: mode === 'block' });
   if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of ${id}'s commits could not finish (${scan.error}); forge pr open won't push an unscanned branch`, 'secret_found', `forge secrets scan ${id}`);
   if (mode === 'block' && scan.findings.length) throw new ForgeError(refusalMessage(`the commits of ${id}`, scan.findings), 'secret_found', `forge secrets scan ${id}`);
+  // A member whose PR already merged (a sequential dependency, say) is never pushed or checked again.
+  const open = memberRepos(job).filter((m) => !m.verifyOnly && m.pr?.state !== 'MERGED');
   // Every member is checked before anything is pushed, then opened before the root PR, so a member
-  // failure leaves no root PR behind (this is not a merge order).
-  const plans = memberRepos(job)
-    .filter((m) => !m.verifyOnly)
-    .map((m) => checkMemberPr(root, config, job, m.repo, text.title, mode, evidence.heads?.[m.repo]));
+  // failure leaves no root PR behind.
+  const plans = open.map((m) => checkMemberPr(root, config, job, m.repo, text.title, mode, evidence.heads?.[m.repo]));
   // After checkMemberPr, which refreshes each member's base from its push remote and pushes nothing:
   // a member's remote-tracking base is writable from its worktree, and checked stale it would hide
   // the member's protected paths behind an empty diff, as the root's refresh above prevents for it.
@@ -210,44 +213,137 @@ export function openPr(
   const slug = repoSlug(root, config);
   const ahead = run('git', ['rev-list', '--count', `${config.git.remote}/${job.base}..${checked}`, '--'], { cwd: job.worktree, allowFail: true });
   if (ahead.ok && ahead.stdout.trim() === '0') throw new ForgeError(`branch ${job.branch} has no commits ahead of ${job.base}`);
-  const memberResults = plans.map((p) => openMemberPr(root, config, job, p, text.title, opts.draft));
-  const repos = memberRepos(job).length ? { repos: memberResults } : {};
-  let rewritten = false;
-  let pushedSha = checked;
-  if (attributionForbidden(config)) {
-    const remoteBase = `${config.git.remote}/${job.base}`;
-    // createJob always sets base and branch; so below.
-    const base = run('git', ['rev-parse', '--verify', '--quiet', remoteBase], { cwd: job.worktree, allowFail: true }).ok ? remoteBase : job.base!;
-    // Rewrites messages only, from the checked commit: every tree stays the one that was checked.
-    const scrub = scrubBranch(job.worktree, base, checked, historyEnv());
-    if (scrub.rewritten) {
-      rewritten = true;
-      pushedSha = scrub.sha;
-      logEvent(root, id, 'attribution-scrubbed', { rewritten: scrub.rewritten, commits: scrub.commits });
+  // Interim strategies, judged against the checked commits before anything is pushed.
+  const interim = interimOpenPlan(root, config, job, new Map<RepoKey, string>([[null, checked], ...plans.map((p): [RepoKey, string] => [p.repo, p.checked])]));
+  const isDeferred = (k: RepoKey) => interim.deferred.some((d) => d.repo === k);
+  plans.sort((a, b) => interim.order.indexOf(a.repo) - interim.order.indexOf(b.repo));
+  let rootPushed: string | null = null;
+  const pushRoot = (): string => {
+    if (rootPushed !== null) return rootPushed;
+    let pushedSha = checked;
+    let rewritten = false;
+    if (attributionForbidden(config)) {
+      const remoteBase = `${config.git.remote}/${job.base}`;
+      // createJob always sets base and branch; so below.
+      const base = run('git', ['rev-parse', '--verify', '--quiet', remoteBase], { cwd: job.worktree!, allowFail: true }).ok ? remoteBase : job.base!;
+      // Rewrites messages only, from the checked commit: every tree stays the one that was checked.
+      const scrub = scrubBranch(job.worktree!, base, checked, historyEnv());
+      if (scrub.rewritten) {
+        rewritten = true;
+        pushedSha = scrub.sha;
+        logEvent(root, id, 'attribution-scrubbed', { rewritten: scrub.rewritten, commits: scrub.commits });
+      }
     }
+    // The exact sha GitHub gets, so the merge-time head pin compares against what was checked.
+    pushBranch(job, config, pushedSha, { force: rewritten });
+    rootPushed = pushedSha;
+    return pushedSha;
+  };
+  const rootMerged = job.pr?.state === 'MERGED';
+  // A consumer pins the root's sha (git-ref), so the root's branch exists before any member's.
+  if (interim.rootFirst && !rootMerged && !isDeferred(null)) pushRoot();
+  const memberResults = plans.filter((p) => !isDeferred(p.repo)).map((p) => openMemberPr(root, config, job, p, text.title, interim.drafts.has(p.repo) ? true : opts.draft));
+  const repos = memberRepos(job).length ? { repos: memberResults } : {};
+  const deferred = interim.deferred.length ? { deferred: interim.deferred } : {};
+  const logDeferred = () => {
+    if (interim.deferred.length) logEvent(root, id, 'pr-deferred', { deferred: interim.deferred });
+  };
+  if (isDeferred(null) || rootMerged) {
+    logDeferred();
+    linkSiblingsQuietly(root, config, id);
+    const pr = rootMerged ? { number: job.pr!.number, url: job.pr!.url } : { number: null, url: null };
+    return { ...pr, created: false, ...prLinkNote(job, config), ...repos, ...deferred };
   }
-  // The exact sha GitHub gets, so the merge-time head pin compares against what was checked.
-  pushBranch(job, config, pushedSha, { force: rewritten });
+  const pushedSha = pushRoot();
   const existing = findPr(root, config, id);
   if (existing && existing.state === 'OPEN') {
     setJob(root, id, { fields: { 'pr.pushedSha': pushedSha } });
     logEvent(root, id, 'pr-updated', { number: existing.number });
+    logDeferred();
     linkSiblingsQuietly(root, config, id);
-    return { number: existing.number, url: existing.url, created: false, ...prLinkNote(job, config), ...repos };
+    return { number: existing.number, url: existing.url, created: false, ...prLinkNote(job, config), ...repos, ...deferred };
   }
   const bodyFile = path.join(jobDir(root, id), 'pr-body.md');
   fs.writeFileSync(bodyFile, text.body);
   const args = ['pr', 'create', '-R', slug, '--base', job.base!, '--head', job.branch!, '--title', text.title, '--body-file', bodyFile];
-  if (opts.draft ?? config.pr.draft) args.push('--draft');
+  // A consumer on a local edge has nothing CI can resolve: its PR is held as a draft.
+  const isDraft = interim.drafts.has(null) || Boolean(opts.draft ?? config.pr.draft);
+  if (isDraft) args.push('--draft');
   for (const l of config.pr.labels ?? []) args.push('--label', l);
   for (const r of config.pr.reviewers ?? []) args.push('--reviewer', r);
   const url = gh(job.worktree, args).stdout.trim().split('\n').pop() ?? '';
   const number = Number(url.match(/\/pull\/(\d+)/)?.[1]);
-  setJob(root, id, { fields: { pr: { number, url, state: 'OPEN', isDraft: Boolean(opts.draft ?? config.pr.draft), openedAt: now(), lastSyncedAt: now(), pushedSha } } });
+  setJob(root, id, { fields: { pr: { number, url, state: 'OPEN', isDraft, openedAt: now(), lastSyncedAt: now(), pushedSha } } });
   logEvent(root, id, 'pr-opened', { number, url });
+  logDeferred();
   queueNotify(root, ['pr-opened'], { job: job.id, reason: 'pr-opened' });
   linkSiblingsQuietly(root, config, id);
-  return { number, url, created: true, ...prLinkNote(job, config), ...repos };
+  return { number, url, created: true, ...prLinkNote(job, config), ...repos, ...deferred };
+}
+
+/** What interim strategies make of one `pr open`: interimOpenPlan. */
+interface InterimOpenPlan {
+  /** The job's PR repos, dependencies first: members open in this order. */
+  order: RepoKey[];
+  deferred: Deferral[];
+  /** Consumers on a local edge: their PR is created as a draft. */
+  drafts: Set<RepoKey>;
+  /** The root is the dependency of a git-ref or canary edge: its branch is pushed before any member's. */
+  rootFirst: boolean;
+}
+
+/**
+ * Refuses a `blocked` edge, and a git-ref or canary pin that is stale against the checked commits
+ * (`interim_stale`), then works out which repos wait: a sequential consumer until its dependency's
+ * PR merged (asked of GitHub now), a canary consumer until the version is published, and every repo
+ * that depends on a waiting one through a sequential, git-ref or canary edge.
+ */
+function interimOpenPlan(root: string, config: Config, job: Job, heads: Map<RepoKey, string>): InterimOpenPlan {
+  const { edges } = interimStatus(root, config, job, heads);
+  const { order } = jobRepoOrder(config, job);
+  const blocked = edges.find((e) => e.state === 'blocked');
+  if (blocked) throw new ForgeError(`interim ${blocked.strategy}: ${repoLabel(blocked.consumer)} on ${repoLabel(blocked.dependency)} can't be pinned: ${blocked.detail}`);
+  const stale = edges.find((e) => e.state === 'stale');
+  if (stale) throw new ForgeError(`interim ${stale.strategy}: ${stale.detail.replace(/; run: .*$/, '')}; the checked commits don't carry the pin`, 'interim_stale', `forge verify ${job.id}`);
+  const merged = new Map<RepoKey, boolean>();
+  const isMerged = (k: RepoKey): boolean => {
+    if (!merged.has(k)) merged.set(k, freshMerged(root, config, job, k));
+    return merged.get(k)!;
+  };
+  const deferred: Deferral[] = [];
+  for (const repo of order) {
+    const mine = edges.filter((e) => e.consumer === repo);
+    let d: Deferral | null = null;
+    const waiting = mine.find((e) => e.strategy === 'sequential' && !isMerged(e.dependency));
+    if (waiting) d = { repo, why: 'sequential', waitingOn: mine.filter((e) => e.strategy === 'sequential' && !isMerged(e.dependency)).map((e) => e.dependency) };
+    const canary = !d && mine.find((e) => e.strategy === 'canary' && e.state === 'waiting');
+    if (canary && canary.canary) d = { repo, why: 'canary', waitingOn: [canary.dependency], version: canary.canary.version, name: canary.canary.name };
+    // A repo built on a waiting one through a pin or a merge order waits for the same thing.
+    const via = !d && mine.find((e) => e.strategy !== 'local' && deferred.some((x) => x.repo === e.dependency));
+    if (via) d = { ...deferred.find((x) => x.repo === via.dependency)!, repo };
+    if (d) deferred.push(d);
+  }
+  const drafts = new Set(edges.filter((e) => e.strategy === 'local').map((e) => e.consumer));
+  const rootFirst = edges.some((e) => e.dependency === null && (e.strategy === 'git-ref' || e.strategy === 'canary'));
+  return { order, deferred, drafts, rootFirst };
+}
+
+/**
+ * Whether a job repo's PR is MERGED according to GitHub now (a recorded state is writable). No PR
+ * counts as not merged; so does one that is not the job's own, or any gh failure.
+ */
+function freshMerged(root: string, config: Config, job: Job, key: RepoKey): boolean {
+  const pr = key === null ? job.pr : memberEntry(job, key)?.pr;
+  const number = safePrNumber(pr?.number);
+  if (number === null) return false;
+  try {
+    const slug = key === null ? repoSlug(root, config) : memberSlug(config, key);
+    const view = JSON.parse(gh(root, ['pr', 'view', String(number), '-R', slug, '--json', 'state,headRefName,baseRefName']).stdout);
+    assertJobPr(view, job.branch, key === null ? job.base : (memberEntry(job, key)?.base ?? null), `PR #${number} in ${slug}`);
+    return view?.state === 'MERGED';
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -738,7 +834,7 @@ export function syncTransition(
   job: Pick<Job, 'stage' | 'state' | 'waitingOn' | 'pr'> & { reason?: string | null },
   pr: JobPr,
   config: Pick<Config, 'pr'>,
-  opts: { route: boolean; ownerLive: () => boolean; members?: MemberPrState[] },
+  opts: { route: boolean; ownerLive: () => boolean; members?: MemberPrState[]; reopen?: boolean },
 ): SyncTransition {
   const members = opts.members ?? [];
   const t = rootTransition(job, pr, config, opts, members);
@@ -759,7 +855,7 @@ function rootTransition(
   job: Pick<Job, 'stage' | 'state' | 'waitingOn' | 'pr'> & { reason?: string | null },
   pr: JobPr,
   config: Pick<Config, 'pr'>,
-  opts: { route: boolean; ownerLive: () => boolean },
+  opts: { route: boolean; ownerLive: () => boolean; reopen?: boolean },
   members: MemberPrState[],
 ): SyncTransition {
   const prev: Partial<JobPr> = job.pr ?? {};
@@ -767,6 +863,8 @@ function rootTransition(
   const head = isSha(pr.headOid) ? pr.headOid : null;
   const kept = head !== null && prev.integrateFor === head ? head : null;
   const stay = (change: SyncTransition['change'] = {}): SyncTransition => ({ change, integrate: false, integrateFor: kept });
+  // Before the merged-root wait below: a deferred PR whose dependencies merged opens now.
+  if (opts.reopen && reopenable(job, opts)) return stay(REOPEN_CHANGE);
   if (pr.state === 'MERGED') {
     if (!members.length) return stay(job.state !== 'done' ? { stage: 'done', state: 'done', reason: 'PR merged' } : {});
     // A member whose sync failed counts as not merged: done is final, so it waits for an answer.
@@ -796,11 +894,30 @@ function rootTransition(
   return stay({ state: 'waiting', waitingOn: conflicting ? 'conflicts' : 'pr-review' });
 }
 
-/** What `forge pr sync` returns: `integrate` only when this sync moved the job to integrate. */
+const REOPEN_REASON = 'forge sync: dependencies merged: open the deferred PRs';
+const REOPEN_CHANGE = { state: 'running', waitingOn: null, reason: REOPEN_REASON } as const;
+
+/** A job sync may move to reopen its deferred PRs: parked on pr-review, routing on, and no live session driving it. */
+function reopenable(job: Pick<Job, 'state' | 'waitingOn'>, opts: { route: boolean; ownerLive: () => boolean }): boolean {
+  return opts.route && job.state === 'waiting' && job.waitingOn === 'pr-review' && !opts.ownerLive();
+}
+
+/**
+ * Whether the latest open attempt deferred PRs that can all open now: each sequential deferral's
+ * dependencies MERGED in this sync's answers (`states`), and each canary published.
+ */
+function deferredOpenable(root: string, id: string, states: (k: RepoKey) => PrStateKey | undefined): boolean {
+  const events = readEvents(root, id);
+  const pending = pendingDeferral(events);
+  return pending !== null && deferralStatus(readDeferrals(pending.deferred), states, events).openable;
+}
+
+/** What `forge pr sync` returns: `integrate` only when this sync moved the job to integrate, `reopen` when it resumed a job to open its deferred PRs. */
 export interface SyncResult {
   id: string;
   pr: JobPr | null;
   integrate?: true;
+  reopen?: true;
 }
 
 /**
@@ -820,9 +937,24 @@ function syncPrDetailed(root: string, config: Config, id: string, opts: { route?
   // Member PRs first: a failure there never stops the root sync, and counts as not merged.
   const members = isLinkedJob(loadJob(root, id)) ? syncMemberPrs(root, config, id) : new Map<string, MemberSync>();
   let job = loadJob(root, id);
+  const memberState = (k: RepoKey): PrStateKey | undefined => (k === null ? undefined : members.get(k)?.state);
   if (!job.pr?.number) {
     const found = findPr(root, config, id);
-    if (!found) return { result: { id, pr: null }, members };
+    if (!found) {
+      // The root was deferred, so it has no PR: its dependencies' merges still reopen it.
+      let reopen = false;
+      if (route && deferredOpenable(root, id, memberState)) {
+        setJob(root, id, {
+          derive: (j) => {
+            if (!reopenable(j, { route, ownerLive: () => ownerStatusWithProof(root, j, { env: process.env }).status === 'live' })) return null;
+            reopen = true;
+            return { ...REOPEN_CHANGE };
+          },
+        });
+        if (reopen) enqueueReopen(root, config, id);
+      }
+      return { result: reopen ? { id, pr: null, reopen: true } : { id, pr: null }, members };
+    }
     job = loadJob(root, id);
   }
   // Every non-verify-only member the job has now, read or not: one missing from this sync is unknown.
@@ -862,15 +994,18 @@ function syncPrDetailed(root: string, config: Config, id: string, opts: { route?
   const humanDelta = measured ? measureOnMerge(root, config, job, pr.headRefOid) : job.pr?.humanDelta;
   let synced: JobPr | null = null;
   let integrate = false;
+  let reopen = false;
+  const reopenReady = route && deferredOpenable(root, id, (k) => (k === null ? (PR_STATES.has(pr.state) ? (pr.state as PrStateKey) : null) : memberState(k)));
   // Decided inside the job lock, from the job as stored then: a session that claimed it during the
   // network calls above is the owner this judges, so sync never flips a job someone else drives.
   setJob(root, id, {
     derive: (j) => {
       const merged: JobPr = { ...j.pr, ...fresh, ...(humanDelta ? { humanDelta } : {}) };
-      const t = syncTransition(j, merged, config, { route, ownerLive: () => ownerStatusWithProof(root, j, { env: process.env }).status === 'live', members: memberStates });
+      const t = syncTransition(j, merged, config, { route, ownerLive: () => ownerStatusWithProof(root, j, { env: process.env }).status === 'live', members: memberStates, reopen: reopenReady });
       const { integrateFor: _previous, ...rest } = merged;
       synced = t.integrateFor ? { ...rest, integrateFor: t.integrateFor } : rest;
       integrate = t.integrate;
+      reopen = t.change.reason === REOPEN_REASON;
       return { ...t.change, fields: { pr: synced } };
     },
   });
@@ -890,6 +1025,7 @@ function syncPrDetailed(root: string, config: Config, id: string, opts: { route?
   // title, branch or body reaches a daemon session through it.
   if (integrate && config.daemon?.enabled === true && !listRequests(root, { status: 'pending' }).some((r) => r.type === 'resume' && r.job === id))
     enqueue(root, config, { type: 'resume', job: id, text: 'forge sync moved this job to integrate', from: 'sync' });
+  if (reopen) enqueueReopen(root, config, id);
   // After the root PR's state is recorded, so a merged or closed PR is never edited.
   if (isLinkedJob(job)) linkSiblingsQuietly(root, config, id);
   // The foreman's gates: a park on conflicts, or feedback on a PR waiting for review. Never from mergePr.
@@ -898,7 +1034,13 @@ function syncPrDetailed(root: string, config: Config, id: string, opts: { route?
     maybeEnqueueGate(root, config, job, after);
     enqueuePrFeedbackGate(root, config, after, trustedFeedback(feedback));
   }
-  return { result: integrate ? { id, pr: synced, integrate: true } : { id, pr: synced }, members };
+  return { result: integrate ? { id, pr: synced, integrate: true } : reopen ? { id, pr: synced, reopen: true } : { id, pr: synced }, members };
+}
+
+/** The pool spawns the job's session to open the deferred PRs. A fixed text, as for integrate. */
+function enqueueReopen(root: string, config: Config, id: string): void {
+  if (config.daemon?.enabled === true && !listRequests(root, { status: 'pending' }).some((r) => r.type === 'resume' && r.job === id))
+    enqueue(root, config, { type: 'resume', job: id, text: 'forge sync reopened this job to open its deferred PRs', from: 'sync' });
 }
 
 function measureOnMerge(root: string, config: Config, job: Job, headRefOid: unknown): HumanDelta {

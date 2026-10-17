@@ -224,7 +224,7 @@ export function interimStatus(root: string, config: Config, job: Job, heads?: Ma
       if (e.strategy === 'canary') {
         const missing = [...(plan.versions.get(e) ?? new Map()).entries()].find(([n, v]) => !canaryEvents(events, e.dependency, n, v).length);
         if (missing) {
-          Object.assign(e, { state: 'waiting', detail: `canary ${missing[0]}@${missing[1]} is not published; a human runs: forge job interim publish ${job.id} ${e.dependency ?? '--root'} --confirm` });
+          Object.assign(e, { state: 'waiting', canary: { name: missing[0], version: missing[1] }, detail: `canary ${missing[0]}@${missing[1]} is not published; a human runs: forge job interim publish ${job.id} ${e.dependency ?? '--root'} --confirm` });
           continue;
         }
         Object.assign(e, { state: 'ready', detail: `pins ${[...(plan.versions.get(e) ?? new Map()).entries()].map(([n, v]) => `${n}@${v}`).join(', ')}, published` });

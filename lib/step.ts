@@ -16,6 +16,7 @@ import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
 import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
 import { memberRepos } from './job-repos.ts';
+import { deferralStatus, readDeferrals, resolveInterim } from './interim.ts';
 import { PLUGIN_ROOT, exists } from './paths.ts';
 import { COMPLEXITIES } from './schema.ts';
 import { generatedConfig } from './regenerate.ts';
@@ -42,6 +43,8 @@ export const RULES = [
   'DC1', 'DC2', 'DC3', 'DC4', 'DC5', 'DC6', 'DC7', 'DC8', 'DC9', 'DC10',
   'IG1', 'IG2', 'IG3', 'IG4', 'IG5', 'IG6', 'IG7', 'IG8', 'IG9', 'IG10', 'IG11',
   'PR1', 'PR2', 'PR3', 'PR4', 'PR5',
+  // Interim strategies deferred a PR: park on a human canary publish (PR6), reopen (PR7), or wait for a merge (PR8).
+  'PR6', 'PR7', 'PR8',
   // A secret scan stopped the job: park on `human` (SC1, SC3), or scan again once a human approved (SC2).
   'SC1', 'SC2', 'SC3',
   // Protected paths: park on `human` until a human approves the current content (PP1), or send a
@@ -68,7 +71,7 @@ const STEP_EVENTS = new Set([
   'human', 'round', 'worktree', 'worktree-setup-failed', 'pr-find', 'pr-adopted', 'scope', 'panel', 'integrated', 'integrate-conflicts',
   'integration-review', 'decision', 'fields', 'pr-opened', 'pr-updated', 'pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
   'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found', 'verifiers',
-  'protected-path',
+  'protected-path', 'pr-deferred', 'canary-published',
 ]);
 const MERGE_EVENTS = ['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed'];
 
@@ -1154,8 +1157,33 @@ function pr(x: StepInput): StepAction {
   if (!x.config.pr.enabled) return toStage(x, 'PR1', 'done', 'PRs are off: the branch is the result', { tell: `${j.id} finished on branch ${safe(j.branch, SAFE_REF, 'its branch')}` });
   const last = j.verifyRuns.at(-1);
   if (!last?.ok) return run(x, 'PR2', ['verify', j.id], 'pr open needs a verified HEAD');
-  const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated');
+  // The last open attempt: a deferral counts, so PR3 doesn't run pr open again on the same verify.
+  const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated' || e.type === 'pr-deferred');
   if (!after(opened?.ts, last.at)) return run(x, 'PR3', ['pr', 'open', j.id], 'push and open or update the PR');
-  if (x.decision.autoMerge && autoMerge(x.config) && !j.protectedPaths?.hits?.length && !lastEvent(x, (e) => MERGE_EVENTS.includes(e.type) && after(e.ts, opened!.ts))) return run(x, 'PR4', ['pr', 'merge', j.id], 'the approver marked it auto-merge eligible');
+  if (opened!.type === 'pr-deferred') return deferredPr(x, opened!);
+  // A local edge holds a consumer PR as a draft that nothing CI can build: never merge it unattended.
+  const local = resolveInterim(x.config, j).edges.some((e) => e.strategy === 'local');
+  if (!local && x.decision.autoMerge && autoMerge(x.config) && !j.protectedPaths?.hits?.length && !lastEvent(x, (e) => MERGE_EVENTS.includes(e.type) && after(e.ts, opened!.ts))) return run(x, 'PR4', ['pr', 'merge', j.id], 'the approver marked it auto-merge eligible');
   return set(x, 'PR5', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review' }, 'the PR waits on human review');
+}
+
+const REPO_WORD = /^[A-Za-z0-9._-]+$/;
+const repoWord = (k: string | null): string => (k === null ? 'the root repo' : `repo ${safe(k, REPO_WORD, 'a member')}`);
+
+/** PR6–PR8: the last pr open deferred some PRs; recorded PR states and canary events say what happens next. */
+function deferredPr(x: StepInput, deferral: JobEvent): StepAction {
+  const j = x.job;
+  const deferred = readDeferrals(deferral.deferred);
+  const state = (k: string | null) => (k === null ? j.pr?.state : memberRepos(j).find((m) => m.repo === k)?.pr?.state);
+  const s = deferralStatus(deferred, state, x.events);
+  if (s.canary) {
+    const dep = s.canary.waitingOn[0];
+    const pkg = safe(`${s.canary.name}@${s.canary.version}`, SAFE_ELEMENT, 'its package');
+    const cmd = `forge job interim publish ${j.id} ${dep === null ? '--root' : safe(dep, REPO_WORD, '<repo>')} --confirm`;
+    return park(x, 'PR6', 'human', `${repoWord(s.canary.repo)} waits on a canary of ${repoWord(dep)} [${pkg}]: a human runs ${cmd}`);
+  }
+  if (s.openable) return run(x, 'PR7', ['pr', 'open', j.id], 'every deferred PR can open now: its dependencies merged or the canary is published');
+  const wait = s.sequential ?? deferred[0];
+  const reason = wait ? `${repoWord(wait.repo)} PR opens after ${wait.waitingOn.map(repoWord).join(', ')} merges [interim: sequential]` : 'a deferred PR waits on its dependencies';
+  return set(x, 'PR8', { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', reason }, 'a deferred PR opens once its dependencies merge');
 }
