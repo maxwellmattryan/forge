@@ -4,7 +4,8 @@
 // release.json and state.json are runtime files an agent session can write, so they are checked,
 // never trusted. Every step with a check runs the check first, so a step that happened (a publish
 // that crashed before its checkpoint) is never run twice. Publish steps ask on a TTY unless the
-// repo sets `release.publish: allow`; nothing here fakes a TTY or skips the question.
+// repo sets `release.publish: allow`; nothing here fakes a TTY or skips the question. Without a TTY,
+// the Foreman's approval of this exact plan (lib/release-approval.ts) stands in for the answer.
 
 import crypto from 'node:crypto';
 import { spawn as nodeSpawn } from 'node:child_process';
@@ -37,6 +38,7 @@ import {
   stepCommand,
   strategyOf,
 } from './release-plan.ts';
+import { foremanReleaseApproval, releaseApprovalStatus } from './release-approval.ts';
 import type { Config } from './types.ts';
 import { ForgeError, findOnPath, now, run, writeJsonAtomic } from './util.ts';
 import { pidAlive } from './worktree.ts';
@@ -64,6 +66,8 @@ export interface RunResult {
   ran: string[];
   skipped: string[];
   stopped: RunStop | null;
+  /** A publish step ran without a terminal on the Foreman's approval of this plan. */
+  approvedBy?: 'foreman';
 }
 
 export type SpawnFn = typeof nodeSpawn;
@@ -348,6 +352,9 @@ export async function runRelease(root: string, config: Config, opts: RunOptions)
     const ran: string[] = [];
     const skipped: string[] = [];
     let stopped: RunStop | null = null;
+    // A terminal always asks; only a run without one may lean on the Foreman's approval of this plan.
+    const approval = opts.interactive ? null : foremanReleaseApproval(root, config, plan);
+    let approvedBy: 'foreman' | undefined;
     const recorded = (c: CheckResult) => ({ ...(c.tags ? { tags: c.tags } : {}), ...(c.version ? { version: c.version } : {}) });
     for (let i = 0; i < steps.length && !stopped; i++) {
       const step = steps[i];
@@ -396,11 +403,11 @@ export async function runRelease(root: string, config: Config, opts: RunOptions)
         continue;
       }
       if (step.publish && strategyOf(config, step.repo)?.publish !== 'allow') {
-        if (!opts.interactive) {
+        if (!opts.interactive && approval) approvedBy = 'foreman';
+        else if (!opts.interactive) {
           stopped = { step: step.id, reason: 'needs_confirmation', detail: `run forge release run in a terminal, or set release.publish: allow for ${repo.label} in .forge/config.yml`, log: null };
           break;
-        }
-        if (!(await opts.confirm(publishPrompt(step, repo.dir)))) {
+        } else if (!(await opts.confirm(publishPrompt(step, repo.dir)))) {
           stopped = { step: step.id, reason: 'declined', detail: `${step.id} was declined`, log: null };
           break;
         }
@@ -444,7 +451,7 @@ export async function runRelease(root: string, config: Config, opts: RunOptions)
       st.finishedAt = now();
       save();
     } else if (!fs.existsSync(files.state)) save();
-    return { data: { ok: !stopped, plan: files.md, state: files.state, done, total: steps.length, ran, skipped, stopped }, exitCode: stopped ? 1 : 0 };
+    return { data: { ok: !stopped, plan: files.md, state: files.state, done, total: steps.length, ran, skipped, stopped, ...(approvedBy ? { approvedBy } : {}) }, exitCode: stopped ? 1 : 0 };
   } finally {
     release();
   }
@@ -495,5 +502,6 @@ export function releaseStatus(root: string, config: Config, opts: PlanOptions = 
     ...(staleReason !== undefined ? { staleReason } : {}),
     steps,
     finishedAt: own?.finishedAt ?? null,
+    approval: releaseApprovalStatus(root, config, file),
   };
 }
