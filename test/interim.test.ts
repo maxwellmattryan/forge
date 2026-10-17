@@ -141,10 +141,11 @@ describe('interim: pure helpers', { concurrency: 4 }, () => {
     for (const p of refused) assert.equal(isPackageManagerConfig(p), true, JSON.stringify(p));
     for (const p of ['package.json', 'README.md', 'src/npm.ts', 'docs/rc.md', '.npmignore', 'lib/yarn.lock', 'pnpm-lock.yaml'])
       assert.equal(isPackageManagerConfig(p), false, p);
-    // A 10k hostile name finishes at once (no backtracking).
+    // A 100k hostile name finishes at once: linear takes well under 1 ms, quadratic takes seconds.
     const t = Date.now();
-    assert.equal(isPackageManagerConfig(`${'. '.repeat(5000)}x`), false);
-    assert.equal(isPackageManagerConfig(`.npmrc${':'.repeat(10000)}`), true);
+    assert.equal(isPackageManagerConfig(`${'. '.repeat(50000)}x`), false);
+    assert.equal(isPackageManagerConfig(`${'. '.repeat(50000)}`), false);
+    assert.equal(isPackageManagerConfig(`.npmrc${':'.repeat(100000)}`), true);
     assert.ok(Date.now() - t < 500);
   });
 });

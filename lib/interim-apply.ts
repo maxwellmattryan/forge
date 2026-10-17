@@ -406,14 +406,17 @@ export interface CanaryPackage {
  * an NTFS stream suffix (`:$DATA`) or trailing dots and spaces (NTFS drops those).
  */
 function foldName(component: string): string {
-  return component
+  const s = component
     .normalize('NFKC')
     .replace(/\p{Default_Ignorable_Code_Point}/gu, '')
     .toUpperCase()
     .toLowerCase()
     .normalize('NFKC')
-    .replace(/:.*$/s, '')
-    .replace(/[. ]+$/, '');
+    .replace(/:.*$/s, '');
+  // A loop, not /[. ]+$/: that regex retries from every dot or space and is quadratic on `. . . x`.
+  let end = s.length;
+  while (end > 0 && (s[end - 1] === '.' || s[end - 1] === ' ')) end--;
+  return s.slice(0, end);
 }
 
 /**
