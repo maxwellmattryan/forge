@@ -17,13 +17,23 @@ import { checkBranch, compactProtected, renderProtected } from './protected.ts';
 import type { BranchCheck, CompactProtected } from './protected.ts';
 import { logSecrets, renderSecrets, scanBranch, secretMode, secretsOk, secretsTail, compactSecrets } from './secrets.ts';
 import { jobComponent } from './components.ts';
-import type { CompactSecrets, Config, Job, VerifyRun } from './types.ts';
+import { memberClone, memberEntry, memberRepos, memberWorktree, memberWorktreePath, trustedMemberWorktree } from './job-repos.ts';
+import type { ComponentConfig, CompactSecrets, Config, Job, JobRepo, SecretScan, VerifyRun, VerifyRunRepo } from './types.ts';
 import { ForgeError, assertSafeRef, fill, now, readJson, run, shellArgs, tail, withLock, writeJsonAtomic } from './util.ts';
 
-/** What `forge worktree create` returns: createWorktree. */
+/** One member repo's part of `forge worktree create`: createMemberWorktrees. */
+export interface MemberWorktreeResult {
+  repo: string;
+  path: string | null;
+  created: boolean;
+  ok: boolean;
+  error?: string;
+}
+
+/** What `forge worktree create` returns: createWorktree. `repos` (members only) when the job has members. */
 export type CreateWorktreeResult =
-  | { path: string; created: false; ok?: undefined }
-  | { path: string; created: true; port: number; stackedOn?: string; base?: string; setup: { cmd: string; ok: boolean; tail: string }[]; ok: boolean };
+  | { path: string; created: false; ok?: boolean; repos?: MemberWorktreeResult[] }
+  | { path: string; created: true; port: number; stackedOn?: string; base?: string; setup: { cmd: string; ok: boolean; tail: string }[]; ok: boolean; repos?: MemberWorktreeResult[] };
 
 /** What `forge run` returns: runCommand. */
 export interface CommandResult {
@@ -61,6 +71,8 @@ export interface VerifyResult {
   integrity: CompactIntegrity | null;
   secrets: CompactSecrets;
   protected: CompactProtected;
+  /** One record per member repo, only when the job has members. */
+  repos?: VerifyRunRepo[];
   budget?: NonNullable<ReturnType<typeof enforceBudget>>;
 }
 
@@ -76,6 +88,14 @@ export function createWorktree(
   id: string,
   opts: { from?: string; sparseExclude?: string[]; isolate?: boolean } = {},
 ): CreateWorktreeResult {
+  const res = createRootWorktree(root, config, id, opts);
+  const members = memberRepos(loadJob(root, id));
+  if (!members.length) return res;
+  const repos = createMemberWorktrees(root, config, id);
+  return { ...res, ok: res.ok !== false && repos.every((r) => r.ok), repos };
+}
+
+function createRootWorktree(root: string, config: Config, id: string, opts: { from?: string; sparseExclude?: string[]; isolate?: boolean }): CreateWorktreeResult {
   const job = loadJob(root, id);
   // Before git sees them (a leading - is an option) and before anything is created.
   checkRefs(job);
@@ -118,6 +138,47 @@ export function createWorktree(
     }
   }
   return { path: dir, created: true, port, ...stacked, setup: setupLog, ok: true };
+}
+
+/**
+ * Each member worktree that is missing, in `repos` order: on the job's branch (the existing local
+ * branch, else tracking `<remote>/<branch>`, else new from `<remote>/<base>`), or detached at the base
+ * for a verify-only member. Members get no copy, setup, port or shared Cargo target. One member's
+ * failure is reported and the rest still run; a rerun creates only what is missing.
+ */
+function createMemberWorktrees(root: string, config: Config, id: string): MemberWorktreeResult[] {
+  const job = loadJob(root, id);
+  const remote = config.git.remote;
+  const out: MemberWorktreeResult[] = [];
+  for (const m of memberRepos(job)) {
+    try {
+      const clone = memberClone(root, config, m.repo);
+      const dir = memberWorktreePath(root, config, m.repo, id, clone);
+      if (m.worktree === dir && exists(dir)) {
+        out.push({ repo: m.repo, path: dir, created: false, ok: true });
+        continue;
+      }
+      checkRefs(job);
+      const base = assertSafeRef(m.base, `repos ${m.repo} base`);
+      if (exists(dir)) throw new ForgeError(`${dir} already exists; remove it or run: forge worktree remove ${id} --repo ${m.repo}`);
+      run('git', ['fetch', remote, '--prune'], { cwd: clone, allowFail: true });
+      // A worktree deleted by hand stays registered and would keep its branch "checked out".
+      run('git', ['worktree', 'prune'], { cwd: clone, allowFail: true });
+      fs.mkdirSync(path.dirname(dir), { recursive: true });
+      const start = () => (run('git', ['rev-parse', '--verify', '--quiet', `${remote}/${base}`], { cwd: clone, allowFail: true }).ok ? `${remote}/${base}` : base);
+      if (m.verifyOnly) run('git', ['worktree', 'add', '--detach', dir, start()], { cwd: clone });
+      else addWorktree(clone, dir, job, remote, branchState(clone, job.branch!, remote), [], start);
+      updateJob(root, id, (j) => {
+        const e = memberEntry(j, m.repo);
+        if (e) e.worktree = dir;
+      });
+      logEvent(root, id, 'repo-worktree', { repo: m.repo, path: dir, verifyOnly: m.verifyOnly });
+      out.push({ repo: m.repo, path: dir, created: true, ok: true });
+    } catch (e) {
+      out.push({ repo: m.repo, path: null, created: false, ok: false, error: `repo ${m.repo}: ${(e as Error).message}` });
+    }
+  }
+  return out;
 }
 
 function addWorktree(
@@ -402,6 +463,8 @@ export interface RunOptions {
   tail?: number;
   label?: string;
   args?: string[];
+  /** A member repo: run its component's command in its worktree (`forge run … --repo`). */
+  repo?: string;
 }
 
 /** A command ready to run: the filled line, where it runs, and its environment. */
@@ -409,10 +472,13 @@ interface PreparedCommand {
   cmd: string;
   cwd: string;
   env: NodeJS.ProcessEnv;
+  /** Set for a member repo's command. */
+  repo?: string;
 }
 
 /** Everything before the command starts, shared by the sync and async runners so both log alike. */
 function prepareCommand(root: string, config: Config, id: string, name: string, opts: RunOptions): PreparedCommand {
+  if (opts.repo !== undefined) return prepareMemberCommand(root, config, id, name, opts.repo, opts);
   const job = loadJob(root, id);
   const component = jobComponent(config, job);
   const template = commandTemplate(config, job, name);
@@ -426,14 +492,43 @@ function prepareCommand(root: string, config: Config, id: string, name: string, 
   return { cmd, cwd, env: envFor(job, job.worktree, job.port) };
 }
 
+/**
+ * A member repo's command: the `name` command of the one component whose `repo` is the member, run in
+ * `<member worktree>/<component.path>`. Members have no top-level commands to fall back on.
+ */
+function prepareMemberCommand(root: string, config: Config, id: string, name: string, repo: string, opts: RunOptions): PreparedCommand {
+  const job = loadJob(root, id);
+  const { member, worktree } = memberWorktree(root, config, job, repo);
+  const component = memberComponent(config, repo, name);
+  if (!component) throw new ForgeError(`no component of repo ${repo} defines a "${name}" command (components[].commands.${name} with repo: ${repo})`);
+  const cmd = fillCommand(name, component.commands![name]!, memberVars(root, job, member, worktree), opts.args ?? []);
+  touchJob(root, id);
+  return { cmd, cwd: path.join(worktree, component.path), env: envFor(job, worktree, null), repo };
+}
+
+/** The one component of member `repo` that defines `name`, null when none does; several is refused. */
+function memberComponent(config: Config, repo: string, name: string): ComponentConfig | null {
+  const found = (config.components ?? []).filter((c) => c?.repo === repo && typeof c.commands?.[name] === 'string' && c.commands[name]);
+  if (found.length > 1) throw new ForgeError(`several components of repo ${repo} define "${name}" (${found.map((c) => c.name).join(', ')}); give it to one`);
+  return found[0] ?? null;
+}
+
+// A member's `{worktree}` is the checked member path (memberWorktree), its `{base}` the member's base,
+// and `{branch}` empty for a verify-only member, which has none.
+function memberVars(root: string, job: Job, member: JobRepo, worktree: string): Record<string, string | number> {
+  checkRefs(job);
+  const base = assertSafeRef(member.base, `repos ${member.repo} base`);
+  return { job: job.id, port: '', worktree, root, branch: member.verifyOnly ? '' : job.branch!, base, args: '' };
+}
+
 /** Everything after: the log file, the `command` event and the result with its tail. */
 function recordCommand(root: string, id: string, name: string, p: PreparedCommand, res: ShellResult, started: number, opts: RunOptions): CommandResult {
   const logDir = path.join(jobDir(root, id), 'logs');
   fs.mkdirSync(logDir, { recursive: true });
-  const logFile = path.join(logDir, `${opts.label ?? name}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
+  const logFile = path.join(logDir, `${opts.label ?? (p.repo ? `${p.repo}-${name}` : name)}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
   fs.writeFileSync(logFile, `$ ${p.cmd}\n(cwd ${p.cwd})\n\n${res.output}\n\n[exit ${res.status}]\n`);
   const result = { name, cmd: p.cmd, ok: res.ok, exit: res.status, durationMs: Date.now() - started, log: path.relative(jobDir(root, id), logFile), tail: tail(res.output, opts.tail ?? 40) };
-  logEvent(root, id, 'command', { name, ok: res.ok, exit: res.status, durationMs: result.durationMs });
+  logEvent(root, id, 'command', { name, ...(p.repo ? { repo: p.repo } : {}), ok: res.ok, exit: res.status, durationMs: result.durationMs });
   return result;
 }
 
@@ -475,9 +570,10 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   const config = configForJob(root, base, job);
   const groups = verifyGroups(config.verify);
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
+  // Every member's worktree is checked before anything runs, so a missing one records nothing.
+  const members = memberRepos(job).map((m) => memberWorktree(root, config, job, m.repo));
   const sha = run('git', ['rev-parse', 'HEAD'], { cwd: job.worktree }).stdout.trim();
-  // fsmonitor, untracked-file and submodule settings are repo config the worktree can write, and each can hide changes.
-  const status = ['-c', 'core.fsmonitor=false', 'status', '--porcelain', '--untracked-files=normal', '--ignore-submodules=none'];
+  const status = STATUS_ARGV;
   const changed = run('git', status, { cwd: job.worktree }).stdout.trim();
   let hiddenError: string | null = null;
   let hidden = '';
@@ -540,9 +636,126 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
     if (hiddenError) integrity = integrityError(integrity, `could not check the worktree for hidden changes: ${hiddenError}`);
     if (!integrity.ok) results.push({ name: 'integrity', ok: false, exit: null, tail: blockingLines(integrity) });
   }
-  const ok = results.every((r) => r.ok);
+  // A failure in the root never skips a member, nor one member another.
+  const memberRuns: MemberVerify[] = [];
+  for (const m of members) memberRuns.push(await verifyMember(root, config, job, groups, mode, m));
+  const rootFailure = results.find((r) => !r.ok);
+  const ok = results.every((r) => r.ok) && memberRuns.every((m) => m.rec.ok);
   const attempt = job.verifyRuns.filter((r) => r.round === job.round).length + 1;
   const lines = [`VERIFY: ${ok ? 'PASS' : 'FAIL'}`, '', `Round ${job.round} · attempt ${attempt} · ${sha.slice(0, 12)} · ${now()}`, ''];
+  renderSteps(lines, results, secrets, mode, prot);
+  if (integrity) lines.push(renderIntegrity(integrity));
+  for (const m of memberRuns) {
+    lines.push('', `# Repo ${m.rec.repo} · ${m.rec.sha.slice(0, 12)}`, '');
+    renderSteps(lines, m.results, m.secrets, mode, null);
+    if (m.integrity) lines.push(renderIntegrity(m.integrity));
+  }
+  const dir = path.join(jobDir(root, id), 'verify');
+  fs.mkdirSync(dir, { recursive: true });
+  const latest = path.join(dir, `round-${job.round}.md`);
+  // round-<n>.md is the last report verify wrote; a verifiers failure appends a run with its own file.
+  const previous = job.verifyRuns.filter((r) => r.round === job.round && r.failure !== 'verifiers').pop();
+  if (previous && exists(latest)) fs.renameSync(latest, path.join(dir, `round-${job.round}-attempt-${previous.attempt}.md`));
+  fs.writeFileSync(latest, lines.join('\n'));
+  const memberFailure = memberRuns.find((m) => !m.rec.ok);
+  const repos = memberRuns.length ? { repos: memberRuns.map((m) => m.rec) } : {};
+  const rec: VerifyRun = { round: job.round, attempt, sha, ok, at: now(), file: path.relative(jobDir(root, id), latest), failure: rootFailure?.name ?? memberFailure?.rec.failure ?? null, ...repos };
+  updateJob(root, id, (j) => {
+    j.verify[job.round] = ok ? 'PASS' : 'FAIL';
+    j.verifyRuns.push(rec);
+    // Every failure, a dirty worktree included, asks for one retry; a pass does not reset it.
+    if (!ok) j.verifyRetries[String(job.round)] = (j.verifyRetries[String(job.round)] ?? 0) + 1;
+  });
+  logEvent(root, id, 'verify', rec);
+  logSecrets(root, id, 'verify', secrets, { blocked: mode === 'block', round: job.round });
+  for (const m of memberRuns) logSecrets(root, id, 'verify', m.secrets, { blocked: mode === 'block', round: job.round });
+  // enforceBudget applies the job's overlay itself.
+  const budget = enforceBudget(root, base, id, 'verify');
+  return {
+    ok,
+    round: job.round,
+    attempt,
+    sha,
+    file: path.relative(root, latest),
+    steps: results.map(({ tail: _t, ...r }) => r),
+    failure: rootFailure ?? memberFailure?.results.find((r) => !r.ok),
+    integrity: integrity ? compactIntegrity(integrity) : null,
+    secrets: compactSecrets(secrets, mode),
+    protected: compactProtected(prot),
+    ...repos,
+    ...(budget ? { budget } : {}),
+  };
+}
+
+// fsmonitor, untracked-file and submodule settings are repo config the worktree can write, and each can hide changes.
+const STATUS_ARGV = ['-c', 'core.fsmonitor=false', 'status', '--porcelain', '--untracked-files=normal', '--ignore-submodules=none'];
+
+/** One member repo's verify: its record, its steps for the report, and its scan and integrity report. */
+interface MemberVerify {
+  rec: VerifyRunRepo;
+  results: VerifyStep[];
+  secrets: SecretScan;
+  integrity: IntegrityReport | null;
+}
+
+/**
+ * A member repo's checks, in the root's order: worktree-clean, the secret scan over its range, each
+ * `verify` group step as the member component's command (skipped when none defines it), then test
+ * integrity against the member's base. No protected, e2e or verifiers step: those are root-only.
+ */
+async function verifyMember(root: string, config: Config, job: Job, groups: string[][], mode: ReturnType<typeof secretMode>, m: { member: JobRepo & { repo: string }; worktree: string }): Promise<MemberVerify> {
+  const repo = m.member.repo;
+  const cwd = m.worktree;
+  // The view scanBranch and testIntegrity read: the member's worktree and base under the job's id.
+  const view = { id: job.id, worktree: cwd, base: m.member.base };
+  const sha = run('git', ['rev-parse', 'HEAD'], { cwd }).stdout.trim();
+  const changed = run('git', STATUS_ARGV, { cwd }).stdout.trim();
+  let hiddenError: string | null = null;
+  let hidden = '';
+  if (!changed) {
+    try {
+      hidden = hiddenChanges(cwd, config).join('\n');
+    } catch (e) {
+      hiddenError = (e as Error).message;
+    }
+  }
+  const dirty = changed || hidden;
+  const results: VerifyStep[] = [];
+  if (dirty) results.push({ name: 'worktree-clean', ok: false, exit: null, tail: dirty });
+  const scanStarted = Date.now();
+  const secrets = scanBranch(root, config, view, { staged: true, head: sha });
+  const secretsStep: VerifyStep = { name: 'secrets', ok: secretsOk(secrets, mode), exit: null, durationMs: Date.now() - scanStarted };
+  const n = secrets.findings.length;
+  if (!secretsStep.ok) secretsStep.tail = secretsTail(secrets);
+  else if (secrets.error) secretsStep.reason = `scan incomplete (verifySecrets: warn): ${secrets.error}`;
+  else if (n) secretsStep.reason = `${n} possible secret${n === 1 ? '' : 's'} (verifySecrets: warn)`;
+  results.push(secretsStep);
+  let integrity: IntegrityReport | null = null;
+  if (!dirty) {
+    for (const group of secretsStep.ok ? groups : []) {
+      const settled = await Promise.allSettled(
+        group.map((step): Promise<VerifyStep> =>
+          memberComponent(config, repo, step)
+            ? runCommandAsync(root, config, job.id, step, { label: `verify-${repo}-${step}`, repo })
+            : Promise.resolve({ name: step, ok: true, skipped: true, reason: `no ${step} command for repo ${repo}` }),
+        ),
+      );
+      const thrown = settled.find((s): s is PromiseRejectedResult => s.status === 'rejected');
+      if (thrown) throw thrown.reason;
+      const ran = settled.map((s) => (s as PromiseFulfilledResult<VerifyStep>).value);
+      results.push(...ran);
+      if (ran.some((r) => !r.ok)) break;
+    }
+    integrity = testIntegrity(root, config, view);
+    if (hiddenError) integrity = integrityError(integrity, `could not check the worktree for hidden changes: ${hiddenError}`);
+    if (!integrity.ok) results.push({ name: 'integrity', ok: false, exit: null, tail: blockingLines(integrity) });
+  }
+  const failed = results.find((r) => !r.ok);
+  return { rec: { repo, sha, ok: !failed, failure: failed?.name ?? null }, results, secrets, integrity };
+}
+
+/** The `## <step>: …` sections of a verify report, the root's (with `prot`) and each member's alike. */
+function renderSteps(lines: string[], results: VerifyStep[], secrets: SecretScan, mode: ReturnType<typeof secretMode>, prot: Pick<BranchCheck, 'refused' | 'escalated' | 'error'> | null): void {
   for (const r of results) {
     if (r.name === 'worktree-clean') {
       lines.push('## worktree-clean: FAILED (uncommitted or hidden changes)', '', 'Commit or discard these (or clear the index flags and filters) before verify can run:', '', '```', r.tail!, '```', ''); // the gate's tail lists the changes
@@ -553,7 +766,7 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
       lines.push(renderSecrets(secrets, mode));
       continue;
     }
-    if (r.name === 'protected') {
+    if (r.name === 'protected' && prot) {
       lines.push(renderProtected(prot));
       continue;
     }
@@ -563,50 +776,35 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
     if ('tail' in r && !r.ok) lines.push('', '```', r.tail!, '```'); // 'tail' in r: the step has one
     lines.push('');
   }
-  if (integrity) lines.push(renderIntegrity(integrity));
-  const dir = path.join(jobDir(root, id), 'verify');
-  fs.mkdirSync(dir, { recursive: true });
-  const latest = path.join(dir, `round-${job.round}.md`);
-  // round-<n>.md is the last report verify wrote; a verifiers failure appends a run with its own file.
-  const previous = job.verifyRuns.filter((r) => r.round === job.round && r.failure !== 'verifiers').pop();
-  if (previous && exists(latest)) fs.renameSync(latest, path.join(dir, `round-${job.round}-attempt-${previous.attempt}.md`));
-  fs.writeFileSync(latest, lines.join('\n'));
-  const rec: VerifyRun = { round: job.round, attempt, sha, ok, at: now(), file: path.relative(jobDir(root, id), latest), failure: results.find((r) => !r.ok)?.name ?? null };
-  updateJob(root, id, (j) => {
-    j.verify[job.round] = ok ? 'PASS' : 'FAIL';
-    j.verifyRuns.push(rec);
-    // Every failure, a dirty worktree included, asks for one retry; a pass does not reset it.
-    if (!ok) j.verifyRetries[String(job.round)] = (j.verifyRetries[String(job.round)] ?? 0) + 1;
-  });
-  logEvent(root, id, 'verify', rec);
-  logSecrets(root, id, 'verify', secrets, { blocked: mode === 'block', round: job.round });
-  // enforceBudget applies the job's overlay itself.
-  const budget = enforceBudget(root, base, id, 'verify');
-  return {
-    ok,
-    round: job.round,
-    attempt,
-    sha,
-    file: path.relative(root, latest),
-    steps: results.map(({ tail: _t, ...r }) => r),
-    failure: results.find((r) => !r.ok),
-    integrity: integrity ? compactIntegrity(integrity) : null,
-    secrets: compactSecrets(secrets, mode),
-    protected: compactProtected(prot),
-    ...(budget ? { budget } : {}),
-  };
 }
 
 /**
  * Whether the worktree's HEAD is the commit the latest verify run passed on. Anything that
  * publishes a branch should refuse when it is not: evidence for an older commit is not evidence.
  */
-export function verifiedHead(root: string, id: string): { head: string; last: VerifyRun | null; verified: boolean } {
+export function verifiedHead(root: string, id: string): { head: string; last: VerifyRun | null; verified: boolean; heads?: Record<string, string> } {
   const job = loadJob(root, id);
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree`);
   const head = run('git', ['rev-parse', 'HEAD'], { cwd: job.worktree }).stdout.trim();
   const last = job.verifyRuns[job.verifyRuns.length - 1] ?? null;
-  return { head, last, verified: Boolean(last && last.ok && last.sha === head) };
+  const verified = Boolean(last && last.ok && last.sha === head);
+  const members = memberRepos(job);
+  if (!members.length) return { head, last, verified };
+  // Every member HEAD must be the one the run checked; a member without its worktree is not verified.
+  const config = loadConfig(root).config;
+  const heads: Record<string, string> = {};
+  let all = verified;
+  for (const m of members) {
+    const wt = trustedMemberWorktree(root, config, job, m.repo);
+    if (!wt) {
+      all = false;
+      continue;
+    }
+    heads[m.repo] = run('git', ['rev-parse', 'HEAD'], { cwd: wt }).stdout.trim();
+    const rec = last?.repos?.find((r) => r.repo === m.repo);
+    if (!rec || rec.sha !== heads[m.repo]) all = false;
+  }
+  return { head, last, verified: all, heads };
 }
 
 /**
@@ -711,7 +909,62 @@ export function stopBackground(root: string, id: string): string[] {
   return stopped;
 }
 
-export function removeWorktree(root: string, id: string, opts: { deleteBranch?: boolean; force?: boolean } = {}): { removed: string | null } {
+/**
+ * Removes the job's worktrees: the root's and then every member's, or with `repo` only that member's.
+ * `removed` stays the root's path; `repos` lists the members handled, only when there are any.
+ */
+export function removeWorktree(
+  root: string,
+  id: string,
+  opts: { deleteBranch?: boolean; force?: boolean; repo?: string } = {},
+): { removed: string | null; repos?: { repo: string; removed: string | null; error?: string }[] } {
+  if (opts.repo !== undefined) {
+    const job = loadJob(root, id);
+    if (!memberEntry(job, opts.repo)) throw new ForgeError(`job ${id} has no repo ${JSON.stringify(opts.repo).slice(0, 110)}`);
+    return { removed: null, repos: [removeMemberWorktree(root, loadConfig(root).config, job, opts.repo, opts)] };
+  }
+  const res = removeRootWorktree(root, id, opts);
+  const job = loadJob(root, id);
+  const members = memberRepos(job);
+  if (!members.length) return res;
+  const config = loadConfig(root).config;
+  // One member's failure (its clone moved, a dirty worktree without --force) never strands the others.
+  const repos = members.map((m) => {
+    try {
+      return removeMemberWorktree(root, config, job, m.repo, opts);
+    } catch (e) {
+      return { repo: m.repo, removed: null, error: `repo ${m.repo}: ${(e as Error).message}` };
+    }
+  });
+  return { ...res, repos };
+}
+
+/**
+ * `git worktree remove` in the member's clone, only for the path Forge computes for this job (a
+ * stored path is job.json, which the session can write). The branch is deleted only in a
+ * non-verify-only member, and only the job's branch.
+ */
+function removeMemberWorktree(root: string, config: Config, job: Job, name: string, opts: { deleteBranch?: boolean; force?: boolean }): { repo: string; removed: string | null } {
+  const m = memberEntry(job, name)!;
+  const clone = memberClone(root, config, name);
+  const dir = memberWorktreePath(root, config, name, job.id, clone);
+  let removed: string | null = null;
+  if (m.worktree && m.worktree !== dir) throw new ForgeError(`repo ${name}: the stored worktree ${JSON.stringify(m.worktree).slice(0, 120)} is not this job's worktree ${dir}`);
+  if (exists(dir)) {
+    run('git', ['worktree', 'remove', ...(opts.force ? ['--force'] : []), dir], { cwd: clone });
+    removed = dir;
+  }
+  run('git', ['worktree', 'prune'], { cwd: clone, allowFail: true });
+  if (opts.deleteBranch && !m.verifyOnly) run('git', ['branch', '-D', assertSafeRef(job.branch, 'job.branch')], { cwd: clone, allowFail: true });
+  updateJob(root, job.id, (j) => {
+    const e = memberEntry(j, name);
+    if (e) e.worktree = null;
+  });
+  logEvent(root, job.id, 'repo-worktree-removed', { repo: name });
+  return { repo: name, removed };
+}
+
+function removeRootWorktree(root: string, id: string, opts: { deleteBranch?: boolean; force?: boolean }): { removed: string | null } {
   const job = loadJob(root, id);
   stopBackground(root, id);
   // Eval jobs get a standalone clone (a .git directory) that `git worktree remove` does not know.

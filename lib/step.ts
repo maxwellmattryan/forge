@@ -15,6 +15,7 @@ import { configForJob } from './eval-overlay.ts';
 import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
 import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts } from './jobs.ts';
+import { memberRepos } from './job-repos.ts';
 import { PLUGIN_ROOT, exists } from './paths.ts';
 import { COMPLEXITIES } from './schema.ts';
 import { generatedConfig } from './regenerate.ts';
@@ -154,7 +155,8 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     paths,
     files,
     present,
-    worktreeExists: Boolean(job.worktree && exists(job.worktree)),
+    // Every job repo's worktree: a missing member worktree sends the job back to I3 (worktree create).
+    worktreeExists: Boolean(job.worktree && exists(job.worktree)) && memberRepos(job).every((m) => Boolean(m.worktree && exists(m.worktree))),
     request: { length: body.length, listLines: listLineCount(body) },
     plan: parsePlan(read('plan.md') ?? ''),
     spec: { ...parseSpecHeader(specText), approachPaths: approachPaths(specText) },

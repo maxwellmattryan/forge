@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { RULES, hasSpecDeltas, listLineCount, parsePlan, parseSpecHeader, roundLenses, selectPanel, shellLine, step } from '../lib/step.ts';
 import type { Config, Job, StepAction, StepInput, VerifyRun } from '../lib/types.ts';
-import { JOB_DIR, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
+import { JOB_DIR, WT, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
 import type { FixtureOpts } from './step-fixture.ts';
 
 interface Row {
@@ -213,6 +213,16 @@ const rows: Row[] = [
   ...UNLINKED.map(([why, j, events]) => ({ name: `I1 reads issues: ${why}`, fx: { config: LOCAL, job: job({ stage: 'backlog', state: 'queued', ...j }), events }, want: run('job', 'link', 'j', '--suggest') })),
   { name: 'G4 issue-link tell names the candidates as untrusted', fx: { job: job({ stage: 'backlog', state: 'waiting', waitingOn: 'issue-link' }) }, want: { action: 'wait', tell: `j needs an issue: candidates in ${path.join(JOB_DIR, 'issue-candidates.md')} (untrusted). /forge approve j <ref> | new | none [reason]` } },
   { name: 'I3 creates the worktree', fx: { worktree: false, job: job({ stage: 'backlog' }) }, want: run('worktree', 'create', 'j') },
+  {
+    name: 'I3: a member repo worktree is missing',
+    fx: { worktree: false, job: job({ stage: 'backlog', repos: [{ repo: null, worktree: WT, branch: 'forge/j', base: 'main', pr: null, verifyOnly: false }, { repo: 'lib', worktree: null, branch: 'forge/j', base: 'main', pr: null, verifyOnly: false }] }) },
+    want: run('worktree', 'create', 'j'),
+  },
+  {
+    name: 'I3: every job repo has its worktree',
+    fx: { job: job({ stage: 'backlog', repos: [{ repo: null, worktree: WT, branch: 'forge/j', base: 'main', pr: null, verifyOnly: false }, { repo: 'lib', worktree: '/lib.worktrees/j', branch: 'forge/j', base: 'main', pr: null, verifyOnly: false }] }) },
+    want: run('pr', 'find', 'j'),
+  },
   { name: 'I3 an unlinked job with candidates gets its worktree', fx: { config: LOCAL, files: ['issueCandidates'], worktree: false, job: job({ stage: 'backlog' }) }, want: run('worktree', 'create', 'j') },
   { name: 'I8 an unlinked job specs like a linked one', fx: { config: LOCAL, files: ['issueCandidates'], job: job({ stage: 'backlog' }), events: [ev('pr-find', 1)] }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'running') },
   { name: 'I7 an unlinked long request gets a planner', fx: { config: LOCAL, files: ['issueCandidates'], job: job({ stage: 'backlog' }), events: [ev('pr-find', 1)], request: { length: 601 } }, want: run('job', 'set', 'j', '--stage', 'plan', '--state', 'running') },
