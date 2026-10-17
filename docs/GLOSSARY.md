@@ -12,6 +12,7 @@ Planned in M004, except where a config key exists today.
 | **root repo** | The repo that holds the project's `.forge/`, which for a project of one repo is that repo and is never listed in `repos`. | `repos` |
 | **member repo** | Any other repo the root repo's config lists as part of the project. | `repos` |
 | **component** | A buildable unit inside a repo, of kind `library`, `service` or `app`. | planned (M004) |
+| **port-bearing component** | A `service` or `app` component, which holds one job port (`ports` in `job.json`, `{endpoint.<component>}` in commands); a `library` holds none. | `components`, `ports` |
 | **dependency** | An edge from one component to another, `build` when it is needed to compile or bundle and `runtime` when it must be running. | planned (M004) |
 | **project graph** | The components of all of a project's repos and the dependencies between them, drawn by the dashboard's project view. | `components` |
 | **focus** | The job whose environment you are currently pointed at, set with `forge focus` or the dashboard, where switching focus starts or stops no server and runs the checkout steps. | - |
