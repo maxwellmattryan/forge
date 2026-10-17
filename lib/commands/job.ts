@@ -166,7 +166,7 @@ const JOB: HelpGroup = {
       command: 'job interim',
       args: '<id> | publish <id> (<name> | --root) [--confirm] | release <id> (<name> | --root) <version>',
       summary:
-        "each dependency edge between the job's repos: its interim strategy (job or config), links, state (held, waiting, ready, blocked or stale) and why, with no network call, plus each edge's release gate (ci, held or released). publish publishes a dependency repo's canary: each npm link's package, exported from the verified commit's git objects, as <version>-canary.<sha12> under the canary dist-tag; without --confirm it only lists what it would publish, and --confirm needs a terminal on stdin. publish and forge release run are the only commands that publish anything. release records that the dependency of a local or sequential edge was released as <version>, after its PR merged: the consumer's PR may then leave draft (forge pr ready) and merge. publish and release are human-only",
+        "each dependency edge between the job's repos: its interim strategy (job or config), links, state (held, waiting, ready, blocked, stale or released) and why, with no network call, plus each edge's release gate (ci, held, bump-due or released). publish publishes a dependency repo's canary: each npm link's package, exported from the verified commit's git objects, as <version>-canary.<sha12> under the canary dist-tag; without --confirm it only lists what it would publish, and --confirm needs a terminal on stdin. publish and forge release run are the only commands that publish anything. release records that the dependency of an edge of any strategy was released as <version>, after its PR merged (result: recorded, clear, bump, resumed): forge verify then bumps each unmerged consumer's manifests (and a tracked lockfile) to it, after which the consumer's PR may leave draft (forge pr ready) and merge; a job waiting on pr-review at stage pr resumes. publish and release are human-only",
       flags: [
         ['--root', 'with publish or release: the root repo instead of a member'],
         ['--confirm', 'with publish: publish (without it, nothing is published)'],
@@ -174,7 +174,7 @@ const JOB: HelpGroup = {
       exits: [
         [
           1,
-          "no such job; for publish, a daemon session, --confirm without a terminal on stdin, a repo that is not the dependency of an npm-only canary edge, a HEAD that is not the one the latest passing verify checked or not on the job branch, a package.json whose name is not the link's, a package that tracks a symlink or npm, yarn or pnpm config in any case, a failed npm publish, or a likely secret in its commits or its files (code secret_found); for release, a daemon session, a done or cancelled job, an unknown repo, a repo no local or sequential edge depends on, a version that is not semver or names a canary, or a dependency whose recorded PR is not merged",
+          "no such job; for publish, a daemon session, --confirm without a terminal on stdin, a repo that is not the dependency of an npm-only canary edge, a HEAD that is not the one the latest passing verify checked or not on the job branch, a package.json whose name is not the link's, a package that tracks a symlink or npm, yarn or pnpm config in any case, a failed npm publish, or a likely secret in its commits or its files (code secret_found); for release, a daemon session, a done or cancelled job, an unknown repo, a repo no edge depends on, a version that is not semver or names a canary, or a dependency whose recorded PR is not merged",
         ],
       ],
       docs: ['Interim strategies', 'docs/CONFIG.md#interim-strategies'],
@@ -711,7 +711,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       if (!id || rest.length > 1) throw usageError(JOB, 'interim');
       const job = requireJob(root, id);
       const edges = interimStatus(root, config, job).edges;
-      return { id: job.id, edges, gates: releaseGates(edges, readEvents(root, job.id)) };
+      return { id: job.id, edges, gates: releaseGates(edges, readEvents(root, job.id), job) };
     }
     case 'assist':
       return assist(root, config, requireJob(root, id), flags.gate);

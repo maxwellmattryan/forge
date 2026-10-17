@@ -640,8 +640,9 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
   // Every member's worktree is checked before anything runs, so a missing one records nothing.
   const checkedMembers = memberRepos(job).map((m) => memberWorktree(root, config, job, m.repo));
-  // Before any HEAD is read: git-ref and canary pins are committed here, so the run records and
-  // checks the pinned commits. Nothing at all for a job with only local or sequential edges.
+  // Before any HEAD is read: git-ref and canary pins, and release bumps, are committed here, so the
+  // run records and checks those commits. Nothing at all for a job with only local or sequential
+  // edges and no recorded release.
   const interim = refreshInterim(root, config, job);
   const members = checkedMembers.map((wt) => ({ ...wt, head: run('git', ['rev-parse', 'HEAD'], { cwd: wt.worktree }).stdout.trim() }));
   const sha = run('git', ['rev-parse', 'HEAD'], { cwd: job.worktree }).stdout.trim();
@@ -690,7 +691,8 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   // Like protected, a pin that can't be written stops every configured step, the members' too.
   const interimStep: VerifyStep = { name: 'interim', ok: interim.ok, exit: null };
   if (!interim.ok) interimStep.tail = interim.problems.join('\n');
-  else if (interim.commits.length) interimStep.reason = interim.commits.map((c) => `pins committed in ${c.repo === null ? 'the root repo' : `repo ${c.repo}`} (${c.sha.slice(0, 12)})`).join('; ');
+  else if (interim.commits.length)
+    interimStep.reason = interim.commits.map((c) => `${c.kind === 'release' ? 'release bump' : 'pins'} committed in ${c.repo === null ? 'the root repo' : `repo ${c.repo}`} (${c.sha.slice(0, 12)})`).join('; ');
   if (interim.active) results.push(interimStep);
   const gatesOk = secretsStep.ok && protectedStep.ok && interimStep.ok;
   if (!dirty) {
@@ -901,8 +903,8 @@ function renderSteps(lines: string[], results: VerifyStep[], secrets: SecretScan
       continue;
     }
     if (r.name === 'interim') {
-      if (r.ok) lines.push('## interim: ok', '', r.reason ?? 'Every git-ref and canary pin is current.', '');
-      else lines.push('## interim: FAILED', '', 'Interim pins (docs/CONFIG.md "Interim strategies") could not be written; no configured step ran:', '', ...String(r.tail).split('\n').map((l) => `- ${l}`), '');
+      if (r.ok) lines.push('## interim: ok', '', r.reason ?? 'Every git-ref and canary pin, and every release bump, is current.', '');
+      else lines.push('## interim: FAILED', '', 'Interim pins or release bumps (docs/CONFIG.md "Interim strategies") could not be written; no configured step ran:', '', ...String(r.tail).split('\n').map((l) => `- ${l}`), '');
       continue;
     }
     lines.push(`## ${r.name}: ${r.skipped ? `skipped (${r.reason ?? 'no command configured'})` : r.ok ? 'ok' : `FAILED (exit ${r.exit})`}`);

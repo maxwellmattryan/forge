@@ -3,7 +3,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { defaults } from '../lib/config.ts';
-import { BLOCK_BEGIN, BLOCK_END, canaryVersion, npmGitSpec, pinCargo, pinCmake, pinNpm, remoteUrl, resolveInterim } from '../lib/interim.ts';
+import { BLOCK_BEGIN, BLOCK_END, bumpedVersion, canaryVersion, heldConsumers, npmGitSpec, pinCargo, pinCmake, pinNpm, releaseGates, remoteUrl, resolveInterim } from '../lib/interim.ts';
 import { isPackageManagerConfig } from '../lib/interim-apply.ts';
 import type { Config, Job } from '../lib/types.ts';
 
@@ -147,5 +147,41 @@ describe('interim: pure helpers', { concurrency: 4 }, () => {
     assert.equal(isPackageManagerConfig(`${'. '.repeat(50000)}`), false);
     assert.equal(isPackageManagerConfig(`.npmrc${':'.repeat(100000)}`), true);
     assert.ok(Date.now() - t < 500);
+  });
+
+  test('release gates: bump-due and released', () => {
+    const link = [{ ecosystem: 'cargo', name: 'engine-core' }] as any[];
+    const edge = (strategy: string, links: any[] = link, consumer: string | null = null) => ({ consumer, dependency: 'lib', strategy, links }) as any;
+    const job = (state = 'OPEN') => ({ pr: { number: 11, state }, repos: [] }) as any;
+    const rel = (version: unknown, repo: unknown = 'lib') => ({ type: 'interim-released', repo, version });
+    const bumped = (version: unknown, extra: Record<string, unknown> = {}) => ({ type: 'interim-bumped', repo: null, dependency: 'lib', version, ...extra });
+    const gate = (e: any, events: any[], j = job()) => releaseGates([e], events, j).map((g) => [g.gate, g.version])[0];
+    assert.deepEqual(gate(edge('git-ref'), []), ['ci', undefined]);
+    assert.deepEqual(gate(edge('canary'), []), ['ci', undefined]);
+    assert.deepEqual(gate(edge('local'), []), ['held', undefined]);
+    assert.deepEqual(gate(edge('sequential'), []), ['held', undefined]);
+    for (const s of ['git-ref', 'canary', 'local', 'sequential']) {
+      assert.deepEqual(gate(edge(s), [rel('1.2.0')]), ['bump-due', '1.2.0'], `${s} with links`);
+      assert.deepEqual(gate(edge(s), [rel('1.2.0'), bumped('1.2.0')]), ['released', '1.2.0'], `${s} bumped`);
+      assert.deepEqual(gate(edge(s, []), [rel('1.2.0')]), ['released', '1.2.0'], `${s} without links`);
+      assert.deepEqual(gate(edge(s), [rel('1.2.0')], job('MERGED')), ['released', '1.2.0'], `${s} merged consumer`);
+    }
+    // A bumped event before the record does not count, nor one for another version; a newer version is due again.
+    assert.deepEqual(gate(edge('git-ref'), [bumped('1.2.0'), rel('1.2.0')]), ['bump-due', '1.2.0']);
+    assert.deepEqual(gate(edge('git-ref'), [rel('1.2.0'), bumped('1.1.0')]), ['bump-due', '1.2.0']);
+    assert.deepEqual(gate(edge('git-ref'), [rel('1.2.0'), bumped('1.2.0'), rel('1.3.0')]), ['bump-due', '1.3.0']);
+    assert.deepEqual(gate(edge('git-ref'), [rel('1.2.0'), bumped('1.2.0'), rel('1.3.0'), bumped('1.3.0')]), ['released', '1.3.0']);
+    // Malformed events of both types are ignored.
+    for (const bad of [rel('1.2.0-canary.abc'), rel('-Zunstable'), rel('1.2.0 && x'), rel(`1.2.0-${'a'.repeat(120)}`), rel('1.2.0', '../x'), rel('1.2.0', 7)])
+      assert.deepEqual(gate(edge('git-ref'), [bad]), ['ci', undefined], JSON.stringify(bad));
+    for (const bad of [bumped('1.2.0-canary.abc'), bumped('1.2.0', { repo: '../x' }), bumped('1.2.0', { dependency: undefined }), bumped('1.2.0', { dependency: 'other' }), bumped('1.2.0', { repo: 'web' })])
+      assert.deepEqual(gate(edge('git-ref'), [rel('1.2.0'), bad]), ['bump-due', '1.2.0'], JSON.stringify(bad));
+    assert.equal(bumpedVersion([rel('1.2.0'), bumped('1.2.0')], null, 'lib', 0), '1.2.0');
+    assert.equal(bumpedVersion([bumped('1.2.0'), rel('1.2.0')], null, 'lib', 1), null);
+    // heldConsumers: held and bump-due both keep a consumer a draft.
+    const gates = releaseGates([edge('local', [], 'a'), edge('git-ref', link, 'b'), edge('git-ref', [], 'c')], [rel('1.0.0', 'other'), rel('1.2.0')], { pr: null, repos: [] } as any);
+    assert.deepEqual(gates.map((g) => g.gate), ['released', 'bump-due', 'released']);
+    assert.deepEqual([...heldConsumers(gates)], ['b']);
+    assert.deepEqual([...heldConsumers(releaseGates([edge('local', [], 'a')], []))], ['a']);
   });
 });
