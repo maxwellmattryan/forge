@@ -6,7 +6,7 @@ import { jobFindings } from '../findings.ts';
 import { assistantBrief, jobPathMap } from '../brief.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
 import { OFFICE_REFUSAL, daemonClaimOpts, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
-import { OFFICE_JOB_COMMANDS, checkForemanDecision, checkOfficeSetFor, gateClassFor, inOffice, isGateClass, maybeEnqueueGate, reservedFor } from '../foreman.ts';
+import { OFFICE_JOB_COMMANDS, checkForemanDecision, classReservation, checkOfficeSetFor, gateClassFor, inOffice, isGateClass, maybeEnqueueGate, reservedFor } from '../foreman.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
 import { agentOutputMissing, attachAgent, claimJob, createJob, ownerStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir, readEvents } from '../jobs.ts';
 import { logSecrets, scanAgentOutputs } from '../secrets.ts';
@@ -19,6 +19,7 @@ import { decideRepoProposals, pendingRepoProposals, proposeJobRepo } from '../re
 import { addDownstreamRepos } from '../downstream.ts';
 import { RELEASE_DAEMON_REFUSAL, interimStatus, publishCanary, recordRelease, setRepoInterim } from '../interim-apply.ts';
 import { releaseGates } from '../interim.ts';
+import { RELEASE_APPROVAL, checkReleaseDecision, pendingReleaseHash } from '../release-approval.ts';
 import { isLens, lensRepoAllowed, reviewedRepoNames } from '../lens.ts';
 import { resolveLinks } from '../links.ts';
 import { COMPLEXITIES, EFFORTS, OFFICE_GATES } from '../schema.ts';
@@ -184,13 +185,14 @@ const JOB: HelpGroup = {
     {
       command: 'job human',
       args: '<id> <action> [--note N] [--link <ref>|new|none] [--reason R] [--repo A[,B]] [--actor human|foreman]',
-      summary: 'record a human decision: approve-spec, revise-spec, approve-split, revise-split, approve, rework, answer, or approve-repos or reject-repos on the pending repo proposals named by --repo (approve adds each repo to the job)',
+      summary:
+        "record a human decision: approve-spec, revise-spec, approve-split, revise-split, approve, rework, answer, or approve-repos or reject-repos on the pending repo proposals named by --repo (approve adds each repo to the job), or the foreman's approve-release of the job's pending release plan (logs release-approval and moves no job)",
       flags: [
         ['--note N', 'the human\'s note'],
         ['--repo A[,B]', 'with approve-repos or reject-repos (required): the pending repos you decide; with --actor foreman, every pending one'],
         ['--link <ref>|new|none', 'with approve or approve-spec: link an issue, create one, or record that none is needed'],
         ['--reason R', 'why, with --link none'],
-        ['--actor human|foreman', 'who decided (default human); foreman only from the office daemon session, which must pass it'],
+        ['--actor human|foreman', 'who decided (default human); foreman only from the office daemon session, which must pass it; approve-release takes only --actor foreman and --note'],
       ],
       exits: [
         [1, 'no such job, a --link that cannot be made, a foreman decision the authority checks refuse, or approve-repos or reject-repos with nothing pending, no --repo, a repo that is not pending, a foreman --repo that is not the whole pending set, a failing clone check, or from a daemon session other than the office'],
@@ -370,7 +372,7 @@ const refuseRetentionInDaemon = (sub: string) => {
 };
 
 // `forge stats` and `forge job step` read these from `human` events, so an invented action is refused.
-const HUMAN_ACTIONS = ['approve-spec', 'revise-spec', 'approve-split', 'revise-split', 'approve', 'rework', 'answer', 'approve-repos', 'reject-repos'] as const;
+const HUMAN_ACTIONS = ['approve-spec', 'revise-spec', 'approve-split', 'revise-split', 'approve', 'rework', 'answer', 'approve-repos', 'reject-repos', 'approve-release'] as const;
 const REPO_ACTIONS: readonly string[] = ['approve-repos', 'reject-repos'];
 
 // List fields `step`, the briefs and the dashboard iterate; each maps to the example its error shows.
@@ -619,6 +621,14 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       // The office session records only foreman decisions, and only it may: provenance is the
       // daemon scope, so a job session misled by request text can't pass off a decision as the foreman's.
       if (inOffice() && who !== 'foreman') throw new ForgeError('the office session records decisions only with --actor foreman', 1);
+      // No job waits on a release, so it skips checkForemanDecision; checkReleaseDecision re-plans and
+      // re-reads the policy before the one event it writes. The job's state never changes.
+      if (action === 'approve-release') {
+        if (who !== 'foreman') throw new ForgeError("approve-release is the foreman's (--actor foreman); a person approves a release by answering forge release run's publish prompt in a terminal", 1);
+        const planHash = checkReleaseDecision(root, config, jobId, note, { link: flags.link, reason: flags.reason, repo: flags.repo });
+        logHumanEvent(root, jobId, RELEASE_APPROVAL, { planHash, note }, FOREMAN_ACTOR);
+        return { ok: true, release: { plan: planHash.slice(0, 12), actor: 'foreman' } };
+      }
       if (who === 'foreman') checkForemanDecision(root, config, job, action, note, { link: flags.link, reason: flags.reason });
       // Every check runs before any write, so a refused --link leaves job.json and events untouched.
       const link = flags.link;
@@ -908,10 +918,14 @@ function assist(root: string, config: Config, job: Job, rawGate: unknown) {
   if (s.daemon && !inOffice()) throw new ForgeError('forge job assist is for the office session (or a human outside the daemon)', 1);
   const gate = str(rawGate, '--gate');
   if (!isGateClass(gate)) throw new ForgeError(`--gate must be one of ${OFFICE_GATES.join(', ')} (got ${JSON.stringify(String(gate ?? '').slice(0, 40))})`, 1);
-  const stale = gateClassFor(root, job) !== gate;
-  const reserved = stale ? null : reservedFor(root, config, job, gate);
+  const events = readEvents(root, job.id);
+  // A release is a plan awaiting approval, not a park: stale once release.json moves on or it is approved.
+  const releaseHash = gate === 'release' ? pendingReleaseHash(root, job.id, events) : null;
+  const stale = gate === 'release' ? releaseHash === null : gateClassFor(root, job) !== gate;
+  // A class reserved with gate:<class> is a human's even when a request for it exists.
+  const reserved = stale ? null : (classReservation(config, gate) ?? reservedFor(root, config, job, gate));
   // One read of the events for both the brief and `repos`, so the foreman's --repo is exactly the set the assistant judged.
-  const pending = gate === 'repo-proposal' && !stale ? pendingRepoProposals(job, readEvents(root, job.id)) : [];
+  const pending = gate === 'repo-proposal' && !stale ? pendingRepoProposals(job, events) : [];
   return {
     gate,
     stale,
@@ -919,7 +933,7 @@ function assist(root: string, config: Config, job: Job, rawGate: unknown) {
     model: modelFor(config, 'assistant'),
     effort: resolveEffort(config, job, 'assistant').level,
     subagent: 'forge:assistant',
-    brief: assistantBrief(root, config, job, gate, config.foreman?.reserved, readEvents(root, job.id), pending),
+    brief: assistantBrief(root, config, job, gate, config.foreman?.reserved, events, pending, releaseHash),
     // The brief's `Pending repos` names: the foreman passes exactly these as --repo, and `exact` refuses once they stop being the pending set.
     ...(gate === 'repo-proposal' && !stale ? { repos: pending.map((r) => r.repo) } : {}),
   };

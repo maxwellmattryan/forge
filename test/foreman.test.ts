@@ -63,15 +63,15 @@ function scratch(edit: (c: any) => void = () => {}) {
 const WAIT_SPEC = { stage: 'spec' as const, state: 'waiting' as const, waitingOn: 'spec-approval' as const, reason: 'spec ready' };
 
 test('config v4 migrates to v7 with foreman defaults off', () => {
-  assert.equal(CONFIG_SCHEMA_VERSION, 17);
+  assert.equal(CONFIG_SCHEMA_VERSION, 18);
   const v4 = { schemaVersion: 4, git: { base: 'trunk' }, runtime: { models: { builder: 'sonnet' } } };
   const { config, from } = migrateConfig(structuredClone(v4));
   assert.equal(from, 4);
-  assert.deepEqual(config, { ...v4, schemaVersion: 17, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
+  assert.deepEqual(config, { ...v4, schemaVersion: 18, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
   const d = defaults();
-  // repo-proposal widens the repos a job pushes to, so the default leaves it with a human.
-  assert.deepEqual(d.foreman, { enabled: false, decides: OFFICE_GATES.filter((g) => g !== 'repo-proposal'), reserved: d.foreman.reserved, ship: 'propose' });
-  assert.deepEqual(OFFICE_GATES, ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal']);
+  // repo-proposal widens the repos a job pushes to and release publishes, so the default leaves both with a human.
+  assert.deepEqual(d.foreman, { enabled: false, decides: OFFICE_GATES.filter((g) => g !== 'repo-proposal' && g !== 'release'), reserved: d.foreman.reserved, ship: 'propose' });
+  assert.deepEqual(OFFICE_GATES, ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release']);
   for (const p of ['credentials', 'auth', 'permissions', 'security', 'CI/CD', 'token']) assert.ok(d.foreman.reserved.includes(p), p);
   assert.equal(d.runtime.models.assistant, 'sonnet');
   assert.equal(d.runtime.efforts.assistant, null);
@@ -696,7 +696,7 @@ test('foreman procedure names only CLI calls', () => {
   for (const f of ['spec.md', 'plan.md', 'decision.md', 'pr-feedback.md', 'verify']) {
     assert.doesNotMatch(text, new RegExp(`\\b(Read|cat|head|tail|grep)\\b[^\\n|]*${f.replace('.', '\\.')}`), `no read of ${f}`);
   }
-  for (const g of ['spec-approval', 'split-approval', 'escalation, rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal']) assert.match(text, new RegExp(`^\\| ${g} \\|`, 'm'), g);
+  for (const g of ['spec-approval', 'split-approval', 'escalation, rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release']) assert.match(text, new RegExp(`^\\| ${g} \\|`, 'm'), g);
   assert.match(fs.readFileSync(path.join(ref, 'requests.md'), 'utf8'), /`scope: "office"`[^\n]*reference\/foreman\.md/);
   assert.match(fs.readFileSync(path.join(ROOT, 'skills', 'forge', 'SKILL.md'), 'utf8'), /With `foreman\.enabled`, the CLI turns gates into `gate` requests/);
 });

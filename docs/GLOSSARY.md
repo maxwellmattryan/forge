@@ -88,3 +88,4 @@ The new words build on these, which exist today.
 |---|---|---|
 | **job** | One unit of work that Forge takes from request to PR, in its own worktree. | - |
 | **Foreman** | The office session that decides gates for jobs under `foreman.decides`. | `foreman.decides` |
+| **`release` gate class** | The Foreman's approval of one job's release plan (`forge release plan --job`), which stands in for `forge release run`'s publish prompt without a terminal, for that exact plan only, which stays a human's unless a project adds `release` to `foreman.decides` and removes `gate:release` from `foreman.reserved` (not the **release gate**, the CI check on interim references). | `foreman.reserved` |

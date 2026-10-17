@@ -10,6 +10,7 @@ import { reviewFileName, reviewedRepoNames, splitLens } from './lens.ts';
 import { lensChecklists } from './member-panel.ts';
 import { repoGraph } from './project.ts';
 import { paths, exists } from './paths.ts';
+import { releaseFiles } from './release-plan.ts';
 import type { Config, GateClass, Job, JobEvent, StepInput } from './types.ts';
 
 /**
@@ -283,10 +284,23 @@ export function renderBrief(input: StepInput, spec: BriefSpec): string {
  * and the reserved list, never file contents, so the office session's context holds no job text.
  * Reads nothing: every path is listed whether or not it exists, and the assistant skips the missing.
  */
-export function assistantBrief(root: string, config: Config, job: Job, gate: GateClass, reserved: unknown, events: Pick<JobEvent, 'type'>[], pending: { repo: string; reason: string }[] = []): string {
+export function assistantBrief(
+  root: string,
+  config: Config,
+  job: Job,
+  gate: GateClass,
+  reserved: unknown,
+  events: Pick<JobEvent, 'type'>[],
+  pending: { repo: string; reason: string }[] = [],
+  releaseHash: string | null = null,
+): string {
   const dir = jobDir(root, job.id);
   const round = Math.max(job.round, 1);
-  const inputs = [
+  const releaseMd = releaseFiles(root).md;
+  // A release is judged on the plan and the release strategy, never the review trail.
+  const inputs = gate === 'release'
+    ? [releaseMd, `${paths(root).config} (keys release and repos[].release)`, path.join(dir, 'request.md'), path.join(dir, 'spec.md'), path.join(dir, 'decision.md')]
+    : [
     path.join(dir, 'request.md'),
     path.join(dir, 'plan.md'),
     path.join(dir, 'spec.md'),
@@ -309,6 +323,7 @@ export function assistantBrief(root: string, config: Config, job: Job, gate: Gat
     `Reserved: ${JSON.stringify(Array.isArray(reserved) ? reserved : [])}`,
     releaseGateLine(config, job, events),
     ...(repos ? [repos] : []),
+    ...(gate === 'release' ? [`Release plan: ${releaseMd} (plan ${releaseHash ? releaseHash.slice(0, 12) : 'none'})`] : []),
     // From events, not the session-editable repo-proposals.md: the only set the assistant may decide, and the one the foreman passes as --repo.
     ...(gate === 'repo-proposal' ? [`Pending repos (JSON): ${JSON.stringify(pending.map((r) => ({ repo: r.repo, reason: r.reason })))}`] : []),
     UNTRUSTED_LINE,

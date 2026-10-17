@@ -7,7 +7,7 @@ import { downstreamProblems, releaseProblems, repoProblems } from './member-repo
 import { checkoutProblems } from './checkout-config.ts';
 import { notifyProblems } from './notify-config.ts';
 import { globProblem, policyProblems } from './policy-check.ts';
-import { COMPLEXITIES, CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES, REPO_BUDGET_MODES, migrateConfig } from './schema.ts';
+import { COMPLEXITIES, CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES, REPO_BUDGET_MODES, migrateConfig, reservedGateEntry } from './schema.ts';
 import type { Config, Effort, EffortRole, EffortSource, LoadedConfig, VerifyEntry } from './types.ts';
 import { ForgeError, deepMerge, isClaudeExecutable, readText, splitWords } from './util.ts';
 export { globProblem };
@@ -215,8 +215,9 @@ export function defaults(): Config {
     // gate with a human, and a false positive errs that way on purpose.
     foreman: {
       enabled: false,
-      // Widening the repos a job pushes to is opt-in: an owner adds repo-proposal deliberately.
-      decides: OFFICE_GATES.filter((g) => g !== 'repo-proposal'),
+      // Widening the repos a job pushes to, and publishing a release, are opt-in: an owner adds
+      // repo-proposal or release deliberately (release also needs gate:release out of `reserved`).
+      decides: OFFICE_GATES.filter((g) => g !== 'repo-proposal' && g !== 'release'),
       reserved: [...DEFAULT_RESERVED],
       ship: 'propose',
     },
@@ -324,6 +325,9 @@ export const DEFAULT_RESERVED = [
   'crypto',
   'cryptography',
   'encryption',
+  // A whole gate class, never text: publishing can't be undone, so a release stays a human's call
+  // until a project moves it to `decides` (docs/CONFIG.md "Foreman").
+  'gate:release',
 ] as const;
 
 /** foreman.ship merge (with the foreman on) counts as merge.auto, for the approver brief and step PR4 only. */
@@ -431,6 +435,15 @@ export function foremanProblems(c: any): string[] {
       if (!(OFFICE_GATES as readonly unknown[]).includes(g)) problems.push(`foreman.decides entry ${JSON.stringify(g)} is not a gate class (${OFFICE_GATES.join(' | ')})`);
   if (!Array.isArray(f.reserved) || f.reserved.some((p: unknown) => typeof p !== 'string' || !p.trim()))
     problems.push(`foreman.reserved must be a list of non-empty strings (got ${JSON.stringify(f.reserved)}); until fixed, every gate stays with a human`);
+  else
+    for (const p of f.reserved as string[]) {
+      if (reservedGateEntry(p) !== 'invalid') continue;
+      const t = p.trim();
+      const exact = /^gate:/.test(t) && !/\s/.test(t);
+      problems.push(
+        `foreman.reserved entry ${JSON.stringify(t)} ${exact ? 'names no gate class' : 'is a mis-written class reservation'} (write exactly gate:<class>, lowercase with no spaces, the class one of ${OFFICE_GATES.join(' | ')}); until fixed, every gate stays with a human`,
+      );
+    }
   if (!(FOREMAN_SHIP as readonly unknown[]).includes(f.ship)) problems.push(`foreman.ship must be one of ${FOREMAN_SHIP.join(' | ')} (got ${JSON.stringify(f.ship)})`);
   return problems;
 }

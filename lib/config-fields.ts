@@ -180,7 +180,7 @@ export const FIELDS: ConfigField[] = [
   field('retention.logMaxBytes', 'daemon', 'Rotate session logs at (bytes)', 'Rotate a session log to <scope>.log.1 as soon as it reaches this size, keeping one older generation. Empty rotates only at spawn, past 20 MiB.', { type: 'integer', min: 1048576, max: 1073741824, nullable: true }),
   field('foreman.enabled', 'daemon', 'Foreman', 'The office session decides gates through assistant sub-agents, unattended.', { type: 'boolean', locked: 'turns on unattended gate decisions' }),
   field('foreman.decides', 'daemon', 'Foreman decides', 'The gate classes the foreman may decide; the rest stay with a human.', { type: 'list', options: [...OFFICE_GATES], locked: 'widens what the foreman may decide' }),
-  field('foreman.reserved', 'daemon', 'Reserved topics', 'Whole-phrase patterns that keep a gate with a human when the reason, decision or note mentions them.', { type: 'list', locked: 'narrows what stays with a human' }),
+  field('foreman.reserved', 'daemon', 'Reserved topics', 'Whole-phrase patterns that keep a gate with a human when the reason, decision or note mentions them; a gate:<class> entry keeps that whole gate class with a human.', { type: 'list', locked: 'narrows what stays with a human' }),
   field('foreman.ship', 'daemon', 'Foreman ship', 'propose leaves merging as it is; merge counts as merge.auto for PRs the approver marks eligible.', { type: 'enum', options: [...FOREMAN_SHIP], locked: "lets the foreman's pipeline merge" }),
 ];
 
