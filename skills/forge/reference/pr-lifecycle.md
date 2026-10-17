@@ -33,6 +33,9 @@ Then it opens the PR again (push + reuse), parks the job on `pr-review` and rele
 
 `unlinked: true` in a `forge pr open` result is reported (step's `pr-review` tell carries it), never acted on: linking an issue is the human's call.
 
+## Job repos
+A job with member repos (`forge job repo add`) has one PR per non-verify-only member beside the root PR. `forge pr open` checks every repo first (verified HEADs, the secret scan of each PR body and each repo's commits, at least one commit ahead of each base, a GitHub slug for each member), then pushes each member's branch and opens or reuses its PR, then opens the root PR as usual; the result lists the members under `repos`. A failure names the repo, keeps the member PRs already opened, and a rerun reuses them. `forge pr sync` records each member PR's state and checks on the job for the dashboard, logging `repo-pr-sync-failed` when one can't be read, and never moves the job on a member PR. Merging and finishing stay root-only for now (#184): a human merges member PRs. Integrate, the integration review and PR feedback import cover the root repo only, so a member PR that falls behind or conflicts is a human's to resolve.
+
 ## Integration review
 `forge job step` drives this review; the steps below are reference for humans reading a job's history. It runs only when `forge integrate` returned conflicts **and** the integrator resolved them (`INTEGRATE: done`), after `forge verify <id>` passed and before the approver decides (or, once it has decided or a PR is open, before `forge pr open`). Clean integrations, generated-only integrations (`forge integrate` rebuilt every conflicted path itself and returned `regenerated`) and the `ask` / `defer` policies skip it. Under `pr.integrationReview: code-only` (the default), a resolution whose conflicts, and every file it changed beyond git's automatic merge, were all docs (`*.md`, `docs/**`) or generated paths skips it too, with a note on the job (rule IG11).
 

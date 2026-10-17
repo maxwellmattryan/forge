@@ -10,7 +10,7 @@ import type { HelpGroup, LoadedJob } from '../types.ts';
  * `forge job archive --done <id>` is refused as a usage error instead of reading the id as --done's value,
  * and `forge focus --clear <id>` is refused rather than reading the id as --clear's.
  */
-const BOOLEAN_FLAGS = new Set(['json', 'help', 'pretty', 'include-text', 'csv', 'done', 'dry-run', 'clear', 'no-issue']);
+const BOOLEAN_FLAGS = new Set(['json', 'help', 'pretty', 'include-text', 'csv', 'done', 'dry-run', 'clear', 'no-issue', 'verify-only']);
 
 export function parseArgs(argv: string[]): { pos: string[]; flags: Record<string, any> } {
   const pos: string[] = [];

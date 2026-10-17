@@ -23,8 +23,8 @@ Planned in M005, except where a config key exists today.
 
 | Term | Meaning | Config key |
 |---|---|---|
-| **job repo** | A repo the job changes, so it gets a branch, a worktree and a PR. | planned (M005) |
-| **verify-only repo** | A repo the job checks out to build and test against its changes without changing it. | planned (M005) |
+| **job repo** | A repo the job changes, the root repo first and then each member repo a human adds with `forge job repo add`, so it gets its own worktree, verify evidence, branch and PR. | - |
+| **verify-only repo** | A job repo added with `--verify-only`, which the job checks out at its base to build and test against its changes without branching, pushing or opening a PR there. | - |
 | **checkout hook** | A command run once when a job's checkout of a repo is created (today's single-repo form; per-repo hooks are planned). | `worktrees.setup` |
 | **local link** | Wiring one job repo to build against a sibling job repo's checkout instead of a published version. | planned (M005) |
 | **interim reference** | What a consumer job repo points at for a dependency changed in the same job until that dependency is released. | planned (M005) |

@@ -150,6 +150,8 @@ jobs:
             test/verify-e2e.test.ts: runs command templates through sh
             test/verify-groups.test.ts: runs command templates through sh
             test/verifiers-cli.test.ts: runs command templates through sh
+            test/job-repos.test.ts: runs command templates through sh
+            test/job-repos-pr.test.ts: spawns a fake gh, a sh script
             test/foreman.test.ts: runs sh stubs and hooks it writes
             test/git-commit.test.ts: runs sh stubs and hooks it writes
             test/daemon-cli.test.ts: relies on FIFOs

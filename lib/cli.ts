@@ -7,6 +7,7 @@ import { refuseInOffice, refuseInboxDrive } from './daemon-owner.ts';
 import { NEED_INIT } from './config-set.ts';
 import { detect } from './detect.ts';
 import { loadJob } from './jobs.ts';
+import { trustedMemberWorktree } from './job-repos.ts';
 import { mainRoot } from './paths.ts';
 import * as pr from './pr.ts';
 import { prepareRetro, retroDue } from './retro.ts';
@@ -122,10 +123,15 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       if (sub === 'create') {
         const id = req(rest[0], 'job id');
         refuseInboxDrive(id);
-        return ok(wt.createWorktree(root, config, id));
+        const res = wt.createWorktree(root, config, id);
+        return { data: res, exitCode: res.repos?.some((r) => !r.ok) ? 1 : 0 };
       }
-      if (sub === 'remove') return ok(wt.removeWorktree(root, req(rest[0], 'job id'), { deleteBranch: Boolean(flags['delete-branch']), force: Boolean(flags.force) }));
-      if (sub === 'path') return ok(loadJob(root, req(rest[0], 'job id')).worktree ?? '');
+      const repo = flags.repo === undefined ? undefined : req(typeof flags.repo === 'string' ? flags.repo : undefined, '--repo');
+      if (sub === 'remove') {
+        const res = wt.removeWorktree(root, req(rest[0], 'job id'), { deleteBranch: Boolean(flags['delete-branch']), force: Boolean(flags.force), repo });
+        return { data: res, exitCode: res.repos?.some((r) => r.error) ? 1 : 0 };
+      }
+      if (sub === 'path') return ok(repo === undefined ? (loadJob(root, req(rest[0], 'job id')).worktree ?? '') : (trustedMemberWorktree(root, config, loadJob(root, req(rest[0], 'job id')), repo) ?? ''));
       if (sub === 'prune') return ok(run('git', ['worktree', 'prune', '-v'], { cwd: root }).stderr.trim() || 'nothing to prune');
       throw usage('worktree');
     }

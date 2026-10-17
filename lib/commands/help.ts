@@ -39,20 +39,28 @@ export const CORE: HelpGroup[] = [
       {
         command: 'worktree create',
         args: '<id>',
-        summary: "create the job's worktree and branch (stacked on its one unmerged dependency, if any) and run worktrees.setup there",
-        exits: [[1, 'no such job, an unsafe branch name, no free port, or the inbox or office daemon session ran it'], GIT_FAILED],
+        summary:
+          "create the job's worktree and branch (stacked on its one unmerged dependency, if any) and run worktrees.setup there, then each missing member repo worktree (forge job repo add) on the job's branch, or detached at its base for a verify-only repo; with members, the result lists them as repos",
+        exits: [[1, 'no such job, an unsafe branch name, no free port, a member repo worktree that could not be created (the result names it), or the inbox or office daemon session ran it'], GIT_FAILED],
       },
       {
         command: 'worktree remove',
-        args: '<id> [--delete-branch] [--force]',
-        summary: "remove the job's worktree",
+        args: '<id> [--repo NAME] [--delete-branch] [--force]',
+        summary: "remove the job's worktree and every member repo worktree, or with --repo only that member's",
         flags: [
-          ['--delete-branch', 'delete its branch too'],
+          ['--repo NAME', 'only the worktree of member repo NAME'],
+          ['--delete-branch', "delete the job's branch too (not in a verify-only repo)"],
           ['--force', 'remove it with uncommitted changes'],
         ],
-        exits: [NO_JOB, GIT_FAILED],
+        exits: [[1, 'no such job or repo, or a member worktree that could not be removed (the result names it)'], GIT_FAILED],
       },
-      { command: 'worktree path', args: '<id>', summary: "the worktree's path (empty when it has none)", exits: [NO_JOB] },
+      {
+        command: 'worktree path',
+        args: '<id> [--repo NAME]',
+        summary: "the worktree's path, or member repo NAME's (empty when it has none)",
+        flags: [['--repo NAME', "member repo NAME's worktree"]],
+        exits: [NO_JOB],
+      },
       { command: 'worktree prune', args: '', summary: "prune git's records of worktrees that are gone", exits: [GIT_FAILED] },
     ],
   },
@@ -62,14 +70,15 @@ export const CORE: HelpGroup[] = [
     commands: [
       {
         command: 'run',
-        args: '<id> <command> [--background] [--tail N] [-- <args…>]',
+        args: '<id> <command> [--repo NAME] [--background] [--tail N] [-- <args…>]',
         summary: 'run commands.<command> in the job\'s worktree, logging its output to the job dir and printing the tail',
         flags: [
+          ['--repo NAME', "run the command of member repo NAME's one component that defines it, in that member's worktree (not with --background)"],
           ['--background', 'start it detached (dev servers); stop it with forge stop'],
           ['--tail N', 'print the last N lines (default 40)'],
           ['-- <args…>', 'quoted arguments, placed at {args} in the template or appended'],
         ],
-        exits: [[1, 'the command failed, is not configured, or the job has no worktree']],
+        exits: [[1, 'the command failed, is not configured (for --repo: no component of that repo, or several, define it), or the job has no worktree']],
       },
     ],
   },
@@ -115,15 +124,15 @@ export const CORE: HelpGroup[] = [
       {
         command: 'pr open',
         args: '<id> [--title T] [--draft] [--force]',
-        summary: 'push the verified branch and open or update its PR',
+        summary: "push the verified branch and open or update its PR; with job repos, every repo is checked first, then each non-verify-only member's branch is pushed and its PR opened or updated (result: repos) before the root PR",
         flags: [
           ['--title T', 'the PR title (default: the job title)'],
           ['--draft', 'open it as a draft'],
           ['--force', 'publish a HEAD that forge verify has not passed'],
         ],
-        exits: [[1, 'no such job or worktree, an unverified HEAD, nothing to push, or a likely secret in the PR title or body or the commits it would push (code secret_found)'], GH_FAILED],
+        exits: [[1, 'no such job or worktree, an unverified HEAD (of any job repo), nothing to push (in any job repo), no GitHub slug for a member repo, or a likely secret in a PR title or body or the commits it would push (code secret_found)'], GH_FAILED],
       },
-      { command: 'pr sync', args: '<id>', summary: "read the PR's state, checks and review feedback into the job", exits: [NO_JOB, GH_FAILED] },
+      { command: 'pr sync', args: '<id>', summary: "read the PR's state, checks and review feedback into the job; each member repo PR's state and checks are recorded first, for display only", exits: [NO_JOB, GH_FAILED] },
       {
         command: 'pr merge',
         args: '<id> [--now]',

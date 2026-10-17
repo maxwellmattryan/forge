@@ -47,11 +47,12 @@ export const stateText = (job: JobLike): string =>
 
 export const verdictTone = (v: string | null | undefined): Tone => (v === 'PASS' ? 'ok' : v === 'CHANGES' ? 'bad' : v === 'MALFORMED' ? 'warn' : 'muted');
 
-export function prChipModel(pr: Partial<JobPr> | null | undefined): { tone: Tone; text: string } | null {
+/** A PR chip's tone and text; with `repo` (a member repo's PR), the text is `<repo>#<n>`. */
+export function prChipModel(pr: Partial<Omit<JobPr, 'url'>> | null | undefined, repo?: string): { tone: Tone; text: string } | null {
   if (!pr?.number) return null;
   const tone: Tone = pr.state === 'MERGED' ? 'ok' : pr.state === 'CLOSED' ? 'muted' : pr.conflicts ? 'warn' : pr.checks?.state === 'failing' ? 'bad' : pr.checks?.state === 'pending' ? 'warn' : 'info';
   const extra = pr.conflicts ? ' · conflicts' : pr.checks?.state && pr.checks.state !== 'none' ? ` · ${pr.checks.state}` : '';
-  return { tone, text: `#${pr.number}${extra}` };
+  return { tone, text: `${repo ?? ''}#${pr.number}${extra}` };
 }
 
 /** Percent width of the progress bar, or null when there is no bar. */

@@ -204,6 +204,34 @@ export interface VerifyRun {
   file: string;
   /** The name of the step that failed (`test`, `integrity`, `secrets`, `protected`, …), null on a pass. */
   failure?: string | null;
+  /** One record per member repo, only when the job has members: verify in lib/worktree.ts. */
+  repos?: VerifyRunRepo[];
+}
+
+/** One member repo's part of a verify run: the HEAD it checked and its first failing step. */
+export interface VerifyRunRepo {
+  repo: string;
+  sha: string;
+  ok: boolean;
+  failure: string | null;
+}
+
+/** A job repo's PR: a JobPr whose url is null when `gh` gave anything but an https url. */
+export type JobRepoPr = Omit<JobPr, 'url'> & { url: string | null };
+
+/**
+ * One repo a job changes: `repos[0]` is the root repo (`repo: null`), mirrored from the top-level
+ * branch/base/worktree/pr by normalizeJob; later entries are member repos (lib/job-repos.ts).
+ */
+export interface JobRepo {
+  repo: string | null;
+  worktree: string | null;
+  /** The job's branch, derived on every load; null for a verify-only member. */
+  branch: string | null;
+  base: string | null;
+  pr: JobRepoPr | null;
+  /** Verified with the job but never branched, pushed or given a PR. */
+  verifyOnly: boolean;
 }
 
 /** A reviewer's settled verdict for a round: the verdicts case in lib/commands/job.ts (via roundVerdicts in lib/jobs.ts). */
@@ -260,6 +288,8 @@ export interface Job {
   complexity: Complexity | null;
   /** Escalate paths the branch changes, recorded by the CLI only: recordProtected in lib/protected.ts. */
   protectedPaths: ProtectedPaths | null;
+  /** The root repo first, then member repos: `forge job repo add|remove` in lib/job-repos.ts. */
+  repos: JobRepo[];
 }
 
 /** One `policy.protectedPaths` rule: docs/CONFIG.md "Protected paths". */
@@ -276,6 +306,8 @@ export interface ProtectedHit {
   glob: string;
   reason: string;
   blob: string | null;
+  /** The member repo a `<repo>:<path>` hit came from; absent for a root hit. */
+  repo?: string;
 }
 
 /** job.protectedPaths: the escalate paths that need a human approval given after `at`. */
