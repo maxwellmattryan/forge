@@ -4,6 +4,7 @@ import path from 'node:path';
 import { autoMerge, lensNeedsApp, resolveEffort } from './config.ts';
 import { jobDir, reviewDir } from './jobs.ts';
 import { memberEntry, memberRepos, trustedMemberWorktree } from './job-repos.ts';
+import { downstreamMembers } from './downstream.ts';
 import { reviewFileName, reviewedRepoNames, splitLens } from './lens.ts';
 import { lensChecklists } from './member-panel.ts';
 import { repoGraph } from './project.ts';
@@ -112,6 +113,21 @@ export function protectedLine(job: Pick<Job, 'protectedPaths'>): string {
   return `Protected paths: ${JSON.stringify(shown)}${more > 0 ? ` (+${more} more)` : ''}: a human must approve after you whatever you decide; never mark auto-merge eligible`;
 }
 
+/**
+ * The builder's `Downstream failures (JSON)` line: the downstream consumers the last verify run saw
+ * fail, or null. JSON, and names that pass REPO_NAME, so nothing a session wrote starts a line.
+ */
+export function downstreamFailuresLine(input: Pick<StepInput, 'job' | 'events'>): string | null {
+  const j = input.job;
+  const downstream = downstreamMembers(j, input.events);
+  const last = j.verifyRuns.at(-1);
+  const failed = (Array.isArray(last?.repos) ? last.repos : [])
+    .filter((r) => !r.ok && downstream.has(r.repo))
+    .map((r) => ({ repo: r.repo, failure: typeof r.failure === 'string' ? r.failure.slice(0, 64) : null }));
+  if (!failed.length) return null;
+  return `Downstream failures (JSON): ${JSON.stringify(failed)}: fix the library on this job, or run forge job repo propose ${j.id} <repo> --reason "<what changes there>" to change the consumer too`;
+}
+
 export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {}): BriefSpec {
   const j = input.job;
   const c = input.config;
@@ -152,10 +168,12 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
           p('build'),
         ];
         const reference = [p('spec'), p('design'), p('mockup')].filter((f) => input.present.includes(f));
+        const downstream = rework.includes('verify') ? downstreamFailuresLine(input) : null;
         return out([p('tasks'), p('build')], inputs, [
           `Rework: ${rework.join(', ')}`,
           `Rework scope: address only the findings in the inputs above and change nothing they do not name; append "## Round ${j.round}" to build.md with Findings addressed and the full AC table.`,
           ...(reference.length ? [`Reference: ${reference.join(', ')}`] : []),
+          ...(downstream ? [downstream] : []),
           infra,
         ]);
       }
@@ -228,12 +246,13 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
 export function renderBrief(input: StepInput, spec: BriefSpec): string {
   const j = input.job;
   const present = spec.inputs.filter((p) => input.present.includes(p));
+  const downstream = downstreamMembers(j, input.events);
   const lines = [
     `Job id: ${j.id}`,
     `Role: ${spec.role}${spec.lens ? ` · lens ${spec.lens}` : ''}`,
     `Round: ${j.round}`,
     `Worktree: ${j.worktree ?? 'none'}`,
-    ...memberRepos(j).map((m) => `Repo ${m.repo}: ${m.worktree ?? 'none'} · branch ${m.verifyOnly ? 'none (verify only)' : (m.branch ?? 'none')} · base ${m.base ?? 'none'}`),
+    ...memberRepos(j).map((m) => `Repo ${m.repo}: ${m.worktree ?? 'none'} · branch ${m.verifyOnly ? (downstream.has(m.repo) ? 'none (verify only, downstream consumer)' : 'none (verify only)') : (m.branch ?? 'none')} · base ${m.base ?? 'none'}`),
     `Base branch: ${j.base ?? input.config.git.base}`,
     `Job paths (JSON): ${JSON.stringify(input.paths)}`,
     `Inputs: ${present.length ? present.join(', ') : 'none'}`,

@@ -3,7 +3,10 @@
 // which keeps the pipeline and pure tests, so the two halves run in parallel.
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { loadJob, updateJob } from '../lib/jobs.ts';
+import type { TwoRepo } from './job-repos-fixture.ts';
 import { daemonEnv, fails, project, read, snapshot } from './repo-proposals-fixture.ts';
 
 describe('repo proposals: the CLI', { concurrency: 4 }, () => {
@@ -135,4 +138,64 @@ describe('repo proposals: the CLI', { concurrency: 4 }, () => {
     await fails(p, ['job', 'repo', 'propose', j.id, 'lib', '--reason', 'please'], /was rejected on job/);
     assert.deepEqual(snapshot(p, j.id), before);
   });
+  test('a verify-only member is promoted on approval', async () => {
+    const p = await project();
+    const { id, libWt } = await verifyOnlyLib(p);
+    const r = await p.f('job', 'repo', 'propose', id, 'lib', '--reason', 'app needs a lib change too');
+    assert.deepEqual(r, { id, repo: 'lib', pending: ['lib'] }, 'a verify-only member is not already a member');
+    assert.equal((await p.f('job', 'step', id)).rule, 'RP1');
+    const d = await p.f('job', 'human', id, 'approve-repos', '--repo', 'lib');
+    assert.deepEqual([d.added, d.pending], [['lib'], []]);
+    const job = loadJob(p.root, id);
+    assert.deepEqual([job.repos[1].verifyOnly, job.repos[1].branch, job.repos[1].worktree], [false, job.branch, null]);
+    assert.equal(fs.existsSync(libWt), false, 'the detached worktree is removed');
+    assert.deepEqual(p.events(id).filter((e) => e.type === 'job-repo-promoted').map((e) => e.repo), ['lib']);
+    assert.equal(p.events(id).filter((e) => e.type === 'job-repo-added').length, 1, 'promoted, not added again');
+    const step = await p.f('job', 'step', id);
+    assert.deepEqual([step.rule, step.command], ['RP2', ['worktree', 'create', id]]);
+    await p.f('worktree', 'create', id);
+    assert.equal(p.git(libWt, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), job.branch, 'checked out on the job branch');
+    assert.deepEqual(await p.f('job', 'repo', 'propose', id, 'lib', '--reason', 'x'), { id, repo: 'lib', pending: [], already: 'member' });
+  });
+
+  test('promotion refuses a dirty or advanced verify-only worktree', async () => {
+    const p = await project();
+    const { id, libWt } = await verifyOnlyLib(p);
+    await p.f('job', 'repo', 'propose', id, 'lib', '--reason', 'app needs a lib change too');
+    const before = snapshot(p, id);
+    fs.writeFileSync(path.join(libWt, 'stray.txt'), 'x\n');
+    await fails(p, ['job', 'human', id, 'approve-repos', '--repo', 'lib'], /repo lib: its verify-only worktree .* has uncommitted or untracked changes/);
+    assert.deepEqual(snapshot(p, id), before);
+    fs.rmSync(path.join(libWt, 'stray.txt'));
+    p.commit(libWt, { 'lib.txt': 'work\n' }, 'work in a verify-only checkout');
+    await fails(p, ['job', 'human', id, 'approve-repos', '--repo', 'lib'], /repo lib: its verify-only worktree .* has a HEAD that is not on origin\/main/);
+    assert.deepEqual(snapshot(p, id), before);
+    const job = loadJob(p.root, id);
+    assert.equal(job.repos[1].verifyOnly, true);
+    assert.ok(fs.existsSync(libWt));
+  });
+
+  test('rejecting a verify-only member keeps it verify-only', async () => {
+    const p = await project();
+    const { id, libWt } = await verifyOnlyLib(p);
+    await p.f('job', 'repo', 'propose', id, 'lib', '--reason', 'app needs a lib change too');
+    const d = await p.f('job', 'human', id, 'reject-repos', '--repo', 'lib');
+    assert.deepEqual([d.added, d.pending], [[], []]);
+    const job = loadJob(p.root, id);
+    assert.deepEqual([job.repos[1].verifyOnly, job.repos[1].branch, job.repos[1].worktree], [true, null, libWt]);
+    assert.ok(fs.existsSync(libWt));
+    assert.equal(p.events(id).filter((e) => e.type === 'job-repo-promoted').length, 0);
+    assert.notEqual((await p.f('job', 'step', id)).rule, 'RP1');
+  });
 });
+
+/** A job in build with lib added verify-only and its detached worktree created. */
+async function verifyOnlyLib(p: TwoRepo) {
+  const j = await p.f('job', 'new', '--title', `verify-only lib ${Math.random().toString(36).slice(2, 8)}`);
+  await p.f('job', 'repo', 'add', '--verify-only', j.id, 'lib');
+  await p.f('worktree', 'create', j.id);
+  await p.f('job', 'set', j.id, '--stage', 'build');
+  const libWt = path.join(p.parent, 'lib.worktrees', j.id);
+  assert.ok(fs.existsSync(libWt));
+  return { id: j.id as string, libWt };
+}
