@@ -74,10 +74,10 @@ const JOB: HelpGroup = {
     {
       command: 'job from-ref',
       args: '<ref> [--session S]',
-      summary: "start (or find) the job for a tracker item (#12, 12 or this repo's owner/repo#12), planned as one job, and claim the item for it",
+      summary: "start (or find) the job for a tracker item (#12, 12 or this repo's owner/repo#12, or owner/name#N from a member repo's tracker, which starts the job with that member as a job repo), planned as one job, and claim the item for it",
       flags: [['--session S', 'claim the job for session S']],
       exits: [
-        [1, "no such tracker item, or an issue outside this repo"],
+        [1, "no such tracker item, an issue outside this repo and its member repos' trackers, or a member clone that fails doctor's check"],
         [3, 'the tracker claim was lost to another job'],
         [4, 'the repo budget holds new work'],
         [5, 'gh failed (GitHub tracker)'],

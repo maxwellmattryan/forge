@@ -149,7 +149,14 @@ These add events `repo-pr-closed`, `pr-links-updated`, `pr-links-skipped` and `p
 
 **Threat model.** The attacker is the builder, or a session misled by tracker or PR text: it can run `forge` commands and `Write` `job.json` and `events.jsonl` in its job dir. A hostile member clone config is covered by the same pinned git options as the root.
 
-1. Widening the repos through the CLI: `repos` is locked in `forge job set`, and `forge job repo add|remove` refuse under `FORGE_DAEMON=1`, so pushing to another repo stays a human decision.
+1. Widening the repos through the CLI: `repos` is locked in `forge job set`, and `forge job repo add|remove` refuse under `FORGE_DAEMON=1`, so pushing to another repo stays a human decision. The one exception is intake (`forge next --claim`, `forge job from-ref owner/name#N`, docs/TRACKERS.md "Member repo trackers"), which may add a member repo, in a daemon session too, because the repo comes from human-owned config rather than agent text: it must be a config `repos` entry with a GitHub tracker a human did not set to `kind: none`, its clone must pass doctor's member check, and the issue must exist and be claimable in that member's own tracker. The bypasses it handles:
+   - (a) Widening an existing job: intake on an issue an active job already carries returns that job unchanged, so a repo is added only to the job intake just created, and `forge job repo add|remove` still refuse under `FORGE_DAEMON=1`.
+   - (b) Naming an arbitrary repo: only an `owner/name` equal (case-insensitively) to a configured member tracker's slug matches; anything else stays foreign and `from-ref` refuses it.
+   - (c) Option injection into `gh`: the ref must pass the `QUALIFIED` grammar (no leading `-`, no `..`, a 1–10 digit number without a leading zero), only the digits reach `gh` as the issue argument, and `-R` is the slug from validated config or a remote url.
+   - (d) A missing or wrong clone: doctor's member check runs before anything is created or claimed.
+   - (e) The root's GitHub Project leaking onto member issues: a member tracker's derived config has no project and syncs labels only.
+
+   Residual risk: an agent that can create issues in a member repo through some other channel could get a job started from text it wrote, the same exposure as the root's issues have; readiness triage and the spec gate still apply.
 2. A hand-edited member entry: a name that fails the repo name grammar (an option-like or traversal name) is dropped when the job loads; a member not in config `repos` is refused at every sink, because the clone is recomputed from config plus `.forge/local.yml` (and doctor's member check) every time, never read from job.json; the base is checked as a safe ref before it reaches git or a template; the stored worktree is used only when it equals the computed path; the branch is always derived.
 3. Committing in the member's main clone instead of its worktree: `forge git commit --repo` refuses when the directory's top level is the clone.
 4. Untrusted `gh` output for member PRs: only a safe integer number and an https url are stored, and a PR from a fork found by branch is refused.

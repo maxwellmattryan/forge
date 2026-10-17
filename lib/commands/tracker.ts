@@ -94,7 +94,7 @@ export const HELP: HelpGroup[] = [
       {
         command: 'next',
         args: '[--claim --session S] [--force] [--limit N]',
-        summary: 'resume a queued unowned job (with --claim --session), else the next ready tracker item whose job is not blocked, skipping needs-info items (with --claim, start its job); while the repo budget holds new work it starts nothing and prints {held: true, repoBudget}',
+        summary: "resume a queued unowned job (with --claim --session), else the next ready tracker item whose job is not blocked, skipping needs-info items (with --claim, start its job): the root tracker's first, then each member repo's tracker (config repos), whose items carry repo and an owner/name#N ref; a member that can't be read is listed in skippedRepos; while the repo budget holds new work it starts nothing and prints {held: true, repoBudget}",
         flags: [
           ['--claim', 'claim the work instead of only showing it'],
           ['--session S', 'the session claiming it'],
