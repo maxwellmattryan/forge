@@ -34,6 +34,19 @@ const libRepo = (state: 'OPEN' | 'MERGED' | null): Job['repos'] => [
 ];
 const SEQ = { repo: null, why: 'sequential', waitingOn: ['lib'] };
 const CANARY = { repo: null, why: 'canary', waitingOn: ['lib'], name: '@acme/lib', version: '1.4.0-canary.0123456789ab' };
+// Downstream verification: root `core`, members app-a and app-b each consuming it through a cmake link.
+const dsConfig = (c: any) => {
+  c.repos = ['app-a', 'app-b'].map((name) => ({ name, remote: `/x/${name}.git`, defaultBranch: 'main' }));
+  c.components = [
+    { name: 'core', path: '.', kind: 'library' },
+    ...['a', 'b'].map((x) => ({ name: x, repo: `app-${x}`, path: '.', kind: 'app', commands: { test: 't' }, dependsOn: [{ component: 'core', type: 'build', link: { ecosystem: 'cmake', name: 'core' } }] })),
+  ];
+};
+const DS_RUN = { ...run('job', 'repo', 'downstream', 'j'), rule: 'DS1' };
+const DS_CHECKED = (n: number, added: string[], skipped: string[] = []) => ev('downstream-checked', n, { added, skipped: skipped.map((repo) => ({ repo, reason: 'x' })) });
+const DS_MEMBER = (repo: string) => ({ repo, worktree: `/${repo}.worktrees/j`, branch: null, base: 'main', pr: null, verifyOnly: true, interim: null });
+const DS_ADDED = (n: number, repo: string) => ev('job-repo-added', n, { repo, verifyOnly: true, downstream: true });
+const DS_VERIFY: Partial<Job> = { stage: 'verify', round: 1, agents: { builder: ag(1, 5, 6) } };
 const SPEC_DONE = { 'spec-writer': ag(0, 1, 2) };
 const LOCAL = (c: Config) => void (c.tracker.kind = 'local');
 const LINKED: Partial<Job> = { issues: [{ tracker: 'local', ref: 'x', url: null }] };
@@ -970,7 +983,52 @@ const rows: Row[] = [
     want: { action: 'spawn', rule: 'N2', role: 'builder' },
     check: (a) => assert.equal(a.resume, undefined),
   },
+  // ---- Downstream verification (DS1)
+  { name: 'DS1 adds consumers in build', fx: { config: dsConfig, job: job({ stage: 'build', round: 1 }) }, want: DS_RUN },
+  { name: 'DS1 adds consumers in verify', fx: { config: dsConfig, job: job(DS_VERIFY) }, want: DS_RUN },
+  { name: 'DS1 runs again for a candidate the last check does not name', fx: { config: dsConfig, job: job(DS_VERIFY), events: [DS_CHECKED(4, ['app-a'])] }, want: DS_RUN },
+  { name: 'RP1 parks a pending proposal before DS1', fx: { config: dsConfig, job: job(DS_VERIFY), events: [ev('repo-proposed', 4, { repo: 'app-b', reason: 'x' })] }, want: { rule: 'RP1' } },
+  { name: 'RP2 creates the worktrees DS1 added', fx: { config: dsConfig, job: job({ ...DS_VERIFY, repos: [{ repo: null } as any, DS_MEMBER('app-a'), DS_MEMBER('app-b')] }), memberWorktreesMissing: true, events: [DS_ADDED(3, 'app-a'), DS_ADDED(3, 'app-b'), DS_CHECKED(4, ['app-a', 'app-b'])] }, want: { ...run('worktree', 'create', 'j'), rule: 'RP2' } },
+  {
+    name: 'V3 names a failing downstream consumer',
+    fx: {
+      config: dsConfig,
+      job: job({ ...DS_VERIFY, repos: [{ repo: null } as any, DS_MEMBER('app-a'), DS_MEMBER('app-b')], verifyRuns: [{ ...vr(1, 7, false, 'test'), repos: [{ repo: 'app-a', sha: 's', ok: true, failure: null }, { repo: 'app-b', sha: 's', ok: false, failure: 'test' }] }] }),
+      events: [DS_ADDED(3, 'app-a'), DS_ADDED(3, 'app-b'), DS_CHECKED(4, ['app-a', 'app-b'])],
+    },
+    want: { ...run('job', 'set', 'j', '--stage', 'build', '--state', 'running'), why: 'verify failed: downstream consumer app-b failed test' },
+  },
+  {
+    name: 'V3 keeps its reason when only an edited member failed',
+    fx: {
+      config: dsConfig,
+      job: job({ ...DS_VERIFY, repos: [{ repo: null } as any, { ...DS_MEMBER('app-a'), verifyOnly: false, branch: 'forge/j' }, DS_MEMBER('app-b')], verifyRuns: [{ ...vr(1, 7, false, 'test'), repos: [{ repo: 'app-a', sha: 's', ok: false, failure: 'test' }, { repo: 'app-b', sha: 's', ok: true, failure: null }] }] }),
+      events: [DS_ADDED(3, 'app-b'), DS_CHECKED(4, ['app-b'])],
+    },
+    want: { why: 'verify failed: back to the builder' },
+  },
 ];
+
+// DS1's negative cases: another rule decides, so they can't be `rows`.
+const ds1Skips: Row[] = [
+  { name: 'DS1 not when the last check names every candidate', fx: { config: dsConfig, job: job(DS_VERIFY), events: [DS_CHECKED(4, ['app-a'], ['app-b'])] }, want: { rule: 'V1' } },
+  { name: 'DS1 not when downstream.enabled is false', fx: { config: (c) => { dsConfig(c); c.downstream.enabled = false; }, job: job(DS_VERIFY) }, want: { rule: 'V1' } },
+  { name: 'DS1 not for an eval job', fx: { config: dsConfig, job: job({ ...DS_VERIFY, kind: 'eval' }) }, want: {} },
+  { name: 'DS1 not in a single-repo project', fx: { job: job(DS_VERIFY) }, want: { rule: 'V1' } },
+  { name: 'DS1 not in plan', fx: { config: dsConfig, job: job({ stage: 'plan' }) }, want: {} },
+  { name: 'DS1 not in spec', fx: { config: dsConfig, job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET] }, want: {} },
+  { name: 'DS1 not in review', fx: { config: dsConfig, job: inReview() }, want: {} },
+  { name: 'DS1 not in pr', fx: { config: dsConfig, job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }) }, want: {} },
+];
+
+for (const row of ds1Skips) {
+  test(row.name, () => {
+    const a = step(fixture(row.fx)) as any;
+    assert.notEqual(a.rule, 'DS1', row.name);
+    for (const [k, v] of Object.entries(row.want)) assert.deepEqual(a[k], v, `${row.name}: ${k}`);
+    assertSafe(a, row.name);
+  });
+}
 
 const SAFE = /^[A-Za-z0-9 ._:/@=,+\-[\]"]*$/;
 

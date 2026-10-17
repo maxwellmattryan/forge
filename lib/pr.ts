@@ -4,6 +4,7 @@ import { ownerStatusWithProof } from './daemon-owner.ts';
 import { currentActor } from './actor.ts';
 import { isActive, isForemanActor, listJobs, loadJob, logEvent, readEvents, setJob, updateJob, jobDir } from './jobs.ts';
 import { memberClone, memberConfig, memberEntry, memberRepos, memberWorktree } from './job-repos.ts';
+import { unpromotedDownstream } from './downstream.ts';
 import { REPO_NAME } from './member-repos.ts';
 import { isHttpsUrl } from './schema.ts';
 import { isLinkedJob, jobRepoOrder, siblingLine } from './repo-order.ts';
@@ -171,8 +172,11 @@ export function openPr(
   id: string,
   opts: { title?: string; draft?: boolean; force?: boolean } = {},
 ): { number: number | null; url: string | null; created: boolean; unlinked?: true; repos?: MemberPrResult[]; deferred?: Deferral[] } {
-  requireGh();
   const job = loadJob(root, id);
+  // job.json is session-writable: a downstream consumer becomes a pushed repo only through a promotion event.
+  const unpromoted = unpromotedDownstream(job, readEvents(root, id));
+  if (unpromoted.length) throw new ForgeError(`repo ${unpromoted.join(', ')} joined job ${id} as a downstream consumer and was never promoted, so forge pr open won't push it; propose it (forge job repo propose ${id} <repo> --reason "…") for a human to approve`);
+  requireGh();
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree`);
   // Checked before the attribution scrub, which rewrites shas: the question is whether the
   // commits as the builder left them were verified.

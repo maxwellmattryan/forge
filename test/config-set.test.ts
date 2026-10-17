@@ -334,6 +334,34 @@ describe('forge config set and get', { concurrency: 4 }, () => {
     }
   });
 
+  test('downstream settings are locked', async () => {
+    const reasons: [string, string][] = [
+      ['downstream.enabled', "runs member repos' commands in verify"],
+      ['downstream.max', 'caps a verification gate'],
+      ['downstream.skip', 'names repositories'],
+    ];
+    for (const [key, reason] of reasons) {
+      const f = FIELDS.find((x) => x.key === key);
+      assert.ok(f, `${key} is in the schema`);
+      assert.equal(f.section, 'pipeline', key);
+      assert.equal(f.editable, false, key);
+      assert.equal(f.lockedReason, reason, key);
+    }
+    assert.equal(disclosureOf('downstream.skip'), 'plain');
+    const s = scratch();
+    try {
+      for (const [key, value] of [['downstream.max', '0'], ['downstream.enabled', 'false'], ['downstream.skip', '[]']]) {
+        const r = await s.forge('config', 'set', key, value);
+        assert.equal(r.code, 1, key);
+        assert.match(r.err, new RegExp(`${key.replace('.', '\\.')} is not editable with forge config set \\(`), key);
+      }
+      assert.throws(() => setConfigValue(s.repo.dir, 'downstream.max', 0, ACTOR), (e: any) => e.reason === 'locked');
+      assert.equal(s.read(), FIXTURE, 'the file is untouched');
+    } finally {
+      s.repo.cleanup();
+    }
+  });
+
   test('field schema is an allowlist over documented keys', async () => {
     const docs = fs.readFileSync(path.join(ROOT, 'docs', 'CONFIG.md'), 'utf8');
     const base = defaults();

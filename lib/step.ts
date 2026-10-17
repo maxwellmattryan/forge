@@ -21,6 +21,7 @@ import { LENS_NAME, isLens, lensRepoAllowed, reviewFileName, splitLens } from '.
 import { lensChecklists } from './member-panel.ts';
 import type { MemberLens } from './member-panel.ts';
 import { pendingRepoProposals } from './repo-proposals.ts';
+import { downstreamMembers, downstreamRepos } from './downstream.ts';
 import { PLUGIN_ROOT, exists } from './paths.ts';
 import { COMPLEXITIES } from './schema.ts';
 import { generatedConfig } from './regenerate.ts';
@@ -57,6 +58,9 @@ export const RULES = [
   // Repo proposals: park on `human` while an agent's proposal waits (RP1), then create an approved
   // repo's worktree (RP2). Appended, though they run before the stage rules, as IDs are stable.
   'RP1', 'RP2',
+  // Downstream verification: add a changed library's linked consumers as verify-only repos (DS1).
+  // Appended, though it runs before the stage rules, as IDs are stable.
+  'DS1',
   // No rule matched: a state step can't advance, parked visibly instead of looping.
   'X1',
 ] as const;
@@ -77,7 +81,7 @@ const STEP_EVENTS = new Set([
   'human', 'round', 'worktree', 'worktree-setup-failed', 'pr-find', 'pr-adopted', 'scope', 'panel', 'integrated', 'integrate-conflicts',
   'integration-review', 'decision', 'fields', 'pr-opened', 'pr-updated', 'pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
   'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found', 'verifiers',
-  'protected-path', 'repo-proposed', 'pr-deferred', 'canary-published', 'interim-released',
+  'protected-path', 'repo-proposed', 'pr-deferred', 'canary-published', 'interim-released', 'downstream-checked', 'job-repo-added', 'job-repo-removed',
 ]);
 const MERGE_EVENTS = ['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed'];
 
@@ -767,6 +771,8 @@ function decide(x: StepInput): StepAction {
   if (guarded) return guarded;
   const proposal = repoProposalGate(x);
   if (proposal) return proposal;
+  const downstream = downstreamGate(x);
+  if (downstream) return downstream;
 
   switch (j.stage) {
     case 'backlog':
@@ -860,6 +866,22 @@ function repoProposalGate(x: StepInput): StepAction | null {
   }
   if (x.memberWorktreesMissing) return run(x, 'RP2', ['worktree', 'create', j.id], 'an approved repo needs its worktree');
   return null;
+}
+
+/**
+ * DS1: in build and verify, a changed repo has a linked consumer to add that the latest
+ * `downstream-checked` event does not name, so `forge job repo downstream` runs (once per new
+ * candidate: one it skipped, a failing clone included, waits for a human to run it again).
+ */
+function downstreamGate(x: StepInput): StepAction | null {
+  const j = x.job;
+  if ((j.stage !== 'build' && j.stage !== 'verify') || j.kind === 'eval' || x.config.downstream?.enabled !== true) return null;
+  const { add } = downstreamRepos(x.config, j, x.events, path.basename(x.root));
+  if (!add.length) return null;
+  const checked = lastEvent(x, (e) => e.type === 'downstream-checked');
+  const named = new Set<unknown>([...(Array.isArray(checked?.added) ? checked.added : []), ...(Array.isArray(checked?.skipped) ? checked.skipped.map((s: any) => s?.repo) : [])]);
+  if (add.every((name) => named.has(name))) return null;
+  return run(x, 'DS1', ['job', 'repo', 'downstream', j.id], 'a changed library has consumers to verify');
 }
 
 function stuck(x: StepInput): StepRun {
@@ -1014,6 +1036,13 @@ function verify(x: StepInput): StepAction {
     if (vf) return vf;
   }
   if (lv.ok) return isPrRework(x) && x.config.review.onPrFeedback === 'none' ? toStage(x, 'V2', 'pr', 'verify passed; PR feedback skips review') : toStage(x, 'V2', 'review', 'verify passed');
+  // A break only a downstream consumer saw is named against it: the builder fixes the library or proposes the consumer.
+  const downstream = downstreamMembers(x.job, x.events);
+  const broke = (Array.isArray(lv.repos) ? lv.repos : []).find((r) => !r.ok && downstream.has(r.repo));
+  if (broke) {
+    const step = typeof broke.failure === 'string' && /^[A-Za-z0-9._:-]{1,64}$/.test(broke.failure) ? broke.failure : 'a step';
+    return toStage(x, 'V3', 'build', `verify failed: downstream consumer ${broke.repo} failed ${step}`);
+  }
   return toStage(x, 'V3', 'build', 'verify failed: back to the builder');
 }
 

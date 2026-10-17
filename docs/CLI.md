@@ -164,6 +164,12 @@ Set by Forge for `notify.command` (docs/CONFIG.md "Notifications"), whose `{plac
 
 The log file gains a `(links <bin dir>)` line after `(cwd …)`. Background commands and `worktrees.setup` get no links, and native Windows gets the env vars but no shims.
 
+## Downstream verification
+
+`forge job repo downstream <id>` adds the job's downstream repos (docs/CONFIG.md "Downstream verification"): the linked consumers of the repos the job changes, as verify-only members. It takes no repo name and no flag (either is a `usage` error): the candidates are computed from config, the job and its events. Each one is checked like `forge job repo add` (doctor's member check); one that fails is skipped with `repo <name>: <detail>` and the others are still added. It prints `{ id, added, skipped }`, `added` the names in `repos` order and `skipped` one `{ repo, reason }` per candidate it did not add, logs `job-repo-added` with `downstream: true` per repo and one `downstream-checked { added, skipped }` event, and exits 0 even when it adds nothing. It exits 1 for an eval job, a closed job (done, cancelled or failed) or one at stage `pr` or later, and in a daemon session whose scope is not the job (another job, the inbox or the office) or whose `FORGE_DAEMON_SCOPE` is invalid. Step rule DS1 runs it in `build` and `verify`.
+
+`forge verify` then runs each downstream repo's `verify` steps with its links applied, and its result gains `downstream: [{ repo, ok, failure }]`, one entry per downstream repo, only when the job has any. A downstream repo with no active link from a changed repo fails the step `links`. `forge job repo propose <id> <repo>` accepts a verify-only member (an edited one still returns `already: "member"`), and approving it promotes the member (`job-repo-promoted`): it exits 1, writing nothing, while that member's verify-only worktree has uncommitted or untracked changes or a HEAD that is not on `<git.remote>/<base>`.
+
 ## Agent ids
 
 `forge job agent <id> attach --role R --agent-id A` records the runtime's id of an agent that is already `running` (the orchestrator runs it right after a background spawn), so `forge dash` can follow that agent's transcript while it works. It changes nothing else: `runs`, `startedAt` and `status` stay, and no event is logged. It prints `{ "role", "status", "agentId" }`, exits 1 when the role isn't running, and exits 2 (`usage`) without writing anything when `A` doesn't match `^[A-Za-z0-9_-]{1,100}$`, since the id becomes part of a transcript's file name.

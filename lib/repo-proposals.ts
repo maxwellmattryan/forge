@@ -2,10 +2,12 @@
 // proposes it (`forge job repo propose`), and the job parks (step RP1) until a human, or the foreman
 // when `repo-proposal` is in foreman.decides, approves or rejects it (`forge job human … approve-repos
 // | reject-repos`, or the dashboard). A job session can only propose: repos are added here, by
-// decideRepoProposals, which refuses every daemon session but the office. Pending proposals are always
-// computed from events and config, never from repo-proposals.json, which a session could edit.
+// decideRepoProposals, which refuses every daemon session but the office. A verify-only member (a
+// downstream consumer, say) can be proposed too: approving it promotes it to an edited repo
+// (promoteJobRepo). Pending proposals are always computed from events and config, never from
+// repo-proposals.json, which a session could edit.
 import path from 'node:path';
-import { addJobRepo, memberClone, memberConfig, memberEntry, memberRepos } from './job-repos.ts';
+import { addJobRepo, memberClone, memberConfig, memberEntry, memberRepos, promoteCheck, promoteJobRepo } from './job-repos.ts';
 import { jobDir, loadJob, logEvent, logHumanEvent, readEvents } from './jobs.ts';
 import { REPO_NAME } from './member-repos.ts';
 import { paths } from './paths.ts';
@@ -54,9 +56,9 @@ export function repoProposals(_job: Pick<Job, 'repos'>, events: JobEvent[]): Rep
   return [...rows.values()].map(({ at: _at, ...r }) => r);
 }
 
-/** The proposals still waiting for a decision, minus repos already on the job. */
+/** The proposals still waiting for a decision, minus repos the job already edits (a verify-only one stays pending). */
 export function pendingRepoProposals(job: Pick<Job, 'repos'>, events: JobEvent[]): RepoProposal[] {
-  const members = new Set(memberRepos(job).map((m) => m.repo));
+  const members = new Set(memberRepos(job).filter((m) => !m.verifyOnly).map((m) => m.repo));
   return repoProposals(job, events).filter((r) => r.status === 'pending' && !members.has(r.repo));
 }
 
@@ -97,7 +99,7 @@ export function proposeJobRepo(root: string, config: Config, id: string, name: s
   if (closedFor(job)) throw new ForgeError(`job ${id} is at stage ${job.stage} (${job.state}); repos can be proposed only before its PR`, 1);
   const events = readEvents(root, id);
   const pendingNames = () => pendingRepoProposals(loadJob(root, id), readEvents(root, id)).map((r) => r.repo);
-  if (memberEntry(job, name)) return { id, repo: name, pending: pendingNames(), already: 'member' };
+  if (memberEntry(job, name)?.verifyOnly === false) return { id, repo: name, pending: pendingNames(), already: 'member' };
   const row = repoProposals(job, events).find((r) => r.repo === name);
   if (row?.status === 'rejected') throw new ForgeError(`repo ${name} was rejected on job ${id}; keep the work within the job's repos (see ${PROPOSALS_MD})`, 1);
   if (row?.status === 'pending') return { id, repo: name, pending: pendingNames(), already: 'pending' };
@@ -142,11 +144,17 @@ export function decideRepoProposals(
     if (opts.exact && unseen.length) throw new ForgeError(`job ${id} also has ${unseen.join(', ')} pending, which this decision did not list; reload and decide again`, 1);
     if (decision === 'approve') {
       if (closedFor(job)) throw new ForgeError(`job ${id} is at stage ${job.stage} (${job.state}); repos can be added only before its PR`, 1);
+      // A verify-only member is promoted (its worktree must hold nothing promotion would discard); the rest are added.
+      const promote = new Set(wanted.filter((name) => memberEntry(job, name)?.verifyOnly === true));
       for (const name of wanted) {
         memberConfig(config, name);
-        memberClone(root, config, name);
+        if (promote.has(name)) promoteCheck(root, config, job, name);
+        else memberClone(root, config, name);
       }
-      for (const name of wanted) addJobRepo(root, config, id, name, false);
+      for (const name of wanted) {
+        if (promote.has(name)) promoteJobRepo(root, config, id, name);
+        else addJobRepo(root, config, id, name, false);
+      }
     }
     const note = typeof opts.note === 'string' && opts.note.trim() ? opts.note.trim().slice(0, NOTE_MAX) : null;
     logHumanEvent(root, id, 'human', { action: DECISION_ACTIONS[decision], repos: wanted, note }, opts.actor);

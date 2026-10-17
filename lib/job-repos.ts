@@ -12,7 +12,7 @@ import { removeLinkDir } from './links.ts';
 import { memberCheck, readLocalConfig, resolveMemberPath } from './member-repos.ts';
 import { exists, resolveFrom } from './paths.ts';
 import type { Config, Job, JobRepo, MemberRepoConfig } from './types.ts';
-import { ForgeError, assertSafeRef } from './util.ts';
+import { ForgeError, GIT_PINS, assertSafeRef, run } from './util.ts';
 
 /** A member entry: `repo` is always a name. */
 export type MemberJobRepo = JobRepo & { repo: string };
@@ -122,14 +122,14 @@ export function refuseJobRepoInDaemon(): void {
 }
 
 /** `forge job repo add`: records a member with its defaultBranch as base, after doctor's member check. */
-export function addJobRepo(root: string, config: Config, id: string, name: string, verifyOnly: boolean): { id: string; repos: JobRepo[] } {
+export function addJobRepo(root: string, config: Config, id: string, name: string, verifyOnly: boolean, opts: { downstream?: boolean } = {}): { id: string; repos: JobRepo[] } {
   const job = loadJob(root, id);
   if (['done', 'cancelled'].includes(job.state) || ['pr', 'done'].includes(job.stage))
     throw new ForgeError(`job ${id} is at stage ${job.stage} (${job.state}); repos can be added only before its PR`);
   memberConfig(config, name);
   if (memberEntry(job, name)) throw new ForgeError(`job ${id} already has repo ${name}`);
   memberClone(root, config, name);
-  recordJobRepo(root, config, id, name, verifyOnly);
+  recordJobRepo(root, config, id, name, verifyOnly, opts);
   return { id, repos: loadJob(root, id).repos };
 }
 
@@ -138,13 +138,64 @@ export function addJobRepo(root: string, config: Config, id: string, name: strin
  * caller has checked the member: `forge job repo add` for a human, and intake (startFromRef) only for
  * the job it just created from that member's own issue.
  */
-export function recordJobRepo(root: string, config: Config, id: string, name: string, verifyOnly: boolean): void {
+export function recordJobRepo(root: string, config: Config, id: string, name: string, verifyOnly: boolean, opts: { downstream?: boolean } = {}): void {
   const entry = memberConfig(config, name);
   updateJob(root, id, (j) => {
     if (memberEntry(j, name)) throw new ForgeError(`job ${id} already has repo ${name}`);
     j.repos.push({ repo: name, worktree: null, branch: null, base: entry.defaultBranch, pr: null, verifyOnly, interim: null });
   });
-  logEvent(root, id, 'job-repo-added', { repo: name, verifyOnly });
+  logEvent(root, id, 'job-repo-added', { repo: name, verifyOnly, ...(opts.downstream ? { downstream: true } : {}) });
+}
+
+/** git in a member checkout, without the caller's GIT_DIR-style overrides and with the session's GIT_PINS, so no hook or fsmonitor program the worktree holds runs. */
+function memberGit(cwd: string, args: string[]) {
+  const env = { ...process.env };
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY']) delete env[k];
+  return run('git', [...GIT_PINS.flatMap(([key, value]) => ['-c', `${key}=${value}`]), ...args], { cwd, allowFail: true, env });
+}
+
+/**
+ * Whether verify-only member `name` can become an edited one: its detached worktree (at the path
+ * Forge computes, never the stored one) must hold no uncommitted or untracked change and no commit
+ * beyond `<git.remote>/<base>` (else `<base>`), since promotion removes it. Throws with the fix.
+ */
+export function promoteCheck(root: string, config: Config, job: Pick<Job, 'id' | 'repos'>, name: string): void {
+  const m = memberEntry(job, name);
+  if (!m?.verifyOnly) throw new ForgeError(`repo ${name} is not a verify-only repo of job ${job.id}`);
+  const clone = memberClone(root, config, name);
+  const dir = memberWorktreePath(root, config, name, job.id, clone);
+  if (!exists(dir)) return;
+  const fix = `inspect it, then discard the work there or save it elsewhere (forge worktree remove ${job.id} --repo ${name} removes it), and approve again`;
+  const status = memberGit(dir, ['status', '--porcelain', '--untracked-files=all']);
+  if (!status.ok || status.stdout.trim()) throw new ForgeError(`repo ${name}: its verify-only worktree ${dir} has uncommitted or untracked changes, which promotion would discard; ${fix}`, 1);
+  const base = assertSafeRef(m.base, `repos ${name} base`);
+  const remote = assertSafeRef(config.git.remote, 'git.remote');
+  const ref = memberGit(dir, ['rev-parse', '--verify', '--quiet', `refs/remotes/${remote}/${base}^{commit}`]).ok ? `refs/remotes/${remote}/${base}` : `refs/heads/${base}`;
+  if (!memberGit(dir, ['merge-base', '--is-ancestor', 'HEAD', ref]).ok) throw new ForgeError(`repo ${name}: its verify-only worktree ${dir} has a HEAD that is not on ${ref.replace(/^refs\/(remotes|heads)\//, '')}, which promotion would discard; ${fix}`, 1);
+}
+
+/**
+ * Promotes verify-only member `name` to an edited one (an approved repo proposal): removes its
+ * detached worktree, clears `verifyOnly` and `worktree`, and logs `job-repo-promoted`. Step RP2 then
+ * checks it out again on the job's branch. promoteCheck runs first; the caller holds the decision lock.
+ */
+export function promoteJobRepo(root: string, config: Config, id: string, name: string): void {
+  const job = loadJob(root, id);
+  promoteCheck(root, config, job, name);
+  const clone = memberClone(root, config, name);
+  const dir = memberWorktreePath(root, config, name, id, clone);
+  if (exists(dir)) {
+    const removed = memberGit(clone, ['worktree', 'remove', '--force', dir]);
+    if (!removed.ok) throw new ForgeError(`repo ${name}: git worktree remove ${dir} failed: ${(removed.stderr || removed.stdout).trim().slice(0, 300)}`, 1);
+  }
+  memberGit(clone, ['worktree', 'prune']);
+  updateJob(root, id, (j) => {
+    const e = memberEntry(j, name);
+    if (!e) throw new ForgeError(`job ${id} has no repo ${name}`);
+    e.verifyOnly = false;
+    e.worktree = null;
+  });
+  logEvent(root, id, 'job-repo-promoted', { repo: name });
 }
 
 /** `forge job repo remove`: drops a member that has no PR and no worktree left. */
