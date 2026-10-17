@@ -20,6 +20,20 @@ interface Row {
 const run = (...command: string[]) => ({ action: 'run', command });
 const vr = (round: number, at: number, ok: boolean, failure: string | null = ok ? null : 'test'): VerifyRun => ({ round, attempt: 1, sha: 's', ok, at: t(at), file: `verify/round-${round}.md`, failure });
 const job = (j: Partial<Job>): Partial<Job> => ({ state: 'running', ...j });
+// A root app that depends on member lib, lib's interim strategy from config (default local).
+const twoRepoConfig = (c: any, interim?: string) => {
+  c.repos = [{ name: 'lib', remote: '/x/lib.git', defaultBranch: 'main', ...(interim ? { release: { interim } } : {}) }];
+  c.components = [
+    { name: 'app', path: '.', kind: 'app', dependsOn: [{ component: 'lib', type: 'build' }] },
+    { name: 'lib', repo: 'lib', path: '.', kind: 'library' },
+  ];
+};
+const libRepo = (state: 'OPEN' | 'MERGED' | null): Job['repos'] => [
+  { repo: null, worktree: WT, branch: 'forge/j', base: 'main', pr: null, verifyOnly: false, interim: null },
+  { repo: 'lib', worktree: null, branch: 'forge/j', base: 'main', pr: state ? { number: 7, url: null, state, isDraft: false, lastSyncedAt: t(9) } : null, verifyOnly: false, interim: null },
+];
+const SEQ = { repo: null, why: 'sequential', waitingOn: ['lib'] };
+const CANARY = { repo: null, why: 'canary', waitingOn: ['lib'], name: '@acme/lib', version: '1.4.0-canary.0123456789ab' };
 const SPEC_DONE = { 'spec-writer': ag(0, 1, 2) };
 const LOCAL = (c: Config) => void (c.tracker.kind = 'local');
 const LINKED: Partial<Job> = { issues: [{ tracker: 'local', ref: 'x', url: null }] };
@@ -849,6 +863,16 @@ const rows: Row[] = [
   { name: 'PR5 ship merge without the foreman on never merges', fx: { config: (c) => Object.assign(c.foreman, { enabled: false, ship: 'merge' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
   { name: 'PR5 once a merge was tried, the PR waits', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11), ev('pr-merge-refused', 12)] }, want: { action: 'run', rule: 'PR5' } },
   { name: 'PR5 waits on PR review', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('pr-updated', 11)] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review') },
+  // ---- Interim strategies: a local edge holds off PR4; a deferral parks (PR6, PR8) or reopens (PR7)
+  { name: 'local: PR4 skipped while an edge is local', fx: { config: (c) => (twoRepoConfig(c), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo(null) }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
+  { name: 'PR4 still merges when the edge is sequential', fx: { config: (c) => (twoRepoConfig(c, 'sequential'), (c.merge.auto = true)), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo(null) }), decision: { decision: 'APPROVE', autoMerge: true }, events: [ev('pr-opened', 11)] }, want: { ...run('pr', 'merge', 'j'), rule: 'PR4' } },
+  { name: 'PR3 counts pr-deferred as an open attempt', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true), vr(1, 14, true)], repos: libRepo('OPEN') }), events: [ev('pr-deferred', 11, { deferred: [SEQ] })] }, want: { ...run('pr', 'open', 'j'), rule: 'PR3' } },
+  { name: 'PR6 canary deferral waits on a human', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('OPEN') }), events: [ev('pr-deferred', 11, { deferred: [CANARY] })] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'the root repo waits on a canary of repo lib [@acme/lib@1.4.0-canary.0123456789ab]: a human runs forge job interim publish j lib --confirm') },
+  { name: 'PR6 another version published does not count', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('OPEN') }), events: [ev('pr-deferred', 11, { deferred: [CANARY] }), ev('canary-published', 12, { repo: 'lib', name: '@acme/lib', version: '1.4.0-canary.ffffffffffff' })] }, want: { action: 'run', rule: 'PR6' } },
+  { name: 'PR7 reopens once the canary is published', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('OPEN') }), events: [ev('pr-deferred', 11, { deferred: [CANARY] }), ev('canary-published', 12, { repo: 'lib', name: '@acme/lib', version: CANARY.version, sha: 'a'.repeat(40) })] }, want: { ...run('pr', 'open', 'j'), rule: 'PR7' } },
+  { name: 'PR7 reopens once dependencies merged', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('MERGED') }), events: [ev('pr-deferred', 11, { deferred: [SEQ] })] }, want: { ...run('pr', 'open', 'j'), rule: 'PR7' } },
+  { name: 'PR8 sequential deferral waits on pr-review', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('OPEN') }), events: [ev('pr-deferred', 11, { deferred: [SEQ] })] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review', '--reason', 'the root repo PR opens after repo lib merges [interim: sequential]') },
+  { name: 'PR8 a forged deferral entry is ignored', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], repos: libRepo('OPEN') }), events: [ev('pr-deferred', 11, { deferred: [SEQ, { repo: "x';id", why: 'sequential', waitingOn: ['lib'] }, { repo: null, why: 'canary', waitingOn: ['lib'] }] })] }, want: { action: 'run', rule: 'PR8' } },
 
   // ---- A PR job forge sync moved to integrate: the earlier episode's integrated and pr-updated don't count
   { name: 'sync-routed: IG1 integrates despite an earlier episode', fx: { job: atIntegrate({ pr: OPEN_PR }), events: routed }, want: run('integrate', 'j') },

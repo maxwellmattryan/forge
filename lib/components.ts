@@ -9,6 +9,10 @@ import { SAFE_REF } from './util.ts';
 export const COMPONENT_KINDS = ['library', 'service', 'app'] as const;
 export const DEPENDENCY_TYPES = ['build', 'runtime'] as const;
 export const LINK_ECOSYSTEMS = ['cargo', 'cmake', 'npm'] as const;
+/** What a consumer's PR points at while its dependency is unmerged (lib/interim.ts, docs/CONFIG.md "Interim strategies"). */
+export const INTERIM_STRATEGIES = ['canary', 'git-ref', 'local', 'sequential'] as const;
+
+export const isInterimStrategy = (v: unknown): v is (typeof INTERIM_STRATEGIES)[number] => (INTERIM_STRATEGIES as readonly unknown[]).includes(v);
 
 // Names and sources reach TOML and sh (lib/links.ts quotes them too), so each is held to what its
 // ecosystem accepts: a crate name, a FetchContent name (it becomes a CMake variable), an npm name.
@@ -78,7 +82,21 @@ function linkProblems(link: unknown, at: string): string[] {
       problems.push(`${at}.source must be crates-io, a registry name or an https://, ssh:// or git:// url of at most ${SOURCE_MAX} characters without whitespace, quotes, backslashes or control characters (got ${show(link.source)})`);
   }
   if (link.path !== undefined && link.path !== null && !isInsidePath(link.path)) problems.push(`${at}.path must be a relative path inside the dependency's repo (got ${show(link.path)})`);
+  if (link.manifest !== undefined && link.manifest !== null && !isManifestPath(eco, link.manifest))
+    problems.push(`${at}.manifest must be a relative path inside the consumer's repo to ${MANIFEST_NAMES[eco]} (got ${show(link.manifest)})`);
   return problems;
+}
+
+const MANIFEST_NAMES: Record<(typeof LINK_ECOSYSTEMS)[number], string> = { cargo: 'a Cargo.toml', cmake: 'a CMakeLists.txt or a .cmake file', npm: 'a package.json' };
+
+/** A link's `manifest`: inside the consumer's repo, and the file its ecosystem's pin goes in. */
+export function isManifestPath(ecosystem: unknown, p: unknown): p is string {
+  if (!isInsidePath(p)) return false;
+  const base = p.split(/[/\\]/).pop() ?? '';
+  if (ecosystem === 'cargo') return base === 'Cargo.toml';
+  if (ecosystem === 'cmake') return base === 'CMakeLists.txt' || (base.endsWith('.cmake') && base.length > '.cmake'.length);
+  if (ecosystem === 'npm') return base === 'package.json';
+  return false;
 }
 
 const repoLabel = (r: unknown): string => (typeof r === 'string' ? `repo ${r}` : 'the root repo');

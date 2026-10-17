@@ -39,11 +39,11 @@ const COMPONENTS = [
 
 describe('links: config shape', { concurrency: 4 }, () => {
   test('a v11 config migrates to v12 unchanged', async () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 12);
+    assert.equal(CONFIG_SCHEMA_VERSION, 13);
     const v11 = { schemaVersion: 11, repos: structuredClone(REPOS), components: structuredClone(COMPONENTS) };
     const { config, from } = migrateConfig(structuredClone(v11));
     assert.equal(from, 11);
-    assert.deepEqual(config, { ...v11, schemaVersion: 12 });
+    assert.deepEqual(config, { ...v11, schemaVersion: 13 });
     const repo = tempRepo();
     cleanups.push(repo.cleanup);
     const cfg = path.join(repo.dir, '.forge', 'config.yml');
@@ -52,7 +52,7 @@ describe('links: config shape', { concurrency: 4 }, () => {
     const m = await forgeAsync(repo.dir, ['migrate']);
     assert.equal(m.status, 0, m.stderr);
     const text = fs.readFileSync(cfg, 'utf8');
-    assert.match(text, /^schemaVersion: 12$/m);
+    assert.match(text, /^schemaVersion: 13$/m);
     assert.deepEqual(yaml.parse(text).components, COMPONENTS);
   });
 

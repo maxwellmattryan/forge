@@ -63,11 +63,11 @@ function scratch(edit: (c: any) => void = () => {}) {
 const WAIT_SPEC = { stage: 'spec' as const, state: 'waiting' as const, waitingOn: 'spec-approval' as const, reason: 'spec ready' };
 
 test('config v4 migrates to v7 with foreman defaults off', () => {
-  assert.equal(CONFIG_SCHEMA_VERSION, 12);
+  assert.equal(CONFIG_SCHEMA_VERSION, 13);
   const v4 = { schemaVersion: 4, git: { base: 'trunk' }, runtime: { models: { builder: 'sonnet' } } };
   const { config, from } = migrateConfig(structuredClone(v4));
   assert.equal(from, 4);
-  assert.deepEqual(config, { ...v4, schemaVersion: 12, repos: [] }, 'only schemaVersion and the empty repos list change');
+  assert.deepEqual(config, { ...v4, schemaVersion: 13, repos: [] }, 'only schemaVersion and the empty repos list change');
   const d = defaults();
   assert.deepEqual(d.foreman, { enabled: false, decides: [...OFFICE_GATES], reserved: d.foreman.reserved, ship: 'propose' });
   assert.deepEqual(OFFICE_GATES, ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback']);

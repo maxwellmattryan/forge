@@ -124,13 +124,13 @@ export const CORE: HelpGroup[] = [
       {
         command: 'pr open',
         args: '<id> [--title T] [--draft] [--force]',
-        summary: "push the verified branch and open or update its PR; with job repos, every repo is checked first, then each non-verify-only member's branch is pushed and its PR opened or updated (result: repos) before the root PR",
+        summary: "push the verified branch and open or update its PR; with job repos, every repo is checked first, then each non-verify-only member's branch is pushed and its PR opened or updated (result: repos) in dependency order before the root PR; a repo an interim strategy holds back is not pushed (result: deferred; docs/CONFIG.md \"Interim strategies\")",
         flags: [
           ['--title T', 'the PR title (default: the job title)'],
           ['--draft', 'open it as a draft'],
           ['--force', 'publish a HEAD that forge verify has not passed'],
         ],
-        exits: [[1, 'no such job or worktree, an unverified HEAD (of any job repo), nothing to push (in any job repo), no GitHub slug for a member repo, or a likely secret in a PR title or body or the commits it would push (code secret_found)'], GH_FAILED],
+        exits: [[1, 'no such job or worktree, an unverified HEAD (of any job repo), nothing to push (in any job repo), no GitHub slug for a member repo, a likely secret in a PR title or body or the commits it would push (code secret_found), an interim pin that cannot be written, or one that is not the dependency\'s checked HEAD (code interim_stale)'], GH_FAILED],
       },
       {
         command: 'pr sync',
