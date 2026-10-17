@@ -80,6 +80,15 @@ test('forge backing up|status|down', async () => {
     const refused = await cli(['backing', 'up', id], trust);
     assert.equal(refused.status, 1);
     assert.match(refused.stdout + refused.stderr, /the inbox daemon session does not drive jobs/);
+    // Nor does it, or the office, tear down the shared services every job uses.
+    const sharedBefore = Object.keys(state().containers).filter((n) => n.endsWith('-redis'));
+    assert.equal(sharedBefore.length, 1);
+    for (const scope of ['_inbox', '_office']) {
+      const shared = await cli(['backing', 'down', '--shared'], { ...trust, FORGE_DAEMON_SCOPE: scope });
+      assert.equal(shared.status, 1, scope);
+      assert.match(shared.stdout + shared.stderr, scope === '_inbox' ? /the inbox daemon session does not drive jobs/ : /the office session decides gates and does not drive jobs/);
+      assert.deepEqual(Object.keys(state().containers).filter((n) => n.endsWith('-redis')), sharedBefore, `${scope}: shared container kept`);
+    }
 
     // A stopped daemon: up exits 5 and says why.
     setState({ daemon: 'down' });
@@ -87,6 +96,7 @@ test('forge backing up|status|down', async () => {
     assert.equal(stopped.status, 5);
     assert.equal(stopped.json.ok, false);
     assert.match(stopped.json.services[0].error, /^docker is installed but its daemon is not reachable/);
+    assert.equal(stopped.json.services[0].action, 'none');
     const statusDown = await cli(['backing', 'status']);
     assert.equal(statusDown.status, 5);
     const downFails = await cli(['backing', 'down', id]);

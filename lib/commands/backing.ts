@@ -1,7 +1,7 @@
 // `forge backing up|down|status`: a job's backing services on demand (lib/backing.ts, docs/CONFIG.md
 // "Backing services"). worktree create and remove do the same bring-up and teardown on their own.
 import { backingDown, backingDownShared, backingStatus, backingUp } from '../backing.ts';
-import { refuseInboxDrive } from '../daemon-owner.ts';
+import { refuseInboxDrive, refuseInboxOrOffice } from '../daemon-owner.ts';
 import { loadJob } from '../jobs.ts';
 import { validJobId } from '../requests.ts';
 import { ForgeError, assertSafeRef } from '../util.ts';
@@ -67,6 +67,7 @@ export function backingCmd(ctx: CliContext, sub: string | undefined, rest: strin
   if (sub === 'down') {
     if (flags.shared === true) {
       if (rest.length) throw usageError(BACKING, 'down');
+      refuseInboxOrOffice('run `forge backing down --shared` from a terminal');
       return { data: backingDownShared(root, config), exitCode: 0 };
     }
     if (rest.length !== 1) throw usageError(BACKING, 'down');
