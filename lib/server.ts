@@ -19,7 +19,9 @@ import { InactiveJobError, currentFocus, focusJob } from './focus-actions.ts';
 import { createPreviewer, ghRunner, parseGitHubUrl } from './github-preview.ts';
 import type { GhRunner } from './github-preview.ts';
 import { daemonSessionIds, jobSessionEnv, ownerStatusWithProof } from './daemon-owner.ts';
-import { RUNNING_AGENT_MAX_MS, createJob, isActive, listJobs, loadJob, ownerStatus, progress, readEvents, jobDir, requestBody, setJobEffort } from './jobs.ts';
+import { RUNNING_AGENT_MAX_MS, createJob, isActive, listJobs, loadJob, ownerStatus, progress, readEvents, jobDir, requestBody, setJob, setJobEffort } from './jobs.ts';
+import { decideRepoProposals, isRepoProposalPark } from './repo-proposals.ts';
+import { REPO_NAME } from './member-repos.ts';
 import { parseIssueRef } from './issue-ref.ts';
 import { paths, exists, DEV_DIST_DIR, PLUGIN_ROOT } from './paths.ts';
 import { API_VERSION, CONFIG_SCHEMA_VERSION, EFFORTS, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from './schema.ts';
@@ -69,6 +71,7 @@ import type {
   PostDaemonModeResponse,
   PostEditorResponse,
   PostJobEffortResponse,
+  PostJobReposResponse,
   PostJobResponse,
   PostRequestResponse,
   PostRunResponse,
@@ -106,6 +109,10 @@ export interface RunningServer {
 
 const TEXT_EXT = new Set(['.md', '.log', '.patch', '.diff', '.json', '.jsonl', '.txt', '.yml', '.yaml', '.html']);
 const MAX_FILE = 2 * 1024 * 1024;
+/** POST /api/jobs/:id/repos: the longest note it records. */
+const REPO_NOTE_MAX = 2000;
+/** A decision lists at most this many repos: more than any project has members. */
+const REPO_LIST_MAX = 100;
 // Raster formats only: SVG can carry script, so it is never served as an image.
 const IMAGE_TYPES: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
 const MAX_IMAGE = 10 * 1024 * 1024;
@@ -401,6 +408,39 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (effort !== null && !(EFFORTS as readonly unknown[]).includes(effort)) return jsonStatus(res, 400, { error: `effort must be one of ${EFFORTS.join(', ')}, or null` });
         // No DAEMON_LOCK: job.json is outside the trust digest, and a running session picks the level up at its next spawn.
         return json(res, setJobEffort(root, id, effort as PostJobEffortResponse['effort'], 'dashboard') satisfies PostJobEffortResponse);
+      }
+      const rm = p.match(/^\/api\/jobs\/([^/]+)\/repos$/);
+      if (req.method === 'POST' && rm) {
+        if (guardPost(req, res, token)) return;
+        const parsed = await readJsonBody(req);
+        if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
+        const id = rm[1];
+        if (!validJobId(id) || !exists(path.join(jobDir(root, id), 'job.json'))) return jsonStatus(res, 404, { error: validJobId(id) ? `no job ${id}` : 'no such job' });
+        const body = parsed.body;
+        if (!isObject(body) || (body.decision !== 'approve' && body.decision !== 'reject')) return jsonStatus(res, 400, { error: 'body must be {"decision": "approve"|"reject", "repos": [names], "note"?: string}' });
+        const repos = body.repos;
+        if (!Array.isArray(repos) || !repos.length || repos.length > REPO_LIST_MAX || !repos.every((r) => typeof r === 'string' && REPO_NAME.test(r))) return jsonStatus(res, 400, { error: `repos must be a list of 1 to ${REPO_LIST_MAX} repo names: the proposals you decide` });
+        const note = body.note;
+        if (note !== undefined && note !== null && (typeof note !== 'string' || note.length > REPO_NOTE_MAX)) return jsonStatus(res, 400, { error: `note must be a string of at most ${REPO_NOTE_MAX} characters, or null` });
+        let decided: ReturnType<typeof decideRepoProposals>;
+        try {
+          // Exactly the repos the drawer listed, or 409: a repo proposed since, or hidden from repo-proposals.json, is never approved unseen.
+          decided = decideRepoProposals(root, loadConfig(root).config, id, body.decision, { repos: repos as string[], exact: true, note: (note as string | null | undefined) ?? null, actor: dashboardActor() });
+        } catch (e) {
+          if (e instanceof ForgeError) return jsonStatus(res, 409, { error: e.message });
+          throw e;
+        }
+        let resumed = false;
+        if (!decided.pending.length && isRepoProposalPark(loadJob(root, id))) {
+          setJob(root, id, { state: 'running' });
+          // A live session that holds the job picks the decision up at its next step.
+          if (resumeHeld(root, { type: 'resume', job: id }) === null) {
+            enqueue(root, null, { type: 'resume', job: id, from: 'dashboard' });
+            pool?.poke();
+            resumed = true;
+          }
+        }
+        return json(res, { ...decided, resumed } satisfies PostJobReposResponse);
       }
       if (req.method === 'POST' && p === '/api/focus') {
         if (guardPost(req, res, token)) return;

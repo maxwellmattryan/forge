@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { budgetRepo } from './repo-budget-fixture.ts';
+import { twoRepo } from './job-repos-fixture.ts';
 import { broadcast, distAllowlist, distDirFor, startServer } from '../lib/server.ts';
 import { DEV_DIST_DIR } from '../lib/paths.ts';
 import { TURN_LINE } from '../lib/daemon.ts';
@@ -2083,5 +2084,97 @@ test('job detail serves issues', async () => {
   } finally {
     await srv.close();
     repo.cleanup();
+  }
+});
+
+test('POST /api/jobs/:id/repos decides pending proposals', async () => {
+  const p = await twoRepo();
+  p.config((c) => c.repos.push({ name: 'tools', remote: 'https://example.com/tools.git', defaultBranch: 'main' }));
+  const parked = (await p.f('job', 'new', '--title', 'parked')).id;
+  await p.f('job', 'repo', 'propose', parked, 'lib', '--reason', '<script>alert(1)</script> core API');
+  await p.f('job', 'set', parked, '--stage', 'spec', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'repo proposal: lib');
+  const idle = (await p.f('job', 'new', '--title', 'nothing pending')).id;
+  const noClone = (await p.f('job', 'new', '--title', 'no clone')).id;
+  await p.f('job', 'repo', 'propose', noClone, 'tools', '--reason', 'cli flag');
+  const rejected = (await p.f('job', 'new', '--title', 'rejected')).id;
+  await p.f('job', 'repo', 'propose', rejected, 'lib', '--reason', 'maybe');
+  // Two pending, with repo-proposals.json edited (as a session could) to list only lib.
+  const hidden = (await p.f('job', 'new', '--title', 'hidden repo')).id;
+  await p.f('job', 'repo', 'propose', hidden, 'lib', '--reason', 'core API');
+  await p.f('job', 'repo', 'propose', hidden, 'tools', '--reason', 'cli flag');
+  const shownFile = path.join(p.root, '.forge', 'jobs', hidden, 'repo-proposals.json');
+  const shown = JSON.parse(fs.readFileSync(shownFile, 'utf8'));
+  fs.writeFileSync(shownFile, JSON.stringify({ proposals: shown.proposals.filter((r: any) => r.repo === 'lib') }));
+  const srv = await startServer(p.root, { port: 0 });
+  const port = Number(new URL(srv.url).port);
+  const dir = (id: string) => path.join(p.root, '.forge', 'jobs', id);
+  const snapshot = () => [parked, idle, noClone, hidden].map((id) => ['job.json', 'events.jsonl'].map((f) => fs.readFileSync(path.join(dir(id), f), 'utf8')).join('\0'));
+  const resumes = () => {
+    const d = path.join(p.root, '.forge', 'runtime', 'requests');
+    return fs.existsSync(d) ? fs.readdirSync(d).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(fs.readFileSync(path.join(d, f), 'utf8'))).filter((r) => r.type === 'resume') : [];
+  };
+  try {
+    const token = await tokenOf(port);
+    const good = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };
+    const post = (body, headers: any = good, job = parked) => hit(port, { method: 'POST', path: `/api/jobs/${job}/repos`, headers, body: typeof body === 'string' ? body : JSON.stringify(body) });
+    const before = snapshot();
+    const lib = { decision: 'approve', repos: ['lib'] };
+    const refusals: [number, any, any?, string?][] = [
+      [403, lib, { ...good, 'x-forge-token': 'wrong' }],
+      [403, lib, (({ 'x-forge-token': _t, ...rest }) => rest)(good)],
+      [403, lib, { ...good, origin: 'http://evil.example' }],
+      [415, lib, { ...good, 'content-type': 'text/plain' }],
+      [400, { decision: 'maybe', repos: ['lib'] }],
+      [400, {}],
+      [400, []],
+      [400, 'null'],
+      [400, '{not json'],
+      [400, { ...lib, note: 5 }],
+      [400, { ...lib, note: 'x'.repeat(2001) }],
+      [400, { decision: 'approve' }],
+      [400, { decision: 'approve', repos: [] }],
+      [400, { decision: 'approve', repos: 'lib' }],
+      [400, { decision: 'approve', repos: [5] }],
+      [400, { decision: 'approve', repos: ['../evil'] }],
+      [400, { decision: 'approve', repos: Array.from({ length: 101 }, (_, i) => `r${i}`) }],
+      [404, lib, good, 'no-such-job'],
+      [404, lib, good, '_inbox'],
+      [409, lib, good, idle],
+      [409, { decision: 'reject', repos: ['lib'] }, good, idle],
+      [409, { decision: 'approve', repos: ['tools'] }, good, noClone],
+      [409, { decision: 'approve', repos: ['tools'] }, good, parked],
+      [409, lib, good, hidden],
+      [409, { decision: 'reject', repos: ['lib'] }, good, hidden],
+    ];
+    for (const [status, body, headers, job] of refusals) {
+      const r = await post(body, headers ?? good, job ?? parked);
+      assert.equal(r.status, status, `${JSON.stringify(body)} ${job ?? ''}: ${r.text}`);
+    }
+    assert.match(JSON.parse((await post({ decision: 'approve', repos: ['tools'] }, good, noClone)).text).error, /repo tools: no path in \.forge\/local\.yml/);
+    // The hidden-repo case: the drawer listed lib only, so neither decision goes through while tools is pending.
+    assert.match(JSON.parse((await post(lib, good, hidden)).text).error, /also has tools pending, which this decision did not list/);
+    assert.equal((await hit(port, { path: `/api/jobs/${parked}/repos` })).status, 404, 'GET is not a route');
+    assert.deepEqual(snapshot(), before, 'no refusal wrote anything');
+    assert.deepEqual(resumes(), []);
+
+    const ok = await post({ ...lib, note: 'needed' });
+    assert.equal(ok.status, 200, ok.text);
+    assert.deepEqual(JSON.parse(ok.text), { id: parked, decision: 'approve', repos: ['lib'], added: ['lib'], pending: [], resumed: true });
+    const job = JSON.parse(fs.readFileSync(path.join(dir(parked), 'job.json'), 'utf8'));
+    assert.equal(job.state, 'running');
+    assert.equal(job.repos[1].repo, 'lib');
+    const human = p.events(parked).filter((e) => e.type === 'human');
+    assert.deepEqual(human.map((e) => [e.action, e.repos, e.note, e.actor.source]), [['approve-repos', ['lib'], 'needed', 'dashboard']]);
+    assert.deepEqual(resumes().map((r) => [r.job, r.from]), [[parked, 'dashboard']]);
+
+    // A job that never parked on the proposal is decided but not moved or resumed.
+    const no = await post({ decision: 'reject', repos: ['lib'], note: null }, good, rejected);
+    assert.equal(no.status, 200, no.text);
+    assert.deepEqual(JSON.parse(no.text), { id: rejected, decision: 'reject', repos: ['lib'], added: [], pending: [], resumed: false });
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir(rejected), 'job.json'), 'utf8')).state, 'queued');
+    assert.equal(resumes().length, 1);
+  } finally {
+    await srv.close();
+    p.cleanup();
   }
 });

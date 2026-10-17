@@ -322,3 +322,39 @@ test('member repos are listed after the worktree line', () => {
   assert.equal('repos' in jobPathMap('/repo', defaults(), job), false, 'a single-repo path map has no repos key');
   assert.deepEqual(jobPathMap('/repo', defaults(), { ...job, repos: [root, lib, docs] }).repos, { lib: '/lib.worktrees/j', docs: null });
 });
+
+test('planner and spec-writer briefs carry the repo graph', () => {
+  const graph = (c: any) => {
+    c.repos = [{ name: 'lib', remote: 'https://example.com/lib.git', defaultBranch: 'main' }];
+    c.components = [
+      { name: 'core', repo: 'lib', path: '.', kind: 'library' },
+      { name: 'app', path: '.', kind: 'service', dependsOn: [{ component: 'core', type: 'build' }] },
+    ];
+  };
+  const proposals = path.join(JOB_DIR, 'repo-proposals.md');
+  const line = 'Project repos (JSON): [{"repo":"lib","onJob":false,"components":["core"],"usedBy":[{"component":"app","repo":null,"type":"build"}]}]';
+  const f = fixture({ config: graph, files: ['request'], present: [proposals] });
+  assert.equal(f.paths.repoProposals, proposals);
+  for (const role of ['planner', 'spec-writer']) {
+    const b = brief(f, role);
+    has(b, line);
+    assert.match(b, new RegExp(`^Inputs: .*${proposals.replace(/[.\\/]/g, '\\$&')}`, 'm'), role);
+    assert.ok(!brief(fixture({ files: ['request'] }), role).includes('Project repos'), `${role}: single-repo has no line`);
+    const inputs = brief(fixture({ config: graph, files: ['request'] }), role).split('\n').find((l) => l.startsWith('Inputs: '))!;
+    assert.ok(!inputs.includes(proposals), `${role}: lists the file only when it exists`);
+  }
+  assert.ok(!brief(fixture({ config: graph, files: ['spec', 'tasks'] }), 'builder').includes('Project repos'), 'the builder gets no graph');
+  const lib = { repo: 'lib', worktree: null, branch: null, base: 'main', pr: null, verifyOnly: false };
+  const onJob = fixture({ config: graph, job: { repos: [{ repo: null } as any, lib] } });
+  has(brief(onJob, 'planner'), line.replace('"onJob":false', '"onJob":true'));
+});
+
+test('planner and spec-writer prompts propose repos through the CLI', () => {
+  for (const role of ['planner', 'spec-writer']) {
+    const text = fs.readFileSync(path.join(import.meta.dirname, '..', 'agents', `${role}.md`), 'utf8');
+    assert.ok(text.includes('forge job repo propose <job> <repo> --reason'), `${role}: the propose command`);
+    assert.ok(text.includes('Propose only names from that line'), `${role}: names from the Project repos line`);
+    assert.ok(text.includes('never re-propose a rejected repo'), `${role}: no re-proposal`);
+    assert.ok(text.includes('Never approve or reject a proposal yourself'), `${role}: never decides`);
+  }
+});

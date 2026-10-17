@@ -47,6 +47,10 @@ const UNLINKED: [string, Partial<Job>, ReturnType<typeof ev>[]][] = [
 const SPEC_TELL = `j spec ready: ${path.join(JOB_DIR, 'spec.md')}. /forge approve j or /forge revise j <note>`;
 const LINK_TELL = `j needs an issue: candidates in ${path.join(JOB_DIR, 'issue-candidates.md')} (untrusted). /forge approve j <ref> | new | none [reason]`;
 const PANEL_SET = ev('fields', 3, { fields: { reviewers: ['code', 'tests'] } });
+/** An agent proposed member repo lib at minute n. */
+const PROPOSED = (n: number) => ev('repo-proposed', n, { repo: 'lib', reason: 'core API' });
+/** The job's repos once lib was added: the root mirror, then lib. */
+const WITH_LIB = [{ repo: null }, { repo: 'lib', worktree: '/lib.worktrees/j', branch: 'forge/j', base: 'main', pr: null, verifyOnly: false }] as Job['repos'];
 
 /** A job in review, round 1: builder done, verify passed, panel and scope written. */
 const inReview = (agents: Job['agents'] = {}, more: Partial<Job> = {}): Partial<Job> =>
@@ -834,6 +838,39 @@ const rows: Row[] = [
     name: 'protected paths: PR4 never auto-merges protected paths',
     fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], protectedPaths: FLAG(5) }), decision: { decision: 'APPROVE', autoMerge: true }, events: [...ppPark(6, 7), ev('pr-opened', 11)] },
     want: { action: 'run', rule: 'PR5' },
+  },
+
+  // ---- Repo proposals (RP1, RP2)
+  ...(['plan', 'spec', 'design', 'build', 'verify', 'review', 'decide', 'integrate'] as const).map((stage) => ({
+    name: `RP1 parks a pending proposal at ${stage}`,
+    fx: { job: job({ stage, round: 1, agents: { builder: ag(1, 5, 6) } }), events: [PROPOSED(7)] },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'repo proposal: lib'), rule: 'RP1' },
+  })),
+  { name: 'RP1 parks before the spec gate', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, PROPOSED(4)] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'repo proposal: lib'), rule: 'RP1' } },
+  {
+    name: 'SP5 after an approved proposal',
+    fx: { job: job({ stage: 'spec', agents: SPEC_DONE, repos: WITH_LIB }), events: [PANEL_SET, PROPOSED(4), ev('human', 5, { action: 'approve-repos', repos: ['lib'], note: null })] },
+    want: { ...run('job', 'set', 'j', '--stage', 'spec', '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready'), rule: 'SP5' },
+  },
+  { name: 'repo proposals: RP1 a generic approve on the park re-parks', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, PROPOSED(4), ev('human', 6, { action: 'approve' })] }, want: { rule: 'RP1' } },
+  { name: 'repo proposals: RP1 a name outside REPO_NAME is never pending', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, ev('repo-proposed', 4, { repo: "x'$(touch y)", reason: 'r' }), ev('repo-proposed', 4, { repo: '-rf', reason: 'r' })] }, want: { rule: 'SP5' } },
+  {
+    name: 'RP1 names at most five repos and counts the rest',
+    fx: { job: job({ stage: 'build', round: 1, agents: { builder: ag(1, 5, 6) } }), events: ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((r, i) => ev('repo-proposed', 7 + i, { repo: r, reason: 'x' })) },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'repo proposal: a, b, c, d, e +2 more'), rule: 'RP1' },
+  },
+  { name: 'repo proposals: RP1 waits for a running agent', fx: { job: job({ stage: 'spec', agents: { 'spec-writer': ag(0, 1) } }), events: [PROPOSED(2)] }, want: { action: 'wait', rule: 'G5' } },
+  { name: 'repo proposals: RP1 not at backlog', fx: { job: job({ stage: 'backlog' }), events: [PROPOSED(2)] }, want: { rule: 'I5' } },
+  { name: 'repo proposals: RP1 not at pr', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [PROPOSED(12)] }, want: { rule: 'PR3' } },
+  { name: 'repo proposals: RP1 a rejected proposal is not pending', fx: { job: job({ stage: 'spec', agents: { 'spec-writer': ag(0, 5, 6) } }), events: [PROPOSED(2), ev('human', 3, { action: 'reject-repos', repos: ['lib'] }), ev('fields', 7, { fields: { reviewers: ['code'] } })] }, want: { rule: 'SP5' } },
+  { name: 'RP2 creates the worktree of an approved repo', fx: { job: job({ stage: 'spec', agents: SPEC_DONE, repos: WITH_LIB }), memberWorktreesMissing: true, events: [PANEL_SET, PROPOSED(4), ev('human', 5, { action: 'approve-repos', repos: ['lib'] })] }, want: { ...run('worktree', 'create', 'j'), rule: 'RP2' } },
+  { name: 'SP2 re-specs after a rejected repo proposal', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, PROPOSED(2), ev('human', 4, { action: 'reject-repos', repos: ['lib'], note: 'no' })] }, want: { action: 'spawn', rule: 'SP2', role: 'spec-writer' } },
+  { name: 'P1 re-plans after a rejected repo proposal', fx: { job: job({ stage: 'plan', agents: { planner: ag(0, 1, 2) } }), plan: { verdict: 'SINGLE' }, events: [PROPOSED(2), ev('human', 4, { action: 'reject-repos', repos: ['lib'] })] }, want: { action: 'spawn', rule: 'P1', role: 'planner' } },
+  { name: 'repo proposals: P4 a reject older than the planner run does not re-plan', fx: { job: job({ stage: 'plan', agents: { planner: ag(0, 5, 6) } }), plan: { verdict: 'SINGLE' }, events: [PROPOSED(2), ev('human', 4, { action: 'reject-repos', repos: ['lib'] })] }, want: { rule: 'P4' } },
+  {
+    name: 'G4 a repo proposal park names repo-proposals.md',
+    fx: { job: job({ stage: 'spec', state: 'waiting', waitingOn: 'human', reason: 'repo proposal: lib' }), events: [PROPOSED(2)] },
+    want: { action: 'wait', waitingOn: 'human', tell: `j proposes repos (repo proposal: lib): ${path.join(JOB_DIR, 'repo-proposals.md')}. Approve or reject in the dashboard, or in your own terminal: forge job human j approve-repos|reject-repos --repo <names> --note …` },
   },
 
   // ---- Secret scan (SC1–SC3) and the human gate
