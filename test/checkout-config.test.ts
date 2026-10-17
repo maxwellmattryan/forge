@@ -72,19 +72,19 @@ describe('checkout config', { concurrency: 4 }, () => {
   });
 
   test('a previous-version config migrates', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 14);
-    const v13 = { schemaVersion: 13, git: { base: 'trunk' }, components: [], repos: [] };
-    const { config, from } = migrateConfig(structuredClone(v13));
-    assert.equal(from, 13);
-    assert.deepEqual(config, { ...v13, schemaVersion: 14 }, 'nothing but schemaVersion changes');
+    assert.equal(CONFIG_SCHEMA_VERSION, 15);
+    const v14 = { schemaVersion: 14, git: { base: 'trunk' }, components: [], repos: [], downstream: { enabled: true, max: 5, skip: [] } };
+    const { config, from } = migrateConfig(structuredClone(v14));
+    assert.equal(from, 14);
+    assert.deepEqual(config, { ...v14, schemaVersion: 15 }, 'nothing but schemaVersion changes');
     const repo = tempRepo();
     try {
       const cfg = path.join(repo.dir, '.forge', 'config.yml');
       fs.mkdirSync(path.dirname(cfg), { recursive: true });
-      fs.writeFileSync(cfg, 'schemaVersion: 13\n');
+      fs.writeFileSync(cfg, 'schemaVersion: 14\n');
       const loaded = loadConfig(repo.dir);
-      assert.equal(loaded.migratedFrom, 13);
-      assert.equal(loaded.config.schemaVersion, 14);
+      assert.equal(loaded.migratedFrom, 14);
+      assert.equal(loaded.config.schemaVersion, 15);
       assert.deepEqual(loaded.config.checkout, []);
     } finally {
       repo.cleanup();

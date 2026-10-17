@@ -46,6 +46,21 @@ export function releaseProblems(r: unknown, at: string, optional = false): strin
   return isInterimStrategy(r.interim) ? [] : [`${at}.interim must be one of ${INTERIM_STRATEGIES.join(' | ')} (got ${show(r.interim)})`];
 }
 
+/** `downstream`: a map with enabled (boolean), max (integer 0–50) and skip (names of `repos` entries). */
+export function downstreamProblems(c: any): string[] {
+  const d = c?.downstream;
+  if (!isMap(d)) return [`downstream must be a map (got ${show(d)})`];
+  const problems: string[] = [];
+  if (typeof d.enabled !== 'boolean') problems.push(`downstream.enabled must be true or false (got ${show(d.enabled)})`);
+  if (!Number.isInteger(d.max) || d.max < 0 || d.max > 50) problems.push(`downstream.max must be an integer from 0 to 50 (got ${show(d.max)})`);
+  if (!Array.isArray(d.skip) || d.skip.some((x: unknown) => typeof x !== 'string')) problems.push(`downstream.skip must be a list of repos names (got ${show(d.skip)})`);
+  else {
+    const names = new Set((Array.isArray(c.repos) ? c.repos : []).map((r: any) => (isMap(r) ? r.name : undefined)));
+    for (const x of d.skip) if (!names.has(x)) problems.push(`downstream.skip names unknown repo ${JSON.stringify(x).slice(0, 110)}`);
+  }
+  return problems;
+}
+
 /** Every problem with `repos` and with a component's `repo` naming one, in the form validateConfig reports. */
 export function repoProblems(c: any, root: string): string[] {
   const problems: string[] = [];

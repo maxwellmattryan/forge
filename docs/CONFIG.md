@@ -5,7 +5,7 @@
 Command templates are POSIX `sh`: each runs as `$SHELL -lc <cmd>` (`/bin/sh` when `$SHELL` is unset), and on native Windows under Git for Windows' `sh` (Git Bash; the first `sh.exe` on PATH, else `%ProgramFiles%\Git\bin\sh.exe`), or is refused with an error when there is none (see [SUPPORT.md](SUPPORT.md)). Command templates may use `{port}`, `{job}`, `{worktree}`, `{root}`, `{branch}`, `{base}` and `{args}`. `{args}` holds the extra arguments of `forge run <job> <name> -- <args…>`, each already in single quotes, and arguments go only where a template has it: `forge run` refuses arguments for a template without `{args}`, so a command takes none unless you opt in. Write `{args}` unquoted, as a whole word: after the start, a space, a tab, a newline or `(`, and before the end, a space, a tab, a newline, `;`, `&`, `|` or `)`. Arguments for a template where it sits inside `'…'` or `"…"` or touches another word (`x{args}`, `\{args}`) are refused, and so are arguments for any template containing a heredoc (`<<`), `$'` or `\'`, where the quoting would not hold. The arguments become words of whatever command surrounds `{args}`, so `exec {args}`, `env {args}` or `time {args}` runs the first one as a program. An argument containing a quote, backslash or control character is refused too. Every refusal comes before anything runs. Only `forge run` has arguments: `forge verify`, worktree setup, `forge run --background`, `forge integrate`'s rebuild and `forge eval grade` fill `{args}` with nothing. The other placeholders are filled in unquoted, so `{job}`, `{branch}` and `{base}` are checked first: each must start with a letter or digit and use only `A-Z a-z 0-9 . _ / -` (at most 200 characters), and an unsafe value stops the command before it runs, with an error naming the field. `{worktree}` is filled only with the path Forge computes for the job, `<worktrees.root>/<job id>`: a command whose template uses it stops before it runs when the job's stored `worktree` is anything else, for the same reason. Commands that don't use `{worktree}` are not affected. Commands also get `PORT`, `FORGE_PORT`, `FORGE_JOB` and `FORGE_WORKTREE` in their environment, and never the daemon session's `FORGE_DAEMON*` variables, so a command that calls `forge` behaves the same under the daemon as for a human.
 
 ```yaml
-schemaVersion: 14
+schemaVersion: 15
 
 project:
   name: null                 # display name
@@ -185,6 +185,11 @@ repos: []                    # member repos of the project; the root repo is imp
 checkout: []                 # steps forge focus applies to the focused job (see Checkout steps), e.g.
 #  - { link: build/MyPlugin.vst3, to: ~/Library/Audio/Plug-Ins/VST3/MyPlugin.vst3 }
 #  - { run: install-plugin, undo: uninstall-plugin }   # names commands.* entries
+
+downstream:                  # a changed library's linked consumers join the job verify-only (see Downstream verification)
+  enabled: true
+  max: 5                     # at most this many downstream repos per job
+  skip: []                   # repos names never added
 
 infra:
   mode: human                # human | plan-only | agent
@@ -563,7 +568,7 @@ components:
 ```
 
 - **Selection.** A job's `services` field names the components it touches (the spec's `Services:` header fills it; step records only names that are configured components). When it names exactly one component of this repo, `forge run` and `forge verify` use that component's command, falling back to the top-level one, and run it from `<worktree>/<path>`. With none, several, an unknown name or a component whose `repo` is set, the top-level commands run from the worktree root. The verify integrity scan counts a component's script files under its path, and skips components whose `repo` is set.
-- **Dependencies.** Each `dependsOn` entry names exactly one of `component` (another entry's name) or `backing` (a backing service such as a database; only its shape is checked for now), and a `type`: `build` (needed to build or test this one) or `runtime` (needed only while it runs). The dashboard's **Project** view draws them as the project graph (build edges solid, runtime edges dashed) and highlights a job's components and their downstream consumers; downstream verification will act on them later.
+- **Dependencies.** Each `dependsOn` entry names exactly one of `component` (another entry's name) or `backing` (a backing service such as a database; only its shape is checked for now), and a `type`: `build` (needed to build or test this one) or `runtime` (needed only while it runs). The dashboard's **Project** view draws them as the project graph (build edges solid, runtime edges dashed) and highlights a job's components and their downstream consumers; [downstream verification](#downstream-verification) adds those consumers to a job verify-only.
 - **Validation** (`forge config validate`, `forge doctor`, `forge init write`, Settings): `components` must be a list of maps; a `name` that is missing, unsafe or repeated, a `path` that is missing, empty, absolute (`/…`, `\…`, a drive letter) or has a `..` segment, and a `kind` outside the three are problems, as are a non-string `repo` or `notes`, a `repo` that names no `repos` entry (`components "<c>".repo names unknown repo "<x>"`), `owners` that isn't a list of strings, and `commands` that isn't a map of strings or nulls. A `dependsOn` entry with neither or both targets, an empty target, a `type` other than `build | runtime`, or a `component` that names no component is a problem. A cycle of `build` edges is reported once with its path, e.g. `components: build dependency cycle a -> b -> c -> a` (a component naming itself as a build dependency is the cycle `a -> a`). Cycles that include a `runtime` edge are allowed.
 - **`repo`** names a member repo from [`repos`](#repos); null or absent is the root repo. Today it only keeps the component out of command selection and the integrity scan.
 
@@ -596,6 +601,7 @@ components:
 - **Lockfiles.** A cargo `[patch]` makes cargo rewrite `Cargo.lock`, so with active cargo (or npm) links Forge snapshots every tracked `Cargo.lock` (or `package-lock.json` and `npm-shrinkwrap.json`) in the consumer's worktree first and writes back any that changed or went missing after the command, pass or fail; verify does it once per repo around its groups. The result's `restored` lists them and a `link-lockfiles-restored` event is logged. Your own uncommitted lockfile edit, made before the run, is what the snapshot holds, so it survives.
 - **Not linked.** A command that calls a tool by absolute path bypasses the shims (use the env vars), and background commands (`forge run --background`, the dashboard's Run) and `worktrees.setup` get no links. On native Windows Forge writes no shims; the env vars and `forge job links` still work.
 - **Validation.** `link` must be a map with `ecosystem` `cargo | cmake | npm`; it is a problem on a `backing` edge, between two components of the same repo, with a `name` that fails its ecosystem's pattern (a crate name, a FetchContent name, an npm package name), with a `source` on a non-cargo link or one that is not `crates-io`, a registry name or an `https://`, `ssh://` or `git://` url without whitespace, quotes, backslashes or control characters, with a `path` that is absolute or has a `..` segment, with a `manifest` that is absolute, has a `..` segment or is not the ecosystem's file (`Cargo.toml` for cargo, `CMakeLists.txt` or a `*.cmake` file for cmake, `package.json` for npm), and when two links give one consumer repo the same ecosystem and name (and cargo source) with different dependency directories.
+- **Downstream verification.** A consumer repo with a link to a repo the job changes is what [Downstream verification](#downstream-verification) adds to a job; without a link it would test the released library, so it is skipped.
 - **Never committed.** Verify's integrity report flags added lines that carry a local override (an absolute path of a worktrees root or of `.forge/jobs`, `FETCHCONTENT_SOURCE_DIR_`, a `[patch` table in a `.cargo/config(.toml)`, or a `file:`/`link:` dependency in `package.json` that is absolute or leaves the repo) as blocking under `verifyIntegrity: block` (see [Verify integrity](#verify-integrity)).
 
 ### Interim strategies
@@ -694,7 +700,40 @@ Remotes match when they are equal after dropping any `user:password@`, a trailin
 
 **Member review panels.** A member that a job reviews (one not added `--verify-only`) brings its own lenses: `forge job panel` reads `review.panel` from the member clone's `.forge/config.yml`, with checklists from the clone's `.forge/reviewers/<name>.md`, never from the job's worktree of it. Each entry becomes the lens `<repo>:<name>` (review file `review/round-<n>/<repo>.<name>.md`), selected by its `always`, a `Suggested reviewers:` entry naming `<repo>:<name>`, its `when`/`paths` covering an Approach path under `<repo>/`, or its `paths` matching the member's changed files (repo-relative; reasons cite `<repo>/<file>`). **Subsumption:** an entry named like a root panel lens, with no `checklist:` and no `.forge/reviewers/<name>.md` in the clone, is not a lens of its own; its matches add reasons to the root lens, which reviews the combined diff. So a member that lists `code` with `paths: [src/**]` brings the root `code` lens in for its changes, and one with its own `realtime.md` gets `<repo>:realtime`. A member entry's `model`, `effort` and `needsApp` are ignored (`runtime.models.reviewer`, the reviewer effort layers, no app). A member config that is not a regular file, is over 256 KiB, isn't valid YAML or has a `review.panel` that isn't a list fails `forge job panel` with `repo <name>: …`; an entry with a bad name or `paths`, no checklist, or a `checklist` outside the clone is dropped and listed in the result's `problems`. A member without `.forge/config.yml` or `review.panel` adds no lenses.
 
+**Downstream consumers.** A member that consumes, through a link, a repo the job changes joins the job verify-only on its own: see [Downstream verification](#downstream-verification).
+
 **Migration** (config `schemaVersion` 10 → 11): v11 adds `repos`, empty by default; an older config gains `repos: []` (an existing `repos` value is kept for validation to judge), and a leftover `services` is still folded into `components`. The bump lets older Forges refuse a config whose member repos they would ignore. The migration happens in memory on every read; `forge migrate` writes it to disk.
+
+## Downstream verification
+
+When a job changes a library, every repo that consumes it can break, including repos the job never edits. `downstream` adds those consumers to the job as **downstream repos**: verify-only members ([Job repos](ARCHITECTURE.md#job-repos)) whose tests verify runs against the job's changes through [local links](#local-links). It is edited by hand; Settings shows the three keys locked, since turning the check off or capping it at 0 loosens a verification gate and `skip` names repositories.
+
+```yaml
+downstream:
+  enabled: true     # default true
+  max: 5            # default 5; 0 to 50 downstream repos per job
+  skip: []          # repos names never added
+```
+
+- **Candidates.** The changed repos are the root and every member on the job that is not verify-only. A repo C is a candidate when a component in C has a `dependsOn` edge to a component in a changed repo. Only direct consumers count (a consumer of a consumer, or of a verify-only member, does not), only `repos` entries (the root is always on the job), in `repos` order, and a repo already on the job is neither added nor listed. Each candidate is added or skipped with one reason, the first that applies:
+
+  | Rule | Reason |
+  |---|---|
+  | `enabled: false` | nothing is added or listed |
+  | the name is in `skip` | `listed in downstream.skip` |
+  | a human removed it from this job (`forge job repo remove` after its latest add) | `removed from the job by a human` |
+  | no `link` joins C to a changed repo | `no link on its dependsOn edge to <repo>, so it would test the released library` |
+  | no component of C defines a command for a `verify` step | `defines no verify step command` |
+  | the job already has `max` downstream repos | `over downstream.max (<n>)` |
+  | its clone fails doctor's member check | `repo <name>: <detail>` |
+
+- **Adding.** In `build` and `verify`, step rule DS1 runs `forge job repo downstream <id>` (docs/CLI.md "Downstream verification") whenever a candidate is one the last check did not name; RP2 then creates the new members' detached worktrees. A clone that failed its check is not retried automatically: fix it and run the command again.
+- **Verify.** Each `verify` step runs as the downstream repo's component command with its links applied, like any verify-only member. A downstream repo with no active link from a changed repo fails a `links` step and none of its configured steps runs. The report heads its section `# Downstream consumer <repo> · <sha>` and names each failing one after `VERIFY: FAIL`; `forge verify`'s result gains `downstream`, and the round goes back to the builder with `verify failed: downstream consumer <repo> failed <step>`.
+- **Changing the consumer.** The builder fixes the library within the job, or proposes the consumer (`forge job repo propose <id> <repo> --reason "…"`). Approving that proposal promotes the downstream repo to an edited one: its detached worktree is removed (refused while it holds uncommitted or untracked changes or commits beyond its base) and recreated on the job's branch. Rejecting it leaves it verify-only.
+- **Validation:** `downstream must be a map (got …)`, `downstream.enabled must be true or false (got …)`, `downstream.max must be an integer from 0 to 50 (got …)`, `downstream.skip must be a list of repos names (got …)` and `downstream.skip names unknown repo "<x>"`.
+- **Single-repo projects** (no `repos`) have no candidates: nothing changes for them.
+
+**Migration** (config `schemaVersion` 13 → 14): v14 adds `downstream`, on by default, so a v13 config gains `downstream: { enabled: true, max: 5, skip: [] }` (an existing value is kept for validation to judge), and existing multi-repo projects with links get downstream verification on upgrade. The bump lets older Forges refuse a config whose downstream settings they would ignore. `forge migrate` writes the new version.
 
 ## Checkout steps
 
@@ -720,7 +759,7 @@ checkout:                                   # default []
 - **The record** of what was applied is `.forge/runtime/checkout.json`, read without following symlinks and capped at 64 KiB. It only steers undo for targets and `run`/`undo` pairs the current config names, so a planted record can't rename, unlink or run anything else. Each step logs a `checkout` event (`phase: apply | undo | rollback`, `step`, `kind`, `ok`) on its job.
 - **Validation** (`forge config validate`, `forge doctor`, `forge init write`, Settings) reports each problem as `checkout[<i>]…`: neither or both of `link` and `run`; a `link` that is empty, absolute or has a `..` segment; a `to` that is missing, not absolute or `~/…`, has a `..` segment or a NUL, or is `/`, `~` or `~/`; `undo` on a link step or `to` on a run step; a `run` or `undo` that names no non-null command in `commands` or a component's `commands`; and two link steps whose `to` resolve to the same path (`checkout[3].to repeats checkout[0].to`). A `checkout` that isn't a list is `checkout must be a list (got …)`.
 
-**Migration** (config `schemaVersion` 13 → 14): nothing changes. v14 adds `checkout`, empty by default; the bump lets older Forges refuse a config whose checkout steps they would ignore.
+**Migration** (config `schemaVersion` 14 → 15): nothing changes. v15 adds `checkout`, empty by default; the bump lets older Forges refuse a config whose checkout steps they would ignore.
 
 ## Deprecated keys
 

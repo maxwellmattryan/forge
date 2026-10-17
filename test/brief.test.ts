@@ -11,7 +11,7 @@ import { defaults } from '../lib/config.ts';
 import { createJob, jobDir, updateJob } from '../lib/jobs.ts';
 import { WAITING_ON, normalizeJob } from '../lib/schema.ts';
 import { gateTell, loadStepInput, step } from '../lib/step.ts';
-import type { Stage, StepInput } from '../lib/types.ts';
+import type { Stage, StepInput, VerifyRun } from '../lib/types.ts';
 import { JOB_DIR, ag, ev, fixture } from './step-fixture.ts';
 
 const SENTINEL = 'ZZSENTINEL-7f3a';
@@ -321,6 +321,30 @@ test('member repos are listed after the worktree line', () => {
   const job = normalizeJob({ id: 'j', branch: 'forge/j', base: 'main', worktree: '/repo.worktrees/j' });
   assert.equal('repos' in jobPathMap('/repo', defaults(), job), false, 'a single-repo path map has no repos key');
   assert.deepEqual(jobPathMap('/repo', defaults(), { ...job, repos: [root, lib, docs] }).repos, { lib: '/lib.worktrees/j', docs: null });
+});
+
+test('downstream consumer lines in the builder brief', () => {
+  const root = { repo: null, worktree: '/repo.worktrees/j', branch: 'forge/j', base: 'main', pr: null, verifyOnly: false };
+  const a = { repo: 'app-a', worktree: '/app-a.worktrees/j', branch: null, base: 'main', pr: null, verifyOnly: true };
+  const docs = { repo: 'docs', worktree: null, branch: null, base: 'main', pr: null, verifyOnly: true };
+  const added = [ev('job-repo-added', 1, { repo: 'app-a', verifyOnly: true, downstream: true }), ev('job-repo-added', 1, { repo: 'docs', verifyOnly: true })];
+  const failing: VerifyRun = { round: 1, attempt: 1, sha: 's', ok: false, at: null, file: 'verify/round-1.md', failure: 'test', repos: [{ repo: 'app-a', sha: 's', ok: false, failure: 'test' }, { repo: 'docs', sha: 's', ok: false, failure: 'lint' }] };
+  const f = fixture({ files: ['spec', 'tasks'], job: { round: 2, repos: [root, a, docs], verifyRuns: [failing] }, events: added });
+  const lines = brief(f, 'builder', { rework: ['verify'] }).split('\n');
+  assert.ok(lines.includes('Repo app-a: /app-a.worktrees/j · branch none (verify only, downstream consumer) · base main'));
+  assert.ok(lines.includes('Repo docs: none · branch none (verify only) · base main'), 'a verify-only repo a human added is not downstream');
+  const line = 'Downstream failures (JSON): [{"repo":"app-a","failure":"test"}]: fix the library on this job, or run forge job repo propose j <repo> --reason "<what changes there>" to change the consumer too';
+  assert.ok(lines.includes(line));
+  assert.ok(lines.length <= 25, `${lines.length} lines`);
+  assert.equal(lines.at(-1), REPLY_LINE);
+  // Not without a verify rework, nor after a run the consumer passed, nor in a first-round brief.
+  assert.ok(!brief(f, 'builder', { rework: ['review'] }).includes('Downstream failures'));
+  assert.ok(!brief(f, 'builder').includes('Downstream failures'));
+  const passed = fixture({ files: ['spec', 'tasks'], job: { round: 2, repos: [root, a, docs], verifyRuns: [{ ...failing, repos: [{ repo: 'app-a', sha: 's', ok: true, failure: null }, failing.repos![1]] }] }, events: added });
+  assert.ok(!brief(passed, 'builder', { rework: ['verify'] }).includes('Downstream failures'));
+  // Without the downstream event, neither line appears.
+  const plain = brief(fixture({ files: ['spec', 'tasks'], job: { round: 2, repos: [root, a], verifyRuns: [failing] } }), 'builder', { rework: ['verify'] });
+  assert.ok(!plain.includes('downstream consumer') && !plain.includes('Downstream failures'));
 });
 
 test('planner and spec-writer briefs carry the repo graph', () => {

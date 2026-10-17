@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 /**
@@ -40,6 +41,19 @@ export function assertSafeRef(value: unknown, field: string): string {
   const shown = (JSON.stringify(value) ?? String(value)).slice(0, 80);
   throw new ForgeError(`${field} ${shown} is not a safe branch name: it must start with a letter or digit and use only A-Z a-z 0-9 . _ / - (at most 200 characters)`);
 }
+
+/**
+ * Git config pinned for the session and everything it runs (subagents, `forge`, verify commands).
+ * GIT_CONFIG_* entries outrank every config file, and the allowlist has no `git -c`, so a hook
+ * or fsmonitor program the session writes into the repo (e.g. a `core.hooksPath` dir such as
+ * `.githooks/`, which Claude Code doesn't protect the way it does `.git/`) never runs.
+ * Drivers that only .git/config or ~/.gitconfig can define (filter, diff, merge) are left alone.
+ */
+export const GIT_PINS = Object.freeze([
+  // The null device on every platform (\\.\nul on Windows), never a directory a hook could live in.
+  ['core.hooksPath', os.devNull],
+  ['core.fsmonitor', 'false'],
+]);
 
 /**
  * Runs a binary without a shell so arguments can never be reinterpreted.

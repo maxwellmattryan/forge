@@ -826,6 +826,8 @@ export interface Config {
   repos: MemberRepoConfig[];
   /** Steps `forge focus` applies to the focused job and undoes on the next change: lib/checkout.ts. */
   checkout: CheckoutStep[];
+  /** Verify-only consumers of a changed library: docs/CONFIG.md "Downstream verification". */
+  downstream: { enabled: boolean; max: number; skip: string[] };
   infra: {
     mode: 'human' | 'plan-only' | 'agent';
     allowed: string[];

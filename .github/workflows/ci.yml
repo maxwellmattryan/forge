@@ -159,6 +159,7 @@ jobs:
             test/interim-canary.test.ts: spawns a fake gh and npm, sh scripts
             test/links-cli.test.ts: runs command templates through sh
             test/links-toolchains.test.ts: runs command templates through sh
+            test/downstream-verify.test.ts: runs command templates through sh
             test/foreman.test.ts: runs sh stubs and hooks it writes
             test/git-commit.test.ts: runs sh stubs and hooks it writes
             test/daemon-cli.test.ts: relies on FIFOs

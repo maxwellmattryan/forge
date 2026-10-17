@@ -10,7 +10,8 @@ import { configForJob } from './eval-overlay.ts';
 import { stackSource } from './deps.ts';
 import { STATUS_ARGV, blockingLines, compactIntegrity, hiddenChanges, integrityError, renderIntegrity, testIntegrity } from './integrity.ts';
 import type { CompactIntegrity, IntegrityReport } from './integrity.ts';
-import { listJobs, isActive, loadJob, logEvent, setJob, touchJob, updateJob, jobDir } from './jobs.ts';
+import { listJobs, isActive, loadJob, logEvent, readEvents, setJob, touchJob, updateJob, jobDir } from './jobs.ts';
+import { changedRepos, downstreamMembers } from './downstream.ts';
 import { exists, resolveFrom } from './paths.ts';
 import { posixShell } from './platform.ts';
 import { CONFIG_SCHEMA_VERSION } from './schema.ts';
@@ -19,7 +20,7 @@ import type { BranchCheck, CompactProtected } from './protected.ts';
 import { logSecrets, renderSecrets, scanBranch, secretMode, secretsOk, secretsTail, compactSecrets } from './secrets.ts';
 import { jobComponent } from './components.ts';
 import { refreshInterim } from './interim-apply.ts';
-import { applyLinks, consumerLockfiles, pathPrelude, restoreLockfiles, snapshotLockfiles } from './links.ts';
+import { applyLinks, consumerLockfiles, pathPrelude, resolveLinks, restoreLockfiles, snapshotLockfiles } from './links.ts';
 import type { AppliedLinks, LockSnapshot } from './links.ts';
 import { memberClone, memberEntry, memberRepos, memberWorktree, memberWorktreePath, trustedMemberWorktree } from './job-repos.ts';
 import type { ComponentConfig, CompactSecrets, Config, Job, JobRepo, SecretScan, VerifyRun, VerifyRunRepo } from './types.ts';
@@ -83,6 +84,8 @@ export interface VerifyResult {
   protected: CompactProtected;
   /** One record per member repo, only when the job has members. */
   repos?: VerifyRunRepo[];
+  /** One record per downstream consumer (lib/downstream.ts), only when the job has any. */
+  downstream?: { repo: string; ok: boolean; failure: string | null }[];
   budget?: NonNullable<ReturnType<typeof enforceBudget>>;
 }
 
@@ -725,18 +728,33 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
     if (hiddenError) integrity = integrityError(integrity, `could not check the worktree for hidden changes: ${hiddenError}`);
     if (!integrity.ok) results.push({ name: 'integrity', ok: false, exit: null, tail: blockingLines(integrity) });
   }
+  // A downstream consumer proves nothing against the released library: without an active link from a
+  // changed repo it fails `links` and none of its configured steps runs.
+  const events = readEvents(root, id);
+  const downstream = downstreamMembers(job, events);
+  const changedSet = changedRepos(job, events);
+  const linkGuard = (repo: string): string | null => {
+    if (!downstream.has(repo)) return null;
+    const mine = resolveLinks(root, config, job).filter((l) => l.consumerRepo === repo && changedSet.has(l.dependencyRepo));
+    if (mine.some((l) => l.active)) return null;
+    return mine.length ? mine.map((l) => `${l.ecosystem}:${l.name} from ${l.dependencyRepo ?? path.basename(root)}: ${l.reason}`).join('\n') : `no link from a changed repo to ${repo} is declared`;
+  };
   // A failure in the root never skips a member, nor one member another.
   const memberRuns: MemberVerify[] = [];
-  for (const m of members) memberRuns.push(await verifyMember(root, config, job, interimStep.ok ? groups : [], mode, m));
+  for (const m of members) memberRuns.push(await verifyMember(root, config, job, interimStep.ok ? groups : [], mode, m, linkGuard(m.member.repo)));
   const rootFailure = results.find((r) => !r.ok);
   const ok = results.every((r) => r.ok) && memberRuns.every((m) => m.rec.ok);
   const attempt = job.verifyRuns.filter((r) => r.round === job.round).length + 1;
   const lines = [`VERIFY: ${ok ? 'PASS' : 'FAIL'}`, '', `Round ${job.round} · attempt ${attempt} · ${sha.slice(0, 12)} · ${now()}`, ''];
+  const brokenDownstream = memberRuns.filter((m) => !m.rec.ok && downstream.has(m.rec.repo));
+  for (const m of brokenDownstream)
+    lines.push(`Downstream consumer \`${m.rec.repo}\` failed \`${m.rec.failure}\`: fix the library on this job, or propose changing the consumer: forge job repo propose ${id} ${m.rec.repo} --reason "…"`);
+  if (brokenDownstream.length) lines.push('');
   renderSteps(lines, results, secrets, mode, prot);
   if (integrity) lines.push(renderIntegrity(integrity));
   for (const m of memberRuns) {
-    lines.push('', `# Repo ${m.rec.repo} · ${m.rec.sha.slice(0, 12)}`, '');
-    renderSteps(lines, m.results, m.secrets, mode, null);
+    lines.push('', `# ${downstream.has(m.rec.repo) ? 'Downstream consumer' : 'Repo'} ${m.rec.repo} · ${m.rec.sha.slice(0, 12)}`, '');
+    renderSteps(lines, m.results, m.secrets, mode, null, downstream.has(m.rec.repo));
     if (m.integrity) lines.push(renderIntegrity(m.integrity));
   }
   const dir = path.join(jobDir(root, id), 'verify');
@@ -772,6 +790,7 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
     secrets: compactSecrets(secrets, mode),
     protected: compactProtected(prot),
     ...repos,
+    ...(downstream.size ? { downstream: memberRuns.filter((m) => downstream.has(m.rec.repo)).map((m) => ({ repo: m.rec.repo, ok: m.rec.ok, failure: m.rec.failure })) } : {}),
     ...(budget ? { budget } : {}),
   };
 }
@@ -791,7 +810,15 @@ interface MemberVerify {
  * integrity against the member's base. No e2e or verifiers step: those are root-only. Its protected
  * paths are checked in the root's `protected` step, named `<repo>:<path>`.
  */
-async function verifyMember(root: string, config: Config, job: Job, groups: string[][], mode: ReturnType<typeof secretMode>, m: { member: JobRepo & { repo: string }; worktree: string; head: string }): Promise<MemberVerify> {
+async function verifyMember(
+  root: string,
+  config: Config,
+  job: Job,
+  groups: string[][],
+  mode: ReturnType<typeof secretMode>,
+  m: { member: JobRepo & { repo: string }; worktree: string; head: string },
+  inactiveLinks: string | null = null,
+): Promise<MemberVerify> {
   const repo = m.member.repo;
   const cwd = m.worktree;
   // The view scanBranch and testIntegrity read: the member's worktree and base under the job's id.
@@ -819,11 +846,13 @@ async function verifyMember(root: string, config: Config, job: Job, groups: stri
   else if (secrets.error) secretsStep.reason = `scan incomplete (verifySecrets: warn): ${secrets.error}`;
   else if (n) secretsStep.reason = `${n} possible secret${n === 1 ? '' : 's'} (verifySecrets: warn)`;
   results.push(secretsStep);
+  if (inactiveLinks !== null) results.push({ name: 'links', ok: false, exit: null, tail: inactiveLinks });
+  const runSteps = secretsStep.ok && inactiveLinks === null;
   let integrity: IntegrityReport | null = null;
   if (!dirty) {
-    const locks = secretsStep.ok ? verifyLockSnapshot(root, config, job, repo) : null;
+    const locks = runSteps ? verifyLockSnapshot(root, config, job, repo) : null;
     try {
-      for (const group of secretsStep.ok ? groups : []) {
+      for (const group of runSteps ? groups : []) {
         const settled = await Promise.allSettled(
           group.map((step): Promise<VerifyStep> =>
             memberComponent(config, repo, step)
@@ -850,7 +879,9 @@ async function verifyMember(root: string, config: Config, job: Job, groups: stri
 }
 
 /** The `## <step>: …` sections of a verify report, the root's (with `prot`) and each member's alike. */
-function renderSteps(lines: string[], results: VerifyStep[], secrets: SecretScan, mode: ReturnType<typeof secretMode>, prot: Pick<BranchCheck, 'refused' | 'escalated' | 'error'> | null): void {
+// `linkGuard`: only a downstream consumer's results can hold the link guard, so a root or member
+// step a repo happens to name `links` renders like any other configured step.
+function renderSteps(lines: string[], results: VerifyStep[], secrets: SecretScan, mode: ReturnType<typeof secretMode>, prot: Pick<BranchCheck, 'refused' | 'escalated' | 'error'> | null, linkGuard = false): void {
   for (const r of results) {
     if (r.name === 'worktree-clean') {
       lines.push('## worktree-clean: FAILED (uncommitted or hidden changes)', '', 'Commit or discard these (or clear the index flags and filters) before verify can run:', '', '```', r.tail!, '```', ''); // the gate's tail lists the changes
@@ -863,6 +894,10 @@ function renderSteps(lines: string[], results: VerifyStep[], secrets: SecretScan
     }
     if (r.name === 'protected' && prot) {
       lines.push(renderProtected(prot));
+      continue;
+    }
+    if (linkGuard && r.name === 'links' && !r.ok) {
+      lines.push('## links: FAILED', '', 'No link from a changed repo is active for this downstream consumer, so its tests would build against the released library; no configured step ran:', '', ...String(r.tail).split('\n').map((l) => `- ${l}`), '');
       continue;
     }
     if (r.name === 'interim') {

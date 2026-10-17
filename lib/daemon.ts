@@ -8,7 +8,6 @@ import { spawn as nodeSpawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { effectiveLimits, exceededKeys, measureBudget } from './budget.ts';
 import { configForJob } from './eval-overlay.ts';
@@ -20,7 +19,7 @@ import { PLUGIN_ROOT, paths } from './paths.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, enqueue, validJobId, validScope } from './requests.ts';
 import { repoBudgetExempt } from './repo-budget.ts';
 import { EFFORTS } from './schema.ts';
-import { isClaudeExecutable, now, run, sleepSync, splitWords, writeJsonAtomic } from './util.ts';
+import { GIT_PINS, isClaudeExecutable, now, run, sleepSync, splitWords, writeJsonAtomic } from './util.ts';
 import { pidAlive } from './worktree.ts';
 import type { Config, RepoBudgetStatus, DaemonAuth, DaemonPermissionMode, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, Effort, EffortSource, EventActor, ForgeRequest, JobAgent, PermissionDecision } from './types.ts';
 
@@ -412,18 +411,8 @@ export function parseRateLimit(info: unknown): RateLimitInfo | null {
   return { status: r.status, resetsAt };
 }
 
-/**
- * Git config pinned for the session and everything it runs (subagents, `forge`, verify commands).
- * GIT_CONFIG_* entries outrank every config file, and the allowlist has no `git -c`, so a hook
- * or fsmonitor program the session writes into the repo (e.g. a `core.hooksPath` dir such as
- * `.githooks/`, which Claude Code doesn't protect the way it does `.git/`) never runs.
- * Drivers that only .git/config or ~/.gitconfig can define (filter, diff, merge) are left alone.
- */
-export const GIT_PINS = Object.freeze([
-  // The null device on every platform (\\.\nul on Windows), never a directory a hook could live in.
-  ['core.hooksPath', os.devNull],
-  ['core.fsmonitor', 'false'],
-]);
+// Defined in util.ts so member-checkout git (lib/job-repos.ts) shares it without loading the daemon.
+export { GIT_PINS };
 
 /**
  * Variables that make claude bill an API account instead of the Claude login. `forge dash` is
