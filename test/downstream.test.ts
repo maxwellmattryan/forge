@@ -60,11 +60,11 @@ describe('downstream verification: config', { concurrency: 4 }, () => {
   });
 
   test('config v13 migrates to v14 with the downstream default', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 14);
+    assert.equal(CONFIG_SCHEMA_VERSION, 15);
     const v13 = { schemaVersion: 13, repos: structuredClone(REPOS), git: { base: 'trunk' } };
     const m = migrateConfig(structuredClone(v13));
     assert.equal(m.from, 13);
-    assert.deepEqual(m.config, { ...v13, schemaVersion: 14, downstream: DEFAULT });
+    assert.deepEqual(m.config, { ...v13, schemaVersion: 15, downstream: DEFAULT });
     const kept = migrateConfig({ schemaVersion: 13, downstream: { enabled: false, max: 'x' } }).config;
     assert.deepEqual(kept.downstream, { enabled: false, max: 'x' }, 'an existing value is kept for validation to judge');
     const r = tempRepo();
@@ -75,7 +75,7 @@ describe('downstream verification: config', { concurrency: 4 }, () => {
       assert.equal(loadConfig(r.dir).migratedFrom, 13);
       migrate(r.dir);
       const text = fs.readFileSync(file, 'utf8');
-      assert.match(text, /^schemaVersion: 14$/m);
+      assert.match(text, /^schemaVersion: 15$/m);
       assert.deepEqual(yaml.parse(text).downstream, DEFAULT);
     } finally {
       r.cleanup();

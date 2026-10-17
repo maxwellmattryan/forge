@@ -5,7 +5,7 @@
 Command templates are POSIX `sh`: each runs as `$SHELL -lc <cmd>` (`/bin/sh` when `$SHELL` is unset), and on native Windows under Git for Windows' `sh` (Git Bash; the first `sh.exe` on PATH, else `%ProgramFiles%\Git\bin\sh.exe`), or is refused with an error when there is none (see [SUPPORT.md](SUPPORT.md)). Command templates may use `{port}`, `{job}`, `{worktree}`, `{root}`, `{branch}`, `{base}` and `{args}`. `{args}` holds the extra arguments of `forge run <job> <name> -- <args…>`, each already in single quotes, and arguments go only where a template has it: `forge run` refuses arguments for a template without `{args}`, so a command takes none unless you opt in. Write `{args}` unquoted, as a whole word: after the start, a space, a tab, a newline or `(`, and before the end, a space, a tab, a newline, `;`, `&`, `|` or `)`. Arguments for a template where it sits inside `'…'` or `"…"` or touches another word (`x{args}`, `\{args}`) are refused, and so are arguments for any template containing a heredoc (`<<`), `$'` or `\'`, where the quoting would not hold. The arguments become words of whatever command surrounds `{args}`, so `exec {args}`, `env {args}` or `time {args}` runs the first one as a program. An argument containing a quote, backslash or control character is refused too. Every refusal comes before anything runs. Only `forge run` has arguments: `forge verify`, worktree setup, `forge run --background`, `forge integrate`'s rebuild and `forge eval grade` fill `{args}` with nothing. The other placeholders are filled in unquoted, so `{job}`, `{branch}` and `{base}` are checked first: each must start with a letter or digit and use only `A-Z a-z 0-9 . _ / -` (at most 200 characters), and an unsafe value stops the command before it runs, with an error naming the field. `{worktree}` is filled only with the path Forge computes for the job, `<worktrees.root>/<job id>`: a command whose template uses it stops before it runs when the job's stored `worktree` is anything else, for the same reason. Commands that don't use `{worktree}` are not affected. Commands also get `PORT`, `FORGE_PORT`, `FORGE_JOB` and `FORGE_WORKTREE` in their environment, and never the daemon session's `FORGE_DAEMON*` variables, so a command that calls `forge` behaves the same under the daemon as for a human.
 
 ```yaml
-schemaVersion: 14
+schemaVersion: 15
 
 project:
   name: null                 # display name
@@ -182,6 +182,9 @@ components: []               # the parts of a monorepo (see Components), e.g.
 
 repos: []                    # member repos of the project; the root repo is implicit (see Repos), e.g.
 #  - { name: ui-kit, remote: "git@github.com:acme/ui-kit.git", defaultBranch: main }
+checkout: []                 # steps forge focus applies to the focused job (see Checkout steps), e.g.
+#  - { link: build/MyPlugin.vst3, to: ~/Library/Audio/Plug-Ins/VST3/MyPlugin.vst3 }
+#  - { run: install-plugin, undo: uninstall-plugin }   # names commands.* entries
 
 downstream:                  # a changed library's linked consumers join the job verify-only (see Downstream verification)
   enabled: true
@@ -731,6 +734,32 @@ downstream:
 - **Single-repo projects** (no `repos`) have no candidates: nothing changes for them.
 
 **Migration** (config `schemaVersion` 13 → 14): v14 adds `downstream`, on by default, so a v13 config gains `downstream: { enabled: true, max: 5, skip: [] }` (an existing value is kept for validation to judge), and existing multi-repo projects with links get downstream verification on upgrade. The bump lets older Forges refuse a config whose downstream settings they would ignore. `forge migrate` writes the new version.
+
+## Checkout steps
+
+Some tools read one fixed place rather than a job's address: a DAW loads plug-ins from one folder. `checkout` makes that place follow the job you focus (`forge focus <id>` or the dashboard's **Focus**). It is edited by hand (Settings shows it read-only). With no steps, focus is only a pointer, as before.
+
+```yaml
+checkout:                                   # default []
+  - link: build/MyPlugin.vst3               # path in the job's worktree
+    to: ~/Library/Audio/Plug-Ins/VST3/MyPlugin.vst3   # fixed path: absolute or ~/…
+  - run: install-plugin                     # names a commands.* entry
+    undo: uninstall-plugin                  # optional, names a commands.* entry
+```
+
+- **Steps.** Each step has exactly one of `link` or `run`. A `link` step needs `to` and has no `undo`; a `run` step may have `undo` and has no `to`.
+- **Focusing a job** first undoes the steps recorded for the previous job (in reverse, best effort: each failure is reported, none blocks the switch), then applies the new job's steps in order:
+  - **link**: the source is `<worktree>/<link>` of the job's own worktree (`<worktrees.root>/<id>`; a `worktree` in job.json pointing elsewhere fails the step). It must exist and its realpath must stay inside the worktree. The parent directory of `to` must exist (Forge never creates it). Anything already at `to` is renamed to `<to>.forge-aside`, never deleted, and an existing `<to>.forge-aside` fails the step. Then `to` becomes a symlink to the source.
+  - **run**: runs the named command for that job exactly as `forge run <job> <name>` does, only in the job's own worktree (`<worktrees.root>/<id>`; a `worktree` in job.json pointing elsewhere fails the step and nothing runs, on apply and on undo), with a log under the job's `logs/` named `checkout-<name>-…` (`checkout-undo-<name>-…` for an undo) and a `command` event. A non-zero exit fails the step.
+- **A failing step** undoes the steps applied so far, re-applies the previous job's steps when that job is still active and has its worktree, and leaves focus where it was. `forge focus` exits 1 and `POST /api/focus` answers 409 with a message such as `checkout[1] run install-plugin failed (exit 2); log: logs/checkout-install-plugin-….log; focus stays on 12-foo`.
+- **Re-focusing** the job whose steps are applied does nothing. Focusing it again when its steps are not applied (say `checkout` was added after you focused it) applies them, which is how to re-run them.
+- **Clearing focus** (`forge focus --clear`) undoes the recorded steps, also when nothing is focused any more. A job that finishes lets go of focus, but its steps stay applied until the next focus change, `--clear`, or `forge worktree remove` (and `forge sync`'s on-merge cleanup), which undoes them before deleting the worktree.
+- **Undo** unlinks `to` only when it is still the symlink Forge made, then renames `<to>.forge-aside` back. A `to` you replaced since is left in place and reported. A run step's `undo` runs in that job's worktree; a step without one does nothing.
+- **One switch at a time.** Each switch, `--clear` and worktree removal holds a lock (`.forge/locks/checkout`); another one waits up to 2 seconds and then fails. The lock counts as stale after 10 minutes, so keep run steps shorter than that: a second switch could otherwise start while a long one is still running.
+- **The record** of what was applied is `.forge/runtime/checkout.json`, read without following symlinks and capped at 64 KiB. It only steers undo for targets and `run`/`undo` pairs the current config names, so a planted record can't rename, unlink or run anything else. Each step logs a `checkout` event (`phase: apply | undo | rollback`, `step`, `kind`, `ok`) on its job.
+- **Validation** (`forge config validate`, `forge doctor`, `forge init write`, Settings) reports each problem as `checkout[<i>]…`: neither or both of `link` and `run`; a `link` that is empty, absolute or has a `..` segment; a `to` that is missing, not absolute or `~/…`, has a `..` segment or a NUL, or is `/`, `~` or `~/`; `undo` on a link step or `to` on a run step; a `run` or `undo` that names no non-null command in `commands` or a component's `commands`; and two link steps whose `to` resolve to the same path (`checkout[3].to repeats checkout[0].to`). A `checkout` that isn't a list is `checkout must be a list (got …)`.
+
+**Migration** (config `schemaVersion` 14 → 15): nothing changes. v15 adds `checkout`, empty by default; the bump lets older Forges refuse a config whose checkout steps they would ignore.
 
 ## Deprecated keys
 

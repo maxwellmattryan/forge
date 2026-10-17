@@ -824,6 +824,8 @@ export interface Config {
   resources: ResourceConfig[];
   components: ComponentConfig[];
   repos: MemberRepoConfig[];
+  /** Steps `forge focus` applies to the focused job and undoes on the next change: lib/checkout.ts. */
+  checkout: CheckoutStep[];
   /** Verify-only consumers of a changed library: docs/CONFIG.md "Downstream verification". */
   downstream: { enabled: boolean; max: number; skip: string[] };
   infra: {
@@ -1952,10 +1954,26 @@ export interface PostFocusBody {
   job: string | null;
 }
 
+/** One `checkout:` entry: a fixed path linked to the focused job's build, or a configured command (with an optional undo). */
+export type CheckoutStep = { link: string; to: string } | { run: string; undo?: string | null };
+
+/** One checkout step applied or undone on a focus change: lib/checkout.ts. `log` is relative to the job dir. */
+export interface CheckoutStepResult {
+  step: number;
+  kind: 'link' | 'run';
+  ok: boolean;
+  to?: string;
+  command?: string;
+  log?: string;
+  error?: string;
+}
+
 /** `forge focus <id>|--clear` and POST /api/focus reply: focusJob in lib/focus-actions.ts. */
 export interface FocusResponse {
   focus: FocusFact | null;
   previous: string | null;
+  /** Present only when a checkout step was undone or applied; `job` is the job whose steps were undone. */
+  checkout?: { undone: CheckoutStepResult[]; applied: CheckoutStepResult[]; job?: string };
 }
 
 /** POST /api/jobs/:id/run body: `dev` is the only command the dashboard may start. */

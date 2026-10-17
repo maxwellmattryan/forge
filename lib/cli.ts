@@ -128,7 +128,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       }
       const repo = flags.repo === undefined ? undefined : req(typeof flags.repo === 'string' ? flags.repo : undefined, '--repo');
       if (sub === 'remove') {
-        const res = wt.removeWorktree(root, req(rest[0], 'job id'), { deleteBranch: Boolean(flags['delete-branch']), force: Boolean(flags.force), repo });
+        const res = await wt.removeWorktree(root, req(rest[0], 'job id'), { deleteBranch: Boolean(flags['delete-branch']), force: Boolean(flags.force), repo });
         return { data: res, exitCode: res.repos?.some((r) => r.error) ? 1 : 0 };
       }
       if (sub === 'path') return ok(repo === undefined ? (loadJob(root, req(rest[0], 'job id')).worktree ?? '') : (trustedMemberWorktree(root, config, loadJob(root, req(rest[0], 'job id')), repo) ?? ''));
@@ -142,7 +142,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       return ok({ stopped: wt.stopBackground(root, req(sub, 'job id')) });
     case 'focus':
       needInit();
-      return ok(focusCmd(root, pos.slice(1), flags));
+      return ok(await focusCmd(root, config, pos.slice(1), flags));
     case 'verify': {
       needInit();
       const r = await wt.verify(root, config, req(sub, 'job id'));

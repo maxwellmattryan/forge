@@ -13,6 +13,7 @@ import { startServer } from '../lib/server.ts';
 import { editorArgv } from '../lib/editor.ts';
 import { pidAlive } from '../lib/worktree.ts';
 import { API_VERSION } from '../lib/schema.ts';
+import * as yaml from '../lib/yaml.ts';
 import { API_VERSION as DASH_API_VERSION } from '../dashboard/src/lib/types.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
@@ -196,6 +197,28 @@ test('POST /api/focus', async () => {
       ['focus', 'dashboard', 'dashboard'],
       ['unfocus', 'cleared', 'dashboard'],
     ]);
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test('POST /api/focus answers 409 when a checkout step fails', { timeout: 60_000, skip: process.platform === 'win32' && 'POSIX shell command' }, async () => {
+  const s = await scratch();
+  try {
+    const a = await s.job('Alpha');
+    const b = await s.job('Beta');
+    await s.f('worktree', 'create', a);
+    await s.f('worktree', 'create', b);
+    const cfg = path.join(s.root, '.forge', 'config.yml');
+    const c = yaml.parse(fs.readFileSync(cfg, 'utf8'));
+    fs.writeFileSync(cfg, yaml.stringify({ ...c, commands: { ...c.commands, gate: `test "$FORGE_JOB" != ${b}` }, checkout: [{ run: 'gate' }] }));
+    let r = await s.post('/api/focus', { job: a });
+    assert.equal(r.status, 200, r.text);
+    assert.equal(JSON.parse(r.text).checkout.applied[0].ok, true);
+    r = await s.post('/api/focus', { job: b });
+    assert.equal(r.status, 409, r.text);
+    assert.match(JSON.parse(r.text).error, new RegExp(`^checkout\\[0\\] run gate failed \\(exit 1\\); log: logs/checkout-gate-.*\\.log; focus stays on ${a}$`));
+    assert.equal((await s.state()).focus.id, a);
   } finally {
     await s.cleanup();
   }

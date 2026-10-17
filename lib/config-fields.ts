@@ -356,6 +356,7 @@ export const CONFIG_DISCLOSURE: Record<string, Disclosure> = {
   components: 'command',
   // Remotes can name private hosts and repos, so support bundles hide them like resources.
   repos: 'url',
+  checkout: 'command',
   downstream: 'plain',
   infra: 'plain',
   'infra.allowed': 'command',

@@ -58,6 +58,7 @@ export type Checks = [
   Expect<Equal<engine.FocusFact, dash.FocusFact>>,
   Expect<Equal<engine.Endpoint, dash.Endpoint>>,
   Expect<Equal<engine.PostFocusBody, dash.PostFocusBody>>,
+  Expect<Equal<engine.CheckoutStepResult, dash.CheckoutStepResult>>,
   Expect<Equal<engine.FocusResponse, dash.FocusResponse>>,
   Expect<Equal<engine.PostRunBody, dash.PostRunBody>>,
   Expect<Equal<engine.PostRunResponse, dash.PostRunResponse>>,

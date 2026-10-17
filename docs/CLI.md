@@ -65,6 +65,7 @@ Like `forge version`, it needs no repo and no `.forge/`. The commit is self-repo
 The exceptions:
 - `verify`, `run`, `integrate`, `pr merge`, `job advance`, `config validate`, `secrets scan` and `update` print their own result when they fail, and exit 1. `secrets scan` fails on any finding; a scan that cannot finish is an error. `forge job advance` exits 3 when it refuses a job its session does not hold, and 1 when a command it ran failed, whatever that command's own exit would have been.
 - `forge git diff|log|show|range-diff` exit with git's own code once git runs.
+- `forge focus <id>|--clear` exits 1 when a configured checkout step fails (docs/CONFIG.md "Checkout steps"): the message names the step, why it failed and its log, and focus is unchanged.
 - The no-AI-attribution hook's exit 2 belongs to Claude Code's hook protocol, not this table.
 
 ## Error codes

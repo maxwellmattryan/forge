@@ -174,6 +174,38 @@ export function withLock<T>(lockDir: string, fn: () => T, opts: { timeoutMs?: nu
   }
 }
 
+/** withLock for async work: the same mkdir lock, waiting without blocking the event loop. */
+export async function withLockAsync<T>(lockDir: string, fn: () => Promise<T>, opts: { timeoutMs?: number; staleMs?: number } = {}): Promise<T> {
+  const timeoutMs = opts.timeoutMs ?? 10_000;
+  const staleMs = opts.staleMs ?? 60_000;
+  const start = Date.now();
+  fs.mkdirSync(path.dirname(lockDir), { recursive: true });
+  while (true) {
+    try {
+      fs.mkdirSync(lockDir);
+      break;
+    } catch (e) {
+      if ((e as any).code !== 'EEXIST') throw e;
+      try {
+        const age = Date.now() - fs.statSync(lockDir).mtimeMs;
+        if (age > staleMs) {
+          fs.rmSync(lockDir, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      if (Date.now() - start > timeoutMs) throw new ForgeError(`timed out waiting for lock ${lockDir}`);
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    fs.rmSync(lockDir, { recursive: true, force: true });
+  }
+}
+
 export function slugify(text: string, maxWords = 6): string {
   return (
     text

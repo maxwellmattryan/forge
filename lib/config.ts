@@ -4,6 +4,7 @@ import path from 'node:path';
 import { PLUGIN_ROOT, paths, exists, resolveFrom } from './paths.ts';
 import { componentProblems } from './components.ts';
 import { downstreamProblems, releaseProblems, repoProblems } from './member-repos.ts';
+import { checkoutProblems } from './checkout-config.ts';
 import { notifyProblems } from './notify-config.ts';
 import { globProblem, policyProblems } from './policy-check.ts';
 import { COMPLEXITIES, CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES, REPO_BUDGET_MODES, migrateConfig } from './schema.ts';
@@ -151,6 +152,7 @@ export function defaults(): Config {
     resources: [],
     components: [],
     repos: [],
+    checkout: [],
     // A changed library's linked consumers join the job as verify-only repos (lib/downstream.ts).
     downstream: { enabled: true, max: 5, skip: [] },
     infra: {
@@ -410,6 +412,7 @@ export function validateConfig(c: any, root: string): string[] {
   problems.push(...notifyProblems(c));
   problems.push(...componentProblems(c));
   problems.push(...repoProblems(c, root));
+  problems.push(...checkoutProblems(c));
   problems.push(...downstreamProblems(c));
   problems.push(...repoBudgetProblems(c));
   return problems;
