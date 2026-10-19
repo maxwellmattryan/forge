@@ -499,7 +499,9 @@ describe('secret gates', { concurrency: 4 }, () => {
       const refused = JSON.parse(r.stdout).error;
       assert.equal(refused.code, 'external');
       assert.match(refused.message, /^can't refresh base main from the push remote before the secret scan \(git fetch from origin's push URL exited \d+\)/);
-      assert.ok(!refused.message.includes('also-missing'), 'the URL is not echoed');
+      assert.match(refused.message, new RegExp(`check that origin's push remote is reachable, then retry forge pr open ${j.id}$`));
+      assert.equal(refused.hint, `forge pr open ${j.id}`);
+      assert.ok(!refused.message.includes('also-missing') && !refused.message.includes(bin), 'the URL is not echoed');
       assert.equal(fs.readFileSync(ghLog, 'utf8'), '', 'gh was never called');
       assert.ok(!remoteBranches().includes('forge/'), 'nothing was pushed');
       const all = s.trail(j.dir) + s.trail(old.dir);
@@ -508,6 +510,113 @@ describe('secret gates', { concurrency: 4 }, () => {
       s.cleanup();
       fs.rmSync(bin, { recursive: true, force: true });
       fs.rmSync(bare, { recursive: true, force: true });
+    }
+  });
+
+  /** A fake gh that logs its calls and fails, and a bare remote at `<dir>/r.git` holding main. */
+  const remoteSetup = (s: Awaited<ReturnType<typeof scratch>>) => {
+    const tag = path.basename(s.repo.dir);
+    const bin = path.join(s.repo.dir, '..', `fakebin-${tag}`);
+    const dir = path.join(s.repo.dir, '..', `remote-${tag}`);
+    const bare = path.join(dir, 'r.git');
+    fs.mkdirSync(bin);
+    fs.mkdirSync(dir);
+    const ghLog = path.join(bin, 'gh.log');
+    fs.writeFileSync(ghLog, '');
+    fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\necho "$*" >> "${ghLog}"\nexit 1\n`, { mode: 0o755 });
+    execFileSync('git', ['init', '-q', '--bare', bare]);
+    execFileSync('git', ['remote', 'add', 'origin', bare], { cwd: s.repo.dir });
+    execFileSync('git', ['push', '-q', 'origin', 'main'], { cwd: s.repo.dir });
+    // A scp-like URL left unrewritten would reach for ssh: fail at once instead.
+    const env = { PATH: `${bin}:${process.env.PATH}`, GIT_SSH_COMMAND: 'false' };
+    const ghCalls = () => fs.readFileSync(ghLog, 'utf8');
+    const pushed = () => execFileSync('git', ['ls-remote', '--heads', bare], { encoding: 'utf8' }).includes('forge/');
+    const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd });
+    /** Sets origin's url to `one:r.git` and replaces every url.* rewrite with `rules` ([to, key]). */
+    const rewrite = (cwd: string, rules: [string, 'insteadOf' | 'pushInsteadOf', string][]) => {
+      let names = '';
+      try {
+        names = execFileSync('git', ['config', '--name-only', '--get-regexp', '^url\\.'], { cwd, encoding: 'utf8' });
+      } catch {
+        // None set: git config exits 1.
+      }
+      for (const name of new Set(names.split('\n').filter(Boolean))) git(cwd, 'config', '--unset-all', name);
+      git(cwd, 'config', 'remote.origin.url', 'one:r.git');
+      for (const [to, key, from] of rules) git(cwd, 'config', '--add', `url.${to}.${key}`, from);
+    };
+    const cleanup = () => {
+      fs.rmSync(bin, { recursive: true, force: true });
+      fs.rmSync(dir, { recursive: true, force: true });
+    };
+    return { bin, dir, bare, env, ghCalls, pushed, git, rewrite, cleanup };
+  };
+
+  test('pr open refuses a push URL that insteadOf rewrites again', async () => {
+    const s = await scratch();
+    const r0 = remoteSetup(s);
+    try {
+      const key = token.anthropic('chain');
+      const j = await s.job({ 'src/k.ts': `export const k = '${key}';\n` });
+      const refusedOpen = async (what: string) => {
+        const r = await s.raw(['pr', 'open', j.id, '--force', '--json'], r0.env);
+        assert.equal(r.status, 5, `${what}: ${r.stdout}${r.stderr}`);
+        const err = JSON.parse(r.stdout).error;
+        assert.equal(err.code, 'external', what);
+        assert.match(err.message, /^can't refresh base main from the push remote before the secret scan \(origin's push URL is rewritten again by url\.\*\.insteadOf, so a fetch would reach another repository\)/, what);
+        assert.match(err.message, new RegExp(`fix the git config.s insteadOf/pushInsteadOf entries, then retry forge pr open ${j.id}$`), what);
+        assert.equal(err.hint, `forge pr open ${j.id}`);
+        for (const u of ['one:', 'two:', r0.dir]) assert.ok(!err.message.includes(u), `${what}: no URL in the message (${u})`);
+        assert.equal(r0.ghCalls(), '', `${what}: gh was never called`);
+        assert.ok(!r0.pushed(), `${what}: nothing was pushed`);
+      };
+      // AC1: one: → two: → the bare repo. The push resolves to two:, a fetch of two: to the bare repo.
+      r0.rewrite(j.wt, [['two:', 'insteadOf', 'one:'], [`${r0.dir}/`, 'insteadOf', 'two:']]);
+      await refusedOpen('a two-step insteadOf chain');
+      // AC2: pushInsteadOf one: → two:, then insteadOf two: → the bare repo.
+      r0.rewrite(j.wt, [['two:', 'pushInsteadOf', 'one:'], [`${r0.dir}/`, 'insteadOf', 'two:']]);
+      await refusedOpen('pushInsteadOf plus insteadOf');
+      // AC3: a single pushInsteadOf is an ordinary setup: the base is fetched from the rewritten push
+      // URL, so a remote-tracking base moved onto the key commit is put back and the key is found.
+      r0.rewrite(j.wt, [[`${r0.dir}/`, 'pushInsteadOf', 'one:']]);
+      r0.git(j.wt, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+      write(j.wt, 'src/c.ts', 'export const c = 3;\n');
+      commitAll(j.wt, 'one more');
+      const r = await s.raw(['pr', 'open', j.id, '--force', '--json'], r0.env);
+      assert.equal(r.status, 1, r.stdout + r.stderr);
+      assert.equal(JSON.parse(r.stdout).error.code, 'secret_found', 'the base was refreshed through the single rewrite');
+      assert.equal(r0.ghCalls(), '');
+      assert.ok(!r0.pushed());
+      assert.ok(!s.trail(j.dir).includes(key));
+    } finally {
+      s.cleanup();
+      r0.cleanup();
+    }
+  });
+
+  test('refreshBase under warn scans against the ref as it is', async () => {
+    const s = await scratch({ verifySecrets: 'warn' });
+    const r0 = remoteSetup(s);
+    try {
+      const key = token.anthropic('warn');
+      const j = await s.job({ 'src/k.ts': `export const k = '${key}';\n` });
+      const open = async (what: string) => {
+        const before = s.events(j.dir).filter((e) => e.type === 'secret-found' && e.gate === 'pr').length;
+        const r = await s.raw(['pr', 'open', j.id, '--force', '--json'], r0.env);
+        const err = r.stdout ? JSON.parse(r.stdout).error : null;
+        assert.ok(!/can't refresh base/.test(String(err?.message ?? '') + r.stderr), `${what}: ${r.stdout}${r.stderr}`);
+        const ev = s.events(j.dir).filter((e) => e.type === 'secret-found' && e.gate === 'pr').slice(before);
+        assert.deepEqual(ev.map((e) => [e.blocked, e.findings[0]?.kind]), [[false, 'anthropic-key']], what);
+      };
+      // A push URL that can't be fetched: the fetch fails and the scan goes on.
+      r0.git(j.wt, 'config', 'remote.origin.pushurl', path.join(r0.bin, 'no-such-remote.git'));
+      await open('a broken push URL');
+      // A chained insteadOf: the fetch is skipped and the scan goes on.
+      r0.git(j.wt, 'config', '--unset', 'remote.origin.pushurl');
+      r0.rewrite(j.wt, [['two:', 'insteadOf', 'one:'], [`${r0.dir}/`, 'insteadOf', 'two:']]);
+      await open('a chained insteadOf');
+    } finally {
+      s.cleanup();
+      r0.cleanup();
     }
   });
 
