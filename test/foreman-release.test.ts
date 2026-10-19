@@ -145,7 +145,7 @@ describe('gate: entries and the v18 config', () => {
   });
 
   test('config v17 migrates to v18, reserving the release gate', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 19);
+    assert.equal(CONFIG_SCHEMA_VERSION, 20);
     const d = defaults();
     assert.equal(d.foreman.reserved.at(-1), 'gate:release');
     assert.ok(!d.foreman.decides.includes('release'));
@@ -155,7 +155,7 @@ describe('gate: entries and the v18 config', () => {
     assert.equal(explicit.from, 17);
     assert.deepEqual(explicit.config.foreman, { enabled: true, reserved: ['secret', 'gate:release'] });
     assert.deepEqual(migrateConfig({ schemaVersion: 17, foreman: { reserved: ['secret', 'gate:release'] } }).config.foreman.reserved, ['secret', 'gate:release'], 'never twice');
-    assert.deepEqual(migrateConfig({ schemaVersion: 17, git: { base: 'trunk' } }).config, { schemaVersion: 19, git: { base: 'trunk' } }, 'nothing else changes');
+    assert.deepEqual(migrateConfig({ schemaVersion: 17, git: { base: 'trunk' } }).config, { schemaVersion: 20, git: { base: 'trunk' } }, 'nothing else changes');
     assert.deepEqual(migrateConfig({ schemaVersion: 18, foreman: { reserved: ['secret'] } }).config.foreman.reserved, ['secret'], 'a v18 config is left as written');
     const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-v17-')));
     try {

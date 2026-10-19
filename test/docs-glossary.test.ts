@@ -78,7 +78,12 @@ test('config keys exist or are marked planned', () => {
     const keys = [...cell.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
     assert.ok(keys.length > 0, `${r.term}: key cell "${cell}" is a key, planned (M00n) or -`);
     assert.equal(cell.replace(/`[^`]+`/g, '').replace(/[,\s]/g, ''), '', `${r.term}: key cell holds only keys`);
-    for (const k of keys) assert.notEqual(getPath(d, k), undefined, `${r.term}: \`${k}\` is not in defaults()`);
+    for (const k of keys) {
+      // `components[].config` names a key of each list entry: the list itself must be in defaults().
+      const [list, sub] = k.split('[].');
+      if (sub !== undefined) assert.ok(Array.isArray(getPath(d, list)), `${r.term}: \`${list}\` is not a list in defaults()`);
+      else assert.notEqual(getPath(d, k), undefined, `${r.term}: \`${k}\` is not in defaults()`);
+    }
   }
 });
 

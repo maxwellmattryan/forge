@@ -14,11 +14,11 @@ const DASH = 'http://127.0.0.1:7400/#/pipeline';
 
 describe('notify config and payloads', { concurrency: 4 }, () => {
   test('a v7 config migrates to v8 with empty notify', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 19);
+    assert.equal(CONFIG_SCHEMA_VERSION, 20);
     const v7 = { schemaVersion: 7, git: { base: 'trunk' }, retention: { jobsDays: 30 } };
     const { config, from } = migrateConfig(structuredClone(v7));
     assert.equal(from, 7);
-    assert.deepEqual(config, { ...v7, schemaVersion: 19, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
+    assert.deepEqual(config, { ...v7, schemaVersion: 20, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
     assert.deepEqual(defaults().notify, { webhooks: [], command: null });
     assert.deepEqual(notifyProblems(defaults()), []);
   });
@@ -192,7 +192,10 @@ describe('notify delivery', { concurrency: 4 }, () => {
     };
     return { repo, server, job, config, ctx, events, done, secretPath };
   };
-  const fast = { timeoutMs: 200, retryDelayMs: 10 };
+  // A tight timeout under a loaded full-suite run turns a slow 200 into a timeout plus a retry that
+  // hits the server twice, so only the hang case gets the short one.
+  const fast = { timeoutMs: 5000, retryDelayMs: 10 };
+  const hang = { timeoutMs: 200, retryDelayMs: 10 };
 
   test('webhook delivery, retry and failure codes', async () => {
     const s = await setup();
@@ -232,7 +235,7 @@ describe('notify delivery', { concurrency: 4 }, () => {
       assert.deepEqual([ev.type, ev.error, ev.attempts], ['notify-failed', 'redirect', 1]);
       // A hanging server times out (twice).
       s.server.reply('hang');
-      r = await deliver(s.repo.dir, s.config, ['job-failed'], s.ctx, fast);
+      r = await deliver(s.repo.dir, s.config, ['job-failed'], s.ctx, hang);
       ev = s.events().at(-1);
       assert.deepEqual([ev.type, ev.error, ev.attempts], ['notify-failed', 'timeout', 2]);
       // A closed port is a network error.

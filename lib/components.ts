@@ -4,7 +4,10 @@
 
 import path from 'node:path';
 import type { ComponentConfig, Config, Job } from './types.ts';
-import { SAFE_REF } from './util.ts';
+import { SAFE_REF, isInsidePath } from './util.ts';
+import { sinkProblems } from './config-sinks.ts';
+
+export { isInsidePath };
 
 export const COMPONENT_KINDS = ['library', 'service', 'app'] as const;
 export const DEPENDENCY_TYPES = ['build', 'runtime'] as const;
@@ -101,16 +104,6 @@ export function isManifestPath(ecosystem: unknown, p: unknown): p is string {
 
 const repoLabel = (r: unknown): string => (typeof r === 'string' ? `repo ${r}` : 'the root repo');
 
-/**
- * A component's path becomes the cwd of its shell commands (path.join(worktree, path)), so it must
- * stay inside the checkout: no absolute path, drive letter or `..` segment on either separator.
- */
-export function isInsidePath(p: unknown): p is string {
-  if (typeof p !== 'string' || !p.trim()) return false;
-  if (path.isAbsolute(p) || /^[/\\]/.test(p) || /^[A-Za-z]:/.test(p)) return false;
-  return !p.split(/[/\\]/).includes('..');
-}
-
 /** Every problem with `components` (and a leftover `services`), in the form validateConfig reports. */
 export function componentProblems(c: any): string[] {
   const problems: string[] = [];
@@ -142,6 +135,7 @@ export function componentProblems(c: any): string[] {
       else for (const [k, v] of Object.entries(e.commands)) if (v !== null && typeof v !== 'string') problems.push(`${at}.commands.${k} must be a string or null (got ${show(v)})`);
     }
     if (e.notes !== undefined && e.notes !== null && typeof e.notes !== 'string') problems.push(`${at}.notes must be a string or null (got ${show(e.notes)})`);
+    if (e.config !== undefined) problems.push(...sinkProblems(e.config, `${at}.config`, e));
     if (e.dependsOn === undefined) return;
     if (!Array.isArray(e.dependsOn)) return problems.push(`${at}.dependsOn must be a list (got ${show(e.dependsOn)})`);
     e.dependsOn.forEach((d: unknown, j: number) => {

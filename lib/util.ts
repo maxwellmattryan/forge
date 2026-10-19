@@ -72,7 +72,10 @@ export function run(
     // A timeout kills the child and sets res.error (ETIMEDOUT), so it takes the spawn-error path below.
     timeout: opts.timeoutMs,
   });
-  if (res.error) {
+  // A child that exits before reading its `input` makes spawnSync report EPIPE beside the real exit
+  // status (a race under load, not a failure to start): the exit status is the answer.
+  const unreadInput = res.error && (res.error as NodeJS.ErrnoException).code === 'EPIPE' && res.status !== null;
+  if (res.error && !unreadInput) {
     if (opts.allowFail) return { ok: false, stdout: '', stderr: String(res.error.message), status: null };
     throw new ForgeError(`${cmd} failed to start: ${res.error.message}`, 'external');
   }
@@ -363,6 +366,17 @@ export function shellArgs(args: string[]): string {
     if (/['\\\x00-\x1f\x7f]/.test(a)) throw new ForgeError(`forge run: argument ${i + 1} contains a quote, backslash or control character (got ${JSON.stringify(a)})`);
   });
   return args.map((a) => `'${a}'`).join(' ');
+}
+
+/**
+ * A component's path becomes the cwd of its shell commands (path.join(worktree, path)), so it must
+ * stay inside the checkout: no absolute path, drive letter or `..` segment on either separator.
+ * Here rather than in components.ts so config-sinks.ts can use it without a cycle.
+ */
+export function isInsidePath(p: unknown): p is string {
+  if (typeof p !== 'string' || !p.trim()) return false;
+  if (path.isAbsolute(p) || /^[/\\]/.test(p) || /^[A-Za-z]:/.test(p)) return false;
+  return !p.split(/[/\\]/).includes('..');
 }
 
 export function fill(template: string, vars: Record<string, string | number>): string {

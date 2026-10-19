@@ -5,6 +5,7 @@
 import type { ACTOR_SOURCES, BACKING_ISOLATIONS, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import type { REQUEST_TYPES } from './requests.ts';
 import type { COMPONENT_KINDS, DEPENDENCY_TYPES, INTERIM_STRATEGIES, LINK_ECOSYSTEMS } from './components.ts';
+import type { SINK_FORMATS, SINK_MODES } from './config-sinks.ts';
 import type { AcCoverage } from './acs.ts';
 import type { RELEASE_CADENCES, RELEASE_MECHANISMS, RELEASE_PUBLISH, RELEASE_REGISTRIES, RELEASE_VERSIONINGS } from './release-strategy.ts';
 import type { SECRET_KINDS } from './secrets.ts';
@@ -726,7 +727,21 @@ export interface ComponentConfig {
   dependsOn?: ComponentDependency[];
   owners?: string[];
   notes?: string | null;
+  /** Config sinks rendered before each of this component's commands (docs/CONFIG.md "Config sinks"); root repo only. */
+  config?: ConfigSink[];
 }
+
+export type SinkFormat = (typeof SINK_FORMATS)[number];
+export type SinkMode = (typeof SINK_MODES)[number];
+/** Merge `values`: a nested map whose leaves are strings (expressions), numbers, booleans or null. */
+export type SinkValues = { [k: string]: string | number | boolean | null | SinkValues };
+
+/** One config sink: a map with exactly one kind key (lib/config-sinks.ts). */
+export type ConfigSink =
+  | { env: Record<string, string> }
+  | { 'env-file': string; values?: Record<string, string> }
+  | { file: { path: string; format: SinkFormat; mode: SinkMode; from?: string | null }; values?: SinkValues }
+  | { command: string; values?: Record<string, string> };
 
 /** One member repo: an entry of `repos` (docs/CONFIG.md "Repos"). The root repo is implicit. */
 export interface MemberRepoConfig {
