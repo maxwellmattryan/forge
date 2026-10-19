@@ -367,6 +367,10 @@ describe('secret gates', { concurrency: 4 }, () => {
       assert.match(r.out.secrets.error, /base no-such-branch not found/);
       assert.equal(r.out.secrets.ok, false);
       assert.match(fs.readFileSync(path.join(j.dir, 'verify', 'round-1.md'), 'utf8'), /^## secrets: ERROR \(base no-such-branch not found\)$/m);
+      // The scan error leaves a secret-found event too; SC1 still keys on the verify run.
+      const [ev] = s.events(j.dir).filter((e) => e.type === 'secret-found');
+      assert.deepEqual([ev.gate, ev.blocked, ev.count, ev.findings], ['verify', true, 0, []]);
+      assert.match(ev.error, /base no-such-branch not found/);
       await s.configure({ verifySecrets: 'warn' });
       r = await s.verify(j.id);
       assert.equal(r.out.secrets.ok, true);
@@ -614,6 +618,37 @@ describe('secret gates', { concurrency: 4 }, () => {
       r0.git(j.wt, 'config', '--unset', 'remote.origin.pushurl');
       r0.rewrite(j.wt, [['two:', 'insteadOf', 'one:'], [`${r0.dir}/`, 'insteadOf', 'two:']]);
       await open('a chained insteadOf');
+    } finally {
+      s.cleanup();
+      r0.cleanup();
+    }
+  });
+
+  test('a pr open scan error logs secret-found so the job parks', async () => {
+    const s = await scratch();
+    const r0 = remoteSetup(s);
+    try {
+      const j = await s.job({ 'src/a.ts': 'export const a = 1;\n' });
+      // A base with no history in common: the refresh fetches it, then the scan finds no merge-base.
+      const orphan = execFileSync('git', ['commit-tree', '-m', 'orphan', execFileSync('git', ['hash-object', '-t', 'tree', '-w', '--stdin'], { cwd: j.wt, input: '' }).toString().trim()], { cwd: j.wt, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@e.st', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@e.st' } }).trim();
+      r0.git(j.wt, 'push', '-q', r0.bare, `${orphan}:refs/heads/orphan`);
+      setJob(s.repo.dir, j.id, { fields: { base: 'orphan' } });
+      const scanErrors = () => s.events(j.dir).filter((e) => e.type === 'secret-found' && e.gate === 'pr');
+      let r = await s.raw(['pr', 'open', j.id, '--force', '--json'], r0.env);
+      assert.equal(r.status, 1, r.stdout + r.stderr);
+      const err = JSON.parse(r.stdout).error;
+      assert.equal(err.code, 'secret_found');
+      assert.match(err.message, /commits could not finish/);
+      let ev = scanErrors();
+      assert.deepEqual(ev.map((e) => [e.blocked, e.count, e.findings, e.more, typeof e.error]), [[true, 0, [], 0, 'string']]);
+      assert.ok(ev[0].error.length > 0 && ev[0].error.length <= 300);
+      assert.equal(r0.ghCalls(), '');
+      assert.ok(!r0.pushed());
+      // Under warn the same error is a note: logged unblocked, and the open goes on past the scan.
+      await s.configure({ verifySecrets: 'warn' });
+      r = await s.raw(['pr', 'open', j.id, '--force', '--json'], r0.env);
+      ev = scanErrors();
+      assert.deepEqual(ev.map((e) => [e.blocked, e.count, typeof e.error]), [[true, 0, 'string'], [false, 0, 'string']]);
     } finally {
       s.cleanup();
       r0.cleanup();
