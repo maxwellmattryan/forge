@@ -212,6 +212,14 @@ describe('config sinks at run time', { concurrency: 4 }, () => {
       await refused([{ 'env-file': '.env.local', values: { A: 'x' } }], /config sinks need the job's own worktree/, (j) => updateJob(x.root, j.id, (job) => void (job.worktree = `${j.wt}${path.sep}`)));
       // A `from` that is a hard link (its content can come from anywhere on the filesystem).
       await refused([{ file: { path: 'app.toml', format: 'toml', mode: 'template', from: 'linked.template' } }], /config sink 0 of component "api": from services\/api\/linked\.template must not be a hard link/, (j) => fs.linkSync(path.join(j.api, 'tracked.json'), path.join(j.api, 'linked.template')));
+      // A merge with no `from` reads the output itself as its base: a hard link there is refused too,
+      // so a file from outside is never merged into a render the checkout can read.
+      const hosts = path.join(outside, 'hosts.json');
+      const hostsSentinel = `tok-${crypto.randomBytes(8).toString('hex')}`;
+      fs.writeFileSync(hosts, `{"token": "${hostsSentinel}"}\n`);
+      const j5 = await refused([{ file: { path: 'config.json', format: 'json', mode: 'merge' }, values: { a: 1 } }], /config sink path services\/api\/config\.json must not be a hard link/, (j) => fs.linkSync(hosts, path.join(j.api, 'config.json')));
+      assert.equal(fs.readFileSync(hosts, 'utf8'), `{"token": "${hostsSentinel}"}\n`, 'the linked file is untouched');
+      assert.equal(fs.statSync(path.join(j5.api, 'config.json')).nlink, 2, 'the link is not replaced by a render');
       // A merge base that does not parse names the file, and a `from` file's parser message is kept.
       await refused([{ file: { path: 'config.json', format: 'json', mode: 'merge', from: 'app.toml.template' }, values: { a: 1 } }], /config sink 0 \(services\/api\/app\.toml\.template\): the merge base does not parse as json: .*JSON/);
       // A sink that fails validation is refused at run time too (`forge run` does not validate config).

@@ -144,12 +144,17 @@ export function applySinks(root: string, config: Config, job: Job, component: Co
 
   /** The current output file as a merge base, when it is a regular file; a symlink there is replaced later, never read. */
   const currentText = (rel: string): string | null => {
-    const { abs } = place(rel, 'config sink path');
+    const out = place(rel, 'config sink path');
+    let st: fs.Stats;
     try {
-      return fs.lstatSync(abs).isFile() ? fs.readFileSync(abs, 'utf8') : null;
+      st = fs.lstatSync(out.abs);
     } catch {
       return null;
     }
+    if (!st.isFile()) return null;
+    // As for `from`: a hard link would merge a file from anywhere into a render the checkout can read.
+    if (st.nlink > 1) throw new ForgeError(`config sink path ${out.rel} must not be a hard link`);
+    return fs.readFileSync(out.abs, 'utf8');
   };
 
   const resolved = (i: number, values: Record<string, string> | undefined): Record<string, string> => {
