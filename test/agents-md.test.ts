@@ -84,7 +84,7 @@ test('AGENTS.md opens with essentials and keeps every rule', () => {
 // `.forge/config.yml` is a refuse default of policy.protectedPaths, so a job can't commit it: the
 // block lives in docs/IMPROVEMENT.md, a human applies it on the base branch, and this test holds
 // the block valid over the repo's config and, once applied, the config equal to it.
-const EFFORT_BLOCK = { efforts: { planner: 'medium', approver: 'medium', integrator: 'low' }, effortByComplexity: { low: 'low' } };
+const EFFORT_BLOCK: any = { efforts: { planner: 'medium', approver: 'medium', integrator: 'low' }, effortByComplexity: { low: 'low' } };
 
 test('repo config sets the effort defaults and leaves the panel alone', () => {
   const doc = fs.readFileSync(path.join(ROOT, 'docs', 'IMPROVEMENT.md'), 'utf8');
