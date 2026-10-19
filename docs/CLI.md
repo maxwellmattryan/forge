@@ -4,7 +4,7 @@ The orchestrator, its agents, scripts, CI and other agent runtimes ([PROTOCOL.md
 
 ## Output
 
-This section and the next describe **agent mode**, the output every program gets: a pipe, a file, `$(…)`, Claude Code's Bash tool and daemon sessions. A person at a terminal gets human mode instead (see Output mode).
+This section and the `--json` section below describe **agent mode**, the output every program gets: a pipe, a file, `$(…)`, Claude Code's Bash tool and daemon sessions. A person at a terminal gets human mode instead (see Output mode).
 
 - Success prints one compact JSON value and a newline on stdout. `--pretty` indents it, and `forge doctor` and `forge config show` always indent.
 - A few commands print text instead: `forge status` (a table), `forge stats` (a summary), `forge secrets scan` (a report), `forge help`, and the string results of `forge worktree path`, `forge worktree prune`, `forge job get`, `forge config get` and `forge daemon log`. Under `--json` all of them print JSON (see below).
@@ -28,7 +28,7 @@ Human mode:
 - **Strings** print raw, exactly as in agent mode: help, the `status` table, the `stats` summary, `worktree path`, `config get` strings. `$(forge worktree path <id>)` is the same in both modes.
 - **Other results** go through a generic renderer, and `--pretty` has no effect. An object prints one aligned `key  value` line per key (`(empty)` for `{}`). An array of objects prints a table whose columns are the union of the rows' keys, in first-seen order. Any other array prints one item per line (`(none)` when empty). `null` prints `-`, a list of scalars is joined with `, `, and a nested object or array is shown as one-line JSON, never truncated.
 - **Control characters** in rendered keys, values, cells and error messages are shown as visible escapes (`\x1b`, `\u202e`), so text from trackers, PRs or job state can't move the cursor, rewrite lines or set the clipboard. Raw strings are not touched.
-- **Errors** print on stderr, nothing on stdout: `error: <message>`, then `fix: <hint>` when the error has a hint (the `hint` `--json` reports). The exit code is unchanged, and `FORGE_DEBUG` still adds the stack.
+- **Errors** print on stderr, nothing on stdout: `error: <message>`, then `fix: <hint>` when the error has a hint (the `hint` `--json` reports). Later lines of a message or hint are indented under its text, so only the real hint starts with `fix:`. The exit code is unchanged, and `FORGE_DEBUG` still adds the stack.
 - **Colour**: keys and table headers are bold, `true` green, `false` red, `error:` red and `fix:` yellow. Colour is on only when the stream is a terminal and `NO_COLOR` is unset or empty.
 - Streams that write for themselves are the same in both modes: `forge dash` in the foreground, `forge daemon log --follow` and the `forge git diff|log|show|range-diff` passthrough.
 
@@ -157,6 +157,7 @@ Set by the `forge dash` supervisor for daemon sessions, never by hand:
 | `FORGE_DAEMON` | `1` in a headless session: the config trust check runs first, config rewrites, job effort changes (`forge job effort`, `forge job new --effort`) and setting or clearing focus (`forge focus <id>`, `forge focus --clear`) are refused, and `forge requests` sees only the session's scope |
 | `FORGE_DAEMON_SCOPE` | the session's scope: `_inbox`, `_office` (the foreman), or the id of the job it drives |
 | `FORGE_DAEMON_TRUST` | the digest of the checkout path, `.forge/config.yml` and `.forge/trackers/` the human started the daemon with; `forge` refuses to run when they no longer match |
+| `FORGE_MODE` | `agent`, so a session's `forge` calls always print agent output (see Output mode) |
 
 Set by Forge for configured commands (`forge run`, `forge verify`, worktree setup), which never see the daemon variables above:
 

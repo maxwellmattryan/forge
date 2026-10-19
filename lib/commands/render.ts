@@ -67,7 +67,8 @@ const pad = (text: string, width: number): Seg => ({ text: ' '.repeat(Math.max(0
 function renderObject(o: Record<string, unknown>, p: ReturnType<typeof paint>): string {
   const keys = Object.keys(o);
   if (!keys.length) return '(empty)';
-  const names = keys.map(sanitize);
+  // A newline in a key would break the aligned layout, so it becomes a space as in table cells.
+  const names = keys.map((k) => sanitize(k).replace(/\n/g, ' '));
   const w = Math.max(...names.map((k) => k.length));
   return keys
     .map((k, i) => {
@@ -106,9 +107,15 @@ export function render(data: unknown, opts: { color: boolean }): string {
   return line([cell(data, p)]);
 }
 
+/**
+ * Later lines of a message start under its text, so untrusted text in an error (git, gh, tracker
+ * output) can never print a column-0 `fix:` line that passes for Forge's own hint.
+ */
+const hanging = (s: string, label: string): string => sanitize(s).split('\n').join('\n' + ' '.repeat(label.length + 1));
+
 /** A failed call in human mode: `error: <message>`, then `fix: <hint>` when there is one. */
 export function renderError(e: CliError, opts: { color: boolean }): string {
   const p = paint(opts.color);
-  const fix = e.hint ? `${p.yellow('fix:')} ${sanitize(e.hint)}\n` : '';
-  return `${p.bold(p.red('error:'))} ${sanitize(e.message)}\n${fix}`;
+  const fix = e.hint ? `${p.yellow('fix:')} ${hanging(e.hint, 'fix:')}\n` : '';
+  return `${p.bold(p.red('error:'))} ${hanging(e.message, 'error:')}\n${fix}`;
 }

