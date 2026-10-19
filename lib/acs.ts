@@ -80,6 +80,31 @@ export function specAcs(text: string): string[] {
   return [...new Set(ids)];
 }
 
+/**
+ * Labelled AC ids, in order, whose item in the first `Acceptance criteria…` section names a
+ * screenshot proof. Reads the section exactly as specAcs does; the builder brief's `UI proof:` line.
+ */
+export function specUiAcs(text: string): string[] {
+  const lines = unfenced(text);
+  let level = 0;
+  let inside = false;
+  const ids: string[] = [];
+  for (const line of lines) {
+    if (line === null) continue;
+    const h = HEADING.exec(line);
+    if (inside) {
+      if (h && h[1].length <= level) break;
+      const li = /^ {0,3}[-*+]\s+(?:\[[ xX]\]\s+)?(?:\*\*)?(.*)$/.exec(line);
+      const m = li ? ID.exec(li[1]) : null;
+      if (m && /screenshots?\b/i.test(li![1])) ids.push(`AC${Number(m[1])}`);
+    } else if (h && /^acceptance criteria/i.test(h[2])) {
+      level = h[1].length;
+      inside = true;
+    }
+  }
+  return [...new Set(ids)];
+}
+
 /** Cells of a table row: split on unescaped pipes, drop the empty edge cells. */
 function cells(line: string): string[] {
   const parts = line.split(/(?<!\\)\|/).map((c) => c.trim());

@@ -431,8 +431,8 @@ export interface StepInput {
   /** requestBody(): its length and the lines that start with a list marker or a heading. */
   request: { length: number; listLines: number };
   plan: { verdict: 'SINGLE' | 'SPLIT' | null; jobs: number; recommendSplit: boolean };
-  /** spec.md's header lines and Approach paths; suggested names and services are raw, step filters them. */
-  spec: { size: string | null; complexity: string | null; needsDesign: boolean; services: string[]; suggested: string[]; approachPaths: string[] };
+  /** spec.md's header lines and Approach paths; suggested names and services are raw, step filters them. `uiAcs`: specUiAcs, the builder's `UI proof:` line. */
+  spec: { size: string | null; complexity: string | null; needsDesign: boolean; services: string[]; suggested: string[]; approachPaths: string[]; uiAcs: string[] };
   /** design.md's `## Spec deltas` section is non-empty and not None. */
   designDeltas: boolean;
   decision: { decision: string | null; autoMerge: boolean };

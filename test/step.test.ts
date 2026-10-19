@@ -415,7 +415,8 @@ const rows: Row[] = [
       assert.ok(!a.brief.includes('Rework scope:'));
       assert.ok(!a.brief.includes('Reference:'));
       assert.ok(a.brief.includes('Infra: mode human · allowed []'));
-      assert.equal(a.brief.split('\n').length, 12);
+      assert.ok(a.brief.split('\n').includes('UI proof: none · no AC needs a rendered UI, so do not use browser tools'));
+      assert.equal(a.brief.split('\n').length, 13);
       assert.ok(a.brief.split('\n').includes(`Inputs: ${path.join(JOB_DIR, 'spec.md')}, ${path.join(JOB_DIR, 'tasks.md')}`));
     },
   },

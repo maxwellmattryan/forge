@@ -7,7 +7,7 @@
 // names and fixed templates, never from file contents or agent replies, and shellLine refuses an
 // argument outside a strict class, so an unattended daemon can run the result as-is.
 import path from 'node:path';
-import { acCoverage } from './acs.ts';
+import { acCoverage, specUiAcs } from './acs.ts';
 import { readJobRecord, readSharedRecord } from './backing.ts';
 import { jobPathMap, renderBrief, roleBrief } from './brief.ts';
 import type { RoleContext } from './brief.ts';
@@ -178,7 +178,7 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     memberWorktreesMissing: memberRepos(job).some((m) => !(m.worktree && exists(m.worktree))),
     request: { length: body.length, listLines: listLineCount(body) },
     plan: parsePlan(read('plan.md') ?? ''),
-    spec: { ...parseSpecHeader(specText), approachPaths: approachPaths(specText) },
+    spec: { ...parseSpecHeader(specText), approachPaths: approachPaths(specText), uiAcs: specUiAcs(specText) },
     designDeltas: hasSpecDeltas(read('design.md') ?? ''),
     decision: { decision: parseDecision(root, job.id).decision, autoMerge: /^\s*(?:[-*]\s*)?Auto-merge eligible:\s*yes\b/im.test(read('decision.md') ?? '') },
     runbookBeforeMerge: /^\s*(?:[-*]\s*)?When:\s*before merge\b/im.test(read('runbook.md') ?? ''),
@@ -220,7 +220,7 @@ export function parsePlan(text: string): StepInput['plan'] {
 }
 
 /** The header lines above the first `## ` heading; list values are split and trimmed but not filtered. */
-export function parseSpecHeader(text: string): Omit<StepInput['spec'], 'approachPaths'> {
+export function parseSpecHeader(text: string): Omit<StepInput['spec'], 'approachPaths' | 'uiAcs'> {
   const head = text.split(/^## /m)[0];
   const value = (key: string) => new RegExp(`^${key}:[ \\t]*(.*)$`, 'mi').exec(head)?.[1].trim() ?? null;
   const items = (v: string | null) => (!v || v === '-' ? [] : v.split(',').map((s) => s.trim()).filter((s) => s && s !== '-'));
