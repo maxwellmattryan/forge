@@ -14,6 +14,8 @@ import { paths, exists, PLUGIN_ROOT } from './paths.ts';
 import { posixShell } from './platform.ts';
 import { createWorktree } from './worktree.ts';
 import { ForgeError, assertSafeRef, fill, now, readJson, readText, run, slugify, tail, withLock, writeJsonAtomic } from './util.ts';
+import { commandPort, endpointPlaceholders, jobEndpoints } from './endpoints.ts';
+import { jobComponent } from './components.ts';
 import { repoSlug } from './pr.ts';
 import { firstVerifyRun } from './stats.ts';
 import * as yaml from './yaml.ts';
@@ -356,7 +358,7 @@ export function gradeJob(root: string, config: Config, jobId: string): EvalResul
     }
     if (task.check.files) fs.cpSync(path.join(task.dir, task.check.files), wt, { recursive: true });
     if (applied && cmd) {
-      const res = run(posixShell(), ['-lc', fill(cmd, { job: jobId, port: job.port ?? '', worktree: wt, args: '' })], { cwd: wt, allowFail: true });
+      const res = run(posixShell(), ['-lc', fill(cmd, { ...endpointPlaceholders(jobEndpoints(root, config, job), { shell: true }), job: jobId, port: commandPort(config, job, jobComponent(config, job)) ?? '', worktree: wt, args: '' })], { cwd: wt, allowFail: true });
       check.ran = true;
       check.pass = res.ok;
       check.tail = tail(`${res.stdout}\n${res.stderr}`, 30);

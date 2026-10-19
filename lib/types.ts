@@ -262,7 +262,10 @@ export interface Job {
   branch: string | null;
   base: string | null;
   worktree: string | null;
+  /** The first port-bearing component's port (what `{port}`, the dev server and the live dot use): lib/ports.ts. */
   port: number | null;
+  /** One port per service or app component (`dev` when the repo has none), allocated with the worktree: lib/ports.ts. */
+  ports: Record<string, number>;
   round: number;
   maxRounds: number;
   reviewers: string[];
@@ -1964,12 +1967,17 @@ export interface FocusFact {
   since: string;
 }
 
-/** One way to reach a job's running service: endpointsFor in lib/server.ts. Only `dev` for now. */
+/**
+ * One row of a job's Environment card: endpointsFor in lib/server.ts. A `component` row has a
+ * `http://localhost:<port>/` url; a `backing` row has none. `live` is a boolean only on the component
+ * row the dev command serves (the one whose port is `job.port`), null everywhere else.
+ */
 export interface Endpoint {
-  name: 'dev';
-  url: string;
+  kind: 'component' | 'backing';
+  name: string;
+  url: string | null;
   port: number;
-  live: boolean;
+  live: boolean | null;
 }
 
 /** POST /api/focus body: a job id to focus, or null to clear. */

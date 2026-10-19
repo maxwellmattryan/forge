@@ -356,8 +356,8 @@ describe('job repos: run, git and verify', { concurrency: 4 }, () => {
     const p = await project();
     const j = await p.f('job', 'new', '--title', 'single');
     const created = await p.f('worktree', 'create', j.id);
-    assert.deepEqual(Object.keys(created).sort(), ['created', 'ok', 'path', 'port', 'setup']);
-    assert.deepEqual(Object.keys(await p.f('worktree', 'create', j.id)).sort(), ['created', 'path']);
+    assert.deepEqual(Object.keys(created).sort(), ['created', 'ok', 'path', 'port', 'ports', 'setup']);
+    assert.deepEqual(Object.keys(await p.f('worktree', 'create', j.id)).sort(), ['created', 'path', 'port', 'ports']);
     p.commit(created.path, { 'a.txt': 'a\n' });
     await p.f('job', 'round', j.id);
     const v = await p.f('verify', j.id);

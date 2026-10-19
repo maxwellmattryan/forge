@@ -41,7 +41,8 @@ import type { TranscriptHit } from './transcripts.ts';
 import { redactContext, redactText } from './redact.ts';
 import { ForgeError, getPath, readJson, readText } from './util.ts';
 import { versionInfo } from './version.ts';
-import { pidAlive, startBackground } from './worktree.ts';
+import { commandTemplate, pidAlive, startBackground } from './worktree.ts';
+import { jobEndpoints } from './endpoints.ts';
 import { zip } from './zip.ts';
 import type {
   AboutResponse,
@@ -1075,14 +1076,24 @@ const isObject = (v: unknown): v is Record<string, unknown> => Boolean(v) && typ
  * agent-writable) and only signals 0, so polling opens no socket and spawns nothing.
  */
 function endpointsFor(root: string, config: Config, j: LoadedJob): Endpoint[] {
-  const dev = config.commands?.dev;
-  const port = j.port;
-  if (!isActive(j) || !j.worktree || typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535 || typeof dev !== 'string' || !dev.trim()) return [];
-  const rec = readSmallJson(path.join(jobDir(root, j.id), 'runtime.json'))?.dev;
-  const pid = isObject(rec) ? rec.pid : undefined;
-  // pid 1 would make pidAlive signal -1 (every process this user may signal) and always read live.
-  const live = typeof pid === 'number' && pid > 1 && pidAlive(pid);
-  return [{ name: 'dev', url: `http://localhost:${port}/`, port, live }];
+  if (!isActive(j) || !j.worktree) return [];
+  const ep = jobEndpoints(root, config, j);
+  const dev = commandTemplate(config, j, 'dev');
+  // The dev command serves the first component (job.port); only that row can be live, and only once per job.
+  let served = typeof dev === 'string' && dev.trim() ? ep.components.find((c) => c.port === j.port) : undefined;
+  const liveNow = (): boolean => {
+    const rec = readSmallJson(path.join(jobDir(root, j.id), 'runtime.json'))?.dev;
+    const pid = isObject(rec) ? rec.pid : undefined;
+    // pid 1 would make pidAlive signal -1 (every process this user may signal) and always read live.
+    return typeof pid === 'number' && pid > 1 && pidAlive(pid);
+  };
+  const rows: Endpoint[] = ep.components.map((c) => {
+    const live = c === served ? liveNow() : null;
+    if (c === served) served = undefined;
+    return { kind: 'component', name: c.name, url: `${c.url}/`, port: c.port, live };
+  });
+  for (const b of ep.backing) if (b.port !== null) rows.push({ kind: 'backing', name: b.name, url: null, port: b.port, live: null });
+  return rows;
 }
 
 /** Who last acted on a job: its last event with an actor (already normalised by readEvents). */
