@@ -125,14 +125,19 @@ export function takeReleaseLock(root: string): () => void {
       if ((e as NodeJS.ErrnoException).code === 'EEXIST') return false;
       throw e;
     }
-    try {
-      fs.writeFileSync(owner, JSON.stringify({ pid: process.pid, startedAt: now() }) + '\n');
-    } catch (e) {
-      // A stale-lock taker moved the new dir aside before its owner was written: that taker puts it back.
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return false;
-      throw e;
+    // A stale-lock taker may move the new dir aside before its owner is written; it sees an ownerless,
+    // fresh lock, puts it back and loses. Giving up here too would leave nobody holding the lock, so
+    // wait for the dir to come back and write the owner into it.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        fs.writeFileSync(owner, JSON.stringify({ pid: process.pid, startedAt: now() }) + '\n');
+        return true;
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+        if (attempt >= 50) return false;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      }
     }
-    return true;
   };
   // A lock is stale when its owner pid is dead, or, with no readable owner, when it is older than LOCK_STALE_MS.
   const staleOwner = (lockDir: string): { stale: boolean; pid: unknown } => {
