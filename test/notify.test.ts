@@ -192,7 +192,10 @@ describe('notify delivery', { concurrency: 4 }, () => {
     };
     return { repo, server, job, config, ctx, events, done, secretPath };
   };
-  const fast = { timeoutMs: 200, retryDelayMs: 10 };
+  // A server that answers gets a generous timeout: under the full suite's CPU load the first fetch alone can pass 200 ms and
+  // turn into a retry. Only the hanging-server case needs the short one.
+  const fast = { timeoutMs: 5000, retryDelayMs: 10 };
+  const hang = { timeoutMs: 200, retryDelayMs: 10 };
 
   test('webhook delivery, retry and failure codes', async () => {
     const s = await setup();
@@ -232,7 +235,7 @@ describe('notify delivery', { concurrency: 4 }, () => {
       assert.deepEqual([ev.type, ev.error, ev.attempts], ['notify-failed', 'redirect', 1]);
       // A hanging server times out (twice).
       s.server.reply('hang');
-      r = await deliver(s.repo.dir, s.config, ['job-failed'], s.ctx, fast);
+      r = await deliver(s.repo.dir, s.config, ['job-failed'], s.ctx, hang);
       ev = s.events().at(-1);
       assert.deepEqual([ev.type, ev.error, ev.attempts], ['notify-failed', 'timeout', 2]);
       // A closed port is a network error.
