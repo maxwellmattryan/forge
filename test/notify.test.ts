@@ -14,11 +14,11 @@ const DASH = 'http://127.0.0.1:7400/#/pipeline';
 
 describe('notify config and payloads', { concurrency: 4 }, () => {
   test('a v7 config migrates to v8 with empty notify', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 19);
+    assert.equal(CONFIG_SCHEMA_VERSION, 20);
     const v7 = { schemaVersion: 7, git: { base: 'trunk' }, retention: { jobsDays: 30 } };
     const { config, from } = migrateConfig(structuredClone(v7));
     assert.equal(from, 7);
-    assert.deepEqual(config, { ...v7, schemaVersion: 19, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
+    assert.deepEqual(config, { ...v7, schemaVersion: 20, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
     assert.deepEqual(defaults().notify, { webhooks: [], command: null });
     assert.deepEqual(notifyProblems(defaults()), []);
   });
@@ -192,8 +192,8 @@ describe('notify delivery', { concurrency: 4 }, () => {
     };
     return { repo, server, job, config, ctx, events, done, secretPath };
   };
-  // A server that answers gets a generous timeout: under the full suite's CPU load the first fetch alone can pass 200 ms and
-  // turn into a retry. Only the hanging-server case needs the short one.
+  // A tight timeout under a loaded full-suite run turns a slow 200 into a timeout plus a retry that
+  // hits the server twice, so only the hang case gets the short one.
   const fast = { timeoutMs: 5000, retryDelayMs: 10 };
   const hang = { timeoutMs: 200, retryDelayMs: 10 };
 

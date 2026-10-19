@@ -10,7 +10,7 @@ import type { EventActor, Job, JobEvent, JobIssue, JobRepo, JobRepoPr, LoadedJob
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
 export { BACKING_ISOLATIONS } from './backing-config.ts';
 
-export const CONFIG_SCHEMA_VERSION = 19;
+export const CONFIG_SCHEMA_VERSION = 20;
 export const JOB_SCHEMA_VERSION = 14;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
@@ -194,6 +194,9 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // v19 adds backing, empty by default, so no v18 config changes; the bump lets older Forges refuse
   // a config whose backing services they would ignore.
   18: (c) => c,
+  // v20 adds components[].config (config sinks), absent by default, so no v19 config changes; the
+  // bump lets older Forges refuse a config whose sinks they would ignore.
+  19: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
