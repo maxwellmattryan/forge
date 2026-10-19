@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { backingDown, backingEnv, backingUp, hasJobBacking, portsLock, takenPorts } from './backing.ts';
+import { backingDown, backingEnv, backingUp, hasJobBacking, portsLock } from './backing.ts';
 import { enforceBudget } from './budget.ts';
 import { readCheckoutRecord, undoCheckout, withCheckoutLock } from './checkout.ts';
 import { isOwnWorktreePath, loadConfig, verifyGroups, worktreeRoot } from './config.ts';
@@ -11,7 +11,7 @@ import { configForJob } from './eval-overlay.ts';
 import { stackSource } from './deps.ts';
 import { STATUS_ARGV, blockingLines, compactIntegrity, hiddenChanges, integrityError, renderIntegrity, testIntegrity } from './integrity.ts';
 import type { CompactIntegrity, IntegrityReport } from './integrity.ts';
-import { listJobs, isActive, loadJob, logEvent, readEvents, setJob, touchJob, updateJob, jobDir } from './jobs.ts';
+import { loadJob, logEvent, readEvents, setJob, touchJob, updateJob, jobDir } from './jobs.ts';
 import { changedRepos, downstreamMembers } from './downstream.ts';
 import { exists, resolveFrom } from './paths.ts';
 import { posixShell } from './platform.ts';
@@ -22,6 +22,8 @@ import { logSecrets, renderSecrets, scanBranch, secretMode, secretsOk, secretsTa
 import { jobComponent } from './components.ts';
 import { applySinks } from './config-sinks-apply.ts';
 import type { SinkSummary } from './config-sinks-apply.ts';
+import { allocatePorts, portBearing } from './ports.ts';
+import { commandPort, endpointEnv, endpointPlaceholders, jobEndpoints } from './endpoints.ts';
 import { refreshInterim } from './interim-apply.ts';
 import { applyLinks, consumerLockfiles, pathPrelude, resolveLinks, restoreLockfiles, snapshotLockfiles } from './links.ts';
 import type { AppliedLinks, LockSnapshot } from './links.ts';
@@ -40,11 +42,13 @@ export interface MemberWorktreeResult {
 
 /** What `forge worktree create` returns: createWorktree. `repos` (members only) when the job has members. */
 export type CreateWorktreeResult =
-  | { path: string; created: false; ok?: boolean; repos?: MemberWorktreeResult[] }
+  | { path: string; created: false; port: number | null; ports: Record<string, number>; ok?: boolean; repos?: MemberWorktreeResult[] }
   | {
       path: string;
       created: true;
       port: number;
+      /** One port per port-bearing component (lib/ports.ts); `port` is the first entry's. */
+      ports: Record<string, number>;
       stackedOn?: string;
       base?: string;
       /** One entry per `backing:` entry, only when the config has some. */
@@ -130,7 +134,7 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   checkRefs(job);
   const wtRoot = worktreeRoot(root, config);
   const dir = path.join(wtRoot, id);
-  if (job.worktree && exists(job.worktree)) return { path: job.worktree, created: false };
+  if (job.worktree && exists(job.worktree)) return { path: job.worktree, created: false, port: job.port, ports: job.ports };
   const remote = config.git.remote;
   run('git', ['fetch', remote, '--prune'], { cwd: root, allowFail: true });
   // createJob always sets branch and base; the `!`s below rely on it.
@@ -155,29 +159,33 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   copyUntracked(root, dir, config.worktrees.copy ?? [], opts.sparseExclude ?? []);
   if (config.worktrees.cargo?.sharedTarget) writeSharedCargoTarget(root, config, wtRoot);
   // Chosen and saved under the lock backing ports are allocated under, so a concurrent create never takes it.
-  const port = withLock(portsLock(root), () => {
-    const p = allocatePort(root, config, id);
-    setJob(root, id, { fields: { worktree: dir, port: p } });
+  const ports = withLock(portsLock(root), () => {
+    const p = allocatePorts(root, config, job);
+    setJob(root, id, { fields: { worktree: dir, port: p[portBearing(config, job)[0]], ports: p } });
     return p;
   });
-  logEvent(root, id, 'worktree', { path: dir, port });
+  const port = ports[portBearing(config, job)[0]];
+  // The in-memory job feeds setup's placeholders and env below.
+  Object.assign(job, { worktree: dir, port, ports });
+  logEvent(root, id, 'worktree', { path: dir, port, ports });
   // Before setup, so setup commands (migrations, seeds) can reach the services.
-  const backing = config.backing?.length ? { backing: backingUp(root, config, { id, port }) } : {};
+  const backing = config.backing?.length ? { backing: backingUp(root, config, { id, port, ports }) } : {};
   const down = backing.backing?.find((b) => !b.ok);
   if (down) {
     logEvent(root, id, 'worktree-setup-failed', { backing: down.name });
-    return { path: dir, created: true, port, ...stacked, ...backing, setup: [], ok: false };
+    return { path: dir, created: true, port, ports, ...stacked, ...backing, setup: [], ok: false };
   }
   const setupLog: { cmd: string; ok: boolean; tail: string }[] = [];
+  const setupPort = commandPort(config, job, jobComponent(config, job));
   for (const cmd of config.worktrees.setup ?? []) {
-    const res = shell(fill(cmd, vars(root, config, job, dir, port, cmd)), dir, jobEnv(root, config, job, dir, port));
+    const res = shell(fill(cmd, vars(root, config, job, dir, setupPort, cmd)), dir, jobEnv(root, config, job, dir, setupPort));
     setupLog.push({ cmd, ok: res.ok, tail: tail(res.output, 15) });
     if (!res.ok) {
       logEvent(root, id, 'worktree-setup-failed', { cmd });
-      return { path: dir, created: true, port, ...stacked, ...backing, setup: setupLog, ok: false };
+      return { path: dir, created: true, port, ports, ...stacked, ...backing, setup: setupLog, ok: false };
     }
   }
-  return { path: dir, created: true, port, ...stacked, ...backing, setup: setupLog, ok: true };
+  return { path: dir, created: true, port, ports, ...stacked, ...backing, setup: setupLog, ok: true };
 }
 
 /**
@@ -343,14 +351,6 @@ function writeSharedCargoTarget(root: string, config: Config, wtRoot: string): v
   if (!exists(file) || fs.readFileSync(file, 'utf8') !== body) fs.writeFileSync(file, body);
 }
 
-/** Called under portsLock, which allocateBacking also holds. */
-function allocatePort(root: string, config: Config, id: string): number {
-  // Backing services hold ports from the same range, whether or not their job is still active.
-  const taken = new Set([...listJobs(root).filter((j) => isActive(j) && j.id !== id && j.port).map((j) => j.port), ...takenPorts(root, config)]);
-  for (let p = config.ports.base; p < config.ports.base + config.ports.span; p++) if (!taken.has(p)) return p;
-  throw new ForgeError(`no free port in ${config.ports.base}-${config.ports.base + config.ports.span - 1}`);
-}
-
 // Placeholders fill a shell command, and job.json can be edited outside the CLI, so these are
 // checked here at the sink rather than trusted from createJob.
 function checkRefs(job: Job): void {
@@ -372,7 +372,7 @@ function assertOwnWorktree(root: string, config: Config, job: Job, dir: string, 
 function vars(root: string, config: Config, job: Job, dir: string, port: number | null, template: string): Record<string, string | number> {
   checkRefs(job);
   assertOwnWorktree(root, config, job, dir, template);
-  return { job: job.id, port: port ?? '', worktree: dir, root, branch: job.branch!, base: job.base!, args: '' };
+  return { ...endpointPlaceholders(jobEndpoints(root, config, job), { shell: true }), job: job.id, port: port ?? '', worktree: dir, root, branch: job.branch!, base: job.base!, args: '' };
 }
 
 /**
@@ -429,9 +429,9 @@ export function envFor(job: Job, dir: string, port: number | null, base: NodeJS.
   return Object.assign(env, { FORGE_JOB: job.id, FORGE_WORKTREE: dir, PORT: port ? String(port) : '', FORGE_PORT: port ? String(port) : '' });
 }
 
-/** envFor plus the job's FORGE_BACKING_* variables: what every configured command Forge runs for a job sees. */
+/** envFor plus the job's FORGE_BACKING_* and FORGE_PORT_* / FORGE_ENDPOINT_* variables: what every configured command Forge runs for a job sees. */
 function jobEnv(root: string, config: Config, job: Job, dir: string, port: number | null): NodeJS.ProcessEnv {
-  return { ...envFor(job, dir, port), ...backingEnv(root, config, job) };
+  return { ...envFor(job, dir, port), ...backingEnv(root, config, job), ...endpointEnv(jobEndpoints(root, config, job)) };
 }
 
 interface ShellResult {
@@ -546,16 +546,17 @@ function prepareCommand(root: string, config: Config, id: string, name: string, 
   if (!template) throw new ForgeError(`no "${name}" command configured (commands.${name} in .forge/config.yml)`);
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
   const cwd = component?.path ? path.join(job.worktree, component.path) : job.worktree;
+  const port = commandPort(config, job, component);
   // Before touchJob: refused arguments leave no trace, not even a heartbeat.
-  const v = vars(root, config, job, job.worktree, job.port, template);
+  const v = vars(root, config, job, job.worktree, port, template);
   const cmd = fillCommand(name, template, v, opts.args ?? []);
   // After the arguments and before the heartbeat: a refused sink leaves no trace either.
-  const applied = component ? applySinks(root, config, job, component, { env: jobEnv(root, config, job, job.worktree, job.port), fillCmd: (t) => fill(t, v) }) : null;
+  const applied = component ? applySinks(root, config, job, component, { env: jobEnv(root, config, job, job.worktree, port), fillCmd: (t) => fill(t, v) }) : null;
   // Agents run commands all through a build; each one proves the session is alive.
   touchJob(root, id);
   if (applied) logEvent(root, id, 'config-sinks', applied.summary);
   // Sink env sits over the inherited environment and under the links' (names are disjoint by validation).
-  const env = { ...jobEnv(root, config, job, job.worktree, job.port), ...applied?.env };
+  const env = { ...jobEnv(root, config, job, job.worktree, port), ...applied?.env };
   return { cmd, cwd, ...withLinks(root, config, job, null, env), ...(applied ? { config: applied.summary } : {}) };
 }
 
@@ -568,9 +569,10 @@ function prepareMemberCommand(root: string, config: Config, id: string, name: st
   const { member, worktree } = memberWorktree(root, config, job, repo);
   const component = memberComponent(config, repo, name);
   if (!component) throw new ForgeError(`no component of repo ${repo} defines a "${name}" command (components[].commands.${name} with repo: ${repo})`);
-  const cmd = fillCommand(name, component.commands![name]!, memberVars(root, job, member, worktree), opts.args ?? []);
+  const port = commandPort(config, job, component);
+  const cmd = fillCommand(name, component.commands![name]!, memberVars(root, config, job, member, worktree, port), opts.args ?? []);
   touchJob(root, id);
-  return { cmd, cwd: path.join(worktree, component.path), ...withLinks(root, config, job, repo, jobEnv(root, config, job, worktree, null)), repo };
+  return { cmd, cwd: path.join(worktree, component.path), ...withLinks(root, config, job, repo, jobEnv(root, config, job, worktree, port)), repo };
 }
 
 /** The one component of member `repo` that defines `name`, null when none does; several is refused. */
@@ -581,11 +583,11 @@ function memberComponent(config: Config, repo: string, name: string): ComponentC
 }
 
 // A member's `{worktree}` is the checked member path (memberWorktree), its `{base}` the member's base,
-// and `{branch}` empty for a verify-only member, which has none.
-function memberVars(root: string, job: Job, member: JobRepo, worktree: string): Record<string, string | number> {
+// `{branch}` empty for a verify-only member, which has none, and `{port}` its component's (commandPort).
+function memberVars(root: string, config: Config, job: Job, member: JobRepo, worktree: string, port: number | null): Record<string, string | number> {
   checkRefs(job);
   const base = assertSafeRef(member.base, `repos ${member.repo} base`);
-  return { job: job.id, port: '', worktree, root, branch: member.verifyOnly ? '' : job.branch!, base, args: '' };
+  return { ...endpointPlaceholders(jobEndpoints(root, config, job), { shell: true }), job: job.id, port: port ?? '', worktree, root, branch: member.verifyOnly ? '' : job.branch!, base, args: '' };
 }
 
 /** Everything after: the log file, the `command` event and the result with its tail. */
@@ -1004,6 +1006,7 @@ export async function startBackground(
   if (!template) throw new ForgeError(`no "${name}" command configured`);
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree yet`);
   touchJob(root, id);
+  const port = commandPort(config, job, jobComponent(config, job));
   const dir = jobDir(root, id);
   const pidFile = path.join(dir, 'runtime.json');
   // The lock covers check, spawn and write, so two concurrent calls cannot both spawn.
@@ -1013,12 +1016,12 @@ export async function startBackground(
     if (prev && pidAlive(prev.pid)) return { pid: prev.pid, log: path.resolve(dir, String(prev.log ?? `logs/${name}.log`)), reused: true };
     // Filled before the log is opened, so a refused value leaves nothing behind.
     // Checked above; the narrowing does not reach into this callback.
-    const v = vars(root, config, job, job.worktree!, job.port, template);
+    const v = vars(root, config, job, job.worktree!, port, template);
     const cmd = fill(template, v);
     // The component's sinks render before the server starts, as before a foreground command; a
     // reused live process (above) renders nothing.
     const component = jobComponent(config, job);
-    const baseEnv = jobEnv(root, config, job, job.worktree!, job.port);
+    const baseEnv = jobEnv(root, config, job, job.worktree!, port);
     const applied = component ? applySinks(root, config, job, component, { env: baseEnv, fillCmd: (t) => fill(t, v) }) : null;
     if (applied) logEvent(root, id, 'config-sinks', applied.summary);
     const sh = posixShell();
@@ -1033,13 +1036,13 @@ export async function startBackground(
     });
     child.unref();
     fs.closeSync(fd);
-    rt[name] = { pid: child.pid, startedAt: now(), log: path.relative(dir, logFile), port: job.port };
+    rt[name] = { pid: child.pid, startedAt: now(), log: path.relative(dir, logFile), port };
     writeJsonAtomic(pidFile, rt);
-    logEvent(root, id, 'background-start', { name, pid: child.pid, port: job.port });
+    logEvent(root, id, 'background-start', { name, pid: child.pid, port });
     return { pid: child.pid, log: logFile, reused: false };
   });
-  const listening = job.port ? await portAnswers(job.port) : null;
-  return { pid: rec.pid, port: job.port, log: rec.log, reused: rec.reused, listening };
+  const listening = port ? await portAnswers(port) : null;
+  return { pid: rec.pid, port, log: rec.log, reused: rec.reused, listening };
 }
 
 /**

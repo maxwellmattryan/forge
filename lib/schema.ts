@@ -11,7 +11,7 @@ export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components
 export { BACKING_ISOLATIONS } from './backing-config.ts';
 
 export const CONFIG_SCHEMA_VERSION = 20;
-export const JOB_SCHEMA_VERSION = 13;
+export const JOB_SCHEMA_VERSION = 14;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
 export const ARCHIVE_SCHEMA_VERSION = 1;
@@ -19,7 +19,7 @@ export const ARCHIVE_SCHEMA_VERSION = 1;
  * Bumped when /api/state or another /api/* shape the dashboard reads changes; the dashboard is
  * served by the same plugin version.
  */
-export const API_VERSION = 28;
+export const API_VERSION = 29;
 
 /**
  * Where an event's `actor` came from: lib/actor.ts resolves env, gh, git, os and dashboard; the
@@ -251,7 +251,25 @@ const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
   // v13 adds the human's per-job interim strategy override (forge job repo interim): null inherits
   // config, which is what every v12 job did. Members get theirs in cleanRepos.
   12: (j) => ({ ...j, interim: j.interim ?? null }),
+  // v14 adds one port per port-bearing component. A v13 job keeps its `port`, which the next
+  // `worktree create` reconciles into `ports` (lib/ports.ts), so nothing it runs changes.
+  13: (j) => ({ ...j, ports: {} }),
 };
+
+/**
+ * `ports` as stored, or `{}` for anything that is not a map of distinct integer ports from 1 to
+ * 65535. job.json is agent-writable, and a port reaches command lines and URLs, so a crafted value
+ * reads as "not allocated yet" rather than being filled.
+ */
+export function cleanPorts(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const seen = new Set<number>();
+  for (const v of Object.values(raw)) {
+    if (!Number.isInteger(v) || (v as number) < 1 || (v as number) > 65535 || seen.has(v as number)) return {};
+    seen.add(v as number);
+  }
+  return { ...(raw as Record<string, number>) };
+}
 
 const MAX_TRACKER = 40;
 const MAX_URL = 2000;
@@ -407,6 +425,7 @@ export function normalizeJob(raw: any): LoadedJob {
     base: job.base ?? null,
     worktree: job.worktree ?? null,
     port: job.port ?? null,
+    ports: cleanPorts(job.ports),
     round: job.round ?? 0,
     maxRounds: job.maxRounds ?? 3,
     reviewers: job.reviewers ?? [],

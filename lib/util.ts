@@ -380,7 +380,8 @@ export function isInsidePath(p: unknown): p is string {
 }
 
 export function fill(template: string, vars: Record<string, string | number>): string {
-  return template.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
+  // Dotted keys for `{endpoint.<component>}` and `{backing.<name>.port}` (lib/endpoints.ts).
+  return template.replace(/\{([\w./-]+)\}/g, (m, k) => (Object.hasOwn(vars, k) ? String(vars[k]) : m));
 }
 
 /** A fence longer than any backtick run inside the text, at least three, so the text can't close it. */

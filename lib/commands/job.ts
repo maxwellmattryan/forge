@@ -971,6 +971,7 @@ export function compactJob(root: string, job: Job): Record<string, unknown> {
     base: job.base,
     worktree: job.worktree,
     port: job.port,
+    ports: job.ports,
     pr: job.pr ? { number: job.pr.number, url: job.pr.url, state: job.pr.state, checks: job.pr.checks?.state, behindBy: job.pr.behindBy, conflicts: job.pr.conflicts, unresolvedThreads: job.pr.unresolvedThreads } : null,
     issues: job.issues,
     noIssue: job.noIssue,
