@@ -113,6 +113,17 @@ test('help documents --mode', () => {
   for (const g of GROUPS) for (const c of g.commands) assert.ok(renderCommand(c).includes('--mode human|agent'), c.command);
 });
 
+test('docs name FORGE_MODE', () => {
+  const cli = fs.readFileSync(path.join(ROOT, 'docs', 'CLI.md'), 'utf8');
+  assert.match(cli, /^## Output mode$/m);
+  assert.match(cli, /^\| `FORGE_MODE` \|/m);
+  assert.match(cli, /^\| `NO_COLOR` \|/m);
+  assert.match(cli, /^\| `CLAUDE_ENV_FILE` \|.*FORGE_MODE=agent/m);
+  assert.ok(fs.readFileSync(path.join(ROOT, 'docs', 'PROTOCOL.md'), 'utf8').includes('FORGE_MODE=agent'));
+  assert.match(fs.readFileSync(path.join(ROOT, 'docs', 'GLOSSARY.md'), 'utf8'), /\*\*output mode\*\*/);
+  assert.ok(fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8').includes('--mode human|agent'));
+});
+
 describe('the CLI in each mode', { concurrency: 4 }, () => {
   test('forge --mode <id> is refused, not help', async () => {
     const r = repo();
