@@ -474,6 +474,14 @@ test('every control has the solid focus ring', () => {
   assert.match(ruleFor(css, '.check:checked:after'), /border:solid var\(--on-gleam\)/, 'with an on-gleam tick');
   assert.match(ruleFor(css, '.check:disabled'), /border-style:dashed/);
   assert.match(ruleFor(css, 'input[type=checkbox]:focus-visible'), RING, 'a drawn checkbox keeps the ring');
+  // .radio on a native radio (the session log's Permissions and Effort popovers): round, drawn, with the .on dot when checked.
+  assert.match(ruleFor(css, '.radio'), /appearance:none/, 'the radio is drawn, not the OS one');
+  assert.match(ruleFor(css, '.radio'), /border-radius:50%/, 'and round, so an exclusive choice never reads as checkboxes');
+  assert.match(ruleFor(css, '.radio:checked'), /border-color:var\(--gleam\)/, 'a checked radio rings gleam, as .on does');
+  assert.equal(ruleFor(css, '.radio:checked:after'), ruleFor(css, '.radio.on:after'), 'with the same dot as .on');
+  assert.match(ruleFor(css, '.radio:checked:after'), /radial-gradient/);
+  assert.match(ruleFor(css, '.radio:disabled'), /border-style:dashed/);
+  assert.match(ruleFor(css, 'input[type=radio]:focus-visible'), RING, 'a drawn radio keeps the ring');
   assert.match(ruleFor(css, '.seg label:has(input:focus-visible)'), RING, 'a radio seg rings the focused label');
   for (const sel of ['.btn:focus-visible', '.navlist a:focus-visible', '.clickable:focus-visible', '.plate.clickable:focus-visible', '.input:focus', '.cmd-field:focus-within']) assert.match(ruleFor(css, sel), RING, sel);
   assert.doesNotMatch(css, /:focus(-visible)?\{[^}]*box-shadow/, 'no glow on focus');

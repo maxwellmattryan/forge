@@ -1722,7 +1722,8 @@ test('the session log merges Start and Stop', () => {
   const buttons = inFlip.filter((e) => e.name === 'button');
   assert.equal(buttons.length, 1, 'the snippet renders one button');
   const b = buttons[0];
-  assert.equal(attrOf(b, 'onclick'), '{() => act(toggle.action)}');
+  assert.equal(attrOf(b, 'onclick'), '{(e) => act(toggle.action, e.currentTarget)}', 'the button, so focus can return to it');
+  assert.match(fnBody(read('components/SessionLog.svelte').replace(/\n {2}/g, '\n'), 'async function act('), /const restore = keepFocus\(el\);[\s\S]*finally \{\s*pending = false;\s*await tick\(\);\s*restore\(\);/, 'focus returns to the toggle once it is enabled again');
   assert.equal(attrOf(b, 'disabled'), '{!toggle.enabled}');
   assert.equal(attrOf(b, 'title'), "{toggle.action === 'start' ? $t('session.startHint') : undefined}", 'the start hint while it shows Start');
   const swap = inFlip.find((e) => e.classes.includes('swap'));
@@ -1784,7 +1785,9 @@ test("the session log's settings and filters live in popovers", () => {
   const radios = log.filter((e) => e.name === 'input' && attrOf(e, 'type') === 'radio');
   assert.equal(radios.length, 2, 'one radio per mode (repeated) and the unknown mode');
   for (const r of radios) assert.ok(r.parents.includes(perm), 'the permission radios sit in its popover');
-  assert.equal(attrOf(radios[0], 'onchange'), '{() => setMode(m)}');
+  assert.equal(attrOf(radios[0], 'onchange'), '{(e) => setMode(m, e.currentTarget)}', 'the radio, so focus can wait on its panel');
+  assert.match(fnBody(read('components/SessionLog.svelte').replace(/\n {2}/g, '\n'), 'async function setMode('), /const restore = parkFocus\(el\);\s*picked = next;\s*pending = true;[\s\S]*finally \{\s*picked = null;\s*pending = false;\s*await tick\(\);\s*restore\(\);/, 'focus waits on the panel while the radios are disabled');
+  for (const r of radios) assert.ok(has(r, 'radio') && !has(r, 'check'), 'round radios, not checkboxes');
   assert.equal(attrOf(radios[0], 'disabled'), '{modeLocked}');
   assert.match(read('components/SessionLog.svelte'), /const modeLocked = \$derived\(pending \|\| S\.data\?\.daemons\?\.enabled !== true\);/);
   assert.ok(log.some((e) => e.parents.includes(perm) && e.name === 'span' && /modeHint\[m\]/.test(read('components/SessionLog.svelte'))), 'each mode shows its hint');
@@ -1811,7 +1814,11 @@ test("the session log's settings and filters live in popovers", () => {
   const eRadios = effort.filter((e) => e.name === 'input' && attrOf(e, 'type') === 'radio');
   assert.equal(eRadios.length, 2, 'Inherit, then each level');
   for (const r of eRadios) assert.ok(r.parents.includes(menu), 'inside the popover');
-  assert.deepEqual(eRadios.map((r) => attrOf(r, 'onchange')), ["{() => choose('')}", '{() => choose(e)}']);
+  assert.deepEqual(eRadios.map((r) => attrOf(r, 'onchange')), ["{(e) => choose('', e.currentTarget)}", '{(ev) => choose(e, ev.currentTarget)}']);
+  for (const r of eRadios) assert.ok(has(r, 'radio') && !has(r, 'check'), 'round radios, not checkboxes');
+  const fieldset = effort.find((e) => e.name === 'fieldset');
+  assert.ok(fieldset && has(fieldset, 'gap-2'), 'rows at least 24px apart on desktop (WCAG 2.5.8)');
+  assert.match(fnBody(read('components/EffortSelect.svelte').replace(/\n {2}/g, '\n'), 'async function choose('), /const restore = parkFocus\(el\);\s*picked = value;\s*pending = true;[\s\S]*finally \{\s*picked = null;\s*pending = false;\s*await tick\(\);\s*restore\(\);/, 'focus waits on the panel while the radios are disabled');
   const note = effort.find((e) => attrOf(e, 'role') === 'status');
   assert.ok(note?.parents.includes(menu), 'the restart note sits in the popover');
 });

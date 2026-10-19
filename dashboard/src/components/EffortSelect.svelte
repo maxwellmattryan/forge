@@ -3,7 +3,9 @@
      orchestrator reads the level from `forge job step`. A running session keeps the level it started with until its next
      spawn, which the note in the popover (and the button's title) says. -->
 <script lang="ts">
+  import { tick } from 'svelte';
   import MenuButton from './MenuButton.svelte';
+  import { parkFocus } from '../lib/menu.ts';
   import { EFFORTS } from '../lib/types.ts';
   import type { Effort } from '../lib/types.ts';
   import { postJobEffort, restartPending } from '../lib/effort.ts';
@@ -24,9 +26,10 @@
   const levelName = $derived(EFFORTS.find((e) => e === current) ? name[current as Effort] : $t('effort.inheritShort'));
   const uid = $props.id();
 
-  async function choose(value: string): Promise<void> {
+  async function choose(value: string, el: HTMLInputElement): Promise<void> {
     const next = value === '' ? null : EFFORTS.find((e) => e === value);
     if (next === undefined || next === (row?.effort ?? null)) return;
+    const restore = parkFocus(el);
     picked = value;
     pending = true;
     try {
@@ -37,6 +40,8 @@
     } finally {
       picked = null;
       pending = false;
+      await tick();
+      restore();
     }
   }
 </script>
@@ -44,10 +49,10 @@
 {#if row}
   <MenuButton label={$t('effort.trigger', { level: levelName })} title={$t('effort.label')} icon="gauge" text={levelName} extraTitle={restart ? $t('effort.restart') : undefined}>
     <p class="text-muted">{$t('effort.hint')}</p>
-    <fieldset class="flex flex-col gap-1">
+    <fieldset class="flex flex-col gap-2">
       <legend class="sr-only">{$t('effort.label')}</legend>
-      <label class="field"><input type="radio" class="check" name="{uid}-effort" value="" checked={current === ''} disabled={pending} onchange={() => choose('')} />{$t('effort.inherit', { level: fallback ? name[fallback] : $t('effort.claude') })}</label>
-      {#each EFFORTS as e (e)}<label class="field"><input type="radio" class="check" name="{uid}-effort" value={e} checked={current === e} disabled={pending} onchange={() => choose(e)} />{name[e]}</label>{/each}
+      <label class="field"><input type="radio" class="radio" name="{uid}-effort" value="" checked={current === ''} disabled={pending} onchange={(e) => choose('', e.currentTarget)} />{$t('effort.inherit', { level: fallback ? name[fallback] : $t('effort.claude') })}</label>
+      {#each EFFORTS as e (e)}<label class="field"><input type="radio" class="radio" name="{uid}-effort" value={e} checked={current === e} disabled={pending} onchange={(ev) => choose(e, ev.currentTarget)} />{name[e]}</label>{/each}
     </fieldset>
     {#if restart}<p role="status" class="text-muted">{$t('effort.restart')}</p>{/if}
   </MenuButton>

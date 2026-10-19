@@ -18,6 +18,7 @@
   import MarkdownToggle from './MarkdownToggle.svelte';
   import MenuButton from './MenuButton.svelte';
   import { md } from '../lib/markdown.ts';
+  import { keepFocus, parkFocus } from '../lib/menu.ts';
   import { renderable } from '../lib/md-view.ts';
   import { mdView } from '../lib/md-view.svelte.ts';
   import { TONE_CLASS, clock, usd } from '../lib/util.ts';
@@ -155,7 +156,8 @@
     if (pane) pane.scrollTop = pane.scrollHeight;
   }
 
-  async function act(action: 'start' | 'stop'): Promise<void> {
+  async function act(action: 'start' | 'stop', el: HTMLButtonElement): Promise<void> {
+    const restore = keepFocus(el);
     pending = true;
     try {
       await postDaemon(action, forgeToken(), scope);
@@ -165,12 +167,15 @@
       toast($t('session.failed', { action, error: err instanceof Error ? err.message : String(err) }), true);
     } finally {
       pending = false;
+      await tick();
+      restore();
     }
   }
 
-  async function setMode(value: string): Promise<void> {
+  async function setMode(value: string, el: HTMLInputElement): Promise<void> {
     const next = PERMISSION_MODES.find((m) => m === value);
     if (!next || next === mode.chosen) return;
+    const restore = parkFocus(el);
     picked = next;
     pending = true;
     try {
@@ -181,6 +186,8 @@
     } finally {
       picked = null;
       pending = false;
+      await tick();
+      restore();
     }
   }
 </script>
@@ -206,7 +213,7 @@
 <!-- The one Start/Stop button: both states share one grid cell (swap), so it keeps the wider width and never jumps; the
      inactive one is data-off and aria-hidden, so the name is the active label (or `aria`, for a job). -->
 {#snippet flip(start: string, stop: string, aria?: string)}
-  <button class="btn sm" disabled={!toggle.enabled} title={toggle.action === 'start' ? $t('session.startHint') : undefined} aria-label={aria} onclick={() => act(toggle.action)}><span class="swap"><span data-off={toggle.action !== 'start' ? '' : undefined} aria-hidden={toggle.action !== 'start' ? 'true' : undefined}><Icon name="play" />{start}</span><span data-off={toggle.action !== 'stop' ? '' : undefined} aria-hidden={toggle.action !== 'stop' ? 'true' : undefined}><Icon name="stop" />{stop}</span></span></button>
+  <button class="btn sm" disabled={!toggle.enabled} title={toggle.action === 'start' ? $t('session.startHint') : undefined} aria-label={aria} onclick={(e) => act(toggle.action, e.currentTarget)}><span class="swap"><span data-off={toggle.action !== 'start' ? '' : undefined} aria-hidden={toggle.action !== 'start' ? 'true' : undefined}><Icon name="play" />{start}</span><span data-off={toggle.action !== 'stop' ? '' : undefined} aria-hidden={toggle.action !== 'stop' ? 'true' : undefined}><Icon name="stop" />{stop}</span></span></button>
 {/snippet}
 
 {#snippet item(it: Item)}
@@ -272,8 +279,8 @@
         <MenuButton label={$t('session.modeTrigger', { mode: modeName[shownMode] ?? shownMode })} title={$t('session.modeLabel')} icon="shield" text={modeName[shownMode] ?? shownMode}>
           <fieldset class="flex flex-col gap-2">
             <legend class="sr-only">{$t('session.modeLabel')}</legend>
-            {#each PERMISSION_MODES as m (m)}<label class="field items-start"><input type="radio" class="check mt-0.5" name="{uid}-mode" value={m} checked={shownMode === m} disabled={modeLocked} onchange={() => setMode(m)} /><span class="flex min-w-0 flex-col"><span>{modeName[m]}</span><span class="text-xs text-muted">{modeHint[m]}</span></span></label>{/each}
-            {#if !PERMISSION_MODES.some((m) => m === mode.chosen)}<label class="field"><input type="radio" class="check" name="{uid}-mode" value={mode.chosen} checked disabled />{mode.chosen}</label>{/if}
+            {#each PERMISSION_MODES as m (m)}<label class="field items-start"><input type="radio" class="radio mt-0.5" name="{uid}-mode" value={m} checked={shownMode === m} disabled={modeLocked} onchange={(e) => setMode(m, e.currentTarget)} /><span class="flex min-w-0 flex-col"><span>{modeName[m]}</span><span class="text-xs text-muted">{modeHint[m]}</span></span></label>{/each}
+            {#if !PERMISSION_MODES.some((m) => m === mode.chosen)}<label class="field"><input type="radio" class="radio" name="{uid}-mode" value={mode.chosen} checked disabled />{mode.chosen}</label>{/if}
           </fieldset>
         </MenuButton>
         {#if scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE}<EffortSelect job={scope} />{/if}
