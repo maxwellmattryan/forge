@@ -1,6 +1,8 @@
 // The `forge` CLI: the only writer of Forge state. Agents and the orchestrator call it
 // instead of hand-editing JSON, so data shapes stay valid no matter which model is driving.
-// Output is compact JSON (or a terse table for `status`) to keep orchestrator context small.
+// Output is compact JSON (or a terse table for `status`) to keep orchestrator context small: that is
+// agent mode. Human mode, for a person at a terminal, renders the same results as text; main()
+// resolves the mode once per process (docs/CLI.md "Output mode").
 // Command groups live in lib/commands/; this file only routes.
 import { daemonTrust, loadConfig } from './config.ts';
 import { refuseInOffice, refuseInboxDrive } from './daemon-owner.ts';
@@ -19,7 +21,7 @@ import { advanceCmd } from './commands/advance.ts';
 import { auditCmd } from './commands/audit.ts';
 import { backingCmd } from './commands/backing.ts';
 import { budgetCmd } from './commands/budget.ts';
-import { num, out, parseArgs, req, requireJob, withoutJson } from './commands/args.ts';
+import { num, out, parseArgs, req, requireJob, resolveOutputMode, setOutputMode, withoutJson, withoutMode } from './commands/args.ts';
 import { configCmd } from './commands/config.ts';
 import { daemonCmd } from './commands/daemon.ts';
 import { dash } from './commands/dash.ts';
@@ -44,7 +46,10 @@ import type { CliContext, Dispatched } from './types.ts';
 
 export { reportError } from './commands/help.ts';
 
-export async function main(argv: string[]): Promise<void> {
+export async function main(rawArgv: string[]): Promise<void> {
+  setOutputMode(resolveOutputMode(rawArgv, process.env, process.stdout.isTTY === true));
+  // Everything below sees the call as if --mode had never been typed: help, git, run's args.
+  const argv = withoutMode(rawArgv);
   const { pos, flags } = parseArgs(argv);
   // Before the git passthrough, so `forge git log --help` never runs `git help` (which can start a
   // configured viewer), and before mainRoot(), so help works outside a repo.
@@ -83,6 +88,8 @@ export async function main(argv: string[]): Promise<void> {
  * return `printed`; advance never runs those (runnableInProcess in lib/commands/advance.ts).
  */
 export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatched> {
+  // Never resolves the output mode: advance runs step's commands here, in-process, and an argv of
+  // theirs must not change how the outer call prints.
   const { root, config, initialized } = ctx;
   const { pos, flags } = parseArgs(argv);
   const [cmd, sub, ...rest] = pos;

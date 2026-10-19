@@ -5,7 +5,8 @@ import path from 'node:path';
 import { forgeVersion } from '../evals.ts';
 import { PLUGIN_ROOT } from '../paths.ts';
 import { ERROR_CODES, ForgeError } from '../util.ts';
-import { jsonFlag, out, parseArgs, usageError } from './args.ts';
+import { jsonFlag, lenientOutputMode, out, parseArgs, usageError } from './args.ts';
+import { colorEnabled, renderError } from './render.ts';
 import { HELP as AUDIT } from './audit.ts';
 import { HELP as BACKING } from './backing.ts';
 import { HELP as BUDGET } from './budget.ts';
@@ -220,6 +221,7 @@ export const GROUPS: HelpGroup[] = ORDER.map((name) => {
 /** Flags every command takes. */
 export const GLOBAL_FLAGS: [string, string][] = [
   ['--json', 'machine-readable output: errors print as one JSON line on stdout, and strings as JSON strings'],
+  ['--mode human|agent', 'output for a terminal (human) or a program (agent); default human only when stdout is a terminal, agent under --json, FORGE_MODE when set'],
   ['--help', "print this command's help instead of running it"],
   ['--pretty', 'indent JSON output'],
 ];
@@ -253,7 +255,7 @@ export function renderOverview(): string {
   return [
     `⚒️  Forge v${forgeVersion()}: a lightweight, self-improving software factory`,
     '',
-    'Usage: forge <command> [args] [--json] [--help] [--pretty]',
+    'Usage: forge <command> [args] [--json] [--mode human|agent] [--help] [--pretty]',
     '',
     columns(rows, 36),
     '',
@@ -367,12 +369,14 @@ export function toCliError(err: unknown, argv: readonly string[]): CliError {
 
 /**
  * Reports a failed `forge` call and returns its exit code: one JSON line on stdout under `--json`
- * (JSON.stringify keeps message text from breaking the line), else `forge: <message>` on stderr.
- * FORGE_DEBUG adds the stack on stderr either way.
+ * (JSON.stringify keeps message text from breaking the line), `error:` and `fix:` lines on stderr
+ * in human mode, else `forge: <message>` on stderr. The mode is resolved leniently: the error may
+ * be a bad --mode or FORGE_MODE itself. FORGE_DEBUG adds the stack on stderr either way.
  */
 export function reportError(err: unknown, argv: readonly string[]): number {
   const e = toCliError(err, argv);
   if (jsonFlag(argv)) process.stdout.write(JSON.stringify({ error: e }) + '\n');
+  else if (lenientOutputMode(argv, process.env, process.stdout.isTTY === true) === 'human') process.stderr.write(renderError(e, { color: colorEnabled(process.stderr.isTTY === true, process.env) }));
   else process.stderr.write(`forge: ${e.message}\n`);
   const stack = (err as { stack?: unknown } | null)?.stack;
   if (process.env.FORGE_DEBUG && stack) process.stderr.write(stack + '\n');

@@ -1514,6 +1514,12 @@ test('sessionEnv drops API keys unless daemon.auth is api-key', () => {
   assert.deepEqual(apiKeyVars({ ANTHROPIC_API_KEY: '' }), [], 'an empty value does not count');
 });
 
+test('sessionEnv pins agent output mode', () => {
+  assert.equal(sessionEnv({ PATH: '/usr/bin', FORGE_MODE: 'human' }).FORGE_MODE, 'agent', 'an inherited human mode is overridden');
+  assert.equal(sessionEnv({ PATH: '/usr/bin' }).FORGE_MODE, 'agent', 'set even when the caller has none');
+  assert.equal(sessionEnv({ PATH: '/usr/bin' }, 'api-key').FORGE_MODE, 'agent');
+});
+
 test('sessionEnv pins git hooks and fsmonitor off, after any config the caller exports', () => {
   const env = sessionEnv({ PATH: '/usr/bin', HOME: '/h' });
   assert.equal(env.HOME, '/h');
