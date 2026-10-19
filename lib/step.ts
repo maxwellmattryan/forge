@@ -11,7 +11,7 @@ import { acCoverage, specUiAcs } from './acs.ts';
 import { readJobRecord, readSharedRecord } from './backing.ts';
 import { jobPathMap, renderBrief, roleBrief } from './brief.ts';
 import type { RoleContext } from './brief.ts';
-import { autoMerge, lensNeedsApp, resolveEffort, resolveModel } from './config.ts';
+import { autoMerge, lensAlwaysOnRework, lensNeedsApp, resolveEffort, resolveModel } from './config.ts';
 import { configForJob } from './eval-overlay.ts';
 import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
@@ -295,8 +295,8 @@ function lastVerdict(verdicts: Job['verdicts'], lens: string, round: number): { 
 }
 
 /**
- * The rework panel for round N ≥ 2 under `review.onRework: narrow`, in panel order: `always` lenses,
- * lenses whose latest verdict isn't PASS or that never had one, and lenses whose panel `paths` match
+ * The rework panel for round N ≥ 2 under `review.onRework: narrow`, in panel order: `always` and
+ * always-on-rework lenses (lensAlwaysOnRework: `security` unless it opts out), lenses whose latest verdict isn't PASS or that never had one, and lenses whose panel `paths` match
  * a file changed since the sha round N−1's review saw (`changedSince`, null when that sha is
  * unusable). Null, meaning the full panel, whenever narrowing isn't safe or wouldn't skip anything.
  */
@@ -311,6 +311,7 @@ export function reworkPanel(x: { job: Pick<Job, 'round' | 'verdicts' | 'pr' | 'k
     const entry = x.config.review.panel.find((p) => p.name === lens);
     const why: string[] = [];
     if (entry?.always) why.push('always');
+    else if (lensAlwaysOnRework(x.config, lens)) why.push('always on rework');
     const last = lastVerdict(j.verdicts, lens, j.round);
     if (!last) why.push('new this round');
     else if (last.verdict !== 'PASS') why.push(`changes requested in round ${last.round}`);

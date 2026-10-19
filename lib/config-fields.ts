@@ -261,7 +261,8 @@ export function validateFieldValue(f: ConfigField, value: unknown): string | nul
       // Forge removes every issue label that starts with the prefix, so a bare word would catch unrelated labels.
       if (f.key === 'tracker.github.labels.prefix' && !LABEL_PREFIX_RE.test(value))
         return `tracker.github.labels.prefix must be at least 2 characters and end with : / or - (got ${JSON.stringify(value)})`;
-      if (isModelKey(f.key) && value && !MODEL_RE.test(value))
+      // An empty model would pass here yet fail `forge config validate`; unset is null.
+      if (isModelKey(f.key) && !MODEL_RE.test(value))
         return `${f.key} must be a model alias or id: letters, digits and . _ : - [ ] (got ${JSON.stringify(value)})`;
       return null;
     }
@@ -285,7 +286,7 @@ export function validateFieldValue(f: ConfigField, value: unknown): string | nul
 /** Parses a `forge config set` argument by the field's type; throws a ForgeError naming the rule. */
 export function parseCliValue(f: ConfigField, raw: string): ConfigValue {
   const bad = () => new ForgeError(`${f.key} must be ${ruleFor(f)} (got ${raw})`);
-  if (f.nullable && raw === 'null') return null;
+  if (f.nullable && (raw === 'null' || (raw === '' && isModelKey(f.key)))) return null;
   switch (f.type) {
     case 'boolean':
       if (raw === 'true') return true;

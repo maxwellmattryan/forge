@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, trustDigest, validateConfig } from '../lib/config.ts';
-import { CONFIG_DISCLOSURE, FIELDS, disclosureOf, redactedConfig } from '../lib/config-fields.ts';
+import { CONFIG_DISCLOSURE, FIELDS, disclosureOf, redactedConfig, validateFieldValue } from '../lib/config-fields.ts';
 import { COMPLEXITIES, EFFORT_ROLES, EFFORTS } from '../lib/schema.ts';
 import { setConfigValue } from '../lib/config-set.ts';
 import { applyOverlay, overlayProblems } from '../lib/eval-overlay.ts';
@@ -549,9 +549,17 @@ test('builder model overrides and review.onRework are editable', async () => {
     const cleared = await s.forge('config', 'set', 'runtime.reworkModel', 'null');
     assert.equal(cleared.code, 0, cleared.err);
     assert.equal(JSON.parse(cleared.out).value, null);
+    // An empty model means unset on the CLI, so set and `forge config validate` agree.
+    await s.forge('config', 'set', 'runtime.reworkModel', 'sonnet');
+    const emptied = await s.forge('config', 'set', 'runtime.reworkModel', '');
+    assert.equal(emptied.code, 0, emptied.err);
+    assert.equal(JSON.parse(emptied.out).value, null);
+    const valid = await s.forge('config', 'validate');
+    assert.equal(valid.code, 0, valid.err + valid.out);
   } finally {
     s.repo.cleanup();
   }
+  for (const key of keys) assert.ok(validateFieldValue(FIELDS.find((x) => x.key === key)!, '')?.includes(key), `${key}: an empty string is refused, null unsets`);
   const repo = tempRepo();
   try {
     const base = defaults();

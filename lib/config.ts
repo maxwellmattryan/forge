@@ -402,6 +402,8 @@ export function validateConfig(c: any, root: string): string[] {
       problems.push(`reviewer "${r.name}" has no checklist (looked in .forge/reviewers/ and the plugin's reviewers/)`);
     if (r.needsApp !== undefined && typeof r.needsApp !== 'boolean')
       problems.push(`review.panel "${r.name}".needsApp must be true or false (got ${JSON.stringify(r.needsApp)})`);
+    if (r.alwaysOnRework !== undefined && typeof r.alwaysOnRework !== 'boolean')
+      problems.push(`review.panel "${r.name}".alwaysOnRework must be true or false (got ${JSON.stringify(r.alwaysOnRework)})`);
     if (r.paths !== undefined) problems.push(...panelPathsProblems(r.name, r.paths));
     problems.push(...pathsOnlyProblems(r));
   }
@@ -842,6 +844,16 @@ const APP_LENSES = ['ui', 'ux', 'accessibility', 'design'];
 export function lensNeedsApp(config: Config, lens: string): boolean {
   const entry = (config.review.panel ?? []).find((r) => r?.name === lens);
   return typeof entry?.needsApp === 'boolean' ? entry.needsApp : APP_LENSES.includes(lens);
+}
+
+// A repo that wrote its own panel before v21 has no way to know its security lens could be
+// narrowed, so the name default keeps it re-running; `alwaysOnRework: false` opts out.
+const REWORK_ALWAYS_LENSES = ['security'];
+
+/** Whether a lens re-runs on every rework round: the panel entry's alwaysOnRework, else the name default. */
+export function lensAlwaysOnRework(config: Config, lens: string): boolean {
+  const entry = (config.review.panel ?? []).find((r) => r?.name === lens);
+  return typeof entry?.alwaysOnRework === 'boolean' ? entry.alwaysOnRework : REWORK_ALWAYS_LENSES.includes(lens);
 }
 
 export function modelFor(config: Config, role: string): string {

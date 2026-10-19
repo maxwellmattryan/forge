@@ -35,7 +35,7 @@ const FIELD_KEYS = FIELDS.filter(
 const ALLOWED = new Set([...FIELD_KEYS, ...LIST_KEYS]);
 
 const ALLOWLIST = 'runtime.models.<role> (not orchestrator), runtime.effort, runtime.efforts.<role>, runtime.effortByComplexity.<level>, runtime.modelByComplexity.<level>, runtime.reworkModel, review.onRework, pipeline.*, review.panel or verify';
-const PANEL_KEYS = new Set(['name', 'always', 'when', 'model', 'effort', 'needsApp', 'paths', 'pathsOnly']);
+const PANEL_KEYS = new Set(['name', 'always', 'when', 'model', 'effort', 'needsApp', 'paths', 'pathsOnly', 'alwaysOnRework']);
 // A lens name becomes a checklist file name, so it is one plain path segment.
 const LENS_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
@@ -87,7 +87,7 @@ function panelProblems(root: string, panel: unknown): string[] {
     for (const k of Object.keys(r)) if (!PANEL_KEYS.has(k)) problems.push(`${at}: ${show(k)} is not allowed in an overlay (allowed: ${[...PANEL_KEYS].join(', ')})`);
     if (typeof r.name !== 'string' || !LENS_NAME.test(r.name)) problems.push(`${at}: name must be a lens name (got ${show(r.name)})`);
     else if (!reviewerChecklist(root, r.name)) problems.push(`${at}: reviewer "${r.name}" has no checklist (looked in .forge/reviewers/ and the plugin's reviewers/)`);
-    for (const k of ['always', 'needsApp'])
+    for (const k of ['always', 'needsApp', 'alwaysOnRework'])
       if (r[k] !== undefined && typeof r[k] !== 'boolean') problems.push(`${at}: ${k} must be true or false (got ${show(r[k])})`);
     if (r.when !== undefined) {
       if (typeof r.when !== 'string') problems.push(`${at}: when must be text (got ${show(r.when)})`);

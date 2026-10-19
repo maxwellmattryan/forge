@@ -664,6 +664,8 @@ export interface PanelEntry {
   paths?: string[];
   /** Chosen only by `always`, a `paths` hit or carry, never by Suggested reviewers or the Approach. */
   pathsOnly?: boolean;
+  /** Re-run on every rework round under review.onRework: narrow; absent means the name default in lensAlwaysOnRework. */
+  alwaysOnRework?: boolean;
 }
 
 /** Something agents should know exists: an entry of `resources` (docs/CONFIG.md). */
