@@ -276,6 +276,63 @@ test('forge git keeps --json and --help to itself', POSIX, () => {
   }
 });
 
+test('forge git: --mode never reaches git', POSIX, () => {
+  const s = scratch();
+  try {
+    s.init();
+    const plain = s.cli(['git', 'log', '-1', '--format=%s']);
+    assert.equal(plain.status, 0, plain.stderr);
+    assert.equal(plain.stdout, 'init\n');
+    for (const args of [['git', 'log', '--mode', 'agent', '-1', '--format=%s'], ['git', 'log', '--mode=human', '-1', '--format=%s'], ['--mode', 'human', 'git', 'log', '-1', '--format=%s']]) {
+      const r = s.cli(args);
+      assert.deepEqual(r, plain, args.join(' '));
+    }
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('agent mode is today\'s output, whatever selects it', POSIX, () => {
+  const s = scratch();
+  try {
+    s.init();
+    const id = s.json(['job', 'new', '--title', 'Agent mode']).id;
+    /** The CLI with FORGE_MODE removed from its env, or set to `mode`; spawnSync's stdout is a pipe. */
+    const cli = (args: string[], mode?: string): Run => {
+      const env = baseEnv({ FORGE_ROOT: s.root });
+      delete env.FORGE_MODE;
+      if (mode !== undefined) env.FORGE_MODE = mode;
+      const r = spawnSync(process.execPath, [BIN, ...args], { cwd: s.root, encoding: 'utf8', env });
+      return { status: r.status, stdout: r.stdout, stderr: r.stderr };
+    };
+    const calls: [string[], boolean][] = [
+      [['version'], true],
+      [['job', 'list'], true],
+      [['job', 'show', id], true],
+      [['status'], false],
+      [['worktree', 'path', id], false],
+      [['help'], false],
+      [['job', 'show', 'nope'], false],
+    ];
+    for (const [args, isObject] of calls) {
+      const unset = cli(args);
+      const name = args.join(' ');
+      assert.deepEqual(cli(args, 'agent'), unset, `${name}: FORGE_MODE=agent`);
+      assert.deepEqual(cli([...args, '--mode', 'agent']), unset, `${name}: --mode agent`);
+      assert.deepEqual(cli([...args, '--json'], 'human'), cli([...args, '--json']), `${name}: --json beats FORGE_MODE=human`);
+      if (isObject) {
+        assert.equal(unset.status, 0, unset.stderr);
+        assert.doesNotThrow(() => JSON.parse(unset.stdout), name);
+      }
+    }
+    const nope = cli(['job', 'show', 'nope']);
+    assert.equal(nope.status, 1);
+    assert.match(nope.stderr, /^forge: /, 'agent errors keep the forge: prefix');
+  } finally {
+    s.cleanup();
+  }
+});
+
 test('help works outside a repo, without FORGE_ROOT', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-help-'));
   try {

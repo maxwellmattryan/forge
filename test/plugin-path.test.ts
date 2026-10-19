@@ -52,7 +52,7 @@ test("SessionStart hook puts the plugin's bin first", POSIX, () => {
     const first = runHook(HOOK, { CLAUDE_ENV_FILE: envFile }, tmp);
     assert.equal(first.status, 0, first.stderr);
     assert.equal(first.stdout, '');
-    const expected = `export FOO=1\nexport PATH='${path.join(ROOT, 'bin')}':"$PATH"\n`;
+    const expected = `export FOO=1\nexport PATH='${path.join(ROOT, 'bin')}':"$PATH"\nexport FORGE_MODE=agent\n`;
     assert.equal(fs.readFileSync(envFile, 'utf8'), expected);
     const second = runHook(HOOK, { CLAUDE_ENV_FILE: envFile }, tmp);
     assert.equal(second.status, 0);
@@ -65,7 +65,7 @@ test("SessionStart hook puts the plugin's bin first", POSIX, () => {
 
     // The line already there without a trailing newline (something else rewrote the file) counts too.
     const bare = path.join(tmp, 'bare.sh');
-    fs.writeFileSync(bare, `export FOO=1\nexport PATH='${path.join(ROOT, 'bin')}':"$PATH"`);
+    fs.writeFileSync(bare, `export FOO=1\nexport PATH='${path.join(ROOT, 'bin')}':"$PATH"\nexport FORGE_MODE=agent`);
     const bareBefore = fs.readFileSync(bare);
     assert.equal(runHook(HOOK, { CLAUDE_ENV_FILE: bare }, tmp).status, 0);
     assert.ok(fs.readFileSync(bare).equals(bareBefore), 'no duplicate line');
@@ -73,11 +73,35 @@ test("SessionStart hook puts the plugin's bin first", POSIX, () => {
     // A missing env file is created; an unwritable one is reported on stderr, never stdout, exit 0.
     const fresh = path.join(tmp, 'fresh.sh');
     assert.equal(runHook(HOOK, { CLAUDE_ENV_FILE: fresh }, tmp).status, 0);
-    assert.equal(fs.readFileSync(fresh, 'utf8'), `export PATH='${path.join(ROOT, 'bin')}':"$PATH"\n`);
+    assert.equal(fs.readFileSync(fresh, 'utf8'), `export PATH='${path.join(ROOT, 'bin')}':"$PATH"\nexport FORGE_MODE=agent\n`);
     const bad = runHook(HOOK, { CLAUDE_ENV_FILE: path.join(tmp, 'no', 'such', 'dir', 'env.sh') }, tmp);
     assert.equal(bad.status, 0);
     assert.equal(bad.stdout, '');
     assert.match(bad.stderr, /plugin-path hook/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('SessionStart hook pins agent output mode', POSIX, () => {
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-plugin-mode-')));
+  try {
+    const envFile = path.join(tmp, 'env.sh');
+    // A file that already has the PATH line (written by an older hook) gains only the mode line.
+    const pathLine = `export PATH='${path.join(ROOT, 'bin')}':"$PATH"`;
+    fs.writeFileSync(envFile, pathLine + '\n');
+    const first = runHook(HOOK, { CLAUDE_ENV_FILE: envFile }, tmp);
+    assert.equal(first.status, 0, first.stderr);
+    assert.equal(first.stdout, '');
+    const expected = `${pathLine}\nexport FORGE_MODE=agent\n`;
+    assert.equal(fs.readFileSync(envFile, 'utf8'), expected, 'the mode line follows the PATH line');
+    const second = runHook(HOOK, { CLAUDE_ENV_FILE: envFile }, tmp);
+    assert.equal(second.status, 0);
+    assert.equal(second.stdout, '');
+    assert.equal(fs.readFileSync(envFile, 'utf8'), expected, 'a second run adds nothing');
+    const r = spawnSync('/bin/sh', ['-c', '. "$CLAUDE_ENV_FILE"; printf %s "$FORGE_MODE"'], { cwd: tmp, env: { PATH: '/usr/bin:/bin', CLAUDE_ENV_FILE: envFile, FORGE_MODE: 'human' }, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, 'agent', 'sourcing the file overrides an inherited FORGE_MODE');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
