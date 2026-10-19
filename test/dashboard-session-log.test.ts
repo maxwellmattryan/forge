@@ -1,7 +1,7 @@
 // dashboard/src/lib/session-log.ts: a session's raw stream-json lines into turns, items and subagent groups.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_FILTERS, LONG_TEXT, MAX_ENTRIES, PREVIEW_CHARS, buildSessionView, latestInitModel, mergeEntry, parseEntry, readFilters, taskText, toolSummary } from '../dashboard/src/lib/session-log.ts';
+import { DEFAULT_FILTERS, LONG_TEXT, MAX_ENTRIES, PREVIEW_CHARS, buildSessionView, filtersActive, latestInitModel, mergeEntry, parseEntry, readFilters, taskText, toolSummary } from '../dashboard/src/lib/session-log.ts';
 
 const XSS = '<script>alert(1)</script><img src=x onerror=alert(2)>';
 
@@ -145,6 +145,16 @@ test('filters: text, tools, thinking and subagents', () => {
   assert.ok(block[0].kind === 'subagent' && block[0].items.length === 2, 'a match on the block keeps its children');
   assert.deepEqual(buildSessionView(FIXTURE, { ...DEFAULT_FILTERS, text: 'nothing matches this' }).turns, []);
   assert.equal(buildSessionView(FIXTURE, { ...DEFAULT_FILTERS, text: 'nothing matches this' }).totals.turns, 2, 'totals ignore filters');
+});
+
+test('filtersActive flags any change from the defaults', () => {
+  assert.equal(filtersActive({ ...DEFAULT_FILTERS }), false, 'the defaults');
+  assert.equal(filtersActive({ ...DEFAULT_FILTERS, text: '   ' }), false, 'whitespace-only text is no filter');
+  assert.equal(filtersActive({ ...DEFAULT_FILTERS, text: 'bash' }), true, 'search text');
+  assert.equal(filtersActive({ ...DEFAULT_FILTERS, tools: !DEFAULT_FILTERS.tools }), true, 'tools');
+  assert.equal(filtersActive({ ...DEFAULT_FILTERS, thinking: !DEFAULT_FILTERS.thinking }), true, 'thinking');
+  assert.equal(filtersActive({ ...DEFAULT_FILTERS, subagents: !DEFAULT_FILTERS.subagents }), true, 'subagents');
+  assert.equal(filtersActive(readFilters('garbage')), false, 'an unreadable pref reads as the defaults');
 });
 
 test('long text, empty logs and odd lines', () => {

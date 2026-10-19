@@ -1,4 +1,4 @@
-// The job drawer's tabs and their keyboard and scroll rules, as plain functions node:test can pin.
+// The job drawer's tabs and their keyboard rules, as plain functions node:test can pin.
 
 /** The drawer's tabs, in strip order. */
 export const DRAWER_TABS = ['thread', 'log', 'agents', 'files', 'timeline', 'details'] as const;

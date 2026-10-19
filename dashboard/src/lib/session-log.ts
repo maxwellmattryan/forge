@@ -20,6 +20,9 @@ export interface Filters {
 }
 
 export const DEFAULT_FILTERS: Filters = Object.freeze({ text: '', tools: true, thinking: false, subagents: true });
+/** Whether any filter differs from DEFAULT_FILTERS (whitespace-only search text counts as none). */
+export const filtersActive = (f: Filters): boolean =>
+  f.text.trim() !== '' || f.tools !== DEFAULT_FILTERS.tools || f.thinking !== DEFAULT_FILTERS.thinking || f.subagents !== DEFAULT_FILTERS.subagents;
 /** The client keeps at most this many lines; dropping the oldest means older ones are on the server. */
 export const MAX_ENTRIES = 5000;
 export const PREVIEW_CHARS = 300;

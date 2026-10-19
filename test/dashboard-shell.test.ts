@@ -1165,8 +1165,10 @@ test('controls in one row share one size', () => {
   assert.ok(pill?.classes.includes('sm'), 'the session pill is chip sm');
   const search = log.find((e) => e.name === 'input' && attrOf(e, 'type') === 'search');
   assert.ok(search && has(search, 'input', 'sm'), 'the session filter is input sm');
-  const select = log.find((e) => e.name === 'select');
-  assert.ok(select && has(select, 'input', 'sm'), 'the mode select is input sm');
+  assert.ok(!log.some((e) => e.name === 'select'), 'no select: Permissions and Effort are popover buttons');
+  const menuTrigger = elements('components/MenuButton.svelte').find((e) => e.name === 'button');
+  assert.ok(menuTrigger && has(menuTrigger, 'btn', 'sm'), `the log's popover buttons are btn sm (${menuTrigger?.classes.join(' ')})`);
+  for (const b of log.filter((e) => e.name === 'button')) assert.ok(has(b, 'btn', 'sm'), `SessionLog: <button class="${b.classes.join(' ')}"> is btn sm`);
 
   // The issue chooser's other-ref Link sits beside an md input.
   const other = elements('components/IssueLinkActions.svelte').find((e) => e.name === 'button' && attrOf(e, 'disabled') === '{!otherRef}');
@@ -1708,6 +1710,127 @@ test("SessionLog: fill layout and the office's read-only model and effort", () =
   assert.ok(text.includes('{#if scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE}<EffortSelect job={scope} />{/if}'), 'still no EffortSelect for the office');
   assert.match(text, /const raw = latestInitModel\(entries\);\s*return raw === null \? \$t\('session\.modelUnknown'\) : \(modelLabel\(raw\)\.label \?\? raw\);/, "the newest init line's model, labelled");
   assert.match(text, /const spawned = level\(session\?\.effort\);[\s\S]*?const fallback = level\(S\.data\?\.config\?\.effort\);\s*return fallback === null \? \$t\('effort\.claude'\) : \$t\('effort\.inherit', \{ level: effortName\[fallback\] \}\);/, "the spawn effort, else runtime.effort as inherit, else Claude Code's own");
+});
+
+test('the session log merges Start and Stop', () => {
+  const text = read('components/SessionLog.svelte');
+  const markup = markupOf('components/SessionLog.svelte');
+  assert.doesNotMatch(markup, /act\('start'\)|act\('stop'\)/, 'no Start and Stop pair');
+  assert.match(text, /const toggle = \$derived\(sessionToggle\(controls, session\)\);/, 'one action, from sessionToggle');
+  const flip = markup.slice(markup.indexOf('{#snippet flip('), markup.indexOf('{/snippet}', markup.indexOf('{#snippet flip(')));
+  const inFlip = elements('components/SessionLog.svelte', flip);
+  const buttons = inFlip.filter((e) => e.name === 'button');
+  assert.equal(buttons.length, 1, 'the snippet renders one button');
+  const b = buttons[0];
+  assert.equal(attrOf(b, 'onclick'), '{() => act(toggle.action)}');
+  assert.equal(attrOf(b, 'disabled'), '{!toggle.enabled}');
+  assert.equal(attrOf(b, 'title'), "{toggle.action === 'start' ? $t('session.startHint') : undefined}", 'the start hint while it shows Start');
+  const swap = inFlip.find((e) => e.classes.includes('swap'));
+  assert.ok(swap && swap.parents.at(-1) === b, 'icon and label sit in one swap cell inside the button');
+  const states = inFlip.filter((e) => e.parents.at(-1) === swap);
+  assert.equal(states.length, 2, 'one child per state');
+  for (const st of states) {
+    assert.ok(attrOf(st, 'data-off') && attrOf(st, 'aria-hidden'), 'the inactive state is data-off and aria-hidden');
+    assert.ok(inFlip.some((e) => e.name === 'Icon' && e.parents.includes(st)), 'each state holds its icon');
+  }
+  assert.ok(flip.includes('<Icon name="play" />{start}') && flip.includes('<Icon name="stop" />{stop}'), 'play for Start, stop for Stop');
+  // One render per scope branch, with the scope's labels (and a job's aria-labels).
+  assert.equal(markup.match(/\{@render flip\(/g)?.length, 3, 'one per scope branch');
+  assert.match(markup, /\{#if scope === INBOX_SCOPE\}\s*\{@render flip\(\$t\('session\.startInbox'\), \$t\('session\.stopInbox'\)\)\}/, 'the inbox');
+  assert.match(markup, /\{:else if scope === OFFICE_SCOPE\}\s*\{@render flip\(\$t\('session\.startOffice'\), \$t\('session\.stopOffice'\)\)\}/, 'the office');
+  assert.ok(markup.includes("{@render flip($t('session.start'), $t('session.stop'), toggle.action === 'start' ? $t('session.startJob') : $t('session.stopJob'))}"), 'a job, named by its aria-label');
+  assert.deepEqual(openBlocksAt(read('components/SessionLog.svelte'), '{@render flip(').at(0)?.slice(0, 1), ['#if !transcript'], 'never in transcript mode');
+});
+
+test('log menus are top-layer dialogs', () => {
+  const text = read('components/MenuButton.svelte');
+  const els = elements('components/MenuButton.svelte');
+  const trigger = els.find((e) => e.name === 'button');
+  assert.ok(trigger, 'a trigger button');
+  assert.equal(attrOf(trigger, 'aria-haspopup'), 'dialog');
+  assert.equal(attrOf(trigger, 'aria-expanded'), '{open}');
+  assert.equal(attrOf(trigger, 'aria-controls'), '{panelId}');
+  const panel = els.find((e) => e.name === 'div' && attrOf(e, 'role') === 'dialog');
+  assert.ok(panel, 'a dialog panel');
+  assert.equal(attrOf(panel, 'popover'), 'manual', 'manual: this component owns dismissal, not light dismiss');
+  assert.equal(attrOf(panel, 'id'), '{panelId}');
+  assert.equal(attrOf(panel, 'aria-labelledby'), '{titleId}');
+  assert.ok(has(panel, 'plate', 'solid', 'shadow-(--shadow-overlay)'), `an opaque overlay surface (${panel.classes.join(' ')})`);
+  assert.ok(els.some((e) => e.name === 'h2' && attrOf(e, 'id') === '{titleId}'), 'its visible title labels it');
+  assert.match(text, /const uid = \$props\.id\(\);/, 'ids from $props.id()');
+  assert.match(text, /const panelId = `\$\{uid\}-menu`;/);
+  assert.match(text, /const titleId = `\$\{uid\}-title`;/);
+  const key = fnBody(text.replace(/\n {2}/g, '\n'), 'function key(');
+  assert.match(key, /e\.key !== 'Escape'/);
+  assert.match(key, /e\.preventDefault\(\);\s*e\.stopPropagation\(\);/, 'Escape stops here, so the drawer and the status bar popover stay open');
+  assert.match(text, /placeMenu\(\{/, 'placement from lib/menu.ts');
+  assert.match(text, /import \{ FOCUSABLE, dismissal \} from '\.\.\/lib\/popover\.ts';/, 'the status bar popovers\' dismissal rules');
+  assert.match(text, /dismissal\('outside', \{ targetFocusable: target\.closest\(FOCUSABLE\) !== null \}\)/);
+  assert.match(text, /showPopover\(\)/);
+  assert.doesNotMatch(text, /popover="auto"|popover\.svelte\.ts/, 'no light dismiss, no global popover state');
+});
+
+test("the session log's settings and filters live in popovers", () => {
+  const log = elements('components/SessionLog.svelte');
+  assert.ok(!log.some((e) => e.name === 'select'), 'SessionLog has no select');
+  const menus = log.filter((e) => e.name === 'MenuButton');
+  assert.equal(menus.length, 2, 'Permissions and Filter');
+  const inMenu = (e: El) => e.parents.some((p) => p.name === 'MenuButton');
+  for (const i of log.filter((e) => e.name === 'input')) assert.ok(inMenu(i), `<input ${i.attrs.map((a) => a.name).join(' ')}> sits in a MenuButton`);
+  const [perm, filter] = menus;
+  assert.equal(attrOf(perm, 'icon'), 'shield');
+  assert.equal(attrOf(perm, 'label'), "{$t('session.modeTrigger', { mode: modeName[shownMode] ?? shownMode })}");
+  assert.equal(attrOf(perm, 'title'), "{$t('session.modeLabel')}");
+  const radios = log.filter((e) => e.name === 'input' && attrOf(e, 'type') === 'radio');
+  assert.equal(radios.length, 2, 'one radio per mode (repeated) and the unknown mode');
+  for (const r of radios) assert.ok(r.parents.includes(perm), 'the permission radios sit in its popover');
+  assert.equal(attrOf(radios[0], 'onchange'), '{() => setMode(m)}');
+  assert.equal(attrOf(radios[0], 'disabled'), '{modeLocked}');
+  assert.match(read('components/SessionLog.svelte'), /const modeLocked = \$derived\(pending \|\| S\.data\?\.daemons\?\.enabled !== true\);/);
+  assert.ok(log.some((e) => e.parents.includes(perm) && e.name === 'span' && /modeHint\[m\]/.test(read('components/SessionLog.svelte'))), 'each mode shows its hint');
+  assert.ok('checked' in Object.fromEntries(radios[1].attrs.map((a) => [a.name, a.value])) && attrOf(radios[1], 'disabled') !== undefined, 'an unknown mode shows checked and disabled');
+  assert.equal(attrOf(filter, 'icon'), 'filter');
+  assert.ok(filter.attrs.some((a) => a.name === 'iconOnly'), 'the filter button is icon-only');
+  assert.equal(attrOf(filter, 'badge'), '{filtering}', 'filtersActive drives the badge');
+  assert.equal(attrOf(filter, 'label'), "{filtering ? $t('session.filterActive') : $t('session.filter')}", 'and the name');
+  assert.match(read('components/SessionLog.svelte'), /const filtering = \$derived\(filtersActive\(filters\)\);/);
+  const search = log.find((e) => e.name === 'input' && attrOf(e, 'type') === 'search');
+  assert.ok(search?.parents.includes(filter) && attrOf(search, 'bind:value') === '{filters.text}', 'the search input is in the Filter popover');
+  const boxes = log.filter((e) => e.name === 'input' && attrOf(e, 'type') === 'checkbox');
+  assert.deepEqual(boxes.map((b) => attrOf(b, 'bind:checked')), ['{filters.tools}', '{filters.thinking}', '{filters.subagents}']);
+  for (const b of boxes) assert.ok(b.parents.includes(filter), 'the checkboxes are in the Filter popover');
+  assert.ok(read('components/SessionLog.svelte').includes('{#if scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE}<EffortSelect job={scope} />{/if}'), 'Effort for job scopes only');
+
+  const effort = elements('components/EffortSelect.svelte');
+  assert.ok(!effort.some((e) => e.name === 'select'), 'EffortSelect has no select');
+  const menu = effort.find((e) => e.name === 'MenuButton');
+  assert.ok(menu, 'EffortSelect is a MenuButton');
+  assert.equal(attrOf(menu, 'icon'), 'gauge');
+  assert.equal(attrOf(menu, 'label'), "{$t('effort.trigger', { level: levelName })}");
+  assert.equal(attrOf(menu, 'extraTitle'), "{restart ? $t('effort.restart') : undefined}", 'the restart note joins the title while it applies');
+  const eRadios = effort.filter((e) => e.name === 'input' && attrOf(e, 'type') === 'radio');
+  assert.equal(eRadios.length, 2, 'Inherit, then each level');
+  for (const r of eRadios) assert.ok(r.parents.includes(menu), 'inside the popover');
+  assert.deepEqual(eRadios.map((r) => attrOf(r, 'onchange')), ["{() => choose('')}", '{() => choose(e)}']);
+  const note = effort.find((e) => attrOf(e, 'role') === 'status');
+  assert.ok(note?.parents.includes(menu), 'the restart note sits in the popover');
+});
+
+test("the session log's rendered/raw toggle is icon-only", () => {
+  assert.ok(read('components/SessionLog.svelte').includes('<MarkdownToggle surface="session" iconOnly />'));
+  for (const f of srcFiles().filter((x) => x !== 'components/SessionLog.svelte' && x.endsWith('.svelte'))) assert.doesNotMatch(read(f), /<MarkdownToggle\b[^>]*\biconOnly\b/, `${f} keeps the labelled segment`);
+  const els = elements('components/MarkdownToggle.svelte');
+  const icon = openBlocksAt(read('components/MarkdownToggle.svelte'), '<Icon name="markdown" />');
+  assert.deepEqual(icon.map((b) => b.at(-1)), ['#if iconOnly'], 'the icon button renders only with iconOnly');
+  const b = els.find((e) => e.name === 'button' && e.first?.name === 'Icon');
+  assert.ok(b && has(b, 'btn', 'sm', 'icon'), 'one btn sm icon');
+  assert.equal(attrOf(b, 'aria-pressed'), '{rendered}');
+  assert.equal(attrOf(b, 'aria-label'), "{$t('markdown.sessionRendered')}");
+  assert.equal(attrOf(b, 'title'), "{$t('markdown.sessionRendered')}");
+  assert.equal(attrOf(b, 'onclick'), "{() => setMdView(surface, rendered ? 'raw' : 'rendered')}");
+  assert.ok(b.classes.includes("{rendered ? 'sel' : ''}") || /rendered \? 'sel' : ''/.test(attrOf(b, 'class')), 'sel shows the state');
+  assert.match(read('components/MarkdownToggle.svelte'), /const rendered = \$derived\(mdView\[surface\] === 'rendered'\);/);
+  assert.ok(read('components/MarkdownToggle.svelte').includes('<div class="seg" role="group" aria-label={groupLabel[surface]}>'), 'without it, the segment is unchanged');
 });
 
 test('the Daemon popover leads with a Foreman row that opens the Foreman popover', () => {

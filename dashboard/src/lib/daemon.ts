@@ -162,6 +162,18 @@ export function sessionControls(session: SessionInput, poolWanted: boolean, pend
   };
 }
 
+/**
+ * The session log's one Start/Stop button: Stop while the session runs; otherwise Start when it can start, a disabled
+ * Start when a human stopped it (it stays off until Start), and Stop (enabled or not) for one that would spawn on demand.
+ * A failed session that isn't running shows Start, which retries.
+ */
+export function sessionToggle(controls: { canStart: boolean; canStop: boolean }, session: SessionInput): { action: 'start' | 'stop'; enabled: boolean } {
+  if (running(session)) return { action: 'stop', enabled: controls.canStop };
+  if (controls.canStart) return { action: 'start', enabled: true };
+  if (session && obj(session).wanted === false) return { action: 'start', enabled: false };
+  return { action: 'stop', enabled: controls.canStop };
+}
+
 /** The modes a session can be switched to: lib/daemon.ts PERMISSION_MODES. */
 export const PERMISSION_MODES: readonly DaemonPermissionMode[] = ['default', 'auto', 'dontAsk'];
 

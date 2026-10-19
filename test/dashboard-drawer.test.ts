@@ -1,4 +1,4 @@
-// dashboard/src/lib/drawer.ts: the job drawer's tab order, default, keyboard moves and tab-switch scroll.
+// dashboard/src/lib/drawer.ts: the job drawer's tab order, default and keyboard moves.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

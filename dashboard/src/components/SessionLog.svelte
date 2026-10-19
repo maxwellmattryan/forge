@@ -1,9 +1,11 @@
-<!-- One session's structured log (a job's, or the inbox's in the status bar's Daemon popover): status and Start/Stop, filters, and turns with
-     tool calls and subagents, followed live. Every log string is untrusted session output: text and thinking bodies and a
+<!-- One session's structured log (a job's, or the inbox's in the status bar's Daemon popover): one compact control row
+     (status facts, then the Permissions and Effort buttons, one Start/Stop toggle, the Filter button, the rendered/raw
+     icon toggle, Follow and Load older; the settings and filters sit in MenuButton popovers), and turns with tool calls
+     and subagents, followed live. Every log string is untrusted session output: text and thinking bodies and a
      subagent's prompt and result render only through the escape-first md() (as text in Raw or above 20k characters); tool
      input, tool results and every other line render as text. With `transcript`, it follows a job's Claude Code transcript
      instead (an agent's, or an interactive owner's): read-only, with no status, Start/Stop, mode or effort controls.
-     With `fill` (the Foreman popover), it takes its container's remaining height and its log pane is the one scroller,
+     With `fill` (the drawer's Log tab, the Foreman popover), it takes its container's remaining height and its log pane is the one scroller,
      instead of capping the pane's height. The office's header also states its model (from the newest init line) and its
      effort, both read-only: the daemon passes no --model, and the office's effort follows runtime.effort. -->
 <script lang="ts">
@@ -14,13 +16,14 @@
   import Icon from './Icon.svelte';
   import Empty from './Empty.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
+  import MenuButton from './MenuButton.svelte';
   import { md } from '../lib/markdown.ts';
   import { renderable } from '../lib/md-view.ts';
   import { mdView } from '../lib/md-view.svelte.ts';
   import { TONE_CLASS, clock, usd } from '../lib/util.ts';
   import { INBOX_SCOPE, OFFICE_SCOPE } from '../lib/types.ts';
   import type { DaemonSessionState } from '../lib/types.ts';
-  import { atBottom, buildSessionView, latestInitModel, readFilters } from '../lib/session-log.ts';
+  import { atBottom, buildSessionView, filtersActive, latestInitModel, readFilters } from '../lib/session-log.ts';
   import { modelLabel } from '../lib/statusbar.ts';
   import { EFFORTS } from '../lib/types.ts';
   import type { Effort } from '../lib/types.ts';
@@ -29,7 +32,7 @@
   import { TINT, logSender } from '../lib/sender.ts';
   import type { SessionLogUrls } from '../lib/daemon-log.ts';
   import { promptRefreshKey } from '../lib/permissions.ts';
-  import { PERMISSION_MODES, mergeSessionState, postDaemon, postDaemonMode, sessionControls, sessionMode, sessionPill } from '../lib/daemon.ts';
+  import { PERMISSION_MODES, mergeSessionState, postDaemon, postDaemonMode, sessionControls, sessionMode, sessionPill, sessionToggle } from '../lib/daemon.ts';
   import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
   import { pref } from '../lib/prefs.ts';
   import { toast } from '../lib/toast.svelte.ts';
@@ -58,14 +61,19 @@
   let pending = $state(false);
   const pill = $derived(sessionPill(session));
   const controls = $derived(sessionControls(session, poolWanted, pending));
+  const toggle = $derived(sessionToggle(controls, session));
   // The choice lives in the pool, so it shows (and applies at the next spawn) even while no child runs.
   const mode = $derived(sessionMode(S.data?.daemons ?? null, scope, session));
-  /** Shown until the next /api/state carries the new choice, so the select doesn't jump back meanwhile. */
+  /** Shown until the next /api/state carries the new choice, so the radios don't jump back meanwhile. */
   let picked = $state<string | null>(null);
   const modeName = $derived<Record<string, string>>({ default: $t('session.modes.default'), auto: $t('session.modes.auto'), dontAsk: $t('session.modes.dontAsk') });
   const modeHint = $derived<Record<string, string>>({ default: $t('session.modes.defaultHint'), auto: $t('session.modes.autoHint'), dontAsk: $t('session.modes.dontAskHint') });
+  const shownMode = $derived(picked ?? mode.chosen);
+  const modeLocked = $derived(pending || S.data?.daemons?.enabled !== true);
+  const uid = $props.id();
 
   let filters = $state<Filters>(readFilters(pref.get('sessionFilters', '')));
+  const filtering = $derived(filtersActive(filters));
   $effect(() => pref.set('sessionFilters', JSON.stringify(filters)));
 
   // The stream sees a new or answered prompt before the poll does, and PermissionPrompts (the drawer's dock, the
@@ -195,6 +203,12 @@
   </div>
 {/snippet}
 
+<!-- The one Start/Stop button: both states share one grid cell (swap), so it keeps the wider width and never jumps; the
+     inactive one is data-off and aria-hidden, so the name is the active label (or `aria`, for a job). -->
+{#snippet flip(start: string, stop: string, aria?: string)}
+  <button class="btn sm" disabled={!toggle.enabled} title={toggle.action === 'start' ? $t('session.startHint') : undefined} aria-label={aria} onclick={() => act(toggle.action)}><span class="swap"><span data-off={toggle.action !== 'start' ? '' : undefined} aria-hidden={toggle.action !== 'start' ? 'true' : undefined}><Icon name="play" />{start}</span><span data-off={toggle.action !== 'stop' ? '' : undefined} aria-hidden={toggle.action !== 'stop' ? 'true' : undefined}><Icon name="stop" />{stop}</span></span></button>
+{/snippet}
+
 {#snippet item(it: Item)}
   {#if it.kind === 'text'}
     {@const prose = renderable(it.text, mdView.session)}
@@ -238,52 +252,57 @@
 {/snippet}
 
 <div class="flex flex-col gap-2 {fill ? 'min-h-0 flex-1' : ''}">
-  {#if transcript}
-  <div class="flex flex-wrap items-center gap-2">
-    <span role="note" class="plain min-w-0 break-all px-2 py-1 text-xs text-muted">{transcript.label}</span>
-  </div>
-  {:else}
-  <div class="flex flex-wrap items-center gap-2">
-    <span role="status" class="chip sm {TONE_CLASS[pill.tone]}" title={pill.title}>{pill.label}</span>
-    <span class="text-xs text-muted">{$t('session.turns', { count: view.totals.turns })}</span>
-    {#if view.totals.results}<span class="text-xs text-muted" title={$t('session.costTitle')}>{$t('session.cost', { cost: usd(view.totals.costUsd) })}</span>{/if}
-    {#if scope === OFFICE_SCOPE}
-      <span class="text-xs text-muted">{$t('session.model', { model: officeModel })}</span>
-      <span class="text-xs text-muted" title={$t('session.effortHint')}>{$t('session.effort', { effort: officeEffort })}</span>
-    {/if}
-    <span class="flex-1"></span>
-    <label class="flex items-center gap-1.5 text-xs text-muted" title={modeHint[picked ?? mode.chosen] ?? ''}>
-      {$t('session.modeLabel')}
-      <select class="input sm" value={picked ?? mode.chosen} disabled={pending || S.data?.daemons?.enabled !== true} onchange={(e) => setMode(e.currentTarget.value)}>
-        {#each PERMISSION_MODES as m (m)}<option value={m}>{modeName[m]}</option>{/each}
-        {#if !PERMISSION_MODES.some((m) => m === mode.chosen)}<option value={mode.chosen} disabled>{mode.chosen}</option>{/if}
-      </select>
-    </label>
-    {#if scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE}<EffortSelect job={scope} />{/if}
-    {#if scope === INBOX_SCOPE}
-      <button class="btn sm" disabled={!controls.canStart} title={$t('session.startHint')} onclick={() => act('start')}><Icon name="play" />{$t('session.startInbox')}</button>
-      <button class="btn sm" disabled={!controls.canStop} onclick={() => act('stop')}><Icon name="stop" />{$t('session.stopInbox')}</button>
-    {:else if scope === OFFICE_SCOPE}
-      <button class="btn sm" disabled={!controls.canStart} title={$t('session.startHint')} onclick={() => act('start')}><Icon name="play" />{$t('session.startOffice')}</button>
-      <button class="btn sm" disabled={!controls.canStop} onclick={() => act('stop')}><Icon name="stop" />{$t('session.stopOffice')}</button>
+  <!-- One row that wraps: the facts on the left, the controls pushed right as one group, so on a phone the group wraps
+       under the facts as a whole before its own buttons wrap. -->
+  <div class="flex flex-wrap items-center gap-x-1.5 gap-y-2">
+    {#if transcript}
+      <span role="note" class="plain min-w-0 break-all px-2 py-1 text-xs text-muted">{transcript.label}</span>
     {:else}
-      <button class="btn sm" disabled={!controls.canStart} title={$t('session.startHint')} aria-label={$t('session.startJob')} onclick={() => act('start')}><Icon name="play" />{$t('session.start')}</button>
-      <button class="btn sm" disabled={!controls.canStop} aria-label={$t('session.stopJob')} onclick={() => act('stop')}><Icon name="stop" />{$t('session.stop')}</button>
+      <span role="status" class="chip sm {TONE_CLASS[pill.tone]}" title={pill.title}>{pill.label}</span>
+      <span class="text-xs text-muted">{$t('session.turns', { count: view.totals.turns })}</span>
+      {#if view.totals.results}<span class="text-xs text-muted" title={$t('session.costTitle')}>{$t('session.cost', { cost: usd(view.totals.costUsd) })}</span>{/if}
+      {#if scope === OFFICE_SCOPE}
+        <span class="text-xs text-muted">{$t('session.model', { model: officeModel })}</span>
+        <span class="text-xs text-muted" title={$t('session.effortHint')}>{$t('session.effort', { effort: officeEffort })}</span>
+      {/if}
     {/if}
+    <div class="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+      {#if !transcript}
+        <!-- The button stays enabled while the radios can't change, so the hints stay readable. -->
+        <MenuButton label={$t('session.modeTrigger', { mode: modeName[shownMode] ?? shownMode })} title={$t('session.modeLabel')} icon="shield" text={modeName[shownMode] ?? shownMode}>
+          <fieldset class="flex flex-col gap-2">
+            <legend class="sr-only">{$t('session.modeLabel')}</legend>
+            {#each PERMISSION_MODES as m (m)}<label class="field items-start"><input type="radio" class="check mt-0.5" name="{uid}-mode" value={m} checked={shownMode === m} disabled={modeLocked} onchange={() => setMode(m)} /><span class="flex min-w-0 flex-col"><span>{modeName[m]}</span><span class="text-xs text-muted">{modeHint[m]}</span></span></label>{/each}
+            {#if !PERMISSION_MODES.some((m) => m === mode.chosen)}<label class="field"><input type="radio" class="check" name="{uid}-mode" value={mode.chosen} checked disabled />{mode.chosen}</label>{/if}
+          </fieldset>
+        </MenuButton>
+        {#if scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE}<EffortSelect job={scope} />{/if}
+        {#if scope === INBOX_SCOPE}
+          {@render flip($t('session.startInbox'), $t('session.stopInbox'))}
+        {:else if scope === OFFICE_SCOPE}
+          {@render flip($t('session.startOffice'), $t('session.stopOffice'))}
+        {:else}
+          {@render flip($t('session.start'), $t('session.stop'), toggle.action === 'start' ? $t('session.startJob') : $t('session.stopJob'))}
+        {/if}
+      {/if}
+      <MenuButton label={filtering ? $t('session.filterActive') : $t('session.filter')} title={$t('session.filterTitle')} icon="filter" iconOnly badge={filtering}>
+        <input class="input sm w-full" type="search" placeholder={$t('session.filter')} aria-label={$t('session.filter')} bind:value={filters.text} />
+        <div class="flex flex-col gap-1">
+          <label class="field"><input type="checkbox" class="check" bind:checked={filters.tools} />{$t('session.tools')}</label>
+          <label class="field"><input type="checkbox" class="check" bind:checked={filters.thinking} />{$t('session.thinking')}</label>
+          <label class="field"><input type="checkbox" class="check" bind:checked={filters.subagents} />{$t('session.subagents')}</label>
+        </div>
+      </MenuButton>
+      <MarkdownToggle surface="session" iconOnly />
+      <button class="btn sm {follow ? 'sel' : ''}" aria-pressed={follow ? 'true' : 'false'} onclick={jump}>{$t('session.follow')}</button>
+      {#if more}<button class="btn sm" onclick={() => log.loadOlder()}>{$t('session.loadOlder')}</button>{/if}
+    </div>
   </div>
-  {#if session?.lastError}<div role="status" class="text-xs text-bad break-words">{session.lastError}</div>{/if}
-  {#if mode.live !== null}<div role="status" class="text-xs text-muted">{$t('session.modeSwitching', { mode: modeName[mode.live] ?? mode.live })}</div>{/if}
-  {#if mode.chosen === 'auto'}<div class="text-xs text-warn">{$t('session.modes.autoWarning')}</div>{/if}
+  {#if !transcript}
+    {#if session?.lastError}<div role="status" class="text-xs text-bad break-words">{session.lastError}</div>{/if}
+    {#if mode.live !== null}<div role="status" class="text-xs text-muted">{$t('session.modeSwitching', { mode: modeName[mode.live] ?? mode.live })}</div>{/if}
+    {#if mode.chosen === 'auto'}<div class="text-xs text-warn">{$t('session.modes.autoWarning')}</div>{/if}
   {/if}
-  <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
-    <input class="input sm min-w-0 flex-1 basis-40" type="search" placeholder={$t('session.filter')} aria-label={$t('session.filter')} bind:value={filters.text} />
-    <label class="field"><input type="checkbox" class="check" bind:checked={filters.tools} />{$t('session.tools')}</label>
-    <label class="field"><input type="checkbox" class="check" bind:checked={filters.thinking} />{$t('session.thinking')}</label>
-    <label class="field"><input type="checkbox" class="check" bind:checked={filters.subagents} />{$t('session.subagents')}</label>
-    <MarkdownToggle surface="session" />
-    <button class="btn sm {follow ? 'sel' : ''}" aria-pressed={follow ? 'true' : 'false'} onclick={jump}>{$t('session.follow')}</button>
-    {#if more}<button class="btn sm" onclick={() => log.loadOlder()}>{$t('session.loadOlder')}</button>{/if}
-  </div>
   {#if error !== null}
     <Banner msg={error} />
   {:else if loading && !entries.length}
