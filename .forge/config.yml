@@ -66,6 +66,7 @@ runtime:
   models:
     orchestrator: inherit
     planner: opus
+    assistant: opus
     spec-writer: opus
     designer: sonnet
     builder: opus
@@ -229,3 +230,5 @@ daemon:
     - Bash(gh run view:*)
   maxConcurrent: 4
   idleStopMinutes: 30
+foreman:
+  enabled: true

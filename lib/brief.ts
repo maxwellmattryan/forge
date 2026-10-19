@@ -2,6 +2,7 @@
 // text an agent wrote (after reading tracker or PR text) is never re-injected into another prompt.
 import path from 'node:path';
 import { backingLine } from './backing.ts';
+import { jobEndpoints } from './endpoints.ts';
 import { autoMerge, lensNeedsApp, resolveEffort } from './config.ts';
 import { jobDir, reviewDir } from './jobs.ts';
 import { memberEntry, memberRepos, trustedMemberWorktree } from './job-repos.ts';
@@ -213,7 +214,10 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
         const wt = trustedMemberWorktree(input.root, c, j, member.repo) ?? 'none';
         extra.push(`Lens repo: ${member.repo} · worktree ${wt} · base ${member.base ?? 'none'}`);
       }
-      if (lensNeedsApp(c, lens) && c.commands.dev) extra.push(`Dev server: http://localhost:${j.port ?? c.ports.base}`);
+      if (lensNeedsApp(c, lens) && c.commands.dev) {
+        const eps = jobEndpoints(input.root, c, j).components;
+        extra.push(`Endpoints: ${eps.length ? eps.map((e) => `${e.name} ${e.url}`).join('; ') : `dev http://localhost:${c.ports.base}`}`);
+      }
       extra.push(...backingLines);
       // The integration review stays root-only and has its own Diff line below.
       if (input.paths.scopeDiff && !ctx.integration) extra.push(`Diff: ${p('scopeDiff')} (every job repo; member paths are prefixed <repo>/)`);

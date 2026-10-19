@@ -4,7 +4,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { environmentModel, focusFact, postEditor, postFocus, postRun, runToastKey } from '../dashboard/src/lib/focus.ts';
 
-const dev = (port: number, live = false) => ({ name: 'dev' as const, url: `http://localhost:${port}/`, port, live });
+const dev = (port: number, live: boolean | null = false, name = 'dev') => ({ kind: 'component' as const, name, url: `http://localhost:${port}/`, port, live });
+const backing = (port: number, name = 'postgres') => ({ kind: 'backing' as const, name, url: null, port, live: null });
 const job = (id: string, state = 'running', extra: Record<string, unknown> = {}) => ({ id, title: id.toUpperCase(), state, worktree: `/wt/${id}`, endpoints: [dev(4100)], ...extra }) as any;
 
 test('focusFact', () => {
@@ -32,15 +33,25 @@ test('environmentModel', () => {
   assert.deepEqual(bare.endpoints, []);
   assert.equal(environmentModel(job('a', 'running', { endpoints: undefined }), null).runDisabled, true, 'an older server sends none');
   const hostile = [
-    { name: 'dev', url: 'javascript:alert(1)', port: 1, live: true },
-    { name: 'dev', url: 'http://evil.example/', port: 80, live: false },
-    { name: 'shell', url: 'http://localhost:4100/', port: 4100, live: false },
-    { name: 'dev', url: 'http://localhost:4100/x', port: 4100, live: false },
+    { ...dev(1, true), url: 'javascript:alert(1)' },
+    { ...dev(80), url: 'http://evil.example/' },
+    { ...dev(4100), url: 'http://localhost:4100/x' },
+    { ...dev(4100), kind: 'shell' },
+    { ...dev(4100), live: 'yes' },
+    { ...dev(4100), name: '' },
+    { ...dev(4100), port: '4100' },
+    { ...backing(4105), url: 'http://localhost:4105/' },
+    { ...backing(4105), live: false },
+    { name: 'dev', url: 'http://localhost:4100/', port: 4100, live: false },
     null,
     'http://localhost:1/',
   ];
-  const kept = environmentModel(job('a', 'running', { endpoints: [...hostile, dev(4101, true)] }), null);
-  assert.deepEqual(kept.endpoints, [dev(4101, true)], 'only a localhost URL the server built is linked');
+  const kept = environmentModel(job('a', 'running', { endpoints: [...hostile, dev(4101, true), dev(4102, null, 'web'), backing(4105)] }), null);
+  assert.deepEqual(kept.endpoints, [dev(4101, true), dev(4102, null, 'web'), backing(4105)], 'component rows with a localhost URL the server built, backing rows with none');
+  assert.equal(kept.runDisabled, false);
+  const noDev = environmentModel(job('a', 'running', { endpoints: [dev(4101, null), dev(4102, null, 'web'), backing(4105)] }), null);
+  assert.equal(noDev.runDisabled, true, 'Run needs the row the dev command serves');
+  assert.equal(noDev.endpoints.length, 3, 'the rows still show');
 });
 
 test('runToastKey', () => {

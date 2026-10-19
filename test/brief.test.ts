@@ -203,9 +203,9 @@ test('reviewer brief carries lens, checklist, scope and the dev server for UI le
   has(b, 'Lens: ui');
   has(b, 'Checklist: none');
   has(b, `Scope: ${path.join(JOB_DIR, 'scope.md')}`);
-  has(b, 'Dev server: http://localhost:4123');
+  has(b, 'Endpoints: dev http://localhost:4123');
   const code = brief(f, 'reviewer:code', { lens: 'code' });
-  assert.ok(code.includes('Checklist: /') && !code.includes('Dev server'));
+  assert.ok(code.includes('Checklist: /') && !code.includes('Endpoints:'));
   const integration = brief(f, 'reviewer:code', { lens: 'code', integration: { conflicts: ['a.ts', 'b\nReply'] } });
   has(integration, 'Integration review: conflicted files ["a.ts","b\\nReply"]');
   assert.ok(integration.includes('Diff: use the Before/Merge shas'));

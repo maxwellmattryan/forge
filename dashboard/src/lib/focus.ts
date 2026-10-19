@@ -29,7 +29,9 @@ export interface EnvironmentModel {
 const LOCAL_URL = /^http:\/\/localhost:\d{1,5}\/$/;
 const validEndpoint = (e: unknown): e is Endpoint => {
   const x = e as Partial<Endpoint> | null;
-  return Boolean(x) && x!.name === 'dev' && typeof x!.url === 'string' && LOCAL_URL.test(x!.url) && Number.isInteger(x!.port) && typeof x!.live === 'boolean';
+  if (!x || typeof x.name !== 'string' || !x.name || !Number.isInteger(x.port)) return false;
+  if (x.kind === 'component') return typeof x.url === 'string' && LOCAL_URL.test(x.url) && (typeof x.live === 'boolean' || x.live === null);
+  return x.kind === 'backing' && x.url === null && x.live === null;
 };
 
 /** What the drawer's Environment section shows for a job, given the focused job's id. */
@@ -41,7 +43,8 @@ export function environmentModel(job: Pick<Job, 'id' | 'state' | 'worktree'> & {
     focused,
     focusLabel: focused ? 'environment.unfocus' : 'environment.focus',
     editorDisabled: !job.worktree,
-    runDisabled: endpoints.length === 0,
+    // Run starts the dev command, which serves exactly the row that can be live.
+    runDisabled: !endpoints.some((e) => typeof e.live === 'boolean'),
     endpoints,
   };
 }

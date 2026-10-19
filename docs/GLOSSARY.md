@@ -12,6 +12,7 @@ Planned in M004, except where a config key exists today.
 | **root repo** | The repo that holds the project's `.forge/`, which for a project of one repo is that repo and is never listed in `repos`. | `repos` |
 | **member repo** | Any other repo the root repo's config lists as part of the project. | `repos` |
 | **component** | A buildable unit inside a repo, of kind `library`, `service` or `app`. | planned (M004) |
+| **port-bearing component** | A `service` or `app` component, which holds one job port (`ports` in `job.json`, `{endpoint.<component>}` in commands); a `library` holds none. | `components`, `ports` |
 | **dependency** | An edge from one component to another, `build` when it is needed to compile or bundle and `runtime` when it must be running. | planned (M004) |
 | **project graph** | The components of all of a project's repos and the dependencies between them, drawn by the dashboard's project view. | `components` |
 | **focus** | The job whose environment you are currently pointed at, set with `forge focus` or the dashboard, where switching focus starts or stops no server and runs the checkout steps. | - |
@@ -53,8 +54,8 @@ Planned in M007.
 
 | Term | Meaning | Config key |
 |---|---|---|
-| **environment** | The running components and backing services one job uses, each at its own endpoints (today a job's environment is its worktree plus its `port`). | planned (M007) |
-| **endpoint** | An address (URL or host and port) where an environment serves one component or backing service. | planned (M007) |
+| **environment** | The running components and backing services one job uses, each at its own endpoints (today a job's environment is its worktree plus its `ports`, one per port-bearing component, and its backing services). | planned (M007) |
+| **endpoint** | An address (URL or host and port) where an environment serves one component or backing service: `{endpoint.<component>}` and `{backing.<name>.port}` in commands, the `Endpoints:` brief line and the Environment card. | `components`, `backing` |
 | **backing service** | Infrastructure a component needs while it runs, such as a database, cache or queue. | `backing` |
 | **isolation** | How a backing service is provided to jobs: `per-job` (its own container per job), `shared` (one instance every job uses) or `external` (run outside Forge, which only points at it). | `backing` |
 | **config sink** | Where Forge writes a component's configuration for an environment (a `.env` file, a JSON config file, environment variables), chosen per component and never assumed. | planned (M007) |
