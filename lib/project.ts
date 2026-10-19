@@ -12,7 +12,7 @@ const trimmed = (v: unknown): string | null => (typeof v === 'string' && v.trim(
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /** The graph of `config.components`; pure, so it never reads files and never throws. */
-export function projectGraph(config: Pick<Config, 'components'>): ProjectResponse {
+export function projectGraph(config: Pick<Config, 'components'> & Partial<Pick<Config, 'backing'>>): ProjectResponse {
   const list: unknown[] = Array.isArray(config?.components) ? config.components : [];
   const seen = new Set<string>();
   const kept: { c: ProjectComponent; dependsOn: unknown }[] = [];
@@ -39,6 +39,11 @@ export function projectGraph(config: Pick<Config, 'components'>): ProjectRespons
       edges.set(`${edge.from}|${edge.target}|${edge.to}|${edge.type}`, edge);
       if (target === 'backing') backing.add(to);
     }
+  }
+  // Declared entries show even when no edge points at them.
+  for (const b of Array.isArray(config?.backing) ? (config.backing as unknown[]) : []) {
+    const name = isMap(b) ? trimmed(b.name) : null;
+    if (name) backing.add(name);
   }
   return {
     components: kept.map((k) => k.c).sort((a, b) => cmp(a.name, b.name)),

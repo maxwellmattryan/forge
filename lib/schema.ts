@@ -8,6 +8,7 @@ import { REPO_NAME, isSafeBranch } from './member-repos.ts';
 import type { EventActor, Job, JobEvent, JobIssue, JobRepo, JobRepoPr, LoadedJob } from './types.ts';
 
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
+export { BACKING_ISOLATIONS } from './backing-config.ts';
 
 export const CONFIG_SCHEMA_VERSION = 20;
 export const JOB_SCHEMA_VERSION = 13;

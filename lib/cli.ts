@@ -17,6 +17,7 @@ import { ForgeError, readJson, run } from './util.ts';
 import * as wt from './worktree.ts';
 import { advanceCmd } from './commands/advance.ts';
 import { auditCmd } from './commands/audit.ts';
+import { backingCmd } from './commands/backing.ts';
 import { budgetCmd } from './commands/budget.ts';
 import { num, out, parseArgs, req, requireJob, withoutJson } from './commands/args.ts';
 import { configCmd } from './commands/config.ts';
@@ -130,12 +131,15 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       const repo = flags.repo === undefined ? undefined : req(typeof flags.repo === 'string' ? flags.repo : undefined, '--repo');
       if (sub === 'remove') {
         const res = await wt.removeWorktree(root, req(rest[0], 'job id'), { deleteBranch: Boolean(flags['delete-branch']), force: Boolean(flags.force), repo });
-        return { data: res, exitCode: res.repos?.some((r) => r.error) ? 1 : 0 };
+        return { data: res, exitCode: res.repos?.some((r) => r.error) || res.backing?.ok === false ? 1 : 0 };
       }
       if (sub === 'path') return ok(repo === undefined ? (loadJob(root, req(rest[0], 'job id')).worktree ?? '') : (trustedMemberWorktree(root, config, loadJob(root, req(rest[0], 'job id')), repo) ?? ''));
       if (sub === 'prune') return ok(run('git', ['worktree', 'prune', '-v'], { cwd: root }).stderr.trim() || 'nothing to prune');
       throw usage('worktree');
     }
+    case 'backing':
+      needInit();
+      return backingCmd(ctx, sub, rest, flags);
     case 'run':
       needInit();
       return runCmd(root, config, argv);
