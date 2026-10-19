@@ -8,7 +8,7 @@ import { jobDir, reviewDir } from './jobs.ts';
 import { memberEntry, memberRepos, trustedMemberWorktree } from './job-repos.ts';
 import { downstreamMembers } from './downstream.ts';
 import { releaseGates, resolveInterim } from './interim.ts';
-import { reviewFileName, reviewedRepoNames, splitLens } from './lens.ts';
+import { isLens, reviewFileName, reviewedRepoNames, splitLens } from './lens.ts';
 import { lensChecklists } from './member-panel.ts';
 import { repoGraph } from './project.ts';
 import { paths, exists } from './paths.ts';
@@ -152,6 +152,31 @@ export function releaseGateLine(config: Pick<Config, 'components' | 'repos' | 'r
   return `Release gate (JSON): ${JSON.stringify(releaseGates(edges, events, job))}; held: the consumer PR stays a draft and Forge refuses to ready or merge it until a human records the release; bump-due: the release is recorded and verify still has to bump the consumer's manifests to it; ci: the seeded release-gate check fails while the pin remains. Never mark auto-merge eligible while a gate is held or bump-due.`;
 }
 
+/**
+ * The approver's `Rework panel:` line when the last review round re-ran only part of the panel:
+ * which lenses re-reviewed, and each skipped lens with the latest round it passed in. Lens names
+ * only (isLens), so nothing from the event log can start a line of the brief.
+ */
+export function reworkPanelLine(input: Pick<StepInput, 'job' | 'events'>): string | null {
+  const j = input.job;
+  const ev = input.events.findLast((e) => e.type === 'panel');
+  const rerun: unknown = ev?.rerun;
+  const lenses: unknown = ev?.lenses;
+  if (!ev || typeof ev.round !== 'number' || !Array.isArray(rerun) || !rerun.length || !Array.isArray(lenses)) return null;
+  const names = (v: unknown[]) => v.filter((l): l is string => typeof l === 'string' && isLens(l));
+  const ran = names(rerun);
+  const round = ev.round;
+  const carried = names(lenses)
+    .filter((l) => !ran.includes(l))
+    .map((l) => {
+      let m: number | null = null;
+      for (let r = round; r >= 1 && m === null; r--) if (j.verdicts[String(r)]?.[l] === 'PASS') m = r;
+      return `${l} (round ${m ?? 'none'})`;
+    });
+  if (!ran.length) return null;
+  return `Rework panel: round ${round} re-reviewed ${ran.join(', ')}; carried passes: ${carried.join(', ') || 'none'}`;
+}
+
 export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {}): BriefSpec {
   const j = input.job;
   const c = input.config;
@@ -241,7 +266,8 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
       // The verifiers report, when this round has one, so its warnings reach the panel.
       return out([path.join(p('reviewDir'), reviewFileName(lens))], [p('spec'), p('design'), p('build'), p('verifiers')], extra);
     }
-    case 'approver':
+    case 'approver': {
+      const reworkPanel = reworkPanelLine(input);
       return out(
         [p('decision'), p('prBody')],
         [p('spec'), p('build'), p('reviewDir'), p('verify'), p('verifiers'), p('integrationReview'), p('runbook')],
@@ -251,10 +277,12 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
           `Merge: auto ${autoMerge(c)} · autoWhen ${JSON.stringify(c.merge.autoWhen ?? [])}`,
           protectedLine(j),
           releaseGateLine(c, j, input.events),
+          ...(reworkPanel ? [reworkPanel] : []),
           infra,
           `Scope: ${p('scope')}`,
         ],
       );
+    }
     case 'integrator':
       return out(
         [p('build')],

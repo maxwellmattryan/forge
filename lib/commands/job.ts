@@ -308,7 +308,7 @@ const JOB: HelpGroup = {
     {
       command: 'job panel',
       args: '<id>',
-      summary: "this round's review lenses: always, the spec's suggestions and the panel's paths matched against the branch diff, with a reason per lens; each reviewed job repo adds the lenses its clone's panel defines, as <repo>:<lens>",
+      summary: "this round's review lenses: always, the spec's suggestions and the panel's paths matched against the branch diff, with a reason per lens; each reviewed job repo adds the lenses its clone's panel defines, as <repo>:<lens>; on a narrowed rework round, rerun and skipped name the rework panel",
       exits: [
         [1, 'no such job, no worktree or no spec.md'],
         [5, 'git failed'],

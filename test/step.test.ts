@@ -77,6 +77,12 @@ const inReview = (agents: Job['agents'] = {}, more: Partial<Job> = {}): Partial<
   job({ stage: 'review', round: 1, reviewers: ['code', 'tests'], verifyRuns: [vr(1, 10, true)], agents: { builder: ag(1, 5, 9), ...agents }, ...more });
 const panelled = ev('panel', 11, { round: 1 });
 const scoped = [ev('round', 4, { round: 1 }), panelled, ev('scope', 11, { round: 1 })];
+/** Round 2 after round 1 asked for changes from docs; the round-2 panel event (minute 31) carries `rerun`. */
+const R2_LENSES = ['code', 'security', 'docs'];
+const inRework = (agents: Job['agents'] = {}, more: Partial<Job> = {}): Partial<Job> =>
+  job({ stage: 'review', round: 2, reviewers: R2_LENSES, verifyRuns: [vr(1, 10, true), vr(2, 30, true)], verdicts: { 1: { code: 'PASS', security: 'PASS', docs: 'CHANGES' } }, agents: { builder: ag(2, 25, 29), ...agents }, ...more });
+const reworkScoped = (rerun: unknown, at = 31) => [ev('round', 20, { round: 2 }), ev('panel', at, { round: 2, lenses: R2_LENSES, rerun }), ev('scope', 31, { round: 2 })];
+const withDocsLens = (c: Config) => c.review.panel.push({ name: 'docs', paths: ['docs/**'] });
 
 /** Verifiers: the round's run event at minute 8, its files, and the failing verify run a CHANGES record appends at 12. */
 const VF_RUN = ev('verifiers', 8, { phase: 'run', round: 1, sha: 's', selected: ['help-rows', 'docs-links'], problems: 0, truncated: false });
@@ -632,6 +638,51 @@ const rows: Row[] = [
     fx: { job: inReview({ 'reviewer:code': ag(1, 12), 'reviewer:tests': ag(1, 12) }, { reviewers: ['code', 'tests', 'security', 'docs'] }), events: scoped },
     want: { action: 'spawn', role: 'reviewer:security' },
     check: (a) => assert.deepEqual(a.spawns.map((s: any) => s.role), ['reviewer:docs']),
+  },
+  {
+    name: 'RV4 round 1 spawns the full panel under narrow',
+    fx: { config: withDocsLens, job: inReview({}, { reviewers: R2_LENSES }), events: [ev('round', 4, { round: 1 }), ev('panel', 11, { round: 1, rerun: ['code'] }), ev('scope', 11, { round: 1 })] },
+    want: { action: 'spawn', rule: 'RV4', role: 'reviewer:code' },
+    check: (a) => {
+      assert.deepEqual(a.spawns.map((s: any) => [s.rule, s.lens]), [['RV4', 'security'], ['RV4', 'docs']]);
+      assert.ok(!('why' in a));
+    },
+  },
+  {
+    name: 'RV4 round 2 spawns the full panel under onRework full',
+    fx: { config: (c) => (withDocsLens(c), (c.review.onRework = 'full')), job: inRework(), events: reworkScoped(['code', 'docs']) },
+    want: { action: 'spawn', rule: 'RV4', role: 'reviewer:code' },
+    check: (a) => assert.deepEqual(a.spawns.map((s: any) => s.lens), ['security', 'docs']),
+  },
+  {
+    name: 'RV10 spawns only the rework panel',
+    fx: { config: withDocsLens, job: inRework(), events: reworkScoped(['code', 'docs']) },
+    want: { action: 'spawn', rule: 'RV10', role: 'reviewer:code', why: 'rework round: re-review the lenses that asked for changes, the always lenses and the lenses whose paths the fix touched' },
+    check: (a) => {
+      assert.deepEqual(a.spawns.map((s: any) => [s.rule, s.lens]), [['RV10', 'docs']]);
+      const later = step(fixture({ config: withDocsLens, job: inRework({ 'reviewer:code': ag(2, 32), 'reviewer:docs': ag(2, 32) }), events: reworkScoped(['code', 'docs']) }));
+      assert.equal(later.action, 'wait', 'security is never spawned');
+    },
+  },
+  {
+    // The spec called this row "RV10 records…", but RV6 decides it; the harness checks the prefix.
+    name: 'RV6 records verdicts for the rework panel',
+    fx: {
+      config: withDocsLens,
+      job: inRework({ 'reviewer:code': ag(2, 32, 33, { outputMissing: false }), 'reviewer:docs': ag(2, 32, 33, { outputMissing: false }) }),
+      events: reworkScoped(['code', 'docs']),
+      verdicts: { round: verdicts({ code: 'PASS', docs: 'PASS' }) },
+    },
+    want: run('job', 'verdicts', 'j', '--compact', '--reviewers', 'code,docs'),
+  },
+  { name: 'RV4 ignores a rerun outside the panel', fx: { config: withDocsLens, job: inRework(), events: reworkScoped(['code', 'ui']) }, want: { action: 'spawn', rule: 'RV4', role: 'reviewer:code' }, check: (a) => assert.deepEqual(a.spawns.map((s: any) => s.lens), ['security', 'docs']) },
+  { name: 'RV4 ignores an empty rerun', fx: { config: withDocsLens, job: inRework(), events: reworkScoped([]) }, want: { action: 'spawn', rule: 'RV4', role: 'reviewer:code' }, check: (a) => assert.deepEqual(a.spawns.map((s: any) => s.lens), ['security', 'docs']) },
+  {
+    name: 'RV4 ignores a rerun older than the last verify',
+    // A reviewer already started, so RV9 doesn't re-panel; the stale event's rerun must not narrow the round.
+    fx: { config: withDocsLens, job: inRework({ 'reviewer:code': ag(2, 32) }), events: reworkScoped(['code', 'docs'], 28) },
+    want: { action: 'spawn', rule: 'RV4', role: 'reviewer:security' },
+    check: (a) => assert.deepEqual(a.spawns.map((s: any) => s.lens), ['docs']),
   },
   { name: 'RV4 a panel model wins', fx: { job: inReview({}, { reviewers: ['security'] }), events: scoped }, want: { action: 'spawn', role: 'reviewer:security', model: 'opus' } },
   { name: 'RV4 a UI lens gets the dev server', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:code': ag(1, 12, 13) }, { reviewers: ['code', 'ui'] }), events: scoped, runtime: ['dev'] }, want: { action: 'spawn', role: 'reviewer:ui' }, check: (a) => assert.ok(a.brief.includes('Endpoints: dev http://localhost:4100')) },

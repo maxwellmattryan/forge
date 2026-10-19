@@ -367,8 +367,10 @@ export interface StepSpawn extends StepBase {
   brief: string;
   /** The Agent tool's `effort`: the job's effective level (resolveEffort), or null to pass none. */
   effort: Effort | null;
-  /** RV4 only: the round's other unstarted lenses, each a complete spawn; launch them with this one. */
+  /** RV4 and RV10: the round's other unstarted lenses, each a complete spawn; launch them with this one. */
   spawns?: StepSpawn[];
+  /** RV10 only: why only part of the recorded panel reviews this round. */
+  why?: string;
 }
 
 /** Run one forge command: `command` is argv after `forge`, `shell` the same as one quoted line. */

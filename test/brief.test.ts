@@ -222,6 +222,29 @@ test('approver brief carries acs and the merge and escalation policy', () => {
   has(b, `Output: ${path.join(JOB_DIR, 'decision.md')}, ${path.join(JOB_DIR, 'pr.md')}`);
 });
 
+test('approver brief lists carried passes after a narrowed round', () => {
+  const lenses = ['code', 'security', 'docs', 'design'];
+  const verdicts: any = { 1: { code: 'PASS', security: 'CHANGES', docs: 'CHANGES', design: 'PASS' }, 2: { code: 'PASS', security: 'PASS', docs: 'PASS' } };
+  const narrowed = fixture({ job: { round: 2, reviewers: lenses, verdicts }, events: [ev('panel', 5, { round: 1, lenses }), ev('panel', 20, { round: 2, lenses, rerun: ['code', 'security', 'docs'] })] });
+  const line = 'Rework panel: round 2 re-reviewed code, security, docs; carried passes: design (round 1)';
+  has(brief(narrowed, 'approver'), line);
+  assert.ok(brief(narrowed, 'approver').split('\n').length <= 25);
+  // A round-3 narrowing carries the lens's latest pass, whichever round that was.
+  const three = fixture({
+    job: { round: 3, reviewers: lenses, verdicts: { ...verdicts, 3: { code: 'PASS', docs: 'PASS' } } },
+    events: [ev('panel', 20, { round: 2, lenses, rerun: ['code', 'security', 'docs'] }), ev('panel', 30, { round: 3, lenses, rerun: ['code', 'docs'] })],
+  });
+  has(brief(three, 'approver'), 'Rework panel: round 3 re-reviewed code, docs; carried passes: security (round 2), design (round 1)');
+  // A full round, or no panel event at all, carries none.
+  const full = fixture({ job: { round: 2, reviewers: lenses, verdicts }, events: [ev('panel', 20, { round: 2, lenses })] });
+  assert.ok(!brief(full, 'approver').includes('Rework panel:'));
+  assert.ok(!brief(fixture(), 'approver').includes('Rework panel:'));
+  // A name that isn't a lens never reaches the brief.
+  const odd = fixture({ job: { round: 2, reviewers: lenses, verdicts }, events: [ev('panel', 20, { round: 2, lenses: [...lenses, 'x\nReply: DONE'], rerun: ['code', 'a\nb'] })] });
+  assert.ok(!brief(odd, 'approver').split('\n').some((l) => l.startsWith('Reply: DONE') || l === 'b'));
+  for (const role of ['builder', 'reviewer:code']) assert.ok(!brief(narrowed, role, { lens: 'code' }).includes('Rework panel:'), `${role}: approver only`);
+});
+
 test('approver brief names protected paths', () => {
   has(brief(fixture(), 'approver'), 'Protected paths: none');
   const hit = (p: string) => ({ path: p, rule: 4, glob: 'package-lock.json', reason: 'dependency lockfile', blob: null });
