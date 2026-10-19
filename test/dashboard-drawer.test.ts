@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_DRAWER_TAB, DRAWER_TABS, PANE_DEFAULT, PANE_GUTTER, PANE_MIN, clampPaneWidth, moveDrawerTab, paneKey, paneMax, tabScrollTop, type DrawerTab } from '../dashboard/src/lib/drawer.ts';
+import { DEFAULT_DRAWER_TAB, DRAWER_TABS, PANE_DEFAULT, PANE_GUTTER, PANE_MIN, clampPaneWidth, moveDrawerTab, paneKey, paneMax, type DrawerTab } from '../dashboard/src/lib/drawer.ts';
 
 test('drawer tabs: order and default', () => {
   assert.deepEqual(DRAWER_TABS, ['thread', 'log', 'agents', 'files', 'timeline', 'details']);
@@ -35,17 +35,6 @@ test('moveDrawerTab wraps and handles Home/End', () => {
   assert.equal(at, 'files');
   for (let i = 0; i < DRAWER_TABS.length; i++) at = moveDrawerTab(at, 'ArrowLeft') ?? at;
   assert.equal(at, 'files');
-});
-
-test('tabScrollTop lands a new tab under the stuck strip', () => {
-  assert.equal(tabScrollTop(40, 120), 40, 'above the head: unchanged');
-  assert.equal(tabScrollTop(120, 120), 120, 'exactly at the strip');
-  assert.equal(tabScrollTop(900, 120), 120, 'past the head: the head height, so the new tab starts under the strip');
-  assert.equal(tabScrollTop(0, 120), 0, 'at the top');
-  assert.equal(tabScrollTop(0, 0), 0);
-  assert.equal(tabScrollTop(300, 0), 0, 'no head: the top');
-  assert.equal(tabScrollTop(-10, 120), 0, 'a negative scroll clamps to 0');
-  assert.equal(tabScrollTop(50, -5), 0, 'a negative head clamps to 0');
 });
 
 test('pane width clamps to the viewport and steps', () => {

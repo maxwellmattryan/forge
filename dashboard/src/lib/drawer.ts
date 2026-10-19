@@ -19,12 +19,6 @@ export function moveDrawerTab(current: DrawerTab, key: string): DrawerTab | null
   return null;
 }
 
-/**
- * The body's scrollTop after switching tabs. Past the header, the strip is stuck, so the new tab starts right under
- * it (at the header's height); above that point the position stays.
- */
-export const tabScrollTop = (scrollTop: number, headHeight: number): number => Math.max(0, Math.min(scrollTop, headHeight));
-
 // ---------- the job drawer over the view ----------
 
 /** The narrowest the job drawer gets, px. */

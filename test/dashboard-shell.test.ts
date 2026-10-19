@@ -302,7 +302,8 @@ test('the action dock sits outside the drawer tabs', () => {
   const cls = classTokens(aside.attrs.find((a) => a.name === 'class')?.value ?? '');
   // Fixed from the viewport top to the bar's top edge: its height is the viewport less the bar and the inset.
   for (const c of ['flex', 'flex-col', 'top-0', 'bottom-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom))]']) assert.ok(cls.includes(c), `the aside has ${c}`);
-  for (const c of ['h-full', 'overflow-y-auto']) assert.ok(!cls.includes(c), `the aside has no ${c}: the body scrolls, not the drawer`);
+  for (const c of ['overflow-hidden']) assert.ok(cls.includes(c), `the aside has ${c}`);
+  for (const c of ['h-full', 'overflow-y-auto']) assert.ok(!cls.includes(c), `the aside has no ${c}: the tab panel scrolls, not the drawer`);
   assert.doesNotMatch(drawer, /resumeModel\(/, 'Resume moved to the dock');
   assert.doesNotMatch(drawer, /type: 'resume'/);
 
@@ -809,7 +810,7 @@ test('drawer defaults to the Thread tab and resets it on close', () => {
 test('the Log tab holds the session feed alone', () => {
   const drawer = read('components/Drawer.svelte');
   assert.equal(drawer.match(/<SessionLog\b/g)?.length, 1, 'Drawer renders the session log once');
-  assert.ok(drawer.includes('{#key logKey}<SessionLog scope={j.id} active={open} transcript={ownerLog} />{/key}'), 'keyed by job id (and owner transcript), closed with the drawer');
+  assert.ok(drawer.includes('{#key logKey}<SessionLog scope={j.id} active={open} transcript={ownerLog} fill />{/key}'), 'keyed by job id (and owner transcript), closed with the drawer, filling the panel');
   assert.match(drawer, /const logKey = \$derived\(ownerLog && job \? `\$\{job\.id\}:owner` : \(job\?\.id \?\? ''\)\);/, 'the key changes only with the job or the owner transcript, never with a poll');
   // The Agents tab's per-agent transcripts live in AgentsTab, mounted only on that tab.
   const agentsTab = openBlocksAt(drawer, '<AgentsTab');
@@ -829,7 +830,7 @@ test('the Log tab holds the session feed alone', () => {
   assert.match(header[1].replace(/\s+/g, ' '), /its request and the requests about it with the session's replies/);
 });
 
-/** Drawer.svelte's markup walked, with its scrolling body, header block, tab strip and tab panel picked out. */
+/** Drawer.svelte's markup walked, with its body column, header block, tab strip and tab panel picked out. */
 function drawerParts() {
   const walked = elements('components/Drawer.svelte');
   const one = (pred: (e: El) => boolean, what: string) => {
@@ -837,10 +838,12 @@ function drawerParts() {
     assert.equal(hits.length, 1, `Drawer has one ${what}`);
     return hits[0];
   };
-  const body = one((e) => attr(e, 'bind:this') === '{body}', 'scrolling body (bind:this={body})');
   const head = one((e) => attr(e, 'bind:this') === '{head}', 'header block (bind:this={head})');
+  const body = head.parents.at(-1);
+  assert.ok(body, 'the header block sits in the body column');
   const strip = one((e) => attr(e, 'role') === 'tablist', 'tablist');
   const panel = one((e) => attr(e, 'role') === 'tabpanel', 'tabpanel');
+  assert.equal(attr(panel, 'bind:this'), '{panel}', 'the panel is bound, so the scroll resets reach it');
   const tabs = walked.filter((e) => attr(e, 'role') === 'tab');
   return { walked, body, head, strip, panel, tabs };
 }
@@ -848,7 +851,7 @@ function drawerParts() {
 test('drawer tabs are an ARIA tablist', () => {
   const text = read('components/Drawer.svelte');
   const { body, head, strip, panel, tabs } = drawerParts();
-  assert.match(text, /import \{ DRAWER_TABS, PANE_DEFAULT, PANE_MIN, clampPaneWidth, moveDrawerTab, paneKey, paneMax, tabScrollTop, type DrawerTab \} from '\.\.\/lib\/drawer\.ts';/);
+  assert.match(text, /import \{ DRAWER_TABS, PANE_DEFAULT, PANE_MIN, clampPaneWidth, moveDrawerTab, paneKey, paneMax, type DrawerTab \} from '\.\.\/lib\/drawer\.ts';/);
   assert.doesNotMatch(text, /const TABS\b/, 'no local tab list');
   assert.ok(text.includes('{#each DRAWER_TABS as tab (tab)}'), 'the strip iterates DRAWER_TABS');
 
@@ -873,16 +876,21 @@ test('drawer tabs are an ARIA tablist', () => {
   assert.equal(attr(panel, 'tabindex'), '0');
   assert.ok(!/aria-pressed/.test(text), 'no aria-pressed is left on the drawer tabs');
 
-  // AC7: sticky, opaque and above the content, a direct child of the scrolling body outside the header block.
-  assert.ok(has(strip, 'tabs', 'sticky', 'top-0', 'solid'), `the strip is a sticky, opaque .tabs (${strip.classes.join(' ')})`);
+  // Opaque, above the content and outside the scroller: a fixed-height row of the body column, outside the header block.
+  assert.ok(has(strip, 'tabs', 'shrink-0', 'solid'), `the strip is a non-shrinking, opaque .tabs (${strip.classes.join(' ')})`);
+  assert.ok(!has(strip, 'sticky'), 'nothing scrolls under the strip, so it needs no sticky');
   assert.ok(strip.classes.some((c) => /^z-\d+$/.test(c)), 'and has a z-index');
   // AC17: on a phone it scrolls sideways and never grows a vertical scrollbar of its own.
   assert.ok(has(strip, 'overflow-x-auto', 'overflow-y-hidden'), 'the strip scrolls only sideways');
-  assert.equal(strip.parents.at(-1), body, 'the strip is a direct child of the scrolling body');
+  assert.equal(strip.parents.at(-1), body, 'the strip is a direct child of the body column');
   assert.ok(!strip.parents.includes(head), 'outside the header block');
   assert.equal(head.parents.at(-1), body, 'the header block is a direct child of the body');
   assert.equal(panel.parents.at(-1), body, 'and so is the panel');
-  assert.ok(has(body, 'min-h-0', 'flex-1', 'overflow-y-auto'), 'the body is what scrolls');
+  assert.ok(has(body, 'flex', 'min-h-0', 'flex-1', 'flex-col', 'overflow-hidden'), `the body is a column that never scrolls (${body.classes.join(' ')})`);
+  assert.ok(!has(body, 'overflow-y-auto'), 'the body does not scroll');
+  assert.ok(has(head, 'shrink-0', 'max-h-[40%]', 'overflow-y-auto'), `a tall header is capped and scrolls inside itself (${head.classes.join(' ')})`);
+  assert.ok(has(panel, 'min-h-0', 'flex-1'), 'the panel takes the remaining height');
+  assert.ok(text.includes("{shown.tab === 'log' ? 'overflow-hidden' : 'overflow-y-auto'}"), 'the panel scrolls on every tab but Log, where the log pane does');
   // The strip outranks the session log's own sticky group headings (z-10), which scroll under it.
   const zOf = (cls: string[]) => Number(cls.find((c) => /^z-\d+$/.test(c))?.slice(2) ?? 0);
   const logHeads = elements('components/SessionLog.svelte').filter((e) => e.classes.includes('sticky'));
@@ -939,18 +947,19 @@ test('the drawer header is compact and Details holds the rest', () => {
 test('drawer scroll resets when the job id changes', () => {
   const text = read('components/Drawer.svelte');
   const script = /<script\b[^>]*>([\s\S]*?)<\/script>/.exec(text)?.[1] ?? '';
-  assert.match(script, /let body = \$state<HTMLDivElement>\(\);/);
   assert.match(script, /let head = \$state<HTMLDivElement>\(\);/);
+  assert.match(script, /let panel = \$state<HTMLDivElement>\(\);/);
+  assert.doesNotMatch(script, /tabScrollTop|\bbody\.scrollTop/, 'the body column never scrolls, so nothing resets it');
   const effects = [...script.matchAll(/\$effect\(\(\) => \{/g)].map((m) => script.slice(m.index, endOf(script, m.index + m[0].length - 1) + 1));
   const reset = effects.filter((e) => /S\.drawer\.id/.test(e));
   assert.equal(reset.length, 1, 'one effect reads the drawer id');
-  assert.match(reset[0], /void S\.drawer\.id;\s*if \(body\) body\.scrollTop = 0;/, 'and puts the body back at the top');
+  assert.match(reset[0], /void S\.drawer\.id;\s*if \(panel\) panel\.scrollTop = 0;\s*if \(head\) head\.scrollTop = 0;/, 'and puts the panel and the header back at the top');
   assert.doesNotMatch(reset[0], /S\.drawerView|shown|job\b/, 'it reads only the id, so a poll refresh never moves the scroll');
 
   const select = fnBody(script.replace(/\n {2}/g, '\n'), 'function selectTab(');
-  const scroll = select.indexOf('body.scrollTop = tabScrollTop(body.scrollTop, head.offsetHeight)');
-  assert.ok(scroll > 0, 'switching tabs lands the new tab under the stuck strip');
-  assert.ok(select.indexOf('setDrawerTab(tab)') > scroll, 'before the tab changes');
+  const tabAt = select.indexOf('setDrawerTab(tab);');
+  const scroll = select.indexOf('if (panel) panel.scrollTop = 0;');
+  assert.ok(tabAt >= 0 && scroll > tabAt, 'switching tabs starts the new tab at the top of the panel');
   assert.match(select, /if \(focus\) document\.getElementById\('drawer-tab-' \+ tab\)\?\.focus\(\);/);
 });
 
@@ -1553,7 +1562,8 @@ test('counts read Label (N) in tabs and segments', () => {
 test('scrollers contain their overscroll', () => {
   const has = (rel: string, re: RegExp, what: string) => assert.match(read(rel), re, what);
   has('App.svelte', /id="sidebar" class="[^"]*\boverscroll-contain\b/, 'the sidebar');
-  has('components/Drawer.svelte', /bind:this=\{body\} class="[^"]*\boverscroll-contain\b/, 'the job pane body');
+  has('components/Drawer.svelte', /bind:this=\{head\} class="[^"]*\boverscroll-contain\b/, 'the job pane header');
+  has('components/Drawer.svelte', /bind:this=\{panel\} role="tabpanel"[^>]*class="[^"]*\boverscroll-contain\b/, 'the job pane tab panel');
   has('components/Popover.svelte', /class="min-h-0 flex-1 overflow-y-auto overscroll-contain\b/, 'the popover body');
   has('views/Pipeline.svelte', /class="flex flex-col gap-2\.5 p-2\.5 overflow-y-auto overscroll-contain"/, 'the board column scrollers');
   has('components/CommandBar.svelte', /id="command-list"[^>]*class="[^"]*\boverscroll-contain\b/, 'the palette list');
@@ -1685,9 +1695,9 @@ test("SessionLog: fill layout and the office's read-only model and effort", () =
   assert.match(text, /fill = false \}: \{[^}]*fill\?: boolean \}/, 'fill is an opt-in prop');
   assert.ok(text.includes(`<div class="flex flex-col gap-2 {fill ? 'min-h-0 flex-1' : ''}">`), 'the root grows into its container');
   assert.ok(text.includes(`{fill ? 'min-h-0 flex-1' : compact ? 'max-h-72' : 'max-h-[70vh]'}`), 'the log pane fills instead of capping its height');
-  // The drawer's Log tab and the Daemon popover's Inbox session log never pass fill, so their layout is unchanged.
-  assert.ok(!/<SessionLog\b[^>]*\bfill\b/.test(read('components/Drawer.svelte')), 'the drawer passes no fill');
-  assert.ok(!/<SessionLog\b[^>]*\bfill\b/.test(read('components/statusbar/DaemonPanel.svelte')), 'nor the Daemon popover');
+  // The drawer's Log tab fills its panel, so the log pane is the one scroller; the Daemon popover's Inbox log keeps its cap.
+  assert.ok(/<SessionLog\b[^>]*\bfill\b/.test(read('components/Drawer.svelte')), 'the drawer passes fill');
+  assert.ok(!/<SessionLog\b[^>]*\bfill\b/.test(read('components/statusbar/DaemonPanel.svelte')), 'the Daemon popover passes no fill');
   const markup = markupOf('components/SessionLog.svelte');
   const facts = ifBody(markup, 'scope === OFFICE_SCOPE');
   assert.ok(facts, "{#if scope === OFFICE_SCOPE}: the office's facts");
