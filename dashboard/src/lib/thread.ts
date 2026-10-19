@@ -44,6 +44,8 @@ export interface ThreadSecret {
   count: number;
   findings: SecretLine[];
   more: number;
+  /** The scan's own error line when it could not finish; null otherwise. */
+  error: string | null;
 }
 
 export interface ThreadItem {
@@ -146,6 +148,7 @@ const FINGERPRINT = /^sha256:[0-9a-f]{64}$/;
 const MAX_PATH = 500;
 const MAX_EXCERPT = 24;
 const MAX_FINDINGS = 10;
+const MAX_ERROR = 300;
 const count = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : null);
 
 /**
@@ -177,10 +180,18 @@ export function secretItems(events: JobEvent[] | null | undefined): ThreadItem[]
       count: Math.max(count(e.count) ?? 0, findings.length),
       findings,
       more: count(e.more) ?? 0,
+      error: scanError(e.error),
     };
     out.push({ id: `secret:${e.ts}:${index}`, from: 'forge', action: { kind: 'secret' }, text: null, status: null, at: e.ts, result: null, secret });
   });
   return out.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+}
+
+/** A scan error from events.jsonl: a string only, control characters stripped, at most 300 chars. */
+function scanError(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const text = v.replace(/[\x00-\x1f\x7f\u2028\u2029]/g, '').slice(0, MAX_ERROR);
+  return text || null;
 }
 
 /** One finding as a line of plain text: `kind · path:line · excerpt · sha256:<first 12 hex>`. */

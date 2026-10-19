@@ -342,6 +342,16 @@ test('thread secret notes', () => {
   assert.deepEqual([pr.gate, pr.role, pr.blocked, pr.count], ['pr', null, false, 0]);
   assert.equal(secretLine(verify.findings[0]), `aws-access-key · cfg/app.cfg:3 · AKIA…XY · sha256:${'ab12'.repeat(3)}`);
   assert.equal(secretLine({ kind: 'k', path: 'p', line: null, excerpt: '…', fingerprint: null }), 'k · p · …');
+  // A scan that could not finish: the error is kept as plain text, stripped and capped; anything else is null.
+  assert.deepEqual(notes.map((n) => n.secret!.error), [null, null, null, null]);
+  const errs = secretItems([
+    ev('2026-10-13T00:00:06Z', { gate: 'pr', blocked: true, count: 0, findings: [], error: 'base x\u0007 not\nfound\u2028' }),
+    ev('2026-10-13T00:00:07Z', { gate: 'pr', blocked: true, count: 0, findings: [], error: 'e'.repeat(400) }),
+    ev('2026-10-13T00:00:08Z', { gate: 'pr', blocked: true, count: 0, findings: [], error: { message: 'x' } }),
+    ev('2026-10-13T00:00:09Z', { gate: 'pr', blocked: true, count: 0, findings: [], error: 42 }),
+    ev('2026-10-13T00:00:10Z', { gate: 'pr', blocked: true, count: 0, findings: [], error: '\u0000\u001f' }),
+  ]).map((n) => n.secret!.error);
+  assert.deepEqual(errs, ['base x notfound', 'e'.repeat(300), null, null, null]);
 
   // Merged with the requests by time; a request comes first on a tie.
   const req = (id: string, createdAt: string): any => ({ id, type: 'answer', job: 'j1', text: 'x', args: {}, from: 'dashboard', status: 'done', createdAt });
@@ -637,6 +647,30 @@ test('foreman event line and gate owner badge', () => {
   assert.deepEqual(V.gateOwnerBadge('foreman'), { foreman: true, tone: 'live' });
   assert.deepEqual(V.gateOwnerBadge('human'), { foreman: false, tone: 'you' });
   for (const none of [null, undefined, 'robot', 1]) assert.equal(V.gateOwnerBadge(none), null, String(none));
+});
+
+test('secretPark: secret parks and still blocked after approve', () => {
+  const approve = { ts: '2026-10-19T10:00:00Z', type: 'human', action: 'approve', actor: { login: 'alice', source: 'gh' } } as any;
+  const park = (ts: string): any => ({ v: 1, ts, type: 'transition', from: { stage: 'pr', state: 'running', waitingOn: null }, to: { stage: 'pr', state: 'waiting', waitingOn: 'human' } });
+  const job = (extra: Record<string, unknown> = {}): any => ({ state: 'waiting', waitingOn: 'human', reason: 'secret scan blocked pr open', lastHuman: null, lastEvent: null, ...extra });
+  // Not secret parks.
+  assert.equal(V.secretPark(job({ reason: 'protected path edited' })), null);
+  assert.equal(V.secretPark(job({ waitingOn: 'escalation' })), null);
+  assert.equal(V.secretPark(job({ state: 'running' })), null);
+  assert.equal(V.secretPark(job({ reason: null })), null);
+  assert.equal(V.SECRET_PARK_PREFIX, 'secret scan blocked ');
+  // A fresh park, and an approve nothing has acted on yet.
+  assert.deepEqual(V.secretPark(job({ reason: 'secret scan blocked verify round 2', lastEvent: park('2026-10-19T09:00:00Z') })), { stillBlocked: false });
+  assert.deepEqual(V.secretPark(job({ lastHuman: approve, lastEvent: { v: 1, ts: approve.ts, type: 'human', action: 'approve' } })), { stillBlocked: false });
+  assert.deepEqual(V.secretPark(job({ lastHuman: approve, lastEvent: null })), { stillBlocked: false });
+  assert.deepEqual(V.secretPark(job({ lastHuman: approve, lastEvent: park('2026-10-19T09:59:59Z') })), { stillBlocked: false }, 'a park before the approve');
+  // The approve ran the scan again and it parked once more.
+  assert.deepEqual(V.secretPark(job({ lastHuman: approve, lastEvent: park('2026-10-19T10:00:05Z') })), { stillBlocked: true });
+  // Only an approve counts, and only a park on human.
+  assert.deepEqual(V.secretPark(job({ lastHuman: { ...approve, action: 'note' }, lastEvent: park('2026-10-19T10:00:05Z') })), { stillBlocked: false });
+  const other = park('2026-10-19T10:00:05Z');
+  other.to.waitingOn = 'escalation';
+  assert.deepEqual(V.secretPark(job({ lastHuman: approve, lastEvent: other })), { stillBlocked: false });
 });
 
 test('actorLabel and lastActed', () => {
