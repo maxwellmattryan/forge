@@ -342,7 +342,7 @@ test('thread secret notes', () => {
   assert.deepEqual([pr.gate, pr.role, pr.blocked, pr.count], ['pr', null, false, 0]);
   assert.equal(secretLine(verify.findings[0]), `aws-access-key · cfg/app.cfg:3 · AKIA…XY · sha256:${'ab12'.repeat(3)}`);
   assert.equal(secretLine({ kind: 'k', path: 'p', line: null, excerpt: '…', fingerprint: null }), 'k · p · …');
-  // A scan that could not finish: the error is kept as plain text, stripped and capped; anything else is null.
+  // A scan that could not finish: the error is kept as plain text, control characters as single spaces, capped; anything else is null.
   assert.deepEqual(notes.map((n) => n.secret!.error), [null, null, null, null]);
   const errs = secretItems([
     ev('2026-10-13T00:00:06Z', { gate: 'pr', blocked: true, count: 0, findings: [], error: 'base x\u0007 not\nfound\u2028' }),
@@ -350,8 +350,9 @@ test('thread secret notes', () => {
     ev('2026-10-13T00:00:08Z', { gate: 'pr', blocked: true, count: 0, findings: [], error: { message: 'x' } }),
     ev('2026-10-13T00:00:09Z', { gate: 'pr', blocked: true, count: 0, findings: [], error: 42 }),
     ev('2026-10-13T00:00:10Z', { gate: 'pr', blocked: true, count: 0, findings: [], error: '\u0000\u001f' }),
+    ev('2026-10-13T00:00:11Z', { gate: 'pr', blocked: true, count: 0, findings: [], error: 'fatal: x\r\nhint: y\n' }),
   ]).map((n) => n.secret!.error);
-  assert.deepEqual(errs, ['base x notfound', 'e'.repeat(300), null, null, null]);
+  assert.deepEqual(errs, ['base x not found', 'e'.repeat(300), null, null, null, 'fatal: x hint: y']);
 
   // Merged with the requests by time; a request comes first on a tie.
   const req = (id: string, createdAt: string): any => ({ id, type: 'answer', job: 'j1', text: 'x', args: {}, from: 'dashboard', status: 'done', createdAt });

@@ -300,7 +300,7 @@
     "protectedDiff": "View diff",
     "lastActed": "Last acted: {who} · {ago}",
     "foreman": "Foreman",
-    "secretRescan": "Approve runs the secret scan again. Remove or allowlist the value first.",
+    "secretRescan": "Approve runs the secret scan again. First remove or allowlist the value, or fix what stopped the scan.",
     "stillBlocked": "Still blocked",
     "stillBlockedNote": "The last approve ran the scan again and it still found a problem."
   },

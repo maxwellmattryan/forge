@@ -187,10 +187,10 @@ export function secretItems(events: JobEvent[] | null | undefined): ThreadItem[]
   return out.sort((a, b) => String(a.at).localeCompare(String(b.at)));
 }
 
-/** A scan error from events.jsonl: a string only, control characters stripped, at most 300 chars. */
+/** A scan error from events.jsonl: a string only, control characters turned into single spaces (a multi-line git error stays readable), at most 300 chars. */
 function scanError(v: unknown): string | null {
   if (typeof v !== 'string') return null;
-  const text = v.replace(/[\x00-\x1f\x7f\u2028\u2029]/g, '').slice(0, MAX_ERROR);
+  const text = v.replace(/[\x00-\x1f\x7f\u2028\u2029]/g, ' ').replace(/ {2,}/g, ' ').trim().slice(0, MAX_ERROR);
   return text || null;
 }
 

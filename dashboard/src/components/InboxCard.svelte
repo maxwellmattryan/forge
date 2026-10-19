@@ -24,8 +24,8 @@
 <div class="plate ember p-4 flex flex-col gap-3">
   <div class="flex flex-wrap items-start gap-2"><div class="min-w-0 flex-[1_1_16rem]"><button class="h card text-left break-words hover:text-gleam" onclick={() => openDrawer(j.id)}>{j.title}</button><div class="mono muted text-[11px] truncate" title={j.id}>{j.id}</div></div><div class="flex flex-wrap items-center gap-1.5">{#if owner}<span class="chip sm {TONE_CLASS[owner.tone]}" title={owner.foreman ? $t('gate.foremanTitle') : $t('gate.humanTitle')}>{owner.foreman ? $t('gate.foreman') : $t('gate.human')}</span>{/if}{#if secret?.stillBlocked}<span class="chip sm {TONE_CLASS.warn}">{$t('inbox.stillBlocked')}</span>{/if}<StateChip job={j} /></div></div>
   {#if showParkReason(j)}<div class="muted">{j.reason}</div>{/if}
-  {#if secret}<div class="muted text-[12px]">{$t('inbox.secretRescan')}</div>{/if}
   {#if secret?.stillBlocked}<div class="muted text-[12px]">{$t('inbox.stillBlockedNote')}</div>{/if}
+  {#if secret}<div class="muted text-[12px]">{$t('inbox.secretRescan')}</div>{/if}
   {#if acted}<div class="muted text-[12px]">{$t('inbox.lastActed', { who: acted.foreman ? $t('inbox.foreman') : acted.who, ago: ago(acted.ts, ticker.now) })}</div>{/if}
   {#if prot}
     <div class="flex flex-col gap-1.5">

@@ -338,6 +338,7 @@ test('InboxCard explains Approve on a secret park and shows Still blocked', () =
   assert.ok(card.includes(`{#if secret}<div class="muted text-[12px]">{$t('inbox.secretRescan')}</div>{/if}`));
   assert.ok(card.includes(`{#if secret?.stillBlocked}<div class="muted text-[12px]">{$t('inbox.stillBlockedNote')}</div>{/if}`));
   assert.ok(card.indexOf("$t('inbox.secretRescan')") > card.indexOf('{#if showParkReason(j)}'), 'the line comes after the reason');
+  assert.ok(card.indexOf("$t('inbox.stillBlockedNote')") < card.indexOf("$t('inbox.secretRescan')"), 'the still-blocked note comes before the rescan line');
   assert.ok(!card.includes('{@html secret') && !/\{@html[^}]*inbox\./.test(card), 'no {@html} for the new text');
 });
 
