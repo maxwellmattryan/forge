@@ -440,6 +440,41 @@ const rows: Row[] = [
     },
   },
   {
+    name: 'B4 builder model is runtime.models.builder by default',
+    fx: { files: ['spec', 'tasks'], job: job({ stage: 'build', round: 1, complexity: 'low' }), events: [ev('round', 4)] },
+    want: { action: 'spawn', rule: 'B4', role: 'builder', model: 'opus' },
+    check: (a) => assert.deepEqual(a.start.slice(a.start.indexOf('--model'), a.start.indexOf('--model') + 2), ['--model', 'opus']),
+  },
+  {
+    name: 'B4 builder model follows modelByComplexity',
+    fx: { config: (c) => (c.runtime.modelByComplexity.low = 'sonnet'), files: ['spec', 'tasks'], job: job({ stage: 'build', round: 1, complexity: 'low' }), events: [ev('round', 4)] },
+    want: { action: 'spawn', rule: 'B4', role: 'builder', model: 'sonnet' },
+    check: (a) => {
+      assert.deepEqual(a.start.slice(a.start.indexOf('--model'), a.start.indexOf('--model') + 2), ['--model', 'sonnet']);
+      assert.ok(a.startShell.includes(' --model sonnet'));
+    },
+  },
+  {
+    name: 'B4 review-only rework uses reworkModel',
+    fx: {
+      config: (c) => ((c.runtime.reworkModel = 'haiku'), (c.runtime.modelByComplexity.low = 'sonnet')),
+      files: ['spec', 'tasks', 'build'],
+      present: [path.join(JOB_DIR, 'review', 'round-1', 'code.md')],
+      job: job({ stage: 'build', round: 2, complexity: 'low', verdicts: { 1: { code: 'CHANGES', tests: 'PASS' } }, agents: { builder: ag(1, 5, 6, { agentId: 'b1' }) } }),
+      events: [ev('round', 7)],
+    },
+    want: { action: 'spawn', rule: 'B4', role: 'builder', model: 'haiku' },
+    check: (a) => {
+      assert.ok(a.brief.split('\n').includes('Rework: review'));
+      assert.deepEqual(a.start.slice(a.start.indexOf('--model'), a.start.indexOf('--model') + 2), ['--model', 'haiku']);
+      // With feedback as well, the rework is not review-only: modelByComplexity applies.
+      const row = rows.find((r) => r.name === 'B4 review-only rework uses reworkModel')!;
+      const mixed = step(fixture({ ...row.fx, files: ['spec', 'tasks', 'build', 'feedback'] })) as any;
+      assert.equal(mixed.model, 'sonnet');
+      assert.ok(mixed.brief.split('\n').includes('Rework: review, feedback'));
+    },
+  },
+  {
     name: 'B4 a failing verify sends a fresh builder back',
     fx: { files: ['spec', 'tasks', 'build'], present: [path.join(JOB_DIR, 'verify', 'round-1.md')], job: job({ stage: 'build', round: 1, verifyRuns: [vr(1, 10, false)], agents: { builder: ag(1, 5, 6) } }), events: [ev('round', 4)] },
     want: { action: 'spawn', rule: 'B4', role: 'builder' },

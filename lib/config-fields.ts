@@ -6,12 +6,14 @@
 // CONFIG_DISCLOSURE, at the end, is a separate map rather than a ConfigField property: it must
 // classify every key (commands.* and worktrees.setup are not settings), and /api/config stays as is.
 import { defaults } from './config.ts';
-import { COMPLEXITIES, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES } from './schema.ts';
+import { COMPLEXITIES, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, MODEL_RE, OFFICE_GATES } from './schema.ts';
 import type { Config, ConfigField, ConfigFieldType, ConfigSection, ConfigValue } from './types.ts';
 import { ForgeError, getPath } from './util.ts';
 import * as yaml from './yaml.ts';
 
-export const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]*$/;
+export { MODEL_RE };
+/** Keys whose value is a model alias or id, checked against MODEL_RE. */
+const isModelKey = (key: string) => key.startsWith('runtime.models.') || key.startsWith('runtime.modelByComplexity.') || key === 'runtime.reworkModel';
 const LABEL_PREFIX_RE = /^.+[:/-]$/;
 const MODEL_SUGGESTIONS = ['inherit', 'opus', 'sonnet', 'haiku', 'fable'];
 const SEVERITIES = ['blocker', 'major', 'minor', 'nit'];
@@ -129,6 +131,7 @@ export const FIELDS: ConfigField[] = [
 
   field('review.blockOn', 'review', 'Block on', 'Severities that force another round. Blocker and major always do; add minor or nit to be stricter.', { type: 'list', options: SEVERITIES, required: ['blocker', 'major'] }),
   field('review.onPrFeedback', 'review', 'On PR feedback', 'Which lenses re-run after PR feedback.', { type: 'enum', options: ['changed', 'full', 'none'] }),
+  field('review.onRework', 'review', 'On rework', 'Rounds 2 and later: narrow re-runs the always lenses, the ones that asked for changes and the ones whose paths the fix touched; full re-runs every lens.', { type: 'enum', options: ['narrow', 'full'] }),
   field('pr.integrationReview', 'review', 'Integration review', 'After a conflict fix: always review, or skip when only docs or generated files conflicted.', { type: 'enum', options: ['always', 'code-only'] }),
   field('review.panel', 'review', 'Panel', 'The review lenses: built-in names or .forge/reviewers/<name>.md.', { type: 'object', locked: 'lenses name checklist files and models' }),
 
@@ -146,6 +149,11 @@ export const FIELDS: ConfigField[] = [
   ...COMPLEXITIES.map((k) =>
     field(`runtime.effortByComplexity.${k}`, 'agents', `Effort for ${k} complexity`, `Effort for agents of a job whose spec says Complexity: ${k}, when the role has no effort of its own. Empty falls through.`, { type: 'enum', options: [...EFFORTS], nullable: true }),
   ),
+  // Editable like runtime.models.builder: they pick which model builds, never what it may do.
+  ...COMPLEXITIES.map((k) =>
+    field(`runtime.modelByComplexity.${k}`, 'agents', `Builder model for ${k} complexity`, `The builder's model for a job whose spec says Complexity: ${k}; beats the builder model, not the review rework model. Empty falls through.`, { type: 'string', nullable: true, suggestions: MODEL_SUGGESTIONS }),
+  ),
+  field('runtime.reworkModel', 'agents', 'Builder model on review rework', "The builder's model on a rework round that only addresses review findings (no failed verify, PR feedback, feedback or answer). Empty falls through.", { type: 'string', nullable: true, suggestions: MODEL_SUGGESTIONS }),
   field('runtime.provider', 'agents', 'Provider', 'Informational; the roster is provider-neutral markdown.', { type: 'string', locked: 'informational' }),
   field('runtime.host', 'agents', 'Host', 'The agent host Forge runs in.', { type: 'string', locked: 'informational' }),
 
@@ -253,7 +261,7 @@ export function validateFieldValue(f: ConfigField, value: unknown): string | nul
       // Forge removes every issue label that starts with the prefix, so a bare word would catch unrelated labels.
       if (f.key === 'tracker.github.labels.prefix' && !LABEL_PREFIX_RE.test(value))
         return `tracker.github.labels.prefix must be at least 2 characters and end with : / or - (got ${JSON.stringify(value)})`;
-      if (f.key.startsWith('runtime.models.') && !MODEL_RE.test(value))
+      if (isModelKey(f.key) && value && !MODEL_RE.test(value))
         return `${f.key} must be a model alias or id: letters, digits and . _ : - [ ] (got ${JSON.stringify(value)})`;
       return null;
     }

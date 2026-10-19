@@ -90,6 +90,7 @@ export type Checks = [
   Expect<Equal<engine.EvalTaskAggregate, dash.EvalTaskAggregate>>,
   Expect<Equal<engine.RequestsResponse, dash.RequestsResponse>>,
   Expect<Equal<engine.Roster, dash.Roster>>,
+  Expect<Equal<engine.RosterModelBy, dash.RosterModelBy>>,
   Expect<Equal<engine.ProjectComponent, dash.ProjectComponent>>,
   Expect<Equal<engine.ProjectEdge, dash.ProjectEdge>>,
   Expect<Equal<engine.ProjectResponse, dash.ProjectResponse>>,

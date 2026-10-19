@@ -11,7 +11,7 @@ import { acCoverage, specUiAcs } from './acs.ts';
 import { readJobRecord, readSharedRecord } from './backing.ts';
 import { jobPathMap, renderBrief, roleBrief } from './brief.ts';
 import type { RoleContext } from './brief.ts';
-import { autoMerge, lensNeedsApp, resolveEffort } from './config.ts';
+import { autoMerge, lensNeedsApp, resolveEffort, resolveModel } from './config.ts';
 import { configForJob } from './eval-overlay.ts';
 import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
@@ -366,14 +366,6 @@ export function selectPanel(x: Pick<StepInput, 'job' | 'config' | 'spec'>): stri
   return choosePanel({ kind: x.job.kind, config: x.config, suggested: x.spec.suggested, approachPaths: x.spec.approachPaths, changed: null, carried: [] }).lenses;
 }
 
-function modelOf(config: Config, role: string): string {
-  if (role.startsWith('reviewer:')) {
-    const lens = role.slice('reviewer:'.length);
-    return config.review.panel.find((p) => p.name === lens)?.model ?? config.runtime.models.reviewer ?? 'inherit';
-  }
-  return config.runtime.models[role] ?? 'inherit';
-}
-
 // ---------- state helpers ----------
 
 const ended = (a: JobAgent | undefined): a is JobAgent => Boolean(a?.endedAt && a.status !== 'running');
@@ -563,7 +555,7 @@ function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: boolean; 
     ctx.integration = { conflicts: conflictFiles, regenerated, fix: Boolean(review && review.outcome === 'CHANGES' && after(review.ts, conflicts?.ts)) };
     ctx.strategy = x.config.pr.updateStrategy;
   }
-  const model = modelOf(x.config, role);
+  const model = resolveModel(x.config, x.job, role, ctx.rework ?? []);
   const a = agent(x, role);
   const resume = o.resume && a?.agentId && AGENT_ID.test(a.agentId) ? a.agentId : undefined;
   const parallel = base === 'reviewer' && j.stage === 'review';

@@ -516,6 +516,54 @@ test('runtime.models.verifier defaults to haiku', () => {
   }
 });
 
+test('builder model overrides and review.onRework are editable', async () => {
+  const keys = ['runtime.modelByComplexity.low', 'runtime.modelByComplexity.medium', 'runtime.modelByComplexity.high', 'runtime.reworkModel'];
+  const docs = fs.readFileSync(path.join(ROOT, 'docs', 'CONFIG.md'), 'utf8');
+  for (const key of keys) {
+    const f = FIELDS.find((x) => x.key === key);
+    assert.ok(f?.editable, `${key} is an editable field`);
+    assert.equal(f.section, 'agents');
+    assert.equal(f.type, 'string');
+    assert.equal(f.nullable, true);
+    assert.equal(f.default, null);
+    assert.deepEqual(f.suggestions, FIELDS.find((x) => x.key === 'runtime.models.builder')!.suggestions, `${key}: the model suggestions`);
+  }
+  const onRework = FIELDS.find((x) => x.key === 'review.onRework');
+  assert.ok(onRework?.editable);
+  assert.deepEqual([onRework.section, onRework.type, onRework.options, onRework.default], ['review', 'enum', ['narrow', 'full'], 'narrow']);
+  for (const k of ['modelByComplexity:', 'reworkModel:', 'onRework:', 'pathsOnly:']) assert.ok(docs.includes(k), `docs/CONFIG.md documents ${k}`);
+  const s = scratch();
+  try {
+    for (const [key, value] of [['runtime.modelByComplexity.low', 'sonnet'], ['runtime.reworkModel', 'sonnet'], ['review.onRework', 'full']]) {
+      const r = await s.forge('config', 'set', key, value);
+      assert.equal(r.code, 0, `${key}: ${r.err}`);
+      assert.equal(JSON.parse(r.out).value, value, key);
+    }
+    const before = s.read();
+    for (const [key, value] of [['runtime.modelByComplexity.high', 'opus; rm -rf /'], ['runtime.reworkModel', 'opus --add-dir=/'], ['runtime.reworkModel', 'a'.repeat(201)], ['review.onRework', 'some']]) {
+      const r = await s.forge('config', 'set', key, value);
+      assert.equal(r.code, 1, `${key} ${value} exits 1`);
+      assert.ok(r.err.includes(key), r.err);
+    }
+    assert.equal(s.read(), before, 'refused values leave the file byte-identical');
+    const cleared = await s.forge('config', 'set', 'runtime.reworkModel', 'null');
+    assert.equal(cleared.code, 0, cleared.err);
+    assert.equal(JSON.parse(cleared.out).value, null);
+  } finally {
+    s.repo.cleanup();
+  }
+  const repo = tempRepo();
+  try {
+    const base = defaults();
+    const overlay = { 'runtime.reworkModel': 'sonnet', 'runtime.modelByComplexity.low': 'haiku', 'review.onRework': 'full' };
+    assert.deepEqual(overlayProblems(repo.dir, base, overlay), [], 'an eval overlay may A/B them');
+    const applied = applyOverlay(base, overlay);
+    assert.deepEqual([applied.runtime.reworkModel, applied.runtime.modelByComplexity.low, applied.review.onRework], ['sonnet', 'haiku', 'full']);
+  } finally {
+    repo.cleanup();
+  }
+});
+
 /** Every leaf key of an object: recursion stops at arrays, empty objects and scalars. */
 function leafKeys(obj: Record<string, unknown>, prefix = ''): string[] {
   return Object.entries(obj).flatMap(([k, v]) => {
