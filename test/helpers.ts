@@ -37,6 +37,8 @@ delete process.env.CLAUDE_CONFIG_DIR;
 // Every human action resolves who did it, and without this the CLI would ask the developer's real
 // gh. Tests of the fallbacks drop it in their own child env.
 process.env.FORGE_ACTOR = 'forge-test';
+// The suite parses the CLI's stdout, so a developer's own FORGE_MODE=human must not reach it.
+process.env.FORGE_MODE = 'agent';
 // Forge runs configured commands as `$SHELL -lc`. A login profile (nvm, for one) can cost a second
 // per command and reorder PATH, and no test needs one, so commands run in the same shell without -l.
 const NO_LOGIN_SHELL = path.resolve(import.meta.dirname, 'fixtures', 'bin', 'no-login-shell');

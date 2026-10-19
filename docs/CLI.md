@@ -4,15 +4,39 @@ The orchestrator, its agents, scripts, CI and other agent runtimes ([PROTOCOL.md
 
 ## Output
 
+This section and the `--json` section below describe **agent mode**, the output every program gets: a pipe, a file, `$(…)`, Claude Code's Bash tool and daemon sessions. A person at a terminal gets human mode instead (see Output mode).
+
 - Success prints one compact JSON value and a newline on stdout. `--pretty` indents it, and `forge doctor` and `forge config show` always indent.
 - A few commands print text instead: `forge status` (a table), `forge stats` (a summary), `forge secrets scan` (a report), `forge help`, and the string results of `forge worktree path`, `forge worktree prune`, `forge job get`, `forge config get` and `forge daemon log`. Under `--json` all of them print JSON (see below).
-- An error prints exactly `forge: <message>` on stderr, nothing on stdout, and exits with its code from the tables below. `FORGE_DEBUG=1` adds the stack trace on stderr.
+- An error prints exactly `forge: <message>` on stderr, nothing on stdout, and exits with its code from the tables below. `FORGE_DEBUG=1` adds the stack trace on stderr. Human mode prints `error:` and `fix:` lines instead.
 - These commands report a failure in their own result instead of an error, and exit 1: `verify`, `run`, `integrate`, `pr merge`, `job advance`, `config validate`, `secrets scan` (a finding) and `update`.
 - `forge git diff|log|show|range-diff` pass git's stdout, stderr and exit code through once git runs.
 
+## Output mode
+
+Every call runs in one of two output modes. **Agent** mode is the contract on this page, byte for byte. **Human** mode renders the same results and errors as text for a person at a terminal. The mode is decided once per call, and the first rule that applies wins:
+
+1. A bare `--json` before `--` gives agent mode, even with `--mode human`.
+2. `--mode human` or `--mode agent` (also `--mode=<v>`) before `--`.
+3. `FORGE_MODE=human` or `FORGE_MODE=agent`. An empty value counts as unset.
+4. Human when stdout is a terminal, else agent.
+
+A `--mode` with no value, a repeated `--mode`, or an unknown value of `--mode` or `FORGE_MODE` is a `usage` error (exit 2), even under `--json`: `forge --mode job-12` is refused, never read as help.
+
+Human mode:
+
+- **Strings** print raw, exactly as in agent mode: help, the `status` table, the `stats` summary, `worktree path`, `config get` strings. `$(forge worktree path <id>)` is the same in both modes.
+- **Other results** go through a generic renderer, and `--pretty` has no effect. An object prints one aligned `key  value` line per key (`(empty)` for `{}`). An array of objects prints a table whose columns are the union of the rows' keys, in first-seen order. Any other array prints one item per line (`(none)` when empty). `null` prints `-`, a list of scalars is joined with `, `, and a nested object or array is shown as one-line JSON, never truncated.
+- **Control characters** in rendered keys, values, cells and error messages are shown as visible escapes (`\x1b`, `\u202e`), so text from trackers, PRs or job state can't move the cursor, rewrite lines or set the clipboard. Raw strings are not touched.
+- **Errors** print on stderr, nothing on stdout: `error: <message>`, then `fix: <hint>` when the error has a hint (the `hint` `--json` reports). Later lines of a message or hint are indented under its text, so only the real hint starts with `fix:`. The exit code is unchanged, and `FORGE_DEBUG` still adds the stack.
+- **Colour**: keys and table headers are bold, `true` green, `false` red, `error:` red and `fix:` yellow. Colour is on only when the stream is a terminal and `NO_COLOR` is unset or empty.
+- Streams that write for themselves are the same in both modes: `forge dash` in the foreground, `forge daemon log --follow` and the `forge git diff|log|show|range-diff` passthrough.
+
+Agent mode is pinned wherever Forge or Claude Code start the CLI: the plugin's SessionStart hook writes `export FORGE_MODE=agent` to `CLAUDE_ENV_FILE` (every Bash command of a Claude Code session, even under a PTY), `forge dash` sets `FORGE_MODE=agent` for daemon sessions, and the test suite sets it in `test/helpers.ts`. A script that might run on a terminal should pass `--json` or set `FORGE_MODE=agent`.
+
 ## `--json`
 
-`--json`, `--help` and `--pretty` work on every command and take no value: they never swallow the next argument, so `forge --json job list` is `forge job list --json`. Only tokens before the first `--` count; everything after it is a path.
+`--json`, `--help` and `--pretty` work on every command and take no value: they never swallow the next argument, so `forge --json job list` is `forge job list --json`. `--json` selects agent mode. `--mode human|agent` works on every command too, but takes a value: it is accepted anywhere before `--` and removed before the command sees its arguments, so `forge job show --mode human <id>` shows `<id>`. Only tokens before the first `--` count; everything after it is a path.
 
 With `--json`:
 
@@ -31,7 +55,7 @@ With `--json`:
 
   `code` is one of the error codes below, `exit` equals the process exit code, and `hint` is a command to run next or `null`: for `usage`, the help for the longest known prefix of the call (`forge job claim x --json` with no `--session` gives `forge help job claim`); for `unknown_command`, `forge help`; for `not_initialized`, `/forge init`. The message is data, so it may quote tracker or PR text; JSON encoding keeps it on the one line.
 - **Streams that stay text**: `forge dash` in the foreground (its banner line), `forge daemon log --follow` (its lines) and `forge git diff|log|show|range-diff` (git's output). An error in any of them is still reported as the JSON error line.
-- **`forge git`**: a `--json` before `--` is Forge's flag and never reaches git, so `forge git log --json --output=x` is refused like `forge git log --output=x`. `forge git add|commit` accept it and print their result. `forge git <sub> --help` prints Forge's help and never starts git.
+- **`forge git`**: a `--json` or `--mode <v>` before `--` is Forge's flag and never reaches git, so `forge git log --json --output=x` is refused like `forge git log --output=x`. `forge git add|commit` accept it and print their result. `forge git <sub> --help` prints Forge's help and never starts git.
 
 ## `forge version --json`
 
@@ -112,6 +136,8 @@ Read by Forge:
 | `FORGE_CACHE_DIR` | where `bin/forge` keeps its start-up cache (V8 code cache, and stripped modules on Node 22); default `.cache/` in the plugin root. It must be private to the current user, and no easier to write than the plugin itself, since it holds code the CLI runs (ARCHITECTURE.md "Start-up cache") |
 | `NODE_DISABLE_COMPILE_CACHE` | any non-empty value turns the start-up cache off |
 | `FORGE_DEBUG` | any non-empty value prints an error's stack trace on stderr, with or without `--json` |
+| `FORGE_MODE` | `human` or `agent`: the output mode when neither `--json` nor `--mode` is given (see Output mode); empty counts as unset, any other value is a usage error. The SessionStart hook and daemon sessions set it to `agent` |
+| `NO_COLOR` | any non-empty value turns colour off in human mode |
 | `FORGE_AI_ATTRIBUTION` | `allow` turns the no-AI-attribution policy off for the hook, `forge git commit`, `forge pr open` and the GitHub tracker |
 | `FORGE_ACTOR` | the login human-action events record (`actor: { login, source: "env" }`), ahead of `gh`, `git config user.email` and the OS user; ignored inside daemon sessions, which record the dashboard's OS user. Sanitised to `[A-Za-z0-9 ._@+-]`, at most 100 characters, and unauthenticated (ARCHITECTURE.md "Audit trail") |
 | `FORGE_EDITOR` | the editor command `forge dash`'s Open in editor runs, split into words without a shell, with the job's worktree path appended; default `code`. Read from `forge dash`'s own environment |
@@ -121,7 +147,7 @@ Read by Forge:
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` | `forge dash` leaves them out of daemon sessions' environment unless `daemon.auth: api-key` |
 | `GIT_CONFIG_COUNT` | daemon sessions append their git pins after the entries already counted |
 | `CLAUDE_CONFIG_DIR` | Claude Code's own config dir: transcripts are read from `$CLAUDE_CONFIG_DIR/projects`, else `~/.claude/projects`, by `forge job agent … end --import` and the dashboard's agent activity and transcript views |
-| `CLAUDE_ENV_FILE` | set by Claude Code for SessionStart hooks; the plugin's hook appends a line that puts this plugin's `bin/` first on PATH for the session's Bash commands; nothing happens when it is unset |
+| `CLAUDE_ENV_FILE` | set by Claude Code for SessionStart hooks; the plugin's hook appends a line that puts this plugin's `bin/` first on PATH for the session's Bash commands, and `export FORGE_MODE=agent` so they always get agent output; nothing happens when it is unset |
 | `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_COMMON_DIR` | cleared before `forge git add\|commit` (with `GIT_OBJECT_DIRECTORY` and `GIT_NAMESPACE`) and eval checkouts run git, so an inherited one can't point git at another repository |
 
 Set by the `forge dash` supervisor for daemon sessions, never by hand:
@@ -131,6 +157,7 @@ Set by the `forge dash` supervisor for daemon sessions, never by hand:
 | `FORGE_DAEMON` | `1` in a headless session: the config trust check runs first, config rewrites, job effort changes (`forge job effort`, `forge job new --effort`) and setting or clearing focus (`forge focus <id>`, `forge focus --clear`) are refused, and `forge requests` sees only the session's scope |
 | `FORGE_DAEMON_SCOPE` | the session's scope: `_inbox`, `_office` (the foreman), or the id of the job it drives |
 | `FORGE_DAEMON_TRUST` | the digest of the checkout path, `.forge/config.yml` and `.forge/trackers/` the human started the daemon with; `forge` refuses to run when they no longer match |
+| `FORGE_MODE` | `agent`, so a session's `forge` calls always print agent output (see Output mode) |
 
 Set by Forge for configured commands (`forge run`, `forge verify`, worktree setup), which never see the daemon variables above:
 
@@ -268,4 +295,4 @@ Redaction is pattern-based and best-effort: a secret no pattern knows, or a logi
 
 ## Stability
 
-Forge follows semver for this contract. Any release may add commands, flags, JSON fields, error codes and environment variables. Renaming or removing a JSON field, an error code or an exit number is a breaking change: it ships only in a release whose version says so (a new major version, or a new minor version while Forge is below 1.0) and is called out in [CHANGELOG.md](../CHANGELOG.md). Message and hint text, and the order of JSON keys, are not covered: match on `code` and `exit`, never on `message`. `test/cli-contract.test.ts` pins the JSON keys of `forge job list|show|step`, `forge status --json`, `forge verify`, `forge stats --json` and `forge version --json` (`version`, `commit`, `installedAs`, `node`), so an accidental rename fails the build.
+Forge follows semver for this contract. Any release may add commands, flags, JSON fields, error codes and environment variables. Renaming or removing a JSON field, an error code or an exit number is a breaking change: it ships only in a release whose version says so (a new major version, or a new minor version while Forge is below 1.0) and is called out in [CHANGELOG.md](../CHANGELOG.md). Message and hint text, human-mode output, and the order of JSON keys, are not covered: match on `code` and `exit`, never on `message`. `test/cli-contract.test.ts` pins the JSON keys of `forge job list|show|step`, `forge status --json`, `forge verify`, `forge stats --json` and `forge version --json` (`version`, `commit`, `installedAs`, `node`), so an accidental rename fails the build.

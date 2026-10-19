@@ -428,14 +428,16 @@ export function apiKeyVars(env: NodeJS.ProcessEnv): string[] {
 
 /**
  * The child's environment: this plugin's bin/ first on PATH, git pins appended after any the
- * caller already set, a no-op editor so `git merge|rebase --continue` can't wait on a TTY, and
- * no API key unless `daemon.auth` is api-key.
+ * caller already set, a no-op editor so `git merge|rebase --continue` can't wait on a TTY,
+ * FORGE_MODE=agent so the session never gets human output, and no API key unless `daemon.auth`
+ * is api-key.
  */
 export function sessionEnv(env: NodeJS.ProcessEnv, auth: DaemonAuth = 'subscription'): NodeJS.ProcessEnv {
   // This plugin's bin/ goes first on PATH, so the session's `forge` is the same version as the
   // supervisor's even when another Forge install is on PATH (seen in the AC18 headless run).
   const PATH = [path.join(PLUGIN_ROOT, 'bin'), env.PATH].filter(Boolean).join(path.delimiter);
-  const out: NodeJS.ProcessEnv = { ...env, PATH, FORGE_DAEMON: '1', GIT_EDITOR: 'true' };
+  // A session's forge calls feed its context, so they always print agent output, even under a PTY.
+  const out: NodeJS.ProcessEnv = { ...env, PATH, FORGE_DAEMON: '1', FORGE_MODE: 'agent', GIT_EDITOR: 'true' };
   if (auth !== 'api-key') for (const k of API_KEY_VARS) delete out[k];
   const count = Number(env.GIT_CONFIG_COUNT ?? 0);
   const base = Number.isInteger(count) && count > 0 ? count : 0;
