@@ -9,6 +9,7 @@ import type {
   ConfigResponse,
   ConfigValue,
   DoctorResponse,
+  EnvironmentsResponse,
   EvalCompare,
   EvalsResponse,
   GitHubPreviewResponse,
@@ -24,6 +25,7 @@ import type {
   Stats,
 } from './types.ts';
 import { bundleFilename } from './diagnostics.ts';
+import { fetchEnvironments } from './environment.ts';
 import { pref } from './prefs.ts';
 import { toast } from './toast.svelte.ts';
 import { VIEWS, buildRequest, pickDrawerFile, queuedMessage, statsQuery } from './view.ts';
@@ -93,6 +95,9 @@ class AppState {
   evals = $state.raw<EvalsResponse | null>(null);
   roster = $state.raw<Roster | null>(null);
   project = $state.raw<ProjectResponse | null>(null);
+  /** The Project page's Running environments; a failed load keeps the last answer and sets `environmentsError`. */
+  environments = $state.raw<EnvironmentsResponse | null>(null);
+  environmentsError = $state<string | null>(null);
   backlog = $state.raw<BacklogView | null>(null);
   compare = new CompareState();
   drawer = new DrawerState();
@@ -148,7 +153,18 @@ export async function loadView(): Promise<void> {
     if (S.view === 'analytics') S.stats = await api<Stats>(`/api/stats${statsQuery(S.window, Date.now())}`);
     if (S.view === 'evals') S.evals = await api<EvalsResponse>('/api/evals');
     if (S.view === 'agents') S.roster = await api<Roster>('/api/roster');
-    if (S.view === 'project') S.project = await api<ProjectResponse>('/api/project');
+    if (S.view === 'project') {
+      // Its own failure is a line in its section, not a toast every 15 s, and never blocks the graph.
+      const envs = fetchEnvironments(forgeToken()).then(
+        (r) => {
+          S.environments = r;
+          S.environmentsError = null;
+        },
+        (e: unknown) => void (S.environmentsError = message(e)),
+      );
+      S.project = await api<ProjectResponse>('/api/project');
+      await envs;
+    }
     if (S.view === 'backlog') S.backlog = await api<BacklogResponse>('/api/backlog');
   } catch (e) {
     toast(message(e), true);

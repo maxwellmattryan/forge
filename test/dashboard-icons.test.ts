@@ -34,7 +34,7 @@ const svelteFiles = () =>
     .sort();
 
 test('ICONS holds only the shapes Icon.svelte draws', () => {
-  assert.equal(Object.keys(ICONS).length, 35);
+  assert.equal(Object.keys(ICONS).length, 36);
   for (const [name, def] of Object.entries(ICONS)) {
     assert.ok(Array.isArray(def) && def.length > 0, `${name} is a list of shapes: no cx group`);
     for (const shape of def as readonly Record<string, string>[]) {
