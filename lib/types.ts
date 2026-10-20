@@ -1621,6 +1621,8 @@ export interface EvalResult {
   /** Wall time when no agent was running. */
   orchestratorMinutes?: number | null;
   reviewerRuns?: number;
+  /** round > maxRounds at grade time: B6 sent it to decide. Absent on results graded before it. */
+  roundsExhausted?: boolean;
 }
 
 /** Aggregates over a run's graded tasks: summarize in lib/evals.ts. */
@@ -1632,6 +1634,7 @@ export interface EvalSummary {
   firstPassRate: number | null;
   avgRounds: number | null;
   escalationRate: number | null;
+  roundsExhaustedRate: number | null;
   avgTokens: number | null;
   avgCostUsd: number | null;
   avgMinutes: number | null;
@@ -2237,6 +2240,22 @@ export interface ArchivedJob {
 export interface ArchiveResult {
   archived: { id: string; file: string; bytes: number }[];
   refused: { id: string; reason: string }[];
+}
+
+/** POST /api/jobs/:id/delete body: the job id typed back. */
+export interface PostDeleteJobBody {
+  confirm: string;
+}
+
+/** `forge job delete` output and the POST /api/jobs/:id/delete reply: what went with the job. `branch` is null when Forge did not name it. */
+export interface DeleteJobResult {
+  deleted: string;
+  title: string;
+  worktree: string | null;
+  branch: string | null;
+  repos?: string[];
+  /** Open requests for the job, now rejected. */
+  requests: number;
 }
 
 /** `forge job prune` output; `file` is relative to the repo root. */

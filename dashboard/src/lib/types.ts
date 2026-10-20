@@ -760,6 +760,8 @@ export interface EvalResult {
   /** Wall time when no agent was running. */
   orchestratorMinutes?: number | null;
   reviewerRuns?: number;
+  /** round > maxRounds at grade time: B6 sent it to decide. Absent on results graded before it. */
+  roundsExhausted?: boolean;
 }
 
 /** Aggregates over a run's graded tasks: summarize in lib/evals.ts. */
@@ -771,6 +773,7 @@ export interface EvalSummary {
   firstPassRate: number | null;
   avgRounds: number | null;
   escalationRate: number | null;
+  roundsExhaustedRate: number | null;
   avgTokens: number | null;
   avgCostUsd: number | null;
   avgMinutes: number | null;
@@ -1199,6 +1202,22 @@ export interface PostJobEffortResponse {
   effort: Effort | null;
   previous: Effort | null;
   changed: boolean;
+}
+
+/** POST /api/jobs/:id/delete body: the job id typed back. */
+export interface PostDeleteJobBody {
+  confirm: string;
+}
+
+/** POST /api/jobs/:id/delete reply, and `forge job delete`'s output: deleteJob in lib/delete.ts. `branch` is null when Forge did not name it. */
+export interface DeleteJobResult {
+  deleted: string;
+  title: string;
+  worktree: string | null;
+  branch: string | null;
+  repos?: string[];
+  /** Open requests for the job, now rejected. */
+  requests: number;
 }
 
 /** POST /api/jobs/:id/repos body: the handler in lib/server.ts. `repos` are the names the drawer listed, which must be the whole pending set. */

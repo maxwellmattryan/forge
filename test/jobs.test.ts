@@ -296,3 +296,52 @@ test('agent attach records the id on a running role', async () => {
     repo.cleanup();
   }
 });
+
+test('finishing a job ends the agents it still marks running', () => {
+  const repo = tempRepo();
+  try {
+    const root = repo.dir;
+    const config = defaults();
+    for (const state of ['cancelled', 'done']) {
+      const job = createJob(root, config, { title: `Finished ${state}` });
+      setJob(root, job.id, { stage: 'build', state: 'running' });
+      recordAgent(root, job.id, { role: 'builder', phase: 'start', model: 'opus' }, config);
+      recordAgent(root, job.id, { role: 'spec-writer', phase: 'start', model: 'opus' }, config);
+      recordAgent(root, job.id, { role: 'spec-writer', phase: 'end', summary: 'SPEC: ready' }, config);
+      setJob(root, job.id, { state: 'failed' });
+      assert.equal(loadJob(root, job.id).agents.builder.status, 'running', 'a failed job can resume, so its agents stay');
+
+      const after = setJob(root, job.id, { state });
+      assert.equal(after.agents.builder.status, 'lost');
+      assert.equal(after.agents.builder.summary, `lost: the job was ${state} while it ran`);
+      assert.ok(after.agents.builder.endedAt);
+      assert.deepEqual({ status: after.agents['spec-writer'].status, summary: after.agents['spec-writer'].summary }, { status: 'done', summary: 'SPEC: ready' }, 'an ended agent is left alone');
+      assert.equal(loadJob(root, job.id).agents.builder.status, 'lost', 'written to job.json');
+
+      const events = readEvents(root, job.id);
+      const end = events.findLast((e) => e.type === 'agent-end');
+      assert.deepEqual({ role: end?.role, status: end?.status, model: end?.model }, { role: 'builder', status: 'lost', model: 'opus' });
+      assert.ok(events.indexOf(end!) > events.findLastIndex((e) => e.type === 'transition'), 'the agent ends after the transition that finished the job');
+
+      setJob(root, job.id, { state });
+      assert.equal(readEvents(root, job.id).filter((e) => e.type === 'agent-end').length, events.filter((e) => e.type === 'agent-end').length, 'a repeated set has nothing left to end');
+    }
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('an old finished job with an agent marked running reads it as lost', () => {
+  const builder = { runs: 2, status: 'running', model: 'opus', agentId: null, startedAt: '2026-10-14T04:40:09.739Z', endedAt: null, round: 1 };
+  const base = { schemaVersion: 6, id: 'old', agents: { builder, approver: { runs: 1, status: 'done', endedAt: '2026-10-14T05:00:00.000Z' } }, updatedAt: '2026-10-14T07:18:18.881Z' };
+  const cancelled = normalizeJob({ ...base, state: 'cancelled', finishedAt: '2026-10-14T07:16:50.745Z' });
+  assert.deepEqual(
+    { status: cancelled.agents.builder.status, endedAt: cancelled.agents.builder.endedAt, summary: cancelled.agents.builder.summary },
+    { status: 'lost', endedAt: '2026-10-14T07:16:50.745Z', summary: 'lost: the job was cancelled while it ran' },
+  );
+  assert.equal(cancelled.agents.builder.startedAt, builder.startedAt);
+  assert.equal(cancelled.agents.approver.status, 'done');
+  assert.equal(normalizeJob({ ...base, state: 'done' }).agents.builder.endedAt, base.updatedAt, 'no finishedAt falls back to updatedAt');
+  for (const state of ['running', 'failed', 'waiting']) assert.equal(normalizeJob({ ...base, state }).agents.builder.status, 'running', state);
+  assert.equal(builder.status, 'running', 'the raw record is not mutated');
+});

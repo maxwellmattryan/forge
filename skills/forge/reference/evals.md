@@ -24,6 +24,7 @@ It returns a run record whose tasks map to eval jobs with worktrees ready. Drive
 - no tracker, no PR, no integrate, and no spec approval (no human gates); a `NEEDS-INPUT` from any agent fails the task
 - design: references only, no mockups
 - after **Decide** (APPROVE or ESCALATE alike): if the task has `rubric.md` or `reference.patch`, it spawns the **judge** (output `eval-judge.md` in the job dir), then runs `forge eval grade <job>`
+- an eval job past `pipeline.maxRounds` is not parked on rounds-exhausted: step (B6) sends it to decide, which skips the approver and goes straight to the judge and `forge eval grade`, with `roundsExhausted: true` on its result
 Run up to `runtime.maxParallelJobs` tasks at once.
 
 ## Read results
@@ -32,7 +33,7 @@ forge eval runs
 forge eval report <run>          # every task's result; check.replaced lists the candidate files the hidden patch replaced
 forge eval compare <runA> <runB>
 ```
-Each run is stamped with the Forge version, a `pluginHash` (the plugin's agent prompts, checklists, skill, `lib/step.ts` and `lib/brief.ts`) and a `configHash` (config + reviewer checklists + notes), so a difference can be traced to what changed. Treat small task counts carefully: a single task flipping is noise. When a change looks promising, run the same tasks again before believing it. The dashboard's Evals view shows all of this.
+Each run is stamped with the Forge version, a `pluginHash` (the plugin's agent prompts, checklists, skill, `lib/step.ts` and `lib/brief.ts`) and a `configHash` (config + reviewer checklists + notes), so a difference can be traced to what changed. The summary's `roundsExhaustedRate` (in `eval runs`, `eval report` and `eval compare`'s delta) is the share of graded tasks that ran out of rounds; `escalationRate` counts approver decisions only, so it leaves those tasks out. Treat small task counts carefully: a single task flipping is noise. When a change looks promising, run the same tasks again before believing it. The dashboard's Evals view shows all of this.
 
 ## A/B runs
 - `--repeat N` (1–10) makes N eval jobs per task, so a run costs tasks × N jobs: confirm that with the human. Read each delta's `na`/`nb` and the per-task `n`, mean, min and max (`eval report` → `perTask`) before believing a difference.

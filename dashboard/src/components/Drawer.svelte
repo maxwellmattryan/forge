@@ -12,6 +12,7 @@
   import CommandTrigger from './CommandTrigger.svelte';
   import Banner from './Banner.svelte';
   import Chip from './Chip.svelte';
+  import DeleteJobSection from './DeleteJobSection.svelte';
   import DepSection from './DepSection.svelte';
   import EffortChip from './EffortChip.svelte';
   import EnvironmentSection from './EnvironmentSection.svelte';
@@ -41,8 +42,9 @@
   import { ticker } from '../lib/clock.svelte.ts';
   import { freshCount, sessionActivity } from '../lib/live.ts';
   import { t } from '../lib/locale.ts';
-  import { DRAWER_TABS, PANE_DEFAULT, PANE_MIN, clampPaneWidth, moveDrawerTab, paneKey, paneMax, tabScrollTop, type DrawerTab } from '../lib/drawer.ts';
+  import { DRAWER_TABS, PANE_DEFAULT, PANE_MIN, clampPaneWidth, moveDrawerTab, paneKey, paneMax, type DrawerTab } from '../lib/drawer.ts';
   import { pref } from '../lib/prefs.ts';
+  import { sidebarShown } from '../lib/sidebar.ts';
 
   const open = $derived(S.drawer.id !== null);
   const view = $derived(S.drawerView);
@@ -68,23 +70,26 @@
   // An interactive owner's transcript takes the Log tab's place of the (absent) daemon session's log.
   const ownerLog = $derived(job && shown?.detail.ownerTranscript ? { job: job.id, agent: null, label: $t('session.interactive', { session: shown.detail.ownerTranscript.session.slice(0, 8) }) } : null);
   const logKey = $derived(ownerLog && job ? `${job.id}:owner` : (job?.id ?? ''));
-  let body = $state<HTMLDivElement>();
   let head = $state<HTMLDivElement>();
+  let panel = $state<HTMLDivElement>();
   // Closing the drawer, or opening another job from inside it, starts the next view at the top. A 2 s poll keeps the
   // id, so it never moves the scroll.
   $effect(() => {
     void S.drawer.id;
-    if (body) body.scrollTop = 0;
+    if (panel) panel.scrollTop = 0;
+    if (head) head.scrollTop = 0;
   });
-  /** Past the header, the new tab starts right under the stuck strip; above it, the scroll stays where it is. */
+  /** The header and the tab strip never scroll away, so a new tab simply starts at its own top. */
   function selectTab(tab: DrawerTab, focus = false): void {
-    if (body && head) body.scrollTop = tabScrollTop(body.scrollTop, head.offsetHeight);
     setDrawerTab(tab);
+    if (panel) panel.scrollTop = 0;
     if (focus) document.getElementById('drawer-tab-' + tab)?.focus();
   }
   // ---------- the separator ----------
   // A saved width wider than the window shows clamped; the pref keeps it, so widening the window gives it back.
-  const width = $derived(clampPaneWidth(S.pane.width, S.pane.viewport));
+  // The drawer stops at the sidebar's current edge: the rail or the viewer's width.
+  const gutter = $derived(sidebarShown(S.side));
+  const width = $derived(clampPaneWidth(S.pane.width, S.pane.viewport, gutter));
   let drag: { x: number; w: number } | null = null;
   let dragging = $state(false);
   const save = (): void => pref.set('paneWidth', String(S.pane.width));
@@ -97,7 +102,7 @@
   }
   function dragMove(e: PointerEvent): void {
     // The separator is the drawer's left edge: moving left widens it.
-    if (drag) S.pane.width = clampPaneWidth(drag.w + (drag.x - e.clientX), S.pane.viewport);
+    if (drag) S.pane.width = clampPaneWidth(drag.w + (drag.x - e.clientX), S.pane.viewport, gutter);
   }
   // Both pointerup and lostpointercapture end a drag (capture can be lost without a pointerup); the second call finds
   // drag null and returns, so the width is saved once.
@@ -108,14 +113,14 @@
     save();
   }
   function sepKey(e: KeyboardEvent): void {
-    const next = paneKey(width, e.key, e.shiftKey, S.pane.viewport);
+    const next = paneKey(width, e.key, e.shiftKey, S.pane.viewport, gutter);
     if (next === null) return;
     e.preventDefault();
     S.pane.width = next;
     save();
   }
   function sepReset(): void {
-    S.pane.width = clampPaneWidth(PANE_DEFAULT, S.pane.viewport);
+    S.pane.width = clampPaneWidth(PANE_DEFAULT, S.pane.viewport, gutter);
     save();
   }
 
@@ -144,7 +149,9 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop, as on main; Escape closes the drawer from the keyboard) -->
 <div id="drawer-backdrop" class="fixed inset-0 backdrop {open ? '' : 'hidden'} z-30" onclick={closeDrawer}></div>
-<!-- A full-height column: the body scrolls, and the action dock under it stays put on every tab. It always ends at the
+<!-- A full-height column that never scrolls itself: the header (capped at 40%, scrolling inside itself when taller) and
+     the tab strip stay put, the tab panel under them is the one scroller (on Log, the log pane is), and the action dock
+     under it stays put on every tab. It always ends at the
      status bar's top edge, so the bar stays visible and clickable (z-35, over the backdrop and under the drawer) and the
      dock sits wholly above it. Opening slides it in (the reduced-motion block turns that off). Only a close transitions
      visibility, so it turns invisible at the end of the slide: on open it turns visible at once, as a transition would
@@ -166,7 +173,7 @@
       aria-controls="drawer"
       aria-label={$t('drawer.resize')}
       aria-valuemin={PANE_MIN}
-      aria-valuemax={paneMax(S.pane.viewport)}
+      aria-valuemax={paneMax(S.pane.viewport, gutter)}
       aria-valuenow={width}
       tabindex="0"
       class="group absolute inset-y-0 left-0 z-30 w-2 cursor-col-resize touch-none focus-visible:-outline-offset-2"
@@ -183,22 +190,22 @@
   {:else if shown && job}
     {@const d = shown.detail}
     {@const j = job}
-    <div bind:this={body} class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-      <div bind:this={head} class="p-5 md:p-6 pb-3 md:pb-4 flex flex-col gap-2">
+    <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div bind:this={head} class="shrink-0 max-h-[40%] overflow-y-auto overscroll-contain p-5 md:p-6 pb-3 md:pb-4 flex flex-col gap-2">
         <div class="flex items-start justify-between gap-3"><div class="min-w-0"><h2 bind:this={title} tabindex="-1" class="h sheet-title">{j.title}</h2><div class="mono text-[13px] muted selectable">{j.id}</div></div><div class="flex shrink-0 items-center gap-2">{#if scopeVerbs(j).length}<CommandTrigger job={j.id} />{/if}<CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div></div>
         <div class="flex flex-wrap items-center gap-1.5"><span class="chip gleam">{STAGE_LABEL[j.stage] ?? j.stage}</span><StateChip job={j} />{#if prot}<Chip tone="warn" extra="max-w-full flex-wrap whitespace-normal" text={$t('job.protectedDrawer', { reasons: prot.reasons.join(' · ') })} />{/if}{#if j.round}<Chip tone="muted" text={$t('job.round', { round: j.round, max: j.maxRounds })} />{/if}<PrChip pr={j.pr} />{#if j.kind !== 'feature'}<Chip tone="info" text={j.kind} />{/if}<EffortChip level={effort} />{#if activity}<SessionActivity {activity} extra="caption" />{/if}</div>
         {#if j.reason}<div class="text-sm text-muted truncate" title={j.reason}>{j.reason}</div>{/if}
         {#if running.length || j.ownerStatus?.status !== 'none'}<AgentActivity activity={running} owner={j.ownerStatus} expandable={true} />{/if}
       </div>
-      <!-- Sticky and opaque, so no tab's content scrolls over it; it scrolls sideways when the tabs outgrow a phone. -->
-      <div role="tablist" tabindex="-1" aria-label={$t('drawer.tabs')} class="tabs sticky top-0 z-20 solid px-5 md:px-6 overflow-x-auto overflow-y-hidden" onkeydown={stripKey}>{#each DRAWER_TABS as tab (tab)}<button role="tab" id="drawer-tab-{tab}" aria-selected={shown.tab === tab} aria-controls="drawer-panel-{tab}" tabindex={shown.tab === tab ? 0 : -1} class="tab shrink-0 whitespace-nowrap focus-visible:-outline-offset-2 {shown.tab === tab ? 'active' : ''}" onclick={() => selectTab(tab)}>{#if tab === 'thread'}{$t('drawer.threadTab')}{#if unread > 0}<span class="chip spark ml-1.5">{$t('drawer.threadUnread', { count: unread })}</span>{/if}{:else if tab === 'log'}{$t('drawer.logTab')}{#if activity?.kind === 'working'}<span class="inline-flex ml-1.5 align-middle"><LiveDot on={true} /></span><span class="sr-only">{$t('live.working')}</span>{/if}{:else if tab === 'agents'}{$t('drawer.agentsTab')}{#if running.length}<span class="muted num ml-1">({running.length})</span>{/if}{:else if tab === 'files'}{$t('drawer.files')}{:else if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted num">({d.events.length})</span>{:else if tab === 'details'}{$t('drawer.detailsTab')}{/if}</button>{/each}</div>
-      <div role="tabpanel" id="drawer-panel-{shown.tab}" aria-labelledby="drawer-tab-{shown.tab}" tabindex="0" class="p-5 md:p-6 flex flex-col gap-5 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-line-strong focus-visible:-outline-offset-2">
+      <!-- Outside the scroller, so it never moves; it scrolls sideways when the tabs outgrow a phone. -->
+      <div role="tablist" tabindex="-1" aria-label={$t('drawer.tabs')} class="tabs shrink-0 z-20 solid px-5 md:px-6 overflow-x-auto overflow-y-hidden" onkeydown={stripKey}>{#each DRAWER_TABS as tab (tab)}<button role="tab" id="drawer-tab-{tab}" aria-selected={shown.tab === tab} aria-controls="drawer-panel-{tab}" tabindex={shown.tab === tab ? 0 : -1} class="tab shrink-0 whitespace-nowrap focus-visible:-outline-offset-2 {shown.tab === tab ? 'active' : ''}" onclick={() => selectTab(tab)}>{#if tab === 'thread'}{$t('drawer.threadTab')}{#if unread > 0}<span class="chip spark ml-1.5">{$t('drawer.threadUnread', { count: unread })}</span>{/if}{:else if tab === 'log'}{$t('drawer.logTab')}{#if activity?.kind === 'working'}<span class="inline-flex ml-1.5 align-middle"><LiveDot on={true} /></span><span class="sr-only">{$t('live.working')}</span>{/if}{:else if tab === 'agents'}{$t('drawer.agentsTab')}{#if running.length}<span class="muted num ml-1">({running.length})</span>{/if}{:else if tab === 'files'}{$t('drawer.files')}{:else if tab === 'timeline'}{$t('drawer.timeline')} <span class="muted num">({d.events.length})</span>{:else if tab === 'details'}{$t('drawer.detailsTab')}{/if}</button>{/each}</div>
+      <div bind:this={panel} role="tabpanel" id="drawer-panel-{shown.tab}" aria-labelledby="drawer-tab-{shown.tab}" tabindex="0" class="min-h-0 flex-1 overscroll-contain {shown.tab === 'log' ? 'overflow-hidden' : 'overflow-y-auto'} p-5 md:p-6 flex flex-col gap-5 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-line-strong focus-visible:-outline-offset-2">
         {#if shown.tab === 'thread'}
           <ThreadPanel job={j} requests={d.requests ?? []} opening={threadOpening(d)} events={d.events ?? []} baseline={S.drawer.threadAtOpen} />
         {:else if shown.tab === 'log'}
           <!-- Keyed by job id (and owner transcript), so the drawer's 2 s refresh never re-creates the log or its stream; `active`
                closes the stream as soon as the drawer closes, though its last view stays while it slides out. -->
-          {#key logKey}<SessionLog scope={j.id} active={open} transcript={ownerLog} />{/key}
+          {#key logKey}<SessionLog scope={j.id} active={open} transcript={ownerLog} fill />{/key}
         {:else if shown.tab === 'agents'}
           {#key j.id}<AgentsTab job={j.id} detail={d} active={open} />{/key}
         {:else if shown.tab === 'files'}
@@ -295,6 +302,7 @@
             </div></div>
           {/if}
           {@html screenshotsPanel(j.id, d.screenshots ?? [])}
+          {#key j.id}<DeleteJobSection job={j} />{/key}
         {/if}
       </div>
     </div>

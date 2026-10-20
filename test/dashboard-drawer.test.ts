@@ -1,10 +1,10 @@
-// dashboard/src/lib/drawer.ts: the job drawer's tab order, default, keyboard moves and tab-switch scroll.
+// dashboard/src/lib/drawer.ts: the job drawer's tab order, default and keyboard moves.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEFAULT_DRAWER_TAB, DRAWER_TABS, PANE_DEFAULT, PANE_GUTTER, PANE_MIN, clampPaneWidth, moveDrawerTab, paneKey, paneMax, tabScrollTop, type DrawerTab } from '../dashboard/src/lib/drawer.ts';
+import { DEFAULT_DRAWER_TAB, DRAWER_TABS, PANE_DEFAULT, PANE_GUTTER, PANE_MIN, clampPaneWidth, moveDrawerTab, paneKey, paneMax, type DrawerTab } from '../dashboard/src/lib/drawer.ts';
 
 test('drawer tabs: order and default', () => {
   assert.deepEqual(DRAWER_TABS, ['thread', 'log', 'agents', 'files', 'timeline', 'details']);
@@ -37,17 +37,6 @@ test('moveDrawerTab wraps and handles Home/End', () => {
   assert.equal(at, 'files');
 });
 
-test('tabScrollTop lands a new tab under the stuck strip', () => {
-  assert.equal(tabScrollTop(40, 120), 40, 'above the head: unchanged');
-  assert.equal(tabScrollTop(120, 120), 120, 'exactly at the strip');
-  assert.equal(tabScrollTop(900, 120), 120, 'past the head: the head height, so the new tab starts under the strip');
-  assert.equal(tabScrollTop(0, 120), 0, 'at the top');
-  assert.equal(tabScrollTop(0, 0), 0);
-  assert.equal(tabScrollTop(300, 0), 0, 'no head: the top');
-  assert.equal(tabScrollTop(-10, 120), 0, 'a negative scroll clamps to 0');
-  assert.equal(tabScrollTop(50, -5), 0, 'a negative head clamps to 0');
-});
-
 test('pane width clamps to the viewport and steps', () => {
   assert.deepEqual([PANE_MIN, PANE_DEFAULT, PANE_GUTTER], [360, 640, 236]);
   // Clamp: [PANE_MIN, viewport - PANE_GUTTER], whole px; a bad stored value takes the default.
@@ -76,6 +65,20 @@ test('pane width clamps to the viewport and steps', () => {
   assert.equal(paneKey(640, 'End', false, 1204), 968);
   assert.equal(paneKey(640, 'Home', true, 1204), 360, 'Shift does not change Home');
   for (const key of ['ArrowUp', 'ArrowDown', 'Enter', ' ', 'Tab', 'Escape', 'a']) assert.equal(paneKey(640, key, false, 1204), null, JSON.stringify(key));
+});
+
+test('paneMax stops at the given sidebar gutter', () => {
+  // The rail (64) and a wide sidebar (360) move the drawer's edge; leaving the gutter out keeps the default 236.
+  assert.equal(paneMax(1204, 64), 1140);
+  assert.equal(paneMax(1204, 360), 844);
+  assert.equal(paneMax(1204, 236), paneMax(1204));
+  assert.equal(paneMax(400, 64), 360, 'never under the minimum');
+  assert.equal(clampPaneWidth(2000, 1204, 64), 1140);
+  assert.equal(clampPaneWidth(2000, 1204, 360), 844);
+  assert.equal(clampPaneWidth(2000, 1204), 968, 'the old two-argument call uses 236');
+  assert.equal(paneKey(1130, 'ArrowLeft', false, 1204, 64), 1140, 'Left stops at the rail gutter');
+  assert.equal(paneKey(640, 'End', false, 1204, 360), 844);
+  assert.equal(paneKey(640, 'End', false, 1204), 968);
 });
 
 test('PANE_GUTTER mirrors --size-sidebar, so the drawer never covers the sidebar', () => {

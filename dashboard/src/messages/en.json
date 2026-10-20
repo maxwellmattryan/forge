@@ -29,6 +29,9 @@
     "evals": "Evals",
     "project": "Project"
   },
+  "sidebar": {
+    "resize": "Resize sidebar"
+  },
   "job": {
     "round": "round {round}/{max}",
     "usage": "{tokens} tok · {ago}",
@@ -63,6 +66,17 @@
     "title": "Dependencies",
     "dependsOn": "Depends on",
     "blocks": "Blocks"
+  },
+  "deleteJob": {
+    "title": "Delete job",
+    "open": "Delete…",
+    "hint": "For a job started by mistake: stops its session, removes its worktree, backing services and branch, releases its issues and deletes its record for good. Nothing is archived, so stats never count it.",
+    "hasPr": "This job has a PR, so it is real work: cancel it and archive it instead.",
+    "eval": "Eval jobs stay with their run.",
+    "typeId": "Type {id} to confirm",
+    "confirm": "Delete for good",
+    "keep": "Keep it",
+    "done": "Deleted {id}"
   },
   "environment": {
     "title": "Environment",
@@ -105,19 +119,13 @@
     "needs": {
       "name": "Needs you",
       "title": "Needs you",
+      "tooltip": "Notifications",
       "count": {
         "one": "{count} decision waiting",
         "other": "{count} decisions waiting"
       }
     },
     "facts": {
-      "forge": "FORGE",
-      "version": "v{version}",
-      "api": "API",
-      "sessions": "SESSIONS",
-      "sessionsValue": "{count} active",
-      "sheet": "SHEET",
-      "sheetValue": "{view} · {index} of {total}",
       "focus": "FOCUS"
     },
     "daemon": {
@@ -195,9 +203,6 @@
     "idle": "idle",
     "line": "{state} · {ago}",
     "columnWorking": "{count} working",
-    "inbox": "inbox session",
-    "office": "office",
-    "none": "No session is working",
     "new": "new"
   },
   "permission": {
@@ -299,7 +304,10 @@
     "protectedMore": "+{count} more",
     "protectedDiff": "View diff",
     "lastActed": "Last acted: {who} · {ago}",
-    "foreman": "Foreman"
+    "foreman": "Foreman",
+    "secretRescan": "Approve runs the secret scan again. First remove or allowlist the value, or fix what stopped the scan.",
+    "stillBlocked": "Still blocked",
+    "stillBlockedNote": "The last approve ran the scan again and it still found a problem."
   },
   "gate": {
     "foreman": "Foreman deciding",
@@ -651,6 +659,8 @@
     "stop": "Stop",
     "failed": "Session {action} failed: {error}",
     "filter": "Filter the log",
+    "filterTitle": "Filter",
+    "filterActive": "Filter the log (filters on)",
     "tools": "Tools",
     "thinking": "Thinking",
     "subagents": "Subagents",
@@ -682,6 +692,7 @@
     "emptyInboxEnabled": "No inbox session log yet. It starts with the next request that has no job.",
     "emptyOffice": "No office session log yet. With foreman.enabled and the daemon on, the office session starts when a job parks at a gate the foreman decides.",
     "modeLabel": "Permissions",
+    "modeTrigger": "Permissions: {mode}",
     "modeFailed": "Changing the permission mode failed: {error}",
     "modeSwitching": "The session still reports {mode}; the switch applies once claude confirms it.",
     "modes": {
@@ -802,7 +813,8 @@
         "one": "and {count} more",
         "other": "and {count} more"
       },
-      "findings": "Masked findings"
+      "findings": "Masked findings",
+      "error": "Secret scan could not finish"
     }
   },
   "issueLink": {
@@ -906,6 +918,8 @@
   },
   "effort": {
     "label": "Effort",
+    "trigger": "Effort: {level}",
+    "inheritShort": "Inherit",
     "hint": "How much the model thinks for this job. Inherit uses runtime.effort from Settings.",
     "inherit": "Inherit ({level})",
     "claude": "Claude Code's setting",
@@ -925,7 +939,8 @@
     "thread": "Show conversation as",
     "session": "Show session log as",
     "rendered": "Rendered",
-    "raw": "Raw"
+    "raw": "Raw",
+    "sessionRendered": "Render markdown in the session log"
   },
   "activity": {
     "label": "Running agents",
@@ -958,9 +973,6 @@
     "todayOf": "{spent} of {cap}",
     "todayUncapped": "{spent} · no daily cap",
     "dayLabel": "Today's spend against the daily cap",
-    "chipCapped": "{spent} / {cap}",
-    "chipUncapped": "{spent} this month",
-    "chipTitle": "Repo spend this month · open Analytics",
     "section": "Repo budget",
     "heldJobs": "Held jobs",
     "noHeldJobs": "No job is parked yet; new work waits until the cap allows it.",

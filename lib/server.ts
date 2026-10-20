@@ -21,6 +21,7 @@ import { createPreviewer, ghRunner, parseGitHubUrl } from './github-preview.ts';
 import type { GhRunner } from './github-preview.ts';
 import { daemonSessionIds, jobSessionEnv, ownerStatusWithProof } from './daemon-owner.ts';
 import { RUNNING_AGENT_MAX_MS, createJob, isActive, listJobs, loadJob, ownerStatus, progress, readEvents, jobDir, requestBody, setJob, setJobEffort } from './jobs.ts';
+import { deleteJob, deleteRefusal } from './delete.ts';
 import { decideRepoProposals, isRepoProposalPark } from './repo-proposals.ts';
 import { REPO_NAME } from './member-repos.ts';
 import { parseIssueRef } from './issue-ref.ts';
@@ -49,6 +50,7 @@ import type {
   AgentActivity,
   AgentRow,
   ApiError,
+  DeleteJobResult,
   ApiState,
   BacklogResponse,
   Config,
@@ -456,6 +458,27 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (effort !== null && !(EFFORTS as readonly unknown[]).includes(effort)) return jsonStatus(res, 400, { error: `effort must be one of ${EFFORTS.join(', ')}, or null` });
         // No DAEMON_LOCK: job.json is outside the trust digest, and a running session picks the level up at its next spawn.
         return json(res, setJobEffort(root, id, effort as PostJobEffortResponse['effort'], 'dashboard') satisfies PostJobEffortResponse);
+      }
+      const dm = p.match(/^\/api\/jobs\/([^/]+)\/delete$/);
+      if (req.method === 'POST' && dm) {
+        if (guardPost(req, res, token)) return;
+        const parsed = await readJsonBody(req);
+        if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
+        const id = dm[1];
+        if (!validJobId(id) || !exists(path.join(jobDir(root, id), 'job.json'))) return jsonStatus(res, 404, { error: validJobId(id) ? `no job ${id}` : 'no such job' });
+        // The id typed back: a stray or replayed click never deletes a job the human did not name.
+        if (!isObject(parsed.body) || parsed.body.confirm !== id) return jsonStatus(res, 400, { error: 'body must be {"confirm": "<the job id>"}' });
+        const { config } = loadConfig(root);
+        // The job's own dashboard session is the one thing the delete may stop, and only once nothing else refuses it.
+        const refusal = deleteRefusal(root, loadJob(root, id), listJobs(root), { stopsDaemon: true });
+        if (refusal) return jsonStatus(res, 409, { error: `cannot delete ${id}: ${refusal}` });
+        await pool?.dropSession(id);
+        try {
+          return json(res, (await deleteJob(root, config, id, { trigger: 'dashboard', actor: dashboardActor() })) satisfies DeleteJobResult);
+        } catch (e) {
+          if (e instanceof ForgeError) return jsonStatus(res, 409, { error: e.message });
+          throw e;
+        }
       }
       const rm = p.match(/^\/api\/jobs\/([^/]+)\/repos$/);
       if (req.method === 'POST' && rm) {

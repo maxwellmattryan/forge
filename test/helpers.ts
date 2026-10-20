@@ -31,7 +31,8 @@ process.env.GIT_CONFIG_NOSYSTEM = '1';
 // the session's markers and git pins; the CLI it spawns would then apply daemon rules to scratch
 // repos. Tests that exercise daemon mode set these themselves. A suite run through `forge run` or
 // `forge verify` also inherits that job's FORGE_PORT_<C> / FORGE_ENDPOINT_<C>, which the CLI passes
-// on to the scratch jobs' commands beside their own.
+// on to the scratch jobs' commands beside their own and which tests that read a command's env
+// would otherwise count as the scratch job's own.
 for (const k of Object.keys(process.env)) if (/^FORGE_(DAEMON|PORT|ENDPOINT|BACKING)(_|$)|^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/.test(k)) delete process.env[k];
 // Transcript lookups follow Claude Code's own CLAUDE_CONFIG_DIR; tests that fake a HOME must not
 // read the developer's real one instead. Tests that need it set it themselves.

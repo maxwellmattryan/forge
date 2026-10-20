@@ -162,7 +162,7 @@ Set by the `forge dash` supervisor for daemon sessions, never by hand:
 | `FORGE_DAEMON_TRUST` | the digest of the checkout path, `.forge/config.yml` and `.forge/trackers/` the human started the daemon with; `forge` refuses to run when they no longer match |
 | `FORGE_MODE` | `agent`, so a session's `forge` calls always print agent output (see Output mode) |
 
-Set by Forge for configured commands (`forge run`, `forge verify`, worktree setup), which never see the daemon variables above:
+Set by Forge for configured commands (`forge run`, `forge verify`, worktree setup), which never see the daemon variables above, nor `FORGE_PORT_*`, `FORGE_ENDPOINT_*` or `FORGE_BACKING_*` inherited from an outer job:
 
 | Variable | Effect |
 |---|---|

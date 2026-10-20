@@ -24,6 +24,8 @@ export interface DaemonPool {
   /** Re-enables one session inside a wanted pool; `error` when the pool isn't wanted. */
   startSession(scope: string): { error: string | null };
   stopSession(scope: string): Promise<PoolState>;
+  /** Stops a job's session and forgets it, for a job that is about to be deleted. */
+  dropSession(scope: string): Promise<void>;
   /** Answers one session's permission prompt as `actor`; false when there is no such prompt. */
   answerPermission(scope: string, id: string, decision: PermissionDecision, actor: EventActor): boolean;
   /** Puts one session in a permission mode as `actor`: now if its child runs, else from its next spawn. */
@@ -409,6 +411,13 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
       if (scope === INBOX_SCOPE) inboxEager = false;
       await s.kill('stop', false, 'human');
       return state();
+    },
+    async dropSession(scope) {
+      const s = sessions.get(scope);
+      if (!s || shared(scope)) return;
+      await s.kill('stop', false, 'deleted');
+      sessions.delete(scope);
+      await s.close();
     },
     answerPermission(scope, id, decision, actor) {
       const tool = sessions.get(scope)?.answerPermission(id, decision, actor) ?? null;

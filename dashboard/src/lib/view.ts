@@ -17,11 +17,11 @@ const s = (v: unknown): string => String(v ?? '');
 // Labels come from messages/en.json (nav.<id>), through Nav.svelte.
 export const VIEWS = [
   { id: 'pipeline', icon: 'pipeline' },
+  { id: 'project', icon: 'graph' },
   { id: 'backlog', icon: 'backlog' },
   { id: 'agents', icon: 'agents' },
   { id: 'analytics', icon: 'analytics' },
   { id: 'evals', icon: 'evals' },
-  { id: 'project', icon: 'graph' },
 ] as const;
 export type ViewId = (typeof VIEWS)[number]['id'];
 
@@ -478,7 +478,7 @@ export const jobMs = (j: JobLike): number | null => Date.parse(s(j.finishedAt ??
 
 // ---------- evals ----------
 
-const BETTER: Record<string, number> = { checkPassRate: 1, avgJudgeScore: 1, firstPassRate: 1, avgRounds: -1, escalationRate: -1, avgTokens: -1, avgCostUsd: -1, avgMinutes: -1 };
+const BETTER: Record<string, number> = { checkPassRate: 1, avgJudgeScore: 1, firstPassRate: 1, avgRounds: -1, escalationRate: -1, roundsExhaustedRate: -1, avgTokens: -1, avgCostUsd: -1, avgMinutes: -1 };
 
 export interface CompareRow {
   key: string;
@@ -554,6 +554,24 @@ export function lastActed(job: { lastHuman?: LastHuman | null } | null | undefin
   if (!h || !h.actor || typeof h.ts !== 'string') return null;
   const foreman = h.actor.source === 'foreman';
   return { who: foreman ? 'foreman' : h.actor.login || 'unknown', foreman, ts: h.ts };
+}
+
+/** The reason `forge job step` (SC1, SC3) gives a job the secret scanner parked on `human`. */
+export const SECRET_PARK_PREFIX = 'secret scan blocked ';
+
+/**
+ * A secret park, and whether the last approve already ran the scan again and parked once more: a
+ * `waiting`/`human` transition after it. An approve nothing has acted on yet counts as not blocked,
+ * so the signal errs towards no chip. Null for any other job.
+ */
+export function secretPark(j: Pick<StateJob, 'state' | 'waitingOn' | 'reason' | 'lastHuman' | 'lastEvent'>): { stillBlocked: boolean } | null {
+  if (j.state !== 'waiting' || j.waitingOn !== 'human' || typeof j.reason !== 'string' || !j.reason.startsWith(SECRET_PARK_PREFIX)) return null;
+  const h = j.lastHuman;
+  const e = j.lastEvent;
+  const to = obj(e?.to);
+  const stillBlocked =
+    h?.type === 'human' && h.action === 'approve' && e?.type === 'transition' && to.state === 'waiting' && to.waitingOn === 'human' && Date.parse(s(e.ts)) > Date.parse(s(h.ts));
+  return { stillBlocked };
 }
 
 /** A waiting job's gate owner badge: the foreman deciding it, or a human owning it; null for no owner (or an older server). */
