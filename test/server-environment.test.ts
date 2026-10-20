@@ -11,7 +11,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { forgeAsync, repoTemplate, waitFor } from './helpers.ts';
 import { startServer, textFrame } from '../lib/server.ts';
 import { parseMemUsage, parsePercent } from '../lib/environment.ts';
-import { pidAlive } from '../lib/worktree.ts';
+import { parseDevProbe, pidAlive } from '../lib/worktree.ts';
 import * as yaml from '../lib/yaml.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
@@ -189,6 +189,33 @@ async function readyWorktree(s: Awaited<ReturnType<typeof scratch>>, id: string)
 
 const DEAD_PID = () => spawnSync(process.execPath, ['-e', '0']).pid;
 
+/**
+ * A `sleep 30` in `cwd` that leads its own group and session with a pty as its controlling terminal, as
+ * a terminal's shell does: `script` starts it. Null where `script` is missing or behaves otherwise.
+ */
+async function terminalProcess(cwd: string, pids: number[]): Promise<number | null> {
+  const argv = process.platform === 'darwin' ? ['-q', '/dev/null', 'sleep', '30'] : ['-qfec', 'sleep 30', '/dev/null'];
+  const parent = spawn('script', argv, { cwd, detached: true, stdio: 'ignore' });
+  parent.on('error', () => {});
+  parent.unref();
+  if (!parent.pid) return null;
+  pids.push(parent.pid);
+  const child = await waitFor(
+    () => {
+      const r = spawnSync('ps', ['-A', '-o', 'pid=', '-o', 'ppid=', '-o', 'pgid=', '-o', 'tty='], { encoding: 'utf8' });
+      for (const line of r.stdout.split('\n')) {
+        const [pid, ppid, pgid, tty] = line.trim().split(/\s+/);
+        if (Number(ppid) === parent.pid && pid === pgid && tty && !/^\?+$/.test(tty)) return Number(pid);
+      }
+      return 0;
+    },
+    { timeoutMs: 5_000, what: 'the terminal process' },
+  ).catch(() => 0);
+  if (!child) return null;
+  pids.push(child);
+  return child;
+}
+
 test('a crashed dev server reads down with its last lines and restarts', { timeout: 90_000 }, async () => {
   const s = await scratch();
   try {
@@ -229,7 +256,8 @@ test('dev states', { timeout: 90_000 }, async () => {
     const wt = await s.f('worktree', 'create', a);
     await s.f('worktree', 'create', b);
     const e = await s.env(a);
-    assert.deepEqual(Object.keys(e), ['job', 'active', 'worktree', 'dev', 'backing', 'backingError', 'at']);
+    assert.deepEqual(Object.keys(e), ['job', 'active', 'worktree', 'dev', 'backing', 'backingError', 'docker', 'at']);
+    assert.equal(e.docker, null, 'Docker is not asked while every service reads a state');
     assert.deepEqual(e.dev, { state: 'stopped', pid: null, port: wt.port, listening: null, startedAt: null, tail: [] });
     assert.equal(e.active, true);
     assert.equal(e.worktree, true);
@@ -258,11 +286,19 @@ test('dev states', { timeout: 90_000 }, async () => {
     await new Promise((r) => setTimeout(r, 2100));
     assert.equal((await s.env(b)).backing[0].health, 'unhealthy');
 
-    // Docker stopped: managed rows read unknown.
+    // A container with another job's labels reads unknown too, but Docker is up: the card must not say otherwise.
+    s.patchContainer(`forge-${b}-postgres`, { labels: { ...s.dockerState().containers[`forge-${b}-postgres`].labels, 'forge.job': 'someone-else' } });
+    await new Promise((r) => setTimeout(r, 2100));
+    const foreign = await s.env(b);
+    assert.equal(foreign.backing[0].state, 'unknown');
+    assert.equal(foreign.docker, 'ok');
+
+    // Docker stopped: managed rows read unknown, and the server says why.
     s.setDocker({ daemon: 'down' });
     await new Promise((r) => setTimeout(r, 2100));
     const off = await s.env(a);
     assert.deepEqual(off.backing.map((x: any) => x.state), ['unknown', 'unknown', 'external']);
+    assert.equal(off.docker, 'stopped');
 
     // No dev command: dev is null.
     const cfg = path.join(s.root, '.forge', 'config.yml');
@@ -310,13 +346,25 @@ test('stop ends the job\'s own dev server', { timeout: 90_000 }, async () => {
   }
 });
 
-test('stop refuses a pid it cannot prove', { timeout: 90_000, skip: !posix && 'POSIX process probes' }, async () => {
+test('stop refuses a pid it cannot prove', { timeout: 90_000, skip: !posix && 'POSIX process probes' }, async (t) => {
+  // The ps row: no controlling terminal reads `??` on macOS and `?` on Linux.
+  const at = 'Tue Oct 20 18:18:47 2026';
+  assert.deepEqual(parseDevProbe(` 4242 ??       ${at}\n`), { pgid: 4242, tty: false, started: Date.parse(at) });
+  assert.equal(parseDevProbe(`4242 ? ${at}`)?.tty, false);
+  assert.equal(parseDevProbe(`4242 ttys002 ${at}`)?.tty, true);
+  assert.equal(parseDevProbe(`4242 pts/3 ${at}`)?.tty, true);
+  for (const bad of ['', '4242', `x ?? ${at}`, `4242 ?? not a date`, `4242 ?? ${at} extra`, `${'9'.repeat(10_000)} ?? ${'a'.repeat(10_000)}`]) assert.equal(parseDevProbe(bad), null, bad.slice(0, 40));
+
   const s = await scratch();
   try {
     const a = await s.job('Alpha');
     const wt = await readyWorktree(s, a);
     const now = () => new Date().toISOString();
     const cases: [string, () => Record<string, unknown>, number | null][] = [];
+    // A group leader in the worktree that keeps a terminal: a shell the human opened there, or what it runs.
+    const term = await terminalProcess(wt.path, s.pids);
+    if (term) cases.push(['a process with a controlling terminal', () => ({ pid: term, startedAt: now() }), term]);
+    else t.diagnostic('no `script` pty here: the terminal case is not run');
     const outside = s.sleeper(os.tmpdir());
     cases.push(['cwd outside the worktree', () => ({ pid: outside, startedAt: now() }), outside]);
     const notLeader = s.sleeper(wt.path, false);
@@ -575,6 +623,57 @@ test('log streams share the event-stream cap', { timeout: 90_000 }, async () => 
     assert.equal(ninth.status, 503);
     ninth.close();
     for (const st of open) st.close();
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test('a container log stream left during its status check holds no slot and starts no docker', { timeout: 90_000 }, async () => {
+  const s = await scratch();
+  try {
+    const a = await s.job('Alpha');
+    await s.f('worktree', 'create', a);
+    fs.mkdirSync(s.jobPath(a, 'logs'), { recursive: true });
+    fs.writeFileSync(s.jobPath(a, 'logs', 'dev.log'), 'x\n');
+    s.setDocker({ versionDelayMs: 1500 });
+    fs.writeFileSync(process.env.FAKE_DOCKER_LOG!, '');
+    // Eight clients that leave while `backing status` is still asking Docker: enough to fill the cap if each leaked.
+    for (let i = 0; i < 8; i++) {
+      const query = new URLSearchParams({ source: 'backing:postgres', token: s.token });
+      const req = http.request({ host: '127.0.0.1', port: s.port, path: `/api/jobs/${a}/environment/logs?${query}`, headers: { host: `127.0.0.1:${s.port}` } });
+      req.on('error', () => {});
+      req.end();
+      await waitFor(() => s.argv().filter((x) => x[0] === 'version').length > i, { what: `status check ${i + 1} started` });
+      req.destroy();
+    }
+    // Each check inspects the two managed containers once Docker answers.
+    await waitFor(() => s.argv().filter((x) => x[0] === 'inspect').length >= 16, { what: 'every status check finished', timeoutMs: 30_000 });
+    await new Promise((r) => setTimeout(r, 1000));
+    assert.equal(s.argv().filter((x) => x[0] === 'logs').length, 0, 'docker logs never ran');
+    s.setDocker({ versionDelayMs: 0 });
+    const open: Stream[] = [];
+    for (let i = 0; i < 8; i++) {
+      const st = await s.logs(a, 'dev');
+      assert.equal(st.status, 200, `stream ${i + 1}: no slot was kept`);
+      open.push(st);
+    }
+    for (const st of open) st.close();
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test('a recycled container log stream ends instead of replaying', { timeout: 90_000 }, async () => {
+  const s = await scratch({ sseMaxAgeMs: 2500 });
+  try {
+    const a = await s.job('Alpha');
+    await s.f('worktree', 'create', a);
+    s.patchContainer(`forge-${a}-postgres`, { logs: ['one', 'two'] });
+    const box = await s.logs(a, 'backing:postgres');
+    assert.equal(box.status, 200);
+    await waitFor(() => box.lines().length >= 2, { what: 'container lines' });
+    await waitFor(() => box.ended, { what: 'the recycled stream ends', timeoutMs: 10_000 });
+    assert.ok(box.frames.some((f) => f.event === 'end'), 'event: end, so EventSource does not reconnect and replay');
   } finally {
     await s.cleanup();
   }

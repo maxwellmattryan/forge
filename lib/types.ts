@@ -2190,6 +2190,8 @@ export interface JobEnvironmentResponse {
   dev: EnvironmentDev | null;
   backing: EnvironmentService[];
   backingError: string | null;
+  /** Docker's state, asked only when a managed service reads `unknown`; null otherwise. */
+  docker: 'ok' | 'missing' | 'stopped' | null;
   at: string;
 }
 

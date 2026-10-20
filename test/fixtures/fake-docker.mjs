@@ -142,6 +142,8 @@ export function handle(state, args, input) {
   if (state.daemon !== 'up') return fail('Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?');
   // `delayMs` makes run and start slow, as a pull is, so a test can see who waits on them.
   if ((cmd === 'run' || cmd === 'start') && state.delayMs) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, state.delayMs);
+  // `versionDelayMs` makes every status read slow, as a busy daemon does, so a test can act during one.
+  if (cmd === 'version' && state.versionDelayMs) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, state.versionDelayMs);
   if (cmd === 'version') return ok(`${state.version}\n`);
   if (cmd === 'exec') return dockerExec(state, rest, input);
   const last = rest[rest.length - 1];

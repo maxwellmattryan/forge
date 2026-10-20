@@ -874,7 +874,12 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       });
       return startPing();
     }
+    // A client that leaves during the status call has already fired `close`, so the handler below would
+    // never run: its slot and its `docker logs --follow` child would outlive it.
+    let gone = false;
+    res.once('close', () => (gone = true));
     const status = await forgeJson(root, ['backing', 'status', id], ENV_STATUS_TIMEOUT_MS);
+    if (gone || res.destroyed) return;
     const svc = Array.isArray(status.data?.services) ? status.data.services.find((s: any) => s?.name === entry!.name) : null;
     if (!svc || (svc.state !== 'running' && svc.state !== 'stopped')) return jsonStatus(res, 409, { error: `container ${container} is ${svc?.state ?? 'unknown'}: its logs are not shown` });
     // Checked again: the status call above took time, and other streams may have opened meanwhile.
@@ -910,13 +915,16 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     lines(child.stdout);
     lines(child.stderr);
     child.on('error', () => res.end());
-    child.on('close', () => {
+    const finish = () => {
       if (ended) return;
       ended = true;
       res.write('event: end\ndata: null\n\n');
       res.end();
-    });
-    const recycle = setTimeout(() => res.end(), opts.sseMaxAgeMs ?? SSE_MAX_AGE_MS);
+    };
+    child.on('close', finish);
+    // A recycled container stream ends rather than reconnects: its frames carry no offset, so a reconnect
+    // would replay the last 200 lines on top of the ones already shown.
+    const recycle = setTimeout(finish, opts.sseMaxAgeMs ?? SSE_MAX_AGE_MS);
     recycle.unref();
     res.on('close', () => {
       ended = true;

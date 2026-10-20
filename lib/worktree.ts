@@ -1109,12 +1109,25 @@ function processCwd(pid: number): string | null {
 }
 
 /**
+ * One `ps -o pgid= -o tty= -o lstart=` row: the process group, whether the process has a controlling
+ * terminal (`?` on Linux and `??` on macOS mean none), and its start time; null for anything else.
+ */
+export function parseDevProbe(stdout: string): { pgid: number; tty: boolean; started: number } | null {
+  const m = /^\s*(\d+)\s+(\S+)\s+(\w{3}\s+\w{3}\s+\d+\s+[\d:]+\s+\d{4})\s*$/.exec(stdout.trim());
+  if (!m) return null;
+  const started = Date.parse(m[3]);
+  return Number.isFinite(started) ? { pgid: Number(m[1]), tty: !/^\?+$/.test(m[2]), started } : null;
+}
+
+/**
  * Whether runtime.json's dev record names the dev server Forge started for this job. The record is in
  * the job dir, which the job's agents can write, so it is proved rather than trusted (as isOurChild in
- * lib/daemon.ts proves a session): the pid is not 1 or ours, leads its own group (startBackground spawns
- * detached), is not our group, started within 30 s of `startedAt`, and runs inside the job's contained
- * worktree. The command line is not compared: `sh -lc '<one command>'` execs that command, so the shell
- * is often gone from it. Always false on Windows, which has none of these probes.
+ * lib/daemon.ts proves a session): the pid is not 1 or ours, leads its own group and has no controlling
+ * terminal (startBackground spawns detached, which starts a new session; a shell the human opened in the
+ * worktree, and anything it runs, keeps its terminal), is not our group, started within 30 s of
+ * `startedAt`, and runs inside the job's contained worktree. The command line is not compared:
+ * `sh -lc '<one command>'` execs that command, so the shell is often gone from it. Always false on
+ * Windows, which has none of these probes.
  */
 export function ownDevProcess(worktree: string, rec: unknown): boolean {
   if (process.platform === 'win32' || !rec || typeof rec !== 'object') return false;
@@ -1123,13 +1136,12 @@ export function ownDevProcess(worktree: string, rec: unknown): boolean {
   const recorded = typeof startedAt === 'string' ? Date.parse(startedAt) : NaN;
   if (!Number.isFinite(recorded)) return false;
   const env = { ...process.env, LC_ALL: 'C' };
-  const ps = run('ps', ['-o', 'pgid=', '-o', 'lstart=', '-p', String(pid)], { allowFail: true, env, timeoutMs: PROBE_TIMEOUT_MS });
-  const m = ps.ok ? /^\s*(\d+)\s+(\w{3}\s+\w{3}\s+\d+\s+[\d:]+\s+\d{4})\s*$/.exec(ps.stdout.trim()) : null;
-  if (!m || Number(m[1]) !== pid) return false;
+  const ps = run('ps', ['-o', 'pgid=', '-o', 'tty=', '-o', 'lstart=', '-p', String(pid)], { allowFail: true, env, timeoutMs: PROBE_TIMEOUT_MS });
+  const probe = ps.ok ? parseDevProbe(ps.stdout) : null;
+  if (!probe || probe.pgid !== pid || probe.tty) return false;
   const own = run('ps', ['-o', 'pgid=', '-p', String(process.pid)], { allowFail: true, env, timeoutMs: PROBE_TIMEOUT_MS });
   if (!own.ok || Number(own.stdout.trim()) === pid) return false;
-  const started = Date.parse(m[2]);
-  if (!Number.isFinite(started) || Math.abs(started - recorded) > DEV_START_SLACK_MS) return false;
+  if (Math.abs(probe.started - recorded) > DEV_START_SLACK_MS) return false;
   const cwd = processCwd(pid);
   if (!cwd) return false;
   const base = realpath(worktree);

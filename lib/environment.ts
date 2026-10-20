@@ -184,13 +184,25 @@ export async function jobEnvironment(root: string, config: Config, job: LoadedJo
   const dev = await devStatus(root, config, job);
   let backing: EnvironmentService[] = [];
   let backingError: string | null = null;
+  let docker: JobEnvironmentResponse['docker'] = null;
   // No backing config: nothing to ask Docker, so no child is spawned on every poll.
   if (entriesOrNone(config).length) {
     const r = await forgeJson(root, ['backing', 'status', job.id], STATUS_TIMEOUT_MS);
     if (r.exitCode === 0 && Array.isArray(r.data?.services)) backing = r.data.services.map(toService).filter((s: EnvironmentService | null): s is EnvironmentService => s !== null);
     else backingError = redact(r.error ?? 'backing status failed');
   }
-  return { job: job.id, active: isActive(job), worktree: Boolean(job.worktree), dev, backing, backingError, at: new Date().toISOString() };
+  // `unknown` is both "Docker is unreachable" and "a container with someone else's labels": ask Docker which.
+  if (backing.some((s) => s.managed && s.state === 'unknown')) docker = await dockerProbe();
+  return { job: job.id, active: isActive(job), worktree: Boolean(job.worktree), dev, backing, backingError, docker, at: new Date().toISOString() };
+}
+
+/** Docker's state as lib/backing.ts `dockerState` reads it, without blocking the server. */
+function dockerProbe(): Promise<'ok' | 'missing' | 'stopped'> {
+  return new Promise((resolve) => {
+    execFile('docker', ['version', '--format', '{{.Server.Version}}'], { timeout: STATUS_TIMEOUT_MS, maxBuffer: 64 * 1024 }, (e) =>
+      resolve(!e ? 'ok' : (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'missing' : 'stopped'),
+    );
+  });
 }
 
 /** `1.50%` → 1.5; null for anything else (`--` while a container starts). */
