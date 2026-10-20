@@ -12,6 +12,7 @@
   import CommandTrigger from './CommandTrigger.svelte';
   import Banner from './Banner.svelte';
   import Chip from './Chip.svelte';
+  import DeleteJobSection from './DeleteJobSection.svelte';
   import DepSection from './DepSection.svelte';
   import EffortChip from './EffortChip.svelte';
   import EnvironmentSection from './EnvironmentSection.svelte';
@@ -298,6 +299,7 @@
             </div></div>
           {/if}
           {@html screenshotsPanel(j.id, d.screenshots ?? [])}
+          {#key j.id}<DeleteJobSection job={j} />{/key}
         {/if}
       </div>
     </div>

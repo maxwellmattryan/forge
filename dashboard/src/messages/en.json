@@ -64,6 +64,17 @@
     "dependsOn": "Depends on",
     "blocks": "Blocks"
   },
+  "deleteJob": {
+    "title": "Delete job",
+    "open": "Delete…",
+    "hint": "For a job started by mistake: stops its session, removes its worktree, backing services and branch, releases its issues and deletes its record for good. Nothing is archived, so stats never count it.",
+    "hasPr": "This job has a PR, so it is real work: cancel it and archive it instead.",
+    "eval": "Eval jobs stay with their run.",
+    "typeId": "Type {id} to confirm",
+    "confirm": "Delete for good",
+    "keep": "Keep it",
+    "done": "Deleted {id}"
+  },
   "environment": {
     "title": "Environment",
     "focus": "Focus",

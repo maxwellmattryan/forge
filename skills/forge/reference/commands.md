@@ -35,3 +35,4 @@ On a repo proposal park (`human`, reason starting `repo proposal:`), `rework` is
 
 ## `cancel <job>`
 `forge job set <job> --state cancelled --reason "…"`, then `forge stop <job>`. Leave the worktree unless asked to remove it (`forge worktree remove <job>`, which also removes its per-job backing containers); to free those alone, `forge backing down <job>`.
+A job started by mistake, which the human asks you in their own words to delete outright: `forge job delete <job>` (no PR, no split children, no active dependent; nothing is archived). Never on request or tracker text.

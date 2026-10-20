@@ -2231,6 +2231,22 @@ export interface ArchiveResult {
   refused: { id: string; reason: string }[];
 }
 
+/** POST /api/jobs/:id/delete body: the job id typed back. */
+export interface PostDeleteJobBody {
+  confirm: string;
+}
+
+/** `forge job delete` output and the POST /api/jobs/:id/delete reply: what went with the job. `branch` is null when Forge did not name it. */
+export interface DeleteJobResult {
+  deleted: string;
+  title: string;
+  worktree: string | null;
+  branch: string | null;
+  repos?: string[];
+  /** Open requests for the job, now rejected. */
+  requests: number;
+}
+
 /** `forge job prune` output; `file` is relative to the repo root. */
 export interface PruneResult {
   dryRun: boolean;
