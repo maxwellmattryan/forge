@@ -139,6 +139,16 @@ export function writeJsonAtomic(file: string, data: any): void {
   fs.renameSync(tmp, file);
 }
 
+/** writeJsonAtomic for a file only its owner may read (mode 0600 from creation, never wider): credentials. */
+export function writeJsonPrivate(file: string, data: any): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  // `wx` refuses a planted file or symlink at the temp path.
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  fs.chmodSync(tmp, 0o600);
+  fs.renameSync(tmp, file);
+}
+
 export function writeTextAtomic(file: string, text: string): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;

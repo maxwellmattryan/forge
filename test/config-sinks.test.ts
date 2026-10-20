@@ -82,13 +82,13 @@ describe('config sinks validation', { concurrency: 4 }, () => {
   });
 
   test('a v19 config migrates to v20 unchanged', async () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 21);
+    assert.equal(CONFIG_SCHEMA_VERSION, 22);
     const v19 = { schemaVersion: 19, components: [component(VALID)] };
     const m = migrateConfig(structuredClone(v19));
     assert.equal(m.from, 19);
-    assert.deepEqual(m.config, { ...v19, schemaVersion: 21 });
+    assert.deepEqual(m.config, { ...v19, schemaVersion: 22 });
     // Through the backing bump (#272) too: v18 → v19 → v20 is two no-ops.
-    assert.deepEqual(migrateConfig({ ...structuredClone(v19), schemaVersion: 18 }).config, { ...v19, schemaVersion: 21 });
+    assert.deepEqual(migrateConfig({ ...structuredClone(v19), schemaVersion: 18 }).config, { ...v19, schemaVersion: 22 });
     const repo = tempRepo();
     try {
       const cfg = path.join(repo.dir, '.forge', 'config.yml');

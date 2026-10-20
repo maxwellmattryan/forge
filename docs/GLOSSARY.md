@@ -58,6 +58,8 @@ Planned in M007; a row with a config key is implemented.
 | **endpoint** | An address (URL or host and port) where an environment serves one component or backing service: `{endpoint.<component>}` and `{backing.<name>.port}` in commands, the `Endpoints:` brief line and the Environment card. | `components`, `backing` |
 | **backing service** | Infrastructure a component needs while it runs, such as a database, cache or queue. | `backing` |
 | **isolation** | How a backing service is provided to jobs: `per-job` (its own container per job), `shared` (one instance every job uses) or `external` (run outside Forge, which only points at it). | `backing` |
+| **job database** | One job's own database and login role on a shared Postgres backing service, cloned from a template database and dropped when the job's worktree is removed. | `backing[].database` |
+| **template database** | The database a shared Postgres backing service's migrate and seed commands build once per template hash, which every job database is cloned from. | `backing[].database` |
 | **config sink** | Where Forge writes a component's configuration for an environment (environment variables, a `.env` file, a JSON, YAML or TOML file, or a project script), chosen per component and never assumed. | `components[].config` |
 | **secret reference** | A pointer to a secret held elsewhere (an environment variable name, a keychain entry, a secret manager path) that Forge resolves at run time and never writes into job files, prompts or logs. | planned (M007) |
 

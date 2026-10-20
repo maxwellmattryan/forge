@@ -75,8 +75,9 @@ test('placeholders are not findings', () => {
     'postgres://app:password@db/app',
   ];
   for (const l of lines) assert.deepEqual(kinds(l), [], l);
-  for (const v of ['${X}', '$X', '<token>', '{{ token }}', 'aaaabbbb', 'my-example-key-1234', 'PASSWORD', 'your_api_key_here', 'abc****def123']) assert.equal(isPlaceholder(v), true, v);
-  for (const v of [token.github(), token.urlPassword()]) assert.equal(isPlaceholder(v), false);
+  for (const v of ['${X}', '$X', '<token>', '{{ token }}', '{user}', '{password}', '{database}', 'aaaabbbb', 'my-example-key-1234', 'PASSWORD', 'your_api_key_here', 'abc****def123']) assert.equal(isPlaceholder(v), true, v);
+  // Only Forge's own url placeholders, not any `{name}`.
+  for (const v of [token.github(), token.urlPassword(), '{zq7xkw3m}']) assert.equal(isPlaceholder(v), false, v);
 });
 
 test('entropy candidates and thresholds', () => {
