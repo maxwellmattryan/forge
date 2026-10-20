@@ -83,6 +83,8 @@ Job schema v13 (API version 28) adds `interim`, the job's interim strategy overr
 
 Job schema v14 (API version 29) adds `ports`, one port per port-bearing component (["Ports and endpoints"](CONFIG.md#ports-and-endpoints) in docs/CONFIG.md): migration 13 gives a v13 job `ports: {}`, and its `port` stays its first entry's until the next `forge worktree create` allocates the map, and older Forges refuse a v14 job. The `worktree` event carries `ports` beside `port`. `/api/state` endpoints gain `kind` (`component` or `backing`), a nullable `url` and a nullable `live`; config is unchanged.
 
+Job schema v15 (API version 30) adds `outcome`, the merged root PR's post-merge outcome that `forge sync` measures (docs/CLI.md "Outcomes"): migration 14 gives a v14 job `outcome: null`, a malformed stored outcome reads as null (and is measured again), and older Forges refuse a v15 job. Events gained `outcome`. `/api/state` jobs carry `outcome`, and `/api/stats` `quality` gains `autonomyRate`, `autonomyRateStrict`, `revertRate`, `followUpRate`, `churnRate` and `outcomeCoverage`; config gains `outcomes.windowDays`.
+
 API version 26 adds `GET /api/project`, the dashboard's Project view: `{ components, backing, edges, problems }`, where each component is only `{ name, repo, kind, path }` and each edge `{ from, to, target, type }`, derived from `components` by `projectGraph` in `lib/project.ts`. It never carries a component's commands, owners or notes. job.json, config and events are unchanged.
 ## Updating
 
