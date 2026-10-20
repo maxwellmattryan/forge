@@ -40,6 +40,8 @@ export const RULES = [
   'SP1', 'SP2', 'SP3', 'SP4', 'SP5', 'SP6', 'SP7',
   'D1', 'D2', 'D3',
   'B1', 'B2', 'B3', 'B4', 'B5',
+  // An eval job past maxRounds goes to decide to be graded: no human clears rounds-exhausted. Appended, as IDs are stable.
+  'B6',
   'V1', 'V2', 'V3',
   // Verifiers between a passing verify and the panel: run, spawn the verifier agent, record its answers.
   'VF1', 'VF2', 'VF3',
@@ -1047,7 +1049,10 @@ function build(x: StepInput): StepAction {
   const lv = lastVerify(x);
   if (j.round === 0 || j.verdicts[String(j.round)] || after(rework?.ts, lastEvent(x, (e) => e.type === 'round')?.ts)) return run(x, 'B1', ['job', 'round', j.id], 'start the next build round');
   // A rework that came after the previous round started is the one that opened this round (B1), so the whole round is exempt. Comparing with the builder's start lost the exemption once the builder ran.
-  if (j.round > j.maxRounds && !after(rework?.ts, x.events.filter((e) => e.type === 'round').at(-2)?.ts)) return park(x, 'B2', 'rounds-exhausted', `round ${j.round} exceeds maxRounds ${j.maxRounds}`);
+  if (j.round > j.maxRounds && !after(rework?.ts, x.events.filter((e) => e.type === 'round').at(-2)?.ts)) {
+    if (j.kind === 'eval') return set(x, 'B6', { stage: 'decide', state: 'running', reason: `eval: round ${j.round} exceeds maxRounds ${j.maxRounds}` }, 'an eval job has no human to clear rounds-exhausted: grade it');
+    return park(x, 'B2', 'rounds-exhausted', `round ${j.round} exceeds maxRounds ${j.maxRounds}`);
+  }
   if (endedIn(b, j.round)) {
     const n = needsInput(x, 'builder');
     if (n) return n;
@@ -1191,22 +1196,27 @@ function decideStage(x: StepInput): StepAction {
   const j = x.job;
   if (j.kind !== 'eval' && isPrRework(x)) return toStage(x, 'DC10', 'pr', 'the PR is open: nothing to decide');
   const ap = agent(x, 'approver');
-  if (!startedIn(ap, j.round) || !ended(ap)) return spawn(x, 'DC1', 'approver');
-  const m = missingOutput(x, 'approver');
-  if (m) return m;
-  if (x.decision.decision && !after(lastEvent(x, (e) => e.type === 'decision')?.ts, ap.endedAt)) return run(x, 'DC2', ['job', 'decision', j.id], 'record the approver\'s decision');
+  // B6 sent a rounds-exhausted eval job here: the approver would only ESCALATE a branch that never
+  // passed review, and skipping it keeps escalationRate an approver-only metric.
+  const exhausted = j.kind === 'eval' && j.round > j.maxRounds;
+  if (!exhausted) {
+    if (!startedIn(ap, j.round) || !ended(ap)) return spawn(x, 'DC1', 'approver');
+    const m = missingOutput(x, 'approver');
+    if (m) return m;
+    if (x.decision.decision && !after(lastEvent(x, (e) => e.type === 'decision')?.ts, ap.endedAt)) return run(x, 'DC2', ['job', 'decision', j.id], 'record the approver\'s decision');
+  }
   if (j.kind === 'eval') {
     const judge = agent(x, 'judge');
     const needsJudge = Boolean(x.evalTask && (x.evalTask.rubric || x.evalTask.reference));
     // No M1/M2 for the judge: a missing eval-judge.md grades as `judge: null`, which is the honest result.
-    if (needsJudge && !(ended(judge) && after(judge.endedAt, ap.endedAt))) return spawn(x, 'DC4', 'judge');
+    if (needsJudge && !(ended(judge) && after(judge.endedAt, ap?.endedAt))) return spawn(x, 'DC4', 'judge');
     if (!lastEvent(x, (e) => e.type === 'eval-graded')) return run(x, 'DC5', ['eval', 'grade', j.id], 'grade the eval task');
     return toStage(x, 'DC6', 'done', 'the eval task is graded');
   }
   // A human approve given at this gate after the approver ended cleared it, so a job sent back here
   // (an integrate-stage escalation) isn't parked again on the same stale ESCALATE or runbook. Only
   // an approve at that gate counts: acknowledging a budget stop clears neither.
-  const cleared = (on: WaitingOn) => gateApprovals(x, [on], 'decide').some((e) => after(e.ts, ap.endedAt));
+  const cleared = (on: WaitingOn) => gateApprovals(x, [on], 'decide').some((e) => after(e.ts, ap?.endedAt));
   if (!x.decision.decision && !cleared('escalation')) return park(x, 'DC3', 'escalation', 'decision.md has no APPROVE/ESCALATE line');
   if (x.decision.decision === 'ESCALATE' && !cleared('escalation')) return park(x, 'DC7', 'escalation', 'approver escalated: see decision.md');
   if (x.runbookBeforeMerge && !cleared('infra')) return park(x, 'DC8', 'infra', 'runbook: steps before merge');
