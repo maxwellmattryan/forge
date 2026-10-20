@@ -4,14 +4,13 @@
 // and the tool's last stderr line, never stdout or the value. Must not import worktree.ts.
 import fs from 'node:fs';
 import path from 'node:path';
+import { MIN_SECRET } from './known-secrets.ts';
 import { gitEnv } from './links.ts';
 import { secretEntryProblems, secretSourceOf } from './secret-refs-config.ts';
 import type { SecretSourceKind } from './secret-refs-config.ts';
 import type { Config, SecretSource } from './types.ts';
 import { ForgeError, findOnPath, isInsidePath, run } from './util.ts';
 
-/** Below this a value can't be redacted reliably: it would match ordinary text. */
-export const MIN_SECRET = 8;
 const MAX_FILE = 64 * 1024;
 const TOOL_TIMEOUT_MS = 30_000;
 const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0;
