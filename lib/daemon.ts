@@ -61,6 +61,10 @@ export interface DaemonOptions {
   notify?: QueueNotify;
   /** The known values a scope's log lines are redacted with (lib/known-secrets.ts scopeKnownValues). */
   redactor?: Redactor;
+  /** How often the pool runs `forge sync` while it is wanted; 0 never does. */
+  syncMs?: number;
+  /** Runs one `forge sync`; resolves with null on success or the failure's message. */
+  runSync?: (root: string) => Promise<string | null>;
 }
 
 /** The known values to redact from one scope's session log. */

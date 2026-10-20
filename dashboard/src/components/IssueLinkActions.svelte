@@ -9,7 +9,8 @@
   import { t } from '../lib/locale.ts';
 
   // `refId` keeps the ref field's id unique when the Needs-you card and the drawer show the same job.
-  let { id, refId, note, approving = false }: { id: string; refId: string; note: string; approving?: boolean } = $props();
+  // `note` is bound so a send clears the gate's note box along with the ref field.
+  let { id, refId, note = $bindable(''), approving = false }: { id: string; refId: string; note?: string; approving?: boolean } = $props();
 
   let candidates = $state<Candidate[]>([]);
   let loaded = $state(false);
@@ -29,7 +30,20 @@
       .finally(() => (loaded = true));
   });
 
-  const link = (to: string): void => req({ type: 'approve', job: id, note, args: { link: to } });
+  // Both fields clear as soon as the request goes, and come back only if it failed and nothing new was typed.
+  function link(to: string): void {
+    const text = note;
+    const ref = other;
+    const sending = req({ type: 'approve', job: id, note: text, args: { link: to } });
+    if (!sending) return;
+    note = '';
+    other = '';
+    sending.then((ok) => {
+      if (ok) return;
+      if (note === '') note = text;
+      if (other === '') other = ref;
+    });
+  }
 </script>
 
 <div class="flex flex-col gap-2">
