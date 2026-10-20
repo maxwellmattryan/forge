@@ -150,7 +150,8 @@ describe('the CLI in each mode', { concurrency: 4 }, () => {
       assert.equal(JSON.parse(agent.stdout).id, 'mode-job');
       const human = await forgeAsync(r.dir, ['job', 'show', '--mode', 'human', 'mode-job']);
       assert.equal(human.status, 0, human.stderr);
-      assert.match(human.stdout, /^id +mode-job$/m);
+      assert.equal(human.stdout.split('\n')[0], 'mode-job  Mode job');
+      assert.match(human.stdout, /^Stage$/m);
     } finally {
       r.cleanup();
     }
@@ -162,14 +163,19 @@ describe('the CLI in each mode', { concurrency: 4 }, () => {
       const v = JSON.parse((await forgeAsync(r.dir, ['version'])).stdout).version;
       const version = await forgeAsync(r.dir, ['version', '--mode', 'human']);
       assert.equal(version.status, 0, version.stderr);
-      assert.equal(version.stdout, `version  ${v}\n`);
+      assert.equal(version.stdout, `forge ${v}\n`);
 
       const rows = JSON.parse((await forgeAsync(r.dir, ['job', 'list'])).stdout);
       const list = await forgeAsync(r.dir, ['job', 'list', '--mode', 'human']);
       assert.equal(list.status, 0, list.stderr);
       assert.ok(list.stdout.startsWith(Object.keys(rows[0])[0] + ' '), list.stdout);
-      assert.match(list.stdout, /\nmode-job +Mode job/);
-      for (const s of [version.stdout, list.stdout]) assert.doesNotMatch(s, /[{"\x1b]/);
+      assert.match(list.stdout, /\nmode-job +backlog +.* Mode job$/m);
+
+      const status = await forgeAsync(r.dir, ['status', '--mode', 'human']);
+      assert.equal(status.status, 0, status.stderr);
+      assert.match(status.stdout, /^job +stage +state +round +tasks +pr +session\n/);
+      assert.match(status.stdout, /\nmode-job +backlog +/);
+      for (const s of [version.stdout, list.stdout, status.stdout]) assert.doesNotMatch(s, /[{"\x1b]/);
 
       const agentPath = await forgeAsync(r.dir, ['worktree', 'path', 'mode-job']);
       const humanPath = await forgeAsync(r.dir, ['worktree', 'path', 'mode-job', '--mode', 'human']);
