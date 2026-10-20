@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { loadJob } from '../jobs.ts';
 import { ForgeError } from '../util.ts';
 import { colorEnabled, render } from './render.ts';
+import { RENDERERS } from './render/index.ts';
 import type { HelpGroup, LoadedJob } from '../types.ts';
 
 /**
@@ -69,6 +70,16 @@ export function outputMode(): OutputMode {
   return mode;
 }
 
+// The outer call's renderer key (renderKey in lib/commands/render/index.ts), set once by main()
+// beside the mode, so a command printing through out() itself gets its renderer without a new argument.
+let renderKeyed: string | undefined;
+export function setRenderKey(k: string | undefined): void {
+  renderKeyed = k;
+}
+export function renderKeyOf(): string | undefined {
+  return renderKeyed;
+}
+
 const MODES = OUTPUT_MODES.join(', ');
 
 /** The --mode flag's value, or undefined when absent; a bare, repeated or unknown value is a usage error. */
@@ -132,11 +143,15 @@ export function withoutMode(argv: readonly string[]): string[] {
 
 /**
  * Strings print raw (JSON-encoded under --json). Everything else is compact JSON in agent mode, or
- * the generic renderer's text in human mode.
+ * in human mode the outer command's own renderer's text, else the generic renderer's.
  */
 export function out(data: unknown, flags: Record<string, any>): void {
   if (typeof data === 'string' && !flags.json) return void process.stdout.write(data.endsWith('\n') ? data : data + '\n');
-  if (mode === 'human' && !flags.json) return void process.stdout.write(render(data, { color: colorEnabled(process.stdout.isTTY === true, process.env) }) + '\n');
+  if (mode === 'human' && !flags.json) {
+    const opts = { color: colorEnabled(process.stdout.isTTY === true, process.env), now: Date.now(), all: flags.all === true };
+    const own = renderKeyed === undefined ? null : RENDERERS[renderKeyed](data, opts);
+    return void process.stdout.write((own ?? render(data, opts)) + '\n');
+  }
   process.stdout.write(JSON.stringify(data, null, flags.pretty ? 2 : 0) + '\n');
 }
 
