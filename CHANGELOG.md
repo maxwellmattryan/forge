@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.5
+
+- Fix: the marketplace's plugin source pinned to `main` in 0.18.4 now uses a `url` source (`https://github.com/maxwellmattryan/forge.git`, ref `main`) in place of the `github` source. Run `forge update` to move an install onto it.
+
 ## 0.18.4
 
 - Fix: a plugin install added from GitHub followed the repo's default branch, `develop`, which has no built dashboard, so `forge dash` failed with "dashboard is not built". The marketplace now pins the plugin source to `main`. Run `forge update` to move an install onto `main`.
