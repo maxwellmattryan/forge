@@ -760,6 +760,8 @@ export interface EvalResult {
   /** Wall time when no agent was running. */
   orchestratorMinutes?: number | null;
   reviewerRuns?: number;
+  /** round > maxRounds at grade time: B6 sent it to decide. Absent on results graded before it. */
+  roundsExhausted?: boolean;
 }
 
 /** Aggregates over a run's graded tasks: summarize in lib/evals.ts. */
@@ -771,6 +773,7 @@ export interface EvalSummary {
   firstPassRate: number | null;
   avgRounds: number | null;
   escalationRate: number | null;
+  roundsExhaustedRate: number | null;
   avgTokens: number | null;
   avgCostUsd: number | null;
   avgMinutes: number | null;

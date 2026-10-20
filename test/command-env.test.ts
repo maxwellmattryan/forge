@@ -27,6 +27,13 @@ test('command env drops the daemon markers and keeps everything else', () => {
   assert.equal(envFor(job, '/wt/j1', null, base).PORT, '');
 });
 
+test("command env drops an outer job's port, endpoint and backing variables", () => {
+  const base = { FORGE_PORT_DASHBOARD: '4101', FORGE_ENDPOINT_DASHBOARD: 'http://localhost:4101', FORGE_BACKING_POSTGRES_URL: 'postgres://x', FORGE_PORTAL: 'kept', UNRELATED: 'yes' };
+  const env = envFor(job, '/wt/j1', 4100, base);
+  assert.deepEqual(Object.keys(env).filter((k) => k.startsWith('FORGE_')).sort(), ['FORGE_JOB', 'FORGE_PORT', 'FORGE_PORTAL', 'FORGE_WORKTREE']);
+  assert.equal(env.UNRELATED, 'yes');
+});
+
 test("command env keeps the daemon's git pins", () => {
   const base = sessionEnv({ PATH: '/usr/bin', FORGE_DAEMON_SCOPE: 'x', [TRUST_ENV]: 'b'.repeat(64) });
   const env = envFor(job, '/wt/j1', null, base);
