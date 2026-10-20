@@ -6,7 +6,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { scratchGitConfig, tempRepo } from './helpers.ts';
 import { defaults, loadConfig } from '../lib/config.ts';
-import { loadJob } from '../lib/jobs.ts';
+import { loadJob, setJob } from '../lib/jobs.ts';
 import { configHash, gradeJob, startRun, summarize } from '../lib/evals.ts';
 import { evalCmd } from '../lib/commands/eval.ts';
 import * as yaml from '../lib/yaml.ts';
@@ -133,6 +133,27 @@ test('grade fills {args} in the check command with nothing', () => {
     assert.equal(r.check.ran, true);
     assert.equal(r.check.pass, true, r.check.tail);
     assert.match(r.check.tail, /^args=\[\]$/m);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('grade records whether the job ran out of rounds', () => {
+  const s = scratch();
+  try {
+    const patch = hiddenPatch(s.dir, { 'test/r.test.txt': 'hidden\n' });
+    addTask(s.dir, 'over', { base: s.base, patch, command: 'true' });
+    addTask(s.dir, 'within', { base: s.base, patch, command: 'true' });
+    const tasks = start(s, ['over', 'within']);
+    for (const t of Object.values(tasks)) candidate(t.wt, { 'feature.txt': 'x\n' });
+    setJob(s.dir, tasks.over.job, { fields: { round: 4, maxRounds: 3 } });
+    setJob(s.dir, tasks.within.job, { fields: { round: 3, maxRounds: 3 } });
+    const over = gradeJob(s.dir, s.config(), tasks.over.job);
+    const within = gradeJob(s.dir, s.config(), tasks.within.job);
+    assert.equal(over.roundsExhausted, true);
+    assert.equal(within.roundsExhausted, false);
+    const rec = JSON.parse(fs.readFileSync(path.join(s.dir, '.forge', 'evals', 'runs', `${tasks.over.run}.json`), 'utf8'));
+    assert.equal(rec.summary.roundsExhaustedRate, 0.5);
   } finally {
     s.cleanup();
   }

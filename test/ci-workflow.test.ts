@@ -763,11 +763,18 @@ test('AGENTS.md says CI runs the verify list and names the pinned CLI version', 
   const verify = section('## Verify before claiming it works');
   assert.ok(verify.includes('.github/workflows/ci.yml'));
   assert.ok(verify.includes('test/ci-workflow.test.ts'));
-  // The Windows leg sits outside the list, and the paragraph says what it runs and how its skips are held.
-  for (const s of ['windows-latest', 'WINDOWS_SKIP', 'windows (node 22.18.0)', 'scripts/windows-tests.ts', 'npm run typecheck']) assert.ok(verify.includes(s), s);
+  assert.ok(verify.includes('](docs/CI.md)'), 'the verify section links docs/CI.md');
+  // The Windows leg sits outside the list; both say what it runs, and docs/CI.md how its skips are held.
+  const ci = read('docs/CI.md');
+  for (const s of ['windows-latest', 'WINDOWS_SKIP', 'windows (node 22.18.0)', 'scripts/windows-tests.ts', 'npm run typecheck']) {
+    assert.ok(verify.includes(s), s);
+    assert.ok(ci.includes(s), `docs/CI.md: ${s}`);
+  }
+  assert.ok(ci.includes('test/ci-workflow.test.ts') && ci.includes('every Windows skip names an existing test file and its reason'));
   const pkg = cliPackage(WF);
   assert.ok(pkg, 'the workflow pins the CLI');
   assert.ok(verify.includes(pkg), `the verify section names ${pkg}`);
+  assert.ok(ci.includes(pkg), `docs/CI.md names ${pkg}`);
   assert.deepEqual(verifyListProblems(AGENTS, WF), [], 'the fence is in CI order');
 
   assert.match(section('## Layout'), /^- `\.github\/workflows\/ci\.yml`: /m);

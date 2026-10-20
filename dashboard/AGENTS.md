@@ -1,0 +1,18 @@
+# Working on the dashboard
+
+Read this before you change anything under `dashboard/`. The root [AGENTS.md](../AGENTS.md) still applies; this file adds the dashboard's own rules.
+
+## Rules
+- **`dashboard/style.css` is the source of truth for the dashboard's look** (the Smithy design system: its tokens and `@utility` classes; the icons live in `dashboard/src/lib/icons.ts`). New classes are `@utility`s there, colours come from the token variables, and fonts are vendored in `dashboard/fonts/`, never linked.
+- Each page is one component in `src/views/`. Put shared pieces in `components/` and logic you want tested in plain `src/lib/*.ts`, not in a growing view.
+- **Commit the built dashboard.** Never hand-edit `dist/`. Rebuild it with `npm run build:dashboard` in the same commit as its sources; `test/dashboard-dist.test.ts` fails otherwise.
+
+## Gotchas already paid for
+- **Tailwind v4**: `@apply` accepts only built-in utilities or classes declared with `@utility`; plain `.class {}` rules can't be `@apply`'d. Tailwind only sees the `@source` files in `dashboard/style.css`: build class names from whole literals, never `bg-${tone}`; no `class:` directives, and no `<style>` blocks in components. Upgrading means bumping the exact devDependency versions and rebuilding.
+- **Dashboard text comes from `dashboard/src/messages/en.json`.** Components write `$t('literal.key')` (import `t` from `lib/locale.ts`); `test/dashboard-i18n.test.ts` fails on hard-coded prose in markup or text attributes, on a non-literal or unknown key, and on an unused message. Don't name a loop variable `t`: it shadows the store.
+- **Text never sits on the grain.** Put dashboard text, controls and components on a `plate` (not `plate open`, which is a see-through container), `plain`, `solid` or `chrome` surface; the Grain pref (`data-grain`) only hides the texture, never a surface; `test/dashboard-shell.test.ts` › "text never sits on the bare ground" enforces it.
+- **Escape everything the dashboard renders.** Svelte's `{…}` escapes, so never call `esc()` in a component. `{@html}` is allowed only on `md()`, `budgetChip`/`budgetCell`/`budgetPanel` and `screenshotsPanel`, whose output is escape-first, and `test/dashboard-svelte.test.ts` enforces it. Session log lines are untrusted: supervisor, stderr, tool input and result lines render as text; assistant/thinking prose and subagent prompts and reports render only through `md()`. Don't add a markdown library or any `innerHTML`. Job HTML (mockups) renders only in the sandboxed iframe (`/raw`).
+- **Tests can't import `.svelte` or `.svelte.ts`** (runes need the compiler). Keep logic you want tested in plain `src/lib/*.ts`.
+
+## Verify
+In a scratch repo, seed a job or two (`forge job new`, `forge job set`), then run `FORGE_ROOT=<scratch> npm run dev` from the checkout: it serves your sources and rebuilds on save (reload to see an edit; one Ctrl-C stops it). Open it in a browser. Check the forge, ash and temper themes, a phone-width viewport, the job drawer, and that markdown containing `<script>` / `<img onerror>` renders escaped. Finally run `npm run build:dashboard` and commit `dist/` with the sources (`forge dash` serves `dashboard/dist/`, not the sources).

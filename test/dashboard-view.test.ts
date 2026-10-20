@@ -163,7 +163,7 @@ test('evals: compare rows keep the old table\'s values and tones', () => {
     a: { configHash: 'h1', forgeVersion: '1' }, b: { configHash: 'h2', forgeVersion: '2' },
     delta: {
       tasks: { a: 2, b: 2, change: 0 }, checkPassRate: { a: 0.5, b: 0.75, change: 0.25 }, avgJudgeScore: { a: 0.9, b: 0.8, change: -0.1 }, firstPassRate: { a: null, b: 1, change: null },
-      avgRounds: { a: 2, b: 1, change: -1 }, escalationRate: { a: 0, b: 0.5, change: 0.5 }, avgTokens: { a: 100, b: 100, change: 0 }, avgCostUsd: { a: 1, b: 2, change: 1 }, avgMinutes: { a: 10, b: 5, change: -5 },
+      avgRounds: { a: 2, b: 1, change: -1 }, escalationRate: { a: 0, b: 0.5, change: 0.5 }, roundsExhaustedRate: { a: 0, b: 0.25, change: 0.25 }, avgTokens: { a: 100, b: 100, change: 0 }, avgCostUsd: { a: 1, b: 2, change: 1 }, avgMinutes: { a: 10, b: 5, change: -5 },
     },
   } as any);
   // main's compareTable rendered these rows (metric, A, B, Δ and the Δ cell's tone class).
@@ -173,6 +173,7 @@ test('evals: compare rows keep the old table\'s values and tones', () => {
     ['firstPassRate', '—', '1', '—', 'text-muted'],
     ['avgRounds', '2', '1', '-1', 'text-ok'],
     ['escalationRate', '0', '0.5', '+0.5', 'text-bad'],
+    ['roundsExhaustedRate', '0', '0.25', '+0.25', 'text-bad'],
     ['avgTokens', '100', '100', '0', 'text-muted'],
     ['avgCostUsd', '1', '2', '+1', 'text-bad'],
     ['avgMinutes', '10', '5', '-5', 'text-ok'],

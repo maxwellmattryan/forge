@@ -421,11 +421,14 @@ function placeholdersArePlainWords(template: string): boolean {
 // The daemon's trust check guards the session's own `forge` calls; a configured command that
 // calls `forge` (a test suite on scratch repos) must behave as it does for a human.
 const DAEMON_MARKER = /^FORGE_DAEMON(_|$)/;
+// An outer job's per-component and backing variables would otherwise reach a nested job's
+// commands (the suite run by `forge verify` driving scratch jobs) beside that job's own.
+const JOB_VARS = /^FORGE_(PORT|ENDPOINT|BACKING)_/;
 
-/** A configured command's environment: `base` without the daemon markers (git pins kept), plus the job's variables. */
+/** A configured command's environment: `base` without the daemon markers or an outer job's variables (git pins kept), plus the job's variables. */
 export function envFor(job: Job, dir: string, port: number | null, base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...base };
-  for (const k of Object.keys(env)) if (DAEMON_MARKER.test(k)) delete env[k];
+  for (const k of Object.keys(env)) if (DAEMON_MARKER.test(k) || JOB_VARS.test(k)) delete env[k];
   return Object.assign(env, { FORGE_JOB: job.id, FORGE_WORKTREE: dir, PORT: port ? String(port) : '', FORGE_PORT: port ? String(port) : '' });
 }
 
