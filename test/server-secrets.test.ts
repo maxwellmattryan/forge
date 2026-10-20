@@ -8,7 +8,8 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
-import { startServer } from '../lib/server.ts';
+import { startServer, stateFrame } from '../lib/server.ts';
+import type { DaemonSessionState } from '../lib/types.ts';
 import { defaults } from '../lib/config.ts';
 import { sessionFiles } from '../lib/daemon.ts';
 import { attachAgent, claimJob, createJob, jobDir, recordAgent } from '../lib/jobs.ts';
@@ -109,11 +110,43 @@ describe('server secrets', { concurrency: 4 }, () => {
           }
         }
       }
+      // Another letter case (the default macOS volume ignores it) and links to a private file.
+      for (const route of ['file', 'raw']) for (const p of ['KNOWN-SECRETS.JSON', 'Backing-DB.json']) assert.equal((await s.get(`/api/jobs/${id}/${route}?path=${p}`)).status, 404, `${route} ${p}`);
+      const dir = jobDir(s.root, id);
+      fs.mkdirSync(path.join(dir, 'screenshots'), { recursive: true });
+      let linked = true;
+      try {
+        fs.symlinkSync('../known-secrets.json', path.join(dir, 'logs', 'x.json'));
+        fs.symlinkSync('../backing-db.json', path.join(dir, 'screenshots', 'x.png'));
+      } catch {
+        linked = false; // Windows without the symlink privilege
+      }
+      if (linked) {
+        for (const p of ['logs/x.json', 'screenshots/x.png']) for (const route of ['file', 'raw']) assert.equal((await s.get(`/api/jobs/${id}/${route}?path=${p}`)).status, 404, `${route} ${p}`);
+      }
       const files: string[] = JSON.parse((await s.get(`/api/jobs/${id}`)).text).files;
       assert.ok(files.includes('build.md'));
       assert.equal(files.some((f) => f.endsWith('known-secrets.json') || f.endsWith('backing-db.json')), false);
     } finally {
       await s.cleanup();
     }
+  });
+
+  test('daemon state frames are redacted', () => {
+    const value = `kv"\\-${crypto.randomBytes(8).toString('hex')}`;
+    const escaped = JSON.stringify(value).slice(1, -1);
+    const st: DaemonSessionState = {
+      scope: 'job-1', wanted: true, running: true, status: 'busy', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, failures: 0, held: null, waiting: false,
+      lastError: `last turn failed: ${value}`,
+      permissions: [{ id: 'p1', tool: 'Bash', input: JSON.stringify({ command: `curl -H "Authorization: ${value}"` }), description: null, agentId: null, blockedPath: null, sessionRules: [], sessionDirs: [] } as DaemonSessionState['permissions'][number]],
+      permissionMode: null, kept: null, effort: null,
+    };
+    const frame = stateFrame(st, [value]);
+    assert.ok(frame.startsWith('event: state\ndata: '));
+    assert.ok(!frame.includes(value) && !frame.includes(escaped), frame);
+    const sent = JSON.parse(frame.split('data: ')[1]);
+    assert.equal(sent.lastError, 'last turn failed: [redacted]');
+    assert.equal(JSON.parse(sent.permissions[0].input).command, 'curl -H "Authorization: [redacted]"', 'the JSON-escaped form in a tool input');
+    assert.equal(stateFrame(st, []), `event: state\ndata: ${JSON.stringify(st)}\n\n`, 'nothing to redact');
   });
 });

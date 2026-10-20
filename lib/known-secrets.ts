@@ -22,6 +22,19 @@ export const REDACTED = '[redacted]';
 /** Job files that hold credentials: never served, listed or bundled. */
 export const PRIVATE_JOB_FILES: ReadonlySet<string> = new Set(['known-secrets.json', 'backing-db.json']);
 
+/** Whether a file name is a private job file's, in any case: the default macOS volume ignores case. */
+export const isPrivateName = (name: string): boolean => PRIVATE_JOB_FILES.has(name.toLowerCase());
+
+/** Whether `file`, by its own name or the name a link in its path resolves to, is a private job file. */
+export function isPrivateJobFile(file: string): boolean {
+  if (isPrivateName(path.basename(file))) return true;
+  try {
+    return isPrivateName(path.basename(fs.realpathSync(file)));
+  } catch {
+    return false;
+  }
+}
+
 export const knownFile = (root: string, id: string): string => path.join(paths(root).job(id), 'known-secrets.json');
 
 /** `text` with every secret replaced by `[redacted]`. */

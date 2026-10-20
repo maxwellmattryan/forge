@@ -4,7 +4,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
 import { daemonProblems, loadConfig, resolveEffort, validateConfig } from './config.ts';
-import { PRIVATE_JOB_FILES, allKnownValues, knownValues, redactDeep, redactKnown, scopeKnownValues } from './known-secrets.ts';
+import { allKnownValues, isPrivateJobFile, isPrivateName, knownValues, redactDeep, redactKnown, scopeKnownValues } from './known-secrets.ts';
 import { ConfigSetError, FIELDS } from './config-fields.ts';
 import { dashboardActor } from './actor.ts';
 import { setConfigValue } from './config-set.ts';
@@ -266,9 +266,10 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
         if (m[2] === '/transcript/events') return transcriptEvents(req, res, id, url);
         const rel = url.searchParams.get('path') ?? '';
         const file = safeJoin(jobDir(root, id), rel);
-        if (file && m[2] === '/file' && IMAGE_TYPES[path.extname(file).toLowerCase()]) return sendImage(res, jobDir(root, id), file);
-        // Private job files hold credentials: not served under any path that names them.
-        if (!file || PRIVATE_JOB_FILES.has(path.basename(file)) || !exists(file) || !TEXT_EXT.has(path.extname(file))) return send(res, 404, 'text/plain', 'not found');
+        // Private job files hold credentials: not served under any path that names them or links to them.
+        if (!file || isPrivateJobFile(file)) return send(res, 404, 'text/plain', 'not found');
+        if (m[2] === '/file' && IMAGE_TYPES[path.extname(file).toLowerCase()]) return sendImage(res, jobDir(root, id), file);
+        if (!exists(file) || !TEXT_EXT.has(path.extname(file))) return send(res, 404, 'text/plain', 'not found');
         // Background logs are written by the child itself, so known values are taken out here.
         const known = knownValues(root, id, loadConfig(root).config);
         if (m[2] === '/raw') {
@@ -559,10 +560,12 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     // Syntax only, so the logs of deleted jobs stay viewable.
     if (!validScope(scope)) return jsonStatus(res, 400, { error: 'session must be "_inbox", "_office" or a job id' });
     if (clients.size >= MAX_SSE_CLIENTS) return send(res, 503, 'text/plain', 'too many event streams');
+    // Before the headers: an unreadable config then fails the request instead of a half-open stream.
+    const known = scopeKnownValues(root, scope, loadConfig(root).config);
     res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
     res.write('retry: 3000\n\n');
     clients.set(res, scope);
-    res.write(stateFrame(pool ? pool.sessionState(scope) : offSessionState(root, scope)));
+    res.write(stateFrame(pool ? pool.sessionState(scope) : offSessionState(root, scope), known));
     const last = Number(req.headers['last-event-id']);
     for (const r of pool?.recent(scope, req.headers['last-event-id'] === undefined || !Number.isFinite(last) ? undefined : last) ?? []) res.write(lineFrame(r.offset, r.line));
     const recycle = setTimeout(() => res.end(), opts.sseMaxAgeMs ?? SSE_MAX_AGE_MS);
@@ -837,7 +840,16 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       const d = createPool(root, opts.daemon);
       pool = d;
       // Each stream gets only its own session's lines and state.
-      d.subscribe((e) => broadcast(clients, e.kind === 'line' ? lineFrame(e.offset, e.line) : stateFrame(e.state), SSE_SLOW_CLIENT_BYTES, e.scope));
+      d.subscribe((e) => {
+        let frame: string;
+        try {
+          frame = e.kind === 'line' ? lineFrame(e.offset, e.line) : stateFrame(e.state, scopeKnownValues(root, e.scope, loadConfig(root).config));
+        } catch {
+          // Unreadable config: a state frame that can't be redacted is dropped, never sent raw.
+          return;
+        }
+        broadcast(clients, frame, SSE_SLOW_CLIENT_BYTES, e.scope);
+      });
       try {
         const { config } = loadConfig(root);
         // A dev dashboard often runs in a fresh clone of a repo that commits daemon.enabled: true,
@@ -1028,8 +1040,9 @@ function redactPage<P extends { lines: { offset: number; line: string }[] }>(pag
   return known.length ? { ...page, lines: page.lines.map((l) => ({ ...l, line: redactKnown(l.line, known) })) } : page;
 }
 
-function stateFrame(st: DaemonSessionState): string {
-  return `event: state\ndata: ${JSON.stringify(st)}\n\n`;
+/** A session's state as an SSE frame; its permission inputs and errors can quote a known value, so they are redacted like /api/state. */
+export function stateFrame(st: DaemonSessionState, known: readonly string[]): string {
+  return `event: state\ndata: ${JSON.stringify(redactDeep(st, known))}\n\n`;
 }
 
 /**
@@ -1210,7 +1223,7 @@ function jobDetail(root: string, id: string, projects: string): JobDetail {
       if (e.name.startsWith('.')) continue;
       const full = path.join(d, e.name);
       if (e.isDirectory() && depth < 3) walk(full, depth + 1);
-      else if (e.isFile() && TEXT_EXT.has(path.extname(e.name)) && !['job.json', 'events.jsonl', 'runtime.json'].includes(e.name) && !PRIVATE_JOB_FILES.has(e.name))
+      else if (e.isFile() && TEXT_EXT.has(path.extname(e.name)) && !['job.json', 'events.jsonl', 'runtime.json'].includes(e.name) && !isPrivateName(e.name))
         files.push(path.relative(dir, full));
     }
   };

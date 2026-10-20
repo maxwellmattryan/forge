@@ -13,7 +13,7 @@ import { doctor } from './doctor.ts';
 import { forgeVersion } from './evals.ts';
 import { PINNED_DIFF_OPTS, PINNED_GIT_CONFIG } from './integrity.ts';
 import { isActive, jobDir, listJobs, loadJob } from './jobs.ts';
-import { PRIVATE_JOB_FILES } from './known-secrets.ts';
+import { isPrivateName } from './known-secrets.ts';
 import { addCounts, daemonSkeleton, omitProse, omitted, redactContext, redactText } from './redact.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from './requests.ts';
 import { realHistoryEnv, resolveBase } from './scope.ts';
@@ -241,7 +241,7 @@ function markdownFiles(dir: string, skipped: BundleSkip[], prefix: string): stri
     if (!Array.isArray(list)) return void skipped.push({ name: `${prefix}/${rel}`, reason: list.skip });
     for (const d of list.sort((a, b) => a.name.localeCompare(b.name))) {
       // Credentials, whatever a later change to this walk picks up.
-      if (PRIVATE_JOB_FILES.has(d.name)) continue;
+      if (isPrivateName(d.name)) continue;
       if (!safeName(d.name)) {
         if (d.isDirectory() || d.name.endsWith('.md')) skipped.push({ name: `${prefix}/${rel ? `${rel}/` : ''}${UNSAFE}`, reason: UNSAFE_REASON });
         continue;
