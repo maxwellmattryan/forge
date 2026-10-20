@@ -1,8 +1,8 @@
 <!-- A job's Thread in the drawer: its request and the requests about it with the session's replies. The gate's
      actions and the session's permission prompts live in the drawer's ActionDock, on every tab. Request text and
      results are untrusted: they render only through the escape-first md(), or as plain text in Raw (and above 20k
-     characters). The secret scanner's notes (secret-found events) are an ember plate whose masked findings are plain
-     text, never markdown. -->
+     characters). The secret scanner's notes (secret-found events) are an ember plate whose masked findings and scan
+     error are plain text, never markdown. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
@@ -95,8 +95,9 @@
           {#if m.secret}
             <li class="plate ember p-3 flex flex-col gap-1.5 {TINT.forge}">
               <div class="caption flex flex-wrap items-center gap-x-2 gap-y-1">
-                {#if seenAtOpen && !seenAtOpen.has(threadMark(m))}<span class="dot spark size-1.5 shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="font-semibold text-fg">{who.forge}</span><span class="text-fg">{secretText(m.secret)}</span>{#if m.at}<span class="text-muted">{ago(m.at, ticker.now)}</span>{/if}<span class="flex-1"></span>{#if m.secret.blocked}<Chip tone="you" text={$t('thread.secret.blocked')} />{:else}<Chip tone="warn" text={$t('thread.secret.noted')} />{/if}
+                {#if seenAtOpen && !seenAtOpen.has(threadMark(m))}<span class="dot spark size-1.5 shrink-0" aria-hidden="true"></span><span class="sr-only">{$t('live.new')}</span>{/if}<span class="font-semibold text-fg">{who.forge}</span><span class="text-fg">{m.secret.error ? $t('thread.secret.error') : secretText(m.secret)}</span>{#if m.at}<span class="text-muted">{ago(m.at, ticker.now)}</span>{/if}<span class="flex-1"></span>{#if m.secret.blocked}<Chip tone="you" text={$t('thread.secret.blocked')} />{:else}<Chip tone="warn" text={$t('thread.secret.noted')} />{/if}
               </div>
+              {#if m.secret.error}<p class="selectable mono text-[12px] break-words">{m.secret.error}</p>{/if}
               {#if m.secret.findings.length}
                 <ul class="flex flex-col gap-0.5" aria-label={$t('thread.secret.findings')}>
                   {#each m.secret.findings as f, i (i)}<li class="selectable text-sm font-mono break-all">{secretLine(f)}</li>{/each}

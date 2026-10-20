@@ -331,6 +331,17 @@ test('the issue chooser shows on an issue-link gate and, approving, on a pending
   assert.match(chooser, /approving = false/);
 });
 
+test('InboxCard explains Approve on a secret park and shows Still blocked', () => {
+  const card = read('src/components/InboxCard.svelte');
+  assert.match(card, /const secret = \$derived\(secretPark\(j\)\);/);
+  assert.ok(card.includes(`{#if secret?.stillBlocked}<span class="chip sm {TONE_CLASS.warn}">{$t('inbox.stillBlocked')}</span>{/if}<StateChip job={j} />`), 'the chip sits beside the StateChip');
+  assert.ok(card.includes(`{#if secret}<div class="muted text-[12px]">{$t('inbox.secretRescan')}</div>{/if}`));
+  assert.ok(card.includes(`{#if secret?.stillBlocked}<div class="muted text-[12px]">{$t('inbox.stillBlockedNote')}</div>{/if}`));
+  assert.ok(card.indexOf("$t('inbox.secretRescan')") > card.indexOf('{#if showParkReason(j)}'), 'the line comes after the reason');
+  assert.ok(card.indexOf("$t('inbox.stillBlockedNote')") < card.indexOf("$t('inbox.secretRescan')"), 'the still-blocked note comes before the rescan line');
+  assert.ok(!card.includes('{@html secret') && !/\{@html[^}]*inbox\./.test(card), 'no {@html} for the new text');
+});
+
 test('ThreadPanel renders secret notes as text in an ember plate', () => {
   const panel = read('src/components/ThreadPanel.svelte');
   const start = panel.indexOf('{#if m.secret}');
@@ -344,6 +355,9 @@ test('ThreadPanel renders secret notes as text in an ember plate', () => {
   assert.match(branch, /\{secretLine\(f\)\}/);
   assert.ok(!branch.includes('{@html') && !branch.includes('md('), 'excerpts and paths never reach md()');
   assert.match(branch, /\$t\('thread\.secret\.more', \{ count: m\.secret\.more \}\)/);
+  // A scan that could not finish: its own caption, and the error as plain text.
+  assert.ok(branch.includes("{m.secret.error ? $t('thread.secret.error') : secretText(m.secret)}"), 'the error caption replaces the count caption');
+  assert.ok(branch.includes('{#if m.secret.error}<p class="selectable mono text-[12px] break-words">{m.secret.error}</p>{/if}'), 'the error is plain text');
   for (const key of ['verify', 'commit', 'pr', 'agentEnd', 'elsewhere']) assert.ok(panel.includes(`$t('thread.secret.${key}'`), key);
   assert.match(panel, /threadItems\(requests, opening, events\)/);
   const drawer = read('src/components/Drawer.svelte');
