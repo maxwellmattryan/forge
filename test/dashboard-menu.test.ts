@@ -33,6 +33,21 @@ test('placeMenu clamps to the gutter', () => {
   assert.equal(placeMenu({ top: -60, bottom: -32, right: 1000, ...VIEW, width: 256, height: 200 }).top, 8);
 });
 
+test('placeMenu aligns start edges', () => {
+  // A Select's list under a trigger at x 300..500: left edges meet; vertical placement is the same as end-aligned.
+  assert.deepEqual(placeMenu({ top: 100, bottom: 128, left: 300, right: 500, align: 'start', ...VIEW, width: 256, height: 200 }), { left: 300, top: 132 });
+  assert.deepEqual(placeMenu({ top: 800, bottom: 828, left: 300, right: 500, align: 'start', ...VIEW, width: 256, height: 200 }), { left: 300, top: 596 }, 'flips above');
+  // Near the right edge: the list's right edge stays 8px in.
+  assert.equal(placeMenu({ top: 100, bottom: 128, left: 1300, right: 1400, align: 'start', ...VIEW, width: 256, height: 200 }).left, 1440 - 8 - 256);
+  // A trigger scrolled past the left edge: the list stays 8px in.
+  assert.equal(placeMenu({ top: 100, bottom: 128, left: -40, right: 100, align: 'start', ...VIEW, width: 256, height: 200 }).left, 8);
+  // A 360px phone with a list wider than the viewport: it starts at the gutter.
+  assert.equal(placeMenu({ top: 100, bottom: 128, left: 200, right: 340, align: 'start', vw: 360, vh: 700, width: 400, height: 200 }).left, 8);
+  // align 'end' is the default: an explicit end gives the same as none.
+  const end = { top: 100, bottom: 128, left: 300, right: 1000, ...VIEW, width: 256, height: 200 };
+  assert.deepEqual(placeMenu({ ...end, align: 'end' }), placeMenu({ top: 100, bottom: 128, right: 1000, ...VIEW, width: 256, height: 200 }));
+});
+
 /** A stand-in for the DOM bits parkFocus and keepFocus touch: focus() records itself as the document's active element. */
 function fakeDom() {
   const doc = { activeElement: null as unknown, body: { name: 'body' } as unknown };

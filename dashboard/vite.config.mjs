@@ -1,6 +1,6 @@
 // @ts-check
 // Build-time only: `npm run build:dashboard` compiles index.html, style.css and the Svelte app into
-// the committed dist/. The installed plugin never loads Vite; the server reads dist/ directly.
+// dist/ (committed only by release and hotfix commits on main). The installed plugin never loads Vite; the server reads dist/ directly.
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import tailwindcss from '@tailwindcss/vite';

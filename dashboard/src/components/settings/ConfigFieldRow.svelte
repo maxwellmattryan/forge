@@ -1,6 +1,8 @@
 <!-- One config field: label, key, help and default, then its control (or its read-only value) and any error. -->
 <script lang="ts">
+  import Select from '../Select.svelte';
   import { t } from '../../lib/locale.ts';
+  import type { SelectOption } from '../../lib/select.ts';
   import { draftOf, formatValue, parseDraft, type Draft, type Parsed } from '../../lib/config-form.ts';
   import type { SettingsSession } from '../../lib/settings-session.svelte.ts';
   import type { ConfigField } from '../../lib/types.ts';
@@ -15,6 +17,7 @@
   const defaultText = $derived(formatValue(f.default));
   const shown = $derived(formatValue(value));
   const describedBy = $derived(`${id}-help${error ? ` ${id}-error` : ''}`);
+  const enumOptions = $derived<SelectOption[]>([...(f.nullable ? [{ value: '', label: $t('settings.field.unset') }] : []), ...(f.options ?? []).map((o) => ({ value: o, label: o }))]);
 
   // Literal keys only: config-form.ts returns these.
   function errorText(p: Extract<Parsed, { ok: false }>): string {
@@ -89,10 +92,7 @@
       <!-- The state text sits beside the checkbox, outside its label, so the checkbox's name stays the field label. -->
       <div class="flex items-center gap-2 text-sm min-h-8"><input {id} type="checkbox" class="check" checked={draft === true} {disabled} aria-describedby={describedBy} onchange={(e) => session.setDraft(f.key, e.currentTarget.checked)} /><span aria-hidden="true">{draft === true ? $t('settings.field.on') : $t('settings.field.off')}</span></div>
     {:else if f.type === 'enum'}
-      <select {id} class="self-start" value={draft} {disabled} aria-invalid={error ? 'true' : undefined} aria-describedby={describedBy} onchange={(e) => session.setDraft(f.key, e.currentTarget.value)}>
-        {#if f.nullable}<option value="">{$t('settings.field.unset')}</option>{/if}
-        {#each f.options ?? [] as o (o)}<option value={o}>{o}</option>{/each}
-      </select>
+      <Select {id} class="self-start" value={String(draft ?? '')} options={enumOptions} {disabled} invalid={Boolean(error)} describedby={describedBy} onchange={(v) => session.setDraft(f.key, v)} />
     {:else if f.type === 'integer' || f.type === 'number'}
       <input {id} type="number" class="self-start w-40 max-w-full" value={draft} min={f.min !== null && !f.minExclusive ? f.min : undefined} max={f.max ?? undefined} step={f.type === 'integer' ? 1 : 'any'} {disabled} aria-invalid={error ? 'true' : undefined} aria-describedby={describedBy} oninput={(e) => session.setDraft(f.key, e.currentTarget.value)} />
     {:else if f.type === 'string'}

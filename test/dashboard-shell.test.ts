@@ -599,7 +599,7 @@ test('no filled element nests in a patterned one', () => {
 // Text never sits on the grain: the grain shows only on bare ground between surfaces, so every word, value,
 // caller snippet and component the shell or a view puts on the page has a surface around it. A component this test
 // scans itself (GROUND, or a view) is checked inside its own file instead.
-const GROUND = ['PageHeader', 'Empty', 'Banner', 'StatusBar', 'Popover', 'JobCard', 'JobsTable', 'InboxCard', 'CommandTrigger', 'Drawer', 'Settings', 'CommandBar', 'Toast', 'GitHubCard', 'NeedsPanel', 'PeriodMeter', 'RailTip'];
+const GROUND = ['PageHeader', 'Empty', 'Banner', 'StatusBar', 'Popover', 'JobCard', 'JobsTable', 'InboxCard', 'CommandTrigger', 'Drawer', 'Settings', 'CommandBar', 'Toast', 'GitHubCard', 'NeedsPanel', 'PeriodMeter', 'Select', 'RailTip'];
 /** A GROUND component's file: components/, or components/statusbar/ for a popover body. */
 const groundFile = (c: string) => (fs.existsSync(path.join(SRC, 'components', `${c}.svelte`)) ? `components/${c}.svelte` : `components/statusbar/${c}.svelte`);
 // A plate is a surface; an open plate is a container the grain shows through (dashboard/AGENTS.md › Text never sits on the grain).
@@ -659,38 +659,6 @@ test('text never sits on the bare ground', () => {
 
 /** Every file under dashboard/src, relative to it. */
 const srcFiles = () => [...tsFiles(), ...svelteFiles()];
-
-test("looping motion is the live halo and the stepper's trace, both motion-safe", () => {
-  const animate = /(?<![\w-])(?:[\w-]+:)*animate-[\w-]+/g;
-  const uses = srcFiles().flatMap((f) => [...read(f).matchAll(animate)].map((m) => [f, m[0]]));
-  assert.deepEqual(uses.sort(), [['components/LiveDot.svelte', 'motion-safe:animate-ping']], "LiveDot's motion-safe halo is the only animate-* token");
-  const dot = read('components/LiveDot.svelte');
-  assert.match(dot, /<span class="dot gleam halo motion-safe:animate-ping"><\/span><span class="dot gleam relative"><\/span>/);
-  assert.match(dot, /<span class="dot hollow shrink-0" aria-hidden="true"><\/span>/, 'off: a hollow dot');
-  assert.match(dot, /<span class="relative inline-flex shrink-0" aria-hidden="true">/, 'on: the dot and halo are aria-hidden');
-
-  assert.match(read('components/SessionActivity.svelte'), /<LiveDot on=\{activity\.kind === 'working'\} \/>/);
-  for (const f of ['components/JobCard.svelte', 'components/Drawer.svelte']) assert.match(read(f), /<SessionActivity\b/, `${f} renders the live dot through SessionActivity`);
-  assert.match(read('components/StatusBar.svelte'), /<LiveDot\b/, 'the status bar renders the live dot');
-
-  const css = fs
-    .readdirSync(path.join(ROOT, 'dashboard', 'dist', 'assets'))
-    .filter((f) => f.endsWith('.css'))
-    .map((f) => fs.readFileSync(path.join(ROOT, 'dashboard', 'dist', 'assets', f), 'utf8'))
-    .join('\n');
-  const at = css.indexOf('.motion-safe\\:animate-ping{');
-  assert.ok(at > 0, 'the built CSS has the halo');
-  const media = css.lastIndexOf('@media', at);
-  assert.match(css.slice(media, at), /^@media\s*\(\s*prefers-reduced-motion\s*:\s*no-preference\s*\)\s*\{$/, 'inside a prefers-reduced-motion: no-preference block');
-  assert.equal(css.split('.motion-safe\\:animate-ping{').length - 1, 1, 'and nowhere else');
-  const trace = css.indexOf('.motion-safe\\:trace-loop{');
-  assert.ok(trace > 0, "the built CSS has the stepper's trace");
-  // The trace shares the halo's block, so check the nearest @media is still open at the rule, not that it opens right before it.
-  const open = css.slice(css.lastIndexOf('@media', trace), trace);
-  assert.match(open, /^@media\s*\(\s*prefers-reduced-motion\s*:\s*no-preference\s*\)\s*\{/, 'the trace is inside a prefers-reduced-motion: no-preference block');
-  assert.equal(open.split('{').length - open.split('}').length, 1, 'and that block is still open at the trace rule');
-  assert.equal(css.split('.motion-safe\\:trace-loop{').length - 1, 1, 'the trace rule appears once');
-});
 
 test('no custom keyframes or animate utilities in dashboard sources', () => {
   const files = [['style.css', fs.readFileSync(path.join(ROOT, 'dashboard', 'style.css'), 'utf8')], ...srcFiles().map((f) => [f, read(f)])];

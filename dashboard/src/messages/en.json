@@ -407,6 +407,7 @@
   },
   "analytics": {
     "title": "Analytics",
+    "window": "Time window",
     "sub": "How Forge itself is performing. Comparable across repos because it measures the process, not the code.",
     "name": "Name",
     "noUsage": "No usage recorded yet.",
@@ -470,6 +471,8 @@
     "cost": "Cost",
     "minutes": "Minutes",
     "compareRuns": "Compare runs",
+    "runA": "First run",
+    "runB": "Second run",
     "compare": "Compare",
     "empty": "No eval runs yet. Add tasks with",
     "cmdMine": "forge eval mine --pr <n>",
@@ -959,6 +962,9 @@
     "empty": "No agents in this round yet",
     "noTranscript": "No transcript for this agent",
     "transcript": "{role} transcript · read-only"
+  },
+  "select": {
+    "choose": "Choose…"
   },
   "budget": {
     "meterTitle": "Repo spend · {month}",

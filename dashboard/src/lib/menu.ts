@@ -6,6 +6,10 @@ export interface MenuPlaceInput {
   top: number;
   bottom: number;
   right: number;
+  /** The trigger's left edge, used when `align` is 'start'. */
+  left?: number;
+  /** end (the default): right edges meet, as MenuButton's panels; start: left edges meet, as a Select's list. */
+  align?: 'start' | 'end';
   /** The viewport's size. */
   vw: number;
   vh: number;
@@ -48,13 +52,13 @@ export function keepFocus(el: HTMLElement | null, doc: { readonly activeElement:
 const clamp =(v: number, lo: number, hi: number): number => Math.max(lo, Math.min(v, hi));
 
 /**
- * The panel's fixed position: right edges aligned, `gap` below the trigger, or above it when the panel doesn't fit below
+ * The panel's fixed position: right edges aligned (left edges with `align: 'start'`), `gap` below the trigger, or above it when the panel doesn't fit below
  * and above has more room, kept `gutter` inside the viewport on both axes. A panel taller than the viewport sits at the
  * top gutter (its own max-height makes it scroll).
  */
-export function placeMenu({ top, bottom, right, vw, vh, width, height, gap = 4, gutter = 8 }: MenuPlaceInput): { left: number; top: number } {
+export function placeMenu({ top, bottom, right, left: edge, align = 'end', vw, vh, width, height, gap = 4, gutter = 8 }: MenuPlaceInput): { left: number; top: number } {
   const w = Math.min(width, vw - 2 * gutter);
-  const left = clamp(right - w, gutter, vw - gutter - w);
+  const left = clamp(align === 'start' ? (edge ?? right - w) : right - w, gutter, vw - gutter - w);
   const below = vh - bottom - gap - gutter;
   const above = top - gap - gutter;
   const y = height > below && above > below ? top - gap - height : bottom + gap;

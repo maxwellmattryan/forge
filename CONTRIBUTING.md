@@ -16,7 +16,7 @@ Run `npm ci` once. After that, the dashboard and the CLI run your local source, 
   - It serves the `.forge/` of the repo you ran it from. To keep a real repo's state out of it, run `FORGE_ROOT=<scratch> npm run dev`, or `cd <scratch> && npm --prefix <checkout> run dev`.
   - It refuses to start while a dashboard is already running for that repo. Stop that one with `forge dash --stop`, or point it at a scratch repo.
   - The daemon stays off until you press Start, even with `daemon.enabled: true`. Its sessions then run this checkout's code.
-  - `dashboard/dist/` is never written. Before you commit dashboard changes, run `npm run build:dashboard` and commit the rebuilt `dist/` with them.
+  - `dashboard/dist/` is never written. The verify list builds it before the tests; it is gitignored, so never commit it.
 - **`npm run dev:claude [-- <claude args>]`** opens Claude Code on this checkout's plugin (`claude --plugin-dir <checkout>`, with the checkout's `bin/` first on PATH), from the directory you ran it in. The plugin, its skills, agents and hooks, and every `forge` call run the checkout. For that session it overrides an installed Forge. From another repo, run `npm --prefix <checkout> run dev:claude`.
 - In any Claude Code session with Forge enabled, `forge` is the loaded plugin's CLI: a SessionStart hook puts that plugin's `bin/` first on PATH, ahead of an `npm link` or another install.
 - `npm link`, then `forge help`, runs the CLI on its own.
@@ -29,13 +29,13 @@ Run `npm ci` once. After that, the dashboard and the CLI run your local source, 
 - **PRs are squash-merged**, so the PR title becomes the commit title. Write it as a sentence that says what changes.
 - **No AI attribution** in commits, PR descriptions, issues or comments: the human who makes the change is its author (see [Authorship](README.md#authorship)). While the plugin is enabled, its hook blocks a commit or `gh` command that carries it.
 - **Leave versions and the changelog alone.** Don't touch the `version` fields in `package.json` and `.claude-plugin/plugin.json`, or `CHANGELOG.md`: the release commit at the end of a wave adds them. Describe user-visible changes in the PR description instead.
-- **Commit the rebuilt `dashboard/dist/`** together with the dashboard sources it is built from.
+- **Branch from `develop` and open PRs into `develop`.** `main` takes only release commits and hotfixes, and only those commit the built `dashboard/dist/`; leave it out of every other PR.
 - Paths listed in [.github/CODEOWNERS](.github/CODEOWNERS) need the maintainer's review.
 - Forge never adopts a PR from a fork (see [Untrusted input](docs/ARCHITECTURE.md#untrusted-input)), so the maintainer reviews those by hand.
 
 ## Dependencies
 
-Forge has zero runtime dependencies by rule, so a PR that adds one is closed. Dependabot proposes devDependency updates weekly. Before merging one, the maintainer commits on the Dependabot branch, as the comment in [.github/dependabot.yml](.github/dependabot.yml) describes. Every update needs a rebuilt `dashboard/dist/` from `npm run build:dashboard`, because the dist build stamp hashes the resolved versions in `package-lock.json`. When a devDependency's own version changes, the new version also goes in the pinned map in `test/dashboard-dist.test.ts`, which asserts every devDependency's exact version; a lockfile-only update leaves that map alone.
+Forge has zero runtime dependencies by rule, so a PR that adds one is closed. Dependabot proposes devDependency updates weekly. Before merging one, the maintainer commits on the Dependabot branch, as the comment in [.github/dependabot.yml](.github/dependabot.yml) describes. Every update changes the dashboard build stamp, which hashes the resolved versions in `package-lock.json`, so the next release commit rebuilds `dashboard/dist/` as usual. When a devDependency's own version changes, the new version also goes in the pinned map in `test/dashboard-dist.test.ts`, which asserts every devDependency's exact version; a lockfile-only update leaves that map alone.
 
 ## Security and conduct
 
