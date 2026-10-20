@@ -50,7 +50,7 @@ Forge is a Claude Code plugin that runs a software factory: a request or tracker
 
 ### 4b. Claude's response
 
-**Per-job session deciding gates: no.** (a) It is the party being gated; `lib/foreman.ts` deliberately blocks a job session from acting as foreman, and daemon logs show Claude's safety classifier refusing self-approval attempts. (b) Its context is relay noise by the time a gate opens; a fresh assistant with a brief pointing at spec.md, review files and the escalation reason is cleaner and cheaper (clean-context reviewer evidence). (c) If the per-job LLM session is eventually replaced by the pool looping `step()`, there is no session to ask anyway. So a fresh assistant per gate is the better assessor, and recommendation drafting belongs to it too.
+**Per-job session deciding gates: no.** (a) It is the party being gated; `lib/foreman.ts` deliberately blocks a job session from acting as foreman, and daemon logs show Claude's safety classifier refusing self-approval attempts. (b) Its context is relay noise by the time a gate opens; a fresh assistant with a brief pointing at spec.md, review files and the escalation reason is cleaner and cheaper (clean-context reviewer evidence). (c) If the per-job LLM session is eventually replaced by the pool looping `step()`, there is no session to ask anyway. So a fresh assistant per gate is the better assessor, and writing the recommendation belongs to it too.
 
 **Per-job assistant vs per-gate assistant: per gate.** A session persisting across a job's gates is exactly the per-job orchestrator lane measured as about 10% of spend plus hand-off latency. The brief already gives a fresh assistant the same job files.
 
