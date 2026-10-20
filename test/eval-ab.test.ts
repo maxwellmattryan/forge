@@ -179,7 +179,29 @@ test('old results summarise with null timing', () => {
   const r = runsRoot({ done: v1Run('done', [entry('a', result())], { status: 'done', summary: storedSummary }) });
   try {
     const [run] = listRuns(r.root);
-    assert.deepEqual(run.summary, { ...storedSummary, avgAgentMinutes: null, avgOrchestratorMinutes: null, avgReviewerRuns: null });
+    assert.deepEqual(run.summary, { ...storedSummary, roundsExhaustedRate: null, avgAgentMinutes: null, avgOrchestratorMinutes: null, avgReviewerRuns: null });
+  } finally {
+    r.cleanup();
+  }
+});
+
+test('roundsExhaustedRate counts rounds-exhausted tasks', () => {
+  // A rounds-exhausted job has no approver decision, so escalationRate leaves it out.
+  const s = summarize({ tasks: [entry('a', result({ roundsExhausted: true, decision: null })), entry('b', result({ roundsExhausted: false })), entry('c', result({ roundsExhausted: false })), entry('d', result({ roundsExhausted: false }))] });
+  assert.equal(s.roundsExhaustedRate, 0.25);
+  assert.equal(s.escalationRate, 0);
+  // Results graded before the field are left out of the mean, not counted as 0.
+  const mixed = summarize({ tasks: [entry('a', result({ roundsExhausted: true, decision: null })), entry('b', result())] });
+  assert.equal(mixed.roundsExhaustedRate, 1);
+  assert.equal(summarize({ tasks: [entry('a', result()), entry('b', null)] }).roundsExhaustedRate, null);
+});
+
+test('compare shows the roundsExhaustedRate delta', () => {
+  const a = v1Run('a', [entry('t', result({ roundsExhausted: true, decision: null }), 1), entry('u', result({ roundsExhausted: false }), 1)]);
+  const b = v1Run('b', [entry('t', result({ roundsExhausted: false }), 1), entry('u', result({ roundsExhausted: false }), 1)]);
+  const r = runsRoot({ a, b });
+  try {
+    assert.deepEqual(compareRuns(r.root, 'a', 'b').delta.roundsExhaustedRate, { a: 0.5, b: 0, change: -0.5, na: 2, nb: 2 });
   } finally {
     r.cleanup();
   }

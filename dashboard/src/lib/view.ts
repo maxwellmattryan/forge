@@ -478,7 +478,7 @@ export const jobMs = (j: JobLike): number | null => Date.parse(s(j.finishedAt ??
 
 // ---------- evals ----------
 
-const BETTER: Record<string, number> = { checkPassRate: 1, avgJudgeScore: 1, firstPassRate: 1, avgRounds: -1, escalationRate: -1, avgTokens: -1, avgCostUsd: -1, avgMinutes: -1 };
+const BETTER: Record<string, number> = { checkPassRate: 1, avgJudgeScore: 1, firstPassRate: 1, avgRounds: -1, escalationRate: -1, roundsExhaustedRate: -1, avgTokens: -1, avgCostUsd: -1, avgMinutes: -1 };
 
 export interface CompareRow {
   key: string;
