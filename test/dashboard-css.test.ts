@@ -1,11 +1,15 @@
 // The Smithy utility set, declared in dashboard/style.css as @utility classes, the Drafting class names gone, and the
 // drawing rules: plates cut at two corners and clipped to them, the grain on its own layer, sheen on hover, token shadows.
-import test from 'node:test';
+import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { builtCss } from './built-css.ts';
+import { noDist } from './dist.ts';
+
+// Every test here reads the real build, so each skips without one (test/dist.ts).
+const test = (name: string, fn: () => void) => nodeTest(name, { skip: noDist() }, fn);
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DASHBOARD = path.join(ROOT, 'dashboard');

@@ -143,7 +143,7 @@ const TRANSCRIPT_READ_BYTES = 1024 * 1024;
 const TRANSCRIPT_POLL_MS = 1000;
 const NO_TRANSCRIPT = 'no transcript';
 const DIST_DIR = path.join(PLUGIN_ROOT, 'dashboard', 'dist');
-const NOT_BUILT = 'dashboard is not built: run npm run build:dashboard';
+const NOT_BUILT = 'dashboard is not built: run npm ci && npm run build:dashboard';
 const DEV_NOT_BUILT = 'dashboard dev build is not ready: npm run dev is still building it; reload in a moment';
 const DIST_ASSET = /^assets\/[\w.-]+\.(js|css|woff2)$/;
 const DIST_TYPES: Record<string, string> = { js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', woff2: 'font/woff2' };

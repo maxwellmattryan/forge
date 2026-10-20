@@ -9,6 +9,7 @@ import { tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
 import { createJob, jobDir } from '../lib/jobs.ts';
 import { startServer } from '../lib/server.ts';
+import { FIXTURE_DIST } from './dist.ts';
 import { hasBinary } from '../lib/util.ts';
 
 function hit(port: number, p: string, headers: Record<string, string> = {}): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
@@ -28,7 +29,7 @@ async function setup() {
   const root = repo.dir;
   const job = createJob(root, defaults(), { title: 'Bundle route' });
   fs.writeFileSync(path.join(jobDir(root, job.id), 'spec.md'), '# Spec\nSPEC-ROUTE-MARKER\n');
-  const srv = await startServer(root, { port: 0, projectsDir: fs.mkdtempSync(path.join(os.tmpdir(), 'forge-projects-')) });
+  const srv = await startServer(root, { port: 0, distDir: FIXTURE_DIST, projectsDir: fs.mkdtempSync(path.join(os.tmpdir(), 'forge-projects-')) });
   const port = Number(new URL(srv.url).port);
   const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, '/')).body.toString('utf8'))?.[1] ?? '';
   assert.ok(token, 'the page carries the token');

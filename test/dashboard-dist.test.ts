@@ -1,5 +1,6 @@
-// Guards the built dashboard/dist/ (committed only on main): reads files only, so it needs no Vite, no node_modules
-// and no network.
+// Guards the built dashboard/dist/ (CI adds it to main in the main-update PR): reads files only, so it needs no Vite,
+// no node_modules and no network. The tests of the build itself skip until it is built (test/dist.ts); the stamp's
+// freshness is release:check's job (`--dist present`).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -7,11 +8,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STAMP, sourceHash, distHash } from '../dashboard/build-stamp.mjs';
+import { DIST, noDist } from './dist.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DASHBOARD = path.join(ROOT, 'dashboard');
-const DIST = path.join(DASHBOARD, 'dist');
-const STALE = 'dashboard/dist is stale: run `npm run build:dashboard`';
+const BUILT = { skip: noDist() };
 const ASSET = /^assets\/[\w.-]+\.(js|css|woff2)$/;
 
 /** Every file name the manifest points at (file, css[] and assets[] of each entry). */
@@ -54,23 +55,12 @@ test('package.json: exact-pinned devDependencies only, no install hooks', () => 
   assert.deepEqual(scripted, ['node_modules/fsevents']);
 });
 
-test('dist holds only the manifest\'s files plus index, manifest and stamp', () => {
+test('dist holds only the manifest\'s files plus index, manifest and stamp', BUILT, () => {
   const named = manifestFiles();
   assert.ok(named.size >= 2, 'the manifest names at least the module and the stylesheet');
   for (const f of named) assert.match(f, ASSET);
   const expected = ['index.html', 'manifest.json', STAMP, ...named].sort();
   assert.deepEqual(listFiles(DIST).sort(), expected);
-});
-
-test('dist is fresh: build-stamp matches sources and dist contents', () => {
-  let stamp;
-  try {
-    stamp = JSON.parse(fs.readFileSync(path.join(DIST, STAMP), 'utf8'));
-  } catch {
-    assert.fail(STALE);
-  }
-  assert.equal(stamp.source, sourceHash(DASHBOARD, path.join(ROOT, 'package-lock.json')), `${STALE} (sources or package-lock.json changed)`);
-  assert.equal(stamp.dist, distHash(DIST), `${STALE} (dist/ was edited by hand)`);
 });
 
 test('build-stamp hashes notice source, lockfile and dist edits', () => {
@@ -155,7 +145,7 @@ const THEME_SCRIPT = `<script>
       } catch {}
     </script>`;
 
-test('dist index keeps token meta and theme bootstrap, loads only local hashed assets', () => {
+test('dist index keeps token meta and theme bootstrap, loads only local hashed assets', BUILT, () => {
   const html = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
   const named = manifestFiles();
   assert.ok(html.includes('<meta name="forge-token" content="__FORGE_TOKEN__" />'));
@@ -179,7 +169,7 @@ test('dist index keeps token meta and theme bootstrap, loads only local hashed a
 const DYNAMIC_CLASSES =
   'ok bad warn info gleam muted live you spark chip btn primary sel ember plate open cold riveted flat clickable chrome border-dashed track fill tbl kpi label callout stamp-line facts halo prose dot hollow plain active bg-panel solid invisible hidden text-fg hover:text-fg text-ok text-bad text-muted tint agent cli forge selectable flush trace motion-safe:trace-loop';
 
-test('compiled CSS covers dynamically applied and custom classes', () => {
+test('compiled CSS covers dynamically applied and custom classes', BUILT, () => {
   const css = [...manifestFiles()].filter((f) => f.endsWith('.css')).map((f) => fs.readFileSync(path.join(DIST, f), 'utf8')).join('\n');
   assert.ok(css.length > 0, 'a stylesheet is built');
   for (const cls of DYNAMIC_CLASSES.split(' ')) {

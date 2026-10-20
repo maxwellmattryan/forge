@@ -8,7 +8,7 @@ import { deprecationChecks } from './deprecations.ts';
 import { memberRepoChecks, releaseChecks, repoProblems } from './member-repos.ts';
 import { isActive, listJobs } from './jobs.ts';
 import { notifyChecks } from './notify.ts';
-import { paths, exists } from './paths.ts';
+import { paths, exists, PLUGIN_ROOT } from './paths.ts';
 import { dirBytes } from './retention.ts';
 import { SUPPORT_URL, hostInfo, platformTier, posixShell, tierDetail, versionAtLeast } from './platform.ts';
 import type { HostInfo } from './platform.ts';
@@ -52,6 +52,15 @@ export function storageCheck(root: string, warnBytes = STORAGE_WARN_BYTES): Doct
   const warn = sizes.some(([, n]) => n > warnBytes);
   const detail = sizes.map(([k, n]) => `${k} ${formatBytes(n)}`).join(' · ') + (warn ? '; run forge job prune --older-than 30 --dry-run' : '');
   return { name: 'storage', ok: true, detail, ...(warn ? { warn: true } : {}) };
+}
+
+/**
+ * The `dashboard built` check: a plugin checkout off `main` (develop, a clone) has no dashboard/dist/
+ * until it is built. Always ok, so a source checkout never fails doctor; a warning until it is built.
+ */
+export function dashboardCheck(distDir: string = path.join(PLUGIN_ROOT, 'dashboard', 'dist')): DoctorCheck {
+  if (exists(path.join(distDir, 'manifest.json'))) return { name: 'dashboard built', ok: true, detail: 'ok' };
+  return { name: 'dashboard built', ok: true, warn: true, detail: 'not built: run npm ci && npm run build:dashboard' };
 }
 
 /** The repo root and worktrees root that sit on the Windows filesystem (/mnt/…) under WSL2. */
@@ -132,6 +141,7 @@ export async function doctor(root: string, config: Config, initialized: boolean,
   const unsupported = listJobs(root).filter((j) => j._unsupported);
   if (unsupported.length) add('job schema', false, `${unsupported.length} job(s) from a newer Forge`);
   checks.push(storageCheck(root));
+  checks.push(dashboardCheck());
   if (initialized) checks.push(...(await notifyChecks(config)));
   // Last, and bounded: the only network call, and left out entirely when it cannot tell.
   const release = latestReleaseCheck();
