@@ -13,6 +13,7 @@ import { lensChecklists } from './member-panel.ts';
 import { repoGraph } from './project.ts';
 import { paths, exists } from './paths.ts';
 import { releaseFiles } from './release-plan.ts';
+import { SECRET_NAME, secretSourceOf } from './secret-refs-config.ts';
 import type { Config, GateClass, Job, JobEvent, StepInput } from './types.ts';
 
 /**
@@ -177,6 +178,17 @@ export function reworkPanelLine(input: Pick<StepInput, 'job' | 'events'>): strin
   return `Rework panel: round ${round} re-reviewed ${ran.join(', ')}; carried passes: ${carried.join(', ') || 'none'}`;
 }
 
+/**
+ * The declared secrets as names and source kinds, in config order, or null when there are none.
+ * Never an env var name, keychain service, op reference or file path: those say where to look.
+ */
+export function secretsLine(c: Pick<Config, 'secrets'>): string | null {
+  const names = Object.entries(c.secrets ?? {}).filter(([n]) => SECRET_NAME.test(n));
+  if (!names.length) return null;
+  const list = names.map(([n, e]) => `${n} (${secretSourceOf(e) ?? 'invalid'})`).join(', ');
+  return `Secrets: ${list} · values reach commands only through config sinks ({secret.NAME}); never print, log, copy or commit them`;
+}
+
 export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {}): BriefSpec {
   const j = input.job;
   const c = input.config;
@@ -185,6 +197,8 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
   // Names, isolations and loopback ports only: env values and urls can carry credentials.
   const backing = backingLine(c, input.backing?.job ?? null, input.backing?.shared ?? null);
   const backingLines = backing ? [backing] : [];
+  const secrets = secretsLine(c);
+  const secretLines = secrets ? [secrets] : [];
   const base = role.split(':')[0];
   const reposLine = base === 'planner' || base === 'spec-writer' ? projectReposLine(c, j) : null;
   const repos = reposLine ? [reposLine] : [];
@@ -229,6 +243,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
           ...(downstream ? [downstream] : []),
           infra,
           ...backingLines,
+          ...secretLines,
           uiProof,
         ]);
       }
@@ -239,7 +254,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
       if (rework.includes('pr-feedback')) inputs.push(p('prFeedback'));
       if (rework.includes('feedback')) inputs.push(p('feedback'));
       if (rework.includes('answer')) inputs.push(p('questions'));
-      return out([p('tasks'), p('build')], inputs, [...(rework.length ? [`Rework: ${rework.join(', ')}`] : []), infra, ...backingLines, uiProof]);
+      return out([p('tasks'), p('build')], inputs, [...(rework.length ? [`Rework: ${rework.join(', ')}`] : []), infra, ...backingLines, ...secretLines, uiProof]);
     }
     case 'reviewer': {
       const lens = ctx.lens ?? role.slice('reviewer:'.length);
@@ -255,7 +270,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
         const eps = jobEndpoints(input.root, c, j).components;
         extra.push(`Endpoints: ${eps.length ? eps.map((e) => `${e.name} ${e.url}`).join('; ') : `dev http://localhost:${c.ports.base}`}`);
       }
-      extra.push(...backingLines);
+      extra.push(...backingLines, ...secretLines);
       // The integration review stays root-only and has its own Diff line below.
       if (input.paths.scopeDiff && !ctx.integration) extra.push(`Diff: ${p('scopeDiff')} (every job repo; member paths are prefixed <repo>/)`);
       if (ctx.integration) {

@@ -9,7 +9,7 @@ This section and the `--json` section below describe **agent mode**, the output 
 - Success prints one compact JSON value and a newline on stdout. `--pretty` indents it, and `forge doctor` and `forge config show` always indent.
 - A few commands print text instead: `forge status` (a table), `forge stats` (a summary), `forge secrets scan` (a report), `forge help`, and the string results of `forge worktree path`, `forge worktree prune`, `forge job get`, `forge config get` and `forge daemon log`. Under `--json` all of them print JSON (see below).
 - An error prints exactly `forge: <message>` on stderr, nothing on stdout, and exits with its code from the tables below. `FORGE_DEBUG=1` adds the stack trace on stderr. Human mode prints `error:` and `fix:` lines instead.
-- These commands report a failure in their own result instead of an error, and exit 1: `verify`, `run`, `integrate`, `pr merge`, `job advance`, `config validate`, `secrets scan` (a finding) and `update`.
+- These commands report a failure in their own result instead of an error, and exit 1: `verify`, `run`, `integrate`, `pr merge`, `job advance`, `config validate`, `secrets scan` (a finding), `secrets check` (a secret that does not resolve) and `update`.
 - `forge git diff|log|show|range-diff` pass git's stdout, stderr and exit code through once git runs.
 
 ## Output mode
@@ -89,7 +89,7 @@ Like `forge version`, it needs no repo and no `.forge/`. The commit is self-repo
 | external | 5 | a tool Forge runs failed to start or exited non-zero: git, gh, claude, docker |
 
 The exceptions:
-- `verify`, `run`, `integrate`, `pr merge`, `job advance`, `config validate`, `secrets scan` and `update` print their own result when they fail, and exit 1. `secrets scan` fails on any finding; a scan that cannot finish is an error. `forge job advance` exits 3 when it refuses a job its session does not hold, and 1 when a command it ran failed, whatever that command's own exit would have been.
+- `verify`, `run`, `integrate`, `pr merge`, `job advance`, `config validate`, `secrets scan` and `update` print their own result when they fail, and exit 1. `secrets scan` fails on any finding; a scan that cannot finish is an error. `secrets check` fails when any secret it checks does not resolve, and prints each one's `error` (never a value or its length); an undeclared name is a usage error (exit 2). `forge job advance` exits 3 when it refuses a job its session does not hold, and 1 when a command it ran failed, whatever that command's own exit would have been.
 - `forge git diff|log|show|range-diff` exit with git's own code once git runs.
 - `forge release run` prints its own result and exits 1 when it stops at a step (the result's `stopped` says why), and exits 3 (`owned`) while another `forge release run` holds the release lock.
 - `forge backing up|down|status` exit 5 (`external`) when Docker is missing, its daemon is stopped or a docker command fails (for `up`, also a same-named container that isn't this job's); `status <job>` still exits 0 and reports `unknown`. `forge worktree remove` exits 1 when its backing teardown fails (docs/CONFIG.md "Backing services"). With a job database, `forge backing up` also exits 5 when the server does not accept connections within 60 s, migrate or seed fails, a psql call fails, or the job has no worktree (`job <id> has no worktree: run forge worktree create <id>`); `forge backing down` and `forge worktree remove` count a stopped shared container or a failed psql call as a failed teardown and keep `backing-db.json` for a retry (docs/CONFIG.md "Job databases").
@@ -288,7 +288,7 @@ Each entry keeps at most its last 2 MiB. Files are read without following symlin
 **Agent text stays out by default.** In `job.json`, `events.jsonl` and `step.json`, the string values of `title`, `reason`, `summary`, `note`, `text`, `body`, `brief`, `prompt`, `message`, `output`, `comment`, `description` and `report` become `<omitted: n chars>` (`error` stays). Daemon log lines are reduced to a skeleton: their structure, numbers and the strings of id, type, name and state keys stay, and every other string (prompts, replies, tool input and output) becomes `<omitted: n chars>`. `--include-text` keeps all of it, still redacted.
 
 **Redaction**, over every entry and entry name, in this order:
-1. likely secrets (the secret scanner's provider patterns and entropy check, with no allowlist) become `<secret:kind>`;
+1. every job's known values (resolved secret references and job database passwords, raw and JSON-escaped; docs/CONFIG.md "Secret references") become `<secret:known>`, then likely secrets (the secret scanner's provider patterns and entropy check, with no allowlist) become `<secret:kind>`; `known-secrets.json` and `backing-db.json` are never included;
 2. the repo root becomes `<repo>`, the worktrees root (`worktrees.root`) `<worktrees>` and the home directory `~`;
 3. email addresses become `<email>`;
 4. known identities (git `user.name`, the OS user, the machine's host name and its first label, the owners of the github.com and gitlab.com remotes, and `tracker.github.repo`'s owner, `tracker.github.project.owner`, `tracker.github.ready.assignee` and `pr.reviewers`) become `<login>`, as do the owner in any `github.com/<owner>` or `gitlab.com/<owner>` and any `@mention`.
