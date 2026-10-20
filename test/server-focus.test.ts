@@ -10,6 +10,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { forgeAsync, repoTemplate, waitFor } from './helpers.ts';
 import { startServer } from '../lib/server.ts';
+import { FIXTURE_DIST } from './dist.ts';
 import { editorArgv } from '../lib/editor.ts';
 import { pidAlive } from '../lib/worktree.ts';
 import { API_VERSION } from '../lib/schema.ts';
@@ -64,7 +65,7 @@ async function scratch() {
       .split('\n')
       .filter(Boolean)
       .map((l) => JSON.parse(l));
-  const srv = await startServer(root, { port: 0 });
+  const srv = await startServer(root, { port: 0, distDir: FIXTURE_DIST });
   const port = Number(new URL(srv.url).port);
   const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)![1];
   const good = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json' };

@@ -1311,6 +1311,17 @@ export interface DaemonSessionState {
   effort: Effort | null;
 }
 
+/** One finished (or aborted) dashboard request, as startServer's onRequest hook reports it: lib/activity.ts. */
+export interface RequestInfo {
+  method: string;
+  /** The pathname only: a query string can carry the dashboard token. */
+  path: string;
+  status: number | 'aborted';
+  ms: number;
+  /** The response was a server-sent-event stream. */
+  sse: boolean;
+}
+
 /**
  * The permission modes a human may put one daemon session in from the dashboard: `default` asks in the
  * dashboard, `auto` lets Claude Code's classifier approve routine calls, `dontAsk` refuses. lib/daemon.ts PERMISSION_MODES.

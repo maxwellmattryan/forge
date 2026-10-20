@@ -12,11 +12,13 @@ import { createJob, jobDir } from '../lib/jobs.ts';
 import { recordKnown } from '../lib/known-secrets.ts';
 import { fingerprint, mask, refuseSecrets, textUnit } from '../lib/secrets.ts';
 import { startServer } from '../lib/server.ts';
+import { FIXTURE_DIST } from './dist.ts';
 import { hasBinary } from '../lib/util.ts';
 
 function hit(port: number, p: string, headers: Record<string, string> = {}): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port, path: p, headers: { host: `127.0.0.1:${port}`, ...headers } }, (res) => {
+    // A fresh socket per request: a pooled keep-alive socket the server times out under load resets.
+    const req = http.request({ host: '127.0.0.1', port, path: p, agent: false, headers: { host: `127.0.0.1:${port}`, ...headers } }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode!, headers: res.headers, body: Buffer.concat(chunks) }));
@@ -31,7 +33,7 @@ async function setup() {
   const root = repo.dir;
   const job = createJob(root, defaults(), { title: 'Bundle route' });
   fs.writeFileSync(path.join(jobDir(root, job.id), 'spec.md'), '# Spec\nSPEC-ROUTE-MARKER\n');
-  const srv = await startServer(root, { port: 0, projectsDir: fs.mkdtempSync(path.join(os.tmpdir(), 'forge-projects-')) });
+  const srv = await startServer(root, { port: 0, distDir: FIXTURE_DIST, projectsDir: fs.mkdtempSync(path.join(os.tmpdir(), 'forge-projects-')) });
   const port = Number(new URL(srv.url).port);
   const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, '/')).body.toString('utf8'))?.[1] ?? '';
   assert.ok(token, 'the page carries the token');

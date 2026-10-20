@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.18.6
+
+- **Backing services:** a per-job database on a shared server (Postgres `TEMPLATE`), with seeds and migrations.
+- `forge dash` prints its activity log in human mode.
+- The dashboard is built in CI: `develop` for development, `main` for stable installs, through the main-update PR.
+- Fixes to the dashboard config view and status bar, CI and tests.
+
 ## 0.18.5
 
 - Fix: the marketplace's plugin source pinned to `main` in 0.18.4 now uses a `url` source (`https://github.com/maxwellmattryan/forge.git`, ref `main`) in place of the `github` source. Run `forge update` to move an install onto it.

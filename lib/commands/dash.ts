@@ -10,7 +10,8 @@ import { daemonPlatformProblem } from '../platform.ts';
 import { ForgeError, getPath, readJson, readText, sleepSync, writeJsonAtomic } from '../util.ts';
 import * as yaml from '../yaml.ts';
 import { pidAlive } from '../worktree.ts';
-import { out } from './args.ts';
+import { out, outputMode } from './args.ts';
+import { colorEnabled } from './render.ts';
 import type { RunningServer } from '../server.ts';
 import type { Config, HelpGroup } from '../types.ts';
 
@@ -21,7 +22,7 @@ export const HELP: HelpGroup[] = [
     commands: [
       {
         command: 'dash',
-        args: '[--background|--stop] [--port N] [--dev]',
+        args: '[--background|--stop] [--port N] [--dev] [--quiet]',
         summary: 'start the dashboard in the foreground (prints its URL), or detached with --background; --stop stops it and its sessions',
         flags: [
           ['--background', 'start it detached and print {url, pid}'],
@@ -29,6 +30,7 @@ export const HELP: HelpGroup[] = [
           ['--port N', 'the first port to try (default: dashboard.port, 7400)'],
           ['--foreground', 'run in the foreground even when one is running'],
           ['--dev', "serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist; the daemon stays off until Start; refused while a dashboard runs for this repo"],
+          ['--quiet', 'in the foreground in human mode, print only the banner (no activity log)'],
         ],
         exits: [[1, 'no free port near N, or --dev while a dashboard is already running for this repo']],
       },
@@ -89,6 +91,11 @@ export async function dashNotes(root: string, config: Config, flags: Record<stri
   return flags.dev ? {} : settleDaemonAuth(root, config);
 }
 
+/** The detached child's argv: --quiet, since its stdio is ignored and an activity log would only cost it work. */
+export function backgroundArgs(port: number, flags: Record<string, any>): string[] {
+  return ['dash', '--foreground', '--port', String(port), ...(flags.dev ? ['--dev'] : []), '--quiet'];
+}
+
 export async function dash(root: string, config: Config, flags: Record<string, any>): Promise<void> {
   const rtFile = path.join(paths(root).runtime, 'dashboard.json');
   const current = readJson(rtFile, null);
@@ -125,7 +132,7 @@ export async function dash(root: string, config: Config, flags: Record<string, a
   const port = Number(flags.port ?? config.dashboard.port ?? 7400);
   const note = await dashNotes(root, config, flags);
   if (flags.background) {
-    const child = spawn(process.execPath, [path.join(PLUGIN_ROOT, 'bin', 'forge'), 'dash', '--foreground', '--port', String(port), ...(flags.dev ? ['--dev'] : [])], {
+    const child = spawn(process.execPath, [path.join(PLUGIN_ROOT, 'bin', 'forge'), ...backgroundArgs(port, flags)], {
       cwd: root,
       detached: true,
       stdio: 'ignore',
@@ -151,10 +158,14 @@ export async function dash(root: string, config: Config, flags: Record<string, a
     }
   }
   const { startServer } = await import('../server.ts');
+  // Agent mode and --quiet keep stdout exactly the banner, and run none of the log's hooks or polls.
+  const activity = outputMode() === 'human' && !flags.quiet ? await import('../activity.ts') : null;
+  const color = colorEnabled(Boolean(process.stdout.isTTY), process.env);
+  const onRequest = activity?.requestLogger(activity.stdoutWriter, { color });
   let res: RunningServer | undefined;
   for (let p = port; p < port + 20; p++) {
     try {
-      res = await startServer(root, { port: p, dev: Boolean(flags.dev) });
+      res = await startServer(root, { port: p, dev: Boolean(flags.dev), ...(onRequest ? { onRequest } : {}) });
       break;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw e;
@@ -164,10 +175,12 @@ export async function dash(root: string, config: Config, flags: Record<string, a
   writeJsonAtomic(rtFile, { pid: process.pid, url: res.url, startedAt: new Date().toISOString() });
   const server = res;
   let closing = false;
+  let detach: (() => void) | null = null;
   const shutdown = async () => {
     if (closing) return;
     closing = true;
     try {
+      detach?.();
       await server.close();
     } finally {
       process.exit(0);
@@ -178,4 +191,13 @@ export async function dash(root: string, config: Config, flags: Record<string, a
   // Last resort (an uncaught exception, a plain exit): signal every session's group synchronously.
   process.on('exit', () => server.pool.killSync());
   process.stdout.write(`⚒️  Forge dashboard${flags.dev ? ' (dev)' : ''} → ${res.url}\n`);
+  // After the banner, so it stays the first line; a session that spawned before this prints as the
+  // tracker's baseline.
+  if (activity) {
+    try {
+      detach = activity.attachActivityLog(root, server, { color });
+    } catch {
+      // The log never stops the dashboard.
+    }
+  }
 }

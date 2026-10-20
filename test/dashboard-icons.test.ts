@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tags } from './svelte-markup.ts';
+import { DIST, noDist } from './dist.ts';
 import { ICONS } from '../dashboard/src/lib/icons.ts';
 import { SETTINGS_TABS } from '../dashboard/src/lib/settings.ts';
 
@@ -74,11 +75,20 @@ test('Icon.svelte draws the machined line', () => {
   assert.ok(text.includes('{#each def as s, i (i)}'), 'every shape in one list');
   for (const el of ['path', 'circle', 'rect']) assert.ok(all.some((x) => x.name === el), `renders <${el}>`);
   assert.equal(attr(all.find((x) => x.name === 'rect') as Tag, 'rx'), '{s.rx}', 'a rect keeps its eased corner');
-  // The built CSS sizes the icon in the same line: 1.5, round caps and joins, no construction class.
-  const dist = path.join(ROOT, 'dashboard', 'dist', 'assets');
-  const css = fs.readdirSync(dist).filter((f) => f.endsWith('.css')).map((f) => fs.readFileSync(path.join(dist, f), 'utf8')).join('');
+});
+
+/** Every stylesheet under the real build's assets/. */
+const builtAssetsCss = () => {
+  const dist = path.join(DIST, 'assets');
+  return fs.readdirSync(dist).filter((f) => f.endsWith('.css')).map((f) => fs.readFileSync(path.join(dist, f), 'utf8')).join('');
+};
+
+test('the built CSS draws icons in the machined line', { skip: noDist() }, () => {
+  // The icon in the same line: 1.5, round caps and joins, no construction class; a chip's icon sized to the slug.
+  const css = builtAssetsCss();
   assert.match(css, /\.ic\{[^}]*stroke-width:1\.5/, '.ic is 1.5');
   assert.doesNotMatch(css, /\.ic \.cx/, 'no .ic .cx rule');
+  assert.match(css, /\.chip \.ic\{width:12px;height:12px\}/, '.chip .ic is 12px');
 });
 
 test('settings tabs, controls and call sites use the set', () => {
@@ -120,9 +130,6 @@ test('git icons mark branches, PRs and the tracker', () => {
   assert.match(chip, /icon\?: IconName/);
   assert.match(chip, /\{#if icon\}<Icon name=\{icon\} \/>\{\/if\}\{text\}/);
   assert.match(readSrc('components/PrChip.svelte'), /<Chip tone=\{model\.tone\} text=\{model\.text\} icon="pull-request" \/>/, 'every PR chip');
-  const dist = path.join(ROOT, 'dashboard', 'dist', 'assets');
-  const css = fs.readdirSync(dist).filter((f) => f.endsWith('.css')).map((f) => fs.readFileSync(path.join(dist, f), 'utf8')).join('');
-  assert.match(css, /\.chip \.ic\{width:12px;height:12px\}/, '.chip .ic is 12px');
   // The Pipeline header and the Backlog subtitle.
   const pipeline = readSrc('views/Pipeline.svelte');
   assert.match(pipeline, /<Icon name="branch" \/>\{\$t\('pipeline\.base'\)\}/, 'branch before the base');

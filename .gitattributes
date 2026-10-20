@@ -1,4 +1,4 @@
-# LF in every checkout, Windows included: tests compare committed files byte for byte (fixtures, and dashboard/dist on main).
+# LF in every checkout, Windows included: tests compare committed files byte for byte (fixtures, and dashboard/dist on main, which CI adds in the main-update PR).
 * text=auto eol=lf
 # git archive replaces the placeholder in COMMIT with the archived commit, so a release archive
 # knows which commit it is (docs/RELEASES.md "Provenance and pinning").

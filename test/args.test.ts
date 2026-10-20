@@ -16,6 +16,12 @@ test('parseArgs: bare, empty and repeated flags', () => {
   assert.deepEqual(pos, ['p']);
 });
 
+test('--quiet takes no value', () => {
+  const { flags, pos } = parseArgs(['dash', '--quiet', 'x']);
+  assert.equal(flags.quiet, true);
+  assert.deepEqual(pos, ['dash', 'x']);
+});
+
 test('str: missing values and repeats fail, strings pass through', () => {
   assert.equal(str(undefined, '--job'), undefined);
   assert.equal(str('j1', '--job'), 'j1');

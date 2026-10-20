@@ -7,6 +7,7 @@ import { tempRepo } from './helpers.ts';
 import { createPreviewer, excerpt, foldPreview, ghArgs, parseGitHubUrl, targetKey, toResponse } from '../lib/github-preview.ts';
 import type { GhResult, GhRunner, GitHubTarget } from '../lib/github-preview.ts';
 import { startServer } from '../lib/server.ts';
+import { FIXTURE_DIST } from './dist.ts';
 
 const PR = {
   repository: {
@@ -226,7 +227,7 @@ test('GET /api/github/preview takes the token and a same-origin Origin, refuses 
   const repo = tempRepo();
   const seen: string[][] = [];
   const ghRun: GhRunner = async (args) => (seen.push(args), ok(PR));
-  const { url, close } = await startServer(repo.dir, { port: 0, ghRun });
+  const { url, close } = await startServer(repo.dir, { port: 0, ghRun, distDir: FIXTURE_DIST });
   const port = Number(new URL(url).port);
   try {
     const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await get(port, '/')).text)?.[1] ?? '';

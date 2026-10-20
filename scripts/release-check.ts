@@ -1,5 +1,7 @@
-// `npm run release:check [-- --root <dir>]`: is this checkout fit to be a release commit? Versions
-// agree, CHANGELOG has the version's notes, the tree is clean and the built dashboard is fresh.
+// `npm run release:check [-- --root <dir>] [--dist absent|present]`: is this checkout fit to be a
+// release commit? Versions agree, CHANGELOG has the version's notes, the tree is clean, and the
+// built dashboard is untracked (`absent`, develop) or tracked and fresh (`present`, main and the
+// main-update PR); with no `--dist` the stamp is checked only when dist is tracked.
 // Built-ins only, so CI's `release check` job runs it without `npm ci` (docs/RELEASES.md).
 import fs from 'node:fs';
 import path from 'node:path';
@@ -32,8 +34,14 @@ function version(file: string): { value: unknown; problem?: string } {
   }
 }
 
-/** Every reason `root` is not a releasable commit; [] when it is. */
-export function releaseProblems(root: string): string[] {
+export type DistMode = 'absent' | 'present';
+const DIST_MODES: readonly string[] = ['absent', 'present'];
+
+/**
+ * Every reason `root` is not a releasable commit; [] when it is. `dist` says whether dashboard/dist
+ * must be untracked (develop) or tracked (main); without it the stamp is checked only when tracked.
+ */
+export function releaseProblems(root: string, opts: { dist?: DistMode } = {}): string[] {
   const problems: string[] = [];
   const pkg = version(path.join(root, 'package.json'));
   const plugin = version(path.join(root, '.claude-plugin', 'plugin.json'));
@@ -66,6 +74,23 @@ export function releaseProblems(root: string): string[] {
     }
   }
 
+  // develop never commits the build; main (and the main-update PR that feeds it) must carry it.
+  const tracked = spawnSync('git', ['-c', 'core.quotepath=off', '--no-optional-locks', '-C', root, 'ls-files', '--', 'dashboard/dist'], { encoding: 'utf8' });
+  if (tracked.error || tracked.status !== 0) {
+    problems.push(`git ls-files failed in ${root}: ${(tracked.stderr || tracked.error?.message || '').trim()}`);
+    return problems;
+  }
+  const distTracked = tracked.stdout.trim() !== '';
+  if (opts.dist === 'absent') {
+    if (distTracked) problems.push('dashboard/dist is tracked: develop never commits the build (CI adds it in the main-update PR)');
+    return problems;
+  }
+  if (opts.dist === 'present' && !distTracked) {
+    problems.push('dashboard/dist is not committed: main needs the built dashboard');
+    return problems;
+  }
+  if (!distTracked) return problems;
+
   const dashboard = path.join(root, 'dashboard');
   const dist = path.join(dashboard, 'dist');
   try {
@@ -81,12 +106,21 @@ export function releaseProblems(root: string): string[] {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
   let root = path.resolve(import.meta.dirname, '..');
-  if (args.length === 2 && args[0] === '--root') root = path.resolve(args[1]);
-  else if (args.length) {
-    process.stderr.write('usage: node scripts/release-check.ts [--root <dir>]\n');
+  let dist: DistMode | undefined;
+  const usage = () => {
+    process.stderr.write('usage: node scripts/release-check.ts [--root <dir>] [--dist absent|present]\n');
     process.exit(2);
+  };
+  const seen = new Set<string>();
+  for (let i = 0; i < args.length; i += 2) {
+    const [flag, value] = [args[i], args[i + 1]];
+    if (value === undefined || seen.has(flag)) usage();
+    seen.add(flag);
+    if (flag === '--root') root = path.resolve(value);
+    else if (flag === '--dist' && DIST_MODES.includes(value)) dist = value as DistMode;
+    else usage();
   }
-  const problems = releaseProblems(root);
+  const problems = releaseProblems(root, { dist });
   if (problems.length) {
     for (const p of problems) process.stderr.write(`${p}\n`);
     process.exit(1);
