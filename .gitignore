@@ -3,3 +3,6 @@ node_modules/
 *.log
 .idea/
 .svelte-check/
+
+# Built by `npm run build:dashboard`; only release and hotfix commits on main add it (git add --force).
+dashboard/dist/
