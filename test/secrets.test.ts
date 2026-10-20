@@ -75,7 +75,7 @@ test('placeholders are not findings', () => {
     'postgres://app:password@db/app',
   ];
   for (const l of lines) assert.deepEqual(kinds(l), [], l);
-  for (const v of ['${X}', '$X', '<token>', '{{ token }}', 'aaaabbbb', 'my-example-key-1234', 'PASSWORD', 'your_api_key_here', 'abc****def123']) assert.equal(isPlaceholder(v), true, v);
+  for (const v of ['${X}', '$X', '<token>', '{{ token }}', '{password}','aaaabbbb', 'my-example-key-1234', 'PASSWORD', 'your_api_key_here', 'abc****def123']) assert.equal(isPlaceholder(v), true, v);
   for (const v of [token.github(), token.urlPassword()]) assert.equal(isPlaceholder(v), false);
 });
 

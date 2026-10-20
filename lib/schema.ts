@@ -8,9 +8,9 @@ import { REPO_NAME, isSafeBranch } from './member-repos.ts';
 import type { EventActor, Job, JobAgent, JobEvent, JobIssue, JobRepo, JobRepoPr, LoadedJob } from './types.ts';
 
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
-export { BACKING_ISOLATIONS } from './backing-config.ts';
+export { BACKING_DB_ENGINES, BACKING_ISOLATIONS } from './backing-config.ts';
 
-export const CONFIG_SCHEMA_VERSION = 21;
+export const CONFIG_SCHEMA_VERSION = 22;
 export const JOB_SCHEMA_VERSION = 14;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
@@ -205,6 +205,10 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // upgraded repo's rework rounds re-run only the rework panel, while round 1 is unchanged. The bump
   // lets older Forges refuse a config whose builder models and rework panel they would ignore.
   20: (c) => c,
+  // v22 adds a shared backing entry's `database` (a job database cloned from a template database),
+  // absent by default, so no v21 config changes; the bump lets older Forges refuse a config whose
+  // job databases they would ignore.
+  21: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {

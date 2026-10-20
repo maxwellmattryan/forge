@@ -91,7 +91,8 @@ const MINIFIED = ['.min.js', '.min.css', '.map', '.svg'];
 
 /** A value that is clearly not a real credential: a reference, a template, or a stand-in. */
 export function isPlaceholder(body: string): boolean {
-  if (/^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/.test(body) || /^<[^<>]*>$/.test(body) || /^\{\{[^{}]*\}\}$/.test(body)) return true;
+  // `{password}` is a Forge url placeholder (backing `database`), filled per job at run time.
+  if (/^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/.test(body) || /^<[^<>]*>$/.test(body) || /^\{\{[^{}]*\}\}$/.test(body) || /^\{[a-z_][a-z0-9_.]{0,40}\}$/.test(body)) return true;
   if (new Set(body).size < 5) return true;
   const lower = body.toLowerCase();
   return PLACEHOLDER_WORDS.some((w) => lower.includes(w)) || STOCK_WORDS.has(lower);
