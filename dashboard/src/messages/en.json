@@ -29,6 +29,9 @@
     "evals": "Evals",
     "project": "Project"
   },
+  "sidebar": {
+    "resize": "Resize sidebar"
+  },
   "job": {
     "round": "round {round}/{max}",
     "usage": "{tokens} tok · {ago}",

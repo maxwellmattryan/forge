@@ -599,7 +599,7 @@ test('no filled element nests in a patterned one', () => {
 // Text never sits on the grain: the grain shows only on bare ground between surfaces, so every word, value,
 // caller snippet and component the shell or a view puts on the page has a surface around it. A component this test
 // scans itself (GROUND, or a view) is checked inside its own file instead.
-const GROUND = ['PageHeader', 'Empty', 'Banner', 'StatusBar', 'Popover', 'JobCard', 'JobsTable', 'InboxCard', 'CommandTrigger', 'Drawer', 'Settings', 'CommandBar', 'Toast', 'GitHubCard', 'NeedsPanel', 'PeriodMeter'];
+const GROUND = ['PageHeader', 'Empty', 'Banner', 'StatusBar', 'Popover', 'JobCard', 'JobsTable', 'InboxCard', 'CommandTrigger', 'Drawer', 'Settings', 'CommandBar', 'Toast', 'GitHubCard', 'NeedsPanel', 'PeriodMeter', 'RailTip'];
 /** A GROUND component's file: components/, or components/statusbar/ for a popover body. */
 const groundFile = (c: string) => (fs.existsSync(path.join(SRC, 'components', `${c}.svelte`)) ? `components/${c}.svelte` : `components/statusbar/${c}.svelte`);
 // A plate is a surface; an open plate is a container the grain shows through (AGENTS.md › Text never sits on the grain).
@@ -999,7 +999,9 @@ test('the sidebar holds the brand, stamp line, repo, command input, nav and sett
   const inside = app.filter((e) => e.parents.includes(sidebar));
   assert.ok(!inside.some((e) => e.classes.includes('tblock') || e.classes.includes('dim-line')), 'no title block or dimension line');
   const popups = inside.filter((e) => e.attrs.some((a) => a.name === 'aria-haspopup'));
-  assert.deepEqual(popups.map((e) => attrOf(e, 'id')), ['sidebar-command', 'settings-open'], 'the palette and Settings open from the sidebar');
+  // #sidebar-command is the rail's icon button or the expanded input: two branches of one {#if}, one on screen.
+  assert.deepEqual(popups.map((e) => attrOf(e, 'id')), ['sidebar-command', 'sidebar-command', 'settings-open'], 'the palette and Settings open from the sidebar');
+  assert.deepEqual(popups.slice(0, 2).map((e) => e.name), ['button', 'input'], 'the rail button, then the input');
   const phone = app.find((e) => e.name === 'header' && e.classes.includes('md:hidden'));
   assert.ok(phone, 'the phone strip');
   const phoneKids = app.filter((e) => e.parents.at(-1) === phone);
@@ -1008,6 +1010,73 @@ test('the sidebar holds the brand, stamp line, repo, command input, nav and sett
   const all = (fs.readdirSync(SRC, { recursive: true, withFileTypes: true }) as fs.Dirent[]).filter((e) => e.isFile()).map((e) => path.relative(SRC, path.join(e.parentPath, e.name)));
   assert.ok(all.includes('App.svelte') && all.includes(path.join('messages', 'en.json')), `walked ${all.length} files`);
   for (const rel of all) assert.ok(!read(rel).includes('command-open'), `${rel} mentions no command-open button`);
+});
+
+test('the sidebar separator is a focusable window splitter', () => {
+  const app = elements('App.svelte');
+  const src = read('App.svelte');
+  const root = app.find((e) => e.name === 'div' && e.parents.length === 0 && has(e, 'flex', 'min-h-screen'))!;
+  assert.equal(attrOf(root, 'style'), '--size-sidebar: {shown}px', 'the root carries the width the sidebar shows');
+  assert.match(src, /const shown = \$derived\(sidebarShown\(S\.side\)\);/);
+  const sidebar = app.find((e) => e.name === 'aside' && attrOf(e, 'id') === 'sidebar')!;
+  const siblings = app.filter((e) => e.parents.at(-1) === root);
+  const wrap = siblings[siblings.indexOf(sidebar) + 1];
+  assert.ok(wrap && has(wrap, 'hidden', 'md:block', 'sticky', 'top-0', 'h-screen', 'w-0'), `the aside's next sibling holds it, hidden below md (${wrap?.classes.join(' ')})`);
+  assert.equal(attrOf(wrap, 'inert'), '{covered}', 'inert under the drawer');
+  const sep = app.find((e) => e.parents.at(-1) === wrap && attrOf(e, 'role') === 'separator')!;
+  assert.ok(sep, 'the separator');
+  for (const [k, v] of [['aria-orientation', 'vertical'], ['aria-controls', 'sidebar'], ['aria-valuemin', '{SIDEBAR_RAIL}'], ['aria-valuemax', '{SIDEBAR_MAX}'], ['aria-valuenow', '{shown}'], ['aria-label', "{$t('sidebar.resize')}"], ['tabindex', '0'], ['onpointerdown', '{sideDragStart}'], ['onpointermove', '{sideDragMove}'], ['onpointerup', '{sideDragEnd}'], ['onlostpointercapture', '{sideDragEnd}'], ['onkeydown', '{sideKey}'], ['ondblclick', '{sideReset}']])
+    assert.equal(attrOf(sep, k), v, `the separator's ${k}`);
+  for (const c of ['absolute', 'inset-y-0', '-left-1', 'w-2', 'cursor-col-resize', 'touch-none']) assert.ok(sep.classes.includes(c), `an 8px hit area: ${c}`);
+  const rule = app.find((e) => e.parents.at(-1) === sep && e.name === 'span')!;
+  assert.ok(rule && rule.classes.includes('border-l') && rule.classes.includes('group-hover:border-gleam') && rule.classes.includes('group-focus-visible:border-gleam') && rule.classes.includes('border-gleam'), 'the rule turns gleam on hover, focus or drag');
+  assert.match(src, /e\.currentTarget\.setPointerCapture\(e\.pointerId\);\s*sideDrag = \{ x: e\.clientX, start: shown \};/, 'a drag captures the pointer from the shown width');
+  assert.match(src, /const r = sidebarDrag\(sideDrag\.start \+ \(e\.clientX - sideDrag\.x\)\);\s*setSidebar\(r\.compact \? \{ width: S\.side\.width, compact: true \} : r, false\);/, 'it tracks the pointer, unsaved, keeping the width on the rail');
+  assert.match(src, /sideDragging = false;\s*setSidebar\(\{ width: S\.side\.width, compact: S\.side\.compact \}\);/, 'and saves once when it ends');
+  assert.match(src, /const next = sidebarKey\(\{ width: S\.side\.width, compact: S\.side\.compact \}, e\.key, e\.shiftKey\);\s*if \(!next\) return;\s*e\.preventDefault\(\);\s*setSidebar\(next\);/, 'a key steps and saves; others are not prevented');
+  assert.match(src, /const sideReset = \(\): void => setSidebar\(\{ width: SIDEBAR_DEFAULT, compact: false \}\);/, 'double-click resets to the default');
+  const state = fs.readFileSync(path.join(SRC, 'lib', 'app.svelte.ts'), 'utf8');
+  assert.match(state, /const SIDE_START: SidebarState = readSidebar\(pref\.get\);/, 'read through the guarded pref');
+  assert.match(state, /pref\.set\('sidebarWidth', String\(next\.width\)\);\s*pref\.set\('sidebarCompact', next\.compact \? '1' : '0'\);/, 'saved through the guarded pref');
+});
+
+test('the compact rail labels its controls and shows tooltips', () => {
+  const app = elements('App.svelte');
+  const src = read('App.svelte');
+  const sidebar = app.find((e) => e.name === 'aside' && attrOf(e, 'id') === 'sidebar')!;
+  assert.match(attrOf(sidebar, 'class'), /\{compact \? 'px-2' : 'px-3'\}/, 'the rail drops to px-2');
+  const markup = markupOf('App.svelte');
+  assert.match(markup, /<img src="\/forge\.png" alt="" class="mark shrink-0" \/>\{#if !compact\}<div class="min-w-0">/, 'the brand shows the mark only');
+  assert.match(markup, /\{#if !compact\}<div class="stamp-line wide/, 'no stamp line on the rail');
+  assert.match(markup, /\{#if !compact\}<div class="label flex min-w-0 items-baseline gap-2 px-2\.5 pb-2\.5"><span class="shrink-0">\{\$t\('app\.repo'\)\}/, 'no repo row on the rail');
+  const cmd = app.find((e) => e.name === 'button' && attrOf(e, 'id') === 'sidebar-command')!;
+  assert.ok(has(cmd, 'btn', 'icon'), 'the command is an icon button');
+  for (const [k, v] of [['aria-label', "{$t('command.open')}"], ['aria-haspopup', 'dialog'], ['aria-keyshortcuts', 'Meta+K Control+K'], ['onclick', '{(e) => openPalette({ opener: e.currentTarget })}']]) assert.equal(attrOf(cmd, k), v, `the rail command's ${k}`);
+  assert.match(src, /\{@attach railTipOn\(\$t\('command\.open'\)\)\}><Icon name="command" \/><\/button>/, 'with a tooltip');
+  const settings = app.find((e) => attrOf(e, 'id') === 'settings-open')!;
+  assert.equal(attrOf(settings, 'aria-label'), "{compact ? $t('settings.open') : undefined}");
+  assert.match(src, /\{@attach compact && railTipOn\(\$t\('settings\.open'\)\)\}>\{#if compact\}<Icon name="settings" \/>\{:else\}/, 'the gear alone, with a tooltip and no kbd');
+  assert.match(markup, /<nav id="nav" class="navlist \{compact \? 'rail' : ''\}"><Nav \{compact\} \/><\/nav>/);
+  // Nav: one link per view; on the rail it is named by aria-label (with the count) and shows the icon and a corner count.
+  const nav = read('components/Nav.svelte');
+  const link = tags('components/Nav.svelte', nav).find((t) => t.name === 'a')!;
+  assert.equal(link.attrs.find((a) => a.name === 'aria-label')?.value, '{compact ? railName(v.id, n) : undefined}');
+  assert.match(nav, /const railName = \(id: ViewId, n: number\): string => \(n \? `\$\{labels\[id\]\} · \$\{n\}` : labels\[id\]\);/, 'Pipeline · 3');
+  assert.match(nav, /\{@attach compact && railTipOn\(railName\(v\.id, n\)\)\}/, 'and a tooltip');
+  assert.match(nav, /<span class="mono num absolute top-1 right-1 text-\[10px\] leading-none \{on \? '' : 'muted'\}" aria-hidden="true">\{n\}<\/span>/, 'the count in the corner');
+  // The tooltip: one fixed tip, role=tooltip, hidden from assistive tech, on a solid plate, outside the scrolling aside.
+  const tip = elements('components/RailTip.svelte').find((e) => attrOf(e, 'role') === 'tooltip')!;
+  assert.ok(tip, 'a tooltip');
+  assert.equal(attrOf(tip, 'aria-hidden'), 'true');
+  assert.ok(has(tip, 'solid', 'plate'), 'on a solid plate');
+  assert.ok(has(tip.parents.at(-1)!, 'fixed', 'pointer-events-none', 'z-20'), 'fixed and click-through');
+  const rootKids = app.filter((e) => e.parents.length === 1 && e.parents[0].classes.includes('min-h-screen'));
+  assert.ok(rootKids.some((e) => e.name === 'RailTip'), 'rendered in the root, so it is inert with it and never clipped by the aside');
+  const rail = fs.readFileSync(path.join(SRC, 'lib', 'rail-tip.svelte.ts'), 'utf8');
+  for (const h of ["addEventListener('pointerenter', show)", "addEventListener('pointerleave', hideTip)", "addEventListener('focus', show)", "addEventListener('blur', hideTip)", "addEventListener('keydown', key)"]) assert.ok(rail.includes(h), `railTipOn wires ${h}`);
+  assert.match(rail, /if \(e\.key === 'Escape'\) hideTip\(\);/, 'Escape hides it');
+  assert.match(src, /\$effect\(\(\) => \{\s*if \(!compact \|\| covered\) hideTip\(\);\s*\}\);/, 'expanding the rail or opening the drawer hides it');
+  for (const f of ['App.svelte', 'components/Nav.svelte', 'components/RailTip.svelte']) assert.doesNotMatch(read(f), /\{@html/, `${f} adds no {@html}`);
 });
 
 test('command input: in the sidebar at md and up, a 44px strip button below md, one shortcut', () => {
@@ -1019,11 +1088,13 @@ test('command input: in the sidebar at md and up, a 44px strip button below md, 
   assert.equal(views.length, 6);
   for (const v of views) assert.equal(read(`views/${v}`).match(/<PageHeader\b/g)?.length, 1, `${v} renders one PageHeader`);
 
-  // md and up: the sidebar input, the one element that announces the shortcut.
+  // md and up: the sidebar input, or on the compact rail its icon button (the other branch of one {#if}), is the one
+  // element on screen that announces the shortcut.
   const shortcut = svelteFiles().flatMap((rel) => elements(rel).filter((e) => attrOf(e, 'aria-keyshortcuts') === 'Meta+K Control+K').map((e) => ({ rel, e })));
-  assert.equal(shortcut.length, 1, 'one element announces the palette shortcut');
-  assert.equal(shortcut[0].rel, 'App.svelte');
-  const input = shortcut[0].e;
+  assert.equal(shortcut.length, 2, 'the input and the rail button announce the palette shortcut');
+  assert.deepEqual(shortcut.map((s) => [s.rel, s.e.name, attrOf(s.e, 'id')]), [['App.svelte', 'button', 'sidebar-command'], ['App.svelte', 'input', 'sidebar-command']]);
+  assert.match(markupOf('App.svelte'), /\{#if compact\}\s*<button id="sidebar-command"[^]*?\{:else\}\s*<input/, 'never both at once');
+  const input = shortcut[1].e;
   assert.equal(input.name, 'input');
   assert.equal(attrOf(input, 'id'), 'sidebar-command');
   assert.ok(input.parents.some((p) => attrOf(p, 'id') === 'sidebar'), 'inside the sidebar');
@@ -1897,7 +1968,8 @@ test('the job drawer overlays the view with a resizable left edge', () => {
   assert.match(attrOf(aside, 'class'), /\{open \? 'shadow-\(--shadow-drawer\)' : 'translate-x-full invisible'\}/, 'closed, it is slid out and invisible');
   assert.match(attrOf(aside, 'class'), /\{dragging \? '' : open \? 'transition-\[translate\]' : 'transition-\[translate,visibility\]'\}/, 'it slides, except while dragging; visibility waits only on a close');
   assert.equal(attrOf(aside, 'style'), '{S.pane.md ? `width: ${width}px` : undefined}', 'the inline width only at md and up');
-  assert.match(drawer, /const width = \$derived\(clampPaneWidth\(S\.pane\.width, S\.pane\.viewport\)\);/, 'clamped to the window, the pref untouched');
+  assert.match(drawer, /const gutter = \$derived\(sidebarShown\(S\.side\)\);/, "the gutter is the sidebar's current width");
+  assert.match(drawer, /const width = \$derived\(clampPaneWidth\(S\.pane\.width, S\.pane\.viewport, gutter\)\);/, 'clamped to the window, the pref untouched');
   // The backdrop closes it, as does the close button.
   const backdrop = elements('components/Drawer.svelte').find((e) => attrOf(e, 'id') === 'drawer-backdrop')!;
   assert.equal(attrOf(backdrop, 'onclick'), '{closeDrawer}', 'a backdrop click closes it');
@@ -1908,15 +1980,15 @@ test('the job drawer overlays the view with a resizable left edge', () => {
   assert.match(drawer, /\{#if S\.pane\.md && open\}\s*<!-- An 8px hit area/, 'only at md and up, while open');
   const sep = elements('components/Drawer.svelte').find((e) => attrOf(e, 'role') === 'separator')!;
   assert.ok(sep, 'a separator');
-  for (const [k, v] of [['aria-orientation', 'vertical'], ['aria-controls', 'drawer'], ['aria-valuemin', '{PANE_MIN}'], ['aria-valuemax', '{paneMax(S.pane.viewport)}'], ['aria-valuenow', '{width}'], ['aria-label', "{$t('drawer.resize')}"], ['tabindex', '0'], ['onpointerdown', '{dragStart}'], ['onpointermove', '{dragMove}'], ['onpointerup', '{dragEnd}'], ['onlostpointercapture', '{dragEnd}'], ['onkeydown', '{sepKey}'], ['ondblclick', '{sepReset}']])
+  for (const [k, v] of [['aria-orientation', 'vertical'], ['aria-controls', 'drawer'], ['aria-valuemin', '{PANE_MIN}'], ['aria-valuemax', '{paneMax(S.pane.viewport, gutter)}'], ['aria-valuenow', '{width}'], ['aria-label', "{$t('drawer.resize')}"], ['tabindex', '0'], ['onpointerdown', '{dragStart}'], ['onpointermove', '{dragMove}'], ['onpointerup', '{dragEnd}'], ['onlostpointercapture', '{dragEnd}'], ['onkeydown', '{sepKey}'], ['ondblclick', '{sepReset}']])
     assert.equal(attrOf(sep, k), v, `the separator's ${k}`);
   for (const c of ['w-2', 'cursor-col-resize', 'touch-none']) assert.ok(sep.classes.includes(c), `the separator has ${c}`);
   assert.match(drawer, /<span class="absolute inset-y-0 left-0 border-l /, 'a 1px visible rule');
   assert.match(drawer, /e\.currentTarget\.setPointerCapture\(e\.pointerId\)/, 'a drag captures the pointer');
-  assert.match(drawer, /S\.pane\.width = clampPaneWidth\(drag\.w \+ \(drag\.x - e\.clientX\), S\.pane\.viewport\)/, 'and resizes live');
+  assert.match(drawer, /S\.pane\.width = clampPaneWidth\(drag\.w \+ \(drag\.x - e\.clientX\), S\.pane\.viewport, gutter\)/, 'and resizes live');
   assert.match(drawer, /const save = \(\): void => pref\.set\('paneWidth', String\(S\.pane\.width\)\);/, 'the width is saved per viewer');
-  assert.match(drawer, /const next = paneKey\(width, e\.key, e\.shiftKey, S\.pane\.viewport\);/);
-  assert.match(drawer, /S\.pane\.width = clampPaneWidth\(PANE_DEFAULT, S\.pane\.viewport\);/, 'double-click restores the default');
+  assert.match(drawer, /const next = paneKey\(width, e\.key, e\.shiftKey, S\.pane\.viewport, gutter\);/);
+  assert.match(drawer, /S\.pane\.width = clampPaneWidth\(PANE_DEFAULT, S\.pane\.viewport, gutter\);/, 'double-click restores the default');
   assert.equal(drawer.match(/save\(\);/g)?.length, 3, 'drag end, a key and a reset each save once');
 });
 

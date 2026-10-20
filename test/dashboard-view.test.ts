@@ -140,12 +140,12 @@ test('pipeline: filters, counts, board columns and nav badges', () => {
 
 test('views list six pages', () => {
   // Needs you is a status-bar popover now, not a page.
-  assert.deepEqual(V.VIEWS.map((v) => v.id), ['pipeline', 'backlog', 'agents', 'analytics', 'evals', 'project']);
+  assert.deepEqual(V.VIEWS.map((v) => v.id), ['pipeline', 'project', 'backlog', 'agents', 'analytics', 'evals']);
   assert.equal(V.VIEWS.length, 6);
   assert.equal(V.viewIndex('pipeline'), 1);
-  assert.equal(V.viewIndex('backlog'), 2);
-  assert.equal(V.viewIndex('evals'), 5);
-  assert.equal(V.viewIndex('project'), 6);
+  assert.equal(V.viewIndex('project'), 2);
+  assert.equal(V.viewIndex('backlog'), 3);
+  assert.equal(V.viewIndex('evals'), 6);
   assert.equal(V.viewIndex('inbox'), 1, 'the old Needs-you id reads as the first view');
   assert.equal(V.viewIndex('nope'), 1, 'an unknown id reads as the first view');
   V.VIEWS.forEach((v, i) => assert.equal(V.viewIndex(v.id), i + 1, v.id));
