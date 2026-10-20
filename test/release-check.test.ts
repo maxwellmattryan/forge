@@ -107,6 +107,67 @@ test('releaseProblems passes a clean release checkout and names each problem', P
   one(many, /f09\.txt and 2 more$/, 'a long dirty list');
 });
 
+test('dist mode absent/present/default', POSIX, () => {
+  const ABSENT = /^dashboard\/dist is tracked: develop never commits the build \(CI adds it in the main-update PR\)$/;
+  const PRESENT = /^dashboard\/dist is not committed: main needs the built dashboard$/;
+  // The fixture tracks a stamped dist, as main does.
+  const main = fixture();
+  try {
+    assert.deepEqual(releaseProblems(main.dir, { dist: 'present' }), []);
+    assert.deepEqual(releaseProblems(main.dir), []);
+    one(releaseProblems(main.dir, { dist: 'absent' }), ABSENT, 'absent with a tracked dist');
+    // present runs today's stamp checks.
+    fs.writeFileSync(path.join(main.dir, 'dashboard', 'dist', 'x.js'), 'export const x = 2;\n');
+    main.git('commit', '-qam', 'edit dist');
+    one(releaseProblems(main.dir, { dist: 'present' }), /edited by hand/, 'present with a hand-edited dist');
+    one(releaseProblems(main.dir), /edited by hand/, 'default with a tracked, hand-edited dist');
+  } finally {
+    main.cleanup();
+  }
+
+  // develop: dist untracked (and not even on disk).
+  const develop = fixture();
+  try {
+    develop.git('rm', '-rq', '--', 'dashboard/dist');
+    develop.git('commit', '-qm', 'drop dist');
+    assert.deepEqual(releaseProblems(develop.dir, { dist: 'absent' }), []);
+    assert.deepEqual(releaseProblems(develop.dir), [], 'default skips the stamp when dist is untracked');
+    const present = releaseProblems(develop.dir, { dist: 'present' });
+    one(present, PRESENT, 'present with no dist');
+    assert.ok(!present.some((p) => /cannot check dashboard\/dist/.test(p)), 'no stamp check without a tracked dist');
+    // A dist on disk but gitignored is still not committed.
+    fs.writeFileSync(path.join(develop.dir, '.gitignore'), 'dashboard/dist/\n');
+    develop.git('add', '.gitignore');
+    develop.git('commit', '-qm', 'ignore dist');
+    fs.mkdirSync(path.join(develop.dir, 'dashboard', 'dist'), { recursive: true });
+    fs.writeFileSync(path.join(develop.dir, 'dashboard', 'dist', 'x.js'), 'export const x = 1;\n');
+    stamp(develop.dir);
+    one(releaseProblems(develop.dir, { dist: 'present' }), PRESENT, 'present with an ignored, built dist');
+    assert.deepEqual(releaseProblems(develop.dir, { dist: 'absent' }), []);
+    const r = spawnSync(process.execPath, [SCRIPT, '--dist', 'absent', '--root', develop.dir], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    const p = spawnSync(process.execPath, [SCRIPT, '--root', develop.dir, '--dist', 'present'], { encoding: 'utf8' });
+    assert.equal(p.status, 1);
+    assert.ok(p.stderr.split('\n').some((l) => PRESENT.test(l)), p.stderr);
+  } finally {
+    develop.cleanup();
+  }
+});
+
+test('rejects a bad --dist', POSIX, () => {
+  const repo = fixture();
+  try {
+    for (const args of [['--dist'], ['--dist', 'maybe'], ['--dist', 'ABSENT'], ['--dist', ''], ['--dist', 'absent', '--dist', 'present'], ['--root', repo.dir, '--dist', 'x'], ['--dist', 'absent', '--root'], ['--dist', 'absent', 'extra']]) {
+      const r = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8' });
+      assert.equal(r.status, 2, JSON.stringify(args));
+      assert.match(r.stderr, /^usage: node scripts\/release-check\.ts \[--root <dir>\] \[--dist absent\|present\]$/m);
+      assert.equal(r.stdout, '');
+    }
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test('the script prints the passed line or the problems on stderr', POSIX, () => {
   const repo = fixture();
   try {
