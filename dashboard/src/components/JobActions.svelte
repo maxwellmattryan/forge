@@ -6,7 +6,7 @@
 <script lang="ts">
   import IssueLinkActions from './IssueLinkActions.svelte';
   import RepoProposalActions from './RepoProposalActions.svelte';
-  import { inboxActions, inboxKind, notePlaceholder, showsNote, specLinkPending } from '../lib/view.ts';
+  import { inboxActions, inboxKind, notePlaceholder, showsNote, specLinkPending, type InboxAction } from '../lib/view.ts';
   import { req } from '../lib/app.svelte.ts';
   import type { Job } from '../lib/types.ts';
 
@@ -18,15 +18,26 @@
   let note = $state('');
   // The pending repos the proposal list shows: the only ones its Approve and Reject send.
   let proposed = $state<string[]>([]);
+
+  // The note clears as soon as the request goes, and comes back only if it failed and nothing new was typed.
+  function send(a: InboxAction): void {
+    const text = note;
+    const sending = req({ type: a.type, job: j.id, note: showsNote(kind) ? text : null, needsNote: a.needsNote, fixedText: a.text ?? null });
+    if (!sending) return;
+    note = '';
+    sending.then((ok) => {
+      if (!ok && note === '') note = text;
+    });
+  }
 </script>
 
 <!-- For an issue link the note is only the "No issue needed" reason, so it follows those buttons. -->
-{#if kind === 'issue-link'}<IssueLinkActions id={j.id} refId="{noteId}-ref" {note} />{:else if pending}<IssueLinkActions id={j.id} refId="{noteId}-ref" {note} approving />{/if}
+{#if kind === 'issue-link'}<IssueLinkActions id={j.id} refId="{noteId}-ref" bind:note />{:else if pending}<IssueLinkActions id={j.id} refId="{noteId}-ref" bind:note approving />{/if}
 {#if kind === 'repo-proposal'}<RepoProposalActions id={j.id} bind:shown={proposed} />{/if}
 {#if showsNote(kind)}<textarea id={noteId} rows="2" class="input w-full" {placeholder} aria-label={placeholder} bind:value={note}></textarea>{/if}
-{#if kind === 'repo-proposal'}<RepoProposalActions id={j.id} {note} buttons shown={proposed} />{/if}
+{#if kind === 'repo-proposal'}<RepoProposalActions id={j.id} bind:note buttons shown={proposed} />{/if}
 <div class="flex flex-wrap gap-2">
   {#each inboxActions(kind, { linkPending: pending }) as a (a.label)}
-    <button class="btn {a.primary ? 'primary' : ''}" onclick={() => req({ type: a.type, job: j.id, note: showsNote(kind) ? note : null, needsNote: a.needsNote, fixedText: a.text ?? null })}>{a.label}</button>
+    <button class="btn {a.primary ? 'primary' : ''}" onclick={() => send(a)}>{a.label}</button>
   {/each}
 </div>
