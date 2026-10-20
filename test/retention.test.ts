@@ -385,11 +385,11 @@ test('archived jobs only in stats', async () => {
 describe('retention config and policy', { concurrency: 4 }, () => {
   test('retention config v7', () => {
     assert.deepEqual(defaults().retention, { jobsDays: null, logsDays: null, logMaxBytes: null });
-    assert.equal(CONFIG_SCHEMA_VERSION, 21);
+    assert.equal(CONFIG_SCHEMA_VERSION, 22);
     const v6 = { schemaVersion: 6, git: { base: 'trunk' }, daemon: { maxConcurrent: 2 } };
     const { config, from } = migrateConfig(structuredClone(v6));
     assert.equal(from, 6);
-    assert.deepEqual(config, { ...v6, schemaVersion: 21, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
+    assert.deepEqual(config, { ...v6, schemaVersion: 22, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
     const problems = (retention: Record<string, unknown>) => validateConfig({ ...defaults(), retention: { ...defaults().retention, ...retention } }, process.cwd()).filter((p) => p.startsWith('retention'));
     assert.deepEqual(problems({}), []);
     assert.deepEqual(problems({ jobsDays: 30, logsDays: 3650, logMaxBytes: 1048576 }), []);

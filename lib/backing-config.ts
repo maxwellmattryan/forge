@@ -1,9 +1,18 @@
 // backing: validation, apart from lib/backing.ts so lib/config.ts and lib/schema.ts can import it
 // without pulling in jobs.ts (which imports config.ts). Every value here reaches `docker` as an
 // argument or an env-file line, so the shapes are strict: no leading `-`, a fixed charset, no newlines.
+import { globProblem } from './policy-check.ts';
 
 /** How a backing service is shared: a container per job, one per project, or an address run elsewhere. */
 export const BACKING_ISOLATIONS = ['per-job', 'shared', 'external'] as const;
+
+/** The database engines a shared entry's `database` can name (lib/backing-db.ts). */
+export const BACKING_DB_ENGINES = ['postgres'] as const;
+/** A Postgres role or database name Forge writes into SQL, always double-quoted after this check. */
+export const PG_IDENT = /^[a-z_][a-z0-9_]{0,62}$/;
+const DB_KEYS = new Set(['engine', 'migrate', 'seed', 'inputs']);
+const MAX_DB_COMMAND = 2000;
+const MAX_DB_INPUTS = 64;
 
 export const BACKING_NAME = /^[a-z][a-z0-9-]{0,31}$/;
 const IMAGE = /^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,254}$/;
@@ -12,7 +21,7 @@ const VOLUME = /^\/[A-Za-z0-9._/-]*$/;
 const MAX_PORTS = 8;
 const MAX_VOLUMES = 8;
 const MAX_URL = 500;
-const KEYS = new Set(['name', 'isolation', 'image', 'ports', 'env', 'volumes', 'url']);
+const KEYS = new Set(['name', 'isolation', 'image', 'ports', 'env', 'volumes', 'url', 'database']);
 const MANAGED_ONLY = ['image', 'ports', 'env', 'volumes'] as const;
 
 const isMap = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
@@ -71,8 +80,11 @@ function volumesProblems(at: string, volumes: unknown): string[] {
   return problems;
 }
 
-/** A managed url template may name {host}, {port} (with at least one port) and {port_<n>} for n in ports. */
-function templateProblems(at: string, url: unknown, ports: unknown): string[] {
+/**
+ * A managed url template may name {host}, {port} (with at least one port) and {port_<n>} for n in
+ * ports; with `withDatabase` also {user}, {password} and {database}, which Forge fills per job.
+ */
+function templateProblems(at: string, url: unknown, ports: unknown, withDatabase = false): string[] {
   if (url === undefined) return [];
   const bad = urlProblem(url);
   if (bad) return [`${at}.url ${bad}`];
@@ -81,6 +93,7 @@ function templateProblems(at: string, url: unknown, ports: unknown): string[] {
   for (const m of (url as string).matchAll(/\{([^{}]*)\}/g)) {
     const name = m[1];
     if (name === 'host') continue;
+    if (withDatabase && (name === 'user' || name === 'password' || name === 'database')) continue;
     if (name === 'port') {
       if (!list.length) problems.push(`${at}.url uses {port} but the entry has no ports`);
       continue;
@@ -89,8 +102,37 @@ function templateProblems(at: string, url: unknown, ports: unknown): string[] {
     if (n && list.includes(Number(n[1]))) continue;
     // The placeholder is part of the url, so it is named only when it looks like one.
     const shown = /^[a-z0-9_]{1,20}$/.test(name) ? `{${name}}` : '(not shown)';
-    problems.push(`${at}.url placeholder ${shown} is not {host}, {port} or {port_<n>} for a port in ports`);
+    problems.push(`${at}.url placeholder ${shown} is not {host}, {port} or {port_<n>} for a port in ports${withDatabase ? ', {user}, {password} or {database}' : ''}`);
   }
+  return problems;
+}
+
+/** A migrate or seed command: one line, bounded; the value is never echoed (it may carry credentials). */
+const dbCommandOk = (v: unknown): boolean => typeof v === 'string' && v.trim().length > 0 && v.length <= MAX_DB_COMMAND && !/[\0\r\n]/.test(v);
+
+/** Every problem with a shared entry's `database` (absent: none). */
+function databaseProblems(at: string, e: Record<string, any>): string[] {
+  const db = e.database;
+  if (db === undefined) return [];
+  if (e.isolation !== 'shared') return [`${at}.database is only for a shared entry`];
+  if (!isMap(db) || db.engine === undefined) return [`${at}.database must be a map with engine`];
+  const problems: string[] = [];
+  for (const k of Object.keys(db)) if (!DB_KEYS.has(k)) problems.push(`${at}.database has unknown key ${show(k)}`);
+  if (!(BACKING_DB_ENGINES as readonly unknown[]).includes(db.engine)) problems.push(`${at}.database.engine must be one of ${BACKING_DB_ENGINES.join(' | ')} (got ${show(db.engine)})`);
+  for (const k of ['migrate', 'seed'] as const)
+    if (db[k] !== undefined && !dbCommandOk(db[k])) problems.push(`${at}.database.${k} must be a non-empty string of at most ${MAX_DB_COMMAND} characters with no NUL, CR or LF`);
+  if (db.inputs !== undefined) {
+    if (!Array.isArray(db.inputs) || db.inputs.length > MAX_DB_INPUTS) problems.push(`${at}.database.inputs must be a list of at most ${MAX_DB_INPUTS} paths or globs`);
+    else
+      for (const g of db.inputs) {
+        const p = globProblem(g, `${at}.database.inputs`);
+        if (p) problems.push(p);
+      }
+  }
+  if (!Array.isArray(e.ports) || !e.ports.length) problems.push(`${at}.database needs ports`);
+  if (typeof e.url !== 'string' || !['{user}', '{password}', '{database}'].every((p) => e.url.includes(p))) problems.push(`${at}.database needs a url with {user}, {password} and {database}`);
+  const user = isMap(e.env) ? e.env.POSTGRES_USER : undefined;
+  if (user !== undefined && (typeof user !== 'string' || !PG_IDENT.test(user))) problems.push(`${at}.env.POSTGRES_USER must match ${PG_IDENT.source} when database is set`);
   return problems;
 }
 
@@ -112,6 +154,7 @@ export function backingProblems(c: any): string[] {
       problems.push(`${at}.isolation must be one of ${BACKING_ISOLATIONS.join(' | ')} (got ${show(e.isolation)})`);
       return;
     }
+    problems.push(...databaseProblems(at, e));
     if (e.isolation === 'external') {
       for (const k of MANAGED_ONLY) if (e[k] !== undefined) problems.push(`${at}.${k} is only for a per-job or shared entry`);
       const bad = urlProblem(e.url);
@@ -119,7 +162,7 @@ export function backingProblems(c: any): string[] {
       return;
     }
     if (typeof e.image !== 'string' || !IMAGE.test(e.image)) problems.push(`${at}.image must be an image reference matching ${IMAGE.source} (got ${show(e.image)})`);
-    problems.push(...portsProblems(at, e.ports), ...envProblems(at, e.env), ...volumesProblems(at, e.volumes), ...templateProblems(at, e.url, e.ports));
+    problems.push(...portsProblems(at, e.ports), ...envProblems(at, e.env), ...volumesProblems(at, e.volumes), ...templateProblems(at, e.url, e.ports, e.isolation === 'shared' && e.database !== undefined));
   });
   // An empty list keeps today's shape-only check of dependsOn backing edges.
   if (list.length && Array.isArray(c?.components)) {

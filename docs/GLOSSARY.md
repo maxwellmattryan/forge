@@ -59,6 +59,8 @@ Planned in M007; a row with a config key is implemented.
 | **endpoint** | An address (URL or host and port) where an environment serves one component or backing service: `{endpoint.<component>}` and `{backing.<name>.port}` in commands, the `Endpoints:` brief line and the Environment card. | `components`, `backing` |
 | **backing service** | Infrastructure a component needs while it runs, such as a database, cache or queue. | `backing` |
 | **isolation** | How a backing service is provided to jobs: `per-job` (its own container per job), `shared` (one instance every job uses) or `external` (run outside Forge, which only points at it). | `backing` |
+| **job database** | One job's own database and login role on a shared Postgres backing service, cloned from a template database and dropped when the job's worktree is removed. | `backing[].database` |
+| **template database** | The database a shared Postgres backing service's migrate and seed commands build once per template hash, which every job database is cloned from. | `backing[].database` |
 | **config sink** | Where Forge writes a component's configuration for an environment (environment variables, a `.env` file, a JSON, YAML or TOML file, or a project script), chosen per component and never assumed. | `components[].config` |
 | **secret reference** | A pointer to a secret held elsewhere (an environment variable name, a keychain entry, a secret manager path) that Forge resolves at run time and never writes into job files, prompts or logs. | planned (M007) |
 
@@ -90,6 +92,7 @@ The new words build on these, which exist today.
 |---|---|---|
 | **job** | One unit of work that Forge takes from request to PR, in its own worktree. | - |
 | **output mode** | How a `forge` call prints: `human` (rendered text for a person at a terminal) or `agent` (compact JSON, the CLI's contract), chosen by `--json`, `--mode`, `FORGE_MODE`, then whether stdout is a terminal (docs/CLI.md "Output mode"). | - |
+| **activity log** | The timestamped lines a foreground `forge dash` prints after its banner in human mode, of three kinds: `session` (session transitions), `http` (requests worth noting) and `job` (newly appended job events); `--quiet` and agent mode leave only the banner (docs/CLI.md "Output mode"). | - |
 | **Foreman** | The office session that decides gates for jobs under `foreman.decides`. | `foreman.decides` |
 | **rework panel** | The lenses that re-run on a rework round under `review.onRework: narrow` (the `always` and `alwaysOnRework` lenses, `security` by default, those whose last verdict asked for changes or that have none, and those whose `paths` the fix touched), while every other lens on the job's panel keeps its last pass. | `review.onRework` |
 | **`release` gate class** | The Foreman's approval of one job's release plan (`forge release plan --job`), which stands in for `forge release run`'s publish prompt without a terminal, for that exact plan only, which stays a human's unless a project adds `release` to `foreman.decides` and removes `gate:release` from `foreman.reserved` (not the **release gate**, the CI check on interim references). | `foreman.reserved` |

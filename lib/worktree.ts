@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { backingDown, backingEnv, backingUp, hasJobBacking, portsLock } from './backing.ts';
+import { backingDown, backingEnv, backingUp, hasJobBacking, jobDbPasswords, portsLock } from './backing.ts';
+import type { DatabaseOpts } from './backing.ts';
+import { redact } from './backing-db.ts';
 import { enforceBudget } from './budget.ts';
 import { readCheckoutRecord, undoCheckout, withCheckoutLock } from './checkout.ts';
 import { isOwnWorktreePath, loadConfig, verifyGroups, worktreeRoot } from './config.ts';
@@ -169,7 +171,7 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   Object.assign(job, { worktree: dir, port, ports });
   logEvent(root, id, 'worktree', { path: dir, port, ports });
   // Before setup, so setup commands (migrations, seeds) can reach the services.
-  const backing = config.backing?.length ? { backing: backingUp(root, config, { id, port, ports }) } : {};
+  const backing = config.backing?.length ? { backing: backingUp(root, config, { id, port, ports }, undefined, databaseCommands(root, config, job)) } : {};
   const down = backing.backing?.find((b) => !b.ok);
   if (down) {
     logEvent(root, id, 'worktree-setup-failed', { backing: down.name });
@@ -177,9 +179,11 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   }
   const setupLog: { cmd: string; ok: boolean; tail: string }[] = [];
   const setupPort = commandPort(config, job, jobComponent(config, job));
+  // Setup sees the job database's url; its stored tail never holds the password.
+  const passwords = jobDbPasswords(root, id, config);
   for (const cmd of config.worktrees.setup ?? []) {
     const res = shell(fill(cmd, vars(root, config, job, dir, setupPort, cmd)), dir, jobEnv(root, config, job, dir, setupPort));
-    setupLog.push({ cmd, ok: res.ok, tail: tail(res.output, 15) });
+    setupLog.push({ cmd, ok: res.ok, tail: redact(tail(res.output, 15), passwords) });
     if (!res.ok) {
       logEvent(root, id, 'worktree-setup-failed', { cmd });
       return { path: dir, created: true, port, ports, ...stacked, ...backing, setup: setupLog, ok: false };
@@ -435,6 +439,25 @@ export function envFor(job: Job, dir: string, port: number | null, base: NodeJS.
 /** envFor plus the job's FORGE_BACKING_* and FORGE_PORT_* / FORGE_ENDPOINT_* variables: what every configured command Forge runs for a job sees. */
 function jobEnv(root: string, config: Config, job: Job, dir: string, port: number | null): NodeJS.ProcessEnv {
   return { ...envFor(job, dir, port), ...backingEnv(root, config, job), ...endpointEnv(jobEndpoints(root, config, job)) };
+}
+
+/**
+ * How backingUp builds a template database for the job: in the worktree path Forge computes for it
+ * (never job.worktree, which the session can write), null when that directory is missing, with the
+ * job's usual placeholders and env plus `envOverride` (the template's url).
+ */
+export function databaseCommands(root: string, config: Config, job: Job): DatabaseOpts {
+  const dir = path.join(worktreeRoot(root, config), job.id);
+  const worktree = exists(dir) ? dir : null;
+  const port = commandPort(config, job, jobComponent(config, job));
+  return {
+    worktree,
+    runCommand: (cmd, envOverride) => {
+      if (!worktree) return { ok: false, output: `job ${job.id} has no worktree` };
+      const res = shell(fill(cmd, vars(root, config, job, worktree, port, cmd)), worktree, { ...jobEnv(root, config, job, worktree, port), ...envOverride });
+      return { ok: res.ok, output: res.output };
+    },
+  };
 }
 
 interface ShellResult {
