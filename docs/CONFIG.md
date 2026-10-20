@@ -120,7 +120,7 @@ pipeline:
   split: ask                 # ask | auto | never (what a SPLIT plan does; see "Split gate" below)
   specApproval: always       # always | large | never
   design: none               # none | reference | mockup
-  maxRounds: 3               # build→review rounds before asking a human
+  maxRounds: 3               # build→review rounds before asking a human (eval jobs are graded instead)
   budget:                    # per-job limits; null = unlimited. Over budget → waiting on "budget"
     tokens: null             # job.usage.totalTokens
     usd: null                # estimated cost (job.usage.estCostUsd)

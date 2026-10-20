@@ -21,7 +21,7 @@ Run `npm ci` once. After that, the dashboard and the CLI run your local source, 
 - In any Claude Code session with Forge enabled, `forge` is the loaded plugin's CLI: a SessionStart hook puts that plugin's `bin/` first on PATH, ahead of an `npm link` or another install.
 - `npm link`, then `forge help`, runs the CLI on its own.
 - Point any of these at a scratch git repo in a temp dir, or set `FORGE_ROOT=<scratch>`, never at a real repo's `.forge/`. Delete the scratch repo and its `<repo>.worktrees` sibling afterwards.
-- For dashboard changes, follow the dashboard steps under [Verify before claiming it works](AGENTS.md#verify-before-claiming-it-works) and check both themes and a phone-width viewport.
+- For dashboard changes, follow the steps under Verify in [dashboard/AGENTS.md](dashboard/AGENTS.md) and check both themes and a phone-width viewport.
 
 ## Issues and pull requests
 

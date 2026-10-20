@@ -602,7 +602,7 @@ test('no filled element nests in a patterned one', () => {
 const GROUND = ['PageHeader', 'Empty', 'Banner', 'StatusBar', 'Popover', 'JobCard', 'JobsTable', 'InboxCard', 'CommandTrigger', 'Drawer', 'Settings', 'CommandBar', 'Toast', 'GitHubCard', 'NeedsPanel', 'PeriodMeter'];
 /** A GROUND component's file: components/, or components/statusbar/ for a popover body. */
 const groundFile = (c: string) => (fs.existsSync(path.join(SRC, 'components', `${c}.svelte`)) ? `components/${c}.svelte` : `components/statusbar/${c}.svelte`);
-// A plate is a surface; an open plate is a container the grain shows through (AGENTS.md › Text never sits on the grain).
+// A plate is a surface; an open plate is a container the grain shows through (dashboard/AGENTS.md › Text never sits on the grain).
 const isSurface = (c: string[]) => (c.includes('plate') && !c.includes('open')) || ['plain', 'solid', 'chrome', 'btn', 'chip', 'input'].some((x) => c.includes(x));
 
 /** What renders on the bare ground in one component's markup; `checked` are the components scanned on their own. */
@@ -651,9 +651,10 @@ test('text never sits on the bare ground', () => {
   const checked = new Set([...GROUND, ...views.map((f) => f.replace(/\.svelte$/, ''))]);
   const files = ['App.svelte', ...views.map((f) => `views/${f}`), ...GROUND.map(groundFile)];
   for (const rel of files) assert.deepEqual(onGround(rel, read(rel), checked), [], `${rel} keeps its text on a surface`);
-  const agents = fs.readFileSync(path.join(ROOT, 'AGENTS.md'), 'utf8');
-  assert.ok(agents.includes('**Text never sits on the grain.**') && agents.includes('a `plate` (not `plate open`'), 'AGENTS.md states the rule with plate and plate open');
-  for (const s of ['`dashboard/style.css`', 'Check the forge, ash and temper themes', 'Grain']) assert.ok(agents.includes(s), `AGENTS.md names ${s}`);
+  const agents = fs.readFileSync(path.join(ROOT, 'dashboard', 'AGENTS.md'), 'utf8');
+  assert.ok(agents.includes('**Text never sits on the grain.**') && agents.includes('a `plate` (not `plate open`'), 'dashboard/AGENTS.md states the rule with plate and plate open');
+  for (const s of ['`dashboard/style.css`', 'Check the forge, ash and temper themes', 'Grain']) assert.ok(agents.includes(s), `dashboard/AGENTS.md names ${s}`);
+  assert.ok(fs.readFileSync(path.join(ROOT, 'AGENTS.md'), 'utf8').includes('](dashboard/AGENTS.md)'), 'AGENTS.md links dashboard/AGENTS.md');
 });
 
 /** Every file under dashboard/src, relative to it. */
@@ -1535,7 +1536,7 @@ test('no doc or source names the removed bar or the old palette triggers', () =>
   // Nor the Drafting look: its name, its themes, its title block or the design/ folder. lib/theme.ts keeps the old theme
   // ids on purpose: it maps a value saved by an earlier version onto forge or ash.
   const DRAFTING = /\bDrafting\b|cyanotype|vellum|nightprint|title block|tblock|(?<![\w./-])design\/|Text never sits on the grid/i;
-  const docs = ['README.md', 'AGENTS.md', 'docs', path.join('dashboard', 'src'), 'skills', 'agents', 'reviewers', 'templates'].flatMap((r) => {
+  const docs = ['README.md', 'AGENTS.md', path.join('dashboard', 'AGENTS.md'), 'docs', path.join('dashboard', 'src'), 'skills', 'agents', 'reviewers', 'templates'].flatMap((r) => {
     const abs = path.join(ROOT, r);
     if (!fs.existsSync(abs)) return [];
     if (fs.statSync(abs).isFile()) return [abs];
