@@ -468,7 +468,7 @@ test('every control has the solid focus ring', () => {
   assert.match(ruleFor(css, '.check:checked:after'), /border:solid var\(--on-gleam\)/, 'with an on-gleam tick');
   assert.match(ruleFor(css, '.check:disabled'), /border-style:dashed/);
   assert.match(ruleFor(css, 'input[type=checkbox]:focus-visible'), RING, 'a drawn checkbox keeps the ring');
-  // .radio on a native radio (the session log's Permissions and Effort popovers): round, drawn, with the .on dot when checked.
+  // .radio on a native radio: round, drawn, with the .on dot when checked.
   assert.match(ruleFor(css, '.radio'), /appearance:none/, 'the radio is drawn, not the OS one');
   assert.match(ruleFor(css, '.radio'), /border-radius:50%/, 'and round, so an exclusive choice never reads as checkboxes');
   assert.match(ruleFor(css, '.radio:checked'), /border-color:var\(--gleam\)/, 'a checked radio rings gleam, as .on does');
@@ -708,4 +708,39 @@ test('sender tints are opaque tokens with readable text', () => {
     assert.match(rule, new RegExp(`--surface:var\\(--tint-${name}\\)`), `.tint.${name} is a surface`);
   }
   assert.match(styleCss(), /@utility tint \{/);
+});
+
+const POINTER = ['button', 'summary', '[role=button]', '[role=option]', '[role=menuitem]', '[role=menuitemradio]', '[role=menuitemcheckbox]', '[role=tab]', '[role=switch]', '[role=checkbox]', '[role=radio]', 'input[type=checkbox]', 'input[type=radio]', 'label:has(>input[type=checkbox])', 'label:has(>input[type=radio])'];
+const NOT_ALLOWED = [':is(button,summary,input,[role]):disabled', '[role][aria-disabled=true]', 'label:has(>input:disabled)'];
+/** The index of the first built rule whose selector list names `selector` with that body; -1 when none. */
+function ruleIndex(css: string, selector: string, body: string): number {
+  for (const m of css.matchAll(/([^{}]*)\{([^{}]*)\}/g)) if (m[2] === body && splitTop(m[1], /,/).some((s) => s.trim() === selector)) return m.index ?? -1;
+  return -1;
+}
+
+test('clickable elements show a pointer, disabled ones not-allowed', () => {
+  const source = styleCss();
+  const base = source.slice(source.indexOf('@layer base {'), source.indexOf('\n}\n', source.indexOf('@layer base {')));
+  const lines = base.split('\n');
+  const pointer = lines.findIndex((l) => /\{ cursor: pointer; \}$/.test(l) && l.includes('label:has(>input[type=radio])'));
+  const blocked = lines.findIndex((l) => /\{ cursor: not-allowed; \}$/.test(l));
+  assert.ok(pointer >= 0, '@layer base has one pointer rule');
+  for (const sel of POINTER) assert.ok(splitTop(lines[pointer].replace(/\{.*$/, ''), /,/).includes(sel), `the pointer rule covers ${sel}`);
+  assert.ok(blocked > pointer, 'the not-allowed rule comes after it');
+  for (const sel of NOT_ALLOWED) assert.ok(splitTop(lines[blocked].replace(/\{.*$/, '').replace(/,\s+/g, ','), /,/).includes(sel), `the not-allowed rule covers ${sel}`);
+  assert.match(base, /input, textarea, select, \[contenteditable\]:not\(\[contenteditable="false"\]\) \{ cursor: auto; \}/, 'text fields keep their cursor');
+
+  const css = builtCss();
+  const last = Math.max(...POINTER.map((sel) => ruleIndex(css, sel, 'cursor:pointer')));
+  for (const sel of POINTER) assert.ok(ruleIndex(css, sel, 'cursor:pointer') >= 0, `the build points at ${sel}`);
+  for (const sel of NOT_ALLOWED) assert.ok(ruleIndex(css, sel, 'cursor:not-allowed') > last, `the build blocks ${sel} after the pointer rules`);
+});
+
+nodeTest('no ad-hoc pointer classes remain', () => {
+  const SRC = path.join(DASHBOARD, 'src');
+  const files = fs.readdirSync(SRC, { recursive: true }).map((f) => String(f).split(path.sep).join('/')).filter((f) => /\.(svelte|ts)$/.test(f));
+  const hits = files.flatMap((f) => [...fs.readFileSync(path.join(SRC, f), 'utf8').matchAll(/\bcursor-(pointer|not-allowed)\b/g)].map((m) => `${f}: ${m[0]}`));
+  // DepChips' chip is a span inside the card's button: the base rule matches buttons and roles, never a bare span.
+  assert.deepEqual(hits, ['components/DepChips.svelte: cursor-pointer']);
+  for (const f of ['App.svelte', 'components/Drawer.svelte']) assert.match(fs.readFileSync(path.join(SRC, f), 'utf8'), /\bcursor-col-resize\b/, `${f}'s resize handle keeps col-resize`);
 });

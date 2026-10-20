@@ -263,6 +263,11 @@
   input, textarea, select, [contenteditable]:not([contenteditable="false"]) { cursor: auto; }
   pre, code, .prose { cursor: text; }
   a[href] { cursor: pointer; }
+  /* Every enabled clickable element shows the pointer from here, so no component repeats cursor-pointer. Utilities
+     (cursor-col-resize on the resize handles) still win, being a later layer. */
+  button, summary, [role=button], [role=option], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox], [role=tab], [role=switch], [role=checkbox], [role=radio], input[type=checkbox], input[type=radio], label:has(>input[type=checkbox]), label:has(>input[type=radio]) { cursor: pointer; }
+  /* Each selector here outranks its pointer twin above, so a disabled control never shows the pointer. */
+  :is(button, summary, input, [role]):disabled, [role][aria-disabled=true], label:has(>input:disabled) { cursor: not-allowed; }
   h1, h2, h3, h4 { font-family: var(--font-head); letter-spacing: 0; }
   ::selection { background: var(--spark); color: var(--on-spark); }
   /* Slim scrollbars: a hairline rail and a squared thumb that heats to ember while held or hovered. WebKit/Blink get the

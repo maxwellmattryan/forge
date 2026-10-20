@@ -209,7 +209,7 @@
       aria-selected={i === selected}
       aria-disabled={o.disabled ? 'true' : undefined}
       lang={o.lang}
-      class="flex items-center gap-2 px-3 py-1.5 cursor-pointer {i === st.active ? 'bg-raised text-fg shadow-[inset_var(--bar-rule)_0_0_0_var(--gleam)]' : 'text-muted'} {o.disabled ? 'opacity-40 cursor-not-allowed' : ''}"
+      class="flex items-center gap-2 px-3 py-1.5 {i === st.active ? 'bg-raised text-fg shadow-[inset_var(--bar-rule)_0_0_0_var(--gleam)]' : 'text-muted'} {o.disabled ? 'opacity-40' : ''}"
       onmousemove={() => hover(i)}
       onclick={() => pick(i)}
     >
