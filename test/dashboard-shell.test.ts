@@ -724,24 +724,16 @@ test('ticking times read the shared clock and stay out of live regions', () => {
   assert.match(mount, /const stopClock = startClock\(\);[\s\S]*?return \(\) => \{\s*stopClock\(\);/, 'App.svelte starts the clock in onMount and stops it in the cleanup');
 });
 
-test('the status bar facts show the live session indicator', () => {
+test('the status bar has no version, API, sessions or sheet facts', () => {
   assert.doesNotMatch(read('lib/view.ts'), /export const activeSessions\b/, 'view.ts no longer exports activeSessions');
   const bar = read('components/StatusBar.svelte');
-  assert.match(bar, /import \{ activeSessions \} from '\.\.\/lib\/live\.ts';/);
-  assert.match(bar, /const active = \$derived\(activeSessions\(S\.data\?\.daemons\)\)/);
-  assert.match(bar, /const activeTitle = \$derived\(active\.count \? active\.ids\.map\(\(id\) => \(id === INBOX_SCOPE \? \$t\('live\.inbox'\) : id === OFFICE_SCOPE \? \$t\('live\.office'\) : id\)\)\.join\('\\n'\) : \$t\('live\.none'\)\)/, 'the tooltip lists active ids, the inbox and the office by name');
-
+  for (const gone of ['footer-version', 'footer-sessions', 'activeSessions', 'activeTitle', 'viewLabels', 'viewIndex']) assert.ok(!bar.includes(gone), `StatusBar.svelte has no ${gone}`);
+  assert.doesNotMatch(bar, /statusbar\.facts\.(forge|version|api|sessions|sessionsValue|sheet|sheetValue)\b/, 'none of the removed facts');
   const walked = elements('components/StatusBar.svelte');
-  const cell = walked.find((e) => attr(e, 'id') === 'footer-sessions');
-  assert.ok(cell, '#footer-sessions');
-  assert.ok(cell.parents.some((p) => p.classes.includes('facts')), 'in the facts strip');
-  assert.equal(attr(cell, 'title'), '{activeTitle}', '#footer-sessions carries the active-session tooltip');
-  const dots = walked.filter((e) => e.name === 'LiveDot' && e.parents.includes(cell));
-  assert.equal(dots.length, 1, '#footer-sessions renders one <LiveDot');
-  assert.equal(attr(dots[0], 'on'), '{active.count > 0}');
-  assert.ok(!walked.some((e) => e.parents.includes(cell) && e.attrs.some((a) => a.name === 'aria-live')), '#footer-sessions is not a live region');
-  assert.match(bar, /\$t\('statusbar\.facts\.sessionsValue', \{ count: active\.count \}\)/);
-  // The phone strip has no sessions count of its own: the status bar's facts carry it at every width.
+  const facts = walked.find((e) => attr(e, 'bind:this') === '{factsBox}');
+  assert.ok(facts, 'the facts strip');
+  assert.ok(!walked.some((e) => e.name === 'LiveDot' && e.parents.includes(facts)), 'no live dot in the facts strip');
+  // The phone strip has no sessions count of its own either.
   const app = read('App.svelte');
   for (const gone of ['mobile-sessions', 'footer-sessions', 'footer-version', '<LiveDot']) assert.ok(!app.includes(gone), `App.svelte has no ${gone}`);
 
@@ -1240,11 +1232,14 @@ test('status bar: one fixed footer in the inert shell, outside main', () => {
 
   // 30px tall from md up: the token, plus the inset.
   assert.ok(fs.readFileSync(path.join(ROOT, 'dashboard', 'style.css'), 'utf8').includes('--size-statusbar: 30px;'), 'the bar is 30px');
-  // AC6: three live dots, the Foreman's (on while the office works and the daemon runs), the daemon indicator's (on
-  // exactly when a session works) and the facts' SESSIONS dot; no Inbox indicator at all; holds and waits from md up.
+  // No spend chip: the month's spend lives on Analytics.
+  assert.doesNotMatch(read('components/StatusBar.svelte'), /SpendChip/, 'StatusBar imports and renders no SpendChip');
+  assert.ok(!fs.existsSync(path.join(SRC, 'components', 'SpendChip.svelte')), 'SpendChip.svelte is gone');
+  // Two live dots, the Foreman's (on while the office works and the daemon runs) and the daemon indicator's (on
+  // exactly when a session works); no Inbox indicator at all; holds and waits from md up.
   const markup = markupOf('components/StatusBar.svelte');
   const dots = bar.filter((e) => e.name === 'LiveDot');
-  assert.deepEqual(dots.map((d) => attrOf(d, 'on')), ['{bar.foreman.daemon && bar.foreman.active}', '{bar.daemon.active}', '{active.count > 0}'], "the Foreman's dot, the daemon's dot and the sessions dot");
+  assert.deepEqual(dots.map((d) => attrOf(d, 'on')), ['{bar.foreman.daemon && bar.foreman.active}', '{bar.daemon.active}'], "the Foreman's dot and the daemon's dot");
   for (const d of dots) assert.ok(d.parents.includes(footer));
   assert.equal(ifBody(markup, 'bar.inbox'), null, 'no {#if bar.inbox}');
   assert.doesNotMatch(markup, /openPopover\('inbox'|data-popover="inbox"/, 'no Inbox indicator, whether the daemon is on or off');
@@ -1587,7 +1582,7 @@ test('Needs you is a status-bar popover, not a page', () => {
   assert.equal(en.daemon.inbox, undefined, 'no daemon.inbox key');
   const leaves = (o: any, at = ''): [string, string][] => Object.entries(o).flatMap(([k, v]) => (typeof v === 'object' && v ? leaves(v, `${at}${k}.`) : [[`${at}${k}`, String(v)] as [string, string]]));
   assert.deepEqual(leaves(en).filter(([, v]) => v === 'Inbox').map(([k]) => k), [], 'no message is exactly "Inbox"');
-  for (const [k, v] of [['daemon.rows.inbox', 'Inbox session'], ['statusbar.daemon.inboxLog', 'Inbox session log'], ['permission.inbox', 'Inbox session'], ['live.inbox', 'inbox session'], ['session.startInbox', 'Start inbox session'], ['session.stopInbox', 'Stop inbox session'], ['needs.noDecisions', 'No decisions waiting']])
+  for (const [k, v] of [['daemon.rows.inbox', 'Inbox session'], ['statusbar.daemon.inboxLog', 'Inbox session log'], ['permission.inbox', 'Inbox session'],['session.startInbox', 'Start inbox session'], ['session.stopInbox', 'Stop inbox session'], ['needs.noDecisions', 'No decisions waiting']])
     assert.equal(k.split('.').reduce((o: any, p) => o?.[p], en), v, k);
   // The old link shows the Pipeline, rewrites the hash and asks for the popover.
   const route = fnBody(read('lib/app.svelte.ts'), 'export function route(');

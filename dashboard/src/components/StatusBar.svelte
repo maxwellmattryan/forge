@@ -1,6 +1,6 @@
 <!-- The status bar: one slim fixed row at the bottom of every view. Left, the Foreman (always: the supervisor above the
      pool, accented, on or off), Needs you (an icon-only bell and the count of decisions and permission prompts waiting), the
-     daemon (a plain `Daemon live/cap` count) and (md and up) holds and waits; then the facts strip (FOCUS job id while a job is focused, a button to its drawer · FORGE version · API · SESSIONS live dot and count · SHEET); right, the model and the
+     daemon (a plain `Daemon live/cap` count) and (md and up) holds and waits; then the facts strip (FOCUS job id while a job is focused, a button to its drawer; empty otherwise); right, the model and the
      connection. It holds no text field: "New job or command" lives in the sidebar. Each indicator opens one popover, a
      sibling after the bar: a fixed element with a z-index is its own stacking context, so a popover inside the bar could
      never rise above a full job pane.
@@ -8,7 +8,7 @@
      z-42, Settings and the palette z-45, toast z-50. At md and up the bar spans the content column only, so the sidebar
      keeps its full height, and the job pane always ends at the bar's top edge. Session errors, titles and model strings are untrusted and render
      as text.
-     The facts strip takes what the clusters leave (basis 0) and drops facts from the right as it runs short (see
+     The facts strip takes what the clusters leave (basis 0) and drops the FOCUS word as it runs short (see
      factsHidden). Each cluster holds its indicators in a max-content row; when the row is wider than the cluster, the next
      level of text goes sr-only (see fit()), so a visible label is always whole, never cut to an ellipsis. Below md every
      indicator is a glyph or a dot. -->
@@ -22,14 +22,11 @@
   import NeedsPanel from './statusbar/NeedsPanel.svelte';
   import ForemanPanel from './statusbar/ForemanPanel.svelte';
   import ModelPanel from './statusbar/ModelPanel.svelte';
-  import SpendChip from './SpendChip.svelte';
   import { API_VERSION } from '../lib/types.ts';
   import type { DaemonPoolState } from '../lib/types.ts';
   import { mergePoolState, poolModel, postDaemon } from '../lib/daemon.ts';
   import { FACTS_MAX, barModel, connectionState, factsHidden, modelSummary, promptAnnouncement, summaryText } from '../lib/statusbar.ts';
-  import { activeSessions } from '../lib/live.ts';
-  import { INBOX_SCOPE, OFFICE_SCOPE } from '../lib/types.ts';
-  import { VIEWS, inboxGroups, viewIndex, type ViewId } from '../lib/view.ts';
+  import { inboxGroups } from '../lib/view.ts';
   import { S, forgeToken, openDrawer, refresh } from '../lib/app.svelte.ts';
   import { focusFact } from '../lib/focus.ts';
   import { closePopover, focusInPopover, keepFocus, openPopover, popover, reanchor } from '../lib/popover.svelte.ts';
@@ -44,7 +41,6 @@
   const bar = $derived(barModel(pool, { pending }));
   const models = $derived(modelSummary(S.data?.config?.models));
   const conn = $derived(connectionState({ online: S.online, apiVersion: S.data?.apiVersion, clientApi: API_VERSION }));
-  const active = $derived(activeSessions(S.data?.daemons));
   // The job being QA-ed by hand (forge focus), when it is still in the list and active; nothing renders otherwise.
   const focus = $derived(focusFact(S.data));
   const focusTitle = $derived(focus ? $t('statusbar.focus.title', { id: focus.id, title: focus.title }) : undefined);
@@ -52,17 +48,6 @@
   // popover's first two sections).
   const needs = $derived(inboxGroups(S.data?.jobs ?? []).urgent.length);
   const needsTotal = $derived(needs + bar.prompts);
-  // One active session per line, the inbox session and the office by name.
-  const activeTitle = $derived(active.count ? active.ids.map((id) => (id === INBOX_SCOPE ? $t('live.inbox') : id === OFFICE_SCOPE ? $t('live.office') : id)).join('\n') : $t('live.none'));
-  // The same map Nav.svelte builds, for the SHEET fact.
-  const viewLabels = $derived<Record<ViewId, string>>({
-    pipeline: $t('nav.pipeline'),
-    backlog: $t('nav.backlog'),
-    agents: $t('nav.agents'),
-    analytics: $t('nav.analytics'),
-    evals: $t('nav.evals'),
-    project: $t('nav.project'),
-  });
 
   /**
    * How much text each part hides, lowest value first. Left: 1 the "Daemon" word, 2 the reasons of held and waiting, 3 held
@@ -70,7 +55,7 @@
    * (its glyph shows), 5 the "Foreman" word (its glyph, live dot and prompt count stay): the supervisor keeps its name
    * longest. The Needs-you bell is icon-only at every width, so it adds no level. Right: 1 the provider and the effort, 2 the model label, 3 the
    * connection's word while it is Live or Connecting, and "needed" after "Update", 4 the rest of the connection's word.
-   * Facts, before either cluster: 1 SHEET, 2 API, 3 the SESSIONS word, 4 the FORGE word, 5 the FOCUS word (lib/statusbar.ts factsHidden).
+   * Facts, before either cluster: 1 the FOCUS word (lib/statusbar.ts factsHidden).
    */
   let left = $state(0);
   let right = $state(0);
@@ -215,8 +200,6 @@
     void models;
     void conn.state;
     void S.data;
-    void S.view;
-    void active.count;
     void $t;
     untrack(() => fit());
   });
@@ -294,8 +277,6 @@
           <span class="sr-only">{' '}{$t('statusbar.daemon.sessions')}{', '}{bar.daemon.off ? $t('statusbar.daemon.off') : bar.daemon.pill.label}</span>
           {#if holdsOut}<span class="sr-only">{', '}{holdText}</span>{/if}
         </button>
-        <!-- The month's spend: md and up, and the first thing to go (with held and waiting) when the cluster runs short. -->
-        {#if S.data.budget}<SpendChip budget={S.data.budget} extra="max-md:hidden {left >= 3 ? 'hidden!' : ''}" />{/if}
         {#if bar.held}
           <button class="btn sm ghost max-md:hidden {left >= 3 ? 'hidden!' : ''}" data-popover="daemon" title={left >= 2 ? $t('daemon.held', { count: bar.held }) : undefined} aria-haspopup="dialog" aria-expanded={expanded('daemon')} aria-controls={controls('daemon')} onclick={(e) => openPopover('daemon', e.currentTarget)}><span class="text-warn">{$t('statusbar.held.word')}<span class={left >= 2 ? 'sr-only' : ''}>{$t('statusbar.held.rest')}</span>{' '}({bar.held})</span></button>
         {/if}
@@ -306,18 +287,11 @@
     </div>
   </div>
 
-  <!-- The facts: what the clusters leave, never wrapped. Each dropped fact goes sr-only, so the strip still reads whole.
-       Below md only the version and the sessions dot and count stay, and while a job is focused its glyph takes the
-       version's place. -->
+  <!-- The facts: what the clusters leave, never wrapped. Only FOCUS, while a job is focused; with none the strip is an empty
+       spacer that keeps the right cluster at the edge. Its word goes sr-only when the strip runs short, and below md
+       only the focus glyph shows. -->
   <div bind:this={factsBox} class="facts flex-1 basis-0">
-    {#if focus}<button id="footer-focus" class="inline-flex shrink-0 items-center gap-[5px] cursor-pointer hover:text-gleam focus-visible:-outline-offset-2 max-md:min-w-11 max-md:justify-center" title={focusTitle} onclick={() => openDrawer(focus.id)}><span class="inline-flex md:hidden text-gleam" aria-hidden="true"><Icon name="review" /></span><span class="k max-md:sr-only {hid.focusWord ? 'sr-only' : ''}">{$t('statusbar.facts.focus')}</span><span class="max-md:sr-only max-w-[24ch] truncate">{focus.id}</span><span class="sr-only">{', '}{focus.title}</span></button><span class="sep max-md:hidden!" aria-hidden="true"></span>{/if}
-    <span id="footer-version"><span class="k max-md:sr-only {hid.forgeWord ? 'sr-only' : ''}">{$t('statusbar.facts.forge')}</span><span class={focus ? 'max-md:sr-only' : ''}>{S.data ? $t('statusbar.facts.version', { version: S.data.forgeVersion }) : '—'}</span></span>
-    <span class="sep max-md:hidden! {hid.api ? 'hidden!' : ''}" aria-hidden="true"></span>
-    <span class="max-md:sr-only {hid.api ? 'sr-only' : ''}"><span class="k">{$t('statusbar.facts.api')}</span>{S.data ? S.data.apiVersion : '—'}</span>
-    <span class="sep" aria-hidden="true"></span>
-    <span id="footer-sessions" title={activeTitle}><span class="k max-md:sr-only {hid.sessionsWord ? 'sr-only' : ''}">{$t('statusbar.facts.sessions')}</span><LiveDot on={active.count > 0} /><span class="num max-md:sr-only">{$t('statusbar.facts.sessionsValue', { count: active.count })}</span><span class="num md:hidden" aria-hidden="true">{active.count}</span></span>
-    <span class="sep max-md:hidden! {hid.sheet ? 'hidden!' : ''}" aria-hidden="true"></span>
-    <span class="max-md:sr-only {hid.sheet ? 'sr-only' : ''}"><span class="k">{$t('statusbar.facts.sheet')}</span>{$t('statusbar.facts.sheetValue', { view: viewLabels[S.view], index: viewIndex(S.view), total: VIEWS.length })}</span>
+    {#if focus}<button id="footer-focus" class="inline-flex shrink-0 items-center gap-[5px] cursor-pointer hover:text-gleam focus-visible:-outline-offset-2 max-md:min-w-11 max-md:justify-center" title={focusTitle} onclick={() => openDrawer(focus.id)}><span class="inline-flex md:hidden text-gleam" aria-hidden="true"><Icon name="review" /></span><span class="k max-md:sr-only {hid.focusWord ? 'sr-only' : ''}">{$t('statusbar.facts.focus')}</span><span class="max-md:sr-only max-w-[24ch] truncate">{focus.id}</span><span class="sr-only">{', '}{focus.title}</span></button>{/if}
   </div>
 
   <div bind:this={rightBox} class="ml-auto flex min-w-0 items-center justify-end overflow-x-clip px-1">

@@ -111,13 +111,6 @@
       }
     },
     "facts": {
-      "forge": "FORGE",
-      "version": "v{version}",
-      "api": "API",
-      "sessions": "SESSIONS",
-      "sessionsValue": "{count} active",
-      "sheet": "SHEET",
-      "sheetValue": "{view} · {index} of {total}",
       "focus": "FOCUS"
     },
     "daemon": {
@@ -195,9 +188,6 @@
     "idle": "idle",
     "line": "{state} · {ago}",
     "columnWorking": "{count} working",
-    "inbox": "inbox session",
-    "office": "office",
-    "none": "No session is working",
     "new": "new"
   },
   "permission": {
@@ -964,9 +954,6 @@
     "todayOf": "{spent} of {cap}",
     "todayUncapped": "{spent} · no daily cap",
     "dayLabel": "Today's spend against the daily cap",
-    "chipCapped": "{spent} / {cap}",
-    "chipUncapped": "{spent} this month",
-    "chipTitle": "Repo spend this month · open Analytics",
     "section": "Repo budget",
     "heldJobs": "Held jobs",
     "noHeldJobs": "No job is parked yet; new work waits until the cap allows it.",
