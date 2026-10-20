@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { defaults, panelPathsProblems, validateConfig } from '../lib/config.ts';
-import { choosePanel } from '../lib/step.ts';
+import { choosePanel, selectPanel } from '../lib/step.ts';
 import type { Config } from '../lib/types.ts';
 
 const ROOT = process.cwd();
@@ -140,4 +140,36 @@ test('choosePanel: member lenses, subsumed entries, order and carry', () => {
   // A subsumed entry whose root lens isn't in the root panel adds nothing.
   const lone = choosePanel({ kind: 'feature', config: config([{ name: 'code', always: true }]), suggested: [], approachPaths: [], changed: [], carried: [], members: [{ repo: 'lib', changed: ['x.md'], lenses: [ml('lib', 'docs', { paths: ['*.md'] }, true)] }] });
   assert.deepEqual(lone, { lenses: ['code'], reasons: { code: ['always'] } });
+});
+
+test('choosePanel: pathsOnly lenses run on path hits only', () => {
+  const c = config([
+    { name: 'code', always: true },
+    { name: 'security', when: 'lib/server.ts, anything that runs commands', paths: ['lib/server.ts', 'lib/trackers/**'], pathsOnly: true },
+    { name: 'docs', paths: ['docs/**'] },
+  ]);
+  // SP3 (spec time): a suggestion or an Approach path never picks a pathsOnly lens.
+  const spec = choosePanel({ kind: 'feature', config: c, suggested: ['security', 'docs'], approachPaths: ['lib/server.ts', 'lib/trackers/github.ts'], changed: null, carried: [] });
+  assert.deepEqual(spec.lenses, ['code', 'docs']);
+  assert.deepEqual(selectPanel({ job: { kind: 'feature' } as any, config: c, spec: { suggested: ['security'], approachPaths: ['lib/server.ts'] } as any }), ['code']);
+  // RV9 (forge job panel): a diff hit does, with its reason; a suggestion still adds nothing.
+  const hit = choosePanel({ kind: 'feature', config: c, suggested: ['security'], approachPaths: ['lib/server.ts'], changed: ['lib/server.ts'], carried: [] });
+  assert.deepEqual(hit.lenses, ['code', 'security']);
+  assert.deepEqual(hit.reasons.security, ['paths lib/server.ts: lib/server.ts']);
+  // Carried and always still count.
+  assert.deepEqual(choosePanel({ kind: 'feature', config: c, suggested: [], approachPaths: [], changed: [], carried: ['security'] }).reasons.security, ['carried']);
+  const always = config([{ name: 'code', always: true, pathsOnly: true, paths: ['lib/**'] }]);
+  assert.deepEqual(choosePanel({ kind: 'feature', config: always, suggested: [], approachPaths: [], changed: [], carried: [] }).lenses, ['code']);
+  // pathsOnly false behaves as before.
+  const off = config([{ name: 'security', paths: ['lib/server.ts'], pathsOnly: false }]);
+  assert.deepEqual(choosePanel({ kind: 'feature', config: off, suggested: ['security'], approachPaths: [], changed: null, carried: [] }).lenses, ['security']);
+});
+
+test('review.panel pathsOnly validation', () => {
+  const problems = (entry: Record<string, unknown>) => validateConfig(config([{ name: 'code', always: true }, { name: 'security', ...entry } as any]), ROOT).filter((p) => p.includes('pathsOnly'));
+  assert.deepEqual(problems({ pathsOnly: true, paths: ['lib/server.ts'] }), []);
+  assert.deepEqual(problems({ pathsOnly: false }), []);
+  assert.deepEqual(problems({ pathsOnly: true }), ['review.panel "security".pathsOnly needs non-empty paths: a pathsOnly lens with none would never run']);
+  assert.deepEqual(problems({ pathsOnly: true, paths: [] }), ['review.panel "security".pathsOnly needs non-empty paths: a pathsOnly lens with none would never run']);
+  assert.deepEqual(problems({ pathsOnly: 'yes', paths: ['lib/**'] }), ['review.panel "security".pathsOnly must be true or false (got "yes")']);
 });

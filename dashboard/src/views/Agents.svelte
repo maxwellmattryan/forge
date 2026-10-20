@@ -5,7 +5,7 @@
   import PageHeader from '../components/PageHeader.svelte';
   import { ago } from '../lib/util.ts';
   import { effortChip } from '../lib/effort.ts';
-  import type { ApiState, Effort, EffortSource } from '../lib/types.ts';
+  import type { ApiState, Effort, EffortSource, RosterModelBy } from '../lib/types.ts';
   import { agentSessions, runningAgents } from '../lib/view.ts';
   import { S, openDrawer } from '../lib/app.svelte.ts';
   import { t } from '../lib/locale.ts';
@@ -22,6 +22,13 @@
   {#if source === 'panel'}<div class="text-[11px] text-muted">{$t('agents.effortFrom.panel')}</div>
   {:else if source === 'role'}<div class="text-[11px] text-muted">{$t('agents.effortFrom.role')}</div>
   {:else if source === 'config'}<div class="text-[11px] text-muted">{$t('agents.effortFrom.config')}</div>{/if}
+{/snippet}
+
+{#snippet modelByLines(by: RosterModelBy)}
+  {#if by.low}<div class="text-[11px] text-muted mt-1">{$t('agents.modelBy.low', { model: by.low })}</div>{/if}
+  {#if by.medium}<div class="text-[11px] text-muted mt-1">{$t('agents.modelBy.medium', { model: by.medium })}</div>{/if}
+  {#if by.high}<div class="text-[11px] text-muted mt-1">{$t('agents.modelBy.high', { model: by.high })}</div>{/if}
+  {#if by.rework}<div class="text-[11px] text-muted mt-1">{$t('agents.modelBy.rework', { model: by.rework })}</div>{/if}
 {/snippet}
 
 <PageHeader title={$t('agents.title')}>
@@ -69,7 +76,7 @@
         {#each r.agents as a, i (i)}
           <tr>
             <td><div class="font-medium">{a.role}</div><div class="text-[11px] text-muted max-w-xl">{a.description}</div></td>
-            <td><span class="chip muted">{a.model}</span></td>
+            <td><span class="chip muted">{a.model}</span>{#if a.modelBy}{@render modelByLines(a.modelBy)}{/if}</td>
             <td>{@render effortCell(a.effort, a.effortSource)}</td>
             <td class="font-mono text-xs text-muted">{a.promptHash}</td>
             <td class="font-mono text-xs text-muted">{a.addendum ?? '—'}</td>

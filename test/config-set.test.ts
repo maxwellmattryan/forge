@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, trustDigest, validateConfig } from '../lib/config.ts';
-import { CONFIG_DISCLOSURE, FIELDS, disclosureOf, redactedConfig } from '../lib/config-fields.ts';
+import { CONFIG_DISCLOSURE, FIELDS, disclosureOf, redactedConfig, validateFieldValue } from '../lib/config-fields.ts';
 import { COMPLEXITIES, EFFORT_ROLES, EFFORTS } from '../lib/schema.ts';
 import { setConfigValue } from '../lib/config-set.ts';
 import { applyOverlay, overlayProblems } from '../lib/eval-overlay.ts';
@@ -511,6 +511,62 @@ test('runtime.models.verifier defaults to haiku', () => {
   try {
     assert.deepEqual(overlayProblems(repo.dir, base, { 'runtime.models.verifier': 'sonnet' }), [], 'an eval overlay may set it');
     assert.equal(applyOverlay(base, { 'runtime.models.verifier': 'sonnet' }).runtime.models.verifier, 'sonnet');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+test('builder model overrides and review.onRework are editable', async () => {
+  const keys = ['runtime.modelByComplexity.low', 'runtime.modelByComplexity.medium', 'runtime.modelByComplexity.high', 'runtime.reworkModel'];
+  const docs = fs.readFileSync(path.join(ROOT, 'docs', 'CONFIG.md'), 'utf8');
+  for (const key of keys) {
+    const f = FIELDS.find((x) => x.key === key);
+    assert.ok(f?.editable, `${key} is an editable field`);
+    assert.equal(f.section, 'agents');
+    assert.equal(f.type, 'string');
+    assert.equal(f.nullable, true);
+    assert.equal(f.default, null);
+    assert.deepEqual(f.suggestions, FIELDS.find((x) => x.key === 'runtime.models.builder')!.suggestions, `${key}: the model suggestions`);
+  }
+  const onRework = FIELDS.find((x) => x.key === 'review.onRework');
+  assert.ok(onRework?.editable);
+  assert.deepEqual([onRework.section, onRework.type, onRework.options, onRework.default], ['review', 'enum', ['narrow', 'full'], 'narrow']);
+  for (const k of ['modelByComplexity:', 'reworkModel:', 'onRework:', 'pathsOnly:']) assert.ok(docs.includes(k), `docs/CONFIG.md documents ${k}`);
+  const s = scratch();
+  try {
+    for (const [key, value] of [['runtime.modelByComplexity.low', 'sonnet'], ['runtime.reworkModel', 'sonnet'], ['review.onRework', 'full']]) {
+      const r = await s.forge('config', 'set', key, value);
+      assert.equal(r.code, 0, `${key}: ${r.err}`);
+      assert.equal(JSON.parse(r.out).value, value, key);
+    }
+    const before = s.read();
+    for (const [key, value] of [['runtime.modelByComplexity.high', 'opus; rm -rf /'], ['runtime.reworkModel', 'opus --add-dir=/'], ['runtime.reworkModel', 'a'.repeat(201)], ['review.onRework', 'some']]) {
+      const r = await s.forge('config', 'set', key, value);
+      assert.equal(r.code, 1, `${key} ${value} exits 1`);
+      assert.ok(r.err.includes(key), r.err);
+    }
+    assert.equal(s.read(), before, 'refused values leave the file byte-identical');
+    const cleared = await s.forge('config', 'set', 'runtime.reworkModel', 'null');
+    assert.equal(cleared.code, 0, cleared.err);
+    assert.equal(JSON.parse(cleared.out).value, null);
+    // An empty model means unset on the CLI, so set and `forge config validate` agree.
+    await s.forge('config', 'set', 'runtime.reworkModel', 'sonnet');
+    const emptied = await s.forge('config', 'set', 'runtime.reworkModel', '');
+    assert.equal(emptied.code, 0, emptied.err);
+    assert.equal(JSON.parse(emptied.out).value, null);
+    const valid = await s.forge('config', 'validate');
+    assert.equal(valid.code, 0, valid.err + valid.out);
+  } finally {
+    s.repo.cleanup();
+  }
+  for (const key of keys) assert.ok(validateFieldValue(FIELDS.find((x) => x.key === key)!, '')?.includes(key), `${key}: an empty string is refused, null unsets`);
+  const repo = tempRepo();
+  try {
+    const base = defaults();
+    const overlay = { 'runtime.reworkModel': 'sonnet', 'runtime.modelByComplexity.low': 'haiku', 'review.onRework': 'full' };
+    assert.deepEqual(overlayProblems(repo.dir, base, overlay), [], 'an eval overlay may A/B them');
+    const applied = applyOverlay(base, overlay);
+    assert.deepEqual([applied.runtime.reworkModel, applied.runtime.modelByComplexity.low, applied.review.onRework], ['sonnet', 'haiku', 'full']);
   } finally {
     repo.cleanup();
   }

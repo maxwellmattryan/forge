@@ -7,11 +7,11 @@
 // names and fixed templates, never from file contents or agent replies, and shellLine refuses an
 // argument outside a strict class, so an unattended daemon can run the result as-is.
 import path from 'node:path';
-import { acCoverage } from './acs.ts';
+import { acCoverage, specUiAcs } from './acs.ts';
 import { readJobRecord, readSharedRecord } from './backing.ts';
 import { jobPathMap, renderBrief, roleBrief } from './brief.ts';
 import type { RoleContext } from './brief.ts';
-import { autoMerge, lensNeedsApp, resolveEffort } from './config.ts';
+import { autoMerge, lensAlwaysOnRework, lensNeedsApp, resolveEffort, resolveModel } from './config.ts';
 import { configForJob } from './eval-overlay.ts';
 import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
@@ -46,6 +46,8 @@ export const RULES = [
   'RV1', 'RV2', 'RV3', 'RV4', 'RV5', 'RV6', 'RV7', 'RV8',
   // Runs first in review, but IDs are stable, so it was appended rather than renumbering the rest.
   'RV9',
+  // Rounds 2+ under review.onRework narrow: spawn only the rework panel. Appended, as IDs are stable.
+  'RV10',
   'DC1', 'DC2', 'DC3', 'DC4', 'DC5', 'DC6', 'DC7', 'DC8', 'DC9', 'DC10',
   'IG1', 'IG2', 'IG3', 'IG4', 'IG5', 'IG6', 'IG7', 'IG8', 'IG9', 'IG10', 'IG11',
   'PR1', 'PR2', 'PR3', 'PR4', 'PR5',
@@ -144,8 +146,10 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
   for (const f of reworkReviewFiles(job, (paths.previousReviewDir as string | null) ?? null)) if (exists(f)) present.push(f);
   const body = requestBody(root, job.id);
   const specText = read('spec.md') ?? '';
-  const lenses = roundLenses(job, config);
-  const compact = (v: ReturnType<typeof roundVerdicts>): StepVerdicts => ({
+  const events = readEvents(root, job.id).filter((e) => STEP_EVENTS.has(e.type));
+  // The same list review() reads, or a narrowed round's verdicts would never complete.
+  const lenses = roundLenses(job, config, currentRerun({ job, config, events }));
+  const compact =(v: ReturnType<typeof roundVerdicts>): StepVerdicts => ({
     complete: v.complete,
     outcome: v.outcome,
     reviewers: Object.fromEntries(Object.entries(v.reviewers).map(([k, r]) => [k, { verdict: String(r.verdict) }])),
@@ -163,7 +167,6 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     } catch {}
   }
   const names = [...new Set([...config.review.panel.map((p) => p.name), ...job.reviewers])];
-  const events = readEvents(root, job.id).filter((e) => STEP_EVENTS.has(e.type));
   return {
     job,
     config,
@@ -178,7 +181,7 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     memberWorktreesMissing: memberRepos(job).some((m) => !(m.worktree && exists(m.worktree))),
     request: { length: body.length, listLines: listLineCount(body) },
     plan: parsePlan(read('plan.md') ?? ''),
-    spec: { ...parseSpecHeader(specText), approachPaths: approachPaths(specText) },
+    spec: { ...parseSpecHeader(specText), approachPaths: approachPaths(specText), uiAcs: specUiAcs(specText) },
     designDeltas: hasSpecDeltas(read('design.md') ?? ''),
     decision: { decision: parseDecision(root, job.id).decision, autoMerge: /^\s*(?:[-*]\s*)?Auto-merge eligible:\s*yes\b/im.test(read('decision.md') ?? '') },
     runbookBeforeMerge: /^\s*(?:[-*]\s*)?When:\s*before merge\b/im.test(read('runbook.md') ?? ''),
@@ -220,7 +223,7 @@ export function parsePlan(text: string): StepInput['plan'] {
 }
 
 /** The header lines above the first `## ` heading; list values are split and trimmed but not filtered. */
-export function parseSpecHeader(text: string): Omit<StepInput['spec'], 'approachPaths'> {
+export function parseSpecHeader(text: string): Omit<StepInput['spec'], 'approachPaths' | 'uiAcs'> {
   const head = text.split(/^## /m)[0];
   const value = (key: string) => new RegExp(`^${key}:[ \\t]*(.*)$`, 'mi').exec(head)?.[1].trim() ?? null;
   const items = (v: string | null) => (!v || v === '-' ? [] : v.split(',').map((s) => s.trim()).filter((s) => s && s !== '-'));
@@ -255,13 +258,73 @@ const alwaysLenses = (config: Config) => config.review.panel.filter((p) => p.alw
  * `changed` still means the always-on lenses, and `full` reads the panel that RV9's
  * `forge job panel` recomputes from the diff. Step stays pure: the diff is read by that command.
  */
-export function roundLenses(job: Pick<Job, 'reviewers' | 'pr'> & { repos?: Job['repos'] }, config: Config): string[] {
+export function roundLenses(job: Pick<Job, 'reviewers' | 'pr'> & { repos?: Job['repos'] }, config: Config, rerun?: string[] | null): string[] {
   // job.reviewers is settable with --field, so a name that isn't a lens is dropped, never quoted, and
   // a qualified lens counts only while its repo is a reviewed member of the job.
   const base = (job.reviewers.length ? job.reviewers : alwaysLenses(config)).filter((l) => isLens(l) && lensRepoAllowed(job, l));
-  if (job.pr?.state !== 'OPEN') return base;
+  // A rework panel (currentRerun) narrows a build-loop round; a PR rework keeps onPrFeedback's rule.
+  if (job.pr?.state !== 'OPEN') return rerun?.length ? base.filter((l) => rerun.includes(l)) : base;
   if (config.review.onPrFeedback === 'none') return [];
   return config.review.onPrFeedback === 'full' ? base : alwaysLenses(config).filter((l) => LENS_NAME.test(l));
+}
+
+/**
+ * This round's rework panel from the latest `panel` event of the round, when it postdates the
+ * round's last verify and its `rerun` names only lenses of the full round panel; null means the
+ * full panel. Every check fails toward more review: the event is in agent-reachable job state.
+ */
+export function currentRerun(x: Pick<StepInput, 'job' | 'config' | 'events'>): string[] | null {
+  const j = x.job;
+  if (j.round < 2 || x.config.review?.onRework !== 'narrow' || j.pr?.state === 'OPEN') return null;
+  const lv = j.verifyRuns.filter((r) => r.round === j.round).at(-1);
+  const ev = x.events.findLast((e) => e.type === 'panel' && e.round === j.round);
+  if (!ev || !after(ev.ts, lv?.at)) return null;
+  const rerun: unknown = ev.rerun;
+  if (!Array.isArray(rerun) || !rerun.length || rerun.some((l) => typeof l !== 'string')) return null;
+  const full = roundLenses(j, x.config);
+  return rerun.every((l: string) => full.includes(l)) ? full.filter((l) => rerun.includes(l)) : null;
+}
+
+/** A lens's latest verdict before `round`, and the round it came from; null when it never had one. */
+function lastVerdict(verdicts: Job['verdicts'], lens: string, round: number): { verdict: string; round: number } | null {
+  for (let r = round - 1; r >= 1; r--) {
+    const v = verdicts[String(r)]?.[lens];
+    if (typeof v === 'string') return { verdict: v, round: r };
+  }
+  return null;
+}
+
+/**
+ * The rework panel for round N ≥ 2 under `review.onRework: narrow`, in panel order: `always` and
+ * always-on-rework lenses (lensAlwaysOnRework: `security` unless it opts out), lenses whose latest verdict isn't PASS or that never had one, and lenses whose panel `paths` match
+ * a file changed since the sha round N−1's review saw (`changedSince`, null when that sha is
+ * unusable). Null, meaning the full panel, whenever narrowing isn't safe or wouldn't skip anything.
+ */
+export function reworkPanel(x: { job: Pick<Job, 'round' | 'verdicts' | 'pr' | 'kind'>; config: Config; lenses: string[]; changedSince: string[] | null; members: number }): { rerun: string[]; reasons: Record<string, string[]>; skipped: string[] } | null {
+  const j = x.job;
+  if (x.config.review?.onRework !== 'narrow' || j.round < 2 || j.pr?.state === 'OPEN' || j.kind === 'retro' || x.members > 0 || !x.changedSince) return null;
+  const prev = j.verdicts[String(j.round - 1)];
+  // No verdicts, or all PASS: a human sent the job back, so nothing says which lenses to trust.
+  if (!prev || !Object.keys(prev).length || Object.values(prev).every((v) => v === 'PASS')) return null;
+  const reasons: Record<string, string[]> = {};
+  for (const lens of x.lenses) {
+    const entry = x.config.review.panel.find((p) => p.name === lens);
+    const why: string[] = [];
+    if (entry?.always) why.push('always');
+    else if (lensAlwaysOnRework(x.config, lens)) why.push('always on rework');
+    const last = lastVerdict(j.verdicts, lens, j.round);
+    if (!last) why.push('new this round');
+    else if (last.verdict !== 'PASS') why.push(`changes requested in round ${last.round}`);
+    const globs = Array.isArray(entry?.paths) ? entry.paths.filter((g): g is string => typeof g === 'string' && g !== '') : [];
+    for (const g of globs) {
+      const hit = x.changedSince.find((f) => inSpec(f, [g]));
+      if (hit !== undefined) why.push(`paths ${g}: ${hit}`);
+    }
+    if (why.length) reasons[lens] = why;
+  }
+  const rerun = x.lenses.filter((l) => reasons[l]);
+  if (!rerun.length || rerun.length === x.lenses.length) return null;
+  return { rerun, reasons, skipped: x.lenses.filter((l) => !reasons[l]) };
 }
 
 /** Path-like tokens in a lens's `when` text; prose-only `when`s are left to the spec-writer's suggestion. */
@@ -313,7 +376,7 @@ export function choosePanel(x: { kind: Job['kind']; config: Config; suggested: s
     const why: string[] = [];
     const prefix = `${m.repo}/`;
     const globs = Array.isArray(e.paths) ? e.paths.filter((g): g is string => typeof g === 'string' && g !== '') : [];
-    const tokens = [...whenTokens(e.when), ...globs];
+    const tokens = e.pathsOnly === true ? [] : [...whenTokens(e.when), ...globs];
     const covered = tokens.length ? x.approachPaths.find((ap) => ap.startsWith(prefix) && inSpec(ap.slice(prefix.length), tokens)) : undefined;
     if (covered !== undefined) why.push(`approach ${covered}`);
     for (const g of x.changed ? globs : []) {
@@ -331,10 +394,12 @@ export function choosePanel(x: { kind: Job['kind']; config: Config; suggested: s
   for (const p of panel) {
     if (chosen.has(p.name)) continue;
     const why: string[] = [];
+    // pathsOnly: a spec can't pull the lens in; only always, the diff or carry can.
+    const pathsOnly = p.pathsOnly === true;
     if (p.always) why.push('always');
-    if (suggested.has(p.name)) why.push('suggested');
+    if (suggested.has(p.name) && !pathsOnly) why.push('suggested');
     const globs = Array.isArray(p.paths) ? p.paths.filter((g): g is string => typeof g === 'string' && g !== '') : [];
-    const tokens = [...whenTokens(p.when), ...globs];
+    const tokens = pathsOnly ? [] : [...whenTokens(p.when), ...globs];
     const covered = tokens.length ? x.approachPaths.find((ap) => inSpec(ap, tokens)) : undefined;
     if (covered !== undefined) why.push(`approach ${covered}`);
     for (const g of x.changed ? globs : []) {
@@ -350,7 +415,7 @@ export function choosePanel(x: { kind: Job['kind']; config: Config; suggested: s
       if (l.subsumed || chosen.has(l.lens)) continue;
       const why: string[] = [];
       if (l.entry.always) why.push('always');
-      if (suggested.has(l.lens)) why.push('suggested');
+      if (suggested.has(l.lens) && l.entry.pathsOnly !== true) why.push('suggested');
       why.push(...memberWhy(m, l.entry));
       if (carried.includes(l.lens)) why.push('carried');
       if (why.length) chosen.set(l.lens, why);
@@ -364,14 +429,6 @@ export function choosePanel(x: { kind: Job['kind']; config: Config; suggested: s
 export function selectPanel(x: Pick<StepInput, 'job' | 'config' | 'spec'>): string[] {
   // Never carries: a revised spec re-records the panel from scratch.
   return choosePanel({ kind: x.job.kind, config: x.config, suggested: x.spec.suggested, approachPaths: x.spec.approachPaths, changed: null, carried: [] }).lenses;
-}
-
-function modelOf(config: Config, role: string): string {
-  if (role.startsWith('reviewer:')) {
-    const lens = role.slice('reviewer:'.length);
-    return config.review.panel.find((p) => p.name === lens)?.model ?? config.runtime.models.reviewer ?? 'inherit';
-  }
-  return config.runtime.models[role] ?? 'inherit';
 }
 
 // ---------- state helpers ----------
@@ -563,7 +620,7 @@ function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: boolean; 
     ctx.integration = { conflicts: conflictFiles, regenerated, fix: Boolean(review && review.outcome === 'CHANGES' && after(review.ts, conflicts?.ts)) };
     ctx.strategy = x.config.pr.updateStrategy;
   }
-  const model = modelOf(x.config, role);
+  const model = resolveModel(x.config, x.job, role, ctx.rework ?? []);
   const a = agent(x, role);
   const resume = o.resume && a?.agentId && AGENT_ID.test(a.agentId) ? a.agentId : undefined;
   const parallel = base === 'reviewer' && j.stage === 'review';
@@ -1056,14 +1113,14 @@ function verify(x: StepInput): StepAction {
 /** RV4: every lens of this round whose reviewer has not started yet, in panel order; none once the round's verdicts are recorded. */
 function nextLenses(x: StepInput): string[] {
   if (x.job.verdicts[String(x.job.round)]) return [];
-  return roundLenses(x.job, x.config).filter((l) => !startedIn(agent(x, `reviewer:${l}`), x.job.round));
+  return roundLenses(x.job, x.config, currentRerun(x)).filter((l) => !startedIn(agent(x, `reviewer:${l}`), x.job.round));
 }
 
 /** M1 in the review stage: the first lens of this round whose reviewer ended without its review and has not had its retry; none once the round's verdicts are recorded. */
 function retryLens(x: StepInput): string | null {
   const j = x.job;
   if (j.verdicts[String(j.round)]) return null;
-  return roundLenses(j, x.config).find((l) => {
+  return roundLenses(j, x.config, currentRerun(x)).find((l) => {
     const a = agent(x, `reviewer:${l}`);
     // outputMissing(), not a.outputMissing: a pre-v6 record falls back to the MISSING verdict.
     return endedIn(a, j.round) && !a.retry && outputMissing(x, `reviewer:${l}`);
@@ -1079,7 +1136,8 @@ function review(x: StepInput): StepAction {
   const panelled = x.events.some((e) => e.type === 'panel' && e.round === j.round && after(e.ts, lv?.at));
   const reviewing = Object.keys(j.agents).some((k) => k.startsWith('reviewer:') && startedIn(j.agents[k], j.round));
   if (!prSkip && !panelled && !reviewing && !j.verdicts[String(j.round)]) return run(x, 'RV9', ['job', 'panel', j.id], "pick this round's lenses from the diff");
-  const lenses = roundLenses(j, x.config);
+  const rerun = currentRerun(x);
+  const lenses = roundLenses(j, x.config, rerun);
   if (!lenses.length) return toStage(x, 'RV1', 'pr', 'no lens reviews this round');
   if (!x.events.some((e) => e.type === 'scope' && e.round === j.round && after(e.ts, lv?.at))) return run(x, 'RV2', ['job', 'scope', j.id], 'reviewers read the scope report');
   // Only until the round's verdicts are recorded: after that RV7 stops the server, and starting it
@@ -1090,8 +1148,10 @@ function review(x: StepInput): StepAction {
   // lens is still recorded by its own `agent start`, so a re-step never lists a started lens.
   const [first, ...rest] = nextLenses(x);
   if (first) {
-    const a = spawn(x, 'RV4', `reviewer:${first}`);
-    return rest.length ? { ...a, spawns: rest.map((l) => spawn(x, 'RV4', `reviewer:${l}`)) } : a;
+    const rule = rerun ? 'RV10' : 'RV4';
+    const a = spawn(x, rule, `reviewer:${first}`);
+    const why = rerun ? { why: 'rework round: re-review the lenses that asked for changes, the always lenses and the lenses whose paths the fix touched' } : {};
+    return rest.length ? { ...a, ...why, spawns: rest.map((l) => spawn(x, rule, `reviewer:${l}`)) } : { ...a, ...why };
   }
   // Retries go out back to back like first spawns, even while other reviewers run (G5 lets them through).
   const retry = retryLens(x);

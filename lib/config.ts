@@ -9,7 +9,7 @@ import { placeholderProblems } from './endpoints-config.ts';
 import { checkoutProblems } from './checkout-config.ts';
 import { notifyProblems } from './notify-config.ts';
 import { globProblem, policyProblems } from './policy-check.ts';
-import { COMPLEXITIES, CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, OFFICE_GATES, REPO_BUDGET_MODES, migrateConfig, reservedGateEntry } from './schema.ts';
+import { COMPLEXITIES, CONFIG_SCHEMA_VERSION, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, MODEL_RE, OFFICE_GATES, REPO_BUDGET_MODES, migrateConfig, reservedGateEntry } from './schema.ts';
 import type { Config, Effort, EffortRole, EffortSource, LoadedConfig, VerifyEntry } from './types.ts';
 import { ForgeError, deepMerge, isClaudeExecutable, readText, splitWords } from './util.ts';
 export { globProblem };
@@ -87,6 +87,9 @@ export function defaults(): Config {
         verifier: 'haiku',
         assistant: 'sonnet',
       },
+      // The builder only (resolveModel): null falls through to runtime.models.builder.
+      modelByComplexity: { low: null, medium: null, high: null },
+      reworkModel: null,
     },
     tracker: {
       kind: 'local',
@@ -124,6 +127,8 @@ export function defaults(): Config {
         { name: 'security', model: 'opus', when: 'input handling, auth, secrets, network, dependencies, file or process access' },
       ],
       onPrFeedback: 'changed',
+      // Rounds 2+ re-run only the rework panel; round 1 and PR reworks are unaffected.
+      onRework: 'narrow',
     },
     approver: {
       alwaysEscalate: [
@@ -397,7 +402,10 @@ export function validateConfig(c: any, root: string): string[] {
       problems.push(`reviewer "${r.name}" has no checklist (looked in .forge/reviewers/ and the plugin's reviewers/)`);
     if (r.needsApp !== undefined && typeof r.needsApp !== 'boolean')
       problems.push(`review.panel "${r.name}".needsApp must be true or false (got ${JSON.stringify(r.needsApp)})`);
+    if (r.alwaysOnRework !== undefined && typeof r.alwaysOnRework !== 'boolean')
+      problems.push(`review.panel "${r.name}".alwaysOnRework must be true or false (got ${JSON.stringify(r.alwaysOnRework)})`);
     if (r.paths !== undefined) problems.push(...panelPathsProblems(r.name, r.paths));
+    problems.push(...pathsOnlyProblems(r));
   }
   oneOf('verifyE2e.when', c.verifyE2e?.when, ['ui', 'always', 'never']);
   const e2ePaths = c.verifyE2e?.paths;
@@ -406,6 +414,8 @@ export function validateConfig(c: any, root: string): string[] {
   problems.push(...generatedProblems(c));
   problems.push(...verifyProblems(c));
   problems.push(...effortProblems(c));
+  problems.push(...modelProblems(c));
+  if (c.review?.onRework !== undefined) oneOf('review.onRework', c.review.onRework, ['narrow', 'full']);
   if (!Number.isInteger(c.pipeline.maxRounds) || c.pipeline.maxRounds < 1) problems.push('pipeline.maxRounds must be a positive integer');
   for (const [k, v] of Object.entries(c.pipeline.budget ?? {})) {
     if (v === null) continue;
@@ -509,6 +519,36 @@ export function panelPathsProblems(name: string, paths: unknown): string[] {
   const key = `review.panel ${JSON.stringify(String(name))}.paths`;
   if (!Array.isArray(paths)) return [`${key} must be a list of paths or globs (got ${JSON.stringify(paths)})`];
   return paths.map((g) => globProblem(g, key)).filter((p): p is string => p !== null);
+}
+
+/** A panel entry's `pathsOnly`: a boolean, and only on an entry with paths to hit. */
+export function pathsOnlyProblems(r: { name?: unknown; pathsOnly?: unknown; paths?: unknown }): string[] {
+  if (r.pathsOnly === undefined) return [];
+  const key = `review.panel ${JSON.stringify(String(r.name ?? ''))}.pathsOnly`;
+  if (typeof r.pathsOnly !== 'boolean') return [`${key} must be true or false (got ${JSON.stringify(r.pathsOnly)})`];
+  const hasPaths = Array.isArray(r.paths) && r.paths.some((p) => typeof p === 'string' && p.trim());
+  return r.pathsOnly && !hasPaths ? [`${key} needs non-empty paths: a pathsOnly lens with none would never run`] : [];
+}
+
+/**
+ * runtime.modelByComplexity and runtime.reworkModel: a map with known keys, and each non-null value
+ * a model MODEL_RE accepts. resolveModel treats anything else as unset, so these only report.
+ */
+export function modelProblems(c: any): string[] {
+  const problems: string[] = [];
+  const bad = (key: string, v: unknown) => `${key} must be a model alias or id (letters, digits and . _ : - [ ]) or null (got ${JSON.stringify(v)})`;
+  const m = c.runtime?.modelByComplexity;
+  if (m !== undefined && m !== null) {
+    if (typeof m !== 'object' || Array.isArray(m)) problems.push(`runtime.modelByComplexity must be a map (got ${JSON.stringify(m)})`);
+    else
+      for (const [k, v] of Object.entries(m)) {
+        if (!(COMPLEXITIES as readonly string[]).includes(k)) problems.push(`runtime.modelByComplexity.${k} must be ${COMPLEXITIES.slice(0, -1).join(', ')} or ${COMPLEXITIES.at(-1)}`);
+        else if (v !== null && !validModel(v)) problems.push(bad(`runtime.modelByComplexity.${k}`, v));
+      }
+  }
+  const r = c.runtime?.reworkModel;
+  if (r !== undefined && r !== null && !validModel(r)) problems.push(bad('runtime.reworkModel', r));
+  return problems;
 }
 
 /**
@@ -806,8 +846,50 @@ export function lensNeedsApp(config: Config, lens: string): boolean {
   return typeof entry?.needsApp === 'boolean' ? entry.needsApp : APP_LENSES.includes(lens);
 }
 
+// A repo that wrote its own panel before v21 has no way to know its security lens could be
+// narrowed, so the name default keeps it re-running; `alwaysOnRework: false` opts out.
+const REWORK_ALWAYS_LENSES = ['security'];
+
+/** Whether a lens re-runs on every rework round: the panel entry's alwaysOnRework, else the name default. */
+export function lensAlwaysOnRework(config: Config, lens: string): boolean {
+  const entry = (config.review.panel ?? []).find((r) => r?.name === lens);
+  return typeof entry?.alwaysOnRework === 'boolean' ? entry.alwaysOnRework : REWORK_ALWAYS_LENSES.includes(lens);
+}
+
 export function modelFor(config: Config, role: string): string {
   return config.runtime.models[role] ?? config.runtime.models.reviewer ?? 'inherit';
+}
+
+/** `v` when it is a string MODEL_RE accepts (at most 200 characters), else null. */
+export function validModel(v: unknown): string | null {
+  return typeof v === 'string' && v.length <= 200 && MODEL_RE.test(v) ? v : null;
+}
+
+/**
+ * The one place a spawn's model is picked: step's spawn action, its `start --model` and the
+ * roster all read it. Reviewers take their lens's panel `model`, then runtime.models.reviewer.
+ * The builder takes the first valid of: runtime.reworkModel on a rework round whose only inputs
+ * are review findings, runtime.modelByComplexity[job.complexity], runtime.models.builder, inherit.
+ */
+export function resolveModel(config: Config, job: { complexity?: unknown; round?: unknown } | null, role: string, rework: readonly string[] = []): string {
+  if (role.startsWith('reviewer:')) {
+    const lens = role.slice('reviewer:'.length);
+    return config.review.panel.find((p) => p.name === lens)?.model ?? config.runtime.models.reviewer ?? 'inherit';
+  }
+  if (role === 'builder') {
+    const runtime: Partial<Config['runtime']> = config.runtime ?? {};
+    const round = job?.round;
+    // Only a pure review rework: a failed verify, feedback or an answer may need the stronger model.
+    const reviewOnly = typeof round === 'number' && round >= 2 && rework.length === 1 && rework[0] === 'review';
+    const fromRework = reviewOnly ? validModel(runtime.reworkModel) : null;
+    if (fromRework) return fromRework;
+    const complexity = (COMPLEXITIES as readonly unknown[]).includes(job?.complexity) ? (job!.complexity as string) : null;
+    const byComplexity: Record<string, unknown> | null | undefined = runtime.modelByComplexity;
+    const fromComplexity = complexity && byComplexity && typeof byComplexity === 'object' ? validModel(byComplexity[complexity]) : null;
+    if (fromComplexity) return fromComplexity;
+    return validModel(runtime.models?.builder) ?? 'inherit';
+  }
+  return config.runtime.models[role] ?? 'inherit';
 }
 
 /** `v` when it is one of EFFORTS, else null: anything else read from job.json or config counts as unset. */

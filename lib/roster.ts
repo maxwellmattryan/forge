@@ -4,10 +4,10 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { modelFor, resolveEffort, reviewerChecklist } from './config.ts';
+import { modelFor, resolveEffort, reviewerChecklist, validModel } from './config.ts';
 import { learningSummary } from './learnings.ts';
 import { paths, exists, PLUGIN_ROOT } from './paths.ts';
-import type { Config, PanelEntry, Roster } from './types.ts';
+import type { Config, PanelEntry, Roster, RosterModelBy } from './types.ts';
 import { readText } from './util.ts';
 
 function frontmatter(text: string): { meta: Record<string, string>; body: string } {
@@ -46,6 +46,13 @@ export function verifierDigest(root: string): string {
   return h.digest('hex');
 }
 
+/** The builder's overrides as resolveModel reads them: an invalid value shows as null, as it resolves. */
+export function builderModelBy(config: Config): RosterModelBy {
+  const by: Record<string, unknown> | null | undefined = config.runtime?.modelByComplexity;
+  const at = (k: string) => (by && typeof by === 'object' && !Array.isArray(by) ? validModel(by[k]) : null);
+  return { low: at('low'), medium: at('medium'), high: at('high'), rework: validModel(config.runtime?.reworkModel) };
+}
+
 export function roster(root: string, config: Config): Roster {
   const p = paths(root);
   const learnings = readText(path.join(p.notes, 'learnings.md'));
@@ -68,6 +75,7 @@ export function roster(root: string, config: Config): Roster {
         addendum: exists(addendumFile) ? path.relative(root, addendumFile) : null,
         effort: effort.level,
         effortSource: effort.source,
+        ...(role === 'builder' ? { modelBy: builderModelBy(config) } : {}),
       };
     });
   const reviewers = (config.review.panel ?? []).map((r: PanelEntry) => {
