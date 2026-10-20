@@ -74,6 +74,23 @@ export interface HumanDelta {
   attempts?: number;
 }
 
+/** What happened to a merged job inside its window: measureOutcome in lib/outcome.ts. */
+export interface JobOutcome {
+  status: 'open' | 'final';
+  windowDays: number;
+  mergedAt: string;
+  closesAt: string;
+  mergeSha: string | null;
+  reverted: boolean | null;
+  revertedBy: { kind: 'commit'; sha: string } | { kind: 'pr'; number: number } | null;
+  followUps: number | 'unsupported' | null;
+  followUpRefs: string[];
+  churn: { commits: number; lines: number; files: number } | null;
+  measuredAt: string;
+  attempts: number;
+  reason?: string;
+}
+
 /** A job's pull request: findPr, openPr and syncPr in lib/pr.ts; sync-only fields are optional. */
 export interface JobPr {
   number: number;
@@ -308,6 +325,8 @@ export interface Job {
   interim: InterimStrategy | null;
   /** The root repo first, then member repos: `forge job repo add|remove` in lib/job-repos.ts. */
   repos: JobRepo[];
+  /** The merged root PR's post-merge outcome, written by `forge sync` (lib/outcome.ts); null until measured. */
+  outcome: JobOutcome | null;
 }
 
 /** A changed path an escalate rule matched; `rule` is 1-based and `blob` is null for a deletion. */

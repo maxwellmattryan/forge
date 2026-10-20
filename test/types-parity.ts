@@ -15,6 +15,7 @@ export type Checks = [
   Expect<Equal<engine.JobIssue, dash.JobIssue>>,
   Expect<Equal<engine.PrChecks, dash.PrChecks>>,
   Expect<Equal<engine.HumanDelta, dash.HumanDelta>>,
+  Expect<Equal<engine.JobOutcome, dash.JobOutcome>>,
   Expect<Equal<engine.JobPr, dash.JobPr>>,
   Expect<Equal<engine.JobOwner, dash.JobOwner>>,
   Expect<Equal<engine.YieldReason, dash.YieldReason>>,

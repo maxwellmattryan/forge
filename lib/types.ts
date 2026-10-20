@@ -75,6 +75,23 @@ export interface HumanDelta {
   attempts?: number;
 }
 
+/** What happened to a merged job inside its window: measureOutcome in lib/outcome.ts. */
+export interface JobOutcome {
+  status: 'open' | 'final';
+  windowDays: number;
+  mergedAt: string;
+  closesAt: string;
+  mergeSha: string | null;
+  reverted: boolean | null;
+  revertedBy: { kind: 'commit'; sha: string } | { kind: 'pr'; number: number } | null;
+  followUps: number | 'unsupported' | null;
+  followUpRefs: string[];
+  churn: { commits: number; lines: number; files: number } | null;
+  measuredAt: string;
+  attempts: number;
+  reason?: string;
+}
+
 /** A job's pull request: findPr, openPr and syncPr in lib/pr.ts; sync-only fields are optional. */
 export interface JobPr {
   number: number;
@@ -299,6 +316,8 @@ export interface Job {
   interim: InterimStrategy | null;
   /** The root repo first, then member repos: `forge job repo add|remove` in lib/job-repos.ts. */
   repos: JobRepo[];
+  /** The merged root PR's post-merge outcome, written by `forge sync` (lib/outcome.ts); null until measured. */
+  outcome: JobOutcome | null;
 }
 
 /** One `policy.protectedPaths` rule: docs/CONFIG.md "Protected paths". */
@@ -922,6 +941,8 @@ export interface Config {
   policy: { protectedPaths: ProtectedRule[] };
   /** What Forge deletes and when; null keeps forever: docs/CONFIG.md "Retention". */
   retention: { jobsDays: number | null; logsDays: number | null; logMaxBytes: number | null };
+  /** How long after a merge `forge sync` watches a job's outcome: docs/CONFIG.md "Outcomes". */
+  outcomes: { windowDays: number };
   /** Where Forge pushes gate, PR, failure and budget notifications: docs/CONFIG.md "Notifications". */
   notify: { webhooks: NotifyWebhook[]; command: string | null };
   /** Repo-wide spend caps per UTC day and month: docs/CONFIG.md "Repo budget". */
