@@ -583,10 +583,13 @@ export function refuseSecrets(root: string, config: Config, units: TextUnit[], o
   throw new ForgeError(refusalMessage(opts.what, findings), 'secret_found', opts.id ? `forge secrets scan ${opts.id}` : null);
 }
 
-/** The `secret-found` event, logged only when there is something to report. */
-export function logSecrets(root: string, id: string, gate: string, scan: Pick<SecretScan, 'findings' | 'allowed'>, extra: { blocked: boolean; round?: number; role?: string }): void {
+/**
+ * The `secret-found` event, logged only when there is something to report: a finding, or a scan
+ * that could not finish (its `error`, already one capped line), which parks a blocked gate the same way.
+ */
+export function logSecrets(root: string, id: string, gate: string, scan: Pick<SecretScan, 'findings' | 'allowed'> & { error?: string | null }, extra: { blocked: boolean; round?: number; role?: string }): void {
   const count = scan.findings.length;
-  if (!count) return;
+  if (!count && !scan.error) return;
   logEvent(root, id, 'secret-found', {
     gate,
     blocked: extra.blocked,
@@ -594,11 +597,13 @@ export function logSecrets(root: string, id: string, gate: string, scan: Pick<Se
     allowed: scan.allowed.length,
     findings: scan.findings.slice(0, LIST_LIMIT).map((f) => ({ kind: f.kind, path: f.path, line: f.line, excerpt: f.excerpt, fingerprint: f.fingerprint })),
     more: Math.max(0, count - LIST_LIMIT),
+    ...(scan.error ? { error: scan.error } : {}),
     ...(extra.round !== undefined ? { round: extra.round } : {}),
     ...(extra.role !== undefined ? { role: extra.role } : {}),
   });
-  // The reason code only: findings, paths and fingerprints never leave the machine.
-  queueNotify(root, ['secret-found'], { job: id, reason: 'secret-found' });
+  // An error that blocks nothing is a note, not something to wake anyone for. The reason code
+  // only: findings, paths and fingerprints never leave the machine.
+  if (count || extra.blocked) queueNotify(root, ['secret-found'], { job: id, reason: 'secret-found' });
 }
 
 /** Paths come from the builder's commits: control characters are escaped so they can't start a line. */

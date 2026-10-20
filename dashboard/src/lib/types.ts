@@ -1204,6 +1204,22 @@ export interface PostJobEffortResponse {
   changed: boolean;
 }
 
+/** POST /api/jobs/:id/delete body: the job id typed back. */
+export interface PostDeleteJobBody {
+  confirm: string;
+}
+
+/** POST /api/jobs/:id/delete reply, and `forge job delete`'s output: deleteJob in lib/delete.ts. `branch` is null when Forge did not name it. */
+export interface DeleteJobResult {
+  deleted: string;
+  title: string;
+  worktree: string | null;
+  branch: string | null;
+  repos?: string[];
+  /** Open requests for the job, now rejected. */
+  requests: number;
+}
+
 /** POST /api/jobs/:id/repos body: the handler in lib/server.ts. `repos` are the names the drawer listed, which must be the whole pending set. */
 export interface PostJobReposBody {
   decision: 'approve' | 'reject';
