@@ -23,6 +23,7 @@
   import ForemanPanel from './statusbar/ForemanPanel.svelte';
   import ModelPanel from './statusbar/ModelPanel.svelte';
   import SpendChip from './SpendChip.svelte';
+  import Tooltip from './Tooltip.svelte';
   import { API_VERSION } from '../lib/types.ts';
   import type { DaemonPoolState } from '../lib/types.ts';
   import { mergePoolState, poolModel, postDaemon } from '../lib/daemon.ts';
@@ -282,7 +283,7 @@
         </button>
         <!-- The one place for everything that needs a person: icon-only at every width (the bell and the badge speak; its
              words are sr-only), so it adds no fit level. The badge counts decisions plus pool-wide permission prompts. -->
-        <button bind:this={needsButton} class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="needs" title={titles.needs} aria-haspopup="dialog" aria-expanded={expanded('needs')} aria-controls={controls('needs')} onclick={(e) => openPopover('needs', e.currentTarget)}>
+        <button bind:this={needsButton} class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="needs" aria-haspopup="dialog" aria-expanded={expanded('needs')} aria-controls={controls('needs')} onclick={(e) => openPopover('needs', e.currentTarget)}>
           <span class="inline-flex {needsTotal > 0 ? 'text-fg' : 'text-muted'}"><Icon name="bell" /></span>
           {#if needsTotal > 0}<span class="chip you num" aria-hidden="true">{needsTotal}</span>{/if}
           <span class="sr-only">{$t('statusbar.needs.name')}{#if needs > 0}{', '}{$t('statusbar.needs.count', { count: needs })}{/if}{#if bar.prompts > 0}{', '}{$t('permission.heading', { count: bar.prompts })}{/if}</span>
@@ -343,6 +344,9 @@
 
   <div class="sr-only" aria-live="polite">{announcement}</div>
 </footer>
+<!-- The bell is icon-only at every width, so its name shows in a Tooltip (hidden while its popover is open), written
+     outside the bar so the clusters it measures hold only their indicators. -->
+<Tooltip anchor={needsButton} text={titles.needs} off={expanded('needs') === true} />
 
 {#if popover.open !== null && popover.anchor}
   {@const open = popover.open}

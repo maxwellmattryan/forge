@@ -599,7 +599,7 @@ test('no filled element nests in a patterned one', () => {
 // Text never sits on the grain: the grain shows only on bare ground between surfaces, so every word, value,
 // caller snippet and component the shell or a view puts on the page has a surface around it. A component this test
 // scans itself (GROUND, or a view) is checked inside its own file instead.
-const GROUND = ['PageHeader', 'Empty', 'Banner', 'StatusBar', 'Popover', 'JobCard', 'JobsTable', 'InboxCard', 'CommandTrigger', 'Drawer', 'Settings', 'CommandBar', 'Toast', 'GitHubCard', 'NeedsPanel', 'PeriodMeter'];
+const GROUND = ['PageHeader', 'Empty', 'Banner', 'StatusBar', 'Popover', 'JobCard', 'JobsTable', 'InboxCard', 'CommandTrigger', 'Drawer', 'Settings', 'CommandBar', 'Toast', 'GitHubCard', 'NeedsPanel', 'PeriodMeter', 'Tooltip'];
 /** A GROUND component's file: components/, or components/statusbar/ for a popover body. */
 const groundFile = (c: string) => (fs.existsSync(path.join(SRC, 'components', `${c}.svelte`)) ? `components/${c}.svelte` : `components/statusbar/${c}.svelte`);
 // A plate is a surface; an open plate is a container the grain shows through (AGENTS.md › Text never sits on the grain).
@@ -1313,7 +1313,8 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
     assert.ok(attrOf(b, 'aria-controls'), 'aria-controls while open');
     // Needs you's words are always sr-only, and the Daemon's state never shows, so their tooltips always show; the Foreman's
     // whenever it is on (its state word is never visible); the others only while part of their text is hidden.
-    if (attrOf(b, 'data-popover') === 'needs') assert.equal(attrOf(b, 'title'), '{titles.needs}');
+    // The bell's name shows in its dashboard Tooltip (test/dashboard-icon-buttons.test.ts), so it has no native title.
+    if (attrOf(b, 'data-popover') === 'needs') assert.equal(b.attrs.find((a) => a.name === 'title'), undefined);
     else if (attrOf(b, 'data-popover') === 'daemon' && attrOf(b, 'onclick') === "{(e) => openPopover('daemon', e.currentTarget)}" && !b.classes.includes('max-md:hidden')) assert.equal(attrOf(b, 'title'), '{titles.daemon}');
     else if (attrOf(b, 'data-popover') === 'foreman') assert.equal(attrOf(b, 'title'), '{bar.foreman.on || phone || left >= 5 ? titles.foreman : undefined}');
     else assert.match(attrOf(b, 'title'), /\? .* : undefined\}$/, 'a tooltip with the full label only while part of the text is hidden');
@@ -1816,15 +1817,17 @@ test("the session log's rendered/raw toggle is icon-only", () => {
   assert.ok(read('components/SessionLog.svelte').includes('<MarkdownToggle surface="session" iconOnly />'));
   for (const f of srcFiles().filter((x) => x !== 'components/SessionLog.svelte' && x.endsWith('.svelte'))) assert.doesNotMatch(read(f), /<MarkdownToggle\b[^>]*\biconOnly\b/, `${f} keeps the labelled segment`);
   const els = elements('components/MarkdownToggle.svelte');
-  const icon = openBlocksAt(read('components/MarkdownToggle.svelte'), '<Icon name="markdown" />');
+  const icon = openBlocksAt(read('components/MarkdownToggle.svelte'), '<IconButton icon="markdown"');
   assert.deepEqual(icon.map((b) => b.at(-1)), ['#if iconOnly'], 'the icon button renders only with iconOnly');
-  const b = els.find((e) => e.name === 'button' && e.first?.name === 'Icon');
-  assert.ok(b && has(b, 'btn', 'sm', 'icon'), 'one btn sm icon');
-  assert.equal(attrOf(b, 'aria-pressed'), '{rendered}');
-  assert.equal(attrOf(b, 'aria-label'), "{$t('markdown.sessionRendered')}");
-  assert.equal(attrOf(b, 'title'), "{$t('markdown.sessionRendered')}");
+  // IconButton draws a btn sm icon (sm by default), sel and aria-pressed from `pressed`, and the label's Tooltip.
+  const b = els.find((e) => e.name === 'IconButton');
+  assert.ok(b, 'one IconButton');
+  assert.equal(attrOf(b, 'pressed'), '{rendered}');
+  assert.equal(attrOf(b, 'label'), "{$t('markdown.sessionRendered')}");
+  assert.equal(attrOf(b, 'title'), '', 'no native title: the Tooltip names it');
   assert.equal(attrOf(b, 'onclick'), "{() => setMdView(surface, rendered ? 'raw' : 'rendered')}");
-  assert.ok(b.classes.includes("{rendered ? 'sel' : ''}") || /rendered \? 'sel' : ''/.test(attrOf(b, 'class')), 'sel shows the state');
+  assert.match(read('components/IconButton.svelte'), /class="btn icon \{size === 'sm' \? 'sm' : ''\} \{ghost \? 'ghost' : ''\} \{pressed \? 'sel' : ''\}/, 'sel shows the state');
+  assert.match(read('components/IconButton.svelte'), /aria-pressed=\{pressed === undefined \? undefined : pressed\}/);
   assert.match(read('components/MarkdownToggle.svelte'), /const rendered = \$derived\(mdView\[surface\] === 'rendered'\);/);
   assert.ok(read('components/MarkdownToggle.svelte').includes('<div class="seg" role="group" aria-label={groupLabel[surface]}>'), 'without it, the segment is unchanged');
 });

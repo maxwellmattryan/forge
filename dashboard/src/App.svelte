@@ -11,6 +11,7 @@
   import Settings from './components/Settings.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import Toast from './components/Toast.svelte';
+  import Tooltip from './components/Tooltip.svelte';
   import Pipeline from './views/Pipeline.svelte';
   import Backlog from './views/Backlog.svelte';
   import Agents from './views/Agents.svelte';
@@ -140,6 +141,7 @@
 
   // ---------- the "New job or command" input ----------
   let input = $state<HTMLInputElement>();
+  let settingsMobile = $state<HTMLButtonElement>();
 
   function inline(e: Event & { currentTarget: HTMLInputElement }, type: InlineInputEvent['type']): void {
     const el = e.currentTarget;
@@ -208,8 +210,10 @@
     <header class="md:hidden flex items-center gap-1 border-b chrome border-line-strong pr-2" inert={covered}>
       <div id="mobile-nav" class="navlist row flex-1 min-w-0 overflow-x-auto p-2"><Nav mobile /></div>
       <button id="mobile-command" class="btn touch shrink-0 px-2.5! normal-case tracking-normal" aria-haspopup="dialog" onclick={(e) => openPalette({ opener: e.currentTarget })}><Icon name="command" /><span class="max-sm:sr-only">{$t('command.open')}</span></button>
-      <button id="settings-open-mobile" class="btn icon touch shrink-0" aria-label={$t('settings.open')} aria-haspopup="dialog" onclick={openSettings}><Icon name="settings" /></button>
+      <button bind:this={settingsMobile} id="settings-open-mobile" class="btn icon touch shrink-0" aria-label={$t('settings.open')} aria-haspopup="dialog" onclick={openSettings}><Icon name="settings" /></button>
     </header>
+    <!-- Outside the strip, which holds exactly its three controls; the tip sits in the top layer wherever it is written. -->
+    <Tooltip anchor={settingsMobile} text={$t('settings.open')} />
     <!-- The view keeps its centred width whether the drawer is open or not: the drawer overlays it. #view is the board's
          container-query root. -->
     <div id="view" class="@container mx-auto max-w-[1400px] px-4 md:px-8 pt-4 pb-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-6))]" inert={covered}>
