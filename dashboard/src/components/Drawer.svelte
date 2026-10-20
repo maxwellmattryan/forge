@@ -1,4 +1,4 @@
-<!-- The job drawer: it slides in from the right over a backdrop, from the viewport top to the status bar's top edge, and
+<!-- The job drawer: it slides in from the right over a backdrop, over the whole viewport height (the status bar included), and
      the view keeps its centred width underneath. It renders the drawerView snapshot, so it changes only where the old
      renderDrawer() ran. At md and up its width is the viewer's (pref paneWidth, one for every job), clamped so it never
      covers the sidebar column, and the separator on its left edge resizes it; below md it is full width. The backdrop,
@@ -151,9 +151,8 @@
 <div id="drawer-backdrop" class="fixed inset-0 backdrop {open ? '' : 'hidden'} z-30" onclick={closeDrawer}></div>
 <!-- A full-height column that never scrolls itself: the header (capped at 40%, scrolling inside itself when taller) and
      the tab strip stay put, the tab panel under them is the one scroller (on Log, the log pane is), and the action dock
-     under it stays put on every tab. It always ends at the
-     status bar's top edge, so the bar stays visible and clickable (z-35, over the backdrop and under the drawer) and the
-     dock sits wholly above it. Opening slides it in (the reduced-motion block turns that off). Only a close transitions
+     under it stays put on every tab. It runs to the viewport's bottom, over the status bar, which the backdrop dims like
+     the rest of the page; the bottom inset keeps the dock clear of a phone's home indicator. Opening slides it in (the reduced-motion block turns that off). Only a close transitions
      visibility, so it turns invisible at the end of the slide: on open it turns visible at once, as a transition would
      hold it hidden for the first frame and the title could not take focus. A drag drops the transition, so the width
      follows the pointer. -->
@@ -161,7 +160,7 @@
   bind:this={pane}
   id="drawer"
   aria-label={$t('drawer.label')}
-  class="fixed right-0 top-0 bottom-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom))] z-40 solid w-full flex flex-col overflow-hidden {open ? 'shadow-(--shadow-drawer)' : 'translate-x-full invisible'} {dragging ? '' : open ? 'transition-[translate]' : 'transition-[translate,visibility]'}"
+  class="fixed right-0 top-0 bottom-0 pb-[env(safe-area-inset-bottom)] z-40 solid w-full flex flex-col overflow-hidden {open ? 'shadow-(--shadow-drawer)' : 'translate-x-full invisible'} {dragging ? '' : open ? 'transition-[translate]' : 'transition-[translate,visibility]'}"
   style={S.pane.md ? `width: ${width}px` : undefined}
 >
   {#if S.pane.md && open}

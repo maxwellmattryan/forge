@@ -1362,18 +1362,19 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
   assert.equal(indicators.filter((b) => !b.classes.includes('max-md:hidden')).length, 5, 'needs, foreman, daemon, model and connection show below md');
   assert.deepEqual(indicators.map((b) => /openPopover\('(\w+)'/.exec(attrOf(b, 'onclick'))?.[1]), ['needs', 'foreman', 'daemon', 'daemon', 'daemon', 'model', 'connection'], 'in tab order: the bell first');
   assert.equal(attrOf(indicators[0], 'bind:this'), '{needsButton}', 'the first is the Needs-you bell');
-  // The Foreman: always rendered once the state loads, accented rather than ghost.
+  // The Foreman: always rendered once the state loads, a ghost like the model and the connection.
   const foremanButton = indicators[1];
-  assert.ok(has(foremanButton, 'btn', 'sm', 'foreman') && !foremanButton.classes.includes('ghost'), `the Foreman carries the foreman accent, not ghost (${foremanButton.classes.join(' ')})`);
+  assert.ok(has(foremanButton, 'btn', 'sm', 'ghost') && !foremanButton.classes.includes('foreman'), `the Foreman is a ghost (${foremanButton.classes.join(' ')})`);
   assert.deepEqual(openBlocksAt(read('components/StatusBar.svelte'), 'data-popover="foreman"'), [['#if S.data']], 'it sits outside every {#if} but {#if S.data}');
   assert.ok(bar.some((e) => e.name === 'Icon' && attrOf(e, 'name') === 'foreman' && e.parents.includes(foremanButton)), 'with the foreman icon');
-  // The Daemon: the Foreman's pair, in the same accent, dashed while off, with its glyph at every width.
+  // The Daemon: the Foreman's pair, a ghost too, with its glyph at every width.
   const daemonButton = indicators[2];
   assert.equal(attrOf(daemonButton, 'data-popover'), 'daemon');
-  assert.ok(has(daemonButton, 'btn', 'sm', 'foreman') && !daemonButton.classes.includes('ghost'), `the Daemon carries the foreman accent, not ghost (${daemonButton.classes.join(' ')})`);
+  assert.ok(has(daemonButton, 'btn', 'sm', 'ghost') && !daemonButton.classes.includes('foreman'), `the Daemon is a ghost (${daemonButton.classes.join(' ')})`);
   const svelteText = read('components/StatusBar.svelte');
-  assert.ok(svelteText.includes(`<button class="btn sm foreman {bar.foreman.on ? '' : 'off'} `), 'the Foreman goes dashed while off');
-  assert.ok(svelteText.includes(`<button class="btn sm foreman {bar.daemon.off ? 'off' : ''} `), 'and so does the Daemon');
+  assert.ok(svelteText.includes(`<span class="max-md:sr-only {left >= 5 ? 'sr-only' : ''} text-muted">{$t('statusbar.foreman.off')}</span>`), '"Foreman off" is muted');
+  // The bell's count is a badge pinned to the glyph's corner: the glyph box is relative, the badge absolute.
+  assert.ok(svelteText.includes(`<span class="relative inline-flex {needsTotal > 0 ? 'text-fg' : 'text-muted'}"><Icon name="bell" />{#if needsTotal > 0}<span class="chip you badge num" aria-hidden="true">{needsTotal}</span>{/if}</span>`), 'the bell carries its badge on the glyph');
   const daemonIcon = bar.find((e) => e.name === 'Icon' && attrOf(e, 'name') === 'daemon' && e.parents.includes(daemonButton));
   assert.ok(daemonIcon, 'with the daemon icon');
   const iconSpan = daemonIcon.parents.at(-1)!;
@@ -1522,7 +1523,7 @@ test('status bar labels are whole or sr-only, never cut', () => {
     [`<span class="inline-flex {TONE_TEXT[daemonTone]}"><Icon name="daemon" /></span>`, 'and its glyph, always shown, goes warn while they are out of sight'],
     [`<span class="max-md:sr-only {left >= 4 ? 'sr-only' : ''} {bar.daemon.off ? 'text-muted' : ''}">`, "level 4: the Daemon's live/cap"],
     [`<span class="max-md:sr-only {left >= 5 ? 'sr-only' : ''}">{$t('statusbar.foreman.name')}</span>`, 'level 5: the "Foreman" word'],
-    [`<span class="max-md:sr-only {left >= 5 ? 'sr-only' : ''}">{$t('statusbar.foreman.off')}</span>`, 'level 5: "Foreman off" too'],
+    [`<span class="max-md:sr-only {left >= 5 ? 'sr-only' : ''} text-muted">{$t('statusbar.foreman.off')}</span>`, 'level 5: "Foreman off" too'],
     [`<span class={right >= 1 ? 'sr-only' : ''}>{models.provider}`, 'right level 1: the provider'],
     [`<span class="max-md:sr-only {right >= 2 ? 'sr-only' : ''}">`, 'right level 2: the model label'],
     [`<span class="{connQuiet ? 'max-md:sr-only' : ''} {(connQuiet && right >= 3) || right >= 4 ? 'sr-only' : ''} {TONE_TEXT[conn.tone]}">{connWord}</span>`, 'right level 3: Live or Connecting; level 4: the rest'],
@@ -1610,7 +1611,7 @@ test('counts read Label (N) in tabs and segments', () => {
   // Right-aligned badges stay bare.
   const nav = read('components/Nav.svelte');
   assert.ok(nav.includes(`<span class="mono num {on ? '' : 'muted'}">{n}</span>`), 'nav badges stay bare');
-  assert.ok(read('components/StatusBar.svelte').includes(`<span class="chip you num" aria-hidden="true">{needsTotal}</span>`), 'the Needs-you badge too');
+  assert.ok(read('components/StatusBar.svelte').includes(`<span class="chip you badge num" aria-hidden="true">{needsTotal}</span>`), 'the Needs-you badge too');
 });
 
 test('scrollers contain their overscroll', () => {
@@ -1655,14 +1656,14 @@ test('Needs you is a status-bar popover, not a page', () => {
   assert.match(text, /const needs = \$derived\(inboxGroups\(S\.data\?\.jobs \?\? \[\]\)\.urgent\.length\);/, 'decisions are the urgent list');
   assert.match(text, /const needsTotal = \$derived\(needs \+ bar\.prompts\);/, 'the badge adds every pending permission prompt in the pool');
   assert.ok(bar.some((e) => e.name === 'Icon' && attrOf(e, 'name') === 'bell' && e.parents.includes(first!)), 'the bell icon');
-  assert.match(text, /\{#if needsTotal > 0\}<span class="chip you num" aria-hidden="true">\{needsTotal\}<\/span>\{\/if\}/, 'a you chip only above 0');
-  assert.match(text, /<span class="inline-flex \{needsTotal > 0 \? 'text-fg' : 'text-muted'\}"><Icon name="bell" \/><\/span>/, 'the bell is muted at 0');
+  assert.match(text, /\{#if needsTotal > 0\}<span class="chip you badge num" aria-hidden="true">\{needsTotal\}<\/span>\{\/if\}/, 'a you chip only above 0');
+  assert.match(text, /<span class="relative inline-flex \{needsTotal > 0 \? 'text-fg' : 'text-muted'\}"><Icon name="bell" \/>\{#if needsTotal > 0\}/, 'the bell is muted at 0, and holds its badge');
   assert.match(text, /<span class="sr-only">\{\$t\('statusbar\.needs\.name'\)\}\{#if needs > 0\}\{', '\}\{\$t\('statusbar\.needs\.count', \{ count: needs \}\)\}\{\/if\}\{#if bar\.prompts > 0\}\{', '\}\{\$t\('permission\.heading', \{ count: bar\.prompts \}\)\}\{\/if\}<\/span>/, 'its name is Needs you plus the decisions, then the prompts');
   // Icon-only at every width: every text node in it is sr-only or the aria-hidden badge.
   const nm = markupOf('components/StatusBar.svelte');
   const nAt = nm.indexOf('data-popover="needs"');
   const nButton = nm.slice(nm.indexOf('<span', nAt), nm.indexOf('</button>', nAt));
-  const nVisible = nButton.replace(/<span class="sr-only">[\s\S]*?<\/span>/g, '').replace(/<span class="chip you num" aria-hidden="true">\{needsTotal\}<\/span>/g, '');
+  const nVisible = nButton.replace(/<span class="sr-only">[\s\S]*?<\/span>/g, '').replace(/<span class="chip you badge num" aria-hidden="true">\{needsTotal\}<\/span>/g, '');
   assert.doesNotMatch(nVisible.replace(/\{[^{}]*\}/g, '').replace(/<[^>]*>/g, ''), /\S/, `no visible text in the bell (${nVisible})`);
   assert.match(text, /needs: \$t\('statusbar\.needs\.tooltip'\),/, 'its title is only "Notifications": the counts are in the sr-only text and the badge');
   // It opens the wide popover holding the page's sections, and #/inbox opens it once.

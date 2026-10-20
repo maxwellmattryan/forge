@@ -1,13 +1,14 @@
-<!-- The status bar: one slim fixed row at the bottom of every view. Left, Needs you (an icon-only bell and the count of
-     decisions and permission prompts waiting, first in the bar), the Foreman (always: the supervisor above the pool, on or
-     off) and the Daemon (its glyph and a `Daemon live/cap` count), the two in the same foreman accent, and (md and up)
+<!-- The status bar: one slim fixed row at the bottom of every view. Left, Needs you (an icon-only bell, its count of
+     decisions and permission prompts waiting pinned to the glyph's corner, first in the bar), the Foreman (always: the
+     supervisor above the pool, on or off) and the Daemon (its glyph and a `Daemon live/cap` count), ghosts like the rest, and (md and up)
      holds and waits; then the facts strip (FOCUS job id while a job is focused, a button to its drawer; empty otherwise); right, the model and the
      connection. It holds no text field: "New job or command" lives in the sidebar. Each indicator opens one popover, a
      sibling after the bar: a fixed element with a z-index is its own stacking context, so a popover inside the bar could
      never rise above a full job pane.
-     Stacking, from the back: sidebar z-10, this bar z-35, the rail tooltip z-36, a full job pane z-40 (inside main's isolated context), popovers
-     z-42, Settings and the palette z-45, toast z-50. At md and up the bar spans the content column only, so the sidebar
-     keeps its full height, and the job pane always ends at the bar's top edge. Session errors, titles and model strings are untrusted and render
+     Stacking, from the back: sidebar z-10, this bar z-25, the drawer's backdrop z-30, the rail tooltip z-36, the job pane
+     z-40, popovers z-42, Settings and the palette z-45, toast z-50. At md and up the bar spans the content column only, so
+     the sidebar keeps its full height. An open job pane covers the bar like the rest of the page: the backdrop dims it,
+     the pane runs to the viewport's bottom, and the bar goes inert. Session errors, titles and model strings are untrusted and render
      as text.
      The facts strip takes what the clusters leave (basis 0) and drops the FOCUS word as it runs short (see
      factsHidden). Each cluster holds its indicators in a max-content row; when the row is wider than the cluster, the next
@@ -245,7 +246,8 @@
   bind:this={footer}
   id="statusbar"
   aria-label={$t('statusbar.label')}
-  class="fixed bottom-0 right-0 left-0 md:left-(--size-sidebar) z-35 chrome border-t border-line-strong h-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex items-center gap-1 px-1 md:gap-3.5 md:px-2"
+  inert={S.drawer.id !== null}
+  class="fixed bottom-0 right-0 left-0 md:left-(--size-sidebar) z-25 chrome border-t border-line-strong h-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex items-center gap-1 px-1 md:gap-3.5 md:px-2"
 >
   <div bind:this={leftBox} class="flex min-w-0 items-center overflow-x-clip px-1">
     <div bind:this={leftRow} class="flex w-max items-center gap-0.5 md:gap-1">
@@ -254,12 +256,11 @@
              badge speak; its words are sr-only), so it adds no fit level. The badge counts decisions plus pool-wide
              permission prompts. -->
         <button bind:this={needsButton} class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="needs" aria-haspopup="dialog" aria-expanded={expanded('needs')} aria-controls={controls('needs')} onclick={(e) => openPopover('needs', e.currentTarget)}>
-          <span class="inline-flex {needsTotal > 0 ? 'text-fg' : 'text-muted'}"><Icon name="bell" /></span>
-          {#if needsTotal > 0}<span class="chip you num" aria-hidden="true">{needsTotal}</span>{/if}
+          <span class="relative inline-flex {needsTotal > 0 ? 'text-fg' : 'text-muted'}"><Icon name="bell" />{#if needsTotal > 0}<span class="chip you badge num" aria-hidden="true">{needsTotal}</span>{/if}</span>
           <span class="sr-only">{$t('statusbar.needs.name')}{#if needs > 0}{', '}{$t('statusbar.needs.count', { count: needs })}{/if}{#if bar.prompts > 0}{', '}{$t('permission.heading', { count: bar.prompts })}{/if}</span>
         </button>
-        <!-- The supervisor: always shown, accented rather than ghost. Its state word is only in the sr-only text and title. -->
-        <button class="btn sm foreman {bar.foreman.on ? '' : 'off'} max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="foreman" title={titles.foreman} aria-haspopup="dialog" aria-expanded={expanded('foreman')} aria-controls={controls('foreman')} onclick={(e) => openPopover('foreman', e.currentTarget)}>
+        <!-- The supervisor: always shown, a ghost like the rest of the bar. Its state word is only in the sr-only text and title. -->
+        <button class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="foreman" title={titles.foreman} aria-haspopup="dialog" aria-expanded={expanded('foreman')} aria-controls={controls('foreman')} onclick={(e) => openPopover('foreman', e.currentTarget)}>
           <span class="inline-flex {TONE_TEXT[foremanTone]}"><Icon name="foreman" /></span>
           {#if bar.foreman.on}
             <LiveDot on={bar.foreman.daemon && bar.foreman.active} />
@@ -267,11 +268,11 @@
             <span class="sr-only">{', '}{bar.foreman.daemon ? bar.foreman.pill.label : $t('statusbar.daemon.off')}</span>
             {#if bar.foreman.prompts}<span class="num text-warn"><span aria-hidden="true">{bar.foreman.prompts}</span><span class="sr-only">{', '}{$t('statusbar.foreman.prompts', { count: bar.foreman.prompts })}</span></span>{/if}
           {:else}
-            <span class="max-md:sr-only {left >= 5 ? 'sr-only' : ''}">{$t('statusbar.foreman.off')}</span>
+            <span class="max-md:sr-only {left >= 5 ? 'sr-only' : ''} text-muted">{$t('statusbar.foreman.off')}</span>
           {/if}
         </button>
-        <!-- The pool: the Foreman's pair, in the same accent, its glyph at every width. -->
-        <button class="btn sm foreman {bar.daemon.off ? 'off' : ''} max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="daemon" title={titles.daemon} aria-haspopup="dialog" aria-expanded={expanded('daemon')} aria-controls={controls('daemon')} onclick={(e) => openPopover('daemon', e.currentTarget)}>
+        <!-- The pool: the Foreman's pair, its glyph at every width. -->
+        <button class="btn sm ghost max-md:min-w-11 max-md:justify-center max-md:focus-visible:-outline-offset-2" data-popover="daemon" title={titles.daemon} aria-haspopup="dialog" aria-expanded={expanded('daemon')} aria-controls={controls('daemon')} onclick={(e) => openPopover('daemon', e.currentTarget)}>
           <span class="inline-flex {TONE_TEXT[daemonTone]}"><Icon name="daemon" /></span>
           <LiveDot on={bar.daemon.active} />
           <span class="max-md:sr-only {left >= 4 ? 'sr-only' : ''} {bar.daemon.off ? 'text-muted' : ''}"><span class={left >= 1 ? 'sr-only' : ''}>{$t('statusbar.daemon.title')}{' '}</span><span class="num">{bar.daemon.off ? 0 : bar.daemon.live}/{bar.daemon.cap}</span></span>
@@ -315,9 +316,9 @@
       </button>
     </div>
   </div>
-
-  <div class="sr-only" aria-live="polite">{announcement}</div>
 </footer>
+<!-- Outside the bar, which goes inert under an open job pane: an inert live region would never speak. -->
+<div class="sr-only" aria-live="polite">{announcement}</div>
 <!-- The bell is icon-only at every width, so its name shows in a Tooltip (hidden while its popover is open), written
      outside the bar so the clusters it measures hold only their indicators. -->
 <Tooltip anchor={needsButton} text={titles.needs} off={expanded('needs') === true} />

@@ -550,7 +550,7 @@ test('chrome sidebar keeps text at 4.5:1', BUILT, () => {
   const nav = fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'components', 'Nav.svelte'), 'utf8');
   assert.match(nav, /<span class="mono num \{on \? '' : 'muted'\}">/);
   assert.doesNotMatch(nav, /chip you/, 'Needs you left the nav');
-  assert.match(fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'components', 'StatusBar.svelte'), 'utf8'), /<span class="chip you num" aria-hidden="true">/, 'the Needs-you tag tints the chrome under it, in the status bar');
+  assert.match(fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'components', 'StatusBar.svelte'), 'utf8'), /<span class="chip you badge num" aria-hidden="true">/, 'the Needs-you tag tints the chrome under it, in the status bar');
   assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'views', 'Pipeline.svelte'), 'utf8'), /opacity-70/, 'a selected filter count is full --on-gleam');
 
   // gleam-hot is lighter than gleam, under 4.5:1 on ash's pale ground, so a hovered link keeps gleam there.

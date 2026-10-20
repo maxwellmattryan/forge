@@ -331,10 +331,9 @@
 @utility solid { background-color: var(--panel); --surface: var(--panel); }
 /* The anvil: the sidebar, the phone header and the status bar. Opaque, the furthest step from the ground. */
 @utility chrome { background-color: var(--chrome); --surface: var(--chrome); }
-/* foreman: the supervisor above the daemon pool (the status bar's Foreman indicator, its popover's header and tag, the
-   Daemon popover's Foreman row). It also styles the status bar's Daemon indicator, so the Foreman and the Daemon read
-   as one pair. Gleam text on a gleam tint behind a gleam seam, so it outranks the bar's ghost
-   indicators without taking a status tone. Gleam, not gleam-hot: gleam-hot sits too close to fg on the dark themes and
+/* foreman: the supervisor above the daemon pool (the Foreman popover's header and tag, the Daemon popover's Foreman
+   row). The status bar's Foreman and Daemon indicators are ghosts like the rest of the bar. Gleam text on a gleam tint
+   behind a gleam seam, so it stands out without taking a status tone. Gleam, not gleam-hot: gleam-hot sits too close to fg on the dark themes and
    under 4.5:1 on ash's pale ground. .off: a dashed seam, muted text, no tint. The :is() raises it over the base btn, chip
    and plain rules whatever order Tailwind emits them in. */
 @utility foreman {
@@ -616,6 +615,9 @@
   &.you { color: var(--ember); border-color: var(--ember); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--ember) 10%); }
   /* Unsaved, new, selected: the one solid chip. */
   &.spark { color: var(--on-spark); background: var(--spark); border-color: var(--spark); }
+  /* .badge: a count pinned to the top-right corner of an icon (the status bar's bell). Its parent is the relative glyph
+     box, so it sits on the glyph whatever the button's width. 10px on a 14px slug: the smallest that still reads. */
+  &.badge { position: absolute; top: -5px; right: -9px; min-height: 0; height: 14px; min-width: 14px; padding: 0 3px; justify-content: center; font-size: 10px; line-height: 12px; letter-spacing: 0; }
   /* A chip in a row of sm controls (the status bar's Daemon popover, the palette's scope) takes their height. */
   &.sm { min-height: var(--control-sm); padding-inline: 9px; }
   /* A glyph struck on the slug: the PR chip's pull-request mark. */
