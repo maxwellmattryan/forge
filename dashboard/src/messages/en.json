@@ -297,7 +297,10 @@
     "protectedMore": "+{count} more",
     "protectedDiff": "View diff",
     "lastActed": "Last acted: {who} · {ago}",
-    "foreman": "Foreman"
+    "foreman": "Foreman",
+    "secretRescan": "Approve runs the secret scan again. First remove or allowlist the value, or fix what stopped the scan.",
+    "stillBlocked": "Still blocked",
+    "stillBlockedNote": "The last approve ran the scan again and it still found a problem."
   },
   "gate": {
     "foreman": "Foreman deciding",
@@ -797,7 +800,8 @@
         "one": "and {count} more",
         "other": "and {count} more"
       },
-      "findings": "Masked findings"
+      "findings": "Masked findings",
+      "error": "Secret scan could not finish"
     }
   },
   "issueLink": {
