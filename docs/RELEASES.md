@@ -31,17 +31,32 @@ A config key or CLI flag on its way out is announced in CHANGELOG.md at least on
 
 A release is a commit on `main` that changes the `version` in `package.json` and `.claude-plugin/plugin.json` and adds that version's `## <version>` section to CHANGELOG.md. Forge jobs never make that change: the release commit at the end of a wave does.
 
-**Branches.** `develop` is the working branch: jobs and PRs branch from it and merge into it. `main` is what plugin installs follow (`.claude-plugin/marketplace.json` pins the plugin source to `main`, whatever the GitHub default branch is), so it takes only release commits and hotfixes. `dashboard/dist/` is gitignored and absent on `develop`; release and hotfix commits are the only ones that commit it, because an install never builds. A hotfix branches from `main`, commits a rebuilt `dist/` like a release, and is ported to `develop` in a PR that leaves `dist/` out. Never merge `main` back into `develop`: it would bring `dist/` with it.
+**Branches.** `develop` is the working branch: jobs and PRs branch from it and merge into it. `main` is what plugin installs follow (`.claude-plugin/marketplace.json` pins the plugin source to `main`, whatever the GitHub default branch is), so it takes only the main-update PR and hotfixes. `dashboard/dist/` is gitignored and absent on `develop`, and nobody builds or commits it by hand for a release: CI adds it in the main-update PR, because an install never builds. Never merge `main` back into `develop`: it would bring `dist/` with it.
 
-1. On a release branch from `develop`, bump both versions together, write the CHANGELOG section, and commit a fresh dashboard build: `npm ci`, `npm run build:dashboard`, then `git add --force dashboard/dist` (it is gitignored). Without it, the merge into `main` deletes the build installs serve; if `dist/` conflicts with a hotfix, take the fresh build.
-2. Run `npm run release:check`. It fails unless both versions are equal and `X.Y.Z`, CHANGELOG.md has an exact `## <version>` heading with notes and no AI attribution line, the working tree is clean, and `dashboard/dist/` matches its build stamp. CI's `release check` job runs the same check on every PR and push.
-3. Open the PR into `main` and merge it once CI is green.
+**The main-update PR.** Every push to `develop` runs `.github/workflows/main-update.yml`:
+- **verify** runs all of `ci.yml` on the develop commit.
+- **build**, with a read-only token, runs `npm ci` and `npm run build:dashboard` and uploads `dashboard/dist/` as an artifact.
+- **publish**, which holds the only write token and runs no `npm`, downloads the artifact and checks it with `node scripts/main-update.ts commit`: only `index.html`, `manifest.json`, `build-stamp.json` and the `assets/*.js|css|woff2` files the manifest names, no symlinks, and a build stamp that matches both the files and develop's dashboard sources. It refuses, and pushes nothing, when develop already tracks a `dashboard/dist/` path. It then builds one commit, develop's tree plus `dashboard/dist/` with parents `[main, develop]`, force-pushes it to `ci/main-update`, opens the PR `ci/main-update` → `main` or updates the open one, and dispatches `ci.yml` on `ci/main-update`, because a push made with `GITHUB_TOKEN` starts no PR checks of its own.
+
+There is never more than one main-update PR: a later develop push replaces its head commit. Its title is `Release <version>` while `package.json`'s version has no `v<version>` tag, and otherwise `Update main to develop <sha7>`. Its body names the develop commit, the workflow run and the number of dist files, and lists the **main-only commits**: commits on `main` that develop doesn't have, leaving out merges and the bot's own. Each one is a hotfix this PR undoes unless it was ported to `develop` (`No main-only commits.` when there are none). After `main` moves, re-run the workflow on `develop` from the Actions tab (`workflow_dispatch`) to refresh the PR.
+
+**Merge it with a merge commit** ("Create a merge commit"). That keeps develop's history on `main`, which the main-only list relies on. A squash still releases correctly, because detect compares with the first parent. A merge takes the head the PR shows, so look at the head again after a push to `develop`.
+
+**Hotfixes** branch from `main`, carry a rebuilt `dist/` (`npm ci`, `npm run build:dashboard`, then `git add --force dashboard/dist`), merge into `main` through a PR whose `release check` runs `--dist present`, and are then ported to `develop` in a PR without `dist/`. Until the port lands, the main-update PR lists the hotfix as a main-only commit.
+
+1. Every PR merged into `develop` updates the main-update PR. To release, bump both versions together and write the CHANGELOG section in a PR into `develop`; the next main-update PR is titled `Release <version>`.
+2. CI runs on the PR head. Its `release check` job runs `npm run release:check -- --dist present` there and on `main`, and `--dist absent` on `develop`. It fails unless both versions are equal and `X.Y.Z`, CHANGELOG.md has an exact `## <version>` heading with notes and no AI attribution line, the working tree is clean, and `dashboard/dist/` is tracked and matches its build stamp (`present`) or is not tracked at all (`absent`).
+3. Merge the main-update PR once CI is green.
 4. The merge runs `.github/workflows/release.yml`:
    - **detect** reads the pushed commit. It is a release only when the version differs from the first parent's and no `v<version>` tag exists. Any other push stops here.
    - **verify** runs all of `ci.yml` again on that commit, with a read-only token.
    - **release** builds `forge-<version>.tar.gz` with `git archive` and refuses it unless its `COMMIT` file holds the pushed sha, creates the annotated tag `v<version>` (message `Forge <version>`) on the pushed commit, and publishes the GitHub Release `Forge <version>` with the CHANGELOG section as its body and the archive and its `.sha256` as assets.
 
 **Recovery.** If a run fails before the tag step, fix the cause and use "Re-run failed jobs" on the same run: detect still sees the version change, and the tag does not exist yet. If only the publish step failed, the tag already exists, so a re-run stops at the tag step with "Reference already exists". Publish by hand instead, in a clone checked out at the tag: build the notes with `node scripts/release-plan.ts notes > notes.md`, the archive and its `.sha256` as the release job does, then run `gh release create v<version> --verify-tag --title "Forge <version>" --notes-file notes.md forge-<version>.tar.gz forge-<version>.tar.gz.sha256`. If a bad tag or Release was published, delete both by hand (`gh release delete v<version> --cleanup-tag`) and ship the fix as the next patch version. Never move a published tag.
+
+**Repository settings** a maintainer keeps, because the main-update workflow adds no secret and only `github.token`:
+- Settings › Actions › General: Workflow permissions "Read repository contents", with "Allow GitHub Actions to create and approve pull requests" ticked, so `publish` can open the PR.
+- The `main` branch protection or ruleset requires a PR and the `CI` checks by name, allows merge commits, and turns on "Dismiss stale pull request approvals when new commits are pushed", so an approval never carries over to a replaced head. `ci/main-update` must stay pushable by `github-actions[bot]`.
 
 ## Releasing a project
 
@@ -78,6 +93,8 @@ The registry step, for `tag` and `release-please`: `npm publish` with `registry:
 
 ## Provenance and pinning
 
+Every commit on `main` comes from a merged main-update PR or a hotfix PR, so its `dashboard/dist/` was built by CI (the main-update `build` job) or by the hotfix's author, and checked by `release check` either way.
+
 `forge version --json` prints `{"version","commit","installedAs","node"}`. `commit` comes from the first source that has one: the `COMMIT` file a release archive carries (`git archive` stamps it through `.gitattributes` `export-subst`), Claude Code's own install record for a plugin install, then `git rev-parse HEAD` for a clone. Settings › About shows the same commit and install kind. The output is self-reported, so anything that can edit the install can make it claim any commit. The audit anchors are the annotated tag and the archive's `.sha256` in the GitHub Release.
 
 **Verify an archive.** Download `forge-<version>.tar.gz` and `forge-<version>.tar.gz.sha256` from the Release, then run `sha256sum -c forge-<version>.tar.gz.sha256` in that directory (`shasum -a 256 -c` on macOS without coreutils). Extracted, its `COMMIT` file is the tagged commit, and `forge version --json` run from it reports that commit with `installedAs: "unknown"`. The checksum sits in the same Release as the archive, so it proves integrity, not authenticity: anyone who can edit the Release can replace both. For authenticity, compare the archive with `git archive --format=tar.gz --prefix=forge-<version>/ v<version>` run in a clone, or check that the tag `v<version>` points at the commit in `COMMIT`.
@@ -96,10 +113,9 @@ A marketplace install added from GitHub (`claude plugin marketplace add maxwellm
 ## Release checklist
 
 1. Every job of the wave is merged into `develop`, each after a green CI run on its PR.
-2. On a release branch from `develop`, rebuild and force-add `dashboard/dist/` (`npm run build:dashboard && git add --force dashboard/dist`), and bump `version` in `package.json` and `.claude-plugin/plugin.json` to the same `X.Y.Z`.
-3. Add `## X.Y.Z` to CHANGELOG.md: behaviour changes first, the versions bumped (`API_VERSION`, schemas), deprecations and removals.
-4. Run `npm run release:check` and the AGENTS.md verify list.
-5. Open the PR into `main`, wait for CI (including `release check`), and merge.
-6. Watch the `Release` run on `main`: detect, verify, release.
-7. Check the Release page: tag `vX.Y.Z` on the merge commit, the CHANGELOG body, `forge-X.Y.Z.tar.gz` and its `.sha256`.
-8. Run `forge update` on an install and confirm `forge version --json` and `forge doctor` (no "behind the latest release" warning).
+2. In a PR into `develop`, bump `version` in `package.json` and `.claude-plugin/plugin.json` to the same `X.Y.Z`, and add `## X.Y.Z` to CHANGELOG.md: behaviour changes first, the versions bumped (`API_VERSION`, schemas), deprecations and removals. Run `npm run release:check -- --dist absent` and the AGENTS.md verify list, then merge it.
+3. Watch the `Main update` run on `develop`, and check that the main-update PR is titled `Release X.Y.Z` and lists no main-only commit that wasn't ported to `develop`.
+4. Wait for CI on the PR head (including `release check`), then merge it with a merge commit.
+5. Watch the `Release` run on `main`: detect, verify, release.
+6. Check the Release page: tag `vX.Y.Z` on the merge commit, the CHANGELOG body, `forge-X.Y.Z.tar.gz` and its `.sha256`.
+7. Run `forge update` on an install and confirm `forge version --json` and `forge doctor` (no "behind the latest release" warning).
