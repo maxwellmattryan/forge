@@ -265,6 +265,18 @@
   a[href] { cursor: pointer; }
   h1, h2, h3, h4 { font-family: var(--font-head); letter-spacing: 0; }
   ::selection { background: var(--spark); color: var(--on-spark); }
+  /* Slim scrollbars: a hairline rail and a squared thumb that heats to ember while held or hovered. WebKit/Blink get the
+     pseudo-elements (setting the standard properties there would disable them); Firefox gets the standard pair. */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: linear-gradient(to right, transparent 2.5px, var(--line-soft) 2.5px, var(--line-soft) 3.5px, transparent 3.5px); }
+  ::-webkit-scrollbar-track:horizontal { background: linear-gradient(to bottom, transparent 2.5px, var(--line-soft) 2.5px, var(--line-soft) 3.5px, transparent 3.5px); }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 1px; }
+  ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--ember) 55%, var(--line)); }
+  ::-webkit-scrollbar-thumb:active { background: var(--ember); }
+  ::-webkit-scrollbar-corner { background: transparent; }
+  @supports not selector(::-webkit-scrollbar) {
+    * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+  }
   a { color: var(--gleam); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, var(--gleam) 50%, transparent); }
   a:hover { color: var(--gleam-hot); text-decoration-color: currentColor; }
   /* gleam-hot is lighter than gleam: on ash's pale ground it would fall under 4.5:1, so a hovered link keeps gleam. */
