@@ -5,12 +5,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { configForJob } from './eval-overlay.ts';
 import { STATUS_ARGV } from './integrity.ts';
-import { jobDir, loadJob, logEvent, setJob } from './jobs.ts';
+import { jobDir, loadJob, logEvent, readEvents, setJob } from './jobs.ts';
 import { exists } from './paths.ts';
 import { readMemberPanel } from './member-panel.ts';
 import { approachPaths, committedChanges, realHistoryEnv, resolveBase, reviewedRepoDiffs } from './scope.ts';
 import type { RepoScope } from './scope.ts';
-import { choosePanel, parseSpecHeader } from './step.ts';
+import { choosePanel, parseSpecHeader, reworkPanel } from './step.ts';
 import type { Config } from './types.ts';
 import { ForgeError, run } from './util.ts';
 
@@ -31,6 +31,29 @@ export interface PanelReport {
   heads?: Record<string, string>;
   /** Member panel entries that were dropped, as `repo <name>: …`; omitted when empty. */
   problems?: string[];
+  /** Only on a narrowed rework round: the lenses that re-run, and the ones that keep their last PASS. */
+  rerun?: string[];
+  skipped?: string[];
+}
+
+// The stored sha is agent-reachable job state: only a full object name ever reaches git's argv.
+const SHA = /^[0-9a-f]{40,64}$/;
+
+/**
+ * Files changed between the commit round `round`'s review saw (its `verdicts` event sha) and HEAD,
+ * or null when that sha is missing, malformed, or not an ancestor of HEAD (history was rewritten,
+ * so a small diff could hide work the passed lenses never saw).
+ */
+export function changedSinceReview(root: string, id: string, round: number, cwd: string): string[] | null {
+  const sha = readEvents(root, id).findLast((e) => e.type === 'verdicts' && e.round === round)?.sha;
+  if (typeof sha !== 'string' || !SHA.test(sha)) return null;
+  const env = realHistoryEnv();
+  if (!run('git', ['merge-base', '--is-ancestor', sha, 'HEAD'], { cwd, env, allowFail: true }).ok) return null;
+  try {
+    return committedChanges(cwd, sha);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -76,7 +99,11 @@ export function jobPanel(root: string, base: Config, id: string): PanelReport {
   if (lenses.join(',') !== previous.join(',')) setJob(root, job.id, { fields: { reviewers: lenses } });
   const heads = Object.fromEntries(diffs.map((d) => [d.repo, d.head]));
   const multi = diffs.length > 0;
-  logEvent(root, job.id, 'panel', { round: job.round, head, mergeBase, lenses, reasons, added, ...(multi ? { heads } : {}) });
+  const rework =
+    config.review.onRework === 'narrow' && job.round >= 2 && !multi
+      ? reworkPanel({ job, config, lenses, changedSince: changedSinceReview(root, job.id, job.round - 1, cwd), members: diffs.length })
+      : null;
+  logEvent(root, job.id, 'panel', { round: job.round, head, mergeBase, lenses, reasons, added, ...(multi ? { heads } : {}), ...(rework ? { rerun: rework.rerun, rerunReasons: rework.reasons } : {}) });
   const total = changed.length + diffs.reduce((n, d) => n + d.changed.length, 0);
   return {
     id: job.id,
@@ -89,6 +116,7 @@ export function jobPanel(root: string, base: Config, id: string): PanelReport {
     lenses,
     reasons,
     added,
+    ...(rework ? { rerun: rework.rerun, skipped: rework.skipped } : {}),
     ...(multi
       ? { repos: diffs.map((d) => ({ repo: d.repo, base: d.baseRef, mergeBase: d.mergeBase, head: d.head, dirty: d.dirty, changed: d.changed.length })), heads, ...(problems.length ? { problems } : {}) }
       : {}),

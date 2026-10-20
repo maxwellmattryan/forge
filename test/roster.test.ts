@@ -174,6 +174,25 @@ test('roster reports learning count and oldest review-by', () => {
   }
 });
 
+test("roster reports the builder's model overrides", () => {
+  const repo = tempRepo();
+  try {
+    const cfg = defaults();
+    const builder = () => roster(repo.dir, cfg).agents.find((a) => a.role === 'builder')!;
+    assert.deepEqual(builder().modelBy, { low: null, medium: null, high: null, rework: null });
+    cfg.runtime.modelByComplexity = { low: 'sonnet', medium: null, high: 'claude-opus-5-5' };
+    cfg.runtime.reworkModel = 'haiku';
+    assert.deepEqual(builder().modelBy, { low: 'sonnet', medium: null, high: 'claude-opus-5-5', rework: 'haiku' });
+    assert.equal(builder().model, 'opus', 'the model chip stays runtime.models.builder');
+    for (const a of roster(repo.dir, cfg).agents) if (a.role !== 'builder') assert.ok(!('modelBy' in a), `${a.role} has no modelBy`);
+    // An invalid value reads as unset, as resolveModel treats it.
+    cfg.runtime.reworkModel = 'x; y';
+    assert.equal(builder().modelBy!.rework, null);
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test('verifier prompt hash covers .forge/verifiers', () => {
   const repo = tempRepo();
   try {

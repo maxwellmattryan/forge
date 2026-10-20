@@ -367,8 +367,10 @@ export interface StepSpawn extends StepBase {
   brief: string;
   /** The Agent tool's `effort`: the job's effective level (resolveEffort), or null to pass none. */
   effort: Effort | null;
-  /** RV4 only: the round's other unstarted lenses, each a complete spawn; launch them with this one. */
+  /** RV4 and RV10: the round's other unstarted lenses, each a complete spawn; launch them with this one. */
   spawns?: StepSpawn[];
+  /** RV10 only: why only part of the recorded panel reviews this round. */
+  why?: string;
 }
 
 /** Run one forge command: `command` is argv after `forge`, `shell` the same as one quoted line. */
@@ -431,8 +433,8 @@ export interface StepInput {
   /** requestBody(): its length and the lines that start with a list marker or a heading. */
   request: { length: number; listLines: number };
   plan: { verdict: 'SINGLE' | 'SPLIT' | null; jobs: number; recommendSplit: boolean };
-  /** spec.md's header lines and Approach paths; suggested names and services are raw, step filters them. */
-  spec: { size: string | null; complexity: string | null; needsDesign: boolean; services: string[]; suggested: string[]; approachPaths: string[] };
+  /** spec.md's header lines and Approach paths; suggested names and services are raw, step filters them. `uiAcs`: specUiAcs, the builder's `UI proof:` line. */
+  spec: { size: string | null; complexity: string | null; needsDesign: boolean; services: string[]; suggested: string[]; approachPaths: string[]; uiAcs: string[] };
   /** design.md's `## Spec deltas` section is non-empty and not None. */
   designDeltas: boolean;
   decision: { decision: string | null; autoMerge: boolean };
@@ -660,6 +662,10 @@ export interface PanelEntry {
   needsApp?: boolean;
   /** Globs matched against the job's committed diff by `forge job panel`: a match adds the lens for the round. */
   paths?: string[];
+  /** Chosen only by `always`, a `paths` hit or carry, never by Suggested reviewers or the Approach. */
+  pathsOnly?: boolean;
+  /** Re-run on every rework round under review.onRework: narrow; absent means the name default in lensAlwaysOnRework. */
+  alwaysOnRework?: boolean;
 }
 
 /** Something agents should know exists: an entry of `resources` (docs/CONFIG.md). */
@@ -814,6 +820,10 @@ export interface Config {
     /** Effort by the spec's complexity, for a role with no effort of its own. */
     effortByComplexity: Record<Complexity, Effort | null>;
     models: Record<string, string>;
+    /** The builder's model by the spec's complexity; null falls through to models.builder. */
+    modelByComplexity: Record<Complexity, string | null>;
+    /** The builder's model on a rework round that only addresses review findings; null falls through. */
+    reworkModel: string | null;
   };
   tracker: {
     /** local | github | none | the name of a .forge/trackers/<name>.mjs or .ts module */
@@ -840,6 +850,8 @@ export interface Config {
     blockOn: Severity[];
     panel: PanelEntry[];
     onPrFeedback: 'changed' | 'full' | 'none';
+    /** Rounds 2+: `narrow` re-runs only the rework panel (forge job panel's `rerun`), `full` every lens. */
+    onRework: 'narrow' | 'full';
   };
   approver: { alwaysEscalate: string[] };
   pr: {
@@ -1845,8 +1857,17 @@ export interface ProjectResponse {
 }
 
 /** GET /api/roster: roster in lib/roster.ts. */
+/** The builder's model overrides, as the roster reports them. */
+export interface RosterModelBy {
+  low: string | null;
+  medium: string | null;
+  high: string | null;
+  rework: string | null;
+}
+
 export interface Roster {
-  agents: { role: string; description: string; model: string; promptHash: string; addendum: string | null; effort: Effort | null; effortSource: EffortSource }[];
+  /** `modelBy`: the builder entry only, its runtime.modelByComplexity and runtime.reworkModel (null when unset or invalid). */
+  agents: { role: string; description: string; model: string; promptHash: string; addendum: string | null; effort: Effort | null; effortSource: EffortSource; modelBy?: RosterModelBy }[];
   reviewers: { name: string; model: string; always: boolean; when: string | null; checklist: string | null; checklistHash: string | null; effort: Effort | null; effortSource: EffortSource }[];
   learnings: string | null;
   /** Entries in learnings.md; 0 when it is missing. */

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { acCoverage, buildAcTable, specAcs } from '../lib/acs.ts';
+import { acCoverage, buildAcTable, specAcs, specUiAcs } from '../lib/acs.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 
@@ -216,5 +216,33 @@ test('pathological lines parse in linear time', () => {
   const ms = performance.now() - started;
   assert.equal(r.round, 2);
   assert.equal(r.covered, 1);
+  assert.ok(ms < 500, `parsing took ${Math.round(ms)} ms`);
+});
+
+test('specUiAcs finds screenshot-proven ACs', () => {
+  const spec = [
+    '# Spec',
+    '- AC9 — outside the section, screenshots/x.png',
+    '## Acceptance criteria',
+    '- [ ] AC1 — plain. · Proven by: `test/a.test.ts`',
+    '- [ ] **AC3** — page. · Proven by: manual, saved as `screenshots/ac3-page-375.png`',
+    '- [ ] AC2 — drawer. · Proven by: a Screenshot of the drawer',
+    '```',
+    '- AC7 — fenced screenshots/ac7.png',
+    '```',
+    '- [ ] AC4 — screenshotsmith is not a proof',
+    '## Out of scope',
+    '- AC5 — screenshots/ac5.png',
+    '## Acceptance criteria',
+    '- AC6 — a second section, screenshots/ac6.png',
+  ].join('\n');
+  assert.deepEqual(specUiAcs(spec), ['AC3', 'AC2']);
+  assert.deepEqual(specUiAcs('# Spec\n## Acceptance criteria\n- AC1 — a test\n'), []);
+  assert.deepEqual(specUiAcs(''), []);
+  const spaces = ' '.repeat(20_000);
+  const hostile = ['## Acceptance criteria', `- AC1${spaces}x`, `- [ ]${spaces}**${spaces}AC2 screenshot`, `## a${spaces}#${spaces}x`].join('\n');
+  const started = performance.now();
+  specUiAcs(hostile);
+  const ms = performance.now() - started;
   assert.ok(ms < 500, `parsing took ${Math.round(ms)} ms`);
 });

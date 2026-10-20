@@ -1,0 +1,338 @@
+diff --git a/README.md b/README.md
+index 0822945e..783b3f3e 100644
+--- a/README.md
++++ b/README.md
+@@ -123,7 +123,7 @@ The `forge` CLI underneath is also for scripts, CI and other agent runtimes: `fo
+ | `forge daemon status` | the daemon's sessions, from the terminal |
+ | `forge daemon log <job>\|--inbox\|--office [--lines N] [--follow]` | a session's log, from the terminal |
+ | `forge notify test [--event <name>]` | send one sample notification (job null, title "Forge test notification") to every valid notify.webhooks entry regardless of its events, and run notify.command if set; prints {event, results: [{target, host, format, ok, status, error, attempts}]} and records nothing (see [Notifications](docs/CONFIG.md#notifications)) |
+-| `forge config get [<key>]` | read the effective config: one dotted key (strings raw, null when absent), or all of it (see [Changing settings](docs/CONFIG.md#changing-settings)) |
++| `forge config get [<key>]` | read the effective config: one dotted key (strings raw, null when unset), or all of it; an unknown key suggests close ones (see [Changing settings](docs/CONFIG.md#changing-settings)) |
+ | `forge config set <key> <value>` | change one editable key in `.forge/config.yml`, keeping its comments (see [Changing settings](docs/CONFIG.md#changing-settings)) |
+ | `forge doctor [<job>] [--bundle] [--out <dir>] [--include-text]` | check this repo and machine for Forge (tools, config, job files, and the tool of each declared release mechanism) and print what is wrong, indented; --bundle writes a redacted support bundle for a bug report (see [Support bundle](docs/CLI.md#support-bundle)) |
+ | `forge update [--check] [--keep-dash]` | update this Forge install (plugin or clone) and restart this repo's dashboard on the new code (see [Updating](README.md#updating)) |
+diff --git a/docs/CLI.md b/docs/CLI.md
+index ca957d18..2c799a4c 100644
+--- a/docs/CLI.md
++++ b/docs/CLI.md
+@@ -53,7 +53,7 @@ With `--json`:
+   {"error":{"code":"usage","message":"missing --session","exit":2,"hint":"forge help job claim"}}
+   ```
+ 
+-  `code` is one of the error codes below, `exit` equals the process exit code, and `hint` is a command to run next or `null`: for `usage`, the help for the longest known prefix of the call (`forge job claim x --json` with no `--session` gives `forge help job claim`); for `unknown_command`, `forge help`; for `not_initialized`, `/forge init`. The message is data, so it may quote tracker or PR text; JSON encoding keeps it on the one line.
++  `code` is one of the error codes below, `exit` equals the process exit code, and `hint` is a command to run next or `null`: for `usage`, the help for the longest known prefix of the call (`forge job claim x --json` with no `--session` gives `forge help job claim`); for `unknown_command`, `forge help`; for `not_initialized`, `/forge init`. An error that can name what was meant adds `suggestions`, a list of the closest known names (`forge config get|set` with an unknown key: docs/CONFIG.md "Changing settings"). The message is data, so it may quote tracker or PR text; JSON encoding keeps it on the one line.
+ - **Streams that stay text**: `forge dash` in the foreground (its banner line), `forge daemon log --follow` (its lines) and `forge git diff|log|show|range-diff` (git's output). An error in any of them is still reported as the JSON error line.
+ - **`forge git`**: a `--json` or `--mode <v>` before `--` is Forge's flag and never reaches git, so `forge git log --json --output=x` is refused like `forge git log --output=x`. `forge git add|commit` accept it and print their result. `forge git <sub> --help` prints Forge's help and never starts git.
+ 
+@@ -81,7 +81,7 @@ Like `forge version`, it needs no repo and no `.forge/`. The commit is self-repo
+ |---|---|---|
+ | ok | 0 | the command did what it was asked |
+ | failed | 1 | the command ran and failed, or refused by policy: verify failed, a merge refused, a field only another command sets, a path outside the worktree, no such job |
+-| usage | 2 | Forge could not parse the call: an unknown command or subcommand, a missing argument, a flag with no value or given twice, a value that is not a number, JSON or one of the listed words. Also a missing or unparseable `.forge/config.yml`, or not inside a git repository |
++| usage | 2 | Forge could not parse the call: an unknown command, subcommand or config key, a missing argument, a flag with no value or given twice, a value that is not a number, JSON or one of the listed words. Also a missing or unparseable `.forge/config.yml`, or not inside a git repository |
+ | owned | 3 | the job or request is held by another live session, or a tracker claim was lost to another job |
+ | blocked | 4 | the job's dependencies are not done, or the repo budget (`budget:`) holds new work: `forge job claim` parked the job, or `forge job from-ref` started nothing |
+ | external | 5 | a tool Forge runs failed to start or exited non-zero: git, gh, claude, docker |
+diff --git a/docs/CONFIG.md b/docs/CONFIG.md
+index 82ecfe64..e5c71f6e 100644
+--- a/docs/CONFIG.md
++++ b/docs/CONFIG.md
+@@ -267,13 +267,15 @@ budget:                      # repo-wide spend caps per UTC day and month; null
+ 
+ ## Changing settings
+ 
+-`forge config get <dotted.key>` prints the effective value (defaults merged with the file): strings raw, everything else as JSON, and `null` for a path that doesn't exist. `forge config set <dotted.key> <value>` changes exactly that key in the main checkout's `.forge/config.yml` and prints `{"ok":true,"key":…,"value":…,"previous":…,"changed":true}`. Only that value's line changes (or, for a missing key, one line is inserted as the last child of its section), so comments, blank lines and key order survive. Setting a key to its current value writes nothing and replies `"changed":false`. The dashboard's Settings modal saves through the same code (`POST /api/config`).
++`forge config get <dotted.key>` prints the effective value (defaults merged with the file): strings raw, everything else as JSON, and `null` for a known key with no value (`pipeline.budget.tokens`, `commands.e2e`). `forge config set <dotted.key> <value>` changes exactly that key in the main checkout's `.forge/config.yml` and prints `{"ok":true,"key":…,"value":…,"previous":…,"changed":true}`. Only that value's line changes (or, for a missing key, one line is inserted as the last child of its section), so comments, blank lines and key order survive. Setting a key to its current value writes nothing and replies `"changed":false`. The dashboard's Settings modal saves through the same code (`POST /api/config`).
+ 
+ **Values** follow the key's type: `true`/`false`; a decimal number; `null` for keys that allow it; text as written; and lists as `[a, b]` or a JSON array (`'["a","b"]'`, `[]`). Values are checked against the key's range or options, text may not contain control or invisible formatting characters (bidi overrides, zero-width characters) or exceed 200 characters, `review.blockOn` must keep both `blocker` and `major` (adding `minor` or `nit` is allowed), `daemon.idleStopMinutes` must be greater than 0 (or `null`), and `tracker.github.labels.prefix` must be at least 2 characters ending in `:`, `/` or `-`, because Forge removes every issue label that starts with it. The result must also pass `forge config validate`, though problems the file already had never block an unrelated change.
+ 
+ **Editable keys**: `pipeline.plan`, `split`, `specApproval`, `design`, `maxRounds` and every `pipeline.budget.*`; `review.blockOn` and `review.onPrFeedback`; `pr.integrationReview`; `runtime.models.<role>`, `runtime.maxParallelJobs`, `runtime.diversity`, `runtime.effort`, `runtime.efforts.<role>` and `runtime.effortByComplexity.*` (the assistant's model and effort included); `tracker.github.ready.*`, `tracker.github.claim.assign`, `tracker.github.statusSync` and `tracker.github.labels.prefix`; `dashboard.port` (used by the next `forge dash`); `daemon.idleStopMinutes` and `daemon.auth`; `retention.logMaxBytes`; and `budget.usdPerDay`, `budget.usdPerMonth`, `budget.tokensPerMonth` and `budget.onExceeded`. The rule: a key is editable only when it can't name a command, file, module, tool or repository Forge runs, loads or writes to, and can't loosen a security or attribution policy. Everything else (`commands.*`, `worktrees.*`, `verify*`, `git.*`, `merge.*`, `approver.*`, `aiAttribution`, `infra.*`, `review.panel`, `tracker.kind`, `tracker.github.repo`/`comments`/`project.*`, `daemon.enabled`/`command`/`allowedTools`/`maxConcurrent`, `foreman.*`, `retention.jobsDays`/`logsDays` (they delete files), `notify.webhooks` (names a URL Forge posts to), `notify.command` (runs a program), …) is refused with `<key> is not editable with forge config set (<why>); edit .forge/config.yml by hand`, and the dashboard shows it read-only. `lib/config-fields.ts` is the allowlist.
+ 
+-**Errors** exit 1 and leave the file byte-identical: an unknown key, a read-only key, an invalid value, or a layout the edit can't change without dropping a comment (a block map or `|` block, a list of maps, a list with comments between or on its items, a key inside a flow map). A repo without `.forge/config.yml` exits 2; `/forge init` creates it.
++**Unknown keys.** A key is known when the defaults above or the file have it. Below a list (`review.panel.0.name`), an empty default map (`usage.pricing`, `tracker.github.project.statusMap`) or `commands`, the names are the repo's own, so an absent one is unset and `get` prints `null`. Any other key is unknown: `get` and `set` refuse it as a `usage` error (exit 2), and `set` writes nothing. The message names the key and offers up to three close known keys, closest first (`unknown config key "pipeline.splt"; did you mean pipeline.split, pipeline.plan?`); with `--json` the error adds `suggestions`, that list, `[]` when nothing is close. A key is close when at most a quarter of the typed key's length in edits (insert, delete, substitute or swap two adjacent characters; at least one, at most three) turns it into a known key, sections such as `pipeline` included; ties sort alphabetically.
++
++**Errors** exit 1 and leave the file byte-identical: a read-only key, an invalid value, or a layout the edit can't change without dropping a comment (a block map or `|` block, a list of maps, a list with comments between or on its items, a key inside a flow map). A repo without `.forge/config.yml` exits 2; `/forge init` creates it.
+ 
+ **The daemon.** A daemon session may not run `forge config set` (like `forge init write` and `forge migrate`). All three take the same `.forge/locks/config` lock, so they never interleave. If you run it while the dashboard's daemon is running, the change stops the daemon, exactly as a hand edit does (see [Daemon](#daemon)); the dashboard refuses to save settings until you stop the daemon, and only you may start it again.
+ 
+diff --git a/lib/commands/config.ts b/lib/commands/config.ts
+index 7ed5674a..21fdb39c 100644
+--- a/lib/commands/config.ts
++++ b/lib/commands/config.ts
+@@ -1,6 +1,6 @@
+ // `forge config show|get|set|validate`: read the effective config, and write one editable key.
+-import { validateConfig } from '../config.ts';
+-import { fieldFor, parseCliValue } from '../config-fields.ts';
++import { defaults, validateConfig } from '../config.ts';
++import { configKeys, fieldFor, isUnknownKey, parseCliValue, unknownKeyError } from '../config-fields.ts';
+ import { currentActor } from '../actor.ts';
+ import { NEED_INIT, setConfigValue } from '../config-set.ts';
+ import type { Config, HelpGroup } from '../types.ts';
+@@ -15,7 +15,7 @@ const CONFIG: HelpGroup = {
+     {
+       command: 'config get',
+       args: '[<key>]',
+-      summary: 'read the effective config: one dotted key (strings raw, null when absent), or all of it',
++      summary: 'read the effective config: one dotted key (strings raw, null when unset), or all of it; an unknown key suggests close ones',
+       docs: ['Changing settings', 'docs/CONFIG.md#changing-settings'],
+       readme: true,
+     },
+@@ -23,7 +23,7 @@ const CONFIG: HelpGroup = {
+       command: 'config set',
+       args: '<key> <value>',
+       summary: 'change one editable key in `.forge/config.yml`, keeping its comments',
+-      exits: [[1, 'an unknown or read-only key, an invalid value, or a layout the edit cannot keep']],
++      exits: [[1, 'a read-only key, an invalid value, or a layout the edit cannot keep']],
+       docs: ['Changing settings', 'docs/CONFIG.md#changing-settings'],
+       readme: true,
+     },
+@@ -35,7 +35,12 @@ export const HELP: HelpGroup[] = [CONFIG];
+ 
+ export function configCmd(root: string, config: Config, initialized: boolean, sub: string | undefined, rest: string[], flags: Record<string, any>): void {
+   if (!sub || sub === 'show') return out(config, { ...flags, pretty: true });
+-  if (sub === 'get') return out(getPath(config, rest[0] ?? '') ?? null, flags);
++  if (sub === 'get') {
++    const key = rest[0] ?? '';
++    // The file's own keys count too, so a name only it adds (`commands.docs`) is suggested.
++    if (isUnknownKey(config, key)) throw unknownKeyError(key, [...configKeys(defaults()), ...configKeys(config)]);
++    return out(getPath(config, key) ?? null, flags);
++  }
+   if (sub === 'set') {
+     if (!initialized) throw new ForgeError(NEED_INIT, 'not_initialized', '/forge init');
+     const key = req(rest[0], 'config key');
+diff --git a/lib/commands/help.ts b/lib/commands/help.ts
+index e924ee83..804de23e 100644
+--- a/lib/commands/help.ts
++++ b/lib/commands/help.ts
+@@ -361,7 +361,9 @@ const DEFAULT_HINTS: Partial<Record<string, string>> = { unknown_command: 'forge
+ export function toCliError(err: unknown, argv: readonly string[]): CliError {
+   if (err instanceof ForgeError) {
+     const hint = err.hint ?? (err.code === 'usage' ? usageHint(argv) : (DEFAULT_HINTS[err.code] ?? null));
+-    return { code: err.code, message: err.message, exit: err.exitCode, hint };
++    const e: CliError = { code: err.code, message: err.message, exit: err.exitCode, hint };
++    if (err.suggestions) e.suggestions = err.suggestions;
++    return e;
+   }
+   const message = (err as { message?: unknown } | null)?.message ?? err;
+   return { code: 'internal', message: String(message), exit: ERROR_CODES.internal, hint: null };
+diff --git a/lib/config-fields.ts b/lib/config-fields.ts
+index f9ecd4aa..4ac8275b 100644
+--- a/lib/config-fields.ts
++++ b/lib/config-fields.ts
+@@ -26,7 +26,7 @@ export class ConfigSetError extends ForgeError {
+   // `declare` keeps this a type only: a plain field would become a runtime class field and show up in Object.keys.
+   declare reason: ConfigSetReason;
+   constructor(reason: ConfigSetReason, message: string) {
+-    super(message, reason === 'uninitialized' ? 'not_initialized' : 'failed');
++    super(message, reason === 'uninitialized' ? 'not_initialized' : reason === 'unknown' ? 'usage' : 'failed');
+     this.reason = reason;
+   }
+ }
+@@ -193,9 +193,84 @@ function hasPath(obj: any, key: string): boolean {
+   return true;
+ }
+ 
++const isMap = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
++
++/** Every dotted key of `obj`, sections and their children alike. A list is one key: its items are data, not keys. */
++export function configKeys(obj: unknown, prefix = ''): string[] {
++  if (!isMap(obj)) return [];
++  return Object.entries(obj).flatMap(([k, v]) => {
++    const key = prefix ? `${prefix}.${k}` : k;
++    return [key, ...configKeys(v, key)];
++  });
++}
++
++/** Optimal string alignment distance: insertions, deletions, substitutions and adjacent swaps. */
++function editDistance(a: string, b: string): number {
++  const d = Array.from({ length: a.length + 1 }, (_, i) => Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)));
++  for (let i = 1; i <= a.length; i++) {
++    for (let j = 1; j <= b.length; j++) {
++      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
++      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
++      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
++    }
++  }
++  return d[a.length][b.length];
++}
++
++/**
++ * Up to three of `candidates` within a quarter of `key`'s length (at least one edit, at most three) of it,
++ * closest first, ties in alphabetical order. Nothing close gives [].
++ */
++export function closestKeys(key: string, candidates: Iterable<string>): string[] {
++  // Capped, so a long nested key doesn't pull in a sibling that merely shares its prefix.
++  const limit = Math.min(3, Math.max(1, Math.floor(key.length / 4)));
++  return [...new Set(candidates)]
++    .map((c) => ({ c, d: editDistance(key, c) }))
++    .filter((x) => x.d > 0 && x.d <= limit)
++    .sort((x, y) => x.d - y.d || (x.c < y.c ? -1 : x.c > y.c ? 1 : 0))
++    .slice(0, 3)
++    .map((x) => x.c);
++}
++
++/** The usage error for a key that is not a config key, offering the closest of `candidates`. */
++export function unknownKeyError(key: string, candidates: Iterable<string>): ConfigSetError {
++  const suggestions = closestKeys(key, candidates);
++  const tail = suggestions.length ? `did you mean ${suggestions.join(', ')}?` : 'see docs/CONFIG.md';
++  const e = new ConfigSetError('unknown', `unknown config key "${key}"; ${tail}`);
++  e.suggestions = suggestions;
++  return e;
++}
++
++/** Maps whose defaults list only some of the names a repo may use: `checkout` steps name any `commands.*` entry. */
++const USER_NAMED = new Set(['commands']);
++
++/**
++ * Whether `forge config get` should refuse `key` as unknown: it names a child that neither the
++ * defaults nor the effective config have, under a section whose keys Forge fixes. Below a list,
++ * an empty default map (`usage.pricing`, `statusMap`) or a key only the file adds, the names are
++ * the user's, so an absent one there is just unset and reads as null.
++ */
++export function isUnknownKey(config: Config, key: string): boolean {
++  if (!key) return false;
++  let c: unknown = config;
++  let d: unknown = base;
++  let at = '';
++  for (const k of key.split('.')) {
++    if (USER_NAMED.has(at) || Array.isArray(c) || Array.isArray(d) || d === undefined || (isMap(d) && !Object.keys(d).length)) return false;
++    at = at ? `${at}.${k}` : k;
++    const inConfig = isMap(c) && Object.hasOwn(c, k);
++    const inDefaults = isMap(d) && Object.hasOwn(d, k);
++    if (!inConfig && !inDefaults) return true;
++    c = inConfig ? (c as Record<string, unknown>)[k] : undefined;
++    d = inDefaults ? (d as Record<string, unknown>)[k] : undefined;
++  }
++  return false;
++}
++
+ /** The editable field for `key`; throws ConfigSetError for an unknown or read-only key. */
+ export function fieldFor(key: string): ConfigField {
+-  if (!key || !hasPath(defaults(), key)) throw new ConfigSetError('unknown', `unknown config key "${key}"; see docs/CONFIG.md`);
++  // The same rule `config get` applies, so a key one command reads is never unknown to the other.
++  if (!key || isUnknownKey(base, key)) throw unknownKeyError(key, configKeys(base));
+   const f = FIELDS.find((x) => x.key === key);
+   if (!f?.editable)
+     throw new ConfigSetError('locked', `${key} is not editable with forge config set (${f?.lockedReason ?? 'not in the settings schema'}); edit .forge/config.yml by hand`);
+diff --git a/lib/types.ts b/lib/types.ts
+index c6e93548..ab070052 100644
+--- a/lib/types.ts
++++ b/lib/types.ts
+@@ -2123,6 +2123,8 @@ export interface CliError {
+   exit: number;
+   /** A next command to run, or null. */
+   hint: string | null;
++  /** Known names close to a mistyped one, closest first (an unknown config key); only on errors that offer them. */
++  suggestions?: string[];
+ }
+ 
+ /** One row of `forge status --json`: statusRows in lib/commands/status.ts. */
+diff --git a/lib/util.ts b/lib/util.ts
+index 254b43e7..9c676253 100644
+--- a/lib/util.ts
++++ b/lib/util.ts
+@@ -19,6 +19,8 @@ export class ForgeError extends Error {
+   declare exitCode: ExitCode;
+   /** A next command to run, shown under `--json`; null when the message says it all. */
+   declare hint: string | null;
++  /** Close known names for a mistyped one, closest first; `--json` prints them as `suggestions`. Absent on most errors. */
++  declare suggestions?: string[];
+   constructor(message: string, code: ErrorCode | ExitCode = 'failed', hint: string | null = null) {
+     super(message);
+     this.code = typeof code === 'number' ? (DEFAULT_CODE[code] ?? 'failed') : code;
+diff --git a/test/cli-contract.test.ts b/test/cli-contract.test.ts
+index 07650464..4f2caaba 100644
+--- a/test/cli-contract.test.ts
++++ b/test/cli-contract.test.ts
+@@ -136,7 +136,10 @@ test('ForgeError codes and exits', () => {
+   const uninit = new ConfigSetError('uninitialized', 'no config');
+   assert.equal(uninit.code, 'not_initialized');
+   assert.equal(uninit.exitCode, 2);
+-  for (const reason of ['unknown', 'locked', 'invalid', 'unsupported-yaml'] as const) {
++  const unknown = new ConfigSetError('unknown', 'x');
++  assert.equal(unknown.code, 'usage');
++  assert.equal(unknown.exitCode, 2);
++  for (const reason of ['locked', 'invalid', 'unsupported-yaml'] as const) {
+     const e = new ConfigSetError(reason, 'x');
+     assert.equal(e.code, 'failed', reason);
+     assert.equal(e.exitCode, 1, reason);
+@@ -151,6 +154,9 @@ test('ForgeError codes and exits', () => {
+   assert.equal(toCliError(new ForgeError('x', 'usage'), ['job', 'nope']).hint, 'forge help job');
+   assert.equal(toCliError(new ForgeError('x', 'usage'), ['nope']).hint, 'forge help');
+   assert.equal(toCliError(new ForgeError('x', 'usage', 'forge help pr'), ['job']).hint, 'forge help pr', 'a hint set where it was thrown wins');
++  const typo = new ForgeError('x', 'usage');
++  typo.suggestions = ['pipeline.split'];
++  assert.deepEqual(toCliError(typo, ['config', 'get', 'pipeline.splt']), { code: 'usage', message: 'x', exit: 2, hint: 'forge help config get', suggestions: ['pipeline.split'] });
+ });
+ 
+ test('--json errors go to stdout only', POSIX, () => {
+diff --git a/test/config-set.test.ts b/test/config-set.test.ts
+index 02e13d2e..0d4a15ab 100644
+--- a/test/config-set.test.ts
++++ b/test/config-set.test.ts
+@@ -162,7 +162,7 @@ describe('forge config set and get', { concurrency: 4 }, () => {
+       assert.equal(r.code, 1);
+       assert.ok(r.err.includes('runtime.efforts.reviewer must be one of low | medium | high | xhigh | max, or null (got "ultra")'), r.err);
+       assert.equal(s.read(), before, 'ultra leaves the file byte-identical');
+-      assert.equal((await s.forge('config', 'set', 'runtime.efforts.orchestrator', 'high')).code, 1, 'no orchestrator key');
++      assert.equal((await s.forge('config', 'set', 'runtime.efforts.orchestrator', 'high')).code, 2, 'no orchestrator key');
+     } finally {
+       s.repo.cleanup();
+     }
+@@ -243,9 +243,10 @@ describe('forge config set and get', { concurrency: 4 }, () => {
+         assert.equal(s.read(), FIXTURE, `${key}: file unchanged`);
+       }
+       const r = await s.forge('config', 'set', 'nope.key', '1');
+-      assert.equal(r.code, 1);
++      assert.equal(r.code, 2, 'an unknown key is a usage error');
+       assert.match(r.err, /unknown config key "nope\.key"/);
+       assert.equal(s.read(), FIXTURE);
++      assert.match((await s.forge('config', 'set', 'commands.install-plugin', 'x')).err, /is not editable/, 'commands names are the repo\'s, so not unknown');
+     } finally {
+       s.repo.cleanup();
+     }
+@@ -463,12 +464,43 @@ describe('forge config set and get', { concurrency: 4 }, () => {
+     }
+   });
+ 
++  test('an unknown key on get or set is a usage error that suggests close keys', async () => {
++    const s = scratch();
++    try {
++      for (const [args, want] of [
++        [['get', 'pipeline.splt'], ['pipeline.split', 'pipeline.plan']],
++        [['set', 'pipeline.splt', 'auto'], ['pipeline.split', 'pipeline.plan']],
++        [['get', 'review.pannel'], ['review.panel']],
++        [['set', 'review.pannel', '[]'], ['review.panel']],
++        [['get', 'pipline'], ['pipeline']],
++        [['get', 'pipeline.split.x'], ['pipeline.split']],
++        [['get', 'zzqqxx.wwvv'], []],
++      ] as const) {
++        const r = await s.forge('config', ...args, '--json');
++        assert.equal(r.code, 2, args.join(' '));
++        const e = JSON.parse(r.out).error;
++        assert.equal(e.code, 'usage');
++        assert.deepEqual(e.suggestions, want, args.join(' '));
++        assert.equal(/did you mean/.test(e.message), want.length > 0, e.message);
++        assert.equal(s.read(), FIXTURE, `${args.join(' ')}: file unchanged`);
++      }
++      const plain = await s.forge('config', 'get', 'pipeline.splt');
++      assert.equal(plain.err, 'forge: unknown config key "pipeline.splt"; did you mean pipeline.split, pipeline.plan?');
++    } finally {
++      s.repo.cleanup();
++    }
++  });
++
+   test('get reads back; set needs an initialized repo', async () => {
+     const s = scratch();
+     try {
+       assert.equal((await s.forge('config', 'set', 'pipeline.maxRounds', '7')).code, 0);
+       assert.equal((await s.forge('config', 'get', 'pipeline.maxRounds')).out, '7');
+-      assert.equal((await s.forge('config', 'get', 'nope.key')).out, 'null');
++      assert.equal((await s.forge('config', 'get', 'pipeline.budget.tokens')).out, 'null', 'a known key with no value');
++      assert.equal((await s.forge('config', 'get', 'commands.install-plugin')).out, 'null', 'commands names are the repo\'s');
++      assert.equal((await s.forge('config', 'get', 'usage.pricing.some-model')).out, 'null', 'an empty default map is user-keyed');
++      assert.equal((await s.forge('config', 'get', 'review.panel.9.name')).out, 'null', 'below a list');
++      assert.equal((await s.forge('config', 'get', 'nope.key')).code, 2);
+       assert.equal((await s.forge('config', 'get', 'tracker.github.labels.prefix')).out, 'forge:', 'strings print raw');
+     } finally {
+       s.repo.cleanup();

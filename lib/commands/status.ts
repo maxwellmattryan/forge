@@ -1,6 +1,6 @@
 // Human-readable summaries: `forge status` and the text form of `forge stats`.
 import { isActive, listJobs, progress } from '../jobs.ts';
-import type { HelpGroup, Stats, StatusRow } from '../types.ts';
+import type { HelpGroup, Job, Stats, StatusRow } from '../types.ts';
 
 export const HELP: HelpGroup[] = [
   {
@@ -30,12 +30,14 @@ export const HELP: HelpGroup[] = [
 
 /** `forge status --json`: one row per job, the data `forge status` prints as a table. */
 export function statusRows(root: string, all: boolean): StatusRow[] {
-  return listJobs(root)
-    .filter((j) => all || isActive(j))
-    .map((j) => {
-      const p = progress(root, j.id);
-      return { id: j.id, stage: j.stage, state: j.state, waitingOn: j.waitingOn, round: j.round, tasks: { done: p.done, total: p.total }, pr: j.pr?.number ?? null, session: j.owner?.session ?? null };
-    });
+  return activeJobs(root, all).map((j) => statusRow(root, j));
+}
+
+const activeJobs = (root: string, all: boolean): Job[] => listJobs(root).filter((j) => all || isActive(j));
+
+function statusRow(root: string, j: Job): StatusRow {
+  const p = progress(root, j.id);
+  return { id: j.id, stage: j.stage, state: j.state, waitingOn: j.waitingOn, round: j.round, tasks: { done: p.done, total: p.total }, pr: j.pr?.number ?? null, session: j.owner?.session ?? null };
 }
 
 export function statusTable(root: string, all: boolean): string {
@@ -50,21 +52,47 @@ export function statusTable(root: string, all: boolean): string {
   return [head, ...rows].map((r) => r.map((c, i) => String(c).padEnd(widths[i])).join('  ').trimEnd()).join('\n');
 }
 
-export function statsText(s: Stats): string {
+/** A status row plus the job's reason: what human mode's `forge status` renders. */
+export type StatusView = StatusRow & { reason: string | null };
+
+/** `forge status` in human mode: statusRows with each job's reason. */
+export function statusView(root: string, all: boolean): StatusView[] {
+  return activeJobs(root, all).map((j) => ({ ...statusRow(root, j), reason: j.reason ?? null }));
+}
+
+/** The stats summary's lines by section, with one [name, text] entry per reviewer and verifier. */
+export interface StatsSections {
+  jobs: string[];
+  quality: string[];
+  speed: string[];
+  cost: string[];
+  reviewers: [string, string][];
+  verifiers: [string, string][];
+}
+
+export function statsSections(s: Stats): StatsSections {
   const pct = (x: number | null) => (x === null ? '—' : `${Math.round(x * 100)}%`);
   const q = s.quality;
-  const lines = [
-    `jobs ${s.counts.total}${s.counts.archived ? ` (${s.counts.archived} archived)` : ''} (active ${s.counts.active}, done ${s.counts.done}, waiting ${s.counts.waiting}, cancelled ${s.counts.cancelled})`,
-    `first-pass review ${pct(q.firstPassReviewRate)} · avg rounds ${q.avgRounds ?? '—'} · verify first-pass ${pct(q.verifyFirstPassRate)} · recurring findings ${q.recurringFindings}`,
-    `escalations ${pct(q.escalationRate)} · PRs with human feedback ${pct(q.humanFeedbackOnPrRate)} · human reworks ${q.humanReworks} · spec approved first try ${pct(q.specFirstApprovalRate)}`,
-    `human delta after push ${pct(q.humanDeltaRate ?? null)} · median ${q.medianHumanDeltaLines ?? '—'} lines · measured ${q.humanDeltaCoverage?.measured ?? 0}/${q.humanDeltaCoverage?.merged ?? 0}`,
-    `median to PR ${s.speed.medianMinutesToPr ?? '—'} min · median to done ${s.speed.medianMinutesToDone ?? '—'} min`,
-    `tokens ${s.cost.totalTokens.toLocaleString()} · est. API cost $${s.cost.estCostUsd} · per job $${s.cost.avgCostPerJobUsd ?? '—'} · usage coverage ${s.cost.reportingCoverage.withUsage}/${s.cost.reportingCoverage.agentRuns} (exact ${s.cost.reportingCoverage.exact})`,
-  ];
-  const rv = Object.entries(s.reviewers);
-  if (rv.length) lines.push('reviewers: ' + rv.map(([k, v]) => `${k} ${pct(v.changeRate)} changes, ${pct(v.disputeRate)} disputed`).join(' · '));
-  // An older stats.json (or /api/stats) has no verifiers.
-  const vf = Object.entries(s.verifiers ?? {});
-  if (vf.length) lines.push('verifiers: ' + vf.map(([k, v]) => `${k} ${pct(v.hitRate)} hit over ${v.runs} runs, ${v.blocks} blocked`).join(' · '));
+  return {
+    jobs: [`jobs ${s.counts.total}${s.counts.archived ? ` (${s.counts.archived} archived)` : ''} (active ${s.counts.active}, done ${s.counts.done}, waiting ${s.counts.waiting}, cancelled ${s.counts.cancelled})`],
+    quality: [
+      `first-pass review ${pct(q.firstPassReviewRate)} · avg rounds ${q.avgRounds ?? '—'} · verify first-pass ${pct(q.verifyFirstPassRate)} · recurring findings ${q.recurringFindings}`,
+      `escalations ${pct(q.escalationRate)} · PRs with human feedback ${pct(q.humanFeedbackOnPrRate)} · human reworks ${q.humanReworks} · spec approved first try ${pct(q.specFirstApprovalRate)}`,
+      `human delta after push ${pct(q.humanDeltaRate ?? null)} · median ${q.medianHumanDeltaLines ?? '—'} lines · measured ${q.humanDeltaCoverage?.measured ?? 0}/${q.humanDeltaCoverage?.merged ?? 0}`,
+    ],
+    speed: [`median to PR ${s.speed.medianMinutesToPr ?? '—'} min · median to done ${s.speed.medianMinutesToDone ?? '—'} min`],
+    cost: [`tokens ${s.cost.totalTokens.toLocaleString()} · est. API cost $${s.cost.estCostUsd} · per job $${s.cost.avgCostPerJobUsd ?? '—'} · usage coverage ${s.cost.reportingCoverage.withUsage}/${s.cost.reportingCoverage.agentRuns} (exact ${s.cost.reportingCoverage.exact})`],
+    reviewers: Object.entries(s.reviewers).map(([k, v]) => [k, `${pct(v.changeRate)} changes, ${pct(v.disputeRate)} disputed`]),
+    // An older stats.json (or /api/stats) has no verifiers.
+    verifiers: Object.entries(s.verifiers ?? {}).map(([k, v]) => [k, `${pct(v.hitRate)} hit over ${v.runs} runs, ${v.blocks} blocked`]),
+  };
+}
+
+export function statsText(s: Stats): string {
+  const x = statsSections(s);
+  const lines = [...x.jobs, ...x.quality, ...x.speed, ...x.cost];
+  const joined = (entries: [string, string][]) => entries.map(([k, v]) => `${k} ${v}`).join(' · ');
+  if (x.reviewers.length) lines.push('reviewers: ' + joined(x.reviewers));
+  if (x.verifiers.length) lines.push('verifiers: ' + joined(x.verifiers));
   return lines.join('\n');
 }

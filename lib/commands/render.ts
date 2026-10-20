@@ -7,10 +7,12 @@ export function colorEnabled(isTTY: boolean, env: NodeJS.ProcessEnv): boolean {
   return isTTY && !env.NO_COLOR;
 }
 
-type Style = (s: string) => string;
+export type Style = (s: string) => string;
+
+export type Paint = { bold: Style; red: Style; green: Style; yellow: Style };
 
 /** ANSI styles, each the identity when colour is off, so callers never branch on it. */
-export function paint(on: boolean): { bold: Style; red: Style; green: Style; yellow: Style } {
+export function paint(on: boolean): Paint {
   const sgr = (code: number): Style => (on ? (s) => `\x1b[${code}m${s}\x1b[0m` : (s) => s);
   return { bold: sgr(1), red: sgr(31), green: sgr(32), yellow: sgr(33) };
 }
@@ -29,13 +31,13 @@ export function sanitize(s: string): string {
 
 type Scalar = string | number | boolean | null | undefined;
 /** A piece of an output line: its plain text and the style it is painted with, if any. */
-type Seg = { text: string; style?: Style };
+export type Seg = { text: string; style?: Style };
 
-const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+export const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isScalar = (v: unknown): v is Scalar => v === null || v === undefined || ['string', 'number', 'boolean'].includes(typeof v);
 
 /** One value as a segment: object values, table cells and items of a plain list. */
-function cell(v: unknown, p: ReturnType<typeof paint>): Seg {
+export function cell(v: unknown, p: Paint): Seg {
   if (v === null || v === undefined) return { text: '-' };
   if (typeof v === 'string') return { text: sanitize(v) };
   if (typeof v === 'boolean') return { text: String(v), style: v ? p.green : p.red };
@@ -48,7 +50,7 @@ function cell(v: unknown, p: ReturnType<typeof paint>): Seg {
 }
 
 /** Right-trims a line on its plain text, so colour never changes where a line ends. */
-function line(segs: Seg[]): string {
+export function line(segs: Seg[]): string {
   const kept = [...segs];
   while (kept.length) {
     const last = kept[kept.length - 1];
@@ -62,9 +64,9 @@ function line(segs: Seg[]): string {
   return kept.map((s) => (s.style ? s.style(s.text) : s.text)).join('');
 }
 
-const pad = (text: string, width: number): Seg => ({ text: ' '.repeat(Math.max(0, width - text.length)) });
+export const pad = (text: string, width: number): Seg => ({ text: ' '.repeat(Math.max(0, width - text.length)) });
 
-function renderObject(o: Record<string, unknown>, p: ReturnType<typeof paint>): string {
+function renderObject(o: Record<string, unknown>, p: Paint): string {
   const keys = Object.keys(o);
   if (!keys.length) return '(empty)';
   // A newline in a key would break the aligned layout, so it becomes a space as in table cells.
@@ -80,7 +82,7 @@ function renderObject(o: Record<string, unknown>, p: ReturnType<typeof paint>): 
     .join('\n');
 }
 
-function renderTable(rows: Record<string, unknown>[], p: ReturnType<typeof paint>): string {
+export function renderTable(rows: Record<string, unknown>[], p: Paint): string {
   const cols: string[] = [];
   for (const r of rows) for (const k of Object.keys(r)) if (!cols.includes(k)) cols.push(k);
   const header = cols.map((k): Seg => ({ text: sanitize(k), style: p.bold }));

@@ -85,7 +85,13 @@ async function scratch() {
     await waitFor(() => pids.every((pid) => !pidAlive(pid)), { timeoutMs: 10_000, what: 'the dev server exited' }).catch(() => {});
     await srv.close();
     repo.cleanup();
-    fs.rmSync(`${root}.wt`, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    // On Windows a Git Bash helper outside the killed tree can keep the worktree as its cwd for a
+    // while; a temp dir left behind there is the runner's to discard, not a test failure.
+    try {
+      fs.rmSync(`${root}.wt`, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    } catch (e) {
+      if (process.platform !== 'win32' || (e as NodeJS.ErrnoException).code !== 'EBUSY') throw e;
+    }
   };
   return { root, f, job, jobFile, patchJob, events, port, post, state, pids, cleanup, wtRoot: `${root}.wt`, focusFile: path.join(root, '.forge', 'runtime', 'focus.json') };
 }

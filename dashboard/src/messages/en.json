@@ -392,6 +392,12 @@
       "panel": "panel entry",
       "role": "role setting",
       "config": "default"
+    },
+    "modelBy": {
+      "low": "low complexity: {model}",
+      "medium": "medium complexity: {model}",
+      "high": "high complexity: {model}",
+      "rework": "review rework: {model}"
     }
   },
   "analytics": {

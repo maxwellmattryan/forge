@@ -21,6 +21,27 @@
 
 `forge job findings <id>` shows one job's counts: findings raised, fixed and disputed per round and per lens, and its recurring findings. It reads the review files and the builder's answer lines (`- <lens> <severity> <path:line> → fixed | disagree: <reason>`, defined in `agents/builder.md`). Integration reviews, verify, PR feedback and `feedback.md` are not counted.
 
+### Measuring a spend change
+
+A change meant to cut spend (a prompt rule, `runtime.modelByComplexity`, `runtime.reworkModel`, `review.onRework`, effort defaults) must not cost quality. Measure it before and after:
+
+1. Before merge, take the baseline over the last N done jobs: `forge stats --csv --by role --since <date>`, and note `forge stats`' first-pass review rate and avg rounds.
+2. After N jobs have run on the new config and prompts (the builder's prompt hash in `forge roster` tells which ones did), run the same with `--since <merge date>`.
+3. Compare usd and tokens per job by role.
+4. Keep the change only if first-pass review rate and avg rounds did not get worse; otherwise revert it.
+5. For a controlled comparison, run `forge eval` twice on one suite, the second with an overlay such as `--set runtime.reworkModel=sonnet` or `--set review.onRework=full`, and `forge eval compare` the runs.
+
+Forge's own repo pins the gatekeepers and lowers effort for low-complexity jobs with this block under `runtime:` in `.forge/config.yml` (a human applies it on the base branch: `policy.protectedPaths` refuses the file to jobs):
+
+```yaml
+efforts:
+  planner: medium
+  approver: medium
+  integrator: low
+effortByComplexity:
+  low: low
+```
+
 ## 2. Evals (`forge eval …`, Evals view)
 
 An eval task is a request, a base commit, and a hidden acceptance check:

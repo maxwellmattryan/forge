@@ -10,7 +10,7 @@ import type { EventActor, Job, JobEvent, JobIssue, JobRepo, JobRepoPr, LoadedJob
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
 export { BACKING_ISOLATIONS } from './backing-config.ts';
 
-export const CONFIG_SCHEMA_VERSION = 20;
+export const CONFIG_SCHEMA_VERSION = 21;
 export const JOB_SCHEMA_VERSION = 14;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
@@ -87,6 +87,9 @@ export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 
 /** A spec's judged difficulty (its `Complexity:` header), which runtime.effortByComplexity maps to a level. */
 export const COMPLEXITIES = ['low', 'medium', 'high'] as const;
+
+/** A model alias or id as runtime.models and the builder overrides take it; here so config.ts and config-fields.ts share it without an import cycle. */
+export const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]*$/;
 
 /** The roles runtime.efforts sets, in runtime.models order. No orchestrator: sessions take runtime.effort. */
 export const EFFORT_ROLES = ['planner', 'spec-writer', 'designer', 'builder', 'reviewer', 'approver', 'integrator', 'retro', 'judge', 'assistant'] as const;
@@ -197,6 +200,11 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // v20 adds components[].config (config sinks), absent by default, so no v19 config changes; the
   // bump lets older Forges refuse a config whose sinks they would ignore.
   19: (c) => c,
+  // v21 adds runtime.modelByComplexity, runtime.reworkModel, review.onRework and a panel entry's
+  // `pathsOnly`; defaults fill them, so no v20 config changes. onRework defaults to `narrow`, so an
+  // upgraded repo's rework rounds re-run only the rework panel, while round 1 is unchanged. The bump
+  // lets older Forges refuse a config whose builder models and rework panel they would ignore.
+  20: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {

@@ -13,7 +13,7 @@ const TERMS = [
   'project', 'root repo', 'member repo', 'component', 'dependency', 'backing service', 'isolation', 'project graph',
   'profile', 'environment', 'endpoint', 'focus', 'checkout hook', 'job repo', 'verify-only repo', 'local link',
   'interim reference', 'interim strategy', 'release gate', 'release', 'release strategy', 'release mechanism', 'release cadence', 'release plan', 'config sink',
-  'secret reference', 'issue ref',
+  'secret reference', 'issue ref', 'rework panel',
 ];
 
 type Row = { term: string; cells: string[]; line: string };

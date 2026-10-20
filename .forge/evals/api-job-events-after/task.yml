@@ -1,0 +1,46 @@
+title: Dashboard API route that pages a job's events
+request: |
+  ## Why
+  The dashboard's job detail (`GET /api/jobs/<id>`) carries only a job's last 400 events, so a
+  long-running job's early history can't be read over HTTP at all. Tools and a future history view
+  need to read every event, a page at a time, and pick up where they left off as the log grows.
+
+  ## What to build
+  A read-only dashboard API route, `GET /api/jobs/<id>/events`, that returns one page of a job's
+  events in log order (the order they were logged, oldest first). The cursor is an event count:
+  `after=N` skips the first N events. The dashboard UI does not need to use it yet.
+
+  ## Interface
+  - `GET /api/jobs/<id>/events?after=N&limit=M` answers 200 with JSON
+    `{ "events": [...], "next": <number>, "total": <number> }`.
+    - `events`: the job's events after the first `after`, at most `limit` of them, in log order,
+      each shaped like the events in `GET /api/jobs/<id>`.
+    - `next`: the value to pass as `after` for the following page (`after` + the number returned),
+      never greater than `total`. An `after` at or past the end gives `events: []` and `next` = `total`.
+    - `total`: how many events the job has.
+  - `after` is optional and defaults to 0 (from the start).
+  - `limit` is optional and defaults to 200; a larger value is capped at 1000 (not an error).
+  - An unknown job id answers 404 with the API's usual error body, `{ "error": "<message>" }`.
+  - An `after` or `limit` that is not a plain non-negative integer (negative, fractional, empty,
+    non-numeric), or a `limit` of 0, answers 400 with `{ "error": "<message>" }`.
+  - It follows the server's existing rules for read-only GETs: it answers only a loopback `Host`
+    (anything else gets the server's usual 421), needs no token, and refuses a foreign `Origin`
+    with 403, like `GET /api/jobs/<id>`.
+  - `/api/state` does not change shape.
+
+  ## Acceptance criteria
+  - Paging with `limit` then `after=<next>` joins to exactly the full event list, with `next` and
+    `total` right on every page.
+  - With no query parameters a job with a handful of events gets all of them, `next` = `total`.
+  - `after`/`limit` validation and the 404 behave as above, with `{error}` bodies.
+  - The API's response shape is declared wherever the repo keeps its HTTP API types, and the
+    server's HTTP surface docs mention the route.
+  - Keep help, docs and tests in sync as the repo's AGENTS.md requires; existing tests and the
+    type checks pass.
+base: 40c1c4f6a7e85332381c9c00a10f7958ae192c99
+tags:
+  - restructure-pre
+  - server
+check:
+  files: check/files
+  command: node --test test/eval-api-job-events-after.test.ts
