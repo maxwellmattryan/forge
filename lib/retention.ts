@@ -62,7 +62,7 @@ export function dirBytes(p: string): number {
  * The job as stored, or the reason it can't be read: a bad id, a symlinked or non-directory job
  * dir, a missing or unparsable job.json, or one from a newer Forge.
  */
-function readableJob(root: string, id: string): { job: LoadedJob; raw: Job } | string {
+export function readableJob(root: string, id: string): { job: LoadedJob; raw: Job } | string {
   let dir: string;
   try {
     dir = jobDir(root, id);
@@ -84,7 +84,7 @@ function readableJob(root: string, id: string): { job: LoadedJob; raw: Job } | s
 }
 
 /** Whether the daemon session record of scope `id` names a live child or server. */
-function daemonRunning(root: string, id: string): boolean {
+export function daemonRunning(root: string, id: string): boolean {
   if (!validScope(id)) return false;
   const info = readInfo(sessionFiles(root, id).info);
   return pidAlive(info.pid) || pidAlive(info.serverPid);

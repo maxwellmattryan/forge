@@ -327,6 +327,16 @@ Retention (`lib/retention.ts` writes, `lib/archive.ts` reads) keeps `.forge/jobs
 
 **Threat model.** The attackers are a hostile checkout or another process planting symlinks or FIFOs in `.forge/jobs`, `.forge/archive` or `.forge/runtime/daemons`; a job id on the command line; and a misled daemon session (the inbox and job sessions read tracker text) running `forge job prune --older-than 0` to wipe evidence. Ids go through the job-id regex and scopes through `validScope` before any path is built; a symlinked job dir or archive dir is refused, and a link planted at the record's path is replaced by the rename, never followed; log deletion checks each file with lstat; ownership and session liveness are checked inside the lock; both commands exit 1 in any daemon session (the office refuses them through its allowlist), while the human's policy still runs from `forge sync` there; `.log.1` reads use the server's confinement; and `retention.jobsDays`/`logsDays` are locked in the dashboard, so its token alone can't delete files. What an auditor needs survives a prune: the `archived` event and the audit rows in the record, and `retention.log`.
 
+## Deleting a job
+
+`forge job delete <id> [--force]` (`lib/delete.ts`) and the drawer's **Delete job** card (`POST /api/jobs/:id/delete`) remove a job started by mistake, for good. Unlike archiving, nothing is kept: no archive record, so `forge stats`, audit and retro never count it; one `{ type: "deleted", kind: "job", id, title, trigger: cli|dashboard, actor }` line in `.forge/runtime/retention.log` records who deleted what.
+
+**Refused**, with nothing changed, for an eval job; a job with a PR (real work: cancel and archive it); a live interactive owner (unless `--force`); a running daemon session (the CLI refuses; the dashboard stops the job's own session itself, once nothing else refuses); a split parent whose children still exist; and a job an active job `dependsOn`. Like archive and prune, it exits 1 in any daemon session, and the office's allowlist leaves it out.
+
+**Order of work.** Check everything; mirror the job to the tracker as cancelled (best effort), which releases its issues; `removeWorktree` with `--force` (the root and member worktrees, background commands, per-job backing services) and, only when the branch is the one Forge named (`git.branchPrefix` + id), the branch; reject the job's open requests; delete its daemon session record and logs; then, inside the job's lock with the owner re-checked, the job dir. A failed worktree or backing teardown stops before the job dir goes, so a rerun finishes.
+
+**Dashboard.** The POST needs the token, a matching Origin and JSON like every other, and its body must be `{"confirm": "<id>"}`: the card arms only once the id is typed back, so a stray or replayed click never deletes a job nobody named. The card offers no delete for an eval job or one with a PR.
+
 ## Untrusted input
 
 Issue bodies, comments and PR reviews come from people outside the session, and on public repos that means anyone. Forge:
