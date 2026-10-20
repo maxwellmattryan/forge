@@ -8,7 +8,7 @@
      Stacking, from the back: sidebar z-10, this bar z-25, the drawer's backdrop z-30, the rail tooltip z-36, the job pane
      z-40, popovers z-42, Settings and the palette z-45, toast z-50. At md and up the bar spans the content column only, so
      the sidebar keeps its full height. An open job pane covers the bar like the rest of the page: the backdrop dims it,
-     the pane runs to the viewport's bottom, and the bar goes inert. Session errors, titles and model strings are untrusted and render
+     the pane runs to the viewport's bottom, and the indicators go inert. Session errors, titles and model strings are untrusted and render
      as text.
      The facts strip takes what the clusters leave (basis 0) and drops the FOCUS word as it runs short (see
      factsHidden). Each cluster holds its indicators in a max-content row; when the row is wider than the cluster, the next
@@ -246,9 +246,11 @@
   bind:this={footer}
   id="statusbar"
   aria-label={$t('statusbar.label')}
-  inert={S.drawer.id !== null}
   class="fixed bottom-0 right-0 left-0 md:left-(--size-sidebar) z-25 chrome border-t border-line-strong h-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] flex items-center gap-1 px-1 md:gap-3.5 md:px-2"
 >
+  <!-- Under an open job pane the indicators go inert, as the sidebar does; the live region stays out of it, since an inert
+       region never speaks. display: contents keeps the three parts in the bar's own flex row. -->
+  <div class="contents" inert={S.drawer.id !== null}>
   <div bind:this={leftBox} class="flex min-w-0 items-center overflow-x-clip px-1">
     <div bind:this={leftRow} class="flex w-max items-center gap-0.5 md:gap-1">
       {#if S.data}
@@ -316,9 +318,10 @@
       </button>
     </div>
   </div>
+  </div>
+
+  <div class="sr-only" aria-live="polite">{announcement}</div>
 </footer>
-<!-- Outside the bar, which goes inert under an open job pane: an inert live region would never speak. -->
-<div class="sr-only" aria-live="polite">{announcement}</div>
 <!-- The bell is icon-only at every width, so its name shows in a Tooltip (hidden while its popover is open), written
      outside the bar so the clusters it measures hold only their indicators. -->
 <Tooltip anchor={needsButton} text={titles.needs} off={expanded('needs') === true} />

@@ -1401,7 +1401,8 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
   const live = bar.filter((e) => e.attrs.some((a) => a.name === 'aria-live'));
   assert.equal(live.length, 1, 'one aria-live element in the bar');
   assert.equal(attrOf(live[0], 'aria-live'), 'polite');
-  assert.ok(!live[0].parents.includes(footer) && live[0].classes.includes('sr-only'), 'visually hidden, outside the bar: an inert bar under an open drawer would silence it');
+  assert.ok(live[0].parents.includes(footer) && live[0].classes.includes('sr-only'), 'visually hidden, inside the bar');
+  assert.ok(!live[0].parents.some((p) => p.attrs.some((a) => a.name === 'inert')), 'outside the inert box: an inert region never speaks');
   const markup = markupOf('components/StatusBar.svelte');
   assert.ok(unconditional(markup, markup.indexOf('aria-live="polite"')), 'outside every {#if}: it is always in the DOM');
   assert.match(markup, /aria-live="polite">\{announcement\}<\/div>/);
@@ -1440,9 +1441,11 @@ test('the view and the toast clear the status bar; the drawer covers it', () => 
   assert.ok(aside.classes.includes('z-40'), 'the drawer is z-40');
   const backdrop = drawer.find((e) => attrOf(e, 'id') === 'drawer-backdrop');
   assert.ok(backdrop && has(backdrop, 'fixed', 'inset-0', 'backdrop', 'z-30'), 'a z-30 backdrop');
-  const footer = elements('components/StatusBar.svelte').find((e) => e.name === 'footer');
+  const barEls = elements('components/StatusBar.svelte');
+  const footer = barEls.find((e) => e.name === 'footer');
   assert.ok(footer?.classes.includes('z-25'), 'the bar sits under the backdrop');
-  assert.equal(attrOf(footer!, 'inert'), '{S.drawer.id !== null}', 'and is inert while a drawer is open');
+  const inertBox = barEls.find((e) => e.attrs.some((a) => a.name === 'inert'));
+  assert.ok(inertBox && inertBox.parents.includes(footer!) && inertBox.classes.includes('contents') && attrOf(inertBox, 'inert') === '{S.drawer.id !== null}', 'its indicators go inert while a drawer is open');
 });
 
 test('the daemon popover keeps every daemon bar control', () => {
