@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.4
+
+- Fix: a plugin install added from GitHub followed the repo's default branch, `develop`, which has no built dashboard, so `forge dash` failed with "dashboard is not built". The marketplace now pins the plugin source to `main`. Run `forge update` to move an install onto `main`.
+
 ## 0.18.3
 
 - **Dashboard:** a custom select input in place of the native one, a reordered sidebar that can be resized and collapsed to an icon-only compact mode, a cleaner status bar, and icon start, stop and pause controls in the log views, with a tooltip on every icon button.
