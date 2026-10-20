@@ -12,7 +12,7 @@
   import { t } from '../lib/locale.ts';
   import type { RepoProposal } from '../lib/types.ts';
 
-  let { id, note = '', buttons = false, shown = $bindable([]) }: { id: string; note?: string; buttons?: boolean; shown?: string[] } = $props();
+  let { id, note = $bindable(''), buttons = false, shown = $bindable([]) }: { id: string; note?: string; buttons?: boolean; shown?: string[] } = $props();
 
   let rows = $state<RepoProposal[]>([]);
   let busy = $state(false);
@@ -33,11 +33,15 @@
 
   async function decide(decision: 'approve' | 'reject'): Promise<void> {
     busy = true;
+    // The note clears as soon as the decision goes, and comes back only if it failed and nothing new was typed.
+    const text = note;
+    note = '';
     try {
-      const r = await postRepoDecision(id, decision, shown, note, forgeToken());
+      const r = await postRepoDecision(id, decision, shown, text, forgeToken());
       toast(decision === 'approve' ? $t('repoProposal.approved', { repos: r.repos.join(', ') }) : $t('repoProposal.rejected', { repos: r.repos.join(', ') }));
       await refresh();
     } catch (e) {
+      if (note === '') note = text;
       toast($t('repoProposal.failed', { error: e instanceof Error ? e.message : String(e) }), true);
     } finally {
       busy = false;
