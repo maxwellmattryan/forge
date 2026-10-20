@@ -3,6 +3,7 @@
 <script lang="ts">
   import Empty from '../components/Empty.svelte';
   import PageHeader from '../components/PageHeader.svelte';
+  import Select from '../components/Select.svelte';
   import type { ApiState } from '../lib/types.ts';
   import { S } from '../lib/app.svelte.ts';
   import { BACKING_KEY, edgeKey, highlight, jobOptions, layoutProject, type GraphNode } from '../lib/project-graph.ts';
@@ -62,12 +63,10 @@
   <Empty>{$t('project.empty')}</Empty>
 {:else}
   <div class="flex flex-wrap items-end gap-3 mb-3">
-    <label class="plate flex flex-col gap-1 px-3 py-2 text-xs text-muted">{$t('project.job')}
-      <select id="project-job" class="input" bind:value={picked}>
-        <option value="">{$t('project.noJob')}</option>
-        {#each options as o (o.id)}<option value={o.id}>{o.label}</option>{/each}
-      </select>
-    </label>
+    <div class="plate flex flex-col gap-1 px-3 py-2 text-xs text-muted">
+      <span id="project-job-label">{$t('project.job')}</span>
+      <Select id="project-job" labelledby="project-job-label" bind:value={picked} options={[{ value: '', label: $t('project.noJob') }, ...options.map((o) => ({ value: o.id, label: o.label }))]} />
+    </div>
     {#if job && !hl?.matched}<p class="plate px-3 py-2 text-sm text-muted">{$t('project.noMatch')}</p>{/if}
   </div>
   {#if g.problems > 0}<p class="plate px-3 py-2 mb-3 text-sm text-warn">{$t('project.problems', { count: g.problems })}</p>{/if}

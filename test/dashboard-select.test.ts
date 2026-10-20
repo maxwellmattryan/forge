@@ -154,6 +154,33 @@ test('space extends a live buffer', () => {
   assert.deepEqual(selectKey(s.state, { key: ' ' }, o, 2, 1300 + TYPEAHEAD_MS), { state: CLOSED, commit: 0, handled: true });
 });
 
+const CALL_SITES = ['components/settings/ConfigFieldRow.svelte', 'components/settings/GeneralTab.svelte', 'views/Evals.svelte', 'views/Analytics.svelte', 'views/Project.svelte'];
+const selects = (rel: string) => tags(rel, readSrc(rel)).filter((x) => x.name === 'Select');
+
+test('no native select remains in the dashboard', () => {
+  const files = fs.readdirSync(SRC, { recursive: true }).map((f) => String(f).split(path.sep).join('/')).filter((f) => f.endsWith('.svelte'));
+  for (const f of files) assert.ok(!tags(f, readSrc(f)).some((x) => x.name === 'select'), `${f} has a native <select>`);
+  for (const rel of CALL_SITES) assert.match(readSrc(rel), /import Select from '(\.\.\/)+(components\/)?Select\.svelte';/, `${rel} imports Select.svelte`);
+  const ids = CALL_SITES.flatMap((rel) => selects(rel).map((x) => attr(x, 'id')));
+  for (const id of ['settings-locale', 'cmp-a', 'cmp-b', 'project-job']) assert.ok(ids.includes(id), `a Select keeps id ${id}`);
+});
+
+test('every Select call site is named', () => {
+  const [field] = selects('components/settings/ConfigFieldRow.svelte');
+  assert.equal(attr(field, 'id'), '{id}');
+  assert.equal(attr(field, 'describedby'), '{describedBy}');
+  assert.equal(attr(field, 'invalid'), '{Boolean(error)}');
+  assert.equal(attr(field, 'disabled'), '{disabled}');
+  assert.match(readSrc('components/settings/ConfigFieldRow.svelte'), /<label for=\{id\}>/, 'the field label names the trigger');
+  assert.match(readSrc('components/settings/GeneralTab.svelte'), /<label for="settings-locale">/);
+  const evals = selects('views/Evals.svelte');
+  assert.deepEqual(evals.map((x) => attr(x, 'label')), ["{$t('evals.runA')}", "{$t('evals.runB')}"]);
+  assert.deepEqual(selects('views/Analytics.svelte').map((x) => attr(x, 'label')), ["{$t('analytics.window')}"]);
+  const [job] = selects('views/Project.svelte');
+  assert.equal(attr(job, 'labelledby'), 'project-job-label');
+  assert.match(readSrc('views/Project.svelte'), /<span id="project-job-label">\{\$t\('project\.job'\)\}<\/span>/);
+});
+
 test('Select markup has combobox and listbox semantics', () => {
   const text = readSrc('components/Select.svelte');
   assert.ok(!text.includes('{@html'), 'no {@html}');
