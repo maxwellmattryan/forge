@@ -555,14 +555,6 @@
   &.touch { min-width: 44px; min-height: 44px; justify-content: center; }
   & .ic { width: 15px; height: 15px; }
 }
-/* Two states of one control stacked in one grid cell (a button's Start and Stop): the cell is as wide as the wider
-   state, so the control never changes width, and flipping cross-fades them. The inactive state carries data-off
-   (and aria-hidden, so only the active label is read). The reduced-motion block drops the transition. */
-@utility swap {
-  display: inline-grid;
-  & > * { grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: opacity 150ms ease, scale 150ms ease; }
-  & > [data-off] { opacity: 0; scale: .6; }
-}
 @utility seg {
   display: flex;
   & .btn { margin-right: -1px; border-radius: 0; }

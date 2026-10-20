@@ -1419,9 +1419,12 @@ test('the daemon popover keeps every daemon bar control', () => {
   assert.ok(markup.indexOf('</ul>') < markup.indexOf('toggleInbox'), 'after the session list');
   const toggle = elements('components/statusbar/DaemonPanel.svelte').find((e) => attrOf(e, 'onclick') === '{toggleInbox}');
   assert.ok(toggle && has(toggle, 'btn', 'sm') && attrOf(toggle, 'aria-expanded'), 'the Inbox session log toggle is a btn sm with aria-expanded');
-  for (const icon of ['play', 'stop']) assert.ok(panel.includes(`<Icon name="${icon}" />`), `the ${icon} icon`);
-  assert.match(panel, /disabled=\{!model\.canStart\} title=\{model\.startHint\} aria-label=\{\$t\('daemon\.startAll'\)\}/, 'Start follows canStart and carries the config hint');
-  assert.match(panel, /disabled=\{!model\.canStop\} aria-label=\{\$t\('daemon\.stopAll'\)\}/);
+  // One pool Start/Stop icon toggle, driven by model.toggle; Start carries the config hint.
+  const pool = elements('components/statusbar/DaemonPanel.svelte').filter((e) => e.name === 'IconButton');
+  assert.equal(pool.length, 2, 'one toggle per branch');
+  assert.equal(attrOf(pool[0], 'icon'), "{model.toggle.action === 'start' ? 'play' : 'stop'}", 'the play and stop icons');
+  assert.equal(attrOf(pool[0], 'hint'), "{model.toggle.action === 'start' ? model.startHint : null}", 'Start carries the config hint');
+  assert.equal(attrOf(pool[0], 'disabled'), '{!model.toggle.enabled}');
   for (const chip of ['daemon.held', 'daemon.waiting', 'daemon.kept']) assert.ok(!panel.includes(`$t('${chip}'`), `no ${chip} chip: the rows say it`);
   assert.match(markup, /\{#if model\.error !== null\}<p[^>]*>\{model\.error\}<\/p>\{\/if\}/, 'the pool error renders as text');
   assert.doesNotMatch(panel, /\{@html/);
@@ -1587,7 +1590,7 @@ test('Needs you is a status-bar popover, not a page', () => {
   assert.equal(en.daemon.inbox, undefined, 'no daemon.inbox key');
   const leaves = (o: any, at = ''): [string, string][] => Object.entries(o).flatMap(([k, v]) => (typeof v === 'object' && v ? leaves(v, `${at}${k}.`) : [[`${at}${k}`, String(v)] as [string, string]]));
   assert.deepEqual(leaves(en).filter(([, v]) => v === 'Inbox').map(([k]) => k), [], 'no message is exactly "Inbox"');
-  for (const [k, v] of [['daemon.rows.inbox', 'Inbox session'], ['statusbar.daemon.inboxLog', 'Inbox session log'], ['permission.inbox', 'Inbox session'], ['live.inbox', 'inbox session'], ['session.startInbox', 'Start inbox session'], ['session.stopInbox', 'Stop inbox session'], ['needs.noDecisions', 'No decisions waiting']])
+  for (const [k, v] of [['daemon.rows.inbox', 'Inbox session'], ['statusbar.daemon.inboxLog', 'Inbox session log'], ['permission.inbox', 'Inbox session'], ['live.inbox', 'inbox session'], ['needs.noDecisions', 'No decisions waiting']])
     assert.equal(k.split('.').reduce((o: any, p) => o?.[p], en), v, k);
   // The old link shows the Pipeline, rewrites the hash and asks for the popover.
   const route = fnBody(read('lib/app.svelte.ts'), 'export function route(');
@@ -1717,30 +1720,16 @@ test('the session log merges Start and Stop', () => {
   const markup = markupOf('components/SessionLog.svelte');
   assert.doesNotMatch(markup, /act\('start'\)|act\('stop'\)/, 'no Start and Stop pair');
   assert.match(text, /const toggle = \$derived\(sessionToggle\(controls, session\)\);/, 'one action, from sessionToggle');
-  const flip = markup.slice(markup.indexOf('{#snippet flip('), markup.indexOf('{/snippet}', markup.indexOf('{#snippet flip(')));
-  const inFlip = elements('components/SessionLog.svelte', flip);
-  const buttons = inFlip.filter((e) => e.name === 'button');
-  assert.equal(buttons.length, 1, 'the snippet renders one button');
-  const b = buttons[0];
+  // One IconButton for every scope (the inbox, the office and a job); its label and icon come from the action.
+  const toggles = elements('components/SessionLog.svelte').filter((e) => e.name === 'IconButton');
+  assert.equal(toggles.length, 1, 'one Start/Stop icon toggle');
+  const b = toggles[0];
   assert.equal(attrOf(b, 'onclick'), '{(e) => act(toggle.action, e.currentTarget)}', 'the button, so focus can return to it');
   assert.match(fnBody(read('components/SessionLog.svelte').replace(/\n {2}/g, '\n'), 'async function act('), /const restore = keepFocus\(el\);[\s\S]*finally \{\s*pending = false;\s*await tick\(\);\s*restore\(\);/, 'focus returns to the toggle once it is enabled again');
   assert.equal(attrOf(b, 'disabled'), '{!toggle.enabled}');
-  assert.equal(attrOf(b, 'title'), "{toggle.action === 'start' ? $t('session.startHint') : undefined}", 'the start hint while it shows Start');
-  const swap = inFlip.find((e) => e.classes.includes('swap'));
-  assert.ok(swap && swap.parents.at(-1) === b, 'icon and label sit in one swap cell inside the button');
-  const states = inFlip.filter((e) => e.parents.at(-1) === swap);
-  assert.equal(states.length, 2, 'one child per state');
-  for (const st of states) {
-    assert.ok(attrOf(st, 'data-off') && attrOf(st, 'aria-hidden'), 'the inactive state is data-off and aria-hidden');
-    assert.ok(inFlip.some((e) => e.name === 'Icon' && e.parents.includes(st)), 'each state holds its icon');
-  }
-  assert.ok(flip.includes('<Icon name="play" />{start}') && flip.includes('<Icon name="stop" />{stop}'), 'play for Start, stop for Stop');
-  // One render per scope branch, with the scope's labels (and a job's aria-labels).
-  assert.equal(markup.match(/\{@render flip\(/g)?.length, 3, 'one per scope branch');
-  assert.match(markup, /\{#if scope === INBOX_SCOPE\}\s*\{@render flip\(\$t\('session\.startInbox'\), \$t\('session\.stopInbox'\)\)\}/, 'the inbox');
-  assert.match(markup, /\{:else if scope === OFFICE_SCOPE\}\s*\{@render flip\(\$t\('session\.startOffice'\), \$t\('session\.stopOffice'\)\)\}/, 'the office');
-  assert.ok(markup.includes("{@render flip($t('session.start'), $t('session.stop'), toggle.action === 'start' ? $t('session.startJob') : $t('session.stopJob'))}"), 'a job, named by its aria-label');
-  assert.deepEqual(openBlocksAt(read('components/SessionLog.svelte'), '{@render flip(').at(0)?.slice(0, 1), ['#if !transcript'], 'never in transcript mode');
+  assert.equal(attrOf(b, 'hint'), "{toggle.action === 'start' ? $t('session.startHint') : null}", 'the start hint while it shows Start');
+  assert.equal(attrOf(b, 'icon'), "{toggle.action === 'start' ? 'play' : 'stop'}", 'play for Start, stop for Stop');
+  assert.deepEqual(openBlocksAt(read('components/SessionLog.svelte'), '<IconButton').at(0)?.slice(0, 1), ['#if !transcript'], 'never in transcript mode');
 });
 
 test('log menus are top-layer dialogs', () => {
