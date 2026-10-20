@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { tempRepo, waitFor } from './helpers.ts';
 import { startServer } from '../lib/server.ts';
+import { FIXTURE_DIST } from './dist.ts';
 import { defaults } from '../lib/config.ts';
 import { sessionFiles } from '../lib/daemon.ts';
 import { attachAgent, claimJob, createJob, recordAgent, updateJob } from '../lib/jobs.ts';
@@ -20,7 +21,8 @@ const assistant = (content: unknown[], timestamp = '2026-10-15T10:00:00.000Z') =
 
 function hit(port: number, o: { path: string; headers?: Record<string, string> }): Promise<{ status: number; headers: http.IncomingHttpHeaders; text: string }> {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port, path: o.path, headers: { host: `127.0.0.1:${port}`, ...(o.headers ?? {}) } }, (res) => {
+    // A fresh socket per request: a pooled keep-alive socket the server times out under load resets.
+    const req = http.request({ host: '127.0.0.1', port, path: o.path, agent: false, headers: { host: `127.0.0.1:${port}`, ...(o.headers ?? {}) } }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode!, headers: res.headers, text: Buffer.concat(chunks).toString('utf8') }));
@@ -97,7 +99,7 @@ async function setup(opts: { sseMaxAgeMs?: number; agentTail?: string } = {}) {
   fs.writeFileSync(agentFile, `${JSON.stringify({ type: 'user', message: { role: 'user', content: 'Review the diff' } })}\n${opts.agentTail ?? read}\n`);
   const ownerFile = path.join(slugDir, `${OWNER}.jsonl`);
   fs.writeFileSync(ownerFile, `${assistant([{ type: 'text', text: 'Driving the job' }])}\n`);
-  const srv = await startServer(root, { port: 0, projectsDir: projects, sseMaxAgeMs: opts.sseMaxAgeMs });
+  const srv = await startServer(root, { port: 0, distDir: FIXTURE_DIST, projectsDir: projects, sseMaxAgeMs: opts.sseMaxAgeMs });
   const port = Number(new URL(srv.url).port);
   const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)?.[1] ?? '';
   const auth = { 'x-forge-token': token, origin: `http://127.0.0.1:${port}` };

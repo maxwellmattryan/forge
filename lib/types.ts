@@ -2,7 +2,7 @@
 // this file never runs. The dashboard's src/lib/types.ts carries a copy of the API shapes, kept
 // equal by test/types-parity.ts, until the dashboard imports this file. Unions that have a runtime
 // list are derived from that list, never retyped.
-import type { ACTOR_SOURCES, BACKING_ISOLATIONS, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
+import type { ACTOR_SOURCES, BACKING_DB_ENGINES, BACKING_ISOLATIONS, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import type { REQUEST_TYPES } from './requests.ts';
 import type { COMPONENT_KINDS, DEPENDENCY_TYPES, INTERIM_STRATEGIES, LINK_ECOSYSTEMS } from './components.ts';
 import type { SINK_FORMATS, SINK_MODES } from './config-sinks.ts';
@@ -1302,6 +1302,17 @@ export interface DaemonSessionState {
   effort: Effort | null;
 }
 
+/** One finished (or aborted) dashboard request, as startServer's onRequest hook reports it: lib/activity.ts. */
+export interface RequestInfo {
+  method: string;
+  /** The pathname only: a query string can carry the dashboard token. */
+  path: string;
+  status: number | 'aborted';
+  ms: number;
+  /** The response was a server-sent-event stream. */
+  sse: boolean;
+}
+
 /**
  * The permission modes a human may put one daemon session in from the dashboard: `default` asks in the
  * dashboard, `auto` lets Claude Code's classifier approve routine calls, `dontAsk` refuses. lib/daemon.ts PERMISSION_MODES.
@@ -2039,12 +2050,48 @@ export interface BackingEntry {
   env?: Record<string, string | number | boolean>;
   volumes?: string[];
   url?: string;
+  /** Shared entries only: a job database per job on this server, cloned from a template database (lib/backing-db.ts). */
+  database?: BackingDatabase;
 }
+
+/** A shared entry's `database`: the engine, and the commands and files that build its template database. */
+export interface BackingDatabase {
+  engine: (typeof BACKING_DB_ENGINES)[number];
+  migrate?: string;
+  seed?: string;
+  inputs?: string[];
+}
+
+/** One `docker` call's outcome: lib/backing.ts and lib/backing-db.ts. */
+export interface DockerResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+  status: number | null;
+  /** The docker binary is not on PATH. */
+  missing?: boolean;
+}
+
+/** Runs `docker <args>`, with `input` on stdin (psql's SQL); tests inject an in-memory fake. */
+export type DockerRunner = (args: string[], opts?: { timeoutMs?: number; input?: string }) => DockerResult;
 
 /** `.forge/jobs/<job>/backing.json` and `.forge/runtime/backing.json`: host port per container port, per entry name. */
 export interface BackingRecord {
   v: 1;
   ports: Record<string, Record<string, number>>;
+}
+
+/** `.forge/jobs/<job>/backing-db.json` (mode 0600): per entry name, the template the job database came from and the job role's password. */
+export interface BackingDbRecord {
+  v: 1;
+  databases: Record<string, { template: string; password: string }>;
+}
+
+/** One command that built a template database; `tail` has every generated password redacted. */
+export interface BackingBuildStep {
+  cmd: string;
+  ok: boolean;
+  tail: string;
 }
 
 /** One service in `forge worktree create` and `forge backing up`. */
@@ -2055,12 +2102,18 @@ export interface BackingUpEntry {
   action: 'created' | 'started' | 'running' | 'external' | 'none';
   ok: boolean;
   error?: string;
+  /** Entries with `database`: the job database, its template and what Forge did with each. Never a password or a url. */
+  database?: { name: string; template: string | null; action: 'created' | 'kept' | 'none'; template_action: 'built' | 'reused' | 'none' };
+  /** Only when Forge built the template: its migrate and seed runs. */
+  build?: BackingBuildStep[];
 }
 
 /** `forge backing down <job>` and the `backing` key of `forge worktree remove`. */
 export interface BackingDownResult {
   removed: string[];
   volumes: string[];
+  /** The job databases dropped; only when the config has an entry with `database` or a record was left. */
+  databases?: string[];
   ok: boolean;
   error?: string;
 }

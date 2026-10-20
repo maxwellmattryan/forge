@@ -2,14 +2,18 @@
 # test/ci-workflow.test.ts fails when the two drift, so edit both together. The windows job is a
 # regression guard outside that list: native Windows is unsupported (docs/SUPPORT.md), and the job
 # only keeps the cheap fixes that let the CLI run there from breaking again.
-# release.yml calls this whole workflow (workflow_call) before it tags a release (docs/RELEASES.md).
+# release.yml and main-update.yml call this whole workflow (workflow_call) before they tag a release or
+# open the main-update PR. main-update.yml also starts it on ci/main-update (workflow_dispatch), because a
+# PR or push made with GITHUB_TOKEN starts no pull_request run, and the PR head needs its checks
+# (docs/RELEASES.md, docs/CI.md).
 name: CI
 
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [develop, main]
   workflow_call:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -56,6 +60,8 @@ jobs:
       - name: Run tests
         env:
           TEST_SHARD: ${{ matrix.shard }}
+          # The tests of the real build run here (it was just built) instead of skipping (test/dist.ts).
+          FORGE_REQUIRE_DIST: '1'
         run: node --test --test-shard="$TEST_SHARD" "test/*.test.ts"
       - name: Syntax-check JavaScript entry points
         run: for f in bin/forge lib/trackers/status.mjs dashboard/*.mjs; do node --check "$f"; done
@@ -102,7 +108,16 @@ jobs:
           node-version-file: .nvmrc
           package-manager-cache: false
       - name: Check release metadata
-        run: npm run release:check
+        env:
+          # The PR's base, or the pushed or dispatched branch: develop never tracks dashboard/dist, main
+          # and the main-update PR head must.
+          REF: ${{ github.base_ref || github.ref_name }}
+        run: |
+          case "$REF" in
+            develop) npm run release:check -- --dist absent ;;
+            main | ci/main-update) npm run release:check -- --dist present ;;
+            *) npm run release:check ;;
+          esac
 
   windows:
     name: windows (node 22.18.0)

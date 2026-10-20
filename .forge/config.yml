@@ -163,12 +163,15 @@ review:
         - design/**
   onPrFeedback: changed
 approver:
-  alwaysEscalate:
-    - changes to CI/CD, deploy, release or infrastructure config
-    - a new runtime dependency (the repo has zero runtime dependencies by rule; exact-pinned devDependencies are fine)
-    - public API or protocol breaking changes
-    - anything touching credentials, auth or permissions
-    - changes to the dashboard security posture in lib/server.ts (loopback Host check, token, Origin, JSON-only POSTs)
+  # Empty so the Foreman sees every escalation through; the security lens must still PASS and the
+  # protected paths still apply. The shipped defaults stay conservative.
+  alwaysEscalate: []
+#  alwaysEscalate:
+#    - changes to CI/CD, deploy, release or infrastructure config
+#    - a new runtime dependency (the repo has zero runtime dependencies by rule; exact-pinned devDependencies are fine)
+#    - public API or protocol breaking changes
+#    - anything touching credentials, auth or permissions
+#    - changes to the dashboard security posture in lib/server.ts (loopback Host check, token, Origin, JSON-only POSTs)
 pr:
   enabled: true
   draft: false
@@ -180,7 +183,10 @@ pr:
 merge:
   auto: false
   method: squash
-  autoWhen: []
+  # With foreman.ship: merge, a PR the approver marks eligible here merges once the CI is green.
+  autoWhen:
+    - any change the approver approves with every review lens passing
+#  autoWhen: []
 aiAttribution: forbid
 resources: []
 components:
@@ -262,5 +268,19 @@ daemon:
     - Bash(gh run view:*)
   maxConcurrent: 6
   idleStopMinutes: 30
+# Overrides the conservative defaults so the Foreman runs unattended: it decides every gate class,
+# reserves no topic and merges what it approves. CLI floors stay: a security review that isn't PASS
+# and an unreadable decision.md still go to a human.
 foreman:
   enabled: true
+  decides:
+    - spec-approval
+    - split-approval
+    - escalation
+    - rounds-exhausted
+    - conflicts
+    - pr-feedback
+    - repo-proposal
+    - release
+  reserved: []
+  ship: merge

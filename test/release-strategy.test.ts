@@ -117,20 +117,20 @@ describe('release strategy config', { concurrency: 4 }, () => {
   });
 
   test('v15 config migrates to v16 unchanged', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 21);
+    assert.equal(CONFIG_SCHEMA_VERSION, 22);
     const v15 = { schemaVersion: 15, release: { interim: 'canary' }, components: [], repos: [], checkout: [], downstream: { enabled: true, max: 5, skip: [] } };
     const { config, from } = migrateConfig(structuredClone(v15));
     assert.equal(from, 15);
-    assert.deepEqual(config, { ...v15, schemaVersion: 21 });
-    assert.deepEqual(validateConfig({ ...defaults(), schemaVersion: 22 }, process.cwd()), ['config schemaVersion 22 is newer than this Forge (21); update the plugin']);
+    assert.deepEqual(config, { ...v15, schemaVersion: 22 });
+    assert.deepEqual(validateConfig({ ...defaults(), schemaVersion: 23 }, process.cwd()), ['config schemaVersion 23 is newer than this Forge (22); update the plugin']);
   });
 
   test('a v16 config migrates to v17 unchanged', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 21);
+    assert.equal(CONFIG_SCHEMA_VERSION, 22);
     const v16 = { schemaVersion: 16, release: { interim: 'canary', mechanism: 'tag', command: 'git tag v1' }, components: [], repos: [{ ...LIB, release: { mechanism: 'changesets' } }], checkout: [], downstream: { enabled: true, max: 5, skip: [] } };
     const { config, from } = migrateConfig(structuredClone(v16));
     assert.equal(from, 16);
-    assert.deepEqual(config, { ...v16, schemaVersion: 21 });
+    assert.deepEqual(config, { ...v16, schemaVersion: 22 });
   });
 
   test('release.publish validates', () => {
@@ -152,7 +152,7 @@ describe('release strategy config', { concurrency: 4 }, () => {
       fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), 'schemaVersion: 15\nrelease:\n  interim: canary\n');
       const loaded = loadConfig(dir);
       assert.equal(loaded.migratedFrom, 15);
-      assert.equal(loaded.config.schemaVersion, 21);
+      assert.equal(loaded.config.schemaVersion, 22);
       assert.equal(loaded.config.release.interim, 'canary');
       assert.equal(loaded.config.release.mechanism, null);
       assert.deepEqual(validateConfig(loaded.config, dir), []);

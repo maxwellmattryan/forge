@@ -8,12 +8,14 @@
 # majors and minors are ignored, because @types/node must track the Node floor (22.18), not the
 # newest Node: 22.20 types would type-check APIs that 22.18 does not have.
 #
+# Both entries target develop, the working branch; main takes only the main-update PR and hotfixes.
+#
 # Before merging an npm bump, a maintainer runs `npm run build:dashboard` and the tests on the
 # Dependabot branch. The dashboard/dist/ build stamp hashes the resolved versions in
-# package-lock.json, but dist/ is gitignored outside release commits on main, so it is not
-# committed. When a devDependency's own version changes (not for a lockfile-only update), the
-# maintainer commits the new version in the pinned map in test/dashboard-dist.test.ts, which
-# asserts each exact version.
+# package-lock.json, but dist/ is gitignored on develop and never committed there: CI rebuilds it
+# for the next main-update PR. When a devDependency's own version changes (not for a lockfile-only
+# update), the maintainer commits the new version in the pinned map in
+# test/dashboard-dist.test.ts, which asserts each exact version.
 #
 # The 7-day cooldown lets a fresh release age before it is proposed, a hedge against a
 # compromised publish.
@@ -21,6 +23,7 @@ version: 2
 updates:
   - package-ecosystem: npm
     directory: /
+    target-branch: develop
     schedule:
       interval: weekly
     allow:
@@ -38,6 +41,7 @@ updates:
   # Finds nothing to update until .github/workflows/ exists.
   - package-ecosystem: github-actions
     directory: /
+    target-branch: develop
     schedule:
       interval: weekly
     groups:

@@ -1,4 +1,4 @@
-<!-- One PR per issue, into develop (main takes only releases and hotfixes). Leave the version fields, CHANGELOG.md and dashboard/dist/ alone: the release commit at the end of a wave adds them. -->
+<!-- One PR per issue, into develop (main takes only the main-update PR and hotfixes). Leave the version fields and CHANGELOG.md alone: the release commit at the end of a wave adds them. Never commit dashboard/dist/: CI adds dashboard/dist/ in the main-update PR. -->
 
 ## What changes
 

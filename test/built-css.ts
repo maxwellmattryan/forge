@@ -1,9 +1,7 @@
 // The dashboard's built CSS, as the CSS and token tests read it.
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'dashboard', 'dist');
+import { DIST } from './dist.ts';
 
 /**
  * Every stylesheet the manifest names, joined. Spacing a minifier may or may not keep (`) 0`, `) var(`,
