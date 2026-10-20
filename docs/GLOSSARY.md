@@ -54,7 +54,7 @@ Planned in M007; a row with a config key is implemented.
 
 | Term | Meaning | Config key |
 |---|---|---|
-| **environment** | The running components and backing services one job uses, each at its own endpoints (today a job's environment is its worktree plus its `ports`, one per port-bearing component, and its backing services). | planned (M007) |
+| **environment** | The running components and backing services one job uses, each at its own endpoints (today a job's environment is its worktree plus its `ports`, one per port-bearing component, and its backing services). The dashboard shows one job's in its panel's Environment card and every running one in the Project page's Running environments section. | planned (M007) |
 | **endpoint** | An address (URL or host and port) where an environment serves one component or backing service: `{endpoint.<component>}` and `{backing.<name>.port}` in commands, the `Endpoints:` brief line and the Environment card. | `components`, `backing` |
 | **backing service** | Infrastructure a component needs while it runs, such as a database, cache or queue. | `backing` |
 | **isolation** | How a backing service is provided to jobs: `per-job` (its own container per job), `shared` (one instance every job uses) or `external` (run outside Forge, which only points at it). | `backing` |
