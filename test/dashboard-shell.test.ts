@@ -300,8 +300,8 @@ test('the action dock sits outside the drawer tabs', () => {
   const aside = tags('components/Drawer.svelte', drawer).find((t) => t.name === 'aside' && t.attrs.some((a) => a.name === 'id' && a.value === '"drawer"'));
   assert.ok(aside, 'the drawer aside');
   const cls = classTokens(aside.attrs.find((a) => a.name === 'class')?.value ?? '');
-  // Fixed from the viewport top to the bar's top edge: its height is the viewport less the bar and the inset.
-  for (const c of ['flex', 'flex-col', 'top-0', 'bottom-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom))]']) assert.ok(cls.includes(c), `the aside has ${c}`);
+  // Fixed over the whole viewport height, the status bar included; the bottom inset keeps the dock off a phone's home indicator.
+  for (const c of ['flex', 'flex-col', 'top-0', 'bottom-0', 'pb-[env(safe-area-inset-bottom)]']) assert.ok(cls.includes(c), `the aside has ${c}`);
   for (const c of ['overflow-hidden']) assert.ok(cls.includes(c), `the aside has ${c}`);
   for (const c of ['h-full', 'overflow-y-auto']) assert.ok(!cls.includes(c), `the aside has no ${c}: the tab panel scrolls, not the drawer`);
   assert.doesNotMatch(drawer, /resumeModel\(/, 'Resume moved to the dock');
@@ -1030,7 +1030,7 @@ test('the compact rail labels its controls and shows tooltips', () => {
   assert.ok(tip, 'a tooltip');
   assert.equal(attrOf(tip, 'aria-hidden'), 'true');
   assert.ok(has(tip, 'solid', 'plate'), 'on a solid plate');
-  assert.ok(has(tip.parents.at(-1)!, 'fixed', 'pointer-events-none', 'z-36'), 'fixed, click-through and over the status bar (z-35), so the Settings tip is never cut off');
+  assert.ok(has(tip.parents.at(-1)!, 'fixed', 'pointer-events-none', 'z-36'), 'fixed, click-through and over the status bar (z-25), so the Settings tip is never cut off');
   const rootKids = app.filter((e) => e.parents.length === 1 && e.parents[0].classes.includes('min-h-screen'));
   assert.ok(rootKids.some((e) => e.name === 'RailTip'), 'rendered in the root, so it is inert with it and never clipped by the aside');
   const rail = fs.readFileSync(path.join(SRC, 'lib', 'rail-tip.svelte.ts'), 'utf8');
@@ -1266,7 +1266,7 @@ test('status bar: one fixed footer in the inert shell, outside main', () => {
   assert.equal(footers.length, 1, 'one footer');
   const footer = footers[0];
   assert.equal(attrOf(footer, 'id'), 'statusbar');
-  for (const c of ['fixed', 'bottom-0', 'right-0', 'left-0', 'md:left-(--size-sidebar)', 'z-35', 'chrome']) assert.ok(footer.classes.includes(c), `footer#statusbar has ${c}`);
+  for (const c of ['fixed', 'bottom-0', 'right-0', 'left-0', 'md:left-(--size-sidebar)', 'z-25', 'chrome']) assert.ok(footer.classes.includes(c), `footer#statusbar has ${c}`);
   assert.ok(footer.classes.some((c) => c.startsWith('pb-') && c.includes('env(safe-area-inset-bottom)')), 'its bottom padding is the safe-area inset');
   assert.ok(footer.classes.some((c) => c.startsWith('h-') && c.includes('var(--size-statusbar)') && c.includes('env(safe-area-inset-bottom)')), 'its height is the token plus the inset');
 
@@ -1401,7 +1401,7 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
   const live = bar.filter((e) => e.attrs.some((a) => a.name === 'aria-live'));
   assert.equal(live.length, 1, 'one aria-live element in the bar');
   assert.equal(attrOf(live[0], 'aria-live'), 'polite');
-  assert.ok(live[0].parents.includes(footer) && live[0].classes.includes('sr-only'), 'visually hidden, inside the bar');
+  assert.ok(!live[0].parents.includes(footer) && live[0].classes.includes('sr-only'), 'visually hidden, outside the bar: an inert bar under an open drawer would silence it');
   const markup = markupOf('components/StatusBar.svelte');
   assert.ok(unconditional(markup, markup.indexOf('aria-live="polite"')), 'outside every {#if}: it is always in the DOM');
   assert.match(markup, /aria-live="polite">\{announcement\}<\/div>/);
@@ -1422,7 +1422,7 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
   assert.equal(fs.existsSync(path.join(SRC, 'components', 'statusbar', 'InboxPanel.svelte')), false, 'the Inbox popover is gone');
 });
 
-test('the view, the toast and the drawer clear the status bar', () => {
+test('the view and the toast clear the status bar; the drawer covers it', () => {
   const view = elements('App.svelte').find((e) => attrOf(e, 'id') === 'view');
   assert.ok(view && clears(view) && view.classes.some((c) => c.startsWith('pb-')), '#view pads its bottom by the bar and the inset');
   for (const c of ['pb-24', 'md:pb-6']) assert.ok(!view.classes.includes(c), `#view drops ${c}`);
@@ -1431,18 +1431,18 @@ test('the view, the toast and the drawer clear the status bar', () => {
   for (const c of ['bottom-24', 'md:bottom-4']) assert.ok(!toast.classes.includes(c), `#toast drops ${c}`);
   assert.ok(toast.classes.includes('z-50'), 'the toast stays z-50');
 
-  // At every width the drawer ends at the bar's top edge: fixed, its bottom is the bar's top. The backdrop (z-30)
-  // dims everything behind it but the bar (z-35), which sits under the drawer (z-40).
+  // At every width the drawer runs to the viewport's bottom. The backdrop (z-30) dims the whole page, the bar (z-25)
+  // included, and the bar goes inert while a drawer is open, as the sidebar does.
   const drawer = elements('components/Drawer.svelte');
   const aside = drawer.find((e) => e.name === 'aside' && attrOf(e, 'id') === 'drawer');
   assert.ok(aside, 'aside#drawer');
-  assert.ok(aside.classes.includes('bottom-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom))]'), 'it stops at the bar');
+  assert.ok(aside.classes.includes('bottom-0') && !aside.classes.some((c) => c.includes('var(--size-statusbar)')), 'it runs over the bar');
   assert.ok(aside.classes.includes('z-40'), 'the drawer is z-40');
-  assert.ok(!aside.classes.includes('h-dvh'), 'it never covers the bar');
   const backdrop = drawer.find((e) => attrOf(e, 'id') === 'drawer-backdrop');
   assert.ok(backdrop && has(backdrop, 'fixed', 'inset-0', 'backdrop', 'z-30'), 'a z-30 backdrop');
   const footer = elements('components/StatusBar.svelte').find((e) => e.name === 'footer');
-  assert.ok(footer?.classes.includes('z-35'), 'the bar sits between them');
+  assert.ok(footer?.classes.includes('z-25'), 'the bar sits under the backdrop');
+  assert.equal(attrOf(footer!, 'inert'), '{S.drawer.id !== null}', 'and is inert while a drawer is open');
 });
 
 test('the daemon popover keeps every daemon bar control', () => {
