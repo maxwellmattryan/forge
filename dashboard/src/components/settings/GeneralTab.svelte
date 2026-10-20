@@ -1,5 +1,6 @@
 <!-- Settings › General: the dashboard's appearance, language and keyboard, kept per browser. -->
 <script lang="ts">
+  import Select from '../Select.svelte';
   import { CATALOGS, locale, setLocale, t } from '../../lib/locale.ts';
   import { THEME_CHOICES, chooseTheme, currentGrain, setGrain, themeChoice, type ThemeChoice } from '../../lib/theme.ts';
   import { pref } from '../../lib/prefs.ts';
@@ -41,9 +42,7 @@
     <h3 class="label callout">{$t('settings.general.languageKeyboard')}</h3>
     <div class="grid grid-cols-1 sm:grid-cols-[150px_1fr] gap-x-5 gap-y-3 sm:items-center">
       <label for="settings-locale">{$t('settings.general.language')}</label>
-      <select id="settings-locale" class="self-start justify-self-start" value={$locale} onchange={(e) => setLocale(e.currentTarget.value)}>
-        {#each codes as code (code)}<option value={code} lang={code}>{languageName(code)}</option>{/each}
-      </select>
+      <Select id="settings-locale" class="self-start justify-self-start" value={$locale} options={codes.map((code) => ({ value: code, label: languageName(code), lang: code }))} onchange={setLocale} />
       <p class="sm:col-span-2 caption muted">{$t('settings.general.hint', { key })}</p>
     </div>
   </section>

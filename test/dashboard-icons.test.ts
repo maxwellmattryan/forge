@@ -34,7 +34,7 @@ const svelteFiles = () =>
     .sort();
 
 test('ICONS holds only the shapes Icon.svelte draws', () => {
-  assert.equal(Object.keys(ICONS).length, 33);
+  assert.equal(Object.keys(ICONS).length, 35);
   for (const [name, def] of Object.entries(ICONS)) {
     assert.ok(Array.isArray(def) && def.length > 0, `${name} is a list of shapes: no cx group`);
     for (const shape of def as readonly Record<string, string>[]) {
@@ -107,8 +107,9 @@ test('settings tabs, controls and call sites use the set', () => {
 
   for (const file of ['components/statusbar/DaemonPanel.svelte', 'components/SessionLog.svelte']) {
     const text = readSrc(file);
-    assert.ok(text.includes('<Icon name="play"'), `${file} has the play icon`);
-    assert.ok(text.includes('<Icon name="stop"'), `${file} has the stop icon`);
+    // Through its one Start/Stop IconButton toggle.
+    assert.match(text, /<IconButton icon=\{[^}]*'play'/, `${file} has the play icon`);
+    assert.match(text, /<IconButton icon=\{[^}]*'stop'/, `${file} has the stop icon`);
   }
 });
 

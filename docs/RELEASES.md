@@ -31,9 +31,11 @@ A config key or CLI flag on its way out is announced in CHANGELOG.md at least on
 
 A release is a commit on `main` that changes the `version` in `package.json` and `.claude-plugin/plugin.json` and adds that version's `## <version>` section to CHANGELOG.md. Forge jobs never make that change: the release commit at the end of a wave does.
 
-1. On a branch, bump both versions together and write the CHANGELOG section.
+**Branches.** `develop` is the working branch: jobs and PRs branch from it and merge into it. `main` is what plugin installs follow (`.claude-plugin/marketplace.json` pins the plugin source to `main`, whatever the GitHub default branch is), so it takes only release commits and hotfixes. `dashboard/dist/` is gitignored and absent on `develop`; release and hotfix commits are the only ones that commit it, because an install never builds. A hotfix branches from `main`, commits a rebuilt `dist/` like a release, and is ported to `develop` in a PR that leaves `dist/` out. Never merge `main` back into `develop`: it would bring `dist/` with it.
+
+1. On a release branch from `develop`, bump both versions together, write the CHANGELOG section, and commit a fresh dashboard build: `npm ci`, `npm run build:dashboard`, then `git add --force dashboard/dist` (it is gitignored). Without it, the merge into `main` deletes the build installs serve; if `dist/` conflicts with a hotfix, take the fresh build.
 2. Run `npm run release:check`. It fails unless both versions are equal and `X.Y.Z`, CHANGELOG.md has an exact `## <version>` heading with notes and no AI attribution line, the working tree is clean, and `dashboard/dist/` matches its build stamp. CI's `release check` job runs the same check on every PR and push.
-3. Open the PR and merge it once CI is green.
+3. Open the PR into `main` and merge it once CI is green.
 4. The merge runs `.github/workflows/release.yml`:
    - **detect** reads the pushed commit. It is a release only when the version differs from the first parent's and no `v<version>` tag exists. Any other push stops here.
    - **verify** runs all of `ci.yml` again on that commit, with a read-only token.
@@ -87,17 +89,17 @@ The registry step, for `tag` and `release-please`: `npm publish` with `registry:
 
 and then load that directory with `claude --plugin-dir <dir>`, or add it as a local marketplace with `claude plugin marketplace add <dir>`. A pinned clone sits on a detached tag, which `forge update` refuses to move.
 
-A marketplace install added from GitHub (`claude plugin marketplace add maxwellmattryan/forge`) follows `main` and cannot pin a version: `claude plugin marketplace add` (Claude Code 2.1.299) takes a URL, a path or a GitHub repo, with no ref.
+A marketplace install added from GitHub (`claude plugin marketplace add maxwellmattryan/forge`) follows `main`, through the plugin source in `.claude-plugin/marketplace.json`, and cannot pin a version: `claude plugin marketplace add` (Claude Code 2.1.299) takes a URL, a path or a GitHub repo, with no ref.
 
 **Roll back.** In a pinned clone, `git fetch --tags` and `git checkout v<older>`; with an archive, extract the older one. Then start a new Claude Code session (and restart `forge dash`). Jobs and configs written by a newer Forge may not load in an older one; `forge doctor` flags jobs from a newer Forge.
 
 ## Release checklist
 
-1. Every job of the wave is merged and CI on `main` is green.
-2. On a branch, bump `version` in `package.json` and `.claude-plugin/plugin.json` to the same `X.Y.Z`.
+1. Every job of the wave is merged into `develop`, each after a green CI run on its PR.
+2. On a release branch from `develop`, rebuild and force-add `dashboard/dist/` (`npm run build:dashboard && git add --force dashboard/dist`), and bump `version` in `package.json` and `.claude-plugin/plugin.json` to the same `X.Y.Z`.
 3. Add `## X.Y.Z` to CHANGELOG.md: behaviour changes first, the versions bumped (`API_VERSION`, schemas), deprecations and removals.
 4. Run `npm run release:check` and the AGENTS.md verify list.
-5. Open the PR, wait for CI (including `release check`), and merge.
+5. Open the PR into `main`, wait for CI (including `release check`), and merge.
 6. Watch the `Release` run on `main`: detect, verify, release.
 7. Check the Release page: tag `vX.Y.Z` on the merge commit, the CHANGELOG body, `forge-X.Y.Z.tar.gz` and its `.sha256`.
 8. Run `forge update` on an install and confirm `forge version --json` and `forge doctor` (no "behind the latest release" warning).

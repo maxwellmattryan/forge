@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.18.5
+
+- Fix: the marketplace's plugin source pinned to `main` in 0.18.4 now uses a `url` source (`https://github.com/maxwellmattryan/forge.git`, ref `main`) in place of the `github` source. Run `forge update` to move an install onto it.
+
+## 0.18.4
+
+- Fix: a plugin install added from GitHub followed the repo's default branch, `develop`, which has no built dashboard, so `forge dash` failed with "dashboard is not built". The marketplace now pins the plugin source to `main`. Run `forge update` to move an install onto `main`.
+
+## 0.18.3
+
+- **Dashboard:** a custom select input in place of the native one, a reordered sidebar that can be resized and collapsed to an icon-only compact mode, a cleaner status bar, and icon start, stop and pause controls in the log views, with a tooltip on every icon button.
+- Development now happens on `develop`; `main` takes only release and hotfix commits, and `dashboard/dist/` is committed only there.
+- CI: `actions/setup-node` 7.0.0 → 7.1.0.
+
 ## 0.18.2
 
 0.18.1 was never published: its release run failed in verify, so it has no tag or GitHub Release. 0.18.2 is the first release since 0.18.0 and carries everything in the 0.18.1 notes below, plus:

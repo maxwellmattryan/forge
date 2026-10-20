@@ -599,7 +599,7 @@ test('no filled element nests in a patterned one', () => {
 // Text never sits on the grain: the grain shows only on bare ground between surfaces, so every word, value,
 // caller snippet and component the shell or a view puts on the page has a surface around it. A component this test
 // scans itself (GROUND, or a view) is checked inside its own file instead.
-const GROUND = ['PageHeader', 'Empty', 'Banner', 'StatusBar', 'Popover', 'JobCard', 'JobsTable', 'InboxCard', 'CommandTrigger', 'Drawer', 'Settings', 'CommandBar', 'Toast', 'GitHubCard', 'NeedsPanel', 'PeriodMeter', 'RailTip'];
+const GROUND = ['PageHeader', 'Empty', 'Banner', 'StatusBar', 'Popover', 'JobCard', 'JobsTable', 'InboxCard', 'CommandTrigger', 'Drawer', 'Settings', 'CommandBar', 'Toast', 'GitHubCard', 'NeedsPanel', 'PeriodMeter', 'Select', 'RailTip', 'Tooltip'];
 /** A GROUND component's file: components/, or components/statusbar/ for a popover body. */
 const groundFile = (c: string) => (fs.existsSync(path.join(SRC, 'components', `${c}.svelte`)) ? `components/${c}.svelte` : `components/statusbar/${c}.svelte`);
 // A plate is a surface; an open plate is a container the grain shows through (dashboard/AGENTS.md › Text never sits on the grain).
@@ -659,38 +659,6 @@ test('text never sits on the bare ground', () => {
 
 /** Every file under dashboard/src, relative to it. */
 const srcFiles = () => [...tsFiles(), ...svelteFiles()];
-
-test("looping motion is the live halo and the stepper's trace, both motion-safe", () => {
-  const animate = /(?<![\w-])(?:[\w-]+:)*animate-[\w-]+/g;
-  const uses = srcFiles().flatMap((f) => [...read(f).matchAll(animate)].map((m) => [f, m[0]]));
-  assert.deepEqual(uses.sort(), [['components/LiveDot.svelte', 'motion-safe:animate-ping']], "LiveDot's motion-safe halo is the only animate-* token");
-  const dot = read('components/LiveDot.svelte');
-  assert.match(dot, /<span class="dot gleam halo motion-safe:animate-ping"><\/span><span class="dot gleam relative"><\/span>/);
-  assert.match(dot, /<span class="dot hollow shrink-0" aria-hidden="true"><\/span>/, 'off: a hollow dot');
-  assert.match(dot, /<span class="relative inline-flex shrink-0" aria-hidden="true">/, 'on: the dot and halo are aria-hidden');
-
-  assert.match(read('components/SessionActivity.svelte'), /<LiveDot on=\{activity\.kind === 'working'\} \/>/);
-  for (const f of ['components/JobCard.svelte', 'components/Drawer.svelte']) assert.match(read(f), /<SessionActivity\b/, `${f} renders the live dot through SessionActivity`);
-  assert.match(read('components/StatusBar.svelte'), /<LiveDot\b/, 'the status bar renders the live dot');
-
-  const css = fs
-    .readdirSync(path.join(ROOT, 'dashboard', 'dist', 'assets'))
-    .filter((f) => f.endsWith('.css'))
-    .map((f) => fs.readFileSync(path.join(ROOT, 'dashboard', 'dist', 'assets', f), 'utf8'))
-    .join('\n');
-  const at = css.indexOf('.motion-safe\\:animate-ping{');
-  assert.ok(at > 0, 'the built CSS has the halo');
-  const media = css.lastIndexOf('@media', at);
-  assert.match(css.slice(media, at), /^@media\s*\(\s*prefers-reduced-motion\s*:\s*no-preference\s*\)\s*\{$/, 'inside a prefers-reduced-motion: no-preference block');
-  assert.equal(css.split('.motion-safe\\:animate-ping{').length - 1, 1, 'and nowhere else');
-  const trace = css.indexOf('.motion-safe\\:trace-loop{');
-  assert.ok(trace > 0, "the built CSS has the stepper's trace");
-  // The trace shares the halo's block, so check the nearest @media is still open at the rule, not that it opens right before it.
-  const open = css.slice(css.lastIndexOf('@media', trace), trace);
-  assert.match(open, /^@media\s*\(\s*prefers-reduced-motion\s*:\s*no-preference\s*\)\s*\{/, 'the trace is inside a prefers-reduced-motion: no-preference block');
-  assert.equal(open.split('{').length - open.split('}').length, 1, 'and that block is still open at the trace rule');
-  assert.equal(css.split('.motion-safe\\:trace-loop{').length - 1, 1, 'the trace rule appears once');
-});
 
 test('no custom keyframes or animate utilities in dashboard sources', () => {
   const files = [['style.css', fs.readFileSync(path.join(ROOT, 'dashboard', 'style.css'), 'utf8')], ...srcFiles().map((f) => [f, read(f)])];
@@ -1378,10 +1346,12 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
     assert.equal(attrOf(b, 'aria-haspopup'), 'dialog');
     assert.ok(attrOf(b, 'aria-expanded'), 'aria-expanded');
     assert.ok(attrOf(b, 'aria-controls'), 'aria-controls while open');
-    // Every icon button carries its tooltip at every width and fit level; held and waiting are text buttons, titled only
-    // while their reason is hidden.
+    // Every icon button carries its tooltip at every width and fit level, except the bell: its name shows in its dashboard
+    // Tooltip (test/dashboard-icon-buttons.test.ts), so it has no native title. Held and waiting are text buttons, titled
+    // only while their reason is hidden.
     const id = attrOf(b, 'data-popover');
-    if (b.classes.includes('max-md:hidden')) assert.match(attrOf(b, 'title'), /\? .* : undefined\}$/, 'held and waiting: a tooltip only while the reason is hidden');
+    if (id === 'needs') assert.equal(b.attrs.find((a) => a.name === 'title'), undefined);
+    else if (b.classes.includes('max-md:hidden')) assert.match(attrOf(b, 'title'), /\? .* : undefined\}$/, 'held and waiting: a tooltip only while the reason is hidden');
     else assert.equal(attrOf(b, 'title'), `{titles.${id}}`, `the ${id} indicator's tooltip is unconditional`);
     assert.ok(!b.attrs.some((a) => a.name === 'aria-label'), 'no aria-label: the name comes from the content, sr-only parts included');
     assert.ok(!b.classes.includes('truncate') && !b.classes.includes('min-w-0'), 'labels are whole or hidden, never cut');
@@ -1498,9 +1468,12 @@ test('the daemon popover keeps every daemon bar control', () => {
   assert.ok(markup.indexOf('</ul>') < markup.indexOf('toggleInbox'), 'after the session list');
   const toggle = elements('components/statusbar/DaemonPanel.svelte').find((e) => attrOf(e, 'onclick') === '{toggleInbox}');
   assert.ok(toggle && has(toggle, 'btn', 'sm') && attrOf(toggle, 'aria-expanded'), 'the Inbox session log toggle is a btn sm with aria-expanded');
-  for (const icon of ['play', 'stop']) assert.ok(panel.includes(`<Icon name="${icon}" />`), `the ${icon} icon`);
-  assert.match(panel, /disabled=\{!model\.canStart\} title=\{model\.startHint\} aria-label=\{\$t\('daemon\.startAll'\)\}/, 'Start follows canStart and carries the config hint');
-  assert.match(panel, /disabled=\{!model\.canStop\} aria-label=\{\$t\('daemon\.stopAll'\)\}/);
+  // One pool Start/Stop icon toggle, driven by model.toggle; Start carries the config hint.
+  const pool = elements('components/statusbar/DaemonPanel.svelte').filter((e) => e.name === 'IconButton');
+  assert.equal(pool.length, 2, 'one toggle per branch');
+  assert.equal(attrOf(pool[0], 'icon'), "{model.toggle.action === 'start' ? 'play' : 'stop'}", 'the play and stop icons');
+  assert.equal(attrOf(pool[0], 'hint'), "{model.toggle.action === 'start' ? model.startHint : null}", 'Start carries the config hint');
+  assert.equal(attrOf(pool[0], 'disabled'), '{!model.toggle.enabled}');
   for (const chip of ['daemon.held', 'daemon.waiting', 'daemon.kept']) assert.ok(!panel.includes(`$t('${chip}'`), `no ${chip} chip: the rows say it`);
   assert.match(markup, /\{#if model\.error !== null\}<p[^>]*>\{model\.error\}<\/p>\{\/if\}/, 'the pool error renders as text');
   assert.doesNotMatch(panel, /\{@html/);
@@ -1666,7 +1639,7 @@ test('Needs you is a status-bar popover, not a page', () => {
   assert.equal(en.daemon.inbox, undefined, 'no daemon.inbox key');
   const leaves = (o: any, at = ''): [string, string][] => Object.entries(o).flatMap(([k, v]) => (typeof v === 'object' && v ? leaves(v, `${at}${k}.`) : [[`${at}${k}`, String(v)] as [string, string]]));
   assert.deepEqual(leaves(en).filter(([, v]) => v === 'Inbox').map(([k]) => k), [], 'no message is exactly "Inbox"');
-  for (const [k, v] of [['daemon.rows.inbox', 'Inbox session'], ['statusbar.daemon.inboxLog', 'Inbox session log'], ['permission.inbox', 'Inbox session'],['session.startInbox', 'Start inbox session'], ['session.stopInbox', 'Stop inbox session'], ['needs.noDecisions', 'No decisions waiting']])
+  for (const [k, v] of [['daemon.rows.inbox', 'Inbox session'], ['statusbar.daemon.inboxLog', 'Inbox session log'], ['permission.inbox', 'Inbox session'], ['needs.noDecisions', 'No decisions waiting']])
     assert.equal(k.split('.').reduce((o: any, p) => o?.[p], en), v, k);
   // The old link shows the Pipeline, rewrites the hash and asks for the popover.
   const route = fnBody(read('lib/app.svelte.ts'), 'export function route(');
@@ -1796,30 +1769,16 @@ test('the session log merges Start and Stop', () => {
   const markup = markupOf('components/SessionLog.svelte');
   assert.doesNotMatch(markup, /act\('start'\)|act\('stop'\)/, 'no Start and Stop pair');
   assert.match(text, /const toggle = \$derived\(sessionToggle\(controls, session\)\);/, 'one action, from sessionToggle');
-  const flip = markup.slice(markup.indexOf('{#snippet flip('), markup.indexOf('{/snippet}', markup.indexOf('{#snippet flip(')));
-  const inFlip = elements('components/SessionLog.svelte', flip);
-  const buttons = inFlip.filter((e) => e.name === 'button');
-  assert.equal(buttons.length, 1, 'the snippet renders one button');
-  const b = buttons[0];
+  // One IconButton for every scope (the inbox, the office and a job); its label and icon come from the action.
+  const toggles = elements('components/SessionLog.svelte').filter((e) => e.name === 'IconButton');
+  assert.equal(toggles.length, 1, 'one Start/Stop icon toggle');
+  const b = toggles[0];
   assert.equal(attrOf(b, 'onclick'), '{(e) => act(toggle.action, e.currentTarget)}', 'the button, so focus can return to it');
   assert.match(fnBody(read('components/SessionLog.svelte').replace(/\n {2}/g, '\n'), 'async function act('), /const restore = keepFocus\(el\);[\s\S]*finally \{\s*pending = false;\s*await tick\(\);\s*restore\(\);/, 'focus returns to the toggle once it is enabled again');
   assert.equal(attrOf(b, 'disabled'), '{!toggle.enabled}');
-  assert.equal(attrOf(b, 'title'), "{toggle.action === 'start' ? $t('session.startHint') : undefined}", 'the start hint while it shows Start');
-  const swap = inFlip.find((e) => e.classes.includes('swap'));
-  assert.ok(swap && swap.parents.at(-1) === b, 'icon and label sit in one swap cell inside the button');
-  const states = inFlip.filter((e) => e.parents.at(-1) === swap);
-  assert.equal(states.length, 2, 'one child per state');
-  for (const st of states) {
-    assert.ok(attrOf(st, 'data-off') && attrOf(st, 'aria-hidden'), 'the inactive state is data-off and aria-hidden');
-    assert.ok(inFlip.some((e) => e.name === 'Icon' && e.parents.includes(st)), 'each state holds its icon');
-  }
-  assert.ok(flip.includes('<Icon name="play" />{start}') && flip.includes('<Icon name="stop" />{stop}'), 'play for Start, stop for Stop');
-  // One render per scope branch, with the scope's labels (and a job's aria-labels).
-  assert.equal(markup.match(/\{@render flip\(/g)?.length, 3, 'one per scope branch');
-  assert.match(markup, /\{#if scope === INBOX_SCOPE\}\s*\{@render flip\(\$t\('session\.startInbox'\), \$t\('session\.stopInbox'\)\)\}/, 'the inbox');
-  assert.match(markup, /\{:else if scope === OFFICE_SCOPE\}\s*\{@render flip\(\$t\('session\.startOffice'\), \$t\('session\.stopOffice'\)\)\}/, 'the office');
-  assert.ok(markup.includes("{@render flip($t('session.start'), $t('session.stop'), toggle.action === 'start' ? $t('session.startJob') : $t('session.stopJob'))}"), 'a job, named by its aria-label');
-  assert.deepEqual(openBlocksAt(read('components/SessionLog.svelte'), '{@render flip(').at(0)?.slice(0, 1), ['#if !transcript'], 'never in transcript mode');
+  assert.equal(attrOf(b, 'hint'), "{toggle.action === 'start' ? $t('session.startHint') : null}", 'the start hint while it shows Start');
+  assert.equal(attrOf(b, 'icon'), "{toggle.action === 'start' ? 'play' : 'stop'}", 'play for Start, stop for Stop');
+  assert.deepEqual(openBlocksAt(read('components/SessionLog.svelte'), '<IconButton').at(0)?.slice(0, 1), ['#if !transcript'], 'never in transcript mode');
 });
 
 test('log menus are top-layer dialogs', () => {
@@ -1906,15 +1865,17 @@ test("the session log's rendered/raw toggle is icon-only", () => {
   assert.ok(read('components/SessionLog.svelte').includes('<MarkdownToggle surface="session" iconOnly />'));
   for (const f of srcFiles().filter((x) => x !== 'components/SessionLog.svelte' && x.endsWith('.svelte'))) assert.doesNotMatch(read(f), /<MarkdownToggle\b[^>]*\biconOnly\b/, `${f} keeps the labelled segment`);
   const els = elements('components/MarkdownToggle.svelte');
-  const icon = openBlocksAt(read('components/MarkdownToggle.svelte'), '<Icon name="markdown" />');
+  const icon = openBlocksAt(read('components/MarkdownToggle.svelte'), '<IconButton icon="markdown"');
   assert.deepEqual(icon.map((b) => b.at(-1)), ['#if iconOnly'], 'the icon button renders only with iconOnly');
-  const b = els.find((e) => e.name === 'button' && e.first?.name === 'Icon');
-  assert.ok(b && has(b, 'btn', 'sm', 'icon'), 'one btn sm icon');
-  assert.equal(attrOf(b, 'aria-pressed'), '{rendered}');
-  assert.equal(attrOf(b, 'aria-label'), "{$t('markdown.sessionRendered')}");
-  assert.equal(attrOf(b, 'title'), "{$t('markdown.sessionRendered')}");
+  // IconButton draws a btn sm icon (sm by default), sel and aria-pressed from `pressed`, and the label's Tooltip.
+  const b = els.find((e) => e.name === 'IconButton');
+  assert.ok(b, 'one IconButton');
+  assert.equal(attrOf(b, 'pressed'), '{rendered}');
+  assert.equal(attrOf(b, 'label'), "{$t('markdown.sessionRendered')}");
+  assert.equal(attrOf(b, 'title'), '', 'no native title: the Tooltip names it');
   assert.equal(attrOf(b, 'onclick'), "{() => setMdView(surface, rendered ? 'raw' : 'rendered')}");
-  assert.ok(b.classes.includes("{rendered ? 'sel' : ''}") || /rendered \? 'sel' : ''/.test(attrOf(b, 'class')), 'sel shows the state');
+  assert.match(read('components/IconButton.svelte'), /class="btn icon \{size === 'sm' \? 'sm' : ''\} \{ghost \? 'ghost' : ''\} \{pressed \? 'sel' : ''\}/, 'sel shows the state');
+  assert.match(read('components/IconButton.svelte'), /aria-pressed=\{pressed === undefined \? undefined : pressed\}/);
   assert.match(read('components/MarkdownToggle.svelte'), /const rendered = \$derived\(mdView\[surface\] === 'rendered'\);/);
   assert.ok(read('components/MarkdownToggle.svelte').includes('<div class="seg" role="group" aria-label={groupLabel[surface]}>'), 'without it, the segment is unchanged');
 });

@@ -200,7 +200,7 @@ components:
   - name: dashboard
     path: .
     kind: app
-    notes: "The web UI: dashboard/ (Svelte 5 in src/, style.css, index.html). Built into the committed dashboard/dist/, which forge dash serves; never hand-edit dist/. dashboard/src/lib/types.ts mirrors the /api shapes that lib/server.ts serves."
+    notes: "The web UI: dashboard/ (Svelte 5 in src/, style.css, index.html). Built into dashboard/dist/, which forge dash serves; dist/ is gitignored on develop, so never commit or hand-edit it (only release and hotfix commits on main commit it). dashboard/src/lib/types.ts mirrors the /api shapes that lib/server.ts serves."
     dependsOn:
       - { component: cli, type: runtime }
       - { component: library, type: runtime }

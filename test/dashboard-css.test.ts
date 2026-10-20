@@ -13,7 +13,7 @@ const styleCss = () => fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8'
 
 const UTILITIES = (
   'ground falloff plain solid chrome plate clickable h label callout mono num muted dimmed caption stamp-line prose btn seg chip ' +
-  'navlist input check radio field cmd-field track fill tabs tab tbl facts kpi ic dot halo backdrop scrim mark swap'
+  'navlist input check radio field cmd-field track fill tabs tab tbl facts kpi ic dot halo backdrop scrim mark'
 ).split(' ');
 // Compound selectors as the build writes them (minified, attribute quotes dropped).
 const MODIFIERS = [
@@ -303,20 +303,10 @@ function mediaBody(css: string, prelude: RegExp): string {
     .join('');
 }
 
-test('swap stacks both states and transitions only opacity and scale', () => {
-  const css = builtCss();
-  const root = ruleFor(css, '.swap');
-  assert.match(root, /display:inline-grid/, 'one grid cell for both states');
-  const kids = ruleFor(css, '.swap>*');
-  assert.match(kids, /grid-area:1\/1/, 'both states sit in the same cell');
-  const transition = /transition:([^;}]*)/.exec(kids)?.[1] ?? '';
-  const props = transition.split(',').map((p) => p.trim().split(/\s+/)[0]);
-  assert.deepEqual(props.sort(), ['opacity', 'scale'], `only opacity and scale transition (${transition})`);
-  const off = ruleFor(css, '.swap>[data-off]');
-  assert.match(off, /opacity:0/, 'the inactive state is hidden');
-  assert.match(off, /scale:\.6/, 'and shrunk, so it grows in on the flip');
-  // The reduced-motion block still kills every transition, this one included.
-  assert.match(ruleFor(mediaBody(css, /\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/), '*'), /transition:none!important/);
+// The session log's text Start/Stop was swap's only user; it is an icon toggle now (components/IconButton.svelte).
+test('the retired swap utility is gone', () => {
+  assert.doesNotMatch(styleCss(), /@utility swap\b/);
+  assert.ok(!hasClass(builtCss(), 'swap'), 'no .swap rule is built');
 });
 
 test('reduced motion disables transitions and animations', () => {
