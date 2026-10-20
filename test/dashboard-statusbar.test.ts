@@ -308,3 +308,13 @@ test('facts strip order and drop order', () => {
   assert.ok(at('<div bind:this={factsBox} class="facts') < focus && focus < at('<div bind:this={rightBox}'), 'and the right one, holding the focus fact');
   assert.doesNotMatch(bar, /class="sep\b/, 'no separators: nothing sits beside the focus fact');
 });
+
+test("status bar tooltips: Notifications on the bell, the Foreman's off title", () => {
+  const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const src = fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'components', 'StatusBar.svelte'), 'utf8');
+  const en = JSON.parse(fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'messages', 'en.json'), 'utf8'));
+  assert.match(src, /needs: \$t\('statusbar\.needs\.tooltip'\),/, 'the bell says only Notifications');
+  assert.equal(en.statusbar.needs.tooltip, 'Notifications');
+  assert.match(src, /foreman: !bar\.foreman\.on\s*\? \$t\('statusbar\.foreman\.offTitle'\)/, "the Foreman's off title");
+  assert.notEqual(en.statusbar.foreman.offTitle, en.statusbar.foreman.off, 'which differs from the visible "Foreman off"');
+});

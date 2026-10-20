@@ -105,6 +105,7 @@
     "needs": {
       "name": "Needs you",
       "title": "Needs you",
+      "tooltip": "Notifications",
       "count": {
         "one": "{count} decision waiting",
         "other": "{count} decisions waiting"
