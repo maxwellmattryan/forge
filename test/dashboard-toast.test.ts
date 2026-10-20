@@ -20,7 +20,7 @@ test('toast placement avoids the pane, the dock and the status bar', () => {
   assert.deepEqual(at({ narrow: true, paneOpen: true }), { edge: 'top' }, 'phone, drawer open');
 
   const src = fs.readFileSync(TOAST, 'utf8');
-  assert.match(src, /toastPlacement\(\{ narrow: !S\.pane\.md, paneOpen: S\.drawer\.id !== null, paneWidth: clampPaneWidth\(S\.pane\.width, S\.pane\.viewport\) \}\)/, 'Toast.svelte passes the clamped drawer width');
+  assert.match(src, /toastPlacement\(\{ narrow: !S\.pane\.md, paneOpen: S\.drawer\.id !== null, paneWidth: clampPaneWidth\(S\.pane\.width, S\.pane\.viewport, sidebarShown\(S\.side\)\) \}\)/, 'Toast.svelte passes the clamped drawer width, stopped at the sidebar it shows');
   assert.match(src, /id="toast" class="fixed z-50 /, 'above the drawer backdrop (z-30) and the drawer (z-40)');
   assert.match(src, /'bottom-\[calc\(var\(--size-statusbar\)_\+_env\(safe-area-inset-bottom\)_\+_var\(--space-3\)\)\] max-w-\[24rem\]'/, 'bottom-right: above the bar, at most 24rem');
   assert.match(src, /'top-3 left-1\/2 -translate-x-1\/2 max-w-\[calc\(100vw-2rem\)\]'/, 'top: centred, inside the viewport');

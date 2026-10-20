@@ -29,6 +29,9 @@
     "evals": "Evals",
     "project": "Project"
   },
+  "sidebar": {
+    "resize": "Resize sidebar"
+  },
   "job": {
     "round": "round {round}/{max}",
     "usage": "{tokens} tok · {ago}",
@@ -99,8 +102,6 @@
     "start": "Start",
     "stop": "Stop",
     "failed": "Daemon {action} failed: {error}",
-    "startAll": "Start the daemon (all sessions)",
-    "stopAll": "Stop the daemon (all sessions)",
     "modeTitle": "Permission mode: {mode}",
     "rows": {
       "label": "Sessions",
@@ -116,19 +117,13 @@
     "needs": {
       "name": "Needs you",
       "title": "Needs you",
+      "tooltip": "Notifications",
       "count": {
         "one": "{count} decision waiting",
         "other": "{count} decisions waiting"
       }
     },
     "facts": {
-      "forge": "FORGE",
-      "version": "v{version}",
-      "api": "API",
-      "sessions": "SESSIONS",
-      "sessionsValue": "{count} active",
-      "sheet": "SHEET",
-      "sheetValue": "{view} · {index} of {total}",
       "focus": "FOCUS"
     },
     "daemon": {
@@ -206,9 +201,6 @@
     "idle": "idle",
     "line": "{state} · {ago}",
     "columnWorking": "{count} working",
-    "inbox": "inbox session",
-    "office": "office",
-    "none": "No session is working",
     "new": "new"
   },
   "permission": {
@@ -413,6 +405,7 @@
   },
   "analytics": {
     "title": "Analytics",
+    "window": "Time window",
     "sub": "How Forge itself is performing. Comparable across repos because it measures the process, not the code.",
     "name": "Name",
     "noUsage": "No usage recorded yet.",
@@ -476,6 +469,8 @@
     "cost": "Cost",
     "minutes": "Minutes",
     "compareRuns": "Compare runs",
+    "runA": "First run",
+    "runB": "Second run",
     "compare": "Compare",
     "empty": "No eval runs yet. Add tasks with",
     "cmdMine": "forge eval mine --pr <n>",
@@ -687,12 +682,6 @@
       "one": "({count} line hidden)",
       "other": "({count} lines hidden)"
     },
-    "startInbox": "Start inbox session",
-    "stopInbox": "Stop inbox session",
-    "startOffice": "Start office",
-    "stopOffice": "Stop office",
-    "startJob": "Start this job's session",
-    "stopJob": "Stop this job's session",
     "startHint": "Re-enables this session; it starts on its next request",
     "emptyEnabled": "No session log for this job yet. Its session starts with the job's next request.",
     "emptyInboxEnabled": "No inbox session log yet. It starts with the next request that has no job.",
@@ -966,6 +955,9 @@
     "noTranscript": "No transcript for this agent",
     "transcript": "{role} transcript · read-only"
   },
+  "select": {
+    "choose": "Choose…"
+  },
   "budget": {
     "meterTitle": "Repo spend · {month}",
     "meterLabel": "Month spend against the cap",
@@ -979,9 +971,6 @@
     "todayOf": "{spent} of {cap}",
     "todayUncapped": "{spent} · no daily cap",
     "dayLabel": "Today's spend against the daily cap",
-    "chipCapped": "{spent} / {cap}",
-    "chipUncapped": "{spent} this month",
-    "chipTitle": "Repo spend this month · open Analytics",
     "section": "Repo budget",
     "heldJobs": "Held jobs",
     "noHeldJobs": "No job is parked yet; new work waits until the cap allows it.",

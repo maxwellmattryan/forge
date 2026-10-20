@@ -46,6 +46,8 @@ export interface PoolModel {
   canStop: boolean;
   /** Why Start is disabled when the config, not a pending request, is the reason. */
   startHint: string | null;
+  /** The popover's one pool Start/Stop: Stop while the pool is wanted or anything runs, else Start; enabled by that action's flag. */
+  toggle: { action: 'start' | 'stop'; enabled: boolean };
 }
 
 const running = (s: unknown) => obj(s).running === true;
@@ -110,6 +112,9 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
     .map(([id, s]) => ({ id, label: id.length > JOB_LABEL ? `${id.slice(0, JOB_LABEL)}…` : id, pill: sessionPill(s), mode: chosenOverride(p, id) }))
     .sort((a, b) => ORDER.indexOf(a.pill.label) - ORDER.indexOf(b.pill.label) || (a.id < b.id ? -1 : 1));
   const canStart = p.enabled === true && !p.wanted && !anyRunning && !pending;
+  const canStop = Boolean(p.wanted || anyRunning) && !pending;
+  // canStart and canStop are never both true, so the one toggle never hides an action that could run.
+  const action = p.wanted || anyRunning ? 'stop' : 'start';
   return {
     pill: {
       label,
@@ -126,8 +131,9 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
     jobs: chips,
     error: p.lastError && label !== 'error' ? String(p.lastError) : null,
     canStart,
-    canStop: Boolean(p.wanted || anyRunning) && !pending,
+    canStop,
     startHint: !canStart && p.enabled !== true ? START_HINT : null,
+    toggle: { action, enabled: action === 'stop' ? canStop : canStart },
   };
 }
 

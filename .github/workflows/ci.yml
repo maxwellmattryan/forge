@@ -41,7 +41,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up Node ${{ matrix.node }}
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
@@ -53,15 +53,6 @@ jobs:
         run: npm run check:dashboard
       - name: Build dashboard
         run: npm run build:dashboard
-      - name: Check dashboard/dist is committed
-        run: |
-          stale="$(git status --porcelain -- dashboard/dist)"
-          if [ -n "$stale" ]; then
-            echo "::error title=Stale dashboard/dist::dashboard/dist is stale: run npm run build:dashboard and commit dashboard/dist"
-            echo "Stale files:"
-            echo "$stale"
-            exit 1
-          fi
       - name: Run tests
         env:
           TEST_SHARD: ${{ matrix.shard }}
@@ -85,7 +76,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
@@ -106,7 +97,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
@@ -123,7 +114,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up Node 22.18.0
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22.18.0'
           package-manager-cache: false

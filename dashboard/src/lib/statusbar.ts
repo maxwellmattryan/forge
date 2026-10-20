@@ -145,16 +145,15 @@ export const promptAnnouncement = (prev: number, next: number): number | null =>
 
 // ---------- the facts strip ----------
 
-/** What the facts strip drops as it runs short, first to last: the whole SHEET pair, the whole API pair, the SESSIONS
- *  word (the live dot and its count stay), the FORGE word (the version stays), the FOCUS word (the focused job's id stays). */
-export const FACTS_DROP = ['sheet', 'api', 'sessionsWord', 'forgeWord', 'focusWord'] as const;
+/** What the facts strip drops as it runs short: its one fact is FOCUS, whose word goes (the focused job's id stays). */
+export const FACTS_DROP = ['focusWord'] as const;
 export type FactsPart = (typeof FACTS_DROP)[number];
 export const FACTS_MAX = FACTS_DROP.length;
 
 /** Which facts a fit level hides: level n hides the first n of FACTS_DROP. */
 export function factsHidden(level: number): Record<FactsPart, boolean> {
   const n = Math.max(0, Math.min(Math.floor(level), FACTS_MAX));
-  return { sheet: n >= 1, api: n >= 2, sessionsWord: n >= 3, forgeWord: n >= 4, focusWord: n >= 5 };
+  return { focusWord: n >= 1 };
 }
 
 // ---------- the sidebar's command input ----------

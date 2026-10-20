@@ -156,7 +156,7 @@ export function distDirFor(opts: ServerOptions): string {
 /**
  * Read-mostly, localhost-only server. POSTs need the per-process token embedded in the page,
  * so another site in the same browser cannot enqueue work or start the daemon.
- * `distDir` is a test seam like `sseMaxAgeMs`; it defaults to the plugin's committed dashboard/dist, or to
+ * `distDir` is a test seam like `sseMaxAgeMs`; it defaults to the plugin's dashboard/dist, or to
  * the dev build under `dev`.
  */
 export function startServer(root: string, opts: ServerOptions = {}): Promise<RunningServer> {

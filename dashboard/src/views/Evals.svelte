@@ -4,6 +4,7 @@
   import CompareTable from '../components/CompareTable.svelte';
   import Empty from '../components/Empty.svelte';
   import PageHeader from '../components/PageHeader.svelte';
+  import Select from '../components/Select.svelte';
   import { safeUrl } from '../lib/markdown.ts';
   import { pct, tokensShort, usd } from '../lib/util.ts';
   import type { ApiState } from '../lib/types.ts';
@@ -22,6 +23,7 @@
   let pickB = $state<string>();
   const cmpA = $derived(pickA ?? (S.compare.a || runs[1]?.id || runs[0]?.id));
   const cmpB = $derived(pickB ?? (S.compare.b || runs[0]?.id));
+  const runOptions = $derived(runs.map((r) => ({ value: r.id, label: `${r.id}${r.label ? ` (${r.label})` : ''}` })));
 </script>
 
 {#snippet kpi(label: string, value: string)}
@@ -70,9 +72,9 @@
     <div class="plate p-4 mb-6">
       <div class="label callout mb-3">{$t('evals.compareRuns')}</div>
       <div class="flex flex-wrap gap-2 items-center">
-        <select id="cmp-a" bind:value={() => cmpA, (v) => (pickA = v)}>{#each runs as r (r.id)}<option value={r.id}>{r.id}{r.label ? ` (${r.label})` : ''}</option>{/each}</select>
+        <Select id="cmp-a" label={$t('evals.runA')} bind:value={() => cmpA ?? '', (v) => (pickA = v)} options={runOptions} />
         <span class="text-muted">→</span>
-        <select id="cmp-b" bind:value={() => cmpB, (v) => (pickB = v)}>{#each runs as r (r.id)}<option value={r.id}>{r.id}{r.label ? ` (${r.label})` : ''}</option>{/each}</select>
+        <Select id="cmp-b" label={$t('evals.runB')} bind:value={() => cmpB ?? '', (v) => (pickB = v)} options={runOptions} />
         <button class="btn" onclick={() => compareRuns(cmpA ?? '', cmpB ?? '')}>{$t('evals.compare')}</button>
       </div>
       {#if S.compare.result}<CompareTable result={S.compare.result} />{/if}

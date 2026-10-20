@@ -16,6 +16,10 @@ export const ICONS = {
   bell: [{ el: 'path', d: 'M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z' }, { el: 'path', d: 'M10 20.5a2 2 0 0 0 4 0M12 3v2' }],
   board: [{ el: 'rect', x: '3', y: '4', width: '7', height: '16', rx: '1' }, { el: 'rect', x: '14', y: '4', width: '7', height: '10', rx: '1' }],
   branch: [{ el: 'circle', cx: '6', cy: '5', r: '2' }, { el: 'circle', cx: '6', cy: '19', r: '2' }, { el: 'circle', cx: '18', cy: '7', r: '2' }, { el: 'path', d: 'M6 7v10M18 9a5 5 0 0 1-5 5H9a3 3 0 0 0-3 3' }],
+  // A tick: the chosen option in a Select's list.
+  check: [{ el: 'path', d: 'M5 12.5l4.5 4.5L19 7' }],
+  // A caret: a Select's trigger opens a list.
+  'chevron-down': [{ el: 'path', d: 'M6 9l6 6 6-6' }],
   close: [{ el: 'path', d: 'M6 6l12 12M18 6 6 18' }],
   command: [{ el: 'path', d: 'M12 5v14M5 12h14' }],
   copy: [{ el: 'rect', x: '9', y: '9', width: '11', height: '11', rx: '1' }, { el: 'path', d: 'M5 15V4h11' }],
@@ -36,7 +40,8 @@ export const ICONS = {
   inbox: [{ el: 'path', d: 'M4 13l2-7h12l2 7v7H4z' }, { el: 'path', d: 'M4 13h5l1.5 3h3L15 13h5' }],
   // The markdown mark: a frame, an M and a down arrow.
   markdown: [{ el: 'rect', x: '2.5', y: '5.5', width: '19', height: '13', rx: '1' }, { el: 'path', d: 'M6 15V9l2.5 3L11 9v6M16.5 9v6M14 12.5l2.5 2.5 2.5-2.5' }],
-  pipeline: [{ el: 'path', d: 'M4 20v-9M10 20V4M16 20v-6M3 20h18' }],
+  // Three stages on one line: work flowing through. Not bars, which Analytics already draws.
+  pipeline: [{ el: 'circle', cx: '5', cy: '12', r: '2' }, { el: 'circle', cx: '12', cy: '12', r: '2' }, { el: 'circle', cx: '19', cy: '12', r: '2' }, { el: 'path', d: 'M7 12h3M14 12h3' }],
   play: [{ el: 'path', d: 'M7 4l13 8-13 8z' }],
   'pull-request': [{ el: 'circle', cx: '6', cy: '5', r: '2' }, { el: 'circle', cx: '6', cy: '19', r: '2' }, { el: 'circle', cx: '18', cy: '19', r: '2' }, { el: 'path', d: 'M6 7v10M18 17V9a3 3 0 0 0-3-3h-4M13 3.5 10.5 6 13 8.5' }],
   refresh: [{ el: 'path', d: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7' }],

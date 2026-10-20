@@ -8,16 +8,20 @@
   import GitHubCard from './components/GitHubCard.svelte';
   import Icon from './components/Icon.svelte';
   import Nav from './components/Nav.svelte';
+  import RailTip from './components/RailTip.svelte';
   import Settings from './components/Settings.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import Toast from './components/Toast.svelte';
+  import Tooltip from './components/Tooltip.svelte';
   import Pipeline from './views/Pipeline.svelte';
   import Backlog from './views/Backlog.svelte';
   import Agents from './views/Agents.svelte';
   import Analytics from './views/Analytics.svelte';
   import Evals from './views/Evals.svelte';
   import Project from './views/Project.svelte';
-  import { S, closeDrawer, loadView, refresh, route } from './lib/app.svelte.ts';
+  import { S, closeDrawer, loadView, refresh, route, setSidebar } from './lib/app.svelte.ts';
+  import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_RAIL, sidebarDrag, sidebarKey, sidebarShown } from './lib/sidebar.ts';
+  import { hideTip, railTipOn } from './lib/rail-tip.svelte.ts';
   import { startClock } from './lib/clock.svelte.ts';
   import type { ViewId } from './lib/view.ts';
   import { inlineInputAction, type InlineInputEvent } from './lib/statusbar.ts';
@@ -40,13 +44,52 @@
   // The same map Nav.svelte builds, for the sidebar's stamp line.
   const labels = $derived<Record<ViewId, string>>({
     pipeline: $t('nav.pipeline'),
+    project: $t('nav.project'),
     backlog: $t('nav.backlog'),
     agents: $t('nav.agents'),
     analytics: $t('nav.analytics'),
     evals: $t('nav.evals'),
-    project: $t('nav.project'),
   });
   const viewLabel = $derived(labels[S.view]);
+
+  // ---------- the sidebar's width and its icon-only rail ----------
+  const compact = $derived(S.side.compact);
+  /** The width on screen, which --size-sidebar carries to the aside, the status bar's left edge and the drawer's gutter. */
+  const shown = $derived(sidebarShown(S.side));
+  let sideDrag: { x: number; start: number } | null = null;
+  let sideDragging = $state(false);
+  function sideDragStart(e: PointerEvent & { currentTarget: HTMLElement }): void {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    sideDrag = { x: e.clientX, start: shown };
+    sideDragging = true;
+  }
+  function sideDragMove(e: PointerEvent): void {
+    if (!sideDrag) return;
+    // The separator is the sidebar's right edge: moving right widens it. Snapping to the rail keeps the expanded width.
+    const r = sidebarDrag(sideDrag.start + (e.clientX - sideDrag.x));
+    setSidebar(r.compact ? { width: S.side.width, compact: true } : r, false);
+  }
+  // Both pointerup and lostpointercapture end a drag; the second call finds no drag, so the sidebar is saved once.
+  function sideDragEnd(): void {
+    if (!sideDrag) return;
+    sideDrag = null;
+    sideDragging = false;
+    setSidebar({ width: S.side.width, compact: S.side.compact });
+  }
+  function sideKey(e: KeyboardEvent): void {
+    const next = sidebarKey({ width: S.side.width, compact: S.side.compact }, e.key, e.shiftKey);
+    if (!next) return;
+    e.preventDefault();
+    setSidebar(next);
+  }
+  const sideReset = (): void => setSidebar({ width: SIDEBAR_DEFAULT, compact: false });
+
+  // The rail's tooltip goes when the rail expands or the drawer covers it.
+  $effect(() => {
+    if (!compact || covered) hideTip();
+  });
 
   // Settings or the palette taking over closes a popover and leaves focus to that dialog.
   $effect(() => {
@@ -140,6 +183,7 @@
 
   // ---------- the "New job or command" input ----------
   let input = $state<HTMLInputElement>();
+  let settingsMobile = $state<HTMLButtonElement>();
 
   function inline(e: Event & { currentTarget: HTMLInputElement }, type: InlineInputEvent['type']): void {
     const el = e.currentTarget;
@@ -172,15 +216,21 @@
 
 <svelte:window bind:innerWidth={S.pane.viewport} onhashchange={route} onkeydown={onKey} />
 
-<div class="flex min-h-screen" inert={settingsOpen || palette.open}>
-  <aside id="sidebar" class="hidden md:flex w-(--size-sidebar) shrink-0 flex-col gap-1 border-r chrome z-10 border-line-strong shadow-(--shadow-chrome) px-3 py-4 sticky top-0 h-screen overflow-y-auto overscroll-contain" inert={covered}>
-    <div class="plate riveted flex items-center gap-3 py-3 pr-3 pl-3.5 mb-1.5"><img src="/forge.png" alt="" class="mark shrink-0" /><div class="min-w-0"><div class="h sheet-title">{$t('app.brand')}</div><div class="label mt-0.5">{$t('app.tagline')}</div></div></div>
-    <div class="stamp-line wide mx-0.5 mt-0.5 mb-2">{$t('app.view', { view: viewLabel })}</div>
-    <div class="label flex min-w-0 items-baseline gap-2 px-2.5 pb-2.5"><span class="shrink-0">{$t('app.repo')}</span><span id="repo-name" class="mono truncate font-normal normal-case tracking-normal text-fg">{S.data?.repo?.name ?? ''}</span></div>
+<div class="flex min-h-screen" style="--size-sidebar: {shown}px" inert={settingsOpen || palette.open}>
+  <!-- Compact, the sidebar is a 64px rail: the brand's mark, an icon button for the palette, the view icons and the gear,
+       each named by aria-label and shown a tooltip (RailTip) on hover and focus. -->
+  <aside id="sidebar" class="hidden md:flex w-(--size-sidebar) shrink-0 flex-col gap-1 border-r chrome z-10 border-line-strong shadow-(--shadow-chrome) {compact ? 'px-2' : 'px-3'} py-4 sticky top-0 h-screen overflow-y-auto overscroll-contain" inert={covered}>
+    <div class="plate riveted flex items-center {compact ? 'justify-center px-1 py-2' : 'gap-3 py-3 pr-3 pl-3.5'} mb-1.5"><img src="/forge.png" alt="" class="mark shrink-0" />{#if !compact}<div class="min-w-0"><div class="h sheet-title">{$t('app.brand')}</div><div class="label mt-0.5">{$t('app.tagline')}</div></div>{/if}</div>
+    {#if !compact}<div class="stamp-line wide mx-0.5 mt-0.5 mb-2">{$t('app.view', { view: viewLabel })}</div>{/if}
+    {#if !compact}<div class="label flex min-w-0 items-baseline gap-2 px-2.5 pb-2.5"><span class="shrink-0">{$t('app.repo')}</span><span id="repo-name" class="mono truncate font-normal normal-case tracking-normal text-fg">{S.data?.repo?.name ?? ''}</span></div>{/if}
     <!-- A real input: typing hands its text to the palette. The kbd is hidden from assistive tech because
          aria-keyshortcuts announces it. The placeholder is its only visible label, so it takes muted (4.5:1 in both
-         themes) rather than dim, and the strong edge. -->
-    <span class="relative mb-2.5 block">
+         themes) rather than dim, and the strong edge. On the rail it is an icon button that opens the palette; with no
+         input on screen, Cmd/Ctrl-K opens the palette at once (commandState). -->
+    <span class="relative mb-2.5 {compact ? 'flex justify-center' : 'block'}">
+      {#if compact}
+      <button id="sidebar-command" class="btn icon" aria-label={$t('command.open')} aria-haspopup="dialog" aria-keyshortcuts="Meta+K Control+K" onclick={(e) => openPalette({ opener: e.currentTarget })} {@attach railTipOn($t('command.open'))}><Icon name="command" /></button>
+      {:else}
       <input
         bind:this={input}
         id="sidebar-command"
@@ -197,19 +247,47 @@
         onkeydown={(e) => inline(e, 'keydown')}
       />
       <kbd class="mono muted pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-[10px]" aria-hidden="true">{shortcut}</kbd>
+      {/if}
     </span>
-    <nav id="nav" class="navlist"><Nav /></nav>
+    <nav id="nav" class="navlist {compact ? 'rail' : ''}"><Nav {compact} /></nav>
     <div class="mt-auto flex flex-col gap-2 pt-3">
-      <div class="navlist"><button id="settings-open" aria-haspopup="dialog" aria-keyshortcuts={settingsKeyShortcuts(platform)} onclick={openSettings}><span class="lbl"><Icon name="settings" />{$t('settings.open')}</span><kbd class="mono muted text-[10px] normal-case" aria-hidden="true">{settingsShortcut}</kbd></button></div>
+      <div class="navlist {compact ? 'rail' : ''}"><button id="settings-open" aria-label={compact ? $t('settings.open') : undefined} aria-haspopup="dialog" aria-keyshortcuts={settingsKeyShortcuts(platform)} onclick={openSettings} {@attach compact && railTipOn($t('settings.open'))}>{#if compact}<Icon name="settings" />{:else}<span class="lbl"><Icon name="settings" />{$t('settings.open')}</span><kbd class="mono muted text-[10px] normal-case" aria-hidden="true">{settingsShortcut}</kbd>{/if}</button></div>
     </div>
   </aside>
+  <!-- The sidebar's separator, outside the aside so it never scrolls with it: an 8px hit area over the aside's right rule,
+       which turns gleam while it is hovered, focused or dragged (as on the job panel). Dragging below the minimum snaps
+       to the rail; the arrow keys step it, Home is the rail, End the maximum, Enter toggles the rail, a double-click
+       restores the default. -->
+  <div class="hidden md:block w-0 shrink-0 sticky top-0 h-screen z-20" inert={covered}>
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (a focusable separator with a value is a widget in ARIA: the window splitter pattern) -->
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-controls="sidebar"
+      aria-label={$t('sidebar.resize')}
+      aria-valuemin={SIDEBAR_RAIL}
+      aria-valuemax={SIDEBAR_MAX}
+      aria-valuenow={shown}
+      tabindex="0"
+      class="group absolute inset-y-0 -left-1 w-2 cursor-col-resize touch-none focus-visible:-outline-offset-2"
+      onpointerdown={sideDragStart}
+      onpointermove={sideDragMove}
+      onpointerup={sideDragEnd}
+      onlostpointercapture={sideDragEnd}
+      onkeydown={sideKey}
+      ondblclick={sideReset}
+    ><span class="absolute inset-y-0 left-[3px] border-l {sideDragging ? 'border-gleam' : 'border-transparent group-hover:border-gleam group-focus-visible:border-gleam'}" aria-hidden="true"></span></div>
+  </div>
+  <RailTip />
   <main class="falloff flex-1 min-w-0">
     <!-- The palette and settings buttons stay outside the scrolling nav, so they are always on screen. -->
     <header class="md:hidden flex items-center gap-1 border-b chrome border-line-strong pr-2" inert={covered}>
       <div id="mobile-nav" class="navlist row flex-1 min-w-0 overflow-x-auto p-2"><Nav mobile /></div>
       <button id="mobile-command" class="btn touch shrink-0 px-2.5! normal-case tracking-normal" aria-haspopup="dialog" onclick={(e) => openPalette({ opener: e.currentTarget })}><Icon name="command" /><span class="max-sm:sr-only">{$t('command.open')}</span></button>
-      <button id="settings-open-mobile" class="btn icon touch shrink-0" aria-label={$t('settings.open')} aria-haspopup="dialog" onclick={openSettings}><Icon name="settings" /></button>
+      <button bind:this={settingsMobile} id="settings-open-mobile" class="btn icon touch shrink-0" aria-label={$t('settings.open')} aria-haspopup="dialog" onclick={openSettings}><Icon name="settings" /></button>
     </header>
+    <!-- Outside the strip, which holds exactly its three controls; the tip sits in the top layer wherever it is written. -->
+    <Tooltip anchor={settingsMobile} text={$t('settings.open')} />
     <!-- The view keeps its centred width whether the drawer is open or not: the drawer overlays it. #view is the board's
          container-query root. -->
     <div id="view" class="@container mx-auto max-w-[1400px] px-4 md:px-8 pt-4 pb-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-6))]" inert={covered}>

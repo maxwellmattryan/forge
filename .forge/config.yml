@@ -13,7 +13,7 @@ project:
     - AGENTS.md
   notes: "Zero runtime dependencies (Node >= 22.18 built-ins; the engine is TypeScript run by Node's type stripping, no build step). The CLI is the only writer of Forge state. Every job.json/event/config shape change bumps the version in lib/schema.ts with a migration, and API_VERSION when /api/state changes. Keep README.md, docs/*.md and skills/forge/** in sync with CLI behaviour. Never point the CLI at a real repo's .forge/ while developing: use a scratch repo or FORGE_ROOT. Never add AI attribution anywhere."
 git:
-  base: main
+  base: develop
   remote: origin
   branchPrefix: forge/
 worktrees:
@@ -200,7 +200,7 @@ components:
   - name: dashboard
     path: .
     kind: app
-    notes: "The web UI: dashboard/ (Svelte 5 in src/, style.css, index.html). Built into the committed dashboard/dist/, which forge dash serves; never hand-edit dist/. dashboard/src/lib/types.ts mirrors the /api shapes that lib/server.ts serves."
+    notes: "The web UI: dashboard/ (Svelte 5 in src/, style.css, index.html). Built into dashboard/dist/, which forge dash serves; dist/ is gitignored on develop, so never commit or hand-edit it (only release and hotfix commits on main commit it). dashboard/src/lib/types.ts mirrors the /api shapes that lib/server.ts serves."
     dependsOn:
       - { component: cli, type: runtime }
       - { component: library, type: runtime }

@@ -1,5 +1,5 @@
 <!-- One session's structured log (a job's, or the inbox's in the status bar's Daemon popover): one compact control row
-     (status facts, then the Permissions and Effort buttons, one Start/Stop toggle, the Filter button, the rendered/raw
+     (status facts, then the Permissions and Effort buttons, one Start/Stop icon toggle, the Filter button, the rendered/raw
      icon toggle, Follow and Load older; the settings and filters sit in MenuButton popovers), and turns with tool calls
      and subagents, followed live. Every log string is untrusted session output: text and thinking bodies and a
      subagent's prompt and result render only through the escape-first md() (as text in Raw or above 20k characters); tool
@@ -13,7 +13,7 @@
   import Banner from './Banner.svelte';
   import Chip from './Chip.svelte';
   import EffortSelect from './EffortSelect.svelte';
-  import Icon from './Icon.svelte';
+  import IconButton from './IconButton.svelte';
   import Empty from './Empty.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
   import MenuButton from './MenuButton.svelte';
@@ -210,12 +210,6 @@
   </div>
 {/snippet}
 
-<!-- The one Start/Stop button: both states share one grid cell (swap), so it keeps the wider width and never jumps; the
-     inactive one is data-off and aria-hidden, so the name is the active label (or `aria`, for a job). -->
-{#snippet flip(start: string, stop: string, aria?: string)}
-  <button class="btn sm" disabled={!toggle.enabled} title={toggle.action === 'start' ? $t('session.startHint') : undefined} aria-label={aria} onclick={(e) => act(toggle.action, e.currentTarget)}><span class="swap"><span data-off={toggle.action !== 'start' ? '' : undefined} aria-hidden={toggle.action !== 'start' ? 'true' : undefined}><Icon name="play" />{start}</span><span data-off={toggle.action !== 'stop' ? '' : undefined} aria-hidden={toggle.action !== 'stop' ? 'true' : undefined}><Icon name="stop" />{stop}</span></span></button>
-{/snippet}
-
 {#snippet item(it: Item)}
   {#if it.kind === 'text'}
     {@const prose = renderable(it.text, mdView.session)}
@@ -284,13 +278,7 @@
           </fieldset>
         </MenuButton>
         {#if scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE}<EffortSelect job={scope} />{/if}
-        {#if scope === INBOX_SCOPE}
-          {@render flip($t('session.startInbox'), $t('session.stopInbox'))}
-        {:else if scope === OFFICE_SCOPE}
-          {@render flip($t('session.startOffice'), $t('session.stopOffice'))}
-        {:else}
-          {@render flip($t('session.start'), $t('session.stop'), toggle.action === 'start' ? $t('session.startJob') : $t('session.stopJob'))}
-        {/if}
+        <IconButton icon={toggle.action === 'start' ? 'play' : 'stop'} label={toggle.action === 'start' ? $t('session.start') : $t('session.stop')} hint={toggle.action === 'start' ? $t('session.startHint') : null} disabled={!toggle.enabled} onclick={(e) => act(toggle.action, e.currentTarget)} />
       {/if}
       <MenuButton label={filtering ? $t('session.filterActive') : $t('session.filter')} title={$t('session.filterTitle')} icon="filter" iconOnly badge={filtering}>
         <input class="input sm w-full" type="search" placeholder={$t('session.filter')} aria-label={$t('session.filter')} bind:value={filters.text} />

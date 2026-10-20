@@ -332,7 +332,8 @@
 /* The anvil: the sidebar, the phone header and the status bar. Opaque, the furthest step from the ground. */
 @utility chrome { background-color: var(--chrome); --surface: var(--chrome); }
 /* foreman: the supervisor above the daemon pool (the status bar's Foreman indicator, its popover's header and tag, the
-   Daemon popover's Foreman row). Gleam text on a gleam tint behind a gleam seam, so it outranks the bar's ghost
+   Daemon popover's Foreman row). It also styles the status bar's Daemon indicator, so the Foreman and the Daemon read
+   as one pair. Gleam text on a gleam tint behind a gleam seam, so it outranks the bar's ghost
    indicators without taking a status tone. Gleam, not gleam-hot: gleam-hot sits too close to fg on the dark themes and
    under 4.5:1 on ash's pale ground. .off: a dashed seam, muted text, no tint. The :is() raises it over the base btn, chip
    and plain rules whatever order Tailwind emits them in. */
@@ -567,14 +568,6 @@
   &.touch { min-width: 44px; min-height: 44px; justify-content: center; }
   & .ic { width: 15px; height: 15px; }
 }
-/* Two states of one control stacked in one grid cell (a button's Start and Stop): the cell is as wide as the wider
-   state, so the control never changes width, and flipping cross-fades them. The inactive state carries data-off
-   (and aria-hidden, so only the active label is read). The reduced-motion block drops the transition. */
-@utility swap {
-  display: inline-grid;
-  & > * { grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: opacity 150ms ease, scale 150ms ease; }
-  & > [data-off] { opacity: 0; scale: .6; }
-}
 @utility seg {
   display: flex;
   & .btn { margin-right: -1px; border-radius: 0; }
@@ -648,6 +641,8 @@
   &.row { flex-direction: row; gap: 4px; }
   /* Row items keep their natural width: the column rule above stretches them to 100%. */
   &.row a, &.row button { width: auto; flex: none; }
+  /* .rail: the compact sidebar's icon-only links, centred in the 64px column. */
+  &.rail a, &.rail button { justify-content: center; padding-inline: 0; }
 }
 
 /* ---------- inputs: a recess in the plate ---------- */
