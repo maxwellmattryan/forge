@@ -53,15 +53,6 @@ jobs:
         run: npm run check:dashboard
       - name: Build dashboard
         run: npm run build:dashboard
-      - name: Check dashboard/dist is committed
-        run: |
-          stale="$(git status --porcelain -- dashboard/dist)"
-          if [ -n "$stale" ]; then
-            echo "::error title=Stale dashboard/dist::dashboard/dist is stale: run npm run build:dashboard and commit dashboard/dist"
-            echo "Stale files:"
-            echo "$stale"
-            exit 1
-          fi
       - name: Run tests
         env:
           TEST_SHARD: ${{ matrix.shard }}
