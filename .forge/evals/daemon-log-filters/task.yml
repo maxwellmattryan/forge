@@ -1,0 +1,40 @@
+title: forge daemon log filters lines by time (--since) and text (--grep)
+request: |
+  ## Why
+
+  `forge daemon log <job>|--inbox|--office` prints the last N lines of a headless session's log. A long-running session writes thousands of lines, so finding "what happened in the last ten minutes" or "every line that mentions the build" means piping a big `--lines` through `grep` and guessing how far back to go. The command should filter for itself, so `--lines` means "the last N lines that matter".
+
+  ## What to build
+
+  Two new flags on `forge daemon log`, for a job's session, `--inbox` and `--office` alike:
+
+  - `--since <when>` keeps only lines from that instant on. `<when>` is a full ISO timestamp with its zone (`2026-10-01T10:05:00Z`, `2026-10-01T12:05:00+02:00`), a `YYYY-MM-DD` date (UTC midnight, as `forge audit --since` takes it), or a duration back from now: a whole number followed by `s`, `m`, `h` or `d` (`30s`, `10m`, `2h`, `1d`).
+  - `--grep <text>` keeps only lines whose text contains `<text>`, ignoring case. The text searched is the log line as stored (the raw JSON line).
+
+  A line's time is its `at` field (the lines Forge writes itself, and the events the daemon stamps on receipt) or, failing that, its `timestamp` field (claude's assistant and user lines). A line with neither (or one that is not a JSON object) has no time of its own: it goes with the nearest timed line before it in the log, so it is kept or dropped by `--since` together with that line. A line before any timed line is dropped by `--since`. Without `--since`, no line is dropped for lacking a time.
+
+  ## Interface
+
+  - `forge daemon log <job>|--inbox|--office [--since WHEN] [--grep TEXT] [--lines N] [--follow]`
+  - `--since` is inclusive: a line timed exactly at the instant is kept.
+  - The two filters combine (a line must pass both), and `--lines N` counts lines after filtering: `--grep build --lines 1` prints the last line that mentions the build, not the last line if it happens to match. The default stays 100.
+  - Output is unchanged otherwise: matching lines in log order, one per line, control characters escaped as today. When nothing matches, it prints nothing and exits 0.
+  - An invalid `--since` (not one of the forms above, e.g. `yesterday`, `10x`, `-5m`, an impossible date, or `--since` with no value) and `--grep` with no text are usage errors: exit 2, nothing printed on stdout, and under `--json` the error's `code` is `usage`.
+  - With `--follow`, the filters apply to the initial tail and to every new line as it is written (a duration in `--since` is measured once, when the command starts).
+
+  ## Acceptance criteria
+
+  - `--grep` matches case-insensitively, on job, inbox and office logs.
+  - `--since` with an ISO timestamp, a date or a duration keeps exactly the lines at or after that instant, reading `at` or `timestamp`.
+  - Untimed lines follow the timed line before them; untimed lines before the first timed line are dropped by `--since`.
+  - `--since`, `--grep` and `--lines` combine as described.
+  - Invalid values are usage errors as described.
+  - `--follow` filters new lines the same way.
+  - Keep help, docs and tests in sync as the repo's AGENTS.md requires.
+base: 40c1c4f6a7e85332381c9c00a10f7958ae192c99
+tags:
+  - restructure-pre
+  - daemon
+check:
+  files: check/files
+  command: node --test test/eval-daemon-log-filters.test.ts

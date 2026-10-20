@@ -1,6 +1,6 @@
 # Evaluating Forge
 
-Evals answer "is Forge getting better or worse?" with numbers, instead of impressions from the last few jobs. They cost real tokens, so always confirm scope (number of tasks × typical job cost from `forge stats`) with the human before a run.
+Evals answer "is Forge getting better or worse?" with numbers, instead of impressions from the last few jobs. They cost real tokens, so always confirm scope (number of tasks × typical job cost from `forge stats`) with the human before a run. An `eval-run` request from the dashboard is that confirmation: the human chose its tags and tasks there, so run it as given.
 
 ## Tasks
 Each task lives in `.forge/evals/<name>/`: a `task.yml` with the request, a base commit, and a **hidden check** the builder can't see (eval jobs get a standalone shallow clone of just the base commit, with no remotes and without `.forge/evals`, so neither the check nor the real fix is reachable through git). This is not a filesystem sandbox. `forge worktree remove <eval job>` deletes the clone's directory and needs `--force` if it has uncommitted changes.

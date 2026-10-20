@@ -1,0 +1,34 @@
+title: forge verify --only runs some configured verify steps without verifying the head
+request: |
+  ## Why
+
+  `forge verify <id>` always runs every configured verify step. While iterating on one failing step (usually `test`), a builder pays for the whole list each time, or falls back to `forge run <id> test`, which skips the gates verify adds (the clean-worktree check, the secret scan, protected paths) and leaves no record in the job. A narrower verify is useful, but it must never be mistaken for evidence that the whole HEAD was checked.
+
+  ## What to build
+
+  A `--only` flag on `forge verify` that runs a subset of the configured verify steps, records the run, and never counts as a verified head.
+
+  ## Interface
+
+  - `forge verify <id> --only <step>[,<step>]`: the names are steps of the `verify` config list (each a key of `commands`). Comma-separated, and the flag may repeat. Only those steps run, in their configured order and grouping, whatever order the flag lists them in: with `verify: [build, lint, test]`, `--only test,build` runs `build`, then `test`.
+  - A name that is not a step in `verify` (or `--only` with no name) is a `usage` error: exit 2, the usual `forge: <message>` on stderr and nothing on stdout. The message names the unknown step and lists every configured step name. Nothing runs and nothing is recorded.
+  - The gates verify adds itself (worktree-clean, secrets, protected, interim, and the integrity report) still run on a partial run. `e2e` does not.
+  - The JSON result has the same keys as a full run plus `partial: true` and `only` (the requested names, in configured order). `steps` lists the gates and only the configured steps that ran. Exit 0 when everything that ran passed, 1 otherwise, as today. A full run (no `--only`) has no `partial: true`.
+  - A partial run is recorded (its own report file under the job's verify directory and an event), but it is not a verify run of the job: it does not change `forge job show`'s `verify` or `verified` fields, and it is never a verified head. Everything that asks "is this HEAD verified" today (`forge pr open`'s check, `forge job step`'s next action, the verify retry budget) keeps treating the head as unverified until a full `forge verify` passes on it.
+
+  ## Acceptance criteria
+
+  - With `verify: [build, lint, test]`, `forge verify <id> --only test` runs only the `test` command; its result has `partial: true`, `only: ["test"]`, `ok: true`, and no `build` or `lint` entry in `steps`.
+  - Afterwards `forge job show <id>` still shows `verified: null` and `verify: null` for a job that was never fully verified.
+  - `--only test,build` runs `build` then `test`, never `lint`.
+  - `forge verify <id> --only test,nope` exits 2, names `nope` and lists `build`, `lint` and `test`, runs no command, and records nothing (`verified` stays `null`).
+  - A later `forge verify <id>` runs every step, has no `partial: true`, and `forge job show` then reports `verify: "PASS"` and `verified` with `ok: true` and the worktree's HEAD sha.
+  - A failing partial run does not use up a verify retry.
+  - Keep help, docs and tests in sync as the repo's AGENTS.md requires.
+base: 40c1c4f6a7e85332381c9c00a10f7958ae192c99
+tags:
+  - restructure-pre
+  - worktree
+check:
+  files: check/files
+  command: node --test test/eval-verify-only-steps.test.ts

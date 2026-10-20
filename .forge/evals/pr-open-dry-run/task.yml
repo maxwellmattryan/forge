@@ -1,0 +1,41 @@
+title: forge pr open --dry-run runs the open's checks and prints what it would push
+request: |
+  ## Why
+
+  `forge pr open <id>` is the moment a job's work leaves the machine: it pushes the branch and opens or updates the PR. Before that it runs a series of checks (the job has a worktree, HEAD passed `forge verify` unless `--force`, the PR title, body and commits pass the secret scan, protected paths, the branch is ahead of its base, and so on). Today there is no way to ask "would this open succeed, and what exactly would it send?" without actually pushing. A human reviewing a job, or the orchestrator before a risky open, wants a preview with no side effects.
+
+  ## What to build
+
+  A `--dry-run` flag on `forge pr open <id>`. It runs every check `pr open` already runs before it pushes or calls `gh`, in the same order, and refuses exactly as `pr open` would (same error, code and exit). When every check passes, instead of pushing or calling `gh`, it prints what it would do as JSON.
+
+  A dry run never pushes, never calls `gh` (so the GitHub repository is taken from config or the remote url only, and may be unknown), and never changes the job: `job.json` and the job's event log stay byte for byte as they were, on success and on refusal. It honours `--title`, `--draft` and `--force` as `pr open` does. A job with member repos lists, for each repo the open would push, the same kind of plan under `repos`; this task only exercises single-repo jobs.
+
+  Keep help, docs and tests in sync as the repo's AGENTS.md requires.
+
+  ## Interface
+
+  - `forge pr open <id> --dry-run [--title T] [--draft] [--force]`
+  - On success, exit 0 and print one JSON object with at least:
+    - `dryRun`: `true`
+    - `title`: the PR title (`--title`, else the job title)
+    - `body`: the PR body exactly as the real open would send it
+    - `base`: the base branch (the job's base)
+    - `head`: the head branch (the job's branch)
+    - `draft`: boolean, whether the PR would be opened as a draft (`--draft`, else the configured default)
+    - `commit`: the full sha of the checked commit it would push
+  - On refusal, the same error as `forge pr open <id>` without `--dry-run`: under `--json`, the usual `{"error":{"code",...,"exit"}}` line on stdout, with the same code and exit. An unverified HEAD is refused with the existing "is not verified" message.
+
+  ## Acceptance criteria
+
+  - On a job whose HEAD passed `forge verify`, `forge pr open <id> --dry-run --draft --title X` exits 0 and prints `dryRun: true`, `title: "X"`, a non-empty `body`, `base`, `head` (the job branch), `draft: true` and `commit` equal to the worktree HEAD.
+  - Without `--title`/`--draft` the title is the job title and `draft` is `false` (default config).
+  - No `gh` process is started, the origin remote gets no job branch, and `job.json` and `events.jsonl` are byte-identical before and after.
+  - On a job whose HEAD was never verified, `--dry-run` fails with the same code and exit as `forge pr open` and changes nothing.
+  - `forge help pr open` documents the flag; docs describe the output.
+base: 40c1c4f6a7e85332381c9c00a10f7958ae192c99
+tags:
+  - restructure-pre
+  - pr
+check:
+  files: check/files
+  command: node --test test/eval-pr-open-dry-run.test.ts

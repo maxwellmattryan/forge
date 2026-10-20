@@ -1,0 +1,38 @@
+title: A spec edited after its approval waits for a fresh approval before build
+request: |
+  ## Why
+
+  When `pipeline.specApproval` gates a job, a human approves `spec.md` and the job moves on to build. But the approval only records that someone approved, not what they approved: if `spec.md` is edited after the approval (by hand, by a stray agent write, or by anything other than the spec-writer re-running), `forge job step` still moves the job on and the builder works from a spec nobody signed off. The approval should cover the content the approver saw.
+
+  ## What to build
+
+  - `forge job human <id> approve-spec` pins the spec it approves: it records the content of the job's `spec.md` at that moment (a content hash on the recorded approval is enough). Compare content, never modification times.
+  - In the spec stage, when the spec gate applies to the job and its latest spec approval pinned content that differs from the current `spec.md` (including a deleted spec), `forge job step` must not move the job on to design or build. It parks the job back on spec approval with the reason `spec changed since approval`. A fresh `approve-spec` pins the new content and lets the job continue.
+  - A spec the spec-writer rewrote after a `revise-spec` keeps the existing path: it already needs a new approval and waits with the usual `spec ready` reason.
+  - When the spec gate does not apply to the job (`pipeline.specApproval: never`, or `large` with a spec that isn't L), the new rule does not apply either. Eval jobs never have a spec gate and stay unaffected.
+  - Approvals recorded before this change (with no pinned content) keep working as they do today.
+  - It is a pipeline rule: give it its own rule id and keep help, docs and tests in sync as the repo's AGENTS.md requires. If you change what an event records, follow AGENTS.md's versioning rules and say whether a schema bump was needed.
+
+  ## Interface
+
+  - The orchestration sequence stays as today: the job reaches `waitingOn: spec-approval`, then `forge job human <id> approve-spec --note N` and `forge job set <id> --state running`, then `forge job step <id>`.
+  - With an unchanged spec, that step returns the usual `run` action whose `command` is `["job", "set", <id>, "--stage", "build", "--state", "running"]`.
+  - With `spec.md` changed since the approval, the step returns `action: "run"` with a `command` of `forge job set` arguments that include `--state waiting`, `--waiting-on spec-approval` and `--reason "spec changed since approval"`, and no `--stage build`. After running it, `forge job step` returns `action: "wait"` with `waitingOn: "spec-approval"`, and `forge job show <id>` shows that reason.
+  - Rewriting `spec.md` with identical bytes (even with a newer modification time) is not a change.
+
+  ## Acceptance criteria
+
+  - An approved, unchanged spec moves on to build exactly as before.
+  - An approved spec edited afterwards parks the job on spec approval with reason `spec changed since approval`, and the job waits there on further steps.
+  - Approving again moves the job on to build.
+  - An identical rewrite of `spec.md` after approval still moves on to build.
+  - With `pipeline.specApproval: never`, an edited spec after an earlier approval moves on to build.
+  - After `revise-spec` and a spec-writer rewrite, the job waits on spec approval with reason `spec ready`.
+  - An approval event without pinned content (from an older Forge) still lets the job build.
+base: 40c1c4f6a7e85332381c9c00a10f7958ae192c99
+tags:
+  - restructure-pre
+  - step
+check:
+  files: check/files
+  command: node --test test/eval-step-spec-changed-after-approval.test.ts
