@@ -1,12 +1,24 @@
 // The keyboard model of components/Select.svelte, the dashboard's themed replacement for a native <select> (the WAI-ARIA
 // "select-only combobox"), as plain functions node:test can pin: which option opens active, how arrows, Home/End and
-// type-ahead move it, and which keys choose, close or are left to the page.
+// type-ahead move it, and which keys choose, close or are left to the page. An option's icon, hint, group and separator
+// are presentation only: indices stay flat over every option, and type-ahead matches `label` even when the component
+// renders the entry through a snippet.
+
+import type { IconName } from './icons.ts';
 
 export interface SelectOption {
   readonly value: string;
   readonly label: string;
   readonly disabled?: boolean;
   readonly lang?: string;
+  /** An icon before the label. */
+  readonly icon?: IconName;
+  /** A second, muted line under the label. */
+  readonly hint?: string;
+  /** Consecutive options with the same group sit under its (non-interactive) name. */
+  readonly group?: string;
+  /** A rule above this option. */
+  readonly separator?: boolean;
 }
 export interface SelectState {
   readonly open: boolean;

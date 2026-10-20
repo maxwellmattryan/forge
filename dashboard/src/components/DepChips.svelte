@@ -19,7 +19,7 @@
 {#if links.length}
   <div class="basis-full min-w-0 flex flex-wrap gap-1">
     {#each links as l, i (i)}
-      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (a span, as on main: the card is a button already, and a button can't nest one) -->
+      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (a span, as on main: the card is a button already, and a button can't nest one). It keeps its own pointer class: style.css's base pointer rule matches buttons and roles, never a bare span, and the chip must not depend on what card it sits in) -->
       <span title={depChipTitle(l)} class="chip {TONE_CLASS[l.tone]} max-w-full min-w-0 cursor-pointer hover:underline" onclick={(e) => open(e, l.id)}><span class="truncate">{$t('deps.after', { label: depLabel(l) })}</span></span>
     {/each}
   </div>
