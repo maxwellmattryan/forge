@@ -231,6 +231,7 @@ test('dependabot.yml updates dev dependencies and actions weekly, grouped', () =
   assert.deepEqual(npm, {
     'package-ecosystem': 'npm',
     directory: '/',
+    'target-branch': 'develop',
     schedule: { interval: 'weekly' },
     allow: [{ 'dependency-type': 'development' }],
     cooldown: { 'default-days': 7 },
@@ -240,6 +241,7 @@ test('dependabot.yml updates dev dependencies and actions weekly, grouped', () =
   assert.deepEqual(actions, {
     'package-ecosystem': 'github-actions',
     directory: '/',
+    'target-branch': 'develop',
     schedule: { interval: 'weekly' },
     groups: { 'github-actions': { patterns: ['*'] } },
   });
@@ -254,6 +256,13 @@ test('dependabot.yml updates dev dependencies and actions weekly, grouped', () =
   assert.ok(comments.includes('dashboard/dist/'));
   assert.ok(comments.includes('npm run build:dashboard'));
   assert.match(comments, /pinned map in test\/dashboard-dist\.test\.ts/);
+  assert.match(comments, /main-update PR/);
+});
+
+test('the PR template and ignore files say CI adds dashboard/dist in the main-update PR', () => {
+  const template = read('.github/pull_request_template.md');
+  assert.match(template, /CI adds `?dashboard\/dist\/`? in the main-update PR/);
+  assert.match(read('.gitignore'), /^# .*CI adds it in the main-update PR/m);
 });
 
 test('CONTRIBUTING.md links the verify list instead of copying it and states the PR conventions', () => {

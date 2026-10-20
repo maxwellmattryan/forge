@@ -305,8 +305,8 @@
       {/if}
     </div>
   </main>
-  <!-- Outside main: main.falloff isolates, which would trap the bar's z-35 and its popovers' z-42 inside main's stacking
-       context, under the drawer's backdrop and the drawer. -->
+  <!-- Outside main: main.falloff isolates, which would trap the bar's z-25 and its popovers' z-42 inside main's stacking
+       context, where they could not order against the drawer's backdrop, the drawer and the toast. -->
   <StatusBar />
 </div>
 <!-- Outside main as well: inside main.falloff's stacking context, the sidebar's z-10 would sit above the backdrop. -->

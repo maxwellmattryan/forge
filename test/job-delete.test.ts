@@ -8,6 +8,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { forgeAsync, repoTemplate } from './helpers.ts';
 import { startServer } from '../lib/server.ts';
+import { FIXTURE_DIST } from './dist.ts';
 import { confirmMatches, deleteBlocker } from '../dashboard/src/lib/delete-job.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
@@ -165,7 +166,7 @@ function hit(port: number, o: { path: string; method?: string; headers?: Record<
 
 test('POST /api/jobs/:id/delete needs the token and the id typed back, and answers refusals with 409', { timeout: 60_000 }, async () => {
   const s = scratch();
-  const srv = await startServer(s.root, { port: 0 });
+  const srv = await startServer(s.root, { port: 0, distDir: FIXTURE_DIST });
   try {
     const port = Number(new URL(srv.url).port);
     const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, { path: '/' })).text)![1];

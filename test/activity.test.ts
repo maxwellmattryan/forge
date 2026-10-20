@@ -7,7 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { tempRepo, waitFor } from './helpers.ts';
 import { attachActivityLog, formatActivity, jobEventLine, requestLine, requestLogger, sessionTracker, tailJobEvents } from '../lib/activity.ts';
-import { distAllowlist, distDirFor, startServer } from '../lib/server.ts';
+import { distAllowlist, startServer } from '../lib/server.ts';
+import { FIXTURE_DIST } from './dist.ts';
 
 const AT = new Date(2026, 9, 19, 9, 5, 7);
 const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '');
@@ -215,13 +216,13 @@ describe('server onRequest', () => {
     const lines: string[] = [];
     const raw: any[] = [];
     const log = requestLogger((l) => lines.push(l), { color: false });
-    const { server, url, close } = await startServer(repo.dir, { port: 0, onRequest: (r) => (raw.push(r), log(r)) });
+    const { server, url, close } = await startServer(repo.dir, { port: 0, distDir: FIXTURE_DIST, onRequest: (r) => (raw.push(r), log(r)) });
     const port = Number(new URL(url).port);
     try {
       assert.equal((await get(port, '/api/requests', { method: 'POST', headers: { 'content-type': 'application/json', origin: url } })).status, 403);
       assert.equal((await get(port, '/api/nope')).status, 404);
       assert.equal((await get(port, '/api/state')).status, 200);
-      const asset = [...distAllowlist(distDirFor({})).keys()][0];
+      const asset = [...distAllowlist(FIXTURE_DIST).keys()][0];
       assert.ok(asset, 'the manifest lists an asset');
       assert.equal((await get(port, asset)).status, 200);
       assert.equal((await get(port, '/')).status, 200);
