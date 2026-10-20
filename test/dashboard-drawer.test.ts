@@ -67,6 +67,20 @@ test('pane width clamps to the viewport and steps', () => {
   for (const key of ['ArrowUp', 'ArrowDown', 'Enter', ' ', 'Tab', 'Escape', 'a']) assert.equal(paneKey(640, key, false, 1204), null, JSON.stringify(key));
 });
 
+test('paneMax stops at the given sidebar gutter', () => {
+  // The rail (64) and a wide sidebar (360) move the drawer's edge; leaving the gutter out keeps the default 236.
+  assert.equal(paneMax(1204, 64), 1140);
+  assert.equal(paneMax(1204, 360), 844);
+  assert.equal(paneMax(1204, 236), paneMax(1204));
+  assert.equal(paneMax(400, 64), 360, 'never under the minimum');
+  assert.equal(clampPaneWidth(2000, 1204, 64), 1140);
+  assert.equal(clampPaneWidth(2000, 1204, 360), 844);
+  assert.equal(clampPaneWidth(2000, 1204), 968, 'the old two-argument call uses 236');
+  assert.equal(paneKey(1130, 'ArrowLeft', false, 1204, 64), 1140, 'Left stops at the rail gutter');
+  assert.equal(paneKey(640, 'End', false, 1204, 360), 844);
+  assert.equal(paneKey(640, 'End', false, 1204), 968);
+});
+
 test('PANE_GUTTER mirrors --size-sidebar, so the drawer never covers the sidebar', () => {
   const css = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dashboard', 'style.css'), 'utf8');
   const m = css.match(/--size-sidebar:\s*(\d+)px;/);

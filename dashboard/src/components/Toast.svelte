@@ -9,9 +9,10 @@
   import { toastPlacement } from '../lib/toast-place.ts';
   import { S } from '../lib/app.svelte.ts';
   import { clampPaneWidth } from '../lib/drawer.ts';
+  import { sidebarShown } from '../lib/sidebar.ts';
   import { t } from '../lib/locale.ts';
 
-  const place = $derived(toastPlacement({ narrow: !S.pane.md, paneOpen: S.drawer.id !== null, paneWidth: clampPaneWidth(S.pane.width, S.pane.viewport) }));
+  const place = $derived(toastPlacement({ narrow: !S.pane.md, paneOpen: S.drawer.id !== null, paneWidth: clampPaneWidth(S.pane.width, S.pane.viewport, sidebarShown(S.side)) }));
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions (hover and focus only pause the auto-hide; Dismiss is the control) -->

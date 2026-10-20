@@ -1,4 +1,4 @@
-<!-- One PR per issue. Leave the version fields and CHANGELOG.md alone: the release commit at the end of a wave adds them. -->
+<!-- One PR per issue, into develop (main takes only releases and hotfixes). Leave the version fields, CHANGELOG.md and dashboard/dist/ alone: the release commit at the end of a wave adds them. -->
 
 ## What changes
 
@@ -11,7 +11,7 @@ Closes #
 Run every command from AGENTS.md "Verify before claiming it works", checking engine changes on Node 22.18 itself:
 
 - [ ] `npm ci`
-- [ ] `npm run build:dashboard && git status --porcelain -- dashboard/dist` prints nothing
+- [ ] `npm run build:dashboard`
 - [ ] `npm run check:dashboard`
 - [ ] `npm run typecheck`
 - [ ] `node --test "test/*.test.ts"`
@@ -22,5 +22,5 @@ Run every command from AGENTS.md "Verify before claiming it works", checking eng
 
 - [ ] No AI attribution in the commits or in this description
 - [ ] No version bump and no CHANGELOG.md entry
-- [ ] `dashboard/dist/` rebuilt and committed with its sources (dashboard changes only)
+- [ ] No `dashboard/dist/` files in the diff
 - [ ] README.md, docs/ and skills/forge/ updated where CLI behaviour changed

@@ -8,11 +8,12 @@
 # majors and minors are ignored, because @types/node must track the Node floor (22.18), not the
 # newest Node: 22.20 types would type-check APIs that 22.18 does not have.
 #
-# Before merging an npm bump, a maintainer commits on the Dependabot branch:
-# - always, a rebuilt dashboard/dist/ from `npm run build:dashboard`, because the dist build
-#   stamp hashes the resolved versions in package-lock.json;
-# - when a devDependency's own version changes (not for a lockfile-only update), the new
-#   version in the pinned map in test/dashboard-dist.test.ts, which asserts each exact version.
+# Before merging an npm bump, a maintainer runs `npm run build:dashboard` and the tests on the
+# Dependabot branch. The dashboard/dist/ build stamp hashes the resolved versions in
+# package-lock.json, but dist/ is gitignored outside release commits on main, so it is not
+# committed. When a devDependency's own version changes (not for a lockfile-only update), the
+# maintainer commits the new version in the pinned map in test/dashboard-dist.test.ts, which
+# asserts each exact version.
 #
 # The 7-day cooldown lets a fresh release age before it is proposed, a hedge against a
 # compromised publish.

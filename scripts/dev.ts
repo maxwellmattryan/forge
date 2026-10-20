@@ -1,6 +1,6 @@
 // `npm run dev [-- --port N]`: a watching Vite build of the dashboard into the gitignored dev build
 // dir, served by this checkout's `forge dash --dev` for the repo npm was run from. One Ctrl-C stops
-// both. The committed build is never written: only `npm run build:dashboard` produces that.
+// both. The real build is never written: only `npm run build:dashboard` produces that.
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';

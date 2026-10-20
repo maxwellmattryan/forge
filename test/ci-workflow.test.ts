@@ -15,7 +15,6 @@ const ROOT = path.resolve(import.meta.dirname, '..');
 const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const POSIX = { skip: process.platform === 'win32' && 'POSIX-only' };
 
-const STALE_CMD = 'git status --porcelain -- dashboard/dist';
 const VALIDATE = 'claude plugin validate . --strict';
 const CLI_INSTALL = /^npm install -g @anthropic-ai\/claude-code(?:@\S*)?$/;
 const CLI_PINNED = /^npm install -g (@anthropic-ai\/claude-code@\d+\.\d+\.\d+)$/;
@@ -77,17 +76,6 @@ const SETUP_NODE_WITH: Record<string, unknown> = {
 const AUDIT_RUNS = ['npm audit --omit=dev', 'npm audit'];
 // Built-ins only, so no `npm ci` first: nothing from the registry runs before it.
 const RELEASE_CHECK_RUNS = ['npm run release:check'];
-// The one free-form script in the gate. AC3 maps it to its git command, so anything else in it (emptying the test files,
-// checking out old sources) would pass the list check; hold it to this exact text instead.
-const STALE_SCRIPT = [
-  'stale="$(git status --porcelain -- dashboard/dist)"',
-  'if [ -n "$stale" ]; then',
-  '  echo "::error title=Stale dashboard/dist::dashboard/dist is stale: run npm run build:dashboard and commit dashboard/dist"',
-  '  echo "Stale files:"',
-  '  echo "$stale"',
-  '  exit 1',
-  'fi',
-].join('\n');
 const EXPRESSIONS = [
   '${{ matrix.os }}',
   '${{ matrix.node }}',
@@ -240,7 +228,6 @@ function hardeningProblems(wf: any): string[] {
         for (const [re, what] of MASKS) if (re.test(run)) out.push(`${at}: run must not mask a failure with ${what}`);
         if (run.includes('${{')) out.push(`${at}: run must not interpolate an expression`);
         if (ENV_REACH.test(run)) out.push(`${at}: run must not set the environment of later steps`);
-        if (run.includes(STALE_CMD) && run.trim() !== STALE_SCRIPT) out.push(`${at}: the stale-dist script must be exactly the reviewed one`);
       }
       if ('env' in step && id === 'windows' && run?.trim() === WINDOWS_CMD) {
         out.push(...windowsEnvProblems(step.env, at));
@@ -272,12 +259,11 @@ function agentsVerifyCommands(text: string): string[] {
     .flatMap((l) => l.split(' && ').map((part) => part.trim()));
 }
 
-/** The verify job's `run` steps as the same list: the stale-dist script is its git command, the CLI install is setup. */
+/** The verify job's `run` steps as the same list: the CLI install is setup. */
 function ciVerifyCommands(wf: any): string[] {
   return stepsOf(wf?.jobs?.verify).flatMap((step) => {
     const run = runOf(step);
     if (run === null) return [];
-    if (run.includes(STALE_CMD)) return [STALE_CMD];
     if (CLI_INSTALL.test(run.trim())) return [];
     if (run.trim() === SHARDED_TEST_CMD) return [TEST_CMD];
     return [run.trim()];
@@ -440,7 +426,6 @@ test('ci runs the AGENTS.md verify list in the same order and nothing else', () 
     'npm run typecheck',
     'npm run check:dashboard',
     'npm run build:dashboard',
-    STALE_CMD,
     'node --test "test/*.test.ts"',
     'for f in bin/forge lib/trackers/status.mjs dashboard/*.mjs; do node --check "$f"; done',
     VALIDATE,
@@ -461,49 +446,6 @@ test('ci runs the AGENTS.md verify list in the same order and nothing else', () 
   assertFlags(verifyListProblems(AGENTS, mutate((wf) => { wf.jobs.verify.steps.push({ name: 'Extra', run: 'npm run extra' }); })), 'CI gains an extra run step');
   assertFlags(verifyListProblems(AGENTS, mutate((wf) => { delete stepNamed(wf, 'verify', 'Run tests').name; })), 'a step with no name');
   assertFlags(verifyListProblems(AGENTS, mutate((wf) => { stepNamed(wf, 'audit', 'Set up Node').name = 'Check out'; })), 'two steps with one name');
-});
-
-test('the stale dist step fails and names the stale files', POSIX, () => {
-  const script = stepRunning('verify', (r) => r.includes(STALE_CMD));
-  const repo = tempRepo();
-  try {
-    const dist = path.join(repo.dir, 'dashboard', 'dist');
-    fs.mkdirSync(dist, { recursive: true });
-    fs.writeFileSync(path.join(dist, 'a.js'), 'export const a = 1;\n');
-    repo.git('add', '-A');
-    repo.git('commit', '-qm', 'dist');
-
-    const clean = bash(script, repo.dir);
-    assert.equal(clean.status, 0, clean.stderr);
-    assert.equal(clean.stdout + clean.stderr, '');
-
-    fs.writeFileSync(path.join(repo.dir, 'README.md'), '# changed\n');
-    const readmeOnly = bash(script, repo.dir);
-    assert.equal(readmeOnly.status, 0, readmeOnly.stderr);
-    assert.equal(readmeOnly.stdout + readmeOnly.stderr, '');
-
-    fs.writeFileSync(path.join(dist, 'a.js'), 'export const a = 2;\n');
-    fs.writeFileSync(path.join(dist, 'b.js'), 'export const b = 1;\n');
-    const stale = bash(script, repo.dir);
-    assert.equal(stale.status, 1);
-    assert.match(stale.stdout, /^::error title=Stale dashboard\/dist::dashboard\/dist is stale: run npm run build:dashboard and commit dashboard\/dist$/m);
-    assert.match(stale.stdout, /^Stale files:$/m);
-    assert.match(stale.stdout, /^ M dashboard\/dist\/a\.js$/m);
-    assert.match(stale.stdout, /^\?\? dashboard\/dist\/b\.js$/m);
-  } finally {
-    repo.cleanup();
-  }
-
-  // AC3 maps this script to its git command, so extra lines in it must fail elsewhere; both of these pass the scratch repo above.
-  assert.deepEqual(hardeningProblems(WF), []);
-  const prepend = (line: string) => mutate((wf) => {
-    const step = stepNamed(wf, 'verify', 'Check dashboard/dist is committed');
-    step.run = `${line}\n${step.run}`;
-  });
-  for (const line of ['for t in test/*.test.ts; do : > "$t"; done', 'git checkout HEAD~50 -- test lib']) {
-    assert.deepEqual(verifyListProblems(AGENTS, prepend(line)), [], 'the list check alone does not see it');
-    assertFlags(hardeningProblems(prepend(line)), `the stale-dist script also running ${line}`);
-  }
 });
 
 test('the syntax-check step fails when any file has a syntax error, not only the last', POSIX, () => {
@@ -688,7 +630,7 @@ test('checkout keeps no credentials, nothing is cached, and no step can mask a f
   assertFlags(hardeningProblems(mutate((wf) => { wf.env = testOnly; })), 'NODE_OPTIONS on the workflow');
   assertFlags(hardeningProblems(mutate((wf) => { Object.assign(stepNamed(wf, 'verify', 'Validate plugin').env, testOnly); })), 'an extra env on Validate plugin');
   assertFlags(hardeningProblems(mutate((wf) => {
-    const step = stepNamed(wf, 'verify', 'Check dashboard/dist is committed');
+    const step = stepNamed(wf, 'verify', 'Build dashboard');
     step.run = `echo "NODE_OPTIONS=--test-only" >> "$GITHUB_ENV"\n${step.run}`;
   })), 'a run writing GITHUB_ENV');
 

@@ -2,6 +2,7 @@
 <script lang="ts">
   import PageHeader from '../components/PageHeader.svelte';
   import PeriodMeter from '../components/PeriodMeter.svelte';
+  import Select from '../components/Select.svelte';
   import { dur, num, pct, tokensShort, usd } from '../lib/util.ts';
   import type { ApiState, UsageRow } from '../lib/types.ts';
   import { STATS_WINDOWS, jobMs, jobsSummary, topJobsByUsage, usageBars } from '../lib/view.ts';
@@ -40,7 +41,7 @@
 
 <PageHeader title={$t('analytics.title')}>
   {#snippet sub()}{$t('analytics.sub')}{/snippet}
-  {#snippet right()}<select class="input" value={S.window} onchange={(e) => setWindow(e.currentTarget.value)}>{#each STATS_WINDOWS as [v, l] (v)}<option value={v}>{l}</option>{/each}</select>{/snippet}
+  {#snippet right()}<Select label={$t('analytics.window')} value={S.window} options={STATS_WINDOWS.map(([value, label]) => ({ value, label }))} onchange={setWindow} />{/snippet}
 </PageHeader>
 <PeriodMeter budget={data.budget} />
 {#if !s}

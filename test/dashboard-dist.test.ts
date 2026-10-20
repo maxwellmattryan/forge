@@ -1,4 +1,4 @@
-// Guards the committed dashboard/dist/: reads files only, so it needs no Vite, no node_modules
+// Guards the built dashboard/dist/ (committed only on main): reads files only, so it needs no Vite, no node_modules
 // and no network.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,7 +11,7 @@ import { STAMP, sourceHash, distHash } from '../dashboard/build-stamp.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DASHBOARD = path.join(ROOT, 'dashboard');
 const DIST = path.join(DASHBOARD, 'dist');
-const STALE = 'dashboard/dist is stale: run `npm run build:dashboard` and commit dashboard/dist';
+const STALE = 'dashboard/dist is stale: run `npm run build:dashboard`';
 const ASSET = /^assets\/[\w.-]+\.(js|css|woff2)$/;
 
 /** Every file name the manifest points at (file, css[] and assets[] of each entry). */
