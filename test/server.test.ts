@@ -11,12 +11,17 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { budgetRepo } from './repo-budget-fixture.ts';
 import { twoRepo } from './job-repos-fixture.ts';
-import { broadcast, distAllowlist, distDirFor, startServer } from '../lib/server.ts';
+import { broadcast, distAllowlist, distDirFor, startServer as serve } from '../lib/server.ts';
+import { FIXTURE_DIST } from './dist.ts';
 import { DEV_DIST_DIR } from '../lib/paths.ts';
 import { TURN_LINE } from '../lib/daemon.ts';
 import * as yaml from '../lib/yaml.ts';
 import { API_VERSION as DASH_API_VERSION } from '../dashboard/src/lib/types.ts';
 import { API_VERSION, sanitizeLogin } from '../lib/schema.ts';
+
+// Every server here serves the committed fixture dist unless a test names its own, so the page (and the token
+// in it) needs no real build: develop never commits dashboard/dist/.
+const startServer: typeof serve = (root, opts = {}) => serve(root, { distDir: FIXTURE_DIST, ...opts });
 
 /** @param {number} port @param {Record<string,string>} headers @param {string} [method] @param {string} [body] */
 function call(port, headers, method = 'GET', body?: any) {
@@ -62,8 +67,8 @@ function get(port, path, host = `127.0.0.1:${port}`): any {
   });
 }
 
-const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dashboard', 'dist');
-const NOT_BUILT = 'dashboard is not built: run npm run build:dashboard';
+const DIST = FIXTURE_DIST;
+const NOT_BUILT = 'dashboard is not built: run npm ci && npm run build:dashboard';
 const DEV_NOT_BUILT = 'dashboard dev build is not ready: npm run dev is still building it; reload in a moment';
 
 /** Paths the dist allowlist must answer 404 for, given one real manifest file `real`. */

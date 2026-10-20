@@ -15,7 +15,7 @@ const AGENTS = fs.readFileSync(path.join(ROOT, 'AGENTS.md'), 'utf8');
 const RULE_LEADS = [
   '**Zero runtime dependencies.**',
   "**`dashboard/style.css` is the source of truth for the dashboard's look**",
-  '**Never commit the built dashboard on `develop`.**',
+  '**Never commit the built dashboard.**',
   '**The CLI is the only writer of state.**',
   '**Version every shape change.**',
   "**Keep the orchestrator's context small.**",
@@ -71,8 +71,8 @@ test('AGENTS.md opens with essentials and keeps every rule', () => {
     'POSTs need the token, a matching Origin and JSON',
     'tracker and PR text is fenced as data',
     'Work on `develop`',
-    'Never commit or hand-edit `dashboard/dist/`',
-    'only a release or hotfix commit on `main` commits it',
+    'Never commit `dashboard/dist/`',
+    'CI adds it in the main-update PR',
     'Escape everything the dashboard renders',
     "Never point the CLI at a real repo's `.forge/`",
     'Jobs leave `CHANGELOG.md` and versions alone',
@@ -87,6 +87,11 @@ test('AGENTS.md opens with essentials and keeps every rule', () => {
   assert.ok(essentials.includes('](dashboard/AGENTS.md)'), 'Essentials points to dashboard/AGENTS.md');
   for (const lead of DASHBOARD_LEADS) assert.ok(DASHBOARD.includes(`- ${lead}`), `in dashboard/AGENTS.md: ${lead}`);
   for (const name of ['Layout', 'Where a change goes', 'Rules', 'Verify before claiming it works', 'Gotchas already paid for', 'Publishing']) section(AGENTS, name);
+  // CI, not a person, builds dist for main: the Layout names the workflow and the script that do it.
+  const layout = section(AGENTS, 'Layout');
+  assert.match(layout, /^- `\.github\/workflows\/main-update\.yml`: /m);
+  assert.ok(layout.includes('`main-update.ts`'), 'Layout names scripts/main-update.ts');
+  for (const doc of [AGENTS, DASHBOARD]) assert.ok(!doc.includes('git add --force dashboard/dist'), 'no hand-built release dist');
 });
 
 // `.forge/config.yml` is a refuse default of policy.protectedPaths, so a job can't commit it: the

@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { DIST, noDist } from './dist.ts';
 import { THEMES, THEME_CHOICES, SYSTEM_DARK, normalizeTheme, setTheme, currentTheme, themeChoice, chooseTheme, followSystemTheme, grainOn, currentGrain, setGrain } from '../dashboard/src/lib/theme.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -72,9 +73,13 @@ function runBootstrap(html: string, store: Record<string, string | null>, light:
 
 const DRAWING_VALUES = [null, 'on', 'off', 'bogus'];
 
-test('index.html inline script agrees with normalizeTheme', () => {
-  const sources = { 'dashboard/index.html': fs.readFileSync(path.join(ROOT, 'dashboard', 'index.html'), 'utf8'), 'dashboard/dist/index.html': fs.readFileSync(path.join(ROOT, 'dashboard', 'dist', 'index.html'), 'utf8') };
-  for (const [name, html] of Object.entries(sources)) {
+for (const [name, file, opts] of [
+  ['dashboard/index.html', path.join(ROOT, 'dashboard', 'index.html'), {}],
+  // The built page keeps the same bootstrap; it exists only once the dashboard is built (test/dist.ts).
+  ['dashboard/dist/index.html', path.join(DIST, 'index.html'), { skip: noDist() }],
+] as const) {
+  test(`${name} inline script agrees with normalizeTheme`, opts, () => {
+    const html = fs.readFileSync(file, 'utf8');
     assert.match(html, /<html lang="en" data-theme="forge">/, `${name} defaults to forge before the script runs`);
     assert.doesNotMatch(html, /data-(grid|paper)|dataset\.(grid|paper)/, `${name} sets no Drafting drawing attribute`);
     for (const [saved, light, want] of CASES) {
@@ -98,8 +103,8 @@ test('index.html inline script agrees with normalizeTheme', () => {
     };
     vm.runInContext(scripts[0], vm.createContext({ localStorage: { getItem: boom }, matchMedia: () => ({ matches: false }), document: { documentElement: { dataset } } }));
     assert.deepEqual(dataset, {}, `${name}: throwing storage leaves <html> as shipped`);
-  }
-});
+  });
+}
 
 /** Swaps globals by descriptor (reading Node's own localStorage getter warns) and restores them after `fn`. */
 function withGlobals(values: Record<string, unknown>, fn: () => void): void {
