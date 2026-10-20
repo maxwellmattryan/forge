@@ -4,6 +4,7 @@
 // the dashboard list them, and as the config sinks of #196 will read them.
 import { entriesOrNone, envPrefix, readJobRecord, readSharedRecord } from './backing.ts';
 import { isManaged } from './backing-config.ts';
+import { dbEntries, readDbRecord } from './backing-db.ts';
 import { envName, placeholderProblems } from './endpoints-config.ts';
 import { portBearing } from './ports.ts';
 import type { ComponentConfig, Config, Job } from './types.ts';
@@ -37,12 +38,14 @@ export function jobEndpoints(root: string, config: Config, job: Pick<Job, 'id' |
   const list = entriesOrNone(config);
   const mine = list.some((e) => e.isolation === 'per-job') ? readJobRecord(root, job.id, config) : null;
   const shared = list.some((e) => e.isolation === 'shared') ? readSharedRecord(root, config) : null;
+  // A job database's url exists only once its record does (lib/backing-db.ts).
+  const dbs = dbEntries(config).length ? readDbRecord(root, job.id, config).databases : {};
   const backing = list.map((e) => {
     if (!isManaged(e)) return { name: e.name, port: null, hasUrl: Boolean(e.url) };
     const rec = (e.isolation === 'shared' ? shared : mine)?.ports[e.name];
     const first = e.ports?.[0];
     const p = rec && first !== undefined ? rec[String(first)] : undefined;
-    return { name: e.name, port: validPort(p) ? p : null, hasUrl: Boolean(rec && e.url) };
+    return { name: e.name, port: validPort(p) ? p : null, hasUrl: Boolean(rec && e.url && (!e.database || dbs[e.name])) };
   });
   return { components, backing };
 }
