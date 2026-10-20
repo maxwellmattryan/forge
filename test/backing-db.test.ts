@@ -13,6 +13,7 @@ import { JOB_DB_NAME, TEMPLATE_ROLE, dbRecordFile, jobDbName, readDbRecord, scra
 import { PG_IDENT } from '../lib/backing-config.ts';
 import { loadConfig } from '../lib/config.ts';
 import { createJob, loadJob, readEvents } from '../lib/jobs.ts';
+import { paths } from '../lib/paths.ts';
 import { loadStepInput, step } from '../lib/step.ts';
 import { createWorktree, databaseCommands, removeWorktree } from '../lib/worktree.ts';
 import { emptyState, handle } from './fixtures/fake-docker.mjs';
@@ -193,14 +194,21 @@ test('two jobs get separate databases and credentials from one template', async 
       [da, urls[0]],
       [db, urls[1]],
     ] as const) {
-      assert.deepEqual(pg.dbs[d], { owner: d, isTemplate: false, allowConn: true, clonedFrom: t, connectRevoked: true });
+      assert.deepEqual(pg.dbs[d], { owner: d, objectsOwner: d, isTemplate: false, allowConn: true, clonedFrom: t, connectRevoked: true }, 'the role owns its database and every object migrate made in it');
       assert.equal(pg.roles[d].login, true);
-      assert.deepEqual(pg.roles[d].memberOf, [TEMPLATE_ROLE]);
       assert.ok(verifies(pg.roles[d].verifier, url.password), 'the role holds the verifier of its own password');
     }
+    assert.deepEqual(
+      Object.keys(pg.roles).filter((r) => pg.roles[r].memberOf.includes(TEMPLATE_ROLE)),
+      [],
+      'no job role is a member of forge_tpl, so none reaches a template mid-build',
+    );
     assert.notEqual(pg.roles[da].verifier, pg.roles[db].verifier);
-    assert.deepEqual(pg.dbs[t], { owner: 'postgres', isTemplate: true, allowConn: false, clonedFrom: null, connectRevoked: false }, 'the template belongs to the superuser and takes no connections');
+    assert.deepEqual(pg.dbs[t], { owner: 'postgres', objectsOwner: TEMPLATE_ROLE, isTemplate: true, allowConn: false, clonedFrom: null, connectRevoked: true }, 'the template belongs to the superuser and takes no connections');
     assert.deepEqual(pg.roles[TEMPLATE_ROLE], { login: false, verifier: null, memberOf: [] }, 'forge_tpl loses its login after the build');
+    const create = f.calls.find((c) => (c.input ?? '').includes(`CREATE DATABASE "${t}" OWNER`));
+    assert.match(create!.input!, new RegExp(`REVOKE CONNECT ON DATABASE "${t}" FROM PUBLIC`), 'CONNECT is revoked as the template is created, before migrate runs');
+    for (const d of [da, db]) assert.deepEqual(f.state.sql.filter((x: any) => x.s.startsWith('REASSIGN')).find((x: any) => x.db === d), { container: server(s), db: d, s: `REASSIGN OWNED BY "${TEMPLATE_ROLE}" TO "${d}"` }, 'reassigned inside the job database');
   } finally {
     s.cleanup();
   }
@@ -264,6 +272,27 @@ test('template build order, failure and retry', async () => {
     assert.ok(again.created && again.ok, JSON.stringify(again));
     assert.equal(again.created && again.backing?.[0].database?.template_action, 'built');
     assert.equal(f.state.pg[server(s)].dbs[t].isTemplate, true);
+
+    // A partial build under another name, still owned by forge_tpl, is dropped, never handed to a job by REASSIGN OWNED.
+    const partial ='forge_tpl_cccccccccccc';
+    pg.dbs[partial] = { owner: TEMPLATE_ROLE, objectsOwner: TEMPLATE_ROLE, isTemplate: false, allowConn: true, clonedFrom: null, connectRevoked: true };
+    const third = createJob(s.dir, s.config, { title: 'Partial' }).id;
+    const reused = await withRunner(f.runner, () => createWorktree(s.dir, s.config, third));
+    assert.ok(reused.created && reused.ok, JSON.stringify(reused));
+    assert.equal(pg.dbs[partial], undefined);
+    assert.deepEqual(
+      Object.keys(pg.dbs).filter((d) => pg.dbs[d].owner === jobDbName(third)),
+      [jobDbName(third)],
+    );
+
+    // A database Forge did not build that forge_tpl owns fails the entry and keeps its owner.
+    pg.dbs.app = { owner: TEMPLATE_ROLE, objectsOwner: TEMPLATE_ROLE, isTemplate: false, allowConn: true, clonedFrom: null, connectRevoked: false };
+    const fourth = createJob(s.dir, s.config, { title: 'Foreign' }).id;
+    const refused = await withRunner(f.runner, () => createWorktree(s.dir, s.config, fourth));
+    assert.equal(refused.ok, false);
+    assert.match((refused.created && refused.backing?.[0].error) || '', /^role forge_tpl owns database "app", which Forge did not build/);
+    assert.equal(pg.dbs.app.owner, TEMPLATE_ROLE);
+    assert.ok(!fs.existsSync(dbRecordFile(s.dir, fourth)));
   } finally {
     s.cleanup();
   }
@@ -289,6 +318,14 @@ test('template hash follows inputs and prunes stale templates', async () => {
     fs.rmSync(path.join(ra.path, 'db', '002.sql'));
     fs.writeFileSync(path.join(ra.path, 'db', '001.sql'), 'create table t(x int);\n');
     assert.equal(templateName(e, ra.path), t1, 'back to the same content, back to the same name');
+    // A file larger than one read chunk is hashed whole.
+    const big = Buffer.alloc(300 * 1024, 'a');
+    fs.writeFileSync(path.join(ra.path, 'db', 'big.sql'), big);
+    const tBig = templateName(e, ra.path);
+    big[big.length - 1] = 0x62;
+    fs.writeFileSync(path.join(ra.path, 'db', 'big.sql'), big);
+    assert.notEqual(templateName(e, ra.path), tBig, 'a change in the last byte changes it');
+    fs.rmSync(path.join(ra.path, 'db', 'big.sql'));
     for (const changed of [
       { ...e, image: 'postgres:17' },
       { ...e, database: { ...e.database!, migrate: 'true' } },
@@ -301,7 +338,7 @@ test('template hash follows inputs and prunes stale templates', async () => {
     const pg = f.state.pg[server(s)];
     const stale = 'forge_tpl_aaaaaaaaaaaa';
     const named = 'forge_tpl_bbbbbbbbbbbb';
-    for (const d of [stale, named]) pg.dbs[d] = { owner: 'postgres', isTemplate: true, allowConn: false, clonedFrom: null, connectRevoked: false };
+    for (const d of [stale, named]) pg.dbs[d] = { owner: 'postgres', objectsOwner: TEMPLATE_ROLE, isTemplate: true, allowConn: false, clonedFrom: null, connectRevoked: false };
     const c = createJob(s.dir, s.config, { title: 'Hash C' }).id;
     fs.writeFileSync(dbRecordFile(s.dir, c), JSON.stringify({ v: 1, databases: { pg: { template: named, password: 'p'.repeat(32) } } }));
 
@@ -451,7 +488,16 @@ test('teardown drops only this job\'s database and retries', async () => {
     assert.ok(fs.existsSync(dbRecordFile(s.dir, a)));
     f.state.failExec = null;
 
-    const retried = await withRunner(f.runner, () => removeWorktree(s.dir, a, { force: true }));
+    // The drop holds the lock `backing up` holds, so the two never interleave for a job.
+    const lock = path.join(paths(s.dir).locks, 'backing-db-pg');
+    const locked: boolean[] = [];
+    const watching: DockerRunner = (args, opts) => {
+      if ((opts?.input ?? '').includes(`DROP DATABASE IF EXISTS "${jobDbName(a)}"`)) locked.push(fs.existsSync(lock));
+      return f.runner(args, opts);
+    };
+    const retried = await withRunner(watching, () => removeWorktree(s.dir, a, { force: true }));
+    assert.deepEqual(locked, [true]);
+    assert.ok(!fs.existsSync(lock), 'released');
     assert.deepEqual(retried.backing, { removed: [], volumes: [], databases: [jobDbName(a)], ok: true });
     assert.ok(!fs.existsSync(dbRecordFile(s.dir, a)));
     assert.ok(!pg().dbs[jobDbName(a)] && !pg().roles[jobDbName(a)]);

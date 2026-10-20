@@ -12,14 +12,24 @@ export function emptyState() {
   return { daemon: 'up', version: '27.1.1', containers: {}, volumes: {}, failRun: false, failStart: false, failRm: false, envFiles: [], pg: {}, failExec: null, notReadyFor: {}, sql: [] };
 }
 
+// A database's `objectsOwner` is the role that owns what is inside it: its owner when created (migrate
+// and seed run as the owner), copied by a clone, and changed by REASSIGN OWNED.
 const pgOf = (state, container, admin) =>
-  (state.pg[container] ??= { roles: { [admin]: { login: true, verifier: null, memberOf: [], superuser: true } }, dbs: { postgres: { owner: admin, isTemplate: false, allowConn: true, clonedFrom: null, connectRevoked: false } } });
+  (state.pg[container] ??= { roles: { [admin]: { login: true, verifier: null, memberOf: [], superuser: true } }, dbs: { postgres: { owner: admin, objectsOwner: admin, isTemplate: false, allowConn: true, clonedFrom: null, connectRevoked: false } } });
 
 const sqlErr = (msg) => ({ error: `ERROR:  ${msg}` });
 
-/** One SQL statement against a server, as the exact statements lib/backing-db.ts sends; an unknown one fails loudly. */
-function statement(pg, admin, s) {
+/** One SQL statement against a server, run in database `db`, as the exact statements lib/backing-db.ts sends; an unknown one fails loudly. */
+function statement(pg, admin, s, db) {
   let m;
+  if ((m = /^SELECT datname FROM pg_database WHERE datdba = \(SELECT oid FROM pg_roles WHERE rolname = '(\w+)'\)$/.exec(s))) return { out: Object.keys(pg.dbs).filter((d) => pg.dbs[d].owner === m[1]) };
+  if ((m = /^REASSIGN OWNED BY "(\w+)" TO "(\w+)"$/.exec(s))) {
+    if (!pg.roles[m[1]] || !pg.roles[m[2]]) return sqlErr(`role "${pg.roles[m[1]] ? m[2] : m[1]}" does not exist`);
+    // In the current database, plus the shared objects: every database the old role owns.
+    if (pg.dbs[db].objectsOwner === m[1]) pg.dbs[db].objectsOwner = m[2];
+    for (const d of Object.values(pg.dbs)) if (d.owner === m[1]) d.owner = m[2];
+    return { out: [] };
+  }
   if ((m = /^SELECT datistemplate FROM pg_database WHERE datname = '(\w+)'$/.exec(s))) return { out: pg.dbs[m[1]] ? [pg.dbs[m[1]].isTemplate ? 't' : 'f'] : [] };
   if ((m = /^SELECT 1 FROM pg_roles WHERE rolname = '(\w+)'$/.exec(s))) return { out: pg.roles[m[1]] ? ['1'] : [] };
   if ((m = /^SELECT 1 FROM pg_database WHERE datname = '(\w+)'$/.exec(s))) return { out: pg.dbs[m[1]] ? ['1'] : [] };
@@ -30,10 +40,9 @@ function statement(pg, admin, s) {
     pg.roles[m[1]] = { login: false, verifier: null, memberOf: [] };
     return { out: [] };
   }
-  if ((m = /^CREATE ROLE "(\w+)" LOGIN PASSWORD '(SCRAM-SHA-256\$[^']+)' IN ROLE "(\w+)"$/.exec(s))) {
+  if ((m = /^CREATE ROLE "(\w+)" LOGIN PASSWORD '(SCRAM-SHA-256\$[^']+)'$/.exec(s))) {
     if (pg.roles[m[1]]) return sqlErr(`role "${m[1]}" already exists`);
-    if (!pg.roles[m[3]]) return sqlErr(`role "${m[3]}" does not exist`);
-    pg.roles[m[1]] = { login: true, verifier: m[2], memberOf: [m[3]] };
+    pg.roles[m[1]] = { login: true, verifier: m[2], memberOf: [] };
     return { out: [] };
   }
   if ((m = /^ALTER ROLE "(\w+)" LOGIN PASSWORD '(SCRAM-SHA-256\$[^']+)'$/.exec(s))) {
@@ -48,7 +57,7 @@ function statement(pg, admin, s) {
   }
   if ((m = /^CREATE DATABASE "(\w+)" OWNER "(\w+)"$/.exec(s))) {
     if (pg.dbs[m[1]]) return sqlErr(`database "${m[1]}" already exists`);
-    pg.dbs[m[1]] = { owner: m[2], isTemplate: false, allowConn: true, clonedFrom: null, connectRevoked: false };
+    pg.dbs[m[1]] = { owner: m[2], objectsOwner: m[2], isTemplate: false, allowConn: true, clonedFrom: null, connectRevoked: false };
     return { out: [] };
   }
   if ((m = /^CREATE DATABASE "(\w+)" TEMPLATE "(\w+)" OWNER "(\w+)"$/.exec(s))) {
@@ -57,7 +66,8 @@ function statement(pg, admin, s) {
     if (!src) return sqlErr(`template database "${m[2]}" does not exist`);
     if (!src.isTemplate) return sqlErr(`permission denied to copy database "${m[2]}"`);
     if (src.allowConn && src.open) return sqlErr(`source database "${m[2]}" is being accessed by other users`);
-    pg.dbs[m[1]] = { owner: m[3], isTemplate: false, allowConn: true, clonedFrom: m[2], connectRevoked: false };
+    // A clone keeps the template's objects and their owner, and starts with the default ACL.
+    pg.dbs[m[1]] = { owner: m[3], objectsOwner: src.objectsOwner, isTemplate: false, allowConn: true, clonedFrom: m[2], connectRevoked: false };
     return { out: [] };
   }
   if ((m = /^REVOKE CONNECT ON DATABASE "(\w+)" FROM PUBLIC$/.exec(s))) {
@@ -114,7 +124,7 @@ function dockerExec(state, rest, input) {
     if (!s) continue;
     state.sql.push({ container, db: flagValues(argv, '-d')[0], s });
     if (state.failExec && new RegExp(state.failExec).test(s)) return { status: 3, stdout: '', stderr: `psql:<stdin>:1: ERROR:  injected failure\n` };
-    const r = statement(pg, admin, s);
+    const r = statement(pg, admin, s, flagValues(argv, '-d')[0]);
     if (r.error) return { status: 3, stdout: '', stderr: `psql:<stdin>:1: ${r.error}\n` };
     out.push(...r.out);
   }

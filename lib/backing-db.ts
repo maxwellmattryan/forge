@@ -23,7 +23,11 @@ export const JOB_DB_NAME = /^forge_j_[a-z0-9_]{1,40}_[0-9a-f]{8}$/;
 export const PASSWORD = /^[A-Za-z0-9_-]{32}$/;
 /** What scramVerifier makes: the only literal besides checked names that reaches SQL. */
 const VERIFIER = /^SCRAM-SHA-256\$\d{1,7}:[A-Za-z0-9+/=]{1,64}\$[A-Za-z0-9+/=]{1,64}:[A-Za-z0-9+/=]{1,64}$/;
-/** The role that owns a template while migrate and seed build it; every job role is a member. */
+/**
+ * The role that owns a template while migrate and seed build it. No job role is a member: a member
+ * could reach a template mid-build, which every later job is cloned from. A clone's objects are
+ * reassigned from it to the job's role instead.
+ */
 export const TEMPLATE_ROLE = 'forge_tpl';
 const READY_TIMEOUT_MS = 60_000;
 const READY_POLL_MS = 250;
@@ -118,8 +122,8 @@ function inputFiles(worktree: string, inputs: string[]): [string, string][] {
     }
     if (st.isSymbolicLink()) out.push([rel, `l:${fs.readlinkSync(file)}`]);
     else if (st.isFile()) {
-      const body = readRegular(file, Infinity);
-      if (body !== null) out.push([rel, sha256(body)]);
+      const digest = hashRegular(file);
+      if (digest !== null) out.push([rel, digest]);
     }
   }
   return out;
@@ -140,8 +144,8 @@ export function templateName(e: BackingEntry, worktree: string): string {
 
 export const dbRecordFile = (root: string, id: string): string => path.join(jobDir(root, id), 'backing-db.json');
 
-/** A regular file's bytes, opened without following a symlink or blocking on a FIFO; null otherwise. */
-function readRegular(file: string, max: number): Buffer | null {
+/** `fn` on a regular file, opened without following a symlink or blocking on a FIFO; null otherwise. */
+function withRegular<T>(file: string, fn: (fd: number, st: fs.Stats) => T | null): T | null {
   let fd: number;
   try {
     fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0));
@@ -150,14 +154,25 @@ function readRegular(file: string, max: number): Buffer | null {
   }
   try {
     const st = fs.fstatSync(fd);
-    if (!st.isFile() || st.size > max) return null;
-    return fs.readFileSync(fd);
+    return st.isFile() ? fn(fd, st) : null;
   } catch {
     return null;
   } finally {
     fs.closeSync(fd);
   }
 }
+
+/** A regular file's bytes, at most `max` of them; null otherwise. */
+const readRegular = (file: string, max: number): Buffer | null => withRegular(file, (fd, st) => (st.size > max ? null : fs.readFileSync(fd)));
+
+/** A regular file's sha256, read in chunks: an input file in the worktree may be any size. */
+const hashRegular = (file: string): string | null =>
+  withRegular(file, (fd) => {
+    const h = crypto.createHash('sha256');
+    const buf = Buffer.allocUnsafe(64 * 1024);
+    for (let n = fs.readSync(fd, buf, 0, buf.length, null); n > 0; n = fs.readSync(fd, buf, 0, buf.length, null)) h.update(buf.subarray(0, n));
+    return h.digest('hex');
+  });
 
 function readRaw(file: string): any {
   const body = readRegular(file, MAX_RECORD);
@@ -287,7 +302,9 @@ function dropUnfinished(s: PgServer, t: string): void {
  * Makes sure template `t` exists: reused when it is a finished template, else built (a leftover
  * partial build is dropped first). Building runs migrate, then seed, as the forge_tpl role with a
  * one-off password, then hands the database to the superuser and freezes it as a template that
- * takes no connections. Any failure drops the half-built database; forge_tpl always loses its login.
+ * takes no connections. CONNECT is revoked from PUBLIC from the start, so while it builds only
+ * forge_tpl and the superuser reach it. Any failure drops the half-built database; forge_tpl always
+ * loses its login.
  */
 export function ensureTemplate(s: PgServer, e: BackingEntry, t: string, cmds: TemplateCommands): { action: 'built' | 'reused'; build: BackingBuildStep[] } {
   const state = psql(s, script(`SELECT datistemplate FROM pg_database WHERE datname = ${lit(t)}`))[0];
@@ -298,7 +315,7 @@ export function ensureTemplate(s: PgServer, e: BackingEntry, t: string, cmds: Te
   const build: BackingBuildStep[] = [];
   try {
     const hasRole = psql(s, script(`SELECT 1 FROM pg_roles WHERE rolname = ${lit(TEMPLATE_ROLE)}`)).length > 0;
-    psql(s, script(...(hasRole ? [] : [`CREATE ROLE ${q(TEMPLATE_ROLE)} NOLOGIN`]), `ALTER ROLE ${q(TEMPLATE_ROLE)} LOGIN PASSWORD ${verifierLit(scramVerifier(pw))}`, `CREATE DATABASE ${q(t)} OWNER ${q(TEMPLATE_ROLE)}`));
+    psql(s, script(...(hasRole ? [] : [`CREATE ROLE ${q(TEMPLATE_ROLE)} NOLOGIN`]), `ALTER ROLE ${q(TEMPLATE_ROLE)} LOGIN PASSWORD ${verifierLit(scramVerifier(pw))}`, `CREATE DATABASE ${q(t)} OWNER ${q(TEMPLATE_ROLE)}`, `REVOKE CONNECT ON DATABASE ${q(t)} FROM PUBLIC`));
     const env = { [cmds.envName]: fillDbUrl(cmds.url, TEMPLATE_ROLE, pw, t) };
     for (const [step, cmd] of [['migrate', e.database!.migrate], ['seed', e.database!.seed]] as const) {
       if (!cmd) continue;
@@ -353,6 +370,22 @@ export interface DatabaseUp {
   error?: string;
 }
 
+/** `fn` under the entry's lock, which every template build, job database creation and drop on that server holds. */
+const withDbLock = <T>(root: string, entry: string, fn: () => T): T => withLock(path.join(paths(root).locks, `backing-db-${entry}`), fn, BUILD_LOCK);
+
+/**
+ * Gives the job's role every object in its database that migrate and seed created as forge_tpl.
+ * REASSIGN OWNED also moves the databases forge_tpl owns, so first any it still owns, which under the
+ * lock can only be a build that stopped part way, is dropped.
+ */
+function handOver(s: PgServer, j: string): void {
+  for (const d of psql(s, script(`SELECT datname FROM pg_database WHERE datdba = (SELECT oid FROM pg_roles WHERE rolname = ${lit(TEMPLATE_ROLE)})`))) {
+    if (!TEMPLATE_NAME.test(d)) throw new ForgeError(`role ${TEMPLATE_ROLE} owns database ${JSON.stringify(d).slice(0, 80)}, which Forge did not build: drop it or change its owner, then retry`, 'external');
+    dropUnfinished(s, d);
+  }
+  psql(s, script(`REASSIGN OWNED BY ${q(TEMPLATE_ROLE)} TO ${q(j)}`), j);
+}
+
 /**
  * The job's database on a running shared server: kept when it exists (a missing or invalid record
  * gets a new password), else cloned from the template, which is built first when missing. Under a
@@ -366,44 +399,42 @@ export function upDatabase(root: string, config: Config, id: string, e: BackingE
   if (!worktree || !fs.existsSync(worktree)) return { database, error: `job ${id} has no worktree: run forge worktree create ${id}` };
   try {
     waitReady(s, e.ports![0], opts?.readyTimeoutMs);
-    withLock(
-      path.join(paths(root).locks, `backing-db-${e.name}`),
-      () => {
-        const rec = readDbRecord(root, id, config);
-        const mine = rec.databases[e.name];
-        if (mine) s.secrets.push(mine.password);
-        const exists = psql(s, script(`SELECT 1 FROM pg_database WHERE datname = ${lit(j)}`)).length > 0;
-        if (exists && mine) {
-          Object.assign(database, { template: mine.template, action: 'kept' });
-          return;
-        }
-        // A kept database without a record is recorded against today's template name, which only keeps that template from being pruned.
-        const t = templateName(e, worktree);
-        if (!exists) {
-          database.template = t;
-          const tpl = ensureTemplate(s, e, t, { run: opts!.runCommand, envName, url });
-          database.template_action = tpl.action;
-          if (tpl.action === 'built') {
-            build = tpl.build;
-            // Before this job's record names t, so its own template is kept by `keep`, not the record.
-            try {
-              pruneTemplates(root, s, t);
-            } catch {
-              // A stale template only costs disk; the next build prunes it again.
-            }
+    withDbLock(root, e.name, () => {
+      const rec = readDbRecord(root, id, config);
+      const mine = rec.databases[e.name];
+      if (mine) s.secrets.push(mine.password);
+      const exists = psql(s, script(`SELECT 1 FROM pg_database WHERE datname = ${lit(j)}`)).length > 0;
+      if (exists && mine) {
+        Object.assign(database, { template: mine.template, action: 'kept' });
+        return;
+      }
+      // A kept database without a record is recorded against today's template name, which only keeps that template from being pruned.
+      const t = templateName(e, worktree);
+      if (!exists) {
+        database.template = t;
+        const tpl = ensureTemplate(s, e, t, { run: opts!.runCommand, envName, url });
+        database.template_action = tpl.action;
+        if (tpl.action === 'built') {
+          build = tpl.build;
+          // Before this job's record names t, so its own template is kept by `keep`, not the record.
+          try {
+            pruneTemplates(root, s, t);
+          } catch {
+            // A stale template only costs disk; the next build prunes it again.
           }
         }
-        const pw = newPassword();
-        s.secrets.push(pw);
-        const v = verifierLit(scramVerifier(pw));
-        const hasRole = psql(s, script(`SELECT 1 FROM pg_roles WHERE rolname = ${lit(j)}`)).length > 0;
-        psql(s, script(hasRole ? `ALTER ROLE ${q(j)} LOGIN PASSWORD ${v}` : `CREATE ROLE ${q(j)} LOGIN PASSWORD ${v} IN ROLE ${q(TEMPLATE_ROLE)}`));
-        if (!exists) psql(s, script(`CREATE DATABASE ${q(j)} TEMPLATE ${q(t)} OWNER ${q(j)}`, `REVOKE CONNECT ON DATABASE ${q(j)} FROM PUBLIC`));
-        writeDbRecord(root, id, { v: 1, databases: { ...rec.databases, [e.name]: { template: t, password: pw } } });
-        Object.assign(database, { template: t, action: exists ? 'kept' : 'created' });
-      },
-      BUILD_LOCK,
-    );
+      }
+      const pw = newPassword();
+      s.secrets.push(pw);
+      const v = verifierLit(scramVerifier(pw));
+      const hasRole = psql(s, script(`SELECT 1 FROM pg_roles WHERE rolname = ${lit(j)}`)).length > 0;
+      psql(s, script(hasRole ? `ALTER ROLE ${q(j)} LOGIN PASSWORD ${v}` : `CREATE ROLE ${q(j)} LOGIN PASSWORD ${v}`));
+      if (!exists) psql(s, script(`CREATE DATABASE ${q(j)} TEMPLATE ${q(t)} OWNER ${q(j)}`, `REVOKE CONNECT ON DATABASE ${q(j)} FROM PUBLIC`));
+      // Also for a kept database without a record: a run that stopped between the clone and this left forge_tpl owning its objects.
+      handOver(s, j);
+      writeDbRecord(root, id, { v: 1, databases: { ...rec.databases, [e.name]: { template: t, password: pw } } });
+      Object.assign(database, { template: t, action: exists ? 'kept' : 'created' });
+    });
     return { database, ...(build ? { build } : {}) };
   } catch (err) {
     if (!(err instanceof ForgeError)) throw err;
@@ -415,10 +446,13 @@ export function upDatabase(root: string, config: Config, id: string, e: BackingE
   }
 }
 
-/** Terminates the job database's connections and drops it and its role; the names come from the job id only. */
-export function dropJobDatabase(s: PgServer, id: string): string {
+/**
+ * Terminates the job database's connections and drops it and its role, under the entry's lock so a
+ * concurrent `backing up` for the job cannot interleave; the names come from the job id only.
+ */
+export function dropJobDatabase(root: string, entry: string, s: PgServer, id: string): string {
   const j = jobDbName(id);
-  psql(s, script(terminate(j), `DROP DATABASE IF EXISTS ${q(j)}`, `DROP ROLE IF EXISTS ${q(j)}`));
+  withDbLock(root, entry, () => psql(s, script(terminate(j), `DROP DATABASE IF EXISTS ${q(j)}`, `DROP ROLE IF EXISTS ${q(j)}`)));
   return j;
 }
 

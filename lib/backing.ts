@@ -551,7 +551,7 @@ export function backingDown(root: string, config: Config, id: string, runner: Do
         if (!found.exists) continue;
         if (!matches(found.labels, ownLabels(root, e, null))) throw new DockerFailure(`container ${name} exists and is not this project's`);
         if (!found.running) throw new DockerFailure(`container ${name} is stopped: start it (docker start ${name}) and retry to drop the job database`);
-        databases.push(dropJobDatabase({ runner, container: name, admin: adminOf(e), secrets: jobDbPasswords(root, id, config) }, id));
+        databases.push(dropJobDatabase(root, e.name, { runner, container: name, admin: adminOf(e), secrets: jobDbPasswords(root, id, config) }, id));
       }
     } catch (err) {
       if (!(err instanceof DockerFailure) && !(err instanceof ForgeError)) throw err;
