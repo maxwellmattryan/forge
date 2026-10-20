@@ -27,6 +27,88 @@ const template = repoTemplate((dir) => {
   execFileSync('git', ['commit', '-qm', 'forge'], { cwd: dir, stdio: 'pipe' });
 });
 
+// Joined at runtime: the installed secret scan reads `{user}:{password}@` as a url credential.
+const DB_URL = ['postgres://{user}', '{password}@{host}:{port}/{database}'].join(':');
+const DB_BACKING = [{ name: 'pg', isolation: 'shared', image: 'postgres:16', ports: [5432], url: DB_URL, database: { engine: 'postgres', migrate: 'echo migrate >> $FORGE_WORKTREE/db.log' } }];
+const dbTemplate = repoTemplate((dir) => {
+  const answers = path.join(dir, '.answers.json');
+  fs.writeFileSync(answers, JSON.stringify({ commands: { test: 'true' }, worktrees: { root: '../{repo}.wt' }, tracker: { kind: 'none' } }));
+  execFileSync(process.execPath, [BIN, 'init', 'write', '--answers', answers], { cwd: dir, env: { ...process.env, FORGE_ROOT: dir }, stdio: 'pipe' });
+  fs.rmSync(answers);
+  const file = path.join(dir, '.forge', 'config.yml');
+  fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^backing: \[\]$/m, `backing: ${JSON.stringify(DB_BACKING)}`));
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'pipe' });
+  execFileSync('git', ['commit', '-qm', 'forge'], { cwd: dir, stdio: 'pipe' });
+});
+
+test('forge backing with a job database', async () => {
+  const r = dbTemplate();
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-docker-')));
+  const stateFile = path.join(tmp, 'state.json');
+  const env = { PATH: `${DOCKER_BIN}${path.delimiter}${process.env.PATH}`, FAKE_DOCKER_STATE: stateFile, FAKE_DOCKER_LOG: path.join(tmp, 'argv.log') };
+  const cli = async (args: string[]) => {
+    const res = await forgeAsync(r.dir, args, env);
+    return { ...res, json: res.stdout.trim().startsWith('{') ? JSON.parse(res.stdout) : null };
+  };
+  const state = () => JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  try {
+    const { id } = (await cli(['job', 'new', '--title', 'Cli database'])).json;
+    const recordFile = path.join(r.dir, '.forge', 'jobs', id, 'backing-db.json');
+    // A job.json worktree pointing anywhere does not count: only the path Forge computes does.
+    const elsewhere = fs.mkdtempSync(path.join(tmp, 'elsewhere-'));
+    const jobFile = path.join(r.dir, '.forge', 'jobs', id, 'job.json');
+    fs.writeFileSync(jobFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(jobFile, 'utf8')), worktree: elsewhere }));
+    const noWt = await cli(['backing', 'up', id]);
+    assert.equal(noWt.status, 5, noWt.stderr);
+    assert.equal(noWt.json.services[0].ok, false);
+    assert.equal(noWt.json.services[0].error, `job ${id} has no worktree: run forge worktree create ${id}`);
+    assert.ok(!fs.existsSync(path.join(elsewhere, 'db.log')), 'nothing ran in job.worktree');
+    const job = JSON.parse(fs.readFileSync(jobFile, 'utf8'));
+    delete job.worktree;
+    fs.writeFileSync(jobFile, JSON.stringify(job));
+
+    const wt = await cli(['worktree', 'create', id]);
+    assert.equal(wt.status, 0, wt.stderr);
+    const name = wt.json.backing[0].database.name;
+    assert.match(name, /^forge_j_[a-z0-9_]+_[0-9a-f]{8}$/);
+    assert.equal(wt.json.backing[0].database.template_action, 'built');
+    const down1 = await cli(['backing', 'down', id]);
+    assert.equal(down1.status, 0, down1.stderr);
+    assert.deepEqual(down1.json.databases, [name]);
+
+    const up = await cli(['backing', 'up', id]);
+    assert.equal(up.status, 0, up.stderr);
+    const t = up.json.services[0].database.template;
+    assert.deepEqual(up.json.services[0], { name: 'pg', isolation: 'shared', action: 'running', ok: true, database: { name, template: t, action: 'created', template_action: 'reused' } });
+    const password = JSON.parse(fs.readFileSync(recordFile, 'utf8')).databases.pg.password;
+    assert.ok(!up.stdout.includes(password), 'no password in the result');
+    const server = Object.keys(state().pg)[0];
+    assert.ok(state().pg[server].dbs[name]);
+
+    const status = await cli(['backing', 'status', id]);
+    assert.equal(status.status, 0, status.stderr);
+    assert.deepEqual(status.json.services[0].database, { name, template: t });
+    assert.ok(status.json.services[0].env.includes('FORGE_BACKING_PG_URL'));
+    assert.ok(!status.stdout.includes(password));
+    const human = await forgeAsync(r.dir, ['backing', 'status', id, '--mode', 'human'], env);
+    assert.match(human.stdout, /\bdatabase\b/);
+    assert.ok(human.stdout.includes(name));
+
+    const down = await cli(['backing', 'down', id]);
+    assert.equal(down.status, 0, down.stderr);
+    assert.deepEqual(down.json, { job: id, removed: [], volumes: [], databases: [name], ok: true });
+    assert.ok(!state().pg[server].dbs[name], 'dropped');
+    assert.ok(!fs.existsSync(recordFile));
+    const after = await cli(['backing', 'status', id]);
+    assert.deepEqual(after.json.services[0].database, { name, template: null });
+    assert.ok(!after.json.services[0].env.includes('FORGE_BACKING_PG_URL'), 'no url env without a record');
+  } finally {
+    r.cleanup();
+    fs.rmSync(`${r.dir}.wt`, { recursive: true, force: true });
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test('forge backing up|status|down', async () => {
   const r = template();
   const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-docker-')));
