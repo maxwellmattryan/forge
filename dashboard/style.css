@@ -880,6 +880,7 @@
   &.gleam { background: radial-gradient(circle at 35% 30%, var(--gleam-hot) 0%, var(--gleam) 55%, var(--gleam-deep) 100%); box-shadow: var(--shadow-glow); }
   &.spark { background: var(--spark); }
   &.ember { background: var(--ember); }
+  &.warn { background: var(--warn); }
   &.hollow { border: 1px solid var(--line-strong); }
   /* A gleam dot without the glow: the stepper's past steps, the agent role dot. */
   &.plain { box-shadow: none; }
@@ -905,6 +906,17 @@
 @utility scrim {
   background: rgba(5,7,10,.35);
   [data-theme="ash"] & { background: rgba(20,24,30,.2); }
+}
+/* A dropdown's popover panel (Select's list): fades and grows from the trigger edge (the component sets
+   transform-origin) as it opens, and runs back before it leaves. allow-discrete on display and overlay keeps the panel
+   drawn and in the top layer until the fade ends; @starting-style gives the first frame after showPopover() its start.
+   `scale`, not `transform`, so nothing else that sets a transform fights it. Reduced motion's global block cancels it. */
+@utility menu-pop {
+  opacity: 0;
+  scale: .96;
+  transition: opacity .12s ease, scale .12s ease, overlay .12s ease allow-discrete, display .12s ease allow-discrete;
+  &:popover-open { opacity: 1; scale: 1; }
+  @starting-style { &:popover-open { opacity: 0; scale: .96; } }
 }
 /* The anvil, as shipped: a raster with its own light grey tile. */
 @utility mark { width: 36px; height: 36px; }

@@ -17,7 +17,7 @@ const styleCss = () => fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8'
 
 const UTILITIES = (
   'ground falloff plain solid chrome plate clickable h label callout mono num muted dimmed caption stamp-line prose btn seg chip ' +
-  'navlist input check radio field cmd-field track fill tabs tab tbl facts kpi ic dot halo backdrop scrim mark'
+  'navlist input check radio field cmd-field track fill tabs tab tbl facts kpi ic dot halo backdrop scrim mark menu-pop'
 ).split(' ');
 // Compound selectors as the build writes them (minified, attribute quotes dropped).
 const MODIFIERS = [
@@ -28,7 +28,7 @@ const MODIFIERS = [
   '.navlist a', '.navlist button', '.navlist a.active', '.navlist .lbl', '.navlist.row', '.navlist.row a', '.navlist.row button',
   '.input:focus', '.input.sm', '.input:is(textarea)', '.input:is(select)', '.check:checked:after', '.radio.on:after', '.cmd-field input', '.cmd-field:focus-within', '.fill.ok', '.fill.warn', '.fill.bad',
   '.tab.active', '.tbl th', '.tbl tr.clickable', '.tbl .r', '.facts .k', '.facts .sep', '.kpi .v',
-  '.dot.ok', '.dot.gleam', '.dot.spark', '.dot.ember', '.dot.hollow', '.dot.plain', '[data-theme=ash] .backdrop', '[data-theme=ash] .scrim', '.ground:before', '.falloff:after',
+  '.dot.ok', '.dot.gleam', '.dot.spark', '.dot.ember', '.dot.warn', '.dot.hollow', '.dot.plain', '[data-theme=ash] .backdrop', '[data-theme=ash] .scrim', '.ground:before', '.falloff:after',
 ];
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -321,6 +321,22 @@ test('reduced motion disables transitions and animations', () => {
   assert.match(rule, /animation:none!important/);
   // Unlayered, so the !important beats every utility's transition (the drawer's slide included).
   assert.ok(builtCss().lastIndexOf('@media(prefers-reduced-motion:reduce)') > builtCss().indexOf('.transition'), 'the block comes after the utilities');
+});
+
+test('the menu panel transitions open and closed, and not under reduced motion', () => {
+  const css = builtCss();
+  const pop = ruleFor(css, '.menu-pop');
+  assert.match(pop, /opacity:0/);
+  assert.match(pop, /scale:\.96/);
+  assert.match(pop, /transition:opacity \.12s( ease)?,scale \.12s( ease)?,overlay \.12s( ease)? allow-discrete,display \.12s( ease)? allow-discrete/, 'fades and scales, and keeps the panel drawn and in the top layer until it ends');
+  assert.doesNotMatch(pop, /transform:/, 'scale, not transform');
+  assert.match(ruleFor(css, '.menu-pop:popover-open'), /opacity:1/, 'the open end state');
+  assert.match(ruleFor(css, '.menu-pop:popover-open'), /scale:1/);
+  const start = /@starting-style\{\.menu-pop:popover-open\{([^}]*)\}\}/.exec(css);
+  assert.ok(start, 'an @starting-style start state');
+  assert.match(start[1], /opacity:0/);
+  assert.match(start[1], /scale:\.96/);
+  assert.ok(css.lastIndexOf('@media(prefers-reduced-motion:reduce)') > css.indexOf('.menu-pop'), 'the reduced-motion block comes after it');
 });
 
 /** Every `@media` block whose prelude matches (Tailwind's `hover:` variants emit their own): the bodies joined, and the CSS without them. */

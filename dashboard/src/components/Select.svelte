@@ -1,13 +1,17 @@
-<!-- The dashboard's choice field, in place of a native <select>, whose OS menu ignores the Smithy look and the themes.
-     A select-only combobox (WAI-ARIA APG): a field-styled button controls a listbox that opens in the top layer
-     (popover="manual"), so the drawer, the settings dialog and overflow-hidden parents never clip it. Focus never leaves
-     the button and aria-activedescendant names the active option, so the settings focus trap and the drawer's focus
-     handling see one control. lib/select.ts decides what each key does, lib/menu.ts placeMenu where the list opens, and
-     dismissal follows MenuButton: Escape closes only the list, a press outside, focus leaving, a resize, a scroll that
-     moves the button or unmounting close it without a change. -->
+<!-- The dashboard's single-choice dropdown, in place of a native <select>, whose OS menu ignores the Smithy look and the
+     themes. A select-only combobox (WAI-ARIA APG): a field-styled button (or, with variant="button", a small toolbar
+     button) controls a listbox that opens in the top layer (popover="manual"), so the drawer, the settings dialog and
+     overflow-hidden parents never clip it. The list is a compact menu panel that fades and grows from the trigger edge it
+     opened against (`menu-pop` in style.css). Entries are dense rows: a check column, then the label with an optional
+     icon and hint line, or the caller's `entry` snippet; `separator` rules an entry off and consecutive entries of one
+     `group` sit under its name. Focus never leaves the button and aria-activedescendant names the active option, so the
+     settings focus trap and the drawer's focus handling see one control. lib/select.ts decides what each key does,
+     lib/menu.ts placeMenu where the list opens, and dismissal follows MenuButton: Escape closes only the list, a press
+     outside, focus leaving, a resize, a scroll that moves the button or unmounting close it without a change. -->
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { tick, type Snippet } from 'svelte';
   import Icon from './Icon.svelte';
+  import type { IconName } from '../lib/icons.ts';
   import { CLOSED, selectKey, selectedIndex, openAt, type SelectOption, type SelectState } from '../lib/select.ts';
   import { placeMenu } from '../lib/menu.ts';
   import { FOCUSABLE, dismissal } from '../lib/popover.ts';
@@ -23,6 +27,13 @@
     describedby,
     invalid = false,
     disabled = false,
+    entry,
+    variant = 'field',
+    icon,
+    text,
+    title,
+    badge = false,
+    align = 'start',
     class: cls = '',
   }: {
     id?: string;
@@ -34,12 +45,24 @@
     describedby?: string;
     invalid?: boolean;
     disabled?: boolean;
+    /** Renders every entry's content after the check column, in place of the icon, label and hint. */
+    entry?: Snippet<[SelectOption, number]>;
+    variant?: 'field' | 'button';
+    /** The button variant's leading icon. */
+    icon?: IconName;
+    /** The trigger's text in place of the chosen entry's label. */
+    text?: string;
+    title?: string;
+    /** The button variant's spark dot, as MenuButton's. */
+    badge?: boolean;
+    align?: 'start' | 'end';
     class?: string;
   } = $props();
 
   const uid = $props.id();
   const listId = `${uid}-list`;
   const optId = (i: number): string => `${uid}-opt-${i}`;
+  const groupId = (r: number): string => `${uid}-grp-${r}`;
 
   let trigger = $state<HTMLButtonElement>();
   let list = $state<HTMLUListElement>();
@@ -47,12 +70,23 @@
   let st = $state.raw<SelectState>(CLOSED);
   let at = $state<{ left: number; top: number }>({ left: 0, top: 0 });
   let minWidth = $state(0);
+  let origin = $state('top left');
   // Space chooses on keydown; the button's own Space activation (a click on keyup) must not reopen the list.
   let swallowClick = false;
 
   const selected = $derived(selectedIndex(options, value));
   const sel = $derived(selected >= 0 ? options[selected] : undefined);
   const activeId = $derived(st.open && st.active >= 0 ? optId(st.active) : undefined);
+  /** Runs of options: a run of one defined group renders under its name; ungrouped options render as they are. Indices stay flat. */
+  const runs = $derived.by(() => {
+    const out: { group: string | undefined; start: number; count: number }[] = [];
+    options.forEach((o, i) => {
+      const last = out.at(-1);
+      if (last && last.group === o.group) last.count++;
+      else out.push({ group: o.group, start: i, count: 1 });
+    });
+    return out;
+  });
 
   const within = (n: Node | null): boolean => n !== null && Boolean(list?.contains(n) || trigger?.contains(n));
 
@@ -63,13 +97,13 @@
     else if (!next.open && was && list?.matches(':popover-open')) list.hidePopover();
     if (next.open) {
       await tick();
-      if (next.active >= 0) list?.children[next.active]?.scrollIntoView({ block: 'nearest' });
+      if (next.active >= 0) document.getElementById(optId(next.active))?.scrollIntoView({ block: 'nearest' });
     }
   }
 
   async function show(): Promise<void> {
     if (!list || !trigger) return;
-    minWidth = trigger.getBoundingClientRect().width;
+    minWidth = variant === 'field' ? trigger.getBoundingClientRect().width : 0;
     list.showPopover();
     await tick();
     place();
@@ -78,8 +112,9 @@
   function place(): void {
     if (!list || !trigger) return;
     const r = trigger.getBoundingClientRect();
-    const p = list.getBoundingClientRect();
-    at = placeMenu({ top: r.top, bottom: r.bottom, left: r.left, right: r.right, align: 'start', vw: document.documentElement.clientWidth, vh: window.innerHeight, width: p.width, height: p.height });
+    // offset sizes: the opening scale would shrink a bounding rect and misplace a list that opens above.
+    at = placeMenu({ top: r.top, bottom: r.bottom, left: r.left, right: r.right, align, vw: document.documentElement.clientWidth, vh: window.innerHeight, width: list.offsetWidth, height: list.offsetHeight });
+    origin = `${at.top < r.top ? 'bottom' : 'top'} ${align === 'end' ? 'right' : 'left'}`;
   }
 
   function close(refocus: boolean): void {
@@ -182,14 +217,14 @@
   aria-describedby={describedby}
   aria-label={label}
   aria-labelledby={labelledby}
+  {title}
   {disabled}
-  class="input inline-flex items-center justify-between gap-2 text-left {cls}"
+  class="{variant === 'button' ? 'btn sm' : 'input inline-flex items-center justify-between gap-2 text-left'} {cls}"
   onclick={click}
   onkeydown={key}
   onkeyup={keyUp}
   onfocusout={focusOut}
-><span class={sel ? 'truncate' : 'truncate text-muted'} lang={sel?.lang}>{sel?.label ?? $t('select.choose')}</span><Icon name="chevron-down" class="shrink-0" /></button>
-<!-- svelte-ignore a11y_click_events_have_key_events (focus stays on the combobox button, which chooses options from the keyboard; mousedown is cancelled so a press never moves focus here) -->
+>{#if variant === 'button' && icon}<Icon name={icon} />{/if}<span class={sel || text !== undefined ? 'truncate' : 'truncate text-muted'} lang={text === undefined ? sel?.lang : undefined}>{text ?? sel?.label ?? $t('select.choose')}</span><Icon name="chevron-down" class="shrink-0" />{#if variant === 'button' && badge}<span class="dot spark absolute -top-1 -right-1 size-2" aria-hidden="true"></span>{/if}</button>
 <ul
   bind:this={list}
   id={listId}
@@ -198,22 +233,36 @@
   aria-label={label}
   aria-labelledby={labelledby}
   tabindex="-1"
-  class="plate solid fixed inset-auto m-0 p-1 text-fg hidden open:flex flex-col max-w-[calc(100vw_-_16px)] max-h-[min(20rem,calc(100dvh_-_16px))] overflow-y-auto overscroll-contain text-sm shadow-(--shadow-overlay)"
-  style="left: {at.left}px; top: {at.top}px; min-width: {minWidth}px"
+  class="plate solid menu-pop fixed inset-auto m-0 p-1 text-fg hidden open:flex flex-col max-w-[calc(100vw_-_16px)] max-h-[min(20rem,calc(100dvh_-_16px))] overflow-y-auto overscroll-contain text-sm shadow-(--shadow-overlay) {variant === 'button' ? 'w-[min(16rem,calc(100vw_-_16px))]' : ''}"
+  style="left: {at.left}px; top: {at.top}px; min-width: {minWidth}px; transform-origin: {origin}"
   onmousedown={(e) => e.preventDefault()}
 >
-  {#each options as o, i (i)}
-    <li
-      id={optId(i)}
-      role="option"
-      aria-selected={i === selected}
-      aria-disabled={o.disabled ? 'true' : undefined}
-      lang={o.lang}
-      class="flex items-center gap-2 px-3 py-1.5 {i === st.active ? 'bg-raised text-fg shadow-[inset_var(--bar-rule)_0_0_0_var(--gleam)]' : 'text-muted'} {o.disabled ? 'opacity-40' : ''}"
-      onmousemove={() => hover(i)}
-      onclick={() => pick(i)}
-    >
-      {#if i === selected}<Icon name="check" class="shrink-0" />{:else}<span class="ic shrink-0" aria-hidden="true"></span>{/if}<span class="truncate">{o.label}</span>
-    </li>
+  {#each runs as run, r (run.start)}
+    {#if run.group === undefined}
+      {#each options.slice(run.start, run.start + run.count) as o, k (run.start + k)}{@render row(o, run.start + k)}{/each}
+    {:else}
+      <li role="group" aria-labelledby={groupId(r)} class="flex flex-col">
+        <div id={groupId(r)} class="label px-2 pt-1.5 pb-0.5" role="presentation">{run.group}</div>
+        <ul role="none" class="flex flex-col">
+          {#each options.slice(run.start, run.start + run.count) as o, k (run.start + k)}{@render row(o, run.start + k)}{/each}
+        </ul>
+      </li>
+    {/if}
   {/each}
 </ul>
+
+{#snippet row(o: SelectOption, i: number)}
+  <!-- svelte-ignore a11y_click_events_have_key_events (focus stays on the combobox button, which chooses options from the keyboard; the list cancels mousedown so a press never moves focus here) -->
+  <li
+    id={optId(i)}
+    role="option"
+    aria-selected={i === selected}
+    aria-disabled={o.disabled ? 'true' : undefined}
+    lang={o.lang}
+    class="flex items-start gap-2 px-2 py-1 {i === st.active ? 'bg-raised text-fg shadow-[inset_var(--bar-rule)_0_0_0_var(--gleam)]' : 'text-fg'} {o.disabled ? 'opacity-40' : ''} {o.separator ? 'mt-1 pt-1 border-t border-line-soft' : ''}"
+    onmousemove={() => hover(i)}
+    onclick={() => pick(i)}
+  >
+    {#if i === selected}<Icon name="check" class="shrink-0" />{:else}<span class="ic shrink-0" aria-hidden="true"></span>{/if}{#if entry}{@render entry(o, i)}{:else}{#if o.icon}<Icon name={o.icon} class="shrink-0" />{/if}<span class="flex min-w-0 flex-col"><span class="truncate">{o.label}</span>{#if o.hint}<span class="text-xs text-muted whitespace-normal">{o.hint}</span>{/if}</span>{/if}
+  </li>
+{/snippet}
