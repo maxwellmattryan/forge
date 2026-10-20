@@ -13,7 +13,7 @@ const styleCss = () => fs.readFileSync(path.join(DASHBOARD, 'style.css'), 'utf8'
 
 const UTILITIES = (
   'ground falloff plain solid chrome plate clickable h label callout mono num muted dimmed caption stamp-line prose btn seg chip ' +
-  'navlist input check radio field cmd-field track fill tabs tab tbl facts kpi ic dot halo backdrop scrim mark'
+  'navlist input check radio field cmd-field track fill tabs tab tbl facts kpi ic dot halo backdrop scrim mark swap'
 ).split(' ');
 // Compound selectors as the build writes them (minified, attribute quotes dropped).
 const MODIFIERS = [
@@ -303,6 +303,22 @@ function mediaBody(css: string, prelude: RegExp): string {
     .join('');
 }
 
+test('swap stacks both states and transitions only opacity and scale', () => {
+  const css = builtCss();
+  const root = ruleFor(css, '.swap');
+  assert.match(root, /display:inline-grid/, 'one grid cell for both states');
+  const kids = ruleFor(css, '.swap>*');
+  assert.match(kids, /grid-area:1\/1/, 'both states sit in the same cell');
+  const transition = /transition:([^;}]*)/.exec(kids)?.[1] ?? '';
+  const props = transition.split(',').map((p) => p.trim().split(/\s+/)[0]);
+  assert.deepEqual(props.sort(), ['opacity', 'scale'], `only opacity and scale transition (${transition})`);
+  const off = ruleFor(css, '.swap>[data-off]');
+  assert.match(off, /opacity:0/, 'the inactive state is hidden');
+  assert.match(off, /scale:\.6/, 'and shrunk, so it grows in on the flip');
+  // The reduced-motion block still kills every transition, this one included.
+  assert.match(ruleFor(mediaBody(css, /\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/), '*'), /transition:none!important/);
+});
+
 test('reduced motion disables transitions and animations', () => {
   const body = mediaBody(builtCss(), /\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/);
   const rule = ruleFor(body, '*');
@@ -458,6 +474,14 @@ test('every control has the solid focus ring', () => {
   assert.match(ruleFor(css, '.check:checked:after'), /border:solid var\(--on-gleam\)/, 'with an on-gleam tick');
   assert.match(ruleFor(css, '.check:disabled'), /border-style:dashed/);
   assert.match(ruleFor(css, 'input[type=checkbox]:focus-visible'), RING, 'a drawn checkbox keeps the ring');
+  // .radio on a native radio (the session log's Permissions and Effort popovers): round, drawn, with the .on dot when checked.
+  assert.match(ruleFor(css, '.radio'), /appearance:none/, 'the radio is drawn, not the OS one');
+  assert.match(ruleFor(css, '.radio'), /border-radius:50%/, 'and round, so an exclusive choice never reads as checkboxes');
+  assert.match(ruleFor(css, '.radio:checked'), /border-color:var\(--gleam\)/, 'a checked radio rings gleam, as .on does');
+  assert.equal(ruleFor(css, '.radio:checked:after'), ruleFor(css, '.radio.on:after'), 'with the same dot as .on');
+  assert.match(ruleFor(css, '.radio:checked:after'), /radial-gradient/);
+  assert.match(ruleFor(css, '.radio:disabled'), /border-style:dashed/);
+  assert.match(ruleFor(css, 'input[type=radio]:focus-visible'), RING, 'a drawn radio keeps the ring');
   assert.match(ruleFor(css, '.seg label:has(input:focus-visible)'), RING, 'a radio seg rings the focused label');
   for (const sel of ['.btn:focus-visible', '.navlist a:focus-visible', '.clickable:focus-visible', '.plate.clickable:focus-visible', '.input:focus', '.cmd-field:focus-within']) assert.match(ruleFor(css, sel), RING, sel);
   assert.doesNotMatch(css, /:focus(-visible)?\{[^}]*box-shadow/, 'no glow on focus');

@@ -1,4 +1,4 @@
-// The job drawer's tabs and their keyboard and scroll rules, as plain functions node:test can pin.
+// The job drawer's tabs and their keyboard rules, as plain functions node:test can pin.
 
 /** The drawer's tabs, in strip order. */
 export const DRAWER_TABS = ['thread', 'log', 'agents', 'files', 'timeline', 'details'] as const;
@@ -18,12 +18,6 @@ export function moveDrawerTab(current: DrawerTab, key: string): DrawerTab | null
   if (key === 'End') return DRAWER_TABS[n - 1];
   return null;
 }
-
-/**
- * The body's scrollTop after switching tabs. Past the header, the strip is stuck, so the new tab starts right under
- * it (at the header's height); above that point the position stays.
- */
-export const tabScrollTop = (scrollTop: number, headHeight: number): number => Math.max(0, Math.min(scrollTop, headHeight));
 
 // ---------- the job drawer over the view ----------
 

@@ -651,6 +651,8 @@
     "stop": "Stop",
     "failed": "Session {action} failed: {error}",
     "filter": "Filter the log",
+    "filterTitle": "Filter",
+    "filterActive": "Filter the log (filters on)",
     "tools": "Tools",
     "thinking": "Thinking",
     "subagents": "Subagents",
@@ -682,6 +684,7 @@
     "emptyInboxEnabled": "No inbox session log yet. It starts with the next request that has no job.",
     "emptyOffice": "No office session log yet. With foreman.enabled and the daemon on, the office session starts when a job parks at a gate the foreman decides.",
     "modeLabel": "Permissions",
+    "modeTrigger": "Permissions: {mode}",
     "modeFailed": "Changing the permission mode failed: {error}",
     "modeSwitching": "The session still reports {mode}; the switch applies once claude confirms it.",
     "modes": {
@@ -906,6 +909,8 @@
   },
   "effort": {
     "label": "Effort",
+    "trigger": "Effort: {level}",
+    "inheritShort": "Inherit",
     "hint": "How much the model thinks for this job. Inherit uses runtime.effort from Settings.",
     "inherit": "Inherit ({level})",
     "claude": "Claude Code's setting",
@@ -925,7 +930,8 @@
     "thread": "Show conversation as",
     "session": "Show session log as",
     "rendered": "Rendered",
-    "raw": "Raw"
+    "raw": "Raw",
+    "sessionRendered": "Render markdown in the session log"
   },
   "activity": {
     "label": "Running agents",

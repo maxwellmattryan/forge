@@ -1,7 +1,7 @@
 // The status bar's Daemon popover's and the session log's models (dashboard/src/lib/daemon.ts). The log-line cases live in dashboard-session-log.test.ts.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PERMISSION_MODES, START_HINT, daemonRows, mergePoolState, mergeSessionState, poolModel, postDaemon, postDaemonMode, sessionControls, sessionMode, sessionPill } from '../dashboard/src/lib/daemon.ts';
+import { PERMISSION_MODES, START_HINT, daemonRows, mergePoolState, mergeSessionState, poolModel, postDaemon, postDaemonMode, sessionControls, sessionMode, sessionPill, sessionToggle } from '../dashboard/src/lib/daemon.ts';
 
 const XSS = '<script>alert(1)</script><img src=x onerror=alert(2)>';
 const session = (o: any = {}): any => ({ scope: 'job', wanted: true, running: false, status: 'off', sessionId: null, pid: null, lastTurnAt: null, lastResultAt: null, turns: 0, failures: 0, held: null, waiting: false, lastError: null, ...o });
@@ -133,6 +133,25 @@ test('sessionControls: Start once the pool runs and the session is stopped or fa
   assert.deepEqual(sessionControls(null, false, false), { canStart: false, canStop: false }, 'nothing to stop while the pool is down');
   assert.deepEqual(sessionControls(session({ running: true, status: 'idle' }), false, false), { canStart: false, canStop: true });
   assert.deepEqual(sessionControls(session({ wanted: false }), true, true), { canStart: false, canStop: false });
+});
+
+test('sessionToggle picks one action', () => {
+  const both = { canStart: true, canStop: true };
+  const none = { canStart: false, canStop: false };
+  // Rule 1: running shows Stop, enabled as canStop says.
+  assert.deepEqual(sessionToggle({ canStart: false, canStop: true }, { running: true, wanted: true }), { action: 'stop', enabled: true });
+  assert.deepEqual(sessionToggle(none, { running: true }), { action: 'stop', enabled: false }, 'running while pending: a disabled Stop');
+  assert.deepEqual(sessionToggle(both, { running: true, lastError: 'x' }), { action: 'stop', enabled: true }, 'running wins over a retryable failure');
+  // Rule 2: not running and startable shows an enabled Start (a failed session retries).
+  assert.deepEqual(sessionToggle({ canStart: true, canStop: false }, { running: false, wanted: false }), { action: 'start', enabled: true });
+  assert.deepEqual(sessionToggle(both, { running: false, wanted: true, lastError: 'boom' }), { action: 'start', enabled: true }, 'failed and down: Start');
+  // Rule 3: stopped by a human and not startable (pool down, or pending) shows a disabled Start.
+  assert.deepEqual(sessionToggle(sessionControls({ running: false, wanted: false }, false, false), { running: false, wanted: false }), { action: 'start', enabled: false }, 'pool down with a stopped session: Start, disabled');
+  assert.deepEqual(sessionToggle(none, { wanted: false }), { action: 'start', enabled: false });
+  // Rule 4: anything else shows Stop, enabled as canStop says.
+  assert.deepEqual(sessionToggle({ canStart: false, canStop: true }, { running: false, wanted: true }), { action: 'stop', enabled: true }, 'wanted on demand: Stop keeps it off');
+  assert.deepEqual(sessionToggle(sessionControls(null, false, false), null), { action: 'stop', enabled: false }, 'no session, pool down: a disabled Stop');
+  assert.deepEqual(sessionToggle({ canStart: false, canStop: true }, undefined), { action: 'stop', enabled: true });
 });
 
 test('merges keep enabled from /api/state and take session frames whole', () => {
