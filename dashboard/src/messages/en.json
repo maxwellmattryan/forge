@@ -951,6 +951,9 @@
     "noTranscript": "No transcript for this agent",
     "transcript": "{role} transcript · read-only"
   },
+  "select": {
+    "choose": "Choose…"
+  },
   "budget": {
     "meterTitle": "Repo spend · {month}",
     "meterLabel": "Month spend against the cap",

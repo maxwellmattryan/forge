@@ -16,6 +16,10 @@ export const ICONS = {
   bell: [{ el: 'path', d: 'M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z' }, { el: 'path', d: 'M10 20.5a2 2 0 0 0 4 0M12 3v2' }],
   board: [{ el: 'rect', x: '3', y: '4', width: '7', height: '16', rx: '1' }, { el: 'rect', x: '14', y: '4', width: '7', height: '10', rx: '1' }],
   branch: [{ el: 'circle', cx: '6', cy: '5', r: '2' }, { el: 'circle', cx: '6', cy: '19', r: '2' }, { el: 'circle', cx: '18', cy: '7', r: '2' }, { el: 'path', d: 'M6 7v10M18 9a5 5 0 0 1-5 5H9a3 3 0 0 0-3 3' }],
+  // A tick: the chosen option in a Select's list.
+  check: [{ el: 'path', d: 'M5 12.5l4.5 4.5L19 7' }],
+  // A caret: a Select's trigger opens a list.
+  'chevron-down': [{ el: 'path', d: 'M6 9l6 6 6-6' }],
   close: [{ el: 'path', d: 'M6 6l12 12M18 6 6 18' }],
   command: [{ el: 'path', d: 'M12 5v14M5 12h14' }],
   copy: [{ el: 'rect', x: '9', y: '9', width: '11', height: '11', rx: '1' }, { el: 'path', d: 'M5 15V4h11' }],
