@@ -332,7 +332,8 @@
 /* The anvil: the sidebar, the phone header and the status bar. Opaque, the furthest step from the ground. */
 @utility chrome { background-color: var(--chrome); --surface: var(--chrome); }
 /* foreman: the supervisor above the daemon pool (the status bar's Foreman indicator, its popover's header and tag, the
-   Daemon popover's Foreman row). Gleam text on a gleam tint behind a gleam seam, so it outranks the bar's ghost
+   Daemon popover's Foreman row). It also styles the status bar's Daemon indicator, so the Foreman and the Daemon read
+   as one pair. Gleam text on a gleam tint behind a gleam seam, so it outranks the bar's ghost
    indicators without taking a status tone. Gleam, not gleam-hot: gleam-hot sits too close to fg on the dark themes and
    under 4.5:1 on ash's pale ground. .off: a dashed seam, muted text, no tint. The :is() raises it over the base btn, chip
    and plain rules whatever order Tailwind emits them in. */

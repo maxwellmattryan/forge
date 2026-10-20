@@ -1,4 +1,4 @@
-// The repo budget's numbers for the Analytics meter, the status-bar spend chip and the Needs-you section, from
+// The repo budget's numbers for the Analytics meter and the Needs-you section, from
 // /api/state.budget (repoBudgetStatus in lib/repo-budget.ts). No DOM access, so node:test can import it.
 import type { Job, RepoBudgetKey, RepoBudgetStatus } from './types.ts';
 
@@ -26,14 +26,14 @@ export function meterTone(spent: number, cap: number | null, exceeded: boolean):
 /** The tone's chip and fill modifier: whole literals, so Tailwind sees them. */
 export const TONE_MOD: Record<MeterTone, string> = { none: '', warn: 'warn', danger: 'bad' };
 
-/** Dollars as the meter and chip print them: cents, but a whole-dollar cap without them ($100). */
+/** Dollars as the meter prints them: cents, but a whole-dollar cap without them ($100). */
 export function money(n: number | null): string {
   if (n === null) return '—';
   const v = fin(n);
   return Number.isInteger(v) ? `$${v}` : `$${v.toFixed(2)}`;
 }
 
-/** Spent always shows cents ($12.30), so the chip doesn't jump width as cents come and go. */
+/** Spent always shows cents ($12.30), so the meter doesn't jump width as cents come and go. */
 export const spentMoney = (n: number): string => `$${fin(n).toFixed(2)}`;
 
 export interface PeriodMeter {
@@ -57,16 +57,6 @@ export function dayMeter(b: RepoBudgetStatus): PeriodMeter {
   const cap = b.caps.usdPerDay;
   const f = meterFraction(b.spent.dayUsd, cap);
   return { spent: b.spent.dayUsd, cap, remaining: b.remaining.usdPerDay, percent: f === null ? null : Math.round(f * 1000) / 10, tone: meterTone(b.spent.dayUsd, cap, b.exceeded.includes('usdPerDay')) };
-}
-
-/**
- * The status-bar chip: `$12.34 / $100` against a month cap, `$12.34 this month` without one (the component picks the
- * message by `capped`). Its tone is the worst of the month and any exceeded key, so a reached day or token cap shows too.
- */
-export function chipModel(b: RepoBudgetStatus): { capped: boolean; spent: string; cap: string; tone: MeterTone } {
-  const m = monthMeter(b);
-  const tone: MeterTone = b.exceeded.length ? 'danger' : m.tone;
-  return { capped: m.cap !== null, spent: spentMoney(m.spent), cap: money(m.cap), tone };
 }
 
 /** What Acknowledge posts: the current month when a month key is exceeded, else the current day; null when nothing is. */
