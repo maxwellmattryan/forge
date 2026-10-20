@@ -102,7 +102,10 @@ jobs:
           fi
           auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           echo "::add-mask::$auth"
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push --force origin "$sha:refs/heads/ci/main-update"
+          if ! git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push --force origin "$sha:refs/heads/ci/main-update"; then
+            echo "::error title=Push refused::GitHub refused the ci/main-update push. If the log says a workflow file needs the workflows permission, develop changes .github/workflows/ and main lacks it: push the commit by hand (docs/RELEASES.md, Workflow changes)"
+            exit 1
+          fi
       - name: Open or update the main-update PR
         env:
           GH_TOKEN: ${{ github.token }}

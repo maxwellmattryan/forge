@@ -51,7 +51,10 @@ const PUSH_RUN = [
   'fi',
   `auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"`,
   'echo "::add-mask::$auth"',
-  'git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push --force origin "$sha:refs/heads/ci/main-update"',
+  'if ! git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push --force origin "$sha:refs/heads/ci/main-update"; then',
+  '  echo "::error title=Push refused::GitHub refused the ci/main-update push. If the log says a workflow file needs the workflows permission, develop changes .github/workflows/ and main lacks it: push the commit by hand (docs/RELEASES.md, Workflow changes)"',
+  '  exit 1',
+  'fi',
 ].join('\n');
 const PR_RUN = [
   'title="$(head -n 1 "$RUNNER_TEMP/body.md")"',
@@ -363,5 +366,14 @@ test('the push sends the token as a header, never in a URL or git config', POSIX
     assert.deepEqual(none.calls, []);
   } finally {
     none.cleanup();
+  }
+  // GITHUB_TOKEN can't push a commit that changes .github/workflows/; the step must fail and say where the manual push is.
+  const refused = runStep(`printf '%s\\n' ${sha} > "$RUNNER_TEMP/sha"\n${PUSH_RUN}`, { GH_TOKEN: token }, { git: 'echo "refusing to allow a GitHub App to create or update workflow" >&2; exit 1' });
+  try {
+    assert.equal(refused.status, 1, 'a refused push fails the step');
+    assert.equal(refused.calls.length, 1);
+    assert.match(refused.stdout, /^::error title=Push refused::.*docs\/RELEASES\.md, Workflow changes\)$/m);
+  } finally {
+    refused.cleanup();
   }
 });

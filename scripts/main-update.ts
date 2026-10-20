@@ -113,6 +113,8 @@ function developVersion(develop: string): string {
 /** `Release <v>` while v<v> has no tag, else `Update main to develop <sha7>`. */
 function title(develop: string): string {
   const v = developVersion(develop);
+  // Any rev-parse failure reads as "no tag", so this needs the tags in the checkout: publish's
+  // checkout sets fetch-depth: 0, which fetches them. A shallow, tagless one would title every PR a release.
   const tagged = spawnSync('git', ['rev-parse', '-q', '--verify', `refs/tags/v${v}`], { encoding: 'utf8' }).status === 0;
   return tagged ? `Update main to develop ${develop.slice(0, 7)}` : `Release ${v}`;
 }

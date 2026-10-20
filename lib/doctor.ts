@@ -8,7 +8,7 @@ import { deprecationChecks } from './deprecations.ts';
 import { memberRepoChecks, releaseChecks, repoProblems } from './member-repos.ts';
 import { isActive, listJobs } from './jobs.ts';
 import { notifyChecks } from './notify.ts';
-import { paths, exists, PLUGIN_ROOT } from './paths.ts';
+import { paths, exists, BUILD_DASHBOARD, PLUGIN_ROOT } from './paths.ts';
 import { dirBytes } from './retention.ts';
 import { SUPPORT_URL, hostInfo, platformTier, posixShell, tierDetail, versionAtLeast } from './platform.ts';
 import type { HostInfo } from './platform.ts';
@@ -60,7 +60,7 @@ export function storageCheck(root: string, warnBytes = STORAGE_WARN_BYTES): Doct
  */
 export function dashboardCheck(distDir: string = path.join(PLUGIN_ROOT, 'dashboard', 'dist')): DoctorCheck {
   if (exists(path.join(distDir, 'manifest.json'))) return { name: 'dashboard built', ok: true, detail: 'ok' };
-  return { name: 'dashboard built', ok: true, warn: true, detail: 'not built: run npm ci && npm run build:dashboard' };
+  return { name: 'dashboard built', ok: true, warn: true, detail: `not built: run ${BUILD_DASHBOARD}` };
 }
 
 /** The repo root and worktrees root that sit on the Windows filesystem (/mnt/…) under WSL2. */

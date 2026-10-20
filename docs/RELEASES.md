@@ -58,6 +58,22 @@ There is never more than one main-update PR: a later develop push replaces its h
 - Settings › Actions › General: Workflow permissions "Read repository contents", with "Allow GitHub Actions to create and approve pull requests" ticked, so `publish` can open the PR.
 - The `main` branch protection or ruleset requires a PR and the `CI` checks by name, allows merge commits, and turns on "Dismiss stale pull request approvals when new commits are pushed", so an approval never carries over to a replaced head. `ci/main-update` must stay pushable by `github-actions[bot]`.
 
+**Workflow changes.** GitHub can refuse a `GITHUB_TOKEN` push whose commit creates or changes a file under `.github/workflows/` ("refusing to allow a GitHub App to create or update workflow … without `workflows` permission"), and no `permissions:` key grants that scope. The main-update commit has `main` as its first parent, so this can happen whenever `develop` holds a workflow edit that `main` doesn't yet have: the first run after `main-update.yml` lands, and any later PR into `develop` that touches a workflow. `publish` then fails at "Push ci/main-update" with a `Push refused` error, and the open main-update PR keeps its old head. To get past it, a maintainer whose credentials carry the `workflow` scope (`gh auth refresh -s workflow`) builds and pushes the same commit from a clone. Use the run's develop commit and the failed run's URL:
+
+```bash
+git fetch origin main develop && git checkout --detach <develop sha>
+npm ci && npm run build:dashboard
+main="$(git rev-parse --verify 'refs/remotes/origin/main^{commit}')" develop="$(git rev-parse HEAD)"
+sha="$(node scripts/main-update.ts commit --main "$main" --develop "$develop" --dist dashboard/dist)"
+git push --force origin "$sha:refs/heads/ci/main-update"
+node scripts/main-update.ts body --main "$main" --develop "$develop" --run-url <run url> --dist dashboard/dist > body.md
+tail -n +2 body.md > pr-body.md
+gh pr create --base main --head ci/main-update --title "$(head -n 1 body.md | cut -d= -f2-)" --body-file pr-body.md   # or: gh pr edit <n> --title … --body-file pr-body.md
+gh workflow run ci.yml --ref ci/main-update
+```
+
+Once that PR merges, `main` holds the workflow files and the workflow pushes on its own again. The alternative, a fine-grained token or GitHub App token with the `workflows` permission stored as a secret, would put a long-lived write credential in the publish job, which this workflow avoids on purpose.
+
 ## Releasing a project
 
 `forge release` releases the repos of a project that uses Forge, single- or multi-repo, from each repo's declared [release strategy](CONFIG.md#release-strategy). A human runs it from the CLI; the Foreman never does, though it may approve a job's plan when the project hands it the `release` gate class (Confirmation, below). (Forge's own release is [Releasing](#releasing) above.)
