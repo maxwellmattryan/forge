@@ -2,6 +2,8 @@
 // and cap, the Project page's Running environments rows, and the fetch wrappers behind them.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   LOG_CAP,
   actionToast,
@@ -9,10 +11,12 @@ import {
   backingSource,
   devButtons,
   devChip,
+  dockerDown,
   fetchEnvironment,
   fetchEnvironments,
   formatBytes,
   formatPercent,
+  logHint,
   logStreamUrl,
   parseFrame,
   postEnvironment,
@@ -23,7 +27,7 @@ import {
 
 const svc = (name: string, state: string, managed = state !== 'external') => ({ name, isolation: managed ? 'per-job' : 'external', managed, container: managed ? `forge-a-${name}` : null, state, health: null, ports: {} }) as any;
 const env = (extra: Record<string, unknown> = {}, dev: Record<string, unknown> | null = { state: 'stopped' }) =>
-  ({ job: 'a', active: true, worktree: true, dev: dev && { pid: null, port: 4100, listening: null, startedAt: null, tail: [], ...dev }, backing: [], backingError: null, at: '', ...extra }) as any;
+  ({ job: 'a', active: true, worktree: true, dev: dev && { pid: null, port: 4100, listening: null, startedAt: null, tail: [], ...dev }, backing: [], backingError: null, docker: null, at: '', ...extra }) as any;
 
 test('state chips', () => {
   assert.deepEqual(devChip('running'), { state: 'running', tone: 'ok' });
@@ -55,6 +59,23 @@ test('backing buttons', () => {
   assert.deepEqual(backingButtons(env({ backing: [] })), { start: false, stop: false, restart: false, hint: null });
   assert.deepEqual(backingButtons(env({ active: false, backing: [svc('postgres', 'running')] })), { start: false, stop: true, restart: false, hint: 'inactive' });
   assert.deepEqual(backingButtons(null), { start: false, stop: false, restart: false, hint: null });
+});
+
+test('docker down and the Logs toggle', () => {
+  assert.equal(dockerDown(env({ docker: 'stopped' })), true);
+  assert.equal(dockerDown(env({ docker: 'missing' })), true);
+  assert.equal(dockerDown(env({ docker: 'ok', backing: [svc('postgres', 'unknown')] })), false, 'a foreign container reads unknown with Docker up');
+  assert.equal(dockerDown(env({ docker: null })), false);
+  assert.equal(dockerDown(null), false);
+  assert.deepEqual(
+    (['running', 'stopped', 'missing', 'unknown'] as const).map((state) => logHint({ state })),
+    [null, null, 'logsMissing', 'logsUnknown'],
+  );
+});
+
+test('a Running environments row opens the job on its Details tab', () => {
+  const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'dashboard', 'src', 'views', 'Project.svelte'), 'utf8');
+  assert.match(src, /openDrawer\(id, null, 'details'\)/);
 });
 
 test('action toasts', () => {

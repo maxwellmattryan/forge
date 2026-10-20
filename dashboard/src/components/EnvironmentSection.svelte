@@ -13,7 +13,7 @@
   import LiveDot from './LiveDot.svelte';
   import { safeUrl } from '../lib/markdown.ts';
   import { environmentModel, postEditor, postFocus } from '../lib/focus.ts';
-  import { actionToast, backingButtons, backingSource, devButtons, devChip, fetchEnvironment, postEnvironment, serviceChip, type ButtonHint } from '../lib/environment.ts';
+  import { actionToast, backingButtons, backingSource, devButtons, devChip, dockerDown as dockerIsDown, fetchEnvironment, logHint, postEnvironment, serviceChip, type ButtonHint } from '../lib/environment.ts';
   import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
   import type { DevState, EnvironmentAction, EnvironmentService, EnvironmentTarget, Job, JobEnvironmentResponse } from '../lib/types.ts';
   import { toast } from '../lib/toast.svelte.ts';
@@ -51,7 +51,8 @@
     backingStopped: $t('environment.toasts.backingStopped'),
     backingRestarted: $t('environment.toasts.backingRestarted'),
   });
-  const dockerDown = $derived(Boolean(env?.backing.some((s) => s.managed && s.state === 'unknown')));
+  const dockerDown = $derived(dockerIsDown(env));
+  const logHintText = $derived<Record<Exclude<ReturnType<typeof logHint>, null>, string>>({ logsMissing: $t('environment.hints.logsMissing'), logsUnknown: $t('environment.hints.logsUnknown') });
   const hint = (h: ButtonHint): string | null => (h === null ? null : hintText[h]);
   const health = (s: EnvironmentService): string => (s.health ? healthName[s.health] : '—');
   const devHealth = (listening: boolean | null): string => (listening === null ? '—' : listening ? $t('environment.dev.listening') : $t('environment.dev.notAnswering'));
@@ -160,7 +161,7 @@
             <span class="text-xs text-muted">{devHealth(env.dev.listening)}</span>
             <span class="ml-auto flex items-center gap-1" aria-busy={busy === 'dev'}>
               <IconButton icon="play" label={$t('environment.start')} hint={hint(dev.hint)} disabled={!dev.start || busy !== null} onclick={() => envAction('dev', 'start')} />
-              <IconButton icon="stop" label={$t('environment.stop')} disabled={!dev.stop || busy !== null} onclick={() => envAction('dev', 'stop')} />
+              <IconButton icon="stop" label={$t('environment.stop')} hint={dev.stop ? null : $t('environment.hints.notRunning')} disabled={!dev.stop || busy !== null} onclick={() => envAction('dev', 'stop')} />
               <IconButton icon="refresh" label={$t('environment.restart')} hint={hint(dev.hint)} disabled={!dev.restart || busy !== null} onclick={() => envAction('dev', 'restart')} />
               <IconButton icon="terminal" label={$t('environment.logs')} pressed={logSource === 'dev'} onclick={() => toggleLog('dev')} />
             </span>
@@ -193,9 +194,12 @@
                 <span class="label shrink-0">{s.name}</span>
                 <span class="text-xs text-muted">{isolationName[s.isolation] ?? s.isolation}</span>
                 <Chip tone={chip.tone} text={serviceName[chip.state]} />
-                <span class="text-xs text-muted">{health(s)}</span>
-                <span class="mono text-[13px] selectable truncate min-w-0">{Object.values(s.ports).map((p) => `127.0.0.1:${p}`).join(' ') || '—'}</span>
-                {#if s.managed}<span class="ml-auto"><IconButton icon="terminal" label={$t('environment.logs')} pressed={logSource === backingSource(s.name)} onclick={() => toggleLog(backingSource(s.name))} /></span>{/if}
+                {#if s.managed}
+                  {@const off = logHint(s)}
+                  <span class="text-xs text-muted">{health(s)}</span>
+                  <span class="mono text-[13px] selectable truncate min-w-0">{Object.values(s.ports).map((p) => `127.0.0.1:${p}`).join(' ') || '—'}</span>
+                  <span class="ml-auto"><IconButton icon="terminal" label={$t('environment.logs')} hint={off === null ? null : logHintText[off]} disabled={off !== null} pressed={logSource === backingSource(s.name)} onclick={() => toggleLog(backingSource(s.name))} /></span>
+                {/if}
               </li>
             {/each}
           </ul>

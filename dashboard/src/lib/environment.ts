@@ -51,6 +51,14 @@ export function backingButtons(env: JobEnvironmentResponse | null): Buttons {
   return { start: hint === null, stop: true, restart: hint === null, hint };
 }
 
+/** Docker itself is unreachable, as the server reports it: a container with another job's labels also reads `unknown`. */
+export const dockerDown = (env: JobEnvironmentResponse | null): boolean => env?.docker === 'missing' || env?.docker === 'stopped';
+
+/** Why a managed service's Logs toggle is off: the server streams only a container that reads running or stopped. */
+export function logHint(s: Pick<EnvironmentService, 'state'>): 'logsMissing' | 'logsUnknown' | null {
+  return s.state === 'running' || s.state === 'stopped' ? null : s.state === 'missing' ? 'logsMissing' : 'logsUnknown';
+}
+
 /** Which toast an action ends with, as a message-key suffix: `devStarted`, `backingRestarted`, … */
 export function actionToast(target: EnvironmentTarget, action: EnvironmentAction): `${EnvironmentTarget}${'Started' | 'Stopped' | 'Restarted'}` {
   const done = action === 'start' ? 'Started' : action === 'stop' ? 'Stopped' : 'Restarted';

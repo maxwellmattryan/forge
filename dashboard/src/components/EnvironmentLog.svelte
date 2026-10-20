@@ -15,6 +15,8 @@
   let lines = $state.raw<string[]>([]);
   let follow = $state(true);
   let ended = $state(false);
+  /** The server refused the stream (no dev log yet, a container it won't show, too many streams). */
+  let failed = $state(false);
   let pane = $state<HTMLDivElement>();
   let es: EventSource | null = null;
 
@@ -31,6 +33,13 @@
       ended = true;
       close();
     });
+    // A dropped connection reconnects on its own (CONNECTING); a refusal (any non-200 answer) closes it for good.
+    s.onerror = () => {
+      if (s.readyState !== EventSource.CLOSED) return;
+      failed = true;
+      ended = true;
+      close();
+    };
     es = s;
   }
   function close(): void {
@@ -48,6 +57,7 @@
     void source;
     untrack(() => {
       ended = false;
+      failed = false;
       open();
     });
     return close;
@@ -61,8 +71,9 @@
     tick().then(() => (p.scrollTop = p.scrollHeight));
   });
 
+  // Scrolling up pauses; scrolling back to the bottom follows again, as SessionLog does.
   function onScroll(): void {
-    if (pane && follow && !atBottom(pane.scrollHeight, pane.scrollTop, pane.clientHeight)) follow = false;
+    if (pane) follow = atBottom(pane.scrollHeight, pane.scrollTop, pane.clientHeight);
   }
   function toggleFollow(): void {
     follow = !follow;
@@ -77,10 +88,10 @@
     <span class="label truncate min-w-0">{$t('environment.log.title', { source: label })}</span>
     {#if ended}<span class="text-xs text-muted">{$t('environment.log.ended')}</span>{/if}
     <span class="ml-auto flex items-center gap-1 shrink-0">
-      <IconButton icon="play" label={$t('environment.log.follow')} hint={follow ? $t('environment.log.pauseHint') : null} pressed={follow} onclick={toggleFollow} />
+      <IconButton icon="chevron-down" label={$t('environment.log.follow')} hint={follow ? $t('environment.log.pauseHint') : $t('environment.log.followHint')} pressed={follow} onclick={toggleFollow} />
       <CloseButton size="sm" label={$t('environment.log.close')} onclick={onclose} />
     </span>
   </div>
   <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrollable region must be reachable from the keyboard) -->
-  <div bind:this={pane} onscroll={onScroll} role="log" aria-live="off" tabindex="0" aria-label={$t('environment.log.aria', { source: label })} class="mono selectable text-[12px] leading-5 max-h-72 min-h-16 overflow-y-auto overscroll-contain"><pre class="whitespace-pre-wrap break-words m-0">{#each lines as line}{line}{'\n'}{:else}<span class="text-muted">{ended ? $t('environment.log.emptyEnded') : $t('environment.log.waiting')}</span>{/each}</pre></div>
+  <div bind:this={pane} onscroll={onScroll} role="log" aria-live="off" tabindex="0" aria-label={$t('environment.log.aria', { source: label })} class="mono selectable text-[12px] leading-5 max-h-72 min-h-16 overflow-y-auto overscroll-contain"><pre class="whitespace-pre-wrap break-words m-0">{#each lines as line}{line}{'\n'}{:else}<span class="text-muted">{failed ? (source === 'dev' ? $t('environment.log.failedDev') : $t('environment.log.failedBacking')) : ended ? $t('environment.log.emptyEnded') : $t('environment.log.waiting')}</span>{/each}</pre></div>
 </div>

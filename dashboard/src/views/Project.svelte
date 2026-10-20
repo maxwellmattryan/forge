@@ -90,7 +90,7 @@
           {#each envRows as r (r.key)}
             {@const id = r.job}
             <tr>
-              <td>{#if id !== null}<button class="text-left hover:text-gleam" onclick={() => openDrawer(id)}>{r.title}</button>{:else}<span class="text-muted">{$t('project.environments.shared')}</span>{/if}</td>
+              <td>{#if id !== null}<button class="text-left hover:text-gleam" onclick={() => openDrawer(id, null, 'details')}>{r.title}</button>{:else}<span class="text-muted">{$t('project.environments.shared')}</span>{/if}</td>
               <td>{#if r.state}<StateChip job={{ state: r.state as Job['state'] }} />{:else}—{/if}</td>
               <td class="mono text-xs">{r.devPort}</td>
               <td class="mono text-xs text-right">{r.devCpu}</td>
