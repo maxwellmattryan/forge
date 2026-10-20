@@ -9,24 +9,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { backingProblems, isManaged } from './backing-config.ts';
+import { adminOf, dbEntries, dbRecordFile, dropJobDatabase, fillDbUrl, jobDbName, jobDbPasswords, readDbRecord, removeDbRecord, upDatabase } from './backing-db.ts';
+import type { DatabaseOpts } from './backing-db.ts';
 import { isActive, jobDir, listJobs, loadJob } from './jobs.ts';
 import { paths } from './paths.ts';
-import type { BackingDownResult, BackingEntry, BackingIsolation, BackingRecord, BackingUpEntry, Config, DoctorCheck } from './types.ts';
+import type { BackingDbRecord, BackingDownResult, BackingEntry, BackingIsolation, BackingRecord, BackingUpEntry, Config, DockerResult, DockerRunner, DoctorCheck } from './types.ts';
 import { ForgeError, readJson, run, tail, withLock, writeJsonAtomic } from './util.ts';
 
-export { backingProblems, isManaged };
-
-export interface DockerResult {
-  ok: boolean;
-  stdout: string;
-  stderr: string;
-  status: number | null;
-  /** The docker binary is not on PATH. */
-  missing?: boolean;
-}
-
-/** Runs `docker <args>`; tests inject an in-memory fake. */
-export type DockerRunner = (args: string[], opts?: { timeoutMs?: number }) => DockerResult;
+export { backingProblems, isManaged, jobDbPasswords };
+export type { DatabaseOpts, DockerResult, DockerRunner };
 
 const TIMEOUT_MS = 30_000;
 /** `docker run` pulls the image on demand. */
@@ -39,7 +30,7 @@ export const BACKING_HOST = '127.0.0.1';
  * (no status) whose message says ENOENT is a missing binary.
  */
 export const defaultRunner: DockerRunner = (args, opts = {}) => {
-  const res = run('docker', args, { allowFail: true, timeoutMs: opts.timeoutMs ?? TIMEOUT_MS });
+  const res = run('docker', args, { allowFail: true, timeoutMs: opts.timeoutMs ?? TIMEOUT_MS, input: opts.input });
   return { ...res, missing: res.status === null && /ENOENT/.test(res.stderr) };
 };
 
@@ -257,7 +248,12 @@ function fillUrl(template: string, ports: Record<string, number>, order: number[
   });
 }
 
-function entryEnv(e: BackingEntry, rec: BackingRecord | null): Record<string, string> {
+/**
+ * An entry's FORGE_BACKING_<NAME>_* variables. An entry with `database` gets its url only once the
+ * job's record holds that entry: then {user} and {database} are the job's derived names and
+ * {password} its generated password.
+ */
+function entryEnv(e: BackingEntry, rec: BackingRecord | null, db: { id: string; rec: BackingDbRecord } | null): Record<string, string> {
   const pre = envPrefix(e.name);
   if (e.isolation === 'external') return e.url ? { [`${pre}_URL`]: e.url } : {};
   const ports = rec?.ports[e.name];
@@ -267,9 +263,14 @@ function entryEnv(e: BackingEntry, rec: BackingRecord | null): Record<string, st
   const env: Record<string, string> = { [`${pre}_HOST`]: BACKING_HOST };
   if (order.length) env[`${pre}_PORT`] = String(ports[String(order[0])]);
   for (const p of order) env[`${pre}_PORT_${p}`] = String(ports[String(p)]);
-  if (e.url) env[`${pre}_URL`] = fillUrl(e.url, ports, order);
+  if (e.url && !e.database) env[`${pre}_URL`] = fillUrl(e.url, ports, order);
+  const mine = e.database && db ? db.rec.databases[e.name] : undefined;
+  if (e.url && mine) env[`${pre}_URL`] = fillDbUrl(fillUrl(e.url, ports, order), jobDbName(db!.id), mine.password, jobDbName(db!.id));
   return env;
 }
+
+/** The job's database record, or null when no entry has `database` (then nothing is read). */
+const dbRecordFor = (root: string, config: Config, id: string): { id: string; rec: BackingDbRecord } | null => (dbEntries(config).length ? { id, rec: readDbRecord(root, id, config) } : null);
 
 /** FORGE_BACKING_<NAME>_{HOST,PORT,PORT_<n>,URL} for every entry; `{}` when there are none. */
 export function backingEnv(root: string, config: Config, job: { id: string }): Record<string, string> {
@@ -277,7 +278,8 @@ export function backingEnv(root: string, config: Config, job: { id: string }): R
   if (!list.length) return {};
   const mine = list.some((e) => e.isolation === 'per-job') ? readJobRecord(root, job.id, config) : null;
   const shared = list.some((e) => e.isolation === 'shared') ? readSharedRecord(root, config) : null;
-  return Object.assign({}, ...list.map((e) => entryEnv(e, e.isolation === 'shared' ? shared : mine)));
+  const db = dbRecordFor(root, config, job.id);
+  return Object.assign({}, ...list.map((e) => entryEnv(e, e.isolation === 'shared' ? shared : mine, db)));
 }
 
 /** The brief line naming each entry, its isolation and its loopback port; never an env value or a url. */
@@ -421,15 +423,24 @@ function ensure(root: string, runner: DockerRunner, e: BackingEntry, owner: stri
 
 /**
  * Brings every entry up for the job, idempotently. Probes Docker once; shared entries serialise on
- * a lock so they start at most once. One failure is reported and the rest still run.
+ * a lock so they start at most once. One failure is reported and the rest still run. Then, once
+ * every service is up (migrate and seed may need them all), each shared entry with `database` that
+ * came up gets the job's database (lib/backing-db.ts), with build commands run through `db`.
  */
-export function backingUp(root: string, config: Config, job: { id: string; port?: number | null; ports?: Record<string, number> }, runner: DockerRunner = activeRunner): BackingUpEntry[] {
+export function backingUp(
+  root: string,
+  config: Config,
+  job: { id: string; port?: number | null; ports?: Record<string, number> },
+  runner: DockerRunner = activeRunner,
+  db?: DatabaseOpts,
+): BackingUpEntry[] {
   const list = entries(config);
   if (!list.length) return [];
   const external = (e: BackingEntry): BackingUpEntry => ({ name: e.name, isolation: e.isolation, action: 'external', ok: true });
   if (!list.some(isManaged)) return list.map(external);
+  const noDb = (r: BackingUpEntry, e: BackingEntry): BackingUpEntry => (e.database ? { ...r, database: { name: jobDbName(job.id), template: null, action: 'none', template_action: 'none' } } : r);
   // Failed before any container was touched: every managed entry reports `none` with the reason.
-  const unreached = (error: string) => list.map((e): BackingUpEntry => (isManaged(e) ? { name: e.name, isolation: e.isolation, action: 'none', ok: false, error } : external(e)));
+  const unreached = (error: string) => list.map((e): BackingUpEntry => (isManaged(e) ? noDb({ name: e.name, isolation: e.isolation, action: 'none', ok: false, error }, e) : external(e)));
   const state = dockerState(runner);
   if (state.state !== 'ok') return unreached(stateError(state, list));
   let recs: ReturnType<typeof allocateBacking>;
@@ -441,6 +452,33 @@ export function backingUp(root: string, config: Config, job: { id: string; port?
     return unreached(err.message);
   }
   const slug = projectSlug(root, config);
+  const results = upServices(root, runner, list, job.id, slug, recs, external);
+  for (const e of dbEntries(config)) {
+    const i = list.indexOf(e);
+    const r = results[i];
+    if (!r.ok) {
+      results[i] = noDb(r, e);
+      continue;
+    }
+    const ports = recs.shared.ports[e.name] ?? {};
+    const server = { runner, container: containerName(slug, e.name), admin: adminOf(e), secrets: [] };
+    const up = upDatabase(root, config, job.id, e, server, fillUrl(e.url!, ports, e.ports ?? []), `${envPrefix(e.name)}_URL`, db);
+    results[i] = { ...r, ...(up.error ? { ok: false, error: up.error } : {}), database: up.database, ...(up.build ? { build: up.build } : {}) };
+  }
+  return results;
+}
+
+/** backingUp's first pass: each container run, started or left running. */
+function upServices(
+  root: string,
+  runner: DockerRunner,
+  list: BackingEntry[],
+  jobId: string,
+  slug: string,
+  recs: ReturnType<typeof allocateBacking>,
+  external: (e: BackingEntry) => BackingUpEntry,
+): BackingUpEntry[] {
+  const job = { id: jobId };
   return list.map((e): BackingUpEntry => {
     if (!isManaged(e)) return external(e);
     const shared = e.isolation === 'shared';
@@ -457,23 +495,35 @@ export function backingUp(root: string, config: Config, job: { id: string; port?
   });
 }
 
-/** Whether teardown has anything to do for the job: per-job entries configured, or a record left behind. */
+/** Whether teardown has anything to do for the job: per-job entries or a job database configured, or a record left behind. */
 export function hasJobBacking(root: string, config: Config, id: string): boolean {
-  return (Array.isArray(config.backing) && config.backing.some((e) => e?.isolation === 'per-job')) || fs.existsSync(jobRecordFile(root, id));
+  return (
+    (Array.isArray(config.backing) && config.backing.some((e) => e?.isolation === 'per-job' || (e && typeof e === 'object' && e.database !== undefined))) ||
+    fs.existsSync(jobRecordFile(root, id)) ||
+    fs.existsSync(dbRecordFile(root, id))
+  );
 }
 
 /**
  * Removes the job's per-job containers and their volumes, only those labelled with this root and
- * job, then deletes backing.json. On any docker failure the record is kept so a retry still works.
+ * job, and drops its job databases (names derived from the job id, never read from a record), then
+ * deletes backing.json and backing-db.json. On any docker or psql failure, or a stopped shared
+ * container, the records are kept so a retry still works; a shared container that no longer exists
+ * holds nothing to drop.
  */
 export function backingDown(root: string, config: Config, id: string, runner: DockerRunner = activeRunner): BackingDownResult {
   const file = jobRecordFile(root, id);
-  const list = entries(config).filter((e) => e.isolation === 'per-job');
+  const all = entries(config);
+  const list = all.filter((e) => e.isolation === 'per-job');
+  const dbs = dbEntries(config);
   const removed: string[] = [];
   const volumes: string[] = [];
-  if (list.length) {
+  const databases: string[] = [];
+  const withDbs = dbs.length > 0 || fs.existsSync(dbRecordFile(root, id));
+  const result = (ok: boolean, error?: string): BackingDownResult => ({ removed, volumes, ...(withDbs ? { databases } : {}), ok, ...(error === undefined ? {} : { error }) });
+  if (list.length || dbs.length) {
     const state = dockerState(runner);
-    if (state.state !== 'ok') return { removed, volumes, ok: false, error: stateError(state, list) };
+    if (state.state !== 'ok') return result(false, stateError(state, [...list, ...dbs]));
     try {
       for (const e of list) {
         const labels = ownLabels(root, e, id);
@@ -493,13 +543,24 @@ export function backingDown(root: string, config: Config, id: string, runner: Do
           volumes.push(vol);
         }
       }
+      const slug = projectSlug(root, config);
+      for (const e of dbs) {
+        const name = containerName(slug, e.name);
+        const found = inspectContainer(runner, name);
+        // Gone: the server and every database on it went with it.
+        if (!found.exists) continue;
+        if (!matches(found.labels, ownLabels(root, e, null))) throw new DockerFailure(`container ${name} exists and is not this project's`);
+        if (!found.running) throw new DockerFailure(`container ${name} is stopped: start it (docker start ${name}) and retry to drop the job database`);
+        databases.push(dropJobDatabase({ runner, container: name, admin: adminOf(e), secrets: jobDbPasswords(root, id, config) }, id));
+      }
     } catch (err) {
-      if (!(err instanceof DockerFailure)) throw err;
-      return { removed, volumes, ok: false, error: err.message };
+      if (!(err instanceof DockerFailure) && !(err instanceof ForgeError)) throw err;
+      return result(false, err.message);
     }
   }
   fs.rmSync(file, { force: true });
-  return { removed, volumes, ok: true };
+  removeDbRecord(root, id);
+  return result(true);
 }
 
 /** Removes this root's shared containers, keeping their volumes and port record. */
@@ -534,6 +595,8 @@ export interface BackingServiceStatus {
   host: string | null;
   ports: Record<string, number>;
   env: string[];
+  /** Entries with `database`: the job database and the template its record names (null without one). */
+  database?: { name: string; template: string | null };
 }
 
 export interface BackingContainer {
@@ -594,11 +657,13 @@ export function backingStatus(root: string, config: Config, id?: string, runner:
   }
   const mine = readJobRecord(root, id, config);
   const shared = readSharedRecord(root, config);
+  const db = dbRecordFor(root, config, id);
   const state = list.some(isManaged) ? dockerState(runner) : null;
   const slug = projectSlug(root, config);
   const services = list.map((e): BackingServiceStatus => {
     const rec = e.isolation === 'shared' ? shared : mine;
-    const env = Object.keys(entryEnv(e, rec));
+    const env = Object.keys(entryEnv(e, rec, db));
+    const database = e.database ? { database: { name: jobDbName(id), template: db?.rec.databases[e.name]?.template ?? null } } : {};
     if (!isManaged(e)) return { name: e.name, isolation: e.isolation, container: null, state: 'external', host: null, ports: {}, env };
     const container = containerName(e.isolation === 'shared' ? slug : id, e.name);
     let st: BackingServiceStatus['state'] = 'unknown';
@@ -610,7 +675,7 @@ export function backingStatus(root: string, config: Config, id?: string, runner:
         st = 'unknown';
       }
     }
-    return { name: e.name, isolation: e.isolation, container, state: st, host: BACKING_HOST, ports: rec.ports[e.name] ?? {}, env };
+    return { name: e.name, isolation: e.isolation, container, state: st, host: BACKING_HOST, ports: rec.ports[e.name] ?? {}, env, ...database };
   });
   return { job: id, services };
 }

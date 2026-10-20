@@ -13,7 +13,8 @@ export const worktreeCreate: Renderer = (d, o) => {
   const p = paint(o.color);
   const head = [`${d.created ? 'created' : 'exists'} ${txt(d.path)}`, ...fields([['base', d.base], ['stacked on', d.stackedOn], ['ports', ports(d.ports)]], p)].join('\n');
   const setup = Array.isArray(d.setup) ? d.setup.filter(isObj).map((s: Record<string, any>) => item(s.ok === true, txt(s.cmd), s.ok ? null : s.tail, p)) : [];
-  const backing = Array.isArray(d.backing) ? d.backing.filter(isObj).map((b: Record<string, any>) => item(b.ok === true, `${txt(b.name)}  ${txt(b.action)}`, b.error, p)) : [];
+  const dbLabel = (b: Record<string, any>): string => (isObj(b.database) && typeof b.database.name === 'string' ? `  database ${txt(b.database.name)}` : '');
+  const backing = Array.isArray(d.backing) ? d.backing.filter(isObj).map((b: Record<string, any>) => item(b.ok === true, `${txt(b.name)}  ${txt(b.action)}${dbLabel(b)}`, b.error, p)) : [];
   return blocks(head, section('Setup', setup, p), section('Backing', backing, p), repos(d.repos, (r) => `${txt(r.repo)}  ${txt(r.path)}`, p));
 };
 

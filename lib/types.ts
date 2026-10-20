@@ -2051,6 +2051,19 @@ export interface BackingDatabase {
   inputs?: string[];
 }
 
+/** One `docker` call's outcome: lib/backing.ts and lib/backing-db.ts. */
+export interface DockerResult {
+  ok: boolean;
+  stdout: string;
+  stderr: string;
+  status: number | null;
+  /** The docker binary is not on PATH. */
+  missing?: boolean;
+}
+
+/** Runs `docker <args>`, with `input` on stdin (psql's SQL); tests inject an in-memory fake. */
+export type DockerRunner = (args: string[], opts?: { timeoutMs?: number; input?: string }) => DockerResult;
+
 /** `.forge/jobs/<job>/backing.json` and `.forge/runtime/backing.json`: host port per container port, per entry name. */
 export interface BackingRecord {
   v: 1;

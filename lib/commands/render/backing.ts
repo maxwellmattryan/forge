@@ -17,8 +17,12 @@ export const backingStatus: Renderer = (d, o) => {
   const p = paint(o.color);
   if (has(d, 'job', 'services') && Array.isArray(d.services)) {
     if (!d.services.length) return `no backing services for ${txt(d.job)}`;
-    const rows = d.services.filter(isObj).map((s: Record<string, any>): Val[] => [txt(s.name), txt(s.isolation), stateSeg(s.state, p), txt(s.host), portPairs(s.ports), names(s.env)]);
-    return table(['name', 'isolation', 'state', 'host', 'ports', 'env'], rows, p);
+    const services = d.services.filter(isObj);
+    // The database column only when some entry has a job database.
+    const withDb = services.some((s: Record<string, any>) => isObj(s.database));
+    const db = (v: unknown): Val[] => (!withDb ? [] : [isObj(v) && typeof v.name === 'string' ? txt(v.name) : '-']);
+    const rows = services.map((s: Record<string, any>): Val[] => [txt(s.name), txt(s.isolation), stateSeg(s.state, p), txt(s.host), portPairs(s.ports), ...db(s.database), names(s.env)]);
+    return table(['name', 'isolation', 'state', 'host', 'ports', ...(withDb ? ['database'] : []), 'env'], rows, p);
   }
   if (has(d, 'containers') && Array.isArray(d.containers)) {
     if (!d.containers.length) return 'no backing containers';

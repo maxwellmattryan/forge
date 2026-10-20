@@ -4,6 +4,7 @@ import { backingDown, backingDownShared, backingStatus, backingUp } from '../bac
 import { refuseInboxDrive, refuseInboxOrOffice } from '../daemon-owner.ts';
 import { loadJob } from '../jobs.ts';
 import { validJobId } from '../requests.ts';
+import { databaseCommands } from '../worktree.ts';
 import { ForgeError, assertSafeRef } from '../util.ts';
 import { usageError } from './args.ts';
 import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
@@ -60,7 +61,7 @@ export function backingCmd(ctx: CliContext, sub: string | undefined, rest: strin
     const id = jobId(rest[0], 'up');
     refuseInboxDrive(id);
     const job = loadJob(root, id);
-    const services = backingUp(root, config, job);
+    const services = backingUp(root, config, job, undefined, databaseCommands(root, config, job));
     const ok = services.every((s) => s.ok);
     return { data: { job: id, services, ok }, exitCode: ok ? 0 : 5 };
   }
