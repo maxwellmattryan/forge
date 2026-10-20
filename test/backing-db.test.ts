@@ -25,7 +25,9 @@ const ADMIN_PW = ['adm1n', 'pg', 'value'].join('-');
 const DB_URL = ['postgres://{user}', '{password}@{host}:{port}/{database}'].join(':');
 const LOG = '$FORGE_WORKTREE/db.log';
 // Each writes the url it sees to db.log and to its output (so a stored tail would show it unredacted).
-const MIGRATE = `[ ! -f {root}/fail-migrate ] && echo migrate $FORGE_BACKING_PG_URL >> ${LOG} && echo $FORGE_BACKING_PG_URL`;
+// Migrate fails while the worktrees root holds fail-migrate: a relative path, since a filled
+// `{root}` is a backslashed Windows path that sh reads as escapes.
+const MIGRATE = `[ ! -f ../fail-migrate ] && echo migrate $FORGE_BACKING_PG_URL >> ${LOG} && echo $FORGE_BACKING_PG_URL`;
 const SEED = `echo seed $FORGE_BACKING_PG_URL >> ${LOG}`;
 const SETUP = `echo setup $FORGE_BACKING_PG_URL >> ${LOG}; echo $FORGE_BACKING_PG_URL`;
 const PG = {
@@ -46,7 +48,7 @@ const template = repoTemplate((dir) => {
   fs.rmSync(answers);
   fs.mkdirSync(path.join(dir, 'db'));
   fs.writeFileSync(path.join(dir, 'db', '001.sql'), 'create table t(x int);\n');
-  fs.writeFileSync(path.join(dir, '.gitignore'), 'db.log\nfail-migrate\n');
+  fs.writeFileSync(path.join(dir, '.gitignore'), 'db.log\n');
   execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'pipe' });
   execFileSync('git', ['commit', '-qm', 'forge'], { cwd: dir, stdio: 'pipe' });
 });
@@ -219,7 +221,8 @@ test('template build order, failure and retry', async () => {
   const f = fake();
   try {
     const id = createJob(s.dir, s.config, { title: 'Order' }).id;
-    fs.writeFileSync(path.join(s.dir, 'fail-migrate'), '');
+    fs.mkdirSync(`${s.dir}.wt`, { recursive: true });
+    fs.writeFileSync(path.join(`${s.dir}.wt`, 'fail-migrate'), '');
     const failed = await withRunner(f.runner, () => createWorktree(s.dir, s.config, id));
     assert.ok(failed.created);
     assert.equal(failed.ok, false);
@@ -247,7 +250,7 @@ test('template build order, failure and retry', async () => {
     assert.equal(step(loadStepInput(s.dir, s.config, id)).rule, 'I4');
 
     // A later create builds it afresh, migrate before seed, as forge_tpl against the template.
-    fs.rmSync(path.join(s.dir, 'fail-migrate'));
+    fs.rmSync(path.join(`${s.dir}.wt`, 'fail-migrate'));
     await withRunner(f.runner, () => removeWorktree(s.dir, id, { force: true }));
     const ok = await withRunner(f.runner, () => createWorktree(s.dir, s.config, id));
     assert.ok(ok.created && ok.ok, JSON.stringify(ok));

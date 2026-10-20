@@ -147,14 +147,19 @@ export const dbRecordFile = (root: string, id: string): string => path.join(jobD
 /** `fn` on a regular file, opened without following a symlink or blocking on a FIFO; null otherwise. */
 function withRegular<T>(file: string, fn: (fd: number, st: fs.Stats) => T | null): T | null {
   let fd: number;
+  let link: fs.Stats;
   try {
+    // Windows has no O_NOFOLLOW, so lstat refuses a link or FIFO before the open, and the
+    // descriptor must still be that same file (no swap in between).
+    link = fs.lstatSync(file);
+    if (!link.isFile()) return null;
     fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0));
   } catch {
     return null;
   }
   try {
     const st = fs.fstatSync(fd);
-    return st.isFile() ? fn(fd, st) : null;
+    return st.isFile() && st.dev === link.dev && st.ino === link.ino ? fn(fd, st) : null;
   } catch {
     return null;
   } finally {
