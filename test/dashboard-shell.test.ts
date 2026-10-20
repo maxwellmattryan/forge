@@ -1069,7 +1069,7 @@ test('the compact rail labels its controls and shows tooltips', () => {
   assert.ok(tip, 'a tooltip');
   assert.equal(attrOf(tip, 'aria-hidden'), 'true');
   assert.ok(has(tip, 'solid', 'plate'), 'on a solid plate');
-  assert.ok(has(tip.parents.at(-1)!, 'fixed', 'pointer-events-none', 'z-20'), 'fixed and click-through');
+  assert.ok(has(tip.parents.at(-1)!, 'fixed', 'pointer-events-none', 'z-36'), 'fixed, click-through and over the status bar (z-35), so the Settings tip is never cut off');
   const rootKids = app.filter((e) => e.parents.length === 1 && e.parents[0].classes.includes('min-h-screen'));
   assert.ok(rootKids.some((e) => e.name === 'RailTip'), 'rendered in the root, so it is inert with it and never clipped by the aside');
   const rail = fs.readFileSync(path.join(SRC, 'lib', 'rail-tip.svelte.ts'), 'utf8');
