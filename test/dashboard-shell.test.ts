@@ -725,24 +725,16 @@ test('ticking times read the shared clock and stay out of live regions', () => {
   assert.match(mount, /const stopClock = startClock\(\);[\s\S]*?return \(\) => \{\s*stopClock\(\);/, 'App.svelte starts the clock in onMount and stops it in the cleanup');
 });
 
-test('the status bar facts show the live session indicator', () => {
+test('the status bar has no version, API, sessions or sheet facts', () => {
   assert.doesNotMatch(read('lib/view.ts'), /export const activeSessions\b/, 'view.ts no longer exports activeSessions');
   const bar = read('components/StatusBar.svelte');
-  assert.match(bar, /import \{ activeSessions \} from '\.\.\/lib\/live\.ts';/);
-  assert.match(bar, /const active = \$derived\(activeSessions\(S\.data\?\.daemons\)\)/);
-  assert.match(bar, /const activeTitle = \$derived\(active\.count \? active\.ids\.map\(\(id\) => \(id === INBOX_SCOPE \? \$t\('live\.inbox'\) : id === OFFICE_SCOPE \? \$t\('live\.office'\) : id\)\)\.join\('\\n'\) : \$t\('live\.none'\)\)/, 'the tooltip lists active ids, the inbox and the office by name');
-
+  for (const gone of ['footer-version', 'footer-sessions', 'activeSessions', 'activeTitle', 'viewLabels', 'viewIndex']) assert.ok(!bar.includes(gone), `StatusBar.svelte has no ${gone}`);
+  assert.doesNotMatch(bar, /statusbar\.facts\.(forge|version|api|sessions|sessionsValue|sheet|sheetValue)\b/, 'none of the removed facts');
   const walked = elements('components/StatusBar.svelte');
-  const cell = walked.find((e) => attr(e, 'id') === 'footer-sessions');
-  assert.ok(cell, '#footer-sessions');
-  assert.ok(cell.parents.some((p) => p.classes.includes('facts')), 'in the facts strip');
-  assert.equal(attr(cell, 'title'), '{activeTitle}', '#footer-sessions carries the active-session tooltip');
-  const dots = walked.filter((e) => e.name === 'LiveDot' && e.parents.includes(cell));
-  assert.equal(dots.length, 1, '#footer-sessions renders one <LiveDot');
-  assert.equal(attr(dots[0], 'on'), '{active.count > 0}');
-  assert.ok(!walked.some((e) => e.parents.includes(cell) && e.attrs.some((a) => a.name === 'aria-live')), '#footer-sessions is not a live region');
-  assert.match(bar, /\$t\('statusbar\.facts\.sessionsValue', \{ count: active\.count \}\)/);
-  // The phone strip has no sessions count of its own: the status bar's facts carry it at every width.
+  const facts = walked.find((e) => attr(e, 'bind:this') === '{factsBox}');
+  assert.ok(facts, 'the facts strip');
+  assert.ok(!walked.some((e) => e.name === 'LiveDot' && e.parents.includes(facts)), 'no live dot in the facts strip');
+  // The phone strip has no sessions count of its own either.
   const app = read('App.svelte');
   for (const gone of ['mobile-sessions', 'footer-sessions', 'footer-version', '<LiveDot']) assert.ok(!app.includes(gone), `App.svelte has no ${gone}`);
 
@@ -1241,11 +1233,14 @@ test('status bar: one fixed footer in the inert shell, outside main', () => {
 
   // 30px tall from md up: the token, plus the inset.
   assert.ok(fs.readFileSync(path.join(ROOT, 'dashboard', 'style.css'), 'utf8').includes('--size-statusbar: 30px;'), 'the bar is 30px');
-  // AC6: three live dots, the Foreman's (on while the office works and the daemon runs), the daemon indicator's (on
-  // exactly when a session works) and the facts' SESSIONS dot; no Inbox indicator at all; holds and waits from md up.
+  // No spend chip: the month's spend lives on Analytics.
+  assert.doesNotMatch(read('components/StatusBar.svelte'), /SpendChip/, 'StatusBar imports and renders no SpendChip');
+  assert.ok(!fs.existsSync(path.join(SRC, 'components', 'SpendChip.svelte')), 'SpendChip.svelte is gone');
+  // Two live dots, the Foreman's (on while the office works and the daemon runs) and the daemon indicator's (on
+  // exactly when a session works); no Inbox indicator at all; holds and waits from md up.
   const markup = markupOf('components/StatusBar.svelte');
   const dots = bar.filter((e) => e.name === 'LiveDot');
-  assert.deepEqual(dots.map((d) => attrOf(d, 'on')), ['{bar.foreman.daemon && bar.foreman.active}', '{bar.daemon.active}', '{active.count > 0}'], "the Foreman's dot, the daemon's dot and the sessions dot");
+  assert.deepEqual(dots.map((d) => attrOf(d, 'on')), ['{bar.foreman.daemon && bar.foreman.active}', '{bar.daemon.active}'], "the Foreman's dot and the daemon's dot");
   for (const d of dots) assert.ok(d.parents.includes(footer));
   assert.equal(ifBody(markup, 'bar.inbox'), null, 'no {#if bar.inbox}');
   assert.doesNotMatch(markup, /openPopover\('inbox'|data-popover="inbox"/, 'no Inbox indicator, whether the daemon is on or off');
@@ -1270,7 +1265,7 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
   assert.equal(attrOf(dialog, 'id'), 'popover-{id}');
   assert.ok(!dialog.attrs.some((a) => a.name === 'aria-modal'), 'non-modal');
   for (const c of ['plate', 'solid', 'fixed', 'z-42']) assert.ok(dialog.classes.includes(c), `the popover has ${c}`);
-  assert.ok(dialog.classes.some((c) => c.startsWith('bottom-') && c.includes('var(--size-statusbar)') && c.includes('env(safe-area-inset-bottom)') && c.includes('var(--space-2)')), 'it sits --space-2 above the bar');
+  assert.ok(dialog.classes.some((c) => c.startsWith('bottom-') && c.includes('var(--size-statusbar)') && c.includes('env(safe-area-inset-bottom)') && c.includes('var(--space-1)') && !c.includes('var(--space-2)')), 'it sits --space-1 above the bar');
   assert.ok(dialog.classes.some((c) => c.startsWith('max-h-') && c.includes('100dvh') && c.includes('var(--size-statusbar)')), 'it scrolls inside the room above the bar');
   assert.ok(dialog.classes.some((c) => c.startsWith('max-h-[min(40rem,') && c.includes('100dvh') && c.includes('var(--size-statusbar)')), 'a non-chat popover is capped at 40rem');
   assert.match(read('components/Popover.svelte'), /\{chat \? 'max-h-\[calc\(100dvh[^']*\]' : 'max-h-\[min\(40rem,calc\(100dvh[^']*\]'\}/, 'the cap applies only when not chat, as one whole-literal ternary');
@@ -1306,31 +1301,43 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
 
   // Every indicator is a labelled button that opens a dialog and says whether it is open.
   const indicators = bar.filter((e) => e.name === 'button' && /openPopover\(/.test(attrOf(e, 'onclick')));
-  assert.equal(indicators.length, 7, 'foreman, needs, daemon, held, waiting, model, connection');
+  assert.equal(indicators.length, 7, 'needs, foreman, daemon, held, waiting, model, connection');
   for (const b of indicators) {
     assert.ok(b.parents.includes(footer), 'inside the bar');
     assert.equal(attrOf(b, 'aria-haspopup'), 'dialog');
     assert.ok(attrOf(b, 'aria-expanded'), 'aria-expanded');
     assert.ok(attrOf(b, 'aria-controls'), 'aria-controls while open');
-    // Needs you's words are always sr-only, and the Daemon's state never shows, so their tooltips always show; the Foreman's
-    // whenever it is on (its state word is never visible); the others only while part of their text is hidden.
-    if (attrOf(b, 'data-popover') === 'needs') assert.equal(attrOf(b, 'title'), '{titles.needs}');
-    else if (attrOf(b, 'data-popover') === 'daemon' && attrOf(b, 'onclick') === "{(e) => openPopover('daemon', e.currentTarget)}" && !b.classes.includes('max-md:hidden')) assert.equal(attrOf(b, 'title'), '{titles.daemon}');
-    else if (attrOf(b, 'data-popover') === 'foreman') assert.equal(attrOf(b, 'title'), '{bar.foreman.on || phone || left >= 5 ? titles.foreman : undefined}');
-    else assert.match(attrOf(b, 'title'), /\? .* : undefined\}$/, 'a tooltip with the full label only while part of the text is hidden');
+    // Every icon button carries its tooltip at every width and fit level; held and waiting are text buttons, titled only
+    // while their reason is hidden.
+    const id = attrOf(b, 'data-popover');
+    if (b.classes.includes('max-md:hidden')) assert.match(attrOf(b, 'title'), /\? .* : undefined\}$/, 'held and waiting: a tooltip only while the reason is hidden');
+    else assert.equal(attrOf(b, 'title'), `{titles.${id}}`, `the ${id} indicator's tooltip is unconditional`);
     assert.ok(!b.attrs.some((a) => a.name === 'aria-label'), 'no aria-label: the name comes from the content, sr-only parts included');
     assert.ok(!b.classes.includes('truncate') && !b.classes.includes('min-w-0'), 'labels are whole or hidden, never cut');
     assert.ok(/^(foreman|needs|daemon|model|connection)$/.test(attrOf(b, 'data-popover')), 'data-popover names the popover it opens');
     // Below md every visible indicator is a 44x44 target with its ring drawn inside the 44px bar.
     if (!b.classes.includes('max-md:hidden')) for (const c of ['max-md:min-w-11', 'max-md:focus-visible:-outline-offset-2']) assert.ok(b.classes.includes(c), `the ${attrOf(b, 'data-popover')} indicator has ${c}`);
   }
-  assert.equal(indicators.filter((b) => !b.classes.includes('max-md:hidden')).length, 5, 'foreman, needs, daemon, model and connection show below md');
-  assert.deepEqual(indicators.map((b) => /openPopover\('(\w+)'/.exec(attrOf(b, 'onclick'))?.[1]), ['foreman', 'needs', 'daemon', 'daemon', 'daemon', 'model', 'connection'], 'in tab order');
+  assert.equal(indicators.filter((b) => !b.classes.includes('max-md:hidden')).length, 5, 'needs, foreman, daemon, model and connection show below md');
+  assert.deepEqual(indicators.map((b) => /openPopover\('(\w+)'/.exec(attrOf(b, 'onclick'))?.[1]), ['needs', 'foreman', 'daemon', 'daemon', 'daemon', 'model', 'connection'], 'in tab order: the bell first');
+  assert.equal(attrOf(indicators[0], 'bind:this'), '{needsButton}', 'the first is the Needs-you bell');
   // The Foreman: always rendered once the state loads, accented rather than ghost.
-  const foremanButton = indicators[0];
+  const foremanButton = indicators[1];
   assert.ok(has(foremanButton, 'btn', 'sm', 'foreman') && !foremanButton.classes.includes('ghost'), `the Foreman carries the foreman accent, not ghost (${foremanButton.classes.join(' ')})`);
   assert.deepEqual(openBlocksAt(read('components/StatusBar.svelte'), 'data-popover="foreman"'), [['#if S.data']], 'it sits outside every {#if} but {#if S.data}');
   assert.ok(bar.some((e) => e.name === 'Icon' && attrOf(e, 'name') === 'foreman' && e.parents.includes(foremanButton)), 'with the foreman icon');
+  // The Daemon: the Foreman's pair, in the same accent, dashed while off, with its glyph at every width.
+  const daemonButton = indicators[2];
+  assert.equal(attrOf(daemonButton, 'data-popover'), 'daemon');
+  assert.ok(has(daemonButton, 'btn', 'sm', 'foreman') && !daemonButton.classes.includes('ghost'), `the Daemon carries the foreman accent, not ghost (${daemonButton.classes.join(' ')})`);
+  const svelteText = read('components/StatusBar.svelte');
+  assert.ok(svelteText.includes(`<button class="btn sm foreman {bar.foreman.on ? '' : 'off'} `), 'the Foreman goes dashed while off');
+  assert.ok(svelteText.includes(`<button class="btn sm foreman {bar.daemon.off ? 'off' : ''} `), 'and so does the Daemon');
+  const daemonIcon = bar.find((e) => e.name === 'Icon' && attrOf(e, 'name') === 'daemon' && e.parents.includes(daemonButton));
+  assert.ok(daemonIcon, 'with the daemon icon');
+  const iconSpan = daemonIcon.parents.at(-1)!;
+  assert.equal(iconSpan.name, 'span');
+  assert.ok(!iconSpan.classes.includes('md:hidden') && !/left >=|holdsOut/.test(attrOf(iconSpan, 'class')), `the glyph shows at every width and level (${attrOf(iconSpan, 'class')})`);
   // The one exception is the focus fact, which opens the focused job's drawer (a panel, not a popover).
   for (const b of bar.filter((e) => e.name === 'button' && e.parents.includes(footer) && attrOf(e, 'id') !== 'footer-focus')) assert.equal(attrOf(b, 'aria-haspopup'), 'dialog', 'every bar button opens a dialog');
   const focusFact = bar.filter((e) => e.name === 'button' && attrOf(e, 'id') === 'footer-focus');
@@ -1468,7 +1475,7 @@ test('status bar labels are whole or sr-only, never cut', () => {
     [`{$t('statusbar.waiting.word')}<span class={left >= 2 ? 'sr-only' : ''}>{$t('statusbar.waiting.rest')}</span>`, 'level 2: what a job waits for'],
     [`<button class="btn sm ghost max-md:hidden {left >= 3 ? 'hidden!' : ''}"`, 'level 3: held and waiting'],
     [`{#if holdsOut}<span class="sr-only">{', '}{holdText}</span>{/if}`, 'level 3: the Daemon indicator names them'],
-    [`<span class="inline-flex {left >= 4 || holdsOut ? '' : 'md:hidden'} {TONE_TEXT[daemonTone]}"><Icon name="daemon" /></span>`, 'and shows its glyph (warn while they are out of sight), as it does from level 4'],
+    [`<span class="inline-flex {TONE_TEXT[daemonTone]}"><Icon name="daemon" /></span>`, 'and its glyph, always shown, goes warn while they are out of sight'],
     [`<span class="max-md:sr-only {left >= 4 ? 'sr-only' : ''} {bar.daemon.off ? 'text-muted' : ''}">`, "level 4: the Daemon's live/cap"],
     [`<span class="max-md:sr-only {left >= 5 ? 'sr-only' : ''}">{$t('statusbar.foreman.name')}</span>`, 'level 5: the "Foreman" word'],
     [`<span class="max-md:sr-only {left >= 5 ? 'sr-only' : ''}">{$t('statusbar.foreman.off')}</span>`, 'level 5: "Foreman off" too'],
@@ -1588,17 +1595,17 @@ test('Needs you is a status-bar popover, not a page', () => {
   assert.equal(en.daemon.inbox, undefined, 'no daemon.inbox key');
   const leaves = (o: any, at = ''): [string, string][] => Object.entries(o).flatMap(([k, v]) => (typeof v === 'object' && v ? leaves(v, `${at}${k}.`) : [[`${at}${k}`, String(v)] as [string, string]]));
   assert.deepEqual(leaves(en).filter(([, v]) => v === 'Inbox').map(([k]) => k), [], 'no message is exactly "Inbox"');
-  for (const [k, v] of [['daemon.rows.inbox', 'Inbox session'], ['statusbar.daemon.inboxLog', 'Inbox session log'], ['permission.inbox', 'Inbox session'], ['live.inbox', 'inbox session'], ['session.startInbox', 'Start inbox session'], ['session.stopInbox', 'Stop inbox session'], ['needs.noDecisions', 'No decisions waiting']])
+  for (const [k, v] of [['daemon.rows.inbox', 'Inbox session'], ['statusbar.daemon.inboxLog', 'Inbox session log'], ['permission.inbox', 'Inbox session'],['session.startInbox', 'Start inbox session'], ['session.stopInbox', 'Stop inbox session'], ['needs.noDecisions', 'No decisions waiting']])
     assert.equal(k.split('.').reduce((o: any, p) => o?.[p], en), v, k);
   // The old link shows the Pipeline, rewrites the hash and asks for the popover.
   const route = fnBody(read('lib/app.svelte.ts'), 'export function route(');
   assert.match(route, /if \(v === 'inbox'\) \{\s*history\.replaceState\(null, '', '#\/pipeline'\);\s*S\.openNeeds = true;\s*\}/);
   assert.match(route, /S\.view = VIEWS\.find\(\(x\) => x\.id === v\)\?\.id \?\? 'pipeline';/, 'and falls through to the Pipeline');
 
-  // The second indicator in the left cluster, after the Foreman: a bell, with a you-chip count only above 0.
+  // The first indicator in the left cluster, before the Foreman: a bell, with a you-chip count only above 0.
   const bar = elements('components/StatusBar.svelte');
-  const first = bar.filter((e) => e.name === 'button' && /openPopover\(/.test(attrOf(e, 'onclick')))[1];
-  assert.equal(attrOf(first!, 'data-popover'), 'needs', 'Needs you comes right after the Foreman');
+  const first = bar.filter((e) => e.name === 'button' && /openPopover\(/.test(attrOf(e, 'onclick')))[0];
+  assert.equal(attrOf(first!, 'data-popover'), 'needs', 'Needs you comes first, before the Foreman');
   for (const [k, v] of [['aria-haspopup', 'dialog'], ['aria-expanded', "{expanded('needs')}"], ['aria-controls', "{controls('needs')}"]]) assert.equal(attrOf(first!, k), v, `the button's ${k}`);
   const text = read('components/StatusBar.svelte');
   assert.match(text, /const needs = \$derived\(inboxGroups\(S\.data\?\.jobs \?\? \[\]\)\.urgent\.length\);/, 'decisions are the urgent list');
@@ -1613,7 +1620,7 @@ test('Needs you is a status-bar popover, not a page', () => {
   const nButton = nm.slice(nm.indexOf('<span', nAt), nm.indexOf('</button>', nAt));
   const nVisible = nButton.replace(/<span class="sr-only">[\s\S]*?<\/span>/g, '').replace(/<span class="chip you num" aria-hidden="true">\{needsTotal\}<\/span>/g, '');
   assert.doesNotMatch(nVisible.replace(/\{[^{}]*\}/g, '').replace(/<[^>]*>/g, ''), /\S/, `no visible text in the bell (${nVisible})`);
-  assert.match(text, /needs: \[\s*\$t\('statusbar\.needs\.name'\),\s*\.\.\.\(needs > 0 \? \[\$t\('statusbar\.needs\.count', \{ count: needs \}\)\] : \[\]\),\s*\.\.\.\(bar\.prompts > 0 \? \[\$t\('permission\.heading', \{ count: bar\.prompts \}\)\] : \[\]\),\s*\]\.join\(' · '\),/, 'its title is the same text, joined by ·');
+  assert.match(text, /needs: \$t\('statusbar\.needs\.tooltip'\),/, 'its title is only "Notifications": the counts are in the sr-only text and the badge');
   // It opens the wide popover holding the page's sections, and #/inbox opens it once.
   assert.match(text, /\{:else if open === 'needs'\}\{#if S\.data\}<NeedsPanel data=\{S\.data\} \/>\{\/if\}/);
   assert.match(text, /if \(!S\.openNeeds \|\| !S\.data \|\| !needsButton\) return;[\s\S]*?S\.openNeeds = false;\s*if \(popover\.open !== 'needs'\) openPopover\('needs', anchor\);/, '#/inbox opens it anchored to its button');

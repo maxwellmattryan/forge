@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ackPeriod, chipModel, dayMeter, isRepoHold, meterFraction, meterTone, money, monthMeter, showRepoSection } from '../dashboard/src/lib/repo-budget.ts';
+import { ackPeriod, dayMeter, isRepoHold, meterFraction, meterTone, money, monthMeter, showRepoSection } from '../dashboard/src/lib/repo-budget.ts';
 import { sessionPill } from '../dashboard/src/lib/daemon.ts';
 import { inboxActions, inboxDoc, inboxKind, showsNote, stateText } from '../dashboard/src/lib/view.ts';
 import { readFileSync } from 'node:fs';
@@ -38,11 +38,7 @@ test('meter fractions and tones', () => {
   assert.equal(monthMeter(status({ caps: { usdPerMonth: null, tokensPerMonth: null, usdPerDay: null } })).percent, null);
 });
 
-test('chip text for capped and uncapped', () => {
-  assert.deepEqual(chipModel(status()), { capped: true, spent: '$12.34', cap: '$100', tone: 'none' });
-  assert.deepEqual(chipModel(status({ caps: { usdPerMonth: null, tokensPerMonth: null, usdPerDay: null } })), { capped: false, spent: '$12.34', cap: '—', tone: 'none' });
-  assert.equal(chipModel(status({ spent: { dayUsd: 0, monthUsd: 85, monthTokens: 0 } })).tone, 'warn');
-  assert.equal(chipModel(status({ exceeded: ['usdPerDay'] })).tone, 'danger', 'any reached cap tones the chip');
+test('money formats whole and fractional dollars', () => {
   assert.equal(money(100), '$100');
   assert.equal(money(12.5), '$12.50');
 });
