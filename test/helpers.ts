@@ -29,8 +29,10 @@ process.env.GIT_CONFIG_GLOBAL = path.resolve(import.meta.dirname, 'fixtures', 'g
 process.env.GIT_CONFIG_NOSYSTEM = '1';
 // A suite run from a daemon session (as `forge verify` is when the daemon drives a job) inherits
 // the session's markers and git pins; the CLI it spawns would then apply daemon rules to scratch
-// repos. Tests that exercise daemon mode set these themselves.
-for (const k of Object.keys(process.env)) if (/^FORGE_DAEMON(_|$)|^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/.test(k)) delete process.env[k];
+// repos. Tests that exercise daemon mode set these themselves. A suite run through `forge run` or
+// `forge verify` also inherits that job's FORGE_PORT_<C> / FORGE_ENDPOINT_<C>, which the CLI passes
+// on to the scratch jobs' commands beside their own.
+for (const k of Object.keys(process.env)) if (/^FORGE_(DAEMON|PORT|ENDPOINT|BACKING)(_|$)|^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/.test(k)) delete process.env[k];
 // Transcript lookups follow Claude Code's own CLAUDE_CONFIG_DIR; tests that fake a HOME must not
 // read the developer's real one instead. Tests that need it set it themselves.
 delete process.env.CLAUDE_CONFIG_DIR;
