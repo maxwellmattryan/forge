@@ -20,7 +20,8 @@ const assistant = (content: unknown[], timestamp = '2026-10-15T10:00:00.000Z') =
 
 function hit(port: number, o: { path: string; headers?: Record<string, string> }): Promise<{ status: number; headers: http.IncomingHttpHeaders; text: string }> {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port, path: o.path, headers: { host: `127.0.0.1:${port}`, ...(o.headers ?? {}) } }, (res) => {
+    // A fresh socket per request: a pooled keep-alive socket the server times out under load resets.
+    const req = http.request({ host: '127.0.0.1', port, path: o.path, agent: false, headers: { host: `127.0.0.1:${port}`, ...(o.headers ?? {}) } }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode!, headers: res.headers, text: Buffer.concat(chunks).toString('utf8') }));

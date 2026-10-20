@@ -80,6 +80,7 @@ import type {
   PostRequestResponse,
   PostRunResponse,
   RepoBudgetStatus,
+  RequestInfo,
   TranscriptPage,
   VersionInfo,
 } from './types.ts';
@@ -101,6 +102,50 @@ export interface ServerOptions {
   ghRun?: GhRunner;
   /** Test seam: Claude Code's projects dir (claudeProjectsDir() by default). */
   projectsDir?: string;
+  /**
+   * Called once per request when its response finishes or closes early. Only `forge dash`'s activity
+   * log sets it (lib/activity.ts); it observes requests and never changes a response.
+   */
+  onRequest?: (r: RequestInfo) => void;
+}
+
+/** The pathname for the activity log, from a URL whose Host may be bad (that request is still reported). */
+function logPath(raw: string | undefined): string {
+  try {
+    return new URL(raw ?? '/', 'http://x').pathname;
+  } catch {
+    return '/';
+  }
+}
+
+/**
+ * An event stream's head. Set through setHeader rather than writeHead's object, so getHeader still
+ * reads the Content-Type afterwards and the activity log can tell a stream from a request.
+ */
+function sseHead(res: http.ServerResponse): void {
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.writeHead(200);
+}
+
+/** Reports a request to `hook` once, on finish or on an early close; a throwing hook is swallowed. */
+function observeRequest(req: http.IncomingMessage, res: http.ServerResponse, hook: (r: RequestInfo) => void): void {
+  const t0 = performance.now();
+  const method = req.method ?? 'GET';
+  const p = logPath(req.url);
+  let done = false;
+  const report = (status: number | 'aborted') => {
+    if (done) return;
+    done = true;
+    try {
+      hook({ method, path: p, status, ms: Math.round(performance.now() - t0), sse: String(res.getHeader('content-type') ?? '').startsWith('text/event-stream') });
+    } catch {
+      // The activity log never affects a response.
+    }
+  };
+  res.once('finish', () => report(res.statusCode));
+  res.once('close', () => report(res.writableFinished ? res.statusCode : 'aborted'));
 }
 
 /** A listening dashboard server: what startServer resolves to. */
@@ -184,6 +229,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
   };
 
   const server = http.createServer(async (req, res) => {
+    if (opts.onRequest) observeRequest(req, res, opts.onRequest);
     try {
       if (!isLoopbackHost(req.headers.host)) return send(res, 421, 'text/plain', 'misdirected request');
       const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
@@ -554,7 +600,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     // Syntax only, so the logs of deleted jobs stay viewable.
     if (!validScope(scope)) return jsonStatus(res, 400, { error: 'session must be "_inbox", "_office" or a job id' });
     if (clients.size >= MAX_SSE_CLIENTS) return send(res, 503, 'text/plain', 'too many event streams');
-    res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+    sseHead(res);
     res.write('retry: 3000\n\n');
     clients.set(res, scope);
     res.write(stateFrame(pool ? pool.sessionState(scope) : offSessionState(root, scope)));
@@ -637,7 +683,7 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
     const t = found ? openTranscript(found.hit, projects) : null;
     if (!found || !t) return jsonStatus(res, 404, { error: NO_TRANSCRIPT });
     const fd = t.fd;
-    res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+    sseHead(res);
     res.write('retry: 3000\n\n');
     clients.set(res, `transcript:${id}:${found.role ?? 'owner'}`);
     const last = Number(req.headers['last-event-id']);
