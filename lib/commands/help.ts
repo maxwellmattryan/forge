@@ -10,6 +10,7 @@ import { colorEnabled, renderError } from './render.ts';
 import { HELP as AUDIT } from './audit.ts';
 import { HELP as BACKING } from './backing.ts';
 import { HELP as BUDGET } from './budget.ts';
+import { HELP as ENVIRONMENT } from './environment.ts';
 import { HELP as CONFIG } from './config.ts';
 import { HELP as DAEMON } from './daemon.ts';
 import { HELP as DASH } from './dash.ts';
@@ -208,8 +209,8 @@ export const CORE: HelpGroup[] = [
   },
 ];
 
-const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...BACKING, ...FOCUS, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
-const ORDER = ['status', 'next', 'job', 'worktree', 'backing', 'run', 'stop', 'focus', 'verify', 'verifiers', 'secrets', 'integrate', 'git', 'pr', 'release', 'sync', 'tracker', 'stats', 'budget', 'audit', 'roster', 'retro', 'eval', 'requests', 'daemon', 'notify', 'init', 'migrate', 'config', 'doctor', 'dash', 'version', 'update', 'help'];
+const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...BACKING, ...ENVIRONMENT, ...FOCUS, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
+const ORDER = ['status', 'next', 'job', 'worktree', 'backing', 'environment', 'run', 'stop', 'focus', 'verify', 'verifiers', 'secrets', 'integrate', 'git', 'pr', 'release', 'sync', 'tracker', 'stats', 'budget', 'audit', 'roster', 'retro', 'eval', 'requests', 'daemon', 'notify', 'init', 'migrate', 'config', 'doctor', 'dash', 'version', 'update', 'help'];
 
 /** Every command group, in the order the overview lists them. */
 export const GROUPS: HelpGroup[] = ORDER.map((name) => {

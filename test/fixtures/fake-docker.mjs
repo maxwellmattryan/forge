@@ -182,6 +182,12 @@ export function handle(state, args, input) {
     c.running = true;
     return ok(`${last}\n`);
   }
+  if (cmd === 'stop') {
+    const c = state.containers[last];
+    if (!c) return fail(`Error response from daemon: No such container: ${last}`);
+    c.running = false;
+    return ok(`${last}\n`);
+  }
   if (cmd === 'rm') {
     if (state.failRm) return fail('Error response from daemon: removal in progress');
     if (!state.containers[last]) return fail(`Error: No such container: ${last}`);

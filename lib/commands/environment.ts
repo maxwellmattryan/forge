@@ -1,0 +1,68 @@
+// `forge environment up|stop|down|list`: a job's environment on demand (lib/environment.ts,
+// docs/CONFIG.md "Backing services" › Lifecycle). Forge does the same on its own: teardown when a job
+// finishes or is archived, stop on a park, start on resume, verify, run --background and focus.
+import { currentFocus } from '../focus-actions.ts';
+import { refuseInboxDrive } from '../daemon-owner.ts';
+import { teardownEnvironment } from '../environment.ts';
+import { liveJob, readEnvironments } from '../environment-record.ts';
+import { loadJob } from '../jobs.ts';
+import { validJobId } from '../requests.ts';
+import { ForgeError, assertSafeRef } from '../util.ts';
+import { usageError } from './args.ts';
+import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
+
+const DOCS: [string, string] = ['Backing services', 'docs/CONFIG.md#backing-services'];
+const REFUSED: [1, string] = [1, 'an invalid job id or no such job, or the inbox or office daemon session ran it'];
+
+const ENVIRONMENT: HelpGroup = {
+  name: 'environment',
+  summary: "a job's environment: its background processes, per-job containers and volumes, and job databases",
+  commands: [
+    {
+      command: 'environment down',
+      args: '<id>',
+      summary:
+        "tear the job's environment down, for any job, done or cancelled too: stop its background processes, remove its per-job containers and volumes, drop its job databases, delete backing.json and backing-db.json and drop it from the environment record; the worktree stays",
+      exits: [REFUSED, [5, 'Docker missing, its daemon stopped, a docker or psql command failed, or a shared container is stopped (the records are kept for a retry)']],
+      docs: DOCS,
+      readme: true,
+    },
+    {
+      command: 'environment list',
+      args: '',
+      summary: 'the environment record: {maxRunning, focused, jobs: [{id, state, usedAt}]}, running or stopped as Forge last left each one, most recently used first, only for jobs that exist and are active',
+      docs: DOCS,
+      readme: true,
+    },
+  ],
+};
+
+export const HELP: HelpGroup[] = [ENVIRONMENT];
+
+/** A job id checked before any docker call: it becomes part of container, volume and database names. */
+function jobId(v: string | undefined, sub: string): string {
+  if (v === undefined) throw usageError(ENVIRONMENT, sub);
+  if (!validJobId(v)) throw new ForgeError(`invalid job id ${JSON.stringify(v).slice(0, 80)}`);
+  return assertSafeRef(v, 'job id');
+}
+
+export function environmentCmd(ctx: CliContext, sub: string | undefined, rest: string[]): Dispatched {
+  const { root, config } = ctx;
+  if (sub === 'down') {
+    if (rest.length !== 1) throw usageError(ENVIRONMENT, 'down');
+    const id = jobId(rest[0], 'down');
+    refuseInboxDrive(id);
+    loadJob(root, id);
+    const r = teardownEnvironment(root, config, id, 'cli');
+    return { data: { job: id, ...r }, exitCode: r.ok ? 0 : 5 };
+  }
+  if (sub === 'list') {
+    if (rest.length) throw usageError(ENVIRONMENT, 'list');
+    const jobs = Object.entries(readEnvironments(root).jobs)
+      .filter(([id]) => liveJob(root, id))
+      .map(([id, e]) => ({ id, state: e.state, usedAt: e.usedAt }))
+      .sort((a, b) => (a.usedAt < b.usedAt ? 1 : a.usedAt > b.usedAt ? -1 : a.id < b.id ? -1 : 1));
+    return { data: { maxRunning: null, focused: currentFocus(root)?.id ?? null, jobs }, exitCode: 0 };
+  }
+  throw usageError(ENVIRONMENT);
+}

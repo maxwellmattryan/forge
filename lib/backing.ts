@@ -563,6 +563,38 @@ export function backingDown(root: string, config: Config, id: string, runner: Do
   return result(true);
 }
 
+/**
+ * Stops the job's running per-job containers, only those labelled with this root and job, keeping
+ * every volume, job database and record. Names come from the job id and config, never a record.
+ * Shared containers serve every job, so they are never stopped here.
+ */
+export function backingStop(root: string, config: Config, id: string, runner: DockerRunner = activeRunner): { stopped: string[]; ok: boolean; error?: string } {
+  const stopped: string[] = [];
+  let list: BackingEntry[];
+  try {
+    list = entries(config).filter((e) => e.isolation === 'per-job' && isManaged(e));
+  } catch (err) {
+    return { stopped, ok: false, error: (err as Error).message };
+  }
+  if (!list.length) return { stopped, ok: true };
+  const state = dockerState(runner);
+  if (state.state !== 'ok') return { stopped, ok: false, error: stateError(state, list) };
+  try {
+    for (const e of list) {
+      const name = containerName(id, e.name);
+      const found = inspectContainer(runner, name);
+      if (!found.exists || !matches(found.labels, ownLabels(root, e, id)) || !found.running) continue;
+      const r = runner(['stop', '-t', '10', name]);
+      if (!r.ok) throw new DockerFailure(failure('stop', r));
+      stopped.push(name);
+    }
+  } catch (err) {
+    if (!(err instanceof DockerFailure)) throw err;
+    return { stopped, ok: false, error: err.message };
+  }
+  return { stopped, ok: true };
+}
+
 /** Removes this root's shared containers, keeping their volumes and port record. */
 export function backingDownShared(root: string, config: Config, runner: DockerRunner = activeRunner): { removed: string[] } {
   const list = entries(config).filter((e) => e.isolation === 'shared');

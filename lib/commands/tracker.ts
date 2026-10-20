@@ -6,6 +6,7 @@ import * as pr from '../pr.ts';
 import { listRequests } from '../requests.ts';
 import { checkRepoBudget, isRepoHold, repoBudgetBlock } from '../repo-budget.ts';
 import { applyRetention } from '../retention.ts';
+import { finishEnvironment } from '../environment.ts';
 import { searchTerms } from '../issue-link.ts';
 import { checkIssueRef, isSafeUrl, linkedIssues, nativeRef, nativeRefs, parseIssueRef, primaryIssue, sameIssue } from '../issue-ref.ts';
 import { localRepoSlug } from '../repo-slug.ts';
@@ -328,7 +329,7 @@ export async function startFromRef(root: string, config: Config, tracker: Tracke
   const job = createJob(root, config, { title: item.title, issues, body: item.body ?? '', splitMode: opts.splitMode });
   const claim = tracker.claim(ctx, item.ref, job);
   if (!claim.ok) {
-    setJob(root, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` });
+    finishEnvironment(root, config, job, setJob(root, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` }));
     throw new ForgeError(`could not claim ${ref}: ${claim.reason}`, 3);
   }
   if (session) claimJob(root, job.id, session, false, daemonClaimOpts(root, job.id));
@@ -362,7 +363,7 @@ async function startFromMemberRef(
   recordJobRepo(root, config, job.id, member.name, false);
   const claim = tracker.claim(ctx, member.n, loadJob(root, job.id));
   if (!claim.ok) {
-    setJob(root, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` });
+    finishEnvironment(root, config, job, setJob(root, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` }));
     throw new ForgeError(`could not claim ${ref}: ${claim.reason}`, 3);
   }
   if (session) claimJob(root, job.id, session, false, daemonClaimOpts(root, job.id));
@@ -571,7 +572,7 @@ export async function syncAll(
     }).filter(Boolean);
     // filter(Boolean) above dropped the children that failed to load.
     if (kids.length && kids.every((k) => ['done', 'cancelled'].includes(k!.state))) {
-      setJob(root, job.id, { stage: 'done', state: 'done', reason: 'all child jobs finished' });
+      finishEnvironment(root, config, job, setJob(root, job.id, { stage: 'done', state: 'done', reason: 'all child jobs finished' }));
       results.push({ id: job.id, umbrellaDone: true });
     }
   }

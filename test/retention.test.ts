@@ -10,6 +10,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { forgeAsync, waitFor } from './helpers.ts';
 import { ago, repo, seedJob, tree } from './retention-fixture.ts';
+import { rootLabel } from '../lib/backing.ts';
 import { TRUST_ENV, defaults, trustDigest, validateConfig } from '../lib/config.ts';
 import { CONFIG_DISCLOSURE, FIELDS, disclosureOf } from '../lib/config-fields.ts';
 import { unmetDependencies } from '../lib/deps.ts';
@@ -21,6 +22,7 @@ import { computeStats } from '../lib/stats.ts';
 import type { Job, LoadedJob } from '../lib/types.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
+const DOCKER_BIN = path.resolve(import.meta.dirname, 'fixtures', 'docker-bin');
 const ACTOR = { FORGE_ACTOR: 'tester' };
 
 const json = (s: string) => JSON.parse(s);
@@ -199,6 +201,47 @@ describe('archive', { concurrency: 4 }, () => {
     } finally {
       r.cleanup();
       fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('archive tears down first and refuses on teardown failure', async () => {
+    const r = repo();
+    const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-docker-')));
+    try {
+      const file = path.join(r.dir, '.forge', 'config.yml');
+      const pg = { name: 'postgres', isolation: 'per-job', image: 'postgres:16', ports: [5432] };
+      fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^backing: \[\]$/m, `backing: ${JSON.stringify([pg])}`));
+      const id = seedJob(r.dir, 'Left running');
+      fs.writeFileSync(path.join(jobDir(r.dir, id), 'backing.json'), JSON.stringify({ v: 1, ports: {} }));
+      const stateFile = path.join(tmp, 'state.json');
+      const env = { ...ACTOR, PATH: `${DOCKER_BIN}${path.delimiter}${process.env.PATH}`, FAKE_DOCKER_STATE: stateFile };
+      const name = `forge-${id}-postgres`;
+      const labels = { 'forge.root': rootLabel(r.dir), 'forge.backing': 'postgres', 'forge.isolation': 'per-job', 'forge.job': id };
+      fs.writeFileSync(stateFile, JSON.stringify({ daemon: 'down', containers: { [name]: { running: true, labels } } }));
+
+      const refused = await forgeAsync(r.dir, ['job', 'archive', id], env);
+      assert.equal(refused.status, 0, refused.stderr);
+      const out = json(refused.stdout);
+      assert.deepEqual(out.archived, []);
+      assert.equal(out.refused.length, 1);
+      assert.equal(out.refused[0].id, id);
+      assert.match(out.refused[0].reason, /^environment teardown failed: docker is installed but its daemon is not reachable/);
+      assert.ok(fs.existsSync(jobDir(r.dir, id)), 'the job dir stays');
+      assert.ok(fs.existsSync(path.join(jobDir(r.dir, id), 'backing.json')), 'its record stays');
+      assert.equal(fs.existsSync(archiveFile(r.dir, id)), false);
+
+      fs.writeFileSync(stateFile, JSON.stringify({ ...json(fs.readFileSync(stateFile, 'utf8')), daemon: 'up' }));
+      const ok = await forgeAsync(r.dir, ['job', 'archive', id], env);
+      assert.equal(ok.status, 0, ok.stderr);
+      assert.equal(json(ok.stdout).archived[0].id, id);
+      assert.deepEqual(json(fs.readFileSync(stateFile, 'utf8')).containers, {}, 'the container went first');
+      const rec = json(fs.readFileSync(archiveFile(r.dir, id), 'utf8'));
+      const downs = rec.events.filter((e: any) => e.type === 'environment-down');
+      assert.deepEqual(downs.map((e: any) => [e.trigger, e.ok]), [['archive', false], ['archive', true]]);
+      assert.ok(rec.events.findIndex((e: any) => e.type === 'environment-down' && e.ok) < rec.events.findIndex((e: any) => e.type === 'archived'));
+    } finally {
+      r.cleanup();
+      fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
 

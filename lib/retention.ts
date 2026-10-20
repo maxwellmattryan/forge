@@ -7,8 +7,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { currentActor } from './actor.ts';
 import { archiveDir, hasLiveJob } from './archive.ts';
-import { RETENTION_DAYS } from './config.ts';
+import { RETENTION_DAYS, loadConfig } from './config.ts';
 import { daemonsDir, openAppend, readInfo, sessionFiles } from './daemon.ts';
+import { hasEnvironment, teardownEnvironment } from './environment.ts';
 import { jobFindings } from './findings.ts';
 import { isActive, jobDir, listJobs, logEvent, ownerStatus, readEvents } from './jobs.ts';
 import { paths } from './paths.ts';
@@ -30,6 +31,9 @@ class Refusal extends ForgeError {
     this.reason = reason;
   }
 }
+
+/** The job's environment could not be torn down, so it stays for the next attempt. */
+export class TeardownRefusal extends Refusal {}
 
 const lstat = (p: string): fs.Stats | null => {
   try {
@@ -159,18 +163,29 @@ export interface ArchiveOpts {
   actor?: EventActor;
   /** Every live job, for the needed-by check; read inside the lock when absent. */
   live?: Job[];
+  /** The config teardown reads its backing entries from; loaded when absent. */
+  config?: Config;
 }
 
 /**
  * Archives one finished job: inside the job's lock, re-checks eligibility, logs the `archived`
  * event (so it is inside the record), writes `.forge/archive/<id>.json`, then deletes the job dir.
  * The record lands before the delete, so a crash leaves both copies and readers prefer the live one.
- * Throws a refusal (exit 1) with nothing written when the job is not eligible.
+ * Throws a refusal (exit 1) with nothing written when the job is not eligible. An eligible job's
+ * environment is torn down first (lib/environment.ts); when that fails it throws a TeardownRefusal
+ * and keeps the job dir, so its records are never deleted while containers may still exist.
  */
 export function archiveJob(root: string, id: string, trigger: RetentionTrigger, opts: ArchiveOpts = {}): ArchiveResult['archived'][number] {
   // Checked before the lock: withLock would create the lock inside a symlinked or missing job dir.
   const pre = readableJob(root, id);
   if (typeof pre === 'string') throw new Refusal(id, pre);
+  const early = eligibility(root, pre.job, opts.live ?? listJobs(root));
+  if (early) throw new Refusal(id, early);
+  // Before the job's lock: docker and psql calls can outlast the lock's stale time.
+  if (hasEnvironment(root, id)) {
+    const down = teardownEnvironment(root, opts.config ?? loadConfig(root).config, id, 'archive');
+    if (!down.ok) throw new TeardownRefusal(id, `environment teardown failed: ${down.error}`);
+  }
   const dir = jobDir(root, id);
   return withLock(path.join(dir, '.lock'), () => {
     const cur = readableJob(root, id);
@@ -223,7 +238,7 @@ function ageMs(job: Job, at: number): number | null {
  * that was not archived, with its reason. A dry run checks the same rules without the lock and
  * writes nothing.
  */
-export function archiveOlder(root: string, days: number, trigger: RetentionTrigger, opts: { dryRun?: boolean; actor?: EventActor; at?: number } = {}): ArchiveResult {
+export function archiveOlder(root: string, days: number, trigger: RetentionTrigger, opts: { dryRun?: boolean; actor?: EventActor; at?: number; config?: Config } = {}): ArchiveResult {
   const at = opts.at ?? Date.now();
   const live = listJobs(root);
   const out: ArchiveResult = { archived: [], refused: [] };
@@ -239,7 +254,7 @@ export function archiveOlder(root: string, days: number, trigger: RetentionTrigg
       continue;
     }
     try {
-      out.archived.push(archiveJob(root, job.id, trigger, { actor: opts.actor, live }));
+      out.archived.push(archiveJob(root, job.id, trigger, { actor: opts.actor, live, ...(opts.config ? { config: opts.config } : {}) }));
     } catch (e) {
       out.refused.push({ id: job.id, reason: e instanceof Refusal ? e.reason : (e as Error).message.slice(0, 300) });
     }
@@ -346,7 +361,7 @@ export function applyRetention(root: string, config: Config, trigger: RetentionT
   const out = { archived: [] as string[], logs: [] as string[] };
   const jobsDays = days(r.jobsDays);
   const logsDays = days(r.logsDays);
-  if (jobsDays !== null) out.archived = archiveOlder(root, jobsDays, trigger, opts).archived.map((a) => a.id);
+  if (jobsDays !== null) out.archived = archiveOlder(root, jobsDays, trigger, { ...opts, config }).archived.map((a) => a.id);
   if (logsDays !== null) out.logs = deleteLogs(root, staleLogs(root, logsDays, opts.at), trigger).map((l) => l.file);
   return out;
 }

@@ -12,6 +12,7 @@ import { readJobRecord, readSharedRecord } from './backing.ts';
 import { jobPathMap, renderBrief, roleBrief } from './brief.ts';
 import type { RoleContext } from './brief.ts';
 import { autoMerge, lensAlwaysOnRework, lensNeedsApp, resolveEffort, resolveModel } from './config.ts';
+import { environmentState } from './environment-record.ts';
 import { configForJob } from './eval-overlay.ts';
 import { loadTask } from './evals.ts';
 import { issueLinkStatus, prLinkNote } from './issue-link.ts';
@@ -193,6 +194,7 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     },
     acs: acCoverage(read('spec.md'), read('build.md')),
     runtime,
+    environment: environmentState(root, job.id),
     events,
     evalTask,
     checklists: lensChecklists(root, config, job, names),
