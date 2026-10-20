@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.18.2
+
+0.18.1 was never published: its release run failed in verify, so it has no tag or GitHub Release. 0.18.2 is the first release since 0.18.0 and carries everything in the 0.18.1 notes below, plus:
+
+- **Evals:** an eval job that runs out of review rounds now ends graded instead of waiting on a human.
+- **Secret scanner:** `forge pr open` refuses (under `verifySecrets: block`) or skips the base refresh (under `warn`) when the URL it fetches from differs from the one it pushes to, chained `url.*.insteadOf` rewrites included. A scan that can't finish now parks the job like a finding. The Human check card says that Approve runs the scan again and shows "Still blocked" when it didn't clear.
+- Docs: AGENTS.md is reorganised around a short list of essentials, and dashboard/AGENTS.md holds the dashboard's own rules.
+- This is the last release cut from `main` under the current flow. Development moves to `develop`, and `main` becomes the stable branch that installs come from.
+
 ## 0.18.1
 
 Interim release carrying the multi-repo work (M004–M008) merged since 0.18.0. The full notes come with 0.19.0.
