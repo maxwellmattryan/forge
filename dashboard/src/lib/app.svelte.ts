@@ -31,6 +31,9 @@ import { addFlashes, changedJobs } from './live.ts';
 import { threadItems, threadMarks, threadOpening } from './thread.ts';
 import { DEFAULT_DRAWER_TAB, PANE_DEFAULT, clampPaneWidth, type DrawerTab } from './drawer.ts';
 import type { RequestBody, RequestInput, ViewId } from './view.ts';
+import { readSidebar, type SidebarState } from './sidebar.ts';
+
+const SIDE_START: SidebarState = readSidebar(pref.get);
 
 /** The backlog, or the error a forced refresh hit (that reply has no tracker). */
 export type BacklogView = Omit<BacklogResponse, 'tracker'> & { tracker?: string };
@@ -66,6 +69,14 @@ class PaneState {
   viewport = $state(Infinity);
 }
 
+/** The sidebar's layout (prefs `sidebarWidth`, `sidebarCompact`); App's separator sets it and saves it. */
+class SideState {
+  /** The last expanded width, kept while compact so the separator's Enter can restore it. */
+  width = $state(SIDE_START.width);
+  /** The icon-only rail. */
+  compact = $state(SIDE_START.compact);
+}
+
 class AppState {
   data = $state.raw<ApiState | null>(null);
   dataKey = '';
@@ -87,6 +98,7 @@ class AppState {
   drawer = new DrawerState();
   drawerView = $state.raw<DrawerView>(null);
   pane = new PaneState();
+  side = new SideState();
   /** `#/inbox` was opened: StatusBar opens the Needs-you popover once its button renders, then clears this. */
   openNeeds = $state(false);
   /** Job id → when its card's change flash ends (epoch ms). */
@@ -169,6 +181,15 @@ export function setFilter(f: string): void {
 export function setLayout(l: string): void {
   S.layout = l;
   pref.set('layout', l);
+}
+
+/** Sets the sidebar and keeps it in this browser; the separator calls it once per key press, double-click or drag. */
+export function setSidebar(next: SidebarState, save = true): void {
+  S.side.width = next.width;
+  S.side.compact = next.compact;
+  if (!save) return;
+  pref.set('sidebarWidth', String(next.width));
+  pref.set('sidebarCompact', next.compact ? '1' : '0');
 }
 
 export function setWindow(w: string): void {

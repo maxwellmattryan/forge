@@ -649,6 +649,8 @@
   &.row { flex-direction: row; gap: 4px; }
   /* Row items keep their natural width: the column rule above stretches them to 100%. */
   &.row a, &.row button { width: auto; flex: none; }
+  /* .rail: the compact sidebar's icon-only links, centred in the 64px column. */
+  &.rail a, &.rail button { justify-content: center; padding-inline: 0; }
 }
 
 /* ---------- inputs: a recess in the plate ---------- */

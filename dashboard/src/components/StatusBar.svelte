@@ -5,7 +5,7 @@
      connection. It holds no text field: "New job or command" lives in the sidebar. Each indicator opens one popover, a
      sibling after the bar: a fixed element with a z-index is its own stacking context, so a popover inside the bar could
      never rise above a full job pane.
-     Stacking, from the back: sidebar z-10, this bar z-35, a full job pane z-40 (inside main's isolated context), popovers
+     Stacking, from the back: sidebar z-10, this bar z-35, the rail tooltip z-36, a full job pane z-40 (inside main's isolated context), popovers
      z-42, Settings and the palette z-45, toast z-50. At md and up the bar spans the content column only, so the sidebar
      keeps its full height, and the job pane always ends at the bar's top edge. Session errors, titles and model strings are untrusted and render
      as text.
