@@ -1,6 +1,6 @@
-// `forge backing up|down|status`: a job's backing services on demand (lib/backing.ts, docs/CONFIG.md
+// `forge backing up|down|stop|status`: a job's backing services on demand (lib/backing.ts, docs/CONFIG.md
 // "Backing services"). worktree create and remove do the same bring-up and teardown on their own.
-import { backingDown, backingDownShared, backingStatus, backingUp } from '../backing.ts';
+import { backingDown, backingDownShared, backingStatus, backingStop, backingUp } from '../backing.ts';
 import { refuseInboxDrive, refuseInboxOrOffice } from '../daemon-owner.ts';
 import { loadJob } from '../jobs.ts';
 import { validJobId } from '../requests.ts';
@@ -36,10 +36,19 @@ const BACKING: HelpGroup = {
       readme: true,
     },
     {
+      command: 'backing stop',
+      args: '<id>',
+      summary:
+        "docker stop the job's per-job containers (only those labelled with this checkout and job), keeping their volumes, records and every shared container; a missing, stopped or foreign container is listed in skipped with the reason; `backing up` starts them again",
+      exits: [[1, 'an invalid job id, or the inbox or office daemon session ran it'], DOCKER_FAILED],
+      docs: DOCS,
+      readme: true,
+    },
+    {
       command: 'backing status',
       args: '[<id>]',
       summary:
-        "with a job: each service's container, state (unknown when Docker is unreachable), ports, job database (name and template) and the FORGE_BACKING_* names its commands see (never values); without: every container labelled with this checkout, with orphan: true for a per-job one whose job is unknown, done or cancelled",
+        "with a job: each service's container, state (unknown when Docker is unreachable), health (healthy, unhealthy or starting while running; null without a healthcheck), ports, job database (name and template) and the FORGE_BACKING_* names its commands see (never values); without: every container labelled with this checkout, with orphan: true for a per-job one whose job is unknown, done or cancelled",
       exits: [[1, 'an invalid job id'], [5, 'Docker missing or its daemon stopped (without a job only)']],
       docs: DOCS,
       readme: true,
@@ -77,6 +86,13 @@ export function backingCmd(ctx: CliContext, sub: string | undefined, rest: strin
     const id = jobId(rest[0], 'down');
     refuseInboxDrive(id);
     const r = backingDown(root, config, id);
+    return { data: { job: id, ...r }, exitCode: r.ok ? 0 : 5 };
+  }
+  if (sub === 'stop') {
+    if (rest.length !== 1) throw usageError(BACKING, 'stop');
+    const id = jobId(rest[0], 'stop');
+    refuseInboxDrive(id);
+    const r = backingStop(root, config, id);
     return { data: { job: id, ...r }, exitCode: r.ok ? 0 : 5 };
   }
   if (sub === 'status') {

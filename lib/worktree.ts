@@ -30,8 +30,9 @@ import { refreshInterim } from './interim-apply.ts';
 import { applyLinks, consumerLockfiles, pathPrelude, resolveLinks, restoreLockfiles, snapshotLockfiles } from './links.ts';
 import type { AppliedLinks, LockSnapshot } from './links.ts';
 import { memberClone, memberEntry, memberRepos, memberWorktree, memberWorktreePath, trustedMemberWorktree } from './job-repos.ts';
-import type { BackingDownResult, BackingUpEntry, ComponentConfig, CompactSecrets, Config, Job, JobRepo, SecretScan, VerifyRun, VerifyRunRepo } from './types.ts';
-import { ForgeError, assertSafeRef, fill, now, readJson, run, shellArgs, tail, withLock, writeJsonAtomic } from './util.ts';
+import type { BackingDownResult, BackingUpEntry, ComponentConfig, CompactSecrets, Config, EventActor, Job, JobRepo, SecretScan, VerifyRun, VerifyRunRepo } from './types.ts';
+import { ForgeError, assertSafeRef, fill, now, readJson, run, shellArgs, tail, withLock, withLockAsync, writeJsonAtomic } from './util.ts';
+import { readSmallJson } from './focus.ts';
 
 /** One member repo's part of `forge worktree create`: createMemberWorktrees. */
 export interface MemberWorktreeResult {
@@ -1086,8 +1087,102 @@ export function pidAlive(pid: unknown): boolean {
   return false;
 }
 
+/** How far the process's start time may be from runtime.json's `startedAt` (ps reports whole seconds). */
+const DEV_START_SLACK_MS = 30_000;
+const DEV_STOP_WAIT_MS = 5_000;
+const PROBE_TIMEOUT_MS = 5_000;
+
+/** The process's working directory, or null when it can't be read (no /proc, no lsof, not ours to inspect). */
+function processCwd(pid: number): string | null {
+  if (process.platform === 'linux') {
+    try {
+      return fs.readlinkSync(`/proc/${pid}/cwd`);
+    } catch {
+      return null;
+    }
+  }
+  if (process.platform !== 'darwin') return null;
+  const r = run('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], { allowFail: true, timeoutMs: PROBE_TIMEOUT_MS });
+  if (!r.ok) return null;
+  const line = r.stdout.split('\n').find((l) => l.startsWith('n'));
+  return line ? line.slice(1) : null;
+}
+
+/**
+ * Whether runtime.json's dev record names the dev server Forge started for this job. The record is in
+ * the job dir, which the job's agents can write, so it is proved rather than trusted (as isOurChild in
+ * lib/daemon.ts proves a session): the pid is not 1 or ours, leads its own group (startBackground spawns
+ * detached), is not our group, started within 30 s of `startedAt`, and runs inside the job's contained
+ * worktree. The command line is not compared: `sh -lc '<one command>'` execs that command, so the shell
+ * is often gone from it. Always false on Windows, which has none of these probes.
+ */
+export function ownDevProcess(worktree: string, rec: unknown): boolean {
+  if (process.platform === 'win32' || !rec || typeof rec !== 'object') return false;
+  const { pid, startedAt } = rec as { pid?: unknown; startedAt?: unknown };
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 1 || pid === process.pid) return false;
+  const recorded = typeof startedAt === 'string' ? Date.parse(startedAt) : NaN;
+  if (!Number.isFinite(recorded)) return false;
+  const env = { ...process.env, LC_ALL: 'C' };
+  const ps = run('ps', ['-o', 'pgid=', '-o', 'lstart=', '-p', String(pid)], { allowFail: true, env, timeoutMs: PROBE_TIMEOUT_MS });
+  const m = ps.ok ? /^\s*(\d+)\s+(\w{3}\s+\w{3}\s+\d+\s+[\d:]+\s+\d{4})\s*$/.exec(ps.stdout.trim()) : null;
+  if (!m || Number(m[1]) !== pid) return false;
+  const own = run('ps', ['-o', 'pgid=', '-p', String(process.pid)], { allowFail: true, env, timeoutMs: PROBE_TIMEOUT_MS });
+  if (!own.ok || Number(own.stdout.trim()) === pid) return false;
+  const started = Date.parse(m[2]);
+  if (!Number.isFinite(started) || Math.abs(started - recorded) > DEV_START_SLACK_MS) return false;
+  const cwd = processCwd(pid);
+  if (!cwd) return false;
+  const base = realpath(worktree);
+  const real = realpath(cwd);
+  return real === base || real.startsWith(base + path.sep);
+}
+
+/**
+ * The dashboard's Stop: SIGTERM to the dev server's process group, SIGKILL after 5 s if it is still
+ * alive, then only the `dev` key leaves runtime.json. Under the runtime lock, so it never races
+ * startBackground. A pid it can't prove (ownDevProcess) is refused and nothing is signalled. No record
+ * or a dead pid only clears the key. `forge stop` (stopBackground) is unchanged.
+ */
+export async function stopDevProven(root: string, id: string, worktree: string, actor: EventActor): Promise<{ stopped: boolean; refused?: number }> {
+  const dir = jobDir(root, id);
+  const pidFile = path.join(dir, 'runtime.json');
+  return withLockAsync(path.join(dir, '.runtime.lock'), async () => {
+    const rt = readSmallJson(pidFile) ?? {};
+    const rec = rt.dev;
+    const pid = rec && typeof rec === 'object' ? (rec as { pid?: unknown }).pid : undefined;
+    const clear = () => {
+      if (!Object.hasOwn(rt, 'dev')) return;
+      delete rt.dev;
+      writeJsonAtomic(pidFile, rt);
+    };
+    if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) {
+      clear();
+      return { stopped: false };
+    }
+    // pid 1 and our own pid always read alive (and pid 1 would make the group signal -1, everything we may signal).
+    if (pid === 1 || pid === process.pid) return { stopped: false, refused: pid };
+    if (!pidAlive(pid)) {
+      clear();
+      return { stopped: false };
+    }
+    if (!ownDevProcess(worktree, rec)) return { stopped: false, refused: pid };
+    const signal = (sig: NodeJS.Signals) => {
+      try {
+        process.kill(-pid, sig);
+      } catch {}
+    };
+    signal('SIGTERM');
+    const deadline = Date.now() + DEV_STOP_WAIT_MS;
+    while (pidAlive(pid) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+    if (pidAlive(pid)) signal('SIGKILL');
+    clear();
+    logEvent(root, id, 'background-stop', { names: ['dev'], actor });
+    return { stopped: true };
+  });
+}
+
 /** Whether something accepts TCP connections on the port, over IPv4 then IPv6. */
-async function portAnswers(port: number): Promise<boolean> {
+export async function portAnswers(port: number): Promise<boolean> {
   for (const host of ['127.0.0.1', '::1']) {
     const ok = await new Promise((resolve) => {
       const sock = net.connect({ port, host });
