@@ -1,6 +1,10 @@
 // dashboard/src/lib/session-log.ts: a session's raw stream-json lines into turns, items and subagent groups.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { tags } from './svelte-markup.ts';
 import { DEFAULT_FILTERS, LONG_TEXT, MAX_ENTRIES, PREVIEW_CHARS, buildSessionView, filtersActive, latestInitModel, mergeEntry, parseEntry, readFilters, taskText, toolSummary } from '../dashboard/src/lib/session-log.ts';
 
 const XSS = '<script>alert(1)</script><img src=x onerror=alert(2)>';
@@ -391,4 +395,27 @@ test("latestInitModel returns the newest init line's model", () => {
   assert.equal(latestInitModel(entries([init('claude-opus-5-5'), init('claude-haiku-4-5', { parent_tool_use_id: 't_agent' })])), 'claude-opus-5-5');
   assert.equal(latestInitModel(entries([init(''), 'not json'])), null, 'an init with no model names none');
   assert.equal(latestInitModel(entries([init(XSS)])), XSS, 'session output passes through as data; SessionLog renders it as text');
+});
+
+test('permission mode is a Select that stays openable when locked', () => {
+  const text = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dashboard', 'src', 'components', 'SessionLog.svelte'), 'utf8');
+  const [sel, ...rest] = tags('SessionLog.svelte', text).filter((x) => x.name === 'Select');
+  assert.ok(sel && rest.length === 0, 'one Select');
+  const attr = (name: string) => sel.attrs.find((a) => a.name === name)?.value?.replace(/^(["'])([\s\S]*)\1$/, '$2');
+  assert.deepEqual(
+    { variant: attr('variant'), icon: attr('icon'), align: attr('align'), label: attr('label'), value: attr('value'), text: attr('text'), options: attr('options'), onchange: attr('onchange') },
+    { variant: 'button', icon: 'shield', align: 'end', label: "{$t('session.modeLabel')}", value: '{shownMode}', text: '{modeName[shownMode] ?? shownMode}', options: '{modeOptions}', onchange: '{setMode}' },
+  );
+  assert.ok(!sel.attrs.some((a) => a.name === 'disabled'), 'the Select itself is never disabled, so the hints stay readable');
+  // Locked (the daemon off) or saving (pending, which modeLocked includes) disables every entry.
+  assert.match(text, /const modeLocked = \$derived\(pending \|\| S\.data\?\.daemons\?\.enabled !== true\);/);
+  assert.match(text, /\.\.\.PERMISSION_MODES\.map\(\(m\) => \(\{ value: m, label: modeName\[m\], hint: modeHint\[m\], disabled: modeLocked \}\)\)/);
+  // A chosen mode outside PERMISSION_MODES shows last, disabled and ruled off.
+  assert.ok(text.includes('...(PERMISSION_MODES.some((m) => m === mode.chosen) ? [] : [{ value: mode.chosen, label: mode.chosen, disabled: true, separator: true }])'));
+  const setMode = text.slice(text.indexOf('async function setMode('), text.indexOf('\n  }\n', text.indexOf('async function setMode(')));
+  assert.match(setMode, /^async function setMode\(value: string\): Promise<void> \{/);
+  assert.match(setMode, /picked = next;\s*pending = true;[\s\S]*finally \{\s*picked = null;\s*pending = false;\s*\}$/);
+  assert.doesNotMatch(text, /parkFocus/);
+  // The Filter control stays a MenuButton: it is not a single choice.
+  assert.equal(tags('SessionLog.svelte', text).filter((x) => x.name === 'MenuButton').length, 1);
 });

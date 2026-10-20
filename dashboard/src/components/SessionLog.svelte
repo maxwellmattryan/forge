@@ -1,6 +1,6 @@
 <!-- One session's structured log (a job's, or the inbox's in the status bar's Daemon popover): one compact control row
-     (status facts, then the Permissions and Effort buttons, one Start/Stop icon toggle, the Filter button, the rendered/raw
-     icon toggle, Follow and Load older; the settings and filters sit in MenuButton popovers), and turns with tool calls
+     (status facts, then the Permissions and Effort dropdowns, one Start/Stop icon toggle, the Filter button, the rendered/raw
+     icon toggle, Follow and Load older; the filters sit in a MenuButton popover), and turns with tool calls
      and subagents, followed live. Every log string is untrusted session output: text and thinking bodies and a
      subagent's prompt and result render only through the escape-first md() (as text in Raw or above 20k characters); tool
      input, tool results and every other line render as text. With `transcript`, it follows a job's Claude Code transcript
@@ -17,8 +17,10 @@
   import Empty from './Empty.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
   import MenuButton from './MenuButton.svelte';
+  import Select from './Select.svelte';
   import { md } from '../lib/markdown.ts';
-  import { keepFocus, parkFocus } from '../lib/menu.ts';
+  import { keepFocus } from '../lib/menu.ts';
+  import type { SelectOption } from '../lib/select.ts';
   import { renderable } from '../lib/md-view.ts';
   import { mdView } from '../lib/md-view.svelte.ts';
   import { TONE_CLASS, clock, usd } from '../lib/util.ts';
@@ -65,13 +67,18 @@
   const toggle = $derived(sessionToggle(controls, session));
   // The choice lives in the pool, so it shows (and applies at the next spawn) even while no child runs.
   const mode = $derived(sessionMode(S.data?.daemons ?? null, scope, session));
-  /** Shown until the next /api/state carries the new choice, so the radios don't jump back meanwhile. */
+  /** Shown until the next /api/state carries the new choice, so the trigger doesn't jump back meanwhile. */
   let picked = $state<string | null>(null);
   const modeName = $derived<Record<string, string>>({ default: $t('session.modes.default'), auto: $t('session.modes.auto'), dontAsk: $t('session.modes.dontAsk') });
   const modeHint = $derived<Record<string, string>>({ default: $t('session.modes.defaultHint'), auto: $t('session.modes.autoHint'), dontAsk: $t('session.modes.dontAskHint') });
   const shownMode = $derived(picked ?? mode.chosen);
   const modeLocked = $derived(pending || S.data?.daemons?.enabled !== true);
-  const uid = $props.id();
+  // modeLocked covers a change that is saving (pending). A chosen mode this dashboard doesn't know shows last, selected
+  // and disabled.
+  const modeOptions = $derived<SelectOption[]>([
+    ...PERMISSION_MODES.map((m) => ({ value: m, label: modeName[m], hint: modeHint[m], disabled: modeLocked })),
+    ...(PERMISSION_MODES.some((m) => m === mode.chosen) ? [] : [{ value: mode.chosen, label: mode.chosen, disabled: true, separator: true }]),
+  ]);
 
   let filters = $state<Filters>(readFilters(pref.get('sessionFilters', '')));
   const filtering = $derived(filtersActive(filters));
@@ -172,10 +179,9 @@
     }
   }
 
-  async function setMode(value: string, el: HTMLInputElement): Promise<void> {
+  async function setMode(value: string): Promise<void> {
     const next = PERMISSION_MODES.find((m) => m === value);
     if (!next || next === mode.chosen) return;
-    const restore = parkFocus(el);
     picked = next;
     pending = true;
     try {
@@ -186,8 +192,6 @@
     } finally {
       picked = null;
       pending = false;
-      await tick();
-      restore();
     }
   }
 </script>
@@ -269,14 +273,8 @@
     {/if}
     <div class="ml-auto flex flex-wrap items-center justify-end gap-1.5">
       {#if !transcript}
-        <!-- The button stays enabled while the radios can't change, so the hints stay readable. -->
-        <MenuButton label={$t('session.modeTrigger', { mode: modeName[shownMode] ?? shownMode })} title={$t('session.modeLabel')} icon="shield" text={modeName[shownMode] ?? shownMode}>
-          <fieldset class="flex flex-col gap-2">
-            <legend class="sr-only">{$t('session.modeLabel')}</legend>
-            {#each PERMISSION_MODES as m (m)}<label class="field items-start"><input type="radio" class="radio mt-0.5" name="{uid}-mode" value={m} checked={shownMode === m} disabled={modeLocked} onchange={(e) => setMode(m, e.currentTarget)} /><span class="flex min-w-0 flex-col"><span>{modeName[m]}</span><span class="text-xs text-muted">{modeHint[m]}</span></span></label>{/each}
-            {#if !PERMISSION_MODES.some((m) => m === mode.chosen)}<label class="field"><input type="radio" class="radio" name="{uid}-mode" value={mode.chosen} checked disabled />{mode.chosen}</label>{/if}
-          </fieldset>
-        </MenuButton>
+        <!-- The Select stays enabled while its entries can't change, so it still opens and the hints stay readable. -->
+        <Select variant="button" icon="shield" align="end" label={$t('session.modeLabel')} value={shownMode} text={modeName[shownMode] ?? shownMode} options={modeOptions} onchange={setMode} />
         {#if scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE}<EffortSelect job={scope} />{/if}
         <IconButton icon={toggle.action === 'start' ? 'play' : 'stop'} label={toggle.action === 'start' ? $t('session.start') : $t('session.stop')} hint={toggle.action === 'start' ? $t('session.startHint') : null} disabled={!toggle.enabled} onclick={(e) => act(toggle.action, e.currentTarget)} />
       {/if}

@@ -252,6 +252,38 @@ test('Select markup has combobox and listbox semantics', () => {
   assert.doesNotMatch(text, /list\?\.children\[/);
 });
 
+test('single choices use Select, not radio popovers', () => {
+  const files = fs.readdirSync(SRC, { recursive: true }).map((f) => String(f).split(path.sep).join('/')).filter((f) => f.endsWith('.svelte'));
+  // Markup only: Settings.svelte's focus trap names radios in a selector string, which renders none.
+  const radios = files.filter((f) => tags(f, readSrc(f)).some((x) => x.name === 'input' && attr(x, 'type') === 'radio'));
+  assert.deepEqual(radios, ['components/settings/GeneralTab.svelte'], 'only the theme segmented control keeps radios');
+  for (const rel of ['components/EffortSelect.svelte', 'components/SessionLog.svelte']) {
+    const text = readSrc(rel);
+    assert.match(text, /import Select from '\.\/Select\.svelte';/, `${rel} imports Select`);
+    const [sel, ...rest] = selects(rel);
+    assert.ok(sel && rest.length === 0, `${rel} renders one Select`);
+    assert.equal(attr(sel, 'variant'), 'button', `${rel}'s Select is a button`);
+    assert.equal(attr(sel, 'align'), 'end', `${rel}'s Select opens right-aligned`);
+    assert.doesNotMatch(text, /parkFocus/, `${rel} no longer parks focus`);
+  }
+  assert.doesNotMatch(readSrc('lib/menu.ts'), /parkFocus/);
+});
+
+test('every entry layout has a call site', () => {
+  // Text only: Analytics' window options carry a label and no rich fields, and no snippet.
+  const [analytics] = selects('views/Analytics.svelte');
+  assert.ok(analytics && attr(analytics, 'entry') === undefined, 'Analytics renders the default text entry');
+  assert.equal(attr(analytics, 'options'), '{STATS_WINDOWS.map(([value, label]) => ({ value, label }))}', 'label-only options');
+  // Icon + text: EffortSelect's Inherit entry.
+  const effort = readSrc('components/EffortSelect.svelte');
+  assert.match(effort, /\{ value: '', label: \$t\('effort\.inherit', [^}]*\}\), icon: 'settings', disabled: pending \}/);
+  // Text + hint: SessionLog's modes.
+  assert.match(readSrc('components/SessionLog.svelte'), /\{ value: m, label: modeName\[m\], hint: modeHint\[m\], disabled: modeLocked \}/);
+  // A custom snippet: EffortSelect's levels.
+  assert.match(effort, /\{#snippet level\(o: SelectOption\)\}/);
+  assert.equal(attr(selects('components/EffortSelect.svelte')[0], 'entry'), '{level}');
+});
+
 test('Select renders text, icon, hint and snippet entries', () => {
   const text = readSrc('components/Select.svelte');
   const all = tags('Select.svelte', text);
