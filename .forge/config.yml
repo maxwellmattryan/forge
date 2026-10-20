@@ -13,7 +13,7 @@ project:
     - AGENTS.md
   notes: "Zero runtime dependencies (Node >= 22.18 built-ins; the engine is TypeScript run by Node's type stripping, no build step). The CLI is the only writer of Forge state. Every job.json/event/config shape change bumps the version in lib/schema.ts with a migration, and API_VERSION when /api/state changes. Keep README.md, docs/*.md and skills/forge/** in sync with CLI behaviour. Never point the CLI at a real repo's .forge/ while developing: use a scratch repo or FORGE_ROOT. Never add AI attribution anywhere."
 git:
-  base: main
+  base: develop
   remote: origin
   branchPrefix: forge/
 worktrees:
