@@ -107,8 +107,9 @@ test('settings tabs, controls and call sites use the set', () => {
 
   for (const file of ['components/statusbar/DaemonPanel.svelte', 'components/SessionLog.svelte']) {
     const text = readSrc(file);
-    assert.ok(text.includes('<Icon name="play"'), `${file} has the play icon`);
-    assert.ok(text.includes('<Icon name="stop"'), `${file} has the stop icon`);
+    // Through its one Start/Stop IconButton toggle.
+    assert.match(text, /<IconButton icon=\{[^}]*'play'/, `${file} has the play icon`);
+    assert.match(text, /<IconButton icon=\{[^}]*'stop'/, `${file} has the stop icon`);
   }
 });
 
