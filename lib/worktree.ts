@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { backingDown, backingEnv, backingUp, hasJobBacking, jobDbPasswords, portsLock } from './backing.ts';
+import { backingDown, backingEnv, hasJobBacking, jobDbPasswords, portsLock } from './backing.ts';
+import { ensureEnvironment, hasManagedBacking } from './environment.ts';
 import type { DatabaseOpts } from './backing.ts';
 import { redact } from './backing-db.ts';
 import { enforceBudget } from './budget.ts';
@@ -171,7 +172,8 @@ function createRootWorktree(root: string, config: Config, id: string, opts: { fr
   Object.assign(job, { worktree: dir, port, ports });
   logEvent(root, id, 'worktree', { path: dir, port, ports });
   // Before setup, so setup commands (migrations, seeds) can reach the services.
-  const backing = config.backing?.length ? { backing: backingUp(root, config, { id, port, ports }, undefined, databaseCommands(root, config, job)) } : {};
+  // Through ensure up, so the environment record says running and a later park stops it.
+  const backing = config.backing?.length ? { backing: ensureEnvironment(root, config, job, 'worktree').backing } : {};
   const down = backing.backing?.find((b) => !b.ok);
   if (down) {
     logEvent(root, id, 'worktree-setup-failed', { backing: down.name });
@@ -765,7 +767,17 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
   else if (interim.commits.length)
     interimStep.reason = interim.commits.map((c) => `${c.kind === 'release' ? 'release bump' : 'pins'} committed in ${c.repo === null ? 'the root repo' : `repo ${c.repo}`} (${c.sha.slice(0, 12)})`).join('; ');
   if (interim.active) results.push(interimStep);
-  const gatesOk = secretsStep.ok && protectedStep.ok && interimStep.ok;
+  let gatesOk = secretsStep.ok && protectedStep.ok && interimStep.ok;
+  // Before any configured command, once the gates pass: a stopped per-job container starts again. A
+  // failure records the step and runs no command, so no gate passes on steps that never ran.
+  if (!dirty && gatesOk && hasManagedBacking(config)) {
+    const envStarted = Date.now();
+    const env = ensureEnvironment(root, config, job, 'verify');
+    const envStep: VerifyStep = { name: 'environment', ok: env.ok, exit: null, durationMs: Date.now() - envStarted };
+    if (!env.ok) envStep.tail = env.error ?? 'a backing service did not start';
+    results.push(envStep);
+    gatesOk = env.ok;
+  }
   if (!dirty) {
     // One snapshot before the first group: steps of a group run at once, so each restores only after all settle.
     const locks = gatesOk ? verifyLockSnapshot(root, config, job, null) : null;
@@ -973,6 +985,11 @@ function renderSteps(lines: string[], results: VerifyStep[], secrets: SecretScan
       lines.push('## links: FAILED', '', 'No link from a changed repo is active for this downstream consumer, so its tests would build against the released library; no configured step ran:', '', ...String(r.tail).split('\n').map((l) => `- ${l}`), '');
       continue;
     }
+    if (r.name === 'environment' && !('cmd' in r)) {
+      if (r.ok) lines.push('## environment: ok', '', "The job's backing services are up.", '');
+      else lines.push('## environment: FAILED', '', "The job's backing services did not start (docs/CONFIG.md \"Backing services\"); no configured step ran:", '', '```', String(r.tail), '```', '');
+      continue;
+    }
     if (r.name === 'interim') {
       if (r.ok) lines.push('## interim: ok', '', r.reason ?? 'Every git-ref and canary pin, and every release bump, is current.', '');
       else lines.push('## interim: FAILED', '', 'Interim pins or release bumps (docs/CONFIG.md "Interim strategies") could not be written; no configured step ran:', '', ...String(r.tail).split('\n').map((l) => `- ${l}`), '');
@@ -1031,6 +1048,9 @@ export async function startBackground(
   const template = config.commands[name];
   if (!template) throw new ForgeError(`no "${name}" command configured`);
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree yet`);
+  // The server needs its backing services: a failed start exits 5 before any process starts.
+  const env = ensureEnvironment(root, config, job, 'run');
+  if (!env.ok) throw new ForgeError(`the job's environment did not start: ${env.error}`, 5);
   touchJob(root, id);
   const port = commandPort(config, job, jobComponent(config, job));
   const dir = jobDir(root, id);

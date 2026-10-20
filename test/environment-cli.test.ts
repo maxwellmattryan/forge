@@ -173,16 +173,73 @@ describe('environment teardown', { concurrency: 4 }, () => {
         assert.equal(r.status, 1, `${scope}: ${r.stdout}${r.stderr}`);
         assert.match(r.stdout + r.stderr, scope === '_inbox' ? /the inbox daemon session does not drive jobs/ : /the office session decides gates and does not drive jobs/);
       }
-      for (const bad of ['../x', 'a/../../b', '-rf']) {
-        const r = await s.cli(['environment', 'down', bad]);
-        assert.notEqual(r.status, 0, bad);
+      for (const sub of ['up', 'stop']) {
+        for (const scope of ['_inbox', '_office']) {
+          const r = await s.cli(['environment', sub, id], { ...trust, FORGE_DAEMON_SCOPE: scope });
+          assert.equal(r.status, 1, `${sub} ${scope}: ${r.stdout}${r.stderr}`);
+        }
+      }
+      for (const sub of ['up', 'stop', 'down']) {
+        for (const bad of ['../x', 'a/../../b', '-rf']) {
+          const r = await s.cli(['environment', sub, bad]);
+          assert.notEqual(r.status, 0, `${sub} ${bad}`);
+        }
       }
       assert.deepEqual(s.argv(), [], 'no docker call for a refused session or id');
       assert.ok(fs.existsSync(path.join(s.jobDir(id), 'backing.json')), 'nothing torn down');
+      // The job's own session may stop and start its environment.
+      for (const sub of ['stop', 'up']) {
+        const own = await s.cli(['environment', sub, id], { ...trust, FORGE_DAEMON_SCOPE: id });
+        assert.equal(own.status, 0, `${sub}: ${own.stdout}${own.stderr}`);
+      }
       // The job's own session may tear its environment down.
       const own = await s.cli(['environment', 'down', id], { ...trust, FORGE_DAEMON_SCOPE: id });
       assert.equal(own.status, 0, own.stdout + own.stderr);
       assert.equal(own.json.ok, true);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('stop keeps volumes and databases', async () => {
+    const s = scratch();
+    try {
+      const id = await s.newJob('Stop me');
+      const wt = await s.cli(['worktree', 'create', id]);
+      assert.equal(wt.json.ok, true, JSON.stringify(wt.json));
+      const db = wt.json.backing[1].database.name;
+      const server = Object.keys(s.state().pg)[0];
+      const shared = Object.keys(s.state().containers).find((n) => n.endsWith('-pg'))!;
+      assert.equal(s.record().jobs[id].state, 'running', 'worktree create marks it running');
+      // Another job's same-named container whose labels are not this checkout's.
+      const other = await s.newJob('Not mine');
+      const foreign = `forge-${other}-postgres`;
+      s.setState({ containers: { ...s.state().containers, [foreign]: { running: true, labels: { 'forge.root': 'someone-else', 'forge.backing': 'postgres', 'forge.isolation': 'per-job', 'forge.job': other } } } });
+      s.clearArgv();
+
+      const stop = await s.cli(['environment', 'stop', id]);
+      assert.equal(stop.status, 0, stop.stderr);
+      assert.deepEqual(stop.json.stopped, [`forge-${id}-postgres`]);
+      const stops = s.argv().filter((a) => a[0] === 'stop');
+      assert.deepEqual(stops, [['stop', '-t', '10', `forge-${id}-postgres`]], 'only this job’s labelled container');
+      assert.ok(!s.argv().some((a) => a[0] === 'rm' || (a[0] === 'volume' && a[1] === 'rm')), 'nothing removed');
+      assert.equal(s.state().containers[`forge-${id}-postgres`].running, false);
+      assert.ok(s.state().volumes[`forge-${id}-postgres-0`], 'volume kept');
+      assert.ok(s.state().pg[server].dbs[db], 'database kept');
+      assert.ok(s.state().containers[shared].running, 'the shared server stays');
+      assert.ok(fs.existsSync(path.join(s.jobDir(id), 'backing.json')));
+      assert.ok(fs.existsSync(path.join(s.jobDir(id), 'backing-db.json')));
+      assert.equal(s.record().jobs[id].state, 'stopped');
+      const ev = s.events(id).filter((e) => e.type === 'environment-stop');
+      assert.equal(ev.length, 1);
+      assert.equal(ev[0].trigger, 'cli');
+      assert.equal(ev[0].ok, true);
+
+      // A planted same-named container without this job's labels is never stopped.
+      const planted = await s.cli(['environment', 'stop', other]);
+      assert.equal(planted.status, 0, planted.stderr);
+      assert.deepEqual(planted.json.stopped, []);
+      assert.equal(s.state().containers[foreign].running, true);
     } finally {
       s.cleanup();
     }
@@ -194,6 +251,100 @@ describe('environment teardown', { concurrency: 4 }, () => {
       await s.newJob('Listed');
       const empty = await s.cli(['environment', 'list']);
       assert.deepEqual(empty.json, { maxRunning: null, focused: null, jobs: [] });
+    } finally {
+      s.cleanup();
+    }
+  });
+});
+
+describe('environment on demand', { concurrency: 4 }, () => {
+  test('verify ensures the environment', async () => {
+    const s = scratch();
+    try {
+      const id = await s.newJob('Verify me');
+      assert.equal((await s.cli(['worktree', 'create', id])).json.ok, true);
+      assert.equal((await s.cli(['environment', 'stop', id])).status, 0);
+      assert.equal(s.state().containers[`forge-${id}-postgres`].running, false);
+
+      const v = await s.cli(['verify', id]);
+      assert.equal(v.status, 0, v.stdout + v.stderr);
+      const names = v.json.steps.map((x: any) => x.name);
+      assert.ok(names.indexOf('environment') >= 0 && names.indexOf('environment') < names.indexOf('test'), names.join(','));
+      assert.equal(v.json.steps.find((x: any) => x.name === 'environment').ok, true);
+      assert.equal(s.state().containers[`forge-${id}-postgres`].running, true, 'started before the commands');
+      assert.equal(s.record().jobs[id].state, 'running');
+      assert.equal(s.events(id).filter((e) => e.type === 'environment-up').at(-1).trigger, 'verify');
+
+      s.setState({ daemon: 'down' });
+      const down = await s.cli(['verify', id]);
+      assert.equal(down.status, 1);
+      assert.equal(down.json.ok, false);
+      assert.equal(down.json.failure.name, 'environment');
+      assert.match(down.json.failure.tail, /daemon is not reachable/);
+      assert.ok(!down.json.steps.some((x: any) => x.name === 'test'), 'no configured command ran');
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('verify without managed backing makes no docker call', async () => {
+    const s = scratch(plainTemplate);
+    try {
+      const id = await s.newJob('Plain');
+      assert.equal((await s.cli(['worktree', 'create', id])).status, 0);
+      const v = await s.cli(['verify', id]);
+      assert.equal(v.status, 0, v.stdout + v.stderr);
+      assert.ok(!v.json.steps.some((x: any) => x.name === 'environment'));
+      assert.deepEqual(s.argv(), []);
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('run --background and focus start on demand', async () => {
+    const s = scratch();
+    try {
+      const id = await s.newJob('On demand');
+      assert.equal((await s.cli(['worktree', 'create', id])).json.ok, true);
+      const name = `forge-${id}-postgres`;
+      assert.equal((await s.cli(['environment', 'stop', id])).status, 0);
+      const before = s.record().jobs[id].usedAt;
+      await new Promise((r) => setTimeout(r, 5));
+
+      const bg = await s.cli(['run', id, 'dev', '--background']);
+      assert.equal(bg.status, 0, bg.stderr);
+      const pid = devPid(s, id);
+      assert.equal(s.state().containers[name].running, true, 'run --background started it');
+      assert.equal(s.record().jobs[id].state, 'running');
+      assert.ok(s.record().jobs[id].usedAt > before, 'a fresh usedAt');
+
+      // Stop clears the dev server too; focus starts the container again but no process.
+      assert.equal((await s.cli(['environment', 'stop', id])).status, 0);
+      await waitFor(() => !pidAlive(pid), { what: 'the dev server to stop' });
+      const stoppedAt = s.record().jobs[id].usedAt;
+      await new Promise((r) => setTimeout(r, 5));
+      const focus = await s.cli(['focus', id]);
+      assert.equal(focus.status, 0, focus.stderr);
+      assert.equal(focus.json.focus.id, id);
+      assert.deepEqual(focus.json.environment, { ok: true });
+      assert.equal(s.state().containers[name].running, true, 'focus started it');
+      assert.equal(s.record().jobs[id].state, 'running');
+      assert.ok(s.record().jobs[id].usedAt > stoppedAt);
+      assert.equal(s.events(id).filter((e) => e.type === 'environment-up').at(-1).trigger, 'focus');
+
+      // A failed bring-up never undoes the focus.
+      const other = await s.newJob('Focus anyway');
+      s.setState({ daemon: 'down' });
+      const failed = await s.cli(['focus', other]);
+      assert.equal(failed.status, 0, failed.stderr);
+      assert.equal(failed.json.focus.id, other);
+      assert.equal(failed.json.environment.ok, false);
+      assert.match(failed.json.environment.error, /daemon is not reachable/);
+      // And run --background refuses to start a server without its services.
+      const refused = await s.cli(['run', id, 'dev', '--background']);
+      assert.equal(refused.status, 5, refused.stdout + refused.stderr);
+      const rt = path.join(s.jobDir(id), 'runtime.json');
+      assert.equal(fs.existsSync(rt) ? JSON.parse(fs.readFileSync(rt, 'utf8')).dev : undefined, undefined, 'no process started');
     } finally {
       s.cleanup();
     }

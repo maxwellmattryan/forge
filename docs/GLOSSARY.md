@@ -15,7 +15,7 @@ Planned in M004, except where a config key exists today.
 | **port-bearing component** | A `service` or `app` component, which holds one job port (`ports` in `job.json`, `{endpoint.<component>}` in commands); a `library` holds none. | `components`, `ports` |
 | **dependency** | An edge from one component to another, `build` when it is needed to compile or bundle and `runtime` when it must be running. | planned (M004) |
 | **project graph** | The components of all of a project's repos and the dependencies between them, drawn by the dashboard's project view. | `components` |
-| **focus** | The job whose environment you are currently pointed at, set with `forge focus` or the dashboard, where switching focus starts or stops no server and runs the checkout steps. | - |
+| **focus** | The job whose environment you are currently pointed at, set with `forge focus` or the dashboard, where switching focus runs the checkout steps and starts the job's stopped backing services, but starts or stops no dev server. | - |
 | **checkout step** | A configured action that makes a fixed path or tool follow the focused job: a `link` from a fixed path to the job's build, or a `run` of a configured command with an optional `undo`, undone when focus moves away. | `checkout` |
 | **issue ref** | A tracker's reference to one issue (`owner/repo#12` for GitHub, a local backlog title slug, or a custom adapter's own `KEY-123`), kept in a job's `issues` list in job.json, where the first is the primary issue and one issue may sit on several jobs. | - |
 
@@ -54,7 +54,7 @@ Planned in M007; a row with a config key is implemented.
 
 | Term | Meaning | Config key |
 |---|---|---|
-| **environment** | The running components and backing services one job uses, each at its own endpoints (today a job's environment is its worktree plus its `ports`, one per port-bearing component, and its backing services). | planned (M007) |
+| **environment** | The running components and backing services one job uses, each at its own endpoints: its per-job containers and volumes, its job databases and its background processes, beside its worktree and `ports`, which Forge starts on demand, stops while the job is parked and tears down when the job finishes (`forge environment`). | `backing` |
 | **endpoint** | An address (URL or host and port) where an environment serves one component or backing service: `{endpoint.<component>}` and `{backing.<name>.port}` in commands, the `Endpoints:` brief line and the Environment card. | `components`, `backing` |
 | **backing service** | Infrastructure a component needs while it runs, such as a database, cache or queue. | `backing` |
 | **isolation** | How a backing service is provided to jobs: `per-job` (its own container per job), `shared` (one instance every job uses) or `external` (run outside Forge, which only points at it). | `backing` |

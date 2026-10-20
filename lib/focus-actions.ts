@@ -11,7 +11,8 @@ import { containedWorktree } from './editor.ts';
 import { isActive, jobDir, loadJob, logEvent, logHumanEvent } from './jobs.ts';
 import { readFocusRecord, resolveFocus, setFocus } from './focus.ts';
 import { validJobId } from './requests.ts';
-import type { Config, EventActor, FocusResponse, Job } from './types.ts';
+import { ensureEnvironment } from './environment.ts';
+import type { Config, EnvironmentUpResult, EventActor, FocusResponse, Job } from './types.ts';
 import { ForgeError } from './util.ts';
 import { runCommandAsync } from './worktree.ts';
 
@@ -50,16 +51,28 @@ export const stepRunner =
  * Focuses `id`, or clears focus for null. Re-focusing the focused job changes and logs nothing.
  * With `checkout` steps configured, the recorded job's steps are undone and the new job's applied
  * first (lib/checkout.ts); a failing step rolls back, re-applies the previous job's steps and
- * leaves focus where it was. Those steps may run configured commands; nothing else is started,
- * stopped or signalled.
+ * leaves focus where it was. Those steps may run configured commands. Once focus has moved onto a
+ * job, its environment's backing services start (ensure up, lib/environment.ts); a failure there
+ * never undoes the focus and reaches the caller only through `onEnvironment`, so the reply's shape
+ * stays the same. No background process is started or signalled.
  */
 export async function focusJob(
   root: string,
   id: string | null,
   from: 'cli' | 'dashboard',
   actor?: EventActor,
-  opts: { config?: Config; run?: StepRunner } = {},
+  opts: { config?: Config; run?: StepRunner; onEnvironment?: (r: EnvironmentUpResult) => void } = {},
 ): Promise<FocusResponse> {
+  const config = opts.config ?? loadConfig(root).config;
+  const out = await moveFocusWithSteps(root, id, from, actor, { ...opts, config });
+  if (out.focus && config.backing?.length) {
+    const env = ensureEnvironment(root, config, loadJob(root, out.focus.id), 'focus');
+    opts.onEnvironment?.(env);
+  }
+  return out;
+}
+
+async function moveFocusWithSteps(root: string, id: string | null, from: 'cli' | 'dashboard', actor: EventActor | undefined, opts: { config?: Config; run?: StepRunner }): Promise<FocusResponse> {
   let job: Job | null = null;
   if (id !== null) {
     if (!validJobId(id)) throw new ForgeError(`invalid job id ${JSON.stringify(id).slice(0, 80)}`, 'usage');

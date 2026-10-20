@@ -9,6 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { backingUp, setDockerRunner } from '../lib/backing.ts';
 import type { DockerRunner } from '../lib/backing.ts';
 import { loadConfig } from '../lib/config.ts';
+import { environmentState, environmentsFile, readEnvironments } from '../lib/environment-record.ts';
 import { createJob, loadJob, readEvents, setJob } from '../lib/jobs.ts';
 import { syncPr } from '../lib/pr.ts';
 import { emptyState, handle } from './fixtures/fake-docker.mjs';
@@ -48,6 +49,33 @@ case "$1 $2" in
   "api graphql") echo '{"data":{"repository":{"pullRequest":{}}}}' ;;
 esac
 `;
+
+test('tampered record is read safely', { skip: process.platform === 'win32' }, () => {
+  const r = template();
+  try {
+    const config = loadConfig(r.dir).config;
+    const job = createJob(r.dir, config, { title: 'tampered' });
+    const file = environmentsFile(r.dir);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const future = new Date(Date.now() + 365 * 864e5).toISOString();
+    fs.writeFileSync(file, JSON.stringify({ v: 1, jobs: { [job.id]: { state: 'running', usedAt: future }, '../x': { state: 'running', usedAt: future }, '-rf': { state: 'running' }, bad: { state: 'gone' }, old: { state: 'stopped', usedAt: 'never' } } }));
+    const rec = readEnvironments(r.dir);
+    assert.deepEqual(Object.keys(rec.jobs).sort(), [job.id, 'old'].sort(), 'invalid ids and states are dropped');
+    assert.ok(Date.parse(rec.jobs[job.id].usedAt) <= Date.now(), 'a future usedAt reads as now');
+    assert.equal(rec.jobs.old.usedAt, new Date(0).toISOString(), 'an unparseable usedAt reads as the epoch');
+    // A symlink and a FIFO read as empty, without blocking or throwing.
+    const target = path.join(r.dir, 'elsewhere.json');
+    fs.renameSync(file, target);
+    fs.symlinkSync(target, file);
+    assert.deepEqual(readEnvironments(r.dir).jobs, {});
+    fs.rmSync(file);
+    execFileSync('mkfifo', [file]);
+    assert.deepEqual(readEnvironments(r.dir).jobs, {});
+    assert.equal(environmentState(r.dir, job.id), null);
+  } finally {
+    r.cleanup();
+  }
+});
 
 test('pr sync done and cancelled tear down', { skip: process.platform === 'win32' }, () => {
   const r = template();

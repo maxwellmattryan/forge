@@ -3,9 +3,9 @@
 // finishes or is archived, stop on a park, start on resume, verify, run --background and focus.
 import { currentFocus } from '../focus-actions.ts';
 import { refuseInboxDrive } from '../daemon-owner.ts';
-import { teardownEnvironment } from '../environment.ts';
+import { ensureEnvironment, stopEnvironment, teardownEnvironment } from '../environment.ts';
 import { liveJob, readEnvironments } from '../environment-record.ts';
-import { loadJob } from '../jobs.ts';
+import { isActive, loadJob } from '../jobs.ts';
 import { validJobId } from '../requests.ts';
 import { ForgeError, assertSafeRef } from '../util.ts';
 import { usageError } from './args.ts';
@@ -18,6 +18,24 @@ const ENVIRONMENT: HelpGroup = {
   name: 'environment',
   summary: "a job's environment: its background processes, per-job containers and volumes, and job databases",
   commands: [
+    {
+      command: 'environment up',
+      args: '<id>',
+      summary:
+        "start an active job's environment: run a missing per-job container, start a stopped one, give the job its job databases, and mark it running in the environment record. Forge does this itself on resume, verify, run --background and focus. Starts no background process",
+      exits: [[1, 'an invalid job id or no such job, a done or cancelled job, or the inbox or office daemon session ran it'], [5, 'a backing service did not start']],
+      docs: DOCS,
+      readme: true,
+    },
+    {
+      command: 'environment stop',
+      args: '<id>',
+      summary:
+        "stop a job's environment while keeping it: stop its background processes and docker stop its own per-job containers, keeping volumes, job databases and shared containers, and mark it stopped in the environment record. Forge does this itself when a job parks",
+      exits: [REFUSED, [5, 'Docker missing, its daemon stopped or docker stop failed (the record still says stopped)']],
+      docs: DOCS,
+      readme: true,
+    },
     {
       command: 'environment down',
       args: '<id>',
@@ -48,6 +66,23 @@ function jobId(v: string | undefined, sub: string): string {
 
 export function environmentCmd(ctx: CliContext, sub: string | undefined, rest: string[]): Dispatched {
   const { root, config } = ctx;
+  if (sub === 'up') {
+    if (rest.length !== 1) throw usageError(ENVIRONMENT, 'up');
+    const id = jobId(rest[0], 'up');
+    refuseInboxDrive(id);
+    const job = loadJob(root, id);
+    if (!isActive(job)) throw new ForgeError(`job ${id} is ${job.state}; only an active job's environment starts`);
+    const r = ensureEnvironment(root, config, job, 'cli');
+    return { data: { job: id, ...r }, exitCode: r.ok ? 0 : 5 };
+  }
+  if (sub === 'stop') {
+    if (rest.length !== 1) throw usageError(ENVIRONMENT, 'stop');
+    const id = jobId(rest[0], 'stop');
+    refuseInboxDrive(id);
+    loadJob(root, id);
+    const r = stopEnvironment(root, config, id, 'cli');
+    return { data: { job: id, ...r }, exitCode: r.ok ? 0 : 5 };
+  }
   if (sub === 'down') {
     if (rest.length !== 1) throw usageError(ENVIRONMENT, 'down');
     const id = jobId(rest[0], 'down');

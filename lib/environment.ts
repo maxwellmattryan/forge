@@ -62,9 +62,12 @@ export function hasEnvironment(root: string, id: string): boolean {
  */
 export function ensureEnvironment(root: string, config: Config, job: Job, trigger: EnvironmentUpTrigger, runner?: DockerRunner): EnvironmentUpResult {
   const evicted: string[] = [];
-  let error = record(root, (rec) => {
-    rec.jobs[job.id] = { state: 'running', usedAt: now() };
-  });
+  // A finished job never takes a place in the record (forge run on one still starts its services).
+  let error = isActive(job)
+    ? record(root, (rec) => {
+        rec.jobs[job.id] = { state: 'running', usedAt: now() };
+      })
+    : null;
   let backing: BackingUpEntry[] = [];
   if (Array.isArray(config.backing) && config.backing.length) {
     try {
