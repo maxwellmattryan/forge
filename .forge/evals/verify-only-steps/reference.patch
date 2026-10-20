@@ -1,0 +1,244 @@
+diff --git a/docs/CONFIG.md b/docs/CONFIG.md
+index 82ecfe64..f0f81720 100644
+--- a/docs/CONFIG.md
++++ b/docs/CONFIG.md
+@@ -350,6 +350,8 @@ verify:
+ 
+ A failing step never stops its siblings: each runs to completion and keeps its own log and `command` event, and then no later entry runs. `failure` (and `verifyRuns[].failure`) is the first failing step in config order, not the first to finish, and `verify/round-N.md` and the JSON `steps` keep one entry per step in config order. A step with no command is reported `skipped (no command configured)` in its place, and `e2e` listed anywhere, inside a group too, is not run a second time by `verifyE2e`. Steps in a group share the worktree, the job's `{port}` and the environment, so don't group steps that write the same files (a formatter or `--fix` beside a test) or bind `{port}`. A `verify` of plain step names runs one step after another, as the default `[build, lint, test]` does. `forge verify` refuses to start (exit 1, nothing recorded) when `verify` is not a list, when an entry is neither a step name nor a non-empty list of names (a nested list included), or when a step is listed twice; `forge config validate` and `forge doctor` report the same problems.
+ 
++**Partial runs.** `forge verify <id> --only <step>[,<step>]` runs only the named `verify` steps, in config order and in their groups (`--only test,build` under `[build, [lint, test]]` runs `build`, then `test`). The gates verify adds itself still run (`worktree-clean`, `secrets`, `protected`, `interim`, and the integrity report); `e2e` does not. A name that is not a step in `verify` is a `usage` error (exit 2) that lists the configured steps, and nothing runs or is recorded. The result has the usual keys plus `partial: true` and `only` (the names, in config order), and `steps` lists only what ran. A partial run writes `verify/round-N-partial-<ts>.md` and logs a `verify-partial` event, but adds no `verifyRuns` entry and sets no round result, so it never verifies the HEAD: `forge job show`'s `verify` and `verified`, `forge pr open`'s verified-HEAD check, the next step and the verify retry budget all ignore it until a full `forge verify` passes.
++
+ **Migration** (config `schemaVersion` 2 → 3): nothing changes, because every v2 `verify` is a valid v3 one, and `forge migrate` only rewrites the version. The bump lets Forge refuse a config it can't read: `forge verify` exits 1 on a `schemaVersion` newer than its own. A Forge older than this change can't tell, so it reads a group as one unknown step (`lint,typecheck,test`), reports it skipped and passes verify without it: update Forge everywhere verify runs before you commit a group.
+ 
+ ## Verify integrity
+diff --git a/lib/cli.ts b/lib/cli.ts
+index d7278126..6a699e96 100644
+--- a/lib/cli.ts
++++ b/lib/cli.ts
+@@ -21,7 +21,7 @@ import { advanceCmd } from './commands/advance.ts';
+ import { auditCmd } from './commands/audit.ts';
+ import { backingCmd } from './commands/backing.ts';
+ import { budgetCmd } from './commands/budget.ts';
+-import { num, out, parseArgs, req, requireJob, resolveOutputMode, setOutputMode, withoutJson, withoutMode } from './commands/args.ts';
++import { list, num, out, parseArgs, req, requireJob, resolveOutputMode, setOutputMode, withoutJson, withoutMode } from './commands/args.ts';
+ import { configCmd } from './commands/config.ts';
+ import { daemonCmd } from './commands/daemon.ts';
+ import { dash } from './commands/dash.ts';
+@@ -157,7 +157,8 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
+       return ok(await focusCmd(root, config, pos.slice(1), flags));
+     case 'verify': {
+       needInit();
+-      const r = await wt.verify(root, config, req(sub, 'job id'));
++      const id = req(sub, 'job id');
++      const r = await wt.verify(root, config, id, flags.only === undefined ? {} : { only: list(flags.only) });
+       return { data: r, exitCode: r.ok ? 0 : 1 };
+     }
+     case 'secrets':
+diff --git a/lib/commands/help.ts b/lib/commands/help.ts
+index e924ee83..2e12ffd3 100644
+--- a/lib/commands/help.ts
++++ b/lib/commands/help.ts
+@@ -96,8 +96,9 @@ export const CORE: HelpGroup[] = [
+     commands: [
+       {
+         command: 'verify',
+-        args: '<id>',
++        args: '<id> [--only STEP[,STEP]]',
+         summary: "run the configured verify commands in the job's worktree and record the result for its HEAD",
++        flags: [['--only STEP[,STEP]', 'run only these configured verify steps, in config order (the gates still run, e2e does not); the result has partial: true and never verifies the HEAD; an unknown step is a usage error']],
+         exits: [[1, 'a check failed (the result says which), or the job has no worktree']],
+       },
+     ],
+diff --git a/lib/worktree.ts b/lib/worktree.ts
+index 8b452658..ab4a57b0 100644
+--- a/lib/worktree.ts
++++ b/lib/worktree.ts
+@@ -107,6 +107,10 @@ export interface VerifyResult {
+   /** One record per downstream consumer (lib/downstream.ts), only when the job has any. */
+   downstream?: { repo: string; ok: boolean; failure: string | null }[];
+   budget?: NonNullable<ReturnType<typeof enforceBudget>>;
++  /** Set only by `--only`: the run checked some configured steps, so it never verifies the head. */
++  partial?: true;
++  /** The configured steps `--only` asked for, in config order. */
++  only?: string[];
+ }
+ 
+ function branchState(root: string, branch: string, remote: string): { local: boolean; remote: boolean } {
+@@ -672,8 +676,12 @@ export async function runCommandAsync(root: string, config: Config, id: string,
+  * every configured step, though the integrity report is still computed. A `verify` entry that is a list runs its steps at the same time; the next entry waits for all of
+  * them, and none runs after a group with a failure. Results stay in config order whatever finishes
+  * first, so `failure` is the first failing step as configured, not the first to fail.
++ *
++ * `only` narrows the configured steps to those names (the gates verify adds itself still run, e2e
++ * does not). Such a run is a `verify-partial` event and a report, never a `verifyRuns` entry: that
++ * list is what every "is this head verified" check reads, and a partial pass must not satisfy one.
+  */
+-export async function verify(root: string, base: Config, id: string): Promise<VerifyResult> {
++export async function verify(root: string, base: Config, id: string, opts: { only?: string[] } = {}): Promise<VerifyResult> {
+   // Every refusal comes before the clean check, so a config this Forge can't read records nothing:
+   // guessing at it could pass a gate whose steps never ran.
+   if (base.schemaVersion > CONFIG_SCHEMA_VERSION)
+@@ -681,7 +689,9 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
+   const job = loadJob(root, id);
+   // An eval job's overlay picks its steps, e2e and budget; an invalid one throws here.
+   const config = configForJob(root, base, job);
+-  const groups = verifyGroups(config.verify);
++  const configured = verifyGroups(config.verify);
++  const only = opts.only ? onlySteps(configured, opts.only) : null;
++  const groups = only ? configured.map((g) => g.filter((n) => only.includes(n))).filter((g) => g.length) : configured;
+   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
+   // Every member's worktree is checked before anything runs, so a missing one records nothing.
+   const checkedMembers = memberRepos(job).map((m) => memberWorktree(root, config, job, m.repo));
+@@ -759,7 +769,7 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
+         results.push(...ran);
+         if (ran.some((r) => !r.ok)) break;
+       }
+-      if (results.every((r) => r.ok)) {
++      if (!only && results.every((r) => r.ok)) {
+         const plan = e2ePlan(config, job, commandTemplate(config, job, 'e2e'));
+         if (plan?.run) {
+           const e2e: VerifyStep = { ...runCommand(root, config, id, 'e2e', { label: 'verify-e2e', lockGuard: false }), reason: plan.reason };
+@@ -792,7 +802,8 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
+   const rootFailure = results.find((r) => !r.ok);
+   const ok = results.every((r) => r.ok) && memberRuns.every((m) => m.rec.ok);
+   const attempt = job.verifyRuns.filter((r) => r.round === job.round).length + 1;
+-  const lines = [`VERIFY: ${ok ? 'PASS' : 'FAIL'}`, '', `Round ${job.round} · attempt ${attempt} · ${sha.slice(0, 12)} · ${now()}`, ''];
++  const title = only ? `VERIFY (partial: ${only.join(', ')}): ${ok ? 'PASS' : 'FAIL'}` : `VERIFY: ${ok ? 'PASS' : 'FAIL'}`;
++  const lines = [title, '', only ? `Round ${job.round} · partial, not an attempt · ${sha.slice(0, 12)} · ${now()}` : `Round ${job.round} · attempt ${attempt} · ${sha.slice(0, 12)} · ${now()}`, ''];
+   const brokenDownstream = memberRuns.filter((m) => !m.rec.ok && downstream.has(m.rec.repo));
+   for (const m of brokenDownstream)
+     lines.push(`Downstream consumer \`${m.rec.repo}\` failed \`${m.rec.failure}\`: fix the library on this job, or propose changing the consumer: forge job repo propose ${id} ${m.rec.repo} --reason "…"`);
+@@ -806,13 +817,37 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
+   }
+   const dir = path.join(jobDir(root, id), 'verify');
+   fs.mkdirSync(dir, { recursive: true });
++  const memberFailure = memberRuns.find((m) => !m.rec.ok);
++  const repos = memberRuns.length ? { repos: memberRuns.map((m) => m.rec) } : {};
++  const result = (file: string): VerifyResult => ({
++    ok,
++    round: job.round,
++    attempt,
++    sha,
++    file: path.relative(root, file),
++    steps: results.map(({ tail: _t, ...r }) => r),
++    failure: rootFailure ?? memberFailure?.results.find((r) => !r.ok),
++    integrity: integrity ? compactIntegrity(integrity) : null,
++    secrets: compactSecrets(secrets, mode),
++    protected: compactProtected(prot),
++    ...repos,
++    ...(downstream.size ? { downstream: memberRuns.filter((m) => downstream.has(m.rec.repo)).map((m) => ({ repo: m.rec.repo, ok: m.rec.ok, failure: m.rec.failure })) } : {}),
++  });
++  if (only) {
++    // Its own file, so round-<n>.md stays the last full run's report.
++    const file = path.join(dir, `round-${job.round}-partial-${now().replace(/[:.]/g, '-')}.md`);
++    fs.writeFileSync(file, lines.join('\n'));
++    logEvent(root, id, 'verify-partial', { round: job.round, sha, ok, only, at: now(), file: path.relative(jobDir(root, id), file), failure: rootFailure?.name ?? memberFailure?.rec.failure ?? null, ...repos });
++    logSecrets(root, id, 'verify', secrets, { blocked: mode === 'block', round: job.round });
++    for (const m of memberRuns) logSecrets(root, id, 'verify', m.secrets, { blocked: mode === 'block', round: job.round });
++    const budget = enforceBudget(root, base, id, 'verify');
++    return { ...result(file), partial: true, only, ...(budget ? { budget } : {}) };
++  }
+   const latest = path.join(dir, `round-${job.round}.md`);
+   // round-<n>.md is the last report verify wrote; a verifiers failure appends a run with its own file.
+   const previous = job.verifyRuns.filter((r) => r.round === job.round && r.failure !== 'verifiers').pop();
+   if (previous && exists(latest)) fs.renameSync(latest, path.join(dir, `round-${job.round}-attempt-${previous.attempt}.md`));
+   fs.writeFileSync(latest, lines.join('\n'));
+-  const memberFailure = memberRuns.find((m) => !m.rec.ok);
+-  const repos = memberRuns.length ? { repos: memberRuns.map((m) => m.rec) } : {};
+   const rec: VerifyRun = { round: job.round, attempt, sha, ok, at: now(), file: path.relative(jobDir(root, id), latest), failure: rootFailure?.name ?? memberFailure?.rec.failure ?? null, ...repos };
+   updateJob(root, id, (j) => {
+     j.verify[job.round] = ok ? 'PASS' : 'FAIL';
+@@ -825,21 +860,19 @@ export async function verify(root: string, base: Config, id: string): Promise<Ve
+   for (const m of memberRuns) logSecrets(root, id, 'verify', m.secrets, { blocked: mode === 'block', round: job.round });
+   // enforceBudget applies the job's overlay itself.
+   const budget = enforceBudget(root, base, id, 'verify');
+-  return {
+-    ok,
+-    round: job.round,
+-    attempt,
+-    sha,
+-    file: path.relative(root, latest),
+-    steps: results.map(({ tail: _t, ...r }) => r),
+-    failure: rootFailure ?? memberFailure?.results.find((r) => !r.ok),
+-    integrity: integrity ? compactIntegrity(integrity) : null,
+-    secrets: compactSecrets(secrets, mode),
+-    protected: compactProtected(prot),
+-    ...repos,
+-    ...(downstream.size ? { downstream: memberRuns.filter((m) => downstream.has(m.rec.repo)).map((m) => ({ repo: m.rec.repo, ok: m.rec.ok, failure: m.rec.failure })) } : {}),
+-    ...(budget ? { budget } : {}),
+-  };
++  return { ...result(latest), ...(budget ? { budget } : {}) };
++}
++
++/**
++ * `--only`'s names, checked against the configured steps before anything runs and returned in config
++ * order. An unknown name is refused rather than dropped: a typo must not pass as a narrower run.
++ */
++function onlySteps(groups: string[][], names: string[]): string[] {
++  const configured = groups.flat();
++  if (!names.length) throw new ForgeError(`--only needs one or more configured verify steps: ${configured.join(', ')}`, 'usage');
++  const unknown = [...new Set(names)].filter((n) => !configured.includes(n));
++  if (unknown.length) throw new ForgeError(`--only: ${unknown.map((n) => JSON.stringify(n)).join(', ')} ${unknown.length === 1 ? 'is not a' : 'are not'} configured verify step${unknown.length === 1 ? '' : 's'}; the steps are: ${configured.join(', ')}`, 'usage');
++  return configured.filter((n, i) => names.includes(n) && configured.indexOf(n) === i);
+ }
+ 
+ 
+diff --git a/test/verify-groups.test.ts b/test/verify-groups.test.ts
+index 02972fc4..cd5b1c80 100644
+--- a/test/verify-groups.test.ts
++++ b/test/verify-groups.test.ts
+@@ -91,8 +91,8 @@ function scratch() {
+       updateJob(root, id, (j) => (j.round = 1));
+       return { id, dir: jobDir(root, id), wt: wt.path };
+     },
+-    verify(id: string, extraEnv: NodeJS.ProcessEnv = {}) {
+-      const r = spawnSync(process.execPath, [BIN, 'verify', id], { cwd: root, encoding: 'utf8', env: { ...env, ...extraEnv } });
++    verify(id: string, extraEnv: NodeJS.ProcessEnv = {}, args: string[] = []) {
++      const r = spawnSync(process.execPath, [BIN, 'verify', id, ...args], { cwd: root, encoding: 'utf8', env: { ...env, ...extraEnv } });
+       let out: any = null;
+       try {
+         out = JSON.parse(r.stdout);
+@@ -330,3 +330,43 @@ test("this repo's config groups lint, typecheck and test after build", () => {
+   // `#` after `$` is not a YAML comment.
+   assert.equal(config.commands.test, `set -- {args}; [ $# -gt 0 ] || set -- 'test/*.test.ts'; node --test "$@"`);
+ });
++
++test('--only runs the named steps in their groups, and a partial pass never verifies the HEAD', () => {
++  const x = s();
++  x.configure({
++    commands: { build: x.step('build'), a: x.step('a', '--needs build --meet b'), b: x.step('b', '--needs build --meet a'), c: x.step('c') },
++    verify: ['build', ['a', 'b', 'c']],
++  });
++  const j = x.job('Only');
++  const bad = x.verify(j.id, {}, ['--only', 'b,nope']);
++  assert.equal(bad.status, 2);
++  assert.match(bad.stderr, /"nope" is not a configured verify step; the steps are: build, a, b, c/);
++  assert.deepEqual(x.commands(j.id), [], 'nothing ran');
++  assert.equal(fs.existsSync(path.join(j.dir, 'verify')), false, 'nothing recorded');
++  assert.equal(x.verify(j.id, {}, ['--only']).status, 2, 'a bare --only names no step');
++
++  // b still meets a only if they run as one group: b alone would time out waiting for a.
++  const r = x.verify(j.id, {}, ['--only', 'b,a,build']);
++  assert.equal(r.status, 0, `${r.stderr} ${JSON.stringify(r.out)}`);
++  assert.equal(r.out.partial, true);
++  assert.deepEqual(r.out.only, ['build', 'a', 'b']);
++  assert.deepEqual(r.out.steps.map((st: any) => st.name), ['secrets', 'protected', 'build', 'a', 'b']);
++  assert.match(r.out.file, /verify\/round-1-partial-.+\.md$/);
++  let job = loadJob(x.root, j.id);
++  assert.deepEqual(job.verifyRuns, []);
++  assert.equal(job.verify[1], undefined);
++  const partial = readEvents(x.root, j.id).filter((e) => e.type === 'verify-partial');
++  assert.equal(partial.length, 1);
++  assert.deepEqual((partial[0] as any).only, ['build', 'a', 'b']);
++  assert.equal(readEvents(x.root, j.id).some((e) => e.type === 'verify'), false);
++
++  // A partial failure spends no verify retry.
++  x.configure({ commands: { c: 'exit 1' }, verify: ['build', ['a', 'b', 'c']] });
++  const failed = x.verify(j.id, {}, ['--only', 'c']);
++  assert.equal(failed.status, 1);
++  assert.equal(failed.out.failure.name, 'c');
++  job = loadJob(x.root, j.id);
++  assert.deepEqual(job.verifyRetries, {});
++  assert.deepEqual(job.verifyRuns, []);
++  assert.equal(fs.existsSync(path.join(j.dir, 'verify', 'round-1.md')), false);
++});

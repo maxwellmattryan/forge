@@ -1,0 +1,40 @@
+title: forge config get|set refuse an unknown key and suggest the closest known keys
+request: |
+  ## Why
+
+  A mistyped config key fails quietly or unhelpfully. `forge config get pipeline.splt` prints `null` and exits 0, exactly as for a real key that is unset, so a script or agent reads the typo as "not configured" and carries on. `forge config set pipeline.splt auto` exits 1 with `unknown config key "pipeline.splt"; see docs/CONFIG.md`, which is the code for "the command ran and failed", not "the call was wrong", and leaves the reader to find the right name by hand.
+
+  ## What to build
+
+  Treat a key that is not a config key as a usage error on both `forge config get <key>` and `forge config set <key> <value>`, and say which known keys were probably meant. Decide "known" from the same rules that already decide which keys `config set` recognises (the documented defaults); don't add a second hand-written list of keys.
+
+  - A key is known when the defaults or the repo's `.forge/config.yml` have it, sections included (`pipeline` as well as `pipeline.split`). Below a list (`review.panel.0.name`), an empty default map (`usage.pricing`, `tracker.github.project.statusMap`) or `commands` (a repo may add its own command names), the names are the repo's, so an absent one there is unset, not unknown.
+  - `get` of a known key with no value (`pipeline.budget.tokens`, `commands.e2e`) still prints `null` and exits 0. `get` with no key still prints the whole config.
+  - An unknown key gets up to three suggestions, closest first, ties alphabetical. A known key is close when at most a quarter of the typed key's length in edits (insert, delete, substitute, or swap two adjacent characters; at least one, at most three) turns the typed key into it. Nothing close means no suggestion.
+  - A known but read-only key keeps today's read-only refusal (exit 1). Valid keys behave as today.
+
+  Keep help, docs and tests in sync as the repo's AGENTS.md requires (the exit-code and error-shape contract is in docs/CLI.md, settings in docs/CONFIG.md "Changing settings").
+
+  ## Interface
+
+  - Unknown key, on `get` and `set`: error code `usage`, exit 2; `set` writes nothing.
+  - The message is one line that names the key and, when there are suggestions, lists them after `did you mean`: `unknown config key "pipeline.splt"; did you mean pipeline.split, pipeline.plan?`. With nothing close it has no `did you mean`.
+  - Without `--json` (agent mode): that message on stderr as `forge: <message>`, nothing on stdout.
+  - With `--json`: the usual error line on stdout with one more field, `suggestions`, always present on this error: an array of 0 to 3 dotted keys, closest first, `[]` when nothing is close.
+    `{"error":{"code":"usage","message":"…","exit":2,"hint":"forge help config get","suggestions":["pipeline.split","pipeline.plan"]}}`
+
+  ## Acceptance criteria
+
+  - `forge config get pipeline.splt --json` and `forge config set pipeline.splt auto --json` exit 2 with `code: "usage"` and `suggestions[0] == "pipeline.split"`; `review.pannel` suggests `review.panel` first; the top-level typos `pipline.split` and `pipline` suggest `pipeline.split` and `pipeline` first.
+  - `forge config get pipeline.splan --json` lists `pipeline.plan` (one edit) before `pipeline.split` (two).
+  - `forge config get zzqqxx.wwvv --json` and `forge config set zzqqxx.wwvv 1 --json` exit 2 with `suggestions: []` and no `did you mean`.
+  - After any refused `set`, `.forge/config.yml` is byte-identical.
+  - `forge config get pipeline.budget.tokens`, `commands.e2e` and `tracker.github.ready.assignee` print `null` and exit 0; `forge config get pipeline.split` prints `ask`; `forge config set tracker.kind github` is still refused as read-only (exit 1); `forge config set pipeline.maxRounds 5` still writes.
+  - `npm run typecheck` and the existing tests pass, updated where they pinned the old exit codes.
+base: 40c1c4f6a7e85332381c9c00a10f7958ae192c99
+tags:
+  - restructure-pre
+  - config
+check:
+  files: check/files
+  command: node --test test/eval-config-unknown-key-suggests.test.ts

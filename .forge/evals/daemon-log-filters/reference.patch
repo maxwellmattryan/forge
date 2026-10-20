@@ -1,0 +1,312 @@
+diff --git a/README.md b/README.md
+index 0822945e..c898de85 100644
+--- a/README.md
++++ b/README.md
+@@ -121,7 +121,7 @@ The `forge` CLI underneath is also for scripts, CI and other agent runtimes: `fo
+ | `forge budget` | repo spend this UTC day and month against budget.usdPerDay, usdPerMonth and tokensPerMonth: caps, remaining, projected month-end and held jobs; frees repo-held jobs once nothing is exceeded (see [Repo budget](docs/CONFIG.md#repo-budget)) |
+ | `forge audit --since <date> [--until <date>] [--json\|--csv]` | every job's audit rows (forge job audit) and the repo-level ones such as config set (job null), with since <= ts < until, sorted by time then job; dates are YYYY-MM-DD (UTC midnight) or full ISO timestamps, and until defaults to now (see [Audit trail](docs/ARCHITECTURE.md#audit-trail)) |
+ | `forge daemon status` | the daemon's sessions, from the terminal |
+-| `forge daemon log <job>\|--inbox\|--office [--lines N] [--follow]` | a session's log, from the terminal |
++| `forge daemon log <job>\|--inbox\|--office [--since WHEN] [--grep TEXT] [--lines N] [--follow]` | a session's log, from the terminal |
+ | `forge notify test [--event <name>]` | send one sample notification (job null, title "Forge test notification") to every valid notify.webhooks entry regardless of its events, and run notify.command if set; prints {event, results: [{target, host, format, ok, status, error, attempts}]} and records nothing (see [Notifications](docs/CONFIG.md#notifications)) |
+ | `forge config get [<key>]` | read the effective config: one dotted key (strings raw, null when absent), or all of it (see [Changing settings](docs/CONFIG.md#changing-settings)) |
+ | `forge config set <key> <value>` | change one editable key in `.forge/config.yml`, keeping its comments (see [Changing settings](docs/CONFIG.md#changing-settings)) |
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index ec97171d..65121748 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -253,7 +253,7 @@ Accepted: a forged `canary-published` event only lets a consumer PR open against
+ 
+ **HTTP surface** (consumed by the dashboard). `/api/state` has `config.daemon: {enabled}`, `config.effort` and `daemons: {enabled, wanted, maxConcurrent, live, lastError, inbox, office, foreman, jobs, clients}` (`foreman` is `foreman.enabled` from the latest config read), and each job row has `gateOwner` (`foreman`, `human`, or `null` when it waits on nothing or the foreman is off), where `inbox`, `office` and each `jobs[id]` are `{scope, wanted, running, status, sessionId, pid, lastTurnAt, lastResultAt, turns, failures, held, waiting, lastError, permissions, permissionMode, kept, effort}` (`kept` is `"agents"` while a child runs, the session isn't `stopping` and a running agent keeps it, else `null`; `effort` is the `--effort` Forge passed the running child, else `null`); `jobs` lists a session while it runs or stops, waits, is held, has an error, or was stopped by a human. `GET /api/events?session=<scope>` streams that session's `event: state` on connect (an off state for an unknown session) and on every change, its buffered lines after `Last-Event-ID`, then `event: line` with `id: <offset>` per new line (lines over 64 KiB become a `forge-truncated` marker), and `: ping` every 15 s; lines of other sessions are never sent. `GET /api/daemons/log?session=<scope>&before=<offset>` returns a page of complete lines read backwards from `before` (at most 256 KiB or 1000 lines, lines over 64 KiB as markers at their real offset, at most 16 MiB scanned) as `{scope, lines: [{offset, line}], start, end, more}`; only the current `<scope>.log` is served. `POST /api/daemon {"action":"start"|"stop", "scope"?}` answers 200 with the pool state; without a scope it starts or stops the pool (409 `{error}` for `start` while `daemon.enabled` is false or the `daemon.*` config has a problem), with one it starts or stops that session (400 for an invalid scope, 404 for an unknown job, 409 `start the daemon first` for a scoped start while the pool isn't wanted). `POST /api/requests` answers with the request plus `daemon: <pool wanted>`, and 400 for a `gate` request (only the CLI writes those), for a `run` without a valid `args.ref`, an `args.link` outside `approve` or not `new`, `none` or a ref, or an `args.n` outside `next` or 1..16. `POST /api/jobs {text, title?}` creates a job (title derived from the text unless given; 400 for missing, blank or over-20,000-character text or an empty title, 409 before `/forge init`), queues its `resume`, and answers `{id, title, branch, request, daemon}`. `POST /api/jobs/<id>/effort {"effort": "low" | "medium" | "high" | "xhigh" | "max" | null}` sets or (null) clears the job's effort through the same `setJobEffort` as `forge job effort`, and answers `{id, effort, previous, changed}`; it works while the pool is wanted, because `job.json` is outside the trust digest, and is 400 for any other body and 404 for an unknown id or `_inbox`. `POST /api/jobs/<id>/repos {"decision": "approve" | "reject", "repos": [names], "note"?: string | null}` decides a job's pending repo proposals through `decideRepoProposals` with the dashboard as actor, and answers `{id, decision, repos, added, pending, resumed}`; when nothing is left pending and the job sits on the RP1 park it sets the job running and queues a `resume` unless a live session holds it (`resumed`). It is 404 for an unknown id, 400 for any other body (a `repos` that isn't a non-empty list of repo names, or a note over 2,000 characters), and 409 when nothing is pending, when `repos` is not exactly the pending set, or when a clone check fails. `GET /api/jobs/<id>` includes the job's `requests` (every status, oldest first, the last 50) and `request`, its `request.md` without the title line (at most 2,000 characters), which opens the drawer's Thread, and `requestFromTracker`, true only when the job's `created` event carries an issue with a ref (its `issues`, or a pre-v11 `source`; a job started from an issue), so a job linked later still shows `request` as the user's words.
+ 
+-**Terminal.** `forge daemon status` prints the dashboard and every session record from the runtime files (no server call). Each session has `{scope, job, pid, alive, sessionId, startedAt, lastTurnAt, logBytes, kept, agents}`: `agents` lists the sorted roles of the running agents of the job that session owns (read from the record's `sessionId` and the job's `job.json`), and `kept` is `"agents"` when one of them keeps it; both are `null` and `[]` when the session is not alive, is the inbox or the office, or owns no agents. The office sorts right after the inbox. `forge daemon log <job>|--inbox|--office [--lines N] [--follow]` prints a session log's tail as raw JSONL with every C0/C1 control character escaped, and `--follow` keeps printing new lines across rotations.
++**Terminal.** `forge daemon status` prints the dashboard and every session record from the runtime files (no server call). Each session has `{scope, job, pid, alive, sessionId, startedAt, lastTurnAt, logBytes, kept, agents}`: `agents` lists the sorted roles of the running agents of the job that session owns (read from the record's `sessionId` and the job's `job.json`), and `kept` is `"agents"` when one of them keeps it; both are `null` and `[]` when the session is not alive, is the inbox or the office, or owns no agents. The office sorts right after the inbox. `forge daemon log <job>|--inbox|--office [--since WHEN] [--grep TEXT] [--lines N] [--follow]` prints a session log's tail as raw JSONL with every C0/C1 control character escaped, and `--follow` keeps printing new lines across rotations. `--since` keeps lines from an instant on (a full ISO timestamp with its zone, `YYYY-MM-DD` at UTC midnight, or a duration back from now such as `30s`, `10m`, `2h`, `1d`), reading each line's `at` (Forge's lines, and claude's events the daemon stamps on receipt) or `timestamp` (claude's assistant and user lines); a line with neither goes with the timed line before it, and one before any timed line is dropped. `--grep` keeps lines whose raw text contains the given text, ignoring case. The filters combine, `--lines` counts the lines left after them, and under `--follow` they apply to new lines too. An invalid `--since` or an empty `--grep` is a `usage` error (exit 2).
+ 
+ **Stopping and orphans.** Children are spawned `detached` with no shell, so each leads its own process group. A stop SIGTERMs the group and SIGKILLs it after 5 s. `forge dash` stops every session on SIGTERM/SIGINT before exiting, and an `exit` handler sends a synchronous SIGTERM to each as a last resort. `forge dash --stop` waits up to 12 s for the server, then reaps (`daemonReaped: true` when anything was). A pool being created also reaps. Each record (the legacy `daemon.json` and every `daemons/<scope>.json`, regular files with a valid scope name only) is proven on its own: if it names a live pid whose server is gone, the pid is signalled only after it is proven to be the recorded child: it is > 1 and not us or our group, it leads its own process group, `ps` reports a start time within 30 s of `startedAt`, its command line contains the recorded `claude` executable and `--session-id`/`--resume` followed by the recorded uuid. A live `serverPid` other than ours in any record means another dashboard owns the daemon, and a pool start refuses. None of this runs on Windows, so on native Windows a pool start is refused outright (`lastError` says why and links [SUPPORT.md](SUPPORT.md)), nothing is spawned, and the dashboard serves without the daemon; `forge dash` prints the refusal (`daemonRefused` under `--background`) and skips the `daemon.auth` question.
+ 
+diff --git a/docs/CONFIG.md b/docs/CONFIG.md
+index 82ecfe64..14cd3b27 100644
+--- a/docs/CONFIG.md
++++ b/docs/CONFIG.md
+@@ -462,7 +462,7 @@ With `daemon.enabled: true`, `forge dash` supervises headless orchestrator sessi
+ - **Budget hold.** `pipeline.budget` limits are per job, so a budget stop is pending per request: a `resume`, `rework`, `answer` or `revise-spec` request whose job is at `waiting: budget` and still over a limit sends no turn. Once you raise or acknowledge the budget (`forge job budget <id> --set … | --ack`), the next tick sends it. `approve` is never held (approving a budget-parked job is the acknowledgement), nor are `cancel` and requests without a job. The repo budget (`budget:`, "Repo budget" below) holds more: while it is exceeded under `hold`, every pending `resume`, `rework`, `answer`, `revise-spec` and `approve` of a job that isn't exempt waits, and the session reports `held: "repo-budget"`.
+ - **Migration from `dashboard.launcher`** (config `schemaVersion` 1 → 2): a non-empty launcher moves to `daemon.command` (an existing `daemon.command` wins) and `dashboard.launcher` is removed; `enabled` is never set, so upgrading never turns the daemon on. A launcher was a shell template with `{prompt}`, run once per request; `forge config validate` and `forge doctor` reject a `{prompt}` command until you rewrite it in the form above (usually: take the default `command` and add your flags), because the daemon sends its turn on stdin and never through a shell. A launcher that ran some other agent CLI cannot be migrated: the daemon supervises only Claude Code's stream-json mode. The migration happens in memory on every read; `forge migrate` writes it to disk.
+ 
+-Files (gitignored, under `.forge/runtime/daemons/`): `<scope>.json` (session id, the last 20 ids it replaced in `pastSessionIds`, pids, the log's base offset; `forge job claim` reads these to let a daemon owner that provably let go yield without `--force`) and `<scope>.log` (every stdout event plus `forge-daemon`/`forge-stderr` lines; rotated to `<scope>.log.1` past 20 MiB at spawn, or at `retention.logMaxBytes` as soon as it is reached; one older generation is kept, and the dashboard pages back into it), where the scope is `_inbox` or a job id. The session learns its scope only from `FORGE_DAEMON_SCOPE` in its environment. A `daemon.json` / `daemon.log` left by an older Forge is reaped and then ignored; you may delete it. `forge daemon status` lists the sessions and `forge daemon log <job>|--inbox [--lines N] [--follow]` prints one's log. docs/ARCHITECTURE.md "Daemon" covers the lifecycle and "Daemon security" the threat model.
++Files (gitignored, under `.forge/runtime/daemons/`): `<scope>.json` (session id, the last 20 ids it replaced in `pastSessionIds`, pids, the log's base offset; `forge job claim` reads these to let a daemon owner that provably let go yield without `--force`) and `<scope>.log` (every stdout event plus `forge-daemon`/`forge-stderr` lines; rotated to `<scope>.log.1` past 20 MiB at spawn, or at `retention.logMaxBytes` as soon as it is reached; one older generation is kept, and the dashboard pages back into it), where the scope is `_inbox` or a job id. The session learns its scope only from `FORGE_DAEMON_SCOPE` in its environment. A `daemon.json` / `daemon.log` left by an older Forge is reaped and then ignored; you may delete it. `forge daemon status` lists the sessions and `forge daemon log <job>|--inbox|--office [--since WHEN] [--grep TEXT] [--lines N] [--follow]` prints one's log, filtered by time and text (docs/ARCHITECTURE.md "Daemon"). docs/ARCHITECTURE.md "Daemon" covers the lifecycle and "Daemon security" the threat model.
+ 
+ ## Retention
+ 
+diff --git a/lib/commands/daemon.ts b/lib/commands/daemon.ts
+index 0d5a684f..b891f2de 100644
+--- a/lib/commands/daemon.ts
++++ b/lib/commands/daemon.ts
+@@ -2,6 +2,7 @@
+ // so they work with or without a running `forge dash` and never talk to its server.
+ import fs from 'node:fs';
+ import path from 'node:path';
++import { parseAuditDate } from '../audit.ts';
+ import { openRead, readInfo, sessionAgents, sessionFiles, sessionRecords, tailLines } from '../daemon.ts';
+ import { paths } from '../paths.ts';
+ import { INBOX_SCOPE, OFFICE_SCOPE, validJobId } from '../requests.ts';
+@@ -17,13 +18,18 @@ const DAEMON: HelpGroup = {
+     { command: 'daemon status', args: '', summary: "the daemon's sessions, from the terminal", readme: true },
+     {
+       command: 'daemon log',
+-      args: '<job>|--inbox|--office [--lines N] [--follow]',
++      args: '<job>|--inbox|--office [--since WHEN] [--grep TEXT] [--lines N] [--follow]',
+       summary: "a session's log, from the terminal",
+       flags: [
+         ['--inbox', "the inbox session's log instead of a job's"],
+         ['--office', "the foreman's office session's log instead of a job's"],
+-        ['--lines N', 'the last N lines (default 100, at most 5000)'],
+-        ['--follow', 'keep printing lines as they are written'],
++        [
++          '--since WHEN',
++          'only lines from WHEN on: a full ISO timestamp with its zone, YYYY-MM-DD (UTC midnight), or a duration back from now (30s, 10m, 2h, 1d); a line with no time of its own goes with the timed line before it',
++        ],
++        ['--grep TEXT', 'only lines containing TEXT, ignoring case'],
++        ['--lines N', 'the last N lines after filtering (default 100, at most 5000)'],
++        ['--follow', 'keep printing lines as they are written, filtered the same way'],
+       ],
+       exits: [[1, 'an invalid job id, or no readable log']],
+       readme: true,
+@@ -115,15 +121,83 @@ async function log(root: string, job: string | undefined, flags: Record<string,
+   }
+   const n = flags.lines === undefined ? 100 : Number(flags.lines);
+   if (!Number.isInteger(n) || n < 1 || n > MAX_LINES) throw new ForgeError(`--lines must be an integer from 1 to ${MAX_LINES}`, 'usage');
++  const filter = logFilter(flags, Date.now());
+   const file = sessionFiles(root, scope).log;
+   if (!flags.follow) {
+     if (!fs.existsSync(file)) throw new ForgeError(`no session log for ${scope}`);
+-    return tail(file, n).lines.map(escapeControls).join('\n');
++    return tail(file, n, filter ? lineMatcher(filter) : null).lines.map(escapeControls).join('\n');
+   }
+-  await follow(file, n);
++  await follow(file, n, filter);
+   return undefined;
+ }
+ 
++const DURATION = /^(\d{1,9})([smhd])$/;
++const UNIT_MS: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
++
++/** `--since` as epoch ms: a date or full ISO timestamp (as `forge audit` takes them), or a duration back from `now`. */
++export function parseSince(v: unknown, now: number): number {
++  const s = typeof v === 'string' ? v.trim() : '';
++  const d = DURATION.exec(s);
++  if (d) return now - Number(d[1]) * UNIT_MS[d[2]];
++  try {
++    return Date.parse(parseAuditDate(s, '--since'));
++  } catch {
++    throw new ForgeError(`--since needs a full ISO timestamp with its zone, YYYY-MM-DD, or a duration such as 30s, 10m, 2h or 1d (got ${JSON.stringify(String(v ?? '')).slice(0, 60)})`, 'usage');
++  }
++}
++
++export interface LogFilter {
++  since: number | null;
++  /** Lower-cased. */
++  grep: string | null;
++}
++
++export function logFilter(flags: Record<string, any>, now: number): LogFilter | null {
++  const since = flags.since === undefined ? null : parseSince(flags.since, now);
++  if (flags.grep !== undefined && (typeof flags.grep !== 'string' || flags.grep === '')) throw new ForgeError('--grep needs the text to look for', 'usage');
++  const grep = flags.grep === undefined ? null : flags.grep.toLowerCase();
++  return since === null && grep === null ? null : { since, grep };
++}
++
++/**
++ * A line's own time: Forge's lines carry `at`, claude's assistant and user lines `timestamp`
++ * (the daemon stamps every other JSON event with `at` on receipt). Anything else, such as a
++ * non-JSON or array line from an older Forge, has none.
++ */
++export function lineTime(line: string): number | null {
++  if (!line.startsWith('{')) return null;
++  let ev: any;
++  try {
++    ev = JSON.parse(line);
++  } catch {
++    return null;
++  }
++  for (const k of ['at', 'timestamp']) {
++    if (typeof ev?.[k] === 'string') {
++      const t = Date.parse(ev[k]);
++      if (Number.isFinite(t)) return t;
++    }
++  }
++  return null;
++}
++
++/**
++ * A stateful predicate over lines in file order. A line with no time of its own takes the time of
++ * the last timed line before it, so a continuation stays with what it belongs to; before any timed
++ * line, `--since` drops it.
++ */
++export function lineMatcher(f: LogFilter): (line: string) => boolean {
++  let time: number | null = null;
++  return (line) => {
++    if (f.since !== null) {
++      const t = lineTime(line);
++      if (t !== null) time = t;
++      if (time === null || time < f.since) return false;
++    }
++    return f.grep === null || line.toLowerCase().includes(f.grep);
++  };
++}
++
+ /** A log opened without following a planted symlink or blocking on a FIFO; anything but a regular file is refused. */
+ function openLog(file: string): number {
+   try {
+@@ -133,23 +207,61 @@ function openLog(file: string): number {
+   }
+ }
+ 
+-/** The last `n` complete lines of a log file, raw, and the byte position just after them. */
+-function tail(file: string, n: number): { lines: string[]; end: number } {
++/**
++ * The last `n` complete lines of a log file that `match` keeps, raw, and the byte position just
++ * after the last complete line. Unfiltered, it reads back from the end; filtered, it reads the file
++ * forward, since a line's time can come from the lines before it.
++ */
++function tail(file: string, n: number, match: ((line: string) => boolean) | null): { lines: string[]; end: number } {
+   const fd = openLog(file);
+   try {
+-    return tailLines(fd, n);
++    return match ? scanLines(fd, n, match) : tailLines(fd, n);
+   } finally {
+     fs.closeSync(fd);
+   }
+ }
+ 
++const SCAN_CHUNK = 1024 * 1024;
++
++function scanLines(fd: number, n: number, match: (line: string) => boolean): { lines: string[]; end: number } {
++  const size = fs.fstatSync(fd).size;
++  const kept: string[] = [];
++  let carry: Buffer[] = [];
++  let pos = 0;
++  let end = 0;
++  const chunk = Buffer.alloc(Math.min(SCAN_CHUNK, Math.max(1, size)));
++  while (pos < size) {
++    const got = fs.readSync(fd, chunk, 0, Math.min(chunk.length, size - pos), pos);
++    if (got <= 0) break;
++    let start = 0;
++    for (let nl = chunk.indexOf(10, start); nl !== -1 && nl < got; nl = chunk.indexOf(10, start)) {
++      carry.push(chunk.subarray(start, nl));
++      const line = Buffer.concat(carry).toString('utf8').replace(/\r$/, '');
++      carry = [];
++      end = pos + nl + 1;
++      start = nl + 1;
++      if (line.trim() && match(line)) {
++        kept.push(line);
++        if (kept.length > n) kept.shift();
++      }
++    }
++    // Copied: the chunk buffer is reused for the next read.
++    if (start < got) carry.push(Buffer.from(chunk.subarray(start, got)));
++    pos += got;
++  }
++  return { lines: kept, end };
++}
++
+ /**
+  * Prints the tail, then appended lines as they arrive, until interrupted. Waits for a missing log
+- * to appear, and starts over from the top when the file shrinks (it was rotated).
++ * to appear, and starts over from the top when the file shrinks (it was rotated). New lines pass
++ * the same filter, which keeps its place across rotations.
+  */
+-async function follow(file: string, n: number): Promise<never> {
++async function follow(file: string, n: number, filter: LogFilter | null): Promise<never> {
++  const match = filter ? lineMatcher(filter) : null;
+   const print = (lines: string[]) => {
+-    if (lines.length) process.stdout.write(lines.map(escapeControls).join('\n') + '\n');
++    const shown = match ? lines.filter(match) : lines;
++    if (shown.length) process.stdout.write(shown.map(escapeControls).join('\n') + '\n');
+   };
+   let pos = 0;
+   let partial = '';
+@@ -164,8 +276,9 @@ async function follow(file: string, n: number): Promise<never> {
+     if (st) size = st.size;
+     if (size >= 0) {
+       if (first) {
+-        const t = tail(file, n);
+-        print(t.lines);
++        // The tail is already filtered, through the same matcher, so its state carries on.
++        const t = tail(file, n, match);
++        process.stdout.write(t.lines.length ? t.lines.map(escapeControls).join('\n') + '\n' : '');
+         // Carry on after the last complete line the tail printed.
+         pos = t.end;
+         first = false;
+diff --git a/test/daemon-cli.test.ts b/test/daemon-cli.test.ts
+index 4209b770..ea49da2b 100644
+--- a/test/daemon-cli.test.ts
++++ b/test/daemon-cli.test.ts
+@@ -5,7 +5,7 @@ import fs from 'node:fs';
+ import path from 'node:path';
+ import { execFileSync, spawn, spawnSync } from 'node:child_process';
+ import { tempRepo } from './helpers.ts';
+-import { escapeControls } from '../lib/commands/daemon.ts';
++import { escapeControls, lineMatcher, lineTime, parseSince } from '../lib/commands/daemon.ts';
+ import { defaults } from '../lib/config.ts';
+ import { createJob, recordAgent, updateJob } from '../lib/jobs.ts';
+ 
+@@ -145,3 +145,59 @@ test('daemon status reports sessions kept by running agents', () => {
+     repo.cleanup();
+   }
+ });
++
++test('daemon log --since and --grep', async () => {
++  const now = Date.parse('2026-10-19T12:00:00Z');
++  assert.equal(parseSince('30s', now), now - 30_000);
++  assert.equal(parseSince('10m', now), now - 600_000);
++  assert.equal(parseSince('2h', now), now - 7_200_000);
++  assert.equal(parseSince('1d', now), now - 86_400_000);
++  assert.equal(parseSince('2026-10-01', now), Date.parse('2026-10-01T00:00:00Z'));
++  assert.equal(parseSince('2026-10-01T10:00:00+02:00', now), Date.parse('2026-10-01T08:00:00Z'));
++  for (const bad of ['', 'yesterday', '10', '10x', '-5m', '1.5h', '2026-10-01T10:00', true, ['1m', '2m']]) assert.throws(() => parseSince(bad, now), /--since needs/, String(bad));
++  assert.equal(lineTime('{"type":"forge-daemon","at":"2026-10-01T00:00:00Z"}'), Date.parse('2026-10-01T00:00:00Z'));
++  assert.equal(lineTime('{"type":"assistant","timestamp":"2026-10-01T00:00:01Z"}'), Date.parse('2026-10-01T00:00:01Z'));
++  for (const none of ['{"type":"result"}', '[1,2]', 'not json', '{"at":42}', '{"at":"soon"}']) assert.equal(lineTime(none), null, none);
++  const keep = lineMatcher({ since: Date.parse('2026-10-01T00:00:00Z'), grep: null });
++  assert.deepEqual(
++    ['{"n":0}', '{"at":"2026-09-30T00:00:00Z"}', '{"n":1}', '{"at":"2026-10-02T00:00:00Z"}', '{"n":2}'].map(keep),
++    [false, false, false, true, true],
++    'an untimed line goes with the timed line before it',
++  );
++
++  const repo = tempRepo();
++  const cli = cliIn(repo.dir);
++  const dir = path.join(repo.dir, '.forge', 'runtime', 'daemons');
++  let follower;
++  try {
++    fs.mkdirSync(dir, { recursive: true });
++    const log = path.join(dir, 'job-f.log');
++    const at = (iso, extra) => JSON.stringify({ type: 'forge-daemon', at: iso, ...extra });
++    fs.writeFileSync(log, [at('2026-10-01T00:00:00Z', { event: 'Spawn' }), at('2026-10-02T00:00:00Z', { event: 'turn' }), '{"type":"result","note":"spawn again"}', at('2026-10-03T00:00:00Z', { event: 'turn' }), ''].join('\n'));
++    const lines = (...args) => {
++      const r = cli('daemon', 'log', 'job-f', ...args);
++      assert.equal(r.ok, true, r.out);
++      return r.out.trim() ? r.out.trim().split('\n') : [];
++    };
++    assert.equal(lines('--grep', 'SPAWN').length, 2);
++    assert.equal(lines('--grep', 'turn', '--lines', '1')[0], at('2026-10-03T00:00:00Z', { event: 'turn' }));
++    assert.equal(lines('--since', '2026-10-02').length, 3);
++    assert.deepEqual(lines('--since', '2026-10-02', '--grep', 'spawn'), ['{"type":"result","note":"spawn again"}']);
++    assert.deepEqual(lines('--since', '1h'), []);
++    for (const bad of [['--since'], ['--since', 'later'], ['--grep'], ['--grep=']]) assert.match(cli('daemon', 'log', 'job-f', ...bad).out, /--since needs|--grep needs/, bad.join(' '));
++
++    // --follow filters the appended lines too.
++    follower = spawn(process.execPath, [BIN, 'daemon', 'log', 'job-f', '--grep', 'keep', '--follow'], { cwd: repo.dir, env: { ...process.env, FORGE_ROOT: repo.dir } });
++    let seen = '';
++    follower.stdout.on('data', (d) => (seen += d));
++    await new Promise((r) => setTimeout(r, 400));
++    assert.equal(seen, '', 'nothing in the tail matches');
++    fs.appendFileSync(log, '{"type":"drop"}\n{"type":"keep"}\n');
++    const end = Date.now() + 5000;
++    while (Date.now() < end && !seen.includes('keep')) await new Promise((r) => setTimeout(r, 20));
++    assert.equal(seen, '{"type":"keep"}\n');
++  } finally {
++    follower?.kill('SIGKILL');
++    repo.cleanup();
++  }
++});

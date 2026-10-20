@@ -1,0 +1,221 @@
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index ec97171d..c54f98d3 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -83,6 +83,8 @@ Job schema v13 (API version 28) adds `interim`, the job's interim strategy overr
+ 
+ Job schema v14 (API version 29) adds `ports`, one port per port-bearing component (["Ports and endpoints"](CONFIG.md#ports-and-endpoints) in docs/CONFIG.md): migration 13 gives a v13 job `ports: {}`, and its `port` stays its first entry's until the next `forge worktree create` allocates the map, and older Forges refuse a v14 job. The `worktree` event carries `ports` beside `port`. `/api/state` endpoints gain `kind` (`component` or `backing`), a nullable `url` and a nullable `live`; config is unchanged.
+ 
++An `approve-spec` `human` event carries `specHash`, the sha256 of `spec.md` as the approver saw it (null when there was none), with no schema bump: it is additive, and an older approval without it keeps its timestamp meaning. Step rule SP8 compares it with the current `spec.md` content, so a spec edited after its approval by anything but a spec-writer run (which SP5 already gates) goes back to `spec-approval` with reason `spec changed since approval` until a fresh approval pins the new content. It applies only where the spec gate does (`pipeline.specApproval`, retro jobs), never to eval jobs.
++
+ API version 26 adds `GET /api/project`, the dashboard's Project view: `{ components, backing, edges, problems }`, where each component is only `{ name, repo, kind, path }` and each edge `{ from, to, target, type }`, derived from `components` by `projectGraph` in `lib/project.ts`. It never carries a component's commands, owners or notes. job.json, config and events are unchanged.
+ ## Updating
+ 
+diff --git a/docs/CONFIG.md b/docs/CONFIG.md
+index 82ecfe64..1b1b9235 100644
+--- a/docs/CONFIG.md
++++ b/docs/CONFIG.md
+@@ -116,7 +116,7 @@ tracker:
+ pipeline:
+   plan: auto                 # auto | always | never (auto: a planner when the request is over 600 characters or has 3+ list or heading lines)
+   split: ask                 # ask | auto | never (what a SPLIT plan does; see "Split gate" below)
+-  specApproval: always       # always | large | never
++  specApproval: always       # always | large | never (a gated spec edited after its approval waits for a fresh one)
+   design: none               # none | reference | mockup
+   maxRounds: 3               # build→review rounds before asking a human
+   budget:                    # per-job limits; null = unlimited. Over budget → waiting on "budget"
+diff --git a/lib/commands/job.ts b/lib/commands/job.ts
+index 213997cf..f1f587d4 100644
+--- a/lib/commands/job.ts
++++ b/lib/commands/job.ts
+@@ -26,7 +26,7 @@ import { COMPLEXITIES, EFFORTS, OFFICE_GATES } from '../schema.ts';
+ import { daemonScope } from '../requests.ts';
+ import { jobPanel } from '../panel.ts';
+ import { jobScope } from '../scope.ts';
+-import { loadStepInput, step } from '../step.ts';
++import { loadStepInput, specHash, step } from '../step.ts';
+ import { createAndLink, linkJob, markNoIssue, suggestLink, unlinkJob } from '../tracker-link.ts';
+ import { loadTracker } from '../trackers/index.ts';
+ import { AGENT_ID } from '../transcripts.ts';
+@@ -186,7 +186,7 @@ const JOB: HelpGroup = {
+       command: 'job human',
+       args: '<id> <action> [--note N] [--link <ref>|new|none] [--reason R] [--repo A[,B]] [--actor human|foreman]',
+       summary:
+-        "record a human decision: approve-spec, revise-spec, approve-split, revise-split, approve, rework, answer, or approve-repos or reject-repos on the pending repo proposals named by --repo (approve adds each repo to the job), or the foreman's approve-release of the job's pending release plan (logs release-approval and moves no job)",
++        "record a human decision: approve-spec (which pins spec.md's content: an edit after it needs a fresh approval), revise-spec, approve-split, revise-split, approve, rework, answer, or approve-repos or reject-repos on the pending repo proposals named by --repo (approve adds each repo to the job), or the foreman's approve-release of the job's pending release plan (logs release-approval and moves no job)",
+       flags: [
+         ['--note N', 'the human\'s note'],
+         ['--repo A[,B]', 'with approve-repos or reject-repos (required): the pending repos you decide; with --actor foreman, every pending one'],
+@@ -664,7 +664,10 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
+       if (link === 'none') linked = markNoIssue(root, jobId, reason ?? null, actor);
+       else if (link === 'new') linked = createAndLink(root, config, await loadTracker(root, config), jobId, actor);
+       else if (typeof link === 'string') linked = linkJob(root, config, await loadTracker(root, config), jobId, [link], actor);
+-      logHumanEvent(root, jobId, 'human', { action, note: note ?? (rest.slice(2).join(' ') || null) }, actor);
++      // An approval pins the spec content it covers: step's SP8 re-gates a spec.md edited since.
++      const specFile = path.join(jobDir(root, jobId), 'spec.md');
++      const pinned = action === 'approve-spec' ? { specHash: specHash(exists(specFile) ? fs.readFileSync(specFile, 'utf8') : null) } : {};
++      logHumanEvent(root, jobId, 'human', { action, note: note ?? (rest.slice(2).join(' ') || null), ...pinned }, actor);
+       return { ok: true, ...(link !== undefined ? { link: linked } : {}) };
+     }
+     case 'repo': {
+diff --git a/lib/step.ts b/lib/step.ts
+index 74d9b02e..2aa7613c 100644
+--- a/lib/step.ts
++++ b/lib/step.ts
+@@ -6,6 +6,7 @@
+ // Rule IDs follow the spec of issue #68. Every command it emits is built from ids, numbers, config
+ // names and fixed templates, never from file contents or agent replies, and shellLine refuses an
+ // argument outside a strict class, so an unattended daemon can run the result as-is.
++import crypto from 'node:crypto';
+ import path from 'node:path';
+ import { acCoverage } from './acs.ts';
+ import { readJobRecord, readSharedRecord } from './backing.ts';
+@@ -65,6 +66,8 @@ export const RULES = [
+   // Downstream verification: add a changed library's linked consumers as verify-only repos (DS1).
+   // Appended, though it runs before the stage rules, as IDs are stable.
+   'DS1',
++  // spec.md changed since a human approved it: back to the spec gate (SP8). Appended, as IDs are stable.
++  'SP8',
+   // No rule matched: a state step can't advance, parked visibly instead of looping.
+   'X1',
+ ] as const;
+@@ -75,6 +78,9 @@ export type RuleId = (typeof RULES)[number];
+ export const PLAN_AUTO_CHARS = 600;
+ export const PLAN_AUTO_LINES = 3;
+ 
++/** SP8's reason: the approved spec.md no longer matches the content the approval recorded. */
++export const SPEC_CHANGED = 'spec changed since approval';
++
+ const NEEDS_INPUT = /\bNEEDS-INPUT\b/i;
+ const SAFE_ELEMENT = /^[A-Za-z0-9 ._:/@=,+\-[\]"]*$/;
+ const BARE_ELEMENT = /^[A-Za-z0-9._:/@=,+-]+$/;
+@@ -178,7 +184,7 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
+     memberWorktreesMissing: memberRepos(job).some((m) => !(m.worktree && exists(m.worktree))),
+     request: { length: body.length, listLines: listLineCount(body) },
+     plan: parsePlan(read('plan.md') ?? ''),
+-    spec: { ...parseSpecHeader(specText), approachPaths: approachPaths(specText) },
++    spec: { ...parseSpecHeader(specText), approachPaths: approachPaths(specText), hash: specHash(read('spec.md')) },
+     designDeltas: hasSpecDeltas(read('design.md') ?? ''),
+     decision: { decision: parseDecision(root, job.id).decision, autoMerge: /^\s*(?:[-*]\s*)?Auto-merge eligible:\s*yes\b/im.test(read('decision.md') ?? '') },
+     runbookBeforeMerge: /^\s*(?:[-*]\s*)?When:\s*before merge\b/im.test(read('runbook.md') ?? ''),
+@@ -220,7 +226,15 @@ export function parsePlan(text: string): StepInput['plan'] {
+ }
+ 
+ /** The header lines above the first `## ` heading; list values are split and trimmed but not filtered. */
+-export function parseSpecHeader(text: string): Omit<StepInput['spec'], 'approachPaths'> {
++/**
++ * sha256 of spec.md's text, null when there is none. `job human approve-spec` records it as the
++ * event's `specHash`, so SP8 compares content, not mtimes or timestamps.
++ */
++export function specHash(text: string | null): string | null {
++  return text === null ? null : crypto.createHash('sha256').update(text).digest('hex');
++}
++
++export function parseSpecHeader(text: string): Omit<StepInput['spec'], 'approachPaths' | 'hash'> {
+   const head = text.split(/^## /m)[0];
+   const value = (key: string) => new RegExp(`^${key}:[ \\t]*(.*)$`, 'mi').exec(head)?.[1].trim() ?? null;
+   const items = (v: string | null) => (!v || v === '-' ? [] : v.split(',').map((s) => s.trim()).filter((s) => s && s !== '-'));
+@@ -654,7 +668,7 @@ export function gateTell(x: StepInput, waitingOn: WaitingOn): string {
+   const reason = j.reason ?? 'no reason recorded';
+   switch (waitingOn) {
+     case 'spec-approval': {
+-      const line = `${id} spec ready: ${p(x, 'spec')}${x.files.mockup ? ` · mockup ${p(x, 'mockup')}` : ''}. /forge approve ${id} or /forge revise ${id} <note>`;
++      const line = `${id} ${j.reason === SPEC_CHANGED ? SPEC_CHANGED : 'spec ready'}: ${p(x, 'spec')}${x.files.mockup ? ` · mockup ${p(x, 'mockup')}` : ''}. /forge approve ${id} or /forge revise ${id} <note>`;
+       // Computed live, so a job linked while it waits drops back to the one line.
+       return issueLinkStatus(j, x.config) === 'missing' ? `${line}\n${gateTell(x, 'issue-link')}` : line;
+     }
+@@ -963,6 +977,11 @@ function spec(x: StepInput): StepAction {
+     const reason = missing ? 'spec ready, issue unlinked' : 'spec ready';
+     return set(x, 'SP5', { stage: 'spec', state: 'waiting', waitingOn: 'spec-approval', reason }, 'a human approves the spec');
+   }
++  // An approval covers the content it saw: an edit since (by hand or by anything but a spec-writer
++  // run, which SP5 already gates) needs a fresh one. An approval from before specHash was recorded
++  // has nothing to compare and keeps its timestamp meaning.
++  const approved = gated && j.kind !== 'eval' ? human(x, 'approve-spec')?.specHash : undefined;
++  if (typeof approved === 'string' && approved !== x.spec.hash) return set(x, 'SP8', { stage: 'spec', state: 'waiting', waitingOn: 'spec-approval', reason: SPEC_CHANGED }, 'spec.md changed since a human approved it');
+   // The builder never starts on an unlinked job: a spec approved without a link, or one no gate stopped.
+   if (missing) return park(x, 'SP7', 'issue-link', 'link an issue before build');
+   return toStage(x, 'SP6', 'build', 'the spec is ready to build');
+diff --git a/lib/types.ts b/lib/types.ts
+index c6e93548..26c57b8b 100644
+--- a/lib/types.ts
++++ b/lib/types.ts
+@@ -431,8 +431,8 @@ export interface StepInput {
+   /** requestBody(): its length and the lines that start with a list marker or a heading. */
+   request: { length: number; listLines: number };
+   plan: { verdict: 'SINGLE' | 'SPLIT' | null; jobs: number; recommendSplit: boolean };
+-  /** spec.md's header lines and Approach paths; suggested names and services are raw, step filters them. */
+-  spec: { size: string | null; complexity: string | null; needsDesign: boolean; services: string[]; suggested: string[]; approachPaths: string[] };
++  /** spec.md's header lines, Approach paths and content hash (null without a spec); suggested names and services are raw, step filters them. */
++  spec: { size: string | null; complexity: string | null; needsDesign: boolean; services: string[]; suggested: string[]; approachPaths: string[]; hash: string | null };
+   /** design.md's `## Spec deltas` section is non-empty and not None. */
+   designDeltas: boolean;
+   decision: { decision: string | null; autoMerge: boolean };
+diff --git a/test/step-e2e.test.ts b/test/step-e2e.test.ts
+index 2c432ec0..084965be 100644
+--- a/test/step-e2e.test.ts
++++ b/test/step-e2e.test.ts
+@@ -151,4 +151,31 @@ describe('a job driven by step alone', { concurrency: 4 }, () => {
+       s.cleanup();
+     }
+   });
++
++  test('a spec edited after its approval waits for a fresh one', async () => {
++    const s = await scratch({ pipeline: { specApproval: 'always' } });
++    try {
++      const { id } = await s.f('job', 'new', '--title', 'Add a hello script', '--body', 'Add hello.sh that prints hi.');
++      const steps = { n: 0 };
++      assert.equal((await drive(s, id, steps)).waitingOn, 'spec-approval');
++      await s.f('job', 'human', id, 'approve-spec', '--note', 'ok');
++      const approval = readEvents(s.root, id).findLast((e) => e.type === 'human');
++      assert.match(String(approval?.specHash), /^[0-9a-f]{64}$/, 'the approval pins the content it saw');
++      await s.f('job', 'set', id, '--state', 'running');
++      const spec = path.join(jobDir(s.root, id), 'spec.md');
++      fs.appendFileSync(spec, '\n- also print bye\n');
++      let a = await s.f('job', 'step', id);
++      assert.equal(a.rule, 'SP8', JSON.stringify(a));
++      await s.raw(...a.command);
++      a = await s.f('job', 'step', id);
++      assert.equal(a.waitingOn, 'spec-approval');
++      assert.match(a.tell, /spec changed since approval: .*spec\.md/);
++      await s.f('job', 'human', id, 'approve-spec', '--note', 'ok again');
++      await s.f('job', 'set', id, '--state', 'running');
++      a = await s.f('job', 'step', id);
++      assert.equal(a.rule, 'SP6', JSON.stringify(a));
++    } finally {
++      s.cleanup();
++    }
++  });
+ });
+diff --git a/test/step-fixture.ts b/test/step-fixture.ts
+index 020d0e82..65aa24e3 100644
+--- a/test/step-fixture.ts
++++ b/test/step-fixture.ts
+@@ -93,7 +93,7 @@ export function fixture(o: FixtureOpts = {}): StepInput {
+     memberWorktreesMissing: o.memberWorktreesMissing ?? false,
+     request: { length: 40, listLines: 0, ...o.request },
+     plan: { verdict: null, jobs: 0, recommendSplit: false, ...o.plan },
+-    spec: { size: null, complexity: null, needsDesign: false, services: [], suggested: [], approachPaths: [], ...o.spec },
++    spec: { size: null, complexity: null, needsDesign: false, services: [], suggested: [], approachPaths: [], hash: null, ...o.spec },
+     designDeltas: o.designDeltas ?? false,
+     decision: { decision: null, autoMerge: false, ...o.decision },
+     runbookBeforeMerge: o.runbookBeforeMerge ?? false,
+diff --git a/test/step.test.ts b/test/step.test.ts
+index 91858d08..6725ebb7 100644
+--- a/test/step.test.ts
++++ b/test/step.test.ts
+@@ -352,6 +352,14 @@ const rows: Row[] = [
+   { name: 'SP5 large gates an L spec', fx: { config: (c) => (c.pipeline.specApproval = 'large'), job: job({ stage: 'spec', size: 'L', agents: SPEC_DONE }), events: [PANEL_SET] }, want: { action: 'run', rule: 'SP5' } },
+   { name: 'SP5 a retro spec always waits', fx: { config: (c) => (c.pipeline.specApproval = 'never'), files: ['spec'], job: job({ kind: 'retro', stage: 'spec', agents: { retro: ag(0, 1, 2) } }), events: [PANEL_SET] }, want: { action: 'run', rule: 'SP5' } },
+   { name: 'SP6 builds after a human approved the spec', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, ev('human', 4, { action: 'approve-spec' })] }, want: run('job', 'set', 'j', '--stage', 'build', '--state', 'running') },
++  { name: 'SP8 a spec edited since its approval waits for a fresh one', fx: { files: ['spec'], spec: { hash: 'b' }, job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, ev('human', 4, { action: 'approve-spec', specHash: 'a' })] }, want: { ...run('job', 'set', 'j', '--stage', 'spec', '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec changed since approval'), rule: 'SP8' } },
++  { name: 'SP6 builds after a fresh approval of an edited spec', fx: { files: ['spec'], spec: { hash: 'b' }, job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, ev('human', 4, { action: 'approve-spec', specHash: 'a' }), ev('human', 6, { action: 'approve-spec', specHash: 'b' })] }, want: { action: 'run', rule: 'SP6' } },
++  { name: 'SP6 builds an approved spec that is unchanged', fx: { files: ['spec'], spec: { hash: 'a' }, job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, ev('human', 4, { action: 'approve-spec', specHash: 'a' })] }, want: { action: 'run', rule: 'SP6' } },
++  { name: 'SP8 a deleted approved spec waits again', fx: { spec: { hash: null }, job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, ev('human', 4, { action: 'approve-spec', specHash: 'a' })] }, want: { action: 'run', rule: 'SP8' } },
++  { name: 'SP6 an approval recorded without specHash keeps building', fx: { files: ['spec'], spec: { hash: 'b' }, job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, ev('human', 4, { action: 'approve-spec' })] }, want: { action: 'run', rule: 'SP6' } },
++  { name: 'SP6 an edited spec is not re-gated when spec approval is off', fx: { config: (c) => (c.pipeline.specApproval = 'never'), files: ['spec'], spec: { hash: 'b' }, job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, ev('human', 4, { action: 'approve-spec', specHash: 'a' })] }, want: { action: 'run', rule: 'SP6' } },
++  { name: 'SP5 gates a spec rewritten after its approval, not SP8', fx: { files: ['spec'], spec: { hash: 'b' }, job: job({ stage: 'spec', agents: { 'spec-writer': ag(0, 5, 6) } }), events: [ev('human', 4, { action: 'approve-spec', specHash: 'a' }), ev('fields', 7, { fields: { reviewers: ['code'] } })] }, want: { action: 'run', rule: 'SP5' } },
++  { name: 'G4 a re-gated spec tells that it changed', fx: { files: ['spec'], job: job({ stage: 'spec', state: 'waiting', waitingOn: 'spec-approval', reason: 'spec changed since approval' }) }, want: { action: 'wait', rule: 'G4', tell: `j spec changed since approval: ${path.join(JOB_DIR, 'spec.md')}. /forge approve j or /forge revise j <note>` } },
+   { name: 'SP6 large lets an M spec through', fx: { config: (c) => (c.pipeline.specApproval = 'large'), job: job({ stage: 'spec', size: 'M', agents: SPEC_DONE }), events: [PANEL_SET] }, want: { action: 'run', rule: 'SP6' } },
+   // ---- One human visit: the issue is chosen at the spec gate, or SP7 parks before build
+   { name: "SP5 an unlinked job's gate says the issue is unlinked", fx: { config: LOCAL, job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET] }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'waiting', '--waiting-on', 'spec-approval', '--reason', 'spec ready, issue unlinked') },

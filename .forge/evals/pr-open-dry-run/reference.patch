@@ -1,0 +1,345 @@
+diff --git a/docs/CLI.md b/docs/CLI.md
+index ca957d18..789ca65e 100644
+--- a/docs/CLI.md
++++ b/docs/CLI.md
+@@ -214,6 +214,10 @@ The log file gains a `(links <bin dir>)` line after `(cwd …)`. Background comm
+ 
+ `forge job assist <id> --gate <class>` is read-only and returns `{gate, stale, reserved, model, effort, subagent, brief}`: the `forge:assistant` spawn for that gate, with a brief of paths only. `stale: true` means the job no longer waits on that gate, and `reserved` is re-checked at call time. An unknown `--gate` exits 1, and so does a daemon session other than the office. `forge requests add gate` always exits 1: only `forge job set` and `forge pr sync` write gate requests.
+ 
++## Opening a PR
++
++`forge pr open <id> --dry-run` runs every check `forge pr open` runs before it pushes (an unpromoted downstream repo, the worktree, a verified HEAD unless `--force`, the secret scan of the PR title, body and commits after refreshing the base from the push remote, protected paths, at least one commit ahead of the base, and the interim strategies) and refuses exactly as it would, with the same code and exit. When every check passes it prints the plan instead of pushing: `{ dryRun: true, title, body, base, head, draft, commit, remote, slug, pr, push, labels, reviewers, repos?, deferred? }`. `head` is the job branch, `commit` the checked commit the push would send (rewritten first when a message carries AI attribution), `slug` the GitHub `owner/name` from `tracker.github.repo` or the remote url (null when neither names one), `pr` the PR number the job already records, and `push` false when the root PR already merged or an interim strategy holds it back. A job with member repos lists each one the open would push under `repos` (`{ repo, slug, base, head, commit, draft, title, body }`). A dry run never pushes, never calls `gh` (so it needs no `gh` installed, and an interim merge order is judged on the PR states the job records) and never changes the job: `job.json` and `events.jsonl` stay as they were, and a refusal logs nothing.
++
+ ## Merging
+ 
+ `forge pr merge <id> [--repo NAME | --root] [--now]` syncs first, then merges one PR at a time with exactly one `gh pr merge` call each: directly when checks pass or the repo has no CI, queued with `--auto` while checks are pending only when GitHub holds the PR and no protected-paths policy applies, deferred otherwise, and refused when checks fail. A single-repo job has one PR, and the result is `{ merged, autoMerge, action, checks, mergeState?, error? }` with `action` one of `already-merged`, `merged`, `auto`, `deferred`, `refused`, `failed`.
+diff --git a/lib/cli.ts b/lib/cli.ts
+index d7278126..8a1c620c 100644
+--- a/lib/cli.ts
++++ b/lib/cli.ts
+@@ -181,7 +181,10 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
+       if (sub === 'ready') pr.mergeTarget(flags, 'ready');
+       const id = req(rest[0], 'job id');
+       if (sub === 'find') return ok(pr.findPr(root, config, id));
+-      if (sub === 'open') return ok(pr.openPr(root, config, id, { title: flags.title, draft: flags.draft === undefined ? undefined : Boolean(flags.draft), force: Boolean(flags.force) }));
++      if (sub === 'open') {
++        const opts = { title: flags.title, draft: flags.draft === undefined ? undefined : Boolean(flags.draft), force: Boolean(flags.force) };
++        return ok(flags['dry-run'] ? pr.dryRunPr(root, config, id, opts) : pr.openPr(root, config, id, opts));
++      }
+       if (sub === 'sync') return ok(pr.syncPr(root, config, id));
+       if (sub === 'merge') {
+         // Strictly `true`: `--now <id>` would make parseArgs swallow the id as the flag's value,
+diff --git a/lib/commands/help.ts b/lib/commands/help.ts
+index e924ee83..62ce6a82 100644
+--- a/lib/commands/help.ts
++++ b/lib/commands/help.ts
+@@ -126,12 +126,13 @@ export const CORE: HelpGroup[] = [
+       { command: 'pr find', args: '<id>', summary: "find the job's open PR by branch and record it", exits: [NO_JOB, GH_FAILED] },
+       {
+         command: 'pr open',
+-        args: '<id> [--title T] [--draft] [--force]',
++        args: '<id> [--title T] [--draft] [--force] [--dry-run]',
+         summary: "push the verified branch and open or update its PR; with job repos, every repo is checked first, then each non-verify-only member's branch is pushed and its PR opened or updated (result: repos) in dependency order before the root PR; a repo an interim strategy holds back is not pushed (result: deferred; docs/CONFIG.md \"Interim strategies\")",
+         flags: [
+           ['--title T', 'the PR title (default: the job title)'],
+           ['--draft', 'open it as a draft'],
+           ['--force', 'publish a HEAD that forge verify has not passed'],
++          ['--dry-run', 'run every check, then print the plan (title, body, base, head, draft, commit, and each member repo) instead of pushing; never calls gh or changes the job'],
+         ],
+         exits: [[1, 'no such job or worktree, an unverified HEAD (of any job repo), nothing to push (in any job repo), no GitHub slug for a member repo, a likely secret in a PR title or body or the commits it would push (code secret_found), an interim pin that cannot be written, or one that is not the dependency\'s checked HEAD (code interim_stale)'], GH_FAILED],
+       },
+diff --git a/lib/pr.ts b/lib/pr.ts
+index 22c330c4..7d24d7d1 100644
+--- a/lib/pr.ts
++++ b/lib/pr.ts
+@@ -166,17 +166,62 @@ export interface MemberPrResult {
+   created: boolean;
+ }
+ 
+-export function openPr(
+-  root: string,
+-  config: Config,
+-  id: string,
+-  opts: { title?: string; draft?: boolean; force?: boolean } = {},
+-): { number: number | null; url: string | null; created: boolean; unlinked?: true; repos?: MemberPrResult[]; deferred?: Deferral[] } {
++/** What `forge pr open --dry-run` prints for one member repo: dryRunPr. */
++export interface MemberPrPlanView {
++  repo: string;
++  slug: string;
++  base: string;
++  head: string;
++  commit: string;
++  draft: boolean;
++  title: string;
++  body: string;
++}
++
++/** What `forge pr open --dry-run` prints: dryRunPr. */
++export interface PrOpenPlan {
++  dryRun: true;
++  title: string;
++  body: string;
++  base: string;
++  head: string;
++  draft: boolean;
++  /** The checked commit; with attribution forbidden, a message carrying it is rewritten before the push. */
++  commit: string;
++  remote: string;
++  /** The GitHub `owner/name`, when config or the remote url names one (a dry run never asks gh). */
++  slug: string | null;
++  /** The PR the job already records; the open would update it instead of creating one. */
++  pr: number | null;
++  /** False when the root PR already merged or an interim strategy holds it back. */
++  push: boolean;
++  labels: string[];
++  reviewers: string[];
++  repos?: MemberPrPlanView[];
++  deferred?: Deferral[];
++}
++
++/** Everything `pr open` settles before anything leaves the machine: prepareOpen. */
++interface OpenChecks {
++  job: Job;
++  text: { title: string; body: string };
++  checked: string;
++  slug: string | null;
++  plans: MemberPrPlan[];
++  interim: InterimOpenPlan;
++}
++
++/**
++ * Every check `forge pr open` runs before a push or a PR call, in its order. A dry run runs the same
++ * checks and refuses the same way, but never calls gh and never writes the job: no event is logged,
++ * and an interim merge order is judged on the recorded PR states instead of GitHub's.
++ */
++function prepareOpen(root: string, config: Config, id: string, opts: { title?: string; force?: boolean }, dry: boolean): OpenChecks {
+   const job = loadJob(root, id);
+   // job.json is session-writable: a downstream consumer becomes a pushed repo only through a promotion event.
+   const unpromoted = unpromotedDownstream(job, readEvents(root, id));
+   if (unpromoted.length) throw new ForgeError(`repo ${unpromoted.join(', ')} joined job ${id} as a downstream consumer and was never promoted, so forge pr open won't push it; propose it (forge job repo propose ${id} <repo> --reason "…") for a human to approve`);
+-  requireGh();
++  if (!dry) requireGh();
+   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree`);
+   // Checked before the attribution scrub, which rewrites shas: the question is whether the
+   // commits as the builder left them were verified.
+@@ -186,18 +231,18 @@ export function openPr(
+     // With job repos the root HEAD can match while a member's does not: name what moved.
+     const repoNote = evidence.heads && evidence.last?.ok && evidence.last.sha === evidence.head ? `, but a job repo HEAD is not the one it checked` : '';
+     if (!opts.force) throw new ForgeError(`HEAD ${evidence.head.slice(0, 12)} of ${id} is not verified (${last}${repoNote}); run: forge verify ${id}, or pass --force`);
+-    logEvent(root, id, 'pr-unverified', { head: evidence.head, last: evidence.last });
++    if (!dry) logEvent(root, id, 'pr-unverified', { head: evidence.head, last: evidence.last });
+   }
+   // Before any gh call or push, and even for a PR that already exists: the scan is the last point
+   // where nothing has left the machine yet.
+   const text = prText(root, config, job, opts.title);
+-  refuseSecrets(root, config, [textUnit('(pr title)', text.title), textUnit('(pr body)', text.body)], { what: 'the PR title or body', id, gate: 'pr' });
++  refuseSecrets(root, config, [textUnit('(pr title)', text.title), textUnit('(pr body)', text.body)], { what: 'the PR title or body', id, gate: dry ? undefined : 'pr' });
+   // The commits are scanned here too, verified or not: this is the real exit, a HEAD verified by a
+   // Forge without the scanner was never scanned, and --force skips verify altogether.
+   const mode = secretMode(config);
+   refreshBase(job, config, mode);
+   const scan = scanBranch(root, config, job, { staged: false, head: evidence.head });
+-  logSecrets(root, id, 'pr', scan, { blocked: mode === 'block' });
++  if (!dry) logSecrets(root, id, 'pr', scan, { blocked: mode === 'block' });
+   if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of ${id}'s commits could not finish (${scan.error}); forge pr open won't push an unscanned branch`, 'secret_found', `forge secrets scan ${id}`);
+   if (mode === 'block' && scan.findings.length) throw new ForgeError(refusalMessage(`the commits of ${id}`, scan.findings), 'secret_found', `forge secrets scan ${id}`);
+   // With interim edges, a member whose PR already merged (a sequential dependency, say) is never
+@@ -206,24 +251,67 @@ export function openPr(
+   const open = memberRepos(job).filter((m) => !m.verifyOnly && !(skipMerged && m.pr?.state === 'MERGED'));
+   // Every member is checked before anything is pushed, then opened before the root PR, so a member
+   // failure leaves no root PR behind.
+-  const plans = open.map((m) => checkMemberPr(root, config, job, m.repo, text.title, mode, evidence.heads?.[m.repo]));
++  const plans = open.map((m) => checkMemberPr(root, config, job, m.repo, text.title, mode, evidence.heads?.[m.repo], dry));
+   // After checkMemberPr, which refreshes each member's base from its push remote and pushes nothing:
+   // a member's remote-tracking base is writable from its worktree, and checked stale it would hide
+   // the member's protected paths behind an empty diff, as the root's refresh above prevents for it.
+-  refuseProtected(root, config, job, evidence.head, plans.map((p) => ({ repo: p.repo, worktree: p.worktree, base: p.base, head: p.checked })));
++  refuseProtected(root, config, job, evidence.head, plans.map((p) => ({ repo: p.repo, worktree: p.worktree, base: p.base, head: p.checked })), dry);
+   // From here on only the checked commit is used, never HEAD: a commit made in the worktree after
+   // the checks (a stale session, a process the builder left behind) must not ride along.
+   const checked = evidence.head;
+   if (!FULL_SHA.test(checked)) throw new ForgeError(`HEAD of ${id} is not a commit id`);
+-  const slug = repoSlug(root, config);
++  const slug = dry ? localRepoSlug(root, config) : repoSlug(root, config);
+   const ahead = run('git', ['rev-list', '--count', `${config.git.remote}/${job.base}..${checked}`, '--'], { cwd: job.worktree, allowFail: true });
+   if (ahead.ok && ahead.stdout.trim() === '0') throw new ForgeError(`branch ${job.branch} has no commits ahead of ${job.base}`);
+   // Interim strategies, judged against the checked commits before anything is pushed.
+   // A merged member is not re-checked, but a consumer may still pin it: its HEAD now stands in.
+   const heads = new Map<RepoKey, string>([[null, checked], ...Object.entries(evidence.heads ?? {}), ...plans.map((p): [RepoKey, string] => [p.repo, p.checked])]);
+-  const interim = interimOpenPlan(root, config, job, heads);
+-  const isDeferred = (k: RepoKey) => interim.deferred.some((d) => d.repo === k);
++  const interim = interimOpenPlan(root, config, job, heads, dry);
+   plans.sort((a, b) => interim.order.indexOf(a.repo) - interim.order.indexOf(b.repo));
++  return { job, text, checked, slug, plans, interim };
++}
++
++/**
++ * `forge pr open --dry-run`: every check the open runs, then what it would push and open, with no
++ * push, no gh call and no change to the job.
++ */
++export function dryRunPr(root: string, config: Config, id: string, opts: { title?: string; draft?: boolean; force?: boolean } = {}): PrOpenPlan {
++  const { job, text, checked, slug, plans, interim } = prepareOpen(root, config, id, opts, true);
++  const isDeferred = (k: RepoKey) => interim.deferred.some((d) => d.repo === k);
++  const draft = (k: RepoKey) => interim.drafts.has(k) || Boolean(opts.draft ?? config.pr.draft);
++  const repos = plans
++    .filter((p) => !isDeferred(p.repo))
++    .map((p): MemberPrPlanView => ({ repo: p.repo, slug: p.slug, base: p.base, head: job.branch!, commit: p.checked, draft: draft(p.repo), title: text.title, body: p.body }));
++  return {
++    dryRun: true,
++    title: text.title,
++    body: text.body,
++    // createJob always sets base and branch.
++    base: job.base!,
++    head: job.branch!,
++    draft: draft(null),
++    commit: checked,
++    remote: config.git.remote,
++    slug,
++    pr: safePrNumber(job.pr?.number),
++    push: !isDeferred(null) && job.pr?.state !== 'MERGED',
++    labels: [...(config.pr.labels ?? [])],
++    reviewers: [...(config.pr.reviewers ?? [])],
++    ...(memberRepos(job).length ? { repos } : {}),
++    ...(interim.deferred.length ? { deferred: interim.deferred } : {}),
++  };
++}
++
++export function openPr(
++  root: string,
++  config: Config,
++  id: string,
++  opts: { title?: string; draft?: boolean; force?: boolean } = {},
++): { number: number | null; url: string | null; created: boolean; unlinked?: true; repos?: MemberPrResult[]; deferred?: Deferral[] } {
++  const { job, text, checked, slug: resolved, plans, interim } = prepareOpen(root, config, id, opts, false);
++  // repoSlug throws rather than return null, and prepareOpen refused a job without a worktree.
++  const slug = resolved!;
++  const isDeferred = (k: RepoKey) => interim.deferred.some((d) => d.repo === k);
+   let rootPushed: string | null = null;
+   const pushRoot = (): string => {
+     if (rootPushed !== null) return rootPushed;
+@@ -279,7 +367,7 @@ export function openPr(
+   if (isDraft) args.push('--draft');
+   for (const l of config.pr.labels ?? []) args.push('--label', l);
+   for (const r of config.pr.reviewers ?? []) args.push('--reviewer', r);
+-  const url = gh(job.worktree, args).stdout.trim().split('\n').pop() ?? '';
++  const url = gh(job.worktree!, args).stdout.trim().split('\n').pop() ?? '';
+   const number = Number(url.match(/\/pull\/(\d+)/)?.[1]);
+   setJob(root, id, { fields: { pr: { number, url, state: 'OPEN', isDraft, openedAt: now(), lastSyncedAt: now(), pushedSha } } });
+   logEvent(root, id, 'pr-opened', { number, url });
+@@ -306,7 +394,7 @@ interface InterimOpenPlan {
+  * PR merged (asked of GitHub now), a canary consumer until the version is published, and every repo
+  * that depends on a waiting one through a sequential, git-ref or canary edge.
+  */
+-function interimOpenPlan(root: string, config: Config, job: Job, heads: Map<RepoKey, string>): InterimOpenPlan {
++function interimOpenPlan(root: string, config: Config, job: Job, heads: Map<RepoKey, string>, dry = false): InterimOpenPlan {
+   const { edges } = interimStatus(root, config, job, heads);
+   const { order } = jobRepoOrder(config, job);
+   const blocked = edges.find((e) => e.state === 'blocked');
+@@ -320,7 +408,8 @@ function interimOpenPlan(root: string, config: Config, job: Job, heads: Map<Repo
+     );
+   const merged = new Map<RepoKey, boolean>();
+   const isMerged = (k: RepoKey): boolean => {
+-    if (!merged.has(k)) merged.set(k, freshMerged(root, config, job, k));
++    // A dry run asks nothing of GitHub and corrects no record: the recorded state stands in.
++    if (!merged.has(k)) merged.set(k, dry ? (k === null ? job.pr : memberEntry(job, k)?.pr)?.state === 'MERGED' : freshMerged(root, config, job, k));
+     return merged.get(k)!;
+   };
+   const deferred: Deferral[] = [];
+@@ -396,17 +485,17 @@ interface MemberPrPlan {
+  * body and of its commits (after refreshing its base from the push remote), at least one commit ahead
+  * of its base, and a slug to open the PR in. The commit checked is the HEAD verify recorded.
+  */
+-function checkMemberPr(root: string, config: Config, job: Job, name: string, title: string, mode: 'block' | 'warn', verified: string | undefined): MemberPrPlan {
++function checkMemberPr(root: string, config: Config, job: Job, name: string, title: string, mode: 'block' | 'warn', verified: string | undefined, dry = false): MemberPrPlan {
+   const { member, worktree } = memberWorktree(root, config, job, name);
+   const base = member.base!;
+   const checked = verified ?? run('git', ['rev-parse', 'HEAD'], { cwd: worktree }).stdout.trim();
+   if (!FULL_SHA.test(checked)) throw new ForgeError(`HEAD of repo ${name} is not a commit id`);
+   const body = memberPrBody(root, config, job);
+-  refuseSecrets(root, config, [textUnit('(pr title)', title), textUnit(`(pr body of repo ${name})`, body)], { what: `the PR title or body of repo ${name}`, id: job.id, gate: 'pr' });
++  refuseSecrets(root, config, [textUnit('(pr title)', title), textUnit(`(pr body of repo ${name})`, body)], { what: `the PR title or body of repo ${name}`, id: job.id, gate: dry ? undefined : 'pr' });
+   const view = { ...job, worktree, base };
+   refreshBase(view, config, mode);
+   const scan = scanBranch(root, config, view, { staged: false, head: checked });
+-  logSecrets(root, job.id, 'pr', scan, { blocked: mode === 'block' });
++  if (!dry) logSecrets(root, job.id, 'pr', scan, { blocked: mode === 'block' });
+   if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of repo ${name}'s commits could not finish (${scan.error}); forge pr open won't push an unscanned branch`, 'secret_found', `forge secrets scan ${job.id}`);
+   if (mode === 'block' && scan.findings.length) throw new ForgeError(refusalMessage(`the commits of repo ${name}`, scan.findings), 'secret_found', `forge secrets scan ${job.id}`);
+   const ahead = run('git', ['rev-list', '--count', `${config.git.remote}/${base}..${checked}`, '--'], { cwd: worktree, allowFail: true });
+@@ -676,13 +765,13 @@ function syncMemberPrs(root: string, config: Config, id: string): Map<string, Me
+  * recomputed from the branch (a hand-cleared job.json flag changes nothing), a refuse path stops the
+  * open, and escalate paths stop it until a human approved their current content at a PP1 park.
+  */
+-function refuseProtected(root: string, config: Config, job: Job, head: string, members: MemberBranch[]): void {
++function refuseProtected(root: string, config: Config, job: Job, head: string, members: MemberBranch[], dry = false): void {
+   const id = job.id;
+   const c = checkBranch(root, config, job, head, 'pr', members);
+   if (c.error) throw new ForgeError(`can't check ${id}'s protected paths (${c.error}); forge pr open won't push a branch it can't check`, 'protected_path');
+   if (c.refused.length) throw new ForgeError(refusalText('forge pr open', c.refused), 'protected_path');
+   if (c.escalated.length && !protectedApproved(c.flag, readEvents(root, id))) {
+-    logEscalated(root, id, 'pr', c.escalated, head, true);
++    if (!dry) logEscalated(root, id, 'pr', c.escalated, head, true);
+     throw new ForgeError(`protected paths need a human approval: ${c.escalated.length} paths; /forge approve ${id}`, 'protected_path');
+   }
+ }
+diff --git a/test/secrets-gates.test.ts b/test/secrets-gates.test.ts
+index ef45727b..c23cd3fd 100644
+--- a/test/secrets-gates.test.ts
++++ b/test/secrets-gates.test.ts
+@@ -511,6 +511,56 @@ describe('secret gates', { concurrency: 4 }, () => {
+     }
+   });
+ 
++  test('forge pr open --dry-run runs the checks, prints the plan and writes nothing', async () => {
++    const s = await scratch();
++    const bin = path.join(s.repo.dir, '..', `fakebin-${path.basename(s.repo.dir)}`);
++    const bare = path.join(s.repo.dir, '..', `remote-${path.basename(s.repo.dir)}.git`);
++    try {
++      fs.mkdirSync(bin);
++      const ghLog = path.join(bin, 'gh.log');
++      fs.writeFileSync(ghLog, '');
++      fs.writeFileSync(path.join(bin, 'gh'), `#!/bin/sh\necho "$*" >> "${ghLog}"\nexit 1\n`, { mode: 0o755 });
++      execFileSync('git', ['init', '-q', '--bare', bare]);
++      execFileSync('git', ['remote', 'add', 'origin', bare], { cwd: s.repo.dir });
++      execFileSync('git', ['push', '-q', 'origin', 'main'], { cwd: s.repo.dir });
++      const env = { PATH: `${bin}:${process.env.PATH}` };
++      const state = (dir: string) => ['job.json', 'events.jsonl'].map((f) => fs.readFileSync(path.join(dir, f), 'utf8'));
++
++      const j = await s.job({ 'src/a.ts': 'export const a = 1;\n' });
++      let r = await s.raw(['pr', 'open', j.id, '--dry-run', '--json'], env);
++      assert.equal(r.status, 1, r.stdout);
++      assert.match(JSON.parse(r.stdout).error.message, /is not verified/);
++      assert.equal((await s.verify(j.id)).status, 0);
++      const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: j.wt, encoding: 'utf8' }).trim();
++      const before = state(j.dir);
++      r = await s.raw(['pr', 'open', j.id, '--dry-run', '--draft', '--json'], env);
++      assert.equal(r.status, 0, r.stderr + r.stdout);
++      const plan = JSON.parse(r.stdout);
++      const branch = JSON.parse(before[0]).branch;
++      assert.deepEqual(
++        { dryRun: plan.dryRun, base: plan.base, head: plan.head, draft: plan.draft, commit: plan.commit, remote: plan.remote, slug: plan.slug, pr: plan.pr, push: plan.push },
++        { dryRun: true, base: 'main', head: branch, draft: true, commit: head, remote: 'origin', slug: null, pr: null, push: true },
++      );
++      assert.equal(plan.title, JSON.parse(before[0]).title);
++      assert.match(plan.body, /^## Summary/);
++      assert.equal('repos' in plan, false);
++
++      // A secret in the body is refused like the real open, and the refusal logs nothing.
++      write(j.dir, 'pr.md', `## Summary\n\nTested with ${token.github('dry-run')}.\n`);
++      r = await s.raw(['pr', 'open', j.id, '--dry-run', '--json'], env);
++      assert.equal(r.status, 1, r.stdout);
++      assert.equal(JSON.parse(r.stdout).error.code, 'secret_found');
++
++      assert.equal(fs.readFileSync(ghLog, 'utf8'), '', 'gh was never called');
++      assert.ok(!execFileSync('git', ['ls-remote', '--heads', bare], { encoding: 'utf8' }).includes(branch), 'nothing was pushed');
++      assert.deepEqual(state(j.dir), before, 'job.json and events.jsonl are unchanged');
++    } finally {
++      s.cleanup();
++      fs.rmSync(bin, { recursive: true, force: true });
++      fs.rmSync(bare, { recursive: true, force: true });
++    }
++  });
++
+   test('forge job agent end notes secrets in agent output', async () => {
+     const s = await scratch();
+     try {

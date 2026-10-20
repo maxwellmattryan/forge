@@ -5,7 +5,7 @@
 import { isInterimStrategy, servicesToComponents } from './components.ts';
 import { isSafeUrl, isStoredRef, sameIssue } from './issue-ref.ts';
 import { REPO_NAME, isSafeBranch } from './member-repos.ts';
-import type { EventActor, Job, JobEvent, JobIssue, JobRepo, JobRepoPr, LoadedJob } from './types.ts';
+import type { EventActor, Job, JobAgent, JobEvent, JobIssue, JobRepo, JobRepoPr, LoadedJob } from './types.ts';
 
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
 export { BACKING_ISOLATIONS } from './backing-config.ts';
@@ -397,6 +397,24 @@ export function migrateConfig(raw: any): { config: any; from: number | undefined
   return { config, from: from === CONFIG_SCHEMA_VERSION ? undefined : from };
 }
 
+/** The states a job never leaves on its own; isActive in lib/jobs.ts is false for exactly these. */
+export const FINISHED_STATES = ['done', 'cancelled'] as const;
+
+/**
+ * A job's agents with every one still marked running ended as `lost` when the job has finished, and
+ * the roles it ended. A job can finish while an agent runs (cancelled mid-build, merged during a
+ * rework), and nothing records that agent's end afterwards, so without this the dashboard shows it
+ * running forever and the claim and daemon slot wait on it.
+ */
+export function endFinishedJobAgents(agents: Record<string, JobAgent>, state: string, at: string | null): { agents: Record<string, JobAgent>; roles: string[] } {
+  if (!(FINISHED_STATES as readonly string[]).includes(state)) return { agents, roles: [] };
+  const roles = Object.keys(agents).filter((role) => agents[role]?.status === 'running');
+  if (!roles.length) return { agents, roles };
+  const out = { ...agents };
+  for (const role of roles) out[role] = { ...out[role], status: 'lost', endedAt: at, summary: `lost: the job was ${state} while it ran` };
+  return { agents: out, roles };
+}
+
 /**
  * Upgrades and fills defaults so every consumer can rely on the current shape.
  */
@@ -445,7 +463,8 @@ export function normalizeJob(raw: any): LoadedJob {
     decision: job.decision ?? null,
     pr: job.pr ?? null,
     owner: job.owner ?? null,
-    agents: job.agents ?? {},
+    // Repairs jobs a Forge before endFinishedJobAgents finished with an agent still marked running.
+    agents: endFinishedJobAgents(job.agents ?? {}, job.state ?? 'queued', job.finishedAt ?? job.updatedAt ?? null).agents,
     usage: job.usage ?? { totalTokens: 0, byRole: {}, byModel: {}, estCostUsd: 0, exact: false },
     runs: job.runs ?? [],
     createdAt: job.createdAt ?? null,
