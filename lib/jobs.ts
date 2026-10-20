@@ -4,7 +4,7 @@ import path from 'node:path';
 import { paths, exists } from './paths.ts';
 import { currentActor } from './actor.ts';
 import { clearFocusIf } from './focus.ts';
-import { EFFORTS, STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, cleanIssues, normalizeEvent, normalizeJob, serializeJob } from './schema.ts';
+import { EFFORTS, STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, cleanIssues, endFinishedJobAgents, normalizeEvent, normalizeJob, serializeJob } from './schema.ts';
 import { idPrefix } from './issue-ref.ts';
 import { localRepoSlug } from './repo-slug.ts';
 import type { AgentUsage, Config, Effort, EventActor, Job, JobAgent, JobIssue, JobChange, JobOwner, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from './types.ts';
@@ -267,6 +267,7 @@ export function setJob(
   const { derive, release, ...base } = change;
   let before: TransitionSide | null = null;
   let released = false;
+  let lost: string[] = [];
   // The change actually applied: the static one, or derive's result merged over it.
   let c: JobChange = base;
   const job = updateJob(root, id, (j) => {
@@ -287,6 +288,10 @@ export function setJob(
     if (j.state === 'waiting' && !j.waitingOn) throw new ForgeError('state "waiting" needs --waiting-on', 'usage');
     for (const [k, v] of Object.entries(c.fields ?? {})) setPath(j, k, v);
     if (['done', 'cancelled'].includes(j.state) && !j.finishedAt) j.finishedAt = now();
+    // In the same write as the state, so no reader sees a finished job with an agent still running.
+    const ended = endFinishedJobAgents(j.agents, j.state, now());
+    j.agents = ended.agents;
+    lost = ended.roles;
     // In the same locked write, so no session can claim between the change and the release.
     if (release && j.owner) {
       const run = j.runs[j.runs.length - 1];
@@ -302,6 +307,10 @@ export function setJob(
     // Once per state change: a repeated set with the same state and waitingOn logs no transition.
     const n = transitionEvents(b, to, job);
     if (n) queueNotify(root, n.events, { job: job.id, reason: n.reason });
+  }
+  for (const role of lost) {
+    const a = job.agents[role];
+    logEvent(root, id, 'agent-end', { role, model: a?.model ?? undefined, status: a?.status, summary: a?.summary });
   }
   if (c.fields && Object.keys(c.fields).length) logEvent(root, id, 'fields', { fields: c.fields });
   if (c.note) logEvent(root, id, 'note', { text: c.note });
