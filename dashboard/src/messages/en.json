@@ -102,8 +102,6 @@
     "start": "Start",
     "stop": "Stop",
     "failed": "Daemon {action} failed: {error}",
-    "startAll": "Start the daemon (all sessions)",
-    "stopAll": "Stop the daemon (all sessions)",
     "modeTitle": "Permission mode: {mode}",
     "rows": {
       "label": "Sessions",
@@ -684,12 +682,6 @@
       "one": "({count} line hidden)",
       "other": "({count} lines hidden)"
     },
-    "startInbox": "Start inbox session",
-    "stopInbox": "Stop inbox session",
-    "startOffice": "Start office",
-    "stopOffice": "Stop office",
-    "startJob": "Start this job's session",
-    "stopJob": "Stop this job's session",
     "startHint": "Re-enables this session; it starts on its next request",
     "emptyEnabled": "No session log for this job yet. Its session starts with the job's next request.",
     "emptyInboxEnabled": "No inbox session log yet. It starts with the next request that has no job.",

@@ -4,10 +4,12 @@
      contains() checks still count it as inside. Manual mode keeps dismissal here instead of the browser's light dismiss,
      which would race App's window Escape handler: Escape closes only this panel and refocuses the button; a press outside
      or focus leaving both closes it (lib/popover.ts dismissal decides the focus); a resize, a scroll that moves the button,
-     or the button unmounting closes it too. lib/menu.ts placeMenu decides where it opens. -->
+     or the button unmounting closes it too. lib/menu.ts placeMenu decides where it opens. With `iconOnly` the button's
+     name shows in a Tooltip (hidden while the panel is open) instead of a native title. -->
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
   import Icon from './Icon.svelte';
+  import Tooltip from './Tooltip.svelte';
   import type { IconName } from '../lib/icons.ts';
   import { placeMenu } from '../lib/menu.ts';
   import { FOCUSABLE, dismissal } from '../lib/popover.ts';
@@ -109,7 +111,7 @@
   type="button"
   class="btn sm {iconOnly ? 'icon' : ''}"
   aria-label={label}
-  title={extraTitle ? `${label}. ${extraTitle}` : label}
+  title={iconOnly ? undefined : extraTitle ? `${label}. ${extraTitle}` : label}
   aria-haspopup="dialog"
   aria-expanded={open}
   aria-controls={panelId}
@@ -132,3 +134,4 @@
   <div class="flex shrink-0 items-center border-b border-line px-3 py-1.5"><h2 id={titleId} class="h section min-w-0 truncate">{title}</h2></div>
   <div class="min-h-0 overflow-y-auto overscroll-contain p-3 flex flex-col gap-3 text-xs">{@render children()}</div>
 </div>
+{#if iconOnly}<Tooltip anchor={trigger} text={label} off={open} />{/if}

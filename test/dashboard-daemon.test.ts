@@ -124,6 +124,25 @@ test('poolModel enables pool Start/Stop like the old bar, with the hint', () => 
   assert.equal(m({ wanted: false }).startHint, null);
 });
 
+test('poolModel: one Start/Stop toggle', () => {
+  const m = (o, pending = false) => poolModel(pool(o), { pending }).toggle;
+  const busy = { inbox: session({ scope: '_inbox', running: true, status: 'idle' }) };
+  assert.deepEqual(m({}), { action: 'stop', enabled: true }, 'a wanted pool stops');
+  assert.deepEqual(m({ wanted: false, ...busy }), { action: 'stop', enabled: true }, 'a session still running stops');
+  assert.deepEqual(m({ wanted: false }), { action: 'start', enabled: true }, 'enabled, not wanted, nothing running: starts');
+  assert.equal(m({ enabled: false, wanted: false, ...busy }).action, 'stop', 'a running session stops even while the config disables the pool');
+  assert.deepEqual(m({ enabled: false, wanted: false, ...busy }), { action: 'stop', enabled: true });
+  for (const o of [{}, { wanted: false, ...busy }, { wanted: false }, { enabled: false, wanted: false, ...busy }]) {
+    assert.deepEqual(m(o, true), { action: m(o).action, enabled: false }, `pending keeps the action and disables it (${JSON.stringify(o)})`);
+  }
+  // The model's flags agree with the toggle: whatever could run is the toggle's action.
+  for (const o of [{}, { wanted: false, ...busy }, { wanted: false }, { enabled: false, wanted: false, ...busy }]) {
+    const full = poolModel(pool(o), { pending: false });
+    assert.ok(!(full.canStart && full.canStop), 'Start and Stop are never both possible');
+    assert.equal(full.toggle.enabled, full.toggle.action === 'stop' ? full.canStop : full.canStart);
+  }
+});
+
 test('sessionControls: Start once the pool runs and the session is stopped or failed; Stop while wanted or running', () => {
   assert.deepEqual(sessionControls(session({ wanted: false }), true, false), { canStart: true, canStop: false });
   assert.deepEqual(sessionControls(session({ lastError: 'x', wanted: true }), true, false), { canStart: true, canStop: true });

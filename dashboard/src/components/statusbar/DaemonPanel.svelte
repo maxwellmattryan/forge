@@ -1,12 +1,13 @@
 <!-- The Daemon popover's body. First the Foreman row: the supervisor above this pool, a button that opens the Foreman
      popover (StatusBar's openForeman anchors it on the bar's Foreman indicator), in both branches. Below it, under a
-     divider, the pool pill, live/cap and default permissions, the pool error, pool Start/Stop, then one row per session:
+     divider, the pool pill, live/cap and default permissions, the pool error, the pool's one Start/Stop icon toggle, then one row per session:
      the Inbox session, then each job session in status order, and under them the Inbox session log toggle (remembered
      under LOG_KEY). A job row opens that job's pane on the Log tab. The rows say held and waiting themselves, so no chips
      repeat them; permission prompts are answered in the Needs-you popover. StatusBar owns the pool state and act(), so the indicator and this panel agree. Session errors
      and job titles are untrusted and render as text. -->
 <script lang="ts">
   import Icon from '../Icon.svelte';
+  import IconButton from '../IconButton.svelte';
   import SessionLog from '../SessionLog.svelte';
   import { TONE_CLASS } from '../../lib/util.ts';
   import { START_HINT, daemonRows, type Pill, type PoolModel } from '../../lib/daemon.ts';
@@ -73,8 +74,7 @@
     </div>
     {#if model.error !== null}<p class="text-sm text-bad whitespace-pre-line break-words">{model.error}</p>{/if}
     <div class="flex flex-wrap items-center gap-2">
-      <button class="btn sm" disabled={!model.canStart} title={model.startHint} aria-label={$t('daemon.startAll')} onclick={() => act('start')}><Icon name="play" />{$t('daemon.start')}</button>
-      <button class="btn sm" disabled={!model.canStop} aria-label={$t('daemon.stopAll')} onclick={() => act('stop')}><Icon name="stop" />{$t('daemon.stop')}</button>
+      <IconButton icon={model.toggle.action === 'start' ? 'play' : 'stop'} label={model.toggle.action === 'start' ? $t('daemon.start') : $t('daemon.stop')} hint={model.toggle.action === 'start' ? model.startHint : null} disabled={!model.toggle.enabled} onclick={() => act(model.toggle.action)} />
     </div>
     <ul class="flex flex-col gap-1 border-t border-line pt-3" aria-label={$t('daemon.rows.label')}>
       {#each rows as r (r.kind === 'job' ? `job:${r.id}` : r.kind)}
@@ -106,6 +106,6 @@
     {@render foremanRow()}
     <div class="border-t border-line"></div>
     <p class="text-sm text-muted">{$t('statusbar.daemon.disabled')}</p>
-    <div><button class="btn sm" disabled title={START_HINT} aria-label={$t('daemon.startAll')}><Icon name="play" />{$t('daemon.start')}</button></div>
+    <div><IconButton icon="play" label={$t('daemon.start')} hint={START_HINT} disabled /></div>
   </div>
 {/if}

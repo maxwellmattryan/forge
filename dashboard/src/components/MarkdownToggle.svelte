@@ -4,7 +4,7 @@
   import { MD_VIEWS } from '../lib/md-view.ts';
   import type { MdSurface, MdView } from '../lib/md-view.ts';
   import { mdView, setMdView } from '../lib/md-view.svelte.ts';
-  import Icon from './Icon.svelte';
+  import IconButton from './IconButton.svelte';
   import { t } from '../lib/locale.ts';
 
   let { surface, iconOnly = false }: { surface: MdSurface; iconOnly?: boolean } = $props();
@@ -16,7 +16,7 @@
 </script>
 
 {#if iconOnly}
-  <button type="button" class="btn sm icon {rendered ? 'sel' : ''}" aria-pressed={rendered} aria-label={$t('markdown.sessionRendered')} title={$t('markdown.sessionRendered')} onclick={() => setMdView(surface, rendered ? 'raw' : 'rendered')}><Icon name="markdown" /></button>
+  <IconButton icon="markdown" label={$t('markdown.sessionRendered')} pressed={rendered} onclick={() => setMdView(surface, rendered ? 'raw' : 'rendered')} />
 {:else}
   <div class="seg" role="group" aria-label={groupLabel[surface]}>
     {#each MD_VIEWS as v (v)}{@const on = mdView[surface] === v}<button type="button" class="btn sm {on ? 'sel' : ''}" aria-pressed={on} onclick={() => setMdView(surface, v)}>{viewLabel[v]}</button>{/each}
