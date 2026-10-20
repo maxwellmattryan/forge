@@ -23,22 +23,27 @@ const RULE_LEADS = [
   '**Never add AI attribution**',
   '**Preserve the security posture**',
   "**Use the glossary's words.**",
-  '**Tailwind v4**',
   "**All TS (engine and dashboard) runs through Node's type stripping, which ignores tsconfig:**",
   '**Fast tests:**',
   '**Start-up cache:**',
   '**Typecheck caches:**',
   '**Engine TS:**',
-  '**Dashboard text comes from `dashboard/src/messages/en.json`.**',
-  '**Text never sits on the grain.**',
-  '**Escape everything the dashboard renders.**',
-  "**Tests can't import `.svelte` or `.svelte.ts`**",
   '**Claude Code transcripts**',
   '**Plugin runtime**',
   '**CLI output**',
   '**`--field` values**',
   '**Issue refs**',
   '**Worktrees live outside the repo**',
+];
+
+// The dashboard-only gotchas moved to dashboard/AGENTS.md, which the root's Essentials points to.
+const DASHBOARD = fs.readFileSync(path.join(ROOT, 'dashboard', 'AGENTS.md'), 'utf8');
+const DASHBOARD_LEADS = [
+  '**Tailwind v4**',
+  '**Dashboard text comes from `dashboard/src/messages/en.json`.**',
+  '**Text never sits on the grain.**',
+  '**Escape everything the dashboard renders.**',
+  "**Tests can't import `.svelte` or `.svelte.ts`**",
 ];
 
 /** The text of `## <name>` up to the next `## ` heading. */
@@ -78,6 +83,8 @@ test('AGENTS.md opens with essentials and keeps every rule', () => {
   assert.ok(AGENTS.includes('The rest of this file is reference: read a section when your change touches it.'));
   const rest = section(AGENTS, 'Rules') + section(AGENTS, 'Gotchas already paid for');
   for (const lead of RULE_LEADS) assert.ok(rest.includes(`- ${lead}`), `still in Rules or Gotchas: ${lead}`);
+  assert.ok(essentials.includes('](dashboard/AGENTS.md)'), 'Essentials points to dashboard/AGENTS.md');
+  for (const lead of DASHBOARD_LEADS) assert.ok(DASHBOARD.includes(`- ${lead}`), `in dashboard/AGENTS.md: ${lead}`);
   for (const name of ['Layout', 'Where a change goes', 'Rules', 'Verify before claiming it works', 'Gotchas already paid for', 'Publishing']) section(AGENTS, name);
 });
 

@@ -28,12 +28,12 @@
     "src": "fonts/DMMono-500.woff2"
   },
   "index.html": {
-    "file": "assets/index-CRmWPX6N.js",
+    "file": "assets/index-DD6RbLSg.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
     "css": [
-      "assets/index-BaiUz7Fh.css"
+      "assets/index-BcmO_P9f.css"
     ],
     "assets": [
       "assets/BarlowSemiCondensed-600-BkLiAYu4.woff2",
