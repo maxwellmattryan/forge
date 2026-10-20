@@ -142,6 +142,11 @@ export function allKnownValues(root: string, config: Config): string[] {
   return ordered(ids.flatMap((id) => knownValues(root, id, config)));
 }
 
+/** A daemon scope's known values: a job scope's own, every job's for `_inbox` and `_office` (no job id starts with `_`). */
+export function scopeKnownValues(root: string, scope: string, config: Config): string[] {
+  return JOB_ID.test(scope) ? knownValues(root, scope, config) : allKnownValues(root, config);
+}
+
 /** Deletes the job's record (`forge worktree remove`). */
 export function removeKnown(root: string, id: string): void {
   if (!JOB_ID.test(id)) return;

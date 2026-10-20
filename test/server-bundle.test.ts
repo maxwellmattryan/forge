@@ -7,7 +7,9 @@ import path from 'node:path';
 import { describe, test } from 'node:test';
 import { tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
+import crypto from 'node:crypto';
 import { createJob, jobDir } from '../lib/jobs.ts';
+import { recordKnown } from '../lib/known-secrets.ts';
 import { startServer } from '../lib/server.ts';
 import { hasBinary } from '../lib/util.ts';
 
@@ -62,6 +64,35 @@ describe('GET /api/doctor/bundle', { concurrency: 4 }, () => {
       const missing = await s.get('/api/doctor/bundle?job=no-such-job');
       assert.equal(missing.status, 404);
       assert.ok(JSON.parse(missing.body.toString('utf8')).error);
+    } finally {
+      await s.cleanup();
+    }
+  });
+
+  test('bundle omits private job files', { skip: !hasBinary('unzip') && 'needs unzip' }, async () => {
+    const s = await setup();
+    try {
+      const value = `kv-${crypto.randomBytes(8).toString('hex')}`;
+      recordKnown(s.root, s.job.id, { DB: value });
+      const dir = jobDir(s.root, s.job.id);
+      fs.writeFileSync(path.join(dir, 'backing-db.json'), JSON.stringify({ v: 1, databases: {} }));
+      // `cmd` is not a prose key, so the bundle keeps it: only the known pass takes the value out.
+      fs.appendFileSync(path.join(dir, 'events.jsonl'), `${JSON.stringify({ v: 1, ts: new Date().toISOString(), type: 'note', cmd: `leak ${value}` })}\n`);
+      const r = await s.get(`/api/doctor/bundle?job=${s.job.id}`, { 'x-forge-token': s.token, origin: `http://127.0.0.1:${s.port}` });
+      assert.equal(r.status, 200);
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-bundle-private-'));
+      try {
+        const file = path.join(tmp, 'b.zip');
+        fs.writeFileSync(file, r.body);
+        const names = execFileSync('unzip', ['-Z1', file], { encoding: 'utf8' }).split('\n').filter(Boolean);
+        assert.ok(names.includes(`jobs/${s.job.id}/events.jsonl`), names.join(','));
+        assert.equal(names.some((n) => n.includes('known-secrets') || n.includes('backing-db')), false, names.join(','));
+        const all = execFileSync('unzip', ['-p', file], { encoding: 'utf8' });
+        assert.ok(!all.includes(value), 'no known value in any entry');
+        assert.match(all, /leak <secret:known>/);
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
     } finally {
       await s.cleanup();
     }

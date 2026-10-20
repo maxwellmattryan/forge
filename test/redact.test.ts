@@ -4,11 +4,36 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import { defaults } from '../lib/config.ts';
+import { createJob } from '../lib/jobs.ts';
+import { recordKnown } from '../lib/known-secrets.ts';
 import { daemonSkeleton, omitProse, redactContext, redactText } from '../lib/redact.ts';
 import type { RedactContext } from '../lib/redact.ts';
 import { pem, token } from './secret-fixtures.ts';
+import { tempRepo } from './helpers.ts';
 
 const ctx = (over: Partial<RedactContext> = {}): RedactContext => ({ root: '/srv/nowhere/repo', home: '/home/nobody', identities: [], config: null, ...over });
+
+describe('redactText known values', { concurrency: 4 }, () => {
+  test('known values become <secret:known>', () => {
+    const v = 'kn"o\\wn-9f8e7d6c5b';
+    const r = redactText(`raw ${v} and json ${JSON.stringify({ v })}`, ctx({ known: [v, 'short'] }));
+    assert.equal(r.text, 'raw <secret:known> and json {"v":"<secret:known>"}');
+    assert.equal(r.counts.secrets, 2);
+    // redactContext reads every job's record.
+    const repo = tempRepo();
+    const dir = repo.dir;
+    try {
+      const config = defaults();
+      const id = createJob(dir, config, { title: 'k' }).id;
+      recordKnown(dir, id, { K: 'recorded-value-1234' });
+      const c = redactContext(dir, config, '/home/nobody');
+      assert.deepEqual(c.known, ['recorded-value-1234']);
+      assert.equal(redactText('x recorded-value-1234 y', c).text, 'x <secret:known> y');
+    } finally {
+      repo.cleanup();
+    }
+  });
+});
 
 describe('redactText', { concurrency: 4 }, () => {
   test('paths: repo before home, on name boundaries', () => {

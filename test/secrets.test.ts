@@ -4,8 +4,12 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { applyAllowlist, diffUnits, entropyOff, fingerprint, isPlaceholder, loadAllowlist, mask, parseAllowlist, scanPaths, scanUnits } from '../lib/secrets.ts';
+import { execFileSync } from 'node:child_process';
+import { applyAllowlist, diffUnits, entropyOff, fingerprint, isPlaceholder, loadAllowlist, mask, parseAllowlist, refuseSecrets, scanBranch, scanPaths, scanUnits, secretsBlock, secretsOk, textUnit } from '../lib/secrets.ts';
 import { defaults } from '../lib/config.ts';
+import { createJob } from '../lib/jobs.ts';
+import { recordKnown } from '../lib/known-secrets.ts';
+import { tempRepo } from './helpers.ts';
 import { ALNUM, DIGITS, LOWER, UPPER, base64Of, hexOf, inContext, pem, pick, token } from './secret-fixtures.ts';
 import type { TextUnit } from '../lib/types.ts';
 
@@ -208,4 +212,45 @@ test("the repo's tracked files hold no provider-shaped literal", () => {
   assert.ok(r.scanned.files > 100, `scanned ${r.scanned.files} files`);
   const provider = r.findings.filter((f) => f.kind !== 'high-entropy');
   assert.deepEqual(provider.map((f) => `${f.kind} ${f.path}:${f.line}`), []);
+});
+
+test('known values are findings the allowlist cannot allow', () => {
+  // Low entropy and no provider shape: only knowing the value finds it.
+  const v = 'devpassword-plain';
+  const plain = scanUnits([unit(`DB=${v}`, 'cfg/.env')], { config: defaults() });
+  assert.deepEqual(plain, []);
+  const found = scanUnits([unit(`DB=${v}\nagain ${v}`, 'cfg/.env'), unit(`body ${v}`, '(pr body)', false)], { config: defaults(), known: [v, 'short'] });
+  assert.deepEqual(found.map((f) => [f.kind, f.path, f.line]), [['known-secret', 'cfg/.env', 1], ['known-secret', '(pr body)', 1]]);
+  assert.equal(found[0].excerpt, mask(v));
+  assert.equal(found[0].fingerprint, fingerprint(v));
+  assert.ok(!JSON.stringify(found).includes(v));
+  const allow = { file: '.forge/secrets-allow.txt', present: true, ...parseAllowlist(`**\n${fingerprint(v)}\n`) };
+  const r = applyAllowlist(found, allow);
+  assert.equal(r.findings.length, 2, 'neither a glob nor the fingerprint allows a known value');
+  assert.equal(r.allowed.length, 0);
+  assert.equal(secretsOk({ findings: r.findings }, 'warn'), false, 'it blocks under warn');
+  assert.equal(secretsBlock(r.findings, 'warn'), true);
+  assert.equal(secretsOk({ findings: scan(`k ${token.aws()}`) }, 'warn'), true, 'other kinds still only warn');
+
+  // On a job's branch, committed after the .gitignore was edited around it, and in PR text.
+  const repo = tempRepo();
+  try {
+    const config = defaults();
+    const job = createJob(repo.dir, config, { title: 'known' });
+    recordKnown(repo.dir, job.id, { DB: v });
+    execFileSync('git', ['checkout', '-qb', 'feature'], { cwd: repo.dir });
+    fs.writeFileSync(path.join(repo.dir, '.gitignore'), '.env\n');
+    fs.writeFileSync(path.join(repo.dir, '.env'), `DB=${v}\n`);
+    execFileSync('git', ['add', '-f', '.gitignore', '.env'], { cwd: repo.dir });
+    execFileSync('git', ['commit', '-qm', 'add env'], { cwd: repo.dir });
+    const branch = scanBranch(repo.dir, config, { id: job.id, worktree: repo.dir, base: 'main' }, { staged: false });
+    assert.equal(branch.error, undefined);
+    assert.ok(branch.findings.some((f) => f.kind === 'known-secret' && f.path === '.env'), JSON.stringify(branch.findings));
+    assert.equal(secretsOk(branch, 'warn'), false);
+    assert.throws(() => refuseSecrets(repo.dir, config, [textUnit('(pr body)', `uses ${v}`)], { what: 'the PR title or body', id: job.id, gate: 'pr' }), (e: any) => e.code === 'secret_found' && /known-secret/.test(e.message) && !e.message.includes(v));
+    // Without the job id there is nothing to know.
+    refuseSecrets(repo.dir, config, [textUnit('(pr body)', `uses ${v}`)], { what: 'the PR title or body' });
+  } finally {
+    repo.cleanup();
+  }
 });

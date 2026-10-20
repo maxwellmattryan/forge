@@ -5,6 +5,7 @@ import { loadJob } from '../jobs.ts';
 import { exists } from '../paths.ts';
 import { prText } from '../pr.ts';
 import { applyAllowlist, findingLine, scanBranch, scanPaths, scanUnits, textUnit } from '../secrets.ts';
+import { knownValues } from '../known-secrets.ts';
 import { checkSecret } from '../secret-refs.ts';
 import { secretSourceOf } from '../secret-refs-config.ts';
 import { ForgeError } from '../util.ts';
@@ -96,7 +97,7 @@ export function secretsCmd(ctx: CliContext, sub: string | undefined, rest: strin
       const text = prText(root, config, job);
       const units = [textUnit('(pr title)', text.title), textUnit('(pr body)', text.body)];
       // A token in the PR text that also sits in the branch is still reported here: it is another place.
-      const more = applyAllowlist(scanUnits(units, { config }), scan.allowlist);
+      const more = applyAllowlist(scanUnits(units, { config, known: knownValues(root, job.id, config) }), scan.allowlist);
       scan = { ...scan, findings: [...scan.findings, ...more.findings], allowed: [...scan.allowed, ...more.allowed], scanned: { ...scan.scanned, texts: scan.scanned.texts + units.length } };
     }
     target = { job: job.id };

@@ -9,7 +9,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate, waitFor } from './helpers.ts';
 import { loadConfig } from '../lib/config.ts';
-import { createJob, jobDir, updateJob } from '../lib/jobs.ts';
+import { createJob, jobDir, logEvent, updateJob } from '../lib/jobs.ts';
 import { run } from '../lib/util.ts';
 import { createWorktree } from '../lib/worktree.ts';
 import * as yaml from '../lib/yaml.ts';
@@ -36,6 +36,8 @@ const template = repoTemplate((dir) => {
   fs.writeFileSync(path.join(api, 'tracked.json'), '{}\n');
   fs.writeFileSync(path.join(api, 'show.cjs'), SHOW);
   fs.writeFileSync(path.join(api, 'write.cjs'), WRITE);
+  // Echoes a secret the way a careless script would: raw, and inside JSON. Committed, so verify runs it on a clean tree.
+  fs.writeFileSync(path.join(api, 'echo.cjs'), "console.log('LEAK ' + process.env.DB); console.log(JSON.stringify({ db: process.env.DB })); process.exit(1);\n");
   fs.writeFileSync(path.join(dir, '.gitignore'), ['services/api/config.json', 'services/api/app.toml', 'services/api/.env.local', 'services/api/out/', 'services/api/cmd.out', 'services/api/ran.marker', ''].join('\n'));
   fs.mkdirSync(path.join(dir, '.forge'), { recursive: true });
   fs.writeFileSync(path.join(dir, '.forge', '.gitignore'), 'jobs/\nlocks/\nruntime/\n');
@@ -401,6 +403,48 @@ describe('secret references in sinks', { concurrency: 4 }, () => {
     } finally {
       x.cleanup();
       op.cleanup();
+    }
+  });
+
+  test('known values are redacted in logs, tails, verify reports and events', async () => {
+    // A `"` and a `\` inside: JSONL holds it escaped, and that form must go too.
+    const value = `pw"q\\z-${crypto.randomBytes(8).toString('hex')}`;
+    const x = scratch([{ env: { DB: '{secret.DB_PASS}' } }, { command: 'echo "SINK $PW"', values: { PW: '{secret.DB_PASS}' } }], { secrets: SECRETS, verify: ['test'] }, { commands: { test: `${NODE} echo.cjs` } });
+    try {
+      const j = x.job();
+      const env = { FORGE_TEST_DB_PASS: value };
+      const r = await forgeAsync(x.root, ['run', j.id, 'test'], env);
+      assert.equal(r.status, 1, 'the command fails on purpose');
+      const out = JSON.parse(r.stdout);
+      assert.equal(out.ok, false);
+      assert.ok(!out.tail.includes(value), 'the tail is redacted');
+      assert.match(out.tail, /LEAK \[redacted\]/);
+      assert.match(out.tail, /\{"db":"\[redacted\]"\}/, 'the JSON-escaped form goes too');
+      const v = await forgeAsync(x.root, ['verify', j.id], env);
+      assert.notEqual(v.status, 0);
+      assert.ok(!(v.stdout + v.stderr).includes(value));
+      const dir = jobDir(x.root, j.id);
+      const report = fs.readFileSync(path.join(dir, 'verify', 'round-1.md'), 'utf8');
+      assert.ok(!report.includes(value));
+      assert.match(report, /LEAK \[redacted\]/);
+      const logs = x.logs(j.id);
+      const sinkLogs = logs.filter((f) => f.startsWith('config-api-'));
+      assert.ok(sinkLogs.length >= 1);
+      for (const f of logs) {
+        const text = fs.readFileSync(path.join(dir, 'logs', f), 'utf8');
+        assert.ok(!text.includes(value), `${f} holds the value`);
+        assert.match(text, f.startsWith('config-api-') ? /SINK \[redacted\]/ : /LEAK \[redacted\]/, f);
+      }
+      // An event carrying the value, raw and inside JSON text, is redacted at write.
+      logEvent(x.root, j.id, 'note', { text: `x ${value} y`, json: JSON.stringify({ v: value }) });
+      const events = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8');
+      assert.ok(!events.includes(value));
+      assert.ok(!events.includes(JSON.stringify(value).slice(1, -1)), 'no JSON-escaped form either');
+      const note = x.events(j.id).find((e) => e.type === 'note');
+      assert.equal(note.text, 'x [redacted] y');
+      assert.equal(note.json, '{"v":"[redacted]"}');
+    } finally {
+      x.cleanup();
     }
   });
 
