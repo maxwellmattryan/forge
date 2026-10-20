@@ -11,6 +11,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { findAttribution } from '../lib/attribution.ts';
 import { parse } from '../lib/yaml.ts';
 import { tempRepo } from './helpers.ts';
+import * as stampModule from '../dashboard/build-stamp.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const read = (rel: string): string => fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -391,8 +392,64 @@ test('the archive step stamps and checks COMMIT', POSIX, () => {
   }
 });
 
+test('detect and COMMIT hold for a merged main-update PR', POSIX, () => {
+  const MAIN_UPDATE = path.join(ROOT, 'scripts', 'main-update.ts');
+  const FIXTURE_DIST = path.join(ROOT, 'test', 'fixtures', 'dist');
+  const dirs: string[] = [];
+  /** main at 1.0.0 (tagged), develop at `next`, merged into main through a main-update commit: returns the merge sha. */
+  const merged = (next: string) => {
+    const repo = tempRepo();
+    dirs.push(repo.dir);
+    const write = (rel: string, text: string) => {
+      fs.mkdirSync(path.dirname(path.join(repo.dir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(repo.dir, rel), text);
+    };
+    write('package.json', JSON.stringify({ name: 'forge', version: '1.0.0' }));
+    write('package-lock.json', JSON.stringify({ lockfileVersion: 3, packages: { '': {} } }));
+    write('dashboard/index.html', '<!doctype html>\n');
+    fs.copyFileSync(path.join(ROOT, 'COMMIT'), path.join(repo.dir, 'COMMIT'));
+    fs.copyFileSync(path.join(ROOT, '.gitattributes'), path.join(repo.dir, '.gitattributes'));
+    repo.git('add', '-A');
+    repo.git('commit', '-qm', 'release 1.0.0');
+    repo.git('tag', '-a', 'v1.0.0', '-m', 'Forge 1.0.0');
+    repo.git('checkout', '-qb', 'develop');
+    write('package.json', JSON.stringify({ name: 'forge', version: next }));
+    write('README.md', '# develop\n');
+    repo.git('add', '-A');
+    repo.git('commit', '-qm', 'feat: develop work');
+    const dist = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-release-dist-')));
+    dirs.push(dist);
+    fs.cpSync(FIXTURE_DIST, dist, { recursive: true });
+    const { distHash, sourceHash, STAMP } = stampModule;
+    fs.writeFileSync(path.join(dist, STAMP), JSON.stringify({ source: sourceHash(path.join(repo.dir, 'dashboard'), path.join(repo.dir, 'package-lock.json')), dist: distHash(dist) }));
+    const rev = (ref: string) => repo.git('rev-parse', ref).toString().trim();
+    const c = spawnSync(process.execPath, [MAIN_UPDATE, 'commit', '--main', rev('main'), '--develop', rev('develop'), '--dist', dist], { cwd: repo.dir, encoding: 'utf8' });
+    assert.equal(c.status, 0, c.stderr);
+    const update = c.stdout.trim();
+    repo.git('checkout', '-q', 'main');
+    // GitHub's "Create a merge commit": first parent the old main tip, second the PR head.
+    repo.git('merge', '-q', '--no-ff', '-m', 'Merge pull request #9 from o/ci/main-update', update);
+    const merge = rev('HEAD');
+    assert.deepEqual(repo.git('log', '-1', '--format=%P', merge).toString().trim().split(' ')[1], update);
+    return { repo, merge };
+  };
+  try {
+    const bumped = merged('1.1.0');
+    assert.equal(plan(bumped.repo.dir, 'detect').stdout, 'version=1.1.0\nrelease=true\n', 'a bumped version releases');
+    assert.ok(fs.existsSync(path.join(bumped.repo.dir, 'dashboard', 'dist', 'manifest.json')), 'main carries the built dashboard');
+    const tar = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', 'git archive --format=tar --prefix=forge/ "$SHA" | tar -xOf - forge/COMMIT'], { cwd: bumped.repo.dir, encoding: 'utf8', env: { ...process.env, SHA: bumped.merge } });
+    assert.equal(tar.status, 0, tar.stderr);
+    assert.equal(tar.stdout.trim(), bumped.merge, 'the archive stamps the merge commit');
+
+    const same = merged('1.0.0');
+    assert.equal(plan(same.repo.dir, 'detect').stdout, 'version=1.0.0\nrelease=false\n', 'an unchanged version does not');
+  } finally {
+    for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
+  }
+});
+
 test('no AI attribution in generated text', () => {
-  const files = ['.github/workflows/release.yml', '.github/workflows/ci.yml', 'docs/RELEASES.md', ...fs.readdirSync(path.join(ROOT, 'scripts')).filter((f) => /^release-.*\.ts$/.test(f)).map((f) => `scripts/${f}`)];
+  const files = ['.github/workflows/release.yml', '.github/workflows/ci.yml', '.github/workflows/main-update.yml', 'scripts/main-update.ts', 'docs/RELEASES.md', ...fs.readdirSync(path.join(ROOT, 'scripts')).filter((f) => /^release-.*\.ts$/.test(f)).map((f) => `scripts/${f}`)];
   assert.ok(files.includes('scripts/release-plan.ts') && files.includes('scripts/release-check.ts'));
   for (const f of files) assert.deepEqual(findAttribution(read(f)), [], f);
   // The tag message and the Release title are fixed text, never taken from a commit or PR.

@@ -9,23 +9,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STAMP, sourceHash, distHash } from '../dashboard/build-stamp.mjs';
 import { DIST, noDist } from './dist.ts';
+import { ASSET, manifestFiles as manifestNames } from '../scripts/main-update.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DASHBOARD = path.join(ROOT, 'dashboard');
 const BUILT = { skip: noDist() };
-const ASSET = /^assets\/[\w.-]+\.(js|css|woff2)$/;
-
-/** Every file name the manifest points at (file, css[] and assets[] of each entry). */
-function manifestFiles(): any {
-  const manifest = JSON.parse(fs.readFileSync(path.join(DIST, 'manifest.json'), 'utf8'));
-  /** @type {Set<string>} */
-  const out = new Set();
-  for (const entry of Object.values(manifest) as any) {
-    if (entry.file) out.add(entry.file);
-    for (const k of ['css', 'assets']) for (const f of entry[k] ?? []) out.add(f);
-  }
-  return out;
-}
+// The same walk main-update.yml's publish job checks the artifact with.
+const manifestFiles = () => manifestNames(DIST);
 
 /** @param {string} dir @returns {string[]} */
 function listFiles(dir, rel = '') {
