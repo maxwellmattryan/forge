@@ -1,7 +1,7 @@
 // dashboard/src/lib/menu.ts: where the session log's popovers open.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { keepFocus, parkFocus, placeMenu } from '../dashboard/src/lib/menu.ts';
+import { keepFocus, placeMenu } from '../dashboard/src/lib/menu.ts';
 
 const VIEW = { vw: 1440, vh: 900 };
 
@@ -48,7 +48,7 @@ test('placeMenu aligns start edges', () => {
   assert.deepEqual(placeMenu({ ...end, align: 'end' }), placeMenu({ top: 100, bottom: 128, right: 1000, ...VIEW, width: 256, height: 200 }));
 });
 
-/** A stand-in for the DOM bits parkFocus and keepFocus touch: focus() records itself as the document's active element. */
+/** A stand-in for the DOM bits keepFocus touches: focus() records itself as the document's active element. */
 function fakeDom() {
   const doc = { activeElement: null as unknown, body: { name: 'body' } as unknown };
   type Node = { name: string; focus(): void; [k: string]: unknown };
@@ -58,37 +58,6 @@ function fakeDom() {
   };
   return { doc, node };
 }
-
-test('parkFocus holds focus on the panel while a choice saves, then returns it to the checked radio', () => {
-  const { doc, node } = fakeDom();
-  const checked = node('checked');
-  const selectors: string[] = [];
-  const panel = node('panel', { querySelector: (s: string) => (selectors.push(s), checked) });
-  const radio = node('radio', { closest: (s: string) => (s === '[role="dialog"]' ? panel : null) });
-  radio.focus();
-  const restore = parkFocus(radio as any, doc as any);
-  assert.equal(doc.activeElement, panel, 'focus moves to the panel before the radios are disabled, so it never falls to <body>');
-  restore();
-  assert.equal(doc.activeElement, checked, 'then back to the checked radio');
-  assert.deepEqual(selectors, ['input[type="radio"]:checked:not(:disabled)']);
-});
-
-test('parkFocus leaves focus alone once it moved on, and without a panel', () => {
-  const { doc, node } = fakeDom();
-  const checked = node('checked');
-  const panel = node('panel', { querySelector: () => checked });
-  const radio = node('radio', { closest: () => panel });
-  const restore = parkFocus(radio as any, doc as any);
-  const elsewhere = node('elsewhere');
-  elsewhere.focus(); // Escape closed the panel and refocused its button, or a click went elsewhere.
-  restore();
-  assert.equal(doc.activeElement, elsewhere, 'the restore does not steal focus back');
-  const loose = node('loose', { closest: () => null });
-  loose.focus();
-  parkFocus(loose as any, doc as any)();
-  assert.equal(doc.activeElement, loose, 'outside a dialog, nothing moves');
-  parkFocus(null, doc as any)();
-});
 
 test('keepFocus refocuses a button that disabled itself, only if it had focus and nothing took it', () => {
   const { doc, node } = fakeDom();

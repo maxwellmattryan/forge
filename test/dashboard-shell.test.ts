@@ -1814,27 +1814,16 @@ test('log menus are top-layer dialogs', () => {
   assert.doesNotMatch(text, /popover="auto"|popover\.svelte\.ts/, 'no light dismiss, no global popover state');
 });
 
-test("the session log's settings and filters live in popovers", () => {
+// The Permissions and Effort dropdowns are Selects now: test/dashboard-session-log.test.ts and test/dashboard-effort.test.ts pin them.
+test("the session log's filters live in a popover", () => {
   const log = elements('components/SessionLog.svelte');
   assert.ok(!log.some((e) => e.name === 'select'), 'SessionLog has no select');
   const menus = log.filter((e) => e.name === 'MenuButton');
-  assert.equal(menus.length, 2, 'Permissions and Filter');
+  assert.equal(menus.length, 1, 'Filter');
   const inMenu = (e: El) => e.parents.some((p) => p.name === 'MenuButton');
   for (const i of log.filter((e) => e.name === 'input')) assert.ok(inMenu(i), `<input ${i.attrs.map((a) => a.name).join(' ')}> sits in a MenuButton`);
-  const [perm, filter] = menus;
-  assert.equal(attrOf(perm, 'icon'), 'shield');
-  assert.equal(attrOf(perm, 'label'), "{$t('session.modeTrigger', { mode: modeName[shownMode] ?? shownMode })}");
-  assert.equal(attrOf(perm, 'title'), "{$t('session.modeLabel')}");
-  const radios = log.filter((e) => e.name === 'input' && attrOf(e, 'type') === 'radio');
-  assert.equal(radios.length, 2, 'one radio per mode (repeated) and the unknown mode');
-  for (const r of radios) assert.ok(r.parents.includes(perm), 'the permission radios sit in its popover');
-  assert.equal(attrOf(radios[0], 'onchange'), '{(e) => setMode(m, e.currentTarget)}', 'the radio, so focus can wait on its panel');
-  assert.match(fnBody(read('components/SessionLog.svelte').replace(/\n {2}/g, '\n'), 'async function setMode('), /const restore = parkFocus\(el\);\s*picked = next;\s*pending = true;[\s\S]*finally \{\s*picked = null;\s*pending = false;\s*await tick\(\);\s*restore\(\);/, 'focus waits on the panel while the radios are disabled');
-  for (const r of radios) assert.ok(has(r, 'radio') && !has(r, 'check'), 'round radios, not checkboxes');
-  assert.equal(attrOf(radios[0], 'disabled'), '{modeLocked}');
-  assert.match(read('components/SessionLog.svelte'), /const modeLocked = \$derived\(pending \|\| S\.data\?\.daemons\?\.enabled !== true\);/);
-  assert.ok(log.some((e) => e.parents.includes(perm) && e.name === 'span' && /modeHint\[m\]/.test(read('components/SessionLog.svelte'))), 'each mode shows its hint');
-  assert.ok('checked' in Object.fromEntries(radios[1].attrs.map((a) => [a.name, a.value])) && attrOf(radios[1], 'disabled') !== undefined, 'an unknown mode shows checked and disabled');
+  const [filter] = menus;
+  assert.ok(!log.some((e) => e.name === 'input' && attrOf(e, 'type') === 'radio'), 'no radios: the permission mode is a Select');
   assert.equal(attrOf(filter, 'icon'), 'filter');
   assert.ok(filter.attrs.some((a) => a.name === 'iconOnly'), 'the filter button is icon-only');
   assert.equal(attrOf(filter, 'badge'), '{filtering}', 'filtersActive drives the badge');
@@ -1848,22 +1837,7 @@ test("the session log's settings and filters live in popovers", () => {
   assert.ok(read('components/SessionLog.svelte').includes('{#if scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE}<EffortSelect job={scope} />{/if}'), 'Effort for job scopes only');
 
   const effort = elements('components/EffortSelect.svelte');
-  assert.ok(!effort.some((e) => e.name === 'select'), 'EffortSelect has no select');
-  const menu = effort.find((e) => e.name === 'MenuButton');
-  assert.ok(menu, 'EffortSelect is a MenuButton');
-  assert.equal(attrOf(menu, 'icon'), 'gauge');
-  assert.equal(attrOf(menu, 'label'), "{$t('effort.trigger', { level: levelName })}");
-  assert.equal(attrOf(menu, 'extraTitle'), "{restart ? $t('effort.restart') : undefined}", 'the restart note joins the title while it applies');
-  const eRadios = effort.filter((e) => e.name === 'input' && attrOf(e, 'type') === 'radio');
-  assert.equal(eRadios.length, 2, 'Inherit, then each level');
-  for (const r of eRadios) assert.ok(r.parents.includes(menu), 'inside the popover');
-  assert.deepEqual(eRadios.map((r) => attrOf(r, 'onchange')), ["{(e) => choose('', e.currentTarget)}", '{(ev) => choose(e, ev.currentTarget)}']);
-  for (const r of eRadios) assert.ok(has(r, 'radio') && !has(r, 'check'), 'round radios, not checkboxes');
-  const fieldset = effort.find((e) => e.name === 'fieldset');
-  assert.ok(fieldset && has(fieldset, 'gap-2'), 'rows at least 24px apart on desktop (WCAG 2.5.8)');
-  assert.match(fnBody(read('components/EffortSelect.svelte').replace(/\n {2}/g, '\n'), 'async function choose('), /const restore = parkFocus\(el\);\s*picked = value;\s*pending = true;[\s\S]*finally \{\s*picked = null;\s*pending = false;\s*await tick\(\);\s*restore\(\);/, 'focus waits on the panel while the radios are disabled');
-  const note = effort.find((e) => attrOf(e, 'role') === 'status');
-  assert.ok(note?.parents.includes(menu), 'the restart note sits in the popover');
+  assert.ok(!effort.some((e) => e.name === 'select' || e.name === 'MenuButton'), 'EffortSelect is neither a native select nor a popover');
 });
 
 test("the session log's rendered/raw toggle is icon-only", () => {

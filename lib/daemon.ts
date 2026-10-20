@@ -58,6 +58,10 @@ export interface DaemonOptions {
   platform?: NodeJS.Platform;
   /** Where a daemon stop is announced (lib/notify.ts queueNotify). */
   notify?: QueueNotify;
+  /** How often the pool runs `forge sync` while it is wanted; 0 never does. */
+  syncMs?: number;
+  /** Runs one `forge sync`; resolves with null on success or the failure's message. */
+  runSync?: (root: string) => Promise<string | null>;
 }
 
 /** DaemonOptions with every default filled in. */

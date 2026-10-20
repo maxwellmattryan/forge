@@ -1,6 +1,6 @@
 <!-- One session's structured log (a job's, or the inbox's in the status bar's Daemon popover): one compact control row
-     (status facts, then the Permissions and Effort buttons, one Start/Stop icon toggle, the Filter button, the rendered/raw
-     icon toggle, Follow and Load older; the settings and filters sit in MenuButton popovers), and turns with tool calls
+     (status facts, then the Permissions and Effort dropdowns, one Start/Stop icon toggle, the Filter button, the rendered/raw
+     icon toggle, Follow and Load older; the filters sit in a MenuButton popover), and turns with tool calls
      and subagents, followed live. Every log string is untrusted session output: text and thinking bodies and a
      subagent's prompt and result render only through the escape-first md() (as text in Raw or above 20k characters); tool
      input, tool results and every other line render as text. With `transcript`, it follows a job's Claude Code transcript
@@ -17,8 +17,10 @@
   import Empty from './Empty.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
   import MenuButton from './MenuButton.svelte';
+  import Select from './Select.svelte';
   import { md } from '../lib/markdown.ts';
-  import { keepFocus, parkFocus } from '../lib/menu.ts';
+  import { keepFocus } from '../lib/menu.ts';
+  import type { SelectOption } from '../lib/select.ts';
   import { renderable } from '../lib/md-view.ts';
   import { mdView } from '../lib/md-view.svelte.ts';
   import { TONE_CLASS, clock, usd } from '../lib/util.ts';
@@ -65,13 +67,18 @@
   const toggle = $derived(sessionToggle(controls, session));
   // The choice lives in the pool, so it shows (and applies at the next spawn) even while no child runs.
   const mode = $derived(sessionMode(S.data?.daemons ?? null, scope, session));
-  /** Shown until the next /api/state carries the new choice, so the radios don't jump back meanwhile. */
+  /** Shown until the next /api/state carries the new choice, so the trigger doesn't jump back meanwhile. */
   let picked = $state<string | null>(null);
   const modeName = $derived<Record<string, string>>({ default: $t('session.modes.default'), auto: $t('session.modes.auto'), dontAsk: $t('session.modes.dontAsk') });
   const modeHint = $derived<Record<string, string>>({ default: $t('session.modes.defaultHint'), auto: $t('session.modes.autoHint'), dontAsk: $t('session.modes.dontAskHint') });
   const shownMode = $derived(picked ?? mode.chosen);
   const modeLocked = $derived(pending || S.data?.daemons?.enabled !== true);
-  const uid = $props.id();
+  // modeLocked covers a change that is saving (pending). A chosen mode this dashboard doesn't know shows last, selected
+  // and disabled.
+  const modeOptions = $derived<SelectOption[]>([
+    ...PERMISSION_MODES.map((m) => ({ value: m, label: modeName[m], hint: modeHint[m], disabled: modeLocked })),
+    ...(PERMISSION_MODES.some((m) => m === mode.chosen) ? [] : [{ value: mode.chosen, label: mode.chosen, disabled: true, separator: true }]),
+  ]);
 
   let filters = $state<Filters>(readFilters(pref.get('sessionFilters', '')));
   const filtering = $derived(filtersActive(filters));
@@ -172,10 +179,9 @@
     }
   }
 
-  async function setMode(value: string, el: HTMLInputElement): Promise<void> {
+  async function setMode(value: string): Promise<void> {
     const next = PERMISSION_MODES.find((m) => m === value);
     if (!next || next === mode.chosen) return;
-    const restore = parkFocus(el);
     picked = next;
     pending = true;
     try {
@@ -186,8 +192,6 @@
     } finally {
       picked = null;
       pending = false;
-      await tick();
-      restore();
     }
   }
 </script>
@@ -206,29 +210,29 @@
   <div class="mt-1">
     <div class="label">{$t('session.result')}</div>
     <pre class="whitespace-pre-wrap break-words border border-line-soft p-2 {r.isError ? 'text-bad' : ''}">{r.preview}</pre>
-    {#if r.more}<details class="mt-1"><summary class="cursor-pointer text-muted">{$t('session.fullResult')}</summary><pre class="whitespace-pre-wrap break-words border border-line-soft p-2 {r.isError ? 'text-bad' : ''}">{r.full}</pre></details>{/if}
+    {#if r.more}<details class="mt-1"><summary class="text-muted">{$t('session.fullResult')}</summary><pre class="whitespace-pre-wrap break-words border border-line-soft p-2 {r.isError ? 'text-bad' : ''}">{r.full}</pre></details>{/if}
   </div>
 {/snippet}
 
 {#snippet item(it: Item)}
   {#if it.kind === 'text'}
     {@const prose = renderable(it.text, mdView.session)}
-    <div class="flex items-baseline gap-2 font-sans {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5">{@render when(it.at)}{#if it.long}<details class="min-w-0"><summary class="cursor-pointer whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text.slice(0, 200)}…</summary>{#if prose}<div class="{compact ? 'prose compact' : 'prose'} break-words">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words">{it.text}</div>{/if}</details>{:else if prose}<div class="{compact ? 'prose compact' : 'prose'} min-w-0 break-words [&>:first-child]:mt-0 [&>:last-child]:mb-0 {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{@html md(it.text)}</div>{:else}<div class="min-w-0 whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text}</div>{/if}</div>
+    <div class="flex items-baseline gap-2 font-sans {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5">{@render when(it.at)}{#if it.long}<details class="min-w-0"><summary class="whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text.slice(0, 200)}…</summary>{#if prose}<div class="{compact ? 'prose compact' : 'prose'} break-words">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words">{it.text}</div>{/if}</details>{:else if prose}<div class="{compact ? 'prose compact' : 'prose'} min-w-0 break-words [&>:first-child]:mt-0 [&>:last-child]:mb-0 {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{@html md(it.text)}</div>{:else}<div class="min-w-0 whitespace-pre-wrap break-words {it.tone === 'bad' ? 'text-bad' : it.tone ? 'text-muted' : ''}">{it.text}</div>{/if}</div>
   {:else if it.kind === 'thinking'}
-    <details class="text-muted {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5"><summary class="cursor-pointer">{@render when(it.at)}{$t('session.thinkingItem')}</summary>{#if renderable(it.text, mdView.session)}<div class="{compact ? 'prose compact' : 'prose'} font-sans break-words">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words">{it.text}</div>{/if}</details>
+    <details class="text-muted {TINT[logSender(it.kind)]} px-1.5 -mx-1.5 py-0.5"><summary>{@render when(it.at)}{$t('session.thinkingItem')}</summary>{#if renderable(it.text, mdView.session)}<div class="{compact ? 'prose compact' : 'prose'} font-sans break-words">{@html md(it.text)}</div>{:else}<div class="whitespace-pre-wrap break-words">{it.text}</div>{/if}</details>
   {:else if it.kind === 'tool'}
     <details class="border px-1.5 -mx-1.5 py-1 {TINT[logSender(it.kind)]} {it.tone === 'bad' ? 'border-bad' : 'border-line-soft'}">
-      <summary class="cursor-pointer break-all">{@render when(it.at)}<span class="text-gleam">→ {it.name}</span> <span class="text-muted">{it.summary}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
+      <summary class="break-all">{@render when(it.at)}<span class="text-gleam">→ {it.name}</span> <span class="text-muted">{it.summary}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
       <div class="label mt-1">{$t('session.input')}</div>
       <pre class="whitespace-pre-wrap break-words border border-line-soft p-2">{it.input}</pre>
       {#if it.result}{@render result(it.result)}{/if}
     </details>
   {:else if it.kind === 'subagent'}
     <details class="border border-info px-1.5 -mx-1.5 py-1 {TINT[logSender(it.kind)]}">
-      <summary class="cursor-pointer break-all">{@render when(it.at)}<Chip tone={it.known ? 'info' : 'muted'} text={it.role} /> <span>{it.description}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.hidden} <span class="text-muted">{$t('session.hiddenLines', { count: it.hidden })}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
+      <summary class="break-all">{@render when(it.at)}<Chip tone={it.known ? 'info' : 'muted'} text={it.role} /> <span>{it.description}</span>{#if it.task?.text} <span class="text-muted">· {it.task.text}</span>{/if}{#if it.hidden} <span class="text-muted">{$t('session.hiddenLines', { count: it.hidden })}</span>{/if}{#if it.result?.isError} <Chip tone="bad" text={$t('session.error')} />{/if}</summary>
       {#if it.prompt}
         <details class="mt-1">
-          <summary class="cursor-pointer text-muted">{$t('session.prompt')}</summary>
+          <summary class="text-muted">{$t('session.prompt')}</summary>
           {#if renderable(it.prompt, mdView.session)}<div class="prose compact break-words border border-line-soft p-2">{@html md(it.prompt)}</div>{:else}<pre class="whitespace-pre-wrap break-words border border-line-soft p-2">{it.prompt}</pre>{/if}
         </details>
       {/if}
@@ -269,14 +273,8 @@
     {/if}
     <div class="ml-auto flex flex-wrap items-center justify-end gap-1.5">
       {#if !transcript}
-        <!-- The button stays enabled while the radios can't change, so the hints stay readable. -->
-        <MenuButton label={$t('session.modeTrigger', { mode: modeName[shownMode] ?? shownMode })} title={$t('session.modeLabel')} icon="shield" text={modeName[shownMode] ?? shownMode}>
-          <fieldset class="flex flex-col gap-2">
-            <legend class="sr-only">{$t('session.modeLabel')}</legend>
-            {#each PERMISSION_MODES as m (m)}<label class="field items-start"><input type="radio" class="radio mt-0.5" name="{uid}-mode" value={m} checked={shownMode === m} disabled={modeLocked} onchange={(e) => setMode(m, e.currentTarget)} /><span class="flex min-w-0 flex-col"><span>{modeName[m]}</span><span class="text-xs text-muted">{modeHint[m]}</span></span></label>{/each}
-            {#if !PERMISSION_MODES.some((m) => m === mode.chosen)}<label class="field"><input type="radio" class="radio" name="{uid}-mode" value={mode.chosen} checked disabled />{mode.chosen}</label>{/if}
-          </fieldset>
-        </MenuButton>
+        <!-- The Select stays enabled while its entries can't change, so it still opens and the hints stay readable. -->
+        <Select variant="button" icon="shield" align="end" label={$t('session.modeLabel')} value={shownMode} text={modeName[shownMode] ?? shownMode} options={modeOptions} onchange={setMode} />
         {#if scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE}<EffortSelect job={scope} />{/if}
         <IconButton icon={toggle.action === 'start' ? 'play' : 'stop'} label={toggle.action === 'start' ? $t('session.start') : $t('session.stop')} hint={toggle.action === 'start' ? $t('session.startHint') : null} disabled={!toggle.enabled} onclick={(e) => act(toggle.action, e.currentTarget)} />
       {/if}

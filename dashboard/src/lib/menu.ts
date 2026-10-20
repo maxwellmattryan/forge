@@ -1,5 +1,5 @@
-// Where a small menu popover (components/MenuButton.svelte) opens, and where focus waits while a choice in it saves, as
-// plain functions node:test can pin.
+// Where a small menu popover (components/MenuButton.svelte, components/Select.svelte) opens, and where focus waits while
+// a button's action runs, as plain functions node:test can pin.
 
 export interface MenuPlaceInput {
   /** The trigger's rect edges, in viewport px. */
@@ -23,24 +23,8 @@ export interface MenuPlaceInput {
 }
 
 /**
- * A choice in a menu panel disables its own radios while it saves, and a focused control that becomes disabled drops focus
- * to <body>. There arrow keys do nothing and Escape reaches App's window handler (closing the drawer or a status bar
- * popover) instead of the panel's. So park focus on the panel (tabindex="-1") meanwhile, and call the returned function
- * once the radios are enabled again: it puts focus back on the checked radio, unless focus moved on in between.
- */
-export function parkFocus(control: Element | null, doc: { readonly activeElement: Element | null } = document): () => void {
-  const panel = control?.closest<HTMLElement>('[role="dialog"]') ?? null;
-  if (!panel) return () => {};
-  panel.focus();
-  return () => {
-    if (doc.activeElement !== panel) return;
-    panel.querySelector<HTMLElement>('input[type="radio"]:checked:not(:disabled)')?.focus();
-  };
-}
-
-/**
- * The same for a button that disables itself while its action runs (the session log's Start/Stop): the returned function
- * refocuses it if it had focus and nothing else took focus meanwhile.
+ * A focused button that disables itself while its action runs (the session log's Start/Stop) drops focus to <body>: the
+ * returned function refocuses it if it had focus and nothing else took focus meanwhile.
  */
 export function keepFocus(el: HTMLElement | null, doc: { readonly activeElement: Element | null; readonly body: Element | null } = document): () => void {
   const had = el !== null && doc.activeElement === el;

@@ -1,14 +1,15 @@
-<!-- A job's reasoning effort, beside the Permissions button in its Log tab: a button naming the level that opens a small
-     popover of radios. Inherit clears the job's own level. It works with the daemon off too, because an interactive
-     orchestrator reads the level from `forge job step`. A running session keeps the level it started with until its next
-     spawn, which the note in the popover (and the button's title) says. -->
+<!-- A job's reasoning effort, beside the Permissions dropdown in its Log tab: a small button Select naming the level.
+     Inherit clears the job's own level. It works with the daemon off too, because an interactive orchestrator reads the
+     level from `forge job step`. A running session keeps the level it started with until its next spawn, which the
+     button's title and badge say. While a change saves every entry is disabled, but the button itself stays enabled, so
+     focus stays on it instead of dropping to <body>. -->
 <script lang="ts">
-  import { tick } from 'svelte';
-  import MenuButton from './MenuButton.svelte';
-  import { parkFocus } from '../lib/menu.ts';
+  import Select from './Select.svelte';
+  import Icon from './Icon.svelte';
   import { EFFORTS } from '../lib/types.ts';
   import type { Effort } from '../lib/types.ts';
-  import { postJobEffort, restartPending } from '../lib/effort.ts';
+  import type { SelectOption } from '../lib/select.ts';
+  import { effortTone, postJobEffort, restartPending } from '../lib/effort.ts';
   import { S, forgeToken, refresh } from '../lib/app.svelte.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
@@ -18,18 +19,20 @@
   const fallback = $derived(S.data?.config?.effort ?? null);
   const session = $derived(S.data?.daemons?.jobs?.[job] ?? null);
   const restart = $derived(row !== null && restartPending(session, row.effort, fallback));
-  /** Shown until the next /api/state carries the new level, so the radios don't jump back meanwhile. */
+  /** Shown until the next /api/state carries the new level, so the trigger doesn't jump back meanwhile. */
   let picked = $state<string | null>(null);
   let pending = $state(false);
   const name = $derived<Record<Effort, string>>({ low: $t('effort.levels.low'), medium: $t('effort.levels.medium'), high: $t('effort.levels.high'), xhigh: $t('effort.levels.xhigh'), max: $t('effort.levels.max') });
   const current = $derived(picked ?? row?.effort ?? '');
   const levelName = $derived(EFFORTS.find((e) => e === current) ? name[current as Effort] : $t('effort.inheritShort'));
-  const uid = $props.id();
+  const options = $derived<SelectOption[]>([
+    { value: '', label: $t('effort.inherit', { level: fallback ? name[fallback] : $t('effort.claude') }), icon: 'settings', disabled: pending },
+    ...EFFORTS.map((e) => ({ value: e, label: name[e], separator: e === EFFORTS[0], disabled: pending })),
+  ]);
 
-  async function choose(value: string, el: HTMLInputElement): Promise<void> {
+  async function choose(value: string): Promise<void> {
     const next = value === '' ? null : EFFORTS.find((e) => e === value);
     if (next === undefined || next === (row?.effort ?? null)) return;
-    const restore = parkFocus(el);
     picked = value;
     pending = true;
     try {
@@ -40,20 +43,28 @@
     } finally {
       picked = null;
       pending = false;
-      await tick();
-      restore();
     }
   }
 </script>
 
+<!-- Inherit keeps the icon + text layout; a level shows its name and, for the costly ones, a warn dot. -->
+{#snippet level(o: SelectOption)}
+  {@const lv = EFFORTS.find((e) => e === o.value)}
+  {#if o.icon}<Icon name={o.icon} class="shrink-0" />{/if}<span class="truncate">{o.label}</span>{#if lv && effortTone(lv) === 'warn'}<span class="dot warn ml-auto mt-1.5" aria-hidden="true"></span>{/if}
+{/snippet}
+
 {#if row}
-  <MenuButton label={$t('effort.trigger', { level: levelName })} title={$t('effort.label')} icon="gauge" text={levelName} extraTitle={restart ? $t('effort.restart') : undefined}>
-    <p class="text-muted">{$t('effort.hint')}</p>
-    <fieldset class="flex flex-col gap-2">
-      <legend class="sr-only">{$t('effort.label')}</legend>
-      <label class="field"><input type="radio" class="radio" name="{uid}-effort" value="" checked={current === ''} disabled={pending} onchange={(e) => choose('', e.currentTarget)} />{$t('effort.inherit', { level: fallback ? name[fallback] : $t('effort.claude') })}</label>
-      {#each EFFORTS as e (e)}<label class="field"><input type="radio" class="radio" name="{uid}-effort" value={e} checked={current === e} disabled={pending} onchange={(ev) => choose(e, ev.currentTarget)} />{name[e]}</label>{/each}
-    </fieldset>
-    {#if restart}<p role="status" class="text-muted">{$t('effort.restart')}</p>{/if}
-  </MenuButton>
+  <Select
+    variant="button"
+    icon="gauge"
+    align="end"
+    label={$t('effort.label')}
+    value={current}
+    text={levelName}
+    title={restart ? `${$t('effort.hint')} ${$t('effort.restart')}` : $t('effort.hint')}
+    badge={restart}
+    {options}
+    entry={level}
+    onchange={choose}
+  />
 {/if}

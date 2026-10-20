@@ -2,6 +2,10 @@
 // precedence it mirrors from lib/config.ts resolveEffort, checked against the same table.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { tags } from './svelte-markup.ts';
 import { EFFORT_CASES } from './effort-cases.ts';
 import { effectiveEffort, effortChip, effortTone, postJobEffort, restartPending } from '../dashboard/src/lib/effort.ts';
 import { defaults, resolveEffort } from '../lib/config.ts';
@@ -42,6 +46,28 @@ test('restartPending only while a running session started at another level', () 
   assert.equal(restartPending({ running: false, effort: null } as any, 'max', null), false, 'no child: the next spawn uses the new level anyway');
   assert.equal(restartPending(null, 'max', null), false);
   assert.equal(restartPending(undefined, 'max', null), false);
+});
+
+test('EffortSelect is a button Select that keeps focus while saving', () => {
+  const text = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dashboard', 'src', 'components', 'EffortSelect.svelte'), 'utf8');
+  const [sel, ...rest] = tags('EffortSelect.svelte', text).filter((x) => x.name === 'Select');
+  assert.ok(sel && rest.length === 0, 'one Select');
+  const attr = (name: string) => sel.attrs.find((a) => a.name === name)?.value?.replace(/^(["'])([\s\S]*)\1$/, '$2');
+  assert.deepEqual(
+    { variant: attr('variant'), icon: attr('icon'), align: attr('align'), label: attr('label'), value: attr('value'), text: attr('text'), badge: attr('badge'), entry: attr('entry'), onchange: attr('onchange') },
+    { variant: 'button', icon: 'gauge', align: 'end', label: "{$t('effort.label')}", value: '{current}', text: '{levelName}', badge: '{restart}', entry: '{level}', onchange: '{choose}' },
+  );
+  assert.equal(attr('title'), "{restart ? `${$t('effort.hint')} ${$t('effort.restart')}` : $t('effort.hint')}", 'the hint, and the restart note while it applies');
+  assert.ok(!sel.attrs.some((a) => a.name === 'disabled'), 'the trigger is never disabled, so focus never drops to <body>');
+  // Saving disables every entry instead: Inherit and each level.
+  assert.match(text, /icon: 'settings', disabled: pending \}/);
+  assert.match(text, /\.\.\.EFFORTS\.map\(\(e\) => \(\{ value: e, label: name\[e\], separator: e === EFFORTS\[0\], disabled: pending \}\)\)/, 'a separator before the levels');
+  // The level snippet: the name and, for the costly levels, a decorative warn dot.
+  assert.ok(text.includes(`{#if lv && effortTone(lv) === 'warn'}<span class="dot warn ml-auto mt-1.5" aria-hidden="true"></span>{/if}`));
+  // choose keeps the picked level shown while it saves, toasts and reverts on a failure, and parks no focus.
+  const choose = text.slice(text.indexOf('async function choose('), text.indexOf('\n  }\n', text.indexOf('async function choose(')));
+  assert.match(choose, /picked = value;\s*pending = true;[\s\S]*toast\(\$t\('effort\.failed'[\s\S]*finally \{\s*picked = null;\s*pending = false;\s*\}$/);
+  assert.doesNotMatch(text, /parkFocus|tick\(/);
 });
 
 test('postJobEffort posts the level with the token and throws the server error', async () => {

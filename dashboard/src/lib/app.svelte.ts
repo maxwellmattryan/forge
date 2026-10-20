@@ -239,13 +239,16 @@ const postInit = (body: unknown): RequestInit => ({
 /** Queues a request; throws the server's `error` text, so the command bar can keep it in the dialog. */
 export const postRequest = (body: RequestBody): Promise<PostRequestResponse> => jsonFetch<PostRequestResponse>('/api/requests', postInit(body));
 
-export async function request(body: RequestBody): Promise<void> {
+/** Queues a request and toasts the outcome; resolves whether it was queued. */
+export async function request(body: RequestBody): Promise<boolean> {
   try {
     const r = await postRequest(body);
     toast(queuedMessage(body.type, r.daemon));
     refresh();
+    return true;
   } catch (e) {
     toast(`Request failed: ${message(e)}`, true);
+    return false;
   }
 }
 
@@ -261,11 +264,17 @@ export async function loadBacklog(): Promise<void> {
   S.backlog = await api<BacklogResponse>('/api/backlog').catch((e: unknown) => ({ items: [], error: message(e) }));
 }
 
-/** A request button: builds the body as the old `req` handler did, or toasts why not. */
-export function req(input: RequestInput): void {
+/**
+ * A request button: builds the body as the old `req` handler did, or toasts why not. Null when nothing was sent (the
+ * input is invalid), else whether it was queued: a composer clears on send and restores its text only on failure.
+ */
+export function req(input: RequestInput): Promise<boolean> | null {
   const r = buildRequest(input);
-  if ('error' in r) toast(r.error, true);
-  else request(r.body);
+  if ('error' in r) {
+    toast(r.error, true);
+    return null;
+  }
+  return request(r.body);
 }
 
 // ---------- settings ----------
