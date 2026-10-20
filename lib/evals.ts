@@ -384,6 +384,7 @@ export function gradeJob(root: string, config: Config, jobId: string): EvalResul
     estCostUsd: job.usage.estCostUsd,
     minutes: job.createdAt ? Math.round((endMs - Date.parse(job.createdAt)) / 600) / 100 : null,
     gradedAt: now(),
+    roundsExhausted: job.round > job.maxRounds,
     ...jobTiming(readEvents(root, jobId), job.createdAt, endMs, job.stage),
   };
   const runFile = path.join(runsDir(root), `${meta.run}.json`);
@@ -399,7 +400,7 @@ export function gradeJob(root: string, config: Config, jobId: string): EvalResul
     }
     writeJsonAtomic(runFile, rec);
   });
-  logEvent(root, jobId, 'eval-graded', { pass: check.pass, judge: result.judge });
+  logEvent(root, jobId, 'eval-graded', { pass: check.pass, judge: result.judge, roundsExhausted: result.roundsExhausted });
   setJob(root, jobId, { stage: 'done', state: 'done', reason: 'eval graded' });
   return result;
 }
@@ -413,6 +414,8 @@ const SUMMARY: Record<Averaged, (r: EvalResult) => number | null> = {
   firstPassRate: (r) => (r.firstPass === null || r.firstPass === undefined ? null : r.firstPass ? 1 : 0),
   avgRounds: (r) => r.rounds,
   escalationRate: (r) => (r.decision ? (r.decision === 'ESCALATE' ? 1 : 0) : null),
+  // Results graded before the field have no roundsExhausted: left out, not counted as 0.
+  roundsExhaustedRate: (r) => (typeof r.roundsExhausted === 'boolean' ? (r.roundsExhausted ? 1 : 0) : null),
   avgTokens: (r) => r.tokens,
   avgCostUsd: (r) => r.estCostUsd,
   avgMinutes: (r) => r.minutes,
@@ -437,6 +440,7 @@ export function summarize(rec: Pick<EvalRun, 'tasks'>): EvalSummary {
     firstPassRate: avg('firstPassRate'),
     avgRounds: avg('avgRounds'),
     escalationRate: avg('escalationRate'),
+    roundsExhaustedRate: avg('roundsExhaustedRate'),
     avgTokens: avg('avgTokens'),
     avgCostUsd: avg('avgCostUsd'),
     avgMinutes: avg('avgMinutes'),
