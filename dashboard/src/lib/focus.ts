@@ -53,7 +53,7 @@ export function environmentModel(job: Pick<Job, 'id' | 'state' | 'worktree'> & {
 export const runToastKey = (reused: boolean): 'environment.runReused' | 'environment.runStarted' => (reused ? 'environment.runReused' : 'environment.runStarted');
 
 /** A JSON POST that throws with the server's `error` field, else its text, else the status text (as postJobEffort). */
-async function post<T>(url: string, body: unknown, token: string, fetchImpl: typeof fetch): Promise<T> {
+export async function post<T>(url: string, body: unknown, token: string, fetchImpl: typeof fetch): Promise<T> {
   const res = await fetchImpl(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forge-token': token }, body: JSON.stringify(body) });
   const text = await res.text();
   let parsed: unknown = null;
