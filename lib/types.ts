@@ -1578,6 +1578,14 @@ export interface Stats {
     specFirstApprovalRate: number | null;
     /** Recurring (lens, path) review findings across every job in the window. */
     recurringFindings: number;
+    /** Autonomous jobs (lib/autonomy.ts) over merged jobs with a final outcome. */
+    autonomyRate: number | null;
+    /** The same, also without a person's approval at a required gate. */
+    autonomyRateStrict: number | null;
+    revertRate: number | null;
+    followUpRate: number | null;
+    churnRate: number | null;
+    outcomeCoverage: { merged: number; final: number; open: number };
   };
   speed: { medianMinutesToPr: number | null; medianMinutesToDone: number | null };
   cost: {
