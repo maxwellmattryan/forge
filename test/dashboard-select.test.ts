@@ -111,6 +111,33 @@ test('selectKey with no enabled option', () => {
   }
 });
 
+test('rich options keep the keyboard model', () => {
+  const rich = [
+    { value: '', label: 'Inherit', icon: 'settings' as const, hint: 'From the config' },
+    { value: 'low', label: 'Low', separator: true, group: 'Levels' },
+    { value: 'medium', label: 'Medium', group: 'Levels', disabled: true, hint: 'Saving' },
+    { value: 'high', label: 'High', group: 'Levels' },
+    { value: 'max', label: 'Max', group: 'Other', separator: true, icon: 'gauge' as const },
+  ];
+  // The same options without the presentation fields give the same answers.
+  const plain = rich.map(({ value, label, disabled }) => ({ value, label, disabled }));
+  for (const o of [rich, plain]) {
+    assert.equal(selectedIndex(o, 'high'), 3, 'indices stay flat across groups');
+    assert.equal(openAt(o, 2), 0, 'a disabled selected option opens on the first enabled one');
+    assert.equal(moveActive(o, 1, 1), 3, 'the disabled entry is skipped');
+    assert.equal(moveActive(o, 3, -1), 1);
+    assert.equal(moveActive(o, 3, 1), 4, 'a separator or a new group is no stop');
+    assert.equal(edgeIndex(o, 'last'), 4);
+    assert.equal(typeahead(o, 0, 'm'), 4, 'type-ahead skips the disabled Medium');
+    assert.equal(typeahead(o, 0, 'from'), -1, 'type-ahead matches the label, not the hint');
+    assert.equal(typeahead(o, 0, 'levels'), -1, 'nor the group');
+    assert.equal(typeahead(o, 1, 'i'), 0);
+    assert.deepEqual(selectKey(CLOSED, { key: 'End' }, o, 0, 0).state, open(4));
+    assert.deepEqual(selectKey(open(1), { key: 'Enter' }, o, 0, 0), { state: CLOSED, commit: 1, handled: true });
+    assert.deepEqual(selectKey(open(2), { key: 'Enter' }, o, 0, 0), { state: CLOSED, commit: null, handled: true }, 'a disabled entry is never chosen');
+  }
+});
+
 test('typeahead matches a prefix and wraps', () => {
   assert.equal(typeahead(FRUIT, 0, 'bl'), 2);
   assert.equal(typeahead(FRUIT, 0, 'BLUE'), 2, 'case-insensitive');
@@ -190,21 +217,100 @@ test('Select markup has combobox and listbox semantics', () => {
   assert.ok(button, 'a button trigger');
   for (const [k, v] of Object.entries({ type: 'button', role: 'combobox', 'aria-haspopup': 'listbox' })) assert.equal(attr(button, k), v, `button ${k}`);
   for (const k of ['aria-expanded', 'aria-controls', 'aria-activedescendant', 'aria-invalid', 'aria-describedby', 'aria-label', 'aria-labelledby']) assert.ok(attr(button, k), `button has ${k}`);
-  assert.match(String(attr(button, 'class')), /^input\b/, 'the trigger is an input field');
+  assert.match(String(attr(button, 'class')), /^\{variant === 'button' \? 'btn sm' : 'input inline-flex [^']*'\} \{cls\}$/, 'the trigger is an input field, or a small button');
+  assert.equal(attr(button, 'title'), '{title}');
   assert.match(text, /st\.open && st\.active >= 0 \? optId\(st\.active\) : undefined/, 'aria-activedescendant only while open with an active option');
-  const list = all.find((x) => x.name === 'ul');
+  const list = all.find((x) => x.name === 'ul' && attr(x, 'role') === 'listbox');
   assert.ok(list, 'a list');
-  assert.equal(attr(list, 'role'), 'listbox');
   assert.equal(attr(list, 'popover'), 'manual');
   assert.equal(attr(list, 'id'), '{listId}');
   assert.equal(attr(button, 'aria-controls'), '{listId}');
   const cls = String(attr(list, 'class')).split(/\s+/);
-  for (const c of ['plate', 'solid', 'shadow-(--shadow-overlay)']) assert.ok(cls.includes(c), `list has ${c}`);
-  const option = all.find((x) => x.name === 'li');
+  for (const c of ['plate', 'solid', 'shadow-(--shadow-overlay)', 'menu-pop']) assert.ok(cls.includes(c), `list has ${c}`);
+  assert.match(String(attr(list, 'style')), /transform-origin: \{origin\}/, 'the panel grows from the trigger edge');
+  assert.match(text, /origin = `\$\{at\.top < r\.top \? 'bottom' : 'top'\} \$\{align === 'end' \? 'right' : 'left'\}`;/, 'bottom when it opened above, the side the alignment pins');
+  assert.match(text, /placeMenu\(\{[^}]*\balign,/, 'placement follows align');
+  const option = all.find((x) => x.name === 'li' && attr(x, 'role') === 'option');
   assert.ok(option, 'options');
-  assert.equal(attr(option, 'role'), 'option');
+  assert.equal(attr(option, 'id'), '{optId(i)}');
   assert.ok(attr(option, 'aria-selected'), 'option aria-selected');
   assert.ok(attr(option, 'aria-disabled'), 'option aria-disabled');
+  const optionCls = String(attr(option, 'class'));
+  assert.match(optionCls, /\{o\.disabled \? 'opacity-40' : ''\}/, 'a disabled entry is dimmed');
+  assert.match(optionCls, /\{o\.separator \? 'mt-1 pt-1 border-t border-line-soft' : ''\}/, 'a separator rules the entry off');
+  assert.match(optionCls, /'bg-raised text-fg shadow-\[inset_var\(--bar-rule\)_0_0_0_var\(--gleam\)\]' : 'text-fg'/, 'the active highlight, else text-fg');
+  // Groups: a role=group item labelled by its non-interactive name, holding the options; ids stay flat.
+  const group = all.find((x) => x.name === 'li' && attr(x, 'role') === 'group');
+  assert.ok(group, 'a group wrapper');
+  assert.equal(attr(group, 'aria-labelledby'), '{groupId(r)}');
+  const name = all.find((x) => x.name === 'div' && attr(x, 'id') === '{groupId(r)}');
+  assert.ok(name && String(attr(name, 'class')).split(/\s+/).includes('label'), 'the group name is label-styled');
+  assert.equal(attr(name, 'role'), 'presentation');
+  assert.ok(all.some((x) => x.name === 'ul' && attr(x, 'role') === 'none'), 'the group list is presentational');
+  assert.match(text, /\{@render row\(o, run\.start \+ k\)\}/, 'options keep their flat index inside a group');
+  assert.match(text, /document\.getElementById\(optId\(next\.active\)\)\?\.scrollIntoView/, 'scrolls the active option by id, not by child index');
+  assert.doesNotMatch(text, /list\?\.children\[/);
+});
+
+test('single choices use Select, not radio popovers', () => {
+  const files = fs.readdirSync(SRC, { recursive: true }).map((f) => String(f).split(path.sep).join('/')).filter((f) => f.endsWith('.svelte'));
+  // Markup only: Settings.svelte's focus trap names radios in a selector string, which renders none.
+  const radios = files.filter((f) => tags(f, readSrc(f)).some((x) => x.name === 'input' && attr(x, 'type') === 'radio'));
+  assert.deepEqual(radios, ['components/settings/GeneralTab.svelte'], 'only the theme segmented control keeps radios');
+  for (const rel of ['components/EffortSelect.svelte', 'components/SessionLog.svelte']) {
+    const text = readSrc(rel);
+    assert.match(text, /import Select from '\.\/Select\.svelte';/, `${rel} imports Select`);
+    const [sel, ...rest] = selects(rel);
+    assert.ok(sel && rest.length === 0, `${rel} renders one Select`);
+    assert.equal(attr(sel, 'variant'), 'button', `${rel}'s Select is a button`);
+    assert.equal(attr(sel, 'align'), 'end', `${rel}'s Select opens right-aligned`);
+    assert.doesNotMatch(text, /parkFocus/, `${rel} no longer parks focus`);
+  }
+  assert.doesNotMatch(readSrc('lib/menu.ts'), /parkFocus/);
+});
+
+test('every entry layout has a call site', () => {
+  // Text only: Analytics' window options carry a label and no rich fields, and no snippet.
+  const [analytics] = selects('views/Analytics.svelte');
+  assert.ok(analytics && attr(analytics, 'entry') === undefined, 'Analytics renders the default text entry');
+  assert.equal(attr(analytics, 'options'), '{STATS_WINDOWS.map(([value, label]) => ({ value, label }))}', 'label-only options');
+  // Icon + text: EffortSelect's Inherit entry.
+  const effort = readSrc('components/EffortSelect.svelte');
+  assert.match(effort, /\{ value: '', label: \$t\('effort\.inherit', [^}]*\}\), icon: 'settings', disabled: pending \}/);
+  // Text + hint: SessionLog's modes.
+  assert.match(readSrc('components/SessionLog.svelte'), /\{ value: m, label: modeName\[m\], hint: modeHint\[m\], disabled: modeLocked \}/);
+  // A custom snippet: EffortSelect's levels.
+  assert.match(effort, /\{#snippet level\(o: SelectOption\)\}/);
+  assert.equal(attr(selects('components/EffortSelect.svelte')[0], 'entry'), '{level}');
+});
+
+test('Select renders text, icon, hint and snippet entries', () => {
+  const text = readSrc('components/Select.svelte');
+  const all = tags('Select.svelte', text);
   const icons = all.filter((x) => x.name === 'Icon').map((x) => attr(x, 'name'));
-  assert.deepEqual(icons.sort(), ['check', 'chevron-down']);
+  assert.deepEqual(icons.sort(), ['check', 'chevron-down', '{icon}', '{o.icon}']);
+  // One markup path: the snippet, else the optional icon, the label and the optional hint line.
+  assert.ok(
+    text.includes(
+      '{#if entry}{@render entry(o, i)}{:else}{#if o.icon}<Icon name={o.icon} class="shrink-0" />{/if}<span class="flex min-w-0 flex-col"><span class="truncate">{o.label}</span>{#if o.hint}<span class="text-xs text-muted whitespace-normal">{o.hint}</span>{/if}</span>{/if}',
+    ),
+    'the entry content',
+  );
+  // The props and their types.
+  for (const decl of [
+    'entry?: Snippet<[SelectOption, number]>;',
+    "variant?: 'field' | 'button';",
+    'icon?: IconName;',
+    'text?: string;',
+    'title?: string;',
+    'badge?: boolean;',
+    "align?: 'start' | 'end';",
+  ])
+    assert.ok(text.includes(decl), `prop ${decl}`);
+  for (const def of ["variant = 'field',", 'badge = false,', "align = 'start',"]) assert.ok(text.includes(def), `default ${def}`);
+  // The button variant: the icon, the text (or the override) and the chevron, and MenuButton's badge.
+  assert.ok(text.includes("{#if variant === 'button' && icon}<Icon name={icon} />{/if}"), 'the leading icon');
+  assert.ok(text.includes("{text ?? sel?.label ?? $t('select.choose')}"), 'the override, the chosen label, else Choose');
+  assert.ok(text.includes("{#if variant === 'button' && badge}<span class=\"dot spark absolute -top-1 -right-1 size-2\" aria-hidden=\"true\"></span>{/if}"), 'the badge');
+  assert.ok(text.includes("{variant === 'button' ? 'w-[min(16rem,calc(100vw_-_16px))]' : ''}"), "the button variant's panel is MenuButton's width");
 });

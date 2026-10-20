@@ -1,4 +1,4 @@
-<!-- A small button that opens a non-modal dialog under it: the session log's Permissions, Effort and Filter controls.
+<!-- A small button that opens a non-modal dialog under it: the session log's Filter control.
      The panel opens in the top layer (popover="manual"), so no scrolling or overflow-hidden ancestor (the drawer, the
      Foreman popover's body, the Agents tab panel) clips it, while staying a DOM descendant of them, so their own
      contains() checks still count it as inside. Manual mode keeps dismissal here instead of the browser's light dismiss,
@@ -42,9 +42,8 @@
     open = true;
     place();
     await tick();
-    // The checked radio of a choice, else the first enabled field (the filter's search), else the panel itself.
-    const first = panel.querySelector<HTMLElement>('input[type="radio"]:checked:not(:disabled)') ?? panel.querySelector<HTMLElement>('input:not(:disabled)');
-    (first ?? panel).focus();
+    // The first enabled field (the filter's search), else the panel itself.
+    (panel.querySelector<HTMLElement>('input:not(:disabled)') ?? panel).focus();
   }
 
   function place(): void {
