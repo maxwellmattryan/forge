@@ -553,7 +553,7 @@ export interface SecretFinding {
   path: string;
   line: number;
   excerpt: string;
-  /** `sha256:` + 64 hex of the full value. */
+  /** `sha256:` + 64 hex of the full value; for a `known-secret`, `known:` + 12 hex keyed per process, never the value's hash. */
   fingerprint: string;
   commit: string | null;
   /** `.forge/secrets-allow.txt:<line>`, on an allowed finding. */

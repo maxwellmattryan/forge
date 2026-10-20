@@ -10,6 +10,7 @@ import { defaults } from '../lib/config.ts';
 import crypto from 'node:crypto';
 import { createJob, jobDir } from '../lib/jobs.ts';
 import { recordKnown } from '../lib/known-secrets.ts';
+import { fingerprint, mask, refuseSecrets, textUnit } from '../lib/secrets.ts';
 import { startServer } from '../lib/server.ts';
 import { hasBinary } from '../lib/util.ts';
 
@@ -78,6 +79,8 @@ describe('GET /api/doctor/bundle', { concurrency: 4 }, () => {
       fs.writeFileSync(path.join(dir, 'backing-db.json'), JSON.stringify({ v: 1, databases: {} }));
       // `cmd` is not a prose key, so the bundle keeps it: only the known pass takes the value out.
       fs.appendFileSync(path.join(dir, 'events.jsonl'), `${JSON.stringify({ v: 1, ts: new Date().toISOString(), type: 'note', cmd: `leak ${value}` })}\n`);
+      // A refused gate logs a secret-found event: its finding must not carry the value's sha256 or prefix either.
+      assert.throws(() => refuseSecrets(s.root, defaults(), [textUnit('(pr body)', `uses ${value}`)], { what: 'the PR body', id: s.job.id, gate: 'pr' }), /known-secret/);
       const r = await s.get(`/api/doctor/bundle?job=${s.job.id}`, { 'x-forge-token': s.token, origin: `http://127.0.0.1:${s.port}` });
       assert.equal(r.status, 200);
       const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-bundle-private-'));
@@ -89,6 +92,9 @@ describe('GET /api/doctor/bundle', { concurrency: 4 }, () => {
         assert.equal(names.some((n) => n.includes('known-secrets') || n.includes('backing-db')), false, names.join(','));
         const all = execFileSync('unzip', ['-p', file], { encoding: 'utf8' });
         assert.ok(!all.includes(value), 'no known value in any entry');
+        assert.match(all, /known-secret/, 'the secret-found event is in the bundle');
+        assert.ok(!all.includes(fingerprint(value).slice('sha256:'.length)), "no known value's sha256");
+        assert.ok(!all.includes(mask(value)), "no known value's masked prefix");
         assert.match(all, /leak <secret:known>/);
       } finally {
         fs.rmSync(tmp, { recursive: true, force: true });

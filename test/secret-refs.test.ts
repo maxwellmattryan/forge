@@ -8,7 +8,7 @@ import path from 'node:path';
 import { forgeAsync, repoTemplate } from './helpers.ts';
 import { defaults, validateConfig } from '../lib/config.ts';
 import { secretsCheck } from '../lib/doctor.ts';
-import { secretRefProblems } from '../lib/secret-refs-config.ts';
+import { declaredSecrets, secretRefProblems } from '../lib/secret-refs-config.ts';
 import * as yaml from '../lib/yaml.ts';
 
 const has = (problems: string[], re: RegExp) => assert.ok(problems.some((p) => re.test(p)), `${re} not in:\n${problems.join('\n')}`);
@@ -77,6 +77,10 @@ describe('secret references', { concurrency: 4 }, () => {
     has(bad, /^secrets\.SCALAR must be a map with exactly one of/);
     // A problem never echoes a field's value: it may be a pasted credential.
     for (const p of bad) assert.doesNotMatch(p, /https:\/\/vault|a;b|not-a-name|\/etc\/passwd|op:\/\/v\/i/, p);
+    // An own `__proto__` key, as a parser can produce: a record keyed by it would drop the value.
+    const reserved = secretRefProblems({ secrets: JSON.parse('{"__proto__": {"env": "A"}, "constructor": {"env": "A"}, "prototype": {"env": "A"}}') });
+    for (const n of ['__proto__', 'constructor', 'prototype']) has(reserved, new RegExp(`^secrets\\.${n} is reserved`));
+    assert.deepEqual([...declaredSecrets({ secrets: JSON.parse('{"__proto__": {"env": "A"}, "OK": {"env": "A"}}') })], ['OK']);
   });
 
   test('an undeclared {secret.NAME} in a sink is a validation problem', () => {

@@ -15,6 +15,8 @@ export const KEYCHAIN_FIELD = /^(?!-)[A-Za-z0-9._@:/ +-]{1,128}$/;
 /** A 1Password secret reference. */
 export const OP_REF = /^op:\/\/[^\s]+$/;
 const MAX_OP_REF = 500;
+// Names that are object keys with a meaning: `values.__proto__ = v` drops the value, so it would never be redacted.
+const RESERVED_NAMES: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
 const KEYCHAIN_KEYS = new Set(['service', 'account']);
 
 const isMap = (v: unknown): v is Record<string, any> => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
@@ -67,6 +69,7 @@ export function secretRefProblems(c: any): string[] {
   const problems: string[] = [];
   for (const [name, entry] of Object.entries(s)) {
     if (!SECRET_NAME.test(name)) problems.push(`secrets.${show(name)} is not a valid secret name; it must match ${SECRET_NAME.source}`);
+    else if (RESERVED_NAMES.has(name)) problems.push(`secrets.${name} is reserved; choose another secret name`);
     problems.push(...secretEntryProblems(name, entry));
   }
   return problems;
@@ -74,5 +77,5 @@ export function secretRefProblems(c: any): string[] {
 
 /** The declared names of a config, for checking `{secret.NAME}` references: none when `secrets` is not a map. */
 export function declaredSecrets(c: any): Set<string> {
-  return new Set(isMap(c?.secrets) ? Object.keys(c.secrets).filter((n) => SECRET_NAME.test(n)) : []);
+  return new Set(isMap(c?.secrets) ? Object.keys(c.secrets).filter((n) => SECRET_NAME.test(n) && !RESERVED_NAMES.has(n)) : []);
 }

@@ -1,7 +1,8 @@
 // The secret scanner: Forge refuses to publish a likely credential. It runs wherever Forge sends
 // something off the machine (verify's branch scan, `forge git commit`, `forge pr open`, tracker
 // writes) and reports what agents write into the job dir. Findings never hold the value: the
-// excerpt is masked and the fingerprint is its sha256. docs/CONFIG.md "Secret scanning".
+// excerpt is masked and the fingerprint is its sha256 (a known value's is neither: see scanUnit).
+// docs/CONFIG.md "Secret scanning".
 // Must not import worktree.ts, pr.ts or commands/: worktree.ts and pr.ts import this module.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -219,14 +220,20 @@ function findSpans(unit: TextUnit, config: Pick<Config, 'worktrees'> | null, kno
   return out;
 }
 
-/** Findings in one unit: the spans, masked and fingerprinted. */
+// A known value may be an 8-character dev password, so its plain sha256 or prefix could be brute-
+// forced from an event or a report. Its id is keyed by this process's random key: it only dedupes.
+const KNOWN_KEY = crypto.randomBytes(32);
+export const KNOWN_EXCERPT = '<known>';
+const knownPrint = (value: string): string => `known:${crypto.createHmac('sha256', KNOWN_KEY).update(value, 'utf8').digest('hex').slice(0, 12)}`;
+
+/** Findings in one unit: the spans, masked and fingerprinted; a known value shows nothing of itself. */
 function scanUnit(unit: TextUnit, config: Pick<Config, 'worktrees'> | null, known: readonly string[]): RawFinding[] {
   return findSpans(unit, config, known).map((s) => ({
     kind: s.kind,
     path: unit.path,
     line: lineAt(unit, s.lineOffset),
-    excerpt: mask(s.value),
-    fingerprint: fingerprint(s.value),
+    excerpt: s.kind === 'known-secret' ? KNOWN_EXCERPT : mask(s.value),
+    fingerprint: s.kind === 'known-secret' ? knownPrint(s.value) : fingerprint(s.value),
     commit: unit.commit,
     file: unit.file,
   }));
@@ -588,7 +595,9 @@ const where = (f: SecretFinding): string => (f.path.startsWith('(') ? `${f.path}
 export function refusalMessage(what: string, findings: SecretFinding[]): string {
   const f = findings[0];
   const more = findings.length > 1 ? `, and ${findings.length - 1} more` : '';
-  return `possible secret in ${what}: ${f.kind} at ${clean(where(f))} (${f.excerpt}, ${f.fingerprint})${more}. Forge won't send it: remove it, or have a human add the fingerprint to ${ALLOWLIST_FILE} in the main checkout.`;
+  // A known value's id is per process and never allowlisted, so the allowlist hint would mislead.
+  const fix = f.kind === 'known-secret' ? 'remove it: a declared secret is never allowlisted' : `remove it, or have a human add the fingerprint to ${ALLOWLIST_FILE} in the main checkout`;
+  return `possible secret in ${what}: ${f.kind} at ${clean(where(f))} (${f.excerpt}, ${f.fingerprint})${more}. Forge won't send it: ${fix}.`;
 }
 
 /**
