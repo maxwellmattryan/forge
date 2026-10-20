@@ -63,11 +63,11 @@ function scratch(edit: (c: any) => void = () => {}) {
 const WAIT_SPEC = { stage: 'spec' as const, state: 'waiting' as const, waitingOn: 'spec-approval' as const, reason: 'spec ready' };
 
 test('config v4 migrates to v7 with foreman defaults off', () => {
-  assert.equal(CONFIG_SCHEMA_VERSION, 22);
+  assert.equal(CONFIG_SCHEMA_VERSION, 23);
   const v4 = { schemaVersion: 4, git: { base: 'trunk' }, runtime: { models: { builder: 'sonnet' } } };
   const { config, from } = migrateConfig(structuredClone(v4));
   assert.equal(from, 4);
-  assert.deepEqual(config, { ...v4, schemaVersion: 22, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
+  assert.deepEqual(config, { ...v4, schemaVersion: 23, repos: [], downstream: { enabled: true, max: 5, skip: [] } }, 'only schemaVersion, the empty repos list and the downstream default change');
   const d = defaults();
   // repo-proposal widens the repos a job pushes to and release publishes, so the default leaves both with a human.
   assert.deepEqual(d.foreman, { enabled: false, decides: OFFICE_GATES.filter((g) => g !== 'repo-proposal' && g !== 'release'), reserved: d.foreman.reserved, ship: 'propose' });

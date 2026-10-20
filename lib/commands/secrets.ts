@@ -5,9 +5,11 @@ import { loadJob } from '../jobs.ts';
 import { exists } from '../paths.ts';
 import { prText } from '../pr.ts';
 import { applyAllowlist, findingLine, scanBranch, scanPaths, scanUnits, textUnit } from '../secrets.ts';
+import { checkSecret } from '../secret-refs.ts';
+import { secretSourceOf } from '../secret-refs-config.ts';
 import { ForgeError } from '../util.ts';
 import { list, usageError } from './args.ts';
-import type { CliContext, Dispatched, HelpGroup, SecretScan } from '../types.ts';
+import type { CliContext, Config, Dispatched, HelpGroup, SecretScan } from '../types.ts';
 
 const SECRETS: HelpGroup = {
   name: 'secrets',
@@ -23,6 +25,19 @@ const SECRETS: HelpGroup = {
         [1, 'a finding, an incomplete scan, or no such job or worktree'],
         [5, 'git failed'],
       ],
+      readme: true,
+    },
+    {
+      command: 'secrets list',
+      args: '',
+      summary: 'the declared secret references (`secrets` in .forge/config.yml): each name and its source kind, resolving nothing',
+      readme: true,
+    },
+    {
+      command: 'secrets check',
+      args: '[<name>...]',
+      summary: 'resolve each named secret (every declared one by default) from its source and report ok or the error; never prints a value or its length',
+      exits: [[1, 'a secret failed to resolve']],
       readme: true,
     },
   ],
@@ -49,8 +64,23 @@ const json = (scan: SecretScan, target: Record<string, unknown>) => ({
   allowlist: { file: scan.allowlist.file, present: scan.allowlist.present, entries: scan.allowlist.entries, problems: scan.allowlist.problems },
 });
 
+/** `forge secrets list|check`: names and source kinds, plus ok or the error for check; never a value. */
+function refs(root: string, config: Config, sub: 'list' | 'check', names: string[]): Dispatched {
+  const declared = Object.entries(config.secrets ?? {}).map(([name, entry]) => ({ name, source: secretSourceOf(entry) ?? 'invalid' }));
+  if (sub === 'list') {
+    if (names.length) throw usageError(SECRETS, 'list');
+    return { data: { secrets: declared }, exitCode: 0 };
+  }
+  const unknown = names.filter((n) => !declared.some((d) => d.name === n));
+  if (unknown.length) throw new ForgeError(`not a declared secret: ${unknown.map((n) => JSON.stringify(n.slice(0, 80))).join(', ')}`, 'usage');
+  const picked = names.length ? declared.filter((d) => names.includes(d.name)) : declared;
+  const secrets = picked.map((d) => ({ ...d, ...checkSecret(root, config, d.name) }));
+  return { data: { secrets }, exitCode: secrets.every((s) => s.ok) ? 0 : 1 };
+}
+
 export function secretsCmd(ctx: CliContext, sub: string | undefined, rest: string[], flags: Record<string, any>): Dispatched {
   const { root, config } = ctx;
+  if (sub === 'list' || sub === 'check') return refs(root, config, sub, rest);
   if (sub !== 'scan') throw usageError(SECRETS);
   const globs = list(flags.paths);
   const id = rest[0];

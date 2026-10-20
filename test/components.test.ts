@@ -18,10 +18,10 @@ const COMPONENT = { ...SERVICE, kind: 'service', dependsOn: [] };
 
 describe('components migration', { concurrency: 4 }, () => {
   test('migration maps services to service components', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 22);
+    assert.equal(CONFIG_SCHEMA_VERSION, 23);
     const { config, from } = migrateConfig({ schemaVersion: 9, services: [structuredClone(SERVICE)] });
     assert.equal(from, 9);
-    assert.deepEqual(config, { schemaVersion: 22, components: [COMPONENT], repos: [], downstream: { enabled: true, max: 5, skip: [] } });
+    assert.deepEqual(config, { schemaVersion: 23, components: [COMPONENT], repos: [], downstream: { enabled: true, max: 5, skip: [] } });
     assert.equal('services' in config, false);
     assert.deepEqual(servicesToComponents({ services: [{ name: 'web' }, { name: 'x', path: '' }] }).components, [
       { name: 'web', path: '.', kind: 'service', dependsOn: [] },
@@ -53,7 +53,7 @@ describe('components migration', { concurrency: 4 }, () => {
       assert.equal(m.status, 0, m.stderr);
       assert.deepEqual(JSON.parse(m.stdout).changed, [path.join('.forge', 'config.yml')]);
       const text = fs.readFileSync(cfg, 'utf8');
-      assert.match(text, /^schemaVersion: 22$/m);
+      assert.match(text, /^schemaVersion: 23$/m);
       assert.match(text, /^components:$/m);
       assert.doesNotMatch(text, /^services:/m);
       assert.deepEqual(yaml.parse(text).components, [COMPONENT]);
