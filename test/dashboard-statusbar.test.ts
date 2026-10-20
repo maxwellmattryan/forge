@@ -283,24 +283,16 @@ test("a popover's own Tab handling stops on summaries and selects, never on tabi
   assert.ok(!/(^|, )\[tabindex\](,|$)/.test(TAB_STOPS), 'no bare [tabindex]: tabindex="-1" is not a Tab stop');
 });
 
-// The facts strip: [FOCUS id ·] FORGE v… · API n · SESSIONS ● N active · SHEET View · i of total,
-// dropping from the right as the room runs out: SHEET, then API, then the SESSIONS word, then the FORGE word, then the FOCUS word.
+// The facts strip: FOCUS id while a job is focused, nothing otherwise; the FOCUS word drops when the room runs out.
 test('facts strip order and drop order', () => {
-  assert.deepEqual([...FACTS_DROP], ['sheet', 'api', 'sessionsWord', 'forgeWord', 'focusWord']);
-  assert.equal(FACTS_MAX, 5);
-  const none = { sheet: false, api: false, sessionsWord: false, forgeWord: false, focusWord: false };
-  assert.deepEqual(factsHidden(0), none, 'level 0: every fact shows');
-  assert.deepEqual(factsHidden(1), { ...none, sheet: true });
-  assert.deepEqual(factsHidden(2), { ...none, sheet: true, api: true });
-  assert.deepEqual(factsHidden(3), { ...none, sheet: true, api: true, sessionsWord: true });
-  assert.deepEqual(factsHidden(4), { sheet: true, api: true, sessionsWord: true, forgeWord: true, focusWord: false });
-  assert.deepEqual(factsHidden(5), { sheet: true, api: true, sessionsWord: true, forgeWord: true, focusWord: true });
-  assert.deepEqual(factsHidden(9), factsHidden(5), 'past the last level nothing more drops: the version, the sessions dot and the focused id stay');
-  assert.deepEqual(factsHidden(-1), none);
-  assert.deepEqual(factsHidden(Number.NaN), none, 'a bad level hides nothing');
+  assert.deepEqual([...FACTS_DROP], ['focusWord']);
+  assert.equal(FACTS_MAX, 1);
+  assert.deepEqual(factsHidden(0), { focusWord: false }, 'level 0: the word shows');
+  assert.deepEqual(factsHidden(1), { focusWord: true });
+  assert.deepEqual(factsHidden(9), factsHidden(1), 'past the last level nothing more drops: the focused id stays');
+  assert.deepEqual(factsHidden(-1), { focusWord: false });
+  assert.deepEqual(factsHidden(Number.NaN), { focusWord: false }, 'a bad level hides nothing');
 
-  // The markup: the pairs in order, each dropped one sr-only (its separator hidden), and below md only the version and
-  // the sessions dot and count.
   const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const bar = fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'components', 'StatusBar.svelte'), 'utf8').replace(/<script\b[\s\S]*?<\/script>|<!--[\s\S]*?-->/g, '');
   const at = (s: string) => {
@@ -308,24 +300,21 @@ test('facts strip order and drop order', () => {
     assert.ok(i > 0, `StatusBar.svelte has ${s}`);
     return i;
   };
-  const order = [
-    at('<span class="k max-md:sr-only {hid.forgeWord ? \'sr-only\' : \'\'}">{$t(\'statusbar.facts.forge\')}</span>'),
-    at('<span class="max-md:sr-only {hid.api ? \'sr-only\' : \'\'}"><span class="k">{$t(\'statusbar.facts.api\')}</span>'),
-    at('<span class="k max-md:sr-only {hid.sessionsWord ? \'sr-only\' : \'\'}">{$t(\'statusbar.facts.sessions\')}</span><LiveDot on={active.count > 0} /><span class="num max-md:sr-only">'),
-    at('<span class="max-md:sr-only {hid.sheet ? \'sr-only\' : \'\'}"><span class="k">{$t(\'statusbar.facts.sheet\')}</span>'),
-  ];
-  assert.deepEqual([...order].sort((a, b) => a - b), order, 'FORGE, API, SESSIONS, SHEET, left to right');
-  // The focus indicator: rendered only while a job is focused, first in the strip, a button that opens the job's drawer.
+  // The focus indicator: rendered only while a job is focused, the strip's one fact, a button that opens the job's drawer.
   const focus = at('{#if focus}<button id="footer-focus"');
-  assert.ok(focus < order[0], 'FOCUS comes first');
   assert.ok(bar.includes(`<span class="k max-md:sr-only {hid.focusWord ? 'sr-only' : ''}">{$t('statusbar.facts.focus')}</span>`), 'its word drops at the last level and below md');
   assert.match(bar, /<button id="footer-focus"[^>]*title=\{focusTitle\}[^>]*onclick=\{\(\) => openDrawer\(focus\.id\)\}/, 'its title names the job, and a click opens its drawer');
-  // Below md the count stands alone (the Needs-you bell took the room); the whole value stays for screen readers.
-  assert.ok(bar.includes(`<span class="num md:hidden" aria-hidden="true">{active.count}</span>`), 'the bare count below md');
   assert.ok(at('<div bind:this={leftBox}') < at('<div bind:this={factsBox} class="facts'), 'between the left cluster');
-  assert.ok(at('<div bind:this={factsBox} class="facts') < at('<div bind:this={rightBox}'), 'and the right one');
-  assert.match(bar, /<span id="footer-version"><span class="k[^"]*"/, 'the version pair keeps its id');
-  assert.match(bar, /<span id="footer-sessions" title=\{activeTitle\}>/, 'the sessions pair keeps its id and the active-sessions title');
-  assert.match(bar, /\$t\('statusbar\.facts\.sheetValue', \{ view: viewLabels\[S\.view\], index: viewIndex\(S\.view\), total: VIEWS\.length \}\)/, 'SHEET View · i of total');
-  for (const k of ['api', 'sheet']) assert.ok(bar.includes(`<span class="sep max-md:hidden! {hid.${k} ? \'hidden!\' : \'\'}" aria-hidden="true"></span>`), `the tick before ${k} goes with it`);
+  assert.ok(at('<div bind:this={factsBox} class="facts') < focus && focus < at('<div bind:this={rightBox}'), 'and the right one, holding the focus fact');
+  assert.doesNotMatch(bar, /class="sep\b/, 'no separators: nothing sits beside the focus fact');
+});
+
+test("status bar tooltips: Notifications on the bell, the Foreman's off title", () => {
+  const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const src = fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'components', 'StatusBar.svelte'), 'utf8');
+  const en = JSON.parse(fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'messages', 'en.json'), 'utf8'));
+  assert.match(src, /needs: \$t\('statusbar\.needs\.tooltip'\),/, 'the bell says only Notifications');
+  assert.equal(en.statusbar.needs.tooltip, 'Notifications');
+  assert.match(src, /foreman: !bar\.foreman\.on\s*\? \$t\('statusbar\.foreman\.offTitle'\)/, "the Foreman's off title");
+  assert.notEqual(en.statusbar.foreman.offTitle, en.statusbar.foreman.off, 'which differs from the visible "Foreman off"');
 });

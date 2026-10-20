@@ -1,4 +1,4 @@
-<!-- A status bar popover: a non-modal dialog that sits --space-2 above the bar, anchored to its indicator at md and up and
+<!-- A status bar popover: a non-modal dialog that sits --space-1 above the bar, anchored to its indicator at md and up and
      spanning the viewport less 16px on phones. It takes focus when it opens, and closes on a press outside or when focus
      leaves it (lib/popover.ts decides where focus goes). Tab moves through it as if it sat right after its indicator.
      It holds no live region: StatusBar has the one. The chat size (the Foreman's thread) has a fixed height, and its content
@@ -110,7 +110,7 @@
   role="dialog"
   aria-labelledby="popover-{id}-title"
   tabindex="-1"
-  class="plate solid fixed z-42 flex flex-col bottom-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-2))] shadow-(--shadow-overlay) {chat ? 'max-h-[calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom)_-_2rem)]' : 'max-h-[min(40rem,calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom)_-_2rem))]'} {chat ? 'h-[min(48rem,calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom)_-_2rem))]' : ''}"
+  class="plate solid fixed z-42 flex flex-col bottom-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-1))] shadow-(--shadow-overlay) {chat ? 'max-h-[calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom)_-_2rem)]' : 'max-h-[min(40rem,calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom)_-_2rem))]'} {chat ? 'h-[min(48rem,calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom)_-_2rem))]' : ''}"
   style="left: {place.left}px; width: {place.width}px"
   onfocusout={focusOut}
   onkeydown={key}

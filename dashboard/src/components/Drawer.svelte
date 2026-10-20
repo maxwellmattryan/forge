@@ -44,6 +44,7 @@
   import { t } from '../lib/locale.ts';
   import { DRAWER_TABS, PANE_DEFAULT, PANE_MIN, clampPaneWidth, moveDrawerTab, paneKey, paneMax, type DrawerTab } from '../lib/drawer.ts';
   import { pref } from '../lib/prefs.ts';
+  import { sidebarShown } from '../lib/sidebar.ts';
 
   const open = $derived(S.drawer.id !== null);
   const view = $derived(S.drawerView);
@@ -86,7 +87,9 @@
   }
   // ---------- the separator ----------
   // A saved width wider than the window shows clamped; the pref keeps it, so widening the window gives it back.
-  const width = $derived(clampPaneWidth(S.pane.width, S.pane.viewport));
+  // The drawer stops at the sidebar's current edge: the rail or the viewer's width.
+  const gutter = $derived(sidebarShown(S.side));
+  const width = $derived(clampPaneWidth(S.pane.width, S.pane.viewport, gutter));
   let drag: { x: number; w: number } | null = null;
   let dragging = $state(false);
   const save = (): void => pref.set('paneWidth', String(S.pane.width));
@@ -99,7 +102,7 @@
   }
   function dragMove(e: PointerEvent): void {
     // The separator is the drawer's left edge: moving left widens it.
-    if (drag) S.pane.width = clampPaneWidth(drag.w + (drag.x - e.clientX), S.pane.viewport);
+    if (drag) S.pane.width = clampPaneWidth(drag.w + (drag.x - e.clientX), S.pane.viewport, gutter);
   }
   // Both pointerup and lostpointercapture end a drag (capture can be lost without a pointerup); the second call finds
   // drag null and returns, so the width is saved once.
@@ -110,14 +113,14 @@
     save();
   }
   function sepKey(e: KeyboardEvent): void {
-    const next = paneKey(width, e.key, e.shiftKey, S.pane.viewport);
+    const next = paneKey(width, e.key, e.shiftKey, S.pane.viewport, gutter);
     if (next === null) return;
     e.preventDefault();
     S.pane.width = next;
     save();
   }
   function sepReset(): void {
-    S.pane.width = clampPaneWidth(PANE_DEFAULT, S.pane.viewport);
+    S.pane.width = clampPaneWidth(PANE_DEFAULT, S.pane.viewport, gutter);
     save();
   }
 
@@ -170,7 +173,7 @@
       aria-controls="drawer"
       aria-label={$t('drawer.resize')}
       aria-valuemin={PANE_MIN}
-      aria-valuemax={paneMax(S.pane.viewport)}
+      aria-valuemax={paneMax(S.pane.viewport, gutter)}
       aria-valuenow={width}
       tabindex="0"
       class="group absolute inset-y-0 left-0 z-30 w-2 cursor-col-resize touch-none focus-visible:-outline-offset-2"

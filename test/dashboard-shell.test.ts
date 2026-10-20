@@ -599,7 +599,7 @@ test('no filled element nests in a patterned one', () => {
 // Text never sits on the grain: the grain shows only on bare ground between surfaces, so every word, value,
 // caller snippet and component the shell or a view puts on the page has a surface around it. A component this test
 // scans itself (GROUND, or a view) is checked inside its own file instead.
-const GROUND = ['PageHeader', 'Empty', 'Banner', 'StatusBar', 'Popover', 'JobCard', 'JobsTable', 'InboxCard', 'CommandTrigger', 'Drawer', 'Settings', 'CommandBar', 'Toast', 'GitHubCard', 'NeedsPanel', 'PeriodMeter', 'Select'];
+const GROUND = ['PageHeader', 'Empty', 'Banner', 'StatusBar', 'Popover', 'JobCard', 'JobsTable', 'InboxCard', 'CommandTrigger', 'Drawer', 'Settings', 'CommandBar', 'Toast', 'GitHubCard', 'NeedsPanel', 'PeriodMeter', 'Select', 'RailTip'];
 /** A GROUND component's file: components/, or components/statusbar/ for a popover body. */
 const groundFile = (c: string) => (fs.existsSync(path.join(SRC, 'components', `${c}.svelte`)) ? `components/${c}.svelte` : `components/statusbar/${c}.svelte`);
 // A plate is a surface; an open plate is a container the grain shows through (dashboard/AGENTS.md › Text never sits on the grain).
@@ -725,24 +725,16 @@ test('ticking times read the shared clock and stay out of live regions', () => {
   assert.match(mount, /const stopClock = startClock\(\);[\s\S]*?return \(\) => \{\s*stopClock\(\);/, 'App.svelte starts the clock in onMount and stops it in the cleanup');
 });
 
-test('the status bar facts show the live session indicator', () => {
+test('the status bar has no version, API, sessions or sheet facts', () => {
   assert.doesNotMatch(read('lib/view.ts'), /export const activeSessions\b/, 'view.ts no longer exports activeSessions');
   const bar = read('components/StatusBar.svelte');
-  assert.match(bar, /import \{ activeSessions \} from '\.\.\/lib\/live\.ts';/);
-  assert.match(bar, /const active = \$derived\(activeSessions\(S\.data\?\.daemons\)\)/);
-  assert.match(bar, /const activeTitle = \$derived\(active\.count \? active\.ids\.map\(\(id\) => \(id === INBOX_SCOPE \? \$t\('live\.inbox'\) : id === OFFICE_SCOPE \? \$t\('live\.office'\) : id\)\)\.join\('\\n'\) : \$t\('live\.none'\)\)/, 'the tooltip lists active ids, the inbox and the office by name');
-
+  for (const gone of ['footer-version', 'footer-sessions', 'activeSessions', 'activeTitle', 'viewLabels', 'viewIndex']) assert.ok(!bar.includes(gone), `StatusBar.svelte has no ${gone}`);
+  assert.doesNotMatch(bar, /statusbar\.facts\.(forge|version|api|sessions|sessionsValue|sheet|sheetValue)\b/, 'none of the removed facts');
   const walked = elements('components/StatusBar.svelte');
-  const cell = walked.find((e) => attr(e, 'id') === 'footer-sessions');
-  assert.ok(cell, '#footer-sessions');
-  assert.ok(cell.parents.some((p) => p.classes.includes('facts')), 'in the facts strip');
-  assert.equal(attr(cell, 'title'), '{activeTitle}', '#footer-sessions carries the active-session tooltip');
-  const dots = walked.filter((e) => e.name === 'LiveDot' && e.parents.includes(cell));
-  assert.equal(dots.length, 1, '#footer-sessions renders one <LiveDot');
-  assert.equal(attr(dots[0], 'on'), '{active.count > 0}');
-  assert.ok(!walked.some((e) => e.parents.includes(cell) && e.attrs.some((a) => a.name === 'aria-live')), '#footer-sessions is not a live region');
-  assert.match(bar, /\$t\('statusbar\.facts\.sessionsValue', \{ count: active\.count \}\)/);
-  // The phone strip has no sessions count of its own: the status bar's facts carry it at every width.
+  const facts = walked.find((e) => attr(e, 'bind:this') === '{factsBox}');
+  assert.ok(facts, 'the facts strip');
+  assert.ok(!walked.some((e) => e.name === 'LiveDot' && e.parents.includes(facts)), 'no live dot in the facts strip');
+  // The phone strip has no sessions count of its own either.
   const app = read('App.svelte');
   for (const gone of ['mobile-sessions', 'footer-sessions', 'footer-version', '<LiveDot']) assert.ok(!app.includes(gone), `App.svelte has no ${gone}`);
 
@@ -1000,7 +992,9 @@ test('the sidebar holds the brand, stamp line, repo, command input, nav and sett
   const inside = app.filter((e) => e.parents.includes(sidebar));
   assert.ok(!inside.some((e) => e.classes.includes('tblock') || e.classes.includes('dim-line')), 'no title block or dimension line');
   const popups = inside.filter((e) => e.attrs.some((a) => a.name === 'aria-haspopup'));
-  assert.deepEqual(popups.map((e) => attrOf(e, 'id')), ['sidebar-command', 'settings-open'], 'the palette and Settings open from the sidebar');
+  // #sidebar-command is the rail's icon button or the expanded input: two branches of one {#if}, one on screen.
+  assert.deepEqual(popups.map((e) => attrOf(e, 'id')), ['sidebar-command', 'sidebar-command', 'settings-open'], 'the palette and Settings open from the sidebar');
+  assert.deepEqual(popups.slice(0, 2).map((e) => e.name), ['button', 'input'], 'the rail button, then the input');
   const phone = app.find((e) => e.name === 'header' && e.classes.includes('md:hidden'));
   assert.ok(phone, 'the phone strip');
   const phoneKids = app.filter((e) => e.parents.at(-1) === phone);
@@ -1009,6 +1003,73 @@ test('the sidebar holds the brand, stamp line, repo, command input, nav and sett
   const all = (fs.readdirSync(SRC, { recursive: true, withFileTypes: true }) as fs.Dirent[]).filter((e) => e.isFile()).map((e) => path.relative(SRC, path.join(e.parentPath, e.name)));
   assert.ok(all.includes('App.svelte') && all.includes(path.join('messages', 'en.json')), `walked ${all.length} files`);
   for (const rel of all) assert.ok(!read(rel).includes('command-open'), `${rel} mentions no command-open button`);
+});
+
+test('the sidebar separator is a focusable window splitter', () => {
+  const app = elements('App.svelte');
+  const src = read('App.svelte');
+  const root = app.find((e) => e.name === 'div' && e.parents.length === 0 && has(e, 'flex', 'min-h-screen'))!;
+  assert.equal(attrOf(root, 'style'), '--size-sidebar: {shown}px', 'the root carries the width the sidebar shows');
+  assert.match(src, /const shown = \$derived\(sidebarShown\(S\.side\)\);/);
+  const sidebar = app.find((e) => e.name === 'aside' && attrOf(e, 'id') === 'sidebar')!;
+  const siblings = app.filter((e) => e.parents.at(-1) === root);
+  const wrap = siblings[siblings.indexOf(sidebar) + 1];
+  assert.ok(wrap && has(wrap, 'hidden', 'md:block', 'sticky', 'top-0', 'h-screen', 'w-0'), `the aside's next sibling holds it, hidden below md (${wrap?.classes.join(' ')})`);
+  assert.equal(attrOf(wrap, 'inert'), '{covered}', 'inert under the drawer');
+  const sep = app.find((e) => e.parents.at(-1) === wrap && attrOf(e, 'role') === 'separator')!;
+  assert.ok(sep, 'the separator');
+  for (const [k, v] of [['aria-orientation', 'vertical'], ['aria-controls', 'sidebar'], ['aria-valuemin', '{SIDEBAR_RAIL}'], ['aria-valuemax', '{SIDEBAR_MAX}'], ['aria-valuenow', '{shown}'], ['aria-label', "{$t('sidebar.resize')}"], ['tabindex', '0'], ['onpointerdown', '{sideDragStart}'], ['onpointermove', '{sideDragMove}'], ['onpointerup', '{sideDragEnd}'], ['onlostpointercapture', '{sideDragEnd}'], ['onkeydown', '{sideKey}'], ['ondblclick', '{sideReset}']])
+    assert.equal(attrOf(sep, k), v, `the separator's ${k}`);
+  for (const c of ['absolute', 'inset-y-0', '-left-1', 'w-2', 'cursor-col-resize', 'touch-none']) assert.ok(sep.classes.includes(c), `an 8px hit area: ${c}`);
+  const rule = app.find((e) => e.parents.at(-1) === sep && e.name === 'span')!;
+  assert.ok(rule && rule.classes.includes('border-l') && rule.classes.includes('group-hover:border-gleam') && rule.classes.includes('group-focus-visible:border-gleam') && rule.classes.includes('border-gleam'), 'the rule turns gleam on hover, focus or drag');
+  assert.match(src, /e\.currentTarget\.setPointerCapture\(e\.pointerId\);\s*sideDrag = \{ x: e\.clientX, start: shown \};/, 'a drag captures the pointer from the shown width');
+  assert.match(src, /const r = sidebarDrag\(sideDrag\.start \+ \(e\.clientX - sideDrag\.x\)\);\s*setSidebar\(r\.compact \? \{ width: S\.side\.width, compact: true \} : r, false\);/, 'it tracks the pointer, unsaved, keeping the width on the rail');
+  assert.match(src, /sideDragging = false;\s*setSidebar\(\{ width: S\.side\.width, compact: S\.side\.compact \}\);/, 'and saves once when it ends');
+  assert.match(src, /const next = sidebarKey\(\{ width: S\.side\.width, compact: S\.side\.compact \}, e\.key, e\.shiftKey\);\s*if \(!next\) return;\s*e\.preventDefault\(\);\s*setSidebar\(next\);/, 'a key steps and saves; others are not prevented');
+  assert.match(src, /const sideReset = \(\): void => setSidebar\(\{ width: SIDEBAR_DEFAULT, compact: false \}\);/, 'double-click resets to the default');
+  const state = fs.readFileSync(path.join(SRC, 'lib', 'app.svelte.ts'), 'utf8');
+  assert.match(state, /const SIDE_START: SidebarState = readSidebar\(pref\.get\);/, 'read through the guarded pref');
+  assert.match(state, /pref\.set\('sidebarWidth', String\(next\.width\)\);\s*pref\.set\('sidebarCompact', next\.compact \? '1' : '0'\);/, 'saved through the guarded pref');
+});
+
+test('the compact rail labels its controls and shows tooltips', () => {
+  const app = elements('App.svelte');
+  const src = read('App.svelte');
+  const sidebar = app.find((e) => e.name === 'aside' && attrOf(e, 'id') === 'sidebar')!;
+  assert.match(attrOf(sidebar, 'class'), /\{compact \? 'px-2' : 'px-3'\}/, 'the rail drops to px-2');
+  const markup = markupOf('App.svelte');
+  assert.match(markup, /<img src="\/forge\.png" alt="" class="mark shrink-0" \/>\{#if !compact\}<div class="min-w-0">/, 'the brand shows the mark only');
+  assert.match(markup, /\{#if !compact\}<div class="stamp-line wide/, 'no stamp line on the rail');
+  assert.match(markup, /\{#if !compact\}<div class="label flex min-w-0 items-baseline gap-2 px-2\.5 pb-2\.5"><span class="shrink-0">\{\$t\('app\.repo'\)\}/, 'no repo row on the rail');
+  const cmd = app.find((e) => e.name === 'button' && attrOf(e, 'id') === 'sidebar-command')!;
+  assert.ok(has(cmd, 'btn', 'icon'), 'the command is an icon button');
+  for (const [k, v] of [['aria-label', "{$t('command.open')}"], ['aria-haspopup', 'dialog'], ['aria-keyshortcuts', 'Meta+K Control+K'], ['onclick', '{(e) => openPalette({ opener: e.currentTarget })}']]) assert.equal(attrOf(cmd, k), v, `the rail command's ${k}`);
+  assert.match(src, /\{@attach railTipOn\(\$t\('command\.open'\)\)\}><Icon name="command" \/><\/button>/, 'with a tooltip');
+  const settings = app.find((e) => attrOf(e, 'id') === 'settings-open')!;
+  assert.equal(attrOf(settings, 'aria-label'), "{compact ? $t('settings.open') : undefined}");
+  assert.match(src, /\{@attach compact && railTipOn\(\$t\('settings\.open'\)\)\}>\{#if compact\}<Icon name="settings" \/>\{:else\}/, 'the gear alone, with a tooltip and no kbd');
+  assert.match(markup, /<nav id="nav" class="navlist \{compact \? 'rail' : ''\}"><Nav \{compact\} \/><\/nav>/);
+  // Nav: one link per view; on the rail it is named by aria-label (with the count) and shows the icon and a corner count.
+  const nav = read('components/Nav.svelte');
+  const link = tags('components/Nav.svelte', nav).find((t) => t.name === 'a')!;
+  assert.equal(link.attrs.find((a) => a.name === 'aria-label')?.value, '{compact ? railName(v.id, n) : undefined}');
+  assert.match(nav, /const railName = \(id: ViewId, n: number\): string => \(n \? `\$\{labels\[id\]\} · \$\{n\}` : labels\[id\]\);/, 'Pipeline · 3');
+  assert.match(nav, /\{@attach compact && railTipOn\(railName\(v\.id, n\)\)\}/, 'and a tooltip');
+  assert.match(nav, /<span class="mono num absolute top-1 right-1 text-\[10px\] leading-none \{on \? '' : 'muted'\}" aria-hidden="true">\{n\}<\/span>/, 'the count in the corner');
+  // The tooltip: one fixed tip, role=tooltip, hidden from assistive tech, on a solid plate, outside the scrolling aside.
+  const tip = elements('components/RailTip.svelte').find((e) => attrOf(e, 'role') === 'tooltip')!;
+  assert.ok(tip, 'a tooltip');
+  assert.equal(attrOf(tip, 'aria-hidden'), 'true');
+  assert.ok(has(tip, 'solid', 'plate'), 'on a solid plate');
+  assert.ok(has(tip.parents.at(-1)!, 'fixed', 'pointer-events-none', 'z-36'), 'fixed, click-through and over the status bar (z-35), so the Settings tip is never cut off');
+  const rootKids = app.filter((e) => e.parents.length === 1 && e.parents[0].classes.includes('min-h-screen'));
+  assert.ok(rootKids.some((e) => e.name === 'RailTip'), 'rendered in the root, so it is inert with it and never clipped by the aside');
+  const rail = fs.readFileSync(path.join(SRC, 'lib', 'rail-tip.svelte.ts'), 'utf8');
+  for (const h of ["addEventListener('pointerenter', show)", "addEventListener('pointerleave', hideTip)", "addEventListener('focus', show)", "addEventListener('blur', hideTip)", "addEventListener('keydown', key)"]) assert.ok(rail.includes(h), `railTipOn wires ${h}`);
+  assert.match(rail, /if \(e\.key === 'Escape'\) hideTip\(\);/, 'Escape hides it');
+  assert.match(src, /\$effect\(\(\) => \{\s*if \(!compact \|\| covered\) hideTip\(\);\s*\}\);/, 'expanding the rail or opening the drawer hides it');
+  for (const f of ['App.svelte', 'components/Nav.svelte', 'components/RailTip.svelte']) assert.doesNotMatch(read(f), /\{@html/, `${f} adds no {@html}`);
 });
 
 test('command input: in the sidebar at md and up, a 44px strip button below md, one shortcut', () => {
@@ -1020,11 +1081,13 @@ test('command input: in the sidebar at md and up, a 44px strip button below md, 
   assert.equal(views.length, 6);
   for (const v of views) assert.equal(read(`views/${v}`).match(/<PageHeader\b/g)?.length, 1, `${v} renders one PageHeader`);
 
-  // md and up: the sidebar input, the one element that announces the shortcut.
+  // md and up: the sidebar input, or on the compact rail its icon button (the other branch of one {#if}), is the one
+  // element on screen that announces the shortcut.
   const shortcut = svelteFiles().flatMap((rel) => elements(rel).filter((e) => attrOf(e, 'aria-keyshortcuts') === 'Meta+K Control+K').map((e) => ({ rel, e })));
-  assert.equal(shortcut.length, 1, 'one element announces the palette shortcut');
-  assert.equal(shortcut[0].rel, 'App.svelte');
-  const input = shortcut[0].e;
+  assert.equal(shortcut.length, 2, 'the input and the rail button announce the palette shortcut');
+  assert.deepEqual(shortcut.map((s) => [s.rel, s.e.name, attrOf(s.e, 'id')]), [['App.svelte', 'button', 'sidebar-command'], ['App.svelte', 'input', 'sidebar-command']]);
+  assert.match(markupOf('App.svelte'), /\{#if compact\}\s*<button id="sidebar-command"[^]*?\{:else\}\s*<input/, 'never both at once');
+  const input = shortcut[1].e;
   assert.equal(input.name, 'input');
   assert.equal(attrOf(input, 'id'), 'sidebar-command');
   assert.ok(input.parents.some((p) => attrOf(p, 'id') === 'sidebar'), 'inside the sidebar');
@@ -1241,11 +1304,14 @@ test('status bar: one fixed footer in the inert shell, outside main', () => {
 
   // 30px tall from md up: the token, plus the inset.
   assert.ok(fs.readFileSync(path.join(ROOT, 'dashboard', 'style.css'), 'utf8').includes('--size-statusbar: 30px;'), 'the bar is 30px');
-  // AC6: three live dots, the Foreman's (on while the office works and the daemon runs), the daemon indicator's (on
-  // exactly when a session works) and the facts' SESSIONS dot; no Inbox indicator at all; holds and waits from md up.
+  // No spend chip: the month's spend lives on Analytics.
+  assert.doesNotMatch(read('components/StatusBar.svelte'), /SpendChip/, 'StatusBar imports and renders no SpendChip');
+  assert.ok(!fs.existsSync(path.join(SRC, 'components', 'SpendChip.svelte')), 'SpendChip.svelte is gone');
+  // Two live dots, the Foreman's (on while the office works and the daemon runs) and the daemon indicator's (on
+  // exactly when a session works); no Inbox indicator at all; holds and waits from md up.
   const markup = markupOf('components/StatusBar.svelte');
   const dots = bar.filter((e) => e.name === 'LiveDot');
-  assert.deepEqual(dots.map((d) => attrOf(d, 'on')), ['{bar.foreman.daemon && bar.foreman.active}', '{bar.daemon.active}', '{active.count > 0}'], "the Foreman's dot, the daemon's dot and the sessions dot");
+  assert.deepEqual(dots.map((d) => attrOf(d, 'on')), ['{bar.foreman.daemon && bar.foreman.active}', '{bar.daemon.active}'], "the Foreman's dot and the daemon's dot");
   for (const d of dots) assert.ok(d.parents.includes(footer));
   assert.equal(ifBody(markup, 'bar.inbox'), null, 'no {#if bar.inbox}');
   assert.doesNotMatch(markup, /openPopover\('inbox'|data-popover="inbox"/, 'no Inbox indicator, whether the daemon is on or off');
@@ -1270,7 +1336,7 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
   assert.equal(attrOf(dialog, 'id'), 'popover-{id}');
   assert.ok(!dialog.attrs.some((a) => a.name === 'aria-modal'), 'non-modal');
   for (const c of ['plate', 'solid', 'fixed', 'z-42']) assert.ok(dialog.classes.includes(c), `the popover has ${c}`);
-  assert.ok(dialog.classes.some((c) => c.startsWith('bottom-') && c.includes('var(--size-statusbar)') && c.includes('env(safe-area-inset-bottom)') && c.includes('var(--space-2)')), 'it sits --space-2 above the bar');
+  assert.ok(dialog.classes.some((c) => c.startsWith('bottom-') && c.includes('var(--size-statusbar)') && c.includes('env(safe-area-inset-bottom)') && c.includes('var(--space-1)') && !c.includes('var(--space-2)')), 'it sits --space-1 above the bar');
   assert.ok(dialog.classes.some((c) => c.startsWith('max-h-') && c.includes('100dvh') && c.includes('var(--size-statusbar)')), 'it scrolls inside the room above the bar');
   assert.ok(dialog.classes.some((c) => c.startsWith('max-h-[min(40rem,') && c.includes('100dvh') && c.includes('var(--size-statusbar)')), 'a non-chat popover is capped at 40rem');
   assert.match(read('components/Popover.svelte'), /\{chat \? 'max-h-\[calc\(100dvh[^']*\]' : 'max-h-\[min\(40rem,calc\(100dvh[^']*\]'\}/, 'the cap applies only when not chat, as one whole-literal ternary');
@@ -1306,31 +1372,43 @@ test('popovers: labelled dialogs outside the bar, opened by labelled buttons', (
 
   // Every indicator is a labelled button that opens a dialog and says whether it is open.
   const indicators = bar.filter((e) => e.name === 'button' && /openPopover\(/.test(attrOf(e, 'onclick')));
-  assert.equal(indicators.length, 7, 'foreman, needs, daemon, held, waiting, model, connection');
+  assert.equal(indicators.length, 7, 'needs, foreman, daemon, held, waiting, model, connection');
   for (const b of indicators) {
     assert.ok(b.parents.includes(footer), 'inside the bar');
     assert.equal(attrOf(b, 'aria-haspopup'), 'dialog');
     assert.ok(attrOf(b, 'aria-expanded'), 'aria-expanded');
     assert.ok(attrOf(b, 'aria-controls'), 'aria-controls while open');
-    // Needs you's words are always sr-only, and the Daemon's state never shows, so their tooltips always show; the Foreman's
-    // whenever it is on (its state word is never visible); the others only while part of their text is hidden.
-    if (attrOf(b, 'data-popover') === 'needs') assert.equal(attrOf(b, 'title'), '{titles.needs}');
-    else if (attrOf(b, 'data-popover') === 'daemon' && attrOf(b, 'onclick') === "{(e) => openPopover('daemon', e.currentTarget)}" && !b.classes.includes('max-md:hidden')) assert.equal(attrOf(b, 'title'), '{titles.daemon}');
-    else if (attrOf(b, 'data-popover') === 'foreman') assert.equal(attrOf(b, 'title'), '{bar.foreman.on || phone || left >= 5 ? titles.foreman : undefined}');
-    else assert.match(attrOf(b, 'title'), /\? .* : undefined\}$/, 'a tooltip with the full label only while part of the text is hidden');
+    // Every icon button carries its tooltip at every width and fit level; held and waiting are text buttons, titled only
+    // while their reason is hidden.
+    const id = attrOf(b, 'data-popover');
+    if (b.classes.includes('max-md:hidden')) assert.match(attrOf(b, 'title'), /\? .* : undefined\}$/, 'held and waiting: a tooltip only while the reason is hidden');
+    else assert.equal(attrOf(b, 'title'), `{titles.${id}}`, `the ${id} indicator's tooltip is unconditional`);
     assert.ok(!b.attrs.some((a) => a.name === 'aria-label'), 'no aria-label: the name comes from the content, sr-only parts included');
     assert.ok(!b.classes.includes('truncate') && !b.classes.includes('min-w-0'), 'labels are whole or hidden, never cut');
     assert.ok(/^(foreman|needs|daemon|model|connection)$/.test(attrOf(b, 'data-popover')), 'data-popover names the popover it opens');
     // Below md every visible indicator is a 44x44 target with its ring drawn inside the 44px bar.
     if (!b.classes.includes('max-md:hidden')) for (const c of ['max-md:min-w-11', 'max-md:focus-visible:-outline-offset-2']) assert.ok(b.classes.includes(c), `the ${attrOf(b, 'data-popover')} indicator has ${c}`);
   }
-  assert.equal(indicators.filter((b) => !b.classes.includes('max-md:hidden')).length, 5, 'foreman, needs, daemon, model and connection show below md');
-  assert.deepEqual(indicators.map((b) => /openPopover\('(\w+)'/.exec(attrOf(b, 'onclick'))?.[1]), ['foreman', 'needs', 'daemon', 'daemon', 'daemon', 'model', 'connection'], 'in tab order');
+  assert.equal(indicators.filter((b) => !b.classes.includes('max-md:hidden')).length, 5, 'needs, foreman, daemon, model and connection show below md');
+  assert.deepEqual(indicators.map((b) => /openPopover\('(\w+)'/.exec(attrOf(b, 'onclick'))?.[1]), ['needs', 'foreman', 'daemon', 'daemon', 'daemon', 'model', 'connection'], 'in tab order: the bell first');
+  assert.equal(attrOf(indicators[0], 'bind:this'), '{needsButton}', 'the first is the Needs-you bell');
   // The Foreman: always rendered once the state loads, accented rather than ghost.
-  const foremanButton = indicators[0];
+  const foremanButton = indicators[1];
   assert.ok(has(foremanButton, 'btn', 'sm', 'foreman') && !foremanButton.classes.includes('ghost'), `the Foreman carries the foreman accent, not ghost (${foremanButton.classes.join(' ')})`);
   assert.deepEqual(openBlocksAt(read('components/StatusBar.svelte'), 'data-popover="foreman"'), [['#if S.data']], 'it sits outside every {#if} but {#if S.data}');
   assert.ok(bar.some((e) => e.name === 'Icon' && attrOf(e, 'name') === 'foreman' && e.parents.includes(foremanButton)), 'with the foreman icon');
+  // The Daemon: the Foreman's pair, in the same accent, dashed while off, with its glyph at every width.
+  const daemonButton = indicators[2];
+  assert.equal(attrOf(daemonButton, 'data-popover'), 'daemon');
+  assert.ok(has(daemonButton, 'btn', 'sm', 'foreman') && !daemonButton.classes.includes('ghost'), `the Daemon carries the foreman accent, not ghost (${daemonButton.classes.join(' ')})`);
+  const svelteText = read('components/StatusBar.svelte');
+  assert.ok(svelteText.includes(`<button class="btn sm foreman {bar.foreman.on ? '' : 'off'} `), 'the Foreman goes dashed while off');
+  assert.ok(svelteText.includes(`<button class="btn sm foreman {bar.daemon.off ? 'off' : ''} `), 'and so does the Daemon');
+  const daemonIcon = bar.find((e) => e.name === 'Icon' && attrOf(e, 'name') === 'daemon' && e.parents.includes(daemonButton));
+  assert.ok(daemonIcon, 'with the daemon icon');
+  const iconSpan = daemonIcon.parents.at(-1)!;
+  assert.equal(iconSpan.name, 'span');
+  assert.ok(!iconSpan.classes.includes('md:hidden') && !/left >=|holdsOut/.test(attrOf(iconSpan, 'class')), `the glyph shows at every width and level (${attrOf(iconSpan, 'class')})`);
   // The one exception is the focus fact, which opens the focused job's drawer (a panel, not a popover).
   for (const b of bar.filter((e) => e.name === 'button' && e.parents.includes(footer) && attrOf(e, 'id') !== 'footer-focus')) assert.equal(attrOf(b, 'aria-haspopup'), 'dialog', 'every bar button opens a dialog');
   const focusFact = bar.filter((e) => e.name === 'button' && attrOf(e, 'id') === 'footer-focus');
@@ -1468,7 +1546,7 @@ test('status bar labels are whole or sr-only, never cut', () => {
     [`{$t('statusbar.waiting.word')}<span class={left >= 2 ? 'sr-only' : ''}>{$t('statusbar.waiting.rest')}</span>`, 'level 2: what a job waits for'],
     [`<button class="btn sm ghost max-md:hidden {left >= 3 ? 'hidden!' : ''}"`, 'level 3: held and waiting'],
     [`{#if holdsOut}<span class="sr-only">{', '}{holdText}</span>{/if}`, 'level 3: the Daemon indicator names them'],
-    [`<span class="inline-flex {left >= 4 || holdsOut ? '' : 'md:hidden'} {TONE_TEXT[daemonTone]}"><Icon name="daemon" /></span>`, 'and shows its glyph (warn while they are out of sight), as it does from level 4'],
+    [`<span class="inline-flex {TONE_TEXT[daemonTone]}"><Icon name="daemon" /></span>`, 'and its glyph, always shown, goes warn while they are out of sight'],
     [`<span class="max-md:sr-only {left >= 4 ? 'sr-only' : ''} {bar.daemon.off ? 'text-muted' : ''}">`, "level 4: the Daemon's live/cap"],
     [`<span class="max-md:sr-only {left >= 5 ? 'sr-only' : ''}">{$t('statusbar.foreman.name')}</span>`, 'level 5: the "Foreman" word'],
     [`<span class="max-md:sr-only {left >= 5 ? 'sr-only' : ''}">{$t('statusbar.foreman.off')}</span>`, 'level 5: "Foreman off" too'],
@@ -1588,17 +1666,17 @@ test('Needs you is a status-bar popover, not a page', () => {
   assert.equal(en.daemon.inbox, undefined, 'no daemon.inbox key');
   const leaves = (o: any, at = ''): [string, string][] => Object.entries(o).flatMap(([k, v]) => (typeof v === 'object' && v ? leaves(v, `${at}${k}.`) : [[`${at}${k}`, String(v)] as [string, string]]));
   assert.deepEqual(leaves(en).filter(([, v]) => v === 'Inbox').map(([k]) => k), [], 'no message is exactly "Inbox"');
-  for (const [k, v] of [['daemon.rows.inbox', 'Inbox session'], ['statusbar.daemon.inboxLog', 'Inbox session log'], ['permission.inbox', 'Inbox session'], ['live.inbox', 'inbox session'], ['session.startInbox', 'Start inbox session'], ['session.stopInbox', 'Stop inbox session'], ['needs.noDecisions', 'No decisions waiting']])
+  for (const [k, v] of [['daemon.rows.inbox', 'Inbox session'], ['statusbar.daemon.inboxLog', 'Inbox session log'], ['permission.inbox', 'Inbox session'],['session.startInbox', 'Start inbox session'], ['session.stopInbox', 'Stop inbox session'], ['needs.noDecisions', 'No decisions waiting']])
     assert.equal(k.split('.').reduce((o: any, p) => o?.[p], en), v, k);
   // The old link shows the Pipeline, rewrites the hash and asks for the popover.
   const route = fnBody(read('lib/app.svelte.ts'), 'export function route(');
   assert.match(route, /if \(v === 'inbox'\) \{\s*history\.replaceState\(null, '', '#\/pipeline'\);\s*S\.openNeeds = true;\s*\}/);
   assert.match(route, /S\.view = VIEWS\.find\(\(x\) => x\.id === v\)\?\.id \?\? 'pipeline';/, 'and falls through to the Pipeline');
 
-  // The second indicator in the left cluster, after the Foreman: a bell, with a you-chip count only above 0.
+  // The first indicator in the left cluster, before the Foreman: a bell, with a you-chip count only above 0.
   const bar = elements('components/StatusBar.svelte');
-  const first = bar.filter((e) => e.name === 'button' && /openPopover\(/.test(attrOf(e, 'onclick')))[1];
-  assert.equal(attrOf(first!, 'data-popover'), 'needs', 'Needs you comes right after the Foreman');
+  const first = bar.filter((e) => e.name === 'button' && /openPopover\(/.test(attrOf(e, 'onclick')))[0];
+  assert.equal(attrOf(first!, 'data-popover'), 'needs', 'Needs you comes first, before the Foreman');
   for (const [k, v] of [['aria-haspopup', 'dialog'], ['aria-expanded', "{expanded('needs')}"], ['aria-controls', "{controls('needs')}"]]) assert.equal(attrOf(first!, k), v, `the button's ${k}`);
   const text = read('components/StatusBar.svelte');
   assert.match(text, /const needs = \$derived\(inboxGroups\(S\.data\?\.jobs \?\? \[\]\)\.urgent\.length\);/, 'decisions are the urgent list');
@@ -1613,7 +1691,7 @@ test('Needs you is a status-bar popover, not a page', () => {
   const nButton = nm.slice(nm.indexOf('<span', nAt), nm.indexOf('</button>', nAt));
   const nVisible = nButton.replace(/<span class="sr-only">[\s\S]*?<\/span>/g, '').replace(/<span class="chip you num" aria-hidden="true">\{needsTotal\}<\/span>/g, '');
   assert.doesNotMatch(nVisible.replace(/\{[^{}]*\}/g, '').replace(/<[^>]*>/g, ''), /\S/, `no visible text in the bell (${nVisible})`);
-  assert.match(text, /needs: \[\s*\$t\('statusbar\.needs\.name'\),\s*\.\.\.\(needs > 0 \? \[\$t\('statusbar\.needs\.count', \{ count: needs \}\)\] : \[\]\),\s*\.\.\.\(bar\.prompts > 0 \? \[\$t\('permission\.heading', \{ count: bar\.prompts \}\)\] : \[\]\),\s*\]\.join\(' · '\),/, 'its title is the same text, joined by ·');
+  assert.match(text, /needs: \$t\('statusbar\.needs\.tooltip'\),/, 'its title is only "Notifications": the counts are in the sr-only text and the badge');
   // It opens the wide popover holding the page's sections, and #/inbox opens it once.
   assert.match(text, /\{:else if open === 'needs'\}\{#if S\.data\}<NeedsPanel data=\{S\.data\} \/>\{\/if\}/);
   assert.match(text, /if \(!S\.openNeeds \|\| !S\.data \|\| !needsButton\) return;[\s\S]*?S\.openNeeds = false;\s*if \(popover\.open !== 'needs'\) openPopover\('needs', anchor\);/, '#/inbox opens it anchored to its button');
@@ -1898,7 +1976,8 @@ test('the job drawer overlays the view with a resizable left edge', () => {
   assert.match(attrOf(aside, 'class'), /\{open \? 'shadow-\(--shadow-drawer\)' : 'translate-x-full invisible'\}/, 'closed, it is slid out and invisible');
   assert.match(attrOf(aside, 'class'), /\{dragging \? '' : open \? 'transition-\[translate\]' : 'transition-\[translate,visibility\]'\}/, 'it slides, except while dragging; visibility waits only on a close');
   assert.equal(attrOf(aside, 'style'), '{S.pane.md ? `width: ${width}px` : undefined}', 'the inline width only at md and up');
-  assert.match(drawer, /const width = \$derived\(clampPaneWidth\(S\.pane\.width, S\.pane\.viewport\)\);/, 'clamped to the window, the pref untouched');
+  assert.match(drawer, /const gutter = \$derived\(sidebarShown\(S\.side\)\);/, "the gutter is the sidebar's current width");
+  assert.match(drawer, /const width = \$derived\(clampPaneWidth\(S\.pane\.width, S\.pane\.viewport, gutter\)\);/, 'clamped to the window, the pref untouched');
   // The backdrop closes it, as does the close button.
   const backdrop = elements('components/Drawer.svelte').find((e) => attrOf(e, 'id') === 'drawer-backdrop')!;
   assert.equal(attrOf(backdrop, 'onclick'), '{closeDrawer}', 'a backdrop click closes it');
@@ -1909,15 +1988,15 @@ test('the job drawer overlays the view with a resizable left edge', () => {
   assert.match(drawer, /\{#if S\.pane\.md && open\}\s*<!-- An 8px hit area/, 'only at md and up, while open');
   const sep = elements('components/Drawer.svelte').find((e) => attrOf(e, 'role') === 'separator')!;
   assert.ok(sep, 'a separator');
-  for (const [k, v] of [['aria-orientation', 'vertical'], ['aria-controls', 'drawer'], ['aria-valuemin', '{PANE_MIN}'], ['aria-valuemax', '{paneMax(S.pane.viewport)}'], ['aria-valuenow', '{width}'], ['aria-label', "{$t('drawer.resize')}"], ['tabindex', '0'], ['onpointerdown', '{dragStart}'], ['onpointermove', '{dragMove}'], ['onpointerup', '{dragEnd}'], ['onlostpointercapture', '{dragEnd}'], ['onkeydown', '{sepKey}'], ['ondblclick', '{sepReset}']])
+  for (const [k, v] of [['aria-orientation', 'vertical'], ['aria-controls', 'drawer'], ['aria-valuemin', '{PANE_MIN}'], ['aria-valuemax', '{paneMax(S.pane.viewport, gutter)}'], ['aria-valuenow', '{width}'], ['aria-label', "{$t('drawer.resize')}"], ['tabindex', '0'], ['onpointerdown', '{dragStart}'], ['onpointermove', '{dragMove}'], ['onpointerup', '{dragEnd}'], ['onlostpointercapture', '{dragEnd}'], ['onkeydown', '{sepKey}'], ['ondblclick', '{sepReset}']])
     assert.equal(attrOf(sep, k), v, `the separator's ${k}`);
   for (const c of ['w-2', 'cursor-col-resize', 'touch-none']) assert.ok(sep.classes.includes(c), `the separator has ${c}`);
   assert.match(drawer, /<span class="absolute inset-y-0 left-0 border-l /, 'a 1px visible rule');
   assert.match(drawer, /e\.currentTarget\.setPointerCapture\(e\.pointerId\)/, 'a drag captures the pointer');
-  assert.match(drawer, /S\.pane\.width = clampPaneWidth\(drag\.w \+ \(drag\.x - e\.clientX\), S\.pane\.viewport\)/, 'and resizes live');
+  assert.match(drawer, /S\.pane\.width = clampPaneWidth\(drag\.w \+ \(drag\.x - e\.clientX\), S\.pane\.viewport, gutter\)/, 'and resizes live');
   assert.match(drawer, /const save = \(\): void => pref\.set\('paneWidth', String\(S\.pane\.width\)\);/, 'the width is saved per viewer');
-  assert.match(drawer, /const next = paneKey\(width, e\.key, e\.shiftKey, S\.pane\.viewport\);/);
-  assert.match(drawer, /S\.pane\.width = clampPaneWidth\(PANE_DEFAULT, S\.pane\.viewport\);/, 'double-click restores the default');
+  assert.match(drawer, /const next = paneKey\(width, e\.key, e\.shiftKey, S\.pane\.viewport, gutter\);/);
+  assert.match(drawer, /S\.pane\.width = clampPaneWidth\(PANE_DEFAULT, S\.pane\.viewport, gutter\);/, 'double-click restores the default');
   assert.equal(drawer.match(/save\(\);/g)?.length, 3, 'drag end, a key and a reset each save once');
 });
 

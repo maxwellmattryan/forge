@@ -25,27 +25,30 @@ export function moveDrawerTab(current: DrawerTab, key: string): DrawerTab | null
 export const PANE_MIN = 360;
 /** The drawer's width until the viewer drags it. */
 export const PANE_DEFAULT = 640;
-/** The sidebar's width, px: it mirrors `--size-sidebar` in style.css, so the drawer never covers the sidebar column. */
+/** The sidebar's default width, px: it mirrors `--size-sidebar` in style.css, so the drawer never covers the sidebar column. */
 export const PANE_GUTTER = 236;
 
-/** The widest the drawer gets in a window `viewport` px wide (innerWidth): it stops at the sidebar's edge. */
-export const paneMax = (viewport: number): number => Math.max(PANE_MIN, Math.floor(viewport - PANE_GUTTER));
+/**
+ * The widest the drawer gets in a window `viewport` px wide (innerWidth): it stops at the sidebar's edge, `gutter` px
+ * from the left (the sidebar's current width; the default width when not given).
+ */
+export const paneMax = (viewport: number, gutter = PANE_GUTTER): number => Math.max(PANE_MIN, Math.floor(viewport - gutter));
 
-/** `w` within [PANE_MIN, paneMax(viewport)], whole px; a stored value that is not a number takes the default. */
-export function clampPaneWidth(w: number, viewport: number): number {
+/** `w` within [PANE_MIN, paneMax(viewport, gutter)], whole px; a stored value that is not a number takes the default. */
+export function clampPaneWidth(w: number, viewport: number, gutter = PANE_GUTTER): number {
   const width = Number.isFinite(w) ? w : PANE_DEFAULT;
-  return Math.round(Math.min(paneMax(viewport), Math.max(PANE_MIN, width)));
+  return Math.round(Math.min(paneMax(viewport, gutter), Math.max(PANE_MIN, width)));
 }
 
 /**
  * The drawer width after a key on the separator, or null for other keys. The separator is the drawer's left edge, so
  * Left widens it and Right narrows it: 16px a press, 64px with Shift. Home is the minimum, End the maximum.
  */
-export function paneKey(w: number, key: string, shift: boolean, viewport: number): number | null {
+export function paneKey(w: number, key: string, shift: boolean, viewport: number, gutter = PANE_GUTTER): number | null {
   const step = shift ? 64 : 16;
-  if (key === 'ArrowLeft') return clampPaneWidth(w + step, viewport);
-  if (key === 'ArrowRight') return clampPaneWidth(w - step, viewport);
-  if (key === 'Home') return clampPaneWidth(PANE_MIN, viewport);
-  if (key === 'End') return paneMax(viewport);
+  if (key === 'ArrowLeft') return clampPaneWidth(w + step, viewport, gutter);
+  if (key === 'ArrowRight') return clampPaneWidth(w - step, viewport, gutter);
+  if (key === 'Home') return clampPaneWidth(PANE_MIN, viewport, gutter);
+  if (key === 'End') return paneMax(viewport, gutter);
   return null;
 }
