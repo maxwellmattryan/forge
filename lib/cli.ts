@@ -21,7 +21,7 @@ import { advanceCmd } from './commands/advance.ts';
 import { auditCmd } from './commands/audit.ts';
 import { backingCmd } from './commands/backing.ts';
 import { budgetCmd } from './commands/budget.ts';
-import { num, out, parseArgs, req, requireJob, resolveOutputMode, setOutputMode, withoutJson, withoutMode } from './commands/args.ts';
+import { num, out, outputMode, parseArgs, req, requireJob, resolveOutputMode, setOutputMode, setRenderKey, withoutJson, withoutMode } from './commands/args.ts';
 import { configCmd } from './commands/config.ts';
 import { daemonCmd } from './commands/daemon.ts';
 import { dash } from './commands/dash.ts';
@@ -38,7 +38,8 @@ import { requestsCmd } from './commands/requests.ts';
 import { runCmd } from './commands/run.ts';
 import { secretsCmd } from './commands/secrets.ts';
 import { verifiersCmd } from './commands/verifiers.ts';
-import { statsText, statusRows, statusTable } from './commands/status.ts';
+import { renderKey } from './commands/render/index.ts';
+import { statsText, statusRows, statusTable, statusView } from './commands/status.ts';
 import { nextCmd, syncAll, trackerCmd } from './commands/tracker.ts';
 import { updateCmd } from './commands/update.ts';
 import { versionCmd } from './commands/version.ts';
@@ -51,6 +52,8 @@ export async function main(rawArgv: string[]): Promise<void> {
   // Everything below sees the call as if --mode had never been typed: help, git, run's args.
   const argv = withoutMode(rawArgv);
   const { pos, flags } = parseArgs(argv);
+  // The outer call's renderer, chosen here once like the mode: dispatch never sets it.
+  setRenderKey(renderKey(pos));
   // Before the git passthrough, so `forge git log --help` never runs `git help` (which can start a
   // configured viewer), and before mainRoot(), so help works outside a repo.
   const dashdash = argv.indexOf('--');
@@ -88,8 +91,8 @@ export async function main(rawArgv: string[]): Promise<void> {
  * return `printed`; advance never runs those (runnableInProcess in lib/commands/advance.ts).
  */
 export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatched> {
-  // Never resolves the output mode: advance runs step's commands here, in-process, and an argv of
-  // theirs must not change how the outer call prints.
+  // Never resolves the output mode or the render key: advance runs step's commands here, in-process,
+  // and an argv of theirs must not change how the outer call prints.
   const { root, config, initialized } = ctx;
   const { pos, flags } = parseArgs(argv);
   const [cmd, sub, ...rest] = pos;
@@ -119,7 +122,10 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       return doctorCmd(ctx, pos.slice(1), flags);
     case 'status':
       needInit();
-      return ok(flags.json ? statusRows(root, Boolean(flags.all)) : statusTable(root, Boolean(flags.all)));
+      // Reading the mode is safe: status is not in ADVANCE_GROUPS (lib/commands/advance.ts), so it
+      // only ever runs as the outer call, whose mode main() set.
+      if (flags.json) return ok(statusRows(root, Boolean(flags.all)));
+      return ok(outputMode() === 'human' ? statusView(root, Boolean(flags.all)) : statusTable(root, Boolean(flags.all)));
     case 'next':
       needInit();
       return ok(await nextCmd(root, config, flags));
@@ -205,7 +211,8 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
     case 'stats': {
       if (flags.csv || flags.by !== undefined) return ok(statsCsv(root, config, flags));
       const s = computeStats(root, { since: flags.since, includeEvals: Boolean(flags['include-evals']) });
-      return ok(flags.json ? s : statsText(s));
+      // Human mode renders the object; safe for the same reason as status (not in ADVANCE_GROUPS).
+      return ok(flags.json || outputMode() === 'human' ? s : statsText(s));
     }
     case 'budget':
       needInit();

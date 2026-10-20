@@ -1055,8 +1055,17 @@ export interface ProjectResponse {
 }
 
 /** GET /api/roster: roster in lib/roster.ts. */
+/** The builder's model overrides, as the roster reports them. */
+export interface RosterModelBy {
+  low: string | null;
+  medium: string | null;
+  high: string | null;
+  rework: string | null;
+}
+
 export interface Roster {
-  agents: { role: string; description: string; model: string; promptHash: string; addendum: string | null; effort: Effort | null; effortSource: EffortSource }[];
+  /** `modelBy`: the builder entry only, its runtime.modelByComplexity and runtime.reworkModel (null when unset or invalid). */
+  agents: { role: string; description: string; model: string; promptHash: string; addendum: string | null; effort: Effort | null; effortSource: EffortSource; modelBy?: RosterModelBy }[];
   reviewers: { name: string; model: string; always: boolean; when: string | null; checklist: string | null; checklistHash: string | null; effort: Effort | null; effortSource: EffortSource }[];
   learnings: string | null;
   /** Entries in learnings.md; 0 when it is missing. */

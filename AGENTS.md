@@ -2,6 +2,23 @@
 
 This repo is **Forge**: a Claude Code plugin that is also its own marketplace. This guide is for changing Forge. To *use* it in another repo, run `/forge` there. Read `README.md` first; for depth see `docs/ARCHITECTURE.md` (layers, versioning, concurrency, security), `docs/CONFIG.md` (every config key) and [`docs/GLOSSARY.md`](docs/GLOSSARY.md) (the words docs, prompts and dashboard copy use).
 
+## Essentials
+Obey these on every change; each links the section with the detail.
+- **Zero runtime dependencies**: Node ≥ 22.18 built-ins only; build tools are exact-pinned devDependencies ([Rules](#rules)).
+- **The CLI is the only writer of state**: new state means a new CLI command, never an agent editing `job.json` ([Rules](#rules)).
+- **Version every shape change**: bump the constant in `lib/schema.ts` with a migration keyed by the old version, and `API_VERSION` when `/api/state` changes; only one in-flight change may bump each constant ([Rules](#rules), [Where a change goes](#where-a-change-goes)).
+- **Never add AI attribution** to commits, PRs, issues or comments ([Rules](#rules)).
+- **Preserve the security posture**: never adopt fork PRs; the server answers loopback Hosts only; POSTs need the token, a matching Origin and JSON; tracker and PR text is fenced as data ([Rules](#rules)).
+- **Never hand-edit `dashboard/dist/`**: rebuild it with `npm run build:dashboard` and commit it with its sources ([Rules](#rules)).
+- **Escape everything the dashboard renders**: `{@html}` only on the escape-first helpers ([Gotchas](#gotchas-already-paid-for)).
+- **Never point the CLI at a real repo's `.forge/`** while developing: use a scratch repo or `FORGE_ROOT` ([Verify](#verify-before-claiming-it-works)).
+- **Jobs leave `CHANGELOG.md` and versions alone**: the release commit adds them ([Publishing](#publishing)).
+- **Use the glossary's words** in docs, prompts and dashboard copy ([`docs/GLOSSARY.md`](docs/GLOSSARY.md)).
+- **Keep docs in sync with CLI behaviour**: `README.md`, `docs/*.md` and `skills/forge/**` ([Rules](#rules)).
+- **Run the verify list before claiming it works** ([Verify](#verify-before-claiming-it-works)).
+
+The rest of this file is reference: read a section when your change touches it.
+
 ## Layout
 - `bin/forge`: CLI entry (also on PATH while the plugin is enabled); it turns on the start-up cache, then imports `lib/cli.ts`
 - `lib/`: the engine. `cli.ts` (routing only) + `commands/` (one module per command group, each with its `HELP` table; `help.ts` renders help and errors), `jobs.ts` (state + events), `step.ts` (`forge job step`: the pure decider of the next pipeline action) + `brief.ts` (the agent briefs it renders), `schema.ts` (versions, normalisers, migrations), `config.ts`, `config-fields.ts` (the settings allowlist and its validation) + `config-set.ts` (the one write path `forge config set` and `/api/config` share), `doctor.ts`, `worktree.ts`, `pr.ts`, `trackers/`, `stats.ts`, `evals.ts`, `retro.ts`, `usage.ts` + `pricing.json`, `server.ts`, `daemon.ts` (one supervised headless session) + `daemon-pool.ts` (the inbox and per-job sessions `forge dash` runs), `commands/daemon.ts` (`forge daemon status|log`), `verifiers.ts` (repo-local yes/no checks between verify and the panel) + `commands/verifiers.ts` (`forge verifiers list|run|record`), `backing.ts` (backing services through the Docker CLI) + `backing-config.ts` (their validation) + `commands/backing.ts` (`forge backing up|down|status`), `ports.ts` (per-component job ports) + `endpoints.ts` (the placeholders and env they become) + `endpoints-config.ts` (their validation, kept apart for the same import cycle as `backing-config.ts`), `detect.ts`, `yaml.ts`, `types.ts` (shared shapes)
