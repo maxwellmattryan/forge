@@ -36,6 +36,7 @@ import { ForgeError, coerce, getPath, run } from '../util.ts';
 import { bodyFrom, list, num, oneOf, req, requireJob, str, usageError } from './args.ts';
 import { mirrorToTracker, startFromRef } from './tracker.ts';
 import { archiveJob, archiveOlder, prune } from '../retention.ts';
+import { deleteJob } from '../delete.ts';
 import type { AgentUsage, ArchiveResult, Config, Effort, HelpGroup, Job, JobIssue } from '../types.ts';
 import { FOREMAN_ACTOR, currentActor } from '../actor.ts';
 import { jobAudit, toCsv } from '../audit.ts';
@@ -259,6 +260,15 @@ const JOB: HelpGroup = {
       ],
       exits: [[1, 'not eligible, or a daemon session']],
       docs: ['Retention', 'docs/ARCHITECTURE.md#retention'],
+      readme: true,
+    },
+    {
+      command: 'job delete',
+      args: '<id> [--force]',
+      summary: "delete a job started by mistake, for good: releases its tracker claim, removes its worktrees, per-job backing services and the branch Forge named for it, rejects its open requests and deletes its job folder and session logs, keeping no archive record. A job with a PR, split children or an active dependent is refused: cancel and archive real work instead",
+      flags: [['--force', 'delete it even while a live interactive session owns it']],
+      exits: [[1, 'no such job, not eligible (the message says why), a worktree or backing teardown that failed (rerun once fixed), or a daemon session']],
+      docs: ['Deleting a job', 'docs/ARCHITECTURE.md#deleting-a-job'],
       readme: true,
     },
     {
@@ -869,6 +879,11 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       }
       if (rest.length !== 1) throw usageError(JOB, 'archive');
       return { archived: [archiveJob(root, req(id, 'job id'), 'cli')], refused: [] } satisfies ArchiveResult;
+    }
+    case 'delete': {
+      refuseRetentionInDaemon('delete');
+      if (rest.length !== 1) throw usageError(JOB, 'delete');
+      return deleteJob(root, config, req(id, 'job id'), { force: flags.force === true, trigger: 'cli' });
     }
     case 'prune': {
       refuseRetentionInDaemon('prune');

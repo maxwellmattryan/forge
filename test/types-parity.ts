@@ -113,6 +113,8 @@ export type Checks = [
   Expect<Equal<engine.Effort, dash.Effort>>,
   Expect<Equal<engine.PostJobEffortBody, dash.PostJobEffortBody>>,
   Expect<Equal<engine.PostJobEffortResponse, dash.PostJobEffortResponse>>,
+  Expect<Equal<engine.PostDeleteJobBody, dash.PostDeleteJobBody>>,
+  Expect<Equal<engine.DeleteJobResult, dash.DeleteJobResult>>,
   Expect<Equal<engine.PostJobReposBody, dash.PostJobReposBody>>,
   Expect<Equal<engine.PostJobReposResponse, dash.PostJobReposResponse>>,
   Expect<Equal<engine.RepoProposal, dash.RepoProposal>>,
