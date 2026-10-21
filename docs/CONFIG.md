@@ -516,6 +516,8 @@ Archived jobs leave the board, the Done filter, `forge status`, `forge job list 
 
 - **`outcomes.windowDays`** (an integer from 1 to 365, default 14): after a job's root PR merges, `forge sync` watches this many days for a revert of its merge, `bug` issues that reference its PR or issues (GitHub tracker only), and churn (later non-Forge commits on the files it changed). The job's **outcome** stays `open` until the window closes, then turns `final` and counts in `forge stats`' autonomy rate. An open outcome follows the current value; a final one keeps the window it was measured with. Editable in Settings. docs/CLI.md "Outcomes" covers the measurement and the stats fields.
 
+**Migration** (config `schemaVersion` 23 → 24): nothing changes. v24 adds `outcomes.windowDays`, 14 by default; the bump lets older Forges refuse a config whose outcome window they would ignore. `forge migrate` writes the new version.
+
 ## Repo budget
 
 `pipeline.budget` stops one job. `budget:` caps what the whole repo spends per calendar UTC day (`YYYY-MM-DD`) and month (`YYYY-MM`), so the daemon and `/forge next 3` can't start jobs without limit. Every key defaults to `null` (unlimited), and per-job budgets work exactly as before.

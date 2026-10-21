@@ -5,7 +5,7 @@ import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { defaults, validateConfig } from '../lib/config.ts';
 import { FIELDS } from '../lib/config-fields.ts';
-import { JOB_SCHEMA_VERSION, cleanOutcome, normalizeJob } from '../lib/schema.ts';
+import { CONFIG_SCHEMA_VERSION, JOB_SCHEMA_VERSION, cleanOutcome, migrateConfig, normalizeJob } from '../lib/schema.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const SHA = 'a'.repeat(40);
@@ -76,6 +76,16 @@ describe('outcome schema', { concurrency: 4 }, () => {
       churn: null,
       reason: 'missing merge commit',
     });
+  });
+
+  test('previous config migrates to the outcomes version', () => {
+    assert.equal(CONFIG_SCHEMA_VERSION, 24);
+    const v23 = { schemaVersion: 23, tracker: { kind: 'none' }, secrets: {}, outcomes: { windowDays: 7 } };
+    const m = migrateConfig(structuredClone(v23));
+    assert.equal(m.from, 23);
+    assert.deepEqual(m.config, { ...v23, schemaVersion: 24 }, 'nothing but schemaVersion changes');
+    assert.deepEqual(migrateConfig({ schemaVersion: 23 }).config, { schemaVersion: 24 }, 'no outcomes key is added: defaults fill it');
+    assert.equal(migrateConfig({ schemaVersion: 25 }).from, 25, 'a newer config is left for validation to refuse');
   });
 
   test('windowDays validation', async () => {
