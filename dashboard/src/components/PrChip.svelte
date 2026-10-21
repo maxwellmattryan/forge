@@ -21,7 +21,7 @@
 
 {#if model}
   {#if !href}<Chip tone={model.tone} text={model.text} icon="pull-request" />
-  {:else if !inButton}<a {href} target="_blank" rel="noopener noreferrer" class="inline-flex" onclick={(e) => e.stopPropagation()}><Chip tone={model.tone} text={model.text} icon="pull-request" extra="cursor-pointer hover:underline" /></a>
+  {:else if !inButton}<a {href} target="_blank" rel="noopener noreferrer" class="inline-flex no-underline" onclick={(e) => e.stopPropagation()}><Chip tone={model.tone} text={model.text} icon="pull-request" extra="cursor-pointer hover:underline" /></a>
   {:else}
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (a span, as DepChips: the card is a button already, and a button can't nest a link; the drawer's header chip is the keyboard's way to the PR) -->
     <span data-gh-href={href} class="inline-flex" onclick={open}><Chip tone={model.tone} text={model.text} icon="pull-request" extra="cursor-pointer hover:underline" /></span>

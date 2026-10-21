@@ -1,6 +1,6 @@
 <!-- The GitHub hover card: any link to a github.com repository, pull request, issue or commit, anywhere in the dashboard
-     (markdown included), or an element carrying `data-gh-href` (a board card's PR chip), shows one after a resting pointer or keyboard focus. It listens on the document, so no link
-     opts in. The card is a tooltip the link describes: the link stays the keyboard's way to GitHub, and the card's own
+     (markdown included), or an element carrying `data-gh-href` (a board card's PR chip), shows one after a resting
+     pointer or keyboard focus. It listens on the document, so no link opts in. The card is a tooltip the link describes: the link stays the keyboard's way to GitHub, and the card's own
      links are for the pointer. Everything in it is GitHub text and renders as text. -->
 <script lang="ts">
   import Chip from './Chip.svelte';

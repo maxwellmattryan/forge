@@ -24,6 +24,8 @@ test('a PR chip with a safe url is a GitHub link', () => {
   assert.match(tag, /^<a \{href\} /);
   assert.match(tag, / target="_blank"/);
   assert.match(tag, / rel="noopener noreferrer"/);
+  // The base `a` underline would propagate to the flex-item chip in gleam; only the chip's own hover underline shows.
+  assert.match(tag, / class="inline-flex no-underline"/, 'the link draws no underline of its own');
   assert.match(tag, / onclick=\{\(e\) => e\.stopPropagation\(\)\}/, 'a jobs-table row does not open the drawer');
   assert.match(a[2], /^<Chip /, 'it wraps the Chip');
 });
