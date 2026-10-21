@@ -79,13 +79,13 @@ describe('outcome schema', { concurrency: 4 }, () => {
   });
 
   test('previous config migrates to the outcomes version', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 26);
+    assert.equal(CONFIG_SCHEMA_VERSION, 27);
     const v23 = { schemaVersion: 23, tracker: { kind: 'none' }, secrets: {}, outcomes: { windowDays: 7 } };
     const m = migrateConfig(structuredClone(v23));
     assert.equal(m.from, 23);
-    assert.deepEqual(m.config, { ...v23, schemaVersion: 26 }, 'nothing but schemaVersion changes');
-    assert.deepEqual(migrateConfig({ schemaVersion: 23 }).config, { schemaVersion: 26 }, 'no outcomes key is added: defaults fill it');
-    assert.equal(migrateConfig({ schemaVersion: 27 }).from, 27, 'a newer config is left for validation to refuse');
+    assert.deepEqual(m.config, { ...v23, schemaVersion: 27 }, 'nothing but schemaVersion changes');
+    assert.deepEqual(migrateConfig({ schemaVersion: 23 }).config, { schemaVersion: 27 }, 'no outcomes key is added: defaults fill it');
+    assert.equal(migrateConfig({ schemaVersion: 28 }).from, 28, 'a newer config is left for validation to refuse');
   });
 
   test('windowDays validation', async () => {

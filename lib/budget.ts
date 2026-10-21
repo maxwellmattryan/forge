@@ -5,7 +5,7 @@ import { configForJob } from './eval-overlay.ts';
 import { loadJob, logEvent, logHumanEvent, setJob, updateJob } from './jobs.ts';
 import { exists } from './paths.ts';
 import { BUDGET_KEYS } from './schema.ts';
-import type { BudgetKey, BudgetLimits, BudgetUsed, Config, Job, JobBudget } from './types.ts';
+import type { BudgetKey, BudgetLimits, BudgetUsed, Config, DaemonJobBudget, Job, JobBudget } from './types.ts';
 import { ForgeError, now, run } from './util.ts';
 
 const TERMINAL = ['done', 'cancelled', 'failed'];
@@ -17,9 +17,35 @@ export interface BudgetExceeded {
   limit: number;
 }
 
+/** The limits daemon.jobBudget can fill: the spend keys. */
+export const SPEND_KEYS = ['tokens', 'usd', 'minutes'] as const;
+
+/** daemon.jobBudget with every key a finite number >= 0 or null, or null when it is off or not a map. */
+export function jobBudgetOf(config: Config): DaemonJobBudget {
+  const b: unknown = config?.daemon?.jobBudget;
+  if (!b || typeof b !== 'object' || Array.isArray(b)) return null;
+  const v = (k: string) => {
+    const n = (b as Record<string, unknown>)[k];
+    return typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null;
+  };
+  return { tokens: v('tokens'), usd: v('usd'), minutes: v('minutes') };
+}
+
+/**
+ * pipeline.budget with the job's overrides on top. With the daemon on, a job whose limits set no
+ * spend key (none non-null in config, none present in its own overrides) gets daemon.jobBudget's
+ * non-null keys, so an unattended job never loops without a spend ceiling. Every budget check, the
+ * supervisor's hold and the dashboard (dashboard/src/lib/budget.ts) read limits through this rule.
+ */
 export function effectiveLimits(config: Config, job: Pick<Job, 'budget'>): BudgetLimits {
-  const merged = { ...(config?.pipeline?.budget ?? {}), ...(job.budget?.limits ?? {}) };
-  return Object.fromEntries(BUDGET_KEYS.map((k) => [k, merged[k] ?? null]));
+  const own = job.budget?.limits ?? {};
+  const merged: Record<string, number | null | undefined> = { ...(config?.pipeline?.budget ?? {}), ...own };
+  const limits = Object.fromEntries(BUDGET_KEYS.map((k) => [k, merged[k] ?? null])) as BudgetLimits;
+  const fill = config?.daemon?.enabled === true ? jobBudgetOf(config) : null;
+  if (fill && SPEND_KEYS.every((k) => limits[k] === null && !Object.hasOwn(own, k))) {
+    for (const k of SPEND_KEYS) if (fill[k] !== null && fill[k] !== undefined) limits[k] = fill[k];
+  }
+  return limits;
 }
 
 /**

@@ -33,6 +33,7 @@ import { API_VERSION, CONFIG_SCHEMA_VERSION, EFFORTS, EVENT_SCHEMA_VERSION, JOB_
 import { computeStats } from './stats.ts';
 import { projectGraph } from './project.ts';
 import { RepoBudgetAckError, ackRepoBudget, repoBudgetStatus, validPeriod } from './repo-budget.ts';
+import { jobBudgetOf } from './budget.ts';
 import { listRuns, listTasks, compareRuns, forgeVersion } from './evals.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, enqueue, listRequests, validJobId, validScope } from './requests.ts';
 import { gateOwner } from './foreman.ts';
@@ -1412,7 +1413,7 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
       panel: config.review.panel.map((r) => r.name),
       pipeline: config.pipeline,
       models: config.runtime.models,
-      daemon: { enabled: config.daemon?.enabled === true },
+      daemon: { enabled: config.daemon?.enabled === true, jobBudget: jobBudgetOf(config) },
       // Validated, so an invalid runtime.effort reads as none here while validate and doctor report it.
       effort: resolveEffort(config).level,
     },

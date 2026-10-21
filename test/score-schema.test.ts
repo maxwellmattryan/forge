@@ -15,8 +15,8 @@ const good = () => ({
 describe('score schema', { concurrency: 4 }, () => {
   test('v15 job reads', () => {
     assert.equal(JOB_SCHEMA_VERSION, 16);
-    assert.equal(CONFIG_SCHEMA_VERSION, 26);
-    assert.equal(API_VERSION, 31);
+    assert.equal(CONFIG_SCHEMA_VERSION, 27);
+    assert.equal(API_VERSION, 32);
     const v15 = normalizeJob({ schemaVersion: 15, id: 'old', state: 'done', pr: { number: 1, state: 'MERGED' }, outcome: null });
     assert.equal(v15.schemaVersion, 16);
     assert.equal(v15.score, null);
@@ -25,7 +25,7 @@ describe('score schema', { concurrency: 4 }, () => {
     assert.equal(normalizeJob({ id: 'x', schemaVersion: 17 })._unsupported, true, 'a newer job is refused');
     const m = migrateConfig({ schemaVersion: 24, tracker: { kind: 'none' } });
     assert.equal(m.from, 24);
-    assert.deepEqual(m.config, { schemaVersion: 26, tracker: { kind: 'none' } }, 'migration 24 changes nothing but schemaVersion');
+    assert.deepEqual(m.config, { schemaVersion: 27, tracker: { kind: 'none' } }, 'migration 24 changes nothing but schemaVersion');
   });
 
   test('malformed score reads as null', () => {

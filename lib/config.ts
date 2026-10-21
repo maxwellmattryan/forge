@@ -117,6 +117,9 @@ export function defaults(): Config {
       specApproval: 'always',
       design: 'none',
       maxRounds: 3,
+      // Every round counts, whoever opened it; past it only a person's rework opens another (B7).
+      // null means twice the job's maxRounds.
+      maxTotalRounds: null,
       // null means unlimited; a job's `budget.limits` overrides any key.
       budget: { tokens: null, usd: null, minutes: null, changedLines: null, verifyRetries: 2 },
     },
@@ -149,6 +152,8 @@ export function defaults(): Config {
       conflicts: 'ask',
       updateStrategy: 'merge',
       integrationReview: 'code-only',
+      // Consecutive CI reworks forge sync starts before a red head waits for a person.
+      maxCiReworks: 3,
     },
     merge: {
       auto: false,
@@ -219,6 +224,9 @@ export function defaults(): Config {
       // `forge dash` is dropped from their environment unless this is api-key, because claude
       // would silently bill it instead of the subscription.
       auth: 'subscription',
+      // With the daemon on, fills a job's spend limits when none of tokens, usd or minutes is set
+      // anywhere (lib/budget.ts effectiveLimits); null turns it off.
+      jobBudget: { tokens: 600000000, usd: 150 },
     },
     // Opt-in: the `_office` daemon session decides gates through forge:assistant sub-agents;
     // docs/ARCHITECTURE.md "Foreman". Whole-phrase, case-insensitive patterns: a match keeps the
@@ -474,6 +482,11 @@ export function validateConfig(c: any, root: string): string[] {
   problems.push(...modelProblems(c));
   if (c.review?.onRework !== undefined) oneOf('review.onRework', c.review.onRework, ['narrow', 'full']);
   if (!Number.isInteger(c.pipeline.maxRounds) || c.pipeline.maxRounds < 1) problems.push('pipeline.maxRounds must be a positive integer');
+  const total = c.pipeline.maxTotalRounds;
+  if (total !== null && total !== undefined && !(Number.isInteger(total) && total >= 1))
+    problems.push(`pipeline.maxTotalRounds must be null or a positive integer (got ${JSON.stringify(total)})`);
+  const ci = c.pr.maxCiReworks;
+  if (ci !== undefined && !(Number.isInteger(ci) && ci >= 0)) problems.push(`pr.maxCiReworks must be an integer >= 0 (got ${JSON.stringify(ci)})`);
   for (const [k, v] of Object.entries(c.pipeline.budget ?? {})) {
     if (v === null) continue;
     if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) problems.push(`pipeline.budget.${k} must be null or a non-negative number (got ${JSON.stringify(v)})`);
@@ -697,9 +710,26 @@ export function daemonProblems(c: any, root?: string): string[] {
   if (idle !== null && !(typeof idle === 'number' && Number.isFinite(idle) && idle > 0))
     problems.push(`daemon.idleStopMinutes must be null or a positive number (got ${JSON.stringify(idle)})`);
   if (!DAEMON_AUTH.includes(d.auth)) problems.push(`daemon.auth must be one of ${DAEMON_AUTH.join(' | ')} (got ${JSON.stringify(d.auth)})`);
+  problems.push(...jobBudgetProblems(d.jobBudget));
   const effort = c.runtime?.effort ?? null;
   if (effort !== null && !validEffort(effort))
     problems.push(`runtime.effort must be one of ${EFFORTS.join(' | ')}, or null (got ${JSON.stringify(effort)})`);
+  return problems;
+}
+
+const JOB_BUDGET_KEYS = ['tokens', 'usd', 'minutes'];
+
+/** daemon.jobBudget: null, or a map of tokens (an integer), usd and minutes, each null or a number >= 0. */
+function jobBudgetProblems(b: unknown): string[] {
+  if (b === null || b === undefined) return [];
+  if (typeof b !== 'object' || Array.isArray(b)) return [`daemon.jobBudget must be null or a map of ${JOB_BUDGET_KEYS.join(', ')} (got ${JSON.stringify(b)})`];
+  const problems: string[] = [];
+  for (const [k, v] of Object.entries(b)) {
+    if (!JOB_BUDGET_KEYS.includes(k)) problems.push(`daemon.jobBudget.${k} is not a key (use ${JOB_BUDGET_KEYS.join(', ')})`);
+    else if (v === null) continue;
+    else if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) problems.push(`daemon.jobBudget.${k} must be null or a number >= 0 (got ${JSON.stringify(v)})`);
+    else if (k === 'tokens' && !Number.isInteger(v)) problems.push(`daemon.jobBudget.tokens must be null or an integer >= 0 (got ${v})`);
+  }
   return problems;
 }
 

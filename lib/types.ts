@@ -908,6 +908,8 @@ export interface Config {
     conflicts: 'ask' | 'fix' | 'defer';
     updateStrategy: 'merge' | 'rebase';
     integrationReview: 'always' | 'code-only';
+    /** Consecutive CI reworks forge sync starts before a red head waits for a person. */
+    maxCiReworks: number;
   };
   merge: {
     auto: boolean;
@@ -948,6 +950,7 @@ export interface Config {
     maxConcurrent: number;
     idleStopMinutes: number | null;
     auth: DaemonAuth;
+    jobBudget: DaemonJobBudget;
   };
   /** The office session's authority: docs/CONFIG.md "Foreman". */
   foreman: {
@@ -1322,8 +1325,13 @@ export interface PipelineConfig {
   specApproval: 'always' | 'large' | 'never';
   design: 'none' | 'reference' | 'mockup';
   maxRounds: number;
+  /** The total-round ceiling (B7); null means twice the job's maxRounds. */
+  maxTotalRounds: number | null;
   budget: BudgetLimits;
 }
+
+/** daemon.jobBudget: the spend limits an unattended job with none of its own gets (lib/budget.ts effectiveLimits). */
+export type DaemonJobBudget = { tokens?: number | null; usd?: number | null; minutes?: number | null } | null;
 
 /** Session supervisor status: state() in lib/daemon.ts. */
 export type DaemonStatus = 'off' | 'idle' | 'busy' | 'stopping';
@@ -1497,7 +1505,7 @@ export interface ApiState {
     panel: string[];
     pipeline: PipelineConfig;
     models: Record<string, string>;
-    daemon: { enabled: boolean };
+    daemon: { enabled: boolean; jobBudget: DaemonJobBudget };
     /** runtime.effort when it is valid, else null. */
     effort: Effort | null;
   };
