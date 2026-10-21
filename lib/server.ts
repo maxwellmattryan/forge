@@ -36,7 +36,7 @@ import { RepoBudgetAckError, ackRepoBudget, repoBudgetStatus, validPeriod } from
 import { jobBudgetOf } from './budget.ts';
 import { listRuns, listTasks, compareRuns, forgeVersion } from './evals.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, enqueue, listRequests, validJobId, validScope } from './requests.ts';
-import { gateOwner } from './foreman.ts';
+import { foremanHandoff, gateOwner } from './foreman.ts';
 import { loadTracker } from './trackers/index.ts';
 import { roster } from './roster.ts';
 import { readTriageCache } from './triage.ts';
@@ -1405,7 +1405,7 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
   const jobs = listJobs(root).map((j) => {
     const events = readEvents(root, j.id);
     const last = events[events.length - 1] ?? null;
-    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: leaseStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events), endpoints: endpointsFor(root, config, j) };
+    return { ...j, progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: leaseStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events), endpoints: endpointsFor(root, config, j), foremanHandoff: foremanHandoff(j, events) };
   });
   // Every string leaf: titles, events and activity lines can all carry what a command printed.
   return redactDeep<ApiState>({

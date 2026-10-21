@@ -2,7 +2,7 @@
 // this file never runs. The dashboard's src/lib/types.ts carries a copy of the API shapes, kept
 // equal by test/types-parity.ts, until the dashboard imports this file. Unions that have a runtime
 // list are derived from that list, never retyped.
-import type { ACTOR_SOURCES, BACKING_DB_ENGINES, BACKING_ISOLATIONS, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
+import type { ACTOR_SOURCES, BACKING_DB_ENGINES, BACKING_ISOLATIONS, BUDGET_KEYS, COMPLEXITIES, DAEMON_AUTH, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, HANDOFF_CLASSES, NOTIFY_EVENTS, NOTIFY_FORMATS, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, SEVERITIES, STAGES, STATES, WAITING_ON } from './schema.ts';
 import type { REQUEST_TYPES } from './requests.ts';
 import type { COMPONENT_KINDS, DEPENDENCY_TYPES, INTERIM_STRATEGIES, LINK_ECOSYSTEMS } from './components.ts';
 import type { SINK_FORMATS, SINK_MODES } from './config-sinks.ts';
@@ -1044,6 +1044,15 @@ export interface NotifyWebhook {
 
 /** A gate class the foreman may decide: OFFICE_GATES in lib/schema.ts. */
 export type GateClass = (typeof OFFICE_GATES)[number];
+/** Why the Foreman left a gate for a person: HANDOFF_CLASSES in lib/schema.ts. */
+export type HandoffClass = (typeof HANDOFF_CLASSES)[number];
+/** A Foreman hand-off still standing at the job's current park: foremanHandoff in lib/foreman.ts. */
+export interface ForemanHandoff {
+  gate: GateClass;
+  class: HandoffClass;
+  reason: string;
+  at: string;
+}
 /** foreman.ship: FOREMAN_SHIP in lib/schema.ts. */
 export type ForemanShip = (typeof FOREMAN_SHIP)[number];
 /** Where an event's actor came from: ACTOR_SOURCES in lib/schema.ts. */
@@ -1506,7 +1515,7 @@ export interface LastHuman {
   actor: EventActor;
 }
 
-export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null; endpoints: Endpoint[] };
+export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null; endpoints: Endpoint[]; foremanHandoff: ForemanHandoff | null };
 
 /** GET /api/state: state() in lib/server.ts. */
 export interface ApiState {
@@ -2445,6 +2454,8 @@ export interface StatusRow {
   pr: number | null;
   /** The owner's full session id. */
   session: string | null;
+  /** The Foreman left the gate the job waits at for a person; null otherwise. */
+  foremanHandoff: ForemanHandoff | null;
 }
 
 /** One `forge <command>` in the help tables (`HELP` beside each command module). */

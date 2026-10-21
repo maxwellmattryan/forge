@@ -7,10 +7,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isForemanActor, jobDir, readEvents } from './jobs.ts';
 import { OFFICE_SCOPE, daemonScope, enqueue, listRequests } from './requests.ts';
-import { OFFICE_GATES, reservedGateEntry } from './schema.ts';
+import { HANDOFF_CLASSES, OFFICE_GATES, reservedGateEntry } from './schema.ts';
 import { isRepoProposalPark, pendingRepoProposals, repoProposals } from './repo-proposals.ts';
-import { ForgeError } from './util.ts';
-import type { Config, ForgeRequest, GateClass, GateOwner, Job, JobEvent } from './types.ts';
+import { ForgeError, safeText } from './util.ts';
+import type { Config, ForemanHandoff, ForgeRequest, GateClass, GateOwner, HandoffClass, Job, JobEvent } from './types.ts';
 
 export { OFFICE_GATES } from './schema.ts';
 
@@ -358,7 +358,39 @@ export const SET_AFTER: Record<string, readonly (string | undefined)[]> = {
 };
 
 /** Only these `forge job` subcommands run in the office session: it reads, decides and notes, nothing more. */
-export const OFFICE_JOB_COMMANDS: readonly string[] = ['assist', 'human', 'set', 'note', 'show', 'get', 'list', 'step'];
+export const OFFICE_JOB_COMMANDS: readonly string[] = ['assist', 'human', 'set', 'note', 'handoff', 'show', 'get', 'list', 'step'];
+
+/** The longest hand-off reason kept, after safeText. */
+export const HANDOFF_REASON_MAX = 200;
+
+/** The reason as `forge job handoff` stores it: control characters and backticks removed, trimmed, at most 200 characters. */
+export const cleanHandoffReason = (reason: unknown): string => (typeof reason === 'string' ? safeText(reason, HANDOFF_REASON_MAX).trim() : '');
+
+const isHandoffClass = (c: unknown): c is HandoffClass => (HANDOFF_CLASSES as readonly unknown[]).includes(c);
+
+/**
+ * The Foreman hand-off standing at the job's current park, derived from events (job.json has no field
+ * for it): the latest `foreman-handoff` for the gate class the job waits on, logged after its last
+ * transition, with no `human` event (any actor or action) after it. Null when the job isn't waiting
+ * on a Foreman gate, was never handed off there, parked again since or was decided since, or when the
+ * event's class or reason doesn't validate (events.jsonl is appendable, so it is checked on read too).
+ */
+export function foremanHandoff(job: Pick<Job, 'state' | 'waitingOn' | 'reason' | 'repos'>, events: JobEvent[]): ForemanHandoff | null {
+  const gate = gateClass(job, events);
+  if (!gate) return null;
+  const park = events.findLastIndex((e) => e.type === 'transition');
+  const at = events.findLastIndex((e, i) => i > park && e.type === 'foreman-handoff' && e.gate === gate);
+  if (at < 0 || events.some((e, i) => i > at && e.type === 'human')) return null;
+  const e = events[at];
+  const reason = cleanHandoffReason(e.reason);
+  if (!isHandoffClass(e.class) || !reason || typeof e.ts !== 'string') return null;
+  return { gate, class: e.class, reason, at: e.ts };
+}
+
+/** foremanHandoff with the job's events read from disk, only for a waiting job. */
+export function foremanHandoffFor(root: string, job: Pick<Job, 'id' | 'state' | 'waitingOn' | 'reason' | 'repos'>): ForemanHandoff | null {
+  return job.state === 'waiting' ? foremanHandoff(job, readEvents(root, job.id)) : null;
+}
 
 /**
  * In the office, `forge job set` only carries out a foreman decision: the job still waits, its latest

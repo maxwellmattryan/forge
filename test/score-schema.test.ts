@@ -16,7 +16,7 @@ describe('score schema', { concurrency: 4 }, () => {
   test('v15 job reads', () => {
     assert.equal(JOB_SCHEMA_VERSION, 17);
     assert.equal(CONFIG_SCHEMA_VERSION, 28);
-    assert.equal(API_VERSION, 33);
+    assert.equal(API_VERSION, 34);
     const v15 = normalizeJob({ schemaVersion: 15, id: 'old', state: 'done', pr: { number: 1, state: 'MERGED' }, outcome: null });
     assert.equal(v15.schemaVersion, 17);
     assert.equal(v15.score, null);

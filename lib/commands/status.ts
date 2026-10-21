@@ -1,4 +1,5 @@
 // Human-readable summaries: `forge status` and the text form of `forge stats`.
+import { foremanHandoffFor } from '../foreman.ts';
 import { isActive, listJobs, progress } from '../jobs.ts';
 import type { HelpGroup, Job, Stats, StatusRow } from '../types.ts';
 
@@ -37,14 +38,15 @@ const activeJobs = (root: string, all: boolean): Job[] => listJobs(root).filter(
 
 function statusRow(root: string, j: Job): StatusRow {
   const p = progress(root, j.id);
-  return { id: j.id, stage: j.stage, state: j.state, waitingOn: j.waitingOn, round: j.round, tasks: { done: p.done, total: p.total }, pr: j.pr?.number ?? null, session: j.lease.driver };
+  // foremanHandoffFor reads events only for a waiting job.
+  return { id: j.id, stage: j.stage, state: j.state, waitingOn: j.waitingOn, round: j.round, tasks: { done: p.done, total: p.total }, pr: j.pr?.number ?? null, session: j.lease.driver, foremanHandoff: foremanHandoffFor(root, j) };
 }
 
 export function statusTable(root: string, all: boolean): string {
   const jobs = statusRows(root, all);
   if (!jobs.length) return 'no active jobs';
   const rows = jobs.map((j) => {
-    const st = j.state === 'waiting' ? `waiting:${j.waitingOn}` : j.state;
+    const st = j.state === 'waiting' ? `waiting:${j.waitingOn}${j.foremanHandoff ? ' (left for a human)' : ''}` : j.state;
     return [j.id, j.stage, st, j.round ? `r${j.round}` : '-', j.tasks.total ? `${j.tasks.done}/${j.tasks.total}` : '-', j.pr ? `#${j.pr}` : '-', j.session?.slice(0, 8) ?? '-'];
   });
   const head = ['job', 'stage', 'state', 'round', 'tasks', 'pr', 'session'];
@@ -52,12 +54,15 @@ export function statusTable(root: string, all: boolean): string {
   return [head, ...rows].map((r) => r.map((c, i) => String(c).padEnd(widths[i])).join('  ').trimEnd()).join('\n');
 }
 
-/** A status row plus the job's reason: what human mode's `forge status` renders. */
-export type StatusView = StatusRow & { reason: string | null };
+/** A status row plus the job's reason and its Foreman hand-off as one line: what human mode's `forge status` renders. */
+export type StatusView = Omit<StatusRow, 'foremanHandoff'> & { reason: string | null; handoff: string | null };
 
-/** `forge status` in human mode: statusRows with each job's reason. */
+/** `forge status` in human mode: statusRows with each job's reason and `<class>: <reason>` for a hand-off. */
 export function statusView(root: string, all: boolean): StatusView[] {
-  return activeJobs(root, all).map((j) => ({ ...statusRow(root, j), reason: j.reason ?? null }));
+  return activeJobs(root, all).map((j) => {
+    const { foremanHandoff: h, ...row } = statusRow(root, j);
+    return { ...row, reason: j.reason ?? null, handoff: h ? `${h.class}: ${h.reason}` : null };
+  });
 }
 
 /** The stats summary's lines by section, with one [name, text] entry per reviewer and verifier. */

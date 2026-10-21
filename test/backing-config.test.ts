@@ -135,7 +135,7 @@ describe('backing config', { concurrency: 4 }, () => {
 
   test('v21 config migrates to v22 unchanged', () => {
     assert.equal(CONFIG_SCHEMA_VERSION, 28);
-    assert.equal(API_VERSION, 33, 'no /api/state change here; 33 is the lease');
+    assert.equal(API_VERSION, 34, 'no /api/state change here; 34 is the Foreman hand-off');
     const v21 = { schemaVersion: 21, git: { base: 'trunk' }, backing: [{ name: 'redis', isolation: 'shared', image: 'redis:7', ports: [6379] }] };
     const { config, from } = migrateConfig(structuredClone(v21));
     assert.equal(from, 21);

@@ -319,6 +319,71 @@ describe('foreman CLI', { concurrency: 4 }, () => {
     }
   });
 
+  test('a Foreman hand-off is recorded only by the office, on a parked gate', async () => {
+    const s = scratch();
+    try {
+      const esc = s.job('Handoff', { stage: 'decide', state: 'waiting', waitingOn: 'escalation', reason: 'approver escalated: naming' });
+      const refused = async (id: string, scope: string | undefined, args: string[], why: RegExp, label: string) => {
+        const before = s.snapshot(id);
+        const r = await s.cli(scope, 'job', 'handoff', id, ...args);
+        assert.notEqual(r.code, 0, `${label}: ${r.out}`);
+        assert.match(r.out, why, label);
+        assert.equal(s.snapshot(id), before, `${label}: job.json and events.jsonl untouched`);
+        return r;
+      };
+      const ok = ['--class', 'escalated', '--reason', 'needs a person'];
+      for (const [scope, label] of [[undefined, 'outside the daemon'], [esc, 'from the job session'], ['_inbox', 'from the inbox']] as const)
+        assert.equal((await refused(esc, scope, ok, /only the office daemon session records a Foreman hand-off/, label)).code, 1);
+      const running = s.job('Running', { stage: 'build', state: 'running' });
+      assert.equal((await refused(running, OFFICE_SCOPE, ok, /is not waiting on a gate the Foreman decides/, 'not waiting')).code, 1);
+      const input = s.job('Input', { stage: 'build', state: 'waiting', waitingOn: 'input' });
+      assert.equal((await refused(input, OFFICE_SCOPE, ok, /is not waiting on a gate the Foreman decides/, 'not a Foreman gate')).code, 1);
+      await refused(esc, OFFICE_SCOPE, ['--class', 'bored', '--reason', 'x'], /--class must be one of reserved, escalated, refused/, 'unknown class');
+      await refused(esc, OFFICE_SCOPE, ['--reason', 'x'], /--class must be one of/, 'no class');
+      await refused(esc, OFFICE_SCOPE, ['--class', 'reserved', '--reason', ' \u0007 '], /needs --reason/, 'a reason with nothing printable');
+      await refused(esc, OFFICE_SCOPE, ['--class', 'reserved'], /needs --reason/, 'no reason');
+
+      const long = `touches\u0007 the auth flow ${'x'.repeat(300)}`;
+      const r = await s.cli(OFFICE_SCOPE, 'job', 'handoff', esc, '--class', 'reserved', '--reason', long);
+      assert.equal(r.code, 0, r.out);
+      const want = `touches the auth flow ${'x'.repeat(300)}`.slice(0, 200);
+      const events = readEvents(s.root, esc).filter((e) => e.type === 'foreman-handoff');
+      assert.equal(events.length, 1);
+      assert.deepEqual([events[0].gate, events[0].class, events[0].reason, events[0].actor], ['escalation', 'reserved', want, { login: null, source: 'foreman' }]);
+      assert.deepEqual(r.json(), { ok: true, foremanHandoff: { gate: 'escalation', class: 'reserved', reason: want, at: events[0].ts } });
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('a Foreman hand-off shows on status and show, and clears on a later decision or park', async () => {
+    const s = scratch();
+    try {
+      const park = { stage: 'decide' as const, state: 'waiting' as const, waitingOn: 'escalation' as const, reason: 'approver escalated: naming' };
+      const decided = s.job('Decided', park);
+      const reparked = s.job('Reparked', park);
+      for (const id of [decided, reparked]) assert.equal((await s.cli(OFFICE_SCOPE, 'job', 'handoff', id, '--class', 'escalated', '--reason', 'unsure about the API')).code, 0);
+      const rows = async () => Object.fromEntries((await s.cli(undefined, 'status', '--json')).json().map((row: any) => [row.id, row.foremanHandoff]));
+      const show = async (id: string) => (await s.cli(undefined, 'job', 'show', id)).json().foremanHandoff;
+      const at = readEvents(s.root, decided).findLast((e) => e.type === 'foreman-handoff')!.ts;
+      assert.deepEqual((await rows())[decided], { gate: 'escalation', class: 'escalated', reason: 'unsure about the API', at });
+      assert.deepEqual(await show(decided), { gate: 'escalation', class: 'escalated', reason: 'unsure about the API', at });
+
+      // A later decision at that park, the Foreman's included, clears it.
+      assert.equal((await s.cli(OFFICE_SCOPE, 'job', 'human', decided, 'approve', '--actor', 'foreman', '--note', 'naming only')).code, 0);
+      assert.equal((await rows())[decided], null);
+      assert.equal(await show(decided), null);
+
+      // So does a new park.
+      setJob(s.root, reparked, { stage: 'decide', state: 'running' });
+      setJob(s.root, reparked, { state: 'waiting', waitingOn: 'escalation', reason: 'approver escalated: again' });
+      assert.equal((await rows())[reparked], null);
+      assert.equal(await show(reparked), null);
+    } finally {
+      s.cleanup();
+    }
+  });
+
   test('foreman authority is enforced by the CLI', async () => {
     const s = scratch((c) => (c.foreman.decides = ['spec-approval', 'escalation']));
     try {

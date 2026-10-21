@@ -46,10 +46,10 @@ With `--json`:
 - **Success**: stdout is exactly one JSON value plus a newline. Results that are strings print JSON-encoded (`forge worktree path <id> --json` prints `"/path/to/worktree"`). `forge status --json` prints one row per job, `[]` when nothing is active, with the same `--all` filter:
 
   ```json
-  [{"id":"add-login","stage":"build","state":"running","waitingOn":null,"round":1,"tasks":{"done":3,"total":7},"pr":null,"session":"9b2f…"}]
+  [{"id":"add-login","stage":"build","state":"running","waitingOn":null,"round":1,"tasks":{"done":3,"total":7},"pr":null,"session":"9b2f…","foremanHandoff":null}]
   ```
 
-  `pr` is the PR number or `null`, and `session` the owner's full session id or `null`. `forge stats --json` prints the full stats object, and `forge help … --json` the help tables (see Help).
+  `pr` is the PR number or `null`, `session` the owner's full session id or `null`, and `foremanHandoff` the Foreman hand-off standing at the job's park or `null` (see Foreman decisions). `forge stats --json` prints the full stats object, and `forge help … --json` the help tables (see Help).
 - **Errors**: stdout gets exactly one line and stderr nothing (`FORGE_DEBUG` still writes the stack to stderr):
 
   ```json
@@ -217,6 +217,12 @@ The log file gains a `(links <bin dir>)` line after `(cwd …)`. Background comm
 `forge job human <id> <action> [--actor human|foreman]` records who decided. Without `--actor` the event's `actor` is the resolved person, `{ "login": "<login>"|null, "source": "env"|"gh"|"git"|"os"|"dashboard"|"unknown" }` (ARCHITECTURE.md "Audit trail"); with `--actor foreman` it is `{ "login": null, "source": "foreman" }`. Events written before event schema v2 said `"human"` or `"foreman"`, and read as source `unknown` and `foreman`. `--actor foreman` is accepted only from the office daemon session (`FORGE_DAEMON_SCOPE=_office`), which in turn must pass it, and only after the authority checks in docs/ARCHITECTURE.md "Foreman": the job waits on a gate class in `foreman.decides`, the action belongs to that class, `--note` is given and no reserved pattern matches (nor a latest security verdict other than `PASS`), a pr-feedback `rework` has a queued gate request for the PR's current head, and there is no `--link` or `--reason`. A refusal exits 1 and writes nothing.
 
 `forge job assist <id> --gate <class>` is read-only and returns `{gate, stale, reserved, model, effort, subagent, brief}`: the `forge:assistant` spawn for that gate, with a brief of paths only. `stale: true` means the job no longer waits on that gate, and `reserved` is re-checked at call time. An unknown `--gate` exits 1, and so does a daemon session other than the office. `forge requests add gate` always exits 1: only `forge job set` and `forge pr sync` write gate requests.
+
+A recorded decision moves the job by itself: the next `forge job step` on a job whose current park a `human` event answers returns that gate's follow-up `forge job set` (rules GA1–GA11, ARCHITECTURE.md "Job model" › Answered gates), so `forge job human` followed by `forge requests add resume --job <id>` is enough from any session.
+
+`forge job handoff <id> --class reserved|escalated|refused --reason "<text>"` records a **Foreman hand-off**: the office left the gate the job waits at for a person (a reserved topic or class, the assistant escalated, or the CLI refused its decision). Its checks run in this order and all before any write: the office daemon session (anywhere else it exits 1 with `only the office daemon session records a Foreman hand-off`), the job exists, the job waits on a gate the Foreman decides (otherwise exit 1, `job <id> is not waiting on a gate the Foreman decides`; the gate is taken from the job, never passed in), `--class` is one of the three, and `--reason` keeps some text once control characters and backticks are removed and it is cut to 200 characters (otherwise exit 1). It then logs one `foreman-handoff` event `{gate, class, reason, actor: {login: null, source: "foreman"}}` and prints `{"ok": true, "foremanHandoff": {"gate", "class", "reason", "at"}}`.
+
+`forge status --json` rows and `forge job show` carry `foremanHandoff`: that `{gate, class, reason, at}` while the job still waits on the gate it was handed off at, with no newer transition and no `human` event (anyone's decision) since, and `null` otherwise. It is derived from events on read; job.json has no such field. `forge status` marks such a job `waiting:<gate> (left for a human)` in its agent-mode table, and adds a `handoff` column (`<class>: <reason>`) in human mode.
 
 ## Merging
 

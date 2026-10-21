@@ -1075,7 +1075,7 @@ test('/api/state exposes the session pool', async () => {
     .map((f) => fs.readFileSync(path.join(src, f), 'utf8'))
     .join('\n');
   assert.ok(app.includes('/api/requests'), 'read the dashboard sources');
-  assert.equal(DASH_API_VERSION, 33,'the dashboard reads API_VERSION from src/lib/types.ts');
+  assert.equal(DASH_API_VERSION, 34,'the dashboard reads API_VERSION from src/lib/types.ts');
   assert.doesNotMatch(app, /launcher|launched/);
 });
 
@@ -1262,7 +1262,7 @@ test('GET /api/about reports versions', async () => {
     assert.equal(r.status, 200);
     const a = JSON.parse(r.text);
     assert.equal(a.forgeVersion, JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version);
-    assert.equal(a.apiVersion, 33);
+    assert.equal(a.apiVersion, 34);
     assert.equal(a.pluginRoot, PLUGIN_ROOT);
     assert.deepEqual(a.schemaVersions, { config: schema.CONFIG_SCHEMA_VERSION, job: schema.JOB_SCHEMA_VERSION, event: schema.EVENT_SCHEMA_VERSION });
     assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'pricing.json'), 'utf8')).asOf);
@@ -1516,16 +1516,27 @@ test('state exposes office session and gateOwner', async () => {
   seed('j-spec', { state: 'waiting', waitingOn: 'spec-approval', reason: 'spec ready' });
   seed('j-auth', { stage: 'decide', state: 'waiting', waitingOn: 'escalation', reason: 'approver escalated: auth change' });
   seed('j-input', { stage: 'build', state: 'waiting', waitingOn: 'input' });
+  // The office left j-auth's escalation for a person after it parked.
+  const handedOffAt = '2026-03-01T00:00:02.000Z';
+  fs.writeFileSync(
+    path.join(repo.dir, '.forge', 'jobs', 'j-auth', 'events.jsonl'),
+    [
+      { v: 2, ts: '2026-03-01T00:00:01.000Z', type: 'transition', from: { stage: 'decide', state: 'running', waitingOn: null }, to: { stage: 'decide', state: 'waiting', waitingOn: 'escalation' } },
+      { v: 2, ts: handedOffAt, type: 'foreman-handoff', gate: 'escalation', class: 'reserved', reason: 'reserved (auth)', actor: { login: null, source: 'foreman' } },
+    ].map((e) => JSON.stringify(e) + '\n').join(''),
+  );
   const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 33);
+    assert.equal(st.apiVersion, 34);
     assert.equal(st.daemons.foreman, true);
     assert.equal(st.daemons.office.scope, '_office');
     assert.equal(st.daemons.office.running, false);
     const owners = Object.fromEntries(st.jobs.map((j) => [j.id, j.gateOwner]));
     assert.deepEqual(owners, { 'j-run': null, 'j-spec': 'foreman', 'j-auth': 'human', 'j-input': 'human' });
+    const handoffs = Object.fromEntries(st.jobs.map((j) => [j.id, j.foremanHandoff]));
+    assert.deepEqual(handoffs, { 'j-run': null, 'j-spec': null, 'j-auth': { gate: 'escalation', class: 'reserved', reason: 'reserved (auth)', at: handedOffAt }, 'j-input': null });
     fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 5, foreman: { enabled: false } }));
     const off = JSON.parse((await hit(port, { path: '/api/state' })).text);
     assert.equal(off.daemons.foreman, false);
@@ -1614,7 +1625,7 @@ test('owner status in /api/state and job detail', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 33);
+    assert.equal(st.apiVersion, 34);
     const byId = Object.fromEntries(st.jobs.map((j) => [j.id, j.ownerStatus]));
     assert.deepEqual(Object.fromEntries(Object.entries(byId).map(([k, v]: [string, any]) => [k, v.status])), { 'j-none': 'none', 'j-live': 'live', 'j-agent': 'live', 'j-expired': 'expired' }, 'the lease alone decides');
     assert.deepEqual(byId['j-none'], { status: 'none', session: null, since: null, renewedAt: null, expiresAt: null, epoch: 0, jobSession: false });
@@ -1769,7 +1780,7 @@ test('/api/state and job detail carry effort', async () => {
   try {
     const port = Number(new URL(srv.url).port);
     const s = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(s.apiVersion, 33);
+    assert.equal(s.apiVersion, 34);
     assert.equal(s.config.effort, 'medium');
     const row = (id) => s.jobs.find((j) => j.id === id);
     assert.equal(row(plain).effort, null, 'a v3 job reads as inherit');
@@ -1975,7 +1986,7 @@ test('state carries lastHuman', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 33);
+    assert.equal(st.apiVersion, 34);
     const by = Object.fromEntries(st.jobs.map((j) => [j.id, j.lastHuman]));
     assert.deepEqual(by, {
       [acted]: { ts: '2026-03-01T00:00:01.000Z', type: 'budget-ack', action: null, actor: { login: 'bob', source: 'env' } },
@@ -1999,7 +2010,7 @@ test('state carries repo budget', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 33);
+    assert.equal(st.apiVersion, 34);
     assert.equal(st.budget.month, new Date().toISOString().slice(0, 7));
     assert.deepEqual(st.budget.spent, { dayUsd: 12, monthUsd: 12, monthTokens: 12 });
     assert.deepEqual(st.budget.exceeded, ['usdPerMonth']);
