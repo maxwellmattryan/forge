@@ -17,8 +17,8 @@ export type SinkMode = (typeof SINK_MODES)[number];
 /** The job values an expression can name; `component.dir` is the absolute `<worktree>/<path>`. */
 export const EXPRESSION_ROOTS = ['job', 'port', 'worktree', 'branch', 'base', 'component.name', 'component.path', 'component.dir'] as const;
 /** Namespaces held for later features; naming one is a render error citing the issue. */
-export const RESERVED_NAMESPACES: Record<string, string> = { endpoint: '#195', backing: '#193', secret: '#197' };
-const RESERVED_FEATURES: Record<string, string> = { endpoint: 'endpoints', backing: 'backing services', secret: 'secret references' };
+export const RESERVED_NAMESPACES: Record<string, string> = { endpoint: '#195', backing: '#193' };
+const RESERVED_FEATURES: Record<string, string> = { endpoint: 'endpoints', backing: 'backing services' };
 
 export interface ExprContext {
   job: string;
@@ -27,7 +27,13 @@ export interface ExprContext {
   branch: string;
   base: string;
   component: { name: string; path: string; dir: string };
+  /** A declared secret's value (lib/secret-refs.ts), resolved only when an expression reaches it. */
+  secret?: (name: string) => string;
 }
+
+/** `{secret.NAME}`: NAME as declared under `secrets`. */
+const SECRET_REF = /^secret\.([A-Za-z_][A-Za-z0-9_]*)$/;
+const secretOf = (name: string): string | null => SECRET_REF.exec(name)?.[1] ?? null;
 
 /** A string, number, boolean or null, or a map of those (merge `values`). */
 export type SinkValue = string | number | boolean | null | { [k: string]: SinkValue };
@@ -52,18 +58,37 @@ function nameProblem(name: string): string | null {
   return null;
 }
 
-/** The `{x}` expressions of `v` whose root is neither known nor reserved. */
+/** The `{x}` expressions of `v` whose root is neither known nor reserved, nor a secret reference. */
 function unknownExpressions(v: string): string[] {
   const out: string[] = [];
   for (const m of v.matchAll(/\{([^{}]*)\}/g)) {
     const name = m[1];
-    if (IDENTIFIER.test(name) && !isKnownRoot(name) && !reservedOf(name)) out.push(`{${name}}`);
+    if (IDENTIFIER.test(name) && !isKnownRoot(name) && !reservedOf(name) && !secretOf(name)) out.push(`{${name}}`);
   }
   return out;
 }
 
+/** The `{secret.NAME}` references of `v` that name no declared secret; none when `declared` is not given. */
+function undeclaredSecrets(v: string, declared: ReadonlySet<string> | undefined): string[] {
+  if (!declared) return [];
+  const out: string[] = [];
+  for (const m of v.matchAll(/\{([^{}]*)\}/g)) {
+    const s = secretOf(m[1]);
+    if (s && !declared.has(s)) out.push(`{secret.${s}}`);
+  }
+  return out;
+}
+
+/** Every unknown-expression and undeclared-secret problem of one string value. */
+function expressionProblems(v: string, at: string, declared: ReadonlySet<string> | undefined): string[] {
+  return [
+    ...unknownExpressions(v).map((e) => `${at} uses unknown expression ${e}; known roots are ${EXPRESSION_ROOTS.map((r) => `{${r}}`).join(' ')}`),
+    ...undeclaredSecrets(v, declared).map((e) => `${at} names undeclared secret ${e}; declare it under secrets`),
+  ];
+}
+
 /** Problems with one flat `name: expression` map (env, env-file values, command values). */
-function flatProblems(values: unknown, at: string): string[] {
+function flatProblems(values: unknown, at: string, declared?: ReadonlySet<string>): string[] {
   if (!isMap(values)) return [`${at} must be a map of variable names to strings (got ${show(values)})`];
   const problems: string[] = [];
   for (const [name, v] of Object.entries(values)) {
@@ -71,20 +96,20 @@ function flatProblems(values: unknown, at: string): string[] {
     if (bad) problems.push(`${at} variable ${show(name)} ${bad}`);
     if (isMap(v)) problems.push(`${at}.${name} must be a string; quote the expression ("{port}"), since unquoted YAML reads {port} as a map (got ${show(v)})`);
     else if (typeof v !== 'string') problems.push(`${at}.${name} must be a string (got ${show(v)})`);
-    else for (const e of unknownExpressions(v)) problems.push(`${at}.${name} uses unknown expression ${e}; known roots are ${EXPRESSION_ROOTS.map((r) => `{${r}}`).join(' ')}`);
+    else problems.push(...expressionProblems(v, `${at}.${name}`, declared));
   }
   return problems;
 }
 
 /** Problems with merge `values`: a nested map whose leaves are strings, numbers, booleans or null. */
-function nestedProblems(values: unknown, at: string): string[] {
+function nestedProblems(values: unknown, at: string, declared?: ReadonlySet<string>): string[] {
   if (!isMap(values)) return [`${at} must be a map (got ${show(values)})`];
   const problems: string[] = [];
   for (const [k, v] of Object.entries(values)) {
     const here = `${at}.${k}`;
     if (PROTO_KEYS.has(k)) problems.push(`${here} is not an allowed key`);
-    if (isMap(v)) problems.push(...nestedProblems(v, here));
-    else if (typeof v === 'string') for (const e of unknownExpressions(v)) problems.push(`${here} uses unknown expression ${e}; known roots are ${EXPRESSION_ROOTS.map((r) => `{${r}}`).join(' ')}`);
+    if (isMap(v)) problems.push(...nestedProblems(v, here, declared));
+    else if (typeof v === 'string') problems.push(...expressionProblems(v, here, declared));
     else if (v !== null && typeof v !== 'number' && typeof v !== 'boolean') problems.push(`${here} must be a string, number, boolean, null or a map of those (got ${show(v)})`);
   }
   return problems;
@@ -95,9 +120,10 @@ const pathProblem = (p: unknown, at: string): string | null => (isInsidePath(p) 
 /**
  * Every problem with a component's `config` list, labelled `at` (`components "api".config`), in the
  * form validateConfig reports. `component` is the entry it sits on: a member-repo component has no
- * checkout in the job's worktree, so sinks are refused there.
+ * checkout in the job's worktree, so sinks are refused there. With `secretNames` (the declared
+ * `secrets`), a `{secret.NAME}` naming none of them is a problem too.
  */
-export function sinkProblems(sinks: unknown, at: string, component: { repo?: unknown }): string[] {
+export function sinkProblems(sinks: unknown, at: string, component: { repo?: unknown }, secretNames?: ReadonlySet<string>): string[] {
   if (component.repo !== undefined && component.repo !== null) return [`${at} is only for a root-repo component; this one sets repo ${show(component.repo)}`];
   if (!Array.isArray(sinks)) return [`${at} must be a list of sinks (got ${show(sinks)})`];
   const problems: string[] = [];
@@ -106,16 +132,16 @@ export function sinkProblems(sinks: unknown, at: string, component: { repo?: unk
     const kinds = isMap(sink) ? SINK_KINDS.filter((k) => sink[k] !== undefined) : [];
     if (!isMap(sink) || kinds.length !== 1) return problems.push(`${s} must be a map with exactly one of ${SINK_KINDS.join(' | ')} (got ${show(sink)})`);
     const kind = kinds[0];
-    if (kind === 'env') return problems.push(...flatProblems(sink.env, `${s}.env`));
+    if (kind === 'env') return problems.push(...flatProblems(sink.env, `${s}.env`, secretNames));
     if (kind === 'env-file') {
       const bad = pathProblem(sink['env-file'], `${s}.env-file`);
       if (bad) problems.push(bad);
-      if (sink.values !== undefined) problems.push(...flatProblems(sink.values, `${s}.values`));
+      if (sink.values !== undefined) problems.push(...flatProblems(sink.values, `${s}.values`, secretNames));
       return;
     }
     if (kind === 'command') {
       if (typeof sink.command !== 'string' || !sink.command.trim()) problems.push(`${s}.command must be a non-empty shell command (got ${show(sink.command)})`);
-      if (sink.values !== undefined) problems.push(...flatProblems(sink.values, `${s}.values`));
+      if (sink.values !== undefined) problems.push(...flatProblems(sink.values, `${s}.values`, secretNames));
       return;
     }
     const f = sink.file;
@@ -137,7 +163,7 @@ export function sinkProblems(sinks: unknown, at: string, component: { repo?: unk
     }
     if (mode === 'merge') {
       if (sink.values === undefined) problems.push(`${s}.values is required with mode: merge`);
-      else problems.push(...nestedProblems(sink.values, `${s}.values`));
+      else problems.push(...nestedProblems(sink.values, `${s}.values`, secretNames));
     }
   });
   return problems;
@@ -145,7 +171,7 @@ export function sinkProblems(sinks: unknown, at: string, component: { repo?: unk
 
 // ---------- expressions ----------
 
-/** The value of one known or reserved root; an unknown or reserved root throws. */
+/** The value of one known root or secret reference; an unknown or reserved root throws. */
 function lookup(name: string, ctx: ExprContext): string | number | null {
   switch (name) {
     case 'job':
@@ -164,6 +190,11 @@ function lookup(name: string, ctx: ExprContext): string | number | null {
       return ctx.component.path;
     case 'component.dir':
       return ctx.component.dir;
+  }
+  const secret = secretOf(name);
+  if (secret) {
+    if (!ctx.secret) throw new Error(`{${name}} needs a declared secret`);
+    return ctx.secret(secret);
   }
   const ns = reservedOf(name);
   if (ns) throw new Error(`{${name}} needs ${RESERVED_FEATURES[ns]} (${RESERVED_NAMESPACES[ns]}), which this Forge does not support yet`);
@@ -193,7 +224,7 @@ export const resolveString = (v: string, ctx: ExprContext): string => asString(r
  */
 export function fillTemplate(text: string, ctx: ExprContext): string {
   return text.replace(/\{([^{}]*)\}/g, (m, name: string) => {
-    if (!IDENTIFIER.test(name) || (!isKnownRoot(name) && !reservedOf(name))) return m;
+    if (!IDENTIFIER.test(name) || (!isKnownRoot(name) && !reservedOf(name) && !secretOf(name))) return m;
     const v = lookup(name, ctx);
     return typeof v === 'string' ? JSON.stringify(v).slice(1, -1) : String(v);
   });

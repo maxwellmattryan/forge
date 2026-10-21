@@ -370,6 +370,8 @@ export const CONFIG_DISCLOSURE: Record<string, Disclosure> = {
   checkout: 'command',
   // Images, env values and urls can name private hosts or carry credentials.
   backing: 'command',
+  // Env var names, keychain services, 1Password references and file paths name where credentials live.
+  secrets: 'command',
   downstream: 'plain',
   infra: 'plain',
   'infra.allowed': 'command',
