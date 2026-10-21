@@ -19,11 +19,11 @@ const noJob = { interim: null, repos: [] } as unknown as Job;
 
 describe('interim strategies: config', { concurrency: 4 }, () => {
   test('v12 config migrates to v13 unchanged', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 23);
+    assert.equal(CONFIG_SCHEMA_VERSION, 24);
     const v12 = { schemaVersion: 12, repos: structuredClone(REPOS), components: components(link('npm')), aiAttribution: 'forbid' };
     const { config, from } = migrateConfig(structuredClone(v12));
     assert.equal(from, 12);
-    assert.deepEqual(config, { ...v12, schemaVersion: 23, downstream: { enabled: true, max: 5, skip: [] } });
+    assert.deepEqual(config, { ...v12, schemaVersion: 24, downstream: { enabled: true, max: 5, skip: [] } });
   });
 
   test('release.interim validates on the root and on repos entries', () => {
