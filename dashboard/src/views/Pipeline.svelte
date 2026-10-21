@@ -46,7 +46,7 @@
     <div class="seg">
       {#each LAYOUTS as l (l)}{@const on = S.layout === l}<button class="btn {on ? 'sel' : ''}" aria-pressed={on} onclick={() => setLayout(l)}><Icon name={l} />{layoutLabel[l]}</button>{/each}
     </div>
-    <button class="btn primary flush" onclick={() => req({ type: 'next' })}>{$t('common.runNext')}</button>
+<!--    <button class="btn primary flush" onclick={() => req({ type: 'next' })}>{$t('common.runNext')}</button>-->
   {/snippet}
 </PageHeader>
 {#if !jobs.length}

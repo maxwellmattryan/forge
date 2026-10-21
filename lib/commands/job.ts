@@ -6,7 +6,7 @@ import { jobFindings } from '../findings.ts';
 import { assistantBrief, jobPathMap } from '../brief.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
 import { OFFICE_REFUSAL, daemonClaimOpts, inInboxOrOffice, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
-import { OFFICE_JOB_COMMANDS, checkForemanDecision, classReservation, checkOfficeSetFor, gateClassFor, inOffice, isGateClass, maybeEnqueueGate, reservedFor } from '../foreman.ts';
+import { OFFICE_JOB_COMMANDS, checkForemanDecision, classReservation, checkOfficeSetFor, gateClassFor, inOffice, isGateClass, maybeEnqueueGate, reservedFor, securityHold } from '../foreman.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
 import { agentOutputMissing, attachAgent, claimJob, createJob, ownerStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir, readEvents } from '../jobs.ts';
 import { logSecrets, scanAgentOutputs } from '../secrets.ts';
@@ -40,6 +40,7 @@ import { TeardownRefusal, archiveJob, archiveOlder, prune } from '../retention.t
 import { deleteJob } from '../delete.ts';
 import { finishEnvironment, finishEnvironmentStopOnly } from '../environment-lifecycle.ts';
 import type { AgentUsage, ArchiveResult, Config, Effort, HelpGroup, Job, JobIssue } from '../types.ts';
+import { pullPrHead } from '../pr.ts';
 import { FOREMAN_ACTOR, currentActor } from '../actor.ts';
 import { jobAudit, toCsv } from '../audit.ts';
 import { checkRepoBudget, isRepoHold, parkForRepoBudget, repoBudgetBlock, repoBudgetExempt } from '../repo-budget.ts';
@@ -829,7 +830,9 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       });
       ensureReviewDir(root, job.id, job.round);
       logEvent(root, job.id, 'round', { round: job.round });
-      return { round: job.round, maxRounds: job.maxRounds, exhausted: job.round > job.maxRounds };
+      // A rework round on an open PR starts from the PR's head, whoever moved it.
+      const pull = job.round > 1 ? pullPrHead(root, config, job) : null;
+      return { round: job.round, maxRounds: job.maxRounds, exhausted: job.round > job.maxRounds, ...(pull && pull.pulled !== 'none' ? { pulled: pull.pulled } : {}) };
     }
     case 'verdicts': {
       const job = loadJob(root, req(id, 'job id'));
@@ -974,7 +977,7 @@ function assist(root: string, config: Config, job: Job, rawGate: unknown) {
     model: modelFor(config, 'assistant'),
     effort: resolveEffort(config, job, 'assistant').level,
     subagent: 'forge:assistant',
-    brief: assistantBrief(root, config, job, gate, config.foreman?.reserved, events, pending, releaseHash),
+    brief: assistantBrief(root, config, job, gate, config.foreman?.reserved, events, pending, releaseHash, stale ? null : securityHold(job)),
     // The brief's `Pending repos` names: the foreman passes exactly these as --repo, and `exact` refuses once they stop being the pending set.
     ...(gate === 'repo-proposal' && !stale ? { repos: pending.map((r) => r.repo) } : {}),
   };

@@ -382,6 +382,7 @@ export function assistantBrief(
   events: Pick<JobEvent, 'type'>[],
   pending: { repo: string; reason: string }[] = [],
   releaseHash: string | null = null,
+  security: string | null = null,
 ): string {
   const dir = jobDir(root, job.id);
   const round = Math.max(job.round, 1);
@@ -411,6 +412,7 @@ export function assistantBrief(
     // JSON, so a pattern can't start a line of its own in the brief.
     `Reserved: ${JSON.stringify(Array.isArray(reserved) ? reserved : [])}`,
     releaseGateLine(config, job, events),
+    ...(security ? [`Security review: ${security}. Approving is refused while it stands: security always has to pass, so rework or revise to fix the findings.`] : []),
     ...(repos ? [repos] : []),
     ...(gate === 'release' ? [`Release plan: ${releaseMd} (plan ${releaseHash ? releaseHash.slice(0, 12) : 'none'})`] : []),
     // From events, not the session-editable repo-proposals.md: the only set the assistant may decide, and the one the foreman passes as --repo.
