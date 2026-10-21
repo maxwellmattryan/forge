@@ -1,4 +1,4 @@
-/* The Smithy design system. This file is its source: tokens are CSS variables in three themes, forge, ash and temper, and
+/* The Smithy design system. This file is its source: tokens are CSS variables in six themes, forge, ash, temper, crucible, patina and obsidian, and
    its rules are @utility classes so they can be @apply'd. */
 @import "tailwindcss" source(none);
 @source "./index.html";
@@ -64,8 +64,9 @@
 }
 
 /* ---------- tokens ---------- */
-/* The scalar block comes first; the two theme blocks follow, then the extras, ash's last so its
-   overrides win over the shared :root defaults (equal specificity, so source order decides). */
+/* The scalar block comes first; the theme blocks follow, then the extras, ash's last so its
+   overrides win over the shared :root defaults (equal specificity, so source order decides). The dark themes after
+   ash (temper, crucible, patina, obsidian) override no extra, so they take the dark :root ones. */
 :root {
   --space-0\.5: 2px;
   --space-1: 4px;
@@ -218,6 +219,125 @@
   --shadow-drawer: -16px 0 40px 0 rgba(2,0,16,0.5);
   --shadow-chrome: 8px 0 24px 0 rgba(2,0,16,0.35);
   --shadow-glow: 0 0 8px 0 rgba(95,211,218,0.55);
+}
+
+/* Crucible: molten metal in a crucible. A char ground with a red-brown cast, a molten-gold gleam and a red-hot carmine
+   ember; the hues swap so gold and carmine stand 60° apart and ember stays the one "waits on you" signal. */
+[data-theme="crucible"] {
+  --bg: #170e0c;
+  --bg-deep: #0c0605;
+  --panel: #2a1916;
+  --raised: rgba(255,214,190,0.08);
+  --chrome: #100807;
+  --sheen: rgba(255,216,79,0.10);
+  --line: rgba(255,214,190,0.16);
+  --line-soft: rgba(255,214,190,0.09);
+  --line-strong: #b0948a;
+  --edge-light: rgba(255,226,206,0.08);
+  --edge-dark: rgba(8,2,0,0.55);
+  --fg: #f7ebe6;
+  --muted: #cdb4aa;
+  --dim: #8a6e64;
+  --gleam: #ffd84f;
+  --gleam-hot: #ffefb0;
+  --gleam-deep: #8a5a12;
+  --on-gleam: #1f1503;
+  --ember: #ff6b98;
+  --on-ember: #22040f;
+  --spark: #ffe08a;
+  --on-spark: #1f1503;
+  --ok: #9edc86;
+  --warn: #ffa65c;
+  --bad: #ff8a73;
+  --info: #b2b9c4;
+  --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
+  --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
+  --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  --shadow-bevel: inset 0 1px 0 0 rgba(255,226,206,0.08), inset 0 -1px 0 0 rgba(8,2,0,0.55);
+  --shadow-primary: 0 2px 0 0 #8a5a12;
+  --shadow-overlay: 0 1px 0 0 rgba(8,2,0,0.6), 0 16px 40px 0 rgba(8,2,0,0.6);
+  --shadow-drawer: -16px 0 40px 0 rgba(8,2,0,0.5);
+  --shadow-chrome: 8px 0 24px 0 rgba(8,2,0,0.35);
+  --shadow-glow: 0 0 8px 0 rgba(255,216,79,0.55);
+}
+
+/* Patina: weathered copper. A near-black green ground, a verdigris gleam and the copper ember; quiet lines. */
+[data-theme="patina"] {
+  --bg: #0b1411;
+  --bg-deep: #050a08;
+  --panel: #15241e;
+  --raised: rgba(190,240,215,0.07);
+  --chrome: #08100d;
+  --sheen: rgba(94,214,166,0.10);
+  --line: rgba(190,240,215,0.13);
+  --line-soft: rgba(190,240,215,0.07);
+  --line-strong: #84a397;
+  --edge-light: rgba(210,245,228,0.07);
+  --edge-dark: rgba(0,6,3,0.55);
+  --fg: #e6f2ec;
+  --muted: #a8c2b7;
+  --dim: #5f7972;
+  --gleam: #5ed6a6;
+  --gleam-hot: #b8f2da;
+  --gleam-deep: #1e6b52;
+  --on-gleam: #03170f;
+  --ember: #ff7b2e;
+  --on-ember: #1c0f05;
+  --spark: #ffd25a;
+  --on-spark: #1c1405;
+  --ok: #b5e36b;
+  --warn: #f3c84a;
+  --bad: #ff8f86;
+  --info: #92aac4;
+  --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
+  --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
+  --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  --shadow-bevel: inset 0 1px 0 0 rgba(210,245,228,0.07), inset 0 -1px 0 0 rgba(0,6,3,0.55);
+  --shadow-primary: 0 2px 0 0 #1e6b52;
+  --shadow-overlay: 0 1px 0 0 rgba(0,6,3,0.6), 0 16px 40px 0 rgba(0,6,3,0.6);
+  --shadow-drawer: -16px 0 40px 0 rgba(0,6,3,0.5);
+  --shadow-chrome: 8px 0 24px 0 rgba(0,6,3,0.35);
+  --shadow-glow: 0 0 8px 0 rgba(94,214,166,0.55);
+}
+
+/* Obsidian: volcanic glass. A near-true-black ground, high-contrast plates, a cool violet sheen as the gleam and the
+   orange ember. Its plate steps further off the ground than forge's, since 1.11:1 on near-black needs a larger step. */
+[data-theme="obsidian"] {
+  --bg: #0a0a0c;
+  --bg-deep: #000000;
+  --panel: #1a1a20;
+  --raised: rgba(220,215,255,0.08);
+  --chrome: #050506;
+  --sheen: rgba(183,156,255,0.12);
+  --line: rgba(220,215,255,0.16);
+  --line-soft: rgba(220,215,255,0.09);
+  --line-strong: #9a98ab;
+  --edge-light: rgba(236,232,255,0.09);
+  --edge-dark: rgba(0,0,0,0.6);
+  --fg: #f1f0f6;
+  --muted: #b3b1c2;
+  --dim: #6e6c7d;
+  --gleam: #b79cff;
+  --gleam-hot: #e3d9ff;
+  --gleam-deep: #4b3a8a;
+  --on-gleam: #110a24;
+  --ember: #ff7b2e;
+  --on-ember: #1c0f05;
+  --spark: #ffd25a;
+  --on-spark: #1c1405;
+  --ok: #7fd79b;
+  --warn: #f3c84a;
+  --bad: #ff8f86;
+  --info: #8fa8c2;
+  --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
+  --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
+  --tint-forge: color-mix(in srgb, var(--panel), var(--ember) 7%);
+  --shadow-bevel: inset 0 1px 0 0 rgba(236,232,255,0.09), inset 0 -1px 0 0 rgba(0,0,0,0.6);
+  --shadow-primary: 0 2px 0 0 #4b3a8a;
+  --shadow-overlay: 0 1px 0 0 rgba(0,0,0,0.7), 0 16px 40px 0 rgba(0,0,0,0.7);
+  --shadow-drawer: -16px 0 40px 0 rgba(0,0,0,0.6);
+  --shadow-chrome: 8px 0 24px 0 rgba(0,0,0,0.45);
+  --shadow-glow: 0 0 8px 0 rgba(183,156,255,0.55);
 }
 
 /* ---------- extras: the brushed gleam fills, the grain and the falloff ---------- */
@@ -886,6 +1006,24 @@
   &.hollow { border: 1px solid var(--line-strong); }
   /* A gleam dot without the glow: the stepper's past steps, the agent role dot. */
   &.plain { box-shadow: none; }
+}
+/* A theme's swatch in Settings › General: its ground, gleam and ember as three dots on its own plate. The wrapper carries
+   that theme's data-theme, so the variables resolve to its tokens whatever theme the page shows. The ground dot takes a
+   line-strong ring, or it would vanish on its own plate. */
+@utility swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  padding: 3px 4px;
+  background-color: var(--panel);
+  border: 1px solid var(--line-strong);
+  corner-shape: bevel;
+  border-radius: 3px 0 3px 0;
+  & > span { width: 7px; height: 7px; border-radius: 50%; display: block; }
+  & > span:nth-child(1) { background-color: var(--bg); box-shadow: inset 0 0 0 1px var(--line-strong); }
+  & > span:nth-child(2) { background-color: var(--gleam); }
+  & > span:nth-child(3) { background-color: var(--ember); }
 }
 /* The live dot's halo: a .dot.halo behind a .dot.gleam in a relative inline-flex span. Its loop is Tailwind's
    motion-safe:animate-ping in the markup, so reduced motion never starts it. */
