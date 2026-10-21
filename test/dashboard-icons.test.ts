@@ -129,7 +129,9 @@ test('git icons mark branches, PRs and the tracker', () => {
   const chip = readSrc('components/Chip.svelte');
   assert.match(chip, /icon\?: IconName/);
   assert.match(chip, /\{#if icon\}<Icon name=\{icon\} \/>\{\/if\}\{text\}/);
-  assert.match(readSrc('components/PrChip.svelte'), /<Chip tone=\{model\.tone\} text=\{model\.text\} icon="pull-request" \/>/, 'every PR chip');
+  const prChips = readSrc('components/PrChip.svelte').match(/<Chip [^>]*\/>/g) ?? [];
+  assert.ok(prChips.length > 0);
+  for (const c of prChips) assert.match(c, /^<Chip tone=\{model\.tone\} text=\{model\.text\} icon="pull-request"(?: extra="[^"]*")? \/>$/, `every PR chip: ${c}`);
   // The Pipeline header and the Backlog subtitle.
   const pipeline = readSrc('views/Pipeline.svelte');
   assert.match(pipeline, /<Icon name="branch" \/>\{\$t\('pipeline\.base'\)\}/, 'branch before the base');
