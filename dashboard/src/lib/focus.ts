@@ -1,6 +1,6 @@
 // Focus and a job's environment as the dashboard shows them: the status bar's focus fact, the drawer's Environment
-// section, and the three POSTs behind it (lib/server.ts). Plain TS, so test/dashboard-focus.test.ts can pin it.
-import type { ApiState, Endpoint, FocusResponse, Job, PostEditorResponse, PostRunResponse } from './types.ts';
+// section's header, and the POSTs behind it (lib/server.ts). Plain TS, so test/dashboard-focus.test.ts can pin it.
+import type { ApiState, Endpoint, FocusResponse, Job, PostEditorResponse } from './types.ts';
 
 const active = (state: unknown): boolean => state !== 'done' && state !== 'cancelled';
 
@@ -21,7 +21,6 @@ export interface EnvironmentModel {
   focused: boolean;
   focusLabel: FocusLabelKey;
   editorDisabled: boolean;
-  runDisabled: boolean;
   endpoints: Endpoint[];
 }
 
@@ -43,14 +42,9 @@ export function environmentModel(job: Pick<Job, 'id' | 'state' | 'worktree'> & {
     focused,
     focusLabel: focused ? 'environment.unfocus' : 'environment.focus',
     editorDisabled: !job.worktree,
-    // Run starts the dev command, which serves exactly the row that can be live.
-    runDisabled: !endpoints.some((e) => typeof e.live === 'boolean'),
     endpoints,
   };
 }
-
-/** The toast after Run: the server either started the dev server or found it running. */
-export const runToastKey = (reused: boolean): 'environment.runReused' | 'environment.runStarted' => (reused ? 'environment.runReused' : 'environment.runStarted');
 
 /** A JSON POST that throws with the server's `error` field, else its text, else the status text (as postJobEffort). */
 export async function post<T>(url: string, body: unknown, token: string, fetchImpl: typeof fetch): Promise<T> {
@@ -67,9 +61,6 @@ export async function post<T>(url: string, body: unknown, token: string, fetchIm
 
 /** POST /api/focus: a job id focuses it, null clears focus. */
 export const postFocus = (job: string | null, token: string, fetchImpl: typeof fetch = fetch): Promise<FocusResponse> => post<FocusResponse>('/api/focus', { job }, token, fetchImpl);
-
-/** POST /api/jobs/:id/run with the one command the dashboard may start. */
-export const postRun = (id: string, token: string, fetchImpl: typeof fetch = fetch): Promise<PostRunResponse> => post<PostRunResponse>(`/api/jobs/${encodeURIComponent(id)}/run`, { command: 'dev' }, token, fetchImpl);
 
 /** POST /api/jobs/:id/editor: opens the job's worktree in FORGE_EDITOR on the machine running forge dash. */
 export const postEditor = (id: string, token: string, fetchImpl: typeof fetch = fetch): Promise<PostEditorResponse> => post<PostEditorResponse>(`/api/jobs/${encodeURIComponent(id)}/editor`, {}, token, fetchImpl);
