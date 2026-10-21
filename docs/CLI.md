@@ -85,7 +85,7 @@ Like `forge version`, it needs no repo and no `.forge/`. The commit is self-repo
 | ok | 0 | the command did what it was asked |
 | failed | 1 | the command ran and failed, or refused by policy: verify failed, a merge refused, a field only another command sets, a path outside the worktree, no such job |
 | usage | 2 | Forge could not parse the call: an unknown command or subcommand, a missing argument, a flag with no value or given twice, a value that is not a number, JSON or one of the listed words. Also a missing or unparseable `.forge/config.yml`, or not inside a git repository |
-| owned | 3 | the job or request is held by another live session, or a tracker claim was lost to another job |
+| owned | 3 | the job or request is held by another live session, or a tracker claim was lost to another job; also `stale_epoch`, a fenced write from a session that was taken over |
 | blocked | 4 | the job's dependencies are not done, or the repo budget (`budget:`) holds new work: `forge job claim` parked the job, or `forge job from-ref` started nothing |
 | external | 5 | a tool Forge runs failed to start or exited non-zero: git, gh, claude, docker |
 
@@ -116,6 +116,7 @@ Every error carries one of these codes, and the code fixes the exit.
 | `not_a_repo` | 2 | not inside a git repository, and `FORGE_ROOT` is unset |
 | `config_invalid` | 2 | `.forge/config.yml` cannot be parsed, or `forge init write` would write an invalid one |
 | `owned` | 3 | another live session holds the job or request, or a tracker claim was lost |
+| `stale_epoch` | 3 | a write fenced with `--epoch N` (`forge job step\|advance\|set\|claim\|agent start\|end`) found the job's lease at another epoch, or another driver, because another session took the job over: the caller must stop driving it. The check runs under the job lock before any write, so `job.json` is unchanged |
 | `blocked` | 4 | the job's dependencies are not done (`--force` claims anyway), or the repo budget holds new work (the message is the `repo budget: …` reason; a human runs `forge budget ack`) |
 | `external` | 5 | git, gh or claude failed to start or exited non-zero |
 
@@ -222,6 +223,14 @@ The log file gains a `(links <bin dir>)` line after `(cwd …)`. Background comm
 `forge pr merge <id> [--repo NAME | --root] [--now]` syncs first, then merges one PR at a time with exactly one `gh pr merge` call each: directly when checks pass or the repo has no CI, queued with `--auto` while checks are pending only when GitHub holds the PR and no protected-paths policy applies, deferred otherwise, and refused when checks fail. A single-repo job has one PR, and the result is `{ merged, autoMerge, action, checks, mergeState?, error? }` with `action` one of `already-merged`, `merged`, `auto`, `deferred`, `refused`, `failed`.
 
 A job with a member repo that gets a PR merges its PRs in the order of the components' `dependsOn` (docs/ARCHITECTURE.md "Job repos"): a PR is merged, or queued with `--auto`, only when every PR it depends on is MERGED by this call's own sync. The walk goes on after a direct merge and stops at the first PR it queues, defers, refuses or fails to merge, so a consumer is never queued while a dependency is unmerged. `--repo NAME` merges only that member's PR and `--root` only the root's; either is refused while a PR it depends on is not merged, has no PR, or could not be read. The result adds `repo` (the PR acted on last, null for the root), `parts` (one `{ repo, number, action, checks, mergeState?, error? }` per PR acted on, in order) and, on an order refusal, `reason`: `order` when a dependency PR is not merged, `cycle` when the components' `dependsOn` form a cycle between the job's repos, which refuses every merge of the job. Both exit 1 with no `gh pr merge` call and log `pr-merge-refused` with that `reason`. `merged` is true only when every PR of the job is MERGED. `--now` bypasses CI and the head pin for each PR it merges, never the order. `--repo` with `--root`, `--repo` naming no PR member, and `--root` with a value (`--root <id>` swallows the id) exit 1.
+
+## Leases and fencing
+
+`forge job claim <id> --session S` prints `{ id, lease, epoch }`: the job's lease (`{ driver, epoch, since, renewedAt, expiresAt }`, docs/ARCHITECTURE.md "Job model" › Ownership) and the epoch to fence later writes with. A new driver gets the next epoch; a re-claim by the same driver keeps it, so re-claiming always returns the epoch to use. `--epoch N` is accepted by `forge job step`, `forge job advance`, `forge job set`, `forge job claim` and `forge job agent start|end`; with it, the command is refused before it writes anything when the lease is no longer at epoch N or (with `--session S`) S no longer drives the job: exit 3, code `stale_epoch`, and the caller must stop driving the job. Without `--epoch`, nothing is fenced and `forge job advance` keeps its driver check. `N` must be a non-negative integer (else `usage`).
+
+`forge requests` (list) first returns to `pending` any `in-progress` request whose session is gone (its job's lease, held by that session, expired; or, for a request no lease covers, its claim is over 30 minutes old), adding `requeues`; one orphaned a second time is `rejected` with `its session ended twice while handling it`.
+
+`forge sync` ends with the reconciler's pass (docs/ARCHITECTURE.md "Daemon" › Reconciler) and reports it as `reconcile`: `{ resumed, escalated, requeued }` (job ids resumed or parked on `escalation` for having nothing to drive them, and request ids returned to pending), or the string `"skipped (forge dash owns it)"` while a live `forge dash` holds the daemon lock and reconciles on its own.
 
 ## Next
 
