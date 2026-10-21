@@ -14,8 +14,12 @@ export const ASSET = /^assets\/[\w.-]+\.(js|css|woff2)$/;
 const SHA = /^[0-9a-f]{40}$/;
 const SEMVER = /^\d+\.\d+\.\d+$/;
 const FIXED = ['index.html', 'manifest.json', STAMP];
-// Subjects of release commits, and of the main-update PRs that came before them, as a squash leaves them on main.
-const RELEASE_SUBJECTS = ['Update main to develop', 'Release '];
+/**
+ * A release commit's subject, or a main-update PR's from before them, as a squash leaves it: `Release 1.2.3`,
+ * optionally `(#n)`. Only the whole subject counts, so `Release Forge in one command` or a hotfix titled
+ * `Release 1.2.4: fix x` is still a change of its own.
+ */
+export const isReleaseSubject = (s: string) => /^(?:Release \d+\.\d+\.\d+|Update main to develop [0-9a-f]{7,40})(?: \(#\d+\))?$/.test(s.trim());
 
 export class Refusal extends Error {}
 
@@ -202,7 +206,7 @@ export function mainOnlyCommits(main: string, develop: string): { sha: string; s
       const tab = l.indexOf('\t');
       return { sha: l.slice(0, tab).replace(/[^0-9a-f]/g, ''), subject: oneLine(l.slice(tab + 1)) };
     })
-    .filter((c) => !RELEASE_SUBJECTS.some((p) => c.subject.startsWith(p)));
+    .filter((c) => !isReleaseSubject(c.subject));
 }
 
 /** `--name value` pairs, each named flag exactly once; unknown, repeated or missing flags exit 2. */

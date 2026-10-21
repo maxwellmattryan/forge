@@ -13,6 +13,9 @@ import { distHash, sourceHash, STAMP } from '../dashboard/build-stamp.mjs';
 const SEMVER = /^\d+\.\d+\.\d+$/;
 const MAX_LISTED = 10;
 
+/** Whether a CHANGELOG section says anything: a line with text beyond list markers and whitespace. */
+export const hasNotes = (section: string) => section.split(/\r?\n/).some((l) => /[^\s*+-]/.test(l));
+
 /**
  * The body under the exact heading line `## <version>` (trailing spaces allowed), up to the next
  * `## ` heading, trimmed: null when the heading is missing, '' when the body is empty.
@@ -59,7 +62,7 @@ export function releaseProblems(root: string, opts: { dist?: DistMode } = {}): s
     }
     const section = changelogSection(changelog, v);
     if (section === null) problems.push(`CHANGELOG.md has no "## ${v}" heading`);
-    else if (!section) problems.push(`CHANGELOG.md "## ${v}" has no notes`);
+    else if (!hasNotes(section)) problems.push(`CHANGELOG.md "## ${v}" has no notes`);
     else if (findAttribution(section).length) problems.push(`CHANGELOG.md "## ${v}" has an AI attribution line: ${findAttribution(section)[0]}`);
   }
 

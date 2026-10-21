@@ -16,7 +16,7 @@ import { spawnSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { releaseProblems } from './release-check.ts';
-import { mainCommit, mainOnlyCommits, oneLine, Refusal } from './main-update.ts';
+import { isReleaseSubject, mainCommit, mainOnlyCommits, oneLine, Refusal } from './main-update.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)$/;
@@ -96,7 +96,7 @@ export function versionsLine(before: Record<string, number>, after: Record<strin
 
 /** The draft `## <version>` section: a note on how to edit it, one bullet per commit, then the versions line. */
 export function draftSection(version: string, since: string | null, subjects: string[], versions: string | null): string {
-  const bullets = subjects.filter((s) => !s.startsWith('Release ')).map((s) => `- ${oneLine(s)}`);
+  const bullets = subjects.filter((s) => !isReleaseSubject(s)).map((s) => `- ${oneLine(s)}`);
   return [
     `## ${version}`,
     '',
