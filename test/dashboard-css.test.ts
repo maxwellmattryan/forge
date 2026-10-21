@@ -759,7 +759,8 @@ nodeTest('no ad-hoc pointer classes remain', () => {
   const SRC = path.join(DASHBOARD, 'src');
   const files = fs.readdirSync(SRC, { recursive: true }).map((f) => String(f).split(path.sep).join('/')).filter((f) => /\.(svelte|ts)$/.test(f));
   const hits = files.flatMap((f) => [...fs.readFileSync(path.join(SRC, f), 'utf8').matchAll(/\bcursor-(pointer|not-allowed)\b/g)].map((m) => `${f}: ${m[0]}`));
-  // DepChips' chip is a span inside the card's button: the base rule matches buttons and roles, never a bare span.
-  assert.deepEqual(hits, ['components/DepChips.svelte: cursor-pointer']);
+  // DepChips' chip and a board card's PR chip are spans inside the card's button: the base rule matches buttons and
+  // roles, never a bare span. PrChip gives its link the same Chip classes, so both clickable chips look alike.
+  assert.deepEqual(hits, ['components/DepChips.svelte: cursor-pointer', 'components/PrChip.svelte: cursor-pointer', 'components/PrChip.svelte: cursor-pointer']);
   for (const f of ['App.svelte', 'components/Drawer.svelte']) assert.match(fs.readFileSync(path.join(SRC, f), 'utf8'), /\bcursor-col-resize\b/, `${f}'s resize handle keeps col-resize`);
 });
