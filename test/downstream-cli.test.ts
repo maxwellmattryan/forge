@@ -1,6 +1,6 @@
 // `forge job repo downstream` (issue #186): adding a changed library's linked consumers as
-// verify-only repos, what it logs, and who may run it. No worktree or command runs here, so it also
-// runs on CI's Windows leg; test/downstream-verify.test.ts drives verify itself.
+// verify-only repos, what it logs, and who may run it. No worktree or command runs here;
+// test/downstream-verify.test.ts drives verify itself.
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

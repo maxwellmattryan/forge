@@ -159,7 +159,7 @@ Keeping `http.ts` small and alone is the security win here: the loopback, token,
    - Each module's `AGENTS.md`, and the slimmed root `AGENTS.md`.
 3. **types.ts by owner**, with the transitional type-only barrel. Same PR for the dashboard mirror.
 4. **Splits**, one PR each: step, pr, server, daemon (step 1, then step 2), then `release/plan/` and `release/run/`.
-5. **Tests mirror the modules** (`test/<module>/*.test.ts`), in its own PR: the glob becomes `"test/**/*.test.ts"` in ci.yml, AGENTS.md and `test/ci-workflow.test.ts`, and the `WINDOWS_SKIP` paths change with it. 207 test files in one folder is the same problem as `lib/`.
+5. **Tests mirror the modules** (`test/<module>/*.test.ts`), in its own PR: the glob becomes `"test/**/*.test.ts"` in ci.yml, AGENTS.md and `test/ci-workflow.test.ts`. 207 test files in one folder is the same problem as `lib/`.
 6. **Later, as needed:** delete the `lib/types.ts` barrel; `docs/CONFIG.md` per section; `cli/commands/job.ts` (984), `workspace/worktree.ts` (1,233), `config/load.ts` (971), `release/interim-apply.ts` (927) and `guard/integrity.ts` (838) off the allowlist; grouping `dashboard/src/lib` (48 files) by view.
 
 ## Timing against other work

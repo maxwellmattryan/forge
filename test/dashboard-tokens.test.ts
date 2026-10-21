@@ -1,5 +1,6 @@
 // The Smithy tokens: the token blocks of dashboard/style.css are the source, the built dashboard CSS must carry every
-// variable of them in the same scope with the same value, and the text colours must stay readable in every theme (forge, ash, temper).
+// variable of them in the same scope with the same value, and the text colours must stay readable in every theme (forge, ash,
+// temper, crucible, patina, obsidian).
 // Reads files only; a small regex-based declaration reader stands in for a CSS parser.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -115,19 +116,22 @@ function sameValue(a: string, b: string): boolean {
   });
 }
 
-const SCOPES = [':root, [data-theme="forge"]', '[data-theme="ash"]', '[data-theme="temper"]', ':root'];
-const ROOT_SCOPE = SCOPES[3];
+const ROOT_SCOPE = ':root';
+const SCOPES = [':root, [data-theme="forge"]', '[data-theme="ash"]', '[data-theme="temper"]', '[data-theme="crucible"]', '[data-theme="patina"]', '[data-theme="obsidian"]', ROOT_SCOPE];
 // style.css declares these after the tokens: the brushed gleam fills, the grain and the falloff (ash overrides four of
-// them; temper overrides none, so it takes the dark :root ones). They ride in the same scopes in the build.
+// them; the dark themes after it override none, so they take the dark :root ones). They ride in the same scopes in the build.
 const SMITHY_EXTRAS = ['--gleam-fill', '--gleam-fill-hot', '--gleam-fill-bar', '--gleam-spec', '--grain-opacity', '--grain-blend', '--fall', '--hammer', '--grain'];
 const EXTRAS: Record<string, string[]> = {
   [SCOPES[0]]: [],
   [SCOPES[1]]: ['--gleam-spec', '--grain-opacity', '--grain-blend', '--fall'],
   [SCOPES[2]]: [],
+  [SCOPES[3]]: [],
+  [SCOPES[4]]: [],
+  [SCOPES[5]]: [],
   [ROOT_SCOPE]: SMITHY_EXTRAS,
 };
 /** Each theme's own token block in style.css (the scalar `:root` block is shared). */
-const THEME_SCOPE: Record<string, string> = { forge: SCOPES[0], ash: SCOPES[1], temper: SCOPES[2] };
+const THEME_SCOPE: Record<string, string> = { forge: SCOPES[0], ash: SCOPES[1], temper: SCOPES[2], crucible: SCOPES[3], patina: SCOPES[4], obsidian: SCOPES[5] };
 const STYLE = path.join(ROOT, 'dashboard', 'style.css');
 /** A section of style.css, from its `/* ---------- <name>` marker to the next marker. */
 function styleSection(name: string): string {
@@ -235,7 +239,7 @@ const mix = (a: Rgba, p: number, b: Rgba): Rgba => [a[0] * p + b[0] * (1 - p), a
 // placeholders and stamp-line keys only and is the one documented exception. spark is only
 // ever a fill under on-spark. Forge's hovered link is gleam-hot; Ash keeps gleam there.
 const TEXT = ['fg', 'muted', 'gleam', 'ember', 'ok', 'warn', 'bad', 'info'];
-const TEXT_BY_THEME: Record<string, string[]> = { forge: [...TEXT, 'gleam-hot'], ash: TEXT, temper: [...TEXT, 'gleam-hot'] };
+const TEXT_BY_THEME: Record<string, string[]> = { forge: [...TEXT, 'gleam-hot'], ash: TEXT, temper: [...TEXT, 'gleam-hot'], crucible: [...TEXT, 'gleam-hot'], patina: [...TEXT, 'gleam-hot'], obsidian: [...TEXT, 'gleam-hot'] };
 const DIM_FLOOR = 3.0;
 
 /** The theme scopes of the style.css tokens, as a colour reader per theme. */
@@ -561,7 +565,7 @@ test('chrome sidebar keeps text at 4.5:1', BUILT, () => {
   assert.ok(contrast(ash('gleam'), ash('bg')) >= 4.5);
 });
 
-// ---------- the three themes: cascade, color-scheme, and the overrides ash takes ----------
+// ---------- the themes: cascade, color-scheme, and the overrides ash takes ----------
 
 /**
  * The custom properties a theme resolves to through the cascade: the unlayered top-level blocks in
@@ -598,7 +602,7 @@ function effective(css: string, theme: string): Map<string, string> {
 
 /** An extra as written in style.css and as the build minifies it (`.10` becomes `.1`, rgba becomes hex). */
 const sameExtra = (a: string, b: string) => sameValue(a, b) || (a.trim() !== '' && !Number.isNaN(Number(a)) && Number(a) === Number(b));
-const GRAIN_BLEND: Record<string, string> = { forge: 'soft-light', ash: 'multiply', temper: 'soft-light' };
+const GRAIN_BLEND: Record<string, string> = { forge: 'soft-light', ash: 'multiply', temper: 'soft-light', crucible: 'soft-light', patina: 'soft-light', obsidian: 'soft-light' };
 
 test("each theme's tokens and extras win the cascade", BUILT, () => {
   const sample = ':root{--a:1;--p:.18}:root,[data-theme="x"]{--a:2}[data-theme=y]{--a:3;--p:.5}[data-theme=x] .b{--a:9}@layer l{:root{--a:8}}';
@@ -645,24 +649,27 @@ function themeRules(css: string, id: string): [string, string][] {
   return out;
 }
 
-// Native UI (scrollbars, an open <select>, autofill) follows the theme: forge and temper are dark, ash is light. Ash
-// overrides only its token blocks, the hovered link, and the two scrims; temper only its token block, so the dark
-// defaults (the backdrop, the scrim, a gleam-hot hovered link) apply to it as they do to forge.
+// Native UI (scrollbars, an open <select>, autofill) follows the theme: forge, temper, crucible, patina and obsidian are
+// dark, ash is light. Ash overrides only its token blocks, the hovered link, and the two scrims; the other dark themes only
+// their token block, so the dark defaults (the backdrop, the scrim, a gleam-hot hovered link) apply to them as to forge.
 const ASH_RULES = ['[data-theme=ash]', '[data-theme=ash]', '[data-theme=ash]a:hover', '[data-theme=ash].backdrop', '[data-theme=ash].scrim'];
+const DARK_CHOSEN = ['temper', 'crucible', 'patina', 'obsidian'];
 
-test('forge and temper are dark, ash is light', BUILT, () => {
+test('forge, temper, crucible, patina and obsidian are dark, ash is light', BUILT, () => {
   const sample = '@layer a,b;@layer b{[data-theme="x"] .m{c:1}}[data-theme=x]{color-scheme:dark;--a:1}.y{c:2}';
   assert.deepEqual(themeRules(sample, 'x'), [['[data-theme=x].m', 'c:1'], ['[data-theme=x]', 'color-scheme:dark;--a:1']], 'self-check: nested and top-level rules');
   const css = builtCss();
   assert.equal(effective(css, 'forge').get('color-scheme'), 'dark', 'forge (and :root) is dark');
   assert.equal(effective(css, 'ash').get('color-scheme'), 'light', 'ash is light');
-  assert.equal(effective(css, 'temper').get('color-scheme'), 'dark', 'temper is dark');
+  for (const id of DARK_CHOSEN) assert.equal(effective(css, id).get('color-scheme'), 'dark', `${id} is dark`);
   // The build splits a token block around each color-mix token's @supports, so a selector can repeat: compare the set.
   const uniq = (xs: string[]) => [...new Set(xs)].sort();
   assert.deepEqual(uniq(themeRules(css, 'forge').map(([sel]) => sel)), [':root,[data-theme=forge]'], 'only the token block names forge: it is the :root default');
   assert.deepEqual(uniq(themeRules(css, 'ash').map(([sel]) => sel)), uniq(ASH_RULES), 'ash keeps exactly its overrides');
-  const temper = themeRules(css, 'temper').map(([sel]) => sel);
-  assert.ok(temper.length > 0 && temper.every((sel) => sel === '[data-theme=temper]'), `temper names only its top-level token blocks, no descendant overrides (${temper.join(' ')})`);
+  for (const id of DARK_CHOSEN) {
+    const rules = themeRules(css, id).map(([sel]) => sel);
+    assert.ok(rules.length > 0 && rules.every((sel) => sel === `[data-theme=${id}]`), `${id} names only its top-level token blocks, no descendant overrides (${rules.join(' ')})`);
+  }
 });
 
 // Ash is polished aluminium in daylight: a neutral-to-cool grey (blue never under red, the channels within 12 of each

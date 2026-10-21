@@ -129,7 +129,7 @@ const THEME_SCRIPT = `<script>
         const saved = localStorage.getItem('forge.theme');
         const light = matchMedia('(prefers-color-scheme: light)').matches;
         document.documentElement.dataset.theme =
-          saved === 'forge' || saved === 'cyanotype' || saved === 'dark' || saved === 'nightprint' ? 'forge' : saved === 'temper' ? 'temper' : saved === 'ash' || saved === 'vellum' || saved === 'light' ? 'ash' : light ? 'ash' : 'forge';
+          saved === 'forge' || saved === 'cyanotype' || saved === 'dark' || saved === 'nightprint' ? 'forge' : ['temper', 'crucible', 'patina', 'obsidian'].includes(saved) ? saved : saved === 'ash' || saved === 'vellum' || saved === 'light' ? 'ash' : light ? 'ash' : 'forge';
         const grain = localStorage.getItem('forge.grain');
         document.documentElement.dataset.grain = (grain === null ? localStorage.getItem('forge.paper') : grain) === 'off' ? 'off' : 'on';
       } catch {}
