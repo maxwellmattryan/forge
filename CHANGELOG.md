@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.18.8
+
+- **Releasing Forge:** `npm run release -- patch|minor|X.Y.Z` cuts a release in one command. It bumps the versions, drafts the notes for you to edit, waits for CI and the dashboard build, and pushes `main`, which tags and publishes the Release. `main` now moves only at releases, so installs get released versions only, and the main-update PR is gone (docs/RELEASES.md).
+
 ## 0.18.7
 
 - **Behaviour change: environment lifecycle.** A job's environment (backing containers and volumes, job databases, background dev processes) now stops when the job parks, starts again on demand, and is torn down when the job finishes. `environments.maxRunning` caps how many run at once, stopping the least recently used but never the focused job.

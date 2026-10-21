@@ -72,7 +72,7 @@ test('AGENTS.md opens with essentials and keeps every rule', () => {
     'tracker and PR text is fenced as data',
     'Work on `develop`',
     'Never commit `dashboard/dist/`',
-    'CI adds it in the main-update PR',
+    'CI builds it for the main update',
     'Escape everything the dashboard renders',
     "Never point the CLI at a real repo's `.forge/`",
     'Jobs leave `CHANGELOG.md` and versions alone',
@@ -87,10 +87,11 @@ test('AGENTS.md opens with essentials and keeps every rule', () => {
   assert.ok(essentials.includes('](dashboard/AGENTS.md)'), 'Essentials points to dashboard/AGENTS.md');
   for (const lead of DASHBOARD_LEADS) assert.ok(DASHBOARD.includes(`- ${lead}`), `in dashboard/AGENTS.md: ${lead}`);
   for (const name of ['Layout', 'Where a change goes', 'Rules', 'Verify before claiming it works', 'Gotchas already paid for', 'Publishing']) section(AGENTS, name);
-  // CI, not a person, builds dist for main: the Layout names the workflow and the script that do it.
+  // CI, not a person, builds dist for main: the Layout names the workflow and the scripts that release it.
   const layout = section(AGENTS, 'Layout');
   assert.match(layout, /^- `\.github\/workflows\/main-update\.yml`: /m);
   assert.ok(layout.includes('`main-update.ts`'), 'Layout names scripts/main-update.ts');
+  assert.ok(layout.includes('`release.ts` is `npm run release`'), 'Layout names scripts/release.ts');
   for (const doc of [AGENTS, DASHBOARD]) assert.ok(!doc.includes('git add --force dashboard/dist'), 'no hand-built release dist');
 });
 

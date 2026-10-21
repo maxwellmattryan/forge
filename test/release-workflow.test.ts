@@ -392,11 +392,11 @@ test('the archive step stamps and checks COMMIT', POSIX, () => {
   }
 });
 
-test('detect and COMMIT hold for a merged main-update PR', POSIX, () => {
+test('detect and COMMIT hold for the commit npm run release pushes to main', POSIX, () => {
   const MAIN_UPDATE = path.join(ROOT, 'scripts', 'main-update.ts');
   const FIXTURE_DIST = path.join(ROOT, 'test', 'fixtures', 'dist');
   const dirs: string[] = [];
-  /** main at 1.0.0 (tagged), develop at `next`, merged into main through a main-update commit: returns the merge sha. */
+  /** main at 1.0.0 (tagged), develop at `next`, and main moved to the main-update commit as release.ts pushes it. */
   const merged = (next: string) => {
     const repo = tempRepo();
     dirs.push(repo.dir);
@@ -427,11 +427,10 @@ test('detect and COMMIT hold for a merged main-update PR', POSIX, () => {
     assert.equal(c.status, 0, c.stderr);
     const update = c.stdout.trim();
     repo.git('checkout', '-q', 'main');
-    // GitHub's "Create a merge commit": first parent the old main tip, second the PR head.
-    repo.git('merge', '-q', '--no-ff', '-m', 'Merge pull request #9 from o/ci/main-update', update);
-    const merge = rev('HEAD');
-    assert.deepEqual(repo.git('log', '-1', '--format=%P', merge).toString().trim().split(' ')[1], update);
-    return { repo, merge };
+    // A fast-forward: the commit's first parent is main's old tip.
+    repo.git('merge', '-q', '--ff-only', update);
+    assert.equal(rev('HEAD'), update);
+    return { repo, merge: update };
   };
   try {
     const bumped = merged('1.1.0');
@@ -439,18 +438,19 @@ test('detect and COMMIT hold for a merged main-update PR', POSIX, () => {
     assert.ok(fs.existsSync(path.join(bumped.repo.dir, 'dashboard', 'dist', 'manifest.json')), 'main carries the built dashboard');
     const tar = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', 'git archive --format=tar --prefix=forge/ "$SHA" | tar -xOf - forge/COMMIT'], { cwd: bumped.repo.dir, encoding: 'utf8', env: { ...process.env, SHA: bumped.merge } });
     assert.equal(tar.status, 0, tar.stderr);
-    assert.equal(tar.stdout.trim(), bumped.merge, 'the archive stamps the merge commit');
+    assert.equal(tar.stdout.trim(), bumped.merge, 'the archive stamps the pushed commit');
 
-    const same = merged('1.0.0');
-    assert.equal(plan(same.repo.dir, 'detect').stdout, 'version=1.0.0\nrelease=false\n', 'an unchanged version does not');
+    // A later commit on main that keeps the version (a hotfix not yet bumped) does not release.
+    bumped.repo.git('commit', '-q', '--allow-empty', '-m', 'fix: hotfix');
+    assert.equal(plan(bumped.repo.dir, 'detect').stdout, 'version=1.1.0\nrelease=false\n', 'an unchanged version does not');
   } finally {
     for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
   }
 });
 
 test('no AI attribution in generated text', () => {
-  const files = ['.github/workflows/release.yml', '.github/workflows/ci.yml', '.github/workflows/main-update.yml', 'scripts/main-update.ts', 'docs/RELEASES.md', ...fs.readdirSync(path.join(ROOT, 'scripts')).filter((f) => /^release-.*\.ts$/.test(f)).map((f) => `scripts/${f}`)];
-  assert.ok(files.includes('scripts/release-plan.ts') && files.includes('scripts/release-check.ts'));
+  const files = ['.github/workflows/release.yml', '.github/workflows/ci.yml', '.github/workflows/main-update.yml', 'scripts/main-update.ts', 'docs/RELEASES.md', ...fs.readdirSync(path.join(ROOT, 'scripts')).filter((f) => /^release(-.*)?\.ts$/.test(f)).map((f) => `scripts/${f}`)];
+  assert.ok(files.includes('scripts/release.ts') && files.includes('scripts/release-plan.ts') && files.includes('scripts/release-check.ts'));
   for (const f of files) assert.deepEqual(findAttribution(read(f)), [], f);
   // The tag message and the Release title are fixed text, never taken from a commit or PR.
   assert.ok(TAG_RUN.includes('-f message="Forge $VERSION"'));

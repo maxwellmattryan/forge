@@ -5,7 +5,7 @@ Read this before you change anything under `dashboard/`. The root [AGENTS.md](..
 ## Rules
 - **`dashboard/style.css` is the source of truth for the dashboard's look** (the Smithy design system: its tokens and `@utility` classes; the icons live in `dashboard/src/lib/icons.ts`). New classes are `@utility`s there, colours come from the token variables, and fonts are vendored in `dashboard/fonts/`, never linked.
 - Each page is one component in `src/views/`. Put shared pieces in `components/` and logic you want tested in plain `src/lib/*.ts`, not in a growing view.
-- **Never commit the built dashboard.** `dist/` is gitignored and never hand-edited. Rebuild it with `npm run build:dashboard` before the tests: the ones that read the build (CSS, tokens, icons, assets, the index) skip without it, and CI runs them. CI adds `dist/` to `main` in the main-update PR (the root [AGENTS.md](../AGENTS.md) › Publishing).
+- **Never commit the built dashboard.** `dist/` is gitignored and never hand-edited. Rebuild it with `npm run build:dashboard` before the tests: the ones that read the build (CSS, tokens, icons, assets, the index) skip without it, and CI runs them. CI builds `dist/` for the main update into `main` (the root [AGENTS.md](../AGENTS.md) › Publishing).
 
 ## Gotchas already paid for
 - **Tailwind v4**: `@apply` accepts only built-in utilities or classes declared with `@utility`; plain `.class {}` rules can't be `@apply`'d. Tailwind only sees the `@source` files in `dashboard/style.css`: build class names from whole literals, never `bg-${tone}`; no `class:` directives, and no `<style>` blocks in components. Upgrading means bumping the exact devDependency versions and rebuilding.

@@ -1,7 +1,7 @@
 // `npm run release:check [-- --root <dir>] [--dist absent|present]`: is this checkout fit to be a
 // release commit? Versions agree, CHANGELOG has the version's notes, the tree is clean, and the
 // built dashboard is untracked (`absent`, develop) or tracked and fresh (`present`, main and the
-// main-update PR); with no `--dist` the stamp is checked only when dist is tracked.
+// main update); with no `--dist` the stamp is checked only when dist is tracked.
 // Built-ins only, so CI's `release check` job runs it without `npm ci` (docs/RELEASES.md).
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,6 +12,9 @@ import { distHash, sourceHash, STAMP } from '../dashboard/build-stamp.mjs';
 
 const SEMVER = /^\d+\.\d+\.\d+$/;
 const MAX_LISTED = 10;
+
+/** Whether a CHANGELOG section says anything: a line with text beyond list markers and whitespace. */
+export const hasNotes = (section: string) => section.split(/\r?\n/).some((l) => /[^\s*+-]/.test(l));
 
 /**
  * The body under the exact heading line `## <version>` (trailing spaces allowed), up to the next
@@ -59,7 +62,7 @@ export function releaseProblems(root: string, opts: { dist?: DistMode } = {}): s
     }
     const section = changelogSection(changelog, v);
     if (section === null) problems.push(`CHANGELOG.md has no "## ${v}" heading`);
-    else if (!section) problems.push(`CHANGELOG.md "## ${v}" has no notes`);
+    else if (!hasNotes(section)) problems.push(`CHANGELOG.md "## ${v}" has no notes`);
     else if (findAttribution(section).length) problems.push(`CHANGELOG.md "## ${v}" has an AI attribution line: ${findAttribution(section)[0]}`);
   }
 
@@ -74,7 +77,7 @@ export function releaseProblems(root: string, opts: { dist?: DistMode } = {}): s
     }
   }
 
-  // develop never commits the build; main (and the main-update PR that feeds it) must carry it.
+  // develop never commits the build; main must carry it.
   const tracked = spawnSync('git', ['-c', 'core.quotepath=off', '--no-optional-locks', '-C', root, 'ls-files', '--', 'dashboard/dist'], { encoding: 'utf8' });
   if (tracked.error || tracked.status !== 0) {
     problems.push(`git ls-files failed in ${root}: ${(tracked.stderr || tracked.error?.message || '').trim()}`);
@@ -82,7 +85,7 @@ export function releaseProblems(root: string, opts: { dist?: DistMode } = {}): s
   }
   const distTracked = tracked.stdout.trim() !== '';
   if (opts.dist === 'absent') {
-    if (distTracked) problems.push('dashboard/dist is tracked: develop never commits the build (CI adds it in the main-update PR)');
+    if (distTracked) problems.push('dashboard/dist is tracked: develop never commits the build (CI builds it for the main update)');
     return problems;
   }
   if (opts.dist === 'present' && !distTracked) {

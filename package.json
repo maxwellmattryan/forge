@@ -1,6 +1,6 @@
 {
   "name": "@maxwellmattryan/forge",
-  "version": "0.18.7",
+  "version": "0.18.8",
   "description": "Forge: a lightweight, self-improving software factory for AI coding agents: orchestrator, agent roster, worktrees, PR sync, trackers, evals and a live dashboard.",
   "type": "module",
   "license": "MIT",
@@ -30,6 +30,7 @@
     "docs:commands": "node scripts/docs-commands.ts",
     "dev": "node scripts/dev.ts",
     "dev:claude": "node scripts/dev-claude.ts",
+    "release": "node scripts/release.ts",
     "release:check": "node scripts/release-check.ts"
   },
   "repository": {

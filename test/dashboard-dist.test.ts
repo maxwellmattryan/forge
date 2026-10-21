@@ -1,4 +1,4 @@
-// Guards the built dashboard/dist/ (CI adds it to main in the main-update PR): reads files only, so it needs no Vite,
+// Guards the built dashboard/dist/ (CI builds it for the main update): reads files only, so it needs no Vite,
 // no node_modules and no network. The tests of the build itself skip until it is built (test/dist.ts); the stamp's
 // freshness is release:check's job (`--dist present`).
 import test from 'node:test';
@@ -14,7 +14,7 @@ import { ASSET, manifestFiles as manifestNames } from '../scripts/main-update.ts
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DASHBOARD = path.join(ROOT, 'dashboard');
 const BUILT = { skip: noDist() };
-// The same walk main-update.yml's publish job checks the artifact with.
+// The same walk `npm run release` checks main-update.yml's artifact with.
 const manifestFiles = () => manifestNames(DIST);
 
 /** @param {string} dir @returns {string[]} */

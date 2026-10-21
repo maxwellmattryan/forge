@@ -93,6 +93,7 @@ test('releaseProblems passes a clean release checkout and names each problem', P
     fs.writeFileSync(path.join(d, 'CHANGELOG.md'), '# Changelog\n\n## 0.17.10\n\n- ten\n');
   }), /no "## 0\.17\.1" heading/, 'only 0.17.10 for 0.17.1');
   one(broken((d) => fs.writeFileSync(path.join(d, 'CHANGELOG.md'), '# Changelog\n\n## 1.2.3\n\n\n## 1.2.2\n\n- Older.\n')), /"## 1\.2\.3" has no notes/, 'an empty section');
+  one(broken((d) => fs.writeFileSync(path.join(d, 'CHANGELOG.md'), '# Changelog\n\n## 1.2.3\n\n-\n- \n\n## 1.2.2\n\n- Older.\n')), /"## 1\.2\.3" has no notes/, 'empty bullets');
   one(broken((d) => fs.writeFileSync(path.join(d, 'CHANGELOG.md'), '# Changelog\n\n## 1.2.3\n\n- Release tags.\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n')), /AI attribution line/, 'an attribution line');
   one(broken((d) => fs.writeFileSync(path.join(d, 'README.md'), '# changed\n'), false), /not clean: README\.md/, 'a modified tracked file');
   one(broken((d) => fs.writeFileSync(path.join(d, 'notes.txt'), 'scratch\n'), false), /not clean: notes\.txt/, 'an untracked file');
@@ -108,7 +109,7 @@ test('releaseProblems passes a clean release checkout and names each problem', P
 });
 
 test('dist mode absent/present/default', POSIX, () => {
-  const ABSENT = /^dashboard\/dist is tracked: develop never commits the build \(CI adds it in the main-update PR\)$/;
+  const ABSENT = /^dashboard\/dist is tracked: develop never commits the build \(CI builds it for the main update\)$/;
   const PRESENT = /^dashboard\/dist is not committed: main needs the built dashboard$/;
   // The fixture tracks a stamped dist, as main does.
   const main = fixture();

@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { findAttribution } from '../lib/attribution.ts';
-import { changelogSection } from './release-check.ts';
+import { changelogSection, hasNotes } from './release-check.ts';
 
 const SEMVER = /^\d+\.\d+\.\d+$/;
 
@@ -59,7 +59,7 @@ function notes(): void {
   }
   const section = changelogSection(text, version);
   if (section === null) fail(`CHANGELOG.md has no "## ${version}" heading`);
-  if (!section) fail(`CHANGELOG.md "## ${version}" has no notes`);
+  if (!hasNotes(section)) fail(`CHANGELOG.md "## ${version}" has no notes`);
   if (findAttribution(section).length) fail(`CHANGELOG.md "## ${version}" has an AI attribution line`);
   process.stdout.write(`${section}\n`);
 }
