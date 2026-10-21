@@ -43,8 +43,9 @@
   {#if m.progress}<div data-slot="progress"><ProgressBar progress={m.progress} /></div>{/if}
   {#if m.lenses}<div data-slot="lenses" class="flex flex-wrap gap-1">{#each m.lenses as l, i (i)}<VerdictChip name={l.name} verdict={l.verdict} />{/each}</div>{/if}
   <!-- One line at every card width: the usage keeps its width at the right, the activity and the agents summary shrink
-       and truncate, the agents summary first. -->
-  <div data-slot="footer" class="label flex flex-nowrap min-w-0 overflow-hidden items-center gap-x-2.5 text-[10px]">
+       and truncate, the agents summary first. -m-1 p-1 gives the live dot's halo (twice the dot) room inside the clip
+       without moving the line. -->
+  <div data-slot="footer" class="label flex flex-nowrap min-w-0 overflow-hidden -m-1 p-1 items-center gap-x-2.5 text-[10px]">
     <SessionActivity activity={act} extra="normal-case tracking-normal min-w-0 shrink" />
     {#if agents}<span class="flex items-center gap-1.5 text-gleam min-w-0 shrink-[2]" title={agents.title}><span class="dot gleam plain size-1.5 shrink-0"></span><span class="truncate">{#if agents.kind === 'role'}{agents.role}{:else if agents.kind === 'reviewers'}{$t('job.runningReviewers', { count: agents.count })}{:else}{$t('job.runningAgents', { count: agents.count })}{/if}</span></span>{/if}
     <!-- The flash dot's space is always reserved, so a change never shifts the card. -->
