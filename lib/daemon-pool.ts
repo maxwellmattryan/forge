@@ -10,11 +10,14 @@ import { resolveEffort, trustDigest } from './config.ts';
 import { PERMISSION_MODES, TRUST_CHANGED, UUID, commandPermissionMode, createSession, otherOwner, readInfo, reapOrphans, sessionFiles, sessionOptions } from './daemon.ts';
 import type { DaemonOptions, Session, SessionContext, SessionEvent } from './daemon.ts';
 import { configForJob } from './eval-overlay.ts';
-import { loadJob, logHumanEvent, repoAuditFile } from './jobs.ts';
+import { ownerStatusWithProof } from './daemon-owner.ts';
+import { maybeEnqueueGate } from './foreman.ts';
+import { loadJob, logEvent, logHumanEvent, readEvents, repoAuditFile, setJob } from './jobs.ts';
+import { progressMark, strandedAction, strandedAfterTurn } from './stranded.ts';
 import { PLUGIN_ROOT } from './paths.ts';
 import { repoBudgetStatus } from './repo-budget.ts';
 import { daemonPlatformProblem } from './platform.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, listRequests, requestScope, validScope } from './requests.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, enqueue, listRequests, requestScope, validScope } from './requests.ts';
 import type { Config, RepoBudgetStatus, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, EventActor, ForgeRequest, Job, PermissionDecision } from './types.ts';
 
 /** The pool's own state: state() below. The server adds `clients` to make a DaemonPoolState. */
@@ -45,6 +48,8 @@ export interface DaemonPool {
 const FINISHED = ['done', 'cancelled', 'failed'];
 /** How long a tick reuses the repo budget status. */
 const REPO_BUDGET_MEMO_MS = 10_000;
+/** The resume the pool queues after a turn left its job running and undriven: a fixed text, like every daemon turn. */
+const STRANDED_TEXT = 'Your last turn ended with this job still running and nothing queued to drive it. Run the step loop from where it stands; if it cannot go on, park it on a gate rather than stopping.';
 /** How often a wanted pool runs `forge sync`, so CI results and PR feedback reach the office unasked. */
 export const SYNC_MS = 120_000;
 /** A sync that runs longer than this is killed; the next interval tries again. */
@@ -278,6 +283,7 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
         void s.kill('stop', true, 'job-finished');
         return;
       }
+      if (state === 'running') checkStranded(scope, s);
     }
     tick();
   }
@@ -378,6 +384,43 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
         lastSyncError = err;
         tick();
       });
+  }
+
+  /** Per job: the progress mark when the pool last resumed it for a stranded turn end. */
+  const strandedResumes = new Map<string, string | null>();
+
+  /**
+   * A job session's turn ended (lib/stranded.ts): if it left the job running with nothing to drive it,
+   * queue one resume; if the resumed turn ends the same way with no progress, park the job on
+   * escalation so the foreman (or a human) takes it, rather than leave it stranded.
+   */
+  function checkStranded(scope: string, s: Session | undefined): void {
+    try {
+      const job = loadJob(root, scope);
+      if (job.state !== 'running') return void strandedResumes.delete(scope);
+      // The turn is over, so a request still in progress was this turn's: only a pending one is queued work.
+      const requested = listRequests(root, { status: 'pending' }).some((r) => requestScope(root, r) === scope);
+      const owner = ownerStatusWithProof(root, job, { env: process.env });
+      if (!strandedAfterTurn({ job, requested, agents: s?.keptBy(0) === 'agents', owner })) return;
+      const mark = progressMark(readEvents(root, scope));
+      if (strandedAction(strandedResumes.get(scope), mark) === 'resume') {
+        enqueue(root, null, { type: 'resume', job: scope, text: STRANDED_TEXT, from: 'daemon:supervisor' });
+        strandedResumes.set(scope, mark);
+        s?.logEvent('stranded', { action: 'resume', stage: job.stage });
+        return;
+      }
+      strandedResumes.delete(scope);
+      const reason = `stranded at ${job.stage}: two turns ended with the job running and nothing driving it`;
+      // Re-read under the lock: a job that parked or moved meanwhile is left alone.
+      const after = setJob(root, scope, { derive: (j) => (j.state === 'running' && j.stage === job.stage ? { state: 'waiting', waitingOn: 'escalation', reason } : null) });
+      if (after.state === 'waiting' && after.reason === reason) {
+        logEvent(root, scope, 'stranded', { action: 'escalate', stage: job.stage });
+        s?.logEvent('stranded', { action: 'escalate', stage: job.stage });
+        maybeEnqueueGate(root, config(), job, after);
+      }
+    } catch (e) {
+      s?.logEvent('error', { message: `checking for a stranded job: ${(e as Error).message}` });
+    }
   }
 
   /**

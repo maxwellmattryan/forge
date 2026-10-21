@@ -120,6 +120,31 @@ test('advance runs intake to the first spawn in one call', POSIX, () => {
   }
 });
 
+test('the same command failing twice with no progress parks the job on escalation', POSIX, () => {
+  const s = scratch();
+  try {
+    const { id } = s.f('job', 'new', '--title', 'Dirty integrate', '--session', 'S');
+    const wt = s.f('worktree', 'create', id).path ?? s.f('worktree', 'path', id);
+    s.f('job', 'set', id, '--stage', 'integrate', '--state', 'running');
+    // forge integrate refuses a dirty worktree, and nothing between the two calls moves the job.
+    fs.writeFileSync(path.join(String(wt), 'dirty.txt'), 'x');
+    const first = oneJsonLine(s.raw('job', 'advance', id, '--session', 'S').stdout);
+    assert.equal(first.failed, true);
+    assert.equal(first.parked, undefined, 'one failure is retried');
+    assert.equal(loadJob(s.root, id).state, 'running');
+    const second = oneJsonLine(s.raw('job', 'advance', id, '--session', 'S').stdout);
+    assert.equal(second.failed, true);
+    assert.equal(second.parked, true);
+    const job = loadJob(s.root, id);
+    assert.equal(job.state, 'waiting');
+    assert.equal(job.waitingOn, 'escalation');
+    assert.match(String(job.reason), new RegExp(`^${second.rule}: forge integrate ${id} failed twice: `));
+    assert.equal(readEvents(s.root, id).filter((e) => e.type === 'advance-failed').length, 2);
+  } finally {
+    s.cleanup();
+  }
+});
+
 test('advance stops at the first failed run and prints no command output', POSIX, () => {
   const s = scratch({ commands: { build: 'true', lint: 'true', test: 'for i in 1 2 3 4 5; do echo TAIL-MARKER; done; exit 1' } });
   try {
