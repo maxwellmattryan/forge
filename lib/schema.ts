@@ -11,7 +11,7 @@ import type { EventActor, Job, JobAgent, JobEvent, JobIssue, JobOutcome, JobRepo
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
 export { BACKING_DB_ENGINES, BACKING_ISOLATIONS } from './backing-config.ts';
 
-export const CONFIG_SCHEMA_VERSION = 24;
+export const CONFIG_SCHEMA_VERSION = 25;
 export const JOB_SCHEMA_VERSION = 15;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
@@ -217,6 +217,9 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // v24 adds outcomes.windowDays (14 by default), so no v23 config changes; the bump lets older
   // Forges refuse a config whose outcome window they would ignore.
   23: (c) => c,
+  // v25 adds environments.maxRunning, null by default, so no v24 config changes; the bump lets older
+  // Forges refuse a config whose cap they would ignore.
+  24: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {

@@ -26,6 +26,7 @@ import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretMode, secr
 import { cleanGenerated, generatedConfig, generatedPaths, partitionConflicts, rebuild, regenerateProblem, takeBaseSide } from './regenerate.ts';
 import type { Strategy } from './regenerate.ts';
 import { commandTemplate, verifiedHead } from './worktree.ts';
+import { finishEnvironment } from './environment-lifecycle.ts';
 import { FULL_SHA, bumpsOnRelease, deferralStatus, heldConsumers, pendingDeferral, readDeferrals, releaseGates, repoLabel, resolveInterim } from './interim.ts';
 import type { Deferral, ReleaseGate } from './interim.ts';
 import { interimStatus } from './interim-apply.ts';
@@ -1113,6 +1114,8 @@ function syncPrDetailed(root: string, config: Config, id: string, opts: { route?
       return { ...t.change, fields: { pr: synced } };
     },
   });
+  // A merged or closed PR finished the job: its environment goes, without undoing the state change.
+  finishEnvironment(root, config, job, loadJob(root, id));
   const prev: Partial<JobPr> = job.pr ?? {};
   logEvent(root, id, 'pr-synced', {
     state: pr.state,

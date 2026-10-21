@@ -21,6 +21,7 @@ import { advanceCmd } from './commands/advance.ts';
 import { auditCmd } from './commands/audit.ts';
 import { backingCmd } from './commands/backing.ts';
 import { budgetCmd } from './commands/budget.ts';
+import { environmentCmd } from './commands/environment.ts';
 import { num, out, outputMode, parseArgs, req, requireJob, resolveOutputMode, setOutputMode, setRenderKey, withoutJson, withoutMode } from './commands/args.ts';
 import { configCmd } from './commands/config.ts';
 import { daemonCmd } from './commands/daemon.ts';
@@ -153,6 +154,9 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
     case 'backing':
       needInit();
       return backingCmd(ctx, sub, rest, flags);
+    case 'environment':
+      needInit();
+      return environmentCmd(ctx, sub, rest);
     case 'run':
       needInit();
       return runCmd(root, config, argv);

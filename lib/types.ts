@@ -462,6 +462,8 @@ export interface StepInput {
   acs: AcCoverage;
   /** The record names in runtime.json. */
   runtime: string[];
+  /** The job's entry in the environment record (lib/environment-record.ts); null when it has none. */
+  environment: EnvironmentState | null;
   /** The events step reads, oldest first: human, round, worktree*, pr-*, scope, integrate*, integration-review, decision, fields, eval-graded, transition, agent-start/end. */
   events: JobEvent[];
   evalTask: { rubric: string | null; reference: string | null } | null;
@@ -941,6 +943,8 @@ export interface Config {
   policy: { protectedPaths: ProtectedRule[] };
   /** What Forge deletes and when; null keeps forever: docs/CONFIG.md "Retention". */
   retention: { jobsDays: number | null; logsDays: number | null; logMaxBytes: number | null };
+  /** Job environments running at once; null means no cap (lib/environment-lifecycle.ts eviction). */
+  environments: { maxRunning: number | null };
   /** How long after a merge `forge sync` watches a job's outcome: docs/CONFIG.md "Outcomes". */
   outcomes: { windowDays: number };
   /** Where Forge pushes gate, PR, failure and budget notifications: docs/CONFIG.md "Notifications". */
@@ -2153,6 +2157,56 @@ export interface BackingDownResult {
   /** The job databases dropped; only when the config has an entry with `database` or a record was left. */
   databases?: string[];
   ok: boolean;
+  error?: string;
+}
+
+/** What Forge last did to a job's environment: lib/environment-record.ts. */
+export type EnvironmentState = 'running' | 'stopped';
+
+export interface EnvironmentEntry {
+  state: EnvironmentState;
+  usedAt: string;
+}
+
+/** `.forge/runtime/environments.json`, written only by the CLI under `.forge/locks/environments`. */
+export interface EnvironmentRecord {
+  v: 1;
+  jobs: Record<string, EnvironmentEntry>;
+}
+
+/** Which path started, stopped or tore down an environment; the trigger of its event. */
+export type EnvironmentUpTrigger = 'verify' | 'run' | 'focus' | 'worktree' | 'step' | 'cli';
+export type EnvironmentStopTrigger = 'park' | 'evict' | 'cli' | 'done' | 'cancelled';
+export type EnvironmentDownTrigger = 'done' | 'cancelled' | 'archive' | 'cli';
+
+/** Ensure up: lib/environment-lifecycle.ts ensureEnvironment. `backing` lists each service as `forge backing up` does. */
+export interface EnvironmentUpResult {
+  ok: boolean;
+  backing: BackingUpEntry[];
+  evicted: string[];
+  error?: string;
+}
+
+/** Stop: the background commands signalled and the per-job containers stopped. */
+export interface EnvironmentStopResult {
+  ok: boolean;
+  processes: string[];
+  stopped: string[];
+  error?: string;
+}
+
+/** A job finished from the inbox or office session: only a stop, and archive or `forge environment down` tears it down. */
+export interface EnvironmentFinishStopResult extends EnvironmentStopResult {
+  teardown: 'deferred';
+}
+
+/** Teardown: the background commands stopped, then what `forge backing down` removed. */
+export interface EnvironmentDownResult {
+  ok: boolean;
+  processes: string[];
+  removed: string[];
+  volumes: string[];
+  databases?: string[];
   error?: string;
 }
 

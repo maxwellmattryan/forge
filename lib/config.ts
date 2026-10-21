@@ -250,6 +250,10 @@ export function defaults(): Config {
       logsDays: null,
       logMaxBytes: null,
     },
+    // No cap by default: a start never stops another job's environment; docs/CONFIG.md "Environments".
+    environments: {
+      maxRunning: null,
+    },
     // How long after a merge forge sync watches for a revert, follow-up bugs and churn;
     // docs/CONFIG.md "Outcomes".
     outcomes: {
@@ -311,6 +315,20 @@ export function retentionProblems(c: any): string[] {
   check('logsDays', RETENTION_DAYS);
   check('logMaxBytes', LOG_MAX_BYTES);
   return problems;
+}
+
+/** environments.maxRunning: running job environments at once. */
+export const MAX_RUNNING = { min: 1, max: 64 } as const;
+
+/** environments.*: maxRunning null or an integer from 1 to 64. */
+export function environmentsProblems(c: any): string[] {
+  const e = c.environments;
+  if (e === undefined) return [];
+  if (e === null || typeof e !== 'object' || Array.isArray(e)) return [`environments must be a map (got ${JSON.stringify(e)})`];
+  const v = e.maxRunning;
+  if (v === null || v === undefined) return [];
+  if (!Number.isInteger(v) || v < MAX_RUNNING.min || v > MAX_RUNNING.max) return [`environments.maxRunning must be null or an integer from ${MAX_RUNNING.min} to ${MAX_RUNNING.max} (got ${JSON.stringify(v)})`];
+  return [];
 }
 
 /** outcomes.windowDays: a day to a year. */
@@ -447,6 +465,7 @@ export function validateConfig(c: any, root: string): string[] {
   problems.push(...foremanProblems(c));
   problems.push(...policyProblems(c));
   problems.push(...retentionProblems(c));
+  problems.push(...environmentsProblems(c));
   problems.push(...outcomesProblems(c));
   problems.push(...notifyProblems(c));
   problems.push(...componentProblems(c));

@@ -1,5 +1,6 @@
-// Theme ids: forge (default), ash and temper, with the Drafting and pre-Drafting ids still honoured (cyanotype, nightprint
-// and dark load as forge; vellum and light as ash). System follows the OS: light → ash, dark → forge, and never picks temper. The inline
+// Theme ids: forge (default), ash, temper, crucible, patina and obsidian, with the Drafting and pre-Drafting ids still honoured
+// (cyanotype, nightprint and dark load as forge; vellum and light as ash). System follows the OS: light → ash, dark → forge,
+// and never picks temper, crucible, patina or obsidian. The inline
 // bootstrap in index.html duplicates normalizeTheme (it runs before the bundle), so both are run
 // over the same inputs here.
 import test from 'node:test';
@@ -20,6 +21,12 @@ const CASES: [string | null, boolean, string][] = [
   ['ash', true, 'ash'],
   ['temper', false, 'temper'],
   ['temper', true, 'temper'],
+  ['crucible', false, 'crucible'],
+  ['crucible', true, 'crucible'],
+  ['patina', false, 'patina'],
+  ['patina', true, 'patina'],
+  ['obsidian', false, 'obsidian'],
+  ['obsidian', true, 'obsidian'],
   ['cyanotype', false, 'forge'],
   ['cyanotype', true, 'forge'],
   ['nightprint', false, 'forge'],
@@ -39,17 +46,25 @@ const CASES: [string | null, boolean, string][] = [
   ['Forge', true, 'ash'],
   ['Temper', false, 'forge'],
   ['Temper', true, 'ash'],
+  ['Crucible', false, 'forge'],
+  ['Crucible', true, 'ash'],
+  ['PATINA', false, 'forge'],
+  ['PATINA', true, 'ash'],
+  ['Obsidian', false, 'forge'],
+  ['Obsidian', true, 'ash'],
   ['system', false, 'forge'],
   ['system', true, 'ash'],
 ];
 
 test('normalizeTheme maps legacy and new ids', () => {
-  assert.deepEqual([...THEMES], ['forge', 'ash', 'temper']);
-  assert.deepEqual([...THEME_CHOICES], ['forge', 'ash', 'temper', 'system']);
+  assert.deepEqual([...THEMES], ['forge', 'ash', 'temper', 'crucible', 'patina', 'obsidian']);
+  assert.deepEqual([...THEME_CHOICES], ['forge', 'ash', 'temper', 'crucible', 'patina', 'obsidian', 'system']);
   assert.equal(SYSTEM_DARK, 'forge');
   for (const [saved, light, want] of CASES) assert.equal(normalizeTheme(saved, light), want, `(${saved}, ${light})`);
   assert.equal(normalizeTheme(undefined, false), 'forge');
-  for (const saved of [null, undefined, '', 'bogus', 'Temper', 'TEMPER', 'system']) for (const light of [false, true]) assert.notEqual(normalizeTheme(saved, light), 'temper', `System never resolves to temper (${saved}, ${light})`);
+  const unset = [null, undefined, '', 'bogus', 'Temper', 'TEMPER', 'Crucible', 'CRUCIBLE', 'Patina', 'PATINA', 'Obsidian', 'OBSIDIAN', ' patina', 'system'];
+  for (const chosen of ['temper', 'crucible', 'patina', 'obsidian'])
+    for (const saved of unset) for (const light of [false, true]) assert.notEqual(normalizeTheme(saved, light), chosen, `System never resolves to ${chosen} (${saved}, ${light})`);
 });
 
 /** Runs the inline <script> of an index.html with stubbed storage, media query and document. */
@@ -158,8 +173,8 @@ function fakeMedia(light: boolean) {
 test('themeChoice maps saved values to a choice', () => {
   for (const v of ['forge', 'cyanotype', 'dark', 'nightprint']) assert.equal(themeChoice(v), 'forge', v);
   for (const v of ['ash', 'vellum', 'light']) assert.equal(themeChoice(v), 'ash', v);
-  assert.equal(themeChoice('temper'), 'temper');
-  for (const v of [null, undefined, '', 'system', 'bogus', 'Forge', 'Ash', 'Temper', 'Cyanotype']) assert.equal(themeChoice(v), 'system', String(v));
+  for (const v of ['temper', 'crucible', 'patina', 'obsidian']) assert.equal(themeChoice(v), v, v);
+  for (const v of [null, undefined, '', 'system', 'bogus', 'Forge', 'Ash', 'Temper', 'Cyanotype', 'Crucible', 'PATINA', 'Obsidian']) assert.equal(themeChoice(v), 'system', String(v));
   // System renders what an unset value always has: the OS theme.
   for (const light of [false, true]) assert.equal(normalizeTheme('system', light), normalizeTheme(null, light));
 });
@@ -217,6 +232,21 @@ test('chooseTheme and followSystemTheme apply the choice', () => {
       assert.equal(dataset.theme, 'temper', 'an explicit temper ignores the OS');
       chooseTheme('system');
       assert.equal(dataset.theme, 'ash', 'System on a light OS leaves temper for ash');
+
+      for (const id of ['crucible', 'patina', 'obsidian'] as const) {
+        chooseTheme(id);
+        assert.equal(store.get('forge.theme'), id, `${id} is stored`);
+        assert.equal(dataset.theme, id, `${id} applies at once`);
+        media.flip(false);
+        assert.equal(dataset.theme, id, `an explicit ${id} on a dark OS`);
+        media.flip(true);
+        assert.equal(dataset.theme, id, `an explicit ${id} ignores the OS`);
+        chooseTheme('system');
+        assert.equal(dataset.theme, 'ash', `System on a light OS leaves ${id} for ash`);
+        media.flip(false);
+        assert.equal(dataset.theme, 'forge', `System on a dark OS leaves ${id} for forge`);
+        media.flip(true);
+      }
 
       // A legacy or unknown saved value counts as System too.
       store.set('forge.theme', 'bogus');
