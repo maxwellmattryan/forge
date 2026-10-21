@@ -330,5 +330,5 @@ test("this repo's config groups lint, typecheck and test after build", () => {
   assert.deepEqual(validateConfig(config, ROOT).filter((p) => p.startsWith('verify')), []);
   // Named files when `forge run <job> test -- <files>` passes them, the whole suite otherwise; the
   // `#` after `$` is not a YAML comment.
-  assert.equal(config.commands.test, `set -- {args}; [ $# -gt 0 ] || set -- 'test/*.test.ts'; node --test "$@"`);
+    assert.equal(config.commands.test, `set -- {args}; [ $# -gt 0 ] || set -- 'test/**/*.test.ts'; node --test "$@"`);
 });
