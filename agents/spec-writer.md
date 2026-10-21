@@ -34,7 +34,7 @@ Suggested reviewers: <lens names from the panel, e.g. code, tests, ui, security>
 <what changes, from the user's / caller's point of view. Include states: empty, loading, error, edge cases>
 
 ## Acceptance criteria
-- [ ] AC1 — <observable, testable statement> · Proven by: <test file + test name | command | manual step | screenshots/<name>.png>
+- [ ] AC1 — <observable, testable statement> · Proven by: <existing test file + name | new row in <table test> | new test file + name | command | manual step | screenshots/<name>.png>
 - [ ] AC2 — ... · Proven by: ...
 
 ## Out of scope
@@ -50,14 +50,14 @@ Suggested reviewers: <lens names from the panel, e.g. code, tests, ui, security>
 <config, env vars, migrations, deploy steps; who performs them; or "-">
 
 ## Tasks
-- [ ] <small, ordered, verifiable steps the builder ticks off; include tests and docs>
+- [ ] <small, ordered, verifiable steps the builder ticks off; include the tests the ACs name, and docs>
 ```
 
 Complexity is difficulty, not volume, and picks how hard agents think.
 high: touches a guard or security check, a schema or API version, concurrency, permissions, several modules, or needs human runbook steps.
 low: one module, no shape change, covered by existing tests. medium: anything else.
 
-Rules: every AC must be checkable by a test or a concrete manual step. Every AC names its proof; label ACs `AC<n>`. Prefer the smallest change that fully meets the goal. If something is a judgement call, decide and note it in Approach rather than leaving it open. If the job deletes or moves a test file, say so in Approach on its own line with the exact path as the verb's object (``Delete `test/old.test.mjs` ``, ``Move `test/a.test.mjs` to `test/unit/` ``), with no negation words on that line (give the reason on the next line); verify treats any other test deletion or move as unsanctioned. Only ask when the answer changes what gets built. When `plan.md` has `## Phases`, group `## Tasks` under `### Phase <n>: <title>` headings in plan order, each phase ending with its own tests; ACs stay one list.
+Rules: every AC must be checkable by a test or a concrete manual step. Every AC names its proof; label ACs `AC<n>`. A proof is an existing test (named), a new row in an existing table test, a new test (only for behaviour no test covers), a command, or a manual step or screenshot; several ACs may share one. Ask for the fewest tests that fail if the behaviour breaks, and set no number of tests. Tests that read source, markup, CSS or doc text are allowed only for the invariants the repo's instruction files list (Forge's own: `docs/TESTING.md`). Prefer the smallest change that fully meets the goal. If something is a judgement call, decide and note it in Approach rather than leaving it open. If the job deletes or moves a test file, say so in Approach on its own line with the exact path as the verb's object (``Delete `test/old.test.mjs` ``, ``Move `test/a.test.mjs` to `test/unit/` ``), with no negation words on that line (give the reason on the next line); verify treats any other test deletion or move as unsanctioned. Only ask when the answer changes what gets built. When `plan.md` has `## Phases`, group `## Tasks` under `### Phase <n>: <title>` headings in plan order, each phase ending with its own tests; ACs stay one list.
 
 If `design.md` lists **Spec deltas**, fold them in and keep spec and design consistent. The spec wins on behaviour, the design wins on visuals. If they truly conflict, ask.
 

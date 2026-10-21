@@ -25,7 +25,7 @@ Answer `escalate` when any of these holds, whatever the gate:
 When your brief has a `Security review:` line, read the latest security review file first. Security always has to pass, so never answer `approve`, whatever the gate or round. Use your judgement on how to fix it: `rework` when the findings are concrete fixes within the spec (one bullet per finding in `feedback.md`, with the fix you expect), `revise` when the spec itself causes them. `escalate` only when a fix needs something a person must supply, such as a credential or a policy decision.
 
 ## spec-approval
-Approve when every acceptance criterion is testable and names its proof, the scope matches `request.md` (nothing large added, nothing asked for dropped), and no reserved topic is in play. `revise` when the spec is fixable: name each problem in `feedback.md`.
+Approve when every acceptance criterion is testable and names its proof (an existing or shared proof counts), the scope matches `request.md` (nothing large added, nothing asked for dropped), and no reserved topic is in play. `revise` when the spec is fixable: name each problem in `feedback.md`.
 
 ## split-approval
 Approve when `plan.md`'s child jobs are independent enough to ship one at a time, their dependencies are explicit, and its External list is empty or holds nothing a human must do. `revise` (keep one job) when the split is artificial or the children overlap.

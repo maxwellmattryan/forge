@@ -93,6 +93,22 @@ test('Escape closes the hover card before any other layer', () => {
   assert.match(app, /<GitHubCard \/>\s*$/, 'mounted last, outside every inert wrapper');
 });
 
+test('the card also describes data-gh-href chips', () => {
+  const card = fs.readFileSync(path.join(SRC, 'components', 'GitHubCard.svelte'), 'utf8');
+  assert.match(card, /closest<HTMLElement>\('a\[href\], \[data-gh-href\]'\)/);
+  assert.match(card, /el instanceof HTMLAnchorElement \? el\.href : \(el\.dataset\.ghHref \?\? ''\)/);
+  // Both entry points still gate on previewable before linkIntent, so a non-github.com chip never asks the server.
+  const gated = card.match(/const url = a && previewable\(hrefOf\(a\)\);\s*if \(a && url/g) ?? [];
+  assert.equal(gated.length, 2, 'pointerover and focusin');
+  assert.doesNotMatch(card, /previewable\(a\.href\)/);
+  const state = fs.readFileSync(path.join(SRC, 'lib', 'github-card.svelte.ts'), 'utf8');
+  assert.doesNotMatch(state, /HTMLAnchorElement/);
+  assert.match(state, /link = \$state\.raw<HTMLElement \| null>\(null\)/);
+  assert.match(state, /let pending: HTMLElement \| null/);
+  assert.match(state, /function show\(a: HTMLElement, url: string\)/);
+  assert.match(state, /export function linkIntent\(a: HTMLElement, url: string\)/);
+});
+
 test('the card renders GitHub text as text, opens GitHub safely, and asks with the token', () => {
   const card = fs.readFileSync(path.join(SRC, 'components', 'GitHubCard.svelte'), 'utf8');
   assert.doesNotMatch(card, /\{@html/);
