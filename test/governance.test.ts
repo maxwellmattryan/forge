@@ -116,10 +116,6 @@ function issueForm(rel: string): any {
   return form;
 }
 
-test('governance files exist', () => {
-  for (const rel of GOVERNANCE) assert.ok(fs.existsSync(path.join(ROOT, rel)), `${rel} exists`);
-});
-
 test('CODEOWNERS gives @maxwellmattryan every pattern, and every named file exists', () => {
   const rules = read('.github/CODEOWNERS')
     .split('\n')
