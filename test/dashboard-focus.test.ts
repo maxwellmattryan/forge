@@ -2,7 +2,7 @@
 // and the POST wrappers behind them.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { environmentModel, focusFact, postEditor, postFocus, postRun, runToastKey } from '../dashboard/src/lib/focus.ts';
+import { environmentModel, focusFact, postEditor, postFocus } from '../dashboard/src/lib/focus.ts';
 
 const dev = (port: number, live: boolean | null = false, name = 'dev') => ({ kind: 'component' as const, name, url: `http://localhost:${port}/`, port, live });
 const backing = (port: number, name = 'postgres') => ({ kind: 'backing' as const, name, url: null, port, live: null });
@@ -20,7 +20,7 @@ test('focusFact', () => {
 
 test('environmentModel', () => {
   const a = environmentModel(job('a'), null);
-  assert.deepEqual(a, { visible: true, focused: false, focusLabel: 'environment.focus', editorDisabled: false, runDisabled: false, endpoints: [dev(4100)] });
+  assert.deepEqual(a, { visible: true, focused: false, focusLabel: 'environment.focus', editorDisabled: false, endpoints: [dev(4100)] });
   const focused = environmentModel(job('a'), 'a');
   assert.equal(focused.focused, true);
   assert.equal(focused.focusLabel, 'environment.unfocus');
@@ -29,9 +29,8 @@ test('environmentModel', () => {
   for (const state of ['queued', 'running', 'waiting', 'blocked', 'failed']) assert.equal(environmentModel(job('a', state), null).visible, true, state);
   const bare = environmentModel(job('a', 'running', { worktree: null, endpoints: [] }), null);
   assert.equal(bare.editorDisabled, true, 'no worktree: Open in editor is disabled');
-  assert.equal(bare.runDisabled, true, 'no endpoint: Run is disabled');
   assert.deepEqual(bare.endpoints, []);
-  assert.equal(environmentModel(job('a', 'running', { endpoints: undefined }), null).runDisabled, true, 'an older server sends none');
+  assert.deepEqual(environmentModel(job('a', 'running', { endpoints: undefined }), null).endpoints, [], 'an older server sends none');
   const hostile = [
     { ...dev(1, true), url: 'javascript:alert(1)' },
     { ...dev(80), url: 'http://evil.example/' },
@@ -48,15 +47,8 @@ test('environmentModel', () => {
   ];
   const kept = environmentModel(job('a', 'running', { endpoints: [...hostile, dev(4101, true), dev(4102, null, 'web'), backing(4105)] }), null);
   assert.deepEqual(kept.endpoints, [dev(4101, true), dev(4102, null, 'web'), backing(4105)], 'component rows with a localhost URL the server built, backing rows with none');
-  assert.equal(kept.runDisabled, false);
   const noDev = environmentModel(job('a', 'running', { endpoints: [dev(4101, null), dev(4102, null, 'web'), backing(4105)] }), null);
-  assert.equal(noDev.runDisabled, true, 'Run needs the row the dev command serves');
   assert.equal(noDev.endpoints.length, 3, 'the rows still show');
-});
-
-test('runToastKey', () => {
-  assert.equal(runToastKey(false), 'environment.runStarted');
-  assert.equal(runToastKey(true), 'environment.runReused');
 });
 
 test('the POST wrappers send JSON with the token and throw the server error', async () => {
@@ -67,17 +59,15 @@ test('the POST wrappers send JSON with the token and throw the server error', as
   };
   assert.deepEqual(await postFocus('a', 'tok', reply(200, { focus: null, previous: null }) as any), { focus: null, previous: null });
   await postFocus(null, 'tok', reply(200, { focus: null, previous: 'a' }) as any);
-  assert.deepEqual(await postRun('a b', 'tok', reply(200, { reused: true, listening: null, port: 4100 }) as any), { reused: true, listening: null, port: 4100 });
   await postEditor('a', 'tok', reply(200, { ok: true, editor: 'code' }) as any);
   assert.deepEqual(
     calls.map((c) => [c.url, c.init.method, c.init.headers['x-forge-token'], c.init.headers['content-type'], c.init.body]),
     [
       ['/api/focus', 'POST', 'tok', 'application/json', '{"job":"a"}'],
       ['/api/focus', 'POST', 'tok', 'application/json', '{"job":null}'],
-      ['/api/jobs/a%20b/run', 'POST', 'tok', 'application/json', '{"command":"dev"}'],
       ['/api/jobs/a/editor', 'POST', 'tok', 'application/json', '{}'],
     ],
   );
   await assert.rejects(postEditor('a', 'tok', reply(409, { error: 'no editor "code" found: set FORGE_EDITOR to your editor\'s command' }) as any), /set FORGE_EDITOR/);
-  await assert.rejects(postRun('a', 'tok', reply(403, 'bad token') as any), /bad token/);
+  await assert.rejects(postFocus('a', 'tok', reply(403, 'bad token') as any), /bad token/);
 });

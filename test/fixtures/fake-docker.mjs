@@ -140,13 +140,36 @@ const fail = (stderr) => ({ status: 1, stdout: '', stderr });
 export function handle(state, args, input) {
   const [cmd, ...rest] = args;
   if (state.daemon !== 'up') return fail('Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?');
+  // `delayMs` makes run and start slow, as a pull is, so a test can see who waits on them.
+  if ((cmd === 'run' || cmd === 'start') && state.delayMs) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, state.delayMs);
+  // `versionDelayMs` makes every status read slow, as a busy daemon does, so a test can act during one.
+  if (cmd === 'version' && state.versionDelayMs) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, state.versionDelayMs);
   if (cmd === 'version') return ok(`${state.version}\n`);
   if (cmd === 'exec') return dockerExec(state, rest, input);
   const last = rest[rest.length - 1];
   if (cmd === 'inspect') {
     const c = state.containers[last];
     if (!c) return fail(`Error: No such container: ${last}`);
-    return ok(`${JSON.stringify(c.running)} ${JSON.stringify(c.labels)}\n`);
+    // `.State.Health` exists only with a healthcheck; the template prints null without one.
+    return ok(`${JSON.stringify(c.running)} ${c.health ? JSON.stringify(c.health) : 'null'} ${JSON.stringify(c.labels)}\n`);
+  }
+  if (cmd === 'stop') {
+    const c = state.containers[last];
+    if (!c) return fail(`Error response from daemon: No such container: ${last}`);
+    c.running = false;
+    return ok(`${last}\n`);
+  }
+  if (cmd === 'logs') {
+    const c = state.containers[last];
+    if (!c) return fail(`Error response from daemon: No such container: ${last}`);
+    const lines = (l) => (l.length ? `${l.join('\n')}\n` : '');
+    return { status: 0, stdout: lines(c.logs ?? [`${last} ready`]), stderr: lines(c.errLogs ?? []) };
+  }
+  if (cmd === 'stats') {
+    // `stats --no-stream --format {{json .}} -- <names>`: one JSON line per running container named.
+    const names = rest.slice(rest.indexOf('--') + 1);
+    const rows = names.filter((n) => state.containers[n]?.running).map((n) => JSON.stringify({ Name: n, CPUPerc: state.containers[n].cpu ?? '1.50%', MemUsage: state.containers[n].mem ?? '12.5MiB / 7.6GiB' }));
+    return ok(rows.length ? `${rows.join('\n')}\n` : '');
   }
   if (cmd === 'volume') {
     const [sub] = rest;
@@ -182,12 +205,6 @@ export function handle(state, args, input) {
     c.running = true;
     return ok(`${last}\n`);
   }
-  if (cmd === 'stop') {
-    const c = state.containers[last];
-    if (!c) return fail(`Error response from daemon: No such container: ${last}`);
-    c.running = false;
-    return ok(`${last}\n`);
-  }
   if (cmd === 'rm') {
     if (state.failRm) return fail('Error response from daemon: removal in progress');
     if (!state.containers[last]) return fail(`Error: No such container: ${last}`);
@@ -220,8 +237,30 @@ export function main(argv) {
   if (process.env.FAKE_DOCKER_LOG) fs.appendFileSync(process.env.FAKE_DOCKER_LOG, `${JSON.stringify(argv)}\n`);
   const input = argv[0] === 'exec' && argv[1] === '-i' ? fs.readFileSync(0, 'utf8') : undefined;
   const r = handle(state, argv, input);
-  if (file) fs.writeFileSync(file, JSON.stringify(state));
+  // `logs` reads only, so it never writes the state back (a follower would race the test's own writes).
+  if (file && argv[0] !== 'logs') fs.writeFileSync(file, JSON.stringify(state));
   process.stdout.write(r.stdout);
   process.stderr.write(r.stderr);
   process.exitCode = r.status;
+  if (argv[0] === 'logs' && argv.includes('--follow') && r.status === 0) follow(file, argv[argv.length - 1]);
+}
+
+/**
+ * `logs --follow`: keeps running until killed or until the container stops or goes. Its pid goes to
+ * $FAKE_DOCKER_PIDS, so a test can see the server kill it.
+ */
+function follow(file, name) {
+  if (process.env.FAKE_DOCKER_PIDS) fs.appendFileSync(process.env.FAKE_DOCKER_PIDS, `${process.pid}\n`);
+  const timer = setInterval(() => {
+    let c;
+    try {
+      c = JSON.parse(fs.readFileSync(file, 'utf8')).containers?.[name];
+    } catch {
+      return;
+    }
+    if (!c || !c.running) {
+      clearInterval(timer);
+      process.exit(0);
+    }
+  }, 50);
 }

@@ -221,7 +221,7 @@ describe('environment teardown', { concurrency: 4 }, () => {
       assert.equal(stop.status, 0, stop.stderr);
       assert.deepEqual(stop.json.stopped, [`forge-${id}-postgres`]);
       const stops = s.argv().filter((a) => a[0] === 'stop');
-      assert.deepEqual(stops, [['stop', '-t', '10', `forge-${id}-postgres`]], 'only this job’s labelled container');
+      assert.deepEqual(stops, [['stop', '--time', '10', '--', `forge-${id}-postgres`]], 'only this job’s labelled container');
       assert.ok(!s.argv().some((a) => a[0] === 'rm' || (a[0] === 'volume' && a[1] === 'rm')), 'nothing removed');
       assert.equal(s.state().containers[`forge-${id}-postgres`].running, false);
       assert.ok(s.state().volumes[`forge-${id}-postgres-0`], 'volume kept');

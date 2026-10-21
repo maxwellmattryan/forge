@@ -4,13 +4,19 @@
   import Empty from '../components/Empty.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import Select from '../components/Select.svelte';
-  import type { ApiState } from '../lib/types.ts';
-  import { S } from '../lib/app.svelte.ts';
+  import StateChip from '../components/StateChip.svelte';
+  import type { ApiState, Job } from '../lib/types.ts';
+  import { S, openDrawer } from '../lib/app.svelte.ts';
+  import { projectRows } from '../lib/environment.ts';
   import { BACKING_KEY, edgeKey, highlight, jobOptions, layoutProject, type GraphNode } from '../lib/project-graph.ts';
   import { t } from '../lib/locale.ts';
 
   let { data }: { data: ApiState } = $props();
   const g = $derived(S.project);
+  // Running environments (GET /api/environments, loaded with the page's 15 s view poll). Read-only: the controls live in
+  // each job's Environment card.
+  const envs = $derived(S.environments);
+  const envRows = $derived(projectRows(envs?.rows));
   const options = $derived(jobOptions(data.jobs));
   // Local to the view: a reload starts with no job.
   let picked = $state<string>('');
@@ -57,6 +63,48 @@
 <PageHeader title={$t('project.title')}>
   {#snippet sub()}{$t('project.sub')}{/snippet}
 </PageHeader>
+<section class="mb-6" aria-labelledby="project-environments-title">
+  <h2 class="plate h section w-fit max-w-full px-3 py-1.5 mb-3" id="project-environments-title">{$t('project.environments.title')}</h2>
+  {#if S.environmentsError}<p class="plate px-3 py-2 mb-3 text-sm text-muted selectable">{$t('project.environments.failed', { error: S.environmentsError })}</p>{/if}
+  {#if envs && envs.docker !== 'ok'}<p class="plate px-3 py-2 mb-3 text-sm text-warn">{$t('project.environments.dockerDown')}</p>{/if}
+  {#if !envs}
+    {#if !S.environmentsError}<Empty>{$t('project.environments.loading')}</Empty>{/if}
+  {:else if envRows.length === 0}
+    <Empty>{$t('project.environments.empty')}</Empty>
+  {:else}
+    <div class="plate flat"><div class="overflow-x-auto">
+      <table class="tbl" aria-label={$t('project.environments.aria')}>
+        <thead>
+          <tr>
+            <th>{$t('project.environments.table.job')}</th>
+            <th>{$t('project.environments.table.state')}</th>
+            <th>{$t('project.environments.table.devPort')}</th>
+            <th class="text-right">{$t('project.environments.table.devCpu')}</th>
+            <th class="text-right">{$t('project.environments.table.devMem')}</th>
+            <th class="text-right">{$t('project.environments.table.containers')}</th>
+            <th class="text-right">{$t('project.environments.table.cpu')}</th>
+            <th class="text-right">{$t('project.environments.table.mem')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each envRows as r (r.key)}
+            {@const id = r.job}
+            <tr>
+              <td>{#if id !== null}<button class="text-left hover:text-gleam" onclick={() => openDrawer(id, null, 'details')}>{r.title}</button>{:else}<span class="text-muted">{$t('project.environments.shared')}</span>{/if}</td>
+              <td>{#if r.state}<StateChip job={{ state: r.state as Job['state'] }} />{:else}—{/if}</td>
+              <td class="mono text-xs">{r.devPort}</td>
+              <td class="mono text-xs text-right">{r.devCpu}</td>
+              <td class="mono text-xs text-right">{r.devMem}</td>
+              <td class="mono text-xs text-right">{r.containers}</td>
+              <td class="mono text-xs text-right">{r.cpu}</td>
+              <td class="mono text-xs text-right">{r.mem}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div></div>
+  {/if}
+</section>
 {#if !g || !layout}
   <Empty>{$t('project.loading')}</Empty>
 {:else if g.components.length === 0}

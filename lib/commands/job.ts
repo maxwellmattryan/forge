@@ -37,7 +37,7 @@ import { bodyFrom, list, num, oneOf, req, requireJob, str, usageError } from './
 import { mirrorToTracker, startFromRef } from './tracker.ts';
 import { TeardownRefusal, archiveJob, archiveOlder, prune } from '../retention.ts';
 import { deleteJob } from '../delete.ts';
-import { finishEnvironment } from '../environment.ts';
+import { finishEnvironment } from '../environment-lifecycle.ts';
 import type { AgentUsage, ArchiveResult, Config, Effort, HelpGroup, Job, JobIssue } from '../types.ts';
 import { FOREMAN_ACTOR, currentActor } from '../actor.ts';
 import { jobAudit, toCsv } from '../audit.ts';

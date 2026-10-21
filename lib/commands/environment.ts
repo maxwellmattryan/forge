@@ -3,7 +3,7 @@
 // finishes or is archived, stop on a park, start on resume, verify, run --background and focus.
 import { currentFocus } from '../focus-actions.ts';
 import { refuseInboxDrive } from '../daemon-owner.ts';
-import { ensureEnvironment, stopEnvironment, teardownEnvironment } from '../environment.ts';
+import { ensureEnvironment, stopEnvironment, teardownEnvironment } from '../environment-lifecycle.ts';
 import { liveJob, readEnvironments } from '../environment-record.ts';
 import { isActive, loadJob } from '../jobs.ts';
 import { validJobId } from '../requests.ts';

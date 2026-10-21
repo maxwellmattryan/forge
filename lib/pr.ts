@@ -26,7 +26,7 @@ import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretMode, secr
 import { cleanGenerated, generatedConfig, generatedPaths, partitionConflicts, rebuild, regenerateProblem, takeBaseSide } from './regenerate.ts';
 import type { Strategy } from './regenerate.ts';
 import { commandTemplate, verifiedHead } from './worktree.ts';
-import { finishEnvironment } from './environment.ts';
+import { finishEnvironment } from './environment-lifecycle.ts';
 import { FULL_SHA, bumpsOnRelease, deferralStatus, heldConsumers, pendingDeferral, readDeferrals, releaseGates, repoLabel, resolveInterim } from './interim.ts';
 import type { Deferral, ReleaseGate } from './interim.ts';
 import { interimStatus } from './interim-apply.ts';

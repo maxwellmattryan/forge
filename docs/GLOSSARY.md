@@ -55,7 +55,7 @@ Planned in M007; a row with a config key is implemented.
 
 | Term | Meaning | Config key |
 |---|---|---|
-| **environment** | The running components and backing services one job uses, each at its own endpoints: its per-job containers and volumes, its job databases and its background processes, beside its worktree and `ports`, which Forge starts on demand, stops while the job is parked and tears down when the job finishes (`forge environment`). | `backing`, `environments.maxRunning` |
+| **environment** | The running components and backing services one job uses, each at its own endpoints: its per-job containers and volumes, its job databases and its background processes, beside its worktree and `ports`, shown for one job in its panel's Environment card and for every running one in the dashboard's Running environments section, and which Forge starts on demand, stops while the job is parked and tears down when the job finishes (`forge environment`). | `backing`, `environments.maxRunning` |
 | **endpoint** | An address (URL or host and port) where an environment serves one component or backing service: `{endpoint.<component>}` and `{backing.<name>.port}` in commands, the `Endpoints:` brief line and the Environment card. | `components`, `backing` |
 | **backing service** | Infrastructure a component needs while it runs, such as a database, cache or queue. | `backing` |
 | **isolation** | How a backing service is provided to jobs: `per-job` (its own container per job), `shared` (one instance every job uses) or `external` (run outside Forge, which only points at it). | `backing` |

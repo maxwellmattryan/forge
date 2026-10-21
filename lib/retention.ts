@@ -9,7 +9,7 @@ import { currentActor } from './actor.ts';
 import { archiveDir, hasLiveJob } from './archive.ts';
 import { RETENTION_DAYS, loadConfig } from './config.ts';
 import { daemonsDir, openAppend, readInfo, sessionFiles } from './daemon.ts';
-import { hasEnvironment, teardownEnvironment } from './environment.ts';
+import { hasEnvironment, teardownEnvironment } from './environment-lifecycle.ts';
 import { jobFindings } from './findings.ts';
 import { isActive, jobDir, listJobs, logEvent, ownerStatus, readEvents } from './jobs.ts';
 import { paths } from './paths.ts';

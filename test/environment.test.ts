@@ -10,7 +10,7 @@ import { backingUp, setDockerRunner } from '../lib/backing.ts';
 import type { DockerRunner } from '../lib/backing.ts';
 import { loadConfig } from '../lib/config.ts';
 import { environmentState, environmentsFile, readEnvironments } from '../lib/environment-record.ts';
-import { ensureEnvironment, pickVictims } from '../lib/environment.ts';
+import { ensureEnvironment, pickVictims } from '../lib/environment-lifecycle.ts';
 import { setFocus } from '../lib/focus.ts';
 import { createJob, loadJob, readEvents, setJob } from '../lib/jobs.ts';
 import { syncPr } from '../lib/pr.ts';

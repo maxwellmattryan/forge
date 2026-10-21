@@ -6,7 +6,7 @@ import * as pr from '../pr.ts';
 import { listRequests } from '../requests.ts';
 import { checkRepoBudget, isRepoHold, repoBudgetBlock } from '../repo-budget.ts';
 import { applyRetention } from '../retention.ts';
-import { finishEnvironment } from '../environment.ts';
+import { finishEnvironment } from '../environment-lifecycle.ts';
 import { searchTerms } from '../issue-link.ts';
 import { checkIssueRef, isSafeUrl, linkedIssues, nativeRef, nativeRefs, parseIssueRef, primaryIssue, sameIssue } from '../issue-ref.ts';
 import { localRepoSlug } from '../repo-slug.ts';

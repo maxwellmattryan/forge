@@ -13,7 +13,7 @@ import { adminOf, dbEntries, dbRecordFile, dropJobDatabase, fillDbUrl, jobDbName
 import type { DatabaseOpts } from './backing-db.ts';
 import { isActive, jobDir, listJobs, loadJob } from './jobs.ts';
 import { paths } from './paths.ts';
-import type { BackingDbRecord, BackingDownResult, BackingEntry, BackingIsolation, BackingRecord, BackingUpEntry, Config, DockerResult, DockerRunner, DoctorCheck } from './types.ts';
+import type { BackingDbRecord, BackingDownResult, BackingEntry, BackingHealth, BackingIsolation, BackingRecord, BackingUpEntry, Config, DockerResult, DockerRunner, DoctorCheck } from './types.ts';
 import { ForgeError, readJson, run, tail, withLock, writeJsonAtomic } from './util.ts';
 
 export { backingProblems, isManaged, jobDbPasswords };
@@ -323,20 +323,27 @@ function failure(sub: string, r: DockerResult): string {
 class DockerFailure extends Error {}
 
 type Labels = Record<string, string>;
-type Found = { exists: false } | { exists: true; running: boolean; labels: Labels };
+type Found = { exists: false } | { exists: true; running: boolean; health: BackingHealth; labels: Labels };
+
+const HEALTH: readonly string[] = ['healthy', 'unhealthy', 'starting'];
 
 function inspectContainer(runner: DockerRunner, name: string): Found {
-  const r = runner(['inspect', '--type', 'container', '--format', '{{json .State.Running}} {{json .Config.Labels}}', name]);
+  const r = runner(['inspect', '--type', 'container', '--format', '{{json .State.Running}} {{if .State.Health}}{{json .State.Health.Status}}{{else}}null{{end}} {{json .Config.Labels}}', name]);
   if (!r.ok) {
     if (/No such/i.test(r.stderr)) return { exists: false };
     throw new DockerFailure(failure('inspect', r));
   }
+  // Split on the first two spaces only: label values may contain spaces.
   const line = r.stdout.trim();
-  const sp = line.indexOf(' ');
+  const a = line.indexOf(' ');
+  const b = a < 0 ? -1 : line.indexOf(' ', a + 1);
   try {
-    const running = JSON.parse(sp < 0 ? line : line.slice(0, sp)) === true;
-    const labels = sp < 0 ? null : JSON.parse(line.slice(sp + 1));
-    return { exists: true, running, labels: labels && typeof labels === 'object' ? labels : {} };
+    const running = JSON.parse(a < 0 ? line : line.slice(0, a)) === true;
+    const status = a < 0 ? null : JSON.parse(b < 0 ? line.slice(a + 1) : line.slice(a + 1, b));
+    const labels = b < 0 ? null : JSON.parse(line.slice(b + 1));
+    // Docker's `none` and anything unknown read as no healthcheck.
+    const health = typeof status === 'string' && HEALTH.includes(status) ? (status as BackingHealth) : null;
+    return { exists: true, running, health, labels: labels && typeof labels === 'object' ? labels : {} };
   } catch {
     throw new DockerFailure(`docker inspect failed: unreadable output for ${name}`);
   }
@@ -563,38 +570,6 @@ export function backingDown(root: string, config: Config, id: string, runner: Do
   return result(true);
 }
 
-/**
- * Stops the job's running per-job containers, only those labelled with this root and job, keeping
- * every volume, job database and record. Names come from the job id and config, never a record.
- * Shared containers serve every job, so they are never stopped here.
- */
-export function backingStop(root: string, config: Config, id: string, runner: DockerRunner = activeRunner): { stopped: string[]; ok: boolean; error?: string } {
-  const stopped: string[] = [];
-  let list: BackingEntry[];
-  try {
-    list = entries(config).filter((e) => e.isolation === 'per-job' && isManaged(e));
-  } catch (err) {
-    return { stopped, ok: false, error: (err as Error).message };
-  }
-  if (!list.length) return { stopped, ok: true };
-  const state = dockerState(runner);
-  if (state.state !== 'ok') return { stopped, ok: false, error: stateError(state, list) };
-  try {
-    for (const e of list) {
-      const name = containerName(id, e.name);
-      const found = inspectContainer(runner, name);
-      if (!found.exists || !matches(found.labels, ownLabels(root, e, id)) || !found.running) continue;
-      const r = runner(['stop', '-t', '10', name]);
-      if (!r.ok) throw new DockerFailure(failure('stop', r));
-      stopped.push(name);
-    }
-  } catch (err) {
-    if (!(err instanceof DockerFailure)) throw err;
-    return { stopped, ok: false, error: err.message };
-  }
-  return { stopped, ok: true };
-}
-
 /** Removes this root's shared containers, keeping their volumes and port record. */
 export function backingDownShared(root: string, config: Config, runner: DockerRunner = activeRunner): { removed: string[] } {
   const list = entries(config).filter((e) => e.isolation === 'shared');
@@ -619,11 +594,52 @@ export function backingDownShared(root: string, config: Config, runner: DockerRu
   return { removed };
 }
 
+/** What `forge backing stop <id>` did: containers stopped, and those it left alone and why. */
+export interface BackingStopResult {
+  stopped: string[];
+  skipped: { name: string; reason: string }[];
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * `docker stop` on the job's per-job containers, only those labelled with this root and job. Volumes,
+ * records and shared containers are never touched. Idempotent: a missing or stopped container is skipped.
+ */
+export function backingStop(root: string, config: Config, id: string, runner: DockerRunner = activeRunner): BackingStopResult {
+  const list = entries(config).filter((e) => e.isolation === 'per-job' && isManaged(e));
+  const stopped: string[] = [];
+  const skipped: { name: string; reason: string }[] = [];
+  if (!list.length) return { stopped, skipped, ok: true };
+  const state = dockerState(runner);
+  if (state.state !== 'ok') return { stopped, skipped, ok: false, error: stateError(state, list) };
+  try {
+    for (const e of list) {
+      const name = containerName(id, e.name);
+      const found = inspectContainer(runner, name);
+      if (!found.exists) skipped.push({ name, reason: 'missing' });
+      else if (!matches(found.labels, ownLabels(root, e, id))) skipped.push({ name, reason: "not this job's" });
+      else if (!found.running) skipped.push({ name, reason: 'already stopped' });
+      else {
+        const r = runner(['stop', '--time', '10', '--', name]);
+        if (!r.ok) throw new DockerFailure(failure('stop', r));
+        stopped.push(name);
+      }
+    }
+  } catch (err) {
+    if (!(err instanceof DockerFailure)) throw err;
+    return { stopped, skipped, ok: false, error: err.message };
+  }
+  return { stopped, skipped, ok: true };
+}
+
 export interface BackingServiceStatus {
   name: string;
   isolation: BackingIsolation;
   container: string | null;
   state: 'running' | 'stopped' | 'missing' | 'external' | 'unknown';
+  /** The container's healthcheck status while running; null without one, or when not running. */
+  health: BackingHealth;
   host: string | null;
   ports: Record<string, number>;
   env: string[];
@@ -696,18 +712,20 @@ export function backingStatus(root: string, config: Config, id?: string, runner:
     const rec = e.isolation === 'shared' ? shared : mine;
     const env = Object.keys(entryEnv(e, rec, db));
     const database = e.database ? { database: { name: jobDbName(id), template: db?.rec.databases[e.name]?.template ?? null } } : {};
-    if (!isManaged(e)) return { name: e.name, isolation: e.isolation, container: null, state: 'external', host: null, ports: {}, env };
+    if (!isManaged(e)) return { name: e.name, isolation: e.isolation, container: null, state: 'external', health: null, host: null, ports: {}, env };
     const container = containerName(e.isolation === 'shared' ? slug : id, e.name);
     let st: BackingServiceStatus['state'] = 'unknown';
+    let health: BackingHealth = null;
     if (state?.state === 'ok') {
       try {
         const found = inspectContainer(runner, container);
         st = !found.exists ? 'missing' : !matches(found.labels, ownLabels(root, e, e.isolation === 'shared' ? null : id)) ? 'unknown' : found.running ? 'running' : 'stopped';
+        if (found.exists && st === 'running') health = found.health;
       } catch {
         st = 'unknown';
       }
     }
-    return { name: e.name, isolation: e.isolation, container, state: st, host: BACKING_HOST, ports: rec.ports[e.name] ?? {}, env, ...database };
+    return { name: e.name, isolation: e.isolation, container, state: st, health, host: BACKING_HOST, ports: rec.ports[e.name] ?? {}, env, ...database };
   });
   return { job: id, services };
 }

@@ -11,7 +11,7 @@ import { containedWorktree } from './editor.ts';
 import { isActive, jobDir, loadJob, logEvent, logHumanEvent } from './jobs.ts';
 import { readFocusRecord, resolveFocus, setFocus } from './focus.ts';
 import { validJobId } from './requests.ts';
-import { ensureEnvironment } from './environment.ts';
+import { ensureEnvironment } from './environment-lifecycle.ts';
 import type { Config, EnvironmentUpResult, EventActor, FocusResponse, Job } from './types.ts';
 import { ForgeError } from './util.ts';
 import { runCommandAsync } from './worktree.ts';
