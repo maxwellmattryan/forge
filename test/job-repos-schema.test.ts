@@ -1,5 +1,4 @@
-// Job repos (job schemaVersion 12): the schema, migration and normaliser. Pure data, no sh, so unlike
-// job-repos.test.ts this file also runs on CI's Windows leg.
+// Job repos (job schemaVersion 12): the schema, migration and normaliser. Pure data, no sh.
 import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

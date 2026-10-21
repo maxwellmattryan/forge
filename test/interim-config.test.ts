@@ -1,5 +1,5 @@
 // Interim strategies in config (config schemaVersion 13): `release.interim` on the root and on
-// `repos` entries, and a link's `manifest`. Pure data, no sh, so it also runs on CI's Windows leg.
+// `repos` entries, and a link's `manifest`. Pure data, no sh.
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { defaults, validateConfig } from '../lib/config.ts';
