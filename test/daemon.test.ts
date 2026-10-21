@@ -1398,8 +1398,10 @@ test('a switch claude never confirms: a narrowing one stops the session, a widen
     d.setPermissionMode(INBOX, 'dontAsk', DASH);
     await waitFor(() => first.exited, 2000, 'the narrowing stop');
     assert.deepEqual(d.state().permissionModes, { [INBOX]: 'dontAsk' });
-    await logged(repo.dir, INBOX, 'error');
-    assert.match(eventsIn(logOf(repo.dir), 'error').at(-1).message, /did not confirm permission mode dontAsk; stopping the session/);
+    // The widening's error is already logged, so wait for this one rather than for any error.
+    const narrowing = /did not confirm permission mode dontAsk; stopping the session/;
+    await waitFor(() => eventsIn(logOf(repo.dir), 'error').some((e) => narrowing.test(e.message)), 2000, 'the narrowing error');
+    assert.match(eventsIn(logOf(repo.dir), 'error').at(-1).message, narrowing);
   } finally {
     await d.close();
     repo.cleanup();

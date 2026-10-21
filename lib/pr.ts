@@ -179,6 +179,14 @@ export function openPr(
   if (unpromoted.length) throw new ForgeError(`repo ${unpromoted.join(', ')} joined job ${id} as a downstream consumer and was never promoted, so forge pr open won't push it; propose it (forge job repo propose ${id} <repo> --reason "…") for a human to approve`);
   requireGh();
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree`);
+  // A PR branch moved on GitHub (an "Update branch", a person's push) would reject the push as
+  // non-fast-forward. Merge it in rather than force over it, and send the job back through verify for
+  // the merged HEAD: step PR2 re-verifies after a pr-head-pulled event.
+  const pulled = pullPrHead(root, config, job);
+  if (pulled?.pulled === 'conflicts')
+    throw new ForgeError(`PR branch ${job.branch} moved on ${config.git.remote} (${pulled.head.slice(0, 12)}) and conflicts with ${id}'s HEAD; the merge was aborted, so resolve it in the worktree and run forge verify ${id}`, 'failed');
+  if (pulled && pulled.pulled !== 'none')
+    throw new ForgeError(`PR branch ${job.branch} moved on ${config.git.remote}: merged ${pulled.head.slice(0, 12)} into the worktree (${pulled.pulled}); verify the merged HEAD, then open again`, 'failed', `forge verify ${id}`);
   // Checked before the attribution scrub, which rewrites shas: the question is whether the
   // commits as the builder left them were verified.
   const evidence = verifiedHead(root, id);

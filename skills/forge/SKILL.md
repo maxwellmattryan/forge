@@ -50,7 +50,7 @@ Claim it: `forge job claim <id> --session ${CLAUDE_SESSION_ID}`. Exit 3: another
 
 Then loop: `forge job advance <id> --session ${CLAUDE_SESSION_ID}` (Bash timeout 600000), report each `tell` in `ran`, act on `action`, advance again.
 - `spawn` (`verifier`: yes/no): run `startShell`. Spawn `agent` as `subagent_type` with `brief` as the prompt, `model` unless `inherit` and `effort` unless null (if `resume` names a live agent, SendMessage it the brief). At the first of its report or notification: `forge job agent <id> end --role <role> --agent-id <agentId> --import [--tokens <total_tokens> --tool-uses <tool_uses> --duration-ms <duration_ms>] --summary "<first line of its reply>"`. With `parallel: true`, spawn it in the background and advance at once. With `spawns`, run all `startShell`s in one Bash call, then spawn all in one message of background Agent calls. Then `forge job agent <id> attach --role <role> --agent-id <agentId>` for each, in one Bash call.
-- `failed: true`: `forge job step <id>`; same `rule` and `command`: `forge job note` the `error`, report, stop; else advance again. `capped: true`: note, report, stop. Exit 3: as for the claim.
+- `failed: true`: advance again; `parked: true` (it parked on `escalation`): report, stop. `capped: true`: advance again. Exit 3: as for the claim.
 - `wait` on `agents`: end each as above; one not spawned by this session ends with `--status lost`.
 - `wait` on a gate: report `tell` (for `input`, also `questions.md`) and stop driving it.
 - `procedure`: follow `reference` (e.g. `reference/split.md`), then advance.
