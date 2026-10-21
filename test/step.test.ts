@@ -1266,6 +1266,28 @@ for (const row of b7Skips) {
   });
 }
 
+// The pr-review wait a CI rework cap leaves: G3 waits, so the PR5 tell rows can't be `rows`.
+const CAP_REASON = 'CI rework cap: 3 CI reworks in a row, checks still failing on PR #3: lint, unit tests and 2 more. A human decides';
+const prTellRows: Row[] = [
+  {
+    name: 'PR5 tell: a CI rework cap names the failing checks',
+    fx: { job: job({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review', round: 1, pr: OPEN_PR, reason: CAP_REASON }) },
+    want: { action: 'wait', rule: 'G3', tell: `j PR https://github.com/o/r/pull/3 waits on review\nj: ${CAP_REASON}. /forge rework j <note> once a human has looked` },
+  },
+  {
+    name: 'PR5 tell: a reason outside the cap class is never echoed',
+    fx: { job: job({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review', round: 1, pr: OPEN_PR, reason: 'CI rework cap: `$(id)`' }) },
+    want: { action: 'wait', rule: 'G3', tell: 'j PR https://github.com/o/r/pull/3 waits on review\nj: CI rework cap reached. /forge rework j <note> once a human has looked' },
+  },
+];
+
+for (const row of prTellRows) {
+  test(row.name, () => {
+    const a = step(fixture(row.fx)) as any;
+    for (const [k, v] of Object.entries(row.want)) assert.deepEqual(a[k], v, `${row.name}: ${k}`);
+  });
+}
+
 test('every spawn carries an effort key', () => {
   const spawns = rows.map((row) => step(fixture(row.fx))).filter((a) => a.action === 'spawn');
   assert.ok(spawns.length > 20);

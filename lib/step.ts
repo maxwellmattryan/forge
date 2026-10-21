@@ -96,6 +96,7 @@ const NEEDS_INPUT = /\bNEEDS-INPUT\b/i;
 const SAFE_ELEMENT = /^[A-Za-z0-9 ._:/@=,+\-[\]"]*$/;
 const BARE_ELEMENT = /^[A-Za-z0-9._:/@=,+-]+$/;
 const SAFE_URL = /^https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9._/-]+$/;
+const CI_CAP_REASON = /^CI rework cap: [A-Za-z0-9 ._/,:#?-]{1,600}$/;
 
 /** Events loadStepInput keeps; everything else in events.jsonl is noise to step. */
 const STEP_EVENTS = new Set([
@@ -777,6 +778,9 @@ function prReviewTell(x: StepInput): string {
   const j = x.job;
   const lines = [`${j.id} PR ${safe(j.pr?.url, SAFE_URL, `#${Number(j.pr?.number) || '?'}`)} waits on review`];
   if (prLinkNote(j, x.config).unlinked) lines.push(`${j.id} has no linked issue: \`forge job link ${j.id} <ref>\` or \`--none\``);
+  // The reason's check names passed lib/pr.ts CHECK_NAME; this pattern holds it to that class again.
+  if (j.reason?.startsWith('CI rework cap:'))
+    lines.push(`${j.id}: ${safe(j.reason, CI_CAP_REASON, 'CI rework cap reached')}. /forge rework ${j.id} <note> once a human has looked`);
   return lines.join('\n');
 }
 
