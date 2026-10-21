@@ -14,6 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { PG_IDENT, backingProblems } from './backing-config.ts';
 import { jobDir } from './jobs.ts';
+import { redact } from './known-secrets.ts';
 import { paths } from './paths.ts';
 import type { BackingBuildStep, BackingDbRecord, BackingEntry, BackingUpEntry, Config, DockerResult, DockerRunner } from './types.ts';
 import { ForgeError, run, sleepSync, tail, withLock, writeJsonPrivate } from './util.ts';
@@ -93,12 +94,8 @@ function verifierLit(v: string): string {
   return `'${v}'`;
 }
 
-/** `text` with every secret replaced by `[redacted]`. */
-export function redact(text: string, secrets: readonly string[]): string {
-  let out = text;
-  for (const s of secrets) if (s) out = out.split(s).join('[redacted]');
-  return out;
-}
+// Moved to known-secrets.ts, which redacts every known value; kept here for existing callers.
+export { redact };
 
 // ---------- template name ----------
 

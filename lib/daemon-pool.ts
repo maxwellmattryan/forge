@@ -3,15 +3,18 @@
 // its requests name. Sessions fail, hold and stop on their own (lib/daemon.ts); the pool owns what
 // is repo-wide: the trust snapshot, routing, the cap and the stops config changes force.
 // docs/ARCHITECTURE.md "Daemon" describes the rules.
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
 import { resolveEffort, trustDigest } from './config.ts';
 import { PERMISSION_MODES, TRUST_CHANGED, UUID, commandPermissionMode, createSession, otherOwner, readInfo, reapOrphans, sessionFiles, sessionOptions } from './daemon.ts';
 import type { DaemonOptions, Session, SessionContext, SessionEvent } from './daemon.ts';
 import { configForJob } from './eval-overlay.ts';
 import { loadJob, logHumanEvent, repoAuditFile } from './jobs.ts';
+import { PLUGIN_ROOT } from './paths.ts';
 import { repoBudgetStatus } from './repo-budget.ts';
 import { daemonPlatformProblem } from './platform.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, listRequests, requestScope, validScope } from './requests.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, listRequests, requestScope, validScope } from './requests.ts';
 import type { Config, RepoBudgetStatus, DaemonPermissionMode, DaemonPoolState, DaemonSessionState, EventActor, ForgeRequest, Job, PermissionDecision } from './types.ts';
 
 /** The pool's own state: state() below. The server adds `clients` to make a DaemonPoolState. */
@@ -42,6 +45,37 @@ export interface DaemonPool {
 const FINISHED = ['done', 'cancelled', 'failed'];
 /** How long a tick reuses the repo budget status. */
 const REPO_BUDGET_MEMO_MS = 10_000;
+/** How often a wanted pool runs `forge sync`, so CI results and PR feedback reach the office unasked. */
+export const SYNC_MS = 120_000;
+/** A sync that runs longer than this is killed; the next interval tries again. */
+const SYNC_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * One `forge sync` in a child process: it calls gh synchronously, which would stall every session's
+ * pipe if it ran in the server. Outside any daemon scope, as the human who started `forge dash`.
+ */
+export function runSyncChild(root: string, env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
+  return new Promise((resolve) => {
+    const childEnv: NodeJS.ProcessEnv = { ...env, FORGE_ROOT: root, FORGE_MODE: 'agent' };
+    delete childEnv.FORGE_DAEMON;
+    delete childEnv[SCOPE_ENV];
+    let stderr = '';
+    const child = spawn(process.execPath, [path.join(PLUGIN_ROOT, 'bin', 'forge'), 'sync'], { cwd: root, env: childEnv, stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+    const timer = setTimeout(() => child.kill('SIGKILL'), SYNC_TIMEOUT_MS);
+    timer.unref?.();
+    child.stderr?.on('data', (d: Buffer) => {
+      if (stderr.length < 2000) stderr += d.toString('utf8');
+    });
+    child.on('error', (e) => {
+      clearTimeout(timer);
+      resolve(e.message);
+    });
+    child.on('close', (code, signal) => {
+      clearTimeout(timer);
+      resolve(code === 0 ? null : stderr.trim().split('\n').pop() || `exit ${code ?? signal}`);
+    });
+  });
+}
 
 /** A session the pool isn't running: what its record still says. */
 export function offState(root: string, scope: string): DaemonSessionState {
@@ -70,6 +104,8 @@ export function offState(root: string, scope: string): DaemonSessionState {
 export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
   const o = sessionOptions(opts);
   const pollMs = opts.pollMs ?? 2000;
+  const syncMs = opts.syncMs ?? SYNC_MS;
+  const runSync = opts.runSync ?? ((r: string) => runSyncChild(r, o.env));
   const platform = opts.platform ?? process.platform;
   reapOrphans(root, { graceMs: o.graceMs });
 
@@ -91,6 +127,9 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
   /** trustDigest taken when a human (dashboard or `forge dash`) last started the pool. */
   let trusted: string | null = null;
   let pollTimer: NodeJS.Timeout | null = null;
+  let syncTimer: NodeJS.Timeout | null = null;
+  let syncing = false;
+  let lastSyncError: string | null = null;
   let closed = false;
   /** A pool start brings the inbox up even without work, as the one-session daemon did. */
   let inboxEager = false;
@@ -322,6 +361,26 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
   }
 
   /**
+   * Gate requests for PR feedback and failing checks, unparked dependents and deferred merges all
+   * come from `forge sync`; without it they wait until some session happens to sync. Skipped while
+   * one still runs, and while the trust snapshot is stale (tick stops the pool for that).
+   */
+  function periodicSync(): void {
+    if (!wanted || closed || syncing || !enabled) return;
+    if (trustDigest(root) !== trusted) return;
+    syncing = true;
+    void runSync(root)
+      .catch((e: unknown) => (e as Error).message ?? String(e))
+      .then((err) => {
+        syncing = false;
+        // Logged once per distinct failure, like a broken tick, so an offline laptop doesn't fill the log.
+        if (err !== null && err !== lastSyncError) inbox.logEvent('error', { message: `periodic forge sync failed: ${err}` });
+        lastSyncError = err;
+        tick();
+      });
+  }
+
+  /**
    * Drops job sessions that are off and clean, so the pool doesn't grow with every job ever run.
    * A session with requests still routed to it stays: its committed set is what stops a
    * repeated turn. Its files stay too, for resume and the log viewer.
@@ -382,6 +441,10 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
       if (!pollTimer) {
         pollTimer = setInterval(tick, pollMs);
         pollTimer.unref?.();
+      }
+      if (!syncTimer && syncMs > 0) {
+        syncTimer = setInterval(periodicSync, syncMs);
+        syncTimer.unref?.();
       }
       inboxEager = true;
       startReason = reason;
@@ -455,6 +518,8 @@ export function createPool(root: string, opts: DaemonOptions = {}): DaemonPool {
     async close() {
       if (pollTimer) clearInterval(pollTimer);
       pollTimer = null;
+      if (syncTimer) clearInterval(syncTimer);
+      syncTimer = null;
       wanted = false;
       closed = true;
       await Promise.all([...sessions.values()].map((s) => s.close()));

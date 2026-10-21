@@ -7,8 +7,12 @@ import path from 'node:path';
 import { describe, test } from 'node:test';
 import { tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
+import crypto from 'node:crypto';
 import { createJob, jobDir } from '../lib/jobs.ts';
+import { recordKnown } from '../lib/known-secrets.ts';
+import { fingerprint, mask, refuseSecrets, textUnit } from '../lib/secrets.ts';
 import { startServer } from '../lib/server.ts';
+import { FIXTURE_DIST } from './dist.ts';
 import { hasBinary } from '../lib/util.ts';
 
 function hit(port: number, p: string, headers: Record<string, string> = {}): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
@@ -29,7 +33,7 @@ async function setup() {
   const root = repo.dir;
   const job = createJob(root, defaults(), { title: 'Bundle route' });
   fs.writeFileSync(path.join(jobDir(root, job.id), 'spec.md'), '# Spec\nSPEC-ROUTE-MARKER\n');
-  const srv = await startServer(root, { port: 0, projectsDir: fs.mkdtempSync(path.join(os.tmpdir(), 'forge-projects-')) });
+  const srv = await startServer(root, { port: 0, distDir: FIXTURE_DIST, projectsDir: fs.mkdtempSync(path.join(os.tmpdir(), 'forge-projects-')) });
   const port = Number(new URL(srv.url).port);
   const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, '/')).body.toString('utf8'))?.[1] ?? '';
   assert.ok(token, 'the page carries the token');
@@ -63,6 +67,40 @@ describe('GET /api/doctor/bundle', { concurrency: 4 }, () => {
       const missing = await s.get('/api/doctor/bundle?job=no-such-job');
       assert.equal(missing.status, 404);
       assert.ok(JSON.parse(missing.body.toString('utf8')).error);
+    } finally {
+      await s.cleanup();
+    }
+  });
+
+  test('bundle omits private job files', { skip: !hasBinary('unzip') && 'needs unzip' }, async () => {
+    const s = await setup();
+    try {
+      const value = `kv-${crypto.randomBytes(8).toString('hex')}`;
+      recordKnown(s.root, s.job.id, { DB: value });
+      const dir = jobDir(s.root, s.job.id);
+      fs.writeFileSync(path.join(dir, 'backing-db.json'), JSON.stringify({ v: 1, databases: {} }));
+      // `cmd` is not a prose key, so the bundle keeps it: only the known pass takes the value out.
+      fs.appendFileSync(path.join(dir, 'events.jsonl'), `${JSON.stringify({ v: 1, ts: new Date().toISOString(), type: 'note', cmd: `leak ${value}` })}\n`);
+      // A refused gate logs a secret-found event: its finding must not carry the value's sha256 or prefix either.
+      assert.throws(() => refuseSecrets(s.root, defaults(), [textUnit('(pr body)', `uses ${value}`)], { what: 'the PR body', id: s.job.id, gate: 'pr' }), /known-secret/);
+      const r = await s.get(`/api/doctor/bundle?job=${s.job.id}`, { 'x-forge-token': s.token, origin: `http://127.0.0.1:${s.port}` });
+      assert.equal(r.status, 200);
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-bundle-private-'));
+      try {
+        const file = path.join(tmp, 'b.zip');
+        fs.writeFileSync(file, r.body);
+        const names = execFileSync('unzip', ['-Z1', file], { encoding: 'utf8' }).split('\n').filter(Boolean);
+        assert.ok(names.includes(`jobs/${s.job.id}/events.jsonl`), names.join(','));
+        assert.equal(names.some((n) => n.includes('known-secrets') || n.includes('backing-db')), false, names.join(','));
+        const all = execFileSync('unzip', ['-p', file], { encoding: 'utf8' });
+        assert.ok(!all.includes(value), 'no known value in any entry');
+        assert.match(all, /known-secret/, 'the secret-found event is in the bundle');
+        assert.ok(!all.includes(fingerprint(value).slice('sha256:'.length)), "no known value's sha256");
+        assert.ok(!all.includes(mask(value)), "no known value's masked prefix");
+        assert.match(all, /leak <secret:known>/);
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
     } finally {
       await s.cleanup();
     }

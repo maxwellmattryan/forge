@@ -5,6 +5,7 @@ import { PLUGIN_ROOT, paths, exists, resolveFrom } from './paths.ts';
 import { componentProblems } from './components.ts';
 import { downstreamProblems, releaseProblems, repoProblems } from './member-repos.ts';
 import { backingProblems } from './backing-config.ts';
+import { secretRefProblems } from './secret-refs-config.ts';
 import { placeholderProblems } from './endpoints-config.ts';
 import { checkoutProblems } from './checkout-config.ts';
 import { notifyProblems } from './notify-config.ts';
@@ -161,6 +162,7 @@ export function defaults(): Config {
     repos: [],
     checkout: [],
     backing: [],
+    secrets: {},
     // A changed library's linked consumers join the job as verify-only repos (lib/downstream.ts).
     downstream: { enabled: true, max: 5, skip: [] },
     infra: {
@@ -431,6 +433,7 @@ export function validateConfig(c: any, root: string): string[] {
   problems.push(...repoProblems(c, root));
   problems.push(...checkoutProblems(c));
   problems.push(...backingProblems(c));
+  problems.push(...secretRefProblems(c));
   problems.push(...placeholderProblems(c));
   problems.push(...downstreamProblems(c));
   problems.push(...repoBudgetProblems(c));

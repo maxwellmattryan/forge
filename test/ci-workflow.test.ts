@@ -37,8 +37,9 @@ const JOBS = ['audit', 'release-check', 'verify', 'windows'];
 const JOB_KEYS = ['name', 'needs', 'runs-on', 'timeout-minutes', 'strategy', 'steps'];
 // Only the release check waits, and only on verify: it adds nothing when the suite is red.
 const NEEDS: Record<string, string> = { 'release-check': 'verify' };
-// release.yml calls this workflow whole; inputs or secrets on the call would let a caller reshape the gate.
-const TRIGGERS = ['pull_request', 'push', 'workflow_call'];
+// release.yml and main-update.yml call this workflow whole; inputs or secrets on the call would let a caller reshape
+// the gate. main-update.yml dispatches it on ci/main-update with no inputs, and the token here stays read-only.
+const TRIGGERS = ['pull_request', 'push', 'workflow_call', 'workflow_dispatch'];
 const STEP_KEYS = ['name', 'uses', 'with', 'run', 'env', 'continue-on-error'];
 const ACTIONS = ['actions/checkout', 'actions/setup-node'];
 const VALIDATE_ENV = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' };
@@ -46,9 +47,20 @@ const VALIDATE_ENV = { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' };
 // interpolated into run, and the strategy pin below holds the matrix to every shard of the split.
 const TEST_CMD = 'node --test "test/*.test.ts"';
 const SHARDED_TEST_CMD = 'node --test --test-shard="$TEST_SHARD" "test/*.test.ts"';
-const TEST_ENV = { TEST_SHARD: '${{ matrix.shard }}' };
+// FORGE_REQUIRE_DIST turns the real-build tests' skip into a run (test/dist.ts): the step before built it.
+const TEST_ENV = { TEST_SHARD: '${{ matrix.shard }}', FORGE_REQUIRE_DIST: '1' };
+// develop never tracks dashboard/dist; main and the main-update PR head must. The ref reaches the script through env.
+const REF_EXPR = '${{ github.base_ref || github.ref_name }}';
+const RELEASE_CHECK_RUN = [
+  'case "$REF" in',
+  '  develop) npm run release:check -- --dist absent ;;',
+  '  main | ci/main-update) npm run release:check -- --dist present ;;',
+  '  *) npm run release:check ;;',
+  'esac',
+].join('\n');
+const RELEASE_CHECK_ENV = { REF: REF_EXPR };
 // The only steps that may set env, each to exactly this map.
-const STEP_ENVS: Record<string, Record<string, string>> = { [VALIDATE]: VALIDATE_ENV, [SHARDED_TEST_CMD]: TEST_ENV };
+const STEP_ENVS: Record<string, Record<string, string>> = { [VALIDATE]: VALIDATE_ENV, [SHARDED_TEST_CMD]: TEST_ENV, [RELEASE_CHECK_RUN]: RELEASE_CHECK_ENV };
 // The Windows leg: no matrix, one Node, and exactly these runs. Its test step's one env key, WINDOWS_SKIP, is free text,
 // so it is validated (planWindowsRun, as the script does) rather than pinned.
 const WINDOWS_CMD = 'node scripts/windows-tests.ts';
@@ -75,13 +87,14 @@ const SETUP_NODE_WITH: Record<string, unknown> = {
 // An extra step before the blocking audit could swap the lockfile it reads.
 const AUDIT_RUNS = ['npm audit --omit=dev', 'npm audit'];
 // Built-ins only, so no `npm ci` first: nothing from the registry runs before it.
-const RELEASE_CHECK_RUNS = ['npm run release:check'];
+const RELEASE_CHECK_RUNS = [`${RELEASE_CHECK_RUN}\n`];
 const EXPRESSIONS = [
   '${{ matrix.os }}',
   '${{ matrix.node }}',
   '${{ matrix.shard }}',
   '${{ github.workflow }}',
   '${{ github.event.pull_request.number || github.sha }}',
+  REF_EXPR,
 ];
 // These and the expression allowlist read the raw text, comments included, so a comment saying "no secrets" fails too
 // (WINDOWS_SKIP file names aside: see withoutSkipFileNames).
@@ -124,7 +137,9 @@ function triggerProblems(wf: any, text: string): string[] {
     // A filter (branches, paths, paths-ignore, types) quietly stops the gate running on some PRs.
     if (!(on.pull_request === null || (isMap(on.pull_request) && !Object.keys(on.pull_request).length)))
       out.push('pull_request must have no filters');
-    if (!isDeepStrictEqual(on.push, { branches: ['main'] })) out.push('push must be exactly branches: [main], with no other filter');
+    if (!isDeepStrictEqual(on.push, { branches: ['develop', 'main'] })) out.push('push must be exactly branches: [develop, main], with no other filter');
+    // Inputs would let a dispatcher reshape the gate.
+    if (on.workflow_dispatch !== null) out.push('workflow_dispatch must take no inputs');
   }
   // Both hand fork code a write token and secrets.
   for (const word of ['pull_request_target', 'workflow_run']) if (text.includes(word)) out.push(`the workflow must not mention ${word}`);
@@ -235,7 +250,7 @@ function hardeningProblems(wf: any): string[] {
         const allowed = run !== null && Object.hasOwn(STEP_ENVS, run.trim()) ? STEP_ENVS[run.trim()] : undefined;
         // Each allowed map is pinned exactly; TEST_SHARD's expression is a matrix value the workflow fixes itself.
         if (!allowed || !isDeepStrictEqual(step.env, allowed)) {
-          out.push(`${at}: only Validate plugin, the sharded Run tests and the Windows test step may set env, each only to its allowed map`);
+          out.push(`${at}: only Validate plugin, the sharded Run tests, the release check and the Windows test step may set env, each only to its allowed map`);
           for (const [k, v] of Object.entries(isMap(step.env) ? step.env : {})) if (String(v).includes('${{')) out.push(`${at}: env ${k} must not interpolate an expression`);
         }
       }
@@ -354,22 +369,29 @@ const assertFlags = (problems: string[], what: string) => assert.ok(problems.len
 
 // ---------- tests ----------
 
-test('workflow triggers on pull_request and pushes to main only', () => {
+test('workflow triggers on pull_request, pushes to develop and main, workflow_call and a bare workflow_dispatch', () => {
   assert.equal(WF.name, 'CI');
   assert.deepEqual(triggerProblems(WF, TEXT), []);
+  assert.deepEqual(WF.on.push, { branches: ['develop', 'main'] });
+  assert.equal(WF.on.workflow_dispatch, null, 'main-update.yml dispatches it with nothing passed in');
+  assertFlags(triggerProblems(mutate((wf) => { wf.on.push.branches = ['main']; }), TEXT), 'develop dropped from push');
+  assertFlags(triggerProblems(mutate((wf) => { wf.on.push.branches = ['develop', 'main', 'release']; }), TEXT), 'a third push branch');
+  assertFlags(triggerProblems(mutate((wf) => { wf.on.workflow_dispatch = { inputs: { ref: { type: 'string' } } }; }), TEXT), 'workflow_dispatch with inputs');
+  assertFlags(triggerProblems(mutate((wf) => { wf.on.workflow_dispatch = {}; }), TEXT), 'workflow_dispatch as an empty map');
+  assertFlags(triggerProblems(mutate((wf) => { delete wf.on.workflow_dispatch; }), TEXT), 'no workflow_dispatch');
 
   const withTarget = TEXT.replace('on:\n  pull_request:\n', 'on:\n  pull_request:\n  pull_request_target:\n');
   assert.notEqual(withTarget, TEXT);
   assertFlags(triggerProblems(parse(withTarget), withTarget), 'pull_request_target in `on` (text)');
   assertFlags(triggerProblems(mutate((wf) => { wf.on.pull_request_target = null; }), TEXT), 'pull_request_target in `on` (parsed)');
   assertFlags(triggerProblems(WF, `${TEXT}\n# on workflow_run\n`), 'text containing workflow_run');
-  assertFlags(triggerProblems(mutate((wf) => { wf.on.push.branches = ['main', 'dev']; }), TEXT), 'push to a second branch');
+  assertFlags(triggerProblems(mutate((wf) => { wf.on.push.branches = ['main', 'dev']; }), TEXT), 'push to another branch');
   assertFlags(triggerProblems(mutate((wf) => { delete wf.on.push; }), TEXT), 'no push trigger');
   assert.equal(WF.on.workflow_call, null, 'release.yml can call it, with nothing passed in');
   assertFlags(triggerProblems(mutate((wf) => { wf.on.workflow_call = { inputs: { ref: { type: 'string' } } }; }), TEXT), 'workflow_call with inputs');
   assertFlags(triggerProblems(mutate((wf) => { wf.on.workflow_call = { secrets: { NPM: { required: false } } }; }), TEXT), 'workflow_call with secrets');
   assertFlags(triggerProblems(mutate((wf) => { delete wf.on.workflow_call; }), TEXT), 'no workflow_call');
-  assertFlags(triggerProblems(mutate((wf) => { wf.on.workflow_dispatch = null; }), TEXT), 'a workflow_dispatch trigger');
+  assertFlags(triggerProblems(mutate((wf) => { wf.on.schedule = [{ cron: '0 0 * * *' }]; }), TEXT), 'a schedule trigger');
   // Filters that stop the gate running on some or all PRs, or on main.
   const prFilter = (filter: string) => {
     const t = TEXT.replace('on:\n  pull_request:\n', `on:\n  pull_request:\n    ${filter}\n`);
@@ -533,9 +555,12 @@ test('the release check job runs after verify, with built-ins only', () => {
   assert.equal(job.needs, 'verify');
   assert.equal(job['runs-on'], 'ubuntu-latest');
   assert.equal(typeof job['timeout-minutes'], 'number');
-  assert.deepEqual(stepsOf(job).map((s) => s.uses?.split('@')[0] ?? s.run), ['actions/checkout', 'actions/setup-node', 'npm run release:check']);
+  assert.deepEqual(stepsOf(job).map((s) => s.uses?.split('@')[0] ?? s.run), ['actions/checkout', 'actions/setup-node', `${RELEASE_CHECK_RUN}\n`]);
+  assert.deepEqual(stepNamed(WF, 'release-check', 'Check release metadata').env, RELEASE_CHECK_ENV);
   assert.deepEqual(JSON.parse(read('package.json')).scripts['release:check'], 'node scripts/release-check.ts');
   assert.deepEqual(hardeningProblems(WF), []);
+  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'release-check', 'Check release metadata').env.REF = '${{ github.head_ref }}'; })), 'REF from the PR head branch');
+  assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'release-check', 'Check release metadata').run = 'npm run release:check\n'; })), 'the --dist choice dropped');
 
   for (const other of ['verify', 'audit']) assertFlags(hardeningProblems(mutate((wf) => { wf.jobs[other].needs = 'release-check'; })), `needs on ${other}`);
   assertFlags(hardeningProblems(mutate((wf) => { wf.jobs['release-check'].steps.push({ name: 'Extra', run: 'npm ci' }); })), 'a second run step in release-check');
@@ -547,6 +572,31 @@ test('the release check job runs after verify, with built-ins only', () => {
   assertFlags(hardeningProblems(mutate((wf) => { wf.jobs['release-check'].name = 'release'; })), 'release check renamed');
   assertFlags(hardeningProblems(mutate((wf) => { stepNamed(wf, 'release-check', 'Check release metadata').run = 'npm run release:check || true'; })), 'a masked release check');
   assertFlags(hardeningProblems(mutate((wf) => { delete stepNamed(wf, 'release-check', 'Check out').with['persist-credentials']; })), 'release-check checkout keeping credentials');
+});
+
+test('the release check picks --dist from the PR base or the branch', POSIX, () => {
+  const script = stepRunning('release-check', (r) => r.includes('release:check'));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-ci-dist-')));
+  try {
+    // A stub npm on PATH records the arguments the step passes.
+    fs.mkdirSync(path.join(dir, 'bin'));
+    fs.writeFileSync(path.join(dir, 'bin', 'npm'), '#!/bin/sh\nprintf "%s\\n" "$*"\n', { mode: 0o755 });
+    const ran = (ref: string) => {
+      const r = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', script], {
+        cwd: dir,
+        encoding: 'utf8',
+        env: { ...process.env, REF: ref, PATH: `${path.join(dir, 'bin')}${path.delimiter}${process.env.PATH ?? ''}` },
+      });
+      assert.equal(r.status, 0, r.stderr);
+      return r.stdout.trim();
+    };
+    assert.equal(ran('develop'), 'run release:check -- --dist absent');
+    assert.equal(ran('main'), 'run release:check -- --dist present');
+    assert.equal(ran('ci/main-update'), 'run release:check -- --dist present');
+    for (const other of ['forge/309-x', 'develop2', 'main/x', '']) assert.equal(ran(other), 'run release:check', JSON.stringify(other));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('a new push to a PR cancels its previous run and pushes to main never cancel', () => {

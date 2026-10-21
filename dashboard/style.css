@@ -263,6 +263,11 @@
   input, textarea, select, [contenteditable]:not([contenteditable="false"]) { cursor: auto; }
   pre, code, .prose { cursor: text; }
   a[href] { cursor: pointer; }
+  /* Every enabled clickable element shows the pointer from here, so no component repeats cursor-pointer. Utilities
+     (cursor-col-resize on the resize handles) still win, being a later layer. */
+  button, summary, [role=button], [role=option], [role=menuitem], [role=menuitemradio], [role=menuitemcheckbox], [role=tab], [role=switch], [role=checkbox], [role=radio], input[type=checkbox], input[type=radio], label:has(>input[type=checkbox]), label:has(>input[type=radio]) { cursor: pointer; }
+  /* Each selector here outranks its pointer twin above, so a disabled control never shows the pointer. */
+  :is(button, summary, input, [role]):disabled, [role][aria-disabled=true], label:has(>input:disabled) { cursor: not-allowed; }
   h1, h2, h3, h4 { font-family: var(--font-head); letter-spacing: 0; }
   ::selection { background: var(--spark); color: var(--on-spark); }
   /* Slim scrollbars: a hairline rail and a squared thumb that heats to ember while held or hovered. WebKit/Blink get the
@@ -331,10 +336,9 @@
 @utility solid { background-color: var(--panel); --surface: var(--panel); }
 /* The anvil: the sidebar, the phone header and the status bar. Opaque, the furthest step from the ground. */
 @utility chrome { background-color: var(--chrome); --surface: var(--chrome); }
-/* foreman: the supervisor above the daemon pool (the status bar's Foreman indicator, its popover's header and tag, the
-   Daemon popover's Foreman row). It also styles the status bar's Daemon indicator, so the Foreman and the Daemon read
-   as one pair. Gleam text on a gleam tint behind a gleam seam, so it outranks the bar's ghost
-   indicators without taking a status tone. Gleam, not gleam-hot: gleam-hot sits too close to fg on the dark themes and
+/* foreman: the supervisor above the daemon pool (the Foreman popover's header and tag, the Daemon popover's Foreman
+   row). The status bar's Foreman and Daemon indicators are ghosts like the rest of the bar. Gleam text on a gleam tint
+   behind a gleam seam, so it stands out without taking a status tone. Gleam, not gleam-hot: gleam-hot sits too close to fg on the dark themes and
    under 4.5:1 on ash's pale ground. .off: a dashed seam, muted text, no tint. The :is() raises it over the base btn, chip
    and plain rules whatever order Tailwind emits them in. */
 @utility foreman {
@@ -616,6 +620,9 @@
   &.you { color: var(--ember); border-color: var(--ember); background-color: color-mix(in srgb, var(--surface, var(--bg)), var(--ember) 10%); }
   /* Unsaved, new, selected: the one solid chip. */
   &.spark { color: var(--on-spark); background: var(--spark); border-color: var(--spark); }
+  /* .badge: a count pinned to the top-right corner of an icon (the status bar's bell). Its parent is the relative glyph
+     box, so it sits on the glyph whatever the button's width. 10px on a 14px slug: the smallest that still reads. */
+  &.badge { position: absolute; top: -5px; right: -9px; min-height: 0; height: 14px; min-width: 14px; padding: 0 3px; justify-content: center; font-size: 10px; line-height: 12px; letter-spacing: 0; }
   /* A chip in a row of sm controls (the status bar's Daemon popover, the palette's scope) takes their height. */
   &.sm { min-height: var(--control-sm); padding-inline: 9px; }
   /* A glyph struck on the slug: the PR chip's pull-request mark. */
@@ -875,6 +882,7 @@
   &.gleam { background: radial-gradient(circle at 35% 30%, var(--gleam-hot) 0%, var(--gleam) 55%, var(--gleam-deep) 100%); box-shadow: var(--shadow-glow); }
   &.spark { background: var(--spark); }
   &.ember { background: var(--ember); }
+  &.warn { background: var(--warn); }
   &.hollow { border: 1px solid var(--line-strong); }
   /* A gleam dot without the glow: the stepper's past steps, the agent role dot. */
   &.plain { box-shadow: none; }
@@ -900,6 +908,17 @@
 @utility scrim {
   background: rgba(5,7,10,.35);
   [data-theme="ash"] & { background: rgba(20,24,30,.2); }
+}
+/* A dropdown's popover panel (Select's list): fades and grows from the trigger edge (the component sets
+   transform-origin) as it opens, and runs back before it leaves. allow-discrete on display and overlay keeps the panel
+   drawn and in the top layer until the fade ends; @starting-style gives the first frame after showPopover() its start.
+   `scale`, not `transform`, so nothing else that sets a transform fights it. Reduced motion's global block cancels it. */
+@utility menu-pop {
+  opacity: 0;
+  scale: .96;
+  transition: opacity .12s ease, scale .12s ease, overlay .12s ease allow-discrete, display .12s ease allow-discrete;
+  &:popover-open { opacity: 1; scale: 1; }
+  @starting-style { &:popover-open { opacity: 0; scale: .96; } }
 }
 /* The anvil, as shipped: a raster with its own light grey tile. */
 @utility mark { width: 36px; height: 36px; }

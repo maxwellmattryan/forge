@@ -7,10 +7,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { builtCss } from './built-css.ts';
+import { DIST, noDist } from './dist.ts';
 import { TONE_CLASS } from '../dashboard/src/lib/util.ts';
 import { THEMES } from '../dashboard/src/lib/theme.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const BUILT = { skip: noDist() };
 
 const normSelector = (s: string) => s.replace(/["'\s]/g, '');
 
@@ -152,7 +154,7 @@ test('the token value reader normalises the way the build rewrites values', () =
   assert.deepEqual([...vars.keys()], ['--space-0\\.5', '--a']);
 });
 
-test('built CSS carries every design token in every theme', () => {
+test('built CSS carries every design token in every theme', BUILT, () => {
   const design = tokensCss();
   const css = builtCss();
   let count = 0;
@@ -187,10 +189,10 @@ test('built CSS carries every design token in every theme', () => {
 // The Drafting palette and its theme ids are gone from every stylesheet the dashboard ships. (The JS bundle and
 // index.html still name the old theme ids: lib/theme.ts maps saved values from earlier versions onto forge and ash.)
 const DRAFTING = ['cyanotype', 'vellum', 'nightprint', '--ink', '--redline', '--highlight', '--sketch-line', '--grid-minor', '--grid-major', '--paper-opacity', '--hatch-pitch', '--tick', '--dash'];
-test('no Drafting token or theme id remains', () => {
+test('no Drafting token or theme id remains', BUILT, () => {
   const name = (n: string) => new RegExp(`${n.replace(/[-]/g, '\\-')}(?![\\w-])`);
   assert.ok(name('--ink').test('var(--ink)') && !name('--ink').test('--inky') && !name('--tick').test('--ticker'), 'self-check: whole names only');
-  const dist = path.join(ROOT, 'dashboard', 'dist');
+  const dist = DIST;
   const stylesheets = (fs.readdirSync(dist, { recursive: true }) as string[]).filter((f) => f.endsWith('.css')).map((f) => path.join(dist, f));
   assert.ok(stylesheets.length > 0, 'the build has a stylesheet');
   const sources: [string, string][] = [['dashboard/style.css', fs.readFileSync(path.join(ROOT, 'dashboard', 'style.css'), 'utf8')], ...stylesheets.map((f) => [path.relative(ROOT, f), fs.readFileSync(f, 'utf8')] as [string, string])];
@@ -314,7 +316,7 @@ const CHIP_TOKEN: Record<string, string> = { ok: 'ok', bad: 'bad', warn: 'warn',
 /** The tint a chip mixes into its surface, as the build writes it: `color-mix(in srgb,var(--surface,var(--bg)),<colour> N%)`. */
 const TINT = /background-color:color-mix\(in srgb,var\(--surface,var\(--bg\)\),(currentColor|currentcolor|var\(--([\w-]+)\))\s*(\d+(?:\.\d+)?)%\)/;
 
-test('chip tones meet 4.5:1 on bg, panel and chrome', () => {
+test('chip tones meet 4.5:1 on bg, panel and chrome', BUILT, () => {
   assert.deepEqual(mix([255, 0, 100, 1], 0.5, [0, 255, 0, 1]), [127.5, 127.5, 50, 1], 'self-check: mix');
   assert.deepEqual(TINT.exec('background-color:color-mix(in srgb,var(--surface,var(--bg)),var(--gleam) 14%)')?.slice(2, 4), ['gleam', '14'], 'self-check: the tint reader');
   const css = builtCss();
@@ -427,7 +429,7 @@ function rulesOf(css: string, selector: string): string {
 const backgrounds = (css: string, selector: string) =>
   [...rulesOf(css, selector).matchAll(/(?:^|;)\s*(background(?:-color|-image)?)\s*:([^;]*)/g)].map((m) => [m[1], m[2].trim()] as const);
 
-test('filled elements are opaque', () => {
+test('filled elements are opaque', BUILT, () => {
   const css = builtCss();
   const themes = SCOPES.map((sel) => scope(tokensCss(), sel));
   const built = builtVars(css);
@@ -498,7 +500,7 @@ function alphaSources(value: string, themes: Map<string, string>[], built: Map<s
   return [...out];
 }
 
-test('no fill is see-through: alpha only on the ground, the rivets and the allowlist', () => {
+test('no fill is see-through: alpha only on the ground, the rivets and the allowlist', BUILT, () => {
   const css = builtCss();
   const themes = SCOPES.map((sel) => scope(tokensCss(), sel));
   const built = builtVars(css);
@@ -526,7 +528,7 @@ test('no fill is see-through: alpha only on the ground, the rivets and the allow
 
 // The sidebar and the phone header are opaque --chrome (App.svelte), the anvil; the active nav item lays --raised over
 // it, and the Needs-you tag tints the chrome under it with ember.
-test('chrome sidebar keeps text at 4.5:1', () => {
+test('chrome sidebar keeps text at 4.5:1', BUILT, () => {
   assert.deepEqual(Object.keys(themeColors()), [...THEMES], 'the sidebar is measured in every theme');
   for (const [theme, color] of Object.entries(themeColors())) {
     const chrome = color('chrome');
@@ -548,7 +550,7 @@ test('chrome sidebar keeps text at 4.5:1', () => {
   const nav = fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'components', 'Nav.svelte'), 'utf8');
   assert.match(nav, /<span class="mono num \{on \? '' : 'muted'\}">/);
   assert.doesNotMatch(nav, /chip you/, 'Needs you left the nav');
-  assert.match(fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'components', 'StatusBar.svelte'), 'utf8'), /<span class="chip you num" aria-hidden="true">/, 'the Needs-you tag tints the chrome under it, in the status bar');
+  assert.match(fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'components', 'StatusBar.svelte'), 'utf8'), /<span class="chip you badge num" aria-hidden="true">/, 'the Needs-you tag tints the chrome under it, in the status bar');
   assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'dashboard', 'src', 'views', 'Pipeline.svelte'), 'utf8'), /opacity-70/, 'a selected filter count is full --on-gleam');
 
   // gleam-hot is lighter than gleam, under 4.5:1 on ash's pale ground, so a hovered link keeps gleam there.
@@ -598,7 +600,7 @@ function effective(css: string, theme: string): Map<string, string> {
 const sameExtra = (a: string, b: string) => sameValue(a, b) || (a.trim() !== '' && !Number.isNaN(Number(a)) && Number(a) === Number(b));
 const GRAIN_BLEND: Record<string, string> = { forge: 'soft-light', ash: 'multiply', temper: 'soft-light' };
 
-test("each theme's tokens and extras win the cascade", () => {
+test("each theme's tokens and extras win the cascade", BUILT, () => {
   const sample = ':root{--a:1;--p:.18}:root,[data-theme="x"]{--a:2}[data-theme=y]{--a:3;--p:.5}[data-theme=x] .b{--a:9}@layer l{:root{--a:8}}';
   assert.deepEqual(Object.fromEntries(effective(sample, 'x')), { '--a': '2', '--p': '.18' }, 'self-check: the shared :root block applies');
   assert.deepEqual(Object.fromEntries(effective(sample, 'y')), { '--a': '3', '--p': '.5' }, 'self-check: a later theme block wins, descendants and layers never apply');
@@ -648,7 +650,7 @@ function themeRules(css: string, id: string): [string, string][] {
 // defaults (the backdrop, the scrim, a gleam-hot hovered link) apply to it as they do to forge.
 const ASH_RULES = ['[data-theme=ash]', '[data-theme=ash]', '[data-theme=ash]a:hover', '[data-theme=ash].backdrop', '[data-theme=ash].scrim'];
 
-test('forge and temper are dark, ash is light', () => {
+test('forge and temper are dark, ash is light', BUILT, () => {
   const sample = '@layer a,b;@layer b{[data-theme="x"] .m{c:1}}[data-theme=x]{color-scheme:dark;--a:1}.y{c:2}';
   assert.deepEqual(themeRules(sample, 'x'), [['[data-theme=x].m', 'c:1'], ['[data-theme=x]', 'color-scheme:dark;--a:1']], 'self-check: nested and top-level rules');
   const css = builtCss();
@@ -682,7 +684,7 @@ test('ash bg is cool grey', () => {
 // No warm brown is left in Ash's metal: its washes, seams, edges, shadows, falloff and scrims are cool or neutral
 // (blue never under red), and its gleam is a desaturated steel rather than blueprint blue.
 const ASH_METAL = ['raised', 'line', 'line-soft', 'line-strong', 'edge-light', 'edge-dark', 'shadow-bevel', 'shadow-primary', 'shadow-overlay', 'shadow-drawer', 'shadow-chrome', 'shadow-glow'];
-test('ash metal is cool: no brown lines, shadows or scrims, a steel gleam', () => {
+test('ash metal is cool: no brown lines, shadows or scrims, a steel gleam', BUILT, () => {
   const colorsIn = (v: string): Rgba[] => [...v.matchAll(COLOR)].map((m) => parseColor(m[0]) ?? [NaN, NaN, NaN, NaN]);
   const cool = ([r, , b]: Rgba) => b >= r;
   assert.deepEqual(colorsIn('0 1px 0 0 rgba(60,40,20,0.12), 0 2px #223850'), [[60, 40, 20, 0.12], [34, 56, 80, 1]], 'self-check: colours in a shadow');

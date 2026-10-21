@@ -22,7 +22,7 @@ import { attributionForbidden, scrubBranch, stripAttribution } from './attributi
 import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from './delta.ts';
 import type { ActorSource, Config, HumanDelta, Job, JobChange, JobEvent, JobPr, JobRepoPr, PrChecks } from './types.ts';
 import { ForgeError, SAFE_REF, hasBinary, now, readText, run, safeText } from './util.ts';
-import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretMode, textUnit } from './secrets.ts';
+import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretMode, secretsBlock, textUnit } from './secrets.ts';
 import { cleanGenerated, generatedConfig, generatedPaths, partitionConflicts, rebuild, regenerateProblem, takeBaseSide } from './regenerate.ts';
 import type { Strategy } from './regenerate.ts';
 import { commandTemplate, verifiedHead } from './worktree.ts';
@@ -200,7 +200,7 @@ export function openPr(
   const scan = scanBranch(root, config, job, { staged: false, head: evidence.head });
   logSecrets(root, id, 'pr', scan, { blocked: mode === 'block' });
   if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of ${id}'s commits could not finish (${scan.error}); forge pr open won't push an unscanned branch`, 'secret_found', `forge secrets scan ${id}`);
-  if (mode === 'block' && scan.findings.length) throw new ForgeError(refusalMessage(`the commits of ${id}`, scan.findings), 'secret_found', `forge secrets scan ${id}`);
+  if (secretsBlock(scan.findings, mode)) throw new ForgeError(refusalMessage(`the commits of ${id}`, scan.findings), 'secret_found', `forge secrets scan ${id}`);
   // With interim edges, a member whose PR already merged (a sequential dependency, say) is never
   // pushed or checked again. Other jobs keep checking every member, as before interim strategies.
   const skipMerged = resolveInterim(config, job).edges.length > 0;
@@ -409,7 +409,7 @@ function checkMemberPr(root: string, config: Config, job: Job, name: string, tit
   const scan = scanBranch(root, config, view, { staged: false, head: checked });
   logSecrets(root, job.id, 'pr', scan, { blocked: mode === 'block' });
   if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of repo ${name}'s commits could not finish (${scan.error}); forge pr open won't push an unscanned branch`, 'secret_found', `forge secrets scan ${job.id}`);
-  if (mode === 'block' && scan.findings.length) throw new ForgeError(refusalMessage(`the commits of repo ${name}`, scan.findings), 'secret_found', `forge secrets scan ${job.id}`);
+  if (secretsBlock(scan.findings, mode)) throw new ForgeError(refusalMessage(`the commits of repo ${name}`, scan.findings), 'secret_found', `forge secrets scan ${job.id}`);
   const ahead = run('git', ['rev-list', '--count', `${config.git.remote}/${base}..${checked}`, '--'], { cwd: worktree, allowFail: true });
   if (!ahead.ok || ahead.stdout.trim() === '0') throw new ForgeError(`repo ${name} has no commits ahead of ${base}; remove it (forge job repo remove) or re-add it with --verify-only`);
   return { repo: name, slug: memberSlug(config, name), worktree, base, checked, body };

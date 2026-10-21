@@ -9,7 +9,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, repoTemplate, waitFor } from './helpers.ts';
 import { loadConfig } from '../lib/config.ts';
-import { createJob, jobDir, updateJob } from '../lib/jobs.ts';
+import { createJob, jobDir, logEvent, updateJob } from '../lib/jobs.ts';
 import { run } from '../lib/util.ts';
 import { createWorktree } from '../lib/worktree.ts';
 import * as yaml from '../lib/yaml.ts';
@@ -36,6 +36,8 @@ const template = repoTemplate((dir) => {
   fs.writeFileSync(path.join(api, 'tracked.json'), '{}\n');
   fs.writeFileSync(path.join(api, 'show.cjs'), SHOW);
   fs.writeFileSync(path.join(api, 'write.cjs'), WRITE);
+  // Echoes a secret the way a careless script would: raw, and inside JSON. Committed, so verify runs it on a clean tree.
+  fs.writeFileSync(path.join(api, 'echo.cjs'), "console.log('LEAK ' + process.env.DB); console.log(JSON.stringify({ db: process.env.DB })); process.exit(1);\n");
   fs.writeFileSync(path.join(dir, '.gitignore'), ['services/api/config.json', 'services/api/app.toml', 'services/api/.env.local', 'services/api/out/', 'services/api/cmd.out', 'services/api/ran.marker', ''].join('\n'));
   fs.mkdirSync(path.join(dir, '.forge'), { recursive: true });
   fs.writeFileSync(path.join(dir, '.forge', '.gitignore'), 'jobs/\nlocks/\nruntime/\n');
@@ -111,7 +113,7 @@ describe('config sinks at run time', { concurrency: 4 }, () => {
       assert.deepEqual(seen.env, { API_BASE: `http://localhost:${j.port}`, JOB: j.id });
       assert.deepEqual(JSON.parse(seen.cfg), { server: { host: 'h', port: j.port, tags: ['a'], name: j.id }, keep: true });
       assert.equal(seen.toml, `port = ${j.port}\nname = "${j.id}"\ntable = { x = 1 }\n`);
-      assert.deepEqual(out.config, { component: 'api', env: ['API_BASE', 'JOB'], files: ['services/api/config.json', 'services/api/app.toml'], commands: 0 });
+      assert.deepEqual(out.config, { component: 'api', env: ['API_BASE', 'JOB'], files: ['services/api/config.json', 'services/api/app.toml'], commands: 0, secrets: [] });
       assert.ok(fs.existsSync(path.join(j.api, 'ran.marker')));
       const file = path.join(j.api, 'config.json');
       const st = fs.statSync(file);
@@ -140,7 +142,7 @@ describe('config sinks at run time', { concurrency: 4 }, () => {
       const v = await forgeAsync(x.root, ['verify', j.id]);
       assert.equal(v.status, 0, v.stderr + v.stdout);
       const step = JSON.parse(v.stdout).steps.find((s: any) => s.name === 'test');
-      assert.deepEqual(step.config, { component: 'api', env: ['API_BASE', 'JOB'], files: ['services/api/.env.local'], commands: 0 });
+      assert.deepEqual(step.config, { component: 'api', env: ['API_BASE', 'JOB'], files: ['services/api/.env.local'], commands: 0, secrets: [] });
       assert.equal(fs.readFileSync(path.join(j.api, '.env.local'), 'utf8'), `JOB_ID=${j.id}\n`);
       assert.equal(x.events(j.id).filter((e) => e.type === 'config-sinks').length, 1);
       // A background start renders them again and gives the server the env.
@@ -225,7 +227,9 @@ describe('config sinks at run time', { concurrency: 4 }, () => {
       // A sink that fails validation is refused at run time too (`forge run` does not validate config).
       await refused([{ env: { FORGE_JOB: 'x' } }], /config sinks are invalid: components "api"\.config\[0\]\.env variable "FORGE_JOB" can.t start with FORGE_/);
       // A reserved namespace fails at render with its issue.
-      await refused([{ env: { DB: '{secret.db}' } }], /\{secret\.db\} needs secret references \(#197\), which this Forge does not support yet/);
+      await refused([{ env: { DB: '{endpoint.db}' } }], /\{endpoint\.db\} needs endpoints \(#195\), which this Forge does not support yet/);
+      // An undeclared secret is refused before anything renders (`forge run` does not validate config).
+      await refused([{ env: { DB: '{secret.db}' } }], /config sinks are invalid: components "api"\.config\[0\]\.env\.DB names undeclared secret \{secret\.db\}/);
     } finally {
       x.cleanup();
       fs.rmSync(outside, { recursive: true, force: true });
@@ -277,7 +281,7 @@ describe('config sinks at run time', { concurrency: 4 }, () => {
       const r = await forgeAsync(x.root, ['run', j.id, 'test']);
       assert.equal(r.status, 0, r.stderr + r.stdout);
       const out = JSON.parse(r.stdout);
-      assert.deepEqual(out.config, { component: 'api', env: [], files: [], commands: 1 });
+      assert.deepEqual(out.config, { component: 'api', env: [], files: [], commands: 1, secrets: [] });
       // show.cjs printed cmd.out, so the sink ran before the command, in the component dir.
       const seen = JSON.parse(shown(out.tail).cmd);
       assert.deepEqual(seen.env, { PORT_HTTP: String(j.port), NAME: j.id, FORGE_JOB: j.id });
@@ -323,7 +327,7 @@ describe('config sinks at run time', { concurrency: 4 }, () => {
       const r = await forgeAsync(x.root, ['run', j.id, 'test']);
       assert.equal(r.status, 0, r.stderr + r.stdout);
       const out = JSON.parse(r.stdout);
-      assert.deepEqual(out.config, { component: 'api', env: ['TOKEN'], files: ['services/api/.env.local', 'services/api/config.json'], commands: 0 });
+      assert.deepEqual(out.config, { component: 'api', env: ['TOKEN'], files: ['services/api/.env.local', 'services/api/config.json'], commands: 0, secrets: [] });
       // The values did land in the worktree.
       assert.match(fs.readFileSync(path.join(j.api, '.env.local'), 'utf8'), new RegExp(sentinel));
       assert.match(fs.readFileSync(path.join(j.api, 'config.json'), 'utf8'), new RegExp(sentinel));
@@ -343,6 +347,126 @@ describe('config sinks at run time', { concurrency: 4 }, () => {
       }
     } finally {
       x.cleanup();
+    }
+  });
+});
+
+/** A bin dir with a fake `op` that records its calls and prints `value`, for PATH. */
+function fakeOp(value: string) {
+  const bin = tmpDir();
+  const calls = path.join(bin, 'calls');
+  fs.writeFileSync(path.join(bin, 'op'), `#!/bin/sh\necho "op $*" >> ${JSON.stringify(calls)}\nprintf '%s\\n' '${value}'\n`, { mode: 0o755 });
+  return { bin, PATH: `${bin}${path.delimiter}${process.env.PATH}`, called: () => fs.existsSync(calls), cleanup: () => fs.rmSync(bin, { recursive: true, force: true }) };
+}
+
+const SECRETS = { DB_PASS: { env: 'FORGE_TEST_DB_PASS' }, UNUSED: { op: 'op://v/i/f' } };
+
+describe('secret references in sinks', { concurrency: 4 }, () => {
+  test('secret references reach the process and ignored files', async () => {
+    const value = `pw-${crypto.randomBytes(8).toString('hex')}`;
+    const op = fakeOp(`op-${crypto.randomBytes(8).toString('hex')}`);
+    const x = scratch(
+      [{ env: { DB: '{secret.DB_PASS}' } }, { 'env-file': '.env.local', values: { V: 'u:{secret.DB_PASS}' } }, { file: { path: 'app.toml', format: 'toml', mode: 'template', from: 'secret.toml.template' } }],
+      { secrets: SECRETS },
+      { commands: { test: `${NODE} secret.cjs` } },
+    );
+    try {
+      const j = x.job();
+      fs.writeFileSync(path.join(j.api, 'secret.toml.template'), 'pw = "{secret.DB_PASS}"\n');
+      fs.writeFileSync(path.join(j.api, 'secret.cjs'), "require('fs').writeFileSync('cmd.out', String(process.env.DB));\n");
+      const r = await forgeAsync(x.root, ['run', j.id, 'test'], { FORGE_TEST_DB_PASS: value, PATH: op.PATH });
+      assert.equal(r.status, 0, r.stderr + r.stdout);
+      const out = JSON.parse(r.stdout);
+      assert.deepEqual(out.config, { component: 'api', env: ['DB'], files: ['services/api/.env.local', 'services/api/app.toml'], commands: 0, secrets: ['DB_PASS'] });
+      assert.equal(fs.readFileSync(path.join(j.api, 'cmd.out'), 'utf8'), value);
+      assert.equal(fs.readFileSync(path.join(j.api, '.env.local'), 'utf8'), `V=u:${value}\n`);
+      assert.equal(fs.readFileSync(path.join(j.api, 'app.toml'), 'utf8'), `pw = "${value}"\n`);
+      assert.deepEqual(x.events(j.id).find((e) => e.type === 'config-sinks').secrets, ['DB_PASS']);
+      assert.equal(op.called(), false, 'UNUSED is declared but never reached, so op never ran');
+      assert.doesNotMatch(r.stdout + r.stderr, new RegExp(value));
+    } finally {
+      x.cleanup();
+      op.cleanup();
+    }
+  });
+
+  test('unreferenced secrets are not resolved', async () => {
+    const op = fakeOp(`op-${crypto.randomBytes(8).toString('hex')}`);
+    const x = scratch([ENV_SINK], { secrets: SECRETS }, { commands: { test: 'true' } });
+    try {
+      const j = x.job();
+      const r = await forgeAsync(x.root, ['run', j.id, 'test'], { PATH: op.PATH });
+      assert.equal(r.status, 0, r.stderr + r.stdout);
+      assert.deepEqual(JSON.parse(r.stdout).config.secrets, []);
+      assert.equal(op.called(), false);
+      assert.equal(fs.existsSync(path.join(jobDir(x.root, j.id), 'known-secrets.json')), false, 'no record without a reference');
+    } finally {
+      x.cleanup();
+      op.cleanup();
+    }
+  });
+
+  test('known values are redacted in logs, tails, verify reports and events', async () => {
+    // A `"` and a `\` inside: JSONL holds it escaped, and that form must go too.
+    const value = `pw"q\\z-${crypto.randomBytes(8).toString('hex')}`;
+    const x = scratch([{ env: { DB: '{secret.DB_PASS}' } }, { command: 'echo "SINK $PW"', values: { PW: '{secret.DB_PASS}' } }], { secrets: SECRETS, verify: ['test'] }, { commands: { test: `${NODE} echo.cjs` } });
+    try {
+      const j = x.job();
+      const env = { FORGE_TEST_DB_PASS: value };
+      const r = await forgeAsync(x.root, ['run', j.id, 'test'], env);
+      assert.equal(r.status, 1, 'the command fails on purpose');
+      const out = JSON.parse(r.stdout);
+      assert.equal(out.ok, false);
+      assert.ok(!out.tail.includes(value), 'the tail is redacted');
+      assert.match(out.tail, /LEAK \[redacted\]/);
+      assert.match(out.tail, /\{"db":"\[redacted\]"\}/, 'the JSON-escaped form goes too');
+      const v = await forgeAsync(x.root, ['verify', j.id], env);
+      assert.notEqual(v.status, 0);
+      assert.ok(!(v.stdout + v.stderr).includes(value));
+      const dir = jobDir(x.root, j.id);
+      const report = fs.readFileSync(path.join(dir, 'verify', 'round-1.md'), 'utf8');
+      assert.ok(!report.includes(value));
+      assert.match(report, /LEAK \[redacted\]/);
+      const logs = x.logs(j.id);
+      const sinkLogs = logs.filter((f) => f.startsWith('config-api-'));
+      assert.ok(sinkLogs.length >= 1);
+      for (const f of logs) {
+        const text = fs.readFileSync(path.join(dir, 'logs', f), 'utf8');
+        assert.ok(!text.includes(value), `${f} holds the value`);
+        assert.match(text, f.startsWith('config-api-') ? /SINK \[redacted\]/ : /LEAK \[redacted\]/, f);
+      }
+      // An event carrying the value, raw and inside JSON text, is redacted at write.
+      logEvent(x.root, j.id, 'note', { text: `x ${value} y`, json: JSON.stringify({ v: value }) });
+      const events = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8');
+      assert.ok(!events.includes(value));
+      assert.ok(!events.includes(JSON.stringify(value).slice(1, -1)), 'no JSON-escaped form either');
+      const note = x.events(j.id).find((e) => e.type === 'note');
+      assert.equal(note.text, 'x [redacted] y');
+      assert.equal(note.json, '{"v":"[redacted]"}');
+    } finally {
+      x.cleanup();
+    }
+  });
+
+  test('a secret into a tracked or unignored path is refused', async () => {
+    const value = `pw-${crypto.randomBytes(8).toString('hex')}`;
+    for (const [sink, re] of [
+      [{ 'env-file': 'tracked.json', values: { V: '{secret.DB_PASS}' } }, /config sink path services\/api\/tracked\.json must be git-ignored and untracked/],
+      [{ file: { path: 'other.json', format: 'json', mode: 'merge' }, values: { pw: '{secret.DB_PASS}' } }, /config sink path services\/api\/other\.json must be git-ignored and untracked/],
+    ] as const) {
+      const x = scratch([sink], { secrets: SECRETS });
+      try {
+        const j = x.job();
+        const r = await forgeAsync(x.root, ['run', j.id, 'test'], { FORGE_TEST_DB_PASS: value });
+        assert.notEqual(r.status, 0);
+        assert.match(r.stderr, re);
+        assert.doesNotMatch(r.stdout + r.stderr, new RegExp(value));
+        assert.equal(fs.readFileSync(path.join(j.api, 'tracked.json'), 'utf8'), '{}\n', 'the tracked file is untouched');
+        assert.equal(fs.existsSync(path.join(j.api, 'other.json')), false, 'nothing written');
+        assert.equal(fs.existsSync(path.join(j.api, 'ran.marker')), false, 'the command never ran');
+      } finally {
+        x.cleanup();
+      }
     }
   });
 });

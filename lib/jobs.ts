@@ -4,6 +4,7 @@ import path from 'node:path';
 import { paths, exists } from './paths.ts';
 import { currentActor } from './actor.ts';
 import { clearFocusIf } from './focus.ts';
+import { knownRecordValues, redactDeep } from './known-secrets.ts';
 import { EFFORTS, STAGES, STATES, WAITING_ON, SEVERITIES, EVENT_SCHEMA_VERSION, cleanIssues, endFinishedJobAgents, normalizeEvent, normalizeJob, serializeJob } from './schema.ts';
 import { idPrefix } from './issue-ref.ts';
 import { localRepoSlug } from './repo-slug.ts';
@@ -90,7 +91,9 @@ export function ownerStatus(job: Pick<Job, 'owner' | 'agents'>, at = Date.now())
 }
 
 export function logEvent(root: string, id: string, type: string, data: Record<string, any> = {}): void {
-  const line = JSON.stringify({ v: EVENT_SCHEMA_VERSION, ts: now(), type, ...data });
+  // The job's recorded secret values never land in events.jsonl, which the dashboard and bundles read.
+  const clean = redactDeep(data, knownRecordValues(root, id));
+  const line = JSON.stringify({ v: EVENT_SCHEMA_VERSION, ts: now(), type, ...clean });
   fs.appendFileSync(path.join(jobDir(root, id), 'events.jsonl'), line + '\n');
 }
 

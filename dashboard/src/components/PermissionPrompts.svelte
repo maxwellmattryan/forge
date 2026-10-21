@@ -35,7 +35,7 @@
         <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
           <Chip tone="warn" text={$t('permission.chip')} />
           {#if scope === undefined}
-            {#if s === INBOX_SCOPE}<span class="text-muted">{$t('permission.inbox')}</span>{:else}<button class="mono text-fg underline decoration-dotted cursor-pointer truncate max-w-full" title={s} onclick={() => openDrawer(s, null, 'log')}>{s}</button>{/if}
+            {#if s === INBOX_SCOPE}<span class="text-muted">{$t('permission.inbox')}</span>{:else}<button class="mono text-fg underline decoration-dotted truncate max-w-full" title={s} onclick={() => openDrawer(s, null, 'log')}>{s}</button>{/if}
           {/if}
           <span class="text-fg">{p.agentId ? $t('permission.asksSubagent', { tool: p.tool }) : $t('permission.asks', { tool: p.tool })}</span>
           <span class="flex-1"></span>

@@ -555,7 +555,7 @@ export interface SecretFinding {
   path: string;
   line: number;
   excerpt: string;
-  /** `sha256:` + 64 hex of the full value. */
+  /** `sha256:` + 64 hex of the full value; for a `known-secret`, `known:` + 12 hex keyed per process, never the value's hash. */
   fingerprint: string;
   commit: string | null;
   /** `.forge/secrets-allow.txt:<line>`, on an allowed finding. */
@@ -751,6 +751,13 @@ export type ConfigSink =
   | { file: { path: string; format: SinkFormat; mode: SinkMode; from?: string | null }; values?: SinkValues }
   | { command: string; values?: Record<string, string> };
 
+/** Where one declared secret's value comes from: exactly one source key (lib/secret-refs-config.ts). */
+export type SecretSource =
+  | { env: string }
+  | { keychain: { service: string; account?: string } }
+  | { op: string }
+  | { file: string; key?: string };
+
 /** One member repo: an entry of `repos` (docs/CONFIG.md "Repos"). The root repo is implicit. */
 export interface MemberRepoConfig {
   name: string;
@@ -881,6 +888,8 @@ export interface Config {
   checkout: CheckoutStep[];
   /** Databases, caches and queues jobs run against: lib/backing.ts, docs/CONFIG.md "Backing services". */
   backing: BackingEntry[];
+  /** Named credentials config sinks reach as `{secret.NAME}`: lib/secret-refs.ts, docs/CONFIG.md "Secret references". */
+  secrets: Record<string, SecretSource>;
   /** Verify-only consumers of a changed library: docs/CONFIG.md "Downstream verification". */
   downstream: { enabled: boolean; max: number; skip: string[] };
   infra: {

@@ -46,6 +46,7 @@ The release strategy keys are in config (see [CONFIG.md "Release strategy"](CONF
 | **release cadence** | When a repo releases, one of `on-merge` (every merge to the default branch), `scheduled` (on a timer, usually in CI) or `manual` (when a human decides). | `release.cadence` |
 | **release plan** | The ordered repos, steps, checks and rollback for one release that `forge release plan` writes and a human runs with `forge release run`, without the Foreman. | - |
 | **release gate** | What keeps a consumer PR from merging while it still uses an interim reference: the seeded `release gate` CI check for `git-ref` and `canary`, and Forge's own gate per edge (`held`, `bump-due`, `released`; `forge job interim <id>`), which `forge pr ready` and `forge pr merge` enforce; see [CONFIG.md "Interim strategies"](CONFIG.md#interim-strategies). | - |
+| **main-update PR** | Forge's own repo only: the one PR from `ci/main-update` into `main` that `.github/workflows/main-update.yml` opens or updates on every push to `develop`, whose head commit is develop's tree plus the CI-built `dashboard/dist/`; see [RELEASES.md "Releasing"](RELEASES.md#releasing). | - |
 | **release bump** | What `forge verify` commits once a dependency's release is recorded: the consumer's manifests, and a tracked lockfile, moved from the interim reference to the released version (`forge: release bump for job <id>`). | - |
 
 ## Environments
@@ -61,7 +62,8 @@ Planned in M007; a row with a config key is implemented.
 | **job database** | One job's own database and login role on a shared Postgres backing service, cloned from a template database and dropped when the job's worktree is removed. | `backing[].database` |
 | **template database** | The database a shared Postgres backing service's migrate and seed commands build once per template hash, which every job database is cloned from. | `backing[].database` |
 | **config sink** | Where Forge writes a component's configuration for an environment (environment variables, a `.env` file, a JSON, YAML or TOML file, or a project script), chosen per component and never assumed. | `components[].config` |
-| **secret reference** | A pointer to a secret held elsewhere (an environment variable name, a keychain entry, a secret manager path) that Forge resolves at run time and never writes into job files, prompts or logs. | planned (M007) |
+| **secret reference** | A named pointer to a secret held elsewhere (an environment variable, a keychain entry, a 1Password item, a git-ignored file) that a config sink names as `{secret.NAME}` and Forge resolves only when the sink renders, never writing it into job files, briefs or logs. | `secrets` |
+| **known value** | A secret value a job's sinks have resolved, or one of its job database passwords: Forge replaces it with `[redacted]` wherever it writes or serves text, and the secret scanner refuses to publish it. | `secrets` |
 
 ## Profiles
 

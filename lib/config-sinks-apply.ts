@@ -13,8 +13,11 @@ import { isOwnWorktreePath } from './config.ts';
 import { renderEnvFile, renderMerge, renderTemplate, resolveString, sinkProblems } from './config-sinks.ts';
 import type { ExprContext } from './config-sinks.ts';
 import { jobDir } from './jobs.ts';
+import { recordKnown, redactKnown } from './known-secrets.ts';
 import { gitEnv, writeIfChanged } from './links.ts';
 import { posixShell } from './platform.ts';
+import { resolveSecret } from './secret-refs.ts';
+import { declaredSecrets } from './secret-refs-config.ts';
 import type { ComponentConfig, Config, ConfigSink, Job } from './types.ts';
 import { ForgeError, run } from './util.ts';
 
@@ -27,12 +30,16 @@ export interface SinkSummary {
   files: string[];
   /** How many command sinks ran. */
   commands: number;
+  /** The `{secret.NAME}` names this render resolved, sorted; never their values. */
+  secrets: string[];
 }
 
 export interface AppliedSinks {
   /** The env sinks' variables, merged into the command's environment. */
   env: Record<string, string>;
   summary: SinkSummary;
+  /** The secret values this render resolved: in memory only, for redacting what the command writes. */
+  values: string[];
 }
 
 export interface ApplyOptions {
@@ -81,7 +88,7 @@ export function applySinks(root: string, config: Config, job: Job, component: Co
   if (!Array.isArray(sinks) || !sinks.length) return null;
   // `forge run` loads config without validating it, and the env-name rules (no `FORGE_*`, no `PORT`)
   // are what keep a sink from overriding the job markers it is merged over.
-  const problems = sinkProblems(sinks, `components ${JSON.stringify(component.name)}.config`, component);
+  const problems = sinkProblems(sinks, `components ${JSON.stringify(component.name)}.config`, component, declaredSecrets(config));
   if (problems.length) throw new ForgeError(`config sinks are invalid: ${problems.join('; ')}`, 'config_invalid');
   if (!isOwnWorktreePath(root, config, job.id, job.worktree)) throw new ForgeError("config sinks need the job's own worktree");
   const worktree = job.worktree!;
@@ -92,9 +99,20 @@ export function applySinks(root: string, config: Config, job: Job, component: Co
     throw new ForgeError(`job ${job.id} has no worktree yet; run: forge worktree create ${job.id}`);
   }
   const componentDir = path.join(worktree, component.path);
-  const ctx: ExprContext = { job: job.id, port: job.port ?? null, worktree, branch: job.branch ?? '', base: job.base ?? '', component: { name: component.name, path: component.path, dir: componentDir } };
+  const resolvedSecrets = new Map<string, string>();
+  // Only names an expression reaches are read; each value is recorded before any write or command
+  // sink, so serve-time redaction knows it even when the render fails later.
+  const secret = (name: string): string => {
+    const hit = resolvedSecrets.get(name);
+    if (hit !== undefined) return hit;
+    const v = resolveSecret(root, config, name);
+    resolvedSecrets.set(name, v);
+    recordKnown(root, job.id, { [name]: v });
+    return v;
+  };
+  const ctx: ExprContext = { job: job.id, port: job.port ?? null, worktree, branch: job.branch ?? '', base: job.base ?? '', component: { name: component.name, path: component.path, dir: componentDir }, secret };
   const env: Record<string, string> = {};
-  const summary: SinkSummary = { component: component.name, env: [], files: [], commands: 0 };
+  const summary: SinkSummary = { component: component.name, env: [], files: [], commands: 0, secrets: [] };
   const label = (i: number) => `config sink ${i} of component ${JSON.stringify(component.name)}`;
 
   /** `rel` (relative to the component dir) as an absolute path and its worktree-relative form; refused outside the worktree. */
@@ -182,11 +200,12 @@ export function applySinks(root: string, config: Config, job: Job, component: Co
         writeOutput(i, f.path, render(i, () => renderMerge(f.format, base, sink.values ?? {}, ctx), { name: baseName, from: Boolean(f.from) }));
       }
     } else {
-      runCommandSink(root, job, component, i, sink.command, resolved(i, sink.values), opts);
+      runCommandSink(root, job, component, i, sink.command, resolved(i, sink.values), opts, [...resolvedSecrets.values()]);
       summary.commands += 1;
     }
   });
-  return { env, summary };
+  summary.secrets = [...resolvedSecrets.keys()].sort();
+  return { env, summary, values: [...resolvedSecrets.values()] };
 }
 
 /**
@@ -207,9 +226,10 @@ function render<T>(i: number, fn: () => T, base?: { name: string; from: boolean 
 
 /**
  * A command sink: the project's script, in the component dir, with the values as env and as JSON on
- * stdin. Its output goes only to `<jobDir>/logs/config-<component>-<timestamp>-<i>.log`.
+ * stdin. Its output goes only to `<jobDir>/logs/config-<component>-<timestamp>-<i>.log`, with the
+ * secret values resolved so far (`known`) redacted.
  */
-function runCommandSink(root: string, job: Job, component: ComponentConfig, i: number, template: string, values: Record<string, string>, opts: ApplyOptions): void {
+function runCommandSink(root: string, job: Job, component: ComponentConfig, i: number, template: string, values: Record<string, string>, opts: ApplyOptions, known: string[]): void {
   const cmd = opts.fillCmd(template);
   const cwd = path.join(job.worktree!, component.path);
   const res = run(posixShell(), ['-lc', cmd], { cwd, env: { ...opts.env, ...values }, input: JSON.stringify(values), allowFail: true });
@@ -217,6 +237,6 @@ function runCommandSink(root: string, job: Job, component: ComponentConfig, i: n
   fs.mkdirSync(logDir, { recursive: true });
   // `i` keeps two sinks that finish in the same millisecond from sharing a log.
   const logFile = path.join(logDir, `config-${component.name.replace(/[\\/]/g, '-')}-${new Date().toISOString().replace(/[:.]/g, '-')}-${i}.log`);
-  fs.writeFileSync(logFile, `$ ${cmd}\n(cwd ${cwd})\n\n${res.stdout}${res.stderr ? `\n${res.stderr}` : ''}\n\n[exit ${res.status}]\n`);
+  fs.writeFileSync(logFile, redactKnown(`$ ${cmd}\n(cwd ${cwd})\n\n${res.stdout}${res.stderr ? `\n${res.stderr}` : ''}\n\n[exit ${res.status}]\n`, known));
   if (!res.ok) throw new ForgeError(`config sink command ${i} of component ${JSON.stringify(component.name)} exited ${res.status ?? 'without a status'}; see ${logFile}`);
 }
