@@ -478,6 +478,8 @@
     "jobs": "Jobs",
     "jobsSub": "{active} active · {done} done · {cancelled} cancelled",
     "jobsSubArchived": "{active} active · {done} done · {cancelled} cancelled · {archived} archived",
+    "autonomy": "Autonomy rate",
+    "autonomySub": "strict {strict} · reverted {reverted} · {final} of {merged} merged final",
     "firstPass": "First-pass review",
     "firstPassSub": "avg {rounds} rounds",
     "escalation": "Escalation rate",

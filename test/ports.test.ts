@@ -114,7 +114,7 @@ describe('job ports', { concurrency: 4 }, () => {
     delete raw.ports;
     fs.writeFileSync(s.jobFile(id), JSON.stringify({ ...raw, schemaVersion: 13, port: want }));
     const loaded = loadJob(s.dir, id);
-    assert.equal(loaded.schemaVersion, 14);
+    assert.equal(loaded.schemaVersion, 15);
     assert.deepEqual(loaded.ports, {}, 'read as not allocated');
     assert.equal(loaded.port, want);
     assert.ok(createWorktree(s.dir, s.config, id).created);
@@ -129,13 +129,13 @@ describe('job ports', { concurrency: 4 }, () => {
   });
 
   test('job schema 14', () => {
-    assert.equal(JOB_SCHEMA_VERSION, 14);
+    assert.equal(JOB_SCHEMA_VERSION, 15);
     const v13 = { id: 'x', schemaVersion: 13, port: 4103 };
     const j = normalizeJob(v13);
-    assert.equal(j.schemaVersion, 14);
+    assert.equal(j.schemaVersion, 15);
     assert.deepEqual(j.ports, {});
     assert.equal(j.port, 4103);
-    assert.equal(normalizeJob({ id: 'x', schemaVersion: 15 })._unsupported, true);
+    assert.equal(normalizeJob({ id: 'x', schemaVersion: 16 })._unsupported, true);
     assert.deepEqual(normalizeJob({ ...v13, schemaVersion: 14, ports: { api: 4100, web: 4101 } }).ports, { api: 4100, web: 4101 });
     for (const hostile of [null, 'x', 7, [4100], { api: '4100' }, { api: 0 }, { api: 70000 }, { api: 4100.5 }, { api: 4100, web: 4100 }, { api: '$(id)' }])
       assert.deepEqual(normalizeJob({ ...v13, schemaVersion: 14, ports: hostile }).ports, {}, JSON.stringify(hostile));

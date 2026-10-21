@@ -3,6 +3,7 @@ import { daemonClaimOpts, ownerStatusWithProof } from '../daemon-owner.ts';
 import { DEP_REASON, claimRespectingDeps, refreshDependencyWait, retargetPlan, unmetDependencies } from '../deps.ts';
 import { createJob, isActive, listJobs, loadJob, logEvent, readEvents, setJob, claimJob } from '../jobs.ts';
 import * as pr from '../pr.ts';
+import { measureOutcomes } from '../outcome.ts';
 import { listRequests } from '../requests.ts';
 import { checkRepoBudget, isRepoHold, repoBudgetBlock } from '../repo-budget.ts';
 import { applyRetention } from '../retention.ts';
@@ -112,7 +113,7 @@ export const HELP: HelpGroup[] = [
   {
     name: 'sync',
     summary: 'reconcile PRs and trackers for all jobs',
-    commands: [{ command: 'sync', args: '', summary: "reconcile PRs and trackers for every job, retarget stacked PRs, release dependency waits and finish umbrella jobs; a job's failure is reported in its result" }],
+    commands: [{ command: 'sync', args: '', summary: "reconcile PRs and trackers for every job, measure merged jobs' outcomes (revert, follow-up bugs, churn; at most 10 per run), retarget stacked PRs, release dependency waits and finish umbrella jobs; a job's failure is reported in its result" }],
   },
   TRACKER,
 ];
@@ -507,7 +508,7 @@ function linkedMergeDeferred(root: string, config: Config, job: Job): boolean {
 export async function syncAll(
   root: string,
   config: Config,
-): Promise<{ synced: number; results: Record<string, unknown>[]; requests: number; integrating: string[]; retention?: { archived: string[]; logs: string[] } }> {
+): Promise<{ synced: number; results: Record<string, unknown>[]; requests: number; integrating: string[]; outcomes?: { measured: number; finalized: string[] }; retention?: { archived: string[]; logs: string[] } }> {
   const results: Record<string, unknown>[] = [];
   const integrating: string[] = [];
   for (const job of listJobs(root).filter((j) => j.kind !== 'eval')) {
@@ -541,6 +542,16 @@ export async function syncAll(
       });
     } catch (e) {
       results.push({ id: job.id, error: (e as Error).message.slice(0, 300) });
+    }
+  }
+  // After the PR loop, so a merge this sync recorded is measured in the same run.
+  let outcomes: { measured: number; finalized: string[] } | null = null;
+  if (config.pr.enabled) {
+    try {
+      const o = measureOutcomes(root, config);
+      if (o.measured.length) outcomes = { measured: o.measured.length, finalized: o.finalized };
+    } catch (e) {
+      results.push({ outcomes: 'error', error: (e as Error).message.slice(0, 300) });
     }
   }
   // Both passes are local git and job state, so they run even with PRs disabled.
@@ -584,5 +595,5 @@ export async function syncAll(
   // The human's retention policy runs in any session, daemon ones included: they set it, not a request.
   const retention = applyRetention(root, config, 'policy');
   // Counted last, so it includes the resumes sync queued for the jobs it routed.
-  return { synced: results.length, results, requests: listRequests(root, { status: 'pending' }).length, integrating, ...(retention ? { retention } : {}) };
+  return { synced: results.length, results, requests: listRequests(root, { status: 'pending' }).length, integrating, ...(outcomes ? { outcomes } : {}), ...(retention ? { retention } : {}) };
 }
