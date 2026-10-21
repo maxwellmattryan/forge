@@ -205,13 +205,15 @@ test('mainOnlyCommits lists hotfixes since the last release', POSIX, () => {
     const hotfix = commitOn(repo, 'fix: guard the token');
     commitOn(repo, `Update main to develop ${develop.slice(0, 7)} (#5)`);
     commitOn(repo, 'Release 1.1.1 (#6)');
+    const titled = commitOn(repo, 'Release 1.1.2: pin the source (#7)');
     const hostile = commitOn(repo, `fix: \u001b[31mred\u001b[0m ${'x'.repeat(10_000)}`);
     const main = rev(repo, 'HEAD');
     repo.git('checkout', '-q', 'develop');
 
     const listed = mainOnlyCommits(main, develop);
-    assert.equal(listed.length, 2, JSON.stringify(listed));
-    assert.deepEqual(listed[1], { sha: hotfix.slice(0, 7), subject: 'fix: guard the token' });
+    assert.equal(listed.length, 3, JSON.stringify(listed));
+    assert.deepEqual(listed[2], { sha: hotfix.slice(0, 7), subject: 'fix: guard the token' });
+    assert.deepEqual(listed[1], { sha: titled.slice(0, 7), subject: 'Release 1.1.2: pin the source (#7)' }, 'a hotfix titled after its release is still a hotfix');
     assert.equal(listed[0].sha, hostile.slice(0, 7));
     assert.ok(listed[0].subject.startsWith('fix:  [31mred [0m x'), listed[0].subject);
     assert.ok(listed[0].subject.length <= 200, 'a long subject is cut');

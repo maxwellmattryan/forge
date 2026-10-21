@@ -63,12 +63,12 @@ test('the notes draft lists the commits and the versions that moved', () => {
   assert.equal(line, '- Versions: config schema 22 → 26, `API_VERSION` 29 → 31.');
   assert.equal(versionsLine(now, now), null);
 
-  const draft = draftSection('0.19.0', 'v0.18.7', ['Fix the thing (#3)', 'Release 0.18.7 (#2)', 'Add \u001b[31mred\u001b[0m (#1)'], line);
+  const draft = draftSection('0.19.0', 'v0.18.7', ['Release Forge in one command (#4)', 'Fix the thing (#3)', 'Release 0.18.7 (#2)', 'Release 0.18.6', 'Add \u001b[31mred\u001b[0m (#1)'], line);
   const lines = draft.split('\n');
   assert.equal(lines[0], '## 0.19.0');
   assert.ok(lines[2].startsWith('<!-- Drafted from the commits since v0.18.7.'));
-  assert.deepEqual(lines.slice(3), ['- Fix the thing (#3)', '- Add  [31mred [0m (#1)', line]);
-  assert.equal(dropNotes(draft), ['## 0.19.0', '', '- Fix the thing (#3)', '- Add  [31mred [0m (#1)', line].join('\n'));
+  assert.deepEqual(lines.slice(3), ['- Release Forge in one command (#4)', '- Fix the thing (#3)', '- Add  [31mred [0m (#1)', line]);
+  assert.equal(dropNotes(draft), ['## 0.19.0', '', '- Release Forge in one command (#4)', '- Fix the thing (#3)', '- Add  [31mred [0m (#1)', line].join('\n'));
 
   const changelog = '# Changelog\n\n## 0.18.7\n\n- Old.\n';
   assert.equal(insertSection(changelog, '## 0.19.0\n\n- New.'), '# Changelog\n\n## 0.19.0\n\n- New.\n\n## 0.18.7\n\n- Old.\n');
