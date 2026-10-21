@@ -116,6 +116,12 @@ export function refuseInboxDrive(id: string, env: NodeJS.ProcessEnv = process.en
   refuseInOffice(`hand ${id} back with \`forge requests add resume --job ${id}\``, env);
 }
 
+/** The inbox or office daemon session runs this: the scopes refuseInboxDrive refuses. */
+export function inInboxOrOffice(env: NodeJS.ProcessEnv = process.env): boolean {
+  const scope = daemonScope(env);
+  return 'daemon' in scope && scope.daemon === true && (scope.scope === INBOX_SCOPE || scope.scope === OFFICE_SCOPE);
+}
+
 /** refuseInboxDrive for a command that acts for every job rather than one (`forge backing down --shared`). */
 export function refuseInboxOrOffice(hint: string, env: NodeJS.ProcessEnv = process.env): void {
   const scope = daemonScope(env);

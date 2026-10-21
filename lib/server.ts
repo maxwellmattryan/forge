@@ -19,6 +19,7 @@ import { containedWorktree, editorArgv, openEditor } from './editor.ts';
 import { readSmallJson } from './focus.ts';
 import { CheckoutError } from './checkout.ts';
 import { InactiveJobError, currentFocus, focusJob } from './focus-actions.ts';
+import { recordEnvironmentStopped } from './environment-lifecycle.ts';
 import { createPreviewer, ghRunner, parseGitHubUrl } from './github-preview.ts';
 import type { GhRunner } from './github-preview.ts';
 import { daemonSessionIds, jobSessionEnv, ownerStatusWithProof } from './daemon-owner.ts';
@@ -832,13 +833,19 @@ export function startServer(root: string, opts: ServerOptions = {}): Promise<Run
       }
     } else {
       if (!entriesOrNone(config).some(isManaged)) return jsonStatus(res, 409, { error: 'no backing service is run by Forge: every backing entry is external or none is configured' });
-      const steps: [string[], number][] = action === 'start' ? [[['backing', 'up', job.id], BACKING_UP_TIMEOUT_MS]] : action === 'stop' ? [[['backing', 'stop', job.id], BACKING_STOP_TIMEOUT_MS]] : [[['backing', 'stop', job.id], BACKING_STOP_TIMEOUT_MS], [['backing', 'up', job.id], BACKING_UP_TIMEOUT_MS]];
+      // Start is an ensure up, so the environment record and environments.maxRunning count it (and
+      // it may evict); Stop keeps the dev server running, so it is backing stop plus the record.
+      const up: [string[], number] = [['environment', 'up', job.id], BACKING_UP_TIMEOUT_MS];
+      const stop: [string[], number] = [['backing', 'stop', job.id], BACKING_STOP_TIMEOUT_MS];
+      const steps = action === 'start' ? [up] : action === 'stop' ? [stop] : [stop, up];
       for (const [args, timeout] of steps) {
         const r = await forgeJson(root, args, timeout);
+        if (args[1] === 'stop') recordEnvironmentStopped(root, job.id);
         if (r.exitCode === 0) continue;
         ok = false;
-        const failed = Array.isArray(r.data?.services) ? r.data.services.find((s: any) => s && s.ok === false)?.error : r.data?.error;
-        detail = redactor(config)(typeof failed === 'string' ? failed : (r.error ?? `forge ${args.join(' ')} failed`));
+        const list = Array.isArray(r.data?.backing) ? r.data.backing : r.data?.services;
+        const failed = Array.isArray(list) ? list.find((s: any) => s && s.ok === false)?.error : r.data?.error;
+        detail = redactor(config)(typeof failed === 'string' ? failed : (r.data?.error ?? r.error ?? `forge ${args.join(' ')} failed`));
         break;
       }
     }

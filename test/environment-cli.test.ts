@@ -201,6 +201,46 @@ describe('environment teardown', { concurrency: 4 }, () => {
     }
   });
 
+  test('a cancel from the inbox or office session never removes volumes or databases', async () => {
+    const s = scratch();
+    try {
+      const id = await s.newJob('Cancelled by the inbox');
+      const wt = await s.cli(['worktree', 'create', id]);
+      assert.equal(wt.json.ok, true, JSON.stringify(wt.json));
+      const db = wt.json.backing[1].database.name;
+      const server = Object.keys(s.state().pg)[0];
+      const trust = { FORGE_DAEMON: '1', [TRUST_ENV]: trustDigest(s.dir) };
+      s.clearArgv();
+      // The office may not cancel at all (only a recorded foreman decision's --state running).
+      const office = await s.cli(['job', 'set', id, '--state', 'cancelled'], { ...trust, FORGE_DAEMON_SCOPE: '_office' });
+      assert.equal(office.status, 1, office.stdout + office.stderr);
+      assert.deepEqual(s.argv(), [], 'a refused office cancel makes no docker call');
+
+      const set = await s.cli(['job', 'set', id, '--state', 'cancelled'], { ...trust, FORGE_DAEMON_SCOPE: '_inbox' });
+      assert.equal(set.status, 0, set.stdout + set.stderr);
+      assert.equal(set.json.state, 'cancelled');
+      assert.deepEqual(set.json.environment, { ok: true, processes: [], stopped: [`forge-${id}-postgres`], teardown: 'deferred' });
+      assert.equal(s.state().containers[`forge-${id}-postgres`].running, false, 'the per-job container is only stopped');
+      assert.ok(s.state().volumes[`forge-${id}-postgres-0`], 'the volume stays');
+      assert.ok(s.state().pg[server].dbs[db], 'the job database stays');
+      assert.ok(fs.existsSync(path.join(s.jobDir(id), 'backing.json')), 'records kept for a later teardown');
+      assert.ok(fs.existsSync(path.join(s.jobDir(id), 'backing-db.json')));
+      assert.ok(!s.argv().some((x) => x[0] === 'rm' || x[0] === 'volume'), `no rm: ${JSON.stringify(s.argv())}`);
+      const stops = s.events(id).filter((e) => e.type === 'environment-stop');
+      assert.equal(stops.length, 1);
+      assert.equal(stops[0].trigger, 'cancelled');
+      assert.equal(s.events(id).filter((e) => e.type === 'environment-down').length, 0);
+
+      // A human's teardown finishes it.
+      const down = await s.cli(['environment', 'down', id]);
+      assert.equal(down.status, 0, down.stdout + down.stderr);
+      assert.equal(s.state().volumes[`forge-${id}-postgres-0`], undefined, 'volume removed');
+      assert.equal(s.state().pg[server].dbs[db], undefined, 'database dropped');
+    } finally {
+      s.cleanup();
+    }
+  });
+
   test('stop keeps volumes and databases', async () => {
     const s = scratch();
     try {

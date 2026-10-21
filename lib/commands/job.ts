@@ -5,7 +5,7 @@ import { jobAcs } from '../acs.ts';
 import { jobFindings } from '../findings.ts';
 import { assistantBrief, jobPathMap } from '../brief.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
-import { OFFICE_REFUSAL, daemonClaimOpts, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
+import { OFFICE_REFUSAL, daemonClaimOpts, inInboxOrOffice, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
 import { OFFICE_JOB_COMMANDS, checkForemanDecision, classReservation, checkOfficeSetFor, gateClassFor, inOffice, isGateClass, maybeEnqueueGate, reservedFor } from '../foreman.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
 import { agentOutputMissing, attachAgent, claimJob, createJob, ownerStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir, readEvents } from '../jobs.ts';
@@ -37,7 +37,7 @@ import { bodyFrom, list, num, oneOf, req, requireJob, str, usageError } from './
 import { mirrorToTracker, startFromRef } from './tracker.ts';
 import { TeardownRefusal, archiveJob, archiveOlder, prune } from '../retention.ts';
 import { deleteJob } from '../delete.ts';
-import { finishEnvironment } from '../environment-lifecycle.ts';
+import { finishEnvironment, finishEnvironmentStopOnly } from '../environment-lifecycle.ts';
 import type { AgentUsage, ArchiveResult, Config, Effort, HelpGroup, Job, JobIssue } from '../types.ts';
 import { FOREMAN_ACTOR, currentActor } from '../actor.ts';
 import { jobAudit, toCsv } from '../audit.ts';
@@ -116,7 +116,7 @@ const JOB: HelpGroup = {
       command: 'job set',
       args: '<id> [--stage S] [--state S] [--waiting-on W|none] [--reason R] [--note N] [--field key=value]...',
       summary:
-        "change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; a failed teardown keeps exit 0 and the records, for forge environment down to retry",
+        "change a job's stage, state or fields; every check runs before anything is written. Moving an active job to done or cancelled tears its environment down (background processes, per-job containers and volumes, job databases) and lists it as environment; in the inbox or office daemon session it only stops it (environment.teardown: deferred), keeping volumes and job databases for archive or forge environment down; a failed teardown keeps exit 0 and the records, for forge environment down to retry",
       flags: [
         ['--stage S', 'the pipeline stage'],
         ['--state S', 'queued, running, waiting, blocked, failed, cancelled or done'],
@@ -588,7 +588,8 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         job = loadJob(root, job.id);
       }
       // After the write, which a failed teardown never rolls back: the result says so and any later teardown path retries.
-      const environment = finishEnvironment(root, config, before, job);
+      // The inbox and office sessions only stop it, as `forge environment down` is refused there.
+      const environment = inInboxOrOffice() ? finishEnvironmentStopOnly(root, config, before, job) : finishEnvironment(root, config, before, job);
       const gate = maybeEnqueueGate(root, config, before, job);
       await mirrorToTracker(root, config, job);
       return { id: job.id, stage: job.stage, state: job.state, waitingOn: job.waitingOn, ...(gate ? { gateRequest: gate.id } : {}), ...(environment ? { environment } : {}) };

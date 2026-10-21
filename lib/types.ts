@@ -2176,7 +2176,7 @@ export interface EnvironmentRecord {
 
 /** Which path started, stopped or tore down an environment; the trigger of its event. */
 export type EnvironmentUpTrigger = 'verify' | 'run' | 'focus' | 'worktree' | 'step' | 'cli';
-export type EnvironmentStopTrigger = 'park' | 'evict' | 'cli';
+export type EnvironmentStopTrigger = 'park' | 'evict' | 'cli' | 'done' | 'cancelled';
 export type EnvironmentDownTrigger = 'done' | 'cancelled' | 'archive' | 'cli';
 
 /** Ensure up: lib/environment-lifecycle.ts ensureEnvironment. `backing` lists each service as `forge backing up` does. */
@@ -2193,6 +2193,11 @@ export interface EnvironmentStopResult {
   processes: string[];
   stopped: string[];
   error?: string;
+}
+
+/** A job finished from the inbox or office session: only a stop, and archive or `forge environment down` tears it down. */
+export interface EnvironmentFinishStopResult extends EnvironmentStopResult {
+  teardown: 'deferred';
 }
 
 /** Teardown: the background commands stopped, then what `forge backing down` removed. */

@@ -12,7 +12,7 @@ import type { DockerRunner } from './backing.ts';
 import { readFocusRecord, readSmallJson } from './focus.ts';
 import { readEnvironments, updateEnvironments } from './environment-record.ts';
 import { isActive, jobDir, logEvent } from './jobs.ts';
-import type { BackingDownResult, BackingUpEntry, Config, EnvironmentDownResult, EnvironmentRecord, EnvironmentDownTrigger, EnvironmentStopResult, EnvironmentStopTrigger, EnvironmentUpResult, EnvironmentUpTrigger, Job } from './types.ts';
+import type { BackingDownResult, BackingUpEntry, Config, EnvironmentDownResult, EnvironmentFinishStopResult, EnvironmentRecord, EnvironmentDownTrigger, EnvironmentStopResult, EnvironmentStopTrigger, EnvironmentUpResult, EnvironmentUpTrigger, Job } from './types.ts';
 import { now } from './util.ts';
 import { databaseCommands, stopBackground } from './worktree.ts';
 
@@ -176,4 +176,32 @@ export function finishEnvironment(root: string, config: Config, before: Job, aft
   } catch (e) {
     return { ok: false, processes: [], removed: [], volumes: [], error: message(e) };
   }
+}
+
+/**
+ * finishEnvironment for the inbox and office sessions: a stop instead of the teardown, so text that
+ * misleads one into cancelling another job can't remove that job's volumes or job databases, which
+ * `forge environment down` refuses there too. The records stay, so archive or `forge environment
+ * down` finishes it. Null when finishEnvironment would not have run. Never throws.
+ */
+export function finishEnvironmentStopOnly(root: string, config: Config, before: Job, after: Job, runner?: DockerRunner): EnvironmentFinishStopResult | null {
+  if (!isActive(before) || (after.state !== 'done' && after.state !== 'cancelled')) return null;
+  try {
+    if (!hasEnvironment(root, after.id)) return null;
+    return { ...stopEnvironment(root, config, after.id, after.state, { runner }), teardown: 'deferred' };
+  } catch (e) {
+    return { ok: false, processes: [], stopped: [], error: message(e), teardown: 'deferred' };
+  }
+}
+
+/**
+ * The record says `stopped` for a job whose per-job containers were stopped outside stopEnvironment
+ * (the dashboard's backing Stop), so environments.maxRunning stops counting it. Only an entry that
+ * is already there changes. The error, or null.
+ */
+export function recordEnvironmentStopped(root: string, id: string): string | null {
+  return record(root, (rec) => {
+    const e = rec.jobs[id];
+    if (e) rec.jobs[id] = { state: 'stopped', usedAt: e.usedAt };
+  });
 }
