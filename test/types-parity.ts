@@ -96,6 +96,7 @@ export type Checks = [
   Expect<Equal<engine.EvalRun, dash.EvalRun>>,
   Expect<Equal<engine.EvalsResponse, dash.EvalsResponse>>,
   Expect<Equal<engine.EvalCompare, dash.EvalCompare>>,
+  Expect<Equal<engine.RealJobScores, dash.RealJobScores>>,
   Expect<Equal<engine.EvalCompareSide, dash.EvalCompareSide>>,
   Expect<Equal<engine.EvalOverlay, dash.EvalOverlay>>,
   Expect<Equal<engine.EvalStat, dash.EvalStat>>,

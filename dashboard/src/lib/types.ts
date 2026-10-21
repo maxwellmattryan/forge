@@ -751,6 +751,12 @@ export interface Stats {
     followUpRate: number | null;
     churnRate: number | null;
     outcomeCoverage: { merged: number; final: number; open: number };
+    /** The median post-merge judge score (0-5) over scored jobs (lib/scoring.ts). */
+    medianScore: number | null;
+    /** `sampled` counts jobs with any score; `merged` is the merged count above. */
+    scoreCoverage: { merged: number; sampled: number; scored: number; held: number; failed: number; queued: number };
+    /** Scored jobs per builder model (`unknown` when none was recorded). */
+    scoreByBuilderModel: Record<string, { scored: number; medianScore: number | null }>;
   };
   speed: { medianMinutesToPr: number | null; medianMinutesToDone: number | null };
   cost: {
@@ -899,6 +905,17 @@ export interface EvalCompare {
     stats: { a: EvalTaskAggregate | null; b: EvalTaskAggregate | null };
     delta: Record<EvalTaskMetric, EvalDelta>;
   }[];
+  /** Post-merge scores of real jobs merged in the 14 days before each run started (lib/scoring.ts). */
+  realJobs: { a: RealJobScores; b: RealJobScores };
+}
+
+/** Real jobs' post-merge scores over a window: realJobScores in lib/evals.ts. avgScore is 0-1, as avgJudgeScore. */
+export interface RealJobScores {
+  from: string;
+  to: string;
+  scored: number;
+  medianScore: number | null;
+  avgScore: number | null;
 }
 
 /** One run's stamps in a comparison. */

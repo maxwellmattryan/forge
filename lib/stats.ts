@@ -77,6 +77,10 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
   // Outcomes: only final ones are judged, and each rate's denominator skips checks that never completed.
   let outcomesFinal = 0, outcomesOpen = 0, autonomous = 0, autonomousStrict = 0;
   let revertChecked = 0, reverted = 0, followUpChecked = 0, followedUp = 0, churnChecked = 0, churned = 0;
+  // Post-merge scores: every non-null score counts as sampled, only scored ones give a value.
+  const scoreCoverage = { merged: 0, sampled: 0, scored: 0, held: 0, failed: 0, queued: 0 };
+  const scores: number[] = [];
+  const scoresByModel: Record<string, number[]> = {};
   const deltaLines: number[] = [];
   const timeToPr: number[] = [];
   const cycle: number[] = [];
@@ -173,6 +177,15 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
         if (outcome.churn.commits > 0) churned++;
       }
     }
+    const score = j.score;
+    if (score) {
+      scoreCoverage.sampled++;
+      scoreCoverage[score.status]++;
+      if (score.status === 'scored' && score.value !== null) {
+        scores.push(score.value);
+        (scoresByModel[score.builderModel ?? 'unknown'] ??= []).push(score.value);
+      }
+    }
     addVerifierStats(verifiers, events);
     for (const e of events) {
       if (e.type !== 'agent-end') continue;
@@ -237,6 +250,9 @@ export function computeStats(root: string, opts: { since?: string; includeEvals?
       followUpRate: ratio(followedUp, followUpChecked),
       churnRate: ratio(churned, churnChecked),
       outcomeCoverage: { merged, final: outcomesFinal, open: outcomesOpen },
+      medianScore: median(scores) === null ? null : r2(median(scores) as number),
+      scoreCoverage: { ...scoreCoverage, merged },
+      scoreByBuilderModel: Object.fromEntries(Object.entries(scoresByModel).map(([m, v]) => [m, { scored: v.length, medianScore: r2(median(v) as number) }])),
     },
     speed: {
       medianMinutesToPr: median(timeToPr) === null ? null : r2(median(timeToPr) as number),
