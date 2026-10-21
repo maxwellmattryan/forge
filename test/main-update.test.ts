@@ -1,5 +1,5 @@
-// scripts/main-update.ts: the commit main-update.yml pushes to ci/main-update (develop's tree plus the
-// checked dist, parents [main, develop]) and the PR body it writes (title, run, unported hotfixes).
+// scripts/main-update.ts: the commit `npm run release` pushes to main (develop's tree plus the checked dist,
+// parents [main, develop]) and the hotfixes on main that a release would undo.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -9,12 +9,11 @@ import { spawnSync } from 'node:child_process';
 import { repoTemplate } from './helpers.ts';
 import { FIXTURE_DIST } from './dist.ts';
 import { distHash, sourceHash, STAMP } from '../dashboard/build-stamp.mjs';
+import { mainOnlyCommits } from '../scripts/main-update.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const SCRIPT = path.join(ROOT, 'scripts', 'main-update.ts');
 const POSIX = { skip: process.platform === 'win32' && 'POSIX-only' };
-const BOT = 'github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>';
-const RUN_URL = 'https://github.com/o/forge/actions/runs/123';
 
 const writeJson = (file: string, data: unknown) => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -82,15 +81,20 @@ test('commit is develop\'s tree plus dist with parents main, develop', POSIX, ()
     for (const f of files) assert.ok(repo.git('cat-file', 'blob', `${sha}:dashboard/dist/${f}`).equals(fs.readFileSync(path.join(dist, f))), `${f} is byte-equal`);
 
     assert.equal(repo.git('log', '-1', '--format=%B', sha).toString(), 'Release 1.1.0\n\n', 'the subject alone, no trailers');
-    assert.equal(repo.git('log', '-1', '--format=%an <%ae>|%cn <%ce>', sha).toString().trim(), `${BOT}|${BOT}`);
+    assert.equal(repo.git('log', '-1', '--format=%an <%ae>|%cn <%ce>', sha).toString().trim(), 'Test <test@example.com>|Test <test@example.com>', 'whoever runs the release');
     assert.equal(repo.git('log', '-1', '--format=%(trailers)', sha).toString().trim(), '');
     assert.deepEqual([repo.git('status', '--porcelain', '--untracked-files=all').toString(), repo.git('ls-files', '-s').toString(), rev(repo, 'HEAD')], before, 'the index, working tree and HEAD are untouched');
 
-    // Once v1.1.0 is tagged, the next update is not a release.
+    // Once v1.1.0 is tagged, main has nothing new to release.
     repo.git('tag', 'v1.1.0', develop);
     const again = run(repo.dir, ['commit', '--main', main, '--develop', develop, '--dist', dist]);
-    assert.equal(again.status, 0, again.stderr);
-    assert.equal(repo.git('log', '-1', '--format=%s', again.stdout.trim()).toString().trim(), `Update main to develop ${develop.slice(0, 7)}`);
+    assert.equal(again.status, 1);
+    assert.equal(again.stdout, '');
+    assert.match(again.stderr, /v1\.1\.0 is already tagged/);
+    // A tag of another version decides nothing.
+    repo.git('tag', '-d', 'v1.1.0');
+    repo.git('tag', 'v1.1.00', develop);
+    assert.equal(run(repo.dir, ['commit', '--main', main, '--develop', develop, '--dist', dist]).status, 0);
   } finally {
     repo.cleanup();
     fs.rmSync(dist, { recursive: true, force: true });
@@ -170,7 +174,7 @@ test('commit refuses a bad dist or develop tree', POSIX, () => {
     }
     // A sha that is not a commit in this repo.
     refuses('an unknown sha', ['commit', '--main', 'a'.repeat(40), '--develop', develop, '--dist', dist]);
-    for (const args of [['commit', '--main', main, '--develop', develop], ['commit', '--main', main, '--develop', develop, '--dist', dist, '--dist', dist], ['commit', '--main', main, '--develop', develop, '--dist', dist, '--run-url', RUN_URL], ['push']]) {
+    for (const args of [['commit', '--main', main, '--develop', develop], ['commit', '--main', main, '--develop', develop, '--dist', dist, '--dist', dist], ['commit', '--main', main, '--develop', develop, '--dist', dist, '--run-url', 'x'], ['body', '--main', main, '--develop', develop, '--dist', dist], ['push']]) {
       assert.equal(run(repo.dir, args).status, 2, JSON.stringify(args));
     }
   } finally {
@@ -185,76 +189,55 @@ const commitOn = (repo: Repo, message: string) => {
   return rev(repo, 'HEAD');
 };
 
-test('body lists unported hotfixes', POSIX, () => {
+test('mainOnlyCommits lists hotfixes since the last release', POSIX, () => {
   const repo = fixture();
-  const dist = distFor(repo);
+  const cwd = process.cwd();
   try {
+    process.chdir(repo.dir);
     const develop = rev(repo, 'develop');
     // No main-only commits: main is an ancestor of develop.
-    const clean = run(repo.dir, ['body', '--main', rev(repo, 'main'), '--develop', develop, '--run-url', RUN_URL, '--dist', dist]);
-    assert.equal(clean.status, 0, clean.stderr);
-    const [first, ...rest] = clean.stdout.split('\n');
-    assert.equal(first, 'title=Release 1.1.0');
-    const text = rest.join('\n');
-    for (const s of [`- develop: ${develop}`, `- workflow run: ${RUN_URL}`, `- dashboard/dist files: ${listFiles(dist).length}`, 'Merge with a merge commit', 'No main-only commits.']) assert.ok(text.includes(s), s);
-    assert.ok(!run(repo.dir, ['body', '--main', rev(repo, 'main'), '--develop', develop, '--run-url', RUN_URL]).stdout.includes('dashboard/dist files'), 'the count only with --dist');
+    assert.deepEqual(mainOnlyCommits(rev(repo, 'main'), develop), []);
 
-    // main moves on: a merged earlier update, the bot's squashed commits, and two hotfixes.
+    // main moves on: a hotfix before the last release, the release itself, then two hotfixes after it.
     repo.git('checkout', '-q', 'main');
-    repo.git('merge', '-q', '--no-ff', '-m', 'Merge pull request #4 from o/ci/main-update', 'develop');
+    commitOn(repo, 'fix: before the last release');
+    repo.git('merge', '-q', '--no-ff', '-m', 'Release 1.1.0', 'develop');
     const hotfix = commitOn(repo, 'fix: guard the token');
     commitOn(repo, `Update main to develop ${develop.slice(0, 7)} (#5)`);
-    commitOn(repo, 'Release 1.0.1 (#6)');
+    commitOn(repo, 'Release 1.1.1 (#6)');
     const hostile = commitOn(repo, `fix: \u001b[31mred\u001b[0m ${'x'.repeat(10_000)}`);
     const main = rev(repo, 'HEAD');
     repo.git('checkout', '-q', 'develop');
 
-    const started = Date.now();
-    const r = run(repo.dir, ['body', '--main', main, '--develop', develop, '--run-url', RUN_URL]);
-    assert.ok(Date.now() - started < 5000);
-    assert.equal(r.status, 0, r.stderr);
-    assert.ok(!r.stdout.includes('No main-only commits.'));
-    const listed = r.stdout.split('\n').filter((l) => l.startsWith('- `'));
-    assert.equal(listed.length, 2, r.stdout);
-    assert.equal(listed[1], `- \`${hotfix.slice(0, 7)}\` fix: guard the token`, 'the hotfix');
-    assert.ok(listed[0].startsWith(`- \`${hostile.slice(0, 7)}\` fix:  [31mred [0m x`), listed[0]);
-    assert.ok(listed[0].length < 260, 'a long subject is cut');
-    assert.doesNotMatch(r.stdout, /\u001b/, 'no control characters reach the body');
-    for (const gone of ['Merge pull request', 'Update main to develop', 'Release 1.0.1']) assert.ok(!listed.some((l) => l.includes(gone)), `${gone} is left out`);
+    const listed = mainOnlyCommits(main, develop);
+    assert.equal(listed.length, 2, JSON.stringify(listed));
+    assert.deepEqual(listed[1], { sha: hotfix.slice(0, 7), subject: 'fix: guard the token' });
+    assert.equal(listed[0].sha, hostile.slice(0, 7));
+    assert.ok(listed[0].subject.startsWith('fix:  [31mred [0m x'), listed[0].subject);
+    assert.ok(listed[0].subject.length <= 200, 'a long subject is cut');
+    assert.doesNotMatch(listed.map((c) => c.subject).join('\n'), /\u001b/, 'no control characters');
+    assert.ok(!listed.some((c) => c.subject.includes('before the last release')), 'the last release already took it');
   } finally {
+    process.chdir(cwd);
     repo.cleanup();
-    fs.rmSync(dist, { recursive: true, force: true });
   }
 });
 
-test('title names an untagged version', POSIX, () => {
+test('commit refuses a version that is not X.Y.Z', POSIX, () => {
   const repo = fixture();
+  const dist = distFor(repo);
   try {
     const main = rev(repo, 'main');
-    const develop = rev(repo, 'develop');
-    const titleOf = (dev: string) => run(repo.dir, ['body', '--main', main, '--develop', dev, '--run-url', RUN_URL]).stdout.split('\n')[0];
-    assert.equal(titleOf(develop), 'title=Release 1.1.0');
-    repo.git('tag', 'v1.1.0', develop);
-    assert.equal(titleOf(develop), `title=Update main to develop ${develop.slice(0, 7)}`);
-    // A tag of another version, or a lightweight tag of this one, decides the same way.
-    repo.git('tag', '-d', 'v1.1.0');
-    repo.git('tag', 'v1.1.00', develop);
-    assert.equal(titleOf(develop), 'title=Release 1.1.0');
-
-    // The version reaches a title and a subject, so only X.Y.Z passes.
-    for (const v of ['1.2', '1.2.0-rc.1', '1.2.0\ntitle=x', 7]) {
+    // The version reaches a commit subject, so only X.Y.Z passes.
+    for (const v of ['1.2', '1.2.0-rc.1', '1.2.0\nx', 7]) {
       writeJson(path.join(repo.dir, 'package.json'), { name: 'forge', version: v });
       repo.git('commit', '-qam', `version ${JSON.stringify(v)}`);
-      const r = run(repo.dir, ['body', '--main', main, '--develop', rev(repo, 'HEAD'), '--run-url', RUN_URL]);
+      const r = run(repo.dir, ['commit', '--main', main, '--develop', rev(repo, 'HEAD'), '--dist', dist]);
       assert.equal(r.status, 1, JSON.stringify(v));
       assert.equal(r.stdout, '', JSON.stringify(v));
     }
-    for (const url of ['http://github.com/o/r/actions/runs/1', 'https://github.com/o/r/actions/runs/1 x', 'https://github.com/o/r/pulls/1', '']) {
-      const r = run(repo.dir, ['body', '--main', main, '--develop', develop, '--run-url', url]);
-      assert.equal(r.status, 1, url);
-      assert.equal(r.stdout, '', url);
-    }
   } finally {
     repo.cleanup();
+    fs.rmSync(dist, { recursive: true, force: true });
   }
 });

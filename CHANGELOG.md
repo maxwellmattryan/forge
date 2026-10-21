@@ -9,6 +9,7 @@
 - **Post-merge scoring:** with `scoring.sample` above 0, the judge scores a sampled share of merged jobs against their spec, shown in `forge stats`, `forge eval compare` and the retro. Off by default.
 - **Foreman:** sync starts a rework on its own when a parked PR's CI is red, and a non-PASS security review no longer keeps every gate with a human.
 - **No stranded jobs:** `forge pr open` merges a moved remote PR head instead of failing the push, `forge job advance` parks a job on `escalation` when the same command fails again with no progress, and the pool resumes a job a session left `running` with nothing driving it, then parks it if that turn makes no progress either.
+- **Releasing Forge:** `npm run release -- patch|minor|X.Y.Z` cuts a release in one command. It bumps the versions, drafts the notes for you to edit, waits for CI and the dashboard build, and pushes `main`, which tags and publishes the Release. `main` now moves only at releases, so installs get released versions only, and the main-update PR is gone (docs/RELEASES.md).
 - CI runs on Linux only.
 - Versions: config schema 22 → 26, job schema 14 → 16, `API_VERSION` 29 → 31.
 

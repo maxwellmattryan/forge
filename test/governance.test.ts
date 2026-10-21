@@ -256,13 +256,13 @@ test('dependabot.yml updates dev dependencies and actions weekly, grouped', () =
   assert.ok(comments.includes('dashboard/dist/'));
   assert.ok(comments.includes('npm run build:dashboard'));
   assert.match(comments, /pinned map in test\/dashboard-dist\.test\.ts/);
-  assert.match(comments, /main-update PR/);
+  assert.match(comments, /main update/);
 });
 
-test('the PR template and ignore files say CI adds dashboard/dist in the main-update PR', () => {
+test('the PR template and ignore files say CI builds dashboard/dist for the main update', () => {
   const template = read('.github/pull_request_template.md');
-  assert.match(template, /CI adds `?dashboard\/dist\/`? in the main-update PR/);
-  assert.match(read('.gitignore'), /^# .*CI adds it in the main-update PR/m);
+  assert.match(template, /CI builds `?dashboard\/dist\/`? for the main update/);
+  assert.match(read('.gitignore'), /^# .*CI builds it for the main update/m);
 });
 
 test('CONTRIBUTING.md links the verify list instead of copying it and states the PR conventions', () => {

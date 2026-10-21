@@ -46,7 +46,7 @@ The release strategy keys are in config (see [CONFIG.md "Release strategy"](CONF
 | **release cadence** | When a repo releases, one of `on-merge` (every merge to the default branch), `scheduled` (on a timer, usually in CI) or `manual` (when a human decides). | `release.cadence` |
 | **release plan** | The ordered repos, steps, checks and rollback for one release that `forge release plan` writes and a human runs with `forge release run`, without the Foreman. | - |
 | **release gate** | What keeps a consumer PR from merging while it still uses an interim reference: the seeded `release gate` CI check for `git-ref` and `canary`, and Forge's own gate per edge (`held`, `bump-due`, `released`; `forge job interim <id>`), which `forge pr ready` and `forge pr merge` enforce; see [CONFIG.md "Interim strategies"](CONFIG.md#interim-strategies). | - |
-| **main-update PR** | Forge's own repo only: the one PR from `ci/main-update` into `main` that `.github/workflows/main-update.yml` opens or updates on every push to `develop`, whose head commit is develop's tree plus the CI-built `dashboard/dist/`; see [RELEASES.md "Releasing"](RELEASES.md#releasing). | - |
+| **main update** | Forge's own repo only: the commit `npm run release` pushes to `main` to release a version, develop's tree plus the `dashboard/dist/` that `.github/workflows/main-update.yml` built in CI, with parents `[main, develop]`; see [RELEASES.md "Releasing"](RELEASES.md#releasing). | - |
 | **release bump** | What `forge verify` commits once a dependency's release is recorded: the consumer's manifests, and a tracked lockfile, moved from the interim reference to the released version (`forge: release bump for job <id>`). | - |
 
 ## Environments
