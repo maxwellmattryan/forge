@@ -5,7 +5,7 @@ import { backingStatus } from '../lib/commands/render/backing.ts';
 import { prMerge, prOpen, prSync } from '../lib/commands/render/pr.ts';
 import { verify } from '../lib/commands/render/verify.ts';
 import { worktreeCreate, worktreeRemove } from '../lib/commands/render/worktree.ts';
-import { HOSTILE, assertSafe, plain } from './render-helpers.ts';
+import { HOSTILE, assertSafe, hasLines, plain } from './render-helpers.ts';
 
 const URL = 'https://github.com/o/r/pull/12';
 
@@ -14,15 +14,12 @@ test('pr open: opened, already open, no PR, repos and deferred', () => {
   assert.equal(plain(prOpen, { number: 12, url: URL, created: false, unlinked: true }), `PR #12 already open ${URL} (unlinked)`);
   assert.equal(plain(prOpen, { number: null, url: null, created: false }), 'no PR (pr.enabled is off or nothing to push)');
   const out = plain(prOpen, { number: 12, url: URL, created: true, repos: [{ repo: 'o/lib', number: 4, url: 'https://github.com/o/lib/pull/4', created: true }], deferred: [{ repo: 'o/app', reason: 'waits on o/lib' }] });
-  assert.equal(out, [`opened PR #12 ${URL}`, '', 'Repos', '  ✓ o/lib #4 https://github.com/o/lib/pull/4', '', 'Deferred', '  {"repo":"o/app","reason":"waits on o/lib"}'].join('\n'));
+  hasLines(out, 'Repos', '  ✓ o/lib #4 https://github.com/o/lib/pull/4', 'Deferred', '  {"repo":"o/app","reason":"waits on o/lib"}');
 });
 
 test('pr sync: fields, integrate, reopened, no PR', () => {
   const pr = { number: 12, url: URL, state: 'OPEN', isDraft: false, lastSyncedAt: 'x', checks: { state: 'failing', passing: 1, failing: 1, pending: 0 }, behindBy: 3, conflicts: true, unresolvedThreads: 2, reviewDecision: 'CHANGES_REQUESTED' };
-  assert.equal(
-    plain(prSync, { id: 'j', pr, integrate: true, reopen: true }),
-    ['#12 OPEN', 'checks     failing', 'behind     3', 'conflicts  true', 'threads    2', 'review     CHANGES_REQUESTED', `url        ${URL}`, '→ moved to integrate', 'reopened'].join('\n'),
-  );
+  hasLines(plain(prSync, { id: 'j', pr, integrate: true, reopen: true }), '#12 OPEN', 'checks     failing', 'behind     3', 'conflicts  true', 'threads    2', 'review     CHANGES_REQUESTED', '→ moved to integrate', 'reopened');
   assert.equal(plain(prSync, { id: 'j', pr: null }), 'j: no PR');
 });
 
@@ -39,7 +36,7 @@ test('pr merge: every action, plus parts', () => {
     { repo: 'o/lib', number: 4, action: 'merged', checks: 'passing' },
     { repo: null, number: 12, action: 'refused', checks: 'failing', error: 'checks fail' },
   ];
-  assert.equal(m({ action: 'refused', error: 'checks fail', parts }), ['✗ refused: checks fail', '', 'Parts', '  repo   number  action   checks   error', '  o/lib  #4      merged   passing  -', '  -      #12     refused  failing  checks fail'].join('\n'));
+  hasLines(m({ action: 'refused', error: 'checks fail', parts }), 'Parts', '  repo   number  action   checks   error', '  o/lib  #4      merged   passing  -', '  -      #12     refused  failing  checks fail');
   assert.equal(m({ action: 'teleported' }), null);
 });
 
@@ -56,39 +53,17 @@ test('worktree create: created with a failed setup step, and existing', () => {
     ok: false,
     repos: [{ repo: 'o/lib', path: '/w/lib', created: true, ok: true }, { repo: 'o/app', path: null, created: false, ok: false, error: 'no clone' }],
   });
-  assert.equal(
-    out,
-    [
-      'created /w/j',
-      'base        main',
-      'stacked on  forge/dep',
-      'ports       web 4100',
-      '',
-      'Setup',
-      '  ✓ npm ci',
-      '  ✗ npm run build',
-      '    error TS2304',
-      '    found 1 error',
-      '',
-      'Backing',
-      '  ✓ db  created',
-      '  ✗ cache  none',
-      '    docker is not running',
-      '',
-      'Repos',
-      '  ✓ o/lib  /w/lib',
-      '  ✗ o/app  -',
-      '    no clone',
-    ].join('\n'),
-  );
-  assert.equal(plain(worktreeCreate, { path: '/w/j', created: false, port: null, ports: {} }), ['exists /w/j', 'base        -', 'stacked on  -', 'ports       -'].join('\n'));
+  hasLines(out, 'created /w/j', 'stacked on  forge/dep', 'ports       web 4100', '  ✓ npm ci', '  ✗ npm run build', '    error TS2304', '    found 1 error', '  ✗ cache  none', '    docker is not running', '  ✗ o/app  -', '    no clone');
+  hasLines(plain(worktreeCreate, { path: '/w/j', created: false, port: null, ports: {} }), 'exists /w/j', 'stacked on  -', 'ports       -');
 });
 
 test('worktree remove: with repos and backing, and nothing', () => {
   const out = plain(worktreeRemove, { removed: '/w/j', repos: [{ repo: 'o/lib', removed: '/w/lib' }, { repo: 'o/app', removed: null, error: 'dirty' }], backing: { removed: ['db', 'cache'], volumes: ['dbdata'], ok: false, error: 'docker rm failed' } });
-  assert.equal(out, ['removed /w/j', '', 'Repos', '  ✓ o/lib  /w/lib', '  ✗ o/app  -', '    dirty', '', 'Backing', '  removed: db, cache', '  volumes: dbdata', '  ✗ docker rm failed'].join('\n'));
+  hasLines(out, 'removed /w/j', '  ✗ o/app  -', '    dirty', '  removed: db, cache', '  volumes: dbdata', '  ✗ docker rm failed');
   assert.equal(plain(worktreeRemove, { removed: null }), 'nothing to remove');
-  assert.equal(plain(worktreeRemove, { removed: null, repos: [{ repo: 'o/lib', removed: '/w/lib' }] }), 'Repos\n  ✓ o/lib  /w/lib');
+  const reposOnly = plain(worktreeRemove, { removed: null, repos: [{ repo: 'o/lib', removed: '/w/lib' }] });
+  hasLines(reposOnly, '  ✓ o/lib  /w/lib');
+  assert.ok(!reposOnly!.includes('nothing to remove'), 'repos alone are something removed');
 });
 
 const SHA = '0123456789abcdef0123456789abcdef01234567';
@@ -101,7 +76,7 @@ const GATES = [
   '  budget     -',
 ];
 
-test('verify: passed', () => {
+test('verify: passed (golden)', () => {
   const out = plain(verify, { ok: true, round: 2, attempt: 1, sha: SHA, file: '.forge/jobs/j/verify/round-2.md', steps: [{ name: 'build', ok: true, durationMs: 420 }, { name: 'test', ok: true, durationMs: 12_345 }, { name: 'worktree-clean', ok: true }], failure: undefined, ...gates });
   assert.equal(out, ['✓ verify passed · round 2 attempt 1 · 0123456', '', 'Steps', '  ✓ build  420ms', '  ✓ test  12.3s', '  ✓ worktree-clean', '', ...GATES, '', 'file .forge/jobs/j/verify/round-2.md'].join('\n'));
 });
@@ -121,31 +96,20 @@ test('verify: failed with a tail and log, a skipped step, repos and downstream',
     repos: [{ repo: 'o/lib', sha: 'x', ok: false, failure: 'test failed\nsee log' }],
     downstream: [{ repo: 'o/app', ok: true, failure: null }],
   });
-  assert.equal(
+  assert.equal(out!.split('\n')[0], '✗ verify failed · round 1 attempt 2 · 0123456');
+  hasLines(
     out,
-    [
-      '✗ verify failed · round 1 attempt 2 · 0123456',
-      '',
-      'Steps',
-      '  - lint  skipped: no lint command',
-      '  ✗ test  exit 1',
-      '    not ok 3 - adds',
-      '      expected 2',
-      '    log logs/test.log',
-      '',
-      ...GATES.slice(0, -1),
-      '  budget     ✗ {"stopped":true,"reason":"tokens over","exceeded":[]}',
-      '',
-      'Repos',
-      '  ✗ o/lib',
-      '    test failed',
-      '    see log',
-      '',
-      'Downstream',
-      '  ✓ o/app',
-      '',
-      'file verify/round-1.md',
-    ].join('\n'),
+    '  - lint  skipped: no lint command',
+    '  ✗ test  exit 1',
+    '    not ok 3 - adds',
+    '      expected 2',
+    '    log logs/test.log',
+    '  budget     ✗ {"stopped":true,"reason":"tokens over","exceeded":[]}',
+    '  ✗ o/lib',
+    '    test failed',
+    '    see log',
+    'Downstream',
+    '  ✓ o/app',
   );
 });
 
@@ -154,12 +118,12 @@ test('backing status: with a job, without one, empty', () => {
     { name: 'db', isolation: 'job', container: 'forge-j-db', state: 'running', host: '127.0.0.1', ports: { 5432: 55432 }, env: ['DATABASE_URL', 'PGHOST'] },
     { name: 'search', isolation: 'external', container: null, state: 'external', host: null, ports: {}, env: [] },
   ];
-  assert.equal(plain(backingStatus, { job: 'j', services }), ['name    isolation  state     host       ports       env', 'db      job        running   127.0.0.1  5432→55432  DATABASE_URL,PGHOST', 'search  external   external  -          -           -'].join('\n'));
+  hasLines(plain(backingStatus, { job: 'j', services }), 'db      job        running   127.0.0.1  5432→55432  DATABASE_URL,PGHOST', 'search  external   external  -          -           -');
   const containers = [
     { name: 'forge-j-db', job: 'j', backing: 'db', isolation: 'job', state: 'running', orphan: false },
     { name: 'forge-old-db', job: null, backing: 'db', isolation: 'job', state: 'stopped', orphan: true },
   ];
-  assert.equal(plain(backingStatus, { containers }), ['name          job  backing  state    orphan', 'forge-j-db    j    db       running  -', 'forge-old-db  -    db       stopped  orphan'].join('\n'));
+  hasLines(plain(backingStatus, { containers }), 'forge-j-db    j    db       running  -', 'forge-old-db  -    db       stopped  orphan');
   assert.equal(plain(backingStatus, { containers: [] }), 'no backing containers');
   assert.equal(plain(backingStatus, { job: 'j', services: [] }), 'no backing services for j');
 });

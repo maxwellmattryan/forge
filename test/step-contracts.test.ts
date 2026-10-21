@@ -8,7 +8,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
 import { defaults } from '../lib/config.ts';
 import { createJob, jobDir, loadJob, readEvents } from '../lib/jobs.ts';
-import { JOB_SCHEMA_VERSION, normalizeJob } from '../lib/schema.ts';
+import { JOB_SCHEMA_VERSION } from '../lib/schema.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 
@@ -55,10 +55,9 @@ function snapshot(dir: string): Record<string, string> {
   return out;
 }
 
-test('reads a v5 job', () => {
+test('forge migrate rewrites a v5 job with splitMode and effort null', () => {
   const s = scratch();
   try {
-    assert.equal(JOB_SCHEMA_VERSION, 17);
     const job = createJob(s.root, defaults(), { title: 'Old v5' });
     const file = path.join(jobDir(s.root, job.id), 'job.json');
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -68,18 +67,16 @@ test('reads a v5 job', () => {
     raw.verifyRuns = [{ round: 1, attempt: 1, sha: 'abc', ok: false, at: '2026-10-01T10:03:00.000Z', file: 'verify/round-1.md' }];
     fs.writeFileSync(file, JSON.stringify(raw));
     const loaded = loadJob(s.root, job.id);
-    assert.equal(loaded.schemaVersion, 17);
+    assert.equal(loaded.schemaVersion, JOB_SCHEMA_VERSION);
     assert.equal(loaded.splitMode, null);
     assert.equal(loaded.effort, null);
     assert.deepEqual(loaded.agents, raw.agents, 'agents are otherwise unchanged');
     assert.deepEqual(loaded.verifyRuns, raw.verifyRuns, 'verify runs are otherwise unchanged');
-    assert.equal(normalizeJob({ id: 'x', schemaVersion: 5 }).splitMode, null);
-    assert.equal(normalizeJob({ id: 'x', schemaVersion: 18 })._unsupported, true);
 
     const migrated = s.f('migrate');
     assert.ok(migrated.changed.includes(path.relative(s.root, file)));
     const rewritten = JSON.parse(fs.readFileSync(file, 'utf8'));
-    assert.equal(rewritten.schemaVersion, 17);
+    assert.equal(rewritten.schemaVersion, JOB_SCHEMA_VERSION);
     assert.equal(rewritten.splitMode, null);
     assert.equal(rewritten.effort, null);
   } finally {

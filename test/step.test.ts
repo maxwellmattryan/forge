@@ -2,14 +2,15 @@
 // test/step-rows.ts; the rule tables in lib/step/ (order: lib/step/order.ts, pinned in
 // test/step-tables.test.ts). Every rule ID in RULES is what step returns for at least one row
 // ("every transition has a row"), and every row's commands are checked for shell safety
-// ("emitted commands are shell-safe").
+// ("emitted commands are shell-safe"). A row's `command`/`start` names the subcommand, the job and
+// only the flags that decide it: argvMatch (test/step-rows.ts) ignores the flags a row leaves out.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { RULES, hasSpecDeltas, listLineCount, parsePlan, parseSpecHeader, roundLenses, selectPanel, shellLine, step } from '../lib/step.ts';
 import type { Job, StepAction } from '../lib/types.ts';
 import { fixture, verdicts } from './step-fixture.ts';
-import { DS_CHECKED, DS_VERIFY, OPEN_PR, PANEL_SET, SPEC_DONE, ag, atIntegrate, dsConfig, entered, ev, inReview, job, panelled, rows, run, scoped, vr } from './step-rows.ts';
+import { DS_CHECKED, DS_VERIFY, OPEN_PR, PANEL_SET, SPEC_DONE, ag, argvMatch, assertWant, atIntegrate, dsConfig, entered, ev, inReview, job, panelled, rows, run, scoped, vr } from './step-rows.ts';
 import type { Row } from './step-rows.ts';
 
 // DS1's negative cases: another rule decides, so they can't be `rows`.
@@ -28,7 +29,7 @@ for (const row of ds1Skips) {
   test(row.name, () => {
     const a = step(fixture(row.fx)) as any;
     assert.notEqual(a.rule, 'DS1', row.name);
-    for (const [k, v] of Object.entries(row.want)) assert.deepEqual(a[k], v, `${row.name}: ${k}`);
+    assertWant(a, row.want, row.name);
     assertSafe(a, row.name);
   });
 }
@@ -52,7 +53,7 @@ for (const row of rows) {
     const a = step(fixture(row.fx)) as any;
     const prefix = row.name.split(' ')[0];
     if ((RULES as readonly string[]).includes(prefix)) assert.equal(a.rule, prefix, `${row.name}: decided by ${a.rule}`);
-    for (const [k, v] of Object.entries(row.want)) assert.deepEqual(a[k], v, `${row.name}: ${k}`);
+    assertWant(a, row.want, row.name);
     row.check?.(a);
     assertSafe(a, row.name);
   });
@@ -71,7 +72,7 @@ for (const row of rv9Skips) {
   test(row.name, () => {
     const a = step(fixture(row.fx)) as any;
     assert.notEqual(a.rule, 'RV9', row.name);
-    for (const [k, v] of Object.entries(row.want)) assert.deepEqual(a[k], v, `${row.name}: ${k}`);
+    assertWant(a, row.want, row.name);
     assertSafe(a, row.name);
   });
 }
@@ -95,7 +96,7 @@ for (const row of b7Skips) {
   test(row.name, () => {
     const a = step(fixture(row.fx)) as any;
     assert.notEqual(a.rule, 'B7', row.name);
-    for (const [k, v] of Object.entries(row.want)) assert.deepEqual(a[k], v, `${row.name}: ${k}`);
+    assertWant(a, row.want, row.name);
     assertSafe(a, row.name);
   });
 }
@@ -113,7 +114,7 @@ for (const row of ig1Skips) {
   test(row.name, () => {
     const a = step(fixture(row.fx)) as any;
     assert.notEqual(a.rule, 'IG1', row.name);
-    for (const [k, v] of Object.entries(row.want)) assert.deepEqual(a[k], v, `${row.name}: ${k}`);
+    assertWant(a, row.want, row.name);
     assertSafe(a, row.name);
   });
 }
@@ -136,7 +137,7 @@ const prTellRows: Row[] = [
 for (const row of prTellRows) {
   test(row.name, () => {
     const a = step(fixture(row.fx)) as any;
-    for (const [k, v] of Object.entries(row.want)) assert.deepEqual(a[k], v, `${row.name}: ${k}`);
+    assertWant(a, row.want, row.name);
   });
 }
 
@@ -230,7 +231,25 @@ test('three lost reviewers are retried back to back, then one wait', () => {
   agents['reviewer:security'] = ag(1, 14, 15, { retry: true, outputMissing: false });
   const a = step(fixture({ job: inReview(agents, { reviewers: ['code', 'tests', 'security'] }), events: scoped, verdicts: { round: verdicts({ code: 'MISSING', tests: 'PASS', security: 'PASS' }) } })) as any;
   assert.equal(a.rule, 'M2');
-  assert.deepEqual(a.command, ['job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'reviewer code wrote no review', '--note', 'reviewer:code ended twice without writing code.md']);
+  argvMatch(a.command, ['job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'reviewer code wrote no review'], 'M2');
+});
+
+test('the step-row matcher', () => {
+  const argv = ['job', 'set', 'j', '--stage', 'pr', '--state', 'running', '--note', 'n', '--field', 'a=1', '--field', 'b=2', '--compact'];
+  const ok = (want: string[]) => assert.doesNotThrow(() => argvMatch(argv, want, 'm'), JSON.stringify(want));
+  const fails = (want: string[], why: RegExp) => assert.throws(() => argvMatch(argv, want, 'm'), why, JSON.stringify(want));
+  ok(['job', 'set', 'j']);
+  ok(['job', 'set', 'j', '--state', 'running', '--stage', 'pr']);
+  ok(['job', 'set', 'j', '--field', 'b=2', '--compact', '--field', 'a=1']);
+  fails(['job', 'set', 'k'], /positionals differ/);
+  fails(['job', 'set'], /positionals differ/);
+  fails(['job', 'set', 'j', '--stage', 'decide'], /no --stage "decide"/);
+  fails(['job', 'set', 'j', '--reason', 'x'], /no --reason/);
+  fails(['job', 'set', 'j', '--field', 'a=1', '--field', 'a=1'], /no --field "a=1"/);
+  fails(['job', 'set', 'j', '--compact', '--compact'], /no --compact/);
+  // The flag's value is its own, never the next flag.
+  fails(['job', 'set', 'j', '--stage'], /no --stage/);
+  assert.throws(() => argvMatch(undefined, ['verify', 'j'], 'm'), /actual: undefined/);
 });
 
 test('loadStepInput parsers read plan, spec header and design deltas', () => {

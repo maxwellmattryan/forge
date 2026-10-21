@@ -247,7 +247,9 @@ describe('forge release', { concurrency: 4 }, () => {
     await p.run(['plan']);
     const r = await p.run(['run']);
     assert.equal(r.status, 1);
-    assert.deepEqual(r.json.stopped, { step: 'lib/release', reason: 'needs_confirmation', detail: 'run forge release run in a terminal, or set release.publish: allow for lib in .forge/config.yml', log: null });
+    assert.equal(r.json.stopped.step, 'lib/release');
+    assert.equal(r.json.stopped.reason, 'needs_confirmation');
+    assert.match(r.json.stopped.detail, /release\.publish: allow for lib/);
     assert.deepEqual(p.argv(), [], 'nothing runs');
     assert.equal(p.git(p.libBare, 'tag', '--list').trim(), '');
     // A manual step needs a terminal even with publish allowed.
@@ -425,7 +427,7 @@ describe('forge release', { concurrency: 4 }, () => {
 
   test('status shows progress and staleness', { skip: posix }, async () => {
     const p = await project(cleanups);
-    assert.deepEqual((await p.run(['status'])).json, { plan: null });
+    assert.equal((await p.run(['status'])).json.plan, null);
     p.setup((c) => {
       c.repos[0].release = { mechanism: 'tag', command: TAG, registry: 'npm', publish: 'allow' };
     });

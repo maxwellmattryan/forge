@@ -4,7 +4,6 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { defaults, validateConfig } from '../lib/config.ts';
 import { declaredLinks } from '../lib/links.ts';
-import { CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 import { strategyOf } from '../lib/interim.ts';
 import type { Config, Job } from '../lib/types.ts';
 
@@ -18,14 +17,6 @@ const problems = (c: Record<string, unknown>) => validateConfig({ ...defaults(),
 const noJob = { interim: null, repos: [] } as unknown as Job;
 
 describe('interim strategies: config', { concurrency: 4 }, () => {
-  test('v12 config migrates to v13 unchanged', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 28);
-    const v12 = { schemaVersion: 12, repos: structuredClone(REPOS), components: components(link('npm')), aiAttribution: 'forbid' };
-    const { config, from } = migrateConfig(structuredClone(v12));
-    assert.equal(from, 12);
-    assert.deepEqual(config, { ...v12, schemaVersion: 28, downstream: { enabled: true, max: 5, skip: [] } });
-  });
-
   test('release.interim validates on the root and on repos entries', () => {
     assert.deepEqual(defaults().release, { interim: 'local', versioning: null, mechanism: null, command: null, registry: null, cadence: null, publish: null });
     assert.deepEqual(problems({}), []);

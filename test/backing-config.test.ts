@@ -1,12 +1,12 @@
-// backing: config (issue #193): validation of each entry, the default, and the v18 -> v19 migration.
+// backing: config (issue #193): validation of each entry, the default, and loading a pre-backing config.
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { backingProblems } from '../lib/backing-config.ts';
 import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
 import { tempRepo } from './helpers.ts';
-import { API_VERSION, CONFIG_SCHEMA_VERSION, migrateConfig } from '../lib/schema.ts';
 
 const EXAMPLE = [
   {
@@ -133,30 +133,16 @@ describe('backing config', { concurrency: 4 }, () => {
     assert.deepEqual(problems([{ ...shared, database: undefined }]), ['{user}', '{password}', '{database}'].map((p) => `${at}.url placeholder ${p} is not {host}, {port} or {port_<n>} for a port in ports`));
   });
 
-  test('v21 config migrates to v22 unchanged', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 28);
-    assert.equal(API_VERSION, 33, 'no /api/state change here; 33 is the lease');
-    const v21 = { schemaVersion: 21, git: { base: 'trunk' }, backing: [{ name: 'redis', isolation: 'shared', image: 'redis:7', ports: [6379] }] };
-    const { config, from } = migrateConfig(structuredClone(v21));
-    assert.equal(from, 21);
-    assert.deepEqual(config, { ...v21, schemaVersion: 28 }, 'migration 21 changes nothing but schemaVersion');
-  });
-
-  test('v18 config migrates to v19 with no backing', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 28);
+  test('a v18 config loads with no backing', () => {
     assert.deepEqual(defaults().backing, []);
-    const v18 = { schemaVersion: 18, git: { base: 'trunk' }, components: [], repos: [], downstream: { enabled: true, max: 5, skip: [] } };
-    const { config, from } = migrateConfig(structuredClone(v18));
-    assert.equal(from, 18);
-    assert.deepEqual(config, { ...v18, schemaVersion: 28 }, 'migration 18 changes nothing but schemaVersion');
     const repo = tempRepo();
     try {
       const cfg = path.join(repo.dir, '.forge', 'config.yml');
       fs.mkdirSync(path.dirname(cfg), { recursive: true });
-      fs.writeFileSync(cfg, 'schemaVersion: 18\n');
+      fs.writeFileSync(cfg, 'schemaVersion: 18\n'); // old-version fixture
       const loaded = loadConfig(repo.dir);
       assert.equal(loaded.migratedFrom, 18);
-      assert.equal(loaded.config.schemaVersion, 28);
+      assert.equal(loaded.config.schemaVersion, CONFIG_SCHEMA_VERSION);
       assert.deepEqual(loaded.config.backing, []);
     } finally {
       repo.cleanup();

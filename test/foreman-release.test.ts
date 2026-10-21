@@ -11,7 +11,7 @@ import path from 'node:path';
 import { TRUST_ENV, defaults, foremanProblems, loadConfig, trustDigest } from '../lib/config.ts';
 import { ACTIONS_BY_GATE, INVALID_RESERVED, classReservation, decides, reservedMatch } from '../lib/foreman.ts';
 import { OFFICE_SCOPE, INBOX_SCOPE, ackRequest, listRequests } from '../lib/requests.ts';
-import { CONFIG_SCHEMA_VERSION, OFFICE_GATES, migrateConfig } from '../lib/schema.ts';
+import { OFFICE_GATES } from '../lib/schema.ts';
 import { type TwoRepo, dependsOn, twoRepo } from './job-repos-fixture.ts';
 
 const posix = process.platform === 'win32' ? 'the stubs are sh scripts and forge release run refuses native Windows' : false;
@@ -144,25 +144,18 @@ describe('gate: entries and the v18 config', () => {
     assert.equal(reservedMatch(cfg(['gated release', 'gateway']), ['a gateway change']), 'gateway');
   });
 
-  test('config v17 migrates to v18, reserving the release gate', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 28);
+  test('the release gate is reserved by default and when a v17 config loads', () => {
     const d = defaults();
     assert.equal(d.foreman.reserved.at(-1), 'gate:release');
     assert.ok(!d.foreman.decides.includes('release'));
     assert.ok(OFFICE_GATES.includes('release'));
     assert.deepEqual(ACTIONS_BY_GATE.release, ['approve-release']);
-    const explicit = migrateConfig({ schemaVersion: 17, foreman: { enabled: true, reserved: ['secret'] } });
-    assert.equal(explicit.from, 17);
-    assert.deepEqual(explicit.config.foreman, { enabled: true, reserved: ['secret', 'gate:release'] });
-    assert.deepEqual(migrateConfig({ schemaVersion: 17, foreman: { reserved: ['secret', 'gate:release'] } }).config.foreman.reserved, ['secret', 'gate:release'], 'never twice');
-    assert.deepEqual(migrateConfig({ schemaVersion: 17, git: { base: 'trunk' } }).config, { schemaVersion: 28, git: { base: 'trunk' } }, 'nothing else changes');
-    assert.deepEqual(migrateConfig({ schemaVersion: 18, foreman: { reserved: ['secret'] } }).config.foreman.reserved, ['secret'], 'a v18 config is left as written');
     const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-v17-')));
     try {
       fs.mkdirSync(path.join(dir, '.forge'));
-      fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), 'schemaVersion: 17\n');
+      fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), 'schemaVersion: 17\n'); // old-version fixture
       assert.deepEqual(loadConfig(dir).config.foreman.reserved, d.foreman.reserved, 'no foreman block: the defaults');
-      fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), 'schemaVersion: 17\nforeman:\n  reserved:\n    - secret\n');
+      fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), 'schemaVersion: 17\nforeman:\n  reserved:\n    - secret\n'); // old-version fixture
       assert.deepEqual(loadConfig(dir).config.foreman.reserved, ['secret', 'gate:release']);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });

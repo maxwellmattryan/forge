@@ -93,7 +93,7 @@ test('colour only when enabled', () => {
 });
 
 describe('the CLI', { concurrency: 4 }, () => {
-  test('agent and --json output is unchanged', async () => {
+  test('agent and --json output is unchanged (golden)', async () => {
     const r = repo();
     // A gh that answers nothing, so doctor's release check stays off the network.
     const bin = path.join(r.dir, '..', `regbin-${path.basename(r.dir)}`);

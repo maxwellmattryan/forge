@@ -10,6 +10,7 @@ import type { ChildProcess } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { forgeAsync, tempRepo, waitFor } from './helpers.ts';
 import * as yaml from '../lib/yaml.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
 import { DEV_DIST_DIR } from '../lib/paths.ts';
 import { devPlan } from '../scripts/dev.ts';
 
@@ -29,7 +30,7 @@ const alive = (pid: number | undefined) => {
 
 function writeConfig(dir: string, daemon: Record<string, unknown>) {
   fs.mkdirSync(path.join(dir, '.forge'), { recursive: true });
-  fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 2, daemon }));
+  fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION, daemon }));
 }
 
 /** Resolves with the exit code (or signal) once `p` has exited. */
