@@ -627,7 +627,8 @@ test('CLI JSON keys are stable', POSIX, () => {
       'counts.total', 'counts.waiting', 'generatedAt', 'quality', 'quality.autonomyRate', 'quality.autonomyRateStrict', 'quality.avgRounds', 'quality.churnRate', 'quality.escalationRate', 'quality.firstPassReviewRate', 'quality.followUpRate',
       'quality.foremanDecisions', 'quality.foremanReworks', 'quality.humanDeltaCoverage',
       'quality.humanDeltaCoverage.measured', 'quality.humanDeltaCoverage.merged', 'quality.humanDeltaRate', 'quality.humanFeedbackOnPrRate', 'quality.humanReworks',
-      'quality.medianHumanDeltaLines', 'quality.outcomeCoverage', 'quality.outcomeCoverage.final', 'quality.outcomeCoverage.merged', 'quality.outcomeCoverage.open', 'quality.recurringFindings', 'quality.revertRate',
+      'quality.medianHumanDeltaLines', 'quality.medianScore', 'quality.outcomeCoverage', 'quality.outcomeCoverage.final', 'quality.outcomeCoverage.merged', 'quality.outcomeCoverage.open', 'quality.recurringFindings', 'quality.revertRate',
+      'quality.scoreByBuilderModel', 'quality.scoreCoverage', 'quality.scoreCoverage.failed', 'quality.scoreCoverage.held', 'quality.scoreCoverage.merged', 'quality.scoreCoverage.queued', 'quality.scoreCoverage.sampled', 'quality.scoreCoverage.scored',
       'quality.specFirstApprovalRate', 'quality.verifyFirstPassRate', 'reviewers', 'since', 'speed', 'speed.medianMinutesToDone',
       'speed.medianMinutesToPr', 'verifiers', 'waitingOn',
     ]);

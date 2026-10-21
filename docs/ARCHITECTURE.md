@@ -85,6 +85,8 @@ Job schema v14 (API version 29) adds `ports`, one port per port-bearing componen
 
 Job schema v15 (API version 30) adds `outcome`, the merged root PR's post-merge outcome that `forge sync` measures (docs/CLI.md "Outcomes"): migration 14 gives a v14 job `outcome: null`, a malformed stored outcome reads as null (and is measured again), and older Forges refuse a v15 job. Events gained `outcome`. `/api/state` jobs carry `outcome`, and `/api/stats` `quality` gains `autonomyRate`, `autonomyRateStrict`, `revertRate`, `followUpRate`, `churnRate` and `outcomeCoverage`; config schema v24 adds `outcomes.windowDays` (identity migration from v23).
 
+Job schema v16 (API version 31) adds `score`, a sampled merged job's post-merge judge score (docs/CLI.md "Scoring"): migration 15 gives a v15 job `score: null`, a malformed stored score reads as null, and older Forges refuse a v16 job. Events gained `score`. A done job keeps its judge marked running while its score is `queued`, so the score run's wait (JS1) holds. `/api/state` jobs carry `score`, `/api/stats` `quality` gains `medianScore`, `scoreCoverage` and `scoreByBuilderModel`, and `/api/evals/compare` gains `realJobs`; config schema v25 adds `scoring.sample` and `scoring.model` (identity migration from v24).
+
 API version 26 adds `GET /api/project`, the dashboard's Project view: `{ components, backing, edges, problems }`, where each component is only `{ name, repo, kind, path }` and each edge `{ from, to, target, type }`, derived from `components` by `projectGraph` in `lib/project.ts`. It never carries a component's commands, owners or notes. job.json, config and events are unchanged.
 ## Updating
 

@@ -254,6 +254,23 @@ Archived jobs (`forge job archive`, `forge job prune`, `retention.jobsDays`) are
 
 **In `forge stats`.** `quality` gains `autonomyRate`, `autonomyRateStrict`, `revertRate`, `followUpRate`, `churnRate` (each null when its denominator is 0) and `outcomeCoverage: { merged, final, open }`. Only final outcomes are judged (docs/IMPROVEMENT.md defines each rate), and the text output's first quality line is `autonomy 75% (strict 50%) · reverted 0% · follow-ups 25% · churn 50% · outcomes final 4/6 (open 1)`. The retro's `signals.md` lists reverted and followed-up jobs under `## Post-merge outcomes`.
 
+## Scoring
+
+**The sync pass.** With `pr.enabled` and `scoring.sample` above 0 (docs/CONFIG.md "Scoring"), `forge sync` runs a scoring pass after the outcome pass. It considers live jobs (not archived, not `kind: eval`) whose root PR is `MERGED`, that have no `score` yet, that are in the sample, and whose merge (`pr.mergedAt`, else `outcome.mergedAt`) was in the last 7 days. At most 5 per run, oldest merge first. Each one is:
+- **held** when it is over its per-job budget (`reason: "budget exceeded"`) or the repo budget holds (`reason: "repo budget"`). No request is written and no judge runs, and a held score is never retried.
+- **left alone** when `gh pr diff <number> -R <owner/repo>` (read-only) fails. The next sync retries it, inside the 7 days.
+- **queued** otherwise: the diff goes to `<job dir>/score.diff` (cut at 1 MiB with a last line `[forge: diff truncated at 1048576 bytes]`), `job.score` becomes `queued`, a `score` event `{ status: "queued" }` is logged, and a `resume` request `forge sync queued a score run` is added for the job's session.
+
+The result gains `scoring: { queued: [ids], held: [ids] }` when either list is non-empty; a thrown error becomes one `{ scoring: "error", error }` result and never fails the sync.
+
+**The run.** For a done job whose score is `queued`, `forge job step` returns, before G1, a `spawn` of `forge:judge` (JS2: output `score.md`, model `scoring.model` or else `runtime.models.judge`), a `wait` while it runs (JS1), then a `run` of `forge job score record <id>` (JS3). The judge's brief lists only `request.md`, `spec.md` and `score.diff`, the spec's acceptance criteria and the main checkout; never the build log, reviews, verify reports or the decision. Its usage is imported onto the job as usual, so it counts toward the job's and the repo's spend. The job's stage and state never change.
+
+**`forge job score record <id>`** reads `score.md` (at most 64 KiB, a regular file, no symlink). A first non-empty line `SCORE: <n>/5` (`n` from 0 to 5, one decimal at most) records `status: "scored"` with `value`, `recordedAt`, `judgeModel` (the judge run's model) and `builderModel`, logs a `score` event `{ status: "scored", value }` and prints `{ id, score }`. A missing file or any other first line records `status: "failed"` (`reason: "no score.md"` or `"malformed score.md"`), logs a `score` event and exits 1 with a message naming the file. Nothing else from the file is stored. Exit 1 also when the job's score isn't `queued` (`no score run is queued for <id>`, a second record included) and for an unknown job (`not_found`). `forge job set --field score=…` is refused.
+
+**The score** (`job.score`, null until queued): `status` (`queued`, `held`, `scored` or `failed`), `queuedAt` (null when held), `value` (only when scored), `outOf: 5`, `recordedAt`, `judgeModel`, `builderModel` and `reason`. A malformed stored score reads as null.
+
+**In `forge stats`.** `quality` gains `medianScore` (null when nothing is scored), `scoreCoverage: { merged, sampled, scored, held, failed, queued }` (`sampled` counts jobs with any score) and `scoreByBuilderModel` (`{ <model>: { scored, medianScore } }`, `unknown` for no recorded builder model). The text output adds `score median 4/5 · scored 3/5 sampled (held 1, failed 0)`, or `score median -` when nothing is scored. `forge eval compare` gains `realJobs: { a, b }`: per run, `{ from, to, scored, medianScore, avgScore }` over real jobs merged in the 14 days ending at the run's `startedAt`, with `avgScore` on `avgJudgeScore`'s 0-1 scale. The retro's `signals.md` lists jobs scored 2 or less since the last retro under `## Low-scoring jobs`.
+
 ## Repo budget
 
 `forge budget` prints the repo's spend against `budget:` (docs/CONFIG.md "Repo budget") and frees repo-held jobs once nothing is exceeded:

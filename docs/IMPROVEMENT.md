@@ -18,6 +18,8 @@
 | follow-up rate | final outcomes with at least one `bug` issue created in the window that cites the job's PR or issues, out of those with a count (GitHub tracker only: other trackers record `unsupported`) |
 | churn rate | final outcomes with later non-Forge base-branch commits on the files the merge changed, inside the window: a soft signal, never counted against autonomy |
 | outcome coverage | `merged`, `final` and `open`: how many merged jobs have a settled outcome. Open outcomes and merged jobs not measured yet are in no denominator; `forge sync` measures up to 10 per run, so the first syncs after an upgrade backfill older merges |
+| `medianScore` | the median post-merge judge score (0-5) over scored jobs: the judge rates a sampled merged job's diff against its spec's acceptance criteria, without the build log or reviews. Off until `scoring.sample` is set; `scoreByBuilderModel` splits it by builder model, and `forge eval compare` sets real-job scores (`realJobs`) beside the eval judge's |
+| `scoreCoverage` | `merged`, `sampled` (any score), `scored`, `held` (over a budget, never run), `failed` (no valid `score.md`) and `queued`: how much of the merged work the median stands for |
 | human reworks, spec first-try approval | how often humans had to redirect |
 | median minutes to PR / to done | throughput |
 | tokens, API-equivalent cost (by role, by model), usage coverage | spend, and how trustworthy the spend numbers are |
