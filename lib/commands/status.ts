@@ -37,7 +37,7 @@ const activeJobs = (root: string, all: boolean): Job[] => listJobs(root).filter(
 
 function statusRow(root: string, j: Job): StatusRow {
   const p = progress(root, j.id);
-  return { id: j.id, stage: j.stage, state: j.state, waitingOn: j.waitingOn, round: j.round, tasks: { done: p.done, total: p.total }, pr: j.pr?.number ?? null, session: j.owner?.session ?? null };
+  return { id: j.id, stage: j.stage, state: j.state, waitingOn: j.waitingOn, round: j.round, tasks: { done: p.done, total: p.total }, pr: j.pr?.number ?? null, session: j.lease.driver };
 }
 
 export function statusTable(root: string, all: boolean): string {

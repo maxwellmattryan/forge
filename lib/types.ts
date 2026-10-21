@@ -131,34 +131,37 @@ export interface JobPr {
   integrateFor?: string;
 }
 
-/** The session driving a job: claimJob in lib/jobs.ts. */
-export interface JobOwner {
-  session: string;
-  host: string;
-  since: string;
-  heartbeat: string;
+/**
+ * The fenced claim on a job: claimJob, renewLease, expireLease and releaseJob in lib/jobs.ts. `epoch`
+ * grows by one at every change of driver and never goes back, so a write fenced with an older one is
+ * a driver that was taken over.
+ */
+export interface JobLease {
+  /** The driving session; null when nobody holds the job. */
+  driver: string | null;
+  epoch: number;
+  /** When this driver first claimed it. */
+  since: string | null;
+  renewedAt: string | null;
+  /** Live while in the future; the supervisor sets it to now when the driver's process exits. */
+  expiresAt: string | null;
 }
 
-/** Why a daemon owner provably let go of a job: ownerYield in lib/daemon-owner.ts. */
-export type YieldReason = 'moved-on' | 'not-running' | 'inbox-handoff';
+/** `none` without a driver; `expired` with one whose expiresAt has passed. */
+export type OwnerStatusKind = 'none' | 'live' | 'expired';
 
-/** `dead` only with a daemon-record proof (ownerStatusWithProof); the time rule alone gives the rest. */
-export type OwnerStatusKind = 'none' | 'live' | 'stale' | 'dead';
-
-/** Whether a job's owner still drives it: ownerStatus in lib/jobs.ts, ownerStatusWithProof in lib/daemon-owner.ts. */
+/** Whether a job's lease still holds: leaseStatus in lib/jobs.ts. */
 export interface OwnerStatus {
   status: OwnerStatusKind;
   session: string | null;
   since: string | null;
-  heartbeat: string | null;
-  /** An agent has been marked running for under 2 hours. */
-  agentRunning: boolean;
-  /** Set only with status `dead`. */
-  reason: YieldReason | null;
+  renewedAt: string | null;
+  expiresAt: string | null;
+  epoch: number;
   /**
-   * The owner is this job's own daemon session, recorded and running: a `resume` reaches that
-   * session, which claims as itself, so a live owner doesn't block it. Proven only in the job
-   * detail and the resume guard; false in /api/state.
+   * The driver is this job's own pool session and it runs: a `resume` reaches that session, which
+   * claims as itself, so its live lease doesn't block it. Set only in the job detail and the resume
+   * guard, from the pool; false in /api/state.
    */
   jobSession: boolean;
 }
@@ -311,7 +314,7 @@ export interface Job {
   budget: JobBudget;
   decision: string | null;
   pr: JobPr | null;
-  owner: JobOwner | null;
+  lease: JobLease;
   agents: Record<string, JobAgent>;
   usage: JobUsage;
   runs: JobRun[];
@@ -949,6 +952,8 @@ export interface Config {
     allowedTools: string[];
     maxConcurrent: number;
     idleStopMinutes: number | null;
+    /** A turn busy past this is stopped and its work requeued; null: no limit. */
+    turnTimeoutMinutes: number | null;
     auth: DaemonAuth;
     jobBudget: DaemonJobBudget;
   };
@@ -1265,6 +1270,8 @@ export interface ForgeRequest {
   session?: string;
   updatedAt?: string;
   result?: string | null;
+  /** How often requeueOrphans returned it to pending after its session ended; a second time rejects it. */
+  requeues?: number;
 }
 
 // ---------- tracker contract ----------

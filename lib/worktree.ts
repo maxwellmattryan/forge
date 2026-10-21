@@ -14,7 +14,7 @@ import { configForJob } from './eval-overlay.ts';
 import { stackSource } from './deps.ts';
 import { STATUS_ARGV, blockingLines, compactIntegrity, hiddenChanges, integrityError, renderIntegrity, testIntegrity } from './integrity.ts';
 import type { CompactIntegrity, IntegrityReport } from './integrity.ts';
-import { loadJob, logEvent, readEvents, setJob, touchJob, updateJob, jobDir } from './jobs.ts';
+import { loadJob, logEvent, readEvents, renewLease, setJob, updateJob, jobDir } from './jobs.ts';
 import { changedRepos, downstreamMembers } from './downstream.ts';
 import { exists, resolveFrom } from './paths.ts';
 import { posixShell } from './platform.ts';
@@ -32,7 +32,7 @@ import { applyLinks, consumerLockfiles, pathPrelude, resolveLinks, restoreLockfi
 import type { AppliedLinks, LockSnapshot } from './links.ts';
 import { memberClone, memberEntry, memberRepos, memberWorktree, memberWorktreePath, trustedMemberWorktree } from './job-repos.ts';
 import type { BackingDownResult, BackingUpEntry, ComponentConfig, CompactSecrets, Config, EventActor, Job, JobRepo, SecretScan, VerifyRun, VerifyRunRepo } from './types.ts';
-import { ForgeError, assertSafeRef, fill, now, readJson, run, shellArgs, tail, withLock, withLockAsync, writeJsonAtomic } from './util.ts';
+import { ForgeError, assertSafeRef, fill, now, pidAlive, readJson, run, shellArgs, tail, withLock, withLockAsync, writeJsonAtomic } from './util.ts';
 import { readSmallJson } from './focus.ts';
 
 /** One member repo's part of `forge worktree create`: createMemberWorktrees. */
@@ -578,13 +578,13 @@ function prepareCommand(root: string, config: Config, id: string, name: string, 
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
   const cwd = component?.path ? path.join(job.worktree, component.path) : job.worktree;
   const port = commandPort(config, job, component);
-  // Before touchJob: refused arguments leave no trace, not even a heartbeat.
+  // Before renewLease: refused arguments leave no trace, not even a renewal.
   const v = vars(root, config, job, job.worktree, port, template);
   const cmd = fillCommand(name, template, v, opts.args ?? []);
-  // After the arguments and before the heartbeat: a refused sink leaves no trace either.
+  // After the arguments and before the renewal: a refused sink leaves no trace either.
   const applied = component ? applySinks(root, config, job, component, { env: jobEnv(root, config, job, job.worktree, port), fillCmd: (t) => fill(t, v) }) : null;
-  // Agents run commands all through a build; each one proves the session is alive.
-  touchJob(root, id);
+  // Agents run commands all through a build; each one renews a live lease (never a dead one).
+  renewLease(root, id);
   if (applied) logEvent(root, id, 'config-sinks', applied.summary);
   // Sink env sits over the inherited environment and under the links' (names are disjoint by validation).
   const env = { ...jobEnv(root, config, job, job.worktree, port), ...applied?.env };
@@ -603,7 +603,7 @@ function prepareMemberCommand(root: string, config: Config, id: string, name: st
   if (!component) throw new ForgeError(`no component of repo ${repo} defines a "${name}" command (components[].commands.${name} with repo: ${repo})`);
   const port = commandPort(config, job, component);
   const cmd = fillCommand(name, component.commands![name]!, memberVars(root, config, job, member, worktree, port), opts.args ?? []);
-  touchJob(root, id);
+  renewLease(root, id);
   return { cmd, cwd: path.join(worktree, component.path), ...withLinks(root, config, job, repo, jobEnv(root, config, job, worktree, port)), repo, redact: knownValues(root, id, config) };
 }
 
@@ -1057,7 +1057,7 @@ export async function startBackground(
   // The server needs its backing services: a failed start exits 5 before any process starts.
   const env = ensureEnvironment(root, config, job, 'run');
   if (!env.ok) throw new ForgeError(`the job's environment did not start: ${env.error}`, 5);
-  touchJob(root, id);
+  renewLease(root, id);
   const port = commandPort(config, job, jobComponent(config, job));
   const dir = jobDir(root, id);
   const pidFile = path.join(dir, 'runtime.json');
@@ -1097,20 +1097,8 @@ export async function startBackground(
   return { pid: rec.pid, port, log: rec.log, reused: rec.reused, listening };
 }
 
-/**
- * The process group first (the shell's children keep it alive), then the pid. EPERM counts as
- * dead too: a process we may not signal is not ours, so the pid was reused.
- */
-export function pidAlive(pid: unknown): boolean {
-  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return false;
-  for (const target of [-pid, pid]) {
-    try {
-      process.kill(target, 0);
-      return true;
-    } catch {}
-  }
-  return false;
-}
+// Moved to util.ts so the lock can use it; kept here for its many importers.
+export { pidAlive };
 
 /** How far the process's start time may be from runtime.json's `startedAt` (ps reports whole seconds). */
 const DEV_START_SLACK_MS = 30_000;

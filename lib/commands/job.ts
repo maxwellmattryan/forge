@@ -5,10 +5,11 @@ import { jobAcs } from '../acs.ts';
 import { jobFindings } from '../findings.ts';
 import { assistantBrief, jobPathMap } from '../brief.ts';
 import { budgetCmd, enforceBudget } from '../budget.ts';
-import { OFFICE_REFUSAL, daemonClaimOpts, inInboxOrOffice, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
+import { OFFICE_REFUSAL, inInboxOrOffice, refuseInOffice, refuseInboxDrive } from '../daemon-owner.ts';
 import { OFFICE_JOB_COMMANDS, checkForemanDecision, classReservation, checkOfficeSetFor, gateClassFor, inOffice, isGateClass, maybeEnqueueGate, reservedFor, securityHold } from '../foreman.ts';
 import { claimRespectingDeps, refreshDependencyWait, validateDependsOn } from '../deps.ts';
-import { agentOutputMissing, attachAgent, claimJob, createJob, ownerStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, touchJob, updateJob, jobDir, readEvents } from '../jobs.ts';
+import { AGENT_LEASE_MS, agentOutputMissing, attachAgent, checkFence, claimJob, createJob, leaseStatus, ensureReviewDir, importCursor, isActive, listJobs, loadJob, logEvent, logHumanEvent, parseDecision, progress, recordAgent, releaseJob, renewLease, resolveAgentOutput, roundVerdicts, setJob, setJobEffort, updateJob, jobDir, readEvents } from '../jobs.ts';
+import type { Fence } from '../jobs.ts';
 import { logSecrets, scanAgentOutputs } from '../secrets.ts';
 import { issueLinkStatus } from '../issue-link.ts';
 import { checkIssueRef, isSafeUrl, issueUrl } from '../issue-ref.ts';
@@ -126,8 +127,12 @@ const JOB: HelpGroup = {
         ['--reason R', 'why, shown with the state'],
         ['--note N', 'a note logged with the change'],
         ['--field key=value', 'set a field (values are JSON or plain words; repeatable)'],
+        ['--epoch N', "the driver's epoch: refused (stale_epoch) before any write once another session took the job over"],
       ],
-      exits: [[1, 'no such job, a field set only by another command, a list field that is not a JSON array of strings, or an unknown or cyclic dependency']],
+      exits: [
+        [1, 'no such job, a field set only by another command, a list field that is not a JSON array of strings, or an unknown or cyclic dependency'],
+        [3, 'stale_epoch: the lease moved past --epoch'],
+      ],
     },
     {
       command: 'job effort',
@@ -140,15 +145,16 @@ const JOB: HelpGroup = {
     },
     {
       command: 'job claim',
-      args: '<id> --session S [--force]',
-      summary: 'claim a job for a session',
+      args: '<id> --session S [--force] [--epoch N]',
+      summary: "take the job's lease for a session (30 minutes, renewed by its own step, advance, agent and worktree commands); a new driver gets the next epoch, which the result returns as `epoch` for every later --epoch",
       flags: [
         ['--session S', 'the claiming session (required)'],
-        ['--force', 'take it from a live owner, or claim it with dependencies not done'],
+        ['--force', 'take it from a live lease, or claim it with dependencies not done'],
+        ['--epoch N', 'a re-claim by the driver holding epoch N; refused (stale_epoch) once the job moved on'],
       ],
-      exits: [[1, 'no such job, or the office daemon session ran it'], [3, 'another live session holds the job'], [4, 'dependencies pending, or the repo budget holds new work']],
+      exits: [[1, 'no such job, or the office daemon session ran it'], [3, 'another session holds a live lease (owned), or the lease moved past --epoch (stale_epoch)'], [4, 'dependencies pending, or the repo budget holds new work']],
     },
-    { command: 'job release', args: '<id>', summary: "drop the job's owner", exits: [NO_JOB] },
+    { command: 'job release', args: '<id>', summary: "drop the job's driver (its epoch stays)", exits: [NO_JOB] },
     {
       command: 'job repo',
       args: 'add <id> <name> [--verify-only] | remove <id> <name> | propose <id> <name> --reason R | downstream <id> | interim <id> (<name> | --root) canary|git-ref|local|sequential|inherit',
@@ -228,8 +234,12 @@ const JOB: HelpGroup = {
         ['--tool-uses N', 'with end: tool calls made'],
         ['--duration-ms N', 'with end: wall time'],
         ['--import', "with end and --agent-id: read usage from the agent's Claude Code transcript"],
+        ['--epoch N', "with start and end: the driver's epoch, refused (stale_epoch) before any write once another session took the job over"],
       ],
-      exits: [[1, 'no such job, an --output outside the job dir, the inbox or office session starting an agent, or attach on a role that is not running']],
+      exits: [
+        [1, 'no such job, an --output outside the job dir, the inbox or office session starting an agent, or attach on a role that is not running'],
+        [3, 'stale_epoch: the lease moved past --epoch'],
+      ],
     },
     { command: 'job round', args: '<id>', summary: 'start the next review round, unless the budget is spent', exits: [NO_JOB] },
     {
@@ -344,23 +354,27 @@ const JOB: HelpGroup = {
     },
     {
       command: 'job step',
-      args: '<id> [--session S]',
-      summary: "the job's next action (`spawn` with a ready agent brief, `run`, `wait`, `procedure` or `done`); read-only, the same state always gives the same answer, except that `--session <owner>` refreshes that session's claim heartbeat",
-      flags: [['--session S', "refresh session S's claim heartbeat, when S owns the job"]],
-      exits: [NO_JOB],
+      args: '<id> [--session S] [--epoch N]',
+      summary: "the job's next action (`spawn` with a ready agent brief, `run`, `wait`, `procedure` or `done`); read-only, the same state always gives the same answer, except that `--session <driver>` renews that session's lease",
+      flags: [
+        ['--session S', "renew session S's lease, when S drives the job"],
+        ['--epoch N', 'the epoch your claim returned: refused (exit 3, stale_epoch) once another session took the job over'],
+      ],
+      exits: [NO_JOB, [3, 'stale_epoch: the lease moved past --epoch, or to another driver']],
       readme: true,
     },
     {
       command: 'job advance',
-      args: '<id> --session S [--max N]',
+      args: '<id> --session S [--epoch N] [--max N]',
       summary: "runs step's `run` actions in-process (at most N, default 20) and returns the next `spawn`, `wait`, `procedure` or `done` with `ran`, one line per command it ran; refuses (exit 3) a job session S does not hold, and stops at the first failed command (exit 1)",
       flags: [
         ['--session S', 'the session driving the job (required)'],
+        ['--epoch N', 'the epoch your claim returned, checked at entry and after every command it runs (stale_epoch)'],
         ['--max N', 'run at most N commands (default 20)'],
       ],
       exits: [
         [1, 'no such job, or a command it ran failed (the result says which)'],
-        [3, 'session S does not hold the job'],
+        [3, 'session S does not hold the job, or (stale_epoch) another session took it over'],
       ],
       readme: true,
     },
@@ -410,6 +424,7 @@ const LOCKED_FIELDS: Record<string, string> = {
   worktree: 'forge worktree create|remove',
   port: 'forge worktree create|remove',
   owner: 'forge job claim|release',
+  lease: 'forge job claim|release',
   runs: 'forge job claim|release',
   source: 'forge job link',
   issues: 'forge job link',
@@ -467,6 +482,12 @@ function newJobIssues(root: string, config: Config, flags: Record<string, any>):
   return { issues, noIssue: wantsNone ? { reason: reason ?? null } : null };
 }
 
+/** `--epoch N` as a fence, with `session` when the call names one; undefined without the flag. Parsed before any write. */
+export function epochFence(flags: Record<string, any>, session?: string): Fence | undefined {
+  const epoch = num(flags.epoch, '--epoch', { integer: true });
+  return epoch === undefined ? undefined : { epoch, ...(session !== undefined ? { session } : {}) };
+}
+
 // setPath walks these into Object.prototype.
 const PROTO_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -511,7 +532,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         return { ...created, repoBudget: repoBudgetBlock(status) };
       }
       // A split child starts unowned: the session claims each child only when it runs it.
-      if (session && !flags.parent) claimJob(root, job.id, session, false, daemonClaimOpts(root, job.id));
+      if (session && !flags.parent) claimJob(root, job.id, session, false);
       if (!limited) return created;
       logEvent(root, job.id, 'repo-budget-warn', { reason: status.reason });
       return { ...created, repoBudget: repoBudgetBlock(status) };
@@ -542,7 +563,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     }
     case 'list': {
       const jobs = listJobs(root).filter((j) => (flags.all ? true : isActive(j)));
-      return jobs.map((j) => ({ id: j.id, title: j.title, stage: j.stage, state: j.state, waitingOn: j.waitingOn, round: j.round, pr: j.pr?.number ?? null, owner: j.owner?.session ?? null, effort: j.effort }));
+      return jobs.map((j) => ({ id: j.id, title: j.title, stage: j.stage, state: j.state, waitingOn: j.waitingOn, round: j.round, pr: j.pr?.number ?? null, owner: j.lease.driver, effort: j.effort }));
     }
     case 'show': {
       const job = loadJob(root, req(id, 'job id'));
@@ -592,6 +613,7 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         reason: flags.reason,
         note,
         fields,
+        fence: epochFence(flags),
       });
       if ('dependsOn' in fields) {
         refreshDependencyWait(root, job.id);
@@ -609,11 +631,14 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       refuseInOffice(`it never claims ${jobId}`);
       const force = Boolean(flags.force);
       const session = req(str(flags.session, '--session'), '--session');
+      const fence = epochFence(flags, session);
+      // Before the budget check, which may park the job: a stale driver writes nothing.
+      if (fence) checkFence(root, jobId, fence);
       const status = checkRepoBudget(root, config);
       let budgetNote: { held: boolean; reason: string | null } | null = null;
       if (status.reason) {
         const cur = loadJob(root, jobId);
-        const own = ownerStatus(cur);
+        const own = leaseStatus(cur);
         const agentRunning = Object.values(cur.agents ?? {}).some((a) => a?.status === 'running');
         const foreignOwner = own.status === 'live' && own.session !== session;
         const limited = !repoBudgetExempt(root, cur, status) && !TERMINAL_STATES.includes(cur.state) && !agentRunning && !foreignOwner;
@@ -625,10 +650,11 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
         if ((limited && cur.state !== 'waiting') || agentRunning) budgetNote = repoBudgetBlock(status);
       }
       // Only a forced takeover is a person's decision; a plain claim is the pipeline's own.
-      const opts = { ...daemonClaimOpts(root, jobId), ...(force ? { actor: currentActor(root) } : {}) };
+      const opts = { ...(force ? { actor: currentActor(root) } : {}), ...(fence ? { fence } : {}) };
       const { job, overridden } = claimRespectingDeps(root, jobId, session, force, opts);
       if (budgetNote && !budgetNote.held) logEvent(root, job.id, 'repo-budget-warn', { reason: budgetNote.reason });
-      return { id: job.id, owner: job.owner, ...(overridden.length ? { dependenciesOverridden: overridden } : {}), ...(budgetNote ? { repoBudget: budgetNote } : {}) };
+      // The epoch is what the driver passes as --epoch to every later step and advance.
+      return { id: job.id, lease: job.lease, epoch: job.lease.epoch, ...(overridden.length ? { dependenciesOverridden: overridden } : {}), ...(budgetNote ? { repoBudget: budgetNote } : {}) };
     }
     case 'release': {
       const jobId = requireJob(root, id).id;
@@ -770,6 +796,9 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
       const durationMs = num(flags['duration-ms'], '--duration-ms');
       // `end` stays allowed, so a stray start can still be closed.
       if (phase === 'start') refuseInboxDrive(jobId);
+      // Before the output dir, the secret scan's event and the import: a stale driver leaves no trace.
+      const fence = epochFence(flags);
+      if (fence) checkFence(root, jobId, fence);
       let usage: (AgentUsage & { transcript?: string; through?: string | null }) | undefined;
       let since: string | null = null;
       let output: string | null = null;
@@ -813,7 +842,10 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
           ...(outputMissing !== null ? { outputMissing } : {}),
         },
         config,
+        fence,
       );
+      // The driver's agents are its activity: a start keeps the lease for the longest agent run, an end for the usual span.
+      renewLease(root, jobId, { ttl: phase === 'start' ? AGENT_LEASE_MS : undefined });
       const a = job.agents[role];
       const budget = phase === 'end' ? enforceBudget(root, config, job.id, 'agent-end') : null;
       return { role, status: a.status, model: a.model, usage: usage ? { tokens: usage.totalTokens, exact: Boolean(usage.exact), ...(since && usage.transcript ? { since } : {}) } : null, jobTokens: job.usage.totalTokens, jobCostUsd: job.usage.estCostUsd, ...(outputMissing !== null ? { outputMissing } : {}), ...(secrets ? { secrets } : {}), ...(budget ? { budget } : {}) };
@@ -941,9 +973,11 @@ export async function jobCmd(root: string, config: Config, sub: string | undefin
     }
     case 'step': {
       const jobId = loadJob(root, req(id, 'job id')).id;
-      // The loop's heartbeat: only the owner's own step refreshes its claim, and nothing else changes.
+      // The loop's renewal: only the driver's own step renews its lease, and nothing else changes.
       const session = str(flags.session, '--session');
-      if (session !== undefined) touchJob(root, jobId, session);
+      const fence = epochFence(flags, session);
+      if (session !== undefined) renewLease(root, jobId, { session, fence });
+      else if (fence) checkFence(root, jobId, fence);
       return step(loadStepInput(root, config, jobId));
     }
     default:
@@ -1020,7 +1054,7 @@ export function compactJob(root: string, job: Job): Record<string, unknown> {
     issues: job.issues,
     noIssue: job.noIssue,
     effort: job.effort,
-    owner: job.owner?.session ?? null,
+    owner: job.lease.driver,
     progress: progress(root, job.id),
     tokens: job.usage.totalTokens,
     estCostUsd: job.usage.estCostUsd,

@@ -847,7 +847,7 @@ function decide(x: StepInput): StepAction {
   }
   if (j.state === 'failed') return done(x, 'G2', `${j.id} failed: ${j.reason ?? 'no reason recorded'}`);
   if (j.state === 'waiting' && j.waitingOn === 'pr-review') {
-    if (j.owner) return run(x, 'G3', ['job', 'release', j.id], 'the PR waits on human review; let the claim go');
+    if (j.lease.driver) return run(x, 'G3', ['job', 'release', j.id], 'the PR waits on human review; let the claim go');
     if (parkedRunning(x)) return run(x, 'G3', ['environment', 'stop', j.id], 'stop the environment while the PR waits');
     return wait(x, 'G3', 'pr-review', prReviewTell(x));
   }

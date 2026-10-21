@@ -20,7 +20,7 @@ const CACHE_MAX = 64;
 const TARGET_KEYS = ['file_path', 'notebook_path', 'path', 'pattern', 'command', 'url', 'query', 'description', 'skill'];
 const PATH_KEYS = new Set(['file_path', 'notebook_path', 'path']);
 
-type JobRefs = Pick<Job, 'id' | 'owner' | 'runs' | 'agents' | 'worktree'>;
+type JobRefs = Pick<Job, 'id' | 'lease' | 'runs' | 'agents' | 'worktree'>;
 
 /** A located transcript: its resolved path and the project dir (`<projects>/<slug>`) it was confined to. */
 export interface TranscriptHit {
@@ -92,7 +92,7 @@ export function transcriptProjectDirs(root: string, job: Pick<Job, 'id' | 'workt
 /** The sessions an agent of this job may have run under: the owner's, then past runs newest first. */
 function jobSessions(job: JobRefs): string[] {
   const runs = (Array.isArray(job.runs) ? job.runs : []).map((r) => r?.session).reverse().slice(0, MAX_RUN_SESSIONS);
-  const ids = [job.owner?.session, ...runs].filter((s): s is string => typeof s === 'string' && UUID.test(s));
+  const ids = [job.lease?.driver, ...runs].filter((s): s is string => typeof s === 'string' && UUID.test(s));
   return [...new Set(ids)];
 }
 
@@ -159,7 +159,7 @@ export function agentTranscript(root: string, job: JobRefs, role: string, opts: 
 
 /** The transcript of the job's owner session, or null. */
 export function ownerTranscript(root: string, job: JobRefs, opts: TranscriptOpts = {}): TranscriptHit | null {
-  const sid = job.owner?.session;
+  const sid = job.lease?.driver;
   if (typeof sid !== 'string' || !UUID.test(sid)) return null;
   const projects = opts.projects ?? claudeProjectsDir();
   const projectsReal = realProjects(projects);

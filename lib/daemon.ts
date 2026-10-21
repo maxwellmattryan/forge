@@ -12,16 +12,16 @@ import path from 'node:path';
 import { effectiveLimits, exceededKeys, measureBudget } from './budget.ts';
 import { configForJob } from './eval-overlay.ts';
 import { TRUST_ENV, daemonProblems, defaults, loadConfig as defaultLoadConfig, trackerSymlinks, trustDigest } from './config.ts';
-import { RUNNING_AGENT_MAX_MS, loadJob, markAgentsLost } from './jobs.ts';
+import { AGENT_LEASE_MS, expireLease, loadJob, markAgentsLost, requeueOrphanedRequests } from './jobs.ts';
+import type { SessionFacts } from './reconcile.ts';
 import { redactKnown, scopeKnownValues } from './known-secrets.ts';
 import { queueNotify } from './notify.ts';
 import type { QueueNotify } from './notify.ts';
 import { PLUGIN_ROOT, paths } from './paths.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, enqueue, validJobId, validScope } from './requests.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, validJobId, validScope } from './requests.ts';
 import { repoBudgetExempt } from './repo-budget.ts';
 import { EFFORTS } from './schema.ts';
-import { GIT_PINS, isClaudeExecutable, now, run, sleepSync, splitWords, writeJsonAtomic } from './util.ts';
-import { pidAlive } from './worktree.ts';
+import { GIT_PINS, START_SLACK_MS, isClaudeExecutable, now, pidAlive, processStartMs, run, sleepSync, splitWords, writeJsonAtomic } from './util.ts';
 import type { Config, RepoBudgetStatus, DaemonAuth, DaemonPermissionMode, DaemonPermissionPrompt, DaemonSessionState, DaemonStatus, Effort, EffortSource, EventActor, ForgeRequest, JobAgent, PermissionDecision } from './types.ts';
 
 /** What a session reports to its pool: a log line as it is written, or its new state after a change. */
@@ -51,10 +51,10 @@ export interface DaemonOptions {
   retryMaxMs?: number;
   /** How long claude has to confirm a mode switch before the supervisor stops treating it as pending. */
   modeConfirmMs?: number;
-  /** How long after its last result or agent end a job session keeps its slot from a waiting job. */
-  slotGraceMs?: number;
-  /** How long an idle job session may sit with agents marked running and no background task left before it gets a resume. */
-  missedEndMs?: number;
+  /** A turn's limit in ms, over daemon.turnTimeoutMinutes (tests). */
+  turnTimeoutMs?: number;
+  /** How often a wanted pool reconciles (lib/reconcile.ts); 0 never does on a timer. */
+  reconcileMs?: number;
   /** The host platform; the pool refuses to start on native Windows (lib/platform.ts). */
   platform?: NodeJS.Platform;
   /** Where a daemon stop is announced (lib/notify.ts queueNotify). */
@@ -80,8 +80,8 @@ export interface SessionOptions {
   retryMinMs: number;
   retryMaxMs: number;
   modeConfirmMs: number;
-  slotGraceMs: number;
-  missedEndMs: number;
+  /** null: daemon.turnTimeoutMinutes decides. */
+  turnTimeoutMs: number | null;
   env: NodeJS.ProcessEnv;
   openLog: (file: string) => LogSink;
   readConfig: (root: string, opts?: { text?: string | null }) => { config: Config };
@@ -99,10 +99,7 @@ export function sessionOptions(opts: DaemonOptions = {}): SessionOptions {
     retryMinMs: opts.retryMinMs ?? 60_000,
     retryMaxMs: opts.retryMaxMs ?? 60 * 60_000,
     modeConfirmMs: opts.modeConfirmMs ?? 15_000,
-    // A review round ends a turn while its reviewers start: the grace covers the gap before they are recorded.
-    slotGraceMs: opts.slotGraceMs ?? 30_000,
-    // Long enough for a notification claude has queued to start its turn; short against the 45+ min stalls it ends.
-    missedEndMs: opts.missedEndMs ?? 60_000,
+    turnTimeoutMs: opts.turnTimeoutMs ?? null,
     env: opts.env ?? process.env,
     // fd-based, so a symlink planted as <scope>.log is refused rather than followed.
     openLog: opts.openLog ?? ((file: string) => fs.createWriteStream(file, { fd: openAppend(file) })),
@@ -125,6 +122,8 @@ export interface SessionContext {
   emit(e: SessionEvent): void;
   /** A turn's result arrived. */
   onResult(scope: string): void;
+  /** The child exited, after its agents, lease and claimed requests were let go: reconcile its job. */
+  onExit(scope: string): void;
   /** Something freed a slot or may have left work unserved: tick. */
   poke(): void;
   /** The mode a human chose for this scope in the dashboard, or null to keep daemon.command's. */
@@ -147,6 +146,8 @@ interface ChildMeta {
   committed: string[];
   /** Background tasks claude listed in its latest background_tasks_changed; null until it sends one. */
   background: number | null;
+  /** Why the supervisor stopped it, for the lease-expired event; null for an exit nobody asked for. */
+  reason: string | null;
 }
 
 /** A spawned session, with the supervisor's bookkeeping attached. */
@@ -166,9 +167,11 @@ export interface Session {
   readonly kept: 'agents' | null;
   /** Recomputes kept from job.json; emits a state frame when it changed. */
   refreshKept(): void;
-  /** Why it may not be evicted for a slot now: running agents, or a result or agent end under graceMs ago. */
-  keptBy(graceMs: number, at?: number): 'agents' | 'grace' | null;
+  /** Why it may not be evicted for a slot now: running agents of the job it drives. */
+  keptBy(at?: number): 'agents' | null;
   state(): DaemonSessionState;
+  /** What the reconciler needs to judge its job (lib/reconcile.ts judge). */
+  facts(): SessionFacts;
   /**
    * Applies this tick's pending requests for the scope: prunes, holds, and says whether any is fresh.
    * `repo` is the repo budget status, passed for job sessions only.
@@ -389,10 +392,6 @@ export const TRUST_CHANGED =
 /** The summary an agent gets when its session's child exits under it. */
 export const LOST_SUMMARY = 'lost: its daemon session ended';
 
-/** The text of the resume a session queues for a missed agent end (watchMissedEnd). Fixed: nothing from job.json reaches it. */
-export const MISSED_END_TEXT =
-  'supervisor: claude reports no background agent left, but job.json still marks agents running. Record each one that finished with `forge job agent <id> end` (its report and task notification are earlier in this conversation; one with neither ends with --status lost), then continue the step loop.';
-
 const RING_SIZE = 200;
 /** Lines kept in memory for replay are capped like SSE frames; the session log keeps them verbatim. */
 const RING_LINE_BYTES = 64 * 1024;
@@ -523,7 +522,7 @@ export function heldByRepoBudget(root: string, repo: RepoBudgetStatus | null | u
 export interface SessionAgents {
   /** Roles of its owned agents marked running, sorted. */
   running: string[];
-  /** A running agent started under RUNNING_AGENT_MAX_MS ago: the session keeps its slot and isn't idle-stopped. */
+  /** A running agent started under AGENT_LEASE_MS ago: the session keeps its slot and isn't idle-stopped. */
   keeps: boolean;
   /** The latest endedAt across its owned agents, whatever their status. */
   lastEndAt: string | null;
@@ -535,17 +534,17 @@ const noAgents = (): SessionAgents => ({ running: [], keeps: false, lastEndAt: n
 /**
  * How far ahead of now a job.json time may be and still count (clock skew between writers).
  * job.json is the session's own to write, so a time further ahead is ignored: a future startedAt
- * would otherwise dodge the RUNNING_AGENT_MAX_MS ceiling, and a future endedAt would hold the grace
- * (and the idle window) open for as long as it says.
+ * would otherwise dodge the AGENT_LEASE_MS ceiling, and a future endedAt would hold the idle window
+ * open for as long as it says.
  */
 const CLOCK_SKEW_MS = 60_000;
 
 /**
- * The agents a job session drives: those in its job.json, only while the job's owner is this
- * session. Another owner's agents (a human's terminal session, say), the inbox, and a missing or
+ * The agents a job session drives: those in its job.json, only while the job's lease driver is this
+ * session. Another driver's agents (a human's terminal session, say), the inbox, and a missing or
  * unreadable job all give none, so a session can never be kept, or have agents marked lost, on
- * the strength of agents it doesn't drive. A running agent keeps it only for RUNNING_AGENT_MAX_MS
- * after its start, the ceiling ownerStatus uses, so a phantom can't hold a slot forever.
+ * the strength of agents it doesn't drive. A running agent keeps it only for AGENT_LEASE_MS
+ * after its start, the lease agent start gives, so a phantom can't hold a slot forever.
  */
 export function sessionAgents(root: string, scope: string, sessionId: string | null, at = Date.now()): SessionAgents {
   // The office's scope is not a job id either, so it never has agents to keep it.
@@ -556,7 +555,7 @@ export function sessionAgents(root: string, scope: string, sessionId: string | n
   } catch {
     return noAgents();
   }
-  if (job.owner?.session !== sessionId) return noAgents();
+  if (job.lease.driver !== sessionId) return noAgents();
   const running: string[] = [];
   const keeping: string[] = [];
   let lastEnd = -Infinity;
@@ -565,7 +564,7 @@ export function sessionAgents(root: string, scope: string, sessionId: string | n
     if (a?.status === 'running') {
       running.push(role);
       const started = typeof a.startedAt === 'string' ? Date.parse(a.startedAt) : NaN;
-      if (Number.isFinite(started) && started <= at + CLOCK_SKEW_MS && at - started < RUNNING_AGENT_MAX_MS) keeping.push(`${role}@${a.startedAt}`);
+      if (Number.isFinite(started) && started <= at + CLOCK_SKEW_MS && at - started < AGENT_LEASE_MS) keeping.push(`${role}@${a.startedAt}`);
     }
     const endedAt = a?.endedAt;
     const ended = typeof endedAt === 'string' ? Date.parse(endedAt) : NaN;
@@ -624,9 +623,6 @@ export function withSessionId(info: any, next: string): any {
   return { ...info, sessionId: next, pastSessionIds: past.slice(-MAX_PAST_SESSION_IDS) };
 }
 
-/** How far the process's start time may be from the recorded `startedAt` (ps reports whole seconds). */
-const START_SLACK_MS = 30_000;
-
 /**
  * Whether `pid` is provably the claude child a supervisor recorded in a session record. That file
  * lives in the repo's runtime dir, so it is checked rather than trusted: the process must lead
@@ -637,14 +633,14 @@ export function isOurChild(info: any, pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) return false;
   const ids = [info.sessionId, info.spawnSessionId].filter((s) => typeof s === 'string' && UUID.test(s));
   if (!ids.length || typeof info.argv0 !== 'string' || !isClaudeExecutable(info.argv0) || !Date.parse(info.startedAt)) return false;
-  const ps = run('ps', ['-o', 'pgid=', '-o', 'lstart=', '-o', 'command=', '-p', String(pid)], { allowFail: true });
-  const m = ps.ok ? /^\s*(\d+)\s+(\w{3}\s+\w{3}\s+\d+\s+[\d:]+\s+\d{4})\s+(.*)$/s.exec(ps.stdout.trim()) : null;
+  const ps = run('ps', ['-o', 'pgid=', '-o', 'command=', '-p', String(pid)], { allowFail: true });
+  const m = ps.ok ? /^\s*(\d+)\s+(.*)$/s.exec(ps.stdout.trim()) : null;
   if (!m || Number(m[1]) !== pid) return false;
   const own = run('ps', ['-o', 'pgid=', '-p', String(process.pid)], { allowFail: true });
   if (!own.ok || Number(own.stdout.trim()) === pid) return false;
-  const started = Date.parse(m[2]);
-  if (!Number.isFinite(started) || Math.abs(started - Date.parse(info.startedAt)) > START_SLACK_MS) return false;
-  const command = m[3].trim();
+  const started = processStartMs(pid);
+  if (started === null || Math.abs(started - Date.parse(info.startedAt)) > START_SLACK_MS) return false;
+  const command = m[2].trim();
   const words = command.split(/\s+/);
   const exeOk = path.isAbsolute(info.argv0) ? `${command} `.includes(`${info.argv0} `) : words.some((w) => path.basename(w) === info.argv0);
   if (!exeOk) return false;
@@ -857,9 +853,8 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   const modeRequests = new Map<string, { mode: DaemonPermissionMode; timer: NodeJS.Timeout }>();
   /** The --effort the current child was spawned with (null: none passed). A later change waits for the next spawn. */
   let spawnEffort: Effort | null = null;
-  let missedTimer: NodeJS.Timeout | null = null;
-  /** The `keeping` a missed-end resume was last queued for, so one stuck set of agent runs gets one. */
-  let nudged: string | null = null;
+  /** Armed at each written turn, cleared by its result or the child's exit: daemon.turnTimeoutMinutes. */
+  let turnTimer: NodeJS.Timeout | null = null;
 
   // Never recreate a repo that was deleted under a running supervisor (or a test's temp repo).
   const persist = () => {
@@ -967,11 +962,77 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     }
   }
 
-  function keptBy(graceMs: number, at = Date.now()): 'agents' | 'grace' | null {
-    const a = agents(at);
-    if (a.keeps) return 'agents';
-    const times = [lastResultAt, a.lastEndAt].map((t) => (t ? Date.parse(t) : NaN)).filter(Number.isFinite);
-    return times.length && at - Math.max(...times) < graceMs ? 'grace' : null;
+  function keptBy(at = Date.now()): 'agents' | null {
+    return agents(at).keeps ? 'agents' : null;
+  }
+
+  /** Every id this scope's sessions ran under: current, past and the one its child was spawned with. */
+  function sessionIds(): string[] {
+    const ids = [info.sessionId, info.spawnSessionId, ...(Array.isArray(info.pastSessionIds) ? info.pastSessionIds : [])];
+    return [...new Set(ids.filter((s): s is string => typeof s === 'string' && UUID.test(s)))];
+  }
+
+  function facts(): SessionFacts {
+    const background = child?._forge.background;
+    return { ids: sessionIds(), status, background: typeof background === 'number' ? background : -1, idleSince: status === 'idle' ? lastResultAt : null };
+  }
+
+  /**
+   * The child is gone, so nothing it held is driven: its job's lease expires when one of its ids
+   * drives it (driver and epoch kept: anyone may now claim), and requests it claimed go back to
+   * pending (lib/requests.ts requeueOrphans). Never throws: an exit must finish.
+   */
+  function letGo(reason: string): void {
+    if (!fs.existsSync(root)) return;
+    const ids = sessionIds();
+    if (scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE && validJobId(scope)) {
+      try {
+        const session = expireLease(root, scope, ids, reason);
+        if (session) logEvent('lease-expired', { session, reason });
+      } catch (e) {
+        logEvent('error', { message: `expiring the lease: ${(e as Error).message}` });
+      }
+    }
+    try {
+      // No claim-age rule here: this session can't see which of the pool's others are mid-turn; the pool's reconciler can.
+      const { requeued, rejected } = requeueOrphanedRequests(root, { exited: ids, byAge: false });
+      if (requeued.length || rejected.length) logEvent('requeued', { requests: requeued.map((r) => r.id), rejected: rejected.map((r) => r.id) });
+    } catch (e) {
+      logEvent('error', { message: `requeueing claimed requests: ${(e as Error).message}` });
+    }
+  }
+
+  function clearTurn(): void {
+    if (turnTimer) clearTimeout(turnTimer);
+    turnTimer = null;
+  }
+
+  /**
+   * A turn still busy past daemon.turnTimeoutMinutes (or turnTimeoutMs) is stopped: the exit lets go
+   * of its agents, lease and claims, and the session stays wanted, so the pool respawns it for the
+   * requeued work. setTimeout is monotonic, so a wall-clock jump never fires it.
+   */
+  function armTurn(proc: DaemonChild): void {
+    clearTurn();
+    let ms = o.turnTimeoutMs;
+    if (ms === null) {
+      let minutes: unknown;
+      try {
+        minutes = ctx.config().daemon?.turnTimeoutMinutes;
+      } catch {}
+      if (typeof minutes !== 'number' || !(minutes > 0)) return;
+      ms = minutes * 60_000;
+    }
+    // setTimeout's own ceiling (about 24.8 days); a longer limit is no limit.
+    if (!(ms > 0) || ms > 2 ** 31 - 1) return;
+    const limit = ms;
+    turnTimer = setTimeout(() => {
+      turnTimer = null;
+      if (closed || child !== proc || status !== 'busy') return;
+      logEvent('turn-timeout', { minutes: Math.round((limit / 60_000) * 1000) / 1000 });
+      void kill('stop', true, 'turn-timeout');
+    }, limit);
+    turnTimer.unref?.();
   }
 
   /** Its child is gone, so nothing can answer them, and nothing it reported about its mode holds. */
@@ -1135,41 +1196,6 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     idleTimer.unref?.();
   }
 
-  function clearMissed(): void {
-    if (missedTimer) clearTimeout(missedTimer);
-    missedTimer = null;
-  }
-
-  /**
-   * Claude Code delivers a finished background agent as two queued messages, its report and its
-   * task notification, and can dequeue the second into an empty result the model never sees
-   * (num_turns 0; seen on 2.1.299). An orchestrator that ended the report's turn waiting for the
-   * notification then waits for good. So an idle child that lists no background task while its job
-   * still has agents running has nothing left to wake it: after missedEndMs the session queues its
-   * job a resume, once per stuck set of agent runs, and the pool turns it like any other request.
-   */
-  function watchMissedEnd(proc: DaemonChild): void {
-    clearMissed();
-    if (status !== 'idle' || proc._forge.background !== 0 || !agents().keeps) return;
-    missedTimer = setTimeout(() => {
-      missedTimer = null;
-      if (closed || child !== proc || status !== 'idle' || proc._forge.background !== 0 || !fs.existsSync(root)) return;
-      const a = agents();
-      const key = a.keeping.join(',');
-      if (!a.keeps || key === nudged) return;
-      try {
-        const rec = enqueue(root, null, { type: 'resume', job: scope, text: MISSED_END_TEXT, from: 'daemon:supervisor' });
-        // Only after it queued: a failed enqueue leaves the set eligible for the next idle result.
-        nudged = key;
-        logEvent('missed-agent-end', { roles: a.running, request: rec.id });
-      } catch (e) {
-        return void logEvent('error', { message: `queueing a resume for a missed agent end: ${(e as Error).message}` });
-      }
-      ctx.poke();
-    }, o.missedEndMs);
-    missedTimer.unref?.();
-  }
-
   /** This session can't start (its executable is missing, say): stop wanting it, and only it. */
   function sessionFatal(message: string): void {
     wanted = false;
@@ -1285,7 +1311,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     liveMode = launchMode ?? commandPermissionMode(c.daemon.command);
     spawnEffort = effort.level;
     clearModeRequests();
-    const meta: ChildMeta = { resume, stdout: false, init: false, result: false, asked: false, committed: [], background: null };
+    const meta: ChildMeta = { resume, stdout: false, init: false, result: false, asked: false, committed: [], background: null, reason: null };
     proc._forge = meta;
     info = { ...info, pid: proc.pid ?? null, serverPid: process.pid, argv0: argv[0], startedAt: now(), spawnSessionId: info.sessionId };
     persist();
@@ -1300,7 +1326,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
         // Never started (ENOENT, EACCES): retrying can't help, so stop wanting this session.
         child = null;
         clearIdle();
-        clearMissed();
+        clearTurn();
         inFlight = [];
         info = { ...info, pid: null };
         persist();
@@ -1371,7 +1397,8 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       // init alone is the signal, so a stray line after a result can never leave the session busy.
       status = 'busy';
       clearIdle();
-      clearMissed();
+      // A woken turn can hang like a written one, and a busy session counts as driving its job.
+      armTurn(proc);
       logEvent('wake');
       kept = computeKept();
       changed();
@@ -1394,9 +1421,8 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       }
     }
     if (ev.type === 'system' && ev.subtype === 'background_tasks_changed' && Array.isArray(ev.tasks)) {
+      // The reconciler reads it (facts): an idle session with none left and agents marked running is undriven.
       meta.background = ev.tasks.length;
-      // Mid-turn, the turn's result checks instead.
-      if (status === 'idle' && meta.result) watchMissedEnd(proc);
     }
     if (ev.type === 'control_request') onControl(proc, ev);
     if (ev.type === 'control_response') onControlResponse(ev);
@@ -1414,6 +1440,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     inFlight = [];
     lastResultAt = now();
     if (status === 'busy') status = 'idle';
+    clearTurn();
     kept = computeKept();
     if (ev.is_error === true) failedTurn(proc, ev, ids);
     else {
@@ -1429,7 +1456,6 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       try {
         armIdle(ctx.config());
       } catch {}
-      watchMissedEnd(proc);
     }
     ctx.onResult(scope);
   }
@@ -1477,10 +1503,19 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
 
   function onExit(proc: DaemonChild, code: number | null, signal: string | null): void {
     if (child !== proc) return;
+    try {
+      exited(proc, code, signal);
+    } finally {
+      // Last, once this session's own state is settled: the pool reconciles the job and ticks.
+      if (!closed) ctx.onExit(scope);
+    }
+  }
+
+  function exited(proc: DaemonChild, code: number | null, signal: string | null): void {
     const meta = proc._forge;
     child = null;
     clearIdle();
-    clearMissed();
+    clearTurn();
     dropPrompts();
     inFlight = [];
     status = 'off';
@@ -1489,6 +1524,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     persist();
     logEvent('exit', { code, signal });
     loseAgents();
+    letGo(meta.reason ?? `exited (code ${code}, signal ${signal})`);
     if (meta.asked) {
       // A failed turn's error describes the process just stopped on purpose; the log keeps it.
       // Clearing it lets a finished or slot-stopped session be pruned instead of showing failing forever.
@@ -1539,8 +1575,9 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       return;
     }
     proc._forge.asked = true;
+    proc._forge.reason = reason ?? event;
     clearIdle();
-    clearMissed();
+    clearTurn();
     status = 'stopping';
     kept = null;
     logEvent(event, { pid: proc.pid ?? null, ...(reason ? { reason } : {}) });
@@ -1570,6 +1607,8 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       info = { ...info, pid: null };
       persist();
       loseAgents();
+      letGo(proc._forge.reason ?? event);
+      if (!closed) ctx.onExit(scope);
     }
     if (!child) status = 'off';
     changed();
@@ -1588,7 +1627,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     info = { ...info, lastTurnAt: now() };
     persist();
     clearIdle();
-    clearMissed();
+    armTurn(child!);
     logEvent('turn', { requests: ids.length, turn: turns });
     changed();
   }
@@ -1622,6 +1661,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     refreshKept,
     keptBy,
     state,
+    facts,
     route(c, pending, repo = null) {
       const ids = new Set(pending.map((r) => r.id));
       for (const id of committed) if (!ids.has(id)) committed.delete(id);
@@ -1679,7 +1719,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       await kill('stop', false);
       closed = true;
       clearIdle();
-      clearMissed();
+      clearTurn();
       // Only our own record: a refused start must not clear the owning server's pid.
       if (info.serverPid === process.pid) {
         info = { ...info, pid: null, serverPid: null };

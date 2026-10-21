@@ -1,7 +1,6 @@
 // Tracker commands, starting jobs from tracker refs, and `forge sync` (PRs + trackers for every job).
-import { daemonClaimOpts, ownerStatusWithProof } from '../daemon-owner.ts';
 import { DEP_REASON, claimRespectingDeps, refreshDependencyWait, retargetPlan, unmetDependencies } from '../deps.ts';
-import { createJob, isActive, listJobs, loadJob, logEvent, readEvents, setJob, claimJob } from '../jobs.ts';
+import { createJob, isActive, leaseStatus, listJobs, loadJob, logEvent, readEvents, setJob, claimJob } from '../jobs.ts';
 import * as pr from '../pr.ts';
 import { measureOutcomes } from '../outcome.ts';
 import { queueScores } from '../scoring.ts';
@@ -21,6 +20,8 @@ import { loadTracker, memberTracker } from '../trackers/index.ts';
 import { matchMember, memberForRef, memberTrackerConfig, memberTrackers, qualify } from '../member-trackers.ts';
 import type { MemberTracker } from '../member-trackers.ts';
 import { DEFAULT_LIMIT, MAX_LIMIT, applyTriage, prepareTriage } from '../triage.ts';
+import { dashRunning, reconcile } from '../reconcile.ts';
+import type { ReconcileResult } from '../reconcile.ts';
 import { ForgeError } from '../util.ts';
 import * as wt from '../worktree.ts';
 import { bodyFrom, list, num, req, str, usageError } from './args.ts';
@@ -115,7 +116,7 @@ export const HELP: HelpGroup[] = [
   {
     name: 'sync',
     summary: 'reconcile PRs and trackers for all jobs',
-    commands: [{ command: 'sync', args: '', summary: "reconcile PRs and trackers for every job, measure merged jobs' outcomes (revert, follow-up bugs, churn; at most 10 per run), queue a post-merge judge score run for sampled merged jobs (scoring.sample; at most 5 per run), retarget stacked PRs, release dependency waits and finish umbrella jobs; a job's failure is reported in its result" }],
+    commands: [{ command: 'sync', args: '', summary: "reconcile PRs and trackers for every job, measure merged jobs' outcomes (revert, follow-up bugs, churn; at most 10 per run), queue a post-merge judge score run for sampled merged jobs (scoring.sample; at most 5 per run), retarget stacked PRs, release dependency waits and finish umbrella jobs; a job's failure is reported in its result. Then the reconciler's pass, unless a running forge dash owns it: `reconcile` lists the running jobs it resumed or escalated for having nothing to drive them, and the requests it requeued" }],
   },
   TRACKER,
 ];
@@ -166,13 +167,13 @@ export async function trackerCmd(root: string, config: Config, sub: string | und
 
 /**
  * Queued jobs nobody drives, oldest first: active, not eval, not an umbrella, dependencies done,
- * no resume hand-off pending or in progress, and an owner that is absent, stale or provably dead.
+ * no resume hand-off pending or in progress, and no live lease.
  */
 function resumeCandidates(root: string): Job[] {
   const handedOff = new Set(listRequests(root).filter((r) => r.type === 'resume' && (r.status === 'pending' || r.status === 'in-progress') && r.job).map((r) => r.job));
   return listJobs(root)
     .filter((j) => isActive(j) && j.state === 'queued' && j.kind !== 'eval' && !j.children?.length && !handedOff.has(j.id) && !unmetDependencies(root, j).length)
-    .filter((j) => ownerStatusWithProof(root, j, { env: process.env }).status !== 'live')
+    .filter((j) => leaseStatus(j).status !== 'live')
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id.localeCompare(b.id));
 }
 
@@ -180,7 +181,7 @@ function resumeCandidates(root: string): Job[] {
 function resumeQueued(root: string, session: string): Job | null {
   for (const candidate of resumeCandidates(root)) {
     try {
-      return claimRespectingDeps(root, candidate.id, session, false, daemonClaimOpts(root, candidate.id)).job;
+      return claimRespectingDeps(root, candidate.id, session, false).job;
     } catch (e) {
       if (e instanceof ForgeError && (e.exitCode === 3 || e.exitCode === 4)) continue;
       throw e;
@@ -334,7 +335,7 @@ export async function startFromRef(root: string, config: Config, tracker: Tracke
     finishEnvironment(root, config, job, setJob(root, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` }));
     throw new ForgeError(`could not claim ${ref}: ${claim.reason}`, 3);
   }
-  if (session) claimJob(root, job.id, session, false, daemonClaimOpts(root, job.id));
+  if (session) claimJob(root, job.id, session, false);
   return { id: job.id, ref: item.ref, title: item.title, branch: job.branch };
 }
 
@@ -368,7 +369,7 @@ async function startFromMemberRef(
     finishEnvironment(root, config, job, setJob(root, job.id, { state: 'cancelled', reason: `tracker claim failed: ${claim.reason}` }));
     throw new ForgeError(`could not claim ${ref}: ${claim.reason}`, 3);
   }
-  if (session) claimJob(root, job.id, session, false, daemonClaimOpts(root, job.id));
+  if (session) claimJob(root, job.id, session, false);
   return { id: job.id, ref, title: item.title, branch: job.branch, repo: member.name };
 }
 
@@ -510,7 +511,16 @@ function linkedMergeDeferred(root: string, config: Config, job: Job): boolean {
 export async function syncAll(
   root: string,
   config: Config,
-): Promise<{ synced: number; results: Record<string, unknown>[]; requests: number; integrating: string[]; outcomes?: { measured: number; finalized: string[] }; scoring?: { queued: string[]; held: string[] }; retention?: { archived: string[]; logs: string[] } }> {
+): Promise<{
+  synced: number;
+  results: Record<string, unknown>[];
+  requests: number;
+  integrating: string[];
+  outcomes?: { measured: number; finalized: string[] };
+  scoring?: { queued: string[]; held: string[] };
+  retention?: { archived: string[]; logs: string[] };
+  reconcile: ReconcileResult | 'skipped (forge dash owns it)' | { error: string };
+}> {
   const results: Record<string, unknown>[] = [];
   const integrating: string[] = [];
   for (const job of listJobs(root).filter((j) => j.kind !== 'eval')) {
@@ -606,6 +616,22 @@ export async function syncAll(
   }
   // The human's retention policy runs in any session, daemon ones included: they set it, not a request.
   const retention = applyRetention(root, config, 'policy');
-  // Counted last, so it includes the resumes sync queued for the jobs it routed.
-  return { synced: results.length, results, requests: listRequests(root, { status: 'pending' }).length, integrating, ...(outcomes ? { outcomes } : {}), ...(scoring ? { scoring } : {}), ...(retention ? { retention } : {}) };
+  const reconciled = syncReconcile(root, config);
+  // Counted last, so it includes the resumes sync and the reconciler queued.
+  return { synced: results.length, results, requests: listRequests(root, { status: 'pending' }).length, integrating, ...(outcomes ? { outcomes } : {}), ...(scoring ? { scoring } : {}), ...(retention ? { retention } : {}), reconcile: reconciled };
+}
+
+/**
+ * The reconciler's pass without `forge dash` (lib/reconcile.ts): a running dash reconciles on its own
+ * timer with its sessions' facts, so sync leaves it to the dash whenever a live process holds its lock.
+ * Read, never taken: a dash starting that instant must not find it held. A failed pass is reported,
+ * not thrown, since every other sync step has already run.
+ */
+function syncReconcile(root: string, config: Config): ReconcileResult | 'skipped (forge dash owns it)' | { error: string } {
+  if (dashRunning(root)) return 'skipped (forge dash owns it)';
+  try {
+    return reconcile(root, config);
+  } catch (e) {
+    return { error: (e as Error).message.slice(0, 300) };
+  }
 }

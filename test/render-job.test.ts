@@ -150,12 +150,12 @@ test('job step: done', () => {
   assert.equal(plain(jobStep, { id: 'j', rule: 'X', action: 'dance' }), null);
 });
 
-const owner = { session: 'abcdef1234567', host: 'box', since: 'x', heartbeat: 'y' };
+const lease = { driver: 'abcdef1234567', epoch: 2, since: 'x', renewedAt: 'y', expiresAt: 'z' };
 
 test('job claim: plain, overridden dependencies, repo budget', () => {
-  assert.equal(plain(jobClaim, { id: 'j', owner }), 'claimed j for session abcdef12 on box');
-  assert.equal(plain(jobClaim, { id: 'j', owner, dependenciesOverridden: ['a', 'b'] }), 'claimed j for session abcdef12 on box\noverrode dependencies: a, b');
-  assert.equal(plain(jobClaim, { id: 'j', owner, repoBudget: { held: false, reason: 'repo at 90% of its monthly budget' } }), 'claimed j for session abcdef12 on box\n! repo budget: repo at 90% of its monthly budget');
+  assert.equal(plain(jobClaim, { id: 'j', lease, epoch: 2 }), 'claimed j for session abcdef12 at epoch 2, lease until z');
+  assert.equal(plain(jobClaim, { id: 'j', lease, epoch: 2, dependenciesOverridden: ['a', 'b'] }), 'claimed j for session abcdef12 at epoch 2, lease until z\noverrode dependencies: a, b');
+  assert.equal(plain(jobClaim, { id: 'j', lease, epoch: 2, repoBudget: { held: false, reason: 'repo at 90% of its monthly budget' } }), 'claimed j for session abcdef12 at epoch 2, lease until z\n! repo budget: repo at 90% of its monthly budget');
 });
 
 test('job note', () => {
@@ -171,5 +171,5 @@ test('job: sanitizes untrusted text', () => {
   assertSafe(plain(jobStep, { id: 'j', rule: HOSTILE, action: 'run', command: [], shell: HOSTILE, why: HOSTILE, tell: HOSTILE }));
   assertSafe(plain(jobStep, { id: 'j', rule: 'W', action: 'wait', waitingOn: HOSTILE, running: [HOSTILE], tell: HOSTILE }));
   assertSafe(plain(jobStep, { id: 'j', rule: 'P', action: 'procedure', reference: HOSTILE, why: HOSTILE }));
-  assertSafe(plain(jobClaim, { id: HOSTILE, owner: { ...owner, host: HOSTILE }, dependenciesOverridden: [HOSTILE], repoBudget: { held: false, reason: HOSTILE } }));
+  assertSafe(plain(jobClaim, { id: HOSTILE, lease: { ...lease, driver: HOSTILE, expiresAt: HOSTILE }, dependenciesOverridden: [HOSTILE], repoBudget: { held: false, reason: HOSTILE } }));
 });

@@ -1,8 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { ownerStatusWithProof } from './daemon-owner.ts';
 import { FOREMAN_ACTOR, currentActor } from './actor.ts';
-import { isActive, isForemanActor, listJobs, loadJob, logEvent, logHumanEvent, readEvents, setJob, updateJob, jobDir } from './jobs.ts';
+import { isActive, isForemanActor, leaseStatus, listJobs, loadJob, logEvent, logHumanEvent, readEvents, setJob, updateJob, jobDir } from './jobs.ts';
 import { memberClone, memberConfig, memberEntry, memberRepos, memberWorktree } from './job-repos.ts';
 import { unpromotedDownstream } from './downstream.ts';
 import { REPO_NAME } from './member-repos.ts';
@@ -1059,7 +1058,7 @@ function startCiRework(root: string, config: Config, job: Job, failing: { names:
   let started = false;
   setJob(root, job.id, {
     derive: (j) => {
-      if (!parked(j) || j.pr?.headOid !== head || ownerStatusWithProof(root, j, { env: process.env }).status === 'live') return null;
+      if (!parked(j) || j.pr?.headOid !== head || leaseStatus(j).status === 'live') return null;
       started = true;
       // Not "CI": the default foreman.reserved lists it, and reservedFor reads this reason at the next head.
       return { stage: 'build', state: 'running', waitingOn: null, reason: `forge sync: checks failing on PR #${n}` };
@@ -1125,7 +1124,7 @@ function syncPrDetailed(root: string, config: Config, id: string, opts: { route?
       if (route && deferredOpenable(root, id, memberState)) {
         setJob(root, id, {
           derive: (j) => {
-            if (!reopenable(j, { route, ownerLive: () => ownerStatusWithProof(root, j, { env: process.env }).status === 'live' })) return null;
+            if (!reopenable(j, { route, ownerLive: () => leaseStatus(j).status === 'live' })) return null;
             reopen = true;
             return { ...REOPEN_CHANGE };
           },
@@ -1180,7 +1179,7 @@ function syncPrDetailed(root: string, config: Config, id: string, opts: { route?
   setJob(root, id, {
     derive: (j) => {
       const merged: JobPr = { ...j.pr, ...fresh, ...(humanDelta ? { humanDelta } : {}) };
-      const t = syncTransition(j, merged, config, { route, ownerLive: () => ownerStatusWithProof(root, j, { env: process.env }).status === 'live', members: memberStates, reopen: reopenReady });
+      const t = syncTransition(j, merged, config, { route, ownerLive: () => leaseStatus(j).status === 'live', members: memberStates, reopen: reopenReady });
       const { integrateFor: _previous, ...rest } = merged;
       synced = t.integrateFor ? { ...rest, integrateFor: t.integrateFor } : rest;
       integrate = t.integrate;

@@ -3,8 +3,9 @@
 // (FORGE_DAEMON=1) the session sees and claims only the requests routed to its scope.
 import path from 'node:path';
 import { inboxSessionIds } from '../daemon-owner.ts';
-import { releaseJob } from '../jobs.ts';
+import { releaseJob, requeueOrphanedRequests } from '../jobs.ts';
 import { exists, paths } from '../paths.ts';
+import { dashRunning } from '../reconcile.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, ackRequest, claimRequest, daemonScope, enqueue, listRequests, requestScope, validJobId } from '../requests.ts';
 import { ForgeError } from '../util.ts';
 import { req, str, usageError } from './args.ts';
@@ -17,7 +18,7 @@ const REQUESTS: HelpGroup = {
     {
       command: 'requests list',
       args: '[--all]',
-      summary: "pending requests (`forge requests` alone does the same); in a daemon session, only its scope's",
+      summary: "pending requests (`forge requests` alone does the same); in a daemon session, only its scope's. First returns to pending any in-progress request whose session is gone (its job lease expired, or its claim is 30 minutes old); one orphaned twice is rejected",
       flags: [['--all', 'include handled requests']],
       exits: [[1, "a daemon session's scope is invalid"]],
     },
@@ -84,6 +85,9 @@ export function requestsCmd(
   };
   if (!sub || sub === 'list') {
     const s = scoped();
+    // First, so a drain without `forge dash` sees the requests a dead session left claimed. While a
+    // dash runs, its reconciler applies the claim-age rule: only it knows which sessions are mid-turn.
+    requeueOrphanedRequests(root, { byAge: !dashRunning(root) });
     const all = listRequests(root, { status: flags.all ? undefined : 'pending' });
     return s.daemon ? all.filter((r) => requestScope(root, r) === s.scope) : all;
   }
@@ -120,7 +124,7 @@ export function requestsCmd(
     const job = rec.job;
     if (!validJobId(job) || !exists(path.join(paths(root).jobs, job, 'job.json'))) return { ...rec, released: false };
     const inbox = s.daemon && s.scope === INBOX_SCOPE ? inboxSessionIds(root) : [];
-    const released = releaseJob(root, job, (o) => Boolean(o && ((session !== null && o.session === session) || inbox.includes(o.session))));
+    const released = releaseJob(root, job, (l) => Boolean(l.driver && ((session !== null && l.driver === session) || inbox.includes(l.driver))));
     return { ...rec, released };
   }
   if (sub === 'claim' || sub === 'ack') {

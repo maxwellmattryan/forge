@@ -36,10 +36,10 @@ export function newestActivity(list: readonly AgentActivity[] | null | undefined
 /** Every running agent, newest first. */
 export const sortedActivity = (list: readonly AgentActivity[] | null | undefined): AgentActivity[] => [...(list ?? [])].sort(byNewest);
 
-/** The owner's liveness: `ok` while live, `warn` when stale or dead, and nothing without an owner. `age` is the heartbeat's. */
+/** The lease's state: `ok` while live, `warn` once expired, and nothing without a driver. `age` is the last renewal's. */
 export function ownerLiveness(o: OwnerStatus | null | undefined, now: number): { tone: 'ok' | 'warn' | null; status: string | null; age: string | null } {
   if (!o || o.status === 'none') return { tone: null, status: null, age: null };
-  return { tone: o.status === 'live' ? 'ok' : 'warn', status: o.status, age: ago(o.heartbeat ?? o.since, now) };
+  return { tone: o.status === 'live' ? 'ok' : 'warn', status: o.status, age: ago(o.renewedAt ?? o.since, now) };
 }
 
 /** A round agent row with its duration: the recorded one, or the live elapsed time while running. */

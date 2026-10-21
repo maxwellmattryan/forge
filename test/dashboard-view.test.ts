@@ -127,14 +127,19 @@ test('pipeline: filters, counts, board columns and nav badges', () => {
   assert.deepEqual(V.navCounts(JOBS), { active: 7, needs: 2 }, 'pr-review waits are not "needs you"');
   const now = Date.parse('2026-10-12T12:00:00Z');
   const owned: any = [
-    { owner: { session: 's1', heartbeat: '2026-10-12T11:45:00Z', since: '2026-10-12T10:00:00Z' } },
-    { owner: { session: 's1', heartbeat: '2026-10-12T11:59:00Z' } },
-    { owner: { session: 's2', heartbeat: null, since: '2026-10-12T11:50:00Z' } },
-    { owner: { session: 's3', heartbeat: '2026-10-12T11:00:00Z' } },
-    { owner: null },
+    { lease: { driver: 's1', epoch: 1, since: '2026-10-12T10:00:00Z', renewedAt: '2026-10-12T11:45:00Z', expiresAt: '2026-10-12T12:15:00Z' } },
+    { lease: { driver: 's1', epoch: 2, since: '2026-10-12T11:00:00Z', renewedAt: '2026-10-12T11:59:00Z', expiresAt: '2026-10-12T12:29:00Z' } },
+    { lease: { driver: 's2', epoch: 1, since: '2026-10-12T11:50:00Z', renewedAt: null, expiresAt: '2026-10-12T12:20:00Z' } },
+    // Expired, released and never-claimed leases group nobody: the grouping keys on a live driver.
+    { lease: { driver: 's3', epoch: 1, since: '2026-10-12T10:30:00Z', renewedAt: '2026-10-12T11:00:00Z', expiresAt: '2026-10-12T11:30:00Z' } },
+    { lease: { driver: null, epoch: 4, since: null, renewedAt: null, expiresAt: null } },
+    { lease: { driver: null, epoch: 0, since: null, renewedAt: null, expiresAt: null } },
   ];
-  const sessions = V.agentSessions(owned.filter((j) => j.owner), now);
-  assert.deepEqual(sessions.map((x) => [x.session, x.jobs.length, x.live]), [['s1', 2, true], ['s2', 1, true], ['s3', 1, false]]);
+  const sessions = V.agentSessions(owned, now);
+  assert.deepEqual(sessions.map((x) => [x.session, x.jobs.length, x.live, x.since, x.renewedAt]), [
+    ['s1', 2, true, '2026-10-12T10:00:00Z', '2026-10-12T11:59:00Z'],
+    ['s2', 1, true, '2026-10-12T11:50:00Z', null],
+  ]);
   assert.deepEqual(V.runningAgents([{ id: 'j', agents: { builder: { status: 'running', model: 'opus' }, x: { status: 'done' } } }] as any).map((a) => [a.job.id, a.role, a.model]), [['j', 'builder', 'opus']]);
 });
 
@@ -442,20 +447,20 @@ test('spec-approval on an unlinked job: the chooser replaces Approve', () => {
 });
 
 test('resumeModel', () => {
-  const os = (status: string, agentRunning = false): any => ({ status, session: 's1', since: null, heartbeat: null, agentRunning, reason: status === 'dead' ? 'not-running' : null });
+  const os = (status: string): any => ({ status, session: status === 'none' ? null : 's1', since: null, renewedAt: null, expiresAt: null, epoch: 1, jobSession: false });
   const m = (state: string, ownerStatus: any, kind = 'feature') => V.resumeModel({ state, kind, ownerStatus } as any);
   const show = (enabled: boolean, note: string | null) => ({ show: true, enabled, note });
   const hidden = { show: false, enabled: false, note: null };
-  assert.deepEqual(m('queued', os('none')), show(true, null), 'queued, no owner');
-  assert.deepEqual(m('queued', os('live')), show(false, 'live'), 'queued, live owner');
-  assert.deepEqual(m('failed', os('live', true)), show(false, 'agent'), 'failed, live owner with an agent');
-  assert.deepEqual(m('running', os('stale')), show(true, 'stale'), 'running, stale owner');
-  assert.deepEqual(m('blocked', os('dead')), show(true, 'gone'), 'blocked, dead owner');
-  assert.deepEqual(m('running', os('live')), hidden, 'running, live owner');
-  assert.deepEqual(m('running', os('none')), hidden, 'running, no owner');
-  assert.deepEqual(m('waiting', os('stale')), hidden, 'waiting keeps its gate buttons');
+  assert.deepEqual(m('queued', os('none')), show(true, null), 'queued, no driver');
+  assert.deepEqual(m('queued', os('live')), show(false, 'live'), 'queued, live lease');
+  assert.deepEqual(m('failed', os('live')), show(false, 'live'), 'failed, live lease (an agent run keeps it live)');
+  assert.deepEqual(m('running', os('expired')), show(true, 'expired'), 'running, expired lease');
+  assert.deepEqual(m('blocked', os('expired')), show(true, 'expired'), 'blocked, expired lease');
+  assert.deepEqual(m('running', os('live')), hidden, 'running, live lease');
+  assert.deepEqual(m('running', os('none')), hidden, 'running, no driver');
+  assert.deepEqual(m('waiting', os('expired')), hidden, 'waiting keeps its gate buttons');
   assert.deepEqual(m('done', os('none')), hidden);
-  assert.deepEqual(m('cancelled', os('stale')), hidden);
+  assert.deepEqual(m('cancelled', os('expired')), hidden);
   assert.deepEqual(m('queued', os('none'), 'eval'), hidden, 'eval jobs');
   assert.deepEqual(m('queued', undefined), show(true, null), 'a missing ownerStatus counts as none');
   assert.deepEqual(m('failed', null), show(true, null));

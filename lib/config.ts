@@ -220,6 +220,8 @@ export function defaults(): Config {
       // Matches runtime.maxParallelJobs; each job session drives one job.
       maxConcurrent: 3,
       idleStopMinutes: 30,
+      // A turn still running after this long is stopped and its work requeued; null never stops one.
+      turnTimeoutMinutes: 60,
       // Sessions run on the Claude login. An ANTHROPIC_API_KEY exported in the shell that ran
       // `forge dash` is dropped from their environment unless this is api-key, because claude
       // would silently bill it instead of the subscription.
@@ -709,6 +711,9 @@ export function daemonProblems(c: any, root?: string): string[] {
   const idle = d.idleStopMinutes;
   if (idle !== null && !(typeof idle === 'number' && Number.isFinite(idle) && idle > 0))
     problems.push(`daemon.idleStopMinutes must be null or a positive number (got ${JSON.stringify(idle)})`);
+  const turn = d.turnTimeoutMinutes;
+  if (turn !== null && !(typeof turn === 'number' && Number.isFinite(turn) && turn > 0))
+    problems.push(`daemon.turnTimeoutMinutes must be null or a positive number (got ${JSON.stringify(turn)})`);
   if (!DAEMON_AUTH.includes(d.auth)) problems.push(`daemon.auth must be one of ${DAEMON_AUTH.join(' | ')} (got ${JSON.stringify(d.auth)})`);
   problems.push(...jobBudgetProblems(d.jobBudget));
   const effort = c.runtime?.effort ?? null;

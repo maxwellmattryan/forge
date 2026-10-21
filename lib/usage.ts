@@ -91,7 +91,7 @@ export function estimateCost(
  */
 export function importClaudeCodeTranscript(
   agentId: string,
-  opts: { projectsDir?: string; since?: string | null; root?: string; job?: Pick<Job, 'id' | 'owner' | 'runs' | 'agents' | 'worktree'> } = {},
+  opts: { projectsDir?: string; since?: string | null; root?: string; job?: Pick<Job, 'id' | 'lease' | 'runs' | 'agents' | 'worktree'> } = {},
 ): TranscriptUsage | null {
   const projects = opts.projectsDir ?? claudeProjectsDir();
   const hit = opts.root && opts.job ? agentTranscriptById(opts.root, opts.job, agentId, { projects }) : null;

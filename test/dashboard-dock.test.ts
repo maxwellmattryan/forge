@@ -6,7 +6,7 @@ import { resumeModel } from '../dashboard/src/lib/view.ts';
 import { atBottom, FOLLOW_SLACK } from '../dashboard/src/lib/session-log.ts';
 
 const p = (id: string) => ({ id, tool: 'Bash', input: '{"command":"ls"}', description: null, agentId: null, blockedPath: null, sessionRules: [], sessionDirs: [], at: '2026-10-14T00:00:01Z' });
-const os = (status: string, agentRunning = false): any => ({ status, session: 's1', since: null, heartbeat: null, agentRunning, reason: status === 'dead' ? 'not-running' : null });
+const os = (status: string): any => ({ status, session: status === 'none' ? null : 's1', since: null, renewedAt: null, expiresAt: null, epoch: 1, jobSession: false });
 const pool = (j1: unknown[] = []): any => ({
   inbox: { scope: '_inbox', permissions: [p('i1')] },
   jobs: { j1: { scope: 'j1', permissions: j1 }, other: { scope: 'other', permissions: [p('o1')] } },
@@ -22,7 +22,7 @@ test('dockModel: when the dock shows and what it holds', () => {
     ['waiting on input', job('waiting', { waitingOn: 'input', ownerStatus: os('live') }), pool(), { show: true, actionable: true, prompts: [] }],
     ['failed', job('failed', { ownerStatus: os('none') }), pool(), { show: true, actionable: true, prompts: [] }],
     ['blocked', job('blocked', { ownerStatus: os('live') }), pool(), { show: true, actionable: true, prompts: [] }],
-    ['running, stale owner', job('running', { ownerStatus: os('stale') }), pool(), { show: true, actionable: false, prompts: [] }],
+    ['running, expired lease', job('running', { ownerStatus: os('expired') }), pool(), { show: true, actionable: false, prompts: [] }],
     ['running, own prompt', job('running', { ownerStatus: os('live') }), pool([p('j1a'), { tool: 'Bash' }]), { show: true, actionable: false, prompts: ['j1a'] }],
   ];
   for (const [name, j, pl, want] of cases) {
@@ -36,7 +36,7 @@ test('dockModel: when the dock shows and what it holds', () => {
     );
     assert.deepEqual(m.resume, resumeModel(j), `${name}: resume`);
   }
-  assert.equal(dockModel(job('running', { ownerStatus: os('stale') }), pool()).resume.show, true, 'the stale owner shows the dock through resume');
+  assert.equal(dockModel(job('running', { ownerStatus: os('expired') }), pool()).resume.show, true, 'the expired lease shows the dock through resume');
   assert.equal(dockModel(job('done'), null).show, false, 'no pool and nothing to do');
   assert.equal(dockModel(job('cancelled'), undefined).show, false);
   assert.equal(dockModel(job('running', { ownerStatus: os('live') }), { jobs: { x: { scope: 'j1', permissions: [p('k')] } } } as any).prompts.length, 1, 'scope, not the map key, picks the session');
