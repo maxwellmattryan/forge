@@ -942,7 +942,8 @@ test('drawer entry points pick their tab', () => {
     "components/InboxCard.svelte: openDrawer(j.id, doc, 'files')",
     "components/PermissionPrompts.svelte: openDrawer(s, null, 'log')",
     "components/statusbar/DaemonPanel.svelte: openDrawer(id, null, 'log')",
-  ], 'only the session entry points open on Log, and Read {doc} and View diff on Files');
+    "views/Project.svelte: openDrawer(id, null, 'details')",
+  ], 'only the session entry points open on Log, Read {doc} and View diff on Files, and a Running environments row on Details');
   assert.ok(read('components/CommandBar.svelte').includes('openDrawer(res.id);'), 'a new job opens on the default tab');
 });
 

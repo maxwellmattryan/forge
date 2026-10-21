@@ -85,14 +85,80 @@
     "editor": "Open in editor",
     "editorNone": "This job has no worktree yet",
     "editorOpened": "Opening the worktree in {editor}",
-    "run": "Run",
-    "runStarted": "Dev server started",
-    "runReused": "Dev server already running",
     "open": "Open",
     "live": "running",
     "stopped": "not running",
-    "backingAddress": "127.0.0.1:{port}",
-    "none": "No endpoint yet: the job needs a worktree and its ports"
+    "none": "No endpoint yet: the job needs a worktree and its ports",
+    "loading": "Loading…",
+    "start": "Start",
+    "stop": "Stop",
+    "restart": "Restart",
+    "logs": "Logs",
+    "failed": "The action failed",
+    "pollFailed": "Could not refresh: {error}",
+    "dev": {
+      "title": "Dev server",
+      "states": {
+        "running": "running",
+        "starting": "starting",
+        "down": "down",
+        "stopped": "stopped"
+      },
+      "listening": "listening",
+      "notAnswering": "not answering",
+      "lastLines": "Last lines before it stopped"
+    },
+    "backing": {
+      "title": "Backing services",
+      "states": {
+        "running": "running",
+        "stopped": "stopped",
+        "missing": "missing",
+        "unknown": "unknown",
+        "external": "external"
+      },
+      "health": {
+        "healthy": "healthy",
+        "unhealthy": "unhealthy",
+        "starting": "starting"
+      },
+      "isolation": {
+        "perJob": "per-job",
+        "shared": "shared",
+        "external": "external"
+      },
+      "dockerDown": "Docker is not reachable: start Docker to see and control these services."
+    },
+    "hints": {
+      "inactive": "Only an active job's environment can be started",
+      "noWorktree": "This job has no worktree yet",
+      "noManaged": "No backing service here is run by Forge",
+      "stopKeeps": "Stops this job's containers and keeps their data",
+      "notRunning": "Nothing is running",
+      "logsMissing": "No container yet: start the backing services to see its log",
+      "logsUnknown": "Its container can't be read: Docker is not reachable or the container isn't this job's"
+    },
+    "toasts": {
+      "devStarted": "Dev server started",
+      "devStopped": "Dev server stopped",
+      "devRestarted": "Dev server restarted",
+      "backingStarted": "Backing services started",
+      "backingStopped": "Backing services stopped",
+      "backingRestarted": "Backing services restarted"
+    },
+    "log": {
+      "title": "{source} log",
+      "aria": "{source} log lines",
+      "follow": "Follow",
+      "pauseHint": "Press to pause and keep your place",
+      "followHint": "Press to follow new lines",
+      "close": "Close log",
+      "ended": "Stream ended",
+      "waiting": "Waiting for lines…",
+      "emptyEnded": "No lines",
+      "failedDev": "No dev log to show: start the dev server, then open its log again.",
+      "failedBacking": "This log can't be shown: the container is gone or Docker is not reachable. Close it and try again."
+    }
   },
   "daemon": {
     "pill": "Daemon {label}",
@@ -412,6 +478,8 @@
     "jobs": "Jobs",
     "jobsSub": "{active} active · {done} done · {cancelled} cancelled",
     "jobsSubArchived": "{active} active · {done} done · {cancelled} cancelled · {archived} archived",
+    "autonomy": "Autonomy rate",
+    "autonomySub": "strict {strict} · reverted {reverted} · {final} of {merged} merged final",
     "firstPass": "First-pass review",
     "firstPassSub": "avg {rounds} rounds",
     "escalation": "Escalation rate",
@@ -524,6 +592,25 @@
       "highlight": "Highlight",
       "touched": "Touched",
       "consumer": "Consumer"
+    },
+    "environments": {
+      "title": "Running environments",
+      "loading": "Loading…",
+      "empty": "No environment is running.",
+      "dockerDown": "Docker is not reachable: containers are not listed.",
+      "failed": "Could not load the running environments: {error}",
+      "shared": "Shared services",
+      "aria": "Running environments",
+      "table": {
+        "job": "Job",
+        "state": "State",
+        "devPort": "Dev server",
+        "devCpu": "CPU",
+        "devMem": "Memory",
+        "containers": "Containers",
+        "cpu": "Containers CPU",
+        "mem": "Containers memory"
+      }
     }
   },
   "settings": {

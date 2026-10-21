@@ -624,9 +624,11 @@ test('CLI JSON keys are stable', POSIX, () => {
     assert.deepEqual(keyPaths(s.json(['stats', '--json']), ['waitingOn', 'cost.byRole', 'cost.byModel', 'reviewers', 'verifiers']), [
       'cost', 'cost.avgCostPerJobUsd', 'cost.avgTokensPerJob', 'cost.byModel', 'cost.byRole', 'cost.estCostUsd', 'cost.reportingCoverage', 'cost.reportingCoverage.agentRuns',
       'cost.reportingCoverage.exact', 'cost.reportingCoverage.withUsage', 'cost.totalTokens', 'counts', 'counts.active', 'counts.archived', 'counts.cancelled', 'counts.done', 'counts.failed',
-      'counts.total', 'counts.waiting', 'generatedAt', 'quality', 'quality.avgRounds', 'quality.escalationRate', 'quality.firstPassReviewRate', 'quality.foremanDecisions', 'quality.foremanReworks', 'quality.humanDeltaCoverage',
+      'counts.total', 'counts.waiting', 'generatedAt', 'quality', 'quality.autonomyRate', 'quality.autonomyRateStrict', 'quality.avgRounds', 'quality.churnRate', 'quality.escalationRate', 'quality.firstPassReviewRate', 'quality.followUpRate',
+      'quality.foremanDecisions', 'quality.foremanReworks', 'quality.humanDeltaCoverage',
       'quality.humanDeltaCoverage.measured', 'quality.humanDeltaCoverage.merged', 'quality.humanDeltaRate', 'quality.humanFeedbackOnPrRate', 'quality.humanReworks',
-      'quality.medianHumanDeltaLines', 'quality.recurringFindings', 'quality.specFirstApprovalRate', 'quality.verifyFirstPassRate', 'reviewers', 'since', 'speed', 'speed.medianMinutesToDone',
+      'quality.medianHumanDeltaLines', 'quality.outcomeCoverage', 'quality.outcomeCoverage.final', 'quality.outcomeCoverage.merged', 'quality.outcomeCoverage.open', 'quality.recurringFindings', 'quality.revertRate',
+      'quality.specFirstApprovalRate', 'quality.verifyFirstPassRate', 'reviewers', 'since', 'speed', 'speed.medianMinutesToDone',
       'speed.medianMinutesToPr', 'verifiers', 'waitingOn',
     ]);
     assert.deepEqual(keyPaths(s.json(['version', '--json'])), ['commit', 'installedAs', 'node', 'version']);

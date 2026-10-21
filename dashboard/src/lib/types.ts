@@ -3,7 +3,7 @@
 // ---------- constants mirrored from lib/schema.ts ----------
 
 /** lib/schema.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 29;
+export const API_VERSION = 30;
 /** lib/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox';
 /** lib/requests.ts OFFICE_SCOPE: the foreman's session, which decides gate requests. */
@@ -72,6 +72,23 @@ export interface HumanDelta {
   head?: string | null;
   measuredAt?: string;
   attempts?: number;
+}
+
+/** What happened to a merged job inside its window: measureOutcome in lib/outcome.ts. */
+export interface JobOutcome {
+  status: 'open' | 'final';
+  windowDays: number;
+  mergedAt: string;
+  closesAt: string;
+  mergeSha: string | null;
+  reverted: boolean | null;
+  revertedBy: { kind: 'commit'; sha: string } | { kind: 'pr'; number: number } | null;
+  followUps: number | 'unsupported' | null;
+  followUpRefs: string[];
+  churn: { commits: number; lines: number; files: number } | null;
+  measuredAt: string;
+  attempts: number;
+  reason?: string;
 }
 
 /** A job's pull request: findPr, openPr and syncPr in lib/pr.ts; sync-only fields are optional. */
@@ -308,6 +325,8 @@ export interface Job {
   interim: InterimStrategy | null;
   /** The root repo first, then member repos: `forge job repo add|remove` in lib/job-repos.ts. */
   repos: JobRepo[];
+  /** The merged root PR's post-merge outcome, written by `forge sync` (lib/outcome.ts); null until measured. */
+  outcome: JobOutcome | null;
 }
 
 /** A changed path an escalate rule matched; `rule` is 1-based and `blob` is null for a deletion. */
@@ -707,6 +726,14 @@ export interface Stats {
     specFirstApprovalRate: number | null;
     /** Recurring (lens, path) review findings across every job in the window. */
     recurringFindings: number;
+    /** Autonomous jobs (lib/autonomy.ts) over merged jobs with a final outcome. */
+    autonomyRate: number | null;
+    /** The same, also without a person's approval at a required gate. */
+    autonomyRateStrict: number | null;
+    revertRate: number | null;
+    followUpRate: number | null;
+    churnRate: number | null;
+    outcomeCoverage: { merged: number; final: number; open: number };
   };
   speed: { medianMinutesToPr: number | null; medianMinutesToDone: number | null };
   cost: {
@@ -1308,6 +1335,87 @@ export interface PostRunResponse {
 export interface PostEditorResponse {
   ok: true;
   editor: string;
+}
+
+/** A job's dev server: `down` is a recorded pid that is dead (it crashed or was killed outside Forge). */
+export type DevState = 'running' | 'starting' | 'down' | 'stopped';
+
+/** GET /api/jobs/:id/environment's dev row: `pid` only while alive, `tail` (oldest first) only when `down`. */
+export interface EnvironmentDev {
+  state: DevState;
+  pid: number | null;
+  port: number | null;
+  listening: boolean | null;
+  startedAt: string | null;
+  tail: string[];
+}
+
+/** A container's healthcheck status; null without a healthcheck or while not running. */
+export type BackingHealth = 'healthy' | 'unhealthy' | 'starting' | null;
+
+/** One `backing:` entry as the Environment card shows it (from `forge backing status <id>`). */
+export interface EnvironmentService {
+  name: string;
+  isolation: string;
+  managed: boolean;
+  container: string | null;
+  state: 'running' | 'stopped' | 'missing' | 'unknown' | 'external';
+  health: BackingHealth;
+  ports: Record<string, number>;
+}
+
+/** GET /api/jobs/:id/environment reply. `backingError` is the redacted reason the backing status failed. */
+export interface JobEnvironmentResponse {
+  job: string;
+  active: boolean;
+  worktree: boolean;
+  dev: EnvironmentDev | null;
+  backing: EnvironmentService[];
+  backingError: string | null;
+  /** Docker's state, asked only when a managed service reads `unknown`; null otherwise. */
+  docker: 'ok' | 'missing' | 'stopped' | null;
+  at: string;
+}
+
+export type EnvironmentTarget = 'dev' | 'backing';
+export type EnvironmentAction = 'start' | 'stop' | 'restart';
+
+/** POST /api/jobs/:id/environment body. */
+export interface PostEnvironmentBody {
+  target: EnvironmentTarget;
+  action: EnvironmentAction;
+}
+
+/** POST /api/jobs/:id/environment reply, with the environment read after the action. */
+export interface PostEnvironmentResponse {
+  target: EnvironmentTarget;
+  action: EnvironmentAction;
+  ok: boolean;
+  detail: string | null;
+  environment: JobEnvironmentResponse;
+}
+
+/** CPU % and memory of a process group or a container; null where they can't be measured. */
+export interface EnvironmentUsage {
+  cpu: number | null;
+  memBytes: number | null;
+}
+
+/** One row of GET /api/environments: a job (or, with `job: null`, the shared services) with what runs for it. */
+export interface EnvironmentRow {
+  job: string | null;
+  title: string;
+  state: string | null;
+  focused: boolean;
+  dev: ({ pid: number; port: number | null } & EnvironmentUsage) | null;
+  containers: ({ name: string; backing: string } & EnvironmentUsage)[];
+}
+
+/** GET /api/environments reply: every running environment in this checkout. */
+export interface EnvironmentsResponse {
+  docker: 'ok' | 'missing' | 'stopped' | 'error';
+  rows: EnvironmentRow[];
+  at: string;
 }
 
 /**
