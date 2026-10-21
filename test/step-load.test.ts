@@ -22,7 +22,7 @@ function pulledJob(pulled: string) {
 test('loadStepInput keeps pr-head-pulled: a merged pull re-verifies (PR2)', () => {
   const r = pulledJob('merge');
   try {
-    assert.equal(r.action.rule, 'PR2');
+    assert.equal(r.action.rule, 'PR2b');
     assert.equal(r.action.action, 'run');
     assert.deepEqual((r.action as any).command, ['verify', r.id]);
   } finally {

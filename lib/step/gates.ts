@@ -6,11 +6,11 @@ import { pastTotalCeiling, totalRoundCeiling } from '../foreman.ts';
 import { issueLinkStatus, prLinkNote } from '../issue-link.ts';
 import { protectedApproved, protectedReason } from '../protected.ts';
 import { pendingRepoProposals } from '../repo-proposals.ts';
-import type { RuleId } from './rules.ts';
-import type { StepAction, StepInput, WaitingOn } from '../types.ts';
+import type { StepInput, VerifyRun, WaitingOn } from '../types.ts';
 import { SAFE_REF } from '../util.ts';
 import { SAFE_URL, park, run, safe, set, toStage } from './actions.ts';
 import { after, afterIdx, agent, human, lastEvent, lastIdx, orNull, p } from './facts.ts';
+import type { Ctx, Rule, RuleId, Table } from './rules.ts';
 
 const CI_CAP_REASON = /^CI rework cap: [A-Za-z0-9 ._/,:#?-]{1,600}$/;
 
@@ -93,54 +93,98 @@ export function prReviewTell(x: StepInput): string {
   return lines.join('\n');
 }
 
-/**
- * SC1–SC3: a likely credential stopped verify or `pr open`. No agent retry gets past it: the job
- * parks on `human` until a human removes or allowlists the value and approves, and then the scan
- * runs again (SC2, or PR3 after SC3), which parks it again if the value is still there. A builder or
- * integrator that ran since the failing verify (a rework) hands the decision back to V1/IG7.
- */
-export function secretGate(x: StepInput): StepAction | null {
-  const j = x.job;
-  if (j.stage !== 'verify' && j.stage !== 'integrate' && j.stage !== 'pr') return null;
-  const stop = (rule: RuleId, reason: string) =>
-    j.kind === 'eval' ? set(x, rule, { state: 'failed', reason: `eval: ${reason}` }, 'an eval job has no human to clear a secret') : park(x, rule, 'human', reason);
-  const last = j.verifyRuns.at(-1);
-  if (last && !last.ok && last.failure === 'secrets' && !['builder', 'integrator'].some((r) => after(agent(x, r)?.endedAt, last.at))) {
-    if (after(human(x, 'approve')?.ts, last.at)) return run(x, 'SC2', ['verify', j.id], 'a human cleared the secret scan: scan again');
-    return stop('SC1', `secret scan blocked verify round ${Number(last.round) || 0}`);
-  }
-  if (j.stage === 'pr') {
-    const refused = lastIdx(x, (e) => e.type === 'secret-found' && e.gate === 'pr' && e.blocked === true);
+// ---------- SC: secret scan ----------
+
+interface SecretCtx extends Ctx {
+  last: VerifyRun | undefined;
+  /** The last verify failed on the secret scan and no builder or integrator ran since (a rework hands back to V1/IG7). */
+  blocked: boolean;
+  /** pr open's scan refused since the last open and the last verify, and no human approved since. */
+  refused: boolean;
+}
+
+function secretContext(c: Ctx): SecretCtx {
+  const { x } = c;
+  const last = x.job.verifyRuns.at(-1);
+  const blocked = Boolean(last && !last.ok && last.failure === 'secrets' && !['builder', 'integrator'].some((r) => after(agent(x, r)?.endedAt, last.at)));
+  let refused = false;
+  if (x.job.stage === 'pr') {
+    const at = lastIdx(x, (e) => e.type === 'secret-found' && e.gate === 'pr' && e.blocked === true);
     const opened = lastIdx(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated');
     const approved = lastIdx(x, (e) => e.type === 'human' && e.action === 'approve');
-    if (afterIdx(refused, orNull(opened)) && after(x.events[refused].ts, last?.at) && !afterIdx(approved, refused)) return stop('SC3', 'secret scan blocked pr open');
+    refused = afterIdx(at, orNull(opened)) && after(x.events[at].ts, last?.at) && !afterIdx(approved, at);
   }
-  return null;
+  return { ...c, last, blocked, refused };
 }
 
-/** PP1: the job changes escalate paths no human approved since their current content was recorded. */
-export function protectedPark(x: StepInput): StepAction | null {
-  const flag = x.job.protectedPaths;
-  if (!flag?.hits?.length || x.job.kind === 'eval' || protectedApproved(flag, x.events)) return null;
-  return park(x, 'PP1', 'human', protectedReason(flag));
-}
+const failEval = (x: StepInput, rule: RuleId, reason: string) => set(x, rule, { state: 'failed', reason: `eval: ${reason}` }, 'an eval job has no human to clear a secret');
+const blockedReason = (c: SecretCtx) => `secret scan blocked verify round ${Number(c.last?.round) || 0}`;
+const PR_REASON = 'secret scan blocked pr open';
 
 /**
- * PP2 then PP1 in the pr stage. A path the policy refuses is on the branch (verify failed on it, or
- * pr open refused it since the last open and verify): back to build, so PR2 and PR3 can't loop on
- * it. Then a flag raised after decide (by pr open, say) parks the job like PP1 in decide.
+ * SC1–SC3b: a likely credential stopped verify or `pr open`. No agent retry gets past it: the job
+ * parks on `human` until a human removes or allowlists the value and approves, and then the scan
+ * runs again (SC2, or PR3 after SC3b), which parks it again if the value is still there. An eval job
+ * fails instead (SC1, SC3): it has no human.
  */
-export function protectedGate(x: StepInput): StepAction | null {
-  const j = x.job;
-  if (j.stage !== 'pr') return null;
-  const last = j.verifyRuns.at(-1);
-  const back = () => toStage(x, 'PP2', 'build', 'a path the protected-paths policy refuses is on the branch');
-  if (last && !last.ok && last.failure === 'protected' && !after(agent(x, 'builder')?.endedAt, last.at)) return back();
-  const refused = lastIdx(x, (e) => e.type === 'protected-path' && e.gate === 'pr' && e.action === 'refuse');
-  const opened = lastIdx(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated');
-  if (afterIdx(refused, orNull(opened)) && after(x.events[refused].ts, last?.at)) return back();
-  return protectedPark(x);
-}
+export const SECRETS: Table<SecretCtx> = {
+  name: 'secrets',
+  applies: ({ x }) => ['verify', 'integrate', 'pr'].includes(x.job.stage),
+  context: secretContext,
+  rules: [
+    { id: 'SC2', when: (c) => c.blocked && after(human(c.x, 'approve')?.ts, c.last?.at), then: ({ x }) => run(x, 'SC2', ['verify', x.job.id], 'a human cleared the secret scan: scan again') },
+    { id: 'SC1', when: (c) => c.blocked && c.x.job.kind === 'eval', then: (c) => failEval(c.x, 'SC1', blockedReason(c)) },
+    { id: 'SC1b', when: (c) => c.blocked, then: (c) => park(c.x, 'SC1b', 'human', blockedReason(c)) },
+    { id: 'SC3', when: (c) => c.refused && c.x.job.kind === 'eval', then: (c) => failEval(c.x, 'SC3', PR_REASON) },
+    { id: 'SC3b', when: (c) => c.refused, then: (c) => park(c.x, 'SC3b', 'human', PR_REASON) },
+  ],
+};
+
+// ---------- PP: protected paths ----------
+
+/** PP1: the job changes escalate paths no human approved since their current content was recorded. Shared by the pr gate and decide. */
+export const PP1: Rule = {
+  id: 'PP1',
+  when: ({ x }) => {
+    const flag = x.job.protectedPaths;
+    return Boolean(flag?.hits?.length) && x.job.kind !== 'eval' && !protectedApproved(flag!, x.events);
+  },
+  then: ({ x }) => park(x, 'PP1', 'human', protectedReason(x.job.protectedPaths!)),
+};
+
+const BACK = 'a path the protected-paths policy refuses is on the branch';
+
+/**
+ * In the pr stage, a path the policy refuses is on the branch: back to build, so PR2 and PR3 can't
+ * loop on it (PP2: verify failed on it; PP2b: pr open refused it since the last open and verify).
+ * Then a flag raised after decide (by pr open, say) parks the job like PP1 in decide.
+ */
+export const PROTECTED: Table = {
+  name: 'protected',
+  applies: ({ x }) => x.job.stage === 'pr',
+  rules: [
+    {
+      id: 'PP2',
+      when: ({ x }) => {
+        const last = x.job.verifyRuns.at(-1);
+        return Boolean(last && !last.ok && last.failure === 'protected' && !after(agent(x, 'builder')?.endedAt, last.at));
+      },
+      then: ({ x }) => toStage(x, 'PP2', 'build', BACK),
+    },
+    {
+      id: 'PP2b',
+      when: ({ x }) => {
+        const at = lastIdx(x, (e) => e.type === 'protected-path' && e.gate === 'pr' && e.action === 'refuse');
+        const opened = lastIdx(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated');
+        return afterIdx(at, orNull(opened)) && after(x.events[at].ts, x.job.verifyRuns.at(-1)?.at);
+      },
+      then: ({ x }) => toStage(x, 'PP2b', 'build', BACK),
+    },
+    PP1,
+  ],
+};
+
+// ---------- RP: repo proposals ----------
 
 /** At most this many repo names in RP1's reason; the rest are counted. */
 const RP1_NAMES = 5;
@@ -151,30 +195,40 @@ const RP1_NAMES = 5;
  * one a human added mid-job, has no worktree yet. Names come from events but pass REPO_NAME, which
  * sits inside shellLine's safe class.
  */
-export function repoProposalGate(x: StepInput): StepAction | null {
-  const j = x.job;
-  if (j.stage === 'backlog' || j.stage === 'pr' || j.stage === 'done') return null;
-  const names = pendingRepoProposals(j, x.events).map((r) => r.repo);
-  if (names.length) {
-    const shown = names.slice(0, RP1_NAMES).join(', ') + (names.length > RP1_NAMES ? ` +${names.length - RP1_NAMES} more` : '');
-    return park(x, 'RP1', 'human', `repo proposal: ${shown}`);
-  }
-  if (x.memberWorktreesMissing) return run(x, 'RP2', ['worktree', 'create', j.id], 'an approved repo needs its worktree');
-  return null;
-}
+export const PROPOSALS: Table<Ctx & { names: string[] }> = {
+  name: 'proposals',
+  applies: ({ x }) => !['backlog', 'pr', 'done'].includes(x.job.stage),
+  context: (c) => ({ ...c, names: pendingRepoProposals(c.x.job, c.x.events).map((r) => r.repo) }),
+  rules: [
+    {
+      id: 'RP1',
+      when: (c) => c.names.length > 0,
+      then: ({ x, names }) => park(x, 'RP1', 'human', `repo proposal: ${names.slice(0, RP1_NAMES).join(', ')}${names.length > RP1_NAMES ? ` +${names.length - RP1_NAMES} more` : ''}`),
+    },
+    { id: 'RP2', when: ({ x }) => x.memberWorktreesMissing, then: ({ x }) => run(x, 'RP2', ['worktree', 'create', x.job.id], 'an approved repo needs its worktree') },
+  ],
+};
+
+// ---------- DS: downstream verification ----------
 
 /**
  * DS1: in build and verify, a changed repo has a linked consumer to add that the latest
  * `downstream-checked` event does not name, so `forge job repo downstream` runs (once per new
  * candidate: one it skipped, a failing clone included, waits for a human to run it again).
  */
-export function downstreamGate(x: StepInput): StepAction | null {
-  const j = x.job;
-  if ((j.stage !== 'build' && j.stage !== 'verify') || j.kind === 'eval' || x.config.downstream?.enabled !== true) return null;
-  const { add } = downstreamRepos(x.config, j, x.events, path.basename(x.root));
-  if (!add.length) return null;
-  const checked = lastEvent(x, (e) => e.type === 'downstream-checked');
-  const named = new Set<unknown>([...(Array.isArray(checked?.added) ? checked.added : []), ...(Array.isArray(checked?.skipped) ? checked.skipped.map((s: any) => s?.repo) : [])]);
-  if (add.every((name) => named.has(name))) return null;
-  return run(x, 'DS1', ['job', 'repo', 'downstream', j.id], 'a changed library has consumers to verify');
-}
+export const DOWNSTREAM: Table = {
+  name: 'downstream',
+  applies: ({ x }) => (x.job.stage === 'build' || x.job.stage === 'verify') && x.job.kind !== 'eval' && x.config.downstream?.enabled === true,
+  rules: [
+    {
+      id: 'DS1',
+      when: ({ x }) => {
+        const { add } = downstreamRepos(x.config, x.job, x.events, path.basename(x.root));
+        const checked = lastEvent(x, (e) => e.type === 'downstream-checked');
+        const named = new Set<unknown>([...(Array.isArray(checked?.added) ? checked.added : []), ...(Array.isArray(checked?.skipped) ? checked.skipped.map((s: any) => s?.repo) : [])]);
+        return add.length > 0 && !add.every((name) => named.has(name));
+      },
+      then: ({ x }) => run(x, 'DS1', ['job', 'repo', 'downstream', x.job.id], 'a changed library has consumers to verify'),
+    },
+  ],
+};

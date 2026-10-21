@@ -1,6 +1,8 @@
 // `step` as a table (issue #68): fixture state → the action it must return. The rows live in
-// test/step-rows.ts. Every rule ID in RULES names at least one row ("every rule has a row"), and
-// every row's commands are checked for shell safety ("emitted commands are shell-safe").
+// test/step-rows.ts; the rule tables in lib/step/ (order: lib/step/order.ts, pinned in
+// test/step-tables.test.ts). Every rule ID in RULES is what step returns for at least one row
+// ("every transition has a row"), and every row's commands are checked for shell safety
+// ("emitted commands are shell-safe").
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -61,7 +63,7 @@ for (const row of rows) {
 const rv9Skips: Row[] = [
   { name: 'RV9 a current panel moves on to RV2', fx: { job: inReview(), events: [panelled] }, want: { ...run('job', 'scope', 'j'), rule: 'RV2' } },
   { name: 'RV9 skipped once a reviewer of this round has started', fx: { job: inReview({ 'reviewer:code': ag(1, 12) }), events: [ev('scope', 11, { round: 1 })] }, want: { action: 'spawn', rule: 'RV4', role: 'reviewer:tests' } },
-  { name: 'RV9 skipped once the verdicts are recorded', fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } } }), events: [ev('scope', 11, { round: 1 })] }, want: { rule: 'RV8' } },
+  { name: 'RV9 skipped once the verdicts are recorded', fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } } }), events: [ev('scope', 11, { round: 1 })] }, want: { rule: 'RV8c' } },
   { name: 'RV9 skipped on a PR rework under changed', fx: { job: inReview({}, { pr: OPEN_PR }), events: [ev('scope', 11, { round: 1 })] }, want: { action: 'spawn', rule: 'RV4', role: 'reviewer:code' } },
   { name: 'RV9 skipped on a PR rework under none', fx: { config: (c) => (c.review.onPrFeedback = 'none'), job: inReview({}, { pr: OPEN_PR }) }, want: { rule: 'RV1' } },
 ];
@@ -85,7 +87,7 @@ const b7Skips: Row[] = [
   {
     name: 'B7 tell names the ceiling and a human',
     fx: { job: job({ stage: 'build', round: 5, maxRounds: 2, state: 'waiting', waitingOn: 'rounds-exhausted' }) },
-    want: { action: 'wait', rule: 'G4', tell: 'j reached the total-round ceiling (4 rounds): only a human may clear it. /forge approve j to ship, or /forge rework j <note>' },
+    want: { action: 'wait', rule: 'G4b', tell: 'j reached the total-round ceiling (4 rounds): only a human may clear it. /forge approve j to ship, or /forge rework j <note>' },
   },
   { name: 'B7 a round within the ceiling parks on B2', fx: { job: job({ stage: 'build', round: 4, maxRounds: 2, agents: { builder: ag(3, 5, 6) } }), events: [ev('round', 7)] }, want: { rule: 'B2' } },
 ];
@@ -123,12 +125,12 @@ const prTellRows: Row[] = [
   {
     name: 'PR5 tell: a CI rework cap names the failing checks',
     fx: { job: job({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review', round: 1, pr: OPEN_PR, reason: CAP_REASON }) },
-    want: { action: 'wait', rule: 'G3', tell: `j PR https://github.com/o/r/pull/3 waits on review\nj: ${CAP_REASON}. /forge rework j <note> once a human has looked` },
+    want: { action: 'wait', rule: 'G3c', tell: `j PR https://github.com/o/r/pull/3 waits on review\nj: ${CAP_REASON}. /forge rework j <note> once a human has looked` },
   },
   {
     name: 'PR5 tell: a reason outside the cap class is never echoed',
     fx: { job: job({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review', round: 1, pr: OPEN_PR, reason: 'CI rework cap: `$(id)`' }) },
-    want: { action: 'wait', rule: 'G3', tell: 'j PR https://github.com/o/r/pull/3 waits on review\nj: CI rework cap reached. /forge rework j <note> once a human has looked' },
+    want: { action: 'wait', rule: 'G3c', tell: 'j PR https://github.com/o/r/pull/3 waits on review\nj: CI rework cap reached. /forge rework j <note> once a human has looked' },
   },
 ];
 
@@ -173,9 +175,16 @@ test('retry and integration spawns never batch', () => {
   assert.ok(checked >= 5, `only ${checked} retry or integration spawns checked`);
 });
 
-test('every rule has a row', () => {
-  const missing = RULES.filter((r) => !rows.some((row) => row.name.startsWith(`${r} `)));
-  assert.deepEqual(missing, []);
+/** The IDs in `ids` that no row's fixture makes step return. */
+function uncovered(ids: readonly string[], list: Row[]): string[] {
+  const decided = new Set(list.map((row) => step(fixture(row.fx)).rule));
+  return ids.filter((id) => !decided.has(id));
+}
+
+test('every transition has a row', () => {
+  assert.deepEqual(uncovered(RULES, rows), []);
+  // It counts what step returns, not row names: a row named P2b that P1 decides covers nothing.
+  assert.deepEqual(uncovered(['P1', 'P2b'], [{ name: 'P2b only in name', fx: { job: job({ stage: 'plan' }) }, want: {} }]), ['P2b']);
 });
 
 test('emitted commands are shell-safe', () => {
@@ -208,7 +217,7 @@ test('a UI review starts the dev server once and stops it once', () => {
     else if (a.rule === 'RV7') runtime.length = 0;
     else break;
   }
-  assert.deepEqual(seen, ['RV3', 'RV6', 'RV7', 'RV8']);
+  assert.deepEqual(seen, ['RV3', 'RV6', 'RV7', 'RV8c']);
 });
 
 test('three lost reviewers are retried back to back, then one wait', () => {

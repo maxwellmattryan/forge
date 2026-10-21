@@ -2,11 +2,13 @@
 // review the resolution before the approver or the PR.
 import { generatedConfig } from '../../regenerate.ts';
 import { inSpec } from '../../scope.ts';
-import type { JobEvent, StepAction, StepInput } from '../../types.ts';
+import type { JobAgent, JobEvent, StepInput, VerifyRun } from '../../types.ts';
 import { park, run, set, spawn, toStage } from '../actions.ts';
 import { after, afterIdx, agent, approvedSinceReview, isPrRework, lastEvent, lastIdx, p } from '../facts.ts';
 import type { Facts } from '../facts.ts';
-import { missingOutput, needsInput } from '../generic.ts';
+import { missingOutputRows, needsInputRows } from '../generic.ts';
+import { inStage } from '../rules.ts';
+import type { Ctx, Table } from '../rules.ts';
 
 /** Where an up-to-date branch goes: the approver judges it first, unless it was approved already or its PR is open. */
 const afterIntegration = (x: StepInput, f: Facts) => (isPrRework(x) || approvedSinceReview(x, f) ? 'pr' : 'decide');
@@ -67,64 +69,93 @@ function firstIntegration(x: StepInput, f: Facts): number {
   return x.events.findIndex((e) => integrating(e) && after(e.ts, since));
 }
 
-export function integrate(x: StepInput, f: Facts): StepAction {
-  const j = x.job;
+interface IntegrateCtx extends Ctx {
+  /** The position of this episode's first integrate event, and the event; -1 and undefined before IG1 runs. */
+  at: number;
+  first: JobEvent | undefined;
+  /** The verify runs after the first integrate event. */
+  merged: VerifyRun[];
+  integrator: JobAgent | undefined;
+  /** The verify runs after the integrator ended. */
+  checks: VerifyRun[];
+  reviewer: JobAgent | undefined;
+  /** The integration review recorded since the reviewer ended. */
+  fresh: JobEvent | null;
+  /** Where an up-to-date branch goes (afterIntegration). */
+  next: 'pr' | 'decide';
+}
+
+function context(c: Ctx): IntegrateCtx {
+  const { x, f } = c;
   const at = firstIntegration(x, f);
   const first = x.events[at] as JobEvent | undefined;
-  if (!first) return run(x, 'IG1', ['integrate', j.id], 'bring the branch up to date with its base');
-  const verifiesAfter = (ts: string | null | undefined) => j.verifyRuns.filter((r) => after(r.at, ts));
-  if (first.type === 'integrated') {
-    if (Number(first.behind) > 0) {
-      const runs = verifiesAfter(first.ts);
-      if (!runs.length) return run(x, 'IG2', ['verify', j.id], 'the integration brought in new commits');
-      if (!runs.at(-1)!.ok) return toStage(x, 'IG2', 'build', 'verify failed after integrating the base');
-    }
-    const next = afterIntegration(x, f);
-    return toStage(x, 'IG3', next, next === 'pr' ? 'the branch is up to date: open the PR' : 'the branch is up to date: the approver decides');
-  }
-  const policy = x.config.pr.conflicts;
-  const files = Array.isArray(first.conflicts) ? first.conflicts.length : 0;
-  const approved = afterIdx(lastIdx(x, (e) => e.type === 'human' && e.action === 'approve'), at);
-  if (policy === 'ask' && !approved) return set(x, 'IG4', { state: 'waiting', waitingOn: 'conflicts', reason: `conflicts with base: ${files} files` }, 'a human decides how to resolve conflicts');
-  if (policy === 'defer') {
-    const next = afterIntegration(x, f);
-    return toStage(x, 'IG5', next, next === 'pr' ? 'conflicts deferred by pr.conflicts: open the PR' : 'conflicts deferred by pr.conflicts: the approver decides', { note: 'conflicts with base deferred' });
-  }
   const integrator = agent(x, 'integrator');
-  const runs = x.events.filter((e, i) => i > at && e.type === 'agent-start' && e.role === 'integrator').length;
-  if (!integrator || !after(integrator.startedAt, first.ts)) return spawn(x, 'IG6', 'integrator');
-  const n = needsInput(x, 'integrator');
-  if (n) return n;
-  const checks = verifiesAfter(integrator.endedAt);
-  if (!checks.length) return run(x, 'IG7', ['verify', j.id], 'verify the conflict resolution');
-  if (!checks.at(-1)!.ok) return park(x, 'IG7', 'escalation', 'integration: verify failed after conflict resolution');
   const reviewer = agent(x, 'reviewer:code');
-  if (!after(reviewer?.startedAt, integrator.endedAt)) {
-    const skipped = integrationReviewSkippable(x, first);
-    if (skipped > 0) {
-      const next = afterIntegration(x, f);
-      // The note carries only a count: conflicted names are untrusted and never reach the command.
-      return toStage(x, 'IG11', next, next === 'pr' ? 'only docs or generated files conflicted: open the PR' : 'only docs or generated files conflicted: the approver decides', {
-        note: `integration review skipped: only docs or generated files conflicted, ${skipped} files`,
-      });
-    }
-    return spawn(x, 'IG8', 'reviewer:code');
-  }
-  const m = missingOutput(x, 'reviewer:code');
-  if (m) return m;
   const reviewEv = lastEvent(x, (e) => e.type === 'integration-review');
-  const fresh = reviewEv && after(reviewEv.ts, reviewer?.endedAt) ? reviewEv : null;
-  if (!fresh) {
-    if (x.verdicts.integration?.reviewers.code?.verdict === 'MALFORMED') {
-      if (!reviewer?.retry) return spawn(x, 'RV5', 'reviewer:code', { retry: true, retryLine: `Retry: ${p(x, 'integrationReview')} has no VERDICT line; rewrite it in the required format.` });
-      return run(x, 'RV5', ['job', 'verdicts', j.id, '--round', 'integration', '--compact', '--malformed', 'changes'], 'the integration review failed the format twice: count it as CHANGES');
-    }
-    return run(x, 'IG9', ['job', 'verdicts', j.id, '--round', 'integration', '--compact'], 'record the integration review');
-  }
-  if (fresh.outcome === 'PASS') {
-    const next = afterIntegration(x, f);
-    return toStage(x, 'IG10', next, next === 'pr' ? 'the integration review passed: open the PR' : 'the integration review passed: the approver decides');
-  }
-  if (runs === 1) return spawn(x, 'IG10', 'integrator', { resume: true });
-  return park(x, 'IG10', 'escalation', 'integration review: CHANGES');
+  return {
+    ...c,
+    at,
+    first,
+    merged: x.job.verifyRuns.filter((r) => after(r.at, first?.ts)),
+    integrator,
+    checks: x.job.verifyRuns.filter((r) => after(r.at, integrator?.endedAt)),
+    reviewer,
+    fresh: reviewEv && after(reviewEv.ts, reviewer?.endedAt) ? reviewEv : null,
+    next: afterIntegration(x, f),
+  };
 }
+
+/** The first integrate event brought the branch up to date without conflicts. */
+const integrated = (c: IntegrateCtx) => c.first?.type === 'integrated';
+const behind = (c: IntegrateCtx) => integrated(c) && Number(c.first!.behind) > 0;
+/** No integration reviewer started since the integrator ended. */
+const unreviewed = (c: IntegrateCtx) => !after(c.reviewer?.startedAt, c.integrator?.endedAt);
+const malformed = (c: IntegrateCtx) => !c.fresh && c.x.verdicts.integration?.reviewers.code?.verdict === 'MALFORMED';
+const skipped = (c: IntegrateCtx) => (c.first ? integrationReviewSkippable(c.x, c.first) : 0);
+/** The why for a move on to `next`. */
+const onward = (c: IntegrateCtx, what: string) => `${what}: ${c.next === 'pr' ? 'open the PR' : 'the approver decides'}`;
+
+export const INTEGRATE: Table<IntegrateCtx> = {
+  name: 'integrate',
+  applies: inStage('integrate'),
+  context,
+  rules: [
+    { id: 'IG1', when: (c) => !c.first, then: ({ x }) => run(x, 'IG1', ['integrate', x.job.id], 'bring the branch up to date with its base') },
+    { id: 'IG2', when: (c) => behind(c) && !c.merged.length, then: ({ x }) => run(x, 'IG2', ['verify', x.job.id], 'the integration brought in new commits') },
+    { id: 'IG2b', when: (c) => behind(c) && !c.merged.at(-1)!.ok, then: ({ x }) => toStage(x, 'IG2b', 'build', 'verify failed after integrating the base') },
+    { id: 'IG3', when: integrated, then: (c) => toStage(c.x, 'IG3', c.next, onward(c, 'the branch is up to date')) },
+    {
+      id: 'IG4',
+      when: ({ x, at }) => x.config.pr.conflicts === 'ask' && !afterIdx(lastIdx(x, (e) => e.type === 'human' && e.action === 'approve'), at),
+      then: ({ x, first }) => set(x, 'IG4', { state: 'waiting', waitingOn: 'conflicts', reason: `conflicts with base: ${Array.isArray(first!.conflicts) ? first!.conflicts.length : 0} files` }, 'a human decides how to resolve conflicts'),
+    },
+    { id: 'IG5', when: ({ x }) => x.config.pr.conflicts === 'defer', then: (c) => toStage(c.x, 'IG5', c.next, onward(c, 'conflicts deferred by pr.conflicts'), { note: 'conflicts with base deferred' }) },
+    { id: 'IG6', when: ({ integrator, first }) => !integrator || !after(integrator.startedAt, first!.ts), then: ({ x }) => spawn(x, 'IG6', 'integrator') },
+    needsInputRows('integrator'),
+    { id: 'IG7', when: (c) => !c.checks.length, then: ({ x }) => run(x, 'IG7', ['verify', x.job.id], 'verify the conflict resolution') },
+    { id: 'IG7b', when: (c) => !c.checks.at(-1)!.ok, then: ({ x }) => park(x, 'IG7b', 'escalation', 'integration: verify failed after conflict resolution') },
+    // The note carries only a count: conflicted names are untrusted and never reach the command.
+    {
+      id: 'IG11',
+      when: (c) => unreviewed(c) && skipped(c) > 0,
+      then: (c) => toStage(c.x, 'IG11', c.next, onward(c, 'only docs or generated files conflicted'), { note: `integration review skipped: only docs or generated files conflicted, ${skipped(c)} files` }),
+    },
+    { id: 'IG8', when: unreviewed, then: ({ x }) => spawn(x, 'IG8', 'reviewer:code') },
+    missingOutputRows('reviewer:code'),
+    {
+      id: 'IG12',
+      when: (c) => malformed(c) && !c.reviewer?.retry,
+      then: ({ x }) => spawn(x, 'IG12', 'reviewer:code', { retry: true, retryLine: `Retry: ${p(x, 'integrationReview')} has no VERDICT line; rewrite it in the required format.` }),
+    },
+    { id: 'IG13', when: malformed, then: ({ x }) => run(x, 'IG13', ['job', 'verdicts', x.job.id, '--round', 'integration', '--compact', '--malformed', 'changes'], 'the integration review failed the format twice: count it as CHANGES') },
+    { id: 'IG9', when: (c) => !c.fresh, then: ({ x }) => run(x, 'IG9', ['job', 'verdicts', x.job.id, '--round', 'integration', '--compact'], 'record the integration review') },
+    { id: 'IG10', when: (c) => c.fresh?.outcome === 'PASS', then: (c) => toStage(c.x, 'IG10', c.next, onward(c, 'the integration review passed')) },
+    // One fix pass: the integrator ran once this episode.
+    {
+      id: 'IG10b',
+      when: ({ x, at }) => x.events.filter((e, i) => i > at && e.type === 'agent-start' && e.role === 'integrator').length === 1,
+      then: ({ x }) => spawn(x, 'IG10b', 'integrator', { resume: true }),
+    },
+    { id: 'IG10c', when: () => true, then: ({ x }) => park(x, 'IG10c', 'escalation', 'integration review: CHANGES') },
+  ],
+};

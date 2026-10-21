@@ -1,20 +1,24 @@
 // Design: the designer writes design.md, the spec-writer folds its spec deltas in, then back to spec.
-import type { StepAction, StepInput } from '../../types.ts';
 import { spawn, toStage } from '../actions.ts';
 import { after, agent, ended } from '../facts.ts';
-import { generic, missingOutput } from '../generic.ts';
+import { genericRows, missingOutputRows } from '../generic.ts';
+import { inStage } from '../rules.ts';
+import type { Ctx, Table } from '../rules.ts';
 
-export function design(x: StepInput): StepAction {
-  const d = agent(x, 'designer');
-  if (!ended(d)) return spawn(x, 'D1', 'designer');
-  const m = missingOutput(x, 'designer');
-  if (m) return m;
-  const sw = agent(x, 'spec-writer');
-  const folding = after(sw?.startedAt, d.endedAt);
-  if (x.designDeltas && !folding) return spawn(x, 'D2', 'spec-writer');
-  if (folding) {
-    const g = generic(x, 'spec-writer');
-    if (g) return g;
-  }
-  return toStage(x, 'D3', 'spec', 'back to the spec gate with the design');
+/** The spec-writer started after the designer ended: it is folding the spec deltas in. */
+interface DesignCtx extends Ctx {
+  folding: boolean;
 }
+
+export const DESIGN: Table<DesignCtx> = {
+  name: 'design',
+  applies: inStage('design'),
+  context: (c) => ({ ...c, folding: after(agent(c.x, 'spec-writer')?.startedAt, agent(c.x, 'designer')?.endedAt) }),
+  rules: [
+    { id: 'D1', when: ({ x }) => !ended(agent(x, 'designer')), then: ({ x }) => spawn(x, 'D1', 'designer') },
+    missingOutputRows('designer'),
+    { id: 'D2', when: ({ x, folding }) => x.designDeltas && !folding, then: ({ x }) => spawn(x, 'D2', 'spec-writer') },
+    ...genericRows<DesignCtx>((c) => (c.folding ? 'spec-writer' : null)),
+    { id: 'D3', when: () => true, then: ({ x }) => toStage(x, 'D3', 'spec', 'back to the spec gate with the design') },
+  ],
+};
