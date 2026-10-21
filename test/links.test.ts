@@ -1,6 +1,6 @@
 // Local links (config schemaVersion 12): the `link` shape on dependsOn edges, its validation, link
-// resolution against the job's repos, and the pure renderers. No sh and no toolchains, so this file
-// runs on CI's Windows leg too; the CLI and toolchain tests are links-cli and links-toolchains.
+// resolution against the job's repos, and the pure renderers. No sh and no toolchains;
+// the CLI and toolchain tests are links-cli and links-toolchains.
 import { after, describe, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

@@ -1,5 +1,5 @@
 // Secret sources (lib/secret-refs.ts): each source through a fake tool on PATH or a fixture, and
-// every failure closed without the value. The fakes are sh scripts, so this file is in WINDOWS_SKIP.
+// every failure closed without the value. The fakes are sh scripts.
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';

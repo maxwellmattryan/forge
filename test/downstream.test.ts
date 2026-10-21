@@ -1,5 +1,5 @@
 // Downstream verification (issue #186): config `downstream`, its migration, and the pure candidate
-// list (lib/downstream.ts). Pure data, no sh, so it also runs on CI's Windows leg.
+// list (lib/downstream.ts). Pure data, no sh.
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
