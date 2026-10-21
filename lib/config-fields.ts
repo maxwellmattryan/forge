@@ -13,7 +13,7 @@ import * as yaml from './yaml.ts';
 
 export { MODEL_RE };
 /** Keys whose value is a model alias or id, checked against MODEL_RE. */
-const isModelKey = (key: string) => key.startsWith('runtime.models.') || key.startsWith('runtime.modelByComplexity.') || key === 'runtime.reworkModel';
+const isModelKey = (key: string) => key.startsWith('runtime.models.') || key.startsWith('runtime.modelByComplexity.') || key === 'runtime.reworkModel' || key === 'scoring.model';
 const LABEL_PREFIX_RE = /^.+[:/-]$/;
 const MODEL_SUGGESTIONS = ['inherit', 'opus', 'sonnet', 'haiku', 'fable'];
 const SEVERITIES = ['blocker', 'major', 'minor', 'nit'];
@@ -121,6 +121,8 @@ export const FIELDS: ConfigField[] = [
   // Locked: the dashboard token alone must not be able to delete job files or session logs.
   field('retention.jobsDays', 'pipeline', 'Archive jobs after (days)', 'forge sync and forge dash archive finished jobs this many days old into .forge/archive/ and delete their job folders. Empty keeps them forever.', { type: 'integer', min: 1, max: 3650, nullable: true, locked: 'deletes job files' }),
   field('outcomes.windowDays', 'pipeline', 'Outcome window (days)', 'After a merge, forge sync watches this many days for a revert, follow-up bug issues and churn before the outcome is final and counts in the autonomy rate.', { type: 'integer', min: 1, max: 365 }),
+  field('scoring.sample', 'pipeline', 'Score sample', 'The share of merged jobs forge sync queues for one post-merge judge run, from 0 (off) to 1 (every job). The run counts toward spend and budgets.', { type: 'number', min: 0, max: 1 }),
+  field('scoring.model', 'pipeline', 'Scoring judge model', "The judge's model for post-merge score runs. Empty falls through to the judge model.", { type: 'string', nullable: true, suggestions: MODEL_SUGGESTIONS }),
   field('policy.protectedPaths', 'pipeline', 'Protected paths', 'Globs Forge refuses to write or escalates to a human; checked at forge git add/commit, verify and pr open.', { type: 'object', locked: 'names what Forge refuses to write' }),
   // Locked: the dashboard token alone must not redirect notifications or run a program.
   field('notify.webhooks', 'pipeline', 'Notification webhooks', 'URLs Forge posts a fixed-shape notification to on gates, PRs, failures and budget stops: each with url, optional events and format (json or slack).', { type: 'object', locked: 'names a URL Forge posts to' }),
@@ -391,6 +393,7 @@ export const CONFIG_DISCLOSURE: Record<string, Disclosure> = {
   retention: 'plain',
   environments: 'plain',
   outcomes: 'plain',
+  scoring: 'plain',
   notify: 'plain',
   'notify.webhooks': 'url',
   'notify.command': 'command',

@@ -92,6 +92,21 @@ export interface JobOutcome {
   reason?: string;
 }
 
+/** A sampled merged job's post-merge judge score: queueScores and recordScore in lib/scoring.ts. */
+export interface JobScore {
+  status: 'queued' | 'held' | 'scored' | 'failed';
+  /** null when held */
+  queuedAt: string | null;
+  /** 0-5, one decimal at most; only when scored */
+  value: number | null;
+  outOf: 5;
+  /** when held, scored or failed was set */
+  recordedAt: string | null;
+  judgeModel: string | null;
+  builderModel: string | null;
+  reason?: 'budget exceeded' | 'repo budget' | 'no score.md' | 'malformed score.md';
+}
+
 /** A job's pull request: findPr, openPr and syncPr in lib/pr.ts; sync-only fields are optional. */
 export interface JobPr {
   number: number;
@@ -318,6 +333,8 @@ export interface Job {
   repos: JobRepo[];
   /** The merged root PR's post-merge outcome, written by `forge sync` (lib/outcome.ts); null until measured. */
   outcome: JobOutcome | null;
+  /** The post-merge judge score of a sampled merged job (lib/scoring.ts); null until forge sync queues one. */
+  score: JobScore | null;
 }
 
 /** One `policy.protectedPaths` rule: docs/CONFIG.md "Protected paths". */
@@ -481,7 +498,7 @@ export interface StepInput {
 }
 
 /** The job files StepInput.files records. */
-export type StepFile = 'request' | 'plan' | 'spec' | 'design' | 'mockup' | 'build' | 'tasks' | 'questions' | 'feedback' | 'prFeedback' | 'runbook' | 'decision' | 'scope' | 'issueCandidates' | 'evalJudge';
+export type StepFile = 'request' | 'plan' | 'spec' | 'design' | 'mockup' | 'build' | 'tasks' | 'questions' | 'feedback' | 'prFeedback' | 'runbook' | 'decision' | 'scope' | 'issueCandidates' | 'evalJudge' | 'score';
 
 /** One member repo an agent proposed for a job (lib/repo-proposals.ts), as repo-proposals.json lists it. */
 export interface RepoProposal {
@@ -947,6 +964,8 @@ export interface Config {
   environments: { maxRunning: number | null };
   /** How long after a merge `forge sync` watches a job's outcome: docs/CONFIG.md "Outcomes". */
   outcomes: { windowDays: number };
+  /** The share of merged jobs that get one post-merge judge run, and its model: docs/CONFIG.md "Scoring". */
+  scoring: { sample: number; model: string | null };
   /** Where Forge pushes gate, PR, failure and budget notifications: docs/CONFIG.md "Notifications". */
   notify: { webhooks: NotifyWebhook[]; command: string | null };
   /** Repo-wide spend caps per UTC day and month: docs/CONFIG.md "Repo budget". */
@@ -1590,6 +1609,12 @@ export interface Stats {
     followUpRate: number | null;
     churnRate: number | null;
     outcomeCoverage: { merged: number; final: number; open: number };
+    /** The median post-merge judge score (0-5) over scored jobs (lib/scoring.ts). */
+    medianScore: number | null;
+    /** `sampled` counts jobs with any score; `merged` is the merged count above. */
+    scoreCoverage: { merged: number; sampled: number; scored: number; held: number; failed: number; queued: number };
+    /** Scored jobs per builder model (`unknown` when none was recorded). */
+    scoreByBuilderModel: Record<string, { scored: number; medianScore: number | null }>;
   };
   speed: { medianMinutesToPr: number | null; medianMinutesToDone: number | null };
   cost: {
@@ -1758,6 +1783,17 @@ export interface EvalCompare {
     stats: { a: EvalTaskAggregate | null; b: EvalTaskAggregate | null };
     delta: Record<EvalTaskMetric, EvalDelta>;
   }[];
+  /** Post-merge scores of real jobs merged in the 14 days before each run started (lib/scoring.ts). */
+  realJobs: { a: RealJobScores; b: RealJobScores };
+}
+
+/** Real jobs' post-merge scores over a window: realJobScores in lib/evals.ts. avgScore is 0-1, as avgJudgeScore. */
+export interface RealJobScores {
+  from: string;
+  to: string;
+  scored: number;
+  medianScore: number | null;
+  avgScore: number | null;
 }
 
 /** One run's stamps in a comparison. */

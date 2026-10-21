@@ -116,6 +116,8 @@ const resolvedIntegration = (events: ReturnType<typeof ev>[], config: (c: Config
   events: [...events, ev('agent-start', 33, { role: 'integrator' })],
   integrationTouched: { head: HEAD_SHA, upstream: BASE_SHA, sha: 's', files: listed(events), ...touched },
 });
+/** A post-merge score run forge sync queued at minute 20. */
+const QUEUED_SCORE: NonNullable<Job['score']> = { status: 'queued', queuedAt: t(20), value: null, outOf: 5, recordedAt: null, judgeModel: null, builderModel: null };
 const OPEN_PR: Job['pr'] = { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) };
 type Side = { stage: string; state?: string; waitingOn?: string | null };
 /** A transition event at minute n; a side's state defaults to running. */
@@ -160,6 +162,26 @@ const ppPark = (parkAt: number, approveAt: number, human: Record<string, unknown
 const rows: Row[] = [
   // ---- Global
   { name: 'G1 a done job is done', fx: { job: job({ stage: 'done', state: 'done' }) }, want: { action: 'done', state: 'done' } },
+  { name: 'G1 with score scored', fx: { job: job({ stage: 'done', state: 'done', score: { ...QUEUED_SCORE, status: 'scored', value: 4, recordedAt: t(30) }, agents: { judge: ag(1, 21, 25) } }) }, want: { action: 'done', state: 'done' } },
+  { name: 'G1 with score null', fx: { job: job({ stage: 'done', state: 'done', score: null }) }, want: { action: 'done', state: 'done' } },
+  { name: 'G1 with score failed', fx: { job: job({ stage: 'done', state: 'done', score: { ...QUEUED_SCORE, status: 'failed', recordedAt: t(30), reason: 'no score.md' }, agents: { judge: ag(1, 21, 25) } }) }, want: { action: 'done', state: 'done' } },
+  { name: 'G1 an eval job never runs a score', fx: { job: job({ kind: 'eval', stage: 'done', state: 'done', score: QUEUED_SCORE }) }, want: { action: 'done', state: 'done' } },
+  { name: 'G1 a cancelled job with a queued score is done', fx: { job: job({ stage: 'done', state: 'cancelled', score: QUEUED_SCORE }) }, want: { action: 'done', state: 'cancelled' } },
+  {
+    name: 'JS2 spawns the scoring judge on a done job',
+    fx: { job: job({ stage: 'done', state: 'done', round: 1, score: QUEUED_SCORE }), files: ['request', 'spec'], present: [path.join(JOB_DIR, 'score.diff')] },
+    want: { action: 'spawn', role: 'judge', agent: 'forge:judge', output: path.join(JOB_DIR, 'score.md'), model: 'opus' },
+    check: (a) => assert.deepEqual(a.start, ['job', 'agent', 'j', 'start', '--role', 'judge', '--model', 'opus', '--output', path.join(JOB_DIR, 'score.md')]),
+  },
+  {
+    name: 'JS2 takes scoring.model',
+    fx: { config: (c) => (c.scoring.model = 'haiku'), job: job({ stage: 'done', state: 'done', score: QUEUED_SCORE }) },
+    want: { action: 'spawn', role: 'judge', model: 'haiku', output: path.join(JOB_DIR, 'score.md') },
+  },
+  { name: 'JS2 an older judge run does not count', fx: { job: job({ stage: 'done', state: 'done', score: QUEUED_SCORE, agents: { judge: ag(1, 5, 9) } }) }, want: { action: 'spawn', role: 'judge' } },
+  { name: 'JS1 waits while the scoring judge runs', fx: { job: job({ stage: 'done', state: 'done', score: QUEUED_SCORE, agents: { judge: ag(1, 21) } }) }, want: { action: 'wait', waitingOn: 'agents', running: ['judge'] } },
+  { name: 'JS3 records the score once the judge ends', fx: { job: job({ stage: 'done', state: 'done', score: QUEUED_SCORE, agents: { judge: ag(1, 21, 25) } }) }, want: run('job', 'score', 'record', 'j') },
+  { name: 'JS3 records a lost judge too', fx: { job: job({ stage: 'done', state: 'done', score: QUEUED_SCORE, agents: { judge: ag(1, 21, 25, { status: 'lost' }) } }) }, want: run('job', 'score', 'record', 'j') },
   { name: 'G1 a cancelled job is done', fx: { job: job({ stage: 'build', state: 'cancelled' }) }, want: { action: 'done', state: 'cancelled', tell: 'j is cancelled' } },
   { name: 'G2 a failed job reports its reason', fx: { job: job({ stage: 'backlog', state: 'failed', reason: 'worktree setup failed' }) }, want: { action: 'done', state: 'failed', tell: 'j failed: worktree setup failed' } },
   { name: 'G3 releases the claim while the PR waits', fx: { job: job({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review', owner: { session: 's', host: 'h', since: t(0), heartbeat: t(0) } }) }, want: run('job', 'release', 'j') },

@@ -147,7 +147,7 @@ test('v10 jobs migrate source to issues unchanged otherwise', () => {
       const raw = v10(source, extra);
       const job = normalizeJob(raw);
       assert.equal(job.schemaVersion, JOB_SCHEMA_VERSION);
-      assert.equal(JOB_SCHEMA_VERSION, 15);
+      assert.equal(JOB_SCHEMA_VERSION, 16);
       assert.deepEqual(job.issues, issues, JSON.stringify(source));
       assert.ok(!('source' in job), 'no source key');
       assert.deepEqual(job.noIssue, raw.noIssue, 'noIssue unchanged');

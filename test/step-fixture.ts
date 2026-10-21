@@ -64,6 +64,7 @@ const FILE_NAMES: Record<StepFile, string> = {
   scope: 'scope.md',
   issueCandidates: 'issue-candidates.md',
   evalJudge: 'eval-judge.md',
+  score: 'score.md',
 };
 
 /** Verdicts for each lens as roundVerdicts would report them. */

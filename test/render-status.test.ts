@@ -64,6 +64,9 @@ const STATS = {
     followUpRate: 0.25,
     churnRate: 0.5,
     outcomeCoverage: { merged: 6, final: 4, open: 1 },
+    medianScore: 4,
+    scoreCoverage: { merged: 6, sampled: 5, scored: 3, held: 1, failed: 0, queued: 1 },
+    scoreByBuilderModel: { opus: { scored: 3, medianScore: 4 } },
   },
   speed: { medianMinutesToPr: 30, medianMinutesToDone: null },
   cost: { totalTokens: 1234567, estCostUsd: 12.5, avgTokensPerJob: null, avgCostPerJobUsd: 3.13, reportingCoverage: { agentRuns: 10, withUsage: 9, exact: 8 }, byRole: {}, byModel: {} },
@@ -75,6 +78,7 @@ const tokens = (1234567).toLocaleString();
 const LINES = [
   'jobs 4 (active 2, done 1, waiting 1, cancelled 1)',
   'autonomy 75% (strict 50%) · reverted 0% · follow-ups 25% · churn 50% · outcomes final 4/6 (open 1)',
+  'score median 4/5 · scored 3/5 sampled (held 1, failed 0)',
   'first-pass review 50% · avg rounds 1.5 · verify first-pass 100% · recurring findings 2',
   'escalations 25% · PRs with human feedback — · human reworks 1 · spec approved first try 75%',
   'human delta after push 10% · median 12 lines · measured 1/2',
@@ -89,8 +93,15 @@ test('statsText is unchanged', () => {
   assert.deepEqual(statsSections(STATS).reviewers, [['code', '50% changes, 10% disputed'], ['security', '— changes, 0% disputed']]);
 });
 
+test('stats: score line with nothing scored, and from an older stats object', () => {
+  const none = { ...STATS, quality: { ...STATS.quality, medianScore: null, scoreCoverage: { merged: 6, sampled: 1, scored: 0, held: 1, failed: 0, queued: 0 }, scoreByBuilderModel: {} } } as Stats;
+  assert.ok(statsText(none).split('\n').includes('score median - · scored 0/1 sampled (held 1, failed 0)'));
+  const { medianScore: _m, scoreCoverage: _c, scoreByBuilderModel: _b, ...olderQuality } = STATS.quality;
+  assert.ok(statsText({ ...STATS, quality: olderQuality } as Stats).split('\n').includes('score median - · scored 0/0 sampled (held 0, failed 0)'));
+});
+
 test('stats: headings, then reviewers and verifiers one per line', () => {
-  const head = ['Jobs', `  ${LINES[0]}`, '', 'Quality', `  ${LINES[1]}`, `  ${LINES[2]}`, `  ${LINES[3]}`, `  ${LINES[4]}`, '', 'Speed', `  ${LINES[5]}`, '', 'Cost', `  ${LINES[6]}`];
+  const head = ['Jobs', `  ${LINES[0]}`, '', 'Quality', `  ${LINES[1]}`, `  ${LINES[2]}`, `  ${LINES[3]}`, `  ${LINES[4]}`, `  ${LINES[5]}`, '', 'Speed', `  ${LINES[6]}`, '', 'Cost', `  ${LINES[7]}`];
   assert.equal(plain(stats, STATS), [...head, '', 'Reviewers', '  code  50% changes, 10% disputed', '  security  — changes, 0% disputed', '', 'Verifiers', '  no-todo  20% hit over 5 runs, 1 blocked'].join('\n'));
   const { verifiers: _v, ...older } = STATS;
   assert.equal(plain(stats, { ...older, reviewers: {} }), head.join('\n'), 'an older stats object with no verifiers, and no reviewers');
