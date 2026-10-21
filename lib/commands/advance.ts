@@ -8,7 +8,7 @@ import { progressMark } from '../stranded.ts';
 import { loadStepInput, step } from '../step.ts';
 import { ForgeError, safeText } from '../util.ts';
 import { num, req, str } from './args.ts';
-import type { AdvanceRan, CliContext, Dispatch, Dispatched } from '../types.ts';
+import type { AdvanceRan, CliContext, Dispatch, Dispatched, Job } from '../types.ts';
 
 /**
  * The command groups advance runs: every group lib/step.ts emits. Anything else (config writes,
@@ -100,8 +100,10 @@ export async function advance(ctx: CliContext, id: string, opts: { session: stri
  * Logs an `advance-failed` event, and parks the job on escalation when the same rule and command
  * already failed with no pipeline progress since (lib/stranded.ts): a session that stopped there
  * would leave the job running with nothing to drive it, so the gate hands it to the foreman instead.
+ * The running check is made under the job lock: a job a human or another session moved since the
+ * events were read is left exactly as it is. `hooks.beforePark` is a test seam, run just before.
  */
-function parkRepeatedFailure(ctx: CliContext, id: string, rule: string, command: readonly string[], error: string): boolean {
+export function parkRepeatedFailure(ctx: CliContext, id: string, rule: string, command: readonly string[], error: string, hooks: { beforePark?: () => void } = {}): boolean {
   const { root, config } = ctx;
   const events = readEvents(root, id);
   const mark = progressMark(events);
@@ -109,9 +111,17 @@ function parkRepeatedFailure(ctx: CliContext, id: string, rule: string, command:
   logEvent(root, id, 'advance-failed', { rule, command, error, mark });
   if (!prev || prev.rule !== rule || JSON.stringify(prev.command) !== JSON.stringify(command) || prev.mark !== mark) return false;
   const reason = safeText(`${rule}: forge ${command.slice(0, 2).join(' ')} failed twice: ${error}`).slice(0, 200);
-  const before = loadJob(root, id);
-  if (before.state !== 'running') return false;
-  const after = setJob(root, id, { state: 'waiting', waitingOn: 'escalation', reason });
+  hooks.beforePark?.();
+  // Set inside derive, so `as` keeps the type from narrowing to null.
+  let before = null as Pick<Job, 'state' | 'waitingOn'> | null;
+  const after = setJob(root, id, {
+    derive: (j) => {
+      if (j.state !== 'running') return null;
+      before = { state: j.state, waitingOn: j.waitingOn };
+      return { state: 'waiting', waitingOn: 'escalation', reason };
+    },
+  });
+  if (!before) return false;
   maybeEnqueueGate(root, config, before, after);
   return true;
 }

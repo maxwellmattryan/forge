@@ -76,6 +76,9 @@ export const RULES = [
   // A resumed job whose environment a park stopped: start it again (E1). Appended, though it runs
   // right after G4, as IDs are stable.
   'E1',
+  // A pull of the PR's remote branch conflicted after the last verify: park on a human (PR11).
+  // Appended, as IDs are stable.
+  'PR11',
   // No rule matched: a state step can't advance, parked visibly instead of looping.
   'X1',
 ] as const;
@@ -97,7 +100,7 @@ const STEP_EVENTS = new Set([
   'integration-review', 'decision', 'fields', 'pr-opened', 'pr-updated', 'pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
   'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found', 'verifiers',
   'protected-path', 'repo-proposed', 'pr-deferred', 'canary-published', 'interim-released', 'interim-bumped', 'pr-ready', 'downstream-checked', 'job-repo-added',
-  'job-repo-removed',
+  'job-repo-removed', 'pr-head-pulled',
 ]);
 const MERGE_EVENTS = ['pr-merged', 'pr-auto-merge', 'pr-merge-deferred', 'pr-merge-refused', 'pr-merge-failed'];
 
@@ -1381,9 +1384,14 @@ function pr(x: StepInput): StepAction {
   if (bump) return bump;
   const last = j.verifyRuns.at(-1);
   if (!last?.ok) return run(x, 'PR2', ['verify', j.id], 'pr open needs a verified HEAD');
-  // pr open merged a PR branch that moved on the remote: the merged HEAD is not the one verified.
-  const pulled = lastEvent(x, (e) => e.type === 'pr-head-pulled' && e.pulled !== 'conflicts');
-  if (after(pulled?.ts, last.at)) return run(x, 'PR2', ['verify', j.id], 'the PR branch moved on the remote and was merged in: verify the merged HEAD');
+  // pr open pulled a PR branch that moved on the remote: a merged HEAD is not the one verified, and a
+  // conflicting one needs a person (integrate merges the base, not the PR's remote branch).
+  const pulled = lastEvent(x, (e) => e.type === 'pr-head-pulled');
+  if (after(pulled?.ts, last.at)) {
+    if (pulled!.pulled === 'conflicts')
+      return park(x, 'PR11', 'human', `the PR branch moved on the remote and conflicts with the job HEAD: a human merges it in the worktree, then runs forge verify ${j.id}`);
+    return run(x, 'PR2', ['verify', j.id], 'the PR branch moved on the remote and was merged in: verify the merged HEAD');
+  }
   // The last open attempt: a deferral counts, so PR3 doesn't run pr open again on the same verify.
   const opened = lastEvent(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated' || e.type === 'pr-deferred');
   if (!after(opened?.ts, last.at)) return run(x, 'PR3', ['pr', 'open', j.id], 'push and open or update the PR');

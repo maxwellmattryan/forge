@@ -950,7 +950,12 @@ const rows: Row[] = [
   { name: 'PR2 an unverified HEAD is verified first', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, false)] }) }, want: run('verify', 'j') },
   { name: 'PR2 a PR branch merged in after verify is verified again', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('pr-head-pulled', 12, { pulled: 'fast-forward', head: 'a'.repeat(40) })] }, want: run('verify', 'j') },
   { name: 'PR3 a pull the last verify already covered opens the PR', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 14, true)] }), events: [ev('pr-head-pulled', 12, { pulled: 'merge', head: 'a'.repeat(40) })] }, want: run('pr', 'open', 'j') },
-  { name: 'PR3 an aborted conflicting pull does not re-verify', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('pr-head-pulled', 12, { pulled: 'conflicts', head: 'a'.repeat(40) })] }, want: run('pr', 'open', 'j') },
+  {
+    name: 'PR11 a conflicting pull after the last verify parks on human',
+    fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), events: [ev('pr-head-pulled', 12, { pulled: 'conflicts', head: 'a'.repeat(40) })] },
+    want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'the PR branch moved on the remote and conflicts with the job HEAD: a human merges it in the worktree, then runs forge verify j'),
+  },
+  { name: 'PR3 a conflicting pull the last verify covered opens the PR', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 14, true)] }), events: [ev('pr-head-pulled', 12, { pulled: 'conflicts', head: 'a'.repeat(40) })] }, want: run('pr', 'open', 'j') },
   { name: 'PR3 opens the PR', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }) }, want: run('pr', 'open', 'j') },
 
   // ---- Protected paths (PP1, PP2)

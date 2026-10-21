@@ -6,10 +6,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from './helpers.ts';
-import { claimJob, jobDir, loadJob, readEvents } from '../lib/jobs.ts';
+import { claimJob, jobDir, loadJob, readEvents, setJob } from '../lib/jobs.ts';
 import { loadConfig } from '../lib/config.ts';
 import { dispatch } from '../lib/cli.ts';
-import { advance, runnableInProcess, summarize } from '../lib/commands/advance.ts';
+import { listRequests } from '../lib/requests.ts';
+import { advance, parkRepeatedFailure, runnableInProcess, summarize } from '../lib/commands/advance.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const BIN = path.join(ROOT, 'bin', 'forge');
@@ -140,6 +141,52 @@ test('the same command failing twice with no progress parks the job on escalatio
     assert.equal(job.waitingOn, 'escalation');
     assert.match(String(job.reason), new RegExp(`^${second.rule}: forge integrate ${id} failed twice: `));
     assert.equal(readEvents(s.root, id).filter((e) => e.type === 'advance-failed').length, 2);
+  } finally {
+    s.cleanup();
+  }
+});
+
+/** A running build job and a ctx whose foreman decides escalations, so a park would queue a gate. */
+function failingJob(s: ReturnType<typeof scratch>) {
+  const { id } = s.f('job', 'new', '--title', 'Twice');
+  s.f('job', 'set', id, '--stage', 'build', '--state', 'running');
+  const config = loadConfig(s.root).config;
+  const ctx = { root: s.root, config: { ...config, foreman: { ...config.foreman, enabled: true, decides: ['escalation'] } } } as any;
+  const gates = () => listRequests(s.root).filter((r) => r.type === 'gate' && r.job === id);
+  return { id, ctx, gates };
+}
+
+test('parkRepeatedFailure parks a running job on the second identical failure', POSIX, () => {
+  const s = scratch();
+  try {
+    const { id, ctx, gates } = failingJob(s);
+    assert.equal(parkRepeatedFailure(ctx, id, 'V1', ['verify', id], 'boom'), false, 'one failure is retried');
+    assert.equal(parkRepeatedFailure(ctx, id, 'V1', ['verify', id], 'boom'), true);
+    const job = loadJob(s.root, id);
+    assert.equal(job.state, 'waiting');
+    assert.equal(job.waitingOn, 'escalation');
+    assert.equal(gates().length, 1);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('parkRepeatedFailure leaves a job whose state changed after the read', POSIX, () => {
+  const s = scratch();
+  try {
+    const { id, ctx, gates } = failingJob(s);
+    assert.equal(parkRepeatedFailure(ctx, id, 'V1', ['verify', id], 'boom'), false);
+    const parked = parkRepeatedFailure(ctx, id, 'V1', ['verify', id], 'boom', {
+      beforePark: () => setJob(s.root, id, { state: 'waiting', waitingOn: 'human', reason: 'a person took it' }),
+    });
+    assert.equal(parked, false);
+    const job = loadJob(s.root, id);
+    assert.equal(job.state, 'waiting');
+    assert.equal(job.waitingOn, 'human');
+    assert.equal(job.reason, 'a person took it');
+    const toEscalation = readEvents(s.root, id).filter((e) => e.type === 'transition' && (e.to as any)?.waitingOn === 'escalation');
+    assert.deepEqual(toEscalation, []);
+    assert.deepEqual(gates(), []);
   } finally {
     s.cleanup();
   }
