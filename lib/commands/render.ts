@@ -9,12 +9,16 @@ export function colorEnabled(isTTY: boolean, env: NodeJS.ProcessEnv): boolean {
 
 export type Style = (s: string) => string;
 
-export type Paint = { bold: Style; red: Style; green: Style; yellow: Style };
+export type Paint = { bold: Style; dim: Style; red: Style; green: Style; yellow: Style; cyan: Style };
+
+/** One ANSI style from its SGR parameters (`1;36` is bold cyan), the identity when colour is off. */
+export function sgr(on: boolean, code: string): Style {
+  return on ? (s) => `\x1b[${code}m${s}\x1b[0m` : (s) => s;
+}
 
 /** ANSI styles, each the identity when colour is off, so callers never branch on it. */
 export function paint(on: boolean): Paint {
-  const sgr = (code: number): Style => (on ? (s) => `\x1b[${code}m${s}\x1b[0m` : (s) => s);
-  return { bold: sgr(1), red: sgr(31), green: sgr(32), yellow: sgr(33) };
+  return { bold: sgr(on, '1'), dim: sgr(on, '2'), red: sgr(on, '31'), green: sgr(on, '32'), yellow: sgr(on, '33'), cyan: sgr(on, '36') };
 }
 
 const hex = (c: string, width: number): string => c.charCodeAt(0).toString(16).padStart(width, '0');
