@@ -8,6 +8,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { tempRepo } from './helpers.ts';
+import { FIXTURE_DIST } from './dist.ts';
 import { startServer, stateFrame } from '../lib/server.ts';
 import type { DaemonSessionState } from '../lib/types.ts';
 import { defaults } from '../lib/config.ts';
@@ -55,7 +56,7 @@ async function setup() {
   const agentFile = path.join(projects, projectSlug(root), OWNER, 'subagents', 'agent-abc123.jsonl');
   fs.mkdirSync(path.dirname(agentFile), { recursive: true });
   fs.writeFileSync(agentFile, `${JSON.stringify({ type: 'assistant', timestamp: '2026-10-15T10:00:00.000Z', message: { content: [{ type: 'text', text: `transcript ${value}` }] } })}\n`);
-  const srv = await startServer(root, { port: 0, projectsDir: projects });
+  const srv = await startServer(root, { port: 0, projectsDir: projects, distDir: FIXTURE_DIST });
   const port = Number(new URL(srv.url).port);
   const token = /name="forge-token" content="([0-9a-f]+)"/.exec((await hit(port, '/')).text)?.[1] ?? '';
   return {
