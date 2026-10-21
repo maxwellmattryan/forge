@@ -41,11 +41,8 @@ test('AC1/AC2/AC16: defaults, validation, waitingOn and versions', async () => {
   assert.equal(budgetProblems({ tokens: 'lots' }).length, 1);
   assert.deepEqual(budgetProblems({ tokens: null, usd: 2.5, verifyRetries: 0 }), []);
   assert.ok(WAITING_ON.includes('budget'));
-  assert.equal(JOB_SCHEMA_VERSION, 17);
-  assert.equal(API_VERSION, 33);
   assert.equal(WAITING_ON.at(-1), 'human', 'v8 adds the human gate last');
   assert.deepEqual(BUDGET_KEYS, ['tokens', 'usd', 'minutes', 'changedLines', 'verifyRetries']);
-  assert.equal(DASH_API_VERSION, 33);
   assert.equal(DASH_API_VERSION, API_VERSION);
   assert.equal(WAIT_LABEL.budget, 'Budget exceeded');
   assert.equal(WAIT_LABEL.human, 'Human check');
@@ -337,10 +334,10 @@ test('AC15: forge migrate rewrites v1 and v2 jobs as current', () => {
       fs.writeFileSync(fileOf(id), JSON.stringify(edit(raw)));
     };
     const run = (round, attempt, ok) => ({ round, attempt, sha: null, ok, at: null, file: `verify/round-${round}.md` });
-    rewrite(v2.id, (raw) => ({ ...raw, schemaVersion: 2, verifyRuns: [run(1, 1, false), run(1, 2, false), run(1, 3, true), run(2, 1, false), run(2, 2, true)] }));
+    rewrite(v2.id, (raw) => ({ ...raw, schemaVersion: 2, verifyRuns: [run(1, 1, false), run(1, 2, false), run(1, 3, true), run(2, 1, false), run(2, 2, true)] })); // old-version fixture
     rewrite(v1.id, (raw) => {
       delete raw.verifyRuns;
-      return { ...raw, schemaVersion: 1, verify: { 1: 'FAIL', 2: 'PASS' } };
+      return { ...raw, schemaVersion: 1, verify: { 1: 'FAIL', 2: 'PASS' } }; // old-version fixture
     });
 
     const { changed } = migrate(root);

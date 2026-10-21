@@ -12,6 +12,7 @@ import { forgeAsync, repoTemplate, tempRepo } from './helpers.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
 import { redactedConfig } from '../lib/config-fields.ts';
 import { doctor } from '../lib/doctor.ts';
 import { releaseChecks } from '../lib/member-repos.ts';
@@ -131,10 +132,10 @@ describe('release strategy config', { concurrency: 4 }, () => {
     const dir = scratch();
     try {
       fs.mkdirSync(path.join(dir, '.forge'));
-      fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), 'schemaVersion: 15\nrelease:\n  interim: canary\n');
+      fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), 'schemaVersion: 15\nrelease:\n  interim: canary\n'); // old-version fixture
       const loaded = loadConfig(dir);
       assert.equal(loaded.migratedFrom, 15);
-      assert.equal(loaded.config.schemaVersion, 28);
+      assert.equal(loaded.config.schemaVersion, CONFIG_SCHEMA_VERSION);
       assert.equal(loaded.config.release.interim, 'canary');
       assert.equal(loaded.config.release.mechanism, null);
       assert.deepEqual(validateConfig(loaded.config, dir), []);

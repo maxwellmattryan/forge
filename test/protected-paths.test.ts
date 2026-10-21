@@ -198,7 +198,7 @@ describe('forge git add and commit', { concurrency: 4 }, () => {
     const s = scratch();
     try {
       const j = await s.job();
-      write(j.wt, '.forge/config.yml', 'schemaVersion: 6\npolicy:\n  protectedPaths: []\n');
+      write(j.wt, '.forge/config.yml', `schemaVersion: ${CONFIG_SCHEMA_VERSION}\npolicy:\n  protectedPaths: []\n`);
       const before = git(j.wt, 'diff', '--cached', '--name-only');
       const r = await s.json(['git', 'add', j.id, '--', '.forge/config.yml']);
       assert.equal(r.status, 1, r.stderr);

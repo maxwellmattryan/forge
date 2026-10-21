@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
 import { commandSources } from '../lib/integrity.ts';
 import { createJob, jobDir, updateJob } from '../lib/jobs.ts';
 import { buildCycles, jobComponent, servicesToComponents } from '../lib/components.ts';
@@ -35,7 +36,7 @@ describe('components migration', { concurrency: 4 }, () => {
     try {
       const cfg = path.join(repo.dir, '.forge', 'config.yml');
       fs.mkdirSync(path.dirname(cfg), { recursive: true });
-      fs.writeFileSync(cfg, yaml.stringify({ schemaVersion: 8, tracker: { kind: 'none' }, services: [SERVICE] }));
+      fs.writeFileSync(cfg, yaml.stringify({ schemaVersion: 8, tracker: { kind: 'none' }, services: [SERVICE] })); // old-version fixture
       const loaded = loadConfig(repo.dir);
       assert.equal(loaded.migratedFrom, 8);
       assert.deepEqual(loaded.config.components, [COMPONENT]);
@@ -45,7 +46,7 @@ describe('components migration', { concurrency: 4 }, () => {
       assert.equal(m.status, 0, m.stderr);
       assert.deepEqual(JSON.parse(m.stdout).changed, [path.join('.forge', 'config.yml')]);
       const text = fs.readFileSync(cfg, 'utf8');
-      assert.match(text, /^schemaVersion: 28$/m);
+      assert.match(text, new RegExp(`^schemaVersion: ${CONFIG_SCHEMA_VERSION}$`, 'm'));
       assert.match(text, /^components:$/m);
       assert.doesNotMatch(text, /^services:/m);
       assert.deepEqual(yaml.parse(text).components, [COMPONENT]);
@@ -100,7 +101,7 @@ function scratch(config: Record<string, unknown>) {
 
 // Prints which template ran and where; the log's `(cwd …)` line says where Forge started it.
 const V8 = {
-  schemaVersion: 9,
+  schemaVersion: 9, // old-version fixture
   commands: { test: 'echo TOP-TEST && pwd', lint: 'echo TOP-LINT && pwd' },
   services: [{ name: 'api', path: 'svc/api', commands: { test: 'echo API-TEST && pwd' } }, { name: 'web', path: 'web' }],
 };
@@ -245,7 +246,7 @@ describe('components validation', { concurrency: 4 }, () => {
     try {
       const cfg = path.join(repo.dir, '.forge', 'config.yml');
       fs.mkdirSync(path.dirname(cfg), { recursive: true });
-      const write = (c: Record<string, unknown>) => fs.writeFileSync(cfg, yaml.stringify({ schemaVersion: 10, tracker: { kind: 'none' }, ...c }));
+      const write = (c: Record<string, unknown>) => fs.writeFileSync(cfg, yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION, tracker: { kind: 'none' }, ...c }));
       write({ components: [lib('a', { dependsOn: [dep('b')] }), lib('b', { dependsOn: [dep('a')] })] });
       let r = await forgeAsync(repo.dir, ['config', 'validate']);
       assert.equal(r.status, 1, r.stdout);

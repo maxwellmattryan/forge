@@ -17,7 +17,7 @@ import { DEV_DIST_DIR } from '../lib/paths.ts';
 import { TURN_LINE } from '../lib/daemon.ts';
 import * as yaml from '../lib/yaml.ts';
 import { API_VERSION as DASH_API_VERSION } from '../dashboard/src/lib/types.ts';
-import { API_VERSION, sanitizeLogin } from '../lib/schema.ts';
+import { API_VERSION, CONFIG_SCHEMA_VERSION, JOB_SCHEMA_VERSION, sanitizeLogin } from '../lib/schema.ts';
 
 // Every server here serves the committed fixture dist unless a test names its own, so the page (and the token
 // in it) needs no real build: develop never commits dashboard/dist/.
@@ -318,7 +318,7 @@ function fakeChildren() {
 /** @param {string} dir @param {Record<string, any>} daemon */
 function writeConfig(dir, daemon) {
   fs.mkdirSync(path.join(dir, '.forge'), { recursive: true });
-  fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 2, daemon }));
+  fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION, daemon }));
 }
 
 /** A job dir the pool and the server accept as an existing job. */
@@ -326,7 +326,7 @@ function seedJob(dir, id) {
   const d = path.join(dir, '.forge', 'jobs', id);
   fs.mkdirSync(d, { recursive: true });
   const now = new Date().toISOString();
-  fs.writeFileSync(path.join(d, 'job.json'), JSON.stringify({ schemaVersion: 3, id, title: id, stage: 'build', state: 'running', createdAt: now, updatedAt: now }));
+  fs.writeFileSync(path.join(d, 'job.json'), JSON.stringify({ schemaVersion: JOB_SCHEMA_VERSION, id, title: id, stage: 'build', state: 'running', createdAt: now, updatedAt: now }));
   return id;
 }
 
@@ -1075,7 +1075,7 @@ test('/api/state exposes the session pool', async () => {
     .map((f) => fs.readFileSync(path.join(src, f), 'utf8'))
     .join('\n');
   assert.ok(app.includes('/api/requests'), 'read the dashboard sources');
-  assert.equal(DASH_API_VERSION, 33,'the dashboard reads API_VERSION from src/lib/types.ts');
+  assert.equal(DASH_API_VERSION, API_VERSION, 'the dashboard reads API_VERSION from src/lib/types.ts');
   assert.doesNotMatch(app, /launcher|launched/);
 });
 
@@ -1116,7 +1116,7 @@ test('api/config masks notify webhook urls and the command', async () => {
   const repo = tempRepo();
   fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
   const hooks = [{ url: 'https://hooks.slack.com/services/T0/B0/SECRETPATH?x=SECRETQUERY', events: ['gate'], format: 'slack' }, { url: 'not a url SECRETPATH' }, 'https://bare.example/SECRETPATH'];
-  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 8, daemon: { enabled: false }, notify: { webhooks: hooks, command: './page.sh {title}' } }));
+  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION, daemon: { enabled: false }, notify: { webhooks: hooks, command: './page.sh {title}' } }));
   const srv = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
   try {
     const r = await hit(Number(new URL(srv.url).port), { path: '/api/config' });
@@ -1188,11 +1188,11 @@ test('/api/config reads the schema and writes only editable keys', async () => {
     assert.equal(typed.status, 400, 'values arrive typed; a string is not an integer');
     assert.match(typed.body.error, /pipeline\.maxRounds/);
     assert.ok(fs.readFileSync(file).equals(before), 'refusals leave the file unchanged');
-    fs.writeFileSync(file, 'schemaVersion: 2\npipeline: { maxRounds: 4 }\n');
+    fs.writeFileSync(file, 'schemaVersion: 2\npipeline: { maxRounds: 4 }\n'); // old-version fixture
     const flow = await post({ key: 'pipeline.maxRounds', value: 5 });
     assert.equal(flow.status, 409, 'unsupported-yaml');
     assert.match(flow.body.error, /edit it by hand/);
-    assert.equal(fs.readFileSync(file, 'utf8'), 'schemaVersion: 2\npipeline: { maxRounds: 4 }\n');
+    assert.equal(fs.readFileSync(file, 'utf8'), 'schemaVersion: 2\npipeline: { maxRounds: 4 }\n'); // old-version fixture
   } finally {
     await srv.close();
   }
@@ -1225,7 +1225,7 @@ test('/api/config reads the schema and writes only editable keys', async () => {
 test('GET /api/doctor runs forge doctor behind the token', async () => {
   const repo = tempRepo();
   fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
-  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 2, pr: { enabled: false }, tracker: { kind: 'local' } }));
+  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION, pr: { enabled: false }, tracker: { kind: 'local' } }));
   const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
   const port = Number(new URL(url).port);
   try {
@@ -1262,7 +1262,7 @@ test('GET /api/about reports versions', async () => {
     assert.equal(r.status, 200);
     const a = JSON.parse(r.text);
     assert.equal(a.forgeVersion, JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version);
-    assert.equal(a.apiVersion, 33);
+    assert.equal(a.apiVersion, API_VERSION);
     assert.equal(a.pluginRoot, PLUGIN_ROOT);
     assert.deepEqual(a.schemaVersions, { config: schema.CONFIG_SCHEMA_VERSION, job: schema.JOB_SCHEMA_VERSION, event: schema.EVENT_SCHEMA_VERSION });
     assert.equal(a.pricingAsOf, JSON.parse(fs.readFileSync(path.join(root, 'lib', 'pricing.json'), 'utf8')).asOf);
@@ -1505,12 +1505,12 @@ test('dashboard cannot enqueue gate requests', async () => {
 test('state exposes office session and gateOwner', async () => {
   const repo = tempRepo();
   fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
-  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 5, foreman: { enabled: true } }));
+  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION, foreman: { enabled: true } }));
   const now = new Date().toISOString();
   const seed = (id: string, extra: Record<string, unknown>) => {
     const d = path.join(repo.dir, '.forge', 'jobs', id);
     fs.mkdirSync(d, { recursive: true });
-    fs.writeFileSync(path.join(d, 'job.json'), JSON.stringify({ schemaVersion: 9, id, title: id, stage: 'spec', state: 'running', createdAt: now, updatedAt: now, ...extra }));
+    fs.writeFileSync(path.join(d, 'job.json'), JSON.stringify({ schemaVersion: JOB_SCHEMA_VERSION, id, title: id, stage: 'spec', state: 'running', createdAt: now, updatedAt: now, ...extra }));
   };
   seed('j-run', {});
   seed('j-spec', { state: 'waiting', waitingOn: 'spec-approval', reason: 'spec ready' });
@@ -1520,13 +1520,13 @@ test('state exposes office session and gateOwner', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 33);
+    assert.equal(st.apiVersion, API_VERSION);
     assert.equal(st.daemons.foreman, true);
     assert.equal(st.daemons.office.scope, '_office');
     assert.equal(st.daemons.office.running, false);
     const owners = Object.fromEntries(st.jobs.map((j) => [j.id, j.gateOwner]));
     assert.deepEqual(owners, { 'j-run': null, 'j-spec': 'foreman', 'j-auth': 'human', 'j-input': 'human' });
-    fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 5, foreman: { enabled: false } }));
+    fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION, foreman: { enabled: false } }));
     const off = JSON.parse((await hit(port, { path: '/api/state' })).text);
     assert.equal(off.daemons.foreman, false);
     assert.ok(off.jobs.every((j) => j.gateOwner === null), 'the foreman off: no owner badge');
@@ -1614,7 +1614,7 @@ test('owner status in /api/state and job detail', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 33);
+    assert.equal(st.apiVersion, API_VERSION);
     const byId = Object.fromEntries(st.jobs.map((j) => [j.id, j.ownerStatus]));
     assert.deepEqual(Object.fromEntries(Object.entries(byId).map(([k, v]: [string, any]) => [k, v.status])), { 'j-none': 'none', 'j-live': 'live', 'j-agent': 'live', 'j-expired': 'expired' }, 'the lease alone decides');
     assert.deepEqual(byId['j-none'], { status: 'none', session: null, since: null, renewedAt: null, expiresAt: null, epoch: 0, jobSession: false });
@@ -1750,7 +1750,7 @@ test("a resume reaches the job's own live daemon session", async () => {
 function effortJob(dir: string, id: string, effort: unknown) {
   seedJob(dir, id);
   const file = path.join(dir, '.forge', 'jobs', id, 'job.json');
-  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), schemaVersion: 7, effort }));
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), schemaVersion: JOB_SCHEMA_VERSION, effort }));
   return id;
 }
 
@@ -1758,7 +1758,7 @@ test('/api/state and job detail carry effort', async () => {
   const repo = tempRepo();
   const config = (effort: unknown, daemon: Record<string, unknown>) => {
     fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
-    fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 2, runtime: { effort }, daemon }));
+    fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION, runtime: { effort }, daemon }));
   };
   config('medium', { enabled: true, command: 'claude {session}' });
   const plain = seedJob(repo.dir, 'job-plain');
@@ -1769,7 +1769,7 @@ test('/api/state and job detail carry effort', async () => {
   try {
     const port = Number(new URL(srv.url).port);
     const s = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(s.apiVersion, 33);
+    assert.equal(s.apiVersion, API_VERSION);
     assert.equal(s.config.effort, 'medium');
     const row = (id) => s.jobs.find((j) => j.id === id);
     assert.equal(row(plain).effort, null, 'a v3 job reads as inherit');
@@ -1895,16 +1895,16 @@ test('backlog carries readiness from the triage cache', async () => {
 test('state carries protectedPaths', async () => {
   const repo = tempRepo();
   fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
-  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: 6 }));
+  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION }));
   const now = new Date().toISOString();
   const flag = { hits: [{ path: '<img src=x onerror=alert(1)>.yml', rule: 1, glob: '.github/workflows/**', reason: 'CI/CD configuration', blob: 'a'.repeat(40) }], more: 0, at: now, gate: 'commit', head: 'b'.repeat(40) };
   const seed = (id: string, extra: Record<string, unknown>) => {
     const d = path.join(repo.dir, '.forge', 'jobs', id);
     fs.mkdirSync(d, { recursive: true });
-    fs.writeFileSync(path.join(d, 'job.json'), JSON.stringify({ schemaVersion: 10, id, title: id, stage: 'decide', state: 'running', createdAt: now, updatedAt: now, ...extra }));
+    fs.writeFileSync(path.join(d, 'job.json'), JSON.stringify({ schemaVersion: JOB_SCHEMA_VERSION, id, title: id, stage: 'decide', state: 'running', createdAt: now, updatedAt: now, ...extra }));
   };
   seed('j-flag', { protectedPaths: flag });
-  seed('j-old', { schemaVersion: 9 });
+  seed('j-old', { schemaVersion: 9 }); // old-version fixture
   const { url, close } = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });
   const port = Number(new URL(url).port);
   try {
@@ -1975,7 +1975,7 @@ test('state carries lastHuman', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 33);
+    assert.equal(st.apiVersion, API_VERSION);
     const by = Object.fromEntries(st.jobs.map((j) => [j.id, j.lastHuman]));
     assert.deepEqual(by, {
       [acted]: { ts: '2026-03-01T00:00:01.000Z', type: 'budget-ack', action: null, actor: { login: 'bob', source: 'env' } },
@@ -1999,7 +1999,7 @@ test('state carries repo budget', async () => {
   const port = Number(new URL(url).port);
   try {
     const st = JSON.parse((await hit(port, { path: '/api/state' })).text);
-    assert.equal(st.apiVersion, 33);
+    assert.equal(st.apiVersion, API_VERSION);
     assert.equal(st.budget.month, new Date().toISOString().slice(0, 7));
     assert.deepEqual(st.budget.spent, { dayUsd: 12, monthUsd: 12, monthTokens: 12 });
     assert.deepEqual(st.budget.exceeded, ['usdPerMonth']);
@@ -2069,7 +2069,7 @@ test('job detail serves issues', async () => {
   const now = seedJob(repo.dir, 'job-now');
   const nowDir = path.join(repo.dir, '.forge', 'jobs', now);
   const issues = [{ tracker: 'github', ref: 'o/r#5', url: 'https://github.com/o/r/issues/5' }, { tracker: 'github', ref: 'x/y#9', url: null }];
-  fs.writeFileSync(path.join(nowDir, 'job.json'), JSON.stringify({ ...JSON.parse(fs.readFileSync(path.join(nowDir, 'job.json'), 'utf8')), schemaVersion: 11, issues }));
+  fs.writeFileSync(path.join(nowDir, 'job.json'), JSON.stringify({ ...JSON.parse(fs.readFileSync(path.join(nowDir, 'job.json'), 'utf8')), schemaVersion: JOB_SCHEMA_VERSION, issues }));
   const event = (type, data) => JSON.stringify({ v: 1, ts: new Date().toISOString(), type, ...data }) + '\n';
   fs.writeFileSync(path.join(nowDir, 'events.jsonl'), event('created', { title: now, issues }));
   const srv = await startServer(repo.dir, { port: 0, daemon: fakeChildren().opts });

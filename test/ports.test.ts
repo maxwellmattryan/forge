@@ -112,32 +112,26 @@ describe('job ports', { concurrency: 4 }, () => {
     const want = s.config.ports.base + 3;
     const raw = JSON.parse(fs.readFileSync(s.jobFile(id), 'utf8'));
     delete raw.ports;
-    fs.writeFileSync(s.jobFile(id), JSON.stringify({ ...raw, schemaVersion: 13, port: want }));
+    fs.writeFileSync(s.jobFile(id), JSON.stringify({ ...raw, schemaVersion: 13, port: want })); // old-version fixture
     const loaded = loadJob(s.dir, id);
-    assert.equal(loaded.schemaVersion, 17);
+    assert.equal(loaded.schemaVersion, JOB_SCHEMA_VERSION);
     assert.equal(loaded.port, want);
     assert.ok(createWorktree(s.dir, s.config, id).created);
     assert.deepEqual(loadJob(s.dir, id).ports, { dev: want }, 'port becomes the first entry');
     assert.equal(loadJob(s.dir, id).port, want);
     // Taken by then: the job moves instead.
     const other = createJob(s.dir, s.config, { title: 'Other' }).id;
-    fs.writeFileSync(s.jobFile(other), JSON.stringify({ ...JSON.parse(fs.readFileSync(s.jobFile(other), 'utf8')), schemaVersion: 13, port: want, ports: undefined }));
+    fs.writeFileSync(s.jobFile(other), JSON.stringify({ ...JSON.parse(fs.readFileSync(s.jobFile(other), 'utf8')), schemaVersion: 13, port: want, ports: undefined })); // old-version fixture
     assert.ok(createWorktree(s.dir, s.config, other).created);
     assert.notEqual(loadJob(s.dir, other).port, want);
     assert.equal(loadJob(s.dir, other).port, loadJob(s.dir, other).ports.dev);
   });
 
-  test('job schema 14', () => {
-    assert.equal(JOB_SCHEMA_VERSION, 17);
-    const v13 = { id: 'x', schemaVersion: 13, port: 4103 };
-    const j = normalizeJob(v13);
-    assert.equal(j.schemaVersion, 17);
-    assert.deepEqual(j.ports, {});
-    assert.equal(j.port, 4103);
-    assert.equal(normalizeJob({ id: 'x', schemaVersion: 18 })._unsupported, true);
-    assert.deepEqual(normalizeJob({ ...v13, schemaVersion: 14, ports: { api: 4100, web: 4101 } }).ports, { api: 4100, web: 4101 });
+  test('stored ports read as a map of distinct ports, anything else as none', () => {
+    const job = { id: 'x', schemaVersion: JOB_SCHEMA_VERSION, port: 4103 };
+    assert.deepEqual(normalizeJob({ ...job, ports: { api: 4100, web: 4101 } }).ports, { api: 4100, web: 4101 });
     for (const hostile of [null, 'x', 7, [4100], { api: '4100' }, { api: 0 }, { api: 70000 }, { api: 4100.5 }, { api: 4100, web: 4100 }, { api: '$(id)' }])
-      assert.deepEqual(normalizeJob({ ...v13, schemaVersion: 14, ports: hostile }).ports, {}, JSON.stringify(hostile));
+      assert.deepEqual(normalizeJob({ ...job, ports: hostile }).ports, {}, JSON.stringify(hostile));
     assert.deepEqual(cleanPorts({ dev: 1, max: 65535 }), { dev: 1, max: 65535 });
   });
 

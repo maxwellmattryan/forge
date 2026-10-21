@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { TRUST_ENV, defaults, loadConfig, trustDigest, validateConfig } from '../lib/config.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
 import { CONFIG_DISCLOSURE, FIELDS } from '../lib/config-fields.ts';
 import * as yaml from '../lib/yaml.ts';
 import { budgetRepo, spend } from './repo-budget-fixture.ts';
@@ -35,13 +36,13 @@ test('config defaults and validation', () => {
 });
 
 test('a v8 config loads with the budget defaults', () => {
-  const v8 = { schemaVersion: 8, git: { base: 'trunk' }, notify: { webhooks: [], command: null } };
+  const v8 = { schemaVersion: 8, git: { base: 'trunk' }, notify: { webhooks: [], command: null } }; // old-version fixture
   const repo = tempRepo();
   try {
     fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
     fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), yaml.stringify(v8));
     const loaded = loadConfig(repo.dir);
-    assert.equal(loaded.config.schemaVersion, 28);
+    assert.equal(loaded.config.schemaVersion, CONFIG_SCHEMA_VERSION);
     assert.deepEqual(loaded.config.budget, defaults().budget, 'a v8 config loads with the budget defaults');
   } finally {
     repo.cleanup();
@@ -66,7 +67,7 @@ describe('budget keys are settable', { concurrency: 4 }, () => {
     const repo = tempRepo();
     try {
       fs.mkdirSync(path.join(repo.dir, '.forge'), { recursive: true });
-      fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), 'schemaVersion: 10\n');
+      fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), `schemaVersion: ${CONFIG_SCHEMA_VERSION}\n`);
       const ok = await forgeAsync(repo.dir, ['config', 'set', 'budget.usdPerMonth', '50']);
       assert.equal(ok.status, 0, ok.stderr);
       assert.equal(loadConfig(repo.dir).config.budget.usdPerMonth, 50);

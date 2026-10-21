@@ -5,7 +5,7 @@ import path from 'node:path';
 import { forgeAsync, tempRepo } from './helpers.ts';
 import { defaults, validateConfig } from '../lib/config.ts';
 import { FIELDS } from '../lib/config-fields.ts';
-import { cleanOutcome, normalizeJob } from '../lib/schema.ts';
+import { JOB_SCHEMA_VERSION, cleanOutcome, normalizeJob } from '../lib/schema.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const SHA = 'a'.repeat(40);
@@ -26,7 +26,7 @@ const good = () => ({
 
 describe('outcome schema', { concurrency: 4 }, () => {
   test('a stored outcome survives normalisation', () => {
-    const kept = normalizeJob({ schemaVersion: 15, id: 'new', outcome: good() });
+    const kept = normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION,id: 'new', outcome: good() });
     assert.deepEqual(kept.outcome, good());
   });
 
@@ -52,7 +52,7 @@ describe('outcome schema', { concurrency: 4 }, () => {
       const o = good();
       mutate(o);
       assert.equal(cleanOutcome(o), null, what);
-      assert.equal(normalizeJob({ schemaVersion: 15, id: 'x', outcome: o }).outcome, null, `${what} through normalizeJob`);
+      assert.equal(normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION,id: 'x', outcome: o }).outcome, null, `${what} through normalizeJob`);
     }
     for (const raw of [null, undefined, 'final', [], 3]) assert.equal(cleanOutcome(raw), null, String(raw));
     const refs = good() as any;

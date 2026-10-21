@@ -15,7 +15,6 @@ import { editorArgv } from '../lib/editor.ts';
 import { pidAlive } from '../lib/worktree.ts';
 import { API_VERSION } from '../lib/schema.ts';
 import * as yaml from '../lib/yaml.ts';
-import { API_VERSION as DASH_API_VERSION } from '../dashboard/src/lib/types.ts';
 
 const BIN = path.resolve(import.meta.dirname, '..', 'bin', 'forge');
 
@@ -111,9 +110,7 @@ test('state exposes focus and endpoints', { timeout: 60_000 }, async () => {
     s.patchJob(badPort, { port: 70000, ports: { dev: 70000 } });
 
     let st = await s.state();
-    assert.equal(st.apiVersion, 33);
-    assert.equal(API_VERSION, 33);
-    assert.equal(DASH_API_VERSION, 33);
+    assert.equal(st.apiVersion, API_VERSION);
     assert.equal(st.focus, null);
     const row = (id: string) => st.jobs.find((j: any) => j.id === id);
     assert.deepEqual(row(a).endpoints, [{ kind: 'component', name: 'dev', url: `http://localhost:${wtA.port}/`, port: wtA.port, live: false }]);

@@ -8,7 +8,7 @@ import { tempRepo } from './helpers.ts';
 import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
 import { changedRepos, downstreamMembers, downstreamRepos } from '../lib/downstream.ts';
 import { migrate } from '../lib/commands/init.ts';
-import { normalizeJob } from '../lib/schema.ts';
+import { CONFIG_SCHEMA_VERSION, normalizeJob } from '../lib/schema.ts';
 import type { Config, Job, JobEvent, JobRepo } from '../lib/types.ts';
 import * as yaml from '../lib/yaml.ts';
 
@@ -64,11 +64,11 @@ describe('downstream verification: config', { concurrency: 4 }, () => {
     try {
       const file = path.join(r.dir, '.forge', 'config.yml');
       fs.mkdirSync(path.dirname(file));
-      fs.writeFileSync(file, 'schemaVersion: 13\ntracker:\n  kind: none\n');
+      fs.writeFileSync(file, 'schemaVersion: 13\ntracker:\n  kind: none\n'); // old-version fixture
       assert.equal(loadConfig(r.dir).migratedFrom, 13);
       migrate(r.dir);
       const text = fs.readFileSync(file, 'utf8');
-      assert.match(text, /^schemaVersion: 28$/m);
+      assert.match(text, new RegExp(`^schemaVersion: ${CONFIG_SCHEMA_VERSION}$`, 'm'));
       assert.deepEqual(yaml.parse(text).downstream, DEFAULT);
     } finally {
       r.cleanup();

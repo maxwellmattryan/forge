@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { backingProblems } from '../lib/backing-config.ts';
 import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
 import { tempRepo } from './helpers.ts';
 
 const EXAMPLE = [
@@ -138,10 +139,10 @@ describe('backing config', { concurrency: 4 }, () => {
     try {
       const cfg = path.join(repo.dir, '.forge', 'config.yml');
       fs.mkdirSync(path.dirname(cfg), { recursive: true });
-      fs.writeFileSync(cfg, 'schemaVersion: 18\n');
+      fs.writeFileSync(cfg, 'schemaVersion: 18\n'); // old-version fixture
       const loaded = loadConfig(repo.dir);
       assert.equal(loaded.migratedFrom, 18);
-      assert.equal(loaded.config.schemaVersion, 28);
+      assert.equal(loaded.config.schemaVersion, CONFIG_SCHEMA_VERSION);
       assert.deepEqual(loaded.config.backing, []);
     } finally {
       repo.cleanup();

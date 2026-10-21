@@ -232,6 +232,20 @@ test('every migration has a table row', () => {
   assert.deepEqual(problems, [], problems.join('\n'));
 });
 
+test('no version literals outside schema.test.ts', () => {
+  const LITERAL = /(SCHEMA|API)_VERSION, \d+|schemaVersion: \d+|apiVersion, \d+/;
+  const dir = import.meta.dirname;
+  const offenders: string[] = [];
+  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.test.ts') && f !== 'schema.test.ts').sort()) {
+    fs.readFileSync(path.join(dir, file), 'utf8')
+      .split('\n')
+      .forEach((line, i) => {
+        if (LITERAL.test(line) && !line.includes('// old-version fixture')) offenders.push(`test/${file}:${i + 1}`);
+      });
+  }
+  assert.deepEqual(offenders, [], `import the constant from lib/schema.ts, or mark a deliberate old fixture with // old-version fixture:\n${offenders.join('\n')}`);
+});
+
 // Inputs a single row cannot hold: the other shapes a migration must handle.
 
 test('config v1 → v2: other launcher shapes', () => {

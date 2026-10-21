@@ -88,7 +88,7 @@ describe('config sinks validation', { concurrency: 4 }, () => {
     try {
       const cfg = path.join(repo.dir, '.forge', 'config.yml');
       fs.mkdirSync(path.dirname(cfg), { recursive: true });
-      fs.writeFileSync(cfg, yaml.stringify({ schemaVersion: 19, tracker: { kind: 'none' }, components: [component(VALID)] }));
+      fs.writeFileSync(cfg, yaml.stringify({ schemaVersion: 19, tracker: { kind: 'none' }, components: [component(VALID)] })); // old-version fixture
       const loaded = loadConfig(repo.dir);
       assert.equal(loaded.migratedFrom, 19);
       assert.deepEqual(loaded.config.components, [component(VALID)]);

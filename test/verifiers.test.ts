@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { trustDigest } from '../lib/config.ts';
 import { parseReview } from '../lib/jobs.ts';
-import { normalizeJob } from '../lib/schema.ts';
+import { CONFIG_SCHEMA_VERSION, normalizeJob } from '../lib/schema.ts';
 import { computeStats } from '../lib/stats.ts';
 import { statsText } from '../lib/commands/status.ts';
 import { loadVerifiers, parseAnswers, readAnswers, renderInput, renderReport, splitDiff } from '../lib/verifiers.ts';
@@ -332,7 +332,7 @@ test('computeStats reports per-verifier hit rate', () => {
 test('trustDigest covers verifiers', () => {
   const s = scratch();
   try {
-    fs.writeFileSync(path.join(s.root, '.forge', 'config.yml'), 'schemaVersion: 1\n');
+    fs.writeFileSync(path.join(s.root, '.forge', 'config.yml'), `schemaVersion: ${CONFIG_SCHEMA_VERSION}\n`);
     const before = trustDigest(s.root);
     const v = s.put('help-rows.md', file('paths: [lib/**]\nmode: block'));
     const added = trustDigest(s.root);

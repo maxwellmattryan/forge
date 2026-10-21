@@ -12,6 +12,7 @@ import { forgeAsync, waitFor } from './helpers.ts';
 import { ago, repo, seedJob, tree } from './retention-fixture.ts';
 import { rootLabel } from '../lib/backing.ts';
 import { TRUST_ENV, defaults, trustDigest, validateConfig } from '../lib/config.ts';
+import { JOB_SCHEMA_VERSION } from '../lib/schema.ts';
 import { CONFIG_DISCLOSURE, FIELDS, disclosureOf } from '../lib/config-fields.ts';
 import { unmetDependencies } from '../lib/deps.ts';
 import { storageCheck } from '../lib/doctor.ts';
@@ -256,7 +257,7 @@ describe('archive', { concurrency: 4 }, () => {
       // A symlinked job dir: its target is never touched.
       const real = path.join(outside, 'linked');
       fs.mkdirSync(real);
-      fs.writeFileSync(path.join(real, 'job.json'), JSON.stringify({ schemaVersion: 10, id: 'linked', state: 'done', stage: 'done', finishedAt: ago(5) }));
+      fs.writeFileSync(path.join(real, 'job.json'), JSON.stringify({ schemaVersion: JOB_SCHEMA_VERSION, id: 'linked', state: 'done', stage: 'done', finishedAt: ago(5) }));
       fs.mkdirSync(path.join(r.dir, '.forge', 'jobs'), { recursive: true });
       fs.symlinkSync(real, path.join(r.dir, '.forge', 'jobs', 'linked'));
       let before = snapshot();

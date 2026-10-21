@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { tempRepo, scratchGitConfig } from './helpers.ts';
 import { defaults, loadConfig, validateConfig } from '../lib/config.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
 import { doctor } from '../lib/doctor.ts';
 import { initWrite, migrate } from '../lib/commands/init.ts';
 import { memberRepoChecks, readLocalConfig, remotesMatch, repoProblems, resolveMemberPath, sameDir, shellWord } from '../lib/member-repos.ts';
@@ -63,15 +64,15 @@ describe('member repos config', { concurrency: 4 }, () => {
     try {
       fs.mkdirSync(path.join(r.dir, '.forge'));
       const file = path.join(r.dir, '.forge', 'config.yml');
-      fs.writeFileSync(file, 'schemaVersion: 10\ntracker:\n  kind: none\n');
+      fs.writeFileSync(file, 'schemaVersion: 10\ntracker:\n  kind: none\n'); // old-version fixture
       const loaded = loadConfig(r.dir);
       assert.equal(loaded.migratedFrom, 10);
       assert.deepEqual(loaded.config.repos, []);
-      assert.equal(loaded.config.schemaVersion, 28);
+      assert.equal(loaded.config.schemaVersion, CONFIG_SCHEMA_VERSION);
       assert.deepEqual(validateConfig(loaded.config, r.dir), []);
       migrate(r.dir);
       const onDisk = yaml.parse(fs.readFileSync(file, 'utf8'));
-      assert.equal(onDisk.schemaVersion, 28);
+      assert.equal(onDisk.schemaVersion, CONFIG_SCHEMA_VERSION);
       assert.deepEqual(onDisk.repos, []);
     } finally {
       r.cleanup();

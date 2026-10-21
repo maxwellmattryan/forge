@@ -63,7 +63,6 @@ test('effort levels, default and resolution', () => {
 test('forge migrate rewrites a v6 job with effort null; a stored effort outside the list loads as null', () => {
   const s = scratch();
   try {
-    assert.equal(JOB_SCHEMA_VERSION, 17);
     const job = createJob(s.root, defaults(), { title: 'Old v6' });
     const file = path.join(jobDir(s.root, job.id), 'job.json');
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -71,13 +70,13 @@ test('forge migrate rewrites a v6 job with effort null; a stored effort outside 
     raw.schemaVersion = 6;
     fs.writeFileSync(file, JSON.stringify(raw));
     const loaded = loadJob(s.root, job.id);
-    assert.equal(loaded.schemaVersion, 17);
+    assert.equal(loaded.schemaVersion, JOB_SCHEMA_VERSION);
     assert.equal(loaded.effort, null);
 
     const migrated = s.f('migrate');
     assert.ok(migrated.changed.includes(path.relative(s.root, file)));
     const rewritten = JSON.parse(fs.readFileSync(file, 'utf8'));
-    assert.equal(rewritten.schemaVersion, 17);
+    assert.equal(rewritten.schemaVersion, JOB_SCHEMA_VERSION);
     assert.equal(rewritten.effort, null);
 
     for (const bad of ['ultra', '--dangerously-skip-permissions', 5, 'high --add-dir /', { level: 'high' }]) {
@@ -345,10 +344,10 @@ test('forge migrate rewrites a v8 job with complexity null; an invalid complexit
     raw.schemaVersion = 8;
     fs.writeFileSync(file, JSON.stringify(raw));
     const loaded = loadJob(s.root, job.id);
-    assert.equal(loaded.schemaVersion, 17);
+    assert.equal(loaded.schemaVersion, JOB_SCHEMA_VERSION);
     assert.equal(loaded.complexity, null);
-    assert.equal(normalizeJob({ id: 'x', schemaVersion: 9, complexity: 'extreme' }).complexity, null);
-    assert.equal(normalizeJob({ id: 'x', schemaVersion: 9, complexity: 'medium' }).complexity, 'medium');
+    assert.equal(normalizeJob({ id: 'x', schemaVersion: JOB_SCHEMA_VERSION, complexity: 'extreme' }).complexity, null);
+    assert.equal(normalizeJob({ id: 'x', schemaVersion: JOB_SCHEMA_VERSION, complexity: 'medium' }).complexity, 'medium');
     const migrated = s.f('migrate');
     assert.ok(migrated.changed.includes(path.relative(s.root, file)));
     assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).complexity, null);
@@ -360,11 +359,10 @@ test('forge migrate rewrites a v8 job with complexity null; an invalid complexit
 test('a v3 config loads with unset efforts', () => {
   const s = scratch();
   try {
-    assert.equal(CONFIG_SCHEMA_VERSION, 28);
-    fs.writeFileSync(s.configFile, fs.readFileSync(s.configFile, 'utf8').replace(/^schemaVersion: \d+$/m, 'schemaVersion: 3'));
+    fs.writeFileSync(s.configFile, fs.readFileSync(s.configFile, 'utf8').replace(/^schemaVersion: \d+$/m, 'schemaVersion: 3')); // old-version fixture
     const loaded = loadConfig(s.root);
     assert.equal(loaded.migratedFrom, 3);
-    assert.equal(loaded.config.schemaVersion, 28);
+    assert.equal(loaded.config.schemaVersion, CONFIG_SCHEMA_VERSION);
     assert.deepEqual(Object.keys(loaded.config.runtime.efforts), [...EFFORT_ROLES]);
     assert.ok(Object.values(loaded.config.runtime.efforts).every((v) => v === null));
     assert.deepEqual(loaded.config.runtime.effortByComplexity, { low: null, medium: null, high: null });

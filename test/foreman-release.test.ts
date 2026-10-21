@@ -11,7 +11,7 @@ import path from 'node:path';
 import { TRUST_ENV, defaults, foremanProblems, loadConfig, trustDigest } from '../lib/config.ts';
 import { ACTIONS_BY_GATE, INVALID_RESERVED, classReservation, decides, reservedMatch } from '../lib/foreman.ts';
 import { OFFICE_SCOPE, INBOX_SCOPE, ackRequest, listRequests } from '../lib/requests.ts';
-import { CONFIG_SCHEMA_VERSION, OFFICE_GATES } from '../lib/schema.ts';
+import { OFFICE_GATES } from '../lib/schema.ts';
 import { type TwoRepo, dependsOn, twoRepo } from './job-repos-fixture.ts';
 
 const posix = process.platform === 'win32' ? 'the stubs are sh scripts and forge release run refuses native Windows' : false;
@@ -145,7 +145,6 @@ describe('gate: entries and the v18 config', () => {
   });
 
   test('the release gate is reserved by default and when a v17 config loads', () => {
-    assert.equal(CONFIG_SCHEMA_VERSION, 28);
     const d = defaults();
     assert.equal(d.foreman.reserved.at(-1), 'gate:release');
     assert.ok(!d.foreman.decides.includes('release'));
@@ -154,9 +153,9 @@ describe('gate: entries and the v18 config', () => {
     const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-v17-')));
     try {
       fs.mkdirSync(path.join(dir, '.forge'));
-      fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), 'schemaVersion: 17\n');
+      fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), 'schemaVersion: 17\n'); // old-version fixture
       assert.deepEqual(loadConfig(dir).config.foreman.reserved, d.foreman.reserved, 'no foreman block: the defaults');
-      fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), 'schemaVersion: 17\nforeman:\n  reserved:\n    - secret\n');
+      fs.writeFileSync(path.join(dir, '.forge', 'config.yml'), 'schemaVersion: 17\nforeman:\n  reserved:\n    - secret\n'); // old-version fixture
       assert.deepEqual(loadConfig(dir).config.foreman.reserved, ['secret', 'gate:release']);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });

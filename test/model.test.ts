@@ -100,10 +100,10 @@ test('a v20 config loads with the builder-model and rework defaults', () => {
   try {
     const file = path.join(repo.dir, '.forge', 'config.yml');
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, 'schemaVersion: 20\ntracker:\n  kind: none\n');
+    fs.writeFileSync(file, 'schemaVersion: 20\ntracker:\n  kind: none\n'); // old-version fixture
     const loaded = loadConfig(repo.dir);
     assert.equal(loaded.migratedFrom, 20);
-    assert.equal(loaded.config.schemaVersion, 28);
+    assert.equal(loaded.config.schemaVersion, CONFIG_SCHEMA_VERSION);
     assert.deepEqual(loaded.config.runtime.modelByComplexity, { low: null, medium: null, high: null });
     assert.equal(loaded.config.runtime.reworkModel, null);
     assert.equal(loaded.config.review.onRework, 'narrow');

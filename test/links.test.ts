@@ -9,6 +9,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, scratchGitConfig, tempRepo } from './helpers.ts';
 import { defaults, validateConfig } from '../lib/config.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
 import { memberWorktreePath } from '../lib/job-repos.ts';
 import { applyLinks, cargoShim, cmakeArgs, cmakeShim, declaredLinks, linkLeakPaths, npmShim, pathPrelude, renderCargoConfig, resolveLinks, restoreLockfiles, sameMode, snapshotLockfiles, writeIfChanged } from '../lib/links.ts';
 import type { Config, Job } from '../lib/types.ts';
@@ -38,7 +39,7 @@ const COMPONENTS = [
 
 describe('links: config shape', { concurrency: 4 }, () => {
   test('forge migrate keeps components and their links', async () => {
-    const v11 = { schemaVersion: 11, repos: structuredClone(REPOS), components: structuredClone(COMPONENTS) };
+    const v11 = { schemaVersion: 11, repos: structuredClone(REPOS), components: structuredClone(COMPONENTS) }; // old-version fixture
     const repo = tempRepo();
     cleanups.push(repo.cleanup);
     const cfg = path.join(repo.dir, '.forge', 'config.yml');
@@ -47,7 +48,7 @@ describe('links: config shape', { concurrency: 4 }, () => {
     const m = await forgeAsync(repo.dir, ['migrate']);
     assert.equal(m.status, 0, m.stderr);
     const text = fs.readFileSync(cfg, 'utf8');
-    assert.match(text, /^schemaVersion: 28$/m);
+    assert.match(text, new RegExp(`^schemaVersion: ${CONFIG_SCHEMA_VERSION}$`, 'm'));
     assert.deepEqual(yaml.parse(text).components, COMPONENTS);
   });
 

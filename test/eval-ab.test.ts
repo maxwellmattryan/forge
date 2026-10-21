@@ -45,7 +45,7 @@ function runsRoot(runs: Record<string, any>) {
 }
 
 const v1Run = (id: string, tasks: any[], extra: Record<string, any> = {}) => ({
-  schemaVersion: 1,
+  schemaVersion: 1, // old-version fixture: an eval run record, not a config or job
   id,
   label: null,
   forgeVersion: '0.16.0',
@@ -252,12 +252,12 @@ test('compare aggregates repeats and shows the count behind each delta', () => {
     entry('t', result({ minutes: 10, stages: { build: 4 } }), 1),
     entry('t', result({ minutes: 20, check: { ran: true, pass: false, tail: 'x' }, stages: { build: 6, review: 2 } }), 2),
     entry('v', result({ minutes: 5 }), 1),
-  ], { schemaVersion: 2, repeat: 2, pluginHash: '0123456789', overlay: { 'pipeline.maxRounds': 5 } });
+  ], { schemaVersion: 2, repeat: 2, pluginHash: '0123456789', overlay: { 'pipeline.maxRounds': 5 } }); // old-version fixture: an eval run record
   const b = v1Run('b', [
     entry('t', result({ minutes: 30, stages: { build: 8 } }), 1),
     entry('t', result({ minutes: 40, check: { ran: false, pass: null, tail: null } }), 2),
     entry('u', null, 1),
-  ], { schemaVersion: 2, repeat: 2, pluginHash: '9876543210', overlay: {} });
+  ], { schemaVersion: 2, repeat: 2, pluginHash: '9876543210', overlay: {} }); // old-version fixture: an eval run record
   const r = runsRoot({ a, b });
   try {
     const c = compareRuns(r.root, 'a', 'b');

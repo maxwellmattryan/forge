@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { checkoutProblems, resolveTarget } from '../lib/checkout-config.ts';
 import { defaults, loadConfig } from '../lib/config.ts';
+import { CONFIG_SCHEMA_VERSION } from '../lib/schema.ts';
 import { tempRepo } from './helpers.ts';
 
 const base = { commands: { install: 'make install', uninstall: 'make uninstall', gone: null }, components: [{ name: 'ui', path: 'ui', kind: 'app', commands: { deploy: 'x' } }] };
@@ -75,10 +76,10 @@ describe('checkout config', { concurrency: 4 }, () => {
     try {
       const cfg = path.join(repo.dir, '.forge', 'config.yml');
       fs.mkdirSync(path.dirname(cfg), { recursive: true });
-      fs.writeFileSync(cfg, 'schemaVersion: 14\n');
+      fs.writeFileSync(cfg, 'schemaVersion: 14\n'); // old-version fixture
       const loaded = loadConfig(repo.dir);
       assert.equal(loaded.migratedFrom, 14);
-      assert.equal(loaded.config.schemaVersion, 28);
+      assert.equal(loaded.config.schemaVersion, CONFIG_SCHEMA_VERSION);
       assert.deepEqual(loaded.config.checkout, []);
     } finally {
       repo.cleanup();
