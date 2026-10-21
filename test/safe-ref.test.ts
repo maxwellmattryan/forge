@@ -132,7 +132,7 @@ test('forge run fills {worktree} only with the path Forge computed for the job',
   }
 });
 
-// POSIX only: it runs command templates through sh, like test/cli.test.ts in CI's WINDOWS_SKIP.
+// POSIX only: it runs command templates through sh, like test/cli.test.ts.
 test('a repo path with ( & and spaces runs commands, with and without {worktree}', { skip: process.platform === 'win32' }, async () => {
   const repo = initRepo(
     {

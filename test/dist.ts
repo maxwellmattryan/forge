@@ -1,5 +1,5 @@
-// Tests that read the real Vite build skip without one: develop never commits dashboard/dist/, and
-// the Windows leg doesn't build it. CI's verify job sets FORGE_REQUIRE_DIST=1, so there they fail.
+// Tests that read the real Vite build skip without one: develop never commits dashboard/dist/.
+// CI's verify job sets FORGE_REQUIRE_DIST=1, so there they fail.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

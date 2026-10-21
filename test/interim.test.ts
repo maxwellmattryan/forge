@@ -1,5 +1,5 @@
 // Interim strategies, the pure half (lib/interim.ts): resolution, canary versions, git specs and the
-// manifest rewrites. No git or sh, so it also runs on CI's Windows leg.
+// manifest rewrites. No git or sh.
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { defaults } from '../lib/config.ts';
