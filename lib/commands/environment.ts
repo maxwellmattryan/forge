@@ -97,7 +97,7 @@ export function environmentCmd(ctx: CliContext, sub: string | undefined, rest: s
       .filter(([id]) => liveJob(root, id))
       .map(([id, e]) => ({ id, state: e.state, usedAt: e.usedAt }))
       .sort((a, b) => (a.usedAt < b.usedAt ? 1 : a.usedAt > b.usedAt ? -1 : a.id < b.id ? -1 : 1));
-    return { data: { maxRunning: null, focused: currentFocus(root)?.id ?? null, jobs }, exitCode: 0 };
+    return { data: { maxRunning: config.environments?.maxRunning ?? null, focused: currentFocus(root)?.id ?? null, jobs }, exitCode: 0 };
   }
   throw usageError(ENVIRONMENT);
 }

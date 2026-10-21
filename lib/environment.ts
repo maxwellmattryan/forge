@@ -8,10 +8,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { backingDown, backingStop, backingUp, isManaged } from './backing.ts';
 import type { DockerRunner } from './backing.ts';
-import { readSmallJson } from './focus.ts';
+import { readFocusRecord, readSmallJson } from './focus.ts';
 import { readEnvironments, updateEnvironments } from './environment-record.ts';
 import { isActive, jobDir, logEvent } from './jobs.ts';
-import type { BackingDownResult, BackingUpEntry, Config, EnvironmentDownResult, EnvironmentDownTrigger, EnvironmentStopResult, EnvironmentStopTrigger, EnvironmentUpResult, EnvironmentUpTrigger, Job } from './types.ts';
+import type { BackingDownResult, BackingUpEntry, Config, EnvironmentDownResult, EnvironmentRecord, EnvironmentDownTrigger, EnvironmentStopResult, EnvironmentStopTrigger, EnvironmentUpResult, EnvironmentUpTrigger, Job } from './types.ts';
 import { now } from './util.ts';
 import { databaseCommands, stopBackground } from './worktree.ts';
 
@@ -56,6 +56,25 @@ export function hasEnvironment(root: string, id: string): boolean {
 }
 
 /**
+ * The entries to stop so at most `cap` run: oldest `usedAt` first (then id, so the order is total),
+ * never `self` and never the focused job. Fewer when only those two are left, so the cap can be
+ * exceeded rather than stop the job being started or the one a human is looking at.
+ */
+export function pickVictims(rec: EnvironmentRecord, self: string, cap: number | null, focused: string | null): string[] {
+  if (cap === null || !Number.isInteger(cap) || cap < 1) return [];
+  const running = Object.entries(rec.jobs).filter(([, e]) => e.state === 'running');
+  let over = running.length - cap;
+  const out: string[] = [];
+  const candidates = running.filter(([id]) => id !== self && id !== focused).sort(([a, x], [b, y]) => (x.usedAt < y.usedAt ? -1 : x.usedAt > y.usedAt ? 1 : a < b ? -1 : 1));
+  for (const [id] of candidates) {
+    if (over <= 0) break;
+    out.push(id);
+    over--;
+  }
+  return out;
+}
+
+/**
  * The idempotent start: the record says `running` with `usedAt` now, then backingUp runs (a missing
  * container is run, a stopped one started, a running one left) and gives the job its job database.
  * Without `backing` entries there is no Docker call, though the record is still written.
@@ -66,8 +85,15 @@ export function ensureEnvironment(root: string, config: Config, job: Job, trigge
   let error = isActive(job)
     ? record(root, (rec) => {
         rec.jobs[job.id] = { state: 'running', usedAt: now() };
+        evicted.push(...pickVictims(rec, job.id, config.environments?.maxRunning ?? null, readFocusRecord(root)?.job ?? null));
+        for (const id of evicted) rec.jobs[id].state = 'stopped';
       })
     : null;
+  // A record that was never written chose no victim.
+  if (error !== null) evicted.length = 0;
+  // Outside the lock: docker stop can take seconds per container. Each victim is already `stopped`
+  // in the record, so its next resume or ensure up starts it again whatever this stop does.
+  for (const id of evicted) stopEnvironment(root, config, id, 'evict', { by: job.id, runner, keepRecord: true });
   let backing: BackingUpEntry[] = [];
   if (Array.isArray(config.backing) && config.backing.length) {
     try {
@@ -87,7 +113,14 @@ export function ensureEnvironment(root: string, config: Config, job: Job, trigge
  * job databases, records and shared containers stay. The record says `stopped` whatever Docker did,
  * so the next resume or ensure up starts it again.
  */
-export function stopEnvironment(root: string, config: Config, id: string, trigger: EnvironmentStopTrigger, opts: { by?: string; runner?: DockerRunner } = {}): EnvironmentStopResult {
+export function stopEnvironment(
+  root: string,
+  config: Config,
+  id: string,
+  trigger: EnvironmentStopTrigger,
+  // keepRecord: eviction marked it `stopped` under the lock already; writing again could undo a start that raced in since.
+  opts: { by?: string; runner?: DockerRunner; keepRecord?: boolean } = {},
+): EnvironmentStopResult {
   const processes = stopProcesses(root, id);
   let r: { stopped: string[]; ok: boolean; error?: string };
   try {
@@ -95,9 +128,11 @@ export function stopEnvironment(root: string, config: Config, id: string, trigge
   } catch (e) {
     r = { stopped: [], ok: false, error: message(e) };
   }
-  const recError = record(root, (rec) => {
-    rec.jobs[id] = { state: 'stopped', usedAt: rec.jobs[id]?.usedAt ?? now() };
-  });
+  const recError = opts.keepRecord
+    ? null
+    : record(root, (rec) => {
+        rec.jobs[id] = { state: 'stopped', usedAt: rec.jobs[id]?.usedAt ?? now() };
+      });
   const error = r.error ?? recError ?? undefined;
   const result: EnvironmentStopResult = { ok: error === undefined, processes, stopped: r.stopped, ...(error === undefined ? {} : { error }) };
   logEvent(root, id, 'environment-stop', { trigger, ...(opts.by ? { by: opts.by } : {}), ...result });

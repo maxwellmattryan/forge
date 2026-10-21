@@ -257,6 +257,50 @@ describe('environment teardown', { concurrency: 4 }, () => {
   });
 });
 
+describe('environment cap', { concurrency: 4 }, () => {
+  test('maxRunning is set and checked through forge config set', async () => {
+    const s = scratch(plainTemplate);
+    try {
+      const set = await s.cli(['config', 'set', 'environments.maxRunning', '3']);
+      assert.equal(set.status, 0, set.stdout + set.stderr);
+      assert.equal((await s.cli(['environment', 'list'])).json.maxRunning, 3);
+      for (const bad of ['0', '65', 'abc']) {
+        const r = await s.cli(['config', 'set', 'environments.maxRunning', bad]);
+        assert.notEqual(r.status, 0, bad);
+      }
+      assert.equal((await s.cli(['environment', 'list'])).json.maxRunning, 3, 'a refused value changes nothing');
+    } finally {
+      s.cleanup();
+    }
+  });
+
+  test('concurrent ensure respects the cap', async () => {
+    const s = scratch(plainTemplate);
+    try {
+      assert.equal((await s.cli(['config', 'set', 'environments.maxRunning', '2'])).status, 0);
+      const ids: string[] = [];
+      for (let i = 0; i < 6; i++) ids.push(await s.newJob(`Job ${i}`));
+      const file = path.join(s.dir, '.forge', 'runtime', 'environments.json');
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      for (let round = 0; round < 2; round++) {
+        const old = new Date(Date.now() - 60_000).toISOString();
+        fs.writeFileSync(file, JSON.stringify({ v: 1, jobs: { [ids[0]]: { state: 'running', usedAt: old }, [ids[1]]: { state: 'running', usedAt: old } } }));
+        // Two child processes against one root, both past the cap.
+        const [p, q] = [ids[2 + round * 2], ids[3 + round * 2]];
+        const [rp, rq] = await Promise.all([s.cli(['environment', 'up', p]), s.cli(['environment', 'up', q])]);
+        assert.equal(rp.status, 0, rp.stdout + rp.stderr);
+        assert.equal(rq.status, 0, rq.stdout + rq.stderr);
+        const running = Object.entries(s.record().jobs).filter(([, e]: any) => e.state === 'running').map(([id]) => id);
+        assert.ok(running.length <= 2, `round ${round}: ${running.join(',')}`);
+        assert.ok(running.includes(p) && running.includes(q), 'each started job keeps its place');
+        assert.equal(rp.json.evicted.length + rq.json.evicted.length, 2, 'the two older entries were evicted once each');
+      }
+    } finally {
+      s.cleanup();
+    }
+  });
+});
+
 describe('environment on demand', { concurrency: 4 }, () => {
   test('verify ensures the environment', async () => {
     const s = scratch();

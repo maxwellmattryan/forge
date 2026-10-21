@@ -139,6 +139,8 @@ export const FIELDS: ConfigField[] = [
     field(`runtime.models.${role}`, 'agents', MODEL_LABEL[role] ?? `${role} model`, 'An alias (inherit, opus, sonnet, haiku, fable) or a full model id.', { type: 'string', suggestions: MODEL_SUGGESTIONS }),
   ),
   field('runtime.maxParallelJobs', 'agents', 'Max parallel jobs', 'Jobs the orchestrator runs at once.', { type: 'integer', min: 1, max: 16 }),
+  // Editable: it names nothing Forge runs; a wrong value only stops (never removes) environments.
+  field('environments.maxRunning', 'agents', 'Max running environments', 'Job environments running at once; starting one more stops the least recently used, never the focused job. Empty means no cap.', { type: 'integer', min: 1, max: 64, nullable: true }),
   field('runtime.diversity', 'agents', 'Model diversity', "Warn (never block) when the approver or a lens shares the builder's model family.", { type: 'boolean' }),
   // Editable: it changes how much the model thinks, never what it may do.
   field('runtime.effort', 'agents', 'Effort', "How much the model thinks: low, medium, high, xhigh or max. Daemon sessions get --effort and the orchestrator passes it to each agent; a job's own effort overrides it. Empty leaves it to Claude Code's own setting.", { type: 'enum', options: [...EFFORTS], nullable: true }),
@@ -386,6 +388,7 @@ export const CONFIG_DISCLOSURE: Record<string, Disclosure> = {
   foreman: 'plain',
   'foreman.reserved': 'text',
   retention: 'plain',
+  environments: 'plain',
   notify: 'plain',
   'notify.webhooks': 'url',
   'notify.command': 'command',

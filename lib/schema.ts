@@ -10,7 +10,7 @@ import type { EventActor, Job, JobAgent, JobEvent, JobIssue, JobRepo, JobRepoPr,
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from './components.ts';
 export { BACKING_DB_ENGINES, BACKING_ISOLATIONS } from './backing-config.ts';
 
-export const CONFIG_SCHEMA_VERSION = 23;
+export const CONFIG_SCHEMA_VERSION = 24;
 export const JOB_SCHEMA_VERSION = 14;
 export const EVENT_SCHEMA_VERSION = 2;
 /** `.forge/archive/<id>.json` records (lib/archive.ts); a reader skips a record from a newer Forge. */
@@ -213,6 +213,9 @@ const CONFIG_MIGRATIONS: Record<number, (c: any) => any> = {
   // changes; the bump lets older Forges refuse a config whose {secret.NAME} references they would
   // reject at render or, worse, leave unredacted.
   22: (c) => c,
+  // v24 adds environments.maxRunning, null by default, so no v23 config changes; the bump lets older
+  // Forges refuse a config whose cap they would ignore.
+  23: (c) => c,
 };
 
 const JOB_MIGRATIONS: Record<number, (j: any) => any> = {
