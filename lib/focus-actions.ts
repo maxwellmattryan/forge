@@ -52,7 +52,7 @@ export const stepRunner =
  * With `checkout` steps configured, the recorded job's steps are undone and the new job's applied
  * first (lib/checkout.ts); a failing step rolls back, re-applies the previous job's steps and
  * leaves focus where it was. Those steps may run configured commands. Once focus has moved onto a
- * job, its environment's backing services start (ensure up, lib/environment.ts); a failure there
+ * job, its environment's backing services start (ensure up, lib/environment-lifecycle.ts); a failure there
  * never undoes the focus and reaches the caller only through `onEnvironment`, so the reply's shape
  * stays the same. No background process is started or signalled.
  */

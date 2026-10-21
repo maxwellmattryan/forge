@@ -1,4 +1,4 @@
-// `forge environment up|stop|down|list`: a job's environment on demand (lib/environment.ts,
+// `forge environment up|stop|down|list`: a job's environment on demand (lib/environment-lifecycle.ts,
 // docs/CONFIG.md "Backing services" › Lifecycle). Forge does the same on its own: teardown when a job
 // finishes or is archived, stop on a park, start on resume, verify, run --background and focus.
 import { currentFocus } from '../focus-actions.ts';

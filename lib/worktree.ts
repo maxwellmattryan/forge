@@ -1242,12 +1242,16 @@ export function stopBackground(root: string, id: string): string[] {
   const rt = readJson(pidFile, {});
   const stopped: string[] = [];
   for (const [name, info] of Object.entries(rt)) {
+    // runtime.json is in the job dir, which the job's agents can write, and this runs unattended on
+    // every park: pid 1 would make kill(-1) signal every process the user may signal.
+    const pid = (info as any)?.pid;
+    if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) continue;
     try {
-      process.kill(-(info as any).pid, 'SIGTERM');
+      process.kill(-pid, 'SIGTERM');
       stopped.push(name);
     } catch {
       try {
-        process.kill((info as any).pid, 'SIGTERM');
+        process.kill(pid, 'SIGTERM');
         stopped.push(name);
       } catch {}
     }

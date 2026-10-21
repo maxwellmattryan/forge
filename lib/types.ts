@@ -924,7 +924,7 @@ export interface Config {
   policy: { protectedPaths: ProtectedRule[] };
   /** What Forge deletes and when; null keeps forever: docs/CONFIG.md "Retention". */
   retention: { jobsDays: number | null; logsDays: number | null; logMaxBytes: number | null };
-  /** Job environments running at once; null means no cap (lib/environment.ts eviction). */
+  /** Job environments running at once; null means no cap (lib/environment-lifecycle.ts eviction). */
   environments: { maxRunning: number | null };
   /** Where Forge pushes gate, PR, failure and budget notifications: docs/CONFIG.md "Notifications". */
   notify: { webhooks: NotifyWebhook[]; command: string | null };
@@ -2150,7 +2150,7 @@ export type EnvironmentUpTrigger = 'verify' | 'run' | 'focus' | 'worktree' | 'st
 export type EnvironmentStopTrigger = 'park' | 'evict' | 'cli';
 export type EnvironmentDownTrigger = 'done' | 'cancelled' | 'archive' | 'cli';
 
-/** Ensure up: lib/environment.ts ensureEnvironment. `backing` lists each service as `forge backing up` does. */
+/** Ensure up: lib/environment-lifecycle.ts ensureEnvironment. `backing` lists each service as `forge backing up` does. */
 export interface EnvironmentUpResult {
   ok: boolean;
   backing: BackingUpEntry[];

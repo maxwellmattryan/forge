@@ -10,7 +10,7 @@ import { backingUp, setDockerRunner } from '../lib/backing.ts';
 import type { DockerRunner } from '../lib/backing.ts';
 import { loadConfig } from '../lib/config.ts';
 import { environmentState, environmentsFile, readEnvironments } from '../lib/environment-record.ts';
-import { ensureEnvironment, pickVictims } from '../lib/environment-lifecycle.ts';
+import { ensureEnvironment, pickVictims, stopEnvironment } from '../lib/environment-lifecycle.ts';
 import { setFocus } from '../lib/focus.ts';
 import { createJob, loadJob, readEvents, setJob } from '../lib/jobs.ts';
 import { syncPr } from '../lib/pr.ts';
@@ -217,5 +217,29 @@ test('pr sync done and cancelled tear down', { skip: process.platform === 'win32
     Object.assign(process.env, saved);
     fs.rmSync(bin, { recursive: true, force: true });
     r.cleanup();
+  }
+});
+
+test('stop signals no pid that runtime.json should not name', { skip: process.platform === 'win32' }, () => {
+  const r = template();
+  const docker = fakeDocker();
+  const config = loadConfig(r.dir).config;
+  const j = createJob(r.dir, config, { title: 'planted pids' });
+  const file = path.join(r.dir, '.forge', 'jobs', j.id, 'runtime.json');
+  const kill = process.kill;
+  const signalled: unknown[][] = [];
+  process.kill = ((...a: unknown[]) => {
+    signalled.push(a);
+    return true;
+  }) as typeof process.kill;
+  try {
+    // pid 1 would make kill(-1) signal every process the user may signal; the rest are not pids.
+    fs.writeFileSync(file, JSON.stringify({ dev: { pid: 1 }, a: { pid: -5 }, b: { pid: 2.5 }, c: { pid: '7' }, d: { pid: process.pid }, e: null }));
+    const res = stopEnvironment(r.dir, config, j.id, 'cli', { runner: docker.runner });
+    assert.deepEqual(res.processes, []);
+    assert.deepEqual(signalled, [], 'nothing is signalled');
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {}, 'the file is still cleared');
+  } finally {
+    process.kill = kill;
   }
 });
