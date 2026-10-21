@@ -53,6 +53,8 @@ export interface FixtureOpts {
   endpoints?: StepInput['endpoints'];
   /** trustedMemberWorktree per member repo; none by default. */
   memberWorktrees?: StepInput['memberWorktrees'];
+  /** The keys still over budget at a budget park (loadStepInput's budgetExceeded); null by default. */
+  budgetExceeded?: StepInput['budgetExceeded'];
 }
 
 const FILE_NAMES: Record<StepFile, string> = {
@@ -119,5 +121,6 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     now: o.now ?? new Date().toISOString(),
     endpoints: o.endpoints ?? (config.commands.dev ? jobEndpoints(ROOT, config, job).components.map((e) => ({ name: e.name, url: e.url })) : []),
     memberWorktrees: o.memberWorktrees ?? {},
+    budgetExceeded: o.budgetExceeded ?? null,
   };
 }

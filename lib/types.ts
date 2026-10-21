@@ -504,6 +504,8 @@ export interface StepInput {
   endpoints: { name: string; url: string }[];
   /** trustedMemberWorktree per member repo, never job.json's `worktree`: a reviewer brief's Lens repo line. */
   memberWorktrees: Record<string, string | null>;
+  /** While the job waits on `budget`: the keys still over their limit after acks (`forge job budget`'s stillExceeded); null otherwise. */
+  budgetExceeded: string[] | null;
 }
 
 /** The job files StepInput.files records. */

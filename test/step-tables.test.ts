@@ -19,7 +19,7 @@ const LIB = path.resolve(import.meta.dirname, '..', 'lib');
 
 /** Changing precedence means editing this list: every table's IDs in evaluation order, shared rows where they run. */
 const PINNED: Record<string, string[]> = {
-  global: ['JS2', 'JS1', 'JS3', 'G1', 'G2', 'G3', 'G3b', 'G3c', 'G4', 'G4b', 'E1', 'G5', 'L1'],
+  global: ['JS2', 'JS1', 'JS3', 'G1', 'G2', 'GA1', 'GA2', 'GA2b', 'GA3', 'GA4', 'GA5', 'GA6', 'GA6b', 'GA7', 'GA8', 'GA9', 'GA10', 'GA11', 'G3', 'G3b', 'G3c', 'G4', 'G4b', 'E1', 'G5', 'L1'],
   kind: ['K1', 'K2'],
   secrets: ['SC2', 'SC1', 'SC1b', 'SC3', 'SC3b'],
   protected: ['PP2', 'PP2b', 'PP1'],

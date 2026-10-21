@@ -7,6 +7,8 @@ import type { Facts } from './facts.ts';
 export const RULES = [
   // Global: a finished, failed or parked job, running agents, a lost run, a stopped environment.
   'G1', 'G2', 'G3', 'G3b', 'G3c', 'G4', 'G4b', 'E1', 'G5', 'L1',
+  // A gate a logged human or foreman decision answered: run its follow-up job set.
+  'GA1', 'GA2', 'GA2b', 'GA3', 'GA4', 'GA5', 'GA6', 'GA6b', 'GA7', 'GA8', 'GA9', 'GA10', 'GA11',
   // A sampled merged job's post-merge score run: spawn the judge, wait, record.
   'JS1', 'JS2', 'JS3',
   // Per role, in any stage: an agent replied NEEDS-INPUT (N), or ended without its output (M).

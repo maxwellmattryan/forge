@@ -30,11 +30,12 @@ export const lastIdx = (x: StepInput, pred: (e: JobEvent) => boolean): number =>
 /** A position as afterIdx's `j`: null when the event never happened. */
 export const orNull = (i: number): number | null => (i < 0 ? null : i);
 
-/** One human `approve` and the park the latest transition before it entered. */
+/** One human decision, the park the latest transition before it entered, and that transition's position (-1: none). */
 export interface Approval {
   i: number;
   e: JobEvent;
   park: Side;
+  parkAt: number;
 }
 
 /** What step reads off the event log, once per call: positions in `x.events`, which keeps log order. */
@@ -43,15 +44,20 @@ export interface Facts {
   stageEntry: { i: number; ts: string } | null;
   /** The last transition out of review for another stage; null for a job whose transitions predate the log. */
   reviewedAt: number | null;
-  /** Every human approve with the park it answered, in one pass. */
+  /** The position of the last transition; null when the log has none. */
+  lastTransition: number | null;
+  /** Every `human` event (any action) with the park it was given at, in one pass. */
+  decisions: Approval[];
+  /** The `approve` subset of `decisions`. */
   approvals: Approval[];
 }
 
 export function computeFacts(x: StepInput): Facts {
   let entry = -1;
   let reviewed = -1;
+  let last = -1;
   let park: Side = {};
-  const approvals: Approval[] = [];
+  const decisions: Approval[] = [];
   x.events.forEach((e, i) => {
     if (e.type === 'transition') {
       const from = stageOf(e.from);
@@ -59,9 +65,28 @@ export function computeFacts(x: StepInput): Facts {
       if (to.stage === x.job.stage && from.stage !== x.job.stage) entry = i;
       if (from.stage === 'review' && to.stage !== 'review') reviewed = i;
       park = to;
-    } else if (e.type === 'human' && e.action === 'approve') approvals.push({ i, e, park });
+      last = i;
+    } else if (e.type === 'human') decisions.push({ i, e, park, parkAt: last });
   });
-  return { stageEntry: entry < 0 ? null : { i: entry, ts: x.events[entry].ts }, reviewedAt: orNull(reviewed), approvals };
+  return {
+    stageEntry: entry < 0 ? null : { i: entry, ts: x.events[entry].ts },
+    reviewedAt: orNull(reviewed),
+    lastTransition: orNull(last),
+    decisions,
+    approvals: decisions.filter((d) => d.e.action === 'approve'),
+  };
+}
+
+/**
+ * The decision that answers the park the job waits at now: the last `human` event with one of
+ * `actions`, given after the job's last transition, which entered exactly this park. Positions, not
+ * timestamps, so a decision at an earlier park (or another gate) never moves a later one.
+ */
+export function gateAnswer(x: StepInput, f: Facts, actions: readonly string[]): Approval | null {
+  if (x.job.state !== 'waiting' || f.lastTransition === null) return null;
+  const d = f.decisions.findLast((a) => a.parkAt === f.lastTransition);
+  if (!d || d.park.state !== 'waiting' || d.park.waitingOn !== x.job.waitingOn || d.park.stage !== x.job.stage) return null;
+  return actions.includes(String(d.e.action)) ? d : null;
 }
 
 /** A gate (any waiting or blocked state) was entered after event `i`. */
