@@ -1,5 +1,5 @@
 <!-- The GitHub hover card: any link to a github.com repository, pull request, issue or commit, anywhere in the dashboard
-     (markdown included), shows one after a resting pointer or keyboard focus. It listens on the document, so no link
+     (markdown included), or an element carrying `data-gh-href` (a board card's PR chip), shows one after a resting pointer or keyboard focus. It listens on the document, so no link
      opts in. The card is a tooltip the link describes: the link stays the keyboard's way to GitHub, and the card's own
      links are for the pointer. Everything in it is GitHub text and renders as text. -->
 <script lang="ts">
@@ -44,7 +44,9 @@
   const CHECKS = $derived({ success: $t('github.checks.success'), failure: $t('github.checks.failure'), pending: $t('github.checks.pending') });
   const REVIEW = $derived({ approved: $t('github.review.approved'), changes_requested: $t('github.review.changesRequested'), review_required: $t('github.review.required') });
 
-  const linkOf = (target: EventTarget | null): HTMLAnchorElement | null => (target instanceof Element ? target.closest<HTMLAnchorElement>('a[href]') : null);
+  const linkOf = (target: EventTarget | null): HTMLElement | null => (target instanceof Element ? target.closest<HTMLElement>('a[href], [data-gh-href]') : null);
+  // A board card's PR chip is a span (the card is a button), so it names its page in data-gh-href.
+  const hrefOf = (el: HTMLElement): string => (el instanceof HTMLAnchorElement ? el.href : (el.dataset.ghHref ?? ''));
   const inCard = (n: EventTarget | null): boolean => n instanceof Node && Boolean(card?.contains(n));
 
   // Mouse only: a tap on a phone opens the link, and a pen hovering over one is not asking for a card.
@@ -52,7 +54,7 @@
     if (e.pointerType !== 'mouse') return;
     if (inCard(e.target)) return holdCard();
     const a = linkOf(e.target);
-    const url = a && previewable(a.href);
+    const url = a && previewable(hrefOf(a));
     if (a && url) linkIntent(a, url);
   }
 
@@ -65,7 +67,7 @@
   function focusIn(e: FocusEvent): void {
     if (inCard(e.target)) return;
     const a = linkOf(e.target);
-    const url = a && previewable(a.href);
+    const url = a && previewable(hrefOf(a));
     if (a && url && a.matches(':focus-visible')) return linkIntent(a, url);
     if (!isCardLink(a)) closeCard();
   }
