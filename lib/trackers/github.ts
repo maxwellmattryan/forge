@@ -52,6 +52,21 @@ function gh(ctx: Pick<TrackerCtx, 'root'>, args: string[], input?: string) {
 
 const gcfg = (ctx: Pick<TrackerCtx, 'config'>) => ctx.config.tracker.github;
 
+/** People with write access: their comments are imported by default, and their issues refresh on claim. */
+const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+export const trustedAssociation = (association: string | null): boolean => association !== null && TRUSTED.has(association);
+
+/**
+ * The issue author's association with the repo, from the REST API: `gh issue view` gives each
+ * comment's association but not the author's. Null when gh fails or the ref isn't a number.
+ */
+export function issueAuthorAssociation(ctx: TrackerCtx, ref: string): string | null {
+  if (!/^\d+$/.test(ref)) return null;
+  const r = run('gh', ['api', `repos/${repoSlug(ctx.root, ctx.config)}/issues/${ref}`, '--jq', '.author_association'], { cwd: ctx.root, allowFail: true });
+  const a = r.ok ? r.stdout.trim() : '';
+  return /^[A-Z_]{1,40}$/.test(a) ? a : null;
+}
+
 export function projectCoords(ctx: TrackerCtx): ProjectCoords | null {
   const p = gcfg(ctx).project;
   let owner: string | null = p.owner;
@@ -251,9 +266,8 @@ export default {
     const i = JSON.parse(r.stdout);
     const item = toItem(i);
     item.needsInfo = (item.labels ?? []).includes(needsLabel(ctx));
-    const trusted = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
     const everyone = gcfg(ctx).comments === 'all';
-    const kept = (i.comments ?? []).filter((c: any) => everyone || trusted.has(c.authorAssociation));
+    const kept = (i.comments ?? []).filter((c: any) => everyone || TRUSTED.has(c.authorAssociation));
     const dropped = (i.comments ?? []).length - kept.length;
     const comments = kept.slice(-15).map((c: any) => {
       const assoc = String(c.authorAssociation ?? 'NONE').toLowerCase().replace(/[^a-z_]/g, '') || 'none';

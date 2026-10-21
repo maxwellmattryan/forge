@@ -9,8 +9,9 @@ import { nativeRef, primaryIssue } from './issue-ref.ts';
 import { memberForRef, memberTrackerConfig } from './member-trackers.ts';
 import { localRepoSlug } from './repo-slug.ts';
 import { loadTracker, memberTracker } from './trackers/index.ts';
+import { issueAuthorAssociation, trustedAssociation } from './trackers/github.ts';
 import { ForgeError, writeTextAtomic } from './util.ts';
-import type { Config, Job, TrackerItem } from './types.ts';
+import type { Config, Job, Tracker, TrackerCtx, TrackerItem } from './types.ts';
 
 export type RefreshTrigger = 'cli' | 'claim';
 
@@ -63,14 +64,36 @@ function requestText(title: string, body: string | undefined): string {
   return `# ${title}\n\n${body?.trim() ?? ''}\n`;
 }
 
-async function fetchIssue(root: string, config: Config, job: Job): Promise<TrackerItem | null> {
+interface IssueSource {
+  tracker: Tracker;
+  ctx: TrackerCtx;
+  /** The tracker's own ref: a GitHub number, a backlog slug, an adapter's key. */
+  ref: string;
+  kind: string;
+}
+
+async function issueSource(root: string, config: Config, job: Job): Promise<IssueSource> {
   const issue = primaryIssue(job)!;
   const native = nativeRef(issue, config.tracker.kind, localRepoSlug(root, config));
-  if (native !== null) return (await loadTracker(root, config)).get({ root, config }, native);
+  if (native !== null) return { tracker: await loadTracker(root, config), ctx: { root, config }, ref: native, kind: config.tracker.kind };
   // A member repo's issue: only a slug a human configured matches, and only its digits reach gh.
   const member = issue.tracker === 'github' ? memberForRef(root, config, String(issue.ref)) : null;
   if (!member) throw new ForgeError(`${issue.ref} is not in this repo's tracker or a member repo's`);
-  return memberTracker().get({ root, config: memberTrackerConfig(config, member.slug) }, member.n);
+  return { tracker: memberTracker(), ctx: { root, config: memberTrackerConfig(config, member.slug) }, ref: member.n, kind: 'github' };
+}
+
+/**
+ * Why a claim may not take an edited issue's text, which nobody looked at since intake, or null.
+ * On a public repo anyone may open an issue and keep editing it, so only an author with write
+ * access is taken on trust. The local backlog is a file in the repo; other adapters can't say who
+ * wrote an item, so their edits wait for `refresh-request`.
+ */
+function untrustedAuthor(src: IssueSource): { reason: string; association?: string } | null {
+  if (src.kind === 'local') return null;
+  if (src.kind !== 'github') return { reason: `the ${src.kind} tracker can't say who wrote the issue` };
+  const association = issueAuthorAssociation(src.ctx, src.ref);
+  if (association === null) return { reason: "gh didn't say who wrote the issue" };
+  return trustedAssociation(association) ? null : { reason: 'the issue author has no write access', association };
 }
 
 /**
@@ -87,9 +110,11 @@ export async function refreshRequest(root: string, config: Config, id: string, t
   }
   // linkedIssues keeps only issues with a ref.
   const ref = String(primaryIssue(job)!.ref);
+  let src: IssueSource;
   let item: TrackerItem | null;
   try {
-    item = await fetchIssue(root, config, job);
+    src = await issueSource(root, config, job);
+    item = src.tracker.get(src.ctx, src.ref);
     if (!item) throw new ForgeError(`no tracker item "${ref}"`);
   } catch (e) {
     if (trigger === 'cli') throw e;
@@ -100,6 +125,12 @@ export async function refreshRequest(root: string, config: Config, id: string, t
   const text = requestText(item.title, item.body);
   const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
   if (current === text && job.title === item.title) return { id: job.id, refreshed: false, ref };
+  // Checked only once something changed, so an unchanged issue costs one tracker call.
+  const untrusted = trigger === 'claim' ? untrustedAuthor(src) : null;
+  if (untrusted) {
+    logEvent(root, job.id, 'request-refresh-skipped', { ref, reason: untrusted.reason, ...(untrusted.association ? { association: untrusted.association } : {}) });
+    return { id: job.id, refreshed: false, ref, skipped: untrusted.reason };
+  }
   let titleChanged = false;
   const unchanged = new Error('unchanged');
   try {
